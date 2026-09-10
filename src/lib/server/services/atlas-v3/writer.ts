@@ -168,6 +168,10 @@ export function buildAtlasV3SectionPrompt(
 			id: input.node.id,
 			title: input.node.title,
 			claim: input.node.claim,
+			// What this section still owes the reader. On a first write these are
+			// the outline's own gaps; on a critic rewrite they are the findings
+			// verbatim, which is how the instruction reaches the writer at all.
+			...(input.node.needs.length > 0 ? { mustAddress: input.node.needs } : {}),
 		},
 		outline: input.outline.nodes.map((node) => ({
 			id: node.id,

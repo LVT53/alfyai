@@ -247,6 +247,40 @@ function safeFlag(read: () => boolean): boolean {
 	}
 }
 
+/**
+ * The quotes the verdict may cite: the ones the finished sections and the
+ * answer table already rest on, capped. Handing the verdict the WHOLE bank
+ * would be the biggest prompt in the pipeline and would invite it to cite a
+ * source the report never used.
+ */
+function verdictEvidence(input: {
+	bank: AtlasV3EvidenceBank;
+	sections: readonly AtlasV3WrittenSection[];
+	answerTable: AtlasV3AnswerTable | null;
+	limit?: number;
+}): Array<{ id: string; text: string; publisher: string }> {
+	const wanted: string[] = [];
+	for (const id of [
+		...input.sections.flatMap((section) =>
+			section.paragraphs.flat().flatMap((sentence) => sentence.evidenceIds),
+		),
+		...atlasV3AnswerTableEvidenceIds(input.answerTable),
+	]) {
+		if (!wanted.includes(id)) wanted.push(id);
+	}
+	return wanted
+		.slice(0, input.limit ?? 30)
+		.map((id) => input.bank.quotes.find((quote) => quote.id === id))
+		.filter((quote): quote is NonNullable<typeof quote> => Boolean(quote))
+		.map((quote) => ({
+			id: quote.id,
+			text: quote.text,
+			publisher:
+				input.bank.sources.find((source) => source.id === quote.sourceId)
+					?.publisher ?? "",
+		}));
+}
+
 export async function runAtlasV3Pipeline(
 	input: RunAtlasV3PipelineInput,
 ): Promise<AtlasV3PipelineResult> {
@@ -545,7 +579,6 @@ export async function runAtlasV3Pipeline(
 			}),
 		);
 	}
-	const resolvedOutline: AtlasV3Outline = outline ?? { nodes: [], cut: [] };
 	const capped = capAtlasV3Bank({ state, maxSources: config.maxSources });
 	if (capped.dropped > 0) {
 		console.info("[ATLAS v3] Capped the evidence bank to the source budget", {
@@ -556,6 +589,20 @@ export async function runAtlasV3Pipeline(
 		});
 	}
 	const bank = freezeAtlasV3Bank(state);
+	// Capping the bank can take a quote an outline node was bound to with it. A
+	// node still naming a dropped quote would reach the writer with fewer ids
+	// than it thinks it has — or none, and be reported as a lost section — so the
+	// binding is re-filtered against what the bank actually still holds.
+	const liveQuoteIds = new Set(bank.quotes.map((quote) => quote.id));
+	const resolvedOutline: AtlasV3Outline = outline
+		? {
+				...outline,
+				nodes: outline.nodes.map((node) => ({
+					...node,
+					evidenceIds: node.evidenceIds.filter((id) => liveQuoteIds.has(id)),
+				})),
+			}
+		: { nodes: [], cut: [] };
 	if (bank.quotes.length === 0) {
 		throw new AtlasV3PipelineError(
 			"atlas_v3_no_evidence",
@@ -650,13 +697,7 @@ export async function runAtlasV3Pipeline(
 			memo: resolvedMemo,
 			answerTable,
 			sections,
-			evidence: bank.quotes.map((quote) => ({
-				id: quote.id,
-				text: quote.text,
-				publisher:
-					bank.sources.find((source) => source.id === quote.sourceId)
-						?.publisher ?? "",
-			})),
+			evidence: verdictEvidence({ bank, sections, answerTable }),
 			language,
 			currentDate: isoDate(now),
 			abstain: resolvedGoal.abstain,
@@ -706,25 +747,63 @@ export async function runAtlasV3Pipeline(
 
 		// `needs_evidence` spends a SMALL targeted research budget and re-enters,
 		// which is the loop v2 never had: its verifier could only delete.
+		//
+		// The quotes it finds are bound to the NODE whose finding asked for them,
+		// so the rewrite below actually has them: fetching better evidence and
+		// then not handing it to the writer would be the same delete-only loop
+		// with extra steps.
 		const queries = atlasV3EvidenceQueries(findings);
+		const freshEvidenceByNode = new Map<string, string[]>();
 		if (queries.length > 0) {
+			const nodeByQuery = new Map<string, string>();
+			for (const finding of findings) {
+				const query = finding.instruction.query?.trim();
+				if (
+					finding.instruction.kind !== "needs_evidence" ||
+					!query ||
+					!finding.nodeId
+				) {
+					continue;
+				}
+				if (!nodeByQuery.has(query)) nodeByQuery.set(query, finding.nodeId);
+			}
 			const before = state.quotes.length;
 			roundsRun += 1;
 			const result = await researchRound(roundsRun, queries, resolvedMemo);
 			asked.push(...result.queries);
 			needsEvidenceResolved += state.quotes.length - before;
+			for (const note of result.notes) {
+				const nodeId = nodeByQuery.get(note.subQuestion);
+				if (!nodeId || note.quotes.length === 0) continue;
+				freshEvidenceByNode.set(nodeId, [
+					...(freshEvidenceByNode.get(nodeId) ?? []),
+					...note.quotes.map((quote) => quote.id),
+				]);
+			}
 		}
 
 		const cuts = applyAtlasV3Cuts({ sections, findings });
 		sections = cuts.sections;
 
 		// A rewrite is the writer running again over the same nodes, now with the
-		// findings in the outline's `needs` so the instruction reaches the prompt.
-		const rewriteIds = atlasV3RewriteNodeIds(findings);
+		// findings in the outline's `needs` so the instruction reaches the prompt,
+		// and with whatever the targeted research just found bound to the node.
+		const rewriteIds = [
+			...new Set([
+				...atlasV3RewriteNodeIds(findings),
+				...freshEvidenceByNode.keys(),
+			]),
+		];
 		if (rewriteIds.length > 0) {
 			const instructions = new Map<string, string[]>();
 			for (const finding of findings) {
-				if (finding.instruction.kind !== "rewrite" || !finding.nodeId) continue;
+				if (!finding.nodeId) continue;
+				if (
+					finding.instruction.kind !== "rewrite" &&
+					finding.instruction.kind !== "needs_evidence"
+				) {
+					continue;
+				}
 				instructions.set(finding.nodeId, [
 					...(instructions.get(finding.nodeId) ?? []),
 					finding.detail,
@@ -736,6 +815,12 @@ export async function runAtlasV3Pipeline(
 					.map((node) => ({
 						...node,
 						needs: [...node.needs, ...(instructions.get(node.id) ?? [])],
+						evidenceIds: [
+							...new Set([
+								...node.evidenceIds,
+								...(freshEvidenceByNode.get(node.id) ?? []),
+							]),
+						],
 					})),
 				cut: resolvedOutline.cut,
 			};
@@ -777,13 +862,11 @@ export async function runAtlasV3Pipeline(
 					memo: resolvedMemo,
 					answerTable,
 					sections,
-					evidence: state.quotes.map((quote) => ({
-						id: quote.id,
-						text: quote.text,
-						publisher:
-							state.sources.find((source) => source.id === quote.sourceId)
-								?.publisher ?? "",
-					})),
+					evidence: verdictEvidence({
+						bank: freezeAtlasV3Bank(state),
+						sections,
+						answerTable,
+					}),
 					language,
 					currentDate: isoDate(now),
 					abstain: resolvedGoal.abstain,
@@ -850,14 +933,11 @@ export async function runAtlasV3Pipeline(
 		placeholder: language === "hu" ? "nincs közzétéve" : "not published",
 	});
 	const bodyCap = capAtlasV3ToWordBudget({
+		// The section that owns the table now carries the PRUNED table: a cell no
+		// quote supports says "not published" rather than stating a figure.
 		sections: verification.sections.map((section) => ({
 			...section,
-			table:
-				section.table && verifiedTable
-					? verifiedTable
-					: section.table
-						? verifiedTable
-						: null,
+			table: section.table ? verifiedTable : null,
 		})),
 		maxWords: atlasV3BodyWordBudget(config),
 	});
@@ -884,15 +964,27 @@ export async function runAtlasV3Pipeline(
 		});
 	}
 
+	// The document is built BEFORE the evidence card, because the card's source
+	// numbers must be the numbers the report actually printed: the evaluation
+	// cross-checks every `[n]` in the prose against this card, and two
+	// independent orderings would make every citation look like a mismatch.
+	const title =
+		resolvedAsk.title.trim() || deterministicAtlasV3Title(job.query);
+	const rendered = buildAtlasV3DocumentSource({
+		title,
+		language,
+		date: isoDate(now),
+		bank: finalBank,
+		verdict: verifiedVerdict,
+		sections: verifiedSections,
+		limitations,
+		abstained: resolvedGoal.abstain,
+	});
 	const claimCounts = atlasV3ClaimCounts(finalBank);
 	const evidence = buildAtlasV3ProgressEvidence({
 		bank: finalBank,
 		totals: verification.totals,
-		citedEvidenceIds: [
-			...verifiedVerdict.flatMap((sentence) => sentence.evidenceIds),
-			...verification.citedEvidenceIds,
-			...atlasV3AnswerTableEvidenceIds(verifiedTable),
-		],
+		citations: rendered.citations,
 	});
 	diagnostics = {
 		abstained: resolvedGoal.abstain,
@@ -925,8 +1017,6 @@ export async function runAtlasV3Pipeline(
 
 	// -- 10. Render ----------------------------------------------------------
 	await heartbeat("render", { evidence });
-	const title =
-		resolvedAsk.title.trim() || deterministicAtlasV3Title(job.query);
 	if (title && title !== job.title) {
 		await deps
 			.applyGeneratedTitle?.({ jobId: job.id, title })
@@ -937,16 +1027,6 @@ export async function runAtlasV3Pipeline(
 				});
 			});
 	}
-	const rendered = buildAtlasV3DocumentSource({
-		title,
-		language,
-		date: isoDate(now),
-		bank: finalBank,
-		verdict: verifiedVerdict,
-		sections: verifiedSections,
-		limitations,
-		abstained: resolvedGoal.abstain,
-	});
 	const outputs = await timePhase("render", () =>
 		deps.renderOutputs(rendered.documentSource),
 	);

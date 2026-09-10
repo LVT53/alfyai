@@ -10,6 +10,7 @@
 
 import type { SupportedLanguage } from "$lib/server/services/language";
 import {
+	type AtlasV3Citations,
 	assignAtlasV3CitationNumbers,
 	atlasV3PublishersFor,
 } from "./evidence-bank";
@@ -186,24 +187,32 @@ export function buildAtlasV3ProgressDetails(
 	};
 }
 
+/**
+ * The evidence card, numbered EXACTLY as the rendered report numbers it.
+ *
+ * The caller passes the citation map the renderer minted rather than a list of
+ * ids, because the harness cross-checks the report's `[n]` markers against this
+ * card's `sources[].n`: two independent orderings would make every number look
+ * like a mismatch.
+ */
 export function buildAtlasV3ProgressEvidence(input: {
 	bank: AtlasV3EvidenceBank;
 	totals: AtlasV3VerificationTotals;
-	citedEvidenceIds: readonly string[];
+	/** From `buildAtlasV3DocumentSource`. Cited sources first, in report order. */
+	citations: AtlasV3Citations;
 }): AtlasV3ProgressEvidence {
+	// Uncited sources are appended AFTER the cited ones, so a cited source keeps
+	// the number the report gave it.
 	const citations = assignAtlasV3CitationNumbers({
 		bank: input.bank,
-		citedEvidenceIds: input.citedEvidenceIds,
+		citedEvidenceIds: [...input.citations.numberByEvidenceId.keys()].sort(
+			(left, right) =>
+				(input.citations.numberByEvidenceId.get(left) ?? 0) -
+				(input.citations.numberByEvidenceId.get(right) ?? 0),
+		),
 		extraSourceIds: input.bank.sources.map((source) => source.id),
 	});
-	const citedSourceIds = new Set(
-		input.citedEvidenceIds
-			.map(
-				(id) =>
-					input.bank.quotes.find((quote) => quote.id === id)?.sourceId ?? "",
-			)
-			.filter(Boolean),
-	);
+	const citedSourceIds = new Set(input.citations.numberBySourceId.keys());
 	const sources: AtlasV3ProgressEvidenceSource[] = citations.sources.map(
 		(source, index) => ({
 			n: index + 1,

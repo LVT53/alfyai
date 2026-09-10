@@ -499,4 +499,46 @@ describe("runAtlasV3Pipeline", () => {
 		expect(result.diagnostics.criticRounds).toBeGreaterThan(0);
 		expect(result.diagnostics.criticFindings).toBeGreaterThan(0);
 	});
+
+	it("numbers the progress card exactly as the report numbers its citations", async () => {
+		const { document, heartbeats } = await run();
+		const blocks = document()?.blocks ?? [];
+		const chips = blocks.find((block) => block.type === "sourceChips");
+		if (chips?.type !== "sourceChips") throw new Error("expected chips");
+		const card = heartbeats.at(-1)?.evidence?.sources ?? [];
+		expect(card.length).toBeGreaterThanOrEqual(chips.sources.length);
+		// The report's first citation and the card's n=1 must be the SAME source:
+		// the harness cross-checks every figure against the card's quotes, and two
+		// orderings would make every citation look like a mismatch.
+		chips.sources.forEach((source, index) => {
+			expect(card[index]?.n).toBe(index + 1);
+			expect(card[index]?.cited).toBe(true);
+			expect(source.title.startsWith(card[index]?.title ?? "")).toBe(true);
+		});
+	});
+
+	it("hands the critic's targeted evidence to the rewrite that asked for it", async () => {
+		const { models, result } = await run({
+			criticFindings: [
+				{
+					code: "unsupported_figure",
+					nodeId: "n2",
+					quote: "Rooftop installations fell 21% across the bloc.",
+					detail: "the 21% figure needs a second publisher",
+					instruction: {
+						kind: "needs_evidence",
+						query: "EU rooftop solar 2025",
+					},
+				},
+			],
+		});
+		expect(result.diagnostics.criticRounds).toBeGreaterThan(0);
+		// The node the finding named is rewritten, and the rewrite prompt carries
+		// the instruction the critic gave.
+		const rewrites = models.writer.prompts.filter(
+			(entry) => entry.stage === "v3:write:n2",
+		);
+		expect(rewrites.length).toBeGreaterThan(1);
+		expect(rewrites.at(-1)?.prompt).toContain("needs a second publisher");
+	});
 });

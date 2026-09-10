@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	addAtlasV3Quote,
 	addAtlasV3Source,
+	assignAtlasV3CitationNumbers,
 	createAtlasV3Bank,
 	freezeAtlasV3Bank,
 } from "./evidence-bank";
@@ -104,7 +105,10 @@ describe("buildAtlasV3ProgressEvidence", () => {
 				cut: 0,
 				needsEvidence: 0,
 			},
-			citedEvidenceIds: ["e1"],
+			citations: assignAtlasV3CitationNumbers({
+				bank: bank(),
+				citedEvidenceIds: ["e1"],
+			}),
 		});
 		expect(evidence.sources).toHaveLength(2);
 		expect(evidence.sources[0].cited).toBe(true);
