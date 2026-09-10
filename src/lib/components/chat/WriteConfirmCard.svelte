@@ -1,4 +1,7 @@
 <script lang="ts">
+import { AlertTriangle } from "@lucide/svelte";
+import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
+import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
 import { t } from "$lib/i18n";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 
@@ -54,10 +57,19 @@ let statusLabel = $derived(
 	class:write-confirm-card--terminal={isTerminal}
 	aria-label={$t('connections.writeConfirm.cardLabel', { title: write.preview.title })}
 >
+	<!-- Connections redesign — the account the change lands in is named by its
+	     own mark rather than a generic "PENDING WRITE" eyebrow: which account
+	     this touches is the first thing worth knowing. The eyebrow survives as
+	     the card's accessible label above. -->
 	<div class="write-confirm-card__header">
+		<span class="write-confirm-card__mark" aria-hidden="true">
+			<BrandIcon provider={write.provider} size={13} ariaHidden />
+		</span>
 		<div>
-			<div class="write-confirm-card__eyebrow">{$t('connections.writeConfirm.eyebrow')}</div>
 			<h3>{write.preview.title}</h3>
+			<div class="write-confirm-card__provider">
+				{getProviderCatalogEntry(write.provider).displayName}
+			</div>
 		</div>
 		{#if statusLabel}
 			<span class="write-confirm-card__status">{statusLabel}</span>
@@ -66,18 +78,28 @@ let statusLabel = $derived(
 
 	<p class="write-confirm-card__detail">{write.preview.detail}</p>
 
-	<div class="write-confirm-card__badges">
-		{#if write.preview.destructive}
-			<span class="write-confirm-card__badge write-confirm-card__badge--destructive">
-				{$t('connections.writeConfirm.destructiveBadge')}
-			</span>
-		{/if}
-		{#if !write.preview.reversible}
-			<span class="write-confirm-card__badge write-confirm-card__badge--destructive">
-				{$t('connections.writeConfirm.notReversibleBadge')}
-			</span>
-		{/if}
-	</div>
+	<!-- Badges only when they are true, and in the colour they deserve:
+	     saving a new file is not irreversible and must not wear the same red
+	     as deleting three photos. -->
+	{#if write.preview.destructive || !write.preview.reversible}
+		<div class="write-confirm-card__badges">
+			{#if write.preview.destructive}
+				<span class="write-confirm-card__badge write-confirm-card__badge--destructive">
+					<AlertTriangle size={10} strokeWidth={2.4} aria-hidden="true" />
+					{$t('connections.writeConfirm.destructiveBadge')}
+				</span>
+			{/if}
+			{#if !write.preview.reversible}
+				<span
+					class="write-confirm-card__badge"
+					class:write-confirm-card__badge--destructive={write.preview.destructive}
+					class:write-confirm-card__badge--caution={!write.preview.destructive}
+				>
+					{$t('connections.writeConfirm.notReversibleBadge')}
+				</span>
+			{/if}
+		</div>
+	{/if}
 
 	{#if write.preview.warnings.length > 0}
 		<ul class="write-confirm-card__warnings" role="status" aria-live="polite">
@@ -134,8 +156,11 @@ let statusLabel = $derived(
 		color: var(--text-primary);
 	}
 
+	/* Only a genuinely destructive write wears the danger border. A benign
+	   save keeps the neutral card. */
 	.write-confirm-card--destructive {
-		border-color: color-mix(in srgb, var(--warning) 55%, var(--border-default) 45%);
+		border-color: color-mix(in srgb, var(--danger) 42%, var(--border-default) 58%);
+		background: color-mix(in srgb, var(--danger) 4%, var(--surface-elevated));
 	}
 
 	.write-confirm-card--terminal {
@@ -153,11 +178,23 @@ let statusLabel = $derived(
 		min-width: 0;
 	}
 
-	.write-confirm-card__eyebrow {
+	.write-confirm-card__mark {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.5rem;
+		height: 1.5rem;
+		flex-shrink: 0;
+		margin-top: 0.125rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border-default);
+		background: var(--surface-page);
+		color: var(--text-secondary);
+	}
+
+	.write-confirm-card__provider {
+		margin-top: 0.15rem;
 		font-size: var(--text-xs);
-		font-weight: 700;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
 		color: var(--text-muted);
 	}
 
@@ -197,6 +234,9 @@ let statusLabel = $derived(
 	}
 
 	.write-confirm-card__badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
 		border-radius: 999px;
 		padding: 0.2rem 0.5rem;
 		font-size: var(--text-xs);
@@ -204,8 +244,15 @@ let statusLabel = $derived(
 	}
 
 	.write-confirm-card__badge--destructive {
+		border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent 55%);
+		background: color-mix(in srgb, var(--danger) 12%, var(--surface-page) 88%);
+		color: var(--danger);
+	}
+
+	/* Irreversible but not destructive — worth flagging, not worth alarming. */
+	.write-confirm-card__badge--caution {
 		border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent 45%);
-		background: color-mix(in srgb, var(--warning) 16%, var(--surface-page) 84%);
+		background: color-mix(in srgb, var(--warning) 14%, var(--surface-page) 86%);
 		color: var(--warning);
 	}
 

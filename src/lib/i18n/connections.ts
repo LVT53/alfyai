@@ -238,6 +238,295 @@ const connectionsDict = {
 			"This write failed and was not applied.",
 		"connections.writeConfirm.confirmError": "Failed to confirm the write.",
 		"connections.writeConfirm.cancelError": "Failed to cancel the write.",
+
+		// ─────────────────────────────────────────────────────────────────
+		// CONNECTIONS REDESIGN — everything below this line is new copy for
+		// the redesigned Connections tab, its dialogs, its error states and
+		// its chat surfaces. One visual grammar for every state (a coloured
+		// dot, a word, a sentence saying what happened and when), plainer
+		// words in place of the old jargon ("Needs sign-in again", not "Needs
+		// reauthorization"), and a way out of every failure.
+		//
+		// The pre-redesign keys above are deliberately LEFT IN PLACE: the
+		// status words in particular are still referenced by tests and by the
+		// accessible labels of surfaces that have not been reworked.
+		// ─────────────────────────────────────────────────────────────────
+
+		// Status words — the one word in a row's status column.
+		"connections.status.needsSignIn": "Needs sign-in again",
+		"connections.status.unreachable": "Can't reach it",
+		"connections.status.turnedOff": "Turned off",
+
+		// Status sentences — the "what happened and when" line underneath.
+		// Every one has a no-timestamp variant, because a connection that has
+		// never been used (or never changed state) has no honest date to name.
+		"connections.status.sentence.lastUsed": "Last used {when}.",
+		"connections.status.sentence.readyNotUsedYet":
+			"Connected on {when}. Not used yet.",
+		"connections.status.sentence.needsSignInOn":
+			"{provider} stopped accepting the saved permission on {when}.",
+		"connections.status.sentence.needsSignIn":
+			"{provider} stopped accepting the saved permission.",
+		"connections.status.sentence.unreachableAt":
+			"Alfy couldn't reach {provider} on {when}.",
+		"connections.status.sentence.unreachable":
+			"Alfy couldn't reach {provider}.",
+		"connections.status.sentence.turnedOffOn": "You turned this off on {when}.",
+		"connections.status.sentence.turnedOff": "This connection is turned off.",
+
+		// Recovery actions — each names what it will actually do.
+		"connections.actions.signInAgain": "Sign in again",
+		"connections.actions.fixThis": "Fix this",
+		"connections.actions.connectAgain": "Connect again",
+		"connections.actions.details": "Details",
+		"connections.actions.done": "Done",
+		"connections.actions.askAgain": "Ask again",
+		// The discovered-grant equivalent of "Ask again". Nothing was refused
+		// for a CalDAV server that simply had no address books when we looked;
+		// reconnecting re-runs the discovery, which is the only thing that can
+		// find one added since.
+		"connections.actions.lookAgain": "Look again",
+		"connections.actions.tryAgain": "Try again",
+		"connections.actions.dismiss": "Dismiss",
+		"connections.actions.whatWentWrong": "What went wrong?",
+		"connections.actions.manage": "Manage",
+		"connections.actions.disconnectProvider": "Disconnect {provider}",
+		"connections.actions.open": "Open",
+		"connections.actions.openItNow": "Open it now",
+
+		// The tab itself.
+		"connections.yourConnections": "Your connections",
+		"connections.accountCount":
+			"{count} account{count, plural, one {} other {s}}",
+		"connections.addConnection.setUpYourself": "Set one up yourself",
+		"connections.addConnection.alreadyConnected": "Already connected",
+
+		// One line per provider saying what it brings, so the add grid reads
+		// as a choice rather than a row of logos.
+		"connections.provider.nextcloud.blurb": "Your files and contacts",
+		"connections.provider.immich.blurb": "Your photo library",
+		"connections.provider.imap.blurb": "Read and draft your mail",
+		"connections.provider.google.blurb": "Your calendar and contacts",
+		"connections.provider.apple.blurb": "Your calendar and contacts",
+		"connections.provider.plex.blurb": "Films and shows you own",
+		"connections.provider.owntracks.blurb":
+			"Where you are, from your own phone",
+		"connections.provider.github.blurb": "Your repositories and issues",
+		"connections.provider.onedrive.blurb": "Your files",
+		"connections.provider.caldav.blurb":
+			"Any standards-based calendar or address book",
+		"connections.provider.contacts.blurb": "A CardDAV address book",
+
+		// Capability chips on a row.
+		"connections.chip.denied": "{capability} — not allowed",
+		"connections.chip.writesFolders":
+			"Writes to {count} folder{count, plural, one {} other {s}}",
+		"connections.chip.writesDefaultFolder": "Writes to /AlfyAI",
+		"connections.chip.writesConfirm": "Writes, with your OK",
+		"connections.chip.writesDrafts": "Drafts, with your OK",
+
+		// What each capability actually lets Alfy do — shown under its switch
+		// in the detail dialog and next to its checkbox in the OAuth wizard.
+		"connections.capabilityAbout.calendar":
+			"Read your events so Alfy can answer questions about your week.",
+		"connections.capabilityAbout.contacts":
+			"Read names and addresses so Alfy can find people you mention.",
+		"connections.capabilityAbout.email":
+			"Read your mail so Alfy can answer questions about it.",
+		"connections.capabilityAbout.files": "Read your files and folders.",
+		"connections.capabilityAbout.location":
+			"Read this one device's position. No other device is visible.",
+		"connections.capabilityAbout.media": "Read your library.",
+		"connections.capabilityAbout.photos": "Read your photo library.",
+		"connections.capabilityAbout.repos": "Read your repositories and issues.",
+		"connections.capabilityAbout.tasks": "Read your task lists.",
+		// Plex calls its library films and shows, not "media".
+		"connections.capability.mediaPlex": "Films and shows",
+
+		// The privacy control, now the first thing on the page.
+		"connections.locality.headline": "Keep connected data on this device",
+		"connections.locality.summary":
+			"A model on this machine summarises what your accounts return, so the full text never leaves.",
+		"connections.locality.tooltip":
+			"Summaries aim to keep the details your question needs. With this off, the cloud model you pick sees the calendar entries, files and mail your question touches.",
+		"connections.locality.badgeOn": "On",
+		"connections.locality.badgeOff": "Off",
+		// A locality read that failed is not the same answer as "off". The
+		// switch used to show "off" either way — a definite answer about where
+		// this user's data goes, given when we had no answer at all.
+		"connections.locality.badgeUnknown": "Unknown",
+		"connections.locality.unknown":
+			"We couldn't check where your connected data is processed. Nothing changed.",
+
+		// Detail dialog.
+		"connections.detail.whatAlfyMayUse": "What Alfy may use",
+		"connections.detail.howItBehaves": "How it behaves",
+		"connections.detail.useWithoutAsking": "Use it without asking",
+		"connections.detail.useWithoutAskingSub":
+			"Alfy reaches for {provider} on its own when a question needs it.",
+		"connections.detail.useWithoutAskingHelp":
+			"On, Alfy reaches for this account whenever a question needs it. Off, it only uses {provider} when you turn connections on for that message.",
+		"connections.detail.letAlfyWrite": "Let Alfy write",
+		"connections.detail.letAlfyWriteSub":
+			"Off by default. Every change still needs your OK first.",
+		"connections.detail.letAlfyWriteHelp":
+			"Writing is off by default. When on, Alfy can change this account only after you confirm each change.",
+		"connections.detail.writeConfirmNote":
+			"Every change is confirmed individually before it happens.",
+		"connections.detail.writeConfirmNoteCalendar":
+			"Calendar changes only, and each one needs your OK.",
+		"connections.detail.foldersLabel": "Folders Alfy may write to",
+		"connections.detail.deniedSub":
+			"You didn't allow this, so there is nothing to switch on.",
+		"connections.detail.deniedSubDiscovered":
+			"Your server doesn't offer this, so there is nothing to switch on.",
+		"connections.detail.grantedOn": "You allowed this on {when}.",
+		"connections.detail.readOnlyNote":
+			"{provider} is read-only — Alfy can never change it.",
+		"connections.detail.signInBanner":
+			"{provider} stopped accepting the saved permission on {when}. Signing in again takes about twenty seconds.",
+		"connections.detail.signInBannerNoDate":
+			"{provider} stopped accepting the saved permission. Signing in again takes about twenty seconds.",
+		"connections.detail.unreachableBanner":
+			"Alfy couldn't reach {provider} on {when}.",
+		"connections.detail.unreachableBannerNoDate":
+			"Alfy couldn't reach {provider}.",
+		"connections.detail.turnedOffBanner":
+			"This connection is turned off. Connect it again to start using it.",
+		"connections.detail.homeHeading": "Home",
+		"connections.detail.homeIntro":
+			"Lets Alfy answer “how far am I from home”. Coordinates stay on this server.",
+		"connections.detail.technicalDetail": "Technical detail",
+		"connections.ownTracksHome.saveHome": "Save home",
+
+		// Disconnect confirmation — says what is lost and what is not.
+		"connections.disconnectConfirm.body":
+			"Alfy loses access to {what}. Nothing is deleted from {provider}, and you can connect it again later.",
+		"connections.disconnectConfirm.bodyNoCapabilities":
+			"Alfy loses access to this account. Nothing is deleted from {provider}, and you can connect it again later.",
+		"connections.disconnectConfirm.foldersNoteOne":
+			"The write folder you set is forgotten too.",
+		"connections.disconnectConfirm.foldersNoteMany":
+			"The {count} write folders you set are forgotten too.",
+
+		// Error and recovery states.
+		"connections.states.loadFailed.title": "We couldn't load your connections",
+		"connections.states.loadFailed.body":
+			"Something went wrong on this server — your accounts are still connected. Nothing was changed.",
+		"connections.states.saveFailed.title": "That change didn't save",
+		"connections.states.saveFailed.body":
+			"{change} didn't reach the server, so nothing changed. Nothing else was touched.",
+		"connections.states.saveFailed.capabilityOn":
+			"Turning on {capability} for {provider}",
+		"connections.states.saveFailed.capabilityOff":
+			"Turning off {capability} for {provider}",
+		"connections.states.saveFailed.defaultOnOn":
+			"Turning on “Use it without asking” for {provider}",
+		"connections.states.saveFailed.defaultOnOff":
+			"Turning off “Use it without asking” for {provider}",
+		"connections.states.saveFailed.writesOn":
+			"Turning on “Let Alfy write” for {provider}",
+		"connections.states.saveFailed.writesOff":
+			"Turning off “Let Alfy write” for {provider}",
+		"connections.states.saveFailed.folders":
+			"Changing the write folders for {provider}",
+		"connections.states.saveFailed.home":
+			"Saving the home location for {provider}",
+		"connections.states.saveFailed.disconnect": "Disconnecting {provider}",
+		"connections.states.saveFailed.privacyOn":
+			"Turning on on-device processing",
+		"connections.states.saveFailed.privacyOff":
+			"Turning off on-device processing",
+		"connections.states.partialGrant.title":
+			"You allowed {allowed}, but not {missing}",
+		"connections.states.partialGrant.titleNoneAllowed":
+			"{provider} didn't allow {missing}",
+		"connections.states.partialGrant.body":
+			"{provider} only granted part of what Alfy asked for, so {missing} stays off.",
+		"connections.states.partialGrant.ask": "Ask for {missing}",
+		"connections.states.partialGrant.keep": "Keep it as it is",
+		"connections.states.popupBlocked.title":
+			"Your browser blocked the {provider} tab",
+		"connections.states.popupBlocked.body":
+			"The sign-in page opens in a new tab. Allow pop-ups for this site, or open it here.",
+		"connections.states.connecting.title": "Connecting {provider}",
+		"connections.states.connecting.hint": "Usually about five seconds.",
+
+		// Wizard — plainer words, and a real way out of the "ask your
+		// administrator" dead end on a one-person server.
+		"connections.wizard.oauth.subtitle":
+			"Choose what Alfy may use. You approve it again on {provider}'s own page.",
+		"connections.wizard.nextcloud.waitingTitle": "Waiting for you to approve",
+		"connections.wizard.nextcloud.waitingBody":
+			"We opened {provider} in a new tab. Approve there, then come back to this one.",
+		"connections.wizard.nextcloud.expires":
+			"The link expires in {minutes} minute{minutes, plural, one {} other {s}}",
+		"connections.wizard.nextcloud.approved": "I've approved it",
+		"connections.wizard.nextcloud.subtitle":
+			"Enter the address of your Nextcloud, and we'll open it so you can approve Alfy there.",
+		"connections.wizard.email.title": "Connect your mail",
+		"connections.wizard.email.subtitle": "Where is your mailbox?",
+		"connections.wizard.email.path.alfy.description2":
+			"The mailbox hosted on this server.",
+		"connections.wizard.email.path.gmail.description2": "Your Google mailbox.",
+		"connections.wizard.email.path.other.name2": "Somewhere else",
+		"connections.wizard.email.path.other.description2":
+			"Any other mailbox. You will need its server address.",
+		"connections.wizard.github.subtitle":
+			"GitHub does not use a normal sign-in for this.",
+		"connections.wizard.github.tokenLabel2": "Access token",
+		"connections.wizard.github.tokenHelp":
+			"A token is a long password you create on GitHub. You choose what it may see, and you can revoke it there at any time.",
+		"connections.wizard.github.createOn": "Create one on GitHub",
+		"connections.wizard.github.differentServer":
+			"Use a different server (Gitea, GitHub Enterprise)",
+		"connections.wizard.owntracks.subtitle":
+			"Which of these phones is yours? Alfy will only ever read that one.",
+		"connections.wizard.owntracks.useThisDevice": "Use this device",
+		"connections.wizard.owntracks.lastSeen": "Last seen {when}",
+		"connections.wizard.owntracks.onRecorderAs": "On the recorder as {otUser}",
+		"connections.wizard.notSetUp.subtitle": "Not set up on this server yet.",
+		"connections.wizard.notSetUp.bodyAdmin":
+			"{provider} needs an app id and secret before anyone can connect it. You are the administrator of this server, so you can add them yourself.",
+		"connections.wizard.notSetUp.bodyMember":
+			"{provider} needs an app id and secret before anyone can connect it. Ask whoever runs this server to add them.",
+		"connections.wizard.notSetUp.ownTracksAdmin":
+			"OwnTracks needs the address of your recorder before anyone can connect it. You are the administrator of this server, so you can add it yourself.",
+		"connections.wizard.notSetUp.ownTracksMember":
+			"OwnTracks needs the address of your recorder before anyone can connect it. Ask whoever runs this server to add it.",
+		"connections.wizard.notSetUp.trail":
+			"Administration → System → Advanced → Integrations",
+		"connections.wizard.apple.subtitle":
+			"Apple needs a password made just for Alfy, not your usual one.",
+		"connections.wizard.immich.subtitle":
+			"Sign in the same way you sign in to your own Immich server.",
+		"connections.wizard.plex.subtitle":
+			"Plex uses a token instead of a password.",
+		"connections.wizard.caldav.subtitle":
+			"For any calendar or address book that speaks the standard protocol.",
+		"connections.wizard.contacts.subtitle": "Not available on its own yet.",
+
+		// Chat surfaces.
+		"connections.chat.useMyConnections": "Use my connections",
+		"connections.chat.accountsReady": "{ready} of {total} accounts are ready",
+		"connections.chat.noAccounts": "No accounts connected yet",
+		"connections.chat.needsAttention": "{provider} needs attention",
+		"connections.chat.toggleLabel": "Connections · {count}",
+		"connections.chat.cloudTitle": "This message would leave your machine",
+		"connections.chat.cloudBody":
+			"You picked {cloudModel}, which runs at {vendor}. Data from your connected accounts would be sent there to answer this.",
+		"connections.chat.cloudBodyNoVendor":
+			"You picked {cloudModel}, a cloud model. Data from your connected accounts would be sent there to answer this.",
+		"connections.chat.cloudLocalRow": "{localModel}, on this machine",
+		"connections.chat.cloudLocalRowGeneric": "A model on this machine",
+		"connections.chat.cloudLocalNote": "nothing leaves",
+		"connections.chat.cloudRemoteRow": "{cloudModel}, at {vendor}",
+		"connections.chat.cloudRemoteRowNoVendor": "{cloudModel}, in the cloud",
+		"connections.chat.cloudRemoteNote": "sees your data",
+		"connections.chat.cloudKeepLocal": "Keep it on this machine",
+		"connections.chat.cloudSend": "Send to {cloudModel}",
+		"connections.chat.cloudSendGeneric": "Send it anyway",
+		"connections.chat.cloudAskedOnce": "Asked once per conversation.",
 	},
 	hu: {
 		"connections.actions.connect": "Csatlakoztatás",
@@ -478,6 +767,268 @@ const connectionsDict = {
 			"Nem sikerült jóváhagyni az írást.",
 		"connections.writeConfirm.cancelError":
 			"Nem sikerült megszakítani az írást.",
+
+		// ─────────────────────────────────────────────────────────────────
+		// KAPCSOLATOK ÚJRATERVEZÉS — az alábbi kulcsok mind az újratervezett
+		// Kapcsolatok fülhöz, párbeszédeihez, hibaállapotaihoz és
+		// csevegőfelületeihez tartoznak. Egyetlen vizuális nyelvtan minden
+		// állapotra (színes pötty, egy szó, és egy mondat arról, mi történt
+		// és mikor), a régi szakzsargon helyett hétköznapi szavak, és minden
+		// hibából vezet kiút.
+		//
+		// A fenti, újratervezés előtti kulcsok szándékosan MEGMARADNAK.
+		// ─────────────────────────────────────────────────────────────────
+
+		"connections.status.needsSignIn": "Újra be kell jelentkezned",
+		"connections.status.unreachable": "Nem érhető el",
+		"connections.status.turnedOff": "Kikapcsolva",
+
+		"connections.status.sentence.lastUsed": "Utoljára használva: {when}.",
+		"connections.status.sentence.readyNotUsedYet":
+			"Csatlakoztatva ekkor: {when}. Még nem volt használatban.",
+		"connections.status.sentence.needsSignInOn":
+			"A(z) {provider} {when} óta nem fogadja el a mentett engedélyt.",
+		"connections.status.sentence.needsSignIn":
+			"A(z) {provider} már nem fogadja el a mentett engedélyt.",
+		"connections.status.sentence.unreachableAt":
+			"Az Alfy nem érte el a(z) {provider} szolgáltatást ekkor: {when}.",
+		"connections.status.sentence.unreachable":
+			"Az Alfy nem érte el a(z) {provider} szolgáltatást.",
+		"connections.status.sentence.turnedOffOn":
+			"Ezt te kapcsoltad ki ekkor: {when}.",
+		"connections.status.sentence.turnedOff": "Ez a kapcsolat ki van kapcsolva.",
+
+		"connections.actions.signInAgain": "Bejelentkezés újra",
+		"connections.actions.fixThis": "Javítsuk meg",
+		"connections.actions.connectAgain": "Csatlakoztatás újra",
+		"connections.actions.details": "Részletek",
+		"connections.actions.done": "Kész",
+		"connections.actions.askAgain": "Kérjük el újra",
+		"connections.actions.lookAgain": "Nézzük meg újra",
+		"connections.actions.tryAgain": "Próbáld újra",
+		"connections.actions.dismiss": "Elvetés",
+		"connections.actions.whatWentWrong": "Mi történt pontosan?",
+		"connections.actions.manage": "Kezelés",
+		"connections.actions.disconnectProvider": "{provider} leválasztása",
+		"connections.actions.open": "Megnyitás",
+		"connections.actions.openItNow": "Nyissuk meg most",
+
+		"connections.yourConnections": "A kapcsolataid",
+		"connections.accountCount": "{count} fiók",
+		"connections.addConnection.setUpYourself": "Állítsd be te magad",
+		"connections.addConnection.alreadyConnected": "Már csatlakoztatva",
+
+		"connections.provider.nextcloud.blurb": "A fájljaid és névjegyeid",
+		"connections.provider.immich.blurb": "A fényképtárad",
+		"connections.provider.imap.blurb": "Leveleid olvasása és fogalmazása",
+		"connections.provider.google.blurb": "A naptárad és névjegyeid",
+		"connections.provider.apple.blurb": "A naptárad és névjegyeid",
+		"connections.provider.plex.blurb": "A saját filmjeid és sorozataid",
+		"connections.provider.owntracks.blurb": "Hol vagy — a saját telefonodról",
+		"connections.provider.github.blurb": "A tárolóid és hibajegyeid",
+		"connections.provider.onedrive.blurb": "A fájljaid",
+		"connections.provider.caldav.blurb":
+			"Bármely szabványos naptár vagy címjegyzék",
+		"connections.provider.contacts.blurb": "Egy CardDAV címjegyzék",
+
+		"connections.chip.denied": "{capability} — nincs engedélyezve",
+		"connections.chip.writesFolders": "{count} mappába írhat",
+		"connections.chip.writesDefaultFolder": "Ide írhat: /AlfyAI",
+		"connections.chip.writesConfirm": "Írhat, a jóváhagyásoddal",
+		"connections.chip.writesDrafts": "Piszkozatok, a jóváhagyásoddal",
+
+		"connections.capabilityAbout.calendar":
+			"Elolvassa az eseményeidet, hogy az Alfy válaszolni tudjon a hetedről.",
+		"connections.capabilityAbout.contacts":
+			"Elolvassa a neveket és címeket, hogy az Alfy megtalálja, akit említesz.",
+		"connections.capabilityAbout.email":
+			"Elolvassa a leveleidet, hogy az Alfy válaszolni tudjon róluk.",
+		"connections.capabilityAbout.files": "Elolvassa a fájljaidat és mappáidat.",
+		"connections.capabilityAbout.location":
+			"Ennek az egy eszköznek a helyzetét olvassa. Más eszköz nem látható.",
+		"connections.capabilityAbout.media": "Elolvassa a könyvtáradat.",
+		"connections.capabilityAbout.photos": "Elolvassa a fényképtáradat.",
+		"connections.capabilityAbout.repos":
+			"Elolvassa a tárolóidat és hibajegyeidet.",
+		"connections.capabilityAbout.tasks": "Elolvassa a feladatlistáidat.",
+		"connections.capability.mediaPlex": "Filmek és sorozatok",
+
+		"connections.locality.headline":
+			"A csatlakoztatott adatok maradjanak ezen a gépen",
+		"connections.locality.summary":
+			"Egy modell ezen a gépen összegzi, amit a fiókjaid visszaadnak, így a teljes szöveg soha nem hagyja el a gépet.",
+		"connections.locality.tooltip":
+			"Az összegzés igyekszik megőrizni a kérdésedhez szükséges részleteket. Ha ezt kikapcsolod, az általad választott felhőmodell látja azokat a naptárbejegyzéseket, fájlokat és leveleket, amelyeket a kérdésed érint.",
+		"connections.locality.badgeOn": "Be",
+		"connections.locality.badgeOff": "Ki",
+		"connections.locality.badgeUnknown": "Ismeretlen",
+		"connections.locality.unknown":
+			"Nem sikerült ellenőrizni, hol dolgozzuk fel a csatlakoztatott adataidat. Semmi nem változott.",
+
+		"connections.detail.whatAlfyMayUse": "Mit használhat az Alfy",
+		"connections.detail.howItBehaves": "Hogyan viselkedik",
+		"connections.detail.useWithoutAsking": "Használhatja rákérdezés nélkül",
+		"connections.detail.useWithoutAskingSub":
+			"Az Alfy magától nyúl a(z) {provider} szolgáltatáshoz, ha egy kérdéshez szükség van rá.",
+		"connections.detail.useWithoutAskingHelp":
+			"Bekapcsolva az Alfy magától nyúl ehhez a fiókhoz, valahányszor egy kérdéshez kell. Kikapcsolva csak akkor használja a(z) {provider} szolgáltatást, ha az adott üzenetnél bekapcsolod a kapcsolatokat.",
+		"connections.detail.letAlfyWrite": "Az Alfy írhat is",
+		"connections.detail.letAlfyWriteSub":
+			"Alapból kikapcsolva. Minden változtatáshoz akkor is kell a jóváhagyásod.",
+		"connections.detail.letAlfyWriteHelp":
+			"Az írás alapból ki van kapcsolva. Ha bekapcsolod, az Alfy csak azután módosíthatja ezt a fiókot, hogy minden egyes változtatást jóváhagytál.",
+		"connections.detail.writeConfirmNote":
+			"Minden változtatást egyenként hagysz jóvá, mielőtt megtörténik.",
+		"connections.detail.writeConfirmNoteCalendar":
+			"Csak naptárváltozások, és mindegyikhez kell a jóváhagyásod.",
+		"connections.detail.foldersLabel": "Mappák, ahová az Alfy írhat",
+		"connections.detail.deniedSub":
+			"Ezt nem engedélyezted, így nincs mit bekapcsolni.",
+		"connections.detail.deniedSubDiscovered":
+			"A szervered ezt nem kínálja, így nincs mit bekapcsolni.",
+		"connections.detail.grantedOn": "Ezt {when} engedélyezted.",
+		"connections.detail.readOnlyNote":
+			"A(z) {provider} csak olvasható — az Alfy soha nem tudja módosítani.",
+		"connections.detail.signInBanner":
+			"A(z) {provider} {when} óta nem fogadja el a mentett engedélyt. Az újbóli bejelentkezés körülbelül húsz másodperc.",
+		"connections.detail.signInBannerNoDate":
+			"A(z) {provider} már nem fogadja el a mentett engedélyt. Az újbóli bejelentkezés körülbelül húsz másodperc.",
+		"connections.detail.unreachableBanner":
+			"Az Alfy nem érte el a(z) {provider} szolgáltatást ekkor: {when}.",
+		"connections.detail.unreachableBannerNoDate":
+			"Az Alfy nem érte el a(z) {provider} szolgáltatást.",
+		"connections.detail.turnedOffBanner":
+			"Ez a kapcsolat ki van kapcsolva. Csatlakoztasd újra, hogy használni tudd.",
+		"connections.detail.homeHeading": "Otthon",
+		"connections.detail.homeIntro":
+			"Ezzel az Alfy megválaszolja, hogy „milyen messze vagyok otthontól”. A koordináták ezen a szerveren maradnak.",
+		"connections.detail.technicalDetail": "Technikai részlet",
+		"connections.ownTracksHome.saveHome": "Otthon mentése",
+
+		"connections.disconnectConfirm.body":
+			"Az Alfy elveszíti a hozzáférést ehhez: {what}. A(z) {provider} szolgáltatásból semmi nem törlődik, és később újra csatlakoztathatod.",
+		"connections.disconnectConfirm.bodyNoCapabilities":
+			"Az Alfy elveszíti a hozzáférést ehhez a fiókhoz. A(z) {provider} szolgáltatásból semmi nem törlődik, és később újra csatlakoztathatod.",
+		"connections.disconnectConfirm.foldersNoteOne":
+			"A beállított írási mappa is elfelejtődik.",
+		"connections.disconnectConfirm.foldersNoteMany":
+			"A beállított {count} írási mappa is elfelejtődik.",
+
+		"connections.states.loadFailed.title":
+			"Nem sikerült betölteni a kapcsolataidat",
+		"connections.states.loadFailed.body":
+			"Valami hiba történt ezen a szerveren — a fiókjaid továbbra is csatlakoztatva vannak. Semmi nem változott.",
+		"connections.states.saveFailed.title": "Ez a változtatás nem mentődött el",
+		"connections.states.saveFailed.body":
+			"{change} nem jutott el a szerverig, így semmi nem változott. Máshoz nem nyúltunk.",
+		"connections.states.saveFailed.capabilityOn":
+			"A(z) {capability} bekapcsolása ehhez: {provider}",
+		"connections.states.saveFailed.capabilityOff":
+			"A(z) {capability} kikapcsolása ehhez: {provider}",
+		"connections.states.saveFailed.defaultOnOn":
+			"A „Használhatja rákérdezés nélkül” bekapcsolása ehhez: {provider}",
+		"connections.states.saveFailed.defaultOnOff":
+			"A „Használhatja rákérdezés nélkül” kikapcsolása ehhez: {provider}",
+		"connections.states.saveFailed.writesOn":
+			"Az „Az Alfy írhat is” bekapcsolása ehhez: {provider}",
+		"connections.states.saveFailed.writesOff":
+			"Az „Az Alfy írhat is” kikapcsolása ehhez: {provider}",
+		"connections.states.saveFailed.folders":
+			"Az írási mappák módosítása ehhez: {provider}",
+		"connections.states.saveFailed.home":
+			"Az otthoni helyzet mentése ehhez: {provider}",
+		"connections.states.saveFailed.disconnect": "A(z) {provider} leválasztása",
+		"connections.states.saveFailed.privacyOn":
+			"A helyi feldolgozás bekapcsolása",
+		"connections.states.saveFailed.privacyOff":
+			"A helyi feldolgozás kikapcsolása",
+		"connections.states.partialGrant.title":
+			"A(z) {allowed} engedélyezve lett, a(z) {missing} nem",
+		"connections.states.partialGrant.titleNoneAllowed":
+			"A(z) {provider} nem engedélyezte ezt: {missing}",
+		"connections.states.partialGrant.body":
+			"A(z) {provider} csak részben adta meg, amit az Alfy kért, így a(z) {missing} kikapcsolva marad.",
+		"connections.states.partialGrant.ask": "Kérjük el ezt: {missing}",
+		"connections.states.partialGrant.keep": "Maradjon így",
+		"connections.states.popupBlocked.title":
+			"A böngésződ blokkolta a(z) {provider} lapot",
+		"connections.states.popupBlocked.body":
+			"A bejelentkezési oldal új lapon nyílik meg. Engedélyezd a felugró ablakokat ehhez az oldalhoz, vagy nyisd meg itt.",
+		"connections.states.connecting.title": "Csatlakozás: {provider}",
+		"connections.states.connecting.hint": "Általában öt másodperc körül.",
+
+		"connections.wizard.oauth.subtitle":
+			"Válaszd ki, mit használhat az Alfy. Ezt a(z) {provider} saját oldalán is jóváhagyod majd.",
+		"connections.wizard.nextcloud.waitingTitle": "Várunk a jóváhagyásodra",
+		"connections.wizard.nextcloud.waitingBody":
+			"A(z) {provider} szolgáltatást új lapon nyitottuk meg. Hagyd jóvá ott, majd gyere vissza ide.",
+		"connections.wizard.nextcloud.expires": "A link {minutes} perc múlva lejár",
+		"connections.wizard.nextcloud.approved": "Jóváhagytam",
+		"connections.wizard.nextcloud.subtitle":
+			"Add meg a Nextcloudod címét, és megnyitjuk, hogy ott jóváhagyhasd az Alfyt.",
+		"connections.wizard.email.title": "Csatlakoztasd a leveleidet",
+		"connections.wizard.email.subtitle": "Hol van a postafiókod?",
+		"connections.wizard.email.path.alfy.description2":
+			"Az ezen a szerveren üzemelő postafiók.",
+		"connections.wizard.email.path.gmail.description2": "A Google-postafiókod.",
+		"connections.wizard.email.path.other.name2": "Valahol máshol",
+		"connections.wizard.email.path.other.description2":
+			"Bármely más postafiók. Szükség lesz a szerver címére.",
+		"connections.wizard.github.subtitle":
+			"A GitHub ehhez nem a szokásos bejelentkezést használja.",
+		"connections.wizard.github.tokenLabel2": "Hozzáférési token",
+		"connections.wizard.github.tokenHelp":
+			"A token egy hosszú jelszó, amelyet a GitHubon hozol létre. Te döntöd el, mit láthat, és bármikor vissza is vonhatod ott.",
+		"connections.wizard.github.createOn": "Hozz létre egyet a GitHubon",
+		"connections.wizard.github.differentServer":
+			"Másik szerver használata (Gitea, GitHub Enterprise)",
+		"connections.wizard.owntracks.subtitle":
+			"Melyik telefon a tiéd? Az Alfy kizárólag azt az egyet fogja olvasni.",
+		"connections.wizard.owntracks.useThisDevice": "Ezt az eszközt használom",
+		"connections.wizard.owntracks.lastSeen": "Utoljára látva: {when}",
+		"connections.wizard.owntracks.onRecorderAs":
+			"A rekorderen így szerepel: {otUser}",
+		"connections.wizard.notSetUp.subtitle":
+			"Ezen a szerveren még nincs beállítva.",
+		"connections.wizard.notSetUp.bodyAdmin":
+			"A(z) {provider} csatlakoztatásához előbb kell egy alkalmazásazonosító és egy titkos kulcs. Te vagy ennek a szervernek a rendszergazdája, így magad is hozzáadhatod őket.",
+		"connections.wizard.notSetUp.bodyMember":
+			"A(z) {provider} csatlakoztatásához előbb kell egy alkalmazásazonosító és egy titkos kulcs. Kérd meg azt, aki ezt a szervert üzemelteti, hogy adja hozzá őket.",
+		"connections.wizard.notSetUp.ownTracksAdmin":
+			"Az OwnTracks csatlakoztatásához előbb meg kell adni a rekordered címét. Te vagy ennek a szervernek a rendszergazdája, így magad is megadhatod.",
+		"connections.wizard.notSetUp.ownTracksMember":
+			"Az OwnTracks csatlakoztatásához előbb meg kell adni a rekorder címét. Kérd meg azt, aki ezt a szervert üzemelteti, hogy adja meg.",
+		"connections.wizard.notSetUp.trail":
+			"Adminisztráció → Rendszer → Speciális → Integrációk",
+		"connections.wizard.apple.subtitle":
+			"Az Apple-höz kifejezetten az Alfy számára készített jelszó kell, nem a szokásos.",
+		"connections.wizard.immich.subtitle":
+			"Jelentkezz be ugyanúgy, ahogy a saját Immich szerveredre szoktál.",
+		"connections.wizard.plex.subtitle": "A Plex jelszó helyett tokent használ.",
+		"connections.wizard.caldav.subtitle":
+			"Bármely naptárhoz vagy címjegyzékhez, amely a szabványos protokollt beszéli.",
+		"connections.wizard.contacts.subtitle": "Önállóan még nem elérhető.",
+
+		"connections.chat.useMyConnections": "Használja a kapcsolataimat",
+		"connections.chat.accountsReady": "{total} fiókból {ready} áll készen",
+		"connections.chat.noAccounts": "Még nincs csatlakoztatott fiók",
+		"connections.chat.needsAttention": "A(z) {provider} figyelmet igényel",
+		"connections.chat.toggleLabel": "Kapcsolatok · {count}",
+		"connections.chat.cloudTitle": "Ez az üzenet elhagyná a gépedet",
+		"connections.chat.cloudBody":
+			"A(z) {cloudModel} modellt választottad, amely a(z) {vendor} szolgáltatásnál fut. A csatlakoztatott fiókjaid adatai oda kerülnének a válaszhoz.",
+		"connections.chat.cloudBodyNoVendor":
+			"A(z) {cloudModel} modellt választottad, amely felhőben fut. A csatlakoztatott fiókjaid adatai oda kerülnének a válaszhoz.",
+		"connections.chat.cloudLocalRow": "{localModel}, ezen a gépen",
+		"connections.chat.cloudLocalRowGeneric": "Egy modell ezen a gépen",
+		"connections.chat.cloudLocalNote": "semmi nem távozik",
+		"connections.chat.cloudRemoteRow": "{cloudModel}, itt: {vendor}",
+		"connections.chat.cloudRemoteRowNoVendor": "{cloudModel}, a felhőben",
+		"connections.chat.cloudRemoteNote": "látja az adataidat",
+		"connections.chat.cloudKeepLocal": "Maradjon ezen a gépen",
+		"connections.chat.cloudSend": "Küldés ide: {cloudModel}",
+		"connections.chat.cloudSendGeneric": "Küldés mégis",
+		"connections.chat.cloudAskedOnce": "Beszélgetésenként egyszer kérdezzük.",
 	},
 } as const;
 

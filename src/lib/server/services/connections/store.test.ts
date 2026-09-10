@@ -509,4 +509,136 @@ describe("connections store", () => {
 		expect(await updateConnection("userA", "ghost", { label: "x" })).toBeNull();
 		expect(await deleteConnection("userA", "ghost")).toBe(false);
 	});
+
+	// Connections redesign — the DTO carries what the PROVIDER granted next to
+	// what the USER enabled, so the settings dialog can tell a switched-off
+	// capability apart from a denied one.
+	it("exposes grantedCapabilities derived from the connection's OAuth scopes", async () => {
+		const { createConnection } = await import("./store");
+		const { OAUTH_CAPABILITY_SCOPES } = await import("./registry");
+		seedUser("userA");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "google",
+			label: "Google",
+			accountIdentifier: "person@example.com",
+			capabilities: ["calendar"],
+			oauthScopes: ["openid", OAUTH_CAPABILITY_SCOPES.google?.calendar ?? ""],
+		});
+		expect(conn.grantedCapabilities).toEqual(["calendar"]);
+		expect(conn.capabilities).toEqual(["calendar"]);
+	});
+
+	it("grants an account-wide provider its whole catalogue regardless of what is enabled", async () => {
+		const { createConnection } = await import("./store");
+		seedUser("userA");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "nextcloud",
+			label: "Nextcloud",
+			capabilities: ["files"],
+		});
+		expect(conn.grantedCapabilities).toEqual(["files", "contacts"]);
+	});
+
+	// Connections redesign — statusChangedAt is what the row's "…on 8
+	// September" sentence reads from, so it must move on a real transition and
+	// hold still when the same status is re-confirmed.
+	it("stamps statusChangedAt only when the status actually changes", async () => {
+		const { createConnection, updateConnection } = await import("./store");
+		seedUser("userA");
+		const created = await createConnection({
+			userId: "userA",
+			provider: "immich",
+			label: "Immich",
+			status: "connected",
+		});
+		expect(created.statusChangedAt).toBeNull();
+
+		const broken = await updateConnection("userA", created.id, {
+			status: "needs_reauth",
+			statusDetail: "token rejected",
+		});
+		expect(broken?.statusChangedAt).not.toBeNull();
+		const firstStamp = broken?.statusChangedAt as number;
+
+		// Re-confirming the SAME status must not push the date forward, or
+		// "stopped working on 8 September" would become "stopped working just
+		// now" on every health check.
+		const reconfirmed = await updateConnection("userA", created.id, {
+			status: "needs_reauth",
+			statusDetail: "token rejected again",
+		});
+		expect(reconfirmed?.statusChangedAt).toBe(firstStamp);
+
+		// An unrelated edit must not touch it either.
+		const relabelled = await updateConnection("userA", created.id, {
+			label: "Immich (home)",
+		});
+		expect(relabelled?.statusChangedAt).toBe(firstStamp);
+	});
+
+	it("touchConnectionUsed stamps lastUsedAt and then throttles repeat writes", async () => {
+		const { createConnection, getConnection, touchConnectionUsed } =
+			await import("./store");
+		seedUser("userA");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "plex",
+			label: "Plex",
+			status: "connected",
+		});
+		expect(conn.lastUsedAt).toBeNull();
+
+		const first = new Date("2026-09-08T10:00:00Z");
+		await touchConnectionUsed("userA", conn.id, { now: first });
+		const afterFirst = await getConnection("userA", conn.id);
+		expect(afterFirst?.lastUsedAt).toBe(Math.floor(first.getTime() / 1000));
+
+		// Inside the throttle window: no write, so the stamp holds.
+		await touchConnectionUsed("userA", conn.id, {
+			now: new Date(first.getTime() + 30_000),
+		});
+		expect((await getConnection("userA", conn.id))?.lastUsedAt).toBe(
+			Math.floor(first.getTime() / 1000),
+		);
+
+		// Past it: the stamp moves.
+		const later = new Date(first.getTime() + 120_000);
+		await touchConnectionUsed("userA", conn.id, { now: later });
+		expect((await getConnection("userA", conn.id))?.lastUsedAt).toBe(
+			Math.floor(later.getTime() / 1000),
+		);
+	});
+
+	it("touchConnectionUsed leaves updatedAt alone — a read is not an edit", async () => {
+		const { createConnection, getConnection, touchConnectionUsed } =
+			await import("./store");
+		seedUser("userA");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "plex",
+			label: "Plex",
+		});
+		await touchConnectionUsed("userA", conn.id, {
+			now: new Date(Date.now() + 3_600_000),
+		});
+		expect((await getConnection("userA", conn.id))?.updatedAt).toBe(
+			conn.updatedAt,
+		);
+	});
+
+	it("touchConnectionUsed is a no-op for another user's connection", async () => {
+		const { createConnection, getConnection, touchConnectionUsed } =
+			await import("./store");
+		seedUser("userA");
+		seedUser("userB");
+		const conn = await createConnection({
+			userId: "userA",
+			provider: "plex",
+			label: "Plex",
+		});
+		await touchConnectionUsed("userB", conn.id);
+		expect((await getConnection("userA", conn.id))?.lastUsedAt).toBeNull();
+	});
 });

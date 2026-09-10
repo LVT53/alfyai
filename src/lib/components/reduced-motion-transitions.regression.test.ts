@@ -96,6 +96,18 @@ const CASES: Case[] = [
 			/in:fly=/,
 		],
 	},
+	{
+		// Connections redesign — the composer's account list and the
+		// connection dialogs' "What went wrong?" / custom-server disclosures.
+		file: "src/lib/components/chat/ConnectionsPopover.svelte",
+		wrappedNames: ["popoverFly"],
+		bannedDirectives: [/transition:fly=/],
+	},
+	{
+		file: "src/routes/(app)/settings/_components/connections/Disclosure.svelte",
+		wrappedNames: ["bodySlide"],
+		bannedDirectives: [/transition:slide=/],
+	},
 ];
 
 describe("Svelte transition directives are routed through reducedMotionAware", () => {

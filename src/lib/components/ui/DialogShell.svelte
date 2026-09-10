@@ -60,6 +60,12 @@ let {
 	// Decision 3) but was revised to the standard centered mode (R3-fix #8);
 	// kept as a general DialogShell capability for future full-screen needs.
 	fullScreen = false,
+	// Opt-in: keep the accessible name (aria-labelledby still points at it)
+	// but let the dialog's own content draw the visible heading. Used by the
+	// Connections dialogs, whose headers pair the title with a provider mark,
+	// an account line and a status word — rendering the shell's own <h2> above
+	// that would print the same words twice.
+	titleVisuallyHidden = false,
 }: {
 	title: string;
 	description?: string;
@@ -68,6 +74,7 @@ let {
 	maxWidthClass?: string;
 	zIndexClass?: string;
 	fullScreen?: boolean;
+	titleVisuallyHidden?: boolean;
 } = $props();
 
 const dialogId = Symbol("dialog-shell");
@@ -225,7 +232,10 @@ onDestroy(() => {
     transition:panelScale={{ duration: 150, start: 0.95 }}
     style={fullScreen ? 'max-height: 100dvh; overflow-y: auto;' : 'max-height: 85dvh; overflow-y: auto;'}
   >
-    <h2 id="dialog-shell-title" class="mb-sm text-xl font-semibold text-text-primary">{title}</h2>
+    <h2
+      id="dialog-shell-title"
+      class={titleVisuallyHidden ? 'sr-only' : 'mb-sm text-xl font-semibold text-text-primary'}
+    >{title}</h2>
     {#if description}
       <p id="dialog-shell-description" class="mb-lg text-text-muted">{description}</p>
     {/if}

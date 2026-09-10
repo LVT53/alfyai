@@ -5,7 +5,7 @@ import {
 	resolveConnectionsForCapability,
 	selectConnection,
 } from "./resolve";
-import type { ConnectionPublic } from "./store";
+import { type ConnectionPublic, touchConnectionUsed } from "./store";
 
 // ── The resolve → disambiguation → pick seam ────────────────────
 //
@@ -57,6 +57,13 @@ export async function withCapabilityConnection<R>(
 	// above — this guard mirrors each tool's own defensive re-check and keeps the
 	// non-null narrowing local.
 	if (!conn) return { kind: "not-connected" };
+
+	// Connections redesign — this is the one place that knows a connection was
+	// actually USED (not merely listed), so it is where lastUsedAt is stamped.
+	// Fire-and-forget and swallowed: a failed bookkeeping write must never turn
+	// a working tool call into an error, it only costs the row its "Last used"
+	// sentence for one turn.
+	void touchConnectionUsed(userId, conn.id).catch(() => {});
 
 	return { kind: "ok", value: await fn(conn, { ambiguous, connections }) };
 }

@@ -130,6 +130,26 @@ export const PROVIDER_META: Record<
 	},
 };
 
+// Connections redesign — the OAuth scope that backs each capability, per
+// oauth-connectMethod provider. Lives here (rather than privately inside each
+// provider module) because two consumers need it: the provider itself, to
+// build its consent URL and to read back what was actually granted, and
+// granted.ts, to answer "which capabilities did the provider actually grant
+// this connection?" for the settings UI's denied-capability line. Adding a
+// provider to this map is what makes its grants scope-derived; every provider
+// absent from it grants its whole PROVIDER_META capability list.
+export const OAUTH_CAPABILITY_SCOPES: Partial<
+	Record<ConnectionProvider, Partial<Record<Capability, string>>>
+> = {
+	google: {
+		calendar: "https://www.googleapis.com/auth/calendar.readonly",
+		contacts: "https://www.googleapis.com/auth/contacts.readonly",
+	},
+	onedrive: {
+		files: "Files.Read",
+	},
+};
+
 // Per-capability metadata.
 export const CAPABILITY_META: Record<
 	Capability,

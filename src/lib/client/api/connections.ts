@@ -14,11 +14,26 @@ export type ConnectionPublic = {
 	allowWrites: boolean;
 	writeAllowlist: string[];
 	capabilities: string[];
+	// Connections redesign — what the PROVIDER granted, as opposed to
+	// `capabilities`, which is what the user has switched on. A capability in
+	// the provider's catalogue but missing here was denied (Google Contacts
+	// unticked on the consent screen, a CalDAV server with no address books),
+	// and the detail dialog renders it as a greyed line with "Ask again"
+	// instead of a switch with no permission behind it. Optional so a response
+	// from an older server (or a hand-built test fixture) still type-checks;
+	// read it through grantedCapabilitiesOf() in status-grammar.ts, which
+	// falls back to the provider's full catalogue.
+	grantedCapabilities?: string[];
 	config: Record<string, unknown>;
 	oauthScopes: string[];
 	tokenExpiresAt: number | null;
 	hasSecret: boolean;
 	hasWriteSecret: boolean;
+	// Connections redesign — the "and when" half of the status sentence.
+	// Optional/nullable: null when a connection has never been read through,
+	// or has never changed status since it was created.
+	lastUsedAt?: number | null;
+	statusChangedAt?: number | null;
 	createdAt: number;
 	updatedAt: number;
 };
@@ -53,6 +68,23 @@ export async function updateConnection(
 	);
 }
 
+// Connections redesign — asks the server to ask the provider whether this
+// connection still works, and returns the refreshed connection.
+//
+// The status a row shows is otherwise only ever written as a side effect of a
+// provider read during a chat turn, so a token revoked at the provider reads
+// "Connected" here until a question happens to need it. The tab calls this
+// when a detail dialog opens — the moment the user is actually asking whether
+// this account still works.
+export async function recheckConnection(id: string): Promise<ConnectionPublic> {
+	const { connection } = await requestJson<{ connection: ConnectionPublic }>(
+		`/api/connections/${id}/recheck`,
+		{ method: "POST" },
+		"Failed to check this connection",
+	);
+	return connection;
+}
+
 export async function disconnectConnection(id: string): Promise<void> {
 	await requestVoid(
 		`/api/connections/${id}`,
@@ -72,6 +104,21 @@ export type ActiveCapabilitiesAccount = {
 	provider: string;
 };
 
+// Connections redesign — one entry per connection the user has, including the
+// ones that are NOT currently serving anything: the composer's account list
+// has to be able to say "4 of 6 accounts are ready" and point at the two that
+// aren't. `capabilities` is the SERVED subset, so a selection built from this
+// can only narrow what the client asks for.
+export type ActiveCapabilitiesConnection = {
+	id: string;
+	label: string;
+	provider: string;
+	accountIdentifier: string | null;
+	status: "connected" | "needs_reauth" | "error" | "disconnected";
+	defaultOn: boolean;
+	capabilities: string[];
+};
+
 export type ActiveCapabilitiesResponse = {
 	served: string[];
 	defaultOn: string[];
@@ -79,6 +126,9 @@ export type ActiveCapabilitiesResponse = {
 		capability: string;
 		connections: ActiveCapabilitiesAccount[];
 	}[];
+	// Optional so an older server (or a test fixture) still type-checks; the
+	// composer falls back to its all-or-nothing switch when it is absent.
+	connections?: ActiveCapabilitiesConnection[];
 };
 
 export async function fetchActiveCapabilities(): Promise<ActiveCapabilitiesResponse> {
@@ -94,13 +144,22 @@ export async function fetchActiveCapabilities(): Promise<ActiveCapabilitiesRespo
 // see src/routes/api/connections/<provider>/start/+server.ts) rather than
 // guessing shapes.
 
-function postJson<T>(path: string, body: unknown, errorMessage: string) {
+// `signal` is optional and additive: the connect wizard shows a "Connecting
+// …" state with a Cancel, and Cancel has to actually stop waiting rather than
+// just hiding a request that is still in flight.
+function postJson<T>(
+	path: string,
+	body: unknown,
+	errorMessage: string,
+	signal?: AbortSignal,
+) {
 	return requestJson<T>(
 		path,
 		{
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
+			...(signal ? { signal } : {}),
 		},
 		errorMessage,
 	);
@@ -171,85 +230,116 @@ export async function pollNextcloudConnect(params: {
 }
 
 // POST /api/connections/immich/start — src/routes/api/connections/immich/start/+server.ts
-export async function startImmichConnect(params: {
-	serverUrl: string;
-	email: string;
-	password: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startImmichConnect(
+	params: {
+		serverUrl: string;
+		email: string;
+		password: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/immich/start",
 		params,
 		"Failed to connect to the Immich server",
+		signal,
 	);
 }
 
 // POST /api/connections/plex/start — src/routes/api/connections/plex/start/+server.ts
-export async function startPlexConnect(params: {
-	serverUrl: string;
-	token: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startPlexConnect(
+	params: {
+		serverUrl: string;
+		token: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/plex/start",
 		params,
 		"Failed to connect to the Plex server",
+		signal,
 	);
 }
 
 // POST /api/connections/github/start — src/routes/api/connections/github/start/+server.ts
-export async function startGitHubConnect(params: {
-	token: string;
-	baseUrl?: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startGitHubConnect(
+	params: {
+		token: string;
+		baseUrl?: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/github/start",
 		params,
 		"Failed to connect to GitHub",
+		signal,
 	);
 }
 
 // POST /api/connections/apple/start — src/routes/api/connections/apple/start/+server.ts
-export async function startAppleConnect(params: {
-	appleId: string;
-	appPassword: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startAppleConnect(
+	params: {
+		appleId: string;
+		appPassword: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/apple/start",
 		params,
 		"Failed to connect to Apple iCloud",
+		signal,
 	);
 }
 
 // POST /api/connections/caldav/start — src/routes/api/connections/caldav/start/+server.ts
-export async function startCalDavConnect(params: {
-	serverUrl: string;
-	username: string;
-	appPassword: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startCalDavConnect(
+	params: {
+		serverUrl: string;
+		username: string;
+		appPassword: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/caldav/start",
 		params,
 		"Failed to connect to the CalDAV server",
+		signal,
 	);
 }
 
 // POST /api/connections/email/start — src/routes/api/connections/email/start/+server.ts
-export async function startEmailConnect(params: {
-	email: string;
-	imapHost: string;
-	imapPort?: number;
-	imapSecure?: boolean;
-	password: string;
-	smtpHost?: string;
-	smtpPort?: number;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startEmailConnect(
+	params: {
+		email: string;
+		imapHost: string;
+		imapPort?: number;
+		imapSecure?: boolean;
+		password: string;
+		smtpHost?: string;
+		smtpPort?: number;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/email/start",
 		params,
 		"Failed to connect to the mailbox",
+		signal,
 	);
 }
 
-export type OwnTracksDevice = { otUser: string; otDevice: string };
+export type OwnTracksDevice = {
+	otUser: string;
+	otDevice: string;
+	// Connections redesign — epoch seconds of the device's last fix, when the
+	// recorder had one. Optional: the picker shows the "Last seen …" line only
+	// when it is present rather than inventing one.
+	lastSeen?: number;
+};
 
 // GET /api/connections/owntracks/devices — src/routes/api/connections/owntracks/devices/+server.ts
 export async function fetchOwnTracksDevices(): Promise<OwnTracksDevice[]> {
@@ -284,15 +374,19 @@ export async function fetchNextcloudFolders(
 }
 
 // POST /api/connections/owntracks/start — src/routes/api/connections/owntracks/start/+server.ts
-export async function startOwnTracksConnect(params: {
-	otUser: string;
-	otDevice: string;
-	label?: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startOwnTracksConnect(
+	params: {
+		otUser: string;
+		otDevice: string;
+		label?: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/owntracks/start",
 		params,
 		"Failed to connect to OwnTracks",
+		signal,
 	);
 }
 

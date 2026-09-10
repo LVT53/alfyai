@@ -12,7 +12,20 @@ import {
 } from "@lucide/svelte";
 import { goto } from "$app/navigation";
 import { enableBrowserPushNotifications } from "$lib/client/api/browser-push";
-import { fetchActiveCapabilities } from "$lib/client/api/connections";
+import {
+	type ActiveCapabilitiesConnection,
+	fetchActiveCapabilities,
+} from "$lib/client/api/connections";
+import {
+	capabilitiesForSelection,
+	masterIsOn,
+	persistDisabledIds,
+	readDisabledIds,
+	readyCount,
+	toggleAccount,
+	toggleMaster,
+} from "$lib/client/connections/composer-selection";
+import ConnectionsPopover from "./ConnectionsPopover.svelte";
 import {
 	fetchAvailableModels,
 	type ModelProvider,
@@ -331,6 +344,16 @@ let availableCapabilities = $state<string[]>([]);
 let defaultOnCapabilities = $state<Set<string>>(new Set());
 let connectionsEnabled = $state(true);
 let connectionsSyncedConversationId = $state<string | null>(null);
+// Connections redesign — the plug opens an account list instead of being an
+// all-or-nothing switch, so the composer now tracks WHICH accounts this
+// conversation deviates on. An account starts at its own "Use it without
+// asking" setting; `connectionsFlippedIds` holds the ones the user flipped
+// away from it here (composer-selection's isAccountOn). `connectionAccounts`
+// comes from the same active-capabilities fetch; when the server doesn't send
+// it (older build), everything below falls back to the master switch above.
+let connectionAccounts = $state<ActiveCapabilitiesConnection[]>([]);
+let connectionsFlippedIds = $state<Set<string>>(new Set());
+let showConnectionsPopover = $state(false);
 // Issue 7.4 fix pass — the cloud-warning check/modal itself now lives at the
 // page level (+page.svelte's ensureCloudWarningAcked), reached through the
 // `beforeSend` prop, so that composer sends, queued-after-upload sends, AND
@@ -558,14 +581,29 @@ async function loadActiveCapabilities() {
 		const result = await fetchActiveCapabilities();
 		availableCapabilities = result.served;
 		defaultOnCapabilities = new Set(result.defaultOn);
+		connectionAccounts = result.connections ?? [];
 	} catch {
 		availableCapabilities = [];
 		defaultOnCapabilities = new Set();
+		connectionAccounts = [];
 	} finally {
-		activeCapabilities = connectionsEnabled
-			? new Set(defaultOnCapabilities)
-			: new Set();
+		activeCapabilities = computeActiveCapabilities();
 	}
+}
+
+// The payload the composer sends as `enabledConnectionCapabilities`.
+//
+// With a per-account list it is the union of the accounts this conversation
+// has left ON; without one (an older server) it falls back to the previous
+// all-or-nothing behaviour. Either way the server intersects the result with
+// what the user is actually served, so this can only ever narrow access.
+function computeActiveCapabilities(): Set<string> {
+	if (connectionAccounts.length > 0) {
+		return new Set(
+			capabilitiesForSelection(connectionAccounts, connectionsFlippedIds),
+		);
+	}
+	return connectionsEnabled ? new Set(defaultOnCapabilities) : new Set();
 }
 
 // Issue 7.4 race-fix follow-up — caches the (possibly still in-flight)
@@ -636,16 +674,27 @@ $effect(() => {
 	} else {
 		connectionsEnabled = true;
 	}
+
+	// Connections redesign — the per-account half of the same memory. A draft
+	// whose accounts were flipped carries the flips across creation, exactly
+	// as the master switch above does.
+	if (wasDraft && connectionsFlippedIds.size > 0) {
+		persistDisabledIds(boundId, connectionsFlippedIds);
+	} else {
+		connectionsFlippedIds = readDisabledIds(boundId);
+	}
 });
 
-// Derives the active capability set from the master toggle: on -> the
-// default-on set, off -> empty. Also covers the initial load via
-// `loadActiveCapabilities` above (redundant assignment there, kept for the
-// race-safety note on that function).
+// Derives the active capability set from the current selection. Also covers
+// the initial load via `loadActiveCapabilities` above (redundant assignment
+// there, kept for the race-safety note on that function).
 $effect(() => {
-	activeCapabilities = connectionsEnabled
-		? new Set(defaultOnCapabilities)
-		: new Set();
+	// Read every dependency so the effect re-runs on any of them.
+	void connectionsEnabled;
+	void defaultOnCapabilities;
+	void connectionAccounts;
+	void connectionsFlippedIds;
+	activeCapabilities = computeActiveCapabilities();
 });
 
 // Whether the user has any connected service. The composer toggle is always
@@ -665,6 +714,48 @@ function toggleConnections() {
 		persistConnectionsChoice(id, connectionsEnabled);
 	}
 }
+
+// Connections redesign — the plug now OPENS the account list rather than
+// flipping a single switch. It still opens on a server that doesn't send the
+// account list; the popover then just shows the master switch.
+function openConnectionsPopover() {
+	if (!hasConnections) return;
+	showConnectionsPopover = !showConnectionsPopover;
+}
+
+function rememberConnectionSelection() {
+	const id = conversationId ?? resolvedConversationId;
+	if (id) persistDisabledIds(id, connectionsFlippedIds);
+}
+
+function handleToggleConnectionsMaster() {
+	if (connectionAccounts.length === 0) {
+		toggleConnections();
+		return;
+	}
+	connectionsFlippedIds = toggleMaster(
+		connectionAccounts,
+		connectionsFlippedIds,
+	);
+	connectionsEnabled = masterIsOn(connectionAccounts, connectionsFlippedIds);
+	rememberConnectionSelection();
+}
+
+function handleToggleConnectionAccount(id: string) {
+	connectionsFlippedIds = toggleAccount(connectionsFlippedIds, id);
+	connectionsEnabled = masterIsOn(connectionAccounts, connectionsFlippedIds);
+	rememberConnectionSelection();
+}
+
+// The count on the plug, so the composer says how much is reaching this
+// message without opening anything.
+const activeConnectionCount = $derived(
+	connectionAccounts.length > 0
+		? readyCount(connectionAccounts, connectionsFlippedIds).on
+		: connectionsEnabled
+			? defaultOnCapabilities.size
+			: 0,
+);
 
 $effect(() => {
 	if (commandTrayCanOpen) {
@@ -2517,28 +2608,55 @@ async function emitDraftChange(force = false) {
 					</button>
 				{/if}
 
-				<button
-					type="button"
-					data-testid="connections-toggle"
-					class="btn-icon-bare composer-icon composer-connections-btn flex flex-shrink-0 items-center justify-center"
-					class:composer-connections-btn--active={hasConnections && connectionsEnabled}
-					class:composer-connections-btn--disabled={!hasConnections}
-					onclick={toggleConnections}
-					aria-disabled={!hasConnections}
-					aria-pressed={hasConnections ? connectionsEnabled : undefined}
-					aria-label={!hasConnections
-						? $t('chat.connectionsToggleNoConnections')
-						: connectionsEnabled
-							? $t('chat.connectionsToggleOn')
-							: $t('chat.connectionsToggleOff')}
-					title={!hasConnections
-						? $t('chat.connectionsToggleNoConnections')
-						: connectionsEnabled
-							? $t('chat.connectionsToggleOn')
-							: $t('chat.connectionsToggleOff')}
-				>
-					<Plug size={19} strokeWidth={2.1} aria-hidden="true" />
-				</button>
+				<!-- Connections redesign — the plug opens the account list instead of
+				     being an all-or-nothing switch, and carries the count so the
+				     composer says how much is reaching this message. -->
+				<div class="relative flex items-center">
+					<button
+						type="button"
+						data-testid="connections-toggle"
+						class="btn-icon-bare composer-icon composer-connections-btn flex flex-shrink-0 items-center justify-center"
+						class:composer-connections-btn--active={hasConnections && connectionsEnabled}
+						class:composer-connections-btn--disabled={!hasConnections}
+						onclick={openConnectionsPopover}
+						aria-disabled={!hasConnections}
+						aria-expanded={hasConnections ? showConnectionsPopover : undefined}
+						aria-label={!hasConnections
+							? $t('chat.connectionsToggleNoConnections')
+							: connectionsEnabled
+								? $t('chat.connectionsToggleOn')
+								: $t('chat.connectionsToggleOff')}
+						title={!hasConnections
+							? $t('chat.connectionsToggleNoConnections')
+							: connectionsEnabled
+								? $t('chat.connectionsToggleOn')
+								: $t('chat.connectionsToggleOff')}
+					>
+						<Plug size={19} strokeWidth={2.1} aria-hidden="true" />
+						{#if hasConnections && activeConnectionCount > 0}
+							<span class="composer-connections-count" aria-hidden="true">
+								{activeConnectionCount}
+							</span>
+						{/if}
+					</button>
+
+					{#if showConnectionsPopover}
+						<ConnectionsPopover
+							connections={connectionAccounts}
+							flippedIds={connectionsFlippedIds}
+							masterOn={connectionAccounts.length > 0
+								? masterIsOn(connectionAccounts, connectionsFlippedIds)
+								: connectionsEnabled}
+							onToggleMaster={handleToggleConnectionsMaster}
+							onToggleAccount={handleToggleConnectionAccount}
+							onManage={() => {
+								showConnectionsPopover = false;
+								goto('/settings?section=connections');
+							}}
+							onClose={() => (showConnectionsPopover = false)}
+						/>
+					{/if}
+				</div>
 
 				<ContextUsageRing
 					{contextStatus}
@@ -2989,6 +3107,7 @@ async function emitDraftChange(force = false) {
 	   colour while on (the default), muted once turned off for this
 	   conversation. Icon-only colouring — the box is never filled. */
 	.composer-connections-btn {
+		position: relative;
 		color: var(--icon-muted);
 	}
 
@@ -2999,6 +3118,25 @@ async function emitDraftChange(force = false) {
 	.composer-connections-btn--active:hover {
 		color: var(--accent-hover);
 		opacity: 1;
+	}
+
+	/* Connections redesign — how many accounts are reaching this message.
+	   Decorative (aria-hidden): the button's own label already says what the
+	   state is, and a screen reader shouldn't hear a bare number. */
+	.composer-connections-count {
+		position: absolute;
+		top: 0.0625rem;
+		right: 0.0625rem;
+		min-width: 0.875rem;
+		padding: 0 0.1875rem;
+		border-radius: 9999px;
+		background: var(--accent);
+		color: var(--accent-contrast);
+		font-size: 0.5625rem;
+		font-weight: 700;
+		line-height: 0.875rem;
+		text-align: center;
+		pointer-events: none;
 	}
 
 	/* Thinking toggle (ADR-0061): icon-only colouring, accent while thorough

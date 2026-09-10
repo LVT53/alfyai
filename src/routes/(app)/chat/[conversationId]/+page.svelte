@@ -2742,6 +2742,7 @@ function handleDrop(event: DragEvent) {
 
 	{#if cloudWarningOpen}
 		<CloudConnectorWarningModal
+			cloudModelId={$selectedModel}
 			onCancel={handleCloudWarningCancel}
 			onContinue={handleCloudWarningContinue}
 			onEnableLocalMode={handleCloudWarningEnableLocalMode}

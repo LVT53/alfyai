@@ -9,7 +9,11 @@ import { getConfig } from "$lib/server/config-store";
 import { config as envConfig } from "$lib/server/env";
 import { registerConnectionAdapter } from "../adapters";
 import { ConnectionHttpError } from "../provider-http";
-import type { Capability, ConnectionAdapter } from "../registry";
+import {
+	type Capability,
+	type ConnectionAdapter,
+	OAUTH_CAPABILITY_SCOPES,
+} from "../registry";
 import {
 	type ConnectionPublic,
 	createConnection,
@@ -48,10 +52,12 @@ export class GoogleOAuthError extends ConnectionHttpError<GoogleOAuthErrorCode> 
 
 // Read-first scope map (1 capability -> 1 Google scope). Write scopes are
 // added incrementally in Phase 6 rather than requested up front.
-const CAPABILITY_SCOPES: Partial<Record<Capability, string>> = {
-	calendar: "https://www.googleapis.com/auth/calendar.readonly",
-	contacts: "https://www.googleapis.com/auth/contacts.readonly",
-};
+// Sourced from the shared registry (OAUTH_CAPABILITY_SCOPES) rather than
+// declared here, so granted.ts can answer "which capabilities did Google
+// actually grant this connection?" from the exact same map this module builds
+// its consent URL with — two copies would drift the moment a scope changes.
+const CAPABILITY_SCOPES: Partial<Record<Capability, string>> =
+	OAUTH_CAPABILITY_SCOPES.google ?? {};
 
 // Always requested regardless of capability — needed to resolve the
 // account's email as the connection's accountIdentifier.

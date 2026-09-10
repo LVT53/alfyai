@@ -27,6 +27,7 @@ import {
 	disconnectConnection,
 	fetchConnections,
 	fetchLocality,
+	recheckConnection,
 	setLocalDistill,
 	updateConnection,
 	updateOwnTracksHome,
@@ -232,16 +233,27 @@ let removingPhoto = $state(false);
 let connections = $state<ConnectionPublic[]>([]);
 let connectionsLoaded = $state(false);
 let connectionsLoading = $state(false);
+// Connections redesign — a failed load is its own state now. It used to
+// render the same "No connections yet" card as a genuinely empty account,
+// with a code comment saying the user could retry by revisiting the page.
+let connectionsLoadFailed = $state(false);
 // Issue 7.4 — Option A (local-distill) privacy toggle. Loaded alongside
 // connections in the same lazy-load effect below, but tracked independently
 // since it isn't part of the connections list.
 let localDistill = $state(false);
 let localityLoaded = $state(false);
 let localityLoading = $state(false);
+// Connections redesign — a locality read that failed is not the same answer
+// as "off". See loadLocality() below.
+let localityLoadFailed = $state(false);
 // Raised by SettingsConnectionsTab's onStartConnect/onReconnect callback
 // props; consumed by the ConnectWizardModal below (Issue 7.3).
 let connectWizardProvider = $state<ConnectionProvider | null>(null);
 let reconnectConnectionId = $state<string | null>(null);
+// Connections redesign — capabilities the wizard should open pre-ticked,
+// set by "Ask again" on a capability the provider denied. Empty means "use
+// whatever the connection already has".
+let wizardRequestedCapabilities = $state<string[]>([]);
 // Non-null only while reconnectConnectionId is set — resolved from the
 // already-loaded connections list so the wizard can prefill non-secret
 // fields (server URL, email, ...) from the existing connection's config.
@@ -473,6 +485,23 @@ onMount(() => {
 		return;
 	}
 
+	// Connections redesign — the "not set up on this server yet" wizard state
+	// links here rather than telling a single-user server's owner to ask their
+	// administrator, who is the same person. Mirrors the tool-health handler
+	// below; the card highlight is best-effort so this still lands the user on
+	// Administration → System even before that card grows an id.
+	if (section === "integrations" && isAdmin) {
+		void handleTabChange("administration");
+		requestAnimationFrame(() => {
+			const card = document.getElementById("settings-integrations-card");
+			if (!card) return;
+			card.scrollIntoView({ behavior: "smooth", block: "start" });
+			card.classList.add("settings-card-highlight");
+			setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
+		});
+		return;
+	}
+
 	if (section === "tool-health" && isAdmin) {
 		void handleTabChange("administration");
 		requestAnimationFrame(() => {
@@ -532,12 +561,21 @@ async function changeMemoryEnabled(enabled: boolean) {
 // (mirrors changeMemoryEnabled above). onDisconnect removes the row from
 // local state only after the DELETE succeeds (no optimistic removal —
 // there's nothing sensible to "revert" a vanished card back to).
+//
+// Connections redesign — every one of these now RE-THROWS after reverting.
+// The revert is still what keeps the UI honest; the throw is what lets
+// SettingsConnectionsTab tell the user which change didn't save and offer to
+// try it again. Swallowing was the single biggest source of silent failure on
+// this screen.
 async function loadConnections() {
 	connectionsLoading = true;
 	try {
 		connections = await fetchConnections();
+		connectionsLoadFailed = false;
 	} catch {
-		// Non-fatal: panel shows an empty list; user can retry by revisiting.
+		// The tab renders its own "we couldn't load your connections" card with
+		// a retry — distinct from a genuinely empty account.
+		connectionsLoadFailed = true;
 	} finally {
 		connectionsLoading = false;
 		connectionsLoaded = true;
@@ -552,9 +590,14 @@ async function loadLocality() {
 	try {
 		const result = await fetchLocality();
 		localDistill = result.localDistill;
+		localityLoadFailed = false;
 	} catch {
-		// Non-fatal: toggle shows its default (off); user can retry by
-		// revisiting the tab.
+		// Connections redesign — this used to swallow with a comment saying
+		// the user could retry by revisiting the tab. The switch then showed
+		// "off" — a definite answer about where their data goes — when the
+		// truth was that we had no idea. The card now says so and offers the
+		// one action that fixes it.
+		localityLoadFailed = true;
 	} finally {
 		localityLoading = false;
 		localityLoaded = true;
@@ -566,8 +609,9 @@ async function toggleLocalDistill(next: boolean) {
 	localDistill = next;
 	try {
 		await setLocalDistill(next);
-	} catch {
+	} catch (err) {
 		localDistill = previous;
+		throw err;
 	}
 }
 
@@ -590,8 +634,9 @@ async function toggleConnectionCapability(
 	patchConnectionLocal(id, { capabilities: nextCapabilities });
 	try {
 		await updateConnection(id, { capabilities: nextCapabilities });
-	} catch {
+	} catch (err) {
 		patchConnectionLocal(id, { capabilities: previous });
+		throw err;
 	}
 }
 
@@ -601,8 +646,9 @@ async function toggleConnectionAllowWrites(id: string, next: boolean) {
 	patchConnectionLocal(id, { allowWrites: next });
 	try {
 		await updateConnection(id, { allowWrites: next });
-	} catch {
+	} catch (err) {
 		patchConnectionLocal(id, { allowWrites: previous });
+		throw err;
 	}
 }
 
@@ -612,8 +658,9 @@ async function toggleConnectionDefaultOn(id: string, next: boolean) {
 	patchConnectionLocal(id, { defaultOn: next });
 	try {
 		await updateConnection(id, { defaultOn: next });
-	} catch {
+	} catch (err) {
 		patchConnectionLocal(id, { defaultOn: previous });
+		throw err;
 	}
 }
 
@@ -623,8 +670,9 @@ async function updateConnectionWriteAllowlist(id: string, next: string[]) {
 	patchConnectionLocal(id, { writeAllowlist: next });
 	try {
 		await updateConnection(id, { writeAllowlist: next });
-	} catch {
+	} catch (err) {
 		patchConnectionLocal(id, { writeAllowlist: previous });
+		throw err;
 	}
 }
 
@@ -650,38 +698,100 @@ async function updateConnectionOwnTracksHome(
 	patchConnectionLocal(id, { config: nextConfig });
 	try {
 		await updateOwnTracksHome(id, next);
-	} catch {
+	} catch (err) {
 		patchConnectionLocal(id, { config: previousConfig });
+		throw err;
 	}
 }
 
 async function disconnectConnectionById(id: string) {
+	// No try/catch: a failed disconnect must reach the caller, which keeps the
+	// dialog open and says the row is still there. It used to be swallowed
+	// with a comment saying "card stays put so the user can retry" — with
+	// nothing on screen telling them there was anything to retry.
+	await disconnectConnection(id);
+	connections = connections.filter((conn) => conn.id !== id);
+}
+
+// Connections redesign — asks the provider whether one connection still
+// works and folds the answer back into the list.
+//
+// This is what finally calls checkConnectionHealth (health.ts), which had
+// never had a caller: status was only ever written as a side effect of a
+// provider read during a chat turn, so a revoked token read "Connected" on
+// this tab until a question happened to need it. The tab fires this when a
+// detail dialog opens — the moment the user is asking about that account —
+// rather than one network call per provider on every visit.
+async function recheckConnectionHealth(id: string) {
+	// Deliberately quiet on failure: the user asked to LOOK at a connection,
+	// not to change one, and a check that could not run has changed nothing
+	// and lost nothing. The row keeps the last status we knew. A recovery card
+	// here would be a message about our own bookkeeping.
 	try {
-		await disconnectConnection(id);
-		connections = connections.filter((conn) => conn.id !== id);
+		const fresh = await recheckConnection(id);
+		patchConnectionLocal(id, {
+			status: fresh.status,
+			statusDetail: fresh.statusDetail,
+			statusChangedAt: fresh.statusChangedAt,
+			lastUsedAt: fresh.lastUsedAt,
+		});
 	} catch {
-		// Non-fatal: card stays put so the user can retry.
+		// Intentionally ignored — see above.
 	}
 }
 
 function startConnect(provider: ConnectionProvider) {
 	reconnectConnectionId = null;
+	wizardRequestedCapabilities = [];
 	connectWizardProvider = provider;
 }
 
 function reconnectConnection(connectionId: string) {
 	const target = connections.find((conn) => conn.id === connectionId);
 	reconnectConnectionId = connectionId;
+	wizardRequestedCapabilities = [];
 	connectWizardProvider = (target?.provider as ConnectionProvider) ?? null;
+}
+
+// Connections redesign — "Ask again" on a capability the provider denied.
+// Re-opens the same wizard in reconnect mode with the denied capability
+// pre-ticked alongside everything already granted, so the consent screen is
+// asked for the union rather than silently narrowing what already works.
+function askAgainForCapability(connectionId: string, capability: string) {
+	const target = connections.find((conn) => conn.id === connectionId);
+	if (!target) return;
+	reconnectConnectionId = connectionId;
+	wizardRequestedCapabilities = [
+		...new Set([...(target.grantedCapabilities ?? []), capability]),
+	];
+	connectWizardProvider = target.provider as ConnectionProvider;
 }
 
 function closeConnectWizard() {
 	connectWizardProvider = null;
 	reconnectConnectionId = null;
+	wizardRequestedCapabilities = [];
 }
 
 function handleConnectWizardConnected() {
 	void loadConnections();
+}
+
+// Connections redesign — takes the user to the Administration page that owns
+// the integration keys, from inside the wizard's "not set up yet" state.
+// An in-app navigation rather than a link so the tab switch is instant and
+// the connect dialog's own close still runs.
+function openAdminIntegrations() {
+	closeConnectWizard();
+	if (!isAdmin) return;
+	void handleTabChange("administration");
+	requestAnimationFrame(() => {
+		const card = document.getElementById("settings-integrations-card");
+		if (!card) return;
+		card.scrollIntoView({ behavior: "smooth", block: "start" });
+		card.classList.add("settings-card-highlight");
+		setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
+	});
 }
 
 function openPrivacyAction(action: PrivacyAction) {
@@ -919,16 +1029,22 @@ $effect(() => {
 			<SettingsConnectionsTab
 				{connections}
 				loading={connectionsLoading && !connectionsLoaded}
+				loadFailed={connectionsLoadFailed}
+				onRetryLoad={loadConnections}
 				onToggleCapability={toggleConnectionCapability}
 				onToggleAllowWrites={toggleConnectionAllowWrites}
 				onToggleDefaultOn={toggleConnectionDefaultOn}
 				onUpdateWriteAllowlist={updateConnectionWriteAllowlist}
 				onUpdateOwnTracksHome={updateConnectionOwnTracksHome}
 				onDisconnect={disconnectConnectionById}
+				onRecheck={recheckConnectionHealth}
 				onStartConnect={startConnect}
 				onReconnect={reconnectConnection}
+				onAskAgain={askAgainForCapability}
 				{localDistill}
 				localityLoading={localityLoading && !localityLoaded}
+				{localityLoadFailed}
+				onRetryLocality={loadLocality}
 				onToggleLocalDistill={toggleLocalDistill}
 			/>
 		{/if}
@@ -938,6 +1054,9 @@ $effect(() => {
 				provider={connectWizardProvider}
 				{reconnectConnectionId}
 				reconnectConnection={reconnectConnectionRecord}
+				requestedCapabilities={wizardRequestedCapabilities}
+				{isAdmin}
+				onOpenAdminIntegrations={openAdminIntegrations}
 				onClose={closeConnectWizard}
 				onConnected={handleConnectWizardConnected}
 			/>

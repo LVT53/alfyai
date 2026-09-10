@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import ConnectionDetailModal from "./ConnectionDetailModal.svelte";
@@ -32,13 +38,16 @@ function makeConnection(
 		allowWrites: false,
 		writeAllowlist: [],
 		capabilities: ["calendar"],
+		grantedCapabilities: ["calendar", "contacts"],
 		config: {},
 		oauthScopes: ["calendar"],
 		tokenExpiresAt: null,
 		hasSecret: true,
 		hasWriteSecret: false,
-		createdAt: 1,
-		updatedAt: 1,
+		lastUsedAt: null,
+		statusChangedAt: null,
+		createdAt: 1_756_000_000,
+		updatedAt: 1_756_000_000,
 		...overrides,
 	};
 }
@@ -53,6 +62,8 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 		onUpdateWriteAllowlist: vi.fn(),
 		onUpdateOwnTracksHome: vi.fn(),
 		onDisconnect: vi.fn(),
+		onReconnect: vi.fn(),
+		onAskAgain: vi.fn(),
 		...overrides,
 	};
 }
@@ -61,6 +72,15 @@ describe("ConnectionDetailModal", () => {
 	beforeEach(() => {
 		mockFetchNextcloudFolders.mockReset();
 		mockFetchNextcloudFolders.mockResolvedValue([]);
+		// See the note in SettingsConnectionsTab.test.ts: jsdom has no Web
+		// Animations API, so reporting reduced motion is what lets an outro
+		// finish.
+		vi.stubGlobal("matchMedia", (query: string) => ({
+			matches: true,
+			media: query,
+			addEventListener: () => {},
+			removeEventListener: () => {},
+		}));
 	});
 
 	it("renders nothing when connection is null", () => {
@@ -68,613 +88,583 @@ describe("ConnectionDetailModal", () => {
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 	});
 
-	it("renders a header with the provider, account, and status", () => {
-		render(ConnectionDetailModal, baseProps());
-
-		const dialog = screen.getByRole("dialog");
-		expect(within(dialog).getByText("Google")).toBeInTheDocument();
-		expect(within(dialog).getByText("person@example.com")).toBeInTheDocument();
-		// R3-fix #4 — "Connected" is a quiet accessible icon, not a text pill.
-		expect(
-			within(dialog).getByRole("img", { name: "Connected" }),
-		).toBeInTheDocument();
-		expect(dialog.querySelector(".status-chip")).toBeNull();
-	});
-
-	it.each([
-		"needs_reauth",
-		"error",
-		"disconnected",
-	] as const)("still renders a visible status pill for %s", (status) => {
+	it("renders a header with the provider, the account and the same status word as the list", () => {
 		render(
 			ConnectionDetailModal,
-			baseProps({ connection: makeConnection({ status }) }),
+			baseProps({ connection: makeConnection({ status: "connected" }) }),
 		);
-
-		const dialog = screen.getByRole("dialog");
-		expect(dialog.querySelector(".status-chip")).not.toBeNull();
-		expect(
-			within(dialog).queryByRole("img", { name: "Connected" }),
-		).not.toBeInTheDocument();
+		const detail = screen.getByTestId("connection-detail-conn-1");
+		expect(within(detail).getByText("person@example.com")).toBeInTheDocument();
+		expect(within(detail).getByText("Connected")).toBeInTheDocument();
 	});
 
-	it("renders a Toggle per capability the provider supports", () => {
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({ capabilities: ["calendar"] }),
-			}),
-		);
-
-		// Google's catalog entry supports calendar + contacts.
-		expect(
-			screen.getByRole("switch", { name: "Calendar — Google" }),
-		).toHaveAttribute("aria-checked", "true");
-		expect(
-			screen.getByRole("switch", { name: "Contacts — Google" }),
-		).toHaveAttribute("aria-checked", "false");
-	});
-
-	it("toggling a capability calls onToggleCapability with (id, capability, next)", async () => {
-		const onToggleCapability = vi.fn();
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({ capabilities: ["calendar"] }),
-				onToggleCapability,
-			}),
-		);
-
-		await fireEvent.click(
-			screen.getByRole("switch", { name: "Calendar — Google" }),
-		);
-
-		expect(onToggleCapability).toHaveBeenCalledWith(
-			"conn-1",
-			"calendar",
-			false,
-		);
-	});
-
-	it("toggling default-on calls onToggleDefaultOn with the new value", async () => {
-		const onToggleDefaultOn = vi.fn();
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({ defaultOn: true }),
-				onToggleDefaultOn,
-			}),
-		);
-
-		await fireEvent.click(
-			screen.getByRole("switch", { name: "Default on — Google" }),
-		);
-
-		expect(onToggleDefaultOn).toHaveBeenCalledWith("conn-1", false);
-	});
-
-	it("puts the allow-writes warning behind the shared InfoTooltip, not as always-visible prose", () => {
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({
-					provider: "nextcloud",
-					capabilities: ["files"],
-				}),
-			}),
-		);
-
-		// The warning text exists (as the tooltip trigger's accessible name /
-		// content), but is not rendered as a plain always-visible paragraph.
-		expect(
-			screen.queryByText(/Writing is off by default/),
-		).not.toBeInTheDocument();
-		expect(
-			screen.getByRole("button", { name: /Writing is off by default/ }),
-		).toBeInTheDocument();
-	});
-
-	it("hides the allow-writes toggle (and its tooltip) entirely for a read-only provider", () => {
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({
-					id: "conn-plex",
-					provider: "plex",
-					capabilities: ["media"],
-				}),
-			}),
-		);
-
-		expect(
-			screen.queryByRole("switch", { name: /Allow writes/ }),
-		).not.toBeInTheDocument();
-		expect(
-			screen.queryByRole("button", { name: /Writing is off by default/ }),
-		).not.toBeInTheDocument();
-	});
-
-	it("toggling allow-writes calls onToggleAllowWrites with the new value", async () => {
-		const onToggleAllowWrites = vi.fn();
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({
-					provider: "nextcloud",
-					capabilities: ["files"],
-				}),
-				onToggleAllowWrites,
-			}),
-		);
-
-		await fireEvent.click(
-			screen.getByRole("switch", { name: "Allow writes — Nextcloud" }),
-		);
-
-		expect(onToggleAllowWrites).toHaveBeenCalledWith("conn-1", true);
-	});
-
-	it("shows the write-allowlist editor only for nextcloud (path-based writes) with allowWrites on", () => {
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({
-					id: "conn-nc",
-					provider: "nextcloud",
-					capabilities: ["files"],
-					allowWrites: true,
-					writeAllowlist: ["/AlfyAI"],
-				}),
-			}),
-		);
-
-		expect(screen.getByText("Allowed folders")).toBeInTheDocument();
-		expect(screen.getByText("/AlfyAI")).toBeInTheDocument();
-	});
-
-	it("does not show the write-allowlist editor for a non-path writable provider, showing a confirm note instead", () => {
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({ provider: "google", allowWrites: true }),
-			}),
-		);
-
-		expect(screen.queryByText("Allowed folders")).not.toBeInTheDocument();
-		expect(
-			screen.getByText(/confirmed individually before they happen/),
-		).toBeInTheDocument();
-	});
-
-	it("adding a write-allowlist entry calls onUpdateWriteAllowlist with the appended path", async () => {
-		const onUpdateWriteAllowlist = vi.fn();
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({
-					id: "conn-nc",
-					provider: "nextcloud",
-					capabilities: ["files"],
-					allowWrites: true,
-					writeAllowlist: ["/AlfyAI"],
-				}),
-				onUpdateWriteAllowlist,
-			}),
-		);
-
-		const input = screen.getByPlaceholderText("/folder/path");
-		await fireEvent.input(input, { target: { value: "/Documents" } });
-		await fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
-
-		expect(onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-nc", [
-			"/AlfyAI",
-			"/Documents",
-		]);
-	});
-
-	// R3-fix #7 — the add-folder control is an icon-only Plus button (no
-	// visible "Add" text), with an accessible label instead.
-	it("renders the add-folder control as an icon-only Plus button", () => {
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({
-					id: "conn-nc",
-					provider: "nextcloud",
-					capabilities: ["files"],
-					allowWrites: true,
-					writeAllowlist: [],
-				}),
-			}),
-		);
-
-		const addBtn = screen.getByRole("button", { name: "Add folder" });
-		expect(addBtn).not.toHaveTextContent("Add");
-		expect(addBtn.querySelector("svg")).not.toBeNull();
-	});
-
-	// Redesign R9 — folder suggestions.
-	it("fetches folder suggestions for a nextcloud connection with writes on, and offers them on focus", async () => {
-		mockFetchNextcloudFolders.mockResolvedValue([
-			{ path: "/Documents", name: "Documents" },
-			{ path: "/Photos", name: "Photos" },
-		]);
-		const onUpdateWriteAllowlist = vi.fn();
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({
-					id: "conn-nc",
-					provider: "nextcloud",
-					capabilities: ["files"],
-					allowWrites: true,
-					writeAllowlist: [],
-				}),
-				onUpdateWriteAllowlist,
-			}),
-		);
-
-		expect(mockFetchNextcloudFolders).toHaveBeenCalledWith("conn-nc");
-
-		const input = screen.getByPlaceholderText("/folder/path");
-		await fireEvent.focus(input);
-
-		const option = await screen.findByRole("option", { name: "/Documents" });
-		expect(screen.getByRole("option", { name: "/Photos" })).toBeInTheDocument();
-
-		await fireEvent.click(option);
-
-		expect(onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-nc", [
-			"/Documents",
-		]);
-	});
-
-	it("falls back to plain manual entry when the folder fetch fails (never blocks adding a path)", async () => {
-		mockFetchNextcloudFolders.mockRejectedValue(new Error("offline"));
-		const onUpdateWriteAllowlist = vi.fn();
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({
-					id: "conn-nc",
-					provider: "nextcloud",
-					capabilities: ["files"],
-					allowWrites: true,
-					writeAllowlist: [],
-				}),
-				onUpdateWriteAllowlist,
-			}),
-		);
-
-		const input = screen.getByPlaceholderText("/folder/path");
-		await fireEvent.focus(input);
-
-		// Give the rejected fetch a turn to settle before asserting nothing
-		// crashed and no dropdown ever appeared.
-		await Promise.resolve();
-		await Promise.resolve();
-
-		expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
-
-		await fireEvent.input(input, { target: { value: "/Manual" } });
-		await fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
-
-		expect(onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-nc", ["/Manual"]);
-	});
-
-	it("does not fetch folder suggestions for a non-nextcloud provider", () => {
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({ provider: "google", allowWrites: true }),
-			}),
-		);
-
-		expect(mockFetchNextcloudFolders).not.toHaveBeenCalled();
-	});
-
-	it("does not fetch folder suggestions while allow-writes is off", () => {
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({
-					provider: "nextcloud",
-					capabilities: ["files"],
-					allowWrites: false,
-				}),
-			}),
-		);
-
-		expect(mockFetchNextcloudFolders).not.toHaveBeenCalled();
-	});
-
-	it("removing a write-allowlist chip calls onUpdateWriteAllowlist without that path", async () => {
-		const onUpdateWriteAllowlist = vi.fn();
-		render(
-			ConnectionDetailModal,
-			baseProps({
-				connection: makeConnection({
-					id: "conn-nc",
-					provider: "nextcloud",
-					capabilities: ["files"],
-					allowWrites: true,
-					writeAllowlist: ["/AlfyAI", "/Documents"],
-				}),
-				onUpdateWriteAllowlist,
-			}),
-		);
-
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Remove /Documents" }),
-		);
-
-		expect(onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-nc", ["/AlfyAI"]);
-	});
-
-	it("disconnect opens a confirm dialog, then calls onDisconnect on confirm", async () => {
-		const onDisconnect = vi.fn();
-		render(ConnectionDetailModal, baseProps({ onDisconnect }));
-
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Disconnect Google" }),
-		);
-
-		expect(
-			screen.getByRole("heading", { name: "Disconnect Google?" }),
-		).toBeInTheDocument();
-		expect(onDisconnect).not.toHaveBeenCalled();
-
-		await fireEvent.click(screen.getByTestId("confirm-delete"));
-
-		expect(onDisconnect).toHaveBeenCalledWith("conn-1");
-	});
-
-	// R3-fix #5 — disconnect is an icon-only button in the header row (logo ·
-	// account · status · disconnect), not a bottom text button with visible
-	// "Disconnect" text and a `.connection-detail-footer` wrapper.
-	it("renders disconnect as an icon-only button inside the header row, not a bottom text button", () => {
-		render(ConnectionDetailModal, baseProps());
-
-		const dialog = screen.getByRole("dialog");
-		const header = dialog.querySelector(
-			".connection-detail-header",
-		) as HTMLElement;
-		const disconnectBtn = within(header).getByRole("button", {
-			name: "Disconnect Google",
+	// The change the whole redesign turns on: a capability the provider refused
+	// gets no switch, because turning it on never meant anything.
+	describe("switches only for what was granted", () => {
+		it("renders a switch per granted capability", () => {
+			render(ConnectionDetailModal, baseProps());
+			expect(
+				screen.getByRole("switch", { name: "Calendar" }),
+			).toBeInTheDocument();
+			expect(
+				screen.getByRole("switch", { name: "Contacts" }),
+			).toBeInTheDocument();
 		});
 
-		expect(disconnectBtn).not.toHaveTextContent("Disconnect");
-		expect(disconnectBtn.querySelector("svg")).not.toBeNull();
-		expect(dialog.querySelector(".connection-detail-footer")).toBeNull();
+		it("renders a denied capability as a greyed line with 'Ask again', and no switch", async () => {
+			const onAskAgain = vi.fn();
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					onAskAgain,
+					connection: makeConnection({
+						capabilities: ["calendar"],
+						grantedCapabilities: ["calendar"],
+					}),
+				}),
+			);
+			const row = screen.getByTestId("capability-contacts");
+			expect(row.className).toContain("denied");
+			expect(
+				within(row).queryByRole("switch", { name: "Contacts" }),
+			).not.toBeInTheDocument();
+			expect(
+				within(row).getByText(
+					"You didn't allow this, so there is nothing to switch on.",
+				),
+			).toBeInTheDocument();
+
+			await fireEvent.click(
+				screen.getByTestId("capability-contacts-ask-again"),
+			);
+			expect(onAskAgain).toHaveBeenCalledWith("conn-1", "contacts");
+		});
+
+		// A CalDAV server without address books didn't "refuse" anything — it
+		// simply didn't have one when we looked. So the sentence differs from
+		// the OAuth case, and so does the verb on the button: reconnecting
+		// re-runs the discovery, which is the only thing that can find an
+		// address book added since. Leaving this line with no button at all
+		// made it inert — a CalDAV account that grew an address book had no way
+		// back to it, which the old modal (wrongly, but reachably) allowed.
+		it("says a discovered capability is missing from the server, and offers to look again", async () => {
+			const onAskAgain = vi.fn();
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					onAskAgain,
+					connection: makeConnection({
+						provider: "caldav",
+						capabilities: ["tasks"],
+						grantedCapabilities: ["tasks"],
+					}),
+				}),
+			);
+			const row = screen.getByTestId("capability-contacts");
+			expect(
+				within(row).getByText(
+					"Your server doesn't offer this, so there is nothing to switch on.",
+				),
+			).toBeInTheDocument();
+			// No switch: there is still nothing behind it to turn on.
+			expect(
+				within(row).queryByRole("switch", { name: "Contacts" }),
+			).not.toBeInTheDocument();
+
+			const lookAgain = screen.getByTestId("capability-contacts-ask-again");
+			expect(lookAgain).toHaveTextContent("Look again");
+			await fireEvent.click(lookAgain);
+			expect(onAskAgain).toHaveBeenCalledWith("conn-1", "contacts");
+		});
+
+		it("toggling a capability calls onToggleCapability with (id, capability, next)", async () => {
+			const onToggleCapability = vi.fn();
+			render(ConnectionDetailModal, baseProps({ onToggleCapability }));
+			await fireEvent.click(screen.getByRole("switch", { name: "Calendar" }));
+			expect(onToggleCapability).toHaveBeenCalledWith(
+				"conn-1",
+				"calendar",
+				false,
+			);
+		});
+
+		// Rapid toggling used to race two PATCHes against each other.
+		it("disables a switch while its own write is in flight", async () => {
+			let resolve: (() => void) | undefined;
+			const onToggleCapability = vi.fn(
+				() =>
+					new Promise<void>((r) => {
+						resolve = r;
+					}),
+			);
+			render(ConnectionDetailModal, baseProps({ onToggleCapability }));
+			const toggle = screen.getByRole("switch", { name: "Calendar" });
+			await fireEvent.click(toggle);
+			await waitFor(() => expect(toggle).toBeDisabled());
+			// Another switch stays live — only the one being written is locked.
+			expect(
+				screen.getByRole("switch", { name: "Contacts" }),
+			).not.toBeDisabled();
+			resolve?.();
+			await waitFor(() => expect(toggle).not.toBeDisabled());
+		});
 	});
 
-	// R3-fix #8 — the detail modal is the standard centered, content-sized
-	// DialogShell (no `fullScreen`), matching every other settings dialog.
-	it("renders as a centered, content-sized dialog (not fullScreen)", () => {
-		render(ConnectionDetailModal, baseProps());
+	describe("how it behaves", () => {
+		it("labels the default-on switch in words, with its own sentence", async () => {
+			const onToggleDefaultOn = vi.fn();
+			render(ConnectionDetailModal, baseProps({ onToggleDefaultOn }));
+			const row = screen.getByTestId("behaviour-default-on");
+			expect(
+				within(row).getByText("Use it without asking"),
+			).toBeInTheDocument();
+			expect(
+				within(row).getByText(/reaches for Google on its own/),
+			).toBeInTheDocument();
+			// The old bare label is gone.
+			expect(screen.queryByText("Default on")).not.toBeInTheDocument();
 
-		const dialog = screen.getByRole("dialog");
-		expect(dialog.className).not.toContain("h-full");
-		expect(dialog.className).not.toContain("max-w-full");
-		expect(dialog.className).toContain("max-w-[480px]");
-		expect(dialog.getAttribute("style")).toContain("max-height: 85dvh");
+			await fireEvent.click(
+				within(row).getByRole("switch", { name: "Use it without asking" }),
+			);
+			expect(onToggleDefaultOn).toHaveBeenCalledWith("conn-1", false);
+		});
+
+		it("labels the writes switch in words and keeps the long warning in a tooltip", async () => {
+			const onToggleAllowWrites = vi.fn();
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					onToggleAllowWrites,
+					connection: makeConnection({ provider: "nextcloud" }),
+				}),
+			);
+			const row = screen.getByTestId("behaviour-allow-writes");
+			expect(within(row).getByText("Let Alfy write")).toBeInTheDocument();
+			expect(
+				within(row).getByRole("button", { name: /Writing is off by default/ }),
+			).toBeInTheDocument();
+			expect(screen.queryByText("Allow writes")).not.toBeInTheDocument();
+
+			await fireEvent.click(
+				within(row).getByRole("switch", { name: "Let Alfy write" }),
+			);
+			expect(onToggleAllowWrites).toHaveBeenCalledWith("conn-1", true);
+		});
+
+		it("hides the writes switch entirely for a read-only provider, and says why", () => {
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: makeConnection({
+						provider: "plex",
+						capabilities: ["media"],
+						grantedCapabilities: ["media"],
+					}),
+				}),
+			);
+			expect(
+				screen.queryByTestId("behaviour-allow-writes"),
+			).not.toBeInTheDocument();
+			expect(
+				screen.getByText("Plex is read-only — Alfy can never change it."),
+			).toBeInTheDocument();
+		});
+
+		// Plex's library is films and shows, not "media".
+		it("calls Plex's capability films and shows", () => {
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: makeConnection({
+						provider: "plex",
+						capabilities: ["media"],
+						grantedCapabilities: ["media"],
+					}),
+				}),
+			);
+			expect(
+				screen.getByRole("switch", { name: "Films and shows" }),
+			).toBeInTheDocument();
+		});
 	});
 
-	// R3-fix #6 — the InfoTooltip trigger sits next to the default-on /
-	// allow-writes labels in a flex row (`.connection-toggle-text`, which is
-	// `align-items: center`), and the label itself drops the global
-	// `.settings-label` bottom margin (meant for labels stacked ABOVE an
-	// input, which otherwise shifts the label off-center relative to the
-	// icon) via the `.connection-toggle-label` modifier class.
-	it("vertically centers the InfoTooltip icon with its label", () => {
-		render(
-			ConnectionDetailModal,
-			baseProps({
+	describe("write folders", () => {
+		function nextcloudProps(overrides: Partial<ConnectionPublic> = {}) {
+			return baseProps({
 				connection: makeConnection({
 					provider: "nextcloud",
-					capabilities: ["files"],
+					capabilities: ["files", "contacts"],
+					grantedCapabilities: ["files", "contacts"],
+					allowWrites: true,
+					...overrides,
 				}),
-			}),
-		);
-
-		const dialog = screen.getByRole("dialog");
-		const rows = dialog.querySelectorAll(".connection-toggle-text");
-		expect(rows.length).toBeGreaterThan(0);
-		for (const row of rows) {
-			expect(
-				row.querySelector("[aria-describedby], .info-tooltip-trigger"),
-			).not.toBeNull();
-			const label = row.querySelector(".settings-label") as HTMLElement;
-			expect(label).not.toBeNull();
-			expect(label.className).toContain("connection-toggle-label");
+			});
 		}
+
+		it("shows the folder editor only for a path-scoped writable connection", () => {
+			render(ConnectionDetailModal, nextcloudProps());
+			expect(screen.getByText("Folders Alfy may write to")).toBeInTheDocument();
+		});
+
+		it("shows a confirm note instead for a writable provider without folder scoping", () => {
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: makeConnection({
+						provider: "imap",
+						capabilities: ["email"],
+						grantedCapabilities: ["email"],
+						allowWrites: true,
+					}),
+				}),
+			);
+			expect(
+				screen.queryByText("Folders Alfy may write to"),
+			).not.toBeInTheDocument();
+			expect(
+				screen.getByText(
+					"Every change is confirmed individually before it happens.",
+				),
+			).toBeInTheDocument();
+		});
+
+		it("adding a folder calls onUpdateWriteAllowlist with the appended path", async () => {
+			const props = nextcloudProps({ writeAllowlist: ["/AlfyAI"] });
+			render(ConnectionDetailModal, props);
+			const input = screen.getByRole("combobox");
+			await fireEvent.input(input, { target: { value: "/Reports" } });
+			await fireEvent.click(screen.getByText("Add folder"));
+			expect(props.onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-1", [
+				"/AlfyAI",
+				"/Reports",
+			]);
+		});
+
+		// R3-fix #9 in reverse: the add action is a labelled button now.
+		it("labels the add-folder action instead of showing a bare plus glyph", () => {
+			render(ConnectionDetailModal, nextcloudProps());
+			expect(
+				screen.getByRole("button", { name: /Add folder/ }),
+			).toBeInTheDocument();
+		});
+
+		it("removing a folder calls onUpdateWriteAllowlist without that path", async () => {
+			const props = nextcloudProps({ writeAllowlist: ["/AlfyAI", "/Reports"] });
+			render(ConnectionDetailModal, props);
+			await fireEvent.click(screen.getByLabelText("Remove /AlfyAI"));
+			expect(props.onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-1", [
+				"/Reports",
+			]);
+		});
+
+		// The tab hands this dialog a FRESH connection object on every local
+		// patch (a recheck landing, a switch saving), so anything that resets
+		// on "the connection changed" must key on its id — otherwise the
+		// half-typed folder path and the already-fetched suggestions vanish
+		// under the user for a change they didn't make.
+		it("keeps the typed folder path and its suggestions when the same connection is patched", async () => {
+			mockFetchNextcloudFolders.mockResolvedValue([
+				{ path: "/Documents", name: "Documents" },
+				{ path: "/Photos", name: "Photos" },
+			]);
+			const props = nextcloudProps();
+			const { rerender } = render(ConnectionDetailModal, props);
+			await waitFor(() => {
+				expect(mockFetchNextcloudFolders).toHaveBeenCalledWith("conn-1");
+			});
+			const input = screen.getByRole("combobox");
+			await fireEvent.focus(input);
+			await fireEvent.input(input, { target: { value: "/Doc" } });
+
+			// Same connection, new object — exactly what patchConnectionLocal
+			// produces when the recheck answers.
+			await rerender({
+				...props,
+				connection: {
+					...(props.connection as ConnectionPublic),
+					lastUsedAt: 1_756_000_100,
+				},
+			});
+
+			expect(screen.getByRole("combobox")).toHaveValue("/Doc");
+			expect(
+				await screen.findByRole("option", { name: "/Documents" }),
+			).toBeInTheDocument();
+		});
+
+		it("offers folder suggestions on focus", async () => {
+			mockFetchNextcloudFolders.mockResolvedValue([
+				{ path: "/Documents", name: "Documents" },
+				{ path: "/Photos", name: "Photos" },
+			]);
+			render(ConnectionDetailModal, nextcloudProps());
+			await waitFor(() => {
+				expect(mockFetchNextcloudFolders).toHaveBeenCalledWith("conn-1");
+			});
+			await fireEvent.focus(screen.getByRole("combobox"));
+			expect(
+				await screen.findByRole("option", { name: "/Documents" }),
+			).toBeInTheDocument();
+		});
+
+		it("falls back to manual entry when the folder fetch fails", async () => {
+			mockFetchNextcloudFolders.mockRejectedValue(new Error("offline"));
+			const props = nextcloudProps();
+			render(ConnectionDetailModal, props);
+			await waitFor(() => {
+				expect(mockFetchNextcloudFolders).toHaveBeenCalled();
+			});
+			const input = screen.getByRole("combobox");
+			await fireEvent.focus(input);
+			expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+			await fireEvent.input(input, { target: { value: "/Manual" } });
+			await fireEvent.click(screen.getByText("Add folder"));
+			expect(props.onUpdateWriteAllowlist).toHaveBeenCalledWith("conn-1", [
+				"/Manual",
+			]);
+		});
+
+		it("does not fetch suggestions for a non-nextcloud provider, or with writes off", () => {
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: makeConnection({ provider: "imap", allowWrites: true }),
+				}),
+			);
+			expect(mockFetchNextcloudFolders).not.toHaveBeenCalled();
+
+			render(ConnectionDetailModal, nextcloudProps({ allowWrites: false }));
+			expect(mockFetchNextcloudFolders).not.toHaveBeenCalled();
+		});
 	});
 
-	it("closes on Escape", async () => {
+	// Disconnect used to be an unlabelled plug glyph in the header, and its
+	// confirmation said nothing about what would be lost.
+	describe("disconnect", () => {
+		it("is a labelled danger button naming the provider", () => {
+			render(ConnectionDetailModal, baseProps());
+			expect(
+				screen.getByRole("button", { name: "Disconnect Google" }),
+			).toBeInTheDocument();
+		});
+
+		it("confirms first, saying what is lost and what is not, then calls onDisconnect", async () => {
+			const onDisconnect = vi.fn();
+			render(ConnectionDetailModal, baseProps({ onDisconnect }));
+			await fireEvent.click(screen.getByTestId("connection-disconnect"));
+
+			expect(await screen.findByText("Disconnect Google?")).toBeInTheDocument();
+			expect(
+				screen.getByText(/Nothing is deleted from Google/),
+			).toBeInTheDocument();
+			expect(
+				screen.getByText(/loses access to Calendar, Contacts/),
+			).toBeInTheDocument();
+
+			await fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+			expect(onDisconnect).toHaveBeenCalledWith("conn-1");
+		});
+
+		it("warns that the write folders are forgotten too", async () => {
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: makeConnection({
+						provider: "nextcloud",
+						capabilities: ["files"],
+						grantedCapabilities: ["files", "contacts"],
+						allowWrites: true,
+						writeAllowlist: ["/AlfyAI", "/Reports"],
+					}),
+				}),
+			);
+			await fireEvent.click(screen.getByTestId("connection-disconnect"));
+			expect(
+				await screen.findByText(
+					/The 2 write folders you set are forgotten too/,
+				),
+			).toBeInTheDocument();
+		});
+	});
+
+	// A broken connection used to open with a bare chip and the provider's raw
+	// error string as a paragraph, with no way to act.
+	describe("a broken connection", () => {
+		it("leads with what happened and the sign-in that fixes it", async () => {
+			const onReconnect = vi.fn();
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					onReconnect,
+					connection: makeConnection({
+						status: "needs_reauth",
+						statusChangedAt: 1_757_300_000,
+					}),
+				}),
+			);
+			const banner = screen.getByTestId("connection-detail-banner");
+			expect(
+				within(banner).getByText(/stopped accepting the saved permission/),
+			).toBeInTheDocument();
+			await fireEvent.click(screen.getByTestId("connection-detail-recover"));
+			expect(onReconnect).toHaveBeenCalledWith("conn-1");
+		});
+
+		it("keeps the provider's own words behind a disclosure rather than in the sentence", async () => {
+			render(
+				ConnectionDetailModal,
+				baseProps({
+					connection: makeConnection({
+						status: "error",
+						statusDetail: "ECONNREFUSED 10.0.0.4:443",
+					}),
+				}),
+			);
+			expect(
+				screen.queryByText("ECONNREFUSED 10.0.0.4:443"),
+			).not.toBeInTheDocument();
+			await fireEvent.click(screen.getByTestId("connection-detail-technical"));
+			expect(
+				await screen.findByText("ECONNREFUSED 10.0.0.4:443"),
+			).toBeInTheDocument();
+		});
+	});
+
+	// Reconnect used to appear only on broken rows, so a working connection
+	// whose permissions needed widening had no way to re-run the flow.
+	it("offers reconnect on a healthy connection too", async () => {
+		const onReconnect = vi.fn();
+		render(ConnectionDetailModal, baseProps({ onReconnect }));
+		await fireEvent.click(screen.getByTestId("connection-reconnect"));
+		expect(onReconnect).toHaveBeenCalledWith("conn-1");
+	});
+
+	it("renders as a centered, content-sized dialog", () => {
+		render(ConnectionDetailModal, baseProps());
+		const dialog = screen.getByRole("dialog");
+		expect(dialog.className).toContain("max-w-[30rem]");
+		expect(dialog.className).not.toContain("max-w-full");
+	});
+
+	it("closes on Escape and from Done", async () => {
 		const onClose = vi.fn();
 		render(ConnectionDetailModal, baseProps({ onClose }));
-
 		await fireEvent.keyDown(window, { key: "Escape" });
+		expect(onClose).toHaveBeenCalled();
 
+		onClose.mockClear();
+		await fireEvent.click(screen.getByText("Done"));
 		expect(onClose).toHaveBeenCalled();
 	});
 
-	// Task 10 — the home-location editor is owntracks-only (mirrors the
-	// nextcloud write-allowlist editor's provider gate).
 	describe("OwnTracks home location editor", () => {
-		function ownTracksConnection(overrides: Partial<ConnectionPublic> = {}) {
-			return makeConnection({
-				id: "conn-ot",
-				provider: "owntracks",
-				label: "OwnTracks",
-				accountIdentifier: "alice_ot/phone",
-				capabilities: ["location"],
-				config: { otUser: "alice_ot", otDevice: "phone" },
+		function ownTracksProps(overrides: Record<string, unknown> = {}) {
+			return baseProps({
+				connection: makeConnection({
+					provider: "owntracks",
+					capabilities: ["location"],
+					grantedCapabilities: ["location"],
+					...((overrides.connectionOverrides as object) ?? {}),
+				}),
 				...overrides,
 			});
 		}
 
-		it("does not render the home-location editor for a non-owntracks provider", () => {
+		it("does not render for a non-owntracks provider", () => {
 			render(ConnectionDetailModal, baseProps());
-			expect(screen.queryByText("Home location")).not.toBeInTheDocument();
+			expect(screen.queryByText("Latitude")).not.toBeInTheDocument();
 		});
 
-		it("renders the home-location editor for an owntracks connection", () => {
-			render(
-				ConnectionDetailModal,
-				baseProps({ connection: ownTracksConnection() }),
-			);
-			expect(screen.getByText("Home location")).toBeInTheDocument();
-			expect(screen.getByLabelText("Latitude")).toBeInTheDocument();
-			expect(screen.getByLabelText("Longitude")).toBeInTheDocument();
+		it("renders for an owntracks connection", () => {
+			render(ConnectionDetailModal, ownTracksProps());
+			expect(screen.getByText("Latitude")).toBeInTheDocument();
+			expect(screen.getByText("Longitude")).toBeInTheDocument();
 		});
 
-		it("pre-fills the inputs from the connection's stored homeLat/homeLon", () => {
+		it("pre-fills the inputs from the stored coordinates", () => {
 			render(
 				ConnectionDetailModal,
 				baseProps({
-					connection: ownTracksConnection({
-						config: {
-							otUser: "alice_ot",
-							otDevice: "phone",
-							homeLat: 47.5,
-							homeLon: 19.05,
-						},
+					connection: makeConnection({
+						provider: "owntracks",
+						capabilities: ["location"],
+						grantedCapabilities: ["location"],
+						config: { homeLat: 47.4979, homeLon: 19.0402 },
 					}),
 				}),
 			);
-			expect(screen.getByLabelText("Latitude")).toHaveValue(47.5);
-			expect(screen.getByLabelText("Longitude")).toHaveValue(19.05);
+			const inputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
+			expect(inputs[0].value).toBe("47.4979");
+			expect(inputs[1].value).toBe("19.0402");
 		});
 
-		it("saving valid coordinates calls onUpdateOwnTracksHome with numeric homeLat/homeLon", async () => {
-			const onUpdateOwnTracksHome = vi.fn();
-			render(
-				ConnectionDetailModal,
-				baseProps({
-					connection: ownTracksConnection(),
-					onUpdateOwnTracksHome,
-				}),
-			);
-
-			await fireEvent.input(screen.getByLabelText("Latitude"), {
-				target: { value: "47.5" },
-			});
-			await fireEvent.input(screen.getByLabelText("Longitude"), {
-				target: { value: "19.05" },
-			});
-			await fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-			expect(onUpdateOwnTracksHome).toHaveBeenCalledWith("conn-ot", {
-				homeLat: 47.5,
-				homeLon: 19.05,
+		it("saving valid coordinates calls onUpdateOwnTracksHome with numbers", async () => {
+			const props = ownTracksProps();
+			render(ConnectionDetailModal, props);
+			const inputs = screen.getAllByRole("spinbutton");
+			await fireEvent.input(inputs[0], { target: { value: "47.4979" } });
+			await fireEvent.input(inputs[1], { target: { value: "19.0402" } });
+			await fireEvent.click(screen.getByText("Save home"));
+			expect(props.onUpdateOwnTracksHome).toHaveBeenCalledWith("conn-1", {
+				homeLat: 47.4979,
+				homeLon: 19.0402,
 			});
 		});
 
-		it("rejects an out-of-range latitude without calling onUpdateOwnTracksHome", async () => {
-			const onUpdateOwnTracksHome = vi.fn();
-			render(
-				ConnectionDetailModal,
-				baseProps({
-					connection: ownTracksConnection(),
-					onUpdateOwnTracksHome,
-				}),
-			);
-
-			await fireEvent.input(screen.getByLabelText("Latitude"), {
-				target: { value: "91" },
-			});
-			await fireEvent.input(screen.getByLabelText("Longitude"), {
-				target: { value: "19.05" },
-			});
-			await fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-			expect(onUpdateOwnTracksHome).not.toHaveBeenCalled();
+		it("rejects an out-of-range longitude without saving", async () => {
+			const props = ownTracksProps();
+			render(ConnectionDetailModal, props);
+			const inputs = screen.getAllByRole("spinbutton");
+			await fireEvent.input(inputs[0], { target: { value: "47.4979" } });
+			await fireEvent.input(inputs[1], { target: { value: "219.0402" } });
+			await fireEvent.click(screen.getByText("Save home"));
 			expect(
-				screen.getByText("Latitude must be between -90 and 90."),
+				await screen.findByText("Longitude must be between -180 and 180."),
 			).toBeInTheDocument();
+			expect(props.onUpdateOwnTracksHome).not.toHaveBeenCalled();
 		});
 
-		it("rejects an out-of-range longitude without calling onUpdateOwnTracksHome", async () => {
-			const onUpdateOwnTracksHome = vi.fn();
-			render(
-				ConnectionDetailModal,
-				baseProps({
-					connection: ownTracksConnection(),
-					onUpdateOwnTracksHome,
-				}),
-			);
-
-			await fireEvent.input(screen.getByLabelText("Latitude"), {
-				target: { value: "47.5" },
-			});
-			await fireEvent.input(screen.getByLabelText("Longitude"), {
-				target: { value: "181" },
-			});
-			await fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-			expect(onUpdateOwnTracksHome).not.toHaveBeenCalled();
+		it("rejects an out-of-range latitude without saving", async () => {
+			const props = ownTracksProps();
+			render(ConnectionDetailModal, props);
+			const inputs = screen.getAllByRole("spinbutton");
+			await fireEvent.input(inputs[0], { target: { value: "91" } });
+			await fireEvent.input(inputs[1], { target: { value: "19" } });
+			await fireEvent.click(screen.getByText("Save home"));
 			expect(
-				screen.getByText("Longitude must be between -180 and 180."),
+				await screen.findByText("Latitude must be between -90 and 90."),
 			).toBeInTheDocument();
+			expect(props.onUpdateOwnTracksHome).not.toHaveBeenCalled();
 		});
 
-		it("clearing both inputs and saving calls onUpdateOwnTracksHome with nulls (unset)", async () => {
-			const onUpdateOwnTracksHome = vi.fn();
-			render(
-				ConnectionDetailModal,
-				baseProps({
-					connection: ownTracksConnection({
-						config: {
-							otUser: "alice_ot",
-							otDevice: "phone",
-							homeLat: 47.5,
-							homeLon: 19.05,
-						},
-					}),
-					onUpdateOwnTracksHome,
-				}),
-			);
-
-			await fireEvent.input(screen.getByLabelText("Latitude"), {
-				target: { value: "" },
-			});
-			await fireEvent.input(screen.getByLabelText("Longitude"), {
-				target: { value: "" },
-			});
-			await fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-			expect(onUpdateOwnTracksHome).toHaveBeenCalledWith("conn-ot", {
+		it("saving with both inputs empty unsets the home location", async () => {
+			const props = ownTracksProps();
+			render(ConnectionDetailModal, props);
+			await fireEvent.click(screen.getByText("Save home"));
+			expect(props.onUpdateOwnTracksHome).toHaveBeenCalledWith("conn-1", {
 				homeLat: null,
 				homeLon: null,
 			});
 		});
 
-		it("the Clear button resets both inputs and calls onUpdateOwnTracksHome with nulls", async () => {
-			const onUpdateOwnTracksHome = vi.fn();
-			render(
-				ConnectionDetailModal,
-				baseProps({
-					connection: ownTracksConnection({
-						config: {
-							otUser: "alice_ot",
-							otDevice: "phone",
-							homeLat: 47.5,
-							homeLon: 19.05,
-						},
-					}),
-					onUpdateOwnTracksHome,
+		it("Clear empties both inputs and unsets the home location", async () => {
+			const props = baseProps({
+				connection: makeConnection({
+					provider: "owntracks",
+					capabilities: ["location"],
+					grantedCapabilities: ["location"],
+					config: { homeLat: 47.4979, homeLon: 19.0402 },
 				}),
-			);
-
-			await fireEvent.click(screen.getByRole("button", { name: "Clear" }));
-
-			expect(onUpdateOwnTracksHome).toHaveBeenCalledWith("conn-ot", {
+			});
+			render(ConnectionDetailModal, props);
+			await fireEvent.click(screen.getByText("Clear"));
+			const inputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
+			expect(inputs[0].value).toBe("");
+			expect(props.onUpdateOwnTracksHome).toHaveBeenCalledWith("conn-1", {
 				homeLat: null,
 				homeLon: null,
 			});
-			expect(screen.getByLabelText("Latitude")).toHaveValue(null);
-			expect(screen.getByLabelText("Longitude")).toHaveValue(null);
 		});
 	});
 });
