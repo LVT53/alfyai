@@ -114,7 +114,8 @@ test.describe("Admin Campaigns screen", () => {
 		).toBeVisible();
 		const checklist = page.getByTestId("campaign-checklist");
 		await expect(checklist).toBeVisible();
-		await expect(checklist.getByText(/checks failing/)).toBeVisible();
+		// "1 check failing" / "3 checks failing" — the count is pluralised.
+		await expect(checklist.getByText(/checks? failing/)).toBeVisible();
 		await expect(page.getByRole("button", { name: "Publish" })).toBeDisabled();
 
 		// One slide at a time, from the thumbnail rail.

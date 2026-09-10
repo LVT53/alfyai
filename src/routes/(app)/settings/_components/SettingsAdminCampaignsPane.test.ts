@@ -329,7 +329,7 @@ describe("SettingsAdminCampaignsPane", () => {
 		await waitForEditor();
 
 		const checklist = screen.getByTestId("campaign-checklist");
-		expect(within(checklist).getByText("1 checks failing")).toBeInTheDocument();
+		expect(within(checklist).getByText("1 check failing")).toBeInTheDocument();
 		expect(within(checklist).getByText("English alt text")).toBeInTheDocument();
 		expect(within(checklist).getByText("Slide 1")).toBeInTheDocument();
 
@@ -337,6 +337,55 @@ describe("SettingsAdminCampaignsPane", () => {
 		expect(publishButton).toBeDisabled();
 		await fireEvent.click(publishButton);
 		expect(mockPublishAdminCampaign).not.toHaveBeenCalled();
+	});
+
+	it('says the open slide has no setup controls instead of "— 0"', async () => {
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor();
+
+		// Slide 1 is the setup slide and carries two controls.
+		await openSlideMenu();
+		expect(
+			screen.getByRole("menuitem", { name: /Setup controls — 2/ }),
+		).toBeInTheDocument();
+		await fireEvent.keyDown(window, { key: "Escape" });
+
+		// Slide 2 has none, and the menu says so in words.
+		await fireEvent.click(
+			screen.getAllByTestId("admin-campaign-slide-thumb")[1],
+		);
+		await openSlideMenu();
+		expect(
+			screen.getByRole("menuitem", { name: /Setup controls — none/ }),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("menuitem", { name: /Setup controls — 0/ }),
+		).not.toBeInTheDocument();
+	});
+
+	it("falls back to the internal version when a release draft has no version string", async () => {
+		mockFetchAdminCampaigns.mockResolvedValue([
+			{
+				id: "campaign-1",
+				type: "release_update",
+				version: 4,
+				// A release draft created without a version yet: an empty string,
+				// which is not nullish, so `??` would have left the row blank.
+				releaseVersion: "",
+				name: "Unversioned release",
+				status: "draft",
+				slideCount: 1,
+			},
+		]);
+
+		render(SettingsAdminCampaignsPane);
+		await waitFor(() => {
+			expect(screen.getByTestId("admin-campaign-row")).toBeInTheDocument();
+		});
+
+		const row = screen.getByTestId("admin-campaign-row");
+		// …and "1 slide", not "1 slides".
+		expect(within(row).getByText("v4 · 1 slide")).toBeInTheDocument();
 	});
 
 	it("names the ⋯ menu when a first-run rule that lives there fails", async () => {

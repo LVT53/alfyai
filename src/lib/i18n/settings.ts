@@ -113,7 +113,8 @@ const settingsDict = {
 		"admin.campaigns.saveDraft": "Save draft",
 		"admin.campaigns.seedFirstRun": "Seed first-run",
 		"admin.campaigns.selectCampaign": "Select a campaign to edit.",
-		"admin.campaigns.slideCount": "{count} slides",
+		"admin.campaigns.slideCount":
+			"{count} slide{count, plural, one {} other {s}}",
 		"admin.campaigns.slideEditorLabel": "Slide {number} editor",
 		"admin.campaigns.slideKind": "Slide kind",
 		"admin.campaigns.slideKind.setup": "Setup",
@@ -930,7 +931,8 @@ const settingsDict = {
 		"admin.campaigns.checklist.fail.setupSlide": "Exactly one setup slide",
 		"admin.campaigns.checklist.fail.slides": "At least one slide",
 		"admin.campaigns.checklist.fail.type": "Campaign type",
-		"admin.campaigns.checklist.failing": "{count} checks failing",
+		"admin.campaigns.checklist.failing":
+			"{count} check{count, plural, one {} other {s}} failing",
 		"admin.campaigns.checklist.inSlideMenu": "in the slide ⋯ menu",
 		"admin.campaigns.checklist.passing": "{count} pass",
 		"admin.campaigns.checklist.readyToPublish": "Ready to publish",
@@ -981,6 +983,7 @@ const settingsDict = {
 		"admin.campaigns.menu.moveUp": "Move up",
 		"admin.campaigns.menu.purpose": "Purpose — {value}",
 		"admin.campaigns.menu.setupControls": "Setup controls — {count}",
+		"admin.campaigns.menu.setupControlsNone": "Setup controls — none",
 		"admin.campaigns.mobileFallsBack": "Uses the desktop crop",
 		"admin.campaigns.mobileFallsBackHelp":
 			"Without its own 9:16 crop, phones show the desktop screenshot letterboxed.",
@@ -2029,6 +2032,7 @@ const settingsDict = {
 		"admin.campaigns.menu.moveUp": "Mozgatás felfelé",
 		"admin.campaigns.menu.purpose": "Cél — {value}",
 		"admin.campaigns.menu.setupControls": "Beállítási vezérlők — {count}",
+		"admin.campaigns.menu.setupControlsNone": "Beállítási vezérlők — nincs",
 		"admin.campaigns.mobileFallsBack": "Az asztali kivágást használja",
 		"admin.campaigns.mobileFallsBackHelp":
 			"Saját 9:16-os kivágás nélkül a telefonok az asztali képernyőképet mutatják, fekete sávokkal.",

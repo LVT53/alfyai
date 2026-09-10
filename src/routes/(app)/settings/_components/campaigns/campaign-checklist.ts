@@ -132,7 +132,7 @@ function slidePath(slide: ChecklistSlide, index: number): string {
 }
 
 function isBlank(value: string | null | undefined): boolean {
-	return !value || !value.trim();
+	return !value?.trim();
 }
 
 /**

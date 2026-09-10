@@ -40,8 +40,10 @@ function metaLine(campaign: Campaign): string {
 	const lead =
 		campaign.type === "first_run_onboarding"
 			? $t("admin.campaigns.type.firstRun")
-			: (campaign.releaseVersion?.trim() ??
-				$t("admin.campaigns.versionShort", { version: campaign.version ?? 1 }));
+			: // `||`, not `??`: a release draft with no version yet carries "",
+				// which is not nullish, so `??` left the row reading " · 3 slides".
+				campaign.releaseVersion?.trim() ||
+				$t("admin.campaigns.versionShort", { version: campaign.version ?? 1 });
 	return `${lead} · ${$t("admin.campaigns.slideCount", { count: slideCount })}`;
 }
 </script>
@@ -53,7 +55,7 @@ function metaLine(campaign: Campaign): string {
 		{$t('admin.campaigns.newCampaign')}
 	</button>
 
-	<div class="rail-list" role="list">
+	<div class="rail-list">
 		{#if loading && campaigns.length === 0}
 			<p class="rail-note">{$t('admin.campaigns.loading')}</p>
 		{:else if campaigns.length === 0}

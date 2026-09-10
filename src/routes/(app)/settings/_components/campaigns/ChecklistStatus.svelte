@@ -142,6 +142,15 @@ function rowLabel(row: ChecklistFailureRow): string {
 		border-radius: var(--radius-sm);
 	}
 
+	.checklist-summary:hover .checklist-text,
+	.checklist-summary:hover .checklist-chevron {
+		color: var(--text-primary);
+	}
+
+	.checklist-summary:hover .checklist-chevron {
+		opacity: 1;
+	}
+
 	.checklist-summary:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
@@ -160,6 +169,7 @@ function rowLabel(row: ChecklistFailureRow): string {
 		flex: 1 1 auto;
 		min-width: 0;
 		font-size: 0.84rem;
+		transition: color var(--duration-standard) var(--ease-out);
 	}
 
 	.checklist-text-strong {
@@ -174,7 +184,11 @@ function rowLabel(row: ChecklistFailureRow): string {
 	.checklist-chevron {
 		display: inline-flex;
 		color: var(--text-muted);
-		transition: transform var(--duration-standard) var(--ease-out);
+		opacity: 0.75;
+		transition:
+			transform var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
+			opacity var(--duration-standard) var(--ease-out);
 	}
 
 	.checklist-chevron-open {

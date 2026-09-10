@@ -840,9 +840,12 @@ let slideMenuItems = $derived<OverflowMenuItem[]>(
 				},
 				{
 					id: "setupControls",
-					label: $t("admin.campaigns.menu.setupControls", {
-						count: activeSlide.setupControls?.length ?? 0,
-					}),
+					label:
+						(activeSlide.setupControls?.length ?? 0) === 0
+							? $t("admin.campaigns.menu.setupControlsNone")
+							: $t("admin.campaigns.menu.setupControls", {
+									count: activeSlide.setupControls?.length ?? 0,
+								}),
 					icon: SlidersHorizontal,
 					attention: activeSlideAttention.setupControls,
 					disabled: !isDraftEditable,
@@ -946,11 +949,17 @@ onMount(() => {
 <section class="campaigns-pane" aria-labelledby="admin-campaigns-heading">
 	<h2 id="admin-campaigns-heading" class="sr-only">{$t('admin.campaigns.title')}</h2>
 
+	<!-- Both banners open AND close with the same reduced-motion-aware slide, so
+	     the layout under them settles instead of snapping. -->
 	{#if errorMessage}
-		<p class="banner banner-danger" role="alert">{errorMessage}</p>
+		<p class="banner banner-danger" role="alert" transition:bannerSlide={{ duration: 180 }}>
+			{errorMessage}
+		</p>
 	{/if}
 	{#if successMessage}
-		<p class="banner banner-success" role="status">{successMessage}</p>
+		<p class="banner banner-success" role="status" transition:bannerSlide={{ duration: 180 }}>
+			{successMessage}
+		</p>
 	{/if}
 
 	<div class="workbench">
