@@ -80,6 +80,7 @@ const mocks = vi.hoisted(() => ({
 	owntracksLocationHistory: vi.fn(),
 	resolveContacts: vi.fn(),
 	getConnectionSecret: vi.fn(),
+	touchConnectionUsed: vi.fn().mockResolvedValue(undefined),
 	// 8.1 proactive-context-stage-specific + finalize (memory boundary)
 	buildConstructedContext: vi.fn(),
 	getConfig: vi.fn(),
@@ -207,6 +208,11 @@ vi.mock("$lib/server/services/connections/providers/contacts", () => ({
 // needed and must never load here.
 vi.mock("$lib/server/services/connections/store", () => ({
 	getConnectionSecret: mocks.getConnectionSecret,
+	// capability-read.ts marks a connection as used on every successful read
+	// (fire-and-forget, so the tool never fails on it). This suite mocks the
+	// store wholesale, so the export has to be here or the tool throws before
+	// it ever builds the payload these tests inspect.
+	touchConnectionUsed: mocks.touchConnectionUsed,
 }));
 
 // --- 8.1 proactive-context-stage + memory-boundary deps ---

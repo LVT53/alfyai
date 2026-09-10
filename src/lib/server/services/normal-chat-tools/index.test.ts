@@ -84,6 +84,11 @@ vi.mock("$lib/server/services/connections/resolve", async () => {
 });
 vi.mock("$lib/server/services/connections/store", () => ({
 	getConnectionSecret: vi.fn(),
+	// capability-read.ts marks a connection as used on every successful read.
+	// It is fire-and-forget so a real failure never breaks a tool call, but a
+	// wholesale mock of the store still has to export it or the tool throws
+	// before it does any work.
+	touchConnectionUsed: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("$lib/server/services/connections/locality", () => ({
 	hasLocalDistillEnabled: vi.fn(),
