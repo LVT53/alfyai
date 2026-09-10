@@ -406,17 +406,6 @@ export function atlasV3PublishersFor(
 	return [...publishers];
 }
 
-/** Every quote's text for one source, joined. The verifier's haystack. */
-export function atlasV3SourceEvidenceText(
-	bank: AtlasV3EvidenceBank,
-	sourceId: string,
-): string {
-	return bank.quotes
-		.filter((quote) => quote.sourceId === sourceId)
-		.map((quote) => quote.text)
-		.join("\n");
-}
-
 /** `title — host, date`, the Sources-section line format ADR 0062 defined. */
 export function formatAtlasV3SourceLine(source: AtlasV3Source): string {
 	return source.date

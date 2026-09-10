@@ -238,6 +238,15 @@ function safeNumber(read: () => number, fallback: number): number {
 	}
 }
 
+/** A config flag, defaulting to ON when the config singleton is not up. */
+function safeFlag(read: () => boolean): boolean {
+	try {
+		return read();
+	} catch {
+		return true;
+	}
+}
+
 export async function runAtlasV3Pipeline(
 	input: RunAtlasV3PipelineInput,
 ): Promise<AtlasV3PipelineResult> {
@@ -253,7 +262,7 @@ export async function runAtlasV3Pipeline(
 		deps.criticRounds ?? safeNumber(getAtlasV3CriticRounds, 2);
 	const hungarianStandardEnabled =
 		deps.hungarianStandardEnabled ??
-		safeNumber(() => (getAtlasV3HungarianStandardEnabled() ? 1 : 0), 1) === 1;
+		safeFlag(getAtlasV3HungarianStandardEnabled);
 	const nativeSources = atlasV3NativeSourcesForRequest({
 		query: job.query,
 		language,

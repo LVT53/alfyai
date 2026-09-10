@@ -361,9 +361,3 @@ export function atlasV3SectionBudget(input: {
 		maxParagraphs: input.config.maxParagraphsPerSection,
 	};
 }
-
-// ---------------------------------------------------------------------------
-// Pipeline selection
-// ---------------------------------------------------------------------------
-
-export const ATLAS_V3_PIPELINE_VERSION = 3;

@@ -282,25 +282,6 @@ export function atlasV3KeptSentences(
 	return sections.flatMap((section) => section.paragraphs.flat());
 }
 
-/** Verified sections back in writer shape, so the critic can rewrite them. */
-export function atlasV3VerifiedToWritten(
-	sections: readonly AtlasV3VerifiedSection[],
-): AtlasV3WrittenSection[] {
-	return sections.map((section) => ({
-		nodeId: section.nodeId,
-		title: section.title,
-		table: section.table,
-		paragraphs: section.paragraphs.map((paragraph) =>
-			paragraph.map((sentence) => ({
-				text: sentence.text,
-				evidenceIds: sentence.evidenceIds,
-				kind: sentence.kind,
-				calcId: null,
-			})),
-		),
-	}));
-}
-
 export function atlasV3WordCount(
 	sections: readonly AtlasV3VerifiedSection[],
 	verdict: readonly AtlasV3VerifiedSentence[] = [],

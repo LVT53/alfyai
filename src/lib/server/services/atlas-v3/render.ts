@@ -73,10 +73,6 @@ const CHROME: Record<SupportedLanguage, AtlasV3Chrome> = {
 	},
 };
 
-export function atlasV3Chrome(language: SupportedLanguage): AtlasV3Chrome {
-	return CHROME[language];
-}
-
 const CONFIDENCE_CODE: Record<AtlasV3Confidence, "c" | "s" | "i"> = {
 	corroborated: "c",
 	single: "s",
