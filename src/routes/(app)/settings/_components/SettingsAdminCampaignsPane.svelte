@@ -1122,6 +1122,23 @@ onMount(() => {
 				{:else}
 					<p class="pane-note">{$t('admin.campaigns.noSlides')}</p>
 				{/if}
+			{:else if !loading && campaigns.length === 0}
+				<!-- Seeding lives in the campaign ⋯ menu, which only exists once a
+				     campaign is open — so a fresh install, the one place that
+				     actually needs the first-run template, could not reach it. -->
+				<div class="empty-editor">
+					<p class="pane-note">{$t('admin.campaigns.empty')}</p>
+					<p class="pane-note">{$t('admin.campaigns.seedFirstRunHelp')}</p>
+					<button
+						type="button"
+						class="btn-secondary gap-1.5"
+						disabled={actionLoading}
+						onclick={() => void seedFirstRun()}
+					>
+						<FlaskConical size={14} strokeWidth={2} aria-hidden="true" />
+						{$t('admin.campaigns.seedFirstRun')}
+					</button>
+				</div>
 			{:else}
 				<p class="pane-note">{$t('admin.campaigns.selectCampaign')}</p>
 			{/if}
@@ -1326,6 +1343,13 @@ onMount(() => {
 		flex-direction: column;
 		gap: var(--space-sm);
 		min-width: 0;
+	}
+
+	.empty-editor {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.5rem;
 	}
 
 	.pane-note {

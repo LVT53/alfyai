@@ -370,6 +370,30 @@ describe("SettingsAdminCampaignsPane", () => {
 		});
 	});
 
+	it("offers Seed first-run on an install with no campaigns at all", async () => {
+		// The ⋯ menu that normally carries it needs an open campaign, so a fresh
+		// install — the one place that wants the template — had no way in.
+		mockFetchAdminCampaigns.mockResolvedValue([]);
+		const { seedFirstRunCampaign } = await import("$lib/client/api/campaigns");
+		const mockSeed = seedFirstRunCampaign as ReturnType<typeof vi.fn>;
+		mockSeed.mockResolvedValue({
+			created: true,
+			campaign: { id: "campaign-seeded" },
+		});
+
+		render(SettingsAdminCampaignsPane);
+
+		const seedButton = await screen.findByRole("button", {
+			name: /Seed first-run/,
+		});
+		expect(screen.queryByTestId("campaign-menu")).not.toBeInTheDocument();
+
+		await fireEvent.click(seedButton);
+		await waitFor(() => {
+			expect(mockSeed).toHaveBeenCalled();
+		});
+	});
+
 	it("shows the checklist as one line while every check passes", async () => {
 		render(SettingsAdminCampaignsPane);
 		await waitForEditor();

@@ -112,6 +112,8 @@ const settingsDict = {
 		"admin.campaigns.releaseVersion": "Release",
 		"admin.campaigns.saveDraft": "Save draft",
 		"admin.campaigns.seedFirstRun": "Seed first-run",
+		"admin.campaigns.seedFirstRunHelp":
+			"Creates the standard first-run onboarding campaign as a draft you can edit.",
 		"admin.campaigns.selectCampaign": "Select a campaign to edit.",
 		"admin.campaigns.slideCount":
 			"{count} slide{count, plural, one {} other {s}}",
@@ -1155,6 +1157,8 @@ const settingsDict = {
 		"admin.campaigns.releaseVersion": "Kiadás",
 		"admin.campaigns.saveDraft": "Piszkozat mentése",
 		"admin.campaigns.seedFirstRun": "Első indítás magkampány",
+		"admin.campaigns.seedFirstRunHelp":
+			"Létrehozza a szokásos első indítású bemutatókampányt szerkeszthető vázlatként.",
 		"admin.campaigns.selectCampaign": "Válassz kampányt a szerkesztéshez.",
 		"admin.campaigns.slideCount": "{count} dia",
 		"admin.campaigns.slideEditorLabel": "{number}. dia szerkesztője",
