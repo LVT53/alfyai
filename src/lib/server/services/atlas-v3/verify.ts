@@ -44,6 +44,14 @@ export interface VerifyAtlasV3ReportInput {
 	 * before it, it is handed to the critic as `needs_evidence`.
 	 */
 	finalPass?: boolean;
+	/**
+	 * The final pass's restatement and inference caps. On by default; the VERDICT
+	 * is verified through this function as a one-section report and must not be
+	 * trimmed by rules written for a section — an abstaining verdict opens with
+	 * an uncited sentence by design, and a caller reads a cut verdict sentence as
+	 * a figure verification could not support.
+	 */
+	qualityCaps?: boolean;
 }
 
 export function verifyAtlasV3Report(
@@ -71,6 +79,7 @@ export function verifyAtlasV3Report(
 	const staleSourceIds = new Set<string>();
 
 	const finalPass = input.finalPass === true;
+	const qualityCaps = finalPass && input.qualityCaps !== false;
 	/** Signatures — cited ids plus stated figures — of every sentence kept. */
 	const keptSignatures = new Set<string>();
 	const sections: AtlasV3VerifiedSection[] = [];
@@ -149,7 +158,7 @@ export function verifyAtlasV3Report(
 					derivedById.get(sentence.calcId)?.value != null;
 				const isInferred = verified.confidence === "inferred" && !computed;
 
-				if (finalPass) {
+				if (qualityCaps) {
 					// RESTATEMENT. Three consecutive sentences on one quote, all saying
 					// harmonised standards enter into force on 2 August 2026, is what a
 					// sentence target buys when the evidence has already been spent.

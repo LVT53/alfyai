@@ -993,6 +993,10 @@ export async function runAtlasV3Pipeline(
 			staleMonths,
 			now,
 			finalPass: true,
+			// The verdict is six sentences, not a section: the restatement and
+			// inference caps would trim an abstaining opener, and the caller reads
+			// a cut sentence as one whose FIGURE could not be supported.
+			qualityCaps: false,
 		}).sections[0]?.paragraphs.flat() ?? [];
 
 	let verifiedVerdict: AtlasV3VerifiedSentence[] = abstention

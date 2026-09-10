@@ -363,6 +363,23 @@ describe("verifyAtlasV3Report", () => {
 		]);
 	});
 
+	it("leaves the caps off when the caller asks, as the verdict does", () => {
+		const result = verifyAtlasV3Report({
+			...base,
+			finalPass: true,
+			qualityCaps: false,
+			sections: [
+				section([
+					{ text: "This report could not establish an answer." },
+					{ text: "The EU added 65.1 GW in 2025.", evidenceIds: ["e1"] },
+					{ text: "Additions were 65.1 GW.", evidenceIds: ["e1"] },
+				]),
+			],
+		});
+		expect(result.sections[0].paragraphs.flat()).toHaveLength(3);
+		expect(result.totals.repeated).toBe(0);
+	});
+
 	it("keeps the section's opening sentence when the rules empty it", () => {
 		const result = verifyAtlasV3Report({
 			...base,
