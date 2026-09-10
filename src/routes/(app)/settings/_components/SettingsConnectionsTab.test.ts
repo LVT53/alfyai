@@ -1,5 +1,11 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
-import { describe, expect, it, vi } from "vitest";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import {
 	CONNECTABLE_PROVIDER_LIST,
@@ -21,13 +27,16 @@ function makeConnection(
 		allowWrites: false,
 		writeAllowlist: [],
 		capabilities: ["calendar"],
+		grantedCapabilities: ["calendar", "contacts"],
 		config: {},
 		oauthScopes: ["calendar"],
 		tokenExpiresAt: null,
 		hasSecret: true,
 		hasWriteSecret: false,
-		createdAt: 1,
-		updatedAt: 1,
+		lastUsedAt: null,
+		statusChangedAt: null,
+		createdAt: 1_756_000_000,
+		updatedAt: 1_756_000_000,
 		...overrides,
 	};
 }
@@ -36,6 +45,8 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 	return {
 		connections: [] as ConnectionPublic[],
 		loading: false,
+		loadFailed: false,
+		onRetryLoad: vi.fn(),
 		onToggleCapability: vi.fn(),
 		onToggleAllowWrites: vi.fn(),
 		onToggleDefaultOn: vi.fn(),
@@ -44,6 +55,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 		onDisconnect: vi.fn(),
 		onStartConnect: vi.fn(),
 		onReconnect: vi.fn(),
+		onAskAgain: vi.fn(),
 		localDistill: false,
 		localityLoading: false,
 		onToggleLocalDistill: vi.fn(),
@@ -51,468 +63,529 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+beforeEach(() => {
+	sessionStorage.clear();
+	// jsdom has no Web Animations API, so a Svelte outro never finishes and a
+	// dismissed card would sit in the DOM for the rest of the test. Reporting
+	// reduced motion collapses every transition to zero duration — which is
+	// also exactly the path a reduced-motion user gets, so this exercises real
+	// behaviour rather than disabling it.
+	vi.stubGlobal("matchMedia", (query: string) => ({
+		matches: true,
+		media: query,
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	}));
+});
+
 describe("SettingsConnectionsTab", () => {
-	it("renders one compact row per connection with account and capability mini-icons", () => {
+	it("renders one row per connection with its name, account and capability chips", () => {
 		render(
 			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1" })],
-			}),
+			baseProps({ connections: [makeConnection({ id: "conn-1" })] }),
 		);
 
 		const row = screen.getByTestId("connection-row-conn-1");
 		expect(within(row).getByText("Google")).toBeInTheDocument();
 		expect(within(row).getByText("person@example.com")).toBeInTheDocument();
-		// Capability mini-icon group has an accessible label listing the
-		// connection's active capabilities (not color/icon-only).
-		expect(
-			within(row).getByRole("img", { name: /Calendar/ }),
-		).toBeInTheDocument();
+		expect(within(row).getByText("Calendar")).toBeInTheDocument();
 	});
 
-	// R3-fix2 #2 — "connected" is the implied normal state: the row shows NO
-	// status indicator at all (no icon, no pill) once a connection is
-	// healthy. This replaces R3-fix #4's quiet check icon, which is now only
-	// used in the add-strip's already-connected hint (see below).
-	it("renders no status indicator at all for a healthy/connected row", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1", status: "connected" })],
-			}),
-		);
-
-		const row = screen.getByTestId("connection-row-conn-1");
-		expect(
-			within(row).queryByRole("img", { name: "Connected" }),
-		).not.toBeInTheDocument();
-		expect(row.querySelector(".status-chip")).toBeNull();
-		expect(row.querySelector(".status-icon")).toBeNull();
-	});
-
-	// R3-fix2 #2 — needs_reauth/error now render a small accessible status
-	// icon (amber warning / red error) with a tooltip, instead of a text
-	// pill; the Reconnect action stays for both.
-	it("renders an amber warning icon with an accessible label and tooltip for needs_reauth", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1", status: "needs_reauth" })],
-			}),
-		);
-
-		const row = screen.getByTestId("connection-row-conn-1");
-		const icon = within(row).getByRole("img", {
-			name: "Needs reauthorization",
-		});
-		expect(icon).toHaveClass("status-icon-warning");
-		expect(icon).toHaveAttribute("title", "Needs reauthorization");
-		expect(row.querySelector(".status-chip")).toBeNull();
-	});
-
-	it("renders a red error icon with an accessible label and the statusDetail tooltip for error", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [
-					makeConnection({
-						id: "conn-1",
-						status: "error",
-						statusDetail: "Token revoked by provider",
-					}),
-				],
-			}),
-		);
-
-		const row = screen.getByTestId("connection-row-conn-1");
-		const icon = within(row).getByRole("img", { name: "Error" });
-		expect(icon).toHaveClass("status-icon-error");
-		expect(icon).toHaveAttribute("title", "Token revoked by provider");
-		expect(row.querySelector(".status-chip")).toBeNull();
-	});
-
-	it("falls back to the generic no-detail tooltip for error when statusDetail is null", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [
-					makeConnection({ id: "conn-1", status: "error", statusDetail: null }),
-				],
-			}),
-		);
-
-		const row = screen.getByTestId("connection-row-conn-1");
-		const icon = within(row).getByRole("img", { name: "Error" });
-		expect(icon).toHaveAttribute("title", "No additional details available.");
-	});
-
-	it("still renders a visible status pill for disconnected", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1", status: "disconnected" })],
-			}),
-		);
-
-		const row = screen.getByTestId("connection-row-conn-1");
-		expect(row.querySelector(".status-chip")).not.toBeNull();
-		expect(row.querySelector(".status-icon")).toBeNull();
-	});
-
-	it("does not use the oversized section-title heading for the row name (name/account gap fix)", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1" })],
-			}),
-		);
-
-		const row = screen.getByTestId("connection-row-conn-1");
-		// The old card reused `.settings-section-title` (a section-heading
-		// class with a large margin-bottom) directly above the account line,
-		// which produced a visible empty-line gap. The compact row must not
-		// use that class for the name.
-		expect(row.querySelector(".settings-section-title")).toBeNull();
-		expect(row.querySelector("h2")).toBeNull();
-	});
-
-	it("the row itself is calm: no toggles or warning prose inline", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [
-					makeConnection({
-						id: "conn-nc",
-						provider: "nextcloud",
-						capabilities: ["files"],
-						allowWrites: true,
-					}),
-				],
-			}),
-		);
-
-		const row = screen.getByTestId("connection-row-conn-nc");
-		expect(within(row).queryAllByRole("switch")).toHaveLength(0);
-		expect(
-			within(row).queryByText(/Writing is off by default/),
-		).not.toBeInTheDocument();
-	});
-
-	it("clicking a row opens the Connection Detail modal", async () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1" })],
-			}),
-		);
-
-		expect(
-			screen.queryByTestId("connection-detail-conn-1"),
-		).not.toBeInTheDocument();
-
-		const row = screen.getByTestId("connection-row-conn-1");
-		const mainRowButton = row.querySelector(
-			".connection-row-main",
-		) as HTMLElement;
-		await fireEvent.click(mainRowButton);
-
-		expect(screen.getByTestId("connection-detail-conn-1")).toBeInTheDocument();
-	});
-
-	it("clicking the detail icon action also opens the modal", async () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1", status: "error" })],
-			}),
-		);
-
-		const row = screen.getByTestId("connection-row-conn-1");
-		// With status "error" both Reconnect and the detail icon are present;
-		// scope to the actions container to grab the detail one specifically.
-		const detailBtn = within(row).getAllByRole("button", {
-			name: "View details Google",
-		})[1];
-		await fireEvent.click(detailBtn);
-
-		expect(screen.getByTestId("connection-detail-conn-1")).toBeInTheDocument();
-	});
-
-	it("shows a Reconnect icon button only for needs_reauth/error connections", async () => {
-		const { rerender } = render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1", status: "connected" })],
-			}),
-		);
-		expect(
-			screen.queryByRole("button", { name: /Reconnect/ }),
-		).not.toBeInTheDocument();
-
-		await rerender(
-			baseProps({
-				connections: [
-					makeConnection({
-						id: "conn-1",
-						status: "needs_reauth",
-						statusDetail: "Token expired",
-					}),
-				],
-			}),
-		);
-		expect(
-			screen.getByRole("button", { name: "Reconnect Google" }),
-		).toBeInTheDocument();
-	});
-
-	it("calling the Reconnect button invokes onReconnect with the connection id, without opening the modal", async () => {
-		const onReconnect = vi.fn();
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-9", status: "error" })],
-				onReconnect,
-			}),
-		);
-
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Reconnect Google" }),
-		);
-
-		expect(onReconnect).toHaveBeenCalledWith("conn-9");
-		expect(
-			screen.queryByTestId("connection-detail-conn-9"),
-		).not.toBeInTheDocument();
-	});
-
-	// R3-fix #1 — row icon actions (view-details, reconnect) get the app's
-	// standard icon-button hover treatment (`btn-icon-bare`'s color/opacity
-	// transition on hover + focus-visible), not a bare unstyled button.
-	it("gives the row icon actions the standard icon-button hover class", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({
-				connections: [makeConnection({ id: "conn-1", status: "error" })],
-			}),
-		);
-
-		const row = screen.getByTestId("connection-row-conn-1");
-		const actions = row.querySelector(".connection-row-actions") as HTMLElement;
-		const reconnectBtn = within(actions).getByRole("button", {
-			name: "Reconnect Google",
-		});
-		const detailBtn = within(actions).getByRole("button", {
-			name: "View details Google",
-		});
-
-		expect(reconnectBtn).toHaveClass("btn-icon-bare");
-		expect(detailBtn).toHaveClass("btn-icon-bare");
-	});
-
-	it("renders the empty state message when there are no connections", () => {
-		render(SettingsConnectionsTab, baseProps({ connections: [] }));
-
-		expect(screen.getByTestId("connections-empty")).toBeInTheDocument();
-		expect(screen.getByText("No connections yet.")).toBeInTheDocument();
-	});
-
-	it("shows a loading indicator instead of the list/empty state while loading", () => {
-		render(
-			SettingsConnectionsTab,
-			baseProps({ connections: [], loading: true }),
-		);
-
-		expect(screen.queryByTestId("connections-empty")).not.toBeInTheDocument();
-		expect(screen.queryByTestId("connections-add")).not.toBeInTheDocument();
-		expect(screen.getByText("Loading…")).toBeInTheDocument();
-	});
-
-	describe("Add-a-connection strip", () => {
-		it("lists every connectable provider as a brand icon button, including Google, excluding contacts", () => {
-			render(SettingsConnectionsTab, baseProps({ connections: [] }));
-
-			const addSection = screen.getByTestId("connections-add");
-			for (const provider of CONNECTABLE_PROVIDER_LIST) {
-				if (provider === "contacts") continue;
-				const displayName = getProviderCatalogEntry(provider).displayName;
-				expect(
-					within(addSection).getByRole("button", {
-						name: `Connect ${displayName}`,
-					}),
-				).toBeInTheDocument();
-			}
-			expect(
-				within(addSection).queryByRole("button", {
-					name: "Connect Contacts (CardDAV)",
-				}),
-			).not.toBeInTheDocument();
-		});
-
-		// E1 (ADR-0051 Decision 2) — products and custom integrations render as
-		// two labeled groups split by a divider.
-		it("splits providers into Products and Custom integrations groups with a divider", () => {
-			render(SettingsConnectionsTab, baseProps({ connections: [] }));
-
-			const products = screen.getByTestId("connections-add-products");
-			const custom = screen.getByTestId("connections-add-custom");
-			expect(screen.getByTestId("connections-add-divider")).toBeInTheDocument();
-			expect(screen.getByText("Products")).toBeInTheDocument();
-			expect(screen.getByText("Custom integrations")).toBeInTheDocument();
-
-			// A branded product sits in the products group...
-			expect(
-				within(products).getByRole("button", { name: "Connect Google" }),
-			).toBeInTheDocument();
-			expect(
-				within(products).queryByRole("button", { name: "Connect CalDAV" }),
-			).not.toBeInTheDocument();
-
-			// ...and CalDAV sits in the custom-integrations group.
-			expect(
-				within(custom).getByRole("button", { name: "Connect CalDAV" }),
-			).toBeInTheDocument();
-			expect(
-				within(custom).queryByRole("button", { name: "Connect Google" }),
-			).not.toBeInTheDocument();
-		});
-
-		// R3-fix #3 — Google is a plain brand button like every other
-		// provider now, not the branded GoogleSignInButton.
-		it("renders Google as a plain brand-icon button, not GoogleSignInButton", () => {
-			render(SettingsConnectionsTab, baseProps({ connections: [] }));
-
-			const addSection = screen.getByTestId("connections-add");
-			expect(
-				within(addSection).queryByRole("button", {
-					name: "Continue with Google",
-				}),
-			).not.toBeInTheDocument();
-			expect(
-				within(addSection).queryByText("Continue with Google"),
-			).not.toBeInTheDocument();
-
-			const googleBtn = within(addSection).getByRole("button", {
-				name: "Connect Google",
-			});
-			expect(googleBtn).toHaveClass("pref-pill");
-			expect(googleBtn.querySelector("svg")).not.toBeNull();
-		});
-
-		it("clicking a provider tile calls onStartConnect(provider)", async () => {
-			const onStartConnect = vi.fn();
-			render(
-				SettingsConnectionsTab,
-				baseProps({ connections: [], onStartConnect }),
-			);
-
-			await fireEvent.click(
-				screen.getByRole("button", { name: "Connect Nextcloud" }),
-			);
-			expect(onStartConnect).toHaveBeenCalledWith("nextcloud");
-
-			await fireEvent.click(
-				screen.getByRole("button", { name: "Connect Google" }),
-			);
-			expect(onStartConnect).toHaveBeenCalledWith("google");
-		});
-
-		it("hints at already-connected providers, including Google, with an accessible icon (not a text pill)", () => {
+	// The redesign's central claim: one grammar for every state. A healthy
+	// connection used to render NOTHING in this column.
+	describe("one grammar for every state", () => {
+		it("says a healthy connection is connected, and when it was last used", () => {
 			render(
 				SettingsConnectionsTab,
 				baseProps({
-					connections: [makeConnection({ id: "conn-1", provider: "google" })],
+					connections: [
+						makeConnection({
+							status: "connected",
+							lastUsedAt: Math.floor(Date.now() / 1000) - 720,
+						}),
+					],
+				}),
+			);
+			const row = screen.getByTestId("connection-row-conn-1");
+			expect(within(row).getByText("Connected")).toBeInTheDocument();
+			expect(within(row).getByText(/Last used/)).toBeInTheDocument();
+		});
+
+		it("says a connection needs signing in again, in plain words", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [
+						makeConnection({
+							status: "needs_reauth",
+							statusChangedAt: 1_757_300_000,
+						}),
+					],
+				}),
+			);
+			const row = screen.getByTestId("connection-row-conn-1");
+			expect(within(row).getByText("Needs sign-in again")).toBeInTheDocument();
+			expect(
+				within(row).getByText(/stopped accepting the saved permission/),
+			).toBeInTheDocument();
+			// The old jargon is gone from the row.
+			expect(
+				within(row).queryByText("Needs reauthorization"),
+			).not.toBeInTheDocument();
+		});
+
+		it("says a connection can't be reached, without printing the provider's raw error", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [
+						makeConnection({
+							provider: "github",
+							status: "error",
+							statusDetail: "401 Bad credentials",
+							statusChangedAt: 1_757_400_000,
+						}),
+					],
+				}),
+			);
+			const row = screen.getByTestId("connection-row-conn-1");
+			expect(within(row).getByText("Can't reach it")).toBeInTheDocument();
+			expect(
+				within(row).queryByText(/401 Bad credentials/),
+			).not.toBeInTheDocument();
+		});
+
+		it("says a turned-off connection is turned off, and when", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [
+						makeConnection({
+							status: "disconnected",
+							statusChangedAt: 1_756_800_000,
+						}),
+					],
+				}),
+			);
+			const row = screen.getByTestId("connection-row-conn-1");
+			expect(within(row).getByText("Turned off")).toBeInTheDocument();
+			expect(within(row).getByText(/You turned this off/)).toBeInTheDocument();
+		});
+
+		// The one change the owner asked for on top of the boards: the status
+		// column must not move when the number of buttons beside it changes.
+		it("gives the status column a fixed width so it never shifts with the buttons", () => {
+			const { container } = render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [
+						makeConnection({ id: "conn-1", status: "connected" }),
+						makeConnection({ id: "conn-2", status: "needs_reauth" }),
+					],
+				}),
+			);
+			const cells = container.querySelectorAll(".status-cell");
+			expect(cells).toHaveLength(2);
+			for (const cell of cells) {
+				expect(cell.className).not.toContain("compact");
+			}
+		});
+	});
+
+	describe("capability chips", () => {
+		it("marks a capability the provider refused as not allowed", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [
+						makeConnection({
+							capabilities: ["calendar"],
+							grantedCapabilities: ["calendar"],
+						}),
+					],
+				}),
+			);
+			const row = screen.getByTestId("connection-row-conn-1");
+			expect(
+				within(row).getByText("Contacts — not allowed"),
+			).toBeInTheDocument();
+		});
+
+		it("says when a connection may write, and to how many folders", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [
+						makeConnection({
+							provider: "nextcloud",
+							capabilities: ["files", "contacts"],
+							grantedCapabilities: ["files", "contacts"],
+							allowWrites: true,
+							writeAllowlist: ["/AlfyAI", "/Documents"],
+						}),
+					],
+				}),
+			);
+			const row = screen.getByTestId("connection-row-conn-1");
+			expect(within(row).getByText("Writes to 2 folders")).toBeInTheDocument();
+		});
+	});
+
+	describe("recovery actions", () => {
+		it("offers 'Sign in again' on a connection that needs it", async () => {
+			const onReconnect = vi.fn();
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [makeConnection({ status: "needs_reauth" })],
+					onReconnect,
+				}),
+			);
+			await fireEvent.click(screen.getByText("Sign in again"));
+			expect(onReconnect).toHaveBeenCalledWith("conn-1");
+		});
+
+		it("offers 'Fix this' on an unreachable connection", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({ connections: [makeConnection({ status: "error" })] }),
+			);
+			expect(screen.getByText("Fix this")).toBeInTheDocument();
+		});
+
+		// New: a disconnected connection had no way back from the list at all.
+		it("offers 'Connect again' on a turned-off connection", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [makeConnection({ status: "disconnected" })],
+				}),
+			);
+			expect(screen.getByText("Connect again")).toBeInTheDocument();
+		});
+
+		it("offers no recovery action on a healthy connection", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({ connections: [makeConnection({ status: "connected" })] }),
+			);
+			expect(
+				screen.queryByTestId("connection-recover-conn-1"),
+			).not.toBeInTheDocument();
+			expect(
+				screen.getByTestId("connection-details-conn-1"),
+			).toBeInTheDocument();
+		});
+	});
+
+	it("opens the detail dialog from the row and from its Details button", async () => {
+		const { unmount } = render(
+			SettingsConnectionsTab,
+			baseProps({ connections: [makeConnection()] }),
+		);
+		await fireEvent.click(screen.getByTestId("connection-details-conn-1"));
+		expect(
+			await screen.findByTestId("connection-detail-conn-1"),
+		).toBeInTheDocument();
+		unmount();
+
+		render(
+			SettingsConnectionsTab,
+			baseProps({ connections: [makeConnection()] }),
+		);
+		const row = screen.getByTestId("connection-row-conn-1");
+		await fireEvent.click(within(row).getAllByRole("button")[0]);
+		expect(
+			await screen.findByTestId("connection-detail-conn-1"),
+		).toBeInTheDocument();
+	});
+
+	describe("empty, loading and failed states", () => {
+		it("renders the empty state when the account genuinely has no connections", () => {
+			render(SettingsConnectionsTab, baseProps());
+			expect(screen.getByTestId("connections-empty")).toBeInTheDocument();
+		});
+
+		it("shows a loading indicator instead of the list while loading", () => {
+			render(SettingsConnectionsTab, baseProps({ loading: true }));
+			expect(screen.queryByTestId("connections-list")).not.toBeInTheDocument();
+			expect(screen.queryByTestId("connections-empty")).not.toBeInTheDocument();
+		});
+
+		// A failed load used to render the SAME card as an empty account, with
+		// a code comment saying the user could retry by revisiting the page.
+		it("tells the user a failed load is not an empty account, and offers a retry", async () => {
+			const onRetryLoad = vi.fn();
+			render(
+				SettingsConnectionsTab,
+				baseProps({ loadFailed: true, onRetryLoad }),
+			);
+			const card = screen.getByTestId("connections-load-failed");
+			expect(
+				within(card).getByText("We couldn't load your connections"),
+			).toBeInTheDocument();
+			expect(
+				within(card).getByText(/your accounts are still connected/i),
+			).toBeInTheDocument();
+			expect(screen.queryByTestId("connections-empty")).not.toBeInTheDocument();
+			await fireEvent.click(within(card).getByText("Try again"));
+			expect(onRetryLoad).toHaveBeenCalled();
+		});
+	});
+
+	// A failed toggle used to snap back in silence, leaving the user unable to
+	// tell whether the change had taken.
+	describe("a change that did not save", () => {
+		it("names the exact change that failed and offers to try it again", async () => {
+			const onToggleLocalDistill = vi
+				.fn()
+				.mockRejectedValueOnce(new Error("nope"))
+				.mockResolvedValueOnce(undefined);
+			render(SettingsConnectionsTab, baseProps({ onToggleLocalDistill }));
+
+			await fireEvent.click(
+				screen.getByRole("switch", {
+					name: "Keep connected data on this device",
 				}),
 			);
 
-			const addSection = screen.getByTestId("connections-add");
-			const googleBtn = within(addSection).getByRole("button", {
-				name: "Connect Google",
-			});
+			const card = await screen.findByTestId("connections-change-failed");
 			expect(
-				within(googleBtn).getByRole("img", { name: "Connected" }),
+				within(card).getByText("That change didn't save"),
+			).toBeInTheDocument();
+			expect(
+				within(card).getByText(/Turning on on-device processing/),
 			).toBeInTheDocument();
 
-			const nextcloudBtn = within(addSection).getByRole("button", {
-				name: "Connect Nextcloud",
+			await fireEvent.click(within(card).getByText("Try again"));
+			await waitFor(() => {
+				expect(onToggleLocalDistill).toHaveBeenCalledTimes(2);
 			});
+			// The card animates out, so give the outro room to finish.
+			await waitFor(
+				() => {
+					expect(
+						screen.queryByTestId("connections-change-failed"),
+					).not.toBeInTheDocument();
+				},
+				{ timeout: 4000 },
+			);
+		});
+
+		it("can be dismissed", async () => {
+			const onToggleLocalDistill = vi.fn().mockRejectedValue(new Error("nope"));
+			render(SettingsConnectionsTab, baseProps({ onToggleLocalDistill }));
+			await fireEvent.click(
+				screen.getByRole("switch", {
+					name: "Keep connected data on this device",
+				}),
+			);
+			const card = await screen.findByTestId("connections-change-failed");
+			await fireEvent.click(within(card).getByText("Dismiss"));
+			await waitFor(
+				() => {
+					expect(
+						screen.queryByTestId("connections-change-failed"),
+					).not.toBeInTheDocument();
+				},
+				{ timeout: 4000 },
+			);
+		});
+	});
+
+	// A partial OAuth grant produced fewer capabilities than the boxes that
+	// were ticked, and said nothing at all.
+	describe("a partial OAuth grant", () => {
+		it("says which capability was refused and offers to ask again", async () => {
+			sessionStorage.setItem(
+				"alfyai:connections:requested:google",
+				JSON.stringify(["calendar", "contacts"]),
+			);
+			const onAskAgain = vi.fn();
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					onAskAgain,
+					connections: [
+						makeConnection({
+							capabilities: ["calendar"],
+							grantedCapabilities: ["calendar"],
+						}),
+					],
+				}),
+			);
+
+			const card = await screen.findByTestId("connections-partial-grant");
 			expect(
-				within(nextcloudBtn).queryByRole("img", { name: "Connected" }),
+				within(card).getByText("You allowed Calendar, but not Contacts"),
+			).toBeInTheDocument();
+
+			await fireEvent.click(within(card).getByText("Ask for Contacts"));
+			expect(onAskAgain).toHaveBeenCalledWith("conn-1", "contacts");
+		});
+
+		it("says nothing when the grant was complete", () => {
+			sessionStorage.setItem(
+				"alfyai:connections:requested:google",
+				JSON.stringify(["calendar"]),
+			);
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [
+						makeConnection({
+							capabilities: ["calendar"],
+							grantedCapabilities: ["calendar", "contacts"],
+						}),
+					],
+				}),
+			);
+			expect(
+				screen.queryByTestId("connections-partial-grant"),
+			).not.toBeInTheDocument();
+		});
+
+		it("says nothing when no connect just happened", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [
+						makeConnection({
+							capabilities: ["calendar"],
+							grantedCapabilities: ["calendar"],
+						}),
+					],
+				}),
+			);
+			expect(
+				screen.queryByTestId("connections-partial-grant"),
 			).not.toBeInTheDocument();
 		});
 	});
 
-	describe("Privacy & locality (Option A)", () => {
-		it("renders the local-distill toggle reflecting the fetched value", () => {
-			render(SettingsConnectionsTab, baseProps({ localDistill: true }));
-
-			const section = screen.getByTestId("connections-locality");
-			const toggle = within(section).getByRole("switch", {
-				name: "Keep connector data on this device",
-			});
-			expect(toggle).toHaveAttribute("aria-checked", "true");
-		});
-
-		it("defaults to off when localDistill is not yet loaded", () => {
-			render(SettingsConnectionsTab, baseProps({ localDistill: false }));
-
-			const section = screen.getByTestId("connections-locality");
-			const toggle = within(section).getByRole("switch", {
-				name: "Keep connector data on this device",
-			});
-			expect(toggle).toHaveAttribute("aria-checked", "false");
-		});
-
-		it("calls onToggleLocalDistill with the new value when toggled", async () => {
-			const onToggleLocalDistill = vi.fn();
-			render(
-				SettingsConnectionsTab,
-				baseProps({ localDistill: false, onToggleLocalDistill }),
-			);
-
-			const section = screen.getByTestId("connections-locality");
-			const toggle = within(section).getByRole("switch", {
-				name: "Keep connector data on this device",
-			});
-			await fireEvent.click(toggle);
-
-			expect(onToggleLocalDistill).toHaveBeenCalledWith(true);
-		});
-
-		it("disables the toggle while the locality preference is loading", () => {
-			render(SettingsConnectionsTab, baseProps({ localityLoading: true }));
-
-			const section = screen.getByTestId("connections-locality");
-			const toggle = within(section).getByRole("switch", {
-				name: "Keep connector data on this device",
-			});
-			expect(toggle).toBeDisabled();
-		});
-
-		it("shows help text and the fidelity note", () => {
+	describe("Add a connection", () => {
+		it("offers every connectable provider, with a line saying what it brings", () => {
 			render(SettingsConnectionsTab, baseProps());
-
-			const section = screen.getByTestId("connections-locality");
+			const card = screen.getByTestId("connections-add");
+			for (const provider of CONNECTABLE_PROVIDER_LIST) {
+				const entry = getProviderCatalogEntry(provider);
+				expect(
+					within(card).getByRole("button", {
+						name: `Connect ${entry.displayName}`,
+					}),
+					provider,
+				).toBeInTheDocument();
+			}
 			expect(
-				within(section).getByText(
-					"Local summarization aims to preserve the details relevant to your question, though some nuance can be lost compared to sending the raw data.",
-				),
+				within(card).getByText("Your files and contacts"),
+			).toBeInTheDocument();
+			// Resolver-only providers stay out of the list.
+			expect(
+				within(card).queryByRole("button", {
+					name: /Contacts \(CardDAV\)/,
+				}),
+			).not.toBeInTheDocument();
+		});
+
+		it("separates the products from the ones you point at your own server", () => {
+			render(SettingsConnectionsTab, baseProps());
+			expect(screen.getByTestId("connections-add-divider")).toBeInTheDocument();
+			expect(screen.getByText("Set one up yourself")).toBeInTheDocument();
+			const custom = screen.getByTestId("connections-add-custom");
+			expect(
+				within(custom).getByRole("button", { name: "Connect CalDAV" }),
 			).toBeInTheDocument();
 		});
 
-		// R3-fix #6 — the InfoTooltip trigger sits next to the toggle label in
-		// a flex row; the label drops the global `.settings-label` bottom
-		// margin (meant for labels stacked ABOVE an input) via the
-		// `.connection-toggle-label` modifier so it lines up with the icon.
-		it("vertically centers the InfoTooltip icon with its label", () => {
-			render(SettingsConnectionsTab, baseProps());
+		it("calls onStartConnect with the provider that was clicked", async () => {
+			const onStartConnect = vi.fn();
+			render(SettingsConnectionsTab, baseProps({ onStartConnect }));
+			await fireEvent.click(screen.getByTestId("connections-add-nextcloud"));
+			expect(onStartConnect).toHaveBeenCalledWith("nextcloud");
+		});
 
+		it("marks an already-connected provider with a labelled check, not a text pill", () => {
+			render(
+				SettingsConnectionsTab,
+				baseProps({ connections: [makeConnection({ provider: "google" })] }),
+			);
+			const card = screen.getByTestId("connections-add");
+			expect(
+				within(card).getByRole("img", { name: "Already connected" }),
+			).toBeInTheDocument();
+		});
+	});
+
+	// The privacy control is the main decision on this screen, and used to be
+	// the last card on the page.
+	describe("on-device processing", () => {
+		it("is the first card on the page", () => {
+			const { container } = render(
+				SettingsConnectionsTab,
+				baseProps({ connections: [makeConnection()] }),
+			);
+			const cards = container.querySelectorAll("[data-testid]");
+			const order = [...cards].map((el) => el.getAttribute("data-testid"));
+			expect(order.indexOf("connections-locality")).toBeLessThan(
+				order.indexOf("connections-list"),
+			);
+			expect(order.indexOf("connections-locality")).toBeLessThan(
+				order.indexOf("connections-add"),
+			);
+		});
+
+		it("reflects the fetched value and reads its state out as a badge", () => {
+			render(SettingsConnectionsTab, baseProps({ localDistill: true }));
+			expect(
+				screen.getByRole("switch", {
+					name: "Keep connected data on this device",
+				}),
+			).toHaveAttribute("aria-checked", "true");
+			expect(
+				screen.getByTestId("connections-locality-state"),
+			).toHaveTextContent("On");
+		});
+
+		it("defaults to off when the preference has not loaded", () => {
+			render(SettingsConnectionsTab, baseProps());
+			expect(
+				screen.getByRole("switch", {
+					name: "Keep connected data on this device",
+				}),
+			).toHaveAttribute("aria-checked", "false");
+		});
+
+		it("calls onToggleLocalDistill with the new value", async () => {
+			const onToggleLocalDistill = vi.fn();
+			render(SettingsConnectionsTab, baseProps({ onToggleLocalDistill }));
+			await fireEvent.click(
+				screen.getByRole("switch", {
+					name: "Keep connected data on this device",
+				}),
+			);
+			expect(onToggleLocalDistill).toHaveBeenCalledWith(true);
+		});
+
+		it("disables the switch while the preference is loading", () => {
+			render(SettingsConnectionsTab, baseProps({ localityLoading: true }));
+			expect(
+				screen.getByRole("switch", {
+					name: "Keep connected data on this device",
+				}),
+			).toBeDisabled();
+		});
+
+		it("reads as one sentence, with the rest in the tooltip", () => {
+			render(SettingsConnectionsTab, baseProps());
 			const section = screen.getByTestId("connections-locality");
-			const row = section.querySelector(".connection-toggle-text");
-			expect(row).not.toBeNull();
-			const label = row?.querySelector(".settings-label") as HTMLElement;
-			expect(label).not.toBeNull();
-			expect(label.className).toContain("connection-toggle-label");
-			expect(row?.querySelector(".info-tooltip-trigger")).not.toBeNull();
+			expect(
+				within(section).getByText(/summarises what your accounts return/),
+			).toBeInTheDocument();
+			expect(
+				within(section).getByRole("button", {
+					name: /Summaries aim to keep the details/,
+				}),
+			).toBeInTheDocument();
 		});
 	});
 });

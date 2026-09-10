@@ -1,21 +1,27 @@
 <script lang="ts">
-// Issue 7.3 — the connect/reconnect wizard opened from the Connections panel
-// (SettingsConnectionsTab's onStartConnect/onReconnect -> +page.svelte's
-// connectWizardProvider/reconnectConnectionId intent state). One form per
-// `connectMethod` (see provider-catalog.ts), plus a special case for
-// OwnTracks (catalog-labelled "password-key" but actually a device picker —
-// see the `kind` derivation below) and for "contacts" (catalog entry exists
-// but has no backend start route yet, so it shows a "not available" notice).
+// Connections redesign — the connect/reconnect wizard.
 //
-// The parent always mounts this component conditionally on `provider` being
-// non-null (`{#if connectWizardProvider}<ConnectWizardModal .../>{/if}`), so
-// every open is a fresh component instance — no need to reset form state on
-// prop changes mid-lifetime.
+// One chassis, one variant per provider (see wizard-variant.ts, which is
+// where the "which screen does this provider get?" mapping now lives). What
+// changed inside the chassis:
+//
+// * Every variant opens with a header saying what the screen is asking for,
+//   in words the person can act on: "Access token — a long password you
+//   create on GitHub", not "Personal access token"; "Where is your mailbox?"
+//   with IMAP kept off the first screen entirely.
+// * A missing OAuth app no longer dead-ends at "ask your administrator" — it
+//   names the exact Administration page and offers to open it.
+// * A blocked pop-up is a real state with a way out, instead of leaving the
+//   Nextcloud flow waiting for an approval in a tab that never opened.
+// * A submit in flight is a "Connecting …" panel with a Cancel that actually
+//   aborts, instead of a greyed button.
+// * A failure leads with a sentence and keeps the provider's own words one
+//   click away, rather than printing backend phrasing as the whole message.
+//
+// The parent mounts this conditionally on `provider` being non-null, so every
+// open is a fresh instance and everything below takes a one-time snapshot.
+import { Check, Clock, ExternalLink, Loader, Ban } from "@lucide/svelte";
 import { onDestroy, onMount, untrack } from "svelte";
-import { t } from "$lib/i18n";
-import DialogShell from "$lib/components/ui/DialogShell.svelte";
-import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
-import PasswordField from "./PasswordField.svelte";
 import {
 	type ConnectionPublic,
 	fetchOwnTracksDevices,
@@ -33,16 +39,36 @@ import {
 	startPlexConnect,
 } from "$lib/client/api/connections";
 import { ApiError } from "$lib/client/api/http";
+import { rememberRequestedCapabilities } from "$lib/client/connections/oauth-request-memo";
 import {
 	type Capability,
 	type ConnectionProvider,
 	getProviderCatalogEntry,
 } from "$lib/client/connections/provider-catalog";
+import { makeGrammarFormatters } from "$lib/client/connections/status-grammar";
+import {
+	connectWizardVariant,
+	initialMailStep,
+	type MailPath,
+} from "$lib/client/connections/wizard-variant";
+import DialogShell from "$lib/components/ui/DialogShell.svelte";
+import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
+import { t } from "$lib/i18n";
+import { uiLanguage } from "$lib/stores/settings";
+import PasswordField from "./PasswordField.svelte";
+import Disclosure from "./connections/Disclosure.svelte";
+import NotSetUpNotice from "./connections/NotSetUpNotice.svelte";
+import WizardHeader from "./connections/WizardHeader.svelte";
 
 let {
 	provider,
 	reconnectConnectionId = null,
 	reconnectConnection = null,
+	// Connections redesign — capabilities "Ask again" wants the consent screen
+	// asked for. Empty means "whatever this provider offers".
+	requestedCapabilities = [],
+	isAdmin = false,
+	onOpenAdminIntegrations,
 	onClose,
 	onConnected,
 	// Indirections around browser navigation APIs so tests can assert on
@@ -50,65 +76,44 @@ let {
 	redirectTo = (url: string) => {
 		window.location.href = url;
 	},
-	openWindow = (url: string) => {
-		window.open(url, "_blank", "noopener");
-	},
+	// Returns the opened window so a blocked pop-up can be detected. A caller
+	// (or test double) that returns nothing is treated as "opened" — only an
+	// explicit null means the browser refused.
+	openWindow = (url: string): Window | null =>
+		window.open(url, "_blank", "noopener"),
 	pollIntervalMs = 2000,
 	pollTimeoutMs = 3 * 60 * 1000,
 }: {
 	provider: ConnectionProvider | null;
 	reconnectConnectionId?: string | null;
 	reconnectConnection?: ConnectionPublic | null;
+	requestedCapabilities?: string[];
+	isAdmin?: boolean;
+	onOpenAdminIntegrations?: () => void;
 	onClose: () => void;
 	onConnected: () => void;
 	redirectTo?: (url: string) => void;
-	openWindow?: (url: string) => void;
+	openWindow?: (url: string) => Window | null | undefined;
 	pollIntervalMs?: number;
 	pollTimeoutMs?: number;
 } = $props();
 
-// `provider`/`reconnectConnectionId`/`reconnectConnection` never change
-// across this instance's lifetime (see note above: the parent always
-// destroys and recreates the component on open/close), so everything below
-// intentionally takes a ONE-TIME snapshot rather than staying reactive —
-// re-syncing form fields to a live prop on every change is not what we want
-// (it would clobber in-progress user edits). `untrack()` tells Svelte this
-// is deliberate and silences the "only captures the initial value" warning
-// that would otherwise assume a bug (mirrors the $state(untrack(() => ...))
-// seeding pattern in ModelForm.svelte).
 const initialProvider = untrack(() => provider);
-
-// The wizard is mounted fresh each open via a parent `{#if}`, so
-// `initialProvider` (and the derived `kind`) are truthy on the very first
-// render. DialogShell's transitions are LOCAL, so they only play when their
-// own containing `{#if}` toggles — a block that is already truthy on mount
-// skips the intro (the modal "pops in"). Flipping `visible` false→true after
-// mount toggles the block so the fade/scale intro actually plays, matching
-// the app's other popup modals.
-let visible = $state(false);
 const initialReconnectConnectionId = untrack(() => reconnectConnectionId);
 const initialReconnectConnection = untrack(() => reconnectConnection);
+const initialRequestedCapabilities = untrack(() => requestedCapabilities);
+
+// DialogShell's transitions are local, so a block already truthy on mount
+// skips its intro. Flipping this false -> true after mount makes the open
+// animation play, matching every other popup in the app.
+let visible = $state(false);
 
 const providerEntry = initialProvider
 	? getProviderCatalogEntry(initialProvider)
 	: null;
 const isReconnect = !!initialReconnectConnectionId;
-
-type Kind =
-	| "oauth"
-	| "login-flow-v2"
-	| "password-key"
-	| "app-password"
-	| "owntracks"
-	| "unavailable";
-
-const kind: Kind | null = !initialProvider
-	? null
-	: initialProvider === "owntracks"
-		? "owntracks"
-		: initialProvider === "contacts"
-			? "unavailable"
-			: (providerEntry?.connectMethod ?? null);
+const variant = connectWizardVariant(initialProvider);
+const formatters = $derived(makeGrammarFormatters($uiLanguage));
 
 function reconnectConfigString(key: string): string {
 	const value = initialReconnectConnection?.config?.[key];
@@ -130,14 +135,62 @@ function errMessage(err: unknown): string {
 }
 
 let submitting = $state(false);
+// The provider's own words. Shown behind "What went wrong?", never as the
+// whole message — `connections.wizard.genericError` is the sentence the user
+// reads first. Opened by default for a 4xx, where the server's phrasing is
+// usually the actionable part ("invalid credentials").
 let errorText = $state("");
+let errorDetailOpen = $state(false);
+
+function setError(err: unknown) {
+	errorText = errMessage(err);
+	errorDetailOpen = err instanceof ApiError && err.status < 500;
+}
+
+function clearError() {
+	errorText = "";
+	errorDetailOpen = false;
+}
+
+// One controller per in-flight submit, so the "Connecting …" panel's Cancel
+// actually stops waiting rather than hiding a request that keeps running.
+let abortController: AbortController | null = null;
+
+function cancelSubmit() {
+	abortController?.abort();
+	abortController = null;
+	submitting = false;
+	onClose();
+}
+
+async function submitCredentials(run: (signal: AbortSignal) => Promise<void>) {
+	if (submitting) return;
+	submitting = true;
+	clearError();
+	const controller = new AbortController();
+	abortController = controller;
+	try {
+		await run(controller.signal);
+		onConnected();
+		onClose();
+	} catch (err) {
+		if (controller.signal.aborted) return;
+		setError(err);
+	} finally {
+		if (abortController === controller) abortController = null;
+		submitting = false;
+	}
+}
 
 // --- oauth (Google, OneDrive) -------------------------------------------
-// Task 8 — OneDrive is a second oauth-connectMethod provider alongside
-// Google, so this branch (and its start-call dispatch below) now serves
-// both rather than being Google-only.
 let selectedCapabilities = $state<Set<Capability>>(
-	new Set(providerEntry?.capabilities ?? []),
+	new Set(
+		initialRequestedCapabilities.length > 0
+			? (initialRequestedCapabilities as Capability[]).filter((capability) =>
+					providerEntry?.capabilities.includes(capability),
+				)
+			: (providerEntry?.capabilities ?? []),
+	),
 );
 let oauthNotConfigured = $state(false);
 
@@ -149,21 +202,25 @@ function toggleCapability(capability: Capability) {
 }
 
 async function submitOAuth() {
-	if (submitting || selectedCapabilities.size === 0) return;
+	if (submitting || selectedCapabilities.size === 0 || !initialProvider) return;
 	submitting = true;
-	errorText = "";
+	clearError();
 	oauthNotConfigured = false;
+	const requested = [...selectedCapabilities];
 	try {
 		const { authUrl } =
 			initialProvider === "onedrive"
-				? await startOneDriveConnect([...selectedCapabilities])
-				: await startGoogleConnect([...selectedCapabilities]);
+				? await startOneDriveConnect(requested)
+				: await startGoogleConnect(requested);
+		// Written down BEFORE the browser leaves, because after the round trip
+		// nothing else knows what was asked for — only what was granted.
+		rememberRequestedCapabilities(initialProvider, requested);
 		redirectTo(authUrl);
 	} catch (err) {
 		if (err instanceof ApiError && err.status === 501) {
 			oauthNotConfigured = true;
 		} else {
-			errorText = errMessage(err);
+			setError(err);
 		}
 	} finally {
 		submitting = false;
@@ -172,11 +229,25 @@ async function submitOAuth() {
 
 // --- login-flow-v2 (Nextcloud) -----------------------------------------
 let ncServerUrl = $state(reconnectConfigString("serverUrl"));
-let ncPhase = $state<"form" | "waiting" | "timeout">("form");
+let ncPhase = $state<"form" | "waiting" | "timeout" | "blocked">("form");
 let ncPollToken = "";
-let ncPollServerUrl = "";
-let ncElapsedMs = 0;
+// Reactive because the waiting/blocked screens show it as the subtitle —
+// the user needs to see WHICH server they are being asked to approve on.
+let ncPollServerUrl = $state("");
+let ncLoginUrl = $state("");
+let ncElapsedMs = $state(0);
 let ncTimer: ReturnType<typeof setTimeout> | null = null;
+
+const ncMinutesLeft = $derived(
+	Math.max(1, Math.ceil((pollTimeoutMs - ncElapsedMs) / 60000)),
+);
+
+function openNextcloudTab(): boolean {
+	const opened = openWindow(ncLoginUrl);
+	// Only an explicit null means the browser refused; `undefined` comes from
+	// a caller that doesn't report, and must not be read as blocked.
+	return opened !== null;
+}
 
 async function submitNextcloud(event: Event) {
 	event.preventDefault();
@@ -184,20 +255,32 @@ async function submitNextcloud(event: Event) {
 	const serverUrl = ncServerUrl.trim();
 	if (!serverUrl) return;
 	submitting = true;
-	errorText = "";
+	clearError();
 	try {
 		const result = await startNextcloudConnect(serverUrl);
 		ncPollToken = result.pollToken;
 		ncPollServerUrl = result.serverUrl;
-		openWindow(result.loginUrl);
-		ncPhase = "waiting";
+		ncLoginUrl = result.loginUrl;
 		ncElapsedMs = 0;
+		if (!openNextcloudTab()) {
+			// The login link is already minted and still valid — the user just
+			// needs a way to reach it.
+			ncPhase = "blocked";
+			return;
+		}
+		ncPhase = "waiting";
 		scheduleNextPoll();
 	} catch (err) {
-		errorText = errMessage(err);
+		setError(err);
 	} finally {
 		submitting = false;
 	}
+}
+
+function retryOpenNextcloudTab() {
+	if (!openNextcloudTab()) return;
+	ncPhase = "waiting";
+	scheduleNextPoll();
 }
 
 function scheduleNextPoll() {
@@ -219,7 +302,7 @@ async function pollOnce() {
 			return;
 		}
 	} catch (err) {
-		errorText = errMessage(err);
+		setError(err);
 		ncPhase = "form";
 		return;
 	}
@@ -249,105 +332,69 @@ function cancelNextcloudWait() {
 
 function retryNextcloud() {
 	ncPhase = "form";
-	errorText = "";
+	clearError();
 }
 
 onDestroy(() => {
 	if (ncTimer) clearTimeout(ncTimer);
+	abortController?.abort();
 });
 
 // --- password-key (Immich) ----------------------------------------------
-// Immich stores the normalized server URL under config.origin and the
-// login email as the connection's accountIdentifier (see immichConnect in
-// src/lib/server/services/connections/providers/immich.ts) — NOT
-// config.serverUrl/config.email, which don't exist on this provider.
 let immichServerUrl = $state(reconnectConfigString("origin"));
 let immichEmail = $state(initialReconnectConnection?.accountIdentifier ?? "");
 let immichPassword = $state("");
 let immichShowPassword = $state(false);
 
-async function submitImmich(event: Event) {
+const submitImmich = (event: Event) => {
 	event.preventDefault();
-	if (submitting) return;
-	submitting = true;
-	errorText = "";
-	try {
-		await startImmichConnect({
-			serverUrl: immichServerUrl.trim(),
-			email: immichEmail.trim(),
-			password: immichPassword,
-		});
-		onConnected();
-		onClose();
-	} catch (err) {
-		errorText = errMessage(err);
-	} finally {
-		submitting = false;
-	}
-}
+	return submitCredentials((signal) =>
+		startImmichConnect(
+			{
+				serverUrl: immichServerUrl.trim(),
+				email: immichEmail.trim(),
+				password: immichPassword,
+			},
+			signal,
+		).then(() => undefined),
+	);
+};
 
 // --- password-key (Plex) -------------------------------------------------
-// Plex stores the normalized server URL under config.origin (see
-// plexConnect in src/lib/server/services/connections/providers/plex.ts) —
-// the token itself is never persisted in plaintext, so it can't be
-// prefilled on reconnect.
 let plexServerUrl = $state(reconnectConfigString("origin"));
 let plexToken = $state("");
 let plexShowToken = $state(false);
 
-async function submitPlex(event: Event) {
+const submitPlex = (event: Event) => {
 	event.preventDefault();
-	if (submitting) return;
-	submitting = true;
-	errorText = "";
-	try {
-		await startPlexConnect({
-			serverUrl: plexServerUrl.trim(),
-			token: plexToken.trim(),
-		});
-		onConnected();
-		onClose();
-	} catch (err) {
-		errorText = errMessage(err);
-	} finally {
-		submitting = false;
-	}
-}
+	return submitCredentials((signal) =>
+		startPlexConnect(
+			{ serverUrl: plexServerUrl.trim(), token: plexToken.trim() },
+			signal,
+		).then(() => undefined),
+	);
+};
 
-// --- app-password (GitHub) -------------------------------------------------
-// The PAT itself is never persisted in plaintext, so it can't be prefilled
-// on reconnect; the optional Gitea/GHE base URL lives under config.baseUrl
-// (see githubConnect in src/lib/server/services/connections/providers/github.ts).
+// --- app-password (GitHub) -----------------------------------------------
 let githubToken = $state("");
 let githubShowToken = $state(false);
 let githubBaseUrl = $state(reconnectConfigString("baseUrl"));
-// One-time snapshot of the initial value (see the `untrack()` doc comment
-// above initialProvider) — this only decides whether the Advanced section
-// starts expanded; it must not stay reactively tied to githubBaseUrl or
-// toggling it closed while a base URL is still typed would immediately
-// re-open it.
 let githubShowAdvanced = $state(untrack(() => !!githubBaseUrl));
 
-async function submitGitHub(event: Event) {
+const submitGitHub = (event: Event) => {
 	event.preventDefault();
-	if (submitting) return;
-	submitting = true;
-	errorText = "";
-	try {
-		await startGitHubConnect({
-			token: githubToken.trim(),
-			...(githubBaseUrl.trim() ? { baseUrl: githubBaseUrl.trim() } : {}),
-		});
-		onConnected();
-		onClose();
-	} catch (err) {
-		errorText = errMessage(err);
-	} finally {
-		submitting = false;
-	}
-}
+	return submitCredentials((signal) =>
+		startGitHubConnect(
+			{
+				token: githubToken.trim(),
+				...(githubBaseUrl.trim() ? { baseUrl: githubBaseUrl.trim() } : {}),
+			},
+			signal,
+		).then(() => undefined),
+	);
+};
 
-// --- app-password (Apple) -------------------------------------------------
+// --- app-password (Apple) ------------------------------------------------
 let appleId = $state(
 	reconnectConfigString("appleId") ||
 		(initialReconnectConnection?.accountIdentifier ?? ""),
@@ -355,30 +402,17 @@ let appleId = $state(
 let appleAppPassword = $state("");
 let appleShowPassword = $state(false);
 
-async function submitApple(event: Event) {
+const submitApple = (event: Event) => {
 	event.preventDefault();
-	if (submitting) return;
-	submitting = true;
-	errorText = "";
-	try {
-		await startAppleConnect({
-			appleId: appleId.trim(),
-			appPassword: appleAppPassword.trim(),
-		});
-		onConnected();
-		onClose();
-	} catch (err) {
-		errorText = errMessage(err);
-	} finally {
-		submitting = false;
-	}
-}
+	return submitCredentials((signal) =>
+		startAppleConnect(
+			{ appleId: appleId.trim(), appPassword: appleAppPassword.trim() },
+			signal,
+		).then(() => undefined),
+	);
+};
 
-// --- app-password (CalDAV) ---------------------------------------------------
-// The app password itself is never persisted in plaintext, so it can't be
-// prefilled on reconnect; serverUrl/username live under config (see
-// caldavConnect in
-// src/lib/server/services/connections/providers/caldav-tasks.ts).
+// --- app-password (CalDAV) -----------------------------------------------
 let caldavServerUrl = $state(reconnectConfigString("serverUrl"));
 let caldavUsername = $state(
 	reconnectConfigString("username") ||
@@ -387,59 +421,38 @@ let caldavUsername = $state(
 let caldavAppPassword = $state("");
 let caldavShowPassword = $state(false);
 
-async function submitCalDav(event: Event) {
+const submitCalDav = (event: Event) => {
 	event.preventDefault();
-	if (submitting) return;
-	submitting = true;
-	errorText = "";
-	try {
-		await startCalDavConnect({
-			serverUrl: caldavServerUrl.trim(),
-			username: caldavUsername.trim(),
-			appPassword: caldavAppPassword.trim(),
-		});
-		onConnected();
-		onClose();
-	} catch (err) {
-		errorText = errMessage(err);
-	} finally {
-		submitting = false;
-	}
-}
+	return submitCredentials((signal) =>
+		startCalDavConnect(
+			{
+				serverUrl: caldavServerUrl.trim(),
+				username: caldavUsername.trim(),
+				appPassword: caldavAppPassword.trim(),
+			},
+			signal,
+		).then(() => undefined),
+	);
+};
 
-// --- app-password (Email / IMAP) — multi-step wizard (ADR 0044 Decision 4)
-// -------------------------------------------------------------------------
-// Step 1 offers three paths so the user never has to configure a raw IMAP
-// client by hand: "alfy" (near-zero-config, host/port derived from the
-// email's domain), "gmail" (branded, app-password help + derived Google
-// hosts), and "other" (the original manual IMAP form, kept verbatim as the
-// fallback for every mailbox that isn't one of the first two). Reconnect
-// always jumps straight to "other" — the saved config already has whatever
-// host/port/secure values worked last time, so re-deriving from the email's
-// domain would be a regression for a mailbox that turned out to need a
-// custom host.
-type EmailPath = "alfy" | "gmail" | "other";
-let emailStep = $state<"choose" | EmailPath>(isReconnect ? "other" : "choose");
+// --- app-password (Email / IMAP) — multi-step ----------------------------
+let emailStep = $state<"choose" | MailPath>(initialMailStep(isReconnect));
 
-function chooseEmailPath(path: EmailPath) {
+function chooseEmailPath(path: MailPath) {
 	emailStep = path;
-	errorText = "";
+	clearError();
 }
 
 function backToEmailChoice() {
 	emailStep = "choose";
-	errorText = "";
+	clearError();
 }
 
-// Everything after the LAST "@" — good enough for the mailbox domains this
-// derives host names from (and empty for a not-yet-valid address, which
-// disables submit rather than POSTing a garbage host).
 function domainFromEmail(email: string): string {
 	const at = email.lastIndexOf("@");
 	return at === -1 ? "" : email.slice(at + 1).trim();
 }
 
-// --- Alfy Email path ---
 let alfyEmail = $state(
 	isReconnect ? (initialReconnectConnection?.accountIdentifier ?? "") : "",
 );
@@ -447,65 +460,51 @@ let alfyPassword = $state("");
 let alfyShowPassword = $state(false);
 let alfyDomain = $derived(domainFromEmail(alfyEmail));
 
-async function submitAlfyEmail(event: Event) {
+const submitAlfyEmail = (event: Event) => {
 	event.preventDefault();
-	if (submitting) return;
 	const email = alfyEmail.trim();
 	const domain = domainFromEmail(email);
 	if (!email || !domain || !alfyPassword) return;
-	submitting = true;
-	errorText = "";
-	try {
-		await startEmailConnect({
-			email,
-			imapHost: `mail.${domain}`,
-			imapPort: 993,
-			imapSecure: true,
-			password: alfyPassword,
-			smtpHost: `mail.${domain}`,
-			smtpPort: 587,
-		});
-		onConnected();
-		onClose();
-	} catch (err) {
-		errorText = errMessage(err);
-	} finally {
-		submitting = false;
-	}
-}
+	return submitCredentials((signal) =>
+		startEmailConnect(
+			{
+				email,
+				imapHost: `mail.${domain}`,
+				imapPort: 993,
+				imapSecure: true,
+				password: alfyPassword,
+				smtpHost: `mail.${domain}`,
+				smtpPort: 587,
+			},
+			signal,
+		).then(() => undefined),
+	);
+};
 
-// --- Gmail path ---
 let gmailAddress = $state("");
 let gmailAppPassword = $state("");
 let gmailShowPassword = $state(false);
 
-async function submitGmailEmail(event: Event) {
+const submitGmailEmail = (event: Event) => {
 	event.preventDefault();
-	if (submitting) return;
 	const email = gmailAddress.trim();
 	if (!email || !gmailAppPassword) return;
-	submitting = true;
-	errorText = "";
-	try {
-		await startEmailConnect({
-			email,
-			imapHost: "imap.gmail.com",
-			imapPort: 993,
-			imapSecure: true,
-			password: gmailAppPassword,
-			smtpHost: "smtp.gmail.com",
-			smtpPort: 587,
-		});
-		onConnected();
-		onClose();
-	} catch (err) {
-		errorText = errMessage(err);
-	} finally {
-		submitting = false;
-	}
-}
+	return submitCredentials((signal) =>
+		startEmailConnect(
+			{
+				email,
+				imapHost: "imap.gmail.com",
+				imapPort: 993,
+				imapSecure: true,
+				password: gmailAppPassword,
+				smtpHost: "smtp.gmail.com",
+				smtpPort: 587,
+			},
+			signal,
+		).then(() => undefined),
+	);
+};
 
-// --- Other (IMAP) path — the original manual form, unchanged ---
 let emailAddress = $state(initialReconnectConnection?.accountIdentifier ?? "");
 let imapHost = $state(reconnectConfigString("imapHost"));
 let imapPort = $state<number | "">(reconnectConfigNumber("imapPort") ?? 993);
@@ -515,31 +514,25 @@ let emailShowPassword = $state(false);
 let smtpHost = $state(reconnectConfigString("smtpHost"));
 let smtpPort = $state<number | "">(reconnectConfigNumber("smtpPort") ?? "");
 
-async function submitEmail(event: Event) {
+const submitEmail = (event: Event) => {
 	event.preventDefault();
-	if (submitting) return;
-	submitting = true;
-	errorText = "";
-	try {
-		await startEmailConnect({
-			email: emailAddress.trim(),
-			imapHost: imapHost.trim(),
-			...(imapPort !== "" ? { imapPort } : {}),
-			imapSecure,
-			password: emailPassword,
-			...(smtpHost.trim() ? { smtpHost: smtpHost.trim() } : {}),
-			...(smtpPort !== "" ? { smtpPort } : {}),
-		});
-		onConnected();
-		onClose();
-	} catch (err) {
-		errorText = errMessage(err);
-	} finally {
-		submitting = false;
-	}
-}
+	return submitCredentials((signal) =>
+		startEmailConnect(
+			{
+				email: emailAddress.trim(),
+				imapHost: imapHost.trim(),
+				...(imapPort !== "" ? { imapPort } : {}),
+				imapSecure,
+				password: emailPassword,
+				...(smtpHost.trim() ? { smtpHost: smtpHost.trim() } : {}),
+				...(smtpPort !== "" ? { smtpPort } : {}),
+			},
+			signal,
+		).then(() => undefined),
+	);
+};
 
-// --- OwnTracks device picker -----------------------------------------------
+// --- OwnTracks device picker ---------------------------------------------
 let otLoading = $state(false);
 let otLoadError = $state("");
 let otNotConfigured = $state(false);
@@ -556,6 +549,9 @@ async function loadOwnTracksDevices() {
 	otNotConfigured = false;
 	try {
 		otDevices = await fetchOwnTracksDevices();
+		// One device and nothing to choose between: pre-select it so the
+		// primary action isn't disabled for a decision with one answer.
+		if (otDevices.length === 1) otSelectedKey = deviceKey(otDevices[0]);
 	} catch (err) {
 		if (err instanceof ApiError && err.status === 409) {
 			otNotConfigured = true;
@@ -567,100 +563,194 @@ async function loadOwnTracksDevices() {
 	}
 }
 
+// Not routed through submitCredentials: the 409 branch is a state change, not
+// a success, so it must not fall through to onConnected()/onClose().
 async function submitOwnTracks(event: Event) {
 	event.preventDefault();
 	if (submitting || !otSelectedKey) return;
 	const selected = otDevices.find((d) => deviceKey(d) === otSelectedKey);
 	if (!selected) return;
 	submitting = true;
-	errorText = "";
+	clearError();
+	const controller = new AbortController();
+	abortController = controller;
 	try {
-		await startOwnTracksConnect({
-			otUser: selected.otUser,
-			otDevice: selected.otDevice,
-		});
+		await startOwnTracksConnect(
+			{ otUser: selected.otUser, otDevice: selected.otDevice },
+			controller.signal,
+		);
 		onConnected();
 		onClose();
 	} catch (err) {
-		// The start route maps OwnTracksError `not_configured` (no recorder
-		// configured server-side) to HTTP 409 — the same admin-config gate the
-		// devices listing hits. Surface the clear "ask your admin" message
-		// (flipping the whole view to otNotConfigured, as on load) instead of a
-		// raw error string.
+		if (controller.signal.aborted) return;
+		// The start route maps "no recorder configured" to 409, same as the
+		// listing — flip to the admin-setup state rather than printing a raw
+		// error the user can do nothing with.
 		if (err instanceof ApiError && err.status === 409) {
 			otNotConfigured = true;
 		} else {
-			errorText = errMessage(err);
+			setError(err);
 		}
 	} finally {
+		if (abortController === controller) abortController = null;
 		submitting = false;
 	}
 }
 
 onMount(() => {
 	visible = true;
-	if (kind === "owntracks") void loadOwnTracksDevices();
+	if (variant === "owntracks") void loadOwnTracksDevices();
 });
+
+const providerName = $derived(providerEntry?.displayName ?? "");
 </script>
 
-{#if visible && initialProvider && providerEntry && kind}
+{#snippet errorBlock()}
+	{#if errorText}
+		<div class="wizard-error" data-testid="wizard-error">
+			<p class="wizard-error-line">{$t('connections.wizard.genericError')}</p>
+			<Disclosure
+				label={$t('connections.actions.whatWentWrong')}
+				bind:open={errorDetailOpen}
+				testId="wizard-error-detail"
+			>
+				<p class="wizard-error-detail">{errorText}</p>
+			</Disclosure>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet connectingPanel()}
+	<div class="connecting" data-testid="wizard-connecting">
+		<span class="connecting-spinner" aria-hidden="true">
+			<Loader size={22} strokeWidth={2} />
+		</span>
+		<p class="connecting-title">
+			{$t('connections.states.connecting.title', { provider: providerName })}
+		</p>
+		<p class="connecting-hint">{$t('connections.states.connecting.hint')}</p>
+	</div>
+	<div class="wizard-foot">
+		<span class="wizard-foot-spacer"></span>
+		<button type="button" class="btn-secondary w-full sm:w-auto" onclick={cancelSubmit}>
+			{$t('common.cancel')}
+		</button>
+	</div>
+{/snippet}
+
+{#if visible && initialProvider && providerEntry && variant}
 	<DialogShell
 		title={isReconnect
-			? $t('connections.wizard.titleReconnect', { provider: providerEntry.displayName })
-			: $t('connections.wizard.titleConnect', { provider: providerEntry.displayName })}
+			? $t('connections.wizard.titleReconnect', { provider: providerName })
+			: $t('connections.wizard.titleConnect', { provider: providerName })}
 		onClose={onClose}
 		maxWidthClass="max-w-[32rem]"
 		zIndexClass="z-[9999]"
+		titleVisuallyHidden
 	>
-		<div class="max-h-[calc(100vh-2rem)] overflow-y-auto">
-			{#if kind === 'unavailable'}
-				<p class="text-sm text-text-secondary">{$t('connections.wizard.contacts.notAvailable')}</p>
-				<div class="mt-6 flex justify-end">
-					<button type="button" class="btn-secondary" onclick={onClose}>{$t('common.close')}</button>
+		<div class="wizard">
+			{#if variant === 'unavailable'}
+				<WizardHeader
+					provider={initialProvider}
+					title={$t('connections.wizard.titleConnect', { provider: providerName })}
+					subtitle={$t('connections.wizard.contacts.subtitle')}
+				/>
+				<p class="wizard-help">{$t('connections.wizard.contacts.notAvailable')}</p>
+				<div class="wizard-foot">
+					<span class="wizard-foot-spacer"></span>
+					<button type="button" class="btn-secondary" onclick={onClose}>
+						{$t('common.close')}
+					</button>
 				</div>
-			{:else if kind === 'oauth'}
-				<p class="mb-4 text-sm text-text-secondary">{$t('connections.wizard.oauth.intro', { provider: providerEntry.displayName })}</p>
+
+			{:else if variant === 'oauth'}
+				<WizardHeader
+					provider={initialProvider}
+					title={$t('connections.wizard.titleConnect', { provider: providerName })}
+					subtitle={oauthNotConfigured
+						? $t('connections.wizard.notSetUp.subtitle')
+						: $t('connections.wizard.oauth.subtitle', { provider: providerName })}
+				/>
 				{#if oauthNotConfigured}
-					<p class="mb-4 text-sm text-danger">{$t('connections.wizard.oauth.notConfigured', { provider: providerEntry.displayName })}</p>
+					<NotSetUpNotice
+						{isAdmin}
+						body={isAdmin
+							? $t('connections.wizard.notSetUp.bodyAdmin', { provider: providerName })
+							: $t('connections.wizard.notSetUp.bodyMember', { provider: providerName })}
+						onOpen={onOpenAdminIntegrations}
+					/>
+					<div class="wizard-foot">
+						<span class="wizard-foot-spacer"></span>
+						<button type="button" class="btn-secondary" onclick={onClose}>
+							{$t('common.close')}
+						</button>
+					</div>
 				{:else}
-					<fieldset class="flex flex-col gap-2">
-						<legend class="settings-label mb-1">{$t('connections.capabilities.label')}</legend>
-						{#each providerEntry.capabilities as capability}
-							<label class="flex items-center gap-2 text-sm text-text-primary">
+					<fieldset class="capability-choices">
+						<legend class="sr-only">{$t('connections.capabilities.label')}</legend>
+						{#each providerEntry.capabilities as capability (capability)}
+							{@const checked = selectedCapabilities.has(capability)}
+							{@const capabilityName = $t(
+								`connections.capability.${capability}` as Parameters<typeof $t>[0],
+							)}
+							<label class="capability-choice">
+								<!-- The visible box is a styled span, so the real control keeps
+								     its own short accessible name rather than inheriting the
+								     label's name + description. -->
 								<input
 									type="checkbox"
-									checked={selectedCapabilities.has(capability)}
+									class="sr-only"
+									aria-label={capabilityName}
+									{checked}
 									onchange={() => toggleCapability(capability)}
 								/>
-								{$t(`connections.capability.${capability}` as Parameters<typeof $t>[0])}
+								<span class="capability-box" class:checked aria-hidden="true">
+									{#if checked}
+										<Check size={12} strokeWidth={3} />
+									{/if}
+								</span>
+								<span class="capability-copy">
+									<span class="capability-name">{capabilityName}</span>
+									<span class="capability-about">
+										{$t(`connections.capabilityAbout.${capability}` as Parameters<typeof $t>[0])}
+									</span>
+								</span>
 							</label>
 						{/each}
 					</fieldset>
 					{#if selectedCapabilities.size === 0}
-						<p class="mt-2 text-sm text-danger">{$t('connections.wizard.selectAtLeastOne')}</p>
+						<p class="wizard-inline-error">{$t('connections.wizard.selectAtLeastOne')}</p>
 					{/if}
-				{/if}
-				{#if errorText}
-					<p class="mt-3 text-sm text-danger">{errorText}</p>
-				{/if}
-				<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-					<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-					{#if !oauthNotConfigured}
+					{@render errorBlock()}
+					<div class="wizard-foot">
+						<span class="wizard-foot-spacer"></span>
+						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+							{$t('common.cancel')}
+						</button>
 						<button
 							type="button"
 							class="btn-primary w-full whitespace-nowrap sm:w-auto"
 							disabled={submitting || selectedCapabilities.size === 0}
 							onclick={submitOAuth}
 						>
-							{submitting ? $t('connections.wizard.oauth.redirecting', { provider: providerEntry.displayName }) : $t('connections.wizard.oauth.continue', { provider: providerEntry.displayName })}
+							{submitting
+								? $t('connections.wizard.oauth.redirecting', { provider: providerName })
+								: $t('connections.wizard.oauth.continue', { provider: providerName })}
 						</button>
-					{/if}
-				</div>
-			{:else if kind === 'login-flow-v2'}
+					</div>
+				{/if}
+
+			{:else if variant === 'nextcloud'}
 				{#if ncPhase === 'form'}
 					<form onsubmit={submitNextcloud}>
-						<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.nextcloud.help')}</p>
-						<label class="settings-label" for="wizard-nextcloud-server-url">{$t('connections.wizard.nextcloud.serverUrlLabel')}</label>
+						<WizardHeader
+							provider="nextcloud"
+							title={$t('connections.wizard.titleConnect', { provider: providerName })}
+							subtitle={$t('connections.wizard.nextcloud.subtitle')}
+						/>
+						<label class="settings-label" for="wizard-nextcloud-server-url">
+							{$t('connections.wizard.nextcloud.serverUrlLabel')}
+						</label>
 						<input
 							id="wizard-nextcloud-server-url"
 							type="text"
@@ -670,309 +760,570 @@ onMount(() => {
 							bind:value={ncServerUrl}
 							placeholder={$t('connections.wizard.nextcloud.serverUrlPlaceholder')}
 						/>
-						{#if errorText}
-							<p class="mt-3 text-sm text-danger">{errorText}</p>
-						{/if}
-						<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-							<button type="submit" class="btn-primary w-full whitespace-nowrap sm:w-auto" disabled={submitting || !ncServerUrl.trim()}>
-								{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
+						{@render errorBlock()}
+						<div class="wizard-foot">
+							<span class="wizard-foot-spacer"></span>
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+								{$t('common.cancel')}
+							</button>
+							<button
+								type="submit"
+								class="btn-primary w-full whitespace-nowrap sm:w-auto"
+								disabled={submitting || !ncServerUrl.trim()}
+							>
+								{submitting
+									? $t('connections.wizard.connecting')
+									: $t('connections.actions.connect')}
 							</button>
 						</div>
 					</form>
+				{:else if ncPhase === 'blocked'}
+					<!-- The login link is minted and still valid; the tab just never
+					     opened. Previously this left the flow silently stuck. -->
+					<WizardHeader
+						provider="nextcloud"
+						title={$t('connections.states.popupBlocked.title', { provider: providerName })}
+						subtitle={ncPollServerUrl}
+					/>
+					<div class="blocked" data-testid="wizard-popup-blocked">
+						<span class="blocked-icon" aria-hidden="true">
+							<Ban size={15} strokeWidth={2} />
+						</span>
+						<p class="blocked-body">{$t('connections.states.popupBlocked.body')}</p>
+					</div>
+					<div class="wizard-foot">
+						<span class="wizard-foot-spacer"></span>
+						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+							{$t('common.cancel')}
+						</button>
+						<a
+							class="btn-primary inline-flex w-full items-center justify-center gap-1.5 whitespace-nowrap no-underline sm:w-auto"
+							href={ncLoginUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							data-testid="wizard-popup-blocked-open"
+							onclick={retryOpenNextcloudTab}
+						>
+							<ExternalLink size={14} strokeWidth={2} aria-hidden="true" />
+							{$t('connections.actions.openItNow')}
+						</a>
+					</div>
 				{:else if ncPhase === 'waiting'}
-					<p class="text-sm text-text-secondary">{$t('connections.wizard.nextcloud.waiting')}</p>
-					{#if errorText}
-						<p class="mt-3 text-sm text-danger">{errorText}</p>
-					{/if}
-					<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={cancelNextcloudWait}>{$t('common.cancel')}</button>
-						<button type="button" class="btn-primary w-full whitespace-nowrap sm:w-auto" onclick={manualRecheck}>
-							{$t('connections.wizard.nextcloud.checkApproval')}
+					<WizardHeader
+						provider="nextcloud"
+						title={$t('connections.wizard.titleConnect', { provider: providerName })}
+						subtitle={ncPollServerUrl}
+					/>
+					<div class="waiting" data-testid="wizard-nextcloud-waiting">
+						<span class="waiting-spinner" aria-hidden="true">
+							<Loader size={24} strokeWidth={2} />
+						</span>
+						<p class="waiting-title">{$t('connections.wizard.nextcloud.waitingTitle')}</p>
+						<p class="waiting-body">
+							{$t('connections.wizard.nextcloud.waitingBody', { provider: providerName })}
+						</p>
+						<p class="waiting-expiry">
+							<Clock size={11} strokeWidth={2} aria-hidden="true" />
+							{$t('connections.wizard.nextcloud.expires', { minutes: ncMinutesLeft })}
+						</p>
+					</div>
+					{@render errorBlock()}
+					<div class="wizard-foot">
+						<span class="wizard-foot-spacer"></span>
+						<button
+							type="button"
+							class="btn-secondary w-full sm:w-auto"
+							onclick={cancelNextcloudWait}
+						>
+							{$t('common.cancel')}
+						</button>
+						<button
+							type="button"
+							class="btn-primary w-full whitespace-nowrap sm:w-auto"
+							onclick={manualRecheck}
+						>
+							{$t('connections.wizard.nextcloud.approved')}
 						</button>
 					</div>
 				{:else}
-					<p class="text-sm text-danger">{$t('connections.wizard.nextcloud.timeout')}</p>
-					<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-						<button type="button" class="btn-primary w-full whitespace-nowrap sm:w-auto" onclick={retryNextcloud}>
+					<WizardHeader
+						provider="nextcloud"
+						title={$t('connections.wizard.titleConnect', { provider: providerName })}
+						subtitle={ncPollServerUrl}
+					/>
+					<p class="wizard-inline-error">{$t('connections.wizard.nextcloud.timeout')}</p>
+					<div class="wizard-foot">
+						<span class="wizard-foot-spacer"></span>
+						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+							{$t('common.cancel')}
+						</button>
+						<button
+							type="button"
+							class="btn-primary w-full whitespace-nowrap sm:w-auto"
+							onclick={retryNextcloud}
+						>
 							{$t('common.retry')}
 						</button>
 					</div>
 				{/if}
-			{:else if kind === 'owntracks'}
-				<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.owntracks.help')}</p>
-				{#if otLoading}
-					<p class="text-sm text-text-secondary">{$t('common.loading')}</p>
+
+			{:else if variant === 'owntracks'}
+				<WizardHeader
+					provider="owntracks"
+					title={$t('connections.wizard.titleConnect', { provider: providerName })}
+					subtitle={otNotConfigured
+						? $t('connections.wizard.notSetUp.subtitle')
+						: $t('connections.wizard.owntracks.subtitle')}
+				/>
+				{#if submitting}
+					{@render connectingPanel()}
+				{:else if otLoading}
+					<p class="wizard-help">{$t('common.loading')}</p>
 				{:else if otNotConfigured}
-					<p class="text-sm text-danger">{$t('connections.wizard.owntracks.notConfigured')}</p>
+					<!-- Was a dead end: "ask your administrator to set the OwnTracks
+					     Recorder URL", with no way to get there. -->
+					<NotSetUpNotice
+						{isAdmin}
+						body={isAdmin
+							? $t('connections.wizard.notSetUp.ownTracksAdmin')
+							: $t('connections.wizard.notSetUp.ownTracksMember')}
+						onOpen={onOpenAdminIntegrations}
+					/>
+					<div class="wizard-foot">
+						<span class="wizard-foot-spacer"></span>
+						<button type="button" class="btn-secondary" onclick={onClose}>
+							{$t('common.close')}
+						</button>
+					</div>
 				{:else if otLoadError}
-					<p class="text-sm text-danger">{otLoadError}</p>
+					<div class="wizard-error">
+						<p class="wizard-error-line">{$t('connections.wizard.genericError')}</p>
+						<Disclosure label={$t('connections.actions.whatWentWrong')}>
+							<p class="wizard-error-detail">{otLoadError}</p>
+						</Disclosure>
+					</div>
+					<div class="wizard-foot">
+						<span class="wizard-foot-spacer"></span>
+						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+							{$t('common.cancel')}
+						</button>
+						<button
+							type="button"
+							class="btn-primary w-full sm:w-auto"
+							onclick={loadOwnTracksDevices}
+						>
+							{$t('connections.actions.tryAgain')}
+						</button>
+					</div>
 				{:else if otDevices.length === 0}
-					<p class="text-sm text-text-secondary">{$t('connections.wizard.owntracks.empty')}</p>
+					<p class="wizard-help">{$t('connections.wizard.owntracks.empty')}</p>
+					<div class="wizard-foot">
+						<span class="wizard-foot-spacer"></span>
+						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+							{$t('common.cancel')}
+						</button>
+						<button
+							type="button"
+							class="btn-primary w-full sm:w-auto"
+							onclick={loadOwnTracksDevices}
+						>
+							{$t('connections.actions.tryAgain')}
+						</button>
+					</div>
 				{:else}
 					<form onsubmit={submitOwnTracks}>
-						<fieldset class="flex flex-col gap-2">
-							<legend class="sr-only">{$t('connections.wizard.owntracks.help')}</legend>
+						<fieldset class="device-list">
+							<legend class="sr-only">{$t('connections.wizard.owntracks.subtitle')}</legend>
 							{#each otDevices as device (deviceKey(device))}
-								<label class="flex items-center gap-2 text-sm text-text-primary">
+								{@const key = deviceKey(device)}
+								<label class="device-option" class:selected={otSelectedKey === key}>
 									<input
 										type="radio"
 										name="owntracks-device"
-										value={deviceKey(device)}
-										checked={otSelectedKey === deviceKey(device)}
-										onchange={() => (otSelectedKey = deviceKey(device))}
+										class="sr-only"
+										aria-label={device.otDevice}
+										value={key}
+										checked={otSelectedKey === key}
+										onchange={() => (otSelectedKey = key)}
 									/>
-									{$t('connections.wizard.owntracks.deviceOption', { otUser: device.otUser, otDevice: device.otDevice })}
+									<span class="device-radio" class:checked={otSelectedKey === key} aria-hidden="true"></span>
+									<span class="device-copy">
+										<span class="device-name">{device.otDevice}</span>
+										<span class="device-sub">
+											{#if device.lastSeen}
+												{$t('connections.wizard.owntracks.lastSeen', {
+													when: formatters.relative(device.lastSeen),
+												})}
+											{:else}
+												{$t('connections.wizard.owntracks.onRecorderAs', {
+													otUser: device.otUser,
+												})}
+											{/if}
+										</span>
+									</span>
 								</label>
 							{/each}
 						</fieldset>
-						{#if errorText}
-							<p class="mt-3 text-sm text-danger">{errorText}</p>
-						{/if}
-						<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-							<button type="submit" class="btn-primary w-full whitespace-nowrap sm:w-auto" disabled={submitting || !otSelectedKey}>
-								{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
+						{@render errorBlock()}
+						<div class="wizard-foot">
+							<span class="wizard-foot-spacer"></span>
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+								{$t('common.cancel')}
+							</button>
+							<button
+								type="submit"
+								class="btn-primary w-full whitespace-nowrap sm:w-auto"
+								disabled={!otSelectedKey}
+							>
+								{$t('connections.wizard.owntracks.useThisDevice')}
 							</button>
 						</div>
 					</form>
 				{/if}
-			{:else if initialProvider === 'immich'}
-				<form onsubmit={submitImmich}>
-					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.immich.help')}</p>
-					<div class="mb-3">
-						<label class="settings-label" for="wizard-immich-server-url">{$t('connections.wizard.immich.serverUrlLabel')}</label>
-						<input
-							id="wizard-immich-server-url"
-							type="text"
-							inputmode="url"
-							autocomplete="url"
-							class="settings-input"
-							bind:value={immichServerUrl}
-							placeholder={$t('connections.wizard.immich.serverUrlPlaceholder')}
-						/>
-					</div>
-					<div class="mb-3">
-						<label class="settings-label" for="wizard-immich-email">{$t('connections.wizard.immich.emailLabel')}</label>
-						<input id="wizard-immich-email" type="email" class="settings-input" bind:value={immichEmail} />
-					</div>
-					<PasswordField
-						id="wizard-immich-password"
-						label={$t('connections.wizard.immich.passwordLabel')}
-						bind:value={immichPassword}
-						bind:shown={immichShowPassword}
-						autocomplete="current-password"
-					/>
-					{#if errorText}
-						<p class="mt-3 text-sm text-danger">{errorText}</p>
-					{/if}
-					<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-						<button
-							type="submit"
-							class="btn-primary w-full whitespace-nowrap sm:w-auto"
-							disabled={submitting || !immichServerUrl.trim() || !immichEmail.trim() || !immichPassword}
-						>
-							{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
-						</button>
-					</div>
-				</form>
-			{:else if initialProvider === 'plex'}
-				<form onsubmit={submitPlex}>
-					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.plex.help')}</p>
-					<div class="mb-3">
-						<label class="settings-label" for="wizard-plex-server-url">{$t('connections.wizard.plex.serverUrlLabel')}</label>
-						<input
-							id="wizard-plex-server-url"
-							type="text"
-							inputmode="url"
-							autocomplete="url"
-							class="settings-input"
-							bind:value={plexServerUrl}
-							placeholder={$t('connections.wizard.plex.serverUrlPlaceholder')}
-						/>
-					</div>
-					<PasswordField
-						id="wizard-plex-token"
-						label={$t('connections.wizard.plex.tokenLabel')}
-						bind:value={plexToken}
-						bind:shown={plexShowToken}
-						autocomplete="off"
-					/>
-					{#if errorText}
-						<p class="mt-3 text-sm text-danger">{errorText}</p>
-					{/if}
-					<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-						<button
-							type="submit"
-							class="btn-primary w-full whitespace-nowrap sm:w-auto"
-							disabled={submitting || !plexServerUrl.trim() || !plexToken.trim()}
-						>
-							{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
-						</button>
-					</div>
-				</form>
-			{:else if initialProvider === 'github'}
-				<form onsubmit={submitGitHub}>
-					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.github.help')}</p>
-					<PasswordField
-						id="wizard-github-token"
-						label={$t('connections.wizard.github.tokenLabel')}
-						bind:value={githubToken}
-						bind:shown={githubShowToken}
-						autocomplete="off"
-						placeholder={$t('connections.wizard.github.tokenPlaceholder')}
-					/>
-					<p class="mt-1 text-xs text-text-muted">
-						<a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" class="underline">
-							{$t('connections.wizard.github.generateLink')}
-						</a>
-					</p>
-					<button
-						type="button"
-						class="mt-4 text-xs font-medium text-text-secondary underline"
-						onclick={() => (githubShowAdvanced = !githubShowAdvanced)}
-					>
-						{$t('connections.wizard.github.advanced')}
-					</button>
-					{#if githubShowAdvanced}
-						<div class="mt-2">
-							<label class="settings-label" for="wizard-github-base-url">{$t('connections.wizard.github.baseUrlLabel')}</label>
+
+			{:else if variant === 'immich'}
+				<WizardHeader
+					provider="immich"
+					title={$t('connections.wizard.titleConnect', { provider: providerName })}
+					subtitle={$t('connections.wizard.immich.subtitle')}
+				/>
+				{#if submitting}
+					{@render connectingPanel()}
+				{:else}
+					<form onsubmit={submitImmich}>
+						<div class="mb-3">
+							<label class="settings-label" for="wizard-immich-server-url">
+								{$t('connections.wizard.immich.serverUrlLabel')}
+							</label>
 							<input
-								id="wizard-github-base-url"
+								id="wizard-immich-server-url"
 								type="text"
 								inputmode="url"
 								autocomplete="url"
 								class="settings-input"
-								bind:value={githubBaseUrl}
-								placeholder={$t('connections.wizard.github.baseUrlPlaceholder')}
+								bind:value={immichServerUrl}
+								placeholder={$t('connections.wizard.immich.serverUrlPlaceholder')}
 							/>
-							<p class="mt-1 text-xs text-text-muted">{$t('connections.wizard.github.baseUrlHelp')}</p>
 						</div>
-					{/if}
-					{#if errorText}
-						<p class="mt-3 text-sm text-danger">{errorText}</p>
-					{/if}
-					<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-						<button
-							type="submit"
-							class="btn-primary w-full whitespace-nowrap sm:w-auto"
-							disabled={submitting || !githubToken.trim()}
-						>
-							{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
-						</button>
-					</div>
-				</form>
-			{:else if initialProvider === 'apple'}
-				<form onsubmit={submitApple}>
-					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.apple.help')}</p>
-					<div class="mb-3">
-						<label class="settings-label" for="wizard-apple-id">{$t('connections.wizard.apple.appleIdLabel')}</label>
-						<input id="wizard-apple-id" type="email" class="settings-input" bind:value={appleId} />
-					</div>
-					<PasswordField
-						id="wizard-apple-app-password"
-						label={$t('connections.wizard.apple.appPasswordLabel')}
-						bind:value={appleAppPassword}
-						bind:shown={appleShowPassword}
-						autocomplete="off"
-					/>
-					<p class="mt-1 text-xs text-text-muted">
-						<a href="https://appleid.apple.com" target="_blank" rel="noopener noreferrer" class="underline">
-							{$t('connections.wizard.apple.generateLink')}
-						</a>
-					</p>
-					{#if errorText}
-						<p class="mt-3 text-sm text-danger">{errorText}</p>
-					{/if}
-					<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-						<button
-							type="submit"
-							class="btn-primary w-full whitespace-nowrap sm:w-auto"
-							disabled={submitting || !appleId.trim() || !appleAppPassword.trim()}
-						>
-							{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
-						</button>
-					</div>
-				</form>
-			{:else if initialProvider === 'caldav'}
-				<form onsubmit={submitCalDav}>
-					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.caldav.help')}</p>
-					<div class="mb-3">
-						<label class="settings-label" for="wizard-caldav-server-url">{$t('connections.wizard.caldav.serverUrlLabel')}</label>
-						<input
-							id="wizard-caldav-server-url"
-							type="text"
-							inputmode="url"
-							autocomplete="url"
-							class="settings-input"
-							bind:value={caldavServerUrl}
-							placeholder={$t('connections.wizard.caldav.serverUrlPlaceholder')}
+						<div class="mb-3">
+							<label class="settings-label" for="wizard-immich-email">
+								{$t('connections.wizard.immich.emailLabel')}
+							</label>
+							<input id="wizard-immich-email" type="email" class="settings-input" bind:value={immichEmail} />
+						</div>
+						<PasswordField
+							id="wizard-immich-password"
+							label={$t('connections.wizard.immich.passwordLabel')}
+							bind:value={immichPassword}
+							bind:shown={immichShowPassword}
+							autocomplete="current-password"
 						/>
-					</div>
-					<div class="mb-3">
-						<label class="settings-label" for="wizard-caldav-username">{$t('connections.wizard.caldav.usernameLabel')}</label>
-						<input id="wizard-caldav-username" type="text" autocomplete="username" class="settings-input" bind:value={caldavUsername} />
-					</div>
-					<PasswordField
-						id="wizard-caldav-app-password"
-						label={$t('connections.wizard.caldav.appPasswordLabel')}
-						bind:value={caldavAppPassword}
-						bind:shown={caldavShowPassword}
-						autocomplete="off"
+						<p class="wizard-field-help">{$t('connections.wizard.immich.help')}</p>
+						{@render errorBlock()}
+						<div class="wizard-foot">
+							<span class="wizard-foot-spacer"></span>
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+								{$t('common.cancel')}
+							</button>
+							<button
+								type="submit"
+								class="btn-primary w-full whitespace-nowrap sm:w-auto"
+								disabled={!immichServerUrl.trim() || !immichEmail.trim() || !immichPassword}
+							>
+								{$t('connections.actions.connect')}
+							</button>
+						</div>
+					</form>
+				{/if}
+
+			{:else if variant === 'plex'}
+				<WizardHeader
+					provider="plex"
+					title={$t('connections.wizard.titleConnect', { provider: providerName })}
+					subtitle={$t('connections.wizard.plex.subtitle')}
+				/>
+				{#if submitting}
+					{@render connectingPanel()}
+				{:else}
+					<form onsubmit={submitPlex}>
+						<div class="mb-3">
+							<label class="settings-label" for="wizard-plex-server-url">
+								{$t('connections.wizard.plex.serverUrlLabel')}
+							</label>
+							<input
+								id="wizard-plex-server-url"
+								type="text"
+								inputmode="url"
+								autocomplete="url"
+								class="settings-input"
+								bind:value={plexServerUrl}
+								placeholder={$t('connections.wizard.plex.serverUrlPlaceholder')}
+							/>
+						</div>
+						<PasswordField
+							id="wizard-plex-token"
+							label={$t('connections.wizard.plex.tokenLabel')}
+							bind:value={plexToken}
+							bind:shown={plexShowToken}
+							autocomplete="off"
+						/>
+						<p class="wizard-field-help">{$t('connections.wizard.plex.help')}</p>
+						{@render errorBlock()}
+						<div class="wizard-foot">
+							<span class="wizard-foot-spacer"></span>
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+								{$t('common.cancel')}
+							</button>
+							<button
+								type="submit"
+								class="btn-primary w-full whitespace-nowrap sm:w-auto"
+								disabled={!plexServerUrl.trim() || !plexToken.trim()}
+							>
+								{$t('connections.actions.connect')}
+							</button>
+						</div>
+					</form>
+				{/if}
+
+			{:else if variant === 'github'}
+				<WizardHeader
+					provider="github"
+					title={$t('connections.wizard.titleConnect', { provider: providerName })}
+					subtitle={$t('connections.wizard.github.subtitle')}
+				/>
+				{#if submitting}
+					{@render connectingPanel()}
+				{:else}
+					<form onsubmit={submitGitHub}>
+						<PasswordField
+							id="wizard-github-token"
+							label={$t('connections.wizard.github.tokenLabel2')}
+							bind:value={githubToken}
+							bind:shown={githubShowToken}
+							autocomplete="off"
+							placeholder={$t('connections.wizard.github.tokenPlaceholder')}
+						/>
+						<p class="wizard-field-help">{$t('connections.wizard.github.tokenHelp')}</p>
+						<p class="wizard-link-row">
+							<a
+								class="wizard-link"
+								href="https://github.com/settings/tokens"
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								<ExternalLink size={12} strokeWidth={2} aria-hidden="true" />
+								{$t('connections.wizard.github.createOn')}
+							</a>
+						</p>
+						<div class="wizard-advanced">
+							<Disclosure
+								label={$t('connections.wizard.github.differentServer')}
+								bind:open={githubShowAdvanced}
+								testId="wizard-github-advanced"
+							>
+								<label class="settings-label" for="wizard-github-base-url">
+									{$t('connections.wizard.github.baseUrlLabel')}
+								</label>
+								<input
+									id="wizard-github-base-url"
+									type="text"
+									inputmode="url"
+									autocomplete="url"
+									class="settings-input"
+									bind:value={githubBaseUrl}
+									placeholder={$t('connections.wizard.github.baseUrlPlaceholder')}
+								/>
+								<p class="wizard-field-help">{$t('connections.wizard.github.baseUrlHelp')}</p>
+							</Disclosure>
+						</div>
+						{@render errorBlock()}
+						<div class="wizard-foot">
+							<span class="wizard-foot-spacer"></span>
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+								{$t('common.cancel')}
+							</button>
+							<button
+								type="submit"
+								class="btn-primary w-full whitespace-nowrap sm:w-auto"
+								disabled={!githubToken.trim()}
+							>
+								{$t('connections.actions.connect')}
+							</button>
+						</div>
+					</form>
+				{/if}
+
+			{:else if variant === 'apple'}
+				<WizardHeader
+					provider="apple"
+					title={$t('connections.wizard.titleConnect', { provider: providerName })}
+					subtitle={$t('connections.wizard.apple.subtitle')}
+				/>
+				{#if submitting}
+					{@render connectingPanel()}
+				{:else}
+					<form onsubmit={submitApple}>
+						<div class="mb-3">
+							<label class="settings-label" for="wizard-apple-id">
+								{$t('connections.wizard.apple.appleIdLabel')}
+							</label>
+							<input id="wizard-apple-id" type="email" class="settings-input" bind:value={appleId} />
+						</div>
+						<PasswordField
+							id="wizard-apple-app-password"
+							label={$t('connections.wizard.apple.appPasswordLabel')}
+							bind:value={appleAppPassword}
+							bind:shown={appleShowPassword}
+							autocomplete="off"
+						/>
+						<p class="wizard-field-help">{$t('connections.wizard.apple.help')}</p>
+						<p class="wizard-link-row">
+							<a
+								class="wizard-link"
+								href="https://appleid.apple.com"
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								<ExternalLink size={12} strokeWidth={2} aria-hidden="true" />
+								{$t('connections.wizard.apple.generateLink')}
+							</a>
+						</p>
+						{@render errorBlock()}
+						<div class="wizard-foot">
+							<span class="wizard-foot-spacer"></span>
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+								{$t('common.cancel')}
+							</button>
+							<button
+								type="submit"
+								class="btn-primary w-full whitespace-nowrap sm:w-auto"
+								disabled={!appleId.trim() || !appleAppPassword.trim()}
+							>
+								{$t('connections.actions.connect')}
+							</button>
+						</div>
+					</form>
+				{/if}
+
+			{:else if variant === 'caldav'}
+				<WizardHeader
+					provider="caldav"
+					title={$t('connections.wizard.titleConnect', { provider: providerName })}
+					subtitle={$t('connections.wizard.caldav.subtitle')}
+				/>
+				{#if submitting}
+					{@render connectingPanel()}
+				{:else}
+					<form onsubmit={submitCalDav}>
+						<div class="mb-3">
+							<label class="settings-label" for="wizard-caldav-server-url">
+								{$t('connections.wizard.caldav.serverUrlLabel')}
+							</label>
+							<input
+								id="wizard-caldav-server-url"
+								type="text"
+								inputmode="url"
+								autocomplete="url"
+								class="settings-input"
+								bind:value={caldavServerUrl}
+								placeholder={$t('connections.wizard.caldav.serverUrlPlaceholder')}
+							/>
+						</div>
+						<div class="mb-3">
+							<label class="settings-label" for="wizard-caldav-username">
+								{$t('connections.wizard.caldav.usernameLabel')}
+							</label>
+							<input
+								id="wizard-caldav-username"
+								type="text"
+								autocomplete="username"
+								class="settings-input"
+								bind:value={caldavUsername}
+							/>
+						</div>
+						<PasswordField
+							id="wizard-caldav-app-password"
+							label={$t('connections.wizard.caldav.appPasswordLabel')}
+							bind:value={caldavAppPassword}
+							bind:shown={caldavShowPassword}
+							autocomplete="off"
+						/>
+						<p class="wizard-field-help">{$t('connections.wizard.caldav.help')}</p>
+						{@render errorBlock()}
+						<div class="wizard-foot">
+							<span class="wizard-foot-spacer"></span>
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+								{$t('common.cancel')}
+							</button>
+							<button
+								type="submit"
+								class="btn-primary w-full whitespace-nowrap sm:w-auto"
+								disabled={!caldavServerUrl.trim() ||
+									!caldavUsername.trim() ||
+									!caldavAppPassword.trim()}
+							>
+								{$t('connections.actions.connect')}
+							</button>
+						</div>
+					</form>
+				{/if}
+
+			{:else if variant === 'mail'}
+				{#if submitting}
+					<WizardHeader
+						provider="imap"
+						title={$t('connections.wizard.email.title')}
+						subtitle=""
 					/>
-					{#if errorText}
-						<p class="mt-3 text-sm text-danger">{errorText}</p>
-					{/if}
-					<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
-						<button
-							type="submit"
-							class="btn-primary w-full whitespace-nowrap sm:w-auto"
-							disabled={submitting || !caldavServerUrl.trim() || !caldavUsername.trim() || !caldavAppPassword.trim()}
-						>
-							{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
-						</button>
-					</div>
-				</form>
-			{:else if initialProvider === 'imap'}
-				{#if emailStep === 'choose'}
-					<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.email.choosePath')}</p>
-					<div class="flex flex-col gap-2">
-						<button type="button" class="email-path-option" onclick={() => chooseEmailPath('alfy')}>
-							<BrandIcon provider="email" size={22} ariaHidden />
-							<span class="email-path-option-text">
-								<span class="email-path-option-name">{$t('connections.wizard.email.path.alfy.name')}</span>
-								<span class="email-path-option-description">{$t('connections.wizard.email.path.alfy.description')}</span>
+					{@render connectingPanel()}
+				{:else if emailStep === 'choose'}
+					<!-- "IMAP" is deliberately absent from this screen: it only
+					     appears once someone chooses "Somewhere else". -->
+					<WizardHeader
+						provider="imap"
+						title={$t('connections.wizard.email.title')}
+						subtitle={$t('connections.wizard.email.subtitle')}
+					/>
+					<div class="path-list">
+						<button type="button" class="path-option" onclick={() => chooseEmailPath('alfy')}>
+							<span class="path-mark"><BrandIcon provider="email" size={14} ariaHidden /></span>
+							<span class="path-copy">
+								<span class="path-name">{$t('connections.wizard.email.path.alfy.name')}</span>
+								<span class="path-sub">{$t('connections.wizard.email.path.alfy.description2')}</span>
 							</span>
 						</button>
-						<button type="button" class="email-path-option" onclick={() => chooseEmailPath('gmail')}>
-							<BrandIcon provider="gmail" size={22} ariaHidden />
-							<span class="email-path-option-text">
-								<span class="email-path-option-name">{$t('connections.wizard.email.path.gmail.name')}</span>
-								<span class="email-path-option-description">{$t('connections.wizard.email.path.gmail.description')}</span>
+						<button type="button" class="path-option" onclick={() => chooseEmailPath('gmail')}>
+							<span class="path-mark"><BrandIcon provider="gmail" size={14} ariaHidden /></span>
+							<span class="path-copy">
+								<span class="path-name">{$t('connections.wizard.email.path.gmail.name')}</span>
+								<span class="path-sub">{$t('connections.wizard.email.path.gmail.description2')}</span>
 							</span>
 						</button>
-						<button type="button" class="email-path-option" onclick={() => chooseEmailPath('other')}>
-							<BrandIcon provider="imap" size={22} ariaHidden />
-							<span class="email-path-option-text">
-								<span class="email-path-option-name">{$t('connections.wizard.email.path.other.name')}</span>
-								<span class="email-path-option-description">{$t('connections.wizard.email.path.other.description')}</span>
+						<button type="button" class="path-option" onclick={() => chooseEmailPath('other')}>
+							<span class="path-mark"><BrandIcon provider="imap" size={14} ariaHidden /></span>
+							<span class="path-copy">
+								<span class="path-name">{$t('connections.wizard.email.path.other.name2')}</span>
+								<span class="path-sub">{$t('connections.wizard.email.path.other.description2')}</span>
 							</span>
 						</button>
 					</div>
-					<div class="mt-6 flex justify-end">
-						<button type="button" class="btn-secondary" onclick={onClose}>{$t('common.cancel')}</button>
+					<div class="wizard-foot">
+						<span class="wizard-foot-spacer"></span>
+						<button type="button" class="btn-secondary" onclick={onClose}>
+							{$t('common.cancel')}
+						</button>
 					</div>
 				{:else if emailStep === 'alfy'}
 					<form onsubmit={submitAlfyEmail}>
-						<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.email.alfy.help')}</p>
+						<WizardHeader
+							provider="email"
+							title={$t('connections.wizard.email.path.alfy.name')}
+							subtitle={$t('connections.wizard.email.path.alfy.description2')}
+						/>
 						<div class="mb-3">
-							<label class="settings-label" for="wizard-alfy-email">{$t('connections.wizard.email.emailLabel')}</label>
+							<label class="settings-label" for="wizard-alfy-email">
+								{$t('connections.wizard.email.emailLabel')}
+							</label>
 							<input id="wizard-alfy-email" type="email" class="settings-input" bind:value={alfyEmail} />
 						</div>
 						<PasswordField
@@ -982,27 +1333,36 @@ onMount(() => {
 							bind:shown={alfyShowPassword}
 							autocomplete="current-password"
 						/>
+						<p class="wizard-field-help">{$t('connections.wizard.email.alfy.help')}</p>
 						{#if errorText}
-							<p class="mt-3 text-sm text-danger">{errorText}</p>
-							<p class="mt-1 text-xs text-text-muted">{$t('connections.wizard.email.alfy.errorHint')}</p>
+							{@render errorBlock()}
+							<p class="wizard-field-help">{$t('connections.wizard.email.alfy.errorHint')}</p>
 						{/if}
-						<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={backToEmailChoice}>{$t('connections.wizard.back')}</button>
+						<div class="wizard-foot">
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={backToEmailChoice}>
+								{$t('connections.wizard.back')}
+							</button>
+							<span class="wizard-foot-spacer"></span>
 							<button
 								type="submit"
 								class="btn-primary w-full whitespace-nowrap sm:w-auto"
-								disabled={submitting || !alfyEmail.trim() || !alfyDomain || !alfyPassword}
+								disabled={!alfyEmail.trim() || !alfyDomain || !alfyPassword}
 							>
-								{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
+								{$t('connections.actions.connect')}
 							</button>
 						</div>
 					</form>
 				{:else if emailStep === 'gmail'}
 					<form onsubmit={submitGmailEmail}>
-						<p class="mb-2 text-sm text-text-secondary">{$t('connections.wizard.email.gmail.help1')}</p>
-						<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.email.gmail.help2')}</p>
+						<WizardHeader
+							provider="gmail"
+							title={$t('connections.wizard.email.path.gmail.name')}
+							subtitle={$t('connections.wizard.email.path.gmail.description2')}
+						/>
 						<div class="mb-3">
-							<label class="settings-label" for="wizard-gmail-address">{$t('connections.wizard.email.gmail.emailLabel')}</label>
+							<label class="settings-label" for="wizard-gmail-address">
+								{$t('connections.wizard.email.gmail.emailLabel')}
+							</label>
 							<input id="wizard-gmail-address" type="email" class="settings-input" bind:value={gmailAddress} />
 						</div>
 						<PasswordField
@@ -1012,34 +1372,47 @@ onMount(() => {
 							bind:shown={gmailShowPassword}
 							autocomplete="off"
 						/>
-						{#if errorText}
-							<p class="mt-3 text-sm text-danger">{errorText}</p>
-						{/if}
-						<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
-							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={backToEmailChoice}>{$t('connections.wizard.back')}</button>
+						<p class="wizard-field-help">{$t('connections.wizard.email.gmail.help1')}</p>
+						<p class="wizard-field-help">{$t('connections.wizard.email.gmail.help2')}</p>
+						{@render errorBlock()}
+						<div class="wizard-foot">
+							<button type="button" class="btn-secondary w-full sm:w-auto" onclick={backToEmailChoice}>
+								{$t('connections.wizard.back')}
+							</button>
+							<span class="wizard-foot-spacer"></span>
 							<button
 								type="submit"
 								class="btn-primary w-full whitespace-nowrap sm:w-auto"
-								disabled={submitting || !gmailAddress.trim() || !gmailAppPassword}
+								disabled={!gmailAddress.trim() || !gmailAppPassword}
 							>
-								{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
+								{$t('connections.actions.connect')}
 							</button>
 						</div>
 					</form>
 				{:else}
 					<form onsubmit={submitEmail}>
-						<p class="mb-3 text-sm text-text-secondary">{$t('connections.wizard.email.help')}</p>
+						<WizardHeader
+							provider="imap"
+							title={$t('connections.wizard.email.path.other.name2')}
+							subtitle={$t('connections.wizard.email.path.other.description2')}
+						/>
 						<div class="mb-3">
-							<label class="settings-label" for="wizard-email-address">{$t('connections.wizard.email.emailLabel')}</label>
+							<label class="settings-label" for="wizard-email-address">
+								{$t('connections.wizard.email.emailLabel')}
+							</label>
 							<input id="wizard-email-address" type="email" class="settings-input" bind:value={emailAddress} />
 						</div>
 						<div class="mb-3 grid grid-cols-[1fr_auto] gap-2">
 							<div>
-								<label class="settings-label" for="wizard-email-imap-host">{$t('connections.wizard.email.imapHostLabel')}</label>
+								<label class="settings-label" for="wizard-email-imap-host">
+									{$t('connections.wizard.email.imapHostLabel')}
+								</label>
 								<input id="wizard-email-imap-host" type="text" class="settings-input" bind:value={imapHost} />
 							</div>
 							<div>
-								<label class="settings-label" for="wizard-email-imap-port">{$t('connections.wizard.email.imapPortLabel')}</label>
+								<label class="settings-label" for="wizard-email-imap-port">
+									{$t('connections.wizard.email.imapPortLabel')}
+								</label>
 								<input
 									id="wizard-email-imap-port"
 									type="number"
@@ -1065,11 +1438,15 @@ onMount(() => {
 						/>
 						<div class="mt-3 grid grid-cols-[1fr_auto] gap-2">
 							<div>
-								<label class="settings-label" for="wizard-email-smtp-host">{$t('connections.wizard.email.smtpHostLabel')}</label>
+								<label class="settings-label" for="wizard-email-smtp-host">
+									{$t('connections.wizard.email.smtpHostLabel')}
+								</label>
 								<input id="wizard-email-smtp-host" type="text" class="settings-input" bind:value={smtpHost} />
 							</div>
 							<div>
-								<label class="settings-label" for="wizard-email-smtp-port">{$t('connections.wizard.email.smtpPortLabel')}</label>
+								<label class="settings-label" for="wizard-email-smtp-port">
+									{$t('connections.wizard.email.smtpPortLabel')}
+								</label>
 								<input
 									id="wizard-email-smtp-port"
 									type="number"
@@ -1082,21 +1459,25 @@ onMount(() => {
 								/>
 							</div>
 						</div>
-						{#if errorText}
-							<p class="mt-3 text-sm text-danger">{errorText}</p>
-						{/if}
-						<div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+						<p class="wizard-field-help">{$t('connections.wizard.email.help')}</p>
+						{@render errorBlock()}
+						<div class="wizard-foot">
 							{#if !isReconnect}
-								<button type="button" class="btn-secondary w-full sm:w-auto" onclick={backToEmailChoice}>{$t('connections.wizard.back')}</button>
+								<button type="button" class="btn-secondary w-full sm:w-auto" onclick={backToEmailChoice}>
+									{$t('connections.wizard.back')}
+								</button>
 							{:else}
-								<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>{$t('common.cancel')}</button>
+								<button type="button" class="btn-secondary w-full sm:w-auto" onclick={onClose}>
+									{$t('common.cancel')}
+								</button>
 							{/if}
+							<span class="wizard-foot-spacer"></span>
 							<button
 								type="submit"
 								class="btn-primary w-full whitespace-nowrap sm:w-auto"
-								disabled={submitting || !emailAddress.trim() || !imapHost.trim() || !emailPassword}
+								disabled={!emailAddress.trim() || !imapHost.trim() || !emailPassword}
 							>
-								{submitting ? $t('connections.wizard.connecting') : $t('connections.actions.connect')}
+								{$t('connections.actions.connect')}
 							</button>
 						</div>
 					</form>
@@ -1107,41 +1488,367 @@ onMount(() => {
 {/if}
 
 <style>
-	/* Issue R4 (ADR 0044 Decision 4) — the Email wizard's step-1 path choice
-	   tiles (Alfy Email / Gmail / Other IMAP). Mirrors .settings-card's
-	   surface/border language but as a clickable row rather than a static
-	   panel. */
-	.email-path-option {
+	.wizard {
+		max-height: calc(100vh - 2rem);
+		overflow-y: auto;
+	}
+
+	.wizard-help {
+		margin: 0;
+		font-size: 0.8125rem;
+		line-height: 1.55;
+		color: var(--text-secondary);
+	}
+
+	.wizard-field-help {
+		margin: 0.375rem 0 0 0;
+		font-size: 0.75rem;
+		line-height: 1.5;
+		color: var(--text-muted);
+	}
+
+	.wizard-inline-error {
+		margin: 0.5rem 0 0 0;
+		font-size: 0.8125rem;
+		color: var(--danger);
+	}
+
+	.wizard-error {
+		margin-top: 0.875rem;
+		padding: 0.625rem 0.75rem;
+		border-radius: var(--radius-md);
+		border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent);
+		background: color-mix(in srgb, var(--danger) 5%, transparent);
+	}
+
+	.wizard-error-line {
+		margin: 0 0 0.25rem 0;
+		font-size: 0.8125rem;
+		color: var(--danger);
+	}
+
+	.wizard-error-detail {
+		margin: 0;
+		padding: 0.4375rem 0.5625rem;
+		border-radius: var(--radius-sm);
+		background: var(--surface-code);
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.6875rem;
+		line-height: 1.5;
+		color: var(--text-secondary);
+		overflow-wrap: anywhere;
+	}
+
+	.wizard-link-row {
+		margin: 0.5rem 0 0 0;
+	}
+
+	.wizard-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3125rem;
+		font-size: 0.75rem;
+		color: var(--accent);
+		text-decoration: none;
+	}
+
+	.wizard-link:hover {
+		text-decoration: underline;
+	}
+
+	.wizard-advanced {
+		margin-top: 0.875rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid var(--border-subtle);
+	}
+
+	.wizard-foot {
+		display: flex;
+		flex-direction: column-reverse;
+		gap: 0.5rem;
+		margin-top: 1.25rem;
+	}
+
+	.wizard-foot-spacer {
+		display: none;
+	}
+
+	@media (min-width: 40rem) {
+		.wizard-foot {
+			flex-direction: row;
+			align-items: center;
+		}
+
+		.wizard-foot-spacer {
+			display: block;
+			flex: 1 1 auto;
+		}
+	}
+
+	/* OAuth capability checkboxes — each says what it lets Alfy do, so the
+	   consent decision is made here rather than on the provider's page. */
+	.capability-choices {
+		border: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.capability-choice {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.625rem;
+		padding: 0.5625rem 0;
+		border-top: 1px solid var(--border-subtle);
+		cursor: pointer;
+	}
+
+	.capability-box {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.125rem;
+		height: 1.125rem;
+		margin-top: 0.0625rem;
+		flex-shrink: 0;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border-default);
+		background: var(--surface-page);
+		color: var(--accent-contrast);
+		transition: background var(--duration-standard), border-color var(--duration-standard);
+	}
+
+	.capability-box.checked {
+		background: var(--accent);
+		border-color: var(--accent);
+	}
+
+	.capability-choice:hover .capability-box:not(.checked) {
+		border-color: var(--accent);
+	}
+
+	.capability-choice input:focus-visible + .capability-box {
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.capability-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+		min-width: 0;
+	}
+
+	.capability-name {
+		font-size: 0.8125rem;
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.capability-about {
+		font-size: 0.75rem;
+		line-height: 1.45;
+		color: var(--text-muted);
+	}
+
+	/* Nextcloud waiting / blocked / connecting panels. */
+	.waiting,
+	.connecting {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		padding: 1.25rem 1rem;
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--border-default);
+		background: var(--surface-overlay);
+	}
+
+	.waiting-spinner,
+	.connecting-spinner {
+		display: inline-flex;
+		color: var(--accent);
+		animation: wizard-spin 1.1s linear infinite;
+	}
+
+	@keyframes wizard-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.waiting-spinner,
+		.connecting-spinner {
+			animation-duration: 3s;
+		}
+	}
+
+	.waiting-title,
+	.connecting-title {
+		margin: 0.625rem 0 0 0;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.waiting-body {
+		margin: 0.3125rem 0 0 0;
+		font-size: 0.75rem;
+		line-height: 1.5;
+		color: var(--text-secondary);
+		max-width: 22rem;
+	}
+
+	.connecting-hint {
+		margin: 0.3125rem 0 0 0;
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+
+	.waiting-expiry {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3125rem;
+		margin: 0.5625rem 0 0 0;
+		font-size: 0.6875rem;
+		color: var(--text-muted);
+	}
+
+	.blocked {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.625rem;
+		padding: 0.75rem 0.875rem;
+		border-radius: var(--radius-md);
+		border: 1px solid color-mix(in srgb, var(--warning) 32%, transparent);
+		background: color-mix(in srgb, var(--warning) 7%, transparent);
+	}
+
+	.blocked-icon {
+		display: inline-flex;
+		margin-top: 0.0625rem;
+		flex-shrink: 0;
+		color: var(--warning);
+	}
+
+	.blocked-body {
+		margin: 0;
+		font-size: 0.8125rem;
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	/* Mail path chooser. */
+	.path-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.path-option {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.6875rem;
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.75rem 0.8125rem;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-md);
 		background: var(--surface-page);
 		text-align: left;
 		cursor: pointer;
-		transition: border-color var(--duration-standard);
+		transition: border-color var(--duration-standard), background var(--duration-standard);
 	}
 
-	.email-path-option:hover,
-	.email-path-option:focus-visible {
+	.path-option:hover,
+	.path-option:focus-visible {
+		outline: none;
 		border-color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 5%, var(--surface-page));
 	}
 
-	.email-path-option-text {
+	.path-mark {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.75rem;
+		height: 1.75rem;
+		flex-shrink: 0;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border-default);
+		background: var(--surface-overlay);
+		color: var(--text-secondary);
+	}
+
+	.path-copy {
 		display: flex;
 		flex-direction: column;
+		gap: 0.125rem;
+		min-width: 0;
 	}
 
-	.email-path-option-name {
-		font-size: 0.875rem;
+	.path-name {
+		font-size: 0.8125rem;
 		font-weight: 500;
 		color: var(--text-primary);
 	}
 
-	.email-path-option-description {
+	.path-sub {
+		font-size: 0.75rem;
+		line-height: 1.45;
+		color: var(--text-muted);
+	}
+
+	/* OwnTracks device picker. */
+	.device-list {
+		border: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.device-option {
+		display: flex;
+		align-items: center;
+		gap: 0.625rem;
+		padding: 0.625rem 0;
+		border-top: 1px solid var(--border-subtle);
+		cursor: pointer;
+	}
+
+	.device-radio {
+		width: 1rem;
+		height: 1rem;
+		flex-shrink: 0;
+		border-radius: 9999px;
+		border: 1px solid var(--border-default);
+		background: var(--surface-page);
+		transition: border var(--duration-standard);
+	}
+
+	.device-radio.checked {
+		border: 5px solid var(--accent);
+	}
+
+	.device-option:hover .device-radio:not(.checked) {
+		border-color: var(--accent);
+	}
+
+	.device-option input:focus-visible + .device-radio {
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.device-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+		min-width: 0;
+	}
+
+	.device-name {
+		font-size: 0.8125rem;
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.device-sub {
 		font-size: 0.75rem;
 		color: var(--text-muted);
 	}

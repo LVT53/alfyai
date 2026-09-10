@@ -109,13 +109,22 @@ export async function fetchActiveCapabilities(): Promise<ActiveCapabilitiesRespo
 // see src/routes/api/connections/<provider>/start/+server.ts) rather than
 // guessing shapes.
 
-function postJson<T>(path: string, body: unknown, errorMessage: string) {
+// `signal` is optional and additive: the connect wizard shows a "Connecting
+// …" state with a Cancel, and Cancel has to actually stop waiting rather than
+// just hiding a request that is still in flight.
+function postJson<T>(
+	path: string,
+	body: unknown,
+	errorMessage: string,
+	signal?: AbortSignal,
+) {
 	return requestJson<T>(
 		path,
 		{
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
+			...(signal ? { signal } : {}),
 		},
 		errorMessage,
 	);
@@ -186,81 +195,105 @@ export async function pollNextcloudConnect(params: {
 }
 
 // POST /api/connections/immich/start — src/routes/api/connections/immich/start/+server.ts
-export async function startImmichConnect(params: {
-	serverUrl: string;
-	email: string;
-	password: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startImmichConnect(
+	params: {
+		serverUrl: string;
+		email: string;
+		password: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/immich/start",
 		params,
 		"Failed to connect to the Immich server",
+		signal,
 	);
 }
 
 // POST /api/connections/plex/start — src/routes/api/connections/plex/start/+server.ts
-export async function startPlexConnect(params: {
-	serverUrl: string;
-	token: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startPlexConnect(
+	params: {
+		serverUrl: string;
+		token: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/plex/start",
 		params,
 		"Failed to connect to the Plex server",
+		signal,
 	);
 }
 
 // POST /api/connections/github/start — src/routes/api/connections/github/start/+server.ts
-export async function startGitHubConnect(params: {
-	token: string;
-	baseUrl?: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startGitHubConnect(
+	params: {
+		token: string;
+		baseUrl?: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/github/start",
 		params,
 		"Failed to connect to GitHub",
+		signal,
 	);
 }
 
 // POST /api/connections/apple/start — src/routes/api/connections/apple/start/+server.ts
-export async function startAppleConnect(params: {
-	appleId: string;
-	appPassword: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startAppleConnect(
+	params: {
+		appleId: string;
+		appPassword: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/apple/start",
 		params,
 		"Failed to connect to Apple iCloud",
+		signal,
 	);
 }
 
 // POST /api/connections/caldav/start — src/routes/api/connections/caldav/start/+server.ts
-export async function startCalDavConnect(params: {
-	serverUrl: string;
-	username: string;
-	appPassword: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startCalDavConnect(
+	params: {
+		serverUrl: string;
+		username: string;
+		appPassword: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/caldav/start",
 		params,
 		"Failed to connect to the CalDAV server",
+		signal,
 	);
 }
 
 // POST /api/connections/email/start — src/routes/api/connections/email/start/+server.ts
-export async function startEmailConnect(params: {
-	email: string;
-	imapHost: string;
-	imapPort?: number;
-	imapSecure?: boolean;
-	password: string;
-	smtpHost?: string;
-	smtpPort?: number;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startEmailConnect(
+	params: {
+		email: string;
+		imapHost: string;
+		imapPort?: number;
+		imapSecure?: boolean;
+		password: string;
+		smtpHost?: string;
+		smtpPort?: number;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/email/start",
 		params,
 		"Failed to connect to the mailbox",
+		signal,
 	);
 }
 
@@ -306,15 +339,19 @@ export async function fetchNextcloudFolders(
 }
 
 // POST /api/connections/owntracks/start — src/routes/api/connections/owntracks/start/+server.ts
-export async function startOwnTracksConnect(params: {
-	otUser: string;
-	otDevice: string;
-	label?: string;
-}): Promise<{ connection: ConnectionPublic }> {
+export async function startOwnTracksConnect(
+	params: {
+		otUser: string;
+		otDevice: string;
+		label?: string;
+	},
+	signal?: AbortSignal,
+): Promise<{ connection: ConnectionPublic }> {
 	return postJson<{ connection: ConnectionPublic }>(
 		"/api/connections/owntracks/start",
 		params,
 		"Failed to connect to OwnTracks",
+		signal,
 	);
 }
 

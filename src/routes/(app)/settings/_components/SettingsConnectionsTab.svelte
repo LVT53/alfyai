@@ -1,77 +1,54 @@
 <script lang="ts">
-// Issue 7.1, reworked per ADR 0044 Decisions 2 & 3 — Connections settings is
-// now a compact glance-able list (brand icon · account · capability
-// mini-icons · status chip · quick icon actions) instead of always-expanded
-// dense cards. Every rarely-touched control (capabilities, default-on,
-// allow-writes, write-allowlist, disconnect) moved out of the row and into
-// the full-screen ConnectionDetailModal, opened by clicking a row (or its
-// detail icon). "Dumb prop component" style is unchanged (mirrors
-// SettingsProfileTab.svelte): all data comes in via props, all mutations go
-// out via callback props; state/handlers (optimistic update + revert,
-// fetch-on-first-visit) live in +page.svelte. This component now also owns
-// one small piece of local UI state — which connection's detail modal is
-// open — since that's purely a view concern, not data.
+// Connections redesign — the Connections tab.
 //
-// The CONNECT WIZARDS (the actual forms to add/reconnect a connection) are
-// ConnectWizardModal.svelte (Issue 7.3), rendered by +page.svelte — this
-// component only raises the intent (onStartConnect/onReconnect) via
-// callback props.
-import {
-	AlertCircle,
-	AlertTriangle,
-	Calendar,
-	Check,
-	Clapperboard,
-	Folder,
-	GitBranch,
-	Image as ImageIcon,
-	ListTodo,
-	Mail,
-	MapPin,
-	RefreshCw,
-	Settings2,
-	Users,
-} from "@lucide/svelte";
-import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
-import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
-import Toggle from "$lib/components/ui/Toggle.svelte";
+// Three things changed about the shape of this screen:
+//
+// 1. ONE GRAMMAR. Every row is a coloured dot, a word and a sentence saying
+//    what happened and when (see status-grammar.ts). Previously a healthy
+//    connection rendered no indicator at all, a broken one rendered an icon
+//    explained only by a `title` tooltip, and a disconnected one rendered a
+//    text chip — three grammars for a single axis.
+// 2. PRIVACY FIRST. The on-device processing switch is the main privacy
+//    decision here and used to be the last card on the page.
+// 3. EVERY FAILURE HAS A WAY OUT. A failed load, a failed toggle and a
+//    partial OAuth grant were all silent; each now names what was and was
+//    not changed and offers the one action that fixes it.
+//
+// The component keeps its "dumb prop component" posture: data in via props,
+// mutations out via callbacks, with +page.svelte owning the fetches. What it
+// owns locally is view state — which detail dialog is open, and which
+// mutation just failed — because neither is data.
+import { AlertTriangle, Info, RefreshCw } from "@lucide/svelte";
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import {
 	type Capability,
 	type ConnectionProvider,
 	getProviderCatalogEntry,
-	groupConnectableProviders,
 } from "$lib/client/connections/provider-catalog";
+import {
+	missingFromGrant,
+	takeRequestedCapabilities,
+} from "$lib/client/connections/oauth-request-memo";
+import {
+	grantedCapabilitiesOf,
+	makeGrammarFormatters,
+} from "$lib/client/connections/status-grammar";
 import { t } from "$lib/i18n";
+import { uiLanguage } from "$lib/stores/settings";
 import ConnectionDetailModal from "./ConnectionDetailModal.svelte";
-
-// Small Lucide glyph per capability, shown as a glance-only mini-icon row on
-// each compact list row (distinct from BrandIcon, which identifies the
-// provider). Deliberately a fixed local map, not provider-catalog data — the
-// catalog's `icon` field is one icon per PROVIDER, this is one icon per
-// CAPABILITY.
-const CAPABILITY_ICONS: Record<Capability, typeof Calendar> = {
-	calendar: Calendar,
-	files: Folder,
-	photos: ImageIcon,
-	email: Mail,
-	media: Clapperboard,
-	location: MapPin,
-	contacts: Users,
-	repos: GitBranch,
-	tasks: ListTodo,
-};
-
-const STATUS_KEY: Record<ConnectionPublic["status"], string> = {
-	connected: "connections.status.connected",
-	needs_reauth: "connections.status.needsReauth",
-	error: "connections.status.error",
-	disconnected: "connections.status.disconnected",
-};
+import AddConnectionGrid from "./connections/AddConnectionGrid.svelte";
+import ConnectionRow from "./connections/ConnectionRow.svelte";
+import PrivacyCard from "./connections/PrivacyCard.svelte";
+import RecoveryCard from "./connections/RecoveryCard.svelte";
 
 let {
 	connections,
 	loading = false,
+	// Connections redesign — a failed load is no longer indistinguishable
+	// from an empty account (the old code rendered "No connections yet" for
+	// both, with a comment saying the user could retry by revisiting).
+	loadFailed = false,
+	onRetryLoad,
 	onToggleCapability,
 	onToggleAllowWrites,
 	onToggleDefaultOn,
@@ -80,12 +57,21 @@ let {
 	onDisconnect,
 	onStartConnect,
 	onReconnect,
+	// Connections redesign — re-runs the provider's consent flow asking for a
+	// capability it previously denied. The only thing that can actually fix a
+	// denied capability, and there was no way to trigger it before.
+	onAskAgain,
 	localDistill = false,
 	localityLoading = false,
 	onToggleLocalDistill,
 }: {
 	connections: ConnectionPublic[];
 	loading?: boolean;
+	loadFailed?: boolean;
+	onRetryLoad?: () => void | Promise<void>;
+	// Every mutation callback below REJECTS on failure so this component can
+	// tell the user. They used to swallow, which is what made a failed toggle
+	// snap back in silence.
 	onToggleCapability: (
 		id: string,
 		capability: string,
@@ -94,7 +80,6 @@ let {
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
 	onToggleDefaultOn: (id: string, next: boolean) => void | Promise<void>;
 	onUpdateWriteAllowlist: (id: string, next: string[]) => void | Promise<void>;
-	// Task 10 — see ConnectionDetailModal.svelte's onUpdateOwnTracksHome doc.
 	onUpdateOwnTracksHome: (
 		id: string,
 		next: { homeLat: number | null; homeLon: number | null },
@@ -102,17 +87,12 @@ let {
 	onDisconnect: (id: string) => void | Promise<void>;
 	onStartConnect: (provider: ConnectionProvider) => void;
 	onReconnect: (connectionId: string) => void;
-	// Issue 7.4 — Option A: per-user "keep connector data on this device"
-	// toggle. Independent of the connections list load/loading state above.
+	onAskAgain?: (connectionId: string, capability: string) => void;
 	localDistill?: boolean;
 	localityLoading?: boolean;
 	onToggleLocalDistill: (next: boolean) => void | Promise<void>;
 } = $props();
 
-// Which connection's full-screen detail modal is open, if any. Kept as an id
-// (not the object itself) so the modal always reflects the LIVE connection
-// from the `connections` prop — including optimistic updates/revert applied
-// by the parent — rather than a stale snapshot taken at open time.
 let selectedConnectionId = $state<string | null>(null);
 const selectedConnection = $derived(
 	selectedConnectionId
@@ -120,220 +100,273 @@ const selectedConnection = $derived(
 		: null,
 );
 
-// Drives the "already connected" hint in the persistent "Add a connection"
-// section below — multiple accounts per provider are supported, so a
-// provider already having a connection doesn't remove it from the list, it
-// just gets a hint next to its Connect button.
 const connectedProviders = $derived(
 	new Set(connections.map((conn) => conn.provider)),
 );
 
-// ADR-0051 Decision 2 (slice E1) — the "Add a connection" list separates
-// branded products from generic custom integrations with a labeled divider.
-// Ordering within each group is preserved from the catalog (see
-// groupConnectableProviders).
-const providerGroups = $derived(groupConnectableProviders());
+// Dates and relative phrases follow the UI language, not the browser's — the
+// rest of the sentence they sit inside is translated.
+const formatters = $derived(makeGrammarFormatters($uiLanguage));
 
-function capabilitiesA11yLabel(conn: ConnectionPublic): string {
-	const names = conn.capabilities.map((capability) =>
-		$t(`connections.capability.${capability}` as Parameters<typeof $t>[0]),
+// ── A change that did not save ───────────────────────────────────
+//
+// Every mutation goes through `runChange`, which records what was attempted
+// and how to attempt it again. The card names the exact change ("Turning off
+// Contacts for Nextcloud"), because "something went wrong" leaves the user
+// unable to tell which of five switches they need to look at.
+type ChangeFailure = {
+	changeKey: Parameters<typeof $t>[0];
+	changeParams: Record<string, string>;
+	retry: () => Promise<void>;
+};
+
+let changeFailure = $state<ChangeFailure | null>(null);
+
+async function runChange(
+	changeKey: Parameters<typeof $t>[0],
+	changeParams: Record<string, string>,
+	run: () => void | Promise<void>,
+): Promise<void> {
+	try {
+		await run();
+		changeFailure = null;
+	} catch {
+		changeFailure = {
+			changeKey,
+			changeParams,
+			retry: () => runChange(changeKey, changeParams, run),
+		};
+	}
+}
+
+function providerNameOf(id: string): string {
+	const conn = connections.find((item) => item.id === id);
+	return conn ? getProviderCatalogEntry(conn.provider).displayName : id;
+}
+
+function capabilityName(capability: string): string {
+	return $t(`connections.capability.${capability}` as Parameters<typeof $t>[0]);
+}
+
+const guardedToggleCapability = (
+	id: string,
+	capability: string,
+	next: boolean,
+) =>
+	runChange(
+		next
+			? "connections.states.saveFailed.capabilityOn"
+			: "connections.states.saveFailed.capabilityOff",
+		{ capability: capabilityName(capability), provider: providerNameOf(id) },
+		() => onToggleCapability(id, capability, next),
 	);
-	return $t("connections.row.capabilitiesA11y", { list: names.join(", ") });
+
+const guardedToggleDefaultOn = (id: string, next: boolean) =>
+	runChange(
+		next
+			? "connections.states.saveFailed.defaultOnOn"
+			: "connections.states.saveFailed.defaultOnOff",
+		{ provider: providerNameOf(id) },
+		() => onToggleDefaultOn(id, next),
+	);
+
+const guardedToggleAllowWrites = (id: string, next: boolean) =>
+	runChange(
+		next
+			? "connections.states.saveFailed.writesOn"
+			: "connections.states.saveFailed.writesOff",
+		{ provider: providerNameOf(id) },
+		() => onToggleAllowWrites(id, next),
+	);
+
+const guardedUpdateAllowlist = (id: string, next: string[]) =>
+	runChange(
+		"connections.states.saveFailed.folders",
+		{ provider: providerNameOf(id) },
+		() => onUpdateWriteAllowlist(id, next),
+	);
+
+const guardedToggleLocalDistill = (next: boolean) =>
+	runChange(
+		next
+			? "connections.states.saveFailed.privacyOn"
+			: "connections.states.saveFailed.privacyOff",
+		{},
+		() => onToggleLocalDistill(next),
+	);
+
+const guardedDisconnect = async (id: string) => {
+	const provider = providerNameOf(id);
+	await runChange(
+		"connections.states.saveFailed.disconnect",
+		{ provider },
+		() => onDisconnect(id),
+	);
+	// Close the dialog only when the disconnect actually happened — a failed
+	// one used to close silently, leaving the row in place with no explanation.
+	if (!changeFailure) selectedConnectionId = null;
+};
+
+// ── A partial OAuth grant ────────────────────────────────────────
+//
+// The wizard writes down what it asked for before the browser leaves for the
+// consent screen; on return we compare it with what the connection was
+// actually granted. Nothing else in the system knows both halves.
+type PartialGrant = {
+	connectionId: string;
+	provider: string;
+	allowed: string[];
+	missing: string[];
+};
+
+let partialGrant = $state<PartialGrant | null>(null);
+let partialGrantChecked = $state(false);
+
+$effect(() => {
+	if (loading || partialGrantChecked || connections.length === 0) return;
+	partialGrantChecked = true;
+	for (const conn of connections) {
+		const requested = takeRequestedCapabilities(conn.provider);
+		if (!requested) continue;
+		const granted = grantedCapabilitiesOf(conn);
+		const missing = missingFromGrant(requested, granted);
+		if (missing.length === 0) continue;
+		partialGrant = {
+			connectionId: conn.id,
+			provider: getProviderCatalogEntry(conn.provider).displayName,
+			allowed: granted.filter((capability) => requested.includes(capability)),
+			missing,
+		};
+		break;
+	}
+});
+
+function nameList(capabilities: string[]): string {
+	return capabilities.map(capabilityName).join(", ");
 }
 </script>
-
-<!-- R3-fix2 #3 — "Connected" as a quiet check icon is now ONLY used in the
-     "Add a connection" strip's already-connected hint below, to show which
-     providers the user already has linked. R3-fix2 #2 removed it from the
-     compact list ROW entirely: connected is the implied normal state there,
-     so a healthy row shows no status indicator at all — only needs_reauth
-     and error do (see the row markup below). It keeps an accessible label
-     so it's never color/icon-only. -->
-{#snippet connectedIcon()}
-	<span
-		class="connection-connected-icon"
-		role="img"
-		aria-label={$t('connections.status.connected')}
-		title={$t('connections.status.connected')}
-	>
-		<Check size={14} strokeWidth={2.5} aria-hidden="true" />
-	</span>
-{/snippet}
-
-<!-- One brand-icon connect button in the "Add a connection" list. Shared by
-     the products and custom-integrations groups so the two only differ by
-     which providers they iterate. -->
-{#snippet providerPill(provider: ConnectionProvider)}
-	{@const entry = getProviderCatalogEntry(provider)}
-	{@const alreadyConnected = connectedProviders.has(provider)}
-	<button
-		type="button"
-		class="pref-pill connections-provider-pill"
-		aria-label={`${$t('connections.actions.connect')} ${entry.displayName}`}
-		onclick={() => onStartConnect(provider)}
-	>
-		<BrandIcon provider={provider} size={16} ariaHidden />
-		{entry.displayName}
-		{#if alreadyConnected}
-			{@render connectedIcon()}
-		{/if}
-	</button>
-{/snippet}
 
 <p class="settings-group-label">{$t('connections.title')}</p>
 <p class="settings-help-text mb-3">{$t('connections.subtitle')}</p>
 
-{#if loading}
-	<section class="settings-card mb-4">
-		<p class="text-sm text-text-secondary">{$t('common.loading')}</p>
-	</section>
-{:else}
-	{#if connections.length === 0}
-		<section class="settings-card mb-4" data-testid="connections-empty">
+<div class="connections-stack">
+	<PrivacyCard
+		{localDistill}
+		loading={localityLoading}
+		onToggle={guardedToggleLocalDistill}
+	/>
+
+	{#if changeFailure}
+		<RecoveryCard
+			tone="danger"
+			icon={AlertTriangle}
+			testId="connections-change-failed"
+			title={$t('connections.states.saveFailed.title')}
+			body={$t('connections.states.saveFailed.body', {
+				change: $t(changeFailure.changeKey, changeFailure.changeParams),
+			})}
+			primaryLabel={$t('connections.actions.tryAgain')}
+			primaryIcon={RefreshCw}
+			onPrimary={() => changeFailure?.retry()}
+			secondaryLabel={$t('connections.actions.dismiss')}
+			onSecondary={() => (changeFailure = null)}
+		/>
+	{/if}
+
+	{#if partialGrant}
+		{@const missingNames = nameList(partialGrant.missing)}
+		<RecoveryCard
+			tone="warn"
+			icon={Info}
+			testId="connections-partial-grant"
+			title={partialGrant.allowed.length > 0
+				? $t('connections.states.partialGrant.title', {
+						allowed: nameList(partialGrant.allowed),
+						missing: missingNames,
+					})
+				: $t('connections.states.partialGrant.titleNoneAllowed', {
+						provider: partialGrant.provider,
+						missing: missingNames,
+					})}
+			body={$t('connections.states.partialGrant.body', {
+				provider: partialGrant.provider,
+				missing: missingNames,
+			})}
+			primaryLabel={$t('connections.states.partialGrant.ask', {
+				missing: missingNames,
+			})}
+			onPrimary={() => {
+				const target = partialGrant;
+				partialGrant = null;
+				if (target) onAskAgain?.(target.connectionId, target.missing[0]);
+			}}
+			secondaryLabel={$t('connections.states.partialGrant.keep')}
+			onSecondary={() => (partialGrant = null)}
+		/>
+	{/if}
+
+	{#if loading}
+		<section class="settings-card">
+			<p class="text-sm text-text-secondary">{$t('common.loading')}</p>
+		</section>
+	{:else if loadFailed}
+		<RecoveryCard
+			tone="danger"
+			icon={AlertTriangle}
+			testId="connections-load-failed"
+			title={$t('connections.states.loadFailed.title')}
+			body={$t('connections.states.loadFailed.body')}
+			primaryLabel={$t('connections.actions.tryAgain')}
+			primaryIcon={RefreshCw}
+			onPrimary={() => onRetryLoad?.()}
+		/>
+	{:else if connections.length === 0}
+		<section class="settings-card" data-testid="connections-empty">
 			<p class="text-sm text-text-secondary">{$t('connections.empty')}</p>
 		</section>
 	{:else}
-		<section class="settings-card mb-4 connections-list" data-testid="connections-list">
-			{#each connections as conn (conn.id)}
-				{@const entry = getProviderCatalogEntry(conn.provider)}
-				{@const needsAttention = conn.status === 'needs_reauth' || conn.status === 'error'}
-				<div class="connection-row" data-testid={`connection-row-${conn.id}`}>
-					<button
-						type="button"
-						class="connection-row-main"
-						aria-label={`${$t('connections.actions.viewDetails')} ${entry.displayName}`}
-						onclick={() => (selectedConnectionId = conn.id)}
-					>
-						<BrandIcon provider={conn.provider} size={22} ariaHidden />
-						<span class="connection-row-identity">
-							<span class="connection-row-name">{entry.displayName}</span>
-							{#if conn.accountIdentifier}
-								<span class="connection-row-account">{conn.accountIdentifier}</span>
-							{/if}
-						</span>
-						{#if conn.capabilities.length > 0}
-							<span
-								class="connection-row-capabilities"
-								role="img"
-								aria-label={capabilitiesA11yLabel(conn)}
-							>
-								{#each conn.capabilities as capability}
-									{@const CapIcon = CAPABILITY_ICONS[capability as Capability]}
-									{#if CapIcon}
-										<CapIcon size={14} strokeWidth={2} aria-hidden="true" />
-									{/if}
-								{/each}
-							</span>
-						{/if}
-						{#if conn.status === 'needs_reauth'}
-							<!-- R3-fix2 #2 — problem states get a small status icon
-							     (aria-label + tooltip), not a text pill; healthy/
-							     connected rows show nothing here at all. -->
-							<span
-								class="status-icon status-icon-warning"
-								role="img"
-								aria-label={$t('connections.status.needsReauth')}
-								title={$t('connections.status.needsReauth')}
-							>
-								<AlertTriangle size={16} strokeWidth={2} aria-hidden="true" />
-							</span>
-						{:else if conn.status === 'error'}
-							<span
-								class="status-icon status-icon-error"
-								role="img"
-								aria-label={$t('connections.status.error')}
-								title={conn.statusDetail ?? $t('connections.status.noDetail')}
-							>
-								<AlertCircle size={16} strokeWidth={2} aria-hidden="true" />
-							</span>
-						{:else if conn.status === 'disconnected'}
-							<span class="status-chip status-disconnected">
-								{$t(STATUS_KEY.disconnected as Parameters<typeof $t>[0])}
-							</span>
-						{/if}
-					</button>
-					<div class="connection-row-actions">
-						{#if needsAttention}
-							<button
-								type="button"
-								class="btn-icon-bare btn-icon-sm"
-								aria-label={`${$t('connections.actions.reconnect')} ${entry.displayName}`}
-								title={$t('connections.actions.reconnect')}
-								onclick={() => onReconnect(conn.id)}
-							>
-								<RefreshCw size={16} strokeWidth={2} aria-hidden="true" />
-							</button>
-						{/if}
-						<button
-							type="button"
-							class="btn-icon-bare btn-icon-sm"
-							aria-label={`${$t('connections.actions.viewDetails')} ${entry.displayName}`}
-							title={$t('connections.actions.viewDetails')}
-							onclick={() => (selectedConnectionId = conn.id)}
-						>
-							<Settings2 size={16} strokeWidth={2} aria-hidden="true" />
-						</button>
-					</div>
-				</div>
-			{/each}
+		<section class="settings-card list-card" data-testid="connections-list">
+			<header class="list-head">
+				<h3 class="list-title">{$t('connections.yourConnections')}</h3>
+				<span class="list-count">
+					{$t('connections.accountCount', { count: connections.length })}
+				</span>
+			</header>
+			<div class="list-body">
+				{#each connections as conn (conn.id)}
+					<ConnectionRow
+						connection={conn}
+						{formatters}
+						onOpenDetail={(id) => (selectedConnectionId = id)}
+						onRecover={onReconnect}
+					/>
+				{/each}
+			</div>
 		</section>
 	{/if}
 
-	<!-- R3-fix #3 — Google is a plain BrandIcon brand button here, same shape
-	     as every other provider (no more branded GoogleSignInButton in the
-	     add strip). The connect action is unchanged: it still calls
-	     onStartConnect('google'), which opens the OAuth wizard. -->
-	<section class="settings-card mb-4" data-testid="connections-add">
-		<p class="settings-label mb-2">{$t('connections.addConnection.title')}</p>
-		<!-- ADR-0051 Decision 2 (E1) — branded products and generic custom
-		     integrations are shown as two labeled groups split by a divider so a
-		     concrete product reads distinctly from a protocol adapter. -->
-		<p class="connections-group-heading">{$t('connections.addConnection.groupProducts')}</p>
-		<div class="connections-provider-grid" data-testid="connections-add-products">
-			{#each providerGroups.product as provider (provider)}
-				{@render providerPill(provider)}
-			{/each}
-		</div>
-		{#if providerGroups.custom.length > 0}
-			<hr class="connections-group-divider" data-testid="connections-add-divider" />
-			<p class="connections-group-heading">{$t('connections.addConnection.groupCustom')}</p>
-			<div class="connections-provider-grid" data-testid="connections-add-custom">
-				{#each providerGroups.custom as provider (provider)}
-					{@render providerPill(provider)}
-				{/each}
-			</div>
-		{/if}
-	</section>
-
-	<p class="settings-group-label">{$t('connections.locality.title')}</p>
-	<section class="settings-card mb-4" data-testid="connections-locality">
-		<div class="connection-toggle-row">
-			<div class="connection-toggle-text">
-				<span class="settings-label connection-toggle-label">{$t('connections.locality.toggleLabel')}</span>
-				<InfoTooltip text={$t('connections.locality.help')} />
-			</div>
-			<Toggle
-				checked={localDistill}
-				disabled={localityLoading}
-				ariaLabel={$t('connections.locality.toggleLabel')}
-				onChange={(next) => onToggleLocalDistill(next)}
-			/>
-		</div>
-		<p class="settings-help-text mt-2">{$t('connections.locality.fidelityNote')}</p>
-	</section>
-{/if}
+	<AddConnectionGrid {connectedProviders} {onStartConnect} />
+</div>
 
 <ConnectionDetailModal
 	connection={selectedConnection}
+	{formatters}
+	{changeFailure}
+	onDismissChangeFailure={() => (changeFailure = null)}
 	onClose={() => (selectedConnectionId = null)}
-	{onToggleCapability}
-	{onToggleAllowWrites}
-	{onToggleDefaultOn}
-	{onUpdateWriteAllowlist}
+	onToggleCapability={guardedToggleCapability}
+	onToggleAllowWrites={guardedToggleAllowWrites}
+	onToggleDefaultOn={guardedToggleDefaultOn}
+	onUpdateWriteAllowlist={guardedUpdateAllowlist}
 	{onUpdateOwnTracksHome}
-	onDisconnect={async (id) => {
-		await onDisconnect(id);
+	onDisconnect={guardedDisconnect}
+	onReconnect={(id) => {
 		selectedConnectionId = null;
+		onReconnect(id);
+	}}
+	onAskAgain={(id, capability) => {
+		selectedConnectionId = null;
+		onAskAgain?.(id, capability);
 	}}
 />
 
@@ -352,190 +385,40 @@ function capabilitiesA11yLabel(conn: ConnectionPublic): string {
 		color: var(--text-secondary);
 	}
 
-	.connections-list {
+	.connections-stack {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: 0.875rem;
 	}
 
-	.connection-row {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+	/* The list card is flush so its rows can carry their own padding and
+	   full-bleed separators. */
+	.list-card {
+		padding: 0;
+		overflow: hidden;
 	}
 
-	.connection-row:not(:last-child) {
-		border-bottom: 1px solid var(--border-default);
-		padding-bottom: 0.5rem;
-	}
-
-	.connection-row-main {
-		display: flex;
-		align-items: center;
-		gap: 0.625rem;
-		flex: 1;
-		min-width: 0;
-		padding: 0.375rem 0.25rem;
-		background: transparent;
-		border: none;
-		border-radius: var(--radius-md, 0.375rem);
-		text-align: left;
-		cursor: pointer;
-		color: inherit;
-		font: inherit;
-	}
-
-	.connection-row-main:hover {
-		background: color-mix(in srgb, var(--surface-overlay) 60%, transparent);
-	}
-
-	.connection-row-main:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--focus-ring);
-	}
-
-	/* Name and account sit on ONE line with a tight, fixed gap — the old
-	   card reused `.settings-section-title` (a SECTION heading with a large
-	   margin-bottom meant to separate a heading from the content below it)
-	   for the connection name directly above the account line, which left a
-	   visible empty-looking gap between them. The row uses its own compact
-	   name/account styles instead, both with zero vertical margin. */
-	.connection-row-identity {
+	.list-head {
 		display: flex;
 		align-items: baseline;
-		gap: 0.375rem;
-		min-width: 0;
-		flex-shrink: 1;
-	}
-
-	.connection-row-name {
-		font-size: 0.875rem;
-		font-weight: 600;
-		color: var(--text-primary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.connection-row-account {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.connection-row-capabilities {
-		display: flex;
-		align-items: center;
-		gap: 0.3125rem;
-		color: var(--icon-muted);
-		flex-shrink: 0;
-	}
-
-	.connection-row-actions {
-		display: flex;
-		align-items: center;
-		gap: 0.125rem;
-		flex-shrink: 0;
-	}
-
-	.status-chip {
-		display: inline-flex;
-		align-items: center;
-		flex-shrink: 0;
-		padding: 0.1875rem 0.5rem;
-		border-radius: 9999px;
-		font-size: 0.6875rem;
-		font-weight: 600;
-		border: 1px solid transparent;
-	}
-
-	/* R3-fix2 #3 — the "connected" indicator itself is now this quiet check
-	   icon ONLY in the add-strip's already-connected hint (see below); the
-	   row no longer renders it at all (R3-fix2 #2). */
-	.connection-connected-icon {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-		color: var(--success);
-	}
-
-	/* R3-fix2 #2 — the row's problem-state indicator: a small icon (not a
-	   text pill) with an accessible label and a title tooltip, shown ONLY
-	   for needs_reauth/error. A healthy/connected row renders neither this
-	   nor the status-chip below — no status indicator at all. */
-	.status-icon {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-	}
-
-	.status-icon-warning {
-		color: var(--warning);
-	}
-
-	.status-icon-error {
-		color: var(--danger);
-	}
-
-	.status-chip.status-disconnected {
-		background-color: color-mix(in srgb, var(--text-muted) 16%, transparent);
-		color: var(--text-muted);
-		border-color: color-mix(in srgb, var(--text-muted) 40%, transparent);
-	}
-
-	.connections-provider-grid {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	/* ADR-0051 Decision 2 (E1) — group heading + divider for the two
-	   "Add a connection" groups (products vs custom integrations). The heading
-	   reuses the quiet uppercase-caption language of .settings-group-label. */
-	.connections-group-heading {
-		font-size: 0.6875rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--text-muted);
-		margin: 0 0 var(--space-sm) 0;
-	}
-
-	.connections-group-divider {
-		border: none;
-		border-top: 1px solid var(--border-default);
-		margin: 1rem 0 0.75rem;
-	}
-
-	.connections-provider-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.connection-toggle-row {
-		display: flex;
-		align-items: center;
 		justify-content: space-between;
 		gap: 1rem;
+		padding: 0.875rem 1rem 0.625rem;
 	}
 
-	.connection-toggle-text {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
+	.list-title {
+		margin: 0;
+		font-size: 0.9375rem;
+		font-weight: 600;
+		color: var(--text-primary);
 	}
 
-	/* R3-fix #6 — `.settings-label` (global) carries a `margin-bottom` meant
-	   for when it sits ABOVE an input; that bottom-only margin shifts its
-	   flex-centered position up relative to the InfoTooltip icon next to it,
-	   which has no margin. Zero it out here so the two line up. */
-	.connection-toggle-label {
-		margin-bottom: 0;
+	.list-count {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+
+	.list-body {
+		border-top: 1px solid var(--border-default);
 	}
 </style>

@@ -29,7 +29,13 @@ export type ConnectionPublic = {
 	// stored): see granted.ts. A capability in the provider's catalogue but
 	// absent here was denied, and the settings dialog renders it as a greyed
 	// line with "Ask again" instead of a switch with nothing behind it.
-	grantedCapabilities: string[];
+	//
+	// Optional purely so the many hand-built fixtures that stand in for a
+	// connection in tests don't all have to restate three presentational
+	// fields they never read. toPublic — the only real producer — always
+	// populates it; read it through grantedCapabilitiesOf() on the client,
+	// which falls back to the provider's whole catalogue.
+	grantedCapabilities?: string[];
 	config: Record<string, unknown>;
 	oauthScopes: string[];
 	tokenExpiresAt: number | null;
@@ -43,9 +49,10 @@ export type ConnectionPublic = {
 	// null when a connection has never been read through (lastUsedAt) or has
 	// never changed status since it was created (statusChangedAt); the UI
 	// falls back to a sentence that doesn't name a time rather than inventing
-	// one from `updatedAt`, which also moves for unrelated edits.
-	lastUsedAt: number | null;
-	statusChangedAt: number | null;
+	// one from `updatedAt`, which also moves for unrelated edits. Optional for
+	// the same fixture reason as grantedCapabilities above.
+	lastUsedAt?: number | null;
+	statusChangedAt?: number | null;
 	createdAt: number;
 	updatedAt: number;
 };

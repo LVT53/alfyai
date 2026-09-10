@@ -1,45 +1,56 @@
 <script lang="ts">
-// ADR 0044 Decision 3 (revised by R3-fix #8) — the Connection Detail modal,
-// a CENTERED, content-sized overlay (standard DialogShell — no `fullScreen`)
-// that holds every per-connection control that used to live inline in the
-// always-expanded SettingsConnectionsTab card: capabilities, default-on,
-// allow-writes (its reversible/allowlist warning now behind the shared
-// InfoTooltip instead of an always-visible amber paragraph), the nextcloud
-// write-allowlist editor, and disconnect (a quiet icon action in the header
-// row, not a bottom text button — R3-fix #5). The compact list row
-// (SettingsConnectionsTab) stays glance-only; this overlay is where the
-// rarely-touched controls live. DialogShell already caps height and scrolls
-// internally (`max-height: 85dvh; overflow-y: auto`), so a tall connection
-// (many capabilities + a long write-allowlist) still fits the viewport.
+// Connections redesign — the per-connection detail dialog.
 //
-// `connection` is nullable on purpose (mirrors the "open when non-null"
-// contract) so the parent can mount this component unconditionally and just
-// flip the prop — DialogShell (and its focus trap / body-scroll-lock) is
-// only actually mounted while a connection is set, since the whole thing is
-// gated behind `{#if connection}` below.
-import { Check, Plus, Unplug, X } from "@lucide/svelte";
+// Same chassis for every provider, five things different from before:
+//
+// 1. Switches only for what was actually GRANTED. A denied capability is a
+//    greyed line with "Ask again", not a switch that turns on with no
+//    permission behind it.
+// 2. Every switch carries the sentence that used to live in a tooltip, and
+//    the labels say what they do: "Use it without asking" rather than
+//    "Default on", "Let Alfy write" rather than "Allow writes".
+// 3. A broken connection opens with a banner that says what happened, when,
+//    and offers the sign-in — instead of a bare status chip and the
+//    provider's raw error string as a paragraph.
+// 4. Disconnect is a labelled danger button in a footer, not an unlabelled
+//    plug glyph in the header, and its confirmation says what is lost (the
+//    write folders) and what is not (your files).
+// 5. A switch is disabled while its own write is in flight, and a failed one
+//    says so instead of silently snapping back.
+import { AlertTriangle, Plus, RefreshCw, Unplug, X } from "@lucide/svelte";
+import {
+	type ConnectionPublic,
+	fetchNextcloudFolders,
+	type NextcloudFolderSuggestion,
+} from "$lib/client/api/connections";
+import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
+import {
+	connectionStatusGrammar,
+	deniedCapabilitiesOf,
+	type GrammarFormatters,
+	grantedCapabilitiesOf,
+	makeGrammarFormatters,
+} from "$lib/client/connections/status-grammar";
 import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
-import Toggle from "$lib/components/ui/Toggle.svelte";
-import {
-	fetchNextcloudFolders,
-	type ConnectionPublic,
-	type NextcloudFolderSuggestion,
-} from "$lib/client/api/connections";
-import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
 import { t } from "$lib/i18n";
+import BehaviourRow from "./connections/BehaviourRow.svelte";
+import CapabilityRow from "./connections/CapabilityRow.svelte";
+import ConnectionStatusCell from "./connections/ConnectionStatusCell.svelte";
+import Disclosure from "./connections/Disclosure.svelte";
+import RecoveryCard from "./connections/RecoveryCard.svelte";
 
-const STATUS_KEY: Record<ConnectionPublic["status"], string> = {
-	connected: "connections.status.connected",
-	needs_reauth: "connections.status.needsReauth",
-	error: "connections.status.error",
-	disconnected: "connections.status.disconnected",
-};
+// Default so a caller that only cares about the switches (a test, a future
+// embedding) doesn't have to build a formatter set to open the dialog.
+const DEFAULT_FORMATTERS = makeGrammarFormatters("en");
 
 let {
 	connection,
+	formatters = DEFAULT_FORMATTERS,
+	changeFailure = null,
+	onDismissChangeFailure,
 	onClose,
 	onToggleCapability,
 	onToggleAllowWrites,
@@ -47,8 +58,20 @@ let {
 	onUpdateWriteAllowlist,
 	onUpdateOwnTracksHome,
 	onDisconnect,
+	onReconnect,
+	onAskAgain,
 }: {
 	connection: ConnectionPublic | null;
+	formatters?: GrammarFormatters;
+	// The tab owns "a change didn't save" so the notice survives the dialog
+	// being closed; the dialog renders it too, because that is where the user
+	// was standing when it failed.
+	changeFailure?: {
+		changeKey: Parameters<typeof $t>[0];
+		changeParams: Record<string, string>;
+		retry: () => Promise<void>;
+	} | null;
+	onDismissChangeFailure?: () => void;
 	onClose: () => void;
 	onToggleCapability: (
 		id: string,
@@ -58,41 +81,53 @@ let {
 	onToggleAllowWrites: (id: string, next: boolean) => void | Promise<void>;
 	onToggleDefaultOn: (id: string, next: boolean) => void | Promise<void>;
 	onUpdateWriteAllowlist: (id: string, next: string[]) => void | Promise<void>;
-	// Task 10 — sets/clears the OwnTracks connection's home lat/lon (null,
-	// null clears). Config, not a secret/write — see owntracks-home/+server.ts.
 	onUpdateOwnTracksHome: (
 		id: string,
 		next: { homeLat: number | null; homeLon: number | null },
 	) => void | Promise<void>;
 	onDisconnect: (id: string) => void | Promise<void>;
+	onReconnect?: (id: string) => void;
+	onAskAgain?: (id: string, capability: string) => void;
 } = $props();
 
 let newAllowlistEntry = $state("");
 let disconnectConfirmOpen = $state(false);
 
-// Task 10 — OwnTracks home-location editor local state. Kept as strings so
-// the inputs can hold an in-progress/invalid value (e.g. "-") without
-// coercing to NaN on every keystroke; parsed/validated only on save.
+// Which writes are in flight, keyed by what they change. A switch is disabled
+// while its own write is running, so rapid toggling can't race two PATCHes
+// against each other — the old dialog left every switch live during the
+// request (unlike the locality switch, which already did this).
+let pending = $state<Set<string>>(new Set());
+
+function isPending(key: string): boolean {
+	return pending.has(key);
+}
+
+async function withPending(key: string, run: () => void | Promise<void>) {
+	if (pending.has(key)) return;
+	pending = new Set([...pending, key]);
+	try {
+		await run();
+	} finally {
+		const next = new Set(pending);
+		next.delete(key);
+		pending = next;
+	}
+}
+
+// Task 10 — OwnTracks home editor. Kept as strings so an in-progress value
+// ("-", "47.") isn't coerced to NaN on every keystroke.
 let homeLatInput = $state("");
 let homeLonInput = $state("");
 let homeError = $state<string | null>(null);
+let homeSaving = $state(false);
 
-// Redesign R9 — folder suggestions for the write-allowlist editor, fetched
-// from the connection's actual Nextcloud folder structure. `ncSuggestionsFailed`
-// is the graceful-fallback flag: on a fetch error (offline / needs_reauth /
-// anything else) the dropdown simply never opens and the existing manual
-// text input keeps working exactly as before — this never blocks adding a
-// path. `ncFolderSuggestions` only ever holds top-level (root) folders for
-// v1; drilling into subfolders is a nice-to-have left for a later pass.
 let ncFolderSuggestions = $state<NextcloudFolderSuggestion[]>([]);
 let ncSuggestionsLoading = $state(false);
 let ncSuggestionsFailed = $state(false);
 let ncSuggestionsOpen = $state(false);
 let ncActiveIndex = $state(-1);
 
-// Reset transient UI state whenever the open connection changes (including
-// closing back to null) so a stale confirm dialog / draft folder path never
-// leaks into the next connection's detail view.
 $effect(() => {
 	void connection;
 	disconnectConfirmOpen = false;
@@ -102,6 +137,7 @@ $effect(() => {
 	ncSuggestionsFailed = false;
 	ncSuggestionsOpen = false;
 	ncActiveIndex = -1;
+	pending = new Set();
 	const lat = connection?.config?.homeLat;
 	const lon = connection?.config?.homeLon;
 	homeLatInput = typeof lat === "number" ? String(lat) : "";
@@ -109,11 +145,6 @@ $effect(() => {
 	homeError = null;
 });
 
-// Fetches the connection's top-level Nextcloud folders as suggestions —
-// only for a nextcloud connection with path-based writes and allow-writes
-// on (the only case the allowlist editor below is even shown). Re-runs only
-// when those tracked reads change, not on every unrelated field update
-// (e.g. toggling a capability) that produces a new `connection` object.
 $effect(() => {
 	const id = connection?.id;
 	const provider = connection?.provider;
@@ -163,7 +194,9 @@ const showSuggestions = $derived(
 function addAllowlistEntry(conn: ConnectionPublic) {
 	const raw = newAllowlistEntry.trim();
 	if (!raw) return;
-	onUpdateWriteAllowlist(conn.id, [...conn.writeAllowlist, raw]);
+	void withPending("folders", () =>
+		onUpdateWriteAllowlist(conn.id, [...conn.writeAllowlist, raw]),
+	);
 	newAllowlistEntry = "";
 	ncSuggestionsOpen = false;
 	ncActiveIndex = -1;
@@ -174,7 +207,12 @@ function pickSuggestion(
 	suggestion: NextcloudFolderSuggestion,
 ) {
 	if (!conn.writeAllowlist.includes(suggestion.path)) {
-		onUpdateWriteAllowlist(conn.id, [...conn.writeAllowlist, suggestion.path]);
+		void withPending("folders", () =>
+			onUpdateWriteAllowlist(conn.id, [
+				...conn.writeAllowlist,
+				suggestion.path,
+			]),
+		);
 	}
 	newAllowlistEntry = "";
 	ncSuggestionsOpen = false;
@@ -209,28 +247,21 @@ function onAllowlistInputKeydown(e: KeyboardEvent, conn: ConnectionPublic) {
 }
 
 function removeAllowlistEntry(conn: ConnectionPublic, path: string) {
-	onUpdateWriteAllowlist(
-		conn.id,
-		conn.writeAllowlist.filter((entry) => entry !== path),
+	void withPending("folders", () =>
+		onUpdateWriteAllowlist(
+			conn.id,
+			conn.writeAllowlist.filter((entry) => entry !== path),
+		),
 	);
 }
 
-// Task 10 — validates and persists the home-location editor's current input.
-// Both inputs blank => unset (homeLat/homeLon: null). A single blank input
-// (only one of the pair filled) is treated the same as an invalid number —
-// a lone coordinate is meaningless — so it falls through to the NaN check
-// below rather than needing its own branch.
 async function saveOwnTracksHome(conn: ConnectionPublic) {
 	const latRaw = homeLatInput.trim();
 	const lonRaw = homeLonInput.trim();
 
 	if (latRaw === "" && lonRaw === "") {
 		homeError = null;
-		try {
-			await onUpdateOwnTracksHome(conn.id, { homeLat: null, homeLon: null });
-		} catch {
-			homeError = $t("connections.ownTracksHome.saveError");
-		}
+		await persistHome(conn, { homeLat: null, homeLon: null });
 		return;
 	}
 
@@ -246,10 +277,20 @@ async function saveOwnTracksHome(conn: ConnectionPublic) {
 	}
 
 	homeError = null;
+	await persistHome(conn, { homeLat: lat, homeLon: lon });
+}
+
+async function persistHome(
+	conn: ConnectionPublic,
+	next: { homeLat: number | null; homeLon: number | null },
+) {
+	homeSaving = true;
 	try {
-		await onUpdateOwnTracksHome(conn.id, { homeLat: lat, homeLon: lon });
+		await onUpdateOwnTracksHome(conn.id, next);
 	} catch {
 		homeError = $t("connections.ownTracksHome.saveError");
+	} finally {
+		homeSaving = false;
 	}
 }
 
@@ -257,240 +298,311 @@ async function clearOwnTracksHome(conn: ConnectionPublic) {
 	homeLatInput = "";
 	homeLonInput = "";
 	homeError = null;
-	try {
-		await onUpdateOwnTracksHome(conn.id, { homeLat: null, homeLon: null });
-	} catch {
-		homeError = $t("connections.ownTracksHome.saveError");
+	await persistHome(conn, { homeLat: null, homeLon: null });
+}
+
+function capabilityLabel(provider: string, capability: string): string {
+	// Plex's library is films and shows, not "media".
+	if (provider === "plex" && capability === "media") {
+		return $t("connections.capability.mediaPlex");
 	}
+	return $t(`connections.capability.${capability}` as Parameters<typeof $t>[0]);
+}
+
+function capabilityAbout(capability: string): string {
+	return $t(
+		`connections.capabilityAbout.${capability}` as Parameters<typeof $t>[0],
+	);
 }
 </script>
 
 {#if connection}
 	{@const conn = connection}
 	{@const entry = getProviderCatalogEntry(conn.provider)}
-	{@const needsAttention = conn.status === 'needs_reauth' || conn.status === 'error'}
+	{@const grammar = connectionStatusGrammar(conn, formatters)}
+	{@const granted = grantedCapabilitiesOf(conn)}
+	{@const denied = deniedCapabilitiesOf(conn)}
+	{@const isOAuth = entry.connectMethod === 'oauth'}
 	<DialogShell
 		title={entry.displayName}
 		onClose={onClose}
+		maxWidthClass="max-w-[30rem]"
 		zIndexClass="z-[100]"
+		titleVisuallyHidden
 	>
-		<div class="connection-detail" data-testid={`connection-detail-${conn.id}`}>
-			<div class="connection-detail-header">
-				<BrandIcon provider={conn.provider} size={24} ariaHidden />
-				{#if conn.accountIdentifier}
-					<span class="connection-detail-account">{conn.accountIdentifier}</span>
-				{/if}
-				{#if conn.status === 'connected'}
-					<span
-						class="connection-connected-icon"
-						role="img"
-						aria-label={$t('connections.status.connected')}
-						title={$t('connections.status.connected')}
-					>
-						<Check size={15} strokeWidth={2.5} aria-hidden="true" />
+		<div class="detail" data-testid={`connection-detail-${conn.id}`}>
+			<header class="detail-head">
+				<span class="detail-mark">
+					<BrandIcon provider={conn.provider} size={19} ariaHidden />
+				</span>
+				<span class="detail-identity">
+					<span class="detail-name">{entry.displayName}</span>
+					{#if conn.accountIdentifier}
+						<span class="detail-account">{conn.accountIdentifier}</span>
+					{/if}
+				</span>
+				<ConnectionStatusCell {grammar} compact />
+			</header>
+
+			<!-- A broken connection leads with what happened and the way out,
+			     instead of a chip plus the provider's raw error string. -->
+			{#if grammar.recovery}
+				<div class="state-banner" data-tone={grammar.tone} data-testid="connection-detail-banner">
+					<span class="state-banner-icon" aria-hidden="true">
+						<AlertTriangle size={14} strokeWidth={2} />
 					</span>
-				{:else}
-					<span
-						class="status-chip"
-						class:status-needs_reauth={conn.status === 'needs_reauth'}
-						class:status-error={conn.status === 'error'}
-						class:status-disconnected={conn.status === 'disconnected'}
-					>
-						{$t(STATUS_KEY[conn.status] as Parameters<typeof $t>[0])}
-					</span>
-				{/if}
-				<!-- R3-fix #5 — disconnect is a quiet danger icon action pushed to
-				     the far right of the header row (logo · account · status ·
-				     disconnect), not a prominent bottom text button. Still opens
-				     the same ConfirmDialog before calling onDisconnect. -->
-				<button
-					type="button"
-					class="btn-icon-bare btn-icon-sm connection-detail-disconnect"
-					aria-label={`${$t('connections.actions.disconnect')} ${entry.displayName}`}
-					title={$t('connections.actions.disconnect')}
-					onclick={() => (disconnectConfirmOpen = true)}
-				>
-					<Unplug size={16} strokeWidth={2} aria-hidden="true" />
-				</button>
-			</div>
-			{#if needsAttention}
-				<p class="connection-detail-status-note">
-					{conn.statusDetail ?? $t('connections.status.noDetail')}
-				</p>
+					<div class="state-banner-text">
+						<p class="state-banner-body">
+							{#if conn.status === 'needs_reauth'}
+								{conn.statusChangedAt
+									? $t('connections.detail.signInBanner', {
+											provider: entry.displayName,
+											when: formatters.date(conn.statusChangedAt),
+										})
+									: $t('connections.detail.signInBannerNoDate', {
+											provider: entry.displayName,
+										})}
+							{:else if conn.status === 'error'}
+								{conn.statusChangedAt
+									? $t('connections.detail.unreachableBanner', {
+											provider: entry.displayName,
+											when: formatters.dateTime(conn.statusChangedAt),
+										})
+									: $t('connections.detail.unreachableBannerNoDate', {
+											provider: entry.displayName,
+										})}
+							{:else}
+								{$t('connections.detail.turnedOffBanner')}
+							{/if}
+						</p>
+						<div class="state-banner-actions">
+							<button
+								type="button"
+								class="btn-primary text-xs"
+								data-testid="connection-detail-recover"
+								onclick={() => onReconnect?.(conn.id)}
+							>
+								{$t(grammar.recovery.label)}
+							</button>
+						</div>
+						<!-- The provider's own words stay reachable, but they are
+						     backend phrasing and never the first thing read. -->
+						{#if grammar.technicalDetail}
+							<Disclosure
+								label={$t('connections.actions.whatWentWrong')}
+								testId="connection-detail-technical"
+							>
+								<p class="technical-detail">{grammar.technicalDetail}</p>
+							</Disclosure>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
+			{#if changeFailure}
+				<RecoveryCard
+					tone="danger"
+					icon={AlertTriangle}
+					testId="connection-detail-change-failed"
+					title={$t('connections.states.saveFailed.title')}
+					body={$t('connections.states.saveFailed.body', {
+						change: $t(changeFailure.changeKey, changeFailure.changeParams),
+					})}
+					primaryLabel={$t('connections.actions.tryAgain')}
+					primaryIcon={RefreshCw}
+					onPrimary={() => changeFailure?.retry()}
+					secondaryLabel={$t('connections.actions.dismiss')}
+					onSecondary={() => onDismissChangeFailure?.()}
+				/>
 			{/if}
 
 			{#if entry.capabilities.length > 0}
-				<section class="connection-detail-section">
-					<p class="settings-label">{$t('connections.capabilities.label')}</p>
-					<div class="connection-capabilities">
-						{#each entry.capabilities as capability}
-							<label class="connection-capability-row">
-								<span>{$t(`connections.capability.${capability}` as Parameters<typeof $t>[0])}</span>
-								<Toggle
-									checked={conn.capabilities.includes(capability)}
-									ariaLabel={`${$t(`connections.capability.${capability}` as Parameters<typeof $t>[0])} — ${entry.displayName}`}
-									onChange={(next) => onToggleCapability(conn.id, capability, next)}
-								/>
-							</label>
-						{/each}
-					</div>
+				<section class="detail-section">
+					<p class="detail-eyebrow">{$t('connections.detail.whatAlfyMayUse')}</p>
+					{#each granted as capability (capability)}
+						<CapabilityRow
+							label={capabilityLabel(conn.provider, capability)}
+							description={isOAuth
+								? $t('connections.detail.grantedOn', {
+										when: formatters.date(conn.createdAt),
+									})
+								: capabilityAbout(capability)}
+							granted
+							checked={conn.capabilities.includes(capability)}
+							busy={isPending(`capability:${capability}`)}
+							testId={`capability-${capability}`}
+							onChange={(next) =>
+								withPending(`capability:${capability}`, () =>
+									onToggleCapability(conn.id, capability, next),
+								)}
+						/>
+					{/each}
+					{#each denied as capability (capability)}
+						<CapabilityRow
+							label={capabilityLabel(conn.provider, capability)}
+							description={isOAuth
+								? $t('connections.detail.deniedSub')
+								: $t('connections.detail.deniedSubDiscovered')}
+							granted={false}
+							askAgainLabel={isOAuth ? $t('connections.actions.askAgain') : undefined}
+							testId={`capability-${capability}`}
+							onAskAgain={() => onAskAgain?.(conn.id, capability)}
+						/>
+					{/each}
+					{#if !entry.writable}
+						<p class="detail-note">
+							{$t('connections.detail.readOnlyNote', { provider: entry.displayName })}
+						</p>
+					{/if}
 				</section>
 			{/if}
 
-			<section class="connection-detail-section connection-toggle-row">
-				<div class="connection-toggle-text">
-					<span class="settings-label connection-toggle-label">{$t('connections.defaultOn.label')}</span>
-					<InfoTooltip text={$t('connections.defaultOn.help')} />
-				</div>
-				<Toggle
+			<section class="detail-section">
+				<p class="detail-eyebrow">{$t('connections.detail.howItBehaves')}</p>
+				<BehaviourRow
+					label={$t('connections.detail.useWithoutAsking')}
+					description={$t('connections.detail.useWithoutAskingSub', {
+						provider: entry.displayName,
+					})}
+					help={$t('connections.detail.useWithoutAskingHelp', {
+						provider: entry.displayName,
+					})}
 					checked={conn.defaultOn}
-					ariaLabel={`${$t('connections.defaultOn.label')} — ${entry.displayName}`}
-					onChange={(next) => onToggleDefaultOn(conn.id, next)}
+					busy={isPending('defaultOn')}
+					testId="behaviour-default-on"
+					onChange={(next) =>
+						withPending('defaultOn', () => onToggleDefaultOn(conn.id, next))}
 				/>
-			</section>
 
-			{#if entry.writable}
-				<section class="connection-detail-section connection-toggle-row">
-					<div class="connection-toggle-text">
-						<span class="settings-label connection-toggle-label">{$t('connections.allowWrites.label')}</span>
-						<InfoTooltip text={$t('connections.allowWrites.warning')} />
-					</div>
-					<Toggle
+				{#if entry.writable}
+					<BehaviourRow
+						label={$t('connections.detail.letAlfyWrite')}
+						description={conn.provider === 'google' || conn.provider === 'apple'
+							? $t('connections.detail.writeConfirmNoteCalendar')
+							: $t('connections.detail.letAlfyWriteSub')}
+						help={$t('connections.detail.letAlfyWriteHelp')}
 						checked={conn.allowWrites}
-						ariaLabel={`${$t('connections.allowWrites.label')} — ${entry.displayName}`}
-						onChange={(next) => onToggleAllowWrites(conn.id, next)}
+						busy={isPending('allowWrites')}
+						testId="behaviour-allow-writes"
+						onChange={(next) =>
+							withPending('allowWrites', () => onToggleAllowWrites(conn.id, next))}
 					/>
-				</section>
 
-				{#if conn.allowWrites}
-					{#if entry.pathBasedWrites}
-						<section class="connection-detail-section">
-							<p class="settings-label">{$t('connections.writeAllowlist.label')}</p>
-							{#if conn.writeAllowlist.length === 0}
-								<p class="settings-help-text">{$t('connections.writeAllowlist.empty')}</p>
-							{:else}
-								<ul class="connection-allowlist-chips">
-									{#each conn.writeAllowlist as path}
-										<li class="connection-allowlist-chip">
-											<span>{path}</span>
-											<button
-												type="button"
-												class="btn-icon-bare connection-allowlist-remove"
-												aria-label={$t('connections.writeAllowlist.removeA11y', { path })}
-												onclick={() => removeAllowlistEntry(conn, path)}
-											>
-												<X size={12} strokeWidth={2} aria-hidden="true" />
-											</button>
-										</li>
-									{/each}
-								</ul>
-							{/if}
-							<div class="connection-allowlist-add">
-								<!-- Redesign R9 — a keyboard-navigable combobox: the plain
-								     text input still works exactly as before (typing +
-								     Enter/Add), and picking a suggestion is equivalent to
-								     typing it + Add. Suggestions are best-effort: a fetch
-								     failure (offline / needs_reauth) just never opens the
-								     dropdown (`showSuggestions` stays false), so manual entry
-								     is never blocked. -->
-								<div class="connection-allowlist-combobox">
-									<input
-										type="text"
-										class="settings-input"
-										placeholder={$t('connections.writeAllowlist.addPlaceholder')}
-										aria-label={$t('connections.writeAllowlist.label')}
-										role="combobox"
-										aria-expanded={showSuggestions}
-										aria-controls="nc-folder-suggestions"
-										aria-autocomplete="list"
-										aria-activedescendant={showSuggestions && ncActiveIndex >= 0
-											? `nc-folder-suggestion-${ncActiveIndex}`
-											: undefined}
-										value={newAllowlistEntry}
-										oninput={(e) => {
-											newAllowlistEntry = (e.currentTarget as HTMLInputElement).value;
-											ncActiveIndex = -1;
-											ncSuggestionsOpen = true;
-										}}
-										onfocus={() => {
-											ncSuggestionsOpen = true;
-										}}
-										onblur={() => {
-											// Deferred so a suggestion's onclick (which blurs the
-											// input first) still fires before the listbox unmounts.
-											setTimeout(() => {
-												ncSuggestionsOpen = false;
-											}, 150);
-										}}
-										onkeydown={(e) => onAllowlistInputKeydown(e, conn)}
-									/>
-									{#if showSuggestions}
-										<ul
-											class="connection-allowlist-suggestions"
-											id="nc-folder-suggestions"
-											role="listbox"
-											aria-label={$t('connections.writeAllowlist.suggestionsA11y')}
-										>
-											{#each filteredSuggestions as suggestion, i (suggestion.path)}
-												<!-- Per the ARIA combobox/listbox pattern, the option itself
-												     is the interactive target (no nested focusable button) —
-												     selection happens via a direct click here, or via the
-												     input's keyboard nav (aria-activedescendant + Enter)
-												     above, which is why this option is deliberately NOT its
-												     own keydown/tab target. -->
-												<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-												<li
-													role="option"
-													id={`nc-folder-suggestion-${i}`}
-													aria-selected={i === ncActiveIndex}
-													class="connection-allowlist-suggestion"
-													class:active={i === ncActiveIndex}
-													onmousedown={(e) => e.preventDefault()}
-													onclick={() => pickSuggestion(conn, suggestion)}
+					{#if conn.allowWrites}
+						{#if entry.pathBasedWrites}
+							<div class="folder-box">
+								<p class="folder-label">{$t('connections.detail.foldersLabel')}</p>
+								{#if conn.writeAllowlist.length === 0}
+									<p class="folder-empty">{$t('connections.writeAllowlist.empty')}</p>
+								{:else}
+									<ul class="folder-chips">
+										{#each conn.writeAllowlist as path (path)}
+											<li class="folder-chip">
+												<span>{path}</span>
+												<button
+													type="button"
+													class="folder-chip-remove"
+													aria-label={$t('connections.writeAllowlist.removeA11y', { path })}
+													onclick={() => removeAllowlistEntry(conn, path)}
 												>
-													{suggestion.path}
-												</li>
-											{/each}
-											{#if ncSuggestionsLoading && filteredSuggestions.length === 0}
-												<li class="connection-allowlist-suggestions-status">
-													{$t('connections.writeAllowlist.suggestionsLoading')}
-												</li>
-											{/if}
-										</ul>
-									{/if}
+													<X size={11} strokeWidth={2.2} aria-hidden="true" />
+												</button>
+											</li>
+										{/each}
+									</ul>
+								{/if}
+								<div class="folder-add">
+									<div class="folder-combobox">
+										<input
+											type="text"
+											class="settings-input"
+											placeholder={$t('connections.writeAllowlist.addPlaceholder')}
+											aria-label={$t('connections.detail.foldersLabel')}
+											role="combobox"
+											aria-expanded={showSuggestions}
+											aria-controls="nc-folder-suggestions"
+											aria-autocomplete="list"
+											aria-activedescendant={showSuggestions && ncActiveIndex >= 0
+												? `nc-folder-suggestion-${ncActiveIndex}`
+												: undefined}
+											value={newAllowlistEntry}
+											oninput={(e) => {
+												newAllowlistEntry = (e.currentTarget as HTMLInputElement).value;
+												ncActiveIndex = -1;
+												ncSuggestionsOpen = true;
+											}}
+											onfocus={() => {
+												ncSuggestionsOpen = true;
+											}}
+											onblur={() => {
+												setTimeout(() => {
+													ncSuggestionsOpen = false;
+												}, 150);
+											}}
+											onkeydown={(e) => onAllowlistInputKeydown(e, conn)}
+										/>
+										{#if showSuggestions}
+											<ul
+												class="folder-suggestions"
+												id="nc-folder-suggestions"
+												role="listbox"
+												aria-label={$t('connections.writeAllowlist.suggestionsA11y')}
+											>
+												{#each filteredSuggestions as suggestion, i (suggestion.path)}
+													<!-- Per the ARIA combobox pattern the option itself is the
+													     target; keyboard selection runs through the input's
+													     aria-activedescendant, so this is deliberately not its
+													     own tab stop. -->
+													<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+													<li
+														role="option"
+														id={`nc-folder-suggestion-${i}`}
+														aria-selected={i === ncActiveIndex}
+														class="folder-suggestion"
+														class:active={i === ncActiveIndex}
+														onmousedown={(e) => e.preventDefault()}
+														onclick={() => pickSuggestion(conn, suggestion)}
+													>
+														{suggestion.path}
+													</li>
+												{/each}
+												{#if ncSuggestionsLoading && filteredSuggestions.length === 0}
+													<li class="folder-suggestion-status">
+														{$t('connections.writeAllowlist.suggestionsLoading')}
+													</li>
+												{/if}
+											</ul>
+										{/if}
+									</div>
+									<!-- R3-fix #9 in reverse: the add action is a LABELLED button
+									     now, not a bare plus glyph. -->
+									<button
+										type="button"
+										class="folder-add-btn"
+										onclick={() => addAllowlistEntry(conn)}
+									>
+										<Plus size={12} strokeWidth={2.2} aria-hidden="true" />
+										{$t('connections.writeAllowlist.addA11y')}
+									</button>
 								</div>
-								<button
-									type="button"
-									class="btn-icon-bare connection-allowlist-add-btn"
-									aria-label={$t('connections.writeAllowlist.addA11y')}
-									title={$t('connections.writeAllowlist.addA11y')}
-									onclick={() => addAllowlistEntry(conn)}
-								>
-									<Plus size={16} strokeWidth={2} aria-hidden="true" />
-								</button>
 							</div>
-						</section>
-					{:else}
-						<p class="settings-help-text">{$t('connections.writeAllowlist.confirmNote')}</p>
+						{:else}
+							<p class="detail-note">{$t('connections.detail.writeConfirmNote')}</p>
+						{/if}
 					{/if}
 				{/if}
-			{/if}
+			</section>
 
-			<!-- Task 10 — owntracks-only home-location editor: sets the
-			     homeLat/homeLon that ownTracksHomeReference (providers/owntracks.ts)
-			     reads for the "distance to home" tool action. Config, not a
-			     secret/write, so it never goes through the write-confirm firewall
-			     above — mirrors the nextcloud write-allowlist editor's
-			     provider gate, just for a different provider. -->
 			{#if conn.provider === 'owntracks'}
-				<section class="connection-detail-section">
-					<div class="connection-toggle-text">
-						<span class="settings-label connection-toggle-label">{$t('connections.ownTracksHome.label')}</span>
+				<section class="detail-section">
+					<p class="detail-eyebrow">{$t('connections.detail.homeHeading')}</p>
+					<p class="home-intro">
+						{$t('connections.detail.homeIntro')}
 						<InfoTooltip text={$t('connections.ownTracksHome.help')} />
-					</div>
-					<div class="owntracks-home-fields">
-						<label class="owntracks-home-field">
-							<span class="settings-label">{$t('connections.ownTracksHome.latLabel')}</span>
+					</p>
+					<div class="home-fields">
+						<label class="home-field">
+							<span class="home-field-label">{$t('connections.ownTracksHome.latLabel')}</span>
 							<input
 								type="number"
 								class="settings-input"
@@ -503,8 +615,8 @@ async function clearOwnTracksHome(conn: ConnectionPublic) {
 								}}
 							/>
 						</label>
-						<label class="owntracks-home-field">
-							<span class="settings-label">{$t('connections.ownTracksHome.lonLabel')}</span>
+						<label class="home-field">
+							<span class="home-field-label">{$t('connections.ownTracksHome.lonLabel')}</span>
 							<input
 								type="number"
 								class="settings-input"
@@ -519,33 +631,92 @@ async function clearOwnTracksHome(conn: ConnectionPublic) {
 						</label>
 					</div>
 					{#if homeError}
-						<p class="owntracks-home-error">{homeError}</p>
+						<p class="home-error">
+							<AlertTriangle size={12} strokeWidth={2} aria-hidden="true" />
+							{homeError}
+						</p>
 					{/if}
-					<div class="owntracks-home-actions">
+					<div class="home-actions">
 						<button
 							type="button"
-							class="btn-secondary text-xs"
+							class="quiet-btn"
+							disabled={homeSaving}
 							onclick={() => clearOwnTracksHome(conn)}
 						>
 							{$t('connections.ownTracksHome.clear')}
 						</button>
 						<button
 							type="button"
-							class="btn-primary text-xs"
+							class="quiet-btn accent"
+							disabled={homeSaving}
 							onclick={() => saveOwnTracksHome(conn)}
 						>
-							{$t('connections.ownTracksHome.save')}
+							{$t('connections.ownTracksHome.saveHome')}
 						</button>
 					</div>
 				</section>
 			{/if}
+
+			<footer class="detail-foot">
+				<button
+					type="button"
+					class="danger-btn"
+					data-testid="connection-disconnect"
+					onclick={() => (disconnectConfirmOpen = true)}
+				>
+					<Unplug size={14} strokeWidth={2} aria-hidden="true" />
+					{$t('connections.actions.disconnectProvider', {
+						provider: entry.displayName,
+					})}
+				</button>
+				<!-- Reconnect is reachable from every connection, not only broken
+				     ones — a working connection whose permissions need widening had
+				     no way here before. -->
+				{#if !grammar.recovery}
+					<button
+						type="button"
+						class="quiet-btn"
+						data-testid="connection-reconnect"
+						onclick={() => onReconnect?.(conn.id)}
+					>
+						<RefreshCw size={13} strokeWidth={2} aria-hidden="true" />
+						{$t('connections.actions.reconnect')}
+					</button>
+				{/if}
+				<span class="detail-foot-spacer"></span>
+				<button type="button" class="btn-secondary text-xs" onclick={onClose}>
+					{$t('connections.actions.done')}
+				</button>
+			</footer>
 		</div>
 	</DialogShell>
 
 	{#if disconnectConfirmOpen}
+		{@const lostCapabilities = granted
+			.map((capability) => capabilityLabel(conn.provider, capability))
+			.join(', ')}
 		<ConfirmDialog
 			title={$t('connections.disconnectConfirm.title', { provider: entry.displayName })}
-			message={$t('connections.disconnectConfirm.message', { provider: entry.displayName })}
+			message={`${
+				lostCapabilities
+					? $t('connections.disconnectConfirm.body', {
+							what: lostCapabilities,
+							provider: entry.displayName,
+						})
+					: $t('connections.disconnectConfirm.bodyNoCapabilities', {
+							provider: entry.displayName,
+						})
+			}${
+				conn.allowWrites && conn.writeAllowlist.length > 0
+					? ` ${
+							conn.writeAllowlist.length === 1
+								? $t('connections.disconnectConfirm.foldersNoteOne')
+								: $t('connections.disconnectConfirm.foldersNoteMany', {
+										count: conn.writeAllowlist.length,
+									})
+						}`
+					: ''
+			}`}
 			confirmText={$t('connections.actions.disconnect')}
 			confirmVariant="danger"
 			onCancel={() => (disconnectConfirmOpen = false)}
@@ -559,125 +730,244 @@ async function clearOwnTracksHome(conn: ConnectionPublic) {
 {/if}
 
 <style>
-	.connection-detail {
+	.detail {
 		display: flex;
 		flex-direction: column;
 		gap: 0.875rem;
 	}
 
-	.connection-detail-header {
+	.detail-head {
 		display: flex;
 		align-items: center;
-		gap: 0.625rem;
-		flex-wrap: wrap;
+		gap: 0.6875rem;
 	}
 
-	.connection-detail-account {
-		font-size: 0.8125rem;
+	.detail-mark {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.125rem;
+		height: 2.125rem;
+		flex-shrink: 0;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-default);
+		background: var(--surface-overlay);
 		color: var(--text-secondary);
 	}
 
-	.connection-detail-status-note {
-		margin: -0.5rem 0 0 0;
+	.detail-identity {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.detail-name {
+		font-size: 0.9375rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.detail-account {
+		margin-top: 0.125rem;
 		font-size: 0.75rem;
+		color: var(--text-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.state-banner {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.625rem;
+		padding: 0.75rem 0.875rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-default);
+		background: var(--surface-page);
+	}
+
+	.state-banner[data-tone='warn'] {
+		border-color: color-mix(in srgb, var(--warning) 32%, transparent);
+		background: color-mix(in srgb, var(--warning) 7%, var(--surface-page));
+	}
+
+	.state-banner[data-tone='warn'] .state-banner-icon {
+		color: var(--warning);
+	}
+
+	.state-banner[data-tone='danger'] {
+		border-color: color-mix(in srgb, var(--danger) 32%, transparent);
+		background: color-mix(in srgb, var(--danger) 5%, var(--surface-page));
+	}
+
+	.state-banner[data-tone='danger'] .state-banner-icon {
+		color: var(--danger);
+	}
+
+	.state-banner[data-tone='muted'] .state-banner-icon {
+		color: var(--text-muted);
+	}
+
+	.state-banner-icon {
+		display: inline-flex;
+		margin-top: 0.125rem;
+		flex-shrink: 0;
+	}
+
+	.state-banner-text {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.state-banner-body {
+		margin: 0;
+		font-size: 0.8125rem;
+		line-height: 1.5;
 		color: var(--text-secondary);
 	}
 
-	.connection-detail-section {
+	.state-banner-actions {
+		margin-top: 0.625rem;
+	}
+
+	.technical-detail {
+		margin: 0;
+		padding: 0.5rem 0.625rem;
+		border-radius: var(--radius-sm);
+		background: var(--surface-code);
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 0.6875rem;
+		line-height: 1.5;
+		color: var(--text-secondary);
+		overflow-wrap: anywhere;
+	}
+
+	.detail-section {
 		border-top: 1px solid var(--border-default);
 		padding-top: 0.875rem;
 	}
 
-	.connection-capabilities {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
+	.detail-eyebrow {
+		margin: 0 0 0.5rem 0;
+		font-size: 0.6875rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--text-muted);
 	}
 
-	.connection-capability-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
+	.detail-note {
+		margin: 0.625rem 0 0 0;
+		font-size: 0.75rem;
+		line-height: 1.45;
+		color: var(--text-muted);
+	}
+
+	.folder-box {
+		margin-top: 0.625rem;
+		padding: 0.75rem 0.8125rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-page);
+	}
+
+	.folder-label {
+		margin: 0 0 0.5rem 0;
 		font-size: 0.8125rem;
+		font-weight: 500;
 		color: var(--text-primary);
 	}
 
-	.connection-toggle-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
+	.folder-empty {
+		margin: 0 0 0.5rem 0;
+		font-size: 0.75rem;
+		color: var(--text-muted);
 	}
 
-	.connection-toggle-text {
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
-	}
-
-	/* R3-fix #6 — `.settings-label` (global) carries a `margin-bottom` meant
-	   for when it sits ABOVE an input; that bottom-only margin shifts its
-	   flex-centered position up relative to the InfoTooltip icon next to it,
-	   which has no margin. Zero it out here so the two line up. */
-	.connection-toggle-label {
-		margin-bottom: 0;
-	}
-
-	.connection-allowlist-chips {
+	.folder-chips {
 		list-style: none;
-		margin: 0.5rem 0 0 0;
+		margin: 0 0 0.5625rem 0;
 		padding: 0;
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.375rem;
 	}
 
-	.connection-allowlist-chip {
+	.folder-chip {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.375rem;
-		padding: 0.25rem 0.5rem;
+		padding: 0.1875rem 0.4375rem;
 		border-radius: 9999px;
-		background: var(--surface-elevated, var(--surface-overlay));
+		background: var(--surface-overlay);
 		border: 1px solid var(--border-default);
-		font-size: 0.75rem;
+		font-size: 0.6875rem;
+		color: var(--text-secondary);
 	}
 
-	.connection-allowlist-remove {
-		min-height: 1.25rem;
-		min-width: 1.25rem;
-		height: 1.25rem;
-		width: 1.25rem;
+	.folder-chip-remove {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1rem;
+		height: 1rem;
+		border: none;
+		background: transparent;
+		border-radius: 9999px;
+		color: var(--text-muted);
+		cursor: pointer;
+		transition: color var(--duration-standard), background var(--duration-standard);
 	}
 
-	.connection-allowlist-add {
+	.folder-chip-remove:hover {
+		color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 12%, transparent);
+	}
+
+	.folder-chip-remove:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.folder-add {
 		display: flex;
 		gap: 0.5rem;
-		margin-top: 0.5rem;
 	}
 
-	.connection-allowlist-add .settings-input {
-		flex: 1;
-	}
-
-	/* R3-fix #7 — icon-only Plus button, sized to match the input's height. */
-	.connection-allowlist-add-btn {
-		flex-shrink: 0;
-		min-height: 2.25rem;
-		min-width: 2.25rem;
-	}
-
-	/* Redesign R9 — the combobox wrapper is the positioning context for the
-	   suggestions dropdown, which floats below the input rather than pushing
-	   the rest of the modal's layout down. */
-	.connection-allowlist-combobox {
+	.folder-combobox {
 		position: relative;
-		flex: 1;
+		flex: 1 1 auto;
 		min-width: 0;
 	}
 
-	.connection-allowlist-suggestions {
+	.folder-add-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3125rem;
+		flex-shrink: 0;
+		padding: 0.375rem 0.625rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-default);
+		background: var(--surface-page);
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		white-space: nowrap;
+		cursor: pointer;
+		transition: border-color var(--duration-standard), color var(--duration-standard);
+	}
+
+	.folder-add-btn:hover {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	.folder-add-btn:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.folder-suggestions {
 		position: absolute;
 		top: calc(100% + 0.25rem);
 		left: 0;
@@ -688,18 +978,17 @@ async function clearOwnTracksHome(conn: ConnectionPublic) {
 		list-style: none;
 		max-height: 12rem;
 		overflow-y: auto;
-		background: var(--surface-elevated, var(--surface-overlay));
+		background: var(--surface-elevated);
 		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md, 0.375rem);
-		box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
+		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-md);
 	}
 
-	.connection-allowlist-suggestion {
+	.folder-suggestion {
 		display: block;
 		width: 100%;
 		padding: 0.375rem 0.5rem;
-		border: none;
-		border-radius: var(--radius-sm, 0.25rem);
+		border-radius: var(--radius-sm);
 		background: transparent;
 		color: var(--text-primary);
 		font-size: 0.8125rem;
@@ -707,97 +996,130 @@ async function clearOwnTracksHome(conn: ConnectionPublic) {
 		cursor: pointer;
 	}
 
-	.connection-allowlist-suggestion:hover,
-	.connection-allowlist-suggestion.active {
-		background: color-mix(in srgb, var(--surface-overlay) 80%, transparent);
+	.folder-suggestion:hover,
+	.folder-suggestion.active {
+		background: var(--surface-overlay);
 	}
 
-	.connection-allowlist-suggestions-status {
+	.folder-suggestion-status {
 		padding: 0.375rem 0.5rem;
 		font-size: 0.75rem;
 		color: var(--text-secondary);
 	}
 
-	/* R3-fix #4 — the "connected" indicator itself (header) is this quiet
-	   check icon, not a status-chip pill; the pill below is only used for the
-	   problem states (needs_reauth/error/disconnected). */
-	.connection-connected-icon {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-		color: var(--success);
-	}
-
-	/* R3-fix #5 — a quiet danger icon action, pushed to the far right of the
-	   header row (logo · account · status · disconnect). */
-	.connection-detail-disconnect {
-		margin-left: auto;
-		color: var(--danger);
-	}
-
-	.connection-detail-disconnect:hover {
-		color: var(--danger);
-		opacity: 0.78;
-	}
-
-	.status-chip {
-		display: inline-flex;
-		align-items: center;
-		padding: 0.1875rem 0.5rem;
-		border-radius: 9999px;
-		font-size: 0.6875rem;
-		font-weight: 600;
-		border: 1px solid transparent;
-	}
-
-	.status-chip.status-needs_reauth {
-		background-color: color-mix(in srgb, var(--warning) 16%, transparent);
-		color: var(--warning);
-		border-color: color-mix(in srgb, var(--warning) 42%, transparent);
-	}
-
-	.status-chip.status-error {
-		background-color: color-mix(in srgb, var(--danger) 14%, transparent);
-		color: var(--danger);
-		border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-	}
-
-	.status-chip.status-disconnected {
-		background-color: color-mix(in srgb, var(--text-muted) 16%, transparent);
+	.home-intro {
+		margin: 0 0 0.625rem 0;
+		font-size: 0.75rem;
+		line-height: 1.5;
 		color: var(--text-muted);
-		border-color: color-mix(in srgb, var(--text-muted) 40%, transparent);
 	}
 
-	/* Task 10 — OwnTracks home-location editor. */
-	.owntracks-home-fields {
+	.home-intro :global(.info-tooltip) {
+		vertical-align: middle;
+	}
+
+	.home-fields {
 		display: flex;
 		gap: 0.625rem;
-		margin-top: 0.5rem;
 	}
 
-	.owntracks-home-field {
-		flex: 1;
+	.home-field {
+		flex: 1 1 0;
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
 	}
 
-	.owntracks-home-field .settings-label {
-		margin-bottom: 0;
+	.home-field-label {
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: var(--text-secondary);
 	}
 
-	.owntracks-home-error {
-		margin: 0.5rem 0 0 0;
+	.home-error {
+		display: flex;
+		align-items: center;
+		gap: 0.3125rem;
+		margin: 0.4375rem 0 0 0;
 		font-size: 0.75rem;
 		color: var(--danger);
 	}
 
-	.owntracks-home-actions {
+	.home-actions {
 		display: flex;
-		justify-content: flex-end;
 		gap: 0.5rem;
-		margin-top: 0.625rem;
+		margin-top: 0.75rem;
+	}
+
+	.detail-foot {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		border-top: 1px solid var(--border-default);
+		padding-top: 0.875rem;
+	}
+
+	.detail-foot-spacer {
+		flex: 1 1 auto;
+	}
+
+	.danger-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4375rem;
+		padding: 0.4375rem 0.75rem;
+		border-radius: var(--radius-md);
+		border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent);
+		background: color-mix(in srgb, var(--danger) 6%, transparent);
+		font-size: 0.8125rem;
+		color: var(--danger);
+		cursor: pointer;
+		transition: background var(--duration-standard), border-color var(--duration-standard);
+	}
+
+	.danger-btn:hover {
+		border-color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 12%, transparent);
+	}
+
+	.danger-btn:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--danger);
+	}
+
+	.quiet-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3125rem;
+		padding: 0.375rem 0.625rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-default);
+		background: var(--surface-page);
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition: border-color var(--duration-standard), color var(--duration-standard);
+	}
+
+	.quiet-btn:hover:not(:disabled) {
+		border-color: var(--accent);
+		color: var(--text-primary);
+	}
+
+	.quiet-btn.accent {
+		color: var(--accent);
+		border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+	}
+
+	.quiet-btn:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
+	}
+
+	.quiet-btn:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 </style>

@@ -292,7 +292,7 @@ const connectionsDict = {
 		// The tab itself.
 		"connections.yourConnections": "Your connections",
 		"connections.accountCount":
-			"{count, plural, one {# account} other {# accounts}}",
+			"{count} account{count, plural, one {} other {s}}",
 		"connections.addConnection.setUpYourself": "Set one up yourself",
 		"connections.addConnection.alreadyConnected": "Already connected",
 
@@ -315,7 +315,7 @@ const connectionsDict = {
 		// Capability chips on a row.
 		"connections.chip.denied": "{capability} — not allowed",
 		"connections.chip.writesFolders":
-			"{count, plural, one {Writes to # folder} other {Writes to # folders}}",
+			"Writes to {count} folder{count, plural, one {} other {s}}",
 		"connections.chip.writesDefaultFolder": "Writes to /AlfyAI",
 		"connections.chip.writesConfirm": "Writes, with your OK",
 		"connections.chip.writesDrafts": "Drafts, with your OK",
@@ -339,6 +339,7 @@ const connectionsDict = {
 		"connections.capability.mediaPlex": "Films and shows",
 
 		// The privacy control, now the first thing on the page.
+		"connections.locality.headline": "Keep connected data on this device",
 		"connections.locality.summary":
 			"A model on this machine summarises what your accounts return, so the full text never leaves.",
 		"connections.locality.tooltip":
@@ -448,7 +449,7 @@ const connectionsDict = {
 		"connections.wizard.nextcloud.waitingBody":
 			"We opened {provider} in a new tab. Approve there, then come back to this one.",
 		"connections.wizard.nextcloud.expires":
-			"The link expires in {minutes, plural, one {# minute} other {# minutes}}",
+			"The link expires in {minutes} minute{minutes, plural, one {} other {s}}",
 		"connections.wizard.nextcloud.approved": "I've approved it",
 		"connections.wizard.nextcloud.subtitle":
 			"Enter the address of your Nextcloud, and we'll open it so you can approve Alfy there.",
@@ -802,7 +803,7 @@ const connectionsDict = {
 		"connections.actions.openItNow": "Nyissuk meg most",
 
 		"connections.yourConnections": "A kapcsolataid",
-		"connections.accountCount": "{count, plural, one {# fiók} other {# fiók}}",
+		"connections.accountCount": "{count} fiók",
 		"connections.addConnection.setUpYourself": "Állítsd be te magad",
 		"connections.addConnection.alreadyConnected": "Már csatlakoztatva",
 
@@ -820,8 +821,7 @@ const connectionsDict = {
 		"connections.provider.contacts.blurb": "Egy CardDAV címjegyzék",
 
 		"connections.chip.denied": "{capability} — nincs engedélyezve",
-		"connections.chip.writesFolders":
-			"{count, plural, one {# mappába írhat} other {# mappába írhat}}",
+		"connections.chip.writesFolders": "{count} mappába írhat",
 		"connections.chip.writesDefaultFolder": "Ide írhat: /AlfyAI",
 		"connections.chip.writesConfirm": "Írhat, a jóváhagyásoddal",
 		"connections.chip.writesDrafts": "Piszkozatok, a jóváhagyásoddal",
@@ -842,6 +842,8 @@ const connectionsDict = {
 		"connections.capabilityAbout.tasks": "Elolvassa a feladatlistáidat.",
 		"connections.capability.mediaPlex": "Filmek és sorozatok",
 
+		"connections.locality.headline":
+			"A csatlakoztatott adatok maradjanak ezen a gépen",
 		"connections.locality.summary":
 			"Egy modell ezen a gépen összegzi, amit a fiókjaid visszaadnak, így a teljes szöveg soha nem hagyja el a gépet.",
 		"connections.locality.tooltip":
@@ -946,8 +948,7 @@ const connectionsDict = {
 		"connections.wizard.nextcloud.waitingTitle": "Várunk a jóváhagyásodra",
 		"connections.wizard.nextcloud.waitingBody":
 			"A(z) {provider} szolgáltatást új lapon nyitottuk meg. Hagyd jóvá ott, majd gyere vissza ide.",
-		"connections.wizard.nextcloud.expires":
-			"A link {minutes, plural, one {# perc} other {# perc}} múlva lejár",
+		"connections.wizard.nextcloud.expires": "A link {minutes} perc múlva lejár",
 		"connections.wizard.nextcloud.approved": "Jóváhagytam",
 		"connections.wizard.nextcloud.subtitle":
 			"Add meg a Nextcloudod címét, és megnyitjuk, hogy ott jóváhagyhasd az Alfyt.",
