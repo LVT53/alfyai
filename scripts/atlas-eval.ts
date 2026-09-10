@@ -17,15 +17,23 @@
  *     npx tsx scripts/atlas-eval.ts --pipeline v2 --out /tmp/atlas-eval
  *
  * Options:
- *   --pipeline v1|v2|both   Which pipeline to measure (default: both).
+ *   --pipeline v1|v2|v3|all Which pipeline to measure (default: v1 and v2).
  *   --queries <ids>         Comma-separated query ids to run (default: all).
  *   --profile <p>           Override every query's profile.
  *   --timeout <minutes>     Per-job timeout (default: 45).
  *   --out <dir>             Where to write the report (default: ./atlas-eval).
  *   --concurrency <n>       Jobs in flight at once (default: 1).
+ *   --judge                 Also run the rubric judge (ADR 0063). Each score
+ *                           must come back with a verbatim quote from the
+ *                           report; a score with no quote is discarded.
+ *
+ * NOTE on --judge: the judge runs through the deployment's own chat API, which
+ * takes no model parameter — it uses the eval account's selected model. Set
+ * that account to the model ATLAS_AUDIT_MODEL names before judging, or the
+ * scores are not comparable across runs.
  *
  * IMPORTANT: switching pipelines is an ADMIN CONFIG change on the deployment
- * (ATLAS_PIPELINE=v1|v2) and this script does NOT make it. Set the flag, run
+ * (ATLAS_PIPELINE=v1|v2|v3) and this script does NOT make it. Set the flag, run
  * the script with the matching --pipeline value so the output is labelled
  * correctly, then flip and run again. The script verifies the pipeline each
  * job actually ran on (from the job card's `pipelineVersion`) and refuses to
@@ -39,6 +47,9 @@ import { dirname, resolve } from "node:path";
 // ---------------------------------------------------------------------------
 // Types mirroring the HTTP surface (kept local: this script runs standalone)
 // ---------------------------------------------------------------------------
+
+/** ADR 0062 added v2; ADR 0063 added v3. */
+type EvalPipeline = "v1" | "v2" | "v3";
 
 interface EvalQuery {
 	id: string;
@@ -84,7 +95,7 @@ interface AtlasJobCardLike {
 	id: string;
 	status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
 	stage?: string | null;
-	pipelineVersion?: 1 | 2;
+	pipelineVersion?: 1 | 2 | 3;
 	progress?: {
 		percent: number;
 		stage: string;
@@ -96,6 +107,33 @@ interface AtlasJobCardLike {
 			phaseDurationsMs?: Record<string, number>;
 			/** Sections written against sections planned, v2 from the writer on. */
 			sections?: { written: number; planned: number };
+			/**
+			 * ADR 0063's diagnostics, present on v3 from the verify phase on. The
+			 * harness reports them alongside its own measurements rather than
+			 * trusting them: the job's claim and the report's text are two
+			 * independent views of the same run.
+			 */
+			qualityDiagnostics?: {
+				abstained?: boolean;
+				verdictPresent?: boolean;
+				claimCount?: number;
+				verifiedClaimCount?: number;
+				contestedClaimCount?: number;
+				answerTableCells?: number;
+				derivedFigures?: number;
+				criticRounds?: number;
+				criticFindings?: number;
+				needsEvidenceResolved?: number;
+				roundsRun?: number;
+				sectionsPlanned?: number;
+				sectionsWritten?: number;
+				writerRunaways?: {
+					length: number;
+					salvaged: number;
+					retried: number;
+					fallback: number;
+				};
+			};
 			/**
 			 * Writer calls that ended at their output cap, and the repairs they
 			 * cost. A runaway shows up in the wall time as "the model was slow"
@@ -139,7 +177,7 @@ interface AtlasJobCardLike {
 
 interface QueryResult {
 	query: EvalQuery;
-	pipeline: "v1" | "v2";
+	pipeline: EvalPipeline;
 	reportedPipelineVersion: number | null;
 	status: string;
 	error: string | null;
@@ -204,6 +242,50 @@ interface Metrics {
 	coreAnswerPresent: boolean | null;
 	/** Disagreement lines in Limitations; the pipeline caps these at 3. */
 	contradictionLineCount: number;
+
+	// -- ADR 0063's deterministic quality layer ------------------------------
+	//
+	// Half of the sixteen-dimension rubric is checkable without a model, and
+	// these are the checks judges are worst at. They run on every report, on
+	// every pipeline, so v2 and v3 are measured on the same ruler.
+
+	/** Does a conclusion with a figure appear in the first 150 words? */
+	verdictInWindow: boolean;
+	/** Sentences restating an earlier SECTION's claim, by content-word overlap. */
+	crossSectionRepeatCount: number;
+	/** Distinct cited claims per 1,000 words. Padding drives this down. */
+	claimsPerThousandWords: number;
+	/** Volatile figures (shares, rates, counts) carrying an inline date. */
+	datedVolatileCount: number;
+	volatileFigureCount: number;
+	datedVolatileRate: number | null;
+	/** A comparison or pricing question must ship a table. */
+	tableExpected: boolean;
+	tablePresent: boolean;
+	/** The job's own ADR 0063 diagnostics, when it reported them. */
+	diagnostics:
+		| NonNullable<
+				NonNullable<AtlasJobCardLike["progress"]>["details"]
+		  >["qualityDiagnostics"]
+		| null;
+	/** Rubric-judge scores, when --judge ran. */
+	judge: JudgeResult | null;
+}
+
+interface JudgeScore {
+	dimension: string;
+	score: number;
+	justification: string;
+	/** Verbatim from the report. A score with no quote is DISCARDED. */
+	quote: string;
+}
+
+interface JudgeResult {
+	scores: JudgeScore[];
+	/** Scores the judge returned without a quote it could point at. */
+	discarded: number;
+	average: number | null;
+	error: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -481,8 +563,10 @@ function reportBody(markdown: string): string {
 
 /** The executive-summary section of the report, or "" when there is none. */
 function executiveSummarySection(markdown: string): string {
+	// `\b` is ASCII-only, so it never matches after the "ó" that ends
+	// "összefoglaló": the Hungarian summary was invisible to this harness.
 	const match =
-		/\n#{1,3}\s*(?:Executive summary|Vezetői összefoglaló)\b([\s\S]*?)(?=\n#{1,3}\s|$)/i.exec(
+		/(?:^|\n)#{1,3}\s*(?:Executive summary|Vezetői összefoglaló)(?=\s|$)([\s\S]*?)(?=\n#{1,3}\s|$)/i.exec(
 			markdown,
 		);
 	return match ? match[1].trim() : "";
@@ -624,11 +708,220 @@ function sentencesOf(text: string): string[] {
 		.filter(Boolean);
 }
 
+// ---------------------------------------------------------------------------
+// ADR 0063's deterministic quality layer
+// ---------------------------------------------------------------------------
+
+/** The heading the report's answer lives under, on either pipeline. */
+const VERDICT_HEADINGS =
+	/(?:^|\n)#{1,3}\s*(?:Verdict|Ítélet|Executive summary|Vezetői összefoglaló)(?=\s|$)([\s\S]*?)(?=\n#{1,3}\s|$)/i;
+
+function verdictSection(markdown: string): string {
+	const match = VERDICT_HEADINGS.exec(markdown);
+	return match ? match[1].trim() : "";
+}
+
+/**
+ * Does the report state its answer in the first 150 words?
+ *
+ * "States its answer" is measured, not judged: a figure of at least two digits
+ * inside the opening window. v2 scored 0/13 here because its executive summary
+ * never survived to the rendered file at all.
+ */
+function verdictInWindow(markdown: string, windowWords = 150): boolean {
+	const opening = reportBody(markdown)
+		.split(/\n+/)
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0 && !line.startsWith("#"))
+		.join(" ")
+		.split(/\s+/)
+		.slice(0, windowWords)
+		.join(" ");
+	return numbersIn(opening).some(
+		(number) => number.replace(/\D/g, "").length >= 2,
+	);
+}
+
+const REDUNDANCY_STOPWORDS = new Set([
+	"the",
+	"a",
+	"an",
+	"of",
+	"in",
+	"on",
+	"at",
+	"to",
+	"for",
+	"and",
+	"or",
+	"but",
+	"is",
+	"are",
+	"was",
+	"were",
+	"be",
+	"been",
+	"has",
+	"have",
+	"had",
+	"that",
+	"this",
+	"these",
+	"those",
+	"it",
+	"its",
+	"by",
+	"with",
+	"as",
+	"from",
+	"than",
+	"which",
+	"also",
+	"more",
+	"most",
+	"az",
+	"és",
+	"hogy",
+	"nem",
+	"de",
+	"vagy",
+	"egy",
+	"volt",
+	"lesz",
+	"mint",
+	"már",
+	"még",
+]);
+
+function contentWordSet(text: string): Set<string> {
+	return new Set(
+		text
+			.toLowerCase()
+			.replace(/\[\d{1,3}\]/g, " ")
+			.replace(/[^\p{L}\p{N}\s.,%-]/gu, " ")
+			.split(/\s+/)
+			.filter((word) => word.length > 2 && !REDUNDANCY_STOPWORDS.has(word)),
+	);
+}
+
+/** The report body split into (heading, sentences) sections. */
+function sectionsOf(
+	markdown: string,
+): Array<{ title: string; sentences: string[] }> {
+	const sections: Array<{ title: string; sentences: string[] }> = [];
+	let current: { title: string; sentences: string[] } | null = null;
+	for (const line of reportBody(markdown).split(/\n+/)) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		const heading = /^#{2,3}[ \t]+(.+)$/.exec(trimmed);
+		if (heading) {
+			current = { title: heading[1].trim(), sentences: [] };
+			sections.push(current);
+			continue;
+		}
+		if (!current) {
+			current = { title: "", sentences: [] };
+			sections.push(current);
+		}
+		current.sentences.push(...sentencesOf(trimmed));
+	}
+	return sections;
+}
+
+/**
+ * Sentences that restate a claim an EARLIER SECTION already made, by
+ * content-word overlap. Distinct from `repeatedFactCount`, which compares
+ * figure sets: a report can repeat a claim in words without repeating a number,
+ * and the quality memo counts both as redundancy.
+ */
+function crossSectionRepeatCount(markdown: string, sharedWords = 5): number {
+	const seen: Array<{ title: string; words: Set<string> }> = [];
+	let repeats = 0;
+	for (const section of sectionsOf(markdown)) {
+		for (const sentence of section.sentences) {
+			const words = contentWordSet(sentence);
+			if (words.size < sharedWords) continue;
+			const duplicate = seen.some((earlier) => {
+				if (earlier.title === section.title) return false;
+				let shared = 0;
+				for (const word of words) if (earlier.words.has(word)) shared += 1;
+				return shared >= sharedWords;
+			});
+			if (duplicate) repeats += 1;
+			else seen.push({ title: section.title, words });
+		}
+	}
+	return repeats;
+}
+
+/** Distinct cited claims per 1,000 words. Mechanical padding drives it down. */
+function claimsPerThousandWords(markdown: string, wordCount: number): number {
+	if (wordCount === 0) return 0;
+	const distinct = new Set<string>();
+	for (const sentence of reportSentences(reportBody(markdown))) {
+		if (!/\[\d{1,3}\]/.test(sentence)) continue;
+		const key = [...contentWordSet(sentence)].sort().join(" ");
+		if (key) distinct.add(key);
+	}
+	return (distinct.size / wordCount) * 1000;
+}
+
+/** A figure that rots: a share, a rate, a price, a capacity. */
+const VOLATILE_FIGURE =
+	/\d[\d.,  ]*\s*(?:%|percent|százalék|EUR|USD|GBP|HUF|Ft|GW|MW|TWh|GWh|kWh|bn|billion|million|milliárd|millió)/iu;
+
+/** An inline date clause: "(as of December 2025)", "2026. februári adat". */
+const INLINE_DATE_PATTERNS: RegExp[] = [
+	/\b(?:as of|per|status|adat|állapot|szerint)\b[^.]{0,30}\b(?:19|20)\d{2}\b/iu,
+	/\b(?:19|20)\d{2}\.?\s*(?:janu|febru|márci|április|máju|júni|júli|augusz|szeptem|októbe|novemb|decemb)/iu,
+	/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(?:19|20)\d{2}\b/iu,
+	/\bq[1-4]\s*(?:19|20)\d{2}\b/iu,
+];
+
+function volatileDateCoverage(markdown: string): {
+	dated: number;
+	total: number;
+} {
+	let dated = 0;
+	let total = 0;
+	for (const sentence of reportSentences(reportBody(markdown))) {
+		if (!VOLATILE_FIGURE.test(sentence)) continue;
+		total += 1;
+		if (INLINE_DATE_PATTERNS.some((pattern) => pattern.test(sentence))) {
+			dated += 1;
+		}
+	}
+	return { dated, total };
+}
+
+/** Question kinds whose answer belongs in a table. */
+const TABLE_KINDS = ["comparison", "pricing", "product", "timeline", "matrix"];
+
+function tableExpectedFor(query: EvalQuery | undefined): boolean {
+	if (!query) return false;
+	const kind = query.kind.toLowerCase();
+	return TABLE_KINDS.some((candidate) => kind.includes(candidate));
+}
+
+/** A Markdown table, not merely a stray pipe character. */
+function tablePresent(markdown: string): boolean {
+	const lines = markdown.split(/\r?\n/);
+	for (let index = 0; index < lines.length - 1; index += 1) {
+		const header = lines[index].trim();
+		const rule = lines[index + 1].trim();
+		if (!header.startsWith("|") || !rule.startsWith("|")) continue;
+		if (/^\|[\s:|-]+\|$/.test(rule)) return true;
+	}
+	return false;
+}
+
 function computeMetrics(input: {
 	/** Sections the plan asked for, from the job's own progress card. */
 	sectionsPlanned?: number | null;
 	/** Writer runaway counters, from the job's own progress card. */
 	writerRunaways?: Metrics["writerRunaways"];
+	/** ADR 0063's diagnostics, from the job's own progress card. */
+	diagnostics?: Metrics["diagnostics"];
 	markdown: string | null;
 	/** Omitted only by the empty-result path. */
 	query?: EvalQuery;
@@ -666,11 +959,25 @@ function computeMetrics(input: {
 		writerRunaways: null,
 		coreAnswerPresent: null,
 		contradictionLineCount: 0,
+		verdictInWindow: false,
+		crossSectionRepeatCount: 0,
+		claimsPerThousandWords: 0,
+		datedVolatileCount: 0,
+		volatileFigureCount: 0,
+		datedVolatileRate: null,
+		tableExpected: false,
+		tablePresent: false,
+		diagnostics: null,
+		judge: null,
 	};
 	// A job that ran away and then failed reports nothing but the counters, so
 	// they survive the empty-markdown path.
 	if (!input.markdown) {
-		return { ...empty, writerRunaways: input.writerRunaways ?? null };
+		return {
+			...empty,
+			writerRunaways: input.writerRunaways ?? null,
+			diagnostics: input.diagnostics ?? null,
+		};
 	}
 
 	const body = reportBody(input.markdown);
@@ -725,6 +1032,7 @@ function computeMetrics(input: {
 	const budget = input.query
 		? describeWordBudget(wordCount, input.query.profile)
 		: { label: "n/a", ok: false };
+	const volatile = volatileDateCoverage(input.markdown);
 	const contradictionLineCount = limitationsSection(input.markdown)
 		.split("\n")
 		.filter((line) =>
@@ -765,6 +1073,17 @@ function computeMetrics(input: {
 			? coreAnswerPresent({ markdown: input.markdown, query: input.query })
 			: null,
 		contradictionLineCount,
+		verdictInWindow: verdictInWindow(input.markdown),
+		crossSectionRepeatCount: crossSectionRepeatCount(input.markdown),
+		claimsPerThousandWords: claimsPerThousandWords(input.markdown, wordCount),
+		datedVolatileCount: volatile.dated,
+		volatileFigureCount: volatile.total,
+		datedVolatileRate:
+			volatile.total > 0 ? volatile.dated / volatile.total : null,
+		tableExpected: tableExpectedFor(input.query),
+		tablePresent: tablePresent(input.markdown),
+		diagnostics: input.diagnostics ?? null,
+		judge: null,
 	};
 }
 
@@ -785,13 +1104,198 @@ function closestNumberIn(raw: string, haystack: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Layer 2: the rubric judge (ADR 0063)
+// ---------------------------------------------------------------------------
+//
+// Eight of the sixteen rubric dimensions cannot be checked deterministically.
+// The judge scores those, and every score MUST come back with a verbatim quote
+// from the report — requiring a quote is the cheapest anti-hallucination device
+// available, and a score whose quote is not in the report is thrown away here
+// rather than averaged in.
+//
+// The judge runs through the deployment's own chat API, which takes no model
+// parameter: it uses the eval account's selected model. Set that account to the
+// model ATLAS_AUDIT_MODEL names before judging.
+
+const JUDGE_DIMENSIONS = [
+	"question_fidelity",
+	"source_quality",
+	"cross_source_synthesis",
+	"conflict_handling",
+	"insight",
+	"calibrated_uncertainty",
+	"answer_first_structure",
+	"coverage_vs_plan",
+] as const;
+
+const JUDGE_INSTRUCTIONS = [
+	"You are grading a research report against a fixed rubric. Answer with STRICT JSON only, no prose and no code fence.",
+	'Shape: {"scores":[{"dimension":"insight","score":3,"justification":"one sentence","quote":"verbatim sentence from the report"}]}',
+	`Score every one of these dimensions, 1 to 5: ${JUDGE_DIMENSIONS.join(", ")}.`,
+	"question_fidelity: does the report answer the question actually asked, including the decision behind it?",
+	"source_quality: do the claims rest on primary or authoritative publishers rather than aggregators echoing one origin?",
+	"cross_source_synthesis: do sections integrate several sources into one claim, rather than narrating them one by one?",
+	"conflict_handling: is at least one genuine disagreement named, adjudicated, and the reason given?",
+	"insight: does the report conclude something a competent reader could not have written from the question alone?",
+	"calibrated_uncertainty: is uncertainty attached to specific claims, with a reason and what would resolve it?",
+	"answer_first_structure: does the bottom line appear before the evidence, with the figures it rests on?",
+	"coverage_vs_plan: is every sub-question the report itself promised actually delivered?",
+	"`quote` MUST be copied verbatim from the report. A score you cannot point at with a quote is worthless; if you cannot find one, do not score that dimension.",
+	"Do not rewrite the report. Do not explain your process.",
+] as const;
+
+function buildJudgePrompt(input: {
+	query: EvalQuery;
+	markdown: string;
+}): string {
+	return [
+		JUDGE_INSTRUCTIONS.join("\n"),
+		"",
+		`QUESTION ASKED: ${input.query.query}`,
+		input.query.expectations.length > 0
+			? `WHAT A GOOD ANSWER CONTAINS: ${input.query.expectations.join("; ")}`
+			: "",
+		"",
+		"REPORT:",
+		input.markdown.slice(0, 40_000),
+	]
+		.filter(Boolean)
+		.join("\n");
+}
+
+function extractJson(text: string): unknown {
+	const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+	const candidate = (fenced ? fenced[1] : text).trim();
+	const start = candidate.indexOf("{");
+	const end = candidate.lastIndexOf("}");
+	if (start < 0 || end <= start) return null;
+	try {
+		return JSON.parse(candidate.slice(start, end + 1));
+	} catch {
+		return null;
+	}
+}
+
+/** Whitespace-insensitive containment, so a quote survives re-wrapping. */
+function quoteAppearsIn(quote: string, markdown: string): boolean {
+	const normalize = (value: string) =>
+		value.toLowerCase().replace(/\s+/g, " ").trim();
+	const needle = normalize(quote);
+	if (needle.length < 12) return false;
+	return normalize(markdown).includes(needle);
+}
+
+function parseJudgeAnswer(input: {
+	text: string;
+	markdown: string;
+}): JudgeResult {
+	const parsed = extractJson(input.text);
+	if (!parsed || typeof parsed !== "object") {
+		return {
+			scores: [],
+			discarded: 0,
+			average: null,
+			error: "The judge did not answer with JSON.",
+		};
+	}
+	const raw = (parsed as { scores?: unknown }).scores;
+	if (!Array.isArray(raw)) {
+		return {
+			scores: [],
+			discarded: 0,
+			average: null,
+			error: "The judge's answer carried no scores.",
+		};
+	}
+	const scores: JudgeScore[] = [];
+	let discarded = 0;
+	for (const entry of raw) {
+		if (!entry || typeof entry !== "object") continue;
+		const record = entry as Record<string, unknown>;
+		const dimension =
+			typeof record.dimension === "string" ? record.dimension.trim() : "";
+		const score =
+			typeof record.score === "number" ? Math.round(record.score) : Number.NaN;
+		const quote = typeof record.quote === "string" ? record.quote.trim() : "";
+		if (!dimension || !Number.isFinite(score) || score < 1 || score > 5) {
+			discarded += 1;
+			continue;
+		}
+		// The quote gate: a score the judge cannot point at is discarded.
+		if (!quoteAppearsIn(quote, input.markdown)) {
+			discarded += 1;
+			continue;
+		}
+		scores.push({
+			dimension,
+			score,
+			justification:
+				typeof record.justification === "string"
+					? record.justification.replace(/\s+/g, " ").trim().slice(0, 300)
+					: "",
+			quote: quote.slice(0, 300),
+		});
+	}
+	return {
+		scores,
+		discarded,
+		average:
+			scores.length > 0
+				? scores.reduce((total, entry) => total + entry.score, 0) /
+					scores.length
+				: null,
+		error: null,
+	};
+}
+
+async function judgeReport(input: {
+	session: Session;
+	query: EvalQuery;
+	markdown: string;
+}): Promise<JudgeResult> {
+	try {
+		const conversation = await input.session.json<{ id: string }>(
+			"/api/conversations",
+			{
+				method: "POST",
+				body: JSON.stringify({
+					title: `Atlas eval judge: ${input.query.id}`,
+					projectId: null,
+				}),
+			},
+		);
+		const answer = await input.session.json<{ response?: { text?: string } }>(
+			"/api/chat/send",
+			{
+				method: "POST",
+				body: JSON.stringify({
+					conversationId: conversation.id,
+					message: buildJudgePrompt(input),
+				}),
+			},
+		);
+		return parseJudgeAnswer({
+			text: answer.response?.text ?? "",
+			markdown: input.markdown,
+		});
+	} catch (error) {
+		return {
+			scores: [],
+			discarded: 0,
+			average: null,
+			error: error instanceof Error ? error.message : "The judge call failed.",
+		};
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Running one query
 // ---------------------------------------------------------------------------
 
 async function runQuery(input: {
 	session: Session;
 	query: EvalQuery;
-	pipeline: "v1" | "v2";
+	pipeline: EvalPipeline;
 	profileOverride: EvalQuery["profile"] | null;
 	timeoutMs: number;
 }): Promise<QueryResult> {
@@ -900,8 +1404,15 @@ async function runQuery(input: {
 			markdown,
 			query,
 			evidence: card.progress?.details?.evidence,
-			sectionsPlanned: card.progress?.details?.sections?.planned ?? null,
-			writerRunaways: card.progress?.details?.writerRunaways ?? null,
+			sectionsPlanned:
+				card.progress?.details?.sections?.planned ??
+				card.progress?.details?.qualityDiagnostics?.sectionsPlanned ??
+				null,
+			writerRunaways:
+				card.progress?.details?.writerRunaways ??
+				card.progress?.details?.qualityDiagnostics?.writerRunaways ??
+				null,
+			diagnostics: card.progress?.details?.qualityDiagnostics ?? null,
 		}),
 	};
 }
@@ -967,7 +1478,8 @@ function buildMarkdownReport(results: QueryResult[]): string {
 
 	for (const result of results) {
 		const metrics = result.metrics;
-		const applies = result.pipeline === "v2";
+		// v1 emits no `[n]` markers and no per-claim confidence; v2 and v3 do.
+		const applies = result.pipeline !== "v1";
 		const coreAnswer =
 			metrics.coreAnswerPresent === null
 				? "n/a"
@@ -976,6 +1488,37 @@ function buildMarkdownReport(results: QueryResult[]): string {
 					: "**NO**";
 		lines.push(
 			`| ${result.query.id} | ${result.query.kind} | ${result.pipeline} | ${result.query.profile} | ${result.status} | ${minutes(result.wallMs)} | ${result.usage.inputTokens}/${result.usage.outputTokens} | ${metrics.wordCount} | ${metrics.wordBudgetOk ? metrics.wordBudget : `**${metrics.wordBudget}**`} | ${sectionsCell(metrics)} | ${writerRunawaysCell(metrics)} | ${coreAnswer} | ${metrics.citationCount} | ${metrics.citationDensity.toFixed(1)} | ${applies ? percent(metrics.citationResolutionRate) : "n/a"} | ${applies ? `${percent(metrics.numberMatchRate)} (${metrics.numbersMatched}/${metrics.numbersChecked})` : "n/a"} | ${applies ? percent(metrics.corroborationRate) : "n/a"} | ${metrics.repeatedFactCount === 0 ? "0" : `**${metrics.repeatedFactCount}**`} | ${applies ? metrics.cutCount : "n/a"} | ${metrics.contradictionLineCount} | ${metrics.sourceCount} (${metrics.citedSourceCount}) | ${metrics.filteredCount} | ${metrics.junkSourceCount} |`,
+		);
+	}
+
+	// ADR 0063's deterministic quality layer, measured on every pipeline so v2
+	// and v3 are graded on the same ruler.
+	lines.push(
+		"",
+		"## Quality (deterministic)",
+		"",
+		"Measured from the rendered report, independently of what the job claimed.",
+		"",
+		"| Query | Pipeline | Verdict in first 150w | Cross-section repeats | Claims/1000w | Dated volatile figures | Table | Delivered/planned | Judge |",
+		"| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+	);
+	for (const result of results) {
+		const metrics = result.metrics;
+		const table = metrics.tableExpected
+			? metrics.tablePresent
+				? "yes"
+				: "**MISSING**"
+			: metrics.tablePresent
+				? "yes"
+				: "n/a";
+		const judge =
+			metrics.judge === null
+				? "n/a"
+				: metrics.judge.average === null
+					? `**none** (${metrics.judge.discarded} discarded)`
+					: `${metrics.judge.average.toFixed(2)} (${metrics.judge.scores.length}/${metrics.judge.scores.length + metrics.judge.discarded})`;
+		lines.push(
+			`| ${result.query.id} | ${result.pipeline} | ${metrics.verdictInWindow ? "yes" : "**NO**"} | ${metrics.crossSectionRepeatCount === 0 ? "0" : `**${metrics.crossSectionRepeatCount}**`} | ${metrics.claimsPerThousandWords.toFixed(1)} | ${percent(metrics.datedVolatileRate)} (${metrics.datedVolatileCount}/${metrics.volatileFigureCount}) | ${table} | ${sectionsCell(metrics)} | ${judge} |`,
 		);
 	}
 
@@ -1152,12 +1695,16 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	const pipelines: Array<"v1" | "v2"> =
+	const pipelines: EvalPipeline[] =
 		args.pipeline === "v1"
 			? ["v1"]
 			: args.pipeline === "v2"
 				? ["v2"]
-				: ["v1", "v2"];
+				: args.pipeline === "v3"
+					? ["v3"]
+					: args.pipeline === "all"
+						? ["v1", "v2", "v3"]
+						: ["v1", "v2"];
 	const timeoutMs = Number.parseInt(args.timeout ?? "45", 10) * 60_000;
 	const concurrency = Math.max(1, Number.parseInt(args.concurrency ?? "1", 10));
 	const outDir = resolve(root, args.out ?? "atlas-eval");
@@ -1222,6 +1769,29 @@ async function main(): Promise<void> {
 		await Promise.all(workers);
 	}
 
+	// Layer 2 runs AFTER every report is in hand, sequentially: the judge shares
+	// the deployment's model with nothing else at that point, and one judge call
+	// per report is cheap next to the reports themselves.
+	if (args.judge === "true") {
+		console.log("\nJudging the reports against the rubric.");
+		for (const result of results) {
+			if (!result.markdown) continue;
+			result.metrics.judge = await judgeReport({
+				session,
+				query: result.query,
+				markdown: result.markdown,
+			});
+			const judged = result.metrics.judge;
+			console.log(
+				`  ${result.pipeline}-${result.query.id}: ${
+					judged.average === null
+						? "no usable score"
+						: judged.average.toFixed(2)
+				} over ${judged.scores.length} dimension(s), ${judged.discarded} discarded`,
+			);
+		}
+	}
+
 	mkdirSync(outDir, { recursive: true });
 	for (const result of results) {
 		if (!result.markdown) continue;
@@ -1268,16 +1838,24 @@ function waitForEnter(): Promise<void> {
 export {
 	buildMarkdownReport,
 	CONFIDENCE_MARKS,
+	claimsPerThousandWords,
 	computeMetrics,
 	coreAnswerPresent,
+	crossSectionRepeatCount,
 	describeWordBudget,
 	executiveSummarySection,
 	junkSourceNotes,
 	numberAppearsIn,
 	numbersIn,
+	parseJudgeAnswer,
 	repeatedFactCount,
 	reportBody,
 	sectionsCell,
+	tableExpectedFor,
+	tablePresent,
+	verdictInWindow,
+	verdictSection,
+	volatileDateCoverage,
 	WORD_BUDGETS,
 };
 

@@ -2,16 +2,24 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	claimsPerThousandWords,
 	computeMetrics,
 	coreAnswerPresent,
+	crossSectionRepeatCount,
 	describeWordBudget,
 	executiveSummarySection,
 	junkSourceNotes,
 	numberAppearsIn,
 	numbersIn,
+	parseJudgeAnswer,
 	repeatedFactCount,
 	reportBody,
 	sectionsCell,
+	tableExpectedFor,
+	tablePresent,
+	verdictInWindow,
+	verdictSection,
+	volatileDateCoverage,
 	writerRunawaysCell,
 } from "./atlas-eval";
 
@@ -580,5 +588,228 @@ describe("writerRunawaysCell", () => {
 		});
 		expect(metrics.writerRunaways?.length).toBe(3);
 		expect(writerRunawaysCell(metrics)).toBe("**3 (3 retried)**");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// ADR 0063's deterministic quality layer
+// ---------------------------------------------------------------------------
+
+describe("verdictInWindow", () => {
+	it("passes a report that opens with its answer and a figure", () => {
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nThe EU added 65.1 GW of solar in 2025, 0.7% below 2024. [1]ᶜ\n",
+			),
+		).toBe(true);
+	});
+
+	it("fails v2's opening: a topic sentence with no figure", () => {
+		expect(
+			verdictInWindow(
+				"## Warranty and Support Policies\n\nWarranty structures fundamentally shape the self-repair landscape for these premium ultrabooks. ⁱ\n",
+			),
+		).toBe(false);
+	});
+
+	it("fails when the answer arrives after the window", () => {
+		const filler = `${"word ".repeat(160).trim()}\n`;
+		expect(
+			verdictInWindow(`## Background\n\n${filler}\nIt was 65.1 GW. [1]\n`),
+		).toBe(false);
+	});
+});
+
+describe("verdictSection", () => {
+	it("finds the verdict under either pipeline's heading", () => {
+		expect(verdictSection("## Verdict\n\nThe answer. [1]\n")).toBe(
+			"The answer. [1]",
+		);
+		expect(verdictSection("## Vezetői összefoglaló\n\nA válasz. [1]\n")).toBe(
+			"A válasz. [1]",
+		);
+		expect(verdictSection("## Something else\n\nx\n")).toBe("");
+	});
+});
+
+describe("crossSectionRepeatCount", () => {
+	it("counts a claim restated in a later section", () => {
+		const markdown = [
+			"## EU solar additions",
+			"",
+			"The European Union installed 65.1 GW of new solar capacity during 2025. [1]",
+			"",
+			"## Member State Contributions",
+			"",
+			"SolarPower Europe reports the European Union installed 65.1 GW of new solar capacity in 2025. [2]",
+			"",
+		].join("\n");
+		expect(crossSectionRepeatCount(markdown)).toBeGreaterThan(0);
+	});
+
+	it("does not punish two sections that say different things", () => {
+		const markdown = [
+			"## EU solar additions",
+			"",
+			"The European Union installed 65.1 GW of new solar capacity during 2025. [1]",
+			"",
+			"## Rooftop demand",
+			"",
+			"Household rooftop orders thinned as subsidies were withdrawn. [2]",
+			"",
+		].join("\n");
+		expect(crossSectionRepeatCount(markdown)).toBe(0);
+	});
+});
+
+describe("claimsPerThousandWords", () => {
+	it("falls when a report is padded with restatement", () => {
+		const dense = [
+			"## A",
+			"",
+			"The EU added 65.1 GW in 2025. [1]",
+			"Rooftop demand fell 21%. [2]",
+			"Utility-scale grew 12%. [3]",
+			"",
+		].join("\n");
+		const padded = `${dense}\n${"Results may vary and further work is warranted. ".repeat(40)}`;
+		const denseWords = reportBody(dense).split(/\s+/).filter(Boolean).length;
+		const paddedWords = reportBody(padded).split(/\s+/).filter(Boolean).length;
+		expect(claimsPerThousandWords(dense, denseWords)).toBeGreaterThan(
+			claimsPerThousandWords(padded, paddedWords),
+		);
+	});
+
+	it("is zero for an empty report", () => {
+		expect(claimsPerThousandWords("", 0)).toBe(0);
+	});
+});
+
+describe("volatileDateCoverage", () => {
+	it("counts an inline date on a volatile figure", () => {
+		const markdown = [
+			"## A",
+			"",
+			"Container orderbooks stood at 38.7% of the fleet as of February 2026. [1]",
+			"Dry bulk orderbooks are 7% of the fleet. [2]",
+			"",
+		].join("\n");
+		const coverage = volatileDateCoverage(markdown);
+		expect(coverage.total).toBe(2);
+		expect(coverage.dated).toBe(1);
+	});
+
+	it("accepts the Hungarian date form", () => {
+		const markdown =
+			"## A\n\nA minimálbér 290 800 Ft, 2026. januári adat. [1]\n";
+		expect(volatileDateCoverage(markdown).dated).toBe(1);
+	});
+
+	it("ignores a report with no volatile figure", () => {
+		expect(
+			volatileDateCoverage("## A\n\nNo numbers here at all. [1]\n"),
+		).toEqual({ dated: 0, total: 0 });
+	});
+});
+
+describe("tablePresent / tableExpectedFor", () => {
+	it("recognises a real Markdown table, not a stray pipe", () => {
+		expect(
+			tablePresent("| Year | Additions |\n| --- | --- |\n| 2025 | 65.1 GW |\n"),
+		).toBe(true);
+		expect(tablePresent("Prices | costs are quoted per unit.\n")).toBe(false);
+	});
+
+	it("expects a table from a comparison question", () => {
+		expect(
+			tableExpectedFor({
+				id: "x",
+				kind: "product-comparison",
+				profile: "overview",
+				language: "en",
+				query: "q",
+				expectations: [],
+			}),
+		).toBe(true);
+		expect(
+			tableExpectedFor({
+				id: "x",
+				kind: "explanation",
+				profile: "overview",
+				language: "en",
+				query: "q",
+				expectations: [],
+			}),
+		).toBe(false);
+	});
+});
+
+describe("parseJudgeAnswer", () => {
+	const markdown =
+		"## Verdict\n\nThe EU added 65.1 GW of solar in 2025, below 2024. [1]\n";
+
+	it("keeps a score whose quote is in the report", () => {
+		const result = parseJudgeAnswer({
+			text: JSON.stringify({
+				scores: [
+					{
+						dimension: "insight",
+						score: 4,
+						justification: "It concludes something.",
+						quote: "The EU added 65.1 GW of solar in 2025, below 2024.",
+					},
+				],
+			}),
+			markdown,
+		});
+		expect(result.scores).toHaveLength(1);
+		expect(result.average).toBe(4);
+		expect(result.discarded).toBe(0);
+	});
+
+	it("discards a score whose quote is not in the report", () => {
+		const result = parseJudgeAnswer({
+			text: JSON.stringify({
+				scores: [
+					{
+						dimension: "insight",
+						score: 5,
+						justification: "x",
+						quote: "The report proves solar will double by 2030.",
+					},
+				],
+			}),
+			markdown,
+		});
+		expect(result.scores).toEqual([]);
+		expect(result.discarded).toBe(1);
+		expect(result.average).toBeNull();
+	});
+
+	it("discards a score outside the 1-5 band", () => {
+		const result = parseJudgeAnswer({
+			text: JSON.stringify({
+				scores: [
+					{
+						dimension: "insight",
+						score: 9,
+						quote: "The EU added 65.1 GW of solar in 2025, below 2024.",
+					},
+				],
+			}),
+			markdown,
+		});
+		expect(result.discarded).toBe(1);
+	});
+
+	it("reads a fenced answer and reports an unusable one", () => {
+		const fenced = parseJudgeAnswer({
+			text: '```json\n{"scores":[{"dimension":"insight","score":3,"quote":"The EU added 65.1 GW of solar in 2025, below 2024."}]}\n```',
+			markdown,
+		});
+		expect(fenced.scores).toHaveLength(1);
+		expect(
+			parseJudgeAnswer({ text: "I refuse.", markdown }).error,
+		).toBeTruthy();
 	});
 });
