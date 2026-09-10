@@ -1,4 +1,10 @@
-import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AvailableModelsResponse } from "$lib/client/api/models";
@@ -2601,6 +2607,16 @@ describe("MessageInput incognito toggle", () => {
 // to the existing `enabledConnectionCapabilities` payload field: on sends
 // the user's default-on capability set, off sends []. Only rendered at all
 // when the user has any served capabilities.
+// Connections redesign — the plug OPENS the account list; the master switch
+// inside it is what turns connections on and off. These fixtures return no
+// per-account list, so that switch is the same all-or-nothing control the
+// plug itself used to be — which is exactly the fallback path being asserted.
+async function flipConnections(plug: HTMLElement) {
+	await fireEvent.click(plug);
+	const popover = screen.getByTestId("connections-popover");
+	await fireEvent.click(within(popover).getByRole("switch"));
+}
+
 describe("MessageInput Connections toggle", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -2652,7 +2668,7 @@ describe("MessageInput Connections toggle", () => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
 		const toggle = getByTestId("connections-toggle");
-		expect(toggle).toHaveAttribute("aria-pressed", "true");
+		expect(toggle).toHaveClass("composer-connections-btn--active");
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "What's on my calendar files today?" },
@@ -2682,8 +2698,8 @@ describe("MessageInput Connections toggle", () => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
 		const toggle = getByTestId("connections-toggle");
-		await fireEvent.click(toggle);
-		expect(toggle).toHaveAttribute("aria-pressed", "false");
+		await flipConnections(toggle);
+		expect(toggle).not.toHaveClass("composer-connections-btn--active");
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "Check my schedule" },
@@ -2711,14 +2727,13 @@ describe("MessageInput Connections toggle", () => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
 		const toggle = getByTestId("connections-toggle");
-		await fireEvent.click(toggle);
-		expect(toggle).toHaveAttribute("aria-pressed", "false");
+		await flipConnections(toggle);
+		expect(toggle).not.toHaveClass("composer-connections-btn--active");
 
 		await rerender({ conversationId: "conv-2" });
 
-		expect(getByTestId("connections-toggle")).toHaveAttribute(
-			"aria-pressed",
-			"true",
+		expect(getByTestId("connections-toggle")).toHaveClass(
+			"composer-connections-btn--active",
 		);
 	});
 
@@ -2740,7 +2755,7 @@ describe("MessageInput Connections toggle", () => {
 			"Kapcsolatok: bekapcsolva — az AlfyAI használhatja a csatlakoztatott fiókjaidat ebben a beszélgetésben",
 		);
 
-		await fireEvent.click(toggle);
+		await flipConnections(toggle);
 		expect(toggle).toHaveAttribute(
 			"aria-label",
 			"Kapcsolatok: kikapcsolva — a csatlakoztatott fiókjaid nem lesznek használva ebben a beszélgetésben",
@@ -2759,16 +2774,15 @@ describe("MessageInput Connections toggle", () => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
 		const toggle = getByTestId("connections-toggle");
-		await fireEvent.click(toggle);
-		expect(toggle).toHaveAttribute("aria-pressed", "false");
+		await flipConnections(toggle);
+		expect(toggle).not.toHaveClass("composer-connections-btn--active");
 
 		// The draft becomes a real conversation (null -> id) — e.g. when a model
 		// switch or the first send creates it. The choice must not snap back on.
 		await rerender({ conversationId: "conv-created" });
 
-		expect(getByTestId("connections-toggle")).toHaveAttribute(
-			"aria-pressed",
-			"false",
+		expect(getByTestId("connections-toggle")).not.toHaveClass(
+			"composer-connections-btn--active",
 		);
 		expect(
 			localStorage.getItem("alfyai:composer:connectionsDisabled:conv-created"),
@@ -2794,9 +2808,8 @@ describe("MessageInput Connections toggle", () => {
 		await waitFor(() => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
-		expect(getByTestId("connections-toggle")).toHaveAttribute(
-			"aria-pressed",
-			"false",
+		expect(getByTestId("connections-toggle")).not.toHaveClass(
+			"composer-connections-btn--active",
 		);
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
@@ -2823,20 +2836,18 @@ describe("MessageInput Connections toggle", () => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
 		const toggle = getByTestId("connections-toggle");
-		await fireEvent.click(toggle);
-		expect(toggle).toHaveAttribute("aria-pressed", "false");
+		await flipConnections(toggle);
+		expect(toggle).not.toHaveClass("composer-connections-btn--active");
 
 		// Switch to a different conversation (defaults on), then back to conv-a.
 		await rerender({ conversationId: "conv-b" });
-		expect(getByTestId("connections-toggle")).toHaveAttribute(
-			"aria-pressed",
-			"true",
+		expect(getByTestId("connections-toggle")).toHaveClass(
+			"composer-connections-btn--active",
 		);
 
 		await rerender({ conversationId: "conv-a" });
-		expect(getByTestId("connections-toggle")).toHaveAttribute(
-			"aria-pressed",
-			"false",
+		expect(getByTestId("connections-toggle")).not.toHaveClass(
+			"composer-connections-btn--active",
 		);
 	});
 });

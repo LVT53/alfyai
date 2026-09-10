@@ -87,6 +87,21 @@ export type ActiveCapabilitiesAccount = {
 	provider: string;
 };
 
+// Connections redesign — one entry per connection the user has, including the
+// ones that are NOT currently serving anything: the composer's account list
+// has to be able to say "4 of 6 accounts are ready" and point at the two that
+// aren't. `capabilities` is the SERVED subset, so a selection built from this
+// can only narrow what the client asks for.
+export type ActiveCapabilitiesConnection = {
+	id: string;
+	label: string;
+	provider: string;
+	accountIdentifier: string | null;
+	status: "connected" | "needs_reauth" | "error" | "disconnected";
+	defaultOn: boolean;
+	capabilities: string[];
+};
+
 export type ActiveCapabilitiesResponse = {
 	served: string[];
 	defaultOn: string[];
@@ -94,6 +109,9 @@ export type ActiveCapabilitiesResponse = {
 		capability: string;
 		connections: ActiveCapabilitiesAccount[];
 	}[];
+	// Optional so an older server (or a test fixture) still type-checks; the
+	// composer falls back to its all-or-nothing switch when it is absent.
+	connections?: ActiveCapabilitiesConnection[];
 };
 
 export async function fetchActiveCapabilities(): Promise<ActiveCapabilitiesResponse> {

@@ -1782,11 +1782,11 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			]);
 		});
 		expect(
-			await screen.findByText("Sending data to a cloud model"),
+			await screen.findByTestId("cloud-connector-warning"),
 		).toBeInTheDocument();
 		expect(runtimeHarness.streamInvocations).toHaveLength(0);
 
-		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await fireEvent.click(screen.getByTestId("cloud-warning-send"));
 
 		await waitFor(() => {
 			expect(ackCloudConnectorMock).toHaveBeenCalled();
@@ -1908,11 +1908,11 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			expect(checkCloudWarningMock).toHaveBeenCalledTimes(1);
 		});
 		expect(
-			await screen.findByText("Sending data to a cloud model"),
+			await screen.findByTestId("cloud-connector-warning"),
 		).toBeInTheDocument();
 		expect(runtimeHarness.streamInvocations).toHaveLength(0);
 
-		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await fireEvent.click(screen.getByTestId("cloud-warning-send"));
 
 		await waitFor(() => {
 			expect(runtimeHarness.streamInvocations).toHaveLength(1);
@@ -1941,14 +1941,14 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			]);
 		});
 		expect(
-			await screen.findByText("Sending data to a cloud model"),
+			await screen.findByTestId("cloud-connector-warning"),
 		).toBeInTheDocument();
 		// Not yet acknowledged — the original assistant response must still be
 		// on screen (regenerate must not have mutated the transcript yet).
 		expect(screen.getByText("You have a 2pm meeting.")).toBeInTheDocument();
 		expect(runtimeHarness.streamInvocations).toHaveLength(0);
 
-		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await fireEvent.click(screen.getByTestId("cloud-warning-send"));
 
 		await waitFor(() => {
 			expect(runtimeHarness.streamInvocations).toHaveLength(1);
@@ -1969,7 +1969,7 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		await fireEvent.click(
 			screen.getByRole("button", { name: "Regenerate response" }),
 		);
-		await screen.findByText("Sending data to a cloud model");
+		await screen.findByTestId("cloud-connector-warning");
 
 		await fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
@@ -2013,13 +2013,13 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			]);
 		});
 		expect(
-			await screen.findByText("Sending data to a cloud model"),
+			await screen.findByTestId("cloud-connector-warning"),
 		).toBeInTheDocument();
 		// Not yet acknowledged — the edit must not have deleted anything yet.
 		expect(deleteConversationMessages).not.toHaveBeenCalled();
 		expect(runtimeHarness.streamInvocations).toHaveLength(0);
 
-		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await fireEvent.click(screen.getByTestId("cloud-warning-send"));
 
 		await waitFor(() => {
 			expect(deleteConversationMessages).toHaveBeenCalledWith(
@@ -2051,8 +2051,8 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
 		// First send needs its own ack before it even reaches the runtime.
-		await screen.findByText("Sending data to a cloud model");
-		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await screen.findByTestId("cloud-connector-warning");
+		await fireEvent.click(screen.getByTestId("cloud-warning-send"));
 		await waitFor(() => {
 			expect(runtimeHarness.streamInvocations).toHaveLength(1);
 		});
@@ -2099,7 +2099,7 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 		await fireEvent.click(retryButton);
 
 		expect(
-			await screen.findByText("Sending data to a cloud model"),
+			await screen.findByTestId("cloud-connector-warning"),
 		).toBeInTheDocument();
 		expect(runtimeHarness.streamInvocations).toHaveLength(1);
 
@@ -2171,11 +2171,11 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			]);
 		});
 		expect(
-			await screen.findByText("Sending data to a cloud model"),
+			await screen.findByTestId("cloud-connector-warning"),
 		).toBeInTheDocument();
 		expect(runtimeHarness.streamInvocations).toHaveLength(0);
 
-		await fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await fireEvent.click(screen.getByTestId("cloud-warning-send"));
 
 		await waitFor(() => {
 			expect(runtimeHarness.streamInvocations).toHaveLength(1);
@@ -2198,7 +2198,12 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
 
+		// Connections redesign — the plug opens the account list; the master
+		// switch inside it is what silences connections for this message.
 		await fireEvent.click(screen.getByTestId("connections-toggle"));
+		await fireEvent.click(
+			within(screen.getByTestId("connections-popover")).getByRole("switch"),
+		);
 
 		await fireEvent.input(screen.getByTestId("message-input"), {
 			target: { value: "What's on my calendar?" },

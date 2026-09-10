@@ -6,12 +6,24 @@ vi.mock("$lib/server/services/connections/resolve", () => ({
 	resolveConnectionsForCapability: vi.fn(),
 }));
 
+// Connections redesign — the route also lists every connection the caller
+// has (not only the serving ones) so the composer's account list can say how
+// many are ready and which one needs attention.
+vi.mock("$lib/server/services/connections/store", () => ({
+	listConnectionsForUser: vi.fn(),
+}));
+
 import {
 	getDefaultOnCapabilities,
 	getEnabledConnectionCapabilities,
 	resolveConnectionsForCapability,
 } from "$lib/server/services/connections/resolve";
+import { listConnectionsForUser } from "$lib/server/services/connections/store";
 import { GET } from "./+server";
+
+const mockListConnectionsForUser = listConnectionsForUser as ReturnType<
+	typeof vi.fn
+>;
 
 const mockGetEnabledConnectionCapabilities =
 	getEnabledConnectionCapabilities as ReturnType<typeof vi.fn>;
@@ -39,6 +51,7 @@ describe("GET /api/connections/active-capabilities", () => {
 		mockGetEnabledConnectionCapabilities.mockResolvedValue(new Set());
 		mockGetDefaultOnCapabilities.mockResolvedValue(new Set());
 		mockResolveConnectionsForCapability.mockResolvedValue([]);
+		mockListConnectionsForUser.mockResolvedValue([]);
 	});
 
 	it("returns 401 (not a 302 redirect) for an anonymous caller", async () => {
@@ -149,6 +162,94 @@ describe("GET /api/connections/active-capabilities", () => {
 		const response = await GET(makeEvent());
 		const data = await response.json();
 
-		expect(data).toEqual({ served: [], defaultOn: [], accounts: [] });
+		expect(data).toEqual({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+			connections: [],
+		});
+	});
+
+	// The composer's account list needs the ones that AREN'T serving too —
+	// "4 of 6 accounts are ready" and "GitHub needs attention" are both about
+	// those.
+	describe("the per-account list", () => {
+		function conn(overrides: Record<string, unknown> = {}) {
+			return {
+				id: "c1",
+				label: "Nextcloud",
+				provider: "nextcloud",
+				accountIdentifier: "cloud.example.com",
+				status: "connected",
+				defaultOn: true,
+				capabilities: ["files", "contacts"],
+				...overrides,
+			};
+		}
+
+		it("lists every connection, including the broken ones", async () => {
+			mockGetEnabledConnectionCapabilities.mockResolvedValue(
+				new Set(["files", "contacts"]),
+			);
+			mockListConnectionsForUser.mockResolvedValue([
+				conn(),
+				conn({
+					id: "c2",
+					label: "GitHub",
+					provider: "github",
+					status: "needs_reauth",
+					capabilities: ["repos"],
+				}),
+			]);
+
+			const data = await (await GET(makeEvent())).json();
+			expect(data.connections).toHaveLength(2);
+			// Ordered by label so the composer's list doesn't reshuffle itself
+			// between fetches.
+			expect(data.connections.map((c: { id: string }) => c.id)).toEqual([
+				"c2",
+				"c1",
+			]);
+			expect(data.connections[0]).toMatchObject({
+				id: "c2",
+				status: "needs_reauth",
+			});
+		});
+
+		// Narrowing only: a capability the user isn't served can never appear
+		// here, so a selection built from this list can't widen access.
+		it("reports only the capabilities the connection actually serves", async () => {
+			mockGetEnabledConnectionCapabilities.mockResolvedValue(
+				new Set(["files"]),
+			);
+			mockListConnectionsForUser.mockResolvedValue([conn()]);
+
+			const data = await (await GET(makeEvent())).json();
+			expect(data.connections[0].capabilities).toEqual(["files"]);
+		});
+
+		it("reports no capabilities for a connection that isn't connected", async () => {
+			mockGetEnabledConnectionCapabilities.mockResolvedValue(
+				new Set(["files", "contacts"]),
+			);
+			mockListConnectionsForUser.mockResolvedValue([
+				conn({ status: "needs_reauth" }),
+			]);
+
+			const data = await (await GET(makeEvent())).json();
+			expect(data.connections[0].capabilities).toEqual([]);
+		});
+
+		it("never reports a capability the provider cannot serve", async () => {
+			mockGetEnabledConnectionCapabilities.mockResolvedValue(
+				new Set(["files", "email"]),
+			);
+			mockListConnectionsForUser.mockResolvedValue([
+				conn({ capabilities: ["files", "email"] }),
+			]);
+
+			const data = await (await GET(makeEvent())).json();
+			expect(data.connections[0].capabilities).toEqual(["files"]);
+		});
 	});
 });

@@ -1,11 +1,15 @@
 import { json } from "@sveltejs/kit";
 import { requireApiUser } from "$lib/server/api/auth";
-import { CAPABILITIES } from "$lib/server/services/connections/registry";
+import {
+	CAPABILITIES,
+	CAPABILITY_META,
+} from "$lib/server/services/connections/registry";
 import {
 	getDefaultOnCapabilities,
 	getEnabledConnectionCapabilities,
 	resolveConnectionsForCapability,
 } from "$lib/server/services/connections/resolve";
+import { listConnectionsForUser } from "$lib/server/services/connections/store";
 import type { RequestHandler } from "./$types";
 
 // GET /api/connections/active-capabilities — feeds the chat composer
@@ -47,9 +51,38 @@ export const GET: RequestHandler = async (event) => {
 		}),
 	);
 
+	// Connections redesign — the composer's plug used to be one switch for all
+	// connections or none, so it never needed to know what a connection WAS.
+	// It now opens the same list of accounts the settings tab shows, which
+	// needs every connection (not only the ones currently serving something):
+	// "4 of 6 accounts are ready" and "GitHub needs attention" are both about
+	// the ones that AREN'T serving.
+	//
+	// Additive: `served`/`defaultOn`/`accounts` above are untouched, and the
+	// capability list per connection is the SERVED subset, so this can only
+	// ever narrow what a client asks for — never widen it.
+	const all = await listConnectionsForUser(userId);
+	const connections = all
+		.map((conn) => ({
+			id: conn.id,
+			label: conn.label,
+			provider: conn.provider,
+			accountIdentifier: conn.accountIdentifier,
+			status: conn.status,
+			defaultOn: conn.defaultOn,
+			capabilities: orderedServed.filter(
+				(capability) =>
+					CAPABILITY_META[capability].providers.includes(conn.provider) &&
+					conn.capabilities.includes(capability) &&
+					conn.status === "connected",
+			),
+		}))
+		.sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+
 	return json({
 		served: orderedServed,
 		defaultOn: CAPABILITIES.filter((capability) => defaultOn.has(capability)),
 		accounts,
+		connections,
 	});
 };
