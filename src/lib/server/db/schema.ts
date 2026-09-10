@@ -2110,6 +2110,16 @@ export const userConnections = sqliteTable(
 		writeSecretAuthTag: text("write_secret_auth_tag"),
 		oauthScopesJson: text("oauth_scopes_json").notNull().default("[]"),
 		tokenExpiresAt: integer("token_expires_at", { mode: "timestamp" }),
+		// Connections redesign — the two timestamps the Connections tab's status
+		// sentence ("Last used 12 minutes ago", "Google stopped accepting the
+		// saved permission on 8 September") needs. Both nullable: an existing
+		// row has neither until a tool actually reads through the connection
+		// (lastUsedAt, stamped by withCapabilityConnection) or its status
+		// genuinely changes (statusChangedAt, stamped by updateConnection). They
+		// exist BECAUSE `updatedAt` cannot answer either question — it also moves
+		// for a capability toggle or an allowlist edit.
+		lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+		statusChangedAt: integer("status_changed_at", { mode: "timestamp" }),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),

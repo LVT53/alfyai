@@ -14,11 +14,26 @@ export type ConnectionPublic = {
 	allowWrites: boolean;
 	writeAllowlist: string[];
 	capabilities: string[];
+	// Connections redesign — what the PROVIDER granted, as opposed to
+	// `capabilities`, which is what the user has switched on. A capability in
+	// the provider's catalogue but missing here was denied (Google Contacts
+	// unticked on the consent screen, a CalDAV server with no address books),
+	// and the detail dialog renders it as a greyed line with "Ask again"
+	// instead of a switch with no permission behind it. Optional so a response
+	// from an older server (or a hand-built test fixture) still type-checks;
+	// read it through grantedCapabilitiesOf() in status-grammar.ts, which
+	// falls back to the provider's full catalogue.
+	grantedCapabilities?: string[];
 	config: Record<string, unknown>;
 	oauthScopes: string[];
 	tokenExpiresAt: number | null;
 	hasSecret: boolean;
 	hasWriteSecret: boolean;
+	// Connections redesign — the "and when" half of the status sentence.
+	// Optional/nullable: null when a connection has never been read through,
+	// or has never changed status since it was created.
+	lastUsedAt?: number | null;
+	statusChangedAt?: number | null;
 	createdAt: number;
 	updatedAt: number;
 };

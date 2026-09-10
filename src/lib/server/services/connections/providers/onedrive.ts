@@ -30,7 +30,11 @@ import {
 	ConnectionHttpError,
 	providerFetch,
 } from "../provider-http";
-import type { Capability, ConnectionAdapter } from "../registry";
+import {
+	type Capability,
+	type ConnectionAdapter,
+	OAUTH_CAPABILITY_SCOPES,
+} from "../registry";
 import {
 	type ConnectionPublic,
 	createConnection,
@@ -95,9 +99,10 @@ const onedriveTimeout = (ms: number) =>
 // Read-only v1 — Files.Read only (no Files.ReadWrite). User.Read resolves
 // the account's email/UPN for the connection's accountIdentifier;
 // offline_access is required for Microsoft to ever issue a refresh_token.
-const CAPABILITY_SCOPES: Partial<Record<Capability, string>> = {
-	files: "Files.Read",
-};
+// Shared with granted.ts via the registry — see the same note in
+// providers/google.ts.
+const CAPABILITY_SCOPES: Partial<Record<Capability, string>> =
+	OAUTH_CAPABILITY_SCOPES.onedrive ?? {};
 
 const BASE_SCOPES = [
 	"openid",

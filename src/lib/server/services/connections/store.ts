@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import type { ConnectionProvider } from "$lib/server/db/schema";
 import { userConnections } from "$lib/server/db/schema";
+import { grantedCapabilitiesFor } from "./granted";
 import { decryptConnectionSecret, encryptConnectionSecret } from "./vault";
 
 type ConnectionRow = typeof userConnections.$inferSelect;
@@ -23,6 +24,12 @@ export type ConnectionPublic = {
 	allowWrites: boolean;
 	writeAllowlist: string[];
 	capabilities: string[];
+	// Connections redesign — what the PROVIDER granted, as opposed to
+	// `capabilities`, which is what the user has switched on. Derived (never
+	// stored): see granted.ts. A capability in the provider's catalogue but
+	// absent here was denied, and the settings dialog renders it as a greyed
+	// line with "Ask again" instead of a switch with nothing behind it.
+	grantedCapabilities: string[];
 	config: Record<string, unknown>;
 	oauthScopes: string[];
 	tokenExpiresAt: number | null;
@@ -32,6 +39,13 @@ export type ConnectionPublic = {
 	// key). Deliberately a boolean derived from presence, never the secret
 	// itself — same posture as hasSecret above.
 	hasWriteSecret: boolean;
+	// Connections redesign — the "and when" half of every status sentence.
+	// null when a connection has never been read through (lastUsedAt) or has
+	// never changed status since it was created (statusChangedAt); the UI
+	// falls back to a sentence that doesn't name a time rather than inventing
+	// one from `updatedAt`, which also moves for unrelated edits.
+	lastUsedAt: number | null;
+	statusChangedAt: number | null;
 	createdAt: number;
 	updatedAt: number;
 };
@@ -63,6 +77,9 @@ function toEpochSeconds(date: Date): number {
 // The ONLY place a raw row is turned into the public shape. Every field is
 // named explicitly; secret columns are never touched here.
 function toPublic(row: ConnectionRow): ConnectionPublic {
+	const capabilities = parseJsonArray(row.capabilitiesJson);
+	const config = parseJsonObject(row.configJson);
+	const oauthScopes = parseJsonArray(row.oauthScopesJson);
 	return {
 		id: row.id,
 		userId: row.userId,
@@ -74,14 +91,24 @@ function toPublic(row: ConnectionRow): ConnectionPublic {
 		defaultOn: row.defaultOn,
 		allowWrites: row.allowWrites,
 		writeAllowlist: parseJsonArray(row.writeAllowlistJson),
-		capabilities: parseJsonArray(row.capabilitiesJson),
-		config: parseJsonObject(row.configJson),
-		oauthScopes: parseJsonArray(row.oauthScopesJson),
+		capabilities,
+		grantedCapabilities: grantedCapabilitiesFor({
+			provider: row.provider as ConnectionProvider,
+			oauthScopes,
+			capabilities,
+			config,
+		}),
+		config,
+		oauthScopes,
 		tokenExpiresAt: row.tokenExpiresAt
 			? toEpochSeconds(row.tokenExpiresAt)
 			: null,
 		hasSecret: row.secretCiphertext !== null,
 		hasWriteSecret: row.writeSecretCiphertext !== null,
+		lastUsedAt: row.lastUsedAt ? toEpochSeconds(row.lastUsedAt) : null,
+		statusChangedAt: row.statusChangedAt
+			? toEpochSeconds(row.statusChangedAt)
+			: null,
 		createdAt: toEpochSeconds(row.createdAt),
 		updatedAt: toEpochSeconds(row.updatedAt),
 	};
@@ -196,12 +223,28 @@ export async function updateConnection(
 		tokenExpiresAt: number | null;
 	}>,
 ): Promise<ConnectionPublic | null> {
+	const now = new Date();
 	const set: Partial<typeof userConnections.$inferInsert> = {
-		updatedAt: new Date(),
+		updatedAt: now,
 	};
 	if (patch.label !== undefined) set.label = patch.label;
 	if (patch.accountIdentifier !== undefined) {
 		set.accountIdentifier = patch.accountIdentifier;
+	}
+	if (patch.status !== undefined) {
+		// Connections redesign — statusChangedAt answers "when did this break /
+		// come back?", which `updatedAt` cannot: a capability toggle moves that
+		// too. Stamped only on a REAL transition, so a health check that keeps
+		// re-confirming "connected" (or a provider that keeps re-reporting the
+		// same failure) doesn't keep pushing the date forward and turn "stopped
+		// working on 8 September" into "stopped working seconds ago".
+		const [current] = await db
+			.select({ status: userConnections.status })
+			.from(userConnections)
+			.where(scoped(userId, id));
+		if (current && current.status !== patch.status) {
+			set.statusChangedAt = now;
+		}
 	}
 	if (patch.status !== undefined) set.status = patch.status;
 	if (patch.statusDetail !== undefined) set.statusDetail = patch.statusDetail;
@@ -396,4 +439,40 @@ export async function setWriteAllowlist(
 		.where(scoped(userId, id))
 		.returning();
 	return row ? toPublic(row) : null;
+}
+
+// Connections redesign — stamps "a tool just read through this connection" so
+// the settings row can say "Last used 12 minutes ago" instead of showing a
+// healthy connection with no indicator at all. Called fire-and-forget from
+// withCapabilityConnection (capability-read.ts), i.e. at the one moment a
+// connection is genuinely used, not merely listed.
+//
+// Deliberately does NOT touch `updatedAt`: a read is not an edit, and moving
+// updatedAt here would make every chat turn look like a settings change.
+// Throttled to at most one write per connection per throttleSeconds so a
+// multi-tool turn doesn't issue one UPDATE per tool call.
+export const LAST_USED_THROTTLE_SECONDS = 60;
+
+export async function touchConnectionUsed(
+	userId: string,
+	id: string,
+	options: { now?: Date; throttleSeconds?: number } = {},
+): Promise<void> {
+	const now = options.now ?? new Date();
+	const throttleSeconds = options.throttleSeconds ?? LAST_USED_THROTTLE_SECONDS;
+	const [current] = await db
+		.select({ lastUsedAt: userConnections.lastUsedAt })
+		.from(userConnections)
+		.where(scoped(userId, id));
+	if (!current) return;
+	if (
+		current.lastUsedAt &&
+		now.getTime() - current.lastUsedAt.getTime() < throttleSeconds * 1000
+	) {
+		return;
+	}
+	await db
+		.update(userConnections)
+		.set({ lastUsedAt: now })
+		.where(scoped(userId, id));
 }
