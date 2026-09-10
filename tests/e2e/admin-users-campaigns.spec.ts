@@ -178,4 +178,51 @@ test.describe("Admin Campaigns screen", () => {
 		// allow, so the checklist has something to report.
 		await expect(page.getByTestId("campaign-checklist")).toBeVisible();
 	});
+
+	test("stacks the slide rail into a filmstrip of equal frames", async ({
+		page,
+	}) => {
+		await openAdminPane(page, "Campaigns");
+
+		await page.getByRole("button", { name: "New campaign" }).click();
+		await page.locator("#campaign-dialog-name").fill("E2E filmstrip");
+		await page.getByRole("button", { name: "Create campaign" }).click();
+		await expect(
+			page.getByRole("heading", { name: "E2E filmstrip" }).first(),
+		).toBeVisible();
+
+		// Two slides whose titles are very different lengths: a flex item's
+		// automatic minimum size used to let the longer one stretch its own
+		// frame, so no two thumbnails were the same width — or, through the
+		// 16:10 ratio, the same height.
+		await page.getByRole("button", { name: "Add slide" }).click();
+		await page.getByLabel("Title", { exact: true }).fill("Hi");
+		await page.getByRole("button", { name: "Add slide" }).click();
+		await page
+			.getByLabel("Title", { exact: true })
+			.fill("A slide title long enough to stretch its own frame");
+
+		const thumbs = page.locator('[data-testid="admin-campaign-slide-thumb"]');
+		await expect(thumbs).toHaveCount(2);
+
+		await page.setViewportSize({ width: 900, height: 900 });
+		const boxes = [
+			await thumbs.nth(0).boundingBox(),
+			await thumbs.nth(1).boundingBox(),
+		];
+		expect(Math.round(boxes[0]?.width ?? 0)).toBe(
+			Math.round(boxes[1]?.width ?? 1),
+		);
+		expect(Math.round(boxes[0]?.height ?? 0)).toBe(
+			Math.round(boxes[1]?.height ?? 1),
+		);
+
+		await page.setViewportSize({ width: 1600, height: 900 });
+		await page.getByTestId("campaign-menu").click();
+		await page.getByRole("menuitem", { name: /Delete draft/ }).click();
+		await page.getByTestId("confirm-delete").click();
+		await expect(
+			page.getByRole("heading", { name: "E2E filmstrip" }),
+		).toHaveCount(0);
+	});
 });

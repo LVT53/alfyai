@@ -244,7 +244,12 @@ let {
 		}
 
 		.slide-item {
+			/* `min-width: 0` as well as the basis: a flex item's automatic minimum
+			   size is its min-content width, which the slide title pushes past
+			   140px — leaving every frame a different width and, through the
+			   16:10 thumbnail, a different height. */
 			flex: 0 0 140px;
+			min-width: 0;
 		}
 
 		.add-slide {
