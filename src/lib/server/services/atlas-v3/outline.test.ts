@@ -18,6 +18,7 @@ import {
 	parseAtlasV3Outline,
 	parseAtlasV3Trial,
 	reviseAtlasV3Outline,
+	supplementAtlasV3Outline,
 	trialWriteAtlasV3Nodes,
 } from "./outline";
 import { fakeModel } from "./test-support";
@@ -462,6 +463,119 @@ describe("bindAtlasV3Evidence", () => {
 		});
 		expect(outline.nodes[0].status).toBe("planned");
 		expect(outline.cut).toEqual([]);
+	});
+
+	/**
+	 * The writer is handed only `maxEvidencePerSection` of a node's quotes, and
+	 * a node now carries every quote of every claim it named. Truncating in the
+	 * order the model happened to list its claim ids would hand the writer the
+	 * single-source quotes and drop the corroborated ones.
+	 */
+	it("leads with the best-supported claim's quotes, not the model's order", () => {
+		const outline = bindAtlasV3Evidence({
+			nodes: [
+				{
+					id: "n1",
+					title: "First",
+					claim: "aa bb",
+					needs: [],
+					// The one-quote claim first; the two-publisher claim second.
+					claimIds: ["c2", "c1"],
+				},
+			],
+			bank: bank(),
+			minEvidencePerNode: 1,
+		});
+		expect(outline.nodes[0].evidenceIds).toEqual(["e1", "e2", "e3"]);
+	});
+});
+
+describe("supplementAtlasV3Outline", () => {
+	/** One metric read twice: 65.1 GW for 2025 bound, 60.4 GW for 2024 not. */
+	function twinMetricBank() {
+		const state = createAtlasV3Bank();
+		const iea = addAtlasV3Source(state, {
+			url: "https://iea.org/a",
+			title: "IEA",
+			publishedAt: "2025-12-01",
+		});
+		const quote = (text: string) =>
+			addAtlasV3Quote(state, { sourceId: iea?.id ?? "", text, goal: "g" })
+				?.id ?? "";
+		const first = quote("The EU added 65.1 GW of solar capacity in 2025.");
+		const second = quote("The bloc added 60.4 GW of solar capacity in 2024.");
+		const base = {
+			entity: "EU-27",
+			metric: "solar additions",
+			unit: "GW",
+			asOf: null,
+			series: null,
+		};
+		addAtlasV3Claim(state, {
+			...base,
+			value: "65.1",
+			period: "2025",
+			evidenceIds: [first],
+		});
+		addAtlasV3Claim(state, {
+			...base,
+			value: "60.4",
+			period: "2024",
+			evidenceIds: [second],
+		});
+		return freezeAtlasV3Bank(state);
+	}
+
+	/**
+	 * A group is eligible precisely because it holds a quote no node bound, so
+	 * its ids are never a subset of a bound node's and the same-argument test
+	 * never fires on it. Without the metric rule the floor was met with "EU-27:
+	 * solar additions 60.4 GW" appended under "EU-27: solar additions 65.1 GW".
+	 */
+	it("does not append a second reading of a measurement a section argues", () => {
+		const bank = twinMetricBank();
+		const outline = bindAtlasV3Evidence({
+			nodes: [
+				{
+					id: "n1",
+					title: "EU-27: solar additions 65.1 GW",
+					claim: "EU-27: solar additions 65.1 GW",
+					needs: [],
+					claimIds: ["c1"],
+				},
+			],
+			bank,
+			minEvidencePerNode: 1,
+		});
+		const supplemented = supplementAtlasV3Outline({
+			outline,
+			bank,
+			minSections: 3,
+			maxSections: 6,
+			minEvidencePerNode: 1,
+		});
+		expect(supplemented.nodes).toHaveLength(1);
+		expect(supplemented.supplemented).toBeUndefined();
+	});
+
+	it("never appends past maxSections", () => {
+		const outline = bindAtlasV3Evidence({
+			nodes: [{ id: "n1", title: "t", claim: "c", needs: [], claimIds: [] }],
+			bank: bank(),
+			minEvidencePerNode: 1,
+		});
+		const supplemented = supplementAtlasV3Outline({
+			outline,
+			bank: bank(),
+			minSections: 5,
+			maxSections: 2,
+			minEvidencePerNode: 1,
+		});
+		expect(supplemented.nodes).toHaveLength(2);
+		expect(supplemented.supplemented).toBe(1);
+		// A supplemented node needs nothing and cannot take a model node's id.
+		expect(supplemented.nodes[1].needs).toEqual([]);
+		expect(supplemented.nodes[1].id).toBe("n2");
 	});
 });
 

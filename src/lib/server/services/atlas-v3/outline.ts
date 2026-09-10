@@ -315,6 +315,13 @@ function isEvidenceSubset(
 	return inner.length > 0 && inner.every((id) => outer.has(id));
 }
 
+/** A claim's section group: one section per `entity — metric`, normalised. */
+function claimGroupKey(claim: AtlasV3Claim): string {
+	return `${atlasV3NormalizeField(claim.entity)}|${atlasV3NormalizeField(
+		claim.metric,
+	)}`;
+}
+
 /**
  * Merges outline nodes that are the same section twice.
  *
@@ -435,8 +442,15 @@ export function bindAtlasV3Evidence(input: {
 
 	for (const node of merged.nodes) {
 		const wanted: string[] = [];
-		for (const claimId of node.claimIds) {
-			for (const evidenceId of claimsById.get(claimId)?.evidenceIds ?? []) {
+		// Best supported FIRST. The writer is handed only
+		// `maxEvidencePerSection` quotes and a node that names several merged
+		// claims now carries many more than that; truncating in the order the
+		// model happened to list its claim ids would drop the corroborated quotes
+		// and keep the single-source ones.
+		for (const claim of claimsBySupport(
+			node.claimIds.map((claimId) => claimsById.get(claimId)),
+		)) {
+			for (const evidenceId of claim.evidenceIds) {
 				if (!wanted.includes(evidenceId)) wanted.push(evidenceId);
 			}
 		}
@@ -485,18 +499,24 @@ const CLAIM_STATUS_RANK: Record<AtlasV3Claim["status"], number> = {
 	open: 3,
 };
 
+/** The live claims, best supported first: status, then quotes behind them. */
+function claimsBySupport(
+	claims: ReadonlyArray<AtlasV3Claim | undefined>,
+): AtlasV3Claim[] {
+	return claims
+		.filter((claim): claim is AtlasV3Claim => Boolean(claim))
+		.sort(
+			(left, right) =>
+				CLAIM_STATUS_RANK[left.status] - CLAIM_STATUS_RANK[right.status] ||
+				right.evidenceIds.length - left.evidenceIds.length,
+		);
+}
+
 /** The claim of a group a title should be built from: best supported first. */
 function bestSupportedClaim(
 	claims: ReadonlyArray<AtlasV3Claim | undefined>,
 ): AtlasV3Claim | null {
-	const live = claims.filter((claim): claim is AtlasV3Claim => Boolean(claim));
-	return (
-		[...live].sort(
-			(left, right) =>
-				CLAIM_STATUS_RANK[left.status] - CLAIM_STATUS_RANK[right.status] ||
-				right.evidenceIds.length - left.evidenceIds.length,
-		)[0] ?? null
-	);
+	return claimsBySupport(claims)[0] ?? null;
 }
 
 /**
@@ -584,6 +604,10 @@ export function deterministicAtlasV3Outline(input: {
  * grouped by normalised `entity + metric`, one section per group, best
  * supported first, titled the way `deterministicAtlasV3Outline` titles its own
  * nodes.
+ *
+ * A group the outline already argues is skipped: an unused quote about a
+ * measurement a section already makes its case from is a section the duplicate
+ * merge would have cut had the model planned it.
  */
 export function supplementAtlasV3Outline(input: {
 	outline: AtlasV3Outline;
@@ -600,14 +624,22 @@ export function supplementAtlasV3Outline(input: {
 		input.outline.nodes.flatMap((node) => node.evidenceIds),
 	);
 	const groups = new Map<string, AtlasV3Claim[]>();
+	// The measurements the outline ALREADY rests on. A second reading of one of
+	// them is not a section the report is missing: `deterministicAtlasV3Outline`
+	// writes one section per `entity — metric`, and appending a second — "EU-27:
+	// solar additions 60.4 GW" under "EU-27: solar additions 65.1 GW" — is the
+	// duplicate section the whole outline machinery exists to prevent.
+	const argued = new Set<string>();
 	for (const claim of input.bank.claims) {
 		if (claim.evidenceIds.length === 0) continue;
-		if (claim.evidenceIds.every((id) => bound.has(id))) continue;
-		const key = `${atlasV3NormalizeField(claim.entity)}|${atlasV3NormalizeField(
-			claim.metric,
-		)}`;
+		if (claim.evidenceIds.every((id) => bound.has(id))) {
+			argued.add(claimGroupKey(claim));
+			continue;
+		}
+		const key = claimGroupKey(claim);
 		groups.set(key, [...(groups.get(key) ?? []), claim]);
 	}
+	for (const key of argued) groups.delete(key);
 	if (groups.size === 0) return input.outline;
 
 	const evidenceOf = (claims: readonly AtlasV3Claim[]) => {
