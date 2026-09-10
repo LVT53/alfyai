@@ -67,6 +67,13 @@ const failoverSeconds = $derived(
 		) || 0) / 1000,
 	),
 );
+
+// The reset affordance is offered whenever the row is not already sitting on
+// its environment default — a saved override with no pending edit is exactly
+// the case an admin needs it for. (`isDirty` alone hid it there.)
+function canResetKey(key: string): boolean {
+	return isDirty(key) || (adminConfig[key] ?? "") !== (envDefaults[key] ?? "");
+}
 </script>
 
 <div class="sys-stack" data-testid="system-page-models">
@@ -103,7 +110,7 @@ const failoverSeconds = $derived(
 				dirty={isDirty('MODEL_TIMEOUT_FAILOVER_ENABLED')}
 				highlighted={highlightKey === 'MODEL_TIMEOUT_FAILOVER_ENABLED'}
 				onReset={() => resetValue('MODEL_TIMEOUT_FAILOVER_ENABLED')}
-				canReset={isDirty('MODEL_TIMEOUT_FAILOVER_ENABLED')}
+				canReset={canResetKey('MODEL_TIMEOUT_FAILOVER_ENABLED')}
 			>
 				{#snippet control()}
 					<SystemToggle
@@ -124,7 +131,7 @@ const failoverSeconds = $derived(
 				dirty={isDirty('MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS')}
 				highlighted={highlightKey === 'MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS'}
 				onReset={() => resetValue('MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS')}
-				canReset={isDirty('MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS')}
+				canReset={canResetKey('MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS')}
 			>
 				{#snippet control()}
 					<ValueField
@@ -148,7 +155,7 @@ const failoverSeconds = $derived(
 				dirty={isDirty('MODEL_TIMEOUT_FAILOVER_TARGET_MODEL')}
 				highlighted={highlightKey === 'MODEL_TIMEOUT_FAILOVER_TARGET_MODEL'}
 				onReset={() => resetValue('MODEL_TIMEOUT_FAILOVER_TARGET_MODEL')}
-				canReset={isDirty('MODEL_TIMEOUT_FAILOVER_TARGET_MODEL')}
+				canReset={canResetKey('MODEL_TIMEOUT_FAILOVER_TARGET_MODEL')}
 			>
 				{#snippet control()}
 					<ModelSelect
@@ -176,7 +183,7 @@ const failoverSeconds = $derived(
 				dirty={isDirty('DEFAULT_NEW_USER_MODEL')}
 				highlighted={highlightKey === 'DEFAULT_NEW_USER_MODEL'}
 				onReset={() => resetValue('DEFAULT_NEW_USER_MODEL')}
-				canReset={isDirty('DEFAULT_NEW_USER_MODEL')}
+				canReset={canResetKey('DEFAULT_NEW_USER_MODEL')}
 			>
 				{#snippet control()}
 					<ModelSelect

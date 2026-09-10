@@ -21,6 +21,13 @@ let {
 	setValue: (key: string, value: string) => void;
 	resetValue: (key: string) => void;
 } = $props();
+
+// The reset affordance is offered whenever the row is not already sitting on
+// its environment default — a saved override with no pending edit is exactly
+// the case an admin needs it for. (`isDirty` alone hid it there.)
+function canResetKey(key: string): boolean {
+	return isDirty(key) || (adminConfig[key] ?? "") !== (envDefaults[key] ?? "");
+}
 </script>
 
 <SystemCard
@@ -36,7 +43,7 @@ let {
 			dirty={isDirty('COMPOSER_COMMAND_REGISTRY_ENABLED')}
 			highlighted={highlightKey === 'COMPOSER_COMMAND_REGISTRY_ENABLED'}
 			onReset={() => resetValue('COMPOSER_COMMAND_REGISTRY_ENABLED')}
-			canReset={isDirty('COMPOSER_COMMAND_REGISTRY_ENABLED')}
+			canReset={canResetKey('COMPOSER_COMMAND_REGISTRY_ENABLED')}
 		>
 			{#snippet control()}
 				<SystemToggle
@@ -57,7 +64,7 @@ let {
 			dirty={isDirty('APP_VERSION_OVERRIDE')}
 			highlighted={highlightKey === 'APP_VERSION_OVERRIDE'}
 			onReset={() => resetValue('APP_VERSION_OVERRIDE')}
-			canReset={isDirty('APP_VERSION_OVERRIDE')}
+			canReset={canResetKey('APP_VERSION_OVERRIDE')}
 		>
 			{#snippet control()}
 				<ValueField

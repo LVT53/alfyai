@@ -108,6 +108,13 @@ const huComplete = $derived(
 );
 
 const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
+
+// The reset affordance is offered whenever the row is not already sitting on
+// its environment default — a saved override with no pending edit is exactly
+// the case an admin needs it for. (`isDirty` alone hid it there.)
+function canResetKey(key: string): boolean {
+	return isDirty(key) || (adminConfig[key] ?? "") !== (envDefaults[key] ?? "");
+}
 </script>
 
 <div class="sys-stack" data-testid="system-page-ai-tasks">
@@ -207,7 +214,7 @@ const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
 					dirty={isDirty('ATLAS_SYNTHESIS_MODEL')}
 					highlighted={highlightKey === 'ATLAS_SYNTHESIS_MODEL'}
 					onReset={() => resetValue('ATLAS_SYNTHESIS_MODEL')}
-					canReset={isDirty('ATLAS_SYNTHESIS_MODEL')}
+					canReset={canResetKey('ATLAS_SYNTHESIS_MODEL')}
 				>
 					{#snippet control()}
 						<ModelSelect
@@ -227,7 +234,7 @@ const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
 					dirty={isDirty('ATLAS_AUDIT_MODEL')}
 					highlighted={highlightKey === 'ATLAS_AUDIT_MODEL'}
 					onReset={() => resetValue('ATLAS_AUDIT_MODEL')}
-					canReset={isDirty('ATLAS_AUDIT_MODEL')}
+					canReset={canResetKey('ATLAS_AUDIT_MODEL')}
 				>
 					{#snippet control()}
 						<ModelSelect
@@ -247,7 +254,7 @@ const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
 						dirty={isDirty(row.key)}
 						highlighted={highlightKey === row.key}
 						onReset={() => resetValue(row.key)}
-						canReset={isDirty(row.key)}
+						canReset={canResetKey(row.key)}
 					>
 						{#snippet control()}
 							<ValueField
@@ -277,7 +284,7 @@ const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
 						dirty={isDirty(row.key)}
 						highlighted={highlightKey === row.key}
 						onReset={() => resetValue(row.key)}
-						canReset={isDirty(row.key)}
+						canReset={canResetKey(row.key)}
 					>
 						{#snippet control()}
 							<ValueField
@@ -301,7 +308,7 @@ const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
 					dirty={isDirty('ATLAS_V3_LANGUAGE_STANDARD_HU')}
 					highlighted={highlightKey === 'ATLAS_V3_LANGUAGE_STANDARD_HU'}
 					onReset={() => resetValue('ATLAS_V3_LANGUAGE_STANDARD_HU')}
-					canReset={isDirty('ATLAS_V3_LANGUAGE_STANDARD_HU')}
+					canReset={canResetKey('ATLAS_V3_LANGUAGE_STANDARD_HU')}
 				>
 					{#snippet control()}
 						<SystemToggle
@@ -323,7 +330,7 @@ const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
 					dirty={isDirty('ATLAS_PIPELINE')}
 					highlighted={highlightKey === 'ATLAS_PIPELINE'}
 					onReset={() => resetValue('ATLAS_PIPELINE')}
-					canReset={isDirty('ATLAS_PIPELINE')}
+					canReset={canResetKey('ATLAS_PIPELINE')}
 				>
 					{#snippet control()}
 						<span class="sys-row-control" role="radiogroup" aria-label={$t('admin.system.atlas.pipeline.label')}>
@@ -362,7 +369,7 @@ const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
 				dirty={isDirty('MEMORY_JUDGE_MODEL')}
 				highlighted={highlightKey === 'MEMORY_JUDGE_MODEL'}
 				onReset={() => resetValue('MEMORY_JUDGE_MODEL')}
-				canReset={isDirty('MEMORY_JUDGE_MODEL')}
+				canReset={canResetKey('MEMORY_JUDGE_MODEL')}
 			>
 				{#snippet control()}
 					<ModelSelect
@@ -382,7 +389,7 @@ const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
 				dirty={isDirty('MEMORY_CONSOLIDATION_MODEL')}
 				highlighted={highlightKey === 'MEMORY_CONSOLIDATION_MODEL'}
 				onReset={() => resetValue('MEMORY_CONSOLIDATION_MODEL')}
-				canReset={isDirty('MEMORY_CONSOLIDATION_MODEL')}
+				canReset={canResetKey('MEMORY_CONSOLIDATION_MODEL')}
 			>
 				{#snippet control()}
 					<ModelSelect
@@ -411,7 +418,7 @@ const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
 				dirty={isDirty('TITLE_GEN_MODEL')}
 				highlighted={highlightKey === 'TITLE_GEN_MODEL'}
 				onReset={() => resetValue('TITLE_GEN_MODEL')}
-				canReset={isDirty('TITLE_GEN_MODEL')}
+				canReset={canResetKey('TITLE_GEN_MODEL')}
 			>
 				{#snippet control()}
 					<ModelSelect
@@ -492,7 +499,7 @@ const systemPromptLength = $derived((adminConfig.SYSTEM_PROMPT ?? "").length);
 				dirty={isDirty('CONTEXT_SUMMARIZER_MODEL')}
 				highlighted={highlightKey === 'CONTEXT_SUMMARIZER_MODEL'}
 				onReset={() => resetValue('CONTEXT_SUMMARIZER_MODEL')}
-				canReset={isDirty('CONTEXT_SUMMARIZER_MODEL')}
+				canReset={canResetKey('CONTEXT_SUMMARIZER_MODEL')}
 			>
 				{#snippet control()}
 					<ModelSelect

@@ -30,6 +30,13 @@ let {
 	/** Cancel a pending edit: puts the value back to what was last saved. */
 	revertValue: (key: string) => void;
 } = $props();
+
+// The reset affordance is offered whenever the row is not already sitting on
+// its environment default — a saved override with no pending edit is exactly
+// the case an admin needs it for. (`isDirty` alone hid it there.)
+function canResetKey(key: string): boolean {
+	return isDirty(key) || (adminConfig[key] ?? "") !== (envDefaults[key] ?? "");
+}
 </script>
 
 <SystemCard
@@ -46,7 +53,7 @@ let {
 			dirty={isDirty('PARALLEL_API_KEY')}
 			highlighted={highlightKey === 'PARALLEL_API_KEY'}
 			onReset={() => resetValue('PARALLEL_API_KEY')}
-			canReset={isDirty('PARALLEL_API_KEY')}
+			canReset={canResetKey('PARALLEL_API_KEY')}
 		>
 			{#snippet control()}
 				<SecretField
@@ -67,7 +74,7 @@ let {
 			dirty={isDirty('BRAVE_SEARCH_API_KEY')}
 			highlighted={highlightKey === 'BRAVE_SEARCH_API_KEY'}
 			onReset={() => resetValue('BRAVE_SEARCH_API_KEY')}
-			canReset={isDirty('BRAVE_SEARCH_API_KEY')}
+			canReset={canResetKey('BRAVE_SEARCH_API_KEY')}
 		>
 			{#snippet control()}
 				<SecretField
@@ -93,7 +100,7 @@ let {
 			dirty={isDirty('MINERU_API_URL')}
 			highlighted={highlightKey === 'MINERU_API_URL'}
 			onReset={() => resetValue('MINERU_API_URL')}
-			canReset={isDirty('MINERU_API_URL')}
+			canReset={canResetKey('MINERU_API_URL')}
 		>
 			{#snippet control()}
 				<ValueField
@@ -114,7 +121,7 @@ let {
 			dirty={isDirty('MINERU_TIMEOUT_MS')}
 			highlighted={highlightKey === 'MINERU_TIMEOUT_MS'}
 			onReset={() => resetValue('MINERU_TIMEOUT_MS')}
-			canReset={isDirty('MINERU_TIMEOUT_MS')}
+			canReset={canResetKey('MINERU_TIMEOUT_MS')}
 		>
 			{#snippet control()}
 				<ValueField
@@ -142,7 +149,7 @@ let {
 			dirty={isDirty('WEB_PUSH_VAPID_PUBLIC_KEY')}
 			highlighted={highlightKey === 'WEB_PUSH_VAPID_PUBLIC_KEY'}
 			onReset={() => resetValue('WEB_PUSH_VAPID_PUBLIC_KEY')}
-			canReset={isDirty('WEB_PUSH_VAPID_PUBLIC_KEY')}
+			canReset={canResetKey('WEB_PUSH_VAPID_PUBLIC_KEY')}
 		>
 			{#snippet control()}
 				<ValueField
@@ -162,7 +169,7 @@ let {
 			dirty={isDirty('WEB_PUSH_VAPID_PRIVATE_KEY')}
 			highlighted={highlightKey === 'WEB_PUSH_VAPID_PRIVATE_KEY'}
 			onReset={() => resetValue('WEB_PUSH_VAPID_PRIVATE_KEY')}
-			canReset={isDirty('WEB_PUSH_VAPID_PRIVATE_KEY')}
+			canReset={canResetKey('WEB_PUSH_VAPID_PRIVATE_KEY')}
 		>
 			{#snippet control()}
 				<SecretField
@@ -183,7 +190,7 @@ let {
 			dirty={isDirty('WEB_PUSH_VAPID_SUBJECT')}
 			highlighted={highlightKey === 'WEB_PUSH_VAPID_SUBJECT'}
 			onReset={() => resetValue('WEB_PUSH_VAPID_SUBJECT')}
-			canReset={isDirty('WEB_PUSH_VAPID_SUBJECT')}
+			canReset={canResetKey('WEB_PUSH_VAPID_SUBJECT')}
 		>
 			{#snippet control()}
 				<ValueField

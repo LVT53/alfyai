@@ -44,6 +44,13 @@ const ROWS = [
 		min: 1,
 	},
 ] as const;
+
+// The reset affordance is offered whenever the row is not already sitting on
+// its environment default — a saved override with no pending edit is exactly
+// the case an admin needs it for. (`isDirty` alone hid it there.)
+function canResetKey(key: string): boolean {
+	return isDirty(key) || (adminConfig[key] ?? "") !== (envDefaults[key] ?? "");
+}
 </script>
 
 <SystemCard
@@ -61,7 +68,7 @@ const ROWS = [
 				dirty={isDirty(row.key)}
 				highlighted={highlightKey === row.key}
 				onReset={() => resetValue(row.key)}
-				canReset={isDirty(row.key)}
+				canReset={canResetKey(row.key)}
 			>
 				{#snippet control()}
 					<ValueField
