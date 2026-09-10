@@ -107,12 +107,16 @@ export function runAtlasV3GoalTest(
 		};
 	}
 
-	// The budget is gone. The report abstains only when there is nothing to
-	// stand on at all: a corroborated core with one thin section is a report
-	// with a Limitations line, not an abstention.
+	// The budget is gone. The report abstains when NOTHING publishable stands
+	// behind the core answer — no claim reached even one publisher of a tier
+	// that can corroborate. A core figure from one publisher and a thin section
+	// is a report with a Limitations line, not an abstention; a core question
+	// whose claim table is empty, or rests only on aggregators and forums, is an
+	// abstention however many words could be written around it.
 	const abstain =
-		!coreCorroborated &&
-		liveNodes.every((node) => node.evidenceIds.length === 0);
+		coreClaims.filter(
+			(claim) => claim.status === "verified" || claim.status === "single",
+		).length === 0;
 	return {
 		passed: false,
 		coreCorroborated,
@@ -121,7 +125,7 @@ export function runAtlasV3GoalTest(
 		exhausted: true,
 		abstain,
 		reason: abstain
-			? "the research budget is spent and no publishable evidence was found for the core question"
+			? "the research budget is spent and no publisher of a corroborating tier stated a figure for the core question"
 			: coreCorroborated
 				? `the research budget is spent; ${thinNodeIds.length} section(s) remain thin`
 				: "the research budget is spent and no figure in the core answer reached two independent publishers",

@@ -176,7 +176,52 @@ describe("runAtlasV3GoalTest", () => {
 			roundsRun: 2,
 		});
 		expect(verdict.abstain).toBe(true);
-		expect(verdict.reason).toContain("no publishable evidence");
+		expect(verdict.reason).toContain("no publisher of a corroborating tier");
+	});
+
+	it("abstains when the core figure rests only on aggregators", () => {
+		const state = createAtlasV3Bank();
+		const msn = addAtlasV3Source(state, {
+			url: "https://msn.com/a",
+			title: "MSN",
+			publishedAt: null,
+		});
+		const quote = addAtlasV3Quote(state, {
+			sourceId: msn?.id ?? "",
+			text: "The EU added 65.1 GW of solar capacity in 2025, one outlet reported.",
+			goal: "g",
+		});
+		addAtlasV3Claim(state, {
+			entity: "EU-27",
+			metric: "solar additions",
+			value: "65.1",
+			unit: "GW",
+			period: "2025",
+			asOf: null,
+			series: "grid-connected",
+			evidenceIds: [quote?.id ?? ""],
+		});
+		const aggregatorBank = freezeAtlasV3Bank(state);
+		const verdict = runAtlasV3GoalTest({
+			memo: { ...MEMO, claimIds: ["c1"] },
+			outline: {
+				nodes: [
+					{
+						id: "n1",
+						title: "t",
+						claim: "c",
+						needs: [],
+						evidenceIds: ["e1", "e1"],
+						status: "ready",
+					},
+				],
+				cut: [],
+			},
+			bank: aggregatorBank,
+			config,
+			roundsRun: 2,
+		});
+		expect(verdict.abstain).toBe(true);
 	});
 
 	it("ignores a cut node when judging coverage", () => {
