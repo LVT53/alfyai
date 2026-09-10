@@ -1,8 +1,26 @@
 <script lang="ts">
 import { invalidateAll } from "$app/navigation";
 import { onMount } from "svelte";
+import {
+	Archive,
+	ArrowDown,
+	ArrowUp,
+	Copy,
+	FlaskConical,
+	Flag,
+	Layers,
+	Lock,
+	Monitor,
+	Pencil,
+	SlidersHorizontal,
+	Smartphone,
+	Trash2,
+	TriangleAlert,
+} from "@lucide/svelte";
+import { slide as slideTransitionFn } from "svelte/transition";
 import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.svelte";
 import CampaignModal from "$lib/components/campaigns/CampaignModal.svelte";
+import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import {
 	archiveAdminCampaign,
 	createAdminCampaign,
@@ -22,6 +40,7 @@ import {
 	type CampaignValidationIssue,
 } from "$lib/client/api/campaigns";
 import {
+	fetchAdminCampaignAsset,
 	saveCampaignAssetCrop,
 	uploadCampaignAssetSource,
 	type CampaignAssetVariant,
@@ -29,6 +48,28 @@ import {
 } from "$lib/client/api/campaign-assets";
 import { ApiError } from "$lib/client/api/http";
 import { t } from "$lib/i18n";
+import type { I18nKey } from "$lib/i18n";
+import { reducedMotionAware } from "$lib/utils/motion";
+import CampaignDialog from "./campaigns/CampaignDialog.svelte";
+import CampaignRail from "./campaigns/CampaignRail.svelte";
+import ChecklistStatus from "./campaigns/ChecklistStatus.svelte";
+import type { OverflowMenuItem } from "./campaigns/OverflowMenu.svelte";
+import OverflowMenu from "./campaigns/OverflowMenu.svelte";
+import PerformanceCard from "./campaigns/PerformanceCard.svelte";
+import SlideEditor from "./campaigns/SlideEditor.svelte";
+import SlideOptionsDialog from "./campaigns/SlideOptionsDialog.svelte";
+import SlideRail from "./campaigns/SlideRail.svelte";
+import type { SlideRailItem } from "./campaigns/SlideRail.svelte";
+import {
+	type ChecklistLocale,
+	type SlideMenuItem,
+	checklistIssueKeys,
+	evaluateCampaignChecklist,
+	slideHasFailure,
+	slideMenuAttention,
+} from "./campaigns/campaign-checklist";
+
+const bannerSlide = reducedMotionAware(slideTransitionFn);
 
 type EditableSlide = CampaignSlide & {
 	localId: string;
@@ -55,7 +96,15 @@ type CropJob = {
 	slideLocalId: string;
 	variant: CampaignAssetVariant;
 	imageSrc: string;
+	/** Revoked on close only when we created the object URL ourselves. */
+	revokeOnClose: boolean;
 	sourceUpload: Promise<{ id: string }>;
+};
+
+type AssetDetails = {
+	filename: string;
+	sizeBytes: number;
+	sourceAssetId: string | null;
 };
 
 let campaigns = $state<Campaign[]>([]);
@@ -68,13 +117,19 @@ let actionLoading = $state(false);
 let assetLoading = $state<string | null>(null);
 let errorMessage = $state("");
 let successMessage = $state("");
-let createName = $state("");
-let createType = $state<CampaignType>("first_run_onboarding");
-let createReleaseVersion = $state("");
-let previewLocale = $state<"en" | "hu">("en");
-let previewSlideIndex = $state(0);
 let cropJob = $state<CropJob | null>(null);
 
+let activeSlideIndex = $state(0);
+let editLocale = $state<ChecklistLocale>("en");
+let previewDevice = $state<"desktop" | "mobile">("desktop");
+let showCreateDialog = $state(false);
+let showDetailsDialog = $state(false);
+let slideOptionsFocus = $state<SlideMenuItem>("layout");
+let showSlideOptions = $state(false);
+let confirmKind = $state<"delete" | "archive" | null>(null);
+let assetDetails = $state<Record<string, AssetDetails | undefined>>({});
+
+const requestedAssetIds = new Set<string>();
 let localSlideCounter = 0;
 
 let previewCampaign = $derived<Campaign | null>(
@@ -92,14 +147,50 @@ let previewCampaign = $derived<Campaign | null>(
 );
 
 let isDraftEditable = $derived(draft?.status === "draft");
-let clientValidationErrors = $derived(
-	draft && isDraftEditable ? publishReadinessIssues(draft) : [],
+let activeSlide = $derived(draft?.slides[activeSlideIndex] ?? null);
+
+let checklist = $derived(
+	evaluateCampaignChecklist({
+		type: draft?.type ?? "first_run_onboarding",
+		name: draft?.name ?? "",
+		releaseVersion: draft?.releaseVersion ?? "",
+		slides: (draft?.slides ?? []).map((slide) => ({
+			localId: slide.localId,
+			id: slide.id,
+			kind: slide.kind,
+			semanticRole: slide.semanticRole,
+			sortOrder: slide.sortOrder,
+			titleEn: slide.titleEn,
+			titleHu: slide.titleHu,
+			bodyEn: slide.bodyEn,
+			bodyHu: slide.bodyHu,
+			altEn: slide.altEn,
+			altHu: slide.altHu,
+			actionLabelEn: slide.actionLabelEn,
+			actionLabelHu: slide.actionLabelHu,
+			actionUrl: slide.actionUrl,
+			desktopAssetId: slide.desktopAssetId,
+			mobileAssetId: slide.mobileAssetId,
+			setupControls: slide.setupControls,
+		})),
+	}),
 );
-let validationErrors = $derived(
-	clientValidationErrors.length > 0
-		? clientValidationErrors
-		: (draft?.validationErrors ?? []),
+
+// The publish gate is exactly the old `publishReadinessIssues()` set, only
+// reported per slide/field now. Translated late so the list can be rendered
+// wherever it is needed.
+let clientValidationErrors = $derived<CampaignValidationIssue[]>(
+	draft && isDraftEditable
+		? checklistIssueKeys(checklist).map((issue) => ({
+				path: issue.path,
+				message: $t(issue.messageKey as I18nKey),
+			}))
+		: [],
 );
+let serverValidationErrors = $derived(
+	clientValidationErrors.length === 0 ? (draft?.validationErrors ?? []) : [],
+);
+
 let canSave = $derived(
 	Boolean(draft && isDraftEditable && !saving && !detailLoading),
 );
@@ -116,6 +207,34 @@ let canArchive = $derived(
 	Boolean(draft?.status === "published" && !actionLoading && !saving),
 );
 let canDuplicate = $derived(Boolean(draft && !actionLoading && !saving));
+
+let slideRailItems = $derived<SlideRailItem[]>(
+	(draft?.slides ?? []).map((slide) => ({
+		localId: slide.localId,
+		title: slideTitle(slide),
+		thumbnailUrl: slide.desktopAssetId
+			? `/api/campaign-assets/${encodeURIComponent(slide.desktopAssetId)}/content`
+			: slide.mobileAssetId
+				? `/api/campaign-assets/${encodeURIComponent(slide.mobileAssetId)}/content`
+				: null,
+		failing: isDraftEditable && slideHasFailure(checklist, slide.localId),
+		isSetup: slide.kind === "setup",
+	})),
+);
+
+let activeSlideAttention = $derived(
+	activeSlide
+		? slideMenuAttention(checklist, activeSlide.localId)
+		: { layout: false, purpose: false, setupControls: false, any: false },
+);
+
+let showPerformance = $derived(
+	Boolean(
+		draft &&
+			(draft.status !== "draft" ||
+				(draft.analyticsSummary?.autoShown ?? 0) > 0),
+	),
+);
 
 function slideLocalId(slide: CampaignSlide) {
 	return slide.id ?? `local-slide-${++localSlideCounter}`;
@@ -167,10 +286,6 @@ function draftFromCampaign(campaign: Campaign): DraftState {
 	};
 }
 
-function fallbackCampaignName(campaign: Campaign) {
-	return campaign.name?.trim() || `${campaign.type} v${campaign.version ?? 1}`;
-}
-
 function formatDate(value: Campaign["updatedAt"]) {
 	if (!value) return $t("admin.campaigns.dateMissing");
 	const date = new Date(value);
@@ -218,193 +333,6 @@ function validationErrorsFromFieldErrors(
 	}));
 }
 
-const allowedActionDestinations = new Set([
-	"/",
-	"/chat",
-	"/knowledge",
-	"/settings",
-	"/settings/profile",
-	"/settings/admin",
-]);
-const allowedSetupControls = new Set([
-	"ui_language",
-	"theme",
-	"model_default",
-	"ai_style",
-]);
-
-function issue(path: string, message: string): CampaignValidationIssue {
-	return { path, message };
-}
-
-function publishReadinessIssues(
-	campaign: DraftState,
-): CampaignValidationIssue[] {
-	const issues: CampaignValidationIssue[] = [];
-	if (!campaign.name.trim()) {
-		issues.push(issue("name", $t("admin.campaigns.validation.nameRequired")));
-	}
-	if (
-		campaign.type !== "first_run_onboarding" &&
-		campaign.type !== "release_update"
-	) {
-		issues.push(issue("type", $t("admin.campaigns.validation.typeInvalid")));
-	}
-	if (campaign.type === "release_update" && !campaign.releaseVersion.trim()) {
-		issues.push(
-			issue(
-				"releaseVersion",
-				$t("admin.campaigns.validation.releaseVersionRequired"),
-			),
-		);
-	}
-	if (campaign.slides.length === 0) {
-		issues.push(
-			issue("slides", $t("admin.campaigns.validation.slideRequired")),
-		);
-	}
-
-	const sortOrders = new Set<number>();
-	let setupCount = 0;
-	let dataDisclosureCount = 0;
-
-	for (const [index, slide] of campaign.slides.entries()) {
-		const prefix = `slides.${slide.id ?? slide.localId ?? index + 1}`;
-		if (slide.kind !== "setup" && slide.kind !== "standard") {
-			issues.push(
-				issue(
-					`${prefix}.layoutType`,
-					$t("admin.campaigns.validation.slideLayoutInvalid"),
-				),
-			);
-		}
-		if (
-			slide.semanticRole !== "feature" &&
-			slide.semanticRole !== "data_disclosure"
-		) {
-			issues.push(
-				issue(
-					`${prefix}.semanticRole`,
-					$t("admin.campaigns.validation.semanticRoleInvalid"),
-				),
-			);
-		}
-		const sortOrder = Number(slide.sortOrder ?? index + 1);
-		if (
-			!Number.isInteger(sortOrder) ||
-			sortOrder <= 0 ||
-			sortOrders.has(sortOrder)
-		) {
-			issues.push(
-				issue(
-					`${prefix}.sortOrder`,
-					$t("admin.campaigns.validation.sortOrderInvalid"),
-				),
-			);
-		}
-		sortOrders.add(sortOrder);
-
-		for (const [field, value] of [
-			["title.en", slide.titleEn],
-			["title.hu", slide.titleHu],
-			["body.en", slide.bodyEn],
-			["body.hu", slide.bodyHu],
-		]) {
-			if (!value?.trim()) {
-				issues.push(
-					issue(
-						`${prefix}.${field}`,
-						$t("admin.campaigns.validation.localizedContentRequired"),
-					),
-				);
-			}
-		}
-
-		const hasUploadedImage = Boolean(
-			slide.desktopAssetId || slide.mobileAssetId,
-		);
-		if (hasUploadedImage) {
-			for (const [field, value] of [
-				["altText.en", slide.altEn],
-				["altText.hu", slide.altHu],
-			]) {
-				if (!value?.trim()) {
-					issues.push(
-						issue(
-							`${prefix}.${field}`,
-							$t("admin.campaigns.validation.imageAltRequired"),
-						),
-					);
-				}
-			}
-		}
-		if (slide.actionUrl && !allowedActionDestinations.has(slide.actionUrl)) {
-			issues.push(
-				issue(
-					`${prefix}.actionDestination`,
-					$t("admin.campaigns.validation.actionDestinationInvalid"),
-				),
-			);
-		}
-		if (
-			slide.actionUrl &&
-			(!slide.actionLabelEn?.trim() || !slide.actionLabelHu?.trim())
-		) {
-			issues.push(
-				issue(
-					`${prefix}.actionLabel`,
-					$t("admin.campaigns.validation.actionLabelsRequired"),
-				),
-			);
-		}
-
-		const setupControls = slide.setupControls ?? [];
-		if (slide.kind === "setup") setupCount += 1;
-		if (slide.kind === "standard" && slide.semanticRole === "data_disclosure")
-			dataDisclosureCount += 1;
-		if (
-			setupControls.length > 0 &&
-			(campaign.type !== "first_run_onboarding" || slide.kind !== "setup")
-		) {
-			issues.push(
-				issue(
-					`${prefix}.setupControls`,
-					$t("admin.campaigns.validation.setupControlsPlacementInvalid"),
-				),
-			);
-		}
-		if (setupControls.some((control) => !allowedSetupControls.has(control))) {
-			issues.push(
-				issue(
-					`${prefix}.setupControls`,
-					$t("admin.campaigns.validation.setupControlsUnsupported"),
-				),
-			);
-		}
-	}
-
-	if (campaign.type === "first_run_onboarding") {
-		if (setupCount !== 1) {
-			issues.push(
-				issue(
-					"setupSlide",
-					$t("admin.campaigns.validation.setupSlideRequired"),
-				),
-			);
-		}
-		if (dataDisclosureCount < 1) {
-			issues.push(
-				issue(
-					"dataDisclosure",
-					$t("admin.campaigns.validation.dataDisclosureRequired"),
-				),
-			);
-		}
-	}
-
-	return issues;
-}
-
 async function loadCampaigns(preferredId: string | null = selectedCampaignId) {
 	loading = true;
 	errorMessage = "";
@@ -437,7 +365,7 @@ async function selectCampaign(id: string, clearMessage = true) {
 	try {
 		const campaign = await fetchAdminCampaign(id);
 		draft = draftFromCampaign(campaign);
-		previewSlideIndex = 0;
+		activeSlideIndex = 0;
 	} catch (error) {
 		showError(error, $t("admin.campaigns.errors.detail"));
 	} finally {
@@ -449,6 +377,7 @@ function newSlide(kind: CampaignSlideKind = "standard"): EditableSlide {
 	return {
 		localId: `new-slide-${++localSlideCounter}`,
 		kind,
+		semanticRole: "feature",
 		sortOrder: draft?.slides.length ?? 0,
 		titleEn: "",
 		titleHu: "",
@@ -459,16 +388,17 @@ function newSlide(kind: CampaignSlideKind = "standard"): EditableSlide {
 		actionLabelEn: "",
 		actionLabelHu: "",
 		actionUrl: "",
+		setupControls: [],
 	};
 }
 
-function addSlide(kind: CampaignSlideKind) {
+function addSlide(kind: CampaignSlideKind = "standard") {
 	if (!draft || !isDraftEditable) return;
 	draft.slides = [...draft.slides, newSlide(kind)].map((slide, index) => ({
 		...slide,
 		sortOrder: index + 1,
 	}));
-	previewSlideIndex = draft.slides.length - 1;
+	activeSlideIndex = draft.slides.length - 1;
 }
 
 function moveSlide(index: number, direction: -1 | 1) {
@@ -478,22 +408,41 @@ function moveSlide(index: number, direction: -1 | 1) {
 	const slides = [...draft.slides];
 	const [slide] = slides.splice(index, 1);
 	slides.splice(target, 0, slide);
-	draft.slides = slides.map((item, index) => ({
+	draft.slides = slides.map((item, itemIndex) => ({
 		...item,
-		sortOrder: index + 1,
+		sortOrder: itemIndex + 1,
 	}));
-	previewSlideIndex = target;
+	activeSlideIndex = target;
 }
 
 function removeSlide(index: number) {
 	if (!draft || !isDraftEditable) return;
 	draft.slides = draft.slides
 		.filter((_, slideIndex) => slideIndex !== index)
-		.map((slide, index) => ({ ...slide, sortOrder: index + 1 }));
-	previewSlideIndex = Math.min(
-		previewSlideIndex,
+		.map((slide, slideIndex) => ({ ...slide, sortOrder: slideIndex + 1 }));
+	activeSlideIndex = Math.min(
+		activeSlideIndex,
 		Math.max(draft.slides.length - 1, 0),
 	);
+}
+
+function updateSlide(localId: string, patch: Partial<EditableSlide>) {
+	if (!draft || !isDraftEditable) return;
+	draft.slides = draft.slides.map((slide) =>
+		slide.localId === localId ? { ...slide, ...patch } : slide,
+	);
+}
+
+function copyEnglishToHungarian(localId: string) {
+	const slide = draft?.slides.find((item) => item.localId === localId);
+	if (!slide) return;
+	updateSlide(localId, {
+		titleHu: slide.titleEn ?? "",
+		bodyHu: slide.bodyEn ?? "",
+		altHu: slide.altEn ?? "",
+		actionLabelHu: slide.actionLabelEn ?? "",
+	});
+	editLocale = "hu";
 }
 
 function slidePayload(): CampaignSlideDraft[] {
@@ -562,16 +511,19 @@ async function saveDraft() {
 	}
 }
 
-async function createCampaign() {
+async function createCampaign(values: {
+	name: string;
+	type: CampaignType;
+	releaseVersion: string;
+}) {
 	actionLoading = true;
 	try {
 		const campaign = await createAdminCampaign({
-			type: createType,
-			name: createName.trim() || null,
-			releaseVersion: createReleaseVersion.trim() || null,
+			type: values.type,
+			name: values.name.trim() || null,
+			releaseVersion: values.releaseVersion.trim() || null,
 		});
-		createName = "";
-		createReleaseVersion = "";
+		showCreateDialog = false;
 		showSuccess($t("admin.campaigns.messages.created"));
 		await loadCampaigns(campaign.id);
 	} catch (error) {
@@ -579,6 +531,18 @@ async function createCampaign() {
 	} finally {
 		actionLoading = false;
 	}
+}
+
+function saveDetails(values: {
+	name: string;
+	type: CampaignType;
+	releaseVersion: string;
+}) {
+	if (!draft || !isDraftEditable) return;
+	draft.name = values.name;
+	draft.type = values.type;
+	draft.releaseVersion = values.releaseVersion;
+	showDetailsDialog = false;
 }
 
 async function seedFirstRun() {
@@ -629,10 +593,8 @@ async function publishCampaign() {
 	}
 }
 
-async function archiveCampaign(label: string) {
+async function archiveCampaign() {
 	if (!draft) return;
-	const confirmed = window.confirm(label);
-	if (!confirmed) return;
 	actionLoading = true;
 	try {
 		const campaign = await archiveAdminCampaign(draft.id);
@@ -648,14 +610,8 @@ async function archiveCampaign(label: string) {
 	}
 }
 
-async function deleteOrArchiveCampaign(label: string) {
+async function deleteDraft() {
 	if (!draft) return;
-	if (draft.status !== "draft") {
-		await archiveCampaign(label);
-		return;
-	}
-	const confirmed = window.confirm(label);
-	if (!confirmed) return;
 	actionLoading = true;
 	try {
 		await deleteAdminCampaignDraft(draft.id);
@@ -673,6 +629,13 @@ async function deleteOrArchiveCampaign(label: string) {
 	}
 }
 
+function confirmDestructive() {
+	const kind = confirmKind;
+	confirmKind = null;
+	if (kind === "delete") void deleteDraft();
+	if (kind === "archive") void archiveCampaign();
+}
+
 async function duplicateCampaign() {
 	if (!draft) return;
 	actionLoading = true;
@@ -687,17 +650,26 @@ async function duplicateCampaign() {
 	}
 }
 
-async function handleAssetFile(
-	event: Event,
+function assetIdFor(slide: EditableSlide, variant: CampaignAssetVariant) {
+	return variant === "desktop" ? slide.desktopAssetId : slide.mobileAssetId;
+}
+
+function sourceIdFor(slide: EditableSlide, variant: CampaignAssetVariant) {
+	const local =
+		variant === "desktop"
+			? slide.desktopSourceAssetId
+			: slide.mobileSourceAssetId;
+	if (local) return local;
+	const cropId = assetIdFor(slide, variant);
+	return cropId ? (assetDetails[cropId]?.sourceAssetId ?? null) : null;
+}
+
+function startCrop(
 	slideLocalId: string,
 	variant: CampaignAssetVariant,
+	file: File,
 ) {
 	if (!isDraftEditable) return;
-	const input = event.currentTarget as HTMLInputElement;
-	const file = input.files?.[0];
-	input.value = "";
-	if (!file) return;
-
 	const loadingKey = `${slideLocalId}:${variant}`;
 	const imageSrc = URL.createObjectURL(file);
 	const sourceUpload = uploadCampaignAssetSource({ image: file });
@@ -713,8 +685,38 @@ async function handleAssetFile(
 		slideLocalId,
 		variant,
 		imageSrc,
+		revokeOnClose: true,
 		sourceUpload,
 	};
+}
+
+/**
+ * Re-crop keeps the original upload: the crop row remembers the source it was
+ * cut from, so the dialog reopens on the untouched image instead of asking for
+ * the file again.
+ */
+function recropAsset(slideLocalId: string, variant: CampaignAssetVariant) {
+	if (!isDraftEditable) return;
+	const slide = draft?.slides.find((item) => item.localId === slideLocalId);
+	if (!slide) return;
+	const sourceId = sourceIdFor(slide, variant);
+	if (!sourceId) return;
+	cropJob = {
+		slideLocalId,
+		variant,
+		imageSrc: `/api/campaign-assets/${encodeURIComponent(sourceId)}/content`,
+		revokeOnClose: false,
+		sourceUpload: Promise.resolve({ id: sourceId }),
+	};
+}
+
+function removeAsset(slideLocalId: string, variant: CampaignAssetVariant) {
+	updateSlide(
+		slideLocalId,
+		variant === "desktop"
+			? { desktopAssetId: null, desktopSourceAssetId: null }
+			: { mobileAssetId: null, mobileSourceAssetId: null },
+	);
 }
 
 function attachCrop(
@@ -723,16 +725,12 @@ function attachCrop(
 	sourceAssetId: string,
 	cropAssetId: string,
 ) {
-	if (!draft || !isDraftEditable) return;
-	draft.slides = draft.slides.map((slide) => {
-		if (slide.localId !== slideLocalId) return slide;
-		return {
-			...slide,
-			[variant === "desktop" ? "desktopAssetId" : "mobileAssetId"]: cropAssetId,
-			[variant === "desktop" ? "desktopSourceAssetId" : "mobileSourceAssetId"]:
-				sourceAssetId,
-		};
-	});
+	updateSlide(
+		slideLocalId,
+		variant === "desktop"
+			? { desktopAssetId: cropAssetId, desktopSourceAssetId: sourceAssetId }
+			: { mobileAssetId: cropAssetId, mobileSourceAssetId: sourceAssetId },
+	);
 }
 
 async function saveCrop(payload: {
@@ -753,367 +751,469 @@ async function saveCrop(payload: {
 		crop: payload.crop,
 	});
 	attachCrop(activeCrop.slideLocalId, activeCrop.variant, source.id, crop.id);
-	URL.revokeObjectURL(activeCrop.imageSrc);
+	if (activeCrop.revokeOnClose) URL.revokeObjectURL(activeCrop.imageSrc);
 	cropJob = null;
 }
 
 function cancelCrop() {
-	if (cropJob) URL.revokeObjectURL(cropJob.imageSrc);
+	if (cropJob?.revokeOnClose) URL.revokeObjectURL(cropJob.imageSrc);
 	cropJob = null;
 }
+
+function openSlideOptions(focus: SlideMenuItem) {
+	slideOptionsFocus = focus;
+	showSlideOptions = true;
+}
+
+let campaignMenuItems = $derived.by<OverflowMenuItem[]>(() => {
+	const items: OverflowMenuItem[] = [
+		{
+			id: "duplicate",
+			label: $t("admin.campaigns.duplicateAsDraft"),
+			icon: Copy,
+			disabled: !canDuplicate,
+			onSelect: () => void duplicateCampaign(),
+		},
+	];
+	if (draft?.status === "published") {
+		items.push({
+			id: "archive",
+			label: $t("admin.campaigns.archive"),
+			icon: Archive,
+			disabled: !canArchive,
+			onSelect: () => {
+				confirmKind = "archive";
+			},
+		});
+	}
+	items.push({
+		id: "seed",
+		label: $t("admin.campaigns.seedFirstRun"),
+		icon: FlaskConical,
+		disabled: actionLoading,
+		onSelect: () => void seedFirstRun(),
+	});
+	if (isDraftEditable) {
+		items.push({
+			id: "delete",
+			label: $t("admin.campaigns.deleteDraft"),
+			icon: Trash2,
+			danger: true,
+			separatorBefore: true,
+			// Deliberately not gated on validation: the drafts you most want to
+			// throw away are exactly the ones that fail it.
+			disabled: actionLoading || saving,
+			onSelect: () => {
+				confirmKind = "delete";
+			},
+		});
+	}
+	return items;
+});
+
+let slideMenuItems = $derived<OverflowMenuItem[]>(
+	activeSlide
+		? [
+				{
+					id: "layout",
+					label: $t("admin.campaigns.menu.layout", {
+						value: slideKindLabel(activeSlide.kind),
+					}),
+					icon: Layers,
+					attention: activeSlideAttention.layout,
+					disabled: !isDraftEditable,
+					onSelect: () => openSlideOptions("layout"),
+				},
+				{
+					id: "purpose",
+					label: $t("admin.campaigns.menu.purpose", {
+						value:
+							activeSlide.semanticRole === "data_disclosure"
+								? $t("admin.campaigns.purpose.dataDisclosure")
+								: $t("admin.campaigns.purpose.feature"),
+					}),
+					icon: Flag,
+					attention: activeSlideAttention.purpose,
+					disabled: !isDraftEditable,
+					onSelect: () => openSlideOptions("purpose"),
+				},
+				{
+					id: "setupControls",
+					label: $t("admin.campaigns.menu.setupControls", {
+						count: activeSlide.setupControls?.length ?? 0,
+					}),
+					icon: SlidersHorizontal,
+					attention: activeSlideAttention.setupControls,
+					disabled: !isDraftEditable,
+					onSelect: () => openSlideOptions("setupControls"),
+				},
+				{
+					id: "copy",
+					label: $t("admin.campaigns.menu.copyEnToHu"),
+					icon: Copy,
+					separatorBefore: true,
+					disabled: !isDraftEditable,
+					onSelect: () => copyEnglishToHungarian(activeSlide.localId),
+				},
+				{
+					id: "up",
+					label: $t("admin.campaigns.menu.moveUp"),
+					icon: ArrowUp,
+					disabled: !isDraftEditable || activeSlideIndex === 0,
+					onSelect: () => moveSlide(activeSlideIndex, -1),
+				},
+				{
+					id: "down",
+					label: $t("admin.campaigns.menu.moveDown"),
+					icon: ArrowDown,
+					disabled:
+						!isDraftEditable ||
+						activeSlideIndex >= (draft?.slides.length ?? 0) - 1,
+					onSelect: () => moveSlide(activeSlideIndex, 1),
+				},
+				{
+					id: "delete-slide",
+					label: $t("admin.campaigns.menu.deleteSlide"),
+					icon: Trash2,
+					danger: true,
+					separatorBefore: true,
+					disabled: !isDraftEditable,
+					onSelect: () => removeSlide(activeSlideIndex),
+				},
+			]
+		: [],
+);
+
+let metaLine = $derived.by(() => {
+	if (!draft) return "";
+	const parts: string[] = [
+		draft.type === "first_run_onboarding"
+			? $t("admin.campaigns.type.firstRun")
+			: $t("admin.campaigns.type.release"),
+	];
+	if (draft.releaseVersion) parts.push(draft.releaseVersion);
+	parts.push($t("admin.campaigns.slideCount", { count: draft.slides.length }));
+	if (draft.status === "published" && draft.publishedAt) {
+		parts.push(
+			$t("admin.campaigns.liveSince", { date: formatDate(draft.publishedAt) }),
+		);
+	} else if (draft.status === "archived" && draft.archivedAt) {
+		parts.push(
+			$t("admin.campaigns.archivedOn", { date: formatDate(draft.archivedAt) }),
+		);
+	} else if (draft.updatedAt) {
+		parts.push(
+			$t("admin.campaigns.updatedOn", { date: formatDate(draft.updatedAt) }),
+		);
+	}
+	return parts.join(" · ");
+});
+
+// Names and sizes for the attached screenshots of the open slide. Fetched once
+// per asset id; the ids come from the draft, never from `assetDetails` itself,
+// so writing the result cannot re-trigger this effect.
+$effect(() => {
+	const ids = [activeSlide?.desktopAssetId, activeSlide?.mobileAssetId].filter(
+		(id): id is string => Boolean(id),
+	);
+	for (const id of ids) {
+		if (requestedAssetIds.has(id)) continue;
+		requestedAssetIds.add(id);
+		void fetchAdminCampaignAsset(id)
+			.then((asset) => {
+				assetDetails = {
+					...assetDetails,
+					[id]: {
+						filename: asset.originalFilename,
+						sizeBytes: asset.sizeBytes,
+						sourceAssetId: asset.sourceAssetId ?? null,
+					},
+				};
+			})
+			.catch(() => {
+				// Metadata is a nicety: the editor still works without it.
+				requestedAssetIds.delete(id);
+			});
+	}
+});
 
 onMount(() => {
 	void loadCampaigns();
 });
 </script>
 
-<section class="space-y-lg" aria-labelledby="admin-campaigns-heading">
-	<div class="flex flex-wrap items-start justify-between gap-lg">
-		<div>
-			<h2 id="admin-campaigns-heading" class="text-lg font-semibold text-text-primary">
-				{$t('admin.campaigns.title')}
-			</h2>
-			<p class="mt-1 max-w-3xl text-sm text-text-secondary">{$t('admin.campaigns.description')}</p>
-		</div>
-		<button type="button" class="btn-secondary cursor-pointer" disabled={actionLoading} onclick={seedFirstRun}>
-			{$t('admin.campaigns.seedFirstRun')}
-		</button>
-	</div>
+<section class="campaigns-pane" aria-labelledby="admin-campaigns-heading">
+	<h2 id="admin-campaigns-heading" class="sr-only">{$t('admin.campaigns.title')}</h2>
 
 	{#if errorMessage}
-		<p class="rounded-md border border-danger/30 bg-danger/10 px-md py-sm text-sm text-danger" role="alert">
-			{errorMessage}
-		</p>
+		<p class="banner banner-danger" role="alert">{errorMessage}</p>
 	{/if}
 	{#if successMessage}
-		<p class="rounded-md border border-success/30 bg-success/10 px-md py-sm text-sm text-success" role="status">
-			{successMessage}
-		</p>
+		<p class="banner banner-success" role="status">{successMessage}</p>
 	{/if}
 
-	<div class="campaign-workbench">
-		<aside class="campaign-rail" aria-label={$t('admin.campaigns.listLabel')}>
-			<form class="campaign-create-panel" onsubmit={(event) => { event.preventDefault(); void createCampaign(); }}>
-				<div class="space-y-xs">
-					<label class="block text-xs font-medium uppercase text-text-muted" for="campaign-create-name">
-						{$t('admin.campaigns.createName')}
-					</label>
-					<input
-						id="campaign-create-name"
-						class="input-field w-full"
-						bind:value={createName}
-						placeholder={$t('admin.campaigns.createNamePlaceholder')}
-					/>
-				</div>
-				<div class="grid grid-cols-2 gap-md">
-					<label class="space-y-xs text-xs font-medium uppercase text-text-muted" for="campaign-create-type">
-						{$t('admin.campaigns.type')}
-						<select id="campaign-create-type" class="input-field w-full normal-case" bind:value={createType}>
-							<option value="first_run_onboarding">{$t('admin.campaigns.type.firstRun')}</option>
-							<option value="release_update">{$t('admin.campaigns.type.release')}</option>
-						</select>
-					</label>
-					<label class="space-y-xs text-xs font-medium uppercase text-text-muted" for="campaign-create-version">
-						{$t('admin.campaigns.releaseVersion')}
-						<input id="campaign-create-version" class="input-field w-full normal-case" bind:value={createReleaseVersion} placeholder="1.0.0" />
-					</label>
-				</div>
-				<button type="submit" class="btn-primary w-full cursor-pointer" disabled={actionLoading}>
-					{$t('admin.campaigns.create')}
-				</button>
-			</form>
+	<div class="workbench">
+		<div class="area-campaigns">
+			<CampaignRail
+				{campaigns}
+				{selectedCampaignId}
+				{loading}
+				busy={actionLoading}
+				onSelect={(id) => void selectCampaign(id)}
+				onCreate={() => (showCreateDialog = true)}
+			/>
+		</div>
 
-			<div class="campaign-list-scroll">
-				{#if loading}
-					<p class="p-md text-sm text-text-muted">{$t('admin.campaigns.loading')}</p>
-				{:else if campaigns.length === 0}
-					<p class="p-md text-sm text-text-muted">{$t('admin.campaigns.empty')}</p>
-				{:else}
-					{#each campaigns as campaign}
-						<button
-							type="button"
-							class="campaign-row"
-							class:campaign-row-active={selectedCampaignId === campaign.id}
-							aria-pressed={selectedCampaignId === campaign.id}
-							onclick={() => selectCampaign(campaign.id)}
-						>
-							<span class="flex items-center justify-between gap-sm">
-								<span class="truncate font-medium text-text-primary">{fallbackCampaignName(campaign)}</span>
-								<span class="rounded bg-surface-overlay px-xs py-0.5 text-[11px] uppercase text-text-muted">
-									{statusLabel(campaign.status)}
-								</span>
-							</span>
-							<span class="mt-1 grid grid-cols-2 gap-x-sm gap-y-1 text-left text-xs text-text-muted">
-								<span>{campaign.type}</span>
-								<span>{$t('admin.campaigns.versionShort', { version: campaign.version ?? 1 })}</span>
-								<span>{$t('admin.campaigns.slideCount', { count: campaign.slideCount ?? campaign.slides?.length ?? 0 })}</span>
-								<span>{formatDate(campaign.updatedAt ?? campaign.createdAt)}</span>
-							</span>
-						</button>
-					{/each}
-				{/if}
-			</div>
-		</aside>
+		<div class="area-slides">
+			{#if draft}
+				<SlideRail
+					slides={slideRailItems}
+					activeIndex={activeSlideIndex}
+					editable={isDraftEditable}
+					onSelect={(index) => (activeSlideIndex = index)}
+					onAdd={() => addSlide('standard')}
+				/>
+			{/if}
+		</div>
 
-		<main class="campaign-editor" aria-label={$t('admin.campaigns.editorLabel')}>
-			{#if detailLoading}
-				<p class="p-md text-sm text-text-muted">{$t('admin.campaigns.loadingDetail')}</p>
+		<div class="area-editor">
+			{#if detailLoading && !draft}
+				<p class="pane-note">{$t('admin.campaigns.loadingDetail')}</p>
 			{:else if draft}
-				<div class="campaign-editor-actions sticky top-0 z-20 border-b border-border bg-surface-page/95 p-lg backdrop-blur">
-					<div class="flex flex-wrap items-start justify-between gap-lg">
-						<div>
-							<p class="text-sm font-semibold text-text-primary">
-								{$t('admin.campaigns.publishChecklist')} · {statusLabel(draft.status)}
-							</p>
-							{#if validationErrors.length > 0}
-								<ul class="mt-1 list-disc space-y-1 pl-md text-xs text-danger">
-									{#each validationErrors as issue}
-										<li>{issue.message}</li>
-									{/each}
-								</ul>
-							{:else}
-								<p class="mt-1 text-xs text-text-muted">{$t('admin.campaigns.noValidationErrors')}</p>
-							{/if}
+				<div class="editor-head">
+					<div class="editor-title-block">
+						<div class="editor-title-row">
+							<h3 class="editor-title">{draft.name || $t('campaignModal.untitled')}</h3>
+							<span
+								class="pill"
+								class:pill-accent={draft.status === 'draft'}
+								class:pill-success={draft.status === 'published'}
+								class:pill-muted={draft.status === 'archived'}
+							>
+								{statusLabel(draft.status)}
+							</span>
 						</div>
-						<div class="flex flex-wrap gap-sm">
-							<button type="button" class="btn-secondary cursor-pointer" disabled={!canSave} onclick={saveDraft}>
+						<p class="editor-meta">
+							<span>{metaLine}</span>
+							{#if isDraftEditable}
+								<button
+									type="button"
+									class="icon-btn"
+									aria-label={$t('admin.campaigns.editDetailsTitle')}
+									title={$t('admin.campaigns.editDetailsTitle')}
+									onclick={() => (showDetailsDialog = true)}
+								>
+									<Pencil size={11} strokeWidth={2} aria-hidden="true" />
+								</button>
+							{/if}
+						</p>
+					</div>
+
+					<div class="editor-actions">
+						{#if isDraftEditable}
+							<button type="button" class="btn-secondary" disabled={!canSave} onclick={saveDraft}>
 								{saving ? $t('common.saving') : $t('admin.campaigns.saveDraft')}
 							</button>
-							<button type="button" class="btn-secondary cursor-pointer" disabled={!canDuplicate} onclick={duplicateCampaign}>
-								{$t('admin.campaigns.duplicate')}
+							<OverflowMenu
+								label={$t('admin.campaigns.campaignMenuLabel')}
+								triggerLabel={$t('admin.campaigns.campaignMenuTrigger')}
+								items={campaignMenuItems}
+								testId="campaign-menu"
+							/>
+							<button type="button" class="btn-primary" disabled={!canPublish} onclick={publishCampaign}>
+								{$t('admin.campaigns.publish')}
+							</button>
+						{:else}
+							<button
+								type="button"
+								class="btn-primary"
+								disabled={!canDuplicate}
+								onclick={duplicateCampaign}
+							>
+								<Copy size={14} strokeWidth={2} aria-hidden="true" />
+								{$t('admin.campaigns.duplicateAsDraft')}
+							</button>
+							<OverflowMenu
+								label={$t('admin.campaigns.campaignMenuLabel')}
+								triggerLabel={$t('admin.campaigns.campaignMenuTrigger')}
+								items={campaignMenuItems}
+								testId="campaign-menu"
+							/>
+						{/if}
+					</div>
+				</div>
+
+				{#if !isDraftEditable}
+					<p class="banner banner-warning" transition:bannerSlide={{ duration: 180 }}>
+						<Lock size={14} strokeWidth={2} aria-hidden="true" />
+						{draft.status === 'archived'
+							? $t('admin.campaigns.archivedReadOnly')
+							: $t('admin.campaigns.publishedReadOnly')}
+					</p>
+				{:else}
+					<ChecklistStatus
+						{checklist}
+						onJumpToSlide={(index) => (activeSlideIndex = index)}
+					/>
+				{/if}
+
+				{#if serverValidationErrors.length > 0}
+					<div class="banner banner-danger" role="alert">
+						<TriangleAlert size={14} strokeWidth={2} aria-hidden="true" />
+						<span>
+							{$t('admin.campaigns.serverIssues')}
+							<ul class="server-issues">
+								{#each serverValidationErrors as issue (issue.path ?? issue.message)}
+									<li>{issue.message}</li>
+								{/each}
+							</ul>
+						</span>
+					</div>
+				{/if}
+
+				{#if activeSlide}
+					{@const slide = activeSlide}
+					{#key slide.localId}
+						<SlideEditor
+							{slide}
+							slideNumber={activeSlideIndex + 1}
+							locale={editLocale}
+							editable={isDraftEditable}
+							{checklist}
+							menuItems={slideMenuItems}
+							menuAttention={activeSlideAttention.any}
+							{assetDetails}
+							uploadingVariant={assetLoading === `${slide.localId}:desktop`
+								? 'desktop'
+								: assetLoading === `${slide.localId}:mobile`
+									? 'mobile'
+									: null}
+							onUpdate={(patch) => updateSlide(slide.localId, patch)}
+							onLocaleChange={(next) => (editLocale = next)}
+							onAssetUpload={(variant, file) => startCrop(slide.localId, variant, file)}
+							onAssetRecrop={(variant) => recropAsset(slide.localId, variant)}
+							onAssetRemove={(variant) => removeAsset(slide.localId, variant)}
+						/>
+					{/key}
+				{:else}
+					<p class="pane-note">{$t('admin.campaigns.noSlides')}</p>
+				{/if}
+			{:else}
+				<p class="pane-note">{$t('admin.campaigns.selectCampaign')}</p>
+			{/if}
+		</div>
+
+		<div class="area-preview">
+			{#if draft}
+				<section class="preview-card" aria-label={$t('admin.campaigns.previewLabel')}>
+					<div class="preview-head">
+						<p class="eyebrow">{$t('admin.campaigns.preview')}</p>
+						<div class="device-toggle" role="group" aria-label={$t('admin.campaigns.previewDevice')}>
+							<button
+								type="button"
+								class="device-btn"
+								class:device-btn-active={previewDevice === 'desktop'}
+								aria-pressed={previewDevice === 'desktop'}
+								aria-label={$t('admin.campaigns.previewDesktop')}
+								title={$t('admin.campaigns.previewDesktop')}
+								onclick={() => (previewDevice = 'desktop')}
+							>
+								<Monitor size={12} strokeWidth={2} aria-hidden="true" />
 							</button>
 							<button
 								type="button"
-								class="btn-secondary cursor-pointer"
-								disabled={draft.status === 'draft' ? !canPublish : !canArchive}
-								onclick={() => deleteOrArchiveCampaign(draft?.status === 'draft' ? $t('admin.campaigns.deleteDraftConfirm') : $t('admin.campaigns.archiveConfirm'))}
+								class="device-btn"
+								class:device-btn-active={previewDevice === 'mobile'}
+								aria-pressed={previewDevice === 'mobile'}
+								aria-label={$t('admin.campaigns.previewMobile')}
+								title={$t('admin.campaigns.previewMobile')}
+								onclick={() => (previewDevice = 'mobile')}
 							>
-								{draft.status === 'draft' ? $t('admin.campaigns.deleteDraft') : $t('admin.campaigns.archive')}
-							</button>
-							<button type="button" class="btn-primary cursor-pointer" disabled={!canPublish} onclick={publishCampaign}>
-								{$t('admin.campaigns.publish')}
+								<Smartphone size={12} strokeWidth={2} aria-hidden="true" />
 							</button>
 						</div>
 					</div>
-				</div>
-				<div class="campaign-editor-body">
-					<div class="campaign-editor-hero">
-						<div class="min-w-0">
-							<p class="text-xs font-semibold uppercase text-accent">
-								{statusLabel(draft.status)} · {$t('admin.campaigns.versionShort', { version: draft.version ?? 1 })}
-							</p>
-							<h3 class="truncate text-lg font-semibold text-text-primary">
-								{draft.name || $t('campaignModal.untitled')}
-							</h3>
-							<p class="mt-1 text-sm text-text-muted">
-								{draft.type === 'first_run_onboarding' ? $t('admin.campaigns.type.firstRun') : $t('admin.campaigns.type.release')}
-								{#if draft.releaseVersion}
-									· {draft.releaseVersion}
-								{/if}
-							</p>
-						</div>
-						<div class="campaign-editor-stats">
-							<span>{$t('admin.campaigns.slideCount', { count: draft.slides.length })}</span>
-							<span>{$t('admin.campaigns.analyticsAutoShown', { count: draft.analyticsSummary?.autoShown ?? 0 })}</span>
-							<span>{$t('admin.campaigns.analyticsCompleted', { count: draft.analyticsSummary?.completed ?? 0 })}</span>
-						</div>
+					<div class="preview-frame" class:preview-frame-mobile={previewDevice === 'mobile'}>
+						<CampaignModal
+							campaign={previewCampaign}
+							locale={editLocale}
+							preview={true}
+							inline={true}
+							slideIndex={activeSlideIndex}
+							onSlideChange={(index) => (activeSlideIndex = index)}
+						/>
 					</div>
-
-					<div class="campaign-field-grid">
-						<label class="space-y-xs text-sm font-medium text-text-primary">
-							{$t('admin.campaigns.name')}
-							<input class="input-field w-full" bind:value={draft.name} disabled={!isDraftEditable} />
-						</label>
-						<label class="space-y-xs text-sm font-medium text-text-primary">
-							{$t('admin.campaigns.type')}
-							<select class="input-field w-full" bind:value={draft.type} disabled={!isDraftEditable}>
-								<option value="first_run_onboarding">{$t('admin.campaigns.type.firstRun')}</option>
-								<option value="release_update">{$t('admin.campaigns.type.release')}</option>
-							</select>
-						</label>
-						<label class="space-y-xs text-sm font-medium text-text-primary">
-							{$t('admin.campaigns.releaseVersion')}
-							<input class="input-field w-full" bind:value={draft.releaseVersion} placeholder="1.0.0" disabled={!isDraftEditable} />
-						</label>
-					</div>
-
-					<div class="campaign-section-heading">
-						<h3 class="text-base font-semibold text-text-primary">{$t('admin.campaigns.slides')}</h3>
-						<div class="flex flex-wrap gap-sm">
-							<button type="button" class="btn-secondary cursor-pointer" disabled={!isDraftEditable} onclick={() => addSlide('setup')}>
-								{$t('admin.campaigns.addSetupSlide')}
-							</button>
-							<button type="button" class="btn-secondary cursor-pointer" disabled={!isDraftEditable} onclick={() => addSlide('standard')}>
-								{$t('admin.campaigns.addStandardSlide')}
-							</button>
-						</div>
-					</div>
-
-					{#if draft.slides.length === 0}
-						<p class="rounded-md border border-border bg-surface-overlay p-md text-sm text-text-muted">
-							{$t('admin.campaigns.noSlides')}
-						</p>
-					{:else}
-						<div class="slide-stack">
-							{#each draft.slides as slide, index (slide.localId)}
-								<section class="slide-editor" aria-label={$t('admin.campaigns.slideEditorLabel', { number: index + 1 })}>
-									<div class="flex flex-wrap items-center justify-between gap-md border-b border-border bg-surface-overlay/35 px-lg py-md">
-										<div>
-											<p class="text-xs font-semibold uppercase text-text-muted">
-												{$t('admin.campaigns.slideNumber', { number: index + 1 })} · {slideKindLabel(slide.kind)}
-											</p>
-											<h4 class="text-sm font-semibold text-text-primary">{slideTitle(slide)}</h4>
-										</div>
-										<div class="flex flex-wrap gap-xs">
-											<button
-												type="button"
-												class="btn-secondary cursor-pointer"
-												disabled={!isDraftEditable || index === 0}
-												aria-label={$t('admin.campaigns.moveUpA11y', { title: slideTitle(slide) })}
-												onclick={() => moveSlide(index, -1)}
-											>
-												↑
-											</button>
-											<button
-												type="button"
-												class="btn-secondary cursor-pointer"
-												disabled={!isDraftEditable || index === draft.slides.length - 1}
-												aria-label={$t('admin.campaigns.moveDownA11y', { title: slideTitle(slide) })}
-												onclick={() => moveSlide(index, 1)}
-											>
-												↓
-											</button>
-											<button type="button" class="btn-secondary cursor-pointer" disabled={!isDraftEditable} onclick={() => removeSlide(index)}>
-												{$t('common.delete')}
-											</button>
-										</div>
-									</div>
-
-									<div class="campaign-slide-content-grid">
-										<label class="space-y-xs text-sm font-medium text-text-primary">
-											{$t('admin.campaigns.slideKind')}
-											<select class="input-field w-full" bind:value={slide.kind} disabled={!isDraftEditable}>
-												<option value="setup">{$t('admin.campaigns.slideKind.setup')}</option>
-												<option value="standard">{$t('admin.campaigns.slideKind.standard')}</option>
-											</select>
-										</label>
-										<label class="space-y-xs text-sm font-medium text-text-primary">
-											{$t('admin.campaigns.actionUrl')}
-											<input class="input-field w-full" bind:value={slide.actionUrl} placeholder="/chat" disabled={!isDraftEditable} />
-										</label>
-										<label class="space-y-xs text-sm font-medium text-text-primary">
-											{$t('admin.campaigns.titleEn')}
-											<input class="input-field w-full" bind:value={slide.titleEn} disabled={!isDraftEditable} />
-										</label>
-										<label class="space-y-xs text-sm font-medium text-text-primary">
-											{$t('admin.campaigns.titleHu')}
-											<input class="input-field w-full" bind:value={slide.titleHu} disabled={!isDraftEditable} />
-										</label>
-										<label class="space-y-xs text-sm font-medium text-text-primary lg:col-span-2">
-											{$t('admin.campaigns.bodyEn')}
-											<textarea class="input-field min-h-24 w-full" bind:value={slide.bodyEn} disabled={!isDraftEditable}></textarea>
-										</label>
-										<label class="space-y-xs text-sm font-medium text-text-primary lg:col-span-2">
-											{$t('admin.campaigns.bodyHu')}
-											<textarea class="input-field min-h-24 w-full" bind:value={slide.bodyHu} disabled={!isDraftEditable}></textarea>
-										</label>
-										<label class="space-y-xs text-sm font-medium text-text-primary">
-											{$t('admin.campaigns.altEn')}
-											<input class="input-field w-full" bind:value={slide.altEn} disabled={!isDraftEditable} />
-										</label>
-										<label class="space-y-xs text-sm font-medium text-text-primary">
-											{$t('admin.campaigns.altHu')}
-											<input class="input-field w-full" bind:value={slide.altHu} disabled={!isDraftEditable} />
-										</label>
-										<label class="space-y-xs text-sm font-medium text-text-primary">
-											{$t('admin.campaigns.actionLabelEn')}
-											<input class="input-field w-full" bind:value={slide.actionLabelEn} disabled={!isDraftEditable} />
-										</label>
-										<label class="space-y-xs text-sm font-medium text-text-primary">
-											{$t('admin.campaigns.actionLabelHu')}
-											<input class="input-field w-full" bind:value={slide.actionLabelHu} disabled={!isDraftEditable} />
-										</label>
-									</div>
-
-									<div class="campaign-asset-grid">
-										<div class="space-y-sm">
-											<p class="text-sm font-semibold text-text-primary">{$t('admin.campaigns.desktopAsset')}</p>
-											<p class="text-xs text-text-muted">
-												{slide.desktopAssetId ? $t('admin.campaigns.assetAttached', { id: slide.desktopAssetId }) : $t('admin.campaigns.assetMissing')}
-											</p>
-											<label class="btn-secondary inline-flex cursor-pointer" class:opacity-50={!isDraftEditable}>
-												{$t('admin.campaigns.uploadDesktop')}
-												<input class="sr-only" type="file" accept="image/*" disabled={!isDraftEditable} onchange={(event) => handleAssetFile(event, slide.localId, 'desktop')} />
-											</label>
-											{#if assetLoading === `${slide.localId}:desktop`}
-												<p class="text-xs text-text-muted">{$t('admin.campaigns.uploadingAsset')}</p>
-											{/if}
-										</div>
-										<div class="space-y-sm">
-											<p class="text-sm font-semibold text-text-primary">{$t('admin.campaigns.mobileAsset')}</p>
-											<p class="text-xs text-text-muted">
-												{slide.mobileAssetId ? $t('admin.campaigns.assetAttached', { id: slide.mobileAssetId }) : $t('admin.campaigns.assetMissing')}
-											</p>
-											<label class="btn-secondary inline-flex cursor-pointer" class:opacity-50={!isDraftEditable}>
-												{$t('admin.campaigns.uploadMobile')}
-												<input class="sr-only" type="file" accept="image/*" disabled={!isDraftEditable} onchange={(event) => handleAssetFile(event, slide.localId, 'mobile')} />
-											</label>
-											{#if assetLoading === `${slide.localId}:mobile`}
-												<p class="text-xs text-text-muted">{$t('admin.campaigns.uploadingAsset')}</p>
-											{/if}
-										</div>
-									</div>
-								</section>
-							{/each}
-						</div>
-					{/if}
-				</div>
-
-			{:else}
-				<p class="p-md text-sm text-text-muted">{$t('admin.campaigns.selectCampaign')}</p>
-			{/if}
-		</main>
-
-		<aside class="campaign-preview" aria-label={$t('admin.campaigns.previewLabel')}>
-			<div class="flex items-center justify-between gap-sm border-b border-border p-md">
-				<div>
-					<p class="text-sm font-semibold text-text-primary">{$t('admin.campaigns.preview')}</p>
-					<p class="text-xs text-text-muted">{$t('admin.campaigns.previewNote')}</p>
-				</div>
-				<select class="input-field max-w-24" bind:value={previewLocale} aria-label={$t('admin.campaigns.previewLanguage')}>
-					<option value="en">EN</option>
-					<option value="hu">HU</option>
-				</select>
-			</div>
-			<div class="space-y-lg p-lg">
-				<CampaignModal
-					campaign={previewCampaign}
-					locale={previewLocale}
-					preview={true}
-					inline={true}
-					slideIndex={previewSlideIndex}
-					onSlideChange={(index) => (previewSlideIndex = index)}
-				/>
-
-				<section class="border-t border-border pt-lg">
-					<h3 class="text-sm font-semibold text-text-primary">{$t('admin.campaigns.history')}</h3>
-					<dl class="mt-sm grid grid-cols-2 gap-sm text-xs">
-						<dt class="text-text-muted">{$t('admin.campaigns.createdAt')}</dt>
-						<dd class="text-text-primary">{formatDate(draft?.createdAt)}</dd>
-						<dt class="text-text-muted">{$t('admin.campaigns.updatedAt')}</dt>
-						<dd class="text-text-primary">{formatDate(draft?.updatedAt)}</dd>
-						<dt class="text-text-muted">{$t('admin.campaigns.publishedAt')}</dt>
-						<dd class="text-text-primary">{formatDate(draft?.publishedAt)}</dd>
-						<dt class="text-text-muted">{$t('admin.campaigns.analytics')}</dt>
-						<dd class="text-text-primary">
-							{draft?.analyticsSummary?.autoShown ?? 0} / {draft?.analyticsSummary?.completed ?? 0} / {draft?.analyticsSummary?.skipped ?? 0} / {draft?.analyticsSummary?.replayOpened ?? 0}
-						</dd>
-					</dl>
 				</section>
-			</div>
-		</aside>
+
+				{#if showPerformance}
+					<PerformanceCard
+						summary={draft.analyticsSummary}
+						slideCount={draft.slides.length}
+						createdAt={draft.createdAt}
+						updatedAt={draft.updatedAt}
+						publishedAt={draft.publishedAt}
+					/>
+				{/if}
+			{/if}
+		</div>
 	</div>
 </section>
+
+{#if showCreateDialog}
+	<CampaignDialog
+		mode="create"
+		busy={actionLoading}
+		onConfirm={createCampaign}
+		onCancel={() => (showCreateDialog = false)}
+	/>
+{/if}
+
+{#if showDetailsDialog && draft}
+	<CampaignDialog
+		mode="edit"
+		name={draft.name}
+		type={draft.type}
+		releaseVersion={draft.releaseVersion}
+		onConfirm={saveDetails}
+		onCancel={() => (showDetailsDialog = false)}
+	/>
+{/if}
+
+{#if showSlideOptions && activeSlide && draft}
+	{@const slide = activeSlide}
+	<SlideOptionsDialog
+		slideNumber={activeSlideIndex + 1}
+		kind={slide.kind}
+		semanticRole={slide.semanticRole}
+		setupControls={slide.setupControls ?? []}
+		campaignType={draft.type}
+		editable={isDraftEditable}
+		attention={activeSlideAttention}
+		focus={slideOptionsFocus}
+		onChangeKind={(kind) => updateSlide(slide.localId, { kind })}
+		onChangeRole={(semanticRole) => updateSlide(slide.localId, { semanticRole })}
+		onChangeSetupControls={(setupControls) =>
+			updateSlide(slide.localId, { setupControls })}
+		onClose={() => (showSlideOptions = false)}
+	/>
+{/if}
+
+{#if confirmKind}
+	<ConfirmDialog
+		title={confirmKind === 'delete'
+			? $t('admin.campaigns.deleteDraft')
+			: $t('admin.campaigns.archive')}
+		message={confirmKind === 'delete'
+			? $t('admin.campaigns.deleteDraftConfirm')
+			: $t('admin.campaigns.archiveConfirm')}
+		confirmText={confirmKind === 'delete'
+			? $t('admin.campaigns.deleteDraft')
+			: $t('admin.campaigns.archive')}
+		confirmVariant="danger"
+		onCancel={() => (confirmKind = null)}
+		onConfirm={confirmDestructive}
+	/>
+{/if}
 
 {#if cropJob}
 	<CampaignCropModal
@@ -1121,263 +1221,302 @@ onMount(() => {
 		variant={cropJob.variant}
 		ratio={cropJob.variant === 'desktop' ? 16 / 10 : 9 / 16}
 		title={$t('admin.campaigns.cropTitle')}
+		metadata={$t('admin.campaigns.cropMetadata', {
+			number: activeSlideIndex + 1,
+			ratio: cropJob.variant === 'desktop' ? '16:10' : '9:16',
+			size: cropJob.variant === 'desktop' ? '1600 × 1000' : '1080 × 1920',
+		})}
 		onSave={saveCrop}
 		onCancel={cancelCrop}
 	/>
 {/if}
 
 <style>
-	.campaign-workbench {
-		display: grid;
-		grid-template-columns: minmax(230px, 280px) minmax(520px, 1fr) minmax(320px, 380px);
-		gap: var(--space-lg);
-		align-items: start;
-		max-width: 100%;
-		min-width: 0;
-		overflow-x: clip;
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		background: color-mix(in srgb, var(--surface-overlay) 14%, transparent);
-		padding: var(--space-md);
-	}
-
-	.campaign-rail,
-	.campaign-editor,
-	.campaign-preview {
-		min-width: 0;
-		overflow: hidden;
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		background: var(--surface-page);
-		box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08);
-	}
-
-	.campaign-editor {
-		overflow: visible;
-	}
-
-	.campaign-create-panel {
-		display: grid;
+	.campaigns-pane {
+		display: flex;
+		flex-direction: column;
 		gap: var(--space-sm);
-		border-bottom: 1px solid var(--border);
-		background: color-mix(in srgb, var(--surface-overlay) 36%, transparent);
+		min-width: 0;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border-width: 0;
+	}
+
+	.workbench {
+		display: grid;
+		gap: var(--space-md);
+		align-items: start;
+		min-width: 0;
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-areas:
+			"campaigns"
+			"slides"
+			"editor"
+			"preview";
+	}
+
+	@media (min-width: 1024px) {
+		.workbench {
+			grid-template-columns: 190px 152px minmax(0, 1fr);
+			grid-template-areas:
+				"campaigns slides editor"
+				"preview preview preview";
+		}
+	}
+
+	@media (min-width: 1440px) {
+		.workbench {
+			grid-template-columns: 190px 152px minmax(0, 1fr) 336px;
+			grid-template-areas: "campaigns slides editor preview";
+		}
+	}
+
+	.area-campaigns {
+		grid-area: campaigns;
+		min-width: 0;
+	}
+
+	.area-slides {
+		grid-area: slides;
+		min-width: 0;
+	}
+
+	.area-editor {
+		grid-area: editor;
+		min-width: 0;
+	}
+
+	.area-preview {
+		grid-area: preview;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-sm);
+		min-width: 0;
+	}
+
+	.pane-note {
 		padding: var(--space-md);
+		font-size: var(--text-md);
+		color: var(--text-muted);
 	}
 
-	.input-field {
-		display: block;
-		min-height: 2.5rem;
-		border: 1px solid var(--border);
-		border-radius: 6px;
-		background: var(--surface-page);
-		padding: 0.55rem 0.75rem;
+	.editor-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		gap: 0.625rem;
+		margin-bottom: 0.875rem;
+	}
+
+	.editor-title-block {
+		flex: 1 1 16rem;
+		min-width: 0;
+	}
+
+	.editor-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.editor-title {
+		font-size: 1.0625rem;
+		font-weight: 600;
 		color: var(--text-primary);
-		font-size: 0.875rem;
-		line-height: 1.35;
-		transition:
-			border-color 0.15s ease,
-			background 0.15s ease,
-			box-shadow 0.15s ease;
+		overflow-wrap: anywhere;
 	}
 
-	textarea.input-field {
-		min-height: 7rem;
-		resize: vertical;
+	.editor-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-top: 4px;
+		font-size: var(--text-2xs);
+		color: var(--text-muted);
 	}
 
-	select.input-field {
-		padding-right: 2rem;
+	.editor-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
 	}
 
-	.input-field:focus {
-		border-color: var(--border-focus);
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
-		outline: none;
-	}
-
-	.input-field:disabled {
-		cursor: not-allowed;
-		opacity: 0.72;
-	}
-
-	.campaign-list-scroll {
-		max-height: 64vh;
-		overflow-y: auto;
-		padding: var(--space-xs);
-	}
-
-	.campaign-row {
-		display: block;
-		width: 100%;
-		border: 0;
-		border-radius: 6px;
-		background: transparent;
-		padding: var(--space-sm);
-		text-align: left;
+	.icon-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 22px;
+		min-width: 22px;
+		padding: 0 5px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-sm);
+		background: var(--surface-page);
+		color: var(--text-muted);
 		cursor: pointer;
 		transition:
-			background 0.15s ease,
-			box-shadow 0.15s ease,
-			transform 0.15s ease;
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
-	.campaign-row:hover,
-	.campaign-row-active {
-		background: var(--surface-overlay);
+	.icon-btn:hover {
+		border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+		color: var(--accent);
 	}
 
-	.campaign-row:hover {
-		transform: translateY(-1px);
+	.icon-btn:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	.campaign-editor-body {
-		display: grid;
-		gap: var(--space-lg);
-		padding: var(--space-md);
-	}
-
-	.campaign-editor-hero {
+	.banner {
 		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-md);
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		background: color-mix(in srgb, var(--surface-overlay) 42%, transparent);
-		padding: var(--space-md);
-	}
-
-	.campaign-editor-stats {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-xs);
-	}
-
-	.campaign-editor-stats span {
-		border: 1px solid var(--border);
-		border-radius: 999px;
+		align-items: flex-start;
+		gap: 0.55rem;
+		padding: 0.65rem 0.875rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
 		background: var(--surface-page);
-		padding: 0.3rem 0.65rem;
+		font-size: var(--text-xs);
+		line-height: 1.55;
 		color: var(--text-secondary);
-		font-size: 0.75rem;
-		font-weight: 600;
 	}
 
-	.campaign-field-grid {
-		display: grid;
-		gap: var(--space-sm);
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		background: color-mix(in srgb, var(--surface-overlay) 22%, transparent);
-		padding: var(--space-md);
+	.banner-danger {
+		border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+		background: color-mix(in srgb, var(--danger) 10%, var(--surface-page));
+		color: var(--danger);
+		margin-bottom: 0.75rem;
 	}
 
-	.campaign-section-heading {
+	.banner-success {
+		border-color: color-mix(in srgb, var(--success) 30%, transparent);
+		background: color-mix(in srgb, var(--success) 10%, var(--surface-page));
+		color: var(--success);
+	}
+
+	.banner-warning {
+		border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+		background: color-mix(in srgb, var(--warning) 8%, var(--surface-page));
+		color: var(--text-secondary);
+		margin-bottom: 0.75rem;
+	}
+
+	.banner-warning :global(svg) {
+		color: var(--warning);
+		flex-shrink: 0;
+		margin-top: 1px;
+	}
+
+	.server-issues {
+		margin-top: 0.25rem;
+		padding-left: 1rem;
+		list-style: disc;
+	}
+
+	.preview-card {
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-lg);
+		background: var(--surface-overlay);
+		padding: 0.875rem 1rem;
+	}
+
+	.preview-head {
 		display: flex;
-		flex-wrap: wrap;
 		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-md);
-		border-top: 1px solid var(--border);
-		padding-top: var(--space-md);
+		gap: 0.5rem;
+		margin-bottom: 0.625rem;
 	}
 
-	.slide-editor {
-		overflow: hidden;
-		border: 1px solid var(--border);
-		border-radius: 8px;
+	.eyebrow {
+		flex: 1 1 auto;
+		font-size: 0.625rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--text-muted);
+	}
+
+	.device-toggle {
+		display: inline-flex;
+		gap: 0.25rem;
+	}
+
+	.device-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-sm);
 		background: var(--surface-page);
-		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+		color: var(--text-muted);
+		cursor: pointer;
+		transition:
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
-	.slide-stack {
-		display: grid;
-		gap: var(--space-lg);
+	.device-btn:hover {
+		color: var(--text-primary);
 	}
 
-	.campaign-slide-content-grid {
-		display: grid;
-		gap: var(--space-md);
-		padding: var(--space-md);
+	.device-btn-active {
+		color: var(--accent);
+		border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 	}
 
-	.campaign-asset-grid {
-		display: grid;
-		gap: var(--space-md);
-		border-top: 1px solid var(--border);
-		background: color-mix(in srgb, var(--surface-overlay) 34%, transparent);
-		padding: var(--space-md);
+	.device-btn:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	button:focus-visible,
-	input:focus-visible,
-	select:focus-visible,
-	textarea:focus-visible {
-		outline: 2px solid var(--accent);
-		outline-offset: 2px;
+	.preview-frame {
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-page);
+		padding: 0.875rem;
+		transition: max-width var(--duration-emphasis) var(--ease-out);
+		max-width: 100%;
+		margin: 0 auto;
 	}
 
-	@media (min-width: 768px) {
-		.campaign-field-grid {
-			grid-template-columns: minmax(0, 1fr) 160px 140px;
-		}
-
-		.campaign-slide-content-grid {
-			grid-template-columns: repeat(2, minmax(0, 1fr));
-		}
-
-		.campaign-asset-grid {
-			grid-template-columns: repeat(2, minmax(0, 1fr));
-		}
+	.preview-frame-mobile {
+		max-width: 320px;
 	}
 
-	@media (max-width: 1600px) {
-		.campaign-workbench {
-			grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
-			gap: var(--space-lg);
-			padding: var(--space-sm);
-		}
-
-		.campaign-rail {
-			order: 3;
-			grid-column: 1 / 2;
-			max-height: none;
-		}
-
-		.campaign-editor {
-			order: 1;
-		}
-
-		.campaign-preview {
-			order: 2;
-			position: sticky;
-			top: var(--space-lg);
-		}
-
-		.campaign-list-scroll {
-			max-height: none;
-		}
+	.pill {
+		display: inline-flex;
+		align-items: center;
+		padding: 1px 8px;
+		border-radius: var(--radius-full);
+		font-size: 0.7rem;
+		font-weight: 600;
+		white-space: nowrap;
 	}
 
-	@media (max-width: 960px) {
-		.campaign-workbench {
-			grid-template-columns: 1fr;
-			padding: var(--space-sm);
-		}
+	.pill-accent {
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
+	}
 
-		.campaign-preview {
-			position: static;
-		}
+	.pill-success {
+		color: var(--success);
+		background: color-mix(in srgb, var(--success) 16%, transparent);
+	}
 
-		.campaign-rail {
-			grid-column: auto;
-		}
-
-		.campaign-editor-body,
-		.campaign-slide-content-grid,
-		.campaign-asset-grid {
-			padding: var(--space-md);
-		}
+	.pill-muted {
+		color: var(--text-muted);
+		background: color-mix(in srgb, var(--text-muted) 16%, transparent);
 	}
 </style>

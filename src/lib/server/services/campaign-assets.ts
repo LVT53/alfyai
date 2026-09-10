@@ -478,6 +478,27 @@ export async function getCampaignAssetForServing(
 	}
 }
 
+/**
+ * Metadata (no bytes) for one campaign asset, for the admin editor.
+ *
+ * The redesigned slide editor shows the attached screenshot's filename and
+ * size instead of a raw UUID, and offers Re-crop, which needs the crop's
+ * `sourceAssetId` — a draft loaded from the server carries only the crop id.
+ * Read-only and admin-gated by its route; additive, nothing else changes.
+ */
+export async function getCampaignAssetMetadata(
+	assetId: string,
+	options: CampaignAssetServiceOptions = {},
+): Promise<CampaignAssetRecord | null> {
+	const database = options.db ?? defaultDb;
+	const asset = await database
+		.select()
+		.from(campaignAssets)
+		.where(eq(campaignAssets.id, assetId))
+		.get();
+	return asset ?? null;
+}
+
 export async function getDraftSourceAssetForAdmin(
 	assetId: string,
 	options: CampaignAssetServiceOptions = {},
