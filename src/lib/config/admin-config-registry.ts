@@ -18,9 +18,12 @@
  *                  arms one `setInterval` with it, and `refreshConfig()` never
  *                  restarts them, so their `periodMinutes` getter runs exactly
  *                  once per process.
+ *   - "unwired"  — the key is stored and applied to the config object, but no
+ *                  code path reads that field yet. The row says so instead of
+ *                  promising an effect it cannot have.
  */
 
-export type AdminConfigEffect = "live" | "next-run" | "restart";
+export type AdminConfigEffect = "live" | "next-run" | "restart" | "unwired";
 
 export type AdminConfigUnit =
 	| "ms"
@@ -155,13 +158,13 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		key: "FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
 		group: "limits",
 		control: int(1000, undefined, "s", 1000),
-		effect: "live",
+		effect: "unwired",
 	},
 	{
 		key: "FILE_PRODUCTION_RENDERER_TIMEOUT_MS",
 		group: "limits",
 		control: int(1000, undefined, "s", 1000),
-		effect: "live",
+		effect: "unwired",
 	},
 	{
 		key: "FILE_PRODUCTION_MAX_OUTPUT_FILE_BYTES",
@@ -327,7 +330,7 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		key: "TEI_RERANKER_MODEL",
 		group: "embeddings",
 		control: { kind: "text" },
-		effect: "live",
+		effect: "unwired",
 	},
 	{
 		key: "TEI_RERANKER_MAX_TEXTS",
@@ -375,13 +378,13 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		key: "WORKING_SET_DOCUMENT_TOKEN_BUDGET",
 		group: "memory",
 		control: int(100, undefined, "tokens"),
-		effect: "live",
+		effect: "unwired",
 	},
 	{
 		key: "WORKING_SET_PROMPT_TOKEN_BUDGET",
 		group: "memory",
 		control: int(1000, undefined, "tokens"),
-		effect: "live",
+		effect: "unwired",
 	},
 	{
 		key: "SMALL_FILE_THRESHOLD_CHARS",
@@ -711,7 +714,12 @@ export type AdminConfigValidation =
 	| { ok: true; value: string }
 	| {
 			ok: false;
-			reason: "not-a-number" | "below-min" | "above-max" | "invalid-option";
+			reason:
+				| "not-a-number"
+				| "below-min"
+				| "above-max"
+				| "invalid-option"
+				| "invalid-url";
 			limit?: number;
 	  };
 
@@ -759,6 +767,20 @@ export function validateAdminConfigValue(
 				return { ok: true, value: "false" };
 			}
 			return { ok: false, reason: "invalid-option" };
+		}
+		case "url": {
+			// The appliers hand these straight to fetch: only an absolute http(s)
+			// URL can be a recorder or an API base, and a stray word here would
+			// only surface as a failed probe later.
+			try {
+				const parsed = new URL(value);
+				if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+					return { ok: false, reason: "invalid-url" };
+				}
+				return { ok: true, value };
+			} catch {
+				return { ok: false, reason: "invalid-url" };
+			}
 		}
 		default:
 			return { ok: true, value };

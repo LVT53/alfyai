@@ -1080,6 +1080,9 @@ const settingsDict = {
 		"admin.system.effect.nextRunHint":
 			"Applied when the scheduler computes its next run.",
 		"admin.system.effect.restartHint": "Read at start-up — needs a restart.",
+		"admin.system.effect.unwired": "no effect yet",
+		"admin.system.effect.unwiredHint":
+			"Saved and kept, but nothing reads this value yet — a later release will.",
 		"admin.system.resetToDefault": "Reset to default",
 		"admin.system.resetToDefaultA11y": "Reset {label} to its default",
 		"admin.system.emptyValue": "not set",
@@ -1087,6 +1090,7 @@ const settingsDict = {
 		"admin.system.invalid.min": "Must be at least {limit}.",
 		"admin.system.invalid.max": "Must be at most {limit}.",
 		"admin.system.invalid.option": "Pick one of the listed values.",
+		"admin.system.invalid.url": "Must be a full http:// or https:// address.",
 		"admin.system.invalidCount": "{count} value cannot be saved",
 		"admin.system.invalidCountPlural": "{count} values cannot be saved",
 		"admin.discoverNone": "No models discovered.",
@@ -2781,6 +2785,9 @@ const settingsDict = {
 			"Az ütemező következő futásának számításakor lép érvénybe.",
 		"admin.system.effect.restartHint":
 			"Induláskor olvasva — újraindítás szükséges.",
+		"admin.system.effect.unwired": "még nincs hatása",
+		"admin.system.effect.unwiredHint":
+			"Elmentjük és megőrizzük, de ezt az értéket még semmi nem olvassa — egy későbbi kiadás fogja.",
 		"admin.system.resetToDefault": "Visszaállítás alapértékre",
 		"admin.system.resetToDefaultA11y": "{label} visszaállítása az alapértékre",
 		"admin.system.emptyValue": "nincs beállítva",
@@ -2788,6 +2795,7 @@ const settingsDict = {
 		"admin.system.invalid.min": "Legalább {limit} lehet.",
 		"admin.system.invalid.max": "Legfeljebb {limit} lehet.",
 		"admin.system.invalid.option": "Válassz a felsorolt értékek közül.",
+		"admin.system.invalid.url": "Teljes http:// vagy https:// cím szükséges.",
 		"admin.system.invalidCount": "{count} érték nem menthető",
 		"admin.system.invalidCountPlural": "{count} érték nem menthető",
 		"admin.discoverNone": "Nem található modell.",

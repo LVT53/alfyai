@@ -211,3 +211,39 @@ describe("surfaced keys", () => {
 		}
 	});
 });
+
+describe("url controls and unwired keys", () => {
+	it("accepts only absolute http(s) URLs", () => {
+		const spec = ADVANCED_KEY_SPECS.find(
+			(entry) => entry.control.kind === "url",
+		);
+		if (!spec) throw new Error("expected a url control in the registry");
+		expect(
+			validateAdminConfigValue(spec, "https://owntracks.example/pub"),
+		).toEqual({ ok: true, value: "https://owntracks.example/pub" });
+		expect(validateAdminConfigValue(spec, "ftp://owntracks.example")).toEqual({
+			ok: false,
+			reason: "invalid-url",
+		});
+		expect(validateAdminConfigValue(spec, "not a url")).toEqual({
+			ok: false,
+			reason: "invalid-url",
+		});
+		expect(validateAdminConfigValue(spec, "")).toEqual({ ok: true, value: "" });
+	});
+
+	it("labels the keys no consumer reads yet as unwired, not live", () => {
+		for (const key of [
+			"TEI_RERANKER_MODEL",
+			"FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
+			"FILE_PRODUCTION_RENDERER_TIMEOUT_MS",
+			"WORKING_SET_DOCUMENT_TOKEN_BUDGET",
+			"WORKING_SET_PROMPT_TOKEN_BUDGET",
+		]) {
+			expect(
+				ADVANCED_KEY_SPECS.find((entry) => entry.key === key)?.effect,
+				key,
+			).toBe("unwired");
+		}
+	});
+});

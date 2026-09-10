@@ -61,7 +61,9 @@ const effectLabel = $derived(
 		? $t("admin.system.effect.live")
 		: spec.effect === "next-run"
 			? $t("admin.system.effect.nextRun")
-			: $t("admin.system.effect.restart"),
+			: spec.effect === "unwired"
+				? $t("admin.system.effect.unwired")
+				: $t("admin.system.effect.restart"),
 );
 
 const effectHint = $derived(
@@ -69,7 +71,9 @@ const effectHint = $derived(
 		? $t("admin.system.effect.liveHint")
 		: spec.effect === "next-run"
 			? $t("admin.system.effect.nextRunHint")
-			: $t("admin.system.effect.restartHint"),
+			: spec.effect === "unwired"
+				? $t("admin.system.effect.unwiredHint")
+				: $t("admin.system.effect.restartHint"),
 );
 
 function write(shown: string) {
@@ -92,6 +96,7 @@ const localError = $derived.by(() => {
 			limit: toDisplayNumber(spec, String(result.limit ?? 0)),
 		});
 	}
+	if (result.reason === "invalid-url") return $t("admin.system.invalid.url");
 	return $t("admin.system.invalid.option");
 });
 </script>
