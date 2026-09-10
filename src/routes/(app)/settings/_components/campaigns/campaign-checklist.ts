@@ -136,6 +136,20 @@ function isBlank(value: string | null | undefined): boolean {
 }
 
 /**
+ * Mirrors the server's `validateActionDestination`: an allow-listed internal
+ * path, optionally carrying a query string. Matching the server exactly
+ * matters — a destination it would accept must not be reported here as a
+ * failure that blocks publishing.
+ */
+export function isAllowedActionDestination(
+	value: string | null | undefined,
+): boolean {
+	if (!value) return true;
+	if (!value.startsWith("/") || value.startsWith("//")) return false;
+	return allowedDestinations.has(value.split("?")[0]);
+}
+
+/**
  * Evaluates every publish rule that applies to this campaign. Rules that
  * cannot apply (release version on a first-run campaign, the two first-run-only
  * rules on a release campaign) are left out of the total instead of counted as
@@ -306,7 +320,7 @@ export function evaluateCampaignChecklist(
 			}
 		}
 
-		if (slide.actionUrl && !allowedDestinations.has(slide.actionUrl)) {
+		if (!isAllowedActionDestination(slide.actionUrl)) {
 			fail({
 				...base,
 				ruleId: "actionDestination",

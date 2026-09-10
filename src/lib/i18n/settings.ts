@@ -861,6 +861,8 @@ const settingsDict = {
 		"admin.users.column.name": "Name",
 		"admin.users.column.role": "Role",
 		"admin.users.column.tokens": "Tokens",
+		"admin.users.createUserDescription":
+			"They can change their name, password and model afterwards. There is no invite email — hand them the password yourself.",
 		"admin.users.detailsColumn": "Details",
 		"admin.users.generatePassword": "Generate",
 		"admin.users.hiddenByFilter":
@@ -1905,6 +1907,8 @@ const settingsDict = {
 		"admin.users.column.name": "Név",
 		"admin.users.column.role": "Szerepkör",
 		"admin.users.column.tokens": "Tokenek",
+		"admin.users.createUserDescription":
+			"A nevét, jelszavát és modelljét később ő maga módosíthatja. Nincs meghívó e-mail — a jelszót neked kell átadnod.",
 		"admin.users.detailsColumn": "Részletek",
 		"admin.users.generatePassword": "Generálás",
 		"admin.users.hiddenByFilter":

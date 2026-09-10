@@ -47,7 +47,9 @@ test.describe("Admin last active tracking", () => {
 		await userRows.first().locator("button").first().click();
 
 		const detail = page.getByTestId("admin-user-detail");
-		await expect(detail.getByText("Last active", { exact: true })).toBeVisible();
+		await expect(
+			detail.getByText("Last active", { exact: true }),
+		).toBeVisible();
 		await expect(page.getByTestId("admin-user-last-active")).not.toBeEmpty();
 	});
 

@@ -147,11 +147,11 @@ function confirmDelete() {
 			</p>
 		</div>
 		<div class="users-header-actions">
-			<button type="button" class="btn-secondary whitespace-nowrap" onclick={reload} disabled={usersLoading}>
+			<button type="button" class="btn-secondary gap-1.5 whitespace-nowrap" onclick={reload} disabled={usersLoading}>
 				<RefreshCw size={14} strokeWidth={2} aria-hidden="true" />
 				{usersLoading ? $t('common.loading') : $t('admin.refresh')}
 			</button>
-			<button type="button" class="btn-primary whitespace-nowrap" onclick={onOpenCreateUser}>
+			<button type="button" class="btn-primary gap-1.5 whitespace-nowrap" onclick={onOpenCreateUser}>
 				<Plus size={14} strokeWidth={2} aria-hidden="true" />
 				{$t('admin.createUser')}
 			</button>

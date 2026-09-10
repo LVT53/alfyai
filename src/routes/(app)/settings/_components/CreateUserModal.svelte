@@ -62,7 +62,7 @@ function generatePassword() {
 
 <DialogShell
 	title={$t('admin.createUserTitle')}
-	description={$t('admin.createUserDescription')}
+	description={$t('admin.users.createUserDescription')}
 	onClose={onCancel}
 	maxWidthClass="max-w-[38rem]"
 	zIndexClass="z-[9999]"

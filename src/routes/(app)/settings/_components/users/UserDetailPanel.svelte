@@ -196,7 +196,7 @@ function formatDateTime(timestamp: number | null | undefined): string {
 			{#if user.role === 'admin'}
 				<button
 					type="button"
-					class="btn-secondary w-full justify-center"
+					class="btn-secondary w-full justify-center gap-1.5"
 					disabled={busy || isSelf}
 					onclick={() => onDemote(user.id)}
 				>
@@ -206,7 +206,7 @@ function formatDateTime(timestamp: number | null | undefined): string {
 			{:else}
 				<button
 					type="button"
-					class="btn-secondary w-full justify-center"
+					class="btn-secondary w-full justify-center gap-1.5"
 					disabled={busy || isSelf}
 					onclick={() => onPromote(user.id)}
 				>
@@ -216,7 +216,7 @@ function formatDateTime(timestamp: number | null | undefined): string {
 			{/if}
 			<button
 				type="button"
-				class="btn-danger w-full justify-center"
+				class="btn-danger w-full justify-center gap-1.5"
 				disabled={busy || isSelf}
 				onclick={() => onDelete(user.id)}
 			>

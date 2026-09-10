@@ -33,6 +33,7 @@ import {
 	ALLOWED_ACTION_DESTINATIONS,
 	type CampaignChecklist,
 	type ChecklistLocale,
+	isAllowedActionDestination,
 	slideFieldFailures,
 	slideLocaleHasFailure,
 } from "./campaign-checklist";
@@ -94,6 +95,9 @@ let languageName = $derived(
 		? $t("admin.campaigns.language.hu")
 		: $t("admin.campaigns.language.en"),
 );
+// A destination the select cannot offer — a legacy value such as
+// "internal:chatgpt-import", or an allow-listed path carrying a query string.
+// It is added to the select as its own option rather than silently dropped.
 let unknownDestination = $derived(
 	Boolean(
 		slide.actionUrl &&
@@ -101,6 +105,9 @@ let unknownDestination = $derived(
 				slide.actionUrl as (typeof ALLOWED_ACTION_DESTINATIONS)[number],
 			),
 	),
+);
+let unknownDestinationAllowed = $derived(
+	unknownDestination && isAllowedActionDestination(slide.actionUrl),
 );
 let desktopDetails = $derived(
 	slide.desktopAssetId ? assetDetails[slide.desktopAssetId] : undefined,
@@ -234,7 +241,9 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 						{/each}
 						{#if unknownDestination}
 							<option value={slide.actionUrl}>
-								{slide.actionUrl} — {$t('admin.campaigns.destination.notAllowed')}
+								{slide.actionUrl}{unknownDestinationAllowed
+									? ''
+									: ` — ${$t('admin.campaigns.destination.notAllowed')}`}
 							</option>
 						{/if}
 					</select>
@@ -379,6 +388,13 @@ function setLocalized(field: "title" | "body" | "alt" | "actionLabel", value: st
 	.body-input {
 		min-height: 4.5rem;
 		line-height: 1.55;
+	}
+
+	/* A published campaign is read-only; the greying is the second cue after
+	   the banner above the editor. */
+	.settings-input:disabled {
+		opacity: 0.72;
+		cursor: not-allowed;
 	}
 
 	.field-foot {

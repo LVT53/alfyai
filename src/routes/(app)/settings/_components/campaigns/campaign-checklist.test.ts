@@ -145,6 +145,35 @@ describe("evaluateCampaignChecklist", () => {
 		).toHaveLength(2);
 	});
 
+	it("accepts an allow-listed destination that carries a query string, as the server does", () => {
+		expect(
+			evaluateCampaignChecklist(
+				campaign({
+					slides: [
+						slide({
+							actionUrl: "/chat?new=1",
+							actionLabelEn: "Open chat",
+							actionLabelHu: "Chat megnyitása",
+						}),
+					],
+				}),
+			).ready,
+		).toBe(true);
+		expect(
+			evaluateCampaignChecklist(
+				campaign({
+					slides: [
+						slide({
+							actionUrl: "internal:chatgpt-import",
+							actionLabelEn: "Import",
+							actionLabelHu: "Importálás",
+						}),
+					],
+				}),
+			).ready,
+		).toBe(false);
+	});
+
 	it("accepts only allow-listed action destinations", () => {
 		expect(
 			evaluateCampaignChecklist(

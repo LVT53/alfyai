@@ -51,9 +51,7 @@ describe("CreateUserModal", () => {
 		const password = screen.getByLabelText("Password") as HTMLInputElement;
 		expect(password.value.length).toBeGreaterThanOrEqual(12);
 		expect(password.type).toBe("text");
-		expect(
-			screen.getByRole("button", { name: "Create User" }),
-		).toBeDisabled();
+		expect(screen.getByRole("button", { name: "Create User" })).toBeDisabled();
 	});
 
 	it("states what an admin is allowed to do before the role is chosen", () => {

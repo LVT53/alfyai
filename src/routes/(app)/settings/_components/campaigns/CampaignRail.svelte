@@ -48,7 +48,7 @@ function metaLine(campaign: Campaign): string {
 
 <div class="campaign-rail">
 	<p class="eyebrow">{$t('admin.campaigns.title')}</p>
-	<button type="button" class="btn-primary w-full justify-center" disabled={busy} onclick={onCreate}>
+	<button type="button" class="btn-primary w-full justify-center gap-1.5" disabled={busy} onclick={onCreate}>
 		<Plus size={14} strokeWidth={2} aria-hidden="true" />
 		{$t('admin.campaigns.newCampaign')}
 	</button>

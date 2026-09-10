@@ -17,7 +17,7 @@ import {
 	Trash2,
 	TriangleAlert,
 } from "@lucide/svelte";
-import { slide as slideTransitionFn } from "svelte/transition";
+import { fade, slide as slideTransitionFn } from "svelte/transition";
 import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.svelte";
 import CampaignModal from "$lib/components/campaigns/CampaignModal.svelte";
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
@@ -70,6 +70,7 @@ import {
 } from "./campaigns/campaign-checklist";
 
 const bannerSlide = reducedMotionAware(slideTransitionFn);
+const editorFade = reducedMotionAware(fade);
 
 type EditableSlide = CampaignSlide & {
 	localId: string;
@@ -1026,7 +1027,7 @@ onMount(() => {
 						{:else}
 							<button
 								type="button"
-								class="btn-primary"
+								class="btn-primary gap-1.5"
 								disabled={!canDuplicate}
 								onclick={duplicateCampaign}
 							>
@@ -1073,7 +1074,12 @@ onMount(() => {
 
 				{#if activeSlide}
 					{@const slide = activeSlide}
+					<!-- Keyed on the slide so opening another one swaps the editor; the
+					     incoming card fades in, and there is deliberately no outgoing
+					     transition, which would briefly stack two cards and jump the
+					     page height. -->
 					{#key slide.localId}
+						<div in:editorFade={{ duration: 140 }}>
 						<SlideEditor
 							{slide}
 							slideNumber={activeSlideIndex + 1}
@@ -1094,6 +1100,7 @@ onMount(() => {
 							onAssetRecrop={(variant) => recropAsset(slide.localId, variant)}
 							onAssetRemove={(variant) => removeAsset(slide.localId, variant)}
 						/>
+						</div>
 					{/key}
 				{:else}
 					<p class="pane-note">{$t('admin.campaigns.noSlides')}</p>
@@ -1275,7 +1282,7 @@ onMount(() => {
 
 	@media (min-width: 1440px) {
 		.workbench {
-			grid-template-columns: 190px 152px minmax(0, 1fr) 336px;
+			grid-template-columns: 190px 152px minmax(0, 1fr) 360px;
 			grid-template-areas: "campaigns slides editor preview";
 		}
 	}
@@ -1481,11 +1488,10 @@ onMount(() => {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
+	/* The preview is the real user-facing modal, which draws its own card, so
+	   this wrapper only sizes it: full width on desktop, phone-width when the
+	   device toggle asks for it. */
 	.preview-frame {
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		background: var(--surface-page);
-		padding: 0.875rem;
 		transition: max-width var(--duration-emphasis) var(--ease-out);
 		max-width: 100%;
 		margin: 0 auto;
