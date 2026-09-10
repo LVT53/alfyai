@@ -26,7 +26,11 @@ let {
 } = $props();
 
 const bodySlide = reducedMotionAware(slide);
-const bodyId = `disclosure-${Math.random().toString(36).slice(2, 9)}`;
+// $props.id() rather than a random string: the settings page is server
+// rendered, and a random id differs between the server's HTML and the
+// client's first render, so `aria-controls` would mismatch on hydration.
+const uid = $props.id();
+const bodyId = `disclosure-${uid}`;
 </script>
 
 <div class="disclosure">
