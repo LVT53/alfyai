@@ -738,11 +738,85 @@ function verdictSection(markdown: string): string {
 }
 
 /**
+ * Number words a verdict may answer with instead of a digit: cardinals to
+ * twelve and ordinals to tenth, in both report languages. "An eight-week
+ * statutory decision timeline [1]" answers the question asked as squarely as
+ * "8 weeks" does, and the digit-only rule scored it NO.
+ */
+const NUMBER_WORDS = new Set([
+	"one",
+	"two",
+	"three",
+	"four",
+	"five",
+	"six",
+	"seven",
+	"eight",
+	"nine",
+	"ten",
+	"eleven",
+	"twelve",
+	"first",
+	"second",
+	"third",
+	"fourth",
+	"fifth",
+	"sixth",
+	"seventh",
+	"eighth",
+	"ninth",
+	"tenth",
+	"egy",
+	"kettő",
+	"két",
+	"három",
+	"négy",
+	"öt",
+	"hat",
+	"hét",
+	"nyolc",
+	"kilenc",
+	"tíz",
+	"tizenegy",
+	"tizenkettő",
+	"tizenkét",
+	"első",
+	"második",
+	"harmadik",
+	"negyedik",
+	"ötödik",
+	"hatodik",
+	"hetedik",
+	"nyolcadik",
+	"kilencedik",
+	"tizedik",
+]);
+
+/**
+ * A sentence that carries a citation AND a number, spelled or in digits.
+ *
+ * Splitting on non-letters is what catches the hyphenated quantities a verdict
+ * is actually written in: "eight-week", "three-day", "két hetes".
+ */
+function sentenceAnswersWithWords(sentence: string): boolean {
+	if (!/\[\d{1,3}\]/.test(sentence)) return false;
+	const withoutCitations = sentence.replace(CITATION_PATTERN, " ");
+	if (/\d/.test(withoutCitations)) return true;
+	return withoutCitations
+		.toLowerCase()
+		.split(/[^\p{L}]+/u)
+		.some((word) => NUMBER_WORDS.has(word));
+}
+
+/**
  * Does the report state its answer in the first 150 words?
  *
- * "States its answer" is measured, not judged: a figure of at least two digits
- * inside the opening window. v2 scored 0/13 here because its executive summary
- * never survived to the rendered file at all.
+ * "States its answer" is measured, not judged. A figure of at least two digits
+ * inside the opening window is the strongest form of it — v2 scored 0/13 here
+ * because its executive summary never survived to the rendered file at all —
+ * but a verdict may answer in words: a sentence inside the window that carries
+ * a CITATION and a number, spelled or written, answers the question and cites
+ * what it rests on, which is everything this metric is asking after.
  */
 function verdictInWindow(markdown: string, windowWords = 150): boolean {
 	const opening = reportBody(markdown)
@@ -753,9 +827,48 @@ function verdictInWindow(markdown: string, windowWords = 150): boolean {
 		.split(/\s+/)
 		.slice(0, windowWords)
 		.join(" ");
-	return numbersIn(opening).some(
-		(number) => number.replace(/\D/g, "").length >= 2,
-	);
+	if (
+		numbersIn(opening).some((number) => number.replace(/\D/g, "").length >= 2)
+	)
+		return true;
+	return sentencesWithTrailingCitations(opening).some(sentenceAnswersWithWords);
+}
+
+/**
+ * A run of citation markers and confidence marks at the start of a fragment —
+ * everything the renderer put AFTER the full stop of the sentence before it.
+ * The confidence marks are modifier LETTERS, so they cannot be found by asking
+ * whether the fragment has any letters in it.
+ */
+const LEADING_CITATIONS = /^(?:\[\d{1,3}\]|[ᶜˢⁱ]|\s)+/u;
+
+/**
+ * Sentences, with the citations that FOLLOW the full stop kept on the sentence
+ * they belong to. The renderer writes "…decision timeline. [1]ˢ", so a naive
+ * split leaves every citation stranded in a fragment of its own and no sentence
+ * ever looks cited.
+ *
+ * The markers are peeled off the FRONT of the next fragment rather than the
+ * fragment being folded in whole: "…timeline. [1]ˢ Next sentence." splits into
+ * a fragment that carries both the citation of the first sentence and the whole
+ * of the second, and folding it in gave the citation to the sentence after the
+ * one that earned it.
+ */
+function sentencesWithTrailingCitations(text: string): string[] {
+	const sentences: string[] = [];
+	for (const piece of text.split(/(?<=[.!?])\s+/u)) {
+		const marks = piece.match(LEADING_CITATIONS)?.[0] ?? "";
+		const lead = marks.trim();
+		const previous = sentences.at(-1);
+		if (lead && previous !== undefined) {
+			sentences[sentences.length - 1] = `${previous} ${lead}`;
+			const rest = piece.slice(marks.length).trim();
+			if (rest) sentences.push(rest);
+			continue;
+		}
+		if (piece.trim()) sentences.push(piece);
+	}
+	return sentences;
 }
 
 const REDUNDANCY_STOPWORDS = new Set([
@@ -1880,6 +1993,7 @@ export {
 	repeatedFactCount,
 	reportBody,
 	sectionsCell,
+	sentencesWithTrailingCitations,
 	tableExpectedFor,
 	tablePresent,
 	verdictInWindow,

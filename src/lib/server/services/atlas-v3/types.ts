@@ -200,7 +200,10 @@ export interface AtlasV3OutlineNode {
 	claim: string;
 	/** What this node still needs, in the researcher's words. */
 	needs: string[];
-	/** Quote ids bound to this node. Two nodes may not share a set. */
+	/**
+	 * Quote ids bound to this node: every quote behind the claims it named. Two
+	 * nodes may share them; what they may not share is the ARGUMENT as well.
+	 */
 	evidenceIds: string[];
 	status: AtlasV3NodeStatus;
 }
@@ -209,6 +212,11 @@ export interface AtlasV3Outline {
 	nodes: AtlasV3OutlineNode[];
 	/** Nodes the revision cut, with why, for the diagnostics. */
 	cut: Array<{ id: string; title: string; reason: string }>;
+	/**
+	 * Sections appended deterministically because the model planned fewer than
+	 * the profile's `minSections`. Absent when the model met the floor itself.
+	 */
+	supplemented?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -447,6 +455,8 @@ export interface AtlasV3QualityDiagnostics {
 	claimCount: number;
 	verifiedClaimCount: number;
 	contestedClaimCount: number;
+	/** Readings joined by the loose identity match, not by the strict key. */
+	claimsMerged: number;
 	answerTableCells: number;
 	derivedFigures: number;
 	criticRounds: number;
@@ -457,6 +467,8 @@ export interface AtlasV3QualityDiagnostics {
 	pagesRead: number;
 	sectionsPlanned: number;
 	sectionsWritten: number;
+	/** Sections appended because the outline model fell below `minSections`. */
+	sectionsSupplemented: number;
 	wordCount: number;
 	writerRunaways: {
 		length: number;

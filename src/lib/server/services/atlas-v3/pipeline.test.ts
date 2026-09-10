@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
 import type { AtlasPipelineJobContext } from "../atlas/types";
+import { getAtlasV3ProfileConfig } from "./config";
 import type { AtlasV3ModelCall, AtlasV3ModelCalls } from "./model-call";
 import { runAtlasV3Pipeline } from "./pipeline";
 import { fakeModel, fakeResearchWeb, readAnswer } from "./test-support";
@@ -583,5 +584,194 @@ describe("runAtlasV3Pipeline", () => {
 		);
 		expect(rewrites.length).toBeGreaterThan(1);
 		expect(rewrites.at(-1)?.prompt).toContain("needs a second publisher");
+	});
+
+	it("checkpoints the critic's research round like any other", async () => {
+		const { checkpoints } = await run({
+			criticFindings: [
+				{
+					code: "unsupported_figure",
+					nodeId: "n2",
+					quote: "Rooftop installations fell 21% across the bloc.",
+					detail: "the 21% figure needs a second publisher",
+					instruction: {
+						kind: "needs_evidence",
+						query: "EU rooftop solar 2025",
+					},
+				},
+			],
+		});
+		const research = checkpoints.filter((entry) => entry.phase === "research");
+		// Round one, plus the critic's; the quotes it fetched are on the row.
+		expect(research.length).toBeGreaterThan(1);
+		expect(research.map((entry) => entry.roundNumber)).toContain(12);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Depth: an in-depth outline the model answered with two nodes
+// ---------------------------------------------------------------------------
+
+const DEPTH_JOB: AtlasPipelineJobContext = {
+	...JOB,
+	profile: "in-depth",
+	query: "What do the twenty EU energy indicators say about 2025?",
+};
+
+/** Twenty distinct claims, one quote each, over ten sources. */
+function buildDepthFakes() {
+	const questions = Array.from(
+		{ length: 5 },
+		(_unused, index) => `EU indicator group ${index + 1}`,
+	);
+	const pages: Record<string, string> = {};
+	const hitsByQuestion = new Map<string, ReturnType<typeof hitsForQuestion>>();
+	questions.forEach((question, index) => {
+		const hits = hitsForQuestion(index);
+		hitsByQuestion.set(question, hits);
+		for (const hit of hits) pages[hit.url] = "page body";
+	});
+	const web = fakeResearchWeb({
+		hits: (question) => hitsByQuestion.get(question) ?? [],
+		pages,
+	});
+
+	const readResponses: Record<string, string> = {};
+	for (let source = 1; source <= 10; source += 1) {
+		const first = source * 2 - 1;
+		const second = source * 2;
+		readResponses[`v3:read:s${source}`] = readAnswer({
+			quotes: [
+				`Indicator ${first} stood at ${first} GW in 2025.`,
+				`Indicator ${second} stood at ${second} GW in 2025.`,
+			],
+			claims: [first, second].map((number, position) => ({
+				entity: "EU",
+				metric: `indicator ${number}`,
+				value: String(number),
+				unit: "GW",
+				period: "2025",
+				series: `series ${number}`,
+				quoteIndexes: [position],
+			})),
+		});
+	}
+
+	const researcher = fakeModel({
+		"v3:searchplan": JSON.stringify({ queries: ["q"] }),
+		"v3:note": JSON.stringify({ summary: "Read the indicator table." }),
+		...readResponses,
+	});
+	// The regression: an in-depth outline over twenty claims, answered with two
+	// sections. The profile asks for five.
+	const control = fakeModel({
+		"v3:memo": JSON.stringify({
+			answerSoFar: "Twenty indicators were published for 2025.",
+			claimIds: Array.from({ length: 20 }, (_unused, i) => `c${i + 1}`),
+		}),
+		"v3:outline": JSON.stringify({
+			nodes: [
+				{
+					id: "n1",
+					title: "Indicator one led the table in 2025",
+					claim: "Indicator one is the headline reading for 2025.",
+					claimIds: ["c1"],
+				},
+				{
+					id: "n2",
+					title: "Indicator two moved against it",
+					claim: "Indicator two moved the other way in 2025.",
+					claimIds: ["c2"],
+				},
+			],
+		}),
+		"v3:trial": JSON.stringify({
+			lead: "Indicator 3 stood at 3 GW in 2025.",
+			supportable: true,
+		}),
+	});
+	// Writes back the quotes it was handed, one sentence each: whatever node the
+	// outline produced, supplemented or planned, is written from its own evidence.
+	const writer = fakeModel({
+		"v3:write:": (prompt: string) =>
+			JSON.stringify({
+				paragraphs: [
+					{
+						sentences: [
+							...prompt.matchAll(/\{"id":"(e\d+)","text":"([^"]+)"/g),
+						].map((match) => ({
+							text: match[2],
+							evidenceIds: [match[1]],
+							kind: "claim",
+							calcId: null,
+						})),
+					},
+				],
+				showAnswerTable: false,
+			}),
+		"v3:verdict": JSON.stringify({
+			sentences: [
+				{
+					text: "Indicator 1 stood at 1 GW in 2025.",
+					evidenceIds: ["e1"],
+					kind: "synthesis",
+					calcId: null,
+				},
+			],
+		}),
+	});
+
+	return {
+		researchWeb: web,
+		models: {
+			ask: fakeModel({
+				"v3:ask": JSON.stringify({
+					decision: "What the 2025 indicator table shows",
+					coreQuestion: "What do the EU energy indicators say about 2025?",
+					title: "EU energy indicators, 2025",
+					shape: "explanation",
+					implicitRequirements: [],
+					perspectives: [],
+					subQuestions: questions,
+				}),
+			}).call,
+			researcher: researcher.call,
+			outline: control.call,
+			writer: writer.call,
+			critic: fakeModel({}).call,
+			verifier: control.call,
+		} as AtlasV3ModelCalls,
+		writeCheckpoint: async () => {},
+		renderOutputs: async () => ({
+			fileProductionJobId: "fp-1",
+			htmlChatGeneratedFileId: "html-1",
+			pdfChatGeneratedFileId: "pdf-1",
+			markdownChatGeneratedFileId: "md-1",
+		}),
+		researcherConcurrency: 1,
+		criticRounds: 0,
+		profileOverrides: { rounds: 1 },
+	};
+}
+
+describe("runAtlasV3Pipeline, in-depth depth floor", () => {
+	it("reaches minSections when the model plans two over twenty claims", async () => {
+		const result = await runAtlasV3Pipeline({
+			job: DEPTH_JOB,
+			now: new Date("2026-09-10T00:00:00Z"),
+			dependencies: buildDepthFakes() as unknown as Parameters<
+				typeof runAtlasV3Pipeline
+			>[0]["dependencies"],
+		});
+		const minSections = getAtlasV3ProfileConfig("in-depth").minSections;
+		expect(result.diagnostics.sectionsPlanned).toBeGreaterThanOrEqual(
+			minSections,
+		);
+		expect(result.diagnostics.sectionsSupplemented).toBe(minSections - 2);
+		// Every supplemented section carries evidence and is written from it.
+		expect(result.diagnostics.sectionsWritten).toBeGreaterThanOrEqual(
+			minSections,
+		);
+		expect(result.abstained).toBe(false);
 	});
 });

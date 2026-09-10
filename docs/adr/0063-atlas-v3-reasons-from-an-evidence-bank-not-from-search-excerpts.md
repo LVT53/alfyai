@@ -24,7 +24,7 @@ The 2025–2026 literature converges on five scaffolding lessons that are implem
 1. **Ask** (`ask.ts`) — one control-model call restates the request as a decision and returns implicit requirements, stakeholder perspectives, the report's shape (comparison / explanation / forecast / timeline / mixed), the core question and a title. Thinking off, tight cap, deterministic fallback derived from the request.
 2. **Evidence bank** (`evidence-bank.ts`) — keyed verbatim quotes (`e12`) carrying url, title, host, publisher, date and **tier**, plus structured claims `{entity, metric, value, unit, period, asOf, series, evidenceIds}` extracted per page by a small "read for a goal" call. Sources are tiered (regulators, statistics offices, standards bodies, manufacturers and primary documents above major press, above aggregators, above forums and marketplaces) with a per-language native preference list. Dedupe by canonical URL and article identity, reusing v2's identity functions. **Page text never enters a later prompt**: only quotes and claims leave the bank.
 3. **Research rounds** (`researcher.ts`, `workspace.ts`, `rounds.ts`) — sub-questions fan out to isolated researcher calls at `ATLAS_V3_RESEARCHER_CONCURRENCY`. Each issues `ATLAS_V3_SEARCHES_PER_STEP` (3–5) searches through v2's `research_web` adapter with a **visible budget block** in the prompt, reads the top-tier pages for a stated goal, and returns a cleaned findings note. The round memo — `{answerSoFar, claims[], openQuestions[], deadEnds[], budgetUsed}` — is **rewritten** from the notes each round, never appended to.
-4. **Living outline** (`outline.ts`) — sections are claims to defend, ordered by the reader's decision, each node listing the evidence it needs and the evidence ids it has. Rewritten after every round (expand, merge, cut). A node with thin evidence is trial-written and scored before it is committed. Two sections may not rest on the same evidence set.
+4. **Living outline** (`outline.ts`) — sections are claims to defend, ordered by the reader's decision, each node listing the evidence it needs and the evidence ids it has. Rewritten after every round (expand, merge, cut). A node with thin evidence is trial-written and scored before it is committed. Two sections may not rest on the same evidence set — amended by the second evaluation to: two sections may not make the same argument from the same evidence.
 5. **Goal test** (`goal.ts`) — stopping is a test, not a counter: the core question's claim table carries its key figures from **at least two independent publishers**, every outline node has at least `ATLAS_V3_MIN_EVIDENCE_PER_NODE` bound ids, and budget remains. Otherwise another round targets the named gaps, or the report **abstains** — a first-class outcome that renders as such rather than padding.
 6. **Answer table** (`answer-table.ts`) — the structured answer the shape implies (comparison matrix, timeline, figure table), one evidence id per cell. Every delta, ratio and growth rate is computed through `run_python` from cited inputs; the model never does arithmetic.
 7. **Writer** (`writer.ts`) — ONE writer, section by section, retrieve → think → write → prune. It sees the outline, the answer table, the text of the sections already written, and only its own section's evidence ids, which are dropped afterwards. It must synthesise across sources, adjudicate conflicts by naming the series or definition, date volatile figures inline, and may carry numbers computed in step 6. The executive summary is a **verdict** generated from the answer table plus the sections; an empty verdict **fails the job**.
@@ -105,6 +105,75 @@ whose title-plus-claim word sets overlap by half, or whose claim-id SETS are
 half the same set, are merged, recorded as "merged into <title>". Nodes naming
 different years never merge, and the merge does not run over the deterministic
 outline, whose nodes are one per distinct `entity — metric` already.
+
+## Amendments, second evaluation (2026-09-10)
+
+The ten queries were re-run against the amendments above. Corroboration,
+abstention and the verdict fallback held; **depth collapsed**. In-depth reports
+came back at two or three sections and 276–1000 words against 1800–2800, and the
+cause was the interaction between two of the fixes above.
+
+**A section keeps every quote its claims carry.** Binding was EXCLUSIVE — a node
+received only the quotes no earlier node had taken, and one whose quotes were
+all taken was cut. That rule was written when a quote belonged to one claim;
+once claims merged across sources, most quotes belonged to several, and the rule
+starved every node after the first. A node now carries all the quotes behind its
+claims, shared or not, best-supported claim first so the writer's
+`maxEvidencePerSection` cap falls on the least corroborated, and its status is
+computed from that full set. A node is
+cut only when its whole evidence set is inside an earlier KEPT node's set **and**
+the two nodes' title-plus-claim words overlap by a third: two sections arguing
+different things from one teardown are two sections. Cross-section repetition
+falls to the writer, which is shown the sections already written, to the critic's
+`repeated_claim`, and to the verification pass's restatement cap.
+
+**`minSentences` is two sentences per quote plus one, never below three.** The
+"evidence count plus one" cap of the first amendment, over the one or two
+exclusive quotes the binding left, is what wrote the two-sentence section.
+
+**The section floor is enforced, not merely declared.** The profiles have
+carried `minSections` from the start and nothing read it. The outline system
+prompt now states the range and the claim count in words, and after binding, an
+outline below the floor is topped up from the claims whose evidence NO node
+bound, grouped by normalised entity and metric, best-supported group first,
+titled as the deterministic outline titles its own nodes. A measurement a
+section already argues is never topped up a second time: the deterministic
+outline writes one section per entity and metric, and a second reading of one
+of them is the duplicate section the merge exists to cut. The count reaches the
+diagnostics as `sectionsSupplemented`.
+
+**Series is a label, not a measurement.** The loose merge required period and
+series to agree, and a bank of 164 claims kept most twins apart on exactly
+those: one context window written `{period:"May 2026", series:"max context
+length"}` by one publisher and `{period:"2026", series:"max context window"}` by
+another. Periods now agree when one is the bare year the other names; series no
+longer blocks a loose merge at all and keeps deciding CONTESTED through the
+strict key; metrics agree by containment or by MORE than half their words —
+strictly more, because `obligations start date` and `enforcement start date`
+share exactly half; entities agree after parenthesised qualifiers and a trailing
+model year are stripped, by equality, so `GPT-4.1 Mini` is still not `GPT-4.1`,
+and the year guard reads the entity too so a stripped year can still refuse.
+Stripping answers the qualifier ONE reader adds: where both wrote one and they
+differ, `Renault (France)` stays apart from `Renault (Germany)`, and an entity
+that normalises to nothing — `(EU)` against `(US)` — matches no one.
+Loose merges are counted as `claimsMerged`.
+
+**The evidence card carries what the report cited.** Each source's snippet is
+built cited-quotes-first and capped at 4000 characters rather than 1200, because
+the truncated tail made the evaluation report figures a cited quote does state
+as unsupported. The critic loop's research round writes its own `research`
+checkpoint, so the quotes it fetched survive for a post-mortem.
+
+**Limitations say only what is true of the report as shipped.** A node merged
+into another section is bookkeeping, kept in `outline.cut` and dropped from the
+list; a THIN node — one that cites a quote — reads "rests on a single source",
+and "no published source stated it" is reserved for a node with no evidence at
+all; an unsupported table cell quotes its own text beside its row and column.
+
+**The evaluation accepts a verdict that answers in words.** "An eight-week
+statutory decision timeline … [1]" answers the question and cites what it rests
+on; the digit-only rule scored it NO. A first-150-words sentence carrying a
+citation and a number, spelled or written, now passes too.
 
 ## Consequences
 

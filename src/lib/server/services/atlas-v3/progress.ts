@@ -35,8 +35,14 @@ export const ATLAS_V3_MAX_TITLE_CHARS = 160;
 /**
  * Per-source quote budget. Present so `scripts/atlas-eval.ts` can re-check
  * number matches offline from the job row instead of re-fetching the web.
+ *
+ * 1200 characters truncated eight sources on one staging job, and the
+ * evaluation then flagged figures the CITED quote states — NICE's "from 123 to
+ * 107-115 per 1,000" among them — as unsupported. The card must carry at least
+ * the quotes the report rests on, so the cited ones are written first and the
+ * budget is wide enough to hold a page's worth of them.
  */
-export const ATLAS_V3_MAX_EVIDENCE_SNIPPET_CHARS = 1200;
+export const ATLAS_V3_MAX_EVIDENCE_SNIPPET_CHARS = 4000;
 
 export const ATLAS_V3_PHASE_DURATION_KEYS = [
 	"ask",
@@ -222,23 +228,34 @@ export function buildAtlasV3ProgressEvidence(input: {
 		],
 	});
 	const citedSourceIds = new Set(input.citations.numberBySourceId.keys());
+	const citedEvidenceIds = new Set(input.citations.numberByEvidenceId.keys());
 	const sources: AtlasV3ProgressEvidenceSource[] = citations.sources.map(
-		(source, index) => ({
-			n: index + 1,
-			title: source.title,
-			host: source.host,
-			date: source.date,
-			cited: citedSourceIds.has(source.id),
-			// The QUOTES, not the page: the harness re-checks number matches
-			// against exactly what the writer was allowed to see.
-			snippet: input.bank.quotes
-				.filter((quote) => quote.sourceId === source.id)
-				.map((quote) => quote.text)
-				.join(" ")
-				.replace(/\s+/g, " ")
-				.trim()
-				.slice(0, ATLAS_V3_MAX_EVIDENCE_SNIPPET_CHARS),
-		}),
+		(source, index) => {
+			// The QUOTES, not the page: the harness re-checks number matches against
+			// exactly what the writer was allowed to see. The ones a sentence
+			// actually CITES come first, because the cap falls on the tail and a
+			// truncated cited quote reads to the harness as an invented figure.
+			const quotes = input.bank.quotes.filter(
+				(quote) => quote.sourceId === source.id,
+			);
+			const ordered = [
+				...quotes.filter((quote) => citedEvidenceIds.has(quote.id)),
+				...quotes.filter((quote) => !citedEvidenceIds.has(quote.id)),
+			];
+			return {
+				n: index + 1,
+				title: source.title,
+				host: source.host,
+				date: source.date,
+				cited: citedSourceIds.has(source.id),
+				snippet: ordered
+					.map((quote) => quote.text)
+					.join(" ")
+					.replace(/\s+/g, " ")
+					.trim()
+					.slice(0, ATLAS_V3_MAX_EVIDENCE_SNIPPET_CHARS),
+			};
+		},
 	);
 	return {
 		corroborated: input.totals.corroborated,
@@ -409,6 +426,7 @@ function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 		claimCount: nonNegativeInteger(record.claimCount),
 		verifiedClaimCount: nonNegativeInteger(record.verifiedClaimCount),
 		contestedClaimCount: nonNegativeInteger(record.contestedClaimCount),
+		claimsMerged: nonNegativeInteger(record.claimsMerged),
 		answerTableCells: nonNegativeInteger(record.answerTableCells),
 		derivedFigures: nonNegativeInteger(record.derivedFigures),
 		criticRounds: nonNegativeInteger(record.criticRounds),
@@ -419,6 +437,7 @@ function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 		pagesRead: nonNegativeInteger(record.pagesRead),
 		sectionsPlanned: nonNegativeInteger(record.sectionsPlanned),
 		sectionsWritten: nonNegativeInteger(record.sectionsWritten),
+		sectionsSupplemented: nonNegativeInteger(record.sectionsSupplemented),
 		wordCount: nonNegativeInteger(record.wordCount),
 		writerRunaways: {
 			length: nonNegativeInteger(runaways.length),

@@ -17,6 +17,7 @@ import {
 	repeatedFactCount,
 	reportBody,
 	sectionsCell,
+	sentencesWithTrailingCitations,
 	tableExpectedFor,
 	tablePresent,
 	verdictInWindow,
@@ -680,6 +681,90 @@ describe("verdictInWindow", () => {
 		expect(
 			verdictInWindow(`## Background\n\n${filler}\nIt was 65.1 GW. [1]\n`),
 		).toBe(false);
+	});
+
+	/**
+	 * The staging run's Cork City verdict. It answers the question asked, cites
+	 * what it rests on, and states its quantities in words; the digit-only rule
+	 * scored it NO.
+	 */
+	it("passes a cited answer stated in number words", () => {
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nResidential planning permission in Cork City follows an eight-week statutory decision timeline. [1]ˢ\n",
+			),
+		).toBe(true);
+	});
+
+	it("passes a Hungarian answer stated in number words", () => {
+		expect(
+			verdictInWindow(
+				"## Ítélet\n\nA döntés három hónapon belül megszületik a hiánytalan kérelem beérkezésétől. [2]ˢ\n",
+			),
+		).toBe(true);
+	});
+
+	it("still fails a cited sentence carrying no number at all", () => {
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nWarranty structures fundamentally shape the repair landscape here. [1]ˢ\n",
+			),
+		).toBe(false);
+	});
+
+	it("still fails a number word with nothing citing it", () => {
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nThe process runs to eight weeks, as practitioners describe it. ⁱ\n",
+			),
+		).toBe(false);
+	});
+
+	/**
+	 * The citation sits AFTER the full stop, so the fragment it starts also
+	 * carries the whole of the next sentence. Folding that fragment in whole
+	 * gave the citation to the sentence after the one that earned it: a verdict
+	 * whose number and whose citation were in different sentences scored YES,
+	 * and one whose cited answer was followed by any further prose scored NO.
+	 */
+	it("gives a trailing citation to the sentence before it, not after", () => {
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nWarranty structures shape the repair landscape. [1]ˢ It runs to eight weeks in practice.\n",
+			),
+		).toBe(false);
+		expect(
+			verdictInWindow(
+				"## Verdict\n\nIt runs to eight weeks in practice. [1]ˢ Warranty structures shape the repair landscape.\n",
+			),
+		).toBe(true);
+	});
+});
+
+describe("sentencesWithTrailingCitations", () => {
+	it("keeps each sentence's own citations with it", () => {
+		expect(
+			sentencesWithTrailingCitations(
+				"It follows an eight-week timeline. [1]ˢ Next sentence. [2][3]ᶜ",
+			),
+		).toEqual([
+			"It follows an eight-week timeline. [1]ˢ",
+			"Next sentence. [2][3]ᶜ",
+		]);
+	});
+
+	it("leaves a sentence that opens the text with its citation", () => {
+		expect(sentencesWithTrailingCitations("[1]ˢ It was 65.1 GW.")).toEqual([
+			"[1]ˢ It was 65.1 GW.",
+		]);
+	});
+
+	it("splits plain prose the way a naive split would", () => {
+		expect(sentencesWithTrailingCitations("One. Two! Three?")).toEqual([
+			"One.",
+			"Two!",
+			"Three?",
+		]);
 	});
 });
 

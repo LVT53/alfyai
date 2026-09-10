@@ -12,6 +12,7 @@ import type {
 	AtlasV3WrittenSection,
 } from "./types";
 import {
+	atlasV3TableFailureSubject,
 	atlasV3WordCount,
 	capAtlasV3ToWordBudget,
 	isAtlasV3StaleSource,
@@ -447,6 +448,45 @@ describe("verifyAtlasV3AnswerTable", () => {
 
 	it("returns nothing for no table", () => {
 		expect(verifyAtlasV3AnswerTable({ table: null, bank: bank() })).toEqual([]);
+	});
+
+	it("blames a cell with no evidence without naming a figure twice", () => {
+		const failures = verifyAtlasV3AnswerTable({
+			table: {
+				...TABLE,
+				rows: [
+					{
+						year: { text: "2025", evidenceIds: [] },
+						additions: { text: "€1,035 per unit", evidenceIds: [] },
+					},
+				],
+			},
+			bank: bank(),
+		});
+		expect(failures).toHaveLength(1);
+		expect(failures[0].detail).toBe("stated with no evidence behind it");
+	});
+});
+
+describe("atlasV3TableFailureSubject", () => {
+	it("names the cell's row, column AND text", () => {
+		expect(
+			atlasV3TableFailureSubject({
+				rowLabel: "Application fee",
+				columnLabel: "Amount",
+				text: "€1,035 per unit",
+			}),
+		).toBe('Application fee · Amount "€1,035 per unit"');
+	});
+
+	it("survives a row with no label", () => {
+		expect(
+			atlasV3TableFailureSubject({
+				rowLabel: "",
+				columnLabel: "Amount",
+				text: "  €1,035  ",
+			}),
+		).toBe('Amount "€1,035"');
 	});
 });
 

@@ -103,9 +103,12 @@ describe("atlasV3SectionBudget", () => {
 		const config = getAtlasV3ProfileConfig("in-depth");
 		const budget = atlasV3SectionBudget({ config, sectionCount: 3 });
 		expect(budget.minSentences).toBeGreaterThan(3);
-		// Two quotes buy three sentences, never the word share's target.
-		expect(atlasV3BudgetForNode(budget, 2).minSentences).toBe(3);
-		expect(atlasV3BudgetForNode(budget, 0).minSentences).toBe(2);
+		// Two quotes buy five sentences: a figure, its definition and what it
+		// implies, twice over, plus the one that draws them together.
+		expect(atlasV3BudgetForNode(budget, 2).minSentences).toBe(5);
+		// Never below three, whatever the evidence count says.
+		expect(atlasV3BudgetForNode(budget, 0).minSentences).toBe(3);
+		expect(atlasV3BudgetForNode(budget, 1).minSentences).toBe(3);
 		// A node with plenty of evidence keeps the budget's own floor.
 		expect(atlasV3BudgetForNode(budget, 40).minSentences).toBe(
 			budget.minSentences,
@@ -120,7 +123,11 @@ describe("atlasV3SectionBudget", () => {
 		expect(
 			atlasV3SectionBudget({ config, sectionCount: 3, evidenceCount: 1 })
 				.minSentences,
-		).toBe(2);
+		).toBe(3);
+		expect(
+			atlasV3SectionBudget({ config, sectionCount: 3, evidenceCount: 4 })
+				.minSentences,
+		).toBe(9);
 	});
 });
 

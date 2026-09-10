@@ -389,4 +389,115 @@ describe("atlasV3GoalLimitations", () => {
 			true,
 		);
 	});
+
+	/**
+	 * A section citing [5] cannot say no source stated it. Thin means one
+	 * publisher, and the reader can check that against the section itself.
+	 */
+	it("says a thin section rests on a single source", () => {
+		const outline: AtlasV3Outline = {
+			nodes: [
+				{
+					id: "n2",
+					title: "Rooftop share",
+					claim: "Rooftop demand drove the fall.",
+					needs: [],
+					evidenceIds: ["e3"],
+					status: "thin",
+				},
+			],
+			cut: [],
+		};
+		const verdict = runAtlasV3GoalTest({
+			memo: MEMO,
+			outline,
+			bank: bank(),
+			config,
+			roundsRun: 2,
+		});
+		const english = atlasV3GoalLimitations({
+			verdict,
+			outline,
+			memo: MEMO,
+			bank: bank(),
+		});
+		expect(
+			english.some((entry) => entry.reason === "rests on a single source"),
+		).toBe(true);
+		expect(
+			english.every((entry) => !entry.reason.includes("no published source")),
+		).toBe(true);
+		const hungarian = atlasV3GoalLimitations({
+			verdict,
+			outline,
+			memo: MEMO,
+			bank: bank(),
+			language: "hu",
+		});
+		expect(
+			hungarian.some((entry) => entry.reason === "egyetlen forráson nyugszik"),
+		).toBe(true);
+	});
+
+	it("keeps `no published source stated it` for a node with no evidence", () => {
+		const outline: AtlasV3Outline = {
+			nodes: [
+				{
+					id: "n2",
+					title: "Rooftop share",
+					claim: "Rooftop demand drove the fall.",
+					needs: [],
+					evidenceIds: [],
+					status: "planned",
+				},
+			],
+			cut: [],
+		};
+		const verdict = runAtlasV3GoalTest({
+			memo: MEMO,
+			outline,
+			bank: bank(),
+			config,
+			roundsRun: 2,
+		});
+		expect(
+			atlasV3GoalLimitations({
+				verdict,
+				outline,
+				memo: MEMO,
+				bank: bank(),
+			}).some((entry) => entry.reason === "no published source stated it"),
+		).toBe(true);
+	});
+
+	it("drops a merged node: it is in the report, under another heading", () => {
+		const outline: AtlasV3Outline = {
+			nodes: [],
+			cut: [
+				{ id: "n2", title: "Rooftop share", reason: "merged into Additions" },
+				{ id: "n3", title: "Warranty", reason: "no evidence was found" },
+			],
+		};
+		const verdict = runAtlasV3GoalTest({
+			memo: MEMO,
+			outline,
+			bank: bank(),
+			config,
+			roundsRun: 2,
+		});
+		const limitations = atlasV3GoalLimitations({
+			verdict,
+			outline,
+			memo: MEMO,
+			bank: bank(),
+		});
+		expect(
+			limitations.every((entry) => !entry.reason.startsWith("merged")),
+		).toBe(true);
+		expect(limitations.some((entry) => entry.subject === "Warranty")).toBe(
+			true,
+		);
+		// The cut list itself keeps it, for the diagnostics.
+		expect(outline.cut).toHaveLength(2);
+	});
 });

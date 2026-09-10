@@ -93,6 +93,7 @@ import {
 	type AtlasV3WrittenSection,
 } from "./types";
 import {
+	atlasV3TableFailureSubject,
 	atlasV3WordCount,
 	capAtlasV3ToWordBudget,
 	pruneAtlasV3AnswerTable,
@@ -737,6 +738,7 @@ export async function runAtlasV3Pipeline(
 		outline: resolvedOutline,
 		memo: resolvedMemo,
 		bank,
+		language,
 	});
 	let sections = written.sections;
 	let verdictFallback = false;
@@ -836,6 +838,16 @@ export async function runAtlasV3Pipeline(
 			const result = await researchRound(roundsRun, queries, resolvedMemo);
 			asked.push(...result.queries);
 			needsEvidenceResolved += state.quotes.length - before;
+			// The critic's round is a research round: without its own checkpoint the
+			// quotes it fetched are invisible to a post-mortem, and a resume would
+			// pay for them twice. The memo stays the pipeline's own — the critic's
+			// research answers a finding, it does not rewrite the answer so far.
+			await checkpoint("research", CHECKPOINT_ROUND.research + roundsRun, {
+				round: roundsRun,
+				bank: freezeAtlasV3Bank(state),
+				memo: resolvedMemo,
+				asked,
+			});
 			for (const note of result.notes) {
 				const nodeId = nodeByQuery.get(note.subQuestion);
 				if (!nodeId || note.quotes.length === 0) continue;
@@ -1092,7 +1104,7 @@ export async function runAtlasV3Pipeline(
 		// prune keeps the admission and drops the figures after it.
 		if (failure.kind !== "unsupported") continue;
 		limitations.push({
-			subject: `${failure.rowLabel} · ${failure.columnLabel}`.trim(),
+			subject: atlasV3TableFailureSubject(failure),
 			reason: failure.detail,
 		});
 	}
@@ -1148,6 +1160,7 @@ export async function runAtlasV3Pipeline(
 		claimCount: claimCounts.total,
 		verifiedClaimCount: claimCounts.verified,
 		contestedClaimCount: claimCounts.contested,
+		claimsMerged: state.claimsMerged,
 		answerTableCells: verifiedTable
 			? verifiedTable.rows.length * verifiedTable.columns.length
 			: 0,
@@ -1162,6 +1175,7 @@ export async function runAtlasV3Pipeline(
 		pagesRead: sourcesRead,
 		sectionsPlanned: sectionCounts.planned,
 		sectionsWritten: verifiedSections.length,
+		sectionsSupplemented: resolvedOutline.supplemented ?? 0,
 		wordCount: atlasV3WordCount(verifiedSections, verifiedVerdict),
 		writerRunaways: { ...written.runaways },
 	};

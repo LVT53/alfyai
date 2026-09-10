@@ -406,13 +406,11 @@ export function verifyAtlasV3AnswerTable(input: {
 			}
 			if (cell.evidenceIds.length === 0) {
 				// Non-numeric or numeric alike: a cell outside the label column that
-				// nothing backs is a claim with no source.
+				// nothing backs is a claim with no source. The Limitations line quotes
+				// the cell itself, so the reason names no figure of its own.
 				failures.push({
 					...base,
-					detail:
-						figures.length > 0
-							? `"${figures[0].text}" is stated with no evidence behind it`
-							: "stated with no evidence behind it",
+					detail: "stated with no evidence behind it",
 					kind: "unsupported",
 				});
 				continue;
@@ -435,6 +433,30 @@ export function verifyAtlasV3AnswerTable(input: {
 		}
 	}
 	return failures;
+}
+
+/** The longest a quoted cell may run inside a Limitations subject. */
+const MAX_CELL_SUBJECT_CHARS = 120;
+
+/**
+ * The Limitations line an unsupported cell owes the reader: where the cell was,
+ * and WHAT IT SAID.
+ *
+ * "Fees · Amount — stated with no evidence behind it" named the coordinates of
+ * a cell that now reads "not published", so the reader could see that something
+ * had gone without ever learning what. The cell text is the one part of it they
+ * might still act on.
+ */
+export function atlasV3TableFailureSubject(
+	failure: Pick<AtlasV3TableFailure, "rowLabel" | "columnLabel" | "text">,
+): string {
+	const cell = failure.text.replace(/\s+/g, " ").trim();
+	const parts = [failure.rowLabel, failure.columnLabel]
+		.map((part) => part.replace(/\s+/g, " ").trim())
+		.filter(Boolean)
+		.join(" · ");
+	const quoted = cell ? `"${cell.slice(0, MAX_CELL_SUBJECT_CHARS)}"` : "";
+	return [parts, quoted].filter(Boolean).join(" ");
 }
 
 /** Drops the cells verification could not support, keeping the table honest. */

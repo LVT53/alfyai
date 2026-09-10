@@ -8,14 +8,15 @@
 //
 // A v3 node is a CLAIM the report will defend, it lists the evidence it needs,
 // it carries the evidence ids it has, and it is rewritten after every research
-// round. Two nodes may not rest on the same evidence set — enforced
-// deterministically, after the model answers, because it is the rule the model
-// is least able to keep.
+// round. Two nodes may not make the same ARGUMENT from the same evidence —
+// enforced deterministically, after the model answers, because it is the rule
+// the model is least able to keep. Resting on the same quotes is allowed and
+// ordinary: a comparison reads one teardown for price and for repairability.
 
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { parseJsonFromText } from "../atlas/json-extract";
 import { ATLAS_V3_MAX_OUTPUT_TOKENS } from "./config";
-import { atlasV3NormalizeWords } from "./evidence-bank";
+import { atlasV3NormalizeField, atlasV3NormalizeWords } from "./evidence-bank";
 import { isLabelShapedTitle } from "./language-standard";
 import type { AtlasV3ModelCall } from "./model-call";
 import type {
@@ -69,6 +70,17 @@ function capitalise(value: string): string {
 	return value ? value[0].toUpperCase() + value.slice(1) : value;
 }
 
+/**
+ * Word overlap above which two nodes resting on the same quotes are ONE
+ * section. Below it they are two arguments from one body of evidence, which is
+ * what a comparison is made of.
+ */
+const ATLAS_V3_SAME_ARGUMENT_OVERLAP = 0.3;
+/** Word overlap above which two nodes are the same section under two names. */
+const ATLAS_V3_DUPLICATE_NODE_OVERLAP = 0.5;
+/** The reason prefix a merged node carries. Bookkeeping, not a limitation. */
+export const ATLAS_V3_MERGED_INTO_REASON = "merged into";
+
 export const ATLAS_V3_OUTLINE_SYSTEM: Record<SupportedLanguage, string> = {
 	en: [
 		"You plan the sections of a research report. Return STRICT JSON only, no prose and no code fence.",
@@ -91,6 +103,27 @@ export const ATLAS_V3_OUTLINE_SYSTEM: Record<SupportedLanguage, string> = {
 		"Ne tervezz olyan szakaszt, amit a bizonyíték nem tud kitölteni. A négy megvédett szakaszos jelentés jobb, mint a nyolc szakaszos, amelyből három bevallja, hogy nem talált semmit.",
 	].join("\n"),
 };
+
+/**
+ * The outline system prompt with the section RANGE stated in it.
+ *
+ * The range lived in the prompt's JSON, where the model treated it as data it
+ * could ignore: one staging run answered an in-depth query holding 74 claims
+ * with two nodes. A profile that asks for five sections has to SAY so, in the
+ * same voice as the rest of the instructions.
+ */
+export function atlasV3OutlineSystem(input: {
+	language: SupportedLanguage;
+	minSections: number;
+	maxSections: number;
+	claimCount: number;
+}): string {
+	const line =
+		input.language === "hu"
+			? `Tervezz ${input.minSections} és ${input.maxSections} közötti számú szakaszt; a bizonyíték ${input.claimCount} állítást tartalmaz.`
+			: `Plan between ${input.minSections} and ${input.maxSections} sections; the evidence holds ${input.claimCount} claims.`;
+	return `${ATLAS_V3_OUTLINE_SYSTEM[input.language]}\n${line}`;
+}
 
 export interface BuildAtlasV3OutlinePromptInput {
 	ask: AtlasV3Ask;
@@ -121,6 +154,7 @@ export function buildAtlasV3OutlinePrompt(
 		currentDate: input.currentDate,
 		round: input.round,
 		sectionCount: { min: input.minSections, max: input.maxSections },
+		claimCount: input.memo.claimIds.length,
 		answerSoFar: input.memo.answerSoFar,
 		openQuestions: input.memo.openQuestions,
 		deadEnds: input.memo.deadEnds,
@@ -259,6 +293,35 @@ function namesDifferentYears(left: Set<string>, right: Set<string>): boolean {
 	return false;
 }
 
+/** Shared words over the union. Zero when either side has no words at all. */
+function wordOverlap(left: ReadonlySet<string>, right: ReadonlySet<string>) {
+	if (left.size === 0 || right.size === 0) return 0;
+	let shared = 0;
+	for (const word of left) if (right.has(word)) shared += 1;
+	const union = left.size + right.size - shared;
+	return union === 0 ? 0 : shared / union;
+}
+
+/** The words a node ARGUES in: its title and its claim, normalised. */
+function argumentWords(node: { title: string; claim: string }): Set<string> {
+	return new Set(atlasV3NormalizeWords(`${node.title} ${node.claim}`));
+}
+
+/** True when every id on the left is already on the right. Never for empty. */
+function isEvidenceSubset(
+	inner: readonly string[],
+	outer: ReadonlySet<string>,
+): boolean {
+	return inner.length > 0 && inner.every((id) => outer.has(id));
+}
+
+/** A claim's section group: one section per `entity — metric`, normalised. */
+function claimGroupKey(claim: AtlasV3Claim): string {
+	return `${atlasV3NormalizeField(claim.entity)}|${atlasV3NormalizeField(
+		claim.metric,
+	)}`;
+}
+
 /**
  * Merges outline nodes that are the same section twice.
  *
@@ -288,10 +351,8 @@ export function mergeAtlasV3DuplicateNodes(
 ): { nodes: ParsedAtlasV3OutlineNode[]; cut: AtlasV3Outline["cut"] } {
 	const kept: ParsedAtlasV3OutlineNode[] = [];
 	const cut: AtlasV3Outline["cut"] = [];
-	const wordsOf = (node: ParsedAtlasV3OutlineNode) =>
-		new Set(atlasV3NormalizeWords(`${node.title} ${node.claim}`));
 	for (const node of nodes) {
-		const words = wordsOf(node);
+		const words = argumentWords(node);
 		const years = yearsIn(`${node.title} ${node.claim}`);
 		const twin = kept.find((existing) => {
 			if (
@@ -301,11 +362,12 @@ export function mergeAtlasV3DuplicateNodes(
 				)
 			)
 				return false;
-			const existingWords = wordsOf(existing);
-			let shared = 0;
-			for (const word of words) if (existingWords.has(word)) shared += 1;
-			const union = words.size + existingWords.size - shared;
-			if (union > 0 && shared / union >= 0.5) return true;
+			if (
+				wordOverlap(words, argumentWords(existing)) >=
+				ATLAS_V3_DUPLICATE_NODE_OVERLAP
+			) {
+				return true;
+			}
 			const ids = new Set([...node.claimIds, ...existing.claimIds]);
 			if (ids.size === 0) return false;
 			const overlap = node.claimIds.filter((id) =>
@@ -330,21 +392,29 @@ export function mergeAtlasV3DuplicateNodes(
 		cut.push({
 			id: node.id,
 			title: node.title,
-			reason: `merged into ${twin.title}`,
+			reason: `${ATLAS_V3_MERGED_INTO_REASON} ${twin.title}`,
 		});
 	}
 	return { nodes: kept, cut };
 }
 
 /**
- * Binds quote ids to nodes and enforces the rule the model cannot keep: **two
- * sections may not rest on the same evidence set.**
+ * Binds quote ids to nodes: a node keeps **every** quote behind the claims it
+ * named, shared with earlier nodes or not.
  *
- * A node's evidence is the quotes behind the claims it named. Where two nodes
- * would carry identical sets, the later one loses the overlap; if that leaves
- * it with nothing, it is marked `cut` with the reason, because a section whose
- * evidence another section already used is exactly the duplicate section v2
- * shipped three times per report.
+ * Exclusivity used to be the rule here — each node got only the quotes no
+ * earlier node had taken, and a node whose quotes were all taken was cut. Once
+ * claims merged across sources, most quotes belonged to several claims, so the
+ * rule starved every node after the first: a staging in-depth run read 57 pages
+ * and 74 claims and shipped two sections of 276 words.
+ *
+ * What is actually forbidden is the same ARGUMENT twice. A node is cut only
+ * when its whole evidence set is already inside an earlier kept node's set AND
+ * the two nodes' title-plus-claim words overlap by
+ * `ATLAS_V3_SAME_ARGUMENT_OVERLAP` — price and repairability read the same
+ * teardown, and they are two sections, not one. Repetition between sections
+ * that legitimately share quotes is the writer's problem, and the writer is
+ * shown the sections already written precisely so it does not repeat them.
  */
 export function bindAtlasV3Evidence(input: {
 	nodes: ParsedAtlasV3OutlineNode[];
@@ -366,63 +436,87 @@ export function bindAtlasV3Evidence(input: {
 		input.mergeDuplicates === false
 			? { nodes: input.nodes, cut: [] as AtlasV3Outline["cut"] }
 			: mergeAtlasV3DuplicateNodes(input.nodes);
-	const taken = new Set<string>();
 	const nodes: AtlasV3OutlineNode[] = [];
 	const cut: AtlasV3Outline["cut"] = [...merged.cut];
+	const kept: Array<{ evidence: Set<string>; words: Set<string> }> = [];
 
 	for (const node of merged.nodes) {
 		const wanted: string[] = [];
-		for (const claimId of node.claimIds) {
-			for (const evidenceId of claimsById.get(claimId)?.evidenceIds ?? []) {
+		// Best supported FIRST. The writer is handed only
+		// `maxEvidencePerSection` quotes and a node that names several merged
+		// claims now carries many more than that; truncating in the order the
+		// model happened to list its claim ids would drop the corroborated quotes
+		// and keep the single-source ones.
+		for (const claim of claimsBySupport(
+			node.claimIds.map((claimId) => claimsById.get(claimId)),
+		)) {
+			for (const evidenceId of claim.evidenceIds) {
 				if (!wanted.includes(evidenceId)) wanted.push(evidenceId);
 			}
 		}
-		const exclusive = wanted.filter((evidenceId) => !taken.has(evidenceId));
-		if (wanted.length > 0 && exclusive.length === 0) {
+		const words = argumentWords(node);
+		const twin = kept.find(
+			(entry) =>
+				isEvidenceSubset(wanted, entry.evidence) &&
+				wordOverlap(words, entry.words) >= ATLAS_V3_SAME_ARGUMENT_OVERLAP,
+		);
+		if (twin) {
 			cut.push({
 				id: node.id,
 				title: node.title,
 				reason:
-					"every quote this section would rest on already belongs to an earlier section",
+					"an earlier section already makes this argument from the same quotes",
 			});
 			continue;
 		}
-		for (const evidenceId of exclusive) taken.add(evidenceId);
+		kept.push({ evidence: new Set(wanted), words });
 		nodes.push({
 			id: node.id,
 			title: node.title,
 			claim: node.claim,
 			needs: node.needs,
-			evidenceIds: exclusive,
-			status:
-				exclusive.length >= input.minEvidencePerNode
-					? "ready"
-					: exclusive.length > 0
-						? "thin"
-						: "planned",
+			evidenceIds: wanted,
+			status: atlasV3NodeStatus(wanted.length, input.minEvidencePerNode),
 		});
 	}
 	return { nodes, cut };
+}
+
+/** A node's status from its FULL evidence set. */
+function atlasV3NodeStatus(
+	evidenceCount: number,
+	minEvidencePerNode: number,
+): AtlasV3OutlineNode["status"] {
+	if (evidenceCount >= minEvidencePerNode) return "ready";
+	return evidenceCount > 0 ? "thin" : "planned";
+}
+
+/** Status rank of a group, best-supported first. */
+const CLAIM_STATUS_RANK: Record<AtlasV3Claim["status"], number> = {
+	verified: 0,
+	single: 1,
+	contested: 2,
+	open: 3,
+};
+
+/** The live claims, best supported first: status, then quotes behind them. */
+function claimsBySupport(
+	claims: ReadonlyArray<AtlasV3Claim | undefined>,
+): AtlasV3Claim[] {
+	return claims
+		.filter((claim): claim is AtlasV3Claim => Boolean(claim))
+		.sort(
+			(left, right) =>
+				CLAIM_STATUS_RANK[left.status] - CLAIM_STATUS_RANK[right.status] ||
+				right.evidenceIds.length - left.evidenceIds.length,
+		);
 }
 
 /** The claim of a group a title should be built from: best supported first. */
 function bestSupportedClaim(
 	claims: ReadonlyArray<AtlasV3Claim | undefined>,
 ): AtlasV3Claim | null {
-	const live = claims.filter((claim): claim is AtlasV3Claim => Boolean(claim));
-	const rank: Record<AtlasV3Claim["status"], number> = {
-		verified: 0,
-		single: 1,
-		contested: 2,
-		open: 3,
-	};
-	return (
-		[...live].sort(
-			(left, right) =>
-				rank[left.status] - rank[right.status] ||
-				right.evidenceIds.length - left.evidenceIds.length,
-		)[0] ?? null
-	);
+	return claimsBySupport(claims)[0] ?? null;
 }
 
 /**
@@ -494,6 +588,118 @@ export function deterministicAtlasV3Outline(input: {
 		minEvidencePerNode: input.minEvidencePerNode,
 		mergeDuplicates: false,
 	});
+}
+
+/**
+ * Appends deterministic sections until the profile's floor is met.
+ *
+ * The profiles have declared `minSections` since the first commit and nothing
+ * ever enforced it: the outline model answered an in-depth query holding 74
+ * claims with two nodes, and a two-section in-depth report is the depth
+ * regression the second staging evaluation found. Saying the range in the
+ * prompt is half the fix; this is the half that does not depend on the model.
+ *
+ * Only claims carrying evidence NO node bound are eligible — a supplement is
+ * evidence the report would otherwise have read and never used — and they are
+ * grouped by normalised `entity + metric`, one section per group, best
+ * supported first, titled the way `deterministicAtlasV3Outline` titles its own
+ * nodes.
+ *
+ * A group the outline already argues is skipped: an unused quote about a
+ * measurement a section already makes its case from is a section the duplicate
+ * merge would have cut had the model planned it.
+ */
+export function supplementAtlasV3Outline(input: {
+	outline: AtlasV3Outline;
+	bank: AtlasV3EvidenceBank;
+	minSections: number;
+	maxSections: number;
+	minEvidencePerNode: number;
+}): AtlasV3Outline {
+	const live = input.outline.nodes.filter((node) => node.status !== "cut");
+	const floor = Math.min(input.minSections, input.maxSections);
+	if (live.length >= floor) return input.outline;
+
+	const bound = new Set(
+		input.outline.nodes.flatMap((node) => node.evidenceIds),
+	);
+	const groups = new Map<string, AtlasV3Claim[]>();
+	// The measurements the outline ALREADY rests on. A second reading of one of
+	// them is not a section the report is missing: `deterministicAtlasV3Outline`
+	// writes one section per `entity — metric`, and appending a second — "EU-27:
+	// solar additions 60.4 GW" under "EU-27: solar additions 65.1 GW" — is the
+	// duplicate section the whole outline machinery exists to prevent.
+	const argued = new Set<string>();
+	for (const claim of input.bank.claims) {
+		if (claim.evidenceIds.length === 0) continue;
+		if (claim.evidenceIds.every((id) => bound.has(id))) {
+			argued.add(claimGroupKey(claim));
+			continue;
+		}
+		const key = claimGroupKey(claim);
+		groups.set(key, [...(groups.get(key) ?? []), claim]);
+	}
+	for (const key of argued) groups.delete(key);
+	if (groups.size === 0) return input.outline;
+
+	const evidenceOf = (claims: readonly AtlasV3Claim[]) => {
+		const ids: string[] = [];
+		for (const claim of claims) {
+			for (const id of claim.evidenceIds) if (!ids.includes(id)) ids.push(id);
+		}
+		return ids;
+	};
+	const ordered = [...groups.values()].sort((left, right) => {
+		const leftBest = bestSupportedClaim(left);
+		const rightBest = bestSupportedClaim(right);
+		const byStatus =
+			CLAIM_STATUS_RANK[leftBest?.status ?? "open"] -
+			CLAIM_STATUS_RANK[rightBest?.status ?? "open"];
+		if (byStatus !== 0) return byStatus;
+		return evidenceOf(right).length - evidenceOf(left).length;
+	});
+
+	const nodes = [...input.outline.nodes];
+	const kept = live.map((node) => ({
+		evidence: new Set(node.evidenceIds),
+		words: argumentWords(node),
+	}));
+	let nextSuffix = nodes.length;
+	for (const node of nodes) {
+		const suffix = Number.parseInt(node.id.replace(/^\D+/, ""), 10);
+		if (Number.isFinite(suffix)) nextSuffix = Math.max(nextSuffix, suffix);
+	}
+	let supplemented = 0;
+	for (const group of ordered) {
+		if (live.length + supplemented >= floor) break;
+		const evidenceIds = evidenceOf(group);
+		const title = atlasV3ClaimTitle(bestSupportedClaim(group));
+		if (!title) continue;
+		const words = argumentWords({ title, claim: title });
+		const twin = kept.find(
+			(entry) =>
+				isEvidenceSubset(evidenceIds, entry.evidence) &&
+				wordOverlap(words, entry.words) >= ATLAS_V3_SAME_ARGUMENT_OVERLAP,
+		);
+		if (twin) continue;
+		nextSuffix += 1;
+		kept.push({ evidence: new Set(evidenceIds), words });
+		nodes.push({
+			id: `n${nextSuffix}`,
+			title,
+			claim: title,
+			needs: [],
+			evidenceIds,
+			status: atlasV3NodeStatus(evidenceIds.length, input.minEvidencePerNode),
+		});
+		supplemented += 1;
+	}
+	if (supplemented === 0) return input.outline;
+	return {
+		nodes,
+		cut: input.outline.cut,
+		supplemented: (input.outline.supplemented ?? 0) + supplemented,
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -602,7 +808,13 @@ export async function trialWriteAtlasV3Nodes(
 				"the evidence found could not support an opening claim for this section",
 		});
 	}
-	return { nodes, cut };
+	return {
+		nodes,
+		cut,
+		...(input.outline.supplemented === undefined
+			? {}
+			: { supplemented: input.outline.supplemented }),
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -634,7 +846,12 @@ export async function reviseAtlasV3Outline(
 			stage: `v3:outline:${input.round}`,
 			thinkingMode: "off",
 			maxOutputTokens: ATLAS_V3_MAX_OUTPUT_TOKENS.outline,
-			system: ATLAS_V3_OUTLINE_SYSTEM[input.language],
+			system: atlasV3OutlineSystem({
+				language: input.language,
+				minSections: input.minSections,
+				maxSections: input.maxSections,
+				claimCount: input.memo.claimIds.length,
+			}),
 			prompt: buildAtlasV3OutlinePrompt(input),
 		});
 		input.onUsage?.(call.usage);
@@ -678,10 +895,16 @@ export async function reviseAtlasV3Outline(
 				entry.id,
 			reason: entry.reason,
 		}));
-	const outline: AtlasV3Outline = {
-		nodes: bound.nodes,
-		cut: [...bound.cut, ...cutFromModel],
-	};
+	// The model is asked for a range and given the claim count; when it answers
+	// under the floor anyway, the evidence it left unused becomes the sections it
+	// did not plan.
+	const outline: AtlasV3Outline = supplementAtlasV3Outline({
+		outline: { nodes: bound.nodes, cut: [...bound.cut, ...cutFromModel] },
+		bank: input.bank,
+		minSections: input.minSections,
+		maxSections: input.maxSections,
+		minEvidencePerNode: input.minEvidencePerNode,
+	});
 	// An outline with nothing left is not an outline; the deterministic one at
 	// least names what the evidence actually holds. An outline whose every node
 	// bound ZERO quotes is the same failure wearing titles: it is what the
