@@ -27,6 +27,7 @@ import {
 	disconnectConnection,
 	fetchConnections,
 	fetchLocality,
+	recheckConnection,
 	setLocalDistill,
 	updateConnection,
 	updateOwnTracksHome,
@@ -242,6 +243,9 @@ let connectionsLoadFailed = $state(false);
 let localDistill = $state(false);
 let localityLoaded = $state(false);
 let localityLoading = $state(false);
+// Connections redesign — a locality read that failed is not the same answer
+// as "off". See loadLocality() below.
+let localityLoadFailed = $state(false);
 // Raised by SettingsConnectionsTab's onStartConnect/onReconnect callback
 // props; consumed by the ConnectWizardModal below (Issue 7.3).
 let connectWizardProvider = $state<ConnectionProvider | null>(null);
@@ -586,9 +590,14 @@ async function loadLocality() {
 	try {
 		const result = await fetchLocality();
 		localDistill = result.localDistill;
+		localityLoadFailed = false;
 	} catch {
-		// Non-fatal: toggle shows its default (off); user can retry by
-		// revisiting the tab.
+		// Connections redesign — this used to swallow with a comment saying
+		// the user could retry by revisiting the tab. The switch then showed
+		// "off" — a definite answer about where their data goes — when the
+		// truth was that we had no idea. The card now says so and offers the
+		// one action that fixes it.
+		localityLoadFailed = true;
 	} finally {
 		localityLoading = false;
 		localityLoaded = true;
@@ -702,6 +711,33 @@ async function disconnectConnectionById(id: string) {
 	// nothing on screen telling them there was anything to retry.
 	await disconnectConnection(id);
 	connections = connections.filter((conn) => conn.id !== id);
+}
+
+// Connections redesign — asks the provider whether one connection still
+// works and folds the answer back into the list.
+//
+// This is what finally calls checkConnectionHealth (health.ts), which had
+// never had a caller: status was only ever written as a side effect of a
+// provider read during a chat turn, so a revoked token read "Connected" on
+// this tab until a question happened to need it. The tab fires this when a
+// detail dialog opens — the moment the user is asking about that account —
+// rather than one network call per provider on every visit.
+async function recheckConnectionHealth(id: string) {
+	// Deliberately quiet on failure: the user asked to LOOK at a connection,
+	// not to change one, and a check that could not run has changed nothing
+	// and lost nothing. The row keeps the last status we knew. A recovery card
+	// here would be a message about our own bookkeeping.
+	try {
+		const fresh = await recheckConnection(id);
+		patchConnectionLocal(id, {
+			status: fresh.status,
+			statusDetail: fresh.statusDetail,
+			statusChangedAt: fresh.statusChangedAt,
+			lastUsedAt: fresh.lastUsedAt,
+		});
+	} catch {
+		// Intentionally ignored — see above.
+	}
 }
 
 function startConnect(provider: ConnectionProvider) {
@@ -1001,11 +1037,14 @@ $effect(() => {
 				onUpdateWriteAllowlist={updateConnectionWriteAllowlist}
 				onUpdateOwnTracksHome={updateConnectionOwnTracksHome}
 				onDisconnect={disconnectConnectionById}
+				onRecheck={recheckConnectionHealth}
 				onStartConnect={startConnect}
 				onReconnect={reconnectConnection}
 				onAskAgain={askAgainForCapability}
 				{localDistill}
 				localityLoading={localityLoading && !localityLoaded}
+				{localityLoadFailed}
+				onRetryLocality={loadLocality}
 				onToggleLocalDistill={toggleLocalDistill}
 			/>
 		{/if}

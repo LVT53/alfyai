@@ -69,6 +69,19 @@ async function stubConnections(
 			body: JSON.stringify({ localDistill: true }),
 		});
 	});
+	// Opening a detail dialog asks the server whether that connection still
+	// works. The connections themselves are stubbed, so the real route would
+	// 404 on ids that were never in the database; answer with the row we
+	// already handed the page so the recheck is a no-op.
+	await page.route("**/api/connections/*/recheck", async (route) => {
+		const id = new URL(route.request().url()).pathname.split("/").at(-2);
+		const connection = connections.find((conn) => conn.id === id);
+		await route.fulfill({
+			status: 200,
+			contentType: "application/json",
+			body: JSON.stringify({ connection }),
+		});
+	});
 }
 
 async function openConnectionsTab(page: Page) {
@@ -143,18 +156,20 @@ test.describe("settings connections tab", () => {
 		await expect(
 			page.getByTestId("connection-row-conn-nextcloud"),
 		).toContainText("Connected");
-		await expect(page.getByTestId("connection-row-conn-nextcloud")).toContainText(
-			"Last used",
-		);
+		await expect(
+			page.getByTestId("connection-row-conn-nextcloud"),
+		).toContainText("Last used");
 
 		const google = page.getByTestId("connection-row-conn-google");
 		await expect(google).toContainText("Needs sign-in again");
-		await expect(google).toContainText("stopped accepting the saved permission");
+		await expect(google).toContainText(
+			"stopped accepting the saved permission",
+		);
 		// A denied capability is named as denied, not silently missing.
 		await expect(google).toContainText("Contacts — not allowed");
-		await expect(
-			page.getByTestId("connection-recover-conn-google"),
-		).toHaveText("Sign in again");
+		await expect(page.getByTestId("connection-recover-conn-google")).toHaveText(
+			"Sign in again",
+		);
 
 		const github = page.getByTestId("connection-row-conn-github");
 		await expect(github).toContainText("Can't reach it");
@@ -230,9 +245,9 @@ test.describe("settings connections tab", () => {
 			dialog.getByRole("switch", { name: "Calendar" }),
 		).toBeVisible();
 		// Denied: a greyed line with the only action that can fix it.
-		await expect(
-			dialog.getByRole("switch", { name: "Contacts" }),
-		).toHaveCount(0);
+		await expect(dialog.getByRole("switch", { name: "Contacts" })).toHaveCount(
+			0,
+		);
 		await expect(
 			page.getByTestId("capability-contacts-ask-again"),
 		).toBeVisible();

@@ -346,6 +346,12 @@ const connectionsDict = {
 			"Summaries aim to keep the details your question needs. With this off, the cloud model you pick sees the calendar entries, files and mail your question touches.",
 		"connections.locality.badgeOn": "On",
 		"connections.locality.badgeOff": "Off",
+		// A locality read that failed is not the same answer as "off". The
+		// switch used to show "off" either way — a definite answer about where
+		// this user's data goes, given when we had no answer at all.
+		"connections.locality.badgeUnknown": "Unknown",
+		"connections.locality.unknown":
+			"We couldn't check where your connected data is processed. Nothing changed.",
 
 		// Detail dialog.
 		"connections.detail.whatAlfyMayUse": "What Alfy may use",
@@ -850,6 +856,9 @@ const connectionsDict = {
 			"Az összegzés igyekszik megőrizni a kérdésedhez szükséges részleteket. Ha ezt kikapcsolod, az általad választott felhőmodell látja azokat a naptárbejegyzéseket, fájlokat és leveleket, amelyeket a kérdésed érint.",
 		"connections.locality.badgeOn": "Be",
 		"connections.locality.badgeOff": "Ki",
+		"connections.locality.badgeUnknown": "Ismeretlen",
+		"connections.locality.unknown":
+			"Nem sikerült ellenőrizni, hol dolgozzuk fel a csatlakoztatott adataidat. Semmi nem változott.",
 
 		"connections.detail.whatAlfyMayUse": "Mit használhat az Alfy",
 		"connections.detail.howItBehaves": "Hogyan viselkedik",

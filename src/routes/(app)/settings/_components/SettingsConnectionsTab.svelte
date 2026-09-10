@@ -55,6 +55,10 @@ let {
 	onUpdateWriteAllowlist,
 	onUpdateOwnTracksHome,
 	onDisconnect,
+	// Connections redesign — asks the provider whether one connection still
+	// works. Fired when a detail dialog opens, which is the moment the user is
+	// actually asking that question; see openDetail() below.
+	onRecheck,
 	onStartConnect,
 	onReconnect,
 	// Connections redesign — re-runs the provider's consent flow asking for a
@@ -63,6 +67,10 @@ let {
 	onAskAgain,
 	localDistill = false,
 	localityLoading = false,
+	// A locality read that failed is not the same answer as "off" — the card
+	// says it does not know rather than asserting the safer-sounding value.
+	localityLoadFailed = false,
+	onRetryLocality,
 	onToggleLocalDistill,
 }: {
 	connections: ConnectionPublic[];
@@ -85,15 +93,28 @@ let {
 		next: { homeLat: number | null; homeLon: number | null },
 	) => void | Promise<void>;
 	onDisconnect: (id: string) => void | Promise<void>;
+	onRecheck?: (id: string) => void | Promise<void>;
 	onStartConnect: (provider: ConnectionProvider) => void;
 	onReconnect: (connectionId: string) => void;
 	onAskAgain?: (connectionId: string, capability: string) => void;
 	localDistill?: boolean;
 	localityLoading?: boolean;
+	localityLoadFailed?: boolean;
+	onRetryLocality?: () => void | Promise<void>;
 	onToggleLocalDistill: (next: boolean) => void | Promise<void>;
 } = $props();
 
 let selectedConnectionId = $state<string | null>(null);
+
+// Opening the dialog is also the moment to ask the provider whether this
+// connection still works — the status the row showed was last written by
+// whatever chat turn happened to use it, which can be weeks ago. The dialog
+// opens immediately with what we know and re-renders if the answer differs;
+// it never blocks on the network.
+function openDetail(id: string) {
+	selectedConnectionId = id;
+	void onRecheck?.(id);
+}
 const selectedConnection = $derived(
 	selectedConnectionId
 		? (connections.find((conn) => conn.id === selectedConnectionId) ?? null)
@@ -253,6 +274,8 @@ function nameList(capabilities: string[]): string {
 	<PrivacyCard
 		{localDistill}
 		loading={localityLoading}
+		loadFailed={localityLoadFailed}
+		onRetry={onRetryLocality}
 		onToggle={guardedToggleLocalDistill}
 	/>
 
@@ -337,7 +360,7 @@ function nameList(capabilities: string[]): string {
 					<ConnectionRow
 						connection={conn}
 						{formatters}
-						onOpenDetail={(id) => (selectedConnectionId = id)}
+						onOpenDetail={openDetail}
 						onRecover={onReconnect}
 					/>
 				{/each}

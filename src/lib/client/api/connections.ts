@@ -68,6 +68,23 @@ export async function updateConnection(
 	);
 }
 
+// Connections redesign — asks the server to ask the provider whether this
+// connection still works, and returns the refreshed connection.
+//
+// The status a row shows is otherwise only ever written as a side effect of a
+// provider read during a chat turn, so a token revoked at the provider reads
+// "Connected" here until a question happens to need it. The tab calls this
+// when a detail dialog opens — the moment the user is actually asking whether
+// this account still works.
+export async function recheckConnection(id: string): Promise<ConnectionPublic> {
+	const { connection } = await requestJson<{ connection: ConnectionPublic }>(
+		`/api/connections/${id}/recheck`,
+		{ method: "POST" },
+		"Failed to check this connection",
+	);
+	return connection;
+}
+
 export async function disconnectConnection(id: string): Promise<void> {
 	await requestVoid(
 		`/api/connections/${id}`,

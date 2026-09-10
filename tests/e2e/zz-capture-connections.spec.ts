@@ -142,6 +142,16 @@ async function stub(page: Page, connections: Stub[], status = 200) {
 			body: JSON.stringify({ localDistill: true }),
 		});
 	});
+	await page.route("**/api/connections/*/recheck", async (route) => {
+		const id = new URL(route.request().url()).pathname.split("/").at(-2);
+		await route.fulfill({
+			status: 200,
+			contentType: "application/json",
+			body: JSON.stringify({
+				connection: connections.find((conn) => conn.id === id),
+			}),
+		});
+	});
 	await page.route("**/api/connections/*/nextcloud-folders", async (route) => {
 		await route.fulfill({
 			status: 200,
@@ -156,7 +166,11 @@ async function stub(page: Page, connections: Stub[], status = 200) {
 			body: JSON.stringify({
 				devices: [
 					{ otUser: "lvt", otDevice: "phone-lvt", lastSeen: NOW - 240 },
-					{ otUser: "lvt", otDevice: "tablet-home", lastSeen: NOW - 86_400 * 6 },
+					{
+						otUser: "lvt",
+						otDevice: "tablet-home",
+						lastSeen: NOW - 86_400 * 6,
+					},
 					{ otUser: "anna", otDevice: "phone-anna", lastSeen: NOW - 660 },
 				],
 			}),
@@ -192,7 +206,6 @@ async function setTheme(page: Page, theme: "light" | "dark") {
 	}, theme);
 	expect(ok, `setting the ${theme} theme failed`).toBe(true);
 }
-
 
 // Escape can be swallowed by whichever layer owns it, so close deterministically
 // and wait until nothing is left over the page.
@@ -237,7 +250,9 @@ for (const theme of ["light", "dark"] as const) {
 				page.getByTestId("connection-detail-conn-nextcloud"),
 			).toBeVisible();
 			await page.waitForTimeout(300);
-			await page.screenshot({ path: `${OUT}/02-detail-nextcloud-${theme}.png` });
+			await page.screenshot({
+				path: `${OUT}/02-detail-nextcloud-${theme}.png`,
+			});
 
 			// Disconnect confirmation.
 			await page.getByTestId("connection-disconnect").click();
@@ -269,7 +284,9 @@ for (const theme of ["light", "dark"] as const) {
 				page.getByTestId("connection-detail-conn-owntracks"),
 			).toBeVisible();
 			await page.waitForTimeout(300);
-			await page.screenshot({ path: `${OUT}/06-detail-owntracks-${theme}.png` });
+			await page.screenshot({
+				path: `${OUT}/06-detail-owntracks-${theme}.png`,
+			});
 			await closeDialogs(page);
 
 			// Wizard — OAuth consent chooser.
@@ -281,7 +298,9 @@ for (const theme of ["light", "dark"] as const) {
 			await page.getByRole("button", { name: "Continue to Google" }).click();
 			await expect(page.getByTestId("wizard-not-set-up")).toBeVisible();
 			await page.waitForTimeout(300);
-			await page.screenshot({ path: `${OUT}/08-wizard-not-set-up-${theme}.png` });
+			await page.screenshot({
+				path: `${OUT}/08-wizard-not-set-up-${theme}.png`,
+			});
 			await closeDialogs(page);
 
 			// Wizard — mail path chooser.
@@ -301,7 +320,9 @@ for (const theme of ["light", "dark"] as const) {
 			await page.getByTestId("connections-add-owntracks").click();
 			await expect(page.getByLabel("phone-lvt")).toBeVisible();
 			await page.waitForTimeout(300);
-			await page.screenshot({ path: `${OUT}/11-wizard-owntracks-${theme}.png` });
+			await page.screenshot({
+				path: `${OUT}/11-wizard-owntracks-${theme}.png`,
+			});
 			await closeDialogs(page);
 
 			// Wizard — Nextcloud form.

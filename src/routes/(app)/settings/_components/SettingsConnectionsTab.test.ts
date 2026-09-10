@@ -53,11 +53,14 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 		onUpdateWriteAllowlist: vi.fn(),
 		onUpdateOwnTracksHome: vi.fn(),
 		onDisconnect: vi.fn(),
+		onRecheck: vi.fn(),
 		onStartConnect: vi.fn(),
 		onReconnect: vi.fn(),
 		onAskAgain: vi.fn(),
 		localDistill: false,
 		localityLoading: false,
+		localityLoadFailed: false,
+		onRetryLocality: vi.fn(),
 		onToggleLocalDistill: vi.fn(),
 		...overrides,
 	};
@@ -586,6 +589,93 @@ describe("SettingsConnectionsTab", () => {
 					name: /Summaries aim to keep the details/,
 				}),
 			).toBeInTheDocument();
+		});
+
+		it("says it does not know where data goes when the preference could not be read, rather than showing off", async () => {
+			// The old code swallowed the failed read and let the switch render
+			// its default. "Off" is a definite answer about where this user's
+			// data is processed, given at the moment we had no answer at all.
+			const onRetryLocality = vi.fn();
+			render(
+				SettingsConnectionsTab,
+				baseProps({ localityLoadFailed: true, onRetryLocality }),
+			);
+
+			const section = screen.getByTestId("connections-locality");
+			expect(
+				within(section).getByTestId("connections-locality-failed"),
+			).toBeInTheDocument();
+			expect(
+				within(section).getByTestId("connections-locality-state"),
+			).toHaveTextContent("Unknown");
+			// And it must not be flippable while we do not know what it is set
+			// to — a toggle from an unknown state would write a guess.
+			expect(
+				within(section).getByRole("switch", {
+					name: "Keep connected data on this device",
+				}),
+			).toBeDisabled();
+
+			await fireEvent.click(
+				within(section).getByRole("button", { name: /Try again/ }),
+			);
+			expect(onRetryLocality).toHaveBeenCalled();
+		});
+	});
+
+	// checkConnectionHealth had no caller at all: a row's status was only ever
+	// written as a side effect of a chat turn that happened to use the
+	// connection, so a revoked token read "Connected" here indefinitely.
+	describe("asking the provider whether a connection still works", () => {
+		it("rechecks the connection whose dialog was just opened", async () => {
+			const onRecheck = vi.fn();
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [makeConnection({ id: "conn-1" })],
+					onRecheck,
+				}),
+			);
+
+			await fireEvent.click(screen.getByTestId("connection-details-conn-1"));
+			expect(onRecheck).toHaveBeenCalledWith("conn-1");
+		});
+
+		it("rechecks nothing until a dialog is opened", () => {
+			const onRecheck = vi.fn();
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [
+						makeConnection({ id: "conn-1" }),
+						makeConnection({ id: "conn-2", provider: "nextcloud" }),
+					],
+					onRecheck,
+				}),
+			);
+
+			// Rendering the tab must not fire one network call per provider.
+			expect(onRecheck).not.toHaveBeenCalled();
+		});
+
+		it("opens the dialog even when the recheck is still in flight", async () => {
+			// The dialog shows what we already know immediately; the check is
+			// a refinement, never a gate.
+			const onRecheck = vi.fn(() => new Promise<void>(() => {}));
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [makeConnection({ id: "conn-1" })],
+					onRecheck,
+				}),
+			);
+
+			await fireEvent.click(screen.getByTestId("connection-details-conn-1"));
+			await waitFor(() => {
+				expect(
+					screen.getByTestId("connection-detail-conn-1"),
+				).toBeInTheDocument();
+			});
 		});
 	});
 });

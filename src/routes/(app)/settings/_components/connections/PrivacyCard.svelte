@@ -6,7 +6,7 @@
 // below the connect list and the add grid. It now reads as one sentence with
 // the fuller explanation in the tooltip, and carries a state badge so its
 // answer is legible without parsing the switch.
-import { Shield } from "@lucide/svelte";
+import { RefreshCw, Shield } from "@lucide/svelte";
 import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { t } from "$lib/i18n";
@@ -14,10 +14,20 @@ import { t } from "$lib/i18n";
 let {
 	localDistill,
 	loading = false,
+	// Connections redesign — the read failed, so we do NOT know where this
+	// user's connected data goes. The switch used to fall back to showing
+	// "off", which is a definite answer we did not have; the card now says so
+	// and offers the one action that fixes it. Reading it wrong here is a
+	// privacy answer read wrong, so it gets its own state rather than a
+	// default.
+	loadFailed = false,
+	onRetry,
 	onToggle,
 }: {
 	localDistill: boolean;
 	loading?: boolean;
+	loadFailed?: boolean;
+	onRetry?: () => void | Promise<void>;
 	onToggle: (next: boolean) => void | Promise<void>;
 } = $props();
 </script>
@@ -25,7 +35,7 @@ let {
 <section class="settings-card privacy-card" data-testid="connections-locality">
 	<Toggle
 		checked={localDistill}
-		disabled={loading}
+		disabled={loading || loadFailed}
 		ariaLabel={$t('connections.locality.headline')}
 		onChange={(next) => onToggle(next)}
 	/>
@@ -35,12 +45,30 @@ let {
 			{$t('connections.locality.summary')}
 			<InfoTooltip text={$t('connections.locality.tooltip')} />
 		</p>
+		{#if loadFailed}
+			<p class="privacy-unknown" data-testid="connections-locality-failed">
+				{$t('connections.locality.unknown')}
+				<button type="button" class="privacy-retry" onclick={() => onRetry?.()}>
+					<RefreshCw size={12} strokeWidth={2.2} aria-hidden="true" />
+					{$t('connections.actions.tryAgain')}
+				</button>
+			</p>
+		{/if}
 	</div>
-	<span class="privacy-badge" class:on={localDistill} data-testid="connections-locality-state">
+	<span
+		class="privacy-badge"
+		class:on={localDistill && !loadFailed}
+		class:unknown={loadFailed}
+		data-testid="connections-locality-state"
+	>
 		<Shield size={11} strokeWidth={2.2} aria-hidden="true" />
-		{localDistill
-			? $t('connections.locality.badgeOn')
-			: $t('connections.locality.badgeOff')}
+		{#if loadFailed}
+			{$t('connections.locality.badgeUnknown')}
+		{:else if localDistill}
+			{$t('connections.locality.badgeOn')}
+		{:else}
+			{$t('connections.locality.badgeOff')}
+		{/if}
 	</span>
 </section>
 
@@ -94,6 +122,51 @@ let {
 			color var(--duration-standard),
 			border-color var(--duration-standard),
 			background var(--duration-standard);
+	}
+
+	.privacy-unknown {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin: 0.5rem 0 0 0;
+		font-size: 0.8125rem;
+		line-height: 1.5;
+		color: var(--danger);
+	}
+
+	.privacy-retry {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3125rem;
+		padding: 0.25rem 0.5625rem;
+		border-radius: var(--radius-md);
+		border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+		background: transparent;
+		font: inherit;
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--danger);
+		cursor: pointer;
+		transition:
+			background var(--duration-standard),
+			border-color var(--duration-standard);
+	}
+
+	.privacy-retry:hover {
+		border-color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 8%, transparent);
+	}
+
+	.privacy-retry:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.privacy-badge.unknown {
+		color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+		background: color-mix(in srgb, var(--danger) 8%, transparent);
 	}
 
 	.privacy-badge.on {
