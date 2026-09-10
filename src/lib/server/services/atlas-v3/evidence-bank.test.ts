@@ -563,6 +563,75 @@ describe("atlasV3CorroboratingPublishersFor / atlasV3AlsoStatedBy", () => {
 		expect(atlasV3CorroboratingPublishersFor(bank, [])).toEqual([]);
 	});
 
+	it("widens only through the claim whose value the sentence states", () => {
+		const state = createAtlasV3Bank();
+		const iea = addAtlasV3Source(state, {
+			url: "https://iea.org/b",
+			title: "IEA",
+			publishedAt: "2025-12-01",
+		});
+		const bbc = addAtlasV3Source(state, {
+			url: "https://bbc.com/news/b",
+			title: "BBC",
+			publishedAt: "2025-12-02",
+		});
+		// One quote backs two facts; only the EU total is stated elsewhere.
+		const e1 = addAtlasV3Quote(state, {
+			sourceId: iea?.id ?? "",
+			text: "The EU added almost 70 GW in 2025; Germany alone added 17 GW.",
+			goal: "g",
+		});
+		const e2 = addAtlasV3Quote(state, {
+			sourceId: bbc?.id ?? "",
+			text: "Europe installed about 70 GW of solar in 2025.",
+			goal: "g",
+		});
+		addAtlasV3Claim(state, {
+			entity: "EU-27",
+			metric: "solar additions",
+			value: "70",
+			unit: "GW",
+			period: "2025",
+			asOf: null,
+			series: null,
+			evidenceIds: [e1?.id ?? "", e2?.id ?? ""],
+		});
+		addAtlasV3Claim(state, {
+			entity: "Germany",
+			metric: "solar additions",
+			value: "17",
+			unit: "GW",
+			period: "2025",
+			asOf: null,
+			series: null,
+			evidenceIds: [e1?.id ?? ""],
+		});
+		const bank = freezeAtlasV3Bank(state);
+		const e1Id = e1?.id ?? "";
+		expect(
+			atlasV3CorroboratingPublishersFor(
+				bank,
+				[e1Id],
+				"The EU added almost 70 GW of solar in 2025.",
+			),
+		).toHaveLength(2);
+		expect(
+			atlasV3CorroboratingPublishersFor(
+				bank,
+				[e1Id],
+				"Germany added 17 GW in 2025.",
+			),
+		).toHaveLength(1);
+		// No figure to discriminate on: the fact-level widening applies.
+		expect(
+			atlasV3CorroboratingPublishersFor(
+				bank,
+				[e1Id],
+				"Germany led the additions.",
+			),
+		).toHaveLength(2);
+	});
+
 	it("names the other publisher's quote for the writer", () => {
 		const { bank, e1, e9 } = factBank();
 		expect(atlasV3AlsoStatedBy(bank, e1)).toEqual([e9]);

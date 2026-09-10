@@ -121,6 +121,7 @@ function sentence(input: {
 	const publishers = atlasV3CorroboratingPublishersFor(
 		input.bank,
 		input.evidenceIds,
+		input.text,
 	);
 	return {
 		text: input.text,

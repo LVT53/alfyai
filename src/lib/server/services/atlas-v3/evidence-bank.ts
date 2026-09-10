@@ -21,6 +21,11 @@ import {
 	isSocialProfileHost,
 	isStatusStubText,
 } from "../atlas-v2/evidence-index";
+import {
+	extractFigures,
+	figureAppearsInText,
+	isCheckableFigure,
+} from "../atlas-v2/number-match";
 import { organisationForHost } from "../atlas-v2/publishers";
 import type { AtlasV3NativeSourceSet } from "./language-standard";
 import { atlasV3SourceTier, tierCanCorroborate } from "./source-tier";
@@ -602,13 +607,28 @@ export function atlasV3PublishersFor(
 export function atlasV3CorroboratingPublishersFor(
 	bank: AtlasV3EvidenceBank,
 	evidenceIds: readonly string[],
+	sentenceText?: string,
 ): string[] {
 	if (evidenceIds.length === 0) return [];
 	const cited = new Set(evidenceIds);
 	const widened = new Set(evidenceIds);
+	// One quote can back two facts — "the EU added 70 GW; Germany added 17 GW"
+	// — of which only one may be corroborated elsewhere. A sentence that states
+	// a figure widens only through the claims whose VALUE it states; a sentence
+	// with no checkable figure has nothing to discriminate on and widens
+	// through every claim its quotes belong to.
+	const figures = sentenceText
+		? extractFigures(sentenceText).filter(isCheckableFigure)
+		: [];
 	for (const claim of bank.claims) {
 		if (claim.status === "contested") continue;
 		if (!claim.evidenceIds.some((id) => cited.has(id))) continue;
+		if (figures.length > 0) {
+			const stated = `${claim.value} ${claim.unit ?? ""}`;
+			if (!figures.some((figure) => figureAppearsInText(figure, stated))) {
+				continue;
+			}
+		}
 		for (const id of claim.evidenceIds) widened.add(id);
 	}
 	return atlasV3PublishersFor(bank, [...widened]);

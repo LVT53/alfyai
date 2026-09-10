@@ -146,6 +146,7 @@ export function verifyAtlasV3Report(
 				const publishers = atlasV3CorroboratingPublishersFor(
 					input.bank,
 					sentence.evidenceIds,
+					sentence.text,
 				);
 				verified.confidence =
 					publishers.length >= 2
