@@ -221,6 +221,12 @@ export interface BuildAtlasV3DocumentSourceInput {
 	limitations: AtlasV3Limitation[];
 	/** True when the goal test failed; the report says so at the top. */
 	abstained: boolean;
+	/**
+	 * Sources the report NAMES but no sentence cites — an abstaining report's
+	 * "what was searched" list. Published in the evidence card so the reader can
+	 * continue the search by hand.
+	 */
+	extraSourceIds?: readonly string[];
 }
 
 export interface AtlasV3RenderResult {
@@ -256,6 +262,7 @@ export function buildAtlasV3DocumentSource(
 	const citations = assignAtlasV3CitationNumbers({
 		bank: input.bank,
 		citedEvidenceIds,
+		extraSourceIds: input.extraSourceIds ?? [],
 	});
 
 	const blocks: GeneratedDocumentBlock[] = [];

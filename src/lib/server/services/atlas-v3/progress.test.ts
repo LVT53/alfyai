@@ -102,6 +102,7 @@ describe("buildAtlasV3ProgressEvidence", () => {
 				corroborated: 1,
 				single: 0,
 				inferred: 0,
+				repeated: 0,
 				cut: 0,
 				needsEvidence: 0,
 			},

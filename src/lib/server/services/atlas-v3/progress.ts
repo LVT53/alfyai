@@ -395,6 +395,8 @@ function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 	return {
 		abstained: record.abstained === true,
 		verdictPresent: record.verdictPresent === true,
+		verdictFallback: record.verdictFallback === true,
+		repeatedSentences: nonNegativeInteger(record.repeatedSentences),
 		claimCount: nonNegativeInteger(record.claimCount),
 		verifiedClaimCount: nonNegativeInteger(record.verifiedClaimCount),
 		contestedClaimCount: nonNegativeInteger(record.contestedClaimCount),

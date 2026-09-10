@@ -474,8 +474,16 @@ export async function reviseAtlasV3Outline(
 		cut: [...bound.cut, ...cutFromModel],
 	};
 	// An outline with nothing left is not an outline; the deterministic one at
-	// least names what the evidence actually holds.
-	return outline.nodes.length > 0 ? outline : fallback();
+	// least names what the evidence actually holds. An outline whose every node
+	// bound ZERO quotes is the same failure wearing titles: it is what the
+	// staging run's thin-evidence query produced, and the writer then wrote
+	// nothing and the job died.
+	const anyEvidenceBound = outline.nodes.some(
+		(node) => node.evidenceIds.length > 0,
+	);
+	if (outline.nodes.length > 0 && anyEvidenceBound) return outline;
+	const deterministic = fallback();
+	return deterministic.nodes.length > 0 ? deterministic : outline;
 }
 
 /** Node ids that still need evidence, with what they need. */

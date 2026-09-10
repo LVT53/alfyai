@@ -453,12 +453,14 @@ describe("runAtlasV3Pipeline", () => {
 		expect(result.diagnostics.sectionsWritten).toBeGreaterThan(0);
 	});
 
-	it("fails loudly when the verdict is empty", async () => {
+	it("assembles the verdict from the sections when no draft parses", async () => {
 		const fakes = buildFakes();
 		const models = fakes.dependencies.models;
 		const writer = models.writer;
+		// Both the first call and the ONE retry come back empty: a finished report
+		// must still ship, with the fallback recorded in the diagnostics.
 		const silentWriter: AtlasV3ModelCall = async (call) =>
-			call.stage === "v3:verdict"
+			call.stage.startsWith("v3:verdict")
 				? {
 						text: JSON.stringify({ sentences: [] }),
 						finishReason: "stop",
@@ -470,18 +472,59 @@ describe("runAtlasV3Pipeline", () => {
 						},
 					}
 				: writer(call);
-		await expect(
-			runAtlasV3Pipeline({
-				job: JOB,
-				now: new Date("2026-09-10T00:00:00Z"),
-				dependencies: {
-					...fakes.dependencies,
-					models: { ...models, writer: silentWriter },
-				} as unknown as Parameters<
-					typeof runAtlasV3Pipeline
-				>[0]["dependencies"],
-			}),
-		).rejects.toThrow(/verdict/i);
+		const result = await runAtlasV3Pipeline({
+			job: JOB,
+			now: new Date("2026-09-10T00:00:00Z"),
+			dependencies: {
+				...fakes.dependencies,
+				models: { ...models, writer: silentWriter },
+			} as unknown as Parameters<typeof runAtlasV3Pipeline>[0]["dependencies"],
+		});
+		expect(result.status).toBe("succeeded");
+		expect(result.diagnostics.verdictPresent).toBe(true);
+		expect(result.diagnostics.verdictFallback).toBe(true);
+		expect(result.executiveSummaryMarkdown).toContain("65.1 GW");
+	});
+
+	it("abstains rather than failing when no section can be written", async () => {
+		const fakes = buildFakes();
+		const models = fakes.dependencies.models;
+		const writer = models.writer;
+		// Every writer call, JSON and plain-text floor alike, comes back unusable.
+		const muteWriter: AtlasV3ModelCall = async (call) =>
+			call.stage.startsWith("v3:write")
+				? {
+						text: "{}",
+						finishReason: "stop",
+						usage: {
+							inputTokens: 0,
+							outputTokens: 0,
+							totalTokens: 0,
+							costUsdMicros: 0,
+						},
+					}
+				: writer(call);
+		const result = await runAtlasV3Pipeline({
+			job: JOB,
+			now: new Date("2026-09-10T00:00:00Z"),
+			dependencies: {
+				...fakes.dependencies,
+				models: { ...models, writer: muteWriter },
+			} as unknown as Parameters<typeof runAtlasV3Pipeline>[0]["dependencies"],
+		});
+		expect(result.status).toBe("succeeded");
+		expect(result.abstained).toBe(true);
+		expect(result.diagnostics.abstained).toBe(true);
+		const blocks = fakes.document()?.blocks ?? [];
+		const headings = blocks.filter((block) => block.type === "heading");
+		expect(
+			headings.some(
+				(block) =>
+					block.type === "heading" && block.text === "What was searched",
+			),
+		).toBe(true);
+		// The sources reached still render, so the reader can carry on by hand.
+		expect(result.sourceCounts.accepted).toBeGreaterThan(0);
 	});
 
 	it("acts on a critic finding by cutting the sentence it names", async () => {

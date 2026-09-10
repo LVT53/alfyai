@@ -22,6 +22,7 @@ import {
 	type AtlasV3ProfileConfig,
 } from "./config";
 import { atlasV3PublishersFor } from "./evidence-bank";
+import { isLabelShapedTitle } from "./language-standard";
 import type {
 	AtlasV3EvidenceBank,
 	AtlasV3GoalVerdict,
@@ -191,6 +192,35 @@ export function buildAtlasV3Gaps(input: {
 }
 
 /**
+ * The core claim as a subject line: `entity: metric value unit`. "the central
+ * figure — only one independent publisher was found for it" told the reader
+ * nothing about WHICH figure, which is the one thing a Limitations line is for.
+ */
+export function atlasV3CoreClaimSubject(input: {
+	memo: AtlasV3Memo;
+	bank: AtlasV3EvidenceBank | null;
+}): string | null {
+	if (!input.bank) return null;
+	const claimsById = new Map(
+		input.bank.claims.map((claim) => [claim.id, claim]),
+	);
+	const claims = input.memo.claimIds
+		.map((id) => claimsById.get(id))
+		.filter((claim): claim is NonNullable<typeof claim> => Boolean(claim));
+	const best =
+		claims.find((claim) => claim.status === "verified") ??
+		claims.find((claim) => claim.status === "single") ??
+		claims[0];
+	if (!best) return null;
+	return `${best.entity}: ${best.metric} ${best.value}${
+		best.unit ? ` ${best.unit}` : ""
+	}`
+		.replace(/\s+/g, " ")
+		.trim()
+		.slice(0, 160);
+}
+
+/**
  * The Limitations lines a failed goal test produces: what could not be
  * established, and why. Never "five sentences were removed".
  */
@@ -198,11 +228,17 @@ export function atlasV3GoalLimitations(input: {
 	verdict: AtlasV3GoalVerdict;
 	outline: AtlasV3Outline;
 	memo: AtlasV3Memo;
+	/** Optional; without it the core figure cannot be named. */
+	bank?: AtlasV3EvidenceBank;
 }): Array<{ subject: string; reason: string }> {
 	const limitations: Array<{ subject: string; reason: string }> = [];
 	if (!input.verdict.coreCorroborated) {
 		limitations.push({
-			subject: "the central figure",
+			subject:
+				atlasV3CoreClaimSubject({
+					memo: input.memo,
+					bank: input.bank ?? null,
+				}) ?? "the central figure",
 			reason:
 				"only one independent publisher was found for it within the research budget",
 		});
@@ -210,8 +246,12 @@ export function atlasV3GoalLimitations(input: {
 	for (const nodeId of input.verdict.thinNodeIds) {
 		const node = input.outline.nodes.find((entry) => entry.id === nodeId);
 		if (!node) continue;
+		// A label-shaped claim ("providers — compliance deadline") is exactly the
+		// register defect the title repair exists for; it must not leak in here
+		// through the back door.
 		limitations.push({
-			subject: node.claim || node.title,
+			subject:
+				node.claim && !isLabelShapedTitle(node.claim) ? node.claim : node.title,
 			reason:
 				node.needs.length > 0
 					? `no published source was found for: ${node.needs.join("; ")}`

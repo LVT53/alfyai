@@ -62,6 +62,7 @@ export function verifyAtlasV3Report(
 		corroborated: 0,
 		single: 0,
 		inferred: 0,
+		repeated: 0,
 		cut: 0,
 		needsEvidence: 0,
 	};
@@ -211,24 +212,98 @@ export function isAtlasV3StaleSource(
 }
 
 /**
- * Cells whose figure no cited quote states. The table is verified with the same
- * rule as the prose, because a table cell is the easiest thing in the report to
- * get wrong and the easiest to check.
+ * What an unsupported cell is replaced by, in either report language. A cell
+ * whose text STARTS with one of these is already an admission that the figure
+ * was not published — "not published (July 2026 range $1,099.99–$1,599.00)" —
+ * and the honest repair is to keep the admission and drop the figures, not to
+ * report the figures as unsupported.
+ */
+export const ATLAS_V3_TABLE_PLACEHOLDERS = [
+	"not published",
+	"nincs közzétéve",
+] as const;
+
+export function isAtlasV3TablePlaceholder(text: string): boolean {
+	const normalized = text.trim().toLowerCase();
+	return ATLAS_V3_TABLE_PLACEHOLDERS.some((placeholder) =>
+		normalized.startsWith(placeholder),
+	);
+}
+
+export interface AtlasV3TableFailure {
+	column: string;
+	/** The column's own label, for a Limitations line a reader can follow. */
+	columnLabel: string;
+	/** The row's label-column text. */
+	rowLabel: string;
+	text: string;
+	detail: string;
+	/**
+	 * `unsupported` — a figure no cited quote states, or a factual cell with no
+	 * evidence at all. `placeholder` — the cell already says "not published" and
+	 * only its trailing figures have to go; no Limitations line is owed.
+	 */
+	kind: "unsupported" | "placeholder";
+}
+
+/**
+ * Cells the table may not keep. The table is verified with the same rule as the
+ * prose, because a table cell is the easiest thing in the report to get wrong
+ * and the easiest to check.
+ *
+ * Two rules beyond v2's figure check, both from the staging run:
+ *
+ *  - a cell that already SAYS "not published" but then lists figures is reduced
+ *    to the placeholder, with no Limitations line; and
+ *  - a non-numeric factual cell with no evidence at all ("Soldered RAM",
+ *    "SSD (replaceable)") is unsupported too. The figure check never saw those,
+ *    so they shipped uncited.
  */
 export function verifyAtlasV3AnswerTable(input: {
 	table: AtlasV3AnswerTable | null;
 	bank: AtlasV3EvidenceBank;
-}): Array<{ column: string; text: string; detail: string }> {
+}): AtlasV3TableFailure[] {
 	if (!input.table) return [];
 	const quotesById = new Map(
 		input.bank.quotes.map((quote) => [quote.id, quote]),
 	);
-	const failures: Array<{ column: string; text: string; detail: string }> = [];
+	const labelKey = input.table.columns[0]?.key ?? "";
+	const failures: AtlasV3TableFailure[] = [];
 	for (const row of input.table.rows) {
+		const rowLabel = (row[labelKey]?.text ?? "").trim();
 		for (const column of input.table.columns.slice(1)) {
 			const cell = row[column.key];
 			if (!cell?.text) continue;
+			const base = {
+				column: column.key,
+				columnLabel: column.label || column.key,
+				rowLabel,
+				text: cell.text,
+			};
 			const figures = extractFigures(cell.text).filter(isCheckableFigure);
+			if (isAtlasV3TablePlaceholder(cell.text)) {
+				if (figures.length > 0) {
+					failures.push({
+						...base,
+						detail: "the cell says the figure is not published",
+						kind: "placeholder",
+					});
+				}
+				continue;
+			}
+			if (cell.evidenceIds.length === 0) {
+				// Non-numeric or numeric alike: a cell outside the label column that
+				// nothing backs is a claim with no source.
+				failures.push({
+					...base,
+					detail:
+						figures.length > 0
+							? `"${figures[0].text}" is stated with no evidence behind it`
+							: "stated with no evidence behind it",
+					kind: "unsupported",
+				});
+				continue;
+			}
 			if (figures.length === 0) continue;
 			const haystack = cell.evidenceIds
 				.map((id) => quotesById.get(id)?.text ?? "")
@@ -237,11 +312,11 @@ export function verifyAtlasV3AnswerTable(input: {
 			for (const figure of figures) {
 				if (figureAppearsInText(figure, haystack)) continue;
 				failures.push({
-					column: column.key,
-					text: cell.text,
+					...base,
 					detail: haystack
 						? `"${figure.text}" does not appear in the quotes this cell cites`
 						: `"${figure.text}" is stated with no evidence behind it`,
+					kind: "unsupported",
 				});
 			}
 		}

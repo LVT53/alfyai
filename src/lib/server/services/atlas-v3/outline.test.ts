@@ -323,6 +323,26 @@ describe("reviseAtlasV3Outline", () => {
 		});
 		expect(outline.nodes.length).toBeGreaterThan(0);
 	});
+
+	it("falls back when EVERY node bound zero quotes", async () => {
+		// The staging failure: the model named claim ids the bank never held, so
+		// each node bound nothing, the writer wrote nothing and the job died.
+		const model = fakeModel({
+			"v3:outline": JSON.stringify({
+				nodes: [
+					{ id: "n1", title: "Population trend", claim: "a", claimIds: [] },
+					{ id: "n2", title: "Survey coverage", claim: "b", claimIds: [] },
+				],
+			}),
+		});
+		const outline = await reviseAtlasV3Outline({
+			...base,
+			runModel: model.call,
+		});
+		expect(outline.nodes.some((node) => node.evidenceIds.length > 0)).toBe(
+			true,
+		);
+	});
 });
 
 describe("parseAtlasV3Trial", () => {

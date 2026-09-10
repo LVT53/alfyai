@@ -40,6 +40,8 @@ import {
 	type AtlasV3Sentence,
 	type AtlasV3SentenceKind,
 	type AtlasV3Usage,
+	type AtlasV3VerifiedSection,
+	type AtlasV3VerifiedSentence,
 	type AtlasV3WrittenSection,
 } from "./types";
 
@@ -619,6 +621,7 @@ export const ATLAS_V3_VERDICT_SYSTEM: Record<SupportedLanguage, string> = {
 		"At most six sentences. Every figure carries evidence ids. Never a bracketed number, never a URL.",
 		"You may use a value from `answerTable.derived` by naming its id in `calcId`. Never compute a number yourself.",
 		"If the report could NOT answer the question, say so in the first sentence and say what is missing. Do not pad.",
+		"`doNotState`, when present, lists sentences a previous draft made whose figures no quote supports. Do not state them again, and do not refer back to them with `these`, `this` or `they`. Every sentence must stand on its own.",
 	].join("\n"),
 	hu: [
 		"A kutatási jelentést nyitó ÍTÉLETET írod. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -628,6 +631,7 @@ export const ATLAS_V3_VERDICT_SYSTEM: Record<SupportedLanguage, string> = {
 		"Legfeljebb hat mondat. Minden szám bizonyítékazonosítót visel. Soha szögletes zárójeles szám, soha URL.",
 		"Az `answerTable.derived` egy értékét a `calcId` megnevezésével használhatod. Te magad ne számolj.",
 		"Ha a jelentés NEM tudta megválaszolni a kérdést, az első mondat mondja ki ezt, és mondja meg, mi hiányzik. Ne tölts ki helyet.",
+		"A `doNotState`, ha szerepel, egy korábbi változat olyan mondatait sorolja fel, amelyek számait egyetlen idézet sem támasztja alá. Ne mondd ki őket újra, és ne utalj vissza rájuk („ezek”, „ez”, „azok”). Minden mondat álljon meg önmagában.",
 	].join("\n"),
 };
 
@@ -642,6 +646,12 @@ export interface BuildAtlasV3VerdictPromptInput {
 	/** True when the goal test failed and the verdict must say so. */
 	abstain: boolean;
 	limitations: Array<{ subject: string; reason: string }>;
+	/**
+	 * Sentences a previous draft stated that verification could not support.
+	 * Named so the regeneration does not simply write them again — and so the
+	 * sentences that referred back to them are not orphaned a second time.
+	 */
+	doNotState?: string[];
 }
 
 export function buildAtlasV3VerdictPrompt(
@@ -671,6 +681,9 @@ export function buildAtlasV3VerdictPrompt(
 		})),
 		limitations: input.limitations,
 		evidence: input.evidence,
+		...(input.doNotState && input.doNotState.length > 0
+			? { doNotState: input.doNotState }
+			: {}),
 		maxSentences: 6,
 		verdictWindowWords: ATLAS_V3_VERDICT_WINDOW_WORDS,
 	});
@@ -709,17 +722,35 @@ export function parseAtlasV3Verdict(
 	return sentences.length > 0 ? sentences : null;
 }
 
+/**
+ * Prefixed to the system prompt on the ONE retry after a reply that did not
+ * parse. The shape is restated because the failing replies were prose about the
+ * answer rather than the answer's JSON.
+ */
+export const ATLAS_V3_VERDICT_RETRY_PREFACE: Record<SupportedLanguage, string> =
+	{
+		en: 'Your previous reply was not valid JSON of that shape. Return ONLY this object and nothing else: {"sentences":[{"text":"...","evidenceIds":["e3"],"kind":"synthesis","calcId":null}]}. Start with { and end with }.',
+		hu: 'Az előző válaszod nem volt érvényes, ilyen alakú JSON. KIZÁRÓLAG ezt az objektumot add vissza, semmi mást: {"sentences":[{"text":"...","evidenceIds":["e3"],"kind":"synthesis","calcId":null}]}. { jellel kezdd és } jellel zárd.',
+	};
+
 export interface WriteAtlasV3VerdictInput
 	extends BuildAtlasV3VerdictPromptInput {
 	bank: AtlasV3EvidenceBank;
 	runModel: AtlasV3ModelCall;
 	onUsage?: (usage: AtlasV3Usage) => void;
+	/** Named in the log when a reply does not parse. */
+	jobId?: string;
 }
 
 /**
- * The verdict. v2 wrote its executive summary last, verified it in isolation
- * and lost it in 13 of 13 runs; here its absence is a pipeline FAILURE, so the
- * caller must treat `null` as fatal rather than as an empty block.
+ * The verdict, with ONE retry when the reply is not JSON of the shape asked
+ * for.
+ *
+ * A job died on staging because this returned `null` and nothing was logged: a
+ * 166-token reply with `finishReason: "stop"` disappeared without a trace and
+ * took a finished report with it. Every failure now says what came back, and a
+ * `null` here is no longer fatal — the caller assembles a deterministic verdict
+ * from the sections instead (`deterministicAtlasV3Verdict`).
  */
 export async function writeAtlasV3Verdict(
 	input: WriteAtlasV3VerdictInput,
@@ -728,27 +759,184 @@ export async function writeAtlasV3Verdict(
 		knownEvidenceIds: input.bank.quotes.map((quote) => quote.id),
 		knownCalcIds: (input.answerTable?.derived ?? []).map((entry) => entry.id),
 	};
-	try {
-		const call = await input.runModel({
-			stage: "v3:verdict",
-			thinkingMode: "off",
-			maxOutputTokens: ATLAS_V3_MAX_OUTPUT_TOKENS.verdict,
-			system: ATLAS_V3_VERDICT_SYSTEM[input.language],
-			prompt: buildAtlasV3VerdictPrompt(input),
-		});
-		input.onUsage?.(call.usage);
-		const parsed = parseAtlasV3Verdict(call.text, options);
-		if (parsed) return parsed;
-		// Same repair the sections get: a verdict cut off at the cap is still a
-		// verdict up to the cut, and losing it costs the report its opening.
-		if (call.finishReason === "length") {
-			const repaired = salvageTruncatedWriterJson(call.text);
-			if (repaired) return parseAtlasV3Verdict(repaired, options);
+	const attempt = async (retry: boolean): Promise<AtlasV3Sentence[] | null> => {
+		try {
+			const call = await input.runModel({
+				stage: retry ? "v3:verdict:retry" : "v3:verdict",
+				thinkingMode: "off",
+				maxOutputTokens: ATLAS_V3_MAX_OUTPUT_TOKENS.verdict,
+				system: retry
+					? `${ATLAS_V3_VERDICT_RETRY_PREFACE[input.language]}\n${ATLAS_V3_VERDICT_SYSTEM[input.language]}`
+					: ATLAS_V3_VERDICT_SYSTEM[input.language],
+				prompt: buildAtlasV3VerdictPrompt(input),
+			});
+			input.onUsage?.(call.usage);
+			const parsed = parseAtlasV3Verdict(call.text, options);
+			if (parsed) return parsed;
+			// Same repair the sections get: a verdict cut off at the cap is still a
+			// verdict up to the cut, and losing it costs the report its opening.
+			if (call.finishReason === "length") {
+				const repaired = salvageTruncatedWriterJson(call.text);
+				const salvaged = repaired
+					? parseAtlasV3Verdict(repaired, options)
+					: null;
+				if (salvaged) return salvaged;
+			}
+			console.warn("[ATLAS v3] Verdict did not parse", {
+				jobId: input.jobId ?? null,
+				finishReason: call.finishReason,
+				textHead: call.text.slice(0, 600),
+			});
+			return null;
+		} catch (error) {
+			console.warn("[ATLAS v3] Verdict did not parse", {
+				jobId: input.jobId ?? null,
+				finishReason: "error",
+				textHead: error instanceof Error ? error.message : String(error),
+			});
+			return null;
 		}
-		return null;
-	} catch {
-		return null;
+	};
+	return (await attempt(false)) ?? (await attempt(true));
+}
+
+// ---------------------------------------------------------------------------
+// The deterministic verdict, and keeping the verdict coherent
+// ---------------------------------------------------------------------------
+
+/** The opening sentence of a report that could not answer its question. */
+export const ATLAS_V3_ABSTENTION_SENTENCE: Record<SupportedLanguage, string> = {
+	en: "This report could not establish an answer to the question asked; what follows is only what the evidence read does support.",
+	hu: "Ez a jelentés nem tudta megállapítani a feltett kérdésre a választ; az alábbi csak azt tartalmazza, amit az elolvasott bizonyíték alátámaszt.",
+};
+
+/** Sentences the fallback verdict may open with. Text plus its citations. */
+interface AtlasV3VerdictCandidate {
+	text: string;
+	evidenceIds: string[];
+	calcId?: string | null;
+}
+
+/**
+ * One sentence per section, in section order: the first that carries a digit
+ * AND rests on evidence or a computed value. A verdict assembled from the
+ * report's own load-bearing sentences is worse than a written one and far
+ * better than losing a finished report.
+ */
+export function atlasV3VerdictFallbackSentences<
+	T extends AtlasV3VerdictCandidate,
+>(input: {
+	sections: ReadonlyArray<{ paragraphs: ReadonlyArray<readonly T[]> }>;
+	limit?: number;
+}): T[] {
+	const limit = input.limit ?? 4;
+	const picked: T[] = [];
+	for (const section of input.sections) {
+		const lead = section.paragraphs
+			.flat()
+			.find(
+				(sentence) =>
+					/\d/.test(sentence.text) &&
+					(sentence.evidenceIds.length > 0 || Boolean(sentence.calcId)),
+			);
+		if (!lead) continue;
+		picked.push(lead);
+		if (picked.length >= limit) break;
 	}
+	return picked;
+}
+
+/** The fallback verdict, over sections the writer produced. */
+export function deterministicAtlasV3Verdict(input: {
+	sections: ReadonlyArray<AtlasV3WrittenSection>;
+	language: SupportedLanguage;
+	abstain: boolean;
+	limit?: number;
+}): AtlasV3Sentence[] {
+	const picked = atlasV3VerdictFallbackSentences({
+		sections: input.sections,
+		limit: input.limit,
+	});
+	return [
+		...(input.abstain
+			? [
+					{
+						text: ATLAS_V3_ABSTENTION_SENTENCE[input.language],
+						evidenceIds: [],
+						kind: "synthesis" as const,
+						calcId: null,
+					},
+				]
+			: []),
+		...picked.map((sentence) => ({ ...sentence })),
+	];
+}
+
+/** The same fallback, over sections that already survived verification. */
+export function deterministicAtlasV3VerifiedVerdict(input: {
+	sections: ReadonlyArray<AtlasV3VerifiedSection>;
+	language: SupportedLanguage;
+	abstain: boolean;
+	limit?: number;
+}): AtlasV3VerifiedSentence[] {
+	const picked = atlasV3VerdictFallbackSentences({
+		sections: input.sections,
+		limit: input.limit,
+	});
+	return [
+		...(input.abstain
+			? [
+					{
+						text: ATLAS_V3_ABSTENTION_SENTENCE[input.language],
+						evidenceIds: [],
+						kind: "synthesis" as const,
+						confidence: "inferred" as const,
+						outcome: "kept" as const,
+						failures: [],
+					},
+				]
+			: []),
+		...picked.map((sentence) => ({ ...sentence })),
+	];
+}
+
+/**
+ * Words that make a sentence depend on the one before it. A shipped verdict
+ * opened "These core duties include technical documentation..." because
+ * verification cut the sentence those duties were named in.
+ */
+const ATLAS_V3_ANAPHORA: Record<SupportedLanguage, RegExp> = {
+	en: /^\s*(these|this|that|those|it|they|such)\b/i,
+	hu: /^\s*(ezek|ez|az|azok|ezen)\b/i,
+};
+
+/**
+ * Drops a surviving sentence whose predecessor was cut and which opens with a
+ * reference back to it. Never returns nothing: a dangling opener still beats no
+ * verdict at all, and the caller treats an empty verdict as fatal.
+ */
+export function dropAtlasV3DanglingAnaphora<T extends { text: string }>(input: {
+	/** The verdict as it was written, in order. */
+	written: ReadonlyArray<{ text: string }>;
+	/** What survived verification, in order. */
+	kept: readonly T[];
+	language: SupportedLanguage;
+}): T[] {
+	const keptTexts = new Set(input.kept.map((sentence) => sentence.text));
+	const anaphora = ATLAS_V3_ANAPHORA[input.language];
+	const drop = new Set<string>();
+	input.written.forEach((sentence, index) => {
+		if (!keptTexts.has(sentence.text)) return;
+		const previous = input.written[index - 1];
+		if (!previous || keptTexts.has(previous.text)) return;
+		if (!anaphora.test(sentence.text)) return;
+		drop.add(sentence.text);
+	});
+	if (drop.size === 0) return [...input.kept];
+	const remaining = input.kept.filter(
+		(sentence) => !drop.has(sentence.text),
+	) as T[];
+	return remaining.length > 0 ? remaining : [...input.kept];
 }
 
 /** Words before the verdict states an answer. The deterministic gate. */
