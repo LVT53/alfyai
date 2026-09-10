@@ -38,8 +38,11 @@ const NAMED_PAGE_KEYS: Partial<Record<SystemPageId, string[]>> = {
 		"MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS",
 		"MODEL_TIMEOUT_FAILOVER_TARGET_MODEL",
 		"DEFAULT_NEW_USER_MODEL",
-		"MODEL_1_ICON_ASSET_ID",
-		"MODEL_2_ICON_ASSET_ID",
+		// The two built-in icon keys are NOT listed: nothing on the System screen
+		// renders a picker for them (the `kind: "built-in"` icon target has no
+		// call site), and claiming them here would put them in the navigator's
+		// count and out of the Diagnostics "never surfaced" list while a search
+		// hit or a dirty badge routed to a page with no matching row.
 	],
 	aiTasks: [
 		// The pipeline selector lives next to the tasks it chooses between, so
