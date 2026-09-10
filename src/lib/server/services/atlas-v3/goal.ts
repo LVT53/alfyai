@@ -17,12 +17,14 @@
 // a first-class outcome: a report that says "the 2025 member-state breakdown
 // has not been published" is more useful than one that pads around the hole.
 
+import type { SupportedLanguage } from "$lib/server/services/language";
 import {
 	ATLAS_V3_INDEPENDENT_PUBLISHERS,
 	type AtlasV3ProfileConfig,
 } from "./config";
 import { atlasV3PublishersFor } from "./evidence-bank";
 import { isLabelShapedTitle } from "./language-standard";
+import { ATLAS_V3_MERGED_INTO_REASON } from "./outline";
 import type {
 	AtlasV3EvidenceBank,
 	AtlasV3GoalVerdict,
@@ -220,6 +222,12 @@ export function atlasV3CoreClaimSubject(input: {
 		.slice(0, 160);
 }
 
+/** A section that cites one quote rests on one source; it is not unstated. */
+const THIN_NODE_REASON: Record<SupportedLanguage, string> = {
+	en: "rests on a single source",
+	hu: "egyetlen forráson nyugszik",
+};
+
 /**
  * The Limitations lines a failed goal test produces: what could not be
  * established, and why. Never "five sentences were removed".
@@ -230,7 +238,10 @@ export function atlasV3GoalLimitations(input: {
 	memo: AtlasV3Memo;
 	/** Optional; without it the core figure cannot be named. */
 	bank?: AtlasV3EvidenceBank;
+	/** The report's language. Defaults to English. */
+	language?: SupportedLanguage;
 }): Array<{ subject: string; reason: string }> {
+	const language = input.language ?? "en";
 	const limitations: Array<{ subject: string; reason: string }> = [];
 	if (!input.verdict.coreCorroborated) {
 		limitations.push({
@@ -249,13 +260,18 @@ export function atlasV3GoalLimitations(input: {
 		// A label-shaped claim ("providers — compliance deadline") is exactly the
 		// register defect the title repair exists for; it must not leak in here
 		// through the back door.
+		// A section that carries a quote is thin, not unfound. "No published source
+		// stated it" under a section citing [5] is a line the reader can see is
+		// false; that wording is reserved for a node with NO evidence at all.
 		limitations.push({
 			subject:
 				node.claim && !isLabelShapedTitle(node.claim) ? node.claim : node.title,
 			reason:
-				node.needs.length > 0
-					? `no published source was found for: ${node.needs.join("; ")}`
-					: "no published source stated it",
+				node.evidenceIds.length > 0
+					? THIN_NODE_REASON[language]
+					: node.needs.length > 0
+						? `no published source was found for: ${node.needs.join("; ")}`
+						: "no published source stated it",
 		});
 	}
 	for (const deadEnd of input.memo.deadEnds) {
@@ -265,6 +281,10 @@ export function atlasV3GoalLimitations(input: {
 		});
 	}
 	for (const entry of input.outline.cut) {
+		// "Merged into X" is bookkeeping: the section is IN the report, under
+		// another heading. It stays in `outline.cut` for the diagnostics and never
+		// reaches a list headed "what this report could not establish".
+		if (entry.reason.startsWith(ATLAS_V3_MERGED_INTO_REASON)) continue;
 		limitations.push({ subject: entry.title, reason: entry.reason });
 	}
 	return limitations;

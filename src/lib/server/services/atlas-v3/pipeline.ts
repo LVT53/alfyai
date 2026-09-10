@@ -93,6 +93,7 @@ import {
 	type AtlasV3WrittenSection,
 } from "./types";
 import {
+	atlasV3TableFailureSubject,
 	atlasV3WordCount,
 	capAtlasV3ToWordBudget,
 	pruneAtlasV3AnswerTable,
@@ -737,6 +738,7 @@ export async function runAtlasV3Pipeline(
 		outline: resolvedOutline,
 		memo: resolvedMemo,
 		bank,
+		language,
 	});
 	let sections = written.sections;
 	let verdictFallback = false;
@@ -1102,7 +1104,7 @@ export async function runAtlasV3Pipeline(
 		// prune keeps the admission and drops the figures after it.
 		if (failure.kind !== "unsupported") continue;
 		limitations.push({
-			subject: `${failure.rowLabel} · ${failure.columnLabel}`.trim(),
+			subject: atlasV3TableFailureSubject(failure),
 			reason: failure.detail,
 		});
 	}
