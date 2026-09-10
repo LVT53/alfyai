@@ -4,7 +4,10 @@
 // two meet is the progress-details projection in `atlas/read-model.ts`,
 // which dispatches on `pipelineVersion`.
 
-export const ATLAS_PIPELINE_VERSIONS = [1, 2] as const;
+// ADR 0063 added 3. The union lives here because `atlas-v2/config.ts` owns the
+// stamped-version resolution for every pipeline; nothing else about v2 knows
+// v3 exists.
+export const ATLAS_PIPELINE_VERSIONS = [1, 2, 3] as const;
 export type AtlasPipelineVersion = (typeof ATLAS_PIPELINE_VERSIONS)[number];
 
 export const ATLAS_V2_PHASES = [

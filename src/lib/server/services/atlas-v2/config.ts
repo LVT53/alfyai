@@ -300,20 +300,29 @@ export function getAtlasV2StaleMonths(): number {
  */
 export function resolveAtlasPipelineVersion(input: {
 	stampedPipelineVersion?: number | null;
-	flag?: "v1" | "v2";
+	flag?: "v1" | "v2" | "v3";
 }): AtlasPipelineVersion {
+	if (input.stampedPipelineVersion === 3) return 3;
 	if (input.stampedPipelineVersion === 2) return 2;
 	if (input.stampedPipelineVersion === 1) return 1;
-	return input.flag === "v2" ? 2 : 1;
+	return atlasPipelineVersionForFlag(input.flag);
 }
 
 /** The `pipeline_version` a NEW job row is stamped with. */
 export function atlasPipelineVersionForNewJob(input: {
-	flag?: "v1" | "v2";
+	flag?: "v1" | "v2" | "v3";
 	/** A lifecycle child stays on its parent's pipeline. */
 	parentPipelineVersion?: number | null;
 }): AtlasPipelineVersion {
+	if (input.parentPipelineVersion === 3) return 3;
 	if (input.parentPipelineVersion === 2) return 2;
 	if (input.parentPipelineVersion === 1) return 1;
-	return input.flag === "v2" ? 2 : 1;
+	return atlasPipelineVersionForFlag(input.flag);
+}
+
+function atlasPipelineVersionForFlag(
+	flag?: "v1" | "v2" | "v3",
+): AtlasPipelineVersion {
+	if (flag === "v3") return 3;
+	return flag === "v2" ? 2 : 1;
 }

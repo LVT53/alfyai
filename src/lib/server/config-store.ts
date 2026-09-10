@@ -133,6 +133,19 @@ export const ADMIN_CONFIG_KEYS = [
 	"ATLAS_V2_ROUNDS_OVERVIEW",
 	"ATLAS_V2_ROUNDS_IN_DEPTH",
 	"ATLAS_V2_ROUNDS_EXHAUSTIVE",
+	"ATLAS_V3_ASK_MODEL",
+	"ATLAS_V3_RESEARCHER_MODEL",
+	"ATLAS_V3_OUTLINE_MODEL",
+	"ATLAS_V3_WRITER_MODEL",
+	"ATLAS_V3_CRITIC_MODEL",
+	"ATLAS_V3_VERIFIER_MODEL",
+	"ATLAS_V3_CRITIC_ROUNDS",
+	"ATLAS_V3_RESEARCHER_CONCURRENCY",
+	"ATLAS_V3_SEARCHES_PER_STEP",
+	"ATLAS_V3_PAGES_PER_QUESTION_OVERVIEW",
+	"ATLAS_V3_PAGES_PER_QUESTION_IN_DEPTH",
+	"ATLAS_V3_PAGES_PER_QUESTION_EXHAUSTIVE",
+	"ATLAS_V3_LANGUAGE_STANDARD_HU",
 	"WEB_PUSH_VAPID_PUBLIC_KEY",
 	"WEB_PUSH_VAPID_PRIVATE_KEY",
 	"WEB_PUSH_VAPID_SUBJECT",
@@ -209,6 +222,20 @@ export interface RuntimeConfig {
 	atlasV2RoundsOverview: number;
 	atlasV2RoundsInDepth: number;
 	atlasV2RoundsExhaustive: number;
+	// ADR 0063: Atlas v3's per-task models and knobs. A null model inherits.
+	atlasV3AskModel: ModelId | null;
+	atlasV3ResearcherModel: ModelId | null;
+	atlasV3OutlineModel: ModelId | null;
+	atlasV3WriterModel: ModelId | null;
+	atlasV3CriticModel: ModelId | null;
+	atlasV3VerifierModel: ModelId | null;
+	atlasV3CriticRounds: number;
+	atlasV3ResearcherConcurrency: number;
+	atlasV3SearchesPerStep: number;
+	atlasV3PagesPerQuestionOverview: number;
+	atlasV3PagesPerQuestionInDepth: number;
+	atlasV3PagesPerQuestionExhaustive: number;
+	atlasV3LanguageStandardHu: boolean;
 	webPushVapidPublicKey: string;
 	webPushVapidPrivateKey: string;
 	webPushVapidSubject: string;
@@ -346,6 +373,25 @@ function normalizeConfiguredModelId(value: unknown): ModelId {
 		return value as ModelId;
 	}
 	return "model1";
+}
+
+/**
+ * ADR 0063's per-task model keys. Unlike `normalizeConfiguredModelId`, an
+ * empty or unrecognised value resolves to `null` — "inherit the Atlas
+ * synthesis or audit model" — rather than to `model1`, so clearing the admin
+ * field restores the inherited model instead of pinning one.
+ */
+function normalizeOptionalConfiguredModelId(value: unknown): ModelId | null {
+	if (value === "model1" || value === "model2") return value;
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (trimmed === "model1" || trimmed === "model2") return trimmed;
+		if (trimmed.startsWith("provider:")) {
+			const parts = trimmed.split(":");
+			if (parts.length === 3 && parts[1] && parts[2]) return trimmed as ModelId;
+		}
+	}
+	return null;
 }
 
 function positiveIntegerOrNull(value: unknown): number | null {
@@ -908,10 +954,13 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		if (parsed !== undefined)
 			config.atlasMaxWriterPromptChars = Math.max(100, parsed);
 	},
-	// ADR 0062. Only an explicit "v2" selects the rebuilt content pipeline;
-	// every other value (including a typo) leaves the deployment on v1.
+	// ADR 0062, extended by ADR 0063. Only an explicit "v2" or "v3" selects a
+	// rebuilt content pipeline; every other value (including a typo) leaves the
+	// deployment on v1.
 	ATLAS_PIPELINE: (config, value) => {
-		config.atlasPipeline = value.trim().toLowerCase() === "v2" ? "v2" : "v1";
+		const normalized = value.trim().toLowerCase();
+		config.atlasPipeline =
+			normalized === "v3" ? "v3" : normalized === "v2" ? "v2" : "v1";
 	},
 	ATLAS_STALE_MONTHS: (config, value) => {
 		const parsed = parseIntOverride(value);
@@ -945,6 +994,69 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined)
 			config.atlasV2RoundsExhaustive = Math.max(1, parsed);
+	},
+	// ADR 0063: per-task models. An EMPTY override clears the key back to
+	// "inherit" rather than silently pinning model1, so an admin can undo a
+	// per-task choice from the same field they set it in.
+	ATLAS_V3_ASK_MODEL: (config, value) => {
+		config.atlasV3AskModel = normalizeOptionalConfiguredModelId(value);
+	},
+	ATLAS_V3_RESEARCHER_MODEL: (config, value) => {
+		config.atlasV3ResearcherModel = normalizeOptionalConfiguredModelId(value);
+	},
+	ATLAS_V3_OUTLINE_MODEL: (config, value) => {
+		config.atlasV3OutlineModel = normalizeOptionalConfiguredModelId(value);
+	},
+	ATLAS_V3_WRITER_MODEL: (config, value) => {
+		config.atlasV3WriterModel = normalizeOptionalConfiguredModelId(value);
+	},
+	ATLAS_V3_CRITIC_MODEL: (config, value) => {
+		config.atlasV3CriticModel = normalizeOptionalConfiguredModelId(value);
+	},
+	ATLAS_V3_VERIFIER_MODEL: (config, value) => {
+		config.atlasV3VerifierModel = normalizeOptionalConfiguredModelId(value);
+	},
+	ATLAS_V3_CRITIC_ROUNDS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) {
+			config.atlasV3CriticRounds = Math.min(3, Math.max(0, parsed));
+		}
+	},
+	ATLAS_V3_RESEARCHER_CONCURRENCY: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) {
+			config.atlasV3ResearcherConcurrency = Math.min(8, Math.max(1, parsed));
+		}
+	},
+	ATLAS_V3_SEARCHES_PER_STEP: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) {
+			config.atlasV3SearchesPerStep = Math.min(5, Math.max(3, parsed));
+		}
+	},
+	ATLAS_V3_PAGES_PER_QUESTION_OVERVIEW: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) {
+			config.atlasV3PagesPerQuestionOverview = Math.min(6, Math.max(0, parsed));
+		}
+	},
+	ATLAS_V3_PAGES_PER_QUESTION_IN_DEPTH: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) {
+			config.atlasV3PagesPerQuestionInDepth = Math.min(6, Math.max(0, parsed));
+		}
+	},
+	ATLAS_V3_PAGES_PER_QUESTION_EXHAUSTIVE: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined) {
+			config.atlasV3PagesPerQuestionExhaustive = Math.min(
+				6,
+				Math.max(0, parsed),
+			);
+		}
+	},
+	ATLAS_V3_LANGUAGE_STANDARD_HU: (config, value) => {
+		config.atlasV3LanguageStandardHu = value.trim().toLowerCase() !== "false";
 	},
 	WEB_PUSH_VAPID_PUBLIC_KEY: (config, value) => {
 		config.webPushVapidPublicKey = value.trim();
@@ -1167,6 +1279,51 @@ export function getAtlasV2ProfileKnobs(): {
 			inDepth: runtimeConfig.atlasV2RoundsInDepth,
 			exhaustive: runtimeConfig.atlasV2RoundsExhaustive,
 		},
+	};
+}
+
+/**
+ * ADR 0063: the model configured for each Atlas v3 task. A `null` entry means
+ * the task inherits ATLAS_SYNTHESIS_MODEL or ATLAS_AUDIT_MODEL; the inheritance
+ * itself lives in `atlas-v3/config.ts` so the choice of which key a task falls
+ * back to stays next to the tasks.
+ */
+export function getAtlasV3TaskModels(): {
+	ask: ModelId | null;
+	researcher: ModelId | null;
+	outline: ModelId | null;
+	writer: ModelId | null;
+	critic: ModelId | null;
+	verifier: ModelId | null;
+} {
+	return {
+		ask: runtimeConfig.atlasV3AskModel,
+		researcher: runtimeConfig.atlasV3ResearcherModel,
+		outline: runtimeConfig.atlasV3OutlineModel,
+		writer: runtimeConfig.atlasV3WriterModel,
+		critic: runtimeConfig.atlasV3CriticModel,
+		verifier: runtimeConfig.atlasV3VerifierModel,
+	};
+}
+
+/** ADR 0063: Atlas v3's runtime knobs. */
+export function getAtlasV3Knobs(): {
+	criticRounds: number;
+	researcherConcurrency: number;
+	searchesPerStep: number;
+	pagesPerQuestion: { overview: number; inDepth: number; exhaustive: number };
+	languageStandardHu: boolean;
+} {
+	return {
+		criticRounds: runtimeConfig.atlasV3CriticRounds,
+		researcherConcurrency: runtimeConfig.atlasV3ResearcherConcurrency,
+		searchesPerStep: runtimeConfig.atlasV3SearchesPerStep,
+		pagesPerQuestion: {
+			overview: runtimeConfig.atlasV3PagesPerQuestionOverview,
+			inDepth: runtimeConfig.atlasV3PagesPerQuestionInDepth,
+			exhaustive: runtimeConfig.atlasV3PagesPerQuestionExhaustive,
+		},
+		languageStandardHu: runtimeConfig.atlasV3LanguageStandardHu,
 	};
 }
 
@@ -1401,6 +1558,29 @@ export function getResolvedAdminConfigValues(
 		ATLAS_V2_ROUNDS_OVERVIEW: String(config.atlasV2RoundsOverview),
 		ATLAS_V2_ROUNDS_IN_DEPTH: String(config.atlasV2RoundsInDepth),
 		ATLAS_V2_ROUNDS_EXHAUSTIVE: String(config.atlasV2RoundsExhaustive),
+		// An unset per-task model shows as "" — the effective-config view has to
+		// distinguish "inherits ATLAS_SYNTHESIS_MODEL" from "pinned to model1".
+		ATLAS_V3_ASK_MODEL: config.atlasV3AskModel ?? "",
+		ATLAS_V3_RESEARCHER_MODEL: config.atlasV3ResearcherModel ?? "",
+		ATLAS_V3_OUTLINE_MODEL: config.atlasV3OutlineModel ?? "",
+		ATLAS_V3_WRITER_MODEL: config.atlasV3WriterModel ?? "",
+		ATLAS_V3_CRITIC_MODEL: config.atlasV3CriticModel ?? "",
+		ATLAS_V3_VERIFIER_MODEL: config.atlasV3VerifierModel ?? "",
+		ATLAS_V3_CRITIC_ROUNDS: String(config.atlasV3CriticRounds),
+		ATLAS_V3_RESEARCHER_CONCURRENCY: String(
+			config.atlasV3ResearcherConcurrency,
+		),
+		ATLAS_V3_SEARCHES_PER_STEP: String(config.atlasV3SearchesPerStep),
+		ATLAS_V3_PAGES_PER_QUESTION_OVERVIEW: String(
+			config.atlasV3PagesPerQuestionOverview,
+		),
+		ATLAS_V3_PAGES_PER_QUESTION_IN_DEPTH: String(
+			config.atlasV3PagesPerQuestionInDepth,
+		),
+		ATLAS_V3_PAGES_PER_QUESTION_EXHAUSTIVE: String(
+			config.atlasV3PagesPerQuestionExhaustive,
+		),
+		ATLAS_V3_LANGUAGE_STANDARD_HU: String(config.atlasV3LanguageStandardHu),
 		WEB_PUSH_VAPID_PUBLIC_KEY: config.webPushVapidPublicKey,
 		WEB_PUSH_VAPID_PRIVATE_KEY: config.webPushVapidPrivateKey ? "[set]" : "",
 		WEB_PUSH_VAPID_SUBJECT: config.webPushVapidSubject,

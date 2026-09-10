@@ -33,7 +33,7 @@ export interface CreateOrReuseAtlasJobInput {
 	 * ATLAS_PIPELINE. Defaults to 1 so a caller that does not care keeps the
 	 * original pipeline.
 	 */
-	pipelineVersion?: 1 | 2;
+	pipelineVersion?: 1 | 2 | 3;
 	now?: Date;
 }
 

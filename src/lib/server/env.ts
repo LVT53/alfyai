@@ -88,6 +88,24 @@ interface Config {
 	atlasV2MaxSourcesExhaustive: number;
 	atlasV2EntailmentBatch: number;
 	atlasV2WriterConcurrency: number;
+	/**
+	 * ADR 0063: one model per Atlas v3 task. `null` means "inherit" —
+	 * ATLAS_SYNTHESIS_MODEL for the researcher and writer, ATLAS_AUDIT_MODEL for
+	 * the ask, outline, critic and verifier.
+	 */
+	atlasV3AskModel: ModelId | null;
+	atlasV3ResearcherModel: ModelId | null;
+	atlasV3OutlineModel: ModelId | null;
+	atlasV3WriterModel: ModelId | null;
+	atlasV3CriticModel: ModelId | null;
+	atlasV3VerifierModel: ModelId | null;
+	atlasV3CriticRounds: number;
+	atlasV3ResearcherConcurrency: number;
+	atlasV3SearchesPerStep: number;
+	atlasV3PagesPerQuestionOverview: number;
+	atlasV3PagesPerQuestionInDepth: number;
+	atlasV3PagesPerQuestionExhaustive: number;
+	atlasV3LanguageStandardHu: boolean;
 	webPushVapidPublicKey: string;
 	webPushVapidPrivateKey: string;
 	webPushVapidSubject: string;
@@ -303,16 +321,40 @@ function parseIntegerEnv(value: string | undefined, fallback: number): number {
 }
 
 /**
- * Which Atlas content pipeline a new job runs on (ADR 0062). Anything other
- * than an explicit "v2" keeps the deployment on v1, so a typo can never flip
- * production onto the unevaluated pipeline.
+ * Which Atlas content pipeline a new job runs on (ADR 0062, extended by ADR
+ * 0063). Anything other than an explicit "v2" or "v3" keeps the deployment on
+ * v1, so a typo can never flip production onto an unevaluated pipeline.
  */
-export type AtlasPipelineSelection = "v1" | "v2";
+export type AtlasPipelineSelection = "v1" | "v2" | "v3";
 
-function parseAtlasPipelineEnv(
+export function parseAtlasPipelineEnv(
 	value: string | undefined,
 ): AtlasPipelineSelection {
-	return value?.trim().toLowerCase() === "v2" ? "v2" : "v1";
+	const normalized = value?.trim().toLowerCase();
+	if (normalized === "v3") return "v3";
+	return normalized === "v2" ? "v2" : "v1";
+}
+
+/**
+ * An OPTIONAL model key. Unset (or unreadable) means "inherit", which is not
+ * the same as "model1": ADR 0063's per-task model keys must be absent by
+ * default so a deployment that sets none keeps v2's model split exactly.
+ */
+export function parseOptionalConfiguredModelIdEnv(
+	value: string | undefined,
+	key: string,
+): ModelId | null {
+	const trimmed = value?.trim();
+	if (!trimmed) return null;
+	if (trimmed === "model1" || trimmed === "model2") return trimmed;
+	if (trimmed.startsWith("provider:")) {
+		const parts = trimmed.split(":");
+		if (parts.length === 3 && parts[1] && parts[2]) return trimmed as ModelId;
+	}
+	console.warn(
+		`[CONFIG] Invalid ${key} format: "${value}". Expected "model1", "model2", or "provider:<providerId>:<modelId>". Inheriting the Atlas synthesis/audit model instead.`,
+	);
+	return null;
 }
 
 function parsePositiveIntegerEnv(
@@ -626,6 +668,60 @@ function readConfig(): Config {
 			5,
 			1,
 		),
+		atlasV3AskModel: parseOptionalConfiguredModelIdEnv(
+			process.env.ATLAS_V3_ASK_MODEL,
+			"ATLAS_V3_ASK_MODEL",
+		),
+		atlasV3ResearcherModel: parseOptionalConfiguredModelIdEnv(
+			process.env.ATLAS_V3_RESEARCHER_MODEL,
+			"ATLAS_V3_RESEARCHER_MODEL",
+		),
+		atlasV3OutlineModel: parseOptionalConfiguredModelIdEnv(
+			process.env.ATLAS_V3_OUTLINE_MODEL,
+			"ATLAS_V3_OUTLINE_MODEL",
+		),
+		atlasV3WriterModel: parseOptionalConfiguredModelIdEnv(
+			process.env.ATLAS_V3_WRITER_MODEL,
+			"ATLAS_V3_WRITER_MODEL",
+		),
+		atlasV3CriticModel: parseOptionalConfiguredModelIdEnv(
+			process.env.ATLAS_V3_CRITIC_MODEL,
+			"ATLAS_V3_CRITIC_MODEL",
+		),
+		atlasV3VerifierModel: parseOptionalConfiguredModelIdEnv(
+			process.env.ATLAS_V3_VERIFIER_MODEL,
+			"ATLAS_V3_VERIFIER_MODEL",
+		),
+		atlasV3CriticRounds: Math.min(
+			3,
+			Math.max(0, parseIntegerEnv(process.env.ATLAS_V3_CRITIC_ROUNDS, 2)),
+		),
+		atlasV3ResearcherConcurrency: parsePositiveIntegerEnv(
+			process.env.ATLAS_V3_RESEARCHER_CONCURRENCY,
+			3,
+			1,
+		),
+		atlasV3SearchesPerStep: Math.min(
+			5,
+			parsePositiveIntegerEnv(process.env.ATLAS_V3_SEARCHES_PER_STEP, 3, 3),
+		),
+		atlasV3PagesPerQuestionOverview: parsePositiveIntegerEnv(
+			process.env.ATLAS_V3_PAGES_PER_QUESTION_OVERVIEW,
+			2,
+			1,
+		),
+		atlasV3PagesPerQuestionInDepth: parsePositiveIntegerEnv(
+			process.env.ATLAS_V3_PAGES_PER_QUESTION_IN_DEPTH,
+			3,
+			1,
+		),
+		atlasV3PagesPerQuestionExhaustive: parsePositiveIntegerEnv(
+			process.env.ATLAS_V3_PAGES_PER_QUESTION_EXHAUSTIVE,
+			4,
+			1,
+		),
+		atlasV3LanguageStandardHu:
+			process.env.ATLAS_V3_LANGUAGE_STANDARD_HU !== "false",
 		webPushVapidPublicKey: process.env.WEB_PUSH_VAPID_PUBLIC_KEY || "",
 		webPushVapidPrivateKey: process.env.WEB_PUSH_VAPID_PRIVATE_KEY || "",
 		webPushVapidSubject:
