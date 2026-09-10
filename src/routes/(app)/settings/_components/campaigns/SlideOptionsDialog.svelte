@@ -48,6 +48,11 @@ const SETUP_CONTROL_LABELS: Record<string, string> = {
 let setupControlsAllowed = $derived(
 	campaignType === "first_run_onboarding" && kind === "setup",
 );
+// Controls left behind by a slide that used to be a first-run setup slide.
+// They still block publishing, so unchecking has to stay reachable even
+// though checking does not — otherwise the only way out is deleting the
+// slide.
+let strayControls = $derived(!setupControlsAllowed && setupControls.length > 0);
 
 function toggleControl(control: string, checked: boolean) {
 	const next = new Set(setupControls);
@@ -128,17 +133,22 @@ function toggleControl(control: string, checked: boolean) {
 						<input
 							type="checkbox"
 							checked={setupControls.includes(control)}
-							disabled={!editable || !setupControlsAllowed}
+							disabled={!editable ||
+								(!setupControlsAllowed && !setupControls.includes(control))}
 							onchange={(event) => toggleControl(control, event.currentTarget.checked)}
 						/>
 						<span>{$t(SETUP_CONTROL_LABELS[control] as I18nKey)}</span>
 					</label>
 				{/each}
 			</div>
-			<p class="option-help">
-				{setupControlsAllowed
-					? $t('admin.campaigns.setupControlsHelp')
-					: $t('admin.campaigns.setupControlsUnavailable')}
+			<p class="option-help" class:option-help-warn={strayControls}>
+				{#if setupControlsAllowed}
+					{$t('admin.campaigns.setupControlsHelp')}
+				{:else if strayControls}
+					{$t('admin.campaigns.setupControlsStray')}
+				{:else}
+					{$t('admin.campaigns.setupControlsUnavailable')}
+				{/if}
 			</p>
 		</section>
 	</div>
@@ -187,6 +197,10 @@ function toggleControl(control: string, checked: boolean) {
 		font-size: var(--text-2xs);
 		line-height: 1.5;
 		color: var(--text-muted);
+	}
+
+	.option-help-warn {
+		color: var(--danger);
 	}
 
 	.check-grid {

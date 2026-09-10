@@ -277,6 +277,70 @@ describe("SettingsAdminCampaignsPane", () => {
 		expect(payload.slides[0].semanticRole).toBe("data_disclosure");
 	});
 
+	it("lets a slide clear setup controls it is no longer allowed to carry", async () => {
+		// A release campaign whose slide still carries a first-run setup control:
+		// the rule blocks publishing, and unchecking has to stay reachable.
+		mockFetchAdminCampaigns.mockResolvedValue([
+			{
+				id: "campaign-1",
+				type: "release_update",
+				name: "Voice input beta",
+				status: "draft",
+				slideCount: 1,
+			},
+		]);
+		mockFetchAdminCampaign.mockResolvedValue({
+			id: "campaign-1",
+			type: "release_update",
+			name: "Voice input beta",
+			releaseVersion: "2.3.0",
+			status: "draft",
+			slides: [
+				{
+					id: "slide-1",
+					kind: "standard",
+					sortOrder: 1,
+					semanticRole: "feature",
+					setupControls: ["theme"],
+					titleEn: "Talk instead of typing",
+					titleHu: "Beszélj gépelés helyett",
+					bodyEn: "Speech is transcribed.",
+					bodyHu: "A beszédet leírjuk.",
+				},
+			],
+		});
+
+		render(SettingsAdminCampaignsPane);
+		await waitForEditor("Voice input beta");
+
+		expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
+
+		await openSlideMenu();
+		await fireEvent.click(
+			screen.getByRole("menuitem", { name: /Setup controls/ }),
+		);
+
+		const dialog = screen.getByRole("dialog");
+		const theme = within(dialog).getByRole("checkbox", { name: "Theme" });
+		expect(theme).toBeChecked();
+		// The one that is set can be cleared; the ones that are not stay shut.
+		expect(theme).not.toBeDisabled();
+		expect(
+			within(dialog).getByRole("checkbox", { name: "Interface language" }),
+		).toBeDisabled();
+
+		await fireEvent.click(theme);
+		await fireEvent.click(
+			within(dialog).getByRole("button", { name: "Close" }),
+		);
+
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: "Publish" }),
+			).not.toBeDisabled();
+		});
+	});
+
 	it("shows the checklist as one line while every check passes", async () => {
 		render(SettingsAdminCampaignsPane);
 		await waitForEditor();

@@ -866,6 +866,9 @@ const settingsDict = {
 			"They can change their name, password and model afterwards. There is no invite email — hand them the password yourself.",
 		"admin.users.detailsColumn": "Details",
 		"admin.users.generatePassword": "Generate",
+		"admin.users.errors.action": "User action failed.",
+		"admin.users.errors.create": "Failed to create user.",
+		"admin.users.errors.load": "Failed to load users.",
 		"admin.users.hiddenByFilter":
 			"This account is hidden by the current filters. Clear them to find it in the table again.",
 		"admin.users.lastActive.days": "{count} d ago",
@@ -879,6 +882,10 @@ const settingsDict = {
 		"admin.users.passwordLongEnough": "{count} characters — long enough",
 		"admin.users.passwordTooShort": "At least {count} characters",
 		"admin.users.previousPage": "Previous",
+		"admin.users.messages.deleted": "User deleted.",
+		"admin.users.messages.demoted": "Admin access removed.",
+		"admin.users.messages.promoted": "Admin access granted.",
+		"admin.users.messages.sessionsRevoked": "Active sessions revoked.",
 		"admin.users.promoteMessage":
 			"An admin can change the models and system prompt for every user, read account-level analytics for everyone, create and delete accounts, and promote other admins. You can demote {name} again at any time.",
 		"admin.users.promoteTitle": "Make {name} an admin?",
@@ -1006,6 +1013,8 @@ const settingsDict = {
 		"admin.campaigns.setupControls": "Setup controls",
 		"admin.campaigns.setupControlsHelp":
 			"Controls shown on this slide so people can set them up straight away.",
+		"admin.campaigns.setupControlsStray":
+			"This slide is no longer a first-run setup slide, so these controls block publishing — clear them.",
 		"admin.campaigns.setupControlsUnavailable":
 			"Setup controls only work on the setup slide of a first-run campaign.",
 		"admin.campaigns.slideAction": "Action",
@@ -1914,6 +1923,9 @@ const settingsDict = {
 			"A nevét, jelszavát és modelljét később ő maga módosíthatja. Nincs meghívó e-mail — a jelszót neked kell átadnod.",
 		"admin.users.detailsColumn": "Részletek",
 		"admin.users.generatePassword": "Generálás",
+		"admin.users.errors.action": "A művelet nem sikerült.",
+		"admin.users.errors.create": "A felhasználó létrehozása nem sikerült.",
+		"admin.users.errors.load": "A felhasználók betöltése nem sikerült.",
 		"admin.users.hiddenByFilter":
 			"Ezt a fiókot elrejtik a jelenlegi szűrők. Töröld őket, hogy újra megjelenjen a táblázatban.",
 		"admin.users.lastActive.days": "{count} napja",
@@ -1927,6 +1939,11 @@ const settingsDict = {
 		"admin.users.passwordLongEnough": "{count} karakter — elég hosszú",
 		"admin.users.passwordTooShort": "Legalább {count} karakter",
 		"admin.users.previousPage": "Előző",
+		"admin.users.messages.deleted": "A felhasználó törölve.",
+		"admin.users.messages.demoted": "Az admin hozzáférés visszavonva.",
+		"admin.users.messages.promoted": "Az admin hozzáférés megadva.",
+		"admin.users.messages.sessionsRevoked":
+			"Az aktív munkamenetek visszavonva.",
 		"admin.users.promoteMessage":
 			"Az adminisztrátor mindenkinek módosíthatja a modelleket és a rendszerpromptot, láthatja mindenki fiókszintű analitikáját, fiókokat hozhat létre és törölhet, és más adminisztrátorokat is kinevezhet. {name} bármikor visszaminősíthető.",
 		"admin.users.promoteTitle": "Legyen {name} adminisztrátor?",
@@ -2055,6 +2072,8 @@ const settingsDict = {
 		"admin.campaigns.setupControls": "Beállítási vezérlők",
 		"admin.campaigns.setupControlsHelp":
 			"Ezen a dián megjelenő vezérlők, hogy rögtön be lehessen állítani őket.",
+		"admin.campaigns.setupControlsStray":
+			"Ez a dia már nem első indítású beállítási dia, ezért ezek a vezérlők blokkolják a publikálást — töröld őket.",
 		"admin.campaigns.setupControlsUnavailable":
 			"A beállítási vezérlők csak az első indítású kampány beállítási diáján működnek.",
 		"admin.campaigns.slideAction": "Gomb",

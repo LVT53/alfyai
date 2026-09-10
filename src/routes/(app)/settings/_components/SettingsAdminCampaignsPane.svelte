@@ -1061,23 +1061,31 @@ onMount(() => {
 							: $t('admin.campaigns.publishedReadOnly')}
 					</p>
 				{:else}
-					<ChecklistStatus
-						{checklist}
-						onJumpToSlide={(index) => (activeSlideIndex = index)}
-					/>
+					<!-- Keyed on the campaign: collapsing the checklist by hand is a
+					     decision about *this* draft, and the next one may be failing
+					     for reasons the admin has not seen yet. -->
+					{#key draft.id}
+						<ChecklistStatus
+							{checklist}
+							onJumpToSlide={(index) => (activeSlideIndex = index)}
+						/>
+					{/key}
 				{/if}
 
 				{#if serverValidationErrors.length > 0}
-					<div class="banner banner-danger" role="alert">
+					<!-- Same open/close slide as the banners above it: the editor
+					     below must not jump when the server's issues clear. A <div>,
+					     not a <span>: it wraps a list. -->
+					<div class="banner banner-danger" role="alert" transition:bannerSlide={{ duration: 180 }}>
 						<TriangleAlert size={14} strokeWidth={2} aria-hidden="true" />
-						<span>
+						<div>
 							{$t('admin.campaigns.serverIssues')}
 							<ul class="server-issues">
 								{#each serverValidationErrors as issue (issue.path ?? issue.message)}
 									<li>{issue.message}</li>
 								{/each}
 							</ul>
-						</span>
+						</div>
 					</div>
 				{/if}
 

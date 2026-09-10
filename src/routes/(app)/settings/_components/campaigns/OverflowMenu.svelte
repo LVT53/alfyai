@@ -105,10 +105,13 @@ function handleWindowKeydown(event: KeyboardEvent) {
 			aria-label={label}
 			transition:menuScale={{ duration: 130, start: 0.96 }}
 		>
-			<p class="menu-head">{label}</p>
+			<!-- role="menu" only admits menuitems and separators, so the visible
+			     group heading is hidden from the tree; aria-label above carries
+			     the same word. -->
+			<p class="menu-head" aria-hidden="true">{label}</p>
 			{#each items as item (item.id)}
 				{#if item.separatorBefore}
-					<span class="menu-separator"></span>
+					<span class="menu-separator" role="separator"></span>
 				{/if}
 				{@const Icon = item.icon}
 				<button
