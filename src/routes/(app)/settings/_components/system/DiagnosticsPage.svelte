@@ -315,8 +315,8 @@ const filteredEffectiveConfig = $derived.by(() => {
 												? $t('admin.effectiveConfig.notSet')
 												: entry.effectiveValue}
 										</td>
-										<td data-source={entry.source}>
-											<span class="sys-pill sys-pill-outline">
+										<td>
+											<span class="sys-pill sys-pill-outline" data-source={entry.source}>
 												{$t(EFFECTIVE_CONFIG_SOURCE_LABEL[entry.source])}
 											</span>
 										</td>
@@ -326,7 +326,8 @@ const filteredEffectiveConfig = $derived.by(() => {
 													{$t('admin.system.diagnostics.noOverride')}
 												</span>
 											{:else}
-												<span class="sys-pill sys-pill-warn">
+												<span>{entry.adminOverride}</span>
+												<span class="sys-pill sys-pill-warn" style="margin-left: 6px">
 													{$t('admin.system.diagnostics.overridesEnv', {
 														value: entry.envValue || $t('admin.system.emptyValue'),
 													})}

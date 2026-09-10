@@ -107,6 +107,10 @@ let diagnosticsTab = $state("toolHealth");
 let highlightKey = $state("");
 let highlightTimer: ReturnType<typeof setTimeout> | undefined;
 
+// The editable copy. The prop is written through on every edit (so the page
+// that owns it, and anything else reading it, stays in step), but the screen
+// reads THIS, which is reactive whatever the parent passed in.
+let draft = $state<Record<string, string>>({});
 let baseline = $state<Record<string, string>>({});
 let baselineReady = $state(false);
 let lastSavedAt = $state("");
@@ -119,6 +123,7 @@ $effect(() => {
 	if (baselineReady) return;
 	const snapshot = { ...adminConfig };
 	if (Object.keys(snapshot).length === 0) return;
+	draft = { ...snapshot };
 	baseline = snapshot;
 	baselineReady = true;
 });
@@ -129,9 +134,9 @@ function asString(value: unknown): string {
 
 const dirtyKeys = $derived.by(() => {
 	if (!baselineReady) return [] as string[];
-	const keys = new Set([...Object.keys(baseline), ...Object.keys(adminConfig)]);
+	const keys = new Set([...Object.keys(baseline), ...Object.keys(draft)]);
 	return [...keys].filter(
-		(key) => asString(adminConfig[key]) !== asString(baseline[key]),
+		(key) => asString(draft[key]) !== asString(baseline[key]),
 	);
 });
 
@@ -153,27 +158,28 @@ const dirtyByPage = $derived.by(() => {
 const invalidKeys = $derived.by(() =>
 	ADVANCED_KEY_SPECS.filter((spec) => {
 		if (!dirtySet.has(spec.key)) return false;
-		return !validateAdminConfigValue(spec, asString(adminConfig[spec.key])).ok;
+		return !validateAdminConfigValue(spec, asString(draft[spec.key])).ok;
 	}).map((spec) => spec.key),
 );
 
 function setValue(key: string, value: string) {
+	draft[key] = value;
 	adminConfig[key] = value;
 }
 
 /** Explicit reset: an empty value deletes the override on the next save. */
 function resetValue(key: string) {
-	adminConfig[key] = "";
+	setValue(key, "");
 }
 
 /** Cancel a pending edit without touching what is stored. */
 function revertValue(key: string) {
-	adminConfig[key] = baseline[key] ?? "";
+	setValue(key, baseline[key] ?? "");
 }
 
 function discardAll() {
 	for (const key of dirtyKeys) {
-		adminConfig[key] = baseline[key] ?? "";
+		setValue(key, baseline[key] ?? "");
 	}
 }
 
@@ -181,14 +187,14 @@ async function saveChanges() {
 	if (dirtyKeys.length === 0 || invalidKeys.length > 0) return;
 	const patch: Record<string, string> = {};
 	for (const key of dirtyKeys) {
-		const value = asString(adminConfig[key]);
+		const value = asString(draft[key]);
 		// The server masks some secrets as "[set]"; sending that back would store
 		// the sentinel as the key. An untouched secret is simply not in the patch.
 		if (value === "[set]") continue;
 		patch[key] = value;
 	}
 	await onSaveAdminConfig(patch);
-	baseline = { ...adminConfig };
+	baseline = { ...draft };
 	lastSavedAt = new Date().toLocaleTimeString(undefined, {
 		hour: "2-digit",
 		minute: "2-digit",
@@ -196,14 +202,20 @@ async function saveChanges() {
 	void loadOverrideMeta();
 }
 
-beforeNavigate((navigation) => {
-	if (dirtyKeys.length === 0 || leaveGuardOpen) return;
-	if (navigation.type === "leave") return;
-	navigation.cancel();
-	const target = navigation.to?.url;
-	pendingNavigation = target ? () => void goto(target) : null;
-	leaveGuardOpen = true;
-});
+// Guarded: several component tests mock `$app/navigation` with only the
+// exports they use, and touching a missing export on that mock throws.
+try {
+	beforeNavigate((navigation) => {
+		if (dirtyKeys.length === 0 || leaveGuardOpen) return;
+		if (navigation.type === "leave") return;
+		navigation.cancel();
+		const target = navigation.to?.url;
+		pendingNavigation = target ? () => void goto(target) : null;
+		leaveGuardOpen = true;
+	});
+} catch {
+	// No navigation guard available; the save bar still reports what is pending.
+}
 
 function leaveNow() {
 	const go = pendingNavigation;
@@ -323,7 +335,8 @@ async function applyModelIconAsset(target: ModelIconTarget, assetId: string) {
 			target.modelName === "model1"
 				? "MODEL_1_ICON_ASSET_ID"
 				: "MODEL_2_ICON_ASSET_ID";
-		adminConfig[configKey] = assetId;
+		// Icon uploads PATCH immediately, so the new value is the saved value.
+		setValue(configKey, assetId);
 		baseline[configKey] = assetId;
 		await updateAdminConfig({ [configKey]: assetId });
 	} else if (target.kind === "provider") {
@@ -821,7 +834,7 @@ const modelGroups = $derived(
 		availableModels,
 		providers: providerConfigs,
 		providerModels: allProviderModels,
-		adminConfig,
+		adminConfig: draft,
 	}),
 );
 
@@ -832,10 +845,10 @@ const failoverModelGroups = $derived(
 		availableModels,
 		providers: providerConfigs,
 		providerModels: allProviderModels,
-		adminConfig,
+		adminConfig: draft,
 		includeProviderLevel: false,
 		configuredValue:
-			adminConfig.MEMORY_JUDGE_MODEL || adminConfig.MEMORY_CONSOLIDATION_MODEL,
+			draft.MEMORY_JUDGE_MODEL || draft.MEMORY_CONSOLIDATION_MODEL,
 	}),
 );
 
@@ -954,7 +967,7 @@ function highlight(key: string) {
 
 		{#if activePage === 'general'}
 			<GeneralPage
-				{adminConfig}
+				adminConfig={draft}
 				{envDefaults}
 				{highlightKey}
 				{isDirty}
@@ -963,7 +976,7 @@ function highlight(key: string) {
 			/>
 		{:else if activePage === 'models'}
 			<ModelsPage
-				{adminConfig}
+				adminConfig={draft}
 				{envDefaults}
 				{failoverModelGroups}
 				{defaultUserModelGroups}
@@ -1005,7 +1018,7 @@ function highlight(key: string) {
 			</ModelsPage>
 		{:else if activePage === 'aiTasks'}
 			<AiTasksPage
-				{adminConfig}
+				adminConfig={draft}
 				{envDefaults}
 				{modelGroups}
 				{failoverModelGroups}
@@ -1016,7 +1029,7 @@ function highlight(key: string) {
 			/>
 		{:else if activePage === 'integrations'}
 			<IntegrationsPage
-				{adminConfig}
+				adminConfig={draft}
 				{envDefaults}
 				{secretChangedAt}
 				{highlightKey}
@@ -1027,7 +1040,7 @@ function highlight(key: string) {
 			/>
 		{:else if activePage === 'limits'}
 			<LimitsPage
-				{adminConfig}
+				adminConfig={draft}
 				{envDefaults}
 				{highlightKey}
 				{isDirty}
@@ -1052,7 +1065,7 @@ function highlight(key: string) {
 			/>
 		{:else if activePage === 'advanced'}
 			<AdvancedPage
-				{adminConfig}
+				adminConfig={draft}
 				{envDefaults}
 				{secretChangedAt}
 				{highlightKey}

@@ -103,6 +103,9 @@ export function buildModelOptionGroups(
 
 		for (const model of providerModels) {
 			if (model.providerId !== provider.id) continue;
+			// A disabled model was never offered by the old builders (they read the
+			// already-filtered available-models list) and must not start being.
+			if (!model.enabled) continue;
 			const id = `provider:${provider.id}:${model.id}` as ModelId;
 			const fromAvailable = availableModels.find((entry) => entry.id === id);
 			if (seen.has(id)) continue;

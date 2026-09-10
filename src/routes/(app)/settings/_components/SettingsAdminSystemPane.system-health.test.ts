@@ -24,8 +24,10 @@ vi.mock("$lib/client/api/campaign-assets", () => ({
 }));
 
 vi.mock("$lib/client/api/admin-system-health", () => ({
+	fetchAdminConfigOverrideMeta: vi.fn(() => Promise.resolve({})),
 	fetchAdminEffectiveConfig: vi.fn(),
 	fetchAdminToolHealth: vi.fn(),
+	validateProviderConnection: vi.fn(() => Promise.resolve({ valid: true })),
 }));
 
 import {
@@ -154,6 +156,25 @@ function renderPane() {
 	});
 }
 
+// Diagnostics is a page of its own now, with the three read-only surfaces on
+// tabs instead of scrolling past between editable settings cards.
+async function openDiagnostics(
+	utils: ReturnType<typeof renderPane>,
+	tab: "toolHealth" | "effectiveConfig" | "routing" = "toolHealth",
+) {
+	await fireEvent.click(utils.getByTestId("system-nav-diagnostics"));
+	await waitFor(() => {
+		expect(utils.getByTestId("tool-health-section")).toBeInTheDocument();
+	});
+	if (tab !== "toolHealth") {
+		const label =
+			tab === "effectiveConfig"
+				? "Effective configuration"
+				: "Routing coverage";
+		await fireEvent.click(utils.getByRole("tab", { name: label }));
+	}
+}
+
 describe("SettingsAdminSystemPane system health sections", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -162,7 +183,9 @@ describe("SettingsAdminSystemPane system health sections", () => {
 	});
 
 	it("renders the tool health table with status pills, latency and detail", async () => {
-		const { getByTestId } = renderPane();
+		const utils = renderPane();
+		const { getByTestId } = utils;
+		await openDiagnostics(utils);
 
 		await waitFor(() => {
 			expect(getByTestId("tool-health-table")).toBeInTheDocument();
@@ -189,13 +212,17 @@ describe("SettingsAdminSystemPane system health sections", () => {
 	});
 
 	it("forces a fresh probe run from the refresh button", async () => {
-		const { getByTestId } = renderPane();
+		const utils = renderPane();
+		const { getByTestId } = utils;
+		await openDiagnostics(utils);
 		await waitFor(() => {
 			expect(getByTestId("tool-health-table")).toBeInTheDocument();
 		});
 
 		const section = within(getByTestId("tool-health-section"));
-		await fireEvent.click(section.getByRole("button", { name: "Refresh" }));
+		await fireEvent.click(
+			section.getByRole("button", { name: "Re-run checks" }),
+		);
 
 		await waitFor(() => {
 			expect(mockFetchToolHealth).toHaveBeenLastCalledWith({ refresh: true });
@@ -204,7 +231,9 @@ describe("SettingsAdminSystemPane system health sections", () => {
 
 	it("shows an error when tool health cannot be loaded", async () => {
 		mockFetchToolHealth.mockRejectedValueOnce(new Error("Forbidden"));
-		const { getByTestId } = renderPane();
+		const utils = renderPane();
+		const { getByTestId } = utils;
+		await openDiagnostics(utils);
 
 		await waitFor(() => {
 			expect(
@@ -214,7 +243,9 @@ describe("SettingsAdminSystemPane system health sections", () => {
 	});
 
 	it("renders the effective configuration table with masked secrets and sources", async () => {
-		const { getByTestId } = renderPane();
+		const utils = renderPane();
+		const { getByTestId } = utils;
+		await openDiagnostics(utils, "effectiveConfig");
 
 		await waitFor(() => {
 			expect(getByTestId("effective-config-table")).toBeInTheDocument();
@@ -247,8 +278,9 @@ describe("SettingsAdminSystemPane system health sections", () => {
 	});
 
 	it("filters effective configuration rows by key or value", async () => {
-		const { getByTestId, getByLabelText, queryByTestId, getByText } =
-			renderPane();
+		const utils = renderPane();
+		const { getByTestId, getByLabelText, queryByTestId, getByText } = utils;
+		await openDiagnostics(utils, "effectiveConfig");
 		await waitFor(() => {
 			expect(getByTestId("effective-config-table")).toBeInTheDocument();
 		});
