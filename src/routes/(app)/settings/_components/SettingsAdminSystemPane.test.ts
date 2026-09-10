@@ -625,3 +625,125 @@ describe("SettingsAdminSystemPane", () => {
 		expect(getByLabelText("Source scope")).toBeInTheDocument();
 	});
 });
+
+describe("admin System pane — pending edits survive the sub-tab round trip", () => {
+	it("still counts an edit as pending after the pane is unmounted and remounted", async () => {
+		// Opening the Users sub-tab unmounts this pane. The saved snapshot is
+		// owned by the page for exactly this reason: re-taken from the already
+		// edited `adminConfig`, it would report the pending edit as saved and
+		// the Save button would go dead with the change never written.
+		const adminConfig = {
+			APP_VERSION_OVERRIDE: "2026.01",
+			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
+			MODEL_2_ENABLED: "true",
+		};
+		const adminConfigSaved: Record<string, string> = {};
+
+		const first = render(SettingsAdminSystemPane, {
+			adminConfig,
+			adminConfigSaved,
+			envDefaults: {},
+			availableModels: [{ id: "model1", displayName: "Model 1" }],
+			onSaveAdminConfig: vi.fn(),
+		});
+
+		await fireEvent.input(first.getByLabelText("App version override"), {
+			target: { value: "2026.05-admin" },
+		});
+		await waitFor(() => {
+			expect(first.getByTestId("system-save-bar")).toHaveAttribute(
+				"data-pending",
+				"1",
+			);
+		});
+
+		first.unmount();
+
+		const second = render(SettingsAdminSystemPane, {
+			adminConfig,
+			adminConfigSaved,
+			envDefaults: {},
+			availableModels: [{ id: "model1", displayName: "Model 1" }],
+			onSaveAdminConfig: vi.fn(),
+		});
+
+		await waitFor(() => {
+			expect(second.getByTestId("system-save-bar")).toHaveAttribute(
+				"data-pending",
+				"1",
+			);
+		});
+		expect(second.getByTestId("system-nav-dirty-general")).toHaveTextContent(
+			"1",
+		);
+		expect(second.getByTestId("system-save")).toBeEnabled();
+	});
+
+	it("keeps the edit pending when the save is rejected", async () => {
+		const onSaveAdminConfig = vi.fn(() => false);
+		const adminConfig = {
+			APP_VERSION_OVERRIDE: "2026.01",
+			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
+			MODEL_2_ENABLED: "true",
+		};
+		const adminConfigSaved: Record<string, string> = {};
+
+		const { getByLabelText, getByRole, getByTestId } = render(
+			SettingsAdminSystemPane,
+			{
+				adminConfig,
+				adminConfigSaved,
+				envDefaults: {},
+				availableModels: [{ id: "model1", displayName: "Model 1" }],
+				onSaveAdminConfig,
+			},
+		);
+
+		await fireEvent.input(getByLabelText("App version override"), {
+			target: { value: "2026.05-admin" },
+		});
+		await waitFor(() => {
+			expect(getByTestId("system-save-bar")).toHaveAttribute(
+				"data-pending",
+				"1",
+			);
+		});
+
+		await fireEvent.click(getByRole("button", { name: "Save 1 change" }));
+		// A refused write must not become the new baseline: the same patch is
+		// still there to send again.
+		expect(adminConfigSaved.APP_VERSION_OVERRIDE).toBe("2026.01");
+
+		await fireEvent.click(getByRole("button", { name: "Save 1 change" }));
+		expect(onSaveAdminConfig).toHaveBeenCalledTimes(2);
+		expect(onSaveAdminConfig).toHaveBeenLastCalledWith({
+			APP_VERSION_OVERRIDE: "2026.05-admin",
+		});
+	});
+
+	it("offers Reset on a named page for a saved override with no pending edit", async () => {
+		// The row is at an overridden value, not at its default, and nothing is
+		// pending — the exact case an admin needs "Reset to default" for.
+		const { getByRole, getByTestId } = render(SettingsAdminSystemPane, {
+			adminConfig: {
+				APP_VERSION_OVERRIDE: "2026.05-admin",
+				COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
+				MODEL_2_ENABLED: "true",
+			},
+			adminConfigSaved: {},
+			envDefaults: { APP_VERSION_OVERRIDE: "" },
+			availableModels: [{ id: "model1", displayName: "Model 1" }],
+			onSaveAdminConfig: vi.fn(),
+		});
+
+		await waitFor(() => {
+			expect(getByTestId("system-page-general")).toBeInTheDocument();
+		});
+		expect(getByTestId("system-save-bar")).toHaveAttribute("data-pending", "0");
+		expect(
+			getByRole("button", {
+				name: "Reset App version override to its default",
+			}),
+		).toBeInTheDocument();
+	});
+});

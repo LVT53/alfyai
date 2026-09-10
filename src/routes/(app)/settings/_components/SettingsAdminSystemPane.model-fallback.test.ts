@@ -328,4 +328,48 @@ describe("SettingsAdminSystemPane model fallback UI", () => {
 			),
 		).toBe(true);
 	});
+
+	it("keeps EVERY stale id visible, not only the first select's", async () => {
+		// The three selects share one option list. Rescuing one configured id
+		// left the others with no matching option, and a select with no matching
+		// option renders whatever happens to be first — so the screen said
+		// "Model 1" while the stored config still named the deleted model.
+		const adminConfig = {
+			COMPOSER_COMMAND_REGISTRY_ENABLED: "false",
+			MODEL_2_ENABLED: "true",
+			MEMORY_JUDGE_MODEL: "model1",
+			MEMORY_CONSOLIDATION_MODEL: "provider:gone:consolidation-model",
+			MODEL_TIMEOUT_FAILOVER_TARGET_MODEL: "provider:gone:failover-model",
+		};
+
+		const { getByRole, getByTestId } = render(SettingsAdminSystemPane, {
+			adminConfig,
+			envDefaults: {},
+			availableModels: [
+				{ id: "model1", displayName: "Model 1" },
+				{ id: "model2", displayName: "Model 2" },
+			],
+			onSaveAdminConfig: vi.fn(),
+		});
+
+		await fireEvent.click(getByTestId("system-nav-aiTasks"));
+		await waitFor(() => {
+			expect(getByTestId("system-page-ai-tasks")).toBeInTheDocument();
+		});
+
+		const consolidationSelect = getByRole("combobox", {
+			name: "Memory consolidation model",
+		}) as HTMLSelectElement;
+		expect(consolidationSelect.value).toBe("provider:gone:consolidation-model");
+
+		await fireEvent.click(getByTestId("system-nav-models"));
+		await waitFor(() => {
+			expect(getByTestId("system-page-models")).toBeInTheDocument();
+		});
+
+		const failoverSelect = getByRole("combobox", {
+			name: "Retry on",
+		}) as HTMLSelectElement;
+		expect(failoverSelect.value).toBe("provider:gone:failover-model");
+	});
 });

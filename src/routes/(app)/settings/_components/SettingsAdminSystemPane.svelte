@@ -79,6 +79,7 @@ const tVal = get(t);
 
 let {
 	adminConfig = $bindable(),
+	adminConfigSaved = $bindable({}),
 	envDefaults = {},
 	availableModels = [],
 	adminSaving = false,
@@ -87,6 +88,14 @@ let {
 	onSaveAdminConfig,
 }: {
 	adminConfig: Record<string, string>;
+	/**
+	 * The values the server last confirmed. It is a prop, not local state,
+	 * because opening the Users or Campaigns sub-tab unmounts this pane: a
+	 * baseline that died with the component would be re-snapshotted from the
+	 * already-edited `adminConfig` on the way back, and every pending edit
+	 * would read as saved and never be sent.
+	 */
+	adminConfigSaved?: Record<string, string>;
 	envDefaults?: Record<string, string>;
 	availableModels?: Array<{
 		id: ModelId;
@@ -98,7 +107,10 @@ let {
 	adminError?: string;
 	// Widened additively: the pane sends only what changed, so an untouched key
 	// never gets an admin_config row (and a masked secret is never re-sent).
-	onSaveAdminConfig: (patch?: Record<string, string>) => void | Promise<void>;
+	// An explicit `false` result means the write was rejected and the edits
+	// stay pending. `unknown` rather than a union: a handler that returns
+	// nothing (every test mock does) must stay assignable.
+	onSaveAdminConfig: (patch?: Record<string, string>) => unknown;
 } = $props();
 
 // --- page + pending-change state -----------------------------------------
@@ -112,20 +124,34 @@ let highlightTimer: ReturnType<typeof setTimeout> | undefined;
 // that owns it, and anything else reading it, stays in step), but the screen
 // reads THIS, which is reactive whatever the parent passed in.
 let draft = $state<Record<string, string>>({});
-let baseline = $state<Record<string, string>>({});
 let baselineReady = $state(false);
 let lastSavedAt = $state("");
 let leaveGuardOpen = $state(false);
 let pendingNavigation: (() => void) | null = null;
 
+// The baseline lives on the parent (`adminConfigSaved`) so it survives this
+// pane being unmounted and remounted by a sub-tab switch.
+const baseline = $derived(adminConfigSaved ?? {});
+
+/** Written in place, so the parent's object is updated whether it was bound
+ *  with `bind:` or handed over as a plain record. */
+function commitSaved(next: Record<string, string>) {
+	const target = adminConfigSaved;
+	if (!target) return;
+	for (const key of Object.keys(target)) delete target[key];
+	Object.assign(target, next);
+}
+
 $effect(() => {
 	// The page load hands over the resolved values once; that snapshot is what
-	// "unsaved" is measured against.
+	// "unsaved" is measured against. On a REMOUNT `adminConfig` already carries
+	// the pending edits, so only the draft is re-taken — the saved snapshot is
+	// whatever the parent still holds.
 	if (baselineReady) return;
 	const snapshot = { ...adminConfig };
 	if (Object.keys(snapshot).length === 0) return;
 	draft = { ...snapshot };
-	baseline = snapshot;
+	if (Object.keys(baseline).length === 0) commitSaved(snapshot);
 	baselineReady = true;
 });
 
@@ -194,8 +220,11 @@ async function saveChanges() {
 		if (value === "[set]") continue;
 		patch[key] = value;
 	}
-	await onSaveAdminConfig(patch);
-	baseline = { ...draft };
+	const saved = await onSaveAdminConfig(patch);
+	// A rejected write must not clear the pending marks: the admin would be
+	// told everything is saved while the server still holds the old values.
+	if (saved === false) return;
+	commitSaved({ ...draft });
 	lastSavedAt = new Date().toLocaleTimeString(undefined, {
 		hour: "2-digit",
 		minute: "2-digit",
@@ -842,6 +871,7 @@ const modelGroups = $derived(
 		providers: providerConfigs,
 		providerModels: allProviderModels,
 		adminConfig: draft,
+		freeLabel: tVal("admin.system.modelFree"),
 	}),
 );
 
@@ -853,9 +883,15 @@ const failoverModelGroups = $derived(
 		providers: providerConfigs,
 		providerModels: allProviderModels,
 		adminConfig: draft,
+		freeLabel: tVal("admin.system.modelFree"),
 		includeProviderLevel: false,
-		configuredValue:
-			draft.MEMORY_JUDGE_MODEL || draft.MEMORY_CONSOLIDATION_MODEL,
+		// All three selects that share this list, not just the first non-empty
+		// one: a stale id with no matching option renders as the wrong model.
+		configuredValues: [
+			draft.MEMORY_JUDGE_MODEL,
+			draft.MEMORY_CONSOLIDATION_MODEL,
+			draft.MODEL_TIMEOUT_FAILOVER_TARGET_MODEL,
+		],
 	}),
 );
 

@@ -23,6 +23,7 @@ let {
 	modelNames,
 	availableModels = [],
 	adminConfig = $bindable(),
+	adminConfigSaved = $bindable({}),
 	envDefaults = {},
 	adminSaving = false,
 	adminMessage = "",
@@ -49,12 +50,17 @@ let {
 		iconUrl?: string | null;
 	}>;
 	adminConfig: Record<string, string>;
+	/** The last server-confirmed values; owned by the page so it outlives the
+	 *  System pane, which this tab unmounts whenever the admin opens Users. */
+	adminConfigSaved?: Record<string, string>;
 	envDefaults?: Record<string, string>;
 	adminSaving?: boolean;
 	adminMessage?: string;
 	adminError?: string;
-	// Optional patch: the System pane sends only the keys it changed.
-	onSaveAdminConfig: (patch?: Record<string, string>) => void | Promise<void>;
+	// Optional patch: the System pane sends only the keys it changed. An
+	// explicit `false` result says the write did not land, so the System pane
+	// keeps its edits pending rather than reporting them saved.
+	onSaveAdminConfig: (patch?: Record<string, string>) => unknown;
 	systemAnalyticsData?: AnalyticsResponse | null;
 	systemAnalyticsLoading?: boolean;
 	systemAnalyticsError?: string;
@@ -265,6 +271,7 @@ async function handleDeleteUser(userId: string) {
 	<!-- tool health and the effective-config readout. -->
 	<SettingsAdminSystemPane
 		bind:adminConfig
+		bind:adminConfigSaved
 		{envDefaults}
 		{availableModels}
 		{adminSaving}

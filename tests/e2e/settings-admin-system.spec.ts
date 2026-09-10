@@ -127,6 +127,36 @@ test.describe("Admin System screen", () => {
 		await expect(field).toHaveValue(original);
 	});
 
+	test("keeps a pending edit through a trip to another sub-tab", async ({
+		page,
+	}) => {
+		// Opening Users unmounts the whole System pane. The pending edit has to
+		// come back with it, still counted and still saveable — re-reading the
+		// baseline from the edited values would report it as saved and lose it.
+		await page.getByTestId("system-nav-limits").click();
+		const field = page.locator("#MAX_MESSAGE_LENGTH");
+		const original = await field.inputValue();
+		await field.fill("31234");
+
+		const bar = page.getByTestId("system-save-bar");
+		await expect(bar).toHaveAttribute("data-pending", "1");
+
+		await page.getByRole("button", { name: "Users", exact: true }).click();
+		await expect(page.getByTestId("admin-system-screen")).toBeHidden();
+		await page.getByRole("button", { name: "System", exact: true }).click();
+		await expect(page.getByTestId("admin-system-screen")).toBeVisible();
+
+		await expect(bar).toHaveAttribute("data-pending", "1");
+		await expect(page.getByTestId("system-save")).toBeEnabled();
+
+		await page.getByTestId("system-nav-limits").click();
+		await expect(page.locator("#MAX_MESSAGE_LENGTH")).toHaveValue("31234");
+
+		await page.getByRole("button", { name: "Discard" }).click();
+		await expect(bar).toHaveAttribute("data-pending", "0");
+		await expect(page.locator("#MAX_MESSAGE_LENGTH")).toHaveValue(original);
+	});
+
 	test("finds a setting from the screen-wide search", async ({ page }) => {
 		await page.getByTestId("system-search").fill("summarizer");
 		await page.getByRole("option").first().click();
