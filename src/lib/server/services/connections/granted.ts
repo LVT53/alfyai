@@ -58,15 +58,18 @@ export function grantedCapabilitiesFor(conn: GrantSource): Capability[] {
 	}
 
 	if (conn.provider === "caldav") {
-		// An older caldav row predating discovery config falls back to whatever
-		// it is enabled for rather than reporting "nothing was granted" — the
-		// connection demonstrably works, so a silent downgrade to an all-denied
-		// dialog would be worse than trusting the enabled list.
 		const discovered = caldavGranted(conn.config);
 		if (discovered.length > 0) return discovered;
-		return catalogue.filter((capability) =>
-			conn.capabilities.includes(capability),
-		);
+		// An older caldav row predating discovery config tells us nothing about
+		// what the server offers, so we claim no denial: the whole catalogue,
+		// exactly as for a provider that authenticates as the whole account.
+		//
+		// Deriving it from the ENABLED list instead would have been a one-way
+		// door — a user who switched Contacts off on such a row would find the
+		// switch replaced by a greyed "Contacts — not allowed / Look again"
+		// line, with no way to switch it back on. "We don't know" must never
+		// render as "the provider refused".
+		return [...catalogue];
 	}
 
 	// Every other provider authenticates as the whole account: connecting it

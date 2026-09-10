@@ -82,7 +82,12 @@ describe("grantedCapabilitiesFor", () => {
 		).toEqual(["calendar"]);
 	});
 
-	it("falls back to a legacy CalDAV row's enabled list when discovery config is missing", () => {
+	// A legacy row predating discovery tells us nothing about what the server
+	// offers, so nothing may be reported as denied. Deriving the grant from
+	// the ENABLED list instead would be a one-way door: switching Contacts off
+	// would replace its switch with a greyed "not allowed / Look again" line
+	// and there would be no way back on.
+	it("claims no denial for a legacy CalDAV row with no discovery config", () => {
 		expect(
 			grantedCapabilitiesFor({
 				provider: "caldav",
@@ -90,7 +95,18 @@ describe("grantedCapabilitiesFor", () => {
 				capabilities: ["tasks"],
 				config: {},
 			}),
-		).toEqual(["tasks"]);
+		).toEqual(["tasks", "calendar", "contacts"]);
+	});
+
+	it("does not shrink a legacy CalDAV row's grant when a capability is switched off", () => {
+		const legacy = {
+			provider: "caldav" as const,
+			oauthScopes: [],
+			config: {},
+		};
+		expect(
+			grantedCapabilitiesFor({ ...legacy, capabilities: ["calendar"] }),
+		).toEqual(grantedCapabilitiesFor({ ...legacy, capabilities: [] }));
 	});
 
 	it("grants an account-wide provider its whole catalogue", () => {
