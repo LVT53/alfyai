@@ -12,9 +12,12 @@
  *                  request/report/probe uses the new value.
  *   - "next-run" — a scheduler reads the value when it computes its next tick,
  *                  so the change lands on the next sweep rather than instantly.
- *   - "restart"  — the value is read at import time; only a process restart
- *                  applies it. (Nothing surfaced today is "restart": the keys
- *                  that would be are deliberately left environment-only.)
+ *   - "restart"  — the value is read once at start-up; only a process restart
+ *                  applies it. The two `createIntervalJob` schedulers are this:
+ *                  `interval-job.ts` resolves the period inside `start()` and
+ *                  arms one `setInterval` with it, and `refreshConfig()` never
+ *                  restarts them, so their `periodMinutes` getter runs exactly
+ *                  once per process.
  */
 
 export type AdminConfigEffect = "live" | "next-run" | "restart";
@@ -353,16 +356,20 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "next-run",
 	},
 	{
+		// Armed once by `createIntervalJob().start()` from hooks.server.ts; the
+		// `periodMinutes` getter is never re-invoked (interval-job.ts:62-66).
 		key: "MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
 		group: "memory",
 		control: int(1, undefined, "min"),
-		effect: "next-run",
+		effect: "restart",
 	},
 	{
+		// Same spine as consolidation above, plus: `start()` treats 0 as "never
+		// arm", so 0 → 30 cannot take hold without a restart either.
 		key: "MEMORY_MAINTENANCE_INTERVAL_MINUTES",
 		group: "memory",
 		control: int(0, undefined, "min"),
-		effect: "next-run",
+		effect: "restart",
 	},
 	{
 		key: "WORKING_SET_DOCUMENT_TOKEN_BUDGET",
@@ -655,8 +662,6 @@ export const SURFACED_ADMIN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"MODEL_1_DISPLAY_NAME",
 	"MODEL_2_DISPLAY_NAME",
 	"MODEL_2_ENABLED",
-	"MODEL_1_ICON_ASSET_ID",
-	"MODEL_2_ICON_ASSET_ID",
 	// AI tasks
 	"ATLAS_WORKER_ENABLED",
 	"ATLAS_GLOBAL_ACTIVE_LIMIT",
@@ -741,8 +746,20 @@ export function validateAdminConfigValue(
 				? { ok: true, value }
 				: { ok: false, reason: "invalid-option" };
 		}
-		case "bool":
-			return { ok: true, value: value === "true" ? "true" : "false" };
+		case "bool": {
+			// The spellings the appliers read, and nothing else. Silently folding
+			// an unrecognised word to "false" would turn a typed "TRUE" into a
+			// switched-OFF flag, and would rewrite the "1" that
+			// NORMAL_CHAT_DEBUG_OUTBOUND's applier deliberately accepts.
+			const normalized = value.toLowerCase();
+			if (normalized === "true" || normalized === "1") {
+				return { ok: true, value: "true" };
+			}
+			if (normalized === "false" || normalized === "0") {
+				return { ok: true, value: "false" };
+			}
+			return { ok: false, reason: "invalid-option" };
+		}
 		default:
 			return { ok: true, value };
 	}

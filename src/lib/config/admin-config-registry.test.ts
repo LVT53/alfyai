@@ -69,14 +69,9 @@ describe("advanced key registry", () => {
 });
 
 describe("restart-vs-live map", () => {
-	it("marks scheduler-read keys as next run, not live", () => {
+	it("marks keys a scheduler re-reads per tick as next run, not live", () => {
+		// These three resolve the value when the next sweep is scheduled.
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.MEMORY_JUDGE_IDLE_MINUTES).toBe(
-			"next-run",
-		);
-		expect(
-			ADMIN_CONFIG_EFFECT_BY_KEY.MEMORY_CONSOLIDATION_INTERVAL_MINUTES,
-		).toBe("next-run");
-		expect(ADMIN_CONFIG_EFFECT_BY_KEY.MEMORY_MAINTENANCE_INTERVAL_MINUTES).toBe(
 			"next-run",
 		);
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.ROUTING_REGION_IDLE_MINUTES).toBe(
@@ -87,6 +82,18 @@ describe("restart-vs-live map", () => {
 		);
 	});
 
+	it("marks the two createIntervalJob periods as restart, not next run", () => {
+		// `interval-job.ts` resolves the period inside `start()` and arms one
+		// `setInterval` with it; the getter never runs again, and refreshConfig()
+		// does not restart the job. Calling these "next run" would be a lie.
+		expect(
+			ADMIN_CONFIG_EFFECT_BY_KEY.MEMORY_CONSOLIDATION_INTERVAL_MINUTES,
+		).toBe("restart");
+		expect(ADMIN_CONFIG_EFFECT_BY_KEY.MEMORY_MAINTENANCE_INTERVAL_MINUTES).toBe(
+			"restart",
+		);
+	});
+
 	it("marks per-call keys as live", () => {
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.TEI_TIMEOUT_MS).toBe("live");
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.CONCURRENT_STREAM_LIMIT).toBe("live");
@@ -94,12 +101,17 @@ describe("restart-vs-live map", () => {
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.ATLAS_V2_WRITER_CONCURRENCY).toBe("live");
 	});
 
-	it("claims no surfaced key needs a restart", () => {
-		// Keys that would need one are deliberately kept environment-only, so a
-		// "restart" badge appearing here means a key was promoted by mistake.
+	it("keeps the restart badge to the keys that genuinely need one", () => {
+		// A key drifting into this list means its consumer stopped reading the
+		// value per call; a key dropping out means it started.
 		expect(
-			ADVANCED_KEY_SPECS.filter((entry) => entry.effect === "restart"),
-		).toEqual([]);
+			ADVANCED_KEY_SPECS.filter((entry) => entry.effect === "restart").map(
+				(entry) => entry.key,
+			),
+		).toEqual([
+			"MEMORY_CONSOLIDATION_INTERVAL_MINUTES",
+			"MEMORY_MAINTENANCE_INTERVAL_MINUTES",
+		]);
 	});
 });
 
@@ -143,8 +155,22 @@ describe("validateAdminConfigValue", () => {
 			validateAdminConfigValue(spec("MEMORY_JUDGE_DRY_RUN"), "true"),
 		).toEqual({ ok: true, value: "true" });
 		expect(
+			validateAdminConfigValue(spec("MEMORY_JUDGE_DRY_RUN"), "  TRUE "),
+		).toEqual({ ok: true, value: "true" });
+		// The applier for NORMAL_CHAT_DEBUG_OUTBOUND reads "1" as on, matching
+		// how env.ts reads the environment variable.
+		expect(
+			validateAdminConfigValue(spec("NORMAL_CHAT_DEBUG_OUTBOUND"), "1"),
+		).toEqual({ ok: true, value: "true" });
+		expect(validateAdminConfigValue(spec("MEMORY_JUDGE_DRY_RUN"), "0")).toEqual(
+			{ ok: true, value: "false" },
+		);
+	});
+
+	it("refuses a word that is neither on nor off, instead of reading it as off", () => {
+		expect(
 			validateAdminConfigValue(spec("MEMORY_JUDGE_DRY_RUN"), "anything"),
-		).toEqual({ ok: true, value: "false" });
+		).toEqual({ ok: false, reason: "invalid-option" });
 	});
 });
 
