@@ -207,6 +207,16 @@ const guardedUpdateAllowlist = (id: string, next: string[]) =>
 		() => onUpdateWriteAllowlist(id, next),
 	);
 
+const guardedUpdateOwnTracksHome = (
+	id: string,
+	next: { homeLat: number | null; homeLon: number | null },
+) =>
+	runChange(
+		"connections.states.saveFailed.home",
+		{ provider: providerNameOf(id) },
+		() => onUpdateOwnTracksHome(id, next),
+	);
+
 const guardedToggleLocalDistill = (next: boolean) =>
 	runChange(
 		next
@@ -381,7 +391,7 @@ function nameList(capabilities: string[]): string {
 	onToggleAllowWrites={guardedToggleAllowWrites}
 	onToggleDefaultOn={guardedToggleDefaultOn}
 	onUpdateWriteAllowlist={guardedUpdateAllowlist}
-	{onUpdateOwnTracksHome}
+	onUpdateOwnTracksHome={guardedUpdateOwnTracksHome}
 	onDisconnect={guardedDisconnect}
 	onReconnect={(id) => {
 		selectedConnectionId = null;

@@ -141,11 +141,18 @@ describe("ConnectionDetailModal", () => {
 		});
 
 		// A CalDAV server without address books didn't "refuse" anything — it
-		// simply doesn't have them, and there is no consent screen to revisit.
-		it("says a discovered capability is missing from the server, with no ask-again", () => {
+		// simply didn't have one when we looked. So the sentence differs from
+		// the OAuth case, and so does the verb on the button: reconnecting
+		// re-runs the discovery, which is the only thing that can find an
+		// address book added since. Leaving this line with no button at all
+		// made it inert — a CalDAV account that grew an address book had no way
+		// back to it, which the old modal (wrongly, but reachably) allowed.
+		it("says a discovered capability is missing from the server, and offers to look again", async () => {
+			const onAskAgain = vi.fn();
 			render(
 				ConnectionDetailModal,
 				baseProps({
+					onAskAgain,
 					connection: makeConnection({
 						provider: "caldav",
 						capabilities: ["tasks"],
@@ -159,9 +166,15 @@ describe("ConnectionDetailModal", () => {
 					"Your server doesn't offer this, so there is nothing to switch on.",
 				),
 			).toBeInTheDocument();
+			// No switch: there is still nothing behind it to turn on.
 			expect(
-				screen.queryByTestId("capability-contacts-ask-again"),
+				within(row).queryByRole("switch", { name: "Contacts" }),
 			).not.toBeInTheDocument();
+
+			const lookAgain = screen.getByTestId("capability-contacts-ask-again");
+			expect(lookAgain).toHaveTextContent("Look again");
+			await fireEvent.click(lookAgain);
+			expect(onAskAgain).toHaveBeenCalledWith("conn-1", "contacts");
 		});
 
 		it("toggling a capability calls onToggleCapability with (id, capability, next)", async () => {

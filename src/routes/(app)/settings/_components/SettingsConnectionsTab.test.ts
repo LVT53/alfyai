@@ -375,6 +375,44 @@ describe("SettingsConnectionsTab", () => {
 			);
 		});
 
+		// The OwnTracks home save was the one mutation that did not go through
+		// runChange: it reported failure with a red line of its own under the
+		// coordinate fields, a second dialect for the same event.
+		it("speaks the same words when the home location fails to save", async () => {
+			const onUpdateOwnTracksHome = vi
+				.fn()
+				.mockRejectedValue(new Error("nope"));
+			render(
+				SettingsConnectionsTab,
+				baseProps({
+					connections: [
+						makeConnection({
+							id: "conn-ot",
+							provider: "owntracks",
+							label: "OwnTracks",
+							accountIdentifier: "phone-lvt",
+							capabilities: ["location"],
+							grantedCapabilities: ["location"],
+						}),
+					],
+					onUpdateOwnTracksHome,
+				}),
+			);
+
+			await fireEvent.click(screen.getByTestId("connection-details-conn-ot"));
+			const latitude = await screen.findByLabelText("Latitude");
+			await fireEvent.input(latitude, { target: { value: "47.4979" } });
+			await fireEvent.input(screen.getByLabelText("Longitude"), {
+				target: { value: "19.0402" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Save home" }));
+
+			const card = await screen.findByTestId("connections-change-failed");
+			expect(
+				within(card).getByText(/Saving the home location for OwnTracks/),
+			).toBeInTheDocument();
+		});
+
 		it("can be dismissed", async () => {
 			const onToggleLocalDistill = vi.fn().mockRejectedValue(new Error("nope"));
 			render(SettingsConnectionsTab, baseProps({ onToggleLocalDistill }));

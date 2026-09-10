@@ -396,11 +396,89 @@ describe("ConnectWizardModal", () => {
 			// Retrying from here resumes the wait rather than restarting the flow:
 			// the login link is already minted and still valid.
 			openWindow.mockReturnValue({} as Window);
+			const opensBeforeRetry = openWindow.mock.calls.length;
 			await fireEvent.click(open);
 			expect(
 				await screen.findByTestId("wizard-nextcloud-waiting"),
 			).toBeInTheDocument();
 			expect(mockStartNextcloudConnect).toHaveBeenCalledTimes(1);
+			// And it opens the tab ONCE — via the anchor's own navigation, which
+			// is the user gesture the browser allows. Calling openWindow here as
+			// well gave the user two Nextcloud tabs, and they could easily sign
+			// in on the one nobody was polling for.
+			expect(openWindow.mock.calls.length).toBe(opensBeforeRetry);
+		});
+
+		// A three-minute wait used to be undone by a single dropped poll: the
+		// catch threw the user back to the form and lost the login link they
+		// were in the middle of approving in the other tab.
+		it("rides out a transient poll failure instead of losing the pending login", async () => {
+			vi.useFakeTimers();
+			try {
+				mockStartNextcloudConnect.mockResolvedValue(startResponse);
+				mockPollNextcloudConnect
+					.mockRejectedValueOnce(new Error("network hiccup"))
+					.mockResolvedValue({ status: "pending" });
+
+				render(
+					ConnectWizardModal,
+					baseProps({
+						provider: "nextcloud",
+						openWindow: vi.fn(),
+						pollIntervalMs: 1000,
+						pollTimeoutMs: 600_000,
+					}),
+				);
+				await fireEvent.input(screen.getByLabelText("Server URL"), {
+					target: { value: "https://cloud.example.com" },
+				});
+				await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+				await vi.advanceTimersByTimeAsync(0);
+
+				await vi.advanceTimersByTimeAsync(3000);
+
+				// Still waiting, and still polling — not thrown back to the form.
+				expect(
+					screen.getByTestId("wizard-nextcloud-waiting"),
+				).toBeInTheDocument();
+				expect(mockPollNextcloudConnect.mock.calls.length).toBeGreaterThan(1);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("gives up and says so once the failures stop looking transient", async () => {
+			vi.useFakeTimers();
+			try {
+				mockStartNextcloudConnect.mockResolvedValue(startResponse);
+				mockPollNextcloudConnect.mockRejectedValue(new Error("server is down"));
+
+				render(
+					ConnectWizardModal,
+					baseProps({
+						provider: "nextcloud",
+						openWindow: vi.fn(),
+						pollIntervalMs: 1000,
+						pollTimeoutMs: 600_000,
+					}),
+				);
+				await fireEvent.input(screen.getByLabelText("Server URL"), {
+					target: { value: "https://cloud.example.com" },
+				});
+				await fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+				await vi.advanceTimersByTimeAsync(0);
+
+				await vi.advanceTimersByTimeAsync(5000);
+
+				// Back on the form, with the error shown, rather than waiting on a
+				// server that is not answering.
+				expect(screen.getByLabelText("Server URL")).toBeInTheDocument();
+				expect(
+					screen.queryByTestId("wizard-nextcloud-waiting"),
+				).not.toBeInTheDocument();
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 
 		it("treats a caller that reports nothing as 'opened', not blocked", async () => {

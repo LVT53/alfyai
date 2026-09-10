@@ -286,9 +286,13 @@ async function persistHome(
 ) {
 	homeSaving = true;
 	try {
+		// A rejection here is reported by the tab's "that change didn't save"
+		// card, in the same words as every other change on this screen — this
+		// used to be a second dialect for failure, a red line under the fields
+		// saying something different from the card two inches above it. The
+		// INVALID-range messages above stay inline, because those are about
+		// what is in the box, not about whether the save reached the server.
 		await onUpdateOwnTracksHome(conn.id, next);
-	} catch {
-		homeError = $t("connections.ownTracksHome.saveError");
 	} finally {
 		homeSaving = false;
 	}
@@ -437,6 +441,14 @@ function capabilityAbout(capability: string): string {
 								)}
 						/>
 					{/each}
+					<!-- A denied capability is only ever reachable again by re-running
+					     the flow that decided it: the consent screen for an OAuth
+					     account, the discovery PROPFIND for a CalDAV one. Both are
+					     the reconnect wizard, so both get the button — only the verb
+					     differs, because a CalDAV server refused nothing, it just had
+					     no address book when we looked. Leaving the non-OAuth case
+					     without a button made the line inert: a CalDAV account that
+					     grew an address book had no way back to it. -->
 					{#each denied as capability (capability)}
 						<CapabilityRow
 							label={capabilityLabel(conn.provider, capability)}
@@ -444,7 +456,9 @@ function capabilityAbout(capability: string): string {
 								? $t('connections.detail.deniedSub')
 								: $t('connections.detail.deniedSubDiscovered')}
 							granted={false}
-							askAgainLabel={isOAuth ? $t('connections.actions.askAgain') : undefined}
+							askAgainLabel={isOAuth
+								? $t('connections.actions.askAgain')
+								: $t('connections.actions.lookAgain')}
 							testId={`capability-${capability}`}
 							onAskAgain={() => onAskAgain?.(conn.id, capability)}
 						/>

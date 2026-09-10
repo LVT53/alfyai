@@ -237,6 +237,13 @@ let ncPollServerUrl = $state("");
 let ncLoginUrl = $state("");
 let ncElapsedMs = $state(0);
 let ncTimer: ReturnType<typeof setTimeout> | null = null;
+// Consecutive failed polls. A single one used to throw the user back to the
+// form and lose the login link they were in the middle of approving — a
+// dropped packet during a three-minute wait undid the whole flow, and the
+// Nextcloud tab they had just signed into was still sitting there. Transient
+// failures are now ridden out; only a run of them is treated as broken.
+let ncPollFailures = $state(0);
+const NC_MAX_POLL_FAILURES = 3;
 
 const ncMinutesLeft = $derived(
 	Math.max(1, Math.ceil((pollTimeoutMs - ncElapsedMs) / 60000)),
@@ -262,6 +269,7 @@ async function submitNextcloud(event: Event) {
 		ncPollServerUrl = result.serverUrl;
 		ncLoginUrl = result.loginUrl;
 		ncElapsedMs = 0;
+		ncPollFailures = 0;
 		if (!openNextcloudTab()) {
 			// The login link is already minted and still valid — the user just
 			// needs a way to reach it.
@@ -277,9 +285,15 @@ async function submitNextcloud(event: Event) {
 	}
 }
 
-function retryOpenNextcloudTab() {
-	if (!openNextcloudTab()) return;
+// The "Open it now" control is a real <a target="_blank">, not a scripted
+// window.open — the browser just refused a scripted one, and a genuine link
+// click is the gesture it does allow. So this only resumes the wait; it must
+// NOT open the tab itself, or the user gets two Nextcloud tabs and signs in on
+// the one whose approval nobody is polling for.
+function resumeNextcloudWait() {
+	if (ncPhase !== "blocked") return;
 	ncPhase = "waiting";
+	ncPollFailures = 0;
 	scheduleNextPoll();
 }
 
@@ -301,10 +315,20 @@ async function pollOnce() {
 			onClose();
 			return;
 		}
+		// A poll that answered at all means the link is alive; forget any
+		// earlier blip.
+		ncPollFailures = 0;
 	} catch (err) {
-		setError(err);
-		ncPhase = "form";
-		return;
+		ncPollFailures += 1;
+		if (ncPollFailures >= NC_MAX_POLL_FAILURES) {
+			// Now it looks like the server, not the network. Give up and say
+			// so, with the form to try again from.
+			setError(err);
+			ncPhase = "form";
+			return;
+		}
+		// Otherwise keep waiting: the login link is still minted and the user
+		// may already be approving it in the other tab.
 	}
 	ncElapsedMs += pollIntervalMs;
 	if (ncElapsedMs >= pollTimeoutMs) {
@@ -332,6 +356,7 @@ function cancelNextcloudWait() {
 
 function retryNextcloud() {
 	ncPhase = "form";
+	ncPollFailures = 0;
 	clearError();
 }
 
@@ -802,7 +827,7 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 							target="_blank"
 							rel="noopener noreferrer"
 							data-testid="wizard-popup-blocked-open"
-							onclick={retryOpenNextcloudTab}
+							onclick={resumeNextcloudWait}
 						>
 							<ExternalLink size={14} strokeWidth={2} aria-hidden="true" />
 							{$t('connections.actions.openItNow')}
