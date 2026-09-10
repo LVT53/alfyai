@@ -472,9 +472,7 @@ describe("assignAtlasV3CitationNumbers", () => {
 		expect(citations.numberByEvidenceId.get(q1?.id ?? "")).toBe(2);
 		// Two quotes from ONE source share ONE number: this is what stops [2][2].
 		expect(citations.numberByEvidenceId.get(q3?.id ?? "")).toBe(2);
-		expect(
-			citations.sources.map((source) => source.n ?? source.id),
-		).toHaveLength(2);
+		expect(citations.sources).toHaveLength(2);
 	});
 
 	it("publishes a source named only by a Limitations line", () => {
