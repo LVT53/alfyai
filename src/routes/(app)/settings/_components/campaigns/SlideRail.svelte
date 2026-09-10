@@ -232,4 +232,25 @@ let {
 		outline: none;
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
+
+	/* Stacked layout: the rail becomes a filmstrip instead of a column of
+	   full-width thumbnails. */
+	@media (max-width: 1023px) {
+		.rail-list {
+			flex-direction: row;
+			max-height: none;
+			overflow-x: auto;
+			padding-bottom: 0.25rem;
+		}
+
+		.slide-item {
+			flex: 0 0 140px;
+		}
+
+		.add-slide {
+			width: auto;
+			align-self: flex-start;
+			padding: 0 0.75rem;
+		}
+	}
 </style>
