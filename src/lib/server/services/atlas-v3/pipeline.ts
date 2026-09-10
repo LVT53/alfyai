@@ -1162,6 +1162,7 @@ export async function runAtlasV3Pipeline(
 		pagesRead: sourcesRead,
 		sectionsPlanned: sectionCounts.planned,
 		sectionsWritten: verifiedSections.length,
+		sectionsSupplemented: resolvedOutline.supplemented ?? 0,
 		wordCount: atlasV3WordCount(verifiedSections, verifiedVerdict),
 		writerRunaways: { ...written.runaways },
 	};

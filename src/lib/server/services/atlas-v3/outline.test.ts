@@ -10,6 +10,7 @@ import { isLabelShapedTitle } from "./language-standard";
 import {
 	atlasV3FirstClause,
 	atlasV3OutlineGaps,
+	atlasV3OutlineSystem,
 	bindAtlasV3Evidence,
 	buildAtlasV3OutlinePrompt,
 	clampAtlasV3Title,
@@ -366,9 +367,10 @@ describe("bindAtlasV3Evidence", () => {
 		expect(outline.cut[0].reason).toContain("merged into");
 	});
 
-	it("still refuses two DISTINCT sections resting on one quote set", () => {
-		// Different claims, same quotes behind them: the exclusivity rule, not the
-		// duplicate merge.
+	it("keeps two DIFFERENT arguments that rest on one quote set", () => {
+		// One quote states both figures. Under the old exclusivity rule the second
+		// section was cut and the report lost a third of its depth; the two
+		// sections argue different things, so both survive and both cite it.
 		const outline = bindAtlasV3Evidence({
 			nodes: [
 				{
@@ -389,8 +391,67 @@ describe("bindAtlasV3Evidence", () => {
 			bank: sharedQuoteBank(),
 			minEvidencePerNode: 1,
 		});
+		expect(outline.nodes.map((node) => node.id)).toEqual(["n1", "n2"]);
+		expect(outline.nodes[0].evidenceIds).toEqual(["e1"]);
+		expect(outline.nodes[1].evidenceIds).toEqual(["e1"]);
+		expect(outline.cut).toEqual([]);
+	});
+
+	it("cuts a section that repeats an earlier one's argument and quotes", () => {
+		const outline = bindAtlasV3Evidence({
+			nodes: [
+				{
+					id: "n1",
+					title: "Rooftop additions fell 21%",
+					claim: "Rooftop solar additions fell 21% across the bloc.",
+					needs: [],
+					claimIds: ["c2"],
+				},
+				{
+					id: "n2",
+					title: "Rooftop solar additions fell",
+					claim: "Rooftop additions across the bloc fell 21%.",
+					needs: [],
+					claimIds: ["c2"],
+				},
+			],
+			bank: sharedQuoteBank(),
+			minEvidencePerNode: 1,
+			mergeDuplicates: false,
+		});
 		expect(outline.nodes.map((node) => node.id)).toEqual(["n1"]);
-		expect(outline.cut[0].reason).toContain("already belongs");
+		expect(outline.cut[0].reason).toContain("already makes this argument");
+	});
+
+	it("gives a node EVERY quote of its claims, shared or not", () => {
+		const outline = bindAtlasV3Evidence({
+			nodes: [
+				{
+					id: "n1",
+					title: "First",
+					claim: "aa bb",
+					needs: [],
+					claimIds: ["c1"],
+				},
+				{
+					id: "n2",
+					title: "Second",
+					claim: "cc dd",
+					needs: [],
+					claimIds: ["c1", "c2"],
+				},
+			],
+			bank: bank(),
+			minEvidencePerNode: 2,
+			mergeDuplicates: false,
+		});
+		expect(outline.nodes[0].evidenceIds).toEqual(["e1", "e2"]);
+		expect(outline.nodes[1].evidenceIds).toEqual(["e1", "e2", "e3"]);
+		// Status comes from the FULL set, not from what was left over.
+		expect(outline.nodes.map((node) => node.status)).toEqual([
+			"ready",
+			"ready",
+		]);
 	});
 
 	it("leaves a node with no claims planned rather than cut", () => {
@@ -619,7 +680,7 @@ describe("reviseAtlasV3Outline", () => {
 		expect(outline.nodes.length).toBeGreaterThan(0);
 	});
 
-	it("falls back when the model's outline binds to nothing", async () => {
+	it("merges one section written twice and supplements the floor", async () => {
 		const model = fakeModel({
 			"v3:outline": JSON.stringify({
 				nodes: [
@@ -632,9 +693,78 @@ describe("reviseAtlasV3Outline", () => {
 			...base,
 			runModel: model.call,
 		});
-		// n2 loses the overlap and is cut; n1 survives, so this is NOT a fallback.
-		expect(outline.nodes.map((node) => node.id)).toEqual(["n1"]);
+		// The two nodes name one claim set, so they are one section; the floor of
+		// two is then met from the claim no node bound.
 		expect(outline.cut.some((entry) => entry.id === "n2")).toBe(true);
+		expect(outline.nodes).toHaveLength(2);
+		expect(outline.nodes[0].id).toBe("n1");
+		expect(outline.supplemented).toBe(1);
+		expect(outline.nodes[1].evidenceIds).toEqual(["e3"]);
+	});
+
+	it("supplements up to minSections from the claims no node bound", async () => {
+		const model = fakeModel({
+			"v3:outline": JSON.stringify({
+				nodes: [
+					{
+						id: "n1",
+						title: "EU solar additions fell in 2025",
+						claim: "The EU added less solar in 2025 than in 2024.",
+						claimIds: ["c1"],
+					},
+				],
+			}),
+		});
+		const outline = await reviseAtlasV3Outline({
+			...base,
+			minSections: 2,
+			runModel: model.call,
+		});
+		expect(outline.nodes).toHaveLength(2);
+		expect(outline.supplemented).toBe(1);
+		// Titled as the deterministic outline titles its own nodes.
+		expect(outline.nodes[1].title).toBe("EU-27: rooftop additions -21 %");
+	});
+
+	it("supplements nothing when every claim is already bound", async () => {
+		const model = fakeModel({
+			"v3:outline": JSON.stringify({
+				nodes: [
+					{
+						id: "n1",
+						title: "EU solar additions fell in 2025",
+						claim: "The EU added less solar in 2025 than in 2024.",
+						claimIds: ["c1", "c2"],
+					},
+				],
+			}),
+		});
+		const outline = await reviseAtlasV3Outline({
+			...base,
+			minSections: 4,
+			runModel: model.call,
+		});
+		expect(outline.nodes).toHaveLength(1);
+		expect(outline.supplemented).toBeUndefined();
+	});
+
+	it("states the section range and the claim count in its system prompt", () => {
+		expect(
+			atlasV3OutlineSystem({
+				language: "en",
+				minSections: 5,
+				maxSections: 8,
+				claimCount: 74,
+			}),
+		).toContain("Plan between 5 and 8 sections; the evidence holds 74 claims.");
+		expect(
+			atlasV3OutlineSystem({
+				language: "hu",
+				minSections: 4,
+				maxSections: 6,
+				claimCount: 12,
+			}),
+		).toContain("Tervezz 4 és 6 közötti számú szakaszt");
 	});
 
 	it("survives a model that throws", async () => {

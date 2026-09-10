@@ -419,6 +419,7 @@ function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 		pagesRead: nonNegativeInteger(record.pagesRead),
 		sectionsPlanned: nonNegativeInteger(record.sectionsPlanned),
 		sectionsWritten: nonNegativeInteger(record.sectionsWritten),
+		sectionsSupplemented: nonNegativeInteger(record.sectionsSupplemented),
 		wordCount: nonNegativeInteger(record.wordCount),
 		writerRunaways: {
 			length: nonNegativeInteger(runaways.length),

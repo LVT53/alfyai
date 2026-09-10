@@ -328,9 +328,13 @@ export interface AtlasV3SectionBudget {
  *
  * `minSentences` came from the word share alone, so a node bound to two quotes
  * was still told to write six sentences — and the writer padded, which is where
- * the staging run's seven consecutive sentences on quote [3] came from. A
- * section can honestly carry about one sentence per quote, plus one that draws
- * them together.
+ * the staging run's seven consecutive sentences on quote [3] came from.
+ *
+ * The first cap was one sentence per quote plus one, which with the exclusive
+ * binding's one or two quotes per node produced TWO-sentence sections and an
+ * in-depth report of 276 words. A quote carries a figure, its definition and
+ * what it implies: about two sentences each, and never fewer than three for a
+ * section that exists at all.
  */
 export function atlasV3BudgetForNode(
 	budget: AtlasV3SectionBudget,
@@ -339,8 +343,8 @@ export function atlasV3BudgetForNode(
 	return {
 		...budget,
 		minSentences: Math.max(
-			2,
-			Math.min(budget.minSentences, Math.max(0, evidenceCount) + 1),
+			3,
+			Math.min(budget.minSentences, 2 * Math.max(0, evidenceCount) + 1),
 		),
 	};
 }

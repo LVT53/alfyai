@@ -209,6 +209,11 @@ export interface AtlasV3Outline {
 	nodes: AtlasV3OutlineNode[];
 	/** Nodes the revision cut, with why, for the diagnostics. */
 	cut: Array<{ id: string; title: string; reason: string }>;
+	/**
+	 * Sections appended deterministically because the model planned fewer than
+	 * the profile's `minSections`. Absent when the model met the floor itself.
+	 */
+	supplemented?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -457,6 +462,8 @@ export interface AtlasV3QualityDiagnostics {
 	pagesRead: number;
 	sectionsPlanned: number;
 	sectionsWritten: number;
+	/** Sections appended because the outline model fell below `minSections`. */
+	sectionsSupplemented: number;
 	wordCount: number;
 	writerRunaways: {
 		length: number;
