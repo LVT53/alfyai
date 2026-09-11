@@ -85,22 +85,29 @@ async function seedRecent(userId: string): Promise<{
 	return { atlasConversationId: atlas.id, plainConversationId: plain.id };
 }
 
-/** Turns in the current week, so the bars and "N this week" have something. */
+/**
+ * `count` messages the USER sent this week, plus the assistant replies and a
+ * pile of billing rows that must NOT be counted — the bars used to read
+ * `usage_events`, which is one row per billed model call (the turn itself, the
+ * thought-step classifier, the rail summary, memory maintenance, Atlas stages),
+ * and that is how "249 this week" reached an owner who had sent far fewer.
+ */
 async function seedWeeklyTurns(userId: string, count: number) {
 	const conversation = await createServerConversation(userId, "Weekly fixture");
-	await createMessage(conversation.id, "user", "hi");
+	for (let index = 0; index < count; index += 1) {
+		await createMessage(conversation.id, "user", `question ${index}`);
+		await createMessage(conversation.id, "assistant", `answer ${index}`);
+	}
 	const now = new Date();
 	const billingMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-	for (let index = 0; index < count; index += 1) {
+	for (let index = 0; index < count * 4; index += 1) {
 		await db.insert(usageEvents).values({
 			id: randomUUID(),
 			userId,
 			conversationId: conversation.id,
 			messageId: randomUUID(),
-			modelId: "home-e2e-model",
+			modelId: "control:thought_step_classifier",
 			billingMonth,
-			// Spread across today so every row lands in the current ISO week
-			// whatever weekday the suite runs on.
 			createdAt: new Date(now.getTime() - index * 1_000),
 		});
 	}
@@ -162,9 +169,98 @@ test.describe("chat home — Compact", () => {
 		await expect(page.getByTestId("home-weekly-bars")).toBeVisible();
 		// Twelve bars, always — an empty week is a 1px tick, not a gap.
 		await expect(page.getByTestId("home-weekly-bar")).toHaveCount(12);
+		// The user sent seven messages. The fixture also wrote seven assistant
+		// replies and twenty-eight billing rows; neither is the user talking.
 		await expect(page.getByTestId("home-weekly-count")).toHaveText(
-			"7 this week",
+			"7 messages this week",
 		);
+	});
+
+	test("leaves air above the greeting without pushing the composer off a phone", async ({
+		page,
+	}) => {
+		const userId = await adminUserId();
+		await clearHomeFixtures(userId);
+		await seedRecent(userId);
+		await seedWeeklyTurns(userId, 3);
+		await gotoHome(page);
+
+		const band = page.locator(".home-band");
+		const desktopPad = await band.evaluate((node) =>
+			Number.parseFloat(getComputedStyle(node).paddingTop),
+		);
+		expect(desktopPad).toBeGreaterThanOrEqual(36);
+
+		// And it is real air on the screen, not padding a flex parent eats.
+		const stageBox = await page.locator(".chat-stage").boundingBox();
+		const greetingBox = await page.getByTestId("home-greeting").boundingBox();
+		expect((greetingBox?.y ?? 0) - (stageBox?.y ?? 0)).toBeGreaterThanOrEqual(
+			36,
+		);
+
+		// 390x844: less air, and the composer still above the fold.
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await page.getByTestId("home-board").waitFor({ timeout: 15000 });
+
+		const phonePad = await band.evaluate((node) =>
+			Number.parseFloat(getComputedStyle(node).paddingTop),
+		);
+		expect(phonePad).toBeGreaterThanOrEqual(20);
+		expect(phonePad).toBeLessThan(desktopPad);
+
+		await expect(page.getByTestId("home-greeting")).toBeVisible();
+		const composerBox = await page.getByTestId("message-input").boundingBox();
+		expect(composerBox).not.toBeNull();
+		expect(composerBox?.y ?? 0).toBeGreaterThanOrEqual(0);
+		expect(
+			(composerBox?.y ?? 0) + (composerBox?.height ?? 0),
+		).toBeLessThanOrEqual(844);
+		await expect(page.getByTestId("message-input")).toBeInViewport();
+	});
+
+	test("gives a recent line the app's rounded, animated row hover", async ({
+		page,
+	}) => {
+		const userId = await adminUserId();
+		await clearHomeFixtures(userId);
+		await seedRecent(userId);
+		await gotoHome(page);
+
+		const line = page.getByTestId("home-recent-line").first();
+		await expect(line).toBeVisible();
+
+		const idle = await line.evaluate((node) => {
+			const style = getComputedStyle(node);
+			return {
+				radius: style.borderTopLeftRadius,
+				transition: style.transitionProperty,
+				duration: style.transitionDuration,
+				background: style.backgroundColor,
+			};
+		});
+		// Rounded, and on the app's row radius rather than a square wash.
+		expect(Number.parseFloat(idle.radius)).toBeGreaterThan(0);
+		expect(idle.transition).toContain("background-color");
+		expect(Number.parseFloat(idle.duration)).toBeGreaterThan(0);
+
+		await line.hover();
+		const hovered = await line.evaluate(
+			(node) => getComputedStyle(node).backgroundColor,
+		);
+		expect(hovered).not.toBe(idle.background);
+
+		// The chips answer the pointer the same way.
+		const chip = page.getByTestId("home-suggestion-chip").first();
+		const chipTransition = await chip.evaluate((node) => {
+			const style = getComputedStyle(node);
+			return {
+				property: style.transitionProperty,
+				duration: style.transitionDuration,
+			};
+		});
+		expect(chipTransition.property).toContain("background-color");
+		expect(Number.parseFloat(chipTransition.duration)).toBeGreaterThan(0);
 	});
 
 	test("puts the chip row under the composer, not inside it", async ({

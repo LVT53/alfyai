@@ -36,11 +36,58 @@ export type HomeSuggestionKind =
 	| "calendar"
 	| "files"
 	| "email"
+	| "photos"
+	| "location"
+	| "repositories"
 	| "memory"
 	| "conversation"
 	| "atlas";
 
 export type HomeSuggestionLocale = "en" | "hu";
+
+/**
+ * The four things a candidate can come FROM, as opposed to the nine templates
+ * it can fill. Every connected account is one source here however many
+ * capabilities it granted, because the defect this exists to fix is a rail
+ * showing three faces of the same source — and "three recent chats" and "three
+ * Nextcloud chips" are the same failure.
+ */
+export type HomeSuggestionSource =
+	| "connection"
+	| "atlas"
+	| "memory"
+	| "conversation";
+
+/**
+ * The fixed order the rail deals sources in. Connections first because a
+ * connected account is the only source that can answer something the user has
+ * not already seen; conversations last because they are, by construction, a
+ * thing the user already has.
+ */
+export const HOME_SUGGESTION_SOURCE_ORDER: readonly HomeSuggestionSource[] = [
+	"connection",
+	"atlas",
+	"memory",
+	"conversation",
+];
+
+const SOURCE_OF_KIND: Record<HomeSuggestionKind, HomeSuggestionSource> = {
+	calendar: "connection",
+	files: "connection",
+	email: "connection",
+	photos: "connection",
+	location: "connection",
+	repositories: "connection",
+	atlas: "atlas",
+	memory: "memory",
+	conversation: "conversation",
+};
+
+export function homeSuggestionSourceOf(
+	kind: HomeSuggestionKind,
+): HomeSuggestionSource {
+	return SOURCE_OF_KIND[kind] ?? "conversation";
+}
 
 /**
  * A candidate before its strings are rendered: the identity, the template it
@@ -86,6 +133,9 @@ export const HOME_SUGGESTION_KINDS: readonly HomeSuggestionKind[] = [
 	"calendar",
 	"files",
 	"email",
+	"photos",
+	"location",
+	"repositories",
 	"memory",
 	"conversation",
 	"atlas",
@@ -197,6 +247,54 @@ export function rankHomeSuggestionSeeds(
 		});
 }
 
+/**
+ * Deals the ranked candidates out so the rail can never be three faces of one
+ * source.
+ *
+ * Ranking alone put three recent-conversation chips in front of an owner with
+ * six connected accounts, and it was right to: a conversation's `updated_at`
+ * moves on every turn, while a connection's moves only when it is edited or
+ * read through, so recency ranks conversations above everything by
+ * construction and nothing capped a source.
+ *
+ * So the pool is dealt round-robin over the sources in
+ * HOME_SUGGESTION_SOURCE_ORDER — at most one per source per round, in rank
+ * order within a source, skipping a source that has run out. The first round is
+ * the three chips the rail shows, so those are three different sources whenever
+ * three sources have anything to say; every later round is another deal of the
+ * same rule, which is what "another" rotates through.
+ *
+ * The acted-on block still sinks whole: demoted candidates are dealt the same
+ * way, but only after every fresh one, so seven-day demotion outranks variety.
+ */
+export function interleaveHomeSuggestionSeeds<
+	T extends { kind: HomeSuggestionKind; actedOn: boolean },
+>(ranked: T[], limit: number): T[] {
+	const deal = (pool: T[]): T[] => {
+		const queues = new Map<HomeSuggestionSource, T[]>(
+			HOME_SUGGESTION_SOURCE_ORDER.map((source) => [source, []]),
+		);
+		for (const seed of pool) {
+			queues.get(homeSuggestionSourceOf(seed.kind))?.push(seed);
+		}
+		const dealt: T[] = [];
+		for (;;) {
+			let progressed = false;
+			for (const source of HOME_SUGGESTION_SOURCE_ORDER) {
+				const next = queues.get(source)?.shift();
+				if (!next) continue;
+				dealt.push(next);
+				progressed = true;
+			}
+			if (!progressed) return dealt;
+		}
+	};
+	return [
+		...deal(ranked.filter((seed) => !seed.actedOn)),
+		...deal(ranked.filter((seed) => seed.actedOn)),
+	].slice(0, limit);
+}
+
 export function renderHomeSuggestion(
 	seed: HomeSuggestionSeed & { actedOn: boolean },
 	locale: HomeSuggestionLocale,
@@ -221,9 +319,50 @@ function epochSeconds(date: Date | null | undefined): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Builds the connection-backed seeds.
+ * Which capabilities of a connection may back a suggestion.
  *
- * Two honest limits are baked in here, and both are the reason a template has
+ * This is the same predicate `resolveConnectionsForCapability` uses to decide
+ * whether a connection can serve a capability AT ALL — enabled on the
+ * connection — narrowed by the provider's grant only when the provider
+ * actually reported one.
+ *
+ * The narrowing used to be a plain intersection, and that is what emptied the
+ * rail. `grantedCapabilities` is DERIVED (granted.ts), optional on the DTO, and
+ * scope-derived for exactly two providers: a Google row whose stored
+ * `oauth_scopes_json` does not contain the literal
+ * `https://www.googleapis.com/auth/calendar.readonly` — an older row, a row
+ * reconnected through a flow that folded the scope in elsewhere, a row whose
+ * scopes were never written back — derives an EMPTY grant list, and an
+ * intersection with empty is empty. The connection still works everywhere else
+ * in the app, because nothing else in the app intersects with the grant.
+ *
+ * So: an empty or absent grant list means "we don't know what this provider
+ * granted", never "the provider refused everything" — which is the reasoning
+ * granted.ts already applies to legacy CalDAV rows in its own comments. A
+ * non-empty list is trusted and does narrow.
+ */
+export function usableConnectionCapabilities(connection: {
+	grantedCapabilities?: string[] | null;
+	capabilities: string[];
+}): Set<string> {
+	const enabled = connection.capabilities;
+	const granted = connection.grantedCapabilities ?? [];
+	if (granted.length === 0) return new Set(enabled);
+	return new Set(enabled.filter((capability) => granted.includes(capability)));
+}
+
+/**
+ * Builds the connection-backed seeds — one per usable capability, across every
+ * capability the catalogue defines that a template exists for: calendar, files,
+ * email, photos (Immich), location (OwnTracks) and repositories (GitHub, whose
+ * capability is spelled `repos` in the registry).
+ *
+ * `defaultOn` is deliberately NOT a gate. It answers "should this account be
+ * consulted without being asked?", which is a question about an automatic read;
+ * a chip is the user asking. Gating on it would be a third way to lose a chip
+ * for an account that is connected and switched on.
+ *
+ * Three honest limits are baked in here, and each is the reason a template has
  * a generic form at all:
  *
  *  - **Files.** "Summarise the last {provider} upload" would like to name the
@@ -237,6 +376,10 @@ function epochSeconds(date: Date | null | undefined): number {
  *    an unanswered thread cannot be identified without fetching the mailbox.
  *    The generic "Check what needs a reply" is what ships. `owedReplyTo` is the
  *    same seam.
+ *  - **Repositories.** "What changed in {repo} this week" needs a repository,
+ *    and a GitHub connection stores only its base URL and the login — naming
+ *    one would mean listing the account's repos on every home render.
+ *    `recentRepoName` is the seam; without it the chip names the account.
  */
 export function buildConnectionSeeds(
 	connections: Array<{
@@ -244,7 +387,7 @@ export function buildConnectionSeeds(
 		label: string;
 		displayName: string;
 		status: string;
-		grantedCapabilities: string[];
+		grantedCapabilities?: string[] | null;
 		capabilities: string[];
 		updatedAt: number;
 		lastUsedAt: number | null;
@@ -252,19 +395,13 @@ export function buildConnectionSeeds(
 	hints: {
 		recentFileName?: string | null;
 		owedReplyTo?: string | null;
+		recentRepoName?: string | null;
 	} = {},
 ): HomeSuggestionSeed[] {
 	const seeds: HomeSuggestionSeed[] = [];
 	for (const connection of connections) {
-		// A capability only counts when the provider granted it AND the user
-		// left it switched on: a denied scope cannot answer, and a switched-off
-		// one must not be suggested behind the user's back.
 		if (connection.status !== "connected") continue;
-		const usable = new Set(
-			connection.grantedCapabilities.filter((capability) =>
-				connection.capabilities.includes(capability),
-			),
-		);
+		const usable = usableConnectionCapabilities(connection);
 		const recency = Math.max(connection.lastUsedAt ?? 0, connection.updatedAt);
 		const provider = connection.displayName;
 
@@ -308,6 +445,47 @@ export function buildConnectionSeeds(
 					? "home.suggest.emailPerson.short"
 					: "home.suggest.emailGeneric.short",
 				params: person ? { name: shortenObject(person, 20) } : {},
+				source: connection.label || provider,
+				objectUpdatedAt: recency,
+			});
+		}
+		if (usable.has("photos")) {
+			seeds.push({
+				key: `photos:${connection.id}`,
+				kind: "photos",
+				icon: "photos",
+				textKey: "home.suggest.photos",
+				labelKey: "home.suggest.photos.short",
+				params: {},
+				source: connection.label || provider,
+				objectUpdatedAt: recency,
+			});
+		}
+		if (usable.has("location")) {
+			seeds.push({
+				key: `location:${connection.id}`,
+				kind: "location",
+				icon: "location",
+				textKey: "home.suggest.location",
+				labelKey: "home.suggest.location.short",
+				params: {},
+				source: connection.label || provider,
+				objectUpdatedAt: recency,
+			});
+		}
+		// The registry spells this capability `repos`; the suggestion kind is
+		// spelled out because it is a word the user reads on a chip.
+		if (usable.has("repos")) {
+			const repo = hints.recentRepoName?.trim();
+			seeds.push({
+				key: `repositories:${connection.id}`,
+				kind: "repositories",
+				icon: "repositories",
+				textKey: repo ? "home.suggest.repoNamed" : "home.suggest.repos",
+				labelKey: repo
+					? "home.suggest.repoNamed.short"
+					: "home.suggest.repos.short",
+				params: repo ? { repo: shortenObject(repo) } : { provider },
 				source: connection.label || provider,
 				objectUpdatedAt: recency,
 			});
@@ -484,7 +662,10 @@ export async function gatherHomeSuggestionSeeds(params: {
 			label: connection.label,
 			displayName: connection.label || connection.provider,
 			status: connection.status,
-			grantedCapabilities: connection.grantedCapabilities ?? [],
+			// Passed through as-is, NOT defaulted to []: an absent grant list
+			// means "unknown", and usableConnectionCapabilities has to be able
+			// to tell that apart from "the provider granted nothing".
+			grantedCapabilities: connection.grantedCapabilities,
 			capabilities: connection.capabilities,
 			updatedAt: connection.updatedAt,
 			lastUsedAt: connection.lastUsedAt ?? null,
@@ -550,9 +731,10 @@ export async function getHomeSuggestions(params: {
 		gatherHomeSuggestionSeeds(params),
 		actedOnKeysFor(params.userId, now),
 	]);
-	return rankHomeSuggestionSeeds(seeds, actedOn)
-		.slice(0, HOME_SUGGESTION_POOL_SIZE)
-		.map((seed) => renderHomeSuggestion(seed, params.locale));
+	return interleaveHomeSuggestionSeeds(
+		rankHomeSuggestionSeeds(seeds, actedOn),
+		HOME_SUGGESTION_POOL_SIZE,
+	).map((seed) => renderHomeSuggestion(seed, params.locale));
 }
 
 // ---------------------------------------------------------------------------

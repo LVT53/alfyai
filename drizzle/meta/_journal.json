@@ -764,6 +764,13 @@
       "when": 1777140000095,
       "tag": "1777140000095_home_suggestion_events",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1777140000096,
+      "tag": "1777140000096_messages_role_created_idx",
+      "breakpoints": true
     }
   ]
 }

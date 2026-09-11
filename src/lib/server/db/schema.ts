@@ -194,6 +194,14 @@ export const messages = sqliteTable(
 			table.messageSequence,
 			table.createdAt,
 		),
+		// The home screen's weekly bars count the user's OWN messages over a
+		// trailing twelve-week window, per conversation. `conversationOrderIdx`
+		// leads with the same column but puts `message_sequence` second, so the
+		// role filter and the date range both fell out of the index; this one
+		// makes the whole predicate an index range.
+		conversationRoleCreatedIdx: index(
+			"messages_conversation_role_created_idx",
+		).on(table.conversationId, table.role, table.createdAt),
 	}),
 );
 

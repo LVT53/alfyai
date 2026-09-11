@@ -954,7 +954,7 @@ const chatDict = {
 		// directly) because the filled sentence is what gets sent as the
 		// first message, not just what is drawn on the chip.
 		// ---------------------------------------------------------------
-		"home.weeklyCount": "{count} this week",
+		"home.weeklyCount": "{count} messages this week",
 		"home.weeklyBarsLabel": "Messages per week, last 12 weeks",
 		"home.weeklyBarTooltip": "{week}: {count}",
 		"home.allConversations": "All conversations",
@@ -980,6 +980,15 @@ const chatDict = {
 		"home.suggest.emailPerson.short": "Reply to {name}",
 		"home.suggest.emailGeneric": "Check what needs a reply",
 		"home.suggest.emailGeneric.short": "Needs a reply",
+		"home.suggest.photos": "Find the photos from last weekend",
+		"home.suggest.photos.short": "Last weekend's photos",
+		"home.suggest.location": "How far am I from home right now?",
+		"home.suggest.location.short": "Distance from home",
+		"home.suggest.repoNamed": "What changed in {repo} this week",
+		"home.suggest.repoNamed.short": "{repo} this week",
+		"home.suggest.repos":
+			"What changed in my {provider} repositories this week",
+		"home.suggest.repos.short": "{provider} this week",
 		"home.suggest.memory": "Finish {goal}",
 		"home.suggest.memory.short": "{goalShort}",
 		"home.suggest.conversation": "Ask about {topic}",
@@ -1975,7 +1984,7 @@ const chatDict = {
 		// --- BEGIN chat home redesign (HomeV4A "Compact") keys ---
 		// Same block as the EN side above, in the same order.
 		// ---------------------------------------------------------------
-		"home.weeklyCount": "{count} ezen a héten",
+		"home.weeklyCount": "{count} üzenet ezen a héten",
 		"home.weeklyBarsLabel": "Heti üzenetszám, az elmúlt 12 hét",
 		"home.weeklyBarTooltip": "{week}: {count}",
 		"home.allConversations": "Összes beszélgetés",
@@ -2002,6 +2011,14 @@ const chatDict = {
 		"home.suggest.emailPerson.short": "Válasz neki: {name}",
 		"home.suggest.emailGeneric": "Nézzük meg, mire kell válaszolni",
 		"home.suggest.emailGeneric.short": "Válaszra vár",
+		"home.suggest.photos": "Keresd meg a múlt hétvégi fotókat",
+		"home.suggest.photos.short": "Múlt hétvégi fotók",
+		"home.suggest.location": "Milyen messze vagyok most otthonról?",
+		"home.suggest.location.short": "Távolság otthonról",
+		"home.suggest.repoNamed": "Mi változott a(z) {repo} repóban ezen a héten?",
+		"home.suggest.repoNamed.short": "{repo} ezen a héten",
+		"home.suggest.repos": "Mi változott a {provider} repóimban ezen a héten?",
+		"home.suggest.repos.short": "{provider} ezen a héten",
 		"home.suggest.memory": "Fejezzük be: {goal}",
 		"home.suggest.memory.short": "{goalShort}",
 		"home.suggest.conversation": "Kérdeznék erről: {topic}",
