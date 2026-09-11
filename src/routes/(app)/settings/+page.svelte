@@ -186,6 +186,15 @@ const accountDirty = $derived(isAccountDirty(accountValues, accountBaseline));
 const accountSavedAtLabel = $derived(
 	accountSavedAt ? formatSavedAt(accountSavedAt, $uiLanguage) : "",
 );
+// The identity card now PRINTS the name and the email above the boxes that
+// edit them, so they have to be the saved values, not the ones the server
+// load happened to ship with. `data.userSettings` is not re-fetched after a
+// PATCH, so reading it there left "Admin User / admin@local" standing over
+// an input that already said something else. The baseline is by definition
+// what the server last confirmed, so it is the right source for both.
+const savedDisplayName = $derived(
+	accountBaseline.name.trim() || accountBaseline.email,
+);
 
 let selectedModel = $state<UserModelPreference>(
 	initialPreferences.preferredModel,
@@ -1038,8 +1047,8 @@ $effect(() => {
 		{#if activeTab === 'profile'}
 			<SettingsProfileTab
 				userId={data.userSettings.id}
-				userDisplayName={data.userSettings.name ?? data.userSettings.email}
-				userEmail={data.userSettings.email}
+				userDisplayName={savedDisplayName}
+				userEmail={accountBaseline.email}
 				profilePicture={$avatarState.profilePicture}
 				cacheBuster={$avatarState.cacheBuster}
 				{removingPhoto}

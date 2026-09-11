@@ -309,6 +309,48 @@ describe("settings page — one Save for the identity card", () => {
 		expect(mockUpdatePassword).not.toHaveBeenCalled();
 	});
 
+	it("empties the password boxes once the server has taken the change", async () => {
+		mockUpdatePassword.mockResolvedValue(undefined);
+		renderSettingsPage();
+
+		await fillPasswordForm();
+		await save();
+
+		await waitFor(() => expect(mockUpdatePassword).toHaveBeenCalledOnce());
+		for (const label of [
+			"Current password",
+			"New password",
+			"Confirm new password",
+		]) {
+			await waitFor(() =>
+				expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe(
+					"",
+				),
+			);
+		}
+	});
+
+	it("keeps the printed name and email in step with what was saved", async () => {
+		mockUpdateProfile.mockResolvedValue(undefined);
+		renderSettingsPage();
+
+		// The card prints the identity above the boxes that edit it. Before the
+		// save it is the loaded one; after it, the saved one — `data.userSettings`
+		// is never re-fetched, so reading it there would leave the old name
+		// standing over an input that already says something else.
+		expect(screen.getByText("User")).toBeInTheDocument();
+
+		await renameTo("Renamed User");
+		expect(screen.getByText("User")).toBeInTheDocument();
+
+		await save();
+
+		await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledOnce());
+		await waitFor(() =>
+			expect(screen.getByText("Renamed User")).toBeInTheDocument(),
+		);
+	});
+
 	it("reports a server-rejected password change through the toast", async () => {
 		mockUpdatePassword.mockRejectedValue(
 			new Error("Current password is incorrect"),
