@@ -59,6 +59,7 @@ const EMPTY = {
 	recent: [],
 	running: null,
 	suggestions: [],
+	connectedKinds: [],
 	generatedAt: 0,
 };
 

@@ -25,6 +25,10 @@ const AUDITED_PREFIXES = [
 	"composerCommands.",
 	"composerMenu.",
 	"composerSheet.",
+	// The chat home's greeting pool: ~76 keys a side, all of them optional to
+	// any one render, so a line that landed in EN and not in HU would show as
+	// the raw key to exactly the users who read Hungarian and nobody else.
+	"landing.",
 	"modelPicker.",
 	"skillsPicker.",
 	"writeConfirm.",

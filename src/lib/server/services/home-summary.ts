@@ -14,6 +14,7 @@ import {
 	conversations,
 	fileProductionJobs,
 	messages,
+	userConnections,
 	users,
 } from "$lib/server/db/schema";
 import {
@@ -80,6 +81,16 @@ export interface HomeSummary {
 	recent: HomeRecentConversation[];
 	running: HomeRunningJob | null;
 	suggestions: HomeSuggestion[];
+	/**
+	 * Provider ids of the user's live connections, sorted, e.g.
+	 * ["google", "nextcloud"]. The greeting pool is the only reader: it wants
+	 * to know THAT accounts are connected, never which secrets back them, so
+	 * this is deliberately the id and nothing else — no labels, no counts per
+	 * account, no status detail. One index-covered read on
+	 * `user_connections_user_idx`, which is why it rides along here rather
+	 * than becoming a fifth fan-out from the home screen.
+	 */
+	connectedKinds: string[];
 	generatedAt: number;
 }
 
@@ -574,6 +585,27 @@ async function readRunning(
 	};
 }
 
+/**
+ * The provider ids behind this user's live connections, deduplicated and
+ * sorted.
+ *
+ * Only `connected` rows count. A row that needs reauthorising is a connection
+ * the user has to go and fix, and a greeting that says "I can reach your
+ * accounts" on the strength of one would be wrong in the way that matters.
+ */
+async function readConnectedKinds(userId: string): Promise<string[]> {
+	const rows = await db
+		.selectDistinct({ provider: userConnections.provider })
+		.from(userConnections)
+		.where(
+			and(
+				eq(userConnections.userId, userId),
+				eq(userConnections.status, "connected"),
+			),
+		);
+	return rows.map((row) => row.provider).sort();
+}
+
 // ---------------------------------------------------------------------------
 // Assembly + the 30-second per-user cache
 // ---------------------------------------------------------------------------
@@ -643,12 +675,14 @@ async function computeHomeSummary(
 		userRow?.uiLanguage === "hu" ? "hu" : "en";
 	const timeZone = reportingTimeZone();
 
-	const [weekly, recent, running, suggestions] = await Promise.all([
-		readWeekly(userId, now, timeZone),
-		readRecent(userId),
-		readRunning(userId, locale),
-		getHomeSuggestions({ userId, locale, now }),
-	]);
+	const [weekly, recent, running, suggestions, connectedKinds] =
+		await Promise.all([
+			readWeekly(userId, now, timeZone),
+			readRecent(userId),
+			readRunning(userId, locale),
+			getHomeSuggestions({ userId, locale, now }),
+			readConnectedKinds(userId),
+		]);
 
 	return {
 		weekly,
@@ -656,6 +690,7 @@ async function computeHomeSummary(
 		recent,
 		running,
 		suggestions,
+		connectedKinds,
 		generatedAt: Math.floor(now.getTime() / 1000),
 	};
 }

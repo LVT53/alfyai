@@ -30,9 +30,19 @@ import HomeRecent from "$lib/components/home/HomeRecent.svelte";
 import HomeSuggestionRail from "$lib/components/home/HomeSuggestionRail.svelte";
 import HomeWeeklyBars from "$lib/components/home/HomeWeeklyBars.svelte";
 import {
+	dayKeyFor,
+	pickGreeting,
+	readGreetingMemory,
+	type ResolvedGreetingMemory,
+	resolveGreetingMemory,
+	timeOfDayFor,
+	writeGreetingMemory,
+} from "$lib/client/home/greeting";
+import {
 	selectedModel,
 	selectedReasoningDepth,
 	setSelectedReasoningDepth,
+	uiLanguage,
 } from "$lib/stores/settings";
 import { t } from "$lib/i18n";
 import DegradedCapabilitiesBanner from "$lib/components/chat/DegradedCapabilitiesBanner.svelte";
@@ -135,7 +145,6 @@ let error: string | null = $state(null);
 let isFromChat = $state(false);
 let animateIn = $state(false);
 let pendingMessagePreview = $state("");
-let greetingIndex = $state(0);
 let preparedConversationId: string | null = $state(null);
 let preparedConversationPromise: Promise<string> | null = null;
 let preparedConversationValidationPromise: Promise<void> | null = null;
@@ -147,33 +156,74 @@ const greetingName = $derived(
 		data.user?.email?.split("@")[0]?.trim() ||
 		"",
 );
-// The same seven variants, in both lengths. At 390px the name pushes the
-// greeting to a third line and tells you nothing you did not know, so the
-// phone gets the plain form — a CSS swap rather than a viewport query, so it
-// is correct on the server too.
-const GREETING_KEYS = [
-	["landingGreetingNamed", "landingGreeting"],
-	["landingReadyNamed", "landingReady"],
-	["landingWorkNamed", "landingWork"],
-	["landingWhatsOnMindNamed", "landingWhatsOnMind"],
-	["landingAskMeNamed", "landingAskMe"],
-	["landingGettingStartedNamed", "landingGettingStarted"],
-	["landingListeningNamed", "landingListening"],
-] as const;
-
-const activeGreetingKeys = $derived(
-	GREETING_KEYS[greetingIndex % GREETING_KEYS.length] ?? GREETING_KEYS[0],
-);
-const greetingPlain = $derived($t(activeGreetingKeys[1]));
-const activeGreeting = $derived(
-	greetingName
-		? $t(activeGreetingKeys[0], { name: greetingName })
-		: greetingPlain,
-);
-
 let summary = $state<HomeSummary>(EMPTY_HOME_SUMMARY);
 let summaryLoaded = $state(false);
 let nowSeconds = $state(Math.floor(Date.now() / 1000));
+
+// The greeting. The pool, the weights and the rule live in
+// $lib/client/home/greeting.ts; this end only feeds it what the home screen
+// already knows and renders the two forms it hands back.
+//
+// Fixed at mount rather than following `nowSeconds`: the pick is keyed on the
+// time-of-day SLOT, so a ticking clock would change nothing four hours out of
+// four and would re-run the pick every fifteen seconds to prove it. A page
+// left open across a slot boundary keeps the line it was opened with, which is
+// the behaviour you want from a heading somebody may be reading.
+let greetingClock = $state(new Date());
+// Defaults to "not the first visit": the line claiming otherwise must wait for
+// localStorage, which only exists after mount, and claiming it on the server
+// would make the first paint wrong for every reload of the day.
+let greetingMemory = $state<ResolvedGreetingMemory>({
+	firstVisitToday: false,
+	excludeKey: null,
+	firstSlot: timeOfDayFor(new Date().getHours()),
+});
+// The write below must never run before the read in onMount, or it would stamp
+// today's date into storage and every later load would read itself back as the
+// first visit of the day.
+let greetingMemoryRead = $state(false);
+
+// The summary-fed groups (quiet/busy week, continuity, running job, connected
+// accounts) are gated on `summaryLoaded`, so the first paint draws from the
+// generic, time-of-day and weekday lines and the greeting may change once when
+// the summary lands a few tens of milliseconds later. That is the honest
+// order: those lines assert something about the user's week, and asserting it
+// before the read returns would mean asserting it from EMPTY_HOME_SUMMARY.
+const greeting = $derived(
+	pickGreeting({
+		name: greetingName,
+		// The id, not the name: two people called Anna get different lines, and
+		// a rename does not reshuffle yours.
+		userKey: data.user?.id ?? "",
+		now: greetingClock,
+		language: $uiLanguage,
+		summaryLoaded,
+		week: {
+			counts: summary.weekly.map((week) => week.count),
+			total: summary.weeklyTotal,
+		},
+		running: summary.running ? { kind: summary.running.kind } : null,
+		topTitle: summary.recent[0]?.title ?? null,
+		connectedKinds: summary.connectedKinds,
+		firstVisitToday: greetingMemory.firstVisitToday,
+		excludeKey: greetingMemory.excludeKey,
+		translate: $t,
+	}),
+);
+const greetingPlain = $derived(greeting.plain);
+const activeGreeting = $derived(greetingName ? greeting.named : greeting.plain);
+
+// Remembers today's line so tomorrow's pick can avoid it. Runs in the browser
+// only, and `writeGreetingMemory` swallows a storage that refuses to be
+// written to.
+$effect(() => {
+	if (!greetingMemoryRead) return;
+	writeGreetingMemory({
+		day: dayKeyFor(greetingClock),
+		firstSlot: greetingMemory.firstSlot,
+		key: greeting.key,
+	});
+});
 
 async function refreshHomeSummary() {
 	try {
@@ -347,8 +397,15 @@ onMount(() => {
 		});
 	}
 
-	// Static random greeting per page load (no rotation)
-	greetingIndex = Math.floor(Math.random() * GREETING_KEYS.length);
+	// The browser's clock and the browser's memory of yesterday's line, neither
+	// of which the server could have supplied.
+	greetingClock = new Date();
+	greetingMemory = resolveGreetingMemory(
+		readGreetingMemory(),
+		dayKeyFor(greetingClock),
+		timeOfDayFor(greetingClock.getHours()),
+	);
+	greetingMemoryRead = true;
 
 	void fetchPublicPersonalityProfiles()
 		.then((p) => (personalityProfiles = p))
