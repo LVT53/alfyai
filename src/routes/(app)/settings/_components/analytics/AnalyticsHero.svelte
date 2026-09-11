@@ -31,15 +31,17 @@ const split = $derived(buildCostSplit(segments));
 	<div class="analytics-hero-label">{label}</div>
 
 	{#if split.segments.length > 0}
+		<!-- Keyed by position, not by label: two providers may carry the same
+		     display name, and a duplicate key is a render-time crash. -->
 		<div class="analytics-split" data-testid="analytics-split" aria-hidden="true">
-			{#each split.segments as segment (segment.label)}
+			{#each split.segments as segment, index (index)}
 				<span
 					style={`flex: ${segment.percent}; background: ${segment.color};`}
 				></span>
 			{/each}
 		</div>
 		<div class="analytics-legend">
-			{#each split.segments as segment (segment.label)}
+			{#each split.segments as segment, index (index)}
 				<span class="analytics-legend-entry">
 					<span
 						class="analytics-legend-swatch"

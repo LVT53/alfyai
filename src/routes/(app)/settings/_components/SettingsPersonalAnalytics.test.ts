@@ -226,6 +226,36 @@ describe("SettingsPersonalAnalytics (ADR-0043 slice 18c)", () => {
 		expect(screen.getByTestId("analytics-split")).toBeInTheDocument();
 	});
 
+	// Two providers may carry the same display name; keyed by label the split
+	// bar would throw on the duplicate key rather than render.
+	it("draws two providers that share a display name", () => {
+		const fixture = personalFixture();
+		const provider = (id: string, cost: number) => ({
+			providerId: id,
+			displayName: "Local",
+			totalCostUsd: cost,
+			totalTokens: 10,
+			msgCount: 1,
+		});
+		render(SettingsPersonalAnalytics, {
+			analyticsData: {
+				...fixture,
+				personal: {
+					...fixture.personal,
+					totalCostUsd: 3,
+					byProvider: [provider("p1", 2), provider("p2", 1)],
+				},
+			},
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedMonth: "2026-06",
+		});
+
+		const hero = screen.getByTestId("analytics-hero");
+		expect(hero.textContent).toContain("Local · $2.00");
+		expect(hero.textContent).toContain("Local · $1.00");
+	});
+
 	it("folds the providers past third place in, so the legend adds up to the hero", () => {
 		const fixture = personalFixture();
 		const provider = (name: string, cost: number) => ({
