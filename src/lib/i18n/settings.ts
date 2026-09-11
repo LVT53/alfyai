@@ -1782,7 +1782,6 @@ const settingsDict = {
 
 		// Profile photo editor — every string was hard-coded English before.
 		"avatarEditor.title": "Upload profile photo",
-		"avatarEditor.close": "Close profile photo editor",
 		"avatarEditor.dropZone": "Drop an image here, or click to select",
 		"avatarEditor.dropZoneLabel": "Upload photo drop zone",
 		"avatarEditor.formats":
@@ -3622,7 +3621,6 @@ const settingsDict = {
 
 		// Profilkép-szerkesztő — korábban minden szövege beégetett angol volt.
 		"avatarEditor.title": "Profilkép feltöltése",
-		"avatarEditor.close": "Profilkép-szerkesztő bezárása",
 		"avatarEditor.dropZone":
 			"Húzz ide egy képet, vagy kattints a kiválasztáshoz",
 		"avatarEditor.dropZoneLabel": "Profilkép-feltöltési terület",
