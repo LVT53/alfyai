@@ -666,7 +666,8 @@ $effect(() => {
 	<div class="main-content flex flex-1 flex-col overflow-y-auto px-5 py-6 md:px-8">
 		<div class="mx-auto flex w-full max-w-[1040px] flex-col gap-6">
 			<div class="px-1">
-				<h1 class="text-[2rem] font-serif text-text-primary md:text-[2.6rem]">
+				<!-- One page title across the app: 1.75rem serif, not a per-page size. -->
+				<h1 class="page-title font-serif text-text-primary">
 					{$t('knowledge.title')}
 				</h1>
 			</div>
@@ -705,14 +706,12 @@ $effect(() => {
 					/>
 				</div>
 			{:else}
-				<div id="documents-panel" role="tabpanel" aria-labelledby="documents-tab" class="documents-section space-y-4">
-					<div class="flex flex-wrap items-center justify-between gap-3">
-						<div>
-							<h2 id="documents-title" class="text-2xl font-serif text-text-primary">
-								{$t('knowledge.documents')}
-							</h2>
-						</div>
-						<span class="rounded-full border border-border bg-surface-elevated px-3 py-1 text-xs font-sans text-text-muted">
+				<div id="documents-panel" role="tabpanel" aria-labelledby="documents-tab" class="documents-section space-y-3">
+					<div class="flex flex-wrap items-center gap-2.5">
+						<h2 id="documents-title" class="documents-eyebrow">
+							{$t('knowledge.documents')}
+						</h2>
+						<span class="rounded-full border border-border bg-surface-elevated px-2 py-0.5 text-[0.66rem] font-sans text-text-muted">
 							{$t('knowledge.documentCount', { count: documentTotalItems })}
 						</span>
 					</div>
@@ -784,3 +783,21 @@ $effect(() => {
 		}}
 	/>
 {/if}
+
+<style>
+	.page-title {
+		font-size: 1.75rem;
+		letter-spacing: -0.02em;
+		line-height: 1.2;
+	}
+
+	.documents-eyebrow {
+		margin: 0;
+		font-family: var(--font-sans);
+		font-size: 0.66rem;
+		font-weight: 600;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+	}
+</style>

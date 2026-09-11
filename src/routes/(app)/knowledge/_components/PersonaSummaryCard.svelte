@@ -10,6 +10,8 @@ let {
 	busy,
 	hasFacts,
 	onEdit,
+	flush = false,
+	factCount = 0,
 }: {
 	summary: {
 		text: string;
@@ -19,6 +21,10 @@ let {
 	busy: boolean;
 	hasFacts: boolean;
 	onEdit: (text: string) => boolean | undefined | Promise<boolean | undefined>;
+	/** Rendered as the head of the portrait card rather than a card of its own. */
+	flush?: boolean;
+	/** How many facts the portrait below is built from. */
+	factCount?: number;
 } = $props();
 
 let editing = $state(false);
@@ -75,8 +81,11 @@ let paragraphs = $derived.by<string[]>(() => {
 });
 </script>
 
-<section
-	class="persona-summary-card rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm md:px-5"
+<svelte:element
+	this={flush ? "div" : "section"}
+	class={flush
+		? "persona-summary-card persona-summary-card--flush px-[1.15rem] py-4"
+		: "persona-summary-card rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm md:px-5"}
 	aria-labelledby="persona-summary-title"
 >
 	<div class="flex flex-wrap items-start justify-between gap-3">
@@ -92,12 +101,17 @@ let paragraphs = $derived.by<string[]>(() => {
 		{#if summary && !editing}
 			<button
 				type="button"
-				class="btn-icon-bare btn-icon-sm h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
+				class={flush
+					? "persona-summary-edit"
+					: "btn-icon-bare btn-icon-sm h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"}
 				onclick={openEditor}
 				aria-label={$t("memoryProfile.editSummary")}
 				title={$t("memoryProfile.edit")}
 			>
-				<Pencil size={17} strokeWidth={2.1} aria-hidden="true" />
+				<Pencil size={flush ? 12 : 17} strokeWidth={2.1} aria-hidden="true" />
+				{#if flush}
+					<span>{$t("memoryProfile.editSummary")}</span>
+				{/if}
 			</button>
 		{/if}
 	</div>
@@ -153,4 +167,44 @@ let paragraphs = $derived.by<string[]>(() => {
 			{$t("memoryProfile.summaryEmpty")}
 		</p>
 	{/if}
-</section>
+</svelte:element>
+
+<style>
+	.persona-summary-card--flush {
+		background: transparent;
+	}
+
+	.persona-summary-edit {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		height: 1.6rem;
+		padding: 0 0.55rem;
+		border: 1px solid var(--border-default);
+		border-radius: 9999px;
+		background: transparent;
+		color: var(--text-secondary);
+		font-family: var(--font-sans);
+		font-size: 0.68rem;
+		font-weight: 500;
+		cursor: pointer;
+		white-space: nowrap;
+		transition:
+			border-color 150ms ease,
+			color 150ms ease,
+			background-color 150ms ease;
+	}
+
+	.persona-summary-edit:hover,
+	.persona-summary-edit:focus-visible {
+		border-color: var(--accent);
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.persona-summary-edit {
+			transition: none !important;
+		}
+	}
+</style>

@@ -1685,6 +1685,20 @@ const settingsDict = {
 			"Hungarian language standard",
 		"admin.system.keys.ATLAS_V3_LANGUAGE_STANDARD_HU.meaning":
 			"Applies the Hungarian style rules to a Hungarian report.",
+		// ── everyday-screens redesign ─────────────────────────────────────
+		"analytics.chartScaleLabel": "Scale",
+		"analytics.costByProvider": "Estimated cost by provider",
+		"analytics.currentPeriodSolid":
+			"The last column is the period you are in — drawn solid so a part-period is never mistaken for a fall.",
+		"analytics.estimatedCostThisMonth": "Estimated cost this month",
+		"analytics.estimatedCostAllTime": "Estimated cost, all time",
+		"analytics.llmCost": "LLM",
+		"analytics.noChartData": "Nothing to chart for this period yet.",
+		"analytics.parallelCostLabel": "Parallel",
+		"analytics.splitBarLabel": "How the estimate breaks down",
+		"analytics.timelineGranularity": "Chart period",
+		"analytics.usageByModelPeriod": "Usage by model · {period}",
+		// ── end everyday-screens redesign ─────────────────────────────────
 	},
 	hu: {
 		"admin.activeSessions": "Aktív munkamenetek",
@@ -3417,6 +3431,20 @@ const settingsDict = {
 			"Magyar nyelvi szabvány",
 		"admin.system.keys.ATLAS_V3_LANGUAGE_STANDARD_HU.meaning":
 			"Magyar nyelvű jelentésre alkalmazza a magyar stílusszabályokat.",
+		// ── everyday-screens redesign ─────────────────────────────────────
+		"analytics.chartScaleLabel": "Skála",
+		"analytics.costByProvider": "Becsült költség szolgáltatónként",
+		"analytics.currentPeriodSolid":
+			"Az utolsó oszlop a folyamatban lévő időszak — tömören rajzolva, hogy egy féltöltött időszakot senki ne nézzen visszaesésnek.",
+		"analytics.estimatedCostThisMonth": "Becsült költség ebben a hónapban",
+		"analytics.estimatedCostAllTime": "Becsült költség, összesen",
+		"analytics.llmCost": "LLM",
+		"analytics.noChartData": "Ehhez az időszakhoz még nincs mit ábrázolni.",
+		"analytics.parallelCostLabel": "Parallel",
+		"analytics.splitBarLabel": "Miből áll össze a becslés",
+		"analytics.timelineGranularity": "Diagram időszaka",
+		"analytics.usageByModelPeriod": "Használat modellenként · {period}",
+		// ── end everyday-screens redesign ─────────────────────────────────
 	},
 } as const;
 

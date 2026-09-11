@@ -79,9 +79,7 @@ export function getDocumentKind(document: KnowledgeDocumentItem): DocumentKind {
  * elsewhere the eye is drawn greyed rather than removed, so the row keeps the
  * same three action slots and the column never jitters between rows.
  */
-export function hasNormalisedVersion(
-	document: KnowledgeDocumentItem,
-): boolean {
+export function hasNormalisedVersion(document: KnowledgeDocumentItem): boolean {
 	return Boolean(document.normalizedAvailable && document.promptArtifactId);
 }
 
@@ -136,8 +134,7 @@ export function compareDocuments(
 	}
 
 	if (sortKey === "date") {
-		const byDate =
-			((left.createdAt ?? 0) - (right.createdAt ?? 0)) * direction;
+		const byDate = ((left.createdAt ?? 0) - (right.createdAt ?? 0)) * direction;
 		if (byDate !== 0) return byDate;
 	}
 

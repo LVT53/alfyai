@@ -12,11 +12,25 @@ import type {
 } from "$lib/memory-profile-types";
 import { t, type I18nKey } from "$lib/i18n";
 import { fetchMemoryProfileItemDetail } from "$lib/client/api/knowledge";
-import { Archive, Check, Eye, EyeOff, Pencil, Trash2, X } from "@lucide/svelte";
+import {
+	Archive,
+	Check,
+	EyeOff,
+	HelpCircle,
+	Pencil,
+	Trash2,
+	X,
+} from "@lucide/svelte";
 import KnowledgeMemoryModal from "./KnowledgeMemoryModal.svelte";
 import MemoryTimeline from "./MemoryTimeline.svelte";
-import PersonaSummaryCard from "./PersonaSummaryCard.svelte";
+import MemoryPortraitCard from "./MemoryPortraitCard.svelte";
+import MemoryRailCards from "./MemoryRailCards.svelte";
 import Spinner from "$lib/components/ui/Spinner.svelte";
+import {
+	countActiveMemories,
+	type MemoryCategorySelection,
+	toggleExpandedCategory,
+} from "./memory-categories";
 
 type CategoryDefinition = {
 	category: MemoryProfileCategory;
@@ -104,6 +118,14 @@ let {
 let selectedItem = $state<
 	MemoryProfilePublicItem | MemoryProfilePublicItemDetail | null
 >(null);
+// Filter + inline disclosure state. Both live here rather than in the portrait
+// card so that a profile reload (an edit, a retire) keeps the reader exactly
+// where they were instead of snapping every category shut.
+let memoryFilterText = $state("");
+let memorySelection = $state<MemoryCategorySelection>("all");
+let expandedCategories = $state<Set<MemoryProfileCategory>>(
+	new Set<MemoryProfileCategory>(),
+);
 let reviewOverflowOpen = $state(false);
 let editingReviewItem = $state<MemoryProfileReviewItem | null>(null);
 let reviewStatement = $state("");
@@ -135,12 +157,7 @@ let removeStatement = $derived.by(() => {
 	return removeTarget.item.subject;
 });
 
-let activeItemCount = $derived.by(() =>
-	(profile?.categories ?? []).reduce(
-		(total, group) => total + group.items.length,
-		0,
-	),
-);
+let activeItemCount = $derived(countActiveMemories(profile));
 let reviewItems = $derived(
 	profile?.review.items ?? profile?.review.visibleItems ?? [],
 );
@@ -153,21 +170,8 @@ let additionalReviewItems = $derived.by(() => {
 });
 let reviewOverflowCount = $derived(Math.max(0, additionalReviewItems.length));
 
-function getCategoryItems(
-	category: MemoryProfileCategory,
-): MemoryProfilePublicItem[] {
-	return (
-		profile?.categories.find((group) => group.category === category)?.items ??
-		[]
-	);
-}
-
-function formatExpiryDate(expiresAt: string): string {
-	const parsed = Date.parse(expiresAt);
-	if (!Number.isFinite(parsed)) return expiresAt;
-	return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
-		parsed,
-	);
+function handleToggleCategory(category: MemoryProfileCategory) {
+	expandedCategories = toggleExpandedCategory(expandedCategories, category);
 }
 
 function autoExpireDays(expiresAt: string): number {
@@ -190,14 +194,6 @@ async function confirmRetire() {
 
 function retireKey(itemId: string): string {
 	return `${itemId}:retire`;
-}
-
-function formatScope(scope: MemoryProfilePublicItem["scope"]): string | null {
-	if (scope.type === "global") return null;
-	if (scope.type === "project") return $t("memoryProfile.projectScope");
-	if (scope.type === "conversation")
-		return $t("memoryProfile.conversationScope");
-	return $t("memoryProfile.documentScope");
 }
 
 // Privacy-safe friendly copy for the "updating your memory" notice: derived
@@ -462,245 +458,161 @@ $effect(() => {
 		</div>
 	</section>
 {:else}
-	<section class="memory-profile-section space-y-4" aria-labelledby="memory-profile-title">
-		<div class="flex flex-wrap items-center justify-between gap-3">
-			<div>
-				<h2 id="memory-profile-title" class="text-2xl font-serif text-text-primary">
-					{$t("memory.title")}
-				</h2>
-			</div>
-			<span class="rounded-full border border-border bg-surface-elevated px-3 py-1 text-xs font-sans text-text-muted">
-				{$t("memoryProfile.activeCount", { count: activeItemCount })}
+	<section class="memory-profile-section" aria-labelledby="memory-profile-title">
+		<div class="memory-profile-head">
+			<h2 id="memory-profile-title" class="memory-profile-eyebrow">
+				{$t("memoryProfile.eyebrow")}
+			</h2>
+			<span class="memory-profile-active">
+				{$t("memoryProfile.activeChip", { count: activeItemCount })}
 			</span>
+			<span class="memory-profile-spacer"></span>
+			{#if processing?.active}
+				<div class="memory-processing-notice" role="status" aria-live="polite">
+					<div class="memory-processing-line">
+						<Spinner class="shrink-0" size={13} />
+						<span>
+							{processing.pendingCount > 1
+								? $t("memoryProfile.processingNoticeCount", {
+										count: processing.pendingCount,
+									})
+								: $t("memoryProfile.processingNotice")}
+						</span>
+					</div>
+					{#if processing.operations && processing.operations.length > 0}
+						<ul class="memory-processing-list">
+							{#each processing.operations as operation (processingOperationKey(operation))}
+								<li>
+									{processingReasonLabel(operation.reason)}
+									{#if operation.scope.type === "project"}
+										<span> · {$t("memoryProfile.processingReasonProjectHint")}</span>
+									{/if}
+									{#if operation.count > 1}
+										<span>
+											· {$t("memoryProfile.processingReasonCount", {
+												count: operation.count,
+											})}
+										</span>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+			{/if}
 		</div>
 
-		{#if processing?.active}
-			<div
-				class="memory-processing-notice flex flex-col gap-1.5 rounded-[0.75rem] border px-3 py-2"
-				role="status"
-				aria-live="polite"
-			>
-				<div class="flex items-center gap-2">
-					<Spinner class="shrink-0" size={15} />
-					<span class="text-xs font-sans leading-[1.4]">
-						{processing.pendingCount > 1
-							? $t("memoryProfile.processingNoticeCount", {
-									count: processing.pendingCount,
-								})
-							: $t("memoryProfile.processingNotice")}
-					</span>
-				</div>
-				{#if processing.operations && processing.operations.length > 0}
-					<ul class="ml-[1.4rem] list-disc space-y-0.5 text-xs font-sans leading-[1.4] text-text-muted">
-						{#each processing.operations as operation (processingOperationKey(operation))}
-							<li>
-								{processingReasonLabel(operation.reason)}
-								{#if operation.scope.type === "project"}
-									<span> · {$t("memoryProfile.processingReasonProjectHint")}</span>
-								{/if}
-								{#if operation.count > 1}
-									<span>
-										· {$t("memoryProfile.processingReasonCount", {
-											count: operation.count,
-										})}
-									</span>
-								{/if}
-							</li>
-						{/each}
-					</ul>
-				{/if}
+		<div class="memory-profile-layout">
+			<div class="memory-profile-main">
+				<MemoryPortraitCard
+					{profile}
+					{categoryDefinitions}
+					activeCount={activeItemCount}
+					{summary}
+					{summaryBusy}
+					{pendingActionKey}
+					expanded={expandedCategories}
+					filterText={memoryFilterText}
+					selection={memorySelection}
+					onEditSummary={(text) => onEditSummary?.(text)}
+					onFilterTextChange={(value) => (memoryFilterText = value)}
+					onSelectionChange={(value) => (memorySelection = value)}
+					onToggleCategory={handleToggleCategory}
+					onEditItem={openMemoryItem}
+					onRemoveItem={openRemoveForProfileItem}
+				/>
 			</div>
-		{/if}
 
-		<PersonaSummaryCard
-			{summary}
-			busy={summaryBusy}
-			hasFacts={activeItemCount > 0}
-			onEdit={(text) => onEditSummary?.(text)}
-		/>
-
-		<div class="grid gap-4 lg:grid-cols-2">
-			{#each categoryDefinitions as definition (definition.category)}
-				{@const items = getCategoryItems(definition.category)}
-				<section class="memory-category-card rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm" aria-labelledby={`memory-category-${definition.category}`}>
-					<h3 id={`memory-category-${definition.category}`} class="text-lg font-sans font-semibold text-text-primary">
-						{$t(definition.label)}
-					</h3>
-					{#if items.length === 0}
-						<p class="mt-3 text-sm font-sans leading-[1.5] text-text-muted">{$t(definition.empty)}</p>
-						<p class="memory-empty-hint mt-2 text-xs font-sans leading-[1.5] text-text-muted">
-							{$t("memoryProfile.emptyHint")}
-							<a
-								href="/settings?section=memory"
-								class="memory-empty-hint-link text-accent underline underline-offset-2 hover:text-accent-hover"
-							>
-								{$t("memoryProfile.emptyHintLink")}
-							</a>
-						</p>
-					{:else}
-						<div class={`mt-3 grid gap-2 ${items.length > 4 ? "max-h-[356px] overflow-y-auto pr-1" : ""}`}>
-							{#each items as item (item.id)}
-								{@const scopeLabel = formatScope(item.scope)}
-								<div class="memory-item-card flex items-start justify-between gap-3 rounded-[0.75rem] border border-border bg-surface-page px-3 py-3">
-									<div class="min-w-0">
-										<p class="break-words text-sm font-sans leading-[1.55] text-text-primary">
-											{#if item.confidence}
-												<span
-													class={`memory-confidence-dot ${item.confidence === "stated" ? "memory-confidence-dot--stated" : "memory-confidence-dot--inferred"}`}
-													role="img"
-													aria-label={item.confidence === "stated"
-														? $t("memoryProfile.confidenceStated")
-														: $t("memoryProfile.confidenceInferred")}
-													title={item.confidence === "stated"
-														? $t("memoryProfile.confidenceStated")
-														: $t("memoryProfile.confidenceInferred")}
-												></span>
-											{/if}
-											{item.statement}
-										</p>
-										{#if scopeLabel || item.expiresAt}
-											<div class="mt-2 flex flex-wrap items-center gap-1.5">
-												{#if scopeLabel}
-													<span class="inline-flex rounded-full border border-border px-2 py-0.5 text-xs font-sans text-text-muted">
-														{scopeLabel}
-													</span>
-												{/if}
-												{#if item.expiresAt}
-													<span class="memory-expiry-chip inline-flex rounded-full px-2 py-0.5 text-xs font-sans">
-														{$t("memoryProfile.expiresOn", {
-															date: formatExpiryDate(item.expiresAt),
-														})}
-													</span>
-												{/if}
-											</div>
+			<aside class="memory-profile-rail" aria-label={$t("memoryProfile.eyebrow")}>
+				{#if profile && profile.review.openCount > 0}
+					<section class="memory-review-section" aria-labelledby="memory-review-title">
+						<div class="memory-review-head">
+							<HelpCircle size={14} strokeWidth={2.1} class="text-accent shrink-0" aria-hidden="true" />
+							<h3 id="memory-review-title" class="memory-review-title">{$t("memoryProfile.needsReview")}</h3>
+							<span class="memory-review-count">{profile.review.openCount}</span>
+							<span class="memory-profile-spacer"></span>
+							{#if reviewOverflowCount > 0}
+								<button
+									type="button"
+									class="memory-review-more"
+									onclick={() => (reviewOverflowOpen = true)}
+								>
+									{$t("memoryProfile.more", { count: reviewOverflowCount })}
+								</button>
+							{/if}
+						</div>
+						<div class="memory-review-list">
+							{#each visibleReviewItems as item (item.id)}
+								<div class="memory-review-card">
+									<div class="min-w-0 flex-1">
+										{#if item.question}
+											<p class="break-words text-[0.78rem] font-sans leading-[1.5] text-text-primary">{item.question}</p>
+										{/if}
+										<p class="break-words text-[0.68rem] font-sans leading-[1.45] text-text-muted">{item.subject}</p>
+										{#if item.reason}
+											<p class="memory-review-reason mt-0.5 break-words text-[0.68rem] font-sans leading-[1.45]">{item.reason}</p>
+										{/if}
+										{#if item.expiresAt}
+											<p class="mt-0.5 break-words text-[0.68rem] font-sans leading-[1.45] text-text-muted">
+												{$t("memoryProfile.autoExpiresInDays", {
+													count: autoExpireDays(item.expiresAt),
+												})}
+											</p>
 										{/if}
 									</div>
 									<div class="memory-card-actions flex shrink-0 items-center gap-1">
-										<button
-											type="button"
-											class="btn-icon-bare btn-icon-sm h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-											onclick={() => openMemoryItem(item)}
-											aria-label={item.canEdit
-												? $t("memoryProfile.editMemoryItem")
-												: $t("memoryProfile.itemTitle")}
-											title={item.canEdit
-												? $t("memoryProfile.edit")
-												: $t("memoryProfile.itemTitle")}
-										>
-											{#if item.canEdit}
-												<Pencil size={17} strokeWidth={2.1} aria-hidden="true" />
-											{:else}
-												<Eye size={17} strokeWidth={2.1} aria-hidden="true" />
-											{/if}
-										</button>
-										{#if item.canSuppress || item.canDelete}
+										{#if item.canAccept}
 											<button
 												type="button"
-												class="btn-icon-bare btn-icon-sm memory-remove h-11 w-11 cursor-pointer rounded-full text-danger disabled:cursor-not-allowed disabled:opacity-50"
-												onclick={() => openRemoveForProfileItem(item)}
-												disabled={pendingActionKey === actionKey(item.id, "suppress") || pendingActionKey === actionKey(item.id, "delete")}
-												aria-label={$t("memoryProfile.removeThisMemory")}
-												title={$t("memoryProfile.removeThisMemory")}
+												class="btn-icon-bare memory-review-accept h-7 w-7 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50"
+												onclick={() => useReviewItem(item)}
+												disabled={pendingActionKey === actionKey(item.id, "accept")}
+												aria-label={$t("memoryProfile.rememberThisItem")}
+												title={$t("memoryProfile.remember")}
 											>
-												<Trash2 size={17} strokeWidth={2.1} aria-hidden="true" />
+												{#if pendingActionKey === actionKey(item.id, "accept")}
+													<Spinner size={13} />
+												{:else}
+													<Check size={13} strokeWidth={2.1} aria-hidden="true" />
+												{/if}
 											</button>
 										{/if}
+										<button
+											type="button"
+											class="btn-icon-bare h-7 w-7 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
+											onclick={() => openReviewEditor(item)}
+											aria-label={$t("memoryProfile.editReviewItem")}
+											title={$t("memoryProfile.edit")}
+										>
+											<Pencil size={13} strokeWidth={2.1} aria-hidden="true" />
+										</button>
+										<button
+											type="button"
+											class="btn-icon-bare memory-remove h-7 w-7 cursor-pointer rounded-full text-danger disabled:cursor-not-allowed disabled:opacity-50"
+											onclick={() => openRemoveForReviewItem(item)}
+											disabled={pendingActionKey === actionKey(item.id, "suppress")}
+											aria-label={$t("memoryProfile.removeThisMemory")}
+											title={$t("memoryProfile.removeThisMemory")}
+										>
+											<Trash2 size={13} strokeWidth={2.1} aria-hidden="true" />
+										</button>
 									</div>
 								</div>
 							{/each}
 						</div>
-					{/if}
-				</section>
-			{/each}
+					</section>
+				{/if}
+
+				<MemoryTimeline
+					reports={timelineReports}
+					{pendingActionKey}
+					onUndo={(reportId, actionIndex) =>
+						void onUndoConsolidation?.(reportId, actionIndex)}
+				/>
+
+				<MemoryRailCards />
+			</aside>
 		</div>
-
-		<MemoryTimeline
-			reports={timelineReports}
-			{pendingActionKey}
-			onUndo={(reportId, actionIndex) =>
-				void onUndoConsolidation?.(reportId, actionIndex)}
-		/>
-
-		{#if profile && profile.review.openCount > 0}
-			<section class="memory-review-section" aria-labelledby="memory-review-title">
-				<div class="flex flex-wrap items-center justify-between gap-3">
-					<div class="flex items-center gap-2">
-						<h3 id="memory-review-title" class="memory-review-title font-sans font-semibold">{$t("memoryProfile.needsReview")}</h3>
-						<span class="memory-review-count rounded-full px-2 py-0.5 text-xs font-sans">
-							{profile.review.openCount}
-						</span>
-					</div>
-					{#if reviewOverflowCount > 0}
-						<button
-							type="button"
-							class="memory-review-more cursor-pointer text-xs font-sans font-medium transition"
-							onclick={() => (reviewOverflowOpen = true)}
-						>
-							{$t("memoryProfile.more", { count: reviewOverflowCount })}
-						</button>
-					{/if}
-				</div>
-				<div class="mt-3 grid gap-2">
-					{#each visibleReviewItems as item (item.id)}
-						<div class="memory-review-card flex items-start justify-between gap-3 rounded-[0.75rem] border border-border bg-surface-page px-3 py-3">
-							<div class="min-w-0">
-								{#if item.question}
-									<p class="break-words text-sm font-sans leading-[1.55] text-text-primary">{item.question}</p>
-								{/if}
-								<p class="break-words text-xs font-sans leading-[1.45] text-text-muted">{item.subject}</p>
-								{#if item.reason}
-									<p class="memory-review-reason mt-1 break-words text-xs font-sans leading-[1.45] text-text-muted">{item.reason}</p>
-								{/if}
-								{#if item.expiresAt}
-									<p class="mt-1 break-words text-xs font-sans leading-[1.45] text-text-muted">
-										{$t("memoryProfile.autoExpiresInDays", {
-											count: autoExpireDays(item.expiresAt),
-										})}
-									</p>
-								{/if}
-							</div>
-							<div class="memory-card-actions flex shrink-0 items-center gap-1">
-								{#if item.canAccept}
-									<button
-										type="button"
-										class="btn-icon-bare btn-icon-sm memory-review-accept h-11 w-11 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50"
-										onclick={() => useReviewItem(item)}
-										disabled={pendingActionKey === actionKey(item.id, "accept")}
-										aria-label={$t("memoryProfile.rememberThisItem")}
-										title={$t("memoryProfile.remember")}
-									>
-										{#if pendingActionKey === actionKey(item.id, "accept")}
-											<Spinner size={17} />
-										{:else}
-											<Check size={17} strokeWidth={2.1} aria-hidden="true" />
-										{/if}
-									</button>
-								{/if}
-								<button
-									type="button"
-									class="btn-icon-bare btn-icon-sm h-11 w-11 cursor-pointer rounded-full text-icon-muted hover:text-text-primary"
-									onclick={() => openReviewEditor(item)}
-									aria-label={$t("memoryProfile.editReviewItem")}
-									title={$t("memoryProfile.edit")}
-								>
-									<Pencil size={17} strokeWidth={2.1} aria-hidden="true" />
-								</button>
-								<button
-									type="button"
-									class="btn-icon-bare btn-icon-sm memory-remove h-11 w-11 cursor-pointer rounded-full text-danger disabled:cursor-not-allowed disabled:opacity-50"
-									onclick={() => openRemoveForReviewItem(item)}
-									disabled={pendingActionKey === actionKey(item.id, "suppress")}
-									aria-label={$t("memoryProfile.removeThisMemory")}
-									title={$t("memoryProfile.removeThisMemory")}
-								>
-									<Trash2 size={17} strokeWidth={2.1} aria-hidden="true" />
-								</button>
-							</div>
-						</div>
-					{/each}
-				</div>
-			</section>
-		{/if}
 	</section>
 {/if}
 
@@ -891,38 +803,171 @@ $effect(() => {
 	</div>
 {/if}
 
-	<style>
+<style>
+	/* ---- the page's own head row -------------------------------------- */
+	.memory-profile-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.6rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.memory-profile-eyebrow {
+		margin: 0;
+		font-family: var(--font-sans);
+		font-size: 0.66rem;
+		font-weight: 600;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+	}
+
+	.memory-profile-active {
+		display: inline-flex;
+		align-items: center;
+		height: 1.4rem;
+		padding: 0 0.5rem;
+		border: 1px solid var(--border-default);
+		border-radius: 9999px;
+		font-family: var(--font-sans);
+		font-size: 0.66rem;
+		color: var(--text-muted);
+	}
+
+	.memory-profile-spacer {
+		flex: 1 1 auto;
+	}
+
 	.memory-processing-notice {
-		border-color: color-mix(in srgb, var(--accent) 28%, var(--border-default) 72%);
-		background: color-mix(in srgb, var(--accent) 6%, var(--surface-elevated) 94%);
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 0;
+		font-family: var(--font-sans);
+		font-size: 0.68rem;
+		line-height: 1.4;
 		color: var(--accent);
 	}
 
+	.memory-processing-line {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+	}
+
+	.memory-processing-list {
+		margin: 0 0 0 1.4rem;
+		padding: 0;
+		list-style: disc;
+		font-family: var(--font-sans);
+		font-size: 0.68rem;
+		line-height: 1.5;
+		color: var(--text-muted);
+	}
+
+	/* ---- portrait + rail ---------------------------------------------- */
+	.memory-profile-layout {
+		display: flex;
+		align-items: flex-start;
+		gap: 1.15rem;
+		min-width: 0;
+	}
+
+	.memory-profile-main {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.memory-profile-rail {
+		display: flex;
+		flex: 0 0 20rem;
+		width: 20rem;
+		flex-direction: column;
+		gap: 0.8rem;
+		min-width: 0;
+	}
+
+	@media (max-width: 1023px) {
+		.memory-profile-layout {
+			flex-direction: column;
+		}
+
+		.memory-profile-rail {
+			flex: 1 1 auto;
+			width: 100%;
+		}
+	}
+
+	/* ---- needs review -------------------------------------------------- */
+	.memory-review-section {
+		border: 1px solid
+			color-mix(in srgb, var(--accent) 28%, var(--border-default) 72%);
+		border-radius: 1rem;
+		background: var(--surface-elevated);
+		overflow: hidden;
+		box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
+	}
+
+	.memory-review-head {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.7rem 0.85rem 0.6rem;
+	}
+
 	.memory-review-title {
+		margin: 0;
 		color: var(--accent);
-		font-size: var(--text-base);
+		font-family: var(--font-sans);
+		font-size: 0.82rem;
+		font-weight: 600;
 		line-height: 1.35;
 	}
 
 	.memory-review-count {
-		border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
+		display: inline-flex;
+		align-items: center;
+		height: 1.15rem;
+		padding: 0 0.4rem;
+		border: 1px solid
+			color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
+		border-radius: 9999px;
 		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated) 92%);
 		color: var(--accent);
+		font-family: var(--font-sans);
+		font-size: 0.64rem;
 	}
 
 	.memory-review-more {
 		color: var(--accent);
+		background: none;
+		border: none;
+		cursor: pointer;
+		font-family: var(--font-sans);
+		font-size: 0.68rem;
+		font-weight: 500;
 		text-decoration: underline;
 		text-underline-offset: 0.18em;
+		transition: color 150ms ease;
 	}
 
 	.memory-review-more:hover {
 		color: var(--accent-hover);
 	}
 
+	.memory-review-list {
+		display: grid;
+		gap: 1px;
+		background: color-mix(in srgb, var(--border-default) 55%, transparent 45%);
+	}
+
 	.memory-review-card {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.6rem;
 		border-left: 3px solid var(--accent);
-		border-radius: 0;
+		padding: 0.6rem 0.7rem;
 		background: color-mix(in srgb, var(--accent) 5%, var(--surface-page) 95%);
 	}
 
@@ -934,37 +979,6 @@ $effect(() => {
 		color: var(--text-muted);
 	}
 
-	.memory-remove-quote {
-		background: color-mix(in srgb, var(--surface-page) 92%, var(--accent) 8%);
-	}
-
-	/* Confidence dot: filled = the user stated the fact directly, hollow =
-	   AlfyAI inferred it from conversation. */
-	.memory-confidence-dot {
-		display: inline-block;
-		width: 0.5rem;
-		height: 0.5rem;
-		margin-right: 0.35rem;
-		border-radius: 9999px;
-		vertical-align: 0.08em;
-	}
-
-	.memory-confidence-dot--stated {
-		background: var(--accent);
-	}
-
-	.memory-confidence-dot--inferred {
-		background: transparent;
-		border: 1.5px solid var(--accent);
-	}
-
-	.memory-expiry-chip {
-		border: 1px solid
-			color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
-		color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
-	}
-
 	.memory-review-accept {
 		background: var(--accent);
 		color: var(--accent-contrast);
@@ -974,6 +988,11 @@ $effect(() => {
 	.memory-review-accept:hover {
 		background: var(--accent-hover);
 		color: var(--accent-contrast);
+	}
+
+	/* ---- dialogs (unchanged behaviour, kept styling) -------------------- */
+	.memory-remove-quote {
+		background: color-mix(in srgb, var(--surface-page) 92%, var(--accent) 8%);
 	}
 
 	.memory-profile-section {
@@ -988,33 +1007,12 @@ $effect(() => {
 	}
 
 	@media (max-width: 640px) {
-		.memory-profile-section > :global(.grid) {
-			grid-template-columns: minmax(0, 1fr);
-		}
-
-		.memory-review-section,
-		.memory-category-card {
-			width: 100%;
-			min-width: 0;
-			max-width: 100%;
-			overflow-x: hidden;
-		}
-
-		.memory-review-card,
-		.memory-item-card {
+		.memory-review-card {
 			display: grid;
 			grid-template-columns: minmax(0, 1fr);
 			gap: 0.75rem;
 			width: 100%;
 			min-width: 0;
-			max-width: 100%;
-			overflow-x: hidden;
-		}
-
-		.memory-review-card > div,
-		.memory-item-card > div {
-			min-width: 0;
-			max-width: 100%;
 		}
 
 		.memory-card-actions {
@@ -1029,6 +1027,12 @@ $effect(() => {
 		.memory-profile-section span,
 		.memory-profile-section div {
 			overflow-wrap: anywhere;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.memory-review-more {
+			transition: none !important;
 		}
 	}
 </style>

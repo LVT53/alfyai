@@ -274,6 +274,66 @@ const knowledgeDict = {
 		"memoryProfile.undo": "Undo",
 		"memoryProfile.undoAction": "Undo this change",
 		"memoryProfile.why": "Why",
+		// ── everyday-screens redesign ─────────────────────────────────────
+		"knowledge.dropZoneHint":
+			"Drop files here to upload — max {limit} per file. Generated reports and skill notes arrive here on their own.",
+		"knowledge.noNormalisedVersion":
+			"No AI-facing version exists for this file",
+		"knowledge.sortAscending": "Sorted oldest first — sort newest first",
+		"knowledge.sortDescending": "Sorted newest first — sort oldest first",
+		"knowledge.status": "Status",
+		"knowledge.statusCurrent": "Current",
+		"knowledge.version": "Version",
+		"memoryProfile.aboutBody":
+			"AlfyAI builds this portrait from your chats and reads it before every reply. Nothing here is shared with anyone else, and you can edit or remove any line above.",
+		"memoryProfile.aboutTitle": "What this is for",
+		"memoryProfile.activeChip": "{count} active",
+		"memoryProfile.categoryCount": "{total} remembered · showing {shown}",
+		"memoryProfile.categoryFilteredCount": "{matching} of {total} match",
+		"memoryProfile.categoryNoMatch":
+			"Nothing in this category matches the filter.",
+		"memoryProfile.clearFilter": "Clear filter",
+		"memoryProfile.clearMemory": "Clear memory and knowledge…",
+		"memoryProfile.collapse": "Collapse",
+		"memoryProfile.collapseCategory": "Collapse {name}",
+		"memoryProfile.expand": "Expand",
+		"memoryProfile.expandCategory": "Expand {name}",
+		"memoryProfile.eyebrow": "Memory profile",
+		"memoryProfile.filterAll": "All",
+		"memoryProfile.filterByCategory": "Filter memories by category",
+		"memoryProfile.filterChipLabel": "{name} — {count} remembered",
+		"memoryProfile.filterHint":
+			"Typing filters every category at once and keeps the counts honest — a heading reads “3 of 23 match” while a filter is on.",
+		"memoryProfile.filterLabel": "Filter memories",
+		"memoryProfile.filterNoMatches": "No memory matches “{query}”.",
+		"memoryProfile.filterPlaceholder": "Filter memories by their words",
+		"memoryProfile.legendExpiry": "An expiry chip",
+		"memoryProfile.legendExpiryBody":
+			"It retires itself on that date unless something refers to it again.",
+		"memoryProfile.legendInferred": "Hollow — AlfyAI worked it out",
+		"memoryProfile.legendInferredBody":
+			"Inferred from how you write or what you do. These are the ones worth checking.",
+		"memoryProfile.legendScope": "A scope chip",
+		"memoryProfile.legendScopeBody":
+			"The memory only applies inside that project or conversation.",
+		"memoryProfile.legendStated": "Filled — you said it",
+		"memoryProfile.legendStatedBody":
+			"Taken from something you typed, with the date.",
+		"memoryProfile.legendTitle": "Reading a row",
+		"memoryProfile.memorySettings": "Memory settings",
+		"memoryProfile.moreNewestFirst": "{count} more, newest first",
+		"memoryProfile.remove": "Remove",
+		"memoryProfile.showAll": "Show all {total}",
+		"memoryProfile.showFewer": "Show fewer",
+		"memoryProfile.showRemaining": "Show the remaining {count}",
+		"memoryProfile.sourceInferred": "Worked out by AlfyAI · updated {date}",
+		"memoryProfile.sourceStated": "Stated on {date}",
+		"memoryProfile.sourceUpdated": "Updated {date}",
+		"memoryProfile.summaryBuiltFrom":
+			"This is the text AlfyAI actually reads. The {count} facts below are what it is built from.",
+		"memoryProfile.timelineOpenHint":
+			"Open a night to see every action it took, each with its own Undo.",
+		// ── end everyday-screens redesign ─────────────────────────────────
 	},
 	hu: {
 		"filePreview.close": "Fájlelőnézet bezárása",
@@ -557,6 +617,67 @@ const knowledgeDict = {
 		"memoryProfile.undo": "Visszavonás",
 		"memoryProfile.undoAction": "Változtatás visszavonása",
 		"memoryProfile.why": "Miért",
+		// ── everyday-screens redesign ─────────────────────────────────────
+		"knowledge.dropZoneHint":
+			"Húzd ide a fájlokat a feltöltéshez — fájlonként legfeljebb {limit}. A létrehozott jelentések és skill jegyzetek maguktól kerülnek ide.",
+		"knowledge.noNormalisedVersion":
+			"Ehhez a fájlhoz nincs AI által olvasott változat",
+		"knowledge.sortAscending": "Növekvő sorrend — váltás csökkenőre",
+		"knowledge.sortDescending": "Csökkenő sorrend — váltás növekvőre",
+		"knowledge.status": "Állapot",
+		"knowledge.statusCurrent": "Aktuális",
+		"knowledge.version": "Verzió",
+		"memoryProfile.aboutBody":
+			"Az AlfyAI a beszélgetéseidből építi ezt a képet, és minden válasz előtt elolvassa. Semmi sem kerül ki innen máshoz, és a fenti sorok bármelyikét szerkesztheted vagy törölheted.",
+		"memoryProfile.aboutTitle": "Mire való ez",
+		"memoryProfile.activeChip": "{count} aktív",
+		"memoryProfile.categoryCount": "{total} megjegyzett · látható {shown}",
+		"memoryProfile.categoryFilteredCount": "{total} közül {matching} egyezik",
+		"memoryProfile.categoryNoMatch":
+			"Ebben a kategóriában semmi sem felel meg a szűrőnek.",
+		"memoryProfile.clearFilter": "Szűrő törlése",
+		"memoryProfile.clearMemory": "Memória és tudás törlése…",
+		"memoryProfile.collapse": "Összecsukás",
+		"memoryProfile.collapseCategory": "{name} összecsukása",
+		"memoryProfile.expand": "Kibontás",
+		"memoryProfile.expandCategory": "{name} kibontása",
+		"memoryProfile.eyebrow": "Memóriaprofil",
+		"memoryProfile.filterAll": "Mind",
+		"memoryProfile.filterByCategory": "Memóriák szűrése kategória szerint",
+		"memoryProfile.filterChipLabel": "{name} — {count} megjegyzett",
+		"memoryProfile.filterHint":
+			"A gépelés egyszerre szűri az összes kategóriát, és őszintén tartja a számokat — szűrés közben a fejléc így szól: „3 a 23-ból egyezik”.",
+		"memoryProfile.filterLabel": "Memóriák szűrése",
+		"memoryProfile.filterNoMatches": "Semmi sem egyezik ezzel: „{query}”.",
+		"memoryProfile.filterPlaceholder": "Szűrés a memóriák szavai szerint",
+		"memoryProfile.legendExpiry": "Lejárati címke",
+		"memoryProfile.legendExpiryBody":
+			"Az adott napon magától visszavonul, hacsak valami újra nem hivatkozik rá.",
+		"memoryProfile.legendInferred": "Üres — az AlfyAI következtette ki",
+		"memoryProfile.legendInferredBody":
+			"Abból következik, ahogy írsz vagy amit teszel. Ezeket érdemes ellenőrizni.",
+		"memoryProfile.legendScope": "Hatókör-címke",
+		"memoryProfile.legendScopeBody":
+			"A memória csak az adott projekten vagy beszélgetésen belül érvényes.",
+		"memoryProfile.legendStated": "Tömör — te mondtad",
+		"memoryProfile.legendStatedBody":
+			"Abból származik, amit begépeltél, a dátummal együtt.",
+		"memoryProfile.legendTitle": "Egy sor olvasása",
+		"memoryProfile.memorySettings": "Memóriabeállítások",
+		"memoryProfile.moreNewestFirst": "még {count}, a legújabbak elöl",
+		"memoryProfile.remove": "Törlés",
+		"memoryProfile.showAll": "Mind a(z) {total} megjelenítése",
+		"memoryProfile.showFewer": "Kevesebb megjelenítése",
+		"memoryProfile.showRemaining": "A maradék {count} megjelenítése",
+		"memoryProfile.sourceInferred":
+			"Az AlfyAI következtette ki · frissítve: {date}",
+		"memoryProfile.sourceStated": "Elmondtad ekkor: {date}",
+		"memoryProfile.sourceUpdated": "Frissítve: {date}",
+		"memoryProfile.summaryBuiltFrom":
+			"Ezt a szöveget olvassa valójában az AlfyAI. Az alábbi {count} tényből épül fel.",
+		"memoryProfile.timelineOpenHint":
+			"Nyiss meg egy éjszakát, hogy lásd minden lépését — mindegyik saját Visszavonással.",
+		// ── end everyday-screens redesign ─────────────────────────────────
 	},
 } as const;
 

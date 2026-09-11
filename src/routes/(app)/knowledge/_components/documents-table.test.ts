@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import {
 	compareDocuments,
+	DOCUMENT_COLUMN_ORDER,
 	deriveDocumentStatus,
 	deriveDocumentVersion,
-	DOCUMENT_COLUMN_ORDER,
 	documentVersionRank,
 	getDocumentKind,
 	hasNormalisedVersion,
@@ -72,9 +72,9 @@ describe("deriveDocumentVersion", () => {
 	});
 
 	it("shows nothing for a document with no family", () => {
-		expect(
-			deriveDocumentVersion(doc({ id: "3", name: "audit.csv" })),
-		).toEqual({ kind: "none" });
+		expect(deriveDocumentVersion(doc({ id: "3", name: "audit.csv" }))).toEqual({
+			kind: "none",
+		});
 	});
 
 	it("shows nothing for a version number with no family to belong to", () => {
@@ -88,7 +88,9 @@ describe("deriveDocumentVersion", () => {
 
 describe("deriveDocumentStatus", () => {
 	it("is blank when the document has no version family", () => {
-		expect(deriveDocumentStatus(doc({ id: "1", name: "audit.csv" }))).toBeNull();
+		expect(
+			deriveDocumentStatus(doc({ id: "1", name: "audit.csv" })),
+		).toBeNull();
 	});
 
 	it("is blank when the family id is explicitly null", () => {
@@ -214,9 +216,7 @@ describe("documentVersionRank", () => {
 		expect(documentVersionRank(none)).toBeLessThan(
 			documentVersionRank(original),
 		);
-		expect(documentVersionRank(original)).toBeLessThan(
-			documentVersionRank(v1),
-		);
+		expect(documentVersionRank(original)).toBeLessThan(documentVersionRank(v1));
 	});
 });
 
@@ -304,9 +304,9 @@ describe("compareDocuments / sortDocuments", () => {
 		const left = doc({ id: "z", name: "same.pdf", sizeBytes: 10 });
 		const right = doc({ id: "a", name: "other.pdf", sizeBytes: 10 });
 		expect(compareDocuments(left, right, "size", "asc")).toBeGreaterThan(0);
-		expect(sortDocuments([left, right], "size", "asc").map((d) => d.id)).toEqual(
-			["a", "z"],
-		);
+		expect(
+			sortDocuments([left, right], "size", "asc").map((d) => d.id),
+		).toEqual(["a", "z"]);
 	});
 
 	it("does not mutate the array it is given", () => {

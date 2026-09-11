@@ -51,7 +51,8 @@ function categoryItems(
 	category: MemoryProfileCategory,
 ): MemoryProfilePublicItem[] {
 	return (
-		profile?.categories.find((group) => group.category === category)?.items ?? []
+		profile?.categories.find((group) => group.category === category)?.items ??
+		[]
 	);
 }
 
@@ -124,9 +125,7 @@ export function buildMemoryCategoryViews(params: {
 }): MemoryCategoryView[] {
 	const selection = params.selection ?? "all";
 	return params.order
-		.filter(
-			(category) => selection === "all" || selection === category,
-		)
+		.filter((category) => selection === "all" || selection === category)
 		.map((category) =>
 			buildMemoryCategoryView({
 				category,

@@ -5,8 +5,8 @@ import {
 	isScopeAvailable,
 	resolveActiveScope,
 	rowMatchesScope,
-	SEARCH_SCOPE_ORDER,
 	type ScopeableRow,
+	SEARCH_SCOPE_ORDER,
 	summariseScopedResults,
 } from "./search-scopes";
 
