@@ -113,13 +113,15 @@ const noMatchesAnywhere = $derived(
 		<div class="memory-filter-row">
 			<div class="memory-filter-input">
 				<Search size={14} strokeWidth={2} aria-hidden="true" />
+				<!-- A function binding rather than a bare `value` + `oninput`: the
+				     parent owns the filter text, and binding attaches the listener
+				     to the input itself the way every other search box in the app
+				     does. -->
 				<input
 					type="search"
-					value={filterText}
+					bind:value={() => filterText, (value) => onFilterTextChange(value)}
 					placeholder={$t("memoryProfile.filterPlaceholder")}
 					aria-label={$t("memoryProfile.filterLabel")}
-					oninput={(event) =>
-						onFilterTextChange((event.currentTarget as HTMLInputElement).value)}
 				/>
 				{#if filtering}
 					<button
