@@ -6,6 +6,8 @@ import { formatByteSize } from "$lib/utils/format";
 import { formatMediumDateTime } from "$lib/utils/time";
 import { t } from "$lib/i18n";
 import {
+	ArrowDown,
+	ArrowUp,
 	Archive,
 	ChevronLeft,
 	ChevronRight,
@@ -21,7 +23,18 @@ import {
 	Upload,
 } from "@lucide/svelte";
 import Spinner from "$lib/components/ui/Spinner.svelte";
+import {
+	compareDocuments,
+	deriveDocumentStatus,
+	deriveDocumentVersion,
+	getDocumentKind,
+	hasNormalisedVersion,
+	nextSortDirection,
+} from "./documents-table";
 
+// Version is a column but not a sort key: the server-side library sort
+// (see +page.server.ts) offers name/size/type/date only, and a client-side
+// version sort would silently reorder one page out of six.
 type DocumentSortKey = "name" | "size" | "type" | "date";
 type SortDirection = "asc" | "desc";
 
@@ -302,21 +315,6 @@ function scoreTermMatches(
 	return score;
 }
 
-function getDocumentKind(
-	document: KnowledgeDocumentItem,
-): "generated" | "skill_note" | "uploaded" {
-	if (
-		document.documentOrigin === "skill_note" ||
-		document.type === "skill_note"
-	) {
-		return "skill_note";
-	}
-	return document.documentOrigin === "generated" ||
-		document.type === "generated_output"
-		? "generated"
-		: "uploaded";
-}
-
 function scoreDocumentForSearch(
 	document: KnowledgeDocumentItem,
 	query: string,
@@ -375,13 +373,9 @@ const sortedDocuments = $derived.by(() => {
 	if (serverManaged) {
 		return documents;
 	}
-	const direction = activeSortDirection === "asc" ? 1 : -1;
 	const entries = [...searchedDocuments];
 
 	entries.sort((leftEntry, rightEntry) => {
-		const left = leftEntry.document;
-		const right = rightEntry.document;
-
 		// When searching, preserve relevance as highest priority.
 		if (
 			localSearchQuery.trim().length > 0 &&
@@ -389,36 +383,12 @@ const sortedDocuments = $derived.by(() => {
 		) {
 			return rightEntry.score - leftEntry.score;
 		}
-
-		if (activeSortKey === "name") {
-			const byName = compareText(left.name, right.name) * direction;
-			if (byName !== 0) return byName;
-		}
-
-		if (activeSortKey === "size") {
-			const bySize =
-				((left.sizeBytes ?? 0) - (right.sizeBytes ?? 0)) * direction;
-			if (bySize !== 0) return bySize;
-		}
-
-		if (activeSortKey === "type") {
-			const byType =
-				compareText(getDocumentKind(left), getDocumentKind(right)) * direction;
-			if (byType !== 0) return byType;
-		}
-
-		if (activeSortKey === "date") {
-			const byDate =
-				((left.createdAt ?? 0) - (right.createdAt ?? 0)) * direction;
-			if (byDate !== 0) return byDate;
-		}
-
-		// Deterministic tie-breakers
-		const byNameTie = compareText(left.name, right.name);
-		if (byNameTie !== 0) return byNameTie;
-		const byDateTie = (right.createdAt ?? 0) - (left.createdAt ?? 0);
-		if (byDateTie !== 0) return byDateTie;
-		return compareText(left.id, right.id);
+		return compareDocuments(
+			leftEntry.document,
+			rightEntry.document,
+			activeSortKey,
+			activeSortDirection,
+		);
 	});
 
 	return entries.map((entry) => entry.document);
@@ -462,13 +432,11 @@ const showInitialEmptyState = $derived(
 );
 
 function toggleSort(nextSortKey: DocumentSortKey) {
-	let nextDirection: SortDirection;
-	if (activeSortKey === nextSortKey) {
-		nextDirection = activeSortDirection === "asc" ? "desc" : "asc";
-	} else {
-		nextDirection =
-			nextSortKey === "name" || nextSortKey === "type" ? "asc" : "desc";
-	}
+	const nextDirection = nextSortDirection(
+		activeSortKey,
+		activeSortDirection,
+		nextSortKey,
+	);
 	activeSortKey = nextSortKey;
 	activeSortDirection = nextDirection;
 	onSortChange?.(nextSortKey, nextDirection);
@@ -900,11 +868,11 @@ async function handleBulkDelete(): Promise<boolean> {
 				</button>
 			{/if}
 
-			<div class="mobile-sort-controls">
-				<label class="mobile-sort-field">
-					<span class="mobile-sort-label">{$t('knowledge.sortBy')}</span>
+			<div class="sort-controls">
+				<label class="sort-field">
+					<span class="sort-label">{$t('knowledge.sortByShort')}</span>
 					<select
-						class="mobile-sort-select"
+						class="sort-select"
 						aria-label={$t('knowledge.sortBy')}
 						value={activeSortKey}
 						onchange={handleSortSelectChange}
@@ -917,12 +885,19 @@ async function handleBulkDelete(): Promise<boolean> {
 				</label>
 				<button
 					type="button"
-					class="mobile-sort-direction"
-					aria-label={$t('knowledge.sortDirection')}
+					class="sort-direction"
+					data-testid="sort-direction"
+					aria-label={activeSortDirection === 'asc'
+						? $t('knowledge.sortAscending')
+						: $t('knowledge.sortDescending')}
 					title={$t('knowledge.sortDirection')}
 					onclick={() => toggleSort(activeSortKey)}
 				>
-					<span aria-hidden="true">{getSortIndicator(activeSortKey)}</span>
+					{#if activeSortDirection === 'asc'}
+						<ArrowUp size={13} strokeWidth={2.2} aria-hidden="true" />
+					{:else}
+						<ArrowDown size={13} strokeWidth={2.2} aria-hidden="true" />
+					{/if}
 				</button>
 			</div>
 		</div>
@@ -964,11 +939,13 @@ async function handleBulkDelete(): Promise<boolean> {
 									{$t('knowledge.name')} <span class="sort-indicator">{getSortIndicator('name')}</span>
 								</button>
 							</th>
+							<th class="col-version" scope="col">{$t('knowledge.version')}</th>
 							<th class="col-type" scope="col" aria-sort={getAriaSort('type')}>
 								<button type="button" class="sort-button" onclick={() => toggleSort('type')}>
 									{$t('knowledge.type')} <span class="sort-indicator">{getSortIndicator('type')}</span>
 								</button>
 							</th>
+							<th class="col-status" scope="col">{$t('knowledge.status')}</th>
 							<th class="col-size" scope="col" aria-sort={getAriaSort('size')}>
 								<button type="button" class="sort-button" onclick={() => toggleSort('size')}>
 									{$t('knowledge.size')} <span class="sort-indicator">{getSortIndicator('size')}</span>
@@ -985,6 +962,9 @@ async function handleBulkDelete(): Promise<boolean> {
 					<tbody>
 						{#each paginatedDocuments as document (document.id)}
 							{@const Icon = getFileIcon(document.mimeType, document.name)}
+							{@const versionBadge = deriveDocumentVersion(document)}
+							{@const statusBadge = deriveDocumentStatus(document)}
+							{@const aiVersionAvailable = hasNormalisedVersion(document)}
 							<tr
 								class="document-row document-list-item"
 								class:selected={selectedIds.has(document.id)}
@@ -1019,17 +999,19 @@ async function handleBulkDelete(): Promise<boolean> {
 								<td class="col-name">
 									<div class="document-card-main">
 										<div class="document-name">
-											{#if document.isOriginal}
-												<span class="original-badge">{$t('knowledge.original')}</span>
-											{:else if document.versionNumber != null && document.documentFamilyId}
-												<span class="version-badge">v{document.versionNumber}</span>
-											{/if}
 											<span class="document-title">{document.name}</span>
-											{#if document.documentFamilyStatus === 'historical'}
-												<span class="historical-badge">{$t('knowledge.historical')}</span>
-											{/if}
 										</div>
 										<div class="mobile-document-meta">
+											{#if versionBadge.kind === 'original'}
+												<span class="original-badge">{$t('knowledge.original')}</span>
+											{:else if versionBadge.kind === 'version'}
+												<span class="version-badge">v{versionBadge.versionNumber}</span>
+											{/if}
+											{#if statusBadge === 'historical'}
+												<span class="historical-badge">{$t('knowledge.historical')}</span>
+											{:else if statusBadge === 'current'}
+												<span class="status-badge">{$t('knowledge.statusCurrent')}</span>
+											{/if}
 											{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
 												<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
 											{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
@@ -1042,6 +1024,15 @@ async function handleBulkDelete(): Promise<boolean> {
 										</div>
 									</div>
 								</td>
+								<td class="col-version" data-mobile-label={$t('knowledge.version')}>
+									{#if versionBadge.kind === 'original'}
+										<span class="original-badge">{$t('knowledge.original')}</span>
+									{:else if versionBadge.kind === 'version'}
+										<span class="version-badge">v{versionBadge.versionNumber}</span>
+									{:else}
+										<span class="cell-blank" aria-hidden="true">—</span>
+									{/if}
+								</td>
 								<td class="col-type" data-mobile-label={$t('knowledge.type')}>
 									{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
 										<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
@@ -1049,6 +1040,16 @@ async function handleBulkDelete(): Promise<boolean> {
 										<span class="type-badge type-generated">{$t('knowledge.generated')}</span>
 									{:else}
 										<span class="type-badge type-uploaded">{formatFileType(document.mimeType, document.name)}</span>
+									{/if}
+								</td>
+								<td class="col-status" data-mobile-label={$t('knowledge.status')}>
+									{#if statusBadge === 'historical'}
+										<span class="historical-badge">{$t('knowledge.historical')}</span>
+									{:else if statusBadge === 'current'}
+										<span class="status-badge">{$t('knowledge.statusCurrent')}</span>
+									{:else}
+										<!-- No version family: neither current nor historical. -->
+										<span class="cell-blank" aria-hidden="true">—</span>
 									{/if}
 								</td>
 								<td class="col-size" data-mobile-label={$t('knowledge.size')}>
@@ -1059,7 +1060,7 @@ async function handleBulkDelete(): Promise<boolean> {
 								</td>
 								<td class="col-actions">
 									<div class="action-buttons">
-										{#if document.normalizedAvailable && document.promptArtifactId}
+										{#if aiVersionAvailable}
 											<button
 												type="button"
 												class="action-btn action-btn-ai"
@@ -1077,6 +1078,19 @@ async function handleBulkDelete(): Promise<boolean> {
 											>
 												<Eye size={16} strokeWidth={2} aria-hidden="true" />
 											</button>
+										{:else}
+											<!-- Kept as a greyed slot rather than removed, so the action
+											     column does not jitter between rows and the absence is
+											     explained on hover. -->
+											<span
+												class="action-btn action-btn-disabled"
+												data-testid="what-ai-sees-disabled"
+												title={$t('knowledge.noNormalisedVersion')}
+												aria-label={$t('knowledge.noNormalisedVersion')}
+												role="img"
+											>
+												<Eye size={16} strokeWidth={2} aria-hidden="true" />
+											</span>
 										{/if}
 										<button
 											type="button"
@@ -1105,7 +1119,7 @@ async function handleBulkDelete(): Promise<boolean> {
 								<tr class="ai-version-row">
 									<td class="col-checkbox"></td>
 									<td class="col-icon"></td>
-									<td colspan="5" class="ai-version-cell">
+									<td colspan="7" class="ai-version-cell">
 										<div class="ai-version-panel">
 											<div class="ai-version-header">
 												<h4 class="ai-version-label">{$t('knowledge.whatAiSees')}</h4>
@@ -1208,6 +1222,18 @@ async function handleBulkDelete(): Promise<boolean> {
 					</div>
 				</nav>
 			{/if}
+		{/if}
+		{#if onUpload}
+			<div class="drop-hint" data-testid="drop-hint">
+				<Upload size={14} strokeWidth={1.8} aria-hidden="true" />
+				<span>
+					{$t('knowledge.dropZoneHint', {
+						limit: formatByteSize(MAX_FILE_UPLOAD_SIZE_BYTES, {
+							trimWholeUnits: true,
+						}),
+					})}
+				</span>
+			</div>
 		{/if}
 	{/if}
 </div>
@@ -1498,12 +1524,114 @@ async function handleBulkDelete(): Promise<boolean> {
 		opacity: 0.85;
 	}
 
-	.mobile-sort-controls {
-		display: none;
+	/* Sort control and its direction, on every width — the board puts them
+	   beside the search box rather than hiding them behind a breakpoint. */
+	.sort-controls {
+		display: flex;
+		align-items: center;
+		gap: var(--space-xs);
 	}
 
-	.mobile-sort-field {
-		display: none;
+	.sort-field {
+		display: flex;
+		align-items: center;
+		gap: var(--space-xs);
+	}
+
+	.sort-label {
+		font-size: 0.72rem;
+		color: var(--text-muted);
+		white-space: nowrap;
+	}
+
+	.sort-select {
+		height: 2rem;
+		padding: 0 0.5rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-page);
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: 0.76rem;
+	}
+
+	.sort-select:focus {
+		outline: none;
+		border-color: var(--accent);
+	}
+
+	.sort-direction {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition:
+			border-color 150ms ease,
+			color 150ms ease,
+			background-color 150ms ease;
+	}
+
+	.sort-direction:hover,
+	.sort-direction:focus-visible {
+		border-color: var(--accent);
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
+	}
+
+	.col-version {
+		width: 86px;
+	}
+
+	.col-status {
+		width: 96px;
+	}
+
+	.cell-blank {
+		color: var(--text-muted);
+		font-size: 0.8125rem;
+	}
+
+	.status-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.125rem 0.375rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border-default);
+		color: var(--text-muted);
+		font-size: 0.6875rem;
+		font-weight: 500;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.action-btn-disabled {
+		opacity: 0.25;
+		cursor: default;
+	}
+
+	.drop-hint {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		padding: var(--space-md) var(--space-lg);
+		border-top: 1px solid var(--border-subtle);
+		background: var(--surface-page);
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+		font-size: 0.72rem;
+		line-height: 1.5;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.sort-direction {
+			transition: none !important;
+		}
 	}
 
 	.documents-table td {
@@ -2012,7 +2140,8 @@ async function handleBulkDelete(): Promise<boolean> {
 			height: 44px;
 		}
 
-		.mobile-sort-controls {
+		/* Touch targets: the sort control and its direction both reach 44px. */
+		.sort-controls {
 			display: grid;
 			grid-template-columns: minmax(0, 1fr) 44px;
 			flex: 1 0 100%;
@@ -2020,7 +2149,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			min-width: 0;
 		}
 
-		.mobile-sort-field {
+		.sort-field {
 			display: grid;
 			grid-template-columns: auto minmax(0, 1fr);
 			align-items: center;
@@ -2033,38 +2162,25 @@ async function handleBulkDelete(): Promise<boolean> {
 			background: var(--surface-page);
 		}
 
-		.mobile-sort-label {
+		.sort-label {
 			font-size: 0.72rem;
 			font-weight: 600;
-			color: var(--text-muted);
-			white-space: nowrap;
 		}
 
-		.mobile-sort-select,
-		.mobile-sort-direction {
-			min-height: 44px;
-			background: var(--surface-page);
-			color: var(--text-primary);
-			font-size: 0.82rem;
-		}
-
-		.mobile-sort-select {
+		.sort-select {
 			min-width: 0;
+			min-height: 44px;
 			height: 42px;
 			padding: 0 0.65rem;
 			border: 0;
 			border-radius: var(--radius-md);
+			font-size: 0.82rem;
 		}
 
-		.mobile-sort-direction {
-			display: flex;
-			align-items: center;
-			justify-content: center;
+		.sort-direction {
 			width: 44px;
+			min-height: 44px;
 			padding: 0;
-			border: 1px solid var(--border-default);
-			border-radius: var(--radius-md);
-			cursor: pointer;
 		}
 
 		.table-container {

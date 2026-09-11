@@ -1167,4 +1167,224 @@ describe("DocumentsList", () => {
 			);
 		});
 	});
+
+	describe("version and status columns", () => {
+		it("gives version and status columns of their own, in the approved order", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [makeDocument({ id: "doc-1", name: "report.pdf" })],
+				},
+			});
+
+			const headers = Array.from(
+				document.querySelectorAll(".documents-table thead th"),
+			).map((th) => th.textContent?.trim().replace(/[↕↑↓]/g, "").trim());
+			// Two blank leading columns: selection and the file glyph.
+			expect(headers.slice(2)).toEqual([
+				"Name",
+				"Version",
+				"Type",
+				"Status",
+				"Size",
+				"Date",
+				"Actions",
+			]);
+		});
+
+		it("keeps every file name starting at the same place", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({
+							id: "doc-1",
+							name: "atlas-2026-09.pdf",
+							documentFamilyId: "family-1",
+							versionNumber: 3,
+						}),
+						makeDocument({
+							id: "doc-2",
+							name: "invoice.pdf",
+							documentFamilyId: "family-2",
+							isOriginal: true,
+							versionNumber: 1,
+						}),
+					],
+				},
+			});
+
+			// The visible name line carries the name and nothing else; the badges
+			// that used to bracket it now live in their own columns (the
+			// mobile-only meta strip below the name keeps a copy for narrow
+			// screens, where there are no columns to put them in).
+			for (const line of document.querySelectorAll(
+				".col-name .document-name",
+			)) {
+				expect(line.querySelector(".version-badge")).toBeNull();
+				expect(line.querySelector(".original-badge")).toBeNull();
+				expect(line.querySelector(".historical-badge")).toBeNull();
+			}
+			expect(
+				document.querySelector(".col-version .version-badge")?.textContent,
+			).toBe("v3");
+		});
+
+		it("shows Current for a live family member and Historical for a superseded one", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({
+							id: "doc-1",
+							name: "current.pdf",
+							documentFamilyId: "family-1",
+							documentFamilyStatus: "active",
+							versionNumber: 2,
+						}),
+						makeDocument({
+							id: "doc-2",
+							name: "old.pdf",
+							documentFamilyId: "family-1",
+							documentFamilyStatus: "historical",
+							versionNumber: 1,
+						}),
+					],
+				},
+			});
+
+			const statuses = Array.from(
+				document.querySelectorAll(".documents-table tbody .col-status"),
+			).map((cell) => cell.textContent?.trim());
+			expect(statuses).toEqual(["Current", "Historical"]);
+		});
+
+		it("leaves Status blank when the document has no version family", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [makeDocument({ id: "doc-1", name: "audit.csv" })],
+				},
+			});
+
+			const status = document.querySelector(
+				".documents-table tbody .col-status",
+			);
+			// An unversioned upload is neither current nor historical.
+			expect(status?.textContent?.trim()).toBe("\u2014");
+			expect(status?.querySelector(".status-badge")).toBeNull();
+			expect(status?.querySelector(".historical-badge")).toBeNull();
+		});
+
+		it("leaves Version blank for a version number with no family", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({ id: "doc-1", name: "stray.pdf", versionNumber: 4 }),
+					],
+				},
+			});
+
+			const version = document.querySelector(
+				".documents-table tbody .col-version",
+			);
+			expect(version?.textContent?.trim()).toBe("\u2014");
+		});
+	});
+
+	describe("row actions and the drop zone", () => {
+		it("greys the eye where no normalised version exists, keeping the slot", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({
+							id: "doc-1",
+							name: "no-ai.csv",
+							normalizedAvailable: false,
+						}),
+					],
+				},
+			});
+
+			expect(
+				screen.queryByTestId("what-ai-sees-button"),
+			).not.toBeInTheDocument();
+			const greyed = screen.getByTestId("what-ai-sees-disabled");
+			expect(greyed).toHaveClass("action-btn-disabled");
+			expect(greyed).toHaveAttribute(
+				"title",
+				"No AI-facing version exists for this file",
+			);
+		});
+
+		it("offers What AI sees where a normalised version does exist", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({
+							id: "doc-1",
+							name: "readable.pdf",
+							normalizedAvailable: true,
+						}),
+					],
+				},
+			});
+
+			expect(screen.getByTestId("what-ai-sees-button")).toBeInTheDocument();
+			expect(
+				screen.queryByTestId("what-ai-sees-disabled"),
+			).not.toBeInTheDocument();
+		});
+
+		it("states the drop zone and its size limit whenever upload is offered", () => {
+			render(DocumentsList, {
+				props: {
+					documents: [makeDocument({ id: "doc-1" })],
+					onUpload: vi.fn(),
+				},
+			});
+
+			expect(screen.getByTestId("drop-hint").textContent).toContain(
+				"Drop files here to upload",
+			);
+		});
+
+		it("omits the drop zone hint when the list cannot accept uploads", () => {
+			render(DocumentsList, {
+				props: { documents: [makeDocument({ id: "doc-1" })] },
+			});
+
+			expect(screen.queryByTestId("drop-hint")).not.toBeInTheDocument();
+		});
+	});
+
+	describe("sort direction", () => {
+		it("flips the direction of the active sort and reports it", async () => {
+			const onSortChange = vi.fn();
+			render(DocumentsList, {
+				props: {
+					documents: [makeDocument({ id: "doc-1" })],
+					sortKey: "date" as const,
+					sortDirection: "desc" as const,
+					onSortChange,
+				},
+			});
+
+			await fireEvent.click(screen.getByTestId("sort-direction"));
+			expect(onSortChange).toHaveBeenCalledWith("date", "asc");
+		});
+
+		it("opens a newly picked text column ascending", async () => {
+			const onSortChange = vi.fn();
+			render(DocumentsList, {
+				props: {
+					documents: [makeDocument({ id: "doc-1" })],
+					sortKey: "date" as const,
+					sortDirection: "desc" as const,
+					onSortChange,
+				},
+			});
+
+			await fireEvent.change(screen.getByLabelText("Sort documents by"), {
+				target: { value: "name" },
+			});
+			expect(onSortChange).toHaveBeenCalledWith("name", "asc");
+		});
+	});
 });

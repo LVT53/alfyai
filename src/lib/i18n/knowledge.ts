@@ -280,6 +280,7 @@ const knowledgeDict = {
 		"knowledge.noNormalisedVersion":
 			"No AI-facing version exists for this file",
 		"knowledge.sortAscending": "Sorted oldest first — sort newest first",
+		"knowledge.sortByShort": "Sort by",
 		"knowledge.sortDescending": "Sorted newest first — sort oldest first",
 		"knowledge.status": "Status",
 		"knowledge.statusCurrent": "Current",
@@ -623,6 +624,7 @@ const knowledgeDict = {
 		"knowledge.noNormalisedVersion":
 			"Ehhez a fájlhoz nincs AI által olvasott változat",
 		"knowledge.sortAscending": "Növekvő sorrend — váltás csökkenőre",
+		"knowledge.sortByShort": "Rendezés",
 		"knowledge.sortDescending": "Csökkenő sorrend — váltás növekvőre",
 		"knowledge.status": "Állapot",
 		"knowledge.statusCurrent": "Aktuális",
