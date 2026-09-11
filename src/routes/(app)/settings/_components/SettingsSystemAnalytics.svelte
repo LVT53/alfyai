@@ -691,18 +691,36 @@ const parallelTotalRow = $derived<TableRow>({
 });
 
 // ---- By user -----------------------------------------------------------
-const userColumns: TableColumn[] = [
+// "Messages" and "Conversations" are what the PERSON wrote (rows in
+// `messages` with role = 'user', and the conversations carrying at least
+// one); "Model calls" is what the platform billed against them, background
+// calls included. The two used to be one column, which is why an owner who
+// had typed a couple of dozen things was told they had sent hundreds — both
+// are shown now, named apart, so neither can be misread as the other.
+// $derived, like modelColumns above: a plain const would freeze the labels
+// at mount and leave them in the previous language after an in-app switch.
+const userColumns = $derived<TableColumn[]>([
 	{ key: "user", label: $t("analytics.user"), type: "text" },
 	{ key: "messages", label: $t("analytics.messages"), type: "number" },
+	{
+		key: "conversations",
+		label: $t("analytics.conversations"),
+		type: "number",
+	},
+	{ key: "modelCalls", label: $t("analytics.modelCalls"), type: "number" },
 	{ key: "tokens", label: $t("analytics.totalTokens"), type: "tokens" },
 	{ key: "cost", label: $t("analytics.cost"), type: "usd" },
-];
+]);
 
 const userRows = $derived<TableRow[]>(
 	perUserRows.map((row) => ({
 		user: row.displayName || row.email,
 		email: row.email,
 		messages: row.messageCount,
+		conversations: row.conversationCount,
+		// Calls, not messages: the column that says so is the only one allowed
+		// to carry this number.
+		modelCalls: row.modelCalls,
 		tokens: row.totalTokens ?? 0,
 		cost: row.totalCostUsd,
 	})),
