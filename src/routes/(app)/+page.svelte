@@ -187,11 +187,29 @@ async function refreshHomeSummary() {
 	}
 }
 
+let composeIntoComposer: ((text: string) => void) | null = null;
+
+function handleComposeReady(compose: (text: string) => void) {
+	composeIntoComposer = compose;
+}
+
 function handleSuggestionPick(suggestion: HomeSuggestion) {
 	if (creating) return;
 	// Fire and forget: the page has navigated by the time this resolves, and a
-	// failed write only means a chip the user already used may come back.
+	// failed write only means a chip the user already used may come back. The
+	// request is `keepalive` so the navigation cannot cancel it.
 	void recordHomeSuggestionEvent(suggestion.key, "used").catch(() => undefined);
+	// A chip is a message typed for you, so it goes in the box and presses the
+	// composer's own Send. Building a payload here instead would drop whatever
+	// the composer is holding — an attachment, a linked source, an Atlas
+	// profile, the connection capabilities for this turn — and would send
+	// straight past the "wait for the upload to finish" queue.
+	if (composeIntoComposer) {
+		composeIntoComposer(suggestion.text);
+		return;
+	}
+	// The composer has not mounted yet (no chips are drawn before it does, so
+	// this is a belt-and-braces path, not a normal one).
 	void handleSend({
 		message: suggestion.text,
 		attachmentIds: [],
@@ -585,6 +603,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					attachmentsEnabled={true}
 					ensureConversation={ensurePreparedConversation}
 					onUploadReady={handleUploadReady}
+					onComposeReady={handleComposeReady}
 					{personalityProfiles}
 					{selectedPersonalityId}
 					onPersonalityChange={(id) => selectedPersonalityId = id}

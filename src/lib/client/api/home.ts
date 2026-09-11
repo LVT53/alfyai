@@ -56,6 +56,13 @@ export async function fetchHomeSummary(
  * rail for seven days. Fire-and-forget: the home screen has already navigated
  * by the time this resolves, and a failed write only means a chip the user
  * already acted on may come back.
+ *
+ * `keepalive` is the whole reason the "used" half of that ever lands. Picking a
+ * chip sends a message and hands the landing page to `window.location.assign`
+ * one tick later, and a browser cancels the document's in-flight fetches when
+ * it navigates — so without this the event that the ranking's demotion is built
+ * on would be dropped exactly when it is earned. The body is two short strings,
+ * far inside the 64 KB a keepalive request is allowed.
  */
 export async function recordHomeSuggestionEvent(
 	candidateKey: string,
@@ -68,6 +75,7 @@ export async function recordHomeSuggestionEvent(
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ candidateKey, event }),
+			keepalive: true,
 		},
 		"Failed to record suggestion event",
 		fetchImpl,

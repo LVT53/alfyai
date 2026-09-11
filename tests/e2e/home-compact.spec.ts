@@ -400,6 +400,39 @@ test.describe("chat home — Compact", () => {
 		).toBe("auto");
 	});
 
+	test("a chip sends through the composer, carrying what it holds", async ({
+		page,
+	}) => {
+		const userId = await adminUserId();
+		await clearHomeFixtures(userId);
+		await seedRecent(userId);
+		await gotoHome(page);
+
+		// Turn on a switch that only the composer knows about. A chip that
+		// built its own payload would send without it.
+		await page.getByTestId("composer-tools-trigger").click();
+		await page.getByTestId("composer-menu-web-search").click();
+		await page.keyboard.press("Escape");
+
+		const chip = page.getByTestId("home-suggestion-chip").first();
+		const chipText = await chip.getAttribute("title");
+		expect(chipText).toBeTruthy();
+
+		const turnRequest = page.waitForRequest(
+			(request) =>
+				request.url().includes("/api/chat/stream") &&
+				request.method() === "POST",
+			{ timeout: 25000 },
+		);
+		await chip.click();
+		const body = (await turnRequest).postDataJSON() as {
+			forceWebSearch?: boolean;
+			message?: string;
+		};
+		expect(body.forceWebSearch).toBe(true);
+		expect((body.message ?? "").length).toBeGreaterThan(0);
+	});
+
 	test("gives every chip a 44px hit area on a phone", async ({ page }) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		const userId = await adminUserId();
