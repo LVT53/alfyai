@@ -29,9 +29,15 @@ vi.mock("chart.js/auto", () => {
 });
 
 // Capture the config passed to each Chart instance so animation behaviour
-// can be asserted (ADR-0043 Wave 9 reduced-motion guard).
+// (ADR-0043 Wave 9 reduced-motion guard) and the plotted series can be
+// asserted — the By user bars are a figure labelled "Messages" too, so the
+// numbers they carry are held to the same test as the table's.
 interface CapturedChartConfig {
 	options?: { animation?: false | Record<string, unknown> };
+	data?: {
+		labels?: unknown[];
+		datasets?: Array<{ label?: string; data?: unknown[] }>;
+	};
 }
 const chartConfigs: CapturedChartConfig[] = [];
 
@@ -432,6 +438,146 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 
 		expect(getByText("Per-User Breakdown")).toBeInTheDocument();
 		expect(getByText("User Two")).toBeInTheDocument();
+	});
+
+	// Two things the person wrote against seven calls the platform billed —
+	// the same shape the read-model test seeds. The row must say 2 under
+	// "Messages" and 7 only under "Model calls", while the money and the
+	// tokens still describe all seven.
+	function messageGrainPerUserFixture(): AnalyticsResponse {
+		return {
+			...systemFixture(),
+			perUser: [
+				{
+					userId: "writer-1",
+					displayName: "Writer One",
+					email: "writer@example.com",
+					messageCount: 2,
+					modelCalls: 7,
+					avgGenerationMs: 600,
+					totalTokens: 770,
+					promptTokens: 700,
+					outputTokens: 70,
+					reasoningTokens: 0,
+					totalCostUsd: 7,
+					favoriteModel: "model1",
+					conversationCount: 1,
+				},
+			],
+		};
+	}
+
+	function byUserRowText(container: HTMLElement): string[][] {
+		const table = container.querySelector(
+			"#system-analytics-byuser-panel table",
+		);
+		if (!table) throw new Error("the By user tab rendered no table");
+		return [...table.querySelectorAll("tbody tr")].map((row) =>
+			[...row.querySelectorAll("td")].map((cell) =>
+				(cell.textContent ?? "").trim(),
+			),
+		);
+	}
+
+	it("shows user-authored messages in the By user table, and the billed calls in their own column", async () => {
+		const { getByRole, container } = render(SettingsSystemAnalytics, {
+			analyticsData: messageGrainPerUserFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "By user" }));
+
+		const panel = container.querySelector(
+			"#system-analytics-byuser-panel",
+		) as HTMLElement;
+		// The sort caret rides in the header button's text; the label is what
+		// this assertion is about.
+		const headers = [...panel.querySelectorAll("thead th")].map((cell) =>
+			(cell.textContent ?? "").replace(/[▲▼]/g, "").trim(),
+		);
+		expect(headers).toEqual([
+			"User",
+			// Sorted by this one on arrival, which is what the caret above marks.
+			"Messages",
+			"Conversations",
+			"Model calls",
+			"Total tokens",
+			"Cost",
+		]);
+		expect(byUserRowText(container)).toEqual([
+			["Writer One", "2", "1", "7", "770", "$7.00"],
+		]);
+	});
+
+	it("plots user-authored messages in the top-10 By user bars", async () => {
+		chartConfigs.length = 0;
+		const { getByRole } = render(SettingsSystemAnalytics, {
+			analyticsData: messageGrainPerUserFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "By user" }));
+		await vi.waitFor(() => {
+			expect(chartConfigs.length).toBeGreaterThan(0);
+		});
+
+		const datasets = chartConfigs.at(-1)?.data?.datasets ?? [];
+		expect(chartConfigs.at(-1)?.data?.labels).toEqual(["Writer One"]);
+		expect(datasets.map((set) => [set.label, set.data])).toEqual([
+			["Messages", [2]],
+			["Conversations", [1]],
+		]);
+	});
+
+	it("sorts the By user table by messages written, not by calls billed", async () => {
+		const base = messageGrainPerUserFixture();
+		const [writerOne] = base.perUser ?? [];
+		const { getByRole, container } = render(SettingsSystemAnalytics, {
+			analyticsData: {
+				...base,
+				perUser: [
+					writerOne,
+					{
+						...writerOne,
+						userId: "writer-2",
+						displayName: "Writer Two",
+						email: "writer2@example.com",
+						// More written, less billed: first by messages, last by calls.
+						messageCount: 5,
+						modelCalls: 1,
+						conversationCount: 2,
+					},
+				],
+			},
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "By user" }));
+
+		expect(
+			byUserRowText(container).map((cells) => [cells[0], cells[1]]),
+		).toEqual([
+			["Writer Two", "5"],
+			["Writer One", "2"],
+		]);
 	});
 
 	it("renders the Excluded Users control under the By user tab", async () => {
