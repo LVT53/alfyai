@@ -234,14 +234,19 @@ function rotate() {
 		flex-shrink: 0;
 		scroll-snap-align: start;
 		cursor: pointer;
+		/* The app's row hover, on the app's tokens: the same background and the
+		   same standard/ease-out timing UsersTable gives a row, so a chip and a
+		   recent line answer the pointer identically. `--duration-standard`
+		   collapses to 0.01ms under prefers-reduced-motion globally (app.css);
+		   the media query below is the belt to that braces. */
 		transition:
-			background-color 140ms ease,
-			border-color 140ms ease,
-			color 140ms ease;
+			background-color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
 	.home-chip:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--accent) 8%, var(--surface-page));
+		background: color-mix(in srgb, var(--surface-elevated) 70%, transparent);
 		border-color: color-mix(in srgb, var(--accent) 42%, var(--border-default));
 	}
 

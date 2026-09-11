@@ -187,31 +187,52 @@ function elapsed(startedAt: number): string {
 		}
 	}
 
+	/* A recent line is a row, so it gets the app's row treatment — the same
+	   rounded, tokened hover UsersTable gives its rows, rather than a
+	   square-cornered wash that appears and vanishes instantly.
+
+	   The hairline between lines is a ::before rather than a `border-top`
+	   because a border and a radius on the same box draw the separator curving
+	   down into the corners; as a pseudo-element the rule stays a straight
+	   hairline while the hover background keeps its radius. `box-sizing:
+	   border-box` is already global, so the 32px row height is unchanged. */
 	.home-line {
+		position: relative;
 		display: flex;
 		align-items: center;
 		gap: 9px;
 		height: 32px;
-		padding: 0 2px;
-		border-top: 1px solid var(--border-subtle);
+		padding: 0 6px;
 		font-size: 0.82rem;
 		color: var(--text-primary);
 		min-width: 0;
 		text-decoration: none;
+		border-radius: var(--radius-md);
+		transition: background-color var(--duration-standard) var(--ease-out);
 	}
 
-	.home-line:first-child {
-		border-top: none;
+	.home-line::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 1px;
+		background: var(--border-subtle);
+		pointer-events: none;
+	}
+
+	.home-line:first-child::before {
+		display: none;
 	}
 
 	.home-line:hover {
-		background: color-mix(in srgb, var(--accent) 5%, transparent);
+		background: color-mix(in srgb, var(--surface-elevated) 70%, transparent);
 	}
 
 	.home-line:focus-visible {
 		outline: 2px solid var(--accent);
 		outline-offset: -2px;
-		border-radius: 4px;
 	}
 
 	.home-line-title {
@@ -314,7 +335,7 @@ function elapsed(startedAt: number): string {
 			height: auto;
 			flex-wrap: wrap;
 			row-gap: 2px;
-			padding: 5px 2px;
+			padding: 5px 6px;
 		}
 
 		.home-line-running .home-running-stage {
@@ -332,7 +353,8 @@ function elapsed(startedAt: number): string {
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.home-head-link {
+		.home-head-link,
+		.home-line {
 			transition: none;
 		}
 
