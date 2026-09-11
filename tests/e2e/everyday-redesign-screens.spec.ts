@@ -6,7 +6,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import Database from "better-sqlite3";
-import { login } from "./helpers";
+import { login, waitForHydration } from "./helpers";
 
 const CAPTURE_DIR =
 	process.env.REDESIGN_CAPTURE_DIR ??
@@ -550,7 +550,15 @@ interface SeedDocument {
 	sizeBytes: number;
 	ageDays: number;
 	metadata: Record<string, unknown> | null;
+	/**
+	 * Generated outputs are only owned — and so only listed — through a
+	 * conversation of the user's (see `isArtifactCanonicallyOwned`), so the
+	 * two reports hang off a seeded conversation while the uploads do not.
+	 */
+	conversationId?: string;
 }
+
+const SEED_CONVERSATION_ID = "seed-conversation-atlas";
 
 // The board's five rows: a current generated report at v3, a versioned skill
 // note, an original upload, an unversioned CSV (blank status, greyed eye), and
@@ -563,11 +571,17 @@ const SEED_DOCUMENTS: SeedDocument[] = [
 		mimeType: "application/pdf",
 		sizeBytes: 1_400_000,
 		ageDays: 0,
+		// Generated outputs only reach the library when their metadata names the
+		// chat file they came from (see listLogicalDocumentsPage), and a family
+		// collapses to its latest member — so the superseded August report is
+		// seeded as its own historical family rather than as v1 of this one.
 		metadata: {
-			documentFamilyId: "family-atlas",
+			documentFamilyId: "family-atlas-sep",
 			documentFamilyStatus: "active",
 			versionNumber: 3,
+			sourceChatFileId: "chat-file-atlas-sep",
 		},
+		conversationId: SEED_CONVERSATION_ID,
 	},
 	{
 		id: "seed-reply-tone",
@@ -612,10 +626,12 @@ const SEED_DOCUMENTS: SeedDocument[] = [
 		sizeBytes: 1_200_000,
 		ageDays: 28,
 		metadata: {
-			documentFamilyId: "family-atlas",
+			documentFamilyId: "family-atlas-aug",
 			documentFamilyStatus: "historical",
 			versionNumber: 1,
+			sourceChatFileId: "chat-file-atlas-aug",
 		},
+		conversationId: SEED_CONVERSATION_ID,
 	},
 ];
 
@@ -630,20 +646,32 @@ function seedDocuments() {
 		if (!user) return false;
 
 		const now = Math.floor(Date.now() / 1000);
+		const insertConversation = db.prepare(
+			`INSERT OR REPLACE INTO conversations
+			 (id, user_id, title, created_at, updated_at)
+			 VALUES (@id, @userId, @title, @createdAt, @createdAt)`,
+		);
 		const insert = db.prepare(
 			`INSERT OR REPLACE INTO artifacts
 			 (id, user_id, conversation_id, type, retrieval_class, name, mime_type,
 			  extension, size_bytes, binary_hash, storage_path, content_text,
 			  summary, metadata_json, created_at, updated_at)
-			 VALUES (@id, @userId, NULL, @type, 'durable', @name, @mimeType,
-			         @extension, @sizeBytes, NULL, NULL, @contentText, NULL,
-			         @metadataJson, @createdAt, @createdAt)`,
+			 VALUES (@id, @userId, @conversationId, @type, 'durable', @name,
+			         @mimeType, @extension, @sizeBytes, NULL, NULL, @contentText,
+			         NULL, @metadataJson, @createdAt, @createdAt)`,
 		);
 		db.transaction(() => {
+			insertConversation.run({
+				id: SEED_CONVERSATION_ID,
+				userId: user.id,
+				title: "Atlas report on EU battery rules",
+				createdAt: now - 86_400,
+			});
 			for (const seed of SEED_DOCUMENTS) {
 				insert.run({
 					id: seed.id,
 					userId: user.id,
+					conversationId: seed.conversationId ?? null,
 					type: seed.type,
 					name: seed.name,
 					mimeType: seed.mimeType,
@@ -697,18 +725,6 @@ async function stubAnalytics(page: Page) {
 	await page.route("**/api/analytics*", (route) => json(route, ANALYTICS));
 }
 
-// SvelteKit renders `#svelte-announcer` only once the root component has
-// mounted, so its arrival is the framework's own word that the page is
-// hydrated. Clicking before that lands on inert server markup: the button is
-// visible and Playwright's actionability checks pass, but no handler is
-// attached yet and the click is silently swallowed.
-async function waitForHydration(page: Page) {
-	await page.waitForSelector("#svelte-announcer", {
-		state: "attached",
-		timeout: 20_000,
-	});
-}
-
 async function setTheme(page: Page, theme: "light" | "dark") {
 	await page.evaluate((next) => {
 		localStorage.setItem("theme", next);
@@ -740,6 +756,40 @@ async function capture(page: Page, name: string, theme?: "light" | "dark") {
 		path: `${CAPTURE_DIR}/${name}.png`,
 		fullPage: true,
 	});
+}
+
+/**
+ * The Settings page scrolls inside its own panel, not the window, so a
+ * full-page shot of it only ever catches the top of the list. Capture the card
+ * itself instead — hero, tiles, chart and table in one frame.
+ */
+async function captureElement(
+	page: Page,
+	locator: import("@playwright/test").Locator,
+	name: string,
+	theme: "light" | "dark",
+) {
+	ensureCaptureDir();
+	await page.evaluate((next) => {
+		document.documentElement.classList.toggle("dark", next === "dark");
+	}, theme);
+	await page.waitForTimeout(250);
+	await locator.scrollIntoViewIfNeeded();
+	// Settings scrolls in a panel of its own, and a card taller than that panel
+	// is simply not painted below the fold — an element shot of it comes back
+	// half white. Grow the window until the whole card is on screen.
+	const height = await locator.evaluate(
+		(node) => node.getBoundingClientRect().height,
+	);
+	await page.setViewportSize({
+		width: 1440,
+		height: Math.min(2400, Math.max(900, Math.ceil(height) + 240)),
+	});
+	await page.waitForTimeout(300);
+	await locator.scrollIntoViewIfNeeded();
+	await page.waitForTimeout(200);
+	await locator.screenshot({ path: `${CAPTURE_DIR}/${name}.png` });
+	await page.setViewportSize({ width: 1280, height: 720 });
 }
 
 test.describe("everyday redesign screens", () => {
@@ -800,12 +850,18 @@ test.describe("everyday redesign screens", () => {
 				"preferences",
 			);
 
+			// Preferences holds nothing matching "nextcloud", but other categories
+			// do — so the card must not claim nothing matches anywhere while the
+			// chips beside it are still counting matches.
+			await expect(page.getByTestId("memory-filter-no-matches")).toHaveCount(0);
+			await expect(page.locator(".memory-section")).toContainText(
+				"Nothing in this category matches the filter.",
+			);
+
 			await capture(page, `knowledge-memory-filtered-${theme}`, theme);
 
 			// Clearing the box puts every category back.
-			await page
-				.getByRole("button", { name: "Clear filter" })
-				.click();
+			await page.getByRole("button", { name: "Clear filter" }).click();
 			await page.getByTestId("memory-filter-chip").first().click();
 			await expect(page.locator(".memory-section")).toHaveCount(4);
 			await expect(allChip).toContainText("52");
@@ -854,10 +910,57 @@ test.describe("everyday redesign screens", () => {
 				await expect(csvRow).toBeVisible();
 				await expect(csvRow.locator(".col-status")).toHaveText("\u2014");
 
+				// A generated report DOES carry both: its version and where in its
+				// family it sits, each in a column of its own rather than crowded
+				// into the name.
+				const currentReport = table.locator("tbody tr", {
+					hasText: "atlas-battery-rules-2026-09.pdf",
+				});
+				await expect(currentReport.locator(".col-version")).toHaveText("v3");
+				await expect(currentReport.locator(".col-status")).toHaveText(
+					"Current",
+				);
+
+				const supersededReport = table.locator("tbody tr", {
+					hasText: "atlas-battery-rules-2026-08.pdf",
+				});
+				await expect(supersededReport.locator(".col-version")).toHaveText("v1");
+				await expect(supersededReport.locator(".col-status")).toHaveText(
+					"Historical",
+				);
+
 				// The eye keeps its slot, greyed, where no normalised version exists.
 				await expect(
 					page.getByTestId("what-ai-sees-disabled").first(),
 				).toBeVisible();
+
+				// The file glyph still has room to be a glyph: a column squeezed to
+				// its padding renders the icon as a dot.
+				const glyphWidth = await page
+					.getByTestId("file-icon")
+					.first()
+					.evaluate(
+						(node) =>
+							node.querySelector("svg")?.getBoundingClientRect().width ?? 0,
+					);
+				expect(glyphWidth).toBeGreaterThan(12);
+
+				// Nine columns still fit the card they sit in, at every width the
+				// table is drawn at — below 720px the rows become cards instead.
+				for (const width of [760, 900, 1024, 1280]) {
+					await page.setViewportSize({ width, height: 900 });
+					const fits = await table.evaluate((node) => {
+						const container = node.parentElement as HTMLElement;
+						return (
+							node.getBoundingClientRect().width <=
+							container.getBoundingClientRect().width + 1
+						);
+					});
+					expect(fits, `documents table overflows its card at ${width}px`).toBe(
+						true,
+					);
+				}
+				await page.setViewportSize({ width: 1280, height: 720 });
 			}
 
 			await capture(page, `knowledge-documents-${theme}`, theme);
@@ -907,7 +1010,12 @@ test.describe("everyday redesign screens", () => {
 				page.getByTestId("analytics-column-chart").first(),
 			).toBeVisible();
 
-			await capture(page, `analytics-personal-${theme}`, theme);
+			await captureElement(
+				page,
+				page.locator(".analytics-chassis").first(),
+				`analytics-personal-${theme}`,
+				theme,
+			);
 		});
 
 		test(`admin system analytics (${theme})`, async ({ page }) => {
@@ -941,7 +1049,16 @@ test.describe("everyday redesign screens", () => {
 			await expect(hero).toContainText("LLM · $96.31");
 			await expect(hero).toContainText("Parallel · $32.43");
 
-			await capture(page, `analytics-admin-${theme}`, theme);
+			await captureElement(
+				page,
+				// The panel sits INSIDE the chassis card, so the card is the one
+				// that has it — not one nested under it.
+				page.locator(
+					".analytics-chassis:has(#system-analytics-overview-panel)",
+				),
+				`analytics-admin-${theme}`,
+				theme,
+			);
 		});
 	}
 });

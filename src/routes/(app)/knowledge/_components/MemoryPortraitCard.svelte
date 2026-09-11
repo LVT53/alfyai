@@ -93,9 +93,13 @@ function chipLabel(id: MemoryCategorySelection): string {
 const filtering = $derived(filterText.trim().length > 0);
 
 // Every category empty of matches, with a filter on — say so once, at the top,
-// rather than four times over.
+// rather than four times over. Measured against the ALL chip, not the drawn
+// sections: with one category picked, `views` holds only that category, and
+// "No memory matches nextcloud" would contradict the chips beside it still
+// counting four that do. A picked category with nothing in it says so in its
+// own section instead.
 const noMatchesAnywhere = $derived(
-	filtering && views.every((view) => view.matching === 0),
+	filtering && (chips.find((chip) => chip.id === "all")?.matching ?? 0) === 0,
 );
 </script>
 

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { login } from "./helpers";
+import { login, waitForHydration } from "./helpers";
 
 test.describe("Knowledge page", () => {
 	test.beforeEach(async ({ page }) => {
@@ -9,6 +9,7 @@ test.describe("Knowledge page", () => {
 		await expect(
 			page.getByRole("heading", { name: "Knowledge Base" }),
 		).toBeVisible();
+		await waitForHydration(page);
 	});
 
 	test("documents section is visible", async ({ page }) => {

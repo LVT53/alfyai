@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login } from "./helpers";
+import { login, waitForHydration } from "./helpers";
 
 test.describe("Search Modal Visual Tests", () => {
 	test.beforeEach(async ({ page }) => {
@@ -7,6 +7,7 @@ test.describe("Search Modal Visual Tests", () => {
 		await page.waitForSelector('[data-testid="new-conversation"]', {
 			state: "visible",
 		});
+		await waitForHydration(page);
 	});
 
 	test("search modal appears centered in viewport", async ({ page }) => {

@@ -35,6 +35,21 @@ export async function login(
 	});
 }
 
+/**
+ * SvelteKit renders `#svelte-announcer` only once the root component has
+ * mounted, so its arrival is the framework's own word that the page is
+ * hydrated. Clicking before that lands on inert server markup: the button is
+ * visible, enabled and unobstructed — every actionability check Playwright
+ * makes passes — but no handler is attached yet and the click is silently
+ * swallowed.
+ */
+export async function waitForHydration(page: Page) {
+	await page.waitForSelector("#svelte-announcer", {
+		state: "attached",
+		timeout: 20_000,
+	});
+}
+
 export async function logout(page: Page) {
 	const logoutBtn = page.getByRole("button", { name: "Logout" });
 	if (await logoutBtn.isVisible()) {

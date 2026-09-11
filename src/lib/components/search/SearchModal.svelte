@@ -362,6 +362,17 @@ function activeOrFirstRow() {
 	return visibleRows.find((row) => row.id === activeRowId) ?? visibleRows[0];
 }
 
+// ⌘ on a Mac, Ctrl everywhere else — the same detection the sidebar's ⌘K
+// chip uses. Computed once; the platform does not change mid-session.
+const newTabModifierLabel = (() => {
+	if (!browser) return "Ctrl";
+	const nav = navigator as Navigator & {
+		userAgentData?: { platform?: string };
+	};
+	const platform = nav.userAgentData?.platform ?? nav.platform ?? "";
+	return /mac/i.test(platform) ? "\u2318" : "Ctrl";
+})();
+
 function shouldLetFocusedButtonHandleEnter(event: KeyboardEvent) {
 	return event.key === "Enter" && event.target instanceof HTMLButtonElement;
 }
@@ -391,7 +402,11 @@ function handleKeydown(event: KeyboardEvent) {
 		const row = activeOrFirstRow();
 		if (row) {
 			event.preventDefault();
-			void activateRow(row);
+			if (event.metaKey || event.ctrlKey) {
+				openRowInNewTab(row);
+			} else {
+				void activateRow(row);
+			}
 		}
 		return;
 	}
@@ -435,6 +450,32 @@ async function activateRow(row: SearchRow) {
 		return;
 	}
 	await openKnowledge();
+}
+
+/** Where a row goes — the same destination Enter would navigate to. */
+function rowHref(row: SearchRow): string {
+	if (row.kind === "conversation") return conversationHref(row.conversation);
+	if (row.kind === "document") {
+		return (
+			row.document.href ||
+			buildKnowledgeWorkspaceHref({
+				artifactId: row.document.displayArtifactId,
+				filename: documentFilename(row.document),
+				mimeType: row.document.mimeType,
+			})
+		);
+	}
+	return searchResponse?.knowledgeHref || "/knowledge";
+}
+
+/**
+ * ⌘↵ / Ctrl+↵ opens the active row in a new tab and LEAVES the palette open,
+ * because opening several results in turn is the only reason to want a new
+ * tab in the first place.
+ */
+function openRowInNewTab(row: SearchRow) {
+	if (!browser) return;
+	window.open(rowHref(row), "_blank", "noopener,noreferrer");
 }
 
 function conversationHref(conversation: WorkspaceSearchConversationResult) {
@@ -874,6 +915,12 @@ onDestroy(() => {
 					<kbd class="search-kbd">&crarr;</kbd>
 					{$t('searchModal.keyOpen')}
 				</span>
+				{#if !(isQueryMode && hasResults)}
+					<span class="search-key-hint">
+						<kbd class="search-kbd">{newTabModifierLabel}</kbd><kbd class="search-kbd">&crarr;</kbd>
+						{$t('searchModal.keyNewTab')}
+					</span>
+				{/if}
 				<span class="search-key-hint">
 					<kbd class="search-kbd">esc</kbd>
 					{$t('searchModal.keyClose')}

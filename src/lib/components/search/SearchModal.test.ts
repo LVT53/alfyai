@@ -570,6 +570,36 @@ describe("SearchModal", () => {
 			expect(screen.getByText("close")).toBeInTheDocument();
 		});
 
+		it("offers the new-tab key only while the count is not claiming the line", async () => {
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Release notes");
+			// Before you type the footer has room for all four keys.
+			expect(screen.getByText("open in a new tab")).toBeInTheDocument();
+		});
+
+		it("opens the active result in a new tab on Cmd/Ctrl+Enter, and stays open", async () => {
+			const open = vi
+				.spyOn(window, "open")
+				.mockReturnValue(null as unknown as Window);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Brand playbook");
+			await fireEvent.keyDown(window, { key: "ArrowDown" });
+			await fireEvent.keyDown(window, { key: "Enter", metaKey: true });
+
+			expect(open).toHaveBeenCalledWith(
+				"/knowledge?server_open=artifact-1",
+				"_blank",
+				"noopener,noreferrer",
+			);
+			// The palette is still there — opening several results in turn is the
+			// only reason to want a new tab.
+			expect(goto).not.toHaveBeenCalled();
+			expect(screen.getByRole("dialog")).toBeInTheDocument();
+			open.mockRestore();
+		});
+
 		it("counts the results once something is typed", async () => {
 			respondWithReport();
 			render(SearchModal, { props: { isOpen: true } });

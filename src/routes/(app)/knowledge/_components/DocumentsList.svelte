@@ -362,13 +362,6 @@ const searchedDocuments = $derived.by(() => {
 		.filter((entry) => entry.score > 0);
 });
 
-function compareText(left: string, right: string): number {
-	return left.localeCompare(right, undefined, {
-		sensitivity: "base",
-		numeric: true,
-	});
-}
-
 const sortedDocuments = $derived.by(() => {
 	if (serverManaged) {
 		return documents;
@@ -1477,8 +1470,15 @@ async function handleBulkDelete(): Promise<boolean> {
 		}
 	}
 
+	/* Fixed layout, not auto: with nine columns an auto table sizes itself to
+	   its widest cell and grows straight out of the card — at 1024px the old
+	   auto table was 120px wider than the panel holding it. Fixed gives every
+	   short column the room it needs and lets the name take whatever is left,
+	   at any width, without a horizontal scrollbar and without giving up the
+	   sticky header. */
 	.documents-table {
 		width: 100%;
+		table-layout: fixed;
 		border-collapse: collapse;
 	}
 
@@ -1491,7 +1491,7 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.documents-table th {
-		padding: var(--space-md) var(--space-lg);
+		padding: var(--space-md);
 		text-align: left;
 		font-size: 0.68rem;
 		font-weight: 500;
@@ -1635,7 +1635,7 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.documents-table td {
-		padding: var(--space-md) var(--space-lg);
+		padding: var(--space-md);
 		border-bottom: 1px solid var(--border-subtle);
 		vertical-align: middle;
 	}
@@ -1658,8 +1658,61 @@ async function handleBulkDelete(): Promise<boolean> {
 		outline-offset: -2px;
 	}
 
-	.col-icon {
-		width: 20px;
+	/* Version and Status are columns of their own now, so the row has nine
+	   cells to fit inside the card. The two glyph columns give their padding
+	   back, and the short columns refuse to wrap — a date broken over three
+	   lines is what pushed the table past the card's edge. */
+	/* Scoped through `.documents-table` so these beat the blanket
+	   `.documents-table td` padding — at the generic 16px a 36px glyph column
+	   has 4px of content left and the file icon collapses to a dot. */
+	.documents-table .col-checkbox {
+		width: 2.75rem;
+		padding-right: 0;
+	}
+
+	.documents-table .col-icon {
+		width: 2.25rem;
+		padding-left: var(--space-sm);
+		padding-right: var(--space-sm);
+	}
+
+	/* Proportional, not fixed rem: the table is drawn from 720px of card up,
+	   and columns fixed in rem would leave the name a sliver at the narrow
+	   end. Percentages shrink together and always leave the name the rest. */
+	.col-version {
+		width: 8%;
+	}
+
+	.col-type {
+		width: 11%;
+	}
+
+	.col-status {
+		width: 10%;
+	}
+
+	.col-size {
+		width: 8%;
+	}
+
+	.col-date {
+		width: 15%;
+	}
+
+	.col-actions {
+		width: 12%;
+	}
+
+	.col-version,
+	.col-status,
+	.col-size {
+		white-space: nowrap;
+	}
+
+	/* Fixed layout gives this column whatever the others leave, so a long
+	   file name wraps inside its cell instead of widening the table. */
+	.col-name {
+		overflow-wrap: anywhere;
 	}
 
 	.file-icon {
@@ -1667,10 +1720,6 @@ async function handleBulkDelete(): Promise<boolean> {
 		align-items: center;
 		justify-content: center;
 		color: var(--icon-muted);
-	}
-
-	.col-name {
-		min-width: 200px;
 	}
 
 	.document-name {
