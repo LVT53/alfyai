@@ -10,12 +10,16 @@
 //
 //   THIS MESSAGE   Attach file · Skills · Atlas report
 //   (switches)     Web search · Thinking · Incognito
-//   ACCOUNTS       Use my connections · each account · Manage connections
 //   (conversation) Model · Style
+//
+// Accounts are not among them. The plug on the bar opens the per-account
+// popover, so the accounts section in here was a second copy of the same
+// switches — two places showing one state, and the one behind the plus was
+// the one you could not see the count on.
 //
 // Two behaviours the old menu did not have, and the board asks for by name:
 // a switch row flips IN PLACE and the menu stays open (turning Thinking on
-// and picking an account is one visit, not three), and the whole thing is a
+// and then Incognito is one visit, not two), and the whole thing is a
 // real menu for the keyboard — arrow keys walk it, Escape closes it, and
 // focus returns to the plus that opened it.
 //
@@ -29,7 +33,6 @@ import {
 	Globe,
 	Orbit,
 	Paperclip,
-	Plug,
 	Sparkles,
 	Type,
 	VenetianMask,
@@ -37,7 +40,6 @@ import {
 import ModelSelector from "./ModelSelector.svelte";
 import {
 	buildComposerMenuRows,
-	type ComposerMenuRow,
 	type ComposerMenuSectionId,
 	groupComposerMenuRows,
 	nextMenuIndex,
@@ -49,14 +51,6 @@ import {
 	type MenuPlacement,
 	type PlacementRect,
 } from "./composer-placement";
-import type { ActiveCapabilitiesConnection } from "$lib/client/api/connections";
-import {
-	isAccountOn,
-	isReady,
-	readyCount,
-} from "$lib/client/connections/composer-selection";
-import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
-import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import {
 	getPersonalityProfileDisplayDescription,
@@ -108,15 +102,6 @@ let {
 	incognitoOn = false,
 	incognitoBusy = false,
 	onToggleIncognito = undefined,
-	// The same per-account selection the bar's accounts popover edits — one
-	// state, two ways in, so turning an account off here and reading the count
-	// on the bar agree.
-	connections = [],
-	flippedIds = new Set<string>(),
-	connectionsMasterOn = false,
-	onToggleConnectionsMaster = undefined,
-	onToggleConnectionAccount = undefined,
-	onManageConnections = undefined,
 	// Skills used to be reachable only by typing "$". The row says how many
 	// are active so the menu is also where you find out that you have any.
 	skillCount = null,
@@ -149,12 +134,6 @@ let {
 	incognitoOn?: boolean;
 	incognitoBusy?: boolean;
 	onToggleIncognito?: (() => void) | undefined;
-	connections?: ActiveCapabilitiesConnection[];
-	flippedIds?: ReadonlySet<string>;
-	connectionsMasterOn?: boolean;
-	onToggleConnectionsMaster?: (() => void) | undefined;
-	onToggleConnectionAccount?: ((id: string) => void) | undefined;
-	onManageConnections?: (() => void) | undefined;
 	skillCount?: number | null;
 	pendingSkillName?: string | null;
 	onOpenSkills?: (() => void) | undefined;
@@ -190,10 +169,6 @@ let atlasUnavailableReason = $derived(
 let selectedProfile = $derived(
 	personalityProfiles.find((p) => p.id === selectedPersonalityId) ?? null,
 );
-let readyAccounts = $derived(connections.filter(isReady));
-let accountCounts = $derived(readyCount(connections, flippedIds));
-let hasConnections = $derived(connections.length > 0);
-
 let rows = $derived(
 	buildComposerMenuRows({
 		canAttach,
@@ -201,8 +176,6 @@ let rows = $derived(
 		atlasVisible: Boolean(atlasAvailability),
 		atlasAvailable,
 		thinkingAvailable,
-		hasConnections,
-		readyAccountIds: readyAccounts.map((conn) => conn.id),
 		personalityCount: personalityProfiles.length,
 	}),
 );
@@ -348,7 +321,7 @@ function handleAttach() {
 }
 
 // The board's rule for the switch rows: they flip in place and the menu stays
-// open, so turning Thinking on and then picking an account is one visit.
+// open, so turning Thinking on and then Incognito is one visit.
 function toggleWebSearch() {
 	onForceWebSearchChange?.(!forceWebSearch);
 }
@@ -454,10 +427,6 @@ function rowIndex(id: string): number {
 	return rows.findIndex((row) => row.id === id);
 }
 
-function accountFor(row: ComposerMenuRow) {
-	return readyAccounts.find((conn) => conn.id === row.accountId);
-}
-
 onMount(() => {
 	stopWatchingViewport = watchPhoneViewport((phone) => {
 		isPhone = phone;
@@ -520,32 +489,10 @@ onMount(() => {
 				{$t('composerMenu.sectionMessage')}
 			{:else if section === 'switches'}
 				{$t('composerMenu.sectionSwitches')}
-			{:else if section === 'accounts'}
-				{hasConnections
-					? $t('composerMenu.sectionAccounts', {
-							on: accountCounts.on,
-							total: accountCounts.total,
-						})
-					: $t('composerMenu.sectionAccountsEmpty')}
 			{:else}
 				{$t('composerMenu.sectionConversation')}
 			{/if}
 		</span>
-		{#if section === 'accounts'}
-			<!-- The way OUT of the composer, not one of the things this
-			     message can do — so it sits in the heading opposite the
-			     count rather than as a full-width row that read like one
-			     more account. Tabbable rather than part of the roving
-			     order: the arrow keys walk the rows, Tab reaches the link
-			     above them. -->
-			<button
-				type="button"
-				class="menu-section__link"
-				data-testid="composer-menu-manage-connections"
-				tabindex="0"
-				onclick={() => { onManageConnections?.(); }}
-			>{$t('composerMenu.manageConnections')}</button>
-		{/if}
 	</div>
 {/snippet}
 
@@ -775,49 +722,6 @@ onMount(() => {
 				{@render switchFace(incognitoOn)}
 			</button>
 
-		{:else if row.id === 'accounts-master'}
-			<button
-				type="button"
-				class="menu-row"
-				role="menuitemcheckbox"
-				aria-checked={connectionsMasterOn}
-				aria-label={$t('connections.chat.useMyConnections')}
-				tabindex={focusedIndex === index ? 0 : -1}
-				use:registerRow={row.id}
-				data-testid="composer-menu-connections-master"
-				disabled={readyAccounts.length === 0}
-				onfocus={() => (focusedIndex = index)}
-				onclick={() => onToggleConnectionsMaster?.()}
-			>
-				<span class="menu-row__icon" aria-hidden="true"><Plug size={16} strokeWidth={2} /></span>
-				<span class="menu-row__label">{$t('connections.chat.useMyConnections')}</span>
-				{@render switchFace(connectionsMasterOn)}
-			</button>
-
-		{:else if row.accountId}
-			{@const conn = accountFor(row)}
-			{#if conn}
-				{@const entry = getProviderCatalogEntry(conn.provider)}
-				<button
-					type="button"
-					class="menu-row menu-row--account"
-					role="menuitemcheckbox"
-					aria-checked={isAccountOn(conn, flippedIds)}
-					aria-label={entry.displayName}
-					tabindex={focusedIndex === index ? 0 : -1}
-					use:registerRow={row.id}
-					data-testid={`composer-menu-account-${conn.id}`}
-					onfocus={() => (focusedIndex = index)}
-					onclick={() => onToggleConnectionAccount?.(conn.id)}
-				>
-					<span class="menu-row__icon" aria-hidden="true">
-						<BrandIcon provider={conn.provider} size={14} ariaHidden />
-					</span>
-					<span class="menu-row__label">{entry.displayName}</span>
-					{@render switchFace(isAccountOn(conn, flippedIds))}
-				</button>
-			{/if}
-
 		{:else if row.id === 'model'}
 			<div class="menu-row-wrap menu-row-wrap--static">
 				<span class="menu-row__icon menu-row__icon--static" aria-hidden="true"><Orbit size={16} strokeWidth={2} /></span>
@@ -993,14 +897,10 @@ onMount(() => {
 			0 0 0 1px color-mix(in srgb, var(--border-default) 88%, transparent 12%);
 	}
 
-	/* A section says what the rows under it are about — and the accounts one
-	   also says how many are on, so the count is readable without counting
-	   the switches. */
+	/* A section says what the rows under it are about. */
 	.menu-section {
 		display: flex;
 		align-items: baseline;
-		justify-content: space-between;
-		gap: 0.75rem;
 		padding: 0.5rem 0.5rem 0.22rem;
 		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
@@ -1020,50 +920,6 @@ onMount(() => {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-
-	/* "Manage connections" sits here rather than in a row of its own: it is
-	   the way out to the settings page, not one of the things this message
-	   can do, and full-width under the account switches it read as one more
-	   account. Sentence case, because it is a link and not a heading. */
-	.menu-section__link {
-		flex: 0 0 auto;
-		border: 0;
-		border-radius: 0.3rem;
-		background: transparent;
-		padding: 0.1rem 0.15rem;
-		color: var(--accent);
-		font-family: inherit;
-		font-size: inherit;
-		font-weight: 600;
-		letter-spacing: 0.01em;
-		line-height: 1.2;
-		text-transform: none;
-		cursor: pointer;
-		transition: color var(--duration-standard) var(--ease-out);
-	}
-
-	.menu-section__link:hover {
-		color: var(--accent-hover);
-	}
-
-	.menu-section__link:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 40%, transparent 60%);
-	}
-
-	/* "Nothing you tap here is smaller than 44px" — including the one thing
-	   in this menu that is not a row. */
-	.tools-menu--sheet .menu-section {
-		align-items: center;
-	}
-
-	.tools-menu--sheet .menu-section__link {
-		display: inline-flex;
-		align-items: center;
-		min-height: 44px;
-		padding: 0 0.25rem;
-		font-size: var(--text-xs);
 	}
 
 	.menu-row,
@@ -1156,10 +1012,6 @@ onMount(() => {
 		grid-column: 4;
 		display: inline-flex;
 		color: var(--text-muted);
-	}
-
-	.menu-row--account .menu-row__label {
-		padding-left: 0.15rem;
 	}
 
 	.menu-row__hint {
@@ -1575,7 +1427,6 @@ onMount(() => {
 
 		.menu-row,
 		.menu-row__icon,
-		.menu-section__link,
 		.switch-face,
 		.switch-face__thumb,
 		.model-selector__trigger,
