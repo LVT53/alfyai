@@ -79,13 +79,11 @@ const fullMenu: ComposerMenuInput = {
 	atlasVisible: true,
 	atlasAvailable: true,
 	thinkingAvailable: true,
-	hasConnections: true,
-	readyAccountIds: ["nextcloud-1", "google-1", "immich-1"],
 	personalityCount: 4,
 };
 
 describe("buildComposerMenuRows", () => {
-	it("draws the board's order: actions, switches, accounts, conversation", () => {
+	it("draws the board's order: actions, switches, conversation", () => {
 		expect(buildComposerMenuRows(fullMenu).map((row) => row.id)).toEqual([
 			"attach",
 			"skills",
@@ -93,10 +91,6 @@ describe("buildComposerMenuRows", () => {
 			"web-search",
 			"thinking",
 			"incognito",
-			"accounts-master",
-			"account:nextcloud-1",
-			"account:google-1",
-			"account:immich-1",
 			"model",
 			"style",
 		]);
@@ -126,23 +120,14 @@ describe("buildComposerMenuRows", () => {
 		expect(rows.some((row) => row.id === "model")).toBe(true);
 	});
 
-	// "Manage connections" moved into the ACCOUNTS heading, opposite the
-	// count — it is the way OUT of the composer, not one of the things the
-	// message can do, and a full-width row of its own made it read as the
-	// last account in the list.
-	it("draws no Manage connections row at all — the heading carries the link", () => {
-		expect(
-			buildComposerMenuRows(fullMenu).some(
-				(row) => row.id === "manage-connections",
-			),
-		).toBe(false);
-		expect(
-			buildComposerMenuRows({
-				...fullMenu,
-				hasConnections: false,
-				readyAccountIds: [],
-			}).some((row) => row.id === "manage-connections"),
-		).toBe(false);
+	// The plug on the bar owns the accounts now. Nothing about connections
+	// survives behind the plus — not the master switch, not a per-account
+	// row, not the way out to the settings page.
+	it("draws nothing about accounts at all", () => {
+		const ids = buildComposerMenuRows(fullMenu).map((row) => row.id);
+		expect(ids).not.toContain("accounts-master");
+		expect(ids).not.toContain("manage-connections");
+		expect(ids.some((id) => id.startsWith("account:"))).toBe(false);
 	});
 
 	it("shows Atlas disabled rather than hiding the reason", () => {
@@ -162,13 +147,11 @@ describe("groupComposerMenuRows", () => {
 		expect(groups.map((group) => group.section)).toEqual([
 			"message",
 			"switches",
-			"accounts",
 			"conversation",
 		]);
 		expect(groups.map((group) => group.entries[0]?.row.id)).toEqual([
 			"attach",
 			"web-search",
-			"accounts-master",
 			"model",
 		]);
 	});
@@ -184,23 +167,11 @@ describe("groupComposerMenuRows", () => {
 		expect(groups.flatMap((group) => group.entries).length).toBe(rows.length);
 	});
 
-	// The whole reason the grouping exists: the ACCOUNTS heading carries the
-	// only way through to the settings page, and the case where you most need
-	// that link is the one where the section has nothing in it.
-	it("keeps the accounts section — and so the Manage link — with no accounts", () => {
-		const groups = groupComposerMenuRows(
-			buildComposerMenuRows({
-				...fullMenu,
-				hasConnections: false,
-				readyAccountIds: [],
-			}),
-		);
-		const accounts = groups.find((group) => group.section === "accounts");
-		expect(accounts).toBeDefined();
-		expect(accounts?.entries).toEqual([]);
-	});
-
-	it("drops a section that is empty for any other reason", () => {
+	// The accounts section used to survive empty, to keep its "Manage
+	// connections" link reachable. With that section gone there is no longer
+	// an exception: a heading with nothing under it is a heading about
+	// nothing, and every empty section is dropped.
+	it("drops every empty section, with no exception left", () => {
 		const groups = groupComposerMenuRows(
 			buildComposerMenuRows({
 				...fullMenu,
@@ -215,7 +186,7 @@ describe("groupComposerMenuRows", () => {
 			groupComposerMenuRows([
 				{ id: "model", kind: "nav", section: "conversation" },
 			]).map((group) => group.section),
-		).toEqual(["accounts", "conversation"]);
+		).toEqual(["conversation"]);
 	});
 });
 

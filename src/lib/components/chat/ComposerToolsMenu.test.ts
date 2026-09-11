@@ -127,8 +127,6 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 		},
 		atlasProfile: null,
 		onAtlasProfileChange: vi.fn(),
-		connections: [],
-		flippedIds: new Set<string>(),
 		...overrides,
 	};
 }
@@ -286,37 +284,25 @@ describe("ComposerToolsMenu desktop placement", () => {
 	});
 });
 
-// "Manage connections" used to be a full-width row under the account
-// switches, where it read as one more account. It is the way OUT of the
-// composer, so it moved into the ACCOUNTS heading opposite the count.
-describe("ComposerToolsMenu manage-connections link", () => {
-	it("sits inside the accounts heading, not in the row list", () => {
+// The plug on the bar owns the accounts. Behind the plus there is now no
+// master switch, no per-account row, and no link out to the settings page —
+// one state, one place to read it.
+describe("ComposerToolsMenu accounts", () => {
+	it("holds nothing about connections at all", () => {
 		stubPhone(false);
 		render(ComposerToolsMenu, baseProps({ triggerElement: stubTrigger() }));
 
-		const link = screen.getByTestId("composer-menu-manage-connections");
-		expect(link.closest(".menu-section")).not.toBeNull();
-		expect(link.closest(".menu-row")).toBeNull();
-		expect(link.getAttribute("role")).toBeNull();
-		expect(link.tabIndex).toBe(0);
+		expect(screen.queryByTestId("composer-menu-manage-connections")).toBeNull();
+		expect(screen.queryByTestId("composer-menu-connections-master")).toBeNull();
 	});
 
-	it("is still there — and still reachable — with nothing connected", async () => {
+	it("draws only the three headings the board asks for", () => {
 		stubPhone(false);
-		const onManageConnections = vi.fn();
-		render(
-			ComposerToolsMenu,
-			baseProps({
-				triggerElement: stubTrigger(),
-				connections: [],
-				onManageConnections,
-			}),
-		);
+		render(ComposerToolsMenu, baseProps({ triggerElement: stubTrigger() }));
 
-		const link = screen.getByTestId("composer-menu-manage-connections");
-		expect(screen.queryByTestId("composer-menu-connections-master")).toBeNull();
-
-		await fireEvent.click(link);
-		expect(onManageConnections).toHaveBeenCalled();
+		const headings = Array.from(
+			document.querySelectorAll(".menu-section__title"),
+		).map((node) => node.textContent?.trim());
+		expect(headings).toEqual(["This message", "Switches", "This conversation"]);
 	});
 });

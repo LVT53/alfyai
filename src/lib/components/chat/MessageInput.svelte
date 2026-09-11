@@ -2825,17 +2825,6 @@ async function emitDraftChange(force = false) {
 							{incognitoOn}
 							{incognitoBusy}
 							onToggleIncognito={toggleIncognito}
-							connections={connectionAccounts}
-							flippedIds={connectionsFlippedIds}
-							connectionsMasterOn={connectionAccounts.length > 0
-								? masterIsOn(connectionAccounts, connectionsFlippedIds)
-								: connectionsEnabled}
-							onToggleConnectionsMaster={handleToggleConnectionsMaster}
-							onToggleConnectionAccount={handleToggleConnectionAccount}
-							onManageConnections={() => {
-								showToolsMenu = false;
-								goto('/settings?section=connections');
-							}}
 							{skillCount}
 							pendingSkillName={pendingSkill?.displayName ?? null}
 							onOpenSkills={openSkillsPicker}
@@ -3425,16 +3414,17 @@ async function emitDraftChange(force = false) {
 	   filled accent on-state were two solid shapes competing with the text
 	   you are writing, for a row of controls that is mostly at rest.
 
-	   So the states are carried by the glyph and one small mark:
+	   So the state is carried by the glyph alone:
 
 	     rest   the muted icon colour
 	     hover  the icon colour goes to full strength, nothing else moves
-	     ON     the glyph is the accent, with a 4px accent dot under it
+	     ON     the glyph is the accent; hovering an on icon deepens it
 
-	   The dot is what makes "on" legible without a fill: a hue shift on a
-	   19px hairline is invisible to anyone who does not already know what
-	   the resting colour was, but a mark that is either there or not there
-	   reads at a glance and survives being colour-blind. */
+	   There used to be a 4px dot under an on glyph as well. On a bar whose
+	   icons sit a few pixels above the text you are typing it read as a
+	   fleck of dirt on the screen, and with the accounts count badge beside
+	   it the same icon could carry two marks at once. The accent glyph is
+	   the whole of "on" now. */
 	.composer-face {
 		position: relative;
 		display: inline-flex;
@@ -3467,21 +3457,9 @@ async function emitDraftChange(force = false) {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	/* ON: the glyph in the accent, and a dot under it. No fill. */
+	/* ON: the glyph in the accent. No fill, no dot. */
 	.composer-face--on {
 		color: var(--accent);
-	}
-
-	.composer-face--on::after {
-		content: "";
-		position: absolute;
-		left: 50%;
-		bottom: 3px;
-		width: 4px;
-		height: 4px;
-		margin-left: -2px;
-		border-radius: 999px;
-		background: currentcolor;
 	}
 
 	.composer-face--on:hover:not(:disabled) {
@@ -3518,16 +3496,11 @@ async function emitDraftChange(force = false) {
 	}
 
 	/* A phone grows the whole face to the 44px hit area. There is no disc to
-	   inset any more, so the glyph simply centres in it and the on-dot moves
-	   down with the extra height. */
+	   inset any more, so the glyph simply centres in it. */
 	@media (max-width: 639px) {
 		.composer-face {
 			width: 44px;
 			height: 44px;
-		}
-
-		.composer-face--on::after {
-			bottom: 8px;
 		}
 	}
 

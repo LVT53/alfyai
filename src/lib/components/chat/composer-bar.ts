@@ -109,10 +109,15 @@ export function thinkingTooltip(on: boolean): ComposerTooltip {
 //
 // One menu holds everything the composer can do, in the order the board
 // draws it: the actions this message can take, then the switches, then the
-// accounts, then the two settings that are about the conversation rather than
-// the message. The row list is built here so the markup and the keyboard
-// navigation are driven by the same array — a menu whose arrow keys walk a
-// different list than the one on screen is the classic way this breaks.
+// two settings that are about the conversation rather than the message. The
+// row list is built here so the markup and the keyboard navigation are driven
+// by the same array — a menu whose arrow keys walk a different list than the
+// one on screen is the classic way this breaks.
+//
+// Accounts are NOT in here. The plug on the bar opens the per-account
+// popover, and a second copy of the same switches behind the plus was two
+// places to read the same state — so the menu no longer has an accounts
+// section at all.
 
 export type ComposerMenuRowKind =
 	/** Does something and closes the menu (Attach file). */
@@ -122,11 +127,10 @@ export type ComposerMenuRowKind =
 	/** Flips in place; the menu stays open (Web search, Thinking, Incognito). */
 	| "switch";
 
-/** The four headings the menu draws, in the order it draws them. */
+/** The three headings the menu draws, in the order it draws them. */
 export const COMPOSER_MENU_SECTIONS = [
 	"message",
 	"switches",
-	"accounts",
 	"conversation",
 ] as const;
 
@@ -137,8 +141,6 @@ export interface ComposerMenuRow {
 	kind: ComposerMenuRowKind;
 	/** Rows sharing a section are drawn under one heading. */
 	section: ComposerMenuSectionId;
-	/** Per-account rows carry the account they switch. */
-	accountId?: string;
 	/** A row that is visible but cannot be chosen (Atlas while unconfigured). */
 	disabled?: boolean;
 }
@@ -149,8 +151,6 @@ export interface ComposerMenuInput {
 	atlasVisible: boolean;
 	atlasAvailable: boolean;
 	thinkingAvailable: boolean;
-	hasConnections: boolean;
-	readyAccountIds: readonly string[];
 	personalityCount: number;
 }
 
@@ -161,13 +161,6 @@ export interface ComposerMenuInput {
  * exception: Atlas, which stays visible and disabled when the deployment has
  * not configured it, because the reason ("no Parallel key") is worth stating
  * and a missing row cannot state anything.
- *
- * "Manage connections" is NOT a row. It is a link in the ACCOUNTS heading,
- * right-aligned opposite the count — it is not one of the things this
- * message can do, it is the way out to the settings page, and giving it a
- * full-width row of its own made it look like the last account in the list.
- * See `groupComposerMenuRows`, which is why the accounts section survives
- * having no rows at all.
  */
 export function buildComposerMenuRows(
 	input: ComposerMenuInput,
@@ -193,18 +186,6 @@ export function buildComposerMenuRows(
 	}
 	rows.push({ id: "incognito", kind: "switch", section: "switches" });
 
-	if (input.hasConnections) {
-		rows.push({ id: "accounts-master", kind: "switch", section: "accounts" });
-		for (const accountId of input.readyAccountIds) {
-			rows.push({
-				id: `account:${accountId}`,
-				kind: "switch",
-				section: "accounts",
-				accountId,
-			});
-		}
-	}
-
 	rows.push({ id: "model", kind: "nav", section: "conversation" });
 	if (input.personalityCount > 0) {
 		rows.push({ id: "style", kind: "nav", section: "conversation" });
@@ -224,14 +205,13 @@ export interface ComposerMenuSection {
  * The menu, grouped into the sections it draws.
  *
  * Replaces the old "is this row the first of its section" test, which could
- * only put a heading on a row that exists. The ACCOUNTS heading now carries
- * the "Manage connections" link, and that link is the one thing in the
- * section that must never disappear — least of all in the case where there
- * are no accounts yet, which is exactly when you want it.
+ * only put a heading on a row that exists. A heading with nothing under it is
+ * a heading about nothing, so an empty section is dropped — every one of them
+ * now, since the accounts section (the one that used to survive empty, to
+ * keep its "Manage connections" link reachable) is gone.
  *
- * So: a section with rows is returned, and so is the accounts section
- * whether or not it has any. The indices are the ones from the flat list, so
- * the roving focus still walks one array.
+ * The indices are the ones from the flat list, so the roving focus still
+ * walks one array.
  */
 export function groupComposerMenuRows(
 	rows: readonly ComposerMenuRow[],
@@ -241,9 +221,7 @@ export function groupComposerMenuRows(
 		entries: rows
 			.map((row, index) => ({ row, index }))
 			.filter((entry) => entry.row.section === section),
-	})).filter(
-		(group) => group.entries.length > 0 || group.section === "accounts",
-	);
+	})).filter((group) => group.entries.length > 0);
 }
 
 /**

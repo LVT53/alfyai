@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
 	fireEvent,
 	render,
@@ -1334,8 +1335,8 @@ describe("MessageInput", () => {
 	});
 
 	// Everyday redesign, Direction B: thinking stays on the bar (it is one of
-	// the three reached for mid-sentence). On is the glyph in the accent plus
-	// a dot under it — no disc behind it in any state — with a label that
+	// the three reached for mid-sentence). On is the glyph in the accent and
+	// nothing else — no disc behind it, no dot under it — with a label that
 	// says the control AND its state.
 	it("shows the thinking toggle in the toolbar reflecting the current reasoningDepth", () => {
 		const { getByTestId } = render(MessageInput, {
@@ -3368,6 +3369,33 @@ describe("MessageInput composer bar (Direction B)", () => {
 		expect(plus).toHaveClass("composer-face--on");
 	});
 
+	// The owner again, on the mark the first pass added instead of the fill:
+	// a 4px dot a few pixels above the text you are typing read as a fleck of
+	// dirt on the screen. The accent glyph carries "on" by itself now — so
+	// the component must generate nothing under an on icon, in either the
+	// desktop rule or the phone override. jsdom does not compute pseudo-
+	// elements, so the rule is read from the source the way the follow-up
+	// chip's is; the rendered counterpart lives in the Direction B e2e.
+	it("marks an on icon with the accent glyph alone — no dot under it", () => {
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/chat/MessageInput.svelte`,
+			"utf-8",
+		);
+
+		expect(source).not.toContain(".composer-face--on::after");
+
+		const onRule =
+			source.match(/\n\t\.composer-face--on \{([\s\S]*?)\n\t\}/)?.[1] ?? "";
+		expect(onRule).not.toBe("");
+		expect(onRule).toMatch(/color:\s*var\(--accent\)/);
+
+		const hoverRule =
+			source.match(
+				/\n\t\.composer-face--on:hover:not\(:disabled\) \{([\s\S]*?)\n\t\}/,
+			)?.[1] ?? "";
+		expect(hoverRule).toMatch(/color:\s*var\(--accent-hover\)/);
+	});
+
 	it("names the attach control and its empty state at rest", () => {
 		const { getByTestId } = render(MessageInput, {
 			attachmentsEnabled: true,
@@ -3515,12 +3543,17 @@ describe("MessageInput composer menu", () => {
 		});
 	});
 
-	it("keeps a way through to Connections when no account is connected", async () => {
-		const { getByTestId } = render(MessageInput);
+	// The plug on the bar owns the accounts: it opens the per-account
+	// popover, carries the count, and holds the way through to Settings. The
+	// menu behind the plus used to carry a second copy of all three, which
+	// meant two places showing one state — and the copy behind the plus was
+	// the one you could not read the count on.
+	it("holds nothing about connections — the plug on the bar owns them", async () => {
+		const { getByTestId, queryByTestId } = render(MessageInput);
 		await openComposerMenu(getByTestId);
 
-		expect(getByTestId("composer-menu-manage-connections")).toBeInTheDocument();
-		await fireEvent.click(getByTestId("composer-menu-manage-connections"));
-		expect(gotoMock).toHaveBeenCalledWith("/settings?section=connections");
+		expect(queryByTestId("composer-menu-manage-connections")).toBeNull();
+		expect(queryByTestId("composer-menu-connections-master")).toBeNull();
+		expect(getByTestId("connections-toggle")).toBeInTheDocument();
 	});
 });
