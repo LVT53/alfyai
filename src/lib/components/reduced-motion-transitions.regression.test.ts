@@ -65,11 +65,6 @@ const CASES: Case[] = [
 		],
 	},
 	{
-		file: "src/lib/components/ui/ProfilePictureEditor.svelte",
-		wrappedNames: ["backdropFade", "panelScale"],
-		bannedDirectives: [/transition:fade=/, /transition:scale=/],
-	},
-	{
 		file: "src/lib/components/sidebar/ConversationList.svelte",
 		wrappedNames: ["sectionSlide", "rowFade"],
 		bannedDirectives: [/transition:slide=/, /in:fade=/, /out:fade=/],
@@ -172,5 +167,33 @@ describe("Svelte transition directives are routed through reducedMotionAware", (
 			);
 			expect(usedAsDirective).toBe(true);
 		}
+	});
+});
+
+// The profile photo editor used to be one of the cases above, with its own
+// copy of the backdrop, the focus trap and the two wrapped transitions. The
+// consistency pass moved it onto DialogShell, which owns all three — so the
+// guard here is that it has NOT grown a second set of its own.
+describe("ProfilePictureEditor delegates its dialog chassis to DialogShell", () => {
+	const source = readComponent(
+		"src/lib/components/ui/ProfilePictureEditor.svelte",
+	);
+
+	it("renders through DialogShell", () => {
+		expect(source).toMatch(
+			/import DialogShell from ["']\.\/DialogShell\.svelte["']/,
+		);
+		expect(source).toMatch(/<DialogShell/);
+	});
+
+	it("declares no transition directives of its own", () => {
+		expect(source).not.toMatch(/(transition|in|out):[a-zA-Z]+=/);
+		expect(source).not.toMatch(/from "svelte\/transition"/);
+	});
+
+	it("no longer hand-rolls a focus trap or a body-scroll lock", () => {
+		expect(source).not.toMatch(/document\.body\.style\.overflow/);
+		expect(source).not.toMatch(/tabindex="-1"\]/);
+		expect(source).not.toMatch(/aria-modal/);
 	});
 });

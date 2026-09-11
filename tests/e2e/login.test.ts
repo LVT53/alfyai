@@ -79,6 +79,32 @@ test.describe("Login Page", () => {
 		);
 	});
 
+	test("the error line sits directly above the button you are about to press again", async ({
+		page,
+	}) => {
+		await page.fill('input[name="email"]', "admin@local");
+		await page.fill('input[type="password"]', "wrongpassword");
+		await page.click('button[type="submit"]');
+
+		const error = page.getByTestId("login-error");
+		await expect(error).toBeVisible({ timeout: 10000 });
+
+		// Below the "Remember me" checkbox, above the submit button — not
+		// stranded between the fields and the checkbox.
+		const rememberBox = page.getByLabel("Remember me");
+		const submit = page.locator('button[type="submit"]');
+		const [rememberRect, errorRect, submitRect] = await Promise.all([
+			rememberBox.boundingBox(),
+			error.boundingBox(),
+			submit.boundingBox(),
+		]);
+		if (!rememberRect || !errorRect || !submitRect) {
+			throw new Error("Expected all three elements to be laid out");
+		}
+		expect(errorRect.y).toBeGreaterThan(rememberRect.y);
+		expect(errorRect.y + errorRect.height).toBeLessThanOrEqual(submitRect.y);
+	});
+
 	test("error message disappears when user starts typing again", async ({
 		page,
 	}) => {

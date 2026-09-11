@@ -8,6 +8,15 @@ test.describe("Authentication", () => {
 		await expect(page.locator('[name="email"]')).toBeVisible();
 		await expect(page.locator('[name="password"]')).toBeVisible();
 		await expect(page.locator('button[type="submit"]')).toBeVisible();
+		// Consistency pass: the first screen of the product carries the
+		// wordmark, and the heading is on the serif title ramp.
+		await expect(page.getByTestId("login-wordmark")).toBeVisible();
+		await expect(page.getByTestId("login-wordmark")).toContainText("AlfyAI");
+		const heading = page.getByRole("heading", { name: "Sign In" });
+		await expect(heading).toHaveCSS("font-size", "24px");
+		expect(
+			await heading.evaluate((el) => getComputedStyle(el).fontFamily),
+		).toContain("Libre Baskerville");
 	});
 
 	test("redirects unauthenticated users to login", async ({ page }) => {

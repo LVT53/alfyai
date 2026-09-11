@@ -1704,6 +1704,124 @@ const settingsDict = {
 		"analytics.systemAnalyticsDescription":
 			"Every account on this server. Admin only.",
 		// ── end everyday-screens redesign ─────────────────────────────────
+
+		// ── PROFILE REDESIGN + CONSISTENCY PASS ─────────────────────────
+		// Everyday-redesign boards Main / ProfileMobile / Consistency. New
+		// strings for this wave live in this delimited block at the end of
+		// the dictionary; the HU half carries the same keys in the same
+		// order at the end of `hu` below.
+		"profileTab.lead":
+			"Your account, how AlfyAI behaves for you, and what it keeps.",
+		"profileTab.jumpListLabel": "Jump to a section",
+
+		// Identity card — one card, one Save.
+		"profileTab.accountTitle": "Your account",
+		"profileTab.passwordSectionLabel": "Change password — optional",
+		"profileTab.passwordOptionalNote":
+			"Leave the password boxes empty to save only your name and email. Filling them changes the password with the same Save.",
+		"profileTab.currentPasswordPlaceholder": "Your password",
+		"profileTab.newPasswordPlaceholder": "At least 8 characters",
+		"profileTab.saveChanges": "Save changes",
+		"profileTab.discard": "Discard",
+		"profileTab.savedAt": "Saved {time}",
+		"profileTab.nothingToSave": "Nothing to save yet.",
+		"profileTab.passwordNeedsCurrent":
+			"Enter your current password to change it.",
+		"profileTab.passwordNeedsNew": "Enter a new password to change it.",
+		"profileTab.accountUpdated": "Profile and password updated.",
+
+		// Your Activity — summary card + full view.
+		"profileTab.activityDesc": "Your own usage — nobody else's.",
+		"profileTab.activityOpen": "Open Your Activity",
+		"profileTab.activityBack": "Back to Profile",
+		"profileTab.tokensAllTime": "Tokens, all time",
+		"profileTab.tokensSplit": "{completion} completion · {reasoning} reasoning",
+		"profileTab.messages": "Messages",
+		"profileTab.conversations": "Conversations",
+		"profileTab.mostUsedModel": "Most used model",
+		"profileTab.activityEmpty": "Nothing recorded yet.",
+
+		// Preferences.
+		"profileTab.preferencesDesc": "Applies to every new conversation.",
+		"profileTab.defaultModelHelp":
+			"Which model answers when you have not picked one for the conversation.",
+		// The plural form stays un-nested: the mini-ICU formatter in i18n/index.ts
+		// matches a branch with [^{}]*, so a {count} inside a branch never
+		// substitutes.
+		"profileTab.otherModelsAvailable":
+			"{count} other model{count, plural, one {} other {s}} available",
+		"profileTab.appearanceHelp": "Follows your device unless you pick one.",
+		// Language names in their own language: someone hunting for Hungarian
+		// in an English UI is looking for the word "Magyar". Deliberately the
+		// same string in both dictionaries.
+		"profileTab.langEnglish": "English",
+		"profileTab.langHungarian": "Magyar",
+		"profileTab.titleLanguageHelp":
+			"The language new conversation titles are written in.",
+
+		// Assistant behaviour.
+		"profileTab.assistantTitle": "Assistant behaviour",
+		"profileTab.assistantDesc": "What AlfyAI is allowed to learn and follow.",
+		"profileTab.memoryOn": "On",
+		"profileTab.memoryOff": "Off",
+		"profileTab.skillsHelp":
+			"Short instructions AlfyAI follows for a kind of task. Opens the full manager.",
+		"profileTab.manageSkills": "Manage skills",
+		"profileTab.skillsCountActive": "{count} active",
+		"profileTab.skillsCountDisabled": "{count} disabled",
+		"profileTab.memoryProfile": "Memory profile",
+		"profileTab.memoryProfileHelp":
+			"Read and edit the portrait AlfyAI keeps of you, category by category.",
+		"profileTab.openKnowledgeBase": "Open Knowledge Base",
+
+		// Data & privacy.
+		"profileTab.dataPrivacyDesc":
+			"Read the policy, bring data in, take it out.",
+		"profileTab.privacyPolicyHelp":
+			"What is stored, for how long, and who can see it.",
+		"profileTab.readThePolicy": "Read the policy",
+		"profileTab.importHelp":
+			"Bring your old conversations across and continue where you left off.",
+		"profileTab.downloadHelp":
+			"A ZIP of your chats, documents, memories and generated files.",
+		"profileTab.prepareArchive": "Prepare archive",
+		// The row is named for what it does; the button names the next step.
+		"profileTab.importChooseZip": "Choose a ZIP file…",
+
+		// Things that cannot be undone.
+		"profileTab.dangerTitle": "Things that cannot be undone",
+		"profileTab.dangerDesc":
+			"Each one asks for your password before anything changes.",
+		"profileTab.clearMemoryHelp":
+			"Removes remembered context, documents and evidence traces. Your chats stay and you stay signed in.",
+		"profileTab.clearWorkspaceHelp":
+			"Removes chats, documents, memory and generated files. Keeps your login, profile and avatar, then signs you out.",
+		"profileTab.deleteAccountHelp":
+			"Permanently deletes your account and personal workspace data. Only anonymous usage totals remain.",
+		"profileTab.clearAction": "Clear…",
+		"profileTab.deleteAction": "Delete…",
+
+		// Profile photo editor — every string was hard-coded English before.
+		"avatarEditor.title": "Upload profile photo",
+		"avatarEditor.dropZone": "Drop an image here, or click to select",
+		"avatarEditor.dropZoneLabel": "Upload photo drop zone",
+		"avatarEditor.formats":
+			"JPEG, PNG, WebP, GIF, HEIC, AVIF, BMP, TIFF · max 20 MB",
+		"avatarEditor.rotateLeft": "Rotate left 90°",
+		"avatarEditor.rotateRight": "Rotate right 90°",
+		"avatarEditor.rotation": "Rotation",
+		"avatarEditor.zoom": "Zoom",
+		"avatarEditor.zoomIn": "Zoom in",
+		"avatarEditor.zoomOut": "Zoom out",
+		"avatarEditor.preview": "Preview",
+		"avatarEditor.chooseDifferent": "Choose a different image",
+		"avatarEditor.cancel": "Cancel",
+		"avatarEditor.upload": "Upload",
+		"avatarEditor.errorNotImage": "Please select an image file.",
+		"avatarEditor.errorTooLarge": "File is too large. Maximum size is 20 MB.",
+		"avatarEditor.errorProcess": "Failed to process image.",
+		"avatarEditor.errorUpload": "Failed to upload image.",
+		// ── END PROFILE REDESIGN + CONSISTENCY PASS ─────────────────────
 	},
 	hu: {
 		"admin.activeSessions": "Aktív munkamenetek",
@@ -3455,6 +3573,122 @@ const settingsDict = {
 		"analytics.systemAnalyticsDescription":
 			"A kiszolgáló összes fiókja. Csak adminisztrátoroknak.",
 		// ── end everyday-screens redesign ─────────────────────────────────
+
+		// ── PROFILE REDESIGN + CONSISTENCY PASS ─────────────────────────
+		// Ugyanazok a kulcsok, ugyanabban a sorrendben, mint az `en` blokk
+		// végén.
+		"profileTab.lead":
+			"A fiókod, az AlfyAI viselkedése nálad, és amit megőriz.",
+		"profileTab.jumpListLabel": "Ugrás egy szakaszra",
+
+		// Fiókkártya — egy kártya, egy Mentés.
+		"profileTab.accountTitle": "A fiókod",
+		"profileTab.passwordSectionLabel": "Jelszócsere — nem kötelező",
+		"profileTab.passwordOptionalNote":
+			"Hagyd üresen a jelszómezőket, ha csak a nevedet és az e-mail-címedet mentenéd. Ha kitöltöd őket, ugyanez a Mentés cseréli a jelszót is.",
+		"profileTab.currentPasswordPlaceholder": "A jelszavad",
+		"profileTab.newPasswordPlaceholder": "Legalább 8 karakter",
+		"profileTab.saveChanges": "Változások mentése",
+		"profileTab.discard": "Elvetés",
+		"profileTab.savedAt": "Mentve {time}",
+		"profileTab.nothingToSave": "Egyelőre nincs mit menteni.",
+		"profileTab.passwordNeedsCurrent":
+			"Add meg a jelenlegi jelszavad a cseréhez.",
+		"profileTab.passwordNeedsNew": "Add meg az új jelszót a cseréhez.",
+		"profileTab.accountUpdated": "A profil és a jelszó frissült.",
+
+		// A tevékenységed — összegzőkártya és teljes nézet.
+		"profileTab.activityDesc": "A saját használatod — senki másé.",
+		"profileTab.activityOpen": "A tevékenységed megnyitása",
+		"profileTab.activityBack": "Vissza a profilhoz",
+		"profileTab.tokensAllTime": "Tokenek, összesen",
+		"profileTab.tokensSplit": "{completion} válasz · {reasoning} gondolkodás",
+		"profileTab.messages": "Üzenetek",
+		"profileTab.conversations": "Beszélgetések",
+		"profileTab.mostUsedModel": "Legtöbbet használt modell",
+		"profileTab.activityEmpty": "Még nincs rögzített adat.",
+
+		// Beállítások.
+		"profileTab.preferencesDesc": "Minden új beszélgetésre érvényes.",
+		"profileTab.defaultModelHelp":
+			"Ez a modell válaszol, ha nem választottál külön a beszélgetéshez.",
+		"profileTab.otherModelsAvailable": "még {count} modell érhető el",
+		"profileTab.langEnglish": "English",
+		"profileTab.langHungarian": "Magyar",
+		"profileTab.appearanceHelp":
+			"Az eszközödet követi, amíg nem választasz mást.",
+		"profileTab.titleLanguageHelp":
+			"Ezen a nyelven készülnek az új beszélgetéscímek.",
+
+		// Az asszisztens viselkedése.
+		"profileTab.assistantTitle": "Az asszisztens viselkedése",
+		"profileTab.assistantDesc": "Mit tanulhat meg és mit követhet az AlfyAI.",
+		"profileTab.memoryOn": "Be",
+		"profileTab.memoryOff": "Ki",
+		"profileTab.skillsHelp":
+			"Rövid utasítások, amelyeket az AlfyAI egy-egy feladattípusnál követ. A teljes kezelőt nyitja meg.",
+		"profileTab.manageSkills": "Készségek kezelése",
+		"profileTab.skillsCountActive": "{count} aktív",
+		"profileTab.skillsCountDisabled": "{count} kikapcsolva",
+		"profileTab.memoryProfile": "Memóriaprofil",
+		"profileTab.memoryProfileHelp":
+			"Olvasd és szerkeszd a rólad őrzött képet, kategóriánként.",
+		"profileTab.openKnowledgeBase": "Tudásbázis megnyitása",
+
+		// Adatok és adatvédelem.
+		"profileTab.dataPrivacyDesc":
+			"Olvasd el a tájékoztatót, hozd be az adataid, vidd is ki.",
+		"profileTab.privacyPolicyHelp": "Mit tárolunk, meddig, és ki láthatja.",
+		"profileTab.readThePolicy": "Tájékoztató elolvasása",
+		"profileTab.importHelp":
+			"Hozd át a régi beszélgetéseid, és folytasd, ahol abbahagytad.",
+		"profileTab.downloadHelp":
+			"ZIP a beszélgetéseidről, dokumentumaidról, emlékeidről és a készült fájlokról.",
+		"profileTab.prepareArchive": "Archívum előkészítése",
+		"profileTab.importChooseZip": "Válassz egy ZIP-fájlt…",
+
+		// Ami nem vonható vissza.
+		"profileTab.dangerTitle": "Ami nem vonható vissza",
+		"profileTab.dangerDesc":
+			"Mindegyik a jelszavadat kéri, mielőtt bármi megváltozna.",
+		"profileTab.clearMemoryHelp":
+			"Törli a megjegyzett kontextust, a dokumentumokat és a bizonyítéknyomokat. A beszélgetéseid megmaradnak, és bejelentkezve maradsz.",
+		"profileTab.clearWorkspaceHelp":
+			"Törli a beszélgetéseket, dokumentumokat, a memóriát és a készült fájlokat. A bejelentkezésed, a profilod és a profilképed megmarad, majd kiléptet.",
+		"profileTab.deleteAccountHelp":
+			"Véglegesen törli a fiókodat és a személyes munkaterületi adataidat. Csak a névtelen használati összesítők maradnak.",
+		"profileTab.clearAction": "Törlés…",
+		// "Delete…" cannot also be "Törlés…": the irreversible card puts all
+		// three buttons side by side, and in English two of them say "Clear…"
+		// and the third says something else on purpose. The account row is the
+		// permanent one, which is the word Hungarian has for the difference.
+		"profileTab.deleteAction": "Végleges törlés…",
+
+		// Profilkép-szerkesztő — korábban minden szövege beégetett angol volt.
+		"avatarEditor.title": "Profilkép feltöltése",
+		"avatarEditor.dropZone":
+			"Húzz ide egy képet, vagy kattints a kiválasztáshoz",
+		"avatarEditor.dropZoneLabel": "Profilkép-feltöltési terület",
+		"avatarEditor.formats":
+			"JPEG, PNG, WebP, GIF, HEIC, AVIF, BMP, TIFF · legfeljebb 20 MB",
+		"avatarEditor.rotateLeft": "Forgatás balra 90°",
+		"avatarEditor.rotateRight": "Forgatás jobbra 90°",
+		"avatarEditor.rotation": "Forgatás",
+		// The slider and the "+" button are two controls in one dialog, so they
+		// cannot share an accessible name: the buttons keep the natural
+		// in/out pair and the slider is named for what it sets.
+		"avatarEditor.zoom": "Nagyítás mértéke",
+		"avatarEditor.zoomIn": "Nagyítás",
+		"avatarEditor.zoomOut": "Kicsinyítés",
+		"avatarEditor.preview": "Előnézet",
+		"avatarEditor.chooseDifferent": "Másik kép választása",
+		"avatarEditor.cancel": "Mégse",
+		"avatarEditor.upload": "Feltöltés",
+		"avatarEditor.errorNotImage": "Válassz egy képfájlt.",
+		"avatarEditor.errorTooLarge": "A fájl túl nagy. A felső határ 20 MB.",
+		"avatarEditor.errorProcess": "A kép feldolgozása nem sikerült.",
+		"avatarEditor.errorUpload": "A kép feltöltése nem sikerült.",
+		// ── END PROFILE REDESIGN + CONSISTENCY PASS ─────────────────────
 	},
 } as const;
 

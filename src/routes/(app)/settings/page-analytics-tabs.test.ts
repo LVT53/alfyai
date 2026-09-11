@@ -131,27 +131,28 @@ describe("settings page analytics merge (ADR-0043 slice 18c)", () => {
 			expect(
 				screen.queryByRole("tab", { name: "Administration" }),
 			).not.toBeInTheDocument();
-			// Profile content is rendered (the Profile tab is the default and,
-			// being the only tab, the switcher is omitted but the content shows).
-			// Scoped to the group-label <p> itself: Task 14's sticky section nav
-			// has a chip with the same visible text, so plain getByText matches twice.
+			// Profile content is rendered (the Profile tab is the default).
 			expect(
-				screen.getByText("Account", { selector: "p.settings-group-label" }),
+				screen.getByText("Your account", {
+					selector: "h2.settings-card-title",
+				}),
 			).toBeInTheDocument();
 		});
 
-		it("shows the Your Activity section in Profile with personal analytics", async () => {
+		it("shows the Your Activity card in Profile, with the full analytics one click away", async () => {
 			renderPage("user");
 
-			// The personal analytics data loads asynchronously after first Profile
-			// entry (the page's $effect calls loadAnalytics), so the stats settle
-			// after a tick. The section label is always present. Scoped to the
-			// group-label <p> itself (Task 14's nav chip repeats the same text).
+			// Profile redesign: the tab carries a Your Activity SUMMARY card and
+			// opens the full personal-analytics surface on demand, rather than
+			// printing the whole thing inline. The data still loads on first
+			// Profile entry (the page's $effect calls loadAnalytics).
 			expect(
 				screen.getByText("Your Activity", {
-					selector: "p.settings-group-label",
+					selector: "h2.settings-card-title",
 				}),
 			).toBeInTheDocument();
+
+			await fireEvent.click(screen.getByTestId("activity-open"));
 			await waitFor(() =>
 				expect(screen.getByText("Messages sent")).toBeInTheDocument(),
 			);
@@ -189,5 +190,66 @@ describe("settings page analytics merge (ADR-0043 slice 18c)", () => {
 	it("exposes the navigation mock for the page", () => {
 		expect(typeof goto).toBe("function");
 		expect(typeof invalidate).toBe("function");
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// The Profile tab's two automatic fetches used to be gated on their own RESULT
+// — "no analytics yet", "no styles yet" — and both write the state the gate
+// reads. So every answer that was not a success re-armed the condition that
+// started the request the instant it settled, and the $effect fired the next
+// one. A failing analytics endpoint and, far more commonly, a workspace with
+// no conversation styles configured, both turned the default settings screen
+// into an unbounded request loop that ran for as long as the tab stayed open.
+//
+// Each test caps its mock so a regression fails on the count instead of
+// hanging the runner: after the cap the mock starts answering successfully,
+// which is what a looping gate needs to stop.
+// ────────────────────────────────────────────────────────────────────────────
+describe("Profile tab loads each thing once, not in a loop", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("asks for analytics once when the endpoint keeps failing", async () => {
+		const { fetchAnalytics } = await import("$lib/client/api/settings");
+		const mock = fetchAnalytics as unknown as ReturnType<typeof vi.fn>;
+		let calls = 0;
+		mock.mockImplementation(async () => {
+			calls += 1;
+			if (calls > 6) return analyticsFixture;
+			throw new Error("analytics is down");
+		});
+
+		renderPage("user");
+		await new Promise((resolve) => setTimeout(resolve, 150));
+
+		expect(calls).toBe(1);
+		mock.mockResolvedValue(analyticsFixture);
+	});
+
+	it("asks for conversation styles once when the list comes back empty", async () => {
+		const { fetchPublicPersonalityProfiles } = await import(
+			"$lib/client/api/admin"
+		);
+		const mock = fetchPublicPersonalityProfiles as unknown as ReturnType<
+			typeof vi.fn
+		>;
+		let calls = 0;
+		mock.mockImplementation(async () => {
+			calls += 1;
+			if (calls > 6) return [{ id: "p1", name: "P", description: "d" }];
+			return [];
+		});
+
+		renderPage("user");
+		await new Promise((resolve) => setTimeout(resolve, 150));
+
+		expect(calls).toBe(1);
+		mock.mockResolvedValue([]);
 	});
 });
