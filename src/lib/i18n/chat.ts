@@ -929,6 +929,51 @@ const chatDict = {
 		"sourceManager.empty": "No linked sources selected.",
 		"sourceManager.list": "Current linked sources",
 		"sourceManager.title": "Sources",
+		// ---------------------------------------------------------------
+		// --- BEGIN chat home redesign (HomeV4A "Compact") keys ---
+		// Appended as one block so the parallel redesign branches do not
+		// collide in the middle of the file. Two groups: the home screen's
+		// own chrome, and the Try suggestion templates — the latter are
+		// rendered SERVER-side (home-suggestions.ts reads this dictionary
+		// directly) because the filled sentence is what gets sent as the
+		// first message, not just what is drawn on the chip.
+		// ---------------------------------------------------------------
+		"home.weeklyCount": "{count} this week",
+		"home.weeklyBarsLabel": "Messages per week, last 12 weeks",
+		"home.weeklyBarTooltip": "{week}: {count}",
+		"home.allConversations": "All conversations",
+		"home.recentLabel": "Recent conversations",
+		"home.messageCount": "{count}",
+		"home.atlasBadge": "Atlas",
+		"home.runningNow": "Running now",
+		"home.runningNowShort": "Running",
+		"home.runningElapsed": "{minutes} min",
+		"home.runningElapsedSeconds": "{seconds} s",
+		"home.runningProgress": "{percent}% done",
+		"home.suggestionsLabel": "Suggested openers",
+		"home.another": "another",
+		"home.anotherLabel": "Show three other suggestions",
+		"home.suggestionSource": "Source: {source}",
+		"home.suggest.calendar": "Ask about this week's calendar",
+		"home.suggest.calendar.short": "This week's calendar",
+		"home.suggest.files": "Summarise the last {provider} upload",
+		"home.suggest.files.short": "{provider} upload",
+		"home.suggest.fileNamed": "Summarise the {provider} file “{file}”",
+		"home.suggest.fileNamed.short": "{file}",
+		"home.suggest.emailPerson": "Draft the reply you owe {name}",
+		"home.suggest.emailPerson.short": "Reply to {name}",
+		"home.suggest.emailGeneric": "Check what needs a reply",
+		"home.suggest.emailGeneric.short": "Needs a reply",
+		"home.suggest.memory": "Finish {goal}",
+		"home.suggest.memory.short": "{goalShort}",
+		"home.suggest.conversation": "Ask about {topic}",
+		"home.suggest.conversation.short": "{topicShort}",
+		"home.suggest.atlas": "Pick up “{title}” again",
+		"home.suggest.atlas.short": "Pick up {titleShort}",
+		"home.suggest.source.memory": "Memory · ongoing work",
+		"home.suggest.source.conversation": "A recent conversation",
+		"home.suggest.source.atlas": "Atlas · unfinished",
+		// --- END chat home redesign keys ---
 	},
 	hu: {
 		"attachmentChip.pages": "{count} oldal",
@@ -1838,6 +1883,47 @@ const chatDict = {
 		"sourceManager.empty": "Nincs kijelölt kapcsolt forrás.",
 		"sourceManager.list": "Jelenlegi kapcsolt források",
 		"sourceManager.title": "Források",
+		// ---------------------------------------------------------------
+		// --- BEGIN chat home redesign (HomeV4A "Compact") keys ---
+		// Same block as the EN side above, in the same order.
+		// ---------------------------------------------------------------
+		"home.weeklyCount": "{count} ezen a héten",
+		"home.weeklyBarsLabel": "Heti üzenetszám, az elmúlt 12 hét",
+		"home.weeklyBarTooltip": "{week}: {count}",
+		"home.allConversations": "Összes beszélgetés",
+		"home.recentLabel": "Legutóbbi beszélgetések",
+		"home.messageCount": "{count}",
+		"home.atlasBadge": "Atlas",
+		"home.runningNow": "Most fut",
+		"home.runningNowShort": "Fut",
+		"home.runningElapsed": "{minutes} perc",
+		"home.runningElapsedSeconds": "{seconds} mp",
+		"home.runningProgress": "{percent}% kész",
+		"home.suggestionsLabel": "Javasolt kezdések",
+		"home.another": "másikat",
+		"home.anotherLabel": "Másik három javaslat mutatása",
+		"home.suggestionSource": "Forrás: {source}",
+		"home.suggest.calendar": "Mi van a naptáramban ezen a héten?",
+		"home.suggest.calendar.short": "E heti naptár",
+		"home.suggest.files": "Foglald össze a legutóbbi {provider} feltöltést",
+		"home.suggest.files.short": "{provider} feltöltés",
+		"home.suggest.fileNamed": "Foglald össze a(z) „{file}” {provider} fájlt",
+		"home.suggest.fileNamed.short": "{file}",
+		"home.suggest.emailPerson":
+			"Fogalmazd meg a választ, amivel {name} felé tartozom",
+		"home.suggest.emailPerson.short": "Válasz neki: {name}",
+		"home.suggest.emailGeneric": "Nézzük meg, mire kell válaszolni",
+		"home.suggest.emailGeneric.short": "Válaszra vár",
+		"home.suggest.memory": "Fejezzük be: {goal}",
+		"home.suggest.memory.short": "{goalShort}",
+		"home.suggest.conversation": "Kérdeznék erről: {topic}",
+		"home.suggest.conversation.short": "{topicShort}",
+		"home.suggest.atlas": "Folytassuk ezt: „{title}”",
+		"home.suggest.atlas.short": "Folytatás: {titleShort}",
+		"home.suggest.source.memory": "Memória · folyamatban lévő munka",
+		"home.suggest.source.conversation": "Egy korábbi beszélgetés",
+		"home.suggest.source.atlas": "Atlas · befejezetlen",
+		// --- END chat home redesign keys ---
 	},
 } as const;
 

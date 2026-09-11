@@ -1360,6 +1360,14 @@ export const usageEvents = sqliteTable(
 			table.modelId,
 			table.billingMonth,
 		),
+		// The chat home's twelve weekly bars count one row per user turn over a
+		// rolling ~12-week window. `billing_month` cannot serve that query (the
+		// window straddles month boundaries and ISO weeks do not align to
+		// months), so the scan needs its own (user, created_at) index.
+		userCreatedIdx: index("usage_events_user_created_idx").on(
+			table.userId,
+			table.createdAt,
+		),
 	}),
 );
 
@@ -2279,5 +2287,43 @@ export const routingRegions = sqliteTable(
 		uniqueIndex("routing_regions_slug_unique").on(table.slug),
 		index("routing_regions_status_idx").on(table.status),
 		index("routing_regions_transit_status_idx").on(table.transitStatus),
+	],
+);
+
+// Chat home redesign (HomeV4A "Compact") — the one piece of state the Try
+// suggestion rail needs that nothing else records: whether a candidate has
+// already been put in front of this user, and whether they acted on it.
+//
+// Without it the ranking's second field cannot be computed at all and the
+// "another" chip would be the only way a chip ever changed. Rows are written
+// by the home summary read path (`shown`, throttled) and by the chip itself
+// (`used` / `dismissed`), and expire after seven days — the window over which
+// an acted-on candidate stays demoted. Nothing here is billed, joined into
+// analytics, or fed to the model; it is presentation memory.
+export const homeSuggestionEvents = sqliteTable(
+	"home_suggestion_events",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		// Stable identity of the candidate, e.g. "calendar:<connectionId>" or
+		// "atlas:<jobId>" — see home-suggestions.ts. Deliberately NOT a foreign
+		// key: the underlying object may be deleted while the demotion should
+		// still hold for its seven days.
+		candidateKey: text("candidate_key").notNull(),
+		event: text("event").notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+	},
+	(table) => [
+		index("home_suggestion_events_user_key_idx").on(
+			table.userId,
+			table.candidateKey,
+			table.createdAt,
+		),
+		index("home_suggestion_events_expires_idx").on(table.expiresAt),
 	],
 );

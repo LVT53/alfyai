@@ -757,6 +757,13 @@
       "when": 1777140000094,
       "tag": "1777140000094_user_connections_usage_marks",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1777140000095,
+      "tag": "1777140000095_home_suggestion_events",
+      "breakpoints": true
     }
   ]
 }
