@@ -14,7 +14,6 @@ import {
 	conversations,
 	fileProductionJobs,
 	messages,
-	usageEvents,
 	users,
 } from "$lib/server/db/schema";
 import {
@@ -381,17 +380,26 @@ export function resolveFileJobPhase(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * The user's turns over the trailing twelve ISO weeks.
+ * The messages the USER sent, over the trailing twelve ISO weeks.
  *
- * `usage_events` is the honest per-turn source here: exactly one row per
- * completed assistant turn (unique on `message_id`), already carrying `user_id`
- * so no join to `conversations` is needed, and now indexed on
- * `(user_id, created_at)` for this window. `messages` would double-count (a
- * user row and an assistant row per turn) and would need the join.
+ * This used to count `usage_events`, and that is what put "249 this week" in
+ * front of an owner who had sent a few dozen messages. `usage_events` is a
+ * BILLING ledger, not a record of what the user did: every writer in
+ * analytics.ts appends to it on the user's behalf — `recordMessageAnalytics`
+ * (one row per assistant turn), `recordAtlasJobAnalytics` (one per Atlas job),
+ * `recordParallelUsage` (one per `research_web` / `fetch_url` call) and
+ * `recordControlModelUsage`, which alone covers the thought-step classifier,
+ * the rail summary, the turn acknowledgment, memory recuration, consolidation,
+ * summary and judge. One user message can be a dozen rows, and a background
+ * memory pass with no user in the room is rows with no user message at all.
  *
- * The honest limit: a turn that never reached a model — an import, or a turn
- * that failed before usage was recorded — has no usage row and so is not
- * counted. The bars are "turns the assistant answered", not "rows in messages".
+ * So the bars and the count are the user's own messages: rows in `messages`
+ * with `role = 'user'`, in conversations owned by this user. Backed by
+ * `messages_conversation_role_created_idx` so this stays a per-conversation
+ * index range rather than a scan of the table.
+ *
+ * The honest limit, and it is the opposite of the old one: an IMPORTED
+ * conversation's user rows count, because the user did write them somewhere.
  */
 async function readWeekly(
 	userId: string,
@@ -403,12 +411,14 @@ async function readWeekly(
 		timeZone,
 	);
 	const rows = await db
-		.select({ createdAt: usageEvents.createdAt })
-		.from(usageEvents)
+		.select({ createdAt: messages.createdAt })
+		.from(messages)
+		.innerJoin(conversations, eq(messages.conversationId, conversations.id))
 		.where(
 			and(
-				eq(usageEvents.userId, userId),
-				gte(usageEvents.createdAt, windowStart),
+				eq(conversations.userId, userId),
+				eq(messages.role, "user"),
+				gte(messages.createdAt, windowStart),
 			),
 		);
 	// An empty week inside a used window is a 1px tick, because a gap there

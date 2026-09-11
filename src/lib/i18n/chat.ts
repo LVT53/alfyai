@@ -954,7 +954,7 @@ const chatDict = {
 		// directly) because the filled sentence is what gets sent as the
 		// first message, not just what is drawn on the chip.
 		// ---------------------------------------------------------------
-		"home.weeklyCount": "{count} this week",
+		"home.weeklyCount": "{count} messages this week",
 		"home.weeklyBarsLabel": "Messages per week, last 12 weeks",
 		"home.weeklyBarTooltip": "{week}: {count}",
 		"home.allConversations": "All conversations",
@@ -1987,7 +1987,7 @@ const chatDict = {
 		// --- BEGIN chat home redesign (HomeV4A "Compact") keys ---
 		// Same block as the EN side above, in the same order.
 		// ---------------------------------------------------------------
-		"home.weeklyCount": "{count} ezen a héten",
+		"home.weeklyCount": "{count} üzenet ezen a héten",
 		"home.weeklyBarsLabel": "Heti üzenetszám, az elmúlt 12 hét",
 		"home.weeklyBarTooltip": "{week}: {count}",
 		"home.allConversations": "Összes beszélgetés",
