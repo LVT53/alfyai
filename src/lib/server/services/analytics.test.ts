@@ -931,6 +931,115 @@ describe("analytics dashboard read model", () => {
 			).toMatchObject({ messageCount: 2, modelCalls: 7 });
 		});
 
+		// The row the Administration → System analytics → "By user" tab renders.
+		// It is the same read-model slice the system tiles use, and the whole
+		// row is asserted here so a future change cannot quietly put the call
+		// count back into the column labelled "Messages" while the tiles stay
+		// honest.
+		it("gives the By-user row two messages against seven billed calls, with cost and tokens still wholesale", async () => {
+			seedMessageGrainFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			const row = result.perUser?.find((entry) => entry.userId === "writer-1");
+			expect(row).toBeDefined();
+			// What the person wrote.
+			expect(row?.messageCount).toBe(2);
+			expect(row?.conversationCount).toBe(1);
+			// What the platform billed — a separate field, never the one above.
+			expect(row?.modelCalls).toBe(7);
+			// Figures that ARE about cost still count every billed call, the
+			// five background ones included.
+			expect(row?.totalCostUsd).toBe(7);
+			expect(row?.totalTokens).toBe(770);
+			expect(row?.promptTokens).toBe(700);
+			expect(row?.outputTokens).toBe(70);
+			// The By user tab and the Overview tile above it are the same
+			// number seen twice. They come from one map of per-user totals, and
+			// this holds them to that: a tab that ever disagrees with the tile
+			// is a tab reading a second source.
+			expect(
+				result.perUser?.reduce((sum, entry) => sum + entry.messageCount, 0),
+			).toBe(result.system?.totalMessages);
+		});
+
+		it("orders the By-user rows by messages written, not by calls billed", async () => {
+			seedMessageGrainFixtures();
+			const { sqlite, database } = openSeedDatabase();
+			const now = new Date("2026-05-01T00:00:00.000Z");
+			// A second person who wrote MORE and was billed LESS: they lead the
+			// table only if the sort reads the message count.
+			database
+				.insert(schema.users)
+				.values({
+					id: "writer-2",
+					email: "writer2@example.com",
+					name: "Writer Two",
+					passwordHash: "hash",
+					role: "user",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			database
+				.insert(schema.conversations)
+				.values({
+					id: "conv-writer-2",
+					userId: "writer-2",
+					title: "Chatty",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			database
+				.insert(schema.messages)
+				.values(
+					[1, 2, 3, 4, 5].map((index) => ({
+						id: `ask-2-${index}`,
+						conversationId: "conv-writer-2",
+						messageSequence: index,
+						role: "user",
+						content: `question ${index}`,
+						createdAt: new Date("2026-05-04T10:00:00.000Z"),
+					})),
+				)
+				.run();
+			database
+				.insert(schema.usageEvents)
+				.values({
+					id: "usage-writer-2",
+					userId: "writer-2",
+					conversationId: "conv-writer-2",
+					messageId: "answer-2-1",
+					modelId: "model1",
+					promptTokens: 10,
+					completionTokens: 1,
+					totalTokens: 11,
+					billingMonth: "2026-05",
+					costUsdMicros: 100_000,
+					createdAt: new Date("2026-05-04T10:00:05.000Z"),
+				})
+				.run();
+			sqlite.close();
+
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			expect(
+				result.perUser?.map((row) => [row.userId, row.messageCount]),
+			).toEqual([
+				["writer-2", 5],
+				["writer-1", 2],
+			]);
+		});
+
 		it("attributes messages to the model that answered them under a model filter", async () => {
 			seedMessageGrainFixtures();
 			const { getAnalyticsDashboardReadModel } = await import("./analytics");
