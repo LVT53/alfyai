@@ -1,14 +1,24 @@
 <script lang="ts">
 import { Info } from "@lucide/svelte";
+import type { Component, Snippet } from "svelte";
 
 let {
-	text,
+	text = "",
 	label = undefined,
 	size = 15,
+	icon: Icon = Info,
+	children = undefined,
 }: {
-	text: string;
+	/** The plain-text bubble. Optional when `children` draws a richer one. */
+	text?: string;
 	label?: string | undefined;
 	size?: number;
+	/** The trigger glyph. `Info` by default; pass `HelpCircle` for a "what is
+	    this?" affordance rather than a footnote. */
+	// biome-ignore lint/suspicious/noExplicitAny: lucide icon props vary by version
+	icon?: Component<any>;
+	/** Richer bubble content — inline elements only, it renders in a <span>. */
+	children?: Snippet;
 } = $props();
 
 let open = $state(false);
@@ -43,11 +53,20 @@ function onKeydown(event: KeyboardEvent) {
 		onblur={hide}
 		onkeydown={onKeydown}
 	>
-		<Info size={size} strokeWidth={2.1} aria-hidden="true" />
+		<Icon size={size} strokeWidth={2.1} aria-hidden="true" />
 	</button>
 	{#if open}
-		<span id={tooltipId} role="tooltip" class="info-tooltip-bubble">
-			{text}
+		<span
+			id={tooltipId}
+			role="tooltip"
+			class="info-tooltip-bubble"
+			class:info-tooltip-bubble--rich={children}
+		>
+			{#if children}
+				{@render children()}
+			{:else}
+				{text}
+			{/if}
 		</span>
 	{/if}
 </span>
@@ -79,6 +98,18 @@ function onKeydown(event: KeyboardEvent) {
 		white-space: normal;
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 		pointer-events: none;
+	}
+
+	/* A bubble drawing its own rows rather than a sentence: a little wider,
+	   a block flow so those rows stack, and anchored to the trigger's left
+	   edge — a wide bubble centred on a trigger near the left of a card hangs
+	   off the side of the page on a phone. */
+	.info-tooltip-bubble--rich {
+		display: block;
+		left: 0;
+		transform: none;
+		max-width: min(18rem, 80vw);
+		padding: 0.65rem 0.75rem;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

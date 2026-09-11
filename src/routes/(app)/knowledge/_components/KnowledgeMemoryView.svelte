@@ -224,6 +224,26 @@ function processingReasonLabel(reason: MemoryDirtyReason): string {
 	return $t(key ?? "memoryProfile.processingReasonFallback");
 }
 
+// The one short line the pill prints, and the head of its tooltip.
+let processingLine = $derived(
+	!processing?.active
+		? ""
+		: processing.pendingCount > 1
+			? $t("memoryProfile.processingNoticeCount", {
+					count: processing.pendingCount,
+				})
+			: $t("memoryProfile.processingNotice"),
+);
+
+let processingDetailOpen = $state(false);
+
+function handleProcessingKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape" && processingDetailOpen) {
+		event.stopPropagation();
+		processingDetailOpen = false;
+	}
+}
+
 function processingOperationKey(operation: {
 	reason: MemoryDirtyReason;
 	scope: MemoryProfileScope;
@@ -474,40 +494,60 @@ $effect(() => {
 			<span class="memory-profile-active">
 				{$t("memoryProfile.activeChip", { count: activeItemCount })}
 			</span>
-			<span class="memory-profile-spacer"></span>
 			{#if processing?.active}
-				<div class="memory-processing-notice" role="status" aria-live="polite">
-					<div class="memory-processing-line">
-						<Spinner class="shrink-0" size={13} />
-						<span>
-							{processing.pendingCount > 1
-								? $t("memoryProfile.processingNoticeCount", {
-										count: processing.pendingCount,
-									})
-								: $t("memoryProfile.processingNotice")}
+				<!-- Inline, on the eyebrow line, and no taller than the chip
+				     beside it — so the head is the same one line high whether or
+				     not this is here, and the cards below never move when
+				     processing starts or finishes. The per-operation detail that
+				     used to push the rail down is a tooltip now, absolutely
+				     positioned, costing the layout nothing either. -->
+				<span class="memory-processing" role="status" aria-live="polite">
+					<button
+						type="button"
+						class="memory-processing-pill"
+						aria-describedby={processingDetailOpen
+							? "memory-processing-detail"
+							: undefined}
+						aria-expanded={processingDetailOpen}
+						data-testid="memory-processing-pill"
+						onmouseenter={() => (processingDetailOpen = true)}
+						onmouseleave={() => (processingDetailOpen = false)}
+						onfocus={() => (processingDetailOpen = true)}
+						onblur={() => (processingDetailOpen = false)}
+						onkeydown={handleProcessingKeydown}
+					>
+						<Spinner class="shrink-0" size={11} />
+						<span class="memory-processing-text">{processingLine}</span>
+					</button>
+					{#if processingDetailOpen}
+						<span
+							id="memory-processing-detail"
+							role="tooltip"
+							class="memory-processing-detail"
+						>
+							<span class="memory-processing-detail-head">{processingLine}</span>
+							{#if processing.operations && processing.operations.length > 0}
+								{#each processing.operations as operation (processingOperationKey(operation))}
+									<span class="memory-processing-detail-item">
+										{processingReasonLabel(operation.reason)}
+										{#if operation.scope.type === "project"}
+											<span> · {$t("memoryProfile.processingReasonProjectHint")}</span>
+										{/if}
+										{#if operation.count > 1}
+											<span>
+												· {$t("memoryProfile.processingReasonCount", {
+													count: operation.count,
+												})}
+											</span>
+										{/if}
+									</span>
+								{/each}
+							{/if}
 						</span>
-					</div>
-					{#if processing.operations && processing.operations.length > 0}
-						<ul class="memory-processing-list">
-							{#each processing.operations as operation (processingOperationKey(operation))}
-								<li>
-									{processingReasonLabel(operation.reason)}
-									{#if operation.scope.type === "project"}
-										<span> · {$t("memoryProfile.processingReasonProjectHint")}</span>
-									{/if}
-									{#if operation.count > 1}
-										<span>
-											· {$t("memoryProfile.processingReasonCount", {
-												count: operation.count,
-											})}
-										</span>
-									{/if}
-								</li>
-							{/each}
-						</ul>
 					{/if}
-				</div>
+				</span>
 			{/if}
+			<span class="memory-profile-spacer"></span>
 		</div>
 
 		<div class="memory-profile-layout">
@@ -572,11 +612,12 @@ $effect(() => {
 										{#if item.canAccept}
 											<button
 												type="button"
-												class="btn-icon-bare memory-review-accept h-7 w-7 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50"
+												class="btn-primary memory-review-accept h-7 w-7 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50"
 												onclick={() => useReviewItem(item)}
 												disabled={pendingActionKey === actionKey(item.id, "accept")}
-												aria-label={$t("memoryProfile.rememberThisItem")}
-												title={$t("memoryProfile.remember")}
+												aria-label={$t("memoryProfile.accept")}
+												title={$t("memoryProfile.accept")}
+												data-testid="memory-review-accept"
 											>
 												{#if pendingActionKey === actionKey(item.id, "accept")}
 													<Spinner size={13} />
@@ -686,11 +727,11 @@ $effect(() => {
 								{#if item.canAccept}
 									<button
 										type="button"
-										class="btn-icon-bare btn-icon-sm memory-review-accept h-11 w-11 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50"
+										class="btn-primary btn-icon-sm memory-review-accept h-11 w-11 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50"
 										onclick={() => useReviewItem(item)}
 										disabled={pendingActionKey === actionKey(item.id, "accept")}
-										aria-label={$t("memoryProfile.rememberThisItem")}
-										title={$t("memoryProfile.remember")}
+										aria-label={$t("memoryProfile.accept")}
+										title={$t("memoryProfile.accept")}
 									>
 										{#if pendingActionKey === actionKey(item.id, "accept")}
 											<Spinner size={17} />
@@ -817,15 +858,22 @@ $effect(() => {
 
 <style>
 	/* ---- the page's own head row -------------------------------------- */
+	/* One line, always: `nowrap` plus a min-height equal to the tallest thing
+	   on it (the 1.4rem active chip, which the processing pill matches). The
+	   pill can therefore appear and disappear without the head growing a
+	   second row and shunting every card below it down. */
 	.memory-profile-head {
 		display: flex;
-		flex-wrap: wrap;
-		align-items: baseline;
+		flex-wrap: nowrap;
+		align-items: center;
 		gap: 0.5rem 0.6rem;
+		min-height: 1.4rem;
 		margin-bottom: 0.75rem;
 	}
 
 	.memory-profile-eyebrow {
+		flex: 0 0 auto;
+		white-space: nowrap;
 		margin: 0;
 		font-family: var(--font-sans);
 		font-size: 0.66rem;
@@ -837,6 +885,7 @@ $effect(() => {
 
 	.memory-profile-active {
 		display: inline-flex;
+		flex: 0 0 auto;
 		align-items: center;
 		height: 1.4rem;
 		padding: 0 0.5rem;
@@ -851,31 +900,94 @@ $effect(() => {
 		flex: 1 1 auto;
 	}
 
-	.memory-processing-notice {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
+	/* The pill and its tooltip. The tooltip is absolutely positioned, so the
+	   detail costs the layout nothing either. */
+	.memory-processing {
+		position: relative;
+		display: inline-flex;
+		flex: 0 1 auto;
+		align-items: center;
 		min-width: 0;
-		font-family: var(--font-sans);
-		font-size: 0.68rem;
-		line-height: 1.4;
-		color: var(--accent);
 	}
 
-	.memory-processing-line {
+	.memory-processing-pill {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.45rem;
+		gap: 0.35rem;
+		height: 1.4rem;
+		max-width: 100%;
+		min-width: 0;
+		min-height: 0;
+		padding: 0 0.5rem;
+		border: 1px solid
+			color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
+		border-radius: var(--radius-full);
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated) 92%);
+		color: var(--accent);
+		font-family: var(--font-sans);
+		font-size: 0.66rem;
+		line-height: 1;
+		cursor: help;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
-	.memory-processing-list {
-		margin: 0 0 0 1.4rem;
-		padding: 0;
-		list-style: disc;
-		font-family: var(--font-sans);
-		font-size: 0.68rem;
-		line-height: 1.5;
+	.memory-processing-pill:hover,
+	.memory-processing-pill:focus-visible {
+		background: color-mix(in srgb, var(--accent) 15%, var(--surface-elevated) 85%);
+		border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+	}
+
+	.memory-processing-pill:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.memory-processing-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.memory-processing-detail {
+		position: absolute;
+		top: calc(100% + 0.4rem);
+		left: 0;
+		z-index: 60;
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		width: max-content;
+		max-width: min(18rem, 78vw);
+		padding: 0.5rem 0.65rem;
+		border: 1px solid var(--border-default);
+		border-radius: 0.5rem;
+		background: var(--surface-overlay);
 		color: var(--text-muted);
+		font-family: var(--font-sans);
+		font-size: 0.7rem;
+		line-height: 1.45;
+		text-align: left;
+		white-space: normal;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+		pointer-events: none;
+	}
+
+	.memory-processing-detail-head {
+		color: var(--text-primary);
+		font-weight: 500;
+	}
+
+	.memory-processing-detail-item {
+		padding-left: 0.7rem;
+		text-indent: -0.7rem;
+	}
+
+	.memory-processing-detail-item::before {
+		content: "· ";
 	}
 
 	/* ---- portrait + rail ---------------------------------------------- */
@@ -1043,12 +1155,26 @@ $effect(() => {
 		background: color-mix(in srgb, var(--text-primary) 8%, transparent 92%);
 	}
 
-	/* Mixed against the card's surface rather than against transparency: the
-	   card is ALREADY a 5% accent wash, so a 12% tint over it was a 7% step
-	   and the button disappeared into the thing it sits on. */
-	.memory-review-accept {
+	/* Accept is the app's `.btn-primary`, squeezed into the 28px box the rail
+	   can afford. It carries the primary tint and its hover step from
+	   app.css; only the geometry is local. Mixed against the card's surface
+	   rather than against transparency: the card is ALREADY a 5% accent wash,
+	   so a flat 12% tint over it was a 7% step and the button disappeared
+	   into the thing it sits on. */
+	.memory-card-actions .memory-review-accept,
+	.memory-card-actions .memory-remove {
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
+	}
+
+	.memory-card-actions .memory-review-accept {
+		min-width: 1.75rem;
+		min-height: 1.75rem;
+		padding: 0;
 		background: color-mix(in srgb, var(--accent) 20%, var(--surface-elevated));
-		border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+		border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
 		color: var(--accent);
 	}
 
@@ -1056,6 +1182,16 @@ $effect(() => {
 		background: color-mix(in srgb, var(--accent) 30%, var(--surface-elevated));
 		border-color: color-mix(in srgb, var(--accent) 62%, transparent);
 		color: var(--accent);
+	}
+
+	/* app.css pushes every `.btn-primary` to 48px on a phone. Accept sits in a
+	   row with two 44px icon buttons, so it takes their size, not the
+	   full-width-button size that rule was written for. */
+	@media (max-width: 767px) {
+		.memory-card-actions .memory-review-accept {
+			min-width: 2.75rem !important;
+			min-height: 2.75rem !important;
+		}
 	}
 
 	.memory-card-actions .memory-remove:hover:not(:disabled) {
@@ -1066,6 +1202,7 @@ $effect(() => {
 
 	@media (prefers-reduced-motion: reduce) {
 		.memory-review-card,
+		.memory-processing-pill,
 		.memory-card-actions .btn-icon-bare {
 			transition: none !important;
 		}

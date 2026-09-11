@@ -277,12 +277,15 @@ const noMatchesAnywhere = $derived(
 		background: color-mix(in srgb, var(--text-primary) 10%, transparent 90%);
 	}
 
+	/* Left-aligned, like every other row of controls on the page. Pushed to
+	   the right edge they read as a stray cluster floating away from the
+	   filter box they belong to. */
 	.memory-filter-chips {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.35rem;
 		flex: 1 1 auto;
-		justify-content: flex-end;
+		justify-content: flex-start;
 		min-width: 0;
 	}
 
@@ -310,10 +313,14 @@ const noMatchesAnywhere = $derived(
 	}
 
 	/* A chip that does nothing on hover is indistinguishable from the label it
-	   looks like. The fill is the same 12% step the buttons take. */
+	   looks like. The fill is the same 12% step the buttons take — and it
+	   carries the chip's own pill radius, restated here so the fill can never
+	   be painted as a rectangle over a pill (see
+	   hover-affordances.regression.test.ts). */
 	.memory-chip-button:hover,
 	.memory-chip-button:focus-visible {
 		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+		border-radius: var(--radius-full);
 		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated) 92%);
 		color: var(--accent);
 	}
@@ -331,6 +338,7 @@ const noMatchesAnywhere = $derived(
 
 	.memory-chip-button.is-active:hover {
 		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+		border-radius: var(--radius-full);
 		background: color-mix(in srgb, var(--accent) 18%, var(--surface-elevated) 82%);
 	}
 
@@ -357,10 +365,6 @@ const noMatchesAnywhere = $derived(
 	}
 
 	@media (max-width: 720px) {
-		.memory-filter-chips {
-			justify-content: flex-start;
-		}
-
 		.memory-filter-input {
 			max-width: 100%;
 		}

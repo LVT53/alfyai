@@ -810,9 +810,7 @@ describe("KnowledgeMemoryView", () => {
 		const onAction = vi.fn();
 		renderMemoryView({ onAction });
 
-		await fireEvent.click(
-			screen.getAllByRole("button", { name: "Remember this item" })[0],
-		);
+		await fireEvent.click(screen.getAllByRole("button", { name: "Accept" })[0]);
 		expect(onAction).toHaveBeenCalledWith({
 			target: "review_item",
 			action: "accept",
@@ -912,7 +910,7 @@ describe("KnowledgeMemoryView", () => {
 			.getByRole("heading", { name: "Needs Review" })
 			.closest("section");
 		expect(
-			screen.queryByRole("button", { name: "Remember this item" }),
+			screen.queryByRole("button", { name: "Accept" }),
 		).not.toBeInTheDocument();
 		expect(
 			within(reviewSection as HTMLElement).getByRole("button", {
@@ -1275,7 +1273,7 @@ describe("KnowledgeMemoryView", () => {
 		expect(screen.queryByRole("list")).not.toBeInTheDocument();
 	});
 
-	it("renders a friendly per-reason line with a count for each processing operation", () => {
+	it("renders a friendly per-reason line with a count for each processing operation", async () => {
 		renderMemoryView({
 			processing: {
 				active: true,
@@ -1295,21 +1293,72 @@ describe("KnowledgeMemoryView", () => {
 			},
 		});
 
+		// The pill on the eyebrow line prints one short line; the per-reason
+		// detail is behind its tooltip, so it can never push the cards below
+		// it down the page.
 		const notice = screen.getByRole("status");
 		expect(
-			within(notice).getByText(
+			within(notice).getByText(/2 updates in progress/i),
+		).toBeInTheDocument();
+		expect(
+			within(notice).queryByText(
+				/Reviewing new details from your recent conversations/i,
+			),
+		).not.toBeInTheDocument();
+
+		await fireEvent.focus(screen.getByTestId("memory-processing-pill"));
+
+		const detail = screen.getByRole("tooltip");
+		expect(
+			within(detail).getByText(
 				/Reviewing new details from your recent conversations/i,
 			),
 		).toBeInTheDocument();
-		expect(within(notice).getByText(/3 items/i)).toBeInTheDocument();
+		expect(within(detail).getByText(/3 items/i)).toBeInTheDocument();
 		expect(
-			within(notice).getByText(/Resolving a possible conflict/i),
+			within(detail).getByText(/Resolving a possible conflict/i),
 		).toBeInTheDocument();
 		// Project-scoped operation gets a scope hint; a count of 1 shouldn't
 		// render a redundant "1 items" suffix.
-		expect(within(notice).getByText(/for this project/i)).toBeInTheDocument();
-		expect(within(notice).queryByText(/1 items/i)).not.toBeInTheDocument();
-		expect(within(notice).getByRole("list")).toBeInTheDocument();
+		expect(within(detail).getByText(/for this project/i)).toBeInTheDocument();
+		expect(within(detail).queryByText(/1 items/i)).not.toBeInTheDocument();
+		expect(
+			detail.querySelectorAll(".memory-processing-detail-item"),
+		).toHaveLength(2);
+	});
+
+	it("keeps the head one line high whether or not the pill is there", () => {
+		const { container, rerender } = renderMemoryView({
+			processing: { active: false, pendingCount: 0 },
+		});
+		const head = container.querySelector(".memory-profile-head");
+		expect(head).not.toBeNull();
+		expect(head?.querySelector(".memory-processing")).toBeNull();
+
+		rerender({
+			profile,
+			memoryLoading: false,
+			memoryLoaded: true,
+			memoryLoadError: "",
+			pendingActionKey: null,
+			actionError: "",
+			onRetryLoadMemory: vi.fn(),
+			onAction: vi.fn(),
+			processing: {
+				active: true,
+				pendingCount: 1,
+				operations: [
+					{ reason: "deferred_intake", scope: { type: "global" }, count: 1 },
+				],
+			},
+		});
+
+		// Same head, one extra inline child on the same line — and the detail
+		// that used to sit under it is not in the document at all until asked
+		// for.
+		expect(container.querySelector(".memory-profile-head")).toBe(head);
+		expect(head?.querySelector(".memory-processing")).not.toBeNull();
+		expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 	});
 
 	it("does not render raw fact text for processing operations — only reason/scope/count-derived copy", () => {
