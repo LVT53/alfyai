@@ -22,6 +22,7 @@ import {
 	conversationTaskStates,
 	conversationWorkingSetItems,
 	fileProductionJobs,
+	homeSuggestionEvents,
 	importJobs,
 	memoryConsolidationReports,
 	memoryDirtyLedger,
@@ -383,6 +384,15 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "connection_pending_writes",
 		table: connectionPendingWrites,
 		userColumn: connectionPendingWrites.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	{
+		// Which home-screen suggestions a person used or dismissed in the last
+		// seven days: nothing but demotion state, gone with the account.
+		name: "home_suggestion_events",
+		table: homeSuggestionEvents,
+		userColumn: homeSuggestionEvents.userId,
 		erasure: "cascade",
 		resets: [],
 	},
