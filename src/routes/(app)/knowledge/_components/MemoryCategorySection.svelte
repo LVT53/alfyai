@@ -1,8 +1,9 @@
 <script lang="ts">
 // One memory category: its own total, how much of it is on screen, and a
 // single disclosure row at the bottom. Opening a category expands it IN PLACE
-// — the other sections stay where they were, and the header is pinned to the
-// same viewport position across the toggle, so you never lose your position.
+// — the rows grow below this section's own heading, so the heading does not
+// move and the sections above it do not either. That, and nothing else, is
+// what keeps the reader where they were; see toggleKeepingPosition below.
 import { slide } from "svelte/transition";
 import type { MemoryProfilePublicItem } from "$lib/memory-profile-types";
 import type { I18nKey } from "$lib/i18n";
@@ -44,8 +45,6 @@ let {
 	onEditItem: (item: MemoryProfilePublicItem) => void;
 	onRemoveItem: (item: MemoryProfilePublicItem) => void;
 } = $props();
-
-let sectionEl = $state<HTMLElement | null>(null);
 
 const headingId = $derived(`memory-category-${view.category}`);
 const label = $derived($t(labelKey));
@@ -94,7 +93,6 @@ function toggleKeepingPosition() {
 </script>
 
 <section
-	bind:this={sectionEl}
 	class="memory-section"
 	aria-labelledby={headingId}
 	data-category={view.category}
