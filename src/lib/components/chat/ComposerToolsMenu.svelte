@@ -440,7 +440,7 @@ onMount(() => {
 				use:registerRow={row.id}
 				data-testid="composer-menu-attach"
 				disabled={!canAttach}
-				title={attachmentsEnabled ? $t('composerTools.attachFileMaxSize') : $t('composerTools.uploadsUnavailable')}
+				title={attachmentsEnabled ? $t('composerTools.attachFileMaxSize', { max: maxUploadMb }) : $t('composerTools.uploadsUnavailable')}
 				onfocus={() => (focusedIndex = index)}
 				onclick={handleAttach}
 			>
@@ -670,6 +670,7 @@ onMount(() => {
 					onOpenChange={(open) => activeDropdown = open ? 'model' : null}
 					onSelect={selectModel}
 					onTriggerRef={(element) => bindRowElement('model', element)}
+					ownsScrim={!isPhone}
 				/>
 			</div>
 
@@ -1096,6 +1097,18 @@ onMount(() => {
 	.model-selector__option--selected {
 		background: color-mix(in srgb, var(--accent) 18%, transparent);
 		font-weight: 500;
+	}
+
+	/* "Nothing you tap here is smaller than 44px" — the Style rows are the
+	   last list in this menu that was still drawn at desktop density, which
+	   on a phone put three ~26px targets inside a sheet whose every other
+	   row is 44. */
+	.tools-menu--sheet .model-selector__option {
+		display: flex;
+		align-items: center;
+		min-height: 44px;
+		padding: 0.5rem 0.75rem;
+		font-size: var(--text-sm);
 	}
 
 	/* ── The Atlas profile picker ── */

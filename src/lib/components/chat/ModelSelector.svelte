@@ -43,11 +43,26 @@ let {
 	// and the Model row's focusable element lives in here, so the menu has to
 	// be able to reach it. Nothing else uses this; the default is a no-op.
 	onTriggerRef = undefined,
+	// Whether this picker paints the dimmed page behind its phone sheet.
+	//
+	// One scrim per screen, not one per sheet. `--scrim` is a single value
+	// precisely so two surfaces cannot disagree about how dark "dimmed" is —
+	// and two of them laid over each other disagree with BOTH of them: 0.32
+	// over 0.32 reads as 0.54, and the sheet the picker was opened FROM goes
+	// dark behind it, which is the one thing the board says must not happen
+	// ("the thing they were anchored to stays visible above the scrim").
+	//
+	// So a surface that already owns a scrim — the "+" menu's sheet, which is
+	// the only place this component is rendered — says so, and the picker
+	// stacks above that scrim instead of adding a second one. Default true so
+	// the component is still self-sufficient anywhere else.
+	ownsScrim = true,
 }: {
 	onSelect?: (payload: { modelId: ModelId }) => void;
 	open?: boolean | undefined;
 	onOpenChange?: ((open: boolean) => void) | undefined;
 	onTriggerRef?: ((element: HTMLButtonElement | null) => void) | undefined;
+	ownsScrim?: boolean;
 } = $props();
 
 let providers: ModelProvider[] = $state([]);
@@ -455,7 +470,7 @@ function autoExpandProviders() {
 			data-testid="model-selector-trigger"
 		>
 			{#if isLoading}
-				<span class="model-selector__text">Loading...</span>
+				<span class="model-selector__text">{$t('modelSelector.loading')}</span>
 			{:else if activeProvider}
 				{@const active = activeProvider}
 				<ModelIcon
@@ -465,7 +480,7 @@ function autoExpandProviders() {
 				/>
 				<span class="model-selector__text">{active.model.displayName}</span>
 			{:else}
-				<span class="model-selector__text">Select model</span>
+				<span class="model-selector__text">{$t('modelSelector.selectModel')}</span>
 			{/if}
 			<span class={`model-selector__chevron${isOpen ? ' model-selector__chevron--open' : ''}`}>
 				<ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
@@ -483,8 +498,9 @@ function autoExpandProviders() {
 		</button>
 	</div>
 
-	{#if isOpen && providers.length > 0 && isMobile}
-		<!-- The sheet's second dismissal: a tap on the dimmed page. -->
+	{#if isOpen && providers.length > 0 && isMobile && ownsScrim}
+		<!-- The sheet's second dismissal: a tap on the dimmed page. Drawn only
+		     when nothing else already dimmed it — see `ownsScrim`. -->
 		<button
 			type="button"
 			class="model-selector__scrim"

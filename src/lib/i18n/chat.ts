@@ -432,7 +432,7 @@ const chatDict = {
 		"composerTools.atlasUnavailableParallel":
 			"Atlas requires Parallel web search configuration.",
 		"composerTools.attachFile": "Attach file",
-		"composerTools.attachFileMaxSize": "Attach file (max 100MB)",
+		"composerTools.attachFileMaxSize": "Attach file (max {max} MB)",
 		"composerTools.defaultStyle": "AlfyAI",
 		"composerTools.defaultStyleLabel": "Default style",
 		"composerTools.menu": "Composer tools",
@@ -807,6 +807,7 @@ const chatDict = {
 		"modelSelector.guideTitle": "Model guide",
 		"modelSelector.largeContext": "Large context",
 		"modelSelector.massiveContext": "Massive context",
+		"modelSelector.loading": "Loading…",
 		"modelSelector.openGuide": "Open model guide",
 		"modelSelector.privacyPolicy": "Provider privacy policy",
 		"modelSelector.processingRegion": "Processing region: {region}",
@@ -1400,7 +1401,7 @@ const chatDict = {
 		"composerTools.atlasUnavailableParallel":
 			"Az Atlas indításához Parallel webes keresési beállítás szükséges.",
 		"composerTools.attachFile": "Fájl csatolása",
-		"composerTools.attachFileMaxSize": "Fájl csatolása (max. 100 MB)",
+		"composerTools.attachFileMaxSize": "Fájl csatolása (max. {max} MB)",
 		"composerTools.defaultStyle": "AlfyAI",
 		"composerTools.defaultStyleLabel": "Alapértelmezett stílus",
 		"composerTools.menu": "Szerkesztőeszközök",
@@ -1783,6 +1784,7 @@ const chatDict = {
 		"modelSelector.guideTitle": "Modellútmutató",
 		"modelSelector.largeContext": "Nagy kontextus",
 		"modelSelector.massiveContext": "Óriás kontextus",
+		"modelSelector.loading": "Betöltés…",
 		"modelSelector.openGuide": "Modellútmutató megnyitása",
 		"modelSelector.privacyPolicy": "Szolgáltatói adatvédelmi irányelv",
 		"modelSelector.processingRegion": "Adatfeldolgozási régió: {region}",
