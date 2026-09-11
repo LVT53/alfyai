@@ -120,7 +120,18 @@ onMount(() => {
 	aria-label={$t('connections.chat.useMyConnections')}
 >
 	{#if isSheet}
-		<div class="sheet-grip" aria-hidden="true"><span></span></div>
+		<!-- Dismissal #1 of three, and the same grabber every other sheet in
+		     the system draws. It was a decorative div: the one affordance a
+		     sheet advertises as "drag or tap me to put this away" did nothing
+		     at all here, and a screen reader was told to ignore the only
+		     labelled way out. -->
+		<button
+			type="button"
+			class="sheet-grip"
+			data-testid="connections-popover-grabber"
+			aria-label={$t('composerSheet.close')}
+			onclick={onClose}
+		><span></span></button>
 	{/if}
 	<div class="master-row">
 		<div class="master-text">
@@ -251,9 +262,14 @@ onMount(() => {
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		width: calc(100% + 2rem);
 		height: 44px;
 		margin: 0 -1rem 0.25rem;
+		border: 0;
+		padding: 0;
 		background: inherit;
+		cursor: pointer;
+		-webkit-tap-highlight-color: transparent;
 	}
 
 	.sheet-grip span {
@@ -261,6 +277,23 @@ onMount(() => {
 		height: 4px;
 		border-radius: 2px;
 		background: var(--border-default);
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	.sheet-grip:hover span,
+	.sheet-grip:focus-visible span {
+		background: var(--text-muted);
+	}
+
+	.sheet-grip:focus-visible {
+		outline: none;
+		box-shadow: inset 0 0 0 2px var(--focus-ring);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.sheet-grip span {
+			transition: none;
+		}
 	}
 
 	.connections-popover--sheet .account-row,

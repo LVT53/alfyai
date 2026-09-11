@@ -244,6 +244,36 @@ describe("phone presentation", () => {
 		}
 	});
 
+	// The grabber is the affordance a sheet uses to advertise "put me away",
+	// and on this one it was a decorative div: every other sheet in the
+	// system (DialogShell, the "+" menu, the model picker) draws it as a
+	// labelled button that closes. Tapping it here did nothing at all, and a
+	// screen reader was told to skip the only labelled way out.
+	it("closes from the grabber, like every other sheet", async () => {
+		const original = window.matchMedia;
+		window.matchMedia = ((query: string) =>
+			({
+				matches: query.includes("max-width: 640px"),
+				media: query,
+				onchange: null,
+				addListener: () => {},
+				removeListener: () => {},
+				addEventListener: () => {},
+				removeEventListener: () => {},
+				dispatchEvent: () => false,
+			}) as MediaQueryList) as typeof window.matchMedia;
+		try {
+			const onClose = vi.fn();
+			render(ConnectionsPopover, baseProps({ onClose }));
+			const grabber = screen.getByTestId("connections-popover-grabber");
+			expect(grabber.tagName).toBe("BUTTON");
+			await fireEvent.click(grabber);
+			expect(onClose).toHaveBeenCalled();
+		} finally {
+			window.matchMedia = original;
+		}
+	});
+
 	it("stays an anchored popover on a wide viewport", () => {
 		render(ConnectionsPopover, {
 			props: {
