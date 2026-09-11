@@ -59,7 +59,8 @@ import {
 	isPhoneViewport,
 	watchPhoneViewport,
 } from "$lib/utils/viewport.svelte";
-import { fly } from "svelte/transition";
+import { portalToBody } from "$lib/utils/portal";
+import { fade, fly } from "svelte/transition";
 import type { ModelId } from "$lib/model-types";
 import type {
 	AtlasAvailability,
@@ -153,6 +154,7 @@ const rowElements = new Map<string, HTMLButtonElement>();
 // frame reads as a glitch. Wrapped so it is instant under reduced motion,
 // which the CSS override alone cannot reach for a Svelte transition.
 const menuFly = reducedMotionAware(fly);
+const scrimFade = reducedMotionAware(fade);
 
 let styleOpen = $derived(activeDropdown === "style");
 let atlasOpen = $derived(activeDropdown === "atlas");
@@ -244,14 +246,28 @@ function selectAtlasProfile(profile: AtlasProfile) {
 	closeMenu();
 }
 
-function isModelGuideTarget(target: EventTarget | null): boolean {
+// Parts of this menu that are moved to <body> on a phone so their
+// `position: fixed` means the viewport (see utils/portal). Once moved they
+// are no longer inside `root`, so the outside-click handler would read a tap
+// on an Atlas profile card or a model row as "somewhere else" and close the
+// menu out from under it — before the click that would have chosen anything
+// ever landed. The model guide's backdrop is here for the same reason: it is
+// rendered at the top level by ModelSelector.
+const OWN_OVERLAY_SELECTOR = [
+	".model-guide-backdrop",
+	".atlas-profile-picker",
+	".model-selector__dropdown",
+	".model-selector__scrim",
+].join(",");
+
+function isOwnOverlayTarget(target: EventTarget | null): boolean {
 	const element =
 		target instanceof Element
 			? target
 			: target instanceof Node
 				? target.parentElement
 				: null;
-	return Boolean(element?.closest(".model-guide-backdrop"));
+	return Boolean(element?.closest(OWN_OVERLAY_SELECTOR));
 }
 
 function registerRow(node: HTMLButtonElement, id: string) {
@@ -313,7 +329,7 @@ onMount(() => {
 	});
 
 	const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-		if (isModelGuideTarget(event.target)) return;
+		if (isOwnOverlayTarget(event.target)) return;
 		if (root && !root.contains(event.target as Node)) {
 			activeDropdown = null;
 			onClose?.();
@@ -370,6 +386,21 @@ onMount(() => {
 	</div>
 {/snippet}
 
+{#if isPhone}
+	<!-- "The thing they were anchored to stays visible above the scrim" —
+	     the board's rule for every sheet. It also gives the sheet the same
+	     way out as the rest of the system: tap the page. -->
+	<button
+		type="button"
+		class="tools-menu__scrim"
+		data-testid="composer-tools-menu-scrim"
+		aria-label={$t('composerSheet.close')}
+		use:portalToBody
+		transition:scrimFade={{ duration: 200 }}
+		onclick={closeMenu}
+	></button>
+{/if}
+
 <div
 	bind:this={root}
 	class="tools-menu"
@@ -378,6 +409,7 @@ onMount(() => {
 	role="menu"
 	tabindex="-1"
 	aria-label={$t('composerMenu.label')}
+	use:portalToBody={isPhone}
 	onkeydown={handleMenuKeydown}
 	transition:menuFly={isPhone
 		? { duration: 250, y: 260, opacity: 1 }
@@ -474,6 +506,7 @@ onMount(() => {
 					<section
 						class="atlas-profile-picker"
 						class:atlas-profile-picker--sheet={isPhone}
+						use:portalToBody={isPhone}
 						transition:menuFly={isPhone ? { duration: 250, y: 220, opacity: 1 } : { duration: 150, y: 4 }}
 						aria-label={$t('composerTools.atlasProfileTitle')}
 					>
@@ -732,6 +765,22 @@ onMount(() => {
 		border-bottom: 0;
 		padding: 0 0.5rem calc(0.5rem + env(safe-area-inset-bottom));
 		z-index: 60;
+	}
+
+	/* Sits under the sheet (z 60) and the Atlas sub-sheet (z 70) but over the
+	   composer, so the message you were writing is still legible behind it. */
+	.tools-menu__scrim {
+		position: fixed;
+		inset: 0;
+		z-index: 59;
+		border: 0;
+		padding: 0;
+		background: rgba(0, 0, 0, 0.32);
+		cursor: default;
+	}
+
+	:global(.dark) .tools-menu__scrim {
+		background: rgba(0, 0, 0, 0.55);
 	}
 
 	.tools-menu__grabber {

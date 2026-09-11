@@ -69,6 +69,7 @@ import {
 	resolveDialogPresentation,
 	watchPhoneViewport,
 } from "$lib/utils/viewport.svelte";
+import { portalToBody } from "$lib/utils/portal";
 
 let {
 	title,
@@ -293,6 +294,7 @@ onDestroy(() => {
 <div
   class={`fixed inset-0 ${zIndexClass} flex justify-center ${isSheet ? 'items-end p-0' : 'items-center'} ${isSheet ? '' : fullScreen ? 'p-0 sm:p-lg' : 'p-md'}`}
   data-presentation={presentation}
+  use:portalToBody
   transition:backdropFade={{ duration: 150 }}
   style={isSheet
     ? 'padding: 0;'

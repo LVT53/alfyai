@@ -45,6 +45,7 @@ import {
 } from "$lib/utils/viewport.svelte";
 import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
+import { portalToBody } from "$lib/utils/portal";
 
 // The action sheet slides up AND back down, and collapses to an instant
 // appearance under prefers-reduced-motion — which the app-wide CSS override
@@ -727,6 +728,7 @@ function handleTabKeydown(event: KeyboardEvent) {
 		type="button"
 		class="atlas-sheet-scrim"
 		aria-label={$t('common.close')}
+		use:portalToBody
 		transition:scrimFade={{ duration: 200 }}
 		onclick={() => (downloadMenuOpen = false)}
 	></button>
@@ -735,6 +737,7 @@ function handleTabKeydown(event: KeyboardEvent) {
 		role="menu"
 		aria-label={$t('atlasDownload.title')}
 		data-testid="atlas-download-sheet"
+		use:portalToBody
 		transition:sheetFly={{ duration: 250, y: 280, opacity: 1 }}
 	>
 		<button

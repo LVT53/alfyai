@@ -24,6 +24,7 @@ import {
 } from "$lib/utils/viewport.svelte";
 import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
+import { portalToBody } from "$lib/utils/portal";
 
 // The phone sheet slides up AND back down. A CSS `animation` can only play
 // on the way in — the element is removed outright on the way out, which is
@@ -472,6 +473,7 @@ function autoExpandProviders() {
 			type="button"
 			class="model-selector__scrim"
 			aria-label={$t('common.close')}
+			use:portalToBody
 			transition:scrimFade={{ duration: 200 }}
 			onclick={cancelSheet}
 		></button>
@@ -484,6 +486,7 @@ function autoExpandProviders() {
 			class:model-selector__dropdown--mobile={isMobile}
 			class:model-selector__dropdown--below={!isMobile && dropdownPosition.placement === 'bottom'}
 			style={isMobile ? undefined : dropdownStyle}
+			use:portalToBody={isMobile}
 			transition:sheetFly={dropdownTransitionParams}
 			role="listbox"
 			aria-label={$t('modelSelector.availableModels')}

@@ -66,6 +66,7 @@ import {
 	viewportStore,
 	watchPhoneViewport,
 } from "$lib/utils/viewport.svelte";
+import { portalToBody } from "$lib/utils/portal";
 import {
 	clearComposerQuoteRequest,
 	composerQuoteRequest,
@@ -322,6 +323,7 @@ let attachmentSheetOpen = $state(false);
 let skillsPickerOpen = $state(false);
 let skillCount = $state<number | null>(null);
 let isPhone = $state(isPhoneViewport());
+let commandTrayElement = $state<HTMLDivElement | undefined>(undefined);
 let longPressLabel = $state<string | null>(null);
 let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 let commandToken = $state<
@@ -2121,6 +2123,13 @@ function closeCommandTrayOnOutsideInteraction(node: HTMLElement) {
 		if (!showCommandTray) return;
 		const target = event.target;
 		if (target instanceof Node && node.contains(target)) return;
+		// On a phone the tray is moved to <body> so its `position: fixed`
+		// means the viewport, which puts it outside this node — without this
+		// every tap on a command row would dismiss the tray before the click
+		// that chooses the command ever landed.
+		if (target instanceof Node && commandTrayElement?.contains(target)) {
+			return;
+		}
 		dismissCommandTray();
 	}
 
@@ -2459,11 +2468,14 @@ async function emitDraftChange(force = false) {
 <div class="composer-root relative flex w-full flex-col" use:closeCommandTrayOnOutsideInteraction>
 	{#if showCommandTray}
 		<div
+			bind:this={commandTrayElement}
 			class="command-tray"
+			class:command-tray--phone={isPhone}
 			role="listbox"
 			aria-label={$t('composerCommands.trayLabel')}
 			id="composer-command-tray"
 			data-state={commandTrayClosing ? 'closing' : 'open'}
+			use:portalToBody={isPhone}
 			onanimationend={handleCommandTrayAnimationEnd}
 		>
 			{#if visibleCommandTrayRows.length > 0}
@@ -3187,6 +3199,35 @@ async function emitDraftChange(force = false) {
 		animation: commandTrayOut 150ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 	}
 
+	/* Phone: the tray leaves the composer's flow and pins itself above the
+	   bar. It is also the exact set of rules that needs the portal — a
+	   `position: fixed` element inside the landing page's translated
+	   composer is fixed to the composer, not the viewport — so the class and
+	   `use:portalToBody` are driven by the same `isPhone`, and cannot drift
+	   apart the way a second breakpoint in a media query did. */
+	.command-tray--phone {
+		position: fixed;
+		left: max(0.75rem, env(safe-area-inset-left));
+		right: max(0.75rem, env(safe-area-inset-right));
+		bottom: calc(10.5rem + env(safe-area-inset-bottom));
+		width: auto;
+		max-height: min(18rem, 40vh);
+		border-radius: 1rem;
+		transform: translateY(0);
+		animation: commandTrayMobileIn 150ms cubic-bezier(0.22, 1, 0.36, 1);
+	}
+
+	.command-tray--phone[data-state="closing"] {
+		animation: commandTrayMobileOut 150ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.command-tray--phone,
+		.command-tray--phone[data-state="closing"] {
+			animation: none;
+		}
+	}
+
 	:global(.dark) .command-tray {
 		background: color-mix(in srgb, var(--surface-page) 90%, #000 10%);
 		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
@@ -3652,22 +3693,6 @@ async function emitDraftChange(force = false) {
 			animation: none;
 			opacity: 1;
 			transform: none;
-		}
-
-		.command-tray {
-			position: fixed;
-			left: max(0.75rem, env(safe-area-inset-left));
-			right: max(0.75rem, env(safe-area-inset-right));
-			bottom: calc(10.5rem + env(safe-area-inset-bottom));
-			width: auto;
-			max-height: min(18rem, 40vh);
-			border-radius: 1rem;
-			transform: translateY(0);
-			animation: commandTrayMobileIn 150ms cubic-bezier(0.22, 1, 0.36, 1);
-		}
-
-		.command-tray[data-state="closing"] {
-			animation: commandTrayMobileOut 150ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 		}
 
 		.command-row {
