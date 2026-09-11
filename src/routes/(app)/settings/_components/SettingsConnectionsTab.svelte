@@ -404,6 +404,13 @@ function nameList(capabilities: string[]): string {
 />
 
 <style>
+	/* The rows size their columns against the LIST, not the viewport, so the
+	   same component lays out right in the wide settings shell and in any
+	   narrower host. */
+	.list-card {
+		container-type: inline-size;
+	}
+
 	.settings-group-label {
 		font-size: 0.6875rem;
 		font-weight: 600;

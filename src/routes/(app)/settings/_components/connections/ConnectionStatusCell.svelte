@@ -90,6 +90,14 @@ let {
 	/* Matches ConnectionRow's stacking breakpoint: once the row is one column
 	   per line there is no track to be fixed to, and a 10.5rem cell in a
 	   full-width line would wrap the sentence for no reason. */
+	/* Kept in step with ConnectionRow's wide-list layout. */
+	@container (min-width: 52rem) {
+		.status-cell:not(.compact) {
+			flex-basis: 15.5rem;
+			width: 15.5rem;
+		}
+	}
+
 	@media (max-width: 44rem) {
 		.status-cell:not(.compact) {
 			flex: 1 1 100%;

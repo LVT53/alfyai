@@ -254,6 +254,20 @@ const chips = $derived(capabilityChipsOf(connection));
 	   each on its own line. Kept in step with ConnectionStatusCell's own
 	   breakpoint — the cell must stop being a fixed track at the same width the
 	   row stops having tracks. */
+	/* With room to spare (the wide settings shell), the chips sit under the
+	   name inside the identity column and the status column widens to the
+	   mockup's 15.5rem, so a sentence takes two lines rather than three. */
+	@container (min-width: 52rem) {
+		.connection-row {
+			grid-template-columns: minmax(0, 1fr) 15.5rem 12.5rem;
+			grid-template-areas:
+				"identity status actions"
+				"chips status actions";
+			row-gap: 0.375rem;
+			column-gap: 1rem;
+		}
+	}
+
 	@media (max-width: 44rem) {
 		.connection-row {
 			grid-template-columns: minmax(0, 1fr);

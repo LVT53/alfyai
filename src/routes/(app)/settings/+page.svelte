@@ -974,7 +974,11 @@ $effect(() => {
 </script>
 
 <div class="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto">
-	<div class="settings-shell mx-auto w-full px-4 py-8" class:settings-shell-admin={activeTab === 'administration' && isAdmin}>
+	<div
+		class="settings-shell mx-auto w-full px-4 py-8"
+		class:settings-shell-admin={activeTab === 'administration' && isAdmin}
+		class:settings-shell-wide={activeTab === 'connections'}
+	>
 		<h1 class="mb-6 text-2xl font-semibold text-text-primary">{$t('settings')}</h1>
 
 		{#if settingsTabs.length > 1}
@@ -1354,14 +1358,19 @@ $effect(() => {
 		max-width: 672px;
 	}
 
-	.settings-shell-admin {
+	/* Connections shares the Administration width: its rows carry a fixed
+	   status column and two action buttons, and at 672px every sentence
+	   wrapped to three lines while a 1440px screen sat mostly empty. */
+	.settings-shell-admin,
+	.settings-shell-wide {
 		max-width: 1440px;
 		padding-left: var(--space-lg);
 		padding-right: var(--space-lg);
 	}
 
 	@media (max-width: 768px) {
-		.settings-shell-admin {
+		.settings-shell-admin,
+		.settings-shell-wide {
 			padding-left: var(--space-md);
 			padding-right: var(--space-md);
 		}
