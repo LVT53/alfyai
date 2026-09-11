@@ -1,15 +1,44 @@
 <script lang="ts">
+// ============================================================================
+// The Profile tab, streamlined to one screen (everyday-redesign, board Main +
+// ProfileMobile).
+//
+// What changed about the SHAPE of this screen:
+//
+// 1. ONE IDENTITY CARD, ONE SAVE. Avatar, display name, email and the
+//    password change were three cards with two Save buttons and no shared
+//    state. They are one card with one Save, a Discard beside it and a
+//    "Saved hh:mm" line; the password boxes are explicitly optional, so
+//    saving a name no longer looks like a half-filled form. The rules live
+//    in account-form.ts so they can be read without a DOM.
+// 2. TWO COLUMNS INSTEAD OF FIVE SUB-TABS. The five anchor pills were a
+//    scroll nav over a single 672px column. At the shared 1440px width the
+//    page fits one screen, so on the desktop they are gone and everything
+//    they pointed at is still here. On the phone, where the page really is
+//    one long column, four of them survive as a jump-list — a shortcut,
+//    never a filter.
+// 3. THE THREE IRREVERSIBLE ACTIONS GET THEIR OWN CARD, at the bottom,
+//    instead of sharing a flat list with Privacy policy and Download my
+//    data where only the colour of a 16px icon told them apart.
+//
+// Posture is unchanged: a dumb prop component. Every mutation goes out
+// through a callback and +page.svelte owns the fetches. What it owns here is
+// view state — which full-view overlay is open — because that is not data.
+// ============================================================================
 import { onMount } from "svelte";
 import {
+	AlertTriangle,
+	BookOpen,
+	Check,
 	ChevronLeft,
 	ChevronRight,
-	Download,
-	FileText,
+	ExternalLink,
 	Trash2,
 	Upload,
 } from "@lucide/svelte";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
+import Toggle from "$lib/components/ui/Toggle.svelte";
 import { t } from "$lib/i18n";
 import { prefersReducedMotion } from "$lib/utils/motion";
 import {
@@ -22,6 +51,7 @@ import {
 	getPersonalityProfileDisplayDescription,
 	getPersonalityProfileDisplayName,
 } from "$lib/utils/personality-profile-labels";
+import { formatCompactCount } from "./account-form";
 import PasswordField from "./PasswordField.svelte";
 import UserSkillsSettingsSurface from "./UserSkillsSettingsSurface.svelte";
 import SettingsDataImport from "./SettingsDataImport.svelte";
@@ -50,16 +80,20 @@ let {
 	onRemovePhoto,
 	name = $bindable(""),
 	email = $bindable(""),
-	profileSaving = false,
-	onSaveProfile,
 	currentPassword = $bindable(""),
 	newPassword = $bindable(""),
 	confirmPassword = $bindable(""),
 	showCurrentPw = $bindable(false),
 	showNewPw = $bindable(false),
 	showConfirmPw = $bindable(false),
-	passwordSaving = false,
-	onSavePassword,
+	// One Save for the whole identity card. `accountDirty` is computed by the
+	// page from account-form.ts so the button, the Discard and the "Saved"
+	// line all read the same answer.
+	accountSaving = false,
+	accountDirty = false,
+	savedAtLabel = "",
+	onSaveAccount,
+	onDiscardAccount,
 	availableModels,
 	selectedModel,
 	effectiveModel,
@@ -88,8 +122,9 @@ let {
 	privacyControlsMessage = "",
 	skillsEnabled = false,
 	projects = [],
-	// ADR-0043 slice 18c: 5th "Your Activity" section (personal analytics).
-	// PERSONAL ONLY — the page passes only the personal analytics data path.
+	// ADR-0043 slice 18c: personal analytics. PERSONAL ONLY — the page passes
+	// only the personal analytics data path. The tab now shows a summary card
+	// and opens the full view on demand rather than printing it inline.
 	personalAnalyticsData = null,
 	personalAnalyticsLoading = false,
 	personalAnalyticsError = "",
@@ -110,16 +145,17 @@ let {
 	onRemovePhoto: () => void | Promise<void>;
 	name: string;
 	email: string;
-	profileSaving?: boolean;
-	onSaveProfile: () => void | Promise<void>;
 	currentPassword: string;
 	newPassword: string;
 	confirmPassword: string;
 	showCurrentPw: boolean;
 	showNewPw: boolean;
 	showConfirmPw: boolean;
-	passwordSaving?: boolean;
-	onSavePassword: () => void | Promise<void>;
+	accountSaving?: boolean;
+	accountDirty?: boolean;
+	savedAtLabel?: string;
+	onSaveAccount: () => void | Promise<void>;
+	onDiscardAccount: () => void;
 	availableModels: AvailableModel[];
 	selectedModel: UserModelPreference;
 	effectiveModel: ModelId;
@@ -172,16 +208,20 @@ const systemDefaultModelDisplayName = $derived(
 const explicitModelOptions = $derived(
 	availableModels.filter((model) => model.id !== systemDefaultModel),
 );
+const selectedModelIconUrl = $derived(
+	availableModels.find((model) => model.id === effectiveModel)?.iconUrl ?? null,
+);
 
-// --- ADR-0043 slice 18b: Skills summary card + full-screen manager ---
-// View state is client-only ($state); NOT a route/URL change. The manager
-// overlays the Profile content when open.
+// ── Full-view overlays ───────────────────────────────────────────────
+// Client-only view state; NOT a route change. Each one replaces the Profile
+// content and returns via a back chevron.
 let skillsManagerOpen = $state(false);
+let activityViewOpen = $state(false);
 
-// Summary counts are lifted up here so the summary card can show
-// "N active · M disabled" without rendering the full editor inline. The
-// UserSkillsSettingsSurface itself is re-homed (rendered unchanged) inside
-// the manager — its data loading is NOT duplicated here beyond the summary.
+// Summary counts are lifted up here so the Skills row can read "N active ·
+// M disabled" without rendering the full editor. The
+// UserSkillsSettingsSurface is re-homed (rendered unchanged) inside the
+// manager — its data loading is NOT duplicated beyond the summary.
 let skillsSummary = $state<{ active: number; disabled: number }>({
 	active: 0,
 	disabled: 0,
@@ -208,11 +248,21 @@ onMount(() => {
 	void loadSkillsSummary();
 });
 
-// --- Task 14: sticky in-page section navigation (settings-nav) ---
-// One chip per group label below; ids live on the `<p class="settings-group-
-// label">` elements themselves (no wrapper elements added — a group spans
-// multiple sibling <section>s, so wrapping would be content restructuring).
-const sectionNavItems = [
+// ── Your Activity summary ────────────────────────────────────────────
+// Read straight off the analytics payload the page already loads; the full
+// view below renders the same data through the unchanged analytics surface.
+const personal = $derived(personalAnalyticsData?.personal ?? null);
+const favoriteModelName = $derived(
+	personal?.favoriteModel
+		? (modelNames[personal.favoriteModel] ?? personal.favoriteModel)
+		: null,
+);
+
+// ── The phone jump-list ──────────────────────────────────────────────
+// One chevron chip per card below, in card order. It scrolls the page to
+// that card and does nothing else: nothing is hidden behind it, so ignoring
+// it costs a swipe, not a screen.
+const jumpTargets = [
 	{ id: "settings-section-account", labelKey: "settings_sectionAccount" },
 	{
 		id: "settings-section-preferences",
@@ -222,10 +272,6 @@ const sectionNavItems = [
 	{
 		id: "settings-section-data-privacy",
 		labelKey: "settings_sectionDataPrivacy",
-	},
-	{
-		id: "settings-section-your-activity",
-		labelKey: "settings_sectionYourActivity",
 	},
 ] as const;
 
@@ -238,305 +284,40 @@ function scrollToSection(event: MouseEvent, id: string) {
 		block: "start",
 	});
 }
+
+const themeOptions = $derived([
+	{ value: "system" as const, label: $t("settings_system") },
+	{ value: "light" as const, label: $t("settings_light") },
+	{ value: "dark" as const, label: $t("settings_dark") },
+]);
+// Language names in their own language, in both dictionaries — see
+// profileTab.langHungarian.
+const uiLanguageOptions = $derived([
+	{ value: "en" as const, label: $t("profileTab.langEnglish") },
+	{ value: "hu" as const, label: $t("profileTab.langHungarian") },
+]);
+const titleLanguageOptions = $derived([
+	{ value: "auto" as const, label: $t("settings_autoDetect") },
+	{ value: "en" as const, label: $t("profileTab.langEnglish") },
+	{ value: "hu" as const, label: $t("profileTab.langHungarian") },
+]);
+
+function handleModelSelect(event: Event) {
+	const value = (event.currentTarget as HTMLSelectElement).value;
+	void onChangeModel(value === "" ? null : (value as ModelId));
+}
+
+function handlePersonalitySelect(event: Event) {
+	const value = (event.currentTarget as HTMLSelectElement).value;
+	onChangePersonality?.(value === "" ? null : value);
+}
 </script>
 
-<!-- ============================================================= -->
-<!-- ADR-0043 slice 18a: Profile regrouped into 4 labeled sections. -->
-<!-- ALL existing fields preserved; text CTAs → btn-icon-bare Lucide -->
-<!-- icon buttons; "Default Style" → "Conversation style"; jargon cleared. -->
-<!-- ADR-0043 slice 18b: Skills promoted to a summary card that opens a -->
-<!-- dedicated full-screen manager (UserSkillsSettingsSurface re-homed). -->
-<!-- 18c adds the 5th "Your Activity" section. Do NOT do that here. -->
-<!-- ============================================================= -->
-
-<!-- Task 14: sticky row of anchor chips — one per group below, jumping to -->
-<!-- that group's <p class="settings-group-label"> id. Reduced-motion aware. -->
-<nav class="settings-section-nav" aria-label={$t('settings_sectionNavA11yLabel')}>
-	{#each sectionNavItems as item (item.id)}
-		<a
-			href={`#${item.id}`}
-			class="settings-section-nav-chip"
-			onclick={(event) => scrollToSection(event, item.id)}
-		>{$t(item.labelKey)}</a>
-	{/each}
-</nav>
-
-<!-- ================= GROUP 1: ACCOUNT ================= -->
-<p class="settings-group-label" id="settings-section-account">{$t('settings_sectionAccount')}</p>
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('settings_avatar')}</h2>
-	<div class="flex items-center gap-4">
-		<AvatarCircle
-			{userId}
-			name={userDisplayName}
-			{profilePicture}
-			{cacheBuster}
-			size={48}
-		/>
-		<div class="flex flex-wrap items-center gap-2">
-			<button
-				type="button"
-				class="btn-icon-bare"
-				aria-label={$t('settings_uploadPhotoA11y')}
-				title={$t('settings_uploadPhoto')}
-				onclick={onOpenPictureEditor}
-			>
-				<Upload size={16} strokeWidth={2} aria-hidden="true" />
-			</button>
-			{#if profilePicture}
-				<button
-					type="button"
-					class="btn-icon-bare"
-					style="color: var(--danger);"
-					aria-label={$t('settings_removePhotoA11y')}
-					title={removingPhoto ? $t('settings_removing') : $t('settings_removePhoto')}
-					onclick={onRemovePhoto}
-					disabled={removingPhoto}
-				>
-					<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
-				</button>
-			{/if}
-		</div>
-	</div>
-</section>
-
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('settings_profileInformation')}</h2>
-	<div class="flex flex-col gap-3">
-		<div>
-			<label class="settings-label" for="name">{$t('settings_displayName')}</label>
-			<input id="name" type="text" class="settings-input" bind:value={name} placeholder={$t('settings_yourName')} />
-		</div>
-		<div>
-			<label class="settings-label" for="email">{$t('settings_emailAddress')}</label>
-			<input
-				id="email"
-				type="email"
-				class="settings-input"
-				bind:value={email}
-				placeholder={$t('settings_emailExample')}
-			/>
-		</div>
-		<button class="btn-primary self-start" onclick={onSaveProfile} disabled={profileSaving}>
-			{profileSaving ? $t('settings_saving') : $t('settings_save')}
-		</button>
-	</div>
-</section>
-
-<section class="settings-card mb-4">
-	<h2 class="settings-section-title">{$t('settings_changePassword')}</h2>
-	<div class="flex flex-col gap-3">
-		<PasswordField
-			id="current-pw"
-			label={$t('settings_currentPassword')}
-			bind:value={currentPassword}
-			bind:shown={showCurrentPw}
-			autocomplete="current-password"
-		/>
-		<PasswordField
-			id="new-pw"
-			label={$t('settings_newPassword')}
-			bind:value={newPassword}
-			bind:shown={showNewPw}
-			autocomplete="new-password"
-		/>
-		<PasswordField
-			id="confirm-pw"
-			label={$t('settings_confirmNewPassword')}
-			bind:value={confirmPassword}
-			bind:shown={showConfirmPw}
-			autocomplete="new-password"
-		/>
-		<button class="btn-primary self-start" onclick={onSavePassword} disabled={passwordSaving}>
-			{passwordSaving ? $t('settings_saving') : $t('settings_changePassword')}
-		</button>
-	</div>
-</section>
-
-<!-- Import (ChatGPT) stays grouped under Account; 18a leaves its modal intact. -->
-<SettingsDataImport {projects} />
-
-<!-- ================= GROUP 2: PREFERENCES ================= -->
-<p class="settings-group-label" id="settings-section-preferences">{$t('settings_sectionPreferences')}</p>
-<section class="settings-card mb-4">
-	<div class="flex flex-col gap-5">
-		<div>
-			<p class="settings-label">{$t('settings_defaultModel')}</p>
-			<div class="model-preference-grid" data-testid="settings-default-model-grid">
-				<button
-					class="pref-pill model-preference-pill model-preference-pill-system"
-					class:pref-pill-active={selectedModel === null}
-					title={$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}
-					aria-label={$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}
-					onclick={() => onChangeModel(null)}
-				>
-					<span class="model-preference-pill-main">
-						<ModelIcon iconUrl={availableModels.find((model) => model.id === systemDefaultModel)?.iconUrl ?? null} displayName={systemDefaultModelDisplayName} size={20} />
-						<span class="model-preference-pill-label">{$t('settings.systemDefaultModel')}</span>
-					</span>
-					<span class="model-preference-pill-subtitle">{systemDefaultModelDisplayName}</span>
-				</button>
-				{#each explicitModelOptions as model}
-					<button
-						class="pref-pill model-preference-pill"
-						class:pref-pill-active={selectedModel === model.id}
-						title={model.displayName}
-						onclick={() => onChangeModel(model.id)}
-					>
-						<span class="model-preference-pill-main">
-							<ModelIcon iconUrl={model.iconUrl ?? null} displayName={model.displayName} size={20} />
-							<span class="model-preference-pill-label">{model.displayName}</span>
-						</span>
-					</button>
-				{/each}
-			</div>
-		</div>
-
-		{#if personalityProfiles.length > 0}
-			<div>
-				<!-- ADR-0043 18a: "Default Style" → "Conversation style" + clarifying note. -->
-				<p class="settings-label">{$t('settings_conversationStyle')}</p>
-				<p class="settings-help-text">{$t('settings_conversationStyleNote')}</p>
-				<div class="flex gap-2">
-					<button
-						class="pref-pill"
-						class:pref-pill-active={!selectedPersonalityId}
-						onclick={() => onChangePersonality?.(null)}
-					>{$t('composerTools.defaultStyle')}</button>
-					{#each personalityProfiles as profile}
-						<button
-							class="pref-pill"
-							class:pref-pill-active={selectedPersonalityId === profile.id}
-							title={getPersonalityProfileDisplayDescription(profile, $t)}
-							onclick={() => onChangePersonality?.(profile.id)}
-						>{getPersonalityProfileDisplayName(profile, $t)}</button>
-					{/each}
-				</div>
-			</div>
-		{/if}
-
-		<div>
-			<!-- ADR-0043 18a: "Theme" → "Appearance" (jargon clearing per mockup). -->
-			<p class="settings-label">{$t('settings_appearance')}</p>
-			<div class="flex gap-2">
-				{#each [
-					{ value: 'system' as const, label: $t('settings_system') },
-					{ value: 'light' as const, label: $t('settings_light') },
-					{ value: 'dark' as const, label: $t('settings_dark') },
-				] as theme}
-					<button
-						class="pref-pill"
-						class:pref-pill-active={selectedTheme === theme.value}
-						onclick={() => onChangeTheme(theme.value)}
-					>
-						{theme.label}
-					</button>
-				{/each}
-			</div>
-		</div>
-
-		<div>
-			<!-- ADR-0043 18a: "UI Language" → "Interface language" + clarifying note. -->
-			<p class="settings-label">{$t('settings_interfaceLanguage')}</p>
-			<p class="settings-help-text">{$t('settings_interfaceLanguageNote')}</p>
-			<div class="flex gap-2">
-				{#each [
-					{ value: 'en' as const, label: $t('english') },
-					{ value: 'hu' as const, label: $t('hungarian') },
-				] as lang}
-					<button
-						class="pref-pill"
-						class:pref-pill-active={selectedUiLanguage === lang.value}
-						onclick={() => onChangeUiLanguage(lang.value)}
-					>
-						{lang.label}
-					</button>
-				{/each}
-			</div>
-		</div>
-
-		<div>
-			<p class="settings-label">{$t('settings_titleLanguage')}</p>
-			<div class="flex gap-2">
-				{#each [
-					{ value: 'auto' as const, label: $t('settings_autoDetect') },
-					{ value: 'en' as const, label: $t('settings_english') },
-					{ value: 'hu' as const, label: $t('settings_hungarian') },
-				] as lang}
-					<button
-						class="pref-pill"
-						class:pref-pill-active={selectedTitleLanguage === lang.value}
-						onclick={() => onChangeTitleLanguage(lang.value)}
-					>
-						{lang.label}
-					</button>
-				{/each}
-			</div>
-		</div>
-	</div>
-</section>
-
-<!-- Memory master toggle: pauses/resumes all cross-chat learning. -->
-<section id="settings-memory-card" class="settings-card mb-4">
-	<div class="memory-toggle-row">
-		<div class="memory-toggle-text">
-			<p class="settings-label memory-toggle-label">{$t('settings_memory')}</p>
-			<p class="settings-help-text memory-toggle-help">{$t('settings_memoryHelp')}</p>
-		</div>
-		<button
-			type="button"
-			role="switch"
-			aria-checked={memoryEnabled}
-			aria-label={$t('settings_memory')}
-			class="toggle-btn"
-			class:toggle-on={memoryEnabled}
-			disabled={memorySaving}
-			onclick={() => onChangeMemoryEnabled?.(!memoryEnabled)}
-		>
-			<span class="toggle-thumb"></span>
-		</button>
-	</div>
-</section>
-
-<!-- ================= GROUP 3: ASSISTANT ================= -->
-<!-- ADR-0043 slice 18b: the inline Skills editor is promoted to a summary card -->
-<!-- that opens a dedicated full-screen manager. The UserSkillsSettingsSurface -->
-<!-- is re-homed (rendered unchanged) inside the manager below — not duplicated. -->
-<p class="settings-group-label" id="settings-section-assistant">{$t('settings_sectionAssistant')}</p>
-<section class="settings-card mb-4">
-	{#if skillsEnabled}
-		<!-- Summary card: label + one-line status + ChevronRight open affordance. -->
-		<button
-			type="button"
-			class="skills-summary-card"
-			data-testid="skills-summary-card"
-			aria-label={$t('settings_skillsManagerSummaryLabel')}
-			title={$t('settings_skillsManagerOpenA11y')}
-			onclick={() => (skillsManagerOpen = true)}
-		>
-			<span class="skills-summary-card-text">
-				<span class="skills-summary-card-label">{$t('settings_skillsManagerSummaryLabel')}</span>
-				<span class="skills-summary-card-status">
-					{$t('settings_skillsManagerStatus', {
-						active: skillsSummary.active,
-						disabled: skillsSummary.disabled,
-					})}
-				</span>
-			</span>
-			<ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
-		</button>
-	{:else}
-		<!-- Skills disabled by workspace admin: no manager to open into. -->
-		<p class="text-sm text-text-secondary">{$t('skills.disabled')}</p>
-	{/if}
-</section>
-
-<!-- ADR-0043 slice 18b: full-screen Skills manager. Hosts the RE-HOMED -->
-<!-- UserSkillsSettingsSurface (same component, not copied). Overlays the -->
-<!-- Profile content via client-only $state; back chevron returns to Profile. -->
 {#if skillsManagerOpen}
-	<div class="skills-manager" data-testid="skills-manager">
-		<div class="skills-manager-header">
+	<!-- Full-screen Skills manager. Hosts the RE-HOMED UserSkillsSettingsSurface
+	     (same component, not copied); the back chevron returns to Profile. -->
+	<div class="profile-fullview" data-testid="skills-manager">
+		<div class="profile-fullview-header">
 			<button
 				type="button"
 				class="btn-icon-bare"
@@ -545,371 +326,1003 @@ function scrollToSection(event: MouseEvent, id: string) {
 			>
 				<ChevronLeft size={20} strokeWidth={2} aria-hidden="true" />
 			</button>
-			<h1 class="skills-manager-title">{$t('settings_skillsManagerTitle')}</h1>
+			<h2 class="profile-fullview-title">{$t('settings_skillsManagerTitle')}</h2>
 		</div>
-		<!-- Re-homed: the SAME editor component, rendered here, not inline above. -->
 		<UserSkillsSettingsSurface {skillsEnabled} />
 	</div>
+{:else if activityViewOpen}
+	<!-- The full Your Activity view: the same personal analytics surface the
+	     tab used to print inline, opened from the summary card instead. -->
+	<div class="profile-fullview" data-testid="activity-fullview">
+		<div class="profile-fullview-header">
+			<button
+				type="button"
+				class="btn-icon-bare"
+				aria-label={$t('profileTab.activityBack')}
+				onclick={() => (activityViewOpen = false)}
+			>
+				<ChevronLeft size={20} strokeWidth={2} aria-hidden="true" />
+			</button>
+			<h2 class="profile-fullview-title">{$t('settings_sectionYourActivity')}</h2>
+		</div>
+		<section class="settings-card">
+			<SettingsPersonalAnalytics
+				analyticsData={personalAnalyticsData}
+				analyticsLoading={personalAnalyticsLoading}
+				analyticsError={personalAnalyticsError}
+				{modelNames}
+				{modelIcons}
+				onRetry={onRetryPersonalAnalytics ?? (() => {})}
+				selectedMonth={selectedPersonalMonth}
+				onMonthChange={onPersonalMonthChange}
+				onTimelineChange={onPersonalTimelineChange}
+			/>
+		</section>
+	</div>
+{:else}
+
+<p class="settings-group-label">{$t('settingsProfile')}</p>
+<p class="settings-help-text mb-3">{$t('profileTab.lead')}</p>
+
+<!-- Phone only: a scrolling jump-list, one chip per card below. -->
+<nav class="profile-jump" aria-label={$t('profileTab.jumpListLabel')}>
+	{#each jumpTargets as target (target.id)}
+		<a
+			href={`#${target.id}`}
+			class="profile-jump-chip"
+			onclick={(event) => scrollToSection(event, target.id)}
+		>
+			<ChevronRight size={12} strokeWidth={2} aria-hidden="true" />
+			{$t(target.labelKey)}
+		</a>
+	{/each}
+</nav>
+
+<!-- Card order in the DOM is the phone order, which is also the reading
+     order: Account, Preferences, Assistant, Data & privacy, Your Activity,
+     and the irreversible actions last. The desktop grid below lifts Account
+     and the two trailing cards into the left column without reordering the
+     DOM, so keyboard order and visual order agree at every width. -->
+<div class="profile-grid">
+	<div class="profile-col profile-col-lead">
+		<!-- ═══ Your account — one card, one Save ═══ -->
+		<section class="settings-card profile-identity" id="settings-section-account">
+			<div class="settings-card-head">
+				<div class="settings-card-head-text">
+					<h2 class="settings-card-title">{$t('profileTab.accountTitle')}</h2>
+				</div>
+			</div>
+
+			<div class="identity-person">
+				<AvatarCircle
+					{userId}
+					name={userDisplayName}
+					{profilePicture}
+					{cacheBuster}
+					size={56}
+				/>
+				<div class="identity-person-text">
+					<p class="identity-name">{userDisplayName}</p>
+					<p class="identity-email">{userEmail}</p>
+					<div class="identity-photo-actions">
+						<button
+							type="button"
+							class="btn-secondary btn-sm identity-photo-btn"
+							aria-label={$t('settings_uploadPhotoA11y')}
+							title={$t('settings_uploadPhoto')}
+							onclick={onOpenPictureEditor}
+						>
+							<Upload size={13} strokeWidth={2} aria-hidden="true" />
+							{$t('settings_uploadPhoto')}
+						</button>
+						{#if profilePicture}
+							<button
+								type="button"
+								class="btn-danger btn-sm identity-photo-btn"
+								aria-label={$t('settings_removePhotoA11y')}
+								title={removingPhoto ? $t('settings_removing') : $t('settings_removePhoto')}
+								onclick={onRemovePhoto}
+								disabled={removingPhoto}
+							>
+								<Trash2 size={13} strokeWidth={2} aria-hidden="true" />
+								{removingPhoto ? $t('settings_removing') : $t('settings_removePhoto')}
+							</button>
+						{/if}
+					</div>
+				</div>
+			</div>
+
+			<div class="identity-fields">
+				<div>
+					<label class="settings-label" for="name">{$t('settings_displayName')}</label>
+					<input
+						id="name"
+						type="text"
+						class="settings-input"
+						bind:value={name}
+						placeholder={$t('settings_yourName')}
+						autocomplete="name"
+					/>
+				</div>
+				<div>
+					<label class="settings-label" for="email">{$t('settings_emailAddress')}</label>
+					<input
+						id="email"
+						type="email"
+						class="settings-input"
+						bind:value={email}
+						placeholder={$t('settings_emailExample')}
+						autocomplete="email"
+					/>
+				</div>
+			</div>
+
+			<hr class="identity-rule" />
+
+			<p class="settings-group-label identity-password-label">
+				{$t('profileTab.passwordSectionLabel')}
+			</p>
+			<div class="identity-fields">
+				<PasswordField
+					id="current-pw"
+					label={$t('settings_currentPassword')}
+					bind:value={currentPassword}
+					bind:shown={showCurrentPw}
+					autocomplete="current-password"
+					placeholder={$t('profileTab.currentPasswordPlaceholder')}
+				/>
+				<PasswordField
+					id="new-pw"
+					label={$t('settings_newPassword')}
+					bind:value={newPassword}
+					bind:shown={showNewPw}
+					autocomplete="new-password"
+					placeholder={$t('profileTab.newPasswordPlaceholder')}
+				/>
+				<PasswordField
+					id="confirm-pw"
+					label={$t('settings_confirmNewPassword')}
+					bind:value={confirmPassword}
+					bind:shown={showConfirmPw}
+					autocomplete="new-password"
+					placeholder={$t('profileTab.newPasswordPlaceholder')}
+				/>
+			</div>
+
+			<div class="identity-foot">
+				<button
+					type="button"
+					class="btn-primary identity-save"
+					data-testid="account-save"
+					onclick={onSaveAccount}
+					disabled={accountSaving}
+				>
+					<Check size={14} strokeWidth={2} aria-hidden="true" />
+					{accountSaving ? $t('settings_saving') : $t('profileTab.saveChanges')}
+				</button>
+				<button
+					type="button"
+					class="btn-ghost identity-discard"
+					data-testid="account-discard"
+					onclick={onDiscardAccount}
+					disabled={accountSaving || !accountDirty}
+				>{$t('profileTab.discard')}</button>
+				<span class="identity-foot-spacer"></span>
+				{#if savedAtLabel}
+					<span class="identity-saved-at" data-testid="account-saved-at">
+						{$t('profileTab.savedAt', { time: savedAtLabel })}
+					</span>
+				{/if}
+			</div>
+			<p class="identity-note">{$t('profileTab.passwordOptionalNote')}</p>
+		</section>
+	</div>
+
+	<div class="profile-col profile-col-side">
+		<!-- ═══ Preferences ═══ -->
+		<section class="settings-card" id="settings-section-preferences">
+			<div class="settings-card-head">
+				<div class="settings-card-head-text">
+					<h2 class="settings-card-title">{$t('settings_sectionPreferences')}</h2>
+					<p class="settings-card-desc">{$t('profileTab.preferencesDesc')}</p>
+				</div>
+			</div>
+			<div class="settings-rows">
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('settings_defaultModel')}</p>
+						<p class="settings-row-help">{$t('profileTab.defaultModelHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<span class="model-mark"><ModelIcon iconUrl={selectedModelIconUrl} displayName={systemDefaultModelDisplayName} size={18} /></span>
+						<select
+							class="settings-select"
+							data-testid="settings-default-model-select"
+							aria-label={$t('settings_defaultModel')}
+							value={selectedModel ?? ''}
+							onchange={handleModelSelect}
+						>
+							<option value="">
+								{$t('settings.systemDefaultModelResolved', { model: systemDefaultModelDisplayName })}
+							</option>
+							{#each explicitModelOptions as model (model.id)}
+								<option value={model.id}>{model.displayName}</option>
+							{/each}
+						</select>
+						{#if explicitModelOptions.length > 0}
+							<span class="settings-row-hint">
+								{$t('profileTab.otherModelsAvailable', { count: explicitModelOptions.length })}
+							</span>
+						{/if}
+					</div>
+				</div>
+
+				{#if personalityProfiles.length > 0}
+					<div class="settings-row">
+						<div class="settings-row-text">
+							<p class="settings-row-label">{$t('settings_conversationStyle')}</p>
+							<p class="settings-row-help">{$t('settings_conversationStyleNote')}</p>
+						</div>
+						<div class="settings-row-control">
+							<select
+								class="settings-select"
+								data-testid="settings-conversation-style-select"
+								aria-label={$t('settings_conversationStyle')}
+								value={selectedPersonalityId ?? ''}
+								onchange={handlePersonalitySelect}
+							>
+								<option value="">{$t('composerTools.defaultStyle')}</option>
+								{#each personalityProfiles as profile (profile.id)}
+									<option
+										value={profile.id}
+										title={getPersonalityProfileDisplayDescription(profile, $t)}
+									>{getPersonalityProfileDisplayName(profile, $t)}</option>
+								{/each}
+							</select>
+						</div>
+					</div>
+				{/if}
+
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('settings_appearance')}</p>
+						<p class="settings-row-help">{$t('profileTab.appearanceHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<div class="settings-seg" role="group" aria-label={$t('settings_appearance')}>
+							{#each themeOptions as option (option.value)}
+								<button
+									type="button"
+									class="settings-seg-option"
+									aria-pressed={selectedTheme === option.value}
+									onclick={() => onChangeTheme(option.value)}
+								>{option.label}</button>
+							{/each}
+						</div>
+					</div>
+				</div>
+
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('settings_interfaceLanguage')}</p>
+						<p class="settings-row-help">{$t('settings_interfaceLanguageNote')}</p>
+					</div>
+					<div class="settings-row-control">
+						<div class="settings-seg" role="group" aria-label={$t('settings_interfaceLanguage')}>
+							{#each uiLanguageOptions as option (option.value)}
+								<button
+									type="button"
+									class="settings-seg-option"
+									aria-pressed={selectedUiLanguage === option.value}
+									onclick={() => onChangeUiLanguage(option.value)}
+								>{option.label}</button>
+							{/each}
+						</div>
+					</div>
+				</div>
+
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('settings_titleLanguage')}</p>
+						<p class="settings-row-help">{$t('profileTab.titleLanguageHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<div class="settings-seg" role="group" aria-label={$t('settings_titleLanguage')}>
+							{#each titleLanguageOptions as option (option.value)}
+								<button
+									type="button"
+									class="settings-seg-option"
+									aria-pressed={selectedTitleLanguage === option.value}
+									onclick={() => onChangeTitleLanguage(option.value)}
+								>{option.label}</button>
+							{/each}
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ═══ Assistant behaviour ═══ -->
+		<section class="settings-card" id="settings-section-assistant">
+			<div class="settings-card-head">
+				<div class="settings-card-head-text">
+					<h2 class="settings-card-title">{$t('profileTab.assistantTitle')}</h2>
+					<p class="settings-card-desc">{$t('profileTab.assistantDesc')}</p>
+				</div>
+			</div>
+			<div class="settings-rows" id="settings-memory-card">
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('settings_memory')}</p>
+						<p class="settings-row-help">{$t('settings_memoryHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<Toggle
+							checked={memoryEnabled}
+							disabled={memorySaving}
+							ariaLabel={$t('settings_memory')}
+							onChange={(next) => onChangeMemoryEnabled?.(next)}
+						/>
+						<span class="settings-row-hint">
+							{memoryEnabled ? $t('profileTab.memoryOn') : $t('profileTab.memoryOff')}
+						</span>
+					</div>
+				</div>
+
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('settings_skillsManagerSummaryLabel')}</p>
+						<p class="settings-row-help">
+							{skillsEnabled ? $t('profileTab.skillsHelp') : $t('skills.disabled')}
+						</p>
+					</div>
+					{#if skillsEnabled}
+						<div class="settings-row-control">
+							<span class="settings-pill settings-pill-active">
+								{$t('profileTab.skillsCountActive', { count: skillsSummary.active })}
+							</span>
+							<span class="settings-pill">
+								{$t('profileTab.skillsCountDisabled', { count: skillsSummary.disabled })}
+							</span>
+							<button
+								type="button"
+								class="settings-row-link"
+								data-testid="skills-summary-card"
+								aria-label={$t('settings_skillsManagerOpenA11y')}
+								onclick={() => (skillsManagerOpen = true)}
+							>
+								{$t('profileTab.manageSkills')}
+								<ChevronRight size={13} strokeWidth={2} aria-hidden="true" />
+							</button>
+						</div>
+					{/if}
+				</div>
+
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('profileTab.memoryProfile')}</p>
+						<p class="settings-row-help">{$t('profileTab.memoryProfileHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<a
+							href="/knowledge"
+							class="settings-row-link"
+							aria-label={$t('profileTab.openKnowledgeBase')}
+						>
+							<BookOpen size={13} strokeWidth={2} aria-hidden="true" />
+							{$t('profileTab.openKnowledgeBase')}
+							<ChevronRight size={13} strokeWidth={2} aria-hidden="true" />
+						</a>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ═══ Data & privacy ═══ -->
+		<section class="settings-card" id="settings-section-data-privacy">
+			<div class="settings-card-head">
+				<div class="settings-card-head-text">
+					<h2 class="settings-card-title">{$t('settings_sectionDataPrivacy')}</h2>
+					<p class="settings-card-desc">{$t('profileTab.dataPrivacyDesc')}</p>
+				</div>
+			</div>
+			<!-- Outcome of a privacy action (archive prepared, memory cleared).
+			     One strip, here, rather than one per card. -->
+			{#if privacyControlsError}
+				<p class="privacy-feedback privacy-feedback-error">{privacyControlsError}</p>
+			{/if}
+			{#if privacyControlsMessage}
+				<p class="privacy-feedback privacy-feedback-ok">{privacyControlsMessage}</p>
+			{/if}
+			<div class="settings-rows">
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('settings_privacyPolicy')}</p>
+						<p class="settings-row-help">{$t('profileTab.privacyPolicyHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<a
+							href="/privacy"
+							class="settings-row-link"
+							aria-label={$t('settings_privacyPolicy')}
+						>
+							<ExternalLink size={13} strokeWidth={2} aria-hidden="true" />
+							{$t('profileTab.readThePolicy')}
+						</a>
+					</div>
+				</div>
+
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('chatgptImport.settingsTitle')}</p>
+						<p class="settings-row-help">{$t('profileTab.importHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<!-- Import folded into Data & privacy, where it belongs. The
+						     component and its modal are unchanged; only its chrome
+						     drops away so it can sit in a row. -->
+						<SettingsDataImport {projects} variant="row" />
+					</div>
+				</div>
+
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('settings_downloadMyData')}</p>
+						<p class="settings-row-help">{$t('profileTab.downloadHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<button
+							type="button"
+							class="btn-secondary btn-sm"
+							aria-label={$t('settings_downloadMyData')}
+							onclick={onOpenDownloadArchive}
+							disabled={archiveLoading}
+						>{$t('profileTab.prepareArchive')}</button>
+					</div>
+				</div>
+			</div>
+		</section>
+	</div>
+
+	<div class="profile-col profile-col-trail">
+		<!-- ═══ Your Activity — summary, with the full view one click away ═══ -->
+		<section class="settings-card" id="settings-section-your-activity">
+			<div class="settings-card-head">
+				<div class="settings-card-head-text">
+					<h2 class="settings-card-title">{$t('settings_sectionYourActivity')}</h2>
+					<p class="settings-card-desc">{$t('profileTab.activityDesc')}</p>
+				</div>
+				<div class="settings-card-actions">
+					<button
+						type="button"
+						class="settings-row-link"
+						data-testid="activity-open"
+						onclick={() => (activityViewOpen = true)}
+					>
+						{$t('profileTab.activityOpen')}
+						<ChevronRight size={13} strokeWidth={2} aria-hidden="true" />
+					</button>
+				</div>
+			</div>
+			{#if personal}
+				<div class="activity-hero">
+					<p class="activity-hero-value">{formatCompactCount(personal.totalTokens)}</p>
+					<p class="activity-hero-label">{$t('profileTab.tokensAllTime')}</p>
+					<p class="activity-hero-split">
+						{$t('profileTab.tokensSplit', {
+							completion: formatCompactCount(personal.outputTokens),
+							reasoning: formatCompactCount(personal.reasoningTokens),
+						})}
+					</p>
+					<div class="activity-split-bar" aria-hidden="true">
+						<span style={`flex: ${Math.max(personal.outputTokens, 1)}`}></span>
+						<span
+							class="activity-split-bar-soft"
+							style={`flex: ${Math.max(personal.reasoningTokens, 1)}`}
+						></span>
+					</div>
+				</div>
+				<div class="activity-stats">
+					<div class="stat-card">
+						<p class="stat-value">{personal.totalMessages.toLocaleString()}</p>
+						<p class="stat-label">{$t('profileTab.messages')}</p>
+					</div>
+					<div class="stat-card">
+						<p class="stat-value">{personal.chatCount.toLocaleString()}</p>
+						<p class="stat-label">{$t('profileTab.conversations')}</p>
+					</div>
+					<div class="stat-card activity-stat-wide">
+						<p class="stat-value activity-stat-model">
+							{favoriteModelName ?? $t('profileTab.activityEmpty')}
+						</p>
+						<p class="stat-label">{$t('profileTab.mostUsedModel')}</p>
+					</div>
+				</div>
+			{:else if personalAnalyticsLoading}
+				<p class="settings-row-help">{$t('common.loading')}</p>
+			{:else}
+				<p class="settings-row-help">{$t('profileTab.activityEmpty')}</p>
+			{/if}
+		</section>
+
+		<!-- ═══ Things that cannot be undone — last card on the page ═══ -->
+		<section
+			class="settings-card settings-card-danger"
+			id="settings-section-danger"
+			data-testid="profile-danger-card"
+		>
+			<div class="settings-card-head">
+				<div class="settings-card-head-text">
+					<h2 class="settings-card-title danger-title">
+						<AlertTriangle size={14} strokeWidth={2} aria-hidden="true" />
+						{$t('profileTab.dangerTitle')}
+					</h2>
+					<p class="settings-card-desc">{$t('profileTab.dangerDesc')}</p>
+				</div>
+			</div>
+			<div class="settings-rows">
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('settings_clearMemoryAndKnowledge')}</p>
+						<p class="settings-row-help">{$t('profileTab.clearMemoryHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<button
+							type="button"
+							class="btn-danger btn-sm"
+							aria-label={$t('settings_clearMemoryAndKnowledge')}
+							onclick={onOpenClearMemory}
+							disabled={clearMemoryLoading}
+						>{$t('profileTab.clearAction')}</button>
+					</div>
+				</div>
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">{$t('settings_clearWorkspaceData')}</p>
+						<p class="settings-row-help">{$t('profileTab.clearWorkspaceHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<button
+							type="button"
+							class="btn-danger btn-sm"
+							aria-label={$t('settings_clearWorkspaceData')}
+							onclick={onOpenClearWorkspace}
+							disabled={clearWorkspaceLoading}
+						>{$t('profileTab.clearAction')}</button>
+					</div>
+				</div>
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label settings-row-label-danger">
+							{$t('settings_deleteAccountPrivacy')}
+						</p>
+						<p class="settings-row-help">{$t('profileTab.deleteAccountHelp')}</p>
+					</div>
+					<div class="settings-row-control">
+						<button
+							type="button"
+							class="btn-danger btn-sm"
+							aria-label={$t('settings_deleteAccountPrivacy')}
+							onclick={onOpenDeleteModal}
+						>
+							<Trash2 size={12} strokeWidth={2} aria-hidden="true" />
+							{$t('profileTab.deleteAction')}
+						</button>
+					</div>
+				</div>
+			</div>
+		</section>
+	</div>
+</div>
 {/if}
 
-<!-- ================= GROUP 4: DATA & PRIVACY ================= -->
-<p class="settings-group-label" id="settings-section-data-privacy">{$t('settings_sectionDataPrivacy')}</p>
-<section class="settings-card mb-4">
-	<p class="mb-4 text-sm text-text-secondary">
-		{$t('settings_privacyControlsDescription')}
-	</p>
-	{#if privacyControlsError}
-		<p class="mb-3 text-sm text-danger">{privacyControlsError}</p>
-	{/if}
-	{#if privacyControlsMessage}
-		<p class="mb-3 text-sm text-success">{privacyControlsMessage}</p>
-	{/if}
-	<ul class="privacy-action-list">
-		<!-- Redesign R6 (ADR 0044 Decision 5) — compact entry row that links
-		     straight to the public /privacy route (src/routes/privacy/+page.svelte),
-		     the single content source. No in-app modal (an early build added
-		     one; the product owner asked to remove it — see ADR 0044). -->
-		<li class="privacy-action-row">
-			<span class="privacy-action-label">{$t('settings_privacyPolicy')}</span>
-			<a
-				href="/privacy"
-				class="btn-icon-bare privacy-action-btn"
-				aria-label={$t('settings_privacyPolicy')}
-				title={$t('settings_privacyPolicy')}
-			>
-				<FileText size={16} strokeWidth={2} aria-hidden="true" />
-			</a>
-		</li>
-		<li class="privacy-action-row">
-			<span class="privacy-action-label">{$t('settings_downloadMyData')}</span>
-			<button
-				type="button"
-				class="btn-icon-bare privacy-action-btn"
-				aria-label={$t('settings_downloadMyData')}
-				title={$t('settings_downloadMyData')}
-				onclick={onOpenDownloadArchive}
-				disabled={archiveLoading}
-			>
-				<Download size={16} strokeWidth={2} aria-hidden="true" />
-			</button>
-		</li>
-		<li class="privacy-action-row">
-			<span class="privacy-action-label">{$t('settings_clearMemoryAndKnowledge')}</span>
-			<button
-				type="button"
-				class="btn-icon-bare privacy-action-btn"
-				style="color: var(--danger);"
-				aria-label={$t('settings_clearMemoryAndKnowledge')}
-				title={$t('settings_clearMemoryAndKnowledge')}
-				onclick={onOpenClearMemory}
-				disabled={clearMemoryLoading}
-			>
-				<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
-			</button>
-		</li>
-		<li class="privacy-action-row">
-			<span class="privacy-action-label">{$t('settings_clearWorkspaceData')}</span>
-			<button
-				type="button"
-				class="btn-icon-bare privacy-action-btn"
-				style="color: var(--danger);"
-				aria-label={$t('settings_clearWorkspaceData')}
-				title={$t('settings_clearWorkspaceData')}
-				onclick={onOpenClearWorkspace}
-				disabled={clearWorkspaceLoading}
-			>
-				<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
-			</button>
-		</li>
-		<li class="privacy-action-row">
-			<span class="privacy-action-label privacy-action-label-danger">{$t('settings_deleteAccountPrivacy')}</span>
-			<!-- Account deletion is the destructive action: solid red Trash2 CTA, -->
-			<!-- distinguished from the quiet btn-icon-bare buttons above. -->
-			<button
-				type="button"
-				class="btn-danger privacy-action-btn"
-				aria-label={$t('settings_deleteAccountPrivacy')}
-				title={$t('settings_deleteAccountPrivacy')}
-				onclick={onOpenDeleteModal}
-			>
-				<Trash2 size={16} strokeWidth={2} aria-hidden="true" />
-			</button>
-		</li>
-	</ul>
-</section>
-
-<!-- ================= GROUP 5: YOUR ACTIVITY ================= -->
-<!-- ADR-0043 slice 18c: personal analytics merged into Profile as the 5th -->
-<!-- section. PERSONAL ONLY (the user's own usage); system analytics stays -->
-<!-- admin-gated under Administration. 18a/18b sections above are untouched. -->
-<!-- The group label serves as the section heading (no redundant inner h2). -->
-<p class="settings-group-label" id="settings-section-your-activity">{$t('settings_sectionYourActivity')}</p>
-<section class="settings-card mb-4">
-	<SettingsPersonalAnalytics
-		analyticsData={personalAnalyticsData}
-		analyticsLoading={personalAnalyticsLoading}
-		analyticsError={personalAnalyticsError}
-		{modelNames}
-		{modelIcons}
-		onRetry={onRetryPersonalAnalytics ?? (() => {})}
-		selectedMonth={selectedPersonalMonth}
-		onMonthChange={onPersonalMonthChange}
-		onTimelineChange={onPersonalTimelineChange}
-	/>
-</section>
-
 <style>
-	/* Task 14: sticky row of anchor chips jumping between the 5 groups below.
-	   Single-row horizontal-scroll strip (not flex-wrap): the sticky nav's
-	   height must stay constant for the fixed scroll-margin-top below to
-	   reliably clear it on anchor-jump, at any viewport width or locale. */
-	.settings-section-nav {
-		position: sticky;
-		top: 0;
-		z-index: 1;
+	/* ── Layout ────────────────────────────────────────────────────────
+	   One column on a phone, in DOM order. At the desktop width the three
+	   wrappers become a two-column grid: the lead card and the two trailing
+	   cards stack in a 424px left column, the three preference cards fill
+	   the right one. Nothing is reordered, so the tab order a keyboard sees
+	   is the order the eye reads at every width. */
+	.profile-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 0.875rem;
+	}
+
+	.profile-col {
+		display: contents;
+	}
+
+	@media (min-width: 1024px) {
+		.profile-grid {
+			display: grid;
+			grid-template-columns: 424px minmax(0, 1fr);
+			grid-template-rows: min-content 1fr;
+			gap: 0.875rem 1.5rem;
+			align-items: start;
+		}
+
+		.profile-col {
+			display: flex;
+			flex-direction: column;
+			gap: 0.875rem;
+			min-width: 0;
+		}
+
+		.profile-col-lead {
+			grid-column: 1;
+			grid-row: 1;
+		}
+
+		.profile-col-side {
+			grid-column: 2;
+			grid-row: 1 / span 2;
+		}
+
+		.profile-col-trail {
+			grid-column: 1;
+			grid-row: 2;
+			align-self: start;
+		}
+	}
+
+	/* ── The phone jump-list ───────────────────────────────────────────
+	   A single scrolling row with a fade at the right edge, so a chip that
+	   continues past the viewport says so. Desktop has nothing left to
+	   scroll to, so the strip is not drawn there at all. */
+	.profile-jump {
 		display: flex;
 		flex-wrap: nowrap;
 		overflow-x: auto;
 		-webkit-overflow-scrolling: touch;
 		gap: 0.5rem;
-		padding: 0.625rem 0;
+		padding-bottom: 0.625rem;
 		margin-bottom: var(--space-sm);
-		background: var(--surface-page);
+		mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+		scrollbar-width: none;
 	}
 
-	.settings-section-nav-chip {
+	.profile-jump::-webkit-scrollbar {
+		display: none;
+	}
+
+	.profile-jump-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
 		flex: none;
-		padding: 0.375rem 0.875rem;
+		min-height: 44px;
+		padding: 0 0.875rem;
 		border-radius: var(--radius-full);
 		border: 1px solid var(--border-default);
+		background: var(--surface-overlay);
 		font-size: 0.8125rem;
 		font-weight: 500;
 		color: var(--text-secondary);
-		background: var(--surface-overlay);
 		text-decoration: none;
 		white-space: nowrap;
-		transition: all var(--duration-standard);
+		transition:
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
+			background var(--duration-standard) var(--ease-out);
 	}
 
-	.settings-section-nav-chip:hover,
-	.settings-section-nav-chip:focus-visible {
+	.profile-jump-chip:hover,
+	.profile-jump-chip:focus-visible {
 		border-color: var(--accent);
 		color: var(--accent);
+		background: var(--surface-elevated);
 	}
 
-	@media (prefers-reduced-motion: reduce) {
-		.settings-section-nav-chip {
-			transition: none;
+	@media (min-width: 768px) {
+		.profile-jump {
+			display: none;
 		}
 	}
 
-	/* Section group label: uppercase, letter-spaced, muted, semibold (per mockup). */
-	.settings-group-label {
-		font-size: 0.6875rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--text-muted);
-		margin: var(--space-lg) 0 var(--space-sm) 0;
-		/* Clears the sticky .settings-section-nav above on anchor-jump so its own
-		   heading isn't hidden underneath it (native or scrollIntoView jumps).
-		   Nav is now a fixed-height single row (see .settings-section-nav above),
-		   so this stays a safe static value: measured nav height is ~50px with
-		   no horizontal scrollbar, ~60px when the chip strip overflows and shows
-		   one (narrow/mobile widths) — 4rem (64px) covers both with headroom. */
-		scroll-margin-top: 4rem;
+	/* ── Identity card ─────────────────────────────────────────────────── */
+	.profile-identity {
+		padding: var(--space-lg) 1.375rem;
 	}
 
-	/* Task 14: .settings-section-nav is now the true first child (it sits above
-	   Group 1's label), so the label keeps its normal top margin as breathing
-	   room below the nav row — no more "flush at the very top" special case. */
-
-	.settings-help-text {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		margin-top: -0.125rem;
-		margin-bottom: 0.375rem;
-	}
-
-	/* Memory master toggle: label/help on the left, switch on the right. */
-	.memory-toggle-row {
+	.identity-person {
 		display: flex;
 		align-items: flex-start;
-		justify-content: space-between;
 		gap: 1rem;
+		margin-bottom: 1.125rem;
 	}
 
-	.memory-toggle-text {
+	.identity-person-text {
 		min-width: 0;
 	}
 
-	.memory-toggle-label {
-		margin-bottom: 0.25rem;
-	}
-
-	.memory-toggle-help {
-		margin-bottom: 0;
-	}
-
-	.toggle-btn:disabled {
-		opacity: 0.55;
-		cursor: not-allowed;
-	}
-
-	.model-preference-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(min(100%, 13.5rem), 1fr));
-		gap: 0.75rem;
-		width: 100%;
-		min-width: 0;
-	}
-
-	.model-preference-pill {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		min-width: 0;
-		min-height: 2.75rem;
-		overflow: hidden;
-		text-align: center;
-	}
-
-	.model-preference-pill-system {
-		flex-direction: column;
-		gap: 0.125rem;
-	}
-
-	.model-preference-pill-main {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		max-width: 100%;
-		min-width: 0;
-	}
-
-	.model-preference-pill-label,
-	.model-preference-pill-subtitle {
-		min-width: 0;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.model-preference-pill-subtitle {
-		font-size: 0.75rem;
-		opacity: 0.7;
-	}
-
-	/* Data & privacy action rows (per mockup): label left, icon button right. */
-	.privacy-action-list {
-		list-style: none;
+	.identity-name {
 		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.privacy-action-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem;
-		padding: 0.625rem 0;
-	}
-
-	.privacy-action-row + .privacy-action-row {
-		border-top: 1px solid var(--border-default);
-	}
-
-	.privacy-action-label {
-		font-size: 0.8125rem;
+		font-size: 0.9375rem;
+		font-weight: 600;
 		color: var(--text-primary);
 	}
 
-	.privacy-action-label-danger {
-		color: var(--danger);
+	.identity-email {
+		margin: 0.1875rem 0 0 0;
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		color: var(--text-muted);
+		overflow-wrap: anywhere;
+	}
+
+	.identity-photo-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4375rem;
+		margin-top: 0.5625rem;
+	}
+
+	.identity-photo-btn {
+		gap: 0.3125rem;
+	}
+
+	.identity-fields {
+		display: flex;
+		flex-direction: column;
+		gap: 0.625rem;
+	}
+
+	.identity-rule {
+		border: none;
+		border-top: 1px solid var(--border-default);
+		margin: 1.125rem 0;
+	}
+
+	.identity-password-label {
+		margin: 0 0 0.625rem 0;
+	}
+
+	.identity-foot {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.625rem;
+		margin-top: 1.125rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border-default);
+	}
+
+	.identity-save {
+		gap: 0.375rem;
+	}
+
+	.identity-foot-spacer {
+		flex: 1 1 auto;
+	}
+
+	.identity-saved-at {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+
+	.identity-note {
+		margin: 0.625rem 0 0 0;
+		font-size: 0.75rem;
+		line-height: 1.5;
+		color: var(--text-muted);
+	}
+
+	.identity-discard:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+
+	/* ── Row furniture ─────────────────────────────────────────────────── */
+	.settings-row-hint {
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+
+	.model-mark {
+		display: inline-flex;
+		align-items: center;
+		flex-shrink: 0;
+	}
+
+	.settings-row-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3125rem;
+		min-height: 30px;
+		padding: 0.25rem 0.5625rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-page);
+		font-family: inherit;
+		font-size: 0.75rem;
 		font-weight: 500;
+		color: var(--text-secondary);
+		text-decoration: none;
+		white-space: nowrap;
+		cursor: pointer;
+		transition:
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
+			background var(--duration-standard) var(--ease-out);
 	}
 
-	/* Slightly tighter icon buttons inside the dense privacy list. */
-	.privacy-action-btn {
-		min-height: 2rem;
-		min-width: 2rem;
+	.settings-row-link:hover {
+		border-color: var(--accent);
+		color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface-page));
 	}
 
-		@media (prefers-reduced-motion: reduce) {
-			.btn-icon-bare,
-			.btn-danger {
-				transition: none;
-			}
+	.settings-row-link:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.settings-pill {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.1875rem 0.5rem;
+		border-radius: var(--radius-full);
+		border: 1px solid var(--border-default);
+		font-size: 0.6875rem;
+		font-weight: 600;
+		color: var(--text-muted);
+		white-space: nowrap;
+	}
+
+	.settings-pill-active {
+		color: var(--accent);
+		border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+		background: color-mix(in srgb, var(--accent) 10%, transparent);
+	}
+
+	.privacy-feedback {
+		margin: 0 0 0.75rem 0;
+		font-size: 0.8125rem;
+		line-height: 1.5;
+	}
+
+	.privacy-feedback-error {
+		color: var(--danger);
+	}
+
+	.privacy-feedback-ok {
+		color: var(--success);
+	}
+
+	/* ── Your Activity summary ─────────────────────────────────────────── */
+	.activity-hero {
+		border: 1px solid var(--accent);
+		border-radius: var(--radius-md);
+		padding: 0.75rem;
+		background: var(--surface-page);
+	}
+
+	.activity-hero-value {
+		margin: 0;
+		font-size: 1.5rem;
+		font-weight: 700;
+		line-height: 1.1;
+		color: var(--accent);
+	}
+
+	.activity-hero-label {
+		margin: 0.25rem 0 0 0;
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
+
+	.activity-hero-split {
+		margin: 0.35rem 0 0 0;
+		font-size: 0.7rem;
+		color: var(--text-muted);
+	}
+
+	.activity-split-bar {
+		display: flex;
+		gap: 2px;
+		margin-top: 0.5rem;
+		height: 4px;
+		border-radius: var(--radius-full);
+		overflow: hidden;
+	}
+
+	.activity-split-bar span {
+		background: var(--accent);
+	}
+
+	.activity-split-bar span.activity-split-bar-soft {
+		background: color-mix(in srgb, var(--accent) 40%, transparent);
+	}
+
+	.activity-stats {
+		display: grid;
+		grid-template-columns: 1fr 1fr 1.5fr;
+		gap: 0.625rem;
+		margin-top: 0.625rem;
+	}
+
+	.activity-stat-model {
+		font-size: 1rem;
+		overflow-wrap: anywhere;
+	}
+
+	@media (max-width: 420px) {
+		.activity-stats {
+			grid-template-columns: 1fr 1fr;
 		}
 
-		/* ADR-0043 slice 18b: Skills summary card + full-screen manager. */
+		.activity-stat-wide {
+			grid-column: 1 / -1;
+		}
+	}
 
-		/* Summary card: full-width button row (label + status left, chevron right). */
-		.skills-summary-card {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 0.75rem;
-			width: 100%;
-			padding: 0;
-			border: none;
-			background: none;
-			cursor: pointer;
-			color: inherit;
-			transition: color var(--duration-standard);
+	/* ── Danger card ───────────────────────────────────────────────────── */
+	.danger-title {
+		display: flex;
+		align-items: center;
+		gap: 0.4375rem;
+	}
+
+	.danger-title :global(svg) {
+		color: var(--danger);
+		flex-shrink: 0;
+	}
+
+	/* ── Full-view overlays (Skills, Your Activity) ────────────────────── */
+	.profile-fullview {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-md);
+	}
+
+	.profile-fullview-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.profile-fullview-title {
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	/* ── Phone: every target is at least 44px ──────────────────────────── */
+	@media (max-width: 640px) {
+		.profile-identity {
+			padding: var(--space-md);
 		}
 
-		.skills-summary-card:hover {
-			color: var(--accent);
+		.identity-photo-btn,
+		.settings-row-link {
+			min-height: 44px;
 		}
 
-		.skills-summary-card-text {
-			display: flex;
-			flex-direction: column;
-			gap: 0.125rem;
-			min-width: 0;
-			text-align: left;
+		.identity-photo-btn {
+			flex: 1 1 0;
 		}
 
-		.skills-summary-card-label {
-			font-size: 0.9375rem;
-			font-weight: 600;
-			color: var(--text-primary);
+		.identity-save,
+		.identity-discard {
+			min-height: 44px;
+			flex: 1 1 0;
 		}
 
-		.skills-summary-card-status {
-			font-size: 0.75rem;
-			color: var(--text-secondary);
+		.settings-row {
+			align-items: flex-start;
 		}
 
-		/* Full-screen manager: overlays/replaces the Profile content. */
-		.skills-manager {
-			display: flex;
-			flex-direction: column;
-			gap: var(--space-md);
+		.settings-row :global(.btn-sm) {
+			min-height: 44px;
 		}
+	}
 
-		.skills-manager-header {
-			display: flex;
-			align-items: center;
-			gap: 0.5rem;
+	@media (prefers-reduced-motion: reduce) {
+		.profile-jump-chip,
+		.settings-row-link {
+			transition: none;
 		}
-
-		.skills-manager-title {
-			font-size: 1.25rem;
-			font-weight: 600;
-			color: var(--text-primary);
-			margin: 0;
-		}
-
-		@media (prefers-reduced-motion: reduce) {
-			.skills-summary-card {
-				transition: none;
-			}
-		}
-	</style>
+	}
+</style>

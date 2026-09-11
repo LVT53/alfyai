@@ -131,27 +131,28 @@ describe("settings page analytics merge (ADR-0043 slice 18c)", () => {
 			expect(
 				screen.queryByRole("tab", { name: "Administration" }),
 			).not.toBeInTheDocument();
-			// Profile content is rendered (the Profile tab is the default and,
-			// being the only tab, the switcher is omitted but the content shows).
-			// Scoped to the group-label <p> itself: Task 14's sticky section nav
-			// has a chip with the same visible text, so plain getByText matches twice.
+			// Profile content is rendered (the Profile tab is the default).
 			expect(
-				screen.getByText("Account", { selector: "p.settings-group-label" }),
+				screen.getByText("Your account", {
+					selector: "h2.settings-card-title",
+				}),
 			).toBeInTheDocument();
 		});
 
-		it("shows the Your Activity section in Profile with personal analytics", async () => {
+		it("shows the Your Activity card in Profile, with the full analytics one click away", async () => {
 			renderPage("user");
 
-			// The personal analytics data loads asynchronously after first Profile
-			// entry (the page's $effect calls loadAnalytics), so the stats settle
-			// after a tick. The section label is always present. Scoped to the
-			// group-label <p> itself (Task 14's nav chip repeats the same text).
+			// Profile redesign: the tab carries a Your Activity SUMMARY card and
+			// opens the full personal-analytics surface on demand, rather than
+			// printing the whole thing inline. The data still loads on first
+			// Profile entry (the page's $effect calls loadAnalytics).
 			expect(
 				screen.getByText("Your Activity", {
-					selector: "p.settings-group-label",
+					selector: "h2.settings-card-title",
 				}),
 			).toBeInTheDocument();
+
+			await fireEvent.click(screen.getByTestId("activity-open"));
 			await waitFor(() =>
 				expect(screen.getByText("Messages sent")).toBeInTheDocument(),
 			);

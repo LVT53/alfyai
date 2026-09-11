@@ -74,6 +74,14 @@ function renderSettingsPage() {
 	} as unknown as PageProps);
 }
 
+const save = () => fireEvent.click(screen.getByTestId("account-save"));
+
+async function renameTo(value: string) {
+	await fireEvent.input(screen.getByRole("textbox", { name: "Display Name" }), {
+		target: { value },
+	});
+}
+
 async function fillPasswordForm({
 	current = "old-password",
 	next = "new-password-123",
@@ -94,7 +102,11 @@ async function fillPasswordForm({
 	});
 }
 
-describe("settings page profile/password feedback goes through the shared toast (B3)", () => {
+// The identity card now carries ONE Save for name, email and the optional
+// password change. These tests pin what that single press actually does —
+// and that its feedback still goes through the shared toast (B3) rather
+// than an inline message duplicated next to the form.
+describe("settings page — one Save for the identity card", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		clearToasts();
@@ -105,24 +117,122 @@ describe("settings page profile/password feedback goes through the shared toast 
 		clearToasts();
 	});
 
-	it("shows a success toast (no inline duplicate) when saving the profile succeeds", async () => {
-		mockUpdateProfile.mockResolvedValue(undefined);
+	it("refuses to call the server when nothing on the card changed", async () => {
 		renderSettingsPage();
 
-		await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await save();
 
 		await waitFor(() => {
 			expect(get(toasts)).toHaveLength(1);
 		});
+		expect(get(toasts)[0]).toMatchObject({
+			type: "error",
+			message: "Nothing to save yet.",
+		});
+		expect(mockUpdateProfile).not.toHaveBeenCalled();
+		expect(mockUpdatePassword).not.toHaveBeenCalled();
+	});
+
+	it("saves the profile alone when the password boxes are left empty", async () => {
+		mockUpdateProfile.mockResolvedValue(undefined);
+		renderSettingsPage();
+
+		await renameTo("Renamed User");
+		await save();
+
+		await waitFor(() => {
+			expect(mockUpdateProfile).toHaveBeenCalledWith({
+				name: "Renamed User",
+				email: "user@example.com",
+			});
+		});
+		expect(mockUpdatePassword).not.toHaveBeenCalled();
 		expect(get(toasts)[0]).toMatchObject({ type: "success" });
 		expect(screen.queryByText("Profile updated.")).not.toBeInTheDocument();
 	});
 
-	it("shows a failure toast (no inline duplicate) when saving the profile fails", async () => {
+	it("changes the password alone when the name and email are untouched", async () => {
+		mockUpdatePassword.mockResolvedValue(undefined);
+		renderSettingsPage();
+
+		await fillPasswordForm();
+		await save();
+
+		await waitFor(() => {
+			expect(mockUpdatePassword).toHaveBeenCalledWith({
+				currentPassword: "old-password",
+				newPassword: "new-password-123",
+			});
+		});
+		expect(mockUpdateProfile).not.toHaveBeenCalled();
+		expect(get(toasts)[0]).toMatchObject({ type: "success" });
+		expect(screen.queryByText("Password changed.")).not.toBeInTheDocument();
+	});
+
+	it("does both under the same press, and says so once", async () => {
+		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdatePassword.mockResolvedValue(undefined);
+		renderSettingsPage();
+
+		await renameTo("Renamed User");
+		await fillPasswordForm();
+		await save();
+
+		await waitFor(() => {
+			expect(mockUpdatePassword).toHaveBeenCalledOnce();
+		});
+		expect(mockUpdateProfile).toHaveBeenCalledOnce();
+		expect(get(toasts)).toHaveLength(1);
+		expect(get(toasts)[0]).toMatchObject({
+			type: "success",
+			message: "Profile and password updated.",
+		});
+	});
+
+	it("stamps the card with the time it last went clean", async () => {
+		mockUpdateProfile.mockResolvedValue(undefined);
+		renderSettingsPage();
+
+		expect(screen.queryByTestId("account-saved-at")).toBeNull();
+
+		await renameTo("Renamed User");
+		await save();
+
+		await waitFor(() =>
+			expect(screen.getByTestId("account-saved-at")).toHaveTextContent(
+				/^Saved \d{2}[.:]\d{2}$/,
+			),
+		);
+	});
+
+	it("Discard puts the card back to what the server last confirmed", async () => {
+		renderSettingsPage();
+
+		const nameField = screen.getByRole("textbox", {
+			name: "Display Name",
+		}) as HTMLInputElement;
+		const discard = screen.getByTestId("account-discard");
+		expect(discard).toBeDisabled();
+
+		await renameTo("Renamed User");
+		await fillPasswordForm();
+		expect(discard).not.toBeDisabled();
+
+		await fireEvent.click(discard);
+
+		expect(nameField.value).toBe("User");
+		expect(
+			(screen.getByLabelText("Current password") as HTMLInputElement).value,
+		).toBe("");
+		expect(mockUpdateProfile).not.toHaveBeenCalled();
+	});
+
+	it("reports a failed profile save through the toast, with no inline duplicate", async () => {
 		mockUpdateProfile.mockRejectedValue(new Error("Email already in use"));
 		renderSettingsPage();
 
-		await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await renameTo("Renamed User");
+		await save();
 
 		await waitFor(() => {
 			expect(get(toasts)).toHaveLength(1);
@@ -134,29 +244,11 @@ describe("settings page profile/password feedback goes through the shared toast 
 		expect(screen.queryByText("Email already in use")).not.toBeInTheDocument();
 	});
 
-	it("shows a success toast (no inline duplicate) when changing the password succeeds", async () => {
-		mockUpdatePassword.mockResolvedValue(undefined);
-		renderSettingsPage();
-
-		await fillPasswordForm();
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Change Password" }),
-		);
-
-		await waitFor(() => {
-			expect(get(toasts)).toHaveLength(1);
-		});
-		expect(get(toasts)[0]).toMatchObject({ type: "success" });
-		expect(screen.queryByText("Password changed.")).not.toBeInTheDocument();
-	});
-
-	it("shows a failure toast for a client-side mismatch without calling the server", async () => {
+	it("reports a mismatch without calling the server", async () => {
 		renderSettingsPage();
 
 		await fillPasswordForm({ next: "password-one", confirm: "password-two" });
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Change Password" }),
-		);
+		await save();
 
 		await waitFor(() => {
 			expect(get(toasts)).toHaveLength(1);
@@ -171,13 +263,11 @@ describe("settings page profile/password feedback goes through the shared toast 
 		).not.toBeInTheDocument();
 	});
 
-	it("shows a failure toast for a too-short password without calling the server", async () => {
+	it("reports a too-short password without calling the server", async () => {
 		renderSettingsPage();
 
 		await fillPasswordForm({ next: "short", confirm: "short" });
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Change Password" }),
-		);
+		await save();
 
 		await waitFor(() => {
 			expect(get(toasts)).toHaveLength(1);
@@ -189,16 +279,44 @@ describe("settings page profile/password feedback goes through the shared toast 
 		expect(mockUpdatePassword).not.toHaveBeenCalled();
 	});
 
-	it("shows a failure toast (no inline duplicate) when the server rejects the password change", async () => {
+	it("asks for the current password before it will change one, without calling the server", async () => {
+		renderSettingsPage();
+
+		await fillPasswordForm({ current: "" });
+		await save();
+
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(get(toasts)[0]).toMatchObject({
+			type: "error",
+			message: "Enter your current password to change it.",
+		});
+		expect(mockUpdatePassword).not.toHaveBeenCalled();
+	});
+
+	it("does not send the profile half when the password half is invalid", async () => {
+		renderSettingsPage();
+
+		await renameTo("Renamed User");
+		await fillPasswordForm({ next: "short", confirm: "short" });
+		await save();
+
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(mockUpdateProfile).not.toHaveBeenCalled();
+		expect(mockUpdatePassword).not.toHaveBeenCalled();
+	});
+
+	it("reports a server-rejected password change through the toast", async () => {
 		mockUpdatePassword.mockRejectedValue(
 			new Error("Current password is incorrect"),
 		);
 		renderSettingsPage();
 
 		await fillPasswordForm();
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Change Password" }),
-		);
+		await save();
 
 		await waitFor(() => {
 			expect(get(toasts)).toHaveLength(1);

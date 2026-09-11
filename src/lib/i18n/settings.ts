@@ -1726,9 +1726,17 @@ const settingsDict = {
 		"profileTab.preferencesDesc": "Applies to every new conversation.",
 		"profileTab.defaultModelHelp":
 			"Which model answers when you have not picked one for the conversation.",
+		// The plural form stays un-nested: the mini-ICU formatter in i18n/index.ts
+		// matches a branch with [^{}]*, so a {count} inside a branch never
+		// substitutes.
 		"profileTab.otherModelsAvailable":
-			"{count, plural, one {1 other model available} other {{count} other models available}}",
+			"{count} other model{count, plural, one {} other {s}} available",
 		"profileTab.appearanceHelp": "Follows your device unless you pick one.",
+		// Language names in their own language: someone hunting for Hungarian
+		// in an English UI is looking for the word "Magyar". Deliberately the
+		// same string in both dictionaries.
+		"profileTab.langEnglish": "English",
+		"profileTab.langHungarian": "Magyar",
 		"profileTab.titleLanguageHelp":
 			"The language new conversation titles are written in.",
 
@@ -3565,8 +3573,9 @@ const settingsDict = {
 		"profileTab.preferencesDesc": "Minden új beszélgetésre érvényes.",
 		"profileTab.defaultModelHelp":
 			"Ez a modell válaszol, ha nem választottál külön a beszélgetéshez.",
-		"profileTab.otherModelsAvailable":
-			"{count, plural, one {még 1 modell érhető el} other {még {count} modell érhető el}}",
+		"profileTab.otherModelsAvailable": "még {count} modell érhető el",
+		"profileTab.langEnglish": "English",
+		"profileTab.langHungarian": "Magyar",
 		"profileTab.appearanceHelp":
 			"Az eszközödet követi, amíg nem választasz mást.",
 		"profileTab.titleLanguageHelp":

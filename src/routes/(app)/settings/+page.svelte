@@ -49,6 +49,7 @@ import {
 	setModelPreferenceAndSync,
 	setTitleLanguageAndSync,
 	setUiLanguageAndSync,
+	uiLanguage,
 	type TitleLanguage,
 	type UiLanguage,
 } from "$lib/stores/settings";
@@ -63,6 +64,12 @@ import PrivacyActionModal, {
 import SettingsAdministrationTab from "./_components/SettingsAdministrationTab.svelte";
 import SettingsConnectionsTab from "./_components/SettingsConnectionsTab.svelte";
 import SettingsProfileTab from "./_components/SettingsProfileTab.svelte";
+import {
+	formatSavedAt,
+	isAccountDirty,
+	planAccountSave,
+	type AccountBaseline,
+} from "./_components/account-form";
 import { getOAuthErrorReasonKey } from "./oauth-return";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
 import type { PageProps } from "./$types";
@@ -148,15 +155,37 @@ let activeTab = $state<Tab>("profile");
 
 let name = $state(initialUserSettings.name ?? "");
 let email = $state(initialUserSettings.email);
-let profileSaving = $state(false);
 
 let currentPassword = $state("");
 let newPassword = $state("");
 let confirmPassword = $state("");
-let passwordSaving = $state(false);
 let showCurrentPw = $state(false);
 let showNewPw = $state(false);
 let showConfirmPw = $state(false);
+
+// Profile redesign — one identity card under one Save. The baseline is what
+// the server last confirmed; "dirty", "what would this Save do" and "when
+// did it last go clean" are all measured against it (see account-form.ts).
+// It lives here rather than in the tab because the tab is a dumb prop
+// component and the page owns the fetches that move it.
+let accountBaseline = $state<AccountBaseline>({
+	name: initialUserSettings.name ?? "",
+	email: initialUserSettings.email,
+});
+let accountSaving = $state(false);
+let accountSavedAt = $state<Date | null>(null);
+
+const accountValues = $derived({
+	name,
+	email,
+	currentPassword,
+	newPassword,
+	confirmPassword,
+});
+const accountDirty = $derived(isAccountDirty(accountValues, accountBaseline));
+const accountSavedAtLabel = $derived(
+	accountSavedAt ? formatSavedAt(accountSavedAt, $uiLanguage) : "",
+);
 
 let selectedModel = $state<UserModelPreference>(
 	initialPreferences.preferredModel,
@@ -402,42 +431,55 @@ async function removePhoto() {
 	}
 }
 
-async function saveProfile() {
-	profileSaving = true;
+/**
+ * One Save for the whole identity card.
+ *
+ * Which of the two calls it makes is decided by planAccountSave, not by
+ * which button was pressed: name/email go only when they changed, the
+ * password goes only when the user actually typed into one of the three
+ * boxes. Both requests are awaited so a half-applied save reports the half
+ * that failed rather than claiming success.
+ */
+function clearPasswordFields() {
+	currentPassword = "";
+	newPassword = "";
+	confirmPassword = "";
+}
+
+async function saveAccount() {
+	const plan = planAccountSave(
+		{ name, email, currentPassword, newPassword, confirmPassword },
+		accountBaseline,
+	);
+	if (!plan.ok) {
+		showToast({ type: "error", message: $t(plan.errorKey) });
+		return;
+	}
+
+	accountSaving = true;
 	try {
-		await updateProfile({ name: name.trim() || null, email });
-		showToast({ type: "success", message: $t("settings_profileUpdated") });
+		if (plan.saveProfile) {
+			await updateProfile({ name: name.trim() || null, email });
+			accountBaseline = { name, email };
+		}
+		if (plan.savePassword) {
+			await updatePassword({ currentPassword, newPassword });
+			clearPasswordFields();
+		}
+		accountSavedAt = new Date();
+		showToast({ type: "success", message: $t(plan.successKey) });
 	} catch (error: unknown) {
 		showToast({ type: "error", message: errorMessage(error) });
 	} finally {
-		profileSaving = false;
+		accountSaving = false;
 	}
 }
 
-async function savePassword() {
-	if (newPassword !== confirmPassword) {
-		showToast({ type: "error", message: $t("settings_passwordMismatch") });
-		return;
-	}
-	if (newPassword.length < 8) {
-		showToast({
-			type: "error",
-			message: $t("settings_passwordTooShort"),
-		});
-		return;
-	}
-	passwordSaving = true;
-	try {
-		await updatePassword({ currentPassword, newPassword });
-		showToast({ type: "success", message: $t("settings_passwordChanged") });
-		currentPassword = "";
-		newPassword = "";
-		confirmPassword = "";
-	} catch (error: unknown) {
-		showToast({ type: "error", message: errorMessage(error) });
-	} finally {
-		passwordSaving = false;
-	}
+/** Put the card back to what the server last confirmed. */
+function discardAccount() {
+	name = accountBaseline.name;
+	email = accountBaseline.email;
+	clearPasswordFields();
 }
 
 async function changePersonality(id: string | null) {
@@ -974,12 +1016,13 @@ $effect(() => {
 </script>
 
 <div class="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto">
-	<div
-		class="settings-shell mx-auto w-full px-4 py-8"
-		class:settings-shell-admin={activeTab === 'administration' && isAdmin}
-		class:settings-shell-wide={activeTab === 'connections'}
-	>
-		<h1 class="mb-6 text-2xl font-semibold text-text-primary">{$t('settings')}</h1>
+	<!-- Consistency pass: ONE shell width for all three tabs. Profile used to
+	     render in a 672px shell while Connections and Administration used
+	     1440px, so the three-up switcher — which lives inside the shell —
+	     was drawn 640px wide on one tab and 1408px on the next, and moved
+	     under the cursor as a direct result of the click. -->
+	<div class="settings-shell mx-auto w-full py-8">
+		<h1 class="settings-page-title">{$t('settings')}</h1>
 
 		{#if settingsTabs.length > 1}
 			<div class="mb-6">
@@ -1004,16 +1047,17 @@ $effect(() => {
 				onRemovePhoto={removePhoto}
 				bind:name
 				bind:email
-				{profileSaving}
-				onSaveProfile={saveProfile}
 				bind:currentPassword
 				bind:newPassword
 				bind:confirmPassword
 				bind:showCurrentPw
 				bind:showNewPw
 				bind:showConfirmPw
-				{passwordSaving}
-				onSavePassword={savePassword}
+				{accountSaving}
+				{accountDirty}
+				savedAtLabel={accountSavedAtLabel}
+				onSaveAccount={saveAccount}
+				onDiscardAccount={discardAccount}
 				availableModels={profileAvailableModels}
 				{selectedModel}
 				{effectiveModel}
@@ -1150,7 +1194,204 @@ $effect(() => {
 	}
 
 	:global(.settings-card-danger) {
-		border-color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 26%, var(--border-default));
+	}
+
+	/* ── Shared card grammar (consistency pass) ─────────────────────────
+	   One card header and one settings row for every settings tab. The
+	   Connections and Administration rebuilds already speak this grammar;
+	   these classes give it a name so Profile speaks it too instead of
+	   inventing a third card header. */
+
+	:global(.settings-card-head) {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 1rem;
+		margin-bottom: var(--space-md);
+	}
+
+	:global(.settings-card-head-text) {
+		min-width: 0;
+	}
+
+	:global(.settings-card-title) {
+		margin: 0;
+		font-size: 0.9375rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		line-height: 1.3;
+	}
+
+	:global(.settings-card-desc) {
+		margin: 0.25rem 0 0 0;
+		font-size: 0.8125rem;
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	:global(.settings-card-actions) {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-shrink: 0;
+	}
+
+	/* A settings row: label, one line of meaning, control at the right. */
+	:global(.settings-rows) {
+		display: flex;
+		flex-direction: column;
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	:global(.settings-row) {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 0.75rem 0.5rem;
+		margin: 0 -0.5rem;
+		border-radius: var(--radius-md);
+		/* Hover raises the row background; nothing moves. */
+		transition: background var(--duration-standard) var(--ease-out);
+	}
+
+	:global(.settings-row:hover) {
+		background: var(--surface-elevated);
+	}
+
+	:global(.settings-row + .settings-row) {
+		border-top: 1px solid var(--border-default);
+	}
+
+	:global(.settings-row-text) {
+		min-width: 0;
+	}
+
+	:global(.settings-row-label) {
+		margin: 0;
+		font-size: 0.8125rem;
+		font-weight: 500;
+		color: var(--text-primary);
+		line-height: 1.35;
+	}
+
+	:global(.settings-row-label-danger) {
+		color: var(--danger);
+	}
+
+	:global(.settings-row-help) {
+		margin: 0.1875rem 0 0 0;
+		font-size: 0.75rem;
+		line-height: 1.45;
+		color: var(--text-secondary);
+	}
+
+	:global(.settings-row-control) {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-shrink: 0;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
+
+	/* Control chassis: radius 6px, min-height 34px, 44px hit area on phones. */
+	:global(.settings-select) {
+		appearance: none;
+		min-height: 34px;
+		max-width: 100%;
+		padding: 0.375rem 2rem 0.375rem 0.75rem;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background-color: var(--surface-page);
+		background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b6b6b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 0.5rem center;
+		font-family: inherit;
+		font-size: 0.8125rem;
+		color: var(--text-primary);
+		cursor: pointer;
+		transition:
+			border-color var(--duration-standard) var(--ease-out),
+			background-color var(--duration-standard) var(--ease-out);
+	}
+
+	:global(.settings-select:hover) {
+		border-color: var(--accent);
+	}
+
+	:global(.settings-select:focus-visible) {
+		outline: none;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	/* Segmented choice — the pill row, given one shape. */
+	:global(.settings-seg) {
+		display: inline-flex;
+		padding: 2px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--surface-page);
+	}
+
+	:global(.settings-seg-option) {
+		min-height: 30px;
+		padding: 0.25rem 0.75rem;
+		border: none;
+		border-radius: calc(var(--radius-md) - 1px);
+		background: transparent;
+		font-family: inherit;
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+		cursor: pointer;
+		white-space: nowrap;
+		transition:
+			background var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
+	}
+
+	:global(.settings-seg-option:hover) {
+		color: var(--text-primary);
+		background: var(--surface-elevated);
+	}
+
+	:global(.settings-seg-option[aria-pressed='true']) {
+		background: var(--surface-overlay);
+		color: var(--text-primary);
+		font-weight: 600;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+	}
+
+	:global(.settings-seg-option:focus-visible) {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	@media (max-width: 640px) {
+		:global(.settings-select),
+		:global(.settings-seg-option) {
+			min-height: 44px;
+		}
+
+		:global(.settings-seg) {
+			width: 100%;
+		}
+
+		:global(.settings-seg-option) {
+			flex: 1 1 0;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:global(.settings-row),
+		:global(.settings-select),
+		:global(.settings-seg-option) {
+			transition: none;
+		}
 	}
 
 	:global(.settings-section-title) {
@@ -1354,25 +1595,30 @@ $effect(() => {
 		color: #fff;
 	}
 
+	/* One width for Profile, Connections and Administration. The switcher
+	   sits inside this shell, so two widths meant the control resized under
+	   the cursor when you clicked it. */
 	.settings-shell {
-		max-width: 672px;
-	}
-
-	/* Connections shares the Administration width: its rows carry a fixed
-	   status column and two action buttons, and at 672px every sentence
-	   wrapped to three lines while a 1440px screen sat mostly empty. */
-	.settings-shell-admin,
-	.settings-shell-wide {
 		max-width: 1440px;
 		padding-left: var(--space-lg);
 		padding-right: var(--space-lg);
 	}
 
 	@media (max-width: 768px) {
-		.settings-shell-admin,
-		.settings-shell-wide {
+		.settings-shell {
 			padding-left: var(--space-md);
 			padding-right: var(--space-md);
 		}
+	}
+
+	/* One page title: 1.75rem Libre Baskerville at −0.02em, the ramp the
+	   consistency board sets for every page heading. */
+	.settings-page-title {
+		margin: 0 0 var(--space-lg) 0;
+		font-family: var(--font-serif);
+		font-size: 1.75rem;
+		font-weight: 400;
+		letter-spacing: -0.02em;
+		color: var(--text-primary);
 	}
 </style>
