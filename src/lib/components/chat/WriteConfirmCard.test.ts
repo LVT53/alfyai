@@ -169,3 +169,108 @@ describe("WriteConfirmCard", () => {
 		expect(screen.getByRole("button", { name: /Mégse/ })).toBeInTheDocument();
 	});
 });
+
+// ── Everyday redesign: the approved dialog chassis ───────────────────
+describe("WriteConfirmCard on the dialog chassis", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+		vi.unstubAllGlobals();
+	});
+
+	function setViewportWidth(width: number) {
+		vi.stubGlobal("innerWidth", width);
+	}
+
+	it("puts the negative on the left and the positive on the right", () => {
+		const { getByTestId } = render(WriteConfirmCard, { write: makeWrite() });
+		const decline = getByTestId("write-confirm-decline");
+		const approve = getByTestId("write-confirm-approve");
+		// The old card drew Confirm first, which is where the accidental
+		// confirm came from.
+		expect(
+			decline.compareDocumentPosition(approve) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	it("names what the positive button does rather than saying Confirm", () => {
+		const { getByTestId } = render(WriteConfirmCard, { write: makeWrite() });
+		expect(getByTestId("write-confirm-approve")).toHaveTextContent("Save it");
+		expect(getByTestId("write-confirm-decline")).toHaveTextContent("Don't");
+	});
+
+	it("turns the positive red — and changes what it says — only when destructive", () => {
+		const { getByTestId } = render(WriteConfirmCard, {
+			write: makeWrite({
+				preview: {
+					title: "Delete 3 photos from Immich",
+					detail: "photos.delete — IMG_2291, IMG_2292, IMG_2294",
+					reversible: false,
+					destructive: true,
+					withinAllowlist: true,
+					warnings: ["Immich has no trash on this server."],
+				},
+			}),
+		});
+		const approve = getByTestId("write-confirm-approve");
+		expect(approve).toHaveClass("dialog-btn--destructive");
+		expect(approve).not.toHaveClass("dialog-btn--positive");
+		expect(approve).toHaveTextContent("Yes, go ahead");
+	});
+
+	it("keeps the benign save on the tinted-outline positive", () => {
+		const { getByTestId } = render(WriteConfirmCard, { write: makeWrite() });
+		const approve = getByTestId("write-confirm-approve");
+		expect(approve).toHaveClass("dialog-btn--positive");
+		expect(approve).not.toHaveClass("dialog-btn--destructive");
+	});
+
+	it("says where the confirmation ref will appear, before it exists", () => {
+		const { getByText } = render(WriteConfirmCard, { write: makeWrite() });
+		expect(
+			getByText("Confirmation ref appears here once it is written."),
+		).toBeInTheDocument();
+	});
+
+	it("raises a pending write as a bottom sheet on a phone", () => {
+		setViewportWidth(390);
+		const { getByTestId } = render(WriteConfirmCard, { write: makeWrite() });
+		expect(getByTestId("write-confirm-sheet")).toBeInTheDocument();
+		expect(getByTestId("dialog-sheet-grabber")).toBeInTheDocument();
+	});
+
+	it("stays an inline card on a phone once the write is terminal", () => {
+		setViewportWidth(390);
+		const { queryByTestId, getByRole } = render(WriteConfirmCard, {
+			write: makeWrite({ status: "executed", etag: "abc123" }),
+		});
+		expect(queryByTestId("write-confirm-sheet")).toBeNull();
+		expect(
+			getByRole("article", { name: "Pending write: Save note.txt to /AlfyAI" }),
+		).toBeInTheDocument();
+	});
+
+	it("backing out of the sheet is not a decision — the card stays pending", async () => {
+		setViewportWidth(390);
+		const onCancel = vi.fn();
+		const { getByTestId, getByRole } = render(WriteConfirmCard, {
+			write: makeWrite(),
+			onCancel,
+		});
+
+		await fireEvent.click(getByTestId("dialog-sheet-grabber"));
+
+		// Nothing was cancelled server-side, and the decision is still in the
+		// conversation where it was raised.
+		expect(onCancel).not.toHaveBeenCalled();
+		expect(
+			getByRole("article", { name: "Pending write: Save note.txt to /AlfyAI" }),
+		).toBeInTheDocument();
+	});
+
+	it("stays a centred inline card above the breakpoint", () => {
+		setViewportWidth(1200);
+		const { queryByTestId } = render(WriteConfirmCard, { write: makeWrite() });
+		expect(queryByTestId("write-confirm-sheet")).toBeNull();
+	});
+});

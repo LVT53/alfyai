@@ -434,4 +434,115 @@ onDestroy(() => {
     min-height: 44px;
     justify-content: center;
   }
+
+  /* ── The dialog chassis's buttons ─────────────────────────────────
+     Declared :global so the two chat dialogs that are not always inside a
+     shell draw the same buttons as every dialog that is — the write
+     confirmation is an inline card in the conversation on a desktop and a
+     sheet on a phone. The positive button is a tinted OUTLINE, not a solid
+     accent fill: two dialogs that can be raised back to back ("save this
+     file" and "this would leave your machine") used two different
+     primaries, which taught people that the loud one is just what buttons
+     look like here. */
+  :global(.dialog-btn) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-height: 38px;
+    border-radius: 6px;
+    border: 1px solid var(--border-default);
+    background: var(--surface-page);
+    padding: 0 0.85rem;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background-color var(--duration-standard) var(--ease-out),
+      border-color var(--duration-standard) var(--ease-out),
+      color var(--duration-standard) var(--ease-out);
+  }
+
+  :global(.dialog-btn:hover:not(:disabled)) {
+    background: var(--surface-elevated);
+  }
+
+  :global(.dialog-btn:focus-visible) {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
+  }
+
+  :global(.dialog-btn:disabled) {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  :global(.dialog-btn--positive) {
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--border-default) 58%);
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-page) 90%);
+    color: var(--accent);
+  }
+
+  :global(.dialog-btn--positive:hover:not(:disabled)) {
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-page) 82%);
+    border-color: color-mix(in srgb, var(--accent) 62%, var(--border-default) 38%);
+  }
+
+  /* Only a genuinely destructive confirm turns red, and it says what it
+     does. A new file that replaces nothing must not wear the same colour as
+     deleting three photos. */
+  :global(.dialog-btn--destructive) {
+    border-color: color-mix(in srgb, var(--danger) 46%, var(--border-default) 54%);
+    background: color-mix(in srgb, var(--danger) 10%, var(--surface-page) 90%);
+    color: var(--danger);
+  }
+
+  :global(.dialog-btn--destructive:hover:not(:disabled)) {
+    background: color-mix(in srgb, var(--danger) 18%, var(--surface-page) 82%);
+    border-color: color-mix(in srgb, var(--danger) 66%, var(--border-default) 34%);
+  }
+
+  /* ── The chassis's head: a mark, the title, one muted qualifier ── */
+  :global(.dialog-head) {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-bottom: 0.6rem;
+  }
+
+  :global(.dialog-head__mark) {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 1.75rem;
+    height: 1.75rem;
+    margin-top: 0.05rem;
+    border-radius: 0.5rem;
+    background: var(--surface-elevated);
+  }
+
+  :global(.dialog-head__title) {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--text-primary);
+  }
+
+  :global(.dialog-head__qualifier) {
+    margin: 0.1rem 0 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    line-height: 1.3;
+    color: var(--text-muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.dialog-btn) {
+      transition: none;
+    }
+  }
 </style>
