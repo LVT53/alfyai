@@ -960,6 +960,27 @@ test.describe("everyday redesign screens", () => {
 						true,
 					);
 				}
+
+				// On a phone the row becomes a card and the columns it re-states
+				// inside the name cell stand down. A Version or Status cell left
+				// visible has no grid-area of its own, so it auto-places into a
+				// fresh row and the card draws its badges twice.
+				await page.setViewportSize({ width: 390, height: 844 });
+				await expect(
+					page.locator(".documents-table .col-version").first(),
+				).toBeHidden();
+				await expect(
+					page.locator(".documents-table .col-status").first(),
+				).toBeHidden();
+				await expect(
+					page.locator(".mobile-document-meta").first(),
+				).toBeVisible();
+				const rowsFit = await page
+					.locator(".document-list-item")
+					.first()
+					.evaluate((node) => node.scrollWidth <= node.clientWidth + 1);
+				expect(rowsFit, "a document card scrolls sideways at 390px").toBe(true);
+
 				await page.setViewportSize({ width: 1280, height: 720 });
 			}
 
@@ -1001,6 +1022,10 @@ test.describe("everyday redesign screens", () => {
 			await page.goto("/settings", { waitUntil: "domcontentloaded" });
 			await waitForHydration(page);
 			await setTheme(page, theme);
+
+			// The Profile tab redesign summarises Your Activity on the tab and
+			// keeps the full analytics chassis one click behind it.
+			await page.getByTestId("activity-open").click();
 
 			const hero = page.getByTestId("analytics-hero").first();
 			await hero.scrollIntoViewIfNeeded();

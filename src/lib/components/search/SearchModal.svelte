@@ -296,6 +296,21 @@ $effect(() => {
 	}
 });
 
+/**
+ * The results pane scrolls, so arrowing past the fold has to bring the row
+ * with it — otherwise ↓ moves a highlight the reader cannot see, and ↵ opens
+ * something that was never on screen. `nearest` keeps the list still while
+ * the active row is already visible.
+ */
+function scrollActiveRowIntoView() {
+	if (!browser || !activeRowId) return;
+	const row = document.getElementById(searchResultElementId(activeRowId));
+	// jsdom (and any other host without a layout engine) has no
+	// scrollIntoView; keeping a row on screen is never worth throwing over.
+	if (typeof row?.scrollIntoView !== "function") return;
+	row.scrollIntoView({ block: "nearest" });
+}
+
 async function runWorkspaceSearch(query: string) {
 	if (query === lastStartedQuery && searchResponse) return;
 
@@ -356,6 +371,7 @@ function moveActiveRow(offset: number) {
 	const nextIndex =
 		(currentIndex + offset + visibleRows.length) % visibleRows.length;
 	activeRowId = visibleRows[nextIndex].id;
+	void tick().then(scrollActiveRowIntoView);
 }
 
 function activeOrFirstRow() {
@@ -373,7 +389,11 @@ const newTabModifierLabel = (() => {
 	return /mac/i.test(platform) ? "\u2318" : "Ctrl";
 })();
 
+// A focused button owns a plain Enter — that is how the close and clear
+// buttons work. It does not own ⌘↵: the browser would fire the button's own
+// click and navigate in THIS tab, which is the opposite of what was asked for.
 function shouldLetFocusedButtonHandleEnter(event: KeyboardEvent) {
+	if (event.metaKey || event.ctrlKey) return false;
 	return event.key === "Enter" && event.target instanceof HTMLButtonElement;
 }
 

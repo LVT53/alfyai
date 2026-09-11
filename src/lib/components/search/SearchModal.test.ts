@@ -600,6 +600,37 @@ describe("SearchModal", () => {
 			open.mockRestore();
 		});
 
+		// A focused button owns a plain Enter, but not ⌘↵: letting it through
+		// fires the row's own click and navigates in THIS tab, which is the
+		// opposite of what was asked for.
+		it("still opens a new tab when the ⌘↵ lands on a focused result row", async () => {
+			const open = vi
+				.spyOn(window, "open")
+				.mockReturnValue(null as unknown as Window);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Brand playbook");
+			await fireEvent.keyDown(window, { key: "ArrowDown" });
+
+			// Fired on the row itself, so it reaches the window handler with the
+			// button as its target — exactly what a keystroke on a focused row
+			// looks like.
+			const row = screen.getByText("Brand playbook").closest("button");
+			expect(row).not.toBeNull();
+			await fireEvent.keyDown(row as HTMLButtonElement, {
+				key: "Enter",
+				metaKey: true,
+			});
+
+			expect(open).toHaveBeenCalledWith(
+				"/knowledge?server_open=artifact-1",
+				"_blank",
+				"noopener,noreferrer",
+			);
+			expect(goto).not.toHaveBeenCalled();
+			open.mockRestore();
+		});
+
 		it("counts the results once something is typed", async () => {
 			respondWithReport();
 			render(SearchModal, { props: { isOpen: true } });
