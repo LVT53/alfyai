@@ -418,3 +418,110 @@ describe("DialogShell reduced-motion transitions", () => {
 		expect(typeof panelConfig.css).toBe("function");
 	});
 });
+
+// ── Phone presentation (everyday redesign) ───────────────────────────
+//
+// Below 640px an opted-in dialog stops being a centred panel and becomes a
+// bottom sheet. These cover the selection itself (which presentation a
+// requested mode resolves to at a given width), the grabber that is one of
+// the sheet's three dismissals, and the footer chassis that puts the negative
+// button on the left and the positive one on the right.
+describe("DialogShell phone presentation", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("stays a centred panel on a phone when nothing opted in", () => {
+		stubMatchMedia(true);
+		const { getByRole, queryByTestId } = render(DialogShell, {
+			props: { title: "Centred", children: focusableChildren },
+		});
+		expect(getByRole("dialog").className).not.toContain("dialog-sheet");
+		expect(queryByTestId("dialog-sheet-grabber")).toBeNull();
+	});
+
+	it("renders as a bottom sheet on a phone once opted in", () => {
+		stubMatchMedia(true);
+		const { getByRole, getByTestId } = render(DialogShell, {
+			props: {
+				title: "Sheet",
+				phonePresentation: "sheet",
+				children: focusableChildren,
+			},
+		});
+		const dialog = getByRole("dialog");
+		expect(dialog.className).toContain("dialog-sheet");
+		expect(dialog.className).not.toContain("dialog-sheet--full");
+		expect(getByTestId("dialog-sheet-grabber")).toBeTruthy();
+	});
+
+	it("keeps the centred panel above the breakpoint even when a sheet is requested", () => {
+		stubMatchMedia(false);
+		const { getByRole, queryByTestId } = render(DialogShell, {
+			props: {
+				title: "Sheet",
+				phonePresentation: "sheet",
+				children: focusableChildren,
+			},
+		});
+		expect(getByRole("dialog").className).not.toContain("dialog-sheet");
+		expect(queryByTestId("dialog-sheet-grabber")).toBeNull();
+	});
+
+	it("marks the full-screen picker variant so its list gets the whole screen", () => {
+		stubMatchMedia(true);
+		const { getByRole } = render(DialogShell, {
+			props: {
+				title: "Picker",
+				phonePresentation: "fullSheet",
+				children: focusableChildren,
+			},
+		});
+		expect(getByRole("dialog").className).toContain("dialog-sheet--full");
+	});
+
+	it("closes from the grabber — the sheet's first dismissal", async () => {
+		stubMatchMedia(true);
+		const onClose = vi.fn();
+		const { getByTestId } = render(DialogShell, {
+			props: {
+				title: "Sheet",
+				phonePresentation: "sheet",
+				onClose,
+				children: focusableChildren,
+			},
+		});
+		getByTestId("dialog-sheet-grabber").click();
+		await tick();
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it("renders the footer below a hairline, negative first", () => {
+		stubMatchMedia(true);
+		const { getByTestId } = render(DialogShell, {
+			props: {
+				title: "Sheet",
+				phonePresentation: "sheet",
+				children: focusableChildren,
+				footer: twoButtonChildren("footer"),
+			},
+		});
+		const footer = getByTestId("dialog-shell-footer");
+		const buttons = footer.querySelectorAll("button");
+		expect(buttons).toHaveLength(2);
+		expect(buttons[0]).toHaveAttribute("data-testid", "footer-first");
+		expect(buttons[1]).toHaveAttribute("data-testid", "footer-last");
+	});
+
+	it("omits the footer chassis entirely when no footer is given", () => {
+		stubMatchMedia(true);
+		const { queryByTestId } = render(DialogShell, {
+			props: {
+				title: "Sheet",
+				phonePresentation: "sheet",
+				children: focusableChildren,
+			},
+		});
+		expect(queryByTestId("dialog-shell-footer")).toBeNull();
+	});
+});
