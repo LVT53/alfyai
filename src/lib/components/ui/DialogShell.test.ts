@@ -427,12 +427,18 @@ describe("DialogShell reduced-motion transitions", () => {
 // the sheet's three dismissals, and the footer chassis that puts the negative
 // button on the left and the positive one on the right.
 describe("DialogShell phone presentation", () => {
+	// The presentation follows the viewport width, so these drive innerWidth
+	// rather than a media query — the same signal viewportTier() reads.
+	function setViewportWidth(width: number) {
+		vi.stubGlobal("innerWidth", width);
+	}
+
 	afterEach(() => {
 		vi.unstubAllGlobals();
 	});
 
 	it("stays a centred panel on a phone when nothing opted in", () => {
-		stubMatchMedia(true);
+		setViewportWidth(390);
 		const { getByRole, queryByTestId } = render(DialogShell, {
 			props: { title: "Centred", children: focusableChildren },
 		});
@@ -441,7 +447,7 @@ describe("DialogShell phone presentation", () => {
 	});
 
 	it("renders as a bottom sheet on a phone once opted in", () => {
-		stubMatchMedia(true);
+		setViewportWidth(390);
 		const { getByRole, getByTestId } = render(DialogShell, {
 			props: {
 				title: "Sheet",
@@ -456,7 +462,7 @@ describe("DialogShell phone presentation", () => {
 	});
 
 	it("keeps the centred panel above the breakpoint even when a sheet is requested", () => {
-		stubMatchMedia(false);
+		setViewportWidth(1200);
 		const { getByRole, queryByTestId } = render(DialogShell, {
 			props: {
 				title: "Sheet",
@@ -469,7 +475,7 @@ describe("DialogShell phone presentation", () => {
 	});
 
 	it("marks the full-screen picker variant so its list gets the whole screen", () => {
-		stubMatchMedia(true);
+		setViewportWidth(390);
 		const { getByRole } = render(DialogShell, {
 			props: {
 				title: "Picker",
@@ -481,7 +487,7 @@ describe("DialogShell phone presentation", () => {
 	});
 
 	it("closes from the grabber — the sheet's first dismissal", async () => {
-		stubMatchMedia(true);
+		setViewportWidth(390);
 		const onClose = vi.fn();
 		const { getByTestId } = render(DialogShell, {
 			props: {
@@ -497,7 +503,7 @@ describe("DialogShell phone presentation", () => {
 	});
 
 	it("renders the footer below a hairline, negative first", () => {
-		stubMatchMedia(true);
+		setViewportWidth(390);
 		const { getByTestId } = render(DialogShell, {
 			props: {
 				title: "Sheet",
@@ -514,7 +520,7 @@ describe("DialogShell phone presentation", () => {
 	});
 
 	it("omits the footer chassis entirely when no footer is given", () => {
-		stubMatchMedia(true);
+		setViewportWidth(390);
 		const { queryByTestId } = render(DialogShell, {
 			props: {
 				title: "Sheet",

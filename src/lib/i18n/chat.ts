@@ -935,7 +935,8 @@ const chatDict = {
 		// pickers become. Kept in one delimited block so the redesign's
 		// vocabulary can be read — and revised — as a single piece of copy
 		// rather than being scattered alphabetically through the file.
-		"composerBar.accountsNone": "Accounts — nothing connected yet",
+		"composerBar.accountsNone":
+			"Accounts — nothing connected yet. Connect one in Settings.",
 		"composerBar.accountsOff": "Accounts — none on for this message",
 		"composerBar.accountsOn": "Accounts — {on} of {total} on for this message",
 		"composerBar.attachOff": "Attach a file",
@@ -1896,7 +1897,8 @@ const chatDict = {
 		// A "B irány" gombsor, a mögötte lévő "+" menü, és a telefonos lapok,
 		// amikké a választók válnak. Egy blokkban tartva, hogy az újratervezés
 		// szóhasználata egyben legyen olvasható és javítható.
-		"composerBar.accountsNone": "Fiókok — még nincs csatlakoztatva egy sem",
+		"composerBar.accountsNone":
+			"Fiókok — még nincs csatlakoztatva egy sem. Csatlakoztass egyet a Beállításokban.",
 		"composerBar.accountsOff":
 			"Fiókok — ehhez az üzenethez egy sincs bekapcsolva",
 		"composerBar.accountsOn":

@@ -228,7 +228,9 @@ export function nextMenuIndex(
 	// Where we are in the *selectable* list, or just before its start so that
 	// a first ArrowDown lands on the first row.
 	const position = selectable.indexOf(current);
-	if (position === -1) return step === 1 ? selectable[0] : selectable.at(-1);
+	if (position === -1) {
+		return step === 1 ? selectable[0] : selectable[selectable.length - 1];
+	}
 
 	const next = (position + step + selectable.length) % selectable.length;
 	return selectable[next];

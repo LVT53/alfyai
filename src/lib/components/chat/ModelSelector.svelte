@@ -27,10 +27,16 @@ let {
 	onSelect,
 	open = undefined,
 	onOpenChange = undefined,
+	// Handed the trigger element once it exists. The composer's "+" menu is a
+	// real menu for the keyboard — one array of rows the arrow keys walk —
+	// and the Model row's focusable element lives in here, so the menu has to
+	// be able to reach it. Nothing else uses this; the default is a no-op.
+	onTriggerRef = undefined,
 }: {
 	onSelect?: (payload: { modelId: ModelId }) => void;
 	open?: boolean | undefined;
 	onOpenChange?: ((open: boolean) => void) | undefined;
+	onTriggerRef?: ((element: HTMLButtonElement | null) => void) | undefined;
 } = $props();
 
 let providers: ModelProvider[] = $state([]);
@@ -68,6 +74,10 @@ const DESKTOP_DROPDOWN_MIN_WIDTH = 280;
 const DESKTOP_DROPDOWN_MAX_WIDTH = 320;
 const DESKTOP_DROPDOWN_MAX_HEIGHT = 400;
 const DESKTOP_DROPDOWN_MIN_HEIGHT = 160;
+
+$effect(() => {
+	onTriggerRef?.(triggerRef);
+});
 
 function setOpen(nextOpen: boolean) {
 	if (open === undefined) {

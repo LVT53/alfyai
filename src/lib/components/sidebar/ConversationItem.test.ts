@@ -5,6 +5,10 @@ import ConversationItemWrapper from "./ConversationItemWrapper.test.svelte";
 
 vi.mock("svelte/transition", () => ({
 	fade: () => ({}),
+	// DialogShell (pulled in transitively) wraps `fly` too, for the phone
+	// bottom-sheet presentation — a module-level call, so it has to exist on
+	// the mock even though nothing in this test plays it.
+	fly: () => ({}),
 	scale: () => ({}),
 	slide: () => ({}),
 }));

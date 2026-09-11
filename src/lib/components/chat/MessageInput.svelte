@@ -3,6 +3,7 @@ import { onMount } from "svelte";
 import {
 	Bell,
 	Brain,
+	Paperclip,
 	Plug,
 	Plus,
 	Send,
@@ -59,9 +60,11 @@ import { t, type I18nKey } from "$lib/i18n";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { currentConversationId } from "$lib/stores/ui";
 import {
+	isPhoneViewport,
 	isTouchDevice,
 	initViewportTracking,
 	viewportStore,
+	watchPhoneViewport,
 } from "$lib/utils/viewport.svelte";
 import {
 	clearComposerQuoteRequest,
@@ -69,7 +72,18 @@ import {
 } from "$lib/stores/composer-quote";
 import ContextUsageRing from "./ContextUsageRing.svelte";
 import AttachmentOutline from "./AttachmentOutline.svelte";
+import AttachmentPickerSheet from "./AttachmentPickerSheet.svelte";
 import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
+import SkillsPicker from "./SkillsPicker.svelte";
+import {
+	accountsBadge,
+	accountsIsOn,
+	accountsTooltip,
+	attachIsOn,
+	attachTooltip,
+	type ComposerTooltip,
+	thinkingTooltip,
+} from "./composer-bar";
 import FileAttachment from "./FileAttachment.svelte";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
 import LinkedSourceManager from "./LinkedSourceManager.svelte";
@@ -287,6 +301,7 @@ let {
 
 let textarea = $state<HTMLTextAreaElement | null>(null);
 let fileInput = $state<HTMLInputElement | null>(null);
+let toolsMenuTrigger = $state<HTMLButtonElement | null>(null);
 let isHydrated = $state(false);
 let message = $state("");
 let pendingAttachments = $state<PendingAttachment[]>([]);
@@ -302,6 +317,13 @@ let documentPickerLoading = $state(false);
 let documentPickerError = $state("");
 let resolvedConversationId = $state<string | null>(null);
 let showToolsMenu = $state(false);
+// Everyday redesign — the phone-only surfaces the bar and the menu open.
+let attachmentSheetOpen = $state(false);
+let skillsPickerOpen = $state(false);
+let skillCount = $state<number | null>(null);
+let isPhone = $state(isPhoneViewport());
+let longPressLabel = $state<string | null>(null);
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 let commandToken = $state<
 	ComposerCommandToken | ComposerCommandTokenWithArgument | null
 >(null);
@@ -755,6 +777,60 @@ const activeConnectionCount = $derived(
 		: connectionsEnabled
 			? defaultOnCapabilities.size
 			: 0,
+);
+
+// The denominator the tooltip reads. With no per-account list from the server
+// the honest total is how many capabilities the user is served, which is what
+// the old all-or-nothing switch was counting all along.
+const totalConnectionCount = $derived(
+	connectionAccounts.length > 0
+		? readyCount(connectionAccounts, connectionsFlippedIds).total
+		: availableCapabilities.length,
+);
+
+// ── Direction B: the three icons on the bar ──────────────────────────
+//
+// Everything the bar draws comes from composer-bar.ts, so the on-states, the
+// badge and the wording are one set of rules rather than three sets of
+// conditions in the markup. `resolveTooltip` is the only local piece: it
+// turns the key-and-parameters the module returns into a sentence.
+function resolveTooltip(tooltip: ComposerTooltip): string {
+	return $t(tooltip.key as I18nKey, tooltip.params);
+}
+
+let attachedCount = $derived(pendingAttachments.length);
+let linkedCount = $derived(
+	composerCommandRegistryEnabled ? effectiveLinkedSources.length : 0,
+);
+let attachOn = $derived(attachIsOn(attachedCount, linkedCount));
+let accountsOn = $derived(accountsIsOn(hasConnections, activeConnectionCount));
+let accountsCountBadge = $derived(
+	hasConnections ? accountsBadge(activeConnectionCount) : null,
+);
+let thinkingIsOn = $derived(reasoningDepth === "thorough");
+
+let attachLabel = $derived(
+	resolveTooltip(attachTooltip(canAttach, attachedCount, linkedCount)),
+);
+let accountsLabel = $derived(
+	resolveTooltip(
+		accountsTooltip(
+			hasConnections,
+			activeConnectionCount,
+			totalConnectionCount,
+		),
+	),
+);
+let thinkingLabel = $derived(resolveTooltip(thinkingTooltip(thinkingIsOn)));
+
+// The ring is a measurement, not a switch — so it appears once there is
+// something to measure and stays away until then. A ring reading "0" with a
+// full outline is a control that looks live and answers nothing.
+let hasContextToShow = $derived(
+	contextStatus !== null ||
+		composerArtifacts.length > 0 ||
+		totalTokens > 0 ||
+		totalCostUsd > 0,
 );
 
 $effect(() => {
@@ -1294,6 +1370,13 @@ onMount(() => {
 		}
 	}
 	initViewportTracking();
+	isPhone = isPhoneViewport();
+	// Which presentation "attach" and the "+" menu use follows the window, so
+	// a desktop window dragged narrow gets the phone treatment without a
+	// reload — and gives it back when widened.
+	const stopWatchingPhoneViewport = watchPhoneViewport((phone) => {
+		isPhone = phone;
+	});
 	if (textarea) {
 		if (!isMobile()) {
 			textarea.focus();
@@ -1314,32 +1397,121 @@ onMount(() => {
 		});
 	return () => {
 		window.removeEventListener("resize", adjustHeight);
+		stopWatchingPhoneViewport();
+		clearLongPress();
 		if (textareaValueSyncFrame !== null) {
 			cancelAnimationFrame(textareaValueSyncFrame);
 		}
 	};
 });
 
+// Everyday redesign — where "attach" goes.
+//
+// On a desktop it still hands straight to the OS, because a sheet offering
+// one row that says "open the file picker" is a speed bump. On a phone the
+// picker sheet adds three routes the OS hand-off cannot express in one tap —
+// photos, the camera, and the document Library — so it is shown there and
+// only there. See AttachmentPickerSheet.
 function openFilePicker() {
 	if (!canAttach) return;
 	showToolsMenu = false;
 	sourceManagerOpen = false;
 	closeCommandTray();
+	if (isPhone) {
+		attachmentSheetOpen = true;
+		return;
+	}
 	fileInput?.click();
+}
+
+function closeAttachmentSheet() {
+	attachmentSheetOpen = false;
+}
+
+function openSkillsPicker() {
+	showToolsMenu = false;
+	closeCommandTray();
+	skillsPickerOpen = true;
+}
+
+function closeSkillsPicker() {
+	skillsPickerOpen = false;
+	requestAnimationFrame(() => textarea?.focus());
+}
+
+// The same landing as the "$" tray's selectSkill, minus the token surgery:
+// nothing was typed, so there is no token to consume.
+function selectSkillFromPicker(skill: SkillDiscoverySummary) {
+	pendingSkill = {
+		id: skill.id,
+		ownership: skill.ownership,
+		skillKind: skill.skillKind,
+		displayName: skill.displayName,
+		baseSkillId:
+			skill.skillKind === "skill_variant" && "baseSkillId" in skill
+				? skill.baseSkillId
+				: null,
+		baseSkillDisplayName:
+			skill.skillKind === "skill_variant" && "baseSkillDisplayName" in skill
+				? skill.baseSkillDisplayName
+				: null,
+	};
+	draftEmissionVersion += 1;
+	void emitDraftChange();
+	closeSkillsPicker();
+}
+
+// ── Long-press labels ────────────────────────────────────────────────
+//
+// A phone has no hover, so the tooltip that names each bar icon and its
+// state has no way to arrive. Holding one for half a second shows the same
+// sentence, which is the only affordance left that does not cost a tap.
+function startLongPress(label: string) {
+	clearLongPress();
+	longPressTimer = setTimeout(() => {
+		longPressLabel = label;
+	}, 450);
+}
+
+function clearLongPress() {
+	if (longPressTimer !== null) {
+		clearTimeout(longPressTimer);
+		longPressTimer = null;
+	}
+	longPressLabel = null;
 }
 
 function toggleToolsMenu() {
 	showToolsMenu = !showToolsMenu;
 	if (showToolsMenu) {
 		sourceManagerOpen = false;
+		showConnectionsPopover = false;
 		closeCommandTray();
+		// The Skills row says how many are active. Fetched when the menu opens
+		// rather than on mount: most sessions never open it, and a count that
+		// is one visit stale is worse than one that is fetched on the visit.
+		void loadSkillCount();
 	}
 	toolsMenuInitialOpen = null;
 }
 
+// The menu is a real menu, so closing it returns focus to the control that
+// opened it rather than dropping focus on the body.
 function closeToolsMenu() {
 	showToolsMenu = false;
 	toolsMenuInitialOpen = null;
+	requestAnimationFrame(() => toolsMenuTrigger?.focus());
+}
+
+async function loadSkillCount() {
+	try {
+		const skills = await discoverSkills("");
+		skillCount = skills.length;
+	} catch {
+		// A row that simply says "Skills" is a fine outcome; a row that says
+		// "0 active" because a fetch failed is a lie.
+		skillCount = null;
+	}
 }
 
 function openSourceManager() {
@@ -2541,18 +2713,26 @@ async function emitDraftChange(force = false) {
 			</div>
 		{/if}
 
+		<!-- Everyday redesign, Direction B — "+", attach, accounts, thinking,
+		     send. The three in the middle are the ones reached for
+		     mid-sentence; everything else lives behind the plus, incognito
+		     included. An icon that is on is a filled accent disc, and the
+		     count appears only above zero. -->
 		<div class="composer-actions flex items-center justify-between gap-2 pt-[3px] pb-[4px] md:gap-3 md:pt-[4px] md:pb-[5px]">
-			<div class="flex items-center gap-2">
+			<div class="composer-bar flex items-center gap-1 md:gap-1.5">
 				<div class="relative flex items-center">
 					<button
 						type="button"
-						class="btn-icon-bare composer-icon flex flex-shrink-0 items-center justify-center text-text-muted"
+						bind:this={toolsMenuTrigger}
+						data-testid="composer-tools-trigger"
+						class="composer-face composer-face--plus"
 						onclick={toggleToolsMenu}
 						disabled={isComposerDisabled}
 						aria-label={$t('chat.openComposerTools')}
+						aria-haspopup="menu"
 						aria-expanded={showToolsMenu}
 					>
-					<Plus size={20} strokeWidth={2.2} aria-hidden="true" />
+						<Plus size={isPhone ? 18 : 20} strokeWidth={2.2} aria-hidden="true" />
 					</button>
 
 					{#if showToolsMenu}
@@ -2571,42 +2751,47 @@ async function emitDraftChange(force = false) {
 							{atlasAvailability}
 							atlasProfile={selectedAtlasProfile}
 							onAtlasProfileChange={setAtlasProfile}
+							thinkingAvailable={currentModelSupportsReasoningControls}
+							thinkingOn={thinkingIsOn}
+							onToggleThinking={toggleThinking}
+							{incognitoOn}
+							{incognitoBusy}
+							onToggleIncognito={toggleIncognito}
+							connections={connectionAccounts}
+							flippedIds={connectionsFlippedIds}
+							connectionsMasterOn={connectionAccounts.length > 0
+								? masterIsOn(connectionAccounts, connectionsFlippedIds)
+								: connectionsEnabled}
+							onToggleConnectionsMaster={handleToggleConnectionsMaster}
+							onToggleConnectionAccount={handleToggleConnectionAccount}
+							onManageConnections={() => {
+								showToolsMenu = false;
+								goto('/settings?section=connections');
+							}}
+							{skillCount}
+							pendingSkillName={pendingSkill?.displayName ?? null}
+							onOpenSkills={openSkillsPicker}
 						/>
 					{/if}
 				</div>
 
 				<button
 					type="button"
-					data-testid="incognito-toggle"
-					class="btn-icon-bare composer-icon composer-incognito-btn flex flex-shrink-0 items-center justify-center"
-					class:composer-incognito-btn--active={incognitoOn}
-					onclick={toggleIncognito}
-					disabled={incognitoBusy}
-					aria-pressed={incognitoOn}
-					aria-label={$t('chat.incognitoToggle')}
-					title={$t('chat.incognitoToggle')}
+					data-testid="attach-toggle"
+					class="composer-face"
+					class:composer-face--on={attachOn}
+					onclick={openFilePicker}
+					disabled={isComposerDisabled || !canAttach}
+					aria-pressed={attachOn}
+					aria-label={attachLabel}
+					title={attachLabel}
+					onpointerdown={() => startLongPress(attachLabel)}
+					onpointerup={clearLongPress}
+					onpointerleave={clearLongPress}
+					onpointercancel={clearLongPress}
 				>
-					<VenetianMask size={19} strokeWidth={2.1} aria-hidden="true" />
+					<Paperclip size={isPhone ? 16 : 18} strokeWidth={2.1} aria-hidden="true" />
 				</button>
-
-				{#if currentModelSupportsReasoningControls}
-					<button
-						type="button"
-						data-testid="thinking-toggle"
-						class="btn-icon-bare composer-icon composer-thinking-btn flex flex-shrink-0 items-center justify-center"
-						class:composer-thinking-btn--active={reasoningDepth === "thorough"}
-						onclick={toggleThinking}
-						aria-pressed={reasoningDepth === "thorough"}
-						aria-label={reasoningDepth === "thorough"
-							? $t('chat.thinkingToggleOn')
-							: $t('chat.thinkingToggleOff')}
-						title={reasoningDepth === "thorough"
-							? $t('chat.thinkingToggleOn')
-							: $t('chat.thinkingToggleOff')}
-					>
-						<Brain size={19} strokeWidth={2.1} aria-hidden="true" />
-					</button>
-				{/if}
 
 				<!-- Connections redesign — the plug opens the account list instead of
 				     being an all-or-nothing switch, and carries the count so the
@@ -2615,27 +2800,24 @@ async function emitDraftChange(force = false) {
 					<button
 						type="button"
 						data-testid="connections-toggle"
-						class="btn-icon-bare composer-icon composer-connections-btn flex flex-shrink-0 items-center justify-center"
-						class:composer-connections-btn--active={hasConnections && connectionsEnabled}
-						class:composer-connections-btn--disabled={!hasConnections}
+						class="composer-face"
+						class:composer-face--on={accountsOn}
+						class:composer-face--muted={!hasConnections}
 						onclick={openConnectionsPopover}
 						aria-disabled={!hasConnections}
+						aria-pressed={accountsOn}
 						aria-expanded={hasConnections ? showConnectionsPopover : undefined}
-						aria-label={!hasConnections
-							? $t('chat.connectionsToggleNoConnections')
-							: connectionsEnabled
-								? $t('chat.connectionsToggleOn')
-								: $t('chat.connectionsToggleOff')}
-						title={!hasConnections
-							? $t('chat.connectionsToggleNoConnections')
-							: connectionsEnabled
-								? $t('chat.connectionsToggleOn')
-								: $t('chat.connectionsToggleOff')}
+						aria-label={accountsLabel}
+						title={accountsLabel}
+						onpointerdown={() => startLongPress(accountsLabel)}
+						onpointerup={clearLongPress}
+						onpointerleave={clearLongPress}
+						onpointercancel={clearLongPress}
 					>
-						<Plug size={19} strokeWidth={2.1} aria-hidden="true" />
-						{#if hasConnections && activeConnectionCount > 0}
+						<Plug size={isPhone ? 16 : 18} strokeWidth={2.1} aria-hidden="true" />
+						{#if accountsCountBadge !== null}
 							<span class="composer-connections-count" aria-hidden="true">
-								{activeConnectionCount}
+								{accountsCountBadge}
 							</span>
 						{/if}
 					</button>
@@ -2658,16 +2840,42 @@ async function emitDraftChange(force = false) {
 					{/if}
 				</div>
 
-				<ContextUsageRing
-					{contextStatus}
-					attachedArtifacts={composerArtifacts}
-					{contextDebug}
-					{contextSources}
-					{totalCostUsd}
-					{lastTurnCostUsd}
-					{totalTokens}
-					{onManageEvidence}
-				/>
+				{#if currentModelSupportsReasoningControls}
+					<button
+						type="button"
+						data-testid="thinking-bar-toggle"
+						class="composer-face"
+						class:composer-face--on={thinkingIsOn}
+						onclick={toggleThinking}
+						aria-pressed={thinkingIsOn}
+						aria-label={thinkingLabel}
+						title={thinkingLabel}
+						onpointerdown={() => startLongPress(thinkingLabel)}
+						onpointerup={clearLongPress}
+						onpointerleave={clearLongPress}
+						onpointercancel={clearLongPress}
+					>
+						<Brain size={isPhone ? 16 : 18} strokeWidth={2.1} aria-hidden="true" />
+					</button>
+				{/if}
+
+				{#if hasContextToShow}
+					<ContextUsageRing
+						{contextStatus}
+						attachedArtifacts={composerArtifacts}
+						{contextDebug}
+						{contextSources}
+						{totalCostUsd}
+						{lastTurnCostUsd}
+						{totalTokens}
+						{onManageEvidence}
+					/>
+				{/if}
+
+				{#if longPressLabel}
+					<!-- The hover sentence, on a device that has no hover. -->
+					<span class="composer-longpress-label" role="status">{longPressLabel}</span>
+				{/if}
 			</div>
 
 			<div class="action-button-container flex min-h-[42px] items-center justify-end gap-2 flex-shrink-0">
@@ -2777,6 +2985,28 @@ async function emitDraftChange(force = false) {
 			error={documentPickerError}
 			onApply={applyLinkedSources}
 			onCancel={closeDocumentPicker}
+		/>
+	{/if}
+
+	{#if attachmentSheetOpen}
+		<AttachmentPickerSheet
+			onFiles={(files) => void uploadFiles(files)}
+			onOpenLibrary={() => {
+				attachmentSheetOpen = false;
+				void openDocumentPicker();
+			}}
+			onCancel={closeAttachmentSheet}
+		/>
+	{/if}
+
+	{#if skillsPickerOpen}
+		<SkillsPicker
+			onSelect={selectSkillFromPicker}
+			onCancel={closeSkillsPicker}
+			onManage={() => {
+				skillsPickerOpen = false;
+				goto('/settings?section=skills');
+			}}
 		/>
 	{/if}
 
@@ -3084,40 +3314,131 @@ async function emitDraftChange(force = false) {
 			0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent 90%);
 	}
 
-	.composer-icon {
-		align-self: center;
-	}
-
-	/* Incognito toggle: quiet by default; when active only the ICON takes the
-	   accent colour (no box fill) so it reads as a state without distracting. */
-	.composer-incognito-btn {
-		color: var(--icon-muted);
-	}
-
-	.composer-incognito-btn--active {
-		color: var(--accent);
-	}
-
-	.composer-incognito-btn--active:hover {
-		color: var(--accent-hover);
-		opacity: 1;
-	}
-
-	/* Connections master toggle (ADR 0044 Decision 1): icon takes the accent
-	   colour while on (the default), muted once turned off for this
-	   conversation. Icon-only colouring — the box is never filled. */
-	.composer-connections-btn {
+	.composer-bar {
 		position: relative;
-		color: var(--icon-muted);
 	}
 
-	.composer-connections-btn--active {
+	/* ── Direction B: one face, three states ──────────────────────────
+	   Every icon on the bar is the same object: a 34px disc (32px on a
+	   phone) with a 44px hit area around it. Resting is an outline glyph on
+	   nothing; ON is a filled accent disc, because recolouring a 19px
+	   hairline is a hue shift nobody can read at a glance — and it asks you
+	   to already know what the resting colour was. */
+	.composer-face {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		align-self: center;
+		flex-shrink: 0;
+		width: 34px;
+		height: 34px;
+		border: 0;
+		border-radius: 999px;
+		background: transparent;
+		color: var(--icon-muted);
+		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
+	}
+
+	.composer-face:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
 		color: var(--accent);
 	}
 
-	.composer-connections-btn--active:hover {
-		color: var(--accent-hover);
-		opacity: 1;
+	.composer-face:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.composer-face--on {
+		background: var(--accent);
+		color: var(--accent-contrast, #fff);
+	}
+
+	.composer-face--on:hover:not(:disabled) {
+		background: var(--accent-hover);
+		color: var(--accent-contrast, #fff);
+	}
+
+	/* Shown but greyed for users with no connections yet — the tooltip
+	   points them to Settings. Still hoverable (aria-disabled, not native
+	   disabled) so the label surfaces. */
+	.composer-face--muted {
+		opacity: 0.42;
+		cursor: default;
+	}
+
+	.composer-face--muted:hover {
+		background: transparent;
+		color: var(--icon-muted);
+		opacity: 0.42;
+	}
+
+	.composer-face:disabled {
+		cursor: not-allowed;
+		opacity: 0.42;
+	}
+
+	.composer-face--plus {
+		color: var(--text-muted);
+	}
+
+	/* A phone keeps the 44px hit area but shrinks the face to 32px, so five
+	   controls and the send button still fit one row at 390px. */
+	@media (max-width: 639px) {
+		.composer-face {
+			width: 44px;
+			height: 44px;
+		}
+
+		.composer-face::before {
+			content: "";
+			position: absolute;
+			inset: 6px;
+			border-radius: 999px;
+			background: inherit;
+		}
+
+		.composer-face--on {
+			background: transparent;
+			color: var(--accent-contrast, #fff);
+		}
+
+		.composer-face--on::before {
+			background: var(--accent);
+		}
+
+		.composer-face:hover:not(:disabled) {
+			background: transparent;
+		}
+
+		.composer-face--on:hover:not(:disabled)::before {
+			background: var(--accent-hover);
+		}
+	}
+
+	/* The hover sentence, on a device with no hover: held for ~450ms, the
+	   same words the tooltip would have said. */
+	.composer-longpress-label {
+		position: absolute;
+		bottom: calc(100% + 6px);
+		left: 0;
+		z-index: 30;
+		max-width: calc(100vw - 3rem);
+		border-radius: 0.4rem;
+		background: var(--text-primary);
+		color: var(--surface-page);
+		padding: 0.3rem 0.5rem;
+		font-family: var(--font-sans);
+		font-size: 0.75rem;
+		line-height: 1.25;
+		pointer-events: none;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	/* Connections redesign — how many accounts are reaching this message.
@@ -3125,11 +3446,13 @@ async function emitDraftChange(force = false) {
 	   state is, and a screen reader shouldn't hear a bare number. */
 	.composer-connections-count {
 		position: absolute;
-		top: 0.0625rem;
-		right: 0.0625rem;
+		top: 1px;
+		right: 1px;
+		z-index: 1;
 		min-width: 0.875rem;
 		padding: 0 0.1875rem;
 		border-radius: 9999px;
+		border: 1.5px solid var(--surface-elevated);
 		background: var(--accent);
 		color: var(--accent-contrast);
 		font-size: 0.5625rem;
@@ -3139,33 +3462,21 @@ async function emitDraftChange(force = false) {
 		pointer-events: none;
 	}
 
-	/* Thinking toggle (ADR-0061): icon-only colouring, accent while thorough
-	   (thinking on), muted while quick (thinking off). */
-	.composer-thinking-btn {
-		color: var(--icon-muted);
-	}
-
-	.composer-thinking-btn--active {
+	/* The badge sits on the filled disc while the control is on, so it needs
+	   the disc's colour to read against rather than the accent it is made of. */
+	.composer-face--on .composer-connections-count {
+		border-color: var(--accent);
+		background: var(--accent-contrast, #fff);
 		color: var(--accent);
 	}
 
-	.composer-thinking-btn--active:hover {
-		color: var(--accent-hover);
-		opacity: 1;
-	}
-
-	/* Shown but greyed for users with no connections yet — the tooltip points
-	   them to Settings. Still hoverable (aria-disabled, not native disabled)
-	   so the title tooltip surfaces. */
-	.composer-connections-btn--disabled {
-		color: var(--icon-muted);
-		opacity: 0.4;
-		cursor: default;
-	}
-
-	.composer-connections-btn--disabled:hover {
-		opacity: 0.4;
-		background: transparent;
+	@media (max-width: 639px) {
+		/* The face shrinks to 32px inside the 44px target, so the badge moves
+		   in with it rather than floating at the corner of the hit area. */
+		.composer-connections-count {
+			top: 4px;
+			right: 4px;
+		}
 	}
 
 	/* One-line "incognito on" notice above the input box. */

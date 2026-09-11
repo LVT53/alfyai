@@ -117,6 +117,79 @@ function tierFromWidth(width: number): ViewportTier {
 	return "desktop";
 }
 
+// ── Phone presentation (everyday redesign) ───────────────────────────
+//
+// Below the phone threshold an opted-in dialog stops being a centred panel
+// and becomes a bottom sheet. CSS can carry the layout, but the *transition*
+// changes too — a panel that scales into the middle of the screen and a sheet
+// that slides up from the bottom edge are different animations, and Svelte
+// picks a transition in JavaScript. So the breakpoint has to be readable from
+// both sides, and it is read from the one threshold this module already owns
+// rather than being retyped.
+
+/** True when the viewport is phone-sized. SSR-safe (false on the server). */
+export function isPhoneViewport(): boolean {
+	return viewportTier() === "phone";
+}
+
+/**
+ * Calls `onChange` whenever the viewport crosses the phone threshold, and
+ * returns a teardown.
+ *
+ * Separate from {@link viewportStore} on purpose: the store only reflects
+ * reality once some component has called {@link initViewportTracking}, and a
+ * dialog cannot assume anyone has. This attaches its own listeners and
+ * detaches them on teardown, so a dialog is correct on its own.
+ *
+ * Only crossings are reported — a resize within one bucket fires nothing, so
+ * a caller can drive state off it without re-rendering on every pixel.
+ */
+export function watchPhoneViewport(
+	onChange: (isPhone: boolean) => void,
+): () => void {
+	if (typeof window === "undefined") return () => {};
+	let last = isPhoneViewport();
+	const handler = () => {
+		const next = isPhoneViewport();
+		if (next === last) return;
+		last = next;
+		onChange(next);
+	};
+	window.addEventListener("resize", handler);
+	window.addEventListener("orientationchange", handler);
+	return () => {
+		window.removeEventListener("resize", handler);
+		window.removeEventListener("orientationchange", handler);
+	};
+}
+
+/**
+ * How a dialog presents itself.
+ *
+ *   "centered"  — a centred panel, at any width.
+ *   "sheet"     — a bottom sheet on a phone, centred panel above.
+ *   "fullSheet" — a sheet filling the screen under a 30px lip, for pickers
+ *                 whose list has its own scroll.
+ */
+export type DialogPresentation = "centered" | "sheet" | "fullSheet";
+
+/**
+ * Which presentation applies right now.
+ *
+ * `requested` is what the owning surface asked for; the viewport decides
+ * whether it applies. Pure (the width answer is passed in) so the selection is
+ * testable without a DOM. The sheet presentations are a phone treatment only:
+ * on a wide screen a bottom sheet is a panel stuck to the bottom edge of a
+ * 1440px window, which is worse than the centred dialog it replaced.
+ */
+export function resolveDialogPresentation(
+	requested: DialogPresentation,
+	isPhone: boolean,
+): DialogPresentation {
+	if (!isPhone) return "centered";
+	return requested;
+}
+
 function syncStore(): void {
 	const next = computeViewportState();
 	viewportStore.touch = next.touch;

@@ -68,7 +68,7 @@ import {
 	isPhoneViewport,
 	resolveDialogPresentation,
 	watchPhoneViewport,
-} from "$lib/utils/viewport";
+} from "$lib/utils/viewport.svelte";
 
 let {
 	title,

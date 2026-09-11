@@ -108,6 +108,14 @@ const CASES: Case[] = [
 		wrappedNames: ["bodySlide"],
 		bannedDirectives: [/transition:slide=/],
 	},
+	{
+		// Everyday redesign — the composer's "+" menu, which on a phone
+		// becomes a bottom sheet and so flies 260px. A sheet is exactly the
+		// kind of motion prefers-reduced-motion is asking us not to make.
+		file: "src/lib/components/chat/ComposerToolsMenu.svelte",
+		wrappedNames: ["menuFly"],
+		bannedDirectives: [/transition:fly=/],
+	},
 ];
 
 describe("Svelte transition directives are routed through reducedMotionAware", () => {
