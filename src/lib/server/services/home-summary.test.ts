@@ -92,6 +92,34 @@ describe("isoWeekLabel", () => {
 			isoWeekLabel(isoWeekStart(iso("2027-01-02T12:00:00Z"), UTC), UTC),
 		).toBe("2026-W53");
 	});
+
+	// 2026 opens ON a Thursday, which is the one shape where reaching the
+	// week's Thursday by adding three times 86,400,000ms instead of three
+	// calendar days would shift every week number in the year down by one if
+	// an hour were ever given back mid-week. Pin the ends and the seam.
+	it("numbers a year that opens on a Thursday from its first day", () => {
+		expect(
+			isoWeekLabel(isoWeekStart(iso("2026-01-01T12:00:00Z"), UTC), UTC),
+		).toBe("2026-W01");
+		expect(
+			isoWeekLabel(isoWeekStart(iso("2026-01-05T12:00:00Z"), UTC), UTC),
+		).toBe("2026-W02");
+		expect(
+			isoWeekLabel(isoWeekStart(iso("2026-12-27T12:00:00Z"), UTC), UTC),
+		).toBe("2026-W52");
+	});
+
+	it("walks a whole year of weeks without repeating or skipping one", () => {
+		const seen: string[] = [];
+		for (let week = 0; week < 52; week += 1) {
+			const instant = iso("2026-01-07T12:00:00Z");
+			instant.setUTCDate(instant.getUTCDate() + week * 7);
+			seen.push(isoWeekLabel(isoWeekStart(instant, BUDAPEST), BUDAPEST));
+		}
+		expect(new Set(seen).size).toBe(52);
+		expect(seen[0]).toBe("2026-W02");
+		expect(seen.at(-1)).toBe("2026-W53");
+	});
 });
 
 describe("bucketWeeklyCounts", () => {

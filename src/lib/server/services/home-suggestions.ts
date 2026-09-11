@@ -30,6 +30,7 @@ import {
 	memoryProfileItems,
 } from "$lib/server/db/schema";
 import { listConnectionsForUser } from "$lib/server/services/connections/store";
+import { isPlaceholderConversationTitle } from "$lib/server/services/knowledge-labels";
 
 export type HomeSuggestionKind =
 	| "calendar"
@@ -346,11 +347,12 @@ export function buildConversationSeeds(
 ): HomeSuggestionSeed[] {
 	return topics
 		.filter(
-			(topic) =>
-				topic.title.trim().length > 0 &&
-				// The placeholder a conversation carries until its title is
-				// summarised names no object at all, so it fills no template.
-				topic.title.trim().toLowerCase() !== "new conversation",
+			// The placeholder a conversation carries until its title is
+			// summarised names no object at all, so it fills no template. The
+			// set of placeholders is the one the rest of the app already keeps
+			// — "Conversation" is in it too, and a chip reading "Ask about
+			// Conversation" is exactly what this filter exists to prevent.
+			(topic) => !isPlaceholderConversationTitle(topic.title),
 		)
 		.map((topic) => ({
 			key: `conversation:${topic.id}`,
@@ -452,9 +454,11 @@ export async function gatherHomeSuggestionSeeds(params: {
 			.where(eq(conversations.userId, userId))
 			.orderBy(desc(conversations.updatedAt))
 			.limit(MAX_RECENT_TOPICS),
-		// "Unfinished" = queued, failed-and-retryable, or cancelled. A succeeded
-		// job is finished by definition and a running one is already on the
-		// "Running now" line, so neither is an offer to pick anything up.
+		// "Unfinished" = failed-and-retryable, or cancelled. A succeeded job is
+		// finished by definition; a queued or running one is already drawn on
+		// the "Running now" line, and offering to pick up the job the board is
+		// watching in the same breath would be the home screen arguing with
+		// itself.
 		db
 			.select({
 				id: atlasJobs.id,
@@ -467,7 +471,7 @@ export async function gatherHomeSuggestionSeeds(params: {
 			.where(
 				and(
 					eq(atlasJobs.userId, userId),
-					inArray(atlasJobs.status, ["queued", "failed", "cancelled"]),
+					inArray(atlasJobs.status, ["failed", "cancelled"]),
 				),
 			)
 			.orderBy(desc(atlasJobs.updatedAt))

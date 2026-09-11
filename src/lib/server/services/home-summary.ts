@@ -198,17 +198,23 @@ export function isoWeekStart(instant: Date, timeZone: string): Date {
 /** The ISO-8601 week label ("2026-W37") of the week starting at `weekStart`. */
 export function isoWeekLabel(weekStart: Date, timeZone: string): string {
 	// ISO: the week's Thursday decides which year the week belongs to.
-	const thursday = new Date(weekStart.getTime() + 3 * 86_400_000);
-	const thursdayLocal = zonedParts(thursday, timeZone);
-	const yearStart = Date.UTC(thursdayLocal.year, 0, 1);
-	const thursdayUtc = Date.UTC(
-		thursdayLocal.year,
-		thursdayLocal.month - 1,
-		thursdayLocal.day,
+	//
+	// The Thursday is reached on the CALENDAR, not by adding three times
+	// 86,400,000 milliseconds: an hour given back inside the week would land
+	// that sum on Wednesday 23:00 and, in a year whose 1 January is itself a
+	// Thursday, shift every week number in it down by one. `Date.UTC` carries
+	// the day overflow across month and year ends for free.
+	const startLocal = zonedParts(weekStart, timeZone);
+	const thursdayStamp = Date.UTC(
+		startLocal.year,
+		startLocal.month - 1,
+		startLocal.day + 3,
 	);
-	const dayOfYear = Math.round((thursdayUtc - yearStart) / 86_400_000) + 1;
+	const thursdayYear = new Date(thursdayStamp).getUTCFullYear();
+	const yearStart = Date.UTC(thursdayYear, 0, 1);
+	const dayOfYear = Math.round((thursdayStamp - yearStart) / 86_400_000) + 1;
 	const week = Math.ceil(dayOfYear / 7);
-	return `${thursdayLocal.year}-W${String(week).padStart(2, "0")}`;
+	return `${thursdayYear}-W${String(week).padStart(2, "0")}`;
 }
 
 /**

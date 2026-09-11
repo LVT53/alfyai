@@ -251,6 +251,21 @@ describe("buildMemorySeeds / buildConversationSeeds / buildAtlasSeeds", () => {
 		).toEqual([]);
 	});
 
+	it("drops every placeholder the rest of the app knows about", () => {
+		// The set is shared with isPlaceholderConversationTitle rather than
+		// re-listed here, so "Conversation" and a whitespace-only title go too.
+		expect(
+			buildConversationSeeds(
+				[
+					{ id: "c1", title: "Conversation", updatedAt: 1 },
+					{ id: "c2", title: "  new   conversation ", updatedAt: 2 },
+					{ id: "c3", title: "   ", updatedAt: 3 },
+				],
+				"x",
+			),
+		).toEqual([]);
+	});
+
 	it("fills the Atlas template with the job title and shortens the chip face", () => {
 		const [job] = buildAtlasSeeds(
 			[
