@@ -150,7 +150,11 @@ function sortDirectionLabel(key: UserSortKey): string {
 
 	.users-table {
 		width: 100%;
-		border-collapse: collapse;
+		/* `separate` (with no spacing) so the row fill can carry the row
+		   radius — `collapse` makes border-radius a no-op on rows and cells.
+		   Only bottom borders are drawn, so nothing doubles up. */
+		border-collapse: separate;
+		border-spacing: 0;
 		font-size: var(--text-sm);
 	}
 
@@ -228,15 +232,37 @@ function sortDirectionLabel(key: UserSortKey): string {
 	   the overlay makes every cell clickable. */
 	.user-row {
 		position: relative;
-		transition: background var(--duration-standard) var(--ease-out);
 	}
 
-	.user-row:hover td {
+	/* The transition belongs on the cell, not the row: the fill is painted on
+	   the <td>s, and a transition on the <tr> never reaches them. */
+	.users-table tbody td {
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	.user-row:hover td,
+	.user-row:focus-within td {
 		background: color-mix(in srgb, var(--surface-elevated) 70%, transparent);
 	}
 
 	.user-row.selected td {
 		background: color-mix(in srgb, var(--accent) 7%, transparent);
+	}
+
+	/* The fill carries the app's row radius instead of running to the table's
+	   edges as a square band. */
+	.user-row:hover td:first-child,
+	.user-row:focus-within td:first-child,
+	.user-row.selected td:first-child {
+		border-top-left-radius: var(--radius-sm);
+		border-bottom-left-radius: var(--radius-sm);
+	}
+
+	.user-row:hover td:last-child,
+	.user-row:focus-within td:last-child,
+	.user-row.selected td:last-child {
+		border-top-right-radius: var(--radius-sm);
+		border-bottom-right-radius: var(--radius-sm);
 	}
 
 	.user-row.selected td:first-child {
