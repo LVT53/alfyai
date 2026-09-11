@@ -156,7 +156,7 @@ function isNumeric(type: ColumnType): boolean {
 					>
 						<button
 							type="button"
-							class="inline-flex items-center gap-1 hover:text-accent"
+							class="inline-flex items-center gap-1 rounded-sm transition-colors duration-150 hover:text-accent focus-visible:text-accent"
 							onclick={() => toggleSort(col.key)}
 						>
 							<span>{col.label}</span>
@@ -207,7 +207,7 @@ function isNumeric(type: ColumnType): boolean {
 		{#if expanded}
 			<button
 				type="button"
-				class="text-text-muted underline-offset-2 hover:text-accent hover:underline"
+				class="text-text-muted underline-offset-2 rounded-sm transition-colors duration-150 hover:text-accent hover:underline focus-visible:text-accent focus-visible:underline"
 				onclick={() => (expanded = false)}
 			>
 				{showFewerLabel}
@@ -215,7 +215,7 @@ function isNumeric(type: ColumnType): boolean {
 		{:else}
 			<button
 				type="button"
-				class="text-text-muted underline-offset-2 hover:text-accent hover:underline"
+				class="text-text-muted underline-offset-2 rounded-sm transition-colors duration-150 hover:text-accent hover:underline focus-visible:text-accent focus-visible:underline"
 				onclick={() => (expanded = true)}
 			>
 				{showAllLabel}
