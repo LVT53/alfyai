@@ -556,7 +556,7 @@ $effect(() => {
 										{#if item.question}
 											<p class="break-words text-[0.78rem] font-sans leading-[1.5] text-text-primary">{item.question}</p>
 										{/if}
-										<p class="break-words text-[0.68rem] font-sans leading-[1.45] text-text-muted">{item.subject}</p>
+										<p class="mt-1 break-words text-[0.68rem] font-sans leading-[1.45] text-text-muted">{item.subject}</p>
 										{#if item.reason}
 											<p class="memory-review-reason mt-0.5 break-words text-[0.68rem] font-sans leading-[1.45]">{item.reason}</p>
 										{/if}
@@ -820,8 +820,8 @@ $effect(() => {
 	.memory-profile-head {
 		display: flex;
 		flex-wrap: wrap;
-		align-items: center;
-		gap: 0.6rem;
+		align-items: baseline;
+		gap: 0.5rem 0.6rem;
 		margin-bottom: 0.75rem;
 	}
 
@@ -841,7 +841,7 @@ $effect(() => {
 		height: 1.4rem;
 		padding: 0 0.5rem;
 		border: 1px solid var(--border-default);
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		font-family: var(--font-sans);
 		font-size: 0.66rem;
 		color: var(--text-muted);
@@ -900,6 +900,14 @@ $effect(() => {
 		min-width: 0;
 	}
 
+	/* Declared on the layout so the rail's own components and the portrait
+	   beside them read one value rather than four hand-typed ones. */
+	.memory-profile-layout {
+		--knowledge-card-radius: 1rem;
+		--knowledge-card-padding-x: 0.95rem;
+		--knowledge-card-padding-y: 0.85rem;
+	}
+
 	@media (max-width: 1023px) {
 		.memory-profile-layout {
 			flex-direction: column;
@@ -915,7 +923,7 @@ $effect(() => {
 	.memory-review-section {
 		border: 1px solid
 			color-mix(in srgb, var(--accent) 28%, var(--border-default) 72%);
-		border-radius: 1rem;
+		border-radius: var(--knowledge-card-radius, 1rem);
 		background: var(--surface-elevated);
 		overflow: hidden;
 		box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
@@ -925,7 +933,8 @@ $effect(() => {
 		display: flex;
 		align-items: center;
 		gap: 0.4rem;
-		padding: 0.7rem 0.85rem 0.6rem;
+		padding: var(--knowledge-card-padding-y, 0.85rem)
+			var(--knowledge-card-padding-x, 0.95rem) 0.6rem;
 	}
 
 	.memory-review-title {
@@ -944,7 +953,7 @@ $effect(() => {
 		padding: 0 0.4rem;
 		border: 1px solid
 			color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated) 92%);
 		color: var(--accent);
 		font-family: var(--font-sans);
@@ -961,11 +970,17 @@ $effect(() => {
 		font-weight: 500;
 		text-decoration: underline;
 		text-underline-offset: 0.18em;
-		transition: color 150ms ease;
+		transition: color var(--duration-standard) var(--ease-out);
+		border-radius: var(--radius-sm);
 	}
 
 	.memory-review-more:hover {
 		color: var(--accent-hover);
+	}
+
+	.memory-review-more:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.memory-review-list {
@@ -979,27 +994,81 @@ $effect(() => {
 		align-items: flex-start;
 		gap: 0.6rem;
 		border-left: 3px solid var(--accent);
-		padding: 0.6rem 0.7rem;
+		padding: 0.6rem var(--knowledge-card-padding-x, 0.95rem) 0.6rem
+			calc(var(--knowledge-card-padding-x, 0.95rem) - 3px);
 		background: color-mix(in srgb, var(--accent) 5%, var(--surface-page) 95%);
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	.memory-review-card:hover,
+	.memory-review-card:focus-within {
+		background: color-mix(in srgb, var(--accent) 13%, var(--surface-page) 87%);
 	}
 
 	:global(.dark) .memory-review-card {
 		background: color-mix(in srgb, var(--accent) 8%, var(--surface-page) 92%);
 	}
 
+	:global(.dark) .memory-review-card:hover,
+	:global(.dark) .memory-review-card:focus-within {
+		background: color-mix(in srgb, var(--accent) 18%, var(--surface-page) 82%);
+	}
+
 	.memory-review-reason {
 		color: var(--text-muted);
 	}
 
-	.memory-review-accept {
-		background: var(--accent);
-		color: var(--accent-contrast);
-		box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent 82%);
+	/* Accept and Reject are the app's `.btn-primary` / `.btn-danger` pair —
+	   a 12% tint behind a 38% border — and Edit is the ghost between them.
+	   All three at one size, so the card reads as a decision with a footnote
+	   rather than as three unrelated controls. */
+	/* `.btn-icon-bare` asks for a 40px box. Three of those plus their gaps ate
+	   132px of a 320px rail and wrapped every question into a four-line
+	   column. The trio is sized to the 28px the markup asks for here; the
+	   mobile touch-target override in app.css still puts them back to 44px on
+	   a phone, where the rail is full width and can afford it. */
+	.memory-card-actions .btn-icon-bare {
+		min-width: 1.75rem;
+		min-height: 1.75rem;
+		padding: 0;
+		border: 1px solid transparent;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
-	.memory-review-accept:hover {
-		background: var(--accent-hover);
-		color: var(--accent-contrast);
+	.memory-card-actions .btn-icon-bare:hover:not(:disabled) {
+		opacity: 1;
+		background: color-mix(in srgb, var(--text-primary) 8%, transparent 92%);
+	}
+
+	/* Mixed against the card's surface rather than against transparency: the
+	   card is ALREADY a 5% accent wash, so a 12% tint over it was a 7% step
+	   and the button disappeared into the thing it sits on. */
+	.memory-review-accept {
+		background: color-mix(in srgb, var(--accent) 20%, var(--surface-elevated));
+		border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+		color: var(--accent);
+	}
+
+	.memory-card-actions .memory-review-accept:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--accent) 30%, var(--surface-elevated));
+		border-color: color-mix(in srgb, var(--accent) 62%, transparent);
+		color: var(--accent);
+	}
+
+	.memory-card-actions .memory-remove:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--danger) 12%, transparent);
+		border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+		color: var(--danger);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.memory-review-card,
+		.memory-card-actions .btn-icon-bare {
+			transition: none !important;
+		}
 	}
 
 	/* ---- dialogs (unchanged behaviour, kept styling) -------------------- */
