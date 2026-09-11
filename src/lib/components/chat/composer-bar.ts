@@ -120,15 +120,23 @@ export type ComposerMenuRowKind =
 	/** Opens a picker of its own (Skills, Atlas report, Model, Style). */
 	| "nav"
 	/** Flips in place; the menu stays open (Web search, Thinking, Incognito). */
-	| "switch"
-	/** Leaves for somewhere else (Manage connections). */
-	| "link";
+	| "switch";
+
+/** The four headings the menu draws, in the order it draws them. */
+export const COMPOSER_MENU_SECTIONS = [
+	"message",
+	"switches",
+	"accounts",
+	"conversation",
+] as const;
+
+export type ComposerMenuSectionId = (typeof COMPOSER_MENU_SECTIONS)[number];
 
 export interface ComposerMenuRow {
 	id: string;
 	kind: ComposerMenuRowKind;
 	/** Rows sharing a section are drawn under one heading. */
-	section: "message" | "switches" | "accounts" | "conversation";
+	section: ComposerMenuSectionId;
 	/** Per-account rows carry the account they switch. */
 	accountId?: string;
 	/** A row that is visible but cannot be chosen (Atlas while unconfigured). */
@@ -153,6 +161,13 @@ export interface ComposerMenuInput {
  * exception: Atlas, which stays visible and disabled when the deployment has
  * not configured it, because the reason ("no Parallel key") is worth stating
  * and a missing row cannot state anything.
+ *
+ * "Manage connections" is NOT a row. It is a link in the ACCOUNTS heading,
+ * right-aligned opposite the count — it is not one of the things this
+ * message can do, it is the way out to the settings page, and giving it a
+ * full-width row of its own made it look like the last account in the list.
+ * See `groupComposerMenuRows`, which is why the accounts section survives
+ * having no rows at all.
  */
 export function buildComposerMenuRows(
 	input: ComposerMenuInput,
@@ -189,7 +204,6 @@ export function buildComposerMenuRows(
 			});
 		}
 	}
-	rows.push({ id: "manage-connections", kind: "link", section: "accounts" });
 
 	rows.push({ id: "model", kind: "nav", section: "conversation" });
 	if (input.personalityCount > 0) {
@@ -199,13 +213,37 @@ export function buildComposerMenuRows(
 	return rows;
 }
 
-/** True when this row is the first of its section — i.e. wants a heading. */
-export function isSectionStart(
-	rows: ComposerMenuRow[],
-	index: number,
-): boolean {
-	if (index === 0) return true;
-	return rows[index].section !== rows[index - 1].section;
+/** A heading and the rows drawn under it. */
+export interface ComposerMenuSection {
+	section: ComposerMenuSectionId;
+	/** Each row with its index in the flat list the arrow keys walk. */
+	entries: { row: ComposerMenuRow; index: number }[];
+}
+
+/**
+ * The menu, grouped into the sections it draws.
+ *
+ * Replaces the old "is this row the first of its section" test, which could
+ * only put a heading on a row that exists. The ACCOUNTS heading now carries
+ * the "Manage connections" link, and that link is the one thing in the
+ * section that must never disappear — least of all in the case where there
+ * are no accounts yet, which is exactly when you want it.
+ *
+ * So: a section with rows is returned, and so is the accounts section
+ * whether or not it has any. The indices are the ones from the flat list, so
+ * the roving focus still walks one array.
+ */
+export function groupComposerMenuRows(
+	rows: readonly ComposerMenuRow[],
+): ComposerMenuSection[] {
+	return COMPOSER_MENU_SECTIONS.map((section) => ({
+		section,
+		entries: rows
+			.map((row, index) => ({ row, index }))
+			.filter((entry) => entry.row.section === section),
+	})).filter(
+		(group) => group.entries.length > 0 || group.section === "accounts",
+	);
 }
 
 /**

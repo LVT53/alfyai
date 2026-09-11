@@ -7,7 +7,7 @@ import {
 	attachTooltip,
 	buildComposerMenuRows,
 	type ComposerMenuInput,
-	isSectionStart,
+	groupComposerMenuRows,
 	nextMenuIndex,
 	thinkingTooltip,
 } from "./composer-bar";
@@ -97,7 +97,6 @@ describe("buildComposerMenuRows", () => {
 			"account:nextcloud-1",
 			"account:google-1",
 			"account:immich-1",
-			"manage-connections",
 			"model",
 			"style",
 		]);
@@ -127,14 +126,23 @@ describe("buildComposerMenuRows", () => {
 		expect(rows.some((row) => row.id === "model")).toBe(true);
 	});
 
-	it("keeps a way through to Connections even with no accounts", () => {
-		const rows = buildComposerMenuRows({
-			...fullMenu,
-			hasConnections: false,
-			readyAccountIds: [],
-		});
-		expect(rows.some((row) => row.id === "accounts-master")).toBe(false);
-		expect(rows.some((row) => row.id === "manage-connections")).toBe(true);
+	// "Manage connections" moved into the ACCOUNTS heading, opposite the
+	// count — it is the way OUT of the composer, not one of the things the
+	// message can do, and a full-width row of its own made it read as the
+	// last account in the list.
+	it("draws no Manage connections row at all — the heading carries the link", () => {
+		expect(
+			buildComposerMenuRows(fullMenu).some(
+				(row) => row.id === "manage-connections",
+			),
+		).toBe(false);
+		expect(
+			buildComposerMenuRows({
+				...fullMenu,
+				hasConnections: false,
+				readyAccountIds: [],
+			}).some((row) => row.id === "manage-connections"),
+		).toBe(false);
 	});
 
 	it("shows Atlas disabled rather than hiding the reason", () => {
@@ -146,18 +154,68 @@ describe("buildComposerMenuRows", () => {
 		const rows = buildComposerMenuRows({ ...fullMenu, atlasVisible: false });
 		expect(rows.some((row) => row.id === "atlas")).toBe(false);
 	});
+});
 
-	it("marks a heading at each section boundary and nowhere inside one", () => {
-		const rows = buildComposerMenuRows(fullMenu);
-		const headings = rows
-			.map((row, index) => (isSectionStart(rows, index) ? row.id : null))
-			.filter((id): id is string => id !== null);
-		expect(headings).toEqual([
+describe("groupComposerMenuRows", () => {
+	it("draws one heading per section, in board order", () => {
+		const groups = groupComposerMenuRows(buildComposerMenuRows(fullMenu));
+		expect(groups.map((group) => group.section)).toEqual([
+			"message",
+			"switches",
+			"accounts",
+			"conversation",
+		]);
+		expect(groups.map((group) => group.entries[0]?.row.id)).toEqual([
 			"attach",
 			"web-search",
 			"accounts-master",
 			"model",
 		]);
+	});
+
+	it("keeps the index the arrow keys walk, not a per-section one", () => {
+		const rows = buildComposerMenuRows(fullMenu);
+		const groups = groupComposerMenuRows(rows);
+		for (const group of groups) {
+			for (const entry of group.entries) {
+				expect(rows[entry.index]).toBe(entry.row);
+			}
+		}
+		expect(groups.flatMap((group) => group.entries).length).toBe(rows.length);
+	});
+
+	// The whole reason the grouping exists: the ACCOUNTS heading carries the
+	// only way through to the settings page, and the case where you most need
+	// that link is the one where the section has nothing in it.
+	it("keeps the accounts section — and so the Manage link — with no accounts", () => {
+		const groups = groupComposerMenuRows(
+			buildComposerMenuRows({
+				...fullMenu,
+				hasConnections: false,
+				readyAccountIds: [],
+			}),
+		);
+		const accounts = groups.find((group) => group.section === "accounts");
+		expect(accounts).toBeDefined();
+		expect(accounts?.entries).toEqual([]);
+	});
+
+	it("drops a section that is empty for any other reason", () => {
+		const groups = groupComposerMenuRows(
+			buildComposerMenuRows({
+				...fullMenu,
+				personalityCount: 0,
+			}),
+		);
+		expect(groups.map((group) => group.section)).toContain("conversation");
+
+		// Nothing in the app empties the message section today, so assert the
+		// rule directly rather than through an input that cannot produce it.
+		expect(
+			groupComposerMenuRows([
+				{ id: "model", kind: "nav", section: "conversation" },
+			]).map((group) => group.section),
+		).toEqual(["accounts", "conversation"]);
 	});
 });
 
