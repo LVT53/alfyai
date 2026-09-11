@@ -73,9 +73,15 @@ describe("rowMatchesScope", () => {
 		expect(rowMatchesScope(overflow, "conversations")).toBe(false);
 	});
 
-	it("keeps the Knowledge overflow row wherever documents are shown", () => {
+	it("keeps the Knowledge overflow row with the documents it leads to", () => {
 		expect(rowMatchesScope(overflow, "documents")).toBe(true);
 		expect(rowMatchesScope(overflow, "reports")).toBe(false);
+	});
+
+	it("files a generated document under Reports, not Documents", () => {
+		expect(rowMatchesScope(generated, "documents")).toBe(false);
+		expect(rowMatchesScope(uploaded, "documents")).toBe(true);
+		expect(rowMatchesScope(skillNote, "documents")).toBe(true);
 	});
 
 	it("treats a generated document as the report it is", () => {
@@ -99,11 +105,10 @@ describe("filterRowsByScope", () => {
 		expect(filtered).not.toBe(rows);
 	});
 
-	it("narrows to documents including the overflow row", () => {
+	it("narrows to documents including the overflow row, excluding reports", () => {
 		expect(filterRowsByScope(rows, "documents").map((row) => row.id)).toEqual([
 			"d1",
 			"d2",
-			"d3",
 			"overflow",
 		]);
 	});
@@ -122,8 +127,13 @@ describe("buildSearchScopeChips", () => {
 		// The overflow row is a way out, not a result — never counted.
 		expect(byId.all.count).toBe(5);
 		expect(byId.conversations.count).toBe(2);
-		expect(byId.documents.count).toBe(3);
+		expect(byId.documents.count).toBe(2);
 		expect(byId.reports.count).toBe(1);
+		// Documents and Reports partition the document results, so the named
+		// scopes add up to All rather than double-counting a generated report.
+		expect(
+			byId.conversations.count + byId.documents.count + byId.reports.count,
+		).toBe(byId.all.count);
 	});
 
 	it("draws connections greyed with no count", () => {

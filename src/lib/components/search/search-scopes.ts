@@ -11,9 +11,11 @@
 //   • Documents     — indexed (artifact names, labels, summaries, content).
 //   • Reports       — indexed, via the document index: an Atlas report's
 //                     output lands in the Knowledge Base as a generated
-//                     artifact, so this scope narrows the document results to
-//                     the generated ones rather than pretending to be a
-//                     separate index.
+//                     artifact, so this scope reaches real results rather than
+//                     pretending to be a separate index. Documents and Reports
+//                     partition the document results between them — a generated
+//                     artifact is a report and appears once, under Reports — so
+//                     no result is counted twice and the chips add up to All.
 //   • Connections   — NOT indexed. Nothing in workspace-search reads calendar,
 //                     mail or any other connector, so the chip ships disabled
 //                     and labelled as coming soon rather than returning an
@@ -78,7 +80,10 @@ export function rowMatchesScope(
 	if (scope === "all") return true;
 	if (scope === "conversations") return row.kind === "conversation";
 	if (scope === "documents") {
-		return row.kind === "document" || row.kind === "knowledge-overflow";
+		return (
+			(row.kind === "document" && !isReportRow(row)) ||
+			row.kind === "knowledge-overflow"
+		);
 	}
 	if (scope === "reports") return isReportRow(row);
 	return false;
