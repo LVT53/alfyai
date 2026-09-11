@@ -1686,7 +1686,11 @@ const settingsDict = {
 		"admin.system.keys.ATLAS_V3_LANGUAGE_STANDARD_HU.meaning":
 			"Applies the Hungarian style rules to a Hungarian report.",
 		// ── everyday-screens redesign ─────────────────────────────────────
+		"analytics.activeUsersThisMonth": "Active users this month",
 		"analytics.chartScaleLabel": "Scale",
+		"analytics.tokenUsagePerMonth": "Token usage per month",
+		"analytics.tokenUsagePerWeek": "Token usage per week",
+		"analytics.tokenUsagePerYear": "Token usage per year",
 		"analytics.costByProvider": "Estimated cost by provider",
 		"analytics.currentPeriodSolid":
 			"The last column is the period you are in — drawn solid so a part-period is never mistaken for a fall.",
@@ -1698,6 +1702,10 @@ const settingsDict = {
 		"analytics.splitBarLabel": "How the estimate breaks down",
 		"analytics.timelineGranularity": "Chart period",
 		"analytics.usageByModelPeriod": "Usage by model · {period}",
+		"analytics.yourActivityDescription":
+			"Your own usage. Nobody else can see this page.",
+		"analytics.systemAnalyticsDescription":
+			"Every account on this server. Admin only.",
 		// ── end everyday-screens redesign ─────────────────────────────────
 	},
 	hu: {
@@ -3432,7 +3440,11 @@ const settingsDict = {
 		"admin.system.keys.ATLAS_V3_LANGUAGE_STANDARD_HU.meaning":
 			"Magyar nyelvű jelentésre alkalmazza a magyar stílusszabályokat.",
 		// ── everyday-screens redesign ─────────────────────────────────────
+		"analytics.activeUsersThisMonth": "Aktív felhasználók ebben a hónapban",
 		"analytics.chartScaleLabel": "Skála",
+		"analytics.tokenUsagePerMonth": "Tokenhasználat havonta",
+		"analytics.tokenUsagePerWeek": "Tokenhasználat hetente",
+		"analytics.tokenUsagePerYear": "Tokenhasználat évente",
 		"analytics.costByProvider": "Becsült költség szolgáltatónként",
 		"analytics.currentPeriodSolid":
 			"Az utolsó oszlop a folyamatban lévő időszak — tömören rajzolva, hogy egy féltöltött időszakot senki ne nézzen visszaesésnek.",
@@ -3444,6 +3456,10 @@ const settingsDict = {
 		"analytics.splitBarLabel": "Miből áll össze a becslés",
 		"analytics.timelineGranularity": "Diagram időszaka",
 		"analytics.usageByModelPeriod": "Használat modellenként · {period}",
+		"analytics.yourActivityDescription":
+			"A saját használatod. Ezt az oldalt senki más nem látja.",
+		"analytics.systemAnalyticsDescription":
+			"A kiszolgáló összes fiókja. Csak adminisztrátoroknak.",
 		// ── end everyday-screens redesign ─────────────────────────────────
 	},
 } as const;

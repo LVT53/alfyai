@@ -2,8 +2,6 @@
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
 import {
-	AnalyticsChart,
-	getAccent,
 	MonthNav,
 	SortableTable,
 	StatCard,
@@ -14,9 +12,18 @@ import {
 import { t } from "$lib/i18n";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import "$lib/components/analytics/analytics.css";
+import AnalyticsChassis from "./analytics/AnalyticsChassis.svelte";
+import AnalyticsColumnChart from "./analytics/AnalyticsColumnChart.svelte";
+import AnalyticsHero from "./analytics/AnalyticsHero.svelte";
+import {
+	buildComparisonDelta,
+	type CostSegmentInput,
+	formatCurrencyUsd,
+} from "./analytics/chassis-math";
 
-// Phase B, wave B3: personal Block A analytics (the user's own usage) rebuilt
-// on the shared analytics components. PERSONAL ONLY — no system/per-user data,
+// Everyday-screens redesign: the personal view now sits on the shared
+// analytics chassis (hero number, split bar, tiles, gridded column chart,
+// model table with a pinned Total). PERSONAL ONLY — no system/per-user data,
 // no Parallel canvas (that is admin-gated under Administration via
 // SettingsSystemAnalytics). Prop interface preserved so the parent wiring
 // (month change reloads via onMonthChange) keeps working unchanged.
@@ -46,7 +53,7 @@ type PersonalTab = "overview" | "byModel";
 let activeTab = $state<PersonalTab>("overview");
 let timelineGranularity = $state<"weekly" | "monthly" | "yearly">("weekly");
 
-const tabs = $derived([
+const tabItems = $derived([
 	{
 		id: "overview",
 		label: $t("analytics.overview"),
@@ -69,13 +76,9 @@ function modelIconUrl(key: string | null | undefined): string | null {
 	return key ? (modelIcons[key] ?? null) : null;
 }
 
-function formatUsd(value: number): string {
-	return `$${Number(value ?? 0).toFixed(4)}`;
-}
-
 function formatNum(value: number): string {
 	if (!value) return "0";
-	return value.toLocaleString();
+	return value.toLocaleString("en-US");
 }
 
 function formatMonth(ym: string): string {
@@ -100,13 +103,13 @@ const comparisonHint = $derived.by(() => {
 	const current = idx >= 0 ? monthly[idx] : undefined;
 	if (!current || idx >= monthly.length - 1) return "";
 	const prev = monthly[idx + 1];
-	if (!prev || prev.totalCostUsd === 0) return "";
-	const diff =
-		((current.totalCostUsd - prev.totalCostUsd) / prev.totalCostUsd) * 100;
-	const arrow = diff > 0 ? "↑" : "↓";
+	if (!prev) return "";
+	const delta = buildComparisonDelta(current.totalCostUsd, prev.totalCostUsd);
+	if (!delta) return "";
 	return $t("analytics.comparisonVsMonth", {
-		direction: arrow,
-		percent: Math.abs(diff).toFixed(0),
+		direction:
+			delta.direction === "up" ? "↑" : delta.direction === "down" ? "↓" : "→",
+		percent: delta.percent,
 		month: formatMonth(prev.month),
 	});
 });
@@ -117,12 +120,38 @@ const favoriteModelLabel = $derived(
 		: "—",
 );
 
-const modelColumns: TableColumn[] = [
+// The hero is the sum of something, and the split bar says of what. The
+// analytics read model carries no chat/Atlas attribution, so the honest split
+// available here is per provider — it adds up to the hero exactly, and each
+// legend entry names a real amount rather than an invented category.
+const ACCENT = "var(--accent)";
+const ACCENT_SOFT = "color-mix(in srgb, var(--accent) 40%, transparent)";
+const ACCENT_FAINT = "color-mix(in srgb, var(--accent) 18%, transparent)";
+const SPLIT_COLORS = [ACCENT, ACCENT_SOFT, ACCENT_FAINT];
+
+const costSegments = $derived.by<CostSegmentInput[]>(() =>
+	[...(analyticsData?.personal?.byProvider ?? [])]
+		.sort((a, b) => b.totalCostUsd - a.totalCostUsd)
+		.slice(0, 3)
+		.map((provider, index) => ({
+			label: provider.displayName,
+			value: provider.totalCostUsd,
+			color: SPLIT_COLORS[index] ?? ACCENT_FAINT,
+		})),
+);
+
+const heroLabel = $derived(
+	selectedMonth === null
+		? $t("analytics.estimatedCostAllTime")
+		: $t("analytics.estimatedCostThisMonth"),
+);
+
+const modelColumns = $derived<TableColumn[]>([
 	{ key: "model", label: $t("analytics.model"), type: "text" },
 	{ key: "calls", label: $t("analytics.calls"), type: "number" },
 	{ key: "tokens", label: $t("analytics.totalTokens"), type: "tokens" },
 	{ key: "cost", label: $t("analytics.cost"), type: "usd" },
-];
+]);
 
 const modelRows = $derived<TableRow[]>(
 	(analyticsData?.personal?.byModel ?? []).map((row) => ({
@@ -151,27 +180,22 @@ const modelTotalRow = $derived<TableRow>({
 });
 
 const timelineRows = $derived(analyticsData?.timeline ?? []);
+const timelinePoints = $derived(
+	timelineRows.map((row) => ({ label: row.label, value: row.tokens })),
+);
 
-const timelineChartData = $derived({
-	labels: timelineRows.map((d) => d.label),
-	datasets: [
-		{
-			label: $t("analytics.tokenUsage"),
-			data: timelineRows.map((d) => d.tokens),
-			borderColor: getAccent(),
-			backgroundColor: "rgba(193, 95, 60, 0.08)",
-			fill: true,
-			tension: 0.3,
-			pointRadius: 2,
-			pointHoverRadius: 5,
-			borderWidth: 2,
-		},
-	],
-});
+// Enough labels to orient without printing fifty-two overlapping ticks.
+const timelineLabelEvery = $derived(
+	Math.max(1, Math.ceil(timelinePoints.length / 4)),
+);
 
-const timelineChartOptions = {
-	plugins: { legend: { display: false } },
-} as const;
+const timelineUnit = $derived(
+	timelineGranularity === "weekly"
+		? $t("analytics.tokenUsagePerWeek")
+		: timelineGranularity === "monthly"
+			? $t("analytics.tokenUsagePerMonth")
+			: $t("analytics.tokenUsagePerYear"),
+);
 
 function setGranularity(next: "weekly" | "monthly" | "yearly") {
 	timelineGranularity = next;
@@ -187,89 +211,132 @@ function setGranularity(next: "weekly" | "monthly" | "yearly") {
 		<button class="btn-secondary mt-3" onclick={onRetry}>{$t('analytics.retry')}</button>
 	</div>
 {:else if analyticsData}
-	<div class="mb-4">
-		<PageSwitcher
-			items={tabs}
-			activeId={activeTab}
-			ariaLabel={$t('analytics.yourActivity')}
-			onChange={(id) => (activeTab = id as PersonalTab)}
-		/>
-	</div>
+	<AnalyticsChassis
+		title={$t('analytics.yourActivity')}
+		description={$t('analytics.yourActivityDescription')}
+	>
+		{#snippet controls()}
+			<MonthNav months={months} selected={selectedMonth} onChange={onMonthChange ?? (() => {})} />
+		{/snippet}
 
-	{#if activeTab === 'overview'}
-		<div role="tabpanel" id="personal-analytics-overview-panel" aria-labelledby="personal-analytics-overview-tab">
-			<div class="mb-4">
-				<MonthNav months={months} selected={selectedMonth} onChange={onMonthChange ?? (() => {})} />
-			</div>
-			<StatGrid>
-				<StatCard
-					hero
-					value={formatUsd(analyticsData.personal.totalCostUsd)}
-					label={$t('totalCost')}
-					comparison={comparisonHint || undefined}
+		{#snippet tabs()}
+			<PageSwitcher
+				items={tabItems}
+				activeId={activeTab}
+				ariaLabel={$t('analytics.yourActivity')}
+				onChange={(id) => (activeTab = id as PersonalTab)}
+			/>
+		{/snippet}
+
+		{#if activeTab === 'overview'}
+			<div role="tabpanel" id="personal-analytics-overview-panel" aria-labelledby="personal-analytics-overview-tab">
+				<AnalyticsHero
+					value={formatCurrencyUsd(analyticsData.personal.totalCostUsd)}
+					label={heroLabel}
+					comparison={comparisonHint}
+					segments={costSegments}
 				/>
-				<StatCard value={formatNum(analyticsData.personal.totalMessages)} label={$t('analytics.messagesSent')} />
-				<StatCard value={formatNum(analyticsData.personal.totalTokens)} label={$t('analytics.tokensUsed')} />
-				<StatCard value={favoriteModelLabel} label={$t('analytics.favoriteModel')} />
-				<StatCard value={formatNum(analyticsData.personal.chatCount)} label={$t('analytics.conversations')} />
-			</StatGrid>
 
-			{#if timelineRows.length > 0}
-				<div class="mt-5">
-					<div class="mb-3 flex items-center justify-between">
-						<p class="settings-label">{$t('analytics.tokenUsage')}</p>
-						<div class="flex items-center gap-0 rounded-full border border-border bg-surface-overlay p-0.5">
-							<button
-								class="timeline-toggle-btn"
-								class:timeline-toggle-btn--active={timelineGranularity === 'weekly'}
-								onclick={() => setGranularity('weekly')}
-								aria-label={$t('analytics.timelineWeekly')}
-							>W</button>
-							<button
-								class="timeline-toggle-btn"
-								class:timeline-toggle-btn--active={timelineGranularity === 'monthly'}
-								onclick={() => setGranularity('monthly')}
-								aria-label={$t('analytics.timelineMonthly')}
-							>M</button>
-							<button
-								class="timeline-toggle-btn"
-								class:timeline-toggle-btn--active={timelineGranularity === 'yearly'}
-								onclick={() => setGranularity('yearly')}
-								aria-label={$t('analytics.timelineYearly')}
-							>Y</button>
-						</div>
-					</div>
-					<AnalyticsChart type="line" data={timelineChartData} options={timelineChartOptions} height="200px" />
+				<div class="mt-3">
+					<StatGrid>
+						<StatCard value={formatNum(analyticsData.personal.totalMessages)} label={$t('analytics.messagesSent')} />
+						<StatCard
+							value={formatNum(analyticsData.personal.totalTokens)}
+							label={$t('analytics.tokensUsed')}
+							comparison={`${formatNum(analyticsData.personal.outputTokens)} ${$t('outputTokens')} · ${formatNum(analyticsData.personal.reasoningTokens)} ${$t('analytics.reasoningTokens')}`}
+						/>
+						<StatCard value={formatNum(analyticsData.personal.chatCount)} label={$t('analytics.conversations')} />
+						<StatCard value={favoriteModelLabel} label={$t('analytics.favoriteModel')} />
+					</StatGrid>
 				</div>
-			{/if}
-		</div>
-	{:else if activeTab === 'byModel'}
-		<div role="tabpanel" id="personal-analytics-bymodel-panel" aria-labelledby="personal-analytics-bymodel-tab">
-			<div class="mb-4">
-				<MonthNav months={months} selected={selectedMonth} onChange={onMonthChange ?? (() => {})} />
+
+				{#if timelinePoints.length > 0}
+					<div class="hr"></div>
+					<AnalyticsColumnChart
+						points={timelinePoints}
+						unit={timelineUnit}
+						labelEvery={timelineLabelEvery}
+						note={$t('analytics.currentPeriodSolid')}
+					>
+						{#snippet controls()}
+							<div
+								class="flex items-center gap-0 rounded-full border border-border bg-surface-overlay p-0.5"
+								role="group"
+								aria-label={$t('analytics.timelineGranularity')}
+							>
+								<button
+									class="timeline-toggle-btn"
+									class:timeline-toggle-btn--active={timelineGranularity === 'weekly'}
+									onclick={() => setGranularity('weekly')}
+									aria-pressed={timelineGranularity === 'weekly'}
+									aria-label={$t('analytics.timelineWeekly')}
+								>W</button>
+								<button
+									class="timeline-toggle-btn"
+									class:timeline-toggle-btn--active={timelineGranularity === 'monthly'}
+									onclick={() => setGranularity('monthly')}
+									aria-pressed={timelineGranularity === 'monthly'}
+									aria-label={$t('analytics.timelineMonthly')}
+								>M</button>
+								<button
+									class="timeline-toggle-btn"
+									class:timeline-toggle-btn--active={timelineGranularity === 'yearly'}
+									onclick={() => setGranularity('yearly')}
+									aria-pressed={timelineGranularity === 'yearly'}
+									aria-label={$t('analytics.timelineYearly')}
+								>Y</button>
+							</div>
+						{/snippet}
+					</AnalyticsColumnChart>
+				{/if}
+
+				{#if modelRows.length > 0}
+					<div class="hr"></div>
+					<p class="settings-label mb-2">
+						{$t('analytics.usageByModelPeriod', {
+							period: selectedMonth ? formatMonth(selectedMonth) : $t('analytics.allTime'),
+						})}
+					</p>
+					{#snippet overviewModelCell(row: TableRow)}
+						<span class="inline-flex min-w-0 items-center gap-2">
+							<ModelIcon iconUrl={row.iconUrl as string | null} displayName={String(row.model ?? '')} size={20} />
+							<span class="truncate text-text-primary">{row.model}</span>
+						</span>
+					{/snippet}
+					<SortableTable
+						columns={modelColumns}
+						rows={modelRows}
+						initialSort={{ key: 'cost', dir: 'desc' }}
+						totalRow={modelTotalRow}
+						cells={{ model: overviewModelCell }}
+					/>
+				{/if}
 			</div>
-			{#if modelRows.length > 0}
-				{#snippet modelCell(row: TableRow)}
-					<span class="inline-flex min-w-0 items-center gap-2">
-						<ModelIcon iconUrl={row.iconUrl as string | null} displayName={String(row.model ?? '')} size={20} />
-						<span class="truncate text-text-primary">{row.model}</span>
-					</span>
-				{/snippet}
-				<SortableTable
-					columns={modelColumns}
-					rows={modelRows}
-					initialSort={{ key: 'cost', dir: 'desc' }}
-					filterable
-					filterKeys={['model']}
-					filterPlaceholder={$t('analytics.filterModels')}
-					totalRow={modelTotalRow}
-					cells={{ model: modelCell }}
-				/>
-			{:else}
-				<div class="py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
-			{/if}
-		</div>
-	{/if}
+		{:else if activeTab === 'byModel'}
+			<div role="tabpanel" id="personal-analytics-bymodel-panel" aria-labelledby="personal-analytics-bymodel-tab">
+				{#if modelRows.length > 0}
+					{#snippet modelCell(row: TableRow)}
+						<span class="inline-flex min-w-0 items-center gap-2">
+							<ModelIcon iconUrl={row.iconUrl as string | null} displayName={String(row.model ?? '')} size={20} />
+							<span class="truncate text-text-primary">{row.model}</span>
+						</span>
+					{/snippet}
+					<SortableTable
+						columns={modelColumns}
+						rows={modelRows}
+						initialSort={{ key: 'cost', dir: 'desc' }}
+						filterable
+						filterKeys={['model']}
+						filterPlaceholder={$t('analytics.filterModels')}
+						totalRow={modelTotalRow}
+						cells={{ model: modelCell }}
+					/>
+				{:else}
+					<div class="py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
+				{/if}
+			</div>
+		{/if}
+	</AnalyticsChassis>
 {:else}
 	<div class="py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
 {/if}

@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/svelte";
+import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import SettingsPersonalAnalytics from "./SettingsPersonalAnalytics.svelte";
@@ -148,7 +148,10 @@ describe("SettingsPersonalAnalytics (ADR-0043 slice 18c)", () => {
 		expect(getByText("No analytics data yet.")).toBeInTheDocument();
 	});
 
-	it("disables Chart.js animation under prefers-reduced-motion (ADR-0043 Wave 9)", async () => {
+	// The timeline is no longer a Chart.js canvas: the shared chassis draws it
+	// as gridded columns whose only motion is a CSS hover, which the app-wide
+	// reduced-motion reset and the component's own media query both cover.
+	it("draws the timeline on the shared column chart, not Chart.js", async () => {
 		reducedMotionMatchMedia();
 		chartConfigs.length = 0;
 
@@ -179,12 +182,47 @@ describe("SettingsPersonalAnalytics (ADR-0043 slice 18c)", () => {
 		});
 
 		// Chart.js runs inside an awaited dynamic import + tick; flush.
-		await vi.waitFor(() => {
-			expect(chartConfigs.length).toBeGreaterThan(0);
+		expect(
+			await screen.findByTestId("analytics-column-chart"),
+		).toBeInTheDocument();
+		expect(chartConfigs).toHaveLength(0);
+	});
+
+	it("states the cost to two decimals and splits it by provider", () => {
+		const fixture = personalFixture();
+		render(SettingsPersonalAnalytics, {
+			analyticsData: {
+				...fixture,
+				personal: {
+					...fixture.personal,
+					totalCostUsd: 2.4231,
+					byProvider: [
+						{
+							providerId: "p1",
+							displayName: "Local",
+							totalCostUsd: 1.98,
+							totalTokens: 100,
+							msgCount: 10,
+						},
+						{
+							providerId: "p2",
+							displayName: "Anthropic",
+							totalCostUsd: 0.4431,
+							totalTokens: 20,
+							msgCount: 2,
+						},
+					],
+				},
+			},
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedMonth: "2026-06",
 		});
 
-		for (const config of chartConfigs) {
-			expect(config.options?.animation).toBe(false);
-		}
+		const hero = screen.getByTestId("analytics-hero");
+		expect(hero.textContent).toContain("$2.42");
+		expect(hero.textContent).toContain("Local · $1.98");
+		expect(hero.textContent).toContain("Anthropic · $0.44");
+		expect(screen.getByTestId("analytics-split")).toBeInTheDocument();
 	});
 });
