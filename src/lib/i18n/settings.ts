@@ -1766,6 +1766,8 @@ const settingsDict = {
 		"profileTab.downloadHelp":
 			"A ZIP of your chats, documents, memories and generated files.",
 		"profileTab.prepareArchive": "Prepare archive",
+		// The row is named for what it does; the button names the next step.
+		"profileTab.importChooseZip": "Choose a ZIP file…",
 
 		// Things that cannot be undone.
 		"profileTab.dangerTitle": "Things that cannot be undone",
@@ -3605,6 +3607,7 @@ const settingsDict = {
 		"profileTab.downloadHelp":
 			"ZIP a beszélgetéseidről, dokumentumaidról, emlékeidről és a készült fájlokról.",
 		"profileTab.prepareArchive": "Archívum előkészítése",
+		"profileTab.importChooseZip": "Válassz egy ZIP-fájlt…",
 
 		// Ami nem vonható vissza.
 		"profileTab.dangerTitle": "Ami nem vonható vissza",

@@ -9,19 +9,16 @@ let {
 	// Profile redesign: Import folded into the Data & privacy card, where it
 	// belongs. In "row" mode the component drops its own card chrome and
 	// renders just the button, because the surrounding settings row already
-	// carries the label and the one line of meaning. The modal, the button
-	// and every string are unchanged; "card" stays the default so the
-	// component still stands alone wherever else it is used.
+	// carries the label and the one line of meaning, so the button names the
+	// next step instead of repeating them. The modal is unchanged, and "card"
+	// stays the default so the component still stands alone elsewhere.
 	variant = "card",
 }: { projects?: Project[]; variant?: "card" | "row" } = $props();
 </script>
 
 {#if variant === 'row'}
-	<button
-		class="btn-secondary btn-sm"
-		onclick={() => (showImportModal = true)}
-	>
-		{$t('chatgptImport.settingsButton')}
+	<button class="btn-secondary btn-sm" onclick={() => (showImportModal = true)}>
+		{$t('profileTab.importChooseZip')}
 	</button>
 {:else}
 	<section class="settings-card mb-4">

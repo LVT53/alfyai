@@ -1266,7 +1266,11 @@ $effect(() => {
 		border-top: 1px solid var(--border-default);
 	}
 
+	/* Takes the room the control does not, and is allowed to fall below its
+	   longest word — without min-width:0 a flex item refuses to shrink past
+	   its min-content width and the sentence turns into one word per line. */
 	:global(.settings-row-text) {
+		flex: 1 1 auto;
 		min-width: 0;
 	}
 
@@ -1401,6 +1405,7 @@ $effect(() => {
 		}
 
 		:global(.settings-row--stack .settings-row-control) {
+			width: 100%;
 			justify-content: flex-start;
 			margin-top: 0.5rem;
 		}

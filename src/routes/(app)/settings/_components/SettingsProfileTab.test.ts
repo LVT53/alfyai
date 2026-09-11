@@ -159,7 +159,9 @@ describe("SettingsProfileTab — the six cards", () => {
 
 		// Data & privacy: policy, import (folded in from its own card), archive.
 		expect(screen.getByText("Privacy policy")).toBeInTheDocument();
-		expect(screen.getByText("Data & Import")).toBeInTheDocument();
+		expect(screen.getAllByText("Import from ChatGPT").length).toBeGreaterThan(
+			0,
+		);
 		expect(screen.getByText("Download my data")).toBeInTheDocument();
 
 		// Things that cannot be undone: all three, each with its consequence.

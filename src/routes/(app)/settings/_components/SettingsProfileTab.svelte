@@ -37,7 +37,6 @@ import {
 	Upload,
 } from "@lucide/svelte";
 import AvatarCircle from "$lib/components/ui/AvatarCircle.svelte";
-import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { t } from "$lib/i18n";
 import { prefersReducedMotion } from "$lib/utils/motion";
@@ -207,9 +206,6 @@ const systemDefaultModelDisplayName = $derived(
 );
 const explicitModelOptions = $derived(
 	availableModels.filter((model) => model.id !== systemDefaultModel),
-);
-const selectedModelIconUrl = $derived(
-	availableModels.find((model) => model.id === effectiveModel)?.iconUrl ?? null,
 );
 
 // ── Full-view overlays ───────────────────────────────────────────────
@@ -534,7 +530,6 @@ function handlePersonalitySelect(event: Event) {
 						<p class="settings-row-help">{$t('profileTab.defaultModelHelp')}</p>
 					</div>
 					<div class="settings-row-control">
-						<span class="model-mark"><ModelIcon iconUrl={selectedModelIconUrl} displayName={systemDefaultModelDisplayName} size={18} /></span>
 						<select
 							class="settings-select"
 							data-testid="settings-default-model-select"
@@ -669,7 +664,7 @@ function handlePersonalitySelect(event: Event) {
 					</div>
 				</div>
 
-				<div class="settings-row">
+				<div class="settings-row settings-row--stack">
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t('settings_skillsManagerSummaryLabel')}</p>
 						<p class="settings-row-help">
@@ -698,7 +693,7 @@ function handlePersonalitySelect(event: Event) {
 					{/if}
 				</div>
 
-				<div class="settings-row">
+				<div class="settings-row settings-row--stack">
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t('profileTab.memoryProfile')}</p>
 						<p class="settings-row-help">{$t('profileTab.memoryProfileHelp')}</p>
@@ -754,7 +749,7 @@ function handlePersonalitySelect(event: Event) {
 
 				<div class="settings-row">
 					<div class="settings-row-text">
-						<p class="settings-row-label">{$t('chatgptImport.settingsTitle')}</p>
+						<p class="settings-row-label">{$t('chatgptImport.settingsButton')}</p>
 						<p class="settings-row-help">{$t('profileTab.importHelp')}</p>
 					</div>
 					<div class="settings-row-control">
@@ -1119,12 +1114,6 @@ function handlePersonalitySelect(event: Event) {
 		color: var(--text-muted);
 	}
 
-	.model-mark {
-		display: inline-flex;
-		align-items: center;
-		flex-shrink: 0;
-	}
-
 	.settings-row-link {
 		display: inline-flex;
 		align-items: center;
@@ -1304,10 +1293,17 @@ function handlePersonalitySelect(event: Event) {
 			flex: 1 1 0;
 		}
 
-		.identity-save,
+		/* Sized to their labels, not to an equal share — "Save changes" wrapped
+		   onto two lines when the two split the row evenly. */
+		.identity-save {
+			min-height: 44px;
+			flex: 1 1 auto;
+			white-space: nowrap;
+		}
+
 		.identity-discard {
 			min-height: 44px;
-			flex: 1 1 0;
+			flex: 0 0 auto;
 		}
 
 		.settings-row {
