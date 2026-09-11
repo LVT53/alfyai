@@ -429,6 +429,11 @@ function getFixedContainingBlockOffset(): { top: number; left: number } {
 
 function handleKeydown(event: KeyboardEvent) {
 	if (event.key === "Escape") {
+		// Only while there is a picker to back out of. Swallowed
+		// unconditionally — which is what this did — Escape on the trigger
+		// was eaten by a closed dropdown, so the "+" menu the trigger sits
+		// in could never be dismissed from its own Model row.
+		if (!isOpen) return;
 		// Stopped here on purpose. On a phone the panel is moved to <body>
 		// so its `position: fixed` means the viewport, which also means a
 		// keydown inside it no longer passes the "+" menu that opened it —
