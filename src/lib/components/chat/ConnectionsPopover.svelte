@@ -10,7 +10,7 @@
 // and which one needs attention, with a way through to fix it.
 import { AlertTriangle } from "@lucide/svelte";
 import { onMount } from "svelte";
-import { fly } from "svelte/transition";
+import { fade, fly } from "svelte/transition";
 import type { ActiveCapabilitiesConnection } from "$lib/client/api/connections";
 import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
 import {
@@ -57,6 +57,17 @@ let root = $state<HTMLDivElement | undefined>(undefined);
 // because Svelte's css transitions interpolate styles directly and the
 // app-wide reduced-motion override cannot reach them.
 const popoverFly = reducedMotionAware(fly);
+const scrimFade = reducedMotionAware(fade);
+
+// On a phone the panel is a bottom sheet, not a popover: anchored to the
+// plug button it ran 96px past the right edge of a 390px screen and its
+// switches were unreachable. Read once at mount — the composer re-creates
+// the component every time it opens, so a resize between opens is seen.
+const isSheet =
+	typeof window !== "undefined" &&
+	typeof window.matchMedia === "function" &&
+	window.matchMedia("(max-width: 640px)").matches;
+const flyDistance = isSheet ? 24 : 4;
 
 const counts = $derived(readyCount(connections, flippedIds));
 const master = $derived(masterOn);
@@ -89,14 +100,25 @@ onMount(() => {
 });
 </script>
 
+{#if isSheet}
+	<div
+		class="connections-scrim"
+		transition:scrimFade={{ duration: 140 }}
+		aria-hidden="true"
+	></div>
+{/if}
 <div
 	bind:this={root}
 	class="connections-popover"
-	transition:popoverFly={{ duration: 140, y: 4 }}
+	class:connections-popover--sheet={isSheet}
+	transition:popoverFly={{ duration: isSheet ? 200 : 140, y: flyDistance }}
 	data-testid="connections-popover"
 	role="group"
 	aria-label={$t('connections.chat.useMyConnections')}
 >
+	{#if isSheet}
+		<div class="sheet-grip" aria-hidden="true"><span></span></div>
+	{/if}
 	<div class="master-row">
 		<div class="master-text">
 			<p class="master-label">{$t('connections.chat.useMyConnections')}</p>
@@ -190,6 +212,67 @@ onMount(() => {
 	:global(.dark) .connections-popover {
 		background: color-mix(in srgb, var(--surface-page) 92%, #000 8%);
 		box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4);
+	}
+
+	/* Phone: a bottom sheet over the page. `position: fixed` escapes the
+	   composer's stacking context; no ancestor carries a transform, so the
+	   sheet really is viewport-anchored. */
+	.connections-scrim {
+		position: fixed;
+		inset: 0;
+		z-index: 59;
+		background: rgba(0, 0, 0, 0.28);
+	}
+
+	.connections-popover--sheet {
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		width: auto;
+		z-index: 60;
+		max-height: min(72vh, 34rem);
+		overflow-y: auto;
+		padding: 0 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+		border-radius: 1rem 1rem 0 0;
+		border-bottom: 0;
+		box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.18);
+	}
+
+	/* 44px drag strip holding the 36×4 bar. */
+	.sheet-grip {
+		position: sticky;
+		top: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 44px;
+		margin: 0 -1rem 0.25rem;
+		background: inherit;
+	}
+
+	.sheet-grip span {
+		width: 36px;
+		height: 4px;
+		border-radius: 2px;
+		background: var(--border-default);
+	}
+
+	.connections-popover--sheet .account-row,
+	.connections-popover--sheet .master-row {
+		min-height: 44px;
+	}
+
+	/* The switch stays 44×24 to the eye; its tap target is the full row
+	   height. */
+	.connections-popover--sheet :global(.toggle-btn)::before {
+		content: "";
+		position: absolute;
+		inset: -10px -4px;
+	}
+
+	.connections-popover--sheet .attention-manage {
+		min-height: 44px;
 	}
 
 	.master-row {

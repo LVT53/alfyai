@@ -201,3 +201,54 @@ describe("ConnectionsPopover", () => {
 		expect(onClose).toHaveBeenCalled();
 	});
 });
+
+describe("phone presentation", () => {
+	it("renders as a bottom sheet with a drag strip when the viewport is narrow", () => {
+		const original = window.matchMedia;
+		window.matchMedia = ((query: string) =>
+			({
+				matches: query.includes("max-width: 640px"),
+				media: query,
+				onchange: null,
+				addListener: () => {},
+				removeListener: () => {},
+				addEventListener: () => {},
+				removeEventListener: () => {},
+				dispatchEvent: () => false,
+			}) as MediaQueryList) as typeof window.matchMedia;
+		try {
+			render(ConnectionsPopover, {
+				props: {
+					connections: [],
+					flippedIds: new Set<string>(),
+					masterOn: true,
+					onToggleMaster: vi.fn(),
+					onToggleAccount: vi.fn(),
+					onManage: vi.fn(),
+					onClose: vi.fn(),
+				},
+			});
+			const panel = screen.getByTestId("connections-popover");
+			expect(panel.classList.contains("connections-popover--sheet")).toBe(true);
+			expect(panel.querySelector(".sheet-grip")).not.toBeNull();
+		} finally {
+			window.matchMedia = original;
+		}
+	});
+
+	it("stays an anchored popover on a wide viewport", () => {
+		render(ConnectionsPopover, {
+			props: {
+				connections: [],
+				flippedIds: new Set<string>(),
+				masterOn: true,
+				onToggleMaster: vi.fn(),
+				onToggleAccount: vi.fn(),
+				onManage: vi.fn(),
+				onClose: vi.fn(),
+			},
+		});
+		const panel = screen.getByTestId("connections-popover");
+		expect(panel.classList.contains("connections-popover--sheet")).toBe(false);
+	});
+});
