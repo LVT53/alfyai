@@ -217,6 +217,12 @@ let memorySaving = $state(false);
 let personalityProfiles = $state<
 	Array<{ id: string; name: string; description: string }>
 >([]);
+// "We have asked", not "we have something". The Profile $effect below reads
+// this instead of `personalityProfiles.length`, because a workspace with no
+// styles configured answers the fetch with an empty list — which left the
+// condition that started the fetch still true, so the effect fired the next
+// one, for ever. Mirrors connectionsLoaded/localityLoaded.
+let personalityProfilesLoaded = $state(false);
 
 let privacyAction = $state<PrivacyAction | null>(null);
 let privacyPassword = $state("");
@@ -262,6 +268,13 @@ function showAdminMessage(text: string) {
 let analyticsData = $state<AnalyticsResponse | null>(null);
 let analyticsLoading = $state(false);
 let analyticsError = $state("");
+// Same reason as personalityProfilesLoaded: a FAILED load leaves analyticsData
+// null, so "no data and not loading" was true again the instant the request
+// settled and the Profile $effect fired the next one. Retrying is the Retry
+// button's job — this latch only says whether the automatic first attempt has
+// happened. Cleared by clearWorkspaceClientState, which wipes the data on
+// purpose and does want a fresh read.
+let analyticsLoaded = $state(false);
 let analyticsMonth = $state<string | null>(null);
 let systemAnalyticsMonth = $state<string | null>(null);
 let excludedAnalyticsUserIds = $state<string[]>(parseExcludedUserIds());
@@ -368,6 +381,7 @@ async function loadAnalytics(
 		analyticsError = errorMessage(error);
 	} finally {
 		analyticsLoading = false;
+		analyticsLoaded = true;
 	}
 }
 
@@ -884,6 +898,8 @@ function clearWorkspaceClientState() {
 	clearConversationSessionState();
 	analyticsData = null;
 	analyticsError = "";
+	// Deliberate wipe: let the Profile $effect read the emptied account once.
+	analyticsLoaded = false;
 }
 
 async function downloadArchive(password: string) {
@@ -1000,7 +1016,14 @@ $effect(() => {
 	if (activeTab === "connections" && !localityLoaded && !localityLoading) {
 		void loadLocality();
 	}
-	if (activeTab === "profile" && personalityProfiles.length === 0) {
+	// Both Profile branches below are gated on "have we asked", never on "did
+	// we get anything". loadAnalytics and the personality fetch write the very
+	// state this effect reads, so gating on the result made every unsuccessful
+	// answer — a failed analytics request, an empty style list — re-arm its own
+	// condition the moment the request settled, and the effect fired the next
+	// one at network speed for as long as the tab stayed open.
+	if (activeTab === "profile" && !personalityProfilesLoaded) {
+		personalityProfilesLoaded = true;
 		void fetchPublicPersonalityProfiles()
 			.then((profiles) => {
 				personalityProfiles = profiles;
@@ -1014,11 +1037,15 @@ $effect(() => {
 					);
 				}
 			})
+			// A failed fetch leaves the latch set on purpose: the row simply does
+			// not appear, and the next page load asks again. Re-arming it here
+			// would hand the same spin back to a server that is answering with
+			// an error instead of with an empty list.
 			.catch(() => {});
 	}
 	// ADR-0043 slice 18c: personal analytics ("Your Activity") lives in Profile
 	// now — load it once on first Profile entry so the section has data.
-	if (activeTab === "profile" && !analyticsData && !analyticsLoading) {
+	if (activeTab === "profile" && !analyticsLoaded && !analyticsLoading) {
 		void loadAnalytics();
 	}
 });
