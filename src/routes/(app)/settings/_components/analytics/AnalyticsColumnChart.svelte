@@ -139,7 +139,7 @@ const chart = $derived(buildColumnChart(points, { labelEvery, currentIndex }));
 		min-width: 0;
 		border-radius: 0.2rem 0.2rem 0 0;
 		background: color-mix(in srgb, var(--accent) 35%, transparent 65%);
-		transition: background-color 150ms ease;
+		transition: background-color var(--duration-standard) var(--ease-out);
 	}
 
 	.chart-bar:hover {

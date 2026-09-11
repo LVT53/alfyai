@@ -141,7 +141,7 @@ const chips = $derived(capabilityChipsOf(connection));
 		font: inherit;
 		color: inherit;
 		cursor: pointer;
-		transition: background var(--duration-standard);
+		transition: background var(--duration-standard) var(--ease-out);
 	}
 
 	.connection-identity:hover {
@@ -215,9 +215,9 @@ const chips = $derived(capabilityChipsOf(connection));
 		white-space: nowrap;
 		cursor: pointer;
 		transition:
-			border-color var(--duration-standard),
-			color var(--duration-standard),
-			background var(--duration-standard);
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
+			background var(--duration-standard) var(--ease-out);
 	}
 
 	.row-action:hover {

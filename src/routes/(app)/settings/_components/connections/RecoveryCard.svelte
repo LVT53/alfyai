@@ -181,7 +181,7 @@ const cardSlide = reducedMotionAware(slide);
 		font-size: 0.8125rem;
 		color: var(--text-secondary);
 		cursor: pointer;
-		transition: color var(--duration-standard), background var(--duration-standard);
+		transition: color var(--duration-standard) var(--ease-out), background var(--duration-standard) var(--ease-out);
 	}
 
 	.recovery-ghost:hover {

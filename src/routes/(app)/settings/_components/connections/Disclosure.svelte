@@ -66,7 +66,7 @@ const bodyId = `disclosure-${uid}`;
 		font-size: 0.75rem;
 		color: var(--text-secondary);
 		cursor: pointer;
-		transition: color var(--duration-standard);
+		transition: color var(--duration-standard) var(--ease-out);
 	}
 
 	.disclosure-trigger:hover {

@@ -1025,9 +1025,9 @@ onDestroy(() => {
 		white-space: nowrap;
 		cursor: pointer;
 		transition:
-			border-color 150ms ease,
-			background-color 150ms ease,
-			color 150ms ease;
+			border-color var(--duration-standard) var(--ease-out),
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
 	.search-scope-chip:hover,
@@ -1109,9 +1109,9 @@ onDestroy(() => {
 		background: color-mix(in srgb, var(--surface-page) 86%, var(--surface-elevated) 14%);
 		border-color: color-mix(in srgb, var(--border-default) 84%, transparent 16%);
 		transition:
-			border-color 150ms ease,
-			background-color 150ms ease,
-			box-shadow 150ms ease;
+			border-color var(--duration-standard) var(--ease-out),
+			background-color var(--duration-standard) var(--ease-out),
+			box-shadow var(--duration-standard) var(--ease-out);
 	}
 
 	.search-input-wrapper:focus-within {
@@ -1132,9 +1132,9 @@ onDestroy(() => {
 	.search-source-button {
 		cursor: pointer;
 		transition:
-			background-color 150ms ease,
-			color 150ms ease,
-			transform 150ms ease;
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out);
 	}
 
 	.search-modal-icon-button:hover,
@@ -1153,9 +1153,9 @@ onDestroy(() => {
 	.search-result-shell {
 		border: 1px solid transparent;
 		transition:
-			background-color 150ms ease,
-			border-color 150ms ease,
-			transform 150ms ease;
+			background-color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out);
 	}
 
 	.search-result-item {

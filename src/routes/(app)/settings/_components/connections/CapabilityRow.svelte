@@ -100,8 +100,8 @@ let {
 		white-space: nowrap;
 		cursor: pointer;
 		transition:
-			border-color var(--duration-standard),
-			color var(--duration-standard);
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
 	.ask-again:hover {
