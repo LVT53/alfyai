@@ -593,6 +593,15 @@ body {
 		min-width: 48px !important;
 	}
 
+	/* The connections popover renders inside the action row, but its
+	   switches and text buttons are not action buttons: forcing them to
+	   48×48 turned every toggle into a circle on phones. The popover sizes
+	   its own targets (44px rows, a padded hit area on each switch). */
+	.composer-actions .connections-popover button {
+		min-height: 0 !important;
+		min-width: 0 !important;
+	}
+
 	/* Mobile icon controls in the header and sidebar should meet the 44px target. */
 	.btn-icon,
 	.btn-icon-bare,
