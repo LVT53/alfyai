@@ -348,6 +348,58 @@ test.describe("chat home — Compact", () => {
 		await expect(page.getByTestId("home-weekly-mark")).toHaveCount(0);
 	});
 
+	test("scrolls the board on a short window, keeping the composer whole", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 1280, height: 460 });
+		const userId = await adminUserId();
+		await clearHomeFixtures(userId);
+		await seedRecent(userId);
+		await seedWeeklyTurns(userId, 4);
+		await gotoHome(page);
+
+		const stageBox = await page.locator(".chat-stage").boundingBox();
+		const composerBox = await page.getByTestId("message-input").boundingBox();
+		const boardBox = await page.getByTestId("home-board").boundingBox();
+		expect(stageBox).not.toBeNull();
+		expect(composerBox).not.toBeNull();
+		expect(boardBox).not.toBeNull();
+		const stageBottom = (stageBox?.y ?? 0) + (stageBox?.height ?? 0);
+
+		// The composer is whole: a short window takes its height off Recent,
+		// never off the box you came here to type in.
+		expect(composerBox?.y ?? 0).toBeGreaterThanOrEqual((stageBox?.y ?? 0) - 1);
+		expect(
+			(composerBox?.y ?? 0) + (composerBox?.height ?? 0),
+		).toBeLessThanOrEqual(stageBottom + 1);
+		// And the board ends inside the stage rather than running off it.
+		expect((boardBox?.y ?? 0) + (boardBox?.height ?? 0)).toBeLessThanOrEqual(
+			stageBottom + 1,
+		);
+
+		// Whatever did not fit is reachable by scrolling the board itself.
+		const lastLine = page.getByTestId("home-recent-line").last();
+		await lastLine.scrollIntoViewIfNeeded();
+		await expect(lastLine).toBeInViewport();
+
+		// The scroll belongs to the board and NOT to the column. A scroll
+		// container around the composer clips everything the composer opens
+		// upwards out of its own footer — the "+" menu, the accounts popover,
+		// the model picker — which is how the menu went unclickable on this
+		// page. (That the menu itself still works here is what
+		// composer-direction-b.spec.ts asserts, on the landing page.)
+		expect(
+			await page
+				.locator(".home-column")
+				.evaluate((node) => getComputedStyle(node).overflowY),
+		).toBe("visible");
+		expect(
+			await page
+				.getByTestId("home-board")
+				.evaluate((node) => getComputedStyle(node).overflowY),
+		).toBe("auto");
+	});
+
 	test("gives every chip a 44px hit area on a phone", async ({ page }) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		const userId = await adminUserId();

@@ -661,16 +661,41 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 		display: none;
 	}
 
-	.home-board {
-		min-width: 0;
-	}
-
 	/* The column used to be a greeting and a box, which always fitted. Now that
 	   Recent and the strip hang off the bottom of a vertically centred layer, a
-	   short window (or a phone in landscape) can run it past the stage — so the
-	   column scrolls inside the layer rather than being clipped by it. */
-	.home-column {
+	   short window (or a phone in landscape) can run it past the stage.
+
+	   The scroll goes on the BOARD, not on the column. A scroll container on the
+	   column would clip everything the composer opens upwards out of its own
+	   footer — the "+" menu, the accounts popover, the model picker are all
+	   `bottom: 100%` boxes taller than the greeting above them, and a scrolling
+	   ancestor cuts them off mid-air. The board hangs BELOW the composer and
+	   opens nothing, so it can scroll without taking the composer's overlays
+	   with it. The layer takes the stage's height as its ceiling so there is a
+	   height for the board to be short of in the first place; `max-height: 100%`
+	   on the column alone resolved against an auto-height parent and did
+	   nothing at all. */
+	.composer-layer {
+		display: flex;
+		flex-direction: column;
 		max-height: 100%;
+	}
+
+	.home-column {
+		min-height: 0;
+	}
+
+	/* Only the board gives way. The greeting and the composer keep their height
+	   whatever the window does — a composer squeezed to half a textarea would be
+	   a worse answer to a short window than a Recent list that scrolls. */
+	.home-column > :global(*) {
+		flex-shrink: 0;
+	}
+
+	.home-board {
+		min-width: 0;
+		min-height: 0;
+		flex-shrink: 1;
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		scrollbar-width: thin;
