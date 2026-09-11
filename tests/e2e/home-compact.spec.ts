@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
+import { GREETING_MAX_LINE_CHARS } from "../../src/lib/client/home/greeting";
 import { db } from "../../src/lib/server/db";
 import {
 	atlasJobs,
@@ -173,6 +174,41 @@ test.describe("chat home — Compact", () => {
 		// replies and twenty-eight billing rows; neither is the user talking.
 		await expect(page.getByTestId("home-weekly-count")).toHaveText(
 			"7 messages this week",
+		);
+	});
+
+	test("keeps the same greeting across a reload", async ({ page }) => {
+		// The greeting used to be re-rolled on every load, so it changed while
+		// you were reading it. It is now drawn from a weighted pool keyed on
+		// (user, day, time-of-day slot) — which means reloading has to give the
+		// same line back, and this is the assertion that says so end to end.
+		const userId = await adminUserId();
+		await clearHomeFixtures(userId);
+		await seedRecent(userId);
+		await seedWeeklyTurns(userId, 7);
+		await gotoHome(page);
+
+		const greeting = page.getByTestId("home-greeting");
+		await expect(greeting).toContainText("Admin User");
+		// The visible span only — the phone-width form is in the DOM too.
+		const first = await page.locator(".home-greeting-full").textContent();
+		expect(first?.trim()).not.toBe("");
+
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await page.getByTestId("home-board").waitFor({ timeout: 15000 });
+			await expect(page.locator(".home-greeting-full")).toHaveText(
+				(first ?? "").trim(),
+			);
+		}
+
+		// And whatever was picked, it is a finished sentence inside the length
+		// cap the column was measured for — the seeded recent conversation makes
+		// a continuity line ("Back to …") reachable here, and an un-truncated
+		// title is exactly what would blow past it.
+		expect(first).not.toContain("{");
+		expect((first ?? "").trim().length).toBeLessThanOrEqual(
+			GREETING_MAX_LINE_CHARS,
 		);
 	});
 
