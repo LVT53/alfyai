@@ -528,7 +528,7 @@ function handlePersonalitySelect(event: Event) {
 				</div>
 			</div>
 			<div class="settings-rows">
-				<div class="settings-row">
+				<div class="settings-row settings-row--stack">
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t('settings_defaultModel')}</p>
 						<p class="settings-row-help">{$t('profileTab.defaultModelHelp')}</p>
@@ -558,7 +558,7 @@ function handlePersonalitySelect(event: Event) {
 				</div>
 
 				{#if personalityProfiles.length > 0}
-					<div class="settings-row">
+					<div class="settings-row settings-row--stack">
 						<div class="settings-row-text">
 							<p class="settings-row-label">{$t('settings_conversationStyle')}</p>
 							<p class="settings-row-help">{$t('settings_conversationStyleNote')}</p>
@@ -583,7 +583,7 @@ function handlePersonalitySelect(event: Event) {
 					</div>
 				{/if}
 
-				<div class="settings-row">
+				<div class="settings-row settings-row--stack">
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t('settings_appearance')}</p>
 						<p class="settings-row-help">{$t('profileTab.appearanceHelp')}</p>
@@ -602,7 +602,7 @@ function handlePersonalitySelect(event: Event) {
 					</div>
 				</div>
 
-				<div class="settings-row">
+				<div class="settings-row settings-row--stack">
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t('settings_interfaceLanguage')}</p>
 						<p class="settings-row-help">{$t('settings_interfaceLanguageNote')}</p>
@@ -621,7 +621,7 @@ function handlePersonalitySelect(event: Event) {
 					</div>
 				</div>
 
-				<div class="settings-row">
+				<div class="settings-row settings-row--stack">
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t('settings_titleLanguage')}</p>
 						<p class="settings-row-help">{$t('profileTab.titleLanguageHelp')}</p>

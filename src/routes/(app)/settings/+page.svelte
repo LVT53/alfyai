@@ -1302,7 +1302,12 @@ $effect(() => {
 	:global(.settings-select) {
 		appearance: none;
 		min-height: 34px;
-		max-width: 100%;
+		/* A select is as wide as its longest option unless told otherwise, and
+		   a workspace with fifteen long model names would push the control
+		   straight out of its row. */
+		width: 100%;
+		max-width: 280px;
+		min-width: 0;
 		padding: 0.375rem 2rem 0.375rem 0.75rem;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-md);
@@ -1373,6 +1378,7 @@ $effect(() => {
 
 	@media (max-width: 640px) {
 		:global(.settings-select),
+		:global(.settings-input),
 		:global(.settings-seg-option) {
 			min-height: 44px;
 		}
@@ -1383,6 +1389,24 @@ $effect(() => {
 
 		:global(.settings-seg-option) {
 			flex: 1 1 0;
+		}
+
+		/* Rows whose control is a select or a segmented choice put the control
+		   on its own full-width line on a phone; rows whose control is a
+		   switch or a single button keep it at the right, where the label and
+		   its one line of meaning still read as a sentence. */
+		:global(.settings-row--stack) {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		:global(.settings-row--stack .settings-row-control) {
+			justify-content: flex-start;
+			margin-top: 0.5rem;
+		}
+
+		:global(.settings-row--stack .settings-select) {
+			max-width: none;
 		}
 	}
 
