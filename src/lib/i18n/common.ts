@@ -19,6 +19,10 @@ const commonDict = {
 		"common.saving": "Saving…",
 		"common.test": "Test",
 		"common.updated": "Updated",
+		"time.relative.justNow": "just now",
+		"time.relative.minutes": "{count} min ago",
+		"time.relative.hours": "{count} h ago",
+		"time.relative.yesterday": "Yesterday",
 		english: "English",
 		// E2 — src/routes/+error.svelte, the app-wide SvelteKit error boundary.
 		// Status-driven copy only: never interpolates the thrown error's raw
@@ -196,6 +200,10 @@ const commonDict = {
 		"common.saving": "Mentés…",
 		"common.test": "Teszt",
 		"common.updated": "Frissítve",
+		"time.relative.justNow": "épp most",
+		"time.relative.minutes": "{count} perce",
+		"time.relative.hours": "{count} órája",
+		"time.relative.yesterday": "Tegnap",
 		english: "Angol",
 		"errorPage.goHome": "Vissza a főoldalra",
 		"errorPage.message":

@@ -46,7 +46,7 @@ async function save() {
 }
 
 let updatedLabel = $derived(
-	summary ? formatRelativeTime(Date.parse(summary.updatedAt)) : "",
+	summary ? formatRelativeTime(Date.parse(summary.updatedAt), { t: $t }) : "",
 );
 
 // Break the one-blob portrait into digestible sentences so it reads as a
