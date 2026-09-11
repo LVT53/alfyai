@@ -10,6 +10,8 @@ import type {
 	MemoryProfileScope,
 	MemoryTimelineReport,
 } from "$lib/memory-profile-types";
+import { fade, scale } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
 import { t, type I18nKey } from "$lib/i18n";
 import { fetchMemoryProfileItemDetail } from "$lib/client/api/knowledge";
 import {
@@ -31,6 +33,12 @@ import {
 	type MemoryCategorySelection,
 	toggleExpandedCategory,
 } from "./memory-categories";
+
+// Opens AND closes: `transition:` plays both directions, and the wrapper
+// collapses both to nothing under prefers-reduced-motion (the app.css reset
+// cannot reach a JS-driven Svelte transition — see motion.ts).
+const backdropFade = reducedMotionAware(fade);
+const panelScale = reducedMotionAware(scale);
 
 type CategoryDefinition = {
 	category: MemoryProfileCategory;
@@ -637,6 +645,7 @@ $effect(() => {
 		class="fixed inset-0 z-[120] flex items-center justify-center bg-surface-overlay/65 p-4 backdrop-blur-sm"
 		role="presentation"
 		onclick={closeReviewOverflow}
+		transition:backdropFade={{ duration: 150 }}
 	>
 		<div
 			bind:this={reviewOverflowDialog}
@@ -646,6 +655,7 @@ $effect(() => {
 			tabindex={-1}
 			class="max-h-[88vh] w-full max-w-[720px] overflow-hidden rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
 			onclick={(event) => event.stopPropagation()}
+			transition:panelScale={{ duration: 150, start: 0.96 }}
 		>
 			<div class="flex items-center justify-between border-b border-border px-5 py-4">
 				<h3 id="memory-review-overflow-title" class="text-xl font-serif text-text-primary">{$t("memoryProfile.needsReview")}</h3>
@@ -723,6 +733,7 @@ $effect(() => {
 		class="fixed inset-0 z-[140] flex items-center justify-center bg-surface-overlay/65 p-4 backdrop-blur-sm"
 		role="presentation"
 		onclick={closeRemove}
+		transition:backdropFade={{ duration: 150 }}
 	>
 		<div
 			bind:this={removeDialog}
@@ -732,6 +743,7 @@ $effect(() => {
 			tabindex={-1}
 			class="w-full max-w-[420px] overflow-hidden rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
 			onclick={(event) => event.stopPropagation()}
+			transition:panelScale={{ duration: 150, start: 0.96 }}
 		>
 			<div class="flex items-center justify-between border-b border-border px-4 py-3.5">
 				<h3 id="memory-remove-title" class="text-sm font-sans font-semibold text-text-primary">{$t("memoryProfile.removeTitle")}</h3>

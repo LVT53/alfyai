@@ -1,5 +1,7 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
+import { fade, scale } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
 import type {
 	MemoryProfileActionPayload,
 	MemoryProfilePublicItemDetail,
@@ -8,6 +10,12 @@ import type {
 import { t } from "$lib/i18n";
 import { Check, Save, Trash2, Undo2, X } from "@lucide/svelte";
 import Spinner from "$lib/components/ui/Spinner.svelte";
+
+// Opens AND closes: `transition:` runs both directions, and the wrapper
+// collapses both to nothing under prefers-reduced-motion (the app.css reset
+// cannot reach a JS-driven Svelte transition — see motion.ts).
+const backdropFade = reducedMotionAware(fade);
+const panelScale = reducedMotionAware(scale);
 
 type OptionalItemDetail = MemoryProfilePublicItem & {
 	whyRemembered?: string | null;
@@ -159,6 +167,7 @@ onDestroy(() => {
 	class="fixed inset-0 z-[120] flex items-center justify-center bg-surface-overlay/65 p-4 backdrop-blur-sm"
 	role="presentation"
 	onclick={onClose}
+	transition:backdropFade={{ duration: 150 }}
 >
 	<div
 		bind:this={dialogRef}
@@ -168,6 +177,7 @@ onDestroy(() => {
 		tabindex={-1}
 		class="memory-detail-dialog max-h-[88vh] w-full max-w-[640px] overflow-hidden rounded-[1rem] border border-border bg-surface-elevated shadow-2xl"
 		onclick={(event) => event.stopPropagation()}
+		transition:panelScale={{ duration: 150, start: 0.96 }}
 	>
 		<div class="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
 			<div>

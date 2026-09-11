@@ -17,6 +17,15 @@ vi.mock("$lib/client/api/knowledge", () => ({
 	fetchMemoryProfileItemDetail: fetchMemoryProfileItemDetailMock,
 }));
 
+// The dialogs and the category disclosure animate open and shut. A real outro
+// keeps a closed dialog in the DOM for its duration, which these tests would
+// read as "it did not close" — so run every transition at zero length here and
+// leave the reduced-motion wiring to its own regression suite.
+vi.mock("svelte/transition", () => {
+	const instant = () => ({ delay: 0, duration: 0, css: () => "" });
+	return { fade: instant, scale: instant, slide: instant };
+});
+
 const profile: MemoryProfilePublicPayload = {
 	resetGeneration: 1,
 	projectionRevision: 7,
