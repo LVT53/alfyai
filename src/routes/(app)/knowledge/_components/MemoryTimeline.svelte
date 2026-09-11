@@ -61,16 +61,16 @@ function targetLabel(action: MemoryTimelineAction): string | null {
 </script>
 
 <section
-	class="memory-timeline rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm md:px-5"
+	class="memory-timeline rounded-[1rem] border border-border bg-surface-elevated px-[0.95rem] py-[0.85rem] shadow-sm"
 	aria-labelledby="memory-timeline-title"
 >
 	<div class="flex items-center gap-2">
-		<Moon size={17} strokeWidth={2.1} class="text-accent" aria-hidden="true" />
-		<h3 id="memory-timeline-title" class="text-xl font-serif text-text-primary">
+		<Moon size={14} strokeWidth={2.1} class="text-accent shrink-0" aria-hidden="true" />
+		<h3 id="memory-timeline-title" class="memory-timeline-title">
 			{$t("memoryProfile.timelineTitle")}
 		</h3>
 	</div>
-	<p class="mt-1 text-xs font-sans leading-[1.5] text-text-muted">
+	<p class="mt-1 text-[0.7rem] font-sans leading-[1.6] text-text-muted">
 		{$t("memoryProfile.timelineHint")}
 	</p>
 
@@ -143,10 +143,30 @@ function targetLabel(action: MemoryTimelineAction): string | null {
 				</li>
 			{/each}
 		</ul>
+		<p class="memory-timeline-foot">{$t("memoryProfile.timelineOpenHint")}</p>
 	{/if}
 </section>
 
 <style>
+	.memory-timeline-title {
+		margin: 0;
+		font-family: var(--font-sans);
+		font-size: 0.82rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.memory-timeline-foot {
+		margin: 0.6rem 0 0;
+		padding-top: 0.6rem;
+		border-top: 1px solid
+			color-mix(in srgb, var(--border-default) 55%, transparent 45%);
+		font-family: var(--font-sans);
+		font-size: 0.68rem;
+		line-height: 1.5;
+		color: var(--text-muted);
+	}
+
 	.memory-timeline-dot {
 		width: 0.5rem;
 		height: 0.5rem;

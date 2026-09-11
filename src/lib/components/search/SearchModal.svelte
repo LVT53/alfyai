@@ -27,6 +27,13 @@ import {
 } from "$lib/client/document-workspace-navigation";
 import { fetchWorkspaceSearch } from "$lib/client/api/workspace-search";
 import {
+	buildSearchScopeChips,
+	filterRowsByScope,
+	resolveActiveScope,
+	type SearchScopeId,
+	summariseScopedResults,
+} from "./search-scopes";
+import {
 	currentConversationId,
 	sidebarOpen,
 	SIDEBAR_DESKTOP_BREAKPOINT,
@@ -57,10 +64,20 @@ type SearchRow =
 			kind: "knowledge-overflow";
 	  };
 
+type SearchSectionId = "conversations" | "documents" | "reports";
+
 type SearchSection = {
-	id: "conversations" | "documents";
+	id: SearchSectionId;
 	titleKey: I18nKey;
 	rows: SearchRow[];
+};
+
+const SCOPE_LABEL_KEYS: Record<SearchScopeId, I18nKey> = {
+	all: "searchModal.scopeAll",
+	conversations: "searchModal.scopeConversations",
+	documents: "searchModal.scopeDocuments",
+	reports: "searchModal.scopeReports",
+	connections: "searchModal.scopeConnections",
 };
 
 type HighlightPart = {
@@ -81,6 +98,9 @@ let searchResponse = $state<WorkspaceSearchResponse | null>(null);
 let searchLoading = $state(false);
 let searchError = $state(false);
 let activeRowId = $state<string | null>(null);
+// The scope the user picked. What is actually applied is `activeScope` below,
+// which falls back to All when the pick has nothing in it any more.
+let requestedScope = $state<SearchScopeId>("all");
 let modalRef = $state<HTMLDivElement | undefined>(undefined);
 let searchInputRef = $state<HTMLInputElement | undefined>(undefined);
 let previousFocus: HTMLElement | null = null;
@@ -106,7 +126,7 @@ const conversationRows = $derived(
 		}),
 	),
 );
-const documentRows = $derived([
+const allDocumentRows = $derived([
 	...(searchResponse?.documents ?? []).map(
 		(document): SearchRow => ({
 			id: `document:${document.displayArtifactId}`,
@@ -118,30 +138,82 @@ const documentRows = $derived([
 		? [{ id: "knowledge-overflow", kind: "knowledge-overflow" } as SearchRow]
 		: []),
 ]);
-const searchSections = $derived(
-	[
-		conversationRows.length
-			? {
-					id: "conversations",
-					titleKey: isQueryMode
-						? "searchModal.conversations"
-						: "searchModal.recentConversations",
-					rows: conversationRows,
-				}
-			: null,
-		documentRows.length
-			? {
-					id: "documents",
-					titleKey: isQueryMode
-						? "searchModal.documents"
-						: "searchModal.recentDocuments",
-					rows: documentRows,
-				}
-			: null,
-	].filter((section): section is SearchSection => section !== null),
+
+/** What the scope logic needs to know about a row, and nothing more. */
+function toScopeableRow(row: SearchRow) {
+	return {
+		id: row.id,
+		kind: row.kind,
+		documentOrigin:
+			row.kind === "document" ? row.document.documentOrigin : null,
+	};
+}
+
+const allRows = $derived([...conversationRows, ...allDocumentRows]);
+const scopeChips = $derived(buildSearchScopeChips(allRows.map(toScopeableRow)));
+const activeScope = $derived(resolveActiveScope(requestedScope, scopeChips));
+
+function rowsInScope(rows: SearchRow[]): SearchRow[] {
+	if (activeScope === "all") return rows;
+	const keep = new Set(
+		filterRowsByScope(rows.map(toScopeableRow), activeScope).map(
+			(row) => row.id,
+		),
+	);
+	return rows.filter((row) => keep.has(row.id));
+}
+
+// An Atlas report's output arrives here as a generated artifact. Giving it its
+// own heading is what lets the Reports chip mean something; the two groups
+// partition the document results, so nothing is listed twice.
+const reportRows = $derived(
+	allDocumentRows.filter(
+		(row) =>
+			row.kind === "document" && row.document.documentOrigin === "generated",
+	),
 );
+const documentRows = $derived(
+	allDocumentRows.filter((row) => !reportRows.includes(row)),
+);
+const searchSections = $derived.by<SearchSection[]>(() => {
+	const conversations = rowsInScope(conversationRows);
+	const documents = rowsInScope(documentRows);
+	const reports = rowsInScope(reportRows);
+	return [
+		conversations.length
+			? {
+					id: "conversations" as const,
+					titleKey: (isQueryMode
+						? "searchModal.conversations"
+						: "searchModal.recentConversations") as I18nKey,
+					rows: conversations,
+				}
+			: null,
+		documents.length
+			? {
+					id: "documents" as const,
+					titleKey: (isQueryMode
+						? "searchModal.documents"
+						: "searchModal.recentDocuments") as I18nKey,
+					rows: documents,
+				}
+			: null,
+		reports.length
+			? {
+					id: "reports" as const,
+					titleKey: (isQueryMode
+						? "searchModal.reports"
+						: "searchModal.recentReports") as I18nKey,
+					rows: reports,
+				}
+			: null,
+	].filter((section): section is SearchSection => section !== null);
+});
 const visibleRows = $derived(searchSections.flatMap((section) => section.rows));
 const hasResults = $derived(visibleRows.length > 0);
+const resultSummary = $derived(
+	summariseScopedResults(visibleRows.map(toScopeableRow)),
+);
 const activeResultElementId = $derived(
 	activeRowId ? searchResultElementId(activeRowId) : undefined,
 );
@@ -224,6 +296,21 @@ $effect(() => {
 	}
 });
 
+/**
+ * The results pane scrolls, so arrowing past the fold has to bring the row
+ * with it — otherwise ↓ moves a highlight the reader cannot see, and ↵ opens
+ * something that was never on screen. `nearest` keeps the list still while
+ * the active row is already visible.
+ */
+function scrollActiveRowIntoView() {
+	if (!browser || !activeRowId) return;
+	const row = document.getElementById(searchResultElementId(activeRowId));
+	// jsdom (and any other host without a layout engine) has no
+	// scrollIntoView; keeping a row on screen is never worth throwing over.
+	if (typeof row?.scrollIntoView !== "function") return;
+	row.scrollIntoView({ block: "nearest" });
+}
+
 async function runWorkspaceSearch(query: string) {
 	if (query === lastStartedQuery && searchResponse) return;
 
@@ -263,6 +350,7 @@ function handleClose() {
 	searchError = false;
 	activeRowId = null;
 	lastStartedQuery = null;
+	requestedScope = "all";
 	onClose();
 	previousFocus?.focus();
 	previousFocus = null;
@@ -283,13 +371,29 @@ function moveActiveRow(offset: number) {
 	const nextIndex =
 		(currentIndex + offset + visibleRows.length) % visibleRows.length;
 	activeRowId = visibleRows[nextIndex].id;
+	void tick().then(scrollActiveRowIntoView);
 }
 
 function activeOrFirstRow() {
 	return visibleRows.find((row) => row.id === activeRowId) ?? visibleRows[0];
 }
 
+// ⌘ on a Mac, Ctrl everywhere else — the same detection the sidebar's ⌘K
+// chip uses. Computed once; the platform does not change mid-session.
+const newTabModifierLabel = (() => {
+	if (!browser) return "Ctrl";
+	const nav = navigator as Navigator & {
+		userAgentData?: { platform?: string };
+	};
+	const platform = nav.userAgentData?.platform ?? nav.platform ?? "";
+	return /mac/i.test(platform) ? "\u2318" : "Ctrl";
+})();
+
+// A focused button owns a plain Enter — that is how the close and clear
+// buttons work. It does not own ⌘↵: the browser would fire the button's own
+// click and navigate in THIS tab, which is the opposite of what was asked for.
 function shouldLetFocusedButtonHandleEnter(event: KeyboardEvent) {
+	if (event.metaKey || event.ctrlKey) return false;
 	return event.key === "Enter" && event.target instanceof HTMLButtonElement;
 }
 
@@ -318,7 +422,11 @@ function handleKeydown(event: KeyboardEvent) {
 		const row = activeOrFirstRow();
 		if (row) {
 			event.preventDefault();
-			void activateRow(row);
+			if (event.metaKey || event.ctrlKey) {
+				openRowInNewTab(row);
+			} else {
+				void activateRow(row);
+			}
 		}
 		return;
 	}
@@ -362,6 +470,32 @@ async function activateRow(row: SearchRow) {
 		return;
 	}
 	await openKnowledge();
+}
+
+/** Where a row goes — the same destination Enter would navigate to. */
+function rowHref(row: SearchRow): string {
+	if (row.kind === "conversation") return conversationHref(row.conversation);
+	if (row.kind === "document") {
+		return (
+			row.document.href ||
+			buildKnowledgeWorkspaceHref({
+				artifactId: row.document.displayArtifactId,
+				filename: documentFilename(row.document),
+				mimeType: row.document.mimeType,
+			})
+		);
+	}
+	return searchResponse?.knowledgeHref || "/knowledge";
+}
+
+/**
+ * ⌘↵ / Ctrl+↵ opens the active row in a new tab and LEAVES the palette open,
+ * because opening several results in turn is the only reason to want a new
+ * tab in the first place.
+ */
+function openRowInNewTab(row: SearchRow) {
+	if (!browser) return;
+	window.open(rowHref(row), "_blank", "noopener,noreferrer");
 }
 
 function conversationHref(conversation: WorkspaceSearchConversationResult) {
@@ -560,6 +694,45 @@ onDestroy(() => {
 				</div>
 			</div>
 
+			<div class="search-scope-band border-b px-4 py-2" role="group" aria-label={$t('searchModal.scopeLabel')}>
+				<div class="flex flex-wrap items-center gap-1.5">
+					{#each scopeChips as chip (chip.id)}
+						{#if chip.available}
+							<button
+								type="button"
+								class="search-scope-chip"
+								class:active={activeScope === chip.id}
+								aria-pressed={activeScope === chip.id}
+								aria-label={$t('searchModal.scopeCountLabel', {
+									name: $t(SCOPE_LABEL_KEYS[chip.id]),
+									count: chip.count,
+								})}
+								data-testid={`search-scope-${chip.id}`}
+								onclick={() => (requestedScope = chip.id)}
+							>
+								<span>{$t(SCOPE_LABEL_KEYS[chip.id])}</span>
+								{#if chip.id !== 'all' || chip.count > 0}
+									<span class="search-scope-count">{chip.count}</span>
+								{/if}
+							</button>
+						{:else}
+							<!-- Nothing indexes connector data yet, so the chip says so
+							     instead of returning an empty list that reads like
+							     "you have nothing there". -->
+							<span
+								class="search-scope-chip search-scope-chip-disabled"
+								data-testid={`search-scope-${chip.id}`}
+								title={$t('searchModal.scopeConnectionsComingSoon')}
+								aria-disabled="true"
+							>
+								<span>{$t(SCOPE_LABEL_KEYS[chip.id])}</span>
+								<span class="search-scope-soon">{$t('searchModal.scopeComingSoon')}</span>
+							</span>
+						{/if}
+					{/each}
+				</div>
+			</div>
+
 			<div id="workspace-search-results" class="max-h-[420px] overflow-y-auto px-3 py-2.5">
 				{#if trimmedSearchQuery.length > 0 && trimmedSearchQuery.length < 2}
 					<div
@@ -752,6 +925,37 @@ onDestroy(() => {
 					</div>
 				{/if}
 			</div>
+
+			<div class="search-modal-footer border-t px-4 py-2" aria-label={$t('searchModal.keyboardHelp')}>
+				<span class="search-key-hint">
+					<kbd class="search-kbd">&uarr;</kbd><kbd class="search-kbd">&darr;</kbd>
+					{$t('searchModal.keyMove')}
+				</span>
+				<span class="search-key-hint">
+					<kbd class="search-kbd">&crarr;</kbd>
+					{$t('searchModal.keyOpen')}
+				</span>
+				{#if !(isQueryMode && hasResults)}
+					<span class="search-key-hint">
+						<kbd class="search-kbd">{newTabModifierLabel}</kbd><kbd class="search-kbd">&crarr;</kbd>
+						{$t('searchModal.keyNewTab')}
+					</span>
+				{/if}
+				<span class="search-key-hint">
+					<kbd class="search-kbd">esc</kbd>
+					{$t('searchModal.keyClose')}
+				</span>
+				{#if isQueryMode && hasResults}
+					<span class="search-result-count" data-testid="search-result-count">
+						{resultSummary.results === 1
+							? $t('searchModal.resultSummaryOne')
+							: $t('searchModal.resultSummary', {
+									results: resultSummary.results,
+									kinds: resultSummary.kinds,
+								})}
+					</span>
+				{/if}
+			</div>
 		</div>
 	</div>
 {/if}
@@ -794,8 +998,105 @@ onDestroy(() => {
 	}
 
 	.search-modal-header,
-	.search-modal-input-band {
+	.search-modal-input-band,
+	.search-scope-band,
+	.search-modal-footer {
 		border-color: color-mix(in srgb, var(--border-default) 72%, transparent 28%);
+	}
+
+	.search-scope-band {
+		background: color-mix(in srgb, var(--surface-page) 30%, transparent 70%);
+	}
+
+	.search-scope-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		height: 1.6rem;
+		padding: 0 0.55rem;
+		border: 1px solid
+			color-mix(in srgb, var(--border-default) 80%, transparent 20%);
+		border-radius: 9999px;
+		background: transparent;
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+		font-size: 11px;
+		font-weight: 500;
+		white-space: nowrap;
+		cursor: pointer;
+		transition:
+			border-color 150ms ease,
+			background-color 150ms ease,
+			color 150ms ease;
+	}
+
+	.search-scope-chip:hover,
+	.search-scope-chip:focus-visible {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+
+	.search-scope-chip.active {
+		border-color: color-mix(in srgb, var(--accent) 40%, var(--border-default) 60%);
+		background: color-mix(in srgb, var(--accent) 12%, transparent 88%);
+		color: var(--accent);
+	}
+
+	.search-scope-chip-disabled,
+	.search-scope-chip-disabled:hover {
+		cursor: default;
+		opacity: 0.45;
+		border-color: color-mix(in srgb, var(--border-default) 70%, transparent 30%);
+		color: var(--text-muted);
+	}
+
+	.search-scope-count {
+		font-variant-numeric: tabular-nums;
+		opacity: 0.8;
+	}
+
+	.search-scope-soon {
+		font-size: 10px;
+		font-style: italic;
+		opacity: 0.85;
+	}
+
+	.search-modal-footer {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.75rem;
+		background: color-mix(in srgb, var(--surface-page) 30%, transparent 70%);
+		font-family: var(--font-sans);
+		font-size: 11px;
+		color: var(--text-muted);
+	}
+
+	.search-key-hint {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.search-kbd {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 1.15rem;
+		height: 1.15rem;
+		padding: 0 0.25rem;
+		border: 1px solid
+			color-mix(in srgb, var(--border-default) 80%, transparent 20%);
+		border-radius: 0.25rem;
+		background: color-mix(in srgb, var(--surface-elevated) 70%, transparent 30%);
+		font-family: var(--font-sans);
+		font-size: 10px;
+		line-height: 1;
+	}
+
+	.search-result-count {
+		margin-left: auto;
+		font-variant-numeric: tabular-nums;
 	}
 
 	@media (max-width: 767px) {
@@ -924,7 +1225,8 @@ onDestroy(() => {
 		:global(.search-portal-backdrop),
 		.search-result-shell,
 		.search-modal-icon-button,
-		.search-source-button {
+		.search-source-button,
+		.search-scope-chip {
 			animation: none !important;
 			transition: none !important;
 		}

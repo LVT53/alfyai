@@ -4,21 +4,9 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import { resolveWorkingDocumentIdentity } from "$lib/services/working-document-identity";
 
-export type LibraryModal = "documents" | null;
-
-export function getLibraryBulkKey(): string {
-	return "forget-all-documents";
-}
-
-export function getLibraryBulkLabel(): string {
-	return "Forget all documents";
-}
-
-export function getLibraryItemCount(params: {
-	documents: KnowledgeDocumentItem[];
-}): number {
-	return params.documents.length;
-}
+// The library-modal helpers that used to live here went with
+// KnowledgeLibraryModal: documents are a tab on the page now, and nothing
+// imported them any more. One of them returned a hard-coded English label.
 
 // Workspace document helpers
 

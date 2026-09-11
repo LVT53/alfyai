@@ -17,6 +17,15 @@ vi.mock("$lib/client/api/knowledge", () => ({
 	fetchMemoryProfileItemDetail: fetchMemoryProfileItemDetailMock,
 }));
 
+// The dialogs and the category disclosure animate open and shut. A real outro
+// keeps a closed dialog in the DOM for its duration, which these tests would
+// read as "it did not close" — so run every transition at zero length here and
+// leave the reduced-motion wiring to its own regression suite.
+vi.mock("svelte/transition", () => {
+	const instant = () => ({ delay: 0, duration: 0, css: () => "" });
+	return { fade: instant, scale: instant, slide: instant };
+});
+
 const profile: MemoryProfilePublicPayload = {
 	resetGeneration: 1,
 	projectionRevision: 7,
@@ -224,8 +233,32 @@ describe("KnowledgeMemoryView", () => {
 		const inferredDot = screen.getByRole("img", {
 			name: "Inferred from conversation",
 		});
-		expect(statedDot).toHaveClass("memory-confidence-dot--stated");
-		expect(inferredDot).toHaveClass("memory-confidence-dot--inferred");
+		expect(statedDot).toHaveClass("memory-dot--stated");
+		expect(inferredDot).toHaveClass("memory-dot--inferred");
+	});
+
+	// A fact the projection never marked must not be drawn as one you stated.
+	it("draws no confidence dot when the projection recorded no provenance", () => {
+		renderMemoryView({
+			profile: {
+				...profile,
+				categories: profile.categories.map((group) =>
+					group.category === "about_you"
+						? {
+								...group,
+								items: [{ ...group.items[0], confidence: undefined }],
+							}
+						: group,
+				),
+			},
+		});
+
+		expect(
+			screen.queryByRole("img", { name: "Stated by you" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("img", { name: "Inferred from conversation" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("shows an expiry chip when a fact has expiresAt", () => {
@@ -464,7 +497,14 @@ describe("KnowledgeMemoryView", () => {
 			screen.getByText("Levi likes compact, actionable UI."),
 		).toBeInTheDocument();
 		expect(screen.queryByText("Global")).not.toBeInTheDocument();
-		expect(screen.getByText("Project")).toBeInTheDocument();
+		// The scope chip on the row, plus the legend entry that explains it.
+		expect(screen.getAllByText("Project").length).toBeGreaterThanOrEqual(1);
+		expect(
+			screen
+				.getByText("Levi likes compact, actionable UI.")
+				.closest(".memory-row")
+				?.querySelector(".memory-chip--scope")?.textContent,
+		).toContain("Project");
 
 		const review = screen
 			.getByRole("heading", { name: "Needs Review" })
@@ -510,7 +550,7 @@ describe("KnowledgeMemoryView", () => {
 		expect(screen.getByRole("button", { name: "+1 more" })).toBeInTheDocument();
 	});
 
-	it("keeps active category sections visually capped after four items", () => {
+	it("pages a long category to five rows and discloses the rest inline", async () => {
 		renderMemoryView({
 			profile: {
 				...profile,
@@ -518,11 +558,74 @@ describe("KnowledgeMemoryView", () => {
 					group.category === "about_you"
 						? {
 								...group,
-								items: Array.from({ length: 5 }, (_, index) => ({
+								items: Array.from({ length: 23 }, (_, index) => ({
 									id: `about-${index + 1}`,
 									itemKey: `about-${index + 1}`,
 									category: "about_you" as const,
 									statement: `About memory ${index + 1}.`,
+									scope: { type: "global" as const },
+									status: "active" as const,
+									revision: 1,
+									updatedAt: `2026-06-${String((index % 28) + 1).padStart(2, "0")}T09:00:00.000Z`,
+									canEdit: true,
+									canDelete: true,
+									canSuppress: true,
+								})),
+							}
+						: group,
+				),
+			},
+		});
+
+		const section = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		expect(section).not.toBeNull();
+		expect(section?.querySelectorAll(".memory-row")).toHaveLength(5);
+
+		// The heading states the real total, never the length of the page.
+		expect(
+			within(section as HTMLElement).getByTestId("memory-category-count")
+				.textContent,
+		).toContain("23 remembered");
+
+		const disclosure = within(section as HTMLElement).getByTestId(
+			"memory-category-disclosure",
+		);
+		expect(disclosure).toHaveTextContent("Show all 23");
+		expect(
+			within(section as HTMLElement).getByText("18 more, newest first"),
+		).toBeInTheDocument();
+
+		// Expanding grows the section in place; the disclosure becomes the way back.
+		await fireEvent.click(disclosure);
+		expect(section?.querySelectorAll(".memory-row")).toHaveLength(23);
+		expect(
+			within(section as HTMLElement).getByTestId("memory-category-disclosure"),
+		).toHaveTextContent("Show fewer");
+
+		await fireEvent.click(
+			within(section as HTMLElement).getByTestId("memory-category-disclosure"),
+		);
+		expect(section?.querySelectorAll(".memory-row")).toHaveLength(5);
+	});
+
+	it("keeps category totals honest while a filter narrows the rows", async () => {
+		renderMemoryView({
+			profile: {
+				...profile,
+				categories: profile.categories.map((group) =>
+					group.category === "about_you"
+						? {
+								...group,
+								items: Array.from({ length: 12 }, (_, index) => ({
+									id: `about-${index + 1}`,
+									itemKey: `about-${index + 1}`,
+									category: "about_you" as const,
+									statement:
+										index === 0
+											? "Keeps files in Nextcloud."
+											: `About memory ${index + 1}.`,
 									scope: { type: "global" as const },
 									status: "active" as const,
 									revision: 1,
@@ -537,11 +640,32 @@ describe("KnowledgeMemoryView", () => {
 			},
 		});
 
-		const fifthItem = screen.getByText("About memory 5.");
-		const scrollList = fifthItem.closest(".grid");
+		const filter = screen.getByLabelText("Filter memories");
+		await fireEvent.input(filter, { target: { value: "nextcloud" } });
 
-		expect(fifthItem).toBeInTheDocument();
-		expect(scrollList).toHaveClass("overflow-y-auto");
+		const section = screen
+			.getByRole("heading", { name: "About You" })
+			.closest("section");
+		expect(
+			within(section as HTMLElement).getByTestId("memory-category-count")
+				.textContent,
+		).toContain("1 of 12 match");
+		expect(section?.querySelectorAll(".memory-row")).toHaveLength(1);
+	});
+
+	it("narrows to a single category when its filter chip is picked", async () => {
+		renderMemoryView();
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: /^Preferences — / }),
+		);
+
+		expect(
+			screen.getByRole("heading", { name: "Preferences" }),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("heading", { name: "About You" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("shows a single Remove entry point and no standalone suppress or delete on the row", () => {
@@ -890,15 +1014,22 @@ describe("KnowledgeMemoryView", () => {
 			.getByRole("heading", { name: "About You" })
 			.closest("section");
 		expect(aboutSection).not.toBeNull();
+		// An "Edit" button over a memory the projection refuses to rewrite
+		// invites a change the dialog then denies, so the row says View.
 		expect(
 			within(aboutSection as HTMLElement).queryByRole("button", {
 				name: "Edit memory item",
 			}),
 		).not.toBeInTheDocument();
+		expect(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "View memory item",
+			}).textContent,
+		).toContain("View");
 
 		await fireEvent.click(
 			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Memory item",
+				name: "View memory item",
 			}),
 		);
 
@@ -1197,5 +1328,36 @@ describe("KnowledgeMemoryView", () => {
 		});
 		const notice = screen.getByRole("status");
 		expect(notice.textContent).not.toContain("c1");
+	});
+
+	// The rows a category discloses are each wrapped in their own transition
+	// element, so a `:first-child` rule would strip the divider off every one
+	// of them. Only the row that opens the list is marked.
+	it("marks exactly one opening row per category, expanded or not", async () => {
+		const many: MemoryProfilePublicPayload = {
+			...profile,
+			categories: [
+				{
+					category: "about_you",
+					items: Array.from({ length: 8 }, (_unused, index) => ({
+						...profile.categories[0].items[0],
+						id: `item-${index}`,
+						statement: `Fact number ${index}.`,
+						updatedAt: `2026-06-${String(10 + index).padStart(2, "0")}T09:00:00.000Z`,
+					})),
+				},
+				{ category: "preferences", items: [] },
+				{ category: "goals_ongoing_work", items: [] },
+				{ category: "constraints_boundaries", items: [] },
+			],
+		};
+		const { container } = renderMemoryView({ profile: many });
+
+		expect(container.querySelectorAll(".memory-row")).toHaveLength(5);
+		expect(container.querySelectorAll(".memory-row.is-first")).toHaveLength(1);
+
+		await fireEvent.click(screen.getByTestId("memory-category-disclosure"));
+		expect(container.querySelectorAll(".memory-row")).toHaveLength(8);
+		expect(container.querySelectorAll(".memory-row.is-first")).toHaveLength(1);
 	});
 });

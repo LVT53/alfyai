@@ -12,6 +12,17 @@ import {
 	type TableColumn,
 	type TableRow,
 } from "$lib/components/analytics";
+import AnalyticsChassis from "./analytics/AnalyticsChassis.svelte";
+import AnalyticsColumnChart from "./analytics/AnalyticsColumnChart.svelte";
+import AnalyticsHero from "./analytics/AnalyticsHero.svelte";
+import {
+	buildComparisonDelta,
+	type CostSegmentInput,
+	findPreviousMonth,
+	formatCompactNumber,
+	formatCurrencyUsd,
+	monthlyChartPoints,
+} from "./analytics/chassis-math";
 import { t } from "$lib/i18n";
 import {
 	type AnalyticsResponse,
@@ -19,12 +30,16 @@ import {
 } from "$lib/client/api/settings";
 import "$lib/components/analytics/analytics.css";
 
-// Phase B, wave B3: the system Blocks B/C/D analytics (admin-only) rebuilt on
-// the shared analytics components. ADMIN-GATED by its host (rendered only under
-// the admin-only Administration tab) — contains NO personal content. Prop
-// interface preserved so the parent wiring (month change reloads via
-// onSystemMonthChange; excluded-users persists via onExcludedUsersChange)
-// keeps working unchanged.
+// Everyday-screens redesign: the system view sits on the same chassis as the
+// personal one (hero number, split bar, tiles, gridded column chart, model
+// table with a pinned Total), and gains the two Overview tiles it was missing —
+// active users against configured, and the first-token median with its p90 —
+// rather than making an admin open a second tab to learn whether the server is
+// slow. ADMIN-GATED by its host (rendered only under the admin-only
+// Administration tab) — contains NO personal content. Every tab, filter and
+// metric is kept, and the prop interface is unchanged so the parent wiring
+// (month change reloads via onSystemMonthChange; excluded-users persists via
+// onExcludedUsersChange) keeps working.
 let {
 	analyticsData = null,
 	analyticsLoading = false,
@@ -60,6 +75,12 @@ type SystemTab =
 	| "parallel"
 	| "byUser";
 let activeTab = $state<SystemTab>("overview");
+
+// The two tabs whose content is drawn from the filtered read model, and so the
+// only two that may offer the User/Provider/Model filters.
+const filtersApplyToActiveTab = $derived(
+	activeTab === "byModel" || activeTab === "toolsLatency",
+);
 
 let excludedUsersSaveState = $state<"idle" | "saving" | "saved" | "error">(
 	"idle",
@@ -196,7 +217,7 @@ const months = $derived(
 	].sort(),
 );
 
-const tabs = $derived([
+const tabItems = $derived([
 	{
 		id: "overview",
 		label: $t("analytics.overview"),
@@ -241,9 +262,8 @@ function modelIconUrl(key: string | null | undefined): string | null {
 	return key ? (modelIcons[key] ?? null) : null;
 }
 
-function formatUsd(value: number): string {
-	return `$${Number(value ?? 0).toFixed(4)}`;
-}
+// Money, everywhere, to two places: `$0.0042` reads as a bug.
+const formatUsd = formatCurrencyUsd;
 
 const numberFmt = new Intl.NumberFormat("en-US");
 
@@ -258,41 +278,106 @@ function formatMonthShort(ym: string): string {
 	return date.toLocaleDateString("en-US", { year: "numeric", month: "short" });
 }
 
+function formatMonthLong(ym: string): string {
+	const [y, m] = ym.split("-");
+	const date = new Date(Number(y), Number(m) - 1, 1);
+	return date.toLocaleDateString("en-US", { year: "numeric", month: "long" });
+}
+
 // ---- Overview ----------------------------------------------------------
 const parallelCostUsd = $derived(parallel?.totalCostUsd ?? 0);
 const llmCostUsd = $derived((system?.totalCostUsd ?? 0) - parallelCostUsd);
 const webCalls = $derived(
 	(parallel?.totalTurboCalls ?? 0) + (parallel?.totalExtractCalls ?? 0),
 );
-const costSplit = $derived(
+// The hero is the sum of LLM spend and Parallel spend; the bar shows the
+// proportion and the legend names both halves with their amounts, so the hero
+// explains itself instead of needing a second card.
+const TEAL = "#0d9488";
+const costSegments = $derived<CostSegmentInput[]>(
 	parallel
-		? $t("analytics.llmParallelSplit", {
-				llm: formatUsd(llmCostUsd),
-				parallel: formatUsd(parallelCostUsd),
-			})
-		: undefined,
+		? [
+				{
+					label: $t("analytics.llmCost"),
+					value: llmCostUsd,
+					color: "var(--accent)",
+				},
+				{
+					label: $t("analytics.parallelCostLabel"),
+					value: parallelCostUsd,
+					color: TEAL,
+				},
+			]
+		: [],
 );
 
-const monthlyCostData = $derived({
-	labels: (system?.monthly ?? []).map((m) => formatMonthShort(m.month)),
-	datasets: [
-		{
-			label: $t("analytics.monthlyCost"),
-			data: (system?.monthly ?? []).map((m) => m.totalCostUsd),
-			backgroundColor: SERIES.llm,
-			borderRadius: 4,
-		},
-	],
+// The comparison line the personal view has always had, now on both sides.
+// The previous month is found by its key, not by its neighbour in the array —
+// see findPreviousMonth.
+const systemComparison = $derived.by(() => {
+	const monthly = system?.monthly ?? [];
+	if (!selectedSystemMonth || monthly.length === 0) return "";
+	const current = monthly.find((m) => m.month === selectedSystemMonth);
+	const previous = findPreviousMonth(monthly, selectedSystemMonth);
+	if (!(current && previous)) return "";
+	const delta = buildComparisonDelta(
+		current.totalCostUsd,
+		previous.totalCostUsd,
+	);
+	if (!delta) return "";
+	return $t("analytics.comparisonVsMonth", {
+		direction:
+			delta.direction === "up" ? "↑" : delta.direction === "down" ? "↓" : "→",
+		percent: delta.percent,
+		month: formatMonthLong(previous.month),
+	});
 });
 
-const monthlyCostOptions = {
-	plugins: { legend: { display: false } },
-} as const;
+// Active users against configured accounts. The numerator counts distinct
+// users in the analytics window AFTER the excluded accounts are dropped
+// (analytics.ts filters systemFilteredUsage by the excluded set before it
+// counts), so the denominator has to drop them too — otherwise excluding
+// three admins makes the ratio look WORSE, which is the opposite of what the
+// toggle is for. The account list can also lag the analytics window, so the
+// denominator is never allowed to fall below the numerator: "9 / 1" is not a
+// fact about anything.
+const excludedUserIdSet = $derived(new Set(excludedUserIds));
+const configuredAccountCount = $derived(
+	Math.max(
+		allUsers.filter((user) => !excludedUserIdSet.has(user.id)).length,
+		system?.totalUsers ?? 0,
+	),
+);
+
+const heroLabel = $derived(
+	selectedSystemMonth === null
+		? $t("analytics.estimatedCostAllTime")
+		: $t("analytics.estimatedCostThisMonth"),
+);
+
+// Monthly cost, on the shared chart chassis: same grid, same emphasised
+// endpoint, different series.
+const monthlyCostPoints = $derived(
+	monthlyChartPoints(system?.monthly ?? [], (m) => ({
+		label: formatMonthShort(m.month),
+		value: m.totalCostUsd,
+	})),
+);
+const monthlyCostLabelEvery = $derived(
+	Math.max(1, Math.ceil(monthlyCostPoints.length / 4)),
+);
 
 // ---- Usage by model ----------------------------------------------------
 const providerPresent = $derived(
 	(effectiveSystem?.byModel ?? []).some((row) => row.providerDisplayName),
 );
+
+const overviewModelColumns = $derived<TableColumn[]>([
+	{ key: "model", label: $t("analytics.model"), type: "text" },
+	{ key: "calls", label: $t("analytics.calls"), type: "number" },
+	{ key: "tokens", label: $t("analytics.totalTokens"), type: "tokens" },
+	{ key: "cost", label: $t("analytics.cost"), type: "usd" },
+]);
 
 const modelColumns = $derived<TableColumn[]>([
 	{ key: "model", label: $t("analytics.model"), type: "text" },
@@ -347,8 +432,10 @@ function statusPillClass(status: unknown): string {
 // avgReasoningTokens and the first-token/generation percentiles are
 // undefined for a row predating those message_analytics marks; blank in the
 // table rather than a misleading 0.
-const allModelRows = $derived<TableRow[]>(
-	(effectiveSystem?.byModel ?? []).map((row) => ({
+type SystemByModelRows = NonNullable<typeof effectiveSystem>["byModel"];
+
+function toModelRows(rows: SystemByModelRows): TableRow[] {
+	return rows.map((row) => ({
 		model: row.displayName ?? modelDisplayName(row.model),
 		iconUrl: modelIconUrl(row.model),
 		provider: row.providerDisplayName ?? "",
@@ -360,8 +447,35 @@ const allModelRows = $derived<TableRow[]>(
 		firstTokenP90: row.firstTokenP90Ms ?? null,
 		generationP50: row.generationP50Ms ?? null,
 		reasoningTokens: row.avgReasoningTokens ?? null,
-	})),
+	}));
+}
+
+function sumRows(rows: readonly TableRow[], key: string): number {
+	return rows.reduce((sum, row) => sum + ((row[key] as number) ?? 0), 0);
+}
+
+const allModelRows = $derived<TableRow[]>(
+	toModelRows(effectiveSystem?.byModel ?? []),
 );
+
+// Overview reads the UNFILTERED breakdown. Its hero and tiles come from
+// `system` (the prop), and a table drawn from `effectiveSystem` under them
+// would let a filter set on another tab make the card disagree with its own
+// Total row.
+const overviewModelRows = $derived<TableRow[]>(
+	toModelRows(system?.byModel ?? []),
+);
+const overviewActiveModelRows = $derived(
+	overviewModelRows.filter((row) => row.status !== "removed"),
+);
+const overviewModelTotalRow = $derived<TableRow>({
+	model: $t("analytics.total"),
+	provider: "",
+	status: "",
+	calls: sumRows(overviewModelRows, "calls"),
+	tokens: sumRows(overviewModelRows, "tokens"),
+	cost: sumRows(overviewModelRows, "cost"),
+});
 
 // A model is "removed" once neither it nor its provider is offered anymore
 // (see ModelAvailability) — grouped separately at the bottom, behind the
@@ -381,9 +495,9 @@ const modelTotalRow = $derived<TableRow>({
 	model: $t("analytics.total"),
 	provider: "",
 	status: "",
-	calls: allModelRows.reduce((sum, row) => sum + (row.calls as number), 0),
-	tokens: allModelRows.reduce((sum, row) => sum + (row.tokens as number), 0),
-	cost: allModelRows.reduce((sum, row) => sum + (row.cost as number), 0),
+	calls: sumRows(allModelRows, "calls"),
+	tokens: sumRows(allModelRows, "tokens"),
+	cost: sumRows(allModelRows, "cost"),
 });
 
 function formatMs(value: number | null | undefined): string {
@@ -649,87 +763,144 @@ async function toggleExcludedUser(userId: string) {
 		<button class="btn-secondary mt-3" onclick={retry}>{$t('analytics.retry')}</button>
 	</div>
 {:else if analyticsData && system}
-	<div class="mb-4">
-		<PageSwitcher
-			items={tabs}
-			activeId={activeTab}
-			ariaLabel={$t('analytics.systemOverview')}
-			onChange={(id) => (activeTab = id as SystemTab)}
-		/>
-	</div>
+	<!-- Only the two tabs that read the filtered read model get the filter row.
+	     Drawn above Overview, Parallel API or By user these are controls that
+	     change nothing there — and worse on Overview, where the hero and the
+	     tiles come from the unfiltered prop while a filtered table would sit
+	     under them, so the card would contradict its own Total row. Passed as
+	     `undefined` rather than gated inside the snippet, so the chassis does
+	     not reserve an empty row for it either. -->
+	{#snippet systemFilters()}
+			<select
+				class="system-analytics-filter"
+				aria-label={$t('analytics.user')}
+				bind:value={filterUserId}
+			>
+				<option value="">{$t('analytics.allUsers')}</option>
+				{#each allUsers as user (user.id)}
+					<option value={user.id}>{user.name || user.email}</option>
+				{/each}
+			</select>
+			<select
+				class="system-analytics-filter"
+				aria-label={$t('analytics.provider')}
+				bind:value={filterProviderId}
+			>
+				<option value="">{$t('analytics.allProviders')}</option>
+				{#each providerOptions as provider (provider.id)}
+					<option value={provider.id}>{provider.name}</option>
+				{/each}
+			</select>
+			<select
+				class="system-analytics-filter"
+				aria-label={$t('analytics.model')}
+				bind:value={filterModelId}
+			>
+				<option value="">{$t('analytics.allModels')}</option>
+				{#each modelOptions as model (model.id)}
+					<option value={model.id}>{model.name}</option>
+				{/each}
+			</select>
+			<label class="flex items-center gap-1.5 text-xs text-text-muted">
+				<input type="checkbox" bind:checked={showRetired} class="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent" />
+				{$t('analytics.showRetired')}
+			</label>
+			{#if filteredLoading}
+				<span class="text-xs text-text-muted" role="status" aria-live="polite">{$t('analytics.loadingAnalytics')}</span>
+			{/if}
+	{/snippet}
+
+	<AnalyticsChassis
+		title={$t('analytics.systemOverview')}
+		description={$t('analytics.systemAnalyticsDescription')}
+		filters={filtersApplyToActiveTab ? systemFilters : undefined}
+	>
+		{#snippet controls()}
+			<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
+		{/snippet}
+
+		{#snippet tabs()}
+			<PageSwitcher
+				items={tabItems}
+				activeId={activeTab}
+				ariaLabel={$t('analytics.systemOverview')}
+				onChange={(id) => (activeTab = id as SystemTab)}
+			/>
+		{/snippet}
 
 	{#if activeTab === 'overview'}
 		<div role="tabpanel" id="system-analytics-overview-panel" aria-labelledby="system-analytics-overview-tab">
-			<AnalyticsCard title={$t('analytics.systemOverview')}>
-				{#snippet header()}
-					<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
-				{/snippet}
+			<AnalyticsHero
+				value={formatUsd(system.totalCostUsd)}
+				label={heroLabel}
+				comparison={systemComparison}
+				segments={costSegments}
+			/>
+			<div class="mt-3">
 				<StatGrid>
-					<StatCard
-						hero
-						value={formatUsd(system.totalCostUsd)}
-						label={$t('totalCost')}
-						comparison={costSplit}
-					/>
 					<StatCard value={formatNum(system.totalMessages)} label={$t('analytics.totalMessages')} />
-					<StatCard value={formatNum(system.totalTokens)} label={$t('analytics.totalTokens')} />
-					<StatCard value={formatNum(webCalls)} label={$t('analytics.webCalls')} />
-					<StatCard value={formatNum(system.totalUsers)} label={$t('analytics.activeUsers')} />
+					<StatCard
+						value={formatCompactNumber(system.totalTokens)}
+						label={$t('analytics.totalTokens')}
+					/>
+					<StatCard
+						value={formatNum(webCalls)}
+						label={$t('analytics.webCalls')}
+						comparison={parallel
+							? `${formatNum(parallel.totalTurboCalls)} ${$t('analytics.turbo')} · ${formatNum(parallel.totalExtractCalls)} ${$t('analytics.extract')}`
+							: undefined}
+					/>
 					<StatCard value={formatNum(system.totalConversations ?? 0)} label={$t('analytics.totalConversations')} />
+					<!-- Two tiles the Overview was missing: an admin should not have to
+					     open a second tab to learn whether the server is slow. -->
+					<StatCard
+						value={`${formatNum(system.totalUsers)} / ${formatNum(configuredAccountCount)}`}
+						label={$t('analytics.activeUsersThisMonth')}
+					/>
+					<StatCard
+						value={formatMs(modelFirstTokenP50Agg)}
+						label={$t('analytics.firstTokenMedian')}
+						comparison={`${$t('analytics.firstTokenP90')} ${formatMs(modelFirstTokenP90Agg)}`}
+					/>
 				</StatGrid>
-				{#if (system.monthly ?? []).length > 0}
-					<div class="mt-5">
-						<p class="settings-label mb-3">{$t('analytics.monthlyCost')}</p>
-						<AnalyticsChart type="bar" data={monthlyCostData} options={monthlyCostOptions} height="220px" />
-					</div>
-				{/if}
-			</AnalyticsCard>
+			</div>
+			{#if monthlyCostPoints.length > 0}
+				<div class="hr"></div>
+				<AnalyticsColumnChart
+					points={monthlyCostPoints}
+					unit={$t('analytics.monthlyCost')}
+					labelEvery={monthlyCostLabelEvery}
+					formatValue={(value) => formatUsd(value)}
+					note={$t('analytics.currentPeriodSolid')}
+				/>
+			{/if}
+			{#if overviewActiveModelRows.length > 0}
+				<div class="hr"></div>
+				<p class="settings-label mb-2">
+					{$t('analytics.usageByModelPeriod', {
+						period: selectedSystemMonth
+							? formatMonthShort(selectedSystemMonth)
+							: $t('analytics.allTime'),
+					})}
+				</p>
+				{#snippet overviewModelCell(row: TableRow)}
+					<span class="inline-flex min-w-0 items-center gap-2">
+						<ModelIcon iconUrl={row.iconUrl as string | null} displayName={String(row.model ?? '')} size={20} />
+						<span class="truncate text-text-primary">{row.model}</span>
+					</span>
+				{/snippet}
+				<SortableTable
+					columns={overviewModelColumns}
+					rows={overviewActiveModelRows}
+					initialSort={{ key: 'cost', dir: 'desc' }}
+					totalRow={overviewModelTotalRow}
+					cells={{ model: overviewModelCell }}
+				/>
+			{/if}
 		</div>
 	{:else if activeTab === 'byModel'}
 		<div role="tabpanel" id="system-analytics-bymodel-panel" aria-labelledby="system-analytics-bymodel-tab">
 			<AnalyticsCard title={$t('analytics.usageByModel')}>
-				{#snippet header()}
-					<div class="flex flex-wrap items-center gap-2">
-						<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
-						<select
-							class="system-analytics-filter"
-							aria-label={$t('analytics.user')}
-							bind:value={filterUserId}
-						>
-							<option value="">{$t('analytics.allUsers')}</option>
-							{#each allUsers as user (user.id)}
-								<option value={user.id}>{user.name || user.email}</option>
-							{/each}
-						</select>
-						<select
-							class="system-analytics-filter"
-							aria-label={$t('analytics.provider')}
-							bind:value={filterProviderId}
-						>
-							<option value="">{$t('analytics.allProviders')}</option>
-							{#each providerOptions as provider (provider.id)}
-								<option value={provider.id}>{provider.name}</option>
-							{/each}
-						</select>
-						<select
-							class="system-analytics-filter"
-							aria-label={$t('analytics.model')}
-							bind:value={filterModelId}
-						>
-							<option value="">{$t('analytics.allModels')}</option>
-							{#each modelOptions as model (model.id)}
-								<option value={model.id}>{model.name}</option>
-							{/each}
-						</select>
-						<label class="flex items-center gap-1.5 text-xs text-text-muted">
-							<input type="checkbox" bind:checked={showRetired} class="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent" />
-							{$t('analytics.showRetired')}
-						</label>
-						{#if filteredLoading}
-							<span class="text-xs text-text-muted" role="status" aria-live="polite">{$t('analytics.loadingAnalytics')}</span>
-						{/if}
-					</div>
-				{/snippet}
 				<StatGrid>
 					<StatCard hero value={formatUsd(modelCostTotal)} label={$t('totalCost')} />
 					<StatCard value={formatNum(modelCallsTotal)} label={$t('analytics.modelCalls')} />
@@ -824,9 +995,6 @@ async function toggleExcludedUser(userId: string) {
 	{:else if activeTab === 'toolsLatency'}
 		<div role="tabpanel" id="system-analytics-toolslatency-panel" aria-labelledby="system-analytics-toolslatency-tab">
 			<AnalyticsCard title={$t('analytics.tools')}>
-				{#snippet header()}
-					<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
-				{/snippet}
 				{#if toolsRows.length > 0}
 					{#snippet toolCell(_row: TableRow, value: unknown)}
 						<span class="font-mono text-xs text-text-primary">{value}</span>
@@ -895,9 +1063,6 @@ async function toggleExcludedUser(userId: string) {
 	{:else if activeTab === 'parallel' && parallel}
 		<div role="tabpanel" id="system-analytics-parallel-panel" aria-labelledby="system-analytics-parallel-tab">
 			<AnalyticsCard title={$t('analytics.parallelApi')}>
-				{#snippet header()}
-					<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
-				{/snippet}
 				<StatGrid>
 					<StatCard value={formatNum(parallel.totalTurboCalls)} label={$t('analytics.turboSearches')} />
 					<StatCard value={formatNum(parallel.totalExtractCalls)} label={$t('analytics.extractFetches')} />
@@ -928,9 +1093,6 @@ async function toggleExcludedUser(userId: string) {
 	{:else if activeTab === 'byUser'}
 		<div role="tabpanel" id="system-analytics-byuser-panel" aria-labelledby="system-analytics-byuser-tab">
 			<AnalyticsCard title={$t('analytics.perUserBreakdown')}>
-				{#snippet header()}
-					<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
-				{/snippet}
 				{#if perUserRows.length > 0}
 					<div class="mb-5">
 						<AnalyticsChart
@@ -996,6 +1158,7 @@ async function toggleExcludedUser(userId: string) {
 			{/if}
 		</div>
 	{/if}
+	</AnalyticsChassis>
 {:else}
 	<div class="settings-card py-8 text-center text-sm text-text-muted">{$t('analytics.noData')}</div>
 {/if}

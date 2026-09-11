@@ -433,4 +433,221 @@ describe("SearchModal", () => {
 		).toBeInTheDocument();
 		expect(screen.queryByText("Release notes")).not.toBeInTheDocument();
 	});
+
+	describe("scope chips and the keyboard footer", () => {
+		function respondWithReport() {
+			fetchWorkspaceSearch.mockResolvedValue({
+				mode: "query",
+				query: "battery",
+				conversations: [
+					{
+						id: "conv-1",
+						title: "Atlas report on the EU rules",
+						projectId: null,
+						projectName: null,
+						status: "active",
+						sealedAt: null,
+						updatedAt: Date.now(),
+						href: "/chat/conv-1",
+						match: {
+							type: "title",
+							snippet: null,
+							messageId: null,
+							messageRole: null,
+						},
+					},
+				],
+				documents: [
+					{
+						id: "artifact-1",
+						displayArtifactId: "artifact-1",
+						promptArtifactId: null,
+						familyArtifactIds: ["artifact-1"],
+						name: "invoice-2026-09.pdf",
+						mimeType: "application/pdf",
+						sizeBytes: null,
+						conversationId: null,
+						summary: null,
+						documentOrigin: "uploaded",
+						documentFamilyStatus: null,
+						documentLabel: null,
+						updatedAt: Date.now(),
+						href: "/knowledge?server_open=artifact-1",
+						sourceHref: null,
+						match: { type: "content", snippet: null },
+					},
+					{
+						id: "artifact-2",
+						displayArtifactId: "artifact-2",
+						promptArtifactId: null,
+						familyArtifactIds: ["artifact-2"],
+						name: "atlas-rules-2026-09.pdf",
+						mimeType: "application/pdf",
+						sizeBytes: null,
+						conversationId: null,
+						summary: null,
+						documentOrigin: "generated",
+						documentFamilyStatus: null,
+						documentLabel: null,
+						updatedAt: Date.now(),
+						href: "/knowledge?server_open=artifact-2",
+						sourceHref: null,
+						match: { type: "content", snippet: null },
+					},
+				],
+				documentOverflow: false,
+				knowledgeHref: "/knowledge",
+			});
+		}
+
+		it("says what is searchable and carries the per-kind count", async () => {
+			respondWithReport();
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			expect(
+				screen.getByTestId("search-scope-conversations").textContent,
+			).toContain("1");
+			expect(
+				screen.getByTestId("search-scope-documents").textContent,
+			).toContain("1");
+			expect(screen.getByTestId("search-scope-reports").textContent).toContain(
+				"1",
+			);
+		});
+
+		it("ships Connections greyed and labelled as coming soon", async () => {
+			respondWithReport();
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			const connections = screen.getByTestId("search-scope-connections");
+			// Nothing in workspace-search reads connector data.
+			expect(connections.tagName).toBe("SPAN");
+			expect(connections).toHaveAttribute("aria-disabled", "true");
+			expect(connections).toHaveClass("search-scope-chip-disabled");
+			expect(connections.textContent).toContain("Coming soon");
+		});
+
+		it("gives a generated report its own heading rather than listing it twice", async () => {
+			respondWithReport();
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			// The section heading, alongside the chip of the same name.
+			expect(screen.getAllByText("Reports").length).toBeGreaterThanOrEqual(2);
+			// Listed under Reports only — Documents and Reports partition the
+			// document results between them.
+			expect(screen.getAllByText("atlas-rules-2026-09.pdf")).toHaveLength(1);
+			expect(
+				screen.getByTestId("search-scope-documents").textContent,
+			).toContain("1");
+		});
+
+		it("narrows the list when a scope is picked", async () => {
+			respondWithReport();
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			await fireEvent.click(screen.getByTestId("search-scope-conversations"));
+
+			expect(
+				screen.getByText("Atlas report on the EU rules"),
+			).toBeInTheDocument();
+			expect(screen.queryByText("invoice-2026-09.pdf")).not.toBeInTheDocument();
+			expect(
+				screen.queryByText("atlas-rules-2026-09.pdf"),
+			).not.toBeInTheDocument();
+		});
+
+		it("states the keys that already work", async () => {
+			respondWithReport();
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByTestId("search-result-count");
+			expect(screen.getByText("move")).toBeInTheDocument();
+			expect(screen.getByText("open")).toBeInTheDocument();
+			expect(screen.getByText("close")).toBeInTheDocument();
+		});
+
+		it("offers the new-tab key only while the count is not claiming the line", async () => {
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Release notes");
+			// Before you type the footer has room for all four keys.
+			expect(screen.getByText("open in a new tab")).toBeInTheDocument();
+		});
+
+		it("opens the active result in a new tab on Cmd/Ctrl+Enter, and stays open", async () => {
+			const open = vi
+				.spyOn(window, "open")
+				.mockReturnValue(null as unknown as Window);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Brand playbook");
+			await fireEvent.keyDown(window, { key: "ArrowDown" });
+			await fireEvent.keyDown(window, { key: "Enter", metaKey: true });
+
+			expect(open).toHaveBeenCalledWith(
+				"/knowledge?server_open=artifact-1",
+				"_blank",
+				"noopener,noreferrer",
+			);
+			// The palette is still there — opening several results in turn is the
+			// only reason to want a new tab.
+			expect(goto).not.toHaveBeenCalled();
+			expect(screen.getByRole("dialog")).toBeInTheDocument();
+			open.mockRestore();
+		});
+
+		// A focused button owns a plain Enter, but not ⌘↵: letting it through
+		// fires the row's own click and navigates in THIS tab, which is the
+		// opposite of what was asked for.
+		it("still opens a new tab when the ⌘↵ lands on a focused result row", async () => {
+			const open = vi
+				.spyOn(window, "open")
+				.mockReturnValue(null as unknown as Window);
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Brand playbook");
+			await fireEvent.keyDown(window, { key: "ArrowDown" });
+
+			// Fired on the row itself, so it reaches the window handler with the
+			// button as its target — exactly what a keystroke on a focused row
+			// looks like.
+			const row = screen.getByText("Brand playbook").closest("button");
+			expect(row).not.toBeNull();
+			await fireEvent.keyDown(row as HTMLButtonElement, {
+				key: "Enter",
+				metaKey: true,
+			});
+
+			expect(open).toHaveBeenCalledWith(
+				"/knowledge?server_open=artifact-1",
+				"_blank",
+				"noopener,noreferrer",
+			);
+			expect(goto).not.toHaveBeenCalled();
+			open.mockRestore();
+		});
+
+		it("counts the results once something is typed", async () => {
+			respondWithReport();
+			render(SearchModal, { props: { isOpen: true } });
+
+			const count = await screen.findByTestId("search-result-count");
+			expect(count.textContent).toContain("3 results across 3 kinds");
+		});
+
+		it("carries no result count before anything is typed", async () => {
+			render(SearchModal, { props: { isOpen: true } });
+
+			await screen.findByText("Release notes");
+			// The footer carries the keys and nothing else: a line saying
+			// "nothing typed" only describes the box you are looking at.
+			expect(
+				screen.queryByTestId("search-result-count"),
+			).not.toBeInTheDocument();
+		});
+	});
 });

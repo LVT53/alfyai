@@ -181,6 +181,27 @@ const commonDict = {
 		startingConversation: "Starting conversation",
 		totalCost: "Estimated cost",
 		uiLanguage: "UI Language",
+		// ── everyday-screens redesign ─────────────────────────────────────
+		"searchModal.keyClose": "close",
+		"searchModal.keyMove": "move",
+		"searchModal.keyNewTab": "open in a new tab",
+		"searchModal.keyOpen": "open",
+		"searchModal.keyboardHelp": "Keyboard shortcuts",
+		"searchModal.recentReports": "Recent reports",
+		"searchModal.reports": "Reports",
+		"searchModal.resultSummary": "{results} results across {kinds} kinds",
+		"searchModal.resultSummaryOne": "1 result",
+		"searchModal.scopeAll": "All",
+		"searchModal.scopeComingSoon": "Coming soon",
+		"searchModal.scopeConnections": "Connections",
+		"searchModal.scopeConnectionsComingSoon":
+			"Connections are not searchable yet — nothing indexes them",
+		"searchModal.scopeConversations": "Conversations",
+		"searchModal.scopeCountLabel": "{name} — {count} results",
+		"searchModal.scopeDocuments": "Documents",
+		"searchModal.scopeLabel": "Narrow results by kind",
+		"searchModal.scopeReports": "Reports",
+		// ── end everyday-screens redesign ─────────────────────────────────
 	},
 	hu: {
 		"appVersion.label": "Alkalmazásverzió: {version}",
@@ -363,6 +384,27 @@ const commonDict = {
 		startingConversation: "Beszélgetés indítása",
 		totalCost: "Becsült költség",
 		uiLanguage: "Felület nyelve",
+		// ── everyday-screens redesign ─────────────────────────────────────
+		"searchModal.keyClose": "bezárás",
+		"searchModal.keyMove": "mozgás",
+		"searchModal.keyNewTab": "megnyitás új lapon",
+		"searchModal.keyOpen": "megnyitás",
+		"searchModal.keyboardHelp": "Billentyűparancsok",
+		"searchModal.recentReports": "Legutóbbi jelentések",
+		"searchModal.reports": "Jelentések",
+		"searchModal.resultSummary": "{results} találat {kinds} fajtából",
+		"searchModal.resultSummaryOne": "1 találat",
+		"searchModal.scopeAll": "Mind",
+		"searchModal.scopeComingSoon": "Hamarosan",
+		"searchModal.scopeConnections": "Kapcsolatok",
+		"searchModal.scopeConnectionsComingSoon":
+			"A kapcsolatokban még nem lehet keresni — semmi sem indexeli őket",
+		"searchModal.scopeConversations": "Beszélgetések",
+		"searchModal.scopeCountLabel": "{name} — {count} találat",
+		"searchModal.scopeDocuments": "Dokumentumok",
+		"searchModal.scopeLabel": "Találatok szűkítése fajta szerint",
+		"searchModal.scopeReports": "Jelentések",
+		// ── end everyday-screens redesign ─────────────────────────────────
 	},
 } as const;
 

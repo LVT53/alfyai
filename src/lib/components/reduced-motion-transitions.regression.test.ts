@@ -125,6 +125,25 @@ const CASES: Case[] = [
 		wrappedNames: ["sheetFly", "scrimFade"],
 		bannedDirectives: [/transition:fly=/, /transition:fade=/],
 	},
+	{
+		// Everyday-screens redesign — a memory category discloses the rest of
+		// its rows in place, easing open and eased shut.
+		file: "src/routes/(app)/knowledge/_components/MemoryCategorySection.svelte",
+		wrappedNames: ["revealRows"],
+		bannedDirectives: [/transition:slide=/],
+	},
+	{
+		// ...and the memory surface's two dialogs (review overflow, remove
+		// confirmation), which open and close rather than appearing.
+		file: "src/routes/(app)/knowledge/_components/KnowledgeMemoryView.svelte",
+		wrappedNames: ["backdropFade", "panelScale"],
+		bannedDirectives: [/transition:fade=/, /transition:scale=/],
+	},
+	{
+		file: "src/routes/(app)/knowledge/_components/KnowledgeMemoryModal.svelte",
+		wrappedNames: ["backdropFade", "panelScale"],
+		bannedDirectives: [/transition:fade=/, /transition:scale=/],
+	},
 ];
 
 describe("Svelte transition directives are routed through reducedMotionAware", () => {

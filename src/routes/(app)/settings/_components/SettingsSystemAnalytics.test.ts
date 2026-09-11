@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/svelte";
+import { fireEvent, render, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
@@ -89,6 +89,14 @@ function systemFixture(): AnalyticsResponse {
 		},
 		perUser: [],
 	};
+}
+
+/** The same fixture, with a different count of users seen in the window. */
+function systemFixtureWithUsers(totalUsers: number): AnalyticsResponse {
+	const fixture = systemFixture();
+	const system = fixture.system;
+	if (!system) throw new Error("fixture has no system analytics");
+	return { ...fixture, system: { ...system, totalUsers } };
 }
 
 function systemWithPerUserFixture(): AnalyticsResponse {
@@ -349,7 +357,7 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		});
 
 		expect(getByText("System Overview")).toBeInTheDocument();
-		expect(getByText("Active users")).toBeInTheDocument();
+		expect(getByText("Active users this month")).toBeInTheDocument();
 		expect(getByText("Total conversations")).toBeInTheDocument();
 	});
 
@@ -429,8 +437,11 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 
 		await fireEvent.click(getByRole("tab", { name: "By user" }));
 
-		expect(getByText("Excluded Users")).toBeInTheDocument();
-		expect(getByText("User Two")).toBeInTheDocument();
+		const excludedCard = getByText("Excluded Users").closest("section");
+		expect(excludedCard).not.toBeNull();
+		expect(
+			within(excludedCard as HTMLElement).getByText("User Two"),
+		).toBeInTheDocument();
 	});
 
 	it("renders the per-model usage table under the Usage by model tab", async () => {
@@ -522,8 +533,50 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		reducedMotionMatchMedia();
 		chartConfigs.length = 0;
 
-		// The Overview tab renders the monthly cost chart by default.
-		render(SettingsSystemAnalytics, {
+		// Overview now draws its columns with the shared chassis chart; the
+		// By user tab is where Chart.js still runs.
+		const { getByRole } = render(SettingsSystemAnalytics, {
+			analyticsData: {
+				...systemFixture(),
+				perUser: [
+					{
+						userId: "user-1",
+						displayName: "User One",
+						email: "user1@example.com",
+						messageCount: 10,
+						avgGenerationMs: 100,
+						totalTokens: 1000,
+						promptTokens: 600,
+						outputTokens: 400,
+						reasoningTokens: 0,
+						totalCostUsd: 1,
+						favoriteModel: null,
+						conversationCount: 2,
+					},
+				],
+			},
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "By user" }));
+
+		await vi.waitFor(() => {
+			expect(chartConfigs.length).toBeGreaterThan(0);
+		});
+
+		for (const config of chartConfigs) {
+			expect(config.options?.animation).toBe(false);
+		}
+	});
+
+	it("splits the hero between LLM and Parallel spend, to two decimals", () => {
+		const { getByTestId } = render(SettingsSystemAnalytics, {
 			analyticsData: systemFixture(),
 			modelNames: {},
 			onRetry: vi.fn(),
@@ -534,13 +587,9 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 			onExcludedUsersChange: vi.fn(),
 		});
 
-		await vi.waitFor(() => {
-			expect(chartConfigs.length).toBeGreaterThan(0);
-		});
-
-		for (const config of chartConfigs) {
-			expect(config.options?.animation).toBe(false);
-		}
+		const hero = getByTestId("analytics-hero");
+		expect(hero.textContent).toMatch(/\$\d+\.\d{2}(\D|$)/);
+		expect(hero.textContent).not.toMatch(/\$\d+\.\d{4}/);
 	});
 
 	// Analytics overhaul (frontend half) — status badge, retired grouping, and
@@ -752,7 +801,7 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		const statValues = [...container.querySelectorAll("[class*=stat-value]")]
 			.map((node) => node.textContent?.trim() ?? "")
 			.join(" ");
-		expect(statValues).toContain("$6.0000");
+		expect(statValues).toContain("$6.00");
 		expect(statValues).toContain("30");
 		expect(statValues).toContain("3,000");
 
@@ -783,9 +832,9 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 
 		await fireEvent.click(getByRole("tab", { name: "Tools & latency" }));
 
-		const latencyCard = [...container.querySelectorAll("section")].find(
-			(node) => node.textContent?.includes("Latency by prompt size"),
-		);
+		const latencyCard = [...container.querySelectorAll("section")]
+			.filter((node) => node.textContent?.includes("Latency by prompt size"))
+			.at(-1);
 		expect(latencyCard).toBeTruthy();
 		expect(latencyCard?.querySelector("table")).toBeNull();
 		expect(latencyCard?.textContent).toContain("No analytics data yet.");
@@ -820,5 +869,73 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		uiLanguage.set("en");
 		expect(cardTitles).toContain("Eszközök");
 		expect(headers).toContain("Eszköz");
+	});
+
+	// The User/Provider/Model filters only narrow the two tabs that read the
+	// filtered read model. Drawn above Overview or By user they are controls
+	// that change nothing — and on Overview they would leave the hero (from the
+	// unfiltered prop) disagreeing with the Total row of the table below it.
+	it("offers the filters only on the tabs that honour them", async () => {
+		const { getByRole, queryByLabelText } = render(SettingsSystemAnalytics, {
+			analyticsData: systemFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [{ id: "user-1", email: "one@example.com", name: "One" }],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		expect(queryByLabelText("User")).toBeNull();
+		expect(queryByLabelText("Provider")).toBeNull();
+
+		await fireEvent.click(getByRole("tab", { name: "Usage by model" }));
+		expect(queryByLabelText("User")).not.toBeNull();
+		expect(queryByLabelText("Provider")).not.toBeNull();
+
+		await fireEvent.click(getByRole("tab", { name: "By user" }));
+		expect(queryByLabelText("User")).toBeNull();
+	});
+
+	// The numerator counts users left AFTER the excluded accounts are dropped,
+	// so the denominator has to drop them too — otherwise excluding an admin
+	// makes the ratio look worse, which is the opposite of what it is for.
+	it("takes the excluded accounts out of the active-users denominator", () => {
+		const { getByText } = render(SettingsSystemAnalytics, {
+			analyticsData: systemFixture(),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: "2026-06",
+			onSystemMonthChange: vi.fn(),
+			allUsers: [
+				{ id: "user-1", email: "one@example.com", name: "One" },
+				{ id: "user-2", email: "two@example.com", name: "Two" },
+				{ id: "admin-1", email: "admin@example.com", name: "Admin" },
+				{ id: "admin-2", email: "admin2@example.com", name: "Admin Two" },
+			],
+			excludedUserIds: ["admin-1", "admin-2"],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		const tile = getByText("Active users this month").closest(".stat-card");
+		expect(tile?.textContent).toContain("1 / 2");
+	});
+
+	it("never lets the denominator fall below the users actually seen", () => {
+		const { getByText } = render(SettingsSystemAnalytics, {
+			analyticsData: systemFixtureWithUsers(9),
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: "2026-06",
+			onSystemMonthChange: vi.fn(),
+			allUsers: [{ id: "user-1", email: "one@example.com", name: "One" }],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		// "9 / 1" is not a fact about anything.
+		const tile = getByText("Active users this month").closest(".stat-card");
+		expect(tile?.textContent).toContain("9 / 9");
 	});
 });

@@ -631,7 +631,6 @@ const settingsDict = {
 		"analytics.timelineMonthly": "Monthly",
 		"analytics.timelineWeekly": "Weekly",
 		"analytics.timelineYearly": "Yearly",
-		"analytics.tokenUsage": "Token usage",
 		"analytics.tokensUsed": "Tokens used",
 		"analytics.tooltipMessages": "messages",
 		"analytics.totalConversations": "Total conversations",
@@ -659,12 +658,10 @@ const settingsDict = {
 		"analytics.extract": "Extract",
 		"analytics.total": "Total",
 		"analytics.webCalls": "Web calls",
-		"analytics.activeUsers": "Active users",
 		"analytics.turboSearches": "Turbo searches",
 		"analytics.extractFetches": "Extract fetches",
 		"analytics.parallelCost": "Parallel cost",
 		"analytics.totalCalls": "Total calls",
-		"analytics.llmParallelSplit": "LLM {llm} \u00b7 Parallel {parallel}",
 		"analytics.parallelUsage": "Turbo vs Extract usage",
 		"analytics.monthlyBreakdown": "Monthly breakdown",
 		"analytics.monthlyCost": "Monthly cost",
@@ -1685,6 +1682,32 @@ const settingsDict = {
 			"Hungarian language standard",
 		"admin.system.keys.ATLAS_V3_LANGUAGE_STANDARD_HU.meaning":
 			"Applies the Hungarian style rules to a Hungarian report.",
+		// ── everyday-screens redesign ─────────────────────────────────────
+		"analytics.activeUsersThisMonth": "Active users this month",
+		"analytics.chartScaleLabel": "Scale",
+		"analytics.tokenUsagePerMonth": "Token usage per month",
+		"analytics.tokenUsagePerWeek": "Token usage per week",
+		"analytics.tokenUsagePerYear": "Token usage per year",
+		"analytics.costByProvider": "Estimated cost by provider",
+		"analytics.currentPeriodSolid":
+			"The last column is the period you are in — drawn solid so a part-period is never mistaken for a fall.",
+		"analytics.estimatedCostThisMonth": "Estimated cost this month",
+		"analytics.estimatedCostAllTime": "Estimated cost, all time",
+		"analytics.llmCost": "LLM",
+		"analytics.noChartData": "Nothing to chart for this period yet.",
+		"analytics.parallelCostLabel": "Parallel",
+		// The split bar names at most three providers; everything past third
+		// place folds into one segment, so the legend still adds up to the hero
+		// number above it.
+		"analytics.otherProviders": "Other providers",
+		"analytics.splitBarLabel": "How the estimate breaks down",
+		"analytics.timelineGranularity": "Chart period",
+		"analytics.usageByModelPeriod": "Usage by model · {period}",
+		"analytics.yourActivityDescription":
+			"Your own usage. Nobody else can see this page.",
+		"analytics.systemAnalyticsDescription":
+			"Every account on this server. Admin only.",
+		// ── end everyday-screens redesign ─────────────────────────────────
 
 		// ── PROFILE REDESIGN + CONSISTENCY PASS ─────────────────────────
 		// Everyday-redesign boards Main / ProfileMobile / Consistency. New
@@ -2447,7 +2470,6 @@ const settingsDict = {
 		"analytics.timelineMonthly": "Havi",
 		"analytics.timelineWeekly": "Heti",
 		"analytics.timelineYearly": "Éves",
-		"analytics.tokenUsage": "Tokenhasználat",
 		"analytics.tokensUsed": "Felhasznált tokenek",
 		"analytics.tooltipMessages": "üzenet",
 		"analytics.totalConversations": "Összes beszélgetés",
@@ -2475,12 +2497,10 @@ const settingsDict = {
 		"analytics.extract": "Extract",
 		"analytics.total": "Összesen",
 		"analytics.webCalls": "Webhívások",
-		"analytics.activeUsers": "Aktív felhasználók",
 		"analytics.turboSearches": "Turbo keresések",
 		"analytics.extractFetches": "Extract lekérések",
 		"analytics.parallelCost": "Parallel költség",
 		"analytics.totalCalls": "Összes hívás",
-		"analytics.llmParallelSplit": "LLM {llm} · Parallel {parallel}",
 		"analytics.parallelUsage": "Turbo vs Extract használat",
 		"analytics.monthlyBreakdown": "Havi bontás",
 		"analytics.monthlyCost": "Havi költség",
@@ -3535,6 +3555,29 @@ const settingsDict = {
 			"Magyar nyelvi szabvány",
 		"admin.system.keys.ATLAS_V3_LANGUAGE_STANDARD_HU.meaning":
 			"Magyar nyelvű jelentésre alkalmazza a magyar stílusszabályokat.",
+		// ── everyday-screens redesign ─────────────────────────────────────
+		"analytics.activeUsersThisMonth": "Aktív felhasználók ebben a hónapban",
+		"analytics.chartScaleLabel": "Skála",
+		"analytics.tokenUsagePerMonth": "Tokenhasználat havonta",
+		"analytics.tokenUsagePerWeek": "Tokenhasználat hetente",
+		"analytics.tokenUsagePerYear": "Tokenhasználat évente",
+		"analytics.costByProvider": "Becsült költség szolgáltatónként",
+		"analytics.currentPeriodSolid":
+			"Az utolsó oszlop a folyamatban lévő időszak — tömören rajzolva, hogy egy féltöltött időszakot senki ne nézzen visszaesésnek.",
+		"analytics.estimatedCostThisMonth": "Becsült költség ebben a hónapban",
+		"analytics.estimatedCostAllTime": "Becsült költség, összesen",
+		"analytics.llmCost": "LLM",
+		"analytics.noChartData": "Ehhez az időszakhoz még nincs mit ábrázolni.",
+		"analytics.parallelCostLabel": "Parallel",
+		"analytics.otherProviders": "Egyéb szolgáltatók",
+		"analytics.splitBarLabel": "Miből áll össze a becslés",
+		"analytics.timelineGranularity": "Diagram időszaka",
+		"analytics.usageByModelPeriod": "Használat modellenként · {period}",
+		"analytics.yourActivityDescription":
+			"A saját használatod. Ezt az oldalt senki más nem látja.",
+		"analytics.systemAnalyticsDescription":
+			"A kiszolgáló összes fiókja. Csak adminisztrátoroknak.",
+		// ── end everyday-screens redesign ─────────────────────────────────
 
 		// ── PROFILE REDESIGN + CONSISTENCY PASS ─────────────────────────
 		// Ugyanazok a kulcsok, ugyanabban a sorrendben, mint az `en` blokk

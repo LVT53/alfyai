@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login } from "./helpers";
+import { login, waitForHydration } from "./helpers";
 
 test.describe("Search Modal Visual Tests", () => {
 	test.beforeEach(async ({ page }) => {
@@ -7,6 +7,7 @@ test.describe("Search Modal Visual Tests", () => {
 		await page.waitForSelector('[data-testid="new-conversation"]', {
 			state: "visible",
 		});
+		await waitForHydration(page);
 	});
 
 	test("search modal appears centered in viewport", async ({ page }) => {
@@ -141,5 +142,52 @@ test.describe("Search Modal Visual Tests", () => {
 
 		const searchInput = modal.locator('input[type="text"]');
 		await expect(searchInput).toBeFocused();
+	});
+
+	test("the scope chips say what is searchable", async ({ page }) => {
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
+
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
+		await modal.waitFor({ state: "visible" });
+
+		for (const scope of ["all", "conversations", "documents", "reports"]) {
+			await expect(modal.getByTestId(`search-scope-${scope}`)).toBeVisible();
+		}
+	});
+
+	test("Connections is greyed and labelled as coming soon", async ({
+		page,
+	}) => {
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
+
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
+		await modal.waitFor({ state: "visible" });
+
+		const connections = modal.getByTestId("search-scope-connections");
+		await expect(connections).toBeVisible();
+		// Nothing indexes connector data yet, so the chip says so rather than
+		// returning an empty list.
+		await expect(connections).toContainText("Coming soon");
+		await expect(connections).toHaveAttribute("aria-disabled", "true");
+	});
+
+	test("the footer states the keys that already work", async ({ page }) => {
+		await page
+			.getByRole("button", { name: "Search conversations and documents" })
+			.click();
+
+		const modal = page.getByRole("dialog", { name: "Search workspace" });
+		await modal.waitFor({ state: "visible" });
+
+		const footer = modal.locator(".search-modal-footer");
+		await expect(footer).toContainText("move");
+		await expect(footer).toContainText("open");
+		await expect(footer).toContainText("close");
+		// Before anything is typed the footer carries the keys and nothing else.
+		await expect(modal.getByTestId("search-result-count")).toHaveCount(0);
 	});
 });

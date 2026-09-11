@@ -77,7 +77,7 @@ ui/
 
 ### Knowledge (`src/routes/(app)/knowledge/+page.svelte`)
 - `ui/ConfirmDialog.svelte` — delete confirmations
-- Route-local `_components/` — `DocumentsList`, `KnowledgeLibraryModal`, `KnowledgeMemoryModal`, `KnowledgeMemoryView`, `KnowledgeWorkspaceCoordinator`
+- Route-local `_components/` — `DocumentsList`, `KnowledgeMemoryModal`, `KnowledgeMemoryView`, `MemoryPortraitCard`, `MemoryCategorySection`, `MemoryRow`, `MemoryRailCards`, `KnowledgeWorkspaceCoordinator`
 
 ### Settings (`src/routes/(app)/settings/+page.svelte`)
 - `ui/ProfilePictureEditor.svelte` — avatar management
@@ -120,7 +120,7 @@ ui/
 
 Pages may have `_components/` directories for page-scoped UI:
 - `src/routes/(app)/chat/[conversationId]/_components/` — `ChatComposerPanel`, `ChatMessagePane`
-- `src/routes/(app)/knowledge/_components/` — `DocumentsList`, `KnowledgeLibraryModal`, `KnowledgeMemoryModal`, `KnowledgeMemoryView`, `KnowledgeWorkspaceCoordinator`
+- `src/routes/(app)/knowledge/_components/` — `DocumentsList`, `KnowledgeMemoryModal`, `KnowledgeMemoryView`, `MemoryPortraitCard`, `MemoryCategorySection`, `MemoryRow`, `MemoryRailCards`, `KnowledgeWorkspaceCoordinator`
 - `src/routes/(app)/settings/_components/` — settings tabs, admin panes, password field, and account/user modals
 
 These are **page-internal** — do not import them from other pages. If logic becomes shared, move to `src/lib/components/` or `src/lib/client/api/`.
