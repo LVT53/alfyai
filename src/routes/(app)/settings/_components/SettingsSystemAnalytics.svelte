@@ -524,7 +524,10 @@ function weightedMeanMs(
 	return totalWeight > 0 ? weightedSum / totalWeight : null;
 }
 
-const modelCallsTotal = $derived(effectiveSystem?.totalMessages ?? 0);
+// The tile above this table says "Model calls", so it reads the call count —
+// `totalMessages` now counts what people actually wrote and would understate
+// this table's own Total row by every background call in the period.
+const modelCallsTotal = $derived(effectiveSystem?.modelCalls ?? 0);
 const modelTokensTotal = $derived(effectiveSystem?.totalTokens ?? 0);
 const modelCostTotal = $derived(effectiveSystem?.totalCostUsd ?? 0);
 const modelFirstTokenP50Agg = $derived(

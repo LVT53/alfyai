@@ -44,6 +44,7 @@ function personalFixture(): AnalyticsResponse {
 			byModel: [],
 			byProvider: [],
 			totalMessages: 1,
+			modelCalls: 3,
 			avgGenerationMs: 1200,
 			totalTokens: 150,
 			promptTokens: 100,
@@ -54,8 +55,8 @@ function personalFixture(): AnalyticsResponse {
 			favoriteModel: "model1",
 			chatCount: 1,
 			monthly: [
-				{ month: "2026-03", messages: 1, totalTokens: 150, totalCostUsd: 1 },
-				{ month: "2026-06", messages: 1, totalTokens: 150, totalCostUsd: 2 },
+				{ month: "2026-03", modelCalls: 1, totalTokens: 150, totalCostUsd: 1 },
+				{ month: "2026-06", modelCalls: 1, totalTokens: 150, totalCostUsd: 2 },
 			],
 		},
 	};
