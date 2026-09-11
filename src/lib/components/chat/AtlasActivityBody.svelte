@@ -39,6 +39,19 @@ import {
 	atlasPlanProgress,
 	atlasReportTitle,
 } from "$lib/utils/tool-activity";
+import {
+	isPhoneViewport,
+	watchPhoneViewport,
+} from "$lib/utils/viewport.svelte";
+import { fade, fly } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
+import { portalToBody } from "$lib/utils/portal";
+
+// The action sheet slides up AND back down, and collapses to an instant
+// appearance under prefers-reduced-motion — which the app-wide CSS override
+// cannot reach for a Svelte transition.
+const sheetFly = reducedMotionAware(fly);
+const scrimFade = reducedMotionAware(fade);
 
 let {
 	job,
@@ -114,6 +127,8 @@ const CONFIDENCE_LABEL_KEYS: Record<AtlasPlanConfidence, I18nKey> = {
 
 let activeTab = $state<AtlasTab>("report");
 let downloadMenuOpen = $state(false);
+// Everyday redesign — on a phone the download menu becomes an action sheet.
+let isPhone = $state(isPhoneViewport());
 let downloadMenuElement = $state<HTMLSpanElement | null>(null);
 let tabListElement = $state<HTMLDivElement | null>(null);
 let activePanel = $state<AtlasAction | null>(null);
@@ -178,8 +193,12 @@ $effect(() => {
 	}
 });
 
+$effect(() => watchPhoneViewport((phone) => (isPhone = phone)));
+
 $effect(() => {
-	if (!downloadMenuOpen || typeof window === "undefined") return;
+	// The sheet has its own scrim, which is what dismisses it on a phone; a
+	// document-level mousedown handler would race that scrim's own click.
+	if (!downloadMenuOpen || isPhone || typeof window === "undefined") return;
 	function handleMouseDown(event: MouseEvent) {
 		const target = event.target;
 		if (
@@ -192,6 +211,20 @@ $effect(() => {
 	}
 	window.addEventListener("mousedown", handleMouseDown);
 	return () => window.removeEventListener("mousedown", handleMouseDown);
+});
+
+// Escape closes the sheet too. The scrim and the grabber are the ways out a
+// thumb has; a keyboard had none, which is the one dismissal every other
+// sheet in the system offers and this one did not.
+$effect(() => {
+	if (!downloadMenuOpen || typeof window === "undefined") return;
+	function handleKeyDown(event: KeyboardEvent) {
+		if (event.key !== "Escape") return;
+		event.stopPropagation();
+		downloadMenuOpen = false;
+	}
+	window.addEventListener("keydown", handleKeyDown);
+	return () => window.removeEventListener("keydown", handleKeyDown);
 });
 
 function buildStageLine(): { label: string; detail: string | null } {
@@ -554,7 +587,7 @@ function handleTabKeydown(event: KeyboardEvent) {
 									{$t('atlasActivity.download')}
 									<ChevronDown class="atlas-caret" size={13} strokeWidth={2} aria-hidden="true" />
 								</button>
-								{#if downloadMenuOpen}
+								{#if downloadMenuOpen && !isPhone}
 									<span class="atlas-dd-menu" role="menu" aria-label={$t('atlasActivity.download')}>
 										{#each downloadOptions as option (option.key)}
 											<a
@@ -697,6 +730,73 @@ function handleTabKeydown(event: KeyboardEvent) {
 		{/if}
 	{/if}
 </div>
+
+<!-- Everyday redesign — the download menu, on a phone.
+     A popover pinned to a 13px button at the bottom of a 390px screen sits
+     under the thumb that opened it, and its rows are half the height of
+     everything else on that screen. As an action sheet every row IS the
+     action, each one states its format, and there is no positive button to
+     press afterwards — so it ends in one full-width Cancel. -->
+{#if downloadMenuOpen && isPhone && downloadOptions.length > 0}
+	<button
+		type="button"
+		class="atlas-sheet-scrim"
+		aria-label={$t('common.close')}
+		use:portalToBody
+		transition:scrimFade={{ duration: 200 }}
+		onclick={() => (downloadMenuOpen = false)}
+	></button>
+	<div
+		class="atlas-sheet"
+		role="menu"
+		aria-label={$t('atlasDownload.title')}
+		data-testid="atlas-download-sheet"
+		use:portalToBody
+		transition:sheetFly={{ duration: 250, y: 280, opacity: 1 }}
+	>
+		<button
+			type="button"
+			class="atlas-sheet-grabber"
+			data-testid="atlas-download-sheet-grabber"
+			aria-label={$t('common.close')}
+			onclick={() => (downloadMenuOpen = false)}
+		><span class="atlas-sheet-grabber-bar"></span></button>
+		<div class="atlas-sheet-head">
+			<span class="atlas-sheet-mark" aria-hidden="true">
+				<Download size={15} strokeWidth={2} />
+			</span>
+			<span class="atlas-sheet-copy">
+				<span class="atlas-sheet-title">{$t('atlasDownload.title')}</span>
+				<span class="atlas-sheet-sub">{reportTitle}</span>
+			</span>
+		</div>
+		<div class="atlas-sheet-rows">
+			{#each downloadOptions as option (option.key)}
+				<a
+					class="atlas-sheet-row"
+					role="menuitem"
+					href={option.url}
+					download
+					data-testid={`atlas-download-sheet-${option.key}`}
+					onclick={() => { downloadMenuOpen = false; }}
+				>
+					<span class="atlas-sheet-row-label">{option.label}</span>
+					<Download size={15} strokeWidth={2} aria-hidden="true" />
+				</a>
+			{/each}
+		</div>
+		<div class="atlas-sheet-footer">
+			<button
+				type="button"
+				class="dialog-btn"
+				data-testid="atlas-download-sheet-cancel"
+				onclick={() => (downloadMenuOpen = false)}
+			>
+				{$t('common.cancel')}
+			</button>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.atlas-body {
@@ -1120,5 +1220,151 @@ function handleTabKeydown(event: KeyboardEvent) {
 		.atlas-q.is-running .atlas-q-status :global(svg) {
 			animation: none;
 		}
+	}
+
+	/* ── The download action sheet (phone) ───────────────────────────── */
+	.atlas-sheet-scrim {
+		position: fixed;
+		inset: 0;
+		z-index: 99;
+		border: 0;
+		background: var(--scrim);
+		cursor: pointer;
+	}
+
+	.atlas-sheet {
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 100;
+		display: flex;
+		flex-direction: column;
+		max-height: 80dvh;
+		border: 1px solid var(--border-default);
+		border-bottom: 0;
+		border-radius: 16px 16px 0 0;
+		background: var(--surface-page);
+		box-shadow: var(--shadow-lg);
+		padding-bottom: env(safe-area-inset-bottom);
+	}
+
+	.atlas-sheet-grabber {
+		display: grid;
+		place-items: center;
+		flex: 0 0 auto;
+		width: 100%;
+		height: 44px;
+		border: 0;
+		border-radius: 16px 16px 0 0;
+		background: transparent;
+		cursor: pointer;
+	}
+
+	.atlas-sheet-grabber-bar {
+		width: 36px;
+		height: 4px;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--text-muted) 42%, transparent 58%);
+	}
+
+	.atlas-sheet-grabber:focus-visible {
+		outline: none;
+		box-shadow: inset 0 0 0 2px var(--focus-ring);
+	}
+
+	.atlas-sheet-head {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		flex: 0 0 auto;
+		padding: 0 0.85rem 0.6rem;
+	}
+
+	.atlas-sheet-mark {
+		display: inline-grid;
+		place-items: center;
+		flex: 0 0 auto;
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 0.5rem;
+		background: color-mix(in srgb, var(--accent) 12%, var(--surface-elevated) 88%);
+		color: var(--accent);
+	}
+
+	.atlas-sheet-copy {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		gap: 0.08rem;
+	}
+
+	.atlas-sheet-title {
+		font-family: var(--font-sans);
+		font-size: 1rem;
+		font-weight: 700;
+		line-height: 1.2;
+		color: var(--text-primary);
+	}
+
+	.atlas-sheet-sub {
+		overflow: hidden;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		line-height: 1.3;
+		color: var(--text-muted);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.atlas-sheet-rows {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		padding: 0 0.85rem;
+	}
+
+	.atlas-sheet-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		min-height: 44px;
+		border-top: 1px solid var(--border-subtle);
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.atlas-sheet-rows .atlas-sheet-row:first-child {
+		border-top: 0;
+	}
+
+	.atlas-sheet-row:hover,
+	.atlas-sheet-row:focus-visible {
+		color: var(--accent);
+		outline: none;
+	}
+
+	.atlas-sheet-row-label {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.atlas-sheet-footer {
+		flex: 0 0 auto;
+		display: flex;
+		border-top: 1px solid var(--border-subtle);
+		padding: 0.75rem 0.85rem;
+	}
+
+	.atlas-sheet-footer :global(.dialog-btn) {
+		flex: 1 1 0;
+		min-height: 44px;
 	}
 </style>

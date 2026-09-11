@@ -130,6 +130,16 @@ vi.mock("$lib/client/composer-command-analytics", () => ({
 	recordComposerCommandUsed: recordComposerCommandUsedMock,
 }));
 
+// Everyday redesign — the "+" menu holds everything the composer can do that
+// is not one of the three resting icons. Tests that reach one of those
+// controls open it first.
+async function openComposerMenu(
+	getByTestId: (id: string) => HTMLElement,
+): Promise<HTMLElement> {
+	await fireEvent.click(getByTestId("composer-tools-trigger"));
+	return getByTestId("composer-tools-menu");
+}
+
 describe("MessageInput", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -241,7 +251,7 @@ describe("MessageInput", () => {
 		});
 
 		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
-		await fireEvent.click(getByRole("menuitem", { name: "Atlas" }));
+		await fireEvent.click(getByRole("menuitem", { name: "Atlas report" }));
 		const pickerSurface = getByRole("region", {
 			name: "Choose an Atlas profile",
 		});
@@ -290,7 +300,7 @@ describe("MessageInput", () => {
 		await fireEvent.click(
 			getByRole("button", { name: "Szerkesztőeszközök megnyitása" }),
 		);
-		await fireEvent.click(getByRole("menuitem", { name: "Atlas" }));
+		await fireEvent.click(getByRole("menuitem", { name: "Atlas jelentés" }));
 
 		const pickerSurface = getByRole("region", {
 			name: "Válassz Atlas profilt",
@@ -335,7 +345,7 @@ describe("MessageInput", () => {
 		);
 
 		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
-		await fireEvent.click(getByRole("menuitem", { name: "Atlas" }));
+		await fireEvent.click(getByRole("menuitem", { name: "Atlas report" }));
 		await fireEvent.click(
 			within(getByRole("listbox", { name: "Atlas profile" })).getByRole(
 				"option",
@@ -1323,14 +1333,18 @@ describe("MessageInput", () => {
 		confirmSpy.mockRestore();
 	});
 
+	// Everyday redesign, Direction B: thinking stays on the bar (it is one of
+	// the three reached for mid-sentence) as a filled accent disc when on,
+	// with a label that says the control AND its state.
 	it("shows the thinking toggle in the toolbar reflecting the current reasoningDepth", () => {
 		const { getByTestId } = render(MessageInput, {
 			reasoningDepth: "thorough",
 		});
 
-		const toggle = getByTestId("thinking-toggle");
+		const toggle = getByTestId("thinking-bar-toggle");
 		expect(toggle).toHaveAttribute("aria-pressed", "true");
-		expect(toggle).toHaveAttribute("title", "Thinking on");
+		expect(toggle).toHaveAttribute("title", "Thinking — on for this message");
+		expect(toggle).toHaveClass("composer-face--on");
 	});
 
 	it("shows Thinking off styling when reasoningDepth is quick", () => {
@@ -1338,9 +1352,10 @@ describe("MessageInput", () => {
 			reasoningDepth: "quick",
 		});
 
-		const toggle = getByTestId("thinking-toggle");
+		const toggle = getByTestId("thinking-bar-toggle");
 		expect(toggle).toHaveAttribute("aria-pressed", "false");
-		expect(toggle).toHaveAttribute("title", "Thinking off");
+		expect(toggle).toHaveAttribute("title", "Think before answering");
+		expect(toggle).not.toHaveClass("composer-face--on");
 	});
 
 	it("hides the thinking toggle when the selected model does not support reasoning controls", async () => {
@@ -1380,7 +1395,7 @@ describe("MessageInput", () => {
 		});
 
 		await waitFor(() => {
-			expect(queryByTestId("thinking-toggle")).toBeNull();
+			expect(queryByTestId("thinking-bar-toggle")).toBeNull();
 		});
 	});
 
@@ -1396,7 +1411,7 @@ describe("MessageInput", () => {
 			},
 		);
 
-		await fireEvent.click(getByTestId("thinking-toggle"));
+		await fireEvent.click(getByTestId("thinking-bar-toggle"));
 
 		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("quick");
 
@@ -2552,12 +2567,23 @@ describe("MessageInput incognito toggle", () => {
 		setConversationMemoryIncognitoMock.mockResolvedValue({});
 	});
 
-	it("reflects the conversation's stored incognito state", () => {
+	// Everyday redesign: incognito left the bar and lives in the "+" menu
+	// only — it is a per-conversation decision, not a per-message one, so it
+	// does not earn one of the three resting icons.
+	it("is not on the resting bar", () => {
+		const { queryByTestId } = render(MessageInput, {
+			props: { conversationId: "conv-1", memoryIncognito: true },
+		});
+		expect(queryByTestId("incognito-toggle")).toBeNull();
+	});
+
+	it("reflects the conversation's stored incognito state", async () => {
 		const { getByTestId } = render(MessageInput, {
 			props: { conversationId: "conv-1", memoryIncognito: true },
 		});
+		await openComposerMenu(getByTestId);
 		expect(getByTestId("incognito-toggle")).toHaveAttribute(
-			"aria-pressed",
+			"aria-checked",
 			"true",
 		);
 	});
@@ -2566,9 +2592,10 @@ describe("MessageInput incognito toggle", () => {
 		const { getByTestId, findByText } = render(MessageInput, {
 			props: { conversationId: "conv-1", memoryIncognito: false },
 		});
+		await openComposerMenu(getByTestId);
 
 		const toggle = getByTestId("incognito-toggle");
-		expect(toggle).toHaveAttribute("aria-pressed", "false");
+		expect(toggle).toHaveAttribute("aria-checked", "false");
 
 		await fireEvent.click(toggle);
 
@@ -2578,8 +2605,10 @@ describe("MessageInput incognito toggle", () => {
 				true,
 			);
 		});
+		// The menu stays open: a switch row flips in place, so turning two
+		// things on is one visit rather than two.
 		expect(getByTestId("incognito-toggle")).toHaveAttribute(
-			"aria-pressed",
+			"aria-checked",
 			"true",
 		);
 		await findByText(/won't be saved to memory/i);
@@ -2589,13 +2618,14 @@ describe("MessageInput incognito toggle", () => {
 		const { getByTestId, findByText } = render(MessageInput, {
 			props: { conversationId: null, memoryIncognito: false },
 		});
+		await openComposerMenu(getByTestId);
 
 		await fireEvent.click(getByTestId("incognito-toggle"));
 
 		// No conversation id: nothing is persisted, but the UI reflects it.
 		expect(setConversationMemoryIncognitoMock).not.toHaveBeenCalled();
 		expect(getByTestId("incognito-toggle")).toHaveAttribute(
-			"aria-pressed",
+			"aria-checked",
 			"true",
 		);
 		await findByText(/won't be saved to memory/i);
@@ -2648,7 +2678,7 @@ describe("MessageInput Connections toggle", () => {
 		// Always shown now, but disabled + pointing the user to Settings.
 		expect(toggle).toBeInTheDocument();
 		expect(toggle).toHaveAttribute("aria-disabled", "true");
-		expect(toggle).toHaveClass("composer-connections-btn--disabled");
+		expect(toggle).toHaveClass("composer-face--muted");
 		expect(toggle.getAttribute("title") ?? "").toMatch(/settings/i);
 	});
 
@@ -2668,7 +2698,7 @@ describe("MessageInput Connections toggle", () => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
 		const toggle = getByTestId("connections-toggle");
-		expect(toggle).toHaveClass("composer-connections-btn--active");
+		expect(toggle).toHaveClass("composer-face--on");
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "What's on my calendar files today?" },
@@ -2699,7 +2729,7 @@ describe("MessageInput Connections toggle", () => {
 		});
 		const toggle = getByTestId("connections-toggle");
 		await flipConnections(toggle);
-		expect(toggle).not.toHaveClass("composer-connections-btn--active");
+		expect(toggle).not.toHaveClass("composer-face--on");
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "Check my schedule" },
@@ -2728,13 +2758,11 @@ describe("MessageInput Connections toggle", () => {
 		});
 		const toggle = getByTestId("connections-toggle");
 		await flipConnections(toggle);
-		expect(toggle).not.toHaveClass("composer-connections-btn--active");
+		expect(toggle).not.toHaveClass("composer-face--on");
 
 		await rerender({ conversationId: "conv-2" });
 
-		expect(getByTestId("connections-toggle")).toHaveClass(
-			"composer-connections-btn--active",
-		);
+		expect(getByTestId("connections-toggle")).toHaveClass("composer-face--on");
 	});
 
 	it("localizes the toggle tooltip copy in Hungarian", async () => {
@@ -2750,15 +2778,17 @@ describe("MessageInput Connections toggle", () => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
 		const toggle = getByTestId("connections-toggle");
+		// Everyday redesign: the label names the control AND its state, and
+		// counts what is actually reaching this message.
 		expect(toggle).toHaveAttribute(
 			"aria-label",
-			"Kapcsolatok: bekapcsolva — az AlfyAI használhatja a csatlakoztatott fiókjaidat ebben a beszélgetésben",
+			"Fiókok — 1 közül 1 bekapcsolva ehhez az üzenethez",
 		);
 
 		await flipConnections(toggle);
 		expect(toggle).toHaveAttribute(
 			"aria-label",
-			"Kapcsolatok: kikapcsolva — a csatlakoztatott fiókjaid nem lesznek használva ebben a beszélgetésben",
+			"Fiókok — ehhez az üzenethez egy sincs bekapcsolva",
 		);
 	});
 
@@ -2775,14 +2805,14 @@ describe("MessageInput Connections toggle", () => {
 		});
 		const toggle = getByTestId("connections-toggle");
 		await flipConnections(toggle);
-		expect(toggle).not.toHaveClass("composer-connections-btn--active");
+		expect(toggle).not.toHaveClass("composer-face--on");
 
 		// The draft becomes a real conversation (null -> id) — e.g. when a model
 		// switch or the first send creates it. The choice must not snap back on.
 		await rerender({ conversationId: "conv-created" });
 
 		expect(getByTestId("connections-toggle")).not.toHaveClass(
-			"composer-connections-btn--active",
+			"composer-face--on",
 		);
 		expect(
 			localStorage.getItem("alfyai:composer:connectionsDisabled:conv-created"),
@@ -2809,7 +2839,7 @@ describe("MessageInput Connections toggle", () => {
 			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
 		});
 		expect(getByTestId("connections-toggle")).not.toHaveClass(
-			"composer-connections-btn--active",
+			"composer-face--on",
 		);
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
@@ -2837,17 +2867,15 @@ describe("MessageInput Connections toggle", () => {
 		});
 		const toggle = getByTestId("connections-toggle");
 		await flipConnections(toggle);
-		expect(toggle).not.toHaveClass("composer-connections-btn--active");
+		expect(toggle).not.toHaveClass("composer-face--on");
 
 		// Switch to a different conversation (defaults on), then back to conv-a.
 		await rerender({ conversationId: "conv-b" });
-		expect(getByTestId("connections-toggle")).toHaveClass(
-			"composer-connections-btn--active",
-		);
+		expect(getByTestId("connections-toggle")).toHaveClass("composer-face--on");
 
 		await rerender({ conversationId: "conv-a" });
 		expect(getByTestId("connections-toggle")).not.toHaveClass(
-			"composer-connections-btn--active",
+			"composer-face--on",
 		);
 	});
 });
@@ -3156,5 +3184,328 @@ describe("MessageInput long-document outline quoting", () => {
 				"Section 2.3 Break clause: Either party may terminate this agreement…",
 			);
 		});
+	});
+});
+
+// ── Everyday redesign: Direction B's bar and the "+" menu ────────────
+//
+// The bar at rest is five controls and no more: "+", attach, accounts,
+// thinking, send. What the old bar had that these assert is gone: the
+// incognito icon (now in the menu), the bare "0" bubble on the plug, and the
+// ring that showed "0" before there was anything to measure.
+describe("MessageInput composer bar (Direction B)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		uiLanguage.set("en");
+		selectedModel.set("model1");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		discoverSkillsMock.mockResolvedValue([]);
+		setConversationMemoryIncognitoMock.mockResolvedValue({});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+	});
+
+	it("rests as five controls, with incognito moved into the menu", () => {
+		const { getByTestId, queryByTestId } = render(MessageInput, {
+			reasoningDepth: "quick",
+		});
+
+		expect(getByTestId("composer-tools-trigger")).toBeInTheDocument();
+		expect(getByTestId("attach-toggle")).toBeInTheDocument();
+		expect(getByTestId("connections-toggle")).toBeInTheDocument();
+		expect(getByTestId("thinking-bar-toggle")).toBeInTheDocument();
+		expect(getByTestId("send-button")).toBeInTheDocument();
+		expect(queryByTestId("incognito-toggle")).toBeNull();
+	});
+
+	// A hold on a bar icon is how a phone asks for the tooltip it has no
+	// hover to show. It is also what every mobile browser reads as "open the
+	// context menu" — Android Chrome raises one at ~500ms, right on top of
+	// the label, and iOS answers with the callout and the selection
+	// magnifier. Both cancel the pointer, so the gesture that asked for the
+	// label is the gesture that tears it down.
+	it("does not let a long press raise the browser's own context menu", () => {
+		const { getByTestId } = render(MessageInput, { reasoningDepth: "quick" });
+
+		for (const testId of [
+			"attach-toggle",
+			"connections-toggle",
+			"thinking-bar-toggle",
+		]) {
+			const event = new MouseEvent("contextmenu", {
+				bubbles: true,
+				cancelable: true,
+			});
+			getByTestId(testId).dispatchEvent(event);
+			expect(event.defaultPrevented).toBe(true);
+		}
+	});
+
+	it("leaves the composer's own text selectable — only the icons are held", () => {
+		const { getByTestId } = render(MessageInput, { reasoningDepth: "quick" });
+		const event = new MouseEvent("contextmenu", {
+			bubbles: true,
+			cancelable: true,
+		});
+		getByTestId("message-input").dispatchEvent(event);
+		expect(event.defaultPrevented).toBe(false);
+	});
+
+	it("keeps the context ring away until there is context to measure", () => {
+		const { container, queryByLabelText } = render(MessageInput);
+		expect(queryByLabelText("No context yet")).toBeNull();
+		expect(container.querySelector(".ring-root")).toBeNull();
+	});
+
+	it("shows the ring once there is context", () => {
+		const { container } = render(MessageInput, {
+			contextStatus: {
+				conversationId: "conv-1",
+				userId: "user-1",
+				estimatedTokens: 4200,
+				promptTokens: 4200,
+				promptTokensSource: "estimated",
+				maxContextTokens: 128000,
+				thresholdTokens: 96000,
+				targetTokens: 64000,
+				compactionApplied: false,
+				compactionMode: "none",
+				routingStage: "deterministic",
+				routingConfidence: 1,
+				verificationStatus: "skipped",
+				layersUsed: [],
+				workingSetCount: 0,
+				workingSetArtifactIds: [],
+				workingSetApplied: false,
+				taskStateApplied: false,
+				promptArtifactCount: 0,
+				recentTurnCount: 2,
+				summary: null,
+				updatedAt: Date.now(),
+			},
+		});
+		expect(container.querySelector(".ring-root")).not.toBeNull();
+	});
+
+	it("shows no count bubble on the accounts icon when nothing is on", async () => {
+		const { getByTestId } = render(MessageInput);
+		await waitFor(() => {
+			expect(fetchActiveCapabilitiesMock).toHaveBeenCalled();
+		});
+		const accounts = getByTestId("connections-toggle");
+		expect(accounts.querySelector(".composer-connections-count")).toBeNull();
+		expect(accounts).not.toHaveClass("composer-face--on");
+	});
+
+	it("shows the count, and the filled disc, once accounts are on", async () => {
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: ["calendar", "files"],
+			defaultOn: ["calendar", "files"],
+			accounts: [],
+		});
+		const { getByTestId } = render(MessageInput);
+		await waitFor(() => {
+			expect(
+				getByTestId("connections-toggle").querySelector(
+					".composer-connections-count",
+				)?.textContent,
+			).toBe("2");
+		});
+		expect(getByTestId("connections-toggle")).toHaveClass("composer-face--on");
+	});
+
+	it("fills the attach icon while a file is on the message, and names it", () => {
+		const { getByTestId } = render(MessageInput, {
+			attachmentsEnabled: true,
+			conversationId: "conv-1",
+			draftVersion: 1,
+			draftAttachments: [
+				{
+					artifact: {
+						id: "artifact-bar",
+						type: "source_document",
+						retrievalClass: "durable",
+						name: "battery-draft-b.pdf",
+						mimeType: "application/pdf",
+						sizeBytes: 12,
+						conversationId: "conv-1",
+						summary: null,
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+					},
+					promptReady: true,
+					promptArtifactId: "normalized-bar",
+					readinessError: null,
+				},
+			],
+		});
+
+		const attach = getByTestId("attach-toggle");
+		expect(attach).toHaveClass("composer-face--on");
+		expect(attach).toHaveAttribute("title", "Attached — 1 on this message");
+	});
+
+	it("names the attach control and its empty state at rest", () => {
+		const { getByTestId } = render(MessageInput, {
+			attachmentsEnabled: true,
+			conversationId: "conv-1",
+		});
+		expect(getByTestId("attach-toggle")).toHaveAttribute(
+			"title",
+			"Attach a file",
+		);
+	});
+
+	it("says so plainly when uploads are unavailable", () => {
+		const { getByTestId } = render(MessageInput, { attachmentsEnabled: false });
+		expect(getByTestId("attach-toggle")).toHaveAttribute(
+			"title",
+			"File uploads are unavailable",
+		);
+	});
+});
+
+describe("MessageInput composer menu", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		uiLanguage.set("en");
+		selectedModel.set("model1");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		discoverSkillsMock.mockResolvedValue([]);
+		setConversationMemoryIncognitoMock.mockResolvedValue({});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+	});
+
+	it("opens as a menu and puts focus on its first row", async () => {
+		const { getByTestId } = render(MessageInput);
+		const menu = await openComposerMenu(getByTestId);
+		expect(menu).toHaveAttribute("role", "menu");
+		await waitFor(() => {
+			expect(document.activeElement).toBe(getByTestId("composer-menu-attach"));
+		});
+	});
+
+	it("walks with the arrow keys and wraps at both ends", async () => {
+		const { getByTestId } = render(MessageInput, { reasoningDepth: "quick" });
+		const menu = await openComposerMenu(getByTestId);
+		await waitFor(() => {
+			expect(document.activeElement).toBe(getByTestId("composer-menu-attach"));
+		});
+
+		await fireEvent.keyDown(menu, { key: "ArrowDown" });
+		await waitFor(() => {
+			expect(document.activeElement).toBe(getByTestId("composer-menu-skills"));
+		});
+
+		await fireEvent.keyDown(menu, { key: "ArrowUp" });
+		await waitFor(() => {
+			expect(document.activeElement).toBe(getByTestId("composer-menu-attach"));
+		});
+
+		// Up from the first row lands on the last, rather than dead-ending.
+		await fireEvent.keyDown(menu, { key: "End" });
+		const last = document.activeElement;
+		await fireEvent.keyDown(menu, { key: "Home" });
+		await waitFor(() => {
+			expect(document.activeElement).toBe(getByTestId("composer-menu-attach"));
+		});
+		expect(last).not.toBe(getByTestId("composer-menu-attach"));
+	});
+
+	// The menu is dismissed and focus goes back to the control that opened it.
+	// Asserted through aria-expanded rather than the node's removal: the menu
+	// plays an out transition, and jsdom never fires the animationend that
+	// ends it, so the element lingers in the DOM long after the menu is
+	// closed. That the transition itself collapses under reduced motion is
+	// covered by reduced-motion-transitions.regression.test.ts.
+	it("closes on Escape and hands focus back to the plus", async () => {
+		const { getByTestId } = render(MessageInput);
+		await openComposerMenu(getByTestId);
+		expect(getByTestId("composer-tools-trigger")).toHaveAttribute(
+			"aria-expanded",
+			"true",
+		);
+
+		window.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+		);
+		await tick();
+
+		expect(getByTestId("composer-tools-trigger")).toHaveAttribute(
+			"aria-expanded",
+			"false",
+		);
+		await waitFor(() => {
+			expect(document.activeElement).toBe(
+				getByTestId("composer-tools-trigger"),
+			);
+		});
+	});
+
+	it("flips a switch row in place and stays open", async () => {
+		const { getByTestId, queryByTestId } = render(MessageInput);
+		await openComposerMenu(getByTestId);
+
+		const webSearch = getByTestId("composer-menu-web-search");
+		expect(webSearch).toHaveAttribute("aria-checked", "false");
+
+		await fireEvent.click(webSearch);
+
+		expect(queryByTestId("composer-tools-menu")).not.toBeNull();
+		expect(getByTestId("composer-menu-web-search")).toHaveAttribute(
+			"aria-checked",
+			"true",
+		);
+	});
+
+	it("says how many skills are active once the menu has asked", async () => {
+		discoverSkillsMock.mockResolvedValue([
+			{
+				id: "s1",
+				ownership: "user",
+				skillKind: "skill",
+				displayName: "Invoice reply",
+				description: "Answers an invoice question in your usual wording.",
+			},
+			{
+				id: "s2",
+				ownership: "user",
+				skillKind: "skill",
+				displayName: "Reply tone",
+				description: "Matches the tone you use with that person.",
+			},
+		]);
+		const { getByTestId } = render(MessageInput);
+		await openComposerMenu(getByTestId);
+
+		await waitFor(() => {
+			expect(getByTestId("composer-menu-skills")).toHaveTextContent("2 active");
+		});
+	});
+
+	it("keeps a way through to Connections when no account is connected", async () => {
+		const { getByTestId } = render(MessageInput);
+		await openComposerMenu(getByTestId);
+
+		expect(getByTestId("composer-menu-manage-connections")).toBeInTheDocument();
+		await fireEvent.click(getByTestId("composer-menu-manage-connections"));
+		expect(gotoMock).toHaveBeenCalledWith("/settings?section=connections");
 	});
 });

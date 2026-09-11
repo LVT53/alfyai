@@ -88,18 +88,59 @@ async function run(action: () => void | Promise<void>) {
 }
 </script>
 
+{#snippet footer()}
+	<!-- The chassis's one button rule: negative left, positive right. The
+	     middle button is a second positive — it sends too, just not there —
+	     so it travels with the positive one rather than beside Cancel. -->
+	<button type="button" class="dialog-btn" disabled={busy} onclick={onCancel}>
+		{$t('common.cancel')}
+	</button>
+	<span class="cloud-actions-right">
+		<button
+			type="button"
+			class="dialog-btn keep-local"
+			disabled={busy}
+			data-testid="cloud-warning-keep-local"
+			onclick={() => run(onEnableLocalMode)}
+		>
+			<ShieldCheck size={13} strokeWidth={2} aria-hidden="true" />
+			{$t('connections.chat.cloudKeepLocal')}
+		</button>
+		<button
+			type="button"
+			class="dialog-btn dialog-btn--positive"
+			disabled={busy}
+			data-testid="cloud-warning-send"
+			onclick={() => run(onContinue)}
+		>
+			{cloudModelName
+				? $t('connections.chat.cloudSend', { cloudModel: cloudModelName })
+				: $t('connections.chat.cloudSendGeneric')}
+		</button>
+	</span>
+{/snippet}
+
 <DialogShell
 	title={$t('connections.chat.cloudTitle')}
 	onClose={onCancel}
 	maxWidthClass="max-w-[28rem]"
+	phonePresentation="sheet"
 	titleVisuallyHidden
+	{footer}
 >
 	<div class="cloud-warning" data-testid="cloud-connector-warning">
-		<header class="cloud-head">
-			<span class="cloud-head-icon" aria-hidden="true">
-				<Cloud size={18} strokeWidth={2} />
+		<!-- The approved chassis: an intent mark, the title, and one muted
+		     qualifier line. "Asked once per conversation" used to be a footnote
+		     under the buttons, where it answered a question you had already
+		     stopped asking by the time you got there. -->
+		<header class="dialog-head">
+			<span class="dialog-head__mark cloud-head-icon" aria-hidden="true">
+				<Cloud size={16} strokeWidth={2} />
 			</span>
-			<h3 class="cloud-title">{$t('connections.chat.cloudTitle')}</h3>
+			<span>
+				<h3 class="dialog-head__title">{$t('connections.chat.cloudTitle')}</h3>
+				<p class="dialog-head__qualifier">{$t('connections.chat.cloudAskedOnce')}</p>
+			</span>
 		</header>
 
 		<p class="cloud-body">{description}</p>
@@ -140,68 +181,18 @@ async function run(action: () => void | Promise<void>) {
 			</div>
 		</div>
 
-		<div class="cloud-actions">
-			<button
-				type="button"
-				class="btn-secondary text-xs"
-				disabled={busy}
-				onclick={onCancel}
-			>
-				{$t('common.cancel')}
-			</button>
-			<!-- The middle button does what it says: turns on on-device
-			     processing and sends. -->
-			<button
-				type="button"
-				class="btn-secondary keep-local text-xs"
-				disabled={busy}
-				data-testid="cloud-warning-keep-local"
-				onclick={() => run(onEnableLocalMode)}
-			>
-				<ShieldCheck size={13} strokeWidth={2} aria-hidden="true" />
-				{$t('connections.chat.cloudKeepLocal')}
-			</button>
-			<button
-				type="button"
-				class="btn-primary text-xs"
-				disabled={busy}
-				data-testid="cloud-warning-send"
-				onclick={() => run(onContinue)}
-			>
-				{cloudModelName
-					? $t('connections.chat.cloudSend', { cloudModel: cloudModelName })
-					: $t('connections.chat.cloudSendGeneric')}
-			</button>
-		</div>
-
-		<p class="cloud-footnote">{$t('connections.chat.cloudAskedOnce')}</p>
 	</div>
 </DialogShell>
 
 <style>
-	.cloud-head {
-		display: flex;
-		align-items: flex-start;
-		gap: 0.625rem;
-	}
-
+	/* The mark keeps its warning tint on the chassis's neutral tile. */
 	.cloud-head-icon {
-		display: inline-flex;
-		margin-top: 0.0625rem;
-		flex-shrink: 0;
 		color: var(--warning);
-	}
-
-	.cloud-title {
-		margin: 0;
-		font-size: 0.9375rem;
-		font-weight: 600;
-		color: var(--text-primary);
-		line-height: 1.35;
+		background: color-mix(in srgb, var(--warning) 12%, var(--surface-elevated) 88%);
 	}
 
 	.cloud-body {
-		margin: 0.625rem 0 0 0;
+		margin: 0.25rem 0 0 0;
 		font-size: 0.8125rem;
 		line-height: 1.55;
 		color: var(--text-secondary);
@@ -251,22 +242,24 @@ async function run(action: () => void | Promise<void>) {
 		color: var(--text-muted);
 	}
 
-	.cloud-actions {
+	/* The two positives travel together on the right; only Cancel sits left.
+	   On a phone sheet the shell makes every direct footer child an
+	   equal-width 44px target, so the pair becomes one of the two halves and
+	   splits it between them. */
+	.cloud-actions-right {
 		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		margin-top: 0.875rem;
-	}
-
-	.keep-local {
-		display: inline-flex;
 		align-items: center;
-		gap: 0.375rem;
+		gap: 0.5rem;
 	}
 
-	.cloud-footnote {
-		margin: 0.625rem 0 0 0;
-		font-size: 0.75rem;
-		color: var(--text-muted);
+	@media (max-width: 639px) {
+		.cloud-actions-right {
+			flex: 1 1 0;
+		}
+
+		.cloud-actions-right :global(.dialog-btn) {
+			flex: 1 1 0;
+			min-height: 44px;
+		}
 	}
 </style>

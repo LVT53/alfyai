@@ -22,6 +22,7 @@ import {
 import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { t } from "$lib/i18n";
+import { portalToBody } from "$lib/utils/portal";
 import { reducedMotionAware } from "$lib/utils/motion";
 
 let {
@@ -103,6 +104,7 @@ onMount(() => {
 {#if isSheet}
 	<div
 		class="connections-scrim"
+		use:portalToBody
 		transition:scrimFade={{ duration: 140 }}
 		aria-hidden="true"
 	></div>
@@ -111,13 +113,25 @@ onMount(() => {
 	bind:this={root}
 	class="connections-popover"
 	class:connections-popover--sheet={isSheet}
+	use:portalToBody={isSheet}
 	transition:popoverFly={{ duration: isSheet ? 200 : 140, y: flyDistance }}
 	data-testid="connections-popover"
 	role="group"
 	aria-label={$t('connections.chat.useMyConnections')}
 >
 	{#if isSheet}
-		<div class="sheet-grip" aria-hidden="true"><span></span></div>
+		<!-- Dismissal #1 of three, and the same grabber every other sheet in
+		     the system draws. It was a decorative div: the one affordance a
+		     sheet advertises as "drag or tap me to put this away" did nothing
+		     at all here, and a screen reader was told to ignore the only
+		     labelled way out. -->
+		<button
+			type="button"
+			class="sheet-grip"
+			data-testid="connections-popover-grabber"
+			aria-label={$t('composerSheet.close')}
+			onclick={onClose}
+		><span></span></button>
 	{/if}
 	<div class="master-row">
 		<div class="master-text">
@@ -214,14 +228,16 @@ onMount(() => {
 		box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4);
 	}
 
-	/* Phone: a bottom sheet over the page. `position: fixed` escapes the
-	   composer's stacking context; no ancestor carries a transform, so the
-	   sheet really is viewport-anchored. */
+	/* Phone: a bottom sheet over the page. `position: fixed` alone is not
+	   enough — the landing page centres its composer with
+	   `translateY(-50%)`, which makes that composer the containing block and
+	   left this sheet floating in the middle of the screen. `portalToBody`
+	   moves it out to the body, where fixed means the viewport. */
 	.connections-scrim {
 		position: fixed;
 		inset: 0;
 		z-index: 59;
-		background: rgba(0, 0, 0, 0.28);
+		background: var(--scrim);
 	}
 
 	.connections-popover--sheet {
@@ -246,9 +262,14 @@ onMount(() => {
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		width: calc(100% + 2rem);
 		height: 44px;
 		margin: 0 -1rem 0.25rem;
+		border: 0;
+		padding: 0;
 		background: inherit;
+		cursor: pointer;
+		-webkit-tap-highlight-color: transparent;
 	}
 
 	.sheet-grip span {
@@ -256,6 +277,23 @@ onMount(() => {
 		height: 4px;
 		border-radius: 2px;
 		background: var(--border-default);
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	.sheet-grip:hover span,
+	.sheet-grip:focus-visible span {
+		background: var(--text-muted);
+	}
+
+	.sheet-grip:focus-visible {
+		outline: none;
+		box-shadow: inset 0 0 0 2px var(--focus-ring);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.sheet-grip span {
+			transition: none;
+		}
 	}
 
 	.connections-popover--sheet .account-row,

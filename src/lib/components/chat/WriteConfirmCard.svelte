@@ -1,8 +1,14 @@
 <script lang="ts">
-import { AlertTriangle } from "@lucide/svelte";
+import { AlertTriangle, Check, Trash2 } from "@lucide/svelte";
+import { onMount } from "svelte";
 import { getProviderCatalogEntry } from "$lib/client/connections/provider-catalog";
 import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
+import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import {
+	isPhoneViewport,
+	watchPhoneViewport,
+} from "$lib/utils/viewport.svelte";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 
 // Issue 7.5 — inline write-confirm card. Mirrors SkillDraftCard's
@@ -14,6 +20,18 @@ import type { PendingWrite } from "$lib/server/services/connections/pending-writ
 // confirm/cancel), so a card for an already-executed/cancelled write
 // (e.g. after a reload) renders straight into its terminal state without
 // ever showing Confirm/Cancel — never a stale "still pending" view.
+//
+// Everyday redesign: the card now wears the approved dialog chassis — a
+// provider mark, the title, one muted qualifier line, and the decision below
+// a hairline with the negative on the LEFT and the positive on the RIGHT.
+// The old layout put Confirm first, which is the accidental-confirm the
+// MobileSheets board calls out by name.
+//
+// On a phone a pending write is ALSO raised as a bottom sheet, so the
+// decision starts at the thumb and the conversation stays readable behind
+// it. Backing out of the sheet (the grabber, or a tap on the page) is not a
+// decision: it leaves the write pending and the card in the conversation
+// where it was. Only "Don't" cancels.
 let {
 	write,
 	busy = false,
@@ -38,6 +56,12 @@ let isTerminal = $derived(
 		write.status === "failed",
 );
 
+let isPhone = $state(isPhoneViewport());
+let sheetDismissed = $state(false);
+let asSheet = $derived(isPhone && isActionable && !sheetDismissed);
+
+onMount(() => watchPhoneViewport((phone) => (isPhone = phone)));
+
 let statusLabel = $derived(
 	write.status === "executed"
 		? $t("connections.writeConfirm.status.executed")
@@ -49,32 +73,29 @@ let statusLabel = $derived(
 					? $t("connections.writeConfirm.status.executing")
 					: "",
 );
+
+let providerName = $derived(
+	getProviderCatalogEntry(write.provider).displayName,
+);
 </script>
 
-<article
-	class="write-confirm-card"
-	class:write-confirm-card--destructive={write.preview.destructive}
-	class:write-confirm-card--terminal={isTerminal}
-	aria-label={$t('connections.writeConfirm.cardLabel', { title: write.preview.title })}
->
+{#snippet body()}
 	<!-- Connections redesign — the account the change lands in is named by its
 	     own mark rather than a generic "PENDING WRITE" eyebrow: which account
 	     this touches is the first thing worth knowing. The eyebrow survives as
-	     the card's accessible label above. -->
-	<div class="write-confirm-card__header">
-		<span class="write-confirm-card__mark" aria-hidden="true">
+	     the card's accessible label. -->
+	<header class="dialog-head write-confirm-card__header">
+		<span class="dialog-head__mark" aria-hidden="true">
 			<BrandIcon provider={write.provider} size={13} ariaHidden />
 		</span>
-		<div>
-			<h3>{write.preview.title}</h3>
-			<div class="write-confirm-card__provider">
-				{getProviderCatalogEntry(write.provider).displayName}
-			</div>
-		</div>
+		<span class="write-confirm-card__heading">
+			<h3 class="dialog-head__title">{write.preview.title}</h3>
+			<p class="dialog-head__qualifier">{providerName}</p>
+		</span>
 		{#if statusLabel}
 			<span class="write-confirm-card__status">{statusLabel}</span>
 		{/if}
-	</div>
+	</header>
 
 	<p class="write-confirm-card__detail">{write.preview.detail}</p>
 
@@ -113,34 +134,82 @@ let statusLabel = $derived(
 		<p class="write-confirm-card__etag">
 			{$t('connections.writeConfirm.etag', { etag: write.etag })}
 		</p>
+	{:else if isActionable}
+		<p class="write-confirm-card__etag">{$t('writeConfirm.etagPending')}</p>
 	{/if}
 
-	{#if isActionable}
-		{#if error}
-			<p class="write-confirm-card__error" role="alert">{error}</p>
-		{/if}
-		<div class="write-confirm-card__actions">
-			<button
-				type="button"
-				class="write-confirm-card__primary"
-				disabled={busy}
-				aria-label={$t('connections.writeConfirm.confirmA11y', { title: write.preview.title })}
-				onclick={() => onConfirm?.(write.id)}
-			>
-				{busy ? $t('connections.writeConfirm.busy') : $t('connections.writeConfirm.confirm')}
-			</button>
-			<button
-				type="button"
-				class="write-confirm-card__secondary"
-				disabled={busy}
-				aria-label={$t('connections.writeConfirm.cancelA11y', { title: write.preview.title })}
-				onclick={() => onCancel?.(write.id)}
-			>
-				{$t('connections.writeConfirm.cancel')}
-			</button>
-		</div>
+	{#if isActionable && error}
+		<p class="write-confirm-card__error" role="alert">{error}</p>
 	{/if}
-</article>
+{/snippet}
+
+{#snippet actions()}
+	<!-- Negative left, positive right — one rule, every dialog. The negative
+	     is a real word, never an X. -->
+	<button
+		type="button"
+		class="dialog-btn"
+		disabled={busy}
+		data-testid="write-confirm-decline"
+		aria-label={$t('connections.writeConfirm.cancelA11y', { title: write.preview.title })}
+		onclick={() => onCancel?.(write.id)}
+	>
+		{$t('writeConfirm.decline')}
+	</button>
+	<button
+		type="button"
+		class="dialog-btn"
+		class:dialog-btn--positive={!write.preview.destructive}
+		class:dialog-btn--destructive={write.preview.destructive}
+		disabled={busy}
+		data-testid="write-confirm-approve"
+		aria-label={$t('connections.writeConfirm.confirmA11y', { title: write.preview.title })}
+		onclick={() => onConfirm?.(write.id)}
+	>
+		{#if write.preview.destructive}
+			<Trash2 size={13} strokeWidth={2} aria-hidden="true" />
+		{:else}
+			<Check size={13} strokeWidth={2.2} aria-hidden="true" />
+		{/if}
+		{busy
+			? $t('connections.writeConfirm.busy')
+			: write.preview.destructive
+				? $t('writeConfirm.approveDestructive')
+				: $t('writeConfirm.approve')}
+	</button>
+{/snippet}
+
+{#if asSheet}
+	<DialogShell
+		title={$t('connections.writeConfirm.cardLabel', { title: write.preview.title })}
+		onClose={() => (sheetDismissed = true)}
+		phonePresentation="sheet"
+		titleVisuallyHidden
+		footer={actions}
+	>
+		<div
+			class="write-confirm-card write-confirm-card--sheet"
+			class:write-confirm-card--destructive={write.preview.destructive}
+			data-testid="write-confirm-sheet"
+		>
+			{@render body()}
+		</div>
+	</DialogShell>
+{:else}
+	<article
+		class="write-confirm-card"
+		class:write-confirm-card--destructive={write.preview.destructive}
+		class:write-confirm-card--terminal={isTerminal}
+		aria-label={$t('connections.writeConfirm.cardLabel', { title: write.preview.title })}
+	>
+		{@render body()}
+		{#if isActionable}
+			<div class="write-confirm-card__actions">
+				{@render actions()}
+			</div>
+		{/if}
+	</article>
+{/if}
 
 <style>
 	.write-confirm-card {
@@ -156,6 +225,16 @@ let statusLabel = $derived(
 		color: var(--text-primary);
 	}
 
+	/* Inside a sheet the shell already owns the ground, the radius and the
+	   padding — the card is only the content. */
+	.write-confirm-card--sheet {
+		margin-top: 0;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
+		padding: 0;
+	}
+
 	/* Only a genuinely destructive write wears the danger border. A benign
 	   save keeps the neutral card. */
 	.write-confirm-card--destructive {
@@ -163,51 +242,27 @@ let statusLabel = $derived(
 		background: color-mix(in srgb, var(--danger) 4%, var(--surface-elevated));
 	}
 
+	.write-confirm-card--sheet.write-confirm-card--destructive {
+		background: transparent;
+	}
+
 	.write-confirm-card--terminal {
 		opacity: 0.9;
 	}
 
 	.write-confirm-card__header {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 0.75rem;
+		margin-bottom: 0;
 	}
 
-	.write-confirm-card__header > div {
+	.write-confirm-card__heading {
+		flex: 1 1 auto;
 		min-width: 0;
-	}
-
-	.write-confirm-card__mark {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 1.5rem;
-		height: 1.5rem;
-		flex-shrink: 0;
-		margin-top: 0.125rem;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--border-default);
-		background: var(--surface-page);
-		color: var(--text-secondary);
-	}
-
-	.write-confirm-card__provider {
-		margin-top: 0.15rem;
-		font-size: var(--text-xs);
-		color: var(--text-muted);
 	}
 
 	h3,
 	p,
 	ul {
 		margin: 0;
-	}
-
-	h3 {
-		font-size: var(--text-base);
-		line-height: 1.25;
-		overflow-wrap: anywhere;
 	}
 
 	.write-confirm-card__detail {
@@ -218,6 +273,7 @@ let statusLabel = $derived(
 	}
 
 	.write-confirm-card__status {
+		flex-shrink: 0;
 		border: 1px solid var(--border-default);
 		border-radius: 999px;
 		background: var(--surface-page);
@@ -256,10 +312,16 @@ let statusLabel = $derived(
 		color: var(--warning);
 	}
 
+	/* A warning the provider itself cannot undo gets a block, not a bullet:
+	   "Immich has no trash on this server" is the whole reason to slow down. */
 	.write-confirm-card__warnings {
 		display: grid;
 		gap: 0.35rem;
-		padding-left: 1.1rem;
+		margin: 0;
+		border: 1px solid color-mix(in srgb, var(--warning) 42%, transparent 58%);
+		border-radius: 6px;
+		background: color-mix(in srgb, var(--warning) 10%, var(--surface-page) 90%);
+		padding: 0.5rem 0.6rem 0.5rem 1.5rem;
 		color: var(--warning);
 		font-size: var(--text-sm);
 		line-height: 1.4;
@@ -272,10 +334,16 @@ let statusLabel = $derived(
 		overflow-wrap: anywhere;
 	}
 
+	/* The inline card's own hairline + footer. In a sheet the shell draws
+	   this instead, with both buttons at 44px. */
 	.write-confirm-card__actions {
 		display: flex;
-		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
 		gap: 0.5rem;
+		margin-top: 0.15rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	.write-confirm-card__error {
@@ -288,67 +356,6 @@ let statusLabel = $derived(
 		line-height: 1.4;
 	}
 
-	button {
-		border: 1px solid var(--border-default);
-		border-radius: 8px;
-		background: var(--surface-page);
-		padding: 0.45rem 0.65rem;
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color: var(--text-primary);
-		cursor: pointer;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			border-color var(--duration-standard) var(--ease-out),
-			box-shadow var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out),
-			transform var(--duration-standard) var(--ease-out);
-	}
-
-	button:disabled {
-		cursor: not-allowed;
-		opacity: 0.6;
-	}
-
-	.write-confirm-card__primary {
-		border-color: var(--accent);
-		background: var(--accent);
-		color: var(--accent-contrast);
-	}
-
-	.write-confirm-card__secondary {
-		border-color: color-mix(in srgb, var(--border-default) 82%, transparent 18%);
-		background: color-mix(in srgb, var(--surface-page) 78%, var(--surface-elevated) 22%);
-		color: var(--text-primary);
-	}
-
-	button:hover:not(:disabled),
-	button:focus-visible:not(:disabled) {
-		transform: translateY(-1px);
-	}
-
-	.write-confirm-card__primary:hover:not(:disabled),
-	.write-confirm-card__primary:focus-visible:not(:disabled) {
-		border-color: var(--accent-hover);
-		background: var(--accent-hover);
-	}
-
-	.write-confirm-card__secondary:hover:not(:disabled),
-	.write-confirm-card__secondary:focus-visible:not(:disabled) {
-		border-color: color-mix(in srgb, var(--accent) 42%, var(--border-default) 58%);
-		background: color-mix(in srgb, var(--accent) 12%, var(--surface-elevated) 88%);
-		color: var(--accent);
-	}
-
-	button:focus-visible {
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 36%, transparent 64%);
-		outline: none;
-	}
-
-	button:active:not(:disabled) {
-		transform: translateY(0);
-	}
-
 	@media (max-width: 520px) {
 		.write-confirm-card {
 			gap: 0.65rem;
@@ -356,29 +363,20 @@ let statusLabel = $derived(
 			padding: 0.75rem;
 		}
 
-		.write-confirm-card__header {
-			flex-direction: column;
-			gap: 0.45rem;
+		.write-confirm-card--sheet {
+			margin-top: 0;
+			padding: 0;
 		}
 
 		.write-confirm-card__status {
 			align-self: flex-start;
 		}
 
-		.write-confirm-card__actions {
-			display: grid;
-			grid-template-columns: 1fr;
-		}
-
-		button {
-			width: 100%;
-			min-height: 38px;
-		}
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		button {
-			transition: none;
+		/* Still side by side, still negative-left: the single stacked column
+		   is where the accidental confirm came from. */
+		.write-confirm-card__actions :global(.dialog-btn) {
+			flex: 1 1 0;
+			min-height: 44px;
 		}
 	}
 </style>

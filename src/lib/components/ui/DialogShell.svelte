@@ -1,5 +1,5 @@
 <script module lang="ts">
-import { fade, scale } from "svelte/transition";
+import { fade, fly, scale } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
 
 // Backdrop/panel transitions, wrapped once per module (not per instance) so
@@ -11,6 +11,26 @@ import { reducedMotionAware } from "$lib/utils/motion";
 // which the app-wide CSS reduced-motion override (app.css) cannot reach.
 export const backdropFade = reducedMotionAware(fade);
 export const panelScale = reducedMotionAware(scale);
+// The phone presentation (see `phonePresentation`) slides the panel up from
+// the bottom edge and back down again rather than scaling it in the middle
+// of the screen. Same wrapper, so a sheet is as instant under
+// prefers-reduced-motion as the centred dialog is — a sheet that flies 400px
+// is exactly the kind of motion that setting is asking us not to make.
+export const panelSlide = reducedMotionAware(fly);
+
+/**
+ * The parameters either panel transition understands — `start` belongs to
+ * scale, `y` to fly, and both are optional, so one object type can be handed
+ * to whichever function the current presentation selected without the call
+ * site having to know which one that is.
+ */
+export type PanelTransitionParams = {
+	duration?: number;
+	delay?: number;
+	opacity?: number;
+	start?: number;
+	y?: number;
+};
 
 // Mount-order stack of currently-open DialogShell instances. The topmost
 // dialog is whichever registered last. Nested dialogs (e.g. a ConfirmDialog
@@ -43,6 +63,13 @@ export function isTopmostDialog(id: symbol): boolean {
 import { onMount, onDestroy } from "svelte";
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
+import {
+	type DialogPresentation,
+	isPhoneViewport,
+	resolveDialogPresentation,
+	watchPhoneViewport,
+} from "$lib/utils/viewport.svelte";
+import { portalToBody } from "$lib/utils/portal";
 
 let {
 	title,
@@ -66,6 +93,29 @@ let {
 	// an account line and a status word — rendering the shell's own <h2> above
 	// that would print the same words twice.
 	titleVisuallyHidden = false,
+	// Phone presentation (everyday redesign — the MobileSheets board). Below
+	// 640px a dialog can stop being a centred panel and become a bottom
+	// sheet: it starts at the thumb, it keeps the page visible behind it, and
+	// it is dismissible three ways — the grabber, a tap on the dimmed page,
+	// or the footer's negative button.
+	//
+	//   "centered"  — unchanged; a centred panel at every width. The default,
+	//                 so no existing dialog changes shape until its owner
+	//                 opts in.
+	//   "sheet"     — a bottom sheet on phones, centred panel above 640px.
+	//   "fullSheet" — a sheet that fills the screen under a 30px lip, for
+	//                 pickers whose list has its own scroll. Still a sheet:
+	//                 same grabber, same three dismissals.
+	//
+	// Above the breakpoint every value resolves back to "centered", so a
+	// caller never has to ask what width it is on.
+	phonePresentation = "centered",
+	// Optional footer, rendered below a hairline at the foot of the panel.
+	// The redesign's one rule for a dialog's buttons is negative LEFT,
+	// positive RIGHT — so the shell lays the footer out (the consumer writes
+	// its buttons in that order) and, on a phone, every direct button child
+	// grows to an equal-width, full-height 44px target.
+	footer,
 }: {
 	title: string;
 	description?: string;
@@ -75,6 +125,8 @@ let {
 	zIndexClass?: string;
 	fullScreen?: boolean;
 	titleVisuallyHidden?: boolean;
+	phonePresentation?: DialogPresentation;
+	footer?: Snippet;
 } = $props();
 
 const dialogId = Symbol("dialog-shell");
@@ -82,11 +134,37 @@ const dialogId = Symbol("dialog-shell");
 let dialogRef: HTMLDivElement | null = $state(null);
 let previousFocus: HTMLElement | null = null;
 let focusTimer: ReturnType<typeof setTimeout> | null = null;
+let stopWatchingViewport: (() => void) | null = null;
+
+// Re-evaluated whenever the viewport crosses the breakpoint (a rotation, or a
+// desktop window dragged narrow) so the presentation — and the transition
+// that goes with it — follows the viewport instead of being decided once at
+// mount and then being wrong.
+let isPhone = $state(isPhoneViewport());
+let presentation = $derived(
+	resolveDialogPresentation(phonePresentation, isPhone),
+);
+let isSheet = $derived(presentation !== "centered");
+
+// A centred panel scales into the middle of the screen; a sheet slides up
+// from the bottom edge and back down on the way out (250ms, the standard
+// ease — the board's number). Both go through reducedMotionAware, so both
+// collapse to an instant appearance under prefers-reduced-motion. Selected as
+// a value rather than with two `{#if}` branches so the panel element — and
+// the focus trap bound to it — is the same node in both presentations.
+let panelTransition = $derived(isSheet ? panelSlide : panelScale);
+let panelTransitionParams: PanelTransitionParams = $derived(
+	isSheet
+		? { duration: 250, y: 360, opacity: 1 }
+		: { duration: 150, start: 0.95 },
+);
 
 let dialogSizeClass = $derived(
-	fullScreen
-		? "h-full max-w-full rounded-none border-0 sm:max-w-3xl sm:rounded-lg sm:border"
-		: `${maxWidthClass} rounded-lg border`,
+	isSheet
+		? `dialog-sheet ${presentation === "fullSheet" ? "dialog-sheet--full" : ""} max-w-full border`
+		: fullScreen
+			? "h-full max-w-full rounded-none border-0 sm:max-w-3xl sm:rounded-lg sm:border"
+			: `${maxWidthClass} rounded-lg border`,
 );
 
 // A focusable element counts for the trap only if it is actually rendered.
@@ -175,6 +253,9 @@ function handleKeydown(e: KeyboardEvent) {
 onMount(() => {
 	previousFocus = document.activeElement as HTMLElement;
 	registerDialog(dialogId);
+	stopWatchingViewport = watchPhoneViewport((phone) => {
+		isPhone = phone;
+	});
 	// Ref-count the body-scroll lock against the open-dialog stack: only the
 	// FIRST dialog locks the page. A nested dialog registers while the page is
 	// already locked, so re-setting overflow here would be redundant — and,
@@ -197,6 +278,7 @@ onMount(() => {
 
 onDestroy(() => {
 	if (focusTimer !== null) clearTimeout(focusTimer);
+	stopWatchingViewport?.();
 	deregisterDialog(dialogId);
 	if (previousFocus) previousFocus.focus();
 	// Release the lock only once the LAST dialog closes. A nested dialog closing
@@ -210,13 +292,23 @@ onDestroy(() => {
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-  class={`fixed inset-0 ${zIndexClass} flex items-center justify-center ${fullScreen ? 'p-0 sm:p-lg' : 'p-md'}`}
+  class={`fixed inset-0 ${zIndexClass} flex justify-center ${isSheet ? 'items-end p-0' : 'items-center'} ${isSheet ? '' : fullScreen ? 'p-0 sm:p-lg' : 'p-md'}`}
+  data-presentation={presentation}
+  use:portalToBody
   transition:backdropFade={{ duration: 150 }}
-  style={`padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));`}
+  style={isSheet
+    ? 'padding: 0;'
+    : `padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));`}
 >
+  <!-- A sheet gets the system scrim (the one --scrim token every other sheet
+       reads); a centred dialog keeps the frosted page it has always had. The
+       two presentations are different objects, but the SHEETS now all agree
+       with each other, which is what they did not do before. -->
   <button
     type="button"
-    class="absolute inset-0 bg-surface-page opacity-80 backdrop-blur-sm"
+    class={isSheet
+      ? 'dialog-sheet__scrim absolute inset-0'
+      : 'absolute inset-0 bg-surface-page opacity-80 backdrop-blur-sm'}
     aria-label={$t('common.close')}
     onclick={() => onClose?.()}
   ></button>
@@ -228,17 +320,241 @@ onDestroy(() => {
     aria-labelledby="dialog-shell-title"
     aria-describedby={description ? 'dialog-shell-description' : undefined}
     tabindex="-1"
-    class={`relative w-full ${dialogSizeClass} border-border bg-surface-page p-lg shadow-lg`}
-    transition:panelScale={{ duration: 150, start: 0.95 }}
-    style={fullScreen ? 'max-height: 100dvh; overflow-y: auto;' : 'max-height: 85dvh; overflow-y: auto;'}
+    class={`relative w-full ${dialogSizeClass} border-border bg-surface-page shadow-lg ${isSheet ? '' : 'p-lg'}`}
+    transition:panelTransition={panelTransitionParams}
+    style={isSheet ? '' : fullScreen ? 'max-height: 100dvh; overflow-y: auto;' : 'max-height: 85dvh; overflow-y: auto;'}
   >
-    <h2
-      id="dialog-shell-title"
-      class={titleVisuallyHidden ? 'sr-only' : 'mb-sm text-xl font-semibold text-text-primary'}
-    >{title}</h2>
-    {#if description}
-      <p id="dialog-shell-description" class="mb-lg text-text-muted">{description}</p>
+    {#if isSheet}
+      <!-- Dismissal #1 of three. Drawn as the 36x4 bar the board specifies,
+           inside a 44px strip so the thing you actually aim at is a real
+           touch target rather than a 4px line. -->
+      <button
+        type="button"
+        class="dialog-sheet__grabber"
+        data-testid="dialog-sheet-grabber"
+        aria-label={$t('common.close')}
+        onclick={() => onClose?.()}
+      ><span class="dialog-sheet__grabber-bar"></span></button>
     {/if}
-    {@render children()}
+    <div class={isSheet ? 'dialog-sheet__body' : ''}>
+      <h2
+        id="dialog-shell-title"
+        class={titleVisuallyHidden ? 'sr-only' : 'mb-sm text-xl font-semibold text-text-primary'}
+      >{title}</h2>
+      {#if description}
+        <p id="dialog-shell-description" class="mb-lg text-text-muted">{description}</p>
+      {/if}
+      {@render children()}
+    </div>
+    {#if footer}
+      <div class="dialog-shell__footer" data-testid="dialog-shell-footer">
+        {@render footer()}
+      </div>
+    {/if}
   </div>
 </div>
+
+<style>
+  /* ── The phone sheet ──────────────────────────────────────────────
+     Radius on the top corners only (Consistency board: "bottom sheet —
+     radius 16px top corners only"), flush to the bottom edge, and the page
+     stays visible behind it so you can still read what you are approving. */
+  .dialog-sheet {
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+    max-height: 88dvh;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* The picker variant: everything below a 30px lip, so the sheet still
+     reads as a sheet (and is still dismissible by tapping the page above
+     it) rather than as an opaque second app. */
+  .dialog-sheet--full {
+    height: calc(100dvh - 30px);
+    max-height: calc(100dvh - 30px);
+  }
+
+  .dialog-sheet__scrim {
+    background: var(--scrim);
+  }
+
+  .dialog-sheet__grabber {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 44px;
+    border: 0;
+    border-radius: 16px 16px 0 0;
+    background: transparent;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .dialog-sheet__grabber-bar {
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text-muted) 42%, transparent 58%);
+    transition: background-color var(--duration-standard) var(--ease-out);
+  }
+
+  .dialog-sheet__grabber:hover .dialog-sheet__grabber-bar,
+  .dialog-sheet__grabber:focus-visible .dialog-sheet__grabber-bar {
+    background: color-mix(in srgb, var(--text-muted) 78%, transparent 22%);
+  }
+
+  .dialog-sheet__grabber:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--focus-ring);
+  }
+
+  .dialog-sheet__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 var(--space-lg, 1rem) var(--space-lg, 1rem);
+  }
+
+  /* ── The footer ───────────────────────────────────────────────────
+     One rule, everywhere: negative left, positive right, above a hairline.
+     The consumer writes its buttons in that order; this lays them out. */
+  .dialog-shell__footer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: var(--space-md, 0.75rem);
+    padding-top: var(--space-md, 0.75rem);
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .dialog-sheet .dialog-shell__footer {
+    margin-top: 0;
+    padding: var(--space-md, 0.75rem) var(--space-lg, 1rem);
+  }
+
+  /* "Nothing you tap here is smaller than 44px" — on a sheet the two
+     buttons are equal-width and full-height, which is what stops the
+     accidental confirm the stacked inline pair invites. */
+  .dialog-sheet .dialog-shell__footer :global(> button) {
+    flex: 1 1 0;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  /* ── The dialog chassis's buttons ─────────────────────────────────
+     Declared :global so the two chat dialogs that are not always inside a
+     shell draw the same buttons as every dialog that is — the write
+     confirmation is an inline card in the conversation on a desktop and a
+     sheet on a phone. The positive button is a tinted OUTLINE, not a solid
+     accent fill: two dialogs that can be raised back to back ("save this
+     file" and "this would leave your machine") used two different
+     primaries, which taught people that the loud one is just what buttons
+     look like here. */
+  :global(.dialog-btn) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-height: 38px;
+    border-radius: 6px;
+    border: 1px solid var(--border-default);
+    background: var(--surface-page);
+    padding: 0 0.85rem;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background-color var(--duration-standard) var(--ease-out),
+      border-color var(--duration-standard) var(--ease-out),
+      color var(--duration-standard) var(--ease-out);
+  }
+
+  :global(.dialog-btn:hover:not(:disabled)) {
+    background: var(--surface-elevated);
+  }
+
+  :global(.dialog-btn:focus-visible) {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
+  }
+
+  :global(.dialog-btn:disabled) {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  :global(.dialog-btn--positive) {
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--border-default) 58%);
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-page) 90%);
+    color: var(--accent);
+  }
+
+  :global(.dialog-btn--positive:hover:not(:disabled)) {
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-page) 82%);
+    border-color: color-mix(in srgb, var(--accent) 62%, var(--border-default) 38%);
+  }
+
+  /* Only a genuinely destructive confirm turns red, and it says what it
+     does. A new file that replaces nothing must not wear the same colour as
+     deleting three photos. */
+  :global(.dialog-btn--destructive) {
+    border-color: color-mix(in srgb, var(--danger) 46%, var(--border-default) 54%);
+    background: color-mix(in srgb, var(--danger) 10%, var(--surface-page) 90%);
+    color: var(--danger);
+  }
+
+  :global(.dialog-btn--destructive:hover:not(:disabled)) {
+    background: color-mix(in srgb, var(--danger) 18%, var(--surface-page) 82%);
+    border-color: color-mix(in srgb, var(--danger) 66%, var(--border-default) 34%);
+  }
+
+  /* ── The chassis's head: a mark, the title, one muted qualifier ── */
+  :global(.dialog-head) {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-bottom: 0.6rem;
+  }
+
+  :global(.dialog-head__mark) {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 1.75rem;
+    height: 1.75rem;
+    margin-top: 0.05rem;
+    border-radius: 0.5rem;
+    background: var(--surface-elevated);
+  }
+
+  :global(.dialog-head__title) {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--text-primary);
+  }
+
+  :global(.dialog-head__qualifier) {
+    margin: 0.1rem 0 0;
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    line-height: 1.3;
+    color: var(--text-muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(.dialog-btn) {
+      transition: none;
+    }
+  }
+</style>

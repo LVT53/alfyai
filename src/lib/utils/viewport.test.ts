@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	computeViewportState,
 	initViewportTracking,
+	isPhoneViewport,
 	isTouchDevice,
+	resolveDialogPresentation,
 	viewportStore,
 	viewportTier,
+	watchPhoneViewport,
 } from "./viewport.svelte";
 
 /**
@@ -210,5 +213,72 @@ describe("viewportStore", () => {
 		window.dispatchEvent(new Event("resize"));
 		expect(viewportStore.tier).toBe("desktop");
 		expect(before).toBe("desktop");
+	});
+});
+
+// ── Phone presentation (everyday redesign) ───────────────────────────
+
+describe("isPhoneViewport", () => {
+	it("is false during SSR", () => {
+		simulateNoWindow();
+		expect(isPhoneViewport()).toBe(false);
+	});
+
+	it("tracks the same 640 threshold as the tier", () => {
+		setInnerWidth(639);
+		expect(isPhoneViewport()).toBe(true);
+		setInnerWidth(640);
+		expect(isPhoneViewport()).toBe(false);
+	});
+});
+
+describe("watchPhoneViewport", () => {
+	it("is a no-op during SSR", () => {
+		simulateNoWindow();
+		expect(() => watchPhoneViewport(() => undefined)()).not.toThrow();
+	});
+
+	it("reports crossings only, not every resize", () => {
+		setInnerWidth(1200);
+		const seen: boolean[] = [];
+		const stop = watchPhoneViewport((isPhone) => seen.push(isPhone));
+
+		setInnerWidth(1000);
+		window.dispatchEvent(new Event("resize"));
+		expect(seen).toEqual([]);
+
+		setInnerWidth(500);
+		window.dispatchEvent(new Event("resize"));
+		setInnerWidth(400);
+		window.dispatchEvent(new Event("resize"));
+		expect(seen).toEqual([true]);
+
+		setInnerWidth(900);
+		window.dispatchEvent(new Event("orientationchange"));
+		expect(seen).toEqual([true, false]);
+
+		stop();
+		setInnerWidth(400);
+		window.dispatchEvent(new Event("resize"));
+		expect(seen).toEqual([true, false]);
+	});
+});
+
+describe("resolveDialogPresentation", () => {
+	it("keeps every requested mode centred above the breakpoint", () => {
+		expect(resolveDialogPresentation("centered", false)).toBe("centered");
+		expect(resolveDialogPresentation("sheet", false)).toBe("centered");
+		expect(resolveDialogPresentation("fullSheet", false)).toBe("centered");
+	});
+
+	it("honours the requested mode on a phone", () => {
+		expect(resolveDialogPresentation("sheet", true)).toBe("sheet");
+		expect(resolveDialogPresentation("fullSheet", true)).toBe("fullSheet");
+	});
+
+	it("leaves an opted-out dialog centred on a phone too", () => {
+		// The default has to be inert: a dialog owned by another surface must
+		// not change shape just because this capability was added.
+		expect(resolveDialogPresentation("centered", true)).toBe("centered");
 	});
 });
