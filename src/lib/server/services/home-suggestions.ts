@@ -585,15 +585,26 @@ export async function recordHomeSuggestionsShown(params: {
 				now.getTime() + HOME_SUGGESTION_EVENT_TTL_SECONDS * 1000,
 			),
 		}));
+	// This is the one place the table is written on a schedule of any kind, so
+	// it is also where the seven-day window is swept. Scoped to this user and
+	// piggy-backed on a write that already had to happen, which keeps the table
+	// bounded without a third interval job for a handful of rows a week.
+	await purgeExpiredHomeSuggestionEvents(params.userId, now);
 	if (rows.length === 0) return;
 	await db.insert(homeSuggestionEvents).values(rows);
 }
 
-/** Housekeeping for the seven-day window. Safe to call from anywhere. */
+/** Drops one user's rows past the seven-day window. Safe to call anywhere. */
 export async function purgeExpiredHomeSuggestionEvents(
+	userId: string,
 	now: Date = new Date(),
 ): Promise<void> {
 	await db
 		.delete(homeSuggestionEvents)
-		.where(lt(homeSuggestionEvents.expiresAt, now));
+		.where(
+			and(
+				eq(homeSuggestionEvents.userId, userId),
+				lt(homeSuggestionEvents.expiresAt, now),
+			),
+		);
 }

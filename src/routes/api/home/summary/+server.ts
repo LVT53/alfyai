@@ -19,6 +19,7 @@ import {
 import type { RequestHandler } from "./$types";
 
 const EVENT_KINDS: HomeSuggestionEventKind[] = ["shown", "dismissed", "used"];
+const MAX_CANDIDATE_KEY_LENGTH = 200;
 
 export const GET: RequestHandler = async (event) => {
 	requireAuth(event);
@@ -41,6 +42,12 @@ export const POST: RequestHandler = async (event) => {
 
 	if (!candidateKey) {
 		return json({ error: "candidateKey is required" }, { status: 400 });
+	}
+	// The engine's own keys are `<kind>:<uuid>`. The bound is not a format
+	// check — a key whose object was deleted must still be storable — it just
+	// stops the table being used as free per-user storage.
+	if (candidateKey.length > MAX_CANDIDATE_KEY_LENGTH) {
+		return json({ error: "candidateKey is too long" }, { status: 400 });
 	}
 	if (!EVENT_KINDS.includes(kind as HomeSuggestionEventKind)) {
 		return json(

@@ -418,8 +418,12 @@ async function readWeekly(
 }
 
 async function readRecent(userId: string): Promise<HomeRecentConversation[]> {
-	// Over-fetch: a conversation with no messages is not shown (it is a
-	// prepared-but-unused landing draft), and the count is what reveals that.
+	// A conversation with no messages is a prepared-but-unused landing draft,
+	// not a conversation the user had — filtered in SQL rather than by
+	// over-fetching and discarding, because a user who abandoned a run of
+	// drafts would otherwise push every real conversation out of the window and
+	// see an empty Recent. `messages_conversation_order_idx` makes the EXISTS a
+	// lookup, not a scan.
 	const candidates = await db
 		.select({
 			id: conversations.id,
@@ -427,9 +431,14 @@ async function readRecent(userId: string): Promise<HomeRecentConversation[]> {
 			updatedAt: conversations.updatedAt,
 		})
 		.from(conversations)
-		.where(eq(conversations.userId, userId))
+		.where(
+			and(
+				eq(conversations.userId, userId),
+				sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${messages.conversationId} = ${conversations.id})`,
+			),
+		)
 		.orderBy(desc(conversations.updatedAt))
-		.limit(HOME_RECENT_LIMIT * 4);
+		.limit(HOME_RECENT_LIMIT);
 	if (candidates.length === 0) return [];
 
 	const ids = candidates.map((row) => row.id);
@@ -459,16 +468,13 @@ async function readRecent(userId: string): Promise<HomeRecentConversation[]> {
 	);
 	const atlasIds = new Set(atlasRows.map((row) => row.conversationId));
 
-	return candidates
-		.map((row) => ({
-			id: row.id,
-			title: row.title,
-			updatedAt: Math.floor(row.updatedAt.getTime() / 1000),
-			messageCount: countById.get(row.id) ?? 0,
-			atlasFinished: atlasIds.has(row.id),
-		}))
-		.filter((row) => row.messageCount > 0)
-		.slice(0, HOME_RECENT_LIMIT);
+	return candidates.map((row) => ({
+		id: row.id,
+		title: row.title,
+		updatedAt: Math.floor(row.updatedAt.getTime() / 1000),
+		messageCount: countById.get(row.id) ?? 0,
+		atlasFinished: atlasIds.has(row.id),
+	}));
 }
 
 /**
