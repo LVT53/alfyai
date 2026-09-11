@@ -97,9 +97,47 @@ export function buildComparisonDelta(
 	return { direction: change > 0 ? "up" : "down", percent };
 }
 
+/** A row keyed by a "YYYY-MM" billing month. */
+export interface MonthlyRow {
+	month: string;
+}
+
+/**
+ * The month immediately before `month` in the series — the greatest key that
+ * is still smaller. Found by KEY, never by array position: the read model
+ * sorts its months oldest-first and the fixtures newest-first, and reading
+ * `monthly[index + 1]` as "the previous month" is right for exactly one of
+ * those and silently compares against the FOLLOWING month for the other.
+ */
+export function findPreviousMonth<Row extends MonthlyRow>(
+	monthly: readonly Row[],
+	month: string,
+): Row | null {
+	let best: Row | null = null;
+	for (const row of monthly) {
+		if (row.month >= month) continue;
+		if (!best || row.month > best.month) best = row;
+	}
+	return best;
+}
+
 export interface ChartPoint {
 	label: string;
 	value: number;
+}
+
+/**
+ * Chart points from a monthly series, oldest first. The chart's last column is
+ * the period still running and is drawn solid with a note that says so, which
+ * is only true if the series actually runs forwards.
+ */
+export function monthlyChartPoints<Row extends MonthlyRow>(
+	monthly: readonly Row[],
+	toPoint: (row: Row) => ChartPoint,
+): ChartPoint[] {
+	return [...monthly]
+		.sort((left, right) => left.month.localeCompare(right.month))
+		.map(toPoint);
 }
 
 export interface ChartColumn extends ChartPoint {

@@ -3,8 +3,10 @@ import {
 	buildColumnChart,
 	buildComparisonDelta,
 	buildCostSplit,
+	findPreviousMonth,
 	formatCompactNumber,
 	formatCurrencyUsd,
+	monthlyChartPoints,
 } from "./chassis-math";
 
 describe("formatCurrencyUsd", () => {
@@ -231,5 +233,44 @@ describe("formatCompactNumber", () => {
 		expect(formatCompactNumber(0)).toBe("0");
 		expect(formatCompactNumber(null)).toBe("0");
 		expect(formatCompactNumber(undefined)).toBe("0");
+	});
+});
+
+describe("monthly series order", () => {
+	// The read model hands its months oldest-first and the e2e fixtures
+	// newest-first. Both have to draw forwards and compare backwards.
+	const ascending = [
+		{ month: "2026-06", totalCostUsd: 100 },
+		{ month: "2026-07", totalCostUsd: 110 },
+		{ month: "2026-08", totalCostUsd: 120 },
+	];
+	const descending = [...ascending].reverse();
+
+	it("finds the previous month by key, whichever way the list runs", () => {
+		for (const series of [ascending, descending]) {
+			expect(findPreviousMonth(series, "2026-08")?.month).toBe("2026-07");
+			expect(findPreviousMonth(series, "2026-07")?.month).toBe("2026-06");
+			// Nothing precedes the oldest month, and a month not in the series
+			// still resolves against whatever came before it.
+			expect(findPreviousMonth(series, "2026-06")).toBeNull();
+			expect(findPreviousMonth(series, "2026-09")?.month).toBe("2026-08");
+		}
+	});
+
+	it("charts oldest first, so the solid last column really is the current one", () => {
+		for (const series of [ascending, descending]) {
+			const points = monthlyChartPoints(series, (row) => ({
+				label: row.month,
+				value: row.totalCostUsd,
+			}));
+			expect(points.map((point) => point.label)).toEqual([
+				"2026-06",
+				"2026-07",
+				"2026-08",
+			]);
+			const chart = buildColumnChart(points);
+			expect(chart.columns.at(-1)?.label).toBe("2026-08");
+			expect(chart.columns.at(-1)?.current).toBe(true);
+		}
 	});
 });

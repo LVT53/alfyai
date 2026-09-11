@@ -18,8 +18,10 @@ import AnalyticsHero from "./analytics/AnalyticsHero.svelte";
 import {
 	buildComparisonDelta,
 	type CostSegmentInput,
+	findPreviousMonth,
 	formatCompactNumber,
 	formatCurrencyUsd,
+	monthlyChartPoints,
 } from "./analytics/chassis-math";
 import { t } from "$lib/i18n";
 import {
@@ -310,13 +312,14 @@ const costSegments = $derived<CostSegmentInput[]>(
 );
 
 // The comparison line the personal view has always had, now on both sides.
+// The previous month is found by its key, not by its neighbour in the array —
+// see findPreviousMonth.
 const systemComparison = $derived.by(() => {
 	const monthly = system?.monthly ?? [];
 	if (!selectedSystemMonth || monthly.length === 0) return "";
-	const index = monthly.findIndex((m) => m.month === selectedSystemMonth);
-	if (index < 0 || index >= monthly.length - 1) return "";
-	const previous = monthly[index + 1];
-	const current = monthly[index];
+	const current = monthly.find((m) => m.month === selectedSystemMonth);
+	const previous = findPreviousMonth(monthly, selectedSystemMonth);
+	if (!(current && previous)) return "";
 	const delta = buildComparisonDelta(
 		current.totalCostUsd,
 		previous.totalCostUsd,
@@ -355,7 +358,7 @@ const heroLabel = $derived(
 // Monthly cost, on the shared chart chassis: same grid, same emphasised
 // endpoint, different series.
 const monthlyCostPoints = $derived(
-	(system?.monthly ?? []).map((m) => ({
+	monthlyChartPoints(system?.monthly ?? [], (m) => ({
 		label: formatMonthShort(m.month),
 		value: m.totalCostUsd,
 	})),

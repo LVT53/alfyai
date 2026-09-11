@@ -18,6 +18,7 @@ import AnalyticsHero from "./analytics/AnalyticsHero.svelte";
 import {
 	buildComparisonDelta,
 	type CostSegmentInput,
+	findPreviousMonth,
 	formatCompactNumber,
 	formatCurrencyUsd,
 } from "./analytics/chassis-math";
@@ -97,14 +98,14 @@ const months = $derived(
 	].sort(),
 );
 
+// The previous month is found by its key, not by its neighbour in the array —
+// see findPreviousMonth.
 const comparisonHint = $derived.by(() => {
 	if (!selectedMonth || !analyticsData?.personal?.monthly) return "";
 	const monthly = analyticsData.personal.monthly;
-	const idx = monthly.findIndex((m) => m.month === selectedMonth);
-	const current = idx >= 0 ? monthly[idx] : undefined;
-	if (!current || idx >= monthly.length - 1) return "";
-	const prev = monthly[idx + 1];
-	if (!prev) return "";
+	const current = monthly.find((m) => m.month === selectedMonth);
+	const prev = findPreviousMonth(monthly, selectedMonth);
+	if (!(current && prev)) return "";
 	const delta = buildComparisonDelta(current.totalCostUsd, prev.totalCostUsd);
 	if (!delta) return "";
 	return $t("analytics.comparisonVsMonth", {
