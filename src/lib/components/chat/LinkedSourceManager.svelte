@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { t } from "$lib/i18n";
+import { portalToBody } from "$lib/utils/portal";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 
 let {
@@ -18,6 +19,17 @@ let {
 } = $props();
 
 let panel = $state<HTMLElement | null>(null);
+
+// Below 640px this panel stops being anchored to the chip that opened it and
+// becomes a fixed strip above the composer — and a fixed element inside the
+// landing page's translated composer layer is fixed to THAT, not to the
+// viewport. Read from the same query the stylesheet uses so the two cannot
+// disagree at the boundary pixel, and read once: the composer re-creates this
+// component on every open, so a resize between opens is seen.
+const isFixedToViewport =
+	typeof window !== "undefined" &&
+	typeof window.matchMedia === "function" &&
+	window.matchMedia("(max-width: 640px)").matches;
 
 function sourceTypeLabel(source: LinkedContextSource): string {
 	if (!source.documentOrigin) {
@@ -58,6 +70,7 @@ onMount(() => {
 	role="dialog"
 	aria-label={$t("sourceManager.title")}
 	tabindex="-1"
+	use:portalToBody={isFixedToViewport}
 >
 	<header class="source-manager__header">
 		<div>

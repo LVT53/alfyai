@@ -177,4 +177,75 @@ test.describe("Composer Direction B — phone sheets", () => {
 		await expect(sheet).toBeHidden();
 		await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
 	});
+
+	// One scrim per screen, not one per sheet.
+	//
+	// `--scrim` is a single token so two surfaces cannot disagree about how
+	// dark "dimmed" is — and two of them laid over each other disagree with
+	// both: 0.32 over 0.32 reads as 0.54. The picker's scrim also sat ABOVE
+	// the menu's own sheet, so the menu you opened the picker from went dark
+	// behind it, which is exactly what the board rules out ("the thing they
+	// were anchored to stays visible above the scrim").
+	test("a sheet opened from a sheet does not dim the page twice", async ({
+		page,
+	}) => {
+		await page.getByTestId("composer-tools-trigger").click();
+		await expect(page.getByTestId("composer-tools-menu-scrim")).toBeVisible();
+
+		await page.getByTestId("model-selector-trigger").click();
+		await expect(page.getByTestId("model-sheet-grabber")).toBeVisible();
+
+		// Exactly one element paints --scrim, and it is the menu's.
+		const scrims = await page.evaluate(
+			() =>
+				[...document.querySelectorAll<HTMLElement>("body *")].filter(
+					(element) => {
+						const background = getComputedStyle(element).backgroundColor;
+						return (
+							element.getBoundingClientRect().width >= window.innerWidth &&
+							element.getBoundingClientRect().height >= window.innerHeight &&
+							/^rgba\(0, 0, 0, 0\.\d+\)$/.test(background)
+						);
+					},
+				).length,
+		);
+		expect(scrims).toBe(1);
+
+		// And the menu behind the picker is still legible rather than dimmed.
+		await expect(page.getByTestId("composer-menu-attach")).toBeVisible();
+	});
+
+	// The containing-block bug, on the one sheet the portal work missed.
+	//
+	// The LANDING page is the case that matters: it centres its composer with
+	// `translateY(-50%)`, which makes that layer the containing block for
+	// anything `position: fixed` inside it. The Library picker measured
+	// 390x401 starting 221px down an 844px screen — its backdrop covering a
+	// strip of the page instead of the page, and the picker itself floating
+	// 231px above the bottom edge.
+	test("the Library picker fills the viewport, not the composer, on the landing page", async ({
+		page,
+	}) => {
+		await page.goto("/", { waitUntil: "domcontentloaded" });
+		await expect(page.getByTestId("message-input")).toBeVisible();
+
+		await page.getByTestId("attach-toggle").click();
+		await expect(page.getByTestId("attachment-picker")).toBeVisible();
+		await page.getByTestId("attachment-picker-library").click();
+
+		const backdrop = page.locator(".linked-document-backdrop");
+		await expect(backdrop).toBeVisible();
+		await expect
+			.poll(async () => {
+				const box = await backdrop.boundingBox();
+				if (!box) return null;
+				return {
+					x: Math.round(box.x),
+					y: Math.round(box.y),
+					width: Math.round(box.width),
+					height: Math.round(box.height),
+				};
+			})
+			.toEqual({ x: 0, y: 0, width: PHONE.width, height: PHONE.height });
+	});
 });
