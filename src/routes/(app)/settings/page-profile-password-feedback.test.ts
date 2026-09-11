@@ -371,4 +371,58 @@ describe("settings page — one Save for the identity card", () => {
 			screen.queryByText("Current password is incorrect"),
 		).not.toBeInTheDocument();
 	});
+
+	// One Save can still be half a save: the two calls go to two endpoints and
+	// the second one can be refused after the first has already landed. What
+	// the card must not do is claim the whole press worked. It reports the half
+	// that failed, keeps the password boxes filled so the retry is one word of
+	// typing, and — because the name really did save — sends only the password
+	// the second time.
+	it("reports the half that failed and offers the retry, when the profile saved but the password did not", async () => {
+		mockUpdateProfile.mockResolvedValue(undefined);
+		mockUpdatePassword.mockRejectedValue(
+			new Error("Current password is incorrect"),
+		);
+		renderSettingsPage();
+
+		await renameTo("Renamed User");
+		await fillPasswordForm();
+		await save();
+
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(get(toasts)[0]).toMatchObject({
+			type: "error",
+			message: "Current password is incorrect",
+		});
+		// Both halves were attempted, in that order.
+		expect(mockUpdateProfile).toHaveBeenCalledTimes(1);
+		expect(mockUpdatePassword).toHaveBeenCalledTimes(1);
+		// No "Saved hh:mm": the press did not finish.
+		expect(screen.queryByTestId("account-saved-at")).toBeNull();
+		// The name that DID save is what the card now prints above the boxes.
+		expect(screen.getByText("Renamed User")).toBeInTheDocument();
+		// The password boxes still hold what was typed, so the retry is the one
+		// box that was wrong.
+		expect(
+			(screen.getByLabelText("New password") as HTMLInputElement).value,
+		).toBe("new-password-123");
+
+		// Second press: the profile half is clean now, so only the password
+		// goes — the name is not written to the server twice.
+		clearToasts();
+		mockUpdatePassword.mockResolvedValue(undefined);
+		await save();
+
+		await waitFor(() => {
+			expect(get(toasts)).toHaveLength(1);
+		});
+		expect(get(toasts)[0]).toMatchObject({
+			type: "success",
+			message: "Password changed.",
+		});
+		expect(mockUpdateProfile).toHaveBeenCalledTimes(1);
+		expect(mockUpdatePassword).toHaveBeenCalledTimes(2);
+	});
 });
