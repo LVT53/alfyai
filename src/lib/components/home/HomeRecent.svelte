@@ -18,7 +18,8 @@ import type {
 	HomeRecentConversation,
 	HomeRunningJob,
 } from "$lib/client/api/home";
-import { formatRelativeTime } from "$lib/utils/time";
+import { makeGrammarFormatters } from "$lib/client/connections/status-grammar";
+import { uiLanguage } from "$lib/stores/settings";
 
 let {
 	recent = [],
@@ -31,6 +32,19 @@ let {
 	nowSeconds?: number;
 	onAllConversations?: () => void;
 } = $props();
+
+// "2 h ago" has to be "2 órája" in Hungarian, so the times go through the
+// Intl.RelativeTimeFormat pair the connections rows already use rather than
+// $lib/utils/time's formatRelativeTime — that one is hard-coded to en-US and
+// says so in its own call site's comment. Rebuilt when the language changes;
+// `nowSeconds` is the reference instant so the whole board moves on one clock.
+const formatters = $derived(
+	makeGrammarFormatters($uiLanguage, () => nowSeconds * 1000),
+);
+
+function when(updatedAt: number): string {
+	return formatters.relative(updatedAt);
+}
 
 function elapsed(startedAt: number): string {
 	const seconds = Math.max(0, nowSeconds - startedAt);
@@ -68,7 +82,7 @@ function elapsed(startedAt: number): string {
 					data-testid="home-recent-line"
 				>
 					<span class="home-line-title">{conversation.title}</span>
-					<span class="home-line-when">· {formatRelativeTime(conversation.updatedAt)}</span>
+					<span class="home-line-when">· {when(conversation.updatedAt)}</span>
 					<span class="home-line-mark">
 						{#if conversation.atlasFinished}
 							<span class="home-atlas-badge" data-testid="home-atlas-badge">
