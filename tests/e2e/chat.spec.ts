@@ -76,15 +76,42 @@ test.describe("Chat send/receive messages", () => {
 		);
 	});
 
-	test("pressing Enter sends the message", async ({ page }) => {
+	// The composer's send key is Cmd/Ctrl+Enter, not Enter.
+	//
+	// This spec asserted Enter-to-send and had been failing since 2026-06-17,
+	// when commit 18cac324 deliberately changed it: "Enter now creates a
+	// newline, Cmd/Ctrl+Enter sends (matching the edit mode behavior)". ADR
+	// 0035 records the decision and names the rejected alternative — keeping
+	// Enter-to-send, which is inconsistent with edit mode and prevents
+	// writing more than one line. The spec was simply never updated; the last
+	// commit to touch this file predates that change by three days.
+	//
+	// So: press what ships. The companion assertion — that a bare Enter does
+	// NOT send, and leaves the newline in the textarea — is a unit test
+	// (MessageInput.test.ts, "does not send on plain Enter…"), where the
+	// textarea's own value is readable.
+	test("pressing Cmd/Ctrl+Enter sends the message", async ({ page }) => {
 		await openConversationComposer(page);
-		await page.getByTestId("message-input").fill("Message via Enter key");
-		await page.getByTestId("message-input").press("Enter");
+		await page.getByTestId("message-input").fill("Message via the send key");
+		await page.getByTestId("message-input").press("ControlOrMeta+Enter");
 
 		await expect(page.getByTestId("user-message").first()).toContainText(
-			"Message via Enter key",
+			"Message via the send key",
 			{ timeout: 10000 },
 		);
+	});
+
+	test("pressing Enter alone writes a newline instead of sending", async ({
+		page,
+	}) => {
+		await openConversationComposer(page);
+		const input = page.getByTestId("message-input");
+		await input.fill("first line");
+		await input.press("Enter");
+		await input.pressSequentially("second line");
+
+		await expect(input).toHaveValue("first line\nsecond line");
+		await expect(page.getByTestId("user-message")).toHaveCount(0);
 	});
 
 	test("landing-page send still works when conversation creation resolves after send", async ({
@@ -110,7 +137,9 @@ test.describe("Chat send/receive messages", () => {
 
 		await openConversationComposer(page);
 		await page.getByTestId("message-input").fill("Race condition message");
-		const sendAction = page.getByTestId("message-input").press("Enter");
+		const sendAction = page
+			.getByTestId("message-input")
+			.press("ControlOrMeta+Enter");
 		await expect.poll(() => conversationCreateStarted).toBe(true);
 		releaseConversationCreate?.();
 		await sendAction;
