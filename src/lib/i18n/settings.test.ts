@@ -58,6 +58,52 @@ describe("settings i18n dictionary", () => {
 			expect(value.trim(), `hu.${key}`).not.toBe("");
 		}
 	});
+
+	// Two English strings that say different things must not collapse into one
+	// Hungarian string WITHIN THE SAME SCREEN. The profile redesign shipped two
+	// of these: the irreversible card's "Clear…" and "Delete…" both became
+	// "Törlés…", so its three buttons read identically in Hungarian while
+	// English tells two of them from the third; and the photo editor's zoom
+	// SLIDER and its zoom-IN button both became "Nagyítás", giving two controls
+	// in one dialog the same accessible name.
+	//
+	// Scoped per key namespace, which is the unit that maps to a screen. Across
+	// screens a shared Hungarian word is usually right — "Messages" and "Msgs"
+	// are both "Üzenetek" — and policing that dictionary-wide would be noise.
+	it("does not collapse two distinct English strings into one Hungarian one on the same screen", () => {
+		const namespaces = ["profileTab", "avatarEditor"];
+		const collisions: string[] = [];
+
+		for (const namespace of namespaces) {
+			const byHungarian = new Map<string, string[]>();
+			for (const [key, value] of Object.entries(settingsDict.hu)) {
+				if (!key.startsWith(`${namespace}.`)) continue;
+				const keys = byHungarian.get(value) ?? [];
+				keys.push(key);
+				byHungarian.set(value, keys);
+			}
+
+			for (const [hungarian, keys] of byHungarian) {
+				if (keys.length < 2) continue;
+				const english = new Set(
+					keys.map(
+						(key) => settingsDict.en[key as keyof typeof settingsDict.en],
+					),
+				);
+				if (english.size > 1) {
+					collisions.push(
+						`"${hungarian}" is shared by ${keys.join(", ")} — English says ${[
+							...english,
+						]
+							.map((value) => `"${value}"`)
+							.join(" vs ")}`,
+					);
+				}
+			}
+		}
+
+		expect(collisions).toEqual([]);
+	});
 });
 
 describe("analytics UI translation keys", () => {

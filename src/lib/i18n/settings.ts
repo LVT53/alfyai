@@ -3620,7 +3620,11 @@ const settingsDict = {
 		"profileTab.deleteAccountHelp":
 			"Véglegesen törli a fiókodat és a személyes munkaterületi adataidat. Csak a névtelen használati összesítők maradnak.",
 		"profileTab.clearAction": "Törlés…",
-		"profileTab.deleteAction": "Törlés…",
+		// "Delete…" cannot also be "Törlés…": the irreversible card puts all
+		// three buttons side by side, and in English two of them say "Clear…"
+		// and the third says something else on purpose. The account row is the
+		// permanent one, which is the word Hungarian has for the difference.
+		"profileTab.deleteAction": "Végleges törlés…",
 
 		// Profilkép-szerkesztő — korábban minden szövege beégetett angol volt.
 		"avatarEditor.title": "Profilkép feltöltése",
@@ -3632,7 +3636,10 @@ const settingsDict = {
 		"avatarEditor.rotateLeft": "Forgatás balra 90°",
 		"avatarEditor.rotateRight": "Forgatás jobbra 90°",
 		"avatarEditor.rotation": "Forgatás",
-		"avatarEditor.zoom": "Nagyítás",
+		// The slider and the "+" button are two controls in one dialog, so they
+		// cannot share an accessible name: the buttons keep the natural
+		// in/out pair and the slider is named for what it sets.
+		"avatarEditor.zoom": "Nagyítás mértéke",
 		"avatarEditor.zoomIn": "Nagyítás",
 		"avatarEditor.zoomOut": "Kicsinyítés",
 		"avatarEditor.preview": "Előnézet",
