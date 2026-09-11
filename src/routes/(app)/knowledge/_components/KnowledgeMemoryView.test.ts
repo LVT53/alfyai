@@ -1014,15 +1014,22 @@ describe("KnowledgeMemoryView", () => {
 			.getByRole("heading", { name: "About You" })
 			.closest("section");
 		expect(aboutSection).not.toBeNull();
+		// An "Edit" button over a memory the projection refuses to rewrite
+		// invites a change the dialog then denies, so the row says View.
 		expect(
 			within(aboutSection as HTMLElement).queryByRole("button", {
 				name: "Edit memory item",
 			}),
 		).not.toBeInTheDocument();
+		expect(
+			within(aboutSection as HTMLElement).getByRole("button", {
+				name: "View memory item",
+			}).textContent,
+		).toContain("View");
 
 		await fireEvent.click(
 			within(aboutSection as HTMLElement).getByRole("button", {
-				name: "Memory item",
+				name: "View memory item",
 			}),
 		);
 
@@ -1321,5 +1328,36 @@ describe("KnowledgeMemoryView", () => {
 		});
 		const notice = screen.getByRole("status");
 		expect(notice.textContent).not.toContain("c1");
+	});
+
+	// The rows a category discloses are each wrapped in their own transition
+	// element, so a `:first-child` rule would strip the divider off every one
+	// of them. Only the row that opens the list is marked.
+	it("marks exactly one opening row per category, expanded or not", async () => {
+		const many: MemoryProfilePublicPayload = {
+			...profile,
+			categories: [
+				{
+					category: "about_you",
+					items: Array.from({ length: 8 }, (_unused, index) => ({
+						...profile.categories[0].items[0],
+						id: `item-${index}`,
+						statement: `Fact number ${index}.`,
+						updatedAt: `2026-06-${String(10 + index).padStart(2, "0")}T09:00:00.000Z`,
+					})),
+				},
+				{ category: "preferences", items: [] },
+				{ category: "goals_ongoing_work", items: [] },
+				{ category: "constraints_boundaries", items: [] },
+			],
+		};
+		const { container } = renderMemoryView({ profile: many });
+
+		expect(container.querySelectorAll(".memory-row")).toHaveLength(5);
+		expect(container.querySelectorAll(".memory-row.is-first")).toHaveLength(1);
+
+		await fireEvent.click(screen.getByTestId("memory-category-disclosure"));
+		expect(container.querySelectorAll(".memory-row")).toHaveLength(8);
+		expect(container.querySelectorAll(".memory-row.is-first")).toHaveLength(1);
 	});
 });

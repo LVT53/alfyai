@@ -173,7 +173,6 @@ const knowledgeDict = {
 		"memory.updated": "Updated",
 		"memoryProfile.aboutYou": "About You",
 		"memoryProfile.aboutYouEmpty": "No active memories about you yet.",
-		"memoryProfile.activeCount": "{count} active",
 		"memoryProfile.autoExpiresInDays": `auto-expires in {count} day{count, plural, one {} other {s}}`,
 		"memoryProfile.cancel": "Cancel",
 		"memoryProfile.cancelEditing": "Cancel editing",
@@ -199,6 +198,10 @@ const knowledgeDict = {
 		"memoryProfile.doNotRememberReviewItem": "Do not remember review item",
 		"memoryProfile.edit": "Edit",
 		"memoryProfile.editMemoryItem": "Edit memory item",
+		// A memory the projection will not let you rewrite opens read-only,
+		// so its row says View rather than Edit.
+		"memoryProfile.view": "View",
+		"memoryProfile.viewMemoryItem": "View memory item",
 		"memoryProfile.editReviewItem": "Edit review item",
 		"memoryProfile.editSummary": "Edit summary",
 		"memoryProfile.emptyHint":
@@ -513,7 +516,6 @@ const knowledgeDict = {
 		"memory.updated": "Frissítve",
 		"memoryProfile.aboutYou": "Rólad",
 		"memoryProfile.aboutYouEmpty": "Még nincs aktív emlék rólad.",
-		"memoryProfile.activeCount": "{count} aktív",
 		"memoryProfile.autoExpiresInDays": "automatikusan lejár {count} nap múlva",
 		"memoryProfile.cancel": "Mégse",
 		"memoryProfile.cancelEditing": "Szerkesztés megszakítása",
@@ -543,6 +545,8 @@ const knowledgeDict = {
 			"Ne jegyezze meg ezt a felülvizsgálati elemet",
 		"memoryProfile.edit": "Szerkesztés",
 		"memoryProfile.editMemoryItem": "Memóriaelem szerkesztése",
+		"memoryProfile.view": "Megtekintés",
+		"memoryProfile.viewMemoryItem": "Memóriaelem megtekintése",
 		"memoryProfile.editReviewItem": "Felülvizsgálati elem szerkesztése",
 		"memoryProfile.editSummary": "Összefoglaló szerkesztése",
 		"memoryProfile.emptyHint":

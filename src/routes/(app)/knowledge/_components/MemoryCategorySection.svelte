@@ -18,7 +18,10 @@ import {
 	User,
 } from "@lucide/svelte";
 import MemoryRow from "./MemoryRow.svelte";
-import type { MemoryCategoryView } from "./memory-categories";
+import {
+	MEMORY_CATEGORY_PAGE_SIZE,
+	type MemoryCategoryView,
+} from "./memory-categories";
 
 // Both directions: the section eases open AND eased shut, collapsing to an
 // instant change under prefers-reduced-motion (the CSS reset in app.css
@@ -147,10 +150,11 @@ async function toggleKeepingPosition() {
 			<p class="memory-section-empty">{$t("memoryProfile.categoryNoMatch")}</p>
 		{:else}
 			{#each view.visible as item, index (item.id)}
-				{#if index < 5}
+				{#if index < MEMORY_CATEGORY_PAGE_SIZE}
 					<MemoryRow
 						{item}
 						{pendingActionKey}
+						first={index === 0}
 						onEdit={onEditItem}
 						onRemove={onRemoveItem}
 					/>

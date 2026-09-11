@@ -154,7 +154,10 @@ const noMatchesAnywhere = $derived(
 						aria-pressed={selection === chip.id}
 						aria-label={$t("memoryProfile.filterChipLabel", {
 							name: chipLabel(chip.id),
-							count: chip.total,
+							// The same count the chip prints. Reading out the total
+							// while the chip shows the matches is how a screen-reader
+							// user comes to believe the filter did nothing.
+							count: filtering ? chip.matching : chip.total,
 						})}
 						data-testid="memory-filter-chip"
 					>

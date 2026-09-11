@@ -1584,14 +1584,6 @@ async function handleBulkDelete(): Promise<boolean> {
 		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
 	}
 
-	.col-version {
-		width: 86px;
-	}
-
-	.col-status {
-		width: 96px;
-	}
-
 	.cell-blank {
 		color: var(--text-muted);
 		font-size: 0.8125rem;
@@ -2327,6 +2319,19 @@ async function handleBulkDelete(): Promise<boolean> {
 			flex: 1 1 100%;
 			min-width: 0;
 			overflow-wrap: anywhere;
+		}
+
+		/* Every column the card layout re-states inside `.mobile-document-meta`
+		   is hidden here. Version and Status were left visible: with no
+		   grid-area of their own they auto-placed into fresh rows of the card
+		   grid, so each row drew its badges twice — and an unversioned upload
+		   drew two stray em dashes. */
+		.documents-table .col-version {
+			display: none;
+		}
+
+		.documents-table .col-status {
+			display: none;
 		}
 
 		.documents-table .col-type {

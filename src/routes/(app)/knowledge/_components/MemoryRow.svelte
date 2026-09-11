@@ -6,16 +6,19 @@
 // repeated a hundred times is not a saving.
 import type { MemoryProfilePublicItem } from "$lib/memory-profile-types";
 import { t } from "$lib/i18n";
-import { Pencil, Trash2 } from "@lucide/svelte";
+import { Eye, Pencil, Trash2 } from "@lucide/svelte";
 
 let {
 	item,
 	pendingActionKey = null,
+	first = false,
 	onEdit,
 	onRemove,
 }: {
 	item: MemoryProfilePublicItem;
 	pendingActionKey?: string | null;
+	/** The row that opens its category — it wears no divider above it. */
+	first?: boolean;
 	onEdit: (item: MemoryProfilePublicItem) => void;
 	onRemove: (item: MemoryProfilePublicItem) => void;
 } = $props();
@@ -60,7 +63,7 @@ const removeBusy = $derived(
 );
 </script>
 
-<div class="memory-row" data-testid="memory-row">
+<div class="memory-row" class:is-first={first} data-testid="memory-row">
 	{#if confidence}
 		<span
 			class={`memory-dot ${stated ? "memory-dot--stated" : "memory-dot--inferred"}`}
@@ -92,16 +95,24 @@ const removeBusy = $derived(
 	</div>
 
 	<div class="memory-row-actions">
+		<!-- A memory the projection will not let you rewrite opens read-only.
+		     Saying "Edit" over it invites a change the dialog then refuses, so
+		     the row names what the button actually does. -->
 		<button
 			type="button"
 			class="memory-action"
 			onclick={() => onEdit(item)}
 			aria-label={item.canEdit
 				? $t("memoryProfile.editMemoryItem")
-				: $t("memoryProfile.itemTitle")}
+				: $t("memoryProfile.viewMemoryItem")}
 		>
-			<Pencil size={12} strokeWidth={2.1} aria-hidden="true" />
-			<span>{$t("memoryProfile.edit")}</span>
+			{#if item.canEdit}
+				<Pencil size={12} strokeWidth={2.1} aria-hidden="true" />
+				<span>{$t("memoryProfile.edit")}</span>
+			{:else}
+				<Eye size={12} strokeWidth={2.1} aria-hidden="true" />
+				<span>{$t("memoryProfile.view")}</span>
+			{/if}
 		</button>
 		{#if item.canSuppress || item.canDelete}
 			<button
@@ -128,7 +139,12 @@ const removeBusy = $derived(
 			color-mix(in srgb, var(--border-default) 50%, transparent 50%);
 	}
 
-	.memory-row:first-child {
+	/* Only the row that opens the list loses its divider. `:first-child` is not
+	   enough: the rows a category discloses are each wrapped in their own
+	   transition element, so every one of them would be a first child and the
+	   whole expanded tail would come up without separators. The section marks
+	   the opening row instead. */
+	.memory-row.is-first {
 		border-top: none;
 	}
 

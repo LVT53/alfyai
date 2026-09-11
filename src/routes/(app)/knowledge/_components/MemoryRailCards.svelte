@@ -58,7 +58,8 @@ import { Settings, Trash2 } from "@lucide/svelte";
 			<Settings size={12} strokeWidth={2.1} aria-hidden="true" />
 			<span>{$t("memoryProfile.memorySettings")}</span>
 		</a>
-		<a class="rail-button rail-button--danger" href="/settings?section=memory">
+		<!-- Clearing lives in the danger section, not on the memory on/off row. -->
+		<a class="rail-button rail-button--danger" href="/settings?section=danger">
 			<Trash2 size={12} strokeWidth={2.1} aria-hidden="true" />
 			<span>{$t("memoryProfile.clearMemory")}</span>
 		</a>
