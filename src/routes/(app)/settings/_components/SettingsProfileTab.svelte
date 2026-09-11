@@ -835,6 +835,21 @@ function handlePersonalitySelect(event: Event) {
 				</div>
 			{:else if personalAnalyticsLoading}
 				<p class="settings-row-help">{$t('common.loading')}</p>
+			{:else if personalAnalyticsError}
+				<!-- A failed load is not an empty account. Saying "Nothing recorded
+				     yet" here told a user with four thousand messages that they had
+				     never used the product, and hid the retry behind the full view. -->
+				<p class="privacy-feedback privacy-feedback-error" data-testid="activity-error">
+					{personalAnalyticsError}
+				</p>
+				{#if onRetryPersonalAnalytics}
+					<button
+						type="button"
+						class="settings-row-link"
+						data-testid="activity-retry"
+						onclick={() => onRetryPersonalAnalytics?.()}
+					>{$t('analytics.retry')}</button>
+				{/if}
 			{:else}
 				<p class="settings-row-help">{$t('profileTab.activityEmpty')}</p>
 			{/if}

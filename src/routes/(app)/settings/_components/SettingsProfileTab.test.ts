@@ -607,6 +607,32 @@ describe("SettingsProfileTab — Your Activity summary and full view", () => {
 		renderTab({ personalAnalyticsData: null });
 		expect(screen.getByText("Nothing recorded yet.")).toBeInTheDocument();
 	});
+
+	it("tells a failed load apart from an empty account, and offers the retry", async () => {
+		const onRetryPersonalAnalytics = vi.fn();
+		renderTab({
+			personalAnalyticsData: null,
+			personalAnalyticsError: "Failed to load analytics",
+			onRetryPersonalAnalytics,
+		});
+
+		expect(screen.getByTestId("activity-error")).toHaveTextContent(
+			"Failed to load analytics",
+		);
+		expect(screen.queryByText("Nothing recorded yet.")).toBeNull();
+
+		await fireEvent.click(screen.getByTestId("activity-retry"));
+		expect(onRetryPersonalAnalytics).toHaveBeenCalled();
+	});
+
+	it("shows loading, not an error, while the first load is still in flight", () => {
+		renderTab({
+			personalAnalyticsData: null,
+			personalAnalyticsLoading: true,
+		});
+		expect(screen.queryByTestId("activity-error")).toBeNull();
+		expect(screen.queryByText("Nothing recorded yet.")).toBeNull();
+	});
 });
 
 describe("SettingsProfileTab — the phone jump-list", () => {
