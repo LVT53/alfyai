@@ -25,6 +25,7 @@ import {
 import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { portalToBody } from "$lib/utils/portal";
+import { computeFlyoutPlacement, FLYOUT_MARGIN } from "./composer-placement";
 
 // The phone sheet slides up AND back down. A CSS `animation` can only play
 // on the way in — the element is removed outright on the way out, which is
@@ -57,12 +58,25 @@ let {
 	// stacks above that scrim instead of adding a second one. Default true so
 	// the component is still self-sufficient anywhere else.
 	ownsScrim = true,
+	// Desktop flyout mode: the list opens BESIDE the surface it was opened
+	// from rather than above its own trigger.
+	//
+	// Inside the composer's "+" menu, "above the trigger" meant on top of the
+	// menu's own rows — the Model row is near the bottom of the menu, so the
+	// list it opens covers Atlas, Incognito and half the accounts. Beside the
+	// menu nothing is covered. `flyoutAnchor` is that surface (the menu
+	// panel); without one there is nothing to hang off and this falls back to
+	// the ordinary dropdown.
+	flyout = false,
+	flyoutAnchor = null,
 }: {
 	onSelect?: (payload: { modelId: ModelId }) => void;
 	open?: boolean | undefined;
 	onOpenChange?: ((open: boolean) => void) | undefined;
 	onTriggerRef?: ((element: HTMLButtonElement | null) => void) | undefined;
 	ownsScrim?: boolean;
+	flyout?: boolean;
+	flyoutAnchor?: HTMLElement | null;
 } = $props();
 
 let providers: ModelProvider[] = $state([]);
@@ -102,12 +116,19 @@ let dropdownPosition = $state({
 	left: 0,
 	width: 280,
 	maxHeight: 400,
-	placement: "top" as "top" | "bottom",
+	placement: "top" as "top" | "bottom" | "right" | "left",
 	ready: false,
 });
 let dropdownStyle = $derived(
 	`top: ${dropdownPosition.top}px; left: ${dropdownPosition.left}px; width: ${dropdownPosition.width}px; max-height: ${dropdownPosition.maxHeight}px; visibility: ${dropdownPosition.ready ? "visible" : "hidden"};`,
 );
+
+// True while the list should hang off `flyoutAnchor` instead of its trigger.
+// It is portalled to <body> in this mode: the "+" menu has a backdrop-filter,
+// which makes it the containing block for anything `position: fixed` inside
+// it — the flyout would be measured against the viewport and then drawn
+// relative to the menu.
+let isFlyout = $derived(!isMobile && flyout && Boolean(flyoutAnchor));
 
 const DESKTOP_DROPDOWN_GAP = 6;
 const DESKTOP_DROPDOWN_MARGIN = 12;
@@ -297,6 +318,29 @@ async function updateDropdownPosition() {
 	const triggerRect = triggerRef.getBoundingClientRect();
 	const viewportWidth = window.innerWidth;
 	const viewportHeight = window.innerHeight;
+
+	if (flyout && flyoutAnchor) {
+		const flyoutWidth = Math.min(
+			DESKTOP_DROPDOWN_MAX_WIDTH,
+			Math.max(0, viewportWidth - FLYOUT_MARGIN * 2),
+		);
+		const placed = computeFlyoutPlacement(
+			triggerRect,
+			flyoutAnchor.getBoundingClientRect(),
+			{ width: viewportWidth, height: viewportHeight },
+			{ width: flyoutWidth, height: menuRef?.offsetHeight || undefined },
+		);
+		dropdownPosition = {
+			top: placed.top,
+			left: placed.left,
+			width: flyoutWidth,
+			maxHeight: placed.maxHeight,
+			placement: placed.placement,
+			ready: true,
+		};
+		return;
+	}
+
 	const availableWidth = Math.max(
 		0,
 		viewportWidth - DESKTOP_DROPDOWN_MARGIN * 2,
@@ -385,6 +429,11 @@ function getFixedContainingBlockOffset(): { top: number; left: number } {
 
 function handleKeydown(event: KeyboardEvent) {
 	if (event.key === "Escape") {
+		// Only while there is a picker to back out of. Swallowed
+		// unconditionally — which is what this did — Escape on the trigger
+		// was eaten by a closed dropdown, so the "+" menu the trigger sits
+		// in could never be dismissed from its own Model row.
+		if (!isOpen) return;
 		// Stopped here on purpose. On a phone the panel is moved to <body>
 		// so its `position: fixed` means the viewport, which also means a
 		// keydown inside it no longer passes the "+" menu that opened it —
@@ -517,8 +566,9 @@ function autoExpandProviders() {
 			class="model-selector__dropdown"
 			class:model-selector__dropdown--mobile={isMobile}
 			class:model-selector__dropdown--below={!isMobile && dropdownPosition.placement === 'bottom'}
+			class:model-selector__dropdown--flyout={isFlyout}
 			style={isMobile ? undefined : dropdownStyle}
-			use:portalToBody={isMobile}
+			use:portalToBody={isMobile || isFlyout}
 			transition:sheetFly={dropdownTransitionParams}
 			role="listbox"
 			aria-label={$t('modelSelector.availableModels')}
@@ -763,6 +813,14 @@ function autoExpandProviders() {
 
 	.model-selector__dropdown--below {
 		animation-name: dropdownFadeInBelow;
+	}
+
+	/* Beside the menu, so it arrives from the side rather than from below —
+	   and scrolls inside itself rather than growing past the viewport. */
+	.model-selector__dropdown--flyout {
+		animation-name: dropdownFadeInFlyout;
+		overflow-y: auto;
+		overscroll-behavior: contain;
 	}
 
 	.model-selector__dropdown--mobile {
@@ -1018,6 +1076,17 @@ function autoExpandProviders() {
 		to {
 			opacity: 1;
 			transform: translateY(0);
+		}
+	}
+
+	@keyframes dropdownFadeInFlyout {
+		from {
+			opacity: 0;
+			transform: translateX(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0);
 		}
 	}
 

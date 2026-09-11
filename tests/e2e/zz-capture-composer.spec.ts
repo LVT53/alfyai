@@ -25,10 +25,18 @@ test.skip(
 	"screenshot capture helper — set COMPOSER_CAPTURE=1 to run it",
 );
 
+// Where the PNGs land, and how big the desktop window is. Both are env
+// overrides so a second pass over the same states (a different window size,
+// a different directory to compare against) does not need a second copy of
+// this file.
 const OUT =
+	process.env.COMPOSER_CAPTURE_OUT ||
 	"/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/dc2da4d4-d513-4098-9b2b-8b6c426191eb/scratchpad/everyday-redesign/impl-composer";
 
-const DESKTOP = { width: 1280, height: 860 };
+const DESKTOP = {
+	width: Number(process.env.COMPOSER_CAPTURE_WIDTH || 1280),
+	height: Number(process.env.COMPOSER_CAPTURE_HEIGHT || 860),
+};
 const PHONE = { width: 390, height: 844 };
 
 async function setTheme(page: Page, theme: "light" | "dark") {
@@ -41,6 +49,15 @@ async function setTheme(page: Page, theme: "light" | "dark") {
 		return r.status;
 	}, theme);
 	expect(res, `theme PATCH -> ${res}`).toBeLessThan(400);
+	// The server preference is only read at boot (initTheme prefers it over
+	// localStorage), so without this every "dark" capture in this file was a
+	// light screenshot with a dark name on it.
+	await page.reload({ waitUntil: "domcontentloaded" });
+	await expect
+		.poll(async () =>
+			page.evaluate(() => document.documentElement.classList.contains("dark")),
+		)
+		.toBe(theme === "dark");
 }
 
 async function settle(page: Page) {
@@ -81,6 +98,19 @@ for (const theme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
 		await settle(page);
 		await page.screenshot({ path: `${OUT}/desktop-${theme}-menu-open.png` });
+
+		// The Model list as a flyout beside the menu — the state the old
+		// "upward from the row" positioning drew on top of the menu's own
+		// rows, so it is worth a picture of its own.
+		await page.getByTestId("model-selector-trigger").click();
+		await expect(
+			page.getByRole("listbox", { name: /model/i }).first(),
+		).toBeVisible();
+		await settle(page);
+		await page.screenshot({
+			path: `${OUT}/desktop-${theme}-model-flyout.png`,
+		});
+		await page.keyboard.press("Escape");
 
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("composer-tools-menu")).toBeHidden();
@@ -128,6 +158,75 @@ for (const theme of ["light", "dark"] as const) {
 		await settle(page);
 		await page.screenshot({
 			path: `${OUT}/phone-${theme}-model-picker-sheet.png`,
+		});
+	});
+}
+
+// The "+" menu where it actually lives: on the bottom edge of the window, at
+// the end of a thread long enough to scroll. On the landing page the composer
+// is centred, so every capture above photographs a menu with half a screen of
+// room above it — which is the one condition the clipping defect did not have.
+for (const theme of ["light", "dark"] as const) {
+	test(`desktop ${theme} menu at the bottom of a long conversation`, async ({
+		page,
+	}) => {
+		const [admin] = await db
+			.select()
+			.from(users)
+			.where(eq(users.email, "admin@local"))
+			.limit(1);
+		expect(admin, "the e2e admin must exist").toBeTruthy();
+
+		const conversationId = `conv-menushot-${theme}`;
+		const now = new Date();
+		await db
+			.delete(messages)
+			.where(eq(messages.conversationId, conversationId));
+		await db.delete(conversations).where(eq(conversations.id, conversationId));
+		await db.insert(conversations).values({
+			id: conversationId,
+			userId: admin.id,
+			title: `A long thread (${theme})`,
+			createdAt: now,
+			updatedAt: now,
+		});
+		await db.insert(messages).values(
+			Array.from({ length: 24 }, (_, index) => ({
+				id: `msg-menushot-${theme}-${index}`,
+				conversationId,
+				messageSequence: index + 1,
+				role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+				content:
+					index % 2 === 0
+						? `Question number ${index / 2 + 1} about the battery rules.`
+						: "A paragraph of answer, long enough that the thread scrolls and the composer ends up on the bottom edge of the window.",
+				createdAt: now,
+			})),
+		);
+
+		await page.setViewportSize(DESKTOP);
+		await login(page);
+		await setTheme(page, theme);
+		await page.goto(`/chat/${conversationId}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await expect(page.getByTestId("message-input")).toBeVisible();
+		await settle(page);
+
+		await page.getByTestId("composer-tools-trigger").click();
+		await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
+		await settle(page);
+		await page.screenshot({
+			path: `${OUT}/desktop-${theme}-menu-at-bottom.png`,
+		});
+
+		await page.getByTestId("model-selector-trigger").click();
+		await expect(
+			page.getByRole("listbox", { name: /model/i }).first(),
+		).toBeVisible();
+		await settle(page);
+		await page.screenshot({
+			path: `${OUT}/desktop-${theme}-model-flyout-at-bottom.png`,
 		});
 	});
 }

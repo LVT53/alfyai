@@ -80,6 +80,37 @@ function stubPhone(isPhone: boolean) {
 	});
 }
 
+/**
+ * A "+" trigger with a real rect.
+ *
+ * jsdom lays nothing out, so every `getBoundingClientRect` is zeroes — which
+ * is a placement the arithmetic handles but not one that tells you anything.
+ * This is the owner's case: a 1280x720 window with the composer at the
+ * bottom of a conversation.
+ */
+function stubTrigger(top = 656): HTMLButtonElement {
+	const trigger = document.createElement("button");
+	document.body.appendChild(trigger);
+	trigger.getBoundingClientRect = () =>
+		({
+			top,
+			left: 300,
+			right: 334,
+			bottom: top + 34,
+			width: 34,
+			height: 34,
+			x: 300,
+			y: top,
+			toJSON: () => ({}),
+		}) as DOMRect;
+	Object.defineProperty(window, "innerHeight", {
+		configurable: true,
+		writable: true,
+		value: 720,
+	});
+	return trigger;
+}
+
 function baseProps(overrides: Record<string, unknown> = {}) {
 	return {
 		canAttach: true,
@@ -204,5 +235,88 @@ describe("ComposerToolsMenu phone sheet", () => {
 				1,
 			),
 		);
+	});
+});
+
+// The "+" menu opened upward from a fixed `bottom: calc(100% + 8px)` — an
+// offset that cannot see the window. On a short screen with the composer at
+// the bottom of a conversation, the top of the menu was cut off.
+describe("ComposerToolsMenu desktop placement", () => {
+	it("is portalled to the body and fixed to the trigger's rect", () => {
+		stubPhone(false);
+		const trigger = stubTrigger();
+		const { container } = render(
+			ComposerToolsMenu,
+			baseProps({ triggerElement: trigger }),
+		);
+
+		const menu = screen.getByTestId("composer-tools-menu");
+		expect(menu.parentElement).toBe(document.body);
+		expect(container.contains(menu)).toBe(false);
+		expect(menu.className).toContain("tools-menu--anchored");
+
+		// 656px of room above, so it hangs above the trigger and is capped at
+		// what is actually up there rather than growing off the top.
+		expect(menu.style.left).toBe("300px");
+		expect(menu.style.bottom).toBe("72px");
+		expect(menu.style.maxHeight).toBe("640px");
+		expect(menu.style.top).toBe("");
+	});
+
+	it("flips below the trigger when the composer sits near the top", () => {
+		stubPhone(false);
+		const trigger = stubTrigger(120);
+		render(ComposerToolsMenu, baseProps({ triggerElement: trigger }));
+
+		const menu = screen.getByTestId("composer-tools-menu");
+		expect(menu.style.top).toBe("162px");
+		expect(menu.style.bottom).toBe("");
+	});
+
+	// Rendered without a trigger there is nothing to measure against, so the
+	// menu keeps its old in-place presentation rather than being portalled to
+	// the top-left corner of the page.
+	it("opens in place when it has no trigger to hang off", () => {
+		stubPhone(false);
+		const { container } = render(ComposerToolsMenu, baseProps());
+
+		const menu = screen.getByTestId("composer-tools-menu");
+		expect(container.contains(menu)).toBe(true);
+		expect(menu.className).not.toContain("tools-menu--anchored");
+	});
+});
+
+// "Manage connections" used to be a full-width row under the account
+// switches, where it read as one more account. It is the way OUT of the
+// composer, so it moved into the ACCOUNTS heading opposite the count.
+describe("ComposerToolsMenu manage-connections link", () => {
+	it("sits inside the accounts heading, not in the row list", () => {
+		stubPhone(false);
+		render(ComposerToolsMenu, baseProps({ triggerElement: stubTrigger() }));
+
+		const link = screen.getByTestId("composer-menu-manage-connections");
+		expect(link.closest(".menu-section")).not.toBeNull();
+		expect(link.closest(".menu-row")).toBeNull();
+		expect(link.getAttribute("role")).toBeNull();
+		expect(link.tabIndex).toBe(0);
+	});
+
+	it("is still there — and still reachable — with nothing connected", async () => {
+		stubPhone(false);
+		const onManageConnections = vi.fn();
+		render(
+			ComposerToolsMenu,
+			baseProps({
+				triggerElement: stubTrigger(),
+				connections: [],
+				onManageConnections,
+			}),
+		);
+
+		const link = screen.getByTestId("composer-menu-manage-connections");
+		expect(screen.queryByTestId("composer-menu-connections-master")).toBeNull();
+
+		await fireEvent.click(link);
+		expect(onManageConnections).toHaveBeenCalled();
 	});
 });

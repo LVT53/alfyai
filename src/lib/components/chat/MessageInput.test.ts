@@ -1334,8 +1334,9 @@ describe("MessageInput", () => {
 	});
 
 	// Everyday redesign, Direction B: thinking stays on the bar (it is one of
-	// the three reached for mid-sentence) as a filled accent disc when on,
-	// with a label that says the control AND its state.
+	// the three reached for mid-sentence). On is the glyph in the accent plus
+	// a dot under it — no disc behind it in any state — with a label that
+	// says the control AND its state.
 	it("shows the thinking toggle in the toolbar reflecting the current reasoningDepth", () => {
 		const { getByTestId } = render(MessageInput, {
 			reasoningDepth: "thorough",
@@ -3305,7 +3306,7 @@ describe("MessageInput composer bar (Direction B)", () => {
 		expect(accounts).not.toHaveClass("composer-face--on");
 	});
 
-	it("shows the count, and the filled disc, once accounts are on", async () => {
+	it("shows the count, and the on-state, once accounts are on", async () => {
 		fetchActiveCapabilitiesMock.mockResolvedValue({
 			served: ["calendar", "files"],
 			defaultOn: ["calendar", "files"],
@@ -3351,6 +3352,20 @@ describe("MessageInput composer bar (Direction B)", () => {
 		const attach = getByTestId("attach-toggle");
 		expect(attach).toHaveClass("composer-face--on");
 		expect(attach).toHaveAttribute("title", "Attached — 1 on this message");
+	});
+
+	// The owner's note: "the icons have a circle behind them, and I liked it
+	// better when the active colour accent was more low-key." Nothing paints
+	// a disc now, in any state — so the plus can take the same on-treatment
+	// as the three controls beside it while its menu is open, which it could
+	// not when "on" meant a filled accent circle under a white glyph.
+	it("gives the plus the same on-state as the bar while its menu is open", async () => {
+		const { getByTestId } = render(MessageInput);
+		const plus = getByTestId("composer-tools-trigger");
+		expect(plus).not.toHaveClass("composer-face--on");
+
+		await openComposerMenu(getByTestId);
+		expect(plus).toHaveClass("composer-face--on");
 	});
 
 	it("names the attach control and its empty state at rest", () => {

@@ -38,9 +38,17 @@ import ModelSelector from "./ModelSelector.svelte";
 import {
 	buildComposerMenuRows,
 	type ComposerMenuRow,
-	isSectionStart,
+	type ComposerMenuSectionId,
+	groupComposerMenuRows,
 	nextMenuIndex,
 } from "./composer-bar";
+import {
+	computeFlyoutPlacement,
+	computeMenuPlacement,
+	type FlyoutPlacement,
+	type MenuPlacement,
+	type PlacementRect,
+} from "./composer-placement";
 import type { ActiveCapabilitiesConnection } from "$lib/client/api/connections";
 import {
 	isAccountOn,
@@ -68,6 +76,15 @@ import type {
 } from "$lib/server/services/atlas/public-types";
 
 let {
+	// The "+" that opened this menu. On a desktop the menu is portalled to
+	// <body> and positioned from this element's rect — see
+	// `composer-placement`. Without one it falls back to opening in place,
+	// which is what a bare render in a test gets.
+	//
+	// Named `triggerElement` rather than `anchor` because `anchor` is one of
+	// Svelte's own mount options, and a prop that shadows one cannot be
+	// passed by name.
+	triggerElement = null,
 	canAttach = false,
 	attachmentsEnabled = false,
 	maxUploadMb = 100,
@@ -106,6 +123,7 @@ let {
 	pendingSkillName = null,
 	onOpenSkills = undefined,
 }: {
+	triggerElement?: HTMLElement | null;
 	canAttach?: boolean;
 	attachmentsEnabled?: boolean;
 	maxUploadMb?: number;
@@ -189,11 +207,124 @@ let rows = $derived(
 	}),
 );
 
+let sections = $derived(groupComposerMenuRows(rows));
+
 const ATLAS_PROFILE_OPTIONS = [
 	"overview",
 	"in-depth",
 	"exhaustive",
 ] as const satisfies readonly AtlasProfile[];
+
+// ── Where the menu and its flyouts land ──────────────────────────────
+//
+// All three used to be CSS offsets from whatever they sat inside, which is
+// the same bug three times: an offset cannot see the window. The menu opened
+// upward from `bottom: calc(100% + 8px)` and had its top cut off on a 720px
+// screen with the composer at the bottom of a conversation; the Model and
+// Atlas pickers opened upward from their own rows and covered the rows above
+// them. The arithmetic is in composer-placement.ts; the only thing that
+// happens here is reading the rects and writing the style.
+//
+// They are portalled to <body> for the same reason the phone sheet is: this
+// menu has a `backdrop-filter`, which makes it the containing block for any
+// `position: fixed` descendant — measured against the viewport, drawn
+// relative to the menu.
+
+/** Roughly the Style list's width; it is a column of short profile names. */
+const STYLE_FLYOUT_WIDTH = 224;
+/** `min(19rem, …)`, the Atlas picker's own width. */
+const ATLAS_FLYOUT_WIDTH = 304;
+
+function rectOf(element: Element | null | undefined): PlacementRect | null {
+	if (!element) return null;
+	const box = element.getBoundingClientRect();
+	return {
+		top: box.top,
+		left: box.left,
+		right: box.right,
+		bottom: box.bottom,
+		width: box.width,
+		height: box.height,
+	};
+}
+
+function measureMenu(): MenuPlacement | null {
+	if (typeof window === "undefined" || isPhoneViewport()) return null;
+	const triggerRect = rectOf(triggerElement);
+	if (!triggerRect) return null;
+	return computeMenuPlacement(triggerRect, {
+		width: window.innerWidth,
+		height: window.innerHeight,
+	});
+}
+
+// Measured before the menu is in the DOM — the trigger is all it needs — so
+// the first frame is already in the right place rather than flying in from
+// the top-left corner of the page.
+let menuPlacement = $state<MenuPlacement | null>(measureMenu());
+let styleFlyout = $state<FlyoutPlacement | null>(null);
+let atlasFlyout = $state<FlyoutPlacement | null>(null);
+
+/** Positioned from the trigger rather than opening in place. */
+let anchored = $derived(!isPhone && Boolean(triggerElement));
+let portaled = $derived(isPhone || anchored);
+
+let menuStyle = $derived.by(() => {
+	if (isPhone || !anchored || !menuPlacement) return undefined;
+	const edge =
+		menuPlacement.top !== null
+			? `top: ${menuPlacement.top}px;`
+			: `bottom: ${menuPlacement.bottom}px;`;
+	return `left: ${menuPlacement.left}px; ${edge} max-height: ${menuPlacement.maxHeight}px;`;
+});
+
+function flyoutStyle(
+	placement: FlyoutPlacement | null,
+	width: number,
+): string | undefined {
+	if (!placement) return undefined;
+	return `left: ${placement.left}px; top: ${placement.top}px; width: ${width}px; max-height: ${placement.maxHeight}px;`;
+}
+
+function measureFlyout(rowId: string, width: number): FlyoutPlacement | null {
+	if (typeof window === "undefined") return null;
+	const menuRect = rectOf(root);
+	if (!menuRect) return null;
+	return computeFlyoutPlacement(
+		rectOf(rowElements.get(rowId)) ?? menuRect,
+		menuRect,
+		{ width: window.innerWidth, height: window.innerHeight },
+		{ width },
+	);
+}
+
+function measurePlacement() {
+	if (isPhone) {
+		menuPlacement = null;
+		styleFlyout = null;
+		atlasFlyout = null;
+		return;
+	}
+	menuPlacement = measureMenu();
+	styleFlyout =
+		anchored && activeDropdown === "style"
+			? measureFlyout("style", STYLE_FLYOUT_WIDTH)
+			: null;
+	atlasFlyout =
+		anchored && activeDropdown === "atlas"
+			? measureFlyout("atlas", ATLAS_FLYOUT_WIDTH)
+			: null;
+}
+
+// Re-measure whenever what is on screen changes shape. The reads below are
+// the dependencies; the measuring itself happens after the DOM has caught
+// up, so nothing it touches is tracked.
+$effect(() => {
+	isPhone;
+	activeDropdown;
+	rows.length;
+	void tick().then(measurePlacement);
+});
 
 $effect(() => {
 	if (initialOpen === appliedInitialOpen) return;
@@ -254,6 +385,10 @@ function selectAtlasProfile(profile: AtlasProfile) {
 // ever landed. The model guide's backdrop is here for the same reason: it is
 // rendered at the top level by ModelSelector.
 const OWN_OVERLAY_SELECTOR = [
+	// The menu itself: on a desktop it is now portalled to <body> too, so
+	// "inside the menu" is no longer a question about this component's
+	// subtree in the composer.
+	".tools-menu",
 	".model-guide-backdrop",
 	".atlas-profile-picker",
 	".model-selector__dropdown",
@@ -342,9 +477,18 @@ onMount(() => {
 		}
 	};
 
+	// The menu is fixed to the trigger's rect, so anything that moves the
+	// trigger moves the menu: a resized window, and a scroll anywhere on the
+	// page (captured, because scroll does not bubble).
+	const handleReflow = () => measurePlacement();
+	window.addEventListener("resize", handleReflow);
+	window.addEventListener("scroll", handleReflow, true);
+
 	document.addEventListener("mousedown", handlePointerDown);
 	document.addEventListener("touchstart", handlePointerDown, { passive: true });
 	window.addEventListener("keydown", handleKeyDown);
+
+	measurePlacement();
 
 	// Opened from the keyboard or the pointer, the first row takes focus so
 	// the arrow keys have somewhere to start.
@@ -352,6 +496,8 @@ onMount(() => {
 
 	return () => {
 		stopWatchingViewport?.();
+		window.removeEventListener("resize", handleReflow);
+		window.removeEventListener("scroll", handleReflow, true);
 		document.removeEventListener("mousedown", handlePointerDown);
 		document.removeEventListener("touchstart", handlePointerDown);
 		window.removeEventListener("keydown", handleKeyDown);
@@ -367,21 +513,38 @@ onMount(() => {
 	</span>
 {/snippet}
 
-{#snippet sectionHeading(row: ComposerMenuRow)}
+{#snippet sectionHeading(section: ComposerMenuSectionId)}
 	<div class="menu-section" role="presentation">
-		{#if row.section === 'message'}
-			{$t('composerMenu.sectionMessage')}
-		{:else if row.section === 'switches'}
-			{$t('composerMenu.sectionSwitches')}
-		{:else if row.section === 'accounts'}
-			{hasConnections
-				? $t('composerMenu.sectionAccounts', {
-						on: accountCounts.on,
-						total: accountCounts.total,
-					})
-				: $t('composerMenu.sectionAccountsEmpty')}
-		{:else}
-			{$t('composerMenu.sectionConversation')}
+		<span class="menu-section__title">
+			{#if section === 'message'}
+				{$t('composerMenu.sectionMessage')}
+			{:else if section === 'switches'}
+				{$t('composerMenu.sectionSwitches')}
+			{:else if section === 'accounts'}
+				{hasConnections
+					? $t('composerMenu.sectionAccounts', {
+							on: accountCounts.on,
+							total: accountCounts.total,
+						})
+					: $t('composerMenu.sectionAccountsEmpty')}
+			{:else}
+				{$t('composerMenu.sectionConversation')}
+			{/if}
+		</span>
+		{#if section === 'accounts'}
+			<!-- The way OUT of the composer, not one of the things this
+			     message can do — so it sits in the heading opposite the
+			     count rather than as a full-width row that read like one
+			     more account. Tabbable rather than part of the roving
+			     order: the arrow keys walk the rows, Tab reaches the link
+			     above them. -->
+			<button
+				type="button"
+				class="menu-section__link"
+				data-testid="composer-menu-manage-connections"
+				tabindex="0"
+				onclick={() => { onManageConnections?.(); }}
+			>{$t('composerMenu.manageConnections')}</button>
 		{/if}
 	</div>
 {/snippet}
@@ -405,11 +568,13 @@ onMount(() => {
 	bind:this={root}
 	class="tools-menu"
 	class:tools-menu--sheet={isPhone}
+	class:tools-menu--anchored={!isPhone && anchored}
+	style={menuStyle}
 	data-testid="composer-tools-menu"
 	role="menu"
 	tabindex="-1"
 	aria-label={$t('composerMenu.label')}
-	use:portalToBody={isPhone}
+	use:portalToBody={portaled}
 	onkeydown={handleMenuKeydown}
 	transition:menuFly={isPhone
 		? { duration: 250, y: 260, opacity: 1 }
@@ -426,11 +591,10 @@ onMount(() => {
 	{/if}
 
 	<div class="tools-menu__rows">
-	{#each rows as row, index (row.id)}
-		{#if isSectionStart(rows, index)}
-			{@render sectionHeading(row)}
-		{/if}
+	{#each sections as group (group.section)}
+		{@render sectionHeading(group.section)}
 
+		{#each group.entries as { row, index } (row.id)}
 		{#if row.id === 'attach'}
 			<button
 				type="button"
@@ -503,11 +667,18 @@ onMount(() => {
 					<span class="menu-row__chevron" aria-hidden="true"><ChevronRight size={15} strokeWidth={2} /></span>
 				</button>
 				{#if atlasOpen}
+					{@const asFlyout = !isPhone && anchored && atlasFlyout !== null}
 					<section
 						class="atlas-profile-picker"
 						class:atlas-profile-picker--sheet={isPhone}
-						use:portalToBody={isPhone}
-						transition:menuFly={isPhone ? { duration: 250, y: 220, opacity: 1 } : { duration: 150, y: 4 }}
+						class:atlas-profile-picker--flyout={asFlyout}
+						style={asFlyout ? flyoutStyle(atlasFlyout, ATLAS_FLYOUT_WIDTH) : undefined}
+						use:portalToBody={isPhone || asFlyout}
+						transition:menuFly={isPhone
+							? { duration: 250, y: 220, opacity: 1 }
+							: asFlyout
+								? { duration: 150, x: -4, y: 0 }
+								: { duration: 150, y: 4 }}
 						aria-label={$t('composerTools.atlasProfileTitle')}
 					>
 						{#if isPhone}
@@ -647,20 +818,6 @@ onMount(() => {
 				</button>
 			{/if}
 
-		{:else if row.id === 'manage-connections'}
-			<button
-				type="button"
-				class="menu-row menu-row--link"
-				role="menuitem"
-				tabindex={focusedIndex === index ? 0 : -1}
-				use:registerRow={row.id}
-				data-testid="composer-menu-manage-connections"
-				onfocus={() => (focusedIndex = index)}
-				onclick={() => { onManageConnections?.(); }}
-			>
-				<span class="menu-row__label">{$t('composerMenu.manageConnections')}</span>
-			</button>
-
 		{:else if row.id === 'model'}
 			<div class="menu-row-wrap menu-row-wrap--static">
 				<span class="menu-row__icon menu-row__icon--static" aria-hidden="true"><Orbit size={16} strokeWidth={2} /></span>
@@ -671,6 +828,8 @@ onMount(() => {
 					onSelect={selectModel}
 					onTriggerRef={(element) => bindRowElement('model', element)}
 					ownsScrim={!isPhone}
+					flyout={!isPhone && anchored}
+					flyoutAnchor={root ?? null}
 				/>
 			</div>
 
@@ -698,7 +857,14 @@ onMount(() => {
 						</span>
 					</button>
 					{#if styleOpen}
-						<ul class="model-selector__dropdown" role="listbox">
+						{@const asFlyout = !isPhone && anchored && styleFlyout !== null}
+						<ul
+							class="model-selector__dropdown"
+							class:model-selector__dropdown--flyout={asFlyout}
+							style={asFlyout ? flyoutStyle(styleFlyout, STYLE_FLYOUT_WIDTH) : undefined}
+							use:portalToBody={asFlyout}
+							role="listbox"
+						>
 							<li
 								role="option"
 								aria-selected={!selectedPersonalityId}
@@ -725,6 +891,7 @@ onMount(() => {
 				</div>
 			</div>
 		{/if}
+		{/each}
 	{/each}
 	</div>
 </div>
@@ -748,6 +915,22 @@ onMount(() => {
 
 	.tools-menu:focus-visible {
 		outline: none;
+	}
+
+	/* Positioned from the trigger's rect against the viewport, not offset
+	   from the composer — see composer-placement.ts. The offset version
+	   opened upward from `bottom: calc(100% + 8px)` with no idea how much
+	   room was up there, so on a 1280x720 window with the composer at the
+	   bottom of a conversation the top of the menu was simply cut off.
+
+	   `left`, the vertical edge and `max-height` all arrive inline; what is
+	   here is everything that does not depend on the measurement. */
+	.tools-menu--anchored {
+		position: fixed;
+		bottom: auto;
+		z-index: 60;
+		overflow-y: auto;
+		overscroll-behavior: contain;
 	}
 
 	/* On a phone the menu is a sheet: the rows are 44px, they start at the
@@ -814,6 +997,10 @@ onMount(() => {
 	   also says how many are on, so the count is readable without counting
 	   the switches. */
 	.menu-section {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.75rem;
 		padding: 0.5rem 0.5rem 0.22rem;
 		font-family: var(--font-sans);
 		font-size: var(--text-2xs);
@@ -826,6 +1013,57 @@ onMount(() => {
 
 	.menu-section:first-child {
 		padding-top: 0.28rem;
+	}
+
+	.menu-section__title {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	/* "Manage connections" sits here rather than in a row of its own: it is
+	   the way out to the settings page, not one of the things this message
+	   can do, and full-width under the account switches it read as one more
+	   account. Sentence case, because it is a link and not a heading. */
+	.menu-section__link {
+		flex: 0 0 auto;
+		border: 0;
+		border-radius: 0.3rem;
+		background: transparent;
+		padding: 0.1rem 0.15rem;
+		color: var(--accent);
+		font-family: inherit;
+		font-size: inherit;
+		font-weight: 600;
+		letter-spacing: 0.01em;
+		line-height: 1.2;
+		text-transform: none;
+		cursor: pointer;
+		transition: color var(--duration-standard) var(--ease-out);
+	}
+
+	.menu-section__link:hover {
+		color: var(--accent-hover);
+	}
+
+	.menu-section__link:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 40%, transparent 60%);
+	}
+
+	/* "Nothing you tap here is smaller than 44px" — including the one thing
+	   in this menu that is not a row. */
+	.tools-menu--sheet .menu-section {
+		align-items: center;
+	}
+
+	.tools-menu--sheet .menu-section__link {
+		display: inline-flex;
+		align-items: center;
+		min-height: 44px;
+		padding: 0 0.25rem;
+		font-size: var(--text-xs);
 	}
 
 	.menu-row,
@@ -922,17 +1160,6 @@ onMount(() => {
 
 	.menu-row--account .menu-row__label {
 		padding-left: 0.15rem;
-	}
-
-	.menu-row--link {
-		grid-template-columns: minmax(0, 1fr);
-		min-height: 2rem;
-	}
-
-	.menu-row--link .menu-row__label {
-		grid-column: 1;
-		color: var(--accent);
-		font-weight: 600;
 	}
 
 	.menu-row__hint {
@@ -1076,6 +1303,22 @@ onMount(() => {
 		animation: dropdownFadeIn 150ms ease-out;
 	}
 
+	/* Beside the menu rather than above the row, so the list no longer
+	   covers the rows it was opened from. Fixed and portalled to <body>:
+	   this menu has a backdrop-filter, which would otherwise make it the
+	   containing block for a fixed child. */
+	.model-selector__dropdown--flyout {
+		position: fixed;
+		right: auto;
+		bottom: auto;
+		margin: 0;
+		min-width: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		z-index: 140;
+		animation-name: flyoutFadeIn;
+	}
+
 	.model-selector__option {
 		padding: 0.38rem 0.5rem;
 		border-radius: 0.42rem;
@@ -1126,6 +1369,17 @@ onMount(() => {
 			0 16px 34px rgba(0, 0, 0, 0.16),
 			0 1px 0 color-mix(in srgb, var(--border-default) 88%, transparent 12%);
 		padding: 0.7rem;
+	}
+
+	.atlas-profile-picker--flyout {
+		position: fixed;
+		right: auto;
+		bottom: auto;
+		width: auto;
+		margin: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		z-index: 140;
 	}
 
 	.atlas-profile-picker--sheet {
@@ -1302,6 +1556,18 @@ onMount(() => {
 		}
 	}
 
+	/* A flyout arrives from the side it opens on, not from below. */
+	@keyframes flyoutFadeIn {
+		from {
+			opacity: 0;
+			transform: translateX(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0);
+		}
+	}
+
 	@media (prefers-reduced-motion: reduce) {
 		.model-selector__dropdown {
 			animation: none;
@@ -1309,6 +1575,7 @@ onMount(() => {
 
 		.menu-row,
 		.menu-row__icon,
+		.menu-section__link,
 		.switch-face,
 		.switch-face__thumb,
 		.model-selector__trigger,
