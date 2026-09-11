@@ -22,6 +22,16 @@ import {
 	initViewportTracking,
 	viewportStore,
 } from "$lib/utils/viewport.svelte";
+import { fade, fly } from "svelte/transition";
+import { reducedMotionAware } from "$lib/utils/motion";
+
+// The phone sheet slides up AND back down. A CSS `animation` can only play
+// on the way in — the element is removed outright on the way out, which is
+// the "appears softly, vanishes on a frame" glitch. Both go through
+// reducedMotionAware, which the app-wide CSS reduced-motion override cannot
+// reach for a Svelte transition.
+const sheetFly = reducedMotionAware(fly);
+const scrimFade = reducedMotionAware(fade);
 
 let {
 	onSelect,
@@ -56,6 +66,21 @@ let focusedModelId: string | null = $state(null);
 let isMobile = $derived(viewportStore.tier === "phone");
 let guideOpen = $state(false);
 let isOpen = $derived(open ?? internalOpen);
+// The phone sheet's armed-but-not-applied choice. Null on a desktop, where
+// clicking a row applies it outright.
+let pendingModelId = $state<ModelId | null>(null);
+// Zero duration above the breakpoint, where the desktop dropdown keeps the
+// CSS animation it always had — one directive, so the panel element (and the
+// listbox bound to it) is the same node in both presentations.
+let dropdownTransitionParams = $derived(
+	isMobile ? { duration: 250, y: 340, opacity: 1 } : { duration: 0, y: 0 },
+);
+let sheetChoiceId = $derived(pendingModelId ?? $selectedModel);
+let sheetChoiceName = $derived(
+	providers
+		.flatMap((provider) => provider.models)
+		.find((model) => model.id === sheetChoiceId)?.displayName ?? null,
+);
 let dropdownPosition = $state({
 	top: 0,
 	left: 0,
@@ -187,15 +212,46 @@ function toggleProvider(providerId: string) {
 }
 
 function handleSelect(modelId: ModelId) {
+	// Everyday redesign — on a phone the list is a picker, not a menu: a row
+	// arms the choice and the footer's positive button applies it. "A picker
+	// is a sheet with a footer" is the rule the MobileSheets board sets, and
+	// it is what stops a mis-tap on a 44px row from silently changing the
+	// model for the conversation. On a desktop the dropdown behaves exactly
+	// as it always did — one click, applied, closed.
+	if (isMobile) {
+		pendingModelId = modelId;
+		return;
+	}
+	applyModel(modelId);
+}
+
+function applyModel(modelId: ModelId) {
 	setSelectedModel(modelId);
 	setOpen(false);
 	onSelect?.({ modelId });
 }
 
+function confirmPendingModel() {
+	const modelId = (pendingModelId ?? $selectedModel) as ModelId | null;
+	if (!modelId) {
+		setOpen(false);
+		return;
+	}
+	applyModel(modelId);
+}
+
+function cancelSheet() {
+	pendingModelId = null;
+	setOpen(false);
+}
+
 function toggleDropdown() {
 	const opening = !isOpen;
 	setOpen(!isOpen);
-	if (opening) autoExpandProviders();
+	if (opening) {
+		pendingModelId = null;
+		autoExpandProviders();
+	}
 }
 
 function openGuide() {
@@ -410,6 +466,17 @@ function autoExpandProviders() {
 		</button>
 	</div>
 
+	{#if isOpen && providers.length > 0 && isMobile}
+		<!-- The sheet's second dismissal: a tap on the dimmed page. -->
+		<button
+			type="button"
+			class="model-selector__scrim"
+			aria-label={$t('common.close')}
+			transition:scrimFade={{ duration: 200 }}
+			onclick={cancelSheet}
+		></button>
+	{/if}
+
 	{#if isOpen && providers.length > 0}
 		<div
 			bind:this={menuRef}
@@ -417,10 +484,40 @@ function autoExpandProviders() {
 			class:model-selector__dropdown--mobile={isMobile}
 			class:model-selector__dropdown--below={!isMobile && dropdownPosition.placement === 'bottom'}
 			style={isMobile ? undefined : dropdownStyle}
+			transition:sheetFly={dropdownTransitionParams}
 			role="listbox"
 			aria-label={$t('modelSelector.availableModels')}
 			tabindex="-1"
 		>
+			{#if isMobile}
+				<!-- The sheet's first dismissal, and the same grabber every other
+				     sheet in the system draws. -->
+				<button
+					type="button"
+					class="model-selector__grabber"
+					data-testid="model-sheet-grabber"
+					aria-label={$t('common.close')}
+					onclick={cancelSheet}
+				><span class="model-selector__grabber-bar"></span></button>
+				<div class="model-selector__sheet-head">
+					<span class="model-selector__sheet-copy">
+						<span class="model-selector__sheet-title">{$t('modelPicker.title')}</span>
+						<span class="model-selector__sheet-sub">{$t('modelPicker.subtitle')}</span>
+					</span>
+					<!-- The guide is a 44px button here, not a 14px icon: the cloud
+					     flag it explains is something you have to know how to read
+					     before you press send, not after. -->
+					<button
+						type="button"
+						class="model-selector__sheet-guide"
+						onclick={openGuide}
+						data-testid="model-sheet-guide"
+					>
+						<CircleHelp size={15} strokeWidth={2} aria-hidden="true" />
+						{$t('modelSelector.openGuide')}
+					</button>
+				</div>
+			{/if}
 			<div class="model-selector__list">
 				{#each providers as provider (provider.id)}
 					{@const expanded = isProviderExpanded(provider.id)}
@@ -459,9 +556,9 @@ function autoExpandProviders() {
 										<button
 											type="button"
 											role="option"
-											aria-selected={$selectedModel === model.id}
+											aria-selected={sheetChoiceId === model.id}
 											class="model-selector__option"
-											class:model-selector__option--selected={$selectedModel === model.id}
+											class:model-selector__option--selected={sheetChoiceId === model.id}
 											class:model-selector__option--focused={focusedModelId === model.id}
 											onclick={() => handleSelect(model.id as ModelId)}
 											data-model-id={model.id}
@@ -473,7 +570,7 @@ function autoExpandProviders() {
 												size={18}
 											/>
 											<span class="model-selector__option-text">{model.displayName}</span>
-											{#if $selectedModel === model.id}
+											{#if sheetChoiceId === model.id}
 												<span class="model-selector__check">
 												<Check size={14} strokeWidth={3} aria-hidden="true" />
 											</span>
@@ -486,6 +583,32 @@ function autoExpandProviders() {
 					</div>
 				{/each}
 			</div>
+			{#if isMobile}
+				<!-- A picker ends in Cancel and a positive button that names what
+				     it is about to do, because you are choosing and then
+				     confirming. Negative left, positive right. -->
+				<div class="model-selector__sheet-footer">
+					<button
+						type="button"
+						class="dialog-btn"
+						data-testid="model-sheet-cancel"
+						onclick={cancelSheet}
+					>
+						{$t('common.cancel')}
+					</button>
+					<button
+						type="button"
+						class="dialog-btn dialog-btn--positive"
+						data-testid="model-sheet-confirm"
+						onclick={confirmPendingModel}
+					>
+						<Check size={13} strokeWidth={2.2} aria-hidden="true" />
+						{sheetChoiceName
+							? $t('modelPicker.use', { model: sheetChoiceName })
+							: $t('modelPicker.useNone')}
+					</button>
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -612,11 +735,116 @@ function autoExpandProviders() {
 		left: 0;
 		right: 0;
 		margin-bottom: 0;
-		border-radius: var(--radius-lg, 12px) var(--radius-lg, 12px) 0 0;
+		/* 16px on the top corners only — the one radius every sheet uses. */
+		border-radius: 16px 16px 0 0;
+		border-bottom: 0;
 		max-width: 100%;
-		max-height: 70vh;
+		max-height: 80dvh;
 		min-width: unset;
-		animation: sheetSlideUp 200ms ease-out;
+		padding-bottom: env(safe-area-inset-bottom);
+	}
+
+	/* The dimmed page behind the sheet, and the second of its three
+	   dismissals. */
+	.model-selector__scrim {
+		position: fixed;
+		inset: 0;
+		z-index: 99;
+		border: 0;
+		background: color-mix(in srgb, var(--surface-page) 68%, transparent 32%);
+		backdrop-filter: blur(2px);
+		cursor: pointer;
+	}
+
+	.model-selector__grabber {
+		display: grid;
+		place-items: center;
+		flex: 0 0 auto;
+		width: 100%;
+		height: 44px;
+		border: 0;
+		border-radius: 16px 16px 0 0;
+		background: transparent;
+		cursor: pointer;
+	}
+
+	.model-selector__grabber-bar {
+		width: 36px;
+		height: 4px;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--text-muted) 42%, transparent 58%);
+	}
+
+	.model-selector__grabber:focus-visible {
+		outline: none;
+		box-shadow: inset 0 0 0 2px var(--focus-ring);
+	}
+
+	.model-selector__sheet-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		flex: 0 0 auto;
+		padding: 0 var(--space-md, 0.75rem) var(--space-sm, 0.5rem);
+	}
+
+	.model-selector__sheet-copy {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+
+	.model-selector__sheet-title {
+		font-family: var(--font-sans);
+		font-size: 1rem;
+		font-weight: 700;
+		line-height: 1.2;
+		color: var(--text-primary);
+	}
+
+	.model-selector__sheet-sub {
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+	}
+
+	.model-selector__sheet-guide {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		flex: 0 0 auto;
+		min-height: 44px;
+		border: 1px solid var(--border-default);
+		border-radius: 6px;
+		background: var(--surface-page);
+		padding: 0 0.65rem;
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.model-selector__sheet-guide:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.model-selector__sheet-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		flex: 0 0 auto;
+		border-top: 1px solid var(--border-subtle);
+		padding: var(--space-md, 0.75rem);
+	}
+
+	.model-selector__sheet-footer :global(.dialog-btn) {
+		flex: 1 1 0;
+		min-height: 44px;
 	}
 
 	.model-selector__list {
@@ -754,15 +982,6 @@ function autoExpandProviders() {
 		}
 		to {
 			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	@keyframes sheetSlideUp {
-		from {
-			transform: translateY(100%);
-		}
-		to {
 			transform: translateY(0);
 		}
 	}
