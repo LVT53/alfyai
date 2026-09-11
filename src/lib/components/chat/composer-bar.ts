@@ -22,6 +22,8 @@
  * answers both "what is this" and "is it on".
  */
 
+import type { I18nKey } from "$lib/i18n";
+
 /** The three controls that stay on the bar. */
 export type ComposerBarIcon = "attach" | "accounts" | "thinking";
 
@@ -29,9 +31,16 @@ export type ComposerBarIcon = "attach" | "accounts" | "thinking";
  * A tooltip, as a key plus its parameters. Returned rather than resolved so
  * this module stays free of the i18n store and the component keeps ownership
  * of translation — the same split the command parser already uses.
+ *
+ * `key` is an `I18nKey`, not a `string`: every other `$t` call in the
+ * composer passes a literal the type checker can see, and this was the one
+ * path that did not — the component had to launder it with `as I18nKey`, so
+ * a typo in any of the eight keys below would have compiled, passed the
+ * tests here (which assert the key strings, not that they resolve), and
+ * printed `composerBar.attachOn` at people as a tooltip.
  */
 export interface ComposerTooltip {
-	key: string;
+	key: I18nKey;
 	params?: Record<string, string | number>;
 }
 

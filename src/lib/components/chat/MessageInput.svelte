@@ -797,7 +797,7 @@ const totalConnectionCount = $derived(
 // conditions in the markup. `resolveTooltip` is the only local piece: it
 // turns the key-and-parameters the module returns into a sentence.
 function resolveTooltip(tooltip: ComposerTooltip): string {
-	return $t(tooltip.key as I18nKey, tooltip.params);
+	return $t(tooltip.key, tooltip.params);
 }
 
 let attachedCount = $derived(pendingAttachments.length);
@@ -1489,6 +1489,24 @@ function clearLongPress() {
 		longPressTimer = null;
 	}
 	longPressLabel = null;
+}
+
+/**
+ * Keep the browser's own long-press gesture out of the way.
+ *
+ * Holding a bar icon is how a phone asks for the tooltip it has no hover to
+ * show — but a hold on a button is also what every mobile browser reads as
+ * "open the context menu", and Android Chrome raises one at ~500ms, right on
+ * top of the label we just drew. iOS answers the same hold with the callout
+ * and the selection magnifier. Both cancel the pointer, so the label can be
+ * torn down by the very gesture that asked for it.
+ *
+ * These three faces carry an icon and nothing selectable, so there is nothing
+ * the context menu could usefully offer on either pointer — a desktop
+ * right-click on them has no items worth keeping either.
+ */
+function suppressLongPressMenu(event: Event) {
+	event.preventDefault();
 }
 
 function toggleToolsMenu() {
@@ -2809,6 +2827,7 @@ async function emitDraftChange(force = false) {
 					onpointerup={clearLongPress}
 					onpointerleave={clearLongPress}
 					onpointercancel={clearLongPress}
+					oncontextmenu={suppressLongPressMenu}
 				>
 					<Paperclip size={isPhone ? 16 : 18} strokeWidth={2.1} aria-hidden="true" />
 				</button>
@@ -2833,6 +2852,7 @@ async function emitDraftChange(force = false) {
 						onpointerup={clearLongPress}
 						onpointerleave={clearLongPress}
 						onpointercancel={clearLongPress}
+						oncontextmenu={suppressLongPressMenu}
 					>
 						<Plug size={isPhone ? 16 : 18} strokeWidth={2.1} aria-hidden="true" />
 						{#if accountsCountBadge !== null}
@@ -2874,6 +2894,7 @@ async function emitDraftChange(force = false) {
 						onpointerup={clearLongPress}
 						onpointerleave={clearLongPress}
 						onpointercancel={clearLongPress}
+						oncontextmenu={suppressLongPressMenu}
 					>
 						<Brain size={isPhone ? 16 : 18} strokeWidth={2.1} aria-hidden="true" />
 					</button>
@@ -3387,6 +3408,12 @@ async function emitDraftChange(force = false) {
 		background: transparent;
 		color: var(--icon-muted);
 		cursor: pointer;
+		/* Paired with `oncontextmenu`: the hold that asks for the label must
+		   not also raise iOS's callout, start a selection, or flash the
+		   Android tap highlight over the icon. */
+		-webkit-touch-callout: none;
+		user-select: none;
+		-webkit-tap-highlight-color: transparent;
 		transition:
 			background-color var(--duration-standard) var(--ease-out),
 			color var(--duration-standard) var(--ease-out);
@@ -3449,6 +3476,10 @@ async function emitDraftChange(force = false) {
 			inset: 6px;
 			border-radius: 999px;
 			background: inherit;
+			/* The disc IS the on-state at this width, so the transition has
+			   to live on it: the button underneath stays transparent in both
+			   states and has nothing left to animate. */
+			transition: background-color var(--duration-standard) var(--ease-out);
 		}
 
 		.composer-face--on {

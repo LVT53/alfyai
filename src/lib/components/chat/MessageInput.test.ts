@@ -3226,6 +3226,39 @@ describe("MessageInput composer bar (Direction B)", () => {
 		expect(queryByTestId("incognito-toggle")).toBeNull();
 	});
 
+	// A hold on a bar icon is how a phone asks for the tooltip it has no
+	// hover to show. It is also what every mobile browser reads as "open the
+	// context menu" — Android Chrome raises one at ~500ms, right on top of
+	// the label, and iOS answers with the callout and the selection
+	// magnifier. Both cancel the pointer, so the gesture that asked for the
+	// label is the gesture that tears it down.
+	it("does not let a long press raise the browser's own context menu", () => {
+		const { getByTestId } = render(MessageInput, { reasoningDepth: "quick" });
+
+		for (const testId of [
+			"attach-toggle",
+			"connections-toggle",
+			"thinking-bar-toggle",
+		]) {
+			const event = new MouseEvent("contextmenu", {
+				bubbles: true,
+				cancelable: true,
+			});
+			getByTestId(testId).dispatchEvent(event);
+			expect(event.defaultPrevented).toBe(true);
+		}
+	});
+
+	it("leaves the composer's own text selectable — only the icons are held", () => {
+		const { getByTestId } = render(MessageInput, { reasoningDepth: "quick" });
+		const event = new MouseEvent("contextmenu", {
+			bubbles: true,
+			cancelable: true,
+		});
+		getByTestId("message-input").dispatchEvent(event);
+		expect(event.defaultPrevented).toBe(false);
+	});
+
 	it("keeps the context ring away until there is context to measure", () => {
 		const { container, queryByLabelText } = render(MessageInput);
 		expect(queryByLabelText("No context yet")).toBeNull();
