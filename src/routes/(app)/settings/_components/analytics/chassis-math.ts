@@ -123,7 +123,12 @@ export interface ColumnChart {
 	empty: boolean;
 }
 
-/** A minimum drawn height, so a tiny-but-real period is still visible. */
+/**
+ * A minimum drawn height, so a tiny-but-real period is still visible. It is
+ * applied only to a period that actually recorded something: a floor under a
+ * zero draws a month of no activity at the same height as a month of real
+ * activity, which is the same lie the solid current column exists to prevent.
+ */
 const MIN_BAR_PCT = 3;
 
 /**
@@ -149,7 +154,7 @@ export function buildColumnChart(
 	const columns = points.map((point, index) => ({
 		...point,
 		heightPct:
-			peak > 0
+			peak > 0 && point.value > 0
 				? Math.max(MIN_BAR_PCT, Math.round((point.value / peak) * 100))
 				: 0,
 		current: index === currentIndex,

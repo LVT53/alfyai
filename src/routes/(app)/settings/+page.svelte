@@ -558,6 +558,22 @@ onMount(() => {
 		return;
 	}
 
+	// The Knowledge Base's "Clear memory and knowledge" button. Clearing lives
+	// in the danger section, not on the memory on/off row, and landing someone
+	// on a toggle after they asked to clear is how the wrong switch gets
+	// flipped.
+	if (section === "danger") {
+		activeTab = "profile";
+		requestAnimationFrame(() => {
+			const card = document.getElementById("settings-section-danger");
+			if (!card) return;
+			card.scrollIntoView({ behavior: "smooth", block: "center" });
+			card.classList.add("settings-card-highlight");
+			setTimeout(() => card.classList.remove("settings-card-highlight"), 2000);
+		});
+		return;
+	}
+
 	// Connections redesign — the "not set up on this server yet" wizard state
 	// links here rather than telling a single-user server's owner to ask their
 	// administrator, who is the same person. Mirrors the tool-health handler

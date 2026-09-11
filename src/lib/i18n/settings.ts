@@ -1696,6 +1696,10 @@ const settingsDict = {
 		"analytics.llmCost": "LLM",
 		"analytics.noChartData": "Nothing to chart for this period yet.",
 		"analytics.parallelCostLabel": "Parallel",
+		// The split bar names at most three providers; everything past third
+		// place folds into one segment, so the legend still adds up to the hero
+		// number above it.
+		"analytics.otherProviders": "Other providers",
 		"analytics.splitBarLabel": "How the estimate breaks down",
 		"analytics.timelineGranularity": "Chart period",
 		"analytics.usageByModelPeriod": "Usage by model · {period}",
@@ -3565,6 +3569,7 @@ const settingsDict = {
 		"analytics.llmCost": "LLM",
 		"analytics.noChartData": "Ehhez az időszakhoz még nincs mit ábrázolni.",
 		"analytics.parallelCostLabel": "Parallel",
+		"analytics.otherProviders": "Egyéb szolgáltatók",
 		"analytics.splitBarLabel": "Miből áll össze a becslés",
 		"analytics.timelineGranularity": "Diagram időszaka",
 		"analytics.usageByModelPeriod": "Használat modellenként · {period}",

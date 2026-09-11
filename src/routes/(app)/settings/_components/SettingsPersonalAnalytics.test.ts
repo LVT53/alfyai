@@ -225,4 +225,51 @@ describe("SettingsPersonalAnalytics (ADR-0043 slice 18c)", () => {
 		expect(hero.textContent).toContain("Anthropic · $0.44");
 		expect(screen.getByTestId("analytics-split")).toBeInTheDocument();
 	});
+
+	it("folds the providers past third place in, so the legend adds up to the hero", () => {
+		const fixture = personalFixture();
+		const provider = (name: string, cost: number) => ({
+			providerId: name,
+			displayName: name,
+			totalCostUsd: cost,
+			totalTokens: 10,
+			msgCount: 1,
+		});
+		render(SettingsPersonalAnalytics, {
+			analyticsData: {
+				...fixture,
+				personal: {
+					...fixture.personal,
+					totalCostUsd: 10,
+					byProvider: [
+						provider("Alpha", 4),
+						provider("Bravo", 3),
+						provider("Charlie", 2),
+						provider("Delta", 0.6),
+						provider("Echo", 0.4),
+					],
+				},
+			},
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedMonth: "2026-06",
+		});
+
+		const hero = screen.getByTestId("analytics-hero");
+		expect(hero.textContent).toContain("$10.00");
+		expect(hero.textContent).toContain("Alpha · $4.00");
+		expect(hero.textContent).toContain("Bravo · $3.00");
+		expect(hero.textContent).toContain("Charlie · $2.00");
+		// Delta and Echo are not named, but their $1.00 is still accounted for.
+		expect(hero.textContent).toContain("Other providers · $1.00");
+		expect(hero.textContent).not.toContain("Delta");
+
+		const legendAmounts = [
+			...(hero.textContent ?? "").matchAll(/· \$(\d+\.\d\d)/g),
+		].map((match) => Number(match[1]));
+		expect(legendAmounts.reduce((sum, value) => sum + value, 0)).toBeCloseTo(
+			10,
+			2,
+		);
+	});
 });

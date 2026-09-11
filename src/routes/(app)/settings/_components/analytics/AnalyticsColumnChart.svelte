@@ -42,21 +42,28 @@ const chart = $derived(buildColumnChart(points, { labelEvery, currentIndex }));
 		<p class="chart-empty">{$t("analytics.noChartData")}</p>
 	{:else}
 		<div class="chart" data-testid="analytics-column-chart">
-			{#each chart.gridlines as line (line)}
-				<div class="chart-gridline" style={`bottom: ${line}%;`}></div>
-			{/each}
 			<span class="chart-peak" aria-label={$t("analytics.chartScaleLabel")}>
 				{formatValue(chart.peak)}
 			</span>
-			<div class="chart-bars">
-				{#each chart.columns as column, index (`${column.label}-${index}`)}
-					<span
-						class="chart-bar"
-						class:current={column.current}
-						style={`height: ${column.heightPct}%;`}
-						title={`${column.label || ""} ${formatValue(column.value)}`.trim()}
-					></span>
+			<!-- Gridlines and bars share one box. Hung off `.chart` instead, a
+			     gridline's `bottom: %` would resolve against the padding box the
+			     scale label sits in while a bar measures the content box below
+			     it, so the tallest bar would stop short of the 100% line and
+			     every reading taken off the grid would be wrong. -->
+			<div class="chart-plot">
+				{#each chart.gridlines as line (line)}
+					<div class="chart-gridline" style={`bottom: ${line}%;`}></div>
 				{/each}
+				<div class="chart-bars">
+					{#each chart.columns as column, index (`${column.label}-${index}`)}
+						<span
+							class="chart-bar"
+							class:current={column.current}
+							style={`height: ${column.heightPct}%;`}
+							title={`${column.label || ""} ${formatValue(column.value)}`.trim()}
+						></span>
+					{/each}
+				</div>
 			</div>
 		</div>
 		<div class="chart-axis">
@@ -93,6 +100,12 @@ const chart = $derived(buildColumnChart(points, { labelEvery, currentIndex }));
 		position: relative;
 		height: 150px;
 		padding-top: 1.15rem;
+	}
+
+	/* The plot: the one box both the gridlines and the bars are measured in. */
+	.chart-plot {
+		position: relative;
+		height: 100%;
 	}
 
 	.chart-gridline {

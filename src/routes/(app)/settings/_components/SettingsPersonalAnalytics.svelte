@@ -128,18 +128,39 @@ const favoriteModelLabel = $derived(
 const ACCENT = "var(--accent)";
 const ACCENT_SOFT = "color-mix(in srgb, var(--accent) 40%, transparent)";
 const ACCENT_FAINT = "color-mix(in srgb, var(--accent) 18%, transparent)";
+const ACCENT_REST = "color-mix(in srgb, var(--accent) 10%, transparent)";
 const SPLIT_COLORS = [ACCENT, ACCENT_SOFT, ACCENT_FAINT];
 
-const costSegments = $derived.by<CostSegmentInput[]>(() =>
-	[...(analyticsData?.personal?.byProvider ?? [])]
-		.sort((a, b) => b.totalCostUsd - a.totalCostUsd)
-		.slice(0, 3)
-		.map((provider, index) => ({
-			label: provider.displayName,
-			value: provider.totalCostUsd,
-			color: SPLIT_COLORS[index] ?? ACCENT_FAINT,
-		})),
-);
+/** How many providers the legend names before it starts folding. */
+const NAMED_PROVIDERS = 3;
+
+// Three named segments is as many as the legend can carry, but dropping the
+// fourth provider would leave a bar that fills and a legend that does not add
+// up to the hero above it. Everything past third place folds into one "Other
+// providers" segment instead, so the split stays an account of the whole
+// number rather than a sample of it.
+const costSegments = $derived.by<CostSegmentInput[]>(() => {
+	const ranked = [...(analyticsData?.personal?.byProvider ?? [])].sort(
+		(left, right) => right.totalCostUsd - left.totalCostUsd,
+	);
+	const named = ranked.slice(0, NAMED_PROVIDERS).map((provider, index) => ({
+		label: provider.displayName,
+		value: provider.totalCostUsd,
+		color: SPLIT_COLORS[index] ?? ACCENT_FAINT,
+	}));
+	const restTotal = ranked
+		.slice(NAMED_PROVIDERS)
+		.reduce((sum, provider) => sum + provider.totalCostUsd, 0);
+	if (restTotal <= 0) return named;
+	return [
+		...named,
+		{
+			label: $t("analytics.otherProviders"),
+			value: restTotal,
+			color: ACCENT_REST,
+		},
+	];
+});
 
 const heroLabel = $derived(
 	selectedMonth === null

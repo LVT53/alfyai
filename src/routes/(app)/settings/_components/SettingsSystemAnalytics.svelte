@@ -74,6 +74,12 @@ type SystemTab =
 	| "byUser";
 let activeTab = $state<SystemTab>("overview");
 
+// The two tabs whose content is drawn from the filtered read model, and so the
+// only two that may offer the User/Provider/Model filters.
+const filtersApplyToActiveTab = $derived(
+	activeTab === "byModel" || activeTab === "toolsLatency",
+);
+
 let excludedUsersSaveState = $state<"idle" | "saving" | "saved" | "error">(
 	"idle",
 );
@@ -324,12 +330,20 @@ const systemComparison = $derived.by(() => {
 	});
 });
 
-// Active users against configured accounts. The account list is only
-// populated for the admin screen that passes it, and it can lag the analytics
-// window, so the denominator is never allowed to fall below the numerator —
-// "9 / 1" is not a fact about anything.
+// Active users against configured accounts. The numerator counts distinct
+// users in the analytics window AFTER the excluded accounts are dropped
+// (analytics.ts filters systemFilteredUsage by the excluded set before it
+// counts), so the denominator has to drop them too — otherwise excluding
+// three admins makes the ratio look WORSE, which is the opposite of what the
+// toggle is for. The account list can also lag the analytics window, so the
+// denominator is never allowed to fall below the numerator: "9 / 1" is not a
+// fact about anything.
+const excludedUserIdSet = $derived(new Set(excludedUserIds));
 const configuredAccountCount = $derived(
-	Math.max(allUsers.length, system?.totalUsers ?? 0),
+	Math.max(
+		allUsers.filter((user) => !excludedUserIdSet.has(user.id)).length,
+		system?.totalUsers ?? 0,
+	),
 );
 
 const heroLabel = $derived(
@@ -415,8 +429,10 @@ function statusPillClass(status: unknown): string {
 // avgReasoningTokens and the first-token/generation percentiles are
 // undefined for a row predating those message_analytics marks; blank in the
 // table rather than a misleading 0.
-const allModelRows = $derived<TableRow[]>(
-	(effectiveSystem?.byModel ?? []).map((row) => ({
+type SystemByModelRows = NonNullable<typeof effectiveSystem>["byModel"];
+
+function toModelRows(rows: SystemByModelRows): TableRow[] {
+	return rows.map((row) => ({
 		model: row.displayName ?? modelDisplayName(row.model),
 		iconUrl: modelIconUrl(row.model),
 		provider: row.providerDisplayName ?? "",
@@ -428,8 +444,35 @@ const allModelRows = $derived<TableRow[]>(
 		firstTokenP90: row.firstTokenP90Ms ?? null,
 		generationP50: row.generationP50Ms ?? null,
 		reasoningTokens: row.avgReasoningTokens ?? null,
-	})),
+	}));
+}
+
+function sumRows(rows: readonly TableRow[], key: string): number {
+	return rows.reduce((sum, row) => sum + ((row[key] as number) ?? 0), 0);
+}
+
+const allModelRows = $derived<TableRow[]>(
+	toModelRows(effectiveSystem?.byModel ?? []),
 );
+
+// Overview reads the UNFILTERED breakdown. Its hero and tiles come from
+// `system` (the prop), and a table drawn from `effectiveSystem` under them
+// would let a filter set on another tab make the card disagree with its own
+// Total row.
+const overviewModelRows = $derived<TableRow[]>(
+	toModelRows(system?.byModel ?? []),
+);
+const overviewActiveModelRows = $derived(
+	overviewModelRows.filter((row) => row.status !== "removed"),
+);
+const overviewModelTotalRow = $derived<TableRow>({
+	model: $t("analytics.total"),
+	provider: "",
+	status: "",
+	calls: sumRows(overviewModelRows, "calls"),
+	tokens: sumRows(overviewModelRows, "tokens"),
+	cost: sumRows(overviewModelRows, "cost"),
+});
 
 // A model is "removed" once neither it nor its provider is offered anymore
 // (see ModelAvailability) — grouped separately at the bottom, behind the
@@ -449,9 +492,9 @@ const modelTotalRow = $derived<TableRow>({
 	model: $t("analytics.total"),
 	provider: "",
 	status: "",
-	calls: allModelRows.reduce((sum, row) => sum + (row.calls as number), 0),
-	tokens: allModelRows.reduce((sum, row) => sum + (row.tokens as number), 0),
-	cost: allModelRows.reduce((sum, row) => sum + (row.cost as number), 0),
+	calls: sumRows(allModelRows, "calls"),
+	tokens: sumRows(allModelRows, "tokens"),
+	cost: sumRows(allModelRows, "cost"),
 });
 
 function formatMs(value: number | null | undefined): string {
@@ -717,15 +760,14 @@ async function toggleExcludedUser(userId: string) {
 		<button class="btn-secondary mt-3" onclick={retry}>{$t('analytics.retry')}</button>
 	</div>
 {:else if analyticsData && system}
-	<AnalyticsChassis
-		title={$t('analytics.systemOverview')}
-		description={$t('analytics.systemAnalyticsDescription')}
-	>
-		{#snippet controls()}
-			<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
-		{/snippet}
-
-		{#snippet filters()}
+	<!-- Only the two tabs that read the filtered read model get the filter row.
+	     Drawn above Overview, Parallel API or By user these are controls that
+	     change nothing there — and worse on Overview, where the hero and the
+	     tiles come from the unfiltered prop while a filtered table would sit
+	     under them, so the card would contradict its own Total row. Passed as
+	     `undefined` rather than gated inside the snippet, so the chassis does
+	     not reserve an empty row for it either. -->
+	{#snippet systemFilters()}
 			<select
 				class="system-analytics-filter"
 				aria-label={$t('analytics.user')}
@@ -763,6 +805,15 @@ async function toggleExcludedUser(userId: string) {
 			{#if filteredLoading}
 				<span class="text-xs text-text-muted" role="status" aria-live="polite">{$t('analytics.loadingAnalytics')}</span>
 			{/if}
+	{/snippet}
+
+	<AnalyticsChassis
+		title={$t('analytics.systemOverview')}
+		description={$t('analytics.systemAnalyticsDescription')}
+		filters={filtersApplyToActiveTab ? systemFilters : undefined}
+	>
+		{#snippet controls()}
+			<MonthNav months={months} selected={selectedSystemMonth} onChange={onMonth} />
 		{/snippet}
 
 		{#snippet tabs()}
@@ -820,7 +871,7 @@ async function toggleExcludedUser(userId: string) {
 					note={$t('analytics.currentPeriodSolid')}
 				/>
 			{/if}
-			{#if activeModelRows.length > 0}
+			{#if overviewActiveModelRows.length > 0}
 				<div class="hr"></div>
 				<p class="settings-label mb-2">
 					{$t('analytics.usageByModelPeriod', {
@@ -837,9 +888,9 @@ async function toggleExcludedUser(userId: string) {
 				{/snippet}
 				<SortableTable
 					columns={overviewModelColumns}
-					rows={activeModelRows}
+					rows={overviewActiveModelRows}
 					initialSort={{ key: 'cost', dir: 'desc' }}
-					totalRow={modelTotalRow}
+					totalRow={overviewModelTotalRow}
 					cells={{ model: overviewModelCell }}
 				/>
 			{/if}

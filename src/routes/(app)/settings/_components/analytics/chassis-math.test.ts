@@ -173,6 +173,18 @@ describe("buildColumnChart", () => {
 		expect(chart.columns[0].heightPct).toBe(3);
 	});
 
+	it("gives a period that recorded nothing no bar at all", () => {
+		const chart = buildColumnChart([
+			{ label: "a", value: 500 },
+			{ label: "b", value: 0 },
+			{ label: "c", value: 1 },
+		]);
+		// A floor under a zero would draw an empty month at the same height as
+		// a month with real spend in it.
+		expect(chart.columns[1].heightPct).toBe(0);
+		expect(chart.columns[2].heightPct).toBe(3);
+	});
+
 	it("draws nothing above the axis for an all-zero series", () => {
 		const chart = buildColumnChart([
 			{ label: "a", value: 0 },
