@@ -25,10 +25,18 @@ test.skip(
 	"screenshot capture helper — set COMPOSER_CAPTURE=1 to run it",
 );
 
+// Where the PNGs land, and how big the desktop window is. Both are env
+// overrides so a second pass over the same states (a different window size,
+// a different directory to compare against) does not need a second copy of
+// this file.
 const OUT =
+	process.env.COMPOSER_CAPTURE_OUT ||
 	"/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/dc2da4d4-d513-4098-9b2b-8b6c426191eb/scratchpad/everyday-redesign/impl-composer";
 
-const DESKTOP = { width: 1280, height: 860 };
+const DESKTOP = {
+	width: Number(process.env.COMPOSER_CAPTURE_WIDTH || 1280),
+	height: Number(process.env.COMPOSER_CAPTURE_HEIGHT || 860),
+};
 const PHONE = { width: 390, height: 844 };
 
 async function setTheme(page: Page, theme: "light" | "dark") {
@@ -81,6 +89,19 @@ for (const theme of ["light", "dark"] as const) {
 		await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
 		await settle(page);
 		await page.screenshot({ path: `${OUT}/desktop-${theme}-menu-open.png` });
+
+		// The Model list as a flyout beside the menu — the state the old
+		// "upward from the row" positioning drew on top of the menu's own
+		// rows, so it is worth a picture of its own.
+		await page.getByTestId("model-selector-trigger").click();
+		await expect(
+			page.getByRole("listbox", { name: /model/i }).first(),
+		).toBeVisible();
+		await settle(page);
+		await page.screenshot({
+			path: `${OUT}/desktop-${theme}-model-flyout.png`,
+		});
+		await page.keyboard.press("Escape");
 
 		await page.keyboard.press("Escape");
 		await expect(page.getByTestId("composer-tools-menu")).toBeHidden();

@@ -2764,6 +2764,7 @@ async function emitDraftChange(force = false) {
 						bind:this={toolsMenuTrigger}
 						data-testid="composer-tools-trigger"
 						class="composer-face composer-face--plus"
+						class:composer-face--on={showToolsMenu}
 						onclick={toggleToolsMenu}
 						disabled={isComposerDisabled}
 						aria-label={$t('chat.openComposerTools')}
@@ -2775,6 +2776,7 @@ async function emitDraftChange(force = false) {
 
 					{#if showToolsMenu}
 						<ComposerToolsMenu
+							triggerElement={toolsMenuTrigger}
 							{canAttach}
 							{attachmentsEnabled}
 							onClose={closeToolsMenu}
@@ -3389,11 +3391,22 @@ async function emitDraftChange(force = false) {
 	}
 
 	/* ── Direction B: one face, three states ──────────────────────────
-	   Every icon on the bar is the same object: a 34px disc (32px on a
-	   phone) with a 44px hit area around it. Resting is an outline glyph on
-	   nothing; ON is a filled accent disc, because recolouring a 19px
-	   hairline is a hue shift nobody can read at a glance — and it asks you
-	   to already know what the resting colour was. */
+	   Every icon on the bar is the same object: a glyph on nothing, in a
+	   34px box (44px on a phone, which is the hit area). Nothing paints a
+	   disc behind it in any state — the accent-tinted hover disc and the
+	   filled accent on-state were two solid shapes competing with the text
+	   you are writing, for a row of controls that is mostly at rest.
+
+	   So the states are carried by the glyph and one small mark:
+
+	     rest   the muted icon colour
+	     hover  the icon colour goes to full strength, nothing else moves
+	     ON     the glyph is the accent, with a 4px accent dot under it
+
+	   The dot is what makes "on" legible without a fill: a hue shift on a
+	   19px hairline is invisible to anyone who does not already know what
+	   the resting colour was, but a mark that is either there or not there
+	   reads at a glance and survives being colour-blind. */
 	.composer-face {
 		position: relative;
 		display: inline-flex;
@@ -3414,14 +3427,11 @@ async function emitDraftChange(force = false) {
 		-webkit-touch-callout: none;
 		user-select: none;
 		-webkit-tap-highlight-color: transparent;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out);
+		transition: color var(--duration-standard) var(--ease-out);
 	}
 
 	.composer-face:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--accent) 12%, transparent);
-		color: var(--accent);
+		color: var(--icon-primary);
 	}
 
 	.composer-face:focus-visible {
@@ -3429,14 +3439,36 @@ async function emitDraftChange(force = false) {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
+	/* ON: the glyph in the accent, and a dot under it. No fill. */
 	.composer-face--on {
-		background: var(--accent);
-		color: var(--accent-contrast, #fff);
+		color: var(--accent);
+	}
+
+	.composer-face--on::after {
+		content: "";
+		position: absolute;
+		left: 50%;
+		bottom: 3px;
+		width: 4px;
+		height: 4px;
+		margin-left: -2px;
+		border-radius: 999px;
+		background: currentcolor;
 	}
 
 	.composer-face--on:hover:not(:disabled) {
-		background: var(--accent-hover);
-		color: var(--accent-contrast, #fff);
+		color: var(--accent-hover);
+	}
+
+	/* The plus rests a shade quieter than the three controls beside it — it
+	   is a way in, not a state — but it takes the same on-treatment while
+	   its menu is open, so the bar says which surface you are looking at. */
+	.composer-face--plus {
+		color: var(--text-muted);
+	}
+
+	.composer-face--plus.composer-face--on {
+		color: var(--accent);
 	}
 
 	/* Shown but greyed for users with no connections yet — the tooltip
@@ -3448,7 +3480,6 @@ async function emitDraftChange(force = false) {
 	}
 
 	.composer-face--muted:hover {
-		background: transparent;
 		color: var(--icon-muted);
 		opacity: 0.42;
 	}
@@ -3458,45 +3489,17 @@ async function emitDraftChange(force = false) {
 		opacity: 0.42;
 	}
 
-	.composer-face--plus {
-		color: var(--text-muted);
-	}
-
-	/* A phone keeps the 44px hit area but shrinks the face to 32px, so five
-	   controls and the send button still fit one row at 390px. */
+	/* A phone grows the whole face to the 44px hit area. There is no disc to
+	   inset any more, so the glyph simply centres in it and the on-dot moves
+	   down with the extra height. */
 	@media (max-width: 639px) {
 		.composer-face {
 			width: 44px;
 			height: 44px;
 		}
 
-		.composer-face::before {
-			content: "";
-			position: absolute;
-			inset: 6px;
-			border-radius: 999px;
-			background: inherit;
-			/* The disc IS the on-state at this width, so the transition has
-			   to live on it: the button underneath stays transparent in both
-			   states and has nothing left to animate. */
-			transition: background-color var(--duration-standard) var(--ease-out);
-		}
-
-		.composer-face--on {
-			background: transparent;
-			color: var(--accent-contrast, #fff);
-		}
-
-		.composer-face--on::before {
-			background: var(--accent);
-		}
-
-		.composer-face:hover:not(:disabled) {
-			background: transparent;
-		}
-
-		.composer-face--on:hover:not(:disabled)::before {
-			background: var(--accent-hover);
+		.composer-face--on::after {
+			bottom: 8px;
 		}
 	}
 
@@ -3542,20 +3545,15 @@ async function emitDraftChange(force = false) {
 		pointer-events: none;
 	}
 
-	/* The badge sits on the filled disc while the control is on, so it needs
-	   the disc's colour to read against rather than the accent it is made of. */
-	.composer-face--on .composer-connections-count {
-		border-color: var(--accent);
-		background: var(--accent-contrast, #fff);
-		color: var(--accent);
-	}
+	/* The badge reads the same in both states now that nothing is painted
+	   behind the glyph — it always sits on the composer's own surface. */
 
 	@media (max-width: 639px) {
-		/* The face shrinks to 32px inside the 44px target, so the badge moves
-		   in with it rather than floating at the corner of the hit area. */
+		/* The face is the full 44px target here, so the badge tucks in to
+		   the glyph rather than floating at the corner of the hit area. */
 		.composer-connections-count {
-			top: 4px;
-			right: 4px;
+			top: 7px;
+			right: 7px;
 		}
 	}
 
@@ -3712,6 +3710,10 @@ async function emitDraftChange(force = false) {
 	}
 
 	@media (prefers-reduced-motion: reduce) {
+		.composer-face {
+			transition: none;
+		}
+
 		.command-tray {
 			animation: none;
 		}

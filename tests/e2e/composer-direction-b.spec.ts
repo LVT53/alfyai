@@ -1,4 +1,7 @@
-import { expect, type Locator, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { eq } from "drizzle-orm";
+import { db } from "../../src/lib/server/db";
+import { conversations, messages, users } from "../../src/lib/server/db/schema";
 import { login, openConversationComposer } from "./helpers";
 
 /**
@@ -13,6 +16,73 @@ import { login, openConversationComposer } from "./helpers";
  */
 
 const PHONE = { width: 390, height: 844 };
+/** The window the owner reported the "+" menu clipping on. */
+const SHORT_DESKTOP = { width: 1280, height: 720 };
+
+/** Every state of every bar icon paints nothing behind the glyph. */
+const NO_FILL = new Set(["rgba(0, 0, 0, 0)", "transparent"]);
+
+async function backgroundOf(locator: Locator): Promise<string> {
+	return locator.evaluate(
+		(element) => getComputedStyle(element).backgroundColor,
+	);
+}
+
+/**
+ * A conversation with enough in it that the page scrolls and the composer
+ * sits on the bottom edge of the window — which is the whole condition for
+ * the "+" menu having nowhere to grow.
+ *
+ * Seeded rather than sent: the composer only has to BE at the bottom, and
+ * driving twenty real turns through a model to get it there would make this
+ * a test of the streaming stack.
+ */
+async function seedLongConversation(id: string): Promise<void> {
+	const [admin] = await db
+		.select()
+		.from(users)
+		.where(eq(users.email, "admin@local"))
+		.limit(1);
+	expect(admin, "the e2e admin must exist").toBeTruthy();
+
+	await db.delete(messages).where(eq(messages.conversationId, id));
+	await db.delete(conversations).where(eq(conversations.id, id));
+
+	const now = new Date();
+	await db.insert(conversations).values({
+		id,
+		userId: admin.id,
+		title: "A conversation long enough to scroll",
+		createdAt: now,
+		updatedAt: now,
+	});
+	await db.insert(messages).values(
+		Array.from({ length: 24 }, (_, index) => ({
+			id: `${id}-msg-${index}`,
+			conversationId: id,
+			messageSequence: index + 1,
+			role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+			content:
+				index % 2 === 0
+					? `Question number ${index / 2 + 1} about the battery rules.`
+					: "A paragraph of answer, long enough that the thread scrolls and the composer ends up on the bottom edge of the window rather than in the middle of the page.",
+			createdAt: now,
+		})),
+	);
+}
+
+async function openMenuAtBottom(page: Page, conversationId: string) {
+	await page.setViewportSize(SHORT_DESKTOP);
+	await login(page);
+	await page.goto(`/chat/${conversationId}`, {
+		waitUntil: "domcontentloaded",
+	});
+	await expect(page.getByTestId("message-input")).toBeVisible();
+	await page.getByTestId("composer-tools-trigger").click();
+	const menu = page.getByTestId("composer-tools-menu");
+	await expect(menu).toBeVisible();
+	return menu;
+}
 
 /**
  * Assert a sheet's bottom edge is the VIEWPORT's bottom edge.
@@ -108,6 +178,163 @@ test.describe("Composer Direction B — desktop", () => {
 		await expect(webSearch).toHaveAttribute("aria-checked", "true");
 		await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
 	});
+
+	// The owner: "the icons have a circle behind them, and I liked it better
+	// when the active colour accent was more low-key." Nothing paints a disc
+	// now — at rest, on hover, or on. What says "on" is the glyph colour and
+	// a 4px dot under it.
+	test("no icon paints a disc, in any state", async ({ page }) => {
+		const attach = page.getByTestId("attach-toggle");
+		expect(NO_FILL.has(await backgroundOf(attach))).toBe(true);
+
+		await attach.hover();
+		expect(NO_FILL.has(await backgroundOf(attach))).toBe(true);
+
+		// The plus takes the same on-treatment while its menu is open.
+		const plus = page.getByTestId("composer-tools-trigger");
+		await plus.click();
+		await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
+		await expect(plus).toHaveClass(/composer-face--on/);
+		expect(NO_FILL.has(await backgroundOf(plus))).toBe(true);
+
+		const dot = await plus.evaluate((element) => {
+			const style = getComputedStyle(element, "::after");
+			return {
+				content: style.content,
+				width: style.width,
+				background: style.backgroundColor,
+			};
+		});
+		expect(dot.content).not.toBe("none");
+		expect(dot.width).toBe("4px");
+		expect(NO_FILL.has(dot.background)).toBe(false);
+	});
+
+	// "Manage connections" was a full-width row under the account switches,
+	// where it read as one more account. It is the way OUT of the composer,
+	// so it sits in the heading opposite the count.
+	test("Manage connections is a link in the ACCOUNTS heading", async ({
+		page,
+	}) => {
+		await page.getByTestId("composer-tools-trigger").click();
+		const link = page.getByTestId("composer-menu-manage-connections");
+		await expect(link).toBeVisible();
+
+		const heading = page
+			.getByTestId("composer-tools-menu")
+			.locator(".menu-section", { has: link });
+		await expect(heading).toHaveCount(1);
+		await expect(link).toHaveCount(1);
+		expect(await link.evaluate((element) => element.getAttribute("role"))).toBe(
+			null,
+		);
+
+		// Heading text on the left, link on the right, on one line.
+		const title = heading.locator(".menu-section__title");
+		const titleBox = await title.boundingBox();
+		const linkBox = await link.boundingBox();
+		expect(linkBox?.x ?? 0).toBeGreaterThan(titleBox?.x ?? 0);
+		expect(Math.abs((linkBox?.y ?? 0) - (titleBox?.y ?? 0))).toBeLessThan(24);
+
+		// Tab reaches it: the arrow keys walk the rows, the link is above them.
+		await link.focus();
+		await expect(link).toBeFocused();
+	});
+});
+
+// The two defects that only show up with the composer where it actually
+// lives: on the bottom edge of a short window, at the end of a real thread.
+test.describe("Composer Direction B — a short window with the composer at the bottom", () => {
+	const CONVERSATION_ID = "conv-composer-short-window";
+
+	test.beforeEach(async () => {
+		await seedLongConversation(CONVERSATION_ID);
+	});
+
+	// The defect: the menu opened upward from a fixed `bottom: calc(100% +
+	// 8px)` with no measurement, so its top was simply cut off.
+	test("the menu opens fully inside the viewport", async ({ page }) => {
+		const menu = await openMenuAtBottom(page, CONVERSATION_ID);
+
+		const box = await menu.boundingBox();
+		expect(box).not.toBeNull();
+		expect(box?.y ?? -1).toBeGreaterThanOrEqual(0);
+		expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+		expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(
+			SHORT_DESKTOP.height,
+		);
+		expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(
+			SHORT_DESKTOP.width,
+		);
+
+		// Portalled, and measured — not an offset from the composer.
+		await expect(
+			menu.evaluate((element) => element.parentElement?.tagName ?? ""),
+		).resolves.toBe("BODY");
+
+		// Every row is reachable: the menu scrolls inside itself rather than
+		// growing past the edge.
+		const lastRow = page.getByTestId("composer-menu-style");
+		await lastRow.scrollIntoViewIfNeeded();
+		await expect(lastRow).toBeVisible();
+	});
+
+	// The defect: the model list opened upward from the Model row, over the
+	// menu's own Atlas / Incognito / account rows.
+	test("the model flyout opens beside the menu, not over its rows", async ({
+		page,
+	}) => {
+		const menu = await openMenuAtBottom(page, CONVERSATION_ID);
+		await page.getByTestId("model-selector-trigger").click();
+
+		const flyout = page.getByRole("listbox", { name: /model/i }).first();
+		await expect(flyout).toBeVisible();
+
+		const menuBox = await menu.boundingBox();
+		const flyoutBox = await flyout.boundingBox();
+		expect(menuBox).not.toBeNull();
+		expect(flyoutBox).not.toBeNull();
+		if (!menuBox || !flyoutBox) return;
+
+		// Disjoint boxes: the flyout is entirely to one side of the menu.
+		const clearOnTheRight = flyoutBox.x >= menuBox.x + menuBox.width;
+		const clearOnTheLeft = flyoutBox.x + flyoutBox.width <= menuBox.x;
+		expect(clearOnTheRight || clearOnTheLeft).toBe(true);
+
+		// And inside the window it was clamped to.
+		expect(flyoutBox.y).toBeGreaterThanOrEqual(0);
+		expect(flyoutBox.y + flyoutBox.height).toBeLessThanOrEqual(
+			SHORT_DESKTOP.height,
+		);
+		expect(flyoutBox.x + flyoutBox.width).toBeLessThanOrEqual(
+			SHORT_DESKTOP.width,
+		);
+
+		// The Atlas row it used to cover is still readable.
+		await expect(page.getByTestId("composer-menu-atlas")).toBeVisible();
+	});
+
+	// Style is a second, smaller list next to Model and had the same problem.
+	test("the style flyout opens beside the menu too", async ({ page }) => {
+		const menu = await openMenuAtBottom(page, CONVERSATION_ID);
+		const style = page.getByTestId("composer-menu-style");
+		if ((await style.count()) === 0) {
+			test.skip(true, "no personality profiles in this deployment");
+			return;
+		}
+		await style.click();
+
+		const flyout = page.locator(".model-selector__dropdown--flyout").first();
+		await expect(flyout).toBeVisible();
+
+		const menuBox = await menu.boundingBox();
+		const flyoutBox = await flyout.boundingBox();
+		if (!menuBox || !flyoutBox) throw new Error("boxes not measurable");
+		expect(
+			flyoutBox.x >= menuBox.x + menuBox.width ||
+				flyoutBox.x + flyoutBox.width <= menuBox.x,
+		).toBe(true);
+	});
 });
 
 test.describe("Composer Direction B — phone sheets", () => {
@@ -139,6 +366,17 @@ test.describe("Composer Direction B — phone sheets", () => {
 		await expect(
 			menu.evaluate((element) => element.parentElement?.tagName ?? ""),
 		).resolves.toBe("BODY");
+
+		// The bar keeps its 44px targets without a disc inside them.
+		const barAttach = page.getByTestId("attach-toggle");
+		await expect
+			.poll(async () => (await barAttach.boundingBox())?.height ?? 0)
+			.toBeGreaterThanOrEqual(44);
+		expect(
+			await barAttach.evaluate(
+				(element) => getComputedStyle(element, "::before").content,
+			),
+		).toBe("none");
 
 		// Rows are 44px targets, full width.
 		const attach = page.getByTestId("composer-menu-attach");
