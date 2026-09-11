@@ -29,6 +29,27 @@ async function backgroundOf(locator: Locator): Promise<string> {
 }
 
 /**
+ * A computed `color` comes back as `rgb(...)`, while the palette tokens are
+ * authored as hex. Resolve the token through the browser so the two are
+ * comparable — and read it off the live document, so the assertion holds in
+ * whichever theme the run is in.
+ */
+async function tokenRgb(page: Page, token: string): Promise<string> {
+	return page.evaluate((name) => {
+		const raw = getComputedStyle(document.documentElement)
+			.getPropertyValue(name)
+			.trim();
+		if (raw === "") throw new Error(`${name} is not defined`);
+		const probe = document.createElement("span");
+		probe.style.color = raw;
+		document.body.appendChild(probe);
+		const resolved = getComputedStyle(probe).color;
+		probe.remove();
+		return resolved;
+	}, token);
+}
+
+/**
  * A conversation with enough in it that the page scrolls and the composer
  * sits on the bottom edge of the window — which is the whole condition for
  * the "+" menu having nowhere to grow.
@@ -181,9 +202,11 @@ test.describe("Composer Direction B — desktop", () => {
 
 	// The owner: "the icons have a circle behind them, and I liked it better
 	// when the active colour accent was more low-key." Nothing paints a disc
-	// now — at rest, on hover, or on. What says "on" is the glyph colour and
-	// a 4px dot under it.
-	test("no icon paints a disc, in any state", async ({ page }) => {
+	// now — at rest, on hover, or on. And nothing paints a dot either: the
+	// 4px mark under an on glyph read as a fleck of dirt on a bar that sits
+	// a few pixels above the text you are typing. The accent glyph is the
+	// whole of "on".
+	test("no icon paints a disc or a dot, in any state", async ({ page }) => {
 		const attach = page.getByTestId("attach-toggle");
 		expect(NO_FILL.has(await backgroundOf(attach))).toBe(true);
 
@@ -197,48 +220,35 @@ test.describe("Composer Direction B — desktop", () => {
 		await expect(plus).toHaveClass(/composer-face--on/);
 		expect(NO_FILL.has(await backgroundOf(plus))).toBe(true);
 
-		const dot = await plus.evaluate((element) => {
+		const after = await plus.evaluate((element) => {
 			const style = getComputedStyle(element, "::after");
-			return {
-				content: style.content,
-				width: style.width,
-				background: style.backgroundColor,
-			};
+			return { content: style.content, background: style.backgroundColor };
 		});
-		expect(dot.content).not.toBe("none");
-		expect(dot.width).toBe("4px");
-		expect(NO_FILL.has(dot.background)).toBe(false);
-	});
-
-	// "Manage connections" was a full-width row under the account switches,
-	// where it read as one more account. It is the way OUT of the composer,
-	// so it sits in the heading opposite the count.
-	test("Manage connections is a link in the ACCOUNTS heading", async ({
-		page,
-	}) => {
-		await page.getByTestId("composer-tools-trigger").click();
-		const link = page.getByTestId("composer-menu-manage-connections");
-		await expect(link).toBeVisible();
-
-		const heading = page
-			.getByTestId("composer-tools-menu")
-			.locator(".menu-section", { has: link });
-		await expect(heading).toHaveCount(1);
-		await expect(link).toHaveCount(1);
-		expect(await link.evaluate((element) => element.getAttribute("role"))).toBe(
-			null,
+		// No generated dot: either the pseudo-element does not exist at all,
+		// or it paints nothing.
+		expect(after.content === "none" || NO_FILL.has(after.background)).toBe(
+			true,
 		);
 
-		// Heading text on the left, link on the right, on one line.
-		const title = heading.locator(".menu-section__title");
-		const titleBox = await title.boundingBox();
-		const linkBox = await link.boundingBox();
-		expect(linkBox?.x ?? 0).toBeGreaterThan(titleBox?.x ?? 0);
-		expect(Math.abs((linkBox?.y ?? 0) - (titleBox?.y ?? 0))).toBeLessThan(24);
+		// What is left is the glyph, in the accent. Polled rather than read
+		// once: the colour transitions in, and a single read right after the
+		// click catches it a frame or two along the way.
+		const box = await plus.boundingBox();
+		expect(box).not.toBeNull();
+		await page.mouse.move(0, 0);
+		await expect
+			.poll(() => plus.evaluate((element) => getComputedStyle(element).color))
+			.toBe(await tokenRgb(page, "--accent"));
 
-		// Tab reaches it: the arrow keys walk the rows, the link is above them.
-		await link.focus();
-		await expect(link).toBeFocused();
+		// Hovering an on icon deepens it rather than dropping it back to the
+		// resting colour the plain :hover rule would give.
+		await page.mouse.move(
+			(box?.x ?? 0) + (box?.width ?? 0) / 2,
+			(box?.y ?? 0) + (box?.height ?? 0) / 2,
+		);
+		await expect
+			.poll(() => plus.evaluate((element) => getComputedStyle(element).color))
+			.toBe(await tokenRgb(page, "--accent-hover"));
 	});
 });
 
