@@ -923,6 +923,21 @@ const chatDict = {
 		"personalityProfile.exploratory.description":
 			"Curious, asks clarifying questions, explores tradeoffs. Good for brainstorming and research.",
 		"personalityProfile.exploratory.name": "Exploratory",
+		"personalityProfile.brief.name": "Brief",
+		"personalityProfile.brief.description":
+			"As short as the question allows. Answer first, no preamble, no sign-off.",
+		"personalityProfile.thinkingPartner.name": "Thinking partner",
+		"personalityProfile.thinkingPartner.description":
+			"Curious, asks one clarifying question, explores tradeoffs. Good for brainstorming and research.",
+		"personalityProfile.storyteller.name": "Storyteller",
+		"personalityProfile.storyteller.description":
+			"Imaginative prose, metaphor and rhythm. For writing, ideas and anything that should read well.",
+		"personalityProfile.technical.name": "Technical",
+		"personalityProfile.technical.description":
+			"Exact terms, code and commands first, sources named, assumptions stated. No analogies.",
+		"personalityProfile.warm.name": "Warm",
+		"personalityProfile.warm.description":
+			"Plain words, patient, one thing at a time. For anyone who wants help, not a lecture.",
 		"sourceManager.addDocument": "Add document",
 		"sourceManager.clearAll": "Clear all",
 		"sourceManager.close": "Close sources",
@@ -1892,6 +1907,21 @@ const chatDict = {
 		"personalityProfile.exploratory.description":
 			"Kíváncsi, pontosító kérdéseket tesz fel, és feltárja a kompromisszumokat. Jó ötleteléshez és kutatáshoz.",
 		"personalityProfile.exploratory.name": "Felfedező",
+		"personalityProfile.brief.name": "Rövid",
+		"personalityProfile.brief.description":
+			"Olyan rövid, amennyire a kérdés engedi. Először a válasz, felvezetés és záró sor nélkül.",
+		"personalityProfile.thinkingPartner.name": "Gondolkodótárs",
+		"personalityProfile.thinkingPartner.description":
+			"Kíváncsi, egy pontosító kérdést tesz fel, feltárja a kompromisszumokat. Ötleteléshez és kutatáshoz.",
+		"personalityProfile.storyteller.name": "Mesélő",
+		"personalityProfile.storyteller.description":
+			"Képzeletgazdag próza, metafora és ritmus. Íráshoz, ötletekhez és mindenhez, aminek jól kell olvasnia magát.",
+		"personalityProfile.technical.name": "Technikai",
+		"personalityProfile.technical.description":
+			"Pontos kifejezések, előbb a kód és a parancs, megnevezett források, kimondott feltevések. Hasonlatok nélkül.",
+		"personalityProfile.warm.name": "Barátságos",
+		"personalityProfile.warm.description":
+			"Egyszerű szavak, türelem, egyszerre egy dolog. Annak, aki segítséget kér, nem előadást.",
 		"sourceManager.addDocument": "Dokumentum hozzáadása",
 		"sourceManager.clearAll": "Összes törlése",
 		"sourceManager.close": "Források bezárása",
