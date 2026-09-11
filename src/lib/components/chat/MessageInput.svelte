@@ -828,11 +828,19 @@ let thinkingLabel = $derived(resolveTooltip(thinkingTooltip(thinkingIsOn)));
 // The ring is a measurement, not a switch — so it appears once there is
 // something to measure and stays away until then. A ring reading "0" with a
 // full outline is a control that looks live and answers nothing.
+//
+// Evidence counts as something to measure even before the first turn has
+// cost anything: the ring's popover is the only way into the evidence
+// manager, so a conversation that HAS sources must show it or that manager
+// becomes unreachable.
 let hasContextToShow = $derived(
 	contextStatus !== null ||
 		composerArtifacts.length > 0 ||
 		totalTokens > 0 ||
-		totalCostUsd > 0,
+		totalCostUsd > 0 ||
+		(contextSources?.activeCount ?? 0) > 0 ||
+		(contextSources?.selectedCount ?? 0) > 0 ||
+		(contextSources?.pinnedCount ?? 0) > 0,
 );
 
 $effect(() => {

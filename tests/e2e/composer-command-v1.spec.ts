@@ -344,9 +344,21 @@ test.describe("Composer Command V1", () => {
 			.not.toBe("rgb(255, 255, 255)");
 		await sourceManager.getByRole("button", { name: "Close sources" }).click();
 
+		// ADR-0061 collapsed the reasoning-depth ladder into one on/off
+		// toggle. "/depth" survives only as a hidden alias for "/think", so it
+		// no longer opens a picker to choose "Off" from — it flips thinking
+		// directly, and the two remaining depths are "thorough" and "quick".
+		// The bar's thinking icon is where that state is now readable.
+		await expect(page.getByTestId("thinking-bar-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
 		await typeComposerCommand(page, "/depth");
 		await page.getByRole("option", { name: /\/depth/i }).click();
-		await page.getByRole("option", { name: "Off" }).click();
+		await expect(page.getByTestId("thinking-bar-toggle")).toHaveAttribute(
+			"aria-pressed",
+			"false",
+		);
 
 		await typeComposerCommand(page, "/attach");
 		await page.getByRole("option", { name: /\/attach/i }).click();
@@ -398,7 +410,9 @@ test.describe("Composer Command V1", () => {
 		expect(capture.streamBody).toMatchObject({
 			message: "Use every selected composer command in normal chat.",
 			attachmentIds: ["artifact-uploaded"],
-			reasoningDepth: "off",
+			// Thinking was flipped off above, and "off" is what "quick" is
+			// called on the wire since the ladder collapsed.
+			reasoningDepth: "quick",
 			pendingSkill: {
 				id: "skill-interview",
 				ownership: "user",
@@ -489,14 +503,11 @@ test.describe("Composer Command V1", () => {
 			waitUntil: "domcontentloaded",
 		});
 		await expect(page.getByTestId("message-input")).toBeVisible();
-		await expect
-			.poll(async () =>
-				page.evaluate(async () => {
-					const result = await fetch("/api/composer-commands");
-					return result.status;
-				}),
-			)
-			.toBe(200);
+		// There is no /api/composer-commands endpoint — the registry flag
+		// reaches the composer as a prop from the page load, which already
+		// happened above. This used to poll that URL for a 200 and so could
+		// only ever time out on its 404. The tray becoming visible below is
+		// the real readiness signal.
 		const closeSidebar = page.getByRole("button", { name: "Close sidebar" });
 		if (await closeSidebar.isVisible().catch(() => false)) {
 			await closeSidebar.evaluate((element) => {

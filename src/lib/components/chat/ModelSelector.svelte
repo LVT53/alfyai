@@ -193,6 +193,14 @@ $effect(() => {
 	void tick().then(updateDropdownPosition);
 });
 
+// The sheet is portaled to <body>, so it is nowhere near the trigger in the
+// DOM: without moving focus into it, a keyboard has no way to reach its rows
+// and Escape lands on the window listener that closes the whole "+" menu.
+$effect(() => {
+	if (!isOpen || !isMobile) return;
+	void tick().then(() => menuRef?.focus());
+});
+
 const activeProvider = $derived.by(() => {
 	const currentModelId = $selectedModel;
 	for (const provider of providers) {
@@ -362,6 +370,14 @@ function getFixedContainingBlockOffset(): { top: number; left: number } {
 
 function handleKeydown(event: KeyboardEvent) {
 	if (event.key === "Escape") {
+		// Stopped here on purpose. On a phone the panel is moved to <body>
+		// so its `position: fixed` means the viewport, which also means a
+		// keydown inside it no longer passes the "+" menu that opened it —
+		// it goes straight on to the window listener that closes that whole
+		// menu. Escape out of a picker should leave you in the menu you were
+		// picking from, so the event stops at the picker.
+		event.preventDefault();
+		event.stopPropagation();
 		setOpen(false);
 		return;
 	}
@@ -491,6 +507,7 @@ function autoExpandProviders() {
 			role="listbox"
 			aria-label={$t('modelSelector.availableModels')}
 			tabindex="-1"
+			onkeydown={handleKeydown}
 		>
 			{#if isMobile}
 				<!-- The sheet's first dismissal, and the same grabber every other
@@ -754,8 +771,7 @@ function autoExpandProviders() {
 		inset: 0;
 		z-index: 99;
 		border: 0;
-		background: color-mix(in srgb, var(--surface-page) 68%, transparent 32%);
-		backdrop-filter: blur(2px);
+		background: var(--scrim);
 		cursor: pointer;
 	}
 

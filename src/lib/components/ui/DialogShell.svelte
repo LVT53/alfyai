@@ -300,9 +300,15 @@ onDestroy(() => {
     ? 'padding: 0;'
     : `padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));`}
 >
+  <!-- A sheet gets the system scrim (the one --scrim token every other sheet
+       reads); a centred dialog keeps the frosted page it has always had. The
+       two presentations are different objects, but the SHEETS now all agree
+       with each other, which is what they did not do before. -->
   <button
     type="button"
-    class="absolute inset-0 bg-surface-page opacity-80 backdrop-blur-sm"
+    class={isSheet
+      ? 'dialog-sheet__scrim absolute inset-0'
+      : 'absolute inset-0 bg-surface-page opacity-80 backdrop-blur-sm'}
     aria-label={$t('common.close')}
     onclick={() => onClose?.()}
   ></button>
@@ -368,6 +374,10 @@ onDestroy(() => {
   .dialog-sheet--full {
     height: calc(100dvh - 30px);
     max-height: calc(100dvh - 30px);
+  }
+
+  .dialog-sheet__scrim {
+    background: var(--scrim);
   }
 
   .dialog-sheet__grabber {

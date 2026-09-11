@@ -6,6 +6,7 @@ import DialogShell, {
 	deregisterDialog,
 	isTopmostDialog,
 	panelScale,
+	panelSlide,
 	registerDialog,
 } from "./DialogShell.svelte";
 
@@ -398,6 +399,33 @@ describe("DialogShell reduced-motion transitions", () => {
 
 		expect(backdropConfig).toEqual({ duration: 0 });
 		expect(panelConfig).toEqual({ duration: 0 });
+	});
+
+	// The sheet is the path that actually flies 360px up the screen, and it
+	// was the one transition here nothing asserted.
+	it("collapses the sheet's slide to instant under prefers-reduced-motion", () => {
+		stubMatchMedia(true);
+
+		const sheetConfig = panelSlide(document.createElement("div"), {
+			duration: 250,
+			y: 360,
+			opacity: 1,
+		});
+
+		expect(sheetConfig).toEqual({ duration: 0 });
+	});
+
+	it("keeps the sheet sliding when reduced motion is not requested", () => {
+		stubMatchMedia(false);
+
+		const sheetConfig = panelSlide(document.createElement("div"), {
+			duration: 250,
+			y: 360,
+			opacity: 1,
+		});
+
+		expect(sheetConfig.duration).toBe(250);
+		expect(typeof sheetConfig.css).toBe("function");
 	});
 
 	it("retains the full fade/scale motion when reduced motion is not requested", () => {

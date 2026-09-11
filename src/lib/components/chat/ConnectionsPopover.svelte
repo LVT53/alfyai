@@ -22,6 +22,7 @@ import {
 import BrandIcon from "$lib/components/ui/BrandIcon.svelte";
 import Toggle from "$lib/components/ui/Toggle.svelte";
 import { t } from "$lib/i18n";
+import { portalToBody } from "$lib/utils/portal";
 import { reducedMotionAware } from "$lib/utils/motion";
 
 let {
@@ -103,6 +104,7 @@ onMount(() => {
 {#if isSheet}
 	<div
 		class="connections-scrim"
+		use:portalToBody
 		transition:scrimFade={{ duration: 140 }}
 		aria-hidden="true"
 	></div>
@@ -111,6 +113,7 @@ onMount(() => {
 	bind:this={root}
 	class="connections-popover"
 	class:connections-popover--sheet={isSheet}
+	use:portalToBody={isSheet}
 	transition:popoverFly={{ duration: isSheet ? 200 : 140, y: flyDistance }}
 	data-testid="connections-popover"
 	role="group"
@@ -214,14 +217,16 @@ onMount(() => {
 		box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4);
 	}
 
-	/* Phone: a bottom sheet over the page. `position: fixed` escapes the
-	   composer's stacking context; no ancestor carries a transform, so the
-	   sheet really is viewport-anchored. */
+	/* Phone: a bottom sheet over the page. `position: fixed` alone is not
+	   enough — the landing page centres its composer with
+	   `translateY(-50%)`, which makes that composer the containing block and
+	   left this sheet floating in the middle of the screen. `portalToBody`
+	   moves it out to the body, where fixed means the viewport. */
 	.connections-scrim {
 		position: fixed;
 		inset: 0;
 		z-index: 59;
-		background: rgba(0, 0, 0, 0.28);
+		background: var(--scrim);
 	}
 
 	.connections-popover--sheet {

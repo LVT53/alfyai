@@ -231,6 +231,14 @@ describe("phone presentation", () => {
 			const panel = screen.getByTestId("connections-popover");
 			expect(panel.classList.contains("connections-popover--sheet")).toBe(true);
 			expect(panel.querySelector(".sheet-grip")).not.toBeNull();
+			// `position: fixed` is only fixed to the viewport while no
+			// ancestor is transformed, and the landing page centres its
+			// composer with translateY(-50%). So the sheet is moved out to
+			// the body, or it hangs in the middle of the screen.
+			expect(panel.parentElement).toBe(document.body);
+			expect(
+				document.body.querySelector(":scope > .connections-scrim"),
+			).not.toBeNull();
 		} finally {
 			window.matchMedia = original;
 		}

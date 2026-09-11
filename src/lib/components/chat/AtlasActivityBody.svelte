@@ -213,6 +213,20 @@ $effect(() => {
 	return () => window.removeEventListener("mousedown", handleMouseDown);
 });
 
+// Escape closes the sheet too. The scrim and the grabber are the ways out a
+// thumb has; a keyboard had none, which is the one dismissal every other
+// sheet in the system offers and this one did not.
+$effect(() => {
+	if (!downloadMenuOpen || typeof window === "undefined") return;
+	function handleKeyDown(event: KeyboardEvent) {
+		if (event.key !== "Escape") return;
+		event.stopPropagation();
+		downloadMenuOpen = false;
+	}
+	window.addEventListener("keydown", handleKeyDown);
+	return () => window.removeEventListener("keydown", handleKeyDown);
+});
+
 function buildStageLine(): { label: string; detail: string | null } {
 	if (details.phase) {
 		const label = $t(PHASE_LABEL_KEYS[details.phase]);
@@ -1214,8 +1228,7 @@ function handleTabKeydown(event: KeyboardEvent) {
 		inset: 0;
 		z-index: 99;
 		border: 0;
-		background: color-mix(in srgb, var(--surface-page) 68%, transparent 32%);
-		backdrop-filter: blur(2px);
+		background: var(--scrim);
 		cursor: pointer;
 	}
 
