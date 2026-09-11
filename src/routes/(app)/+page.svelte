@@ -664,6 +664,22 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 		padding: 0 2px;
 	}
 
+	/* The air above the greeting. HomeV4A gives the greeting room to land in
+	   rather than starting it against the top of the stage; the layer below is
+	   vertically centred, so the air is carried as the band's own padding and
+	   exists only in the greeting state — once the composer hands off to a
+	   conversation the band is gone and takes its padding with it.
+
+	   Behind a height query because air is the FIRST thing that should give
+	   way: on a 460px-tall window the board already scrolls to keep the
+	   composer whole, and a decorative 40px must not be the reason it has to.
+	   (Phone sizing lives with the rest of the phone rules below.) */
+	@media (min-height: 560px) {
+		.home-band {
+			padding-top: 40px;
+		}
+	}
+
 	.home-greeting {
 		min-width: 0;
 		margin: 0;
@@ -752,6 +768,15 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 
 		.home-greeting-plain {
 			display: inline;
+		}
+	}
+
+	/* 24px rather than 40 on a phone: 40 on a 390×844 screen is air bought with
+	   the bottom of the composer, and the composer staying above the fold is
+	   worth more than the gap. Asserted in home-compact.spec.ts. */
+	@media (max-width: 767px) and (min-height: 560px) {
+		.home-band {
+			padding-top: 24px;
 		}
 	}
 
