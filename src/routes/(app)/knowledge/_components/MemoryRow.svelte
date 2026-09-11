@@ -130,13 +130,19 @@ const removeBusy = $derived(
 </div>
 
 <style>
+	/* A grid, not a flex row: the dot sits in the section's shared gutter, so
+	   its column, the statement column and the actions column are in the same
+	   place on every row whether the statement runs to one line or three.
+	   `--memory-gutter` comes from the section; the fallback keeps a row
+	   rendered on its own honest. */
 	.memory-row {
-		display: flex;
-		align-items: flex-start;
-		gap: 0.7rem;
+		display: grid;
+		grid-template-columns: var(--memory-gutter, 1.4rem) minmax(0, 1fr) auto;
+		align-items: start;
 		padding: 0.6rem 0;
 		border-top: 1px solid
 			color-mix(in srgb, var(--border-default) 50%, transparent 50%);
+		transition: background-color var(--duration-standard) var(--ease-out);
 	}
 
 	/* Only the row that opens the list loses its divider. `:first-child` is not
@@ -148,20 +154,24 @@ const removeBusy = $derived(
 		border-top: none;
 	}
 
+	/* The same 4%/7% the document rows use, so a row on either tab answers a
+	   pointer with the same amount of colour. */
 	.memory-row:hover {
-		background: color-mix(in srgb, var(--accent) 3%, transparent 97%);
+		background: color-mix(in srgb, var(--accent) 4%, transparent 96%);
 	}
 
 	:global(.dark) .memory-row:hover {
-		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
+		background: color-mix(in srgb, var(--accent) 7%, transparent 93%);
 	}
 
 	.memory-dot {
 		flex-shrink: 0;
 		width: 0.5rem;
 		height: 0.5rem;
-		margin-top: 0.4rem;
-		border-radius: 9999px;
+		/* Optically centred on the statement's first line: 0.82rem of text at
+		   1.5 line-height is a 19.7px line box, so the 8px dot starts 6px in. */
+		margin-top: 0.375rem;
+		border-radius: var(--radius-full);
 	}
 
 	.memory-dot--stated {
@@ -178,7 +188,6 @@ const removeBusy = $derived(
 	}
 
 	.memory-row-body {
-		flex: 1 1 auto;
 		min-width: 0;
 	}
 
@@ -204,7 +213,7 @@ const removeBusy = $derived(
 		align-items: center;
 		margin-left: 0.4rem;
 		padding: 0 0.4rem;
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		font-size: 0.6rem;
 		line-height: 1.5;
 		white-space: nowrap;
@@ -227,53 +236,55 @@ const removeBusy = $derived(
 		display: flex;
 		flex-shrink: 0;
 		align-items: center;
-		gap: 0.3rem;
-		opacity: 0.55;
-		transition: opacity 150ms ease;
-	}
-
-	.memory-row:hover .memory-row-actions,
-	.memory-row:focus-within .memory-row-actions {
-		opacity: 1;
+		gap: 0.15rem;
+		/* Centred on the statement's FIRST line, not on a row whose height
+		   depends on how long the sentence ran: that line box is 1.23rem
+		   (0.82rem × 1.5) and the buttons are 1.65rem, so they come up by
+		   half the difference. Without this the pair drifts down a row as
+		   soon as a statement wraps, and no two rows agree. */
+		margin-top: -0.21rem;
 	}
 
 	.memory-action {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.25rem;
-		height: 1.55rem;
-		padding: 0 0.5rem;
-		border: 1px solid var(--border-default);
-		border-radius: 9999px;
+		justify-content: center;
+		gap: 0.28rem;
+		min-height: 1.65rem;
+		padding: 0 0.45rem;
+		border: 1px solid transparent;
+		border-radius: var(--radius-full);
 		background: transparent;
-		color: var(--text-secondary);
+		color: var(--text-muted);
 		font-family: var(--font-sans);
 		font-size: 0.66rem;
 		font-weight: 500;
 		cursor: pointer;
 		white-space: nowrap;
 		transition:
-			border-color 150ms ease,
-			background-color 150ms ease,
-			color 150ms ease;
+			border-color var(--duration-standard) var(--ease-out),
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
 	.memory-action:hover:not(:disabled),
 	.memory-action:focus-visible:not(:disabled) {
-		border-color: var(--accent);
-		color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
+		color: var(--text-primary);
+		background: color-mix(in srgb, var(--text-primary) 7%, transparent 93%);
 	}
 
-	.memory-action--danger {
-		color: var(--danger);
+	.memory-action:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
+	/* Danger is a hover state, not a resting one: fifty rows of standing red
+	   is a warning nobody reads. */
 	.memory-action--danger:hover:not(:disabled),
 	.memory-action--danger:focus-visible:not(:disabled) {
-		border-color: var(--danger);
 		color: var(--danger);
-		background: color-mix(in srgb, var(--danger) 7%, transparent 93%);
+		border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+		background: color-mix(in srgb, var(--danger) 12%, transparent);
 	}
 
 	.memory-action:disabled {
@@ -283,20 +294,21 @@ const removeBusy = $derived(
 
 	/* The actions wrap under the statement on a narrow screen rather than
 	   squeezing the words they exist to explain. */
+	/* The actions drop under the statement on a narrow screen rather than
+	   squeezing the words they exist to explain. */
 	@media (max-width: 640px) {
 		.memory-row {
-			flex-wrap: wrap;
+			grid-template-columns: var(--memory-gutter, 1.4rem) minmax(0, 1fr);
 		}
 
 		.memory-row-actions {
-			opacity: 1;
-			width: 100%;
+			grid-column: 2;
 			justify-content: flex-end;
 		}
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.memory-row-actions,
+		.memory-row,
 		.memory-action {
 			transition: none !important;
 		}

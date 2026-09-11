@@ -197,7 +197,7 @@ const noMatchesAnywhere = $derived(
 <style>
 	.memory-portrait {
 		border: 1px solid var(--border-default);
-		border-radius: 1rem;
+		border-radius: var(--knowledge-card-radius, 1rem);
 		background: var(--surface-elevated);
 		box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
 		overflow: hidden;
@@ -205,7 +205,7 @@ const noMatchesAnywhere = $derived(
 	}
 
 	.memory-filter-bar {
-		padding: 0.75rem 1.15rem 0.8rem;
+		padding: 0.85rem 1.15rem;
 		border-top: 1px solid var(--border-default);
 		background: var(--surface-page);
 	}
@@ -214,7 +214,7 @@ const noMatchesAnywhere = $derived(
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 0.6rem;
+		gap: 0.5rem 0.6rem;
 	}
 
 	.memory-filter-input {
@@ -224,15 +224,15 @@ const noMatchesAnywhere = $derived(
 		flex: 1 1 240px;
 		max-width: 22rem;
 		min-width: 0;
-		height: 2rem;
+		height: 1.85rem;
 		padding: 0 0.6rem;
 		border: 1px solid var(--border-default);
-		border-radius: 0.5rem;
+		border-radius: var(--radius-full);
 		background: var(--surface-elevated);
 		color: var(--text-muted);
 		transition:
-			border-color 150ms ease,
-			box-shadow 150ms ease;
+			border-color var(--duration-standard) var(--ease-out),
+			box-shadow var(--duration-standard) var(--ease-out);
 	}
 
 	.memory-filter-input:focus-within {
@@ -263,14 +263,18 @@ const noMatchesAnywhere = $derived(
 		width: 1.1rem;
 		height: 1.1rem;
 		border: none;
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		background: transparent;
 		color: var(--text-muted);
 		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
 	.memory-filter-clear:hover {
 		color: var(--text-primary);
+		background: color-mix(in srgb, var(--text-primary) 10%, transparent 90%);
 	}
 
 	.memory-filter-chips {
@@ -286,10 +290,12 @@ const noMatchesAnywhere = $derived(
 		display: inline-flex;
 		align-items: center;
 		gap: 0.3rem;
-		height: 1.65rem;
-		padding: 0 0.55rem;
+		/* One height with the filter box beside it, so the row reads as a
+		   single band rather than as a tall control and a short one. */
+		height: 1.85rem;
+		padding: 0 0.6rem;
 		border: 1px solid var(--border-default);
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		background: var(--surface-elevated);
 		color: var(--text-secondary);
 		font-family: var(--font-sans);
@@ -298,21 +304,34 @@ const noMatchesAnywhere = $derived(
 		cursor: pointer;
 		white-space: nowrap;
 		transition:
-			border-color 150ms ease,
-			background-color 150ms ease,
-			color 150ms ease;
+			border-color var(--duration-standard) var(--ease-out),
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
+	/* A chip that does nothing on hover is indistinguishable from the label it
+	   looks like. The fill is the same 12% step the buttons take. */
 	.memory-chip-button:hover,
 	.memory-chip-button:focus-visible {
-		border-color: var(--accent);
+		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated) 92%);
 		color: var(--accent);
+	}
+
+	.memory-chip-button:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.memory-chip-button.is-active {
 		border-color: color-mix(in srgb, var(--accent) 40%, var(--border-default) 60%);
-		background: color-mix(in srgb, var(--accent) 10%, var(--surface-elevated) 90%);
+		background: color-mix(in srgb, var(--accent) 12%, var(--surface-elevated) 88%);
 		color: var(--accent);
+	}
+
+	.memory-chip-button.is-active:hover {
+		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+		background: color-mix(in srgb, var(--accent) 18%, var(--surface-elevated) 82%);
 	}
 
 	.memory-chip-count {
@@ -321,7 +340,7 @@ const noMatchesAnywhere = $derived(
 	}
 
 	.memory-filter-hint {
-		margin: 0.55rem 0 0;
+		margin: 0.6rem 0 0;
 		font-family: var(--font-sans);
 		font-size: 0.68rem;
 		line-height: 1.5;

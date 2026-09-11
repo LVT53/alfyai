@@ -200,20 +200,34 @@ function toggleKeepingPosition() {
 
 <style>
 	.memory-section {
+		/* One gutter for the whole section: the heading's icon, every row's
+		   provenance dot and the disclosure's chevron all start here, so the
+		   statements, the title and the disclosure label line up down a single
+		   left edge. The dot column used to be 19.2px and the icon column 23px,
+		   which put the section title 4px right of the facts under it. */
+		--memory-gutter: 1.4rem;
 		border-top: 1px solid var(--border-default);
-		padding: 0.9rem 1.15rem 0.85rem;
+		padding: 0.85rem 1.15rem;
 	}
 
+	/* Baseline, not centre: the count is 0.68rem beside a 0.86rem title, and
+	   centring two different type sizes leaves neither of them on a line. */
 	.memory-section-head {
 		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+		align-items: baseline;
+		gap: 0.35rem 0.5rem;
 		flex-wrap: wrap;
-		margin-bottom: 0.35rem;
+		margin-bottom: 0.45rem;
 	}
 
+	/* The icon owns the gutter exactly: the negative margin cancels the row's
+	   own gap for this one item, so the title begins on the gutter's edge —
+	   the same x the statements below it begin on. */
 	.memory-section-icon {
 		display: inline-flex;
+		align-self: center;
+		flex: 0 0 var(--memory-gutter);
+		margin-right: -0.5rem;
 		color: var(--accent);
 	}
 
@@ -237,6 +251,7 @@ function toggleKeepingPosition() {
 
 	.memory-section-empty {
 		margin: 0.35rem 0 0;
+		padding-left: var(--memory-gutter);
 		font-family: var(--font-sans);
 		font-size: 0.76rem;
 		line-height: 1.5;
@@ -258,7 +273,9 @@ function toggleKeepingPosition() {
 		align-items: center;
 		gap: 0.6rem;
 		flex-wrap: wrap;
-		padding-top: 0.55rem;
+		/* The button's own border and padding are subtracted so its chevron —
+		   not its border — lands on the gutter, beside the dots above it. */
+		padding: 0.6rem 0 0 calc(var(--memory-gutter) - 0.55rem - 1px);
 	}
 
 	.memory-section-more {
@@ -274,7 +291,7 @@ function toggleKeepingPosition() {
 		height: 1.6rem;
 		padding: 0 0.55rem;
 		border: 1px solid var(--border-default);
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		background: transparent;
 		color: var(--text-secondary);
 		font-family: var(--font-sans);
@@ -282,16 +299,25 @@ function toggleKeepingPosition() {
 		font-weight: 500;
 		cursor: pointer;
 		transition:
-			border-color 150ms ease,
-			color 150ms ease,
-			background-color 150ms ease;
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
+			background-color var(--duration-standard) var(--ease-out);
 	}
 
 	.memory-disclosure:hover,
 	.memory-disclosure:focus-visible {
-		border-color: var(--accent);
+		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 		color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
+		background: color-mix(in srgb, var(--accent) 8%, transparent 92%);
+	}
+
+	.memory-disclosure:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.memory-disclosure--head {
+		align-self: center;
 	}
 
 	@media (prefers-reduced-motion: reduce) {
