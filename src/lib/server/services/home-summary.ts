@@ -564,9 +564,54 @@ async function readRunning(
 
 const cache = new Map<string, { expiresAt: number; value: HomeSummary }>();
 
+/**
+ * How many users' summaries may sit in the cache at once.
+ *
+ * An entry going stale is not an entry going away: without this the map keeps
+ * one payload — twelve buckets, three conversations and nine rendered
+ * suggestions — per user who has ever opened the home screen since the process
+ * started, for the life of the process. A thousand seats is a few megabytes of
+ * summaries nobody is going to read again, and on a self-hosted box that is
+ * memory the model needs. Insertion order is eviction order (Map preserves it),
+ * which for a 30-second entry is close enough to least-recently-used.
+ */
+export const HOME_SUMMARY_CACHE_MAX_ENTRIES = 500;
+
 /** Test seam. */
 export function clearHomeSummaryCache(): void {
 	cache.clear();
+}
+
+/** Test seam: how many entries are currently held. */
+export function homeSummaryCacheSize(): number {
+	return cache.size;
+}
+
+/**
+ * Writes one entry and keeps the map bounded. Exported (and given the map as an
+ * argument) so the bound can be tested without a database behind it.
+ */
+export function storeBoundedSummary<T extends { expiresAt: number }>(
+	entries: Map<string, T>,
+	userId: string,
+	entry: T,
+	now: number,
+	max = HOME_SUMMARY_CACHE_MAX_ENTRIES,
+): void {
+	// Sweeping first means a busy process usually never reaches the cap, and
+	// the cap is what stops an idle-but-large user base from accumulating.
+	for (const [key, held] of entries) {
+		if (held.expiresAt <= now) entries.delete(key);
+	}
+	// Re-inserting moves the key to the end of the iteration order, so a user
+	// who keeps reading is never the one evicted.
+	entries.delete(userId);
+	entries.set(userId, entry);
+	while (entries.size > max) {
+		const oldest = entries.keys().next();
+		if (oldest.done) break;
+		entries.delete(oldest.value);
+	}
 }
 
 async function computeHomeSummary(
@@ -608,10 +653,12 @@ export async function getHomeSummary(params: {
 	if (cached && cached.expiresAt > now.getTime()) return cached.value;
 
 	const value = await computeHomeSummary(params.userId, now);
-	cache.set(params.userId, {
-		expiresAt: now.getTime() + homeSummaryCacheTtlMs(),
-		value,
-	});
+	storeBoundedSummary(
+		cache,
+		params.userId,
+		{ expiresAt: now.getTime() + homeSummaryCacheTtlMs(), value },
+		now.getTime(),
+	);
 
 	// Only on a miss: a client polling the summary must not be able to turn the
 	// rail into a write endpoint. Best effort — the home screen must render

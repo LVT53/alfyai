@@ -80,6 +80,34 @@ export interface HomeSuggestion {
 
 export type HomeSuggestionEventKind = "shown" | "dismissed" | "used";
 
+/** Every kind this engine mints a key for, in one place. */
+export const HOME_SUGGESTION_KINDS: readonly HomeSuggestionKind[] = [
+	"calendar",
+	"files",
+	"email",
+	"memory",
+	"conversation",
+	"atlas",
+];
+
+/**
+ * The shape of a candidate key, checked where the events endpoint accepts one.
+ *
+ * NOT a check that the object still exists: a key whose conversation or job was
+ * deleted must stay storable, because the seven-day demotion it earned outlives
+ * the thing it points at. It is a check that the client is handing back one of
+ * this engine's OWN keys — a known kind and an id — rather than using a
+ * per-user table with a seven-day retention as free text storage. Hence: no
+ * whitespace, no prose, and a length an identifier can actually reach.
+ */
+const CANDIDATE_KEY_PATTERN = new RegExp(
+	`^(?:${HOME_SUGGESTION_KINDS.join("|")}):[A-Za-z0-9:._-]{1,160}$`,
+);
+
+export function isHomeSuggestionCandidateKey(value: string): boolean {
+	return CANDIDATE_KEY_PATTERN.test(value);
+}
+
 /** How long an acted-on candidate stays demoted. */
 export const HOME_SUGGESTION_EVENT_TTL_SECONDS = 7 * 24 * 60 * 60;
 

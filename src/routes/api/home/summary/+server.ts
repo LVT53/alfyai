@@ -8,8 +8,10 @@
 
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
+import { checkHomeSuggestionEventRateLimit } from "$lib/server/services/home-suggestion-rate-limit";
 import {
 	type HomeSuggestionEventKind,
+	isHomeSuggestionCandidateKey,
 	recordHomeSuggestionEvent,
 } from "$lib/server/services/home-suggestions";
 import {
@@ -19,7 +21,6 @@ import {
 import type { RequestHandler } from "./$types";
 
 const EVENT_KINDS: HomeSuggestionEventKind[] = ["shown", "dismissed", "used"];
-const MAX_CANDIDATE_KEY_LENGTH = 200;
 
 export const GET: RequestHandler = async (event) => {
 	requireAuth(event);
@@ -33,6 +34,13 @@ export const GET: RequestHandler = async (event) => {
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
+	// Every accepted call inserts a row that lives seven days, and the key is
+	// the client's to choose. Nothing downstream caps how many DIFFERENT keys
+	// one account can write, so the cap goes here — before the body is even
+	// read, so a flood costs nothing but the window check.
+	if (!checkHomeSuggestionEventRateLimit(event.locals.user.id)) {
+		return json({ error: "Too many requests" }, { status: 429 });
+	}
 	const body = await event.request.json().catch(() => null);
 	const candidateKey =
 		body && typeof body.candidateKey === "string"
@@ -43,11 +51,19 @@ export const POST: RequestHandler = async (event) => {
 	if (!candidateKey) {
 		return json({ error: "candidateKey is required" }, { status: 400 });
 	}
-	// The engine's own keys are `<kind>:<uuid>`. The bound is not a format
-	// check — a key whose object was deleted must still be storable — it just
-	// stops the table being used as free per-user storage.
-	if (candidateKey.length > MAX_CANDIDATE_KEY_LENGTH) {
-		return json({ error: "candidateKey is too long" }, { status: 400 });
+	// The engine's own keys are `<kind>:<id>`, and only those are stored. This
+	// is deliberately NOT a check that the object still exists — a key whose
+	// conversation or job was deleted must still be storable, since the
+	// demotion outlives what it points at — it is a check that the row about to
+	// be written for seven days is one of this engine's keys rather than
+	// whatever text a client felt like keeping there.
+	if (!isHomeSuggestionCandidateKey(candidateKey)) {
+		return json(
+			{ error: "candidateKey is not a suggestion key" },
+			{
+				status: 400,
+			},
+		);
 	}
 	if (!EVENT_KINDS.includes(kind as HomeSuggestionEventKind)) {
 		return json(

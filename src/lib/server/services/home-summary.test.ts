@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
 	bucketWeeklyCounts,
+	HOME_SUMMARY_CACHE_MAX_ENTRIES,
 	isoWeekLabel,
 	isoWeekStart,
 	resolveFileJobPhase,
 	resolveRunningJobPhase,
+	storeBoundedSummary,
 } from "./home-summary";
 
 const BUDAPEST = "Europe/Budapest";
@@ -338,5 +340,52 @@ describe("resolveFileJobPhase", () => {
 		expect(resolveFileJobPhase({ status: "running", locale: "hu" })).toBe(
 			"Fájlok készítése",
 		);
+	});
+});
+
+describe("storeBoundedSummary — the 30-second cache stays a cache", () => {
+	function entry(expiresAt: number) {
+		return { expiresAt };
+	}
+
+	it("keeps an entry per user and reads it back", () => {
+		const cache = new Map<string, { expiresAt: number }>();
+		storeBoundedSummary(cache, "a", entry(1_000), 0);
+		storeBoundedSummary(cache, "b", entry(1_000), 0);
+		expect([...cache.keys()]).toEqual(["a", "b"]);
+	});
+
+	it("drops entries whose thirty seconds are up", () => {
+		const cache = new Map<string, { expiresAt: number }>();
+		storeBoundedSummary(cache, "stale", entry(1_000), 0);
+		// A second user arriving after the first entry expired sweeps it: an
+		// entry going stale has to mean the memory comes back, not just that
+		// the value stops being served.
+		storeBoundedSummary(cache, "fresh", entry(32_000), 2_000);
+		expect([...cache.keys()]).toEqual(["fresh"]);
+	});
+
+	it("never holds more than the cap, whatever the user count", () => {
+		const cache = new Map<string, { expiresAt: number }>();
+		const total = HOME_SUMMARY_CACHE_MAX_ENTRIES + 25;
+		for (let index = 0; index < total; index += 1) {
+			// Every entry is live, so only the cap can bound this.
+			storeBoundedSummary(cache, `user-${index}`, entry(30_000), 0);
+		}
+		expect(cache.size).toBe(HOME_SUMMARY_CACHE_MAX_ENTRIES);
+		// The users evicted are the ones who have not read for longest.
+		expect(cache.has("user-0")).toBe(false);
+		expect(cache.has(`user-${total - 1}`)).toBe(true);
+	});
+
+	it("re-reading moves a user out of the eviction queue", () => {
+		const cache = new Map<string, { expiresAt: number }>();
+		storeBoundedSummary(cache, "regular", entry(30_000), 0, 3);
+		storeBoundedSummary(cache, "b", entry(30_000), 0, 3);
+		storeBoundedSummary(cache, "c", entry(30_000), 0, 3);
+		storeBoundedSummary(cache, "regular", entry(30_000), 0, 3);
+		storeBoundedSummary(cache, "d", entry(30_000), 0, 3);
+		expect(cache.has("regular")).toBe(true);
+		expect(cache.has("b")).toBe(false);
 	});
 });
