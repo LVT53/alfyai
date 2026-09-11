@@ -115,6 +115,42 @@ test.describe("Profile tab — desktop", () => {
 		await expect(discard).toBeDisabled();
 	});
 
+	test("the group eyebrows are still eyebrows, not body text", async ({
+		page,
+	}) => {
+		await openSettings(page);
+
+		// `.settings-group-label` is shared settings grammar. The Profile
+		// rebuild kept the class on its "Profile" eyebrow and its "Change
+		// password — optional" sub-label after deleting the scoped rule that
+		// drew it, so both printed as plain text at the wrong size.
+		for (const label of [
+			page.locator("p.settings-group-label").first(),
+			page.getByText("Change password — optional"),
+		]) {
+			await expect(label).toBeVisible();
+			await expect(label).toHaveCSS("text-transform", "uppercase");
+			await expect(label).toHaveCSS("font-size", "11px");
+			await expect(label).toHaveCSS("font-weight", "600");
+		}
+
+		// And the one line under the eyebrow is the small help size.
+		await expect(page.locator("p.settings-help-text").first()).toHaveCSS(
+			"font-size",
+			"12px",
+		);
+
+		// The rule is shared, not Profile's: Connections reads the same one.
+		await page.getByRole("tab", { name: "Connections" }).click();
+		await expect(
+			page.getByRole("tab", { name: "Connections" }),
+		).toHaveAttribute("aria-selected", "true");
+		const connectionsEyebrow = page.locator("p.settings-group-label").first();
+		await expect(connectionsEyebrow).toBeVisible();
+		await expect(connectionsEyebrow).toHaveCSS("text-transform", "uppercase");
+		await expect(connectionsEyebrow).toHaveCSS("font-size", "11px");
+	});
+
 	test("rows light up on hover without moving", async ({ page }) => {
 		await openSettings(page);
 

@@ -1203,6 +1203,25 @@ $effect(() => {
 	   these classes give it a name so Profile speaks it too instead of
 	   inventing a third card header. */
 
+	/* The eyebrow above a group of cards, and the one line under it. Both
+	   were scoped copies inside each tab, so a tab that stopped defining
+	   them kept the class and lost the look — which is exactly what the
+	   Profile rebuild did to its own "Profile" eyebrow and its "Change
+	   password — optional" sub-label. They live here now, once. */
+	:global(.settings-group-label) {
+		margin: 0 0 var(--space-sm) 0;
+		font-size: 0.6875rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--text-muted);
+	}
+
+	:global(.settings-help-text) {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
 	:global(.settings-card-head) {
 		display: flex;
 		align-items: flex-start;
