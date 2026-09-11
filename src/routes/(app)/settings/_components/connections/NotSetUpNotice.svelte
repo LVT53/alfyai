@@ -108,7 +108,7 @@ let {
 		font-size: 0.75rem;
 		color: var(--accent);
 		text-decoration: none;
-		transition: background var(--duration-standard);
+		transition: background var(--duration-standard) var(--ease-out);
 	}
 
 	.trail-open:hover {

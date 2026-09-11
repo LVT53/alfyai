@@ -1650,7 +1650,7 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 		border: 1px solid var(--border-default);
 		background: var(--surface-page);
 		color: var(--accent-contrast);
-		transition: background var(--duration-standard), border-color var(--duration-standard);
+		transition: background var(--duration-standard) var(--ease-out), border-color var(--duration-standard) var(--ease-out);
 	}
 
 	.capability-box.checked {
@@ -1791,7 +1791,7 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 		background: var(--surface-page);
 		text-align: left;
 		cursor: pointer;
-		transition: border-color var(--duration-standard), background var(--duration-standard);
+		transition: border-color var(--duration-standard) var(--ease-out), background var(--duration-standard) var(--ease-out);
 	}
 
 	.path-option:hover,
@@ -1856,7 +1856,7 @@ const providerName = $derived(providerEntry?.displayName ?? "");
 		border-radius: 9999px;
 		border: 1px solid var(--border-default);
 		background: var(--surface-page);
-		transition: border var(--duration-standard);
+		transition: border-color var(--duration-standard) var(--ease-out);
 	}
 
 	.device-radio.checked {

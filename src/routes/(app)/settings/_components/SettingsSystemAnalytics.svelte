@@ -1141,7 +1141,7 @@ async function toggleExcludedUser(userId: string) {
 						<div class="grid grid-cols-1 gap-1 sm:grid-cols-2">
 							{#each allUsers as user}
 								{@const excluded = excludedUserIds.includes(user.id)}
-								<label class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-surface-page">
+								<label class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors duration-150 hover:bg-surface-page focus-within:bg-surface-page">
 									<input
 										type="checkbox"
 										checked={excluded}

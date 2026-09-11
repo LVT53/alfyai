@@ -115,9 +115,9 @@ function blurbFor(provider: ConnectionProvider): string {
 		cursor: pointer;
 		min-width: 0;
 		transition:
-			border-color var(--duration-standard),
-			transform var(--duration-standard),
-			box-shadow var(--duration-standard);
+			border-color var(--duration-standard) var(--ease-out),
+			transform var(--duration-standard) var(--ease-out),
+			box-shadow var(--duration-standard) var(--ease-out);
 	}
 
 	.provider-card:hover {

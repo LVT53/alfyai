@@ -78,10 +78,14 @@
 	color: var(--text-secondary);
 	font-size: 0.75rem;
 	cursor: pointer;
-	transition: border-color var(--duration-standard);
+	transition:
+		border-color var(--duration-standard) var(--ease-out),
+		background-color var(--duration-standard) var(--ease-out),
+		color var(--duration-standard) var(--ease-out);
 }
 
-.month-nav-btn:hover:not(:disabled) {
+.month-nav-btn:hover:not(:disabled),
+.month-nav-btn:focus-visible:not(:disabled) {
 	border-color: var(--accent);
 	color: var(--accent);
 }
@@ -111,9 +115,12 @@
 	background: none;
 	text-decoration: underline;
 	text-underline-offset: 2px;
+	border-radius: var(--radius-sm);
+	transition: color var(--duration-standard) var(--ease-out);
 }
 
-.month-alltime-btn:hover {
+.month-alltime-btn:hover,
+.month-alltime-btn:focus-visible {
 	color: var(--accent);
 }
 
@@ -131,8 +138,8 @@
 	font-weight: 500;
 	cursor: pointer;
 	transition:
-		background var(--duration-standard),
-		color var(--duration-standard);
+		background var(--duration-standard) var(--ease-out),
+		color var(--duration-standard) var(--ease-out);
 }
 
 .timeline-toggle-btn--active {

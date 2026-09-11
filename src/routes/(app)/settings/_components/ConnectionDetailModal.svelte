@@ -949,7 +949,7 @@ function capabilityAbout(capability: string): string {
 		border-radius: 9999px;
 		color: var(--text-muted);
 		cursor: pointer;
-		transition: color var(--duration-standard), background var(--duration-standard);
+		transition: color var(--duration-standard) var(--ease-out), background var(--duration-standard) var(--ease-out);
 	}
 
 	.folder-chip-remove:hover {
@@ -986,7 +986,7 @@ function capabilityAbout(capability: string): string {
 		color: var(--text-secondary);
 		white-space: nowrap;
 		cursor: pointer;
-		transition: border-color var(--duration-standard), color var(--duration-standard);
+		transition: border-color var(--duration-standard) var(--ease-out), color var(--duration-standard) var(--ease-out);
 	}
 
 	.folder-add-btn:hover {
@@ -1026,9 +1026,13 @@ function capabilityAbout(capability: string): string {
 		font-size: 0.8125rem;
 		text-align: left;
 		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
 	.folder-suggestion:hover,
+	.folder-suggestion:focus-visible,
 	.folder-suggestion.active {
 		background: var(--surface-overlay);
 	}
@@ -1108,7 +1112,7 @@ function capabilityAbout(capability: string): string {
 		font-size: 0.8125rem;
 		color: var(--danger);
 		cursor: pointer;
-		transition: background var(--duration-standard), border-color var(--duration-standard);
+		transition: background var(--duration-standard) var(--ease-out), border-color var(--duration-standard) var(--ease-out);
 	}
 
 	.danger-btn:hover {
@@ -1132,7 +1136,7 @@ function capabilityAbout(capability: string): string {
 		font-size: 0.75rem;
 		color: var(--text-secondary);
 		cursor: pointer;
-		transition: border-color var(--duration-standard), color var(--duration-standard);
+		transition: border-color var(--duration-standard) var(--ease-out), color var(--duration-standard) var(--ease-out);
 	}
 
 	.quiet-btn:hover:not(:disabled) {

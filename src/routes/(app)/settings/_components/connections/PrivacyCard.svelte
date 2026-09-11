@@ -119,9 +119,9 @@ let {
 		font-weight: 600;
 		color: var(--text-muted);
 		transition:
-			color var(--duration-standard),
-			border-color var(--duration-standard),
-			background var(--duration-standard);
+			color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out),
+			background var(--duration-standard) var(--ease-out);
 	}
 
 	.privacy-unknown {
@@ -149,8 +149,8 @@ let {
 		color: var(--danger);
 		cursor: pointer;
 		transition:
-			background var(--duration-standard),
-			border-color var(--duration-standard);
+			background var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out);
 	}
 
 	.privacy-retry:hover {

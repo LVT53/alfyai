@@ -690,7 +690,11 @@
 
 .sys-table {
 	width: 100%;
-	border-collapse: collapse;
+	/* `separate` (with no spacing) so the hover fill below can carry the row
+	   radius — `collapse` makes border-radius a no-op on rows and cells. Only
+	   bottom borders are drawn here, so nothing doubles up. */
+	border-collapse: separate;
+	border-spacing: 0;
 	font-size: 0.84rem;
 }
 
@@ -721,16 +725,33 @@
 	color: var(--text-primary);
 }
 
-.sys-table tbody tr {
-	transition: background var(--duration-standard) var(--ease-out);
+/* The transition has to sit on the cell, not the row: the hover fill is
+   painted on the <td>s, and a transition on the <tr> never reaches them. */
+.sys-table tbody td {
+	transition: background-color var(--duration-standard) var(--ease-out);
 }
 
-.sys-table tbody tr:hover {
+.sys-table tbody tr:hover td,
+.sys-table tbody tr:focus-within td {
 	background: color-mix(in srgb, var(--text-primary) 3%, transparent);
 }
 
 .sys-table tr.sys-tr-dirty td:first-child {
 	box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* The fill carries the app's row radius rather than reaching the table's
+   edges as a square band. */
+.sys-table tbody tr:hover td:first-child,
+.sys-table tbody tr:focus-within td:first-child {
+	border-top-left-radius: var(--radius-sm);
+	border-bottom-left-radius: var(--radius-sm);
+}
+
+.sys-table tbody tr:hover td:last-child,
+.sys-table tbody tr:focus-within td:last-child {
+	border-top-right-radius: var(--radius-sm);
+	border-bottom-right-radius: var(--radius-sm);
 }
 
 .sys-table tr.sys-tr-highlight td {
@@ -884,16 +905,18 @@
 	font-weight: 600;
 	text-align: left;
 	cursor: pointer;
+	border-radius: var(--radius-sm);
+	transition: color var(--duration-standard) var(--ease-out);
 }
 
-.sys-group-head:hover {
+.sys-group-head:hover,
+.sys-group-head:focus-visible {
 	color: var(--accent);
 }
 
 .sys-group-head:focus-visible {
 	outline: none;
 	box-shadow: 0 0 0 2px var(--focus-ring);
-	border-radius: var(--radius-sm);
 }
 
 .sys-group-chevron {
