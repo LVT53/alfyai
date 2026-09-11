@@ -21,9 +21,16 @@ import {
 let {
 	isAdmin = false,
 	pollMs = DEGRADED_CAPABILITIES_POLL_MS,
+	// The chat home (HomeV4A "Compact") re-homes this banner as the last and
+	// quietest line under Recent: same sentence, same capability names, same
+	// link, same Hide button, same dismissal — one muted line with a single
+	// amber dot instead of a bordered card. It is last because it is about the
+	// system rather than about you.
+	variant = "card",
 }: {
 	isAdmin?: boolean;
 	pollMs?: number;
+	variant?: "card" | "strip";
 } = $props();
 
 let degraded: DegradedCapability[] = $state([]);
@@ -65,7 +72,35 @@ onMount(() => {
 });
 </script>
 
-{#if visible}
+{#if visible && variant === 'strip'}
+	<div
+		role="status"
+		aria-live="polite"
+		class="degraded-strip"
+		data-testid="degraded-capabilities-banner"
+	>
+		<span class="degraded-strip-dot" aria-hidden="true"></span>
+		<span class="degraded-strip-text">
+			{$t('chat.degradedBanner.title', { tools: toolLabels.join(', ') })}.
+			{$t('chat.degradedBanner.description')}
+		</span>
+		<a
+			class="degraded-strip-link"
+			href="/settings?section=tool-health"
+			data-testid="degraded-capabilities-admin-link"
+		>
+			{$t('chat.degradedBanner.adminLink')}
+		</a>
+		<button
+			type="button"
+			class="degraded-strip-hide"
+			onclick={dismiss}
+			aria-label={$t('chat.degradedBanner.dismiss')}
+		>
+			{$t('chat.degradedBanner.dismiss')}
+		</button>
+	</div>
+{:else if visible}
 	<div
 		role="status"
 		aria-live="polite"
@@ -97,3 +132,93 @@ onMount(() => {
 		</button>
 	</div>
 {/if}
+
+<style>
+	/* The strip is one line at 0.72rem in muted text with the one amber dot —
+	   the only warning colour on the home board. It folds at 390px: the
+	   sentence takes the full width and the two actions get a row of their own,
+	   with Hide keeping a 44px hit area around a 30px face. */
+	.degraded-strip {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		font-size: 0.72rem;
+		color: var(--text-muted);
+		line-height: 1.5;
+		padding: 2px;
+	}
+
+	.degraded-strip-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		flex-shrink: 0;
+		background: var(--warning);
+	}
+
+	.degraded-strip-text {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.degraded-strip-link {
+		flex-shrink: 0;
+		white-space: nowrap;
+		color: var(--accent);
+		text-decoration: none;
+	}
+
+	.degraded-strip-link:hover,
+	.degraded-strip-link:focus-visible {
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	.degraded-strip-hide {
+		flex-shrink: 0;
+		white-space: nowrap;
+		border: 1px solid var(--border-default);
+		border-radius: 6px;
+		background: var(--surface-page);
+		color: var(--text-muted);
+		font-size: 0.7rem;
+		padding: 3px 9px;
+		cursor: pointer;
+	}
+
+	.degraded-strip-hide:hover {
+		color: var(--text-primary);
+		border-color: color-mix(in srgb, var(--text-muted) 40%, transparent);
+	}
+
+	@media (max-width: 767px) {
+		.degraded-strip {
+			flex-wrap: wrap;
+			row-gap: 9px;
+			align-items: flex-start;
+		}
+
+		.degraded-strip-dot {
+			margin-top: 5px;
+		}
+
+		.degraded-strip-text {
+			flex: 1 1 calc(100% - 15px);
+		}
+
+		.degraded-strip-link {
+			margin-right: auto;
+		}
+
+		.degraded-strip-hide {
+			position: relative;
+			min-height: 30px;
+		}
+
+		.degraded-strip-hide::after {
+			content: '';
+			position: absolute;
+			inset: -7px;
+		}
+	}
+</style>

@@ -18,7 +18,17 @@ import {
 	createNewConversation,
 	upsertConversationLocal,
 } from "$lib/stores/conversations";
-import { currentConversationId } from "$lib/stores/ui";
+import { currentConversationId, requestSearchModalOpen } from "$lib/stores/ui";
+import {
+	EMPTY_HOME_SUMMARY,
+	type HomeSuggestion,
+	type HomeSummary,
+	fetchHomeSummary,
+	recordHomeSuggestionEvent,
+} from "$lib/client/api/home";
+import HomeRecent from "$lib/components/home/HomeRecent.svelte";
+import HomeSuggestionRail from "$lib/components/home/HomeSuggestionRail.svelte";
+import HomeWeeklyBars from "$lib/components/home/HomeWeeklyBars.svelte";
 import {
 	selectedModel,
 	selectedReasoningDepth,
@@ -46,6 +56,9 @@ import type { LinkedContextSource } from "$lib/server/services/linked-context-so
 // JS-driven transition (see motion.ts), so wrap it explicitly.
 const statusFade = reducedMotionAware(fade);
 const greetingFade = reducedMotionAware(fade);
+// The home board's three strips under the composer arrive together once the
+// summary lands, rather than popping in one at a time as each read returns.
+const boardFly = reducedMotionAware(fly);
 
 function canReuseLandingPreparedConversation(
 	detail: Pick<
@@ -134,32 +147,60 @@ const greetingName = $derived(
 		data.user?.email?.split("@")[0]?.trim() ||
 		"",
 );
-const greetingOptions = $derived([
-	greetingName
-		? $t("landingGreetingNamed", { name: greetingName })
-		: $t("landingGreeting"),
-	greetingName
-		? $t("landingReadyNamed", { name: greetingName })
-		: $t("landingReady"),
-	greetingName
-		? $t("landingWorkNamed", { name: greetingName })
-		: $t("landingWork"),
-	greetingName
-		? $t("landingWhatsOnMindNamed", { name: greetingName })
-		: $t("landingWhatsOnMind"),
-	greetingName
-		? $t("landingAskMeNamed", { name: greetingName })
-		: $t("landingAskMe"),
-	greetingName
-		? $t("landingGettingStartedNamed", { name: greetingName })
-		: $t("landingGettingStarted"),
-	greetingName
-		? $t("landingListeningNamed", { name: greetingName })
-		: $t("landingListening"),
-]);
-const activeGreeting = $derived(
-	greetingOptions[greetingIndex % greetingOptions.length],
+// The same seven variants, in both lengths. At 390px the name pushes the
+// greeting to a third line and tells you nothing you did not know, so the
+// phone gets the plain form — a CSS swap rather than a viewport query, so it
+// is correct on the server too.
+const GREETING_KEYS = [
+	["landingGreetingNamed", "landingGreeting"],
+	["landingReadyNamed", "landingReady"],
+	["landingWorkNamed", "landingWork"],
+	["landingWhatsOnMindNamed", "landingWhatsOnMind"],
+	["landingAskMeNamed", "landingAskMe"],
+	["landingGettingStartedNamed", "landingGettingStarted"],
+	["landingListeningNamed", "landingListening"],
+] as const;
+
+const activeGreetingKeys = $derived(
+	GREETING_KEYS[greetingIndex % GREETING_KEYS.length] ?? GREETING_KEYS[0],
 );
+const greetingPlain = $derived($t(activeGreetingKeys[1]));
+const activeGreeting = $derived(
+	greetingName
+		? $t(activeGreetingKeys[0], { name: greetingName })
+		: greetingPlain,
+);
+
+let summary = $state<HomeSummary>(EMPTY_HOME_SUMMARY);
+let summaryLoaded = $state(false);
+let nowSeconds = $state(Math.floor(Date.now() / 1000));
+
+async function refreshHomeSummary() {
+	try {
+		summary = await fetchHomeSummary();
+	} catch {
+		// The board degrades to a greeting and a composer rather than to an
+		// error: none of these strips is something the user asked for.
+		summary = EMPTY_HOME_SUMMARY;
+	} finally {
+		summaryLoaded = true;
+	}
+}
+
+function handleSuggestionPick(suggestion: HomeSuggestion) {
+	if (creating) return;
+	// Fire and forget: the page has navigated by the time this resolves, and a
+	// failed write only means a chip the user already used may come back.
+	void recordHomeSuggestionEvent(suggestion.key, "used").catch(() => undefined);
+	void handleSend({
+		message: suggestion.text,
+		attachmentIds: [],
+		attachments: [],
+		conversationId: preparedConversationId,
+		linkedSources: [],
+		pendingSkill: null,
+	});
+}
 let fileDragActive = $state(false);
 let fileDragRejected = $state(false);
 let personalityProfiles: Array<{
@@ -289,11 +330,28 @@ onMount(() => {
 	}
 
 	// Static random greeting per page load (no rotation)
-	greetingIndex = Math.floor(Math.random() * 7);
+	greetingIndex = Math.floor(Math.random() * GREETING_KEYS.length);
 
 	void fetchPublicPersonalityProfiles()
 		.then((p) => (personalityProfiles = p))
 		.catch(() => {});
+
+	void refreshHomeSummary();
+
+	// The summary is cached 30 seconds server-side, so polling faster would
+	// only re-read the cache. The clock ticks every 15 so the running line's
+	// elapsed time does not sit still between polls.
+	const summaryTimer = setInterval(() => {
+		if (hasStarted) return;
+		void refreshHomeSummary();
+	}, 30_000);
+	const clockTimer = setInterval(() => {
+		nowSeconds = Math.floor(Date.now() / 1000);
+	}, 15_000);
+	return () => {
+		clearInterval(summaryTimer);
+		clearInterval(clockTimer);
+	};
 });
 
 onDestroy(() => {
@@ -472,15 +530,17 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 			class:composer-layer-no-animate={!isFromChat}
 			class:composer-layer-handoff={hasStarted}
 		>
-			<div class="mx-auto flex w-full max-w-[780px] flex-col gap-4 px-1">
+			<div class="home-column mx-auto flex w-full max-w-[780px] flex-col px-1">
 				{#if !hasStarted}
-					<div class="intro-copy px-2 text-center" in:greetingFade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
-						<h1
-							class="text-balance text-[2rem] font-serif font-medium tracking-[-0.05em] md:text-[3rem]"
-							style="color: color-mix(in srgb, var(--text-primary) 60%, var(--accent) 40%); font-weight: 500;"
-						>
-							{activeGreeting}
+					<!-- The greeting carries the record on its own line: the twelve
+					     weekly bars and the week's count, right-aligned and sitting on
+					     the greeting's baseline. -->
+					<div class="home-band" in:greetingFade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
+						<h1 class="home-greeting" data-testid="home-greeting">
+							<span class="home-greeting-full">{activeGreeting}</span>
+							<span class="home-greeting-plain">{greetingPlain}</span>
 						</h1>
+						<HomeWeeklyBars weeks={summary.weekly} total={summary.weeklyTotal} />
 					</div>
 				{/if}
 
@@ -503,8 +563,6 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 						<span class="text-sm text-text-muted">{$t('openingChat')}</span>
 					</div>
 				{/if}
-
-				<DegradedCapabilitiesBanner isAdmin={data.user?.role === 'admin'} />
 
 				<MessageInput
 					onSend={handleSend}
@@ -535,12 +593,124 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					atlasAvailability={data.atlasAvailability ?? null}
 					onUploadFiles={handleUploadFiles}
 				/>
+
+				{#if !hasStarted && summaryLoaded}
+					<!-- The owner's one change to the board: the suggestion chips sit
+					     on their OWN row directly under the composer box rather than
+					     inside the composer's footer, which keeps the composer's own
+					     controls to themselves. Then Recent, then the tool-health
+					     strip as the last and quietest line. -->
+					<div
+						class="home-board"
+						in:boardFly={{ y: 6, duration: 220, delay: 40 }}
+						data-testid="home-board"
+					>
+						<HomeSuggestionRail
+							suggestions={summary.suggestions}
+							disabled={creating}
+							onPick={handleSuggestionPick}
+						/>
+
+						<HomeRecent
+							recent={summary.recent}
+							running={summary.running}
+							{nowSeconds}
+							onAllConversations={requestSearchModalOpen}
+						/>
+
+						<div class="home-strip">
+							<DegradedCapabilitiesBanner
+								isAdmin={data.user?.role === 'admin'}
+								variant="strip"
+							/>
+						</div>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>
 </div>
 
 <style>
+	/* HomeV4A "Compact": three groups instead of four — the greeting with the
+	   record on its line, the composer, then everything else underneath as
+	   reference. The composer is the second thing on the page and the first
+	   thing you can act on, which is the correct order for a chat app. */
+	.home-band {
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: 26px;
+		margin-bottom: 20px;
+		padding: 0 2px;
+	}
+
+	.home-greeting {
+		min-width: 0;
+		margin: 0;
+		font-family: var(--font-serif, Georgia, 'Times New Roman', serif);
+		font-size: 1.75rem;
+		font-weight: 500;
+		line-height: 1.2;
+		letter-spacing: -0.02em;
+		text-wrap: balance;
+		color: color-mix(in srgb, var(--text-primary) 60%, var(--accent) 40%);
+	}
+
+	.home-greeting-plain {
+		display: none;
+	}
+
+	.home-board {
+		min-width: 0;
+	}
+
+	/* The column used to be a greeting and a box, which always fitted. Now that
+	   Recent and the strip hang off the bottom of a vertically centred layer, a
+	   short window (or a phone in landscape) can run it past the stage — so the
+	   column scrolls inside the layer rather than being clipped by it. */
+	.home-column {
+		max-height: 100%;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		scrollbar-width: thin;
+	}
+
+	/* The status blocks between the greeting and the composer used to be spaced
+	   by the column's own gap; the board's spacing is per-group, so they carry
+	   their own. */
+	.home-column > :global(.pending-message-preview),
+	.home-column > :global(.creating-indicator),
+	.home-column > :global([role='alert']) {
+		margin-bottom: 1rem;
+	}
+
+	/* The tool-health strip sits 12px under Recent. It is last because it is
+	   about the system rather than about you. */
+	.home-strip {
+		margin-top: 12px;
+	}
+
+	@media (max-width: 767px) {
+		.home-band {
+			gap: 14px;
+			margin-bottom: 18px;
+		}
+
+		.home-greeting {
+			font-size: 1.4rem;
+		}
+
+		/* "Admin User" pushes the greeting to a third line at 390px. */
+		.home-greeting-full {
+			display: none;
+		}
+
+		.home-greeting-plain {
+			display: inline;
+		}
+	}
+
 	.composer-layer {
 		position: absolute;
 		left: 0;

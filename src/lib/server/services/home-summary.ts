@@ -24,7 +24,26 @@ import {
 	recordHomeSuggestionsShown,
 } from "$lib/server/services/home-suggestions";
 
-export const HOME_SUMMARY_CACHE_TTL_MS = 30_000;
+export const HOME_SUMMARY_DEFAULT_CACHE_TTL_MS = 30_000;
+
+/**
+ * How long a user's assembled summary is held.
+ *
+ * Configurable rather than constant so an environment that writes the
+ * underlying rows out-of-band — the e2e suite seeds conversations and jobs
+ * straight into SQLite, behind this process's back — can run with the cache
+ * off and still see what it just wrote. Unset means the 30 seconds the screen
+ * is designed around.
+ */
+export function homeSummaryCacheTtlMs(): number {
+	const raw = process.env.HOME_SUMMARY_CACHE_TTL_MS;
+	if (raw === undefined) return HOME_SUMMARY_DEFAULT_CACHE_TTL_MS;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed >= 0
+		? parsed
+		: HOME_SUMMARY_DEFAULT_CACHE_TTL_MS;
+}
+
 export const HOME_WEEKLY_BAR_COUNT = 12;
 export const HOME_RECENT_LIMIT = 3;
 
@@ -386,6 +405,11 @@ async function readWeekly(
 				gte(usageEvents.createdAt, windowStart),
 			),
 		);
+	// An empty week inside a used window is a 1px tick, because a gap there
+	// would read as a missing week. An empty WINDOW is not twelve ticks — it is
+	// no record at all, and drawing "0 this week" beside twelve grey marks
+	// would be the home screen inventing history a new user does not have.
+	if (rows.length === 0) return [];
 	return bucketWeeklyCounts({
 		timestampsMs: rows.map((row) => row.createdAt.getTime()),
 		now,
@@ -579,7 +603,7 @@ export async function getHomeSummary(params: {
 
 	const value = await computeHomeSummary(params.userId, now);
 	cache.set(params.userId, {
-		expiresAt: now.getTime() + HOME_SUMMARY_CACHE_TTL_MS,
+		expiresAt: now.getTime() + homeSummaryCacheTtlMs(),
 		value,
 	});
 
