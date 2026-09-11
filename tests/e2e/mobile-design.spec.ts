@@ -99,11 +99,26 @@ test.describe("Mobile Design Polish", () => {
 		expect(toolsBox?.height).toBeGreaterThanOrEqual(44);
 		await toolsBtn.click();
 
+		// Everyday redesign: on a phone the "+" menu is a bottom sheet, so it
+		// carries a grabber and its rows are full-width 44px targets — and it
+		// covers the composer until it is dismissed.
+		const grabber = page.getByTestId("composer-tools-menu-grabber");
+		await expect(grabber).toBeVisible();
+		const grabberBox = await grabber.boundingBox();
+		expect(grabberBox?.height).toBeGreaterThanOrEqual(44);
+
 		const attachBtn = page.getByRole("menuitem", { name: "Attach file" });
 		await expect(attachBtn).toBeVisible();
 		const attachBox = await attachBtn.boundingBox();
 		expect(attachBox?.width).toBeGreaterThanOrEqual(44);
 		expect(attachBox?.height).toBeGreaterThanOrEqual(44);
+
+		// Incognito moved off the bar and into the menu; the accounts row is
+		// reachable from the same visit.
+		await expect(page.getByTestId("incognito-toggle")).toBeVisible();
+
+		await grabber.click();
+		await expect(page.getByTestId("composer-tools-menu")).toBeHidden();
 
 		await textarea.fill(
 			'```python\ndef test_horizontal_scroll_with_a_very_long_line_of_code_that_should_wrap_or_scroll_horizontally():\n    return "This string is exceptionally long and will definitely trigger horizontal scrolling on a small screen like the iPhone SE"\n```',

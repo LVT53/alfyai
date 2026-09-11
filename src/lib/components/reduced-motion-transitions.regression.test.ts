@@ -105,6 +105,28 @@ const CASES: Case[] = [
 		wrappedNames: ["bodySlide"],
 		bannedDirectives: [/transition:slide=/],
 	},
+	{
+		// Everyday redesign — the composer's "+" menu, which on a phone
+		// becomes a bottom sheet and so flies 260px. A sheet is exactly the
+		// kind of motion prefers-reduced-motion is asking us not to make.
+		file: "src/lib/components/chat/ComposerToolsMenu.svelte",
+		wrappedNames: ["menuFly"],
+		bannedDirectives: [/transition:fly=/],
+	},
+	{
+		// Everyday redesign — the model picker's phone sheet and its scrim.
+		// Both were CSS `animation`s, which can only play on the way in; the
+		// element was removed outright on the way out.
+		file: "src/lib/components/chat/ModelSelector.svelte",
+		wrappedNames: ["sheetFly", "scrimFade"],
+		bannedDirectives: [/transition:fly=/, /transition:fade=/],
+	},
+	{
+		// Everyday redesign — the Atlas report's download action sheet.
+		file: "src/lib/components/chat/AtlasActivityBody.svelte",
+		wrappedNames: ["sheetFly", "scrimFade"],
+		bannedDirectives: [/transition:fly=/, /transition:fade=/],
+	},
 ];
 
 describe("Svelte transition directives are routed through reducedMotionAware", () => {

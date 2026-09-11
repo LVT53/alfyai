@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onMount, untrack } from "svelte";
 import { t } from "$lib/i18n";
+import { portalToBody } from "$lib/utils/portal";
 import {
 	isPromptReadyWorkingDocument,
 	linkedContextSourceArtifactIds,
@@ -220,7 +221,21 @@ $effect(() => {
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
-<div class="linked-document-backdrop" role="presentation" onpointerdown={handleBackdropPointerDown}>
+<!-- Moved to <body>, like every other full-viewport surface in the composer.
+     `position: fixed` is only fixed to the VIEWPORT while no ancestor is
+     transformed, and the landing page centres its composer with
+     `translateY(-50%)` — so this backdrop was laid out against that layer
+     instead: 390x401 starting 221px down a 390x844 screen, with the picker
+     itself floating 231px above the bottom edge and the page to either side
+     of it undimmed and still tappable. The rest of the redesign's sheets were
+     moved out for exactly this; the Library picker is reached from the new
+     attach sheet's Library row, and was missed. -->
+<div
+	class="linked-document-backdrop"
+	role="presentation"
+	use:portalToBody
+	onpointerdown={handleBackdropPointerDown}
+>
 	<div
 		bind:this={dialog}
 		class="linked-document-picker"
@@ -324,7 +339,10 @@ $effect(() => {
 		display: flex;
 		align-items: flex-end;
 		justify-content: center;
-		background: rgb(15 23 42 / 0.32);
+		/* The one scrim recipe, not a fifth one: `--scrim` exists because the
+		   app had grown a different dimming colour per sheet, and this was the
+		   blue-tinted one. */
+		background: var(--scrim);
 		padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
 			max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
 		backdrop-filter: blur(6px);

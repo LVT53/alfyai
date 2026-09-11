@@ -14,8 +14,20 @@ const I18N_MODULES = [
 const AUDITED_PREFIXES = [
 	"admin.composerCommandRegistry",
 	"admin.systemSkills.",
+	// The everyday-redesign composer: the bar's tooltips, the "+" menu, and
+	// the four sheets it opens. Added here because the parity test is the
+	// only thing that notices a key that landed in EN and not in HU, and a
+	// namespace this list does not name is a namespace it does not check.
+	"attachmentPicker.",
+	"atlasDownload.",
+	"composerBar.",
 	"composerCommandRegistry.",
 	"composerCommands.",
+	"composerMenu.",
+	"composerSheet.",
+	"modelPicker.",
+	"skillsPicker.",
+	"writeConfirm.",
 	"linkedSources.",
 	"messageBubble.",
 	"fork.",

@@ -432,7 +432,7 @@ const chatDict = {
 		"composerTools.atlasUnavailableParallel":
 			"Atlas requires Parallel web search configuration.",
 		"composerTools.attachFile": "Attach file",
-		"composerTools.attachFileMaxSize": "Attach file (max 100MB)",
+		"composerTools.attachFileMaxSize": "Attach file (max {max} MB)",
 		"composerTools.defaultStyle": "AlfyAI",
 		"composerTools.defaultStyleLabel": "Default style",
 		"composerTools.menu": "Composer tools",
@@ -807,6 +807,7 @@ const chatDict = {
 		"modelSelector.guideTitle": "Model guide",
 		"modelSelector.largeContext": "Large context",
 		"modelSelector.massiveContext": "Massive context",
+		"modelSelector.loading": "Loading…",
 		"modelSelector.openGuide": "Open model guide",
 		"modelSelector.privacyPolicy": "Provider privacy policy",
 		"modelSelector.processingRegion": "Processing region: {region}",
@@ -922,6 +923,21 @@ const chatDict = {
 		"personalityProfile.exploratory.description":
 			"Curious, asks clarifying questions, explores tradeoffs. Good for brainstorming and research.",
 		"personalityProfile.exploratory.name": "Exploratory",
+		"personalityProfile.brief.name": "Brief",
+		"personalityProfile.brief.description":
+			"As short as the question allows. Answer first, no preamble, no sign-off.",
+		"personalityProfile.thinkingPartner.name": "Thinking partner",
+		"personalityProfile.thinkingPartner.description":
+			"Curious, asks one clarifying question, explores tradeoffs. Good for brainstorming and research.",
+		"personalityProfile.storyteller.name": "Storyteller",
+		"personalityProfile.storyteller.description":
+			"Imaginative prose, metaphor and rhythm. For writing, ideas and anything that should read well.",
+		"personalityProfile.technical.name": "Technical",
+		"personalityProfile.technical.description":
+			"Exact terms, code and commands first, sources named, assumptions stated. No analogies.",
+		"personalityProfile.warm.name": "Warm",
+		"personalityProfile.warm.description":
+			"Plain words, patient, one thing at a time. For anyone who wants help, not a lecture.",
 		"sourceManager.addDocument": "Add document",
 		"sourceManager.clearAll": "Clear all",
 		"sourceManager.close": "Close sources",
@@ -974,6 +990,65 @@ const chatDict = {
 		"home.suggest.source.conversation": "A recent conversation",
 		"home.suggest.source.atlas": "Atlas · unfinished",
 		// --- END chat home redesign keys ---
+
+		// ── Everyday redesign · composer ────────────────────────────
+		// Direction B bar, the "+" menu behind it, and the phone sheets the
+		// pickers become. Kept in one delimited block so the redesign's
+		// vocabulary can be read — and revised — as a single piece of copy
+		// rather than being scattered alphabetically through the file.
+		"composerBar.accountsNone":
+			"Accounts — nothing connected yet. Connect one in Settings.",
+		"composerBar.accountsOff": "Accounts — none on for this message",
+		"composerBar.accountsOn": "Accounts — {on} of {total} on for this message",
+		"composerBar.attachOff": "Attach a file",
+		"composerBar.attachOn": "Attached — {count} on this message",
+		"composerBar.attachUnavailable": "File uploads are unavailable",
+		"composerBar.thinkingOff": "Think before answering",
+		"composerBar.thinkingOn": "Thinking — on for this message",
+		"composerMenu.atlasOff": "Off",
+		"composerMenu.atlasReport": "Atlas report",
+		"composerMenu.attachHint": "max {max} MB",
+		"composerMenu.incognito": "Incognito",
+		"composerMenu.label": "Composer menu",
+		"composerMenu.manageConnections": "Manage connections",
+		"composerMenu.sectionAccounts": "Accounts · {on} of {total} on",
+		"composerMenu.sectionAccountsEmpty": "Accounts",
+		"composerMenu.sectionConversation": "This conversation",
+		"composerMenu.sectionMessage": "This message",
+		"composerMenu.sectionSwitches": "Switches",
+		"composerMenu.skills": "Skills",
+		"composerMenu.skillsActive": "{count} active",
+		"composerMenu.skillsNone": "None yet",
+		"composerMenu.thinking": "Thinking",
+		"attachmentPicker.camera": "Take a photo",
+		"attachmentPicker.cameraHint": "Opens the camera.",
+		"attachmentPicker.cancel": "Cancel",
+		"attachmentPicker.files": "Files on this phone",
+		"attachmentPicker.filesHint": "Hands over to the system picker.",
+		"attachmentPicker.library": "A document from your Library",
+		"attachmentPicker.libraryHint": "Nothing is uploaded twice.",
+		"attachmentPicker.photoLibrary": "Photo library",
+		"attachmentPicker.photoLibraryHint": "Pick one or more photos.",
+		"attachmentPicker.subtitle": "Up to {max} MB per file.",
+		"attachmentPicker.title": "Attach to this message",
+		"skillsPicker.add": "Add {name}",
+		"skillsPicker.addNone": "Add a skill",
+		"skillsPicker.empty": "No skills match that.",
+		"skillsPicker.manage": "Manage skills",
+		"skillsPicker.search": "Search your skills",
+		"skillsPicker.subtitle": "{count} active",
+		"skillsPicker.title": "Add a skill to this message",
+		"modelPicker.subtitle": "For this conversation only.",
+		"modelPicker.title": "Choose a model",
+		"modelPicker.use": "Use {model}",
+		"modelPicker.useNone": "Use this model",
+		"atlasDownload.title": "Download the report",
+		"composerSheet.close": "Close",
+		"writeConfirm.approve": "Save it",
+		"writeConfirm.approveDestructive": "Yes, go ahead",
+		"writeConfirm.decline": "Don't",
+		"writeConfirm.etagPending":
+			"Confirmation ref appears here once it is written.",
 	},
 	hu: {
 		"attachmentChip.pages": "{count} oldal",
@@ -1386,7 +1461,7 @@ const chatDict = {
 		"composerTools.atlasUnavailableParallel":
 			"Az Atlas indításához Parallel webes keresési beállítás szükséges.",
 		"composerTools.attachFile": "Fájl csatolása",
-		"composerTools.attachFileMaxSize": "Fájl csatolása (max. 100 MB)",
+		"composerTools.attachFileMaxSize": "Fájl csatolása (max. {max} MB)",
 		"composerTools.defaultStyle": "AlfyAI",
 		"composerTools.defaultStyleLabel": "Alapértelmezett stílus",
 		"composerTools.menu": "Szerkesztőeszközök",
@@ -1769,6 +1844,7 @@ const chatDict = {
 		"modelSelector.guideTitle": "Modellútmutató",
 		"modelSelector.largeContext": "Nagy kontextus",
 		"modelSelector.massiveContext": "Óriás kontextus",
+		"modelSelector.loading": "Betöltés…",
 		"modelSelector.openGuide": "Modellútmutató megnyitása",
 		"modelSelector.privacyPolicy": "Szolgáltatói adatvédelmi irányelv",
 		"modelSelector.processingRegion": "Adatfeldolgozási régió: {region}",
@@ -1876,6 +1952,21 @@ const chatDict = {
 		"personalityProfile.exploratory.description":
 			"Kíváncsi, pontosító kérdéseket tesz fel, és feltárja a kompromisszumokat. Jó ötleteléshez és kutatáshoz.",
 		"personalityProfile.exploratory.name": "Felfedező",
+		"personalityProfile.brief.name": "Rövid",
+		"personalityProfile.brief.description":
+			"Olyan rövid, amennyire a kérdés engedi. Először a válasz, felvezetés és záró sor nélkül.",
+		"personalityProfile.thinkingPartner.name": "Gondolkodótárs",
+		"personalityProfile.thinkingPartner.description":
+			"Kíváncsi, egy pontosító kérdést tesz fel, feltárja a kompromisszumokat. Ötleteléshez és kutatáshoz.",
+		"personalityProfile.storyteller.name": "Mesélő",
+		"personalityProfile.storyteller.description":
+			"Képzeletgazdag próza, metafora és ritmus. Íráshoz, ötletekhez és mindenhez, aminek jól kell olvasnia magát.",
+		"personalityProfile.technical.name": "Technikai",
+		"personalityProfile.technical.description":
+			"Pontos kifejezések, előbb a kód és a parancs, megnevezett források, kimondott feltevések. Hasonlatok nélkül.",
+		"personalityProfile.warm.name": "Barátságos",
+		"personalityProfile.warm.description":
+			"Egyszerű szavak, türelem, egyszerre egy dolog. Annak, aki segítséget kér, nem előadást.",
 		"sourceManager.addDocument": "Dokumentum hozzáadása",
 		"sourceManager.clearAll": "Összes törlése",
 		"sourceManager.close": "Források bezárása",
@@ -1924,6 +2015,66 @@ const chatDict = {
 		"home.suggest.source.conversation": "Egy korábbi beszélgetés",
 		"home.suggest.source.atlas": "Atlas · befejezetlen",
 		// --- END chat home redesign keys ---
+
+		// ── Mindennapi újratervezés · szerkesztő ────────────────────
+		// A "B irány" gombsor, a mögötte lévő "+" menü, és a telefonos lapok,
+		// amikké a választók válnak. Egy blokkban tartva, hogy az újratervezés
+		// szóhasználata egyben legyen olvasható és javítható.
+		"composerBar.accountsNone":
+			"Fiókok — még nincs csatlakoztatva egy sem. Csatlakoztass egyet a Beállításokban.",
+		"composerBar.accountsOff":
+			"Fiókok — ehhez az üzenethez egy sincs bekapcsolva",
+		"composerBar.accountsOn":
+			"Fiókok — {total} közül {on} bekapcsolva ehhez az üzenethez",
+		"composerBar.attachOff": "Fájl csatolása",
+		"composerBar.attachOn": "Csatolva — {count} ezen az üzeneten",
+		"composerBar.attachUnavailable": "A fájlfeltöltés nem érhető el",
+		"composerBar.thinkingOff": "Gondolkodjon válasz előtt",
+		"composerBar.thinkingOn": "Gondolkodás — bekapcsolva ehhez az üzenethez",
+		"composerMenu.atlasOff": "Ki",
+		"composerMenu.atlasReport": "Atlas jelentés",
+		"composerMenu.attachHint": "legfeljebb {max} MB",
+		"composerMenu.incognito": "Inkognitó",
+		"composerMenu.label": "Szerkesztő menü",
+		"composerMenu.manageConnections": "Kapcsolatok kezelése",
+		"composerMenu.sectionAccounts": "Fiókok · {total} közül {on} bekapcsolva",
+		"composerMenu.sectionAccountsEmpty": "Fiókok",
+		"composerMenu.sectionConversation": "Ez a beszélgetés",
+		"composerMenu.sectionMessage": "Ez az üzenet",
+		"composerMenu.sectionSwitches": "Kapcsolók",
+		"composerMenu.skills": "Képességek",
+		"composerMenu.skillsActive": "{count} aktív",
+		"composerMenu.skillsNone": "Még egy sincs",
+		"composerMenu.thinking": "Gondolkodás",
+		"attachmentPicker.camera": "Fénykép készítése",
+		"attachmentPicker.cameraHint": "Megnyitja a kamerát.",
+		"attachmentPicker.cancel": "Mégse",
+		"attachmentPicker.files": "Fájlok ezen a telefonon",
+		"attachmentPicker.filesHint": "Átadja a rendszer fájlválasztójának.",
+		"attachmentPicker.library": "Dokumentum a Könyvtáradból",
+		"attachmentPicker.libraryHint": "Semmit nem tölt fel kétszer.",
+		"attachmentPicker.photoLibrary": "Fényképtár",
+		"attachmentPicker.photoLibraryHint": "Válassz egy vagy több fényképet.",
+		"attachmentPicker.subtitle": "Fájlonként legfeljebb {max} MB.",
+		"attachmentPicker.title": "Csatolás ehhez az üzenethez",
+		"skillsPicker.add": "{name} hozzáadása",
+		"skillsPicker.addNone": "Képesség hozzáadása",
+		"skillsPicker.empty": "Egy képesség sem illik erre.",
+		"skillsPicker.manage": "Képességek kezelése",
+		"skillsPicker.search": "Keresés a képességeid között",
+		"skillsPicker.subtitle": "{count} aktív",
+		"skillsPicker.title": "Képesség hozzáadása ehhez az üzenethez",
+		"modelPicker.subtitle": "Csak ehhez a beszélgetéshez.",
+		"modelPicker.title": "Válassz modellt",
+		"modelPicker.use": "{model} használata",
+		"modelPicker.useNone": "Ez a modell",
+		"atlasDownload.title": "A jelentés letöltése",
+		"composerSheet.close": "Bezárás",
+		"writeConfirm.approve": "Mentés",
+		"writeConfirm.approveDestructive": "Igen, mehet",
+		"writeConfirm.decline": "Ne",
+		"writeConfirm.etagPending":
+			"A visszaigazolási azonosító itt jelenik meg, ha megtörtént.",
 	},
 } as const;
 
