@@ -472,6 +472,24 @@ describe("SettingsProfileTab — assistant behaviour", () => {
 		expect(screen.getByText(/pause all learning/i)).toBeInTheDocument();
 	});
 
+	// /settings?section=memory (linked from the Knowledge memory empty state)
+	// looks this id up, scrolls it into view and rings it for two seconds. The
+	// rebuild moved the id onto the wrapper that holds ALL the assistant rows,
+	// so the ring was drawn around the Skills and Memory-profile rows too — and
+	// as a square, because the wrapper has no radius of its own.
+	it("puts the memory deep-link target on the memory row itself", () => {
+		const { container } = renderTab();
+
+		const target = container.querySelector("#settings-memory-card");
+		expect(target).not.toBeNull();
+		expect(target?.classList.contains("settings-row")).toBe(true);
+		expect(target?.classList.contains("settings-rows")).toBe(false);
+		// It is the row the link is about, and no other row rides along.
+		expect(target?.textContent).toContain("Memory");
+		expect(target?.querySelector('[role="switch"]')).not.toBeNull();
+		expect(target?.textContent).not.toContain("Manage skills");
+	});
+
 	it("links the memory profile to the Knowledge Base", () => {
 		renderTab();
 

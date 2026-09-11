@@ -645,8 +645,13 @@ function handlePersonalitySelect(event: Event) {
 					<p class="settings-card-desc">{$t('profileTab.assistantDesc')}</p>
 				</div>
 			</div>
-			<div class="settings-rows" id="settings-memory-card">
-				<div class="settings-row">
+			<div class="settings-rows">
+				<!-- /settings?section=memory (the Knowledge memory empty state links
+				     here) scrolls this id into view and rings it. It names the one
+				     row the link is about: the rebuild had moved it onto the row
+				     WRAPPER, so the ring was drawn as a square around all three
+				     rows of the card — including the two the link is not about. -->
+				<div class="settings-row" id="settings-memory-card">
 					<div class="settings-row-text">
 						<p class="settings-row-label">{$t('settings_memory')}</p>
 						<p class="settings-row-help">{$t('settings_memoryHelp')}</p>
