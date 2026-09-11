@@ -90,31 +90,12 @@ async function deleteTemporaryModels(
 	}
 }
 
-async function getDefaultModelLayoutMetrics(page: Page) {
-	const choices = page.getByTestId("settings-default-model-grid");
-	await expect(choices).toBeVisible({ timeout: 10000 });
-
-	return choices.evaluate((container) => {
-		const html = document.documentElement;
-		const buttons = Array.from(container.querySelectorAll("button"));
-		const containerRect = container.getBoundingClientRect();
-		const buttonRects = buttons.map((button) => button.getBoundingClientRect());
-		const rowTops = new Set(buttonRects.map((rect) => Math.round(rect.top)));
-
-		return {
-			buttonCount: buttons.length,
-			documentScrollWidth: html.scrollWidth,
-			viewportWidth: html.clientWidth,
-			containerScrollWidth: container.scrollWidth,
-			containerClientWidth: container.clientWidth,
-			containerRight: containerRect.right,
-			maxButtonRight: Math.max(...buttonRects.map((rect) => rect.right)),
-			rowCount: rowTops.size,
-		};
-	});
-}
-
-test("profile Default model choices wrap without horizontal overflow", async ({
+// The Default model control used to be a grid of one 44px pill per model,
+// five wide — with fifteen models installed it was the tallest thing on the
+// page and the widest thing to overflow. The redesign makes it one select,
+// so the test that guarded the grid's wrapping now guards that the control
+// costs one row however many models exist, and still fits its column.
+test("profile Default model is one select that fits, however many models exist", async ({
 	page,
 }) => {
 	await login(page);
@@ -124,22 +105,46 @@ test("profile Default model choices wrap without horizontal overflow", async ({
 		for (const viewport of [
 			{ width: 390, height: 844 },
 			{ width: 768, height: 1024 },
+			{ width: 1440, height: 900 },
 		]) {
 			await page.setViewportSize(viewport);
 			await page.goto("/settings", { waitUntil: "domcontentloaded" });
 			await page.waitForLoadState("networkidle");
 
-			const metrics = await getDefaultModelLayoutMetrics(page);
-			expect(metrics.buttonCount).toBeGreaterThan(10);
-			expect(metrics.rowCount).toBeGreaterThan(1);
+			const select = page.getByTestId("settings-default-model-select");
+			await expect(select).toBeVisible({ timeout: 10000 });
+
+			// The old pill grid is gone for good.
+			await expect(page.getByTestId("settings-default-model-grid")).toHaveCount(
+				0,
+			);
+
+			const metrics = await select.evaluate((element) => {
+				const html = document.documentElement;
+				const rect = element.getBoundingClientRect();
+				const row = element.closest(".settings-row") as HTMLElement;
+				const rowRect = row.getBoundingClientRect();
+				return {
+					optionCount: (element as HTMLSelectElement).options.length,
+					height: rect.height,
+					right: rect.right,
+					rowRight: rowRect.right,
+					documentScrollWidth: html.scrollWidth,
+					viewportWidth: html.clientWidth,
+				};
+			});
+
+			// Every installed model is reachable...
+			expect(metrics.optionCount).toBeGreaterThan(10);
+			// ...from a control one row tall, and at least 44px on a phone.
+			expect(metrics.height).toBeLessThan(60);
+			expect(metrics.height).toBeGreaterThanOrEqual(
+				viewport.width <= 640 ? 44 : 34,
+			);
+			// ...that stays inside its row and never widens the page.
+			expect(metrics.right).toBeLessThanOrEqual(metrics.rowRight + 1);
 			expect(metrics.documentScrollWidth).toBeLessThanOrEqual(
 				metrics.viewportWidth + 1,
-			);
-			expect(metrics.containerScrollWidth).toBeLessThanOrEqual(
-				metrics.containerClientWidth + 1,
-			);
-			expect(metrics.maxButtonRight).toBeLessThanOrEqual(
-				metrics.containerRight + 1,
 			);
 		}
 	} finally {

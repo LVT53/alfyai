@@ -411,19 +411,9 @@ function nameList(capabilities: string[]): string {
 		container-type: inline-size;
 	}
 
-	.settings-group-label {
-		font-size: 0.6875rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: var(--text-muted);
-		margin: 0 0 var(--space-sm) 0;
-	}
-
-	.settings-help-text {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-	}
+	/* .settings-group-label / .settings-help-text are the shared settings
+	   grammar and live in settings/+page.svelte, so every tab reads the same
+	   rule instead of each carrying a scoped copy of it. */
 
 	.connections-stack {
 		display: flex;

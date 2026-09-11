@@ -1,9 +1,14 @@
 <script lang="ts">
-import { onDestroy, onMount } from "svelte";
-import { fade, scale } from "svelte/transition";
-import { reducedMotionAware } from "$lib/utils/motion";
+// Consistency pass — this dialog used to roll its own backdrop, its own
+// Escape handling and its own Tab focus trap, and print every one of its
+// strings in hard-coded English. It now sits on the shared DialogShell
+// (open AND close transitions, the shared dialog stack, the ref-counted
+// body-scroll lock, one focus trap) and reads its words from the
+// dictionary like every other surface.
 import { uploadAvatar } from "$lib/client/api/settings";
 import { Upload, RotateCcw, RotateCw, ZoomOut, ZoomIn } from "@lucide/svelte";
+import { t } from "$lib/i18n";
+import DialogShell from "./DialogShell.svelte";
 import Spinner from "./Spinner.svelte";
 
 let {
@@ -14,19 +19,12 @@ let {
 	onUploaded?: (() => void) | undefined;
 } = $props();
 
-// prefers-reduced-motion: the CSS reset in app.css cannot reach these
-// JS-driven transitions (see motion.ts), so wrap them explicitly.
-const backdropFade = reducedMotionAware(fade);
-const panelScale = reducedMotionAware(scale);
-
 // ── State ──────────────────────────────────────────────────────────────────
 type Step = "drop" | "edit" | "uploading";
 let step: Step = $state("drop");
 
 let fileInput: HTMLInputElement | null = $state(null);
 let canvasEl: HTMLCanvasElement | null = $state(null);
-let dialogRef: HTMLDivElement | null = $state(null);
-let previousFocus: HTMLElement | null = null;
 
 let isDraggingOver = $state(false);
 let uploadError = $state("");
@@ -57,11 +55,11 @@ let previewCanvas: HTMLCanvasElement | null = $state(null);
 // ── Helpers ────────────────────────────────────────────────────────────────
 function loadFile(file: File) {
 	if (!file.type.startsWith("image/")) {
-		uploadError = "Please select an image file.";
+		uploadError = $t("avatarEditor.errorNotImage");
 		return;
 	}
 	if (file.size > 20 * 1024 * 1024) {
-		uploadError = "File is too large. Maximum size is 20MB.";
+		uploadError = $t("avatarEditor.errorTooLarge");
 		return;
 	}
 	uploadError = "";
@@ -268,7 +266,7 @@ async function handleUpload() {
 	offscreen.height = 512;
 	const ctx = offscreen.getContext("2d");
 	if (!ctx) {
-		uploadError = "Failed to process image.";
+		uploadError = $t("avatarEditor.errorProcess");
 		step = "edit";
 		return;
 	}
@@ -302,7 +300,7 @@ async function handleUpload() {
 	offscreen.toBlob(
 		async (blob) => {
 			if (!blob) {
-				uploadError = "Failed to process image.";
+				uploadError = $t("avatarEditor.errorProcess");
 				step = "edit";
 				return;
 			}
@@ -312,7 +310,7 @@ async function handleUpload() {
 				onClose?.();
 			} catch (e: unknown) {
 				uploadError =
-					e instanceof Error ? e.message : "Failed to upload image.";
+					e instanceof Error ? e.message : $t("avatarEditor.errorUpload");
 				step = "edit";
 			}
 		},
@@ -343,10 +341,14 @@ function onFileInput(e: Event) {
 	if (file) loadFile(file);
 }
 
-function handleBackdropClick() {
-	if (step !== "uploading") {
-		onClose?.();
-	}
+/**
+ * DialogShell raises this for Escape and for the backdrop. An upload in
+ * flight still refuses to close, which is the one piece of the old
+ * hand-rolled keydown handler that was about this dialog rather than about
+ * being a dialog.
+ */
+function requestClose() {
+	if (step !== "uploading") onClose?.();
 }
 
 function openSelectedFile() {
@@ -367,72 +369,15 @@ function chooseDifferentImage() {
 		fileInput.value = "";
 	}
 }
-
-// ── Keyboard & focus ───────────────────────────────────────────────────────
-function handleKeydown(e: KeyboardEvent) {
-	if (e.key === "Escape") {
-		e.preventDefault();
-		if (step !== "uploading") onClose?.();
-	} else if (e.key === "Tab") {
-		const focusable = dialogRef?.querySelectorAll<HTMLElement>(
-			'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-		);
-		if (!focusable || focusable.length === 0) return;
-		const first = focusable[0];
-		const last = focusable[focusable.length - 1];
-		if (e.shiftKey) {
-			if (document.activeElement === first) {
-				last.focus();
-				e.preventDefault();
-			}
-		} else {
-			if (document.activeElement === last) {
-				first.focus();
-				e.preventDefault();
-			}
-		}
-	}
-}
-
-onMount(() => {
-	previousFocus = document.activeElement as HTMLElement;
-	document.body.style.overflow = "hidden";
-});
-
-onDestroy(() => {
-	if (previousFocus) previousFocus.focus();
-	document.body.style.overflow = "";
-});
 </script>
 
-<svelte:window onkeydown={handleKeydown} onmouseup={onMouseUp} />
+<svelte:window onmouseup={onMouseUp} />
 
-<div
-	class="fixed inset-0 z-50 flex items-center justify-center p-md"
-	transition:backdropFade={{ duration: 150 }}
+<DialogShell
+	title={$t('avatarEditor.title')}
+	onClose={requestClose}
+	maxWidthClass="max-w-[520px]"
 >
-	<!-- Backdrop -->
-	<button
-		type="button"
-		class="absolute inset-0 bg-surface-page opacity-80 backdrop-blur-sm"
-		aria-label="Close profile photo editor"
-		onclick={handleBackdropClick}
-	></button>
-
-	<!-- Modal -->
-	<div
-		bind:this={dialogRef}
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="pic-editor-title"
-		tabindex="-1"
-		class="relative w-full max-w-[520px] rounded-lg border border-border bg-surface-page p-lg shadow-lg"
-		transition:panelScale={{ duration: 150, start: 0.95 }}
-	>
-		<h2 id="pic-editor-title" class="mb-md text-xl font-semibold text-text-primary">
-			Upload Profile Photo
-		</h2>
-
 		<!-- ── Step: Drop zone ───────────────────────────────────────────── -->
 		{#if step === 'drop'}
 			<div
@@ -445,11 +390,11 @@ onDestroy(() => {
 				role="button"
 				tabindex="0"
 				onkeydown={handleDropZoneKeydown}
-				aria-label="Upload photo drop zone"
+				aria-label={$t('avatarEditor.dropZoneLabel')}
 			>
 			<Upload class="text-icon-muted" size={40} strokeWidth={1.5} aria-hidden="true" />
-				<p class="text-sm text-text-primary font-medium">Drop an image here, or click to select</p>
-				<p class="text-xs text-text-muted">JPEG, PNG, WebP, GIF, HEIC, AVIF, BMP, TIFF · max 20 MB</p>
+				<p class="text-sm text-text-primary font-medium">{$t('avatarEditor.dropZone')}</p>
+				<p class="text-xs text-text-muted">{$t('avatarEditor.formats')}</p>
 			</div>
 
 			<input
@@ -503,8 +448,8 @@ onDestroy(() => {
 							class="btn-icon-bare flex-shrink-0"
 							onclick={rotateLeft}
 							disabled={step === 'uploading'}
-							title="Rotate left 90°"
-							aria-label="Rotate left 90°"
+							title={$t('avatarEditor.rotateLeft')}
+							aria-label={$t('avatarEditor.rotateLeft')}
 						>
 						<RotateCcw size={15} strokeWidth={2} aria-hidden="true" />
 						</button>
@@ -519,7 +464,7 @@ onDestroy(() => {
 							oninput={drawCanvas}
 							disabled={step === 'uploading'}
 							class="rotation-slider flex-1"
-							aria-label="Rotation"
+							aria-label={$t('avatarEditor.rotation')}
 						/>
 
 						<!-- Rotate CW 90° -->
@@ -528,8 +473,8 @@ onDestroy(() => {
 							class="btn-icon-bare flex-shrink-0"
 							onclick={rotateRight}
 							disabled={step === 'uploading'}
-							title="Rotate right 90°"
-							aria-label="Rotate right 90°"
+							title={$t('avatarEditor.rotateRight')}
+							aria-label={$t('avatarEditor.rotateRight')}
 						>
 						<RotateCw size={15} strokeWidth={2} aria-hidden="true" />
 						</button>
@@ -548,8 +493,8 @@ onDestroy(() => {
 							class="btn-icon-bare flex-shrink-0"
 							onclick={zoomOut}
 							disabled={step === 'uploading' || zoom <= 0.5}
-							title="Zoom out"
-							aria-label="Zoom out"
+							title={$t('avatarEditor.zoomOut')}
+							aria-label={$t('avatarEditor.zoomOut')}
 						>
 						<ZoomOut size={15} strokeWidth={2} aria-hidden="true" />
 						</button>
@@ -564,7 +509,7 @@ onDestroy(() => {
 							oninput={drawCanvas}
 							disabled={step === 'uploading'}
 							class="zoom-slider flex-1"
-							aria-label="Zoom"
+							aria-label={$t('avatarEditor.zoom')}
 						/>
 
 						<!-- Zoom in -->
@@ -573,8 +518,8 @@ onDestroy(() => {
 							class="btn-icon-bare flex-shrink-0"
 							onclick={zoomIn}
 							disabled={step === 'uploading' || zoom >= 3}
-							title="Zoom in"
-							aria-label="Zoom in"
+							title={$t('avatarEditor.zoomIn')}
+							aria-label={$t('avatarEditor.zoomIn')}
 						>
 						<ZoomIn size={15} strokeWidth={2} aria-hidden="true" />
 						</button>
@@ -591,9 +536,9 @@ onDestroy(() => {
 								width={PREVIEW_SIZE}
 								height={PREVIEW_SIZE}
 								class="rounded-full border border-border"
-								aria-label="Preview"
+								aria-label={$t('avatarEditor.preview')}
 							></canvas>
-							<span class="text-[10px] text-text-muted">Preview</span>
+							<span class="text-[10px] text-text-muted">{$t('avatarEditor.preview')}</span>
 						</div>
 					</div>
 				</div>
@@ -605,7 +550,7 @@ onDestroy(() => {
 						class="btn-secondary text-xs"
 						onclick={chooseDifferentImage}
 					>
-						Choose a different image
+						{$t('avatarEditor.chooseDifferent')}
 					</button>
 				{/if}
 
@@ -615,24 +560,24 @@ onDestroy(() => {
 			</div>
 		{/if}
 
-		<!-- Footer -->
-		<div class="mt-lg flex justify-end gap-md">
+		<!-- Footer: negative on the left, positive on the right, above a
+		     hairline — the dialog chassis the rest of the app uses. -->
+		<div class="mt-lg flex justify-end gap-md border-t border-border pt-md">
 			<button
 				type="button"
 				class="btn-secondary"
 				onclick={() => onClose?.()}
 				disabled={step === 'uploading'}
 			>
-				Cancel
+				{$t('avatarEditor.cancel')}
 			</button>
 			{#if step === 'edit'}
 				<button type="button" class="btn-primary" onclick={handleUpload}>
-					Upload
+					{$t('avatarEditor.upload')}
 				</button>
 			{/if}
 		</div>
-	</div>
-</div>
+</DialogShell>
 
 <style>
 	.drop-zone {
