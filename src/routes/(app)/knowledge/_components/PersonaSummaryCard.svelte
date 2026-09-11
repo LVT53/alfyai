@@ -190,7 +190,7 @@ let paragraphs = $derived.by<string[]>(() => {
 		height: 1.6rem;
 		padding: 0 0.55rem;
 		border: 1px solid var(--border-default);
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		background: transparent;
 		color: var(--text-secondary);
 		font-family: var(--font-sans);
@@ -199,16 +199,21 @@ let paragraphs = $derived.by<string[]>(() => {
 		cursor: pointer;
 		white-space: nowrap;
 		transition:
-			border-color 150ms ease,
-			color 150ms ease,
-			background-color 150ms ease;
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
+			background-color var(--duration-standard) var(--ease-out);
 	}
 
 	.persona-summary-edit:hover,
 	.persona-summary-edit:focus-visible {
-		border-color: var(--accent);
+		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 		color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
+		background: color-mix(in srgb, var(--accent) 8%, transparent 92%);
+	}
+
+	.persona-summary-edit:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	@media (prefers-reduced-motion: reduce) {

@@ -61,7 +61,7 @@ function targetLabel(action: MemoryTimelineAction): string | null {
 </script>
 
 <section
-	class="memory-timeline rounded-[1rem] border border-border bg-surface-elevated px-[0.95rem] py-[0.85rem] shadow-sm"
+	class="memory-timeline border border-border bg-surface-elevated shadow-sm"
 	aria-labelledby="memory-timeline-title"
 >
 	<div class="flex items-center gap-2">
@@ -148,6 +148,14 @@ function targetLabel(action: MemoryTimelineAction): string | null {
 </section>
 
 <style>
+	/* Radius and inner padding come from the rail rather than from two hard
+	   numbers typed into a class list; see `.memory-profile-layout`. */
+	.memory-timeline {
+		border-radius: var(--knowledge-card-radius, 1rem);
+		padding: var(--knowledge-card-padding-y, 0.85rem)
+			var(--knowledge-card-padding-x, 0.95rem);
+	}
+
 	.memory-timeline-title {
 		margin: 0;
 		font-family: var(--font-sans);
@@ -170,7 +178,7 @@ function targetLabel(action: MemoryTimelineAction): string | null {
 	.memory-timeline-dot {
 		width: 0.5rem;
 		height: 0.5rem;
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		background: var(--accent);
 	}
 

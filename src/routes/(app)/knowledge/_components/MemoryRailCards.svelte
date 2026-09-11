@@ -69,9 +69,10 @@ import { Settings, Trash2 } from "@lucide/svelte";
 <style>
 	.rail-card {
 		border: 1px solid var(--border-default);
-		border-radius: 1rem;
+		border-radius: var(--knowledge-card-radius, 1rem);
 		background: var(--surface-elevated);
-		padding: 0.85rem 0.95rem;
+		padding: var(--knowledge-card-padding-y, 0.85rem)
+			var(--knowledge-card-padding-x, 0.95rem);
 		box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
 	}
 
@@ -121,7 +122,7 @@ import { Settings, Trash2 } from "@lucide/svelte";
 		width: 0.5rem;
 		height: 0.5rem;
 		margin-top: 0.3rem;
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 	}
 
 	.legend-dot--stated {
@@ -139,7 +140,7 @@ import { Settings, Trash2 } from "@lucide/svelte";
 		align-items: center;
 		height: 1.1rem;
 		padding: 0 0.4rem;
-		border-radius: 9999px;
+		border-radius: var(--radius-full);
 		font-family: var(--font-sans);
 		font-size: 0.6rem;
 	}
@@ -180,28 +181,34 @@ import { Settings, Trash2 } from "@lucide/svelte";
 		text-decoration: none;
 		cursor: pointer;
 		transition:
-			border-color 150ms ease,
-			background-color 150ms ease,
-			color 150ms ease;
+			border-color var(--duration-standard) var(--ease-out),
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
+	/* The same 12%/38% → 18%/55% step every other button on the page takes. */
 	.rail-button:hover,
 	.rail-button:focus-visible {
-		border-color: var(--accent);
+		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 		color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+	}
+
+	.rail-button:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.rail-button--danger {
-		border-color: color-mix(in srgb, var(--danger) 30%, var(--border-default) 70%);
+		border-color: color-mix(in srgb, var(--danger) 38%, transparent);
 		color: var(--danger);
 	}
 
 	.rail-button--danger:hover,
 	.rail-button--danger:focus-visible {
-		border-color: var(--danger);
+		border-color: color-mix(in srgb, var(--danger) 55%, transparent);
 		color: var(--danger);
-		background: color-mix(in srgb, var(--danger) 7%, transparent 93%);
+		background: color-mix(in srgb, var(--danger) 18%, transparent);
 	}
 
 	@media (prefers-reduced-motion: reduce) {

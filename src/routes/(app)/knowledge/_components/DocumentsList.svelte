@@ -637,6 +637,19 @@ function getFileIcon(
 		return Monitor;
 	}
 
+	// Word processing lands here rather than in the source-code branch below:
+	// the OOXML mime type is `application/vnd.openxmlformats-officedocument
+	// .wordprocessingml.document`, which CONTAINS "xml", so every .docx was
+	// drawing the `< >` code glyph in the row's icon column.
+	if (
+		mime.includes("wordprocessingml") ||
+		mime.includes("opendocument.text") ||
+		mime.includes("msword") ||
+		["doc", "docx", "odt", "rtf"].includes(extension)
+	) {
+		return FileText;
+	}
+
 	if (
 		mime.includes("code") ||
 		mime.includes("javascript") ||
@@ -856,8 +869,9 @@ async function handleBulkDelete(): Promise<boolean> {
 					{#if isUploading}
 						<Spinner size={16} />
 					{:else}
-						<Upload size={18} strokeWidth={1.5} aria-hidden="true" />
+						<Upload size={16} strokeWidth={2} aria-hidden="true" />
 					{/if}
+					<span class="upload-btn-label">{$t('knowledge.upload')}</span>
 				</button>
 			{/if}
 
@@ -928,24 +942,44 @@ async function handleBulkDelete(): Promise<boolean> {
 							</th>
 							<th class="col-icon" scope="col" aria-label={$t('knowledge.type')}></th>
 							<th class="col-name" scope="col" aria-sort={getAriaSort('name')}>
-								<button type="button" class="sort-button" onclick={() => toggleSort('name')}>
+								<button
+									type="button"
+									class="sort-button"
+									class:is-active={activeSortKey === 'name'}
+									onclick={() => toggleSort('name')}
+								>
 									{$t('knowledge.name')} <span class="sort-indicator">{getSortIndicator('name')}</span>
 								</button>
 							</th>
 							<th class="col-version" scope="col">{$t('knowledge.version')}</th>
 							<th class="col-type" scope="col" aria-sort={getAriaSort('type')}>
-								<button type="button" class="sort-button" onclick={() => toggleSort('type')}>
+								<button
+									type="button"
+									class="sort-button"
+									class:is-active={activeSortKey === 'type'}
+									onclick={() => toggleSort('type')}
+								>
 									{$t('knowledge.type')} <span class="sort-indicator">{getSortIndicator('type')}</span>
 								</button>
 							</th>
 							<th class="col-status" scope="col">{$t('knowledge.status')}</th>
 							<th class="col-size" scope="col" aria-sort={getAriaSort('size')}>
-								<button type="button" class="sort-button" onclick={() => toggleSort('size')}>
+								<button
+									type="button"
+									class="sort-button"
+									class:is-active={activeSortKey === 'size'}
+									onclick={() => toggleSort('size')}
+								>
 									{$t('knowledge.size')} <span class="sort-indicator">{getSortIndicator('size')}</span>
 								</button>
 							</th>
 							<th class="col-date" scope="col" aria-sort={getAriaSort('date')}>
-								<button type="button" class="sort-button" onclick={() => toggleSort('date')}>
+								<button
+									type="button"
+									class="sort-button"
+									class:is-active={activeSortKey === 'date'}
+									onclick={() => toggleSort('date')}
+								>
 									{$t('knowledge.date')} <span class="sort-indicator">{getSortIndicator('date')}</span>
 								</button>
 							</th>
@@ -1234,6 +1268,10 @@ async function handleBulkDelete(): Promise<boolean> {
 
 <style>
 	.documents-list-wrapper {
+		/* Every card on this tab — filter bar, table, bulk bar, pager, drop
+		   overlay — is drawn at one radius rather than at four hand-typed
+		   values that drifted apart (1rem, 1.2rem, --radius-md). */
+		--knowledge-card-radius: 1rem;
 		position: relative;
 		display: flex;
 		flex-direction: column;
@@ -1245,10 +1283,12 @@ async function handleBulkDelete(): Promise<boolean> {
 		display: none;
 		position: absolute;
 		inset: 0;
+		margin: 0;
 		z-index: 100;
 		background: color-mix(in srgb, var(--surface-elevated) 95%, transparent);
-		border: 2px dashed var(--accent);
-		border-radius: 1.2rem;
+		border: 2px dashed
+			color-mix(in srgb, var(--accent) 55%, var(--border-default) 45%);
+		border-radius: var(--knowledge-card-radius);
 		backdrop-filter: blur(4px);
 	}
 
@@ -1366,7 +1406,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		justify-content: space-between;
 		padding: var(--space-md) var(--space-lg);
 		border: 1px solid var(--border-default);
-		border-radius: 1rem;
+		border-radius: var(--knowledge-card-radius);
 		background: var(--surface-elevated);
 	}
 
@@ -1416,18 +1456,26 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.upload-btn {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 40px;
-		height: 40px;
-		padding: 0;
-		border: 1px solid var(--accent);
+		gap: 0.4rem;
+		min-height: 40px;
+		padding: 0 0.85rem;
+		border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
 		border-radius: var(--radius-md);
-		background: var(--accent);
-		color: white;
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+		color: var(--accent);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		letter-spacing: 0.025em;
+		white-space: nowrap;
 		cursor: pointer;
-		transition: all var(--duration-standard) var(--ease-out);
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 		flex-shrink: 0;
 	}
 
@@ -1439,9 +1487,13 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.upload-btn:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--accent) 85%, black);
-		border-color: color-mix(in srgb, var(--accent) 85%, black);
-		color: white;
+		background: color-mix(in srgb, var(--accent) 18%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+	}
+
+	.upload-btn:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.upload-btn:disabled {
@@ -1449,8 +1501,14 @@ async function handleBulkDelete(): Promise<boolean> {
 		cursor: not-allowed;
 	}
 
+	@media (prefers-reduced-motion: reduce) {
+		.upload-btn {
+			transition: none !important;
+		}
+	}
+
 	.table-container {
-		border-radius: 1rem;
+		border-radius: var(--knowledge-card-radius);
 		border: 1px solid var(--border-default);
 		background: var(--surface-elevated);
 	}
@@ -1491,15 +1549,19 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.documents-table th {
-		padding: var(--space-md);
+		padding: var(--space-sm) var(--space-md);
 		text-align: left;
 		font-size: 0.68rem;
 		font-weight: 500;
 		text-transform: uppercase;
 		letter-spacing: 0.12em;
 		color: var(--text-muted);
+		vertical-align: middle;
 	}
 
+	/* Same grammar as the users table in settings: the header hovers to accent,
+	   the column being sorted keeps the primary text colour, and the caret that
+	   says which way is the only accent mark in the row. */
 	.sort-button {
 		display: inline-flex;
 		align-items: center;
@@ -1512,16 +1574,38 @@ async function handleBulkDelete(): Promise<boolean> {
 		text-transform: inherit;
 		color: inherit;
 		cursor: pointer;
+		border-radius: var(--radius-sm);
+		transition: color var(--duration-standard) var(--ease-out);
 	}
 
 	.sort-button:hover {
+		color: var(--accent);
+	}
+
+	.sort-button:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	.sort-button.is-active {
 		color: var(--text-primary);
 	}
 
 	.sort-indicator {
 		font-size: 0.72rem;
 		line-height: 1;
-		opacity: 0.85;
+		opacity: 0.55;
+	}
+
+	.sort-button.is-active .sort-indicator {
+		opacity: 1;
+		color: var(--accent);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.sort-button {
+			transition: none !important;
+		}
 	}
 
 	/* Sort control and its direction, on every width — the board puts them
@@ -1572,9 +1656,9 @@ async function handleBulkDelete(): Promise<boolean> {
 		color: var(--text-secondary);
 		cursor: pointer;
 		transition:
-			border-color 150ms ease,
-			color 150ms ease,
-			background-color 150ms ease;
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out),
+			background-color var(--duration-standard) var(--ease-out);
 	}
 
 	.sort-direction:hover,
@@ -1584,26 +1668,41 @@ async function handleBulkDelete(): Promise<boolean> {
 		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
 	}
 
+	/* An empty cell wears the same box as the badge it stands in for, with a
+	   transparent border, so its dash starts on the badge's text origin
+	   instead of 6px to its left. */
 	.cell-blank {
+		display: inline-flex;
+		align-items: center;
+		min-height: 1.35rem;
+		padding: 0.125rem 0.375rem;
+		border: 1px solid transparent;
 		color: var(--text-muted);
 		font-size: 0.8125rem;
+		line-height: 1;
 	}
 
 	.status-badge {
 		display: inline-flex;
 		align-items: center;
+		min-height: 1.35rem;
 		padding: 0.125rem 0.375rem;
 		border-radius: var(--radius-sm);
 		border: 1px solid var(--border-default);
 		color: var(--text-muted);
 		font-size: 0.6875rem;
 		font-weight: 500;
+		line-height: 1;
+		white-space: nowrap;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
 
+	/* Greyed, not gone: the slot keeps the action column from jittering. At
+	   0.25 it had all but vanished in dark, where it must still read as a
+	   deliberate absence rather than a rendering fault. */
 	.action-btn-disabled {
-		opacity: 0.25;
+		opacity: 0.4;
 		cursor: default;
 	}
 
@@ -1642,7 +1741,11 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.document-row:hover {
-		background: var(--surface-elevated);
+		background: color-mix(in srgb, var(--accent) 4%, transparent 96%);
+	}
+
+	:global(.dark) .document-row:hover {
+		background: color-mix(in srgb, var(--accent) 7%, transparent 93%);
 	}
 
 	.document-row:focus-visible {
@@ -1676,29 +1779,46 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.col-type {
-		width: 11%;
+		width: 12%;
 	}
 
 	.col-status {
-		width: 10%;
+		width: 9%;
 	}
 
 	.col-size {
 		width: 8%;
 	}
 
+	/* Wide enough for "Sep 11, 2026, 7:25 PM" on ONE line at the narrowest
+	   width the table is drawn at. It used to be overridden to 140px further
+	   down, which broke the date over two lines on every row. */
 	.col-date {
-		width: 15%;
+		width: 17%;
 	}
 
 	.col-actions {
-		width: 12%;
+		width: 11%;
+	}
+
+	.documents-table th.col-actions {
+		text-align: right;
 	}
 
 	.col-version,
 	.col-status,
-	.col-size {
+	.col-size,
+	.col-date {
 		white-space: nowrap;
+	}
+
+	/* A column of measurements reads down its last digit, like every other
+	   numeric column in the app (see `td.numeric` in the settings users
+	   table). Centred, "144.5 KB" and "3.0 KB" agreed on nothing. */
+	.documents-table th.col-size,
+	.documents-table td.col-size {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
 	}
 
 	/* Fixed layout gives this column whatever the others leave, so a long
@@ -1735,6 +1855,9 @@ async function handleBulkDelete(): Promise<boolean> {
 	.version-badge {
 		display: inline-flex;
 		align-items: center;
+		min-height: 1.35rem;
+		line-height: 1;
+		white-space: nowrap;
 		padding: 0.125rem 0.375rem;
 		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--accent) 15%, transparent);
@@ -1748,6 +1871,9 @@ async function handleBulkDelete(): Promise<boolean> {
 	.original-badge {
 		display: inline-flex;
 		align-items: center;
+		min-height: 1.35rem;
+		line-height: 1;
+		white-space: nowrap;
 		padding: 0.125rem 0.375rem;
 		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--success) 15%, transparent);
@@ -1761,6 +1887,9 @@ async function handleBulkDelete(): Promise<boolean> {
 	.historical-badge {
 		display: inline-flex;
 		align-items: center;
+		min-height: 1.35rem;
+		line-height: 1;
+		white-space: nowrap;
 		padding: 0.125rem 0.375rem;
 		border-radius: var(--radius-sm);
 		background: var(--surface-elevated);
@@ -1771,17 +1900,16 @@ async function handleBulkDelete(): Promise<boolean> {
 		letter-spacing: 0.05em;
 	}
 
-	.col-type {
-		width: 100px;
-	}
-
 	.type-badge {
 		display: inline-flex;
 		align-items: center;
-		padding: 0.25rem 0.625rem;
+		min-height: 1.35rem;
+		padding: 0.125rem 0.5rem;
 		border-radius: var(--radius-full);
 		font-size: 0.6875rem;
 		font-weight: 500;
+		line-height: 1;
+		white-space: nowrap;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -1804,20 +1932,10 @@ async function handleBulkDelete(): Promise<boolean> {
 		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
 	}
 
-	.col-size {
-		width: 80px;
+	.documents-table td.col-size,
+	.documents-table td.col-date {
 		font-size: 0.8125rem;
 		color: var(--text-secondary);
-	}
-
-	.col-date {
-		width: 140px;
-		font-size: 0.8125rem;
-		color: var(--text-secondary);
-	}
-
-	.col-actions {
-		width: 112px;
 	}
 
 	.action-buttons {
@@ -1842,7 +1960,7 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.action-btn:hover {
-		background: var(--surface-elevated);
+		background: color-mix(in srgb, var(--text-primary) 8%, transparent 92%);
 		color: var(--icon-primary);
 	}
 
@@ -1934,7 +2052,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		align-items: center;
 		justify-content: space-between;
 		padding: var(--space-md) var(--space-lg);
-		border-radius: 1rem;
+		border-radius: var(--knowledge-card-radius);
 		border: 1px solid var(--border-default);
 		background: var(--surface-elevated);
 		flex-wrap: wrap;
@@ -1963,9 +2081,9 @@ async function handleBulkDelete(): Promise<boolean> {
 	.page-size-select {
 		min-height: 40px;
 		padding: 0.25rem 0.5rem;
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
 		border: 1px solid var(--border-default);
-		background: var(--surface-elevated);
+		background: var(--surface-page);
 		font-size: 0.8125rem;
 		color: var(--text-primary);
 		cursor: pointer;
@@ -1998,9 +2116,14 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.pagination-btn:hover:not(:disabled) {
-		background: var(--surface-page);
-		color: var(--icon-primary);
-		border-color: var(--accent);
+		background: color-mix(in srgb, var(--accent) 8%, var(--surface-page) 92%);
+		color: var(--accent);
+		border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+	}
+
+	.pagination-btn:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
 	.pagination-btn:disabled {
@@ -2056,7 +2179,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		top: 2px;
 		width: 5px;
 		height: 9px;
-		border: solid white;
+		border: solid var(--accent-contrast);
 		border-width: 0 2px 2px 0;
 		transform: rotate(45deg);
 	}
@@ -2082,7 +2205,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		justify-content: space-between;
 		padding: var(--space-md) var(--space-lg);
 		margin-top: var(--space-md);
-		border-radius: 1rem;
+		border-radius: var(--knowledge-card-radius);
 		border: 1px solid var(--border-default);
 		background: var(--surface-elevated);
 		flex-wrap: wrap;
@@ -2103,8 +2226,7 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.bulk-select-all {
-		padding: 0.25rem 0.625rem;
-		font-size: 0.8125rem;
+		font-weight: 400;
 	}
 
 	.bulk-actions {
@@ -2114,27 +2236,42 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.bulk-btn {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
+		justify-content: center;
 		gap: var(--space-xs);
-		padding: var(--space-sm) var(--space-md);
+		min-height: 34px;
+		padding: 0.3125rem 0.75rem;
 		border-radius: var(--radius-md);
-		font-size: 0.8125rem;
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
 		font-weight: 500;
+		letter-spacing: 0.025em;
+		white-space: nowrap;
 		cursor: pointer;
-		transition: all var(--duration-standard) var(--ease-out);
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 		border: 1px solid transparent;
 	}
 
+	.bulk-btn:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	/* Straight off `.btn-danger` in app.css: 12% fill, 38% border, and the
+	   hover that goes with them. */
 	.bulk-btn-danger {
 		background: color-mix(in srgb, var(--danger) 12%, transparent);
 		color: var(--danger);
-		border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+		border-color: color-mix(in srgb, var(--danger) 38%, transparent);
 	}
 
 	.bulk-btn-danger:hover:not(:disabled) {
-		background: color-mix(in srgb, var(--danger) 20%, transparent);
-		border-color: var(--danger);
+		background: color-mix(in srgb, var(--danger) 18%, transparent);
+		border-color: color-mix(in srgb, var(--danger) 55%, transparent);
 	}
 
 	.bulk-btn-secondary {
@@ -2144,14 +2281,24 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.bulk-btn-secondary:hover {
-		background: var(--surface-elevated);
+		background: color-mix(in srgb, var(--text-primary) 7%, var(--surface-page));
 		color: var(--text-primary);
-		border-color: var(--accent);
+		border-color: color-mix(in srgb, var(--text-primary) 30%, transparent);
 	}
 
 	.bulk-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.bulk-btn,
+		.pagination-btn,
+		.action-btn,
+		.document-row,
+		.custom-checkbox {
+			transition: none !important;
+		}
 	}
 
 	@media (max-width: 720px) {
@@ -2177,8 +2324,8 @@ async function handleBulkDelete(): Promise<boolean> {
 		}
 
 		.upload-btn {
-			width: 44px;
-			height: 44px;
+			min-width: 44px;
+			min-height: 44px;
 		}
 
 		/* Touch targets: the sort control and its direction both reach 44px. */
@@ -2363,7 +2510,9 @@ async function handleBulkDelete(): Promise<boolean> {
 			color: var(--text-secondary);
 		}
 
-		.mobile-document-meta > span:not(.type-badge) {
+		.mobile-document-meta > span:not(.type-badge):not(.version-badge):not(
+				.original-badge
+			):not(.historical-badge) {
 			display: inline-flex;
 			align-items: center;
 			min-height: 1.5rem;
@@ -2372,6 +2521,16 @@ async function handleBulkDelete(): Promise<boolean> {
 			border: 1px solid var(--border-subtle);
 			background: var(--surface-page);
 			white-space: nowrap;
+		}
+
+		/* Every badge in the card's meta row stands the same height, so the
+		   line reads as one band rather than as three staggered lozenges. */
+		.mobile-document-meta .type-badge,
+		.mobile-document-meta .version-badge,
+		.mobile-document-meta .original-badge,
+		.mobile-document-meta .historical-badge {
+			min-height: 1.5rem;
+			padding: 0.18rem 0.5rem;
 		}
 
 		.ai-version-row {
@@ -2415,14 +2574,14 @@ async function handleBulkDelete(): Promise<boolean> {
 
 		.action-buttons {
 			display: grid;
-			grid-template-columns: repeat(3, minmax(0, 1fr));
-			gap: var(--space-xs);
-			justify-content: stretch;
+			grid-template-columns: repeat(3, 44px);
+			gap: var(--space-sm);
+			justify-content: flex-end;
 			padding-top: 0.1rem;
 		}
 
 		.action-btn {
-			width: 100%;
+			width: 44px;
 			min-height: 44px;
 			background: var(--surface-page);
 			border: 1px solid var(--border-subtle);
