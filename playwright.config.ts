@@ -42,6 +42,11 @@ export default defineConfig({
     env: {
       ...(process.env as Record<string, string>),
       PLAYWRIGHT_TEST: '1',
+      // The home summary is cached 30s per user in production. Specs seed the
+      // conversations, jobs and usage rows it reads straight into SQLite,
+      // behind the server's back, so a warm entry would serve the state from
+      // before the seed. Off here; the TTL itself is unit-tested.
+      HOME_SUMMARY_CACHE_TTL_MS: '0',
       DATABASE_PATH: E2E_DATABASE_PATH,
       E2E_DATABASE_PATH,
       SESSION_SECRET: E2E_SESSION_SECRET,

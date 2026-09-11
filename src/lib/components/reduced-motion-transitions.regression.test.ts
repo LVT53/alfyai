@@ -55,13 +55,15 @@ const CASES: Case[] = [
 	},
 	{
 		file: "src/routes/(app)/+page.svelte",
-		wrappedNames: ["statusFade", "greetingFade"],
-		// Both the status-message fade and the "intro-copy" greeting fade
-		// are routed through reducedMotionAware; guard against either one
-		// regressing back to a bare svelte/transition `fade`.
+		wrappedNames: ["statusFade", "greetingFade", "boardFly"],
+		// The status-message fade, the greeting fade and the home board's
+		// entrance (chips, Recent and the tool-health strip arriving together
+		// once the summary lands) are all routed through reducedMotionAware;
+		// guard against any of them regressing to a bare svelte/transition.
 		bannedDirectives: [
 			/transition:fade=\{\{ duration: 150 \}\}/,
 			/in:fade=\{\{ duration: isFromChat/,
+			/in:fly=\{\{ y: 6/,
 		],
 	},
 	{
