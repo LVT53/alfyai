@@ -81,8 +81,10 @@ let paragraphs = $derived.by<string[]>(() => {
 });
 </script>
 
-<svelte:element
-	this={flush ? "div" : "section"}
+<!-- A plain <section> rather than a <svelte:element this={...}>: only the
+     classes ever changed between the two modes, and a dynamic tag bought
+     nothing for the reading it cost. -->
+<section
 	class={flush
 		? "persona-summary-card persona-summary-card--flush px-[1.15rem] py-4"
 		: "persona-summary-card rounded-[1rem] border border-border bg-surface-elevated px-4 py-4 shadow-sm md:px-5"}
@@ -150,13 +152,20 @@ let paragraphs = $derived.by<string[]>(() => {
 	{:else if summary}
 		<div class="persona-summary-body mt-3 flex flex-col gap-2.5">
 			{#each paragraphs as paragraph, index (index)}
-				<p class="break-words font-serif text-[0.98rem] leading-[1.7] text-text-primary">
+				<p
+					class={flush
+						? "break-words font-serif text-[0.9rem] leading-[1.7] text-text-primary"
+						: "break-words font-serif text-[0.98rem] leading-[1.7] text-text-primary"}
+				>
 					{paragraph}
 				</p>
 			{/each}
 		</div>
-		<p class="mt-3 text-xs font-sans text-text-muted">
+		<p class="mt-3 text-xs font-sans leading-[1.5] text-text-muted">
 			{$t("memoryProfile.summaryUpdated", { time: updatedLabel })}
+			{#if flush}
+				· {$t("memoryProfile.summaryBuiltFrom", { count: factCount })}
+			{/if}
 		</p>
 	{:else if hasFacts}
 		<p class="mt-3 text-sm font-sans leading-[1.6] text-text-muted">
@@ -167,7 +176,7 @@ let paragraphs = $derived.by<string[]>(() => {
 			{$t("memoryProfile.summaryEmpty")}
 		</p>
 	{/if}
-</svelte:element>
+</section>
 
 <style>
 	.persona-summary-card--flush {

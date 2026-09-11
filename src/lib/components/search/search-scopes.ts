@@ -126,7 +126,7 @@ export function resolveActiveScope(
 ): SearchScopeId {
 	if (requested === "all") return "all";
 	const chip = chips.find((candidate) => candidate.id === requested);
-	if (!chip || !chip.available || chip.count === 0) return "all";
+	if (!chip?.available || chip.count === 0) return "all";
 	return requested;
 }
 

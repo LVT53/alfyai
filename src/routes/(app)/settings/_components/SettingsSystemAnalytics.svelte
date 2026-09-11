@@ -18,6 +18,7 @@ import AnalyticsHero from "./analytics/AnalyticsHero.svelte";
 import {
 	buildComparisonDelta,
 	type CostSegmentInput,
+	formatCompactNumber,
 	formatCurrencyUsd,
 } from "./analytics/chassis-math";
 import { t } from "$lib/i18n";
@@ -322,6 +323,14 @@ const systemComparison = $derived.by(() => {
 		month: formatMonthLong(previous.month),
 	});
 });
+
+// Active users against configured accounts. The account list is only
+// populated for the admin screen that passes it, and it can lag the analytics
+// window, so the denominator is never allowed to fall below the numerator —
+// "9 / 1" is not a fact about anything.
+const configuredAccountCount = $derived(
+	Math.max(allUsers.length, system?.totalUsers ?? 0),
+);
 
 const heroLabel = $derived(
 	selectedSystemMonth === null
@@ -776,7 +785,10 @@ async function toggleExcludedUser(userId: string) {
 			<div class="mt-3">
 				<StatGrid>
 					<StatCard value={formatNum(system.totalMessages)} label={$t('analytics.totalMessages')} />
-					<StatCard value={formatNum(system.totalTokens)} label={$t('analytics.totalTokens')} />
+					<StatCard
+						value={formatCompactNumber(system.totalTokens)}
+						label={$t('analytics.totalTokens')}
+					/>
 					<StatCard
 						value={formatNum(webCalls)}
 						label={$t('analytics.webCalls')}
@@ -788,7 +800,7 @@ async function toggleExcludedUser(userId: string) {
 					<!-- Two tiles the Overview was missing: an admin should not have to
 					     open a second tab to learn whether the server is slow. -->
 					<StatCard
-						value={`${formatNum(system.totalUsers)} / ${formatNum(allUsers.length || system.totalUsers)}`}
+						value={`${formatNum(system.totalUsers)} / ${formatNum(configuredAccountCount)}`}
 						label={$t('analytics.activeUsersThisMonth')}
 					/>
 					<StatCard

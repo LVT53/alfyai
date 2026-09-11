@@ -18,6 +18,7 @@ import AnalyticsHero from "./analytics/AnalyticsHero.svelte";
 import {
 	buildComparisonDelta,
 	type CostSegmentInput,
+	formatCompactNumber,
 	formatCurrencyUsd,
 } from "./analytics/chassis-math";
 
@@ -241,9 +242,9 @@ function setGranularity(next: "weekly" | "monthly" | "yearly") {
 					<StatGrid>
 						<StatCard value={formatNum(analyticsData.personal.totalMessages)} label={$t('analytics.messagesSent')} />
 						<StatCard
-							value={formatNum(analyticsData.personal.totalTokens)}
+							value={formatCompactNumber(analyticsData.personal.totalTokens)}
 							label={$t('analytics.tokensUsed')}
-							comparison={`${formatNum(analyticsData.personal.outputTokens)} ${$t('outputTokens')} · ${formatNum(analyticsData.personal.reasoningTokens)} ${$t('analytics.reasoningTokens')}`}
+							comparison={`${formatCompactNumber(analyticsData.personal.outputTokens)} ${$t('outputTokens')} · ${formatCompactNumber(analyticsData.personal.reasoningTokens)} ${$t('analytics.reasoningTokens')}`}
 						/>
 						<StatCard value={formatNum(analyticsData.personal.chatCount)} label={$t('analytics.conversations')} />
 						<StatCard value={favoriteModelLabel} label={$t('analytics.favoriteModel')} />
