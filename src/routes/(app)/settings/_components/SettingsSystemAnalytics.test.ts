@@ -58,6 +58,7 @@ function systemFixture(): AnalyticsResponse {
 			byModel: [],
 			byProvider: [],
 			totalMessages: 0,
+			modelCalls: 0,
 			avgGenerationMs: 0,
 			totalTokens: 0,
 			promptTokens: 0,
@@ -73,6 +74,7 @@ function systemFixture(): AnalyticsResponse {
 			byModel: [],
 			byProvider: [],
 			totalMessages: 1,
+			modelCalls: 1,
 			avgGenerationMs: 900,
 			totalTokens: 600,
 			promptTokens: 400,
@@ -83,8 +85,13 @@ function systemFixture(): AnalyticsResponse {
 			totalUsers: 1,
 			totalConversations: 1,
 			monthly: [
-				{ month: "2026-03", messages: 1, totalTokens: 150, totalCostUsd: 1 },
-				{ month: "2026-06", messages: 1, totalTokens: 600, totalCostUsd: 2.5 },
+				{ month: "2026-03", modelCalls: 1, totalTokens: 150, totalCostUsd: 1 },
+				{
+					month: "2026-06",
+					modelCalls: 1,
+					totalTokens: 600,
+					totalCostUsd: 2.5,
+				},
 			],
 		},
 		perUser: [],
@@ -108,6 +115,7 @@ function systemWithPerUserFixture(): AnalyticsResponse {
 				displayName: "User Two",
 				email: "user2@example.com",
 				messageCount: 12,
+				modelCalls: 30,
 				avgGenerationMs: 900,
 				totalTokens: 600,
 				promptTokens: 400,
@@ -278,7 +286,12 @@ function systemWithRetiredSpendFixture(): AnalyticsResponse {
 		...base,
 		system: {
 			...system,
-			totalMessages: 30,
+			// The tile this test checks says "Model calls", so the figure that
+			// has to agree with the table's Total row is the call count — the
+			// message count is deliberately different here to prove the tile
+			// is not reading it.
+			totalMessages: 7,
+			modelCalls: 30,
 			totalTokens: 3_000,
 			totalCostUsd: 6,
 			byModel: [
@@ -544,6 +557,7 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 						displayName: "User One",
 						email: "user1@example.com",
 						messageCount: 10,
+						modelCalls: 24,
 						avgGenerationMs: 100,
 						totalTokens: 1000,
 						promptTokens: 600,

@@ -165,6 +165,133 @@ function seedAnalyticsRows() {
 		])
 		.run();
 
+	// usage_events is one row per BILLED MODEL CALL; `messages` is what people
+	// actually wrote. The read model reads the two separately, so the fixture
+	// has to carry both: real conversations with real user turns, including a
+	// follow-up that books no separate usage row, non-user roles that must
+	// never be counted, and an incognito conversation that analytics never
+	// tracks at all.
+	database
+		.insert(schema.conversations)
+		.values([
+			{
+				id: "conversation-user-may",
+				userId: "user-1",
+				title: "User May",
+				createdAt: new Date("2026-05-10T09:00:00.000Z"),
+				updatedAt: new Date("2026-05-10T10:07:00.000Z"),
+			},
+			{
+				id: "conversation-user-june",
+				userId: "user-1",
+				title: "User June",
+				createdAt: new Date("2026-06-10T09:00:00.000Z"),
+				updatedAt: new Date("2026-06-10T10:00:00.000Z"),
+			},
+			{
+				id: "conversation-admin-may",
+				userId: "admin-1",
+				title: "Admin May",
+				createdAt: new Date("2026-05-11T09:00:00.000Z"),
+				updatedAt: new Date("2026-05-11T10:00:00.000Z"),
+			},
+			{
+				id: "conversation-user-incognito",
+				userId: "user-1",
+				title: "User Incognito",
+				memoryIncognito: true,
+				createdAt: new Date("2026-05-14T09:00:00.000Z"),
+				updatedAt: new Date("2026-05-14T10:00:00.000Z"),
+			},
+		])
+		.run();
+
+	database
+		.insert(schema.messages)
+		.values([
+			{
+				id: "msg-user-may-ask",
+				conversationId: "conversation-user-may",
+				messageSequence: 1,
+				role: "user",
+				content: "First question",
+				createdAt: new Date("2026-05-10T09:58:00.000Z"),
+			},
+			{
+				id: "message-user-may",
+				conversationId: "conversation-user-may",
+				messageSequence: 2,
+				role: "assistant",
+				content: "First answer",
+				createdAt: new Date("2026-05-10T10:00:00.000Z"),
+			},
+			{
+				id: "msg-user-may-followup",
+				conversationId: "conversation-user-may",
+				messageSequence: 3,
+				role: "user",
+				content: "Follow-up question",
+				createdAt: new Date("2026-05-10T10:05:00.000Z"),
+			},
+			{
+				id: "msg-user-may-tool",
+				conversationId: "conversation-user-may",
+				messageSequence: 4,
+				role: "tool",
+				content: "tool result",
+				createdAt: new Date("2026-05-10T10:06:00.000Z"),
+			},
+			{
+				id: "msg-user-may-system",
+				conversationId: "conversation-user-may",
+				messageSequence: 5,
+				role: "system",
+				content: "system note",
+				createdAt: new Date("2026-05-10T10:07:00.000Z"),
+			},
+			{
+				id: "msg-user-june-ask",
+				conversationId: "conversation-user-june",
+				messageSequence: 1,
+				role: "user",
+				content: "June question",
+				createdAt: new Date("2026-06-10T09:58:00.000Z"),
+			},
+			{
+				id: "message-user-june",
+				conversationId: "conversation-user-june",
+				messageSequence: 2,
+				role: "assistant",
+				content: "June answer",
+				createdAt: new Date("2026-06-10T10:00:00.000Z"),
+			},
+			{
+				id: "msg-admin-may-ask",
+				conversationId: "conversation-admin-may",
+				messageSequence: 1,
+				role: "user",
+				content: "Admin question",
+				createdAt: new Date("2026-05-11T09:58:00.000Z"),
+			},
+			{
+				id: "message-admin-may",
+				conversationId: "conversation-admin-may",
+				messageSequence: 2,
+				role: "assistant",
+				content: "Admin answer",
+				createdAt: new Date("2026-05-11T10:00:00.000Z"),
+			},
+			{
+				id: "msg-user-incognito-ask",
+				conversationId: "conversation-user-incognito",
+				messageSequence: 1,
+				role: "user",
+				content: "Untracked question",
+				createdAt: new Date("2026-05-14T10:00:00.000Z"),
+			},
+		])
+		.run();
+
 	database
 		.insert(schema.analyticsConversations)
 		.values([
@@ -253,6 +380,7 @@ describe("analytics dashboard read model", () => {
 				byModel: [],
 				byProvider: [],
 				totalMessages: 0,
+				modelCalls: 0,
 				avgGenerationMs: 0,
 				promptTokens: 0,
 				cachedInputTokens: 0,
@@ -282,7 +410,11 @@ describe("analytics dashboard read model", () => {
 		expect(result.systemAvailableMonths).toBeUndefined();
 		expect(result.availableMonths).toEqual(["2026-05", "2026-06"]);
 		expect(result.personal).toMatchObject({
-			totalMessages: 2,
+			// Three user turns across the two conversations. NOT two, which is
+			// the number of billed model calls, and not four, which would mean
+			// the incognito conversation leaked in.
+			totalMessages: 3,
+			modelCalls: 2,
 			avgGenerationMs: 2500,
 			promptTokens: 400,
 			cachedInputTokens: 10,
@@ -324,13 +456,13 @@ describe("analytics dashboard read model", () => {
 		expect(result.personal.monthly).toEqual([
 			expect.objectContaining({
 				month: "2026-05",
-				messages: 1,
+				modelCalls: 1,
 				totalTokens: 155,
 				totalCostUsd: 1.25,
 			}),
 			expect.objectContaining({
 				month: "2026-06",
-				messages: 1,
+				modelCalls: 1,
 				totalTokens: 450,
 				totalCostUsd: 2.5,
 			}),
@@ -355,7 +487,7 @@ describe("analytics dashboard read model", () => {
 		expect(result.personal.totalMessages).toBe(1);
 		expect(result.personal.totalCostUsd).toBe(2.5);
 		expect(result.personal.monthly).toEqual([
-			expect.objectContaining({ month: "2026-06", messages: 1 }),
+			expect.objectContaining({ month: "2026-06", modelCalls: 1 }),
 		]);
 		expect(result.timeline).toEqual([{ label: "2026", tokens: 450 }]);
 	});
@@ -376,6 +508,7 @@ describe("analytics dashboard read model", () => {
 		expect(result.personal.totalCostUsd).toBe(0.5);
 		expect(result.system).toMatchObject({
 			totalMessages: 1,
+			modelCalls: 1,
 			totalCostUsd: 2.5,
 			totalUsers: 1,
 			totalConversations: 1,
@@ -406,7 +539,7 @@ describe("analytics dashboard read model", () => {
 		expect(result.systemAvailableMonths).toBeUndefined();
 	});
 
-	it("uses conversation snapshots for admin per-user rows and omits erased analytics people", async () => {
+	it("counts user turns per admin per-user row and omits erased analytics people", async () => {
 		seedAnalyticsRows();
 		const { getAnalyticsDashboardReadModel } = await import("./analytics");
 
@@ -416,14 +549,28 @@ describe("analytics dashboard read model", () => {
 		});
 
 		expect(result.perUser).toEqual([
-			expect.objectContaining({ userId: "user-1", messageCount: 1 }),
-			expect.objectContaining({ userId: "admin-1", messageCount: 1 }),
+			// user-1 wrote two turns in May against a single billed call; the
+			// row is sorted first because per-user rows rank by message count.
+			expect.objectContaining({
+				userId: "user-1",
+				messageCount: 2,
+				modelCalls: 1,
+				conversationCount: 1,
+			}),
+			expect.objectContaining({
+				userId: "admin-1",
+				messageCount: 1,
+				modelCalls: 1,
+				conversationCount: 1,
+			}),
 			expect.objectContaining({
 				userId: "conversation-only-user",
 				displayName: "Conversation Only",
 				email: "conversation-only@example.com",
+				// An analytics conversation snapshot with no user message behind
+				// it is not a conversation this person held.
 				messageCount: 0,
-				conversationCount: 1,
+				conversationCount: 0,
 			}),
 		]);
 		expect(result.perUser?.map((row) => row.userId)).not.toContain("erased-1");
@@ -500,6 +647,346 @@ describe("analytics dashboard read model", () => {
 		expect(userResult.system).toBeUndefined();
 		expect(userResult.perUser).toBeUndefined();
 		expect(userResult.systemAvailableMonths).toBeUndefined();
+	});
+
+	// The owner's rule: only a figure that is ABOUT COST may count
+	// usage_events wholesale. Everything labelled "messages" counts what the
+	// person wrote. These tests pin the difference with a fixture where the
+	// two numbers are deliberately far apart — two typed questions against
+	// seven billed calls — because that gap is the whole bug: the product used
+	// to report the seven.
+	describe("message grain: user turns vs billed model calls", () => {
+		function seedMessageGrainFixtures() {
+			const { sqlite, database } = openSeedDatabase();
+			const now = new Date("2026-05-01T00:00:00.000Z");
+
+			database
+				.insert(schema.users)
+				.values([
+					{
+						id: "writer-1",
+						email: "writer@example.com",
+						name: "Writer One",
+						passwordHash: "hash",
+						role: "user",
+						createdAt: now,
+						updatedAt: now,
+					},
+					{
+						id: "admin-1",
+						email: "admin@example.com",
+						name: "Admin One",
+						passwordHash: "hash",
+						role: "admin",
+						createdAt: now,
+						updatedAt: now,
+					},
+				])
+				.run();
+
+			database
+				.insert(schema.conversations)
+				.values([
+					{
+						id: "conv-writer",
+						userId: "writer-1",
+						title: "Tracked",
+						createdAt: now,
+						updatedAt: now,
+					},
+					{
+						id: "conv-writer-incognito",
+						userId: "writer-1",
+						title: "Untracked",
+						memoryIncognito: true,
+						createdAt: now,
+						updatedAt: now,
+					},
+				])
+				.run();
+
+			database
+				.insert(schema.messages)
+				.values([
+					{
+						id: "ask-1",
+						conversationId: "conv-writer",
+						messageSequence: 1,
+						role: "user",
+						content: "What is the capital of France?",
+						createdAt: new Date("2026-05-02T10:00:00.000Z"),
+					},
+					{
+						id: "answer-1",
+						conversationId: "conv-writer",
+						messageSequence: 2,
+						role: "assistant",
+						content: "Paris.",
+						createdAt: new Date("2026-05-02T10:00:05.000Z"),
+					},
+					{
+						id: "tool-1",
+						conversationId: "conv-writer",
+						messageSequence: 3,
+						role: "tool",
+						content: "{}",
+						createdAt: new Date("2026-05-02T10:00:06.000Z"),
+					},
+					{
+						id: "system-1",
+						conversationId: "conv-writer",
+						messageSequence: 4,
+						role: "system",
+						content: "context note",
+						createdAt: new Date("2026-05-02T10:00:07.000Z"),
+					},
+					{
+						id: "ask-2",
+						conversationId: "conv-writer",
+						messageSequence: 5,
+						role: "user",
+						content: "And of Italy?",
+						createdAt: new Date("2026-05-02T10:01:00.000Z"),
+					},
+					{
+						id: "answer-2",
+						conversationId: "conv-writer",
+						messageSequence: 6,
+						role: "assistant",
+						content: "Rome.",
+						createdAt: new Date("2026-05-02T10:01:05.000Z"),
+					},
+					{
+						id: "ask-incognito",
+						conversationId: "conv-writer-incognito",
+						messageSequence: 1,
+						role: "user",
+						content: "Off the record",
+						createdAt: new Date("2026-05-03T10:00:00.000Z"),
+					},
+				])
+				.run();
+
+			const usageDefaults = {
+				userId: "writer-1",
+				conversationId: "conv-writer",
+				promptTokens: 100,
+				completionTokens: 10,
+				totalTokens: 110,
+				billingMonth: "2026-05",
+				costUsdMicros: 1_000_000,
+				createdAt: new Date("2026-05-02T10:00:05.000Z"),
+			};
+			database
+				.insert(schema.usageEvents)
+				.values([
+					// The two calls that answered the two questions.
+					{
+						...usageDefaults,
+						id: "usage-answer-1",
+						messageId: "answer-1",
+						modelId: "model1",
+					},
+					{
+						...usageDefaults,
+						id: "usage-answer-2",
+						messageId: "answer-2",
+						modelId: "model1",
+					},
+					// Background calls made on the user's behalf. Each is real
+					// spend and each carries a synthetic message id that matches
+					// no row in `messages` — nobody typed them.
+					{
+						...usageDefaults,
+						id: "usage-classifier-1",
+						messageId: "turn_acknowledgment:1",
+						modelId: "model2",
+					},
+					{
+						...usageDefaults,
+						id: "usage-classifier-2",
+						messageId: "turn_acknowledgment:2",
+						modelId: "model2",
+					},
+					{
+						...usageDefaults,
+						id: "usage-classifier-3",
+						messageId: "turn_acknowledgment:3",
+						modelId: "model2",
+					},
+					{
+						...usageDefaults,
+						id: "usage-atlas",
+						messageId: "atlas-job-1",
+						modelId: "atlas",
+					},
+					{
+						...usageDefaults,
+						id: "usage-parallel",
+						messageId: "parallel:call-1",
+						modelId: "parallel:turbo",
+					},
+				])
+				.run();
+
+			// Written only on the foreground turn path, which is what makes it
+			// the marker for "this call answered a persisted message".
+			database
+				.insert(schema.messageAnalytics)
+				.values([
+					{
+						id: "ma-answer-1",
+						messageId: "answer-1",
+						userId: "writer-1",
+						model: "model1",
+						generationTimeMs: 500,
+					},
+					{
+						id: "ma-answer-2",
+						messageId: "answer-2",
+						userId: "writer-1",
+						model: "model1",
+						generationTimeMs: 700,
+					},
+				])
+				.run();
+
+			database
+				.insert(schema.analyticsConversations)
+				.values([
+					{
+						id: "ac-conv-writer",
+						conversationId: "conv-writer",
+						userId: "writer-1",
+						title: "Tracked",
+						billingMonth: "2026-05",
+						conversationCreatedAt: now,
+					},
+				])
+				.run();
+
+			sqlite.close();
+		}
+
+		it("counts the user's own messages, not assistant/tool/system rows and not background model calls", async () => {
+			seedMessageGrainFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "writer-1", role: "user" }),
+			});
+
+			// Two questions typed. Not six (the conversation's message rows),
+			// not seven (the billed calls), not three (the classifier alone).
+			expect(result.personal.totalMessages).toBe(2);
+			expect(result.personal.modelCalls).toBe(7);
+			// Cost IS about cost, so it still counts every billed call.
+			expect(result.personal.totalCostUsd).toBe(7);
+			expect(result.personal.totalTokens).toBe(770);
+		});
+
+		it("counts conversations that carry at least one user message, and leaves incognito ones out", async () => {
+			seedMessageGrainFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "writer-1", role: "user" }),
+			});
+
+			expect(result.personal.chatCount).toBe(1);
+		});
+
+		it("names the model that answers as the favourite, not the one with the most background calls", async () => {
+			seedMessageGrainFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "writer-1", role: "user" }),
+			});
+
+			// model2 has three usage rows to model1's two, and still loses:
+			// none of them answered anybody.
+			expect(
+				result.personal.byModel.find((row) => row.model === "model2")?.msgCount,
+			).toBe(3);
+			expect(result.personal.favoriteModel).toBe("model1");
+		});
+
+		it("reports user turns, billed calls and conversations separately for admins", async () => {
+			seedMessageGrainFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			expect(result.system).toMatchObject({
+				totalMessages: 2,
+				modelCalls: 7,
+				totalConversations: 1,
+			});
+			expect(
+				result.perUser?.find((row) => row.userId === "writer-1"),
+			).toMatchObject({ messageCount: 2, modelCalls: 7 });
+		});
+
+		it("attributes messages to the model that answered them under a model filter", async () => {
+			seedMessageGrainFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const answering = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+				modelId: "model1",
+			});
+			expect(answering.system?.totalMessages).toBe(2);
+			expect(answering.system?.modelCalls).toBe(2);
+
+			// The control model billed three calls and answered nothing, so
+			// filtering by it reports the calls and no messages — rather than
+			// borrowing the messages some other model answered.
+			const background = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+				modelId: "model2",
+			});
+			expect(background.system?.modelCalls).toBe(3);
+			expect(background.system?.totalMessages).toBe(0);
+			expect(background.system?.totalConversations).toBe(0);
+		});
+
+		it("drops an excluded account from the system message and conversation counts", async () => {
+			seedMessageGrainFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+				excludedUserIds: ["writer-1"],
+			});
+
+			expect(result.system?.totalMessages).toBe(0);
+			expect(result.system?.totalConversations).toBe(0);
+		});
+
+		it("narrows user turns to the selected month", async () => {
+			seedMessageGrainFixtures();
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const may = await getAnalyticsDashboardReadModel({
+				user: user({ id: "writer-1", role: "user" }),
+				month: "2026-05",
+			});
+			expect(may.personal.totalMessages).toBe(2);
+
+			const june = await getAnalyticsDashboardReadModel({
+				user: user({ id: "writer-1", role: "user" }),
+				month: "2026-06",
+			});
+			expect(june.personal.totalMessages).toBe(0);
+			expect(june.personal.chatCount).toBe(0);
+		});
 	});
 
 	describe("recordParallelUsage", () => {
@@ -1098,26 +1585,56 @@ describe("analytics dashboard read model", () => {
 
 			database
 				.insert(schema.conversations)
-				.values({
-					id: "conv-1",
-					userId: "user-1",
-					title: "Overhaul conversation",
-					createdAt: now,
-					updatedAt: now,
-				})
+				.values([
+					{
+						id: "conv-1",
+						userId: "user-1",
+						title: "Overhaul conversation",
+						createdAt: now,
+						updatedAt: now,
+					},
+					{
+						id: "conv-2",
+						userId: "user-2",
+						title: "Overhaul conversation (user two)",
+						createdAt: now,
+						updatedAt: now,
+					},
+				])
 				.run();
 
-			const messageIds = ["msg-a", "msg-b", "msg-c", "msg-d", "msg-e"];
+			// Every assistant message is preceded by the user turn it answered.
+			// That pairing is what lets the model/provider filters report the
+			// messages a given model actually answered — `messages` stores no
+			// model on a user turn, so the answer's usage row is the only link.
+			const answers = [
+				{ id: "msg-a", conversationId: "conv-1" },
+				{ id: "msg-b", conversationId: "conv-1" },
+				{ id: "msg-c", conversationId: "conv-1" },
+				{ id: "msg-d", conversationId: "conv-1" },
+				{ id: "msg-e", conversationId: "conv-2" },
+			];
 			database
 				.insert(schema.messages)
 				.values(
-					messageIds.map((id) => ({
-						id,
-						conversationId: "conv-1",
-						role: "assistant" as const,
-						content: "response",
-						createdAt: now,
-					})),
+					answers.flatMap((answer, index) => [
+						{
+							id: `ask-${answer.id}`,
+							conversationId: answer.conversationId,
+							messageSequence: index * 2 + 1,
+							role: "user" as const,
+							content: "question",
+							createdAt: now,
+						},
+						{
+							id: answer.id,
+							conversationId: answer.conversationId,
+							messageSequence: index * 2 + 2,
+							role: "assistant" as const,
+							content: "response",
+							createdAt: now,
+						},
+					]),
 				)
 				.run();
 
@@ -1182,7 +1699,7 @@ describe("analytics dashboard read model", () => {
 					{
 						id: "usage-e",
 						userId: "user-2",
-						conversationId: "conv-1",
+						conversationId: "conv-2",
 						messageId: "msg-e",
 						modelId: "model1",
 						promptTokens: 100,

@@ -9,6 +9,7 @@ import {
 	analyticsConversations,
 	conversations,
 	messageAnalytics,
+	messages,
 	providerModelPriceWindows,
 	providerModels,
 	providers,
@@ -55,7 +56,6 @@ export interface AnalyticsParams {
 }
 
 type UsageRow = typeof usageEvents.$inferSelect;
-type ConversationRow = typeof analyticsConversations.$inferSelect;
 
 type AnalyticsUser = Pick<SessionUser, "id" | "role">;
 
@@ -162,7 +162,10 @@ interface AnalyticsByProviderRow {
 
 interface MonthlyAnalyticsRow {
 	month: string;
-	messages: number;
+	// Billed model calls in that month, not messages anybody wrote: this row
+	// is a cost series, so it is allowed to count usage_events wholesale — it
+	// just may not call itself "messages" while doing it.
+	modelCalls: number;
 	promptTokens?: number;
 	cachedInputTokens?: number;
 	outputTokens?: number;
@@ -174,7 +177,15 @@ interface MonthlyAnalyticsRow {
 interface PersonalAnalytics {
 	byModel: AnalyticsByModelRow[];
 	byProvider: AnalyticsByProviderRow[];
+	// USER-AUTHORED messages (rows in `messages` with role = 'user'), NOT
+	// billed model calls — see the "User-authored message counts" section
+	// below for why the two are different numbers and which one each figure
+	// is allowed to use.
 	totalMessages: number;
+	// Billed model calls (rows in usage_events) in the same scope: the
+	// call-based sibling of totalMessages, kept separate so a surface that
+	// means "calls" can say "calls" instead of borrowing the message count.
+	modelCalls: number;
 	avgGenerationMs: number;
 	promptTokens: number;
 	cachedInputTokens: number;
@@ -202,7 +213,10 @@ export interface ParallelUsageBreakdown {
 interface SystemAnalytics {
 	byModel: AnalyticsByModelRow[];
 	byProvider: AnalyticsByProviderRow[];
+	/** USER-AUTHORED messages across the users in scope. */
 	totalMessages: number;
+	/** Billed model calls across the users in scope. */
+	modelCalls: number;
 	avgGenerationMs: number;
 	promptTokens: number;
 	cachedInputTokens: number;
@@ -224,7 +238,10 @@ interface PerUserAnalytics {
 	userId: string;
 	displayName: string;
 	email: string;
+	/** USER-AUTHORED messages this person wrote in scope. */
 	messageCount: number;
+	/** Billed model calls booked against this person in scope. */
+	modelCalls: number;
 	avgGenerationMs: number;
 	totalTokens: number;
 	promptTokens: number;
@@ -288,7 +305,8 @@ const MOCK_ANALYTICS: AnalyticsDashboardReadModel = {
 				totalCostUsd: 0.94,
 			},
 		],
-		totalMessages: 121,
+		totalMessages: 62,
+		modelCalls: 121,
 		avgGenerationMs: 2340,
 		promptTokens: 35800,
 		cachedInputTokens: 5100,
@@ -301,7 +319,7 @@ const MOCK_ANALYTICS: AnalyticsDashboardReadModel = {
 		monthly: [
 			{
 				month: "2026-04",
-				messages: 121,
+				modelCalls: 121,
 				totalTokens: 96400,
 				totalCostUsd: 2.36,
 			},
@@ -336,7 +354,8 @@ const MOCK_ANALYTICS: AnalyticsDashboardReadModel = {
 				totalCostUsd: 3.7,
 			},
 		],
-		totalMessages: 430,
+		totalMessages: 214,
+		modelCalls: 430,
 		avgGenerationMs: 2100,
 		promptTokens: 132000,
 		cachedInputTokens: 18800,
@@ -349,7 +368,7 @@ const MOCK_ANALYTICS: AnalyticsDashboardReadModel = {
 		monthly: [
 			{
 				month: "2026-04",
-				messages: 430,
+				modelCalls: 430,
 				totalTokens: 352000,
 				totalCostUsd: 9.8,
 			},
@@ -361,7 +380,8 @@ const MOCK_ANALYTICS: AnalyticsDashboardReadModel = {
 			userId: "1",
 			displayName: "Admin",
 			email: "admin@demo.com",
-			messageCount: 121,
+			messageCount: 62,
+			modelCalls: 121,
 			avgGenerationMs: 2340,
 			totalTokens: 96400,
 			promptTokens: 35800,
@@ -375,7 +395,8 @@ const MOCK_ANALYTICS: AnalyticsDashboardReadModel = {
 			userId: "2",
 			displayName: "Alice",
 			email: "alice@demo.com",
-			messageCount: 95,
+			messageCount: 48,
+			modelCalls: 95,
 			avgGenerationMs: 1980,
 			totalTokens: 75200,
 			promptTokens: 27600,
@@ -541,6 +562,269 @@ function billingMonthRange(month: string): { start: Date; end: Date } | null {
 		start: new Date(Date.UTC(year, monthIndex, 1)),
 		end: new Date(Date.UTC(year, monthIndex + 1, 1)),
 	};
+}
+
+// ===========================================================================
+// User-authored message counts
+// ===========================================================================
+//
+// usage_events holds ONE ROW PER BILLED MODEL CALL. That includes every call
+// made on a person's behalf in the background — title generation, the
+// thought-step classifier, memory maintenance, each Atlas stage, every
+// Parallel search — none of which a person would describe as a message they
+// sent. Reading it as a message count is how the product came to tell a user
+// who had typed a couple of dozen things that they had sent 249 messages.
+//
+// The rule this module follows: a figure is allowed to count usage_events
+// wholesale only when the figure is ABOUT COST (tokens, spend, cache hits,
+// latency, the per-model call tables). Anything labelled "messages" counts
+// rows in `messages` with role = 'user'; "conversations" counts the
+// conversations carrying at least one such row.
+//
+// Scoping matches the usage-side scoping exactly:
+//   * a message is attributed to a person through conversations.user_id
+//     (`messages` itself has no user column);
+//   * incognito conversations are excluded, because chat-turn finalization
+//     already refuses to write usage_events for them — counting their
+//     messages would make analytics report activity the user switched
+//     tracking off for;
+//   * the month window is the same UTC half-open range billingMonthRange
+//     derives for usage_events.billing_month.
+
+const USER_MESSAGE_ROLE = "user";
+const ASSISTANT_MESSAGE_ROLE = "assistant";
+
+export interface UserMessageTotals {
+	/** Rows in `messages` with role = 'user'. */
+	messages: number;
+	/** Conversations carrying at least one user message. */
+	conversations: number;
+}
+
+const EMPTY_USER_MESSAGE_TOTALS: UserMessageTotals = {
+	messages: 0,
+	conversations: 0,
+};
+
+type UserMessageTotalsByUser = Map<string, UserMessageTotals>;
+
+function userMessageTotalsFor(
+	totals: UserMessageTotalsByUser,
+	userId: string,
+): UserMessageTotals {
+	return totals.get(userId) ?? EMPTY_USER_MESSAGE_TOTALS;
+}
+
+/** Distinct conversations across every user in the map. Conversations have a
+ *  single owner, so summing the per-user distinct counts IS the distinct
+ *  total — no second query needed. */
+function totalConversationsIn(totals: UserMessageTotalsByUser): number {
+	let sum = 0;
+	for (const entry of totals.values()) sum += entry.conversations;
+	return sum;
+}
+
+/**
+ * Per-user counts of user-authored messages and of the conversations that
+ * carry at least one. Both aggregates come back from ONE grouped query rather
+ * than reading message rows into the process — this is the only part of the
+ * read model that touches `messages`, and it is the hot one.
+ *
+ * `userIds` narrows to those people (`null`/omitted = everyone); an empty
+ * array means "nobody", which is a real narrowing and returns an empty map
+ * rather than silently widening.
+ */
+async function loadUserMessageTotals(params: {
+	userIds?: string[] | null;
+	range: { start: Date; end: Date } | null;
+}): Promise<UserMessageTotalsByUser> {
+	const userIds = params.userIds ?? null;
+	if (userIds !== null && userIds.length === 0) return new Map();
+
+	const conditions = [
+		eq(messages.role, USER_MESSAGE_ROLE),
+		eq(conversations.memoryIncognito, false),
+	];
+	if (params.range) {
+		conditions.push(gte(messages.createdAt, params.range.start));
+		conditions.push(lt(messages.createdAt, params.range.end));
+	}
+	if (userIds !== null) {
+		conditions.push(inArray(conversations.userId, userIds));
+	}
+
+	const rows = await db
+		.select({
+			userId: conversations.userId,
+			messageCount: sql<number>`count(${messages.id})`,
+			conversationCount: sql<number>`count(distinct ${messages.conversationId})`,
+		})
+		.from(messages)
+		.innerJoin(conversations, eq(messages.conversationId, conversations.id))
+		.where(and(...conditions))
+		.groupBy(conversations.userId);
+
+	return new Map(
+		rows.map((row) => [
+			row.userId,
+			{
+				messages: Number(row.messageCount ?? 0),
+				conversations: Number(row.conversationCount ?? 0),
+			},
+		]),
+	);
+}
+
+type OrderedMessageRow = {
+	id: string;
+	conversationId: string;
+	messageSequence: number | null;
+	createdAt: Date;
+};
+
+// messageSequence is the authoritative order, but it is nullable (legacy
+// imports predate it) and created_at only has second resolution, so a turn's
+// user and assistant rows can share a timestamp. Compare sequences when both
+// rows have one, and fall back to the clock otherwise.
+function compareInConversation(
+	left: OrderedMessageRow,
+	right: OrderedMessageRow,
+): number {
+	if (left.messageSequence !== null && right.messageSequence !== null) {
+		return left.messageSequence - right.messageSequence;
+	}
+	return left.createdAt.getTime() - right.createdAt.getTime();
+}
+
+const MESSAGE_ID_CHUNK = 400;
+
+async function selectMessagesByIds(
+	ids: string[],
+): Promise<Array<OrderedMessageRow & { role: string }>> {
+	const rows: Array<OrderedMessageRow & { role: string }> = [];
+	for (let offset = 0; offset < ids.length; offset += MESSAGE_ID_CHUNK) {
+		const chunk = ids.slice(offset, offset + MESSAGE_ID_CHUNK);
+		rows.push(
+			...(await db
+				.select({
+					id: messages.id,
+					conversationId: messages.conversationId,
+					messageSequence: messages.messageSequence,
+					createdAt: messages.createdAt,
+					role: messages.role,
+				})
+				.from(messages)
+				.where(inArray(messages.id, chunk))),
+		);
+	}
+	return rows;
+}
+
+/**
+ * User-message totals for a set of usage rows that has ALREADY been narrowed
+ * by a model or provider filter.
+ *
+ * `messages` stores no model on a user turn, so "which model answered this
+ * message" is not a stored fact — but it is a derivable one: a usage_events
+ * row's message_id is the id of the assistant message that answered, and the
+ * user message it answered is the last user row before it in the same
+ * conversation. That derivation is what this function does, so an admin who
+ * filters the system view by model sees the messages that model actually
+ * answered instead of every message the person ever wrote.
+ *
+ * Usage rows with a synthetic message_id — Atlas jobs, Parallel calls,
+ * control-model calls, all of which are prefixed or job-scoped and match no
+ * `messages` row — attribute to nothing, which is the honest outcome: no
+ * person typed them.
+ */
+async function loadAttributedUserMessageTotals(
+	usageRows: UsageRow[],
+): Promise<UserMessageTotalsByUser> {
+	const answeringIds = [...new Set(usageRows.map((row) => row.messageId))];
+	if (answeringIds.length === 0) return new Map();
+
+	const answering = (await selectMessagesByIds(answeringIds)).filter(
+		(row) => row.role === ASSISTANT_MESSAGE_ROLE,
+	);
+	if (answering.length === 0) return new Map();
+
+	const conversationIds = [
+		...new Set(answering.map((row) => row.conversationId)),
+	];
+	const userMessageRows: Array<OrderedMessageRow & { userId: string }> = [];
+	for (
+		let offset = 0;
+		offset < conversationIds.length;
+		offset += MESSAGE_ID_CHUNK
+	) {
+		const chunk = conversationIds.slice(offset, offset + MESSAGE_ID_CHUNK);
+		userMessageRows.push(
+			...(await db
+				.select({
+					id: messages.id,
+					conversationId: messages.conversationId,
+					messageSequence: messages.messageSequence,
+					createdAt: messages.createdAt,
+					userId: conversations.userId,
+				})
+				.from(messages)
+				.innerJoin(conversations, eq(messages.conversationId, conversations.id))
+				.where(
+					and(
+						eq(messages.role, USER_MESSAGE_ROLE),
+						eq(conversations.memoryIncognito, false),
+						inArray(messages.conversationId, chunk),
+					),
+				)),
+		);
+	}
+
+	const byConversation = new Map<
+		string,
+		Array<OrderedMessageRow & { userId: string }>
+	>();
+	for (const row of userMessageRows) {
+		const bucket = byConversation.get(row.conversationId) ?? [];
+		bucket.push(row);
+		byConversation.set(row.conversationId, bucket);
+	}
+	for (const bucket of byConversation.values()) {
+		bucket.sort(compareInConversation);
+	}
+
+	// A user message counts once even when several filtered calls answered it
+	// (a multi-step turn books more than one usage row), hence the id sets.
+	const attributed = new Map<
+		string,
+		{ messages: Set<string>; conversations: Set<string> }
+	>();
+	for (const answer of answering) {
+		const candidates = byConversation.get(answer.conversationId);
+		if (!candidates) continue;
+		let asked: (OrderedMessageRow & { userId: string }) | null = null;
+		for (const candidate of candidates) {
+			if (compareInConversation(candidate, answer) < 0) asked = candidate;
+			else break;
+		}
+		if (!asked) continue;
+		const bucket = attributed.get(asked.userId) ?? {
+			messages: new Set<string>(),
+			conversations: new Set<string>(),
+		};
+		bucket.messages.add(asked.id);
+		bucket.conversations.add(asked.conversationId);
+		attributed.set(asked.userId, bucket);
+	}
+
+	return new Map(
+		[...attributed].map(([userId, bucket]) => [
+			userId,
+			{
+				messages: bucket.messages.size,
+				conversations: bucket.conversations.size,
+			},
+		]),
+	);
 }
 
 // activity_events feeds ONLY the admin-only tools/commandsAndSkills sections,
@@ -852,7 +1136,7 @@ function monthlyBreakdown(rows: UsageRow[]) {
 		string,
 		{
 			month: string;
-			messages: number;
+			modelCalls: number;
 			promptTokens: number;
 			cachedInputTokens: number;
 			outputTokens: number;
@@ -865,10 +1149,10 @@ function monthlyBreakdown(rows: UsageRow[]) {
 	for (const row of rows) {
 		const current = grouped.get(row.billingMonth) ?? {
 			month: row.billingMonth,
-			messages: 0,
+			modelCalls: 0,
 			...createUsageAccumulator(),
 		};
-		current.messages += 1;
+		current.modelCalls += 1;
 		addUsageRowUsage(current, row);
 		grouped.set(row.billingMonth, current);
 	}
@@ -960,9 +1244,39 @@ function computeTimeline(rows: UsageRow[], granularity: string) {
 	return [...grouped.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
+/**
+ * The model a person actually talks to most, which is NOT the model with the
+ * most usage_events rows: background calls (the thought-step classifier above
+ * all) outnumber answering calls, so a wholesale ranking crowns whatever runs
+ * on the user's behalf rather than whatever answers them.
+ *
+ * message_analytics is written only by recordMessageAnalytics — the
+ * foreground turn path — while the Atlas, Parallel and control-model writers
+ * touch usage_events alone. So "this usage row joined a message_analytics
+ * row" is exactly "this call answered a persisted assistant message", and the
+ * vote is restricted to those. A scope where nothing joins (an old dataset
+ * predating the table) falls back to the wholesale ranking rather than
+ * reporting no favourite at all.
+ */
+function favoriteModelFrom(
+	rows: UsageRow[],
+	byModel: AnalyticsByModelRow[],
+	context: AnalyticsQueryContext,
+): string | null {
+	const votes = new Map<string, number>();
+	for (const row of rows) {
+		if (!context.messageAnalyticsById.has(row.messageId)) continue;
+		votes.set(row.modelId, (votes.get(row.modelId) ?? 0) + 1);
+	}
+	if (votes.size === 0) return byModel[0]?.model ?? null;
+	return [...votes].sort(
+		(left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+	)[0][0];
+}
+
 async function summarize(
 	rows: UsageRow[],
-	conversations: ConversationRow[],
+	messageTotals: UserMessageTotals,
 	context: AnalyticsQueryContext,
 ): Promise<PersonalAnalytics> {
 	const [byModel, byProvider] = await Promise.all([
@@ -985,7 +1299,11 @@ async function summarize(
 	return {
 		byModel,
 		byProvider,
-		totalMessages: rows.length,
+		// Messages the person wrote; calls the platform billed. Two different
+		// questions, two different numbers — see the "User-authored message
+		// counts" section.
+		totalMessages: messageTotals.messages,
+		modelCalls: rows.length,
 		avgGenerationMs: average(rows.map((row) => row.generationTimeMs ?? 0)),
 		promptTokens,
 		cachedInputTokens,
@@ -993,8 +1311,8 @@ async function summarize(
 		reasoningTokens,
 		totalTokens,
 		totalCostUsd: usd(totalCostMicros),
-		favoriteModel: byModel[0]?.model ?? null,
-		chatCount: new Set(conversations.map((row) => row.conversationId)).size,
+		favoriteModel: favoriteModelFrom(rows, byModel, context),
+		chatCount: messageTotals.conversations,
 		monthly: monthlyBreakdown(rows),
 	};
 }
@@ -1175,14 +1493,7 @@ export async function getAnalyticsDashboardReadModel({
 	const filteredUsage = month
 		? usageRows.filter((row) => row.billingMonth === month)
 		: usageRows;
-	const filteredConversations = month
-		? conversationRows.filter((row) => row.billingMonth === month)
-		: conversationRows;
-
 	const personalUsageRows = filteredUsage.filter(
-		(row) => row.userId === user.id,
-	);
-	const personalConversationRows = filteredConversations.filter(
 		(row) => row.userId === user.id,
 	);
 	const availableMonths = monthlyBreakdown(
@@ -1275,12 +1586,25 @@ export async function getAnalyticsDashboardReadModel({
 		availability,
 	};
 
+	// --- user-authored message counts -------------------------------------
+	// A malformed `month` narrows to nothing rather than widening to
+	// everything, matching the usage side (which compares billing_month by
+	// exact string and therefore also matches no row).
+	const personalRange = month ? billingMonthRange(month) : null;
+	const personalMessageTotals =
+		month && !personalRange
+			? new Map<string, UserMessageTotals>()
+			: await loadUserMessageTotals({
+					userIds: [user.id],
+					range: personalRange,
+				});
+
 	const systemAvailableMonths = isAdmin
 		? monthlyBreakdown(usageRows).map((row) => row.month)
 		: undefined;
 	const personal = await summarize(
 		personalUsageRows,
-		personalConversationRows,
+		userMessageTotalsFor(personalMessageTotals, user.id),
 		queryContext,
 	);
 	let timelineRows: Array<{ label: string; tokens: number }> | null = null;
@@ -1297,9 +1621,41 @@ export async function getAnalyticsDashboardReadModel({
 		};
 	}
 
+	// A model or provider filter changes the question from "what did these
+	// people write" to "what did this model answer", which `messages` does not
+	// store and loadAttributedUserMessageTotals therefore derives. Without
+	// such a filter the grouped count is both cheaper and exact.
+	const systemRange = systemMonthParam
+		? billingMonthRange(systemMonthParam)
+		: null;
+	const systemMessageTotalsRaw =
+		modelIdFilter || providerIdFilter
+			? await loadAttributedUserMessageTotals(systemFilteredUsage)
+			: systemMonthParam && !systemRange
+				? new Map<string, UserMessageTotals>()
+				: await loadUserMessageTotals({
+						userIds: userIdFilter ? [userIdFilter] : null,
+						range: systemRange,
+					});
+	// The excluded-accounts toggle drops people from every system figure, so
+	// it has to drop them here too — the attributed path narrows by model, not
+	// by person, and the grouped path only knows about `userIdFilter`.
+	const systemMessageTotals: UserMessageTotalsByUser = new Map(
+		[...systemMessageTotalsRaw].filter(
+			([userId]) =>
+				!excludedSet.has(userId) && (!userIdFilter || userId === userIdFilter),
+		),
+	);
+
 	const systemSummary = await summarize(
 		systemFilteredUsage,
-		systemFilteredConversations,
+		{
+			messages: [...systemMessageTotals.values()].reduce(
+				(sum, entry) => sum + entry.messages,
+				0,
+			),
+			conversations: totalConversationsIn(systemMessageTotals),
+		},
 		queryContext,
 	);
 	const system: SystemAnalytics = {
@@ -1308,9 +1664,9 @@ export async function getAnalyticsDashboardReadModel({
 			...systemFilteredUsage.map((row) => row.userId),
 			...systemFilteredConversations.map((row) => row.userId),
 		]).size,
-		totalConversations: new Set(
-			systemFilteredConversations.map((row) => row.conversationId),
-		).size,
+		// Conversations carrying at least one user message, not every
+		// conversation an analytics snapshot was ever written for.
+		totalConversations: totalConversationsIn(systemMessageTotals),
 		parallel: parallelBreakdown(systemFilteredUsage),
 	};
 	const tools = buildToolsSummary(systemFilteredActivity);
@@ -1325,6 +1681,10 @@ export async function getAnalyticsDashboardReadModel({
 	const userIds = new Set([
 		...systemFilteredUsage.map((row) => row.userId),
 		...systemFilteredConversations.map((row) => row.userId),
+		// Someone who wrote messages in scope belongs in the per-user table
+		// even if no billed call was booked against them (a turn that failed
+		// before the model answered leaves the message and no usage row).
+		...systemMessageTotals.keys(),
 	]);
 	// Identity is resolved from `users` at READ time (not denormalized onto the
 	// analytics rows), so an erased user — whose `users` row is gone — surfaces
@@ -1338,12 +1698,9 @@ export async function getAnalyticsDashboardReadModel({
 		await Promise.all(
 			[...userIds].map(async (userId) => {
 				const rows = systemFilteredUsage.filter((row) => row.userId === userId);
-				const conversationRowsForUser = systemFilteredConversations.filter(
-					(row) => row.userId === userId,
-				);
 				const summary = await summarize(
 					rows,
-					conversationRowsForUser,
+					userMessageTotalsFor(systemMessageTotals, userId),
 					queryContext,
 				);
 				const identity = userIdentities.get(userId) ?? null;
@@ -1352,6 +1709,7 @@ export async function getAnalyticsDashboardReadModel({
 					displayName: identity?.name ?? identity?.email ?? userId,
 					email: identity?.email ?? "",
 					messageCount: summary.totalMessages,
+					modelCalls: summary.modelCalls,
 					avgGenerationMs: summary.avgGenerationMs,
 					totalTokens: summary.totalTokens,
 					promptTokens: summary.promptTokens,

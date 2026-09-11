@@ -564,6 +564,7 @@ describe("SettingsProfileTab — Your Activity summary and full view", () => {
 			byModel: [],
 			byProvider: [],
 			totalMessages: 4812,
+			modelCalls: 9001,
 			avgGenerationMs: 1200,
 			totalTokens: 18_400_000,
 			promptTokens: 1000,

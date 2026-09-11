@@ -98,7 +98,12 @@ interface AnalyticsByProviderRow {
 interface PersonalAnalytics {
 	byModel: AnalyticsByModelRow[];
 	byProvider: AnalyticsByProviderRow[];
+	// USER-AUTHORED messages (`messages` rows with role = 'user'), not billed
+	// model calls. usage_events books a row per call — title generation, the
+	// thought-step classifier, memory maintenance, every Atlas stage — so the
+	// two numbers differ by a lot and only `modelCalls` may be shown as calls.
 	totalMessages: number;
+	modelCalls: number;
 	avgGenerationMs: number;
 	totalTokens: number;
 	promptTokens: number;
@@ -110,7 +115,7 @@ interface PersonalAnalytics {
 	chatCount: number;
 	monthly?: Array<{
 		month: string;
-		messages: number;
+		modelCalls: number;
 		totalTokens: number;
 		totalCostUsd: number;
 	}>;
@@ -118,13 +123,17 @@ interface PersonalAnalytics {
 
 interface MonthlyAnalyticsRow {
 	month: string;
-	messages: number;
+	/** Billed model calls that month — a cost series, not a message count. */
+	modelCalls: number;
 	totalTokens: number;
 	totalCostUsd: number;
 }
 
 interface SystemAnalytics {
+	/** USER-AUTHORED messages across the users in scope. */
 	totalMessages: number;
+	/** Billed model calls across the users in scope. */
+	modelCalls: number;
 	avgGenerationMs: number;
 	totalTokens: number;
 	promptTokens: number;
@@ -154,7 +163,10 @@ interface PerUserAnalytics {
 	userId: string;
 	displayName: string;
 	email: string;
+	/** Messages this person wrote. */
 	messageCount: number;
+	/** Billed model calls booked against this person. */
+	modelCalls: number;
 	avgGenerationMs: number;
 	totalTokens: number;
 	promptTokens: number;
