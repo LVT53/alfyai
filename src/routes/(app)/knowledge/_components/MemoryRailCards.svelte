@@ -1,52 +1,11 @@
 <script lang="ts">
-// The two explanatory cards at the bottom of the memory rail: how to read a
-// row, and what the whole thing is for (with the two settings buttons that
-// used to be reachable only from an empty category).
+// What the memory tab is for, with the two settings buttons that used to be
+// reachable only from an empty category. "Reading a row" used to be a second
+// card here; it is a tooltip on the portrait's title now, beside the rows it
+// explains rather than three scrolls below them.
 import { t } from "$lib/i18n";
 import { Settings, Trash2 } from "@lucide/svelte";
 </script>
-
-<section class="rail-card" aria-labelledby="memory-legend-title">
-	<h3 id="memory-legend-title" class="rail-card-title">
-		{$t("memoryProfile.legendTitle")}
-	</h3>
-
-	<div class="legend-row">
-		<span class="legend-dot legend-dot--stated" aria-hidden="true"></span>
-		<div>
-			<p class="legend-name">{$t("memoryProfile.legendStated")}</p>
-			<p class="legend-body">{$t("memoryProfile.legendStatedBody")}</p>
-		</div>
-	</div>
-
-	<div class="legend-row">
-		<span class="legend-dot legend-dot--inferred" aria-hidden="true"></span>
-		<div>
-			<p class="legend-name">{$t("memoryProfile.legendInferred")}</p>
-			<p class="legend-body">{$t("memoryProfile.legendInferredBody")}</p>
-		</div>
-	</div>
-
-	<div class="legend-row">
-		<span class="legend-chip legend-chip--scope" aria-hidden="true">
-			{$t("memoryProfile.projectScope")}
-		</span>
-		<div>
-			<p class="legend-name">{$t("memoryProfile.legendScope")}</p>
-			<p class="legend-body">{$t("memoryProfile.legendScopeBody")}</p>
-		</div>
-	</div>
-
-	<div class="legend-row">
-		<span class="legend-chip legend-chip--expiry" aria-hidden="true">
-			{$t("memoryProfile.legendExpiry")}
-		</span>
-		<div>
-			<p class="legend-name">{$t("memoryProfile.legendExpiry")}</p>
-			<p class="legend-body">{$t("memoryProfile.legendExpiryBody")}</p>
-		</div>
-	</div>
-</section>
 
 <section class="rail-card" aria-labelledby="memory-about-title">
 	<h3 id="memory-about-title" class="rail-card-title">
@@ -90,71 +49,6 @@ import { Settings, Trash2 } from "@lucide/svelte";
 		font-size: 0.7rem;
 		line-height: 1.6;
 		color: var(--text-muted);
-	}
-
-	.legend-row {
-		display: flex;
-		align-items: flex-start;
-		gap: 0.6rem;
-		padding: 0.5rem 0;
-		border-top: 1px solid
-			color-mix(in srgb, var(--border-default) 55%, transparent 45%);
-	}
-
-	.legend-name {
-		margin: 0;
-		font-family: var(--font-sans);
-		font-size: 0.7rem;
-		font-weight: 500;
-		color: var(--text-primary);
-	}
-
-	.legend-body {
-		margin: 0.12rem 0 0;
-		font-family: var(--font-sans);
-		font-size: 0.68rem;
-		line-height: 1.5;
-		color: var(--text-muted);
-	}
-
-	.legend-dot {
-		flex-shrink: 0;
-		width: 0.5rem;
-		height: 0.5rem;
-		margin-top: 0.3rem;
-		border-radius: var(--radius-full);
-	}
-
-	.legend-dot--stated {
-		background: var(--accent);
-	}
-
-	.legend-dot--inferred {
-		background: transparent;
-		border: 1.5px solid var(--accent);
-	}
-
-	.legend-chip {
-		flex-shrink: 0;
-		display: inline-flex;
-		align-items: center;
-		height: 1.1rem;
-		padding: 0 0.4rem;
-		border-radius: var(--radius-full);
-		font-family: var(--font-sans);
-		font-size: 0.6rem;
-	}
-
-	.legend-chip--scope {
-		border: 1px solid var(--border-default);
-		color: var(--text-muted);
-	}
-
-	.legend-chip--expiry {
-		border: 1px solid
-			color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
-		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
-		color: var(--accent);
 	}
 
 	.rail-card-actions {

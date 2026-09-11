@@ -290,6 +290,38 @@ async function processUpload(files: File[]) {
 	}
 }
 
+// ---- sticky column header ------------------------------------------------
+// The header pins to the top of whatever scrolls this page. It only earns its
+// shadow once it is actually pinned, so a table read from the top is a flat
+// card and a table scrolled into is a header over rows.
+let stickySentinel = $state<HTMLElement | null>(null);
+let headerStuck = $state(false);
+
+function scrollParentOf(element: HTMLElement): HTMLElement | null {
+	let node = element.parentElement;
+	while (node) {
+		const overflowY = getComputedStyle(node).overflowY;
+		if (/(auto|scroll|overlay)/.test(overflowY)) return node;
+		node = node.parentElement;
+	}
+	return null;
+}
+
+$effect(() => {
+	const sentinel = stickySentinel;
+	if (!sentinel || typeof IntersectionObserver === "undefined") return;
+	const observer = new IntersectionObserver(
+		(entries) => {
+			const entry = entries[entries.length - 1];
+			if (!entry) return;
+			headerStuck = !entry.isIntersecting && entry.boundingClientRect.top <= 0;
+		},
+		{ root: scrollParentOf(sentinel), threshold: 0 },
+	);
+	observer.observe(sentinel);
+	return () => observer.disconnect();
+});
+
 function normalizeText(value: string | null | undefined): string {
 	return (value ?? "").toLowerCase().trim();
 }
@@ -857,23 +889,7 @@ async function handleBulkDelete(): Promise<boolean> {
 				{/if}
 			</div>
 
-			{#if onUpload}
-				<button
-					type="button"
-					class="upload-btn"
-					aria-label={$t('knowledge.upload')}
-					title={$t('knowledge.upload')}
-					disabled={isUploading}
-					onclick={handleUploadClick}
-				>
-					{#if isUploading}
-						<Spinner size={16} />
-					{:else}
-						<Upload size={16} strokeWidth={2} aria-hidden="true" />
-					{/if}
-					<span class="upload-btn-label">{$t('knowledge.upload')}</span>
-				</button>
-			{/if}
+			<span class="filter-spacer"></span>
 
 			<div class="sort-controls">
 				<label class="sort-field">
@@ -907,6 +923,32 @@ async function handleBulkDelete(): Promise<boolean> {
 					{/if}
 				</button>
 			</div>
+
+			<!-- Last in the row, beside Sort: the toolbar reads search · sort ·
+			     act, and the one thing that writes to the library sits where a
+			     primary action is looked for. Its tooltip carries the per-file
+			     size limit that the removed drop-hint row used to print. -->
+			{#if onUpload}
+				<button
+					type="button"
+					class="upload-btn"
+					aria-label={$t('knowledge.upload')}
+					title={$t('knowledge.uploadLimitTooltip', {
+						limit: formatByteSize(MAX_FILE_UPLOAD_SIZE_BYTES, {
+							trimWholeUnits: true,
+						}),
+					})}
+					disabled={isUploading}
+					onclick={handleUploadClick}
+				>
+					{#if isUploading}
+						<Spinner size={16} />
+					{:else}
+						<Upload size={16} strokeWidth={2} aria-hidden="true" />
+					{/if}
+					<span class="upload-btn-label">{$t('knowledge.upload')}</span>
+				</button>
+			{/if}
 		</div>
 
 				{#if sortedDocuments.length === 0}
@@ -925,8 +967,16 @@ async function handleBulkDelete(): Promise<boolean> {
 			</div>
 		{:else}
 			<div class="table-container">
+				<!-- A zero-height mark at the very top of the card. Once it has
+				     scrolled out of the scroll container the header is pinned,
+				     and it says so with a shadow. -->
+				<div
+					class="sticky-sentinel"
+					bind:this={stickySentinel}
+					aria-hidden="true"
+				></div>
 				<table class="documents-table">
-					<thead>
+					<thead class:is-stuck={headerStuck} data-testid="documents-table-head">
 						<tr>
 							<th class="col-checkbox">
 								<label class="checkbox-label">
@@ -1250,18 +1300,6 @@ async function handleBulkDelete(): Promise<boolean> {
 				</nav>
 			{/if}
 		{/if}
-		{#if onUpload}
-			<div class="drop-hint" data-testid="drop-hint">
-				<Upload size={14} strokeWidth={1.8} aria-hidden="true" />
-				<span>
-					{$t('knowledge.dropZoneHint', {
-						limit: formatByteSize(MAX_FILE_UPLOAD_SIZE_BYTES, {
-							trimWholeUnits: true,
-						}),
-					})}
-				</span>
-			</div>
-		{/if}
 	{/if}
 </div>
 </div>
@@ -1398,16 +1436,22 @@ async function handleBulkDelete(): Promise<boolean> {
 		margin: 0;
 	}
 
+	/* search · spacer · sort · upload. The spacer, not `space-between`: with
+	   three groups on the row, space-between stranded Upload in the middle. */
 	.filter-controls {
 		display: flex;
 		gap: var(--space-sm);
 		flex-wrap: wrap;
 		align-items: center;
-		justify-content: space-between;
+		justify-content: flex-start;
 		padding: var(--space-md) var(--space-lg);
 		border: 1px solid var(--border-default);
 		border-radius: var(--knowledge-card-radius);
 		background: var(--surface-elevated);
+	}
+
+	.filter-spacer {
+		flex: 1 1 auto;
 	}
 
 	.search-controls {
@@ -1507,10 +1551,16 @@ async function handleBulkDelete(): Promise<boolean> {
 		}
 	}
 
+	/* `clip`, not `hidden`: both crop the header's and the last row's corners
+	   to the container's radius, but `hidden` makes the container a scroll
+	   container, and a sticky header inside one stops sticking to the page.
+	   `clip` is not a scroll container, so the corners read as one rounded box
+	   AND the header still pins. */
 	.table-container {
 		border-radius: var(--knowledge-card-radius);
 		border: 1px solid var(--border-default);
 		background: var(--surface-elevated);
+		overflow: clip;
 	}
 
 	/* Desktop: let the table grow with the page scroll instead of nesting its own
@@ -1518,7 +1568,6 @@ async function handleBulkDelete(): Promise<boolean> {
 	@media (min-width: 720px) {
 		.table-container {
 			max-height: none;
-			overflow: visible;
 		}
 
 		.documents-table thead {
@@ -1540,12 +1589,50 @@ async function handleBulkDelete(): Promise<boolean> {
 		border-collapse: collapse;
 	}
 
+	.sticky-sentinel {
+		height: 0;
+	}
+
 	.documents-table thead {
 		position: sticky;
 		top: 0;
 		z-index: 10;
-		background: var(--surface-elevated);
-		border-bottom: 1px solid var(--border-default);
+	}
+
+	/* The header band is painted on the cells, not on the <thead>: under
+	   `border-collapse: collapse` a row's own background and border are the
+	   first thing a browser drops. A band of the page surface over the card's
+	   elevated surface is the same step the memory filter bar takes, and the
+	   hairline is an inset shadow so it survives the collapse. */
+	.documents-table thead th {
+		background: var(--surface-page);
+		box-shadow: inset 0 -1px 0 var(--border-default);
+		transition: box-shadow var(--duration-standard) var(--ease-out);
+	}
+
+	/* Only once it is actually pinned. */
+	.documents-table thead.is-stuck th {
+		box-shadow:
+			inset 0 -1px 0 var(--border-default),
+			0 6px 10px -8px rgba(0, 0, 0, 0.35);
+	}
+
+	/* The band has to reach the card's rounded corners, and the container
+	   clips the overhang. */
+	.documents-table thead th:first-child {
+		border-top-left-radius: var(--knowledge-card-radius);
+	}
+
+	.documents-table thead th:last-child {
+		border-top-right-radius: var(--knowledge-card-radius);
+	}
+
+	/* Pinned, the card's top edge is somewhere above the viewport, so a
+	   rounded band floating over square rows reads as a mistake. */
+	.documents-table thead.is-stuck th:first-child,
+	.documents-table thead.is-stuck th:last-child {
+		border-top-left-radius: 0;
+		border-top-right-radius: 0;
 	}
 
 	.documents-table th {
@@ -1706,19 +1793,6 @@ async function handleBulkDelete(): Promise<boolean> {
 		cursor: default;
 	}
 
-	.drop-hint {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-		padding: var(--space-md) var(--space-lg);
-		border-top: 1px solid var(--border-subtle);
-		background: var(--surface-page);
-		color: var(--text-muted);
-		font-family: var(--font-sans);
-		font-size: 0.72rem;
-		line-height: 1.5;
-	}
-
 	@media (prefers-reduced-motion: reduce) {
 		.sort-direction {
 			transition: none !important;
@@ -1760,15 +1834,30 @@ async function handleBulkDelete(): Promise<boolean> {
 	/* Scoped through `.documents-table` so these beat the blanket
 	   `.documents-table td` padding — at the generic 16px a 36px glyph column
 	   has 4px of content left and the file icon collapses to a dot. */
+	/* The two glyph columns, measured against each other rather than each
+	   padded by feel. The tick box ends exactly on the checkbox cell's right
+	   edge (0.75rem of padding + the 0.75rem the 44px hit area leaves around a
+	   20px box), and the file glyph starts 0.75rem past it — left-aligned, so
+	   that padding IS the gap. At the old values they were 5px apart and read
+	   as one two-part control. Both stay on the row's middle line: the cells
+	   are `vertical-align: middle` and both wrappers centre on the cross
+	   axis. */
 	.documents-table .col-checkbox {
 		width: 2.75rem;
+		padding-left: 0.75rem;
 		padding-right: 0;
+		vertical-align: middle;
 	}
 
 	.documents-table .col-icon {
-		width: 2.25rem;
-		padding-left: var(--space-sm);
+		width: 2.5rem;
+		padding-left: 0.75rem;
 		padding-right: var(--space-sm);
+		vertical-align: middle;
+	}
+
+	.documents-table .col-icon .file-icon {
+		justify-content: flex-start;
 	}
 
 	/* Proportional, not fixed rem: the table is drawn from 720px of card up,
@@ -2323,13 +2412,30 @@ async function handleBulkDelete(): Promise<boolean> {
 			max-width: none;
 		}
 
+		/* Icon-only on a phone: the label costs the search box the width it
+		   needs, and the button keeps its aria-label and its tooltip. It also
+		   moves back up beside the search box — `.sort-controls` claims a full
+		   row here, so an Upload left after it in source order would be
+		   stranded alone on a third line. */
 		.upload-btn {
+			order: 1;
 			min-width: 44px;
 			min-height: 44px;
+			padding: 0;
+		}
+
+		.upload-btn-label {
+			display: none;
+		}
+
+		/* Nothing to push against once the row wraps. */
+		.filter-spacer {
+			display: none;
 		}
 
 		/* Touch targets: the sort control and its direction both reach 44px. */
 		.sort-controls {
+			order: 2;
 			display: grid;
 			grid-template-columns: minmax(0, 1fr) 44px;
 			flex: 1 0 100%;
@@ -2416,9 +2522,12 @@ async function handleBulkDelete(): Promise<boolean> {
 			border-bottom: 0;
 		}
 
+		/* The card lays these two out on a grid, so the desktop table's
+		   measured paddings are given back. */
 		.documents-table .col-checkbox {
 			grid-area: check;
 			width: 44px;
+			padding-left: 0;
 			margin: -0.55rem 0 -0.45rem -0.55rem;
 		}
 
@@ -2426,13 +2535,16 @@ async function handleBulkDelete(): Promise<boolean> {
 			grid-area: icon;
 			width: 34px;
 			min-height: 34px;
-			padding-top: 0;
+			padding: 0;
 			justify-self: center;
 		}
 
-		.file-icon {
+		/* The card layout draws the glyph in a 34px tile of its own, so it
+		   goes back to the middle of that tile. */
+		.documents-table .col-icon .file-icon {
 			width: 34px;
 			height: 34px;
+			justify-content: center;
 			border-radius: var(--radius-md);
 			background: var(--surface-page);
 			border: 1px solid var(--border-subtle);

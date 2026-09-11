@@ -75,6 +75,8 @@ const knowledgeDict = {
 		"knowledge.title": "Knowledge Base",
 		"knowledge.type": "Type",
 		"knowledge.upload": "Upload",
+		"knowledge.uploadLimitTooltip":
+			"Upload files — up to {limit} each. Generated reports and skill notes arrive here on their own.",
 		"knowledge.uploadOrGenerateHint":
 			"Upload or generate documents to see them here",
 		"knowledge.uploaded": "Uploaded",
@@ -171,6 +173,7 @@ const knowledgeDict = {
 		"memory.title": "Memory Profile",
 		"memory.tryAgain": "Try again",
 		"memory.updated": "Updated",
+		"memoryProfile.accept": "Accept",
 		"memoryProfile.aboutYou": "About You",
 		"memoryProfile.aboutYouEmpty": "No active memories about you yet.",
 		"memoryProfile.autoExpiresInDays": `auto-expires in {count} day{count, plural, one {} other {s}}`,
@@ -241,8 +244,6 @@ const knowledgeDict = {
 		"memoryProfile.processingReasonCount": "{count} items",
 		"memoryProfile.processingReasonProjectHint": "for this project",
 		"memoryProfile.projectScope": "Project",
-		"memoryProfile.remember": "Remember",
-		"memoryProfile.rememberThisItem": "Remember this item",
 		"memoryProfile.removeFraming":
 			"AlfyAI will stop using this in two different ways — pick the one that fits:",
 		"memoryProfile.removeThisMemory": "Remove this memory",
@@ -278,8 +279,6 @@ const knowledgeDict = {
 		"memoryProfile.undoAction": "Undo this change",
 		"memoryProfile.why": "Why",
 		// ── everyday-screens redesign ─────────────────────────────────────
-		"knowledge.dropZoneHint":
-			"Drop files here to upload — max {limit} per file. Generated reports and skill notes arrive here on their own.",
 		"knowledge.noNormalisedVersion":
 			"No AI-facing version exists for this file",
 		"knowledge.sortAscending": "Sorted oldest first — sort newest first",
@@ -417,6 +416,8 @@ const knowledgeDict = {
 		"knowledge.title": "Tudásbázis",
 		"knowledge.type": "Típus",
 		"knowledge.upload": "Feltöltés",
+		"knowledge.uploadLimitTooltip":
+			"Fájlok feltöltése — egyenként legfeljebb {limit}. A létrehozott jelentések és skill jegyzetek maguktól kerülnek ide.",
 		"knowledge.uploadOrGenerateHint":
 			"Tölts fel vagy generálj dokumentumokat, hogy itt lásd őket",
 		"knowledge.uploaded": "Feltöltött",
@@ -514,6 +515,7 @@ const knowledgeDict = {
 		"memory.title": "Memóriaprofil",
 		"memory.tryAgain": "Próbáld újra",
 		"memory.updated": "Frissítve",
+		"memoryProfile.accept": "Elfogadás",
 		"memoryProfile.aboutYou": "Rólad",
 		"memoryProfile.aboutYouEmpty": "Még nincs aktív emlék rólad.",
 		"memoryProfile.autoExpiresInDays": "automatikusan lejár {count} nap múlva",
@@ -586,8 +588,6 @@ const knowledgeDict = {
 		"memoryProfile.processingReasonCount": "{count} elem",
 		"memoryProfile.processingReasonProjectHint": "ehhez a projekthez",
 		"memoryProfile.projectScope": "Projekt",
-		"memoryProfile.remember": "Megjegyzés",
-		"memoryProfile.rememberThisItem": "Elem megjegyzése",
 		"memoryProfile.removeFraming":
 			"Az AlfyAI kétféleképpen hagyhatja abba a használatát — válaszd a megfelelőt:",
 		"memoryProfile.removeThisMemory": "Emlék eltávolítása",
@@ -623,8 +623,6 @@ const knowledgeDict = {
 		"memoryProfile.undoAction": "Változtatás visszavonása",
 		"memoryProfile.why": "Miért",
 		// ── everyday-screens redesign ─────────────────────────────────────
-		"knowledge.dropZoneHint":
-			"Húzd ide a fájlokat a feltöltéshez — fájlonként legfeljebb {limit}. A létrehozott jelentések és skill jegyzetek maguktól kerülnek ide.",
 		"knowledge.noNormalisedVersion":
 			"Ehhez a fájlhoz nincs AI által olvasott változat",
 		"knowledge.sortAscending": "Növekvő sorrend — váltás csökkenőre",

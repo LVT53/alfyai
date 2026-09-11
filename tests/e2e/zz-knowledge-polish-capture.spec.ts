@@ -621,6 +621,38 @@ test.describe("knowledge polish captures", () => {
 				8,
 			);
 
+			// The processing pill on the eyebrow line, and the detail it keeps
+			// behind a tooltip.
+			const pill = page.getByTestId("memory-processing-pill");
+			if (await pill.count()) {
+				await pill.hover();
+				await page.waitForTimeout(350);
+				await shootEl(
+					page,
+					page.locator(".memory-profile-head"),
+					`mem-processing-pill-${theme}`,
+					theme,
+					10,
+				);
+			}
+
+			// "Reading a row", now a tooltip on the portrait's title.
+			const legendTrigger = page.getByRole("button", { name: "Reading a row" });
+			if (await legendTrigger.count()) {
+				await legendTrigger.hover();
+				await page.waitForTimeout(350);
+				// A generous pad: the bubble hangs below the summary block, and
+				// the shot has to show it lands inside the portrait card (which
+				// clips to its own radius) rather than over its edge.
+				await shootEl(
+					page,
+					page.locator(".persona-summary-card"),
+					`mem-legend-tooltip-${theme}`,
+					theme,
+					110,
+				);
+			}
+
 			// Rail cards, resting — paddings and radii side by side.
 			await page.mouse.move(5, 5);
 			await page.waitForTimeout(250);
@@ -756,14 +788,24 @@ test.describe("knowledge polish captures", () => {
 				await shootEl(page, pager, `doc-pager-hover-${theme}`, theme, 10);
 			}
 
-			// The drop hint that sits under the pager, and the table foot with
-			// it — the resting shot is cut off by the viewport up top.
-			const dropHint = page.getByTestId("drop-hint");
-			if (await dropHint.count()) {
-				await page.mouse.move(5, 5);
-				await page.waitForTimeout(200);
-				await shootEl(page, dropHint, `doc-drophint-${theme}`, theme, 10);
-			}
+			// The column header pinned to the top of the scroll container, with
+			// rows running under it.
+			await page.mouse.move(5, 5);
+			await page.evaluate(() => {
+				const scroller = document.querySelector(".main-content");
+				scroller?.scrollTo({ top: 420, behavior: "instant" as ScrollBehavior });
+			});
+			await page.waitForTimeout(400);
+			await shoot(page, `doc-header-stuck-${theme}`, theme);
+			await page.evaluate(() => {
+				const scroller = document.querySelector(".main-content");
+				scroller?.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+			});
+			await page.waitForTimeout(300);
+
+			// The Upload button's tooltip now carries the size limit the drop
+			// hint used to print.
+			await shootEl(page, controls, `doc-upload-limit-${theme}`, theme, 8);
 
 			// Drop zone.
 			await page.evaluate(() => {

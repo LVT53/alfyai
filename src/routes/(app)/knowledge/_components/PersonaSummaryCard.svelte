@@ -3,7 +3,7 @@ import InfoTooltip from "$lib/components/ui/InfoTooltip.svelte";
 import Spinner from "$lib/components/ui/Spinner.svelte";
 import { t } from "$lib/i18n";
 import { formatRelativeTime } from "$lib/utils/time";
-import { Check, Pencil, X } from "@lucide/svelte";
+import { Check, HelpCircle, Pencil, X } from "@lucide/svelte";
 
 let {
 	summary,
@@ -99,6 +99,43 @@ let paragraphs = $derived.by<string[]>(() => {
 				text={$t("memoryProfile.summaryInfoTooltip")}
 				label={$t("memoryProfile.summaryInfoLabel")}
 			/>
+			<!-- How to read a row. It used to be a card of its own at the bottom
+			     of the rail, three scrolls away from the rows it explains. -->
+			<InfoTooltip icon={HelpCircle} label={$t("memoryProfile.legendTitle")}>
+				<span class="legend-title">{$t("memoryProfile.legendTitle")}</span>
+				<span class="legend-row">
+					<span class="legend-dot legend-dot--stated" aria-hidden="true"></span>
+					<span class="legend-text">
+						<span class="legend-name">{$t("memoryProfile.legendStated")}</span>
+						<span class="legend-body">{$t("memoryProfile.legendStatedBody")}</span>
+					</span>
+				</span>
+				<span class="legend-row">
+					<span class="legend-dot legend-dot--inferred" aria-hidden="true"></span>
+					<span class="legend-text">
+						<span class="legend-name">{$t("memoryProfile.legendInferred")}</span>
+						<span class="legend-body">{$t("memoryProfile.legendInferredBody")}</span>
+					</span>
+				</span>
+				<span class="legend-row">
+					<span class="legend-chip legend-chip--scope" aria-hidden="true">
+						{$t("memoryProfile.projectScope")}
+					</span>
+					<span class="legend-text">
+						<span class="legend-name">{$t("memoryProfile.legendScope")}</span>
+						<span class="legend-body">{$t("memoryProfile.legendScopeBody")}</span>
+					</span>
+				</span>
+				<span class="legend-row">
+					<span class="legend-chip legend-chip--expiry" aria-hidden="true">
+						{$t("memoryProfile.legendExpiry")}
+					</span>
+					<span class="legend-text">
+						<span class="legend-name">{$t("memoryProfile.legendExpiry")}</span>
+						<span class="legend-body">{$t("memoryProfile.legendExpiryBody")}</span>
+					</span>
+				</span>
+			</InfoTooltip>
 		</div>
 		{#if summary && !editing}
 			<button
@@ -181,6 +218,88 @@ let paragraphs = $derived.by<string[]>(() => {
 <style>
 	.persona-summary-card--flush {
 		background: transparent;
+	}
+
+	/* ---- "Reading a row", inside the help tooltip --------------------- */
+	.legend-title {
+		display: block;
+		margin-bottom: 0.15rem;
+		font-family: var(--font-sans);
+		font-size: 0.74rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.legend-row {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.55rem;
+		padding: 0.4rem 0 0;
+		margin-top: 0.4rem;
+		border-top: 1px solid
+			color-mix(in srgb, var(--border-default) 55%, transparent 45%);
+	}
+
+	.legend-text {
+		display: block;
+		min-width: 0;
+	}
+
+	.legend-name {
+		display: block;
+		font-family: var(--font-sans);
+		font-size: 0.7rem;
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.legend-body {
+		display: block;
+		margin-top: 0.12rem;
+		font-family: var(--font-sans);
+		font-size: 0.68rem;
+		line-height: 1.5;
+		color: var(--text-muted);
+	}
+
+	.legend-dot {
+		flex-shrink: 0;
+		width: 0.5rem;
+		height: 0.5rem;
+		margin-top: 0.3rem;
+		border-radius: var(--radius-full);
+	}
+
+	.legend-dot--stated {
+		background: var(--accent);
+	}
+
+	.legend-dot--inferred {
+		background: transparent;
+		border: 1.5px solid var(--accent);
+	}
+
+	.legend-chip {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		height: 1.1rem;
+		padding: 0 0.4rem;
+		border-radius: var(--radius-full);
+		font-family: var(--font-sans);
+		font-size: 0.6rem;
+	}
+
+	.legend-chip--scope {
+		border: 1px solid var(--border-default);
+		color: var(--text-muted);
+	}
+
+	.legend-chip--expiry {
+		border: 1px solid
+			color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
+		background: color-mix(in srgb, var(--accent) 6%, transparent 94%);
+		color: var(--accent);
 	}
 
 	.persona-summary-edit {

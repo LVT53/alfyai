@@ -146,9 +146,14 @@ test.describe("Knowledge page", () => {
 	test("the rail explains how to read a row and how to reach the settings", async ({
 		page,
 	}) => {
-		await expect(
-			page.getByRole("heading", { name: "Reading a row" }),
-		).toBeVisible();
+		// "Reading a row" is a tooltip on the portrait title now, not a card at
+		// the bottom of the rail: nothing on the page until it is asked for.
+		await expect(page.getByText("Reading a row")).toHaveCount(0);
+		await page.getByRole("button", { name: "Reading a row" }).focus();
+		const legend = page.getByRole("tooltip");
+		await expect(legend).toBeVisible();
+		await expect(legend).toContainText("Reading a row");
+		await expect(legend).toContainText("you said it");
 
 		// Scoped to the card: an empty category's hint also links to memory
 		// settings, so the bare name matches several links on this page.
@@ -205,9 +210,11 @@ test.describe("Knowledge page", () => {
 			return;
 		}
 		await expect(sortSelect).toBeVisible();
-		await expect(page.getByTestId("drop-hint")).toContainText(
-			"Drop files here to upload",
-		);
+		// The hint row is gone; the limit rides on the Upload button, which
+		// sits at the right end of the toolbar beside Sort.
+		await expect(page.getByTestId("drop-hint")).toHaveCount(0);
+		const upload = page.getByRole("button", { name: "Upload" }).first();
+		await expect(upload).toHaveAttribute("title", /100 MB/);
 
 		// The direction toggle actually re-sorts: the server-managed list
 		// carries the direction in the URL.

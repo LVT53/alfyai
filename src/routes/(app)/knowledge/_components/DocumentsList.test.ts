@@ -1332,7 +1332,11 @@ describe("DocumentsList", () => {
 			).not.toBeInTheDocument();
 		});
 
-		it("states the drop zone and its size limit whenever upload is offered", () => {
+		// The hint row under the table is gone: it was a line of prose in a
+		// card of data. The limit it carried lives on the Upload button, and
+		// dropping on the table still works (see the drag-and-drop tests
+		// above).
+		it("carries the per-file size limit in the Upload button's tooltip", () => {
 			render(DocumentsList, {
 				props: {
 					documents: [makeDocument({ id: "doc-1" })],
@@ -1340,17 +1344,43 @@ describe("DocumentsList", () => {
 				},
 			});
 
-			expect(screen.getByTestId("drop-hint").textContent).toContain(
-				"Drop files here to upload",
-			);
+			const upload = screen.getByRole("button", { name: "Upload" });
+			expect(upload.getAttribute("title")).toContain("100 MB");
+			expect(screen.queryByTestId("drop-hint")).not.toBeInTheDocument();
 		});
 
-		it("omits the drop zone hint when the list cannot accept uploads", () => {
+		it("offers no upload control at all when the list cannot accept uploads", () => {
 			render(DocumentsList, {
 				props: { documents: [makeDocument({ id: "doc-1" })] },
 			});
 
+			expect(
+				screen.queryByRole("button", { name: "Upload" }),
+			).not.toBeInTheDocument();
 			expect(screen.queryByTestId("drop-hint")).not.toBeInTheDocument();
+		});
+
+		// Order in the toolbar: search, then the sort control, then Upload at
+		// the right end.
+		it("puts Upload last in the toolbar, after the sort control", () => {
+			const { container } = render(DocumentsList, {
+				props: {
+					documents: [makeDocument({ id: "doc-1" })],
+					onUpload: vi.fn(),
+				},
+			});
+
+			const controls = container.querySelector(".filter-controls");
+			const children = Array.from(controls?.children ?? []);
+			const sortIndex = children.findIndex((child) =>
+				child.classList.contains("sort-controls"),
+			);
+			const uploadIndex = children.findIndex((child) =>
+				child.classList.contains("upload-btn"),
+			);
+			expect(sortIndex).toBeGreaterThan(-1);
+			expect(uploadIndex).toBe(children.length - 1);
+			expect(uploadIndex).toBeGreaterThan(sortIndex);
 		});
 	});
 

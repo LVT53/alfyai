@@ -30,15 +30,27 @@ const componentsDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(componentsDir, "..", "..", "..");
 
 /**
- * Surfaces redesigned in this wave. Everything under `knowledge/`, the
- * composer (MessageInput / ComposerToolsMenu / composer-bar) and the home
- * route are owned elsewhere and are deliberately absent.
+ * Surfaces redesigned in this wave. The composer (MessageInput /
+ * ComposerToolsMenu / composer-bar) and the home route are owned elsewhere and
+ * are deliberately absent.
+ *
+ * The Knowledge memory cards join the scope with the owner pass over the
+ * category filter chips. The row-shaped components there (MemoryRow,
+ * DocumentsList, the needs-review cards) stay out on purpose: they paint a
+ * full-bleed fill across a row that is clipped by a rounded, overflow-hidden
+ * parent in ANOTHER file, and a radius on the row itself would be a lie — a
+ * `<tr>` under `border-collapse: collapse` cannot round anything at all.
  */
 const SCOPE = [
 	"src/routes/(app)/settings/_components",
+	"src/routes/(app)/knowledge/_components/MemoryPortraitCard.svelte",
+	"src/routes/(app)/knowledge/_components/MemoryCategorySection.svelte",
+	"src/routes/(app)/knowledge/_components/MemoryRailCards.svelte",
+	"src/routes/(app)/knowledge/_components/PersonaSummaryCard.svelte",
 	"src/lib/components/search",
 	"src/lib/components/analytics",
 	"src/lib/components/ui/DialogShell.svelte",
+	"src/lib/components/ui/InfoTooltip.svelte",
 	"src/routes/login/+page.svelte",
 ];
 

@@ -262,6 +262,7 @@ function toggleKeepingPosition() {
 		color: var(--accent);
 		text-decoration: underline;
 		text-underline-offset: 0.18em;
+		transition: color var(--duration-standard) var(--ease-out);
 	}
 
 	.memory-section-link:hover {
@@ -321,7 +322,8 @@ function toggleKeepingPosition() {
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.memory-disclosure {
+		.memory-disclosure,
+		.memory-section-link {
 			transition: none !important;
 		}
 	}

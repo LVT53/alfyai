@@ -257,9 +257,7 @@ describe("Knowledge page memory loading", () => {
 			).toBeInTheDocument();
 		});
 
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Remember this item" }),
-		);
+		await fireEvent.click(screen.getByRole("button", { name: "Accept" }));
 
 		expect(submitKnowledgeMemoryAction).toHaveBeenCalledWith({
 			target: "review_item",
@@ -283,9 +281,7 @@ describe("Knowledge page memory loading", () => {
 				screen.getByText("Remember Hungarian labels."),
 			).toBeInTheDocument();
 		});
-		await fireEvent.click(
-			screen.getByRole("button", { name: "Remember this item" }),
-		);
+		await fireEvent.click(screen.getByRole("button", { name: "Accept" }));
 
 		await waitFor(() => {
 			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
