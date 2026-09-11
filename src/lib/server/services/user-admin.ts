@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { count, eq, inArray, sql } from "drizzle-orm";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { getConfig } from "$lib/server/config-store";
 import {
 	type QueryExecutor,
 	queryExecutor,
 } from "$lib/server/db/query-executor";
 import {
-	analyticsConversations,
+	conversations,
+	messageAnalytics,
+	messages,
 	sessions,
 	usageEvents,
 	users,
@@ -79,26 +81,44 @@ export async function listManagedUsers(
 
 	const userIds = userRows.map((row) => row.id);
 
-	const conversationRows = await executor.run(
-		"userAdmin.conversationCountsByUser",
+	// "Messages" and "Conversations" on this screen are about what a PERSON
+	// did, so they count user-authored rows in `messages` (attributed through
+	// conversations.user_id, which is where a message's owner lives) and the
+	// conversations carrying at least one of them. They deliberately do NOT
+	// count usage_events: that table holds one row per billed model call,
+	// background calls included, which is the right grain for the token and
+	// cost columns below and the wrong grain for these two. Incognito
+	// conversations stay out, matching the usage side, which never records
+	// them at all.
+	const activityRows = await executor.run(
+		"userAdmin.userMessageCountsByUser",
 		(db) =>
 			db
 				.select({
-					userId: analyticsConversations.userId,
-					conversationCount: count(analyticsConversations.id),
+					userId: conversations.userId,
+					messageCount: count(messages.id),
+					conversationCount: sql<number>`count(distinct ${messages.conversationId})`,
 				})
-				.from(analyticsConversations)
-				.where(inArray(analyticsConversations.userId, userIds))
-				.groupBy(analyticsConversations.userId),
+				.from(messages)
+				.innerJoin(conversations, eq(messages.conversationId, conversations.id))
+				.where(
+					and(
+						eq(messages.role, "user"),
+						eq(conversations.memoryIncognito, false),
+						inArray(conversations.userId, userIds),
+					),
+				)
+				.groupBy(conversations.userId),
 	);
 
+	// Tokens ARE about cost, so they stay wholesale over usage_events.
 	const analyticsRows = await executor.run(
 		"userAdmin.usageTotalsByUser",
 		(db) =>
 			db
 				.select({
 					userId: usageEvents.userId,
-					messageCount: count(usageEvents.id),
+					modelCalls: count(usageEvents.id),
 					promptTokens: sql<number>`coalesce(sum(${usageEvents.promptTokens}), 0)`,
 					cachedInputTokens: sql<number>`coalesce(sum(${usageEvents.cachedInputTokens}), 0)`,
 					cacheHitTokens: sql<number>`coalesce(sum(${usageEvents.cacheHitTokens}), 0)`,
@@ -111,6 +131,14 @@ export async function listManagedUsers(
 				.groupBy(usageEvents.userId),
 	);
 
+	// The favourite model is the one that ANSWERS the person most often, not
+	// the one with the most usage_events rows — background calls (the
+	// thought-step classifier above all) outnumber answering calls, so a
+	// wholesale ranking would crown the control model for every account.
+	// message_analytics is written only on the foreground turn path, so
+	// joining it is exactly the "this call answered a persisted assistant
+	// message" test. A user whose rows predate that table falls back to the
+	// wholesale ranking rather than showing no favourite at all.
 	const favoriteModelRows = await executor.run(
 		"userAdmin.favoriteModelByUser",
 		(db) =>
@@ -118,9 +146,14 @@ export async function listManagedUsers(
 				.select({
 					userId: usageEvents.userId,
 					model: usageEvents.modelId,
-					messageCount: count(usageEvents.id),
+					callCount: count(usageEvents.id),
+					answeringCallCount: sql<number>`sum(case when ${messageAnalytics.messageId} is null then 0 else 1 end)`,
 				})
 				.from(usageEvents)
+				.leftJoin(
+					messageAnalytics,
+					eq(messageAnalytics.messageId, usageEvents.messageId),
+				)
 				.where(inArray(usageEvents.userId, userIds))
 				.groupBy(usageEvents.userId, usageEvents.modelId),
 	);
@@ -138,10 +171,11 @@ export async function listManagedUsers(
 				.groupBy(sessions.userId),
 	);
 
-	const conversationsByUser = new Map(
-		conversationRows.map((row) => [
+	const activityByUser = new Map(
+		activityRows.map((row) => [
 			row.userId,
 			{
+				messageCount: Number(row.messageCount ?? 0),
 				conversationCount: Number(row.conversationCount ?? 0),
 			},
 		]),
@@ -150,7 +184,7 @@ export async function listManagedUsers(
 		analyticsRows.map((row) => [
 			row.userId,
 			{
-				messageCount: Number(row.messageCount ?? 0),
+				modelCalls: Number(row.modelCalls ?? 0),
 				promptTokens: Number(row.promptTokens ?? 0),
 				cachedInputTokens: Number(row.cachedInputTokens ?? 0),
 				cacheHitTokens: Number(row.cacheHitTokens ?? 0),
@@ -164,24 +198,33 @@ export async function listManagedUsers(
 		sessionRows.map((row) => [row.userId, Number(row.activeSessionCount ?? 0)]),
 	);
 
+	const answeringCallsByUser = new Map<string, number>();
+	for (const row of favoriteModelRows) {
+		answeringCallsByUser.set(
+			row.userId,
+			(answeringCallsByUser.get(row.userId) ?? 0) +
+				Number(row.answeringCallCount ?? 0),
+		);
+	}
 	const favoriteModelByUser = new Map<
 		string,
-		{ model: string; messageCount: number }
+		{ model: string; votes: number }
 	>();
 	for (const row of favoriteModelRows) {
+		const hasAnswers = (answeringCallsByUser.get(row.userId) ?? 0) > 0;
+		const votes = hasAnswers
+			? Number(row.answeringCallCount ?? 0)
+			: Number(row.callCount ?? 0);
+		if (votes <= 0) continue;
 		const current = favoriteModelByUser.get(row.userId);
-		const next = {
-			model: row.model,
-			messageCount: Number(row.messageCount ?? 0),
-		};
-		if (!current || next.messageCount > current.messageCount) {
-			favoriteModelByUser.set(row.userId, next);
+		if (!current || votes > current.votes) {
+			favoriteModelByUser.set(row.userId, { model: row.model, votes });
 		}
 	}
 
 	return userRows
 		.map((row) => {
-			const conversation = conversationsByUser.get(row.id);
+			const activity = activityByUser.get(row.id);
 			const analytics = analyticsByUser.get(row.id);
 			const promptTokens = analytics?.promptTokens ?? 0;
 			const cachedInputTokens = analytics?.cachedInputTokens ?? 0;
@@ -196,8 +239,9 @@ export async function listManagedUsers(
 				role: (row.role ?? "user") as UserRole,
 				createdAt: Number(row.createdAt),
 				updatedAt: Number(row.updatedAt),
-				conversationCount: conversation?.conversationCount ?? 0,
-				messageCount: analytics?.messageCount ?? 0,
+				conversationCount: activity?.conversationCount ?? 0,
+				messageCount: activity?.messageCount ?? 0,
+				modelCalls: analytics?.modelCalls ?? 0,
 				promptTokens,
 				cachedInputTokens,
 				cacheHitTokens,
@@ -366,8 +410,13 @@ export interface AdminManagedUserSummary {
 	role: UserRole;
 	createdAt: number;
 	updatedAt: number;
+	/** Conversations carrying at least one user-authored message. */
 	conversationCount: number;
+	/** Messages the person wrote (`messages` rows with role = 'user'). */
 	messageCount: number;
+	/** Billed model calls booked against the person, background calls
+	 *  included. About cost, not about what they wrote. */
+	modelCalls: number;
 	promptTokens: number;
 	cachedInputTokens: number;
 	cacheHitTokens: number;
