@@ -826,6 +826,53 @@ test.describe("everyday redesign screens", () => {
 			).toHaveText(/Show fewer/);
 			await expect(aboutCount).toHaveText(/showing 23/);
 
+			// Expanding and collapsing happen in place: with the heading on
+			// screen, toggling the category must not move it, nor the sections
+			// above it.
+			// Parked at the top of the pane, not merely nudged into view: a
+			// heading sitting at the bottom leaves the container scrolled to its
+			// end, and collapsing then shortens the page out from under it —
+			// there is no scroll position left to keep, only content the reader
+			// asked to have put away.
+			const heading = page.locator("#memory-category-about_you");
+			await heading.evaluate((node) => node.scrollIntoView({ block: "start" }));
+			await page.waitForTimeout(300);
+			const topOf = () =>
+				heading.evaluate((node) => node.getBoundingClientRect().top);
+			const beforeTop = await topOf();
+
+			// Toggled from the heading's own chevron, which is what keeps the
+			// reader where they are. (The foot button sits 23 rows down, so
+			// reaching it means scrolling to the end of a page that is about to
+			// get shorter — there is no position there left to preserve.)
+			const headToggle = page.getByRole("button", {
+				name: "Collapse About You",
+			});
+			await headToggle.click();
+			await expect(
+				page.getByTestId("memory-category-disclosure").first(),
+			).toHaveText(/Show all 23/);
+			// Past the 180ms reveal.
+			await page.waitForTimeout(500);
+			expect(
+				Math.abs((await topOf()) - beforeTop),
+				"the category heading moved when the section collapsed",
+				// A few pixels of slack: the chevron's label swaps between
+				// Collapse and Expand and reflows the head row by a hair.
+			).toBeLessThanOrEqual(4);
+
+			await page.getByRole("button", { name: "Expand About You" }).click();
+			await expect(aboutCount).toHaveText(/showing 23/);
+			await page.waitForTimeout(500);
+			expect(
+				Math.abs((await topOf()) - beforeTop),
+				"the category heading moved when the section expanded",
+			).toBeLessThanOrEqual(4);
+
+			await page.locator(".main-content").evaluate((node) => {
+				node.scrollTo(0, 0);
+			});
+
 			await capture(page, `knowledge-memory-${theme}`, theme);
 
 			// The filter box narrows every category at once, and the chip counts

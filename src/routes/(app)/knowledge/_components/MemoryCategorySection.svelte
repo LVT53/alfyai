@@ -3,7 +3,6 @@
 // single disclosure row at the bottom. Opening a category expands it IN PLACE
 // — the other sections stay where they were, and the header is pinned to the
 // same viewport position across the toggle, so you never lose your position.
-import { tick } from "svelte";
 import { slide } from "svelte/transition";
 import type { MemoryProfilePublicItem } from "$lib/memory-profile-types";
 import type { I18nKey } from "$lib/i18n";
@@ -75,19 +74,22 @@ const disclosureLabel = $derived(
 );
 
 /**
- * Expanding a long category pushes everything below it down; collapsing pulls
- * it back up. Either way the section's own header should not move under the
- * cursor, so measure it before the toggle and put it back afterwards.
+ * Expanding and collapsing happen IN PLACE: the rows live below this section's
+ * heading, so the heading itself never moves and the sections above it never
+ * move either — which is the whole of "you never lose your position".
+ *
+ * There used to be a scroll correction here. It measured the section's top
+ * before and after the toggle and called `window.scrollBy` — on a page that
+ * scrolls inside `.main-content`, so it moved nothing, and it read the
+ * geometry one tick in, before the 180ms reveal had changed any of it. Worth
+ * naming why it is gone rather than quietly fixed: the only case where the
+ * heading DOES move is collapsing while scrolled past the rows being removed,
+ * and there the container is pinned to the end of a page that just got
+ * shorter. There is no scroll position left to restore — the reader asked for
+ * the content they were looking at to be put away.
  */
-async function toggleKeepingPosition() {
-	const before = sectionEl?.getBoundingClientRect().top ?? null;
+function toggleKeepingPosition() {
 	onToggle();
-	await tick();
-	if (before === null || typeof window === "undefined") return;
-	const after = sectionEl?.getBoundingClientRect().top ?? null;
-	if (after === null) return;
-	const drift = after - before;
-	if (Math.abs(drift) > 1) window.scrollBy(0, drift);
 }
 </script>
 
