@@ -32,6 +32,23 @@ mkdir -p /home/services/nominatim/postgres
 chown "$APP_USER:$APP_USER" "$REGIONS_DIR"
 chmod 775 "$REGIONS_DIR"
 
+# A region's road/transit build and refresh code (region-manager.ts) runs as
+# $APP_USER and creates, renames, and deletes files under
+# <region>/{files,graphs/<profile>}/ — but each region's ORS container runs
+# as root, and both a container's own graph build (e.g. graphs/public-transport)
+# and any one-off root-run provisioning (e.g. hand-staging an extract during a
+# mirror outage) leave root-owned directories behind. A default ACL, not a
+# one-time chmod, is what actually survives that: it retroactively grants
+# $APP_USER's group read/write/traverse on everything already here AND makes
+# it the default for anything created later, by anyone, at any depth — so a
+# brand-new region, or a fresh graphs/public-transport rebuilt from scratch,
+# never needs this fixed by hand again. Idempotent; safe to re-run.
+if command -v setfacl >/dev/null 2>&1; then
+  setfacl -R -m "g:$APP_USER:rwX" -d -m "g:$APP_USER:rwX" "$REGIONS_DIR"
+else
+  echo "warning: setfacl not found — per-region files/ and graphs/ subdirectories may end up root-owned and unwritable by $APP_USER; install acl (e.g. apt-get install acl) and re-run" >&2
+fi
+
 install -m 0644 "$HERE/alfyai-docker-proxy.service" /etc/systemd/system/alfyai-docker-proxy.service
 install -m 0644 "$HERE/nominatim.service" /etc/systemd/system/nominatim.service
 systemctl daemon-reload
