@@ -327,6 +327,51 @@ describe("AtlasActivityRow", () => {
 			);
 		});
 
+		it("draws each evidence source's favicon through the same-origin proxy, over a globe fallback", async () => {
+			render(AtlasActivityRow, { job: doneJob() });
+
+			await fireEvent.click(screen.getByRole("tab", { name: "Evidence" }));
+			const evidence = screen.getByTestId("atlas-evidence-tab");
+			const icons = within(evidence).getAllByTestId("atlas-evidence-favicon");
+			expect(icons).toHaveLength(2);
+
+			// Derived from the host the evidence payload already carries — never a
+			// third-party icon service, and never bytes stored in the payload.
+			expect(icons[0]).toHaveAttribute("src", "/api/favicon?domain=gov.ie");
+			expect(icons[1]).toHaveAttribute(
+				"src",
+				"/api/favicon?domain=oireachtas.ie",
+			);
+			expect(icons[0].getAttribute("src")).not.toContain("google.com");
+
+			// A globe is rendered underneath every icon; the `onerror` handler hides
+			// the <img> so the globe shows through when the icon cannot load.
+			const sources = within(evidence).getAllByTestId("atlas-evidence-source");
+			expect(sources[0].querySelector("svg")).not.toBeNull();
+			const icon = icons[0] as HTMLImageElement;
+			await fireEvent.error(icon);
+			expect(icon.style.display).toBe("none");
+		});
+
+		it("falls back to the globe alone when a source's host is not a domain", async () => {
+			render(AtlasActivityRow, {
+				job: doneJob({
+					evidence: {
+						...EVIDENCE,
+						sources: [{ ...EVIDENCE.sources[0], host: "localfile" }],
+					},
+				}),
+			});
+
+			await fireEvent.click(screen.getByRole("tab", { name: "Evidence" }));
+			const evidence = screen.getByTestId("atlas-evidence-tab");
+			expect(
+				within(evidence).queryAllByTestId("atlas-evidence-favicon"),
+			).toHaveLength(0);
+			const sources = within(evidence).getAllByTestId("atlas-evidence-source");
+			expect(sources[0].querySelector("svg")).not.toBeNull();
+		});
+
 		it("shows the final source counts on the Plan tab", async () => {
 			render(AtlasActivityRow, { job: doneJob() });
 
