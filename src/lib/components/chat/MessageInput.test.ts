@@ -284,9 +284,7 @@ describe("MessageInput", () => {
 		const chipRow = getByRole("list", { name: "Attached to this message" });
 		expect(chipRow).toHaveTextContent("Atlas");
 		expect(chipRow).toHaveTextContent("In-Depth · ~10-20 min");
-		expect(
-			chipRow.querySelector('[data-chip-kind="atlas"]'),
-		).not.toBeNull();
+		expect(chipRow.querySelector('[data-chip-kind="atlas"]')).not.toBeNull();
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "Research SvelteKit load invalidation" },
@@ -3230,12 +3228,17 @@ describe("MessageInput long-document outline quoting", () => {
 		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
 			doneCallback = payload.done;
 		});
-		const { container, getByPlaceholderText, getByText, getByTestId, queryByTestId } =
-			render(MessageInput, {
-				conversationId: "conv-1",
-				attachmentsEnabled: true,
-				onUploadFiles: uploadFilesHandler,
-			});
+		const {
+			container,
+			getByPlaceholderText,
+			getByText,
+			getByTestId,
+			queryByTestId,
+		} = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadFiles: uploadFilesHandler,
+		});
 
 		const textarea = getByPlaceholderText(
 			"Type a message...",
@@ -3289,10 +3292,9 @@ describe("MessageInput long-document outline quoting", () => {
 		});
 
 		await fireEvent.click(
-			within(getByTestId("composer-chip-quote").parentElement as HTMLElement).getByRole(
-				"button",
-				{ name: "Remove quote Section 2.3 Break clause" },
-			),
+			within(
+				getByTestId("composer-chip-quote").parentElement as HTMLElement,
+			).getByRole("button", { name: "Remove quote Section 2.3 Break clause" }),
 		);
 
 		await waitFor(() => {

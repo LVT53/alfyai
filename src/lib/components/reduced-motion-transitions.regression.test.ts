@@ -221,3 +221,42 @@ describe("ProfilePictureEditor delegates its dialog chassis to DialogShell", () 
 		expect(source).not.toMatch(/aria-modal/);
 	});
 });
+
+// The chips redesign (owner-approved boards, 2026-09-15) moves motion the
+// OTHER way: instead of adding a wrapped Svelte transition, the chip states
+// tint and ease entirely through CSS `transition` properties, which the
+// global reduced-motion reset in src/app.css already reaches (it zeroes
+// `--duration-*` and forces `transition-duration` to 0.01ms).
+//
+// That is only true while the chip stays inside the reset's reach. Two things
+// would take it back out — a JS-driven `transition:`/`in:`/`out:` directive
+// (which interpolates styles directly, bypassing the property override), and
+// a CSS `animation`, which the reset does not zero either. This guards both,
+// so the chip cannot quietly acquire motion a reader who asked for none still
+// has to watch.
+describe("the chip's motion stays reachable by the reduced-motion reset", () => {
+	const CHIP_FILES = [
+		"src/lib/components/chat/ComposerChip.svelte",
+		"src/lib/components/chat/ComposerChipRow.svelte",
+	];
+
+	it.each(CHIP_FILES)("%s declares no Svelte transition directives", (file) => {
+		const source = readComponent(file);
+		expect(source).not.toMatch(/(transition|in|out):[a-zA-Z]+=/);
+		expect(source).not.toMatch(/from "svelte\/transition"/);
+	});
+
+	it.each(CHIP_FILES)("%s declares no CSS animation", (file) => {
+		const source = readComponent(file);
+		expect(source).not.toMatch(/@keyframes/);
+		expect(source).not.toMatch(/\n\s*animation:/);
+	});
+
+	it.each(
+		CHIP_FILES,
+	)("%s eases through --duration-standard, which the reset zeroes", (file) => {
+		const source = readComponent(file);
+		expect(source).toMatch(/transition:/);
+		expect(source).toContain("var(--duration-standard) var(--ease-out)");
+	});
+});

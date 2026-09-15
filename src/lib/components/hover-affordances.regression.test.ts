@@ -42,6 +42,14 @@ const repoRoot = join(componentsDir, "..", "..", "..");
  * `<tr>` under `border-collapse: collapse` cannot round anything at all.
  */
 const SCOPE = [
+	// The chips redesign (owner-approved boards, 2026-09-15) pulled THE chip
+	// out of MessageInput into its own pair of components. They are in scope
+	// even though the composer as a whole is not: a chip is exactly the
+	// "hoverable pill" the house rule was written for, and both of the
+	// original defects — a square fill over a 999px pill, and a snapping
+	// hover — are live risks on a shape whose radius is its whole identity.
+	"src/lib/components/chat/ComposerChip.svelte",
+	"src/lib/components/chat/ComposerChipRow.svelte",
 	"src/routes/(app)/settings/_components",
 	"src/routes/(app)/knowledge/_components/MemoryPortraitCard.svelte",
 	"src/routes/(app)/knowledge/_components/MemoryCategorySection.svelte",

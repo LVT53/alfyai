@@ -2234,6 +2234,229 @@ describe("MessageBubble", () => {
 		});
 	});
 
+	// Chips redesign (owner-approved boards, 2026-09-15) — the provenance
+	// line. Nothing in the stream used to record that a skill ran, that the
+	// web was searched, or which Atlas profile was used: the composer's chips
+	// were destroyed on send and only the tool-activity rail, folded away
+	// inside the thinking block, remembered. The line is DERIVED (owner
+	// decision 2) from what the message already carries, so these tests are as
+	// much about what it refuses to claim as about what it shows.
+	describe("the assistant provenance line", () => {
+		function buildProvenanceMessage(
+			overrides: Partial<ChatMessage> = {},
+		): ChatMessage {
+			return {
+				id: "assistant-provenance",
+				renderKey: "assistant-provenance",
+				role: "assistant",
+				content: "You can give notice after the first twelve months.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				...overrides,
+			};
+		}
+
+		it("is not rendered at all on a turn that used nothing", () => {
+			render(MessageBubble, { message: buildProvenanceMessage() });
+			expect(screen.queryByTestId("message-provenance")).toBeNull();
+		});
+
+		it("names the skill, the web and the Atlas profile, in that order", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage({
+					thinkingSegments: [
+						{
+							type: "tool_call",
+							name: "use_skill",
+							input: { displayName: "Invoice reply" },
+							status: "done",
+						},
+						{
+							type: "tool_call",
+							name: "research_web",
+							input: {},
+							status: "done",
+						},
+					],
+				}),
+				atlasJobs: [buildAtlasJob({ profile: "in-depth" })],
+			});
+
+			const line = screen.getByTestId("message-provenance");
+			expect(line.textContent).toContain(chatDict.en["messageProvenance.used"]);
+			expect(
+				within(line).getByTestId("message-provenance-skill").textContent,
+			).toContain("Invoice reply");
+			expect(
+				within(line).getByTestId("message-provenance-web"),
+			).toBeInTheDocument();
+			expect(
+				within(line).getByTestId("message-provenance-atlas").textContent,
+			).toContain(chatDict.en["composerTools.atlasInDepth"]);
+		});
+
+		it("draws its chips at the in-message size, with no remove control", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage({
+					thinkingSegments: [
+						{
+							type: "tool_call",
+							name: "research_web",
+							input: {},
+							status: "done",
+						},
+					],
+				}),
+			});
+
+			const chip = screen.getByTestId("message-provenance-web");
+			expect(chip.dataset.chipSize).toBe("message");
+			// Owner amendment to the board: web search is neutral, not blue.
+			expect(chip.dataset.chipTint).toBe("neutral");
+			expect(chip.querySelector("button")).toBeNull();
+		});
+
+		it("counts the sources a web search actually retrieved", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage({
+					thinkingSegments: [
+						{
+							type: "tool_call",
+							name: "research_web",
+							input: {},
+							status: "done",
+						},
+					],
+					evidenceSummary: {
+						structuredWebSearch: true,
+						groups: [
+							{
+								sourceType: "web",
+								label: "Web",
+								reranked: false,
+								items: [{ id: "s1" }, { id: "s2" }, { id: "s3" }],
+							},
+						],
+					} as ChatMessage["evidenceSummary"],
+				}),
+			});
+
+			expect(
+				screen.getByTestId("message-provenance-web").textContent,
+			).toContain(
+				chatDict.en["messageProvenance.webSources"].replace("{count}", "3"),
+			);
+		});
+
+		it("stays out of the way until the turn is finished", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage({
+					isStreaming: true,
+					thinkingSegments: [
+						{
+							type: "tool_call",
+							name: "research_web",
+							input: {},
+							status: "running",
+						},
+					],
+				}),
+			});
+			expect(screen.queryByTestId("message-provenance")).toBeNull();
+		});
+
+		it("never appears on a user turn", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage({
+					role: "user",
+					thinkingSegments: [
+						{
+							type: "tool_call",
+							name: "research_web",
+							input: {},
+							status: "done",
+						},
+					],
+				}),
+			});
+			expect(screen.queryByTestId("message-provenance")).toBeNull();
+		});
+	});
+
+	// Chips redesign — the composer's chips survive the send onto the user
+	// bubble, and a quote that was expanded into the message on the way out is
+	// recognised back out of it (matched against this message's own persisted
+	// outline, never guessed) so the bubble shows the quote rather than a
+	// paragraph of the document's prose.
+	describe("the user bubble's chips", () => {
+		const OUTLINE = [
+			{
+				level: 2,
+				title: "2.3 Break clause",
+				offset: 0,
+				preview: "Either party may terminate on six months' notice",
+			},
+		];
+
+		function buildQuotedUserMessage(content: string): ChatMessage {
+			return {
+				id: "user-quoted",
+				renderKey: "user-quoted",
+				role: "user",
+				content,
+				timestamp: Date.now(),
+				attachments: [
+					{
+						id: "att-1",
+						artifactId: "artifact-lease",
+						name: "Lease agreement 2026.pdf",
+						type: "source_document",
+						mimeType: "application/pdf",
+						sizeBytes: 482_112,
+						conversationId: "conv-1",
+						createdAt: Date.now(),
+						outline: OUTLINE,
+					},
+				] as ChatMessage["attachments"],
+			};
+		}
+
+		it("shows the quote it was sent with instead of the pasted prose", () => {
+			render(MessageBubble, {
+				message: buildQuotedUserMessage(
+					"2.3 Break clause: Either party may terminate on six months' notice…\n\nCan we get out of this early?",
+				),
+			});
+
+			const chip = screen.getByTestId("user-bubble-quote-chip");
+			expect(chip.dataset.chipKind).toBe("quote");
+			expect(chip.dataset.chipSize).toBe("message");
+			expect(chip.textContent).toContain("2.3 Break clause");
+
+			const bubble = screen.getByTestId("user-message");
+			expect(bubble.textContent).toContain("Can we get out of this early?");
+			expect(bubble.textContent).not.toContain(
+				"Either party may terminate on six months' notice…",
+			);
+		});
+
+		// The safe direction to fail: prose eaten as a quote would lose the
+		// user's own words, so a block that matches no persisted heading stays
+		// in the body untouched.
+		it("leaves prose alone when it matches no persisted heading", () => {
+			render(MessageBubble, {
+				message: buildQuotedUserMessage(
+					"Break clause: what does it actually say?\n\nAnd the rest.",
+				),
+			});
+
+			expect(screen.queryByTestId("user-bubble-quote-chip")).toBeNull();
+			expect(screen.getByTestId("user-message").textContent).toContain(
+				"Break clause: what does it actually say?",
+			);
+		});
+	});
+
 	describe("Follow-up suggestion chips (owner idea, variant A)", () => {
 		function buildFollowUpMessage(
 			overrides: Partial<ChatMessage> = {},

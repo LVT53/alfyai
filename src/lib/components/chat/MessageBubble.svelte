@@ -936,7 +936,7 @@ function sendFollowUp(question: string) {
 							{/if}
 						{/each}
 					{:else}
-						{message.content}
+						{userQuoteSplit.body}
 					{/if}
 				</div>
 			{/if}
