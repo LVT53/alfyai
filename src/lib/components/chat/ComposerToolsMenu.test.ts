@@ -306,3 +306,28 @@ describe("ComposerToolsMenu accounts", () => {
 		expect(headings).toEqual(["This message", "Switches", "This conversation"]);
 	});
 });
+
+// The owner: the Web search switch was "confusing for end-users". A switch
+// says the thing is off until you flip it; web search was never off, because
+// the model grounds itself whenever a question needs it, and the switch only
+// forced a search. What went is the row — not the force, which `/web` still
+// sets and the composer's chip still shows and clears.
+describe("ComposerToolsMenu web search", () => {
+	it("draws no web-search row", () => {
+		stubPhone(false);
+		render(ComposerToolsMenu, baseProps({ triggerElement: stubTrigger() }));
+
+		expect(screen.queryByTestId("composer-menu-web-search")).toBeNull();
+		expect(screen.queryByText("Web search")).toBeNull();
+	});
+
+	it("leaves the switches section to thinking and incognito", () => {
+		stubPhone(false);
+		render(ComposerToolsMenu, baseProps({ triggerElement: stubTrigger() }));
+
+		const checkboxes = Array.from(
+			document.querySelectorAll('[role="menuitemcheckbox"]'),
+		).map((node) => node.getAttribute("data-testid"));
+		expect(checkboxes).toEqual(["thinking-toggle", "incognito-toggle"]);
+	});
+});

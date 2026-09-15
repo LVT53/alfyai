@@ -1581,6 +1581,12 @@ function closeSourceManager() {
 	requestAnimationFrame(() => textarea?.focus());
 }
 
+// Forced web search has no switch in the "+" menu any more — the owner read
+// it as saying the web was off until you turned it on, which it never was.
+// Two ways in survive, and they are the two that only appear once you have
+// asked for the force: `/web` sets it, and the chip above the composer shows
+// it and calls this to clear it. Grounding without the force is unaffected;
+// the model still searches whenever a question needs it.
 function setForceWebSearch(enabled: boolean) {
 	forceWebSearch = enabled;
 }
@@ -2814,8 +2820,6 @@ async function emitDraftChange(force = false) {
 							{onPersonalityChange}
 							{onModelChange}
 							initialOpen={toolsMenuInitialOpen}
-							{forceWebSearch}
-							onForceWebSearchChange={setForceWebSearch}
 							{atlasAvailability}
 							atlasProfile={selectedAtlasProfile}
 							onAtlasProfileChange={setAtlasProfile}

@@ -110,6 +110,9 @@ export function thinkingTooltip(on: boolean): ComposerTooltip {
 // One menu holds everything the composer can do, in the order the board
 // draws it: the actions this message can take, then the switches, then the
 // two settings that are about the conversation rather than the message. The
+// switches are the ones that are genuinely off until you flip them —
+// Thinking and Incognito. Web search is not one of them and no longer has a
+// row here; see `buildComposerMenuRows`. The
 // row list is built here so the markup and the keyboard navigation are driven
 // by the same array — a menu whose arrow keys walk a different list than the
 // one on screen is the classic way this breaks.
@@ -124,7 +127,7 @@ export type ComposerMenuRowKind =
 	| "action"
 	/** Opens a picker of its own (Skills, Atlas report, Model, Style). */
 	| "nav"
-	/** Flips in place; the menu stays open (Web search, Thinking, Incognito). */
+	/** Flips in place; the menu stays open (Thinking, Incognito). */
 	| "switch";
 
 /** The three headings the menu draws, in the order it draws them. */
@@ -180,7 +183,12 @@ export function buildComposerMenuRows(
 		});
 	}
 
-	rows.push({ id: "web-search", kind: "switch", section: "switches" });
+	// No web-search switch. It was the row people read as "the web is off
+	// unless I turn it on", which is not what it did: grounding happens on
+	// its own, and this only forced it. The force is still reachable — the
+	// `/web` command sets it, and the chip above the composer shows and
+	// clears it — so the capability survives without a switch that
+	// misdescribed the default.
 	if (input.thinkingAvailable) {
 		rows.push({ id: "thinking", kind: "switch", section: "switches" });
 	}

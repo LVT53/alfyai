@@ -171,7 +171,10 @@ test.describe("Composer Direction B — desktop", () => {
 
 		// Incognito lives here and nowhere else now.
 		await expect(page.getByTestId("incognito-toggle")).toBeVisible();
-		await expect(page.getByTestId("composer-menu-web-search")).toBeVisible();
+		// And Web search lives nowhere in here at all: the owner read the
+		// switch as claiming the web was off until you flipped it. `/web`
+		// still forces a search, and the chip above the composer shows it.
+		await expect(page.getByTestId("composer-menu-web-search")).toHaveCount(0);
 
 		// Roving focus: the first row holds it, ArrowDown moves it on, and
 		// the row that has it is the only one with tabindex 0.
@@ -187,16 +190,18 @@ test.describe("Composer Direction B — desktop", () => {
 		await expect(menu).toBeHidden();
 	});
 
+	// Was written against the Web search row. Incognito is the switch every
+	// deployment draws, so it is the one that can stand for the rule.
 	test("a switch row flips in place and the menu stays open", async ({
 		page,
 	}) => {
 		await page.getByTestId("composer-tools-trigger").click();
-		const webSearch = page.getByTestId("composer-menu-web-search");
-		await expect(webSearch).toHaveAttribute("aria-checked", "false");
+		const incognito = page.getByTestId("incognito-toggle");
+		await expect(incognito).toHaveAttribute("aria-checked", "false");
 
-		await webSearch.click();
+		await incognito.click();
 
-		await expect(webSearch).toHaveAttribute("aria-checked", "true");
+		await expect(incognito).toHaveAttribute("aria-checked", "true");
 		await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
 	});
 

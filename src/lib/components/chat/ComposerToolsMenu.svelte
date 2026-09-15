@@ -9,8 +9,14 @@
 // order it is reached for:
 //
 //   THIS MESSAGE   Attach file · Skills · Atlas report
-//   (switches)     Web search · Thinking · Incognito
+//   (switches)     Thinking · Incognito
 //   (conversation) Model · Style
+//
+// Web search used to be a fourth switch and is not one any more: the owner's
+// word for it was "confusing", and the confusion was structural — a switch
+// implies the thing is off, while the model grounds itself whenever a
+// question needs it. Forcing a search is still one `/web` away, and the chip
+// above the composer is where you see and cancel it.
 //
 // Accounts are not among them. The plug on the bar opens the per-account
 // popover, so the accounts section in here was a second copy of the same
@@ -30,7 +36,6 @@ import { onMount, tick } from "svelte";
 import {
 	Brain,
 	ChevronRight,
-	Globe,
 	Orbit,
 	Paperclip,
 	Sparkles,
@@ -89,8 +94,6 @@ let {
 	onPersonalityChange = undefined,
 	onModelChange = undefined,
 	initialOpen = null,
-	forceWebSearch = false,
-	onForceWebSearchChange = undefined,
 	atlasAvailability = null,
 	atlasProfile = null,
 	onAtlasProfileChange = undefined,
@@ -123,8 +126,6 @@ let {
 	onPersonalityChange?: ((id: string | null) => void) | undefined;
 	onModelChange?: ((modelId: ModelId) => void) | undefined;
 	initialOpen?: "model" | "style" | null;
-	forceWebSearch?: boolean;
-	onForceWebSearchChange?: ((enabled: boolean) => void) | undefined;
 	atlasAvailability?: AtlasAvailability | null;
 	atlasProfile?: AtlasProfile | null;
 	onAtlasProfileChange?: ((profile: AtlasProfile) => void) | undefined;
@@ -318,12 +319,6 @@ function selectModel(payload: { modelId: ModelId }) {
 function handleAttach() {
 	onAttach?.();
 	onClose?.();
-}
-
-// The board's rule for the switch rows: they flip in place and the menu stays
-// open, so turning Thinking on and then Incognito is one visit.
-function toggleWebSearch() {
-	onForceWebSearchChange?.(!forceWebSearch);
 }
 
 function atlasProfileLabel(profile: AtlasProfile): string {
@@ -668,23 +663,6 @@ onMount(() => {
 					<p id="atlas-unavailable-reason" class="menu-row__hint">{atlasUnavailableReason}</p>
 				{/if}
 			</div>
-
-		{:else if row.id === 'web-search'}
-			<button
-				type="button"
-				class="menu-row"
-				role="menuitemcheckbox"
-				aria-checked={forceWebSearch}
-				tabindex={focusedIndex === index ? 0 : -1}
-				use:registerRow={row.id}
-				data-testid="composer-menu-web-search"
-				onfocus={() => (focusedIndex = index)}
-				onclick={toggleWebSearch}
-			>
-				<span class="menu-row__icon" aria-hidden="true"><Globe size={16} strokeWidth={2} /></span>
-				<span class="menu-row__label">{$t('composerTools.webSearch')}</span>
-				{@render switchFace(forceWebSearch)}
-			</button>
 
 		{:else if row.id === 'thinking'}
 			<button

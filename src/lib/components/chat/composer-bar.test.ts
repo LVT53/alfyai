@@ -88,12 +88,37 @@ describe("buildComposerMenuRows", () => {
 			"attach",
 			"skills",
 			"atlas",
-			"web-search",
 			"thinking",
 			"incognito",
 			"model",
 			"style",
 		]);
+	});
+
+	// The owner: the Web search switch was "confusing for end-users" — it
+	// implied the web was off until you flipped it, when grounding happens on
+	// its own. Forcing a search is still reachable (the `/web` command, and
+	// the chip that then appears above the composer), so what left the menu
+	// is the switch, not the capability.
+	it("has no web-search switch, in any configuration", () => {
+		for (const input of [
+			fullMenu,
+			{ ...fullMenu, thinkingAvailable: false },
+			{ ...fullMenu, personalityCount: 0 },
+			{ ...fullMenu, atlasVisible: false, skillsEnabled: false },
+		]) {
+			expect(buildComposerMenuRows(input).map((row) => row.id)).not.toContain(
+				"web-search",
+			);
+		}
+	});
+
+	it("opens the switches section with thinking now that web search is gone", () => {
+		const switches = buildComposerMenuRows(fullMenu).filter(
+			(row) => row.section === "switches",
+		);
+		expect(switches.map((row) => row.id)).toEqual(["thinking", "incognito"]);
+		expect(switches.every((row) => row.kind === "switch")).toBe(true);
 	});
 
 	it("keeps incognito in the menu and nowhere else", () => {
@@ -151,7 +176,7 @@ describe("groupComposerMenuRows", () => {
 		]);
 		expect(groups.map((group) => group.entries[0]?.row.id)).toEqual([
 			"attach",
-			"web-search",
+			"thinking",
 			"model",
 		]);
 	});
