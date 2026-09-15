@@ -26,7 +26,9 @@ export const memoryContextInputSchema = z.object({
 		.string()
 		.min(1)
 		.optional()
-		.describe("A conversation id from a previous project result, for detail."),
+		.describe(
+			"A conversation id this tool returned in a previous project result; never invent one.",
+		),
 	maxMessages: z
 		.number()
 		.int()
@@ -43,12 +45,14 @@ export const memoryContextInputSchema = z.object({
 		.string()
 		.min(1)
 		.optional()
-		.describe("A conversation id from a history result, for detail."),
+		.describe(
+			"A conversation id this tool returned in a history result; never invent one.",
+		),
 	selectedConversationId: z
 		.string()
 		.min(1)
 		.optional()
-		.describe("Same as historyConversationId."),
+		.describe("Alias of historyConversationId; prefer that name."),
 	includeEvidenceCandidates: z
 		.boolean()
 		.optional()
