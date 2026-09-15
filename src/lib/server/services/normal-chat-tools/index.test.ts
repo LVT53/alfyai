@@ -3828,6 +3828,157 @@ describe("createNormalChatTools", () => {
 	});
 });
 
+// Description-pass guards (2026-09). ADR-0055 put every tool's usage rules
+// on its own description, and the owner's report was that "there's already a
+// lot of confusion with tool usage": on an 8B-class local model the clause
+// that actually stops an over- or under-call is the NEGATIVE one — "do not
+// use this for X, use Y" — which several descriptions simply did not have.
+// The rewrite gave all of them one template (purpose · when to call · when
+// NOT to call, naming the tool to use instead · what it returns · cost or
+// prerequisite). These guards keep the negative clause present in BOTH
+// languages and keep the catalogue inside its token budget, because the Qwen
+// chat template renders every description verbatim into the prompt on every
+// single turn.
+describe("tool description hygiene", () => {
+	const ALL_CONNECTION_CAPABILITIES = [
+		"files",
+		"calendar",
+		"email",
+		"photos",
+		"media",
+		"location",
+		"contacts",
+		"repos",
+		"tasks",
+	] as const;
+
+	const NEGATIVE_CASE_MARKER = {
+		en: "Do not use",
+		hu: "Ne használd",
+	} as const;
+
+	// `done` is a turn-control tool with a single, untranslated description
+	// (it is not in TOOL_I18N), so it carries the English marker in both
+	// languages.
+	const LANGUAGE_NEUTRAL_TOOLS = new Set(["done"]);
+
+	// Measured against the served model's vLLM /tokenize endpoint
+	// (Qwen3.8-Flash-Next), these descriptions come out at 4.05-4.69
+	// chars/token in English and 2.94-3.26 in Hungarian. The divisors below
+	// are the dense end of each range, so estimateTokens over-counts slightly
+	// and never lets a description through that really exceeds the budget.
+	const CHARS_PER_TOKEN = { en: 4.0, hu: 2.9 } as const;
+	// Today's binding cases: map_route in Hungarian (~703 estimated tokens,
+	// coverage suffix included) per tool, and 3,927 en / 6,249 hu for the
+	// whole catalogue. The ceilings leave ~5% of headroom — enough for a
+	// clarifying clause, not enough for a description to drift back into a
+	// page of prose.
+	const PER_TOOL_TOKEN_CEILING = 750;
+	const CATALOGUE_TOKEN_CEILING = { en: 4100, hu: 6550 } as const;
+
+	function estimateTokens(text: string, lang: "en" | "hu"): number {
+		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);
+	}
+
+	function buildFullToolCatalogue(
+		language: "en" | "hu",
+	): Array<{ name: string; description: string }> {
+		// map_route needs ORS configured and research_web/fetch_url need the
+		// Parallel key, so the catalogue below is every tool a fully connected
+		// user's turn can see.
+		getConfigMock.mockReturnValueOnce({
+			parallelApiKey: "parallel-key",
+			parallelBaseUrl: "https://api.parallel.ai",
+			orsBaseUrl: "http://127.0.0.1:8080/ors",
+			geocoderBaseUrl: "http://127.0.0.1:2322",
+			model1MaxModelContext: 64_000,
+			model2MaxModelContext: 200_000,
+		} as unknown as ReturnType<typeof getConfig>);
+
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			language,
+			enabledConnectionCapabilities: new Set(ALL_CONNECTION_CAPABILITIES),
+		});
+
+		return Object.entries(
+			tools as unknown as Record<string, { description?: string }>,
+		).map(([name, definition]) => ({
+			name,
+			description: definition.description ?? "",
+		}));
+	}
+
+	it("exposes the whole tool catalogue when everything is configured and connected", () => {
+		expect(
+			buildFullToolCatalogue("en")
+				.map((entry) => entry.name)
+				.sort(),
+		).toEqual(
+			[
+				"calendar",
+				"contacts",
+				"done",
+				"email",
+				"fetch_url",
+				"files",
+				"image_search",
+				"location",
+				"map_route",
+				"media",
+				"memory_context",
+				"photos",
+				"produce_file",
+				"read_generated_file",
+				"repos",
+				"research_web",
+				"run_python",
+				"tasks",
+				"use_skill",
+			].sort(),
+		);
+	});
+
+	it.each([
+		"en",
+		"hu",
+	] as const)("every %s tool description states the case where it must NOT be called", (language) => {
+		for (const { name, description } of buildFullToolCatalogue(language)) {
+			const marker = LANGUAGE_NEUTRAL_TOOLS.has(name)
+				? NEGATIVE_CASE_MARKER.en
+				: NEGATIVE_CASE_MARKER[language];
+
+			expect(description, `${language}:${name}`).toContain(marker);
+		}
+	});
+
+	it.each([
+		"en",
+		"hu",
+	] as const)("no single %s tool description exceeds the per-tool token ceiling", (language) => {
+		for (const { name, description } of buildFullToolCatalogue(language)) {
+			expect(
+				estimateTokens(description, language),
+				`${language}:${name}`,
+			).toBeLessThanOrEqual(PER_TOOL_TOKEN_CEILING);
+		}
+	});
+
+	it.each([
+		"en",
+		"hu",
+	] as const)("the whole %s tool catalogue stays inside its prompt token budget", (language) => {
+		const total = buildFullToolCatalogue(language).reduce(
+			(sum, entry) => sum + estimateTokens(entry.description, language),
+			0,
+		);
+
+		expect(total).toBeLessThanOrEqual(CATALOGUE_TOKEN_CEILING[language]);
+	});
+});
+
 describe("use_skill tool", () => {
 	beforeEach(() => {
 		resolveSkillInstructionsForUseMock.mockReset();
