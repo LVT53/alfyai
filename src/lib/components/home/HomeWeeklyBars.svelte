@@ -14,7 +14,7 @@ import type { HomeWeeklyBucket } from "$lib/client/api/home";
 let {
 	weeks = [],
 	total = 0,
-	max = 14,
+	max = 20,
 }: {
 	weeks?: HomeWeeklyBucket[];
 	total?: number;
@@ -26,8 +26,10 @@ const peak = $derived(
 );
 
 function heightFor(count: number): number {
-	if (count === 0 || peak === 0) return 1;
-	return Math.max(2, Math.round((count / peak) * max));
+	if (count === 0 || peak === 0) return 2;
+	// Linear against the busiest week, with a 4px floor so a one-message
+	// week is still visibly a bar and not the same tick as an empty one.
+	return Math.max(4, Math.round((count / peak) * max));
 }
 </script>
 
@@ -40,9 +42,10 @@ function heightFor(count: number): number {
 			aria-label={$t('home.weeklyBarsLabel')}
 			data-testid="home-weekly-bars"
 		>
-			{#each weeks as week (week.isoWeek)}
+			{#each weeks as week, index (week.isoWeek)}
 				<i
 					class:zero={week.count === 0}
+					class:current={index === weeks.length - 1}
 					style={`height:${heightFor(week.count)}px`}
 					title={$t('home.weeklyBarTooltip', { week: week.isoWeek, count: week.count })}
 					data-testid="home-weekly-bar"
@@ -65,25 +68,45 @@ function heightFor(count: number): number {
 		padding-bottom: 6px;
 	}
 
+	/* Twelve 4px bars on a 4px gap, 20px tall: 92px of ink, which still fits
+	   the greeting line at 390px and is wide enough that a week of 5 and a
+	   week of 20 read as different heights. Past weeks are the accent at
+	   half strength; the current week — the one the count beside it names —
+	   is the accent in full. */
 	.home-spark {
 		display: inline-flex;
 		align-items: flex-end;
-		gap: 3px;
+		gap: 4px;
 		flex-shrink: 0;
 	}
 
 	.home-spark i {
 		display: block;
-		width: 2px;
-		border-radius: 1px;
+		width: 4px;
+		border-radius: 2px;
 		background: var(--accent);
+		opacity: 0.5;
+		transition:
+			height var(--duration-standard) var(--ease-out),
+			opacity var(--duration-standard) var(--ease-out);
 	}
 
-	/* The week you were away. At 2px on a dark ground this tick is the thing
-	   most at risk of vanishing; if it does, this opacity is the fix, not a
-	   second palette. */
+	.home-spark i.current {
+		opacity: 1;
+	}
+
+	.home-spark:hover i:not(:hover) {
+		opacity: 0.32;
+	}
+
+	.home-spark i:hover {
+		opacity: 1;
+	}
+
+	/* A week with no messages is a 2px tick, not a gap: an absent bar would
+	   read as a missing week instead of a quiet one. */
 	.home-spark i.zero {
-		opacity: 0.34;
+		opacity: 0.28;
 	}
 
 	.home-mark-count {
