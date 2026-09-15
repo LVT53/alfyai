@@ -2256,21 +2256,16 @@ async function handleBulkDelete(): Promise<boolean> {
 		border-color: var(--accent);
 	}
 
+	/* The tick is a centred SVG, not a rotated rectangle: a rotated box's
+	   visual centre is not its layout centre, which left the old tick
+	   sitting right of centre inside the box. */
 	.custom-checkbox:checked {
-		background: var(--accent);
+		background-color: var(--accent);
 		border-color: var(--accent);
-	}
-
-	.custom-checkbox:checked::after {
-		content: '';
-		position: absolute;
-		left: 5px;
-		top: 2px;
-		width: 5px;
-		height: 9px;
-		border: solid var(--accent-contrast);
-		border-width: 0 2px 2px 0;
-		transform: rotate(45deg);
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: center;
+		background-size: 12px 12px;
 	}
 
 	.custom-checkbox:focus-visible {

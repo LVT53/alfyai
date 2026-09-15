@@ -663,8 +663,11 @@ $effect(() => {
 </svelte:head>
 
 <div class="knowledge-page flex h-full min-h-0 flex-col overflow-hidden bg-surface-page">
-	<div class="main-content flex flex-1 flex-col overflow-y-auto px-5 py-6 md:px-8">
-		<div class="mx-auto flex w-full max-w-[1040px] flex-col gap-6">
+	<!-- The padding lives on the inner column, not on the scroll container: a
+	     sticky header stops at its scroll container's padding edge, so 24px of
+	     padding here left the Documents header pinned 24px below the top. -->
+	<div class="main-content flex flex-1 flex-col overflow-y-auto">
+		<div class="mx-auto box-content flex w-full max-w-[1040px] flex-col gap-6 px-5 py-6 md:px-8">
 			<div class="px-1">
 				<!-- One page title across the app: 1.75rem serif, not a per-page size. -->
 				<h1 class="page-title font-serif text-text-primary">
