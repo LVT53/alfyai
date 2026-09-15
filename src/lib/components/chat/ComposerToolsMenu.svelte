@@ -18,6 +18,13 @@
 // question needs it. Forcing a search is still one `/web` away, and the chip
 // above the composer is where you see and cancel it.
 //
+// Model and Style are not icon-and-label rows like the ones above them. Each
+// is a single full-width control — "Model" on the left, the current value and
+// a chevron on the right — because the whole row IS the dropdown, and an icon
+// in front of it only made the hit target narrower than the switch rows it
+// sits under. The Model row keeps its "?" beside the control, not inside it:
+// the guide is a different destination from the picker.
+//
 // Accounts are not among them. The plug on the bar opens the per-account
 // popover, so the accounts section in here was a second copy of the same
 // switches — two places showing one state, and the one behind the plus was
@@ -39,7 +46,6 @@ import {
 	Orbit,
 	Paperclip,
 	Sparkles,
-	Type,
 	VenetianMask,
 } from "@lucide/svelte";
 import ModelSelector from "./ModelSelector.svelte";
@@ -702,8 +708,6 @@ onMount(() => {
 
 		{:else if row.id === 'model'}
 			<div class="menu-row-wrap menu-row-wrap--static">
-				<span class="menu-row__icon menu-row__icon--static" aria-hidden="true"><Orbit size={16} strokeWidth={2} /></span>
-				<span class="menu-row__label">{$t('composerTools.model')}</span>
 				<ModelSelector
 					open={activeDropdown === 'model'}
 					onOpenChange={(open) => activeDropdown = open ? 'model' : null}
@@ -712,13 +716,12 @@ onMount(() => {
 					ownsScrim={!isPhone}
 					flyout={!isPhone && anchored}
 					flyoutAnchor={root ?? null}
+					leadingLabel={$t('composerTools.model')}
 				/>
 			</div>
 
 		{:else if row.id === 'style'}
 			<div class="menu-row-wrap menu-row-wrap--static">
-				<span class="menu-row__icon menu-row__icon--static" aria-hidden="true"><Type size={16} strokeWidth={2} /></span>
-				<span class="menu-row__label">{$t('composerTools.style')}</span>
 				<div class="model-selector">
 					<button
 						type="button"
@@ -729,6 +732,7 @@ onMount(() => {
 						aria-haspopup="listbox"
 						aria-expanded={styleOpen}
 					>
+						<span class="model-selector__lead">{$t('composerTools.style')}</span>
 						<span class="model-selector__text">
 							{selectedProfile
 								? getPersonalityProfileDisplayName(selectedProfile, $t)
@@ -920,7 +924,12 @@ onMount(() => {
 			color var(--duration-standard) var(--ease-out);
 	}
 
+	/* Model and Style are one full-width control each, so the row is a flex
+	   line rather than the four-column grid the icon rows use: nothing has to
+	   line up with an icon well that is no longer there. */
 	.menu-row-wrap--static {
+		display: flex;
+		gap: 0.35rem;
 		cursor: default;
 	}
 
@@ -1048,25 +1057,73 @@ onMount(() => {
 		transform: translateX(20px);
 	}
 
-	/* ── The two static rows (Model, Style) keep their own trigger ── */
+	/* ── The two static rows (Model, Style) are their own trigger ──
+	   The control spans the row, so its hover target and its border are the
+	   same width as the switch rows above it. `:global` because the Model
+	   row's trigger belongs to ModelSelector; the Style row's is local, and
+	   the same rules catch both. */
 	.menu-row-wrap--static :global(.model-selector) {
-		grid-column: 3 / span 2;
-		justify-self: end;
+		position: relative;
+		display: flex;
+		flex: 1 1 auto;
 		min-width: 0;
+	}
+
+	.menu-row-wrap--static :global(.model-selector__controls) {
+		display: flex;
+		flex: 1 1 auto;
+		gap: 0.35rem;
+		min-width: 0;
+	}
+
+	/* ModelSelector is drawn for the settings page's density (36px, --text-sm)
+	   and Style is drawn for the menu's (30px, --text-2xs). Side by side as
+	   two full-width rows the difference is the first thing you see, so the
+	   menu states its own density for both. */
+	.menu-row-wrap--static :global(.model-selector__trigger) {
+		flex: 1 1 auto;
+		min-width: 0;
+		min-height: 30px;
+		padding: 0.3rem 0.48rem;
+		border-radius: 0.5rem;
+		border-color: color-mix(in srgb, var(--border-default) 78%, transparent 22%);
+		font-size: var(--text-2xs);
+		transition: all var(--duration-standard) var(--ease-out);
+	}
+
+	.menu-row-wrap--static :global(.model-selector__trigger:hover:not(:disabled)) {
+		background: color-mix(in srgb, var(--accent) 18%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
+	}
+
+	.menu-row-wrap--static :global(.model-selector__guide-trigger) {
+		height: auto;
+		min-height: 30px;
+		width: 28px;
+		min-width: 28px;
+		border-radius: 0.5rem;
+		border-color: color-mix(in srgb, var(--border-default) 78%, transparent 22%);
+		transition: all var(--duration-standard) var(--ease-out);
+	}
+
+	.menu-row-wrap--static :global(.model-selector__guide-trigger:hover:not(:disabled)) {
+		background: color-mix(in srgb, var(--accent) 18%, transparent);
+		border-color: color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
+	}
+
+	.tools-menu--sheet .menu-row-wrap--static :global(.model-selector__trigger),
+	.tools-menu--sheet .menu-row-wrap--static :global(.model-selector__guide-trigger) {
+		min-height: 34px;
 	}
 
 	.menu-row-wrap--static :global(.model-selector__text) {
 		max-width: 8rem;
 	}
 
-	.menu-row__icon--static {
-		grid-column: 1;
-	}
-
 	.model-selector {
 		position: relative;
 		display: flex;
-		justify-content: flex-end;
+		min-width: 0;
 	}
 
 	.model-selector__trigger {
@@ -1099,11 +1156,24 @@ onMount(() => {
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 34%, transparent 66%);
 	}
 
+	/* The row's name, now the trigger's leading text. `margin-right: auto`
+	   is what makes the row read as one control: the label sits at the left
+	   edge, the current value and its chevron at the right, and the gap
+	   between them belongs to the button. */
+	.model-selector__lead {
+		flex: 0 0 auto;
+		margin-right: auto;
+		padding-right: 0.5rem;
+		white-space: nowrap;
+		color: var(--text-primary);
+	}
+
 	.model-selector__text {
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		max-width: 108px;
+		color: var(--text-secondary);
 	}
 
 	.model-selector__chevron {

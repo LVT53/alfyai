@@ -331,3 +331,89 @@ describe("ComposerToolsMenu web search", () => {
 		expect(checkboxes).toEqual(["thinking-toggle", "incognito-toggle"]);
 	});
 });
+
+// THIS CONVERSATION is two dropdowns, not two labelled rows with a small
+// control parked on the right. Each trigger spans the row — same width as the
+// switch rows above it — and carries its own name as leading text, so there
+// is no part of the row that looks clickable and is not.
+describe("ComposerToolsMenu conversation rows", () => {
+	const withStyles = (overrides: Record<string, unknown> = {}) =>
+		baseProps({
+			triggerElement: stubTrigger(),
+			personalityProfiles: [
+				{ id: "p1", name: "Concise", description: "Short answers" },
+			],
+			onPersonalityChange: vi.fn(),
+			...overrides,
+		});
+
+	it("draws no icon on either row", async () => {
+		stubPhone(false);
+		render(ComposerToolsMenu, withStyles());
+		await waitFor(() =>
+			expect(screen.getByTestId("model-selector-trigger")).toBeTruthy(),
+		);
+
+		const staticRows = document.querySelectorAll(".menu-row-wrap--static");
+		expect(staticRows).toHaveLength(2);
+		for (const row of staticRows) {
+			expect(row.querySelector(".menu-row__icon")).toBeNull();
+		}
+		// The rule that positioned it went with it.
+		expect(document.querySelector(".menu-row__icon--static")).toBeNull();
+	});
+
+	it("puts each row's name inside its trigger, not beside it", async () => {
+		stubPhone(false);
+		render(ComposerToolsMenu, withStyles());
+		await waitFor(() =>
+			expect(screen.getByTestId("model-selector-trigger")).toBeTruthy(),
+		);
+
+		expect(
+			screen
+				.getByTestId("model-selector-trigger")
+				.querySelector(".model-selector__lead")?.textContent,
+		).toBe("Model");
+		expect(
+			screen
+				.getByTestId("composer-menu-style")
+				.querySelector(".model-selector__lead")?.textContent,
+		).toBe("Style");
+
+		// Nothing names the row from outside the button any more.
+		for (const row of document.querySelectorAll(".menu-row-wrap--static")) {
+			expect(row.querySelector(":scope > .menu-row__label")).toBeNull();
+		}
+	});
+
+	it("keeps the model guide beside the trigger rather than inside it", async () => {
+		stubPhone(false);
+		render(ComposerToolsMenu, withStyles());
+		await waitFor(() =>
+			expect(screen.getByTestId("model-selector-trigger")).toBeTruthy(),
+		);
+
+		const guide = document.querySelector(".model-selector__guide-trigger");
+		expect(guide).not.toBeNull();
+		expect(screen.getByTestId("model-selector-trigger").contains(guide)).toBe(
+			false,
+		);
+	});
+
+	// The flyout is positioned from the menu panel, and both rows still
+	// register with the keyboard walk — neither survives a re-layout for free.
+	it("keeps both rows in the menu's keyboard walk", async () => {
+		stubPhone(false);
+		render(ComposerToolsMenu, withStyles());
+		await waitFor(() =>
+			expect(screen.getByTestId("model-selector-trigger")).toBeTruthy(),
+		);
+
+		const menu = screen.getByTestId("composer-tools-menu");
+		expect(menu.contains(screen.getByTestId("model-selector-trigger"))).toBe(
+			true,
+		);
+		expect(menu.contains(screen.getByTestId("composer-menu-style"))).toBe(true);
+	});
+});

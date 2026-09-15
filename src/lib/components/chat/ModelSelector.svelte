@@ -69,6 +69,14 @@ let {
 	// the ordinary dropdown.
 	flyout = false,
 	flyoutAnchor = null,
+	// The trigger's leading text, when the caller wants the control to name
+	// itself rather than sit behind a separate label.
+	//
+	// The composer's "+" menu passes "Model": there the trigger IS the row,
+	// full width, so the row's name has to live inside the button — a label
+	// outside it would be a piece of the row that does not open the picker.
+	// Left null everywhere else, where the trigger shows only the value.
+	leadingLabel = null,
 }: {
 	onSelect?: (payload: { modelId: ModelId }) => void;
 	open?: boolean | undefined;
@@ -77,6 +85,7 @@ let {
 	ownsScrim?: boolean;
 	flyout?: boolean;
 	flyoutAnchor?: HTMLElement | null;
+	leadingLabel?: string | null;
 } = $props();
 
 let providers: ModelProvider[] = $state([]);
@@ -518,6 +527,9 @@ function autoExpandProviders() {
 			disabled={isLoading}
 			data-testid="model-selector-trigger"
 		>
+			{#if leadingLabel}
+				<span class="model-selector__lead">{leadingLabel}</span>
+			{/if}
 			{#if isLoading}
 				<span class="model-selector__text">{$t('modelSelector.loading')}</span>
 			{:else if activeProvider}
@@ -776,6 +788,16 @@ function autoExpandProviders() {
 	.model-selector__guide-trigger:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	/* Pushes the value and its chevron to the trigger's far edge, so a
+	   full-width trigger reads as "Model ............ Flash-Next ⌄". */
+	.model-selector__lead {
+		flex: 0 0 auto;
+		margin-right: auto;
+		padding-right: 0.5rem;
+		white-space: nowrap;
+		color: var(--text-primary);
 	}
 
 	.model-selector__text {
