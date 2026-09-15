@@ -218,16 +218,23 @@ describe("MessageInput", () => {
 		).toHaveTextContent("Read https://example.com/report and www.example.org");
 	});
 
-	it("sends one-turn Web search from the composer tools toggle", async () => {
+	// Was "from the composer tools toggle", which the "+" menu no longer has.
+	// The chip is the part that survived the switch's removal, so it is the
+	// part this now exercises: `/web` raises it, and it is what carries the
+	// force onto the message.
+	it("sends one-turn Web search from the chip the /web command raises", async () => {
 		const sendSpy = vi.fn();
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
 			onSend: sendSpy,
 		});
 
-		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
-		await fireEvent.click(
-			getByRole("menuitemcheckbox", { name: "Web search" }),
-		);
+		const commandInput = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		await fireEvent.input(commandInput, { target: { value: "/web" } });
+		await fireEvent.keyDown(commandInput, { key: "Enter", shiftKey: false });
+
 		expect(
 			getByRole("button", { name: "Remove Web search" }),
 		).toBeInTheDocument();
@@ -764,16 +771,15 @@ describe("MessageInput", () => {
 	it("clears the Web search force flag after sending", async () => {
 		const sendSpy = vi.fn();
 		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+			composerCommandRegistryEnabled: true,
 			onSend: sendSpy,
 		});
 		const input = getByPlaceholderText(
 			"Type a message...",
 		) as HTMLTextAreaElement;
 
-		await fireEvent.click(getByRole("button", { name: "Open composer tools" }));
-		await fireEvent.click(
-			getByRole("menuitemcheckbox", { name: "Web search" }),
-		);
+		await fireEvent.input(input, { target: { value: "/web" } });
+		await fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
 		await fireEvent.input(input, {
 			target: { value: "Find current release notes" },
 		});
@@ -3502,20 +3508,36 @@ describe("MessageInput composer menu", () => {
 		});
 	});
 
+	// Was written against the Web search row, which the menu no longer has.
+	// Incognito is the switch every deployment shows, so it is the one that
+	// can stand for the rule.
 	it("flips a switch row in place and stays open", async () => {
 		const { getByTestId, queryByTestId } = render(MessageInput);
 		await openComposerMenu(getByTestId);
 
-		const webSearch = getByTestId("composer-menu-web-search");
-		expect(webSearch).toHaveAttribute("aria-checked", "false");
+		const incognito = getByTestId("incognito-toggle");
+		expect(incognito).toHaveAttribute("aria-checked", "false");
 
-		await fireEvent.click(webSearch);
+		await fireEvent.click(incognito);
 
 		expect(queryByTestId("composer-tools-menu")).not.toBeNull();
-		expect(getByTestId("composer-menu-web-search")).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
+		await waitFor(() => {
+			expect(getByTestId("incognito-toggle")).toHaveAttribute(
+				"aria-checked",
+				"true",
+			);
+		});
+	});
+
+	// The switch is gone; the capability is not — "/web selects a one-turn Web
+	// search" above still passes, and the chip it raises is still how you see
+	// and cancel the force.
+	it("no longer offers a Web search switch", async () => {
+		const { getByTestId, queryByTestId, queryByRole } = render(MessageInput);
+		await openComposerMenu(getByTestId);
+
+		expect(queryByTestId("composer-menu-web-search")).toBeNull();
+		expect(queryByRole("menuitemcheckbox", { name: "Web search" })).toBeNull();
 	});
 
 	it("says how many skills are active once the menu has asked", async () => {

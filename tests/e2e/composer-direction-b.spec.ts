@@ -171,7 +171,10 @@ test.describe("Composer Direction B — desktop", () => {
 
 		// Incognito lives here and nowhere else now.
 		await expect(page.getByTestId("incognito-toggle")).toBeVisible();
-		await expect(page.getByTestId("composer-menu-web-search")).toBeVisible();
+		// And Web search lives nowhere in here at all: the owner read the
+		// switch as claiming the web was off until you flipped it. `/web`
+		// still forces a search, and the chip above the composer shows it.
+		await expect(page.getByTestId("composer-menu-web-search")).toHaveCount(0);
 
 		// Roving focus: the first row holds it, ArrowDown moves it on, and
 		// the row that has it is the only one with tabindex 0.
@@ -187,16 +190,18 @@ test.describe("Composer Direction B — desktop", () => {
 		await expect(menu).toBeHidden();
 	});
 
+	// Was written against the Web search row. Incognito is the switch every
+	// deployment draws, so it is the one that can stand for the rule.
 	test("a switch row flips in place and the menu stays open", async ({
 		page,
 	}) => {
 		await page.getByTestId("composer-tools-trigger").click();
-		const webSearch = page.getByTestId("composer-menu-web-search");
-		await expect(webSearch).toHaveAttribute("aria-checked", "false");
+		const incognito = page.getByTestId("incognito-toggle");
+		await expect(incognito).toHaveAttribute("aria-checked", "false");
 
-		await webSearch.click();
+		await incognito.click();
 
-		await expect(webSearch).toHaveAttribute("aria-checked", "true");
+		await expect(incognito).toHaveAttribute("aria-checked", "true");
 		await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
 	});
 
@@ -287,6 +292,84 @@ test.describe("Composer Direction B — a short window with the composer at the 
 		const lastRow = page.getByTestId("composer-menu-style");
 		await lastRow.scrollIntoViewIfNeeded();
 		await expect(lastRow).toBeVisible();
+	});
+
+	// THIS CONVERSATION is two dropdowns, not two labelled rows with a small
+	// control parked on the right. Each trigger spans its row — so the thing
+	// you can click is as wide as the switch rows above it — and the icon
+	// that used to narrow it is gone. The Model row's "?" is the one thing
+	// still beside the trigger: the guide is a different destination from the
+	// picker, and putting it inside the button would make one target of two.
+	test("Model and Style are full-width pickers with no icon", async ({
+		page,
+	}) => {
+		await openMenuAtBottom(page, CONVERSATION_ID);
+
+		const switchBox = await page.getByTestId("incognito-toggle").boundingBox();
+		const modelRow = page.locator(".menu-row-wrap--static").first();
+		const modelRowBox = await modelRow.boundingBox();
+		const modelTriggerBox = await page
+			.getByTestId("model-selector-trigger")
+			.boundingBox();
+		if (!switchBox || !modelRowBox || !modelTriggerBox) {
+			throw new Error("boxes not measurable");
+		}
+
+		// The row itself is a full menu row, like every switch above it.
+		expect(Math.abs(modelRowBox.width - switchBox.width)).toBeLessThanOrEqual(
+			1,
+		);
+
+		// And the trigger is the row, less only the "?" beside it. Measured as
+		// edges rather than a width minus a guessed allowance: the row's own
+		// padding and the gap before the "?" are layout details this test has
+		// no business restating.
+		const guideBox = await page
+			.locator(".model-selector__guide-trigger")
+			.first()
+			.boundingBox();
+		if (!guideBox) throw new Error("the model guide button is not drawn");
+		// Starts at the row's leading edge...
+		expect(modelTriggerBox.x - modelRowBox.x).toBeLessThanOrEqual(12);
+		// ...runs up to the "?"...
+		expect(
+			guideBox.x - (modelTriggerBox.x + modelTriggerBox.width),
+		).toBeLessThanOrEqual(12);
+		// ...and the "?" ends at the row's trailing edge.
+		expect(
+			modelRowBox.x + modelRowBox.width - (guideBox.x + guideBox.width),
+		).toBeLessThanOrEqual(12);
+
+		expect(
+			page.getByTestId("model-selector-trigger").locator(".menu-row__icon"),
+		).toHaveCount(0);
+
+		// "Model" is the trigger's leading text, not a label outside it.
+		await expect(
+			page
+				.getByTestId("model-selector-trigger")
+				.locator(".model-selector__lead"),
+		).toHaveText("Model");
+
+		// Style has no help button, so its trigger spans the row edge to edge.
+		const style = page.getByTestId("composer-menu-style");
+		if ((await style.count()) === 0) return;
+		const styleRowBox = await page
+			.locator(".menu-row-wrap--static")
+			.nth(1)
+			.boundingBox();
+		const styleBox = await style.boundingBox();
+		if (!styleBox || !styleRowBox) throw new Error("boxes not measurable");
+		expect(styleBox.x - styleRowBox.x).toBeLessThanOrEqual(12);
+		expect(
+			styleRowBox.x + styleRowBox.width - (styleBox.x + styleBox.width),
+		).toBeLessThanOrEqual(12);
+		// And the row it fills is a full menu row, like the switches above.
+		expect(Math.abs(styleRowBox.width - switchBox.width)).toBeLessThanOrEqual(
+			1,
+		);
+		await expect(style.locator(".model-selector__lead")).toHaveText("Style");
+		await expect(style.locator(".menu-row__icon")).toHaveCount(0);
 	});
 
 	// The defect: the model list opened upward from the Model row, over the
