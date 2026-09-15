@@ -42,6 +42,7 @@
 import { onMount, tick } from "svelte";
 import {
 	Brain,
+	ChevronDown,
 	ChevronRight,
 	Orbit,
 	Paperclip,
@@ -739,7 +740,7 @@ onMount(() => {
 								: $t('composerTools.defaultStyle')}
 						</span>
 						<span class="model-selector__chevron" aria-hidden="true">
-							<ChevronRight size={15} strokeWidth={2} />
+							<ChevronDown size={15} strokeWidth={2} />
 						</span>
 					</button>
 					{#if styleOpen}
