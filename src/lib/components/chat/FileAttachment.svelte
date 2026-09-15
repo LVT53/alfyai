@@ -3,6 +3,19 @@
 import { X } from "@lucide/svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import { t } from "$lib/i18n";
+// Chips redesign — `getFileType` moved into its own pure module so the
+// decision is unit-testable and so the composer's chip, the bubble's chip
+// and this card cannot disagree about a file. That is also where the
+// `.docx` -> code-glyph bug was fixed: the old order tested
+// `mime.includes("xml")`, which every OOXML mime satisfies, before it tested
+// for a document.
+import { getFileType } from "./attachment-file-type";
+import ComposerChip from "./ComposerChip.svelte";
+import {
+	attachmentChipKind,
+	attachmentChipMeta,
+	attachmentThumbnailUrl,
+} from "./composer-chip-presentation";
 
 interface FileAttachmentData {
 	id: string;
@@ -25,12 +38,31 @@ let {
 }: {
 	attachment: T & FileAttachmentData;
 	removable?: boolean;
-	variant?: "compact" | "pending";
+	// Chips redesign (owner-approved boards, 2026-09-15) — "chip" is the new
+	// default shape inside a message: the SAME 22px pill the composer drew a
+	// second earlier, minus its ×, because a sent attachment is a record of
+	// what happened rather than a promise about the next turn. It delegates
+	// to ComposerChip so there is exactly one chip implementation in the
+	// product. "compact" / "pending" keep the old two-line card for any
+	// surface that still wants the full per-turn cost line.
+	variant?: "compact" | "pending" | "chip";
 	compact?: boolean;
 	viewable?: boolean;
 	onRemove?: (payload: { id: string }) => void;
 	onView?: (attachment: T & FileAttachmentData) => void;
 } = $props();
+
+let chipMeta = $derived.by(() => {
+	const meta = attachmentChipMeta(attachment);
+	if (!meta) return null;
+	if (meta.key === "composerChips.fileMeta") {
+		return $t(meta.key, { pages: meta.pages, tokens: meta.tokens });
+	}
+	if (meta.key === "composerChips.filePages") {
+		return $t(meta.key, { pages: meta.pages });
+	}
+	return $t(meta.key, { tokens: meta.tokens });
+});
 
 function formatTokenCount(value: number): string {
 	if (value >= 1_000_000) return `${Math.round(value / 1_000_000)}M`;
@@ -57,98 +89,6 @@ let costLine = $derived.by(() => {
 	};
 });
 
-function getFileType(mimeType: string | null, filename: string): string {
-	const mime = (mimeType ?? "").toLowerCase().trim();
-	const ext = (filename.split(".").pop() ?? "").toLowerCase();
-
-	// Image
-	if (
-		mime.startsWith("image/") ||
-		[
-			"png",
-			"jpg",
-			"jpeg",
-			"jfif",
-			"gif",
-			"bmp",
-			"tiff",
-			"tif",
-			"svg",
-			"webp",
-			"heic",
-			"heif",
-			"avif",
-		].includes(ext)
-	) {
-		return "image";
-	}
-	// PDF
-	if (mime === "application/pdf" || ext === "pdf") {
-		return "pdf";
-	}
-	// Spreadsheet
-	if (
-		mime.includes("spreadsheet") ||
-		mime.includes("excel") ||
-		mime.includes("csv") ||
-		["csv", "xls", "xlsx", "ods"].includes(ext)
-	) {
-		return "xlsx";
-	}
-	// Presentation
-	if (mime.includes("presentation") || ["ppt", "pptx", "odp"].includes(ext)) {
-		return "pptx";
-	}
-	// Code
-	if (
-		mime.includes("code") ||
-		mime.includes("javascript") ||
-		mime.includes("typescript") ||
-		mime.includes("json") ||
-		mime.includes("xml") ||
-		mime.includes("html") ||
-		mime.includes("css") ||
-		[
-			"js",
-			"ts",
-			"tsx",
-			"jsx",
-			"json",
-			"xml",
-			"html",
-			"htm",
-			"css",
-			"py",
-			"java",
-			"go",
-			"rs",
-			"sh",
-			"rb",
-		].includes(ext)
-	) {
-		return "code";
-	}
-	// Archive
-	if (
-		mime.includes("zip") ||
-		mime.includes("compressed") ||
-		mime.includes("archive") ||
-		["zip", "rar", "7z", "tar", "gz"].includes(ext)
-	) {
-		return "archive";
-	}
-	// Text/Document
-	if (
-		mime.includes("text/") ||
-		["txt", "md", "rtf", "log", "odt", "doc", "docx"].includes(ext) ||
-		mime.includes("document") ||
-		mime.includes("word")
-	) {
-		return "text";
-	}
-	return "unsupported";
-}
-
 function handleRemove() {
 	onRemove?.({ id: attachment.id });
 }
@@ -167,6 +107,21 @@ function handleKeydown(event: KeyboardEvent) {
 }
 </script>
 
+{#if variant === 'chip'}
+	<ComposerChip
+		kind={attachmentChipKind(attachment)}
+		label={attachment.name}
+		meta={chipMeta}
+		thumbnailUrl={attachmentThumbnailUrl(attachment)}
+		size="message"
+		removable={removable}
+		removeLabel={`Remove ${attachment.name}`}
+		onRemove={removable && onRemove ? handleRemove : undefined}
+		onActivate={viewable && onView ? handleClick : undefined}
+		activateLabel={$t('composerChips.openAttachment', { name: attachment.name })}
+		testId="message-attachment-chip"
+	/>
+{:else}
 <div
 	class="file-attachment"
 	class:compact={variant === 'compact'}
@@ -201,6 +156,7 @@ function handleKeydown(event: KeyboardEvent) {
 		</button>
 	{/if}
 </div>
+{/if}
 
 <style lang="postcss">
 	.file-attachment {

@@ -1149,8 +1149,11 @@ describe("MessageBubble", () => {
 			onOpenDocument,
 		});
 
+		// Chips redesign: the user bubble's attachment is the same 22px pill
+		// the composer drew, minus its ×. It stays clickable and still opens
+		// the document workspace.
 		await fireEvent.click(
-			screen.getByRole("button", { name: "View brief.docx" }),
+			screen.getByRole("button", { name: "Open brief.docx" }),
 		);
 
 		expect(onOpenDocument).toHaveBeenCalledWith({

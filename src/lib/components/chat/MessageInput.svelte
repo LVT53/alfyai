@@ -3,6 +3,7 @@ import { onMount } from "svelte";
 import {
 	Bell,
 	Brain,
+	Clock,
 	Paperclip,
 	Plug,
 	Plus,
@@ -85,7 +86,14 @@ import {
 	type ComposerTooltip,
 	thinkingTooltip,
 } from "./composer-bar";
-import FileAttachment from "./FileAttachment.svelte";
+import ComposerChip from "./ComposerChip.svelte";
+import ComposerChipRow from "./ComposerChipRow.svelte";
+import {
+	attachmentChipKind,
+	attachmentChipMeta,
+	attachmentThumbnailUrl,
+	quoteChipLabel,
+} from "./composer-chip-presentation";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
 import LinkedSourceManager from "./LinkedSourceManager.svelte";
 import {
@@ -320,6 +328,13 @@ let message = $state("");
 let pendingAttachments = $state<PendingAttachment[]>([]);
 let selectedLinkedSources = $state<LinkedContextSource[]>([]);
 let pendingSkill = $state<PendingSkillSelection | null>(null);
+// Chips redesign — a section picked from a document's outline, held as a
+// chip instead of pasted into the textarea. Composer-local and ephemeral
+// (see `expandQuotesIntoMessage`), the same way the command tray's own
+// transient state is: they are expanded into the message on send and
+// cleared with every other per-turn selection.
+let pendingQuotes = $state<{ id: string; text: string; label: string }[]>([]);
+let quoteIdSeed = 0;
 let uploadState = $state<"idle" | "uploading" | "preparing">("idle");
 let attachmentError = $state("");
 let documentPickerOpen = $state(false);
@@ -524,6 +539,28 @@ let activeCommandAnnouncement = $derived(
 let composerTextSegments = $derived(tokenizeTextLinks(message));
 let selectedAtlasProfileLabel = $derived(
 	selectedAtlasProfile ? atlasProfileLabel(selectedAtlasProfile) : "",
+);
+// Chips redesign — the Atlas profile moves OUT of the label and into the
+// muted meta clause ("Atlas · In-Depth · ~10-20 min"), so the pill reads as
+// one kind with a setting rather than three different chips.
+let atlasChipMeta = $derived(
+	selectedAtlasProfile
+		? $t("composerChips.atlasMeta", {
+				profile: selectedAtlasProfileLabel,
+				time: $t(atlasProfileTimeKey(selectedAtlasProfile)),
+			})
+		: null,
+);
+// Does the composer have anything to say about the next turn? Drives the
+// single chip row's existence; the over-length counter can bring the row
+// back on its own, since it now lives inside it.
+let hasComposerChips = $derived(
+	(composerCommandRegistryEnabled && Boolean(pendingSkill)) ||
+		(forceWebSearch && !selectedAtlasProfile) ||
+		Boolean(selectedAtlasProfile) ||
+		pendingAttachments.length > 0 ||
+		pendingQuotes.length > 0 ||
+		(composerCommandRegistryEnabled && effectiveLinkedSources.length > 0),
 );
 // One-time "Press / to start typing" coach hint (ADR-0043 Slice 10, Fix C).
 // Persists dismissal across sessions via localStorage; SSR-guarded.
@@ -1009,6 +1046,7 @@ $effect(() => {
 		pendingAttachments = [];
 		selectedLinkedSources = [];
 		pendingSkill = null;
+		pendingQuotes = [];
 		attachmentError = "";
 		uploadState = "idle";
 		queuedSendAfterProcessing = false;
@@ -1040,25 +1078,47 @@ function adjustHeight() {
 	});
 }
 
-// "Long-document comfort" (owner-approved mockup, 2026-09-06): splices a
-// quoted outline section into the composer at the cursor, mirroring the
-// existing command-token insertion pattern above (message slice + bump
-// draftEmissionVersion + adjustHeight + refocus on the next frame).
+// Chips redesign (owner-approved boards, 2026-09-15): picking a section
+// from a document's outline no longer pastes ~90 characters of the
+// document's prose into the middle of the sentence the user is writing. It
+// becomes its own chip, so the words in the textarea stay theirs.
+//
+// The quote itself is not thrown away: `expandQuotesIntoMessage` below
+// splices every pending quote back in at send time, in pick order, exactly
+// the text the old paste produced — so what reaches the model is unchanged.
 function insertQuoteAtCursor(quote: string) {
-	const cursor = textarea?.selectionStart ?? message.length;
-	const before = message.slice(0, cursor);
-	const after = message.slice(cursor);
-	const needsLeadingBreak = before.length > 0 && !before.endsWith("\n");
-	const insertion = `${needsLeadingBreak ? "\n\n" : ""}${quote}`;
-	message = before + insertion + after;
-	const nextCursor = before.length + insertion.length;
+	const text = quote.trim();
+	if (!text) return;
+	// Picking the same section twice is a no-op rather than two identical
+	// pills, which the old paste could not avoid.
+	if (pendingQuotes.some((entry) => entry.text === text)) return;
+	quoteIdSeed += 1;
+	pendingQuotes = [
+		...pendingQuotes,
+		{ id: `quote-${quoteIdSeed}`, text, label: quoteChipLabel(text) },
+	];
 	draftEmissionVersion += 1;
 	void emitDraftChange();
-	adjustHeight();
-	requestAnimationFrame(() => {
-		textarea?.focus();
-		textarea?.setSelectionRange(nextCursor, nextCursor);
-	});
+	requestAnimationFrame(() => textarea?.focus());
+}
+
+function removePendingQuote(id: string) {
+	pendingQuotes = pendingQuotes.filter((entry) => entry.id !== id);
+	draftEmissionVersion += 1;
+	void emitDraftChange();
+}
+
+/**
+ * The message as the model sees it: every quote chip expanded above the
+ * typed text, separated the way the old cursor-splice separated them. With
+ * no quote chips this returns the typed text untouched, so the ordinary
+ * send path is byte-identical to before.
+ */
+function expandQuotesIntoMessage(text: string): string {
+	if (pendingQuotes.length === 0) return text;
+	const quoted = pendingQuotes.map((entry) => entry.text).join("\n\n");
+	const typed = text.trim();
+	return typed ? `${quoted}\n\n${typed}` : quoted;
 }
 
 function syncTextareaValue(nextValue: string, emitWhenUnchanged = false) {
@@ -1230,7 +1290,10 @@ function getInteractiveCommandRows(): CommandTrayRow[] {
 
 function canSubmitMessageText(text: string): boolean {
 	return (
-		text.trim().length > 0 &&
+		// A turn made only of quote chips is a real turn: the chips expand
+		// into the message on send, so "nothing typed" is not "nothing to
+		// send" any more.
+		(text.trim().length > 0 || pendingQuotes.length > 0) &&
 		text.length <= maxLength &&
 		!isUploadingAttachment &&
 		!hasUnreadyAttachment
@@ -1239,7 +1302,11 @@ function canSubmitMessageText(text: string): boolean {
 
 function buildSendPayload(nextMessage = message): SendPayload {
 	return {
-		message: nextMessage.trim(),
+		// Chips redesign — quote chips expand back into the message here,
+		// at the last moment before it leaves the composer, so everything
+		// downstream (the send gate, the page, the server) keeps seeing one
+		// plain string exactly as the old cursor-paste produced.
+		message: expandQuotesIntoMessage(nextMessage).trim(),
 		attachmentIds: pendingAttachments.map(
 			(attachment) => attachment.artifact.id,
 		),
@@ -1277,6 +1344,7 @@ function clearComposerAfterSubmit() {
 	pendingAttachments = [];
 	selectedLinkedSources = [];
 	pendingSkill = null;
+	pendingQuotes = [];
 	attachmentError = "";
 	queuedSendAfterProcessing = false;
 	showToolsMenu = false;
@@ -1595,6 +1663,31 @@ function atlasProfileLabel(profile: AtlasProfile): string {
 	if (profile === "exhaustive") return $t("composerTools.atlasExhaustive");
 	if (profile === "in-depth") return $t("composerTools.atlasInDepth");
 	return $t("composerTools.atlasOverview");
+}
+
+function atlasProfileTimeKey(profile: AtlasProfile): I18nKey {
+	if (profile === "exhaustive") return "composerTools.atlasExhaustiveTime";
+	if (profile === "in-depth") return "composerTools.atlasInDepthTime";
+	return "composerTools.atlasOverviewTime";
+}
+
+// The muted "24 pp · 18k tok" clause. The numbers and the template key come
+// from the pure presentation helper; only the localization happens here.
+function chipMetaText(artifact: {
+	name: string;
+	mimeType?: string | null;
+	tokenEstimate?: number;
+	pageCount?: number;
+}): string | null {
+	const meta = attachmentChipMeta(artifact);
+	if (!meta) return null;
+	if (meta.key === "composerChips.fileMeta") {
+		return $t(meta.key, { pages: meta.pages, tokens: meta.tokens });
+	}
+	if (meta.key === "composerChips.filePages") {
+		return $t(meta.key, { pages: meta.pages });
+	}
+	return $t(meta.key, { tokens: meta.tokens });
 }
 
 function setAtlasProfile(profile: AtlasProfile) {
@@ -1973,6 +2066,7 @@ function hasClearableComposerState(nextMessage: string): boolean {
 	return (
 		nextMessage.trim().length > 0 ||
 		pendingAttachments.length > 0 ||
+		pendingQuotes.length > 0 ||
 		(composerCommandRegistryEnabled && effectiveLinkedSources.length > 0) ||
 		(composerCommandRegistryEnabled && Boolean(pendingSkill))
 	);
@@ -2638,150 +2732,171 @@ async function emitDraftChange(force = false) {
 			</div>
 		{/if}
 
-	{#if pendingAttachments.length > 0}
-		<ul class="linked-source-chips" aria-label={$t('linkedSources.chipsLabel')}>
-			{#each pendingAttachments as attachment (attachment.artifact.id)}
-				<li>
-					<FileAttachment
-						attachment={attachment.artifact}
-						removable={true}
-						compact={true}
-						onRemove={() => removePendingAttachment(attachment.artifact.id)}
-					/>
-					{#if attachment.artifact.outline && attachment.artifact.outline.length > 0}
-						<AttachmentOutline
-							outline={attachment.artifact.outline}
-							onQuote={insertQuoteAtCursor}
+	<!-- Chips redesign (owner-approved boards, 2026-09-15). Five stacked
+	     lists — one per feature — become ONE wrapping row between the
+	     textarea and the action row. The order is stable and deliberate:
+	     behaviour chips (skill, web, Atlas) lead, material (files, images,
+	     quotes, linked Library documents) follows, so removing one chip
+	     never moves another, and on a phone the expensive, turn-changing
+	     ones are the chips you can always see without scrolling.
+
+	     Each chip carries exactly one control, its ×. The Atlas notify bell,
+	     which used to be a second, identical-looking button INSIDE the chip,
+	     is now a disclosure beside it; so is a document's outline. -->
+	{#if hasComposerChips || isOverMaxLength}
+		<ComposerChipRow
+			label={$t('composerChips.rowLabel')}
+			scrollOnPhone={isPhone}
+		>
+			{#snippet children()}
+				{#if composerCommandRegistryEnabled && pendingSkill}
+					<li class="composer-chip-item">
+						<ComposerChip
+							kind="skill"
+							label={pendingSkill.displayName}
+							status={pendingSkill.unavailable ? $t('pendingSkill.unavailable') : null}
+							removable
+							removeLabel={$t('pendingSkill.removeA11y', { name: pendingSkill.displayName })}
+							onRemove={removePendingSkill}
+							testId="composer-chip-skill"
 						/>
-					{/if}
-				</li>
-			{/each}
-		</ul>
+					</li>
+				{/if}
+
+				<!-- Owner decision (1): with an Atlas profile selected the server
+				     ignores web search entirely, so the composer stops promising
+				     it rather than drawing a chip that means nothing. -->
+				{#if forceWebSearch && !selectedAtlasProfile}
+					<li class="composer-chip-item">
+						<ComposerChip
+							kind="web"
+							label={$t('composerTools.webSearch')}
+							removable
+							removeLabel={$t('composerTools.removeWebSearch')}
+							onRemove={() => setForceWebSearch(false)}
+							testId="composer-chip-web"
+						/>
+					</li>
+				{/if}
+
+				{#if selectedAtlasProfile}
+					<li class="composer-chip-item">
+						<ComposerChip
+							kind="atlas"
+							label={$t('composerTools.atlas')}
+							meta={atlasChipMeta}
+							status={atlasPushStatus !== 'idle' ? atlasPushStatusLabel() : null}
+							removable
+							removeLabel={$t('composerTools.removeAtlas')}
+							onRemove={removeAtlasProfile}
+							testId="composer-chip-atlas"
+						/>
+						<button
+							type="button"
+							class="composer-chip-disclosure"
+							data-testid="composer-chip-atlas-notify"
+							aria-label={$t('browserPush.enableAtlasA11y')}
+							title={$t('browserPush.enableAtlasA11y')}
+							onclick={enableAtlasPushNotifications}
+						>
+							<Bell size={13} strokeWidth={2} aria-hidden="true" />
+						</button>
+					</li>
+				{/if}
+
+				{#each pendingAttachments as attachment (attachment.artifact.id)}
+					<li class="composer-chip-item">
+						<ComposerChip
+							kind={attachmentChipKind(attachment.artifact)}
+							label={attachment.artifact.name}
+							meta={chipMetaText(attachment.artifact)}
+							thumbnailUrl={attachmentThumbnailUrl(attachment.artifact)}
+							removable
+							removeLabel={$t('composerChips.removeAttachment', { name: attachment.artifact.name })}
+							onRemove={() => removePendingAttachment(attachment.artifact.id)}
+							testId="composer-chip-attachment"
+						/>
+						{#if attachment.artifact.outline && attachment.artifact.outline.length > 0}
+							<AttachmentOutline
+								outline={attachment.artifact.outline}
+								onQuote={insertQuoteAtCursor}
+								variant="disclosure"
+								disclosureLabel={$t('composerChips.outlineDisclosure', { name: attachment.artifact.name })}
+							/>
+						{/if}
+					</li>
+				{/each}
+
+				{#each pendingQuotes as quote (quote.id)}
+					<li class="composer-chip-item">
+						<ComposerChip
+							kind="quote"
+							label={quote.label}
+							removable
+							removeLabel={$t('composerChips.removeQuote', { name: quote.label })}
+							onRemove={() => removePendingQuote(quote.id)}
+							testId="composer-chip-quote"
+						/>
+					</li>
+				{/each}
+
+				{#if composerCommandRegistryEnabled}
+					{#each effectiveLinkedSources as source (source.displayArtifactId)}
+						<li class="composer-chip-item">
+							<ComposerChip
+								kind="library"
+								label={source.name}
+								removable
+								removeLabel={$t('composerChips.removeLinkedDocument', { name: source.name })}
+								onRemove={() => removeLinkedSource(source.displayArtifactId)}
+								testId="composer-chip-linked"
+							/>
+						</li>
+					{/each}
+				{/if}
+			{/snippet}
+			{#snippet counter()}
+				{#if isOverMaxLength}
+					<span class="composer-chip-counter" data-testid="over-length-counter">
+						{$t('chat.overLengthCounter', {
+							current: message.length.toLocaleString(),
+							max: maxLength.toLocaleString(),
+						})}
+					</span>
+				{/if}
+			{/snippet}
+		</ComposerChipRow>
 	{/if}
 
-	{#if composerCommandRegistryEnabled && effectiveLinkedSources.length > 0}
-		<ul class="linked-source-chips" aria-label={$t('linkedSources.chipsLabel')}>
-			{#each effectiveLinkedSources as source (source.displayArtifactId)}
-				<li>
-					<FileAttachment
-						attachment={{ id: source.displayArtifactId, name: source.name, mimeType: source.mimeType ?? null }}
-						removable={true}
-						compact={true}
-						onRemove={() => removeLinkedSource(source.displayArtifactId)}
-					/>
-				</li>
-			{/each}
-		</ul>
-	{/if}
-
-		{#if composerCommandRegistryEnabled && pendingSkill}
-			<ul class="pending-skill-chips" aria-label={$t('pendingSkill.chipsLabel')}>
-				<li class="pending-skill-chip">
-					<span class="pending-skill-chip__marker" aria-hidden="true"></span>
-					<span class="pending-skill-chip__copy">
-						<span class="pending-skill-chip__label">
-							{$t(pendingSkillKindLabelKey(pendingSkill))}
-						</span>
-						<span class="pending-skill-chip__name">{pendingSkill.displayName}</span>
-						{#if pendingSkill.unavailable}
-							<span class="pending-skill-chip__status">{$t('pendingSkill.unavailable')}</span>
-						{/if}
-					</span>
-					<button
-						type="button"
-						class="pending-skill-chip__remove"
-						aria-label={$t('pendingSkill.removeA11y', { name: pendingSkill.displayName })}
-						onclick={removePendingSkill}
-					>
-					<X size={14} strokeWidth={2} aria-hidden="true" />
-					</button>
-				</li>
-			</ul>
-		{/if}
-
-		{#if forceWebSearch}
-			<ul class="pending-skill-chips" aria-label={$t('composerTools.activeControls')}>
-				<li class="pending-skill-chip">
-					<span class="pending-skill-chip__marker" aria-hidden="true"></span>
-					<span class="pending-skill-chip__copy">
-						<span class="pending-skill-chip__label">{$t('composerTools.webSearch')}</span>
-					</span>
-					<button
-						type="button"
-						class="pending-skill-chip__remove"
-						aria-label={$t('composerTools.removeWebSearch')}
-						onclick={() => setForceWebSearch(false)}
-					>
-					<X size={14} strokeWidth={2} aria-hidden="true" />
-					</button>
-				</li>
-			</ul>
-		{/if}
-
-		{#if selectedAtlasProfile}
-			<ul class="pending-skill-chips" aria-label={$t('composerTools.activeControls')}>
-				<li class="pending-skill-chip pending-skill-chip--atlas">
-					<span class="pending-skill-chip__marker" aria-hidden="true"></span>
-					<span class="pending-skill-chip__copy">
-						<span class="pending-skill-chip__label">
-							{$t('composerTools.atlasChip', { profile: selectedAtlasProfileLabel })}
-						</span>
-						{#if atlasPushStatus !== "idle"}
-							<span class="pending-skill-chip__status">{atlasPushStatusLabel()}</span>
-						{/if}
-					</span>
-					<button
-						type="button"
-						class="pending-skill-chip__remove"
-						aria-label={$t('browserPush.enableAtlasA11y')}
-						title={$t('browserPush.enableAtlasA11y')}
-						onclick={enableAtlasPushNotifications}
-					>
-					<Bell size={14} strokeWidth={2} aria-hidden="true" />
-					</button>
-					<button
-						type="button"
-						class="pending-skill-chip__remove"
-						aria-label={$t('composerTools.removeAtlas')}
-						onclick={removeAtlasProfile}
-					>
-					<X size={14} strokeWidth={2} aria-hidden="true" />
-					</button>
-				</li>
-			</ul>
-		{/if}
-
+		<!-- The queued-message banner keeps its own shape, because it has a
+		     sentence to hold, but inherits the chip's dashed edge, 999px
+		     radius and clock mark — "a chip with a sentence in it" rather
+		     than a separate card. -->
 		{#if hasQueuedMessage}
-			<div
-				data-testid="queued-message-banner"
-				class="mx-[16px] mb-2 flex items-center justify-between gap-3 rounded-[1rem] border border-border-subtle bg-surface-page px-3 py-2"
-			>
-				<div class="min-w-0">
-					<p class="text-[11px] font-sans font-medium uppercase tracking-[0.12em] text-text-muted">
-						{$t('chat.queuedNext')}
-					</p>
-					<p class="truncate text-[13px] font-sans text-text-primary">
-						{queuedMessagePreview || $t('chat.nextMessageQueued')}
-					</p>
-				</div>
-				<div class="flex items-center gap-2">
-					<button
-						data-testid="delete-queued-button"
-						type="button"
-						class="rounded-full border border-border px-3 py-1 text-[12px] font-sans font-medium text-text-muted transition-colors duration-150 hover:bg-surface-elevated hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-						onclick={deleteQueuedMessage}
-					>
-						{$t('chat.delete')}
-					</button>
-					<button
-						data-testid="edit-queued-button"
-						type="button"
-						class="rounded-full border border-border px-3 py-1 text-[12px] font-sans font-medium text-text-primary transition-colors duration-150 hover:bg-surface-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-						onclick={editQueuedMessage}
-					>
-						{$t('chat.edit')}
-					</button>
-				</div>
+			<div class="composer-queued-strip" data-testid="queued-message-banner">
+				<span class="composer-queued-strip__icon" aria-hidden="true">
+					<Clock size={14} strokeWidth={2} />
+				</span>
+				<span class="composer-queued-strip__label">{$t('chat.queuedNext')}</span>
+				<span class="composer-queued-strip__preview">
+					{queuedMessagePreview || $t('chat.nextMessageQueued')}
+				</span>
+				<button
+					data-testid="delete-queued-button"
+					type="button"
+					class="composer-queued-strip__btn composer-queued-strip__btn--quiet"
+					onclick={deleteQueuedMessage}
+				>
+					{$t('chat.delete')}
+				</button>
+				<button
+					data-testid="edit-queued-button"
+					type="button"
+					class="composer-queued-strip__btn"
+					onclick={editQueuedMessage}
+				>
+					{$t('chat.edit')}
+				</button>
 			</div>
 		{/if}
 
@@ -2998,17 +3113,6 @@ async function emitDraftChange(force = false) {
 		</div>
 	{/if}
 
-	{#if isOverMaxLength}
-		<div class="mt-1 flex justify-end px-2">
-			<span class="text-[12px] font-sans text-danger" data-testid="over-length-counter">
-				{$t('chat.overLengthCounter', {
-					current: message.length.toLocaleString(),
-					max: maxLength.toLocaleString(),
-				})}
-			</span>
-		</div>
-	{/if}
-
 	{#if showSlashHint}
 		<div class="mt-1 flex justify-end px-2">
 			<span class="text-[12px] font-sans text-text-muted" data-testid="slash-shortcut-hint">
@@ -3113,117 +3217,160 @@ async function emitDraftChange(force = false) {
 		border: 0;
 	}
 
-	.linked-source-chips {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		margin: 0;
-		padding: 0.25rem 1rem 0.5rem;
-		list-style: none;
-	}
+	/* Chips redesign — what is left in this file is the row's own furniture.
+	   The pill itself lives in ComposerChip.svelte; the row, its phone
+	   side-scroll and its `+N` disclosure live in ComposerChipRow.svelte. */
 
-	.pending-skill-chips {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		margin: 0;
-		padding: 0.25rem 0.25rem 0.55rem;
-		list-style: none;
-	}
-
-	.pending-skill-chip {
+	/* One <li> can hold a chip AND a disclosure beside it (the Atlas notify
+	   bell, a document's outline), which is the whole point: a chip has one
+	   control, and everything else stands next to it. */
+	.composer-chip-item {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.55rem;
+		gap: 4px;
 		min-width: 0;
 		max-width: 100%;
-		border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border-default) 64%);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--accent) 13%, var(--surface-overlay) 87%);
-		box-shadow: 0 1px 0 color-mix(in srgb, var(--surface-overlay) 86%, transparent 14%) inset;
-		padding: 0.28rem 0.34rem 0.28rem 0.58rem;
-		color: var(--text-primary);
 	}
 
-	.pending-skill-chip__marker {
-		width: 0.55rem;
-		height: 0.55rem;
-		flex: 0 0 auto;
-		border-radius: 999px;
-		background: var(--accent);
-		box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent 84%);
-	}
-
-	.pending-skill-chip__copy {
-		display: inline-grid;
-		grid-auto-flow: column;
-		align-items: baseline;
-		gap: 0.35rem;
-		min-width: 0;
-	}
-
-	.pending-skill-chip__label {
-		color: var(--accent);
-		font-family: var(--font-sans);
-		font-size: var(--text-2xs);
-		font-weight: 700;
-		line-height: 1;
-		text-transform: uppercase;
-	}
-
-	.pending-skill-chip__name {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-xs);
-		font-weight: 600;
-	}
-
-	.pending-skill-chip__status {
-		color: var(--danger);
-		font-size: var(--text-2xs);
-		font-weight: 600;
-	}
-
-	.pending-skill-chip__remove {
-		width: 1.35rem;
-		height: 1.35rem;
+	.composer-chip-disclosure {
 		display: inline-grid;
 		place-items: center;
+		position: relative;
 		flex: 0 0 auto;
-		border: 0;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--surface-page) 64%, transparent 36%);
-		color: var(--text-muted);
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-full);
+		background: transparent;
+		color: var(--icon-muted);
 		cursor: pointer;
 		transition:
 			background-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out),
-			transform var(--duration-standard) var(--ease-out);
+			border-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
 	}
 
-	.pending-skill-chip__remove:hover,
-	.pending-skill-chip__remove:focus-visible {
-		background: color-mix(in srgb, var(--accent) 18%, var(--surface-page) 82%);
-		color: var(--accent);
-		transform: translateY(-1px);
+	/* 44px of touch target without touching the drawn 24px. */
+	.composer-chip-disclosure::after {
+		content: "";
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: 44px;
+		height: 44px;
+		transform: translate(-50%, -50%);
 	}
 
-	.pending-skill-chip__remove:focus-visible {
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 40%, transparent 60%);
+	@media (pointer: fine) {
+		.composer-chip-disclosure::after {
+			width: 24px;
+			height: 24px;
+		}
+	}
+
+	.composer-chip-disclosure:hover {
+		border-radius: var(--radius-full);
+		background: color-mix(in srgb, var(--warning) 14%, var(--surface-page) 86%);
+		border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+		color: var(--warning);
+	}
+
+	.composer-chip-disclosure:focus-visible {
 		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
-	:global(.dark) .pending-skill-chip {
-		background: color-mix(in srgb, var(--accent) 16%, var(--surface-overlay) 84%);
-		box-shadow:
-			0 1px 0 color-mix(in srgb, white 6%, transparent 94%) inset,
-			0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent 92%);
+	.composer-chip-counter {
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		font-weight: 600;
+		color: var(--danger);
 	}
 
-	:global(.dark) .pending-skill-chip__remove {
-		background: color-mix(in srgb, var(--surface-elevated) 64%, transparent 36%);
+	/* The queued strip: the chip grammar stretched to hold a preview. Same
+	   dashed edge, same 999px radius, same clock mark as the queued chip on
+	   the system sheet — it is not attached to this turn, it is waiting for
+	   the next one. */
+	.composer-queued-strip {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		box-sizing: border-box;
+		margin: 2px 6px 8px;
+		min-height: 34px;
+		padding: 3px 4px 3px 10px;
+		border: 1px dashed color-mix(in srgb, var(--text-muted) 34%, var(--border-default) 66%);
+		border-radius: var(--radius-full);
+		background: transparent;
+	}
+
+	.composer-queued-strip__icon {
+		display: inline-flex;
+		flex: 0 0 auto;
+		color: var(--text-muted);
+	}
+
+	.composer-queued-strip__label {
+		flex: 0 0 auto;
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		font-weight: 600;
+		white-space: nowrap;
+		color: var(--text-primary);
+	}
+
+	.composer-queued-strip__preview {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		color: var(--text-muted);
+	}
+
+	.composer-queued-strip__btn {
+		display: inline-grid;
+		place-items: center;
+		flex: 0 0 auto;
+		height: 26px;
+		padding: 0 11px;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-full);
+		background: var(--surface-page);
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		font-weight: 500;
+		cursor: pointer;
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			color var(--duration-standard) var(--ease-out);
+	}
+
+	.composer-queued-strip__btn--quiet {
+		color: var(--text-muted);
+	}
+
+	.composer-queued-strip__btn:hover {
+		border-radius: var(--radius-full);
+		background: var(--surface-elevated);
+		color: var(--text-primary);
+	}
+
+	.composer-queued-strip__btn:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	@media (max-width: 767px) {
+		/* Phone: the row's controls keep the app's 44px minimum. */
+		.composer-queued-strip__btn {
+			min-height: 34px;
+			min-width: 44px;
+		}
 	}
 
 	.command-tray {
