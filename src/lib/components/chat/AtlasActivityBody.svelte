@@ -20,6 +20,7 @@ import {
 	ChevronDown,
 	Download,
 	FileText,
+	Globe,
 	LoaderCircle,
 	RotateCw,
 	Split,
@@ -273,9 +274,17 @@ function planEntryMeta(entry: AtlasPlanEntry, withConfidence: boolean): string {
 	return parts.join(" · ");
 }
 
-function faviconLetter(host: string): string {
+// Privacy proxy (ADR 0043, Slice 12/15): the same-origin `/api/favicon`
+// endpoint, exactly as ToolActivityRow and MessageEvidenceDetails use it, so a
+// researched domain is never leaked to a third-party icon service. The evidence
+// payload carries only the HOST (see `AtlasV3ProgressEvidenceSource`) — the icon
+// URL is derived here rather than stored in `progress_details_json`.
+function atlasFaviconUrl(host: string): string | null {
 	const cleaned = host.replace(/^www\./i, "").trim();
-	return cleaned ? cleaned.slice(0, 1).toUpperCase() : "·";
+	// A host with no dot is not a domain (a local-library label, say); the proxy
+	// would reject it anyway, so draw the globe alone rather than fetch.
+	if (!cleaned.includes(".")) return null;
+	return `/api/favicon?domain=${encodeURIComponent(cleaned)}`;
 }
 
 function downloadUrl(fileId: string | null | undefined): string | null {
@@ -674,8 +683,25 @@ function handleTabKeydown(event: KeyboardEvent) {
 				{#if evidence.sources.length > 0}
 					<div class="atlas-eyebrow">{$t('toolActivity.sourcesEyebrow')}</div>
 					{#each evidence.sources as source (source.n)}
+						{@const faviconUrl = atlasFaviconUrl(source.host)}
 						<div class="atlas-src" data-testid="atlas-evidence-source">
-							<span class="atlas-favicon" aria-hidden="true">{faviconLetter(source.host)}</span>
+							<span class="atlas-favicon" aria-hidden="true">
+								{#if faviconUrl}
+									<img
+										class="atlas-favicon-img"
+										src={faviconUrl}
+										alt=""
+										loading="lazy"
+										decoding="async"
+										referrerpolicy="no-referrer"
+										data-testid="atlas-evidence-favicon"
+										onerror={(e) => {
+											(e.currentTarget as HTMLImageElement).style.display = 'none';
+										}}
+									/>
+								{/if}
+								<Globe size={9} strokeWidth={2.2} aria-hidden="true" />
+							</span>
 							<span class="atlas-src-title" title={source.title}>{source.title}</span>
 							<span class="atlas-src-host">
 								{source.date ? `${source.host} · ${source.date}` : source.host}
@@ -1109,6 +1135,7 @@ function handleTabKeydown(event: KeyboardEvent) {
 	}
 
 	.atlas-favicon {
+		position: relative;
 		flex: 0 0 14px;
 		width: 14px;
 		height: 14px;
@@ -1119,8 +1146,20 @@ function handleTabKeydown(event: KeyboardEvent) {
 		background: var(--surface-page);
 		box-shadow: 0 0 0 1px var(--border-subtle);
 		color: var(--text-muted);
-		font-size: 8px;
-		font-weight: 700;
+		overflow: hidden;
+	}
+
+	/* The globe sits underneath and the real favicon covers it once it loads.
+	   If the icon fails, `onerror` hides the <img> and the globe shows through —
+	   the same graceful fallback MessageEvidenceDetails uses. */
+	.atlas-favicon-img {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		border-radius: 50%;
+		background: var(--surface-page);
 	}
 
 	.atlas-src-title {
