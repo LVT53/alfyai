@@ -20,6 +20,9 @@ const ITEM_LABEL_KEYS = [
 	"label",
 	"filename",
 	"path",
+	// Last resort for unlabelled excerpts (read_generated_file passages), so
+	// a replayed passage lookup shows what was read, not just that it was.
+	"text",
 ] as const;
 
 function firstString(
