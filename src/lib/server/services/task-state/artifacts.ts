@@ -310,11 +310,19 @@ async function chooseArtifactChunks(
 	artifact: Artifact,
 	queryContext: ArtifactQueryContext,
 	ranked: RankedChunkEntry[],
+	options: {
+		/**
+		 * When no chunk scores, fall back to the first chunk in document
+		 * order (the pushed-context default: some excerpt beats none). Off
+		 * for the pull side, where "no match" must be reported as such.
+		 */
+		allowOrderFallback?: boolean;
+	} = {},
 ): Promise<RankedChunkEntry[]> {
 	let chosen = ranked
 		.filter((entry) => entry.score > 0)
 		.slice(0, queryContext.perArtifactLimit);
-	if (chosen.length === 0) {
+	if (chosen.length === 0 && options.allowOrderFallback !== false) {
 		chosen = ranked.slice(0, 1);
 	}
 
@@ -379,13 +387,18 @@ function combineSnippetChunks(
 
 export type DocumentPassage = {
 	chunkIndex: number;
-	/** Chunk text, clipped to its share of the char budget. */
+	/**
+	 * A verbatim prefix of the chunk, cut to its share of the char budget.
+	 * Verbatim (no whitespace collapsing, no ellipsis) so that
+	 * `charOffset + text.length` is exactly where the text stops in the
+	 * document, and a `from` window can pick up from there.
+	 */
 	text: string;
-	/** Lexical/rerank score the chunk was chosen with (0 = order fallback). */
+	/** Lexical/rerank score the chunk was chosen with (0 = rerank-only). */
 	score: number;
-	/** True when `text` is shorter than the chunk it was clipped from. */
+	/** True when `text` is shorter than the chunk it was cut from. */
 	truncated: boolean;
-	/** The chunk's full (unclipped) text, for callers deriving offsets. */
+	/** The chunk's full (uncut) text, for callers deriving offsets. */
 	chunkText: string;
 };
 
@@ -396,6 +409,15 @@ export type DocumentPassage = {
  * `query` mode and the pushed context never disagree about what "relevant"
  * means. Documents below the chunking threshold (chunk-sync.ts stores them
  * unchunked) are treated as a single chunk so they still answer.
+ *
+ * Unlike the pushed snippets, a query that matches nothing returns NO
+ * passages rather than the document's first chunk: the tool result says
+ * "passages about X", and a chunk that is merely first is not that.
+ *
+ * `useStoredChunks: false` skips `artifact_chunks` and chunks the given
+ * `contentText` as one passage — for generated files, whose stored chunks
+ * were cut from the memory wrapper (see read-generated-file.ts) rather
+ * than from the text the caller is offsetting into.
  */
 export async function selectDocumentPassages(params: {
 	userId: string;
@@ -403,6 +425,7 @@ export async function selectDocumentPassages(params: {
 	query: string;
 	limit?: number;
 	charBudget?: number;
+	useStoredChunks?: boolean;
 }): Promise<{ passages: DocumentPassage[]; chunkCount: number }> {
 	const limit = Math.max(1, Math.floor(params.limit ?? 3));
 	const charBudget = Math.max(
@@ -415,9 +438,12 @@ export async function selectDocumentPassages(params: {
 		perArtifactCharBudget: charBudget,
 	});
 
-	let chunks = await listArtifactChunksForArtifacts(params.userId, [
-		params.artifact.id,
-	]);
+	let chunks =
+		params.useStoredChunks === false
+			? []
+			: await listArtifactChunksForArtifacts(params.userId, [
+					params.artifact.id,
+				]);
 	if (chunks.length === 0 && params.artifact.contentText?.trim()) {
 		chunks = [
 			{
@@ -447,6 +473,7 @@ export async function selectDocumentPassages(params: {
 		params.artifact,
 		queryContext,
 		ranked,
+		{ allowOrderFallback: false },
 	);
 	const perPassageChars = Math.floor(charBudget / Math.max(1, chosen.length));
 
@@ -454,7 +481,7 @@ export async function selectDocumentPassages(params: {
 		chunkCount: chunks.length,
 		passages: chosen.map((entry) => ({
 			chunkIndex: entry.chunk.chunkIndex,
-			text: clipText(entry.chunk.contentText, perPassageChars),
+			text: entry.chunk.contentText.slice(0, perPassageChars),
 			score: entry.score,
 			truncated: entry.chunk.contentText.length > perPassageChars,
 			chunkText: entry.chunk.contentText,

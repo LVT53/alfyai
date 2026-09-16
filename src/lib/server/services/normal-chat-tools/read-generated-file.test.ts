@@ -41,6 +41,7 @@ const {
 	sanitizeReadGeneratedFileInput,
 	summarizeReadGeneratedFileResult,
 } = await import("./read-generated-file");
+const { deriveToolResultDigest } = await import("./tool-result-digest");
 
 const USER = "user-1";
 const OTHER_USER = "user-2";
@@ -187,6 +188,41 @@ describe("readGeneratedFileContent — generated files (unchanged path)", () => 
 		expect(result.contentText).toBe("generated body");
 	});
 
+	it("does not let a generated file whose body merely mentions the title shadow the document itself", async () => {
+		seedArtifact({
+			type: "generated_output",
+			name: "summary.md",
+			contentText: "A short summary of the lease: deposit, term, pets.",
+			metadata: { documentLabel: "Summary" },
+		});
+		seedArtifact({
+			type: "normalized_document",
+			name: "lease.md",
+			contentText: "the lease itself",
+			metadata: { normalizedFrom: "Lease.pdf" },
+		});
+
+		const byTitle = await read({ requestTitle: "Lease" });
+		expect(byTitle.source).toBe("document");
+		expect(byTitle.contentText).toBe("the lease itself");
+
+		// Name and label matches on generated files still win outright.
+		const byLabel = await read({ requestTitle: "Summary" });
+		expect(byLabel.source).toBe("generated");
+
+		// With no document to yield to, the body match is still honoured
+		// ahead of the newest-file fallback.
+		seedArtifact({
+			type: "generated_output",
+			name: "newest.md",
+			contentText: "unrelated",
+			updatedAt: new Date("2026-09-20T00:00:00.000Z"),
+		});
+		const bodyOnly = await read({ requestTitle: "pets" });
+		expect(bodyOnly.source).toBe("generated");
+		expect(bodyOnly.filename).toBe("summary.md");
+	});
+
 	it("still falls back to the newest generated file when nothing matches by name", async () => {
 		seedArtifact({
 			type: "generated_output",
@@ -326,6 +362,18 @@ describe("readGeneratedFileContent — documents", () => {
 
 		expect(result.source).toBe("document");
 		expect(result.filename).toBe("2026 Q3 Board Deck.pptx");
+	});
+
+	it("refuses a contains match on a needle shorter than three characters", async () => {
+		seedArtifact({
+			type: "normalized_document",
+			name: "annual-report.md",
+			contentText: "the only document",
+		});
+
+		expect((await read({ filename: "a" })).notFound).toBe(true);
+		expect((await read({ filename: "re" })).notFound).toBe(true);
+		expect((await read({ filename: "rep" })).source).toBe("document");
 	});
 
 	it("returns ambiguous with candidates, and no content, when two documents match equally", async () => {
@@ -492,7 +540,7 @@ describe("readGeneratedFileContent — `from` windowing", () => {
 		});
 	});
 
-	it("clamps a `from` past the end to an empty window", async () => {
+	it("clamps a `from` past the end to an empty window and says so", async () => {
 		seedArtifact({
 			type: "normalized_document",
 			name: "short.md",
@@ -506,6 +554,35 @@ describe("readGeneratedFileContent — `from` windowing", () => {
 		expect(result.to).toBe(10);
 		expect(result.contentText).toBe("");
 		expect(result.hasMore).toBe(false);
+
+		const payload = buildReadGeneratedFileModelPayload(result);
+		expect(payload).toMatchObject({ found: true, from: 10, to: 10 });
+		expect(payload).not.toHaveProperty("content");
+		expect(String(payload.note)).toContain("past the end");
+
+		// Exactly at the end behaves the same way.
+		const atEnd = await read({ filename: "short.md", from: 10 });
+		expect(String(buildReadGeneratedFileModelPayload(atEnd).note)).toContain(
+			"past the end",
+		);
+	});
+
+	it("never splits a surrogate pair on the window boundary", async () => {
+		const body = `${"h".repeat(23_999)}😀${"t".repeat(50)}`;
+		seedArtifact({
+			type: "normalized_document",
+			name: "emoji.md",
+			contentText: body,
+		});
+
+		const first = await read({ filename: "emoji.md" });
+		expect(first.contentText?.endsWith("😀")).toBe(true);
+		expect(first.to).toBe(24_001);
+		expect(first.nextFrom).toBe(24_001);
+
+		const rest = await read({ filename: "emoji.md", from: first.nextFrom });
+		expect(rest.contentText).toBe("t".repeat(50));
+		expect(`${first.contentText}${rest.contentText}`).toBe(body);
 	});
 });
 
@@ -583,6 +660,8 @@ describe("readGeneratedFileContent — `query` passages", () => {
 		expect(summarizeReadGeneratedFileResult(result)).toBe(
 			`Found "Lease.pdf" (${contentText.length} chars): 3 passage(s) for "deposit".`,
 		);
+		// The history digest replays what was read, not just that it was.
+		expect(deriveToolResultDigest(payload)).toContain("Clause 1");
 	});
 
 	it("labels a passage with the nearest preceding heading", async () => {
@@ -592,6 +671,103 @@ describe("readGeneratedFileContent — `query` passages", () => {
 
 		expect(result.passages?.[0]?.chunkIndex).toBe(3);
 		expect(result.passages?.[0]?.section).toBe("Pets");
+	});
+
+	it("returns no passages, with a note, when nothing in the file matches", async () => {
+		seedLease();
+
+		const result = await read({ filename: "Lease.pdf", query: "parking" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.passages).toEqual([]);
+		expect(result.hasMore).toBe(true);
+
+		const payload = buildReadGeneratedFileModelPayload(result);
+		expect(payload).toMatchObject({ found: true, passageCount: 0 });
+		expect(String(payload.note)).toContain("No passage");
+		expect(summarizeReadGeneratedFileResult(result)).toContain(
+			'0 passage(s) for "parking"',
+		);
+	});
+
+	it("serves a truncated passage verbatim so nextFrom continues exactly where it stopped", async () => {
+		// One passage gets the whole 3,600-char budget; exceed it.
+		const chunk = `Deposit terms.\n\n${"The deposit clause repeats.  \n".repeat(130)}`;
+		expect(chunk.length).toBeGreaterThan(3600);
+		const contentText = `${chunk}\n\nUnrelated tail.`;
+		const id = seedArtifact({
+			type: "normalized_document",
+			name: "long-lease.md",
+			contentText,
+		});
+		seedChunks(id, [chunk, "Unrelated tail."]);
+
+		const result = await read({ filename: "long-lease.md", query: "deposit" });
+
+		expect(result.passages).toHaveLength(1);
+		const passage = result.passages?.[0];
+		expect(passage?.charOffset).toBe(0);
+		// A verbatim prefix: whitespace intact, no ellipsis.
+		expect(passage?.text).toBe(chunk.slice(0, passage?.text.length));
+		expect(passage?.text.length).toBeLessThan(chunk.length);
+		expect(passage?.hasMore).toBe(true);
+		expect(passage?.nextFrom).toBe(passage?.text.length);
+
+		const continued = await read({
+			filename: "long-lease.md",
+			from: passage?.nextFrom ?? undefined,
+		});
+		expect(`${passage?.text}${continued.contentText}`).toBe(contentText);
+	});
+
+	it("maps a chunk offset back through CRLF line endings", async () => {
+		const contentText =
+			"Intro line.\r\n\r\nSecond line about the deposit.\r\nThird.\r\n\r\nFourth.";
+		const id = seedArtifact({
+			type: "normalized_document",
+			name: "crlf.md",
+			contentText,
+		});
+		// chunk-sync normalizes CRLF before slicing.
+		seedChunks(id, [
+			"Intro line.",
+			"Second line about the deposit.\nThird.",
+			"Fourth.",
+		]);
+
+		const result = await read({ filename: "crlf.md", query: "deposit" });
+
+		const passage = result.passages?.[0];
+		expect(passage?.chunkIndex).toBe(1);
+		expect(passage?.charOffset).toBe(contentText.indexOf("Second line"));
+		expect(passage?.hasMore).toBe(true);
+		// Both ends are mapped: the CRLF inside the passage counts too.
+		expect(
+			contentText.slice(passage?.charOffset ?? 0, passage?.nextFrom ?? 0),
+		).toBe("Second line about the deposit.\r\nThird.");
+		expect(contentText.slice(passage?.nextFrom ?? 0)).toBe("\r\n\r\nFourth.");
+	});
+
+	it("does not leak the memory wrapper when a generated file is queried", async () => {
+		const wrapper =
+			"Generated file: notes.md\nFrom conversation conv-other\nAssistant said: here are your notes\nExtracted file content:\n# Notes\n\nThe deposit is two months' rent.";
+		const id = seedArtifact({
+			type: "generated_output",
+			name: "notes.md",
+			contentText: wrapper,
+		});
+		// createArtifact chunks the wrapper text as stored, header included.
+		seedChunks(id, [wrapper]);
+
+		const result = await read({ filename: "notes.md", query: "deposit" });
+
+		expect(result.source).toBe("generated");
+		expect(result.passages).toHaveLength(1);
+		expect(result.passages?.[0]?.text).toBe(
+			"# Notes\n\nThe deposit is two months' rent.",
+		);
+		expect(result.passages?.[0]?.charOffset).toBe(0);
+		expect(JSON.stringify(result.passages)).not.toContain("conv-other");
 	});
 
 	it("treats an unchunked document as a single passage", async () => {

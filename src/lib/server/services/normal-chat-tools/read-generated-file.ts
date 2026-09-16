@@ -246,6 +246,17 @@ async function listGeneratedOutputRows(params: {
 		.limit(8);
 }
 
+type GeneratedPick = {
+	row: ArtifactRow;
+	/**
+	 * True when the only thing that matched was the file's BODY mentioning
+	 * the request title. Too weak to shadow a document that matches by
+	 * name — a summary the assistant wrote about "the lease" must not be
+	 * served when the user asks for the lease itself.
+	 */
+	contentOnly: boolean;
+};
+
 /**
  * The pre-existing generated_output lookup: exact filename, then a
  * filename "contains", then requestTitle against name / label / content.
@@ -255,7 +266,7 @@ async function listGeneratedOutputRows(params: {
 function pickGeneratedOutputRow(
 	rows: ArtifactRow[],
 	params: { filename?: string | null; requestTitle?: string | null },
-): ArtifactRow | null {
+): GeneratedPick | null {
 	const filenameLower = normalizeName(params.filename);
 	const requestTitleLower = normalizeName(params.requestTitle);
 
@@ -269,22 +280,27 @@ function pickGeneratedOutputRow(
 			);
 		}
 	}
+	if (bestMatch) return { row: bestMatch, contentOnly: false };
 
-	if (!bestMatch && requestTitleLower) {
-		bestMatch = rows.find((row) => {
-			const metadata = parseWorkingDocumentMetadata(
+	if (requestTitleLower) {
+		const labelOf = (row: ArtifactRow) =>
+			parseWorkingDocumentMetadata(
 				parseJsonRecord(row.metadataJson),
-			);
-			const label = metadata.documentLabel?.toLowerCase();
-			return (
+			).documentLabel?.toLowerCase();
+		bestMatch = rows.find(
+			(row) =>
 				normalizeName(row.name).includes(requestTitleLower) ||
-				label?.includes(requestTitleLower) ||
-				(row.contentText?.toLowerCase().includes(requestTitleLower) ?? false)
-			);
-		});
+				labelOf(row)?.includes(requestTitleLower),
+		);
+		if (bestMatch) return { row: bestMatch, contentOnly: false };
+		bestMatch = rows.find(
+			(row) =>
+				row.contentText?.toLowerCase().includes(requestTitleLower) ?? false,
+		);
+		if (bestMatch) return { row: bestMatch, contentOnly: true };
 	}
 
-	return bestMatch ?? null;
+	return null;
 }
 
 /**
@@ -315,6 +331,13 @@ function documentNamesOf(row: DocumentNameRow): string[] {
 }
 
 /**
+ * A "contains" match needs this much needle: "a" or "pd" is in almost
+ * every name, and a lone document containing it would otherwise be served
+ * as a confident unique match.
+ */
+const MIN_CONTAINS_NEEDLE_LENGTH = 3;
+
+/**
  * Match tiers, strongest first. Two candidates in the same winning tier
  * are ambiguous; never fuzzy-pick between them.
  */
@@ -325,7 +348,11 @@ function documentMatchTier(row: DocumentNameRow, needle: string): number {
 	const names = documentNamesOf(row);
 	if (names.some((name) => normalizeName(name) === needleLower)) return 3;
 	if (needleStem && names.some((name) => stemOf(name) === needleStem)) return 2;
-	if (names.some((name) => normalizeName(name).includes(needleLower))) return 1;
+	if (
+		needleLower.length >= MIN_CONTAINS_NEEDLE_LENGTH &&
+		names.some((name) => normalizeName(name).includes(needleLower))
+	)
+		return 1;
 	return 0;
 }
 
@@ -444,12 +471,11 @@ async function resolveReadTarget(params: {
 }): Promise<TargetLookup> {
 	const generatedRows = await listGeneratedOutputRows(params);
 	const generated = pickGeneratedOutputRow(generatedRows, params);
-	if (generated) {
-		return {
-			status: "match",
-			target: { row: generated, source: "generated", conversation: "this" },
-		};
-	}
+	const asGenerated = (row: ArtifactRow): TargetLookup => ({
+		status: "match",
+		target: { row, source: "generated", conversation: "this" },
+	});
+	if (generated && !generated.contentOnly) return asGenerated(generated.row);
 
 	const needle = params.filename?.trim() || params.requestTitle?.trim() || "";
 	if (needle) {
@@ -460,6 +486,10 @@ async function resolveReadTarget(params: {
 		});
 		if (document.status !== "none") return document;
 	}
+
+	// A generated file whose body merely mentions the title outranks only
+	// the newest-file fallback.
+	if (generated) return asGenerated(generated.row);
 
 	// Pre-existing fallback: the newest generated file of this conversation.
 	if (generatedRows.length > 0) {
@@ -516,14 +546,39 @@ function rowToArtifact(row: ArtifactRow, contentText: string | null): Artifact {
 	};
 }
 
-function locateChunk(contentText: string, chunkText: string): number | null {
+/** An offset in CRLF-normalized text, mapped back into the original. */
+function toRawOffset(contentText: string, normalizedIndex: number): number {
+	let extra = 0;
+	let crlf = contentText.indexOf("\r\n");
+	while (crlf !== -1 && crlf < normalizedIndex + extra) {
+		extra += 1;
+		crlf = contentText.indexOf("\r\n", crlf + 2);
+	}
+	return normalizedIndex + extra;
+}
+
+/**
+ * Where a chunk sits in the document, as offsets into the ORIGINAL text
+ * (what a `from` window slices): `start` of the chunk and `end` of its
+ * first `servedLength` characters. chunk-sync.ts normalizes CRLF before
+ * slicing, so a chunk that is not found verbatim is looked up in the
+ * normalized text and both offsets mapped back.
+ */
+function locateChunk(
+	contentText: string,
+	chunkText: string,
+	servedLength: number,
+): { start: number; end: number } | null {
 	if (!chunkText) return null;
 	const direct = contentText.indexOf(chunkText);
-	if (direct >= 0) return direct;
-	// chunk-sync.ts normalizes CRLF before slicing; mirror that once.
+	if (direct >= 0) return { start: direct, end: direct + servedLength };
 	const normalized = contentText.replace(/\r\n/g, "\n");
-	const fallback = normalized.indexOf(chunkText);
-	return fallback >= 0 ? fallback : null;
+	const found = normalized.indexOf(chunkText);
+	if (found < 0) return null;
+	return {
+		start: toRawOffset(contentText, found),
+		end: toRawOffset(contentText, found + servedLength),
+	};
 }
 
 function sectionTitleAt(
@@ -544,6 +599,7 @@ async function buildPassages(params: {
 	userId: string;
 	artifact: Artifact;
 	query: string;
+	useStoredChunks: boolean;
 }): Promise<{ passages: ReadGeneratedFilePassage[]; hasMore: boolean }> {
 	const selected = await selectDocumentPassages({
 		userId: params.userId,
@@ -551,19 +607,19 @@ async function buildPassages(params: {
 		query: params.query,
 		limit: PASSAGE_LIMIT,
 		charBudget: PASSAGE_CHAR_BUDGET,
+		useStoredChunks: params.useStoredChunks,
 	});
 	const contentText = params.artifact.contentText ?? "";
 	const passages = selected.passages.map((passage) => {
-		const charOffset = contentText
-			? locateChunk(contentText, passage.chunkText)
+		// `text` is a verbatim prefix of the chunk, so its length is exactly
+		// how far the served text reaches into the document.
+		const located = contentText
+			? locateChunk(contentText, passage.chunkText, passage.text.length)
 			: null;
+		const charOffset = located?.start ?? null;
 		const hasMore =
 			passage.truncated || passage.chunkIndex < selected.chunkCount - 1;
-		const nextFrom =
-			charOffset === null
-				? null
-				: charOffset +
-					(passage.truncated ? passage.text.length : passage.chunkText.length);
+		const nextFrom = located?.end ?? null;
 		return {
 			chunkIndex: passage.chunkIndex,
 			text: passage.text,
@@ -583,6 +639,17 @@ async function buildPassages(params: {
 // ── Composable query ───────────────────────────────────────────
 
 const MAX_CONTENT_LENGTH = 24000;
+
+/**
+ * The window's end, nudged one code unit past a surrogate pair so an emoji
+ * or CJK-extension character on the boundary is never split into a lone
+ * surrogate (which JSON-encodes as garbage the model then copies).
+ */
+function windowEnd(text: string, end: number): number {
+	if (end >= text.length) return text.length;
+	const last = text.charCodeAt(end - 1);
+	return last >= 0xd800 && last <= 0xdbff ? end + 1 : end;
+}
 
 export interface ReadGeneratedFileResult {
 	filename: string | null;
@@ -733,12 +800,20 @@ export async function readGeneratedFileContent(params: {
 			userId: params.userId,
 			artifact,
 			query,
+			// A generated file's stored chunks were cut from the memory
+			// wrapper (header + assistant reply + extracted content), not from
+			// the text resolved above; offsets into it would not line up and
+			// the wrapper metadata would leak into a passage.
+			useStoredChunks: source !== "generated",
 		});
 		result = { ...base, passages, hasMore };
 	} else {
 		const start = Math.min(from, contentLength);
 		const window = resolvedContent
-			? resolvedContent.slice(start, start + MAX_CONTENT_LENGTH)
+			? resolvedContent.slice(
+					start,
+					windowEnd(resolvedContent, start + MAX_CONTENT_LENGTH),
+				)
 			: null;
 		const to = start + (window?.length ?? 0);
 		const hasMore = to < contentLength;
@@ -799,10 +874,28 @@ export function buildReadGeneratedFileModelPayload(
 			passages: result.passages,
 			passageCount: result.passages.length,
 			hasMore: result.hasMore,
+			...(result.passages.length === 0
+				? {
+						note: `No passage of this file matches "${result.query ?? ""}". Read it with \`from\` instead, or try other words.`,
+					}
+				: {}),
 		};
 	}
 
 	const remaining = result.contentLength - result.to;
+	// `from` at or past the end: found, but nothing to show — say so rather
+	// than returning a bare `found: true` the model may read as empty file.
+	if (result.contentLength > 0 && result.from >= result.contentLength) {
+		return {
+			...base,
+			from: result.from,
+			to: result.to,
+			hasMore: false,
+			nextFrom: null,
+			truncated: false,
+			note: `from (${result.from}) is at or past the end of the text (${result.contentLength} characters); there is nothing further to read.`,
+		};
+	}
 	const content =
 		result.contentText && result.contentText.length > 0
 			? result.hasMore
