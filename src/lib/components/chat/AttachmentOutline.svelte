@@ -2,6 +2,7 @@
 import { ChevronDown, ChevronRight, List } from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type { DocumentOutlineEntry } from "$lib/server/services/knowledge/types";
+import { buildOutlineQuote } from "./composer-chip-presentation";
 
 // "Long-document comfort" (owner-approved mockup, 2026-09-06): renders the
 // heading outline extracted from a long attachment. Clicking a row hands
@@ -38,18 +39,69 @@ let collapsedOverride = $state<boolean | null>(null);
 let collapsed = $derived(collapsedOverride ?? variant === "disclosure");
 let showAll = $state(false);
 
+// The disclosure's popover is positioned against the VIEWPORT, not the
+// chip: on a phone the chip row is a side-scrolling rail whose `overflow`
+// clips everything inside it, and an absolutely positioned popover in there
+// is simply never seen. Anchored to the button's own rect on open, kept in
+// place on scroll and resize, and closed by Escape or a tap outside — the
+// three things a popover owes a keyboard and a thumb.
+let rootElement = $state<HTMLDivElement | null>(null);
+let disclosureButton = $state<HTMLButtonElement | null>(null);
+let popoverStyle = $state("");
+
+function placePopover() {
+	const button = disclosureButton;
+	if (!button || typeof window === "undefined") return;
+	const rect = button.getBoundingClientRect();
+	const width = Math.min(320, window.innerWidth - 16);
+	const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+	const bottom = Math.max(8, window.innerHeight - rect.top + 6);
+	popoverStyle = `left:${left}px;bottom:${bottom}px;max-width:${width}px;`;
+}
+
+$effect(() => {
+	if (variant !== "disclosure" || collapsed) return;
+	if (typeof document === "undefined") return;
+	placePopover();
+	const close = () => {
+		collapsedOverride = true;
+	};
+	const onKeydown = (event: KeyboardEvent) => {
+		if (event.key !== "Escape") return;
+		close();
+		disclosureButton?.focus();
+	};
+	const onPointerdown = (event: PointerEvent) => {
+		const target = event.target;
+		if (target instanceof Node && rootElement?.contains(target)) return;
+		close();
+	};
+	const onScroll = (event: Event) => {
+		const target = event.target;
+		if (target instanceof Node && rootElement?.contains(target)) return;
+		placePopover();
+	};
+	window.addEventListener("resize", placePopover);
+	document.addEventListener("scroll", onScroll, true);
+	document.addEventListener("keydown", onKeydown);
+	document.addEventListener("pointerdown", onPointerdown, true);
+	return () => {
+		window.removeEventListener("resize", placePopover);
+		document.removeEventListener("scroll", onScroll, true);
+		document.removeEventListener("keydown", onKeydown);
+		document.removeEventListener("pointerdown", onPointerdown, true);
+	};
+});
+
 let visibleEntries = $derived(
 	showAll ? outline : outline.slice(0, DISPLAY_CAP),
 );
 let hiddenCount = $derived(Math.max(0, outline.length - DISPLAY_CAP));
 
-function buildQuote(entry: DocumentOutlineEntry): string {
-	const preview = entry.preview.trim();
-	return preview ? `${entry.title}: ${preview}…` : entry.title;
-}
-
+// The quote's text is built by the shared presentation helper so the sent
+// bubble can recognise it again byte for byte (splitUserMessageQuotes).
 function handleQuote(entry: DocumentOutlineEntry) {
-	onQuote(buildQuote(entry));
+	onQuote(buildOutlineQuote(entry));
 }
 
 function toggleCollapsed() {
@@ -70,11 +122,13 @@ function showRemaining() {
 
 {#if outline.length > 0}
 	<div
+		bind:this={rootElement}
 		class="attachment-outline"
 		class:attachment-outline--disclosure={variant === 'disclosure'}
 	>
 		{#if variant === 'disclosure'}
 			<button
+				bind:this={disclosureButton}
 				type="button"
 				class="attachment-outline-disclosure"
 				data-testid="attachment-outline-disclosure"
@@ -105,7 +159,11 @@ function showRemaining() {
 			</button>
 		{/if}
 		{#if !collapsed}
-			<div class="attachment-outline-body">
+			<div
+				class="attachment-outline-body"
+				data-testid={variant === 'disclosure' ? 'attachment-outline-popover' : undefined}
+				style={variant === 'disclosure' ? popoverStyle : undefined}
+			>
 				{#if variant === 'disclosure'}
 					<p class="attachment-outline-caption">
 						{$t('attachmentOutline.outline')} · {$t('attachmentOutline.sectionsLabel', {
@@ -205,11 +263,10 @@ function showRemaining() {
 		box-shadow: 0 0 0 2px var(--focus-ring);
 	}
 
+	/* `left`/`bottom`/`max-width` arrive inline from placePopover(). */
 	.attachment-outline--disclosure .attachment-outline-body {
-		position: absolute;
-		bottom: calc(100% + 6px);
-		left: 0;
-		z-index: 3;
+		position: fixed;
+		z-index: 30;
 		width: max-content;
 		min-width: 220px;
 		max-width: 320px;

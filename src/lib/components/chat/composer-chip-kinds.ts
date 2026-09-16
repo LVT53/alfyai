@@ -60,3 +60,14 @@ export function composerChipUsesThumbnail(
 ): boolean {
 	return kind === "image" && Boolean(thumbnailUrl);
 }
+
+/**
+ * What a chip row tells the chips inside it (Svelte context, keyed by this
+ * symbol so nothing else can collide with it). Today: where focus should go
+ * when a chip removed from the keyboard leaves no neighbour to take it.
+ */
+export const COMPOSER_CHIP_ROW_CONTEXT = Symbol("composer-chip-row");
+
+export type ComposerChipRowContext = {
+	focusFallback: () => void;
+};

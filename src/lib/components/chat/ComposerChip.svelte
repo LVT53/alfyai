@@ -26,8 +26,11 @@ import {
 	Sparkles,
 	X,
 } from "@lucide/svelte";
+import { getContext, tick } from "svelte";
 import {
+	COMPOSER_CHIP_ROW_CONTEXT,
 	type ComposerChipKind,
+	type ComposerChipRowContext,
 	composerChipTint,
 	composerChipUsesThumbnail,
 } from "./composer-chip-kinds";
@@ -75,9 +78,20 @@ let showThumbnail = $derived(composerChipUsesThumbnail(kind, thumbnailUrl));
 // must not leave a broken-image box in the pill: it falls back to the same
 // stroke-icon mark every other kind uses.
 let thumbnailBroken = $state(false);
+// A new source is a new chance: the flag belongs to the URL that failed,
+// not to the chip.
+$effect(() => {
+	void thumbnailUrl;
+	thumbnailBroken = false;
+});
 let thumbnailVisible = $derived(showThumbnail && !thumbnailBroken);
 let iconSize = $derived(size === "message" ? 12 : 14);
 let isInteractive = $derived(Boolean(onActivate) && !disabled);
+
+const rowContext = getContext<ComposerChipRowContext | undefined>(
+	COMPOSER_CHIP_ROW_CONTEXT,
+);
+let removeButton = $state<HTMLButtonElement | null>(null);
 
 function handleRemove(event: MouseEvent) {
 	event.stopPropagation();
@@ -87,13 +101,31 @@ function handleRemove(event: MouseEvent) {
 
 // Keyboard removal: with the chip's × focused — the chip's own focus stop —
 // Delete or Backspace removes it, so a chip row is navigable end to end
-// without reaching for the mouse.
+// without reaching for the mouse. The element under the caret is about to
+// leave the DOM, so focus is handed on first: to the next chip's × (or the
+// previous one's), and when this was the last chip, to wherever the row says
+// (the composer's textarea). Otherwise focus would land on <body>.
 function handleKeydown(event: KeyboardEvent) {
 	if (!removable || disabled || !onRemove) return;
 	if (event.key !== "Delete" && event.key !== "Backspace") return;
 	event.preventDefault();
 	event.stopPropagation();
+	const successor = nextRemoveControl();
 	onRemove();
+	void tick().then(() => {
+		if (successor?.isConnected) {
+			successor.focus();
+		} else {
+			rowContext?.focusFallback();
+		}
+	});
+}
+
+function nextRemoveControl(): HTMLElement | null {
+	const item = removeButton?.closest("li") ?? removeButton?.parentElement;
+	if (!item) return null;
+	const sibling = item.nextElementSibling ?? item.previousElementSibling;
+	return sibling?.querySelector<HTMLElement>(".composer-chip__remove") ?? null;
 }
 
 function handleActivate() {
@@ -172,6 +204,7 @@ function handleBodyKeydown(event: KeyboardEvent) {
 	</svelte:element>
 	{#if removable && onRemove}
 		<button
+			bind:this={removeButton}
 			type="button"
 			class="composer-chip__remove"
 			aria-label={removeLabel || label}
@@ -284,7 +317,7 @@ function handleBodyKeydown(event: KeyboardEvent) {
 		flex: 0 0 auto;
 		border-radius: 4px;
 		object-fit: cover;
-		box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-primary) 12%, transparent);
 	}
 
 	.composer-chip__label {

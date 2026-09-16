@@ -115,7 +115,7 @@ function handleKeydown(event: KeyboardEvent) {
 		thumbnailUrl={attachmentThumbnailUrl(attachment)}
 		size="message"
 		removable={removable}
-		removeLabel={`Remove ${attachment.name}`}
+		removeLabel={$t('composerChips.removeAttachment', { name: attachment.name })}
 		onRemove={removable && onRemove ? handleRemove : undefined}
 		onActivate={viewable && onView ? handleClick : undefined}
 		activateLabel={$t('composerChips.openAttachment', { name: attachment.name })}

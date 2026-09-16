@@ -3,6 +3,7 @@ import {
 	attachmentChipKind,
 	attachmentChipMeta,
 	attachmentThumbnailUrl,
+	buildOutlineQuote,
 	formatTokenCount,
 	quoteChipLabel,
 	splitUserMessageQuotes,
@@ -129,13 +130,29 @@ describe("quoteChipLabel", () => {
 });
 
 describe("splitUserMessageQuotes", () => {
-	const TITLES = ["2.3 Break clause", "4.1 Service charge"];
+	const OUTLINE = [
+		{ title: "2.3 Break clause", preview: "Either party may terminate" },
+		{ title: "4.1 Service charge", preview: "The tenant pays" },
+		{ title: "Summary", preview: "" },
+	];
+
+	it("builds the quote the outline row produces, and nothing else", () => {
+		expect(
+			buildOutlineQuote({
+				title: "2.3 Break clause",
+				preview: "Either party may terminate",
+			}),
+		).toBe("2.3 Break clause: Either party may terminate…");
+		expect(buildOutlineQuote({ title: "Summary", preview: "  " })).toBe(
+			"Summary",
+		);
+	});
 
 	it("peels a sent quote back off the front of the message", () => {
 		expect(
 			splitUserMessageQuotes(
 				"2.3 Break clause: Either party may terminate…\n\nCan we get out of this early?",
-				TITLES,
+				OUTLINE,
 			),
 		).toEqual({
 			quoteLabels: ["2.3 Break clause"],
@@ -146,33 +163,64 @@ describe("splitUserMessageQuotes", () => {
 	it("peels several, in the order they were picked", () => {
 		expect(
 			splitUserMessageQuotes(
-				"2.3 Break clause: a…\n\n4.1 Service charge: b…\n\nWhat do we owe?",
-				TITLES,
+				"4.1 Service charge: The tenant pays…\n\n2.3 Break clause: Either party may terminate…\n\nWhat do we owe?",
+				OUTLINE,
 			),
 		).toEqual({
-			quoteLabels: ["2.3 Break clause", "4.1 Service charge"],
+			quoteLabels: ["4.1 Service charge", "2.3 Break clause"],
 			body: "What do we owe?",
 		});
 	});
 
 	it("handles a turn that was nothing but a quote", () => {
 		expect(
-			splitUserMessageQuotes("2.3 Break clause: Either party…", TITLES),
+			splitUserMessageQuotes(
+				"2.3 Break clause: Either party may terminate…",
+				OUTLINE,
+			),
 		).toEqual({ quoteLabels: ["2.3 Break clause"], body: "" });
+	});
+
+	it("recognises a bare-title quote from an entry with no preview", () => {
+		expect(
+			splitUserMessageQuotes("Summary\n\nShorter please.", OUTLINE),
+		).toEqual({ quoteLabels: ["Summary"], body: "Shorter please." });
 	});
 
 	// The safe direction to fail: a quote shown as prose is a cosmetic miss;
 	// prose eaten as a quote would lose the user's own words.
-	it("leaves prose alone when nothing matches a persisted outline heading", () => {
+	it("leaves prose alone when nothing matches a persisted outline quote", () => {
 		const content = "Break clause: what does it say?\n\nAnd the rest.";
-		expect(splitUserMessageQuotes(content, TITLES)).toEqual({
+		expect(splitUserMessageQuotes(content, OUTLINE)).toEqual({
+			quoteLabels: [],
+			body: content,
+		});
+	});
+
+	// The heading alone is not enough: the user's own "2.3 Break clause: is
+	// this enforceable?" shares a heading with the outline entry but is not
+	// the quote the outline built, so it stays their sentence.
+	it("does not eat a sentence that merely starts with a heading and a colon", () => {
+		const content =
+			"2.3 Break clause: is this enforceable?\n\nI need to know by Friday.";
+		expect(splitUserMessageQuotes(content, OUTLINE)).toEqual({
+			quoteLabels: [],
+			body: content,
+		});
+	});
+
+	it("does not eat a paragraph the quote merely prefixes", () => {
+		const content =
+			"2.3 Break clause: Either party may terminate… and then some words of mine\n\nRight?";
+		expect(splitUserMessageQuotes(content, OUTLINE)).toEqual({
 			quoteLabels: [],
 			body: content,
 		});
 	});
 
 	it("leaves the message untouched when the attachment has no outline", () => {
-		const content = "2.3 Break clause: Either party…\n\nAnything?";
+		const content =
+			"2.3 Break clause: Either party may terminate…\n\nAnything?";
 		expect(splitUserMessageQuotes(content, [])).toEqual({
 			quoteLabels: [],
 			body: content,
@@ -182,12 +230,12 @@ describe("splitUserMessageQuotes", () => {
 	it("stops at the first block that is not a quote", () => {
 		expect(
 			splitUserMessageQuotes(
-				"2.3 Break clause: a…\n\nSome prose\n\n4.1 Service charge: b…",
-				TITLES,
+				"2.3 Break clause: Either party may terminate…\n\nSome prose\n\n4.1 Service charge: The tenant pays…",
+				OUTLINE,
 			),
 		).toEqual({
 			quoteLabels: ["2.3 Break clause"],
-			body: "Some prose\n\n4.1 Service charge: b…",
+			body: "Some prose\n\n4.1 Service charge: The tenant pays…",
 		});
 	});
 });

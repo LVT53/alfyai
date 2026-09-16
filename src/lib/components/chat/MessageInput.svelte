@@ -1409,7 +1409,7 @@ function send(nextMessage: string = message) {
 	if (sendPending) return;
 	if (!canSubmitMessageText(nextMessage)) {
 		if (
-			nextMessage.trim().length > 0 &&
+			(nextMessage.trim().length > 0 || pendingQuotes.length > 0) &&
 			nextMessage.length <= maxLength &&
 			(isUploadingAttachment || hasUnreadyAttachment)
 		) {
@@ -2747,6 +2747,7 @@ async function emitDraftChange(force = false) {
 		<ComposerChipRow
 			label={$t('composerChips.rowLabel')}
 			scrollOnPhone={isPhone}
+			focusFallback={() => textarea?.focus()}
 		>
 			{#snippet children()}
 				{#if composerCommandRegistryEnabled && pendingSkill}

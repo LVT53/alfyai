@@ -273,16 +273,16 @@ let sourceForks = $derived(message.sourceForks);
 // (matched against THIS message's own persisted outlines, never guessed) and
 // hands the heading back as a chip, so the bubble shows the quote it was
 // sent with instead of a paragraph of the document's prose.
-let userOutlineTitles = $derived(
+let userOutlineEntries = $derived(
 	isUser
-		? (message.attachments ?? []).flatMap((attachment) =>
-				(attachment.outline ?? []).map((entry) => entry.title),
+		? (message.attachments ?? []).flatMap(
+				(attachment) => attachment.outline ?? [],
 			)
 		: [],
 );
 let userQuoteSplit = $derived(
 	isUser
-		? splitUserMessageQuotes(message.content, userOutlineTitles)
+		? splitUserMessageQuotes(message.content, userOutlineEntries)
 		: { quoteLabels: [], body: message.content },
 );
 let userMessageSegments = $derived(
@@ -299,7 +299,12 @@ let provenanceEntries = $derived(
 		thinkingSegments: message.thinkingSegments,
 		responseActivity: message.responseActivity,
 		evidenceSummary: message.evidenceSummary,
-		atlasProfiles: atlasJobs.map((job) => job.profile),
+		// A job that failed or was cancelled did not make this answer, so it
+		// does not get to say it did; a queued or running one is the turn
+		// still happening and keeps its chip.
+		atlasProfiles: atlasJobs
+			.filter((job) => job.status !== "failed" && job.status !== "cancelled")
+			.map((job) => job.profile),
 	}),
 );
 // It disappears entirely on a turn that used nothing, and stays out of the

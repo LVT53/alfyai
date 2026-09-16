@@ -15,8 +15,12 @@
 // nothing is permanently hidden, and tapping it again collapses it. The
 // behaviour chips being FIRST is what makes that safe: the expensive,
 // turn-changing ones are the chips you can always see without scrolling.
-import type { Snippet } from "svelte";
+import { type Snippet, setContext } from "svelte";
 import { t } from "$lib/i18n";
+import {
+	COMPOSER_CHIP_ROW_CONTEXT,
+	type ComposerChipRowContext,
+} from "./composer-chip-kinds";
 
 let {
 	children,
@@ -24,6 +28,7 @@ let {
 	scrollOnPhone = false,
 	label,
 	testId = "composer-chip-row",
+	focusFallback,
 }: {
 	children: Snippet;
 	/** Right-aligned slot — today the over-length counter. */
@@ -32,7 +37,18 @@ let {
 	scrollOnPhone?: boolean;
 	label: string;
 	testId?: string;
+	/**
+	 * Where focus goes when a chip is removed from the keyboard and no
+	 * neighbouring chip is left to take it — the composer hands over its
+	 * textarea. Without it focus would fall to <body>, and a keyboard user
+	 * who just pressed Delete would have to tab back in from the top.
+	 */
+	focusFallback?: (() => void) | undefined;
 } = $props();
+
+setContext<ComposerChipRowContext>(COMPOSER_CHIP_ROW_CONTEXT, {
+	focusFallback: () => focusFallback?.(),
+});
 
 let railElement = $state<HTMLUListElement | null>(null);
 let expanded = $state(false);
@@ -47,6 +63,15 @@ let collapsed = $derived(scrollOnPhone && !expanded);
 function measure() {
 	const rail = railElement;
 	if (!rail || !collapsed) {
+		hiddenCount = 0;
+		return;
+	}
+	// Scrolled to the end (or never overflowing at all), nothing is hidden by
+	// construction — and the fade and the `+N` must go, because the last
+	// chip's right edge is ALWAYS inside the fade's band when the rail is
+	// scrolled to its end, and a fade that never lifts would sit over that
+	// chip's × for good.
+	if (rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 1) {
 		hiddenCount = 0;
 		return;
 	}
@@ -156,8 +181,13 @@ $effect(() => {
 		list-style: none;
 	}
 
+	/* The scrolling rail clips everything inside it, including the 44px
+	   touch halo each × and disclosure paints past its 28px pill — so the
+	   rail's own padding has to be tall enough to hold the halo: 8px above
+	   and below a 28px pill is exactly 44px. */
 	.composer-chip-row--scroll {
 		flex-wrap: nowrap;
+		padding-top: 8px;
 		overflow-x: auto;
 		overflow-y: hidden;
 		scrollbar-width: none;
@@ -199,7 +229,7 @@ $effect(() => {
 	   and keeps a 44px touch target without growing past the 28px pill. */
 	.composer-chip-rail__more {
 		position: absolute;
-		top: 2px;
+		top: 8px;
 		right: 6px;
 		display: inline-grid;
 		place-items: center;

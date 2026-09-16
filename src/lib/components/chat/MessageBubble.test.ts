@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import {
+	cleanup,
 	fireEvent,
 	render,
 	screen,
@@ -2363,6 +2364,44 @@ describe("MessageBubble", () => {
 				}),
 			});
 			expect(screen.queryByTestId("message-provenance")).toBeNull();
+		});
+
+		// "Used" is a claim about how the answer was made. A job that failed or
+		// was cancelled made nothing, so it does not get a chip; a succeeded
+		// one on the same message still does.
+		it("does not claim Atlas for a job that failed or was cancelled", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage(),
+				atlasJobs: [
+					buildAtlasJob({ id: "atlas-failed", status: "failed" }),
+					buildAtlasJob({
+						id: "atlas-cancelled",
+						status: "cancelled",
+						profile: "exhaustive",
+					}),
+				],
+			});
+			expect(screen.queryByTestId("message-provenance")).toBeNull();
+
+			cleanup();
+			render(MessageBubble, {
+				message: buildProvenanceMessage(),
+				atlasJobs: [
+					buildAtlasJob({ id: "atlas-failed", status: "failed" }),
+					buildAtlasJob({
+						id: "atlas-done",
+						status: "succeeded",
+						profile: "in-depth",
+					}),
+				],
+			});
+			const line = screen.getByTestId("message-provenance");
+			expect(
+				within(line).getAllByTestId("message-provenance-atlas"),
+			).toHaveLength(1);
+			expect(
+				within(line).getByTestId("message-provenance-atlas").textContent,
+			).toContain(chatDict.en["composerTools.atlasInDepth"]);
 		});
 
 		it("never appears on a user turn", () => {

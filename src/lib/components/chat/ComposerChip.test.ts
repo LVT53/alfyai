@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fireEvent, render } from "@testing-library/svelte";
+import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import ComposerChip from "./ComposerChip.svelte";
 import {
 	COMPOSER_CHIP_KINDS,
+	COMPOSER_CHIP_ROW_CONTEXT,
 	composerChipTint,
 	composerChipUsesThumbnail,
 } from "./composer-chip-kinds";
@@ -153,6 +154,36 @@ describe("ComposerChip", () => {
 		// Any other key is the textarea's business, not the chip's.
 		await fireEvent.keyDown(remove, { key: "a" });
 		expect(onRemove).toHaveBeenCalledTimes(3);
+	});
+
+	// The × under the caret is about to leave the DOM. With no neighbouring
+	// chip to take focus, the row's fallback (the composer's textarea) does —
+	// never <body>, which would strand a keyboard user at the top of the page.
+	it("hands focus to the row's fallback when Delete removes the last chip", async () => {
+		const onRemove = vi.fn();
+		const focusFallback = vi.fn();
+		const { getByRole } = render(ComposerChip, {
+			props: {
+				kind: "quote",
+				label: "2.3 Break clause",
+				removable: true,
+				removeLabel: "Remove quote 2.3 Break clause",
+				onRemove,
+			},
+			context: new Map([[COMPOSER_CHIP_ROW_CONTEXT, { focusFallback }]]),
+		});
+		const remove = getByRole("button", {
+			name: "Remove quote 2.3 Break clause",
+		});
+		remove.focus();
+		await fireEvent.keyDown(remove, { key: "Delete" });
+		expect(onRemove).toHaveBeenCalledTimes(1);
+		await waitFor(() => expect(focusFallback).toHaveBeenCalledTimes(1));
+
+		// A mouse removal leaves focus alone: the pointer is already elsewhere.
+		await fireEvent.click(remove);
+		expect(onRemove).toHaveBeenCalledTimes(2);
+		expect(focusFallback).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not remove while disabled", async () => {

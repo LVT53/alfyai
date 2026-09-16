@@ -582,5 +582,49 @@ test.describe("composer chips on a phone", () => {
 			.first()
 			.boundingBox();
 		expect(composerBox?.height ?? 0).toBeLessThan(220);
+
+		// Scrolled to the end, nothing is hidden any more: the fade and the
+		// `+N` lift, and the last chip's × is under the thumb rather than under
+		// the counter. (The last chip's right edge sits inside the fade's band
+		// whenever the rail is at its end, so a count that only measured edges
+		// would say "+1" forever and park the counter on top of that ×.)
+		await row.evaluate((element) => {
+			element.scrollLeft = element.scrollWidth;
+		});
+		await expect(more).toBeHidden();
+		const lastRemove = page.getByRole("button", {
+			name: `Remove ${PDF_ARTIFACT.name}`,
+		});
+		await expect(lastRemove).toBeVisible();
+		const railBox = await row.boundingBox();
+		const lastRemoveBox = await lastRemove.boundingBox();
+		expect(
+			(lastRemoveBox?.x ?? 0) + (lastRemoveBox?.width ?? 0),
+		).toBeLessThanOrEqual((railBox?.x ?? 0) + (railBox?.width ?? 0) + 1);
+
+		// The outline disclosure beside the attachment opens a popover that is
+		// actually SEEN: the rail clips its own overflow, so the popover is
+		// anchored to the viewport instead and sits above the rail.
+		const disclosure = page.getByTestId("attachment-outline-disclosure");
+		await disclosure.click();
+		const popover = page.getByTestId("attachment-outline-popover");
+		await expect(popover).toBeVisible();
+		const popoverBox = await popover.boundingBox();
+		const disclosureBox = await disclosure.boundingBox();
+		expect(popoverBox?.width ?? 0).toBeGreaterThan(100);
+		expect(popoverBox?.height ?? 0).toBeGreaterThan(30);
+		expect(
+			(popoverBox?.y ?? 0) + (popoverBox?.height ?? 0),
+		).toBeLessThanOrEqual(disclosureBox?.y ?? 0);
+		expect(popoverBox?.x ?? 0).toBeGreaterThanOrEqual(0);
+		expect((popoverBox?.x ?? 0) + (popoverBox?.width ?? 0)).toBeLessThanOrEqual(
+			PHONE.width,
+		);
+		// ...and Escape closes it, handing focus back to its button.
+		await page.keyboard.press("Escape");
+		await expect(popover).toBeHidden();
+		await expect(
+			page.getByTestId("attachment-outline-disclosure"),
+		).toBeFocused();
 	});
 });

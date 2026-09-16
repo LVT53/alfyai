@@ -103,6 +103,23 @@ export function quoteChipLabel(quote: string): string {
 	return head.trim() || trimmed;
 }
 
+export type OutlineQuoteSource = {
+	title: string;
+	preview?: string | null | undefined;
+};
+
+/**
+ * The text a picked outline section becomes: `"<title>: <preview>…"`, or the
+ * bare title when the entry has no preview. This is the ONE place that
+ * string is built — AttachmentOutline calls it to make the quote, and
+ * `splitUserMessageQuotes` calls it to recognise the quote again in a sent
+ * message — so the two can never drift apart.
+ */
+export function buildOutlineQuote(entry: OutlineQuoteSource): string {
+	const preview = (entry.preview ?? "").trim();
+	return preview ? `${entry.title}: ${preview}…` : entry.title;
+}
+
 export type UserMessageQuoteSplit = {
 	/** Section headings to draw as quote chips, in the order they were sent. */
 	quoteLabels: string[];
@@ -118,10 +135,13 @@ export type UserMessageQuoteSplit = {
  * no new persisted field for it — see message-provenance.ts for the same
  * rule on the assistant side), so the only honest way to draw the chip again
  * in the stream is to recognise the text it produced. That text is not
- * guessed at: `AttachmentOutline.buildQuote` builds exactly
- * `"<title>: <preview>…"` (or bare `"<title>"`) from an outline entry that is
+ * guessed at: `buildOutlineQuote` builds it from an outline entry that is
  * PERSISTED on the attachment, so a leading block is treated as a quote only
- * when it matches an outline entry of this very message, exactly.
+ * when it is, byte for byte, the quote one of THIS message's outline entries
+ * expands to. Matching the whole quote rather than only the heading before
+ * the colon is what keeps a sentence the user typed themselves — "Summary:
+ * please give me one" under a document with a "Summary" heading — from being
+ * swallowed into a chip.
  *
  * Anything that does not match is left in the body untouched, which is the
  * safe direction to fail: a quote shown as prose is a cosmetic miss, but
@@ -129,23 +149,38 @@ export type UserMessageQuoteSplit = {
  */
 export function splitUserMessageQuotes(
 	content: string,
-	outlineTitles: string[],
+	outline: OutlineQuoteSource[],
 ): UserMessageQuoteSplit {
-	if (outlineTitles.length === 0) return { quoteLabels: [], body: content };
-	const titles = new Set(outlineTitles.map((title) => title.trim()));
+	if (outline.length === 0) return { quoteLabels: [], body: content };
+	const quotesByText = new Map<string, string>();
+	for (const entry of outline) {
+		const quote = buildOutlineQuote(entry).trim();
+		if (quote && !quotesByText.has(quote)) {
+			quotesByText.set(quote, quoteChipLabel(quote));
+		}
+	}
 	const quoteLabels: string[] = [];
 	let rest = content;
 	// Quotes are expanded ABOVE the typed text, separated by a blank line, in
-	// pick order — so peel blocks off the front until one does not match.
+	// pick order — so peel whole quotes off the front until one does not
+	// match. A quote is only consumed when what follows it is the blank-line
+	// separator or the end of the message, so a quote's text merely
+	// PREFIXING a longer paragraph is left alone.
 	for (;;) {
-		const split = rest.indexOf("\n\n");
-		const block = (split === -1 ? rest : rest.slice(0, split)).trim();
-		if (!block) break;
-		const colon = block.indexOf(":");
-		const head = (colon > 0 ? block.slice(0, colon) : block).trim();
-		if (!titles.has(head)) break;
-		quoteLabels.push(head);
-		rest = split === -1 ? "" : rest.slice(split + 2);
+		const trimmed = rest.trimStart();
+		if (!trimmed) break;
+		let matched: string | null = null;
+		for (const [quote, label] of quotesByText) {
+			if (!trimmed.startsWith(quote)) continue;
+			const after = trimmed.slice(quote.length);
+			const separated = after.trim() === "" || /^[ \t]*\n\s*\n/.test(after);
+			if (!separated) continue;
+			matched = quote;
+			quoteLabels.push(label);
+			rest = after;
+			break;
+		}
+		if (!matched) break;
 	}
 	return { quoteLabels, body: quoteLabels.length > 0 ? rest.trim() : content };
 }
