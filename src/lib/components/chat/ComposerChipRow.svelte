@@ -42,7 +42,8 @@ let collapsed = $derived(scrollOnPhone && !expanded);
 
 // How many chips the rail is currently hiding. Measured rather than guessed:
 // a chip's width depends on its label, so nothing short of comparing each
-// child's right edge against the rail's own can answer this honestly.
+// child's right edge against the rail's own can answer this honestly. Re-run
+// on scroll too: a chip the user has dragged into view is no longer hidden.
 function measure() {
 	const rail = railElement;
 	if (!rail || !collapsed) {
@@ -63,12 +64,31 @@ $effect(() => {
 	const rail = railElement;
 	if (!rail || typeof ResizeObserver === "undefined") return;
 	// Re-read whenever the rail resizes OR its children change (a chip added
-	// or removed), which is every case that can change the hidden count.
+	// or removed), which is every case that can change the hidden count. The
+	// two need different observers: in a nowrap rail whose items do not
+	// shrink, appending a chip resizes neither the rail nor the chips already
+	// in it, so only a childList mutation sees it arrive — and the new child
+	// must then be observed for resizes of its own (a label that ellipsises
+	// later, say).
 	const observer = new ResizeObserver(() => measure());
+	const observeChildren = () => {
+		for (const child of Array.from(rail.children)) observer.observe(child);
+	};
 	observer.observe(rail);
-	for (const child of Array.from(rail.children)) observer.observe(child);
+	observeChildren();
+	const mutations =
+		typeof MutationObserver === "undefined"
+			? null
+			: new MutationObserver(() => {
+					observeChildren();
+					measure();
+				});
+	mutations?.observe(rail, { childList: true });
 	measure();
-	return () => observer.disconnect();
+	return () => {
+		observer.disconnect();
+		mutations?.disconnect();
+	};
 });
 
 // Collapsing again re-measures; expanding clears the count by construction.
@@ -84,6 +104,7 @@ $effect(() => {
 		class="composer-chip-row"
 		class:composer-chip-row--scroll={collapsed}
 		aria-label={label}
+		onscroll={measure}
 	>
 		{@render children()}
 	</ul>
@@ -145,6 +166,17 @@ $effect(() => {
 
 	.composer-chip-row--scroll::-webkit-scrollbar {
 		display: none;
+	}
+
+	/* A flex item shrinks by default, so in the nowrap rail every label
+	   collapsed to a letter and an ellipsis instead of the rail scrolling —
+	   and `measure()` above, comparing chips against the rail's right edge,
+	   counted a squashed chip as hidden. The rail owns this rule (the items
+	   arrive through a snippet, so the composer's own scoped CSS cannot see
+	   this parent): each item keeps its own width — the pill caps itself at
+	   280px — and the overflow is what scrolls. */
+	.composer-chip-row--scroll > :global(*) {
+		flex: 0 0 auto;
 	}
 
 	.composer-chip-rail__fade {

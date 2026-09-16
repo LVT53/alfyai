@@ -7,6 +7,15 @@
 // So it SKIPS unless CHIPS_CAPTURE=1, exactly like zz-capture-composer.spec.ts.
 //
 //   CHIPS_CAPTURE=1 E2E_PORT=5214 npx playwright test tests/e2e/zz-capture-chips.spec.ts
+//
+// What it photographs, per theme and per width:
+//   * the composer with the Atlas chip alone (warning tint, profile meta,
+//     bell BESIDE the pill);
+//   * the composer with a skill chip, an image chip (thumbnail) and a file
+//     chip (cost meta) in the one row;
+//   * a sent turn: the user bubble with its attachment and quote chips, and
+//     the assistant footer with its derived provenance line (skill + web).
+import { deflateSync } from "node:zlib";
 import { expect, type Page, test } from "@playwright/test";
 import { login } from "./helpers";
 
@@ -17,77 +26,61 @@ test.skip(
 
 const OUT =
 	process.env.CHIPS_CAPTURE_OUT ||
-	"/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/dc2da4d4-d513-4098-9b2b-8b6c426191eb/scratchpad/chips-redesign/current";
+	"/private/tmp/claude-501/-Users-lvt53-Nextcloud-Documents-DOYUN-FOLDER-Dev-alfyai/dc2da4d4-d513-4098-9b2b-8b6c426191eb/scratchpad/chips-redesign/impl";
 
-const DESKTOP = { width: 1440, height: 900 };
+const DESKTOP = { width: 1280, height: 900 };
 const PHONE = { width: 390, height: 844 };
 
-// A 1x1 transparent PNG — enough for the image-attachment chip, which today
-// renders a generic file-type glyph and never looks at the bytes.
-const PNG_1X1 = Buffer.from(
-	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
-	"base64",
-);
-
-async function setAdminConfig(page: Page, values: Record<string, string>) {
-	const response = await page.evaluate(async (payload) => {
-		const result = await fetch("/api/admin/config", {
-			method: "PUT",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(payload),
-		});
-		return { ok: result.ok, status: result.status };
-	}, values);
-	expect(response.ok, `admin config PUT -> ${response.status}`).toBe(true);
-}
-
-async function setTheme(page: Page, theme: "light" | "dark") {
-	const status = await page.evaluate(async (next) => {
-		const r = await fetch("/api/settings/preferences", {
-			method: "PATCH",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ theme: next }),
-		});
-		return r.status;
-	}, theme);
-	expect(status, `theme PATCH -> ${status}`).toBeLessThan(400);
-}
-
-async function settle(page: Page) {
-	await page.waitForTimeout(500);
-}
-
-// Crop to the composer plus a little air above it, so the PNG is about the
-// chips rather than the whole app chrome.
-async function shotComposer(page: Page, name: string, above = 200) {
-	const composer = page.locator(".message-composer").first();
-	await composer.waitFor({ state: "visible", timeout: 15000 });
-	// Svelte re-creates the composer subtree when chips come and go, so a
-	// bounding box read straight after an interaction can land on a detached
-	// node. Retry until one measurement survives.
-	let box: { x: number; y: number; width: number; height: number } | null = null;
-	for (let attempt = 0; attempt < 8 && !box; attempt += 1) {
-		try {
-			await composer.scrollIntoViewIfNeeded({ timeout: 5000 });
-			box = await composer.boundingBox();
-		} catch {
-			await page.waitForTimeout(250);
+// A 64x64 PNG with a visible gradient, so the image chip's thumbnail is
+// recognisably a picture rather than a transparent square.
+function gradientPng(): Buffer {
+	const size = 64;
+	const raw: number[] = [];
+	for (let y = 0; y < size; y += 1) {
+		raw.push(0);
+		for (let x = 0; x < size; x += 1) {
+			raw.push(
+				40 + Math.round((x / size) * 180),
+				90 + Math.round((y / size) * 120),
+				200 - Math.round((x / size) * 120),
+				255,
+			);
 		}
 	}
-	if (!box) throw new Error(`composer not measurable for ${name}`);
-	const viewport = page.viewportSize();
-	if (!viewport) throw new Error(`no viewport for ${name}`);
-	const y = Math.max(0, box.y - above);
-	await page.screenshot({
-		path: `${OUT}/${name}.png`,
-		clip: {
-			x: Math.max(0, box.x - 24),
-			y,
-			width: Math.min(viewport.width - Math.max(0, box.x - 24), box.width + 48),
-			height: Math.min(viewport.height - y, box.height + (box.y - y) + 40),
-		},
-	});
+	const idat = deflateSync(Buffer.from(raw));
+	function chunk(type: string, data: Buffer) {
+		const len = Buffer.alloc(4);
+		len.writeUInt32BE(data.length);
+		const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+		const crc = Buffer.alloc(4);
+		crc.writeUInt32BE(crc32(body) >>> 0);
+		return Buffer.concat([len, body, crc]);
+	}
+	function crc32(buffer: Buffer) {
+		let c = -1;
+		for (const byte of buffer) {
+			c ^= byte;
+			for (let k = 0; k < 8; k += 1) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+		}
+		return ~c;
+	}
+	const ihdr = Buffer.alloc(13);
+	ihdr.writeUInt32BE(size, 0);
+	ihdr.writeUInt32BE(size, 4);
+	ihdr[8] = 8;
+	ihdr[9] = 6;
+	ihdr[10] = 0;
+	ihdr[11] = 0;
+	ihdr[12] = 0;
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		chunk("IHDR", ihdr),
+		chunk("IDAT", idat),
+		chunk("IEND", Buffer.alloc(0)),
+	]);
 }
+
+const THUMB_PNG = gradientPng();
 
 type UploadArtifact = {
 	id: string;
@@ -135,8 +128,64 @@ const IMAGE_ARTIFACT: UploadArtifact = {
 	sizeBytes: 1_204_889,
 };
 
-// One route for /api/knowledge/upload that answers with whatever artifact is
-// next in the queue, so the same helper can stage a PDF and then an image.
+async function setAdminConfig(page: Page, values: Record<string, string>) {
+	const response = await page.evaluate(async (payload) => {
+		const result = await fetch("/api/admin/config", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload),
+		});
+		return { ok: result.ok, status: result.status };
+	}, values);
+	expect(response.ok, `admin config PUT -> ${response.status}`).toBe(true);
+}
+
+async function setTheme(page: Page, theme: "light" | "dark") {
+	const status = await page.evaluate(async (next) => {
+		const r = await fetch("/api/settings/preferences", {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ theme: next }),
+		});
+		return r.status;
+	}, theme);
+	expect(status, `theme PATCH -> ${status}`).toBeLessThan(400);
+}
+
+async function settle(page: Page) {
+	await page.waitForTimeout(500);
+}
+
+// Crop to the composer plus a little air above it, so the PNG is about the
+// chips rather than the whole app chrome.
+async function shotComposer(page: Page, name: string, above = 200) {
+	const composer = page.locator(".message-composer").first();
+	await composer.waitFor({ state: "visible", timeout: 15000 });
+	let box: { x: number; y: number; width: number; height: number } | null =
+		null;
+	for (let attempt = 0; attempt < 8 && !box; attempt += 1) {
+		try {
+			await composer.scrollIntoViewIfNeeded({ timeout: 5000 });
+			box = await composer.boundingBox();
+		} catch {
+			await page.waitForTimeout(250);
+		}
+	}
+	if (!box) throw new Error(`composer not measurable for ${name}`);
+	const viewport = page.viewportSize();
+	if (!viewport) throw new Error(`no viewport for ${name}`);
+	const y = Math.max(0, box.y - above);
+	await page.screenshot({
+		path: `${OUT}/${name}.png`,
+		clip: {
+			x: Math.max(0, box.x - 24),
+			y,
+			width: Math.min(viewport.width - Math.max(0, box.x - 24), box.width + 48),
+			height: Math.min(viewport.height - y, box.height + (box.y - y) + 40),
+		},
+	});
+}
+
 async function mockChipRoutes(page: Page) {
 	const uploadQueue: UploadArtifact[] = [];
 
@@ -163,54 +212,6 @@ async function mockChipRoutes(page: Page) {
 						updatedAt: 1,
 					},
 				],
-			}),
-		});
-	});
-
-	await page.route("**/api/knowledge", async (route) => {
-		if (route.request().method() !== "GET") {
-			await route.continue();
-			return;
-		}
-		await route.fulfill({
-			status: 200,
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				documents: [
-					{
-						id: "display-handbook",
-						displayArtifactId: "display-handbook",
-						promptArtifactId: "prompt-handbook",
-						familyArtifactIds: ["display-handbook", "prompt-handbook"],
-						name: "Employee handbook.docx",
-						mimeType:
-							"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-						sizeBytes: 220_000,
-						conversationId: null,
-						summary: "Employee handbook",
-						normalizedAvailable: true,
-						documentOrigin: "uploaded",
-						createdAt: 1,
-						updatedAt: 1,
-					},
-					{
-						id: "display-q3",
-						displayArtifactId: "display-q3",
-						promptArtifactId: "prompt-q3",
-						familyArtifactIds: ["display-q3", "prompt-q3"],
-						name: "Q3 board pack.pdf",
-						mimeType: "application/pdf",
-						sizeBytes: 980_000,
-						conversationId: null,
-						summary: "Q3 board pack",
-						normalizedAvailable: true,
-						documentOrigin: "generated",
-						createdAt: 2,
-						updatedAt: 2,
-					},
-				],
-				results: [],
-				workflows: [],
 			}),
 		});
 	});
@@ -259,6 +260,15 @@ async function mockChipRoutes(page: Page) {
 		});
 	});
 
+	// The image chip's crop comes from the authenticated preview endpoint.
+	await page.route("**/api/knowledge/*/preview", async (route) => {
+		await route.fulfill({
+			status: 200,
+			headers: { "Content-Type": "image/png" },
+			body: THUMB_PNG,
+		});
+	});
+
 	return {
 		queueUpload(artifact: UploadArtifact) {
 			uploadQueue.push(artifact);
@@ -266,16 +276,16 @@ async function mockChipRoutes(page: Page) {
 	};
 }
 
-async function createConversation(page: Page): Promise<string> {
-	const conversation = await page.evaluate(async () => {
+async function createConversation(page: Page, title: string): Promise<string> {
+	const conversation = await page.evaluate(async (nextTitle) => {
 		const result = await fetch("/api/conversations", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ title: "Chips capture" }),
+			body: JSON.stringify({ title: nextTitle }),
 		});
 		if (!result.ok) throw new Error(`create conversation ${result.status}`);
 		return (await result.json()) as { id: string };
-	});
+	}, title);
 	return conversation.id;
 }
 
@@ -289,16 +299,8 @@ async function typeCommand(page: Page, command: string) {
 async function addSkillChip(page: Page) {
 	await typeCommand(page, "$invoice");
 	await page.getByRole("option", { name: /Invoice reply/i }).click();
-	await expect(page.locator(".pending-skill-chip").first()).toBeVisible();
+	await expect(page.getByTestId("composer-chip-skill")).toBeVisible();
 	await page.getByTestId("message-input").fill("");
-}
-
-async function toggleWebChip(page: Page) {
-	await page.getByTestId("composer-tools-trigger").click();
-	await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
-	await page.getByTestId("composer-menu-web-search").click();
-	await page.keyboard.press("Escape");
-	await expect(page.getByTestId("composer-tools-menu")).toBeHidden();
 }
 
 async function pickAtlasProfile(page: Page, label: RegExp) {
@@ -310,6 +312,7 @@ async function pickAtlasProfile(page: Page, label: RegExp) {
 		.first()
 		.click({ force: true });
 	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("composer-chip-atlas")).toBeVisible();
 }
 
 async function attach(
@@ -319,57 +322,162 @@ async function attach(
 	bytes: Buffer,
 ) {
 	queue(artifact);
-	await page.locator('input[type="file"]').setInputFiles({
+	const fileInput = page.locator('input[type="file"]');
+	await expect(fileInput).toBeEnabled({ timeout: 20000 });
+	await fileInput.setInputFiles({
 		name: artifact.name,
 		mimeType: artifact.mimeType,
 		buffer: bytes,
 	});
-	await expect(page.getByText(artifact.name, { exact: true }).first()).toBeVisible(
-		{ timeout: 20000 },
+	await expect(
+		page
+			.getByTestId("composer-chip-attachment")
+			.filter({ hasText: artifact.name }),
+	).toBeVisible({ timeout: 20000 });
+}
+
+// The stream fixture. A universal load on a direct page.goto runs on the
+// server, out of reach of page.route, so the in-stream capture navigates
+// CLIENT-SIDE to this conversation and patches the real detail response on
+// the way through: the same conversation, the same shape, with two turns
+// dropped in. thinkingSegments is what the live stream leaves on a message;
+// responseActivity is what a reload projects — both are set so the
+// provenance line is derived the same way either path would derive it.
+function streamFixtureMessages(conversationId: string) {
+	const sentAt = Date.now() - 90_000;
+	return [
+		{
+			id: "capture-user-1",
+			role: "user",
+			content:
+				"2.3 Break clause: Either party may terminate on six months' written notice…\n\nCan we get out of this early, and what would it cost us?",
+			timestamp: sentAt,
+			attachments: [
+				{
+					id: "link-lease",
+					artifactId: PDF_ARTIFACT.id,
+					name: PDF_ARTIFACT.name,
+					type: "source_document",
+					mimeType: PDF_ARTIFACT.mimeType,
+					sizeBytes: PDF_ARTIFACT.sizeBytes,
+					conversationId,
+					messageId: "capture-user-1",
+					createdAt: sentAt,
+					tokenEstimate: PDF_ARTIFACT.tokenEstimate,
+					pageCount: PDF_ARTIFACT.pageCount,
+					outline: PDF_ARTIFACT.outline,
+				},
+				{
+					id: "link-floorplan",
+					artifactId: IMAGE_ARTIFACT.id,
+					name: IMAGE_ARTIFACT.name,
+					type: "source_document",
+					mimeType: IMAGE_ARTIFACT.mimeType,
+					sizeBytes: IMAGE_ARTIFACT.sizeBytes,
+					conversationId,
+					messageId: "capture-user-1",
+					createdAt: sentAt,
+				},
+			],
+		},
+		{
+			id: "capture-assistant-1",
+			role: "assistant",
+			content:
+				"Yes — the break clause lets either party end the lease early, but only after the first twelve months and with six months' written notice. Serving notice on 1 October would end the lease on 31 March, and the landlord can still recover the service charge for that period.",
+			timestamp: sentAt + 14_000,
+			isStreaming: false,
+			modelDisplayName: "Flash-Next",
+			generationDurationMs: 9_400,
+			thinking:
+				"The user is asking about the break clause. The Invoice reply skill applies to the tone; a quick web check on notice periods is worth it.",
+			thinkingSegments: [
+				{
+					type: "tool_call",
+					callId: "call-skill",
+					name: "use_skill",
+					input: { displayName: "Invoice reply" },
+					status: "done",
+				},
+				{
+					type: "tool_call",
+					callId: "call-web",
+					name: "research_web",
+					input: { query: "commercial lease break clause notice period" },
+					status: "done",
+				},
+			],
+			responseActivity: [
+				{
+					id: "act-skill",
+					kind: "tool",
+					status: "done",
+					toolName: "use_skill",
+					label: "Invoice reply",
+					callId: "call-skill",
+				},
+				{
+					id: "act-web",
+					kind: "tool",
+					status: "done",
+					toolName: "research_web",
+					label: "Web search",
+					sourceType: "web",
+					callId: "call-web",
+				},
+			],
+		},
+	];
+}
+
+async function mockStreamDetail(page: Page, conversationId: string) {
+	await page.route(
+		(url) => url.pathname === `/api/conversations/${conversationId}`,
+		async (route) => {
+			if (route.request().method() !== "GET") {
+				await route.continue();
+				return;
+			}
+			const response = await route.fetch();
+			const json = (await response.json()) as Record<string, unknown>;
+			json.messages = streamFixtureMessages(conversationId);
+			json.bootstrap = false;
+			await route.fulfill({ response, json });
+		},
 	);
 }
 
-async function linkDocuments(page: Page) {
-	await typeCommand(page, "/document");
-	// Keyboard, not a click: at 390px the tray sits under the textarea, which
-	// swallows the pointer. The tray already marks the row as its active
-	// descendant, so Enter picks exactly the row a click would have hit.
-	await expect(
-		page.getByRole("listbox", { name: "Composer commands" }),
-	).toBeVisible();
-	await page.keyboard.press("Enter");
-	const picker = page.getByRole("dialog", { name: "Link Library documents" });
-	await expect(picker).toBeVisible();
-	await picker.getByRole("checkbox", { name: "Employee handbook.docx" }).check();
-	await page.getByRole("button", { name: "Link selected documents" }).click();
-	await expect(page.getByText("Employee handbook.docx").first()).toBeVisible();
-	await page.getByTestId("message-input").fill("");
+async function navigateClientSide(page: Page, href: string) {
+	// The link must be handled by SvelteKit's client router, or the load runs
+	// on the server and the patched detail response never happens. The
+	// composer's file input is disabled until hydration, so it doubles as the
+	// "router is attached" signal.
+	await expect(page.locator('input[type="file"]')).toBeEnabled({
+		timeout: 30000,
+	});
+	await page.evaluate((next) => {
+		const anchor = document.createElement("a");
+		anchor.href = next;
+		anchor.textContent = "capture";
+		document.body.appendChild(anchor);
+		anchor.click();
+	}, href);
 }
 
-// The real cap is a megabyte, which no capture can type into. Specs that want
-// to photograph the over-length counter shrink it for the page load and put it
-// back afterwards (restoreMessageLength below).
-const SHORT_MAX_MESSAGE_LENGTH = "400";
-const DEFAULT_MAX_MESSAGE_LENGTH = "1048576";
-
-async function bootstrap(
-	page: Page,
-	theme: "light" | "dark",
-	options: { shortMessageCap?: boolean } = {},
-) {
+async function bootstrap(page: Page, theme: "light" | "dark") {
 	await login(page);
 	await setTheme(page, theme);
 	await setAdminConfig(page, {
 		COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
 		ATLAS_WORKER_ENABLED: "true",
 		PARALLEL_API_KEY: "fake-chips-capture-key",
-		MAX_MESSAGE_LENGTH: options.shortMessageCap
-			? SHORT_MAX_MESSAGE_LENGTH
-			: DEFAULT_MAX_MESSAGE_LENGTH,
+		MAX_MESSAGE_LENGTH: "1048576",
 	});
 	const routes = await mockChipRoutes(page);
-	const conversationId = await createConversation(page);
-	await page.goto(`/chat/${conversationId}`, { waitUntil: "domcontentloaded" });
+	const composerId = await createConversation(page, "Composer chips");
+	const streamId = await createConversation(page, "Break clause");
+	await mockStreamDetail(page, streamId);
+	await page.goto(`/chat/${composerId}`, { waitUntil: "domcontentloaded" });
 	await expect(page.getByTestId("message-input")).toBeVisible({
 		timeout: 20000,
 	});
@@ -379,193 +487,120 @@ async function bootstrap(
 		)
 		.toBe(theme === "dark");
 	await settle(page);
-	return routes;
+	return { routes, composerId, streamId };
+}
+
+async function dismissDegradedBanner(page: Page) {
+	const dismiss = page.getByRole("button", { name: "Dismiss" }).first();
+	if (await dismiss.isVisible().catch(() => false)) {
+		await dismiss.click();
+		await settle(page);
+	}
+}
+
+async function captureComposer(
+	page: Page,
+	w: string,
+	queue: (artifact: UploadArtifact) => void,
+	profile: RegExp,
+) {
+	await dismissDegradedBanner(page);
+	// 1. The Atlas chip alone — warning tint, profile in the meta, bell beside.
+	await pickAtlasProfile(page, profile);
+	await settle(page);
+	await shotComposer(page, `${w}-composer-atlas`, 120);
+	await page.screenshot({ path: `${OUT}/${w}-composer-atlas-full.png` });
+	await page.getByRole("button", { name: "Remove Atlas" }).click();
+	await expect(page.getByTestId("composer-chip-atlas")).toHaveCount(0);
+
+	// 2. Skill + image + file in the one row.
+	await addSkillChip(page);
+	await attach(page, queue, IMAGE_ARTIFACT, THUMB_PNG);
+	await attach(page, queue, PDF_ARTIFACT, Buffer.from("%PDF-1.4"));
+	await page
+		.getByTestId("message-input")
+		.fill("Draft a reply to the landlord about the break clause.");
+	await settle(page);
+	await shotComposer(page, `${w}-composer-skill-image-file`, 120);
+	await page.screenshot({
+		path: `${OUT}/${w}-composer-skill-image-file-full.png`,
+	});
+}
+
+async function captureStream(page: Page, w: string, streamId: string) {
+	await navigateClientSide(page, `/chat/${streamId}`);
+	const user = page.getByTestId("user-message").first();
+	const assistant = page.getByTestId("assistant-message").first();
+	// The provenance line is the assistant turn's FOOTER — a sibling of the
+	// bubble that carries the test id, not a child of it.
+	const provenance = page.getByTestId("message-provenance").first();
+	await expect(assistant).toBeVisible({ timeout: 20000 });
+	await expect(provenance).toBeVisible({ timeout: 20000 });
+	await expect(user.getByTestId("user-bubble-quote-chip")).toBeVisible();
+	await dismissDegradedBanner(page);
+	await settle(page);
+	await page.screenshot({ path: `${OUT}/${w}-stream.png` });
+	await user.screenshot({ path: `${OUT}/${w}-stream-user-bubble.png` });
+
+	// Bubble + footer together: from the top of the answer to just under the
+	// provenance line's action row.
+	await assistant.hover();
+	await settle(page);
+	const bubbleBox = await assistant.boundingBox();
+	const lineBox = await provenance.boundingBox();
+	const viewport = page.viewportSize();
+	if (!bubbleBox || !lineBox || !viewport) {
+		throw new Error(`assistant turn not measurable for ${w}`);
+	}
+	const x = Math.max(0, Math.min(bubbleBox.x, lineBox.x) - 12);
+	const y = Math.max(0, bubbleBox.y - 12);
+	await page.screenshot({
+		path: `${OUT}/${w}-stream-assistant-provenance.png`,
+		clip: {
+			x,
+			y,
+			width: Math.min(
+				viewport.width - x,
+				Math.max(bubbleBox.x + bubbleBox.width, lineBox.x + lineBox.width) -
+					x +
+					12,
+			),
+			height: Math.min(
+				viewport.height - y,
+				lineBox.y + lineBox.height - y + 56,
+			),
+		},
+	});
 }
 
 for (const theme of ["light", "dark"] as const) {
-	test(`desktop ${theme} composer chips`, async ({ page }) => {
-		test.setTimeout(180_000);
-		await page.setViewportSize(DESKTOP);
-		const routes = await bootstrap(page, theme, { shortMessageCap: true });
-		const w = `1440-${theme}`;
+	test.describe(`desktop ${theme}`, () => {
+		test.use({ viewport: DESKTOP });
 
-		await shotComposer(page, `${w}-01-rest`, 80);
-
-		await addSkillChip(page);
-		await settle(page);
-		await shotComposer(page, `${w}-02-skill-chip`, 80);
-
-		await toggleWebChip(page);
-		await settle(page);
-		await shotComposer(page, `${w}-03-skill-plus-web`, 120);
-
-		for (const [slug, label] of [
-			["overview", /Overview/i],
-			["in-depth", /In-Depth/i],
-			["exhaustive", /Exhaustive/i],
-		] as const) {
-			await pickAtlasProfile(page, label);
-			await settle(page);
-			await shotComposer(page, `${w}-04-atlas-${slug}`, 160);
-		}
-
-		await attach(page, routes.queueUpload, PDF_ARTIFACT, Buffer.from("%PDF-1.4"));
-		await settle(page);
-		await shotComposer(page, `${w}-05-pdf-attached`, 200);
-
-		await attach(page, routes.queueUpload, IMAGE_ARTIFACT, PNG_1X1);
-		await settle(page);
-		await shotComposer(page, `${w}-06-pdf-plus-image`, 260);
-
-		// The outline panel under the PDF chip — the surface the "quoted text"
-		// chip is produced from.
-		const outlineHeader = page
-			.locator(".attachment-outline-header")
-			.first();
-		if (await outlineHeader.isVisible().catch(() => false)) {
-			await settle(page);
-			await shotComposer(page, `${w}-07-attachment-outline`, 300);
-			await outlineHeader.hover();
-			await page.locator(".attachment-outline-row").first().hover();
-			await settle(page);
-			await shotComposer(page, `${w}-08-outline-quote-hover`, 300);
-			await page.locator(".attachment-outline-row").nth(1).click();
-			await settle(page);
-			await shotComposer(page, `${w}-09-quote-inserted`, 300);
-		}
-
-		await page.getByTestId("message-input").fill("");
-		await linkDocuments(page);
-		await settle(page);
-		await shotComposer(page, `${w}-10-everything-on`, 340);
-
-		// The over-length counter beside the chips.
-		await page
-			.getByTestId("message-input")
-			.fill("Please review the break clause before Friday. ".repeat(12));
-		await expect(page.getByTestId("over-length-counter")).toBeVisible();
-		await settle(page);
-		await shotComposer(page, `${w}-11-over-length-with-chips`, 340);
-
-		// Hover and focus on a remove button — the states the redesign has to
-		// improve on.
-		await page.getByTestId("message-input").fill("");
-		const removeButton = page.locator(".pending-skill-chip__remove").first();
-		if (await removeButton.isVisible().catch(() => false)) {
-			await removeButton.hover();
-			await settle(page);
-			await shotComposer(page, `${w}-12-remove-hover`, 340);
-			await removeButton.focus();
-			await settle(page);
-			await shotComposer(page, `${w}-13-remove-focus`, 340);
-		}
-
-		await setAdminConfig(page, {
-			MAX_MESSAGE_LENGTH: DEFAULT_MAX_MESSAGE_LENGTH,
+		test("composer and stream chips", async ({ page }) => {
+			test.setTimeout(180_000);
+			const { routes, composerId, streamId } = await bootstrap(page, theme);
+			const w = `1280-${theme}`;
+			await captureStream(page, w, streamId);
+			await navigateClientSide(page, `/chat/${composerId}`);
+			await expect(page.getByTestId("user-message")).toHaveCount(0);
+			await captureComposer(page, w, routes.queueUpload, /In-Depth/i);
 		});
 	});
 
-	test(`phone ${theme} composer chips`, async ({ page }) => {
-		test.setTimeout(180_000);
-		await page.setViewportSize(PHONE);
-		const routes = await bootstrap(page, theme);
-		const w = `390-${theme}`;
+	test.describe(`phone ${theme}`, () => {
+		test.use({ viewport: PHONE, hasTouch: true, isMobile: true });
 
-		await page.screenshot({ path: `${OUT}/${w}-01-rest.png` });
-
-		await addSkillChip(page);
-		await toggleWebChip(page);
-		await settle(page);
-		await page.screenshot({ path: `${OUT}/${w}-02-skill-plus-web.png` });
-
-		// Linked documents first: once the PDF's outline panel is open it
-		// covers the command tray at this width, which is itself worth a note.
-		await linkDocuments(page);
-		await settle(page);
-		await page.screenshot({ path: `${OUT}/${w}-03-linked-document.png` });
-
-		await attach(page, routes.queueUpload, PDF_ARTIFACT, Buffer.from("%PDF-1.4"));
-		await attach(page, routes.queueUpload, IMAGE_ARTIFACT, PNG_1X1);
-		await settle(page);
-		await page.screenshot({ path: `${OUT}/${w}-04-everything-on.png` });
-	});
-
-	test(`desktop ${theme} queued banner and in-stream chips`, async ({ page }) => {
-		test.setTimeout(180_000);
-		await page.setViewportSize(DESKTOP);
-		const routes = await bootstrap(page, theme);
-		const w = `1440-${theme}`;
-
-		// A stream that never finishes: the composer stays in its generating
-		// state, which is the only way the queue button (and then the queued
-		// banner) appears.
-		let releaseStream: (() => void) | null = null;
-		const held = new Promise<void>((resolve) => {
-			releaseStream = resolve;
+		test("composer and stream chips", async ({ page }) => {
+			test.setTimeout(180_000);
+			const { routes, composerId, streamId } = await bootstrap(page, theme);
+			const w = `390-${theme}`;
+			await captureStream(page, w, streamId);
+			await navigateClientSide(page, `/chat/${composerId}`);
+			await expect(page.getByTestId("user-message")).toHaveCount(0);
+			// At 390px the profile sheet shows only its first card inside the
+			// viewport; Overview is the one a finger can reach without scrolling.
+			await captureComposer(page, w, routes.queueUpload, /Overview/i);
 		});
-		await page.route("**/api/chat/stream", async (route) => {
-			await held;
-			await route.fulfill({
-				status: 200,
-				headers: {
-					"Content-Type": "text/event-stream",
-					"Cache-Control": "no-cache",
-				},
-				body: [
-					'data: {"type":"text-start","id":"a"}\n\n',
-					'data: {"type":"text-delta","id":"a","delta":"Here is the reply draft."}\n\n',
-					'data: {"type":"text-end","id":"a"}\n\n',
-					'data: {"type":"finish"}\n\n',
-					"data: [DONE]\n\n",
-				].join(""),
-			});
-		});
-
-		await attach(page, routes.queueUpload, PDF_ARTIFACT, Buffer.from("%PDF-1.4"));
-		await page
-			.getByTestId("message-input")
-			.fill("Draft a reply to the landlord about the break clause.");
-		await page.getByTestId("send-button").click();
-
-		await page
-			.getByTestId("message-input")
-			.fill("Also check the service charge recalculation date.");
-		const queueButton = page.getByTestId("queue-button");
-		await expect(queueButton).toBeVisible({ timeout: 20000 });
-		await settle(page);
-		await shotComposer(page, `${w}-20-queue-button`, 200);
-		await queueButton.click();
-		await expect(page.getByTestId("queued-message-banner")).toBeVisible();
-		await settle(page);
-		await shotComposer(page, `${w}-21-queued-banner`, 200);
-
-		releaseStream?.();
-		await expect(page.getByTestId("assistant-message").first()).toContainText(
-			"Here is the reply draft",
-			{ timeout: 30000 },
-		);
-		await settle(page);
-		await page.screenshot({
-			path: `${OUT}/${w}-22-stream-after-send.png`,
-			fullPage: false,
-		});
-
-		// The user bubble carries the attachment chip; the assistant turn's
-		// action row carries the follow-up chips. Both live in the stream.
-		const userBubble = page.getByTestId("user-message").first();
-		if (await userBubble.isVisible().catch(() => false)) {
-			await userBubble.scrollIntoViewIfNeeded();
-			await userBubble.hover();
-			await settle(page);
-			await page.screenshot({ path: `${OUT}/${w}-23-user-bubble-chips.png` });
-		}
-		const assistant = page.getByTestId("assistant-message").first();
-		if (await assistant.isVisible().catch(() => false)) {
-			await assistant.hover();
-			await settle(page);
-			await page.screenshot({
-				path: `${OUT}/${w}-24-assistant-action-row.png`,
-			});
-		}
 	});
 }

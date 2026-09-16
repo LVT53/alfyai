@@ -538,6 +538,28 @@ test.describe("composer chips on a phone", () => {
 			);
 		expect(new Set(tops).size).toBe(1);
 
+		// Sideways means the chips keep their width and the OVERFLOW scrolls —
+		// not that every label is squeezed to a letter and an ellipsis so the
+		// row fits. The rail is wider than its box, the first chip's label is
+		// still whole, and the `+N` disclosure counts what sits past the fade.
+		const overflow = await row.evaluate((element) => ({
+			scrollWidth: element.scrollWidth,
+			clientWidth: element.clientWidth,
+		}));
+		expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+		const skillLabel = page
+			.getByTestId("composer-chip-skill")
+			.locator(".composer-chip__label");
+		await expect(skillLabel).toHaveText("Invoice reply");
+		const labelFit = await skillLabel.evaluate((element) => ({
+			scrollWidth: element.scrollWidth,
+			clientWidth: element.clientWidth,
+		}));
+		expect(labelFit.scrollWidth).toBeLessThanOrEqual(labelFit.clientWidth + 1);
+		const more = page.getByTestId("composer-chip-row-more");
+		await expect(more).toBeVisible();
+		await expect(more).toHaveText(/^\+[1-9]\d*$/);
+
 		// The remove control keeps a 44px target without growing the pill.
 		const remove = page.getByRole("button", {
 			name: "Remove pending skill Invoice reply",
