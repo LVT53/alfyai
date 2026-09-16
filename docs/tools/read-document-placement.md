@@ -1,7 +1,61 @@
 # Where a `read_document` tool would fit
 
-Status: memo, 2026-09-15. No code. Written alongside the tool-description pass
-in `src/lib/server/services/normal-chat-tools/index.ts`.
+Status: memo, 2026-09-15, with the decision recorded below. Written alongside
+the tool-description pass in `src/lib/server/services/normal-chat-tools/index.ts`.
+
+## Decision (2026-09-15)
+
+The owner chose the recommendation at the bottom of this memo: **no new
+tool.** The gap is continuation, not discovery, so it is closed in two places
+the model already has — one push-side, one pull-side — and the catalogue
+stays at nineteen tools.
+
+**Push side — a continuation intent in Context Selection.**
+`inferDocumentContextIntent` (`chat-turn/context-selection.ts`) now recognises
+a request for *more* of a document that is already in play — "what else does
+it say", "the rest of it", "read on", "quote the whole clause", "in full",
+"next section"; "mi van még benne", "a többit", "olvasd tovább", "idézd be az
+egészet", "a következő rész" — and promotes the turn to `task` depth (or
+`direct` when the document selection is explicit, matching the existing
+branch). "In play" means current or carried-forward attachments, an active
+document, linked sources, a focused document, or — the new flag
+`hasRetrievedEvidence` — a knowledge hit that already landed in this turn's
+Retrieved Evidence. A bare "continue" with no document in play changes
+nothing. So the truncated 2-chunk / 1,400-char excerpt is re-served at the
+deeper budget on the very next turn, without the model having to call
+anything.
+
+**Pull side — `read_generated_file` reads every file in the conversation.**
+The tool keeps its name and its generated-file behaviour unchanged, and gains:
+
+- Documents. After the generated-file lookup it matches
+  `normalized_document` artifacts the user owns — this conversation first,
+  then the Knowledge Library — by case-insensitive exact name (uploaded
+  filename or normalized name), then stem, then a unique contains match.
+  Two equal candidates return `{found:false, ambiguous:true, candidates}`
+  with no content; it never fuzzy-picks. Every query is scoped by
+  `artifacts.userId`.
+- `from`. The 24,000-character window starts there; the payload carries
+  `from`, `to`, `hasMore`, `nextFrom`, `contentLength`. Callers passing
+  nothing behave as before.
+- `query`. Up to three passages of that one document, chosen by
+  `selectDocumentPassages` (`task-state/artifacts.ts`), which reuses
+  `rankArtifactChunks` / `chooseArtifactChunks` so the pull and the push
+  never disagree about relevance. Each passage carries `chunkIndex`,
+  `charOffset` when the chunk can be located in the text, the nearest
+  preceding outline `section`, and `hasMore`. There is **no `page` field**.
+- A per-turn cache (`tool-result-cache.ts`) keyed on the resolved artifact,
+  its `updatedAt`, `from`, `query` and the turn id.
+- EN and HU descriptions on the catalogue template, and the `files` /
+  `fetch_url` negatives now say "a file in this conversation" rather than
+  "produced in this conversation".
+
+**What remains.** Page anchors. `artifact_chunks` still has no page column,
+so a passage can be anchored to a section title and a character offset but
+not to a page. That is ingest work (record a page per chunk at chunking
+time); until it lands the tool must keep omitting `page` rather than guess.
+
+The rest of this memo is the analysis the decision was made on, unchanged.
 
 ## The question
 
