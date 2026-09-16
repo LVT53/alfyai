@@ -162,7 +162,9 @@ describe("ChatComposerPanel", () => {
 		expect(getByText("Wrapper source.md")).toBeInTheDocument();
 		expect(getByText("Wrapper Skill")).toBeInTheDocument();
 		expect(
-			getByRole("button", { name: "Remove Wrapper source.md" }),
+			getByRole("button", {
+				name: "Remove linked document Wrapper source.md",
+			}),
 		).toBeInTheDocument();
 		expect(
 			getByRole("button", { name: "Remove pending skill Wrapper Skill" }),
