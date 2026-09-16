@@ -18,9 +18,11 @@
 | `@ai-sdk/provider` | 2.x | 4.0.15 | transitive (imported directly) |
 | `@ai-sdk/gateway` | 3.0.194 | 4.0.82 | transitive |
 
-`ai` dist-tags: `ai-v6 = 6.0.283` (current install is the newest v6), `latest = 7.0.102`, `beta = 7.0.0-beta.*`.
+`ai` dist-tags: `ai-v6 = 6.0.283` (newest v6), `latest = 7.0.102`, `beta = 7.0.0-beta.*`. The repo is intentionally held at `ai` **6.0.193** (the versions at commit 4c8e255d) — see the caution below.
 
-**No urgency:** v6 is current and maintained (the `ai-v6` tag tracks it). The low-severity `ai`/`@ai-sdk` npm-audit items were already fixed *within* v6 — there is no security pressure forcing v7.
+**No urgency:** v6 is current and maintained (the `ai-v6` tag tracks it). There is no security pressure forcing v7.
+
+**⚠️ Caution — do NOT bump the AI SDK stack casually (even within v6).** `npm audit fix` bumped it to `ai` 6.0.283 (to clear one LOW advisory, `@ai-sdk/provider-utils` GHSA-866g-f22w-33x8, Uncontrolled Resource Consumption). That bump **silently introduced stricter forced-tool-choice enforcement** — the SDK now throws `AI_ToolChoiceViolationError` when a response doesn't call a required named tool. It broke 3 tests in `normal-chat-model/index.test.ts` ("sends named tool choice…", "disables Qwen thinking when preserving a forced named tool choice", "adapts DeepSeek thinking tool requests…") and, more importantly, risks the production forced-`produce_file` path if a local model ignores the forced tool. The stack was therefore reverted to 6.0.193. The AI SDK pins its internal deps **exactly** (`ai`/`openai-compatible` both require `@ai-sdk/provider-utils@4.0.27`), so the stack must move in lockstep — you cannot cleanly override just `provider-utils`. **Consequence:** one LOW advisory is knowingly deferred; it (and the tool-choice enforcement) should be resolved together as part of a deliberate, test-updated, staging-verified SDK move — ideally folded into this v7 upgrade. When you do, expect to update the mocks in those 3 tests to return a response that actually calls the forced tool, AND confirm the production forced-tool path handles/expects the new throw.
 
 ---
 
