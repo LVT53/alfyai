@@ -190,8 +190,49 @@ const DOCUMENT_REFERENCE_RE =
 // it say", "read on", "quote the whole clause", "a többit", "olvasd tovább".
 // Consulted only when a document is actually in play (see
 // inferDocumentContextIntent), so a bare "continue" never changes depth.
-const DOCUMENT_CONTINUATION_INTENT_RE =
-	/\bwhat\s+else\s+does\s+[\p{L}\s'-]{0,80}?\bsay\b|\bthe\s+rest(?:\s+of\s+(?:it|this|that))?\b|\bread\s+(?:on|further)\b|\bread\s+(?:it|this|that)\s+further\b|\b(?:continue|keep)\s+reading\b|\bmore\s+(?:of|from)\s+(?:it|this|that|the)\b|\bquote\s+(?:me\s+)?the\s+(?:whole|full|entire)\b|\bthe\s+(?:whole|full|entire)\s+(?:document|doc|file|text|pdf|report|section|clause|passage)\b|\bin\s+full\b|\beverything\s+(?:it|this|that|the\s+[\p{L}\s-]{0,80}?)\s+says\b|\bnext\s+(?:section|page|part|chapter)\b|\bshow\s+(?:me\s+)?all\s+of\s+(?:it|this|that)\b|(?:mi\s+van\s+még\s+benne|mi\s+van\s+meg\s+benne|mi\s+van\s+benne\s+még|mi\s+van\s+benne\s+meg|a\s+többi[\p{L}]*|a\s+tobbi[\p{L}]*|olvasd\s+tovább|olvasd\s+tovabb|folytasd\s+az\s+olvasás[\p{L}]*|folytasd\s+az\s+olvasas[\p{L}]*|idézd\s+(?:be\s+)?az\s+egész[\p{L}]*|idezd\s+(?:be\s+)?az\s+egesz[\p{L}]*|teljes\s+egészében|teljes\s+egeszeben|a\s+következő\s+(?:rész|oldal|fejezet|szakasz)[\p{L}]*|a\s+kovetkezo\s+(?:resz|oldal|fejezet|szakasz)[\p{L}]*|mutasd\s+(?:meg\s+)?az\s+egész[\p{L}]*|mutasd\s+(?:meg\s+)?az\s+egesz[\p{L}]*|még\s+többet\s+belőle|meg\s+tobbet\s+belole)/iu;
+//
+// Every open-ended phrase is anchored so ordinary talk stays at its usual
+// depth: "the rest" only bare or "of it / of the document" (never "the rest
+// of the team"), "in full" / "read on" only as the request's close (never
+// "in full swing", "read on the train"), "next section" never "next part
+// of the plan", "a többit" (the rest of it) never "a többi kolléga". The
+// Hungarian alternatives use a letter lookbehind instead of `\b`, which is
+// ASCII-only and so would let "ha többi" match through "a többi".
+const CONTINUATION_DOC_NOUN =
+	"(?:document|doc|file|text|pdf|report|contract|lease|policy|brief|section|clause|passage|chapter|page|appendix|attachment|source)";
+const CONTINUATION_TAIL =
+	"(?:\\s+(?:please|pls|now|thanks|thank\\s+you|kérlek|kerlek|légyszi|legyszi))?\\s*[?.!]*$";
+const CONTINUATION_HU_START = "(?<![\\p{L}])";
+const DOCUMENT_CONTINUATION_INTENT_RE = new RegExp(
+	[
+		"\\bwhat\\s+else\\s+does\\s+[\\p{L}\\s'-]{0,80}?\\bsay\\b",
+		`\\bthe\\s+rest\\b(?!\\s+of\\b(?!\\s+(?:it|this|that|the\\s+${CONTINUATION_DOC_NOUN})\\b))`,
+		`\\bread\\s+(?:on|further)${CONTINUATION_TAIL}`,
+		"\\bread\\s+on\\s+from\\b",
+		"\\bread\\s+(?:it|this|that)\\s+further\\b",
+		`\\b(?:continue|keep)\\s+reading\\b(?!\\s+(?:the|a|an|my|your|our|his|her|their)\\s+(?!${CONTINUATION_DOC_NOUN}\\b))`,
+		`\\bmore\\s+(?:of|from)\\s+(?:it|this|that|the\\s+${CONTINUATION_DOC_NOUN})\\b`,
+		"\\bquote\\s+(?:me\\s+)?the\\s+(?:whole|full|entire)\\b",
+		`\\bthe\\s+(?:whole|full|entire)\\s+${CONTINUATION_DOC_NOUN}\\b`,
+		`\\bin\\s+full${CONTINUATION_TAIL}`,
+		"\\beverything\\s+(?:it|this|that|the\\s+[\\p{L}\\s-]{0,80}?)\\s+says\\b",
+		`\\bnext\\s+(?:section|page|part|chapter)\\b(?!\\s+of\\b(?!\\s+(?:it|this|that|the\\s+${CONTINUATION_DOC_NOUN})\\b))`,
+		"\\bshow\\s+(?:me\\s+)?all\\s+of\\s+(?:it|this|that)\\b",
+		`${CONTINUATION_HU_START}mi\\s+van\\s+(?:még|meg)\\s+benne`,
+		`${CONTINUATION_HU_START}mi\\s+van\\s+benne\\s+(?:még|meg)`,
+		`${CONTINUATION_HU_START}a\\s+(?:többi|tobbi)(?:t|jét|jet)(?![\\p{L}])`,
+		`${CONTINUATION_HU_START}a\\s+(?:többi|tobbi)\\s+(?:rész|resz)[\\p{L}]*`,
+		`${CONTINUATION_HU_START}a\\s+(?:többi|tobbi)(?:\\s+is)?${CONTINUATION_TAIL}`,
+		`${CONTINUATION_HU_START}olvasd\\s+(?:tovább|tovabb)`,
+		`${CONTINUATION_HU_START}folytasd\\s+az\\s+(?:olvasás|olvasas)[\\p{L}]*`,
+		`${CONTINUATION_HU_START}(?:idézd|idezd)\\s+(?:be\\s+)?az\\s+(?:egész|egesz)[\\p{L}]*`,
+		`${CONTINUATION_HU_START}teljes\\s+(?:egészében|egeszeben)`,
+		`${CONTINUATION_HU_START}a\\s+(?:következő|kovetkezo)\\s+(?:rész|resz|oldal|fejezet|szakasz)[\\p{L}]*(?!\\s+a\\b)`,
+		`${CONTINUATION_HU_START}mutasd\\s+(?:meg\\s+)?az\\s+(?:egész|egesz)[\\p{L}]*`,
+		`${CONTINUATION_HU_START}(?:még|meg)\\s+(?:többet|tobbet)\\s+(?:belőle|belole)`,
+	].join("|"),
+	"iu",
+);
 const DEEP_CONTEXT_INTENT_RE =
 	/\b(attachment|attached|source|sources|document|doc|file|pdf|policy|report|brief|workspace|evidence|cite|citation|according to|based on|summarize|summarise|summary|compare|extract|review|check|rewrite|revise|edit|analyze|analyse|translate|convert|outline|project|task|plan|decision|decisions|remember|memory|earlier|previous|before|continue)\b|(?:dokumentum[\p{L}]*|doksi[\p{L}]*|fájl[\p{L}]*|fajl[\p{L}]*|csatolmány[\p{L}]*|csatolmany[\p{L}]*|melléklet[\p{L}]*|melleklet[\p{L}]*|forrás[\p{L}]*|forras[\p{L}]*|bizonyíték[\p{L}]*|bizonyitek[\p{L}]*|idéz[\p{L}]*|idez[\p{L}]*|összefoglal[\p{L}]*|foglal[\p{L}]*\s+össze|összegez[\p{L}]*|hasonlíts[\p{L}]*|hasonlits[\p{L}]*|elemez[\p{L}]*|ellenőriz[\p{L}]*|ellenoriz[\p{L}]*|javíts[\p{L}]*|javits[\p{L}]*|írd\s+át|ird\s+at|fordíts[\p{L}]*|fordits[\p{L}]*|projekt[\p{L}]*|feladat[\p{L}]*|terv[\p{L}]*|döntés[\p{L}]*|dontes[\p{L}]*|emléksz[\p{L}]*|emleksz[\p{L}]*|korábbi|korabbi|előző|elozo|folytasd)/iu;
 const META_CONTEXT_INTENT_RE =

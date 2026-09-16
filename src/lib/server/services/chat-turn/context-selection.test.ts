@@ -1281,6 +1281,72 @@ describe("inferDocumentContextIntent — document continuation", () => {
 		).not.toBe("reference");
 	});
 
+	it.each([
+		"the rest of the team is on holiday",
+		"the rest of the day is free",
+		"what does the rest of the team say about it",
+		"in full swing",
+		"we're in full agreement",
+		"pay the invoice in full by friday",
+		"in full view of everyone",
+		"read on the train",
+		"keep reading the news",
+		"continue reading the book i told you about",
+		"next part of the plan",
+		"next page of the calendar please",
+		"the next chapter of my life",
+		"next section of the exam",
+		"more of the same",
+		"more from the team",
+		"a többi kolléga is jön",
+		"vasárnap a többiek",
+		"ha többi van",
+		"a következő rész a filmből",
+	])("leaves ordinary talk like %j alone even with a document in play", (message) => {
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message,
+				hasRetrievedEvidence: true,
+			}),
+		).toBe(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message,
+				hasRetrievedEvidence: false,
+			}),
+		);
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message,
+				hasRetrievedEvidence: true,
+			}),
+		).not.toBe("task");
+	});
+
+	it.each([
+		"the rest",
+		"the rest of the document",
+		"read on please",
+		"keep reading the document",
+		"quote it in full.",
+		"next section of the document",
+		"next page please",
+		"continue reading it",
+		"a többi",
+		"a többi részét is",
+		"kérem a többit is",
+	])("still promotes %j", (message) => {
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message,
+				hasRetrievedEvidence: true,
+			}),
+		).toBe("task");
+	});
+
 	it("does not promote depth when no document is in play", () => {
 		for (const message of [
 			"the rest of it",
