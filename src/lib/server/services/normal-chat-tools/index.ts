@@ -241,7 +241,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		fetch_url: {
 			description:
-				'Read named web pages: {"urls": ["https://example.com"]} (always an array, at most 5) plus an optional `objective` saying what to extract. Call for a link the user gave, or a detail only that page has. Do not use it to find pages you have no URL for (research_web finds them, and its `readPages` returns page text), nor for stored or generated files (files, read_generated_file). Returns `evidence` snippets and an `answerBriefMarkdown`.',
+				'Read named web pages: {"urls": ["https://example.com"]} (always an array, at most 5) plus an optional `objective` saying what to extract. Call for a link the user gave, or a detail only that page has. Do not use it to find pages you have no URL for (research_web finds them, and its `readPages` returns page text), nor for stored files or files in this conversation (files, read_generated_file). Returns `evidence` snippets and an `answerBriefMarkdown`.',
 			errorPrefix: "Fetch URL failed",
 		},
 		map_route: {
@@ -266,7 +266,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		read_generated_file: {
 			description:
-				"Read the full current content of a file generated earlier in THIS conversation, by `filename` or `requestTitle`. Call it before sending `produce_file` patches: a patch whose oldText does not match the file exactly is rejected. Do not use it for stored files (files), web pages (fetch_url), or anything this conversation did not produce. Returns the file's current text, or not found — then say so instead of guessing.",
+				"Read the full current text of a file in THIS conversation — one produced here, or a document uploaded or linked here (the names under Conversation Files) — by `filename` or `requestTitle`. Call it before sending `produce_file` patches (a patch whose oldText does not match exactly is rejected), or when the user wants more of a document than your context shows. Long text comes in windows: when the result says `hasMore`, call again with `from: nextFrom`. Pass `query` to get up to 3 passages of that one file about a topic instead of the window. Do not use it for connected cloud storage (files), web pages (fetch_url), remembered preferences (memory_context), or when the passage you need is already quoted in your context. Returns text with `hasMore`/`nextFrom`, or not found / ambiguous (several files match — retry with one exact name); then say so instead of guessing.",
 			errorPrefix: "Read generated file failed",
 		},
 		run_python: {
@@ -276,7 +276,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		files: {
 			description:
-				"List, search, read, and manage the user's connected file storage (Nextcloud or OneDrive). `list` sees and counts a folder's contents (pass its path, or omit it for the root); `search` finds files by name across the whole tree; `read` opens one file by its path. Every result carries the last-modified time, so 'my most recent invoice' or 'the newest file' is answerable. Do not use it for photos or videos (photos), for a file produced in this conversation (read_generated_file), for a web page (fetch_url), or for remembered preferences (memory_context). Can also `save` a new file, `move`/rename (`destinationPath`), `delete` (to trash, recoverable), `create_folder`, and `share_link` (a PUBLIC link anyone with the URL can open, a deliberate exposure — use sparingly): these require the user to have enabled writes, are NOT available for OneDrive (read-only), and NEVER apply immediately — each only proposes a pending write the user must explicitly confirm. Returns entries with path, size and modified time; `read` adds the text. With several Files accounts connected, pass `account` (provider, label, or email).",
+				"List, search, read, and manage the user's connected file storage (Nextcloud or OneDrive). `list` sees and counts a folder's contents (pass its path, or omit it for the root); `search` finds files by name across the whole tree; `read` opens one file by its path. Every result carries the last-modified time, so 'my most recent invoice' or 'the newest file' is answerable. Do not use it for photos or videos (photos), for a file in this conversation (read_generated_file), for a web page (fetch_url), or for remembered preferences (memory_context). Can also `save` a new file, `move`/rename (`destinationPath`), `delete` (to trash, recoverable), `create_folder`, and `share_link` (a PUBLIC link anyone with the URL can open, a deliberate exposure — use sparingly): these require the user to have enabled writes, are NOT available for OneDrive (read-only), and NEVER apply immediately — each only proposes a pending write the user must explicitly confirm. Returns entries with path, size and modified time; `read` adds the text. With several Files accounts connected, pass `account` (provider, label, or email).",
 			errorPrefix: "Files lookup failed",
 		},
 		calendar: {
@@ -333,7 +333,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		fetch_url: {
 			description:
-				'Megnevezett weboldalak elolvasása: {"urls": ["https://example.com"]} (mindig tömb, legfeljebb 5) és opcionális `objective`, hogy mit keresel. Akkor hívd, ha a felhasználó linket adott, vagy ha egy részlet csak azon az oldalon található meg. Ne használd oldalak megkeresésére, amelyeknek nincs URL-je (a research_web keresi meg őket, és a `readPages`-szel oldalszöveget is ad), sem tárolt vagy generált fájlokhoz (files, read_generated_file). `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza.',
+				'Megnevezett weboldalak elolvasása: {"urls": ["https://example.com"]} (mindig tömb, legfeljebb 5) és opcionális `objective`, hogy mit keresel. Akkor hívd, ha a felhasználó linket adott, vagy ha egy részlet csak azon az oldalon található meg. Ne használd oldalak megkeresésére, amelyeknek nincs URL-je (a research_web keresi meg őket, és a `readPages`-szel oldalszöveget is ad), sem tárolt fájlokhoz vagy a beszélgetés fájljaihoz (files, read_generated_file). `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza.',
 			errorPrefix: "Az URL letöltése sikertelen",
 		},
 		map_route: {
@@ -358,7 +358,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		read_generated_file: {
 			description:
-				"Egy EBBEN a beszélgetésben korábban generált fájl teljes aktuális tartalmának beolvasása `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél: a fájllal pontosan nem egyező oldText-ű patch-et a szerver elutasítja. Ne használd tárolt fájlokhoz (files), weboldalhoz (fetch_url), sem olyasmihez, amit nem ez a beszélgetés állított elő. A fájl aktuális szövegét adja vissza, vagy azt, hogy nincs meg — akkor mondd ki, ne találgass.",
+				"Egy EBBEN a beszélgetésben lévő fájl teljes aktuális szövegének beolvasása — itt előállított fájlé, vagy ide feltöltött/csatolt dokumentumé (a Conversation Files alatti nevek) — `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél (a pontosan nem egyező oldText-ű patch-et a szerver elutasítja), vagy ha a felhasználó többet kér egy dokumentumból, mint amennyit a kontextusod mutat. A hosszú szöveg ablakokban érkezik: ha az eredményben `hasMore` áll, hívd újra `from: nextFrom` értékkel. A `query` megadásával az ablak helyett annak az egy fájlnak legfeljebb 3, a témához tartozó részletét kapod. Ne használd csatlakoztatott felhőtárhoz (files), weboldalhoz (fetch_url), megjegyzett preferenciákhoz (memory_context), sem akkor, ha a szükséges részlet már idézve van a kontextusodban. Szöveget ad vissza `hasMore`/`nextFrom` mezőkkel, vagy azt, hogy nincs meg / több fájl is egyezik (akkor hívd újra egy pontos névvel); ilyenkor mondd ki, ne találgass.",
 			errorPrefix: "A fájl beolvasása sikertelen",
 		},
 		run_python: {
@@ -368,7 +368,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		files: {
 			description:
-				"A felhasználó csatlakoztatott fájltárának (Nextcloud vagy OneDrive) listázása, keresése, olvasása és kezelése. A `list` egy mappa tartalmát nézi meg és számolja meg (add meg az útvonalát, vagy hagyd el a gyökérhez); a `search` név alapján keres az egész fában; a `read` egy konkrét fájlt nyit meg útvonal alapján. Minden találat tartalmazza az utolsó módosítás idejét ('a legutóbbi számlám', 'a legújabb fájl'). Ne használd fényképekhez vagy videókhoz (photos), egy ebben a beszélgetésben előállított fájlhoz (read_generated_file), weboldalhoz (fetch_url), sem megjegyzett preferenciákhoz (memory_context). Emellett új fájl mentésére (`save`), áthelyezésére/átnevezésére (`move`, `destinationPath`), törlésére (`delete` — a kukába, visszaállítható), mappa létrehozására (`create_folder`) és NYILVÁNOS megosztási link készítésére (`share_link` — a linkkel bárki megnyithatja a fájlt, szándékos közzététel, óvatosan) is képes: ezekhez az írásnak engedélyezve kell lennie, OneDrive-nál NEM elérhetők (csak olvasható), és SOHA nem lépnek életbe azonnal — mindegyik csak egy függőben lévő műveletet javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia. Találatokat ad vissza útvonallal, mérettel és módosítási idővel; a `read` a szöveget is. Több csatlakoztatott Files-fióknál add meg az `account` mezőt (szolgáltató, címke vagy e-mail).",
+				"A felhasználó csatlakoztatott fájltárának (Nextcloud vagy OneDrive) listázása, keresése, olvasása és kezelése. A `list` egy mappa tartalmát nézi meg és számolja meg (add meg az útvonalát, vagy hagyd el a gyökérhez); a `search` név alapján keres az egész fában; a `read` egy konkrét fájlt nyit meg útvonal alapján. Minden találat tartalmazza az utolsó módosítás idejét ('a legutóbbi számlám', 'a legújabb fájl'). Ne használd fényképekhez vagy videókhoz (photos), egy ebben a beszélgetésben lévő fájlhoz (read_generated_file), weboldalhoz (fetch_url), sem megjegyzett preferenciákhoz (memory_context). Emellett új fájl mentésére (`save`), áthelyezésére/átnevezésére (`move`, `destinationPath`), törlésére (`delete` — a kukába, visszaállítható), mappa létrehozására (`create_folder`) és NYILVÁNOS megosztási link készítésére (`share_link` — a linkkel bárki megnyithatja a fájlt, szándékos közzététel, óvatosan) is képes: ezekhez az írásnak engedélyezve kell lennie, OneDrive-nál NEM elérhetők (csak olvasható), és SOHA nem lépnek életbe azonnal — mindegyik csak egy függőben lévő műveletet javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia. Találatokat ad vissza útvonallal, mérettel és módosítási idővel; a `read` a szöveget is. Több csatlakoztatott Files-fióknál add meg az `account` mezőt (szolgáltató, címke vagy e-mail).",
 			errorPrefix: "A fájlok elérése sikertelen",
 		},
 		calendar: {
@@ -1306,8 +1306,12 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								conversationId: ctx.conversationId,
 								filename: parsedInput.data.filename ?? null,
 								requestTitle: parsedInput.data.requestTitle ?? null,
+								from: parsedInput.data.from ?? null,
+								query: parsedInput.data.query ?? null,
+								turnId: ctx.turnId,
 							});
 							const modelPayload = buildReadGeneratedFileModelPayload(result);
+							const found = !result.notFound && !result.ambiguous;
 							return {
 								modelPayload,
 								entry: {
@@ -1318,9 +1322,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 									outputSummary: summarizeReadGeneratedFileResult(result),
 									sourceType: "tool",
 									metadata: {
-										ok: !result.notFound,
+										ok: found,
 										evidenceReady: false,
-										found: !result.notFound,
+										found,
+										...(result.ambiguous ? { ambiguous: true } : {}),
+										...(result.source ? { source: result.source } : {}),
 									},
 								},
 							};
