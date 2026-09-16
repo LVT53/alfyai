@@ -73,6 +73,13 @@ export function computeMenuPlacement(
 	triggerRect: PlacementRect,
 	viewport: PlacementViewport,
 	width: number = MENU_WIDTH,
+	/**
+	 * The room above the trigger below which the surface flips downward.
+	 * The default is sized for the "+" menu; a shorter surface passes its
+	 * own, or it flips below a trigger it would have fitted above — which
+	 * on the landing page's centred composer puts it over the textarea.
+	 */
+	minSpaceAbove: number = MENU_MIN_SPACE_ABOVE,
 ): MenuPlacement {
 	const spaceAbove = triggerRect.top;
 	const spaceBelow = viewport.height - triggerRect.bottom;
@@ -83,7 +90,7 @@ export function computeMenuPlacement(
 		viewport.width - width - MENU_MARGIN,
 	);
 
-	const flip = spaceAbove < MENU_MIN_SPACE_ABOVE && spaceBelow > spaceAbove;
+	const flip = spaceAbove < minSpaceAbove && spaceBelow > spaceAbove;
 
 	if (flip) {
 		return {

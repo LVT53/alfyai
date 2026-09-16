@@ -18,6 +18,7 @@ import {
 	markConversationAtlasBadgeSeen,
 	moveConversationToProject,
 	reconcileConversationSnapshot,
+	removeConversationLocal,
 	renameConversation,
 	savePinnedConversationOrder,
 	toggleConversationSidebarPin,
@@ -234,6 +235,18 @@ describe("conversations store", () => {
 			}),
 		]);
 		expect(get(conversations)[0].memoryIncognito).toBe(false);
+	});
+
+	it("forgets a pre-set incognito flag when the prepared conversation is removed", () => {
+		// The landing page deletes a prepared conversation the user backed out
+		// of; a later conversation reusing the id must not inherit the flag.
+		updateConversationMemoryIncognitoLocal("conv-prepared", true);
+		removeConversationLocal("conv-prepared");
+
+		upsertConversationLocal("conv-prepared", "New Conversation", 500);
+		expect(get(conversations)).toEqual([
+			conversationItem("conv-prepared", "New Conversation", 500),
+		]);
 	});
 
 	it("can place an optimistic local conversation inside a project", () => {

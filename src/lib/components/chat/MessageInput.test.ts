@@ -2799,9 +2799,14 @@ describe("MessageInput incognito indicator", () => {
 
 		const popover = getByTestId("incognito-popover");
 		expect(popover).toHaveAttribute("role", "dialog");
+		expect(popover).toHaveAttribute("id", "incognito-popover");
 		expect(getByTestId("incognito-face")).toHaveAttribute(
 			"aria-expanded",
 			"true",
+		);
+		expect(getByTestId("incognito-face")).toHaveAttribute(
+			"aria-controls",
+			"incognito-popover",
 		);
 		expect(within(popover).getByText("Incognito is on")).toBeInTheDocument();
 		expect(
@@ -2837,6 +2842,44 @@ describe("MessageInput incognito indicator", () => {
 			expect(queryByTestId("incognito-popover")).toBeNull();
 		});
 		expect(getByPlaceholderText("Type a message...")).toBeInTheDocument();
+		// Focus was on the switch, which has left the DOM with the face; it
+		// lands on the textarea rather than falling to <body>.
+		await waitFor(() =>
+			expect(document.activeElement).toBe(getByTestId("message-input")),
+		);
+	});
+
+	it("opening the card puts the plus menu away, and the plus menu puts the card away", async () => {
+		const { getByTestId } = renderIncognito();
+
+		// The menus outro through svelte/transition, which jsdom never finishes,
+		// so the triggers' aria-expanded is what says which surface is open.
+		await openComposerMenu(getByTestId);
+		expect(getByTestId("composer-tools-trigger")).toHaveAttribute(
+			"aria-expanded",
+			"true",
+		);
+		await fireEvent.click(getByTestId("incognito-face"));
+		await tick();
+		expect(getByTestId("composer-tools-trigger")).toHaveAttribute(
+			"aria-expanded",
+			"false",
+		);
+		expect(getByTestId("incognito-face")).toHaveAttribute(
+			"aria-expanded",
+			"true",
+		);
+		expect(getByTestId("incognito-popover")).toBeInTheDocument();
+
+		await openComposerMenu(getByTestId);
+		expect(getByTestId("composer-tools-trigger")).toHaveAttribute(
+			"aria-expanded",
+			"true",
+		);
+		expect(getByTestId("incognito-face")).toHaveAttribute(
+			"aria-expanded",
+			"false",
+		);
 	});
 
 	it("puts the face back when the server refuses the change", async () => {
@@ -2919,7 +2962,7 @@ describe("MessageInput incognito indicator", () => {
 		await fireEvent.click(getByTestId("incognito-popover-toggle"));
 
 		await waitFor(() => {
-			expect(onMemoryIncognitoChange).toHaveBeenCalledWith(false);
+			expect(onMemoryIncognitoChange).toHaveBeenCalledWith(false, "conv-1");
 		});
 	});
 });

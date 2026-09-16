@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import {
 	Bell,
 	Brain,
@@ -280,8 +280,14 @@ let {
 	atlasAvailability?: AtlasAvailability | null;
 	/** Whether the current conversation is excluded from the memory pipeline. */
 	memoryIncognito?: boolean;
-	/** Emitted after a successful incognito toggle so parents can reconcile. */
-	onMemoryIncognitoChange?: ((value: boolean) => void) | undefined;
+	/**
+	 * Emitted after a successful incognito toggle so parents can reconcile.
+	 * The id travels with it because on the landing page the prepared
+	 * conversation can be cleared between the flip and the persist landing.
+	 */
+	onMemoryIncognitoChange?:
+		| ((value: boolean, conversationId: string) => void)
+		| undefined;
 	// Issue 7.4 fix pass — the composer's per-conversation active connection
 	// capability set is bindable so the page (the single cloud-warning
 	// chokepoint, see +page.svelte's ensureCloudWarningAcked) can read the
@@ -619,7 +625,7 @@ $effect(() => {
 async function persistIncognito(id: string, value: boolean): Promise<boolean> {
 	try {
 		await setConversationMemoryIncognito(id, value);
-		onMemoryIncognitoChange?.(value);
+		onMemoryIncognitoChange?.(value, id);
 		return true;
 	} catch {
 		return false;
@@ -651,6 +657,11 @@ let incognitoFaceTrigger = $state<HTMLButtonElement | undefined>(undefined);
 
 function toggleIncognitoPopover() {
 	showIncognitoPopover = !showIncognitoPopover;
+	if (showIncognitoPopover) {
+		showToolsMenu = false;
+		showConnectionsPopover = false;
+		closeCommandTray();
+	}
 }
 
 function closeIncognitoPopover(reason: IncognitoPopoverCloseReason) {
@@ -662,8 +673,21 @@ function closeIncognitoPopover(reason: IncognitoPopoverCloseReason) {
 
 // The card is about a state; when the state ends (from its own switch, the
 // "+" menu, or a failed persist rolling back) the card goes with the face.
-$effect(() => {
-	if (!incognitoOn) showIncognitoPopover = false;
+// Focus was on the card's switch or on the face, and both are about to
+// leave the DOM — left alone it would fall to <body>, so it moves to the
+// textarea, which is where the next thing the user does happens anyway.
+// A pre-effect, because it has to see where focus is before the DOM update
+// takes the face and the card away.
+$effect.pre(() => {
+	if (incognitoOn || !untrack(() => showIncognitoPopover)) return;
+	showIncognitoPopover = false;
+	const active = document.activeElement;
+	const focusWasOnIncognito =
+		active === incognitoFaceTrigger ||
+		Boolean(active?.closest('[data-testid="incognito-popover"]'));
+	if (focusWasOnIncognito) {
+		void tick().then(() => textarea?.focus({ preventScroll: true }));
+	}
 });
 
 let composerPlaceholder = $derived(
@@ -831,6 +855,7 @@ function toggleConnections() {
 function openConnectionsPopover() {
 	if (!hasConnections) return;
 	showConnectionsPopover = !showConnectionsPopover;
+	if (showConnectionsPopover) showIncognitoPopover = false;
 }
 
 function rememberConnectionSelection() {
@@ -1647,6 +1672,7 @@ function toggleToolsMenu() {
 	if (showToolsMenu) {
 		sourceManagerOpen = false;
 		showConnectionsPopover = false;
+		showIncognitoPopover = false;
 		closeCommandTray();
 		// The Skills row says how many are active. Fetched when the menu opens
 		// rather than on mount: most sessions never open it, and a count that
@@ -3076,6 +3102,7 @@ async function emitDraftChange(force = false) {
 							title={$t('chat.incognitoOn')}
 							aria-haspopup="dialog"
 							aria-expanded={showIncognitoPopover}
+							aria-controls={showIncognitoPopover ? 'incognito-popover' : undefined}
 							onpointerdown={() => startLongPress($t('chat.incognitoOn'))}
 							onpointerup={clearLongPress}
 							onpointerleave={clearLongPress}

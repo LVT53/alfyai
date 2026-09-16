@@ -101,6 +101,7 @@ function mapConversation(row: typeof conversations.$inferSelect): Conversation {
 		sealedAt: row.sealedAt ? row.sealedAt.getTime() / 1000 : null,
 		sidebarPinned: row.sidebarPinned,
 		sidebarSortOrder: row.sidebarSortOrder ?? null,
+		memoryIncognito: row.memoryIncognito,
 		createdAt: row.createdAt.getTime() / 1000,
 		updatedAt: row.updatedAt.getTime() / 1000,
 	};
@@ -993,6 +994,10 @@ export async function createConversationFork(
 						userId: params.userId,
 						title: `${sourceConversation.title} (fork ${forkSequence})`,
 						projectId: sourceConversation.projectId ?? null,
+						// A fork copies the source's transcript, so it inherits the
+						// source's privacy too: an incognito chat's history must not
+						// land in a conversation memory can read from.
+						memoryIncognito: sourceConversation.memoryIncognito,
 						status: "open",
 						createdAt: now,
 						updatedAt: now,

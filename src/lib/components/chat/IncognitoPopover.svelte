@@ -50,6 +50,14 @@ let {
 
 /** The card's width on a desktop — `min(292px, …)` in the CSS below. */
 const POPOVER_WIDTH = 292;
+/**
+ * Room above the face the card needs before it flips below it. The card is
+ * a title, three lines and a row — about 170px — so it asks for that plus
+ * its gap and margin, not the 320px the "+" menu asks for: on the landing
+ * page the face sits ~320px from the top, and with the menu's threshold
+ * the card landed on top of the textarea.
+ */
+const POPOVER_MIN_SPACE_ABOVE = 200;
 
 let root = $state<HTMLDivElement | undefined>(undefined);
 let switchElement = $state<HTMLButtonElement | undefined>(undefined);
@@ -81,6 +89,7 @@ function measure(): MenuPlacement | null {
 		triggerRect,
 		{ width: window.innerWidth, height: window.innerHeight },
 		POPOVER_WIDTH,
+		POPOVER_MIN_SPACE_ABOVE,
 	);
 }
 
@@ -169,6 +178,7 @@ onMount(() => {
 	class:incognito-popover--sheet={isPhone}
 	class:incognito-popover--anchored={anchored}
 	{style}
+	id="incognito-popover"
 	data-testid="incognito-popover"
 	role="dialog"
 	aria-labelledby="incognito-popover-title"

@@ -137,7 +137,7 @@ describe("ConversationItem Component", () => {
 	// memory is off for the conversation, in the leading slot the fork and
 	// Atlas marks use, never on the trailing side where the three dots live.
 	describe("incognito mark", () => {
-		it("draws a mask before the title with the same tooltip pattern as the fork mark", () => {
+		it("draws a mask before the title, named by its title like the fork mark", () => {
 			render(ConversationItemWrapper, {
 				conversation: { ...mockConversation, memoryIncognito: true },
 			});
@@ -147,9 +147,9 @@ describe("ConversationItem Component", () => {
 			expect(mark).toHaveAttribute("aria-label", "Incognito — not remembered");
 			expect(mark).toHaveAttribute("title", "Incognito — not remembered");
 			expect(mark).toHaveClass("incognito-mark");
-			expect(mark.querySelector(".fork-indicator-tooltip")).toHaveTextContent(
-				"Incognito — not remembered",
-			);
+			// Nothing hand-drawn: a custom tooltip inside the overflow-hidden
+			// title column was clipped away, so the native title is the tooltip.
+			expect(mark.querySelector(".fork-indicator-tooltip")).toBeNull();
 			expect(mark.tagName.toLowerCase()).not.toBe("button");
 
 			// Leading, not trailing: the mark comes before the title in the DOM

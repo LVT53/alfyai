@@ -459,6 +459,7 @@ export function removeConversationLocal(id: string): void {
 	deletedConversationIds.add(id);
 	localConversationProjectIds.delete(id);
 	localConversationSidebarStates.delete(id);
+	localConversationMemoryIncognito.delete(id);
 	conversations.update((items) =>
 		items.filter((conversation) => conversation.id !== id),
 	);
@@ -477,6 +478,7 @@ export async function deleteConversationById(id: string): Promise<void> {
 	deletedConversationIds.add(id);
 	localConversationProjectIds.delete(id);
 	localConversationSidebarStates.delete(id);
+	localConversationMemoryIncognito.delete(id);
 	conversations.update((items) =>
 		items.filter((conversation) => conversation.id !== id),
 	);

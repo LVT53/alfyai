@@ -138,7 +138,9 @@ let {
 	reasoningDepth?: ReasoningDepth;
 	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
 	memoryIncognito?: boolean;
-	onMemoryIncognitoChange?: ((value: boolean) => void) | undefined;
+	onMemoryIncognitoChange?:
+		| ((value: boolean, conversationId: string) => void)
+		| undefined;
 	// Issue 7.4 fix pass — pass-through to MessageInput. See its prop docs:
 	// `activeCapabilities` lets the page (the single cloud-warning chokepoint)
 	// read the composer's current capability selection for regenerate/edit/

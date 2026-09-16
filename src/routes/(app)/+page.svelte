@@ -648,10 +648,8 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					showSlashHintProp={false}
 					composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
 					conversationId={preparedConversationId}
-					onMemoryIncognitoChange={(value) => {
-						if (preparedConversationId)
-							updateConversationMemoryIncognitoLocal(preparedConversationId, value);
-					}}
+					onMemoryIncognitoChange={(value, id) =>
+						updateConversationMemoryIncognitoLocal(id, value)}
 					contextStatus={null}
 					attachedArtifacts={[]}
 					contextDebug={null}
