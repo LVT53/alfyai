@@ -3088,15 +3088,15 @@ async function emitDraftChange(force = false) {
 				{/if}
 
 				<!-- Incognito redesign — the fifth face, only while the flag is on.
-				     Ink rather than accent: it is a fact about the conversation,
-				     not a control that is "on" for this message. -->
+				     Accent like every other active face: it is on for this
+				     conversation, and the on state reads the same across the row. -->
 				{#if incognitoOn}
 					<div class="relative flex items-center">
 						<button
 							type="button"
 							bind:this={incognitoFaceTrigger}
 							data-testid="incognito-face"
-							class="composer-face composer-face--ink"
+							class="composer-face composer-face--on"
 							onclick={toggleIncognitoPopover}
 							aria-label={$t('chat.incognitoOn')}
 							title={$t('chat.incognitoOn')}
@@ -3730,22 +3730,6 @@ async function emitDraftChange(force = false) {
 	.composer-face:disabled {
 		cursor: not-allowed;
 		opacity: 0.42;
-	}
-
-	/* The mask: ink at rest, because it states a fact rather than offering a
-	   switch. Ink has nowhere darker to go on hover, so the same eased
-	   affordance reads as a soft lift instead. */
-	.composer-face--ink {
-		color: var(--text-primary);
-		transition:
-			color var(--duration-standard) var(--ease-out),
-			opacity var(--duration-standard) var(--ease-out);
-	}
-
-	.composer-face--ink:hover:not(:disabled),
-	.composer-face--ink[aria-expanded="true"] {
-		color: var(--text-primary);
-		opacity: 0.72;
 	}
 
 	/* A phone grows the whole face to the 44px hit area. There is no disc to

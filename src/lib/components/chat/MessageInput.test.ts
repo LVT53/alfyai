@@ -2730,14 +2730,13 @@ describe("MessageInput incognito indicator", () => {
 		expect(getByPlaceholderText("Type a message...")).toBeInTheDocument();
 	});
 
-	it("shows the mask as a fifth face, in ink, with the incognito placeholder", () => {
+	it("shows the mask as a fifth face, in accent like the other active faces, with the incognito placeholder", () => {
 		const { getByTestId, getByPlaceholderText, queryByText, queryByRole } =
 			renderIncognito();
 
 		const face = getByTestId("incognito-face");
 		expect(face).toHaveClass("composer-face");
-		expect(face).toHaveClass("composer-face--ink");
-		expect(face).not.toHaveClass("composer-face--on");
+		expect(face).toHaveClass("composer-face--on");
 		expect(face).toHaveAttribute("aria-label", "Incognito is on");
 		expect(face).toHaveAttribute("aria-expanded", "false");
 		// After thinking, before anything that is not a face.
