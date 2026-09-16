@@ -28,6 +28,7 @@ tests/e2e/example.spec.ts
 .sisyphus/
 .codex
 test-results/
+test-data/
 
 # SQLite database and runtime data are local state, not source.
 data/
