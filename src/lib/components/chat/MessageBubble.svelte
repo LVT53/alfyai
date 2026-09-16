@@ -48,6 +48,9 @@ import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
 import LogoMark from "./LogoMark.svelte";
 import FileAttachment from "./FileAttachment.svelte";
 import AttachmentOutline from "./AttachmentOutline.svelte";
+import ComposerChip from "./ComposerChip.svelte";
+import { splitUserMessageQuotes } from "./composer-chip-presentation";
+import { deriveMessageProvenance } from "./message-provenance";
 import MessageEvidenceDetails from "./MessageEvidenceDetails.svelte";
 import AtlasActivityRow from "./AtlasActivityRow.svelte";
 import SkillDraftCard from "./SkillDraftCard.svelte";
@@ -264,8 +267,50 @@ let messageModelIconUrl = $derived(
 let auditDetailsId = $derived(`message-info-${message.id}`);
 let skillDrafts = $derived(message.skillDrafts ?? []);
 let sourceForks = $derived(message.sourceForks);
+// Chips redesign (owner-approved boards, 2026-09-15) — the composer's chips
+// survive the send. A quote chip was expanded into the message body on the
+// way out; `splitUserMessageQuotes` recognises exactly the text it produced
+// (matched against THIS message's own persisted outlines, never guessed) and
+// hands the heading back as a chip, so the bubble shows the quote it was
+// sent with instead of a paragraph of the document's prose.
+let userOutlineEntries = $derived(
+	isUser
+		? (message.attachments ?? []).flatMap(
+				(attachment) => attachment.outline ?? [],
+			)
+		: [],
+);
+let userQuoteSplit = $derived(
+	isUser
+		? splitUserMessageQuotes(message.content, userOutlineEntries)
+		: { quoteLabels: [], body: message.content },
+);
 let userMessageSegments = $derived(
-	isUser ? tokenizeTextLinks(message.content) : [],
+	isUser ? tokenizeTextLinks(userQuoteSplit.body) : [],
+);
+// The assistant turn's provenance line: which of the three turn-changing
+// things this answer actually used. DERIVED (owner decision 2) from the
+// tool-activity items and metadata already on the message — no new persisted
+// field — so it names only what the turn can prove. See
+// message-provenance.ts for what that honestly covers.
+let provenanceEntries = $derived(
+	deriveMessageProvenance({
+		role: message.role,
+		thinkingSegments: message.thinkingSegments,
+		responseActivity: message.responseActivity,
+		evidenceSummary: message.evidenceSummary,
+		// A job that failed or was cancelled did not make this answer, so it
+		// does not get to say it did; a queued or running one is the turn
+		// still happening and keeps its chip.
+		atlasProfiles: atlasJobs
+			.filter((job) => job.status !== "failed" && job.status !== "cancelled")
+			.map((job) => job.profile),
+	}),
+);
+// It disappears entirely on a turn that used nothing, and stays out of the
+// way while the turn is still running.
+let showProvenanceLine = $derived(
+	!isUser && !isStreaming && !isEditing && provenanceEntries.length > 0,
 );
 // Thinking is definitively done once visible response text has started streaming
 // OR the whole message is complete. This keeps the label as "Thinking" between
@@ -698,6 +743,15 @@ function toArtifactSummary(
 	};
 }
 
+// The Atlas profile as it reads on the provenance chip's meta clause — the
+// same three words the composer's menu and chip used, so a turn is named the
+// same way before and after it ran.
+function atlasProfileLabel(profile: AtlasProfile): string {
+	if (profile === "exhaustive") return $t("composerTools.atlasExhaustive");
+	if (profile === "in-depth") return $t("composerTools.atlasInDepth");
+	return $t("composerTools.atlasOverview");
+}
+
 function skillDraftPayload(draftId: string) {
 	return { messageId: message.id, draftId };
 }
@@ -835,13 +889,18 @@ function sendFollowUp(question: string) {
 					</div>
 				</div>
 			{:else}
-				{#if hasAttachments}
-					<div class="mb-3 flex flex-col flex-wrap gap-2">
+				<!-- Chips redesign — what you sent with the message, in the same
+				     pills the composer drew a second earlier: same icons, same
+				     order, 22px instead of 28px, and no × (a sent turn is a
+				     record, not a promise). An attachment chip stays clickable
+				     and opens the document workspace, as the compact chip did. -->
+				{#if hasAttachments || userQuoteSplit.quoteLabels.length > 0}
+					<div class="user-bubble-chips composer-chip-on-bubble" data-testid="user-bubble-chips">
 						{#each message.attachments ?? [] as attachment (attachment.id)}
-							<div>
+							<span class="user-bubble-chip">
 								<FileAttachment
 									attachment={toArtifactSummary(attachment)}
-									variant="compact"
+									variant="chip"
 									viewable={Boolean(onOpenDocument)}
 									onView={handleViewAttachment}
 								/>
@@ -849,9 +908,19 @@ function sendFollowUp(question: string) {
 									<AttachmentOutline
 										outline={attachment.outline}
 										onQuote={requestComposerQuote}
+										variant="disclosure"
+										disclosureLabel={$t('composerChips.outlineDisclosure', { name: attachment.name })}
 									/>
 								{/if}
-							</div>
+							</span>
+						{/each}
+						{#each userQuoteSplit.quoteLabels as quoteLabel, index (`${index}-${quoteLabel}`)}
+							<ComposerChip
+								kind="quote"
+								label={quoteLabel}
+								size="message"
+								testId="user-bubble-quote-chip"
+							/>
 						{/each}
 					</div>
 				{/if}
@@ -872,7 +941,7 @@ function sendFollowUp(question: string) {
 							{/if}
 						{/each}
 					{:else}
-						{message.content}
+						{userQuoteSplit.body}
 					{/if}
 				</div>
 			{/if}
@@ -1007,6 +1076,50 @@ function sendFollowUp(question: string) {
 	{#if !isUser && message.wasStopped && !isStreaming}
 		<div class="stopped-early-chip" data-testid="stopped-early-chip">
 			{$t('chat.stoppedEarly')}
+		</div>
+	{/if}
+
+	<!-- Chips redesign — the provenance line. Nothing in the stream used to
+	     record that a skill ran, that the web was searched, or which Atlas
+	     profile was used: the composer's chips were destroyed on send and
+	     only the tool-activity rail, folded away inside the thinking block,
+	     remembered. One 22px line in the FOOTER — above the action row, not
+	     in the header, because the head of an assistant turn is already
+	     occupied by the reasoning-depth indicator, and because provenance is
+	     something you check after reading rather than before. Unlike the icon
+	     buttons beside it, it is always visible rather than hover-only; on a
+	     turn that used nothing it is not rendered at all. -->
+	{#if showProvenanceLine}
+		<div class="provenance-line" data-testid="message-provenance" aria-label={$t('messageProvenance.label')}>
+			<span class="provenance-line__lead">{$t('messageProvenance.used')}</span>
+			{#each provenanceEntries as entry, index (`${entry.kind}-${index}`)}
+				{#if entry.kind === 'skill'}
+					<ComposerChip
+						kind="skill"
+						label={entry.skillName ?? $t('messageProvenance.skill')}
+						size="message"
+						testId="message-provenance-skill"
+					/>
+				{:else if entry.kind === 'web'}
+					<ComposerChip
+						kind="web"
+						label={$t('composerTools.webSearch')}
+						meta={entry.sourceCount
+							? $t('messageProvenance.webSources', { count: entry.sourceCount })
+							: null}
+						size="message"
+						testId="message-provenance-web"
+					/>
+				{:else}
+					<ComposerChip
+						kind="atlas"
+						label={$t('composerTools.atlas')}
+						meta={atlasProfileLabel(entry.profile)}
+						size="message"
+						testId="message-provenance-atlas"
+					/>
+				{/if}
+			{/each}
 		</div>
 	{/if}
 
@@ -1387,6 +1500,45 @@ function sendFollowUp(question: string) {
 	   hover-reveal (`md:opacity-0 md:group-hover:opacity-100` in the class
 	   list) is untouched: it animates opacity on this same element, so a
 	   taller, wrapped row reveals exactly as the one-line row did. */
+	/* Chips redesign — what the message was sent with, and what the answer
+	   was made with. Both are chip rows; they differ only in where they sit. */
+	.user-bubble-chips {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		margin-bottom: 10px;
+	}
+
+	.user-bubble-chip {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		min-width: 0;
+		max-width: 100%;
+	}
+
+	.provenance-line {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 6px;
+		width: 100%;
+		margin-top: 12px;
+		padding-bottom: 2px;
+	}
+
+	.provenance-line__lead {
+		margin-right: 2px;
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+	}
+
 	.copy-action-row {
 		margin-top: var(--space-sm);
 		flex-wrap: wrap;

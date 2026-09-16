@@ -154,9 +154,12 @@ export async function prepareAttachmentConversation(
 		buffer: options.buffer,
 	});
 
-	await expect(page.locator(".file-attachment")).toBeVisible({
-		timeout: 10000,
-	});
+	// Chips redesign (owner-approved boards, 2026-09-15): an attachment in the
+	// composer is a pill in the one chip row, not a two-line card in a list of
+	// its own.
+	await expect(
+		page.getByTestId("composer-chip-attachment").first(),
+	).toBeVisible({ timeout: 10000 });
 
 	if (options.message) {
 		await page.getByTestId("message-input").fill(options.message);
@@ -173,7 +176,9 @@ export async function prepareAttachmentConversation(
 // (aria-label "Document workspace") and previews the artifact there. This opens
 // that workspace and returns its locator.
 export async function openAttachmentWorkspace(page: Page) {
-	await page.locator(".file-attachment").first().click();
+	// ...and in a SENT message it is the same pill six pixels shorter, with no
+	// × — still clickable, still opening the workspace.
+	await page.getByTestId("message-attachment-chip").first().click();
 	// Wait for the workspace content region, then return the whole desktop
 	// workspace panel (its header carries the filename, its body the content).
 	await page

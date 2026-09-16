@@ -325,6 +325,76 @@ describe("Normal Chat Client Turn Runtime", () => {
 		vi.useRealTimers();
 	});
 
+	it("keeps an attachment's outline and cost fields on the optimistic user message", () => {
+		// Chips redesign: the sent bubble splits a quote back out of the text
+		// only against THIS message's outline headings, and draws the file
+		// chip's "24 pp · 18k tok" meta from the same fields. They must survive
+		// the optimistic append, not only the server projection on reload.
+		const { adapters, messages } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+		const outline = [
+			{
+				level: 2,
+				title: "2.3 Break clause",
+				offset: 0,
+				preview: "Either party may terminate",
+			},
+		];
+
+		runtime.send({
+			message: "2.3 Break clause: Either party may terminate…\n\nCan we leave?",
+			attachmentIds: ["artifact-lease", "artifact-note"],
+			attachments: [
+				{
+					id: "artifact-lease",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "Lease agreement 2026.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 482_112,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: 1,
+					updatedAt: 1,
+					tokenEstimate: 18_400,
+					pageCount: 24,
+					outline,
+				},
+				{
+					id: "artifact-note",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "note.txt",
+					mimeType: "text/plain",
+					sizeBytes: 12,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			],
+			pendingAttachments: [],
+			modelId: "model2",
+		});
+
+		const user = messages.find((message) => message.role === "user");
+		expect(user?.attachments).toHaveLength(2);
+		expect(user?.attachments?.[0]).toMatchObject({
+			artifactId: "artifact-lease",
+			tokenEstimate: 18_400,
+			pageCount: 24,
+			outline,
+		});
+		// An artifact that never had the fields does not grow empty ones —
+		// the server projection omits them too, so the shapes stay identical.
+		expect(user?.attachments?.[1]).toMatchObject({
+			artifactId: "artifact-note",
+		});
+		expect(user?.attachments?.[1]).not.toHaveProperty("outline");
+		expect(user?.attachments?.[1]).not.toHaveProperty("tokenEstimate");
+		expect(user?.attachments?.[1]).not.toHaveProperty("pageCount");
+	});
+
 	it("runs a normal send through the browser stream transport callbacks", () => {
 		const {
 			adapters,

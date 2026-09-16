@@ -1055,6 +1055,29 @@ const chatDict = {
 		"writeConfirm.decline": "Don't",
 		"writeConfirm.etagPending":
 			"Confirmation ref appears here once it is written.",
+
+		// ── Chat chips redesign ──────────────────────────────────────
+		// One pill for every promise about the next turn, and the line in
+		// the stream that records which of them were kept. Kept in one
+		// delimited block so the redesign's whole vocabulary — composer row,
+		// chip metas, the phone disclosure, the queued strip, the assistant
+		// provenance line — reads and gets corrected together.
+		"composerChips.rowLabel": "Attached to this message",
+		"composerChips.more": "+{count}",
+		"composerChips.collapse": "Show fewer",
+		"composerChips.openAttachment": "Open {name}",
+		"composerChips.removeAttachment": "Remove {name}",
+		"composerChips.removeLinkedDocument": "Remove linked document {name}",
+		"composerChips.removeQuote": "Remove quote {name}",
+		"composerChips.fileMeta": "{pages} pp · {tokens} tok",
+		"composerChips.filePages": "{pages} pp",
+		"composerChips.fileTokens": "{tokens} tok",
+		"composerChips.outlineDisclosure": "Outline of {name}",
+		"composerChips.atlasMeta": "{profile} · {time}",
+		"messageProvenance.label": "How this answer was made",
+		"messageProvenance.used": "Used",
+		"messageProvenance.skill": "Skill",
+		"messageProvenance.webSources": "{count} sources",
 	},
 	hu: {
 		"attachmentChip.pages": "{count} oldal",
@@ -2086,6 +2109,30 @@ const chatDict = {
 		"writeConfirm.decline": "Ne",
 		"writeConfirm.etagPending":
 			"A visszaigazolási azonosító itt jelenik meg, ha megtörtént.",
+
+		// ── Csevegés-címkék újratervezés ─────────────────────────────
+		// Egy pirula minden ígéretre a következő fordulóról, és egy sor a
+		// folyamban arról, melyiket tartotta meg. Egy blokkban tartva, hogy
+		// az újratervezés teljes szóhasználata — szerkesztősor, címke-
+		// kiegészítők, telefonos feltárás, sorban álló csík, asszisztens-
+		// eredetsor — együtt legyen olvasható és javítható.
+		"composerChips.rowLabel": "Ehhez az üzenethez csatolva",
+		"composerChips.more": "+{count}",
+		"composerChips.collapse": "Kevesebb",
+		"composerChips.openAttachment": "{name} megnyitása",
+		"composerChips.removeAttachment": "{name} eltávolítása",
+		"composerChips.removeLinkedDocument":
+			"{name} csatolt dokumentum eltávolítása",
+		"composerChips.removeQuote": "{name} idézet eltávolítása",
+		"composerChips.fileMeta": "{pages} o. · {tokens} token",
+		"composerChips.filePages": "{pages} o.",
+		"composerChips.fileTokens": "{tokens} token",
+		"composerChips.outlineDisclosure": "{name} vázlata",
+		"composerChips.atlasMeta": "{profile} · {time}",
+		"messageProvenance.label": "Hogyan készült ez a válasz",
+		"messageProvenance.used": "Használt",
+		"messageProvenance.skill": "Képesség",
+		"messageProvenance.webSources": "{count} forrás",
 	},
 } as const;
 

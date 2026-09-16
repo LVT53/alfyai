@@ -466,6 +466,22 @@ export function createNormalChatClientTurnRuntime(
 					conversationId: artifact.conversationId,
 					messageId: null,
 					createdAt: artifact.createdAt,
+					// Long-document comfort fields ride along so the optimistic
+					// bubble matches what the server projects on reload: the chip
+					// row draws "24 pp · 18k tok" from them, and a quote chip picked
+					// from the outline is recognised in the sent text ONLY against
+					// this message's own outline headings (see
+					// splitUserMessageQuotes). Without them the quote would render
+					// as prose until the next refresh.
+					...(artifact.tokenEstimate !== undefined
+						? { tokenEstimate: artifact.tokenEstimate }
+						: {}),
+					...(artifact.pageCount !== undefined
+						? { pageCount: artifact.pageCount }
+						: {}),
+					...(artifact.outline && artifact.outline.length > 0
+						? { outline: artifact.outline }
+						: {}),
 				})),
 			timestamp: Date.now(),
 		};

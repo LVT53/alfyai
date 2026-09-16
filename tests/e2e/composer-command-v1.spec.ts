@@ -312,9 +312,14 @@ test.describe("Composer Command V1", () => {
 				name: "Remove pending skill Interview coach",
 			}),
 		).toBeVisible();
-		const pendingSkill = page.getByRole("list", { name: "Pending skill" });
-		await expect(pendingSkill.locator(".pending-skill-chip")).toBeVisible();
-		await expect(pendingSkill.locator(".linked-source-chip")).toHaveCount(0);
+		// Chips redesign (owner-approved boards, 2026-09-15): the five
+		// per-feature lists became ONE row, and kind is carried by the chip's
+		// sparkle rather than by a "USER SKILL" eyebrow.
+		const chipRow = page.getByRole("list", {
+			name: "Attached to this message",
+		});
+		await expect(chipRow.getByTestId("composer-chip-skill")).toBeVisible();
+		await expect(chipRow.getByTestId("composer-chip-linked")).toHaveCount(0);
 
 		await typeComposerCommand(page, "/document");
 		await page.getByRole("option", { name: /\/document/i }).click();
@@ -455,8 +460,8 @@ test.describe("Composer Command V1", () => {
 			}),
 		).toBeVisible();
 		await expect(
-			page.getByRole("list", { name: "Pending skill" }),
-		).toContainText("Skill Variant");
+			page.getByRole("list", { name: "Attached to this message" }),
+		).toContainText("Research Pack, concise");
 
 		await page
 			.getByTestId("message-input")

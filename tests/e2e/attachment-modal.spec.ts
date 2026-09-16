@@ -125,7 +125,14 @@ test.describe("Attachment workspace preview", () => {
 			buffer: Buffer.from("Test content"),
 		});
 
-		const attachment = page.locator(".file-attachment").first();
-		await expect(attachment).not.toHaveClass(/viewable/);
+		// Chips redesign: a composer chip's body is a plain <span>, never a
+		// button — the one control it carries is its ×, and nothing about a
+		// still-processing attachment can be opened.
+		const attachment = page.getByTestId("composer-chip-attachment").first();
+		await expect(attachment).toBeVisible();
+		await expect(attachment.locator(".composer-chip__body")).toHaveCount(1);
+		await expect(attachment.locator("button.composer-chip__body")).toHaveCount(
+			0,
+		);
 	});
 });

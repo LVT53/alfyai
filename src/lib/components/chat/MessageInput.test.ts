@@ -279,9 +279,12 @@ describe("MessageInput", () => {
 			}),
 		);
 
-		expect(
-			getByRole("list", { name: "Active composer controls" }),
-		).toHaveTextContent("Atlas: In-Depth");
+		// Chips redesign: one row for everything, and the Atlas profile moved
+		// out of the SHOUTED label and into the muted meta clause.
+		const chipRow = getByRole("list", { name: "Attached to this message" });
+		expect(chipRow).toHaveTextContent("Atlas");
+		expect(chipRow).toHaveTextContent("In-Depth · ~10-20 min");
+		expect(chipRow.querySelector('[data-chip-kind="atlas"]')).not.toBeNull();
 
 		await fireEvent.input(getByPlaceholderText("Type a message..."), {
 			target: { value: "Research SvelteKit load invalidation" },
@@ -366,7 +369,7 @@ describe("MessageInput", () => {
 		});
 		await fireEvent.click(getByRole("button", { name: "Send message" }));
 
-		expect(queryByText("Atlas: Overview")).toBeNull();
+		expect(queryByText("Overview · ~2-5 min")).toBeNull();
 		expect(sendSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				message: "Just chat",
@@ -986,14 +989,15 @@ describe("MessageInput", () => {
 
 		expect(input.value).toBe("Please  this answer");
 		expect(getByText("Interview coach")).toBeInTheDocument();
-		const pendingSkillList = getByRole("list", { name: "Pending skill" });
+		// Chips redesign: the five per-feature lists became ONE row, and the
+		// "USER SKILL" eyebrow became a sparkle. Kind is asserted on the chip
+		// itself rather than on shouted text that no longer exists.
+		const chipRow = getByRole("list", { name: "Attached to this message" });
+		expect(within(chipRow).getByTestId("composer-chip-skill")).toBeDefined();
 		expect(
-			within(pendingSkillList).getByText("User Skill"),
-		).toBeInTheDocument();
-		expect(
-			pendingSkillList.querySelector(".pending-skill-chip"),
-		).not.toBeNull();
-		expect(pendingSkillList.querySelector(".linked-source-chip")).toBeNull();
+			within(chipRow).getByTestId("composer-chip-skill").dataset.chipKind,
+		).toBe("skill");
+		expect(within(chipRow).queryByTestId("composer-chip-linked")).toBeNull();
 		expect(draftSpy).toHaveBeenLastCalledWith(
 			expect.objectContaining({
 				pendingSkill: expect.objectContaining({
@@ -1056,10 +1060,9 @@ describe("MessageInput", () => {
 			await findByRole("option", { name: /Research Pack, concise/i }),
 		);
 
-		const pendingSkillList = getByRole("list", { name: "Pending skill" });
-		expect(
-			within(pendingSkillList).getByText("Skill Variant"),
-		).toBeInTheDocument();
+		const chipRow = getByRole("list", { name: "Attached to this message" });
+		expect(within(chipRow).getByTestId("composer-chip-skill")).toBeDefined();
+		expect(chipRow).toHaveTextContent("Research Pack, concise");
 		await fireEvent.click(getByRole("button", { name: "Send message" }));
 		expect(sendSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -1138,13 +1141,9 @@ describe("MessageInput", () => {
 		});
 
 		expect(getByText("Interview coach")).toBeInTheDocument();
-		const pendingSkillList = getByRole("list", { name: "Pending skill" });
-		expect(
-			within(pendingSkillList).getByText("Skill Variant"),
-		).toBeInTheDocument();
-		expect(
-			pendingSkillList.querySelector(".pending-skill-chip"),
-		).not.toBeNull();
+		const chipRow = getByRole("list", { name: "Attached to this message" });
+		expect(within(chipRow).getByTestId("composer-chip-skill")).toBeDefined();
+		expect(chipRow).toHaveTextContent("Interview coach");
 		expect(
 			getByRole("button", { name: "Remove pending skill Interview coach" }),
 		).toBeInTheDocument();
@@ -3119,22 +3118,27 @@ describe("MessageInput send gate (beforeSend contract)", () => {
 	});
 });
 
-// "Long-document comfort" (owner-approved mockup, 2026-09-06): a pending
-// attachment with a computed outline renders it under its chip, and
-// clicking a section quotes it into the composer at the cursor.
+// "Long-document comfort" (owner-approved mockup, 2026-09-06), as reshaped by
+// the chips redesign (owner-approved boards, 2026-09-15): the outline is a
+// DISCLOSURE beside the attachment's chip rather than a panel stacked under
+// it, and picking a section produces a QUOTE CHIP instead of pasting ~90
+// characters of the document's prose into the sentence the user is writing.
+// The quote is not lost — it is expanded back into the message on send.
 describe("MessageInput long-document outline quoting", () => {
-	it("renders the outline for a pending attachment and quotes a section into the composer", async () => {
+	it("opens the outline disclosure beside the chip and turns a section into a quote chip", async () => {
 		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
 		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
 			doneCallback = payload.done;
 		});
 
-		const { container, getByPlaceholderText, getByText } = render(
+		const onSend = vi.fn();
+		const { container, getByPlaceholderText, getByText, getByTestId } = render(
 			MessageInput,
 			{
 				conversationId: "conv-1",
 				attachmentsEnabled: true,
 				onUploadFiles: uploadFilesHandler,
+				onSend,
 			},
 		);
 
@@ -3181,17 +3185,122 @@ describe("MessageInput long-document outline quoting", () => {
 			},
 		});
 
+		// The outline is closed until its disclosure is pressed — the chip row
+		// stays one row high whatever is attached to it.
+		await waitFor(() => {
+			expect(getByTestId("attachment-outline-disclosure")).toBeDefined();
+		});
+		expect(container.querySelector(".attachment-outline-row")).toBeNull();
+
+		await fireEvent.click(getByTestId("attachment-outline-disclosure"));
 		await waitFor(() => {
 			expect(getByText("Section 2.3 Break clause")).toBeDefined();
 		});
 
 		await fireEvent.click(getByText("Section 2.3 Break clause"));
 
+		// A chip, not 90 characters in the textarea. The chip's label is the
+		// section heading; the document's own prose stays out of the sentence.
 		await waitFor(() => {
-			expect(textarea.value).toBe(
-				"Section 2.3 Break clause: Either party may terminate this agreement…",
+			expect(getByTestId("composer-chip-quote")).toBeDefined();
+		});
+		expect(textarea.value).toBe("");
+
+		// ...and sending expands it back into the message, exactly the text
+		// the old cursor-paste produced, with the typed sentence after it.
+		await fireEvent.input(textarea, {
+			target: { value: "Can we get out of this early?" },
+		});
+		await fireEvent.click(getByTestId("send-button"));
+
+		await waitFor(() => {
+			expect(onSend).toHaveBeenCalledWith(
+				expect.objectContaining({
+					message:
+						"Section 2.3 Break clause: Either party may terminate this agreement…\n\nCan we get out of this early?",
+				}),
 			);
 		});
+	});
+
+	it("removes a quote chip without touching the typed sentence", async () => {
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
+			doneCallback = payload.done;
+		});
+		const {
+			container,
+			getByPlaceholderText,
+			getByText,
+			getByTestId,
+			queryByTestId,
+		} = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadFiles: uploadFilesHandler,
+		});
+
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		await fireEvent.input(textarea, { target: { value: "Keep this text" } });
+
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["x"], "contract.pdf", { type: "application/pdf" })],
+			},
+		});
+		completeUpload(doneCallback, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-outline-2",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "contract.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 12,
+					conversationId: "conv-1",
+					summary: "Contract",
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+					outline: [
+						{
+							level: 2,
+							title: "Section 2.3 Break clause",
+							offset: 0,
+							preview: "Either party may terminate this agreement",
+						},
+					],
+				},
+				promptReady: true,
+				promptArtifactId: "normalized-outline-2",
+				readinessError: null,
+			},
+		});
+
+		await waitFor(() => {
+			expect(getByTestId("attachment-outline-disclosure")).toBeDefined();
+		});
+		await fireEvent.click(getByTestId("attachment-outline-disclosure"));
+		await fireEvent.click(getByText("Section 2.3 Break clause"));
+		await waitFor(() => {
+			expect(getByTestId("composer-chip-quote")).toBeDefined();
+		});
+
+		await fireEvent.click(
+			within(
+				getByTestId("composer-chip-quote").parentElement as HTMLElement,
+			).getByRole("button", { name: "Remove quote Section 2.3 Break clause" }),
+		);
+
+		await waitFor(() => {
+			expect(queryByTestId("composer-chip-quote")).toBeNull();
+		});
+		expect(textarea.value).toBe("Keep this text");
 	});
 });
 

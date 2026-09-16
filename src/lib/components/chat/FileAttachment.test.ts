@@ -67,3 +67,99 @@ describe("FileAttachment — long-document comfort cost line", () => {
 		expect(onRemove).toHaveBeenCalledWith({ id: "a4" });
 	});
 });
+
+// Chips redesign (owner-approved boards, 2026-09-15) — the "chip" variant is
+// the shape a SENT attachment takes inside a message: the same pill the
+// composer drew a second earlier, 22px instead of 28px, and without the ×,
+// because it is a record of what happened rather than a promise about the
+// next turn. It delegates to ComposerChip so there is one chip in the
+// product, not two that can drift.
+describe("FileAttachment — the in-message chip variant", () => {
+	it("renders the shared 22px pill with the cost in muted meta", () => {
+		const { getByTestId } = render(FileAttachment, {
+			props: {
+				attachment: {
+					id: "a5",
+					name: "Lease agreement 2026.pdf",
+					mimeType: "application/pdf",
+					tokenEstimate: 18_400,
+					pageCount: 24,
+				},
+				variant: "chip" as const,
+			},
+		});
+
+		const chip = getByTestId("message-attachment-chip");
+		expect(chip.dataset.chipKind).toBe("file");
+		expect(chip.dataset.chipSize).toBe("message");
+		expect(chip.textContent).toContain("Lease agreement 2026.pdf");
+		expect(chip.textContent).toContain("24 pp · 18k tok");
+	});
+
+	it("wears a crop of the file itself when the attachment is an image", () => {
+		const { getByTestId } = render(FileAttachment, {
+			props: {
+				attachment: {
+					id: "artifact-floorplan",
+					name: "floor-plan-level-2.png",
+					mimeType: "image/png",
+				},
+				variant: "chip" as const,
+			},
+		});
+
+		const chip = getByTestId("message-attachment-chip");
+		expect(chip.dataset.chipKind).toBe("image");
+		const thumb = chip.querySelector(
+			"img.composer-chip__thumb",
+		) as HTMLImageElement | null;
+		expect(thumb?.getAttribute("src")).toBe(
+			"/api/knowledge/artifact-floorplan/preview",
+		);
+	});
+
+	it("stays clickable — it still opens the document workspace", () => {
+		const onView = vi.fn();
+		const { getByRole } = render(FileAttachment, {
+			props: {
+				attachment: { id: "a6", name: "brief.docx" },
+				variant: "chip" as const,
+				viewable: true,
+				onView,
+			},
+		});
+
+		getByRole("button", { name: "Open brief.docx" }).click();
+		expect(onView).toHaveBeenCalledTimes(1);
+	});
+
+	it("has no remove control unless one is asked for", () => {
+		const { queryByRole } = render(FileAttachment, {
+			props: {
+				attachment: { id: "a7", name: "brief.docx" },
+				variant: "chip" as const,
+			},
+		});
+		expect(queryByRole("button")).toBeNull();
+	});
+
+	// The bug this redesign was asked to fix, seen through the component that
+	// had it: a Word file used to draw the source-code glyph.
+	it("draws a .docx as a document rather than as source code", () => {
+		const { getByTestId } = render(FileAttachment, {
+			props: {
+				attachment: {
+					id: "a8",
+					name: "Employee handbook.docx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				},
+				variant: "chip" as const,
+			},
+		});
+		// Neutral "file" kind, and — the part that regressed — never "image".
+		expect(getByTestId("message-attachment-chip").dataset.chipKind).toBe(
+			"file",
+		);
+	});
+});
