@@ -377,6 +377,91 @@ function combineSnippetChunks(
 		.join("\n\n");
 }
 
+export type DocumentPassage = {
+	chunkIndex: number;
+	/** Chunk text, clipped to its share of the char budget. */
+	text: string;
+	/** Lexical/rerank score the chunk was chosen with (0 = order fallback). */
+	score: number;
+	/** True when `text` is shorter than the chunk it was clipped from. */
+	truncated: boolean;
+	/** The chunk's full (unclipped) text, for callers deriving offsets. */
+	chunkText: string;
+};
+
+/**
+ * The best chunks of ONE document for a query — the pull-side counterpart
+ * of {@link getPromptArtifactSnippets}. Reuses the same ranking and rerank
+ * path (`rankArtifactChunks` / `chooseArtifactChunks`) so read_generated_file's
+ * `query` mode and the pushed context never disagree about what "relevant"
+ * means. Documents below the chunking threshold (chunk-sync.ts stores them
+ * unchunked) are treated as a single chunk so they still answer.
+ */
+export async function selectDocumentPassages(params: {
+	userId: string;
+	artifact: Artifact;
+	query: string;
+	limit?: number;
+	charBudget?: number;
+}): Promise<{ passages: DocumentPassage[]; chunkCount: number }> {
+	const limit = Math.max(1, Math.floor(params.limit ?? 3));
+	const charBudget = Math.max(
+		200,
+		Math.floor(params.charBudget ?? 1200 * limit),
+	);
+	const queryContext = buildArtifactQueryContext({
+		query: params.query,
+		perArtifactLimit: limit,
+		perArtifactCharBudget: charBudget,
+	});
+
+	let chunks = await listArtifactChunksForArtifacts(params.userId, [
+		params.artifact.id,
+	]);
+	if (chunks.length === 0 && params.artifact.contentText?.trim()) {
+		chunks = [
+			{
+				id: `${params.artifact.id}:0`,
+				artifactId: params.artifact.id,
+				userId: params.userId,
+				conversationId: params.artifact.conversationId,
+				chunkIndex: 0,
+				contentText: params.artifact.contentText.trim(),
+				tokenEstimate: 0,
+				createdAt: params.artifact.createdAt,
+				updatedAt: params.artifact.updatedAt,
+			},
+		];
+	}
+	if (chunks.length === 0) {
+		return { passages: [], chunkCount: 0 };
+	}
+
+	const ranked = rankArtifactChunks(
+		params.artifact,
+		chunks,
+		queryContext.query,
+		queryContext.queryHasTerms,
+	);
+	const chosen = await chooseArtifactChunks(
+		params.artifact,
+		queryContext,
+		ranked,
+	);
+	const perPassageChars = Math.floor(charBudget / Math.max(1, chosen.length));
+
+	return {
+		chunkCount: chunks.length,
+		passages: chosen.map((entry) => ({
+			chunkIndex: entry.chunk.chunkIndex,
+			text: clipText(entry.chunk.contentText, perPassageChars),
+			score: entry.score,
+			truncated: entry.chunk.contentText.length > perPassageChars,
+			chunkText: entry.chunk.contentText,
+		})),
+	};
+}
+
 function selectChunkRerankCandidates(
 	ranked: RankedChunkEntry[],
 	perArtifactLimit: number,
