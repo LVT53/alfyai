@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rankWorkingSetCandidates } from "./working-set";
+import { rankWorkingSetCandidates, scoreMatch } from "./working-set";
 
 describe("working-set ranking", () => {
 	it("prioritizes newly attached documents and the current generated document", () => {
@@ -254,5 +254,21 @@ describe("working-set ranking", () => {
 		expect(ranked[0]?.artifactId).toBe("doc-new");
 		expect(ranked[1]?.artifactId).toBe("doc-old");
 		expect(ranked[0]?.score).toBeGreaterThan(ranked[1]?.score ?? 0);
+	});
+});
+
+describe("scoreMatch term splitting", () => {
+	it("splits a multi-word query into terms and counts each hit", () => {
+		expect(
+			scoreMatch("lease renewal clause", "The lease has a renewal clause."),
+		).toBe(3);
+		expect(scoreMatch("lease renewal clause", "a document about parking")).toBe(
+			0,
+		);
+		expect(scoreMatch("lease\trenewal\n clause", "renewal only")).toBe(1);
+	});
+
+	it("drops terms of two characters or fewer", () => {
+		expect(scoreMatch("is it in the pdf", "the pdf")).toBe(2);
 	});
 });

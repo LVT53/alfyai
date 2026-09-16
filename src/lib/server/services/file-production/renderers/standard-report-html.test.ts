@@ -264,18 +264,115 @@ describe("AlfyAI Standard Report HTML renderer", () => {
 		expect(validation.ok).toBe(true);
 		if (!validation.ok) return;
 
-		const html = renderStandardReportHtml(validation.source).content.toString(
-			"utf8",
-		);
-
 		// The leak this guards against: a bare `${origin}/favicon.ico` fetch to
 		// each cited domain, which would tell that domain which report the reader
 		// opened. The standalone file is opened outside the app (often via
-		// file://) with no reliable app origin, so favicons must be inlined as a
-		// self-contained neutral globe instead of fetched from anywhere.
+		// file://) with no reliable app origin, so a source's icon is either
+		// inlined as a `data:` URI the server already resolved, or drawn as the
+		// self-contained neutral globe — never fetched when the report is opened.
+		const withoutIcons = renderStandardReportHtml(
+			validation.source,
+		).content.toString("utf8");
+		expect(withoutIcons).not.toContain("example.com/favicon.ico");
+		expect(withoutIcons).not.toContain("/favicon.ico");
+		expect(withoutIcons).not.toMatch(/<span class="source-favicon"><img/);
+		expect(withoutIcons).toContain(
+			'<span class="source-favicon"><span class="favicon-placeholder"',
+		);
+		expect(withoutIcons).toContain("data-favicon-fallback");
+
+		const withIcons = renderStandardReportHtml(
+			validation.source,
+			new Map([["example.com", "data:image/png;base64,iVBORw0KGgo="]]),
+		).content.toString("utf8");
+		expect(withIcons).not.toContain("example.com/favicon.ico");
+		expect(withIcons).not.toContain("/favicon.ico");
+		expect(withIcons).not.toMatch(/<img [^>]*src="https?:/);
+		expect(withIcons).toMatch(
+			/<span class="source-favicon"><img src="data:image\/png;base64,/,
+		);
+	});
+
+	it("inlines a resolved source favicon as a self-contained data URI", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Favicon report",
+			blocks: [
+				{ type: "heading", level: 2, text: "Sources" },
+				{
+					type: "sourceChips",
+					title: "Sources",
+					sources: [
+						{
+							title: "Example docs",
+							url: "https://www.example.com/docs",
+							reasoning: "Cited web source.",
+						},
+						{ title: "Local library note", provided: true },
+					],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		const dataUri = "data:image/png;base64,iVBORw0KGgo=";
+		const html = renderStandardReportHtml(
+			validation.source,
+			new Map([["example.com", dataUri]]),
+		).content.toString("utf8");
+
+		// The icon element is emitted per source, ahead of the title, in the
+		// Sources list.
+		expect(html).toContain(
+			`<span class="source-favicon"><img src="${dataUri}" alt="" decoding="async"`,
+		);
+		expect(html).toMatch(
+			/<li class="source-item"><span class="source-chip"[^>]*><span class="source-favicon"><img src="data:image\/png/,
+		);
+		// Self-contained: nothing in the file points at the cited domain's icon.
 		expect(html).not.toContain("example.com/favicon.ico");
-		expect(html).not.toContain("/favicon.ico");
-		expect(html).not.toMatch(/<span class="source-favicon"><img/);
+		expect(html).not.toContain("/api/favicon");
+		expect(html).not.toContain("icons.duckduckgo.com");
+
+		// The library source keeps the neutral globe, and a hidden globe still
+		// backs the real icon for the onerror swap.
+		expect(html).toContain(
+			'onerror="this.hidden=true;this.nextElementSibling.hidden=false;"',
+		);
+		expect(html).toContain(
+			'<span class="favicon-placeholder" data-favicon-fallback aria-hidden="true" hidden>',
+		);
+		expect(html).toContain(
+			'<span class="source-favicon"><span class="favicon-placeholder" data-favicon-fallback aria-hidden="true">',
+		);
+	});
+
+	it("falls back to the globe for a cited host whose icon did not resolve", () => {
+		const validation = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Unresolved favicon report",
+			blocks: [
+				{ type: "heading", level: 2, text: "Sources" },
+				{
+					type: "sourceChips",
+					title: "Sources",
+					sources: [{ title: "Example docs", url: "https://example.com/docs" }],
+				},
+			],
+		});
+		expect(validation.ok).toBe(true);
+		if (!validation.ok) return;
+
+		// A map that resolved some OTHER host: this source is not in it.
+		const html = renderStandardReportHtml(
+			validation.source,
+			new Map([["other.test", "data:image/png;base64,iVBORw0KGgo="]]),
+		).content.toString("utf8");
+
+		expect(html).not.toContain('<img src="data:image/png');
 		expect(html).toContain(
 			'<span class="source-favicon"><span class="favicon-placeholder"',
 		);

@@ -1,3 +1,8 @@
+import {
+	EMPTY_REPORT_FAVICONS,
+	type ReportFavicons,
+	reportFaviconHost,
+} from "../report-favicons";
 import type {
 	GeneratedDocumentBlock,
 	GeneratedDocumentInlineSegment,
@@ -53,7 +58,15 @@ function slugifyId(text: string, index: number): string {
 
 type ReportLanguage = "en" | "hu";
 
+/**
+ * The per-render context: the localized chrome strings, plus the source icons
+ * resolved for this render. `favicons` rides along here because every function
+ * that draws a source already receives `chrome`, and an icon is as much a part
+ * of a source's chrome as its "Source 3" label is.
+ */
 interface ReportChrome {
+	/** Host -> self-contained `data:` icon (see `report-favicons.ts`). */
+	favicons: ReportFavicons;
 	language: ReportLanguage;
 	sections: string;
 	reportSectionsLabel: string;
@@ -69,9 +82,11 @@ interface ReportChrome {
 
 function reportChrome(
 	language: GeneratedDocumentSource["language"],
+	favicons: ReportFavicons = EMPTY_REPORT_FAVICONS,
 ): ReportChrome {
 	if (language === "hu") {
 		return {
+			favicons,
 			language: "hu",
 			sections: "Szakaszok",
 			reportSectionsLabel: "Jelentésszakaszok",
@@ -86,6 +101,7 @@ function reportChrome(
 		};
 	}
 	return {
+		favicons,
 		language: "en",
 		sections: "Sections",
 		reportSectionsLabel: "Report sections",
@@ -144,21 +160,33 @@ function renderGlobeFallback(hidden = false): string {
 	return `<span class="favicon-placeholder" data-favicon-fallback aria-hidden="true"${hidden ? " hidden" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg></span>`;
 }
 
-// Privacy: this report is a STANDALONE downloadable file, opened outside the
-// app (frequently from disk via `file://`). Embedding `${origin}/favicon.ico`
-// per cited source made the reader's browser fetch each cited domain's favicon
-// cross-origin on open, leaking which report — and which domains — they viewed.
-// The chat UI avoids this by routing favicons through the same-origin
-// `/api/favicon` proxy (see `sourceFaviconUrl` in `src/lib/services/markdown.ts`),
-// but that root-relative path cannot resolve in a standalone file, and this
-// renderer runs in a detached background worker (`worker-runner.ts`) with no
-// request context and no configured app origin (see `env.ts`) to build an
-// absolute proxy URL from. So we render a neutral, self-contained inline globe
-// for every source — no network fetch to the source domain or anywhere else.
-// This reuses the exact placeholder the report already showed for library
-// sources and favicon load failures, so layout and appearance are unchanged.
-function renderSourceFavicon(): string {
-	return `<span class="source-favicon">${renderGlobeFallback()}</span>`;
+// A source shows its site's real favicon, INLINED as a `data:` URI the server
+// resolved at render time (see `report-favicons.ts`).
+//
+// It must never become a remote `<img src="https://<domain>/favicon.ico">`
+// again: this report is a STANDALONE downloadable file, opened outside the app
+// (frequently from disk via `file://`), and a remote icon per cited source makes
+// the reader's browser call every cited domain on open — telling those domains
+// which report was read. The chat UI dodges that with the same-origin
+// `/api/favicon` proxy, but a root-relative path cannot resolve inside a
+// downloaded file and this renderer runs in a detached background worker
+// (`worker-runner.ts`) with no request context to build an absolute URL from.
+// Inlining the bytes keeps the real icon AND keeps the opened report silent.
+//
+// A host whose icon did not resolve is absent from `chrome.favicons` and falls
+// back to the neutral inline globe — the same glyph library sources have always
+// shown. The `onerror` swap stays on the `<img>` as a belt-and-braces path for a
+// `data:` payload the reader's browser cannot decode.
+function renderSourceFavicon(
+	url: string | null | undefined,
+	chrome: ReportChrome,
+): string {
+	const host = reportFaviconHost(url);
+	const dataUri = host ? chrome.favicons.get(host) : undefined;
+	if (!dataUri) {
+		return `<span class="source-favicon">${renderGlobeFallback()}</span>`;
+	}
+	return `<span class="source-favicon"><img src="${escapeHtml(dataUri)}" alt="" decoding="async" onerror="this.hidden=true;this.nextElementSibling.hidden=false;" />${renderGlobeFallback(true)}</span>`;
 }
 
 function sourceKey(source: GeneratedDocumentSourceChip): string {
@@ -240,7 +268,7 @@ function renderSourceTooltip(
 	const title = escapeHtml(source.title);
 	const reasoning = escapeHtml(compactSourceReasoning(source.reasoning));
 	const domain = escapeHtml(sourceDomain(source.url, chrome));
-	return `<span class="source-tooltip" role="tooltip"><span class="source-tooltip-head">${renderSourceFavicon()}<strong class="source-tooltip-title">${title}</strong></span>${reasoning ? `<span class="source-tooltip-reason">${reasoning}</span>` : ""}<span class="source-tooltip-domain">${domain}</span></span>`;
+	return `<span class="source-tooltip" role="tooltip"><span class="source-tooltip-head">${renderSourceFavicon(source.url, chrome)}<strong class="source-tooltip-title">${title}</strong></span>${reasoning ? `<span class="source-tooltip-reason">${reasoning}</span>` : ""}<span class="source-tooltip-domain">${domain}</span></span>`;
 }
 
 function renderSourceChip(
@@ -285,7 +313,7 @@ function renderSourceChip(
 	]
 		.filter((part): part is string => Boolean(part))
 		.join(" ");
-	const content = `${renderSourceFavicon()}${renderSourceTooltip(source, chrome)}`;
+	const content = `${renderSourceFavicon(source.url, chrome)}${renderSourceTooltip(source, chrome)}`;
 
 	if (source.url && options.link !== false) {
 		return `<a ${attributes} href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${content}</a>`;
@@ -579,6 +607,7 @@ function renderBasisMarker(
 	marker:
 		| Extract<GeneratedDocumentBlock, { type: "basisMarker" }>
 		| ParagraphBasisMarker,
+	chrome: ReportChrome,
 ): string {
 	const label = generatedDocumentBasisClaimLabel(marker.support);
 	const rationale = escapeHtml(marker.rationale);
@@ -588,7 +617,7 @@ function renderBasisMarker(
 	if (sourceRefs.length > 0) {
 		const items = sourceRefs
 			.map((ref) => {
-				const favicon = renderSourceFavicon();
+				const favicon = renderSourceFavicon(ref.url, chrome);
 				const title = escapeHtml(ref.title);
 				const link = ref.url
 					? `<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer" class="basis-tooltip-source-link">${title}</a>`
@@ -653,7 +682,7 @@ function renderInlineTextWithBasisMarkers(
 			chrome,
 			block.sources ?? [],
 		);
-		html += renderBasisMarker(placement.marker);
+		html += renderBasisMarker(placement.marker, chrome);
 		placed.add(placement.marker);
 		cursor = placement.end;
 	}
@@ -664,7 +693,7 @@ function renderInlineTextWithBasisMarkers(
 		block.sources ?? [],
 	);
 	for (const marker of markers) {
-		if (!placed.has(marker)) html += renderBasisMarker(marker);
+		if (!placed.has(marker)) html += renderBasisMarker(marker, chrome);
 	}
 	return html;
 }
@@ -724,8 +753,9 @@ function renderConfidenceMarker(
 
 function renderBasisMarkerFallback(
 	block: Extract<GeneratedDocumentBlock, { type: "basisMarker" }>,
+	chrome: ReportChrome,
 ): string {
-	return `<p class="basis-marker-block">${renderBasisMarker(block)}</p>`;
+	return `<p class="basis-marker-block">${renderBasisMarker(block, chrome)}</p>`;
 }
 
 function renderBlock(
@@ -759,7 +789,7 @@ function renderBlock(
 		case "confidenceMarker":
 			return renderConfidenceMarker(block);
 		case "basisMarker":
-			return renderBasisMarkerFallback(block);
+			return renderBasisMarkerFallback(block, options.chrome);
 		case "code":
 			return `<pre><code${block.language ? ` data-language="${escapeHtml(block.language)}"` : ""}>${escapeHtml(block.text)}</code></pre>`;
 		case "quote":
@@ -895,8 +925,14 @@ function renderReportContent(
 
 export function renderStandardReportHtml(
 	source: GeneratedDocumentSource,
+	/**
+	 * Source icons resolved by `resolveReportFavicons`. Omitted (or empty) means
+	 * every source draws the neutral globe — the renderer itself never reaches
+	 * the network, so it stays synchronous and unit-testable.
+	 */
+	favicons: ReportFavicons = EMPTY_REPORT_FAVICONS,
 ): StandardReportHtmlRenderResult {
-	const chrome = reportChrome(source.language);
+	const chrome = reportChrome(source.language, favicons);
 	const sourceIndex = collectReportSources(source.blocks);
 	const visibleBlocks =
 		source.blocks[0]?.type === "heading" &&

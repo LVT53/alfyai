@@ -119,6 +119,46 @@ describe("buildAtlasV3ProgressEvidence", () => {
 	});
 
 	/**
+	 * The evidence card draws each source's favicon from `/api/favicon?domain=`,
+	 * so the payload has to carry the HOST — and must NOT carry the icon itself.
+	 * `progress_details_json` is re-read on every poll; image bytes (or a second
+	 * URL per source) in there would bloat it for no gain.
+	 */
+	it("carries the host the card needs for the favicon, and no icon payload", () => {
+		const evidence = buildAtlasV3ProgressEvidence({
+			bank: bank(),
+			totals: {
+				corroborated: 1,
+				single: 0,
+				inferred: 0,
+				repeated: 0,
+				cut: 0,
+				needsEvidence: 0,
+			},
+			citations: assignAtlasV3CitationNumbers({
+				bank: bank(),
+				citedEvidenceIds: ["e1"],
+			}),
+		});
+
+		for (const source of evidence.sources) {
+			expect(source.host).toBeTruthy();
+			expect(source.host).not.toContain("/");
+			expect(Object.keys(source).sort()).toEqual([
+				"cited",
+				"date",
+				"host",
+				"n",
+				"snippet",
+				"title",
+			]);
+		}
+		const serialized = JSON.stringify(evidence);
+		expect(serialized).not.toContain("data:image");
+		expect(serialized).not.toContain("favicon");
+	});
+
+	/**
 	 * Eight sources hit the old 1200-character cap on one staging job, and the
 	 * evaluation then reported figures a CITED quote states as unsupported.
 	 */

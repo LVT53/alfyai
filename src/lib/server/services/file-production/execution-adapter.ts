@@ -8,6 +8,7 @@ import {
 	renderStandardReportPdf,
 	StandardReportPdfRenderError,
 } from "./renderers/standard-report-pdf";
+import { resolveReportFavicons } from "./report-favicons";
 import {
 	markGeneratedDocumentSourceArtifactFailed,
 	persistGeneratedDocumentSourceArtifact,
@@ -295,7 +296,16 @@ async function renderDocumentSource(
 			});
 		}
 		if (request.outputs.includes("html")) {
-			const rendered = renderStandardReportHtml(request.documentSource);
+			// Resolve the cited domains' icons HERE, server-side, so the rendered
+			// file can inline them: the report is downloaded and opened outside the
+			// app, where a remote icon URL would both fail to resolve and tell every
+			// cited domain the reader opened this report. A failed lookup just means
+			// that source keeps the neutral globe.
+			const favicons = await resolveReportFavicons(request.documentSource);
+			const rendered = renderStandardReportHtml(
+				request.documentSource,
+				favicons,
+			);
 			files.push({
 				filename: rendered.filename,
 				mimeType: rendered.mimeType,

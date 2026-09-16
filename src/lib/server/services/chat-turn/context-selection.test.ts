@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	buildConstructedContext,
+	inferDocumentContextIntent,
 	selectPromptContext,
 } from "./context-selection";
 
@@ -1176,5 +1177,222 @@ describe("buildConstructedContext", () => {
 				workingSetCount: 12,
 			}),
 		);
+	});
+});
+
+describe("inferDocumentContextIntent — document continuation", () => {
+	const NO_DOCUMENT = {
+		documentFocused: false,
+		hasCurrentAttachments: false,
+		hasCarriedForwardAttachments: false,
+		hasActiveDocument: false,
+		hasLinkedSources: false,
+		hasRetrievedEvidence: false,
+	} as const;
+
+	const EN_CONTINUATIONS = [
+		"what else does it say?",
+		"what else does the lease say",
+		"and the rest?",
+		"the rest of it please",
+		"read on",
+		"read further",
+		"continue reading",
+		"keep reading",
+		"give me more of it",
+		"more from the document",
+		"quote the whole clause",
+		"quote me the full section",
+		"give it to me in full",
+		"everything it says about deposits",
+		"everything the policy says",
+		"next section",
+		"show me the next page",
+		"show me all of it",
+		"the entire document please",
+	];
+
+	const HU_CONTINUATIONS = [
+		"mi van még benne?",
+		"a többit is kérem",
+		"olvasd tovább",
+		"folytasd az olvasást",
+		"idézd be az egészet",
+		"idézd az egészet",
+		"teljes egészében kérem",
+		"a következő rész",
+		"a következő oldal",
+		"a következő fejezetet",
+		"mutasd az egészet",
+		"még többet belőle",
+	];
+
+	it.each(
+		EN_CONTINUATIONS,
+	)("promotes %j to task depth when a retrieved hit is in play", (message) => {
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message,
+				hasRetrievedEvidence: true,
+			}),
+		).toBe("task");
+	});
+
+	it.each(
+		HU_CONTINUATIONS,
+	)("promotes %j to task depth when a retrieved hit is in play", (message) => {
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message,
+				hasRetrievedEvidence: true,
+			}),
+		).toBe("task");
+	});
+
+	it("promotes to direct depth when the document selection is explicit", () => {
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message: "what else does it say?",
+				hasCurrentAttachments: true,
+			}),
+		).toBe("direct");
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message: "olvasd tovább",
+				hasActiveDocument: true,
+			}),
+		).toBe("direct");
+	});
+
+	it.each([
+		["carried-forward attachments", { hasCarriedForwardAttachments: true }],
+		["a focused document", { documentFocused: true }],
+	] as const)("counts %s as a document in play", (_label, flags) => {
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				...flags,
+				message: "keep reading",
+			}),
+		).not.toBe("reference");
+	});
+
+	it.each([
+		"the rest of the team is on holiday",
+		"the rest of the day is free",
+		"what does the rest of the team say about it",
+		"in full swing",
+		"we're in full agreement",
+		"pay the invoice in full by friday",
+		"in full view of everyone",
+		"read on the train",
+		"keep reading the news",
+		"continue reading the book i told you about",
+		"next part of the plan",
+		"next page of the calendar please",
+		"the next chapter of my life",
+		"next section of the exam",
+		"more of the same",
+		"more from the team",
+		"a többi kolléga is jön",
+		"vasárnap a többiek",
+		"ha többi van",
+		"a következő rész a filmből",
+	])("leaves ordinary talk like %j alone even with a document in play", (message) => {
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message,
+				hasRetrievedEvidence: true,
+			}),
+		).toBe(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message,
+				hasRetrievedEvidence: false,
+			}),
+		);
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message,
+				hasRetrievedEvidence: true,
+			}),
+		).not.toBe("task");
+	});
+
+	it.each([
+		"the rest",
+		"the rest of the document",
+		"read on please",
+		"keep reading the document",
+		"quote it in full.",
+		"next section of the document",
+		"next page please",
+		"continue reading it",
+		"a többi",
+		"a többi részét is",
+		"kérem a többit is",
+	])("still promotes %j", (message) => {
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message,
+				hasRetrievedEvidence: true,
+			}),
+		).toBe("task");
+	});
+
+	it("does not promote depth when no document is in play", () => {
+		for (const message of [
+			"the rest of it",
+			"read on",
+			"a többit",
+			"olvasd tovább",
+			"mutasd az egészet",
+		]) {
+			expect(
+				inferDocumentContextIntent({ ...NO_DOCUMENT, message }),
+				message,
+			).toBe("reference");
+		}
+		// "what" is a pre-existing answer-intent word; without a document in
+		// play the continuation phrase must not lift it past that.
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message: "what else does it say?",
+			}),
+		).toBe("answer");
+	});
+
+	it("leaves an ordinary 'continue' at its usual depth", () => {
+		for (const message of ["continue", "folytasd", "go on", "ok"]) {
+			expect(
+				inferDocumentContextIntent({ ...NO_DOCUMENT, message }),
+				message,
+			).toBe("reference");
+			expect(
+				inferDocumentContextIntent({
+					...NO_DOCUMENT,
+					message,
+					hasRetrievedEvidence: true,
+				}),
+				message,
+			).toBe("reference");
+		}
+		// An explicit attachment plus a bare "continue" keeps the pre-existing
+		// outcome (no document reference, no task verb → reference).
+		expect(
+			inferDocumentContextIntent({
+				...NO_DOCUMENT,
+				message: "continue",
+				hasCurrentAttachments: true,
+			}),
+		).toBe("reference");
 	});
 });

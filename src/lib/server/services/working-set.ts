@@ -34,7 +34,7 @@ export interface RankedWorkingSetItem {
 export function scoreMatch(query: string, haystack: string): number {
 	const terms = query
 		.toLowerCase()
-		.split(/\\s+/)
+		.split(/\s+/)
 		.map((term) => term.trim())
 		.filter((term) => term.length > 2);
 	if (terms.length === 0) return 0;
