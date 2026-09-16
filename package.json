@@ -55,7 +55,7 @@
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.8",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.48",
@@ -71,7 +71,7 @@
     "better-sqlite3": "^12.8.0",
     "chart.js": "^4.5.1",
     "clsx": "^2.1.1",
-    "dockerode": "^4.0.10",
+    "dockerode": "^5.0.1",
     "docx": "^9.6.1",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
