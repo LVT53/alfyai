@@ -16,6 +16,7 @@ import { fetchConversationDetail } from "$lib/client/api/conversations";
 import { uploadKnowledgeAttachment } from "$lib/client/api/knowledge";
 import {
 	createNewConversation,
+	updateConversationMemoryIncognitoLocal,
 	upsertConversationLocal,
 } from "$lib/stores/conversations";
 import { currentConversationId, requestSearchModalOpen } from "$lib/stores/ui";
@@ -647,6 +648,10 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					showSlashHintProp={false}
 					composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
 					conversationId={preparedConversationId}
+					onMemoryIncognitoChange={(value) => {
+						if (preparedConversationId)
+							updateConversationMemoryIncognitoLocal(preparedConversationId, value);
+					}}
 					contextStatus={null}
 					attachedArtifacts={[]}
 					contextDebug={null}

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationListItem } from "$lib/server/services/conversations";
+import { uiLanguage } from "$lib/stores/settings";
 import ConversationItemWrapper from "./ConversationItemWrapper.test.svelte";
 
 vi.mock("svelte/transition", () => ({
@@ -130,6 +131,110 @@ describe("ConversationItem Component", () => {
 		).not.toBeInTheDocument();
 		expect(indicator.getAttribute("role")).toBe("img");
 		expect(screen.queryByRole("tree")).not.toBeInTheDocument();
+	});
+
+	// Incognito redesign — the sidebar row draws a mask before the title when
+	// memory is off for the conversation, in the leading slot the fork and
+	// Atlas marks use, never on the trailing side where the three dots live.
+	describe("incognito mark", () => {
+		it("draws a mask before the title with the same tooltip pattern as the fork mark", () => {
+			render(ConversationItemWrapper, {
+				conversation: { ...mockConversation, memoryIncognito: true },
+			});
+
+			const mark = screen.getByTestId("conversation-incognito-mark");
+			expect(mark).toHaveAttribute("role", "img");
+			expect(mark).toHaveAttribute("aria-label", "Incognito — not remembered");
+			expect(mark).toHaveAttribute("title", "Incognito — not remembered");
+			expect(mark).toHaveClass("incognito-mark");
+			expect(mark.querySelector(".fork-indicator-tooltip")).toHaveTextContent(
+				"Incognito — not remembered",
+			);
+			expect(mark.tagName.toLowerCase()).not.toBe("button");
+
+			// Leading, not trailing: the mark comes before the title in the DOM
+			// and the three-dots button is still there after it.
+			const title = screen.getByText("Test Conversation");
+			expect(
+				mark.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+			const menuButton = screen.getByRole("button", {
+				name: "Conversation options",
+			});
+			expect(menuButton).toBeInTheDocument();
+			expect(
+				mark.compareDocumentPosition(menuButton) &
+					Node.DOCUMENT_POSITION_FOLLOWING,
+			).toBeTruthy();
+		});
+
+		it("draws nothing when memory is on or the flag is missing", () => {
+			const { unmount } = render(ConversationItemWrapper, {
+				conversation: { ...mockConversation, memoryIncognito: false },
+			});
+			expect(
+				screen.queryByTestId("conversation-incognito-mark"),
+			).not.toBeInTheDocument();
+			unmount();
+
+			render(ConversationItemWrapper, { conversation: mockConversation });
+			expect(
+				screen.queryByTestId("conversation-incognito-mark"),
+			).not.toBeInTheDocument();
+		});
+
+		it("sits after the fork and Atlas marks when all three are present", () => {
+			render(ConversationItemWrapper, {
+				conversation: {
+					...mockConversation,
+					memoryIncognito: true,
+					forkSummary: {
+						sourceTitle: "Source title",
+						forkSequence: 2,
+						sourceConversationId: "source-conv",
+						sourceConversationIdAvailable: true,
+					},
+					atlasBadge: {
+						status: "succeeded",
+						label: "Completed Atlas report",
+					},
+				},
+			});
+
+			const fork = screen.getByLabelText("Fork of Source title, fork 2");
+			const atlas = screen.getByLabelText("Completed Atlas report");
+			const mask = screen.getByTestId("conversation-incognito-mark");
+			expect(fork.parentElement).toBe(mask.parentElement);
+			expect(atlas.parentElement).toBe(mask.parentElement);
+			const marks = Array.from(mask.parentElement?.children ?? []);
+			expect(marks.indexOf(fork)).toBeLessThan(marks.indexOf(atlas));
+			expect(marks.indexOf(atlas)).toBeLessThan(marks.indexOf(mask));
+			// The title still follows all three, and still truncates.
+			const titleBox = screen
+				.getByText("Test Conversation")
+				.closest(".truncate");
+			expect(titleBox).not.toBeNull();
+			expect(marks.indexOf(mask)).toBeLessThan(
+				marks.indexOf(titleBox?.parentElement as Element),
+			);
+			expect(
+				screen.getByRole("button", { name: "Conversation options" }),
+			).toBeInTheDocument();
+		});
+
+		it("localizes the mark", () => {
+			uiLanguage.set("hu");
+			try {
+				render(ConversationItemWrapper, {
+					conversation: { ...mockConversation, memoryIncognito: true },
+				});
+				expect(
+					screen.getByTestId("conversation-incognito-mark"),
+				).toHaveAttribute("title", "Inkognitó — nem marad meg");
+			} finally {
+				uiLanguage.set("en");
+			}
+		});
 	});
 
 	it("renders a compact completed Atlas badge without replacing the hover menu", () => {

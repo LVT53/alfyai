@@ -21,6 +21,7 @@ import {
 	renameConversation,
 	savePinnedConversationOrder,
 	toggleConversationSidebarPin,
+	updateConversationMemoryIncognitoLocal,
 	upsertConversationLocal,
 } from "./conversations";
 
@@ -191,6 +192,48 @@ describe("conversations store", () => {
 			conversationItem("conv-local", "Draft", 500),
 			conversationItem("conv-remote", "Remote", 100),
 		]);
+	});
+
+	// Incognito redesign — the sidebar's mask follows the composer's switch
+	// without waiting for the next server snapshot.
+	it("mirrors an incognito flip onto the listed row", () => {
+		reconcileConversationSnapshot([
+			conversationItem("conv-1", "One", 100),
+			conversationItem("conv-2", "Two", 50),
+		]);
+
+		updateConversationMemoryIncognitoLocal("conv-1", true);
+
+		expect(get(conversations)).toEqual([
+			conversationItem("conv-1", "One", 100, { memoryIncognito: true }),
+			conversationItem("conv-2", "Two", 50),
+		]);
+
+		updateConversationMemoryIncognitoLocal("conv-1", false);
+		expect(get(conversations)[0].memoryIncognito).toBe(false);
+	});
+
+	it("carries a pre-set incognito flag onto the row the landing page upserts later", () => {
+		// The landing composer persists incognito on the prepared conversation
+		// before the first message lists it in the sidebar.
+		updateConversationMemoryIncognitoLocal("conv-prepared", true);
+		expect(get(conversations)).toEqual([]);
+
+		upsertConversationLocal("conv-prepared", "New Conversation", 500);
+
+		expect(get(conversations)).toEqual([
+			conversationItem("conv-prepared", "New Conversation", 500, {
+				memoryIncognito: true,
+			}),
+		]);
+
+		// The server's snapshot is the truth once it lists the conversation.
+		reconcileConversationSnapshot([
+			conversationItem("conv-prepared", "New Conversation", 500, {
+				memoryIncognito: false,
+			}),
+		]);
+		expect(get(conversations)[0].memoryIncognito).toBe(false);
 	});
 
 	it("can place an optimistic local conversation inside a project", () => {

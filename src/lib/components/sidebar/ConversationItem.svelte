@@ -9,6 +9,7 @@ import {
 	Pencil,
 	Pin,
 	Trash2,
+	VenetianMask,
 	X,
 } from "@lucide/svelte";
 import type { ConversationListItem } from "$lib/server/services/conversations";
@@ -405,6 +406,21 @@ onMount(() => {
 						title={atlasBadgeLabel}
 					></span>
 				{/if}
+				<!-- Incognito redesign — a mask before the title, in the same slot
+				     as the fork and Atlas marks, so it never sits on the trailing
+				     side where the three dots live. -->
+				{#if conversation.memoryIncognito}
+					<span
+						class="fork-indicator incognito-mark"
+						data-testid="conversation-incognito-mark"
+						role="img"
+						aria-label={$t('sidebar.incognitoMark')}
+						title={$t('sidebar.incognitoMark')}
+					>
+						<VenetianMask size={13} strokeWidth={2.2} aria-hidden="true" />
+						<span class="fork-indicator-tooltip" aria-hidden="true">{$t('sidebar.incognitoMark')}</span>
+					</span>
+				{/if}
 			<div class="min-w-0 flex-1">
 				<div class="truncate text-[13px] font-sans text-text-primary">
 					<ConversationTitleText title={conversation.title} />
@@ -667,6 +683,11 @@ onMount(() => {
 			transform var(--duration-micro) var(--ease-out);
 		visibility: hidden;
 		white-space: nowrap;
+	}
+
+	/* The mask shares the fork mark's box and tooltip; only its glyph differs. */
+	.incognito-mark {
+		color: var(--text-muted);
 	}
 
 	.fork-indicator:hover .fork-indicator-tooltip,

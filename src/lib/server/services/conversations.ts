@@ -456,6 +456,8 @@ export interface ConversationListItem {
 	projectId?: string | null;
 	sidebarPinned: boolean;
 	sidebarSortOrder: number | null;
+	/** Memory is off for this conversation — the sidebar draws a mask. */
+	memoryIncognito?: boolean;
 	forkSummary?: ConversationForkListSummary;
 	atlasBadge?: {
 		jobId?: string;

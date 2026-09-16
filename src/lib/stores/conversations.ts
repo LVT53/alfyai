@@ -31,6 +31,12 @@ const localConversationSidebarStates = new Map<
 	string,
 	{ sidebarPinned: boolean; sidebarSortOrder: number | null }
 >();
+// Incognito flipped from the composer, by conversation id. Held so a row the
+// sidebar has not listed yet (the landing page's prepared conversation) can
+// carry the mask the moment it is upserted, rather than after the next
+// server snapshot. Dropped once a snapshot lists the conversation: the
+// composer persists before it reports, so the server's value is the truth.
+const localConversationMemoryIncognito = new Map<string, boolean>();
 const seenAtlasBadgeKeys = new Set<string>();
 const SEEN_ATLAS_BADGE_STORAGE_PREFIX = "alfyai:seen-atlas-badges:v1";
 const MAX_PERSISTED_SEEN_ATLAS_BADGE_KEYS = 500;
@@ -271,6 +277,7 @@ export function reconcileConversationSnapshot(
 			deletedConversationIds.clear();
 			localConversationProjectIds.clear();
 			localConversationSidebarStates.clear();
+			localConversationMemoryIncognito.clear();
 			conversationSnapshotUserId = options.userId ?? null;
 			hydrateSeenAtlasBadgeKeys(conversationSnapshotUserId);
 			return sortConversationsForSidebar(
@@ -285,6 +292,7 @@ export function reconcileConversationSnapshot(
 
 		const mergedIncoming = incoming.map((item) => {
 			let nextItem = item;
+			localConversationMemoryIncognito.delete(item.id);
 			if (localConversationProjectIds.has(item.id)) {
 				const localProjectId = localConversationProjectIds.get(item.id) ?? null;
 				if ((item.projectId ?? null) === localProjectId) {
@@ -327,6 +335,7 @@ export function clearConversationStore(): void {
 	deletedConversationIds.clear();
 	localConversationProjectIds.clear();
 	localConversationSidebarStates.clear();
+	localConversationMemoryIncognito.clear();
 	// Preserve seenAtlasBadgeKeys and seenAtlasBadgeKeysLoadedForUserId across
 	// logout/login so the accent circle does not reappear after re-login.
 	// hydrateSeenAtlasBadgeKeys already handles user changes by comparing
@@ -427,6 +436,9 @@ export function upsertConversationLocal(
 					projectId: projectId ?? null,
 					sidebarPinned: false,
 					sidebarSortOrder: null,
+					...(localConversationMemoryIncognito.has(id)
+						? { memoryIncognito: localConversationMemoryIncognito.get(id) }
+						: {}),
 				},
 				...items,
 			];
@@ -486,6 +498,25 @@ export function updateConversationTitleLocal(id: string, title: string): void {
 	conversations.update((items) =>
 		items.map((conversation) =>
 			conversation.id === id ? { ...conversation, title } : conversation,
+		),
+	);
+}
+
+/**
+ * The composer just flipped incognito for a conversation and the server has
+ * it. Mirrors it onto the sidebar row so the mask changes with the switch,
+ * the way a generated title lands without waiting for the next snapshot.
+ */
+export function updateConversationMemoryIncognitoLocal(
+	id: string,
+	memoryIncognito: boolean,
+): void {
+	localConversationMemoryIncognito.set(id, memoryIncognito);
+	conversations.update((items) =>
+		items.map((conversation) =>
+			conversation.id === id
+				? { ...conversation, memoryIncognito }
+				: conversation,
 		),
 	);
 }

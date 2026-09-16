@@ -50,6 +50,9 @@ const SCOPE = [
 	// hover — are live risks on a shape whose radius is its whole identity.
 	"src/lib/components/chat/ComposerChip.svelte",
 	"src/lib/components/chat/ComposerChipRow.svelte",
+	// The incognito card (2026-09-16) is a menu-shaped surface with one
+	// hoverable switch row; it is in scope for the same reason the chips are.
+	"src/lib/components/chat/IncognitoPopover.svelte",
 	"src/routes/(app)/settings/_components",
 	"src/routes/(app)/knowledge/_components/MemoryPortraitCard.svelte",
 	"src/routes/(app)/knowledge/_components/MemoryCategorySection.svelte",

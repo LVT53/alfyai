@@ -204,6 +204,7 @@ const commonDict = {
 			"Failed to update conversation pin. Please try again.",
 		"sidebar.forkIndicatorTooltip": "Fork of {title}, fork {sequence}",
 		"sidebar.groupChatsCreateOne": "Group your chats - click to create one",
+		"sidebar.incognitoMark": "Incognito — not remembered",
 		"sidebar.knowledgeBase": "Knowledge base",
 		"sidebar.logout": "Logout",
 		"sidebar.logoutConfirmAction": "Log out",
@@ -482,6 +483,7 @@ const commonDict = {
 			"Elágazás innen: {title}, {sequence}. elágazás",
 		"sidebar.groupChatsCreateOne":
 			"Rendezd projektekbe a beszélgetéseidet - kattints a létrehozáshoz",
+		"sidebar.incognitoMark": "Inkognitó — nem marad meg",
 		"sidebar.knowledgeBase": "Tudásbázis",
 		"sidebar.logout": "Kijelentkezés",
 		"sidebar.logoutConfirmAction": "Kijelentkezés",

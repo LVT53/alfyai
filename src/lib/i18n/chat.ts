@@ -65,9 +65,12 @@ const chatDict = {
 			"Connections: off — your connected accounts won't be used this chat",
 		"chat.connectionsToggleNoConnections":
 			"No connections yet — connect your first service in Settings",
-		"chat.incognitoNotice": "Incognito on — this chat won't be saved to memory",
+		"chat.incognitoOn": "Incognito is on",
+		"chat.incognitoPlaceholder": "Incognito · nothing here is remembered",
+		"chat.incognitoPlaceholderShort": "Incognito · not remembered",
+		"chat.incognitoPopoverBody":
+			"Nothing in this chat is remembered. Memory stays off for the whole conversation, and it is left out of your analytics.",
 		"chat.incognitoToggle": "Incognito — don't remember this chat",
-		"chat.incognitoTurnOff": "Turn off",
 		"chat.thinkingToggleOn": "Thinking on",
 		"chat.thinkingToggleOff": "Thinking off",
 		"chat.jumpRailA11yLabel": "Conversation navigation",
@@ -1143,10 +1146,12 @@ const chatDict = {
 			"Kapcsolatok: kikapcsolva — a csatlakoztatott fiókjaid nem lesznek használva ebben a beszélgetésben",
 		"chat.connectionsToggleNoConnections":
 			"Még nincs kapcsolat — csatlakoztasd az első szolgáltatásod a Beállításokban",
-		"chat.incognitoNotice":
-			"Inkognitó bekapcsolva — ez a beszélgetés nem kerül a memóriába",
+		"chat.incognitoOn": "Inkognitó bekapcsolva",
+		"chat.incognitoPlaceholder": "Inkognitó · itt semmi nem marad meg",
+		"chat.incognitoPlaceholderShort": "Inkognitó · nem marad meg",
+		"chat.incognitoPopoverBody":
+			"Ebből a beszélgetésből semmi nem marad meg. A memória az egész beszélgetésre kikapcsolva marad, és az elemzésekből is kimarad.",
 		"chat.incognitoToggle": "Inkognitó — ne jegyezze meg ezt a beszélgetést",
-		"chat.incognitoTurnOff": "Kikapcsolás",
 		"chat.thinkingToggleOn": "Gondolkodás bekapcsolva",
 		"chat.thinkingToggleOff": "Gondolkodás kikapcsolva",
 		"chat.jumpRailA11yLabel": "Beszélgetés navigáció",
