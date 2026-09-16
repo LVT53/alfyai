@@ -82,7 +82,12 @@ describe("computeMenuPlacement", () => {
 		expect(card.maxHeight).toBe(trigger.top - MENU_MARGIN);
 
 		// Its own minimum still flips it in a window with no room above.
-		const cramped = computeMenuPlacement(rect(40, 120, 34, 34), SHORT, 292, 200);
+		const cramped = computeMenuPlacement(
+			rect(40, 120, 34, 34),
+			SHORT,
+			292,
+			200,
+		);
 		expect(cramped.placement).toBe("below");
 	});
 
