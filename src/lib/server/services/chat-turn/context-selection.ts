@@ -186,6 +186,12 @@ const DOCUMENT_ANSWER_INTENT_RE =
 	/\b(according to|based on|from the|from this|from that|what|when|where|who|why|how|which)\b|(?:mire|miért|hogyan|mikor|hol|kit|kinek)\b/iu;
 const DOCUMENT_REFERENCE_RE =
 	/\b(attachment|attached|source|document|doc|file|pdf|policy|report|brief|workspace|this|that|it)\b|(?:dokumentum[\p{L}]*|doksi[\p{L}]*|fájl[\p{L}]*|fajl[\p{L}]*|csatolmány[\p{L}]*|csatolmany[\p{L}]*|melléklet[\p{L}]*|melleklet[\p{L}]*|forrás[\p{L}]*|forras[\p{L}]*|ez|ezt|ebből|ebbol|abban|benne|itt|ott)|\/document\b/iu;
+// A request for MORE of a document that is already in play — "what else does
+// it say", "read on", "quote the whole clause", "a többit", "olvasd tovább".
+// Consulted only when a document is actually in play (see
+// inferDocumentContextIntent), so a bare "continue" never changes depth.
+const DOCUMENT_CONTINUATION_INTENT_RE =
+	/\bwhat\s+else\s+does\s+[\p{L}\s'-]{0,80}?\bsay\b|\bthe\s+rest(?:\s+of\s+(?:it|this|that))?\b|\bread\s+(?:on|further)\b|\bread\s+(?:it|this|that)\s+further\b|\b(?:continue|keep)\s+reading\b|\bmore\s+(?:of|from)\s+(?:it|this|that|the)\b|\bquote\s+(?:me\s+)?the\s+(?:whole|full|entire)\b|\bthe\s+(?:whole|full|entire)\s+(?:document|doc|file|text|pdf|report|section|clause|passage)\b|\bin\s+full\b|\beverything\s+(?:it|this|that|the\s+[\p{L}\s-]{0,80}?)\s+says\b|\bnext\s+(?:section|page|part|chapter)\b|\bshow\s+(?:me\s+)?all\s+of\s+(?:it|this|that)\b|(?:mi\s+van\s+még\s+benne|mi\s+van\s+meg\s+benne|mi\s+van\s+benne\s+még|mi\s+van\s+benne\s+meg|a\s+többi[\p{L}]*|a\s+tobbi[\p{L}]*|olvasd\s+tovább|olvasd\s+tovabb|folytasd\s+az\s+olvasás[\p{L}]*|folytasd\s+az\s+olvasas[\p{L}]*|idézd\s+(?:be\s+)?az\s+egész[\p{L}]*|idezd\s+(?:be\s+)?az\s+egesz[\p{L}]*|teljes\s+egészében|teljes\s+egeszeben|a\s+következő\s+(?:rész|oldal|fejezet|szakasz)[\p{L}]*|a\s+kovetkezo\s+(?:resz|oldal|fejezet|szakasz)[\p{L}]*|mutasd\s+(?:meg\s+)?az\s+egész[\p{L}]*|mutasd\s+(?:meg\s+)?az\s+egesz[\p{L}]*|még\s+többet\s+belőle|meg\s+tobbet\s+belole)/iu;
 const DEEP_CONTEXT_INTENT_RE =
 	/\b(attachment|attached|source|sources|document|doc|file|pdf|policy|report|brief|workspace|evidence|cite|citation|according to|based on|summarize|summarise|summary|compare|extract|review|check|rewrite|revise|edit|analyze|analyse|translate|convert|outline|project|task|plan|decision|decisions|remember|memory|earlier|previous|before|continue)\b|(?:dokumentum[\p{L}]*|doksi[\p{L}]*|fájl[\p{L}]*|fajl[\p{L}]*|csatolmány[\p{L}]*|csatolmany[\p{L}]*|melléklet[\p{L}]*|melleklet[\p{L}]*|forrás[\p{L}]*|forras[\p{L}]*|bizonyíték[\p{L}]*|bizonyitek[\p{L}]*|idéz[\p{L}]*|idez[\p{L}]*|összefoglal[\p{L}]*|foglal[\p{L}]*\s+össze|összegez[\p{L}]*|hasonlíts[\p{L}]*|hasonlits[\p{L}]*|elemez[\p{L}]*|ellenőriz[\p{L}]*|ellenoriz[\p{L}]*|javíts[\p{L}]*|javits[\p{L}]*|írd\s+át|ird\s+at|fordíts[\p{L}]*|fordits[\p{L}]*|projekt[\p{L}]*|feladat[\p{L}]*|terv[\p{L}]*|döntés[\p{L}]*|dontes[\p{L}]*|emléksz[\p{L}]*|emleksz[\p{L}]*|korábbi|korabbi|előző|elozo|folytasd)/iu;
 const META_CONTEXT_INTENT_RE =
@@ -627,13 +633,15 @@ function buildProjectFolderPromptSection(
 	};
 }
 
-function inferDocumentContextIntent(params: {
+export function inferDocumentContextIntent(params: {
 	message: string;
 	documentFocused: boolean;
 	hasCurrentAttachments: boolean;
 	hasCarriedForwardAttachments: boolean;
 	hasActiveDocument: boolean;
 	hasLinkedSources: boolean;
+	/** A knowledge hit already landed in this turn's Retrieved Evidence. */
+	hasRetrievedEvidence?: boolean;
 }): DocumentContextIntent {
 	const message = params.message.trim();
 	const hasTaskIntent = DOCUMENT_TASK_INTENT_RE.test(message);
@@ -648,6 +656,22 @@ function inferDocumentContextIntent(params: {
 		/\/document\b/i.test(message) ||
 		(params.documentFocused && hasDocumentReference) ||
 		(params.hasCarriedForwardAttachments && hasDocumentReference);
+
+	// Continuation: the user wants more of a document that is already in play
+	// ("what else does it say", "a többit"). Reference depth (2 chunks /
+	// 1,400 chars) would re-serve the same excerpt, so promote to task depth —
+	// direct when the selection is explicit, matching the branch below. A
+	// document must actually be in play; a bare "continue" with nothing
+	// attached, retrieved or focused keeps its ordinary depth.
+	const documentInPlay =
+		params.hasCurrentAttachments ||
+		params.hasCarriedForwardAttachments ||
+		params.hasActiveDocument ||
+		params.documentFocused ||
+		Boolean(params.hasRetrievedEvidence);
+	if (documentInPlay && DOCUMENT_CONTINUATION_INTENT_RE.test(message)) {
+		return explicitDocumentSelection ? "direct" : "task";
+	}
 
 	if (explicitDocumentSelection && (hasTaskIntent || hasDocumentReference)) {
 		return "direct";
@@ -1556,6 +1580,7 @@ export async function buildConstructedContext(params: {
 		hasCarriedForwardAttachments: carriedForwardAttachments.length > 0,
 		hasActiveDocument: Boolean(params.activeDocumentArtifactId),
 		hasLinkedSources: linkedSourceArtifacts.length > 0,
+		hasRetrievedEvidence: selectedEvidence.length > 0,
 	});
 	const documentDepthBudget = deriveDocumentContextDepthBudget({
 		contextBudget: modelContextBudget,
