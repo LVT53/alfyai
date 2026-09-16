@@ -36,6 +36,26 @@ over with a single atomic symlink flip (see "Release layout" below). In order:
 The script restarts the systemd service itself; it does not need a separate PM2/Docker restart
 step, and it never mutates the previously-live release while the app is serving traffic.
 
+The `db:prepare` step in the flow above (step 6) is also what the standard runtime entrypoint runs:
+`npm start` is `npm run check:migrations && npm run db:prepare && node build`, so a host-managed
+`adapter-node` start applies pending Drizzle migrations before serving the built app. SvelteKit
+adapter-node reads `HOST` and `PORT` for the listen address, so container-reachable host setups should
+use `HOST=0.0.0.0` instead of `127.0.0.1`.
+
+### Deploy-script environment variables
+
+These variables tune `scripts/deploy.sh` / `scripts/deploy-dev.sh` themselves. They are **script-only**
+and are not read by the app (app runtime variables are in
+[docs/configuration.md](../docs/configuration.md)).
+
+| Variable | Default | What it does |
+|---|---:|---|
+| `APP_DIR` | current working directory | App root (containing `shared/`, `releases/`, `current`) to deploy into. Set it when the script is invoked from outside the app directory. |
+| `DEPLOY_BRANCH` | `main` (`dev` in `deploy-dev.sh`) | Branch fetched and archived into the new release. Rarely overridden outside the two canonical scripts. |
+| `SERVICE_NAME` | `langflow-chat.service` (`langflow-chat-dev.service` in `deploy-dev.sh`) | systemd unit restarted after cutover and polled for rollback. |
+| `HEALTH_PORT` | `3001` (`3002` in `deploy-dev.sh`) | Port polled at `/api/health` after cutover to decide rollback. Set it if the app listens on a non-default port. |
+| `RELEASES_TO_KEEP` | `3` | How many `releases/<sha>/` directories are retained after a successful deploy. Older releases are deleted, not archived. |
+
 ### Obtaining the deploy script itself
 
 Because releases are `git archive` snapshots and the app root is no longer a live working checkout,
@@ -108,8 +128,9 @@ Change one, change both, in the same commit.
 Deploy order for any change:
 
 1. Merge the change onto `dev`, run `scripts/deploy-dev.sh` on staging.
-2. Verify staging: `curl -s http://localhost:3002/api/health` returns `{"status":"OK"}`, and one
-   real chat turn completes end to end at `https://ai.dev.alfydesign.com`.
+2. Verify staging: `curl -s http://localhost:3002/api/health` returns HTTP 200 with `status: "OK"`
+   (see [Health check](#health-check)), and one real chat turn completes end to end at
+   `https://ai.dev.alfydesign.com`.
 3. Only then merge to `main` and run `scripts/deploy.sh` on production.
 4. Verify production the same way on port 3001.
 
@@ -143,7 +164,7 @@ That keeps Apache reverse proxying to `127.0.0.1:3001` on the host while also al
 
 ## Runtime Expectations
 
-- Node.js 20+
+- Node.js 22.x (see `package.json` engines and `.nvmrc`)
 - npm
 - a writable `data/` directory
 - reachable OpenAI-compatible model provider endpoint(s) from the app server
@@ -160,8 +181,66 @@ curl -s http://localhost:3001/api/health
 Expected response:
 
 ```json
-{"status":"OK"}
+{"status":"OK","draining":false,"activeStreams":0}
 ```
+
+`scripts/deploy.sh` uses this endpoint two ways: it polls it after cutover to decide whether to roll
+back, and — when `ALFYAI_API_SIGNING_KEY` is set — it posts to `/api/admin/drain` and then watches
+`activeStreams` fall to zero before restarting, so in-flight chat streams are not cut mid-response.
+Without the signing key it skips the drain and relies on graceful shutdown alone.
+
+## Web Research Deployment
+
+Web work runs through the app-owned `research_web` AI SDK tool (and `fetch_url`), which are only
+registered when Parallel is configured. Deploy it this way:
+
+1. Deploy the app code. `scripts/deploy.sh` fetches and archives `origin main`, so merge `dev` to
+   `main` first, or use staging (`scripts/deploy-dev.sh`) when testing from `dev`.
+2. Set `PARALLEL_API_KEY`. Parallel powers web search and page extraction for `research_web`,
+   `fetch_url`, and Atlas. Without it, `research_web`/`fetch_url` are omitted from the tool surface and
+   Atlas reports as unavailable.
+3. Set `BRAVE_SEARCH_API_KEY` only when the separate `image_search` tool should be available.
+4. Configure the primary Normal Chat model with `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, and
+   `MODEL_1_NAME`, or through `Settings > Administration > System`. The endpoint must expose an
+   OpenAI-compatible chat-completions surface.
+5. Keep `TEI_RERANKER_URL` configured if you want source and evidence reranking. Search still works
+   without it, but diagnostics will show `sourceReranked: false` when reranking is unavailable or not
+   confident.
+6. Restart the AlfyAI process after changing environment variables.
+
+Post-deploy checks:
+
+- Ask for an exact page-backed value, for example a current price from a product URL.
+- Ask for a PDF report with headings, a table, and a bar chart. It should create a successful
+  file-production card; `unsupported_document_block` means the running app or document-source contract
+  has drifted.
+- In the `research_web` tool result diagnostics, expect `selectedSourceCount > 0` and
+  `evidenceCandidateCount > 0`.
+- For healthy pages, local Readability extraction should produce quality Markdown evidence.
+- For prices, dates, availability, specs, and similar exact values, `exactEvidenceCandidateCount`
+  should usually be greater than `0`.
+- When TEI reranking is configured and confident, `sourceReranked` and `reranked` should usually be
+  `true`.
+
+## Operational Caveats
+
+- If you bypass `scripts/deploy.sh`, run `npm run db:prepare` before starting the production server
+  (`npm start` already runs it).
+- Persist the `data/` directory across deploys so chats, drafts, uploads, and SQLite data survive
+  restarts. Under `scripts/deploy.sh`'s release layout this lives at `shared/data/` and is symlinked
+  into every `releases/<sha>/`, so no deploy rebuilds or removes it (see
+  [Release layout](#release-layout)).
+- On Linux/macOS, install `libreoffice` and `imagemagick` so MinerU can normalize Office/image uploads
+  consistently. HEIC/HEIF/AVIF uploads need ImageMagick delegate support — see
+  [docs/uploads.md](../docs/uploads.md) for the accepted-format list and the AlmaLinux/RHEL delegate
+  setup.
+- MinerU handles OCR natively in all backends; no separate OCR service is required.
+- A sandboxed file-production run that does not actually write a file to `/output` returns an explicit
+  error instead of a silent empty success.
+- Auxiliary services such as title generation and summarization can fail independently without
+  necessarily blocking core chat.
+- Admin configuration can override selected runtime values after boot; the environment remains the base
+  layer, not always the final one.
 
 ## Upload Body Size
 
