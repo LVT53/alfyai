@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick, untrack } from "svelte";
 import {
 	Bell,
 	Brain,
@@ -76,6 +76,9 @@ import ContextUsageRing from "./ContextUsageRing.svelte";
 import AttachmentOutline from "./AttachmentOutline.svelte";
 import AttachmentPickerSheet from "./AttachmentPickerSheet.svelte";
 import ComposerToolsMenu from "./ComposerToolsMenu.svelte";
+import IncognitoPopover, {
+	type IncognitoPopoverCloseReason,
+} from "./IncognitoPopover.svelte";
 import SkillsPicker from "./SkillsPicker.svelte";
 import {
 	accountsBadge,
@@ -277,8 +280,14 @@ let {
 	atlasAvailability?: AtlasAvailability | null;
 	/** Whether the current conversation is excluded from the memory pipeline. */
 	memoryIncognito?: boolean;
-	/** Emitted after a successful incognito toggle so parents can reconcile. */
-	onMemoryIncognitoChange?: ((value: boolean) => void) | undefined;
+	/**
+	 * Emitted after a successful incognito toggle so parents can reconcile.
+	 * The id travels with it because on the landing page the prepared
+	 * conversation can be cleared between the flip and the persist landing.
+	 */
+	onMemoryIncognitoChange?:
+		| ((value: boolean, conversationId: string) => void)
+		| undefined;
 	// Issue 7.4 fix pass — the composer's per-conversation active connection
 	// capability set is bindable so the page (the single cloud-warning
 	// chokepoint, see +page.svelte's ensureCloudWarningAcked) can read the
@@ -616,7 +625,7 @@ $effect(() => {
 async function persistIncognito(id: string, value: boolean): Promise<boolean> {
 	try {
 		await setConversationMemoryIncognito(id, value);
-		onMemoryIncognitoChange?.(value);
+		onMemoryIncognitoChange?.(value, id);
 		return true;
 	} catch {
 		return false;
@@ -638,6 +647,58 @@ async function toggleIncognito() {
 	if (!ok) incognitoOn = !next;
 	incognitoBusy = false;
 }
+
+// Incognito redesign — while the flag is on the action row grows a fifth
+// face, a mask in ink, and the placeholder says what the mask means. The
+// face opens a small card with the same switch the "+" menu has. Nothing is
+// painted above the composer any more.
+let showIncognitoPopover = $state(false);
+let incognitoFaceTrigger = $state<HTMLButtonElement | undefined>(undefined);
+
+function toggleIncognitoPopover() {
+	showIncognitoPopover = !showIncognitoPopover;
+	if (showIncognitoPopover) {
+		showToolsMenu = false;
+		showConnectionsPopover = false;
+		closeCommandTray();
+	}
+}
+
+function closeIncognitoPopover(reason: IncognitoPopoverCloseReason) {
+	showIncognitoPopover = false;
+	// Escape hands focus back to the face it came from; a click elsewhere
+	// already put focus where the user wanted it.
+	if (reason === "escape") incognitoFaceTrigger?.focus({ preventScroll: true });
+}
+
+// The card is about a state; when the state ends (from its own switch, the
+// "+" menu, or a failed persist rolling back) the card goes with the face.
+// Focus was on the card's switch or on the face, and both are about to
+// leave the DOM — left alone it would fall to <body>, so it moves to the
+// textarea, which is where the next thing the user does happens anyway.
+// A pre-effect, because it has to see where focus is before the DOM update
+// takes the face and the card away.
+$effect.pre(() => {
+	if (incognitoOn || !untrack(() => showIncognitoPopover)) return;
+	showIncognitoPopover = false;
+	const active = document.activeElement;
+	const focusWasOnIncognito =
+		active === incognitoFaceTrigger ||
+		Boolean(active?.closest('[data-testid="incognito-popover"]'));
+	if (focusWasOnIncognito) {
+		void tick().then(() => textarea?.focus({ preventScroll: true }));
+	}
+});
+
+let composerPlaceholder = $derived(
+	incognitoOn
+		? $t(
+				isPhone
+					? "chat.incognitoPlaceholderShort"
+					: "chat.incognitoPlaceholder",
+			)
+		: $t("chat.messagePlaceholder"),
+);
 
 // ADR 0044 Decision 1 — loads the user's served/defaultOn connection
 // capabilities once on mount. `served` (-> availableCapabilities) gates
@@ -794,6 +855,7 @@ function toggleConnections() {
 function openConnectionsPopover() {
 	if (!hasConnections) return;
 	showConnectionsPopover = !showConnectionsPopover;
+	if (showConnectionsPopover) showIncognitoPopover = false;
 }
 
 function rememberConnectionSelection() {
@@ -1610,6 +1672,7 @@ function toggleToolsMenu() {
 	if (showToolsMenu) {
 		sourceManagerOpen = false;
 		showConnectionsPopover = false;
+		showIncognitoPopover = false;
 		closeCommandTray();
 		// The Skills row says how many are active. Fetched when the menu opens
 		// rather than on mount: most sessions never open it, and a count that
@@ -2674,21 +2737,6 @@ async function emitDraftChange(force = false) {
 		</div>
 	{/if}
 
-	{#if incognitoOn}
-		<div class="composer-incognito-notice" role="status">
-			<VenetianMask size={14} strokeWidth={2.1} class="shrink-0" aria-hidden="true" />
-			<span class="composer-incognito-notice-text">{$t('chat.incognitoNotice')}</span>
-			<button
-				type="button"
-				class="composer-incognito-off"
-				onclick={toggleIncognito}
-				disabled={incognitoBusy}
-			>
-				{$t('chat.incognitoTurnOff')}
-			</button>
-		</div>
-	{/if}
-
 	<div class="message-composer relative z-[2] flex min-h-[70px] flex-col rounded-[1.25rem] border border-border px-[8px] pt-[8px] pb-0 transition-all duration-150 focus-within:border-focus-ring md:min-h-[78px] md:px-[10px] md:pt-[10px]">
 		<input
 			bind:this={fileInput}
@@ -2712,7 +2760,7 @@ async function emitDraftChange(force = false) {
 			disabled={isComposerDisabled}
 			aria-controls={showCommandTray ? 'composer-command-tray' : undefined}
 			aria-activedescendant={activeCommandRow ? `composer-command-${activeCommandRow.id}` : undefined}
-			placeholder={$t('chat.messagePlaceholder')}
+			placeholder={composerPlaceholder}
 			class="composer-textarea min-h-[72px] w-full resize-none overflow-y-auto border-0 bg-transparent px-[13px] py-[7px] text-left text-[15px] leading-[1.42] font-serif text-text-primary placeholder:font-sans placeholder:text-[14px] placeholder:text-text-muted focus:outline-none focus:ring-0 md:min-h-[88px] md:px-[16px] md:py-[8px] md:text-[15px] md:leading-[1.35]"
 			class:composer-textarea--link-overlay-active={composerTextSegments.length > 0}
 			rows="1"
@@ -3037,6 +3085,43 @@ async function emitDraftChange(force = false) {
 					>
 						<Brain size={isPhone ? 16 : 18} strokeWidth={2.1} aria-hidden="true" />
 					</button>
+				{/if}
+
+				<!-- Incognito redesign — the fifth face, only while the flag is on.
+				     Ink rather than accent: it is a fact about the conversation,
+				     not a control that is "on" for this message. -->
+				{#if incognitoOn}
+					<div class="relative flex items-center">
+						<button
+							type="button"
+							bind:this={incognitoFaceTrigger}
+							data-testid="incognito-face"
+							class="composer-face composer-face--ink"
+							onclick={toggleIncognitoPopover}
+							aria-label={$t('chat.incognitoOn')}
+							title={$t('chat.incognitoOn')}
+							aria-haspopup="dialog"
+							aria-expanded={showIncognitoPopover}
+							aria-controls={showIncognitoPopover ? 'incognito-popover' : undefined}
+							onpointerdown={() => startLongPress($t('chat.incognitoOn'))}
+							onpointerup={clearLongPress}
+							onpointerleave={clearLongPress}
+							onpointercancel={clearLongPress}
+							oncontextmenu={suppressLongPressMenu}
+						>
+							<VenetianMask size={isPhone ? 16 : 18} strokeWidth={2.1} aria-hidden="true" />
+						</button>
+
+						{#if showIncognitoPopover}
+							<IncognitoPopover
+								triggerElement={incognitoFaceTrigger}
+								{incognitoOn}
+								{incognitoBusy}
+								onToggle={toggleIncognito}
+								onClose={closeIncognitoPopover}
+							/>
+						{/if}
+					</div>
 				{/if}
 
 				{#if hasContextToShow}
@@ -3647,6 +3732,22 @@ async function emitDraftChange(force = false) {
 		opacity: 0.42;
 	}
 
+	/* The mask: ink at rest, because it states a fact rather than offering a
+	   switch. Ink has nowhere darker to go on hover, so the same eased
+	   affordance reads as a soft lift instead. */
+	.composer-face--ink {
+		color: var(--text-primary);
+		transition:
+			color var(--duration-standard) var(--ease-out),
+			opacity var(--duration-standard) var(--ease-out);
+	}
+
+	.composer-face--ink:hover:not(:disabled),
+	.composer-face--ink[aria-expanded="true"] {
+		color: var(--text-primary);
+		opacity: 0.72;
+	}
+
 	/* A phone grows the whole face to the 44px hit area. There is no disc to
 	   inset any more, so the glyph simply centres in it. */
 	@media (max-width: 639px) {
@@ -3708,45 +3809,6 @@ async function emitDraftChange(force = false) {
 			top: 7px;
 			right: 7px;
 		}
-	}
-
-	/* One-line "incognito on" notice above the input box. */
-	.composer-incognito-notice {
-		display: flex;
-		align-items: center;
-		gap: 0.4rem;
-		margin: 0 0.25rem 0.4rem;
-		padding: 0.3rem 0.6rem;
-		border-radius: 9999px;
-		border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-default) 70%);
-		background: color-mix(in srgb, var(--accent) 8%, var(--surface-page) 92%);
-		color: var(--accent);
-		font-size: 0.75rem;
-		line-height: 1.3;
-	}
-
-	.composer-incognito-notice-text {
-		min-width: 0;
-		flex: 1;
-		overflow-wrap: anywhere;
-	}
-
-	.composer-incognito-off {
-		flex-shrink: 0;
-		cursor: pointer;
-		background: none;
-		border: none;
-		padding: 0;
-		color: var(--accent);
-		font-size: 0.75rem;
-		font-weight: 600;
-		text-decoration: underline;
-		text-underline-offset: 0.16em;
-	}
-
-	.composer-incognito-off:disabled {
-		cursor: not-allowed;
-		opacity: 0.6;
 	}
 
 	.composer-textarea {

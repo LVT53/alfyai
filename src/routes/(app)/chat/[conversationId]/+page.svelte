@@ -121,6 +121,7 @@ import {
 } from "$lib/client/document-workspace-state";
 import {
 	removeConversationLocal,
+	updateConversationMemoryIncognitoLocal,
 	updateConversationTitleLocal,
 	upsertConversationLocal,
 } from "$lib/stores/conversations";
@@ -2696,6 +2697,8 @@ function handleDrop(event: DragEvent) {
 				reasoningDepth={$selectedReasoningDepth}
 				onReasoningDepthChange={setSelectedReasoningDepth}
 				memoryIncognito={data.conversation.memoryIncognito ?? false}
+				onMemoryIncognitoChange={(value) =>
+					updateConversationMemoryIncognitoLocal(data.conversation.id, value)}
 				draftText={conversationDraft?.draftText ?? ''}
 				draftAttachments={conversationDraft?.selectedAttachments ?? []}
 				draftLinkedSources={conversationDraft?.selectedLinkedSources ?? []}

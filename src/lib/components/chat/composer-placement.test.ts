@@ -68,6 +68,24 @@ describe("computeMenuPlacement", () => {
 		);
 	});
 
+	// The 320px is the menu's own need. A shorter surface passes its own, so
+	// it stays above a trigger it fits above — the landing page centres the
+	// composer ~320px down a 720px window, exactly on the menu's threshold.
+	it("lets a shorter surface set its own minimum room above", () => {
+		const trigger = rect(40, 319, 34, 34);
+		const menu = computeMenuPlacement(trigger, SHORT);
+		const card = computeMenuPlacement(trigger, SHORT, 292, 200);
+
+		expect(menu.placement).toBe("below");
+		expect(card.placement).toBe("above");
+		expect(card.bottom).toBe(SHORT.height - trigger.top + MENU_GAP);
+		expect(card.maxHeight).toBe(trigger.top - MENU_MARGIN);
+
+		// Its own minimum still flips it in a window with no room above.
+		const cramped = computeMenuPlacement(rect(40, 120, 34, 34), SHORT, 292, 200);
+		expect(cramped.placement).toBe("below");
+	});
+
 	// Flipping is an improvement or it is not taken. In a window too short for
 	// either direction, opening downward off the bottom is no better than
 	// opening upward off the top — and upward is where the menu belongs.

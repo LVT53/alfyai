@@ -556,6 +556,26 @@ describe("conversation forks", () => {
 		]);
 	});
 
+	it("inherits the source conversation's incognito flag", async () => {
+		seedTextConversation();
+		const { db } = openDatabase();
+		db.update(schema.conversations)
+			.set({ memoryIncognito: true })
+			.where(eq(schema.conversations.id, "source-conv"))
+			.run();
+		const { createConversationFork } = await import("./conversation-forks");
+
+		const result = await createConversationFork({
+			userId: "user-1",
+			sourceConversationId: "source-conv",
+			sourceMessageId: "source-assistant-1",
+		});
+
+		expect(result.conversation.memoryIncognito).toBe(true);
+		const { forkConversation } = readForkRows(result.conversation.id);
+		expect(forkConversation?.memoryIncognito).toBe(true);
+	});
+
 	it("copies assistant messages as passive history without inherited live metadata", async () => {
 		seedTextConversation();
 		const { sqlite, db } = openDatabase();

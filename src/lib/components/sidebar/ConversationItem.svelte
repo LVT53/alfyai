@@ -9,6 +9,7 @@ import {
 	Pencil,
 	Pin,
 	Trash2,
+	VenetianMask,
 	X,
 } from "@lucide/svelte";
 import type { ConversationListItem } from "$lib/server/services/conversations";
@@ -394,7 +395,6 @@ onMount(() => {
 						title={indicatorLabel}
 					>
 					<GitBranch size={13} strokeWidth={2.2} aria-hidden="true" />
-						<span class="fork-indicator-tooltip" aria-hidden="true">{indicatorLabel}</span>
 					</span>
 				{/if}
 				{#if showAtlasCompletedBadge}
@@ -404,6 +404,20 @@ onMount(() => {
 						aria-label={atlasBadgeLabel}
 						title={atlasBadgeLabel}
 					></span>
+				{/if}
+				<!-- Incognito redesign — a mask before the title, in the same slot
+				     as the fork and Atlas marks, so it never sits on the trailing
+				     side where the three dots live. -->
+				{#if conversation.memoryIncognito}
+					<span
+						class="fork-indicator incognito-mark"
+						data-testid="conversation-incognito-mark"
+						role="img"
+						aria-label={$t('sidebar.incognitoMark')}
+						title={$t('sidebar.incognitoMark')}
+					>
+						<VenetianMask size={13} strokeWidth={2.2} aria-hidden="true" />
+					</span>
 				{/if}
 			<div class="min-w-0 flex-1">
 				<div class="truncate text-[13px] font-sans text-text-primary">
@@ -642,37 +656,13 @@ onMount(() => {
 		padding: 0;
 	}
 
-	.fork-indicator-tooltip {
-		position: absolute;
-		left: 0;
-		bottom: calc(100% + 6px);
-		z-index: 30;
-		max-width: 14rem;
-		overflow: hidden;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-md);
-		background: var(--surface-overlay);
-		box-shadow: var(--shadow-lg);
-		color: var(--text-primary);
-		font-family: 'Nimbus Sans L', sans-serif;
-		font-size: 0.72rem;
-		line-height: 1.25;
-		opacity: 0;
-		padding: 0.35rem 0.5rem;
-		pointer-events: none;
-		text-overflow: ellipsis;
-		transform: translateY(2px);
-		transition:
-			opacity var(--duration-micro) var(--ease-out),
-			transform var(--duration-micro) var(--ease-out);
-		visibility: hidden;
-		white-space: nowrap;
-	}
+	/* The marks name themselves through their native `title`. They used to
+	   carry a hand-drawn tooltip as well, but it was absolutely positioned
+	   above the row inside the title column's `overflow-hidden` wrapper, so
+	   it was clipped away on every hover and never once showed. */
 
-	.fork-indicator:hover .fork-indicator-tooltip,
-	.group:focus-visible .fork-indicator-tooltip {
-		opacity: 1;
-		transform: translateY(0);
-		visibility: visible;
+	/* The mask shares the fork mark's box; only its glyph differs. */
+	.incognito-mark {
+		color: var(--text-muted);
 	}
 </style>

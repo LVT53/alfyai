@@ -204,8 +204,9 @@ async function capturePass(
 	await page
 		.getByTestId("message-input")
 		.waitFor({ state: "visible", timeout: 15000 });
+	// Incognito shows as the mask face in the action row now, not a notice.
 	await page
-		.locator(".composer-incognito-notice")
+		.getByTestId("incognito-face")
 		.waitFor({ state: "visible", timeout: 5000 })
 		.catch(() => {});
 	await shot(page, `03-incognito-mode-${suffix}`);
