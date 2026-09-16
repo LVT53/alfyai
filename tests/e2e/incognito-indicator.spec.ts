@@ -12,7 +12,8 @@ import {
  * Incognito redesign — how the state is shown.
  *
  * The full-width accent notice above the composer is gone. While incognito is
- * on, the action row grows a fifth face (a mask in ink), the empty textarea
+ * on, the action row grows a fifth face (a mask in accent, like every other
+ * active face), the empty textarea
  * says what the mask means, the face opens a small card with the same switch
  * the "+" menu has, and the conversation's sidebar row carries a mask before
  * its title. This covers the three surfaces and the live update between them.
@@ -132,7 +133,7 @@ test.describe("Incognito indicator — desktop", () => {
 		await flipFromMenu(page, "true");
 
 		// The fifth face: after thinking, the same size as its neighbours,
-		// drawn in ink rather than the accent.
+		// drawn in accent like the other active faces.
 		const face = page.getByTestId("incognito-face");
 		await expect(face).toBeVisible();
 		await expect(face).toHaveAttribute("aria-label", "Incognito is on");
@@ -149,7 +150,7 @@ test.describe("Incognito indicator — desktop", () => {
 		expect(faceBox.x).toBeGreaterThan(thinkingBox.x);
 		expect(
 			await face.evaluate((element) => getComputedStyle(element).color),
-		).toBe(await tokenRgb(page, "--text-primary"));
+		).toBe(await tokenRgb(page, "--accent"));
 
 		await expect(textarea).toHaveAttribute("placeholder", PLACEHOLDER);
 		await expect(page.locator(".composer-incognito-notice")).toHaveCount(0);
