@@ -540,11 +540,18 @@ test.describe("chat home — Compact", () => {
 		await seedRecent(userId);
 		await gotoHome(page);
 
-		// Turn on a switch that only the composer knows about. A chip that
-		// built its own payload would send without it.
+		// Pick a state that only the composer knows about: an AI style from
+		// the plus menu. A chip that built its own payload would send without
+		// it. (The Web search switch this test used to flip left the menu
+		// on 2026-09-11; `/web` is the only way to force a search now.)
 		await page.getByTestId("composer-tools-trigger").click();
-		await page.getByTestId("composer-menu-web-search").click();
-		await page.keyboard.press("Escape");
+		await page.getByTestId("composer-menu-style").click();
+		// "Default" is the selected option on a fresh account; any unselected
+		// one is a real profile with an id.
+		const styleOption = page.getByRole("option", { selected: false }).first();
+		await expect(styleOption).toBeVisible();
+		await styleOption.click();
+		await expect(page.getByTestId("composer-tools-menu")).toBeHidden();
 
 		const chip = page.getByTestId("home-suggestion-chip").first();
 		const chipText = await chip.getAttribute("title");
@@ -558,10 +565,11 @@ test.describe("chat home — Compact", () => {
 		);
 		await chip.click();
 		const body = (await turnRequest).postDataJSON() as {
-			forceWebSearch?: boolean;
+			personalityProfileId?: string | null;
 			message?: string;
 		};
-		expect(body.forceWebSearch).toBe(true);
+		expect(typeof body.personalityProfileId).toBe("string");
+		expect(body.personalityProfileId?.length ?? 0).toBeGreaterThan(0);
 		expect((body.message ?? "").length).toBeGreaterThan(0);
 	});
 

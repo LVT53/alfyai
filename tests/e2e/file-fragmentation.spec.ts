@@ -126,7 +126,7 @@ async function mockSuccessfulKnowledgeUploads(page: Page) {
  */
 async function waitForComposerHydration(page: Page): Promise<void> {
 	const toolsButton = page.getByRole("button", { name: "Open composer tools" });
-	const toolsMenu = page.getByRole("menu", { name: "Composer tools" });
+	const toolsMenu = page.getByRole("menu", { name: "Composer menu" });
 	await expect(toolsButton).toBeVisible();
 	await expect(async () => {
 		if (await toolsMenu.isVisible().catch(() => false)) return;
