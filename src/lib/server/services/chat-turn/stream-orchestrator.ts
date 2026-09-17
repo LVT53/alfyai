@@ -1,4 +1,5 @@
 import type { FinishReason } from "ai";
+import { buildMessageUserIntent } from "$lib/message-user-intent";
 import type { ModelId } from "$lib/model-types";
 import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import { getConfig } from "$lib/server/config-store";
@@ -851,6 +852,18 @@ export function runChatStreamOrchestrator(
 					skillUse: preparedTurn?.appliedSkill
 						? { displayName: preparedTurn.appliedSkill.skillDisplayName }
 						: null,
+					// The user's own choices for this turn — the skill they applied
+					// from the composer (resolved at preflight) and a forced `/web` —
+					// recorded with the assistant message for its provenance line.
+					userIntent: buildMessageUserIntent({
+						skill: preparedTurn?.appliedSkill
+							? {
+									id: preparedTurn.appliedSkill.skillId,
+									displayName: preparedTurn.appliedSkill.skillDisplayName,
+								}
+							: null,
+						forceWebSearch: turn.forceWebSearch,
+					}),
 					activeDocumentArtifactId: activeDocumentArtifactId ?? null,
 					requestStartTime,
 					fileProductionJobIdsAtStart: ensureFileProductionJobIdsAtStart(),

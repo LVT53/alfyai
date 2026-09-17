@@ -14,7 +14,8 @@
 //   * the composer with a skill chip, an image chip (thumbnail) and a file
 //     chip (cost meta) in the one row;
 //   * a sent turn: the user bubble with its attachment and quote chips, and
-//     the assistant footer with its derived provenance line (skill + web).
+//     the assistant footer with its provenance line — the skill and the
+//     forced web search the USER chose for the turn (its `userIntent`).
 import { deflateSync } from "node:zlib";
 import { expect, type Page, test } from "@playwright/test";
 import { login } from "./helpers";
@@ -340,9 +341,13 @@ async function attach(
 // server, out of reach of page.route, so the in-stream capture navigates
 // CLIENT-SIDE to this conversation and patches the real detail response on
 // the way through: the same conversation, the same shape, with two turns
-// dropped in. thinkingSegments is what the live stream leaves on a message;
-// responseActivity is what a reload projects — both are set so the
-// provenance line is derived the same way either path would derive it.
+// dropped in. The provenance line shows only what the USER chose for the
+// turn, so it is driven by the assistant message's `userIntent` record — a
+// skill applied from the composer and a forced `/web` — exactly as the read
+// model projects it. The `research_web` call is what that forced search
+// leaves in the rail; there is no `use_skill` call, because a user-applied
+// skill is resolved into the prompt at preflight and never called as a tool.
+// Neither tool entry is what makes a chip appear.
 function streamFixtureMessages(conversationId: string) {
 	const sentAt = Date.now() - 90_000;
 	return [
@@ -390,15 +395,15 @@ function streamFixtureMessages(conversationId: string) {
 			modelDisplayName: "Flash-Next",
 			generationDurationMs: 9_400,
 			thinking:
-				"The user is asking about the break clause. The Invoice reply skill applies to the tone; a quick web check on notice periods is worth it.",
-			thinkingSegments: [
-				{
-					type: "tool_call",
-					callId: "call-skill",
-					name: "use_skill",
-					input: { displayName: "Invoice reply" },
-					status: "done",
+				"The user is asking about the break clause and applied the Invoice reply skill for the tone; they asked for a web check on notice periods.",
+			userIntent: {
+				skill: {
+					id: "capture-skill-invoice-reply",
+					displayName: "Invoice reply",
 				},
+				webSearch: true,
+			},
+			thinkingSegments: [
 				{
 					type: "tool_call",
 					callId: "call-web",
@@ -408,14 +413,6 @@ function streamFixtureMessages(conversationId: string) {
 				},
 			],
 			responseActivity: [
-				{
-					id: "act-skill",
-					kind: "tool",
-					status: "done",
-					toolName: "use_skill",
-					label: "Invoice reply",
-					callId: "call-skill",
-				},
 				{
 					id: "act-web",
 					kind: "tool",
@@ -536,6 +533,10 @@ async function captureStream(page: Page, w: string, streamId: string) {
 	const provenance = page.getByTestId("message-provenance").first();
 	await expect(assistant).toBeVisible({ timeout: 20000 });
 	await expect(provenance).toBeVisible({ timeout: 20000 });
+	await expect(provenance.getByTestId("message-provenance-skill")).toHaveText(
+		/Invoice reply/,
+	);
+	await expect(provenance.getByTestId("message-provenance-web")).toBeVisible();
 	await expect(user.getByTestId("user-bubble-quote-chip")).toBeVisible();
 	await dismissDegradedBanner(page);
 	await settle(page);

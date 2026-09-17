@@ -2239,6 +2239,45 @@ describe("completeStreamTurn", () => {
 		});
 	});
 
+	// What the USER chose for the turn (see $lib/message-user-intent.ts): the
+	// orchestrator hands the record over, and it is written to the assistant
+	// message AND repeated on the terminal frame, so the provenance line reads
+	// the same live as after a reload.
+	describe("the user's per-turn choices (userIntent)", () => {
+		function getPersistedAssistantMetadata(): Record<string, unknown> {
+			const assistantCall = mockCreateMessage.mock.calls[1];
+			return (assistantCall?.[5] ?? {}) as Record<string, unknown>;
+		}
+
+		it("persists the record and carries it on the terminal frame", async () => {
+			const userIntent = {
+				skill: { id: "skill-1", displayName: "Invoice reply" },
+				webSearch: true,
+			} as const;
+
+			await completeStreamTurn({ ...defaultParams, userIntent });
+
+			expect(getPersistedAssistantMetadata()).toMatchObject({ userIntent });
+			expect(getLatestEndPayload()).toMatchObject({ userIntent });
+		});
+
+		// The model loading a skill or searching the web by itself is not the
+		// user's choice: with no record handed over, none is written, whatever
+		// the turn's tool calls were.
+		it("writes no record when the user chose nothing, whatever the model did", async () => {
+			await completeStreamTurn({
+				...defaultParams,
+				toolCallRecords: [
+					{ name: "use_skill", input: { id: "skill-1" }, status: "done" },
+					{ name: "research_web", input: {}, status: "done" },
+				],
+			});
+
+			expect(getPersistedAssistantMetadata()).not.toHaveProperty("userIntent");
+			expect(getLatestEndPayload()).not.toHaveProperty("userIntent");
+		});
+	});
+
 	describe("follow-up suggestions (owner idea, variant A)", () => {
 		function getPersistedAssistantMetadata(): Record<string, unknown> {
 			// createTurnMessage (finalize.ts) calls createMessage(conversationId,

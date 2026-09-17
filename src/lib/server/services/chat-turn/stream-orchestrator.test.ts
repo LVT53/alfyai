@@ -646,6 +646,116 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	// The provenance line shows only what the USER chose for the turn. The
+	// orchestrator is where both choices are still known — the skill resolved
+	// at preflight, the forced `/web` on the request — so it records them with
+	// the assistant message (see $lib/message-user-intent.ts) and repeats the
+	// record on the terminal frame for the live session.
+	it("records the user's applied skill and forced web search with the assistant message", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createMessage } = await import("$lib/server/services/messages");
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{ type: "text_delta", text: "Drafted." },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({
+			conversationId: "user-intent-conv",
+			streamId: "user-intent-stream",
+			forceWebSearch: true,
+			appliedSkill: createAppliedSkillContext(),
+		});
+		const parts = parseUiStreamParts(await readSseResponse(response));
+
+		const userIntent = {
+			skill: { id: "skill-1", displayName: "Skill One" },
+			webSearch: true,
+		};
+		expect(
+			uiDataParts<Record<string, unknown>>(parts, "data-stream-metadata").at(
+				-1,
+			),
+		).toMatchObject({ userIntent });
+		await vi.waitFor(() => {
+			expect(createMessage).toHaveBeenCalledWith(
+				"user-intent-conv",
+				"assistant",
+				"Drafted.",
+				undefined,
+				undefined,
+				expect.objectContaining({ userIntent }),
+			);
+		});
+	});
+
+	// A skill the model loads via `use_skill`, a `research_web` it runs by
+	// itself: neither is the user's choice, so no record is written at all.
+	it("records no user intent for a turn where only the model chose its tools", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createMessage } = await import("$lib/server/services/messages");
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult([
+				{
+					type: "tool_call",
+					callId: "call-skill",
+					toolName: "use_skill",
+					input: { id: "skill-1" },
+				},
+				{
+					type: "tool_result",
+					callId: "call-skill",
+					toolName: "use_skill",
+					output: { ok: true },
+				},
+				{
+					type: "tool_call",
+					callId: "call-web",
+					toolName: "research_web",
+					input: { query: "notice period" },
+				},
+				{
+					type: "tool_result",
+					callId: "call-web",
+					toolName: "research_web",
+					output: { ok: true },
+				},
+				{ type: "text_delta", text: "Answered." },
+				finishEvent,
+			]),
+		);
+
+		const response = runStream({
+			conversationId: "model-only-conv",
+			streamId: "model-only-stream",
+		});
+		const parts = parseUiStreamParts(await readSseResponse(response));
+
+		expect(
+			uiDataParts<Record<string, unknown>>(parts, "data-stream-metadata").at(
+				-1,
+			),
+		).not.toHaveProperty("userIntent");
+		await vi.waitFor(() => {
+			const assistantCall = (
+				createMessage as ReturnType<typeof vi.fn>
+			).mock.calls.find(
+				(call) => call[0] === "model-only-conv" && call[1] === "assistant",
+			);
+			expect(assistantCall).toBeDefined();
+			expect(assistantCall?.[5]).not.toHaveProperty("userIntent");
+		});
+	});
+
 	it("emits attachment readiness preparation failures as structured terminal stream frames", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"

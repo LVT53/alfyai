@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import {
+	type MessageUserIntent,
+	parseMessageUserIntent,
+} from "$lib/message-user-intent";
 import type { InterimThoughtStep } from "$lib/response-activity-types";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
@@ -64,6 +68,12 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// no separate write-back call is needed), and projected out in
 	// projectMessageMetadata below.
 	followUps?: string[];
+	// What the user chose for this turn — see `userIntent` on ChatMessage and
+	// $lib/message-user-intent.ts. Written into assistantMetadata by the send
+	// route and stream-completion.ts; read back through
+	// `parseMessageUserIntent` in projectMessageMetadata below, so a malformed
+	// record degrades to "chose nothing" rather than reaching the client.
+	userIntent?: MessageUserIntent;
 	wasStopped?: boolean;
 	// E2 — persisted mirror of E1's completionWarningCodes (written alongside
 	// wasStopped by finalize's assistantMetadata; see stream-completion.ts).
@@ -237,6 +247,7 @@ function projectMessageMetadata(
 	| "thoughtSteps"
 	| "railSummary"
 	| "followUps"
+	| "userIntent"
 > {
 	const evidenceSummary =
 		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
@@ -282,6 +293,9 @@ function projectMessageMetadata(
 			Array.isArray(metadata?.followUps) && metadata.followUps.length > 0
 				? metadata.followUps
 				: undefined,
+		// Validated, not passed through: absent (every message from before the
+		// record existed) and malformed both read as `undefined`.
+		userIntent: parseMessageUserIntent(metadata?.userIntent),
 	};
 }
 

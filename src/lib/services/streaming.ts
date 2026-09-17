@@ -1,3 +1,7 @@
+import {
+	type MessageUserIntent,
+	parseMessageUserIntent,
+} from "$lib/message-user-intent";
 import type { ModelId } from "$lib/model-types";
 import {
 	isNormalChatContextPreparationActivityClass,
@@ -47,6 +51,11 @@ export interface StreamMetadata {
 	// thoughtSteps above, so the action row's chips populate live without a
 	// reload.
 	followUps?: string[];
+	// What the USER chose for this turn (see $lib/message-user-intent.ts),
+	// riding the terminal data-stream-metadata payload like followUps above so
+	// the provenance line is server-authoritative live, not only on reload.
+	// Validated on the way in; absent when the user chose nothing.
+	userIntent?: MessageUserIntent;
 	// Finding 4 (web-citation auto-repair) — the final PERSISTED assistant
 	// text, present only when the server's citation repair rewrote what was
 	// already streamed as text-delta frames. The client replaces the
@@ -175,6 +184,7 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 			| StreamMetadata["thoughtSteps"]
 			| undefined,
 		followUps: parsed.followUps as StreamMetadata["followUps"] | undefined,
+		userIntent: parseMessageUserIntent(parsed.userIntent),
 		finalContent: parsed.finalContent as
 			| StreamMetadata["finalContent"]
 			| undefined,

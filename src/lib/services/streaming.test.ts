@@ -172,6 +172,54 @@ describe("streamChat", () => {
 		expect(cb.onEnd).toHaveBeenCalledWith("Answer", metadata);
 	});
 
+	// The user's per-turn choices ride the terminal metadata frame (see
+	// $lib/message-user-intent.ts) and are validated on the way in.
+	it("carries a valid userIntent from the terminal metadata frame", async () => {
+		const userIntent = {
+			skill: { id: "skill-1", displayName: "Invoice reply" },
+			webSearch: true,
+		};
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({ type: "text-delta", id: "text-1", delta: "Answer" }),
+				uiFrame({
+					type: "data-stream-metadata",
+					data: { assistantMessageId: "assistant-1", userIntent },
+					transient: true,
+				}),
+				uiFrame({ type: "finish" }),
+			],
+		});
+		await done;
+
+		expect(cb.onEnd).toHaveBeenCalledWith(
+			"Answer",
+			expect.objectContaining({ userIntent }),
+		);
+	});
+
+	it("drops a malformed userIntent from the terminal metadata frame", async () => {
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			responseChunks: [
+				uiFrame({ type: "text-delta", id: "text-1", delta: "Answer" }),
+				uiFrame({
+					type: "data-stream-metadata",
+					data: {
+						assistantMessageId: "assistant-1",
+						userIntent: { skill: "Invoice reply", webSearch: 1 },
+					},
+					transient: true,
+				}),
+				uiFrame({ type: "finish" }),
+			],
+		});
+		await done;
+
+		expect(cb.onEnd).toHaveBeenCalledWith("Answer", {
+			assistantMessageId: "assistant-1",
+		});
+	});
+
 	it("calls terminal callbacks once when finish is followed by DONE", async () => {
 		const { callbacks: cb, done } = runStreamWithMockedResponse({
 			responseChunks: [tokenEvent("Answer"), endEvent()],

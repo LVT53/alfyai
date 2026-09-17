@@ -1077,9 +1077,8 @@ const chatDict = {
 		"composerChips.fileTokens": "{tokens} tok",
 		"composerChips.outlineDisclosure": "Outline of {name}",
 		"composerChips.atlasMeta": "{profile} · {time}",
-		"messageProvenance.label": "How this answer was made",
+		"messageProvenance.label": "What you turned on for this answer",
 		"messageProvenance.used": "Used",
-		"messageProvenance.skill": "Skill",
 		"messageProvenance.webSources": "{count} sources",
 	},
 	hu: {
@@ -2134,9 +2133,8 @@ const chatDict = {
 		"composerChips.fileTokens": "{tokens} token",
 		"composerChips.outlineDisclosure": "{name} vázlata",
 		"composerChips.atlasMeta": "{profile} · {time}",
-		"messageProvenance.label": "Hogyan készült ez a válasz",
+		"messageProvenance.label": "Amit bekapcsoltál ehhez a válaszhoz",
 		"messageProvenance.used": "Használt",
-		"messageProvenance.skill": "Képesség",
 		"messageProvenance.webSources": "{count} forrás",
 	},
 } as const;

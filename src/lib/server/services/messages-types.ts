@@ -8,6 +8,7 @@
 // depth/response-activity metadata) live in their own owning modules and
 // are imported here, not duplicated.
 
+import type { MessageUserIntent } from "$lib/message-user-intent";
 import type { ModelId } from "$lib/model-types";
 import type {
 	InterimThoughtStep,
@@ -314,6 +315,15 @@ export interface ChatMessage {
 	// — never `[]` — when the turn has no suggestions (skipped or the
 	// control model failed). Assistant turns only.
 	followUps?: string[];
+	// What the USER chose for this turn — a skill applied from the composer,
+	// web search forced with `/web` — as opposed to what the model decided to
+	// do on its own (see $lib/message-user-intent.ts). Persisted additively
+	// into `messages.metadataJson.userIntent` at finalize (no migration),
+	// projected here by the ADR-0022 read model, and carried live on the
+	// terminal data-stream-metadata frame. `undefined` — never `{}` — when the
+	// user chose nothing, and on every message persisted before the record
+	// existed. Assistant turns only; read by the provenance line.
+	userIntent?: MessageUserIntent;
 	skillDrafts?: SkillControlMessageMetadata["skillDrafts"];
 	skillControl?: SkillControlMessageMetadata["skillControl"];
 	forkCopy?: ForkCopyMetadata;

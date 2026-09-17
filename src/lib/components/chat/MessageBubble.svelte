@@ -289,15 +289,15 @@ let userMessageSegments = $derived(
 	isUser ? tokenizeTextLinks(userQuoteSplit.body) : [],
 );
 // The assistant turn's provenance line: which of the three turn-changing
-// things this answer actually used. DERIVED (owner decision 2) from the
-// tool-activity items and metadata already on the message — no new persisted
-// field — so it names only what the turn can prove. See
-// message-provenance.ts for what that honestly covers.
+// things the USER turned on for this answer — a skill applied from the
+// composer, a forced `/web`, Atlas. Read from the `userIntent` record
+// persisted with the message, never from the tool calls: what the model
+// loaded or searched by itself is not the user's choice and does not show.
+// See message-provenance.ts.
 let provenanceEntries = $derived(
 	deriveMessageProvenance({
 		role: message.role,
-		thinkingSegments: message.thinkingSegments,
-		responseActivity: message.responseActivity,
+		userIntent: message.userIntent,
 		evidenceSummary: message.evidenceSummary,
 		// A job that failed or was cancelled did not make this answer, so it
 		// does not get to say it did; a queued or running one is the turn
@@ -307,8 +307,8 @@ let provenanceEntries = $derived(
 			.map((job) => job.profile),
 	}),
 );
-// It disappears entirely on a turn that used nothing, and stays out of the
-// way while the turn is still running.
+// It disappears entirely on a turn where the user chose none of them, and
+// stays out of the way while the turn is still running.
 let showProvenanceLine = $derived(
 	!isUser && !isStreaming && !isEditing && provenanceEntries.length > 0,
 );
@@ -1080,23 +1080,26 @@ function sendFollowUp(question: string) {
 	{/if}
 
 	<!-- Chips redesign — the provenance line. Nothing in the stream used to
-	     record that a skill ran, that the web was searched, or which Atlas
-	     profile was used: the composer's chips were destroyed on send and
-	     only the tool-activity rail, folded away inside the thinking block,
-	     remembered. One 22px line in the FOOTER — above the action row, not
+	     record what the user had turned on for a turn — a skill, a forced web
+	     search, an Atlas profile: the composer's chips were destroyed on send.
+	     This says it back, and only that: what the model chose to do by itself
+	     stays in the tool-activity rail. One 22px line in the FOOTER — above the action row, not
 	     in the header, because the head of an assistant turn is already
 	     occupied by the reasoning-depth indicator, and because provenance is
 	     something you check after reading rather than before. Unlike the icon
 	     buttons beside it, it is always visible rather than hover-only; on a
-	     turn that used nothing it is not rendered at all. -->
+	     turn where the user chose nothing it is not rendered at all. -->
 	{#if showProvenanceLine}
-		<div class="provenance-line" data-testid="message-provenance" aria-label={$t('messageProvenance.label')}>
+		<!-- `role="group"` so the label is actually announced: aria-label on a
+		     bare <div> (an implicit `generic`) is ignored by screen readers,
+		     and this row is exactly a named group of chips. -->
+		<div class="provenance-line" data-testid="message-provenance" role="group" aria-label={$t('messageProvenance.label')}>
 			<span class="provenance-line__lead">{$t('messageProvenance.used')}</span>
 			{#each provenanceEntries as entry, index (`${entry.kind}-${index}`)}
 				{#if entry.kind === 'skill'}
 					<ComposerChip
 						kind="skill"
-						label={entry.skillName ?? $t('messageProvenance.skill')}
+						label={entry.skillName}
 						size="message"
 						testId="message-provenance-skill"
 					/>
