@@ -350,8 +350,12 @@ const commonDict = {
 		"landing.generic.work.named": "Nézzük végig együtt, {name}.",
 		"landing.generic.work.plain": "Nézzük végig együtt.",
 		// Napszak.
-		"landing.time.afternoon.named": "Szép napot, {name}.",
-		"landing.time.afternoon.plain": "Szép napot.",
+		// "Szép napot" is what you say on the way OUT — a wish for the rest of
+		// someone's day, not a greeting on arrival. "Jó napot" is the daytime
+		// member of the set this dictionary already uses at the other hours
+		// ("Jó reggelt", "Jó estét"), so it is the one that belongs here.
+		"landing.time.afternoon.named": "Jó napot, {name}.",
+		"landing.time.afternoon.plain": "Jó napot.",
 		"landing.time.earlyStart.named": "Korán kezdesz, {name}.",
 		"landing.time.earlyStart.plain": "Korán kezdesz.",
 		"landing.time.evening.named": "Jó estét, {name}.",
@@ -364,8 +368,10 @@ const commonDict = {
 		"landing.time.midday.plain": "Nap közepe. Mi jön most?",
 		"landing.time.morning.named": "Jó reggelt, {name}.",
 		"landing.time.morning.plain": "Jó reggelt.",
-		"landing.time.stillUp.named": "Még ébren, {name}. Nem sietünk.",
-		"landing.time.stillUp.plain": "Még ébren. Nem sietünk.",
+		// "Még ébren" is an elliptical question in Hungarian ("Még ébren?"); with
+		// a full stop after it the fragment has no verb and reads as a mistake.
+		"landing.time.stillUp.named": "Még ébren, {name}? Nem sietünk.",
+		"landing.time.stillUp.plain": "Még ébren? Nem sietünk.",
 		// A hét napja. Minden sor megnevezi a napját, és csak aznap jelenik meg.
 		"landing.weekday.friday.named": "Péntek, {name}. Mit zárjunk le?",
 		"landing.weekday.friday.plain": "Péntek. Mit zárjunk le?",
