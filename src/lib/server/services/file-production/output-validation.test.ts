@@ -228,6 +228,47 @@ describe("file-production output validation", () => {
 		});
 	});
 
+	// The dangerous shape of the fallback: a legacy request that named a REAL
+	// type alongside the old sentinel. Letting the produced file redefine the
+	// whole request would drop the pdf the caller actually asked for.
+	it("keeps a resolvable requested type when the request also carries an unresolvable one", async () => {
+		await expect(
+			validateProgramOutputContract({
+				requestedOutputTypes: ["pdf", "file"],
+				files: [
+					{
+						filename: "report.csv",
+						mimeType: "text/csv",
+						content: Buffer.from("a,b\n1,2\n"),
+					},
+				],
+			}),
+		).resolves.toMatchObject({
+			ok: false,
+			code: "program_output_type_mismatch",
+		});
+	});
+
+	// `.markdown` maps to the output type `markdown`, whose expected extension
+	// is `.md` — deriving it would reject the very file it was derived from.
+	it("does not derive an output type that would then reject the produced file", async () => {
+		await expect(
+			validateProgramOutputContract({
+				requestedOutputTypes: ["file"],
+				files: [
+					{
+						filename: "notes.markdown",
+						mimeType: "text/markdown",
+						content: Buffer.from("# notes\n"),
+					},
+				],
+			}),
+		).resolves.toMatchObject({
+			ok: false,
+			code: "unsupported_program_output_type",
+		});
+	});
+
 	it("accepts legacy generic MIME for text/code outputs after byte validation", async () => {
 		await expect(
 			validateGeneratedOutputFile({

@@ -3,7 +3,7 @@ import { validateFileProductionStaticLimits } from "./limits";
 import {
 	FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES,
 	isSupportedFileProductionOutputType,
-} from "./output-validation";
+} from "./output-types";
 import {
 	type GeneratedDocumentSource,
 	validateGeneratedDocumentSource,

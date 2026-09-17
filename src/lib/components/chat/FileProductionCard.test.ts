@@ -158,6 +158,39 @@ describe("FileProductionCard", () => {
 		expect(queryByText("limit=5 actual=6")).toBeNull();
 	});
 
+	// Intake refuses a program-mode request that names no output type, or one it
+	// cannot produce, and writes a failed job — so both codes reach this card
+	// and must not surface the raw, English, model-facing server message.
+	it.each([
+		[
+			"missing_program_output_type",
+			"outputType is required for program mode, e.g. xlsx, docx, pptx, pdf, csv, zip",
+			"The file request did not say which file type to produce.",
+			"A fájlkérés nem adta meg, milyen típusú fájl készüljön.",
+		],
+		[
+			"unsupported_program_output_type",
+			"Output type bogus is not supported. Use one of: xlsx, docx, pptx, pdf, csv, zip",
+			"That file type cannot be produced.",
+			"Ez a fájltípus nem készíthető el.",
+		],
+	])("localizes the %s intake refusal instead of showing the model-facing text", (code, serverMessage, english, hungarian) => {
+		const job = makeJob({
+			status: "failed",
+			error: { code, message: serverMessage, retryable: false },
+		});
+
+		const en = render(FileProductionCard, { job });
+		expect(en.getByText(english)).toBeInTheDocument();
+		expect(en.queryByText(serverMessage)).toBeNull();
+		en.unmount();
+
+		uiLanguage.set("hu");
+		const hu = render(FileProductionCard, { job });
+		expect(hu.getByText(hungarian)).toBeInTheDocument();
+		expect(hu.queryByText(serverMessage)).toBeNull();
+	});
+
 	it("opens produced files with version and source fallbacks while background metadata sync catches up", async () => {
 		const onOpenDocument = vi.fn();
 		const { getByRole } = render(FileProductionCard, {

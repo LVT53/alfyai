@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
-import { FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES } from "$lib/server/services/file-production/output-validation";
+import { FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES } from "$lib/server/services/file-production/output-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	type AsciiBarChart,
@@ -98,7 +98,7 @@ export const produceFileModelInputSchema = z
 			})
 			.optional()
 			.describe(
-				"Code that builds the file. It must write into /output (e.g. /output/report.xlsx); the working directory is read-only. Needs outputType or requestedOutputs.",
+				"Code that builds the file. It must write into /output (e.g. /output/report.xlsx); only /output is collected. Needs outputType or requestedOutputs.",
 			),
 		documentSource: z.record(z.string(), z.unknown()).optional(),
 	})

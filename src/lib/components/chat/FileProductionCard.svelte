@@ -36,6 +36,14 @@ const ERROR_MESSAGE_KEYS: Partial<Record<string, I18nKey>> = {
 	renderer_timeout: "fileProduction.error.renderer_timeout",
 	sandbox_timeout: "fileProduction.error.sandbox_timeout",
 	invalid_document_source: "fileProduction.error.invalid_document_source",
+	// Intake refuses a program-mode request that names no output type, or an
+	// output type the pipeline cannot produce. Both write a failed job, so both
+	// reach this card and need a localized line instead of the raw English
+	// server message.
+	missing_program_output_type:
+		"fileProduction.error.missing_program_output_type",
+	unsupported_program_output_type:
+		"fileProduction.error.unsupported_program_output_type",
 	unsupported_document_block: "fileProduction.error.unsupported_document_block",
 	unsupported_table_structure:
 		"fileProduction.error.unsupported_table_structure",
