@@ -8,6 +8,7 @@ import {
 	MIN_MODEL_CONTEXT_TOKENS,
 } from "../model-context-defaults";
 import { deriveMaxMessageLengthFromContextTokens } from "../model-limit-presets";
+import { resolveSessionSecret } from "./session-secret";
 
 export interface ModelConfig {
 	baseUrl: string;
@@ -371,9 +372,22 @@ function parsePositiveIntegerEnv(
 
 // Read and validate environment variables
 function readConfig(): Config {
-	// Required variables (mocked if missing for local dev/testing)
-	const sessionSecret =
-		process.env.SESSION_SECRET || "mock-session-secret-for-dev-testing-only";
+	// SESSION_SECRET derives the encryption keys for stored connection secrets
+	// and provider API keys, so a deployment must not run on the public
+	// development fallback. That is enforced at the two real runtime entry
+	// points — `init` in src/hooks.server.ts and scripts/prepare-db.ts — via
+	// assertSessionSecret().
+	//
+	// It is deliberately NOT enforced here. `readConfig()` runs at BUILD time:
+	// src/lib/server/config-store.ts calls buildDefaultConfig() at module
+	// scope, and SvelteKit's postbuild `analyse` pass imports that module to
+	// read each route's prerender/ssr/csr exports. A throw on this line makes
+	// `npm run build` fail on any host whose environment happens to carry
+	// NODE_ENV=production without the secret — including the deploy script,
+	// which sources shared/.env before building. Failing the build is the one
+	// outcome worse than the lazy check, because it takes down deploys that
+	// have nothing to do with the secret.
+	const sessionSecret = resolveSessionSecret();
 
 	const databasePath = getDatabasePath();
 	const model2Enabled = process.env.MODEL_2_ENABLED !== "false";

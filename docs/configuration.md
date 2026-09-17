@@ -5,9 +5,12 @@ values you need. See the root [README](../README.md) for the short list of essen
 
 Notes before the tables:
 
-- Only `SESSION_SECRET` is effectively required. It has an insecure built-in fallback
-  (`mock-session-secret-for-dev-testing-only`) so the app can boot for local dev and tests, but you
-  **must** set a long random secret in every real environment.
+- Only `SESSION_SECRET` is effectively required, and in production it is required *hard*: a server
+  started with `NODE_ENV=production` **refuses to boot** if it is missing, empty, shorter than 32
+  characters, or left at one of the placeholder values that ship in this repository. Outside
+  production it still falls back to `mock-session-secret-for-dev-testing-only` and logs one loud
+  warning, so local dev, vitest and Playwright keep working. See
+  [Session secret](#session-secret) below.
 - Some settings can also be overridden later in the admin UI (`Settings > Administration > System`)
   and stored in the database. The environment is the base layer, not always the final one.
 - Model and title-generator system prompts default to empty and are intended to be set in the admin
@@ -23,7 +26,7 @@ Notes before the tables:
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
-| `SESSION_SECRET` | Yes (real envs) | insecure mock value | Signs and protects session cookies | Always set to a long random secret in every environment | Falls back to a shared insecure value only for local dev/testing; never rely on the fallback in production |
+| `SESSION_SECRET` | **Yes in production** (the server refuses to start without it) | insecure mock value outside production | Protects sessions **and** derives the encryption keys for stored connection secrets and provider API keys | Always, in every real environment: `openssl rand -hex 32` | Minimum 32 characters; the repo's placeholder values are rejected by name. Changing it makes already-stored credentials undecryptable |
 | `ALFYAI_API_SIGNING_KEY` | No | empty | HMAC signing secret for scoped internal service assertions; also gates the deploy drain call to `/api/admin/drain` | Set it only for trusted internal service-to-service callers or to enable graceful-drain on deploy | Browser session-auth requests do not need it |
 | `DATABASE_PATH` | No | `./data/chat.db` | SQLite database location | Set it when the database should live outside the repo root or on a mounted volume | The parent directory must be writable |
 | `DEFAULT_NEW_USER_MODEL` | No | `model1` | Model ID assigned to new users | Set it to `model1`, `model2`, or a provider ID that matches an available model | Can also be overridden in admin config |
@@ -41,6 +44,43 @@ Notes before the tables:
 | `ATTACHMENT_TRACE_DEBUG` | No | `false` | Enables extra attachment tracing logs | Turn it on while debugging upload/readiness issues | Debug logging only; not a feature flag |
 | `CONCURRENT_STREAM_LIMIT` | No | `3` | Max concurrent chat streams across all users | Lower it to reduce server load | Can also be overridden in admin config |
 | `PER_USER_STREAM_LIMIT` | No | `1` | Max concurrent chat streams per user | Lower it to reduce per-user load | Can also be overridden in admin config |
+
+### Session secret
+
+`SESSION_SECRET` is misleadingly named: besides protecting sessions, it is the PBKDF2 input behind
+both credential vaults — stored connection secrets (`src/lib/server/services/connections/vault.ts`,
+salt `alfyai-connections`) and provider API keys (`src/lib/server/services/providers.ts`, salt
+`alfyai-providers`). A deployment running on the development fallback encrypts every one of those
+under a key that anyone holding a copy of this repository can derive, and it does so *silently*: the
+app boots, logs in, and works.
+
+So in production the server refuses to start. A value is rejected when it is:
+
+- missing, empty, or only whitespace;
+- shorter than 32 characters;
+- one of the placeholder values that ship in this repo, including the 33-character
+  `change-me-to-a-random-long-secret` from `.env.example` — long enough to pass a naive length
+  check, which is exactly why it is rejected by name.
+
+```bash
+# Generate one:
+openssl rand -hex 32
+```
+
+"Production" means `NODE_ENV=production` (set by `deploy/langflow-chat.service`) and not a test
+harness (`PLAYWRIGHT_TEST`, `VITEST`). Everywhere else the fallback stays and one warning is
+printed at startup, so `npm run dev`, vitest and Playwright are unaffected.
+
+The check runs in the server's `init` hook (`src/hooks.server.ts`), which adapter-node awaits at
+module scope — so the failure is a non-zero process exit with the message on stderr, not a 500 on
+the first request that happens to read the config. `scripts/prepare-db.ts` carries the same guard
+because it runs as its own process on the `npm start` and deploy paths and has its own copy of the
+secret. `npm run build` is unaffected: nothing evaluates this config at build time (there are no
+prerendered routes and the codebase does not use `$env/static/private`).
+
+**Rotating it is not free.** Changing `SESSION_SECRET` on a box that already has stored connections
+or provider API keys makes those credentials undecryptable — they must be re-entered through
+Settings. Rotate deliberately, not as a reflex to a startup error.
 
 ## Primary And Secondary Model Endpoints
 

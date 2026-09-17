@@ -31,6 +31,7 @@ import {
 	ensureRoutingRegionScheduler,
 	stopRoutingRegionScheduler,
 } from "$lib/server/services/routing/region-runtime";
+import { assertSessionSecret } from "$lib/server/session-secret";
 
 const PUBLIC_PATHS = [
 	"/login",
@@ -116,6 +117,17 @@ function touchLastSeenAt(userId: string): void {
 }
 
 export const init: ServerInit = async () => {
+	// FIRST, before anything touches the database or the config: in production a
+	// missing, empty, too-short or placeholder SESSION_SECRET throws here.
+	// adapter-node awaits `init` at module scope, so the throw aborts module
+	// evaluation and the process exits non-zero with the message — a refusal to
+	// boot, not a 500 on the first request that happens to read the config.
+	//
+	// The deploy's health poll then fails and rolls `current` back to the
+	// previous release, which is the correct outcome: a release that cannot
+	// protect stored credentials should not take traffic.
+	assertSessionSecret();
+
 	await ensureRuntimeConfigReady();
 	seedDefaultProviders().catch((error) =>
 		console.error("Failed to seed default providers:", error),

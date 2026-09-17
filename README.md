@@ -67,8 +67,10 @@ an admin, ongoing account management lives in the app UI under `Settings > Admin
 Configuration is environment-variable first, with selected values optionally overridden later in the
 admin UI. The essentials:
 
-- `SESSION_SECRET` — **set this in every real environment** (a long random secret). It has an insecure
-  built-in fallback used only for local dev/testing.
+- `SESSION_SECRET` — **required in production**: a server started with `NODE_ENV=production` refuses
+  to boot without a real one (`openssl rand -hex 32`). It also derives the encryption keys for stored
+  connection and provider credentials, so changing it makes those undecryptable. Outside production
+  it falls back to an insecure built-in value and warns once.
 - `MODEL_1_BASEURL`, `MODEL_1_API_KEY`, `MODEL_1_NAME` — the primary OpenAI-compatible chat model.
 - `PARALLEL_API_KEY` — enables web research (`research_web` / `fetch_url`) and Atlas.
 - `DATABASE_PATH` — SQLite location (default `./data/chat.db`).

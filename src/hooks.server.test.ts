@@ -1,5 +1,5 @@
 import type { Handle, ResolveOptions } from "@sveltejs/kit";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type HookEvent = Parameters<Handle>[0]["event"];
 
@@ -379,5 +379,44 @@ describe("hooks.server.ts", () => {
 			status: 303,
 			location: "/",
 		});
+	});
+
+	// adapter-node awaits `init` at module scope (build/handler.js), so a throw
+	// here is a refusal to boot: the process exits non-zero with the message
+	// rather than serving requests that would encrypt credentials under a
+	// public key. The deploy's health poll then rolls `current` back.
+	describe("SESSION_SECRET startup gate", () => {
+		const originalEnv = process.env;
+
+		beforeEach(() => {
+			process.env = { ...originalEnv };
+		});
+
+		afterEach(() => {
+			process.env = originalEnv;
+		});
+
+		it("refuses to start in production without a real SESSION_SECRET", async () => {
+			process.env.NODE_ENV = "production";
+			delete process.env.PLAYWRIGHT_TEST;
+			delete process.env.VITEST;
+			delete process.env.SESSION_SECRET;
+
+			const { init } = await import("./hooks.server");
+
+			await expect(init?.()).rejects.toThrow(/refusing to start/i);
+			// And it gives up before touching anything: no schema compatibility
+			// pass, no config refresh, no background workers started against a
+			// deployment that is about to be declared unfit.
+			expect(mockEnsureRuntimeSchemaCompatibility).not.toHaveBeenCalled();
+			expect(mockRefreshConfig).not.toHaveBeenCalled();
+			expect(mockEnsureAtlasWorker).not.toHaveBeenCalled();
+		});
+
+		// The dev/test path (warn once, fall back, carry on) is covered in
+		// src/lib/server/session-secret.test.ts against the pure function.
+		// Calling the real `init` for it here would start the memory,
+		// consolidation and routing schedulers for real, which no other test in
+		// this file does and which would leave timers behind.
 	});
 });
