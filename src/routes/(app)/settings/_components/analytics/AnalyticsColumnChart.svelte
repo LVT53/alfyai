@@ -5,6 +5,8 @@
 // and the one users read as a crash.
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
+import { uiLanguage } from "$lib/stores/settings";
+import { intlLocale } from "$lib/utils/locale";
 import { buildColumnChart, type ChartPoint } from "./chassis-math";
 
 let {
@@ -13,7 +15,11 @@ let {
 	labelEvery = 1,
 	currentIndex = undefined,
 	note = "",
-	formatValue = (value: number) => value.toLocaleString("en-US"),
+	// The fallback when a caller passes no formatter of its own. Grouped in
+	// the interface language, not the American one — this chart is on the
+	// personal analytics tab as well as the admin one.
+	formatValue = (value: number) =>
+		value.toLocaleString(intlLocale($uiLanguage)),
 	controls = undefined,
 }: {
 	points: readonly ChartPoint[];

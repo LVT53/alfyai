@@ -14,6 +14,8 @@ import {
 } from "$lib/utils/tool-calls";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
+import { intlLocale } from "$lib/utils/locale";
+import { uiLanguage } from "$lib/stores/settings";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import {
 	isTurnAcknowledgmentIntentClass,
@@ -616,29 +618,46 @@ function submitEdit() {
 	editText = "";
 }
 
+// The date half of a message timestamp follows the interface language, not
+// a pinned en-GB. It is also handed to Intl WHOLE rather than assembled from
+// a day number and a month name: "17" + "szept." would come out as "17
+// szept." when Hungarian writes "szept. 17." — the order is part of the
+// date, not decoration around it. Both formatters are read inside $derived
+// below, so switching language repaints them.
+//
+// The clock stays hand-built. Both locales are 24-hour, and the padded
+// HH:MM is what every other timestamp in the chat already shows.
+function clockOf(date: Date): string {
+	const h = String(date.getHours()).padStart(2, "0");
+	const m = String(date.getMinutes()).padStart(2, "0");
+	return `${h}:${m}`;
+}
+
 function formatTimestamp(ts: number): string {
 	const date = new Date(ts);
 	const now = new Date();
 	const isToday = date.toDateString() === now.toDateString();
 
 	if (isToday) {
-		const h = String(date.getHours()).padStart(2, "0");
-		const m = String(date.getMinutes()).padStart(2, "0");
-		return `${h}:${m}`;
+		return clockOf(date);
 	}
-	const day = date.getDate();
-	const month = date.toLocaleString("en-GB", { month: "short" });
-	return `${day} ${month}`;
+	return new Intl.DateTimeFormat(intlLocale($uiLanguage), {
+		day: "numeric",
+		month: "short",
+	}).format(date);
 }
 
 function formatFullTimestamp(ts: number): string {
 	const date = new Date(ts);
-	const day = date.getDate();
-	const month = date.toLocaleString("en-GB", { month: "long" });
-	const year = date.getFullYear();
-	const h = String(date.getHours()).padStart(2, "0");
-	const m = String(date.getMinutes()).padStart(2, "0");
-	return `${day} ${month} ${year}, ${h}:${m}`;
+	// Date and time are formatted separately and joined with a comma so the
+	// English reads exactly as it did ("17 September 2026, 14:52"); letting
+	// Intl join them would introduce an " at " that was never there.
+	const day = new Intl.DateTimeFormat(intlLocale($uiLanguage), {
+		day: "numeric",
+		month: "long",
+		year: "numeric",
+	}).format(date);
+	return `${day}, ${clockOf(date)}`;
 }
 
 function toggleTimestampTooltip(e: MouseEvent) {

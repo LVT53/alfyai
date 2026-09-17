@@ -13,6 +13,7 @@
 // composer's account list alike.
 import type { ConnectionPublic } from "$lib/client/api/connections";
 import type { I18nKey } from "$lib/i18n";
+import { intlLocale } from "$lib/utils/locale";
 import { type Capability, getProviderCatalogEntry } from "./provider-catalog";
 
 export type StatusTone = "ok" | "warn" | "danger" | "muted";
@@ -52,19 +53,16 @@ export type GrammarFormatters = {
 
 const DAY_SECONDS = 86_400;
 
-function toLocale(language: string): string {
-	return language === "hu" ? "hu-HU" : "en-GB";
-}
-
-// Deliberately not reusing $lib/utils/time's formatRelativeTime: that one is
-// hard-coded to en-US and emits "3 hour ago"/"Yesterday" fragments that can't
-// be dropped into a Hungarian sentence. Intl.RelativeTimeFormat gives both
-// languages a correct phrase for free.
+// Deliberately not reusing $lib/utils/time's formatRelativeTime: that one
+// emits "3 hour ago"/"Yesterday" fragments that can't be dropped into a
+// Hungarian sentence, and takes its locale from the host rather than from the
+// interface language. Intl.RelativeTimeFormat gives both languages a correct
+// phrase for free.
 export function makeGrammarFormatters(
 	language: string,
 	now: () => number = () => Date.now(),
 ): GrammarFormatters {
-	const locale = toLocale(language);
+	const locale = intlLocale(language);
 	const relativeFormat = new Intl.RelativeTimeFormat(locale, {
 		numeric: "auto",
 	});

@@ -811,7 +811,9 @@ function renderBlock(
 		case "table":
 			return renderTable(block);
 		case "chart":
-			return `<figure class="chart-figure">${renderChartSvg(block).svg}</figure>`;
+			// The chart's y-axis figures follow the report's language, like the
+			// chrome strings this `options.chrome` already carries.
+			return `<figure class="chart-figure">${renderChartSvg(block, { language: options.chrome.language }).svg}</figure>`;
 		case "image":
 			return renderImage(block);
 	}

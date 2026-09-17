@@ -14,6 +14,7 @@
  */
 
 import type { I18nKey } from "$lib/i18n";
+import { intlLocale } from "$lib/utils/locale";
 
 /** Minimum length the server enforces; mirrored here so the user hears it first. */
 export const MIN_PASSWORD_LENGTH = 8;
@@ -133,7 +134,7 @@ export function planAccountSave(
  * UI language rather than the browser's, matching the sentence around it.
  */
 export function formatSavedAt(when: Date, locale: string): string {
-	return when.toLocaleTimeString(locale === "hu" ? "hu-HU" : "en-GB", {
+	return when.toLocaleTimeString(intlLocale(locale), {
 		hour: "2-digit",
 		minute: "2-digit",
 	});
