@@ -170,6 +170,29 @@ test.describe("chat home — Compact", () => {
 		await expect(page.getByTestId("home-weekly-bars")).toBeVisible();
 		// Twelve bars, always — an empty week is a 1px tick, not a gap.
 		await expect(page.getByTestId("home-weekly-bar")).toHaveCount(12);
+		// Slim lines, not blocks — 2px wide — and the heights are the real
+		// distribution: the busiest week fills the 14px band, an empty one is
+		// the 1px tick, and nothing is a fixed shape.
+		const bars = await page
+			.getByTestId("home-weekly-bar")
+			.evaluateAll((nodes) =>
+				nodes.map((node) => {
+					const rect = node.getBoundingClientRect();
+					return {
+						count: Number(node.getAttribute("data-count")),
+						width: rect.width,
+						height: rect.height,
+					};
+				}),
+			);
+		const peak = Math.max(...bars.map((bar) => bar.count));
+		expect(peak).toBe(7);
+		for (const bar of bars) {
+			expect(bar.width).toBe(2);
+			const expected =
+				bar.count === 0 ? 1 : Math.max(2, Math.round((bar.count / peak) * 14));
+			expect(bar.height, `a week of ${bar.count}`).toBe(expected);
+		}
 		// The user sent seven messages. The fixture also wrote seven assistant
 		// replies and twenty-eight billing rows; neither is the user talking.
 		await expect(page.getByTestId("home-weekly-count")).toHaveText(
