@@ -203,10 +203,13 @@ test.describe("chat home — Compact", () => {
 		}
 
 		// And whatever was picked, it is a finished sentence inside the length
-		// cap the column was measured for — the seeded recent conversation makes
-		// a continuity line ("Back to …") reachable here, and an un-truncated
-		// title is exactly what would blow past it.
+		// cap the column was measured for. A recent conversation is seeded, and
+		// its title must NOT turn up in the greeting: a model-written title
+		// pasted into the line is what used to blow past the cap.
 		expect(first).not.toContain("{");
+		for (const title of [SEEDED.atlasConversation, SEEDED.plainConversation]) {
+			expect(first).not.toContain(title.split(" ").slice(0, 2).join(" "));
+		}
 		expect((first ?? "").trim().length).toBeLessThanOrEqual(
 			GREETING_MAX_LINE_CHARS,
 		);

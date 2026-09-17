@@ -49,11 +49,16 @@ const commonDict = {
 		// named form onto a third line there. Grouped rather than sorted into
 		// the surrounding alphabet, because the groups ARE the design.
 		//
+		// {name} is the ONLY thing a line may interpolate. No conversation
+		// titles (model-written sentences do not survive being pasted into a
+		// greeting) and nothing about the user's accounts. Every named line
+		// fits 38 characters with a twelve-character name.
+		//
 		// Generic — always eligible, weight 1.
 		"landing.generic.ask.named": "Ask me anything, {name}.",
 		"landing.generic.ask.plain": "Ask me anything.",
-		"landing.generic.help.named": "What can I help you with, {name}?",
-		"landing.generic.help.plain": "What can I help you with?",
+		"landing.generic.help.named": "What can I help with, {name}?",
+		"landing.generic.help.plain": "What can I help with?",
 		"landing.generic.listening.named": "I'm listening, {name}.",
 		"landing.generic.listening.plain": "I'm listening.",
 		"landing.generic.mind.named": "What's on your mind, {name}?",
@@ -69,8 +74,8 @@ const commonDict = {
 		// Time of day, from the browser's own clock.
 		"landing.time.afternoon.named": "Good afternoon, {name}.",
 		"landing.time.afternoon.plain": "Good afternoon.",
-		"landing.time.earlyStart.named": "Early start, {name}. What's first?",
-		"landing.time.earlyStart.plain": "Early start. What's first?",
+		"landing.time.earlyStart.named": "Early start, {name}.",
+		"landing.time.earlyStart.plain": "Early start.",
 		"landing.time.evening.named": "Good evening, {name}.",
 		"landing.time.evening.plain": "Good evening.",
 		"landing.time.eveningWrap.named": "Evening, {name}. What's left?",
@@ -81,22 +86,30 @@ const commonDict = {
 		"landing.time.midday.plain": "Midday. What's next?",
 		"landing.time.morning.named": "Good morning, {name}.",
 		"landing.time.morning.plain": "Good morning.",
-		"landing.time.stillUp.named": "Still up, {name}. What are we on?",
-		"landing.time.stillUp.plain": "Still up. What are we on?",
-		// Weekday.
-		"landing.weekday.friday.named": "Friday. Anything to close, {name}?",
-		"landing.weekday.friday.plain": "Friday. Anything to close?",
+		"landing.time.stillUp.named": "Still up, {name}. No rush.",
+		"landing.time.stillUp.plain": "Still up. No rush.",
+		// Weekday. Each line names its day and is only offered on it.
+		"landing.weekday.friday.named": "Friday, {name}. Any loose ends?",
+		"landing.weekday.friday.plain": "Friday. Any loose ends?",
+		"landing.weekday.fridayAlready.named": "Friday already, {name}.",
+		"landing.weekday.fridayAlready.plain": "Friday already.",
 		"landing.weekday.midweek.named": "Midweek, {name}. What's moving?",
 		"landing.weekday.midweek.plain": "Midweek. What's moving?",
 		"landing.weekday.monday.named": "Monday, {name}. Set up the week?",
 		"landing.weekday.monday.plain": "Monday. Set up the week?",
-		"landing.weekday.wednesday.named": "Wednesday, {name}. Halfway there.",
-		"landing.weekday.wednesday.plain": "Wednesday. Halfway there.",
+		"landing.weekday.newWeek.named": "New week, {name}.",
+		"landing.weekday.newWeek.plain": "New week.",
+		"landing.weekday.saturday.named": "Saturday, {name}. Take it easy.",
+		"landing.weekday.saturday.plain": "Saturday. Take it easy.",
+		"landing.weekday.sunday.named": "Sunday, {name}. No hurry.",
+		"landing.weekday.sunday.plain": "Sunday. No hurry.",
+		"landing.weekday.thursday.named": "Thursday, {name}. Nearly there.",
+		"landing.weekday.thursday.plain": "Thursday. Nearly there.",
+		"landing.weekday.wednesday.named": "Wednesday, {name}. Halfway.",
+		"landing.weekday.wednesday.plain": "Wednesday. Halfway.",
 		"landing.weekday.weekend.named": "Weekend, {name}. Work or play?",
 		"landing.weekday.weekend.plain": "Weekend. Work or play?",
 		// A quiet week, measured against this user's own median week.
-		"landing.quiet.beenAWhile.named": "Been a while, {name}. What's new?",
-		"landing.quiet.beenAWhile.plain": "Been a while. What's new?",
 		"landing.quiet.slowStart.named": "Slow start to the week, {name}.",
 		"landing.quiet.slowStart.plain": "Slow start to the week.",
 		"landing.quiet.soFar.named": "Quiet week so far, {name}.",
@@ -106,21 +119,18 @@ const commonDict = {
 		"landing.busy.moving.plain": "Things moved this week.",
 		"landing.busy.plentyDone.named": "Plenty done this week, {name}.",
 		"landing.busy.plentyDone.plain": "Plenty done this week.",
-		"landing.busy.whereWereWe.named": "Busy week, {name}. Where were we?",
-		"landing.busy.whereWereWe.plain": "Busy week. Where were we?",
-		// Continuity — {topic} is the most recent conversation's title, cut to
-		// six words and then to whatever fits one row.
-		"landing.continuity.backTo.named": "Back to {topic}, {name}?",
-		"landing.continuity.backTo.plain": "Back to {topic}?",
-		"landing.continuity.leftOpen.named": "We left {topic} open, {name}.",
-		"landing.continuity.leftOpen.plain": "We left {topic} open.",
-		"landing.continuity.stillOn.named": "Still on {topic}, {name}?",
-		"landing.continuity.stillOn.plain": "Still on {topic}?",
+		"landing.busy.soFar.named": "Busy week so far, {name}.",
+		"landing.busy.soFar.plain": "Busy week so far.",
+		// Back after a gap: last week was empty and this one has barely begun.
+		"landing.back.beenAWhile.named": "Been a while, {name}.",
+		"landing.back.beenAWhile.plain": "Been a while.",
+		"landing.back.welcome.named": "Welcome back, {name}.",
+		"landing.back.welcome.plain": "Welcome back.",
 		// A job still in flight.
-		"landing.running.any.named": "Something's still running, {name}.",
-		"landing.running.any.plain": "Something's still running.",
-		"landing.running.file.named": "Your file is still coming, {name}.",
-		"landing.running.file.plain": "Your file is still coming.",
+		"landing.running.any.named": "A job's still running, {name}.",
+		"landing.running.any.plain": "A job's still running.",
+		"landing.running.file.named": "Your file is on its way, {name}.",
+		"landing.running.file.plain": "Your file is on its way.",
 		"landing.running.report.named": "Your report is writing, {name}.",
 		"landing.running.report.plain": "Your report is writing.",
 		// The first load of a new day.
@@ -130,11 +140,6 @@ const commonDict = {
 		"landing.firstVisit.newDay.plain": "New day. What's on it?",
 		"landing.firstVisit.plan.named": "First today, {name}. Where to?",
 		"landing.firstVisit.plan.plain": "First today. Where to?",
-		// Connected accounts.
-		"landing.connections.reach.named": "I can reach your accounts, {name}.",
-		"landing.connections.reach.plain": "I can reach your accounts.",
-		"landing.connections.ready.named": "Your accounts are linked, {name}.",
-		"landing.connections.ready.plain": "Your accounts are linked.",
 		"login.emailAddress": "Email address",
 		"login.hidePassword": "Hide password",
 		"login.password": "Password",
@@ -324,8 +329,8 @@ const commonDict = {
 		// The greeting pool's Hungarian half. Written in Hungarian rather than
 		// translated from the English line by line: the vocative name sits where
 		// Hungarian puts it, and a few lines say something different because the
-		// English idiom has none ("Back to {topic}?" fronts the title instead of
-		// fighting the definite article). Informal throughout, as the app is.
+		// English idiom has none ("Work or play?" becomes "Mi a terv?").
+		// Informal throughout, as the app is.
 		//
 		// Generic — always eligible, weight 1.
 		"landing.generic.ask.named": "Kérdezz bátran, {name}.",
@@ -342,39 +347,47 @@ const commonDict = {
 		"landing.generic.start.plain": "Kezdjünk neki.",
 		"landing.generic.where.named": "Hol kezdjük, {name}?",
 		"landing.generic.where.plain": "Hol kezdjük?",
-		"landing.generic.work.named": "Dolgozzuk végig, {name}.",
-		"landing.generic.work.plain": "Dolgozzuk végig.",
+		"landing.generic.work.named": "Nézzük végig együtt, {name}.",
+		"landing.generic.work.plain": "Nézzük végig együtt.",
 		// Napszak.
 		"landing.time.afternoon.named": "Szép napot, {name}.",
 		"landing.time.afternoon.plain": "Szép napot.",
-		"landing.time.earlyStart.named": "Korán kezdesz, {name}. Mi az első?",
-		"landing.time.earlyStart.plain": "Korán kezdesz. Mi az első?",
+		"landing.time.earlyStart.named": "Korán kezdesz, {name}.",
+		"landing.time.earlyStart.plain": "Korán kezdesz.",
 		"landing.time.evening.named": "Jó estét, {name}.",
 		"landing.time.evening.plain": "Jó estét.",
-		"landing.time.eveningWrap.named": "Este van, {name}. Mi maradt hátra?",
-		"landing.time.eveningWrap.plain": "Este van. Mi maradt hátra?",
+		"landing.time.eveningWrap.named": "Este van, {name}. Mi maradt még?",
+		"landing.time.eveningWrap.plain": "Este van. Mi maradt még?",
 		"landing.time.lateOne.named": "Késő van, {name}. Még dolgozol?",
 		"landing.time.lateOne.plain": "Késő van. Még dolgozol?",
 		"landing.time.midday.named": "Nap közepe, {name}. Mi jön most?",
 		"landing.time.midday.plain": "Nap közepe. Mi jön most?",
 		"landing.time.morning.named": "Jó reggelt, {name}.",
 		"landing.time.morning.plain": "Jó reggelt.",
-		"landing.time.stillUp.named": "Még ébren, {name}. Mi legyen?",
-		"landing.time.stillUp.plain": "Még ébren. Mi legyen?",
-		// A hét napja.
-		"landing.weekday.friday.named": "Péntek, {name}. Mit zárunk le még?",
-		"landing.weekday.friday.plain": "Péntek. Mit zárunk le még?",
-		"landing.weekday.midweek.named": "Hét közepe, {name}. Mi van soron?",
-		"landing.weekday.midweek.plain": "Hét közepe. Mi van soron?",
+		"landing.time.stillUp.named": "Még ébren, {name}. Nem sietünk.",
+		"landing.time.stillUp.plain": "Még ébren. Nem sietünk.",
+		// A hét napja. Minden sor megnevezi a napját, és csak aznap jelenik meg.
+		"landing.weekday.friday.named": "Péntek, {name}. Mit zárjunk le?",
+		"landing.weekday.friday.plain": "Péntek. Mit zárjunk le?",
+		"landing.weekday.fridayAlready.named": "Máris péntek, {name}.",
+		"landing.weekday.fridayAlready.plain": "Máris péntek.",
+		"landing.weekday.midweek.named": "Hét közepe, {name}. Hogy állunk?",
+		"landing.weekday.midweek.plain": "Hét közepe. Hogy állunk?",
 		"landing.weekday.monday.named": "Hétfő, {name}. Mivel indulunk?",
 		"landing.weekday.monday.plain": "Hétfő. Mivel indulunk?",
+		"landing.weekday.newWeek.named": "Új hét, {name}.",
+		"landing.weekday.newWeek.plain": "Új hét.",
+		"landing.weekday.saturday.named": "Szombat, {name}. Csak nyugodtan.",
+		"landing.weekday.saturday.plain": "Szombat. Csak nyugodtan.",
+		"landing.weekday.sunday.named": "Vasárnap van, {name}. Ráérünk.",
+		"landing.weekday.sunday.plain": "Vasárnap van. Ráérünk.",
+		"landing.weekday.thursday.named": "Csütörtök, {name}. Fogy a hét.",
+		"landing.weekday.thursday.plain": "Csütörtök. Fogy a hét.",
 		"landing.weekday.wednesday.named": "Szerda, {name}. Félúton járunk.",
 		"landing.weekday.wednesday.plain": "Szerda. Félúton járunk.",
-		"landing.weekday.weekend.named": "Hétvége, {name}. Munka vagy játék?",
-		"landing.weekday.weekend.plain": "Hétvége. Munka vagy játék?",
+		"landing.weekday.weekend.named": "Hétvége, {name}. Mi a terv?",
+		"landing.weekday.weekend.plain": "Hétvége. Mi a terv?",
 		// Csendes hét.
-		"landing.quiet.beenAWhile.named": "Rég beszéltünk, {name}. Mi újság?",
-		"landing.quiet.beenAWhile.plain": "Rég beszéltünk. Mi újság?",
 		"landing.quiet.slowStart.named": "Ráérősen indult a hét, {name}.",
 		"landing.quiet.slowStart.plain": "Ráérősen indult a hét.",
 		"landing.quiet.soFar.named": "Csendes hét eddig, {name}.",
@@ -384,15 +397,13 @@ const commonDict = {
 		"landing.busy.moving.plain": "Pörög ez a hét.",
 		"landing.busy.plentyDone.named": "Sok minden összejött, {name}.",
 		"landing.busy.plentyDone.plain": "Sok minden összejött.",
-		"landing.busy.whereWereWe.named": "Sűrű hét, {name}. Hol tartottunk?",
-		"landing.busy.whereWereWe.plain": "Sűrű hét. Hol tartottunk?",
-		// Folytatás. A címet előre hozzuk, így nem kell elé határozott névelő.
-		"landing.continuity.backTo.named": "{topic} — folytatjuk, {name}?",
-		"landing.continuity.backTo.plain": "{topic} — folytatjuk?",
-		"landing.continuity.leftOpen.named": "{topic} nyitva maradt, {name}.",
-		"landing.continuity.leftOpen.plain": "{topic} nyitva maradt.",
-		"landing.continuity.stillOn.named": "{topic} — még ezen vagyunk, {name}?",
-		"landing.continuity.stillOn.plain": "{topic} — még ezen vagyunk?",
+		"landing.busy.soFar.named": "Sűrű hét eddig, {name}.",
+		"landing.busy.soFar.plain": "Sűrű hét eddig.",
+		// Visszatérés szünet után: a múlt hét üres volt, ez épp csak elkezdődött.
+		"landing.back.beenAWhile.named": "Rég beszéltünk, {name}.",
+		"landing.back.beenAWhile.plain": "Rég beszéltünk.",
+		"landing.back.welcome.named": "Jó újra látni, {name}.",
+		"landing.back.welcome.plain": "Jó újra látni.",
 		// Futó munka.
 		"landing.running.any.named": "Fut még valami, {name}.",
 		"landing.running.any.plain": "Fut még valami.",
@@ -407,11 +418,6 @@ const commonDict = {
 		"landing.firstVisit.newDay.plain": "Új nap. Mi van a listán?",
 		"landing.firstVisit.plan.named": "Ma az első, {name}. Hová tovább?",
 		"landing.firstVisit.plan.plain": "Ma az első. Hová tovább?",
-		// Csatlakoztatott fiókok.
-		"landing.connections.reach.named": "Elérem a fiókjaidat, {name}.",
-		"landing.connections.reach.plain": "Elérem a fiókjaidat.",
-		"landing.connections.ready.named": "A fiókjaid elérhetők, {name}.",
-		"landing.connections.ready.plain": "A fiókjaid elérhetők.",
 		"login.emailAddress": "E-mail-cím",
 		"login.hidePassword": "Jelszó elrejtése",
 		"login.password": "Jelszó",

@@ -184,8 +184,8 @@ let greetingMemory = $state<ResolvedGreetingMemory>({
 // first visit of the day.
 let greetingMemoryRead = $state(false);
 
-// The summary-fed groups (quiet/busy week, continuity, running job, connected
-// accounts) are gated on `summaryLoaded`, so the first paint draws from the
+// The summary-fed groups (quiet/busy week, back after a gap, running job) are
+// gated on `summaryLoaded`, so the first paint draws from the
 // generic, time-of-day and weekday lines and the greeting may change once when
 // the summary lands a few tens of milliseconds later. That is the honest
 // order: those lines assert something about the user's week, and asserting it
@@ -204,8 +204,6 @@ const greeting = $derived(
 			total: summary.weeklyTotal,
 		},
 		running: summary.running ? { kind: summary.running.kind } : null,
-		topTitle: summary.recent[0]?.title ?? null,
-		connectedKinds: summary.connectedKinds,
 		firstVisitToday: greetingMemory.firstVisitToday,
 		excludeKey: greetingMemory.excludeKey,
 		translate: $t,
