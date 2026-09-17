@@ -92,6 +92,57 @@ one-time conversion from a flat checkout to this layout is a separate, service-s
 [docs/adr/0054-atomic-release-cutover.md](../docs/adr/0054-atomic-release-cutover.md)), run once per
 environment before the first release-based deploy.
 
+### The sandbox's Python packages, and root-owned release leftovers
+
+`produce_file`'s Python program mode runs in a `python:3.11-slim` container that bind-mounts
+`<release>/sandbox-python-env/lib/python3.11/site-packages` read-only at
+`/workspace/python-packages`. The deploy fills that directory by asking any host pip to resolve
+**wheels for the container's interpreter**, not the host's:
+
+```
+pip install --target <release>/sandbox-python-env/lib/python3.11/site-packages \
+  --python-version 3.11 --implementation cp --only-binary=:all: \
+  --platform manylinux2014_x86_64 --platform manylinux_2_17_x86_64 --platform manylinux_2_28_x86_64 \
+  openpyxl xlsxwriter python-docx python-pptx
+```
+
+The Python minor version is declared once in `scripts/sandbox-python-version.sh` and once in
+`src/lib/server/sandbox/python-version.ts`; a unit test fails if the two disagree, or if the path
+the deploy writes to stops matching the path the container mounts. If a host pip is unavailable the
+deploy falls back to running the same install inside the sandbox image, as the deploying user and
+honouring `DOCKER_HOST` — which is why the step runs *after* the `.env` load.
+
+Afterwards the deploy runs `scripts/verify-sandbox-packages.sh`, which imports `openpyxl`,
+`xlsxwriter`, `docx` and `pptx` inside a `python:3.11-slim` container using the real mount, falling
+back to a file-presence check when Docker is unreachable. A failure never aborts the deploy — the
+chat app still ships — but it prints in red and is repeated in the final summary. Run it by hand on
+a box that is producing `ModuleNotFoundError`:
+
+```bash
+set -a; source shared/.env; set +a      # DOCKER_HOST
+bash current/scripts/verify-sandbox-packages.sh current
+```
+
+**Why this had to be fixed (2026-09-17).** The deploy used to build a venv with the *host* python.
+The box's `python3` is 3.12, so the packages landed in `.../lib/python3.12/site-packages` while the
+container mounted `.../lib/python3.11/site-packages`. Docker creates a missing bind-mount source
+automatically — as an **empty, root-owned** directory — so every Python program-mode job failed with
+`ModuleNotFoundError: No module named 'openpyxl'`, and that root-owned directory then made every
+later `rm -rf` of the release fail with `Permission denied`, ending each deploy non-zero.
+
+**One-off operator cleanup.** The prune step now warns, lists what it could not remove, and
+continues instead of failing the deploy. To actually reclaim the space, from an account with sudo
+(`alfyroot`):
+
+```bash
+# delete the specific leftovers the deploy listed
+sudo rm -rf <app root>/releases/<old-sha> [...]
+
+# or hand the whole releases tree back to the deploy user so pruning
+# succeeds on its own from now on
+sudo chown -R alfydesign:alfydesign <app root>/releases
+```
+
 **Rollback** is re-pointing `current` at the previous release directory and restarting the service
 (`ln -sfn releases/<previous-sha> current` + `mv -Tf` + restart) — the same atomic flip used for a
 normal deploy, just aimed backward. `scripts/deploy.sh` does this automatically when the
@@ -123,7 +174,9 @@ deployed and verified there before it reaches production**:
 
 `scripts/deploy-dev.sh` is kept **structurally identical** to `scripts/deploy.sh` — they differ
 only in the branch pulled and the systemd service restarted — so the two flows cannot drift.
-Change one, change both, in the same commit.
+Change one, change both, in the same commit. Steps longer than a few lines live once in
+`scripts/deploy-lib.sh`, which both scripts source out of the release they just materialized;
+`scripts/deploy.test.ts` compares the two script bodies and fails on drift.
 
 Deploy order for any change:
 
@@ -237,6 +290,9 @@ Post-deploy checks:
 - MinerU handles OCR natively in all backends; no separate OCR service is required.
 - A sandboxed file-production run that does not actually write a file to `/output` returns an explicit
   error instead of a silent empty success.
+- `produce_file` Python program mode depends on packages the deploy installs per release. If jobs fail
+  with `ModuleNotFoundError`, or a deploy warns that old releases could not be pruned, see
+  [The sandbox's Python packages, and root-owned release leftovers](#the-sandboxs-python-packages-and-root-owned-release-leftovers).
 - Auxiliary services such as title generation and summarization can fail independently without
   necessarily blocking core chat.
 - Admin configuration can override selected runtime values after boot; the environment remains the base

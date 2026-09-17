@@ -19,6 +19,10 @@ set -e
 # commit so staging and production can never drift again. D1 (atomic
 # releases) rewrote both together against docs/adr/0054-atomic-release-cutover.md.
 #
+# Steps that are more than a few lines live in scripts/deploy-lib.sh, sourced
+# below out of the release being deployed, so there is one copy rather than
+# two pasted ones.
+#
 # Supervision: staging runs as the systemd system service
 # `langflow-chat-dev.service` (User=alfydesign, WorkingDirectory=current,
 # port 3002). PM2 is NOT used and NOT installed.
@@ -91,46 +95,18 @@ git -C "$APP_DIR" archive "origin/$DEPLOY_BRANCH" | tar -x -C "$RELEASE_DIR"
 echo -e "${GREEN}✓ Release materialized${NC}"
 echo ""
 
+# Sourced from the release we just materialized, so the shared deploy steps
+# always match the code being deployed. Defines setup_sandbox_python_packages,
+# prune_old_releases, deploy_warn and print_deploy_warnings.
+# shellcheck source=scripts/deploy-lib.sh
+source "$RELEASE_DIR/scripts/deploy-lib.sh"
+
 cd "$RELEASE_DIR"
 
 echo -e "${YELLOW}3. Installing dependencies...${NC}"
 npm ci || npm install
 echo -e "${GREEN}✓ Dependencies installed${NC}"
 echo ""
-
-echo -e "${YELLOW}3b. Setting up Python sandbox environment...${NC}"
-PYTHON311=$(command -v python3.11 2>/dev/null || true)
-if [ -z "$PYTHON311" ]; then
-  # Fallback: check if python3 itself is 3.11+
-  PYTHON3=$(command -v python3 2>/dev/null || true)
-  if [ -n "$PYTHON3" ] && "$PYTHON3" -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)' 2>/dev/null; then
-    PYTHON311="$PYTHON3"
-  fi
-fi
-
-if [ -n "$PYTHON311" ]; then
-  if [ ! -d sandbox-python-env ]; then
-    "$PYTHON311" -m venv sandbox-python-env
-  fi
-  sandbox-python-env/bin/pip install --quiet --upgrade pip 2>/dev/null || true
-  sandbox-python-env/bin/pip install --quiet openpyxl xlsxwriter python-docx python-pptx 2>/dev/null || true
-  echo -e "${GREEN}✓ Python sandbox packages installed (host)${NC}"
-elif command -v docker >/dev/null 2>&1; then
-  # No host Python, but Docker is available — use a container to bootstrap packages
-  SITE_PACKAGES_DIR="$RELEASE_DIR/sandbox-python-env/lib/python3.11/site-packages"
-  mkdir -p "$SITE_PACKAGES_DIR"
-  docker run --rm \
-    -v "$SITE_PACKAGES_DIR:/target" \
-    python:3.11-slim \
-    sh -c "pip install --no-cache-dir --target=/target openpyxl xlsxwriter python-docx python-pptx" \
-    >/dev/null 2>&1 || {
-      echo -e "${YELLOW}⚠ Docker package install failed; Python sandbox file generation may be limited${NC}"
-      exit 0
-    }
-  echo -e "${GREEN}✓ Python sandbox packages installed (Docker)${NC}"
-else
-  echo -e "${YELLOW}⚠ python3.11 and docker not found; Python sandbox file generation may be limited${NC}"
-fi
 
 echo -e "${YELLOW}4. Linking shared state (.env and data)...${NC}"
 ln -sfn "$SHARED_DIR/.env" "$RELEASE_DIR/.env"
@@ -162,6 +138,14 @@ if [ -f "$RELEASE_DIR/.env" ]; then
   echo -e "${GREEN}✓ Environment loaded${NC}"
   echo ""
 fi
+
+# Deliberately after the .env load: DOCKER_HOST lives there (the filtered
+# socket proxy on 127.0.0.1:2375), and both the container fallback and the
+# post-install import check need it. Never aborts the deploy; a failure is
+# printed in red and repeated by print_deploy_warnings at the end.
+echo -e "${YELLOW}4c. Installing Python sandbox packages for the container's interpreter...${NC}"
+setup_sandbox_python_packages "$RELEASE_DIR"
+echo ""
 
 echo -e "${YELLOW}5. Building application...${NC}"
 npm run build
@@ -247,12 +231,9 @@ echo -e "${GREEN}✓ Health check passed${NC}"
 echo ""
 
 echo -e "${YELLOW}11. Pruning old releases (keeping last $RELEASES_TO_KEEP)...${NC}"
-while IFS= read -r old_release; do
-  echo "  removing $(basename "${old_release%/}")"
-  rm -rf "${old_release%/}"
-done < <(ls -1dt "$RELEASES_DIR"/*/ 2>/dev/null | tail -n +"$((RELEASES_TO_KEEP + 1))")
-echo -e "${GREEN}✓ Retained the last $RELEASES_TO_KEEP releases${NC}"
+prune_old_releases "$RELEASES_DIR" "$RELEASES_TO_KEEP"
 echo ""
 
 echo -e "${GREEN}=== Deployment complete! current -> releases/$RELEASE_SHA ===${NC}"
 echo ""
+print_deploy_warnings

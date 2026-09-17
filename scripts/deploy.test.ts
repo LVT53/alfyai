@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+	SANDBOX_PYTHON_IMAGE,
+	SANDBOX_PYTHON_IMPORT_NAMES,
+	SANDBOX_PYTHON_PACKAGES,
+	SANDBOX_PYTHON_PACKAGES_MOUNT_PATH,
+	SANDBOX_PYTHON_SITE_PACKAGES_RELPATH,
+	SANDBOX_PYTHON_VERSION,
+} from "../src/lib/server/sandbox/python-version";
 
 // These tests read scripts/deploy.sh and scripts/deploy-dev.sh as plain text
 // and assert the ADR-0054 atomic-release properties. See
@@ -8,9 +16,48 @@ import { describe, expect, it } from "vitest";
 
 const DEPLOY_SH_PATH = resolve(__dirname, "deploy.sh");
 const DEPLOY_DEV_SH_PATH = resolve(__dirname, "deploy-dev.sh");
+const DEPLOY_LIB_SH_PATH = resolve(__dirname, "deploy-lib.sh");
+const SANDBOX_VERSION_SH_PATH = resolve(__dirname, "sandbox-python-version.sh");
+const VERIFY_PACKAGES_SH_PATH = resolve(
+	__dirname,
+	"verify-sandbox-packages.sh",
+);
+const SANDBOX_CONFIG_TS_PATH = resolve(
+	__dirname,
+	"../src/lib/server/sandbox/config.ts",
+);
+const NORMAL_CHAT_TOOLS_TS_PATH = resolve(
+	__dirname,
+	"../src/lib/server/services/normal-chat-tools/index.ts",
+);
 
 const deployScript = readFileSync(DEPLOY_SH_PATH, "utf8");
 const deployDevScript = readFileSync(DEPLOY_DEV_SH_PATH, "utf8");
+const deployLibScript = readFileSync(DEPLOY_LIB_SH_PATH, "utf8");
+const sandboxVersionScript = readFileSync(SANDBOX_VERSION_SH_PATH, "utf8");
+const verifyPackagesScript = readFileSync(VERIFY_PACKAGES_SH_PATH, "utf8");
+const sandboxConfigSource = readFileSync(SANDBOX_CONFIG_TS_PATH, "utf8");
+const normalChatToolsSource = readFileSync(NORMAL_CHAT_TOOLS_TS_PATH, "utf8");
+
+/**
+ * Reads a plain `NAME="value"` assignment out of a sourced shell constants
+ * file. Deliberately dumb: these files are only allowed to contain literal
+ * assignments, so a regex is the whole parser.
+ */
+function shellConstant(script: string, name: string): string | null {
+	const match = script.match(new RegExp(`^${name}="([^"]*)"`, "m"));
+	return match ? match[1] : null;
+}
+
+/** The same assignment with `${SANDBOX_PYTHON_VERSION}` expanded. */
+function expandedShellConstant(script: string, name: string): string | null {
+	const raw = shellConstant(script, name);
+	if (raw === null) return null;
+	const version = shellConstant(script, "SANDBOX_PYTHON_VERSION") ?? "";
+	// Written as a concatenation so Biome doesn't read the shell placeholder
+	// as a mis-typed JS template literal.
+	return raw.replaceAll(`\${${"SANDBOX_PYTHON_VERSION"}}`, version);
+}
 
 /**
  * Every `rm ...` invocation found in a shell script, captured up to the end
@@ -150,6 +197,200 @@ describe.each([
 
 			expect(drainBlock).not.toMatch(/\bexit 1\b/);
 		});
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Python sandbox packages.
+//
+// The 2026-09-17 outage: the deploy built a venv with the HOST python (3.12 on
+// the box) and installed openpyxl et al. into
+// sandbox-python-env/lib/python3.12/site-packages, while the container mounts
+// .../python3.11/site-packages. Docker created the missing mount source as an
+// empty root-owned directory, every Python program-mode job died with
+// ModuleNotFoundError, and the root-owned directory then made every later
+// prune step fail. These tests pin the three things that must agree.
+// ---------------------------------------------------------------------------
+describe("sandbox Python version is declared once", () => {
+	it("scripts/sandbox-python-version.sh matches src/lib/server/sandbox/python-version.ts", () => {
+		expect(shellConstant(sandboxVersionScript, "SANDBOX_PYTHON_VERSION")).toBe(
+			SANDBOX_PYTHON_VERSION,
+		);
+		expect(
+			expandedShellConstant(sandboxVersionScript, "SANDBOX_PYTHON_IMAGE"),
+		).toBe(SANDBOX_PYTHON_IMAGE);
+		expect(
+			expandedShellConstant(
+				sandboxVersionScript,
+				"SANDBOX_PYTHON_PACKAGES_MOUNT_PATH",
+			),
+		).toBe(SANDBOX_PYTHON_PACKAGES_MOUNT_PATH);
+	});
+
+	it("the deploy scripts write to the same path config.ts bind-mounts", () => {
+		const shellRelpath = expandedShellConstant(
+			sandboxVersionScript,
+			"SANDBOX_PYTHON_SITE_PACKAGES_RELPATH",
+		);
+
+		expect(shellRelpath).toBe(SANDBOX_PYTHON_SITE_PACKAGES_RELPATH);
+		expect(shellRelpath).toBe(
+			`sandbox-python-env/lib/python${SANDBOX_PYTHON_VERSION}/site-packages`,
+		);
+
+		// The installer and the verifier both build their target from that one
+		// constant rather than re-spelling the path.
+		expect(deployLibScript).toContain(
+			'"$release_dir/$SANDBOX_PYTHON_SITE_PACKAGES_RELPATH"',
+		);
+		expect(verifyPackagesScript).toContain(
+			'"$RELEASE_DIR/$SANDBOX_PYTHON_SITE_PACKAGES_RELPATH"',
+		);
+	});
+
+	it("config.ts derives the mount from the shared constant instead of a literal version", () => {
+		expect(sandboxConfigSource).toContain(
+			"SANDBOX_PYTHON_SITE_PACKAGES_RELPATH",
+		);
+		expect(sandboxConfigSource).toContain("SANDBOX_PYTHON_IMAGE");
+		expect(sandboxConfigSource).not.toMatch(/python3\.\d+/);
+		expect(sandboxConfigSource).not.toMatch(/"python:3\.\d+-slim"/);
+	});
+
+	it("no deploy script hardcodes a Python minor version in executable code", () => {
+		// Comments may spell the path out for a human reader; executable lines
+		// must go through the constant.
+		const withoutComments = (script: string) =>
+			script
+				.split("\n")
+				.filter((line) => !/^\s*#/.test(line))
+				.join("\n");
+
+		for (const script of [deployScript, deployDevScript, deployLibScript]) {
+			expect(withoutComments(script)).not.toMatch(/python3\.\d+/);
+			expect(withoutComments(script)).not.toMatch(/python:3\.\d+-slim/);
+		}
+	});
+});
+
+describe("sandbox Python package list", () => {
+	it("matches the TypeScript list and its import names", () => {
+		const shellPackages = shellConstant(
+			sandboxVersionScript,
+			"SANDBOX_PYTHON_PACKAGES",
+		);
+		const shellImports = shellConstant(
+			sandboxVersionScript,
+			"SANDBOX_PYTHON_IMPORT_NAMES",
+		);
+
+		expect(shellPackages?.split(/\s+/)).toEqual([...SANDBOX_PYTHON_PACKAGES]);
+		expect(shellImports?.split(/\s+/)).toEqual([
+			...SANDBOX_PYTHON_IMPORT_NAMES,
+		]);
+		expect(SANDBOX_PYTHON_IMPORT_NAMES).toHaveLength(
+			SANDBOX_PYTHON_PACKAGES.length,
+		);
+	});
+
+	it("matches what the tool descriptions promise the model", () => {
+		// src/lib/server/services/normal-chat-tools/index.ts tells the model
+		// "openpyxl, xlsxwriter, python-docx and python-pptx are present".
+		// Promising a package the deploy never installs is the bug this whole
+		// file guards against, so the promise and the install list are pinned
+		// to each other.
+		for (const packageName of SANDBOX_PYTHON_PACKAGES) {
+			expect(normalChatToolsSource).toContain(packageName);
+		}
+	});
+});
+
+describe("scripts/deploy-lib.sh (shared deploy steps)", () => {
+	it("never rm -rf's current/, shared/, shared/data, or .env", () => {
+		const dangerous =
+			rmInvocations(deployLibScript).filter(targetsProtectedPath);
+		expect(dangerous).toEqual([]);
+	});
+
+	it("installs wheels for the container's interpreter, not the host's", () => {
+		expect(deployLibScript).toContain(
+			'--python-version "$SANDBOX_PYTHON_VERSION"',
+		);
+		expect(deployLibScript).toContain("--implementation cp");
+		expect(deployLibScript).toContain("--only-binary=:all:");
+		expect(deployLibScript).toMatch(/--platform manylinux\S*_x86_64/);
+		// The venv built with the host python is what broke production.
+		expect(deployLibScript).not.toMatch(/-m venv/);
+	});
+
+	it("creates the mount source as the deploying user before Docker can", () => {
+		expect(deployLibScript).toContain('mkdir -p "$target"');
+		expect(deployLibScript).toContain('--user "$(id -u):$(id -g)"');
+	});
+
+	it("warns loudly instead of silencing a failed package install", () => {
+		expect(deployLibScript).toContain("deploy_warn");
+		expect(deployLibScript).toMatch(/ModuleNotFoundError/);
+		// No `|| true` anywhere in the helper: an install or prune failure must
+		// reach deploy_warn rather than being swallowed the way the old
+		// `pip install ... 2>/dev/null || true` line swallowed it.
+		expect(deployLibScript).not.toMatch(/\|\|\s*true/);
+		// pip's own stderr is never redirected away either — the old
+		// `pip install ... 2>/dev/null || true` is exactly how a completely
+		// empty site-packages directory reached production unnoticed.
+		const silencedInstallLines = deployLibScript
+			.split("\n")
+			.filter((line) => /install\b/.test(line) && /\/dev\/null/.test(line));
+		expect(silencedInstallLines).toEqual([]);
+	});
+
+	it("tolerates root-owned leftovers when pruning and prints the sudo cleanup", () => {
+		const pruneBody = deployLibScript.slice(
+			deployLibScript.indexOf("prune_old_releases()"),
+		);
+		expect(pruneBody).toContain("sudo rm -rf");
+		expect(pruneBody).toContain("sudo chown -R");
+		// A release we cannot delete is a disk-space problem, not a deploy
+		// failure: the function returns 0 and records a warning instead.
+		expect(pruneBody).not.toMatch(/\bexit 1\b/);
+		expect(pruneBody).toContain("deploy_warn");
+	});
+});
+
+describe.each([
+	["scripts/deploy.sh", deployScript],
+	["scripts/deploy-dev.sh", deployDevScript],
+])("%s (sandbox package step)", (_label, script) => {
+	it("sources the shared helper out of the release it just materialized", () => {
+		expect(script).toContain('source "$RELEASE_DIR/scripts/deploy-lib.sh"');
+		const archiveIndex = script.indexOf('git -C "$APP_DIR" archive');
+		const sourceIndex = script.indexOf(
+			'source "$RELEASE_DIR/scripts/deploy-lib.sh"',
+		);
+		expect(sourceIndex).toBeGreaterThan(archiveIndex);
+	});
+
+	it("installs the sandbox packages after the .env load, so DOCKER_HOST is set", () => {
+		const envLoadIndex = script.indexOf('source "$RELEASE_DIR/.env"');
+		const setupIndex = script.indexOf(
+			'setup_sandbox_python_packages "$RELEASE_DIR"',
+		);
+		const buildIndex = script.indexOf("npm run build");
+
+		expect(envLoadIndex).toBeGreaterThan(-1);
+		expect(setupIndex).toBeGreaterThan(envLoadIndex);
+		expect(setupIndex).toBeLessThan(buildIndex);
+	});
+
+	it("prunes through the tolerant helper and repeats warnings in the summary", () => {
+		expect(script).toContain(
+			'prune_old_releases "$RELEASES_DIR" "$RELEASES_TO_KEEP"',
+		);
+		// lastIndexOf: both names also appear in the header comment block.
+		const summaryIndex = script.lastIndexOf("=== Deployment complete!");
+		const warningsIndex = script.lastIndexOf("print_deploy_warnings");
+		expect(summaryIndex).toBeGreaterThan(-1);
+		expect(warningsIndex).toBeGreaterThan(summaryIndex);
 	});
 });
 

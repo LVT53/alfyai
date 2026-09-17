@@ -8,6 +8,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "../../src/lib/server/db/schema";
+import { SANDBOX_PYTHON_SITE_PACKAGES_RELPATH } from "../../src/lib/server/sandbox/python-version";
 
 const REPO_ROOT = process.cwd();
 const ORIGINAL_DATABASE_PATH = process.env.DATABASE_PATH;
@@ -173,16 +174,9 @@ describe("File Production journey gate", () => {
 		// Otherwise Docker auto-creates the missing host path as root the first
 		// time a container mounts it, and the afterEach cleanup rm() below can't
 		// remove its own tempRoot anymore (EACCES).
-		await mkdir(
-			join(
-				tempRoot,
-				"sandbox-python-env",
-				"lib",
-				"python3.11",
-				"site-packages",
-			),
-			{ recursive: true },
-		);
+		await mkdir(join(tempRoot, SANDBOX_PYTHON_SITE_PACKAGES_RELPATH), {
+			recursive: true,
+		});
 		process.chdir(tempRoot);
 		vi.resetModules();
 		await installDeterministicProduceFileToolWake();
