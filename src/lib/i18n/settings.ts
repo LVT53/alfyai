@@ -1288,9 +1288,12 @@ const settingsDict = {
 			"{count} settings that used to exist only in the environment file. Every one of them is read fresh on the next call, so saving here is enough — no restart, no deploy.",
 		// Appended only when the page is actually showing an inert row, so the
 		// headline count never silently includes settings that cannot be
-		// changed.
+		// changed. The count shrinks as keys get wired up and passes through 1
+		// on its way to none, so the verb agrees with it rather than saying
+		// "1 more are listed". The branch bodies hold no placeholder of their
+		// own — $lib/i18n's plural matcher does not recurse.
 		"admin.system.advanced.unwiredCount":
-			"{count} more are listed but not connected to anything yet, and are shown read-only.",
+			"{count} more {count, plural, one {setting is} other {settings are}} listed but not connected to anything yet, and shown read-only.",
 		"admin.system.advanced.search":
 			"Search advanced settings, keys and defaults",
 		"admin.system.advanced.effectiveConfig": "Effective config",
@@ -2941,8 +2944,10 @@ const settingsDict = {
 		"admin.system.effect.unwired": "még nincs hatása",
 		"admin.system.effect.unwiredHint":
 			"Ezt az értéket semmi nem olvassa, ezért a mező csak olvasható, amíg ez így marad.",
+		// "ezt módosítani nem csinál semmit" is not a Hungarian sentence — an
+		// infinitive cannot be the subject of `csinál`. The deverbal noun can.
 		"admin.system.effect.unwiredNote":
-			"Még nincs bekötve — ezt módosítani nem csinál semmit.",
+			"Még nincs bekötve — a módosítása nem változtat semmin.",
 		"admin.system.resetToDefault": "Visszaállítás alapértékre",
 		"admin.system.resetToDefaultA11y": "{label} visszaállítása az alapértékre",
 		"admin.system.emptyValue": "nincs beállítva",
@@ -3153,8 +3158,12 @@ const settingsDict = {
 		"admin.system.advanced.restartFree": "Újraindítás nélkül",
 		"admin.system.advanced.description":
 			"{count} beállítás, amely korábban csak a környezeti fájlban létezett. Mindegyiket frissen olvassuk a következő híváskor, így elég itt menteni — nincs újraindítás, nincs telepítés.",
+		// No plural branch: a Hungarian numeral already carries number, so
+		// "1 beállítás" and "5 beállítás" take the same singular noun and the
+		// same verb. The EN twin needs the branch; this one would be wrong
+		// with it.
 		"admin.system.advanced.unwiredCount":
-			"További {count} itt szerepel, de még nincs bekötve semmihez, ezért csak olvasható.",
+			"További {count} beállítás szerepel a listában, de még nincs bekötve semmihez, ezért csak olvasható.",
 		"admin.system.advanced.search":
 			"Keresés a haladó beállítások, kulcsok és alapértékek között",
 		"admin.system.advanced.effectiveConfig": "Tényleges konfiguráció",

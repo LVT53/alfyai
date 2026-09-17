@@ -1120,7 +1120,18 @@ class StandardReportPdfLayout {
 			return String(value);
 		}
 		if (typeof value === "number") {
-			if (kind === "percent") return `${(value * 100).toFixed(1)}%`;
+			if (kind === "percent") {
+				// Localized like its neighbours, or a Hungarian table would put
+				// "12,5" in the number column and "12.5%" in the one beside it.
+				// minimum === maximum keeps the one decimal place the old
+				// `.toFixed(1)` always printed, and `style: "percent"` takes the
+				// ×100 as well as the sign.
+				return new Intl.NumberFormat(locale, {
+					style: "percent",
+					minimumFractionDigits: 1,
+					maximumFractionDigits: 1,
+				}).format(value);
+			}
 			if (kind === "currency") {
 				// The currency stays USD — that is a fact about the amount, not
 				// a formatting choice — but hu-HU writes it as "1 234 US$".
