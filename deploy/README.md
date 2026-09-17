@@ -294,6 +294,127 @@ passwordless sudoers rule to restart the *production* service but **not** the st
 privileged command to run instead (it does not fail the build). Add a NOPASSWD sudoers rule for
 `langflow-chat-dev.service` if you want fully unattended staging restarts.
 
+## Creating a release campaign from a deck
+
+`scripts/create-release-campaign.ts` builds an in-app release campaign out of a prepared deck
+directory, so the whole four-slide announcement does not have to be typed and re-uploaded through
+Administration → Campaigns by hand.
+
+It is not a SQL script. It calls `announcement-campaigns.ts` and `campaign-assets.ts` — the same
+functions `/api/admin/campaigns*` calls — so the draft it writes is the draft the admin UI would
+have written: the same identity key and revision arithmetic, the same source+crop asset pair per
+image, the same files under `data/campaign-assets/`, and with `--publish` the same publish
+validation the Publish button runs.
+
+### The deck
+
+A directory holding `slides.json` and the artwork it references:
+
+| key | required | notes |
+|---|---|---|
+| `titleEn` / `titleHu` | yes | |
+| `bodyEn` / `bodyHu` | yes | |
+| `altTextEn` / `altTextHu` | yes | every slide here ships images, and publishing requires localized alt text whenever a slide has one |
+| `desktopFile` / `mobileFile` | yes | deck-relative paths; 16:10 and 9:16, at least 1600x1000 and 1080x1920 |
+| `actionLabelEn` / `actionLabelHu` / `actionDestination` | optional | all three together; the destination must be on the allowlist in `src/lib/campaign-action-destinations.ts` |
+
+At least four slides. The whole deck is validated before anything is written, and every problem is
+reported at once rather than one per run.
+
+**SVG goes in as SVG.** `campaign-assets.ts` accepts `image/svg+xml`, nothing re-encodes or crops
+server-side, and `/api/campaign-assets/[id]/content` serves SVG with a CSP
+(`img-src data:`) that exists precisely so artwork carrying embedded base64 screenshots renders.
+So the vector artwork is stored as-is and stays sharp at any density. Pass `--png-dir <dir>` to
+upload pre-rendered PNGs of the same slides instead — the script looks for each `desktopFile` /
+`mobileFile` basename with a `.png` extension in that directory. No rasterizer is added to the repo
+either way. (For contrast: the admin UI's crop modal always rasterizes to `image/webp` at exactly
+1600x1000 / 1080x1920, because a human cropping a phone screenshot needs it to. A deck already at
+the target geometry needs no crop, so the script saves the full frame at 1:1.)
+
+### Running it on a server
+
+Run it **from the release directory**. The database comes from `DATABASE_PATH` exactly as the
+server resolves it, and the asset files are written to `<cwd>/data/campaign-assets` exactly as the
+server writes them — both relative to the working directory, where `data` is the symlink to
+`shared/data` (see [Release layout](#release-layout)). The script compares the two and refuses to
+run if they are not the same deployment's data directory, rather than writing rows that point at
+files the server will never find.
+
+Staging first, as always:
+
+```bash
+cd /home/alfydesign/apps/langflow-chat-dev/current
+set -a; . .env; set +a
+npx tsx scripts/create-release-campaign.ts \
+  --deck /home/alfydesign/decks/alfyai-release-campaign-2 \
+  --name "AlfyAI 2.0" --version 2.0.0 \
+  --admin-email you@example.com --dry-run
+```
+
+Drop `--dry-run` to create the draft, then review it at `/settings` → Administration → Campaigns
+(the pane has no deep link; the sub-tab is local state). Publish from that screen, or re-run with
+`--publish` to run the same validation from the command line.
+
+Production, once staging looks right:
+
+```bash
+cd /home/alfydesign/apps/langflow-chat/current
+set -a; . .env; set +a
+npx tsx scripts/create-release-campaign.ts \
+  --deck /home/alfydesign/decks/alfyai-release-campaign-2 \
+  --name "AlfyAI 2.0" --version 2.0.0 \
+  --admin-email you@example.com
+```
+
+Exit codes: `0` success, `1` refused (bad deck, non-admin author, duplicate campaign, failed
+publish validation), `2` bad command line.
+
+### What it will and will not do
+
+- **Draft by default.** `--publish` additionally publishes, which is what makes the campaign
+  auto-show to users, so it is deliberately a second, explicit flag.
+- **Idempotent.** A second run with the same `--name` and `--version` is refused. `--replace-draft`
+  deletes and recreates, but only ever a **draft** — a published or archived campaign is immutable
+  and the script will not touch it (neither will `deleteCampaignDraft` underneath it). To correct a
+  published campaign, publish a new version or revision, as
+  [ADR 0012](../docs/adr/0012-announcement-campaigns-and-first-run-onboarding.md) requires.
+- **`--dry-run` writes nothing** — no rows, no files — and prints what it would do, including
+  whether it would replace an existing draft.
+- **The author must be an admin.** `--admin-email` is resolved against `users`; a missing user or a
+  non-admin role is refused with the reason, before anything is written.
+
+### No restart needed
+
+Campaign reads are per-request SQLite reads on both sides — `/api/admin/campaigns` for the editor,
+`/api/campaigns/eligible` for the app shell — and neither the services nor the client hold a
+campaign cache. A running server picks up a draft or a publish made out-of-process immediately.
+
+Two caveats:
+
+- Asset content is served `Cache-Control: private, max-age=300`, so a browser that already fetched
+  an asset id can show the old bytes for up to five minutes if that id's file is replaced. A hard
+  reload clears it; a restart does not help.
+- The sidebar version badge shows the higher of the package version and the newest **published**
+  release campaign — unless `APP_VERSION_OVERRIDE` is set in admin config, which is read from a
+  per-process cache the server only refreshes at startup or on an admin-config save. `--publish`
+  warns when such a row exists; save any setting in Administration → System (or restart the
+  service) to clear it.
+
+### Before running it against production
+
+- Take the campaign to staging first. Staging's database is disposable; production's is not.
+- There is no undo for `--publish`. A published campaign can only be **archived**, and archiving is
+  an admin-UI action. Create the draft, look at it at both breakpoints in the preview, then publish.
+- `--replace-draft` deletes a draft and everything on it. Run it without the flag first and read
+  which campaign id it names. The replaced draft's images are **not** deleted — nothing in the app
+  reaps unreferenced `campaign_assets` rows or their files, whether they are orphaned from here or
+  by removing a slide image in the admin UI — so each replacement adds roughly the deck's own size
+  (~2.4 MB for the 2.0 deck) under `shared/data/campaign-assets/`. Harmless, but it does not shrink
+  on its own.
+- The assets are written by whoever runs the script. On a box where the service runs as a different
+  account, check that the new files under `shared/data/campaign-assets/` are readable by the service
+  user — an unreadable crop is a 404 the campaign modal papers over with its fallback artwork.
+
 ## Optional Advanced Linux Setup
 
 The files in this directory can still be used as examples for a more manual host-managed deployment:
