@@ -21,7 +21,21 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const I18N_DIR = path.resolve("src/lib/i18n");
-const MODULES = ["chat", "common", "knowledge", "settings", "skills"] as const;
+// Every module `src/lib/i18n/index.ts` merges into the dictionary. `connections`
+// and `legal` were missing, so two whole namespaces — every connection status
+// sentence, every write-confirm line, the legal pages — were never checked for
+// a missing or untranslated Hungarian key. Adding a module here is not
+// optional: a namespace the app ships and this list does not name is a
+// namespace whose Hungarian nobody is watching.
+const MODULES = [
+	"chat",
+	"common",
+	"connections",
+	"knowledge",
+	"legal",
+	"settings",
+	"skills",
+] as const;
 
 function parseI18n() {
 	const en: Record<string, string> = {};
