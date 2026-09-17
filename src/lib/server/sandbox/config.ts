@@ -2,6 +2,11 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import type { Container, Exec, ExecInspectInfo } from "dockerode";
 import Docker from "dockerode";
+import {
+	SANDBOX_PYTHON_IMAGE,
+	SANDBOX_PYTHON_PACKAGES_MOUNT_PATH,
+	SANDBOX_PYTHON_SITE_PACKAGES_RELPATH,
+} from "./python-version";
 
 export const SANDBOX_TIMEOUT_MS = 90000;
 export const SANDBOX_TIMEOUT_JS_MS = 135000;
@@ -27,20 +32,23 @@ interface SandboxRuntimeConfig {
 }
 
 const JAVASCRIPT_NODE_MODULES_DIR = path.join(process.cwd(), "node_modules");
+// The deploy scripts install cp311 manylinux wheels into exactly this path
+// under each release directory (see scripts/deploy-lib.sh). If the two ever
+// disagree, Docker creates the missing mount source as an empty root-owned
+// directory and every Python program-mode job fails with ModuleNotFoundError.
 const PYTHON_VENV_SITE_PACKAGES = path.join(
 	process.cwd(),
-	"sandbox-python-env",
-	"lib",
-	"python3.11",
-	"site-packages",
+	SANDBOX_PYTHON_SITE_PACKAGES_RELPATH,
 );
 
 const SANDBOX_RUNTIME_CONFIG: Record<SandboxLanguage, SandboxRuntimeConfig> = {
 	python: {
-		image: "python:3.11-slim",
+		image: SANDBOX_PYTHON_IMAGE,
 		idleCommand: ["python3", "-c", "import sys; sys.stdin.read()"],
 		execCommand: (code: string) => ["python3", "-c", code],
-		binds: [`${PYTHON_VENV_SITE_PACKAGES}:/workspace/python-packages:ro`],
+		binds: [
+			`${PYTHON_VENV_SITE_PACKAGES}:${SANDBOX_PYTHON_PACKAGES_MOUNT_PATH}:ro`,
+		],
 	},
 	javascript: {
 		image: "node:22-bookworm-slim",

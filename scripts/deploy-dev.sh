@@ -19,6 +19,10 @@ set -e
 # commit so staging and production can never drift again. D1 (atomic
 # releases) rewrote both together against docs/adr/0054-atomic-release-cutover.md.
 #
+# Steps that are more than a few lines live in scripts/deploy-lib.sh, sourced
+# below out of the release being deployed, so there is one copy rather than
+# two pasted ones.
+#
 # Supervision: staging runs as the systemd system service
 # `langflow-chat-dev.service` (User=alfydesign, WorkingDirectory=current,
 # port 3002). PM2 is NOT used and NOT installed.
@@ -50,6 +54,11 @@ RELEASES_TO_KEEP="${RELEASES_TO_KEEP:-3}"
 
 SHARED_DIR="$APP_DIR/shared"
 RELEASES_DIR="$APP_DIR/releases"
+# Where THIS copy of the script lives — on production the app-root checkout's
+# scripts/, on staging the previous release's scripts/. Only used as the
+# fallback source for deploy-lib.sh when the release being deployed predates
+# that file.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 restart_service() {
   if sudo -n systemctl restart "$SERVICE_NAME" 2>/dev/null; then
@@ -91,46 +100,41 @@ git -C "$APP_DIR" archive "origin/$DEPLOY_BRANCH" | tar -x -C "$RELEASE_DIR"
 echo -e "${GREEN}✓ Release materialized${NC}"
 echo ""
 
+# Sourced from the release we just materialized, so the shared deploy steps
+# always match the code being deployed. Defines setup_sandbox_python_packages,
+# prune_old_releases, deploy_warn and print_deploy_warnings.
+#
+# Defensive on purpose. A `source` of a missing file fails, and under `set -e`
+# that aborts the deploy outright — which is exactly what would happen when
+# rolling back by deploying a sha from before deploy-lib.sh existed. So:
+# prefer the release's copy, fall back to the copy next to this script, and
+# only if neither exists carry on with stand-ins that skip the optional steps.
+if [ -f "$RELEASE_DIR/scripts/deploy-lib.sh" ]; then
+  # shellcheck source=scripts/deploy-lib.sh
+  source "$RELEASE_DIR/scripts/deploy-lib.sh"
+elif [ -f "$SCRIPT_DIR/deploy-lib.sh" ]; then
+  echo -e "${YELLOW}⚠ releases/$RELEASE_SHA has no scripts/deploy-lib.sh (older release); using the copy next to this script${NC}"
+  # shellcheck source=scripts/deploy-lib.sh
+  source "$SCRIPT_DIR/deploy-lib.sh"
+else
+  echo -e "${RED}⚠ No scripts/deploy-lib.sh in the release or next to this script.${NC}"
+  echo -e "${RED}  Deploying anyway; the sandbox package step and the prune step are skipped.${NC}"
+  deploy_warn() { echo -e "${RED}⚠⚠⚠ $1${NC}"; }
+  print_deploy_warnings() { :; }
+  setup_sandbox_python_packages() {
+    deploy_warn "scripts/deploy-lib.sh is missing, so the sandbox Python packages were not installed into $1. produce_file program mode will fail with ModuleNotFoundError."
+  }
+  prune_old_releases() {
+    echo -e "${YELLOW}⚠ scripts/deploy-lib.sh is missing; skipping the prune of $1 (keep $2).${NC}"
+  }
+fi
+
 cd "$RELEASE_DIR"
 
 echo -e "${YELLOW}3. Installing dependencies...${NC}"
 npm ci || npm install
 echo -e "${GREEN}✓ Dependencies installed${NC}"
 echo ""
-
-echo -e "${YELLOW}3b. Setting up Python sandbox environment...${NC}"
-PYTHON311=$(command -v python3.11 2>/dev/null || true)
-if [ -z "$PYTHON311" ]; then
-  # Fallback: check if python3 itself is 3.11+
-  PYTHON3=$(command -v python3 2>/dev/null || true)
-  if [ -n "$PYTHON3" ] && "$PYTHON3" -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)' 2>/dev/null; then
-    PYTHON311="$PYTHON3"
-  fi
-fi
-
-if [ -n "$PYTHON311" ]; then
-  if [ ! -d sandbox-python-env ]; then
-    "$PYTHON311" -m venv sandbox-python-env
-  fi
-  sandbox-python-env/bin/pip install --quiet --upgrade pip 2>/dev/null || true
-  sandbox-python-env/bin/pip install --quiet openpyxl xlsxwriter python-docx python-pptx 2>/dev/null || true
-  echo -e "${GREEN}✓ Python sandbox packages installed (host)${NC}"
-elif command -v docker >/dev/null 2>&1; then
-  # No host Python, but Docker is available — use a container to bootstrap packages
-  SITE_PACKAGES_DIR="$RELEASE_DIR/sandbox-python-env/lib/python3.11/site-packages"
-  mkdir -p "$SITE_PACKAGES_DIR"
-  docker run --rm \
-    -v "$SITE_PACKAGES_DIR:/target" \
-    python:3.11-slim \
-    sh -c "pip install --no-cache-dir --target=/target openpyxl xlsxwriter python-docx python-pptx" \
-    >/dev/null 2>&1 || {
-      echo -e "${YELLOW}⚠ Docker package install failed; Python sandbox file generation may be limited${NC}"
-      exit 0
-    }
-  echo -e "${GREEN}✓ Python sandbox packages installed (Docker)${NC}"
-else
-  echo -e "${YELLOW}⚠ python3.11 and docker not found; Python sandbox file generation may be limited${NC}"
-fi
 
 echo -e "${YELLOW}4. Linking shared state (.env and data)...${NC}"
 ln -sfn "$SHARED_DIR/.env" "$RELEASE_DIR/.env"
@@ -157,11 +161,20 @@ echo ""
 if [ -f "$RELEASE_DIR/.env" ]; then
   echo -e "${YELLOW}Loading environment from .env...${NC}"
   set -a
+  # shellcheck source=/dev/null  # a runtime file, not part of the repo.
   source "$RELEASE_DIR/.env"
   set +a
   echo -e "${GREEN}✓ Environment loaded${NC}"
   echo ""
 fi
+
+# Deliberately after the .env load: DOCKER_HOST lives there (the filtered
+# socket proxy on 127.0.0.1:2375), and both the container fallback and the
+# post-install import check need it. Never aborts the deploy; a failure is
+# printed in red and repeated by print_deploy_warnings at the end.
+echo -e "${YELLOW}4c. Installing Python sandbox packages for the container's interpreter...${NC}"
+setup_sandbox_python_packages "$RELEASE_DIR"
+echo ""
 
 echo -e "${YELLOW}5. Building application...${NC}"
 npm run build
@@ -220,6 +233,7 @@ echo ""
 
 echo -e "${YELLOW}10. Waiting for /api/health ...${NC}"
 HEALTH_OK=""
+# shellcheck disable=SC2034  # the counter is the point; the body ignores it.
 for attempt in $(seq 1 30); do
   if curl -fsS "http://localhost:$HEALTH_PORT/api/health" >/dev/null 2>&1; then
     HEALTH_OK=1
@@ -247,12 +261,9 @@ echo -e "${GREEN}✓ Health check passed${NC}"
 echo ""
 
 echo -e "${YELLOW}11. Pruning old releases (keeping last $RELEASES_TO_KEEP)...${NC}"
-while IFS= read -r old_release; do
-  echo "  removing $(basename "${old_release%/}")"
-  rm -rf "${old_release%/}"
-done < <(ls -1dt "$RELEASES_DIR"/*/ 2>/dev/null | tail -n +"$((RELEASES_TO_KEEP + 1))")
-echo -e "${GREEN}✓ Retained the last $RELEASES_TO_KEEP releases${NC}"
+prune_old_releases "$RELEASES_DIR" "$RELEASES_TO_KEEP" "$APP_DIR/current" "$RELEASE_DIR"
 echo ""
 
 echo -e "${GREEN}=== Deployment complete! current -> releases/$RELEASE_SHA ===${NC}"
 echo ""
+print_deploy_warnings
