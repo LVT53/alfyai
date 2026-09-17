@@ -159,6 +159,9 @@ describe("evaluateCampaignChecklist", () => {
 				}),
 			).ready,
 		).toBe(true);
+	});
+
+	it("accepts the allow-listed internal action the campaign modal can handle", () => {
 		expect(
 			evaluateCampaignChecklist(
 				campaign({
@@ -171,7 +174,29 @@ describe("evaluateCampaignChecklist", () => {
 					],
 				}),
 			).ready,
-		).toBe(false);
+		).toBe(true);
+	});
+
+	it("rejects internal actions that are not on the allow-list, query string included", () => {
+		for (const actionUrl of [
+			"internal:chatgpt-import?x=1",
+			"internal:anything-else",
+			"internal:",
+		]) {
+			expect(
+				evaluateCampaignChecklist(
+					campaign({
+						slides: [
+							slide({
+								actionUrl,
+								actionLabelEn: "Go",
+								actionLabelHu: "Menj",
+							}),
+						],
+					}),
+				).ready,
+			).toBe(false);
+		}
 	});
 
 	it("accepts only allow-listed action destinations", () => {

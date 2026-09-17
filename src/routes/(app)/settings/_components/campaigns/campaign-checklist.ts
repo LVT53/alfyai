@@ -11,7 +11,19 @@
  *
  * Rule coverage is unchanged from the previous screen — the same conditions
  * block publishing, in the same order — only the reporting is richer.
+ *
+ * The action-destination rule is not mirrored but shared: both sides import
+ * the same list and predicate from `$lib/campaign-action-destinations`, so a
+ * destination the server accepts can never be reported here as a failure that
+ * blocks publishing.
  */
+
+import { isAllowedActionDestination } from "$lib/campaign-action-destinations";
+
+export {
+	ALLOWED_ACTION_DESTINATIONS,
+	isAllowedActionDestination,
+} from "$lib/campaign-action-destinations";
 
 export type ChecklistCampaignType =
 	| "first_run_onboarding"
@@ -106,15 +118,6 @@ export type CampaignChecklist = {
 	ready: boolean;
 };
 
-export const ALLOWED_ACTION_DESTINATIONS = [
-	"/",
-	"/chat",
-	"/knowledge",
-	"/settings",
-	"/settings/profile",
-	"/settings/admin",
-] as const;
-
 export const ALLOWED_SETUP_CONTROLS = [
 	"ui_language",
 	"theme",
@@ -122,7 +125,6 @@ export const ALLOWED_SETUP_CONTROLS = [
 	"ai_style",
 ] as const;
 
-const allowedDestinations = new Set<string>(ALLOWED_ACTION_DESTINATIONS);
 const allowedSetupControls = new Set<string>(ALLOWED_SETUP_CONTROLS);
 
 const VALIDATION = "admin.campaigns.validation";
@@ -133,20 +135,6 @@ function slidePath(slide: ChecklistSlide, index: number): string {
 
 function isBlank(value: string | null | undefined): boolean {
 	return !value?.trim();
-}
-
-/**
- * Mirrors the server's `validateActionDestination`: an allow-listed internal
- * path, optionally carrying a query string. Matching the server exactly
- * matters — a destination it would accept must not be reported here as a
- * failure that blocks publishing.
- */
-export function isAllowedActionDestination(
-	value: string | null | undefined,
-): boolean {
-	if (!value) return true;
-	if (!value.startsWith("/") || value.startsWith("//")) return false;
-	return allowedDestinations.has(value.split("?")[0]);
 }
 
 /**
