@@ -12,7 +12,8 @@ import {
 	verifyPassword,
 } from "$lib/server/services/auth";
 import {
-	checkLoginRateLimit,
+	guardCredentialCheck,
+	type LoginRateLimitBlock,
 	recordLoginFailure,
 	recordLoginSuccess,
 	resolveRateLimitClientAddress,
@@ -27,7 +28,17 @@ type LoginResponseMode = "json" | "redirect";
  */
 const TOO_MANY_ATTEMPTS_KEY = "login.tooManyAttempts";
 const TOO_MANY_ATTEMPTS_MESSAGE =
-	"Too many failed sign-in attempts. Please wait a few minutes and try again.";
+	"Too many failed sign-in attempts. Please wait a moment and try again.";
+
+function tooManyAttempts(block: LoginRateLimitBlock): Response {
+	return json(
+		{ error: TOO_MANY_ATTEMPTS_MESSAGE, errorKey: TOO_MANY_ATTEMPTS_KEY },
+		{
+			status: 429,
+			headers: { "Retry-After": String(block.retryAfterSeconds) },
+		},
+	);
+}
 
 /**
  * A bcrypt comparison against a hash nobody holds the input to, so the
@@ -104,43 +115,46 @@ export const POST: RequestHandler = async ({
 			),
 		};
 
-		// BEFORE the lookup and before any bcrypt work: a throttled attacker
-		// must not be able to make this endpoint burn a password hash on their
-		// behalf, and the answer must not depend on whether the account exists.
-		const block = checkLoginRateLimit(rateLimitKeys);
-		if (block) {
-			return json(
-				{
-					error: TOO_MANY_ATTEMPTS_MESSAGE,
-					errorKey: TOO_MANY_ATTEMPTS_KEY,
-				},
-				{
-					status: 429,
-					headers: { "Retry-After": String(block.retryAfterSeconds) },
-				},
-			);
+		// The whole credential check runs inside the throttle. Under budget that
+		// is a plain call; over budget it waits out an escalating penalty and
+		// lets only one comparison per key run at a time. A correct password is
+		// still accepted while throttled — see the note at the top of
+		// login-rate-limit.ts for why a hard lockout is not an option here.
+		const guarded = await guardCredentialCheck(rateLimitKeys, async () => {
+			const userResult = await db
+				.select()
+				.from(users)
+				.where(eq(users.email, email))
+				.limit(1);
+
+			const found = userResult[0];
+
+			// A bcrypt comparison runs on both paths. Returning early for an
+			// unknown address would answer "does this account exist?" in about
+			// 250ms of timing difference, which is the enumeration leak the
+			// generic error message above is there to prevent.
+			const valid = found
+				? await verifyPassword(password, found.passwordHash)
+				: await burnPasswordComparison(password);
+
+			return { user: found, valid };
+		});
+
+		// Another over-budget attempt on one of these keys is mid-flight. No
+		// comparison happened, so nothing is recorded either.
+		if (guarded.outcome === "refused") {
+			return tooManyAttempts(guarded.block);
 		}
 
-		// Find user by email
-		const userResult = await db
-			.select()
-			.from(users)
-			.where(eq(users.email, email))
-			.limit(1);
-
-		const user = userResult[0];
-
-		// A bcrypt comparison runs on both paths. Returning early for an unknown
-		// address would answer "does this account exist?" in about 250ms of
-		// timing difference, which is the enumeration leak the generic error
-		// message above is there to prevent.
-		const passwordValid = user
-			? await verifyPassword(password, user.passwordHash)
-			: await burnPasswordComparison(password);
+		const { user, valid: passwordValid } = guarded.value;
 
 		if (!user || !passwordValid) {
 			recordLoginFailure(rateLimitKeys);
-			// Return generic error to prevent email enumeration
+			// A wrong answer under a penalty is reported as the throttle it is;
+			// otherwise it stays the generic, enumeration-proof 401.
+			if (guarded.throttled) {
+				return tooManyAttempts(guarded.throttled);
+			}
 			return json({ error: "Invalid email or password" }, { status: 401 });
 		}
 

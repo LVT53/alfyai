@@ -17,6 +17,51 @@
 //     The per-address key is the anti-spray backstop, and it is only applied
 //     when the address is actually trustworthy (see
 //     `resolveRateLimitClientAddress`).
+//
+// THE LOCKOUT QUESTION
+//
+// A limiter keyed on the submitted email is, by construction, a lever anybody
+// can pull against anybody: the addresses are indistinguishable behind Apache,
+// so "eight failures for owner@example.com" is eight failures a stranger can
+// manufacture. If exceeding the budget simply refused the request, a stranger
+// who knows the owner's email address could keep this single-box deployment's
+// only entrance shut indefinitely by failing eight times every quarter hour.
+// There is no second admin, no out-of-band unlock and no password-reset mail
+// here — the recovery procedure would be an ssh session and a service restart.
+// A permanent, unauthenticated denial of service on the login page is a worse
+// bug than the online guessing this module exists to slow down.
+//
+// So exceeding the budget does not refuse the request. It makes the request
+// EXPENSIVE, and it refuses only the ones that turn out to be wrong:
+//
+//   * Under the budget: nothing happens at all. No delay, no bookkeeping.
+//   * Over the budget: the comparison still runs, but only after an escalating
+//     delay (1s, 2s, 4s, capped at 8s), and only ONE such comparison per key
+//     may be in flight at a time. Everything else on that key is refused
+//     immediately, without reaching bcrypt.
+//   * A CORRECT password over the budget succeeds, and clears the budget. The
+//     owner is never locked out; the worst they suffer is one 8-second wait.
+//   * A WRONG password over the budget gets 429 and Retry-After.
+//
+// What that buys, and what it costs, stated plainly:
+//
+//   - Guessing one account is capped at roughly one attempt per 8 seconds no
+//     matter how many connections the attacker opens, because of the
+//     single-flight rule. That is the rate limit; the 429 is only how a wrong
+//     answer is reported.
+//   - It is NOT a lockout, so an attacker with unlimited time still gets
+//     unlimited attempts at ~450/hour. Against the 8+ character passwords this
+//     product requires that is not a threat; against a password the attacker
+//     already has from a breach, no lockout duration would have helped either.
+//   - Admitting a correct password while throttled leaks nothing an attacker
+//     does not already know. 429-vs-401 says only "this key is throttled",
+//     which is true precisely because the attacker made it true, and the decoy
+//     comparison still runs for unknown accounts so neither status nor timing
+//     answers "does this account exist".
+//
+// `guardCredentialCheck` below is the only supported way to run a credential
+// comparison: it owns the delay and the single-flight, so a route cannot get
+// the ordering wrong.
 
 /** One sliding window, shared by every policy below. */
 const WINDOW_MS = 15 * 60_000;
@@ -49,7 +94,24 @@ const MAX_FAILURES_PER_ACCOUNT = 8;
  */
 const MAX_TRACKED_KEYS = 20_000;
 
+/**
+ * The wait before an over-budget comparison, doubling per failure past the
+ * limit and capped. The cap is what keeps this a throttle rather than a
+ * lockout: a person who mistyped nine times and then gets it right waits eight
+ * seconds, not fifteen minutes.
+ */
+const PENALTY_BASE_DELAY_MS = 1_000;
+const PENALTY_MAX_DELAY_MS = 8_000;
+
 const buckets = new Map<string, number[]>();
+
+/**
+ * Keys with an over-budget comparison in flight right now.
+ *
+ * Bounded by concurrency rather than by key space — every entry is removed in
+ * a `finally` — so it needs no eviction of its own.
+ */
+const throttledInFlight = new Set<string>();
 
 export type LoginRateLimitScope = "email" | "address" | "account";
 
@@ -64,7 +126,15 @@ export interface LoginRateLimitKeys {
 
 export interface LoginRateLimitBlock {
 	scope: LoginRateLimitScope;
-	/** Seconds until the oldest counted failure leaves the window. */
+	/** The bucket this penalty came from, for the single-flight bookkeeping. */
+	key: string;
+	/** How long an over-budget comparison waits before it runs. */
+	delayMs: number;
+	/**
+	 * What to put in `Retry-After`. This is the penalty delay, not the rest of
+	 * the window: retrying sooner is genuinely allowed now, and a correct
+	 * password on the next try is genuinely accepted.
+	 */
 	retryAfterSeconds: number;
 }
 
@@ -193,7 +263,7 @@ function pushFailure(key: string, now: number): void {
 	evictIfOverCapacity(now);
 }
 
-function blockFor(
+function penaltyFor(
 	key: string,
 	limit: number,
 	scope: LoginRateLimitScope,
@@ -201,13 +271,19 @@ function blockFor(
 ): LoginRateLimitBlock | null {
 	const recent = recentFailures(key, now);
 	if (recent.length < limit) return null;
-	// The window opens again when the oldest counted failure falls out of it.
-	const oldest = recent[0] ?? now;
-	const retryAfterSeconds = Math.max(
-		1,
-		Math.ceil((oldest + WINDOW_MS - now) / 1000),
+	// Doubles per failure past the limit, capped. `2 ** overBy` overflowing to
+	// Infinity is harmless: Math.min clamps it to the cap like any other value.
+	const overBy = recent.length - limit;
+	const delayMs = Math.min(
+		PENALTY_MAX_DELAY_MS,
+		PENALTY_BASE_DELAY_MS * 2 ** overBy,
 	);
-	return { scope, retryAfterSeconds };
+	return {
+		scope,
+		key,
+		delayMs,
+		retryAfterSeconds: Math.max(1, Math.ceil(delayMs / 1000)),
+	};
 }
 
 function emailKey(email: string): string {
@@ -222,49 +298,139 @@ function accountKey(accountId: string): string {
 	return `account:${accountId}`;
 }
 
+/** Every budget this attempt is currently over, in scope order. */
+function collectPenalties(
+	keys: LoginRateLimitKeys,
+	now: number,
+): LoginRateLimitBlock[] {
+	const penalties: LoginRateLimitBlock[] = [];
+	if (keys.email) {
+		const penalty = penaltyFor(
+			emailKey(keys.email),
+			MAX_FAILURES_PER_EMAIL,
+			"email",
+			now,
+		);
+		if (penalty) penalties.push(penalty);
+	}
+	if (keys.accountId) {
+		const penalty = penaltyFor(
+			accountKey(keys.accountId),
+			MAX_FAILURES_PER_ACCOUNT,
+			"account",
+			now,
+		);
+		if (penalty) penalties.push(penalty);
+	}
+	if (keys.clientAddress) {
+		const penalty = penaltyFor(
+			addressKey(keys.clientAddress),
+			MAX_FAILURES_PER_ADDRESS,
+			"address",
+			now,
+		);
+		if (penalty) penalties.push(penalty);
+	}
+	return penalties;
+}
+
 /**
- * Is this attempt allowed? Returns the blocking scope and a Retry-After, or
- * null when the attempt may proceed.
+ * Is this attempt over any budget, and if so what does it cost? Returns null
+ * when nothing is throttled.
  *
- * Call this BEFORE the password comparison, so a throttled attacker never gets
- * the endpoint to do bcrypt work on their behalf.
+ * Reporting only. It does NOT decide whether the comparison runs — see
+ * {@link guardCredentialCheck}, which is what the routes call.
  */
 export function checkLoginRateLimit(
 	keys: LoginRateLimitKeys,
 	now: number = Date.now(),
 ): LoginRateLimitBlock | null {
 	if (isLoginRateLimitDisabled()) return null;
+	const penalties = collectPenalties(keys, now);
+	if (penalties.length === 0) return null;
+	// The most expensive one: it is the budget actually governing this attempt.
+	return penalties.reduce((worst, candidate) =>
+		candidate.delayMs > worst.delayMs ? candidate : worst,
+	);
+}
 
-	// Email first: it is the specific budget, so it gives the more accurate
-	// Retry-After for the person actually being throttled.
-	if (keys.email) {
-		const block = blockFor(
-			emailKey(keys.email),
-			MAX_FAILURES_PER_EMAIL,
-			"email",
-			now,
-		);
-		if (block) return block;
+function realSleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * The wait used when a caller does not inject one. Overridable so route-level
+ * suites can exercise the throttled paths without spending a real second per
+ * case; production never touches it.
+ */
+let defaultSleep: (ms: number) => Promise<void> = realSleep;
+
+/** Test-only. Pass nothing to restore the real timer. */
+export function _setLoginRateLimitSleepForTests(
+	sleep?: (ms: number) => Promise<void>,
+): void {
+	defaultSleep = sleep ?? realSleep;
+}
+
+export type CredentialCheckOutcome<T> =
+	| {
+			/** The comparison ran. `throttled` is set when it ran under a penalty. */
+			outcome: "checked";
+			value: T;
+			throttled: LoginRateLimitBlock | null;
+	  }
+	| {
+			/**
+			 * The comparison did NOT run: another over-budget attempt on one of
+			 * these keys is already in flight. No bcrypt work was done and no
+			 * failure was recorded, because nothing was tested.
+			 */
+			outcome: "refused";
+			block: LoginRateLimitBlock;
+	  };
+
+/**
+ * Runs `verify` under the throttle described at the top of this file.
+ *
+ * Under budget this is a plain call with no added latency. Over budget it
+ * waits out the penalty and then runs exactly one comparison per key at a
+ * time; concurrent attempts on a throttled key are refused without reaching
+ * `verify`, which is what caps an attacker's guess rate however many
+ * connections they open.
+ *
+ * The caller still owns the verdict: it decides what `verify` returning means,
+ * and calls {@link recordLoginFailure} or {@link recordLoginSuccess}.
+ */
+export async function guardCredentialCheck<T>(
+	keys: LoginRateLimitKeys,
+	verify: () => Promise<T>,
+	options: { now?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<CredentialCheckOutcome<T>> {
+	if (isLoginRateLimitDisabled()) {
+		return { outcome: "checked", value: await verify(), throttled: null };
 	}
-	if (keys.accountId) {
-		const block = blockFor(
-			accountKey(keys.accountId),
-			MAX_FAILURES_PER_ACCOUNT,
-			"account",
-			now,
-		);
-		if (block) return block;
+
+	const now = options.now ?? Date.now();
+	const penalties = collectPenalties(keys, now);
+	if (penalties.length === 0) {
+		return { outcome: "checked", value: await verify(), throttled: null };
 	}
-	if (keys.clientAddress) {
-		const block = blockFor(
-			addressKey(keys.clientAddress),
-			MAX_FAILURES_PER_ADDRESS,
-			"address",
-			now,
-		);
-		if (block) return block;
+
+	const worst = penalties.reduce((current, candidate) =>
+		candidate.delayMs > current.delayMs ? candidate : current,
+	);
+
+	if (penalties.some((penalty) => throttledInFlight.has(penalty.key))) {
+		return { outcome: "refused", block: worst };
 	}
-	return null;
+
+	for (const penalty of penalties) throttledInFlight.add(penalty.key);
+	try {
+		await (options.sleep ?? defaultSleep)(worst.delayMs);
+		return { outcome: "checked", value: await verify(), throttled: worst };
+	} finally {
+		for (const penalty of penalties) throttledInFlight.delete(penalty.key);
+	}
 }
 
 /** Records one failed credential check against every key supplied. */
@@ -297,6 +463,7 @@ export function recordLoginSuccess(
 /** Test-only: the map is otherwise process-lifetime, matching production. */
 export function _resetLoginRateLimitForTests(): void {
 	buckets.clear();
+	throttledInFlight.clear();
 }
 
 /** Test-only: proves the eviction above actually bounds the map. */
@@ -310,4 +477,6 @@ export const LOGIN_RATE_LIMIT_POLICY = {
 	maxFailuresPerAddress: MAX_FAILURES_PER_ADDRESS,
 	maxFailuresPerAccount: MAX_FAILURES_PER_ACCOUNT,
 	maxTrackedKeys: MAX_TRACKED_KEYS,
+	penaltyBaseDelayMs: PENALTY_BASE_DELAY_MS,
+	penaltyMaxDelayMs: PENALTY_MAX_DELAY_MS,
 } as const;

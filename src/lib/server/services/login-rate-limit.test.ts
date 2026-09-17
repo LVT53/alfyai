@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	_loginRateLimitSizeForTests,
 	_resetLoginRateLimitForTests,
 	checkLoginRateLimit,
+	guardCredentialCheck,
 	isLoginRateLimitDisabled,
 	LOGIN_RATE_LIMIT_POLICY,
 	normalizeLoginEmail,
@@ -12,8 +13,14 @@ import {
 } from "./login-rate-limit";
 
 const NOW = 1_800_000_000_000;
-const { windowMs, maxFailuresPerEmail, maxFailuresPerAddress, maxTrackedKeys } =
-	LOGIN_RATE_LIMIT_POLICY;
+const {
+	windowMs,
+	maxFailuresPerEmail,
+	maxFailuresPerAddress,
+	maxTrackedKeys,
+	penaltyBaseDelayMs,
+	penaltyMaxDelayMs,
+} = LOGIN_RATE_LIMIT_POLICY;
 
 function failTimes(
 	count: number,
@@ -54,18 +61,27 @@ describe("per-email budget", () => {
 		).not.toBeNull();
 	});
 
-	it("reports a Retry-After that expires with the oldest counted failure", () => {
+	it("escalates the penalty per failure past the cap, up to the ceiling", () => {
 		failTimes(maxFailuresPerEmail, keys, NOW);
+		expect(checkLoginRateLimit(keys, NOW)?.delayMs).toBe(penaltyBaseDelayMs);
 
-		// Immediately: the full window remains.
-		expect(checkLoginRateLimit(keys, NOW)?.retryAfterSeconds).toBe(
-			windowMs / 1000,
+		recordLoginFailure(keys, NOW);
+		expect(checkLoginRateLimit(keys, NOW)?.delayMs).toBe(
+			penaltyBaseDelayMs * 2,
 		);
-		// Two-thirds of the way through: only the remainder.
-		const later = NOW + (windowMs * 2) / 3;
-		expect(checkLoginRateLimit(keys, later)?.retryAfterSeconds).toBe(
-			Math.ceil(windowMs / 3 / 1000),
-		);
+
+		failTimes(50, keys, NOW);
+		expect(checkLoginRateLimit(keys, NOW)?.delayMs).toBe(penaltyMaxDelayMs);
+	});
+
+	it("reports a Retry-After of the penalty, not the rest of the window", () => {
+		// Retrying sooner is genuinely allowed — the next attempt is throttled,
+		// not refused — so advertising the full 15 minutes would be a lie that
+		// keeps a legitimate person out far longer than the policy requires.
+		failTimes(maxFailuresPerEmail, keys, NOW);
+		const block = checkLoginRateLimit(keys, NOW);
+		expect(block?.retryAfterSeconds).toBe(penaltyBaseDelayMs / 1000);
+		expect(block?.retryAfterSeconds).toBeLessThan(windowMs / 1000);
 	});
 
 	it("slides: the budget frees up as old failures age out", () => {
@@ -93,6 +109,180 @@ describe("per-email budget", () => {
 	it("keeps one account's failures away from another's", () => {
 		failTimes(maxFailuresPerEmail, { email: "ada@example.com" });
 		expect(checkLoginRateLimit({ email: "grace@example.com" }, NOW)).toBeNull();
+	});
+});
+
+describe("guardCredentialCheck", () => {
+	const keys = { email: "ada@example.com" };
+	/** Collapses the penalty wait so the suite does not actually sleep. */
+	const sleep = vi.fn(async () => {});
+
+	beforeEach(() => {
+		sleep.mockClear();
+	});
+
+	it("does not touch an attempt that is under budget", async () => {
+		const verify = vi.fn(async () => "ran");
+		const result = await guardCredentialCheck(keys, verify, {
+			now: NOW,
+			sleep,
+		});
+
+		expect(result).toEqual({
+			outcome: "checked",
+			value: "ran",
+			throttled: null,
+		});
+		expect(sleep).not.toHaveBeenCalled();
+	});
+
+	// THE anti-lockout property. A stranger can put anybody's email over the
+	// budget, so being over the budget must never be the end of the story for
+	// the person who actually knows the password.
+	it("still runs the comparison once the budget is blown", async () => {
+		failTimes(maxFailuresPerEmail * 4, keys, NOW);
+		const verify = vi.fn(async () => "ran");
+
+		const result = await guardCredentialCheck(keys, verify, {
+			now: NOW,
+			sleep,
+		});
+
+		expect(verify).toHaveBeenCalledTimes(1);
+		expect(result.outcome).toBe("checked");
+		expect(result.outcome === "checked" && result.throttled?.scope).toBe(
+			"email",
+		);
+	});
+
+	it("waits out the penalty before comparing", async () => {
+		failTimes(maxFailuresPerEmail, keys, NOW);
+		const order: string[] = [];
+		const trackedSleep = vi.fn(async (ms: number) => {
+			order.push(`slept:${ms}`);
+		});
+
+		await guardCredentialCheck(
+			keys,
+			async () => {
+				order.push("verified");
+				return true;
+			},
+			{ now: NOW, sleep: trackedSleep },
+		);
+
+		expect(order).toEqual([`slept:${penaltyBaseDelayMs}`, "verified"]);
+	});
+
+	// The single-flight rule is what makes this a rate limit rather than a
+	// speed bump: without it an attacker just opens a thousand connections and
+	// pays the delay once.
+	it("refuses a second over-budget attempt on the same key while one is in flight", async () => {
+		failTimes(maxFailuresPerEmail, keys, NOW);
+
+		let release: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const slowVerify = vi.fn(async () => {
+			await gate;
+			return "first";
+		});
+		const secondVerify = vi.fn(async () => "second");
+
+		const first = guardCredentialCheck(keys, slowVerify, { now: NOW, sleep });
+		// Let the first call get past its (stubbed) sleep and into `verify`.
+		await Promise.resolve();
+		await Promise.resolve();
+
+		const second = await guardCredentialCheck(keys, secondVerify, {
+			now: NOW,
+			sleep,
+		});
+
+		expect(second.outcome).toBe("refused");
+		expect(secondVerify).not.toHaveBeenCalled();
+
+		release?.();
+		expect((await first).outcome).toBe("checked");
+
+		// And the lane is free again afterwards.
+		const third = await guardCredentialCheck(keys, secondVerify, {
+			now: NOW,
+			sleep,
+		});
+		expect(third.outcome).toBe("checked");
+	});
+
+	it("does not serialize two different accounts against each other", async () => {
+		failTimes(maxFailuresPerEmail, { email: "ada@example.com" }, NOW);
+		failTimes(maxFailuresPerEmail, { email: "grace@example.com" }, NOW);
+
+		let release: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const first = guardCredentialCheck(
+			{ email: "ada@example.com" },
+			async () => {
+				await gate;
+				return "ada";
+			},
+			{ now: NOW, sleep },
+		);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		const second = await guardCredentialCheck(
+			{ email: "grace@example.com" },
+			async () => "grace",
+			{ now: NOW, sleep },
+		);
+
+		expect(second.outcome).toBe("checked");
+		release?.();
+		await first;
+	});
+
+	it("frees the in-flight lane even when the comparison throws", async () => {
+		failTimes(maxFailuresPerEmail, keys, NOW);
+
+		await expect(
+			guardCredentialCheck(
+				keys,
+				async () => {
+					throw new Error("bcrypt exploded");
+				},
+				{ now: NOW, sleep },
+			),
+		).rejects.toThrow("bcrypt exploded");
+
+		const after = await guardCredentialCheck(keys, async () => "ok", {
+			now: NOW,
+			sleep,
+		});
+		expect(after.outcome).toBe("checked");
+	});
+
+	it("is a straight passthrough under PLAYWRIGHT_TEST", async () => {
+		const previous = process.env.PLAYWRIGHT_TEST;
+		process.env.PLAYWRIGHT_TEST = "1";
+		try {
+			failTimes(maxFailuresPerEmail * 4, keys, NOW);
+			const result = await guardCredentialCheck(keys, async () => "ran", {
+				now: NOW,
+				sleep,
+			});
+			expect(result).toEqual({
+				outcome: "checked",
+				value: "ran",
+				throttled: null,
+			});
+			expect(sleep).not.toHaveBeenCalled();
+		} finally {
+			if (previous === undefined) delete process.env.PLAYWRIGHT_TEST;
+			else process.env.PLAYWRIGHT_TEST = previous;
+		}
 	});
 });
 

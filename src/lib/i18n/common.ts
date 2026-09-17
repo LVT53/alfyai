@@ -148,7 +148,7 @@ const commonDict = {
 		"login.showPassword": "Show password",
 		"login.signIn": "Sign in",
 		"login.tooManyAttempts":
-			"Too many failed sign-in attempts. Please wait a few minutes and try again.",
+			"Too many failed sign-in attempts. Please wait a moment and try again.",
 		"login.signingIn": "Signing in...",
 		"login.unexpectedError": "An unexpected error occurred.",
 		"login.welcomeBack": "Welcome back. Sign in to continue.",
@@ -434,7 +434,7 @@ const commonDict = {
 		"login.showPassword": "Jelszó megjelenítése",
 		"login.signIn": "Bejelentkezés",
 		"login.tooManyAttempts":
-			"Túl sok sikertelen bejelentkezési kísérlet. Várj néhány percet, majd próbáld újra.",
+			"Túl sok sikertelen bejelentkezési kísérlet. Várj egy pillanatot, majd próbáld újra.",
 		"login.signingIn": "Bejelentkezés...",
 		"login.unexpectedError": "Váratlan hiba történt.",
 		"login.welcomeBack": "Üdv újra. Jelentkezz be a folytatáshoz.",

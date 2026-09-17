@@ -322,13 +322,46 @@ Failed credential checks are counted in a 15-minute sliding window, per process
 (`src/lib/server/services/login-rate-limit.ts`). Successful logins are not counted and clear the
 email budget, so ordinary use and the Playwright suite are unaffected.
 
-| Budget | Cap per 15 min | Cleared by a success? |
+| Budget | Failures per 15 min before the penalty starts | Cleared by a success? |
 |---|---:|---|
 | Per email address (`POST /api/auth/login`) | 8 | Yes |
 | Per client address (`POST /api/auth/login`) | 30 | No — otherwise one correct guess resets an attacker's spray counter |
 | Per account (`PATCH /api/settings/password`, wrong current password) | 8 | Yes |
 
-A throttled request gets `429` with a `Retry-After` header and an `errorKey` of
-`login.tooManyAttempts`, which the login page renders localized. The limiter check runs before the
-password comparison, so a throttled caller cannot make the server burn bcrypt work on their behalf.
-It is disabled entirely when `PLAYWRIGHT_TEST` is set.
+#### Exceeding a budget does not lock the account
+
+This is the part worth understanding before judging the caps above as weak.
+
+Behind Apache every request arrives from the same loopback address, so the per-email budget is a
+lever **anyone can pull against anyone**: a stranger who knows an address can manufacture eight
+failures for it. If going over the budget simply refused the request, that stranger could keep this
+deployment's only entrance shut indefinitely — there is no second admin account, no password-reset
+mail and no out-of-band unlock here, so the recovery procedure would be an ssh session and a service
+restart. A permanent, unauthenticated denial of service on the login page is a worse outcome than
+the online guessing the throttle exists to slow.
+
+So going over a budget makes an attempt **expensive**, and refuses only the ones that turn out to be
+wrong:
+
+- Under the budget, nothing happens: no delay, no bookkeeping.
+- Over the budget, the comparison still runs, but only after an escalating delay — 1s, 2s, 4s,
+  capped at 8s — and only **one** such comparison per key may be in flight at a time. Concurrent
+  attempts on that key are refused immediately, without reaching bcrypt.
+- A **correct** password over the budget succeeds and clears the budget. The legitimate owner is
+  never locked out; the worst they suffer is one 8-second wait.
+- A **wrong** password over the budget gets `429` with a `Retry-After` of the delay (not the rest of
+  the window — retrying sooner really is allowed) and an `errorKey` of `login.tooManyAttempts`,
+  which the login page renders localized.
+
+What that buys: guessing one account is capped at roughly one attempt per 8 seconds however many
+connections the attacker opens, because of the single-flight rule. What it does not buy: this is a
+throttle, not a lockout, so an attacker with unlimited time still gets unlimited attempts at about
+450/hour. Against the 8-character minimum this product enforces that is not a threat, and against a
+password already leaked in a breach no lockout duration would have helped either.
+
+Admitting a correct password while throttled leaks nothing. `429` vs `401` says only "this key is
+throttled", which is true precisely because the attacker made it true, and the decoy bcrypt
+comparison still runs for addresses with no account, so neither the status nor the timing answers
+"does this account exist".
+
+The whole throttle is disabled when `PLAYWRIGHT_TEST` is set.

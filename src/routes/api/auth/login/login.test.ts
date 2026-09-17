@@ -28,6 +28,7 @@ import {
 } from "$lib/server/services/auth";
 import {
 	_resetLoginRateLimitForTests,
+	_setLoginRateLimitSleepForTests,
 	LOGIN_RATE_LIMIT_POLICY,
 } from "$lib/server/services/login-rate-limit";
 import { POST } from "./+server";
@@ -92,6 +93,10 @@ describe("POST /api/auth/login", () => {
 		// The limiter's buckets are process-lifetime, so without this the
 		// deliberate failures in one case would count against the next.
 		_resetLoginRateLimitForTests();
+		// The over-budget paths below would otherwise spend a real second each
+		// waiting out the penalty delay. The delay's own behaviour is covered
+		// in src/lib/server/services/login-rate-limit.test.ts.
+		_setLoginRateLimitSleepForTests(async () => {});
 	});
 
 	it("returns 200 with user object when credentials are valid", async () => {
@@ -374,17 +379,63 @@ describe("POST /api/auth/login", () => {
 			);
 		});
 
-		it("throttles before doing any bcrypt work", async () => {
+		// The account-lockout question, at the route level. Anybody can put
+		// anybody's email over the budget from anywhere, so if being over the
+		// budget refused the request outright, a stranger who knows the owner's
+		// address could keep this deployment's only door shut indefinitely.
+		it("still lets the CORRECT password through once the budget is blown", async () => {
+			arrangeWrongPassword();
+			const cap = LOGIN_RATE_LIMIT_POLICY.maxFailuresPerEmail;
+			for (let attempt = 0; attempt < cap * 2; attempt += 1) await failLogin();
+
+			arrangeCorrectPassword();
+			const response = await POST(
+				makeEvent({ email: "alice@example.com", password: "correct" }),
+			);
+
+			expect(response.status).toBe(200);
+
+			// And getting in clears the budget, so the next mistake is an
+			// ordinary 401 again.
+			arrangeWrongPassword();
+			expect((await failLogin()).status).toBe(401);
+		});
+
+		it("refuses a concurrent over-budget attempt without burning a hash", async () => {
 			arrangeWrongPassword();
 			const cap = LOGIN_RATE_LIMIT_POLICY.maxFailuresPerEmail;
 			for (let attempt = 0; attempt < cap; attempt += 1) await failLogin();
 
-			mockVerifyPassword.mockClear();
-			expect((await failLogin()).status).toBe(429);
+			// Hold the first over-budget comparison open, then fire a second.
+			let release: (() => void) | undefined;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			let markEntered: (() => void) | undefined;
+			const entered = new Promise<void>((resolve) => {
+				markEntered = resolve;
+			});
+			mockVerifyPassword.mockImplementation(async () => {
+				markEntered?.();
+				await gate;
+				return false;
+			});
 
-			// The whole point of checking the limiter first: a throttled attacker
-			// must not be able to make the server burn a password hash for them.
-			expect(mockVerifyPassword).not.toHaveBeenCalled();
+			const first = failLogin();
+			// Deterministic: the first request is now provably inside bcrypt and
+			// holding the key's single in-flight slot.
+			await entered;
+			const comparisonsBefore = mockVerifyPassword.mock.calls.length;
+
+			const second = await failLogin();
+
+			// This is what caps an attacker's guess rate however many
+			// connections they open: the second attempt never reaches bcrypt.
+			expect(second.status).toBe(429);
+			expect(mockVerifyPassword.mock.calls.length).toBe(comparisonsBefore);
+
+			release?.();
+			expect((await first).status).toBe(429);
 		});
 
 		it("does not count successful logins", async () => {

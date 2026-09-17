@@ -6,11 +6,24 @@ import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
 import { verifyPassword } from "$lib/server/services/auth";
 import {
-	checkLoginRateLimit,
+	guardCredentialCheck,
 	recordLoginFailure,
 	recordLoginSuccess,
 } from "$lib/server/services/login-rate-limit";
 import type { RequestHandler } from "./$types";
+
+function tooManyAttempts(retryAfterSeconds: number): Response {
+	return json(
+		{
+			error: "Too many failed attempts. Please wait a moment and try again.",
+			errorKey: "login.tooManyAttempts",
+		},
+		{
+			status: 429,
+			headers: { "Retry-After": String(retryAfterSeconds) },
+		},
+	);
+}
 
 export const PATCH: RequestHandler = async (event) => {
 	requireAuth(event);
@@ -46,29 +59,34 @@ export const PATCH: RequestHandler = async (event) => {
 	// threat is a hijacked session brute-forcing the current password in order
 	// to change it — not an anonymous guesser.
 	const rateLimitKeys = { accountId: userId };
-	const block = checkLoginRateLimit(rateLimitKeys);
-	if (block) {
-		return json(
-			{
-				error:
-					"Too many failed attempts. Please wait a few minutes and try again.",
-				errorKey: "login.tooManyAttempts",
-			},
-			{
-				status: 429,
-				headers: { "Retry-After": String(block.retryAfterSeconds) },
-			},
-		);
+
+	// Bound to a const before the closure: `body` is a `let`, so TypeScript
+	// discards the narrowing above inside a callback.
+	const currentPassword = body.currentPassword;
+
+	const guarded = await guardCredentialCheck(rateLimitKeys, async () => {
+		const [found] = await db.select().from(users).where(eq(users.id, userId));
+		if (!found) return { user: null, valid: false };
+		return {
+			user: found,
+			valid: await verifyPassword(currentPassword, found.passwordHash),
+		};
+	});
+
+	if (guarded.outcome === "refused") {
+		return tooManyAttempts(guarded.block.retryAfterSeconds);
 	}
 
-	const [user] = await db.select().from(users).where(eq(users.id, userId));
+	const { user, valid } = guarded.value;
 	if (!user) {
 		return json({ error: "User not found" }, { status: 404 });
 	}
 
-	const valid = await verifyPassword(body.currentPassword, user.passwordHash);
 	if (!valid) {
 		recordLoginFailure(rateLimitKeys);
+		if (guarded.throttled) {
+			return tooManyAttempts(guarded.throttled.retryAfterSeconds);
+		}
 		return json({ error: "Current password is incorrect" }, { status: 401 });
 	}
 
