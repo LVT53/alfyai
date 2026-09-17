@@ -27,7 +27,8 @@ over with a single atomic symlink flip (see "Release layout" below). In order:
    `npm install` if the committed lockfile has drifted).
 4. Symlink `shared/.env` and `shared/data` into `releases/<sha>/`.
 5. `npm run build` inside `releases/<sha>/`.
-6. `npm run check:migrations && npm run db:prepare`, after the build, immediately before cutover.
+6. `npm run check:migrations`, then **back up the database** (see "Database backups" below), then
+   `npm run db:prepare` — after the build, immediately before cutover.
 7. Atomically flip the `current` symlink to `releases/<sha>/` (`ln -sfn` + `mv -Tf`).
 8. Restart the systemd service and poll `/api/health`; on failure, roll back to the previous
    release and exit non-zero.
@@ -55,6 +56,68 @@ and are not read by the app (app runtime variables are in
 | `SERVICE_NAME` | `langflow-chat.service` (`langflow-chat-dev.service` in `deploy-dev.sh`) | systemd unit restarted after cutover and polled for rollback. |
 | `HEALTH_PORT` | `3001` (`3002` in `deploy-dev.sh`) | Port polled at `/api/health` after cutover to decide rollback. Set it if the app listens on a non-default port. |
 | `RELEASES_TO_KEEP` | `3` | How many `releases/<sha>/` directories are retained after a successful deploy. Older releases are deleted, not archived. |
+| `DB_BACKUP_KEEP` | `7` | How many database backups are retained in `shared/backups/`. The backup taken by the current deploy is never pruned, whatever the ordering says. |
+| `DB_BACKUP_REQUIRED` | `1` | When `1`, a failed database backup **aborts the deploy before any migration runs**. Set to `0` to deploy anyway with an unprotected database. |
+| `DB_BACKUP_TIMEOUT` | `600` | Wall-clock ceiling (seconds) for the backup copy and for the integrity check, so a stalled filesystem cannot hang a deploy. |
+
+### Database backups
+
+`db:prepare` runs the full Drizzle migration set against the live SQLite file (`shared/data/chat.db`,
+WAL mode, ~140 MB in production). There are 110 migrations, 9 of them destructive. Every deploy now
+takes a verified copy first, in step 6, before the cutover.
+
+**How the backup is taken**, in order of preference — each step is a fallback for a host that cannot
+do the previous one:
+
+1. `sqlite3 "$DB" ".backup '$DEST'"` — SQLite's online backup API. The only strategy that is
+   guaranteed consistent while the currently-live release is still writing to the database.
+2. better-sqlite3's `.backup()` from the release's own `node_modules`. Same API, no `sqlite3` package
+   needed. This is what a minimal Debian host without the `sqlite3` CLI will use.
+3. A plain `cp` of the database plus its `-wal` and `-shm` sidecars. **Not** an atomic snapshot — it
+   prints a loud warning telling you to install the `sqlite3` package.
+
+Every backup is then verified (`PRAGMA integrity_check` where the CLI is available, otherwise a
+non-empty-file check) and deleted again if it does not pass.
+
+**Where they go:** `shared/backups/chat-<UTC timestamp>-<release sha>.db`, directory mode `700`, file
+mode `600`. These files contain every conversation and every encrypted credential in the product —
+treat them exactly like the database itself. The newest `DB_BACKUP_KEEP` (default 7) are retained.
+
+**If the backup fails, the deploy stops.** This is the only step allowed to do that, and the only
+point in the flow where it is safe: nothing has been migrated and the `current` symlink has not been
+flipped, so the running service carries on serving the previous release against an untouched
+database. Fix the cause (disk space, permissions on `shared/backups`) and re-run. To deploy anyway,
+knowingly unprotected:
+
+```bash
+DB_BACKUP_REQUIRED=0 ./scripts/deploy.sh
+```
+
+On a first install, where the database does not exist yet, the step is skipped quietly.
+
+#### Restoring
+
+The deploy prints the exact restore command in its success line. The shape is:
+
+```bash
+# 1. Stop the app so nothing is writing to the database.
+sudo systemctl stop langflow-chat.service
+
+# 2. Put the backup in place and drop the stale WAL sidecars, which belong to
+#    the database you are replacing, not to the backup.
+cp -p /path/to/app/shared/backups/chat-<timestamp>-<sha>.db /path/to/app/shared/data/chat.db
+rm -f /path/to/app/shared/data/chat.db-wal /path/to/app/shared/data/chat.db-shm
+
+# 3. Confirm the restored file is sound before starting anything.
+sqlite3 /path/to/app/shared/data/chat.db "PRAGMA integrity_check;"   # expect: ok
+
+# 4. Start again.
+sudo systemctl start langflow-chat.service
+```
+
+If the restore is a rollback from a bad migration, re-point `current` at the previous release
+(see "Release layout") **before** starting the service — an old database under new code is exactly
+the state the backup exists to avoid being stuck in.
 
 ### Obtaining the deploy script itself
 
@@ -79,7 +142,8 @@ The app root keeps its `.git` precisely so it can (a) hand the deploy script the
 <app root>/
 ├── shared/
 │   ├── .env                   # config/secrets — durable, never per-release
-│   └── data/                  # the SQLite DB + uploaded files — durable, never per-release
+│   ├── data/                  # the SQLite DB + uploaded files — durable, never per-release
+│   └── backups/               # pre-migration DB backups, mode 700/600 (see "Database backups")
 ├── releases/
 │   ├── <sha-N-1>/              # immutable; data & .env are symlinks into ../../shared
 │   └── <sha-N>/
