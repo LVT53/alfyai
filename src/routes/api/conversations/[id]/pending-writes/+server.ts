@@ -1,6 +1,9 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
-import { listPendingWritesForConversation } from "$lib/server/services/connections/pending-writes";
+import {
+	isPendingWriteExpired,
+	listPendingWritesForConversation,
+} from "$lib/server/services/connections/pending-writes";
 import { getConversation } from "$lib/server/services/conversations";
 import type { RequestHandler } from "./$types";
 
@@ -38,7 +41,16 @@ export const GET: RequestHandler = async (event) => {
 			id: record.id,
 			assistantMessageId: record.assistantMessageId,
 			conversationId: record.conversationId,
-			status: record.status,
+			// A row past its TTL is still stored as "pending" — nothing sweeps
+			// the table, the status only moves when a confirm walks into it.
+			// Reported as-is, the card would offer Confirm and Cancel buttons
+			// the server is guaranteed to refuse. Project the state the confirm
+			// chokepoint would give it, using that same predicate, so a reload
+			// shows "expired" immediately instead of after a pointless click.
+			status:
+				record.status === "pending" && isPendingWriteExpired(record.expiresAt)
+					? "expired"
+					: record.status,
 			preview: record.preview,
 			provider: record.provider,
 			createdAt: record.createdAt * 1000,

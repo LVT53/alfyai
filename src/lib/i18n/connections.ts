@@ -236,6 +236,12 @@ const connectionsDict = {
 			"Cancelled — this was not saved.",
 		"connections.writeConfirm.status.failed":
 			"This write failed and was not applied.",
+		// Deliberately NOT phrased as a failure: nothing was attempted and
+		// nothing went wrong, the proposal just went stale. The second
+		// sentence is the whole point of the line — it names the one move
+		// left, which is to ask again.
+		"connections.writeConfirm.status.expired":
+			"This request expired. Ask again to redo it.",
 		"connections.writeConfirm.confirmError": "Failed to confirm the write.",
 		"connections.writeConfirm.cancelError": "Failed to cancel the write.",
 
@@ -763,6 +769,8 @@ const connectionsDict = {
 			"Megszakítva — ez nem lett elmentve.",
 		"connections.writeConfirm.status.failed":
 			"Ez az írás nem sikerült, és nem lett alkalmazva.",
+		"connections.writeConfirm.status.expired":
+			"Ez a kérés lejárt. Kérd újra, ha még kell.",
 		"connections.writeConfirm.confirmError":
 			"Nem sikerült jóváhagyni az írást.",
 		"connections.writeConfirm.cancelError":

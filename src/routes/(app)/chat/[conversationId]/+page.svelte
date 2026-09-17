@@ -1971,10 +1971,20 @@ async function handleConfirmWrite(writeId: string) {
 	try {
 		await confirmWriteRequest(writeId);
 		setWriteActionState(writeId, { busy: false, error: null });
-	} catch {
+	} catch (error) {
+		// A 409 "expired" is not an error the user can do anything about, and
+		// it is not a failure either: the proposal simply went stale, and the
+		// refresh below is about to repaint the card into its expired state,
+		// which already says so and names the move ("ask again"). Laying a red
+		// "Failed to confirm the write." over that would be the third piece of
+		// chrome telling the same story, in the wrong register.
+		const expired =
+			error instanceof ApiError &&
+			error.status === 409 &&
+			error.message === "expired";
 		setWriteActionState(writeId, {
 			busy: false,
-			error: get(t)("connections.writeConfirm.confirmError"),
+			error: expired ? null : get(t)("connections.writeConfirm.confirmError"),
 		});
 	} finally {
 		await refreshPendingWrites();

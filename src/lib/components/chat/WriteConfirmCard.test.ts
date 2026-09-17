@@ -274,3 +274,103 @@ describe("WriteConfirmCard on the dialog chassis", () => {
 		expect(queryByTestId("write-confirm-sheet")).toBeNull();
 	});
 });
+
+// ── The expired state ────────────────────────────────────────────────
+// A proposal has a 30-minute TTL. Past it the server refuses the confirm,
+// but the card had no label for that status at all: it fell through to an
+// empty status line while still offering Confirm and Cancel, so the user
+// got a live-looking card whose buttons could only ever produce an error.
+describe("WriteConfirmCard when the write has expired", () => {
+	beforeEach(() => {
+		uiLanguage.set("en");
+		vi.unstubAllGlobals();
+	});
+
+	function setViewportWidth(width: number) {
+		vi.stubGlobal("innerWidth", width);
+	}
+
+	it("says the request expired and how to get it back", () => {
+		render(WriteConfirmCard, { write: makeWrite({ status: "expired" }) });
+
+		expect(
+			screen.getByText("This request expired. Ask again to redo it."),
+		).toBeInTheDocument();
+	});
+
+	it("keeps the summary of what was proposed", () => {
+		// The point of coming back to an expired card is to see what it was
+		// going to do, so the title, the detail and the warnings all stay.
+		render(WriteConfirmCard, {
+			write: makeWrite({
+				status: "expired",
+				preview: {
+					title: "Delete 3 photos from Immich",
+					detail: "photos.delete — IMG_2291, IMG_2292, IMG_2294",
+					reversible: false,
+					destructive: true,
+					withinAllowlist: true,
+					warnings: ["Immich has no trash on this server."],
+				},
+			}),
+		});
+
+		expect(screen.getByText("Delete 3 photos from Immich")).toBeInTheDocument();
+		expect(
+			screen.getByText("photos.delete — IMG_2291, IMG_2292, IMG_2294"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("Immich has no trash on this server."),
+		).toBeInTheDocument();
+	});
+
+	it("shows both decisions, disabled, and fires neither", async () => {
+		const onConfirm = vi.fn();
+		const onCancel = vi.fn();
+		const { getByTestId } = render(WriteConfirmCard, {
+			write: makeWrite({ status: "expired" }),
+			onConfirm,
+			onCancel,
+		});
+
+		const approve = getByTestId("write-confirm-approve");
+		const decline = getByTestId("write-confirm-decline");
+		expect(approve).toBeDisabled();
+		expect(decline).toBeDisabled();
+
+		await fireEvent.click(approve);
+		await fireEvent.click(decline);
+		expect(onConfirm).not.toHaveBeenCalled();
+		expect(onCancel).not.toHaveBeenCalled();
+	});
+
+	it("never raises an expired write as a phone sheet", () => {
+		// A sheet is a demand for a decision. There is no decision left.
+		setViewportWidth(390);
+		const { queryByTestId, getByRole } = render(WriteConfirmCard, {
+			write: makeWrite({ status: "expired" }),
+		});
+
+		expect(queryByTestId("write-confirm-sheet")).toBeNull();
+		expect(
+			getByRole("article", { name: "Pending write: Save note.txt to /AlfyAI" }),
+		).toBeInTheDocument();
+	});
+
+	it("does not promise a confirmation ref that will never arrive", () => {
+		render(WriteConfirmCard, { write: makeWrite({ status: "expired" }) });
+
+		expect(
+			screen.queryByText("Confirmation ref appears here once it is written."),
+		).toBeNull();
+	});
+
+	it("says it in Hungarian too", () => {
+		uiLanguage.set("hu");
+		render(WriteConfirmCard, { write: makeWrite({ status: "expired" }) });
+
+		expect(
+			screen.getByText("Ez a kérés lejárt. Kérd újra, ha még kell."),
+		).toBeInTheDocument();
+	});
+});

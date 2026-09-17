@@ -729,18 +729,22 @@ describe("pending-write TTL / expiry (Fix 1)", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 
 		// Terminal — never left "pending" or "executing" so it can't be
-		// silently retried once expired.
+		// silently retried once expired. The status is "expired" and NOT
+		// "failed": the card reads this straight off the row, and "failed"
+		// there told the user their write had been attempted and gone wrong
+		// when in fact nothing was attempted at all.
 		const after = await getPendingWrite("user-1", created.id);
-		expect(after?.status).not.toBe("pending");
-		expect(after?.status).not.toBe("executing");
+		expect(after?.status).toBe("expired");
 
 		// A second confirm attempt is refused outright too, not re-evaluated
-		// as "expired" again from a terminal state.
+		// as "expired" again from a terminal state — but it still answers
+		// "expired", so a client that clicks a card it has not refreshed lands
+		// on the same state rather than a different, vaguer refusal.
 		const retryFetchMock = vi.fn();
 		const retry = await confirmPendingWrite("user-1", created.id, {
 			fetch: retryFetchMock as unknown as typeof fetch,
 		});
-		expect(retry.ok).toBe(false);
+		expect(retry).toEqual({ ok: false, status: 409, reason: "expired" });
 		expect(retryFetchMock).not.toHaveBeenCalled();
 	});
 
