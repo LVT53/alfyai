@@ -225,6 +225,28 @@ export function resolveRateLimitClientAddress(
 	return isNonRoutableAddress(trimmed) ? null : trimmed;
 }
 
+/**
+ * Reads the client address without letting the adapter take the request down.
+ *
+ * adapter-node THROWS from `getClientAddress()` when `ADDRESS_HEADER` is
+ * configured and the request arrived without that header — which is every
+ * request that did not come through the reverse proxy: a health probe, a
+ * script on the box, the verify harness. Those callers are local and trusted,
+ * and an unknown address only means the per-address budget is skipped (the
+ * per-email budget still applies), so a missing header degrades to `null`
+ * instead of turning a login into a 500.
+ */
+export function readClientAddressSafely(
+	getClientAddress: (() => string) | undefined,
+): string | null {
+	if (!getClientAddress) return null;
+	try {
+		return getClientAddress() ?? null;
+	} catch {
+		return null;
+	}
+}
+
 function windowStartFrom(now: number): number {
 	return now - WINDOW_MS;
 }

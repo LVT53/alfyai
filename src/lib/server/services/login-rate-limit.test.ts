@@ -7,6 +7,7 @@ import {
 	isLoginRateLimitDisabled,
 	LOGIN_RATE_LIMIT_POLICY,
 	normalizeLoginEmail,
+	readClientAddressSafely,
 	recordLoginFailure,
 	recordLoginSuccess,
 	resolveRateLimitClientAddress,
@@ -428,5 +429,25 @@ describe("isLoginRateLimitDisabled", () => {
 		expect(isLoginRateLimitDisabled({})).toBe(false);
 		expect(isLoginRateLimitDisabled({ PLAYWRIGHT_TEST: "0" })).toBe(false);
 		expect(isLoginRateLimitDisabled({ PLAYWRIGHT_TEST: "" })).toBe(false);
+	});
+});
+
+describe("readClientAddressSafely", () => {
+	it("returns the address the adapter reports", () => {
+		expect(readClientAddressSafely(() => "203.0.113.9")).toBe("203.0.113.9");
+	});
+
+	it("degrades to null when the adapter throws for a missing ADDRESS_HEADER", () => {
+		expect(
+			readClientAddressSafely(() => {
+				throw new Error(
+					"Address header was specified with ADDRESS_HEADER=x-forwarded-for but is absent from request",
+				);
+			}),
+		).toBeNull();
+	});
+
+	it("returns null when the event carries no reader at all", () => {
+		expect(readClientAddressSafely(undefined)).toBeNull();
 	});
 });

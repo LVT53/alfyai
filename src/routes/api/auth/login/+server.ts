@@ -14,6 +14,7 @@ import {
 import {
 	guardCredentialCheck,
 	type LoginRateLimitBlock,
+	readClientAddressSafely,
 	recordLoginFailure,
 	recordLoginSuccess,
 	resolveRateLimitClientAddress,
@@ -111,7 +112,7 @@ export const POST: RequestHandler = async ({
 		const rateLimitKeys = {
 			email,
 			clientAddress: resolveRateLimitClientAddress(
-				getClientAddress?.() ?? null,
+				readClientAddressSafely(getClientAddress),
 			),
 		};
 
