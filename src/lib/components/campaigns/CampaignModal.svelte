@@ -7,6 +7,11 @@ import {
 	isAllowedActionDestination,
 } from "$lib/campaign-action-destinations";
 import {
+	deregisterDialog,
+	isTopmostDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
+import {
 	getPersonalityProfileDisplayDescription,
 	getPersonalityProfileDisplayName,
 	type PersonalityProfileLabelSource,
@@ -81,6 +86,7 @@ let localSlideIndex = $state(0);
 let dialogRef = $state<HTMLElement | null>(null);
 let initialFocusRef = $state<HTMLButtonElement | null>(null);
 let previousFocus: HTMLElement | null = null;
+const dialogId = Symbol("campaign-modal");
 
 $effect(() => {
 	localSlideIndex = slideIndex;
@@ -324,6 +330,12 @@ function restoreFocus() {
 
 function handleKeydown(event: KeyboardEvent) {
 	if (inline) return;
+	// A slide's internal action opens a dialog of its own on top of this one
+	// (the ChatGPT import modal). This modal is not a DialogShell, but it joins
+	// the same open-dialog stack, so Escape and the Tab trap belong to whichever
+	// layer is on top. Without this gate an Escape meant for the dialog above
+	// would also skip the campaign underneath it.
+	if (!isTopmostDialog(dialogId)) return;
 	if (event.key === "Escape") {
 		event.preventDefault();
 		closeAsSkip();
@@ -353,12 +365,14 @@ function handleKeydown(event: KeyboardEvent) {
 onMount(() => {
 	if (inline) return;
 	previousFocus = document.activeElement as HTMLElement | null;
+	registerDialog(dialogId);
 	setTimeout(() => {
 		(initialFocusRef ?? focusableElements()[0])?.focus();
 	}, 0);
 });
 
 onDestroy(() => {
+	deregisterDialog(dialogId);
 	restoreFocus();
 });
 </script>

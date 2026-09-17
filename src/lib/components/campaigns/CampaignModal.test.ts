@@ -2,6 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Campaign } from "$lib/client/api/campaigns";
+import {
+	deregisterDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
 import CampaignModal from "./CampaignModal.svelte";
 
 const campaign: Campaign = {
@@ -314,6 +318,24 @@ describe("CampaignModal", () => {
 			expect(onInternalAction).not.toHaveBeenCalled();
 			unmount();
 		}
+	});
+
+	it("leaves Escape to a dialog opened on top of it", async () => {
+		const onSkip = vi.fn();
+		render(CampaignModal, {
+			props: { campaign, locale: "en", onSkip },
+		});
+
+		// The ChatGPT import modal a campaign's internal action opens is a
+		// DialogShell, which registers on the shared open-dialog stack.
+		const topmost = Symbol("dialog-on-top");
+		registerDialog(topmost);
+		await userEvent.keyboard("{Escape}");
+		expect(onSkip).not.toHaveBeenCalled();
+
+		deregisterDialog(topmost);
+		await userEvent.keyboard("{Escape}");
+		expect(onSkip).toHaveBeenCalledTimes(1);
 	});
 
 	it("keeps an allow-listed path, query string included, as the link target", () => {
