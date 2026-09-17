@@ -751,11 +751,21 @@ export function finalizeStreamingMessageList(
 				// suggestions the same way thoughtSteps does, so the action row's
 				// chips populate in the same session without a reload.
 				followUps: params.metadata?.followUps ?? message.followUps,
-				// The user's own choices for this turn — the server's record when
-				// the terminal frame carries one, else what the optimistic
-				// placeholder was stamped with at send (a stopped or frame-less
-				// finalize keeps that).
-				userIntent: params.metadata?.userIntent ?? message.userIntent,
+				// The user's own choices for this turn. A terminal frame that names
+				// the persisted assistant message is the server's COMPLETE
+				// statement about them (the frame omits the record entirely when
+				// there is nothing to say — stream-completion.ts), so it replaces
+				// the optimistic stamp outright rather than merging with it.
+				// Without that, a regenerate whose recorded skill no longer
+				// resolves — dropped server side so the turn still runs, see
+				// services/chat-turn/retry.ts — would keep the chip it inherited
+				// from the message it replaced and claim a skill that was never
+				// applied. Only a frame-less finalize (a dropped or undelivered
+				// terminal frame) falls back to what the placeholder was stamped
+				// with at send.
+				userIntent: serverAssistantId
+					? params.metadata?.userIntent
+					: (params.metadata?.userIntent ?? message.userIntent),
 			};
 		}
 
