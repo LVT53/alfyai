@@ -472,6 +472,120 @@ describe("file production service", () => {
 		expect(wakeWorker).not.toHaveBeenCalled();
 	});
 
+	// The program-mode output type used to default to a `"file"` sentinel that
+	// nothing downstream can map to an extension, so the job queued, the Docker
+	// sandbox ran the model's program to completion, and only THEN did
+	// `validateProgramOutputContract` reject it with
+	// `unsupported_program_output_type`. Intake now refuses the same request
+	// before a container is ever created.
+	it("rejects program intake that names no output type, before any work is queued", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-no-output-type",
+				requestTitle: "Untyped workbook",
+				sourceMode: "program",
+				program: {
+					language: "python",
+					sourceCode:
+						"from openpyxl import Workbook\nWorkbook().save('/output/out')",
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:26.500Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			status: 422,
+			code: "missing_program_output_type",
+			error:
+				"outputType is required for program mode, e.g. xlsx, docx, pptx, pdf, csv, zip",
+			job: {
+				conversationId: "conv-1",
+				title: "Untyped workbook",
+				status: "failed",
+				error: { code: "missing_program_output_type", retryable: false },
+			},
+		});
+		expect(wakeWorker).not.toHaveBeenCalled();
+	});
+
+	it("rejects an unsupported program output type at intake rather than after the run", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-unknown-output-type",
+				requestTitle: "Sentinel workbook",
+				sourceMode: "program",
+				requestedOutputs: [{ type: "file" }],
+				program: {
+					language: "python",
+					sourceCode:
+						"from openpyxl import Workbook\nWorkbook().save('/output/out.xlsx')",
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:26.600Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			status: 422,
+			code: "unsupported_program_output_type",
+			error:
+				"Output type file is not supported. Use one of: xlsx, docx, pptx, pdf, csv, zip",
+			job: { status: "failed" },
+		});
+		expect(wakeWorker).not.toHaveBeenCalled();
+	});
+
+	it("derives the program output type from program.filename when none is named", async () => {
+		const { db } = await import("$lib/server/db");
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-filename-derived",
+				requestTitle: "Fruit workbook",
+				sourceMode: "program",
+				program: {
+					language: "javascript",
+					sourceCode:
+						'require("exceljs");await workbook.xlsx.writeFile("/output/fruits.xlsx")',
+					filename: "fruits.xlsx",
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:26.700Z"),
+		});
+
+		expect(result).toMatchObject({ ok: true, status: 202 });
+		if (!result.ok) throw new Error("expected intake to succeed");
+		const [stored] = await db
+			.select({ requestJson: schema.fileProductionJobs.requestJson })
+			.from(schema.fileProductionJobs)
+			.where(eq(schema.fileProductionJobs.id, result.job.id));
+		expect(JSON.parse(stored.requestJson ?? "{}").outputs).toEqual([
+			{ type: "xlsx" },
+		]);
+		expect(wakeWorker).toHaveBeenCalledTimes(1);
+	});
+
 	it("persists static limit failures during intake and logs the limit detail", async () => {
 		const { submitFileProductionIntake } = await import("./index");
 		const wakeWorker = vi.fn();

@@ -616,6 +616,41 @@ describe("user skill definitions", () => {
 		expect(contractText.length).toBeLessThan(9000);
 	});
 
+	// A built-in skill that tells the model to send a produce_file field the
+	// model-facing schema does not declare is an instruction the model cannot
+	// follow — exactly how `requestedOutputs: [{ "type": "xlsx" }]` came to be
+	// prescribed by system:spreadsheet-builder while the schema hid it, leaving
+	// program-mode jobs with no resolvable output type.
+	it("never names a produce_file input field that the model-facing schema lacks", async () => {
+		const { listBuiltInSystemSkillInstructions } = await import(
+			"./user-skills"
+		);
+		const { produceFileInputSchema, produceFileModelInputSchema } =
+			await import("$lib/server/services/normal-chat-tools/produce-file");
+
+		// Every top-level key the server-side parser accepts, i.e. every name a
+		// skill could plausibly be referring to.
+		const parserFields = Object.keys(produceFileInputSchema.shape);
+		const modelFields = new Set(Object.keys(produceFileModelInputSchema.shape));
+
+		for (const skill of listBuiltInSystemSkillInstructions()) {
+			if (!skill.instructions.includes("produce_file")) continue;
+			const namedFields = parserFields.filter((field) =>
+				new RegExp(`\\b${field}\\b`).test(skill.instructions),
+			);
+			expect(
+				namedFields.length,
+				`${skill.id}:${skill.language} mentions produce_file but names no input field`,
+			).toBeGreaterThan(0);
+			for (const field of namedFields) {
+				expect(
+					modelFields.has(field),
+					`${skill.id}:${skill.language} tells the model to send "${field}", which produceFileModelInputSchema does not declare`,
+				).toBe(true);
+			}
+		}
+	});
+
 	it("discovers available skills with user skills outranking equal system matches", async () => {
 		seedUsers();
 		const {

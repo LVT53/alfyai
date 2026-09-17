@@ -591,6 +591,8 @@ const chatDict = {
 			"The generated document source is invalid.",
 		"fileProduction.error.job_outputs_too_large":
 			"The produced files are too large.",
+		"fileProduction.error.missing_program_output_type":
+			"The file request did not say which file type to produce.",
 		"fileProduction.error.output_file_too_large":
 			"A produced file is too large.",
 		"fileProduction.error.page_limit_exceeded":
@@ -618,6 +620,8 @@ const chatDict = {
 			"That output type is not supported for this document yet.",
 		"fileProduction.error.unsupported_pdf_block":
 			"This PDF renderer does not support that block yet.",
+		"fileProduction.error.unsupported_program_output_type":
+			"That file type cannot be produced.",
 		"fileProduction.error.unsupported_table_structure":
 			"The document contains an unsupported table structure.",
 		"fileProduction.failed": "Error",
@@ -1651,6 +1655,8 @@ const chatDict = {
 			"A generált dokumentum forrása érvénytelen.",
 		"fileProduction.error.job_outputs_too_large":
 			"Az előállított fájlok túl nagyok.",
+		"fileProduction.error.missing_program_output_type":
+			"A fájlkérés nem adta meg, milyen típusú fájl készüljön.",
 		"fileProduction.error.output_file_too_large":
 			"Egy előállított fájl túl nagy.",
 		"fileProduction.error.page_limit_exceeded":
@@ -1679,6 +1685,8 @@ const chatDict = {
 			"Ez a kimeneti típus még nem támogatott ennél a dokumentumnál.",
 		"fileProduction.error.unsupported_pdf_block":
 			"Ez a PDF-renderelő még nem támogatja ezt a blokkot.",
+		"fileProduction.error.unsupported_program_output_type":
+			"Ez a fájltípus nem készíthető el.",
 		"fileProduction.error.unsupported_table_structure":
 			"A dokumentum nem támogatott táblaszerkezetet tartalmaz.",
 		"fileProduction.failed": "Hiba",
