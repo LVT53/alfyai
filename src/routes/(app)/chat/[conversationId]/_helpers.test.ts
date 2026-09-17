@@ -963,9 +963,10 @@ describe("file production chat helpers", () => {
 		expect(finalized[0].followUps).toEqual(priorFollowUps);
 	});
 
-	// The user's per-turn choices (see $lib/message-user-intent.ts) — the
-	// server's record on the terminal frame wins; without one, the record the
-	// optimistic placeholder was stamped with at send survives finalization.
+	// The user's per-turn choices (see $lib/message-user-intent.ts) — a terminal
+	// frame that names the persisted assistant message is the server's complete
+	// statement and replaces the optimistic record outright; only a frame-less
+	// finalize keeps what the placeholder was stamped with at send.
 	it("takes the terminal frame's userIntent over the optimistic one", () => {
 		const list = [
 			{
@@ -992,7 +993,56 @@ describe("file production chat helpers", () => {
 		});
 	});
 
-	it("keeps the optimistic userIntent when the terminal frame carries none", () => {
+	// A regenerate stamps its placeholder with the record of the message it
+	// replaces, and the server silently drops a recorded skill that no longer
+	// resolves (services/chat-turn/retry.ts). The terminal frame then carries no
+	// record at all, and the inherited chip has to go with it — otherwise the
+	// finished answer claims a skill that was never applied.
+	it("clears the optimistic userIntent when the terminal frame carries none", () => {
+		const list = [
+			{
+				...createAssistantPlaceholder("assistant-1"),
+				userIntent: { skill: { id: "skill-1", displayName: "Meeting critic" } },
+			},
+		];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: { assistantMessageId: "server-assistant-1" },
+		});
+
+		expect(finalized[0].userIntent).toBeUndefined();
+	});
+
+	// The same regenerate, but the user had also forced `/web`: that survives,
+	// so the frame carries the smaller record and only the skill chip goes.
+	it("takes a smaller terminal-frame record over the inherited one", () => {
+		const list = [
+			{
+				...createAssistantPlaceholder("assistant-1"),
+				userIntent: {
+					skill: { id: "skill-1", displayName: "Meeting critic" },
+					webSearch: true as const,
+				},
+			},
+		];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				userIntent: { webSearch: true },
+			},
+		});
+
+		expect(finalized[0].userIntent).toEqual({ webSearch: true });
+	});
+
+	// No terminal frame reached the client (dropped stream), so there is nothing
+	// authoritative to replace the optimistic stamp with.
+	it("keeps the optimistic userIntent when no terminal frame arrives", () => {
 		const list = [
 			{
 				...createAssistantPlaceholder("assistant-1"),
@@ -1003,7 +1053,6 @@ describe("file production chat helpers", () => {
 		const finalized = finalizeStreamingMessageList(list, {
 			placeholderId: "assistant-1",
 			clientUserMessageId: null,
-			metadata: { assistantMessageId: "server-assistant-1" },
 		});
 
 		expect(finalized[0].userIntent).toEqual({ webSearch: true });

@@ -5,11 +5,13 @@ const {
 	mockConversationMessages,
 	mockMessageAttachments,
 	capturedSyntheticBodies,
+	capturedMessageSelections,
 } = vi.hoisted(() => ({
 	mockConversationMessages: [] as Array<{
 		id: string;
 		role: string;
 		content: string;
+		metadataJson?: string | null;
 	}>,
 	mockMessageAttachments: new Map<
 		string,
@@ -26,6 +28,10 @@ const {
 		}>
 	>(),
 	capturedSyntheticBodies: [] as Array<Record<string, unknown>>,
+	// Every column set the retry asked the messages table for, so a test can
+	// assert the conversation-scoped read that makes another user's or another
+	// conversation's record unreachable.
+	capturedMessageSelections: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("$lib/server/services/conversations", () => ({
@@ -34,13 +40,16 @@ vi.mock("$lib/server/services/conversations", () => ({
 
 vi.mock("$lib/server/db", () => ({
 	db: {
-		select: vi.fn(() => ({
-			from: vi.fn(() => ({
-				where: vi.fn(() => ({
-					orderBy: vi.fn(async () => mockConversationMessages),
+		select: vi.fn((columns: Record<string, unknown>) => {
+			capturedMessageSelections.push(columns);
+			return {
+				from: vi.fn(() => ({
+					where: vi.fn(() => ({
+						orderBy: vi.fn(async () => mockConversationMessages),
+					})),
 				})),
-			})),
-		})),
+			};
+		}),
 	},
 }));
 
@@ -64,48 +73,84 @@ vi.mock("$lib/server/services/chat-turn/retry-cleanup", () => ({
 	cleanupFailedTurn: vi.fn(async () => ({ steps: [], warnings: [] })),
 }));
 
-vi.mock("$lib/server/services/chat-turn/request", () => ({
-	parseChatTurnRequest: vi.fn(async (request: Request) => {
-		const body = await request.json();
-		capturedSyntheticBodies.push(body);
+// The real `parsePendingSkill` is kept: the retry path feeds it a selection
+// rebuilt from persisted JSON, and the point of the exercise is that it passes
+// exactly the validation a fresh send's request body gets.
+vi.mock("$lib/server/services/chat-turn/request", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/chat-turn/request")
+	>("$lib/server/services/chat-turn/request");
+	return {
+		parsePendingSkill: actual.parsePendingSkill,
+		parseChatTurnRequest: vi.fn(async (request: Request) => {
+			const body = await request.json();
+			capturedSyntheticBodies.push(body);
+			return {
+				ok: true,
+				value: {
+					conversationId: body.conversationId,
+					normalizedMessage: body.message,
+					modelDisplayName: "Model 1",
+					modelId: "model1",
+					attachmentIds: Array.isArray(body.attachmentIds)
+						? body.attachmentIds
+						: [],
+					linkedSources: [],
+					pendingSkill: body.pendingSkill ?? null,
+					reasoningDepth: body.reasoningDepth ?? "auto",
+					thinkingMode: "auto",
+					forceWebSearch: body.forceWebSearch === true,
+					skipPersistUserMessage: true,
+				},
+			};
+		}),
+	};
+});
+
+vi.mock("$lib/server/services/chat-turn/preflight", () => ({
+	// Mirrors the real preflight: a `pendingSkill` that survived parsing is
+	// resolved into `appliedSkill`, and a resolution failure fails the turn.
+	preflightChatTurn: vi.fn(async ({ userId, request }) => {
+		let appliedSkill = null;
+		if (request.pendingSkill) {
+			const resolved = await resolveAppliedSkill({
+				userId,
+				pendingSkill: request.pendingSkill,
+				requestText: request.normalizedMessage,
+			});
+			if (!resolved.ok) return resolved;
+			appliedSkill = resolved.value;
+		}
 		return {
 			ok: true,
 			value: {
-				conversationId: body.conversationId,
-				normalizedMessage: body.message,
-				modelDisplayName: "Model 1",
-				modelId: "model1",
-				attachmentIds: Array.isArray(body.attachmentIds)
-					? body.attachmentIds
-					: [],
-				linkedSources: [],
-				pendingSkill: null,
-				reasoningDepth: body.reasoningDepth ?? "auto",
-				thinkingMode: "auto",
-				forceWebSearch: false,
-				skipPersistUserMessage: true,
+				...request,
+				appliedSkill,
+				depthMetadata: {
+					requested: request.reasoningDepth,
+					appliedProfile: "standard",
+					fallback: false,
+				},
 			},
 		};
 	}),
-}));
-
-vi.mock("$lib/server/services/chat-turn/preflight", () => ({
-	preflightChatTurn: vi.fn(async ({ request }) => ({
-		ok: true,
-		value: {
-			...request,
-			depthMetadata: {
-				requested: request.reasoningDepth,
-				appliedProfile: "standard",
-				fallback: false,
-			},
+	resolveAppliedSkill: vi.fn(async () => ({
+		ok: false,
+		error: {
+			status: 409,
+			error: "Selected skill is no longer available.",
+			code: "pending_skill_unavailable",
 		},
 	})),
 }));
 
-import { preflightChatTurn } from "$lib/server/services/chat-turn/preflight";
+import {
+	preflightChatTurn,
+	resolveAppliedSkill,
+} from "$lib/server/services/chat-turn/preflight";
 import { cleanupFailedTurn } from "$lib/server/services/chat-turn/retry-cleanup";
 import { listChildForksBySourceMessages } from "$lib/server/services/conversation-forks";
+import { getConversation } from "$lib/server/services/conversations";
 import { listMessageAttachments } from "$lib/server/services/knowledge";
 import { deleteMessages } from "$lib/server/services/messages";
 import { prepareRetryChatTurn } from "./retry";
@@ -124,6 +169,7 @@ describe("prepareRetryChatTurn", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		capturedSyntheticBodies.length = 0;
+		capturedMessageSelections.length = 0;
 		mockMessageAttachments.clear();
 		mockConversationMessages.splice(
 			0,
@@ -444,5 +490,255 @@ describe("prepareRetryChatTurn", () => {
 			"user-3",
 			"assistant-3",
 		]);
+	});
+
+	// The user's own turn choices (composer-applied skill, forced `/web`)
+	// survive only as the assistant message's `userIntent` record, so a retry
+	// has to read them back off the message it replaces — before deleting it —
+	// or the regenerated answer silently drops both.
+	describe("recorded user intent", () => {
+		beforeEach(() => {
+			// `vi.clearAllMocks()` clears calls, not implementations, so restore
+			// the "skill no longer available" default each test starts from.
+			(resolveAppliedSkill as ReturnType<typeof vi.fn>).mockImplementation(
+				async () => ({
+					ok: false,
+					error: {
+						status: 409,
+						error: "Selected skill is no longer available.",
+						code: "pending_skill_unavailable",
+					},
+				}),
+			);
+		});
+
+		function recordOn(messageId: string, userIntent: unknown) {
+			const target = mockConversationMessages.find(
+				(message) => message.id === messageId,
+			);
+			if (!target) throw new Error(`no fixture message ${messageId}`);
+			target.metadataJson = JSON.stringify({
+				wasStopped: false,
+				userIntent,
+			});
+		}
+
+		function retryLatest() {
+			return prepareRetryChatTurn({
+				userId: "user-1",
+				runtimeConfig: makeRuntimeConfig(),
+				body: {
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-3",
+					userMessageId: "user-3",
+					userMessage: "latest prompt",
+				},
+			});
+		}
+
+		function resolvesSkill(displayName: string) {
+			(resolveAppliedSkill as ReturnType<typeof vi.fn>).mockImplementation(
+				async ({ pendingSkill }) => ({
+					ok: true,
+					value: {
+						skillId: pendingSkill.id,
+						skillOwnership: pendingSkill.ownership,
+						skillKind: "user_skill",
+						skillDisplayName: displayName,
+						instructionsEnvelope: `Skill "${displayName}" was selected by the user — Capture decisions before answering.`,
+					},
+				}),
+			);
+		}
+
+		it("re-applies a recorded skill, so the regenerated answer is recorded with the same intent", async () => {
+			recordOn("assistant-3", {
+				skill: { id: "skill-1", displayName: "Meeting critic" },
+			});
+			resolvesSkill("Meeting critic");
+
+			const result = await retryLatest();
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			// Resolved through the same validator + resolver the send path uses,
+			// which re-checks ownership and enabled state.
+			expect(resolveAppliedSkill).toHaveBeenCalledWith({
+				userId: "user-1",
+				pendingSkill: expect.objectContaining({
+					id: "skill-1",
+					ownership: "user",
+					displayName: "Meeting critic",
+				}),
+				requestText: "latest prompt",
+			});
+			expect(capturedSyntheticBodies[0]?.pendingSkill).toEqual(
+				expect.objectContaining({ id: "skill-1", ownership: "user" }),
+			);
+			// The orchestrator rebuilds both the skillUse activity event and the
+			// message's own `userIntent` record from `turn.appliedSkill`.
+			expect(result.value.orchestratorInput.turn.appliedSkill).toEqual(
+				expect.objectContaining({
+					skillId: "skill-1",
+					skillDisplayName: "Meeting critic",
+				}),
+			);
+			expect(result.value.orchestratorInput.pendingSkillInstructions).toContain(
+				"Capture decisions before answering.",
+			);
+		});
+
+		it("probes a system skill id with system ownership first", async () => {
+			recordOn("assistant-3", {
+				skill: { id: "system:study-coach", displayName: "Study coach" },
+			});
+			resolvesSkill("Study coach");
+
+			const result = await retryLatest();
+
+			expect(result.ok).toBe(true);
+			// One probe (which hit), then preflight's own canonical resolution.
+			expect(resolveAppliedSkill).toHaveBeenCalledTimes(2);
+			expect(resolveAppliedSkill).toHaveBeenNthCalledWith(
+				1,
+				expect.objectContaining({
+					pendingSkill: expect.objectContaining({
+						id: "system:study-coach",
+						ownership: "system",
+					}),
+				}),
+			);
+		});
+
+		it("keeps a recorded forced web search on the regenerated turn", async () => {
+			recordOn("assistant-3", { webSearch: true });
+
+			const result = await retryLatest();
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(capturedSyntheticBodies[0]?.forceWebSearch).toBe(true);
+			expect(result.value.orchestratorInput.turn.forceWebSearch).toBe(true);
+			// No skill was recorded, so none is resolved.
+			expect(resolveAppliedSkill).not.toHaveBeenCalled();
+			expect(capturedSyntheticBodies[0]?.pendingSkill).toBeUndefined();
+		});
+
+		it("regenerates without a since-deleted or disabled skill instead of failing the turn", async () => {
+			recordOn("assistant-3", {
+				skill: { id: "skill-gone", displayName: "Meeting critic" },
+				webSearch: true,
+			});
+			// The mocked resolver's default: the 409 a fresh send would get.
+
+			const result = await retryLatest();
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			// Both ownerships probed, then dropped — never surfaced as
+			// `pending_skill_unavailable`.
+			expect(resolveAppliedSkill).toHaveBeenCalledTimes(2);
+			expect(capturedSyntheticBodies[0]?.pendingSkill).toBeUndefined();
+			expect(result.value.orchestratorInput.turn.appliedSkill).toBeNull();
+			expect(
+				result.value.orchestratorInput.pendingSkillInstructions,
+			).toBeUndefined();
+			// The rest of the record still applies.
+			expect(result.value.orchestratorInput.turn.forceWebSearch).toBe(true);
+		});
+
+		it("stops probing when the Composer Command Registry is off", async () => {
+			recordOn("assistant-3", {
+				skill: { id: "skill-1", displayName: "Meeting critic" },
+			});
+			(resolveAppliedSkill as ReturnType<typeof vi.fn>).mockResolvedValue({
+				ok: false,
+				error: {
+					status: 403,
+					error: "Composer Command Registry is disabled.",
+					code: "composer_commands_disabled",
+				},
+			});
+
+			const result = await retryLatest();
+
+			expect(result.ok).toBe(true);
+			expect(resolveAppliedSkill).toHaveBeenCalledTimes(1);
+			expect(capturedSyntheticBodies[0]?.pendingSkill).toBeUndefined();
+		});
+
+		it("treats a message with no record, or a malformed one, as a plain retry", async () => {
+			const result = await retryLatest();
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(resolveAppliedSkill).not.toHaveBeenCalled();
+			expect(capturedSyntheticBodies[0]).not.toHaveProperty("pendingSkill");
+			expect(capturedSyntheticBodies[0]).not.toHaveProperty("forceWebSearch");
+			expect(result.value.orchestratorInput.turn.forceWebSearch).toBe(false);
+
+			capturedSyntheticBodies.length = 0;
+			const target = mockConversationMessages.find(
+				(message) => message.id === "assistant-3",
+			);
+			if (target) target.metadataJson = "{not json";
+			const malformed = await retryLatest();
+
+			expect(malformed.ok).toBe(true);
+			expect(capturedSyntheticBodies[0]).not.toHaveProperty("pendingSkill");
+			expect(capturedSyntheticBodies[0]).not.toHaveProperty("forceWebSearch");
+		});
+
+		it("reads only the retried message's own record", async () => {
+			// A record on a DIFFERENT assistant message in the same conversation
+			// must not leak into this retry.
+			recordOn("assistant-2", {
+				skill: { id: "skill-1", displayName: "Meeting critic" },
+				webSearch: true,
+			});
+			resolvesSkill("Meeting critic");
+
+			const result = await retryLatest();
+
+			expect(result.ok).toBe(true);
+			expect(resolveAppliedSkill).not.toHaveBeenCalled();
+			expect(capturedSyntheticBodies[0]).not.toHaveProperty("pendingSkill");
+			expect(capturedSyntheticBodies[0]).not.toHaveProperty("forceWebSearch");
+		});
+
+		it("never reads a record outside the caller's own conversation", async () => {
+			(getConversation as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+
+			const result = await prepareRetryChatTurn({
+				userId: "other-user",
+				runtimeConfig: makeRuntimeConfig(),
+				body: {
+					conversationId: "conv-1",
+					assistantMessageId: "assistant-3",
+					userMessageId: "user-3",
+					userMessage: "latest prompt",
+				},
+			});
+
+			expect(result).toEqual({
+				ok: false,
+				error: {
+					error: "Conversation not found",
+					status: 404,
+					responseShape: "json",
+				},
+			});
+			// Ownership is checked before any message row is read at all.
+			expect(capturedMessageSelections).toHaveLength(0);
+
+			// And the read that does happen asks for the metadata column from the
+			// messages table, filtered to this conversation.
+			await retryLatest();
+			expect(capturedMessageSelections).toHaveLength(1);
+			expect(Object.keys(capturedMessageSelections[0])).toContain(
+				"metadataJson",
+			);
+			expect(getConversation).toHaveBeenLastCalledWith("user-1", "conv-1");
+		});
 	});
 });

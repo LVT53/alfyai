@@ -1,4 +1,8 @@
 import { eq } from "drizzle-orm";
+import {
+	type MessageUserIntent,
+	parseMessageUserIntent,
+} from "$lib/message-user-intent";
 import type { RuntimeConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
@@ -8,8 +12,9 @@ import { listMessageAttachments } from "$lib/server/services/knowledge";
 import { messageOrderAsc } from "$lib/server/services/message-ordering";
 import { repairConversationMessageSequences } from "$lib/server/services/message-sequences";
 import { deleteMessages } from "$lib/server/services/messages";
-import { preflightChatTurn } from "./preflight";
-import { parseChatTurnRequest } from "./request";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import { preflightChatTurn, resolveAppliedSkill } from "./preflight";
+import { parseChatTurnRequest, parsePendingSkill } from "./request";
 import { cleanupFailedTurn } from "./retry-cleanup";
 import type { StreamOrchestratorOptions } from "./stream-orchestrator";
 import type { ChatTurnRequestError } from "./types";
@@ -62,6 +67,10 @@ type ConversationMessage = {
 	id: string;
 	role: string;
 	content: string;
+	// Raw `messages.metadata_json`. Read for the retried assistant message's
+	// `userIntent` record — the only place the user's own turn choices
+	// (composer-applied skill, forced `/web`) survive the send that made them.
+	metadataJson: string | null;
 };
 
 export async function prepareRetryChatTurn(params: {
@@ -109,6 +118,7 @@ export async function prepareRetryChatTurn(params: {
 			id: messages.id,
 			role: messages.role,
 			content: messages.content,
+			metadataJson: messages.metadataJson,
 		})
 		.from(messages)
 		.where(eq(messages.conversationId, conversationId))
@@ -140,6 +150,34 @@ export async function prepareRetryChatTurn(params: {
 			409,
 		);
 	}
+
+	// The user's own choices for the turn being regenerated, read off the
+	// assistant message this retry replaces BEFORE `deleteMessages` below drops
+	// it. `conversationMessages` came from a conversation this user owns
+	// (`getConversation` above) filtered to `conversationId`, so a record
+	// belonging to another user or another conversation is never in reach.
+	// Absent (a message persisted before the record existed) and malformed both
+	// read as "the user chose nothing" — a plain retry.
+	const recordedUserIntent = readRecordedUserIntent(assistantMsg.metadataJson);
+
+	// Probe the recorded skill BEFORE preflight, and drop it when it no longer
+	// resolves: a fresh send with an unavailable `pendingSkill` is rightly
+	// refused with 409 `pending_skill_unavailable`, but a regenerate of an older
+	// turn must not start failing because the user has since deleted or disabled
+	// that skill. Only the drop decision is made here; a skill that survives is
+	// handed to preflight as an ordinary `pendingSkill` and resolved there
+	// again, so the turn is assembled by exactly one code path (the send path's)
+	// and against the request's own normalized message.
+	//
+	// Done before the cleanup/delete below rather than after: this reads the
+	// skill tables, and a failure there must not land after the retried turn's
+	// messages are already gone, leaving the conversation short an answer it
+	// cannot regenerate.
+	const retryPendingSkill = await resolveRetryPendingSkill({
+		userId,
+		skill: recordedUserIntent?.skill,
+		requestText: precedingUserMsg.content,
+	});
 
 	const trailingMessages = conversationMessages.slice(assistantIndex);
 	if (confirmForkedSourceHistoryMutation !== true) {
@@ -215,6 +253,8 @@ export async function prepareRetryChatTurn(params: {
 		model,
 		reasoningDepth,
 		personalityProfileId,
+		pendingSkill: retryPendingSkill,
+		forceWebSearch: recordedUserIntent?.webSearch === true,
 	});
 	const syntheticRequest = new Request("https://internal", {
 		method: "POST",
@@ -294,6 +334,74 @@ function normalizeStringArray(value: unknown): string[] {
 	return result;
 }
 
+/**
+ * The `userIntent` record persisted with an assistant message, or `undefined`
+ * for a legacy message that has none (and for anything malformed —
+ * `parseMessageUserIntent` validates rather than passes through).
+ */
+function readRecordedUserIntent(
+	metadataJson: string | null | undefined,
+): MessageUserIntent | undefined {
+	if (!metadataJson) return undefined;
+	try {
+		const parsed: unknown = JSON.parse(metadataJson);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return undefined;
+		}
+		return parseMessageUserIntent(
+			(parsed as { userIntent?: unknown }).userIntent,
+		);
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Turns the recorded `{ id, displayName }` back into the `pendingSkill` a fresh
+ * send would have carried, or `null` when the skill no longer resolves for this
+ * user (deleted, disabled, unpublished, or the Composer Command Registry turned
+ * off) — the caller then regenerates without it.
+ *
+ * The record deliberately keeps no ownership, but the skill lookup queries on
+ * it, so try the one the id implies first (system skills are `system:`-prefixed;
+ * a user skill's id is a UUID) and the other only if that misses. The selection
+ * goes through `parsePendingSkill` — the same validator a request body's
+ * `pendingSkill` gets — and `resolveAppliedSkill`, the same resolver preflight
+ * uses, which re-checks ownership and enabled state.
+ */
+async function resolveRetryPendingSkill(params: {
+	userId: string;
+	skill: MessageUserIntent["skill"];
+	requestText: string;
+}): Promise<PendingSkillSelection | null> {
+	const { userId, skill, requestText } = params;
+	if (!skill) return null;
+
+	const ownerships: Array<"user" | "system"> = skill.id.startsWith("system:")
+		? ["system", "user"]
+		: ["user", "system"];
+
+	for (const ownership of ownerships) {
+		const candidate = parsePendingSkill({
+			id: skill.id,
+			ownership,
+			displayName: skill.displayName,
+		});
+		if (!candidate) return null;
+		const resolved = await resolveAppliedSkill({
+			userId,
+			pendingSkill: candidate,
+			requestText,
+		});
+		if (resolved.ok) return candidate;
+		// The registry being off is not about this skill — the other ownership
+		// would fail identically, and so would preflight.
+		if (resolved.error.code === "composer_commands_disabled") return null;
+	}
+
+	return null;
+}
+
 function buildSyntheticRetryBody(params: {
 	conversationId: string;
 	message: string;
@@ -303,10 +411,18 @@ function buildSyntheticRetryBody(params: {
 	model: unknown;
 	reasoningDepth: unknown;
 	personalityProfileId: unknown;
+	pendingSkill: PendingSkillSelection | null;
+	forceWebSearch: boolean;
 }): Record<string, unknown> {
 	return {
 		message: params.message,
 		conversationId: params.conversationId,
+		// Carried so `parseChatTurnRequest` + `preflightChatTurn` re-apply the
+		// user's own choices for this turn exactly as the send path did; the
+		// orchestrator then rebuilds the same `userIntent` record from
+		// `turn.appliedSkill` / `turn.forceWebSearch` for the regenerated message.
+		pendingSkill: params.pendingSkill ?? undefined,
+		forceWebSearch: params.forceWebSearch ? true : undefined,
 		attachmentIds:
 			Array.isArray(params.attachmentIds) && params.attachmentIds.length > 0
 				? params.attachmentIds

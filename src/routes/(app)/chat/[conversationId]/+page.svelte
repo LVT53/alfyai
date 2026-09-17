@@ -69,6 +69,7 @@ import EvidenceManager from "$lib/components/chat/EvidenceManager.svelte";
 import CloudConnectorWarningModal from "$lib/components/chat/CloudConnectorWarningModal.svelte";
 import { isProviderModelId } from "$lib/model-types";
 import type { ModelId } from "$lib/model-types";
+import type { MessageUserIntent } from "$lib/message-user-intent";
 import type {
 	AtlasAction,
 	AtlasAvailability,
@@ -2034,6 +2035,10 @@ async function handleSend(
 	retryUserMessageId?: string,
 	confirmForkedSourceHistoryMutation = false,
 	onForkedSourceHistoryConfirmationRequired?: () => void,
+	// Regenerate only — the replaced assistant message's `userIntent`, carried
+	// onto the optimistic placeholder so its provenance chip does not blink off
+	// and back on. See SendRuntimeOptions.retryUserIntent.
+	retryUserIntent?: MessageUserIntent,
 ) {
 	const text = payload.message;
 	const modelIdForTurn = payload.modelId ?? $selectedModel;
@@ -2052,6 +2057,7 @@ async function handleSend(
 		clearDraft,
 		retryAssistantMessageId,
 		retryUserMessageId,
+		retryUserIntent,
 		confirmForkedSourceHistoryMutation,
 		onForkedSourceHistoryConfirmationRequired,
 	});
@@ -2135,6 +2141,8 @@ async function handleRegenerate(
 	);
 	if (assistantIdx === -1) return;
 	const assistantMessageId = msgs[assistantIdx].id;
+	// Captured before the slice below removes this message from the timeline.
+	const assistantUserIntent = msgs[assistantIdx].userIntent;
 	const hasKnownForks = hasForkedAssistantInRange(msgs, assistantIdx);
 	if (
 		hasKnownForks &&
@@ -2212,6 +2220,7 @@ async function handleRegenerate(
 				handleRegenerate(payload, true);
 			}
 		},
+		assistantUserIntent,
 	);
 }
 
