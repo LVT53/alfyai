@@ -385,7 +385,13 @@ body {
 		border-radius: var(--radius-sm);
 		background: var(--surface-elevated);
 		cursor: pointer;
-		transition: all var(--duration-standard) var(--ease-out);
+		/* The two properties that change on hover and on check, and NOT `all`:
+		   `all` also animated the focus ring, so tabbing onto the box grew its
+		   outline in over 200ms instead of putting it there. A keyboard user
+		   wants to be told where they are, immediately. */
+		transition:
+			background-color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out);
 		position: relative;
 	}
 
@@ -402,6 +408,20 @@ body {
 		background-size: 12px 12px;
 	}
 
+	/* `appearance: none` takes the indeterminate dash away with everything else,
+	   so a partly-selected Documents table drew its "select all" box as plainly
+	   EMPTY — the one state where the box has to say "some, not none". Declared
+	   after :checked so that a box which is both paints the dash, which is what
+	   the native control does. */
+	.custom-checkbox:indeterminate {
+		background-color: var(--accent);
+		border-color: var(--accent);
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: center;
+		background-size: 12px 12px;
+	}
+
 	.custom-checkbox:focus-visible {
 		outline: 2px solid var(--focus-ring);
 		outline-offset: 2px;
@@ -412,7 +432,7 @@ body {
 		opacity: 0.5;
 	}
 
-	.custom-checkbox:disabled:hover:not(:checked) {
+	.custom-checkbox:disabled:hover:not(:checked):not(:indeterminate) {
 		border-color: var(--border-default);
 	}
 
