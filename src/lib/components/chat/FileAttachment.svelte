@@ -150,7 +150,7 @@ function handleKeydown(event: KeyboardEvent) {
 			class="remove-button"
 			class:compact-remove={compact}
 			onclick={handleRemove}
-			aria-label={`Remove ${attachment.name}`}
+			aria-label={$t('chat.removeAttachment', { name: attachment.name })}
 		>
 			<X size={14} strokeWidth={2} aria-hidden="true" />
 		</button>

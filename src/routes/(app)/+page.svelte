@@ -509,7 +509,7 @@ async function handleSend(payload: MessageInputSendPayload) {
 			bootstrap: true,
 		});
 	} catch {
-		error = "Failed to create conversation. Please try again.";
+		error = $t("chat.failedCreateConversation");
 		hasStarted = false;
 		pendingMessagePreview = "";
 	} finally {
@@ -590,7 +590,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 <div
 	class="chat-page flex h-full min-w-0 flex-col bg-surface-page"
 	role="region"
-	aria-label="Landing page"
+	aria-label={$t('chat.landingRegionLabel')}
 	ondragenter={handleDragEnter}
 	ondragover={handleDragOver}
 	ondragleave={handleDragLeave}

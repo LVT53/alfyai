@@ -180,7 +180,7 @@ function handleImageError() {
 	class:image-preview-stage-panning={dragging}
 	data-testid="image-preview-stage"
 	role="region"
-	aria-label={`${filename} image preview`}
+	aria-label={$t('documentWorkspace.imagePreviewLabel', { filename })}
 	bind:this={stageElement}
 	onwheel={handleWheel}
 	onpointerdown={handlePointerDown}

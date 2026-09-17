@@ -2604,7 +2604,7 @@ function handleDrop(event: DragEvent) {
 <div
 	class="chat-page flex h-full min-w-0 flex-col"
 	role="region"
-	aria-label="Chat page"
+	aria-label={$t('chat.pageRegionLabel')}
 	ondragenter={handleDragEnter}
 	ondragover={handleDragOver}
 	ondragleave={handleDragLeave}
