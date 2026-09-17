@@ -123,6 +123,7 @@ ADRs, is in [docs/architecture.md](docs/architecture.md).
 
 ## Documentation
 
+- [CHANGELOG.md](CHANGELOG.md) — what changed in each release, and upgrade notes
 - [docs/configuration.md](docs/configuration.md) — complete environment-variable reference
 - [docs/architecture.md](docs/architecture.md) — architecture and subsystems
 - [docs/atlas.md](docs/atlas.md) — Atlas deep-research pipelines, tuning, and evaluation

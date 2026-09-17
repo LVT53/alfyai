@@ -3,6 +3,15 @@ import { onDestroy, onMount } from "svelte";
 import { t } from "$lib/i18n";
 import { ChevronDown } from "@lucide/svelte";
 import {
+	INTERNAL_ACTION_PREFIX,
+	isAllowedActionDestination,
+} from "$lib/campaign-action-destinations";
+import {
+	deregisterDialog,
+	isTopmostDialog,
+	registerDialog,
+} from "$lib/components/ui/DialogShell.svelte";
+import {
 	getPersonalityProfileDisplayDescription,
 	getPersonalityProfileDisplayName,
 	type PersonalityProfileLabelSource,
@@ -77,6 +86,7 @@ let localSlideIndex = $state(0);
 let dialogRef = $state<HTMLElement | null>(null);
 let initialFocusRef = $state<HTMLButtonElement | null>(null);
 let previousFocus: HTMLElement | null = null;
+const dialogId = Symbol("campaign-modal");
 
 $effect(() => {
 	localSlideIndex = slideIndex;
@@ -128,11 +138,23 @@ let currentMobileUploadedImageUrl = $derived(assetUrl(currentSlide, "mobile"));
 let hasCurrentUploadedImage = $derived(
 	Boolean(currentDesktopUploadedImageUrl || currentMobileUploadedImageUrl),
 );
+let storedActionDestination = $derived(
+	currentSlide?.actionDestination || currentSlide?.actionUrl || "",
+);
+/**
+ * The destination is admin-authored data that becomes a navigation target for
+ * every user, so it is checked against the shared allow-list here as well as
+ * at publish time. A row that is not on the list — an older campaign, a value
+ * written straight into the database — renders the action button inert rather
+ * than putting the raw string into an `href`.
+ */
 let currentActionDestination = $derived(
-	currentSlide?.actionDestination ?? currentSlide?.actionUrl ?? null,
+	isAllowedActionDestination(storedActionDestination)
+		? storedActionDestination
+		: "",
 );
 let isInternalAction = $derived(
-	Boolean(currentActionDestination?.startsWith("internal:")),
+	currentActionDestination.startsWith(INTERNAL_ACTION_PREFIX),
 );
 let currentDesktopImageUrl = $derived(
 	campaignImageUrl(currentSlide, "desktop"),
@@ -308,6 +330,12 @@ function restoreFocus() {
 
 function handleKeydown(event: KeyboardEvent) {
 	if (inline) return;
+	// A slide's internal action opens a dialog of its own on top of this one
+	// (the ChatGPT import modal). This modal is not a DialogShell, but it joins
+	// the same open-dialog stack, so Escape and the Tab trap belong to whichever
+	// layer is on top. Without this gate an Escape meant for the dialog above
+	// would also skip the campaign underneath it.
+	if (!isTopmostDialog(dialogId)) return;
 	if (event.key === "Escape") {
 		event.preventDefault();
 		closeAsSkip();
@@ -337,12 +365,14 @@ function handleKeydown(event: KeyboardEvent) {
 onMount(() => {
 	if (inline) return;
 	previousFocus = document.activeElement as HTMLElement | null;
+	registerDialog(dialogId);
 	setTimeout(() => {
 		(initialFocusRef ?? focusableElements()[0])?.focus();
 	}, 0);
 });
 
 onDestroy(() => {
+	deregisterDialog(dialogId);
 	restoreFocus();
 });
 </script>
@@ -430,8 +460,7 @@ onDestroy(() => {
 								disabled={preview}
 								onclick={() => {
 									if (preview) return;
-									const action = currentActionDestination?.replace(/^internal:/, '') ?? '';
-									onInternalAction?.(action);
+									onInternalAction?.(currentActionDestination.slice(INTERNAL_ACTION_PREFIX.length));
 								}}
 							>
 								{localized(currentSlide, 'actionLabel')}
@@ -439,10 +468,10 @@ onDestroy(() => {
 						{:else}
 							<a
 								class="campaign-action-link"
-								href={currentSlide.actionDestination || currentSlide.actionUrl || '#'}
-								aria-disabled={preview || !(currentSlide.actionDestination || currentSlide.actionUrl)}
+								href={currentActionDestination || '#'}
+								aria-disabled={preview || !currentActionDestination}
 								onclick={(event) => {
-									if (preview || !(currentSlide.actionDestination || currentSlide.actionUrl)) event.preventDefault();
+									if (preview || !currentActionDestination) event.preventDefault();
 								}}
 							>
 								{localized(currentSlide, 'actionLabel')}

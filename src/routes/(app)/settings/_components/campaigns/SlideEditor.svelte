@@ -81,6 +81,7 @@ const DESTINATION_LABELS: Record<string, string> = {
 	"/settings": "admin.campaigns.destination.settings",
 	"/settings/profile": "admin.campaigns.destination.profile",
 	"/settings/admin": "admin.campaigns.destination.admin",
+	"internal:chatgpt-import": "admin.campaigns.destination.chatgptImport",
 };
 
 let title = $derived((locale === "en" ? slide.titleEn : slide.titleHu) ?? "");
@@ -95,8 +96,8 @@ let languageName = $derived(
 		? $t("admin.campaigns.language.hu")
 		: $t("admin.campaigns.language.en"),
 );
-// A destination the select cannot offer — a legacy value such as
-// "internal:chatgpt-import", or an allow-listed path carrying a query string.
+// A destination the select cannot offer — a since-removed value, or an
+// allow-listed path carrying a query string.
 // It is added to the select as its own option rather than silently dropped.
 let unknownDestination = $derived(
 	Boolean(
