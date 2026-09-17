@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { isAllowedActionDestination } from "$lib/campaign-action-destinations";
 import { db as defaultDb } from "$lib/server/db";
 import {
 	announcementCampaignEvents,
@@ -108,15 +109,6 @@ const SETUP_CONTROLS = new Set([
 	"theme",
 	"model_default",
 	"ai_style",
-]);
-const ACTION_DESTINATION_ALLOWLIST = new Set([
-	"/",
-	"/chat",
-	"/knowledge",
-	"/settings",
-	"/settings/profile",
-	"/settings/admin",
-	"internal:chatgpt-import",
 ]);
 
 function database(options: CampaignServiceOptions = {}) {
@@ -587,9 +579,7 @@ function addFieldError(
 }
 
 function validateActionDestination(value: string | null): boolean {
-	if (!value) return true;
-	if (!value.startsWith("/") || value.startsWith("//")) return false;
-	return ACTION_DESTINATION_ALLOWLIST.has(value.split("?")[0]);
+	return isAllowedActionDestination(value);
 }
 
 function validatePublishCampaignBasics(
