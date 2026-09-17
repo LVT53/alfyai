@@ -229,6 +229,14 @@ type SendRuntimeOptions = {
 	clearDraft?: boolean;
 	retryAssistantMessageId?: string;
 	retryUserMessageId?: string;
+	// The `userIntent` of the assistant message this regenerate replaces, so
+	// its provenance chip does not blink off and back on: the caller has
+	// already removed that message from the timeline by the time send() runs,
+	// and the server re-reads the same record for the turn anyway (see
+	// services/chat-turn/retry.ts). Optimistic only — the terminal frame's
+	// record wins, including when the recorded skill no longer resolves and the
+	// server regenerates without it.
+	retryUserIntent?: MessageUserIntent;
 	confirmForkedSourceHistoryMutation?: boolean;
 	onForkedSourceHistoryConfirmationRequired?: () => void;
 };
@@ -1214,7 +1222,7 @@ export function createNormalChatClientTurnRuntime(
 			placeholder: createAssistantPlaceholder(
 				placeholderId,
 				undefined,
-				userIntentForPayload(payload),
+				options.retryUserIntent ?? userIntentForPayload(payload),
 			),
 		});
 
@@ -1286,7 +1294,13 @@ export function createNormalChatClientTurnRuntime(
 		const placeholderId = adapters.randomId();
 		adapters.applyMessageListEvent({
 			type: "appendAssistantPlaceholder",
-			placeholder: createAssistantPlaceholder(placeholderId),
+			// Same optimistic carry-over as a regenerate through send() — see
+			// SendRuntimeOptions.retryUserIntent.
+			placeholder: createAssistantPlaceholder(
+				placeholderId,
+				undefined,
+				lastAssistantMsg?.userIntent,
+			),
 		});
 		if (retryAssistantMessageId) {
 			adapters.applyMessageListEvent({

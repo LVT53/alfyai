@@ -376,7 +376,12 @@ function parseEnabledConnectionCapabilities(
 		.slice(0, MAX_ENABLED_CONNECTION_CAPABILITIES);
 }
 
-function parsePendingSkill(value: unknown): PendingSkillSelection | null {
+// Exported for the retry path, which rebuilds a pending-skill selection from
+// the persisted `userIntent` record instead of a request body and must run it
+// through exactly the same validation a fresh send's `pendingSkill` gets.
+export function parsePendingSkill(
+	value: unknown,
+): PendingSkillSelection | null {
 	if (typeof value !== "object" || value === null) return null;
 	const record = value as Record<string, unknown>;
 	if (

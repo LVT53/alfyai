@@ -1254,6 +1254,51 @@ describe("user skill definitions", () => {
 		);
 	});
 
+	// The regenerate path rebuilds a pending-skill selection from the id
+	// recorded on the message it replaces, and that record keeps no ownership —
+	// so it probes the ownership the id implies and then THE OTHER ONE
+	// (services/chat-turn/retry.ts). Conversation metadata is copied on fork, so
+	// the id in reach can be one another user owns; neither probe may resolve
+	// it. The `system` branch of the lookup is what makes that true, by
+	// requiring the row to be a system row, so pin it.
+	it("resolves another user's private skill id under neither ownership", async () => {
+		seedUsers();
+		const { createUserSkillDefinition, resolveEffectiveSkillDefinition } =
+			await import("./user-skills");
+
+		const otherUsersSkill = await createUserSkillDefinition("user-2", {
+			displayName: "Private counsel",
+			description: "Only user two should see this body.",
+			instructions: "PRIVATE_USER_TWO_INSTRUCTIONS",
+			activationExamples: ["private"],
+		});
+
+		const probes = [
+			await resolveEffectiveSkillDefinition("user-1", {
+				id: otherUsersSkill.id,
+				ownership: "user",
+			}),
+			await resolveEffectiveSkillDefinition("user-1", {
+				id: otherUsersSkill.id,
+				ownership: "system",
+			}),
+		];
+
+		for (const probe of probes) {
+			expect(probe).toMatchObject({
+				available: false,
+				availabilityReason: "not_found",
+				displayName: null,
+				publicSummary: null,
+				effectiveInstructions: "",
+			});
+		}
+		expect(JSON.stringify(probes)).not.toContain(
+			"PRIVATE_USER_TWO_INSTRUCTIONS",
+		);
+		expect(JSON.stringify(probes)).not.toContain("Private counsel");
+	});
+
 	it("strengthens grill-with-docs, document-explainer, purchase-helper, and appointment-prep instructions with severity, confidence, comparison, and verify/flag guidance", async () => {
 		seedUsers();
 		const { getBuiltInSystemSkillEnInstructions } = await import(
