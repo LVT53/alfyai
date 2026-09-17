@@ -399,10 +399,21 @@ body {
 		border-color: var(--accent);
 	}
 
+	/* The tick's colour is the one literal we cannot tokenise: a CSS variable
+	   cannot reach inside a data: URI, so the stroke has to be written out.
+	   Both values are still DERIVED FROM TOKENS and must stay in step with
+	   them — `checkbox-tick-contrast.test.ts` reads this file, pulls --accent
+	   out of each theme block, pulls the stroke out of each of these rules,
+	   and fails if the pair drops under 3:1 (WCAG 1.4.11, graphical objects).
+
+	   Light: stroke = --accent-contrast (#ffffff) on --accent (#c15f3c) = 4.23:1.
+	   Dark below: stroke = --surface-page (#1a1a1a) on --accent (#d4836b) = 6.02:1;
+	   white on that lighter dark-theme accent is only 2.89:1, which is why the
+	   dark tick is ink-on-accent rather than white-on-accent. */
 	.custom-checkbox:checked {
 		background-color: var(--accent);
 		border-color: var(--accent);
-		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
 		background-repeat: no-repeat;
 		background-position: center;
 		background-size: 12px 12px;
@@ -416,10 +427,24 @@ body {
 	.custom-checkbox:indeterminate {
 		background-color: var(--accent);
 		border-color: var(--accent);
-		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");
 		background-repeat: no-repeat;
 		background-position: center;
 		background-size: 12px 12px;
+	}
+
+	/* Dark theme: same box, dark ink. --accent lightens to #d4836b in dark so
+	   that it reads against #1a1a1a, and that lighter accent no longer carries
+	   a white tick (2.89:1). Re-stroking the same two glyphs in --surface-page
+	   (#1a1a1a) takes the tick to 6.02:1 and the dash with it. Only the stroke
+	   changes — geometry, size and the box's own colours are untouched, so the
+	   light theme is byte-for-byte what it was. */
+	.dark .custom-checkbox:checked {
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a1a1a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+	}
+
+	.dark .custom-checkbox:indeterminate {
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231a1a1a' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");
 	}
 
 	.custom-checkbox:focus-visible {
