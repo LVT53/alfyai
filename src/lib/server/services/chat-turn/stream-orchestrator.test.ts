@@ -2125,6 +2125,78 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	// produce_file RETURNS its failure instead of throwing it: the file
+	// production ledger said the job failed, which is a normal tool_result as
+	// far as the AI SDK is concerned. The activity row must still read as
+	// failed, otherwise the user sees a "done" tool row above an assistant
+	// message that cannot honestly claim the file exists.
+	it("emits a failed status for a tool_result whose recorded entry failed", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const recorderEntry = {
+			callId: "call-produce",
+			name: "produce_file",
+			input: { requestTitle: "Quarterly workbook" },
+			status: "failed" as const,
+			outputSummary:
+				"File production failed for job job-1 (program_execution_failed): SyntaxError: invalid syntax",
+			sourceType: "tool" as const,
+			metadata: {
+				ok: false,
+				evidenceReady: false,
+				jobId: "job-1",
+				jobStatus: "failed",
+				code: "program_execution_failed",
+				retryable: true,
+			},
+		};
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult(
+				[
+					{
+						type: "tool_call",
+						callId: "call-produce",
+						toolName: "produce_file",
+						input: { requestTitle: "Quarterly workbook" },
+					},
+					{
+						type: "tool_result",
+						callId: "call-produce",
+						toolName: "produce_file",
+						output: { ok: false, status: "failed" },
+					},
+					{ type: "text_delta", text: "I could not build that file." },
+					finishEvent,
+				],
+				{ normalChatToolCalls: [recorderEntry] },
+			),
+		);
+
+		const response = runStream();
+		const chunks = await readSseResponse(response);
+		const toolPayloads = uiDataParts<Record<string, unknown>>(
+			parseUiStreamParts(chunks),
+			"data-tool-call",
+		);
+
+		expect(toolPayloads.map((payload) => payload.status)).toEqual([
+			"running",
+			"failed",
+		]);
+		expect(toolPayloads[1]).toEqual(
+			expect.objectContaining({
+				callId: "call-produce",
+				name: "produce_file",
+				status: "failed",
+				outputSummary: recorderEntry.outputSummary,
+				metadata: recorderEntry.metadata,
+			}),
+		);
+	});
+
 	// R1 defect 1 — a "failed" tool call is a terminal (non-running) tool call,
 	// not an absence of persistable content. Before the fix,
 	// completedToolCallRecords()/isCompletedFileProductionToolCall() only

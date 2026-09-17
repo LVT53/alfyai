@@ -203,9 +203,16 @@ export const TOOL_TIMEOUTS_MS: Record<string, number> = {
 	fetch_url: 45_000,
 	memory_context: 15_000,
 	image_search: 30_000,
-	produce_file: 30_000,
+	// produce_file submits the job and then waits in-turn for the ledger's
+	// verdict (PRODUCE_FILE_VERDICT_WAIT_MS, 20s) so it can tell the model
+	// whether a file actually exists. The envelope timeout has to clear that
+	// wait with room for the intake write and the polling reads on top,
+	// otherwise a job that is about to settle is aborted as a tool timeout
+	// instead of being reported as still running.
+	produce_file: 40_000,
 	// run_python executes synchronously in-turn (unlike produce_file, which
-	// only submits a job): the envelope timeout must clear the sandbox's own
+	// submits a job and waits only a bounded time for it): the envelope timeout
+	// must clear the sandbox's own
 	// hard exec cutoff (SANDBOX_TIMEOUT_MS) so a slow-but-still-running script
 	// gets the sandbox's graceful `timedOut: true` result instead of racing it
 	// and returning a generic "run_python timed out" envelope error first.

@@ -516,3 +516,119 @@ export async function listConversationFileProductionJobs(
 		})
 		.filter((job) => job.files.length > 0 || job.status !== "succeeded");
 }
+
+// Single-job read for callers that are POLLING one known job (the chat tool's
+// in-turn wait, Atlas's output step) rather than projecting the whole
+// conversation. listConversationFileProductionJobs above lists every chat file
+// in the conversation and backfills legacy job rows on the way; doing that once
+// per poll would be absurd, so this one goes straight at the job row and only
+// resolves the files it is actually linked to.
+export async function getConversationFileProductionJob(input: {
+	userId: string;
+	conversationId: string;
+	jobId: string;
+}): Promise<FileProductionJob | null> {
+	const [job] = await db
+		.select()
+		.from(fileProductionJobs)
+		.where(
+			and(
+				eq(fileProductionJobs.id, input.jobId),
+				eq(fileProductionJobs.userId, input.userId),
+				eq(fileProductionJobs.conversationId, input.conversationId),
+			),
+		)
+		.limit(1);
+
+	if (!job) {
+		return null;
+	}
+
+	const links = await db
+		.select()
+		.from(fileProductionJobFiles)
+		.where(eq(fileProductionJobFiles.jobId, job.id));
+	if (links.length === 0) {
+		return mapJobRow(job, []);
+	}
+
+	const files = (
+		await getReadModelChatFilesByIdsForConversation(
+			input.conversationId,
+			links.map((link) => link.chatGeneratedFileId),
+		)
+	).filter((file) => file.userId === input.userId);
+	const fileById = new Map(files.map((file) => [file.id, file]));
+
+	return mapJobRow(
+		job,
+		[...links]
+			.sort((a, b) => a.sortOrder - b.sortOrder)
+			.map((link) => fileById.get(link.chatGeneratedFileId))
+			.filter((file): file is ReadModelChatFile => Boolean(file))
+			.map(mapChatFileToProducedFile),
+	);
+}
+
+/** A job that has no deliverable yet: still being produced, or failed. */
+export interface FileProductionJobState {
+	id: string;
+	title: string;
+	status: FileProductionJob["status"];
+	errorCode: string | null;
+	errorMessage: string | null;
+	retryable: boolean;
+	updatedAt: number;
+}
+
+export const FILE_PRODUCTION_UNDELIVERED_JOB_STATUSES = [
+	"queued",
+	"running",
+	"failed",
+] as const;
+
+// Status-only projection for prompt context: no chat-file join, no legacy
+// backfill, no file hydration — just enough to tell a later turn that a file it
+// already claimed to have made is still running or has failed. Succeeded jobs
+// are deliberately excluded: their files are already listed under
+// "Conversation Files".
+export async function listConversationFileProductionJobStates(input: {
+	userId: string;
+	conversationId: string;
+	limit?: number;
+}): Promise<FileProductionJobState[]> {
+	const rows = await db
+		.select({
+			id: fileProductionJobs.id,
+			title: fileProductionJobs.title,
+			status: fileProductionJobs.status,
+			errorCode: fileProductionJobs.errorCode,
+			errorMessage: fileProductionJobs.errorMessage,
+			retryable: fileProductionJobs.retryable,
+			updatedAt: fileProductionJobs.updatedAt,
+		})
+		.from(fileProductionJobs)
+		.where(
+			and(
+				eq(fileProductionJobs.userId, input.userId),
+				eq(fileProductionJobs.conversationId, input.conversationId),
+				eq(fileProductionJobs.dismissed, false),
+				inArray(
+					fileProductionJobs.status,
+					FILE_PRODUCTION_UNDELIVERED_JOB_STATUSES as unknown as string[],
+				),
+			),
+		)
+		.orderBy(desc(fileProductionJobs.createdAt))
+		.limit(Math.max(1, input.limit ?? 5));
+
+	return rows.map((row) => ({
+		id: row.id,
+		title: row.title,
+		status: row.status as FileProductionJob["status"],
+		errorCode: row.errorCode ?? null,
+		errorMessage: row.errorMessage ?? null,
+		retryable: Boolean(row.retryable),
+		updatedAt: row.updatedAt.getTime(),
+	}));
+}

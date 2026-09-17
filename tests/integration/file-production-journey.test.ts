@@ -234,6 +234,11 @@ describe("File Production journey gate", () => {
 			userId: JOURNEY_USER_ID,
 			conversationId: JOURNEY_CONVERSATION_ID,
 			turnId: "journey-turn",
+			// This journey stages the worker itself (installDeterministicProduceFileToolWake
+			// above makes intake's wake a no-op), so the tool must not sit on its
+			// in-turn wait: it polls once and reports the job as still running,
+			// which is exactly the verdict a job this far from settling deserves.
+			fileProductionVerdictWaitMs: 0,
 		});
 
 		const toolResult = await tools.produce_file.execute(
@@ -276,15 +281,15 @@ describe("File Production journey gate", () => {
 
 		expect(toolResult).toMatchObject({
 			ok: true,
-			status: 202,
-			jobStatus: "queued",
+			status: "running",
 		});
 		expect(getToolCalls()[0]).toMatchObject({
 			name: "produce_file",
+			status: "done",
 			metadata: {
 				ok: true,
 				intakeStatus: 202,
-				jobStatus: "queued",
+				jobStatus: "running",
 			},
 		});
 		const jobId = expectPresent(
@@ -384,6 +389,8 @@ describe("File Production journey gate", () => {
 				userId: JOURNEY_USER_ID,
 				conversationId: JOURNEY_CONVERSATION_ID,
 				turnId: "journey-turn-program",
+				// Same staging as the document-source journey above.
+				fileProductionVerdictWaitMs: 0,
 			});
 
 			const toolResult = await tools.produce_file.execute(
@@ -408,8 +415,7 @@ describe("File Production journey gate", () => {
 
 			expect(toolResult).toMatchObject({
 				ok: true,
-				status: 202,
-				jobStatus: "queued",
+				status: "running",
 			});
 			const jobId = expectPresent(
 				"jobId" in toolResult ? toolResult.jobId : null,

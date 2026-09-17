@@ -1,4 +1,8 @@
 import { marked } from "marked";
+// Imported from the leaf module, not the facade: job-wait.ts is pure (its job
+// lookup, clock and sleep are all injected), so it pulls no DB into this
+// module's graph the way the facade's other entrypoints would.
+import { waitForFileProductionJobVerdict } from "$lib/server/services/file-production/job-wait";
 import type {
 	GeneratedDocumentBasisMarkerBlock,
 	GeneratedDocumentBasisSourceRef,
@@ -2068,18 +2072,6 @@ type ListConversationFileProductionJobs = (
 	conversationId: string,
 ) => Promise<FileProductionJob[]>;
 
-function isTerminalFileProductionJobStatus(
-	status: FileProductionJob["status"],
-): boolean {
-	return (
-		status === "succeeded" || status === "failed" || status === "cancelled"
-	);
-}
-
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function findConversationFileProductionJob(input: {
 	userId: string;
 	conversationId: string;
@@ -2093,29 +2085,27 @@ async function findConversationFileProductionJob(input: {
 	return jobs.find((job) => job.id === input.jobId) ?? null;
 }
 
+// Atlas keeps its own timeout/interval and its own throw-on-unsettled
+// contract (an Atlas run has no answer without its output files), but the
+// polling loop itself is the shared one in file-production/job-wait.ts.
 async function waitForAtlasOutputFileProductionJob(input: {
 	userId: string;
 	conversationId: string;
 	jobId: string;
 	listConversationFileProductionJobs: ListConversationFileProductionJobs;
 }): Promise<FileProductionJob> {
-	const deadline = Date.now() + ATLAS_OUTPUT_JOB_POLL_TIMEOUT_MS;
-	let latestJob: FileProductionJob | null = null;
-
-	while (Date.now() <= deadline) {
-		latestJob = await findConversationFileProductionJob(input);
-		if (latestJob && isTerminalFileProductionJobStatus(latestJob.status)) {
-			return latestJob;
-		}
-
-		const remainingMs = deadline - Date.now();
-		if (remainingMs <= 0) break;
-		await delay(Math.min(ATLAS_OUTPUT_JOB_POLL_INTERVAL_MS, remainingMs));
+	const verdict = await waitForFileProductionJobVerdict({
+		getJob: () => findConversationFileProductionJob(input),
+		timeoutMs: ATLAS_OUTPUT_JOB_POLL_TIMEOUT_MS,
+		pollIntervalMs: ATLAS_OUTPUT_JOB_POLL_INTERVAL_MS,
+	});
+	if (verdict.settled) {
+		return verdict.job;
 	}
 
 	throw new Error(
-		latestJob
-			? `Atlas output files were not produced before the timeout; latest status was ${latestJob.status}.`
+		verdict.job
+			? `Atlas output files were not produced before the timeout; latest status was ${verdict.job.status}.`
 			: "Atlas output files were not produced before the timeout; the output job was not found.",
 	);
 }
