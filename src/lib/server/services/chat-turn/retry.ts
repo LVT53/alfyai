@@ -160,6 +160,25 @@ export async function prepareRetryChatTurn(params: {
 	// read as "the user chose nothing" — a plain retry.
 	const recordedUserIntent = readRecordedUserIntent(assistantMsg.metadataJson);
 
+	// Probe the recorded skill BEFORE preflight, and drop it when it no longer
+	// resolves: a fresh send with an unavailable `pendingSkill` is rightly
+	// refused with 409 `pending_skill_unavailable`, but a regenerate of an older
+	// turn must not start failing because the user has since deleted or disabled
+	// that skill. Only the drop decision is made here; a skill that survives is
+	// handed to preflight as an ordinary `pendingSkill` and resolved there
+	// again, so the turn is assembled by exactly one code path (the send path's)
+	// and against the request's own normalized message.
+	//
+	// Done before the cleanup/delete below rather than after: this reads the
+	// skill tables, and a failure there must not land after the retried turn's
+	// messages are already gone, leaving the conversation short an answer it
+	// cannot regenerate.
+	const retryPendingSkill = await resolveRetryPendingSkill({
+		userId,
+		skill: recordedUserIntent?.skill,
+		requestText: precedingUserMsg.content,
+	});
+
 	const trailingMessages = conversationMessages.slice(assistantIndex);
 	if (confirmForkedSourceHistoryMutation !== true) {
 		const trailingAssistantMessageIds = trailingMessages
@@ -224,20 +243,6 @@ export async function prepareRetryChatTurn(params: {
 	if (!precedingUserMsg.content.trim()) {
 		return jsonError("No user message found to retry", 400);
 	}
-
-	// Probe the recorded skill BEFORE preflight, and drop it when it no longer
-	// resolves: a fresh send with an unavailable `pendingSkill` is rightly
-	// refused with 409 `pending_skill_unavailable`, but a regenerate of an older
-	// turn must not start failing because the user has since deleted or disabled
-	// that skill. Only the drop decision is made here; a skill that survives is
-	// handed to preflight as an ordinary `pendingSkill` and resolved there
-	// again, so the turn is assembled by exactly one code path (the send path's)
-	// and against the request's own normalized message.
-	const retryPendingSkill = await resolveRetryPendingSkill({
-		userId,
-		skill: recordedUserIntent?.skill,
-		requestText: precedingUserMsg.content,
-	});
 
 	const syntheticBody = buildSyntheticRetryBody({
 		conversationId,
