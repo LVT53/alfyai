@@ -47,6 +47,42 @@ describe("buildMessageUserIntent", () => {
 			buildMessageUserIntent({ skill: { id: "skill-1", displayName: "  " } }),
 		).toBeUndefined();
 	});
+
+	// A skill display name is capped at 120 where it is written, so a longer
+	// one did not come from this app's skill table — and it would go straight
+	// onto a chip. Refused whole rather than truncated, and the other key the
+	// user chose survives.
+	it("refuses a skill whose name or id is longer than it can be", () => {
+		expect(
+			buildMessageUserIntent({
+				skill: { id: "skill-1", displayName: "x".repeat(121) },
+				forceWebSearch: true,
+			}),
+		).toEqual({ webSearch: true });
+		expect(
+			buildMessageUserIntent({
+				skill: { id: "s".repeat(201), displayName: "Invoice reply" },
+			}),
+		).toBeUndefined();
+		expect(
+			buildMessageUserIntent({
+				skill: { id: "skill-1", displayName: "x".repeat(120) },
+			}),
+		).toEqual({ skill: { id: "skill-1", displayName: "x".repeat(120) } });
+	});
+
+	// The client builds this from a `pendingSkill` that arrived as JSON, so a
+	// shape TypeScript believes in can still be wrong at runtime — and a throw
+	// here would take the whole send with it.
+	it("does not throw on a skill whose fields are not strings", () => {
+		const malformed = { id: 7, displayName: null } as unknown as {
+			id: string;
+			displayName: string;
+		};
+		expect(
+			buildMessageUserIntent({ skill: malformed, forceWebSearch: true }),
+		).toEqual({ webSearch: true });
+	});
 });
 
 describe("parseMessageUserIntent", () => {
@@ -82,5 +118,28 @@ describe("parseMessageUserIntent", () => {
 				webSearch: "yes",
 			}),
 		).toEqual({ skill: { id: "skill-1", displayName: "Invoice reply" } });
+	});
+
+	// The same bound the builder enforces, reached through the persisted /
+	// streamed side: an oversized label never becomes a chip.
+	it("drops an oversized skill name read back from JSON", () => {
+		expect(
+			parseMessageUserIntent({
+				skill: { id: "skill-1", displayName: "x".repeat(121) },
+				webSearch: true,
+			}),
+		).toEqual({ webSearch: true });
+	});
+
+	// Only `skill` and `webSearch` are read, onto a fresh literal.
+	it("does not carry a prototype key or any other key through", () => {
+		const parsed = parseMessageUserIntent(
+			JSON.parse(
+				'{"__proto__":{"polluted":true},"webSearch":true,"atlas":"in-depth"}',
+			),
+		);
+		expect(parsed).toEqual({ webSearch: true });
+		expect(Object.keys(parsed ?? {})).toEqual(["webSearch"]);
+		expect(({} as Record<string, unknown>).polluted).toBeUndefined();
 	});
 });

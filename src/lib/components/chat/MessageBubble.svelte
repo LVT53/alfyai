@@ -1090,7 +1090,10 @@ function sendFollowUp(question: string) {
 	     buttons beside it, it is always visible rather than hover-only; on a
 	     turn where the user chose nothing it is not rendered at all. -->
 	{#if showProvenanceLine}
-		<div class="provenance-line" data-testid="message-provenance" aria-label={$t('messageProvenance.label')}>
+		<!-- `role="group"` so the label is actually announced: aria-label on a
+		     bare <div> (an implicit `generic`) is ignored by screen readers,
+		     and this row is exactly a named group of chips. -->
+		<div class="provenance-line" data-testid="message-provenance" role="group" aria-label={$t('messageProvenance.label')}>
 			<span class="provenance-line__lead">{$t('messageProvenance.used')}</span>
 			{#each provenanceEntries as entry, index (`${entry.kind}-${index}`)}
 				{#if entry.kind === 'skill'}

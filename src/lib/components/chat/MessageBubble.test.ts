@@ -2321,6 +2321,27 @@ describe("MessageBubble", () => {
 			]);
 		});
 
+		// The row names itself for a screen reader by what it MEANS — what the
+		// user turned on — not by the old "how this answer was made", which
+		// promised the model's doings the line deliberately no longer shows.
+		// `role="group"`, or the label would be dropped on a bare <div>.
+		it("labels the row as the user's own choices", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage({
+					userIntent: { webSearch: true },
+				}),
+			});
+
+			const line = screen.getByTestId("message-provenance");
+			expect(line.getAttribute("role")).toBe("group");
+			expect(line.getAttribute("aria-label")).toBe(
+				chatDict.en["messageProvenance.label"],
+			);
+			expect(chatDict.en["messageProvenance.label"]).toBe(
+				"What you turned on for this answer",
+			);
+		});
+
 		// A skill the model loaded via `use_skill`, a `research_web` it ran by
 		// itself, even the structured web evidence that search produced: none
 		// of it is the user's choice, so the line does not render at all.

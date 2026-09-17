@@ -800,6 +800,36 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(placeholder).not.toHaveProperty("userIntent");
 	});
 
+	// An Atlas turn carries neither choice: the server drops `pendingSkill`
+	// and `forceWebSearch` for `atlasMode` (chat-turn/request.ts), so stamping
+	// them here would draw a chip for something the server never honoured —
+	// and nothing would ever come back to take it away, because the Atlas
+	// finalize frame carries no record either.
+	it("stamps no userIntent on an Atlas turn, whatever the composer had on", async () => {
+		const { adapters, messageListEvents } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Research the market",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			atlasMode: true,
+			atlasProfile: "in-depth",
+			atlasAction: "create",
+			pendingSkill: {
+				id: "skill-1",
+				ownership: "user",
+				displayName: "Planning reviewer",
+			},
+			forceWebSearch: true,
+		});
+
+		const [placeholder] =
+			messageListEvents.appendAssistantPlaceholder.mock.calls[0];
+		expect(placeholder).not.toHaveProperty("userIntent");
+	});
+
 	it("threads the composer's enabledConnectionCapabilities selection to streamChat (Issue 7.2)", async () => {
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);

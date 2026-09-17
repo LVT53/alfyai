@@ -33,17 +33,46 @@ export interface MessageUserIntent {
 	webSearch?: true;
 }
 
+// The display name goes straight onto a chip in the message stream, and a
+// skill's name is the user's own text. It is already capped where it is
+// WRITTEN — every skill-definition write runs it through
+// `cleanRequiredText(..., 120)` (services/skills/user-skills.ts) — so a name
+// longer than that never came from this app's own skill table, and an id
+// longer than a UUID never came from its own primary keys. Both are refused
+// here rather than truncated: a truncated label would still draw whatever
+// text was smuggled in, and this record is read back out of two places
+// (persisted `metadataJson`, a stream frame) that a chip must be able to
+// trust. Enforced in the BUILDER, so the optimistic client stamp and the
+// parsed server record agree on exactly the same bound and a chip cannot
+// appear at send only to vanish on the terminal frame.
+const MAX_SKILL_ID_LENGTH = 200;
+const MAX_SKILL_DISPLAY_NAME_LENGTH = 120;
+
+/** A trimmed string, or "" for anything that is not a string within `max`. */
+function boundedText(value: unknown, max: number): string {
+	if (typeof value !== "string" || value.length > max) return "";
+	return value.trim();
+}
+
 /**
  * Build the record for a turn, or `undefined` when the user chose nothing —
  * callers spread it conditionally so an empty `{}` is never persisted.
+ *
+ * Every field is re-checked here rather than trusted from the parameter type:
+ * the client builds this from a `pendingSkill` that arrived as JSON from the
+ * skills API, so a shape TypeScript believes in can still be wrong at
+ * runtime, and a throw here would take the whole send with it.
  */
 export function buildMessageUserIntent(params: {
 	skill?: { id: string; displayName: string } | null | undefined;
 	forceWebSearch?: boolean | undefined;
 }): MessageUserIntent | undefined {
 	const intent: MessageUserIntent = {};
-	const id = params.skill?.id.trim();
-	const displayName = params.skill?.displayName.trim();
+	const id = boundedText(params.skill?.id, MAX_SKILL_ID_LENGTH);
+	const displayName = boundedText(
+		params.skill?.displayName,
+		MAX_SKILL_DISPLAY_NAME_LENGTH,
+	);
 	if (id && displayName) {
 		intent.skill = { id, displayName };
 	}
@@ -56,7 +85,10 @@ export function buildMessageUserIntent(params: {
 /**
  * Read the record back from untrusted JSON (persisted metadata, or a stream
  * frame). Anything malformed degrades to "chose nothing" for that key, and a
- * record with no valid key is `undefined` — never `{}`.
+ * record with no valid key is `undefined` — never `{}`. Only `skill` and
+ * `webSearch` are read, onto a fresh object literal, so no other key of the
+ * parsed JSON (`__proto__` included) reaches the result; the length bounds
+ * are the builder's.
  */
 export function parseMessageUserIntent(
 	value: unknown,
