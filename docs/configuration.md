@@ -287,3 +287,47 @@ documented in [deploy/README.md](../deploy/README.md).
 | `HOST` | No | `0.0.0.0` in adapter-node (`.env.example` ships `127.0.0.1`) | Controls the adapter-node listen address | Set it to `0.0.0.0` when a reverse proxy or trusted internal service must reach the app over the host bridge | If you set `127.0.0.1`, other host-managed services cannot reach the app directly |
 | `PORT` | No | `3000` in adapter-node (`.env.example` ships `3001`) | Controls the adapter-node listen port | Set it to match your reverse proxy or host-managed service expectations | Keep proxy config aligned with the same port |
 | `NODE_ENV` | No | environment dependent | Controls framework/runtime production behavior | Set it to `production` in real deployments | Also affects cookie security behavior |
+| `ADDRESS_HEADER` | No | unset | Tells adapter-node which request header carries the real client address, so `getClientAddress()` stops returning the reverse proxy's loopback address | Set it to `x-forwarded-for` behind Apache — see [Client addresses behind the proxy](#client-addresses-behind-the-proxy) | Only set it when a proxy you control **overwrites** the header. If clients can reach the app directly, this makes the address forgeable |
+| `XFF_DEPTH` | No | `1` | How many proxies sit in front of the app, counted from the right of `x-forwarded-for` | Set it alongside `ADDRESS_HEADER` — `1` for the single Apache hop | Wrong values pick the wrong hop, which is worse than not setting `ADDRESS_HEADER` at all |
+
+### Client addresses behind the proxy
+
+The login throttle (see below) keys a secondary budget on the client address. Today neither
+`ADDRESS_HEADER` nor `XFF_DEPTH` is set anywhere in this repo or on the boxes, and Apache proxies
+with `ProxyPass / http://127.0.0.1:3001/`, so `event.getClientAddress()` returns Apache's loopback
+address for **every** request.
+
+The app deliberately does not read `x-forwarded-for` itself. A header the server has not been
+configured to trust is attacker-controlled, and keying a limiter on attacker-controlled input is
+worse than having no limiter: the attacker picks a fresh key per request while everyone else shares
+the forged ones. So instead, the per-address budget is simply **skipped** whenever the resolved
+address is loopback or RFC1918 and `ADDRESS_HEADER` is unset. The per-email budget — the one that
+actually protects an account — applies regardless.
+
+To turn the per-address budget on, add to `shared/.env` and restart:
+
+```bash
+ADDRESS_HEADER=x-forwarded-for
+XFF_DEPTH=1
+```
+
+`XFF_DEPTH=1` is correct for the current topology: exactly one proxy (Apache) in front of the app.
+Only do this while Apache is the sole ingress — if the Node port is reachable directly, a client can
+forge the header and choose its own rate-limit bucket.
+
+### Login throttle
+
+Failed credential checks are counted in a 15-minute sliding window, per process
+(`src/lib/server/services/login-rate-limit.ts`). Successful logins are not counted and clear the
+email budget, so ordinary use and the Playwright suite are unaffected.
+
+| Budget | Cap per 15 min | Cleared by a success? |
+|---|---:|---|
+| Per email address (`POST /api/auth/login`) | 8 | Yes |
+| Per client address (`POST /api/auth/login`) | 30 | No — otherwise one correct guess resets an attacker's spray counter |
+| Per account (`PATCH /api/settings/password`, wrong current password) | 8 | Yes |
+
+A throttled request gets `429` with a `Retry-After` header and an `errorKey` of
+`login.tooManyAttempts`, which the login page renders localized. The limiter check runs before the
+password comparison, so a throttled caller cannot make the server burn bcrypt work on their behalf.
+It is disabled entirely when `PLAYWRIGHT_TEST` is set.
