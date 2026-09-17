@@ -16,6 +16,7 @@ import type { FileProductionJob } from "$lib/server/services/file-production/typ
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { RESPONSE_ACTIVITY_IDS } from "$lib/services/stream-timeline";
+import { uiLanguage } from "$lib/stores/settings";
 import { clearToasts, toasts } from "$lib/stores/toast";
 import { renderMarkdown } from "$lib/utils/markdown-loader";
 import MessageBubble from "./MessageBubble.svelte";
@@ -2734,5 +2735,84 @@ describe("MessageBubble", () => {
 				"assistant-follow-ups",
 			);
 		});
+	});
+});
+
+// ── User-message timestamps ──────────────────────────────────────────
+// The two labels on a user bubble used to be assembled by hand from a day
+// number and an `en-GB` month name, which gave a Hungarian reader "17 Sept"
+// where Hungarian writes "szept. 17." — the order is part of the date, not
+// decoration around it. They now go through Intl with the interface
+// language.
+//
+// The English half of that is a refactor and MUST NOT move a single
+// character: this is the timestamp on every message the user has ever sent.
+// A fixed date in the past (never "today", which takes the clock branch).
+describe("MessageBubble user timestamp", () => {
+	const SENT_AT = new Date(2024, 2, 5, 14, 52).getTime();
+
+	function renderUserMessage() {
+		const message: ChatMessage = {
+			id: "user-timestamped",
+			renderKey: "user-timestamped",
+			role: "user",
+			content: "Hello",
+			timestamp: SENT_AT,
+		};
+		return render(MessageBubble, { message });
+	}
+
+	afterEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("writes the English label exactly as the hand-built one did", () => {
+		// Pinned as literals, not recomputed: a test that rebuilds the string
+		// with the same Intl call it is checking would agree with any change.
+		uiLanguage.set("en");
+		const { container } = renderUserMessage();
+
+		expect(container.querySelector(".timestamp-label")?.textContent).toBe(
+			"5 Mar",
+		);
+		expect(container.querySelector(".tooltip-value")?.textContent).toBe(
+			"5 March 2024, 14:52",
+		);
+	});
+
+	it("puts the Hungarian date in Hungarian order", () => {
+		// Month before day, each with the full stop Hungarian writes after it,
+		// and the year leading the long form — none of which survives
+		// "{day} {month}".
+		uiLanguage.set("hu");
+		const { container } = renderUserMessage();
+
+		expect(container.querySelector(".timestamp-label")?.textContent).toBe(
+			"márc. 5.",
+		);
+		expect(container.querySelector(".tooltip-value")?.textContent).toBe(
+			"2024. március 5., 14:52",
+		);
+	});
+
+	it("keeps the clock hand-built and 24-hour in both languages", () => {
+		// Today's messages show HH:MM and nothing else; both locales are
+		// 24-hour, so this half is deliberately not handed to Intl.
+		for (const language of ["en", "hu"] as const) {
+			cleanup();
+			uiLanguage.set(language);
+			const message: ChatMessage = {
+				id: `user-today-${language}`,
+				renderKey: `user-today-${language}`,
+				role: "user",
+				content: "Hello",
+				timestamp: new Date().setHours(9, 4, 0, 0),
+			};
+			const { container } = render(MessageBubble, { message });
+			expect(
+				container.querySelector(".timestamp-label")?.textContent,
+				language,
+			).toBe("09:04");
+		}
 	});
 });

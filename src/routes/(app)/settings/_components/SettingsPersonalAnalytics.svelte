@@ -10,6 +10,8 @@ import {
 	type TableRow,
 } from "$lib/components/analytics";
 import { t } from "$lib/i18n";
+import { uiLanguage } from "$lib/stores/settings";
+import { intlLocale } from "$lib/utils/locale";
 import type { AnalyticsResponse } from "$lib/client/api/settings";
 import "$lib/components/analytics/analytics.css";
 import AnalyticsChassis from "./analytics/AnalyticsChassis.svelte";
@@ -78,15 +80,22 @@ function modelIconUrl(key: string | null | undefined): string | null {
 	return key ? (modelIcons[key] ?? null) : null;
 }
 
+// This is the analytics tab every user has, not an admin pane, so its
+// numbers and months follow the interface language: 1 234 and "2026.
+// szeptember" for a Hungarian reader, 1,234 and "September 2026" for an
+// English one. Pinning en-US gave both of them the American form.
 function formatNum(value: number): string {
 	if (!value) return "0";
-	return value.toLocaleString("en-US");
+	return value.toLocaleString(intlLocale($uiLanguage));
 }
 
 function formatMonth(ym: string): string {
 	const [y, m] = ym.split("-");
 	const date = new Date(Number(y), Number(m) - 1, 1);
-	return date.toLocaleDateString("en-US", { year: "numeric", month: "long" });
+	return date.toLocaleDateString(intlLocale($uiLanguage), {
+		year: "numeric",
+		month: "long",
+	});
 }
 
 // MonthNav expects chronologically ascending "YYYY-MM" keys.
@@ -264,9 +273,9 @@ function setGranularity(next: "weekly" | "monthly" | "yearly") {
 					<StatGrid>
 						<StatCard value={formatNum(analyticsData.personal.totalMessages)} label={$t('analytics.messagesSent')} />
 						<StatCard
-							value={formatCompactNumber(analyticsData.personal.totalTokens)}
+							value={formatCompactNumber(analyticsData.personal.totalTokens, $uiLanguage)}
 							label={$t('analytics.tokensUsed')}
-							comparison={`${formatCompactNumber(analyticsData.personal.outputTokens)} ${$t('outputTokens')} · ${formatCompactNumber(analyticsData.personal.reasoningTokens)} ${$t('analytics.reasoningTokens')}`}
+							comparison={`${formatCompactNumber(analyticsData.personal.outputTokens, $uiLanguage)} ${$t('outputTokens')} · ${formatCompactNumber(analyticsData.personal.reasoningTokens, $uiLanguage)} ${$t('analytics.reasoningTokens')}`}
 						/>
 						<StatCard value={formatNum(analyticsData.personal.chatCount)} label={$t('analytics.conversations')} />
 						<StatCard value={favoriteModelLabel} label={$t('analytics.favoriteModel')} />

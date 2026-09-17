@@ -329,7 +329,7 @@ function downloadFile() {
 						>
 							<iframe
 								class="html-preview-frame"
-								title={`${filename} preview`}
+								title={$t('documentWorkspace.htmlPreviewLabel', { filename })}
 								sandbox={htmlPreviewSandbox(textPreview)}
 								style="height: 100%; flex-grow: 1; border: 0; border-radius: 0; background: rgba(0, 0, 0, 0);"
 								srcdoc={textPreview.srcdoc}

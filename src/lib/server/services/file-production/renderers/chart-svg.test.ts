@@ -165,6 +165,40 @@ describe("generated document chart SVG renderer", () => {
 		).toThrow("Cartesian charts require xKey and yKey.");
 	});
 
+	it("groups y-axis figures in the report's language", () => {
+		// A Hungarian report's chrome is Hungarian (reportChrome in
+		// standard-report-html) but its axis figures were pinned to en-US, so
+		// a chart under a "Szakaszok" heading counted in American thousands.
+		const chart: GeneratedDocumentChartBlock = {
+			type: "chart",
+			chartType: "line",
+			title: "Nagy számok",
+			xKey: "label",
+			yKey: "value",
+			data: [
+				{ label: "A", value: 0 },
+				{ label: "B", value: 1_200_000 },
+			],
+		};
+
+		const english = renderChartSvg(chart, { language: "en" }).svg;
+		const hungarian = renderChartSvg(chart, { language: "hu" }).svg;
+
+		// The axis is drawn on rounded ticks, so 1,500,000 is the top one.
+		expect(english).toContain(">1,500,000<");
+		// hu-HU groups with a non-breaking space, not a comma.
+		expect(hungarian).toContain(">1 500 000<");
+		expect(hungarian).not.toContain(">1,500,000<");
+	});
+
+	it("still renders English when no language is given", () => {
+		// Every existing caller passed nothing; none of them may change.
+		const chart = readChartBlock();
+		expect(renderChartSvg(chart)).toEqual(
+			renderChartSvg(chart, { language: "en" }),
+		);
+	});
+
 	it("throws for stacked bar charts without a series key", () => {
 		expect(() =>
 			renderChartSvg({

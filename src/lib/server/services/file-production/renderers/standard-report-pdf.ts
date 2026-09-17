@@ -11,6 +11,7 @@ import {
 	type RGB,
 	rgb,
 } from "pdf-lib";
+import { intlLocale } from "$lib/utils/locale";
 import {
 	type GeneratedDocumentImageLoadResult,
 	loadGeneratedDocumentImage,
@@ -521,12 +522,20 @@ function formatChartLabel(
 		.join(" ");
 }
 
-function formatChartNumber(value: number): string {
+// The report's chrome is localized (standard-report-html's reportChrome), so
+// the figures inside it have to be too: a Hungarian report that says
+// "Szakaszok" over an axis reading 12,500 is speaking two languages at once.
+// `language` is the report's own — GeneratedDocumentSource.language — not the
+// viewer's, because a PDF is a file that travels.
+function formatChartNumber(
+	value: number,
+	language: string | undefined,
+): string {
 	const rounded =
 		Math.abs(value) >= 100 ? Math.round(value) : Number(value.toFixed(1));
-	return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(
-		rounded,
-	);
+	return new Intl.NumberFormat(intlLocale(language), {
+		maximumFractionDigits: 1,
+	}).format(rounded);
 }
 
 function drawAlfyAiLogo(
@@ -1101,26 +1110,45 @@ class StandardReportPdfLayout {
 		>["columns"][number]["kind"],
 	): string {
 		if (value === null || value === undefined) return "";
-		if (kind === "boolean")
-			return value === true ? "Yes" : value === false ? "No" : String(value);
+		// Every branch below follows the REPORT's language, not the viewer's.
+		// The chrome around these cells already does (reportChrome), so an
+		// en-US number in a Hungarian table was the odd one out.
+		const locale = intlLocale(this.source.language);
+		if (kind === "boolean") {
+			if (value === true) return this.source.language === "hu" ? "Igen" : "Yes";
+			if (value === false) return this.source.language === "hu" ? "Nem" : "No";
+			return String(value);
+		}
 		if (typeof value === "number") {
-			if (kind === "percent") return `${(value * 100).toFixed(1)}%`;
+			if (kind === "percent") {
+				// Localized like its neighbours, or a Hungarian table would put
+				// "12,5" in the number column and "12.5%" in the one beside it.
+				// minimum === maximum keeps the one decimal place the old
+				// `.toFixed(1)` always printed, and `style: "percent"` takes the
+				// ×100 as well as the sign.
+				return new Intl.NumberFormat(locale, {
+					style: "percent",
+					minimumFractionDigits: 1,
+					maximumFractionDigits: 1,
+				}).format(value);
+			}
 			if (kind === "currency") {
-				return new Intl.NumberFormat("en-US", {
+				// The currency stays USD — that is a fact about the amount, not
+				// a formatting choice — but hu-HU writes it as "1 234 US$".
+				return new Intl.NumberFormat(locale, {
 					style: "currency",
 					currency: "USD",
 					maximumFractionDigits: 0,
 				}).format(value);
 			}
-			if (kind === "number")
-				return new Intl.NumberFormat("en-US").format(value);
+			if (kind === "number") return new Intl.NumberFormat(locale).format(value);
 		}
 		if (kind === "date" && typeof value === "string") {
 			const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
 				? new Date(`${value}T00:00:00.000Z`)
 				: null;
 			if (parsed && !Number.isNaN(parsed.getTime())) {
-				return new Intl.DateTimeFormat("en-US", {
+				return new Intl.DateTimeFormat(locale, {
 					year: "numeric",
 					month: "short",
 					day: "numeric",
@@ -1528,7 +1556,9 @@ class StandardReportPdfLayout {
 	}
 
 	drawChart(block: Extract<GeneratedDocumentBlock, { type: "chart" }>): void {
-		const renderedSvg = renderChartSvg(block);
+		const renderedSvg = renderChartSvg(block, {
+			language: this.source.language,
+		});
 		const x = this.contentX();
 		const width = this.contentWidth();
 		const titleLines = wrapText(
@@ -1737,7 +1767,7 @@ class StandardReportPdfLayout {
 				thickness: 0.4,
 				color: hexColor(THEME.rule),
 			});
-			const label = formatChartNumber(value);
+			const label = formatChartNumber(value, this.source.language);
 			const labelWidth = this.fonts.regular.widthOfTextAtSize(label, 7.8);
 			this.page.drawText(label, {
 				x: plot.x - 8 - labelWidth,

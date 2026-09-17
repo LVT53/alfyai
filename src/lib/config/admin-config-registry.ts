@@ -641,6 +641,58 @@ export const ADMIN_CONFIG_EFFECT_BY_KEY: Readonly<
 	ADVANCED_KEY_SPECS.map((spec) => [spec.key, spec.effect]),
 );
 
+/**
+ * The keys whose control must be inert.
+ *
+ * `effect: "unwired"` used to be a label and nothing more: the row rendered a
+ * normal, editable field with a small "no effect yet" chip beside it, so an
+ * admin could type a number, press Save, get "Configuration saved." and have
+ * changed nothing at all. A setting that accepts a value it will never read is
+ * worse than a setting that is missing.
+ *
+ * Every key here was checked against its would-be consumer before being left
+ * unwired; none of them is a one-line hook-up:
+ *
+ *  - FILE_PRODUCTION_SANDBOX_TIMEOUT_MS / FILE_PRODUCTION_RENDERER_TIMEOUT_MS
+ *    reach `getFileProductionLimits()` as `sandboxTimeoutMs` /
+ *    `rendererTimeoutMs` and stop there. Nothing enforces either one — the
+ *    `sandbox_timeout` / `renderer_timeout` error codes exist but are never
+ *    raised from a clock. Wiring them means giving the sandbox and the
+ *    renderer a real deadline, not passing a number along.
+ *  - TEI_RERANKER_MODEL has no field to go in. A Text Embeddings Inference
+ *    server serves ONE model per process and its `/rerank` body has no `model`
+ *    member; the model is chosen when the container starts. There is no
+ *    embedding-model twin in this registry for the same reason.
+ *  - WORKING_SET_PROMPT_TOKEN_BUDGET / WORKING_SET_DOCUMENT_TOKEN_BUDGET
+ *    collide with two same-named CONSTANTS in knowledge/store/core.ts (3 000
+ *    and 1 200) which context-selection.ts uses as `minTotalBudget` floors.
+ *    The config defaults are 20 000 / 4 000 — an order of magnitude apart,
+ *    because they are not the same quantity. knowledge/AGENTS.md says so
+ *    outright: "legacy minimum floors and small-context fallbacks. Do not use
+ *    them as final prompt-depth ceilings." Pointing the floor at the admin
+ *    value would change chat context selection, not connect a setting.
+ *
+ * So they stay visible (an admin looking for the key should find it and learn
+ * why it does nothing) and stay inert: disabled control, a note saying so, out
+ * of the save payload, and dropped-and-reported by `PUT /api/admin/config`
+ * (dropped rather than refused, so a caller that still sends one — a tab
+ * loaded before this shipped, a provisioning script — keeps being able to save
+ * everything else in the same body).
+ */
+export const UNWIRED_ADMIN_CONFIG_KEYS: ReadonlySet<string> = new Set(
+	ADVANCED_KEY_SPECS.filter((spec) => spec.effect === "unwired").map(
+		(spec) => spec.key,
+	),
+);
+
+/**
+ * True for a key the UI must not let anyone edit and the API must not store.
+ * Takes a plain string so both sides can call it with an unvalidated key.
+ */
+export function isUnwiredAdminConfigKey(key: string): boolean {
+	return UNWIRED_ADMIN_CONFIG_KEYS.has(key);
+}
+
 export function advancedKeysInGroup(
 	group: AdvancedGroupId,
 ): AdminConfigKeySpec[] {

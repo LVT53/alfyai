@@ -35,8 +35,9 @@ let {
 
 // "2 h ago" has to be "2 órája" in Hungarian, so the times go through the
 // Intl.RelativeTimeFormat pair the connections rows already use rather than
-// $lib/utils/time's formatRelativeTime — that one is hard-coded to en-US and
-// says so in its own call site's comment. Rebuilt when the language changes;
+// $lib/utils/time's formatRelativeTime — that one builds its phrases out of
+// English-shaped i18n fragments and takes its date locale from the host
+// machine, not from the interface. Rebuilt when the language changes;
 // `nowSeconds` is the reference instant so the whole board moves on one clock.
 const formatters = $derived(
 	makeGrammarFormatters($uiLanguage, () => nowSeconds * 1000),

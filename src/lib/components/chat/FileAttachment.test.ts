@@ -1,5 +1,6 @@
 import { render } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
+import { uiLanguage } from "$lib/stores/settings";
 import FileAttachment from "./FileAttachment.svelte";
 
 describe("FileAttachment — long-document comfort cost line", () => {
@@ -65,6 +66,25 @@ describe("FileAttachment — long-document comfort cost line", () => {
 
 		getByRole("button", { name: /remove/i }).click();
 		expect(onRemove).toHaveBeenCalledWith({ id: "a4" });
+	});
+
+	it("localizes the remove button's label, which is its only name", () => {
+		// The button is an X icon with `aria-hidden` on the glyph, so this
+		// aria-label is the entire accessible name. It was a template literal,
+		// `Remove ${name}`, which a Hungarian screen-reader user heard in
+		// English.
+		uiLanguage.set("hu");
+		const { getByRole } = render(FileAttachment, {
+			props: {
+				attachment: { id: "a5", name: "szerzodes.pdf" },
+				removable: true,
+			},
+		});
+
+		expect(
+			getByRole("button", { name: "szerzodes.pdf eltávolítása" }),
+		).toBeInTheDocument();
+		uiLanguage.set("en");
 	});
 });
 

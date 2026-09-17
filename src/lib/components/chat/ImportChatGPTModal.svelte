@@ -319,7 +319,7 @@ function handleRetry(): void {
 					<div
 						class="flex max-h-[50vh] flex-col gap-2 overflow-y-auto rounded-lg border border-border-default p-2"
 						role="list"
-						aria-label="Conversations to import"
+						aria-label={$t('chatgptImport.conversationListLabel')}
 					>
 						{#if filteredChats.length === 0}
 							<p class="py-8 text-center text-sm text-text-muted">

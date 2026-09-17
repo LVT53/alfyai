@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 import {
 	ADVANCED_KEY_SPEC_BY_KEY,
+	isUnwiredAdminConfigKey,
 	validateAdminConfigValue,
 } from "$lib/config/admin-config-registry";
 import { requireAdmin } from "$lib/server/auth/hooks";
@@ -83,9 +84,23 @@ export const PUT: RequestHandler = async (event) => {
 	// patch behind, and the rejection names each key that failed and why.
 	const pending: Array<{ key: AdminConfigKey; value: string }> = [];
 	const invalid: Record<string, { reason: string; limit?: number }> = {};
+	// Keys nothing reads: DROPPED from the write, never stored, and named back
+	// to the caller in `ignored`. Deliberately NOT folded into `invalid`: that
+	// set fails the whole patch, and an unwired key riding along with a dozen
+	// good ones — an admin tab loaded before this deploy, a provisioning
+	// script posting a full config dump — would then be unable to save
+	// anything at all. The value is not wrong, there is just nowhere for it to
+	// go, so it is the only part of the patch that gets dropped. Silence is
+	// what the disabled row exists to stop, so the response says which keys
+	// went nowhere and why.
+	const ignored: Record<string, { reason: string }> = {};
 
 	for (const key of ADMIN_CONFIG_KEYS) {
 		if (body[key] === undefined) continue;
+		if (isUnwiredAdminConfigKey(key)) {
+			ignored[key] = { reason: "unwired" };
+			continue;
+		}
 		const rawValue = String(body[key]);
 		const value =
 			key === "MODEL_1_SYSTEM_PROMPT" || key === "MODEL_2_SYSTEM_PROMPT"
@@ -107,11 +122,18 @@ export const PUT: RequestHandler = async (event) => {
 		pending.push({ key: key as AdminConfigKey, value: checked.value });
 	}
 
+	const ignoredKeys = Object.keys(ignored);
+
 	if (Object.keys(invalid).length > 0) {
+		// A malformed value still fails the whole patch — nothing is written,
+		// so a rejected key never leaves half an edit behind. `ignored` rides
+		// along on the failure too, so the caller learns about both problems
+		// from one response instead of discovering the second on the retry.
 		return json(
 			{
 				error: `Invalid value for ${Object.keys(invalid).join(", ")}`,
 				invalid,
+				...(ignoredKeys.length > 0 ? { ignored } : {}),
 			},
 			{ status: 400 },
 		);
@@ -139,5 +161,12 @@ export const PUT: RequestHandler = async (event) => {
 
 	await refreshConfig();
 
-	return json({ success: true });
+	// `success: true` is honest: every key that could be stored was stored.
+	// `ignored` is what keeps it from being a half-truth — it names, per key,
+	// the part of the patch that went nowhere, so a caller outside the UI is
+	// told rather than left to infer it from a later GET.
+	return json({
+		success: true,
+		...(ignoredKeys.length > 0 ? { ignored } : {}),
+	});
 };

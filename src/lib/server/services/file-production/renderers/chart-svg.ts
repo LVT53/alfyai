@@ -1,3 +1,4 @@
+import { intlLocale } from "$lib/utils/locale";
 import type { GeneratedDocumentChartBlock } from "../source-schema";
 
 const CHART_THEME = {
@@ -106,6 +107,8 @@ interface CartesianChartState {
 	chart: GeneratedDocumentChartBlock;
 	width: number;
 	height: number;
+	/** The report's language, for the y-axis figures. See renderChartSvg. */
+	language: string | undefined;
 	margin: { top: number; right: number; bottom: number; left: number };
 	plotWidth: number;
 	plotHeight: number;
@@ -127,8 +130,9 @@ function renderCartesianChart(
 	chart: GeneratedDocumentChartBlock,
 	width: number,
 	height: number,
+	language: string | undefined,
 ): RenderedChartSvg {
-	const state = buildCartesianChartState(chart, width, height);
+	const state = buildCartesianChartState(chart, width, height, language);
 	const { points, areaPoints } = buildCartesianLineAndAreaGeometry(state);
 	const xLabels = buildCartesianXAxisLabels(state);
 	const yGrid = buildCartesianYAxisGrid(state);
@@ -168,6 +172,7 @@ function buildCartesianChartState(
 	chart: GeneratedDocumentChartBlock,
 	width: number,
 	height: number,
+	language: string | undefined,
 ): CartesianChartState {
 	if (!chart.xKey || !chart.yKey) {
 		throw new Error("Cartesian charts require xKey and yKey.");
@@ -227,6 +232,7 @@ function buildCartesianChartState(
 		chart,
 		width,
 		height,
+		language,
 		margin,
 		plotWidth,
 		plotHeight,
@@ -282,7 +288,7 @@ function buildCartesianYAxisGrid(state: CartesianChartState): string[] {
 		const y = state.scaleY(tick);
 		return [
 			`<line x1="${state.margin.left}" y1="${y.toFixed(1)}" x2="${state.margin.left + state.plotWidth}" y2="${y.toFixed(1)}" stroke="${CHART_THEME.rule}" stroke-width="1"/>`,
-			`<text x="${state.margin.left - 10}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="${CHART_THEME.secondaryText}">${escapeXml(new Intl.NumberFormat("en-US").format(tick))}</text>`,
+			`<text x="${state.margin.left - 10}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="${CHART_THEME.secondaryText}">${escapeXml(new Intl.NumberFormat(intlLocale(state.language)).format(tick))}</text>`,
 		].join("");
 	});
 }
@@ -432,12 +438,22 @@ function renderPieChart(
 
 export function renderChartSvg(
 	chart: GeneratedDocumentChartBlock,
-	options: { width?: number; height?: number } = {},
+	options: {
+		width?: number;
+		height?: number;
+		/**
+		 * The report's own language, so a y-axis tick is grouped the way the
+		 * prose around it is — "12 500" in a Hungarian report, "12,500" in an
+		 * English one. Omitted (the default) means English, which is what
+		 * every caller got before this existed.
+		 */
+		language?: string;
+	} = {},
 ): RenderedChartSvg {
 	const width = options.width ?? 640;
 	const height = options.height ?? 360;
 	if (isCartesianChart(chart)) {
-		return renderCartesianChart(chart, width, height);
+		return renderCartesianChart(chart, width, height, options.language);
 	}
 	if (chart.chartType === "pie" || chart.chartType === "donut") {
 		return renderPieChart(chart, width, height);

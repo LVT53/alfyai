@@ -9,6 +9,8 @@
 // on the same grammar — hero number, split bar, tiles, chart, table — and this
 // module is the half of it that can be checked without rendering anything.
 
+import { intlLocale } from "$lib/utils/locale";
+
 export interface CostSegmentInput {
 	label: string;
 	value: number;
@@ -203,13 +205,23 @@ export function buildColumnChart(
 	return { columns, gridlines, peak, empty: peak <= 0 };
 }
 
-/** Compact axis/tile figures: 18_400_000 → "18.4M". */
-export function formatCompactNumber(value: number | null | undefined): string {
+/**
+ * Compact axis/tile figures: 18_400_000 → "18.4M".
+ *
+ * `language` is the interface language ("en"/"hu"); it only reaches the
+ * grouped four-digit tail, since the B/M/K suffixes are the same in both.
+ * It defaults to English so the many callers that format a figure with no
+ * language in reach keep their old output exactly.
+ */
+export function formatCompactNumber(
+	value: number | null | undefined,
+	language?: string,
+): string {
 	const amount = Number(value ?? 0);
 	if (!Number.isFinite(amount) || amount === 0) return "0";
 	const abs = Math.abs(amount);
 	if (abs >= 1_000_000_000) return `${(amount / 1_000_000_000).toFixed(1)}B`;
 	if (abs >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)}M`;
 	if (abs >= 10_000) return `${Math.round(amount / 1_000)}K`;
-	return amount.toLocaleString("en-US");
+	return amount.toLocaleString(intlLocale(language));
 }

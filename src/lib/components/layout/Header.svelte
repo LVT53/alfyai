@@ -66,7 +66,7 @@ async function handleNewConversation() {
 		await goto("/");
 	} catch (error) {
 		console.error("Failed to create new conversation:", error);
-		alert("Failed to create new conversation. Please try again.");
+		alert($t("header.failedCreateConversation"));
 	}
 }
 

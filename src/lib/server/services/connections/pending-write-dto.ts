@@ -15,6 +15,12 @@ export type PendingWriteStatus =
 	| "executing"
 	| "executed"
 	| "cancelled"
+	// Terminal: the proposal outlived its 30-minute TTL and can no longer be
+	// confirmed. The endpoint projects it onto a row that is still physically
+	// "pending" but past `expiresAt` (nothing sweeps the table), so the card
+	// reaches this state on a plain reload and not only after a refused
+	// confirm — see isPendingWriteExpired in pending-writes.ts.
+	| "expired"
 	| "failed";
 
 export interface WritePreview {

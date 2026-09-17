@@ -76,6 +76,16 @@ const effectHint = $derived(
 				: $t("admin.system.effect.restartHint"),
 );
 
+// A key nothing reads yet. The row still appears — an admin searching for
+// the key should find it and learn WHY it does nothing, rather than
+// concluding the screen is missing a setting — but every control on it is
+// read-only, it is left out of the save payload upstream, and
+// PUT /api/admin/config drops it. The chip in the last column already said
+// "no effect yet" and was not enough: it sat four columns away from an
+// editable field that accepted a number and a Save that said "Configuration
+// saved."
+const inert = $derived(spec.effect === "unwired");
+
 function write(shown: string) {
 	onchange(fromDisplayNumber(spec, shown));
 }
@@ -105,6 +115,7 @@ const localError = $derived.by(() => {
 	class:sys-tr-dirty={dirty}
 	class:sys-tr-highlight={highlighted}
 	data-config-key={spec.key}
+	data-unwired={inert ? 'true' : undefined}
 	data-testid={`advanced-row-${spec.key}`}
 >
 	<td class="sys-td-primary" style="width: 330px">
@@ -141,6 +152,7 @@ const localError = $derived.by(() => {
 					id={`adv-${spec.key}`}
 					label={label}
 					checked={value === 'true'}
+					disabled={inert}
 					onchange={(next) => onchange(next ? 'true' : 'false')}
 				/>
 				<span class="sys-xs sys-muted">
@@ -160,6 +172,7 @@ const localError = $derived.by(() => {
 					id={`adv-${spec.key}`}
 					class="sys-input sys-input-md"
 					aria-label={label}
+					disabled={inert}
 					value={value ?? ''}
 					onchange={(event) => onchange(event.currentTarget.value)}
 				>
@@ -177,6 +190,7 @@ const localError = $derived.by(() => {
 					label={label}
 					unit={unitLabel}
 					invalid={Boolean(localError)}
+					disabled={inert}
 					value={shownValue}
 					placeholder={toDisplayNumber(spec, defaultValue)}
 					onchange={write}
@@ -186,13 +200,14 @@ const localError = $derived.by(() => {
 					id={`adv-${spec.key}`}
 					label={label}
 					mono={spec.control.kind === 'url'}
+					disabled={inert}
 					value={value ?? ''}
 					placeholder={defaultValue}
 					onchange={onchange}
 				/>
 			{/if}
 
-			{#if dirty || (value ?? '') !== defaultValue}
+			{#if !inert && (dirty || (value ?? '') !== defaultValue)}
 				<button
 					type="button"
 					class="sys-mini"
@@ -204,7 +219,11 @@ const localError = $derived.by(() => {
 				</button>
 			{/if}
 		</div>
-		{#if localError}
+		{#if inert}
+			<p class="sys-help" data-testid={`advanced-unwired-note-${spec.key}`}>
+				{$t('admin.system.effect.unwiredNote')}
+			</p>
+		{:else if localError}
 			<p class="sys-error" role="alert">{localError}</p>
 		{/if}
 	</td>

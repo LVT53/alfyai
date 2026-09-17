@@ -47,12 +47,19 @@ let {
 } = $props();
 
 // "pending" is the only actionable state — everything else (executing,
-// already claimed by a confirm in flight; executed/cancelled/failed, all
-// terminal) renders read-only.
+// already claimed by a confirm in flight; executed/cancelled/expired/failed,
+// all terminal) renders read-only.
 let isActionable = $derived(write.status === "pending");
+// Expired is terminal, but unlike the other three it is the one the user
+// never chose. They came back to a decision they had already been offered,
+// so the decision row stays on screen — DISABLED — instead of vanishing:
+// a card that silently loses its buttons reads as a rendering bug, while a
+// greyed-out pair plus the expired line reads as "too late, ask again".
+let isExpired = $derived(write.status === "expired");
 let isTerminal = $derived(
 	write.status === "executed" ||
 		write.status === "cancelled" ||
+		write.status === "expired" ||
 		write.status === "failed",
 );
 
@@ -67,16 +74,32 @@ let statusLabel = $derived(
 		? $t("connections.writeConfirm.status.executed")
 		: write.status === "cancelled"
 			? $t("connections.writeConfirm.status.cancelled")
-			: write.status === "failed"
-				? $t("connections.writeConfirm.status.failed")
-				: write.status === "executing"
-					? $t("connections.writeConfirm.status.executing")
-					: "",
+			: write.status === "expired"
+				? $t("connections.writeConfirm.status.expired")
+				: write.status === "failed"
+					? $t("connections.writeConfirm.status.failed")
+					: write.status === "executing"
+						? $t("connections.writeConfirm.status.executing")
+						: "",
 );
 
 let providerName = $derived(
 	getProviderCatalogEntry(write.provider).displayName,
 );
+
+// `disabled` stops a pointer, not a dispatched event, and this card's two
+// callbacks both hit the network. An expired write is terminal server-side —
+// confirm is refused and cancel only moves rows out of "pending" — so both
+// decisions are gated here as well, and nothing leaves the page.
+function requestConfirm() {
+	if (isExpired) return;
+	onConfirm?.(write.id);
+}
+
+function requestCancel() {
+	if (isExpired) return;
+	onCancel?.(write.id);
+}
 </script>
 
 {#snippet body()}
@@ -149,10 +172,10 @@ let providerName = $derived(
 	<button
 		type="button"
 		class="dialog-btn"
-		disabled={busy}
+		disabled={busy || isExpired}
 		data-testid="write-confirm-decline"
 		aria-label={$t('connections.writeConfirm.cancelA11y', { title: write.preview.title })}
-		onclick={() => onCancel?.(write.id)}
+		onclick={requestCancel}
 	>
 		{$t('writeConfirm.decline')}
 	</button>
@@ -161,10 +184,10 @@ let providerName = $derived(
 		class="dialog-btn"
 		class:dialog-btn--positive={!write.preview.destructive}
 		class:dialog-btn--destructive={write.preview.destructive}
-		disabled={busy}
+		disabled={busy || isExpired}
 		data-testid="write-confirm-approve"
 		aria-label={$t('connections.writeConfirm.confirmA11y', { title: write.preview.title })}
-		onclick={() => onConfirm?.(write.id)}
+		onclick={requestConfirm}
 	>
 		{#if write.preview.destructive}
 			<Trash2 size={13} strokeWidth={2} aria-hidden="true" />
@@ -203,7 +226,13 @@ let providerName = $derived(
 		aria-label={$t('connections.writeConfirm.cardLabel', { title: write.preview.title })}
 	>
 		{@render body()}
-		{#if isActionable}
+		<!-- Expired keeps the decision row, disabled: the user is coming back
+		     to a choice they were offered and did not make, and the greyed
+		     pair under the expired line says "too late" far more plainly than
+		     an empty space where two buttons used to be. The three terminal
+		     states that DID come from a decision (executed, cancelled, failed)
+		     keep dropping their buttons — there is nothing left to explain. -->
+		{#if isActionable || isExpired}
 			<div class="write-confirm-card__actions">
 				{@render actions()}
 			</div>

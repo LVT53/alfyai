@@ -58,6 +58,11 @@ const knowledgeDict = {
 		"knowledge.noDocumentsAvailable": "No documents available",
 		"knowledge.noDocumentsMatch": "No documents match your search",
 		"knowledge.original": "Original",
+		// The two landmark labels on the Documents table. Screen-reader only,
+		// which is exactly why they were still English: nothing on screen
+		// said so.
+		"knowledge.bulkActionsLabel": "Bulk actions",
+		"knowledge.paginationLabel": "Pagination",
 		"knowledge.pageInfo": "Page {current} of {total}",
 		"knowledge.previousPage": "Previous page",
 		"knowledge.searchDocuments": "Search documents",
@@ -398,6 +403,8 @@ const knowledgeDict = {
 		"knowledge.noDocumentsAvailable": "Nincsenek elérhető dokumentumok",
 		"knowledge.noDocumentsMatch": "Nincs a keresésnek megfelelő dokumentum",
 		"knowledge.original": "Eredeti",
+		"knowledge.bulkActionsLabel": "Tömeges műveletek",
+		"knowledge.paginationLabel": "Lapozás",
 		"knowledge.pageInfo": "{current}. oldal / {total}",
 		"knowledge.previousPage": "Előző oldal",
 		"knowledge.searchDocuments": "Dokumentumok keresése",

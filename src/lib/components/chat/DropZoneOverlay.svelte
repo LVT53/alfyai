@@ -1,5 +1,6 @@
 <script lang="ts">
 import { AlertCircle, Upload } from "@lucide/svelte";
+import { t } from "$lib/i18n";
 let {
 	active = false,
 	rejected = false,
@@ -14,10 +15,10 @@ let {
 		<div class="drop-zone-content">
 			{#if rejected}
 				<AlertCircle class="drop-zone-icon drop-zone-icon-rejected" size={48} strokeWidth={1.5} aria-hidden="true" />
-				<p class="drop-zone-text">Cannot upload while generating</p>
+				<p class="drop-zone-text">{$t('chat.dropZone.blocked')}</p>
 			{:else}
 				<Upload class="drop-zone-icon" size={48} strokeWidth={1.5} aria-hidden="true" />
-				<p class="drop-zone-text">Drop files to attach (max 100MB per file)</p>
+				<p class="drop-zone-text">{$t('chat.dropZone.attach')}</p>
 			{/if}
 		</div>
 	</div>

@@ -1225,7 +1225,7 @@ async function handleBulkDelete(): Promise<boolean> {
 
 			<!-- Bulk action bar -->
 			{#if hasSelection}
-				<div class="bulk-action-bar" role="toolbar" aria-label="Bulk actions">
+				<div class="bulk-action-bar" role="toolbar" aria-label={$t('knowledge.bulkActionsLabel')}>
 					<div class="bulk-info">
 						<span class="bulk-count">{selectedCount} {$t('knowledge.selected')}</span>
 						<button
@@ -1259,7 +1259,7 @@ async function handleBulkDelete(): Promise<boolean> {
 			{/if}
 
 			{#if displayDocumentCount > paginationLimit}
-				<nav class="pagination" aria-label="Pagination">
+				<nav class="pagination" aria-label={$t('knowledge.paginationLabel')}>
 					<div class="pagination-info">
 						<span class="pagination-range">{$t('knowledge.showing', { from: showingFrom, to: showingTo, total: displayDocumentCount })}</span>
 						<label class="page-size-control">

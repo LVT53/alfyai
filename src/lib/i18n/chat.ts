@@ -14,6 +14,18 @@ const chatDict = {
 		"chat.attachmentLabel": "Attach file",
 		"chat.checkingPrivacy": "Checking privacy…",
 		"chat.delete": "Delete",
+		// The drag-and-drop overlay over the whole chat page
+		// (DropZoneOverlay.svelte). Both lines are the largest text on screen
+		// while a drag is in flight, and both were English for everyone.
+		"chat.dropZone.attach": "Drop files to attach (max 100MB per file)",
+		"chat.dropZone.blocked": "Cannot upload while generating",
+		// Landmark labels for the two chat pages. A region with a role and no
+		// name is announced as an unnamed region, so these carry real weight.
+		"chat.landingRegionLabel": "Landing page",
+		"chat.pageRegionLabel": "Chat page",
+		"chat.failedCreateConversation":
+			"Failed to create conversation. Please try again.",
+		"chat.removeAttachment": "Remove {name}",
 		"chat.degradedBanner.adminLink": "Open tool health",
 		"chat.degradedBanner.description":
 			"Requests that rely on these capabilities may fail or fall back until the underlying service recovers.",
@@ -309,6 +321,7 @@ const chatDict = {
 		"chatgptImport.chatsFound": "{count} conversations found",
 		"chatgptImport.close": "Close",
 		"chatgptImport.configTitle": "Import Settings",
+		"chatgptImport.conversationListLabel": "Conversations to import",
 		"chatgptImport.description":
 			"Upload a ChatGPT export ZIP to import your conversations.",
 		"chatgptImport.deselectAll": "Deselect all",
@@ -553,6 +566,12 @@ const chatDict = {
 		"documentWorkspace.fitImage": "Fit image",
 		"documentWorkspace.fromKnowledgeBase": "Knowledge Base",
 		"documentWorkspace.historical": "Historical",
+		// Labels for the two preview surfaces a screen reader lands on: the
+		// pan/zoom image stage and the sandboxed HTML frame. An <iframe>
+		// without a title is announced as "frame", so this one is not
+		// decoration.
+		"documentWorkspace.imagePreviewLabel": "{filename} image preview",
+		"documentWorkspace.htmlPreviewLabel": "{filename} preview",
 		"documentWorkspace.invalidNumber": "Please enter a valid number",
 		"documentWorkspace.invalidPageRange":
 			"Invalid: page must be between 1 and {total}",
@@ -1098,6 +1117,14 @@ const chatDict = {
 		"chat.attachmentLabel": "Fájl csatolása",
 		"chat.checkingPrivacy": "Adatvédelem ellenőrzése…",
 		"chat.delete": "Törlés",
+		"chat.dropZone.attach":
+			"Húzd ide a fájlokat csatoláshoz (max. 100 MB/fájl)",
+		"chat.dropZone.blocked": "Válaszírás közben nem tudsz feltölteni",
+		"chat.landingRegionLabel": "Kezdőoldal",
+		"chat.pageRegionLabel": "Beszélgetés oldala",
+		"chat.failedCreateConversation":
+			"Nem sikerült létrehozni a beszélgetést. Próbáld újra.",
+		"chat.removeAttachment": "{name} eltávolítása",
 		"chat.degradedBanner.adminLink": "Eszközállapot megnyitása",
 		"chat.degradedBanner.description":
 			"Az ezekre a képességekre támaszkodó kérések meghiúsulhatnak vagy tartalék útra kerülhetnek, amíg a háttérszolgáltatás helyre nem áll.",
@@ -1361,6 +1388,7 @@ const chatDict = {
 		"chatgptImport.chatsFound": "{count} beszélgetés található",
 		"chatgptImport.close": "Bezárás",
 		"chatgptImport.configTitle": "Importálási beállítások",
+		"chatgptImport.conversationListLabel": "Importálandó beszélgetések",
 		"chatgptImport.description":
 			"Tölts fel egy ChatGPT export ZIP-et a beszélgetéseid importálásához.",
 		"chatgptImport.deselectAll": "Kijelölés megszüntetése",
@@ -1616,6 +1644,8 @@ const chatDict = {
 		"documentWorkspace.fitImage": "Kép illesztése",
 		"documentWorkspace.fromKnowledgeBase": "Tudásbázis",
 		"documentWorkspace.historical": "Korábbi",
+		"documentWorkspace.imagePreviewLabel": "{filename} – képelőnézet",
+		"documentWorkspace.htmlPreviewLabel": "{filename} – előnézet",
 		"documentWorkspace.invalidNumber": "Adj meg egy érvényes számot",
 		"documentWorkspace.invalidPageRange":
 			"Érvénytelen: az oldalnak 1 és {total} között kell lennie",
@@ -1947,7 +1977,16 @@ const chatDict = {
 		"toolActivity.summaryTimes": "{verb} {count} alkalommal",
 		"toolActivity.summaryRepeat": "{verb} ×{count}",
 		"toolActivity.summaryFailedCount": "{verb} {count} sikertelen",
-		"toolActivity.summaryMemories": "Emlékek felidézve",
+		// {verb} arrives as one of exactly two words — "Felidézés" while the
+		// recall is running, "Felidézve" once it has settled (see `verb()` in
+		// tool-activity.ts, keys toolActivity.recalling / .recalled). One is a
+		// verbal noun, the other an adverbial participle, so no single
+		// word-order works for both: "Emlékek felidézve" is idiomatic but
+		// "Emlékek felidézés" is not a Hungarian sentence, and verb-first
+		// "Felidézve emlékek" has the order the other way round. The colon
+		// takes the label out of sentence grammar entirely, which both forms
+		// survive: "Felidézés: emlékek" / "Felidézve: emlékek".
+		"toolActivity.summaryMemories": "{verb}: emlékek",
 		"toolActivity.sourcesEyebrow": "Források",
 		"toolActivity.program": "Program",
 		"toolActivity.output": "Kimenet",

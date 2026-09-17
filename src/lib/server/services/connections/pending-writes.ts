@@ -56,6 +56,12 @@ export type PendingWriteStatus =
 	| "executing"
 	| "executed"
 	| "cancelled"
+	// Terminal, and DISTINCT from "failed": nothing was attempted and nothing
+	// went wrong — the proposal simply outlived its TTL. Folding it into
+	// "failed" (as this used to) left the card telling the user their write
+	// "failed and was not applied", which reads as a provider error and hides
+	// the one thing they can act on: ask again.
+	| "expired"
 	| "failed";
 
 // Fix 1 (write-safety hardening) — TTL for the confirm chokepoint. Without
@@ -124,7 +130,14 @@ function toRecord(row: PendingWriteRow): PendingWriteRecord {
 // True iff `expiresAt` (epoch seconds, or null for "no expiry") has passed
 // as of `now`. NULL is backward-compat for rows that predate the expiresAt
 // column — never expired (Fix 1).
-function isPendingWriteExpired(
+//
+// Exported because the read side needs the same answer the confirm side
+// will give. A row that has sat past its TTL is still physically "pending"
+// in the table — nothing sweeps it — so the conversation's pending-writes
+// endpoint projects it as "expired" using THIS function, and a confirm on
+// it is refused by the branch below using the same one. One predicate, so
+// the card can never offer a button the server would refuse.
+export function isPendingWriteExpired(
 	expiresAt: number | null,
 	now: number = Date.now(),
 ): boolean {
@@ -310,21 +323,28 @@ export async function markPendingWriteFailed(
 	return result.changes > 0;
 }
 
-// Fix 1 — atomic "pending" -> "failed" transition for a row whose TTL has
+// Fix 1 — atomic "pending" -> "expired" transition for a row whose TTL has
 // passed. A single conditional UPDATE (same shape as cancelPendingWrite),
 // so a row is only ever expired out of "pending" — never out of
 // "executing"/"executed"/"cancelled"/"failed" — and a concurrent confirm
 // that already claimed the row (flipped it to "executing") between
 // confirmPendingWrite's read and this call simply loses this race (changes
-// === 0), exactly like a concurrent claim would. Terminal ("failed"), not
-// reopened, so an expired write can never be silently retried.
+// === 0), exactly like a concurrent claim would. Terminal, not reopened, so
+// an expired write can never be silently retried.
+//
+// The status written is "expired", not "failed". It used to be "failed",
+// which was terminal and therefore safe, but it threw away the only detail
+// the user needs: a write that failed may be worth reporting, a write that
+// expired just needs asking again. The column is free text with no CHECK,
+// so no migration is involved; rows written as "failed" by the older code
+// keep reading as "failed", which is a truthful-if-vaguer terminal state.
 export async function markPendingWriteExpired(
 	userId: string,
 	id: string,
 ): Promise<boolean> {
 	const result = await db
 		.update(connectionPendingWrites)
-		.set({ status: "failed" })
+		.set({ status: "expired" })
 		.where(
 			and(scoped(userId, id), eq(connectionPendingWrites.status, "pending")),
 		);
@@ -378,6 +398,13 @@ export async function confirmPendingWrite(
 	}
 	if (record.status === "cancelled") {
 		return { ok: false, status: 409, reason: "cancelled" };
+	}
+	if (record.status === "expired") {
+		// Already swept into its terminal state by an earlier confirm. Answer
+		// with the SAME reason that first confirm got, so a second click on a
+		// card the client has not refreshed lands on the expired state rather
+		// than a different, generic-looking refusal.
+		return { ok: false, status: 409, reason: "expired" };
 	}
 	if (record.status === "failed") {
 		return { ok: false, status: 409, reason: "failed" };

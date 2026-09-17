@@ -34,6 +34,11 @@ const commonDict = {
 			"The page you're looking for doesn't exist, or may have been moved.",
 		"errorPage.notFoundTitle": "Page not found",
 		"errorPage.title": "Something went wrong",
+		// The New-chat button's failure path, which reaches the user as a
+		// native alert() — the one place in Header.svelte still speaking
+		// English.
+		"header.failedCreateConversation":
+			"Failed to create new conversation. Please try again.",
 		"header.knowledgeBase": "Knowledge base",
 		"header.logout": "Logout",
 		"header.newChat": "New chat",
@@ -322,6 +327,8 @@ const commonDict = {
 		"errorPage.title": "Hiba történt",
 		"header.knowledgeBase": "Tudásbázis",
 		"header.logout": "Kijelentkezés",
+		"header.failedCreateConversation":
+			"Nem sikerült új beszélgetést indítani. Próbáld újra.",
 		"header.newChat": "Új beszélgetés",
 		"header.openUserMenu": "Felhasználói menü megnyitása",
 		"header.profileAndSettings": "Profil és beállítások",

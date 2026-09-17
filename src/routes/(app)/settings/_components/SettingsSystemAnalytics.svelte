@@ -1,6 +1,8 @@
 <script lang="ts">
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
+import { uiLanguage } from "$lib/stores/settings";
+import { intlLocale } from "$lib/utils/locale";
 import {
 	AnalyticsCard,
 	AnalyticsChart,
@@ -265,7 +267,12 @@ function modelIconUrl(key: string | null | undefined): string | null {
 // Money, everywhere, to two places: `$0.0042` reads as a bug.
 const formatUsd = formatCurrencyUsd;
 
-const numberFmt = new Intl.NumberFormat("en-US");
+// Admin-only, but an admin has an interface language like anyone else, and
+// this pane's labels around these numbers are already translated — a
+// Hungarian heading over an American date is the mismatch, not the fix.
+// The formatter is $derived rather than module-level so it follows a
+// language change without a reload.
+const numberFmt = $derived(new Intl.NumberFormat(intlLocale($uiLanguage)));
 
 function formatNum(value: number): string {
 	if (!value) return "0";
@@ -275,13 +282,19 @@ function formatNum(value: number): string {
 function formatMonthShort(ym: string): string {
 	const [y, m] = ym.split("-");
 	const date = new Date(Number(y), Number(m) - 1, 1);
-	return date.toLocaleDateString("en-US", { year: "numeric", month: "short" });
+	return date.toLocaleDateString(intlLocale($uiLanguage), {
+		year: "numeric",
+		month: "short",
+	});
 }
 
 function formatMonthLong(ym: string): string {
 	const [y, m] = ym.split("-");
 	const date = new Date(Number(y), Number(m) - 1, 1);
-	return date.toLocaleDateString("en-US", { year: "numeric", month: "long" });
+	return date.toLocaleDateString(intlLocale($uiLanguage), {
+		year: "numeric",
+		month: "long",
+	});
 }
 
 // ---- Overview ----------------------------------------------------------
@@ -861,7 +874,7 @@ async function toggleExcludedUser(userId: string) {
 				<StatGrid>
 					<StatCard value={formatNum(system.totalMessages)} label={$t('analytics.totalMessages')} />
 					<StatCard
-						value={formatCompactNumber(system.totalTokens)}
+						value={formatCompactNumber(system.totalTokens, $uiLanguage)}
 						label={$t('analytics.totalTokens')}
 					/>
 					<StatCard
