@@ -35,7 +35,35 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
-    <meta name="theme-color" content="#ffffff" />
+    <!--
+      The colour the browser paints around the page: the status bar on an
+      installed Android app, the title bar on desktop Chrome, the safe-area
+      fill on iOS. One #ffffff meta meant an installed dark-theme app opened
+      to a WHITE status bar above a #1a1a1a page.
+
+      Both values are --surface-page, the page ground token, copied out of
+      src/app.css: light #fafaf8 (the `:root` block) and dark #1a1a1a (the
+      `.dark` block). A meta tag cannot read a custom property, so these are
+      literals, and src/lib/pwa-manifest.test.ts fails if either drifts from
+      the token — the same guard the checkbox tick has.
+
+      This follows the OS preference, not the in-app theme switch: the
+      localStorage override the script above applies is invisible to
+      `prefers-color-scheme`. A user who forces light inside a dark OS still
+      gets the dark chrome. That is the limit of static metas, and it is
+      still strictly better than one unconditional white.
+
+      site.webmanifest carries the light value in theme_color and
+      background_color for the install/splash path, which has no media query
+      at all. It has no `maskable` icon on purpose: a maskable icon needs its
+      artwork inside the centre 80% circle and an opaque background, and all
+      three square icons in static/ put ink out to ~47% of the width (the
+      serif feet of the A) over transparent corners, so a circular mask would
+      clip the mark and show through. Fabricating a padded icon is an asset
+      decision, not a manifest fix.
+    -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fafaf8" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1a1a1a" />
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="tap">
