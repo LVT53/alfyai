@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
+import { FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES } from "$lib/server/services/file-production/output-validation";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	type AsciiBarChart,
@@ -66,7 +67,23 @@ export const produceFileModelInputSchema = z
 	.object({
 		requestTitle: z.string().min(1).optional(),
 		filename: z.string().min(1).optional(),
-		outputType: z.string().min(1).optional(),
+		outputType: z
+			.string()
+			.min(1)
+			.optional()
+			.describe("File type, e.g. xlsx, docx, pptx, pdf, csv, zip, md."),
+		// The built-in skills (system:spreadsheet-builder) instruct the model to
+		// send this, so it has to be in the schema the model is shown.
+		requestedOutputs: z
+			.array(requestedOutputSchema)
+			.min(1)
+			.optional()
+			.describe(
+				'Only for several formats of one artifact: [{"type":"pdf"},{"type":"docx"}].',
+			),
+		// Named by the built-in skills, so the model has to be able to see it.
+		// Omitting it is still normal: the server infers the mode.
+		sourceMode: z.enum(["program", "document_source"]).optional(),
 		markdown: z.string().min(1).optional(),
 		content: z.string().min(1).optional(),
 		patches: z
@@ -79,7 +96,10 @@ export const produceFileModelInputSchema = z
 				sourceCode: z.string().min(1),
 				filename: z.string().min(1).optional(),
 			})
-			.optional(),
+			.optional()
+			.describe(
+				"Code that builds the file. It must write into /output (e.g. /output/report.xlsx); the working directory is read-only. Needs outputType or requestedOutputs.",
+			),
 		documentSource: z.record(z.string(), z.unknown()).optional(),
 	})
 	.passthrough();
@@ -210,6 +230,12 @@ export function normalizeProduceFileInput(
 				},
 			};
 		}
+		if (requestedOutputs.length === 0) {
+			return {
+				ok: false,
+				error: `outputType is required for program mode, e.g. ${FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES}. Set outputType (or requestedOutputs), or give program.filename an extension.`,
+			};
+		}
 		return {
 			ok: true,
 			input: {
@@ -331,12 +357,18 @@ export function normalizeProduceFileInput(
 			requestTitle,
 			outputType: requestedOutputs[0]?.type,
 		});
+		// A patch-only call names no format; the reconstructed file is plain
+		// text, which `resolveTextFilename` has already assumed above.
+		const patchedOutputs =
+			requestedOutputs.length > 0
+				? requestedOutputs
+				: [{ type: outputTypeFromFilename(patchedFilename) ?? "txt" }];
 		return {
 			ok: true,
 			input: {
 				idempotencyKey: input.idempotencyKey,
 				requestTitle,
-				requestedOutputs,
+				requestedOutputs: patchedOutputs,
 				sourceMode: "program",
 				documentIntent: input.documentIntent,
 				templateHint: input.templateHint,
@@ -581,24 +613,33 @@ function repairDocumentSourceBlock(raw: unknown): Record<string, unknown>[] {
 	return [unescaped === text ? block : { ...block, text: unescaped }];
 }
 
+// Resolution order: explicit `requestedOutputs`/`outputs`, `outputType`/
+// `fileType`, the top-level `filename`'s extension, `program.filename`'s
+// extension, then what the supplied content implies. Returning an EMPTY list
+// is a real answer — "nothing here names a file type" — and the caller turns
+// it into an error. It must never become a `"file"` placeholder: nothing
+// downstream can map that to an extension, so it used to surface as
+// `unsupported_program_output_type` only after the sandbox run had finished.
 function normalizeToolRequestedOutputs(
 	input: ProduceFileInput,
 ): Array<{ type: string }> {
 	const explicitOutputs = input.requestedOutputs ?? input.outputs;
 	if (Array.isArray(explicitOutputs) && explicitOutputs.length > 0) {
-		return explicitOutputs.map((output) => ({
-			type: output.type.trim() || "file",
-		}));
+		const named = explicitOutputs
+			.map((output) => ({ type: output.type.trim() }))
+			.filter((output) => output.type.length > 0);
+		if (named.length > 0) return named;
 	}
 	const directType =
 		input.outputType?.trim() ||
 		input.fileType?.trim() ||
-		outputTypeFromFilename(input.filename);
+		outputTypeFromFilename(input.filename) ||
+		outputTypeFromFilename(input.program?.filename);
 	if (directType) return [{ type: directType }];
 	if (input.markdown) return [{ type: "md" }];
 	if (input.text || input.content) return [{ type: "txt" }];
 	if (input.documentSource) return [{ type: "pdf" }];
-	return [{ type: "file" }];
+	return [];
 }
 
 function firstNonEmptyString(

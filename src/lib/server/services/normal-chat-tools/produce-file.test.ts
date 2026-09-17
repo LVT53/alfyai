@@ -5,6 +5,7 @@ import { validateGeneratedDocumentSource } from "$lib/server/services/file-produ
 import {
 	type NormalizedProduceFileInput,
 	normalizeProduceFileInput,
+	produceFileModelInputSchema,
 } from "./produce-file";
 
 function documentBlocks(
@@ -495,5 +496,116 @@ describe("document source repair — provisional table chart vs model chart", ()
 			(chart.data as Array<{ value: number }>).map((row) => row.value),
 		).toEqual([121, 217, 243, 407]);
 		expect("derived" in chart).toBe(false);
+	});
+});
+
+// Program mode used to fall back to a `{ type: "file" }` sentinel whenever the
+// model named no format. Nothing downstream maps "file" to an extension, so the
+// job queued, the sandbox ran the program to completion, and the result was
+// discarded with `unsupported_program_output_type`. The type is now either
+// derived from something the caller actually said, or the call is refused.
+describe("program-mode output type resolution", () => {
+	const program = {
+		language: "javascript" as const,
+		sourceCode: 'workbook.xlsx.writeFile("/output/fruits.xlsx")',
+	};
+
+	function normalizeProgram(
+		input: Partial<Parameters<typeof normalizeProduceFileInput>[0]>,
+	) {
+		return normalizeProduceFileInput({
+			requestTitle: "Fruit workbook",
+			program,
+			...input,
+		});
+	}
+
+	function requestedTypes(
+		result: ReturnType<typeof normalizeProduceFileInput>,
+	): string[] {
+		if (!result.ok) {
+			throw new Error(`expected ok result, got error: ${result.error}`);
+		}
+		return result.input.requestedOutputs.map((output) => output.type);
+	}
+
+	it("takes the type from requestedOutputs, the field the built-in skills prescribe", () => {
+		expect(
+			requestedTypes(
+				normalizeProgram({ requestedOutputs: [{ type: "xlsx" }] }),
+			),
+		).toEqual(["xlsx"]);
+	});
+
+	it("takes the type from outputType", () => {
+		expect(requestedTypes(normalizeProgram({ outputType: "pptx" }))).toEqual([
+			"pptx",
+		]);
+	});
+
+	it("derives the type from the top-level filename extension", () => {
+		expect(
+			requestedTypes(normalizeProgram({ filename: "fruits.xlsx" })),
+		).toEqual(["xlsx"]);
+	});
+
+	it("derives the type from program.filename when nothing else names one", () => {
+		expect(
+			requestedTypes(
+				normalizeProgram({ program: { ...program, filename: "fruits.xlsx" } }),
+			),
+		).toEqual(["xlsx"]);
+	});
+
+	it("prefers an explicit filename over program.filename", () => {
+		expect(
+			requestedTypes(
+				normalizeProgram({
+					filename: "fruits.csv",
+					program: { ...program, filename: "fruits.xlsx" },
+				}),
+			),
+		).toEqual(["csv"]);
+	});
+
+	it("refuses a program call whose output type nothing names, naming valid examples", () => {
+		const result = normalizeProgram({});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("expected the call to be refused");
+		expect(result.error).toContain(
+			"outputType is required for program mode, e.g. xlsx, docx, pptx, pdf, csv, zip",
+		);
+	});
+
+	it("never invents a 'file' output type from a blank requestedOutputs entry", () => {
+		const result = normalizeProgram({
+			requestedOutputs: [{ type: "  " }],
+			program: { ...program, filename: "fruits.xlsx" },
+		});
+		expect(requestedTypes(result)).toEqual(["xlsx"]);
+	});
+});
+
+describe("produceFileModelInputSchema", () => {
+	it("accepts requestedOutputs, sourceMode and program — the shape the skills prescribe", () => {
+		const parsed = produceFileModelInputSchema.safeParse({
+			requestTitle: "Fruit workbook",
+			sourceMode: "program",
+			requestedOutputs: [{ type: "xlsx" }],
+			program: {
+				language: "javascript",
+				sourceCode: 'workbook.xlsx.writeFile("/output/fruits.xlsx")',
+				filename: "fruits.xlsx",
+			},
+		});
+		expect(parsed.success).toBe(true);
+		if (!parsed.success) return;
+		expect(parsed.data.requestedOutputs).toEqual([{ type: "xlsx" }]);
+	});
+
+	it("tells the model where a program must write", () => {
+		expect(produceFileModelInputSchema.shape.program.description).toContain(
+			"/output",
+		);
 	});
 });

@@ -165,6 +165,69 @@ describe("file-production output validation", () => {
 		}
 	});
 
+	// Intake now refuses an unresolvable type, so a job can only still carry one
+	// if it was queued before that rule existed. Its run has already been paid
+	// for; the single file it produced names the type unambiguously.
+	it("resolves an unresolvable requested type from the single file the program wrote", async () => {
+		const content = await buildMinimalXlsxZip();
+
+		await expect(
+			validateProgramOutputContract({
+				requestedOutputTypes: ["file"],
+				programFilename: "fruits.xlsx",
+				files: [
+					{
+						filename: "fruits.xlsx",
+						mimeType:
+							"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+						content,
+					},
+				],
+			}),
+		).resolves.toEqual({ ok: true });
+	});
+
+	it("still rejects an unresolvable requested type when the program wrote several files", async () => {
+		await expect(
+			validateProgramOutputContract({
+				requestedOutputTypes: ["file"],
+				files: [
+					{
+						filename: "a.csv",
+						mimeType: "text/csv",
+						content: Buffer.from("a,b\n1,2\n"),
+					},
+					{
+						filename: "b.csv",
+						mimeType: "text/csv",
+						content: Buffer.from("a,b\n3,4\n"),
+					},
+				],
+			}),
+		).resolves.toMatchObject({
+			ok: false,
+			code: "unsupported_program_output_type",
+		});
+	});
+
+	it("does not let the single-file fallback paper over a real type mismatch", async () => {
+		await expect(
+			validateProgramOutputContract({
+				requestedOutputTypes: ["pdf"],
+				files: [
+					{
+						filename: "report.csv",
+						mimeType: "text/csv",
+						content: Buffer.from("a,b\n1,2\n"),
+					},
+				],
+			}),
+		).resolves.toMatchObject({
+			ok: false,
+			code: "program_output_type_mismatch",
+		});
+	});
+
 	it("accepts legacy generic MIME for text/code outputs after byte validation", async () => {
 		await expect(
 			validateGeneratedOutputFile({

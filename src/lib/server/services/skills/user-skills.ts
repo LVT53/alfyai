@@ -947,6 +947,31 @@ export function getBuiltInSystemSkillEnInstructions(id: string): string {
 	return builtIn.en.instructions;
 }
 
+/**
+ * Every built-in skill's instruction text, in every language it ships in.
+ * Exists so tests can hold the instructions against the schemas they name —
+ * a skill that tells the model to send `requestedOutputs` is wrong the moment
+ * `produce_file` stops accepting that field.
+ */
+export function listBuiltInSystemSkillInstructions(): Array<{
+	id: string;
+	language: "en" | "hu";
+	instructions: string;
+}> {
+	return builtInSystemSkills.flatMap((skill) => [
+		{
+			id: skill.id,
+			language: "en" as const,
+			instructions: skill.en.instructions,
+		},
+		{
+			id: skill.id,
+			language: "hu" as const,
+			instructions: skill.hu.instructions,
+		},
+	]);
+}
+
 export function getSpreadsheetFinanceModelsResourceContent(): string {
 	const resource = spreadsheetPromptResources.find(
 		(resource) => resource.id === "spreadsheet-finance-models",

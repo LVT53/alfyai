@@ -284,6 +284,42 @@ function getExpectedExtensionForOutputType(type: string): string | null {
 	return OUTPUT_TYPE_EXTENSIONS[normalizeRequestedOutputType(type)] ?? null;
 }
 
+/**
+ * The single source of truth for "is this a file type the pipeline can
+ * produce". Intake calls it so an unknown type is refused BEFORE a sandbox
+ * program runs — the old behaviour discovered it only in
+ * `validateProgramOutputContract`, after the whole run had been paid for.
+ */
+export function isSupportedFileProductionOutputType(type: string): boolean {
+	return getExpectedExtensionForOutputType(type) !== null;
+}
+
+/** A short, model-facing sample of the accepted types. */
+export const FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES =
+	"xlsx, docx, pptx, pdf, csv, zip";
+
+function outputTypeFromFilename(filename: string): string | null {
+	const extension = path.extname(filename).toLowerCase().replace(/^\./, "");
+	if (!extension) return null;
+	return isSupportedFileProductionOutputType(extension) ? extension : null;
+}
+
+/**
+ * Last-resort, POST-execution derivation: when the requested type cannot be
+ * mapped to an extension (a job queued before intake demanded a real type
+ * still carries the old `"file"` sentinel) but the program wrote exactly one
+ * file, that file's extension IS the output type. Anything ambiguous — no
+ * files, several files, an unknown extension — returns null and the normal
+ * failure stands.
+ */
+function resolveOutputTypesFromSingleProducedFile(
+	files: GeneratedOutputFileForValidation[],
+): string[] | null {
+	if (files.length !== 1) return null;
+	const derived = outputTypeFromFilename(files[0].filename);
+	return derived ? [derived] : null;
+}
+
 export function isGeneratedFileTypeAllowed(
 	filename: string,
 	mimeType: string | null,
@@ -433,15 +469,25 @@ export async function validateProgramOutputContract(params: {
 	programFilename?: string;
 	requestedOutputTypes: string[];
 }): Promise<FileProductionOutputValidationResult> {
-	const requestedOutputTypes = params.requestedOutputTypes
+	const declaredOutputTypes = params.requestedOutputTypes
 		.map(normalizeRequestedOutputType)
 		.filter(Boolean);
-	if (requestedOutputTypes.length === 0) {
+	if (declaredOutputTypes.length === 0) {
 		return fail(
 			"missing_program_requested_outputs",
 			"Program file production requires at least one requested output type.",
 		);
 	}
+
+	// Intake now refuses an unresolvable type outright, so this only fires for
+	// a job queued before that rule existed. Rather than waste the run that
+	// already happened, take the type from the one file the program wrote.
+	const requestedOutputTypes = declaredOutputTypes.every((type) =>
+		isSupportedFileProductionOutputType(type),
+	)
+		? declaredOutputTypes
+		: (resolveOutputTypesFromSingleProducedFile(params.files) ??
+			declaredOutputTypes);
 
 	const expectedExtensions = Array.from(
 		new Map(

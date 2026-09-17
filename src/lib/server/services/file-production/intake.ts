@@ -1,6 +1,10 @@
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { validateFileProductionStaticLimits } from "./limits";
 import {
+	FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES,
+	isSupportedFileProductionOutputType,
+} from "./output-validation";
+import {
 	type GeneratedDocumentSource,
 	validateGeneratedDocumentSource,
 } from "./source-schema";
@@ -151,6 +155,17 @@ function optionalTrimmedString(value: unknown): string | null {
 	return trimmed ? trimmed : null;
 }
 
+function outputTypeFromFilename(value: unknown): string | null {
+	const trimmed = trimString(value);
+	if (!trimmed) return null;
+	const match = /\.([a-z0-9]+)$/i.exec(trimmed);
+	return match?.[1]?.toLowerCase() ?? null;
+}
+
+// A blank `type` is dropped rather than turned into a `"file"` placeholder:
+// nothing downstream can map that to an extension, so it used to survive
+// intake and only surface as `unsupported_program_output_type` in
+// `validateProgramOutputContract` — after the sandbox run had been paid for.
 function normalizeOutputs(
 	body: Record<string, unknown>,
 ): Array<{ type: string }> {
@@ -162,9 +177,27 @@ function normalizeOutputs(
 
 	return rawOutputs
 		.filter((output): output is Record<string, unknown> => isRecord(output))
-		.map((output) => ({
-			type: trimString(output.type) || "file",
-		}));
+		.map((output) => ({ type: trimString(output.type) }))
+		.filter((output) => output.type.length > 0);
+}
+
+// Program mode resolves its type, highest first, from: explicit
+// `requestedOutputs`/`outputs`, the top-level `filename`'s extension, then
+// `program.filename`'s extension. An empty result is a real answer — nothing
+// here names a file type — and the caller refuses the request.
+// Document-source mode is left on `normalizeOutputs` alone: an empty list
+// there already means "render the default PDF".
+function normalizeProgramOutputs(
+	body: Record<string, unknown>,
+	program: Record<string, unknown> | null,
+): Array<{ type: string }> {
+	const explicit = normalizeOutputs(body);
+	if (explicit.length > 0) return explicit;
+
+	const derived =
+		outputTypeFromFilename(body.filename) ??
+		outputTypeFromFilename(program?.filename);
+	return derived ? [{ type: derived }] : [];
 }
 
 export function getFileProductionIntakeConversationId(
@@ -340,6 +373,27 @@ function normalizeFileProductionIntake(
 		});
 	}
 
+	const programOutputs = normalizeProgramOutputs(body, program);
+	if (programOutputs.length === 0) {
+		return validationFailure({
+			body,
+			status: 422,
+			code: "missing_program_output_type",
+			error: `outputType is required for program mode, e.g. ${FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES}`,
+		});
+	}
+	const unsupportedOutput = programOutputs.find(
+		(output) => !isSupportedFileProductionOutputType(output.type),
+	);
+	if (unsupportedOutput) {
+		return validationFailure({
+			body,
+			status: 422,
+			code: "unsupported_program_output_type",
+			error: `Output type ${unsupportedOutput.type} is not supported. Use one of: ${FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES}`,
+		});
+	}
+
 	return {
 		ok: true,
 		value: {
@@ -348,7 +402,7 @@ function normalizeFileProductionIntake(
 			idempotencyKey,
 			requestTitle,
 			sourceMode: "program",
-			outputs: normalizeOutputs(body),
+			outputs: programOutputs,
 			documentIntent: optionalTrimmedString(body.documentIntent),
 			templateHint: optionalTrimmedString(body.templateHint),
 			program: {
