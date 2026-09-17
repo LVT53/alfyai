@@ -165,11 +165,37 @@ test.describe("chat home — Compact", () => {
 
 		const greeting = page.getByTestId("home-greeting");
 		await expect(greeting).toBeVisible();
-		await expect(greeting).toContainText("Admin User");
+		// The first name only. The seeded admin is "Admin User"; the greeting
+		// calls him "Admin", because nobody is addressed by their surname here.
+		await expect(greeting).toContainText("Admin");
+		await expect(greeting).not.toContainText("Admin User");
 
 		await expect(page.getByTestId("home-weekly-bars")).toBeVisible();
 		// Twelve bars, always — an empty week is a 1px tick, not a gap.
 		await expect(page.getByTestId("home-weekly-bar")).toHaveCount(12);
+		// Slim lines, not blocks — 2px wide — and the heights are the real
+		// distribution: the busiest week fills the 14px band, an empty one is
+		// the 1px tick, and nothing is a fixed shape.
+		const bars = await page
+			.getByTestId("home-weekly-bar")
+			.evaluateAll((nodes) =>
+				nodes.map((node) => {
+					const rect = node.getBoundingClientRect();
+					return {
+						count: Number(node.getAttribute("data-count")),
+						width: rect.width,
+						height: rect.height,
+					};
+				}),
+			);
+		const peak = Math.max(...bars.map((bar) => bar.count));
+		expect(peak).toBe(7);
+		for (const bar of bars) {
+			expect(bar.width).toBe(2);
+			const expected =
+				bar.count === 0 ? 1 : Math.max(2, Math.round((bar.count / peak) * 14));
+			expect(bar.height, `a week of ${bar.count}`).toBe(expected);
+		}
 		// The user sent seven messages. The fixture also wrote seven assistant
 		// replies and twenty-eight billing rows; neither is the user talking.
 		await expect(page.getByTestId("home-weekly-count")).toHaveText(
@@ -189,7 +215,8 @@ test.describe("chat home — Compact", () => {
 		await gotoHome(page);
 
 		const greeting = page.getByTestId("home-greeting");
-		await expect(greeting).toContainText("Admin User");
+		await expect(greeting).toContainText("Admin");
+		await expect(greeting).not.toContainText("Admin User");
 		// The visible span only — the phone-width form is in the DOM too.
 		const first = await page.locator(".home-greeting-full").textContent();
 		expect(first?.trim()).not.toBe("");
@@ -203,10 +230,13 @@ test.describe("chat home — Compact", () => {
 		}
 
 		// And whatever was picked, it is a finished sentence inside the length
-		// cap the column was measured for — the seeded recent conversation makes
-		// a continuity line ("Back to …") reachable here, and an un-truncated
-		// title is exactly what would blow past it.
+		// cap the column was measured for. A recent conversation is seeded, and
+		// its title must NOT turn up in the greeting: a model-written title
+		// pasted into the line is what used to blow past the cap.
 		expect(first).not.toContain("{");
+		for (const title of [SEEDED.atlasConversation, SEEDED.plainConversation]) {
+			expect(first).not.toContain(title.split(" ").slice(0, 2).join(" "));
+		}
 		expect((first ?? "").trim().length).toBeLessThanOrEqual(
 			GREETING_MAX_LINE_CHARS,
 		);
@@ -385,6 +415,119 @@ test.describe("chat home — Compact", () => {
 					),
 			)
 			.not.toEqual(before);
+	});
+
+	test("lets the chips use the whole row on a desktop", async ({ page }) => {
+		// The rail used to cap every label at 22ch around chips that could not
+		// shrink: on a 780px row the third chip was cut short beside a long
+		// stretch of empty track. The track owns everything left of "another",
+		// and a chip is only truncated when the texts together do not fit.
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const userId = await adminUserId();
+		await clearHomeFixtures(userId);
+		// Short titles first and long ones last: the rail leads with the most
+		// recent, so the three chips drawn are the three long ones, and the
+		// short ones are only there to make the pool deep enough for "another".
+		for (const title of [
+			"Invoice questions",
+			"Trip planning",
+			"Quarterly board meeting notes",
+			"Summer holiday packing list",
+			"Kitchen renovation budget",
+		]) {
+			const conversation = await createServerConversation(userId, title);
+			await createMessage(conversation.id, "user", "hi");
+		}
+		await gotoHome(page);
+
+		const another = page.getByTestId("home-suggestion-another");
+		await expect(another).toBeVisible();
+
+		const geometry = await page
+			.getByTestId("home-suggestion-rail")
+			.evaluate((rail) => {
+				const track = rail.querySelector(".home-rail-track");
+				const ghost = rail.querySelector(
+					'[data-testid="home-suggestion-another"]',
+				);
+				if (!track || !ghost) throw new Error("rail is missing a part");
+				const trackRect = track.getBoundingClientRect();
+				return {
+					railGap: Number.parseFloat(window.getComputedStyle(rail).columnGap),
+					trackRight: trackRect.right,
+					trackOverflow: track.scrollWidth - track.clientWidth,
+					anotherLeft: ghost.getBoundingClientRect().left,
+					labels: Array.from(
+						rail.querySelectorAll(
+							'[data-testid="home-suggestion-chip"] .home-chip-label',
+						),
+					).map((label) => ({
+						text: label.textContent ?? "",
+						scrollWidth: label.scrollWidth,
+						clientWidth: label.clientWidth,
+					})),
+				};
+			});
+
+		// The track's right edge meets "another", one rail gap short of it.
+		expect(geometry.railGap).toBeGreaterThan(0);
+		expect(
+			Math.abs(geometry.anotherLeft - geometry.trackRight - geometry.railGap),
+		).toBeLessThanOrEqual(1);
+
+		// Three seeded titles fit a 780px row with room to spare, so none of
+		// them is cut — including the ones longer than the old 22ch cap.
+		expect(geometry.labels).toHaveLength(3);
+		expect(geometry.trackOverflow).toBeLessThanOrEqual(0);
+		for (const label of geometry.labels) {
+			expect(
+				label.scrollWidth,
+				`"${label.text}" is truncated`,
+			).toBeLessThanOrEqual(label.clientWidth);
+		}
+		expect(geometry.labels.some((label) => label.text.length > 22)).toBe(true);
+
+		// And when the three texts together do NOT fit, the chips share the row:
+		// they shrink with an ellipsis until the last one ends exactly where the
+		// track does, rather than scrolling the row or leaving part of it empty.
+		// The first five go an hour into the past so the new three lead the rail.
+		await db
+			.update(conversations)
+			.set({ updatedAt: new Date(Date.now() - 3_600_000) })
+			.where(eq(conversations.userId, userId));
+		for (const title of [
+			"Reconciling the quarterly revenue figures again",
+			"Rewriting the onboarding email sequence draft",
+			"Comparing heat pump quotes for the old house",
+		]) {
+			const conversation = await createServerConversation(userId, title);
+			await createMessage(conversation.id, "user", "hi");
+		}
+		await gotoHome(page);
+		const crowded = await page
+			.getByTestId("home-suggestion-rail")
+			.evaluate((rail) => {
+				const track = rail.querySelector(".home-rail-track");
+				const chips = Array.from(
+					rail.querySelectorAll('[data-testid="home-suggestion-chip"]'),
+				);
+				const last = chips[chips.length - 1];
+				if (!track || !last) throw new Error("rail is missing a part");
+				return {
+					trackRight: track.getBoundingClientRect().right,
+					lastChipRight: last.getBoundingClientRect().right,
+					trackOverflow: track.scrollWidth - track.clientWidth,
+					truncated: chips.filter((chip) => {
+						const label = chip.querySelector(".home-chip-label");
+						return label ? label.scrollWidth > label.clientWidth : false;
+					}).length,
+				};
+			});
+		expect(crowded.truncated).toBeGreaterThan(0);
+		expect(crowded.trackOverflow).toBeLessThanOrEqual(0);
+		expect(
+			Math.abs(crowded.trackRight - crowded.lastChipRight),
+		).toBeLessThanOrEqual(1);
 	});
 
 	test("lists three recent lines with one mark each", async ({ page }) => {

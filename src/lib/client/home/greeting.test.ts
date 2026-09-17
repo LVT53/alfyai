@@ -3,16 +3,17 @@ import commonDict from "$lib/i18n/common";
 import {
 	classifyWeek,
 	dayKeyFor,
-	fitTopic,
 	GREETING_CONTEXT_WEIGHT,
 	GREETING_GENERIC_WEIGHT,
 	GREETING_MAX_LINE_CHARS,
 	GREETING_MEMORY_STORAGE_KEY,
 	GREETING_POOL,
 	GREETING_REFERENCE_NAME_CHARS,
-	GREETING_TOPIC_MAX_WORDS,
+	GREETING_WEEKDAYS,
 	type GreetingContext,
+	greetingFirstName,
 	greetingSeedKey,
+	isBackAfterGap,
 	pickGreeting,
 	readGreetingMemory,
 	resolveGreetingMemory,
@@ -42,7 +43,8 @@ function translatorFor(language: "en" | "hu") {
 function contextOf(overrides: Partial<GreetingContext> = {}): GreetingContext {
 	const language = overrides.language ?? "en";
 	return {
-		name: "Admin User",
+		// What the page feeds it: the first name, not the display name.
+		name: greetingFirstName("Admin User"),
 		userKey: "user-1",
 		// A Tuesday afternoon: midweek, no other group matching by accident.
 		now: new Date(2026, 8, 8, 14, 30),
@@ -50,8 +52,6 @@ function contextOf(overrides: Partial<GreetingContext> = {}): GreetingContext {
 		summaryLoaded: true,
 		week: { counts: [], total: 0 },
 		running: null,
-		topTitle: null,
-		connectedKinds: [],
 		firstVisitToday: false,
 		excludeKey: null,
 		translate: translatorFor(language) as GreetingContext["translate"],
@@ -144,19 +144,39 @@ describe("greeting pool", () => {
 		}
 	});
 
-	it("interpolates {topic} in exactly the continuity lines", () => {
-		for (const variant of GREETING_POOL) {
-			for (const language of ["en", "hu"] as const) {
-				const dict = commonDict[language] as unknown as Dict;
-				const hasTopic = dict[variant.named]?.includes("{topic}");
-				expect(hasTopic, `${language}.${variant.named}`).toBe(
-					Boolean(variant.topic),
-				);
+	it("interpolates the name and nothing else — never a conversation title", () => {
+		// Titles are sentences a model wrote. Cut and pasted into a greeting they
+		// came out too long or ungrammatical, so no line may carry {topic} — or
+		// any placeholder other than {name}.
+		for (const language of ["en", "hu"] as const) {
+			const dict = commonDict[language] as unknown as Dict;
+			for (const [key, value] of Object.entries(dict)) {
+				if (!key.startsWith("landing.")) continue;
+				expect(value, `${language}.${key}`).not.toContain("{topic}");
 				expect(
-					dict[variant.plain]?.includes("{topic}"),
-					`${language}.${variant.plain}`,
-				).toBe(Boolean(variant.topic));
+					value.replaceAll("{name}", "").includes("{"),
+					`${language}.${key} has a placeholder other than {name}`,
+				).toBe(false);
 			}
+		}
+	});
+
+	it("says nothing about the user's accounts, or about reaching into them", () => {
+		// "I can reach your accounts" read as ominous, and every rewording of it
+		// does too. The greeting does not mention connections at all.
+		const banned = {
+			en: /account|reach|access|connect|link/i,
+			hu: /fiók|elér|hozzáfér|csatlakoz|kapcsol/i,
+		};
+		for (const language of ["en", "hu"] as const) {
+			const dict = commonDict[language] as unknown as Dict;
+			for (const [key, value] of Object.entries(dict)) {
+				if (!key.startsWith("landing.")) continue;
+				expect(value, `${language}.${key}`).not.toMatch(banned[language]);
+			}
+		}
+		for (const variant of GREETING_POOL) {
+			expect(variant.key).not.toMatch(/^(connections|continuity)\./);
 		}
 	});
 
@@ -174,12 +194,12 @@ describe("greeting pool", () => {
 
 	it("authors every line short enough for one row at 780px", () => {
 		// The cap is measured (see GREETING_MAX_LINE_CHARS), and this is what
-		// stops a new line being added that quietly wraps the heading. The
-		// continuity lines are exempt here because their length is decided at
-		// runtime by fitTopic, which is held to the same cap below.
+		// stops a new line being added that quietly wraps the heading. The name
+		// is the only thing a line interpolates, so the authored length with a
+		// typical name in it IS the rendered length.
+		expect(GREETING_REFERENCE_NAME_CHARS).toBe(12);
 		const name = "X".repeat(GREETING_REFERENCE_NAME_CHARS);
 		for (const variant of GREETING_POOL) {
-			if (variant.topic) continue;
 			for (const language of ["en", "hu"] as const) {
 				const dict = commonDict[language] as unknown as Dict;
 				const rendered = (dict[variant.named] ?? "").replaceAll("{name}", name);
@@ -187,16 +207,26 @@ describe("greeting pool", () => {
 					rendered.length,
 					`${language}.${variant.named}: "${rendered}"`,
 				).toBeLessThanOrEqual(GREETING_MAX_LINE_CHARS);
+				// The nameless form is the named one minus the name, so it is
+				// shorter — but it is a separately authored string, so say so.
+				expect(
+					(dict[variant.plain] ?? "").length,
+					`${language}.${variant.plain}`,
+				).toBeLessThan(rendered.length);
 			}
 		}
+	});
+
+	it("keeps the pool between thirty-six and forty lines", () => {
+		expect(GREETING_POOL.length).toBeGreaterThanOrEqual(36);
+		expect(GREETING_POOL.length).toBeLessThanOrEqual(40);
 	});
 
 	it("covers every group the design asks for", () => {
 		const groups = new Set(GREETING_POOL.map((variant) => variant.group));
 		expect([...groups].sort()).toEqual([
+			"back",
 			"busy",
-			"connections",
-			"continuity",
 			"firstVisit",
 			"generic",
 			"quiet",
@@ -210,6 +240,74 @@ describe("greeting pool", () => {
 // ---------------------------------------------------------------------------
 // Reading the context
 // ---------------------------------------------------------------------------
+
+describe("greetingFirstName", () => {
+	it("calls the user by their first name, never their full display name", () => {
+		expect(greetingFirstName("Admin User")).toBe("Admin");
+		expect(greetingFirstName("Ada Lovelace")).toBe("Ada");
+		expect(greetingFirstName("  Levente   Alf  ")).toBe("Levente");
+		expect(greetingFirstName("Kovács Anna Mária")).toBe("Kovács");
+	});
+
+	it("keeps a one-word name whole", () => {
+		expect(greetingFirstName("Anna")).toBe("Anna");
+	});
+
+	it("drops the trailing punctuation of a directory-style name", () => {
+		// "Good morning, Lovelace,." is the alternative.
+		expect(greetingFirstName("Lovelace, Ada")).toBe("Lovelace");
+	});
+
+	it("falls back to the nameless form when there is no name to use", () => {
+		expect(greetingFirstName("")).toBe("");
+		expect(greetingFirstName("   ")).toBe("");
+		expect(greetingFirstName(null)).toBe("");
+		expect(greetingFirstName(undefined)).toBe("");
+		// Punctuation alone is not a name.
+		expect(greetingFirstName(".")).toBe("");
+	});
+
+	it("never greets an email address", () => {
+		// Accounts seeded from an address are the common case, not a curiosity.
+		expect(greetingFirstName("ada@example.com")).toBe("");
+		expect(greetingFirstName("levente.alf@icloud.com")).toBe("");
+		expect(greetingFirstName("Ada Lovelace <ada@example.com>")).toBe("");
+	});
+
+	it("drops a first name too long for the line it would sit in", () => {
+		const twelve = "Bartholomeus"; // exactly at the cap
+		expect(twelve.length).toBe(GREETING_REFERENCE_NAME_CHARS);
+		expect(greetingFirstName(twelve)).toBe(twelve);
+		expect(greetingFirstName(`${twelve}x`)).toBe("");
+		expect(greetingFirstName("Nebuchadnezzar Smith")).toBe("");
+	});
+
+	it("never yields a name that overflows the authored line", () => {
+		// The contract the 38-char cap rests on: whatever this returns, every
+		// named line in either language still fits one row.
+		const names = [
+			"Admin User",
+			"Bartholomeus",
+			"Zsuzsanna Kiss",
+			"ada@example.com",
+			"",
+		];
+		for (const displayName of names) {
+			const name = greetingFirstName(displayName);
+			expect(name.length).toBeLessThanOrEqual(GREETING_REFERENCE_NAME_CHARS);
+			for (const variant of GREETING_POOL) {
+				for (const language of ["en", "hu"] as const) {
+					const dict = commonDict[language] as unknown as Dict;
+					const line = (dict[variant.named] ?? "").replaceAll("{name}", name);
+					expect(
+						line.length,
+						`${language}.${variant.named}`,
+					).toBeLessThanOrEqual(GREETING_MAX_LINE_CHARS);
+				}
+			}
+		}
+	});
+});
 
 describe("time of day", () => {
 	it("splits the clock into the four named parts", () => {
@@ -247,6 +345,50 @@ describe("classifyWeek", () => {
 		expect(classifyWeek({ counts: [5, 5, 4, 5, 8], total: 8 })).toBe("busy");
 		// And a week that looks like the others is neither.
 		expect(classifyWeek({ counts: [8, 9, 7, 8, 8], total: 8 })).toBe("steady");
+	});
+});
+
+describe("isBackAfterGap", () => {
+	it("reads an empty last week, after some life, as a return", () => {
+		expect(isBackAfterGap({ counts: [6, 4, 0, 1], total: 1 })).toBe(true);
+		expect(isBackAfterGap({ counts: [6, 0, 0, 0], total: 0 })).toBe(true);
+	});
+
+	it("does not welcome back an account that was never here", () => {
+		expect(isBackAfterGap({ counts: [], total: 0 })).toBe(false);
+		expect(isBackAfterGap({ counts: [0, 0, 0, 2], total: 2 })).toBe(false);
+		// The shape a brand-new account actually has: /api/home/summary always
+		// draws twelve buckets, so "no history" arrives as twelve zeroes rather
+		// than as an empty array, and the empty-array case above would miss it.
+		const fresh = new Array<number>(12).fill(0);
+		expect(isBackAfterGap({ counts: fresh, total: 0 })).toBe(false);
+		expect(isBackAfterGap({ counts: [...fresh.slice(1), 1], total: 1 })).toBe(
+			false,
+		);
+	});
+
+	it("keeps 'welcome back' out of a brand-new account's pool entirely", () => {
+		// End to end rather than on the predicate: a new account must never be
+		// welcomed back to somewhere it has never been.
+		const fresh = { counts: new Array<number>(12).fill(0), total: 0 };
+		for (let index = 0; index < 400; index += 1) {
+			const picked = pickGreeting(
+				contextOf({ week: fresh, userKey: `user-${index}` }),
+			);
+			expect(picked.group).not.toBe("back");
+		}
+	});
+
+	it("needs the LAST week to have been empty, not just some week", () => {
+		expect(isBackAfterGap({ counts: [6, 0, 5, 1], total: 1 })).toBe(false);
+	});
+
+	it("stops once this week is plainly under way", () => {
+		expect(isBackAfterGap({ counts: [6, 4, 0, 9], total: 9 })).toBe(false);
+	});
+
+	it("needs enough history for 'last week' to mean something", () => {
+		expect(isBackAfterGap({ counts: [0, 1], total: 1 })).toBe(false);
 	});
 });
 
@@ -329,16 +471,13 @@ describe("context matching", () => {
 	it("never offers a summary-fed line before the summary lands", () => {
 		const counts = sampleGroups({
 			summaryLoaded: false,
-			week: { counts: [20, 20, 20, 22, 1], total: 1 },
+			week: { counts: [20, 20, 20, 0, 1], total: 1 },
 			running: { kind: "atlas" },
-			topTitle: "Quarterly revenue",
-			connectedKinds: ["google", "nextcloud"],
 		});
 		expect(counts.has("quiet")).toBe(false);
 		expect(counts.has("busy")).toBe(false);
-		expect(counts.has("continuity")).toBe(false);
+		expect(counts.has("back")).toBe(false);
 		expect(counts.has("running")).toBe(false);
-		expect(counts.has("connections")).toBe(false);
 		// The clock and the calendar are still fair game — they are the
 		// browser's own, not the endpoint's.
 		expect([...counts.keys()].sort()).toEqual(["generic", "time", "weekday"]);
@@ -356,30 +495,142 @@ describe("context matching", () => {
 		}
 	});
 
-	it("only offers the Friday line on a Friday", () => {
-		// 2026-09-11 is a Friday; 2026-09-08 is a Tuesday.
-		const friday = new Set(
-			Array.from(
-				{ length: 300 },
-				(_, index) =>
-					pickGreeting(
-						contextOf({
-							now: new Date(2026, 8, 11, 14),
-							userKey: `user-${index}`,
-						}),
-					).key,
-			),
-		);
-		expect(friday.has("weekday.friday")).toBe(true);
+	it("only offers a weekday line on its own weekday", () => {
+		// 2026-09-06 is a Sunday, so day-of-month 6 + n is weekday n.
+		const seenOn = new Map<string, Set<number>>();
+		for (let weekday = 0; weekday < 7; weekday += 1) {
+			const now = new Date(2026, 8, 6 + weekday, 14);
+			expect(now.getDay()).toBe(weekday);
+			for (let index = 0; index < 400; index += 1) {
+				const picked = pickGreeting(
+					contextOf({ now, userKey: `user-${index}` }),
+				);
+				if (picked.group !== "weekday") continue;
+				const days = seenOn.get(picked.key) ?? new Set<number>();
+				days.add(weekday);
+				seenOn.set(picked.key, days);
+			}
+		}
 
-		const tuesday = new Set(
-			Array.from(
-				{ length: 300 },
-				(_, index) => pickGreeting(contextOf({ userKey: `user-${index}` })).key,
-			),
+		// Every weekday line in the pool is in the table, was actually drawn,
+		// and was drawn on exactly the days the table allows — "Friday already"
+		// on Fridays only, the Monday lines on Mondays only, and so on.
+		const weekdayKeys = GREETING_POOL.filter(
+			(variant) => variant.group === "weekday",
+		).map((variant) => variant.key);
+		expect(weekdayKeys.sort()).toEqual(Object.keys(GREETING_WEEKDAYS).sort());
+		for (const key of weekdayKeys) {
+			expect([...(seenOn.get(key) ?? [])].sort(), key).toEqual(
+				[...GREETING_WEEKDAYS[key]].sort(),
+			);
+		}
+		expect(GREETING_WEEKDAYS["weekday.fridayAlready"]).toEqual([5]);
+		expect(GREETING_WEEKDAYS["weekday.monday"]).toEqual([1]);
+		expect(GREETING_WEEKDAYS["weekday.weekend"]).toEqual([0, 6]);
+	});
+
+	it("turns the weekday over at the user's own midnight, not UTC's", () => {
+		// The gate reads context.now.getDay(), and context.now is the browser's
+		// clock. 2026-09-06 is a Sunday: a minute before local midnight the pool
+		// still holds Sunday's lines and none of Monday's, and a minute after it
+		// holds Monday's and none of Sunday's. Under a UTC reading this would
+		// flip at the wrong moment for every user west or east of Greenwich.
+		const keysAt = (now: Date) =>
+			new Set(
+				Array.from(
+					{ length: 400 },
+					(_, index) =>
+						pickGreeting(contextOf({ now, userKey: `user-${index}` })).key,
+				),
+			);
+
+		const lateSunday = new Date(2026, 8, 6, 23, 59);
+		expect(lateSunday.getDay()).toBe(0);
+		const sunday = keysAt(lateSunday);
+		expect(sunday.has("weekday.sunday")).toBe(true);
+		expect(sunday.has("weekday.weekend")).toBe(true);
+		expect(sunday.has("weekday.monday")).toBe(false);
+		expect(sunday.has("weekday.newWeek")).toBe(false);
+
+		const earlyMonday = new Date(2026, 8, 7, 0, 1);
+		expect(earlyMonday.getDay()).toBe(1);
+		const monday = keysAt(earlyMonday);
+		expect(monday.has("weekday.monday")).toBe(true);
+		expect(monday.has("weekday.newWeek")).toBe(true);
+		expect(monday.has("weekday.sunday")).toBe(false);
+		expect(monday.has("weekday.weekend")).toBe(false);
+
+		// Both instants are the same "night" slot, so the day key is what moved.
+		expect(greetingSeedKey(contextOf({ now: lateSunday }))).toBe(
+			"user-1|2026-09-06|night|en",
 		);
-		expect(tuesday.has("weekday.friday")).toBe(false);
-		expect(tuesday.has("weekday.midweek")).toBe(true);
+		expect(greetingSeedKey(contextOf({ now: earlyMonday }))).toBe(
+			"user-1|2026-09-07|night|en",
+		);
+	});
+
+	it("names the right day in the line itself", () => {
+		const dayWords: Record<number, { en: RegExp; hu: RegExp }> = {
+			0: { en: /Sunday|Weekend/, hu: /Vasárnap|Hétvége/ },
+			1: { en: /Monday|New week/, hu: /Hétfő|Új hét/ },
+			3: { en: /Wednesday|Midweek/, hu: /Szerda|Hét közepe/ },
+			4: { en: /Thursday|Midweek/, hu: /Csütörtök|Hét közepe/ },
+			5: { en: /Friday/, hu: /[Pp]éntek/ },
+			6: { en: /Saturday|Weekend/, hu: /Szombat|Hétvége/ },
+		};
+		for (const [key, days] of Object.entries(GREETING_WEEKDAYS)) {
+			for (const language of ["en", "hu"] as const) {
+				const dict = commonDict[language] as unknown as Dict;
+				const line = dict[`landing.${key}.plain`] ?? "";
+				for (const day of days) {
+					const words = dayWords[day];
+					if (!words) continue; // Tuesday only ever gets "Midweek".
+					expect(line, `${language}.${key} on day ${day}`).toMatch(
+						words[language],
+					);
+				}
+			}
+		}
+	});
+
+	it("only calls the week's start slow while the week is still starting", () => {
+		const quietWeek = { counts: [20, 20, 20, 22, 1], total: 1 };
+		const keysOn = (day: number) =>
+			new Set(
+				Array.from(
+					{ length: 400 },
+					(_, index) =>
+						pickGreeting(
+							contextOf({
+								now: new Date(2026, 8, day, 14),
+								week: quietWeek,
+								userKey: `user-${index}`,
+							}),
+						).key,
+				),
+			);
+		// 2026-09-08 is a Tuesday, 2026-09-11 a Friday.
+		expect(keysOn(8).has("quiet.slowStart")).toBe(true);
+		expect(keysOn(11).has("quiet.slowStart")).toBe(false);
+		expect(keysOn(11).has("quiet.soFar")).toBe(true);
+	});
+
+	it("welcomes the user back only after an empty week", () => {
+		const keysFor = (week: { counts: number[]; total: number }) =>
+			new Set(
+				Array.from(
+					{ length: 400 },
+					(_, index) =>
+						pickGreeting(contextOf({ week, userKey: `user-${index}` })).key,
+				),
+			);
+		const back = keysFor({ counts: [6, 4, 0, 1], total: 1 });
+		expect(back.has("back.welcome")).toBe(true);
+		expect(back.has("back.beenAWhile")).toBe(true);
+
+		const merelyQuiet = keysFor({ counts: [6, 4, 5, 1], total: 1 });
+		expect(merelyQuiet.has("back.welcome")).toBe(false);
+		expect(merelyQuiet.has("back.beenAWhile")).toBe(false);
 	});
 
 	it("matches the running job to its kind", () => {
@@ -407,34 +658,6 @@ describe("context matching", () => {
 		expect(file.has("running.file")).toBe(true);
 		expect(file.has("running.report")).toBe(false);
 	});
-
-	it("holds the plural connections line back until there are two accounts", () => {
-		const one = new Set(
-			Array.from(
-				{ length: 300 },
-				(_, index) =>
-					pickGreeting(
-						contextOf({ connectedKinds: ["google"], userKey: `user-${index}` }),
-					).key,
-			),
-		);
-		expect(one.has("connections.reach")).toBe(true);
-		expect(one.has("connections.ready")).toBe(false);
-
-		const two = new Set(
-			Array.from(
-				{ length: 300 },
-				(_, index) =>
-					pickGreeting(
-						contextOf({
-							connectedKinds: ["google", "nextcloud"],
-							userKey: `user-${index}`,
-						}),
-					).key,
-			),
-		);
-		expect(two.has("connections.ready")).toBe(true);
-	});
 });
 
 describe("weighting", () => {
@@ -459,14 +682,14 @@ describe("weighting", () => {
 				firstVisitToday: true,
 				week: { counts: [4, 5, 4, 5, 30], total: 30 },
 				running: { kind: "atlas" },
-				topTitle: "Quarterly revenue",
-				connectedKinds: ["google", "nextcloud"],
 			},
 			2000,
 		);
 		const generic = counts.get("generic") ?? 0;
 		const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
-		// Eight generic lines at 1 against eighteen matched lines at 3.
+		// Eight generic lines at 1 against twelve matched lines at 3: two for
+		// the evening, two for Friday, three for the busy week, two for the
+		// report and three for the first visit.
 		expect(generic / total).toBeLessThan(0.2);
 	});
 });
@@ -625,109 +848,6 @@ describe("the previous day's line", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Fitting a topic onto one row
-// ---------------------------------------------------------------------------
-
-describe("fitTopic", () => {
-	const render = (topic: string) => `Back to ${topic}, Admin User?`;
-
-	it("cuts a long title to six words first", () => {
-		const fitted = fitTopic(
-			"one two three four five six seven eight",
-			(topic) => topic,
-			200,
-		);
-		expect(fitted?.split(" ")).toHaveLength(GREETING_TOPIC_MAX_WORDS);
-	});
-
-	it("keeps dropping words until the rendered line fits", () => {
-		const fitted = fitTopic("Quarterly revenue reconciliation", render);
-		expect(fitted).not.toBeNull();
-		expect(render(fitted as string).length).toBeLessThanOrEqual(
-			GREETING_MAX_LINE_CHARS,
-		);
-	});
-
-	it("hard-cuts a single word that will not fit on any boundary", () => {
-		const fitted = fitTopic("Donaudampfschifffahrtsgesellschaft", render);
-		expect(fitted).toMatch(/…$/);
-		expect(render(fitted as string).length).toBeLessThanOrEqual(
-			GREETING_MAX_LINE_CHARS,
-		);
-	});
-
-	it("gives up rather than print a stub when the line leaves no room", () => {
-		expect(
-			fitTopic(
-				"Quarterly revenue",
-				(topic) => `Back to ${topic}, Bartholomew Fitzwilliam-Rutherford?`,
-			),
-		).toBeNull();
-	});
-
-	it("treats a blank or whitespace title as no title", () => {
-		expect(fitTopic("", render)).toBeNull();
-		expect(fitTopic("   \n\t ", render)).toBeNull();
-	});
-
-	it("collapses the whitespace inside a title", () => {
-		expect(fitTopic("Tax  \n plan", (topic) => topic, 200)).toBe("Tax plan");
-	});
-});
-
-describe("a topic line never runs past one row at 780px", () => {
-	const titles = [
-		"Quarterly revenue reconciliation notes for the board meeting",
-		"Rewriting the onboarding email sequence end to end",
-		"Donaudampfschifffahrtsgesellschaftskapitaen",
-		"Taxes",
-		"A negyedéves bevételek egyeztetése a vezetőségi ülésre",
-		"2026 Q3",
-	];
-
-	for (const language of ["en", "hu"] as const) {
-		it(`holds the ${GREETING_MAX_LINE_CHARS}-character cap in ${language}`, () => {
-			let seen = 0;
-			for (const topTitle of titles) {
-				for (let index = 0; index < 200; index += 1) {
-					const picked = pickGreeting(
-						contextOf({ language, topTitle, userKey: `user-${index}` }),
-					);
-					if (picked.group !== "continuity") continue;
-					seen += 1;
-					expect(
-						picked.named.length,
-						`${language} / ${picked.key} / ${topTitle}`,
-					).toBeLessThanOrEqual(GREETING_MAX_LINE_CHARS);
-					expect(picked.named).not.toContain("{");
-					expect(picked.plain).not.toContain("{");
-				}
-			}
-			// The assertion above is only worth anything if continuity lines were
-			// actually drawn.
-			expect(seen).toBeGreaterThan(0);
-		});
-	}
-
-	it("drops the continuity group entirely when no topic can be made to fit", () => {
-		const keys = new Set(
-			Array.from(
-				{ length: 300 },
-				(_, index) =>
-					pickGreeting(
-						contextOf({
-							name: "Bartholomew Fitzwilliam-Rutherford",
-							topTitle: "Quarterly revenue reconciliation",
-							userKey: `user-${index}`,
-						}),
-					).group,
-			),
-		);
-		expect(keys.has("continuity")).toBe(false);
-	});
-});
-
-// ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 
@@ -737,23 +857,31 @@ describe("the rendered line", () => {
 			const picked = pickGreeting(
 				contextOf({
 					userKey: `user-${index}`,
-					topTitle: "Quarterly revenue",
 					running: { kind: "atlas" },
 					firstVisitToday: true,
 				}),
 			);
-			expect(picked.named).toContain("Admin User");
-			expect(picked.plain).not.toContain("Admin User");
+			expect(picked.named).toContain("Admin");
+			// The first name and nothing more: the surname never reaches a line.
+			expect(picked.named).not.toContain("Admin User");
+			expect(picked.plain).not.toContain("Admin");
 			expect(picked.named).not.toContain("{");
 			expect(picked.plain).not.toContain("{");
 		}
 	});
 
 	it("leaves no placeholder behind when the user has no display name", () => {
-		const picked = pickGreeting(
-			contextOf({ name: "", topTitle: "Quarterly revenue" }),
-		);
-		expect(picked.plain).not.toContain("{");
-		expect(picked.named).not.toContain("{topic}");
+		for (let index = 0; index < 200; index += 1) {
+			const picked = pickGreeting(
+				contextOf({
+					name: "",
+					userKey: `user-${index}`,
+					firstVisitToday: true,
+					running: { kind: "file" },
+				}),
+			);
+			expect(picked.plain).not.toContain("{");
+			expect(picked.plain.trim()).not.toBe("");
+		}
 	});
 });

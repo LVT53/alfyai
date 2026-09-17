@@ -208,10 +208,24 @@ function translate(
 }
 
 /**
+ * The most of an object's own words a chip label carries.
+ *
+ * This is a ceiling, not the chip's width. The rail decides what fits: on the
+ * desktop the three chips share a 780px row and a long label only gives ground
+ * (with an ellipsis) when the three together do not fit; on a phone the rail
+ * caps a label at 22ch and scrolls. At 28 this cut a thirty-character title
+ * short beside a hundred pixels of empty row.
+ */
+export const CHIP_OBJECT_MAX_CHARS = 40;
+
+/**
  * Trims an object's own words down to something that fits a chip without
  * lying about what it says. Cuts on a word boundary and marks the cut.
  */
-export function shortenObject(value: string, max = 28): string {
+export function shortenObject(
+	value: string,
+	max = CHIP_OBJECT_MAX_CHARS,
+): string {
 	const trimmed = value.trim().replace(/\s+/g, " ");
 	if (trimmed.length <= max) return trimmed;
 	const cut = trimmed.slice(0, max);
