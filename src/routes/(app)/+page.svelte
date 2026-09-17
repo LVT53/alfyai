@@ -32,6 +32,7 @@ import HomeSuggestionRail from "$lib/components/home/HomeSuggestionRail.svelte";
 import HomeWeeklyBars from "$lib/components/home/HomeWeeklyBars.svelte";
 import {
 	dayKeyFor,
+	greetingFirstName,
 	pickGreeting,
 	readGreetingMemory,
 	type ResolvedGreetingMemory,
@@ -152,11 +153,10 @@ let preparedConversationValidationPromise: Promise<void> | null = null;
 let conversationDraft: ConversationDraft | null = $state(null);
 const draftPersistence = createDraftPersistence();
 
-const greetingName = $derived(
-	data.user?.displayName?.trim() ||
-		data.user?.email?.split("@")[0]?.trim() ||
-		"",
-);
+// The first name or nothing — see greetingFirstName. The email is deliberately
+// NOT a fallback: "Good morning, levente.alf." is an address read aloud, and
+// the nameless line is a better sentence than that.
+const greetingName = $derived(greetingFirstName(data.user?.displayName));
 let summary = $state<HomeSummary>(EMPTY_HOME_SUMMARY);
 let summaryLoaded = $state(false);
 let nowSeconds = $state(Math.floor(Date.now() / 1000));
@@ -819,7 +819,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 			font-size: 1.4rem;
 		}
 
-		/* "Admin User" pushes the greeting to a third line at 390px. */
+		/* Even a first name pushes the greeting to a third line at 390px. */
 		.home-greeting-full {
 			display: none;
 		}

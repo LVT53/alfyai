@@ -11,6 +11,7 @@ import {
 	GREETING_REFERENCE_NAME_CHARS,
 	GREETING_WEEKDAYS,
 	type GreetingContext,
+	greetingFirstName,
 	greetingSeedKey,
 	isBackAfterGap,
 	pickGreeting,
@@ -42,7 +43,8 @@ function translatorFor(language: "en" | "hu") {
 function contextOf(overrides: Partial<GreetingContext> = {}): GreetingContext {
 	const language = overrides.language ?? "en";
 	return {
-		name: "Admin User",
+		// What the page feeds it: the first name, not the display name.
+		name: greetingFirstName("Admin User"),
 		userKey: "user-1",
 		// A Tuesday afternoon: midweek, no other group matching by accident.
 		now: new Date(2026, 8, 8, 14, 30),
@@ -239,6 +241,74 @@ describe("greeting pool", () => {
 // Reading the context
 // ---------------------------------------------------------------------------
 
+describe("greetingFirstName", () => {
+	it("calls the user by their first name, never their full display name", () => {
+		expect(greetingFirstName("Admin User")).toBe("Admin");
+		expect(greetingFirstName("Ada Lovelace")).toBe("Ada");
+		expect(greetingFirstName("  Levente   Alf  ")).toBe("Levente");
+		expect(greetingFirstName("Kovács Anna Mária")).toBe("Kovács");
+	});
+
+	it("keeps a one-word name whole", () => {
+		expect(greetingFirstName("Anna")).toBe("Anna");
+	});
+
+	it("drops the trailing punctuation of a directory-style name", () => {
+		// "Good morning, Lovelace,." is the alternative.
+		expect(greetingFirstName("Lovelace, Ada")).toBe("Lovelace");
+	});
+
+	it("falls back to the nameless form when there is no name to use", () => {
+		expect(greetingFirstName("")).toBe("");
+		expect(greetingFirstName("   ")).toBe("");
+		expect(greetingFirstName(null)).toBe("");
+		expect(greetingFirstName(undefined)).toBe("");
+		// Punctuation alone is not a name.
+		expect(greetingFirstName(".")).toBe("");
+	});
+
+	it("never greets an email address", () => {
+		// Accounts seeded from an address are the common case, not a curiosity.
+		expect(greetingFirstName("ada@example.com")).toBe("");
+		expect(greetingFirstName("levente.alf@icloud.com")).toBe("");
+		expect(greetingFirstName("Ada Lovelace <ada@example.com>")).toBe("");
+	});
+
+	it("drops a first name too long for the line it would sit in", () => {
+		const twelve = "Bartholomeus"; // exactly at the cap
+		expect(twelve.length).toBe(GREETING_REFERENCE_NAME_CHARS);
+		expect(greetingFirstName(twelve)).toBe(twelve);
+		expect(greetingFirstName(`${twelve}x`)).toBe("");
+		expect(greetingFirstName("Nebuchadnezzar Smith")).toBe("");
+	});
+
+	it("never yields a name that overflows the authored line", () => {
+		// The contract the 38-char cap rests on: whatever this returns, every
+		// named line in either language still fits one row.
+		const names = [
+			"Admin User",
+			"Bartholomeus",
+			"Zsuzsanna Kiss",
+			"ada@example.com",
+			"",
+		];
+		for (const displayName of names) {
+			const name = greetingFirstName(displayName);
+			expect(name.length).toBeLessThanOrEqual(GREETING_REFERENCE_NAME_CHARS);
+			for (const variant of GREETING_POOL) {
+				for (const language of ["en", "hu"] as const) {
+					const dict = commonDict[language] as unknown as Dict;
+					const line = (dict[variant.named] ?? "").replaceAll("{name}", name);
+					expect(
+						line.length,
+						`${language}.${variant.named}`,
+					).toBeLessThanOrEqual(GREETING_MAX_LINE_CHARS);
+				}
+			}
+		}
+	});
+});
+
 describe("time of day", () => {
 	it("splits the clock into the four named parts", () => {
 		expect(timeOfDayFor(5)).toBe("morning");
@@ -287,6 +357,26 @@ describe("isBackAfterGap", () => {
 	it("does not welcome back an account that was never here", () => {
 		expect(isBackAfterGap({ counts: [], total: 0 })).toBe(false);
 		expect(isBackAfterGap({ counts: [0, 0, 0, 2], total: 2 })).toBe(false);
+		// The shape a brand-new account actually has: /api/home/summary always
+		// draws twelve buckets, so "no history" arrives as twelve zeroes rather
+		// than as an empty array, and the empty-array case above would miss it.
+		const fresh = new Array<number>(12).fill(0);
+		expect(isBackAfterGap({ counts: fresh, total: 0 })).toBe(false);
+		expect(isBackAfterGap({ counts: [...fresh.slice(1), 1], total: 1 })).toBe(
+			false,
+		);
+	});
+
+	it("keeps 'welcome back' out of a brand-new account's pool entirely", () => {
+		// End to end rather than on the predicate: a new account must never be
+		// welcomed back to somewhere it has never been.
+		const fresh = { counts: new Array<number>(12).fill(0), total: 0 };
+		for (let index = 0; index < 400; index += 1) {
+			const picked = pickGreeting(
+				contextOf({ week: fresh, userKey: `user-${index}` }),
+			);
+			expect(picked.group).not.toBe("back");
+		}
 	});
 
 	it("needs the LAST week to have been empty, not just some week", () => {
@@ -437,6 +527,46 @@ describe("context matching", () => {
 		expect(GREETING_WEEKDAYS["weekday.fridayAlready"]).toEqual([5]);
 		expect(GREETING_WEEKDAYS["weekday.monday"]).toEqual([1]);
 		expect(GREETING_WEEKDAYS["weekday.weekend"]).toEqual([0, 6]);
+	});
+
+	it("turns the weekday over at the user's own midnight, not UTC's", () => {
+		// The gate reads context.now.getDay(), and context.now is the browser's
+		// clock. 2026-09-06 is a Sunday: a minute before local midnight the pool
+		// still holds Sunday's lines and none of Monday's, and a minute after it
+		// holds Monday's and none of Sunday's. Under a UTC reading this would
+		// flip at the wrong moment for every user west or east of Greenwich.
+		const keysAt = (now: Date) =>
+			new Set(
+				Array.from(
+					{ length: 400 },
+					(_, index) =>
+						pickGreeting(contextOf({ now, userKey: `user-${index}` })).key,
+				),
+			);
+
+		const lateSunday = new Date(2026, 8, 6, 23, 59);
+		expect(lateSunday.getDay()).toBe(0);
+		const sunday = keysAt(lateSunday);
+		expect(sunday.has("weekday.sunday")).toBe(true);
+		expect(sunday.has("weekday.weekend")).toBe(true);
+		expect(sunday.has("weekday.monday")).toBe(false);
+		expect(sunday.has("weekday.newWeek")).toBe(false);
+
+		const earlyMonday = new Date(2026, 8, 7, 0, 1);
+		expect(earlyMonday.getDay()).toBe(1);
+		const monday = keysAt(earlyMonday);
+		expect(monday.has("weekday.monday")).toBe(true);
+		expect(monday.has("weekday.newWeek")).toBe(true);
+		expect(monday.has("weekday.sunday")).toBe(false);
+		expect(monday.has("weekday.weekend")).toBe(false);
+
+		// Both instants are the same "night" slot, so the day key is what moved.
+		expect(greetingSeedKey(contextOf({ now: lateSunday }))).toBe(
+			"user-1|2026-09-06|night|en",
+		);
+		expect(greetingSeedKey(contextOf({ now: earlyMonday }))).toBe(
+			"user-1|2026-09-07|night|en",
+		);
 	});
 
 	it("names the right day in the line itself", () => {
@@ -731,8 +861,10 @@ describe("the rendered line", () => {
 					firstVisitToday: true,
 				}),
 			);
-			expect(picked.named).toContain("Admin User");
-			expect(picked.plain).not.toContain("Admin User");
+			expect(picked.named).toContain("Admin");
+			// The first name and nothing more: the surname never reaches a line.
+			expect(picked.named).not.toContain("Admin User");
+			expect(picked.plain).not.toContain("Admin");
 			expect(picked.named).not.toContain("{");
 			expect(picked.plain).not.toContain("{");
 		}

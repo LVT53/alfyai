@@ -69,18 +69,24 @@ export const GREETING_CONTEXT_WEIGHT = 3;
  * the twelve weekly bars side by side; with the bars and the week's count
  * drawn, Chrome reports 556px left for the greeting. At 1.75rem in the serif
  * face the lines in this pool average a shade under 14.6px per character, so
- * 38 characters — with a twelve-character display name substituted in — is
- * the ceiling that holds. Every authored line is inside it (a unit test says
- * so), and since the name is the only thing a line interpolates, the authored
+ * 38 characters — with a twelve-character first name substituted in — is the
+ * ceiling that holds. Every authored line is inside it (a unit test says so),
+ * and since the name is the only thing a line interpolates, the authored
  * length is the rendered length.
  *
- * A name much longer than twelve characters can still push the widest lines
- * onto a second row. That is what `text-wrap: balance` on the heading is for,
- * and it is the behaviour the screen already had.
+ * Nothing longer than twelve characters ever reaches a line: `greetingFirstName`
+ * drops to the nameless form instead. So the cap is a cap, not an average, and
+ * `text-wrap: balance` on the heading is a second line of defence rather than
+ * the first.
  */
 export const GREETING_MAX_LINE_CHARS = 38;
 
-/** The reference name the authoring cap is measured against. */
+/**
+ * The longest first name a line may carry — and the name the authoring cap is
+ * measured against, which is the same number on purpose: the widest line in the
+ * pool is exactly 38 characters with twelve of them the name, so a thirteenth
+ * would wrap the heading. `greetingFirstName` enforces it.
+ */
 export const GREETING_REFERENCE_NAME_CHARS = 12;
 
 /** At or under this many messages, the week reads as quiet outright. */
@@ -104,7 +110,10 @@ export interface GreetingWeekInput {
 }
 
 export interface GreetingContext {
-	/** Display name, already trimmed. Empty means the nameless forms are shown. */
+	/**
+	 * The user's first name, as `greetingFirstName` resolves it. Empty means the
+	 * nameless forms are shown, and empty is a normal answer, not a failure.
+	 */
 	name: string;
 	/** Stable per-user seed component — the user id, not the name. */
 	userKey: string;
@@ -288,6 +297,41 @@ function c(
 // ---------------------------------------------------------------------------
 // Reading the context
 // ---------------------------------------------------------------------------
+
+/**
+ * The name a line may call the user by: their first name, or nothing.
+ *
+ * "First one today, Admin User." is not how anyone is addressed out loud, and
+ * the surname is the half that carries no warmth and most of the width. So the
+ * fact the pool is handed is the FIRST whitespace-separated token of the
+ * display name and never the whole of it.
+ *
+ * Three shapes yield no name at all, and the nameless form of the line is shown
+ * instead — which is a finished sentence, not a gap:
+ *
+ * - an empty display name;
+ * - one that is really an address ("ada@example.com"). Accounts get seeded from
+ *   an email often enough that this is the common case, not a curiosity, and
+ *   "Good morning, ada@example.com." is worse than "Good morning.";
+ * - a first token longer than GREETING_REFERENCE_NAME_CHARS. That is the width
+ *   the lines were authored against; past it the heading wraps, and a wrapped
+ *   heading costs more than the name is worth.
+ *
+ * The token is stripped of trailing punctuation so a directory-style
+ * "Lovelace, Ada" renders "Good morning, Lovelace." rather than
+ * "Good morning, Lovelace,.".
+ */
+export function greetingFirstName(
+	displayName: string | null | undefined,
+): string {
+	const trimmed = (displayName ?? "").trim();
+	if (trimmed === "") return "";
+	if (trimmed.includes("@")) return "";
+	const first = (trimmed.split(/\s+/)[0] ?? "").replace(/[,;:.]+$/, "");
+	if (first === "") return "";
+	if (first.length > GREETING_REFERENCE_NAME_CHARS) return "";
+	return first;
+}
 
 export function timeOfDayFor(hour: number): GreetingTimeOfDay {
 	if (hour >= 5 && hour < 12) return "morning";

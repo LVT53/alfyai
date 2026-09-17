@@ -165,7 +165,10 @@ test.describe("chat home — Compact", () => {
 
 		const greeting = page.getByTestId("home-greeting");
 		await expect(greeting).toBeVisible();
-		await expect(greeting).toContainText("Admin User");
+		// The first name only. The seeded admin is "Admin User"; the greeting
+		// calls him "Admin", because nobody is addressed by their surname here.
+		await expect(greeting).toContainText("Admin");
+		await expect(greeting).not.toContainText("Admin User");
 
 		await expect(page.getByTestId("home-weekly-bars")).toBeVisible();
 		// Twelve bars, always — an empty week is a 1px tick, not a gap.
@@ -212,7 +215,8 @@ test.describe("chat home — Compact", () => {
 		await gotoHome(page);
 
 		const greeting = page.getByTestId("home-greeting");
-		await expect(greeting).toContainText("Admin User");
+		await expect(greeting).toContainText("Admin");
+		await expect(greeting).not.toContainText("Admin User");
 		// The visible span only — the phone-width form is in the DOM too.
 		const first = await page.locator(".home-greeting-full").textContent();
 		expect(first?.trim()).not.toBe("");
