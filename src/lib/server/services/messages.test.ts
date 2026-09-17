@@ -682,6 +682,79 @@ describe("messages metadata", () => {
 		expect(message.followUps).toBeUndefined();
 	});
 
+	// What the USER chose for a turn rides `metadataJson.userIntent` additively
+	// (see $lib/message-user-intent.ts), written by the send route and
+	// stream-completion.ts. The provenance line reads this projection, so it
+	// is validated rather than passed through.
+	it("projects the persisted userIntent when listing messages", async () => {
+		mockRows.push({
+			id: "assistant-user-intent-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				userIntent: {
+					skill: { id: "skill-1", displayName: "Invoice reply" },
+					webSearch: true,
+				},
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.userIntent).toEqual({
+			skill: { id: "skill-1", displayName: "Invoice reply" },
+			webSearch: true,
+		});
+	});
+
+	// A message from before the record existed — even one whose turn loaded a
+	// skill and searched the web by tool call — has no userIntent.
+	it("omits userIntent for a legacy message that has no record", async () => {
+		mockRows.push({
+			id: "assistant-legacy-intent-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: JSON.stringify([
+				{ type: "tool_call", name: "use_skill", input: {}, status: "done" },
+				{ type: "tool_call", name: "research_web", input: {}, status: "done" },
+			]),
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ evidenceStatus: "none" }),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.userIntent).toBeUndefined();
+	});
+
+	it("drops a malformed userIntent rather than projecting it", async () => {
+		mockRows.push({
+			id: "assistant-bad-intent-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				userIntent: { skill: { id: 7 }, webSearch: "yes" },
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.userIntent).toBeUndefined();
+	});
+
 	it("writes railSummary into metadataJson while preserving existing metadata", async () => {
 		mockRows.push({
 			id: "assistant-1",

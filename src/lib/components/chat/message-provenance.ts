@@ -2,73 +2,63 @@
 // boards 2026-09-15, InStream.dc.html — "In the footer, above the action
 // row").
 //
-// Nothing in the stream currently records that a skill ran, that the web was
-// searched, or which Atlas profile was used: the composer's chips are
-// destroyed on send, and only the tool-activity rail — folded away inside
-// the thinking block — remembers. This derives that line back out of what is
-// ALREADY on the message.
+// The composer's chips are destroyed on send, so nothing in the stream said
+// what the user had turned on for a turn. This line says it back.
 //
-// Owner decision (2): the line is DERIVED from the existing tool-activity
-// items and message metadata. No new persisted field, no migration, no new
-// wire key. Which means the honest limit of this function is exactly the
-// honest limit of the data:
+// Owner's rule: the line shows only what the USER CHOSE for that turn — never
+// what the model decided to do on its own.
 //
-//   * a skill shows when the turn made a `use_skill` tool call. A skill the
-//     user force-applied from the composer (`$name`) is resolved at preflight
-//     into the system prompt and explicitly NOT called as a tool, and is
-//     recorded only as an `activity_events` "skill_use" row — which the chat
-//     read model never projects onto the message. That turn shows no skill
-//     chip rather than a guessed one.
-//   * the web shows when a web-search tool call is present, and counts its
-//     sources from the turn's own evidence summary when there is one.
-//   * Atlas shows when the turn carries an Atlas job card, whose `profile`
-//     is the profile that ran.
+// The first version of this file derived the line from the turn's tool calls
+// ("derive from what is already on the message, persist nothing"). That was
+// cheap and it was wrong: a `use_skill` or `research_web` call looks the same
+// whether the user asked for it or the model reached for it, so the line
+// credited the user with the model's choices — and could NOT show the one
+// skill case that is the user's, a skill force-applied from the composer,
+// because that is resolved into the system prompt at preflight and never
+// called as a tool. Tool calls cannot answer "who chose this", so the choice
+// is now written down: a small additive `userIntent` record on the assistant
+// message (see $lib/message-user-intent.ts — `metadataJson`, no migration,
+// plus the terminal stream frame for the live session).
+//
+//   * a skill shows when the user applied one to that message from the
+//     composer — picked from the plus menu or force-applied with `$name`
+//     (request field `pendingSkill`). The label is that skill's display name.
+//     A skill the model loaded by itself via `use_skill` does not show.
+//   * the web shows when the user forced web search for that message with
+//     `/web` (request field `forceWebSearch`). A `research_web` call the model
+//     made by itself does not show. The source count beside it still comes
+//     from the turn's own evidence summary, when there is one.
+//   * Atlas shows when the turn carries an Atlas job card, whose `profile` is
+//     the profile that ran. Atlas only ever runs because the user turned it
+//     on, so the job card IS the user's choice and needs no record.
+//
+// A message persisted before the record existed has none, and shows no skill
+// or web chip — the safe default; nothing is guessed back out of its tool
+// calls. Its Atlas chip still shows.
 //
 // Pure functions over plain data, per the `activity-presentation.ts`
 // boundary rule: nothing Svelte-reactive, nothing that imports `$t`. The
 // caller localizes the labels from the returned kinds.
-import type { ResponseActivityEntry } from "$lib/response-activity-types";
+import type { MessageUserIntent } from "$lib/message-user-intent";
 import type { AtlasProfile } from "$lib/server/services/atlas/types";
 import type { MessageEvidenceSummary } from "$lib/server/services/message-evidence";
-import type { ThinkingSegment } from "$lib/server/services/messages-types";
-import { getToolCallIconType } from "$lib/utils/tool-calls";
 
 /** One entry on the provenance line, in the order the board draws them. */
 export type MessageProvenanceEntry =
-	| { kind: "skill"; skillName: string | null }
+	| { kind: "skill"; skillName: string }
 	| { kind: "web"; sourceCount: number | null }
 	| { kind: "atlas"; profile: AtlasProfile };
 
 export type MessageProvenanceInput = {
 	role: "user" | "assistant";
-	thinkingSegments?: ThinkingSegment[] | undefined;
-	responseActivity?: ResponseActivityEntry[] | undefined;
+	// The user's recorded choices for this turn; absent on a turn where they
+	// chose nothing and on every message from before the record existed.
+	userIntent?: MessageUserIntent | undefined;
+	// Only ever used to COUNT the sources of a web search the user forced —
+	// never to decide that the chip shows.
 	evidenceSummary?: MessageEvidenceSummary | undefined;
 	atlasProfiles?: AtlasProfile[] | undefined;
 };
-
-/**
- * The skill name a `use_skill` call names, as the model wrote it. The tool
- * takes the skill by id/name in its input; the display name a row shows is
- * the same string, so this prefers the human-facing keys and falls back to
- * the id rather than inventing a title.
- */
-function skillNameFromToolInput(input: Record<string, unknown>): string | null {
-	for (const key of ["displayName", "display_name", "name", "skill", "id"]) {
-		const value = input[key];
-		if (typeof value === "string" && value.trim()) return value.trim();
-	}
-	return null;
-}
-
-function toolCallSegments(
-	segments: ThinkingSegment[] | undefined,
-): Extract<ThinkingSegment, { type: "tool_call" }>[] {
-	return (segments ?? []).filter(
-		(segment): segment is Extract<ThinkingSegment, { type: "tool_call" }> =>
-			segment.type === "tool_call",
-	);
-}
 
 /**
  * The number of distinct web sources the turn retrieved, from the evidence
@@ -90,8 +80,8 @@ export function webSourceCount(
 
 /**
  * The provenance entries for one message, in the board's order: skill, web,
- * Atlas. Empty for a user turn, for a turn that used none of the three, and
- * for anything it cannot honestly name.
+ * Atlas. Empty for a user turn and for a turn where the user chose none of
+ * the three — whatever the model went on to do by itself.
  */
 export function deriveMessageProvenance(
 	message: MessageProvenanceInput,
@@ -99,35 +89,15 @@ export function deriveMessageProvenance(
 	if (message.role !== "assistant") return [];
 
 	const entries: MessageProvenanceEntry[] = [];
-	const toolCalls = toolCallSegments(message.thinkingSegments);
-	const activityToolNames = (message.responseActivity ?? [])
-		.map((entry) => entry.toolName)
-		.filter((name): name is string => Boolean(name?.trim()));
 
 	// --- skill ------------------------------------------------------------
-	const skillCall = toolCalls.find(
-		(call) => getToolCallIconType(call.name) === "use-skill",
-	);
-	const skillFromActivity = activityToolNames.some(
-		(name) => getToolCallIconType(name) === "use-skill",
-	);
-	if (skillCall) {
-		entries.push({
-			kind: "skill",
-			skillName: skillNameFromToolInput(skillCall.input ?? {}),
-		});
-	} else if (skillFromActivity) {
-		entries.push({ kind: "skill", skillName: null });
+	const skillName = message.userIntent?.skill?.displayName.trim();
+	if (skillName) {
+		entries.push({ kind: "skill", skillName });
 	}
 
 	// --- web --------------------------------------------------------------
-	const searchedWeb =
-		toolCalls.some((call) => getToolCallIconType(call.name) === "web-search") ||
-		activityToolNames.some(
-			(name) => getToolCallIconType(name) === "web-search",
-		) ||
-		Boolean(message.evidenceSummary?.structuredWebSearch);
-	if (searchedWeb) {
+	if (message.userIntent?.webSearch === true) {
 		entries.push({
 			kind: "web",
 			sourceCount: webSourceCount(message.evidenceSummary),

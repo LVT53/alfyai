@@ -751,6 +751,11 @@ export function finalizeStreamingMessageList(
 				// suggestions the same way thoughtSteps does, so the action row's
 				// chips populate in the same session without a reload.
 				followUps: params.metadata?.followUps ?? message.followUps,
+				// The user's own choices for this turn — the server's record when
+				// the terminal frame carries one, else what the optimistic
+				// placeholder was stamped with at send (a stopped or frame-less
+				// finalize keeps that).
+				userIntent: params.metadata?.userIntent ?? message.userIntent,
 			};
 		}
 

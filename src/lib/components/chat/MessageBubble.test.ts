@@ -2236,12 +2236,12 @@ describe("MessageBubble", () => {
 	});
 
 	// Chips redesign (owner-approved boards, 2026-09-15) — the provenance
-	// line. Nothing in the stream used to record that a skill ran, that the
-	// web was searched, or which Atlas profile was used: the composer's chips
-	// were destroyed on send and only the tool-activity rail, folded away
-	// inside the thinking block, remembered. The line is DERIVED (owner
-	// decision 2) from what the message already carries, so these tests are as
-	// much about what it refuses to claim as about what it shows.
+	// line. Nothing in the stream used to record what the user had turned on
+	// for a turn: the composer's chips were destroyed on send. Owner's rule:
+	// the line shows only what the USER chose — the `userIntent` record
+	// persisted with the message, plus Atlas — and never what the model did
+	// by itself, so these tests are as much about what it refuses to claim as
+	// about what it shows.
 	describe("the assistant provenance line", () => {
 		function buildProvenanceMessage(
 			overrides: Partial<ChatMessage> = {},
@@ -2257,28 +2257,42 @@ describe("MessageBubble", () => {
 			};
 		}
 
-		it("is not rendered at all on a turn that used nothing", () => {
+		const modelUseSkillCall = {
+			type: "tool_call",
+			name: "use_skill",
+			input: { displayName: "Contract review" },
+			status: "done",
+		} as const;
+		const modelWebSearchCall = {
+			type: "tool_call",
+			name: "research_web",
+			input: {},
+			status: "done",
+		} as const;
+		const webEvidence = {
+			structuredWebSearch: true,
+			groups: [
+				{
+					sourceType: "web",
+					label: "Web",
+					reranked: false,
+					items: [{ id: "s1" }, { id: "s2" }, { id: "s3" }],
+				},
+			],
+		} as ChatMessage["evidenceSummary"];
+
+		it("is not rendered at all on a turn where the user chose nothing", () => {
 			render(MessageBubble, { message: buildProvenanceMessage() });
 			expect(screen.queryByTestId("message-provenance")).toBeNull();
 		});
 
-		it("names the skill, the web and the Atlas profile, in that order", () => {
+		it("names the user's skill, the forced web search and the Atlas profile, in that order", () => {
 			render(MessageBubble, {
 				message: buildProvenanceMessage({
-					thinkingSegments: [
-						{
-							type: "tool_call",
-							name: "use_skill",
-							input: { displayName: "Invoice reply" },
-							status: "done",
-						},
-						{
-							type: "tool_call",
-							name: "research_web",
-							input: {},
-							status: "done",
-						},
-					],
+					userIntent: {
+						skill: { id: "skill-1", displayName: "Invoice reply" },
+						webSearch: true,
+					},
 				}),
 				atlasJobs: [buildAtlasJob({ profile: "in-depth" })],
 			});
@@ -2294,19 +2308,81 @@ describe("MessageBubble", () => {
 			expect(
 				within(line).getByTestId("message-provenance-atlas").textContent,
 			).toContain(chatDict.en["composerTools.atlasInDepth"]);
+			expect(
+				Array.from(
+					line.querySelectorAll<HTMLElement>(
+						'[data-testid^="message-provenance-"]',
+					),
+				).map((chip) => chip.dataset.testid),
+			).toEqual([
+				"message-provenance-skill",
+				"message-provenance-web",
+				"message-provenance-atlas",
+			]);
+		});
+
+		// A skill the model loaded via `use_skill`, a `research_web` it ran by
+		// itself, even the structured web evidence that search produced: none
+		// of it is the user's choice, so the line does not render at all.
+		it("shows nothing for a skill the model loaded by itself", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage({
+					thinkingSegments: [modelUseSkillCall],
+				}),
+			});
+			expect(screen.queryByTestId("message-provenance")).toBeNull();
+		});
+
+		it("shows nothing for a web search the model ran by itself", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage({
+					thinkingSegments: [modelWebSearchCall],
+					evidenceSummary: webEvidence,
+				}),
+			});
+			expect(screen.queryByTestId("message-provenance")).toBeNull();
+		});
+
+		it("labels the skill chip with the user's pick, not a skill the model also loaded", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage({
+					thinkingSegments: [modelUseSkillCall],
+					userIntent: {
+						skill: { id: "skill-1", displayName: "Invoice reply" },
+					},
+				}),
+			});
+
+			const chip = screen.getByTestId("message-provenance-skill");
+			expect(chip.textContent).toContain("Invoice reply");
+			expect(chip.textContent).not.toContain("Contract review");
+			expect(screen.queryByTestId("message-provenance-web")).toBeNull();
+		});
+
+		// A message persisted before the record existed: nothing is guessed
+		// back out of its tool calls. Atlas is not part of the record, and
+		// still shows.
+		it("shows only Atlas on a legacy message that has no record", () => {
+			render(MessageBubble, {
+				message: buildProvenanceMessage({
+					thinkingSegments: [modelUseSkillCall, modelWebSearchCall],
+					evidenceSummary: webEvidence,
+				}),
+				atlasJobs: [buildAtlasJob({ profile: "in-depth" })],
+			});
+
+			const line = screen.getByTestId("message-provenance");
+			expect(within(line).queryByTestId("message-provenance-skill")).toBeNull();
+			expect(within(line).queryByTestId("message-provenance-web")).toBeNull();
+			expect(
+				within(line).getByTestId("message-provenance-atlas"),
+			).toBeInTheDocument();
 		});
 
 		it("draws its chips at the in-message size, with no remove control", () => {
 			render(MessageBubble, {
 				message: buildProvenanceMessage({
-					thinkingSegments: [
-						{
-							type: "tool_call",
-							name: "research_web",
-							input: {},
-							status: "done",
-						},
-					],
+					userIntent: { webSearch: true },
 				}),
 			});
 
@@ -2317,28 +2393,12 @@ describe("MessageBubble", () => {
 			expect(chip.querySelector("button")).toBeNull();
 		});
 
-		it("counts the sources a web search actually retrieved", () => {
+		it("counts the sources a forced web search actually retrieved", () => {
 			render(MessageBubble, {
 				message: buildProvenanceMessage({
-					thinkingSegments: [
-						{
-							type: "tool_call",
-							name: "research_web",
-							input: {},
-							status: "done",
-						},
-					],
-					evidenceSummary: {
-						structuredWebSearch: true,
-						groups: [
-							{
-								sourceType: "web",
-								label: "Web",
-								reranked: false,
-								items: [{ id: "s1" }, { id: "s2" }, { id: "s3" }],
-							},
-						],
-					} as ChatMessage["evidenceSummary"],
+					userIntent: { webSearch: true },
+					thinkingSegments: [modelWebSearchCall],
+					evidenceSummary: webEvidence,
 				}),
 			});
 
@@ -2353,14 +2413,7 @@ describe("MessageBubble", () => {
 			render(MessageBubble, {
 				message: buildProvenanceMessage({
 					isStreaming: true,
-					thinkingSegments: [
-						{
-							type: "tool_call",
-							name: "research_web",
-							input: {},
-							status: "running",
-						},
-					],
+					userIntent: { webSearch: true },
 				}),
 			});
 			expect(screen.queryByTestId("message-provenance")).toBeNull();
@@ -2408,14 +2461,7 @@ describe("MessageBubble", () => {
 			render(MessageBubble, {
 				message: buildProvenanceMessage({
 					role: "user",
-					thinkingSegments: [
-						{
-							type: "tool_call",
-							name: "research_web",
-							input: {},
-							status: "done",
-						},
-					],
+					userIntent: { webSearch: true },
 				}),
 			});
 			expect(screen.queryByTestId("message-provenance")).toBeNull();

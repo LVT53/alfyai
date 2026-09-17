@@ -131,9 +131,11 @@ export type UserMessageQuoteSplit = {
  * Splits a SENT user message back into its quote chips and the sentence the
  * user actually typed.
  *
- * The composer expands a quote chip into the message body on send (there is
- * no new persisted field for it — see message-provenance.ts for the same
- * rule on the assistant side), so the only honest way to draw the chip again
+ * The composer expands a quote chip into the message body on send, and there
+ * is no persisted field for it (unlike the assistant side, whose provenance
+ * line reads a persisted `userIntent` record — see message-provenance.ts —
+ * because tool calls cannot say who chose them; here the text itself can be
+ * recognised exactly), so the only honest way to draw the chip again
  * in the stream is to recognise the text it produced. That text is not
  * guessed at: `buildOutlineQuote` builds it from an outline entry that is
  * PERSISTED on the attachment, so a leading block is treated as a quote only

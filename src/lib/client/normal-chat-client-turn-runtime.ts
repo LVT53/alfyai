@@ -1,5 +1,9 @@
 import { submitAtlasTurn } from "$lib/client/api/atlas";
 import { PENDING_FILE_PRODUCTION_JOB_ID_PREFIX } from "$lib/components/chat/file-production-helpers";
+import {
+	buildMessageUserIntent,
+	type MessageUserIntent,
+} from "$lib/message-user-intent";
 import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type { ResponseActivityEntry } from "$lib/response-activity-types";
@@ -430,6 +434,7 @@ export function createNormalChatClientTurnRuntime(
 	function createAssistantPlaceholder(
 		id: string,
 		generationDurationMs?: number,
+		userIntent?: MessageUserIntent,
 	): ChatMessage {
 		return {
 			id,
@@ -440,7 +445,25 @@ export function createNormalChatClientTurnRuntime(
 			isStreaming: true,
 			runtimePhase: "preparing",
 			...(generationDurationMs !== undefined ? { generationDurationMs } : {}),
+			...(userIntent ? { userIntent } : {}),
 		};
+	}
+
+	// What the user chose for the turn being sent, stamped on the optimistic
+	// assistant placeholder so its provenance line is right the moment the turn
+	// lands — the composer's chips are gone by then. The server writes the same
+	// record with the persisted message and repeats it on the terminal stream
+	// frame, which wins when it arrives (its skill name is the resolved one).
+	// An Atlas turn carries neither choice: the server drops both for
+	// `atlasMode` (chat-turn/request.ts), and so does this.
+	function userIntentForPayload(
+		payload: NormalChatSendPayload,
+	): MessageUserIntent | undefined {
+		if (payload.atlasMode === true) return undefined;
+		return buildMessageUserIntent({
+			skill: payload.pendingSkill ?? null,
+			forceWebSearch: payload.forceWebSearch === true,
+		});
 	}
 
 	function createUserMessage(params: {
@@ -1188,7 +1211,11 @@ export function createNormalChatClientTurnRuntime(
 		const placeholderId = adapters.randomId();
 		adapters.applyMessageListEvent({
 			type: "appendAssistantPlaceholder",
-			placeholder: createAssistantPlaceholder(placeholderId),
+			placeholder: createAssistantPlaceholder(
+				placeholderId,
+				undefined,
+				userIntentForPayload(payload),
+			),
 		});
 
 		if (payload.atlasMode === true) {

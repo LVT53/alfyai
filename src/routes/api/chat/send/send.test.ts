@@ -824,6 +824,11 @@ describe("POST /api/chat/send", () => {
 		expect(JSON.stringify(evidencePayload)).not.toContain(
 			"FAILED_TOOL_OUTPUT_SHOULD_NOT_BE_EVIDENCE",
 		);
+		// The forced `/web` is recorded with the assistant message as the
+		// user's choice for this turn.
+		expect(mockCreateMessage.mock.calls[1]?.[5]).toMatchObject({
+			userIntent: { webSearch: true },
+		});
 	});
 
 	it("returns the same visible web text that it persists while storing citation audit metadata", async () => {
@@ -1178,6 +1183,16 @@ describe("POST /api/chat/send", () => {
 			"user",
 			"Draft the plan",
 		);
+		// The skill the USER applied is recorded with the assistant message
+		// (see $lib/message-user-intent.ts) — the provenance line reads this,
+		// never a `use_skill` tool call. No forced web search: no such key.
+		const assistantMetadata = mockCreateMessage.mock.calls[1]?.[5];
+		expect(assistantMetadata).toMatchObject({
+			userIntent: {
+				skill: { id: "skill-1", displayName: "Interview coach" },
+			},
+		});
+		expect(assistantMetadata.userIntent).not.toHaveProperty("webSearch");
 	});
 
 	it("treats Skill Control Envelopes as plain assistant output when Composer Command Registry is disabled", async () => {

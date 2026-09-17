@@ -1,4 +1,5 @@
 import type { FinishReason } from "ai";
+import type { MessageUserIntent } from "$lib/message-user-intent";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type { InterimThoughtStep } from "$lib/response-activity-types";
 import { getConfig } from "$lib/server/config-store";
@@ -121,6 +122,12 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	// Analytics overhaul (backend half) — threaded straight into
 	// finalizeChatTurn's skillUse param; see its doc comment.
 	skillUse?: { displayName: string } | null;
+	// What the USER chose for this turn (see $lib/message-user-intent.ts),
+	// built by the orchestrator from the preflighted turn. Persisted into
+	// assistantMetadata.userIntent AND carried on the terminal
+	// data-stream-metadata frame, so the provenance line reads the same live
+	// as after a reload. Omitted/undefined when the user chose nothing.
+	userIntent?: MessageUserIntent;
 	activeDocumentArtifactId: string | null;
 	requestStartTime: number;
 	preparedContext: PreparedContextSnapshot;
@@ -194,6 +201,7 @@ export async function completeStreamTurn(
 		attachmentIds,
 		linkedSources,
 		skillUse,
+		userIntent,
 		activeDocumentArtifactId,
 		requestStartTime,
 		fileProductionJobIdsAtStart: fileProductionJobIdsAtStartFact,
@@ -399,6 +407,10 @@ export async function completeStreamTurn(
 				// built; omitted entirely when there is nothing to show, mirroring
 				// thoughtSteps/completionWarningCodes just above.
 				...(followUps && followUps.length > 0 ? { followUps } : {}),
+				// The user's own choices for this turn — the same record written
+				// to assistantMetadata.userIntent below, so the live provenance
+				// line is server-authoritative rather than the client's guess.
+				...(userIntent ? { userIntent } : {}),
 				// Finding 4 — see repairedFinalContent above. Omitted entirely
 				// when the citation repair changed nothing, mirroring
 				// thoughtSteps/followUps just above.
@@ -571,6 +583,10 @@ export async function completeStreamTurn(
 				// thoughtSteps/railSummary) so a reloaded page still shows the same
 				// suggestions the live session got on the terminal frame above.
 				...(followUps && followUps.length > 0 ? { followUps } : {}),
+				// What the USER chose for this turn — read by the provenance line
+				// instead of the tool calls. Omitted entirely when they chose
+				// nothing, mirroring followUps just above.
+				...(userIntent ? { userIntent } : {}),
 				...skillControl.metadata,
 			},
 			reasoningDepth,

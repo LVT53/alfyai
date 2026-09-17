@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
+import { buildMessageUserIntent } from "$lib/message-user-intent";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
@@ -524,6 +525,16 @@ async function runStandardSendTurn({
 			logPrefix: "[CHAT_SEND]",
 		})) ?? null;
 
+	const userIntent = buildMessageUserIntent({
+		skill: turn.appliedSkill
+			? {
+					id: turn.appliedSkill.skillId,
+					displayName: turn.appliedSkill.skillDisplayName,
+				}
+			: null,
+		forceWebSearch: turn.forceWebSearch,
+	});
+
 	const completion = await finalizeChatTurn({
 		turnKind: "send",
 		userId: user.id,
@@ -539,6 +550,10 @@ async function runStandardSendTurn({
 			...(modelRunArtifacts.citationGate.repair
 				? { citationAudit: modelRunArtifacts.citationGate.repair }
 				: {}),
+			// What the USER chose for this turn (see $lib/message-user-intent.ts)
+			// — the provenance line reads this, never the tool calls. Omitted
+			// entirely when they chose nothing.
+			...(userIntent ? { userIntent } : {}),
 			...modelRunArtifacts.normalizedAssistantOutput.metadata,
 		},
 		reasoningDepth: turn.reasoningDepth,

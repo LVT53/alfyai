@@ -752,6 +752,54 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
+	// The composer's chips are gone once the turn is sent, so what the user
+	// chose is stamped on the optimistic assistant placeholder for its
+	// provenance line (see $lib/message-user-intent.ts). The server's own
+	// record on the terminal frame replaces it when it arrives.
+	it("stamps the user's applied skill and forced web search on the assistant placeholder", async () => {
+		const { adapters, messageListEvents } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Review this plan",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			pendingSkill: {
+				id: "skill-1",
+				ownership: "user",
+				displayName: "Planning reviewer",
+			},
+			forceWebSearch: true,
+		});
+
+		expect(messageListEvents.appendAssistantPlaceholder).toHaveBeenCalledWith(
+			expect.objectContaining({
+				role: "assistant",
+				userIntent: {
+					skill: { id: "skill-1", displayName: "Planning reviewer" },
+					webSearch: true,
+				},
+			}),
+		);
+	});
+
+	it("leaves the placeholder without a userIntent when the user chose nothing", async () => {
+		const { adapters, messageListEvents } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Just a question",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		const [placeholder] =
+			messageListEvents.appendAssistantPlaceholder.mock.calls[0];
+		expect(placeholder).not.toHaveProperty("userIntent");
+	});
+
 	it("threads the composer's enabledConnectionCapabilities selection to streamChat (Issue 7.2)", async () => {
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);

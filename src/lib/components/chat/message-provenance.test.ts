@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { ResponseActivityEntry } from "$lib/response-activity-types";
 import type { MessageEvidenceSummary } from "$lib/server/services/message-evidence";
-import type { ThinkingSegment } from "$lib/server/services/messages-types";
-import { deriveMessageProvenance, webSourceCount } from "./message-provenance";
+import type {
+	ChatMessage,
+	ThinkingSegment,
+} from "$lib/server/services/messages-types";
+import {
+	deriveMessageProvenance,
+	type MessageProvenanceInput,
+	webSourceCount,
+} from "./message-provenance";
 
-// The assistant turn's provenance line is DERIVED (owner decision 2) from
-// what the message already carries — no new persisted field. These tests pin
-// both halves of that bargain: what it can name, and what it refuses to
-// guess at.
+// Owner's rule: the provenance line shows only what the USER chose for the
+// turn — the `userIntent` record persisted with the assistant message — and
+// never what the model did by itself. These tests pin both halves: what the
+// record names, and that a turn's tool calls, however loud, name nothing.
 
 function toolCall(
 	name: string,
@@ -32,12 +39,32 @@ function evidence(webItems: number): MessageEvidenceSummary {
 	};
 }
 
+// A whole assistant message, the way MessageBubble holds one — tool calls,
+// live activity and all. `deriveMessageProvenance` takes a narrower input,
+// so handing it the full message proves the model's own activity is not
+// merely unread by the caller but ignored by the function.
+function assistantMessage(
+	extra: Partial<ChatMessage> = {},
+): MessageProvenanceInput {
+	const message: ChatMessage = {
+		id: "assistant-1",
+		role: "assistant",
+		content: "Done.",
+		timestamp: 1,
+		...extra,
+	};
+	return message;
+}
+
 describe("deriveMessageProvenance", () => {
 	it("says nothing about a user turn", () => {
 		expect(
 			deriveMessageProvenance({
 				role: "user",
-				thinkingSegments: [toolCall("research_web")],
+				userIntent: {
+					skill: { id: "skill-1", displayName: "Invoice reply" },
+					webSearch: true,
+				},
 			}),
 		).toEqual([]);
 	});
@@ -45,64 +72,120 @@ describe("deriveMessageProvenance", () => {
 	// "It disappears entirely on a turn that used nothing" — the board's own
 	// requirement, and the reason a long thread of plain answers does not grow
 	// a repeating band of chrome.
-	it("says nothing about a turn that used none of the three", () => {
+	it("says nothing about a turn where the user chose none of the three", () => {
 		expect(
-			deriveMessageProvenance({
-				role: "assistant",
-				thinkingSegments: [
-					{ type: "text", content: "thinking out loud" },
-					toolCall("memory_context"),
-				],
-			}),
+			deriveMessageProvenance(
+				assistantMessage({
+					thinkingSegments: [
+						{ type: "text", content: "thinking out loud" },
+						toolCall("memory_context"),
+					],
+				}),
+			),
 		).toEqual([]);
 	});
 
-	it("names the skill a use_skill call names", () => {
+	it("names the skill the user applied from the composer", () => {
 		expect(
 			deriveMessageProvenance({
 				role: "assistant",
-				thinkingSegments: [
-					toolCall("use_skill", { displayName: "Invoice reply" }),
-				],
+				userIntent: {
+					skill: { id: "skill-1", displayName: "Invoice reply" },
+				},
 			}),
 		).toEqual([{ kind: "skill", skillName: "Invoice reply" }]);
 	});
 
-	it("falls back through the keys a use_skill call might use", () => {
+	// A `$`-forced skill is resolved into the system prompt at preflight and
+	// never called as a tool — the turn carries no `use_skill` at all. It is
+	// exactly the case the record exists for.
+	it("shows a force-applied skill although the turn made no use_skill call", () => {
 		expect(
-			deriveMessageProvenance({
-				role: "assistant",
-				thinkingSegments: [toolCall("use_skill", { id: "skill-42" })],
-			}),
-		).toEqual([{ kind: "skill", skillName: "skill-42" }]);
+			deriveMessageProvenance(
+				assistantMessage({
+					thinkingSegments: [{ type: "text", content: "Here is the draft." }],
+					userIntent: {
+						skill: { id: "skill-1", displayName: "Invoice reply" },
+					},
+				}),
+			),
+		).toEqual([{ kind: "skill", skillName: "Invoice reply" }]);
 	});
 
-	it("still shows a skill chip when the call names nothing at all", () => {
+	it("shows no skill chip for a skill the model loaded by itself", () => {
 		expect(
-			deriveMessageProvenance({
-				role: "assistant",
-				thinkingSegments: [toolCall("use_skill")],
-			}),
-		).toEqual([{ kind: "skill", skillName: null }]);
+			deriveMessageProvenance(
+				assistantMessage({
+					thinkingSegments: [
+						toolCall("use_skill", { displayName: "Invoice reply" }),
+					],
+				}),
+			),
+		).toEqual([]);
 	});
 
-	it("recognises a skill from the live activity rail too", () => {
+	it("ignores a model-loaded skill on the live activity rail too", () => {
 		const activity: ResponseActivityEntry[] = [
 			{ id: "tool-1", kind: "tool", status: "done", toolName: "use_skill" },
 		];
 		expect(
-			deriveMessageProvenance({
-				role: "assistant",
-				responseActivity: activity,
-			}),
-		).toEqual([{ kind: "skill", skillName: null }]);
+			deriveMessageProvenance(assistantMessage({ responseActivity: activity })),
+		).toEqual([]);
 	});
 
-	it("counts the web sources the turn actually retrieved", () => {
+	// The user's pick is what shows — not whatever other skill the model went
+	// on to load in the same turn.
+	it("labels the chip with the user's skill, not one the model also loaded", () => {
+		expect(
+			deriveMessageProvenance(
+				assistantMessage({
+					thinkingSegments: [
+						toolCall("use_skill", { displayName: "Contract review" }),
+					],
+					userIntent: {
+						skill: { id: "skill-1", displayName: "Invoice reply" },
+					},
+				}),
+			),
+		).toEqual([{ kind: "skill", skillName: "Invoice reply" }]);
+	});
+
+	it("shows the web chip when the user forced web search", () => {
 		expect(
 			deriveMessageProvenance({
 				role: "assistant",
-				thinkingSegments: [toolCall("research_web")],
+				userIntent: { webSearch: true },
+			}),
+		).toEqual([{ kind: "web", sourceCount: null }]);
+	});
+
+	it("shows no web chip for a search the model ran by itself", () => {
+		expect(
+			deriveMessageProvenance(
+				assistantMessage({
+					thinkingSegments: [
+						toolCall("research_web"),
+						toolCall("web_search_preview"),
+					],
+					responseActivity: [
+						{
+							id: "tool-1",
+							kind: "tool",
+							status: "done",
+							toolName: "research_web",
+						},
+					],
+					evidenceSummary: evidence(7),
+				}),
+			),
+		).toEqual([]);
+	});
+
+	it("counts the web sources a forced search actually retrieved", () => {
+		expect(
+			deriveMessageProvenance({
+				role: "assistant",
+				userIntent: { webSearch: true },
 				evidenceSummary: evidence(7),
 			}),
 		).toEqual([{ kind: "web", sourceCount: 7 }]);
@@ -113,9 +196,28 @@ describe("deriveMessageProvenance", () => {
 		expect(
 			deriveMessageProvenance({
 				role: "assistant",
-				thinkingSegments: [toolCall("web_search_preview")],
+				userIntent: { webSearch: true },
+				evidenceSummary: evidence(0),
 			}),
 		).toEqual([{ kind: "web", sourceCount: null }]);
+	});
+
+	// A message persisted before the record existed has no `userIntent`.
+	// Nothing is guessed back out of its tool calls: no skill chip, no web
+	// chip. Atlas is not part of the record and still shows.
+	it("shows only Atlas on a legacy message that has no record", () => {
+		expect(
+			deriveMessageProvenance({
+				...assistantMessage({
+					thinkingSegments: [
+						toolCall("use_skill", { displayName: "Invoice reply" }),
+						toolCall("research_web"),
+					],
+					evidenceSummary: evidence(3),
+				}),
+				atlasProfiles: ["overview"],
+			}),
+		).toEqual([{ kind: "atlas", profile: "overview" }]);
 	});
 
 	it("names the Atlas profile that ran", () => {
@@ -144,26 +246,13 @@ describe("deriveMessageProvenance", () => {
 			deriveMessageProvenance({
 				role: "assistant",
 				atlasProfiles: ["in-depth"],
-				thinkingSegments: [
-					toolCall("research_web"),
-					toolCall("use_skill", { name: "Invoice reply" }),
-				],
+				userIntent: {
+					webSearch: true,
+					skill: { id: "skill-1", displayName: "Invoice reply" },
+				},
 				evidenceSummary: evidence(3),
 			}).map((entry) => entry.kind),
 		).toEqual(["skill", "web", "atlas"]);
-	});
-
-	// The honest limit of "derive it, persist nothing": a skill the user
-	// force-applied from the composer is resolved into the system prompt at
-	// preflight and explicitly NOT called as a tool, so the turn carries no
-	// trace of it. Showing no chip beats showing a guessed one.
-	it("shows no skill chip for a turn that only force-applied one", () => {
-		expect(
-			deriveMessageProvenance({
-				role: "assistant",
-				thinkingSegments: [{ type: "text", content: "Here is the draft." }],
-			}),
-		).toEqual([]);
 	});
 });
 

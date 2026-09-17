@@ -963,6 +963,52 @@ describe("file production chat helpers", () => {
 		expect(finalized[0].followUps).toEqual(priorFollowUps);
 	});
 
+	// The user's per-turn choices (see $lib/message-user-intent.ts) — the
+	// server's record on the terminal frame wins; without one, the record the
+	// optimistic placeholder was stamped with at send survives finalization.
+	it("takes the terminal frame's userIntent over the optimistic one", () => {
+		const list = [
+			{
+				...createAssistantPlaceholder("assistant-1"),
+				userIntent: { skill: { id: "skill-1", displayName: "invoice" } },
+			},
+		];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				userIntent: {
+					skill: { id: "skill-1", displayName: "Invoice reply" },
+					webSearch: true,
+				},
+			},
+		});
+
+		expect(finalized[0].userIntent).toEqual({
+			skill: { id: "skill-1", displayName: "Invoice reply" },
+			webSearch: true,
+		});
+	});
+
+	it("keeps the optimistic userIntent when the terminal frame carries none", () => {
+		const list = [
+			{
+				...createAssistantPlaceholder("assistant-1"),
+				userIntent: { webSearch: true as const },
+			},
+		];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: { assistantMessageId: "server-assistant-1" },
+		});
+
+		expect(finalized[0].userIntent).toEqual({ webSearch: true });
+	});
+
 	// Finding 4 (web-citation auto-repair) — the raw model text was already
 	// streamed into the bubble, so the terminal frame carries the repaired,
 	// persisted text as `finalContent` and it replaces what was streamed.

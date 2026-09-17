@@ -1079,7 +1079,6 @@ const chatDict = {
 		"composerChips.atlasMeta": "{profile} · {time}",
 		"messageProvenance.label": "How this answer was made",
 		"messageProvenance.used": "Used",
-		"messageProvenance.skill": "Skill",
 		"messageProvenance.webSources": "{count} sources",
 	},
 	hu: {
@@ -2136,7 +2135,6 @@ const chatDict = {
 		"composerChips.atlasMeta": "{profile} · {time}",
 		"messageProvenance.label": "Hogyan készült ez a válasz",
 		"messageProvenance.used": "Használt",
-		"messageProvenance.skill": "Képesség",
 		"messageProvenance.webSources": "{count} forrás",
 	},
 } as const;
