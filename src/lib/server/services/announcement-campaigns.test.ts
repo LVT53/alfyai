@@ -2,7 +2,9 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { isAllowedActionDestination } from "$lib/campaign-action-destinations";
 import * as schema from "$lib/server/db/schema";
+import { evaluateCampaignChecklist } from "../../../routes/(app)/settings/_components/campaigns/campaign-checklist";
 import {
 	archiveCampaign,
 	completeCampaignForUser,
@@ -668,5 +670,196 @@ describe("announcement campaign service", () => {
 				],
 			}),
 		).resolves.toMatchObject({ status: "published" });
+	});
+
+	it("publishes the shipped first-run template with its action destination intact, and the admin checklist agrees", async () => {
+		for (const prefix of ["setup", "import", "feature", "disclosure"]) {
+			insertRequiredCampaignCrops(db, prefix);
+		}
+		const cropIds = [
+			"setup",
+			"import",
+			"feature",
+			"disclosure",
+		] as const satisfies readonly string[];
+		const seeded = await seedFirstRunOnboardingTemplate("admin-user", {
+			db,
+			ids: [
+				"campaign-template",
+				"template-slide-setup",
+				"template-slide-import",
+				"template-slide-feature",
+				"template-slide-disclosure",
+			],
+		});
+
+		// Unlike the older round-trip test, this one keeps actionLabel and
+		// actionDestination, so the template's "internal:chatgpt-import" slide
+		// actually reaches publish validation.
+		const saved = await updateCampaignDraft(
+			seeded.campaign.id,
+			{
+				slides: seeded.campaign.slides.map((slide, index) => ({
+					id: slide.id,
+					layoutType: slide.layoutType,
+					semanticRole: slide.semanticRole,
+					sortOrder: index + 1,
+					title: slide.title,
+					body: slide.body,
+					altText: slide.altText,
+					actionLabel: slide.actionLabel,
+					actionDestination: slide.actionDestination,
+					setupControls: slide.setupControls,
+					desktopCropAssetId: `${cropIds[index]}-desktop`,
+					mobileCropAssetId: `${cropIds[index]}-mobile`,
+				})),
+			},
+			{ db },
+		);
+
+		expect(saved.slides[1]?.actionDestination).toBe("internal:chatgpt-import");
+
+		const published = await publishCampaign(saved.id, "admin-user", {
+			db,
+			ids: [
+				"snapshot-1",
+				"snap-slide-1",
+				"snap-slide-2",
+				"snap-slide-3",
+				"snap-slide-4",
+			],
+		});
+		expect(published.status).toBe("published");
+
+		const checklist = evaluateCampaignChecklist({
+			type: saved.type,
+			name: saved.name,
+			releaseVersion: saved.releaseVersion ?? "",
+			slides: saved.slides.map((slide, index) => ({
+				localId: slide.id,
+				id: slide.id,
+				kind: slide.layoutType,
+				semanticRole: slide.semanticRole,
+				sortOrder: index + 1,
+				titleEn: slide.title.en,
+				titleHu: slide.title.hu,
+				bodyEn: slide.body.en,
+				bodyHu: slide.body.hu,
+				altEn: slide.altText.en,
+				altHu: slide.altText.hu,
+				actionLabelEn: slide.actionLabel.en,
+				actionLabelHu: slide.actionLabel.hu,
+				actionUrl: slide.actionDestination,
+				desktopAssetId: `${cropIds[index]}-desktop`,
+				mobileAssetId: `${cropIds[index]}-mobile`,
+				setupControls: slide.setupControls ?? [],
+			})),
+		});
+		expect(checklist.failures).toEqual([]);
+		expect(checklist.ready).toBe(true);
+	});
+
+	it("publishes a release campaign whose slides point at allow-listed routes", async () => {
+		insertRequiredCampaignCrops(db, "settings");
+		insertRequiredCampaignCrops(db, "documents");
+		await createCampaignDraft(
+			{
+				type: "release_update",
+				name: "2.0 release notes",
+				createdByUserId: "admin-user",
+			},
+			{ db, ids: ["campaign-release"] },
+		);
+		await updateCampaignDraft(
+			"campaign-release",
+			{
+				releaseVersion: "2.0.0",
+				slides: [
+					{
+						id: "release-slide-settings",
+						layoutType: "standard",
+						semanticRole: "feature",
+						sortOrder: 1,
+						title: { en: "Settings", hu: "Beállítások" },
+						body: { en: "A new settings page.", hu: "Új beállítások oldal." },
+						altText: { en: "Settings screenshot", hu: "Beállítások kép" },
+						actionLabel: { en: "Open settings", hu: "Beállítások" },
+						actionDestination: "/settings",
+						desktopCropAssetId: "settings-desktop",
+						mobileCropAssetId: "settings-mobile",
+					},
+					{
+						id: "release-slide-documents",
+						layoutType: "standard",
+						semanticRole: "data_disclosure",
+						sortOrder: 2,
+						title: { en: "Documents", hu: "Dokumentumok" },
+						body: { en: "Your files, searchable.", hu: "Kereshető fájlok." },
+						altText: { en: "Documents screenshot", hu: "Dokumentumok kép" },
+						actionLabel: { en: "Open documents", hu: "Dokumentumok" },
+						actionDestination: "/knowledge?tab=documents",
+						desktopCropAssetId: "documents-desktop",
+						mobileCropAssetId: "documents-mobile",
+					},
+				],
+			},
+			{ db },
+		);
+
+		await expect(
+			publishCampaign("campaign-release", "admin-user", {
+				db,
+				ids: ["snapshot-release", "snap-release-1", "snap-release-2"],
+			}),
+		).resolves.toMatchObject({ status: "published" });
+	});
+
+	it("rejects action destinations that leave the app or name an unknown internal action", async () => {
+		const hostile = [
+			"https://evil.example.com",
+			"//evil.example.com",
+			"javascript:alert(1)",
+			"internal:chatgpt-import?next=https://evil.example.com",
+			"internal:open-admin",
+			"internal:",
+			"/settings/../../etc/passwd",
+		];
+
+		insertRequiredCampaignCrops(db, "setup");
+		insertRequiredCampaignCrops(db, "disclosure");
+
+		for (const [index, actionDestination] of hostile.entries()) {
+			// Slide ids are globally unique, so each case needs its own.
+			const setupSlideId = `slide-setup-${index}`;
+			const slides = buildFirstRunOnboardingSlides({
+				setup: { id: setupSlideId },
+				disclosure: { id: `slide-disclosure-${index}` },
+			});
+			slides[0] = {
+				...slides[0],
+				actionLabel: { en: "Go", hu: "Menj" },
+				actionDestination,
+			};
+
+			await expect(
+				publishFirstRunOnboardingCampaign(db, {
+					campaignId: `campaign-hostile-${index}`,
+					snapshotIds: [
+						`snapshot-hostile-${index}`,
+						`snap-hostile-${index}-1`,
+						`snap-hostile-${index}-2`,
+					],
+					name: `Hostile ${index}`,
+					slides,
+				}),
+			).rejects.toMatchObject({
+				fieldErrors: expect.objectContaining({
+					[`slides.${setupSlideId}.actionDestination`]:
+						"Action destination must be an allowlisted internal route.",
+				}),
+			});
+
+			expect(isAllowedActionDestination(actionDestination)).toBe(false);
+		}
 	});
 });
