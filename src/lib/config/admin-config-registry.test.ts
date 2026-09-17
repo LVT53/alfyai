@@ -8,8 +8,10 @@ import {
 	type AdminConfigKeySpec,
 	advancedKeysInGroup,
 	fromDisplayNumber,
+	isUnwiredAdminConfigKey,
 	SURFACED_ADMIN_CONFIG_KEYS,
 	toDisplayNumber,
+	UNWIRED_ADMIN_CONFIG_KEYS,
 	validateAdminConfigValue,
 } from "./admin-config-registry";
 
@@ -245,5 +247,72 @@ describe("url controls and unwired keys", () => {
 				key,
 			).toBe("unwired");
 		}
+	});
+});
+
+// `effect: "unwired"` used to be a caption. It is now the switch that makes a
+// row read-only, keeps it out of the save payload and makes the API refuse it,
+// so the set has to be derivable from the registry rather than re-typed in
+// three places.
+describe("the inert set", () => {
+	const EXPECTED = [
+		"FILE_PRODUCTION_RENDERER_TIMEOUT_MS",
+		"FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
+		"TEI_RERANKER_MODEL",
+		"WORKING_SET_DOCUMENT_TOKEN_BUDGET",
+		"WORKING_SET_PROMPT_TOKEN_BUDGET",
+	];
+
+	it("is exactly the keys the registry marks unwired", () => {
+		expect([...UNWIRED_ADMIN_CONFIG_KEYS].sort()).toEqual(EXPECTED);
+		// Wiring one up means changing its `effect`, and this list, together —
+		// which is the point: the set cannot drift from the label.
+		for (const spec of ADVANCED_KEY_SPECS) {
+			expect(isUnwiredAdminConfigKey(spec.key), spec.key).toBe(
+				spec.effect === "unwired",
+			);
+		}
+	});
+
+	it("says no for a key that is wired, and for one that does not exist", () => {
+		expect(isUnwiredAdminConfigKey("TEI_TIMEOUT_MS")).toBe(false);
+		expect(isUnwiredAdminConfigKey("NOT_A_KEY")).toBe(false);
+		expect(isUnwiredAdminConfigKey("")).toBe(false);
+	});
+
+	it("holds no secret control, which AdvancedRow cannot disable", () => {
+		// SecretField takes no `disabled` prop, so an unwired secret would
+		// render an editable Replace button under a "not connected" note.
+		// Whoever adds one hits this instead of shipping that.
+		for (const spec of ADVANCED_KEY_SPECS) {
+			if (spec.effect !== "unwired") continue;
+			expect(spec.control.kind, spec.key).not.toBe("secret");
+		}
+	});
+
+	it("still gives every inert key a label, a meaning and a note", () => {
+		// The row stays visible on purpose — an admin searching for the key
+		// should find it and read why it does nothing — so its copy has to
+		// exist in both languages like any other row.
+		for (const key of UNWIRED_ADMIN_CONFIG_KEYS) {
+			const label = `admin.system.keys.${key}.label`;
+			const meaning = `admin.system.keys.${key}.meaning`;
+			expect(
+				settingsDict.en[label as keyof typeof settingsDict.en],
+				label,
+			).toBeTruthy();
+			expect(
+				settingsDict.hu[meaning as keyof typeof settingsDict.hu],
+				meaning,
+			).toBeTruthy();
+		}
+		expect(settingsDict.en["admin.system.effect.unwiredNote"]).toBeTruthy();
+		expect(settingsDict.hu["admin.system.effect.unwiredNote"]).toBeTruthy();
+		expect(settingsDict.en["admin.system.advanced.unwiredCount"]).toContain(
+			"{count}",
+		);
+		expect(settingsDict.hu["admin.system.advanced.unwiredCount"]).toContain(
+			"{count}",
+		);
 	});
 });

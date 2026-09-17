@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
 import {
 	ADVANCED_KEY_SPEC_BY_KEY,
+	isUnwiredAdminConfigKey,
 	validateAdminConfigValue,
 } from "$lib/config/admin-config-registry";
 import { requireAdmin } from "$lib/server/auth/hooks";
@@ -86,6 +87,16 @@ export const PUT: RequestHandler = async (event) => {
 
 	for (const key of ADMIN_CONFIG_KEYS) {
 		if (body[key] === undefined) continue;
+		// A key whose value nothing reads is refused here as well as hidden in
+		// the UI. Storing it would return `{ success: true }` for a change that
+		// can have no effect, which is the exact dishonesty the disabled row
+		// exists to stop — and a stored row would then show up in the override
+		// list as if it were doing something. Refusing is also how a caller
+		// that bypasses the UI finds out; silently dropping it would not be.
+		if (isUnwiredAdminConfigKey(key)) {
+			invalid[key] = { reason: "unwired" };
+			continue;
+		}
 		const rawValue = String(body[key]);
 		const value =
 			key === "MODEL_1_SYSTEM_PROMPT" || key === "MODEL_2_SYSTEM_PROMPT"
@@ -108,13 +119,24 @@ export const PUT: RequestHandler = async (event) => {
 	}
 
 	if (Object.keys(invalid).length > 0) {
-		return json(
-			{
-				error: `Invalid value for ${Object.keys(invalid).join(", ")}`,
-				invalid,
-			},
-			{ status: 400 },
+		// "Invalid value for X" is the wrong sentence for a key that was
+		// refused because nothing reads it — the value may be perfectly
+		// well-formed. Name the two cases separately; `invalid` carries the
+		// per-key reason either way.
+		const unwired = Object.entries(invalid)
+			.filter(([, detail]) => detail.reason === "unwired")
+			.map(([key]) => key);
+		const malformed = Object.keys(invalid).filter(
+			(key) => !unwired.includes(key),
 		);
+		const parts: string[] = [];
+		if (malformed.length > 0) {
+			parts.push(`Invalid value for ${malformed.join(", ")}`);
+		}
+		if (unwired.length > 0) {
+			parts.push(`Not connected to anything: ${unwired.join(", ")}`);
+		}
+		return json({ error: parts.join("; "), invalid }, { status: 400 });
 	}
 
 	for (const { key, value } of pending) {

@@ -165,6 +165,95 @@ describe("PUT /api/admin/config validation", () => {
 		expect(upserted).toEqual([]);
 	});
 
+	// A key marked `effect: "unwired"` is one no code path reads. The Advanced
+	// page now renders it read-only and leaves it out of the patch, and this
+	// endpoint has to agree: storing it would answer `{ success: true }` for a
+	// change that can have no effect, and leave a row in the override list
+	// looking like a live setting.
+	describe("keys nothing reads", () => {
+		it("refuses one, and says why rather than calling it invalid", async () => {
+			const response = await PUT(
+				makeEvent({ FILE_PRODUCTION_SANDBOX_TIMEOUT_MS: "120000" }),
+			);
+			const body = (await response.json()) as {
+				error: string;
+				invalid: Record<string, { reason: string }>;
+			};
+
+			expect(response.status).toBe(400);
+			expect(body.invalid.FILE_PRODUCTION_SANDBOX_TIMEOUT_MS).toEqual({
+				reason: "unwired",
+			});
+			// 120000 is a perfectly good number; the value is not the problem.
+			expect(body.error).not.toContain("Invalid value");
+			expect(body.error).toContain("FILE_PRODUCTION_SANDBOX_TIMEOUT_MS");
+			expect(upserted).toEqual([]);
+			expect(deleted).toEqual([]);
+		});
+
+		it("refuses every one of them, including the text control", async () => {
+			for (const key of [
+				"FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
+				"FILE_PRODUCTION_RENDERER_TIMEOUT_MS",
+				"TEI_RERANKER_MODEL",
+				"WORKING_SET_DOCUMENT_TOKEN_BUDGET",
+				"WORKING_SET_PROMPT_TOKEN_BUDGET",
+			]) {
+				upserted.length = 0;
+				deleted.length = 0;
+				const response = await PUT(makeEvent({ [key]: "1200" }));
+				expect(response.status, key).toBe(400);
+				expect(upserted, key).toEqual([]);
+			}
+		});
+
+		it("refuses an empty one too — it must not delete a row either", async () => {
+			// "" normally means "drop the override". For a key that cannot be
+			// written, there is nothing to drop and the caller should hear the
+			// same refusal rather than a quiet 200.
+			const response = await PUT(makeEvent({ TEI_RERANKER_MODEL: "" }));
+
+			expect(response.status).toBe(400);
+			expect(deleted).toEqual([]);
+			expect(upserted).toEqual([]);
+		});
+
+		it("takes the rest of the patch down with it, like any other refusal", async () => {
+			// The endpoint validates everything before writing anything, so a
+			// half-applied patch is impossible. Pinned here because the UI
+			// filters these keys out precisely so a save cannot hit this.
+			const response = await PUT(
+				makeEvent({
+					TEI_TIMEOUT_MS: "500",
+					TEI_RERANKER_MODEL: "bge-reranker-v2-m3",
+				}),
+			);
+			const body = (await response.json()) as {
+				invalid: Record<string, { reason: string }>;
+			};
+
+			expect(response.status).toBe(400);
+			expect(Object.keys(body.invalid)).toEqual(["TEI_RERANKER_MODEL"]);
+			expect(upserted).toEqual([]);
+			expect(deleted).toEqual([]);
+		});
+
+		it("names a malformed key and an unwired one separately", async () => {
+			const response = await PUT(
+				makeEvent({
+					PER_USER_STREAM_LIMIT: "0",
+					TEI_RERANKER_MODEL: "anything",
+				}),
+			);
+			const body = (await response.json()) as { error: string };
+
+			expect(response.status).toBe(400);
+			expect(body.error).toContain("Invalid value for PER_USER_STREAM_LIMIT");
+			expect(body.error).toContain("Not connected to anything");
+			expect(body.error).toContain("TEI_RERANKER_MODEL");
+		});
+	});
+
 	it("leaves keys with no registry spec untouched", async () => {
 		// `MODEL_TIMEOUT_FAILOVER_TARGET_MODEL` lives on a named page, not the
 		// Advanced registry; it must still be writable, not silently rejected.

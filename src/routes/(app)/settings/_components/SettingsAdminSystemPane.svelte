@@ -46,6 +46,7 @@ import CampaignCropModal from "$lib/components/campaign-admin/CampaignCropModal.
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import {
 	ADVANCED_KEY_SPECS,
+	isUnwiredAdminConfigKey,
 	validateAdminConfigValue,
 } from "$lib/config/admin-config-registry";
 import { t, type I18nKey } from "$lib/i18n";
@@ -163,7 +164,15 @@ const dirtyKeys = $derived.by(() => {
 	if (!baselineReady) return [] as string[];
 	const keys = new Set([...Object.keys(baseline), ...Object.keys(draft)]);
 	return [...keys].filter(
-		(key) => asString(draft[key]) !== asString(baseline[key]),
+		(key) =>
+			// A key nothing reads is never pending, never counted in the save
+			// bar's badge, and never blocks navigation. Its control is disabled
+			// (AdvancedRow) so it should not be able to differ from the
+			// baseline at all; filtering here is what makes that a guarantee
+			// rather than a consequence of the markup, and it is the same list
+			// the patch below is built from.
+			!isUnwiredAdminConfigKey(key) &&
+			asString(draft[key]) !== asString(baseline[key]),
 	);
 });
 
@@ -218,6 +227,10 @@ async function saveChanges() {
 		// The server masks some secrets as "[set]"; sending that back would store
 		// the sentinel as the key. An untouched secret is simply not in the patch.
 		if (value === "[set]") continue;
+		// Belt and braces over the dirtyKeys filter: PUT /api/admin/config
+		// refuses an unwired key outright, so one slipping into the patch
+		// would fail the WHOLE save, not just itself.
+		if (isUnwiredAdminConfigKey(key)) continue;
 		patch[key] = value;
 	}
 	const saved = await onSaveAdminConfig(patch);

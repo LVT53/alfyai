@@ -8,6 +8,7 @@ import {
 	ADVANCED_KEY_SPECS,
 	type AdminConfigKeySpec,
 	type AdvancedGroupId,
+	isUnwiredAdminConfigKey,
 } from "$lib/config/admin-config-registry";
 import { t, type I18nKey } from "$lib/i18n";
 import AdvancedRow from "./AdvancedRow.svelte";
@@ -136,7 +137,15 @@ const searchMath = $derived.by(() => {
 	];
 });
 
-const totalKeys = OWNED.length;
+// The headline used to count every row, inert ones included, under a
+// sentence promising "saving here is enough — no restart, no deploy". For a
+// key nothing reads, saving here is not enough and never will be. The count
+// is now the settings that actually do something; the rest are named
+// separately, and only when there are any, so the line disappears by itself
+// once they are all wired.
+const unwiredKeys = OWNED.filter((spec) => isUnwiredAdminConfigKey(spec.key));
+const totalKeys = OWNED.length - unwiredKeys.length;
+const unwiredCount = unwiredKeys.length;
 </script>
 
 <div class="sys-stack" data-testid="system-page-advanced">
@@ -151,6 +160,13 @@ const totalKeys = OWNED.length;
 			</span>
 			<p class="sys-card-desc" style="max-width: 760px">
 				{$t('admin.system.advanced.description', { count: String(totalKeys) })}
+				{#if unwiredCount > 0}
+					<span data-testid="advanced-unwired-count">
+						{$t('admin.system.advanced.unwiredCount', {
+							count: String(unwiredCount),
+						})}
+					</span>
+				{/if}
 			</p>
 		</span>
 	</div>

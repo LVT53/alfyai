@@ -1079,7 +1079,12 @@ const settingsDict = {
 		"admin.system.effect.restartHint": "Read at start-up — needs a restart.",
 		"admin.system.effect.unwired": "no effect yet",
 		"admin.system.effect.unwiredHint":
-			"Saved and kept, but nothing reads this value yet — a later release will.",
+			"Nothing reads this value, so the field is read-only until something does.",
+		// Shown IN the row, under the disabled control. The chip in the last
+		// column is easy to miss; this is the sentence that stops an admin
+		// typing a number and believing it landed.
+		"admin.system.effect.unwiredNote":
+			"Not connected yet — changing this has no effect.",
 		"admin.system.resetToDefault": "Reset to default",
 		"admin.system.resetToDefaultA11y": "Reset {label} to its default",
 		"admin.system.emptyValue": "not set",
@@ -1280,6 +1285,11 @@ const settingsDict = {
 		"admin.system.advanced.restartFree": "Restart-free",
 		"admin.system.advanced.description":
 			"{count} settings that used to exist only in the environment file. Every one of them is read fresh on the next call, so saving here is enough — no restart, no deploy.",
+		// Appended only when the page is actually showing an inert row, so the
+		// headline count never silently includes settings that cannot be
+		// changed.
+		"admin.system.advanced.unwiredCount":
+			"{count} more are listed but not connected to anything yet, and are shown read-only.",
 		"admin.system.advanced.search":
 			"Search advanced settings, keys and defaults",
 		"admin.system.advanced.effectiveConfig": "Effective config",
@@ -2928,7 +2938,9 @@ const settingsDict = {
 			"Induláskor olvasva — újraindítás szükséges.",
 		"admin.system.effect.unwired": "még nincs hatása",
 		"admin.system.effect.unwiredHint":
-			"Elmentjük és megőrizzük, de ezt az értéket még semmi nem olvassa — egy későbbi kiadás fogja.",
+			"Ezt az értéket semmi nem olvassa, ezért a mező csak olvasható, amíg ez így marad.",
+		"admin.system.effect.unwiredNote":
+			"Még nincs bekötve — ezt módosítani nem csinál semmit.",
 		"admin.system.resetToDefault": "Visszaállítás alapértékre",
 		"admin.system.resetToDefaultA11y": "{label} visszaállítása az alapértékre",
 		"admin.system.emptyValue": "nincs beállítva",
@@ -3139,6 +3151,8 @@ const settingsDict = {
 		"admin.system.advanced.restartFree": "Újraindítás nélkül",
 		"admin.system.advanced.description":
 			"{count} beállítás, amely korábban csak a környezeti fájlban létezett. Mindegyiket frissen olvassuk a következő híváskor, így elég itt menteni — nincs újraindítás, nincs telepítés.",
+		"admin.system.advanced.unwiredCount":
+			"További {count} itt szerepel, de még nincs bekötve semmihez, ezért csak olvasható.",
 		"admin.system.advanced.search":
 			"Keresés a haladó beállítások, kulcsok és alapértékek között",
 		"admin.system.advanced.effectiveConfig": "Tényleges konfiguráció",
