@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
+// Leaf module (no imports of its own), so this pulls no DB into the tool graph.
+import { redactHostPathsFromFileProductionMessage } from "$lib/server/services/file-production/error-message";
 import { FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES } from "$lib/server/services/file-production/output-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
@@ -1872,44 +1874,250 @@ export function sanitizeUnsafeProduceFileInput(
 	return safe;
 }
 
-// ── Model payload / result compaction ──────────────────────────
+// ── In-turn verdict ────────────────────────────────────────────
+//
+// `produce_file` used to return the INTAKE receipt ("job queued") and nothing
+// else. The model read `ok: true` and wrote "your file is ready" in the same
+// turn, while the detached worker was still deciding — and when the job later
+// failed, nothing rewrote that claim. The tool now waits a bounded time for the
+// ledger's verdict and reports THAT, so `ok: true, status: "succeeded"` is the
+// only shape that means a file exists.
 
-export function compactProduceFileModelPayload(
-	result: FileProductionIntakeResult,
-) {
-	if (result.ok) {
-		return {
-			ok: true as const,
-			status: result.status,
-			jobId: result.job.id,
-			jobStatus: result.job.status,
-			reused: result.reused,
-		};
+/** Upper bound on the in-turn wait for a verdict. Must stay comfortably under
+ * TOOL_TIMEOUTS_MS.produce_file, which is what aborts the tool call. A program
+ * job can legitimately run up to the sandbox's own 90s cutoff, so a wait long
+ * enough to cover every job would stall every file turn; 20s covers the
+ * document renders and the ordinary program run, and anything slower reports
+ * `running` honestly instead of guessing. */
+export const PRODUCE_FILE_VERDICT_WAIT_MS = 20_000;
+export const PRODUCE_FILE_VERDICT_POLL_INTERVAL_MS = 400;
+
+/** Cap on `message`: enough of a traceback to fix the program, not enough to
+ * blow up the next turn's prompt. */
+export const PRODUCE_FILE_ERROR_MESSAGE_MAX_CHARS = 600;
+
+/** How many times one requested artifact may be submitted to intake within a
+ * single turn. One first attempt plus exactly one correction; the third is
+ * refused server-side so a model that cannot fix its program cannot spin. */
+export const MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS = 2;
+
+/** Backstop over the per-artifact counter above, which is keyed by
+ * title/outputs/mode/filename and so resets the moment the model retitles a
+ * failing request. Without a turn-total cap, NORMAL_CHAT_MAX_TOOL_STEPS (20)
+ * produce_file calls each waiting PRODUCE_FILE_VERDICT_WAIT_MS would hold one
+ * request open for ~400s and queue 20 jobs. Six is more artifacts than any
+ * real turn asks for — a three-file request with a correction each still
+ * fits — and bounds the worst case to ~2 minutes. */
+export const MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN = 6;
+
+export const PRODUCE_FILE_RETRY_LIMIT_ERROR_CODE =
+	"produce_file_turn_retry_limit";
+
+export const PRODUCE_FILE_TURN_LIMIT_ERROR_CODE = "produce_file_turn_limit";
+
+// Ledger error codes the MODEL can act on by sending a corrected program.
+// Deliberately NOT the ledger's own `retryable`, which answers a different
+// question — whether the user's Retry button may re-run the SAME request.
+// A sandbox outage is `retryable` for the button and useless to the model;
+// a Python traceback is the opposite.
+const MODEL_CORRECTABLE_ERROR_CODES = new Set([
+	"program_execution_failed",
+	"program_execution_threw",
+	// The program ran but wrote nothing into /output — a code fix.
+	"program_no_outputs",
+	// Argument-level mistakes the model owns.
+	"invalid_tool_input",
+	"patch_failed",
+	"no_previous_version_for_patches",
+	// Intake 422s (intake.ts). Every one of these says "the arguments you sent
+	// are wrong", which is the definition of something the model fixes by
+	// resending — including the two the program-mode output-type work added,
+	// where the fix is literally "name a supported outputType".
+	"missing_request_title",
+	"unsupported_source_mode",
+	"invalid_program_language",
+	"missing_program_source",
+	"missing_program_output_type",
+	"unsupported_program_output_type",
+	"missing_program_requested_outputs",
+	"unsupported_output_type",
+	"unsupported_file_production_request",
+	"invalid_file_production_request",
+	// documentSource validation (source-schema.ts, reached from intake and
+	// from the renderer): the block the model wrote is not one the pipeline
+	// renders. Rewriting the blocks is the fix.
+	"invalid_document_source",
+	"unsupported_document_block",
+	"unsupported_table_structure",
+	"unsupported_chart_type",
+	"unsupported_chart_data",
+	"unsupported_pdf_block",
+	// Post-execution output contract (output-validation.ts, storage-adapter.ts):
+	// the program ran and wrote SOMETHING, but not what was asked for or not a
+	// readable file of that type. A corrected program is exactly the remedy.
+	"program_output_type_mismatch",
+	"invalid_xlsx_output",
+	"xlsx_output_too_large",
+	"invalid_text_output",
+	// Size/count limits (limits.ts). The model can write fewer or smaller
+	// outputs, so these are correctable rather than terminal.
+	"too_many_outputs",
+	"source_too_large",
+	"output_file_too_large",
+	"job_outputs_too_large",
+]);
+
+// `program_execution_failed` is also how the sandbox reports its own
+// unavailability and its hard timeout (sandbox-execution.ts `classifyError` /
+// the catch tail), which no rewrite of the program fixes. These markers pull
+// those back out of the correctable set.
+const NON_CORRECTABLE_EXECUTION_MARKERS = [
+	"timed out",
+	"sandbox runtime error",
+	"memory limit exceeded",
+	"temporary storage exhausted",
+	"docker",
+	"could not be collected",
+];
+
+export function isModelCorrectableFileProductionError(
+	errorCode: string,
+	message?: string | null,
+): boolean {
+	if (!MODEL_CORRECTABLE_ERROR_CODES.has(errorCode)) {
+		return false;
 	}
+	const haystack = (message ?? "").toLowerCase();
+	return !NON_CORRECTABLE_EXECUTION_MARKERS.some((marker) =>
+		haystack.includes(marker),
+	);
+}
 
+/** Keeps the TAIL of a long error: a traceback's last lines are the ones that
+ * say what to fix. Host paths are scrubbed BEFORE the clip, so the redaction
+ * can never be defeated by a path that straddles the cut. */
+export function clipFileProductionErrorMessage(message: string): string {
+	const trimmed = redactHostPathsFromFileProductionMessage(message).trim();
+	if (trimmed.length <= PRODUCE_FILE_ERROR_MESSAGE_MAX_CHARS) {
+		return trimmed;
+	}
+	return `…${trimmed.slice(trimmed.length - (PRODUCE_FILE_ERROR_MESSAGE_MAX_CHARS - 1))}`;
+}
+
+export type ProduceFileModelPayload =
+	| {
+			ok: true;
+			status: "succeeded";
+			jobId: string;
+			files: Array<{
+				filename: string;
+				mimeType: string | null;
+				sizeBytes: number;
+			}>;
+			reused?: boolean;
+	  }
+	| {
+			ok: true;
+			status: "running";
+			jobId: string;
+			message: string;
+			reused?: boolean;
+	  }
+	| {
+			ok: false;
+			status: "failed";
+			jobId?: string;
+			errorCode: string;
+			message: string;
+			retryable: boolean;
+	  };
+
+const STILL_RUNNING_MESSAGE =
+	"The file is still being made and does not exist yet. Tell the user it is still being produced and that it will appear on its own; do not say it is ready and do not call produce_file again for it.";
+
+export function buildProduceFileSucceededPayload(params: {
+	jobId: string;
+	files: Array<{
+		filename: string;
+		mimeType: string | null;
+		sizeBytes: number;
+	}>;
+	reused?: boolean;
+}): ProduceFileModelPayload {
 	return {
-		ok: false as const,
-		status: result.status,
-		code: result.code,
-		error: result.error,
-		...(result.job
-			? {
-					jobId: result.job.id,
-					jobStatus: result.job.status,
-				}
-			: {}),
+		ok: true,
+		status: "succeeded",
+		jobId: params.jobId,
+		files: params.files.map((file) => ({
+			filename: file.filename,
+			mimeType: file.mimeType,
+			sizeBytes: file.sizeBytes,
+		})),
+		...(params.reused ? { reused: true } : {}),
 	};
 }
 
+export function buildProduceFileRunningPayload(params: {
+	jobId: string;
+	reused?: boolean;
+}): ProduceFileModelPayload {
+	return {
+		ok: true,
+		status: "running",
+		jobId: params.jobId,
+		message: STILL_RUNNING_MESSAGE,
+		...(params.reused ? { reused: true } : {}),
+	};
+}
+
+export function buildProduceFileFailedPayload(params: {
+	jobId?: string | null;
+	errorCode: string;
+	message: string;
+}): ProduceFileModelPayload {
+	return {
+		ok: false,
+		status: "failed",
+		...(params.jobId ? { jobId: params.jobId } : {}),
+		errorCode: params.errorCode,
+		message: clipFileProductionErrorMessage(params.message),
+		// Classified on the FULL message: clipping keeps the tail, and a marker
+		// like "Execution timed out" can sit in the part that was cut.
+		retryable: isModelCorrectableFileProductionError(
+			params.errorCode,
+			params.message,
+		),
+	};
+}
+
+/** Maps an intake refusal (nothing was queued, or the job row was created
+ * already failed) onto the same verdict vocabulary the wait produces, so the
+ * model only ever has to understand succeeded / running / failed. */
+export function buildProduceFileIntakeFailurePayload(
+	result: Extract<FileProductionIntakeResult, { ok: false }>,
+): ProduceFileModelPayload {
+	return buildProduceFileFailedPayload({
+		jobId: result.job?.id ?? null,
+		errorCode: result.code,
+		message: result.error,
+	});
+}
+
 export function summarizeProduceFileResult(
-	payload: ReturnType<typeof compactProduceFileModelPayload>,
+	payload: ProduceFileModelPayload,
 ): string {
-	if (payload.ok) {
-		return `File production job ${payload.jobId} queued with status ${payload.jobStatus}.`;
+	if (payload.status === "succeeded") {
+		const names = payload.files.map((file) => file.filename).join(", ");
+		return names
+			? `File production job ${payload.jobId} succeeded: ${names}.`
+			: `File production job ${payload.jobId} succeeded.`;
+	}
+	if (payload.status === "running") {
+		return `File production job ${payload.jobId} is still running; no file exists yet.`;
 	}
 	return payload.jobId
-		? `File production intake failed for job ${payload.jobId}: ${payload.error}`
-		: `File production intake failed: ${payload.error}`;
+		? `File production failed for job ${payload.jobId} (${payload.errorCode}): ${payload.message}`
+		: `File production failed (${payload.errorCode}): ${payload.message}`;
 }
 
 // ── Tool call entry creation ───────────────────────────────────
@@ -1917,33 +2125,42 @@ export function summarizeProduceFileResult(
 export function createProduceFileToolCallEntry(params: {
 	callId: string;
 	input: SafeProduceFileInput;
-	result: FileProductionIntakeResult;
+	payload: ProduceFileModelPayload;
 	outputSummary: string;
+	/** Intake's HTTP-ish status, kept for telemetry only — it never reaches the
+	 * model, whose `status` is the ledger verdict. */
+	intakeStatus?: number;
 	metadata?: Record<string, string | number | boolean | null>;
 }): ToolCallEntry {
 	const metadata: ToolCallEntry["metadata"] = {
-		ok: params.result.ok,
-		intakeStatus: params.result.status,
+		ok: params.payload.ok,
+		jobStatus: params.payload.status,
+		...(params.intakeStatus === undefined
+			? {}
+			: { intakeStatus: params.intakeStatus }),
 		...params.metadata,
 	};
-	if (params.result.ok) {
-		metadata.jobId = params.result.job.id;
-		metadata.jobStatus = params.result.job.status;
-		metadata.reused = params.result.reused;
+	if (params.payload.jobId) {
+		metadata.jobId = params.payload.jobId;
+	}
+	if (params.payload.ok) {
+		if (params.payload.reused) {
+			metadata.reused = true;
+		}
 	} else {
 		metadata.evidenceReady = false;
-		metadata.code = params.result.code;
-		if (params.result.job) {
-			metadata.jobId = params.result.job.id;
-			metadata.jobStatus = params.result.job.status;
-		}
+		metadata.code = params.payload.errorCode;
+		metadata.retryable = params.payload.retryable;
 	}
 
 	return {
 		callId: params.callId,
 		name: "produce_file",
 		input: params.input,
-		status: "done",
+		// E1 — an `ok: false` produce_file is a FAILED tool call, not a "done"
+		// one. The activity row, the completion warning and the next turn's
+		// history all key off this.
+		status: params.payload.ok ? "done" : "failed",
 		outputSummary: params.outputSummary,
 		sourceType: "tool",
 		metadata,

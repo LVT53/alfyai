@@ -23,7 +23,10 @@ import {
 } from "$lib/server/services/connections/resolve";
 import type { ConnectionPublic } from "$lib/server/services/connections/store";
 import { getConnectionSecret } from "$lib/server/services/connections/store";
-import { submitFileProductionIntake } from "$lib/server/services/file-production";
+import {
+	getConversationFileProductionJob,
+	submitFileProductionIntake,
+} from "$lib/server/services/file-production";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
@@ -39,12 +42,23 @@ import {
 	isProduceFileRequest,
 	shouldForceProduceFileTool,
 } from "./index";
+import { MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN } from "./produce-file";
 import { TOOL_TIMEOUTS_MS } from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
-vi.mock("$lib/server/services/file-production", () => ({
-	submitFileProductionIntake: vi.fn(),
-}));
+// The ledger lookup is mocked (it is the DB), but the polling loop around it
+// is the real one: produce_file's whole point now is that it reports the
+// ledger's verdict, so the wait itself has to be under test.
+vi.mock("$lib/server/services/file-production", async () => {
+	const { waitForFileProductionJobVerdict } = await import(
+		"$lib/server/services/file-production/job-wait"
+	);
+	return {
+		submitFileProductionIntake: vi.fn(),
+		getConversationFileProductionJob: vi.fn(),
+		waitForFileProductionJobVerdict,
+	};
+});
 vi.mock("$lib/server/services/analytics", () => ({
 	recordParallelUsage: vi.fn(),
 }));
@@ -149,6 +163,9 @@ vi.mock("$lib/server/services/connections/providers/immich", async () => {
 
 const getConfigMock = vi.mocked(getConfig);
 const submitFileProductionIntakeMock = vi.mocked(submitFileProductionIntake);
+const getConversationFileProductionJobMock = vi.mocked(
+	getConversationFileProductionJob,
+);
 
 // research_web and fetch_url are now optional in the tools set (registered only
 // when Parallel is configured). These tests configure Parallel by default, so
@@ -229,6 +246,20 @@ function makeFileProductionJob(
 	};
 }
 
+function makeFileProductionJobFile(
+	overrides: Partial<FileProductionJob["files"][number]>,
+): FileProductionJob["files"][number] {
+	return {
+		id: "file-1",
+		filename: "generated-file.txt",
+		mimeType: "text/plain",
+		sizeBytes: 128,
+		downloadUrl: "/api/chat/files/file-1/download",
+		previewUrl: "/api/chat/files/file-1/preview",
+		...overrides,
+	};
+}
+
 // A minimal empty GroundedWebResult for fetch_url mocks that only care about
 // the call args (not the mapped output).
 function emptyGroundedFetchResult(query: string) {
@@ -292,6 +323,17 @@ describe("createNormalChatTools", () => {
 		// test could otherwise leak in as a spurious hit here.
 		resetToolResultCacheForTests();
 		submitFileProductionIntakeMock.mockReset();
+		// Default ledger verdict: the job settled as succeeded on the first poll.
+		// Tests that care about the other verdicts override this.
+		getConversationFileProductionJobMock.mockReset();
+		getConversationFileProductionJobMock.mockImplementation(
+			async ({ jobId }: { jobId: string }) =>
+				makeFileProductionJob({
+					id: jobId,
+					status: "succeeded",
+					files: [makeFileProductionJobFile({})],
+				}),
+		);
 		recordParallelUsageMock.mockReset();
 		recordParallelUsageMock.mockResolvedValue(undefined);
 		researchWebViaParallelMock.mockReset();
@@ -508,15 +550,17 @@ describe("createNormalChatTools", () => {
 		expect(submitFileProductionIntakeMock).not.toHaveBeenCalled();
 		expect(result).toEqual({
 			ok: false,
-			status: 422,
-			code: "invalid_tool_input",
-			error:
+			status: "failed",
+			errorCode: "invalid_tool_input",
+			message:
 				"documentSource must contain substantive content when sourceMode is document_source",
+			retryable: true,
 		});
 		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "tool-call-empty-doc",
 				name: "produce_file",
+				status: "failed",
 				outputSummary: expect.stringContaining(
 					"documentSource must contain substantive content",
 				),
@@ -530,7 +574,7 @@ describe("createNormalChatTools", () => {
 		]);
 	});
 
-	it("returns a compact model payload after intake queues the job", async () => {
+	it("returns a compact model payload once the job settles", async () => {
 		submitFileProductionIntakeMock.mockResolvedValue({
 			ok: true,
 			status: 202,
@@ -541,6 +585,20 @@ describe("createNormalChatTools", () => {
 				status: "running",
 			}),
 		});
+		getConversationFileProductionJobMock.mockResolvedValue(
+			makeFileProductionJob({
+				id: "job-compact",
+				title: "Compact payload",
+				status: "succeeded",
+				files: [
+					makeFileProductionJobFile({
+						id: "file-compact",
+						filename: "compact.txt",
+						sizeBytes: 42,
+					}),
+				],
+			}),
+		);
 
 		const { tools } = createNormalChatTools({
 			userId: "user-1",
@@ -565,11 +623,16 @@ describe("createNormalChatTools", () => {
 
 		expect(result).toEqual({
 			ok: true,
-			status: 202,
+			status: "succeeded",
 			jobId: "job-compact",
-			jobStatus: "running",
+			files: [
+				{ filename: "compact.txt", mimeType: "text/plain", sizeBytes: 42 },
+			],
 			reused: true,
 		});
+		// The file list is the read model's, minus its internal ids and URLs.
+		expect(JSON.stringify(result)).not.toContain("file-compact");
+		expect(JSON.stringify(result)).not.toContain("downloadUrl");
 		expect(JSON.stringify(result)).not.toContain("secret large source");
 		expect(JSON.stringify(result)).not.toContain("requestJson");
 	});
@@ -625,30 +688,31 @@ describe("createNormalChatTools", () => {
 		expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(1);
 		expect(first).toEqual({
 			ok: true,
-			status: 202,
+			status: "succeeded",
 			jobId: "job-deduped",
-			jobStatus: "queued",
-			reused: false,
+			files: [
+				{
+					filename: "generated-file.txt",
+					mimeType: "text/plain",
+					sizeBytes: 128,
+				},
+			],
 		});
-		expect(second).toEqual({
-			ok: true,
-			status: 202,
-			jobId: "job-deduped",
-			jobStatus: "queued",
-			reused: true,
-		});
+		expect(second).toEqual({ ...first, reused: true });
 		expect(withoutResultDigest(getToolCalls())).toEqual([
 			expect.objectContaining({
 				callId: "call-first",
 				name: "produce_file",
+				status: "done",
 				metadata: expect.objectContaining({
 					jobId: "job-deduped",
-					reused: false,
+					jobStatus: "succeeded",
 				}),
 			}),
 			expect.objectContaining({
 				callId: "call-second",
 				name: "produce_file",
+				status: "done",
 				metadata: expect.objectContaining({
 					jobId: "job-deduped",
 					reused: true,
@@ -713,20 +777,19 @@ describe("createNormalChatTools", () => {
 				},
 				status: "done",
 				outputSummary:
-					"File production job job-entry queued with status queued.",
+					"File production job job-entry succeeded: generated-file.txt.",
 				sourceType: "tool",
 				metadata: {
 					ok: true,
 					intakeStatus: 202,
 					jobId: "job-entry",
-					jobStatus: "queued",
-					reused: false,
+					jobStatus: "succeeded",
 				},
 			},
 		]);
 	});
 
-	it("records failed intake responses as completed tool entries with failure metadata", async () => {
+	it("records failed intake responses as failed tool entries with failure metadata", async () => {
 		submitFileProductionIntakeMock.mockResolvedValue({
 			ok: false,
 			status: 422,
@@ -769,24 +832,27 @@ describe("createNormalChatTools", () => {
 
 		expect(result).toEqual({
 			ok: false,
-			status: 422,
-			code: "missing_program_source",
-			error: "program.sourceCode is required",
+			status: "failed",
+			errorCode: "missing_program_source",
+			message: "program.sourceCode is required",
 			jobId: "job-failed",
-			jobStatus: "failed",
+			// An intake 422 is a mistake in what the model sent, so the honest
+			// instruction is "fix it and resubmit" rather than "give up".
+			retryable: true,
 		});
 		expect(getToolCalls()[0]).toMatchObject({
 			callId: "call-failed",
 			name: "produce_file",
-			status: "done",
+			status: "failed",
 			outputSummary:
-				"File production intake failed for job job-failed: program.sourceCode is required",
+				"File production failed for job job-failed (missing_program_source): program.sourceCode is required",
 			metadata: {
 				ok: false,
 				intakeStatus: 422,
 				code: "missing_program_source",
 				jobId: "job-failed",
 				jobStatus: "failed",
+				retryable: true,
 			},
 		});
 	});
@@ -866,6 +932,578 @@ describe("createNormalChatTools", () => {
 		expect(getToolCalls()[1]?.metadata).toMatchObject({
 			ok: false,
 			evidenceReady: false,
+		});
+	});
+
+	// The bug these cover: produce_file used to return the INTAKE receipt, the
+	// model read `ok: true` and wrote "your file is ready" in the same turn, and
+	// a job that failed afterwards changed nothing the model or the transcript
+	// could see. The tool now reports the LEDGER's verdict.
+	describe("produce_file in-turn verdict", () => {
+		function queueIntake(jobId: string, title = "Verdict payload") {
+			submitFileProductionIntakeMock.mockResolvedValue({
+				ok: true,
+				status: 202,
+				reused: false,
+				job: makeFileProductionJob({ id: jobId, title, status: "queued" }),
+			});
+		}
+
+		function programCall(overrides: Record<string, unknown> = {}) {
+			return {
+				requestTitle: "Verdict payload",
+				requestedOutputs: [{ type: "xlsx" }],
+				sourceMode: "program" as const,
+				program: {
+					language: "python" as const,
+					sourceCode: "print('build the workbook')",
+					filename: "verdict.xlsx",
+				},
+				...overrides,
+			};
+		}
+
+		it("waits for a succeeded job and returns the produced files", async () => {
+			queueIntake("job-wait-success");
+			// queued -> running -> succeeded across three polls.
+			getConversationFileProductionJobMock
+				.mockResolvedValueOnce(
+					makeFileProductionJob({ id: "job-wait-success", status: "queued" }),
+				)
+				.mockResolvedValueOnce(
+					makeFileProductionJob({ id: "job-wait-success", status: "running" }),
+				)
+				.mockResolvedValueOnce(
+					makeFileProductionJob({
+						id: "job-wait-success",
+						status: "succeeded",
+						files: [
+							makeFileProductionJobFile({
+								filename: "verdict.xlsx",
+								mimeType:
+									"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+								sizeBytes: 9_001,
+							}),
+						],
+					}),
+				);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-success",
+				messages: [],
+			});
+
+			expect(getConversationFileProductionJobMock).toHaveBeenCalledTimes(3);
+			expect(result).toEqual({
+				ok: true,
+				status: "succeeded",
+				jobId: "job-wait-success",
+				files: [
+					{
+						filename: "verdict.xlsx",
+						mimeType:
+							"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+						sizeBytes: 9_001,
+					},
+				],
+			});
+			expect(getToolCalls()[0]?.status).toBe("done");
+		});
+
+		it("returns the stderr tail and a model-correctable hint when the program failed", async () => {
+			queueIntake("job-wait-failed");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-failed",
+					status: "failed",
+					error: {
+						code: "program_execution_failed",
+						message:
+							'Execution failed with exit code 1: stderr: Traceback (most recent call last):\n  File "/work/main.py", line 3, in <module>\n    wb.save("report.xlsx")\nNameError: name \'wb\' is not defined',
+						// The LEDGER's retryable answers "may the user press Retry",
+						// which is a different question from the model's.
+						retryable: true,
+					},
+				}),
+			);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-failed",
+				messages: [],
+			});
+
+			expect(result).toMatchObject({
+				ok: false,
+				status: "failed",
+				jobId: "job-wait-failed",
+				errorCode: "program_execution_failed",
+				retryable: true,
+			});
+			expect((result as { message: string }).message).toContain(
+				"NameError: name 'wb' is not defined",
+			);
+			expect(getToolCalls()[0]).toMatchObject({
+				callId: "call-wait-failed",
+				status: "failed",
+				metadata: { ok: false, evidenceReady: false, retryable: true },
+			});
+		});
+
+		it("caps the reported error at 600 characters, keeping the end of the traceback", async () => {
+			queueIntake("job-wait-long");
+			const tail = "ValueError: the very last line names the bug";
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-long",
+					status: "failed",
+					error: {
+						code: "program_execution_failed",
+						message: `${"x".repeat(2_000)}\n${tail}`,
+						retryable: true,
+					},
+				}),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = (await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-long",
+				messages: [],
+			})) as { message: string };
+
+			expect(result.message.length).toBeLessThanOrEqual(600);
+			expect(result.message).toContain(tail);
+			expect(result.message.startsWith("…")).toBe(true);
+		});
+
+		// Every code here names a mistake in what the MODEL sent, so the honest
+		// instruction is "fix that and resubmit", not "tell the user it failed".
+		// The two program-output-type codes are the ones intake grew with
+		// program-mode output resolution; the output-contract codes come back
+		// from output-validation.ts after the program has already run.
+		it.each([
+			[
+				"unsupported_program_output_type",
+				"Output type epub is not supported. Use one of: pdf, docx, xlsx",
+			],
+			[
+				"missing_program_output_type",
+				"outputType is required for program mode",
+			],
+			[
+				"program_output_type_mismatch",
+				"Expected an .xlsx output but the program wrote report.txt.",
+			],
+			["invalid_xlsx_output", "XLSX output is not a readable OOXML ZIP."],
+			[
+				"unsupported_chart_type",
+				"chartType 'radar' is not supported. Use bar, line, pie, donut or scatter.",
+			],
+			[
+				"too_many_outputs",
+				"A job may produce at most 5 files; this one produced 9.",
+			],
+		])("invites a corrected resubmission for %s (%s)", async (errorCode, errorMessage) => {
+			queueIntake("job-wait-retryable");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-retryable",
+					status: "failed",
+					error: { code: errorCode, message: errorMessage, retryable: false },
+				}),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-retryable",
+				messages: [],
+			});
+
+			expect(result).toMatchObject({
+				ok: false,
+				status: "failed",
+				errorCode,
+				retryable: true,
+			});
+		});
+
+		it.each([
+			[
+				// A sandbox outage arrives under the SAME code a fixable traceback
+				// does; only the message tells them apart.
+				"program_execution_failed",
+				"Execution failed: Cannot connect to the Docker daemon at unix:///var/run/docker.sock",
+			],
+			["program_execution_failed", "Execution timed out"],
+			["program_execution_failed", "Execution failed: sandbox runtime error"],
+		])("does not invite a retry for %s (%s)", async (errorCode, errorMessage) => {
+			queueIntake("job-wait-noretry");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-noretry",
+					status: "failed",
+					error: { code: errorCode, message: errorMessage, retryable: true },
+				}),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-noretry",
+				messages: [],
+			});
+
+			expect(result).toMatchObject({
+				ok: false,
+				status: "failed",
+				errorCode,
+				retryable: false,
+			});
+		});
+
+		it("reports a job that has not settled as still running, never as ready", async () => {
+			queueIntake("job-wait-running");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({ id: "job-wait-running", status: "running" }),
+			);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				// 0 = poll once, then report whatever the ledger already said.
+				fileProductionVerdictWaitMs: 0,
+			});
+			const result = await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-running",
+				messages: [],
+			});
+
+			expect(getConversationFileProductionJobMock).toHaveBeenCalledTimes(1);
+			expect(result).toMatchObject({
+				ok: true,
+				status: "running",
+				jobId: "job-wait-running",
+			});
+			expect((result as { message: string }).message).toContain(
+				"still being made",
+			);
+			// `ok: true` keeps it out of the failure notice, but the entry must not
+			// claim a file exists either.
+			expect(getToolCalls()[0]?.metadata).toMatchObject({
+				jobStatus: "running",
+			});
+		});
+
+		it("refuses a third submission of the same artifact in one turn", async () => {
+			getConversationFileProductionJobMock.mockImplementation(
+				async ({ jobId }: { jobId: string }) =>
+					makeFileProductionJob({
+						id: jobId,
+						status: "failed",
+						error: {
+							code: "program_execution_failed",
+							message: "SyntaxError: invalid syntax",
+							retryable: true,
+						},
+					}),
+			);
+			submitFileProductionIntakeMock.mockImplementation(async () => ({
+				ok: true as const,
+				status: 202 as const,
+				reused: false,
+				job: makeFileProductionJob({ id: "job-loop", status: "queued" }),
+			}));
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const first = await tools.produce_file.execute(
+				programCall({ program: { language: "python", sourceCode: "v1(" } }),
+				{ toolCallId: "call-loop-1", messages: [] },
+			);
+			const second = await tools.produce_file.execute(
+				programCall({ program: { language: "python", sourceCode: "v2(" } }),
+				{ toolCallId: "call-loop-2", messages: [] },
+			);
+			const third = await tools.produce_file.execute(
+				programCall({ program: { language: "python", sourceCode: "v3()" } }),
+				{ toolCallId: "call-loop-3", messages: [] },
+			);
+
+			// A failed verdict is not deduped — the correction must reach intake.
+			expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(2);
+			expect(first).toMatchObject({ ok: false, retryable: true });
+			expect(second).toMatchObject({ ok: false, retryable: true });
+			expect(third).toMatchObject({
+				ok: false,
+				status: "failed",
+				errorCode: "produce_file_turn_retry_limit",
+				retryable: false,
+			});
+			expect((third as { message: string }).message).toContain(
+				"tell the user plainly",
+			);
+			expect(getToolCalls().map((call) => call.status)).toEqual([
+				"failed",
+				"failed",
+				"failed",
+			]);
+		});
+
+		it("keeps the per-turn budget separate for a different requested artifact", async () => {
+			getConversationFileProductionJobMock.mockImplementation(
+				async ({ jobId }: { jobId: string }) =>
+					makeFileProductionJob({
+						id: jobId,
+						status: "failed",
+						error: {
+							code: "program_execution_failed",
+							message: "SyntaxError: invalid syntax",
+							retryable: true,
+						},
+					}),
+			);
+			submitFileProductionIntakeMock.mockImplementation(async () => ({
+				ok: true as const,
+				status: 202 as const,
+				reused: false,
+				job: makeFileProductionJob({ id: "job-other", status: "queued" }),
+			}));
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			for (const toolCallId of ["a1", "a2"]) {
+				await tools.produce_file.execute(programCall(), {
+					toolCallId,
+					messages: [],
+				});
+			}
+			await tools.produce_file.execute(
+				programCall({
+					requestTitle: "A different artifact",
+					program: {
+						language: "python",
+						sourceCode: "print(1)",
+						filename: "other.xlsx",
+					},
+				}),
+				{ toolCallId: "b1", messages: [] },
+			);
+
+			expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(3);
+		});
+
+		it("caps produce_file for the whole turn, however the request is retitled", async () => {
+			getConversationFileProductionJobMock.mockImplementation(
+				async ({ jobId }: { jobId: string }) =>
+					makeFileProductionJob({
+						id: jobId,
+						status: "failed",
+						error: {
+							code: "program_execution_failed",
+							message: "SyntaxError: invalid syntax",
+							retryable: true,
+						},
+					}),
+			);
+			submitFileProductionIntakeMock.mockImplementation(async () => ({
+				ok: true as const,
+				status: 202 as const,
+				reused: false,
+				job: makeFileProductionJob({ id: "job-cap", status: "queued" }),
+			}));
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			// A fresh title each time dodges the per-artifact counter entirely.
+			const results = [];
+			for (let attempt = 0; attempt < 8; attempt += 1) {
+				results.push(
+					await tools.produce_file.execute(
+						programCall({
+							requestTitle: `Attempt ${attempt}`,
+							program: {
+								language: "python",
+								sourceCode: `v${attempt}(`,
+								filename: `attempt-${attempt}.xlsx`,
+							},
+						}),
+						{ toolCallId: `call-cap-${attempt}`, messages: [] },
+					),
+				);
+			}
+
+			expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(
+				MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN,
+			);
+			expect(results[MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN]).toMatchObject({
+				ok: false,
+				status: "failed",
+				errorCode: "produce_file_turn_limit",
+				retryable: false,
+			});
+		});
+
+		it("refuses to call a succeeded job with no attached file a success", async () => {
+			queueIntake("job-wait-empty");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-empty",
+					status: "succeeded",
+					files: [],
+				}),
+			);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-empty",
+				messages: [],
+			});
+
+			expect(result).toMatchObject({
+				ok: false,
+				status: "failed",
+				jobId: "job-wait-empty",
+				errorCode: "file_production_no_output_files",
+			});
+			expect(getToolCalls()[0]?.status).toBe("failed");
+		});
+
+		it("reports a queued job as running when the turn is aborted mid-wait", async () => {
+			queueIntake("job-wait-aborted");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({ id: "job-wait-aborted", status: "running" }),
+			);
+			const abortController = new AbortController();
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 5,
+			});
+			const pending = tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-aborted",
+				messages: [],
+				abortSignal: abortController.signal,
+			});
+			await vi.waitFor(() =>
+				expect(submitFileProductionIntakeMock).toHaveBeenCalled(),
+			);
+			abortController.abort();
+			const result = await pending;
+
+			// The worker is untouched by the abort, so the only honest verdict is
+			// "still running" — never a fabricated tool failure.
+			expect(result).toMatchObject({
+				ok: true,
+				status: "running",
+				jobId: "job-wait-aborted",
+			});
+			expect(getToolCalls()[0]?.status).toBe("done");
+		});
+
+		it("strips host filesystem paths out of the reported message", async () => {
+			queueIntake("job-wait-paths");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-paths",
+					status: "failed",
+					error: {
+						code: "document_render_failed",
+						message:
+							"ENOENT: no such file or directory, open '/opt/alfyai/node_modules/pdfjs-dist/standard_fonts/FoxitSans.pfb'",
+						retryable: true,
+					},
+				}),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = (await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-paths",
+				messages: [],
+			})) as { message: string };
+
+			expect(result.message).not.toContain("/opt/alfyai");
+			expect(result.message).not.toContain("node_modules");
+			expect(result.message).toContain("ENOENT");
+		});
+
+		it("keeps the sandbox's own paths, which are what make a traceback useful", async () => {
+			queueIntake("job-wait-sandbox-paths");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-sandbox-paths",
+					status: "failed",
+					error: {
+						code: "program_execution_failed",
+						message:
+							'Traceback (most recent call last):\n  File "/app/main.py", line 4\n    wb.save("/output/report.xlsx")\nNameError: name \'wb\' is not defined',
+						retryable: true,
+					},
+				}),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = (await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-sandbox-paths",
+				messages: [],
+			})) as { message: string };
+
+			expect(result.message).toContain("/app/main.py");
+			expect(result.message).toContain("/output/report.xlsx");
 		});
 	});
 
@@ -3868,13 +4506,26 @@ describe("tool description hygiene", () => {
 	// are the dense end of each range, so estimateTokens over-counts slightly
 	// and never lets a description through that really exceeds the budget.
 	const CHARS_PER_TOKEN = { en: 4.0, hu: 2.9 } as const;
-	// Today's binding cases: map_route in Hungarian (~703 estimated tokens,
-	// coverage suffix included) per tool, and 3,927 en / 6,249 hu for the
-	// whole catalogue. The ceilings leave ~5% of headroom — enough for a
-	// clarifying clause, not enough for a description to drift back into a
-	// page of prose.
+	// Today's binding cases, re-measured (not inherited) with the estimator
+	// below: map_route in Hungarian (~703 estimated tokens, coverage suffix
+	// included) per tool, and 4,098 en / 6,504 hu for the whole catalogue.
+	//
+	// produce_file's verdict vocabulary (`succeeded` / `failed` / `running`
+	// and what each obliges the model to say) is a clause the description did
+	// not carry before, and it briefly pushed the en catalogue to 4,109 —
+	// over the ceiling. It was paid for out of the same description rather
+	// than by raising the ceiling: "only `/output` is collected, so a bare
+	// filename is written and then lost" says one thing twice, and three
+	// other clauses were equally padded. Trimming them returned 11 tokens,
+	// which is more than the new instruction cost.
+	//
+	// NOTE for whoever edits a description next: en is now 2 tokens under its
+	// ceiling, where hu has 346 to spare. That is a tripwire, not a budget.
+	// A new clause has to be paid for by cutting words somewhere in the
+	// catalogue — moving this number up is how the headroom got spent the
+	// last time.
 	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 4100, hu: 6550 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 4100, hu: 6850 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);

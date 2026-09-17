@@ -1337,10 +1337,16 @@ export function runChatStreamOrchestrator(
 									fileProductionCapture.postWindowChars =
 										FILE_PRODUCTION_POST_CAPTURE_MAX_CHARS;
 								}
+								// A tool can RETURN a failure rather than throw one — the
+								// AI SDK still calls this a tool_result. produce_file does
+								// exactly that when the file-production ledger reports the
+								// job failed. Honour the recorded entry's own status so the
+								// activity row shows the failure glyph instead of "done",
+								// matching what the thrown-error branch below emits.
 								emitToolCallEventWithDebug(
 									upstreamEvent.toolName,
 									matchingToolCall?.input ?? {},
-									"done",
+									matchingToolCall?.status === "failed" ? "failed" : "done",
 									{
 										callId: upstreamEvent.callId,
 										outputSummary: matchingToolCall?.outputSummary ?? null,

@@ -48,6 +48,11 @@ import {
 } from "../context-compression";
 import { getConversationForkOrigin } from "../conversation-forks";
 import { getConversationSummary } from "../conversation-summaries";
+import type { FileProductionJobState } from "../file-production";
+import { listConversationFileProductionJobStates } from "../file-production";
+// Leaf module, imported directly rather than through the lazy facade — it is
+// pure string work and pulls no DB into this module's graph.
+import { redactHostPathsFromFileProductionMessage } from "../file-production/error-message";
 import {
 	AttachmentReadinessError,
 	findRelevantKnowledgeArtifacts,
@@ -841,6 +846,71 @@ function resolveBudgetPriority(
 	return "awareness";
 }
 
+// ── File jobs ──────────────────────────────────────────────────
+//
+// `produce_file` waits only a bounded time for the file-production ledger's
+// verdict, so a slow job is legitimately reported as still running and a job
+// the user later re-ran with Retry settles long after its turn ended. Either
+// way the persisted tool result from that turn is frozen at what was true then,
+// and the next turn would otherwise still be working from "queued" — or from an
+// assistant message that already promised the file.
+//
+// This section resolves those jobs against the CURRENT ledger at prompt-build
+// time. It lists only jobs with nothing to deliver: a succeeded job's files are
+// already named under "Conversation Files", so repeating them here would just
+// cost tokens.
+export const FILE_PRODUCTION_CONTEXT_JOB_LIMIT = 5;
+
+export function buildFileProductionJobStatusBody(
+	jobStates: FileProductionJobState[],
+): string {
+	const lines = jobStates.map((job) => {
+		const title = job.title.trim() || "(untitled)";
+		if (job.status === "failed") {
+			const reason = [
+				job.errorCode,
+				// The ledger stores the raw failure message, and the host-side
+				// failure paths (document render, storage, the sandbox adapter's
+				// own catch tail) put absolute host paths in it. The tool result
+				// is redacted at the point it is built; this is the same message
+				// arriving by the other route, so it gets the same treatment.
+				job.errorMessage
+					? redactHostPathsFromFileProductionMessage(job.errorMessage)
+					: null,
+			]
+				.filter((part): part is string => Boolean(part?.trim()))
+				.join(": ");
+			return `- "${title}" — FAILED, no file was produced${reason ? ` (${clipText(reason, 200)})` : ""}.`;
+		}
+		return `- "${title}" — still being produced, no file exists yet.`;
+	});
+	return lines.length > 0
+		? [
+				"Files requested in this conversation that do NOT exist yet. If you told the user any of these was ready, correct that now instead of repeating it.",
+				...lines,
+			].join("\n")
+		: "";
+}
+
+async function loadFileProductionJobStatusSection(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<PromptContextSection | null> {
+	const jobStates = await listConversationFileProductionJobStates({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		limit: FILE_PRODUCTION_CONTEXT_JOB_LIMIT,
+	}).catch(() => [] as FileProductionJobState[]);
+	const body = buildFileProductionJobStatusBody(jobStates);
+	if (!body) return null;
+	return {
+		title: "File Jobs",
+		body,
+		layer: "documents",
+		protected: true,
+	};
+}
+
 export function selectPromptContext(params: {
 	intro: string;
 	message: string;
@@ -1133,6 +1203,7 @@ async function buildShallowConstructedContext(params: {
 		sessionContext,
 		contextCompressionPromptSnapshot,
 		activeMemoryProfileSection,
+		fileProductionJobSection,
 	] = await Promise.all([
 		loadSessionPromptContext({
 			userId: params.userId,
@@ -1153,6 +1224,12 @@ async function buildShallowConstructedContext(params: {
 				modelContextBudget: params.modelContextBudget,
 			}),
 		),
+		// Cheap status-only query (no file hydration), so even the shallow
+		// latency tier can afford to stay truthful about a file it promised.
+		loadFileProductionJobStatusSection({
+			userId: params.userId,
+			conversationId: params.conversationId,
+		}),
 	]);
 	const {
 		sessionMessages,
@@ -1232,6 +1309,9 @@ async function buildShallowConstructedContext(params: {
 	}
 	if (activeMemoryProfileSection) {
 		sections.push(activeMemoryProfileSection.section);
+	}
+	if (fileProductionJobSection) {
+		sections.push(fileProductionJobSection);
 	}
 
 	const selectedPromptContext = selectPromptContext({
@@ -1363,6 +1443,7 @@ export async function buildConstructedContext(params: {
 		forkOrigin,
 		contextCompressionPromptSnapshot,
 		projectId,
+		fileProductionJobSection,
 	] = await Promise.all([
 		loadSessionPromptContext({
 			userId: params.userId,
@@ -1408,6 +1489,10 @@ export async function buildConstructedContext(params: {
 		getConversationProjectId(params.userId, params.conversationId).catch(
 			() => null,
 		),
+		loadFileProductionJobStatusSection({
+			userId: params.userId,
+			conversationId: params.conversationId,
+		}),
 	]);
 	const {
 		sessionMessages,
@@ -1843,6 +1928,11 @@ export async function buildConstructedContext(params: {
 			layer: "documents",
 			protected: true,
 		});
+	}
+	// Sits right after the file registry on purpose: "Conversation Files" is
+	// what EXISTS, this is what was asked for and does not.
+	if (fileProductionJobSection) {
+		sections.push(fileProductionJobSection);
 	}
 
 	if (selectedEvidence.length > 0) {

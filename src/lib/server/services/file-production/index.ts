@@ -30,6 +30,16 @@ export type {
 	RetryFileProductionJobInput,
 } from "./job-ledger";
 export type {
+	FileProductionJobLookup,
+	FileProductionJobVerdict,
+	WaitForFileProductionJobVerdictInput,
+} from "./job-wait";
+export {
+	isTerminalFileProductionJobStatus,
+	waitForFileProductionJobVerdict,
+} from "./job-wait";
+export type { FileProductionJobState } from "./read-model";
+export type {
 	DrainFileProductionWorkerInput,
 	ExecuteNextFileProductionJobInput,
 	ExecuteNextFileProductionJobResult,
@@ -117,6 +127,22 @@ export async function listConversationFileProductionJobs(
 ): ReturnType<ReadModelModule["listConversationFileProductionJobs"]> {
 	const { listConversationFileProductionJobs } = await loadReadModel();
 	return listConversationFileProductionJobs(...args);
+}
+
+export async function getConversationFileProductionJob(
+	...args: Parameters<ReadModelModule["getConversationFileProductionJob"]>
+): ReturnType<ReadModelModule["getConversationFileProductionJob"]> {
+	const { getConversationFileProductionJob } = await loadReadModel();
+	return getConversationFileProductionJob(...args);
+}
+
+export async function listConversationFileProductionJobStates(
+	...args: Parameters<
+		ReadModelModule["listConversationFileProductionJobStates"]
+	>
+): ReturnType<ReadModelModule["listConversationFileProductionJobStates"]> {
+	const { listConversationFileProductionJobStates } = await loadReadModel();
+	return listConversationFileProductionJobStates(...args);
 }
 
 export async function reconcileStaleFileProductionJobs(

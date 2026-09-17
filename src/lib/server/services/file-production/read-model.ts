@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifacts,
@@ -515,4 +515,141 @@ export async function listConversationFileProductionJobs(
 			);
 		})
 		.filter((job) => job.files.length > 0 || job.status !== "succeeded");
+}
+
+// Single-job read for callers that are POLLING one known job (the chat tool's
+// in-turn wait, Atlas's output step) rather than projecting the whole
+// conversation. listConversationFileProductionJobs above lists every chat file
+// in the conversation and backfills legacy job rows on the way; doing that once
+// per poll would be absurd, so this one goes straight at the job row and only
+// resolves the files it is actually linked to.
+export async function getConversationFileProductionJob(input: {
+	userId: string;
+	conversationId: string;
+	jobId: string;
+}): Promise<FileProductionJob | null> {
+	const [job] = await db
+		.select()
+		.from(fileProductionJobs)
+		.where(
+			and(
+				eq(fileProductionJobs.id, input.jobId),
+				eq(fileProductionJobs.userId, input.userId),
+				eq(fileProductionJobs.conversationId, input.conversationId),
+			),
+		)
+		.limit(1);
+
+	if (!job) {
+		return null;
+	}
+
+	const links = await db
+		.select()
+		.from(fileProductionJobFiles)
+		.where(eq(fileProductionJobFiles.jobId, job.id));
+	if (links.length === 0) {
+		return mapJobRow(job, []);
+	}
+
+	const files = (
+		await getReadModelChatFilesByIdsForConversation(
+			input.conversationId,
+			links.map((link) => link.chatGeneratedFileId),
+		)
+	).filter((file) => file.userId === input.userId);
+	const fileById = new Map(files.map((file) => [file.id, file]));
+
+	return mapJobRow(
+		job,
+		[...links]
+			.sort((a, b) => a.sortOrder - b.sortOrder)
+			.map((link) => fileById.get(link.chatGeneratedFileId))
+			.filter((file): file is ReadModelChatFile => Boolean(file))
+			.map(mapChatFileToProducedFile),
+	);
+}
+
+/** A job that has no deliverable yet: still being produced, or failed. */
+export interface FileProductionJobState {
+	id: string;
+	title: string;
+	status: FileProductionJob["status"];
+	errorCode: string | null;
+	errorMessage: string | null;
+	retryable: boolean;
+	updatedAt: number;
+}
+
+export const FILE_PRODUCTION_UNDELIVERED_JOB_STATUSES = [
+	"queued",
+	"running",
+	"failed",
+] as const;
+
+/** Age bound on the prompt-context projection. `reconcileStaleFileProduction-
+ * Jobs` is the only thing that ever retires an abandoned `queued`/`running`
+ * row, and it runs on conversation fork — NOT on the chat turn. Without a
+ * bound, one job whose worker died mid-run would be injected into every
+ * prompt of that conversation forever, telling the model to correct a claim
+ * that is by then months stale. A day is far longer than the 10-minute
+ * staleness window a live worker is reconciled against, so nothing that is
+ * genuinely in flight is ever hidden by this. */
+export const FILE_PRODUCTION_JOB_STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+// Status-only projection for prompt context: no chat-file join, no legacy
+// backfill, no file hydration — just enough to tell a later turn that a file it
+// already claimed to have made is still running or has failed. Succeeded jobs
+// are deliberately excluded: their files are already listed under
+// "Conversation Files".
+export async function listConversationFileProductionJobStates(input: {
+	userId: string;
+	conversationId: string;
+	limit?: number;
+	maxAgeMs?: number;
+	now?: Date;
+}): Promise<FileProductionJobState[]> {
+	const now = input.now ?? new Date();
+	const createdAfter = new Date(
+		now.getTime() -
+			Math.max(0, input.maxAgeMs ?? FILE_PRODUCTION_JOB_STATE_MAX_AGE_MS),
+	);
+	const rows = await db
+		.select({
+			id: fileProductionJobs.id,
+			title: fileProductionJobs.title,
+			status: fileProductionJobs.status,
+			errorCode: fileProductionJobs.errorCode,
+			errorMessage: fileProductionJobs.errorMessage,
+			retryable: fileProductionJobs.retryable,
+			updatedAt: fileProductionJobs.updatedAt,
+		})
+		.from(fileProductionJobs)
+		.where(
+			and(
+				eq(fileProductionJobs.userId, input.userId),
+				eq(fileProductionJobs.conversationId, input.conversationId),
+				eq(fileProductionJobs.dismissed, false),
+				// Same leading columns as file_production_jobs_conversation_idx
+				// (conversation_id, created_at), so the bound narrows the index
+				// range instead of forcing a scan.
+				gte(fileProductionJobs.createdAt, createdAfter),
+				inArray(
+					fileProductionJobs.status,
+					FILE_PRODUCTION_UNDELIVERED_JOB_STATUSES as unknown as string[],
+				),
+			),
+		)
+		.orderBy(desc(fileProductionJobs.createdAt))
+		.limit(Math.max(1, input.limit ?? 5));
+
+	return rows.map((row) => ({
+		id: row.id,
+		title: row.title,
+		status: row.status as FileProductionJob["status"],
+		errorCode: row.errorCode ?? null,
+		errorMessage: row.errorMessage ?? null,
+		retryable: Boolean(row.retryable),
+		updatedAt: row.updatedAt.getTime(),
+	}));
 }

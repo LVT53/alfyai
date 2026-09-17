@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	buildConstructedContext,
+	buildFileProductionJobStatusBody,
 	inferDocumentContextIntent,
 	selectPromptContext,
 } from "./context-selection";
@@ -43,6 +44,13 @@ const mocks = vi.hoisted(() => ({
 	getActiveMemoryProfileContext: vi.fn(),
 	recordMemoryReworkTelemetry: vi.fn(),
 	isMemoryActiveForConversation: vi.fn(),
+	listConversationFileProductionJobStates: vi.fn<
+		() => Promise<
+			Array<
+				import("$lib/server/services/file-production").FileProductionJobState
+			>
+		>
+	>(async () => []),
 }));
 
 vi.mock("../../config-store", () => ({
@@ -199,6 +207,11 @@ vi.mock("../memory-controls", () => ({
 	isMemoryActiveForConversation: mocks.isMemoryActiveForConversation,
 }));
 
+vi.mock("../file-production", () => ({
+	listConversationFileProductionJobStates:
+		mocks.listConversationFileProductionJobStates,
+}));
+
 function artifact(overrides: {
 	id: string;
 	name: string;
@@ -342,6 +355,8 @@ function resetConstructedContextMocks() {
 	// Default: memory is active for the conversation (non-incognito, master
 	// toggle on). Individual gate tests override this to false.
 	mocks.isMemoryActiveForConversation.mockResolvedValue(true);
+	// Default: nothing the user asked for is still missing.
+	mocks.listConversationFileProductionJobStates.mockResolvedValue([]);
 }
 
 describe("selectPromptContext", () => {
@@ -1177,6 +1192,180 @@ describe("buildConstructedContext", () => {
 				workingSetCount: 12,
 			}),
 		);
+	});
+
+	// produce_file's in-turn wait is bounded, so a slow job legitimately ends
+	// its turn as "running", and a user-clicked Retry settles long after. The
+	// persisted tool result is frozen at what was true then; this section is
+	// what makes the NEXT turn work from the ledger instead.
+	describe("File Jobs section", () => {
+		const FAILED_JOB = {
+			id: "job-failed",
+			title: "Quarterly workbook",
+			status: "failed" as const,
+			errorCode: "program_execution_failed",
+			errorMessage: "NameError: name 'wb' is not defined",
+			retryable: true,
+			updatedAt: 2,
+		};
+		const RUNNING_JOB = {
+			id: "job-running",
+			title: "Launch deck",
+			status: "running" as const,
+			errorCode: null,
+			errorMessage: null,
+			retryable: false,
+			updatedAt: 1,
+		};
+
+		it("omits the section entirely when every requested file exists", async () => {
+			resetConstructedContextMocks();
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: "Thanks, that helps.",
+				modelId: "local-model",
+			});
+
+			expect(constructed.inputValue).not.toContain("## File Jobs");
+		});
+
+		// Both latency tiers, because "where is my file?" is exactly the kind of
+		// short follow-up that takes the shallow path.
+		it.each([
+			["shallow", "Thanks, that helps."],
+			[
+				"deep",
+				"Please summarise the whole launch plan document in detail, including every risk and open question we have discussed so far in this conversation.",
+			],
+		])("reports a job that failed after its own turn ended (%s tier)", async (tier, message) => {
+			resetConstructedContextMocks();
+			mocks.listConversationFileProductionJobStates.mockResolvedValue([
+				FAILED_JOB,
+			]);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message,
+				modelId: "local-model",
+			});
+
+			// Guards the fixture: a "deep" case that silently fell back to the
+			// shallow builder would make this a duplicate of the row above.
+			expect(mocks.resolvePromptAttachmentArtifacts).toHaveBeenCalledTimes(
+				tier === "deep" ? 1 : 0,
+			);
+			expect(constructed.inputValue).toContain("## File Jobs");
+			expect(constructed.inputValue).toContain("Quarterly workbook");
+			expect(constructed.inputValue).toContain("FAILED");
+			expect(constructed.inputValue).toContain("program_execution_failed");
+			expect(
+				mocks.listConversationFileProductionJobStates,
+			).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				limit: 5,
+			});
+		});
+
+		it("says a still-running job has produced no file yet", async () => {
+			resetConstructedContextMocks();
+			mocks.listConversationFileProductionJobStates.mockResolvedValue([
+				RUNNING_JOB,
+			]);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: "Thanks, that helps.",
+				modelId: "local-model",
+			});
+
+			expect(constructed.inputValue).toContain("Launch deck");
+			expect(constructed.inputValue).toContain("still being produced");
+			expect(constructed.inputValue).not.toContain("FAILED");
+		});
+
+		it("keeps the turn alive when the ledger lookup fails", async () => {
+			resetConstructedContextMocks();
+			mocks.listConversationFileProductionJobStates.mockRejectedValue(
+				new Error("SQLITE_BUSY"),
+			);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: "Thanks, that helps.",
+				modelId: "local-model",
+			});
+
+			expect(constructed.inputValue).not.toContain("## File Jobs");
+			expect(constructed.inputValue).toContain("## Session Context");
+		});
+	});
+});
+
+describe("buildFileProductionJobStatusBody", () => {
+	it("names the error code and message on a failed job", () => {
+		expect(
+			buildFileProductionJobStatusBody([
+				{
+					id: "job-1",
+					title: "Budget",
+					status: "failed",
+					errorCode: "program_execution_failed",
+					errorMessage: "SyntaxError: invalid syntax",
+					retryable: true,
+					updatedAt: 1,
+				},
+			]),
+		).toContain(
+			'- "Budget" — FAILED, no file was produced (program_execution_failed: SyntaxError: invalid syntax).',
+		);
+	});
+
+	it("falls back to a placeholder title and omits an absent reason", () => {
+		expect(
+			buildFileProductionJobStatusBody([
+				{
+					id: "job-1",
+					title: "   ",
+					status: "failed",
+					errorCode: null,
+					errorMessage: null,
+					retryable: false,
+					updatedAt: 1,
+				},
+			]),
+		).toContain('- "(untitled)" — FAILED, no file was produced.');
+	});
+
+	it("returns an empty body for an empty list so no section is pushed", () => {
+		expect(buildFileProductionJobStatusBody([])).toBe("");
+	});
+
+	// The ledger stores the raw failure message, and the host-side render and
+	// storage paths put absolute host paths in it. The prompt must not tell the
+	// model where this deployment keeps its files.
+	it("strips host filesystem paths out of the reason", () => {
+		const body = buildFileProductionJobStatusBody([
+			{
+				id: "job-1",
+				title: "Report",
+				status: "failed",
+				errorCode: "document_render_failed",
+				errorMessage:
+					"ENOENT: no such file or directory, open '/opt/alfyai/node_modules/pdfjs-dist/fonts/FoxitSans.pfb'",
+				retryable: true,
+				updatedAt: 1,
+			},
+		]);
+
+		expect(body).not.toContain("/opt/alfyai");
+		expect(body).not.toContain("node_modules");
+		expect(body).toContain("document_render_failed");
 	});
 });
 

@@ -9,8 +9,12 @@ import { artifacts } from "$lib/server/db/schema";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
-import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
-import { submitFileProductionIntake } from "$lib/server/services/file-production";
+import {
+	getConversationFileProductionJob,
+	submitFileProductionIntake,
+	waitForFileProductionJobVerdict,
+} from "$lib/server/services/file-production";
+import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
@@ -93,11 +97,21 @@ import {
 } from "./photos";
 import {
 	applyTextPatches,
+	buildProduceFileFailedPayload,
+	buildProduceFileIntakeFailurePayload,
+	buildProduceFileRunningPayload,
+	buildProduceFileSucceededPayload,
 	buildSameTurnProduceFileDedupeKey,
 	buildScopedIdempotencyKey,
-	compactProduceFileModelPayload,
 	createProduceFileToolCallEntry,
+	MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN,
+	MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS,
 	normalizeProduceFileInput,
+	PRODUCE_FILE_RETRY_LIMIT_ERROR_CODE,
+	PRODUCE_FILE_TURN_LIMIT_ERROR_CODE,
+	PRODUCE_FILE_VERDICT_POLL_INTERVAL_MS,
+	PRODUCE_FILE_VERDICT_WAIT_MS,
+	type ProduceFileModelPayload,
 	produceFileInputSchema,
 	produceFileModelInputSchema,
 	sanitizeProduceFileInput,
@@ -226,6 +240,13 @@ export interface CreateNormalChatToolsContext {
 	// 3) pack resources whose keywords match this request — the same
 	// selectSkillResources logic the forced `$` skill injection uses.
 	requestText?: string;
+	// How long produce_file waits in-turn for the file-production ledger's
+	// verdict, and how often it looks. Defaults to
+	// PRODUCE_FILE_VERDICT_WAIT_MS / PRODUCE_FILE_VERDICT_POLL_INTERVAL_MS;
+	// overridden only by tests and by callers that stage the worker themselves
+	// (0 means "report whatever the ledger already says, do not wait").
+	fileProductionVerdictWaitMs?: number;
+	fileProductionVerdictPollIntervalMs?: number;
 }
 
 // ── I18n ───────────────────────────────────────────────────────
@@ -261,7 +282,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		produce_file: {
 			description:
-				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never with placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType` (or `requestedOutputs`), and the code must write its file into `/output` (e.g. `/output/report.xlsx`) — only `/output` is collected, so a bare filename is written and then lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars) and encode line breaks as \\n inside JSON strings. Returns an intake result: success means accepted, not rendered.",
+				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write its file into `/output` (e.g. `/output/report.xlsx`) — a bare filename lands outside `/output` and is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.",
 			errorPrefix: "File production intake failed",
 		},
 		read_generated_file: {
@@ -353,7 +374,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		produce_file: {
 			description:
-				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrző vagy üres tartalommal. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType` (vagy `requestedOutputs`) mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — csak a `/output` tartalma kerül be, a puszta fájlnév elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv), és a sortöréseket \\n-ként kódold a JSON szövegekben. Átvételi eredményt ad vissza: a siker azt jelenti, hogy elfogadták, nem azt, hogy elkészült.",
+				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.",
 			errorPrefix: "A fájl-előállítás sikertelen",
 		},
 		read_generated_file: {
@@ -419,16 +440,100 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 	},
 };
 
+// ── produce_file in-turn verdict ───────────────────────────────
+
+// Intake only says the job was ACCEPTED. The worker that decides whether a
+// file exists runs detached, and its failure path is a pure DB write — no
+// stream part, no callback, nothing that would reach the model. So after a
+// successful intake the tool watches the ledger for a bounded time and reports
+// what it finds; `running` is returned honestly rather than dressed up as
+// success. See produce-file.ts for the bound and the payload shapes.
+async function resolveProduceFileVerdict(params: {
+	userId: string;
+	conversationId: string;
+	job: FileProductionJob;
+	reused: boolean;
+	signal?: AbortSignal;
+	waitMs?: number;
+	pollIntervalMs?: number;
+}): Promise<ProduceFileModelPayload> {
+	const verdict = await waitForFileProductionJobVerdict({
+		getJob: () =>
+			getConversationFileProductionJob({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				jobId: params.job.id,
+			}),
+		timeoutMs: params.waitMs ?? PRODUCE_FILE_VERDICT_WAIT_MS,
+		pollIntervalMs:
+			params.pollIntervalMs ?? PRODUCE_FILE_VERDICT_POLL_INTERVAL_MS,
+		signal: params.signal,
+	});
+
+	if (!verdict.settled) {
+		return buildProduceFileRunningPayload({
+			jobId: params.job.id,
+			reused: params.reused,
+		});
+	}
+	if (verdict.job.status === "succeeded") {
+		// `succeeded` is the JOB's status; the promise this tool makes is that a
+		// file EXISTS. getConversationFileProductionJob resolves the job's file
+		// links against the chat-file rows and drops any that no longer resolve
+		// for this user, so a succeeded job can legitimately come back with an
+		// empty `files` — the same case listConversationFileProductionJobs
+		// already refuses to project. Reporting that as success would put the
+		// tool right back in the business of announcing files that are not
+		// there, so it is reported as a failure instead.
+		if (verdict.job.files.length === 0) {
+			return buildProduceFileFailedPayload({
+				jobId: verdict.job.id,
+				errorCode: "file_production_no_output_files",
+				message:
+					"The job finished but no downloadable file is attached to it. Do not tell the user the file is ready.",
+			});
+		}
+		return buildProduceFileSucceededPayload({
+			jobId: verdict.job.id,
+			files: verdict.job.files,
+			reused: params.reused,
+		});
+	}
+	return buildProduceFileFailedPayload({
+		jobId: verdict.job.id,
+		errorCode:
+			verdict.job.error?.code ??
+			(verdict.job.status === "cancelled"
+				? "file_production_cancelled"
+				: "file_production_failed"),
+		message:
+			verdict.job.error?.message ??
+			(verdict.job.status === "cancelled"
+				? "The file production job was cancelled before it produced anything."
+				: "File production failed without reporting a reason."),
+	});
+}
+
 // ── Tool factory ───────────────────────────────────────────────
 
 export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	const recorder = ctx.recorder ?? createToolCallRecorder();
 	const lang = ctx.language ?? "en";
 	const i18n = TOOL_I18N[lang];
-	const sameTurnProduceFileResults = new Map<
+	// Verdict (not intake receipt) of every produce_file call this turn, keyed
+	// by the requested artifact. A repeated identical call replays the verdict
+	// instead of queueing a second job — but a FAILED verdict is deliberately
+	// not cached, because the model is expected to resubmit a corrected one.
+	const sameTurnProduceFileVerdicts = new Map<
 		string,
-		Extract<FileProductionIntakeResult, { ok: true }>
+		Extract<ProduceFileModelPayload, { ok: true }>
 	>();
+	// Submissions that actually reached intake, per requested artifact. Bounds
+	// the correction loop the description asks for to exactly one retry.
+	const sameTurnProduceFileSubmissions = new Map<string, number>();
+	// Same, but for the whole turn regardless of what each request was called —
+	// see MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN.
+	let totalProduceFileSubmissions = 0;
 	// Parallel-backed web tools (research_web, fetch_url) are registered only
 	// when a Parallel API key is configured. Mirrors the stability snapshot's
 	// `parallelConfigured = Boolean(config.parallelApiKey.trim())`. The execute
@@ -995,48 +1100,47 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					input: z.infer<typeof produceFileModelInputSchema>,
 					options: ToolExecutionOptions,
 				) => {
-					const parsedInput = produceFileInputSchema.safeParse(input);
-					if (!parsedInput.success) {
-						const safeInput = sanitizeUnsafeProduceFileInput(input);
-						const error =
-							parsedInput.error.issues[0]?.message ??
-							"Invalid file production tool input";
-						const result: Extract<FileProductionIntakeResult, { ok: false }> = {
-							ok: false,
-							status: 422,
-							code: "invalid_tool_input",
-							error,
-						};
-						const modelPayload = compactProduceFileModelPayload(result);
+					const refuse = (params: {
+						input: Record<string, unknown>;
+						errorCode: string;
+						message: string;
+						intakeStatus?: number;
+					}): ProduceFileModelPayload => {
+						const payload = buildProduceFileFailedPayload({
+							errorCode: params.errorCode,
+							message: params.message,
+						});
 						recorder.record(
 							createProduceFileToolCallEntry({
 								callId: options.toolCallId,
-								input: safeInput,
-								result,
-								outputSummary: summarizeProduceFileResult(modelPayload),
+								input: params.input,
+								payload,
+								intakeStatus: params.intakeStatus,
+								outputSummary: summarizeProduceFileResult(payload),
 							}),
 						);
-						return modelPayload;
+						return payload;
+					};
+
+					const parsedInput = produceFileInputSchema.safeParse(input);
+					if (!parsedInput.success) {
+						return refuse({
+							input: sanitizeUnsafeProduceFileInput(input),
+							errorCode: "invalid_tool_input",
+							message:
+								parsedInput.error.issues[0]?.message ??
+								"Invalid file production tool input",
+							intakeStatus: 422,
+						});
 					}
 					const normalized = normalizeProduceFileInput(parsedInput.data);
 					if (!normalized.ok) {
-						const safeInput = sanitizeUnsafeProduceFileInput(input);
-						const result: Extract<FileProductionIntakeResult, { ok: false }> = {
-							ok: false,
-							status: 422,
-							code: "invalid_tool_input",
-							error: normalized.error,
-						};
-						const modelPayload = compactProduceFileModelPayload(result);
-						recorder.record(
-							createProduceFileToolCallEntry({
-								callId: options.toolCallId,
-								input: safeInput,
-								result,
-								outputSummary: summarizeProduceFileResult(modelPayload),
-							}),
-						);
-						return modelPayload;
+						return refuse({
+							input: sanitizeUnsafeProduceFileInput(input),
+							errorCode: "invalid_tool_input",
+							message: normalized.error,
+							intakeStatus: 422,
+						});
 					}
 					const normalizedInput = normalized.input;
 
@@ -1054,50 +1158,25 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							normalizedInput.requestTitle,
 						);
 						if (previousContent === null) {
-							const error =
-								"No previous version of this file could be found. Use content, markdown, or text to create the initial version instead of patches.";
-							const result: Extract<FileProductionIntakeResult, { ok: false }> =
-								{
-									ok: false,
-									status: 422,
-									code: "no_previous_version_for_patches",
-									error,
-								};
-							const safeInput = sanitizeProduceFileInput(normalizedInput);
-							const modelPayload = compactProduceFileModelPayload(result);
-							recorder.record(
-								createProduceFileToolCallEntry({
-									callId: options.toolCallId,
-									input: safeInput,
-									result,
-									outputSummary: summarizeProduceFileResult(modelPayload),
-								}),
-							);
-							return modelPayload;
+							return refuse({
+								input: sanitizeProduceFileInput(normalizedInput),
+								errorCode: "no_previous_version_for_patches",
+								message:
+									"No previous version of this file could be found. Use content, markdown, or text to create the initial version instead of patches.",
+								intakeStatus: 422,
+							});
 						}
 						const patchResult = applyTextPatches(
 							previousContent,
 							normalizedInput.patches,
 						);
 						if (!patchResult.ok) {
-							const result: Extract<FileProductionIntakeResult, { ok: false }> =
-								{
-									ok: false,
-									status: 422,
-									code: "patch_failed",
-									error: patchResult.error,
-								};
-							const safeInput = sanitizeProduceFileInput(normalizedInput);
-							const modelPayload = compactProduceFileModelPayload(result);
-							recorder.record(
-								createProduceFileToolCallEntry({
-									callId: options.toolCallId,
-									input: safeInput,
-									result,
-									outputSummary: summarizeProduceFileResult(modelPayload),
-								}),
-							);
-							return modelPayload;
+							return refuse({
+								input: sanitizeProduceFileInput(normalizedInput),
+								errorCode: "patch_failed",
+								message: patchResult.error,
+								intakeStatus: 422,
+							});
 						}
 						normalizedInput.program.sourceCode = buildResolvedProgramSource(
 							normalizedInput.program.filename ?? "generated-file.txt",
@@ -1118,23 +1197,63 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					};
 					const sameTurnDedupeKey =
 						buildSameTurnProduceFileDedupeKey(normalizedInput);
-					const sameTurnResult =
-						sameTurnProduceFileResults.get(sameTurnDedupeKey);
-					if (sameTurnResult) {
-						const result = { ...sameTurnResult, reused: true };
-						const modelPayload = compactProduceFileModelPayload(result);
+					// Replay a non-failed verdict for the same artifact instead of
+					// queueing a second job. A FAILED verdict is not replayed: the
+					// whole point of reporting the failure was to let the model send
+					// a corrected request, which this key cannot tell apart from the
+					// broken one (it hashes title/outputs/mode/filename, not content).
+					const sameTurnVerdict =
+						sameTurnProduceFileVerdicts.get(sameTurnDedupeKey);
+					if (sameTurnVerdict) {
+						const payload: ProduceFileModelPayload = {
+							...sameTurnVerdict,
+							reused: true,
+						};
 						recorder.record(
 							createProduceFileToolCallEntry({
 								callId: options.toolCallId,
 								input: safeInput,
-								result,
-								outputSummary: summarizeProduceFileResult(modelPayload),
+								payload,
+								outputSummary: summarizeProduceFileResult(payload),
 								metadata: { dedupedSameTurn: true },
 							}),
 						);
-						return modelPayload;
+						return payload;
 					}
 
+					const submissionCount =
+						sameTurnProduceFileSubmissions.get(sameTurnDedupeKey) ?? 0;
+					if (submissionCount >= MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS) {
+						return refuse({
+							input: safeInput,
+							errorCode: PRODUCE_FILE_RETRY_LIMIT_ERROR_CODE,
+							message: `This file was already attempted ${submissionCount} times in this turn and failed. Do not call produce_file for it again now: tell the user plainly that the file could not be produced and what went wrong.`,
+						});
+					}
+					// The per-artifact guard above is keyed by title, so a model that
+					// keeps renaming its failing request slips past it every time. This
+					// one counts every submission the turn makes, whatever it is called.
+					if (
+						totalProduceFileSubmissions >= MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN
+					) {
+						return refuse({
+							input: safeInput,
+							errorCode: PRODUCE_FILE_TURN_LIMIT_ERROR_CODE,
+							message: `produce_file has already been called ${totalProduceFileSubmissions} times in this turn, which is the limit. Do not call it again now: answer the user with what you have and say which files could not be produced.`,
+						});
+					}
+					sameTurnProduceFileSubmissions.set(
+						sameTurnDedupeKey,
+						submissionCount + 1,
+					);
+					totalProduceFileSubmissions += 1;
+
+					// The job that `run` submits outlives this tool call: when the
+					// envelope's timeout or the user's Stop wins the race, the
+					// detached worker carries on and the file still lands. `onError`
+					// therefore has to know whether a job was queued before the abort,
+					// so it can report "running" instead of inventing a failure.
+					let submittedJob: FileProductionJob | null = null;
 					return executeToolWithEnvelope({
 						toolName: "produce_file",
 						timeoutMs: TOOL_TIMEOUTS_MS.produce_file,
@@ -1147,46 +1266,64 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								signal: abortSignal,
 							});
 							if (result.ok) {
-								sameTurnProduceFileResults.set(sameTurnDedupeKey, result);
+								submittedJob = result.job;
 							}
-							const modelPayload = compactProduceFileModelPayload(result);
+							const modelPayload = result.ok
+								? await resolveProduceFileVerdict({
+										userId: ctx.userId,
+										conversationId: ctx.conversationId,
+										job: result.job,
+										reused: result.reused,
+										signal: abortSignal,
+										waitMs: ctx.fileProductionVerdictWaitMs,
+										pollIntervalMs: ctx.fileProductionVerdictPollIntervalMs,
+									})
+								: buildProduceFileIntakeFailurePayload(result);
+							if (modelPayload.ok) {
+								sameTurnProduceFileVerdicts.set(
+									sameTurnDedupeKey,
+									modelPayload,
+								);
+							}
 							return {
 								modelPayload,
 								entry: createProduceFileToolCallEntry({
 									callId: options.toolCallId,
 									input: safeInput,
-									result,
+									payload: modelPayload,
+									intakeStatus: result.status,
 									outputSummary: summarizeProduceFileResult(modelPayload),
 								}),
 							};
 						},
 						onError: (error) => {
-							const safeError = modelSafeToolError(
-								error,
-								i18n.produce_file.errorPrefix,
-							);
-							const modelPayload = {
-								ok: false as const,
-								status: 500,
-								code: "tool_execution_failed",
-								error: i18n.produce_file.errorPrefix,
-							};
+							// A timeout or a user Stop that lands inside the 20s verdict
+							// wait is NOT a file-production failure — the job is queued
+							// and the worker is unaffected. Saying "failed" here would
+							// put a red "file production failed" notice on a turn whose
+							// file is about to arrive, which is the exact dishonesty
+							// this whole change set exists to remove.
+							const modelPayload = submittedJob
+								? buildProduceFileRunningPayload({
+										jobId: submittedJob.id,
+										reused: false,
+									})
+								: buildProduceFileFailedPayload({
+										errorCode: "tool_execution_failed",
+										message: modelSafeToolError(
+											error,
+											i18n.produce_file.errorPrefix,
+										),
+									});
 							return {
 								modelPayload,
-								entry: {
+								entry: createProduceFileToolCallEntry({
 									callId: options.toolCallId,
-									name: "produce_file",
 									input: safeInput,
-									status: "done",
-									outputSummary: modelPayload.error,
-									sourceType: "tool",
-									metadata: {
-										ok: false,
-										evidenceReady: false,
-										intakeStatus: 500,
-										error: safeError,
-									},
-								},
+									payload: modelPayload,
+									intakeStatus: submittedJob ? undefined : 500,
+									outputSummary: summarizeProduceFileResult(modelPayload),
+								}),
 							};
 						},
 					});
