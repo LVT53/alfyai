@@ -25,7 +25,6 @@ export const EMPTY_HOME_SUMMARY: HomeSummary = {
 	recent: [],
 	running: null,
 	suggestions: [],
-	connectedKinds: [],
 	generatedAt: 0,
 };
 
@@ -46,11 +45,6 @@ export async function fetchHomeSummary(
 		running: response.running ?? null,
 		suggestions: Array.isArray(response.suggestions)
 			? response.suggestions
-			: [],
-		connectedKinds: Array.isArray(response.connectedKinds)
-			? response.connectedKinds.filter(
-					(kind): kind is string => typeof kind === "string",
-				)
 			: [],
 		generatedAt:
 			typeof response.generatedAt === "number" ? response.generatedAt : 0,

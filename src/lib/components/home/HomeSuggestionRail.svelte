@@ -63,8 +63,8 @@ let fadeVisible = $state(false);
 
 // The fade is drawn only when there is genuinely something past the right edge
 // — measured rather than assumed, so one short chip on a phone does not get a
-// shadow over nothing, and a third chip pushed out by a long translation on the
-// desktop does.
+// shadow over nothing. On the desktop the chips share the row instead of
+// scrolling it, so there the fade stays off.
 function measureOverflow() {
 	const track = trackElement;
 	if (!track) {
@@ -231,7 +231,14 @@ function rotate() {
 		font-size: 0.72rem;
 		line-height: 1;
 		white-space: nowrap;
-		flex-shrink: 0;
+		/* A chip is as wide as its text and no wider, and the three share the
+		   row: they only give ground (proportionally, longest first) when their
+		   texts together genuinely do not fit between the row's left edge and
+		   "another". The old rule was the opposite on both counts — chips that
+		   could not shrink, around a label capped at 22ch — so a 780px row
+		   truncated its third chip next to 150px of empty track. */
+		flex: 0 1 auto;
+		min-width: 0;
 		scroll-snap-align: start;
 		cursor: pointer;
 		/* The app's row hover, on the app's tokens: the same background and the
@@ -264,7 +271,7 @@ function rotate() {
 		border-style: dashed;
 		color: var(--text-muted);
 		padding: 0 9px;
-		flex-shrink: 0;
+		flex: none;
 	}
 
 	.home-chip-glyph {
@@ -278,9 +285,9 @@ function rotate() {
 	}
 
 	.home-chip-label {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		max-width: 22ch;
 	}
 
 	/* At 390px the rail always scrolls, and every chip keeps a 44px hit area
@@ -290,6 +297,13 @@ function rotate() {
 		.home-chip {
 			height: 30px;
 			position: relative;
+			/* On a phone the row scrolls instead of sharing: chips keep their
+			   width, and a label is capped so one chip cannot fill the screen. */
+			flex-shrink: 0;
+		}
+
+		.home-chip-label {
+			max-width: 22ch;
 		}
 
 		.home-chip::after {

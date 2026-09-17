@@ -32,6 +32,7 @@ import HomeSuggestionRail from "$lib/components/home/HomeSuggestionRail.svelte";
 import HomeWeeklyBars from "$lib/components/home/HomeWeeklyBars.svelte";
 import {
 	dayKeyFor,
+	greetingFirstName,
 	pickGreeting,
 	readGreetingMemory,
 	type ResolvedGreetingMemory,
@@ -152,11 +153,10 @@ let preparedConversationValidationPromise: Promise<void> | null = null;
 let conversationDraft: ConversationDraft | null = $state(null);
 const draftPersistence = createDraftPersistence();
 
-const greetingName = $derived(
-	data.user?.displayName?.trim() ||
-		data.user?.email?.split("@")[0]?.trim() ||
-		"",
-);
+// The first name or nothing — see greetingFirstName. The email is deliberately
+// NOT a fallback: "Good morning, levente.alf." is an address read aloud, and
+// the nameless line is a better sentence than that.
+const greetingName = $derived(greetingFirstName(data.user?.displayName));
 let summary = $state<HomeSummary>(EMPTY_HOME_SUMMARY);
 let summaryLoaded = $state(false);
 let nowSeconds = $state(Math.floor(Date.now() / 1000));
@@ -184,8 +184,8 @@ let greetingMemory = $state<ResolvedGreetingMemory>({
 // first visit of the day.
 let greetingMemoryRead = $state(false);
 
-// The summary-fed groups (quiet/busy week, continuity, running job, connected
-// accounts) are gated on `summaryLoaded`, so the first paint draws from the
+// The summary-fed groups (quiet/busy week, back after a gap, running job) are
+// gated on `summaryLoaded`, so the first paint draws from the
 // generic, time-of-day and weekday lines and the greeting may change once when
 // the summary lands a few tens of milliseconds later. That is the honest
 // order: those lines assert something about the user's week, and asserting it
@@ -204,8 +204,6 @@ const greeting = $derived(
 			total: summary.weeklyTotal,
 		},
 		running: summary.running ? { kind: summary.running.kind } : null,
-		topTitle: summary.recent[0]?.title ?? null,
-		connectedKinds: summary.connectedKinds,
 		firstVisitToday: greetingMemory.firstVisitToday,
 		excludeKey: greetingMemory.excludeKey,
 		translate: $t,
@@ -821,7 +819,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 			font-size: 1.4rem;
 		}
 
-		/* "Admin User" pushes the greeting to a third line at 390px. */
+		/* Even a first name pushes the greeting to a third line at 390px. */
 		.home-greeting-full {
 			display: none;
 		}

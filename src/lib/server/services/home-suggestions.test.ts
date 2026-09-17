@@ -329,7 +329,7 @@ describe("buildMemorySeeds / buildConversationSeeds / buildAtlasSeeds", () => {
 		expect(rendered.text).toBe(
 			"Pick up “Hungarian EV charging subsidies, 2024-2026” again",
 		);
-		expect(rendered.label).toBe("Pick up Hungarian EV charging…");
+		expect(rendered.label).toBe("Pick up Hungarian EV charging subsidies…");
 	});
 
 	it("renders in Hungarian when that is the user's language", () => {

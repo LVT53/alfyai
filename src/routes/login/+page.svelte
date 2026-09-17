@@ -130,14 +130,20 @@ function handleFormKeydown(event: KeyboardEvent) {
         </div>
       </div>
 
-      <label class="mt-md flex min-h-[32px] items-center gap-sm text-sm text-text-primary">
+      <!-- The app's own tick box (`.custom-checkbox`, src/app.css) on a real
+           checkbox input. The label is the touch target: 44px tall on phones,
+           and it centres its text on the box. -->
+      <label
+        class="mt-md flex min-h-[44px] cursor-pointer items-center gap-sm text-sm text-text-primary md:min-h-[32px]"
+        data-testid="login-remember"
+      >
         <input
           name="rememberMe"
           type="checkbox"
           value="true"
           bind:checked={rememberMe}
           disabled={loading}
-          class="h-4 w-4 rounded border-border bg-surface-page text-accent focus:ring-2 focus:ring-focus-ring disabled:opacity-50"
+          class="custom-checkbox"
         />
         <span>{$t('login.rememberMe')}</span>
       </label>
