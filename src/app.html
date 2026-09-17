@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-    <script>
+    <script nonce="%sveltekit.nonce%">
       // Disable browser scroll restoration. The app manages its own scroll
       // via the MessageArea overflow container — the browser restoring
       // window.scrollY can't work correctly on a body with overflow:hidden.
@@ -11,7 +11,7 @@
         history.scrollRestoration = 'manual';
       }
     </script>
-    <script>
+    <script nonce="%sveltekit.nonce%">
       (() => {
         const stored = localStorage.getItem('theme');
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;

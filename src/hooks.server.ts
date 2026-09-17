@@ -14,6 +14,12 @@ import { db } from "$lib/server/db";
 import { ensureRuntimeSchemaCompatibility } from "$lib/server/db/compat";
 import { users } from "$lib/server/db/schema";
 import { prewarmSandboxImageInBackground } from "$lib/server/sandbox/config";
+import {
+	buildSecurityHeaders,
+	isSecureRequest,
+	parseCspModeEnv,
+	sentryConnectSource,
+} from "$lib/server/security-headers";
 import { ensureAtlasWorker } from "$lib/server/services/atlas";
 import { validateSession } from "$lib/server/services/auth";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
@@ -79,6 +85,15 @@ Sentry.init({
 	skipOpenTelemetrySetup: true,
 	registerEsmLoaderHooks: false,
 });
+
+// The browser POSTs Sentry envelopes straight to the DSN's host, so that one
+// origin has to be in connect-src. Resolved once, here, from the same DSN
+// Sentry.init() above uses — rather than being baked into svelte.config.js at
+// build time, which would put the DSN in the build output and make rotating it
+// a rebuild.
+const sentryConnectSources = [sentryConnectSource(sentryDsn)].filter(
+	(origin): origin is string => origin !== null,
+);
 
 // Throttled lastSeenAt tracking: fire-and-forget writes with 5-minute TTL per user.
 const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000;
@@ -214,8 +229,49 @@ const appHandle: Handle = async ({ event, resolve }) => {
 			"private, no-cache, no-store, must-revalidate",
 		);
 	}
+	applySecurityHeaders(event, response);
 	return response;
 };
+
+/**
+ * Baseline security headers, plus whatever CSP_MODE says to do with the policy
+ * SvelteKit built for this page (see the `csp` block in svelte.config.js).
+ *
+ * The `existingHeaders` set is the safety catch: a route that already set a
+ * header keeps it. The generated-file preview responses ship a deliberately
+ * tighter `Referrer-Policy: no-referrer` and a `default-src 'none'` CSP whose
+ * exact text the preview runtime matches to decide whether a generated HTML
+ * report may run scripts — overwriting either would downgrade every report to
+ * the no-script renderer, and the failure would be silent.
+ */
+function applySecurityHeaders(
+	event: Parameters<Handle>[0]["event"],
+	response: Response,
+): void {
+	const existingHeaders = new Set<string>();
+	for (const [name] of response.headers) {
+		// A CSP on the response is SvelteKit's own, which this function owns and
+		// is about to rewrite — it is not a route staking a claim.
+		if (name.toLowerCase() === "content-security-policy") continue;
+		existingHeaders.add(name.toLowerCase());
+	}
+
+	const plan = buildSecurityHeaders({
+		pathname: event.url.pathname,
+		contentType: response.headers.get("content-type"),
+		isSecureRequest: isSecureRequest(event.url, event.request.headers),
+		isProduction: process.env.NODE_ENV === "production",
+		cspMode: parseCspModeEnv(process.env.CSP_MODE),
+		csp: response.headers.get("content-security-policy"),
+		extraConnectSources: sentryConnectSources,
+		existingHeaders,
+	});
+
+	for (const name of plan.remove) response.headers.delete(name);
+	for (const [name, value] of Object.entries(plan.set)) {
+		response.headers.set(name, value);
+	}
+}
 
 export const handle = sequence(Sentry.sentryHandle(), appHandle);
 

@@ -88,11 +88,19 @@ function deferred<T = undefined>() {
 	return { promise, resolve };
 }
 
-function makeHookEvent(path: string, sessionToken?: string): HookEvent {
+function makeHookEvent(
+	path: string,
+	sessionToken?: string,
+	requestHeaders: Record<string, string> = {},
+): HookEvent {
+	const url = new URL(`http://localhost${path}`);
 	return {
 		cookies: { get: vi.fn(() => sessionToken) },
 		locals: {},
-		url: new URL(`http://localhost${path}`),
+		url,
+		// The security-header pass reads x-forwarded-proto off the request, so
+		// the fake needs one now.
+		request: new Request(url, { headers: requestHeaders }),
 	} as unknown as HookEvent;
 }
 
@@ -418,5 +426,155 @@ describe("hooks.server.ts", () => {
 		// Calling the real `init` for it here would start the memory,
 		// consolidation and routing schedulers for real, which no other test in
 		// this file does and which would leave timers behind.
+	});
+
+	describe("security headers", () => {
+		const originalEnv = process.env;
+
+		beforeEach(() => {
+			process.env = { ...originalEnv };
+			mockValidateSession.mockResolvedValue({
+				id: "user-1",
+				email: "test@example.com",
+				displayName: "Test User",
+				role: "user",
+				profilePicture: null,
+			});
+		});
+
+		afterEach(() => {
+			process.env = originalEnv;
+		});
+
+		async function handleHtml(
+			options: {
+				path?: string;
+				requestHeaders?: Record<string, string>;
+				responseHeaders?: Record<string, string>;
+			} = {},
+		): Promise<Response> {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent(
+				options.path ?? "/",
+				"session-token",
+				options.requestHeaders,
+			);
+			return handle({
+				event,
+				resolve: vi.fn(
+					async () =>
+						new Response("<html></html>", {
+							headers: {
+								"content-type": "text/html; charset=utf-8",
+								...options.responseHeaders,
+							},
+						}),
+				),
+			});
+		}
+
+		it("adds the baseline headers to a rendered page", async () => {
+			const response = await handleHtml();
+
+			expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+			expect(response.headers.get("referrer-policy")).toBe(
+				"strict-origin-when-cross-origin",
+			);
+			expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+			expect(response.headers.get("cross-origin-opener-policy")).toBe(
+				"same-origin",
+			);
+			expect(response.headers.get("permissions-policy")).toContain("camera=()");
+		});
+
+		it("does not send HSTS over plain HTTP", async () => {
+			process.env.NODE_ENV = "production";
+			const response = await handleHtml({
+				requestHeaders: { "x-forwarded-proto": "http" },
+			});
+			expect(response.headers.get("strict-transport-security")).toBeNull();
+		});
+
+		it("sends HSTS over HTTPS in production", async () => {
+			process.env.NODE_ENV = "production";
+			const response = await handleHtml({
+				requestHeaders: { "x-forwarded-proto": "https" },
+			});
+			expect(response.headers.get("strict-transport-security")).toContain(
+				"max-age=",
+			);
+		});
+
+		it("does not send HSTS outside production", async () => {
+			process.env.NODE_ENV = "development";
+			const response = await handleHtml({
+				requestHeaders: { "x-forwarded-proto": "https" },
+			});
+			expect(response.headers.get("strict-transport-security")).toBeNull();
+		});
+
+		it("ships the CSP report-only by default", async () => {
+			const response = await handleHtml({
+				responseHeaders: {
+					"content-security-policy": "default-src 'self'; connect-src 'self'",
+				},
+			});
+
+			expect(response.headers.get("content-security-policy")).toBeNull();
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toContain("default-src 'self'");
+		});
+
+		it("enforces the CSP when CSP_MODE=enforce", async () => {
+			process.env.CSP_MODE = "enforce";
+			const response = await handleHtml({
+				responseHeaders: {
+					"content-security-policy": "default-src 'self'; connect-src 'self'",
+				},
+			});
+
+			expect(response.headers.get("content-security-policy")).toContain(
+				"default-src 'self'",
+			);
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toBeNull();
+		});
+
+		it("drops the CSP entirely when CSP_MODE=off", async () => {
+			process.env.CSP_MODE = "off";
+			const response = await handleHtml({
+				responseHeaders: {
+					"content-security-policy": "default-src 'self'",
+				},
+			});
+
+			expect(response.headers.get("content-security-policy")).toBeNull();
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toBeNull();
+		});
+
+		it("leaves a file preview's own hardened headers untouched", async () => {
+			// What /api/knowledge/[id]/preview actually returns: a tighter
+			// referrer policy and a default-src 'none' CSP whose exact text the
+			// preview runtime matches to decide whether a generated HTML report
+			// may run scripts.
+			const previewCsp =
+				"default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'self'";
+			const response = await handleHtml({
+				path: "/api/knowledge/doc-1/preview",
+				responseHeaders: {
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff",
+					"content-security-policy": previewCsp,
+				},
+			});
+
+			expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+			expect(response.headers.get("x-frame-options")).toBeNull();
+			expect(response.headers.get("cross-origin-opener-policy")).toBeNull();
+		});
 	});
 });
