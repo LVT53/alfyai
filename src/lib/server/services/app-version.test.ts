@@ -38,6 +38,26 @@ describe("app version metadata", () => {
 		sqlite.close();
 	});
 
+	function insertReleaseCampaign(
+		releaseVersion: string,
+		overrides: { id?: string; publishedAt?: Date } = {},
+	) {
+		const id = overrides.id ?? `release-${releaseVersion}`;
+		db.insert(schema.announcementCampaigns)
+			.values({
+				id,
+				type: "release_update",
+				status: "published",
+				identityKey: `release_update:${releaseVersion}:r1`,
+				name: `AlfyAI ${releaseVersion}`,
+				campaignVersion: releaseVersion,
+				revision: 1,
+				releaseVersion,
+				publishedAt: overrides.publishedAt ?? new Date("2026-09-17T10:00:00Z"),
+			})
+			.run();
+	}
+
 	it("uses the highest published release campaign version when it is newer than package metadata", async () => {
 		db.insert(schema.announcementCampaigns)
 			.values([
@@ -196,6 +216,54 @@ describe("app version metadata", () => {
 			full: "0.1.0",
 			compact: "v0.1.0",
 		});
+	});
+
+	it("compares a 2.0.0 release campaign against the package version", async () => {
+		insertReleaseCampaign("2.0.0");
+
+		await expect(getLatestPublishedReleaseVersion({ db })).resolves.toBe(
+			"2.0.0",
+		);
+		// Newer than the pre-2.0 package version: the campaign wins.
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "0.1.0" }),
+		).resolves.toEqual({ full: "2.0.0", compact: "v2.0.0" });
+		// Equal to the package version: nothing changes, and no leading "v" or
+		// zero-padding creeps in.
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "2.0.0" }),
+		).resolves.toEqual({ full: "2.0.0", compact: "v2.0.0" });
+		// Older than the package version: the package version wins.
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "2.1.0" }),
+		).resolves.toEqual({ full: "2.1.0", compact: "v2.1.0" });
+	});
+
+	it("compares version components numerically, not as strings", async () => {
+		insertReleaseCampaign("2.10.0");
+
+		// String comparison would put "2.10.0" below "2.9.0".
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "2.9.0" }),
+		).resolves.toEqual({ full: "2.10.0", compact: "v2.10.0" });
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "2.11.0" }),
+		).resolves.toEqual({ full: "2.11.0", compact: "v2.11.0" });
+	});
+
+	it("picks the highest release version even when a lower one was published later", async () => {
+		insertReleaseCampaign("2.10.0", {
+			id: "release-high",
+			publishedAt: new Date("2026-09-01T10:00:00.000Z"),
+		});
+		insertReleaseCampaign("2.9.0", {
+			id: "release-low-but-later",
+			publishedAt: new Date("2026-09-17T10:00:00.000Z"),
+		});
+
+		await expect(getLatestPublishedReleaseVersion({ db })).resolves.toBe(
+			"2.10.0",
+		);
 	});
 
 	it("caps the compact sidebar badge version at three numeric places", async () => {
