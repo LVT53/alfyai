@@ -387,6 +387,119 @@ test.describe("chat home — Compact", () => {
 			.not.toEqual(before);
 	});
 
+	test("lets the chips use the whole row on a desktop", async ({ page }) => {
+		// The rail used to cap every label at 22ch around chips that could not
+		// shrink: on a 780px row the third chip was cut short beside a long
+		// stretch of empty track. The track owns everything left of "another",
+		// and a chip is only truncated when the texts together do not fit.
+		await page.setViewportSize({ width: 1440, height: 900 });
+		const userId = await adminUserId();
+		await clearHomeFixtures(userId);
+		// Short titles first and long ones last: the rail leads with the most
+		// recent, so the three chips drawn are the three long ones, and the
+		// short ones are only there to make the pool deep enough for "another".
+		for (const title of [
+			"Invoice questions",
+			"Trip planning",
+			"Quarterly board meeting notes",
+			"Summer holiday packing list",
+			"Kitchen renovation budget",
+		]) {
+			const conversation = await createServerConversation(userId, title);
+			await createMessage(conversation.id, "user", "hi");
+		}
+		await gotoHome(page);
+
+		const another = page.getByTestId("home-suggestion-another");
+		await expect(another).toBeVisible();
+
+		const geometry = await page
+			.getByTestId("home-suggestion-rail")
+			.evaluate((rail) => {
+				const track = rail.querySelector(".home-rail-track");
+				const ghost = rail.querySelector(
+					'[data-testid="home-suggestion-another"]',
+				);
+				if (!track || !ghost) throw new Error("rail is missing a part");
+				const trackRect = track.getBoundingClientRect();
+				return {
+					railGap: Number.parseFloat(window.getComputedStyle(rail).columnGap),
+					trackRight: trackRect.right,
+					trackOverflow: track.scrollWidth - track.clientWidth,
+					anotherLeft: ghost.getBoundingClientRect().left,
+					labels: Array.from(
+						rail.querySelectorAll(
+							'[data-testid="home-suggestion-chip"] .home-chip-label',
+						),
+					).map((label) => ({
+						text: label.textContent ?? "",
+						scrollWidth: label.scrollWidth,
+						clientWidth: label.clientWidth,
+					})),
+				};
+			});
+
+		// The track's right edge meets "another", one rail gap short of it.
+		expect(geometry.railGap).toBeGreaterThan(0);
+		expect(
+			Math.abs(geometry.anotherLeft - geometry.trackRight - geometry.railGap),
+		).toBeLessThanOrEqual(1);
+
+		// Three seeded titles fit a 780px row with room to spare, so none of
+		// them is cut — including the ones longer than the old 22ch cap.
+		expect(geometry.labels).toHaveLength(3);
+		expect(geometry.trackOverflow).toBeLessThanOrEqual(0);
+		for (const label of geometry.labels) {
+			expect(
+				label.scrollWidth,
+				`"${label.text}" is truncated`,
+			).toBeLessThanOrEqual(label.clientWidth);
+		}
+		expect(geometry.labels.some((label) => label.text.length > 22)).toBe(true);
+
+		// And when the three texts together do NOT fit, the chips share the row:
+		// they shrink with an ellipsis until the last one ends exactly where the
+		// track does, rather than scrolling the row or leaving part of it empty.
+		// The first five go an hour into the past so the new three lead the rail.
+		await db
+			.update(conversations)
+			.set({ updatedAt: new Date(Date.now() - 3_600_000) })
+			.where(eq(conversations.userId, userId));
+		for (const title of [
+			"Reconciling the quarterly revenue figures again",
+			"Rewriting the onboarding email sequence draft",
+			"Comparing heat pump quotes for the old house",
+		]) {
+			const conversation = await createServerConversation(userId, title);
+			await createMessage(conversation.id, "user", "hi");
+		}
+		await gotoHome(page);
+		const crowded = await page
+			.getByTestId("home-suggestion-rail")
+			.evaluate((rail) => {
+				const track = rail.querySelector(".home-rail-track");
+				const chips = Array.from(
+					rail.querySelectorAll('[data-testid="home-suggestion-chip"]'),
+				);
+				const last = chips[chips.length - 1];
+				if (!track || !last) throw new Error("rail is missing a part");
+				return {
+					trackRight: track.getBoundingClientRect().right,
+					lastChipRight: last.getBoundingClientRect().right,
+					trackOverflow: track.scrollWidth - track.clientWidth,
+					truncated: chips.filter((chip) => {
+						const label = chip.querySelector(".home-chip-label");
+						return label ? label.scrollWidth > label.clientWidth : false;
+					}).length,
+				};
+			});
+		expect(crowded.truncated).toBeGreaterThan(0);
+		expect(crowded.trackOverflow).toBeLessThanOrEqual(0);
+		expect(
+			Math.abs(crowded.trackRight - crowded.lastChipRight),
+		).toBeLessThanOrEqual(1);
+	});
+
 	test("lists three recent lines with one mark each", async ({ page }) => {
 		const userId = await adminUserId();
 		await clearHomeFixtures(userId);
