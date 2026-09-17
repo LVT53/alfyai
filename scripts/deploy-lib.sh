@@ -338,7 +338,24 @@ backup_database() {
   size="$(du -h "$dest" 2>/dev/null | cut -f1)"
   echo -e "${GREEN}✓ Database backed up via $strategy${NC}"
   echo "  $dest (${size:-unknown size}, verified)"
-  echo "  Restore: stop the service, then  cp -p \"$dest\" \"$db\" && rm -f \"$db-wal\" \"$db-shm\"  and start it again (see deploy/README.md)"
+
+  # The restore line has to match the backup that was actually taken.
+  #
+  # `.backup` (either flavour) folds the WAL into the destination, and
+  # db_backup_verify's `PRAGMA integrity_check` checkpoints whatever is left, so
+  # the main file is normally the whole backup and the sidecars are empty. But
+  # the cp strategy on a host with no sqlite3 CLI is the one case where neither
+  # of those happened: the copied `-wal` can hold committed transactions that
+  # are in no other file. Restoring only the main file would silently discard
+  # them, which is a quieter kind of data loss than the one this step exists to
+  # prevent. So print the sidecars when they are actually carrying something.
+  if [ -s "$dest-wal" ]; then
+    echo -e "${YELLOW}  This backup's -wal sidecar is NOT empty: it holds committed transactions"
+    echo -e "  that are in no other file, so restore all three or lose them.${NC}"
+    echo "  Restore: stop the service, then  cp -p \"$dest\" \"$db\" && cp -p \"$dest-wal\" \"$db-wal\" && rm -f \"$db-shm\"  and start it again (see deploy/README.md)"
+  else
+    echo "  Restore: stop the service, then  cp -p \"$dest\" \"$db\" && rm -f \"$db-wal\" \"$db-shm\"  and start it again (see deploy/README.md)"
+  fi
 
   prune_old_db_backups "$backup_dir" "$DB_BACKUP_KEEP" "$dest"
 
