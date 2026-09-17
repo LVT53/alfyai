@@ -2302,7 +2302,10 @@ const settingsDict = {
 		"admin.systemSkills.description": `Admin által meghatározott skillek kezelése. A felhasználók az engedélyezett, közzétett összefoglalókat látják, de az utasításokat csak adminok szerkeszthetik.`,
 		"admin.systemSkills.descriptionPlaceholder":
 			"Felhasználóknak megjelenő rövid cél",
-		"admin.systemSkills.displayNamePlaceholder": "Review partner",
+		// An example skill NAME, not a label — it has to be a plausible thing a
+		// Hungarian admin would type into the field, so it is translated like
+		// the description placeholder next to it rather than left in English.
+		"admin.systemSkills.displayNamePlaceholder": "Értékelő partner",
 		"admin.systemSkills.editTitle": "Skill szerkesztése",
 		"admin.systemSkills.empty": "Még nincsenek skillek.",
 		"admin.systemSkills.errors.load": "Nem sikerült betölteni a skilleket.",

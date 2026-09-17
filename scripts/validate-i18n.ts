@@ -41,6 +41,73 @@ function parseI18n() {
 		return text.slice(start + 1, i - 1);
 	}
 
+	/**
+	 * Drop `//` and block comments before anything else looks at the source.
+	 *
+	 * The key/value regex below is a regex, not a parser, so a comment that
+	 * happens to contain `word: "text"` looked exactly like a translation to
+	 * it. One did: common.ts documents the greeting pool with
+	 * "Every line comes in two forms: `.named` carries {name}…", and the
+	 * validator duly reported a missing HU key called `forms` whose English
+	 * value was `.named`. A phantom key can never be translated, so the run
+	 * could not reach exit 0 no matter what anyone wrote in the dictionaries.
+	 *
+	 * Stripping has to be string-aware in both directions: several real values
+	 * contain `//` (the URL placeholders, "e.g. https://api.openai.com/v1"),
+	 * so a naive `.replace(/\/\/.*$/gm, "")` would truncate them and turn a
+	 * translated key into an "empty HU value" error. This walks the file once,
+	 * tracking which quote (if any) it is inside, and only treats `//` and
+	 * `/*` as comment openers when it is outside a string.
+	 *
+	 * Escapes are honoured so a `\"` inside a double-quoted value does not end
+	 * it. Comment bodies are replaced by nothing; newlines inside a block
+	 * comment are kept so line-based intuition about the file survives.
+	 */
+	function stripComments(source: string): string {
+		let out = "";
+		let i = 0;
+		let quote: string | null = null;
+		while (i < source.length) {
+			const ch = source[i];
+			if (quote) {
+				out += ch;
+				if (ch === "\\" && i + 1 < source.length) {
+					out += source[i + 1];
+					i += 2;
+					continue;
+				}
+				if (ch === quote) quote = null;
+				i++;
+				continue;
+			}
+			if (ch === '"' || ch === "'" || ch === "`") {
+				quote = ch;
+				out += ch;
+				i++;
+				continue;
+			}
+			if (ch === "/" && source[i + 1] === "/") {
+				while (i < source.length && source[i] !== "\n") i++;
+				continue;
+			}
+			if (ch === "/" && source[i + 1] === "*") {
+				i += 2;
+				while (
+					i < source.length &&
+					!(source[i] === "*" && source[i + 1] === "/")
+				) {
+					if (source[i] === "\n") out += "\n";
+					i++;
+				}
+				i += 2;
+				continue;
+			}
+			out += ch;
+			i++;
+		}
+		return out;
+	}
+
 	function extractKeyValues(block: string, target: Record<string, string>) {
 		const regex =
 			/(?:["'])?([\w.]+)(?:["'])?\s*:\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`]*)`)/g;
@@ -56,7 +123,7 @@ function parseI18n() {
 	for (const mod of MODULES) {
 		const filePath = path.join(I18N_DIR, `${mod}.ts`);
 		if (!fs.existsSync(filePath)) continue;
-		const content = fs.readFileSync(filePath, "utf-8");
+		const content = stripComments(fs.readFileSync(filePath, "utf-8"));
 
 		for (const lang of ["en", "hu"] as const) {
 			const idx = content.search(new RegExp(`\\b${lang}\\s*:`));

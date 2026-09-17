@@ -1947,7 +1947,16 @@ const chatDict = {
 		"toolActivity.summaryTimes": "{verb} {count} alkalommal",
 		"toolActivity.summaryRepeat": "{verb} ×{count}",
 		"toolActivity.summaryFailedCount": "{verb} {count} sikertelen",
-		"toolActivity.summaryMemories": "Emlékek felidézve",
+		// {verb} arrives as one of exactly two words — "Felidézés" while the
+		// recall is running, "Felidézve" once it has settled (see `verb()` in
+		// tool-activity.ts, keys toolActivity.recalling / .recalled). One is a
+		// verbal noun, the other an adverbial participle, so no single
+		// word-order works for both: "Emlékek felidézve" is idiomatic but
+		// "Emlékek felidézés" is not a Hungarian sentence, and verb-first
+		// "Felidézve emlékek" has the order the other way round. The colon
+		// takes the label out of sentence grammar entirely, which both forms
+		// survive: "Felidézés: emlékek" / "Felidézve: emlékek".
+		"toolActivity.summaryMemories": "{verb}: emlékek",
 		"toolActivity.sourcesEyebrow": "Források",
 		"toolActivity.program": "Program",
 		"toolActivity.output": "Kimenet",
