@@ -97,8 +97,6 @@ the chat you can open. Atlas reports cite each figure where it stands.
 
 ### Upgrade notes
 
-<!-- verify before release: db backup, SESSION_SECRET hard-fail, login rate limit, security headers -->
-
 - AlfyAI requires Node.js 22.x. Newer Node breaks the `better-sqlite3` native
   build. See `.nvmrc`.
 - Refresh the production checkout once before deploying, so the app root picks
@@ -106,18 +104,38 @@ the chat you can open. Atlas reports cite each figure where it stands.
   `git fetch origin main && git checkout -B main origin/main`.
 - Deploy with `scripts/deploy.sh`. It applies pending database migrations for
   you. Deploy to staging with `scripts/deploy-dev.sh` and verify there first.
-- From this release the deploy copies the database into `shared/backups/`
-  before it applies migrations, and keeps only the most recent copies.
+- From this release the deploy backs the database up into `shared/backups/`
+  before it applies migrations, keeping the newest 7 (`DB_BACKUP_KEEP`). A
+  backup that fails **aborts the deploy before any migration runs**, leaving
+  the previous release serving an untouched database; `DB_BACKUP_REQUIRED=0`
+  downgrades that to a warning. The directory is `chmod 700` and the copies are
+  `chmod 600` — they contain every conversation and every encrypted credential,
+  so back them up and delete them like the database itself. Each successful
+  backup prints its own restore command.
 - From this release the server refuses to start in production unless
-  `SESSION_SECRET` is at least 32 characters; set it in `shared/.env` first.
+  `SESSION_SECRET` is at least 32 characters and is not one of the placeholders
+  that ship in this repository; set a real one in `shared/.env` first with
+  `SESSION_SECRET=$(openssl rand -hex 32)`. `npm run build` is deliberately
+  unaffected, so a missing secret cannot fail a deploy at the build step — it
+  fails at startup, where the deploy's health poll rolls the release back.
   Connector credentials are encrypted with a key derived from it, so an
   instance that ran on the development default must also have every user
-  reconnect their accounts.
-- Repeated failed logins for one account are rate limited, so an account being
-  guessed at stops answering for a while. Nothing to configure.
+  reconnect their accounts, and changing an existing secret has the same cost.
+- Repeated failed logins are throttled, per account and per client address. It
+  is a throttle, not a lockout: over the budget each attempt waits out an
+  escalating delay (up to 8s) and only one runs at a time, but a **correct**
+  password is still accepted and clears the budget, so nobody can lock an
+  account by guessing at it. Nothing to configure. Optionally, if Apache is the
+  sole ingress, set `ADDRESS_HEADER=x-forwarded-for` and `XFF_DEPTH=1` in
+  `shared/.env` to switch the per-address budget on — without them every
+  request looks like it came from the proxy's loopback address and only the
+  per-account budget applies. Do not set them if the Node port is reachable
+  directly: the header would be forgeable.
 - Responses carry security headers. The Content-Security-Policy only reports
   what it would have blocked until `CSP_MODE` switches it to enforcing; read
-  the reports before switching.
+  the reports before switching. `CSP_MODE` is an `.env` value read at startup,
+  so `report-only` (the default) and `off` are both one restart away and need
+  no redeploy.
 - Your `.env` and the `data` directory — database, uploaded files, map tiles,
   routing regions — live in `shared/`, which no deploy rebuilds or removes.
 
