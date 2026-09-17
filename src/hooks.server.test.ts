@@ -451,6 +451,13 @@ describe("hooks.server.ts", () => {
 				path?: string;
 				requestHeaders?: Record<string, string>;
 				responseHeaders?: Record<string, string>;
+				/**
+				 * SvelteKit stamps `x-sveltekit-page: true` on page responses, in
+				 * the same Headers literal that carries the CSP it generated. It
+				 * is how the hook tells its own policy from a policy an endpoint
+				 * set for itself, so the harness models it.
+				 */
+				sveltekitPage?: boolean;
 			} = {},
 		): Promise<Response> {
 			const { handle } = await import("./hooks.server");
@@ -466,6 +473,9 @@ describe("hooks.server.ts", () => {
 						new Response("<html></html>", {
 							headers: {
 								"content-type": "text/html; charset=utf-8",
+								...(options.sveltekitPage === false
+									? {}
+									: { "x-sveltekit-page": "true" }),
 								...options.responseHeaders,
 							},
 						}),
@@ -556,25 +566,52 @@ describe("hooks.server.ts", () => {
 			).toBeNull();
 		});
 
-		it("leaves a file preview's own hardened headers untouched", async () => {
-			// What /api/knowledge/[id]/preview actually returns: a tighter
-			// referrer policy and a default-src 'none' CSP whose exact text the
-			// preview runtime matches to decide whether a generated HTML report
-			// may run scripts.
-			const previewCsp =
-				"default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'self'";
-			const response = await handleHtml({
+		// What /api/knowledge/[id]/preview actually returns: a tighter referrer
+		// policy and a default-src 'none' CSP whose exact text
+		// `allowsTrustedHtmlPreviewRuntime` matches to decide whether a
+		// generated HTML report may run scripts. It is an endpoint response, so
+		// it carries no x-sveltekit-page stamp.
+		const previewCsp =
+			"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+
+		function handlePreview(): Promise<Response> {
+			return handleHtml({
 				path: "/api/knowledge/doc-1/preview",
+				sveltekitPage: false,
 				responseHeaders: {
 					"referrer-policy": "no-referrer",
 					"x-content-type-options": "nosniff",
 					"content-security-policy": previewCsp,
 				},
 			});
+		}
+
+		it("leaves a file preview's own hardened headers untouched", async () => {
+			const response = await handlePreview();
 
 			expect(response.headers.get("referrer-policy")).toBe("no-referrer");
 			expect(response.headers.get("x-frame-options")).toBeNull();
 			expect(response.headers.get("cross-origin-opener-policy")).toBeNull();
+		});
+
+		// The regression these three guard: CSP_MODE owns the policy SvelteKit
+		// generates for a PAGE, and nothing else. Handing an endpoint's own
+		// policy to it would, in the default report-only mode, delete the
+		// enforcing header — un-sandboxing model-generated HTML and, because
+		// the trust check then sees no header at all, silently downgrading
+		// every generated report to the no-script renderer.
+		it.each([
+			"report-only",
+			"enforce",
+			"off",
+		] as const)("leaves a file preview's own CSP enforcing when CSP_MODE=%s", async (mode) => {
+			process.env.CSP_MODE = mode;
+			const response = await handlePreview();
+
+			expect(response.headers.get("content-security-policy")).toBe(previewCsp);
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toBeNull();
 		});
 	});
 });

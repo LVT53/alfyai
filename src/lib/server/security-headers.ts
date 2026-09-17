@@ -69,7 +69,15 @@ export interface SecurityHeaderInput {
 	isSecureRequest: boolean;
 	isProduction: boolean;
 	cspMode: CspMode;
-	/** The policy SvelteKit built for this page, if it built one. */
+	/**
+	 * The policy SvelteKit built for this page, if it built one.
+	 *
+	 * MUST be null for anything that is not a SvelteKit page response. A CSP
+	 * that a route set for itself is that route's, and handing it in here would
+	 * put it through the CSP_MODE rewrite below — which in report-only mode
+	 * deletes the enforcing header. See `applySecurityHeaders` in
+	 * src/hooks.server.ts for how the two are told apart.
+	 */
 	csp: string | null;
 	/**
 	 * Origins to add to `connect-src`. In practice the Sentry DSN's origin,

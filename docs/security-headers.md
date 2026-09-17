@@ -48,10 +48,26 @@ much tighter policy from
 `Referrer-Policy: no-referrer` and a `default-src 'none'` CSP. The preview runtime matches that CSP
 string **exactly** to decide whether a generated HTML report may run scripts
 (`allowsTrustedHtmlPreviewRuntime` in
-`src/lib/components/document-workspace/preview-runtime/index.ts`), so widening it would silently
-downgrade every report to the no-script renderer. Two independent guards keep that from happening:
-the document-only headers are scoped away from `/api/`, and no header is set if the route already
-set it.
+`src/lib/components/document-workspace/preview-runtime/index.ts`), so touching it at all would
+silently downgrade every report to the no-script renderer. Three independent guards keep that from
+happening:
+
+1. the document-only headers are scoped away from `/api/`;
+2. no header is set if the route already set it; and
+3. the `CSP_MODE` rewrite is applied **only** to a policy SvelteKit generated, identified by the
+   `x-sveltekit-page: true` stamp SvelteKit puts on page responses in the same `Headers` literal
+   that carries the policy. Guard 2 is not enough on its own here, because the rewrite's
+   report-only branch has to *delete* `Content-Security-Policy` in order to re-send it under the
+   report-only name — on a preview response that would both un-enforce the sandbox policy on
+   model-generated HTML and leave the trust check with no header to match.
+
+### Responses the hook never sees
+
+Static files under `/_app/immutable/`, `/favicon.png` and the rest of `static/` are served by
+adapter-node's own middleware, which runs *before* SvelteKit's `handle`. They carry their own
+`Content-Type` and `Cache-Control` and none of the headers in the table above. That is the
+pre-existing behaviour and is not a gap worth closing in the app: they are immutable, correctly
+typed, same-origin assets. If it ever needs closing, Apache is the place.
 
 ## The CSP
 
@@ -112,8 +128,7 @@ so a typo cannot put production onto an enforcing policy nobody has watched.
    generated HTML/xlsx/docx file preview, the knowledge upload flow, the settings image pickers, and
    a connections OAuth round trip.
 3. **Fix what it finds by widening a directive deliberately**, not by reaching for `'unsafe-inline'`
-   on `script-src`. If mermaid turns out to need `'unsafe-eval'` on this version, that is the one
-   finding worth pausing over — confirm it is really mermaid before adding it.
+   on `script-src`.
 4. **Flip staging to enforce** (`CSP_MODE=enforce` in `shared/.env`, restart) and repeat step 2. A
    violation that was only a console line is now a broken feature, so it is worth a second pass.
 5. **Flip production**, and keep `CSP_MODE=report-only` in mind as the one-line rollback — it does
@@ -121,3 +136,43 @@ so a typo cannot put production onto an enforcing policy nobody has watched.
 
 `CSP_MODE=off` removes the header entirely; it exists so a CSP problem can never be the reason a
 deploy has to be rolled back.
+
+### Does mermaid need `'unsafe-eval'`?
+
+**No, and this is measured rather than assumed.** A scan of all 276 JavaScript files in
+`node_modules/mermaid/dist` (mermaid 11.17.0, including the lazily-loaded per-diagram chunks) finds
+zero occurrences of `new Function(` or a bare `eval(`:
+
+```
+node -e 'const fs=require("fs"),path=require("path");
+function walk(d,o=[]){for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);
+e.isDirectory()?walk(p,o):/\.(js|mjs|cjs)$/.test(e.name)&&o.push(p)}return o}
+let n=0;for(const f of walk("node_modules/mermaid/dist")){
+const m=fs.readFileSync(f,"utf8").match(/new Function\(|[^.\w$]eval\(/g); if(m)n+=m.length}
+console.log("matches:",n)'
+# matches: 0
+```
+
+So `script-src` stays free of `'unsafe-eval'`. Re-run that scan after a mermaid upgrade; a version
+that reintroduces a runtime compiler would show up as a `script-src` violation in report-only mode
+before it could break anything.
+
+## Verified output
+
+Captured from a real `npm run build && node build` with `NODE_ENV=production` and
+`x-forwarded-proto: https`, one boot per mode. Abbreviated to the headers this document owns.
+
+| Route | `report-only` (default) | `enforce` | `off` |
+|---|---|---|---|
+| `/login` (page) | `content-security-policy-report-only` with the full policy incl. `'nonce-…'`; no enforcing CSP | `content-security-policy` with the same policy | neither CSP header |
+| `/api/health` (JSON) | `nosniff`, `referrer-policy`, HSTS only — no CSP, no XFO, no COOP, no Permissions-Policy | same | same |
+| `/api/**/preview` (endpoint) | its own `default-src 'none'` CSP, enforcing, untouched | untouched | untouched |
+| `/_app/immutable/**` | no security headers (served before `handle`) | same | same |
+| `/login` over `x-forwarded-proto: http` | as above **minus** `Strict-Transport-Security` | same | same |
+
+Every page response also carries `x-frame-options: SAMEORIGIN`, `cross-origin-opener-policy:
+same-origin`, the `Permissions-Policy` list, `referrer-policy: strict-origin-when-cross-origin` and
+`x-content-type-options: nosniff`. No `<meta http-equiv="content-security-policy">` is emitted
+anywhere, because no route in this app is prerendered — SvelteKit only falls back to a meta tag when
+prerendering, and a meta CSP could not be switched by `CSP_MODE` at runtime. If a route ever gains
+`export const prerender = true`, this section stops being true for it.

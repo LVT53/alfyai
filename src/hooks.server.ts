@@ -243,6 +243,16 @@ const appHandle: Handle = async ({ event, resolve }) => {
  * exact text the preview runtime matches to decide whether a generated HTML
  * report may run scripts — overwriting either would downgrade every report to
  * the no-script renderer, and the failure would be silent.
+ *
+ * That last sentence is why the CSP is handed over ONLY for a SvelteKit page
+ * response. `x-sveltekit-page: true` is set in the same `new Headers({...})`
+ * literal that SvelteKit's `render_response` uses to attach the policy it
+ * built, and it is set nowhere else — so it is an exact test for "this CSP is
+ * ours to rewrite". Treating every CSP as SvelteKit's would hand the file
+ * preview routes' own policy to the CSP_MODE machinery, and in the default
+ * report-only mode that machinery DELETES `Content-Security-Policy`: the
+ * preview's sandbox policy would stop being enforced and
+ * `allowsTrustedHtmlPreviewRuntime` would see no header at all.
  */
 function applySecurityHeaders(
 	event: Parameters<Handle>[0]["event"],
@@ -250,11 +260,10 @@ function applySecurityHeaders(
 ): void {
 	const existingHeaders = new Set<string>();
 	for (const [name] of response.headers) {
-		// A CSP on the response is SvelteKit's own, which this function owns and
-		// is about to rewrite — it is not a route staking a claim.
-		if (name.toLowerCase() === "content-security-policy") continue;
 		existingHeaders.add(name.toLowerCase());
 	}
+
+	const isSvelteKitPage = response.headers.get("x-sveltekit-page") === "true";
 
 	const plan = buildSecurityHeaders({
 		pathname: event.url.pathname,
@@ -262,7 +271,9 @@ function applySecurityHeaders(
 		isSecureRequest: isSecureRequest(event.url, event.request.headers),
 		isProduction: process.env.NODE_ENV === "production",
 		cspMode: parseCspModeEnv(process.env.CSP_MODE),
-		csp: response.headers.get("content-security-policy"),
+		csp: isSvelteKitPage
+			? response.headers.get("content-security-policy")
+			: null,
 		extraConnectSources: sentryConnectSources,
 		existingHeaders,
 	});
