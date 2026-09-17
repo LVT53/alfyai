@@ -266,6 +266,33 @@ describe("app version metadata", () => {
 		);
 	});
 
+	it("treats a pre-release campaign version as older than the release it leads to", async () => {
+		insertReleaseCampaign("2.1.0-rc.1");
+
+		// The release campaign is a pre-release of the version already shipped,
+		// so the package version stands.
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "2.1.0" }),
+		).resolves.toEqual({ full: "2.1.0", compact: "v2.1.0" });
+		// It is still newer than 2.0.0.
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "2.0.0" }),
+		).resolves.toEqual({ full: "2.1.0-rc.1", compact: "v2.1.0-rc.1" });
+	});
+
+	it("ignores a leading v, a missing patch place and unparsable input", async () => {
+		insertReleaseCampaign("v2.0", { id: "release-v-prefixed" });
+
+		// "v2.0" and "2.0.0" are the same version, so nothing overrides.
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "2.0.0" }),
+		).resolves.toEqual({ full: "2.0.0", compact: "v2.0.0" });
+		// Garbage compares as no version at all instead of throwing.
+		await expect(
+			getAppVersionMetadata({ db, packageVersion: "not-a-version" }),
+		).resolves.toEqual({ full: "v2.0", compact: "v2.0" });
+	});
+
 	it("caps the compact sidebar badge version at three numeric places", async () => {
 		await expect(
 			getAppVersionMetadata({ db, packageVersion: "1.2.3.4" }),

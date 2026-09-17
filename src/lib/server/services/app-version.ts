@@ -34,24 +34,49 @@ function readPackageMetadata(): PackageMetadata {
 
 function compactVersion(version: string): string {
 	const normalized = version.trim().replace(/^v/i, "");
-	const [major = "0", minor = "0", patch] = normalized.split(".");
-	return `v${[major, minor, patch].filter((part) => part !== undefined).join(".")}`;
+	const separator = normalized.indexOf("-");
+	const core = separator === -1 ? normalized : normalized.slice(0, separator);
+	const suffix = separator === -1 ? "" : normalized.slice(separator);
+	const [major = "0", minor = "0", patch] = core.split(".");
+	const places = [major, minor, patch].filter((part) => part !== undefined);
+	return `v${places.join(".")}${suffix}`;
 }
 
-function versionParts(version: string): number[] {
-	const parts = version.match(/\d+/g)?.map((part) => Number(part)) ?? [];
-	return parts.filter((part) => Number.isFinite(part));
+/**
+ * Splits a version into its numeric parts and its pre-release suffix. Release
+ * versions are typed by hand into the campaign editor, so anything that is not
+ * a number is skipped rather than rejected: "v2.0.1" and "2.0.1" parse the
+ * same, and a string with no digits parses as no parts at all.
+ */
+function parseVersion(version: string): {
+	parts: number[];
+	prerelease: string;
+} {
+	const normalized = version.trim().replace(/^v/i, "");
+	const separator = normalized.indexOf("-");
+	const core = separator === -1 ? normalized : normalized.slice(0, separator);
+	const suffix = separator === -1 ? "" : normalized.slice(separator + 1);
+	const parts = (core.match(/\d+/g) ?? [])
+		.map((part) => Number(part))
+		.filter((part) => Number.isFinite(part));
+	return { parts, prerelease: suffix.split("+")[0] ?? "" };
 }
 
 function compareVersions(left: string, right: string): number {
-	const leftParts = versionParts(left);
-	const rightParts = versionParts(right);
-	const length = Math.max(leftParts.length, rightParts.length);
+	const leftVersion = parseVersion(left);
+	const rightVersion = parseVersion(right);
+	const length = Math.max(leftVersion.parts.length, rightVersion.parts.length);
 	for (let index = 0; index < length; index += 1) {
-		const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+		const diff =
+			(leftVersion.parts[index] ?? 0) - (rightVersion.parts[index] ?? 0);
 		if (diff !== 0) return diff;
 	}
-	return 0;
+	if (leftVersion.prerelease === rightVersion.prerelease) return 0;
+	// Semantic versioning puts a pre-release below the release it leads to, so
+	// a published "2.1.0-rc.1" campaign must not outrank package version 2.1.0.
+	if (!leftVersion.prerelease) return 1;
+	if (!rightVersion.prerelease) return -1;
+	return leftVersion.prerelease < rightVersion.prerelease ? -1 : 1;
 }
 
 async function clearAppVersionOverride(db: AppVersionDb): Promise<void> {
