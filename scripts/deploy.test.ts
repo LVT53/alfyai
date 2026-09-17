@@ -80,6 +80,26 @@ function targetsProtectedPath(rmInvocation: string): boolean {
 	return wholeComponent.test(rmInvocation) || dotEnv.test(rmInvocation);
 }
 
+/**
+ * The body of a top-level shell function, from its `name() {` header to the
+ * first line that is exactly `}`. These files only define top-level
+ * functions, so that is an exact parse rather than a heuristic. Throws when
+ * the function is missing, so a renamed function fails the assertion that
+ * uses it instead of silently passing against an empty string.
+ */
+function shellFunctionBody(script: string, name: string): string {
+	const header = `${name}() {`;
+	const start = script.indexOf(header);
+	if (start === -1) {
+		throw new Error(`shell function ${name}() not found`);
+	}
+	const end = script.indexOf("\n}\n", start);
+	if (end === -1) {
+		throw new Error(`shell function ${name}() is not closed`);
+	}
+	return script.slice(start + header.length, end);
+}
+
 function releasesToKeep(script: string): number {
 	const match = script.match(/RELEASES_TO_KEEP(?::-|=)"?(\d+)"?/);
 	return match ? Number(match[1]) : Number.NaN;
@@ -313,19 +333,86 @@ describe("scripts/deploy-lib.sh (shared deploy steps)", () => {
 	});
 
 	it("installs wheels for the container's interpreter, not the host's", () => {
-		expect(deployLibScript).toContain(
+		const crossInstall = shellFunctionBody(
+			deployLibScript,
+			"sandbox_pip_cross_install",
+		);
+		expect(crossInstall).toContain('--target "$target"');
+		expect(crossInstall).toContain(
 			'--python-version "$SANDBOX_PYTHON_VERSION"',
 		);
-		expect(deployLibScript).toContain("--implementation cp");
-		expect(deployLibScript).toContain("--only-binary=:all:");
-		expect(deployLibScript).toMatch(/--platform manylinux\S*_x86_64/);
-		// The venv built with the host python is what broke production.
-		expect(deployLibScript).not.toMatch(/-m venv/);
+		expect(crossInstall).toContain("--implementation cp");
+		expect(crossInstall).toContain("--only-binary=:all:");
+		expect(crossInstall).toMatch(/--platform manylinux\S*_x86_64/);
+		// Re-running on a release directory that already has packages (a
+		// redeploy of the same sha) must replace them, not make pip warn and
+		// skip.
+		expect(crossInstall).toContain("--upgrade");
+	});
+
+	it("only ever builds a venv as a throwaway pip bootstrap, never as the mount source", () => {
+		// Installing into a venv built with the HOST python is the bug. A venv
+		// is still allowed as a way to *obtain* a pip on a host whose python3
+		// has no pip module (the Debian python3-pip split) — but it must live
+		// in a scratch directory and be deleted again, and the install itself
+		// still goes through sandbox_pip_cross_install's --target.
+		const venvInvocations = deployLibScript.match(/-m venv\s+\S+/g) ?? [];
+		expect(venvInvocations).toEqual(['-m venv "$bootstrap_dir/venv"']);
+
+		const bootstrap = shellFunctionBody(
+			deployLibScript,
+			"sandbox_install_with_bootstrap_venv",
+		);
+		expect(bootstrap).toContain("mktemp -d");
+		expect(bootstrap).toContain('rm -rf "$bootstrap_dir"');
+		expect(bootstrap).toContain(
+			'sandbox_pip_cross_install "$bootstrap_dir/venv/bin/pip" "$target"',
+		);
+		// Nothing from the throwaway venv is ever the mount source.
+		expect(bootstrap).not.toContain("SANDBOX_PYTHON_SITE_PACKAGES_RELPATH");
 	});
 
 	it("creates the mount source as the deploying user before Docker can", () => {
 		expect(deployLibScript).toContain('mkdir -p "$target"');
 		expect(deployLibScript).toContain('--user "$(id -u):$(id -g)"');
+	});
+
+	it("never lets the sandbox step abort the deploy, even when mkdir fails", () => {
+		const setup = shellFunctionBody(
+			deployLibScript,
+			"setup_sandbox_python_packages",
+		);
+		// Both deploy scripts call this as a plain command under `set -e`, so
+		// every command in it has to be guarded or the deploy dies here.
+		expect(setup).toMatch(/if\s+!\s+mkdir -p "\$target"/);
+		expect(setup).not.toMatch(/^\s*mkdir -p "\$target"\s*$/m);
+		// Every exit path returns 0.
+		expect(setup).not.toMatch(/\breturn 1\b/);
+		expect(setup).not.toMatch(/\bexit\b/);
+	});
+
+	it("bounds every external command so a wedged Docker or index cannot hang a deploy", () => {
+		// DOCKER_HOST is a TCP socket proxy; `docker version`/`docker run` have
+		// no client-side timeout of their own, and neither does pip.
+		for (const fn of [
+			"sandbox_pip_cross_install",
+			"sandbox_docker_is_reachable",
+			"sandbox_install_with_container",
+		]) {
+			expect(shellFunctionBody(deployLibScript, fn)).toContain(
+				"sandbox_bounded",
+			);
+		}
+		expect(
+			shellFunctionBody(deployLibScript, "sandbox_install_with_bootstrap_venv"),
+		).toContain("sandbox_bounded");
+		// The verifier runs mid-deploy too, and must not pull a missing image.
+		expect(verifyPackagesScript).toContain("sandbox_bounded");
+		expect(verifyPackagesScript).toContain("docker image inspect");
+		// The helper itself degrades to running unbounded rather than skipping
+		// the step on a host without coreutils `timeout`.
+		expect(sandboxVersionScript).toContain("sandbox_bounded()");
+		expect(sandboxVersionScript).toMatch(/timeout "\$seconds" "\$@"/);
 	});
 
 	it("warns loudly instead of silencing a failed package install", () => {
@@ -345,15 +432,37 @@ describe("scripts/deploy-lib.sh (shared deploy steps)", () => {
 	});
 
 	it("tolerates root-owned leftovers when pruning and prints the sudo cleanup", () => {
-		const pruneBody = deployLibScript.slice(
-			deployLibScript.indexOf("prune_old_releases()"),
-		);
+		const pruneBody = shellFunctionBody(deployLibScript, "prune_old_releases");
 		expect(pruneBody).toContain("sudo rm -rf");
 		expect(pruneBody).toContain("sudo chown -R");
 		// A release we cannot delete is a disk-space problem, not a deploy
 		// failure: the function returns 0 and records a warning instead.
 		expect(pruneBody).not.toMatch(/\bexit 1\b/);
 		expect(pruneBody).toContain("deploy_warn");
+		// The warning has to name the paths AND carry the real error, so a full
+		// disk or a read-only filesystem is not filed forever under
+		// "root-owned files".
+		expect(pruneBody).toContain("$leftovers");
+		// Written as a concatenation so Biome doesn't read the shell array
+		// expansion as a mis-typed JS template literal.
+		expect(pruneBody).toContain(`\${${"reasons[0]"}}`);
+	});
+
+	it("refuses to delete the live release or the one being deployed", () => {
+		const pruneBody = shellFunctionBody(deployLibScript, "prune_old_releases");
+		// Protected paths arrive as trailing arguments and are compared after
+		// symlinks are resolved, so `current` is matched by the directory it
+		// points at rather than by its own name.
+		expect(pruneBody).toContain("deploy_path_is_protected");
+		expect(pruneBody).toContain("deploy_canonical_dir");
+		expect(
+			shellFunctionBody(deployLibScript, "deploy_canonical_dir"),
+		).toContain("pwd -P");
+		// The guard runs before the rm, not after it.
+		const guardIndex = pruneBody.indexOf("deploy_path_is_protected");
+		const rmIndex = pruneBody.indexOf("rm -rf --");
+		expect(guardIndex).toBeGreaterThan(-1);
+		expect(rmIndex).toBeGreaterThan(guardIndex);
 	});
 });
 
@@ -368,6 +477,49 @@ describe.each([
 			'source "$RELEASE_DIR/scripts/deploy-lib.sh"',
 		);
 		expect(sourceIndex).toBeGreaterThan(archiveIndex);
+	});
+
+	it("never `source`s deploy-lib.sh unguarded, which under set -e would abort a rollback deploy", () => {
+		// Deploying a sha from before deploy-lib.sh existed (how a rollback is
+		// done when `current` is already gone) must not kill the deploy at the
+		// source line. Every source is behind an -f test, with this script's
+		// own copy as the fallback and stand-ins as the last resort.
+		for (const line of script.split("\n")) {
+			if (!/^\s*source\s/.test(line)) continue;
+			if (line.includes("/.env")) continue;
+			expect(line).toMatch(/deploy-lib\.sh/);
+		}
+		expect(script).toContain('if [ -f "$RELEASE_DIR/scripts/deploy-lib.sh" ]');
+		expect(script).toContain('elif [ -f "$SCRIPT_DIR/deploy-lib.sh" ]');
+		expect(script).toMatch(/SCRIPT_DIR="\$\(cd "\$\(dirname/);
+		// The last resort defines every name the rest of the script calls, so
+		// nothing later explodes with "command not found".
+		for (const fn of [
+			"deploy_warn()",
+			"print_deploy_warnings()",
+			"setup_sandbox_python_packages()",
+			"prune_old_releases()",
+		]) {
+			expect(script).toContain(`  ${fn} {`);
+		}
+	});
+
+	it("passes the live release and the one being deployed to the prune step as protected", () => {
+		expect(script).toContain(
+			'prune_old_releases "$RELEASES_DIR" "$RELEASES_TO_KEEP" "$APP_DIR/current" "$RELEASE_DIR"',
+		);
+	});
+
+	it("installs the sandbox packages before the cutover, never inside the downtime window", () => {
+		const setupIndex = script.indexOf(
+			'setup_sandbox_python_packages "$RELEASE_DIR"',
+		);
+		const flipIndex = script.indexOf("mv -Tf");
+		const restartIndex = script.indexOf("if restart_service;");
+
+		expect(setupIndex).toBeGreaterThan(-1);
+		expect(setupIndex).toBeLessThan(flipIndex);
+		expect(setupIndex).toBeLessThan(restartIndex);
 	});
 
 	it("installs the sandbox packages after the .env load, so DOCKER_HOST is set", () => {

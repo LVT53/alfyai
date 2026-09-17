@@ -36,9 +36,22 @@ if [ ! -d "$SITE_PACKAGES_DIR" ]; then
   exit 1
 fi
 
+# Bounded: DOCKER_HOST is a TCP socket proxy and a wedged one makes a bare
+# `docker version` hang with no client-side timeout. This script is called
+# from the middle of a deploy, so it must always come back.
 docker_is_reachable() {
   command -v docker >/dev/null 2>&1 || return 1
-  docker version >/dev/null 2>&1
+  sandbox_bounded "$SANDBOX_DOCKER_PROBE_TIMEOUT" docker version >/dev/null 2>&1
+}
+
+# Only run the container check when the image is ALREADY on the box. `docker
+# run` would otherwise pull python:<version>-slim, which can take minutes for
+# a check that is not even allowed to fail the deploy. When it is absent we
+# fall back to the on-disk check; the app pulls the image on its first
+# sandbox job anyway.
+sandbox_image_is_present() {
+  sandbox_bounded "$SANDBOX_DOCKER_PROBE_TIMEOUT" \
+    docker image inspect "$SANDBOX_PYTHON_IMAGE" >/dev/null 2>&1
 }
 
 verify_with_container() {
@@ -46,7 +59,7 @@ verify_with_container() {
   # "openpyxl xlsxwriter docx pptx" -> "import openpyxl, xlsxwriter, docx, pptx"
   import_statement="import ${SANDBOX_PYTHON_IMPORT_NAMES// /, }"
 
-  docker run --rm \
+  sandbox_bounded "$SANDBOX_CONTAINER_VERIFY_TIMEOUT" docker run --rm \
     --network none \
     --user "$(id -u):$(id -g)" \
     -e "PYTHONPATH=$SANDBOX_PYTHON_PACKAGES_MOUNT_PATH" \
@@ -72,16 +85,35 @@ verify_on_disk() {
 }
 
 if docker_is_reachable; then
-  if verify_with_container; then
-    echo "verify-sandbox-packages: OK (imported $SANDBOX_PYTHON_IMPORT_NAMES in $SANDBOX_PYTHON_IMAGE)"
-    exit 0
+  if sandbox_image_is_present; then
+    if verify_with_container; then
+      echo "verify-sandbox-packages: OK (imported $SANDBOX_PYTHON_IMPORT_NAMES in $SANDBOX_PYTHON_IMAGE)"
+      exit 0
+    fi
+    echo "verify-sandbox-packages: import check FAILED inside $SANDBOX_PYTHON_IMAGE"
+    echo "  mount source: $SITE_PACKAGES_DIR"
+    # Two very different faults produce the same ModuleNotFoundError, and
+    # sending an operator to inspect wheel tags when the real problem is the
+    # bind mount wastes an afternoon. If the modules ARE on disk, the daemon
+    # could not see the host path — a daemon in another mount namespace, or a
+    # DOCKER_HOST pointing somewhere that is not this filesystem.
+    if verify_on_disk >/dev/null 2>&1; then
+      echo "  ...but the modules ARE present on disk. The container saw an empty mount, so the"
+      echo "  Docker daemon behind DOCKER_HOST=${DOCKER_HOST:-<unset>} cannot see that path."
+      echo "  The app's sandbox binds the same path, so file production will fail the same way."
+    else
+      echo "  The directory is genuinely missing modules, or they are built for the wrong"
+      echo "  interpreter/architecture. Re-run the deploy's package step."
+    fi
+    exit 1
   fi
-  echo "verify-sandbox-packages: import check FAILED inside $SANDBOX_PYTHON_IMAGE"
-  echo "  mount source: $SITE_PACKAGES_DIR"
-  exit 1
+  echo "verify-sandbox-packages: $SANDBOX_PYTHON_IMAGE is not on this host; skipping the container"
+  echo "  import check rather than pulling it mid-deploy. Pull it once with:"
+  echo "    docker pull $SANDBOX_PYTHON_IMAGE"
+else
+  echo "verify-sandbox-packages: Docker not reachable; falling back to a file-presence check"
 fi
 
-echo "verify-sandbox-packages: Docker not reachable; falling back to a file-presence check"
 if verify_on_disk; then
   echo "verify-sandbox-packages: OK on disk (presence only, interpreter tag unverified)"
   exit 0

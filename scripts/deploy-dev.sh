@@ -54,6 +54,11 @@ RELEASES_TO_KEEP="${RELEASES_TO_KEEP:-3}"
 
 SHARED_DIR="$APP_DIR/shared"
 RELEASES_DIR="$APP_DIR/releases"
+# Where THIS copy of the script lives — on production the app-root checkout's
+# scripts/, on staging the previous release's scripts/. Only used as the
+# fallback source for deploy-lib.sh when the release being deployed predates
+# that file.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 restart_service() {
   if sudo -n systemctl restart "$SERVICE_NAME" 2>/dev/null; then
@@ -98,8 +103,31 @@ echo ""
 # Sourced from the release we just materialized, so the shared deploy steps
 # always match the code being deployed. Defines setup_sandbox_python_packages,
 # prune_old_releases, deploy_warn and print_deploy_warnings.
-# shellcheck source=scripts/deploy-lib.sh
-source "$RELEASE_DIR/scripts/deploy-lib.sh"
+#
+# Defensive on purpose. A `source` of a missing file fails, and under `set -e`
+# that aborts the deploy outright — which is exactly what would happen when
+# rolling back by deploying a sha from before deploy-lib.sh existed. So:
+# prefer the release's copy, fall back to the copy next to this script, and
+# only if neither exists carry on with stand-ins that skip the optional steps.
+if [ -f "$RELEASE_DIR/scripts/deploy-lib.sh" ]; then
+  # shellcheck source=scripts/deploy-lib.sh
+  source "$RELEASE_DIR/scripts/deploy-lib.sh"
+elif [ -f "$SCRIPT_DIR/deploy-lib.sh" ]; then
+  echo -e "${YELLOW}⚠ releases/$RELEASE_SHA has no scripts/deploy-lib.sh (older release); using the copy next to this script${NC}"
+  # shellcheck source=scripts/deploy-lib.sh
+  source "$SCRIPT_DIR/deploy-lib.sh"
+else
+  echo -e "${RED}⚠ No scripts/deploy-lib.sh in the release or next to this script.${NC}"
+  echo -e "${RED}  Deploying anyway; the sandbox package step and the prune step are skipped.${NC}"
+  deploy_warn() { echo -e "${RED}⚠⚠⚠ $1${NC}"; }
+  print_deploy_warnings() { :; }
+  setup_sandbox_python_packages() {
+    deploy_warn "scripts/deploy-lib.sh is missing, so the sandbox Python packages were not installed into $1. produce_file program mode will fail with ModuleNotFoundError."
+  }
+  prune_old_releases() {
+    echo -e "${YELLOW}⚠ scripts/deploy-lib.sh is missing; skipping the prune of $1 (keep $2).${NC}"
+  }
+fi
 
 cd "$RELEASE_DIR"
 
@@ -133,6 +161,7 @@ echo ""
 if [ -f "$RELEASE_DIR/.env" ]; then
   echo -e "${YELLOW}Loading environment from .env...${NC}"
   set -a
+  # shellcheck source=/dev/null  # a runtime file, not part of the repo.
   source "$RELEASE_DIR/.env"
   set +a
   echo -e "${GREEN}✓ Environment loaded${NC}"
@@ -204,6 +233,7 @@ echo ""
 
 echo -e "${YELLOW}10. Waiting for /api/health ...${NC}"
 HEALTH_OK=""
+# shellcheck disable=SC2034  # the counter is the point; the body ignores it.
 for attempt in $(seq 1 30); do
   if curl -fsS "http://localhost:$HEALTH_PORT/api/health" >/dev/null 2>&1; then
     HEALTH_OK=1
@@ -231,7 +261,7 @@ echo -e "${GREEN}✓ Health check passed${NC}"
 echo ""
 
 echo -e "${YELLOW}11. Pruning old releases (keeping last $RELEASES_TO_KEEP)...${NC}"
-prune_old_releases "$RELEASES_DIR" "$RELEASES_TO_KEEP"
+prune_old_releases "$RELEASES_DIR" "$RELEASES_TO_KEEP" "$APP_DIR/current" "$RELEASE_DIR"
 echo ""
 
 echo -e "${GREEN}=== Deployment complete! current -> releases/$RELEASE_SHA ===${NC}"

@@ -15,8 +15,12 @@
 # Python program-mode job dies with ModuleNotFoundError, and the next
 # deploy's prune step cannot remove the release.
 #
-# This file only assigns variables; it is sourced, never executed.
+# This file assigns the constants and defines one tiny helper
+# (sandbox_bounded) that both scripts/deploy-lib.sh and
+# scripts/verify-sandbox-packages.sh need; it is sourced, never executed.
 # ============================================================================
+
+# shellcheck disable=SC2034  # every constant below is read by a sourcing script.
 
 # The Python minor version the sandbox container runs.
 SANDBOX_PYTHON_VERSION="3.11"
@@ -36,3 +40,35 @@ SANDBOX_PYTHON_PACKAGES="openpyxl xlsxwriter python-docx python-pptx"
 
 # The module names those distributions import as, in the same order.
 SANDBOX_PYTHON_IMPORT_NAMES="openpyxl xlsxwriter docx pptx"
+
+# ----------------------------------------------------------------------------
+# Wall-clock ceilings, and the helper that applies them.
+#
+# Nothing in the sandbox-package path is allowed to hang a deploy. DOCKER_HOST
+# points at a TCP socket proxy, and a wedged proxy makes a bare `docker
+# version` or `docker run` block forever with no client-side timeout; a
+# stalled package index does the same to pip. Every ceiling below is a
+# backstop, not a budget — hitting one means "this strategy failed, try the
+# next" and never "fail the deploy".
+# ----------------------------------------------------------------------------
+SANDBOX_DOCKER_PROBE_TIMEOUT="${SANDBOX_DOCKER_PROBE_TIMEOUT:-20}"
+SANDBOX_PIP_TIMEOUT="${SANDBOX_PIP_TIMEOUT:-600}"
+SANDBOX_VENV_TIMEOUT="${SANDBOX_VENV_TIMEOUT:-180}"
+SANDBOX_CONTAINER_TIMEOUT="${SANDBOX_CONTAINER_TIMEOUT:-900}"
+SANDBOX_CONTAINER_VERIFY_TIMEOUT="${SANDBOX_CONTAINER_VERIFY_TIMEOUT:-180}"
+
+# Runs a command under a wall-clock ceiling:  sandbox_bounded <seconds> cmd...
+#
+# Uses coreutils `timeout` when the host has it (the Linux deploy box does).
+# A host without it loses the ceiling rather than the step, which is strictly
+# the old behaviour. `timeout` exits 124 on expiry; every caller treats any
+# non-zero exit as "that strategy did not work".
+sandbox_bounded() {
+  local seconds="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$seconds" "$@"
+  else
+    "$@"
+  fi
+}

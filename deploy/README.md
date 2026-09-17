@@ -143,6 +143,40 @@ sudo rm -rf <app root>/releases/<old-sha> [...]
 sudo chown -R alfydesign:alfydesign <app root>/releases
 ```
 
+**Exit-code semantics.** The deploy exits `0` when the app is live and healthy, whatever the sandbox
+package step and the prune step had to say. Both are best-effort and neither can abort the deploy,
+block the restart, or delay the cutover — they run *before* the symlink flip, so they add to the
+deploy's wall-clock time but never to the downtime window, and every external command in them is
+bounded by `timeout` so a wedged `DOCKER_HOST` or a stalled package index cannot hang a deploy.
+A non-zero exit still means what it always meant: the release did not go live (or went live, failed
+its health check, and was rolled back). Failures in the best-effort steps surface as `⚠⚠⚠` lines
+during the run and are repeated verbatim under `=== N deploy warning(s) ===` after the success
+banner, so a green deploy with warnings is still worth reading to the bottom.
+
+**Which copy of the script actually runs.** The deploy never checks out into the app-root working
+tree — it only does `git fetch` plus `git archive` — so the two environments pick up a change to the
+deploy scripts at different moments:
+
+| | script that runs | how a script change reaches it |
+| --- | --- | --- |
+| production | `$APP_DIR/scripts/deploy.sh` (app-root checkout) | never automatically — an operator must update that checkout |
+| staging | `./current/scripts/deploy-dev.sh` (previous release) | one deploy later: the deploy that ships the change still runs the old script |
+
+So after merging a change to `scripts/deploy*.sh`, on production run once, by hand:
+
+```bash
+cd /home/alfydesign/apps/langflow-chat
+git fetch origin main && git checkout -B main origin/main   # refresh the app-root checkout only
+./scripts/deploy.sh
+```
+
+On staging nothing extra is needed — deploy twice, or accept that the first deploy after the change
+still runs the previous script. Both scripts therefore tolerate a *mismatch* between the script and
+the release tree: the shared helper is sourced from the release when it is there, from the script's
+own `scripts/` directory when the release predates it (rolling back by deploying an old sha), and
+falls back to stand-ins that skip the optional steps if neither exists. An unguarded `source` would
+have aborted a rollback deploy outright under `set -e`.
+
 **Rollback** is re-pointing `current` at the previous release directory and restarting the service
 (`ln -sfn releases/<previous-sha> current` + `mv -Tf` + restart) — the same atomic flip used for a
 normal deploy, just aimed backward. `scripts/deploy.sh` does this automatically when the
