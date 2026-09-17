@@ -227,9 +227,11 @@ async function saveChanges() {
 		// The server masks some secrets as "[set]"; sending that back would store
 		// the sentinel as the key. An untouched secret is simply not in the patch.
 		if (value === "[set]") continue;
-		// Belt and braces over the dirtyKeys filter: PUT /api/admin/config
-		// refuses an unwired key outright, so one slipping into the patch
-		// would fail the WHOLE save, not just itself.
+		// Belt and braces over the dirtyKeys filter. The server drops an
+		// unwired key rather than storing it, so one slipping in would not
+		// break the save — it would just come back named under `ignored`,
+		// which is a confusing thing to report for a control the admin cannot
+		// even focus. Keep it out of the patch in the first place.
 		if (isUnwiredAdminConfigKey(key)) continue;
 		patch[key] = value;
 	}

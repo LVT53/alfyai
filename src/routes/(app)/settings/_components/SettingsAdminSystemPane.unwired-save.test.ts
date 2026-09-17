@@ -30,10 +30,11 @@ vi.mock("$lib/client/api/campaign-assets", () => ({
 	uploadModelIconAsset: vi.fn(),
 }));
 
-// PUT /api/admin/config refuses a key marked `effect: "unwired"`, and it
-// validates the WHOLE patch before writing any of it. So one inert key riding
-// along in a save would take every other edit in that save down with it: the
-// admin changes five real settings, presses Save and none of them land.
+// PUT /api/admin/config drops a key marked `effect: "unwired"` and reports it
+// back under `ignored`, so one riding along in a save no longer takes the rest
+// of the patch down with it. The client still keeps them out of the payload:
+// the save bar must not count an inert key as an unsaved change, and a save
+// must not come back reporting a key the admin never touched.
 //
 // The row's control is disabled, but that is markup. This is the guarantee.
 describe("SettingsAdminSystemPane — inert keys and the save payload", () => {

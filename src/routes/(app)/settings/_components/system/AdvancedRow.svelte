@@ -80,7 +80,7 @@ const effectHint = $derived(
 // the key should find it and learn WHY it does nothing, rather than
 // concluding the screen is missing a setting — but every control on it is
 // read-only, it is left out of the save payload upstream, and
-// PUT /api/admin/config refuses it. The chip in the last column already said
+// PUT /api/admin/config drops it. The chip in the last column already said
 // "no effect yet" and was not enough: it sat four columns away from an
 // editable field that accepted a number and a Save that said "Configuration
 // saved."

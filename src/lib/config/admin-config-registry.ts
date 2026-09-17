@@ -673,8 +673,11 @@ export const ADMIN_CONFIG_EFFECT_BY_KEY: Readonly<
  *    value would change chat context selection, not connect a setting.
  *
  * So they stay visible (an admin looking for the key should find it and learn
- * why it does nothing) and stay inert: disabled control, a note saying so,
- * out of the save payload, and refused by `PUT /api/admin/config`.
+ * why it does nothing) and stay inert: disabled control, a note saying so, out
+ * of the save payload, and dropped-and-reported by `PUT /api/admin/config`
+ * (dropped rather than refused, so a caller that still sends one — a tab
+ * loaded before this shipped, a provisioning script — keeps being able to save
+ * everything else in the same body).
  */
 export const UNWIRED_ADMIN_CONFIG_KEYS: ReadonlySet<string> = new Set(
 	ADVANCED_KEY_SPECS.filter((spec) => spec.effect === "unwired").map(
