@@ -243,4 +243,90 @@ describe("CampaignModal", () => {
 		});
 		opener.remove();
 	});
+
+	function actionCampaign(actionDestination: string): Campaign {
+		return {
+			id: "campaign-action",
+			type: "release_update",
+			status: "published",
+			name: "Action slide",
+			slides: [
+				{
+					id: "slide-action",
+					layoutType: "standard",
+					sortOrder: 1,
+					title: { en: "Take a look", hu: "Nézd meg" },
+					body: { en: "Something new.", hu: "Valami új." },
+					altText: { en: "Screenshot", hu: "Képernyőkép" },
+					desktopCropAssetId: "asset-desktop-1",
+					mobileCropAssetId: "asset-mobile-1",
+					actionLabel: { en: "Go", hu: "Menj" },
+					actionDestination,
+				},
+			],
+		};
+	}
+
+	it("hands the campaign's internal action to the app instead of navigating", async () => {
+		const onInternalAction = vi.fn();
+		render(CampaignModal, {
+			props: {
+				campaign: actionCampaign("internal:chatgpt-import"),
+				locale: "en",
+				onInternalAction,
+			},
+		});
+
+		expect(screen.queryByRole("link", { name: "Go" })).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole("button", { name: "Go" }));
+		expect(onInternalAction).toHaveBeenCalledWith("chatgpt-import");
+	});
+
+	it("renders a stored destination that is not allow-listed as an inert button", async () => {
+		// Publishing rejects these, but a row written before the allow-list
+		// existed — or straight into the database — must not become an href.
+		for (const destination of [
+			"javascript:alert(1)",
+			"https://evil.example.com",
+			"//evil.example.com",
+			"/settings/../../etc/passwd",
+			"internal:something-else",
+			"INTERNAL:chatgpt-import",
+		]) {
+			const onInternalAction = vi.fn();
+			const { unmount } = render(CampaignModal, {
+				props: {
+					campaign: actionCampaign(destination),
+					locale: "en",
+					onInternalAction,
+				},
+			});
+
+			const link = screen.getByRole("link", { name: "Go" });
+			expect(link).toHaveAttribute("href", "#");
+			expect(link).toHaveAttribute("aria-disabled", "true");
+			const click = new MouseEvent("click", {
+				bubbles: true,
+				cancelable: true,
+			});
+			link.dispatchEvent(click);
+			expect(click.defaultPrevented).toBe(true);
+			expect(onInternalAction).not.toHaveBeenCalled();
+			unmount();
+		}
+	});
+
+	it("keeps an allow-listed path, query string included, as the link target", () => {
+		render(CampaignModal, {
+			props: {
+				campaign: actionCampaign("/knowledge?tab=documents"),
+				locale: "en",
+			},
+		});
+
+		expect(screen.getByRole("link", { name: "Go" })).toHaveAttribute(
+			"href",
+			"/knowledge?tab=documents",
+		);
+	});
 });
