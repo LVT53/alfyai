@@ -2240,38 +2240,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		cursor: pointer;
 	}
 
-	.custom-checkbox {
-		appearance: none;
-		width: 20px;
-		height: 20px;
-		border: 1.5px solid var(--border-default);
-		border-radius: var(--radius-sm);
-		background: var(--surface-elevated);
-		cursor: pointer;
-		transition: all var(--duration-standard) var(--ease-out);
-		position: relative;
-	}
-
-	.custom-checkbox:hover {
-		border-color: var(--accent);
-	}
-
-	/* The tick is a centred SVG, not a rotated rectangle: a rotated box's
-	   visual centre is not its layout centre, which left the old tick
-	   sitting right of centre inside the box. */
-	.custom-checkbox:checked {
-		background-color: var(--accent);
-		border-color: var(--accent);
-		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
-		background-repeat: no-repeat;
-		background-position: center;
-		background-size: 12px 12px;
-	}
-
-	.custom-checkbox:focus-visible {
-		outline: 2px solid var(--focus-ring);
-		outline-offset: 2px;
-	}
+	/* `.custom-checkbox` itself is the app-wide tick box: src/app.css. */
 
 	/* Selected row highlight */
 	.document-row.selected {
@@ -2379,8 +2348,7 @@ async function handleBulkDelete(): Promise<boolean> {
 		.bulk-btn,
 		.pagination-btn,
 		.action-btn,
-		.document-row,
-		.custom-checkbox {
+		.document-row {
 			transition: none !important;
 		}
 	}
