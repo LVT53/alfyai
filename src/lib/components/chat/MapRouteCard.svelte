@@ -22,6 +22,7 @@
 import { onMount } from "svelte";
 import { t } from "$lib/i18n";
 import type { ToolCallMapData } from "$lib/server/services/messages-types";
+import { loadMapLibre } from "./maplibre-loader";
 
 let {
 	map,
@@ -41,6 +42,11 @@ let mounted = $state(false);
 // Flipped once the interactive map's style has loaded and its layers exist —
 // the highlight effect below must never touch a source that is not there yet.
 let mapLoaded = $state(false);
+// Flipped once MapLibre reports the route LINE as actually rendered — which
+// cannot happen unless its worker started, received the GeoJSON and returned
+// parsed geometry. Exposed on the map element as a test hook; nothing in the
+// UI depends on it.
+let routeDrawn = $state(false);
 let webglAvailable = $state(false);
 let renderFailed = $state(false);
 let renderToken = 0;
@@ -147,10 +153,11 @@ async function instantiateMap() {
 	const token = ++renderToken;
 	if (!container) return;
 	try {
-		const [maplibregl] = await Promise.all([
-			import("maplibre-gl"),
-			import("maplibre-gl/dist/maplibre-gl.css"),
-		]);
+		// Also points MapLibre at its Vite-emitted worker asset — without that
+		// the library asks for a `maplibre-gl-worker.mjs` sibling that the build
+		// never emits, and the GeoJSON route line silently never draws. See
+		// ./maplibre-loader.ts.
+		const maplibregl = await loadMapLibre();
 		if (token !== renderToken || !container) return;
 		mapInstance?.remove();
 		mapInstance = null;
@@ -225,6 +232,19 @@ async function instantiateMap() {
 			}
 			if (token !== renderToken) return;
 			mapLoaded = true;
+		});
+		// "idle" fires once nothing is left to fetch or draw. Asking the map
+		// whether the route line has any RENDERED features is the one check that
+		// a missing worker cannot pass: the raster tiles and the DOM markers draw
+		// without a worker, the parsed line geometry does not.
+		instance.on("idle", () => {
+			if (token !== renderToken) return;
+			try {
+				routeDrawn =
+					instance.queryRenderedFeatures({ layers: ["route-line"] }).length > 0;
+			} catch {
+				// No route layer on this card (a polyline of fewer than two points).
+			}
 		});
 		instance.on("error", () => {
 			if (token !== renderToken) return;
@@ -310,10 +330,17 @@ $effect(() => {
 <div class="map-route-card" data-testid="map-route-card">
 	<div class="map-route-card__body">
 		{#if webglAvailable && !renderFailed}
+			<!-- data-map-route-drawn is a test hook, and a narrow one: it only
+			     goes true once MapLibre reports rendered features on the route
+			     line, which cannot happen unless its worker actually started and
+			     parsed the geometry. The e2e spec asserts on it so a silently
+			     missing worker asset (raster tiles and markers still draw, the
+			     route line does not) can never pass again. -->
 			<div
 				class="map-route-card__map"
 				bind:this={container}
 				data-testid="map-route-canvas"
+				data-map-route-drawn={routeDrawn ? 'true' : 'false'}
 			></div>
 		{/if}
 		<svg
