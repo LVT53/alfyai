@@ -12,9 +12,17 @@ const addSourceMock = vi.fn();
 const addLayerMock = vi.fn();
 const markerAddToMock = vi.fn();
 const markerSetLngLatMock = vi.fn(() => ({ addTo: markerAddToMock }));
+const setWorkerUrlMock = vi.fn();
 
 vi.mock("maplibre-gl/dist/maplibre-gl.css", () => ({}));
+// The worker asset import the loader uses to give MapLibre a real, emitted,
+// same-origin worker URL — see maplibre-loader.ts. Vitest never runs Vite's
+// worker build, so it is stubbed the same way PdfPreview.test.ts stubs pdf.js's.
+vi.mock("maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url", () => ({
+	default: "/mock-maplibre-worker.js",
+}));
 vi.mock("maplibre-gl", () => ({
+	setWorkerUrl: (...args: unknown[]) => setWorkerUrlMock(...args),
 	Map: class {
 		constructor(options: unknown) {
 			constructedMaps.push({ options });
@@ -30,6 +38,7 @@ vi.mock("maplibre-gl", () => ({
 }));
 
 import MapRouteCard from "./MapRouteCard.svelte";
+import { resetMapLibreLoaderForTests } from "./maplibre-loader";
 
 function makeMap(overrides: Partial<ToolCallMapData> = {}): ToolCallMapData {
 	return {
@@ -82,6 +91,10 @@ function stubWebgl(available: boolean) {
 
 describe("MapRouteCard", () => {
 	beforeEach(() => {
+		// The loader memoises its module + worker URL for the lifetime of the
+		// page; drop that so every test observes a fresh load.
+		resetMapLibreLoaderForTests();
+		setWorkerUrlMock.mockClear();
 		constructedMaps.length = 0;
 		removeMock.mockClear();
 		onMock.mockClear();
@@ -189,6 +202,25 @@ describe("MapRouteCard", () => {
 			expect(
 				fallback.classList.contains("map-route-card__fallback--screen-hidden"),
 			).toBe(true);
+		} finally {
+			restore();
+		}
+	});
+
+	// Regression: the built app shipped a MapLibre that asked the server for a
+	// `maplibre-gl-worker.mjs` sibling of its own chunk, which the build never
+	// emitted — a 404, no console error, raster tiles and markers drawn and no
+	// route line. The map must never be constructed before the library has been
+	// pointed at a worker URL the build actually emits.
+	it("points MapLibre at the bundled worker asset before constructing a map", async () => {
+		const restore = stubWebgl(true);
+		try {
+			render(MapRouteCard, { props: { map: makeMap() } });
+
+			await waitFor(() => {
+				expect(constructedMaps).toHaveLength(1);
+			});
+			expect(setWorkerUrlMock).toHaveBeenCalledWith("/mock-maplibre-worker.js");
 		} finally {
 			restore();
 		}
