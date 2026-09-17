@@ -42,6 +42,7 @@ import {
 	isProduceFileRequest,
 	shouldForceProduceFileTool,
 } from "./index";
+import { MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN } from "./produce-file";
 import { TOOL_TIMEOUTS_MS } from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
@@ -835,7 +836,9 @@ describe("createNormalChatTools", () => {
 			errorCode: "missing_program_source",
 			message: "program.sourceCode is required",
 			jobId: "job-failed",
-			retryable: false,
+			// An intake 422 is a mistake in what the model sent, so the honest
+			// instruction is "fix it and resubmit" rather than "give up".
+			retryable: true,
 		});
 		expect(getToolCalls()[0]).toMatchObject({
 			callId: "call-failed",
@@ -849,7 +852,7 @@ describe("createNormalChatTools", () => {
 				code: "missing_program_source",
 				jobId: "job-failed",
 				jobStatus: "failed",
-				retryable: false,
+				retryable: true,
 			},
 		});
 	});
@@ -1089,6 +1092,11 @@ describe("createNormalChatTools", () => {
 			expect(result.message.startsWith("…")).toBe(true);
 		});
 
+		// Every code here names a mistake in what the MODEL sent, so the honest
+		// instruction is "fix that and resubmit", not "tell the user it failed".
+		// The two program-output-type codes are the ones intake grew with
+		// program-mode output resolution; the output-contract codes come back
+		// from output-validation.ts after the program has already run.
 		it.each([
 			[
 				"unsupported_program_output_type",
@@ -1098,6 +1106,49 @@ describe("createNormalChatTools", () => {
 				"missing_program_output_type",
 				"outputType is required for program mode",
 			],
+			[
+				"program_output_type_mismatch",
+				"Expected an .xlsx output but the program wrote report.txt.",
+			],
+			["invalid_xlsx_output", "XLSX output is not a readable OOXML ZIP."],
+			[
+				"unsupported_chart_type",
+				"chartType 'radar' is not supported. Use bar, line, pie, donut or scatter.",
+			],
+			[
+				"too_many_outputs",
+				"A job may produce at most 5 files; this one produced 9.",
+			],
+		])("invites a corrected resubmission for %s (%s)", async (errorCode, errorMessage) => {
+			queueIntake("job-wait-retryable");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-retryable",
+					status: "failed",
+					error: { code: errorCode, message: errorMessage, retryable: false },
+				}),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-retryable",
+				messages: [],
+			});
+
+			expect(result).toMatchObject({
+				ok: false,
+				status: "failed",
+				errorCode,
+				retryable: true,
+			});
+		});
+
+		it.each([
 			[
 				// A sandbox outage arrives under the SAME code a fixable traceback
 				// does; only the message tells them apart.
@@ -1273,6 +1324,186 @@ describe("createNormalChatTools", () => {
 			);
 
 			expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(3);
+		});
+
+		it("caps produce_file for the whole turn, however the request is retitled", async () => {
+			getConversationFileProductionJobMock.mockImplementation(
+				async ({ jobId }: { jobId: string }) =>
+					makeFileProductionJob({
+						id: jobId,
+						status: "failed",
+						error: {
+							code: "program_execution_failed",
+							message: "SyntaxError: invalid syntax",
+							retryable: true,
+						},
+					}),
+			);
+			submitFileProductionIntakeMock.mockImplementation(async () => ({
+				ok: true as const,
+				status: 202 as const,
+				reused: false,
+				job: makeFileProductionJob({ id: "job-cap", status: "queued" }),
+			}));
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			// A fresh title each time dodges the per-artifact counter entirely.
+			const results = [];
+			for (let attempt = 0; attempt < 8; attempt += 1) {
+				results.push(
+					await tools.produce_file.execute(
+						programCall({
+							requestTitle: `Attempt ${attempt}`,
+							program: {
+								language: "python",
+								sourceCode: `v${attempt}(`,
+								filename: `attempt-${attempt}.xlsx`,
+							},
+						}),
+						{ toolCallId: `call-cap-${attempt}`, messages: [] },
+					),
+				);
+			}
+
+			expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(
+				MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN,
+			);
+			expect(results[MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN]).toMatchObject({
+				ok: false,
+				status: "failed",
+				errorCode: "produce_file_turn_limit",
+				retryable: false,
+			});
+		});
+
+		it("refuses to call a succeeded job with no attached file a success", async () => {
+			queueIntake("job-wait-empty");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-empty",
+					status: "succeeded",
+					files: [],
+				}),
+			);
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-empty",
+				messages: [],
+			});
+
+			expect(result).toMatchObject({
+				ok: false,
+				status: "failed",
+				jobId: "job-wait-empty",
+				errorCode: "file_production_no_output_files",
+			});
+			expect(getToolCalls()[0]?.status).toBe("failed");
+		});
+
+		it("reports a queued job as running when the turn is aborted mid-wait", async () => {
+			queueIntake("job-wait-aborted");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({ id: "job-wait-aborted", status: "running" }),
+			);
+			const abortController = new AbortController();
+
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 5,
+			});
+			const pending = tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-aborted",
+				messages: [],
+				abortSignal: abortController.signal,
+			});
+			await vi.waitFor(() =>
+				expect(submitFileProductionIntakeMock).toHaveBeenCalled(),
+			);
+			abortController.abort();
+			const result = await pending;
+
+			// The worker is untouched by the abort, so the only honest verdict is
+			// "still running" — never a fabricated tool failure.
+			expect(result).toMatchObject({
+				ok: true,
+				status: "running",
+				jobId: "job-wait-aborted",
+			});
+			expect(getToolCalls()[0]?.status).toBe("done");
+		});
+
+		it("strips host filesystem paths out of the reported message", async () => {
+			queueIntake("job-wait-paths");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-paths",
+					status: "failed",
+					error: {
+						code: "document_render_failed",
+						message:
+							"ENOENT: no such file or directory, open '/opt/alfyai/node_modules/pdfjs-dist/standard_fonts/FoxitSans.pfb'",
+						retryable: true,
+					},
+				}),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = (await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-paths",
+				messages: [],
+			})) as { message: string };
+
+			expect(result.message).not.toContain("/opt/alfyai");
+			expect(result.message).not.toContain("node_modules");
+			expect(result.message).toContain("ENOENT");
+		});
+
+		it("keeps the sandbox's own paths, which are what make a traceback useful", async () => {
+			queueIntake("job-wait-sandbox-paths");
+			getConversationFileProductionJobMock.mockResolvedValue(
+				makeFileProductionJob({
+					id: "job-wait-sandbox-paths",
+					status: "failed",
+					error: {
+						code: "program_execution_failed",
+						message:
+							'Traceback (most recent call last):\n  File "/app/main.py", line 4\n    wb.save("/output/report.xlsx")\nNameError: name \'wb\' is not defined',
+						retryable: true,
+					},
+				}),
+			);
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			const result = (await tools.produce_file.execute(programCall(), {
+				toolCallId: "call-wait-sandbox-paths",
+				messages: [],
+			})) as { message: string };
+
+			expect(result.message).toContain("/app/main.py");
+			expect(result.message).toContain("/output/report.xlsx");
 		});
 	});
 
@@ -4275,20 +4506,26 @@ describe("tool description hygiene", () => {
 	// are the dense end of each range, so estimateTokens over-counts slightly
 	// and never lets a description through that really exceeds the budget.
 	const CHARS_PER_TOKEN = { en: 4.0, hu: 2.9 } as const;
-	// Today's binding cases: map_route in Hungarian (~703 estimated tokens,
-	// coverage suffix included) per tool, and 4,108 en / 6,513 hu for the
-	// whole catalogue. The ceilings leave ~5% of headroom — enough for a
-	// clarifying clause, not enough for a description to drift back into a
-	// page of prose.
+	// Today's binding cases, re-measured (not inherited) with the estimator
+	// below: map_route in Hungarian (~703 estimated tokens, coverage suffix
+	// included) per tool, and 4,098 en / 6,504 hu for the whole catalogue.
 	//
-	// The en ceiling moved 4,100 -> 4,300 when produce_file stopped returning
-	// an intake receipt and started returning the job's verdict: the model has
-	// to be told what `succeeded` / `failed` / `running` oblige it to say, and
-	// by then the catalogue had already grown to 4,065 against a ceiling whose
-	// comment still claimed a 3,927 baseline, i.e. the documented headroom was
-	// gone. The numbers above are re-measured, not inherited.
+	// produce_file's verdict vocabulary (`succeeded` / `failed` / `running`
+	// and what each obliges the model to say) is a clause the description did
+	// not carry before, and it briefly pushed the en catalogue to 4,109 —
+	// over the ceiling. It was paid for out of the same description rather
+	// than by raising the ceiling: "only `/output` is collected, so a bare
+	// filename is written and then lost" says one thing twice, and three
+	// other clauses were equally padded. Trimming them returned 11 tokens,
+	// which is more than the new instruction cost.
+	//
+	// NOTE for whoever edits a description next: en is now 2 tokens under its
+	// ceiling, where hu has 346 to spare. That is a tripwire, not a budget.
+	// A new clause has to be paid for by cutting words somewhere in the
+	// catalogue — moving this number up is how the headroom got spent the
+	// last time.
 	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 4300, hu: 6850 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 4100, hu: 6850 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);

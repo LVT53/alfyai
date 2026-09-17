@@ -50,6 +50,9 @@ import { getConversationForkOrigin } from "../conversation-forks";
 import { getConversationSummary } from "../conversation-summaries";
 import type { FileProductionJobState } from "../file-production";
 import { listConversationFileProductionJobStates } from "../file-production";
+// Leaf module, imported directly rather than through the lazy facade — it is
+// pure string work and pulls no DB into this module's graph.
+import { redactHostPathsFromFileProductionMessage } from "../file-production/error-message";
 import {
 	AttachmentReadinessError,
 	findRelevantKnowledgeArtifacts,
@@ -864,7 +867,17 @@ export function buildFileProductionJobStatusBody(
 	const lines = jobStates.map((job) => {
 		const title = job.title.trim() || "(untitled)";
 		if (job.status === "failed") {
-			const reason = [job.errorCode, job.errorMessage]
+			const reason = [
+				job.errorCode,
+				// The ledger stores the raw failure message, and the host-side
+				// failure paths (document render, storage, the sandbox adapter's
+				// own catch tail) put absolute host paths in it. The tool result
+				// is redacted at the point it is built; this is the same message
+				// arriving by the other route, so it gets the same treatment.
+				job.errorMessage
+					? redactHostPathsFromFileProductionMessage(job.errorMessage)
+					: null,
+			]
 				.filter((part): part is string => Boolean(part?.trim()))
 				.join(": ");
 			return `- "${title}" — FAILED, no file was produced${reason ? ` (${clipText(reason, 200)})` : ""}.`;

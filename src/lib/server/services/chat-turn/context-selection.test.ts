@@ -1345,6 +1345,28 @@ describe("buildFileProductionJobStatusBody", () => {
 	it("returns an empty body for an empty list so no section is pushed", () => {
 		expect(buildFileProductionJobStatusBody([])).toBe("");
 	});
+
+	// The ledger stores the raw failure message, and the host-side render and
+	// storage paths put absolute host paths in it. The prompt must not tell the
+	// model where this deployment keeps its files.
+	it("strips host filesystem paths out of the reason", () => {
+		const body = buildFileProductionJobStatusBody([
+			{
+				id: "job-1",
+				title: "Report",
+				status: "failed",
+				errorCode: "document_render_failed",
+				errorMessage:
+					"ENOENT: no such file or directory, open '/opt/alfyai/node_modules/pdfjs-dist/fonts/FoxitSans.pfb'",
+				retryable: true,
+				updatedAt: 1,
+			},
+		]);
+
+		expect(body).not.toContain("/opt/alfyai");
+		expect(body).not.toContain("node_modules");
+		expect(body).toContain("document_render_failed");
+	});
 });
 
 describe("inferDocumentContextIntent — document continuation", () => {

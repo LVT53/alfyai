@@ -242,6 +242,9 @@ describe("file-production read model job state", () => {
 			const states = await listConversationFileProductionJobStates({
 				userId: "user-1",
 				conversationId: "conv-1",
+				// The fixtures are anchored to NOW, and the projection is
+				// age-bounded, so the clock has to be anchored with them.
+				now: NOW,
 			});
 
 			expect(states.map((state) => state.id)).toEqual([
@@ -272,9 +275,41 @@ describe("file-production read model job state", () => {
 				userId: "user-1",
 				conversationId: "conv-1",
 				limit: 2,
+				now: NOW,
 			});
 
 			expect(states.map((state) => state.id)).toEqual(["job-3", "job-2"]);
+		});
+
+		// reconcileStaleFileProductionJobs only runs on conversation fork, so a
+		// job whose worker died stays `running` in the ledger indefinitely.
+		// Without an age bound it would be pasted into every prompt of this
+		// conversation forever.
+		it("drops jobs older than the age bound", async () => {
+			const { FILE_PRODUCTION_JOB_STATE_MAX_AGE_MS, ...rest } = await import(
+				"./read-model"
+			);
+			const { listConversationFileProductionJobStates } = rest;
+			await seedJob({
+				id: "job-fresh",
+				status: "running",
+				createdAt: new Date(NOW.getTime() - 60_000),
+			});
+			await seedJob({
+				id: "job-abandoned",
+				status: "running",
+				createdAt: new Date(
+					NOW.getTime() - FILE_PRODUCTION_JOB_STATE_MAX_AGE_MS - 60_000,
+				),
+			});
+
+			const states = await listConversationFileProductionJobStates({
+				userId: "user-1",
+				conversationId: "conv-1",
+				now: NOW,
+			});
+
+			expect(states.map((state) => state.id)).toEqual(["job-fresh"]);
 		});
 	});
 });

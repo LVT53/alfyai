@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
+// Leaf module (no imports of its own), so this pulls no DB into the tool graph.
+import { redactHostPathsFromFileProductionMessage } from "$lib/server/services/file-production/error-message";
 import { FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES } from "$lib/server/services/file-production/output-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
@@ -1899,8 +1901,19 @@ export const PRODUCE_FILE_ERROR_MESSAGE_MAX_CHARS = 600;
  * refused server-side so a model that cannot fix its program cannot spin. */
 export const MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS = 2;
 
+/** Backstop over the per-artifact counter above, which is keyed by
+ * title/outputs/mode/filename and so resets the moment the model retitles a
+ * failing request. Without a turn-total cap, NORMAL_CHAT_MAX_TOOL_STEPS (20)
+ * produce_file calls each waiting PRODUCE_FILE_VERDICT_WAIT_MS would hold one
+ * request open for ~400s and queue 20 jobs. Six is more artifacts than any
+ * real turn asks for — a three-file request with a correction each still
+ * fits — and bounds the worst case to ~2 minutes. */
+export const MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN = 6;
+
 export const PRODUCE_FILE_RETRY_LIMIT_ERROR_CODE =
 	"produce_file_turn_retry_limit";
+
+export const PRODUCE_FILE_TURN_LIMIT_ERROR_CODE = "produce_file_turn_limit";
 
 // Ledger error codes the MODEL can act on by sending a corrected program.
 // Deliberately NOT the ledger's own `retryable`, which answers a different
@@ -1916,6 +1929,42 @@ const MODEL_CORRECTABLE_ERROR_CODES = new Set([
 	"invalid_tool_input",
 	"patch_failed",
 	"no_previous_version_for_patches",
+	// Intake 422s (intake.ts). Every one of these says "the arguments you sent
+	// are wrong", which is the definition of something the model fixes by
+	// resending — including the two the program-mode output-type work added,
+	// where the fix is literally "name a supported outputType".
+	"missing_request_title",
+	"unsupported_source_mode",
+	"invalid_program_language",
+	"missing_program_source",
+	"missing_program_output_type",
+	"unsupported_program_output_type",
+	"missing_program_requested_outputs",
+	"unsupported_output_type",
+	"unsupported_file_production_request",
+	"invalid_file_production_request",
+	// documentSource validation (source-schema.ts, reached from intake and
+	// from the renderer): the block the model wrote is not one the pipeline
+	// renders. Rewriting the blocks is the fix.
+	"invalid_document_source",
+	"unsupported_document_block",
+	"unsupported_table_structure",
+	"unsupported_chart_type",
+	"unsupported_chart_data",
+	"unsupported_pdf_block",
+	// Post-execution output contract (output-validation.ts, storage-adapter.ts):
+	// the program ran and wrote SOMETHING, but not what was asked for or not a
+	// readable file of that type. A corrected program is exactly the remedy.
+	"program_output_type_mismatch",
+	"invalid_xlsx_output",
+	"xlsx_output_too_large",
+	"invalid_text_output",
+	// Size/count limits (limits.ts). The model can write fewer or smaller
+	// outputs, so these are correctable rather than terminal.
+	"too_many_outputs",
+	"source_too_large",
+	"output_file_too_large",
+	"job_outputs_too_large",
 ]);
 
 // `program_execution_failed` is also how the sandbox reports its own
@@ -1945,9 +1994,10 @@ export function isModelCorrectableFileProductionError(
 }
 
 /** Keeps the TAIL of a long error: a traceback's last lines are the ones that
- * say what to fix. */
+ * say what to fix. Host paths are scrubbed BEFORE the clip, so the redaction
+ * can never be defeated by a path that straddles the cut. */
 export function clipFileProductionErrorMessage(message: string): string {
-	const trimmed = message.trim();
+	const trimmed = redactHostPathsFromFileProductionMessage(message).trim();
 	if (trimmed.length <= PRODUCE_FILE_ERROR_MESSAGE_MAX_CHARS) {
 		return trimmed;
 	}

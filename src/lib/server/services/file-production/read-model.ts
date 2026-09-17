@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifacts,
@@ -587,6 +587,16 @@ export const FILE_PRODUCTION_UNDELIVERED_JOB_STATUSES = [
 	"failed",
 ] as const;
 
+/** Age bound on the prompt-context projection. `reconcileStaleFileProduction-
+ * Jobs` is the only thing that ever retires an abandoned `queued`/`running`
+ * row, and it runs on conversation fork — NOT on the chat turn. Without a
+ * bound, one job whose worker died mid-run would be injected into every
+ * prompt of that conversation forever, telling the model to correct a claim
+ * that is by then months stale. A day is far longer than the 10-minute
+ * staleness window a live worker is reconciled against, so nothing that is
+ * genuinely in flight is ever hidden by this. */
+export const FILE_PRODUCTION_JOB_STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 // Status-only projection for prompt context: no chat-file join, no legacy
 // backfill, no file hydration — just enough to tell a later turn that a file it
 // already claimed to have made is still running or has failed. Succeeded jobs
@@ -596,7 +606,14 @@ export async function listConversationFileProductionJobStates(input: {
 	userId: string;
 	conversationId: string;
 	limit?: number;
+	maxAgeMs?: number;
+	now?: Date;
 }): Promise<FileProductionJobState[]> {
+	const now = input.now ?? new Date();
+	const createdAfter = new Date(
+		now.getTime() -
+			Math.max(0, input.maxAgeMs ?? FILE_PRODUCTION_JOB_STATE_MAX_AGE_MS),
+	);
 	const rows = await db
 		.select({
 			id: fileProductionJobs.id,
@@ -613,6 +630,10 @@ export async function listConversationFileProductionJobStates(input: {
 				eq(fileProductionJobs.userId, input.userId),
 				eq(fileProductionJobs.conversationId, input.conversationId),
 				eq(fileProductionJobs.dismissed, false),
+				// Same leading columns as file_production_jobs_conversation_idx
+				// (conversation_id, created_at), so the bound narrows the index
+				// range instead of forcing a scan.
+				gte(fileProductionJobs.createdAt, createdAfter),
 				inArray(
 					fileProductionJobs.status,
 					FILE_PRODUCTION_UNDELIVERED_JOB_STATUSES as unknown as string[],

@@ -104,9 +104,11 @@ import {
 	buildSameTurnProduceFileDedupeKey,
 	buildScopedIdempotencyKey,
 	createProduceFileToolCallEntry,
+	MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN,
 	MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS,
 	normalizeProduceFileInput,
 	PRODUCE_FILE_RETRY_LIMIT_ERROR_CODE,
+	PRODUCE_FILE_TURN_LIMIT_ERROR_CODE,
 	PRODUCE_FILE_VERDICT_POLL_INTERVAL_MS,
 	PRODUCE_FILE_VERDICT_WAIT_MS,
 	type ProduceFileModelPayload,
@@ -280,7 +282,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		produce_file: {
 			description:
-				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never with placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType` (or `requestedOutputs`), and the code must write its file into `/output` (e.g. `/output/report.xlsx`) — only `/output` is collected, so a bare filename is written and then lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars) and encode line breaks as \\n inside JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix that and resubmit once, else say plainly it failed and why; `running` — still being made, not ready.",
+				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write its file into `/output` (e.g. `/output/report.xlsx`) — a bare filename lands outside `/output` and is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.",
 			errorPrefix: "File production intake failed",
 		},
 		read_generated_file: {
@@ -372,7 +374,7 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		produce_file: {
 			description:
-				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrző vagy üres tartalommal. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType` (vagy `requestedOutputs`) mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — csak a `/output` tartalma kerül be, a puszta fájlnév elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv), és a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd ki, hogy nem sikerült és miért; `running` — még készül, nincs kész fájl.",
+				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.",
 			errorPrefix: "A fájl-előállítás sikertelen",
 		},
 		read_generated_file: {
@@ -475,6 +477,22 @@ async function resolveProduceFileVerdict(params: {
 		});
 	}
 	if (verdict.job.status === "succeeded") {
+		// `succeeded` is the JOB's status; the promise this tool makes is that a
+		// file EXISTS. getConversationFileProductionJob resolves the job's file
+		// links against the chat-file rows and drops any that no longer resolve
+		// for this user, so a succeeded job can legitimately come back with an
+		// empty `files` — the same case listConversationFileProductionJobs
+		// already refuses to project. Reporting that as success would put the
+		// tool right back in the business of announcing files that are not
+		// there, so it is reported as a failure instead.
+		if (verdict.job.files.length === 0) {
+			return buildProduceFileFailedPayload({
+				jobId: verdict.job.id,
+				errorCode: "file_production_no_output_files",
+				message:
+					"The job finished but no downloadable file is attached to it. Do not tell the user the file is ready.",
+			});
+		}
 		return buildProduceFileSucceededPayload({
 			jobId: verdict.job.id,
 			files: verdict.job.files,
@@ -513,6 +531,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// Submissions that actually reached intake, per requested artifact. Bounds
 	// the correction loop the description asks for to exactly one retry.
 	const sameTurnProduceFileSubmissions = new Map<string, number>();
+	// Same, but for the whole turn regardless of what each request was called —
+	// see MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN.
+	let totalProduceFileSubmissions = 0;
 	// Parallel-backed web tools (research_web, fetch_url) are registered only
 	// when a Parallel API key is configured. Mirrors the stability snapshot's
 	// `parallelConfigured = Boolean(config.parallelApiKey.trim())`. The execute
@@ -1209,11 +1230,30 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							message: `This file was already attempted ${submissionCount} times in this turn and failed. Do not call produce_file for it again now: tell the user plainly that the file could not be produced and what went wrong.`,
 						});
 					}
+					// The per-artifact guard above is keyed by title, so a model that
+					// keeps renaming its failing request slips past it every time. This
+					// one counts every submission the turn makes, whatever it is called.
+					if (
+						totalProduceFileSubmissions >= MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN
+					) {
+						return refuse({
+							input: safeInput,
+							errorCode: PRODUCE_FILE_TURN_LIMIT_ERROR_CODE,
+							message: `produce_file has already been called ${totalProduceFileSubmissions} times in this turn, which is the limit. Do not call it again now: answer the user with what you have and say which files could not be produced.`,
+						});
+					}
 					sameTurnProduceFileSubmissions.set(
 						sameTurnDedupeKey,
 						submissionCount + 1,
 					);
+					totalProduceFileSubmissions += 1;
 
+					// The job that `run` submits outlives this tool call: when the
+					// envelope's timeout or the user's Stop wins the race, the
+					// detached worker carries on and the file still lands. `onError`
+					// therefore has to know whether a job was queued before the abort,
+					// so it can report "running" instead of inventing a failure.
+					let submittedJob: FileProductionJob | null = null;
 					return executeToolWithEnvelope({
 						toolName: "produce_file",
 						timeoutMs: TOOL_TIMEOUTS_MS.produce_file,
@@ -1225,6 +1265,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								body: intakeBody,
 								signal: abortSignal,
 							});
+							if (result.ok) {
+								submittedJob = result.job;
+							}
 							const modelPayload = result.ok
 								? await resolveProduceFileVerdict({
 										userId: ctx.userId,
@@ -1254,20 +1297,31 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							};
 						},
 						onError: (error) => {
-							const modelPayload = buildProduceFileFailedPayload({
-								errorCode: "tool_execution_failed",
-								message: modelSafeToolError(
-									error,
-									i18n.produce_file.errorPrefix,
-								),
-							});
+							// A timeout or a user Stop that lands inside the 20s verdict
+							// wait is NOT a file-production failure — the job is queued
+							// and the worker is unaffected. Saying "failed" here would
+							// put a red "file production failed" notice on a turn whose
+							// file is about to arrive, which is the exact dishonesty
+							// this whole change set exists to remove.
+							const modelPayload = submittedJob
+								? buildProduceFileRunningPayload({
+										jobId: submittedJob.id,
+										reused: false,
+									})
+								: buildProduceFileFailedPayload({
+										errorCode: "tool_execution_failed",
+										message: modelSafeToolError(
+											error,
+											i18n.produce_file.errorPrefix,
+										),
+									});
 							return {
 								modelPayload,
 								entry: createProduceFileToolCallEntry({
 									callId: options.toolCallId,
 									input: safeInput,
 									payload: modelPayload,
-									intakeStatus: 500,
+									intakeStatus: submittedJob ? undefined : 500,
 									outputSummary: summarizeProduceFileResult(modelPayload),
 								}),
 							};
