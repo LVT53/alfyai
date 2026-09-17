@@ -1,5 +1,5 @@
 import type { Handle, ResolveOptions } from "@sveltejs/kit";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type HookEvent = Parameters<Handle>[0]["event"];
 
@@ -88,11 +88,19 @@ function deferred<T = undefined>() {
 	return { promise, resolve };
 }
 
-function makeHookEvent(path: string, sessionToken?: string): HookEvent {
+function makeHookEvent(
+	path: string,
+	sessionToken?: string,
+	requestHeaders: Record<string, string> = {},
+): HookEvent {
+	const url = new URL(`http://localhost${path}`);
 	return {
 		cookies: { get: vi.fn(() => sessionToken) },
 		locals: {},
-		url: new URL(`http://localhost${path}`),
+		url,
+		// The security-header pass reads x-forwarded-proto off the request, so
+		// the fake needs one now.
+		request: new Request(url, { headers: requestHeaders }),
 	} as unknown as HookEvent;
 }
 
@@ -378,6 +386,232 @@ describe("hooks.server.ts", () => {
 		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
 			status: 303,
 			location: "/",
+		});
+	});
+
+	// adapter-node awaits `init` at module scope (build/handler.js), so a throw
+	// here is a refusal to boot: the process exits non-zero with the message
+	// rather than serving requests that would encrypt credentials under a
+	// public key. The deploy's health poll then rolls `current` back.
+	describe("SESSION_SECRET startup gate", () => {
+		const originalEnv = process.env;
+
+		beforeEach(() => {
+			process.env = { ...originalEnv };
+		});
+
+		afterEach(() => {
+			process.env = originalEnv;
+		});
+
+		it("refuses to start in production without a real SESSION_SECRET", async () => {
+			process.env.NODE_ENV = "production";
+			delete process.env.PLAYWRIGHT_TEST;
+			delete process.env.VITEST;
+			delete process.env.SESSION_SECRET;
+
+			const { init } = await import("./hooks.server");
+
+			await expect(init?.()).rejects.toThrow(/refusing to start/i);
+			// And it gives up before touching anything: no schema compatibility
+			// pass, no config refresh, no background workers started against a
+			// deployment that is about to be declared unfit.
+			expect(mockEnsureRuntimeSchemaCompatibility).not.toHaveBeenCalled();
+			expect(mockRefreshConfig).not.toHaveBeenCalled();
+			expect(mockEnsureAtlasWorker).not.toHaveBeenCalled();
+		});
+
+		// The dev/test path (warn once, fall back, carry on) is covered in
+		// src/lib/server/session-secret.test.ts against the pure function.
+		// Calling the real `init` for it here would start the memory,
+		// consolidation and routing schedulers for real, which no other test in
+		// this file does and which would leave timers behind.
+	});
+
+	describe("security headers", () => {
+		const originalEnv = process.env;
+
+		beforeEach(() => {
+			process.env = { ...originalEnv };
+			mockValidateSession.mockResolvedValue({
+				id: "user-1",
+				email: "test@example.com",
+				displayName: "Test User",
+				role: "user",
+				profilePicture: null,
+			});
+		});
+
+		afterEach(() => {
+			process.env = originalEnv;
+		});
+
+		async function handleHtml(
+			options: {
+				path?: string;
+				requestHeaders?: Record<string, string>;
+				responseHeaders?: Record<string, string>;
+				/**
+				 * SvelteKit stamps `x-sveltekit-page: true` on page responses, in
+				 * the same Headers literal that carries the CSP it generated. It
+				 * is how the hook tells its own policy from a policy an endpoint
+				 * set for itself, so the harness models it.
+				 */
+				sveltekitPage?: boolean;
+			} = {},
+		): Promise<Response> {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent(
+				options.path ?? "/",
+				"session-token",
+				options.requestHeaders,
+			);
+			return handle({
+				event,
+				resolve: vi.fn(
+					async () =>
+						new Response("<html></html>", {
+							headers: {
+								"content-type": "text/html; charset=utf-8",
+								...(options.sveltekitPage === false
+									? {}
+									: { "x-sveltekit-page": "true" }),
+								...options.responseHeaders,
+							},
+						}),
+				),
+			});
+		}
+
+		it("adds the baseline headers to a rendered page", async () => {
+			const response = await handleHtml();
+
+			expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+			expect(response.headers.get("referrer-policy")).toBe(
+				"strict-origin-when-cross-origin",
+			);
+			expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+			expect(response.headers.get("cross-origin-opener-policy")).toBe(
+				"same-origin",
+			);
+			expect(response.headers.get("permissions-policy")).toContain("camera=()");
+		});
+
+		it("does not send HSTS over plain HTTP", async () => {
+			process.env.NODE_ENV = "production";
+			const response = await handleHtml({
+				requestHeaders: { "x-forwarded-proto": "http" },
+			});
+			expect(response.headers.get("strict-transport-security")).toBeNull();
+		});
+
+		it("sends HSTS over HTTPS in production", async () => {
+			process.env.NODE_ENV = "production";
+			const response = await handleHtml({
+				requestHeaders: { "x-forwarded-proto": "https" },
+			});
+			expect(response.headers.get("strict-transport-security")).toContain(
+				"max-age=",
+			);
+		});
+
+		it("does not send HSTS outside production", async () => {
+			process.env.NODE_ENV = "development";
+			const response = await handleHtml({
+				requestHeaders: { "x-forwarded-proto": "https" },
+			});
+			expect(response.headers.get("strict-transport-security")).toBeNull();
+		});
+
+		it("ships the CSP report-only by default", async () => {
+			const response = await handleHtml({
+				responseHeaders: {
+					"content-security-policy": "default-src 'self'; connect-src 'self'",
+				},
+			});
+
+			expect(response.headers.get("content-security-policy")).toBeNull();
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toContain("default-src 'self'");
+		});
+
+		it("enforces the CSP when CSP_MODE=enforce", async () => {
+			process.env.CSP_MODE = "enforce";
+			const response = await handleHtml({
+				responseHeaders: {
+					"content-security-policy": "default-src 'self'; connect-src 'self'",
+				},
+			});
+
+			expect(response.headers.get("content-security-policy")).toContain(
+				"default-src 'self'",
+			);
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toBeNull();
+		});
+
+		it("drops the CSP entirely when CSP_MODE=off", async () => {
+			process.env.CSP_MODE = "off";
+			const response = await handleHtml({
+				responseHeaders: {
+					"content-security-policy": "default-src 'self'",
+				},
+			});
+
+			expect(response.headers.get("content-security-policy")).toBeNull();
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toBeNull();
+		});
+
+		// What /api/knowledge/[id]/preview actually returns: a tighter referrer
+		// policy and a default-src 'none' CSP whose exact text
+		// `allowsTrustedHtmlPreviewRuntime` matches to decide whether a
+		// generated HTML report may run scripts. It is an endpoint response, so
+		// it carries no x-sveltekit-page stamp.
+		const previewCsp =
+			"default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+
+		function handlePreview(): Promise<Response> {
+			return handleHtml({
+				path: "/api/knowledge/doc-1/preview",
+				sveltekitPage: false,
+				responseHeaders: {
+					"referrer-policy": "no-referrer",
+					"x-content-type-options": "nosniff",
+					"content-security-policy": previewCsp,
+				},
+			});
+		}
+
+		it("leaves a file preview's own hardened headers untouched", async () => {
+			const response = await handlePreview();
+
+			expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+			expect(response.headers.get("x-frame-options")).toBeNull();
+			expect(response.headers.get("cross-origin-opener-policy")).toBeNull();
+		});
+
+		// The regression these three guard: CSP_MODE owns the policy SvelteKit
+		// generates for a PAGE, and nothing else. Handing an endpoint's own
+		// policy to it would, in the default report-only mode, delete the
+		// enforcing header — un-sandboxing model-generated HTML and, because
+		// the trust check then sees no header at all, silently downgrading
+		// every generated report to the no-script renderer.
+		it.each([
+			"report-only",
+			"enforce",
+			"off",
+		] as const)("leaves a file preview's own CSP enforcing when CSP_MODE=%s", async (mode) => {
+			process.env.CSP_MODE = mode;
+			const response = await handlePreview();
+
+			expect(response.headers.get("content-security-policy")).toBe(previewCsp);
+			expect(
+				response.headers.get("content-security-policy-report-only"),
+			).toBeNull();
 		});
 	});
 });

@@ -5,9 +5,12 @@ values you need. See the root [README](../README.md) for the short list of essen
 
 Notes before the tables:
 
-- Only `SESSION_SECRET` is effectively required. It has an insecure built-in fallback
-  (`mock-session-secret-for-dev-testing-only`) so the app can boot for local dev and tests, but you
-  **must** set a long random secret in every real environment.
+- Only `SESSION_SECRET` is effectively required, and in production it is required *hard*: a server
+  started with `NODE_ENV=production` **refuses to boot** if it is missing, empty, shorter than 32
+  characters, or left at one of the placeholder values that ship in this repository. Outside
+  production it still falls back to `mock-session-secret-for-dev-testing-only` and logs one loud
+  warning, so local dev, vitest and Playwright keep working. See
+  [Session secret](#session-secret) below.
 - Some settings can also be overridden later in the admin UI (`Settings > Administration > System`)
   and stored in the database. The environment is the base layer, not always the final one.
 - Model and title-generator system prompts default to empty and are intended to be set in the admin
@@ -23,7 +26,7 @@ Notes before the tables:
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
-| `SESSION_SECRET` | Yes (real envs) | insecure mock value | Signs and protects session cookies | Always set to a long random secret in every environment | Falls back to a shared insecure value only for local dev/testing; never rely on the fallback in production |
+| `SESSION_SECRET` | **Yes in production** (the server refuses to start without it) | insecure mock value outside production | Protects sessions **and** derives the encryption keys for stored connection secrets and provider API keys | Always, in every real environment: `openssl rand -hex 32` | Minimum 32 characters; the repo's placeholder values are rejected by name. Changing it makes already-stored credentials undecryptable |
 | `ALFYAI_API_SIGNING_KEY` | No | empty | HMAC signing secret for scoped internal service assertions; also gates the deploy drain call to `/api/admin/drain` | Set it only for trusted internal service-to-service callers or to enable graceful-drain on deploy | Browser session-auth requests do not need it |
 | `DATABASE_PATH` | No | `./data/chat.db` | SQLite database location | Set it when the database should live outside the repo root or on a mounted volume | The parent directory must be writable |
 | `DEFAULT_NEW_USER_MODEL` | No | `model1` | Model ID assigned to new users | Set it to `model1`, `model2`, or a provider ID that matches an available model | Can also be overridden in admin config |
@@ -41,6 +44,43 @@ Notes before the tables:
 | `ATTACHMENT_TRACE_DEBUG` | No | `false` | Enables extra attachment tracing logs | Turn it on while debugging upload/readiness issues | Debug logging only; not a feature flag |
 | `CONCURRENT_STREAM_LIMIT` | No | `3` | Max concurrent chat streams across all users | Lower it to reduce server load | Can also be overridden in admin config |
 | `PER_USER_STREAM_LIMIT` | No | `1` | Max concurrent chat streams per user | Lower it to reduce per-user load | Can also be overridden in admin config |
+
+### Session secret
+
+`SESSION_SECRET` is misleadingly named: besides protecting sessions, it is the PBKDF2 input behind
+both credential vaults — stored connection secrets (`src/lib/server/services/connections/vault.ts`,
+salt `alfyai-connections`) and provider API keys (`src/lib/server/services/providers.ts`, salt
+`alfyai-providers`). A deployment running on the development fallback encrypts every one of those
+under a key that anyone holding a copy of this repository can derive, and it does so *silently*: the
+app boots, logs in, and works.
+
+So in production the server refuses to start. A value is rejected when it is:
+
+- missing, empty, or only whitespace;
+- shorter than 32 characters;
+- one of the placeholder values that ship in this repo, including the 33-character
+  `change-me-to-a-random-long-secret` from `.env.example` — long enough to pass a naive length
+  check, which is exactly why it is rejected by name.
+
+```bash
+# Generate one:
+openssl rand -hex 32
+```
+
+"Production" means `NODE_ENV=production` (set by `deploy/langflow-chat.service`) and not a test
+harness (`PLAYWRIGHT_TEST`, `VITEST`). Everywhere else the fallback stays and one warning is
+printed at startup, so `npm run dev`, vitest and Playwright are unaffected.
+
+The check runs in the server's `init` hook (`src/hooks.server.ts`), which adapter-node awaits at
+module scope — so the failure is a non-zero process exit with the message on stderr, not a 500 on
+the first request that happens to read the config. `scripts/prepare-db.ts` carries the same guard
+because it runs as its own process on the `npm start` and deploy paths and has its own copy of the
+secret. `npm run build` is unaffected: nothing evaluates this config at build time (there are no
+prerendered routes and the codebase does not use `$env/static/private`).
+
+**Rotating it is not free.** Changing `SESSION_SECRET` on a box that already has stored connections
+or provider API keys makes those credentials undecryptable — they must be re-entered through
+Settings. Rotate deliberately, not as a reflex to a startup error.
 
 ## Primary And Secondary Model Endpoints
 
@@ -247,3 +287,81 @@ documented in [deploy/README.md](../deploy/README.md).
 | `HOST` | No | `0.0.0.0` in adapter-node (`.env.example` ships `127.0.0.1`) | Controls the adapter-node listen address | Set it to `0.0.0.0` when a reverse proxy or trusted internal service must reach the app over the host bridge | If you set `127.0.0.1`, other host-managed services cannot reach the app directly |
 | `PORT` | No | `3000` in adapter-node (`.env.example` ships `3001`) | Controls the adapter-node listen port | Set it to match your reverse proxy or host-managed service expectations | Keep proxy config aligned with the same port |
 | `NODE_ENV` | No | environment dependent | Controls framework/runtime production behavior | Set it to `production` in real deployments | Also affects cookie security behavior |
+| `CSP_MODE` | No | `report-only` | Whether the Content Security Policy is observed (`report-only`), enforced (`enforce`), or not sent at all (`off`) | Flip to `enforce` after watching staging's browser console — see [docs/security-headers.md](./security-headers.md) | Any unrecognized value means `report-only`, so a typo cannot enforce an unwatched policy. Takes effect on restart, no rebuild needed |
+| `ADDRESS_HEADER` | No | unset | Tells adapter-node which request header carries the real client address, so `getClientAddress()` stops returning the reverse proxy's loopback address | Set it to `x-forwarded-for` behind Apache — see [Client addresses behind the proxy](#client-addresses-behind-the-proxy) | Only set it when a proxy you control **overwrites** the header. If clients can reach the app directly, this makes the address forgeable |
+| `XFF_DEPTH` | No | `1` | How many proxies sit in front of the app, counted from the right of `x-forwarded-for` | Set it alongside `ADDRESS_HEADER` — `1` for the single Apache hop | Wrong values pick the wrong hop, which is worse than not setting `ADDRESS_HEADER` at all |
+
+### Client addresses behind the proxy
+
+The login throttle (see below) keys a secondary budget on the client address. Today neither
+`ADDRESS_HEADER` nor `XFF_DEPTH` is set anywhere in this repo or on the boxes, and Apache proxies
+with `ProxyPass / http://127.0.0.1:3001/`, so `event.getClientAddress()` returns Apache's loopback
+address for **every** request.
+
+The app deliberately does not read `x-forwarded-for` itself. A header the server has not been
+configured to trust is attacker-controlled, and keying a limiter on attacker-controlled input is
+worse than having no limiter: the attacker picks a fresh key per request while everyone else shares
+the forged ones. So instead, the per-address budget is simply **skipped** whenever the resolved
+address is loopback or RFC1918 and `ADDRESS_HEADER` is unset. The per-email budget — the one that
+actually protects an account — applies regardless.
+
+To turn the per-address budget on, add to `shared/.env` and restart:
+
+```bash
+ADDRESS_HEADER=x-forwarded-for
+XFF_DEPTH=1
+```
+
+`XFF_DEPTH=1` is correct for the current topology: exactly one proxy (Apache) in front of the app.
+Only do this while Apache is the sole ingress — if the Node port is reachable directly, a client can
+forge the header and choose its own rate-limit bucket.
+
+### Login throttle
+
+Failed credential checks are counted in a 15-minute sliding window, per process
+(`src/lib/server/services/login-rate-limit.ts`). Successful logins are not counted and clear the
+email budget, so ordinary use and the Playwright suite are unaffected.
+
+| Budget | Failures per 15 min before the penalty starts | Cleared by a success? |
+|---|---:|---|
+| Per email address (`POST /api/auth/login`) | 8 | Yes |
+| Per client address (`POST /api/auth/login`) | 30 | No — otherwise one correct guess resets an attacker's spray counter |
+| Per account (`PATCH /api/settings/password`, wrong current password) | 8 | Yes |
+
+#### Exceeding a budget does not lock the account
+
+This is the part worth understanding before judging the caps above as weak.
+
+Behind Apache every request arrives from the same loopback address, so the per-email budget is a
+lever **anyone can pull against anyone**: a stranger who knows an address can manufacture eight
+failures for it. If going over the budget simply refused the request, that stranger could keep this
+deployment's only entrance shut indefinitely — there is no second admin account, no password-reset
+mail and no out-of-band unlock here, so the recovery procedure would be an ssh session and a service
+restart. A permanent, unauthenticated denial of service on the login page is a worse outcome than
+the online guessing the throttle exists to slow.
+
+So going over a budget makes an attempt **expensive**, and refuses only the ones that turn out to be
+wrong:
+
+- Under the budget, nothing happens: no delay, no bookkeeping.
+- Over the budget, the comparison still runs, but only after an escalating delay — 1s, 2s, 4s,
+  capped at 8s — and only **one** such comparison per key may be in flight at a time. Concurrent
+  attempts on that key are refused immediately, without reaching bcrypt.
+- A **correct** password over the budget succeeds and clears the budget. The legitimate owner is
+  never locked out; the worst they suffer is one 8-second wait.
+- A **wrong** password over the budget gets `429` with a `Retry-After` of the delay (not the rest of
+  the window — retrying sooner really is allowed) and an `errorKey` of `login.tooManyAttempts`,
+  which the login page renders localized.
+
+What that buys: guessing one account is capped at roughly one attempt per 8 seconds however many
+connections the attacker opens, because of the single-flight rule. What it does not buy: this is a
+throttle, not a lockout, so an attacker with unlimited time still gets unlimited attempts at about
+450/hour. Against the 8-character minimum this product enforces that is not a threat, and against a
+password already leaked in a breach no lockout duration would have helped either.
+
+Admitting a correct password while throttled leaks nothing. `429` vs `401` says only "this key is
+throttled", which is true precisely because the attacker made it true, and the decoy bcrypt
+comparison still runs for addresses with no account, so neither the status nor the timing answers
+"does this account exist".
+
+The whole throttle is disabled when `PLAYWRIGHT_TEST` is set.

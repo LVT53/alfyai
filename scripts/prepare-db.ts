@@ -21,6 +21,10 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
+import {
+	assertSessionSecret,
+	resolveSessionSecret,
+} from "../src/lib/server/session-secret";
 
 let databasePath = process.env.DATABASE_PATH;
 let sqlite: Database.Database;
@@ -190,9 +194,15 @@ function encryptSeededProviderApiKey(plaintext: string): {
 	encrypted: string;
 	iv: string;
 } {
-	const sessionSecret =
-		process.env.SESSION_SECRET || "mock-session-secret-for-dev-testing-only";
-	const key = deriveProviderEncryptionKey(sessionSecret);
+	// This script is a separate process on the production start path
+	// (`npm start` = check:migrations && db:prepare && node build) and on the
+	// deploy path, and it does NOT go through src/lib/server/env.ts — it has
+	// always had its own copy of the fallback. Without this guard a production
+	// box with no SESSION_SECRET would still seed provider API keys encrypted
+	// under the public development literal, before the server ever got the
+	// chance to refuse to boot.
+	assertSessionSecret();
+	const key = deriveProviderEncryptionKey(resolveSessionSecret());
 	const iv = randomBytes(16);
 	const cipher = createCipheriv("aes-256-gcm", key, iv);
 	const encrypted = Buffer.concat([

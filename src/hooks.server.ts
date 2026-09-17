@@ -14,6 +14,12 @@ import { db } from "$lib/server/db";
 import { ensureRuntimeSchemaCompatibility } from "$lib/server/db/compat";
 import { users } from "$lib/server/db/schema";
 import { prewarmSandboxImageInBackground } from "$lib/server/sandbox/config";
+import {
+	buildSecurityHeaders,
+	isSecureRequest,
+	parseCspModeEnv,
+	sentryConnectSource,
+} from "$lib/server/security-headers";
 import { ensureAtlasWorker } from "$lib/server/services/atlas";
 import { validateSession } from "$lib/server/services/auth";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
@@ -31,6 +37,7 @@ import {
 	ensureRoutingRegionScheduler,
 	stopRoutingRegionScheduler,
 } from "$lib/server/services/routing/region-runtime";
+import { assertSessionSecret } from "$lib/server/session-secret";
 
 const PUBLIC_PATHS = [
 	"/login",
@@ -79,6 +86,15 @@ Sentry.init({
 	registerEsmLoaderHooks: false,
 });
 
+// The browser POSTs Sentry envelopes straight to the DSN's host, so that one
+// origin has to be in connect-src. Resolved once, here, from the same DSN
+// Sentry.init() above uses — rather than being baked into svelte.config.js at
+// build time, which would put the DSN in the build output and make rotating it
+// a rebuild.
+const sentryConnectSources = [sentryConnectSource(sentryDsn)].filter(
+	(origin): origin is string => origin !== null,
+);
+
 // Throttled lastSeenAt tracking: fire-and-forget writes with 5-minute TTL per user.
 const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000;
 const lastSeenWriteTimestamps = new Map<string, number>();
@@ -116,6 +132,17 @@ function touchLastSeenAt(userId: string): void {
 }
 
 export const init: ServerInit = async () => {
+	// FIRST, before anything touches the database or the config: in production a
+	// missing, empty, too-short or placeholder SESSION_SECRET throws here.
+	// adapter-node awaits `init` at module scope, so the throw aborts module
+	// evaluation and the process exits non-zero with the message — a refusal to
+	// boot, not a 500 on the first request that happens to read the config.
+	//
+	// The deploy's health poll then fails and rolls `current` back to the
+	// previous release, which is the correct outcome: a release that cannot
+	// protect stored credentials should not take traffic.
+	assertSessionSecret();
+
 	await ensureRuntimeConfigReady();
 	seedDefaultProviders().catch((error) =>
 		console.error("Failed to seed default providers:", error),
@@ -202,8 +229,60 @@ const appHandle: Handle = async ({ event, resolve }) => {
 			"private, no-cache, no-store, must-revalidate",
 		);
 	}
+	applySecurityHeaders(event, response);
 	return response;
 };
+
+/**
+ * Baseline security headers, plus whatever CSP_MODE says to do with the policy
+ * SvelteKit built for this page (see the `csp` block in svelte.config.js).
+ *
+ * The `existingHeaders` set is the safety catch: a route that already set a
+ * header keeps it. The generated-file preview responses ship a deliberately
+ * tighter `Referrer-Policy: no-referrer` and a `default-src 'none'` CSP whose
+ * exact text the preview runtime matches to decide whether a generated HTML
+ * report may run scripts — overwriting either would downgrade every report to
+ * the no-script renderer, and the failure would be silent.
+ *
+ * That last sentence is why the CSP is handed over ONLY for a SvelteKit page
+ * response. `x-sveltekit-page: true` is set in the same `new Headers({...})`
+ * literal that SvelteKit's `render_response` uses to attach the policy it
+ * built, and it is set nowhere else — so it is an exact test for "this CSP is
+ * ours to rewrite". Treating every CSP as SvelteKit's would hand the file
+ * preview routes' own policy to the CSP_MODE machinery, and in the default
+ * report-only mode that machinery DELETES `Content-Security-Policy`: the
+ * preview's sandbox policy would stop being enforced and
+ * `allowsTrustedHtmlPreviewRuntime` would see no header at all.
+ */
+function applySecurityHeaders(
+	event: Parameters<Handle>[0]["event"],
+	response: Response,
+): void {
+	const existingHeaders = new Set<string>();
+	for (const [name] of response.headers) {
+		existingHeaders.add(name.toLowerCase());
+	}
+
+	const isSvelteKitPage = response.headers.get("x-sveltekit-page") === "true";
+
+	const plan = buildSecurityHeaders({
+		pathname: event.url.pathname,
+		contentType: response.headers.get("content-type"),
+		isSecureRequest: isSecureRequest(event.url, event.request.headers),
+		isProduction: process.env.NODE_ENV === "production",
+		cspMode: parseCspModeEnv(process.env.CSP_MODE),
+		csp: isSvelteKitPage
+			? response.headers.get("content-security-policy")
+			: null,
+		extraConnectSources: sentryConnectSources,
+		existingHeaders,
+	});
+
+	for (const name of plan.remove) response.headers.delete(name);
+	for (const [name, value] of Object.entries(plan.set)) {
+		response.headers.set(name, value);
+	}
+}
 
 export const handle = sequence(Sentry.sentryHandle(), appHandle);
 

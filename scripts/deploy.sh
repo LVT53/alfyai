@@ -109,6 +109,9 @@ else
   prune_old_releases() {
     echo -e "${YELLOW}⚠ scripts/deploy-lib.sh is missing; skipping the prune of $1 (keep $2).${NC}"
   }
+  backup_database() {
+    deploy_warn "scripts/deploy-lib.sh is missing, so the database under $2/data was NOT backed up before the migrations ran. This stand-in deliberately does not abort: it only runs when deploying a release from before deploy-lib.sh existed, which is how a rollback is performed, and refusing to roll back would be worse. Take a backup by hand before doing anything else."
+  }
 fi
 
 cd "$RELEASE_DIR"
@@ -166,6 +169,17 @@ echo ""
 echo -e "${YELLOW}6. Verifying database migrations...${NC}"
 npm run check:migrations
 echo -e "${GREEN}✓ Migration check passed${NC}"
+echo ""
+
+# The ONE step allowed to stop a deploy, and the only point where that is a
+# safe thing to do: nothing has been migrated and the cutover has not happened,
+# so an abort here leaves the service running the previous release against an
+# untouched database. 110 migrations, 9 destructive, one ~140 MB live file.
+# See backup_database in scripts/deploy-lib.sh; DB_BACKUP_REQUIRED=0 overrides.
+echo -e "${YELLOW}6b. Backing up the database before migrations...${NC}"
+if ! backup_database "$RELEASE_DIR" "$SHARED_DIR" "$RELEASE_SHA"; then
+  exit 1
+fi
 echo ""
 
 echo -e "${YELLOW}7. Applying database migrations...${NC}"

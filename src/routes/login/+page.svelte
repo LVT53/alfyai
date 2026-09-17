@@ -1,11 +1,19 @@
 <script lang="ts">
 import { goto, invalidateAll } from "$app/navigation";
 import { login } from "$lib/client/api/auth";
+import { ApiError } from "$lib/client/api/http";
 import { clearClientAccountState } from "$lib/client/session-boundary";
-import { t } from "$lib/i18n";
+import { type I18nKey, t } from "$lib/i18n";
 import { AlertTriangle, Eye, EyeOff } from "@lucide/svelte";
 import LogoMark from "$lib/components/chat/LogoMark.svelte";
 import Spinner from "$lib/components/ui/Spinner.svelte";
+
+/**
+ * Server error keys this page is willing to localize. An allowlist rather than
+ * a passthrough, so a response body can never select an arbitrary dictionary
+ * entry to display on the unauthenticated login screen.
+ */
+const LOCALIZED_LOGIN_ERROR_KEYS: readonly string[] = ["login.tooManyAttempts"];
 
 let email = $state("");
 let password = $state("");
@@ -37,7 +45,17 @@ async function handleSubmit(event: SubmitEvent) {
 		await invalidateAll();
 		await goto("/", { invalidateAll: true });
 	} catch (err) {
-		error = err instanceof Error ? err.message : $t("login.unexpectedError");
+		// The server's own strings are English. When it sends an errorKey we
+		// recognise (the 429 throttle), show the localized text instead —
+		// the same allowlisted code-to-key mapping the chat page uses, so the
+		// server can never make this page render an arbitrary dictionary entry.
+		const errorKey =
+			err instanceof ApiError && err.errorKey ? err.errorKey : null;
+		if (errorKey && LOCALIZED_LOGIN_ERROR_KEYS.includes(errorKey)) {
+			error = $t(errorKey as I18nKey);
+		} else {
+			error = err instanceof Error ? err.message : $t("login.unexpectedError");
+		}
 	} finally {
 		loading = false;
 	}

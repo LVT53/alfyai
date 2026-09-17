@@ -1,6 +1,19 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import Database from "better-sqlite3";
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	SANDBOX_PYTHON_IMAGE,
 	SANDBOX_PYTHON_IMPORT_NAMES,
@@ -499,6 +512,7 @@ describe.each([
 			"print_deploy_warnings()",
 			"setup_sandbox_python_packages()",
 			"prune_old_releases()",
+			"backup_database()",
 		]) {
 			expect(script).toContain(`  ${fn} {`);
 		}
@@ -543,6 +557,435 @@ describe.each([
 		const warningsIndex = script.lastIndexOf("print_deploy_warnings");
 		expect(summaryIndex).toBeGreaterThan(-1);
 		expect(warningsIndex).toBeGreaterThan(summaryIndex);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Database backup before migrations.
+//
+// db:prepare runs 110 migrations (9 destructive) against the live ~140 MB
+// SQLite file under shared/data. Until now there was no copy of it anywhere.
+// The backup is the one step allowed to abort a deploy, because it happens
+// before the cutover: aborting leaves production on the old release with an
+// unmigrated database, which is strictly safer than migrating blind.
+// ---------------------------------------------------------------------------
+
+describe.each([
+	["scripts/deploy.sh", deployScript],
+	["scripts/deploy-dev.sh", deployDevScript],
+])("%s (database backup step)", (_label, script) => {
+	it("backs up the database before db:prepare and before the cutover", () => {
+		const backupIndex = script.indexOf(
+			'backup_database "$RELEASE_DIR" "$SHARED_DIR" "$RELEASE_SHA"',
+		);
+		const dbPrepareIndex = script.indexOf("npm run db:prepare");
+		const flipIndex = script.indexOf("mv -Tf");
+
+		expect(backupIndex).toBeGreaterThan(-1);
+		expect(backupIndex).toBeLessThan(dbPrepareIndex);
+		expect(backupIndex).toBeLessThan(flipIndex);
+	});
+
+	it("aborts the deploy when the backup fails", () => {
+		// The ONLY `exit 1` between the migration-check step and the drain
+		// block. Written as `if ! backup_database ...; then exit 1; fi` rather
+		// than relying on `set -e`, so the helper's own explanation is printed
+		// first.
+		expect(script).toMatch(
+			/if ! backup_database "\$RELEASE_DIR" "\$SHARED_DIR" "\$RELEASE_SHA"; then\n\s*exit 1\n\s*fi/,
+		);
+	});
+
+	it("keeps the abort out of the drain block, which must never fail a deploy", () => {
+		// The existing drain assertion slices from the first
+		// ALFYAI_API_SIGNING_KEY to the flip and forbids `exit 1` there; the
+		// backup has to sit before that slice starts, not inside it.
+		const backupIndex = script.indexOf('if ! backup_database "$RELEASE_DIR"');
+		const drainIndex = script.indexOf("ALFYAI_API_SIGNING_KEY");
+
+		expect(backupIndex).toBeGreaterThan(-1);
+		expect(drainIndex).toBeGreaterThan(-1);
+		expect(backupIndex).toBeLessThan(drainIndex);
+	});
+});
+
+describe("scripts/deploy-lib.sh backup_database (static)", () => {
+	it("prefers sqlite3's online .backup, then better-sqlite3, then cp", () => {
+		const body = shellFunctionBody(deployLibScript, "backup_database");
+		const sqliteIndex = body.indexOf("db_backup_with_sqlite3");
+		const nodeIndex = body.indexOf("db_backup_with_node");
+		const cpIndex = body.indexOf("db_backup_with_cp");
+
+		expect(sqliteIndex).toBeGreaterThan(-1);
+		expect(nodeIndex).toBeGreaterThan(sqliteIndex);
+		expect(cpIndex).toBeGreaterThan(nodeIndex);
+
+		// The two consistent strategies use SQLite's online backup API, which is
+		// the only thing that is safe against the live writer under WAL.
+		expect(
+			shellFunctionBody(deployLibScript, "db_backup_with_sqlite3"),
+		).toContain(".backup");
+		expect(shellFunctionBody(deployLibScript, "db_backup_with_node")).toContain(
+			"db.backup(",
+		);
+		// The cp fallback is only correct if it takes the sidecars too.
+		const cpBody = shellFunctionBody(deployLibScript, "db_backup_with_cp");
+		expect(cpBody).toContain('"$db-wal"');
+		expect(cpBody).toContain('"$db-shm"');
+	});
+
+	it("bounds every external command so a stalled filesystem cannot hang a deploy", () => {
+		for (const fn of [
+			"db_backup_with_sqlite3",
+			"db_backup_with_node",
+			"db_backup_verify",
+		]) {
+			expect(shellFunctionBody(deployLibScript, fn)).toContain(
+				"sandbox_bounded",
+			);
+		}
+	});
+
+	it("verifies the backup with PRAGMA integrity_check, or at least a non-empty file", () => {
+		const body = shellFunctionBody(deployLibScript, "db_backup_verify");
+		expect(body).toContain("integrity_check");
+		expect(body).toContain('[ -s "$dest" ]');
+	});
+
+	it("resolves the database path the same way db:prepare does", () => {
+		// db:prepare defaults DATABASE_PATH to "./data/chat.db" and runs with the
+		// release directory as cwd, where `data` is a symlink to shared/data.
+		// Backing up a different file than the one about to be migrated would be
+		// worse than no backup, because it would look like it worked.
+		const body = shellFunctionBody(deployLibScript, "deploy_database_path");
+		expect(body).toContain('"$shared_dir/data/chat.db"');
+		expect(body).toContain('/*) echo "$DATABASE_PATH"');
+		// Split so Biome doesn't read the shell parameter expansion as a
+		// mis-typed JS template literal, the same way the constants above are.
+		expect(body).toContain('*) echo "$release_dir/');
+		expect(body).toContain("DATABASE_PATH#./");
+	});
+
+	it("writes owner-only, under a 700 directory, into shared/backups", () => {
+		const body = shellFunctionBody(deployLibScript, "backup_database");
+		expect(body).toContain('"$shared_dir/backups"');
+		expect(body).toMatch(/chat-\$timestamp-\$release_sha\.db/);
+		expect(body).toContain('chmod 700 "$backup_dir"');
+		expect(body).toContain('chmod 600 "$dest"');
+		// Born restricted rather than widened for the length of a 140 MB copy.
+		for (const fn of [
+			"db_backup_with_sqlite3",
+			"db_backup_with_node",
+			"db_backup_with_cp",
+		]) {
+			expect(shellFunctionBody(deployLibScript, fn)).toContain("umask 077");
+		}
+	});
+
+	it("defaults retention to 7 and makes the backup required, both overridable", () => {
+		expect(deployLibScript).toMatch(/DB_BACKUP_KEEP="\$\{DB_BACKUP_KEEP:-7\}"/);
+		expect(deployLibScript).toMatch(
+			/DB_BACKUP_REQUIRED="\$\{DB_BACKUP_REQUIRED:-1\}"/,
+		);
+	});
+
+	it("prints the restore command in the success line", () => {
+		expect(shellFunctionBody(deployLibScript, "backup_database")).toMatch(
+			/Restore:/,
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The same helper, actually executed. Everything above is text matching; these
+// source scripts/deploy-lib.sh in a real bash and run the functions against
+// throwaway directories, because the failure modes that matter here (a backup
+// that "succeeds" into a zero-byte file, a retention sweep that eats the
+// backup it just made) are behavioural, not textual.
+// ---------------------------------------------------------------------------
+
+const REPO_ROOT = resolve(__dirname, "..");
+const scratchDirs: string[] = [];
+
+function makeScratchDir(): string {
+	const dir = mkdtempSync(join(tmpdir(), "alfyai-deploy-backup-"));
+	scratchDirs.push(dir);
+	return dir;
+}
+
+/**
+ * Sources scripts/deploy-lib.sh in a real bash and runs `script` after it,
+ * under `set -e` exactly as the deploy scripts do.
+ *
+ * DATABASE_PATH is blanked unless a case sets it: vitest's global setup puts a
+ * test database path in the ambient environment, and inheriting it would make
+ * every case back up the wrong file.
+ */
+function runDeployLib(
+	script: string,
+	env: Record<string, string> = {},
+): { status: number; output: string } {
+	const result = spawnSync(
+		"bash",
+		["-c", `set -e\nsource "${DEPLOY_LIB_SH_PATH}"\n${script}`],
+		{
+			encoding: "utf8",
+			env: { ...process.env, DATABASE_PATH: "", ...env },
+		},
+	);
+	return {
+		status: result.status ?? -1,
+		output: `${result.stdout ?? ""}${result.stderr ?? ""}`,
+	};
+}
+
+/** A shared/ + releases/<sha> layout with a real, populated SQLite database. */
+function makeFakeDeployTree(options: { withDatabase: boolean }): {
+	root: string;
+	sharedDir: string;
+	releaseDir: string;
+	dbPath: string;
+} {
+	const root = makeScratchDir();
+	const sharedDir = join(root, "shared");
+	const releaseDir = join(root, "releases", "abc1234");
+	mkdirSync(join(sharedDir, "data"), { recursive: true });
+	mkdirSync(releaseDir, { recursive: true });
+
+	// So the better-sqlite3 fallback is reachable on a host with no sqlite3 CLI,
+	// exactly as it would be in a real release directory after `npm ci`.
+	symlinkSync(
+		join(REPO_ROOT, "node_modules"),
+		join(releaseDir, "node_modules"),
+	);
+	symlinkSync(join(sharedDir, "data"), join(releaseDir, "data"));
+
+	const dbPath = join(sharedDir, "data", "chat.db");
+	if (options.withDatabase) {
+		const database = new Database(dbPath);
+		database.pragma("journal_mode = WAL");
+		database.exec("CREATE TABLE messages (id INTEGER PRIMARY KEY, body TEXT)");
+		const insert = database.prepare("INSERT INTO messages (body) VALUES (?)");
+		for (let index = 0; index < 200; index += 1) {
+			insert.run(`message ${index}`);
+		}
+		database.close();
+	}
+
+	return { root, sharedDir, releaseDir, dbPath };
+}
+
+function backupFiles(sharedDir: string): string[] {
+	const dir = join(sharedDir, "backups");
+	if (!existsSync(dir)) return [];
+	return spawnSync("ls", ["-1", dir], { encoding: "utf8" })
+		.stdout.split("\n")
+		.filter((name) => name.endsWith(".db"));
+}
+
+describe("scripts/deploy-lib.sh backup_database (executed)", () => {
+	afterEach(() => {
+		while (scratchDirs.length > 0) {
+			const dir = scratchDirs.pop();
+			if (dir) rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("takes a verified, owner-only backup of the live database", () => {
+		const { sharedDir, releaseDir } = makeFakeDeployTree({
+			withDatabase: true,
+		});
+
+		const result = runDeployLib(
+			`backup_database "${releaseDir}" "${sharedDir}" abc1234`,
+		);
+
+		expect(result.status).toBe(0);
+		expect(result.output).toContain("Database backed up via");
+		expect(result.output).toContain("Restore:");
+
+		const backups = backupFiles(sharedDir);
+		expect(backups).toHaveLength(1);
+		expect(backups[0]).toMatch(/^chat-\d{8}T\d{6}Z-abc1234\.db$/);
+
+		const backupPath = join(sharedDir, "backups", backups[0]);
+		// 0o777 masks off the file-type bits; the backup is a full copy of every
+		// conversation and every encrypted credential in the product.
+		expect(statSync(backupPath).mode & 0o777).toBe(0o600);
+		expect(statSync(join(sharedDir, "backups")).mode & 0o777).toBe(0o700);
+
+		// It is a real database with the real rows in it, not an empty file.
+		const restored = new Database(backupPath, { readonly: true });
+		const row = restored
+			.prepare("SELECT COUNT(*) AS count FROM messages")
+			.get() as { count: number };
+		restored.close();
+		expect(row.count).toBe(200);
+	});
+
+	it("skips quietly when there is no database yet (first install)", () => {
+		const { sharedDir, releaseDir } = makeFakeDeployTree({
+			withDatabase: false,
+		});
+
+		const result = runDeployLib(
+			`backup_database "${releaseDir}" "${sharedDir}" abc1234`,
+		);
+
+		expect(result.status).toBe(0);
+		expect(result.output).toContain("nothing to back up");
+		expect(backupFiles(sharedDir)).toEqual([]);
+	});
+
+	it("honours an absolute DATABASE_PATH from the deployed .env", () => {
+		const { sharedDir, releaseDir, root } = makeFakeDeployTree({
+			withDatabase: false,
+		});
+		const elsewhere = join(root, "elsewhere.db");
+		new Database(elsewhere).close();
+
+		const result = runDeployLib(
+			`backup_database "${releaseDir}" "${sharedDir}" abc1234`,
+			{ DATABASE_PATH: elsewhere },
+		);
+
+		expect(result.status).toBe(0);
+		expect(backupFiles(sharedDir)).toHaveLength(1);
+	});
+
+	it("aborts the deploy when the backup cannot be written", () => {
+		const { sharedDir, releaseDir } = makeFakeDeployTree({
+			withDatabase: true,
+		});
+		// A regular file where the backups directory needs to be: mkdir -p
+		// fails, which is the same shape as a full disk or a directory owned by
+		// somebody else.
+		writeFileSync(join(sharedDir, "backups"), "not a directory");
+
+		const result = runDeployLib(
+			`backup_database "${releaseDir}" "${sharedDir}" abc1234`,
+		);
+
+		expect(result.status).toBe(1);
+		expect(result.output).toContain("Database backup FAILED");
+		expect(result.output).toContain("Refusing to run db:prepare");
+	});
+
+	it("downgrades the abort to a warning under DB_BACKUP_REQUIRED=0", () => {
+		const { sharedDir, releaseDir } = makeFakeDeployTree({
+			withDatabase: true,
+		});
+		writeFileSync(join(sharedDir, "backups"), "not a directory");
+
+		const result = runDeployLib(
+			`backup_database "${releaseDir}" "${sharedDir}" abc1234`,
+			{ DB_BACKUP_REQUIRED: "0" },
+		);
+
+		expect(result.status).toBe(0);
+		expect(result.output).toContain("no way back");
+	});
+
+	it("deletes a backup that does not verify rather than leaving it to be trusted", () => {
+		const { sharedDir, releaseDir, dbPath } = makeFakeDeployTree({
+			withDatabase: false,
+		});
+		// A file that exists and is non-empty but is not a database. Every
+		// strategy either refuses it or copies the garbage through, and the
+		// integrity check is what has to catch the latter.
+		writeFileSync(dbPath, "this is definitely not a sqlite database");
+
+		const result = runDeployLib(
+			`backup_database "${releaseDir}" "${sharedDir}" abc1234`,
+		);
+
+		expect(result.status).toBe(1);
+		expect(result.output).toContain("Database backup FAILED");
+		expect(backupFiles(sharedDir)).toEqual([]);
+	});
+});
+
+describe("scripts/deploy-lib.sh prune_old_db_backups", () => {
+	afterEach(() => {
+		while (scratchDirs.length > 0) {
+			const dir = scratchDirs.pop();
+			if (dir) rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	/** Ten backups, oldest first, with distinct mtimes so `ls -t` is stable. */
+	function makeBackups(dir: string, count: number): string[] {
+		mkdirSync(dir, { recursive: true });
+		const paths: string[] = [];
+		for (let index = 0; index < count; index += 1) {
+			const path = join(dir, `chat-2026090${index}T000000Z-abc123${index}.db`);
+			writeFileSync(path, `backup ${index}`);
+			const seconds = 1_700_000_000 + index * 60;
+			utimesSync(path, seconds, seconds);
+			paths.push(path);
+		}
+		return paths;
+	}
+
+	it("keeps the newest N and deletes the rest", () => {
+		const dir = join(makeScratchDir(), "backups");
+		const paths = makeBackups(dir, 10);
+
+		const result = runDeployLib(`prune_old_db_backups "${dir}" 7 ""`);
+
+		expect(result.status).toBe(0);
+		// paths[0..2] are the three oldest.
+		expect(paths.filter((path) => existsSync(path))).toEqual(paths.slice(3));
+	});
+
+	it("never deletes the backup this deploy just made", () => {
+		const dir = join(makeScratchDir(), "backups");
+		const paths = makeBackups(dir, 10);
+		// Pretend the newest backup somehow sorted oldest — a restored file with
+		// an old mtime, a clock jump, or two deploys inside the same second.
+		const justMade = paths[0];
+
+		const result = runDeployLib(
+			`prune_old_db_backups "${dir}" 3 "${justMade}"`,
+		);
+
+		expect(result.status).toBe(0);
+		expect(existsSync(justMade)).toBe(true);
+		expect(paths.filter((path) => existsSync(path))).toEqual([
+			justMade,
+			...paths.slice(7),
+		]);
+	});
+
+	it("does nothing when there are fewer backups than the retention count", () => {
+		const dir = join(makeScratchDir(), "backups");
+		const paths = makeBackups(dir, 3);
+
+		const result = runDeployLib(`prune_old_db_backups "${dir}" 7 ""`);
+
+		expect(result.status).toBe(0);
+		expect(paths.every((path) => existsSync(path))).toBe(true);
+	});
+
+	it("is a no-op on a directory that does not exist yet", () => {
+		const result = runDeployLib(
+			`prune_old_db_backups "${join(makeScratchDir(), "nope")}" 7 ""`,
+		);
+		expect(result.status).toBe(0);
+	});
+
+	it("takes the sidecars with the backup it deletes", () => {
+		const dir = join(makeScratchDir(), "backups");
+		const paths = makeBackups(dir, 3);
+		writeFileSync(`${paths[0]}-wal`, "wal");
+		writeFileSync(`${paths[0]}-shm`, "shm");
+
+		const result = runDeployLib(`prune_old_db_backups "${dir}" 2 ""`);
+
+		expect(result.status).toBe(0);
+		expect(existsSync(paths[0])).toBe(false);
+		expect(existsSync(`${paths[0]}-wal`)).toBe(false);
+		expect(existsSync(`${paths[0]}-shm`)).toBe(false);
 	});
 });
 

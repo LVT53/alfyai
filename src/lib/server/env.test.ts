@@ -24,14 +24,32 @@ describe("Environment Configuration", () => {
 		expect(config).not.toHaveProperty("langflowWebhookSecret");
 	});
 
-	it("should use mock default when SESSION_SECRET is missing", async () => {
-		// Clear the env var
+	it("should use mock default when SESSION_SECRET is missing outside production", async () => {
+		// Clear the env var. Outside production this still falls back, so local
+		// dev and the test suites keep working; the production refusal is
+		// covered in session-secret.test.ts and hooks.server.test.ts.
 		delete process.env.SESSION_SECRET;
 
 		const { config } = await import("./env");
 		expect(config.sessionSecret).toBe(
 			"mock-session-secret-for-dev-testing-only",
 		);
+	});
+
+	it("never throws on a bad secret, because readConfig also runs at build time", async () => {
+		// config-store.ts calls buildDefaultConfig() at module scope and
+		// SvelteKit's postbuild `analyse` pass imports it, so reading the config
+		// happens during `npm run build`. The production refusal therefore lives
+		// at the runtime entry points (hooks.server.ts `init`,
+		// scripts/prepare-db.ts), never here — a throw on this path would fail
+		// the build on any host whose environment carries NODE_ENV=production.
+		process.env.NODE_ENV = "production";
+		delete process.env.PLAYWRIGHT_TEST;
+		process.env.SESSION_SECRET = "change-me-to-a-random-long-secret";
+
+		const { config } = await import("./env");
+		expect(() => config.sessionSecret).not.toThrow();
+		expect(config.sessionSecret).toBe("change-me-to-a-random-long-secret");
 	});
 
 	it("should apply defaults when optional vars are missing", async () => {
