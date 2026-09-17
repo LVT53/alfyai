@@ -830,6 +830,52 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(placeholder).not.toHaveProperty("userIntent");
 	});
 
+	// A regenerate replaces an assistant message whose turn choices the server
+	// re-reads from its own record, so the placeholder inherits them rather
+	// than dropping the provenance chip for the length of the turn. The caller
+	// has already removed that message from the timeline by now, so it hands
+	// the record in.
+	it("carries the replaced message's userIntent onto a regenerate placeholder", async () => {
+		const { adapters, messageListEvents, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send(
+			{
+				message: "Review this plan",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+			},
+			{
+				skipUserMessage: true,
+				skipPersistUserMessage: true,
+				retryAssistantMessageId: "assistant-1",
+				retryUserMessageId: "user-1",
+				retryUserIntent: {
+					skill: { id: "skill-1", displayName: "Planning reviewer" },
+					webSearch: true,
+				},
+			},
+		);
+
+		expect(messageListEvents.appendAssistantPlaceholder).toHaveBeenCalledWith(
+			expect.objectContaining({
+				role: "assistant",
+				userIntent: {
+					skill: { id: "skill-1", displayName: "Planning reviewer" },
+					webSearch: true,
+				},
+			}),
+		);
+		// The retry request itself still carries no skill/search fields — the
+		// server reads them off the message being replaced.
+		expect(streamInvocations[0].options).toMatchObject({
+			retryAssistantMessageId: "assistant-1",
+		});
+		expect(streamInvocations[0].options?.pendingSkill ?? null).toBeNull();
+		expect(streamInvocations[0].options?.forceWebSearch).toBe(false);
+	});
+
 	it("threads the composer's enabledConnectionCapabilities selection to streamChat (Issue 7.2)", async () => {
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);
@@ -1527,6 +1573,45 @@ describe("Normal Chat Client Turn Runtime", () => {
 		).toHaveBeenCalledTimes(1);
 		expect(adapters.setSendError).not.toHaveBeenCalledWith(
 			"fork.regenerateWarning",
+		);
+	});
+
+	it("carries the last assistant message's userIntent onto a retry() placeholder", async () => {
+		const { adapters, streamInvocations, messages, messageListEvents } =
+			makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send({
+			message: "Regenerate this",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+		streamInvocations[0].callbacks.onError(new Error("Network failed"));
+
+		messages.push({
+			id: "assistant-old",
+			role: "assistant",
+			content: "Bad answer",
+			timestamp: 3,
+			modelId: "model1",
+			userIntent: {
+				skill: { id: "skill-1", displayName: "Planning reviewer" },
+				webSearch: true,
+			},
+		});
+		messageListEvents.appendAssistantPlaceholder.mockClear();
+
+		runtime.retry();
+
+		expect(messageListEvents.appendAssistantPlaceholder).toHaveBeenCalledWith(
+			expect.objectContaining({
+				role: "assistant",
+				userIntent: {
+					skill: { id: "skill-1", displayName: "Planning reviewer" },
+					webSearch: true,
+				},
+			}),
 		);
 	});
 

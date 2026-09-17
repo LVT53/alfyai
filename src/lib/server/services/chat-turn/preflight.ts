@@ -10,6 +10,7 @@ import {
 	isLinkedContextSourceError,
 } from "$lib/server/services/linked-context-sources";
 import { resolvePendingSkillApplication } from "$lib/server/services/skills/prompt-context";
+import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import { resolveReasoningDepthSelection } from "./depth-selection";
 import type {
 	AdmittedChatTurn,
@@ -88,7 +89,11 @@ async function prepareChatTurn(params: {
 
 	let appliedSkill: AppliedSkillContext | null = null;
 	if (request.pendingSkill) {
-		const applied = await resolveAppliedSkill(userId, request);
+		const applied = await resolveAppliedSkill({
+			userId,
+			pendingSkill: request.pendingSkill,
+			requestText: request.normalizedMessage,
+		});
 		if (!applied.ok) return applied;
 		appliedSkill = applied.value;
 	}
@@ -230,14 +235,16 @@ async function resolveLinkedSources(
 // failures surface the same request-level errors the pre-refactor
 // session-starting flow returned, so existing client error handling for
 // `pending_skill_unavailable` / `composer_commands_disabled` keeps working.
-async function resolveAppliedSkill(
-	userId: string,
-	request: ParsedChatTurnRequest,
-): Promise<{ ok: true; value: AppliedSkillContext } | PreflightError> {
-	const pendingSkill = request.pendingSkill;
-	if (!pendingSkill) {
-		throw new Error("resolveAppliedSkill called without a pendingSkill");
-	}
+//
+// Exported for retry.ts, which probes availability with it BEFORE preflighting
+// so a since-deleted or disabled skill degrades to a plain regenerate instead
+// of failing the turn with the 409 a fresh send would (rightly) get.
+export async function resolveAppliedSkill(params: {
+	userId: string;
+	pendingSkill: PendingSkillSelection;
+	requestText: string;
+}): Promise<{ ok: true; value: AppliedSkillContext } | PreflightError> {
+	const { userId, pendingSkill, requestText } = params;
 
 	if (!getConfig().composerCommandRegistryEnabled) {
 		return {
@@ -253,7 +260,7 @@ async function resolveAppliedSkill(
 	const resolved = await resolvePendingSkillApplication({
 		userId,
 		pendingSkill,
-		requestText: request.normalizedMessage,
+		requestText,
 	});
 	if (!resolved.ok) {
 		return {
