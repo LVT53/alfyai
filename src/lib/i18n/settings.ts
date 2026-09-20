@@ -287,12 +287,42 @@ const settingsDict = {
 			"Runs the judge that decides what to remember from each conversation. Defaults to your primary chat model.",
 		"admin.minimal": "Minimal",
 		"admin.messages": "Messages",
-		"admin.mineruApiDescription": `MinerU API server endpoint. Run \`docker run -d --name mineru -p 8001:8001 opendatalab/mineru:latest\` to start the service.`,
+		"admin.mineruApiDescription":
+			"MinerU API server endpoint. See docs/uploads.md for how to run the service.",
+		"admin.mineruApiKey": "MinerU API key",
+		"admin.mineruApiKeyDescription":
+			"Sent as a bearer token. Leave empty for an anonymous local server; a key is only needed for a shared or hosted MinerU.",
 		"admin.mineruApiUrl": "MinerU API URL",
-		"admin.mineruDocumentExtraction": "MinerU Document Extraction",
-		"admin.mineruTimeoutDescription":
-			"Maximum time to wait for a response from MinerU. Increase for large documents.",
-		"admin.mineruTimeoutMs": "MinerU Timeout (ms)",
+		"admin.mineruBundleMaxBytes": "Parse bundle size cap",
+		"admin.mineruBundleMaxBytesDescription":
+			"Disk budget for one document's saved parse bundle. Text and structure are always kept; figures are dropped once the budget is reached.",
+		"admin.mineruCapabilitiesTtlMs": "Capability cache",
+		"admin.mineruCapabilitiesTtlMsDescription":
+			"How long MinerU's version, tiers and output formats are reused before being re-read. 0 re-reads on every extraction.",
+		"admin.mineruDefaultTier": "Default quality tier",
+		"admin.mineruDefaultTierDescription":
+			"Automatic lets MinerU pick, which is what a self-hosted server is usually configured for. Naming a tier the server does not offer fails the extraction instead of quietly downgrading it.",
+		"admin.mineruJobTimeoutMs": "Job timeout",
+		"admin.mineruJobTimeoutMsDescription":
+			"How long one document may take from upload to result before it is given up on and the remote job is cancelled. Raise it for very large documents.",
+		"admin.mineruOcrMode": "Text extraction mode",
+		"admin.mineruOcrModeDescription":
+			"Automatic lets MinerU decide per file. Text-only skips OCR; OCR forces it even on a document that already has a text layer.",
+		"admin.mineruPollMaxMs": "Slowest status check",
+		"admin.mineruPollMaxMsDescription":
+			"The interval the backoff stops growing at while waiting for a long parse.",
+		"admin.mineruPollMinMs": "Fastest status check",
+		"admin.mineruPollMinMsDescription":
+			"How soon after submitting a document its status is checked the first time.",
+		"admin.mineruRequestTimeoutMs": "Request timeout",
+		"admin.mineruRequestTimeoutMsDescription":
+			"Timeout for a single quick call such as a status check. Not the file transfers.",
+		"admin.mineruStructureChunking": "Structure-aware chunking",
+		"admin.mineruStructureChunkingDescription":
+			"Cuts long documents on block boundaries so a table is never split, and records which pages each chunk covers. Off falls back to plain character chunking.",
+		"admin.mineruTransferTimeoutMs": "Transfer timeout",
+		"admin.mineruTransferTimeoutMsDescription":
+			"Timeout for sending a file to MinerU or downloading its result. Raise it on a slow link.",
 		"admin.model1": "Model 1",
 		"admin.model1ApiKey": "Model 1 API Key",
 		"admin.model1BaseUrl": "Model 1 Base URL",
@@ -1253,6 +1283,26 @@ const settingsDict = {
 		"admin.system.integrations.webResearch": "Web research",
 		"admin.system.integrations.documentExtraction": "Document extraction",
 		"admin.system.integrations.webPush": "Web push notifications",
+		"admin.mineruStatus.title": "MinerU status",
+		"admin.mineruStatus.description":
+			"What the configured MinerU server reports about itself.",
+		"admin.mineruStatus.recheck": "Re-check",
+		"admin.mineruStatus.checking": "Checking…",
+		"admin.mineruStatus.loading": "Reading MinerU's capabilities…",
+		"admin.mineruStatus.reachable": "Reachable",
+		"admin.mineruStatus.unreachable": "Unreachable",
+		"admin.mineruStatus.unknown": "Not checked yet",
+		"admin.mineruStatus.cached": "cached",
+		"admin.mineruStatus.checked": "Checked {time}",
+		"admin.mineruStatus.endpoint": "Endpoint",
+		"admin.mineruStatus.version": "Version",
+		"admin.mineruStatus.tiers": "Quality tiers",
+		"admin.mineruStatus.outputFormats": "Output formats",
+		"admin.mineruStatus.accessLevel": "Access level",
+		"admin.mineruStatus.maxFileSize": "Largest file",
+		"admin.mineruStatus.maxPages": "Most pages per file",
+		"admin.mineruStatus.none": "—",
+		"admin.mineruStatus.errors.load": "Failed to read MinerU's status",
 		"admin.system.limits.title": "Limits",
 		"admin.system.limits.description":
 			"Hard ceilings. Every one of them is felt by a user as a refusal, so each says what the refusal looks like.",
@@ -1697,6 +1747,43 @@ const settingsDict = {
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.label": "Summarizer endpoint",
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.meaning":
 			"Where long context is compacted. Falls back to the title endpoint.",
+		"admin.system.keys.MINERU_API_URL.label": "MinerU endpoint",
+		"admin.system.keys.MINERU_API_URL.meaning":
+			"Where uploaded documents are parsed. Must be reachable from this server.",
+		"admin.system.keys.MINERU_API_KEY.label": "MinerU API key",
+		"admin.system.keys.MINERU_API_KEY.meaning":
+			"Empty means anonymous access, which a local MinerU allows.",
+		"admin.system.keys.MINERU_DEFAULT_TIER.label": "Default quality tier",
+		"admin.system.keys.MINERU_DEFAULT_TIER.meaning":
+			"Automatic lets the server choose. A tier it does not offer fails the extraction.",
+		"admin.system.keys.MINERU_OCR_MODE.label": "Text extraction mode",
+		"admin.system.keys.MINERU_OCR_MODE.meaning":
+			"Automatic decides per file; the other two force text-only or OCR.",
+		"admin.system.keys.MINERU_JOB_TIMEOUT_MS.label": "Job timeout",
+		"admin.system.keys.MINERU_JOB_TIMEOUT_MS.meaning":
+			"Whole-document deadline, from upload to result.",
+		"admin.system.keys.MINERU_POLL_MIN_MS.label": "Fastest status check",
+		"admin.system.keys.MINERU_POLL_MIN_MS.meaning":
+			"First wait before asking whether a parse has finished.",
+		"admin.system.keys.MINERU_POLL_MAX_MS.label": "Slowest status check",
+		"admin.system.keys.MINERU_POLL_MAX_MS.meaning":
+			"Where the growing wait between status checks stops.",
+		"admin.system.keys.MINERU_REQUEST_TIMEOUT_MS.label": "Request timeout",
+		"admin.system.keys.MINERU_REQUEST_TIMEOUT_MS.meaning":
+			"Timeout for one quick call, not for a file transfer.",
+		"admin.system.keys.MINERU_TRANSFER_TIMEOUT_MS.label": "Transfer timeout",
+		"admin.system.keys.MINERU_TRANSFER_TIMEOUT_MS.meaning":
+			"Timeout for sending a document or downloading its result.",
+		"admin.system.keys.MINERU_CAPABILITIES_TTL_MS.label": "Capability cache",
+		"admin.system.keys.MINERU_CAPABILITIES_TTL_MS.meaning":
+			"How long MinerU's version and tier list are reused. 0 re-reads every time.",
+		"admin.system.keys.MINERU_BUNDLE_MAX_BYTES.label": "Parse bundle size cap",
+		"admin.system.keys.MINERU_BUNDLE_MAX_BYTES.meaning":
+			"Disk budget per document. Figures are dropped once it is reached; text never is.",
+		"admin.system.keys.MINERU_STRUCTURE_CHUNKING_ENABLED.label":
+			"Structure-aware chunking",
+		"admin.system.keys.MINERU_STRUCTURE_CHUNKING_ENABLED.meaning":
+			"Cuts documents on block boundaries so a table is never split. Off is the rollback.",
 		"admin.system.keys.CONTEXT_DIAGNOSTICS_DEBUG.label": "Context diagnostics",
 		"admin.system.keys.CONTEXT_DIAGNOSTICS_DEBUG.meaning":
 			"Extra logging about how each prompt was assembled.",
@@ -2174,12 +2261,42 @@ const settingsDict = {
 			"Ez futtatja a bírálót, amely eldönti, mit érdemes megjegyezni az adott beszélgetésből. Alapértelmezésben az elsődleges csevegőmodelledet használja.",
 		"admin.minimal": "Minimális",
 		"admin.messages": "Üzenetek",
-		"admin.mineruApiDescription": `MinerU API-szerver végpontja. A szolgáltatás indításához futtasd: \`docker run -d --name mineru -p 8001:8001 opendatalab/mineru:latest\``,
+		"admin.mineruApiDescription":
+			"A MinerU API-szerver végpontja. A szolgáltatás futtatásáról lásd: docs/uploads.md.",
+		"admin.mineruApiKey": "MinerU API-kulcs",
+		"admin.mineruApiKeyDescription":
+			"Bearer tokenként küldjük. Helyi, névtelen szervernél hagyd üresen; kulcs csak megosztott vagy felhős MinerU-hoz kell.",
 		"admin.mineruApiUrl": "MinerU API URL",
-		"admin.mineruDocumentExtraction": "MinerU dokumentumkinyerés",
-		"admin.mineruTimeoutDescription":
-			"Maximális várakozási idő a MinerU válaszára. Nagyobb dokumentumokhoz növeld meg.",
-		"admin.mineruTimeoutMs": "MinerU időkorlát (ms)",
+		"admin.mineruBundleMaxBytes": "Elemzési csomag mérethatára",
+		"admin.mineruBundleMaxBytesDescription":
+			"Egy dokumentum elmentett elemzési csomagjának lemezkerete. A szöveget és a szerkezetet mindig megtartjuk; az ábrák a keret elérése után kimaradnak.",
+		"admin.mineruCapabilitiesTtlMs": "Képességek gyorsítótára",
+		"admin.mineruCapabilitiesTtlMsDescription":
+			"Meddig használjuk újra a MinerU verzióját, szintjeit és kimeneti formátumait, mielőtt újra lekérnénk. A 0 minden kinyerésnél újraolvassa.",
+		"admin.mineruDefaultTier": "Alapértelmezett minőségi szint",
+		"admin.mineruDefaultTierDescription":
+			"Az automatikus a MinerU-ra bízza a választást, saját üzemeltetésű szervernél általában így van beállítva. Olyan szint megadása, amit a szerver nem kínál, hibára futtatja a kinyerést ahelyett, hogy csendben visszavenne a minőségből.",
+		"admin.mineruJobTimeoutMs": "Feladat időkorlátja",
+		"admin.mineruJobTimeoutMsDescription":
+			"Meddig tarthat egy dokumentum a feltöltéstől az eredményig, mielőtt feladjuk és megszakítjuk a távoli feladatot. Nagyon nagy dokumentumokhoz növeld meg.",
+		"admin.mineruOcrMode": "Szövegkinyerési mód",
+		"admin.mineruOcrModeDescription":
+			"Az automatikus fájlonként a MinerU-ra bízza a döntést. A csak szöveg kihagyja az OCR-t; az OCR akkor is lefuttatja, ha a dokumentumban már van szövegréteg.",
+		"admin.mineruPollMaxMs": "Leglassabb állapot-lekérdezés",
+		"admin.mineruPollMaxMsDescription":
+			"Ennél az időköznél áll meg a növekvő várakozás egy hosszú elemzés közben.",
+		"admin.mineruPollMinMs": "Leggyorsabb állapot-lekérdezés",
+		"admin.mineruPollMinMsDescription":
+			"Mennyivel a dokumentum beküldése után kérdezzük le először az állapotát.",
+		"admin.mineruRequestTimeoutMs": "Kérés időkorlátja",
+		"admin.mineruRequestTimeoutMsDescription":
+			"Egyetlen gyors hívás, például egy állapot-lekérdezés időkorlátja. A fájlátvitelekre nem vonatkozik.",
+		"admin.mineruStructureChunking": "Szerkezetkövető darabolás",
+		"admin.mineruStructureChunkingDescription":
+			"A hosszú dokumentumokat blokkhatárokon vágja, így egy táblázat sosem szakad ketté, és rögzíti, mely oldalakat fedi le egy-egy darab. Kikapcsolva egyszerű karakteres darabolásra vált vissza.",
+		"admin.mineruTransferTimeoutMs": "Átvitel időkorlátja",
+		"admin.mineruTransferTimeoutMsDescription":
+			"Fájl MinerU-hoz küldésének vagy az eredmény letöltésének időkorlátja. Lassú kapcsolatnál növeld meg.",
 		"admin.model1": "1. modell",
 		"admin.model1ApiKey": "1. modell API-kulcsa",
 		"admin.model1BaseUrl": "1. modell alap-URL-je",
@@ -3167,6 +3284,27 @@ const settingsDict = {
 		"admin.system.integrations.webResearch": "Webes kutatás",
 		"admin.system.integrations.documentExtraction": "Dokumentumkivonatolás",
 		"admin.system.integrations.webPush": "Webes push-értesítések",
+		"admin.mineruStatus.title": "MinerU állapota",
+		"admin.mineruStatus.description":
+			"Amit a beállított MinerU-szerver mond magáról.",
+		"admin.mineruStatus.recheck": "Újraellenőrzés",
+		"admin.mineruStatus.checking": "Ellenőrzés…",
+		"admin.mineruStatus.loading": "A MinerU képességeinek beolvasása…",
+		"admin.mineruStatus.reachable": "Elérhető",
+		"admin.mineruStatus.unreachable": "Nem érhető el",
+		"admin.mineruStatus.unknown": "Még nincs ellenőrizve",
+		"admin.mineruStatus.cached": "gyorsítótárból",
+		"admin.mineruStatus.checked": "Ellenőrizve: {time}",
+		"admin.mineruStatus.endpoint": "Végpont",
+		"admin.mineruStatus.version": "Verzió",
+		"admin.mineruStatus.tiers": "Minőségi szintek",
+		"admin.mineruStatus.outputFormats": "Kimeneti formátumok",
+		"admin.mineruStatus.accessLevel": "Hozzáférési szint",
+		"admin.mineruStatus.maxFileSize": "Legnagyobb fájl",
+		"admin.mineruStatus.maxPages": "Legtöbb oldal fájlonként",
+		"admin.mineruStatus.none": "—",
+		"admin.mineruStatus.errors.load":
+			"Nem sikerült beolvasni a MinerU állapotát",
 		"admin.system.limits.title": "Korlátok",
 		"admin.system.limits.description":
 			"Kemény korlátok. Mindegyiket elutasításként éli meg a felhasználó, ezért mindegyiknél leírjuk, hogyan néz ki az elutasítás.",
@@ -3627,6 +3765,48 @@ const settingsDict = {
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.label": "Összefoglaló végpont",
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.meaning":
 			"Itt tömörödik a hosszú kontextus. Alapból a címgeneráló végpontra esik vissza.",
+		"admin.system.keys.MINERU_API_URL.label": "MinerU végpont",
+		"admin.system.keys.MINERU_API_URL.meaning":
+			"Itt elemződnek a feltöltött dokumentumok. Elérhetőnek kell lennie erről a szerverről.",
+		"admin.system.keys.MINERU_API_KEY.label": "MinerU API-kulcs",
+		"admin.system.keys.MINERU_API_KEY.meaning":
+			"Üresen névtelen hozzáférést jelent, amit a helyi MinerU megenged.",
+		"admin.system.keys.MINERU_DEFAULT_TIER.label":
+			"Alapértelmezett minőségi szint",
+		"admin.system.keys.MINERU_DEFAULT_TIER.meaning":
+			"Az automatikus a szerverre bízza a választást. A nem kínált szint hibára futtatja a kinyerést.",
+		"admin.system.keys.MINERU_OCR_MODE.label": "Szövegkinyerési mód",
+		"admin.system.keys.MINERU_OCR_MODE.meaning":
+			"Az automatikus fájlonként dönt; a másik kettő csak szöveget vagy OCR-t kényszerít.",
+		"admin.system.keys.MINERU_JOB_TIMEOUT_MS.label": "Feladat időkorlátja",
+		"admin.system.keys.MINERU_JOB_TIMEOUT_MS.meaning":
+			"A teljes dokumentum határideje a feltöltéstől az eredményig.",
+		"admin.system.keys.MINERU_POLL_MIN_MS.label":
+			"Leggyorsabb állapot-lekérdezés",
+		"admin.system.keys.MINERU_POLL_MIN_MS.meaning":
+			"Az első várakozás, mielőtt rákérdeznénk, kész van-e az elemzés.",
+		"admin.system.keys.MINERU_POLL_MAX_MS.label":
+			"Leglassabb állapot-lekérdezés",
+		"admin.system.keys.MINERU_POLL_MAX_MS.meaning":
+			"Itt áll meg az állapot-lekérdezések közti növekvő várakozás.",
+		"admin.system.keys.MINERU_REQUEST_TIMEOUT_MS.label": "Kérés időkorlátja",
+		"admin.system.keys.MINERU_REQUEST_TIMEOUT_MS.meaning":
+			"Egyetlen gyors hívás időkorlátja, nem a fájlátvitelé.",
+		"admin.system.keys.MINERU_TRANSFER_TIMEOUT_MS.label": "Átvitel időkorlátja",
+		"admin.system.keys.MINERU_TRANSFER_TIMEOUT_MS.meaning":
+			"Dokumentum küldésének vagy az eredmény letöltésének időkorlátja.",
+		"admin.system.keys.MINERU_CAPABILITIES_TTL_MS.label":
+			"Képességek gyorsítótára",
+		"admin.system.keys.MINERU_CAPABILITIES_TTL_MS.meaning":
+			"Meddig használjuk újra a MinerU verzióját és szintlistáját. A 0 mindig újraolvassa.",
+		"admin.system.keys.MINERU_BUNDLE_MAX_BYTES.label":
+			"Elemzési csomag mérethatára",
+		"admin.system.keys.MINERU_BUNDLE_MAX_BYTES.meaning":
+			"Dokumentumonkénti lemezkeret. Elérésekor az ábrák maradnak ki, a szöveg sosem.",
+		"admin.system.keys.MINERU_STRUCTURE_CHUNKING_ENABLED.label":
+			"Szerkezetkövető darabolás",
+		"admin.system.keys.MINERU_STRUCTURE_CHUNKING_ENABLED.meaning":
+			"Blokkhatárokon vágja a dokumentumokat, így egy táblázat sosem szakad ketté. Kikapcsolva ez a visszaállás.",
 		"admin.system.keys.CONTEXT_DIAGNOSTICS_DEBUG.label":
 			"Kontextus-diagnosztika",
 		"admin.system.keys.CONTEXT_DIAGNOSTICS_DEBUG.meaning":

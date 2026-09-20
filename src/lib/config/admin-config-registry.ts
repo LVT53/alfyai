@@ -657,6 +657,90 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 
+	// --- MinerU document extraction ------------------------------------------
+	// Dual-registered on purpose: these keys keep their rows on the Integrations
+	// page (NAMED_PAGE_KEYS) and also have a spec here, which is what routes
+	// them through validateAdminConfigValue. Before this, MINERU_TIMEOUT_MS was
+	// "path B" only — `MINERU_TIMEOUT_MS: "abc"` was stored in admin_config and
+	// then silently never applied. ATLAS_PIPELINE is the existing precedent;
+	// AdvancedPage filters on `pageForKey(spec.key) === "advanced"`, so a
+	// named-page key with a spec renders exactly once.
+	{
+		key: "MINERU_API_URL",
+		group: "integrations",
+		control: { kind: "url" },
+		effect: "live",
+	},
+	{
+		key: "MINERU_API_KEY",
+		group: "integrations",
+		control: { kind: "secret" },
+		effect: "live",
+	},
+	{
+		key: "MINERU_DEFAULT_TIER",
+		group: "integrations",
+		control: {
+			kind: "select",
+			options: ["auto", "flash", "basic", "standard", "advanced"],
+		},
+		effect: "live",
+	},
+	{
+		key: "MINERU_OCR_MODE",
+		group: "integrations",
+		control: { kind: "select", options: ["auto", "txt", "ocr"] },
+		effect: "live",
+	},
+	{
+		key: "MINERU_JOB_TIMEOUT_MS",
+		group: "integrations",
+		control: int(10000, 3600000, "s", 1000),
+		effect: "live",
+	},
+	{
+		key: "MINERU_POLL_MIN_MS",
+		group: "integrations",
+		control: int(250, 60000, "ms"),
+		effect: "live",
+	},
+	{
+		key: "MINERU_POLL_MAX_MS",
+		group: "integrations",
+		control: int(1000, 300000, "s", 1000),
+		effect: "live",
+	},
+	{
+		key: "MINERU_REQUEST_TIMEOUT_MS",
+		group: "integrations",
+		control: int(1000, 300000, "s", 1000),
+		effect: "live",
+	},
+	{
+		key: "MINERU_TRANSFER_TIMEOUT_MS",
+		group: "integrations",
+		control: int(10000, 3600000, "s", 1000),
+		effect: "live",
+	},
+	{
+		key: "MINERU_CAPABILITIES_TTL_MS",
+		group: "integrations",
+		control: int(0, 3600000, "s", 1000),
+		effect: "live",
+	},
+	{
+		key: "MINERU_BUNDLE_MAX_BYTES",
+		group: "integrations",
+		control: int(1048576, 536870912, "mb", MB),
+		effect: "live",
+	},
+	{
+		key: "MINERU_STRUCTURE_CHUNKING_ENABLED",
+		group: "integrations",
+		control: { kind: "bool" },
+		effect: "live",
+	},
+
 	// --- Debug & stream limits ----------------------------------------------
 	{
 		key: "CONTEXT_DIAGNOSTICS_DEBUG",
@@ -820,8 +904,8 @@ export const SURFACED_ADMIN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	// Integrations & keys
 	"PARALLEL_API_KEY",
 	"BRAVE_SEARCH_API_KEY",
-	"MINERU_API_URL",
-	"MINERU_TIMEOUT_MS",
+	// The MinerU keys arrive through the ADVANCED_KEY_SPECS spread above, now
+	// that every one of them has a spec.
 	"WEB_PUSH_VAPID_PUBLIC_KEY",
 	"WEB_PUSH_VAPID_PRIVATE_KEY",
 	"WEB_PUSH_VAPID_SUBJECT",
