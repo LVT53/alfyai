@@ -15,6 +15,25 @@ const UPLOAD_SIZE_HEADER = "x-alfyai-upload-size";
 const UPLOAD_TRACE_HEADER = "x-alfyai-upload-trace-id";
 const MULTIPART_PARSE_WATCHDOG_MS = 10_000;
 
+/**
+ * Bug B3 / decision D9. Nothing in `src/` posts here any more — the browser
+ * uses `/raw` and `/chunk` — but the on-box verification scripts do, and they
+ * live outside this repo, so a 404 here would read as an application failure
+ * during a deploy check. The route therefore stays as a thin wrapper and says
+ * so on the wire instead.
+ */
+const DEPRECATION_HEADERS: Readonly<Record<string, string>> = {
+	Deprecation: "true",
+	Link: '</api/knowledge/upload/raw>; rel="successor-version"',
+};
+
+function withDeprecationHeaders(response: Response): Response {
+	for (const [name, value] of Object.entries(DEPRECATION_HEADERS)) {
+		response.headers.set(name, value);
+	}
+	return response;
+}
+
 function maxFileSizeMb(maxFileUploadSize: number): number {
 	return Math.round(maxFileUploadSize / (1024 * 1024));
 }
@@ -317,12 +336,17 @@ function resolveConversationId(value: unknown): string | null {
 	return null;
 }
 
-export const POST: RequestHandler = async (event) => {
+const handleLegacyMultipartUpload: RequestHandler = async (event) => {
 	requireAuth(event);
 	const user = event.locals.user;
 	const traceId =
 		sanitizeUploadTraceId(event.request.headers.get(UPLOAD_TRACE_HEADER)) ??
 		createAttachmentTraceId("upload");
+
+	console.warn("[KNOWLEDGE] legacy multipart upload route used", {
+		traceId,
+		userId: user.id,
+	});
 
 	const limits = resolveKnowledgeUploadLimits();
 	const context = buildUploadContext(user.id, traceId, limits, event.request);
@@ -387,6 +411,12 @@ export const POST: RequestHandler = async (event) => {
 			file,
 			traceId: context.traceId,
 			startedAt: context.startedAt,
+			// The only caller that still waits. Its readers key on `promptReady`
+			// and `normalizedArtifact`, so give a small document the chance to
+			// finish; when the budget runs out the pending state is returned with
+			// every old field still in place, never an error.
+			waitForExtraction: true,
+			signal: event.request.signal,
 		});
 		return json(response);
 	} catch (error) {
@@ -415,3 +445,6 @@ export const POST: RequestHandler = async (event) => {
 		throw error;
 	}
 };
+
+export const POST: RequestHandler = async (event) =>
+	withDeprecationHeaders(await handleLegacyMultipartUpload(event));
