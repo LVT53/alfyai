@@ -18,8 +18,8 @@ import type {
 	KnowledgeMemoryPayload,
 } from "$lib/server/services/memory-types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
-import { formatByteSize } from "$lib/utils/format";
 import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
+import { formatByteSize } from "$lib/utils/format";
 import { _unwrapList } from "./_utils";
 import {
 	ApiError,
@@ -128,9 +128,12 @@ export function uploadRefusalFromError(
 		params: {
 			name: fileName,
 			ext: extension.toUpperCase(),
-			limit: maxBytes === null ? "" : formatByteSize(maxBytes, {
-				trimWholeUnits: true,
-			}),
+			limit:
+				maxBytes === null
+					? ""
+					: formatByteSize(maxBytes, {
+							trimWholeUnits: true,
+						}),
 		},
 	};
 }

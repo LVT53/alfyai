@@ -202,7 +202,9 @@ describe("toFriendlySendError", () => {
 	it("keeps the server sentence when the refusal carries no rows", () => {
 		// `attachment_not_ready` (a deleted file) never carries them, and an
 		// older server does not send them at all.
-		const error = new Error("Attached file is no longer available.") as Error & {
+		const error = new Error(
+			"Attached file is no longer available.",
+		) as Error & {
 			code?: string;
 		};
 		error.code = "attachment_not_ready";

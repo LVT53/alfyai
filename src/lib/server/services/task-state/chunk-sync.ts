@@ -119,7 +119,9 @@ export async function syncArtifactChunks(params: {
 			: [];
 
 	const truncated = allChunks.length > MAX_ARTIFACT_CHUNKS;
-	const chunks = truncated ? allChunks.slice(0, MAX_ARTIFACT_CHUNKS) : allChunks;
+	const chunks = truncated
+		? allChunks.slice(0, MAX_ARTIFACT_CHUNKS)
+		: allChunks;
 
 	if (truncated) {
 		console.warn("[CHUNK_SYNC] Chunk ceiling reached; retrieval is partial", {

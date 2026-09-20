@@ -274,9 +274,7 @@ describe("the chunk ceiling", () => {
 			.from(schema.artifacts)
 			.where(eq(schema.artifacts.id, artifact.id))
 			.all();
-		expect(
-			JSON.parse(row?.metadataJson ?? "{}").chunksTruncated,
-		).toBe(true);
+		expect(JSON.parse(row?.metadataJson ?? "{}").chunksTruncated).toBe(true);
 	});
 });
 

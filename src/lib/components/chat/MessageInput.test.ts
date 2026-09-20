@@ -4353,11 +4353,11 @@ describe("MessageInput extraction chips", () => {
 				promptArtifactId: null,
 				readinessError: null,
 				extraction: extractionJob({
-				status: "failed",
-				retryable: true,
-				cancelable: false,
-				error: { code: "max_attempts", message: "gave up" },
-			}),
+					status: "failed",
+					retryable: true,
+					cancelable: false,
+					error: { code: "max_attempts", message: "gave up" },
+				}),
 			},
 		});
 
@@ -4390,11 +4390,11 @@ describe("MessageInput extraction chips", () => {
 				promptArtifactId: null,
 				readinessError: null,
 				extraction: extractionJob({
-				status: "failed",
-				retryable: false,
-				cancelable: false,
-				error: { code: "too_large", message: "over the cap" },
-			}),
+					status: "failed",
+					retryable: false,
+					cancelable: false,
+					error: { code: "too_large", message: "over the cap" },
+				}),
 			},
 		});
 
@@ -4419,11 +4419,11 @@ describe("MessageInput extraction chips", () => {
 				promptArtifactId: null,
 				readinessError: null,
 				extraction: extractionJob({
-				status: "failed",
-				retryable: true,
-				cancelable: false,
-				error: { code: "max_attempts", message: "gave up" },
-			}),
+					status: "failed",
+					retryable: true,
+					cancelable: false,
+					error: { code: "max_attempts", message: "gave up" },
+				}),
 			},
 		});
 
@@ -4537,9 +4537,7 @@ describe("MessageInput extraction chips", () => {
 				"Reading…",
 			);
 		});
-		expect(
-			queryByText(/still being prepared for chat/i),
-		).toBeNull();
+		expect(queryByText(/still being prepared for chat/i)).toBeNull();
 	});
 
 	it("keeps the upload state while a dropped second batch is in flight", async () => {
@@ -4555,14 +4553,14 @@ describe("MessageInput extraction chips", () => {
 		const { getByTestId, queryByTestId, getByPlaceholderText } = render(
 			MessageInput,
 			{
-			conversationId: "conv-1",
-			attachmentsEnabled: true,
-			onUploadReady: (fn: (files: FileList | null) => Promise<void>) => {
-				uploadFn = fn;
-			},
-			onUploadFiles: (payload: UploadFilesPayload) => {
-				dones.push(payload.done);
-			},
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				onUploadReady: (fn: (files: FileList | null) => Promise<void>) => {
+					uploadFn = fn;
+				},
+				onUploadFiles: (payload: UploadFilesPayload) => {
+					dones.push(payload.done);
+				},
 			},
 		);
 
@@ -4572,7 +4570,7 @@ describe("MessageInput extraction chips", () => {
 		});
 
 		const drop = (name: string) =>
-			(uploadFn as unknown as (files: File[]) => Promise<void>)([
+			(uploadFn as unknown as (files: FileList) => Promise<void>)([
 				new File(["x"], name, { type: "application/pdf" }),
 			] as unknown as FileList);
 

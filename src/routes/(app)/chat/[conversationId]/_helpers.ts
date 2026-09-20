@@ -188,7 +188,8 @@ function translateAttachmentExtraction(
 				retryable: row.retryable === true,
 			}) as I18nKey,
 		);
-		const name = typeof row.name === "string" && row.name.trim() ? row.name : null;
+		const name =
+			typeof row.name === "string" && row.name.trim() ? row.name : null;
 		return [name ? `${name}: ${reason}` : reason];
 	});
 

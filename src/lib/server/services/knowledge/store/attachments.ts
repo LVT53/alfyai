@@ -16,9 +16,8 @@ import type {
 import type { ChatAttachment } from "$lib/server/services/messages-types";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import type {
+	AttachmentExtractionStatusItem,
 	DocumentExtractionJobDTO,
-	DocumentExtractionStatus,
-	ExtractionErrorCode,
 } from "$lib/shared/extraction-status";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { getSupportedExtractionSummary } from "$lib/shared/file-types/model-facing";
@@ -118,7 +117,7 @@ const ATTACHMENT_READINESS_ERROR_CODE_SET: ReadonlySet<string> =
  * client module cannot import `$lib/server`. Re-exported so this module's
  * existing importers keep working.
  */
-export type { AttachmentExtractionStatusItem } from "$lib/shared/extraction-status";
+export type { AttachmentExtractionStatusItem };
 
 export class AttachmentReadinessError extends Error {
 	code: AttachmentReadinessErrorCode;
