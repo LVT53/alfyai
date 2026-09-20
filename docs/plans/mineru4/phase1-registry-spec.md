@@ -1158,3 +1158,32 @@ CI — **slice C must update it manually and say so in its PR description.**
 - **Q11 (size of direct-text files).** No new cap in Phase 1. A large `.txt`, `.csv` or `.json` already takes this path today, so the exposure is not new in kind. Slice D must report what bounds a large direct-text file downstream (chunk count, embedding calls, prompt truncation). A cap is tracked for Phase 3, where the extraction ledger can enforce it.
 - **Toolchain.** Use Homebrew `node@22` (`/opt/homebrew/opt/node@22/bin`) for every npm and vitest command. Node 26 breaks `better-sqlite3`.
 - **Commits.** Stage files by explicit path. Never `git add -A` or `git add .`. Never commit `node_modules`, `data/`, or a symlink to either.
+
+---
+
+## 10. Slice A outcome (merged into `mineru4/p1`) — read before starting B, C, D or E
+
+The registry is in `src/lib/shared/file-types/`. The code is the contract now; where this section or the code disagrees with §1–§6, the code wins.
+
+**Worktree base.** Agent worktrees do NOT start from `mineru4/p1`. Your first command must be `git checkout -b mineru4/p1-<slice> mineru4/p1`.
+
+**Imports.** `$lib/shared/file-types` is client-safe. `$lib/shared/file-types/production` and `$lib/shared/file-types/model-facing` are server-only; a test fails if anything under `src/lib/components/**` or `src/routes/(app)/**` imports them.
+
+**Additions to §1 (nothing renamed or dropped).** `index.ts` also exports `SURFACE_ACCEPT_ORDER` and `KNOWLEDGE_ACCEPT_OMISSIONS`. `production.ts` also exports `buildOutputTokenMap()`.
+
+**Corrections to the spec (real code won).**
+- 71 entries / 89 extensions, including `tsv`.
+- `fileExtension(".env")` returns `"env"`, matching `attachment-file-type.ts`. Slice D: replacing the `extname`-based copies changes `.env` from the `"bin"` fallback to `"env"`.
+- `getEntryByMimeType` returns `null` for generic MIMEs, because `application/octet-stream` is a `zip` alias.
+- `getAllowedMimeTypesForProducedExtension` uses an explicit table in `production.ts`; recognition MIMEs and produced-file validation MIMEs are different sets.
+- The direct-text expansion is 34 extensions, not 33.
+- Spec row 19's `formatFileType` derivation is wrong. The proven one: the file's own extension uppercased; `"HTML"` when the entry previews as html; canonical-from-MIME when there is no extension; else `"FILE"`.
+- `legacy-equivalence.test.ts` has SIX known-delta groups, not three: js canonical MIME, jfif canonical MIME, direct-text expansion (34), attachment glyph expansion (30, all `unsupported` → a real glyph), knowledge icon expansion (33, all generic → a real icon), MIME-only glyph expansion (29). No file moves between two specific glyphs.
+
+**Architecture guard.** `no-ad-hoc-maps.test.ts` has a `TRANSITIONAL_ALLOWLIST` with a measured extension/MIME budget per file and its owning slice. Budgets are ceilings: deleting a map passes without editing the test. When your file is clean, delete its row (this is the one edit to that test file each slice may make, and only to its own rows).
+
+**Per slice.**
+- **B:** copy `CATEGORY_TO_ATTACHMENT_TYPE` and `CATEGORY_TO_ICON` from `legacy-equivalence.test.ts`; `media` maps to `"unsupported"` / `FileIcon`. `attachment-category-parity.test.ts` must carry delta groups 4 and 6, not exact parity. A dotless file literally named `md` now has extension `""`.
+- **C:** byte signatures are already on the table (`null` = wildcard byte); `upload-signature.ts` is only the matcher. `admitUpload` returns `reason: "unknownType"` with `entry: null` for unknown types. `DocumentsList.svelte` also owns its allowlist row.
+- **D:** `shouldUseDocumentSourceForOutputs` matches on entry id only. `getSandboxMimeTypeForExtension` answers for `.gif`, `.webp`, `.doc`, which the old map omitted. `application/x-yaml` is a `yaml` alias. Report what bounds a large direct-text file downstream (§9, Q11).
+- **E:** `getSupportedExtractionSummary("en")` returns the list without a trailing full stop; the caller owns the sentence. The HU string is a first-pass translation.
