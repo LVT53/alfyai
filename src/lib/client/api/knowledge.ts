@@ -18,6 +18,7 @@ import type {
 	KnowledgeMemoryPayload,
 } from "$lib/server/services/memory-types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import { EXTRACTION_STATUS_BATCH_LIMIT } from "$lib/shared/extraction-status";
 import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
 import { formatByteSize } from "$lib/utils/format";
 import { _unwrapList } from "./_utils";
@@ -531,7 +532,7 @@ async function uploadChunkedKnowledgeAttachment(
 }
 
 /**
- * Ask about the extraction state of up to fifty documents at once.
+ * Ask about the extraction state of any number of documents.
  *
  * The endpoint omits ids it cannot resolve for THIS user rather than answering
  * for them, so the returned array is not guaranteed to be as long as the one
@@ -539,6 +540,11 @@ async function uploadChunkedKnowledgeAttachment(
  * index. Ids are de-duplicated here because the endpoint's fifty-id cap counts
  * distinct ids, and a caller holding the same document twice should not lose a
  * slot to it.
+ *
+ * The cap is enforced HERE, not only in the poller: this is the shared client
+ * for the endpoint, and any other caller handing it a long list would
+ * otherwise get a 400 that looks like the endpoint being broken. A list longer
+ * than the cap becomes several requests, never a refusal.
  */
 export async function fetchExtractionJobs(
 	artifactIds: string[],
@@ -549,14 +555,23 @@ export async function fetchExtractionJobs(
 	);
 	if (ids.length === 0) return [];
 
-	const query = ids.map((id) => encodeURIComponent(id)).join(",");
-	const payload = await requestJson<{ jobs?: DocumentExtractionJobDTO[] }>(
-		`/api/knowledge/extraction?artifactIds=${query}`,
-		undefined,
-		"Failed to check document processing status.",
-		fetchImpl,
-	);
-	return _unwrapList<DocumentExtractionJobDTO>(payload, "jobs");
+	const jobs: DocumentExtractionJobDTO[] = [];
+	for (
+		let start = 0;
+		start < ids.length;
+		start += EXTRACTION_STATUS_BATCH_LIMIT
+	) {
+		const batch = ids.slice(start, start + EXTRACTION_STATUS_BATCH_LIMIT);
+		const query = batch.map((id) => encodeURIComponent(id)).join(",");
+		const payload = await requestJson<{ jobs?: DocumentExtractionJobDTO[] }>(
+			`/api/knowledge/extraction?artifactIds=${query}`,
+			undefined,
+			"Failed to check document processing status.",
+			fetchImpl,
+		);
+		jobs.push(..._unwrapList<DocumentExtractionJobDTO>(payload, "jobs"));
+	}
+	return jobs;
 }
 
 /**
