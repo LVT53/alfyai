@@ -375,8 +375,8 @@ let pendingSkill = $state<PendingSkillSelection | null>(null);
 // cleared with every other per-turn selection.
 let pendingQuotes = $state<{ id: string; text: string; label: string }[]>([]);
 let quoteIdSeed = 0;
-// "preparing" is gone. It used to arrive 900 ms after an upload started,
-// from a `setTimeout` that knew nothing about the file, and it lied in both
+// "preparing" is gone. It used to arrive on a fixed delay after an upload
+// started, from a timer that knew nothing about the file, and it lied in both
 // directions: a one-line .txt was called "preparing" for as long as a scanned
 // 40 MB PDF, and a PDF that took a minute stopped saying anything the moment
 // the HTTP response landed. The extraction ledger answers the real question
