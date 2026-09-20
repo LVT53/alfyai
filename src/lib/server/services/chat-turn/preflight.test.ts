@@ -361,12 +361,35 @@ describe("preflightChatTurn", () => {
 });
 
 describe("preflightChatTurn attachment send gate", () => {
-	function readinessError(attachmentIds: string[], message?: string) {
+	/**
+	 * The readiness check classifies and phrases the refusal — it joins the
+	 * ledger while it resolves the prompt artifacts. Preflight's job is the
+	 * bounded wait and the transport of `code` + `items` to the client, so
+	 * these fixtures speak the shape `AttachmentReadinessError` actually has.
+	 */
+	function readinessError(options: {
+		code?: string;
+		message?: string;
+		attachmentIds?: string[];
+		items?: Array<Record<string, unknown>>;
+	}) {
 		return {
 			status: 422,
-			message: message ?? "One or more attached files could not be prepared.",
-			code: "attachment_not_ready",
-			attachmentIds,
+			message: options.message ?? "One or more attached files are not ready.",
+			code: options.code ?? "attachment_not_ready",
+			attachmentIds: options.attachmentIds ?? ["attachment-1"],
+			items: options.items ?? [],
+		};
+	}
+
+	function item(overrides: Record<string, unknown> = {}) {
+		return {
+			artifactId: "attachment-1",
+			name: "Budget.pdf",
+			status: "parsing",
+			errorCode: null,
+			retryable: false,
+			...overrides,
 		};
 	}
 
@@ -389,6 +412,15 @@ describe("preflightChatTurn attachment send gate", () => {
 			legacy: false,
 			...overrides,
 		};
+	}
+
+	function pendingFailure(ids = ["attachment-1"]) {
+		return readinessError({
+			code: "attachment_extraction_pending",
+			message: "Budget.pdf is still being prepared for chat.",
+			attachmentIds: ids,
+			items: ids.map((id) => item({ artifactId: id })),
+		});
 	}
 
 	function requestWithAttachments(ids = ["attachment-1"]) {
@@ -415,9 +447,11 @@ describe("preflightChatTurn attachment send gate", () => {
 	});
 
 	it("waits briefly, then sends when the job settled inside the budget", async () => {
+		// The whole point of D5: a file that was 300 ms from done must not cost
+		// the user a second press of Send.
 		const { preflightChatTurn } = await import("./preflight");
 		mocks.assertPromptReadyAttachments
-			.mockRejectedValueOnce(readinessError(["attachment-1"]))
+			.mockRejectedValueOnce(pendingFailure())
 			.mockResolvedValue(undefined);
 		mocks.getExtractionJobsForArtifacts.mockResolvedValue([job()]);
 
@@ -435,9 +469,7 @@ describe("preflightChatTurn attachment send gate", () => {
 
 	it("answers 422 attachment_extraction_pending when the wait ran out", async () => {
 		const { preflightChatTurn } = await import("./preflight");
-		mocks.assertPromptReadyAttachments.mockRejectedValue(
-			readinessError(["attachment-1"]),
-		);
+		mocks.assertPromptReadyAttachments.mockRejectedValue(pendingFailure());
 		mocks.getExtractionJobsForArtifacts.mockResolvedValue([
 			job({ status: "indexing" }),
 		]);
@@ -447,37 +479,38 @@ describe("preflightChatTurn attachment send gate", () => {
 			request: requestWithAttachments(),
 		});
 
-		expect(result).toMatchObject({
+		expect(result).toEqual({
 			ok: false,
 			error: {
 				status: 422,
+				error: "Budget.pdf is still being prepared for chat.",
 				code: "attachment_extraction_pending",
 				attachmentIds: ["attachment-1"],
 				attachmentExtraction: [
 					{
 						artifactId: "attachment-1",
 						name: "Budget.pdf",
-						status: "indexing",
+						status: "parsing",
 						errorCode: null,
 						retryable: false,
 					},
 				],
 			},
 		});
-		// Pending is not failure: the sentence must not say the file could not
-		// be prepared.
+		// Pending is not failure: the sentence must not claim the file could
+		// not be prepared.
 		expect(result.ok === false && result.error.error).toMatch(
-			/still being processed/i,
+			/still being prepared/i,
 		);
 	});
 
 	it("never waits on a mineru job that has not left the queue", async () => {
+		// OQ1: nothing has been handed to a worker yet, so the budget would buy
+		// nothing but a delay.
 		const { preflightChatTurn } = await import("./preflight");
-		mocks.assertPromptReadyAttachments.mockRejectedValue(
-			readinessError(["attachment-1"]),
-		);
+		mocks.assertPromptReadyAttachments.mockRejectedValue(pendingFailure());
 		mocks.getExtractionJobsForArtifacts.mockResolvedValue([
-			job({ status: "queued", intakeRoute: "mineru", cancelable: true }),
+			job({ status: "queued", intakeRoute: "mineru" }),
 		]);
 
 		const result = await preflightChatTurn({
@@ -494,9 +527,7 @@ describe("preflightChatTurn attachment send gate", () => {
 
 	it("waits on a queued direct-text job, which settles in milliseconds", async () => {
 		const { preflightChatTurn } = await import("./preflight");
-		mocks.assertPromptReadyAttachments.mockRejectedValue(
-			readinessError(["attachment-1"]),
-		);
+		mocks.assertPromptReadyAttachments.mockRejectedValue(pendingFailure());
 		mocks.getExtractionJobsForArtifacts.mockResolvedValue([
 			job({ status: "queued", intakeRoute: "direct-text" }),
 		]);
@@ -512,7 +543,7 @@ describe("preflightChatTurn attachment send gate", () => {
 	it("skips the wait entirely for more than five pending attachments", async () => {
 		const { preflightChatTurn } = await import("./preflight");
 		const ids = Array.from({ length: 6 }, (_, index) => `attachment-${index}`);
-		mocks.assertPromptReadyAttachments.mockRejectedValue(readinessError(ids));
+		mocks.assertPromptReadyAttachments.mockRejectedValue(pendingFailure(ids));
 		mocks.getExtractionJobsForArtifacts.mockResolvedValue(
 			ids.map((id) => job({ id: `job-${id}`, sourceArtifactId: id })),
 		);
@@ -527,27 +558,35 @@ describe("preflightChatTurn attachment send gate", () => {
 			ok: false,
 			error: { code: "attachment_extraction_pending" },
 		});
+		expect(
+			result.ok === false && result.error.attachmentExtraction,
+		).toHaveLength(6);
 	});
 
 	it("answers 422 attachment_extraction_failed with the code and retryability", async () => {
 		const { preflightChatTurn } = await import("./preflight");
 		mocks.assertPromptReadyAttachments.mockRejectedValue(
-			readinessError(["attachment-1"]),
-		);
-		mocks.getExtractionJobsForArtifacts.mockResolvedValue([
-			job({
-				status: "failed",
-				cancelable: false,
-				retryable: true,
-				error: { code: "max_attempts", message: "Gave up after 3 tries." },
+			readinessError({
+				code: "attachment_extraction_failed",
+				message: "Budget.pdf: we could not read this file.",
+				items: [
+					item({
+						status: "failed",
+						errorCode: "max_attempts",
+						retryable: true,
+					}),
+				],
 			}),
-		]);
+		);
 
 		const result = await preflightChatTurn({
 			userId: "user-1",
 			request: requestWithAttachments(),
 		});
 
+		// A failure never gets better by waiting, so the gate must not spend
+		// the budget on it.
+		expect(mocks.getExtractionJobsForArtifacts).not.toHaveBeenCalled();
 		expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
 		expect(result).toMatchObject({
 			ok: false,
@@ -566,49 +605,11 @@ describe("preflightChatTurn attachment send gate", () => {
 		});
 	});
 
-	it("reports a failure ahead of a pending sibling, and both in the array", async () => {
-		// A pending job resolves itself; a failed one never will. Naming the
-		// pending one first would cost the user a whole round trip to learn
-		// about the broken file.
-		const { preflightChatTurn } = await import("./preflight");
-		mocks.assertPromptReadyAttachments.mockRejectedValue(
-			readinessError(["attachment-1", "attachment-2"]),
-		);
-		mocks.getExtractionJobsForArtifacts.mockResolvedValue([
-			job({ sourceArtifactId: "attachment-1", status: "parsing" }),
-			job({
-				id: "job-2",
-				sourceArtifactId: "attachment-2",
-				fileName: "Broken.pdf",
-				status: "failed",
-				cancelable: false,
-				error: { code: "empty_result", message: "No text found." },
-			}),
-		]);
-
-		const result = await preflightChatTurn({
-			userId: "user-1",
-			request: requestWithAttachments(["attachment-1", "attachment-2"]),
-		});
-
-		expect(result).toMatchObject({
-			ok: false,
-			error: {
-				code: "attachment_extraction_failed",
-				attachmentExtraction: [
-					{ artifactId: "attachment-2", errorCode: "empty_result" },
-					{ artifactId: "attachment-1", status: "parsing" },
-				],
-			},
-		});
-	});
-
 	it("keeps the old refusal for an attachment the ledger knows nothing about", async () => {
 		const { preflightChatTurn } = await import("./preflight");
 		mocks.assertPromptReadyAttachments.mockRejectedValue(
-			readinessError(["attachment-1"], "Attached file is no longer available."),
+			readinessError({ message: "Attached file is no longer available." }),
 		);
-		mocks.getExtractionJobsForArtifacts.mockResolvedValue([]);
 
 		const result = await preflightChatTurn({
 			userId: "user-1",
@@ -624,16 +625,17 @@ describe("preflightChatTurn attachment send gate", () => {
 				attachmentIds: ["attachment-1"],
 			},
 		});
+		expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
 	});
 
-	it("degrades to the old refusal when the ledger itself is unreachable", async () => {
+	it("still refuses honestly when the ledger itself is unreachable", async () => {
+		// The wait is the only thing that needs the ledger here; losing it must
+		// not turn a pending attachment into a hard failure.
 		const { preflightChatTurn } = await import("./preflight");
 		const consoleError = vi
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
-		mocks.assertPromptReadyAttachments.mockRejectedValue(
-			readinessError(["attachment-1"]),
-		);
+		mocks.assertPromptReadyAttachments.mockRejectedValue(pendingFailure());
 		mocks.getExtractionJobsForArtifacts.mockRejectedValue(
 			new Error("ledger down"),
 		);
@@ -643,9 +645,10 @@ describe("preflightChatTurn attachment send gate", () => {
 			request: requestWithAttachments(),
 		});
 
+		expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
 		expect(result).toMatchObject({
 			ok: false,
-			error: { status: 422, code: "attachment_not_ready" },
+			error: { status: 422, code: "attachment_extraction_pending" },
 		});
 		consoleError.mockRestore();
 	});
@@ -653,9 +656,7 @@ describe("preflightChatTurn attachment send gate", () => {
 	it("does not wait when an admin has set the budget to zero", async () => {
 		const { preflightChatTurn } = await import("./preflight");
 		mocks.getExtractionConfig.mockReturnValue({ preflightWaitMs: 0 });
-		mocks.assertPromptReadyAttachments.mockRejectedValue(
-			readinessError(["attachment-1"]),
-		);
+		mocks.assertPromptReadyAttachments.mockRejectedValue(pendingFailure());
 		mocks.getExtractionJobsForArtifacts.mockResolvedValue([job()]);
 
 		await preflightChatTurn({

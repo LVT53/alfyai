@@ -41,10 +41,17 @@ export type {
  * One blocked attachment, as the send gate saw it.
  *
  * The server's prose is English — `knowledge/store/attachments.ts` builds it
- * from a hard-wired literal — so the refusal carries the machine-readable
+ * from hard-wired literals — so the refusal carries the machine-readable
  * facts beside the sentence and lets the client render a translated message
  * from `status` and `errorCode`. `retryable` is the DTO's, so the composer can
  * decide whether to offer a Retry affordance without a second round trip.
+ *
+ * Structurally identical to `AttachmentExtractionStatusItem` in
+ * `knowledge/store/attachments.ts`, which is what actually builds the rows.
+ * It is restated rather than imported because that module exports it neither
+ * through `knowledge/store/index.ts` nor through the service facade, and this
+ * is the chat-turn wire shape regardless of who fills it. One re-export would
+ * collapse the two — worth doing, in the slice that owns that file.
  */
 export type ChatTurnAttachmentExtraction = {
 	artifactId: string;
