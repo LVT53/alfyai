@@ -1287,3 +1287,13 @@ owned by a Phase 4 slice. No slice here touches that file.
 | OQ10 | Unify storage paths now? | **Defer** (§7). Cosmetic payoff, a data migration, and it touches six modules plus the fork logic Phase 3 OQ9 already flagged. |
 | OQ11 | Do `doc`/`xls`/`ppt` get `tierHint: "flash"` with no fixture? | **Yes**, on the §2.7-rule-2 argument (omitting the tier is a 503 on a flash-only server, and Office resolves to flash file-level anyway), **conditional on** §5.1's live matrix. If the live run shows a legacy format failing at flash, drop the hint for that format — a one-line edit. |
 | OQ12 | Should the mixed-outputs refusal (§4.2 bonus fix) ship in P6-B or wait for D13? | **P6-B.** It is an error message, not a tool description; `format-prose.test.ts` does not freeze it, so it costs no prefix eviction. |
+
+---
+
+## Orchestrator rulings (2026-09-20) — these override anything above that conflicts
+
+- **Order.** Phases 5 and 6 are built after Phases 2 and 4 are merged. Integration branch `mineru4/p56`, slices `mineru4/p56-p5a`, `-p5b`, `-p5c`, `-p6a`, `-p6b`, `-p6c`, `-p6d`. P5-A runs alone first; P6-D (the single prose release) runs last. File-ownership lists must be re-checked against the merged Phase 2 and 4 code before development starts.
+- **Open questions.** Every recommended answer is adopted: OQ1 (`tsv` is direct-text), OQ3 (`ofd` recognised, not enabled), OQ4 (Knowledge and chat accept sets become identical), OQ5, OQ6 (`inline_text` production mode; plain markdown is never routed through `documentSource`), OQ7, OQ8 (gate on the server version from `/v1/health`), OQ9 (gate fails open), OQ10 (storage-path unification deferred), OQ11, OQ12.
+- **OQ2, amended.** HTML moves to MinerU `flash`, and there is no second path while MinerU 4 is the backend: an unavailable server is handled by the ledger's retry. But HTML uploads work today, so they must never become refusals: `html` / `htm` carry `requiresMineru4`, and when the gate positively detects a pre-4 backend they fall back to the `direct-text` route instead of being refused. Only formats that never worked before (`rtf`, `odt`, `ods`, `odp`, `epub`) are hidden or refused on a pre-4 backend.
+- **Outputs.** `tsv` is the only new requestable output. `png` / `jpg` stay out until there is a reason to pay for the sandbox packages and the prose change.
+- **Worktrees, toolchain, commits.** First command of every slice: `git checkout -b <slice-branch> <integration-branch>`. Homebrew `node@22`. `mkdir -p data` before `vite build`. Stage by explicit path; never `git add -A`. Do not use `git stash` (shared between worktrees).
