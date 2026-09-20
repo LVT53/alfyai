@@ -259,10 +259,6 @@ const TRANSITIONAL_ALLOWLIST = new Map<string, TransitionalBudget>([
 			what: "TEXT_LIKE_MIME_TYPES / isTextLike (spec row 56)",
 		},
 	],
-	[
-		"src/routes/api/settings/avatar/+server.ts",
-		{ ext: 0, mime: 9, slice: "E", what: "ALLOWED_TYPES (spec row 44)" },
-	],
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {

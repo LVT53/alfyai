@@ -7,9 +7,12 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { FILE_TYPE_ENTRIES, getEntryByMimeType } from "$lib/shared/file-types";
 import {
+	ALLOWED_IMAGE_TYPES,
 	CampaignAssetValidationError,
 	getCampaignAssetForServing,
+	MIME_EXTENSIONS,
 	saveCampaignCropAsset,
 	saveModelIconAsset,
 	storeCampaignSourceAsset,
@@ -357,5 +360,41 @@ describe("campaign asset service", () => {
 			expect(published.asset.status).toBe("published");
 			expect(published.content.toString()).toBe("source-image");
 		}
+	});
+});
+
+// Spec rows 45-46 (slice E). `ALLOWED_IMAGE_TYPES` is derived from the
+// registry; `MIME_EXTENSIONS` deliberately is NOT, because it writes "tiff"
+// where the registry canonicalises "tif" and deriving it would move assets
+// already on disk. These assertions run against the LIVE module, so they catch
+// drift the frozen copies in `legacy-equivalence.test.ts` cannot see.
+describe("campaign asset image allowlists", () => {
+	it("admits exactly the registry's image types", () => {
+		const registryImageMimeTypes = FILE_TYPE_ENTRIES.filter(
+			(entry) => entry.category === "image",
+		).map((entry) => entry.mimeTypes[0]);
+		expect([...ALLOWED_IMAGE_TYPES].sort()).toEqual(
+			[...registryImageMimeTypes].sort(),
+		);
+		// The ten values this module used to list by hand.
+		expect(ALLOWED_IMAGE_TYPES.size).toBe(10);
+		expect(ALLOWED_IMAGE_TYPES.has("image/svg+xml")).toBe(true);
+	});
+
+	it("maps every allowed type to a registry-known on-disk extension", () => {
+		expect(Object.keys(MIME_EXTENSIONS).sort()).toEqual(
+			[...ALLOWED_IMAGE_TYPES].sort(),
+		);
+		for (const [mimeType, extension] of Object.entries(MIME_EXTENSIONS)) {
+			const entry = getEntryByMimeType(mimeType);
+			expect(entry?.category, mimeType).toBe("image");
+			expect(entry?.extensions, mimeType).toContain(extension);
+		}
+	});
+
+	it("keeps image/tiff on disk as .tiff, not the registry's canonical .tif", () => {
+		// Open question 6: changing this would rename stored asset paths.
+		expect(MIME_EXTENSIONS["image/tiff"]).toBe("tiff");
+		expect(getEntryByMimeType("image/tiff")?.extensions[0]).toBe("tif");
 	});
 });
