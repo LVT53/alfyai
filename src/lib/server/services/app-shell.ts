@@ -35,6 +35,11 @@ export interface AppShellData {
 	conversations: Promise<ConversationListItem[]>;
 	projects: Promise<Project[]>;
 	maxMessageLength: number;
+	/**
+	 * Seeds `$lib/stores/upload-limits` before any upload intent is sent —
+	 * drag-and-drop partitioning happens before the first request.
+	 */
+	maxFileUploadSize: number;
 	composerCommandRegistryEnabled: boolean;
 	atlasAvailability: AtlasAvailability;
 	userTheme: "system" | "light" | "dark";
@@ -83,6 +88,7 @@ export async function getAuthenticatedAppShellData(
 		conversations,
 		projects,
 		maxMessageLength: config.maxMessageLength,
+		maxFileUploadSize: config.maxFileUploadSize,
 		composerCommandRegistryEnabled: config.composerCommandRegistryEnabled,
 		atlasAvailability: getAtlasAvailability(config),
 		userTheme: resolveUserTheme(userRow?.theme),

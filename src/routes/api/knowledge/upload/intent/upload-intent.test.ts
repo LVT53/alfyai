@@ -173,6 +173,127 @@ describe("POST /api/knowledge/upload/intent", () => {
 		expect(data.traceId).toBe("trace-upload");
 	});
 
+	// Spec exceptions (b) and (c): the server has a type allowlist now. Every
+	// refusal is one machine code with `details.reason` discriminating, plus an
+	// `errorKey` the client renders in the user's own language.
+	it.each([
+		["clip.mp4", "video/mp4", "media", "knowledge.uploadRejectedMedia"],
+		[
+			"notes.zip",
+			"application/zip",
+			"archive",
+			"knowledge.uploadRejectedArchive",
+		],
+		[
+			"memo.rtf",
+			"application/rtf",
+			"formatNotEnabled",
+			"knowledge.uploadRejectedFormatNotEnabled",
+		],
+		["mystery.wat", null, "unknownType", "knowledge.uploadUnsupportedType"],
+	])("refuses %s with 415 and a localizable reason", async (fileName, mimeType, reason, errorKey) => {
+		const response = await POST(
+			makeEvent({
+				fileName,
+				fileSize: 1024,
+				mimeType,
+				conversationId: "conv-1",
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(415);
+		expect(data.code).toBe("upload_unsupported_type");
+		expect(data.errorKey).toBe(errorKey);
+		expect(data.traceId).toBe("trace-upload");
+		expect(data.details).toMatchObject({ fileName, reason });
+		expect(typeof data.error).toBe("string");
+		expect(data.error).not.toContain("{");
+		// Refused before the conversation is even looked up.
+		expect(mockValidateKnowledgeUploadConversation).not.toHaveBeenCalled();
+	});
+
+	it("names the file and the extension in the English fallback text", async () => {
+		const unknown = await POST(
+			makeEvent({ fileName: "mystery.wat", fileSize: 1, mimeType: null }),
+		);
+		expect((await unknown.json()).error).toBe(
+			"We can't read mystery.wat — that file type isn't supported.",
+		);
+
+		const rtf = await POST(
+			makeEvent({ fileName: "memo.rtf", fileSize: 1, mimeType: null }),
+		);
+		expect((await rtf.json()).error).toBe(
+			"RTF files aren't supported yet. Save it as PDF or DOCX and upload that.",
+		);
+	});
+
+	// Exception (a): the 34 code/text extensions that preview as text now take
+	// the direct-text route instead of failing inside MinerU.
+	it.each([
+		["script.py", "text/x-python"],
+		["notes.odt", "application/vnd.oasis.opendocument.text"],
+		["config.yaml", "application/yaml"],
+		["shot.heic", "image/heic"],
+		["page.html", "text/html"],
+	])("admits %s", async (fileName, mimeType) => {
+		const response = await POST(
+			makeEvent({
+				fileName,
+				fileSize: 1024,
+				mimeType,
+				conversationId: "conv-1",
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect((await response.json()).traceId).toBe("trace-upload");
+	});
+
+	it("resolves the type by extension first and the declared MIME second", async () => {
+		// A browser that reports nothing must not turn a known extension into an
+		// unknown type, and a nameless upload must still resolve by MIME.
+		const byExtension = await POST(
+			makeEvent({ fileName: "brief.pdf", fileSize: 1024, mimeType: null }),
+		);
+		expect(byExtension.status).toBe(200);
+
+		const byMime = await POST(
+			makeEvent({
+				fileName: "download",
+				fileSize: 1024,
+				mimeType: "application/pdf",
+			}),
+		);
+		expect(byMime.status).toBe(200);
+
+		// The extension wins: a .mp4 mislabelled as a PDF is still refused.
+		const extensionWins = await POST(
+			makeEvent({
+				fileName: "clip.mp4",
+				fileSize: 1024,
+				mimeType: "application/pdf",
+			}),
+		);
+		expect(extensionWins.status).toBe(415);
+	});
+
+	it("checks the size before the type", async () => {
+		// Order is load-bearing: an oversized file of an unsupported type is
+		// still a 413, which is what the browser's retry logic keys on.
+		const response = await POST(
+			makeEvent({
+				fileName: "huge.mp4",
+				fileSize: 100 * 1024 * 1024 + 1,
+				mimeType: "video/mp4",
+			}),
+		);
+
+		expect(response.status).toBe(413);
+		expect((await response.json()).code).toBe("upload_file_too_large");
+	});
+
 	it("rejects an inaccessible conversation during upload preflight", async () => {
 		const error = new Error("Conversation not found or access denied");
 		mockValidateKnowledgeUploadConversation.mockRejectedValueOnce(error);

@@ -6,6 +6,12 @@ import {
 	resolveKnowledgeUploadLimits,
 	validateKnowledgeUploadConversation,
 } from "$lib/server/services/knowledge/upload-intake";
+import {
+	formatUploadRejectMessageEn,
+	UPLOAD_REJECT_I18N_KEYS,
+	UPLOAD_UNSUPPORTED_TYPE_CODE,
+} from "$lib/server/services/knowledge/upload-signature";
+import { admitUpload, fileExtension } from "$lib/shared/file-types";
 import type { RequestHandler } from "./$types";
 
 function formatBytes(value: number | null): string {
@@ -101,6 +107,40 @@ export const POST: RequestHandler = async (event) => {
 				},
 			},
 			{ status: 413 },
+		);
+	}
+
+	// The type allowlist. Deliberately AFTER the two size checks: an oversized
+	// file with no usable name must still answer 413, not 415
+	// (`upload-intent.test.ts`), and a file the server will never read is worth
+	// refusing before a conversation lookup.
+	const admission = admitUpload(intent.fileName ?? "", intent.mimeType);
+	if (!admission.allowed) {
+		const extension = fileExtension(intent.fileName ?? "") || null;
+		console.info("[KNOWLEDGE] Upload intent refused an unsupported type", {
+			traceId,
+			userId: user.id,
+			fileName: intent.fileName,
+			mimeType: intent.mimeType,
+			extension,
+			reason: admission.reason,
+		});
+		return json(
+			{
+				error: formatUploadRejectMessageEn(admission.reason, {
+					fileName: intent.fileName,
+					extension,
+				}),
+				code: UPLOAD_UNSUPPORTED_TYPE_CODE,
+				errorKey: UPLOAD_REJECT_I18N_KEYS[admission.reason],
+				traceId,
+				details: {
+					fileName: intent.fileName,
+					extension,
+					reason: admission.reason,
+				},
+			},
+			{ status: 415 },
 		);
 	}
 

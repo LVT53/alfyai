@@ -9,6 +9,7 @@ import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
+import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
 import {
 	formatBytes,
 	parseNonNegativeInteger,
@@ -319,6 +320,32 @@ export const POST: RequestHandler = async (event) => {
 					traceId,
 				},
 				{ status: 400 },
+			);
+		}
+		if (isKnowledgeUploadContentMismatchError(error)) {
+			// Drops the assembled file together with every part it came from.
+			await rm(uploadDir, { force: true, recursive: true }).catch(
+				() => undefined,
+			);
+			console.warn("[KNOWLEDGE] Chunked upload refused on a content mismatch", {
+				traceId,
+				userId: user.id,
+				fileName: error.fileName,
+				extension: error.extension,
+			});
+			return json(
+				{
+					error: error.message,
+					code: error.code,
+					errorKey: error.errorKey,
+					traceId,
+					details: {
+						fileName: error.fileName,
+						extension: error.extension,
+						reason: "contentMismatch",
+					},
+				},
+				{ status: error.status },
 			);
 		}
 		throw error;

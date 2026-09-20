@@ -29,6 +29,11 @@ const AUDITED_PREFIXES = [
 	// any one render, so a line that landed in EN and not in HU would show as
 	// the raw key to exactly the users who read Hungarian and nobody else.
 	"landing.",
+	// The upload family: five refusal keys the server names by `errorKey`,
+	// plus the drop-zone and tooltip copy that carries the size limit. The
+	// `knowledge.` namespace as a whole is NOT audited (it has pre-existing
+	// drift this phase does not touch), so the prefix is deliberately narrow.
+	"knowledge.upload",
 	"modelPicker.",
 	"skillsPicker.",
 	"writeConfirm.",

@@ -16,6 +16,7 @@ import type {
 	KnowledgeMemoryOverviewPayload,
 	KnowledgeMemoryPayload,
 } from "$lib/server/services/memory-types";
+import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
 import { _unwrapList } from "./_utils";
 import {
 	ApiError,
@@ -70,6 +71,8 @@ const UPLOAD_CHUNK_BYTES = 256 * 1024;
 
 type KnowledgeUploadIntentResponse = {
 	traceId: string;
+	/** The authoritative per-file limit; published into `$maxFileUploadSizeBytes`. */
+	maxFileUploadSize?: number;
 	chunkBodyLimit?: number;
 	rawUploadLimit?: number;
 	requestBodyLimit?: number;
@@ -342,6 +345,10 @@ export async function uploadKnowledgeAttachment(
 		"Failed to prepare upload.",
 		fetchImpl,
 	);
+	// The intent response is the authoritative limit: it reflects the live
+	// admin setting, where the SSR seed only reflects the one in force when the
+	// shell was rendered.
+	setMaxFileUploadSize(intent.maxFileUploadSize);
 	try {
 		if (file.size > resolveRawUploadLimit(intent)) {
 			return await uploadChunkedKnowledgeAttachment(

@@ -118,6 +118,83 @@ describe("POST /api/knowledge/upload", () => {
 		expect(mockCompleteKnowledgeUploadFromFile).not.toHaveBeenCalled();
 	});
 
+	// This route predates the intent handshake and is still what the off-repo
+	// verification scripts post to, so it carries its own copy of the gate
+	// rather than trusting intent to have refused first.
+	it.each([
+		["clip.mp4", "video/mp4", "media", "knowledge.uploadRejectedMedia"],
+		[
+			"bundle.zip",
+			"application/zip",
+			"archive",
+			"knowledge.uploadRejectedArchive",
+		],
+		["mystery.wat", "", "unknownType", "knowledge.uploadUnsupportedType"],
+	])("refuses %s with 415 before parsing anything", async (fileName, type, reason, errorKey) => {
+		const formData = new FormData();
+		formData.append("file", new File(["x"], fileName, { type }));
+		formData.append("conversationId", "conv-1");
+
+		const response = await POST(makeEventWithFormData(formData));
+		const data = await response.json();
+
+		expect(response.status).toBe(415);
+		expect(data.code).toBe("upload_unsupported_type");
+		expect(data.errorKey).toBe(errorKey);
+		expect(data.details).toMatchObject({ fileName, reason });
+		expect(mockCompleteKnowledgeUploadFromFile).not.toHaveBeenCalled();
+	});
+
+	it("still accepts the multipart shape the verification scripts post", async () => {
+		const formData = new FormData();
+		formData.append(
+			"file",
+			new File(["scan"], "scan.pdf", { type: "application/pdf" }),
+		);
+		formData.append("conversationId", "conv-1");
+
+		const response = await POST(makeEventWithFormData(formData));
+
+		expect(response.status).toBe(200);
+		expect(mockCompleteKnowledgeUploadFromFile).toHaveBeenCalledWith(
+			expect.objectContaining({ conversationId: "conv-1" }),
+		);
+	});
+
+	it("answers 415 when the bytes do not match the extension", async () => {
+		// A .png carrying "%PDF-". The check itself lives in
+		// `upload-signature.ts` (mocked out here with the rest of
+		// `upload-intake`); this pins the route's translation of it.
+		mockCompleteKnowledgeUploadFromFile.mockRejectedValueOnce(
+			Object.assign(new Error("fake.png doesn't look like a real png file"), {
+				name: "KnowledgeUploadContentMismatchError",
+				code: "upload_content_mismatch",
+				errorKey: "knowledge.uploadContentMismatch",
+				status: 415,
+				fileName: "fake.png",
+				extension: "png",
+			}),
+		);
+
+		const formData = new FormData();
+		formData.append(
+			"file",
+			new File(["%PDF-"], "fake.png", { type: "image/png" }),
+		);
+		formData.append("conversationId", "conv-1");
+
+		const response = await POST(makeEventWithFormData(formData));
+		const data = await response.json();
+
+		expect(response.status).toBe(415);
+		expect(data.code).toBe("upload_content_mismatch");
+		expect(data.errorKey).toBe("knowledge.uploadContentMismatch");
+		expect(data.details).toMatchObject({
+			fileName: "fake.png",
+			extension: "png",
+		});
+	});
+
 	it("returns prompt-ready metadata when a normalized artifact exists", async () => {
 		const artifact = {
 			id: "artifact-1",
