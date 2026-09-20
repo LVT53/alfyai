@@ -552,6 +552,13 @@ export interface CompleteExtractionAttemptInput extends OwnedAttemptInput {
 	normalizedArtifactId: string;
 	textLength: number;
 	pageCount: number | null;
+	/**
+	 * Facts about a SUCCESSFUL attempt worth keeping — today, whether the chunk
+	 * ceiling truncated retrieval for this document. A success that is partial
+	 * in a way nobody recorded is the kind of thing an operator later cannot
+	 * explain.
+	 */
+	diagnostics?: Record<string, unknown>;
 }
 
 /**
@@ -601,6 +608,9 @@ export async function completeExtractionAttempt(
 				finishedAt: now,
 				textLength: input.textLength,
 				pageCount: input.pageCount,
+				...(input.diagnostics
+					? { diagnosticsJson: JSON.stringify(input.diagnostics) }
+					: {}),
 				updatedAt: now,
 			})
 			.where(

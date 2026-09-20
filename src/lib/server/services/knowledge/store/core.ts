@@ -293,14 +293,32 @@ export async function createArtifact(params: {
 		})
 		.returning();
 
-	const mapped = mapArtifact(artifact);
+	let mapped = mapArtifact(artifact);
 	try {
-		await syncArtifactChunks({
+		const sync = await syncArtifactChunks({
 			artifactId: mapped.id,
 			userId: mapped.userId,
 			conversationId: mapped.conversationId,
 			contentText: mapped.contentText,
 		});
+		if (sync.truncated) {
+			// Retrieval now sees only the first `MAX_ARTIFACT_CHUNKS` of this
+			// document. Recording it on the artifact is what keeps that from being
+			// a silent fact: anything that reads the artifact — the extraction
+			// ledger's diagnostics, a future prompt assembler, an operator looking
+			// at why a search misses the end of a file — can see it.
+			const patch = {
+				chunksTruncated: true,
+				chunkCount: sync.chunkCount,
+				chunkCountBeforeTruncation: sync.totalChunks,
+			};
+			await updateArtifactMetadata({
+				artifactId: mapped.id,
+				userId: mapped.userId,
+				patch,
+			});
+			mapped = { ...mapped, metadata: { ...mapped.metadata, ...patch } };
+		}
 	} catch (error) {
 		// The artifact row is already committed at this point. Leaving it would
 		// mean an artifact with zero chunks whose full `contentText` still

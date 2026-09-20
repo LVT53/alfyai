@@ -65,7 +65,7 @@ export type ReadbackExtractionSink = (input: {
 	text: string;
 	pageCount: number | null;
 	structured?: unknown;
-}) => Promise<{ artifactId: string }>;
+}) => Promise<{ artifactId: string; chunksTruncated?: boolean }>;
 
 let registeredReadbackSink: ReadbackExtractionSink | null = null;
 
@@ -347,7 +347,7 @@ async function executeStep(
 	}
 
 	try {
-		const normalizedArtifactId = await persistExtraction({
+		const persisted = await persistExtraction({
 			job,
 			result,
 			source,
@@ -357,9 +357,15 @@ async function executeStep(
 
 		await completeExtractionAttempt({
 			...owned,
-			normalizedArtifactId,
+			normalizedArtifactId: persisted.artifactId,
 			textLength: result.text.length,
 			pageCount: result.pageCount ?? null,
+			// Recorded on the attempt, not just in a log line: "retrieval only
+			// covers the first N chunks of this document" is the kind of fact
+			// someone reads the ledger to find out.
+			...(persisted.chunksTruncated
+				? { diagnostics: { chunksTruncated: true } }
+				: {}),
 		});
 		return { processed: true, result: { jobId: job.id, status: "succeeded" } };
 	} catch (error) {
@@ -387,13 +393,19 @@ async function executeStep(
 	}
 }
 
+interface PersistedExtraction {
+	artifactId: string;
+	/** The chunk ceiling was hit, so retrieval covers only part of the text. */
+	chunksTruncated: boolean;
+}
+
 async function persistExtraction(params: {
 	job: DocumentExtractionJobRow;
 	result: ExtractDocumentResult;
 	source: ExtractionSource;
 	persistResult?: PersistExtractionResultDependency;
 	persistReadback?: ReadbackExtractionSink;
-}): Promise<string> {
+}): Promise<PersistedExtraction> {
 	const { job, result, source } = params;
 
 	if (job.origin === "generated_file_readback" && job.chatGeneratedFileId) {
@@ -411,7 +423,10 @@ async function persistExtraction(params: {
 			pageCount: result.pageCount ?? null,
 			structured: result.structured,
 		});
-		return persisted.artifactId;
+		return {
+			artifactId: persisted.artifactId,
+			chunksTruncated: persisted.chunksTruncated === true,
+		};
 	}
 
 	if (!job.sourceArtifactId) {
@@ -431,7 +446,10 @@ async function persistExtraction(params: {
 		...(result.pageCount === undefined ? {} : { pageCount: result.pageCount }),
 		structured: result.structured,
 	});
-	return artifact.id;
+	return {
+		artifactId: artifact.id,
+		chunksTruncated: artifact.metadata?.chunksTruncated === true,
+	};
 }
 
 async function bestEffortRemoteCancel(

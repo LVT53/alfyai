@@ -36,16 +36,22 @@ const {
 	mockCreateArtifact,
 	mockCreateArtifactLink,
 	mockUpdateArtifactMetadata,
+	mockGetNormalizedArtifactForSource,
 } = vi.hoisted(() => ({
 	mockCreateArtifact: vi.fn(),
 	mockCreateArtifactLink: vi.fn(),
 	mockUpdateArtifactMetadata: vi.fn(),
+	// Phase 3 review: persist now asks whether this source already HAS a
+	// normalized artifact, so a re-extraction rewrites it instead of minting a
+	// second one. These cases are a first extraction, so: none.
+	mockGetNormalizedArtifactForSource: vi.fn(async () => null),
 }));
 
 vi.mock("$lib/server/services/knowledge/store/core", () => ({
 	createArtifact: mockCreateArtifact,
 	createArtifactLink: mockCreateArtifactLink,
 	updateArtifactMetadata: mockUpdateArtifactMetadata,
+	getNormalizedArtifactForSource: mockGetNormalizedArtifactForSource,
 	guessSummary: (text: string) => text.slice(0, 20),
 	buildArtifactVisibilityCondition: vi.fn(),
 	getArtifactOwnershipScope: vi.fn(),

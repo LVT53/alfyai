@@ -37,7 +37,9 @@ vi.mock("$lib/server/config-store", async () => {
 	return { ...actual, getSmallFileThreshold: () => 1024 };
 });
 
-const { syncArtifactChunks } = await import("./chunk-sync");
+const { syncArtifactChunks, MAX_ARTIFACT_CHUNKS } = await import(
+	"./chunk-sync"
+);
 const { createArtifact } = await import(
 	"$lib/server/services/knowledge/store/core"
 );
@@ -210,6 +212,71 @@ describe("syncArtifactChunks", () => {
 		});
 
 		expect(countChunks(artifactId)).toBe(0);
+	});
+});
+
+describe("the chunk ceiling", () => {
+	it("chunks the largest admissible direct-text file in full", () => {
+		// The ceiling is a safety net, not a product limit: 8 MiB is the
+		// direct-text cap (`DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES`), and the
+		// chunker advances 1180 characters per chunk, so the worst case must
+		// still fit under the ceiling with room to spare.
+		const worstCaseChunks = Math.ceil((8 * 1024 * 1024) / 1180);
+		expect(worstCaseChunks).toBeLessThan(MAX_ARTIFACT_CHUNKS);
+	});
+
+	it("stops at the ceiling and says so instead of inserting silently", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+
+		const result = await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: longText(MAX_ARTIFACT_CHUNKS + 500),
+		});
+
+		expect(result.truncated).toBe(true);
+		expect(result.chunkCount).toBe(MAX_ARTIFACT_CHUNKS);
+		expect(result.totalChunks).toBeGreaterThan(MAX_ARTIFACT_CHUNKS);
+		expect(countChunks(artifactId)).toBe(MAX_ARTIFACT_CHUNKS);
+	});
+
+	it("reports no truncation for an ordinary document", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+
+		const result = await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: longText(50),
+		});
+
+		expect(result.truncated).toBe(false);
+		expect(result.totalChunks).toBe(result.chunkCount);
+		expect(result.chunkCount).toBe(countChunks(artifactId));
+	});
+
+	it("records the truncation on the artifact rather than only in a log", async () => {
+		// Retrieval covering only part of a document must be discoverable from
+		// the artifact, not inferred from missing search hits.
+		const artifact = await createArtifact({
+			userId: USER,
+			type: "source_document",
+			name: "huge.log",
+			contentText: longText(MAX_ARTIFACT_CHUNKS + 500),
+		});
+
+		expect(artifact.metadata?.chunksTruncated).toBe(true);
+		expect(artifact.metadata?.chunkCount).toBe(MAX_ARTIFACT_CHUNKS);
+
+		const [row] = memory.db
+			.select({ metadataJson: schema.artifacts.metadataJson })
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, artifact.id))
+			.all();
+		expect(
+			JSON.parse(row?.metadataJson ?? "{}").chunksTruncated,
+		).toBe(true);
 	});
 });
 

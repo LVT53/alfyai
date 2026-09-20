@@ -177,13 +177,28 @@ async function rewriteNormalizedArtifact(input: {
 		);
 	}
 
-	const mapped = mapArtifact(updated);
-	await syncArtifactChunks({
+	let mapped = mapArtifact(updated);
+	const sync = await syncArtifactChunks({
 		artifactId: mapped.id,
 		userId: mapped.userId,
 		conversationId: mapped.conversationId,
 		contentText: mapped.contentText,
 	});
+	if (sync.truncated) {
+		// Same bookkeeping `createArtifact` does on the insert path, so a
+		// re-extraction cannot quietly drop the flag a first extraction set.
+		const patch = {
+			chunksTruncated: true,
+			chunkCount: sync.chunkCount,
+			chunkCountBeforeTruncation: sync.totalChunks,
+		};
+		await updateArtifactMetadata({
+			artifactId: mapped.id,
+			userId: mapped.userId,
+			patch,
+		});
+		mapped = { ...mapped, metadata: { ...mapped.metadata, ...patch } };
+	}
 	queueArtifactSemanticEmbeddingRefresh(mapped);
 
 	return mapped;
