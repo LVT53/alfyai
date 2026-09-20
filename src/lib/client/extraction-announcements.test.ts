@@ -28,7 +28,7 @@ function row(artifactId: string, overrides: Partial<DocumentExtractionJobDTO>) {
 	return {
 		artifactId,
 		name: `${artifactId}.pdf`,
-		job: job({ sourceArtifactId: artifactId, ...overrides }),
+		job: { ...job({ sourceArtifactId: artifactId }), ...overrides },
 	};
 }
 
