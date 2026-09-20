@@ -15,6 +15,10 @@ import {
 	chatGeneratedFiles,
 	conversations,
 } from "$lib/server/db/schema";
+import {
+	buildGeneratedFileExtractedContentSection,
+	ensureGeneratedFileReadbackSinkRegistered,
+} from "$lib/server/services/extraction/readback";
 import { GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY } from "$lib/server/services/file-production/source-persistence";
 import { mapArtifact } from "$lib/server/services/knowledge/store/core";
 import {
@@ -26,8 +30,7 @@ import type { Artifact } from "$lib/server/services/knowledge/types";
 import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { previewText } from "$lib/server/utils/text";
-import { fileExtension } from "$lib/shared/file-types";
-import { extractDocumentText } from "./document-extraction";
+import { fileExtension, getIntakeRoute } from "$lib/shared/file-types";
 
 const chatGeneratedFileSelection = {
 	id: chatGeneratedFiles.id,
@@ -132,15 +135,12 @@ function buildGeneratedFileMemoryContent(params: {
 		lines.push("", "Assistant response context:", responseSnippet);
 	}
 
-	const extractedSnippet = previewText(params.extractedText, 6000);
-	if (extractedSnippet) {
-		lines.push("", "Extracted file content:", extractedSnippet);
-	} else {
-		lines.push(
-			"",
-			"Extracted file content: No readable text could be extracted from this file. Use the filename, file type, and surrounding chat context when continuing it.",
-		);
-	}
+	// The last section is the only one a readback rewrites later, which is why
+	// it is built by the module that rewrites it.
+	lines.push(
+		"",
+		buildGeneratedFileExtractedContentSection(params.extractedText),
+	);
 
 	return lines.join("\n");
 }
@@ -597,6 +597,73 @@ export async function assignGeneratedFilesToAssistantMessage(
 		);
 }
 
+/**
+ * Text for a generated file that is already text.
+ *
+ * Decoded from the bytes this function has already read rather than routed
+ * through the ledger: a markdown, delimited-text or HTML output never needed a
+ * parser, and making the user wait for a worker to hand back what is already in
+ * memory would be a regression dressed up as an improvement. The rule is the
+ * direct-text extractor's (`extraction/extractors/direct-text.ts`): CRLF
+ * normalised so a Windows-authored file and its Unix twin chunk identically.
+ */
+function decodeTextLikeGeneratedFile(content: Buffer): string | null {
+	return content.toString("utf8").replace(/\r\n/g, "\n").trim() || null;
+}
+
+/**
+ * Queues the binary's text for later, and never lets that queueing break the
+ * sync.
+ *
+ * The artifact already exists and is already usable at this point; a ledger
+ * that refuses the job leaves the file exactly as an extraction failure leaves
+ * it today, which is the whole reason extraction failure has always been
+ * non-fatal here.
+ */
+async function enqueueGeneratedFileReadback(params: {
+	userId: string;
+	conversationId: string;
+	assistantMessageId: string;
+	file: ChatFile;
+}): Promise<void> {
+	try {
+		ensureGeneratedFileReadbackSinkRegistered();
+		const { startGeneratedFileReadback } = await import(
+			"$lib/server/services/extraction"
+		);
+		await startGeneratedFileReadback({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			assistantMessageId: params.assistantMessageId,
+			chatGeneratedFileId: params.file.id,
+			fileName: params.file.filename,
+			mimeType: params.file.mimeType,
+			sizeBytes: params.file.sizeBytes,
+		});
+	} catch (error) {
+		console.warn(
+			"[CHAT_FILES] Could not queue generated file text extraction; the file keeps its metadata",
+			{
+				conversationId: params.conversationId,
+				fileId: params.file.id,
+				filename: params.file.filename,
+				error,
+			},
+		);
+	}
+}
+
+/**
+ * Turns freshly stored generated files into memory artifacts.
+ *
+ * Extraction is no longer part of that: a binary's text is queued on the
+ * document-extraction ledger at readback priority and written into the artifact
+ * by `extraction/readback.ts` when it arrives, so the file-production job that
+ * called this is finished the moment the bookkeeping is. Until the text lands
+ * the artifact reads exactly as it does today when extraction fails — the
+ * version metadata, the family link and the wrapper are all there, only the
+ * extracted-content section says it has nothing yet.
+ */
 export async function syncGeneratedFilesToMemory(params: {
 	userId: string;
 	conversationId: string;
@@ -626,6 +693,14 @@ export async function syncGeneratedFilesToMemory(params: {
 			) {
 				continue;
 			}
+			if (existingArtifact) {
+				// This chat file already has its memory artifact. Syncing it again —
+				// two callers racing the same assistant message, a retry after a
+				// partial failure — used to mint a second artifact and call it v2 of
+				// itself; it would now also race the ledger for the same file id.
+				// One stored file, one artifact, one extraction job.
+				continue;
+			}
 
 			const file = await getChatFile(params.conversationId, fileId);
 			if (!file) {
@@ -637,25 +712,17 @@ export async function syncGeneratedFilesToMemory(params: {
 				continue;
 			}
 
-			let extractedText: string | null = null;
-			try {
-				const extraction = await extractDocumentText(
-					join(getChatFilesDir(), file.storagePath),
-					file.mimeType,
-					file.filename,
-				);
-				extractedText = extraction.text;
-			} catch (error) {
-				console.warn(
-					"[CHAT_FILES] Generated file text extraction failed; preserving version metadata",
-					{
-						conversationId: params.conversationId,
-						fileId: file.id,
-						filename: file.filename,
-						error,
-					},
-				);
-			}
+			// The route decision is the shared registry's, exactly as the old inline
+			// call made it. "reject" files (images, archives) have no text for any
+			// backend to find, so they get no job — the same nothing the extractor
+			// returned for them before, without a permanently failed ledger row per
+			// generated PNG.
+			const intakeRoute = getIntakeRoute(file.filename, file.mimeType);
+			const extractedText =
+				intakeRoute === "direct-text"
+					? decodeTextLikeGeneratedFile(content)
+					: null;
+			const needsReadback = intakeRoute === "mineru";
 
 			const recentVersions = await listRecentGeneratedFileVersions(
 				params.userId,
@@ -745,6 +812,17 @@ export async function syncGeneratedFilesToMemory(params: {
 						previousVersion: previousVersion.version,
 						currentFilename: file.filename,
 					},
+				});
+			}
+
+			// Last, so the artifact and its links exist before any worker can
+			// claim the job and patch the artifact's text.
+			if (needsReadback) {
+				await enqueueGeneratedFileReadback({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					assistantMessageId: params.assistantMessageId,
+					file,
 				});
 			}
 		} catch (error) {

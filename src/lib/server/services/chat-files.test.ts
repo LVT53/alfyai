@@ -44,7 +44,7 @@ const {
 	mockAccess,
 	mockCreateGeneratedOutputArtifact,
 	mockCreateArtifactLink,
-	mockExtractDocumentText,
+	mockStartGeneratedFileReadback,
 	mockRecordMemoryEvent,
 } = vi.hoisted(() => {
 	const mockRows: ChatFileRow[] = [];
@@ -97,10 +97,9 @@ const {
 		}),
 	);
 	const mockCreateArtifactLink = vi.fn(async () => undefined);
-	const mockExtractDocumentText = vi.fn(async () => ({
-		text: "Extracted generated file text",
-		normalizedName: "generated.txt",
-		mimeType: "text/plain",
+	const mockStartGeneratedFileReadback = vi.fn(async () => ({
+		id: "extraction-job-1",
+		status: "queued",
 	}));
 	const mockRecordMemoryEvent = vi.fn(async () => undefined);
 
@@ -117,7 +116,7 @@ const {
 		mockAccess,
 		mockCreateGeneratedOutputArtifact,
 		mockCreateArtifactLink,
-		mockExtractDocumentText,
+		mockStartGeneratedFileReadback,
 		mockRecordMemoryEvent,
 	};
 });
@@ -472,9 +471,14 @@ vi.mock("$lib/server/services/memory-behavior-log", () => ({
 	) => mockRecordMemoryEvent(...args),
 }));
 
-vi.mock("./document-extraction", () => ({
-	extractDocumentText: (...args: Parameters<typeof mockExtractDocumentText>) =>
-		mockExtractDocumentText(...args),
+// The ledger façade. `chat-files` reaches it through a dynamic import, so the
+// real module (and the worker behind it) never loads here; the readback module
+// it imports statically is real, which is what keeps the memory wrapper's
+// shape under test rather than under mock.
+vi.mock("$lib/server/services/extraction", () => ({
+	startGeneratedFileReadback: (
+		...args: Parameters<typeof mockStartGeneratedFileReadback>
+	) => mockStartGeneratedFileReadback(...args),
 }));
 
 describe("chat-files service", () => {
@@ -971,15 +975,16 @@ describe("chat-files service", () => {
 
 			expect(mockAccess).not.toHaveBeenCalled();
 			expect(mockReadFile).not.toHaveBeenCalled();
-			expect(mockExtractDocumentText).not.toHaveBeenCalled();
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
 			expect(mockCreateGeneratedOutputArtifact).not.toHaveBeenCalled();
 		});
 
-		it("preserves generated-file version metadata when text extraction fails", async () => {
+		// The core of slice S5: the artifact, its version metadata and its family
+		// link are all written now; only the text waits.
+		it("creates the generated-file artifact immediately and queues the binary's text", async () => {
 			const { getChatFile, syncGeneratedFilesToMemory } = await import(
 				"./chat-files"
 			);
-			mockExtractDocumentText.mockRejectedValueOnce(new Error("parser failed"));
 			mockRows.push({
 				id: "file-1",
 				conversationId: "conv-a",
@@ -1004,9 +1009,6 @@ describe("chat-files service", () => {
 			});
 
 			expect(console.error).not.toHaveBeenCalled();
-			expect(mockAccess).toHaveBeenCalled();
-			expect(mockReadFile).toHaveBeenCalled();
-			expect(mockExtractDocumentText).toHaveBeenCalled();
 			expect(mockCreateGeneratedOutputArtifact).toHaveBeenCalledWith(
 				expect.objectContaining({
 					nameOverride: "report.pdf",
@@ -1019,16 +1021,181 @@ describe("chat-files service", () => {
 					}),
 				}),
 			);
+			const content =
+				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content;
+			expect(content).toContain("Generated file version: v1");
+			// Exactly the text today's "extraction failed" path leaves behind.
+			expect(content).toContain(
+				"Extracted file content: No readable text could be extracted from this file.",
+			);
+			expect(mockStartGeneratedFileReadback).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				chatGeneratedFileId: "file-1",
+				fileName: "report.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 5000,
+			});
+		});
+
+		it("reads a text-like generated file without touching the ledger", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			mockReadFile.mockResolvedValueOnce(
+				Buffer.from("# Report\r\n\r\nGenerated markdown body.\n"),
+			);
+			mockRows.push({
+				id: "file-md",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename: "report.md",
+				mimeType: "text/markdown",
+				sizeBytes: 40,
+				storagePath: "conv-a/file-md.md",
+				createdAt: new Date("2026-01-01"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-md"],
+				assistantResponse: "Here is the report.",
+			});
+
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
 			expect(
 				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content,
-			).toContain("Generated file version: v1");
-			expect(console.warn).toHaveBeenCalledWith(
-				"[CHAT_FILES] Generated file text extraction failed; preserving version metadata",
-				expect.objectContaining({
-					fileId: "file-1",
-					filename: "report.pdf",
-				}),
+			).toContain("Extracted file content:\n# Report Generated markdown body.");
+		});
+
+		it("queues nothing for a generated file no backend can read", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			mockRows.push({
+				id: "file-zip",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename: "bundle.zip",
+				mimeType: "application/zip",
+				sizeBytes: 900,
+				storagePath: "conv-a/file-zip.zip",
+				createdAt: new Date("2026-01-01"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-zip"],
+				assistantResponse: "Here is the bundle.",
+			});
+
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
+			expect(mockCreateGeneratedOutputArtifact).toHaveBeenCalledTimes(1);
+			expect(
+				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content,
+			).toContain(
+				"Extracted file content: No readable text could be extracted from this file.",
 			);
+		});
+
+		it("keeps the sync going when the ledger refuses the job", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			mockStartGeneratedFileReadback.mockRejectedValueOnce(
+				new Error("ledger unavailable"),
+			);
+			mockRows.push({
+				id: "file-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename: "report.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 5000,
+				storagePath: "conv-a/file-1.pdf",
+				createdAt: new Date("2026-01-01"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-1"],
+				assistantResponse: "Here is the report.",
+			});
+
+			expect(console.error).not.toHaveBeenCalled();
+			expect(mockCreateGeneratedOutputArtifact).toHaveBeenCalledTimes(1);
+			expect(console.warn).toHaveBeenCalledWith(
+				"[CHAT_FILES] Could not queue generated file text extraction; the file keeps its metadata",
+				expect.objectContaining({ fileId: "file-1", filename: "report.pdf" }),
+			);
+		});
+
+		it("syncs the same generated file once, however often it is asked", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			mockRows.push({
+				id: "file-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename: "report.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 5000,
+				storagePath: "conv-a/file-1.pdf",
+				createdAt: new Date("2026-01-01"),
+			});
+			mockArtifactRows.push({
+				id: "artifact-existing",
+				userId: "user-1",
+				type: "generated_output",
+				retrievalClass: "durable",
+				name: "report.pdf",
+				mimeType: "text/markdown",
+				sizeBytes: 900,
+				conversationId: "conv-a",
+				summary: "Report",
+				metadataJson: JSON.stringify({
+					generatedFile: true,
+					originalChatFileId: "file-1",
+					generatedFilename: "report.pdf",
+					versionNumber: 1,
+				}),
+				contentText: "Generated file: report.pdf",
+				extension: "md",
+				storagePath: null,
+				createdAt: new Date("2026-01-01"),
+				updatedAt: new Date("2026-01-01"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-1", "file-1"],
+				assistantResponse: "Here is the report.",
+			});
+
+			expect(mockCreateGeneratedOutputArtifact).not.toHaveBeenCalled();
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
+		});
+
+		it("skips a generated file whose row was deleted before the sync ran", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-gone"],
+				assistantResponse: "Here is the report.",
+			});
+
+			expect(console.error).not.toHaveBeenCalled();
+			expect(mockCreateGeneratedOutputArtifact).not.toHaveBeenCalled();
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
 		});
 
 		it("records generated document supersession metadata", async () => {
