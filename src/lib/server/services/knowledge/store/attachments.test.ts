@@ -97,9 +97,63 @@ vi.mock("../../../db", () => ({
 	db: mockDb,
 }));
 
-const { NOT_PREPARED_READINESS_ERROR, saveUploadedArtifact } = await import(
-	"./attachments"
-);
+const {
+	buildArtifactNamePrefixPattern,
+	NOT_PREPARED_READINESS_ERROR,
+	saveUploadedArtifact,
+	saveUploadedArtifactFromStoredFile,
+} = await import("./attachments");
+
+/**
+ * `getNormalizedArtifactForSource`'s query shape:
+ * `select().from(links).innerJoin(artifacts).where().orderBy().limit()`.
+ */
+function makeNormalizedLookupResult(rows: Array<{ artifact: unknown }>) {
+	return {
+		from: vi.fn(() => ({
+			innerJoin: vi.fn(() => ({
+				where: vi.fn(() => ({
+					orderBy: vi.fn(() => ({
+						limit: vi.fn(() => Promise.resolve(rows)),
+					})),
+				})),
+			})),
+		})),
+	};
+}
+
+/**
+ * The `node:crypto` mock above only covers this test file's own imports — the
+ * store still hashes for real — so a dedupe fixture has to carry the hash the
+ * store will actually compute for the fixture file's bytes.
+ */
+const { createHash: realCreateHash } =
+	await vi.importActual<typeof import("node:crypto")>("node:crypto");
+
+function realHashOfFixtureBytes(size: number): string {
+	return realCreateHash("sha256")
+		.update(Buffer.from(new ArrayBuffer(size)))
+		.digest("hex");
+}
+
+/**
+ * Walks a drizzle condition tree and collects every string it carries, so a
+ * test can assert on the LIKE pattern a query was built with without depending
+ * on drizzle's internal class names.
+ */
+function collectConditionStrings(node: unknown, depth = 0): string[] {
+	if (depth > 8 || node === null || node === undefined) return [];
+	if (typeof node === "string") return [node];
+	if (Array.isArray(node)) {
+		return node.flatMap((entry) => collectConditionStrings(entry, depth + 1));
+	}
+	if (typeof node === "object") {
+		return Object.values(node as Record<string, unknown>).flatMap((entry) =>
+			collectConditionStrings(entry, depth + 1),
+		);
+	}
+	return [];
+}
 
 describe("Attachments - Auto-Rename on Conflict", () => {
 	beforeEach(() => {
@@ -477,6 +531,163 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 			expect(result.renameInfo?.wasRenamed).toBe(true);
 			expect(result.renameInfo?.originalName).toBe("README");
 		});
+	});
+});
+
+// Bug B1, live-confirmed on the dev box: re-uploading identical bytes returned
+// the same source artifact but `normalizedArtifact: null`, so intake extracted
+// the file again and minted a SECOND normalized_document for it. Both dedupe
+// branches now hand back the text that was already extracted.
+describe("Attachments - dedupe returns the existing normalized artifact (B1)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	const dedupedHash = realHashOfFixtureBytes(1024);
+	const existingSource = makeArtifactRow({
+		id: "existing-artifact",
+		userId: "user-1",
+		name: "report.pdf",
+		type: "source_document",
+		// Same bytes as the fixture file, so the dedupe branch is taken.
+		binaryHash: dedupedHash,
+		retrievalClass: "durable",
+		storagePath: "data/knowledge/user-1/existing-artifact.pdf",
+	});
+	const existingNormalized = makeArtifactRow({
+		id: "existing-normalized",
+		userId: "user-1",
+		name: "report.txt",
+		type: "normalized_document",
+		contentText: "already extracted text",
+	});
+
+	it("returns it for a browser File re-upload", async () => {
+		queueMockResponses(mockDb.select, [
+			makeSelectLimitResult([existingSource]),
+			makeNormalizedLookupResult([{ artifact: existingNormalized }]),
+		]);
+
+		const result = await saveUploadedArtifact({
+			userId: "user-1",
+			// No conversation: the link write is a separate concern from dedupe.
+			conversationId: null,
+			file: makeFileFixture("report.pdf", "application/pdf", 1024),
+		});
+
+		expect(result.reusedExistingArtifact).toBe(true);
+		expect(result.artifact.id).toBe("existing-artifact");
+		expect(result.normalizedArtifact?.id).toBe("existing-normalized");
+		expect(result.normalizedArtifact?.contentText).toBe(
+			"already extracted text",
+		);
+		// Nothing new was written: no second artifact, no second normalization.
+		expect(mockDb.insert).not.toHaveBeenCalled();
+	});
+
+	it("returns it for the stored-file (raw/chunk) re-upload path", async () => {
+		queueMockResponses(mockDb.select, [
+			makeSelectLimitResult([existingSource]),
+			makeNormalizedLookupResult([{ artifact: existingNormalized }]),
+		]);
+
+		const result = await saveUploadedArtifactFromStoredFile({
+			userId: "user-1",
+			conversationId: null,
+			fileName: "report.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 1024,
+			binaryHash: dedupedHash,
+			tempPathAbsolute: "/tmp/does-not-exist.upload",
+		});
+
+		expect(result.reusedExistingArtifact).toBe(true);
+		expect(result.artifact.id).toBe("existing-artifact");
+		expect(result.normalizedArtifact?.id).toBe("existing-normalized");
+		expect(mockDb.insert).not.toHaveBeenCalled();
+	});
+
+	it("still returns null when the deduped artifact was never extracted", async () => {
+		queueMockResponses(mockDb.select, [
+			makeSelectLimitResult([existingSource]),
+			makeNormalizedLookupResult([]),
+		]);
+
+		const result = await saveUploadedArtifact({
+			userId: "user-1",
+			conversationId: null,
+			file: makeFileFixture("report.pdf", "application/pdf", 1024),
+		});
+
+		expect(result.reusedExistingArtifact).toBe(true);
+		expect(result.normalizedArtifact).toBeNull();
+	});
+});
+
+// Bug B4: the collision path used to read EVERY artifact name the user owns.
+describe("Attachments - auto-rename asks for a name prefix, not the table (B4)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("queries only the names that could collide, and picks the first free suffix", async () => {
+		const whereArgs: unknown[] = [];
+		const recordingPrefixQuery = {
+			from: vi.fn(() => ({
+				where: vi.fn(async (condition: unknown) => {
+					whereArgs.push(condition);
+					return [{ name: "report.pdf" }, { name: "report_1.pdf" }];
+				}),
+			})),
+		};
+
+		queueMockResponses(mockDb.select, [
+			// 1. binary-hash lookup: a different hash, so no dedupe.
+			makeSelectLimitResult([
+				makeArtifactRow({ id: "other", binaryHash: "different-hash" }),
+			]),
+			// 2. exact-name lookup: a collision.
+			makeSelectLimitResult([
+				makeArtifactRow({ id: "same-name", name: "report.pdf" }),
+			]),
+			// 3. the prefix query under test.
+			recordingPrefixQuery,
+		]);
+
+		const insertChain = makeInsertChain([
+			makeArtifactRow({ id: "artifact-uuid-123", name: "report_2.pdf" }),
+		]);
+		mockDb.insert.mockReturnValue(insertChain);
+
+		await saveUploadedArtifact({
+			userId: "user-1",
+			conversationId: null,
+			file: makeFileFixture("report.pdf", "application/pdf", 1024),
+		});
+
+		expect(whereArgs).toHaveLength(1);
+		expect(collectConditionStrings(whereArgs[0])).toContain("report%.pdf");
+
+		const insertedName = (
+			insertChain.values.mock.calls[0]?.[0] as { name: string }
+		).name;
+		expect(insertedName).toBe("report_2.pdf");
+	});
+
+	it("escapes the characters LIKE would otherwise treat as wildcards", () => {
+		// A real file name with an underscore must not match every name with any
+		// character in that position.
+		expect(buildArtifactNamePrefixPattern("q1_report.pdf")).toBe(
+			"q1\\_report%.pdf",
+		);
+		expect(buildArtifactNamePrefixPattern("50%_of_it.txt")).toBe(
+			"50\\%\\_of\\_it%.txt",
+		);
+		expect(buildArtifactNamePrefixPattern("back\\slash.md")).toBe(
+			"back\\\\slash%.md",
+		);
+		// No extension: the pattern is just the escaped base plus the wildcard.
+		expect(buildArtifactNamePrefixPattern("README")).toBe("README%");
 	});
 });
 
