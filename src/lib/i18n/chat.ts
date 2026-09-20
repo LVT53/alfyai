@@ -67,6 +67,43 @@ const chatDict = {
 			"The connection closed before the response finished. Retry the message.",
 		"chat.extractingDocument":
 			"Extracting document text… this can take up to ~10s for scanned PDFs.",
+		// Phase 3 — the composer chip's per-file extraction state, one clause
+		// per ledger status. The progress clauses are muted meta on the chip
+		// (nothing has gone wrong yet); only the failure ones wear the chip's
+		// danger colour. Every code in EXTRACTION_ERROR_CODES has an entry,
+		// because a chip that says "failed" and nothing else leaves the user
+		// with no idea whether to retry, shrink the file or call an admin —
+		// and a missing key would print itself in the composer.
+		"chat.extraction.cancel": "Stop",
+		"chat.extraction.cancelA11y": "Stop reading {name}",
+		"chat.extraction.cancelFailed": "{name} could not be stopped.",
+		"chat.extraction.canceled": "Stopped",
+		"chat.extraction.error.auth_failed":
+			"Document reader rejected our credentials",
+		"chat.extraction.error.canceled": "Stopped",
+		"chat.extraction.error.empty_result": "No readable text found",
+		"chat.extraction.error.internal": "Something went wrong",
+		"chat.extraction.error.job_failed": "Reading failed",
+		"chat.extraction.error.legacy_unknown": "Never processed",
+		"chat.extraction.error.max_attempts": "Gave up after several tries",
+		"chat.extraction.error.protocol": "Unexpected reply from the reader",
+		"chat.extraction.error.rate_limited": "Document reader is busy",
+		"chat.extraction.error.stale_worker": "Reading was interrupted",
+		"chat.extraction.error.tier_unavailable": "Reading mode unavailable",
+		"chat.extraction.error.timeout": "Reading timed out",
+		"chat.extraction.error.too_large": "Too large to read",
+		"chat.extraction.error.unavailable": "Document reader unavailable",
+		"chat.extraction.error.unsupported_type": "File type can't be read",
+		"chat.extraction.failed": "Could not be read",
+		"chat.extraction.failedRetry": "Could not be read — retry",
+		"chat.extraction.indexing": "Filing…",
+		"chat.extraction.parsing": "Reading…",
+		"chat.extraction.queued": "Waiting to be read",
+		"chat.extraction.retry": "Retry",
+		"chat.extraction.retryA11y": "Read {name} again",
+		"chat.extraction.retryFailed":
+			"{name} could not be sent for reading again. Try once more in a moment.",
+		"chat.extraction.uploading": "Uploading…",
 		"chat.fileSizeExceeded":
 			"File is {size}MB. Maximum allowed size is {max}MB per file.",
 		"chat.fileTooLarge": "File too large",
@@ -1166,6 +1203,40 @@ const chatDict = {
 			"A kapcsolat megszakadt, mielőtt a válasz elkészült volna. Próbáld újra az üzenetet.",
 		"chat.extractingDocument":
 			"Dokumentum szövegének kinyerése… ez akár ~10 másodpercig is tarthat beolvasott PDF-eknél.",
+		"chat.extraction.cancel": "Leállítás",
+		"chat.extraction.cancelA11y": "{name} olvasásának leállítása",
+		"chat.extraction.cancelFailed": "A(z) {name} olvasását nem sikerült leállítani.",
+		"chat.extraction.canceled": "Leállítva",
+		"chat.extraction.error.auth_failed":
+			"A dokumentumolvasó elutasította a hozzáférést",
+		"chat.extraction.error.canceled": "Leállítva",
+		"chat.extraction.error.empty_result": "Nem találtunk benne szöveget",
+		"chat.extraction.error.internal": "Váratlan hiba történt",
+		"chat.extraction.error.job_failed": "A beolvasás meghiúsult",
+		"chat.extraction.error.legacy_unknown": "Ezt még nem dolgoztuk fel",
+		"chat.extraction.error.max_attempts":
+			"Több próbálkozás után sem sikerült",
+		"chat.extraction.error.protocol": "Váratlan válasz az olvasótól",
+		"chat.extraction.error.rate_limited": "A dokumentumolvasó túlterhelt",
+		"chat.extraction.error.stale_worker": "A beolvasás félbeszakadt",
+		"chat.extraction.error.tier_unavailable":
+			"Ez az olvasási mód nem érhető el",
+		"chat.extraction.error.timeout":
+			"A beolvasás túllépte az időkeretet",
+		"chat.extraction.error.too_large": "Túl nagy a beolvasáshoz",
+		"chat.extraction.error.unavailable": "A dokumentumolvasó nem érhető el",
+		"chat.extraction.error.unsupported_type":
+			"Ez a fájltípus nem olvasható be",
+		"chat.extraction.failed": "Nem olvasható be",
+		"chat.extraction.failedRetry": "Nem olvasható be — próbáld újra",
+		"chat.extraction.indexing": "Feldolgozás…",
+		"chat.extraction.parsing": "Olvasás…",
+		"chat.extraction.queued": "Sorban áll",
+		"chat.extraction.retry": "Újra",
+		"chat.extraction.retryA11y": "A(z) {name} újbóli beolvasása",
+		"chat.extraction.retryFailed":
+			"A(z) {name} beolvasását nem sikerült újraindítani. Próbáld meg kicsit később.",
+		"chat.extraction.uploading": "Feltöltés…",
 		"chat.fileSizeExceeded":
 			"A fájl mérete {size} MB. A maximális megengedett méret fájlonként {max} MB.",
 		"chat.fileTooLarge": "A fájl túl nagy",

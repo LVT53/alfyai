@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import {
+	DOCUMENT_EXTRACTION_STATUSES,
+	EXTRACTION_ERROR_CODES,
+} from "$lib/shared/extraction-status";
+import chatDict from "$lib/i18n/chat";
 import {
 	attachmentChipKind,
 	attachmentChipMeta,
 	attachmentThumbnailUrl,
 	buildOutlineQuote,
+	extractionChipDashed,
+	extractionChipState,
 	formatTokenCount,
+	isExtractionPending,
 	quoteChipLabel,
 	splitUserMessageQuotes,
 } from "./composer-chip-presentation";
@@ -237,5 +246,187 @@ describe("splitUserMessageQuotes", () => {
 			quoteLabels: ["2.3 Break clause"],
 			body: "Some prose\n\n4.1 Service charge: The tenant pays…",
 		});
+	});
+});
+
+function job(
+	overrides: Partial<DocumentExtractionJobDTO> = {},
+): DocumentExtractionJobDTO {
+	return {
+		id: "job-1",
+		sourceArtifactId: "artifact-1",
+		normalizedArtifactId: null,
+		status: "queued",
+		intakeRoute: "mineru",
+		fileName: "lease.pdf",
+		attemptCount: 0,
+		maxAttempts: 3,
+		retryable: false,
+		cancelable: true,
+		error: null,
+		createdAt: 0,
+		updatedAt: 0,
+		startedAt: null,
+		legacy: false,
+		...overrides,
+	};
+}
+
+describe("extractionChipState", () => {
+	it("says nothing at all without a DTO, exactly as the chip did before", () => {
+		expect(extractionChipState(null)).toEqual({
+			progressKey: null,
+			errorKey: null,
+			dashed: false,
+			canRetry: false,
+			canCancel: false,
+		});
+		expect(extractionChipState(undefined).dashed).toBe(false);
+	});
+
+	it("puts progress in the muted meta and leaves the danger clause empty", () => {
+		for (const status of [
+			"queued",
+			"uploading",
+			"parsing",
+			"downloading",
+			"indexing",
+		] as const) {
+			const state = extractionChipState(job({ status }));
+			expect(state.progressKey, status).not.toBeNull();
+			expect(state.errorKey, status).toBeNull();
+			expect(state.dashed, status).toBe(true);
+			expect(state.canCancel, status).toBe(true);
+			expect(state.canRetry, status).toBe(false);
+		}
+	});
+
+	it("collapses the three in-flight phases into one honest clause", () => {
+		// "uploading", "parsing" and "downloading" are the extractor's own
+		// bookkeeping; to the person waiting they are one thing.
+		const keys = (["uploading", "parsing", "downloading"] as const).map(
+			(status) => extractionChipState(job({ status })).progressKey,
+		);
+		expect(new Set(keys).size).toBe(1);
+		expect(keys[0]).toBe("chat.extraction.parsing");
+		expect(extractionChipState(job({ status: "indexing" })).progressKey).toBe(
+			"chat.extraction.indexing",
+		);
+	});
+
+	it("offers no controls and no clause once the document is attached", () => {
+		expect(extractionChipState(job({ status: "succeeded" }))).toEqual({
+			progressKey: null,
+			errorKey: null,
+			dashed: false,
+			canRetry: false,
+			canCancel: false,
+		});
+	});
+
+	it("leads a retryable failure with the offer rather than the cause", () => {
+		const state = extractionChipState(
+			job({
+				status: "failed",
+				retryable: true,
+				cancelable: false,
+				error: { code: "max_attempts", message: "gave up" },
+			}),
+		);
+		expect(state.errorKey).toBe("chat.extraction.failedRetry");
+		expect(state.canRetry).toBe(true);
+		expect(state.canCancel).toBe(false);
+		expect(state.dashed).toBe(false);
+	});
+
+	it("names the cause when a retry cannot help", () => {
+		const state = extractionChipState(
+			job({
+				status: "failed",
+				retryable: false,
+				cancelable: false,
+				error: { code: "too_large", message: "8 MiB cap" },
+			}),
+		);
+		expect(state.errorKey).toBe("chat.extraction.error.too_large");
+		expect(state.canRetry).toBe(false);
+	});
+
+	it("falls back to a generic clause for a failure with no code", () => {
+		expect(
+			extractionChipState(
+				job({ status: "failed", retryable: false, cancelable: false }),
+			).errorKey,
+		).toBe("chat.extraction.failed");
+	});
+
+	it("reports a stopped job without offering to stop it again", () => {
+		const state = extractionChipState(
+			job({ status: "canceled", cancelable: false }),
+		);
+		expect(state.errorKey).toBe("chat.extraction.canceled");
+		expect(state.canCancel).toBe(false);
+		expect(state.dashed).toBe(false);
+	});
+
+	it("never offers Cancel for a job that already asked to be canceled", () => {
+		expect(
+			extractionChipState(job({ status: "parsing", cancelable: false }))
+				.canCancel,
+		).toBe(false);
+	});
+
+	// Both halves of the mapping resolve in both languages: a key the chip can
+	// emit but the dictionary does not carry prints itself in the composer.
+	it("only ever emits keys both dictionaries carry", () => {
+		const emitted = new Set<string>();
+		for (const status of DOCUMENT_EXTRACTION_STATUSES) {
+			for (const retryable of [true, false]) {
+				for (const code of [...EXTRACTION_ERROR_CODES, null]) {
+					const state = extractionChipState(
+						job({
+							status,
+							retryable: status === "failed" && retryable,
+							error: code ? { code, message: "" } : null,
+						}),
+					);
+					if (state.progressKey) emitted.add(state.progressKey);
+					if (state.errorKey) emitted.add(state.errorKey);
+				}
+			}
+		}
+
+		expect(emitted.size).toBeGreaterThan(0);
+		for (const key of emitted) {
+			for (const lang of ["en", "hu"] as const) {
+				expect(
+					typeof chatDict[lang][key as keyof (typeof chatDict)[typeof lang]],
+					`${lang}.${key}`,
+				).toBe("string");
+			}
+		}
+	});
+});
+
+describe("extractionChipDashed", () => {
+	it("dashes only while the job is unfinished", () => {
+		expect(extractionChipDashed(job({ status: "parsing" }))).toBe(true);
+		expect(extractionChipDashed(job({ status: "succeeded" }))).toBe(false);
+		expect(extractionChipDashed(null)).toBe(false);
+	});
+});
+
+describe("isExtractionPending", () => {
+	it("treats a missing DTO as settled so Send is never held hostage", () => {
+		expect(isExtractionPending(undefined)).toBe(false);
+		expect(isExtractionPending(null)).toBe(false);
+	});
+
+	it("is true for exactly the non-terminal statuses", () => {
+		for (const status of DOCUMENT_EXTRACTION_STATUSES) {
+			const terminal =
+				status === "succeeded" || status === "failed" || status === "canceled";
+			expect(isExtractionPending(job({ status })), status).toBe(!terminal);
+		}
 	});
 });
