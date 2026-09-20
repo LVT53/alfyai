@@ -4199,8 +4199,8 @@ describe("MessageInput extraction chips", () => {
 				promptReady: false,
 				promptArtifactId: null,
 				readinessError: null,
+				extraction: extractionJob({ status: "queued" }),
 			},
-			extraction: extractionJob({ status: "queued" }),
 		});
 
 		await waitFor(() => {
@@ -4222,8 +4222,8 @@ describe("MessageInput extraction chips", () => {
 				promptReady: false,
 				promptArtifactId: null,
 				readinessError: null,
+				extraction: extractionJob({ status: "queued" }),
 			},
-			extraction: extractionJob({ status: "queued" }),
 		});
 
 		await waitFor(() => {
@@ -4319,8 +4319,8 @@ describe("MessageInput extraction chips", () => {
 				promptReady: false,
 				promptArtifactId: null,
 				readinessError: null,
+				extraction: extractionJob({ status: "parsing" }),
 			},
-			extraction: extractionJob({ status: "parsing" }),
 		});
 
 		const cancel = await waitFor(() =>
@@ -4352,13 +4352,13 @@ describe("MessageInput extraction chips", () => {
 				promptReady: false,
 				promptArtifactId: null,
 				readinessError: null,
-			},
-			extraction: extractionJob({
+				extraction: extractionJob({
 				status: "failed",
 				retryable: true,
 				cancelable: false,
 				error: { code: "max_attempts", message: "gave up" },
 			}),
+			},
 		});
 
 		await waitFor(() => {
@@ -4389,13 +4389,13 @@ describe("MessageInput extraction chips", () => {
 				promptReady: false,
 				promptArtifactId: null,
 				readinessError: null,
-			},
-			extraction: extractionJob({
+				extraction: extractionJob({
 				status: "failed",
 				retryable: false,
 				cancelable: false,
 				error: { code: "too_large", message: "over the cap" },
 			}),
+			},
 		});
 
 		await waitFor(() => {
@@ -4418,13 +4418,13 @@ describe("MessageInput extraction chips", () => {
 				promptReady: false,
 				promptArtifactId: null,
 				readinessError: null,
-			},
-			extraction: extractionJob({
+				extraction: extractionJob({
 				status: "failed",
 				retryable: true,
 				cancelable: false,
 				error: { code: "max_attempts", message: "gave up" },
 			}),
+			},
 		});
 
 		await fireEvent.click(
@@ -4460,8 +4460,8 @@ describe("MessageInput extraction chips", () => {
 				promptReady: false,
 				promptArtifactId: null,
 				readinessError: "This file could not be prepared for chat.",
+				extraction: extractionJob({ status: "parsing" }),
 			},
-			extraction: extractionJob({ status: "parsing" }),
 		});
 
 		await waitFor(() => {
@@ -4489,8 +4489,8 @@ describe("MessageInput extraction chips", () => {
 				promptReady: false,
 				promptArtifactId: null,
 				readinessError: null,
+				extraction: extractionJob({ status: "parsing" }),
 			},
-			extraction: extractionJob({ status: "parsing" }),
 		});
 
 		const sendButton = getByLabelText("Send message") as HTMLButtonElement;

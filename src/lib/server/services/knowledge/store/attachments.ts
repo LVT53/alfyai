@@ -110,14 +110,15 @@ export type AttachmentReadinessErrorCode =
 const ATTACHMENT_READINESS_ERROR_CODE_SET: ReadonlySet<string> =
 	new Set<string>(ATTACHMENT_READINESS_ERROR_CODES);
 
-/** One row per refused attachment, for the client to render per file. */
-export interface AttachmentExtractionStatusItem {
-	artifactId: string;
-	name: string | null;
-	status: DocumentExtractionStatus;
-	errorCode: ExtractionErrorCode | null;
-	retryable: boolean;
-}
+/**
+ * One row per refused attachment, for the client to render per file.
+ *
+ * Defined in the shared vocabulary, not here: `chat-turn/types.ts` carries the
+ * same rows on `ChatTurnRequestError` and the composer renders them, and a
+ * client module cannot import `$lib/server`. Re-exported so this module's
+ * existing importers keep working.
+ */
+export type { AttachmentExtractionStatusItem } from "$lib/shared/extraction-status";
 
 export class AttachmentReadinessError extends Error {
 	code: AttachmentReadinessErrorCode;

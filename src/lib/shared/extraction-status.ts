@@ -151,6 +151,34 @@ export interface DocumentExtractionJobDTO {
 	legacy: boolean;
 }
 
+/**
+ * How many artifact ids one batch status read may ask about.
+ *
+ * Lives here because both sides of the wire need the same number and neither
+ * can own it: a SvelteKit route module may export only its handlers, and the
+ * client poller is not something a route may import. Two hand-kept copies
+ * (route 50, poller 50) is exactly the arrangement where lowering one and
+ * forgetting the other turns every poll into a 400.
+ */
+export const EXTRACTION_STATUS_BATCH_LIMIT = 50;
+
+/**
+ * One attachment's extraction state, as the send gate saw it.
+ *
+ * This is the single wire shape for the per-attachment rows on a 422:
+ * `knowledge/store/attachments.ts` builds them, `chat-turn/types.ts` carries
+ * them on `ChatTurnRequestError`, and the composer renders them. It lives in
+ * the shared vocabulary because the client is one of the three, and nothing
+ * client-side may reach into `$lib/server`.
+ */
+export interface AttachmentExtractionStatusItem {
+	artifactId: string;
+	name: string | null;
+	status: DocumentExtractionStatus;
+	errorCode: ExtractionErrorCode | null;
+	retryable: boolean;
+}
+
 export const LEGACY_EXTRACTION_JOB_ID_PREFIX = "legacy-extraction:";
 
 export function isLegacyExtractionJobId(id: string): boolean {

@@ -279,16 +279,12 @@ let {
 					result:
 						| {
 								success: true;
-								attachment: PendingAttachment;
 								/**
-								 * The upload's extraction job, when the server sent one.
-								 * It rides BESIDE the attachment rather than inside it
-								 * because `PendingAttachment` belongs to another slice;
-								 * once that slice lands and the field exists on the
-								 * attachment itself, this sibling can be collapsed into
-								 * it (the reader below already accepts either).
+								 * The upload's extraction job rides on
+								 * `PendingAttachment.extraction`. One shape, so the
+								 * composer and the draft restore read the same field.
 								 */
-								extraction?: DocumentExtractionJobDTO | null;
+								attachment: PendingAttachment;
 						  }
 						| { success: false; fileName: string; error: string },
 				) => void;
@@ -2680,11 +2676,7 @@ function forgetExtractionJob(artifactId: string) {
 
 function addUploadedAttachment(
 	result:
-		| {
-				success: true;
-				attachment: PendingAttachment;
-				extraction?: DocumentExtractionJobDTO | null;
-		  }
+		| { success: true; attachment: PendingAttachment }
 		| { success: false; fileName: string; error: string },
 ) {
 	if (result.success) {
@@ -2696,14 +2688,7 @@ function addUploadedAttachment(
 		);
 		next.set(result.attachment.artifact.id, result.attachment);
 		pendingAttachments = Array.from(next.values());
-		// Either shape: the DTO beside the attachment, or — once the upload
-		// response carries it on the attachment itself — the one inside it.
-		applyExtractionJob(
-			result.extraction ??
-				readExtractionJobDTO(
-					(result.attachment as { extraction?: unknown }).extraction,
-				),
-		);
+		applyExtractionJob(readExtractionJobDTO(result.attachment.extraction));
 		retireOptimisticUpload(result.attachment.artifact.name);
 		extractionPoller?.sync();
 		draftEmissionVersion += 1;

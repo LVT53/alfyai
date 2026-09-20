@@ -20,6 +20,7 @@ import type { FetchLike } from "$lib/client/api/http";
 import { fetchExtractionJobs } from "$lib/client/api/knowledge";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import {
+	EXTRACTION_STATUS_BATCH_LIMIT,
 	isDocumentExtractionStatus,
 	isTerminalExtractionStatus,
 } from "$lib/shared/extraction-status";
@@ -31,11 +32,10 @@ export const EXTRACTION_POLL_SLOW_MS = 2500;
 /** How long the fast cadence lasts, measured from the moment the poller armed. */
 export const EXTRACTION_POLL_ESCALATE_AFTER_MS = 10_000;
 /**
- * Mirrors `MAX_EXTRACTION_ARTIFACT_IDS` in
- * `src/routes/api/knowledge/extraction/+server.ts`. Asking for more is a 400,
- * so a caller with a long list is chunked rather than refused.
+ * The batch endpoint's own cap, so asking for more is impossible rather than
+ * a 400. A caller with a long list is chunked, never refused.
  */
-export const EXTRACTION_POLL_BATCH_SIZE = 50;
+export const EXTRACTION_POLL_BATCH_SIZE = EXTRACTION_STATUS_BATCH_LIMIT;
 
 export interface ExtractionPollerOptions {
 	/** The artifacts to ask about, re-read on every tick. */
