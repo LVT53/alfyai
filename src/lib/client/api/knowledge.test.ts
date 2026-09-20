@@ -1,12 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
+import { get } from "svelte/store";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	maxFileUploadSizeBytes,
+	resetMaxFileUploadSize,
+} from "$lib/stores/upload-limits";
 import type { ApiError } from "./http";
 import {
 	fetchMemoryProfileItemDetail,
 	submitKnowledgeMemoryAction,
 	uploadKnowledgeAttachment,
+	uploadRefusalFromError,
 } from "./knowledge";
 
 describe("knowledge client API", () => {
+	beforeEach(() => {
+		resetMaxFileUploadSize();
+	});
+
 	it("submits projection-backed memory profile actions", async () => {
 		const fetchImpl = vi.fn().mockResolvedValueOnce(
 			new Response(
@@ -534,5 +544,133 @@ describe("knowledge client API", () => {
 		await expect(
 			uploadKnowledgeAttachment(file, null, fetchImpl),
 		).rejects.toThrow(/reverse proxy body limits\/timeouts/i);
+	});
+
+	// The intent response is not the only authoritative reading of the limit:
+	// a 413 says the admin lowered it, and by how much.
+	it("adopts the limit a 413 reports before rethrowing", async () => {
+		const fetchImpl = vi.fn().mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					error: "File too large. Maximum size is 25MB.",
+					code: "upload_file_too_large",
+					errorKey: "knowledge.uploadFileTooLarge",
+					details: { maxFileUploadSize: 25 * 1024 * 1024 },
+				}),
+				{ status: 413, headers: { "Content-Type": "application/json" } },
+			),
+		);
+
+		await expect(
+			uploadKnowledgeAttachment(new File(["x"], "huge.pdf"), null, fetchImpl),
+		).rejects.toMatchObject({ code: "upload_file_too_large" });
+		expect(get(maxFileUploadSizeBytes)).toBe(25 * 1024 * 1024);
+	});
+
+	it("leaves the limit alone when a 413 carries no usable details", async () => {
+		const before = get(maxFileUploadSizeBytes);
+		const fetchImpl = vi.fn().mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					error: "Too large",
+					code: "upload_file_too_large",
+					details: { maxFileUploadSize: 0 },
+				}),
+				{ status: 413, headers: { "Content-Type": "application/json" } },
+			),
+		);
+
+		await expect(
+			uploadKnowledgeAttachment(new File(["x"], "huge.pdf"), null, fetchImpl),
+		).rejects.toMatchObject({ code: "upload_file_too_large" });
+		expect(get(maxFileUploadSizeBytes)).toBe(before);
+	});
+
+	it("publishes the limit the intent response reports", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						traceId: "trace-upload",
+						maxFileUploadSize: 12 * 1024 * 1024,
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ artifact: { id: "a" } }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+
+		await uploadKnowledgeAttachment(new File(["x"], "doc.pdf"), null, fetchImpl);
+		expect(get(maxFileUploadSizeBytes)).toBe(12 * 1024 * 1024);
+	});
+});
+
+describe("uploadRefusalFromError", () => {
+	async function refusalFrom(body: unknown, status = 415) {
+		const fetchImpl = vi.fn().mockResolvedValueOnce(
+			new Response(JSON.stringify(body), {
+				status,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+		const file = new File(["x"], "clip.mp4", { type: "video/mp4" });
+		const error = await uploadKnowledgeAttachment(
+			file,
+			null,
+			fetchImpl,
+		).catch((caught: unknown) => caught);
+		return uploadRefusalFromError(error, file);
+	}
+
+	it("turns a type refusal into an i18n key and its parameters", async () => {
+		expect(
+			await refusalFrom({
+				error: "Audio and video files can't be read yet.",
+				code: "upload_unsupported_type",
+				errorKey: "knowledge.uploadRejectedMedia",
+				details: { fileName: "clip.mp4", extension: "mp4", reason: "media" },
+			}),
+		).toEqual({
+			key: "knowledge.uploadRejectedMedia",
+			params: { name: "clip.mp4", ext: "MP4" },
+		});
+	});
+
+	it("falls back to the file's own name and extension", async () => {
+		expect(
+			await refusalFrom({
+				error: "We can't read that file.",
+				code: "upload_unsupported_type",
+				errorKey: "knowledge.uploadUnsupportedType",
+			}),
+		).toEqual({
+			key: "knowledge.uploadUnsupportedType",
+			params: { name: "clip.mp4", ext: "MP4" },
+		});
+	});
+
+	it("ignores a key it does not own, a non-415, and a plain Error", async () => {
+		expect(
+			await refusalFrom({
+				error: "nope",
+				code: "upload_unsupported_type",
+				errorKey: "knowledge.somethingElse",
+			}),
+		).toBeNull();
+		expect(
+			await refusalFrom(
+				{ error: "nope", errorKey: "knowledge.uploadRejectedMedia" },
+				400,
+			),
+		).toBeNull();
+		expect(
+			uploadRefusalFromError(new Error("boom"), { name: "a.txt" }),
+		).toBeNull();
+		expect(uploadRefusalFromError(null, { name: "a.txt" })).toBeNull();
 	});
 });

@@ -44,6 +44,7 @@ import { ApiError } from "$lib/client/api/http";
 import {
 	recordDocumentWorkspaceOpen,
 	uploadKnowledgeAttachment,
+	uploadRefusalFromError,
 } from "$lib/client/api/knowledge";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import {
@@ -2540,10 +2541,17 @@ async function uploadSingleFile(
 		}
 		return { success: false, fileName: file.name, error: "Upload failed" };
 	} catch (err) {
+		// A refused type answers with an i18n key; the `error` string beside it
+		// is English whatever the user's language is.
+		const refusal = uploadRefusalFromError(err, file);
 		return {
 			success: false,
 			fileName: file.name,
-			error: err instanceof Error ? err.message : "Upload failed",
+			error: refusal
+				? $t(refusal.key, refusal.params)
+				: err instanceof Error
+					? err.message
+					: "Upload failed",
 		};
 	}
 }
