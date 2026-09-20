@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { getAcceptAttribute } from "$lib/shared/file-types";
 import {
 	isOsFileDropDataTransfer,
 	partitionUploadableFiles,
 } from "./file-drag";
 
-const ACCEPTED_TYPES =
-	".pdf,.doc,.docx,.txt,.md,.json,.csv,.xlsx,.xls,.pptx,.ppt,.html,.htm,.jpg,.jpeg,.jfif,.png,.gif,.bmp,.tiff,.tif,.webp,.svg,.heic,.heif,.avif";
+// The knowledge surface's accept string, read from the one table that also
+// feeds the <input accept> attribute — so this test cannot drift from what the
+// UI actually offers.
+const ACCEPTED_TYPES = getAcceptAttribute("knowledge");
 const ONE_MB = 1024 * 1024;
 const SIZE_LIMIT = 100 * 1024 * 1024;
 
@@ -121,5 +124,44 @@ describe("partitionUploadableFiles", () => {
 			maxFileSizeBytes: SIZE_LIMIT,
 		});
 		expect(result.valid).toEqual([file]);
+	});
+
+	// `acceptedTypes` is optional now: a caller that has no reason to hold an
+	// accept string names its surface instead and gets the same answer.
+	it("falls back to the surface's accept list when none is passed", () => {
+		const pdf = makeFile("report.pdf", ONE_MB);
+		const zip = makeFile("archive.zip", ONE_MB);
+		const result = partitionUploadableFiles([pdf, zip], {
+			surface: "knowledge",
+			maxFileSizeBytes: SIZE_LIMIT,
+		});
+		expect(result.valid).toEqual([pdf]);
+		expect(result.rejectedUnsupportedType).toEqual([zip]);
+	});
+
+	it("defaults to the knowledge surface when none is named", () => {
+		const python = makeFile("train.py", ONE_MB);
+		const explicit = partitionUploadableFiles([python], {
+			acceptedTypes: ACCEPTED_TYPES,
+			maxFileSizeBytes: SIZE_LIMIT,
+		});
+		const implicit = partitionUploadableFiles([python], {
+			maxFileSizeBytes: SIZE_LIMIT,
+		});
+		// `.py` is a chat type, not a knowledge one — the knowledge accept string
+		// is frozen in this phase (spec open question 2).
+		expect(implicit.rejectedUnsupportedType).toEqual(
+			explicit.rejectedUnsupportedType,
+		);
+		expect(implicit.valid).toEqual([]);
+	});
+
+	it("offers the wider chat set when the chat surface asks", () => {
+		const python = makeFile("train.py", ONE_MB);
+		const result = partitionUploadableFiles([python], {
+			surface: "chat",
+			maxFileSizeBytes: SIZE_LIMIT,
+		});
+		expect(result.valid).toEqual([python]);
 	});
 });
