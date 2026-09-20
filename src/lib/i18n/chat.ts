@@ -74,6 +74,9 @@ const chatDict = {
 		// because a chip that says "failed" and nothing else leaves the user
 		// with no idea whether to retry, shrink the file or call an admin —
 		// and a missing key would print itself in the composer.
+		// The tooltip a chip's Retry or Stop wears while its own request is in
+		// flight, matching `knowledge.extraction.busy` on the Library row.
+		"chat.extraction.busy": "Working...",
 		"chat.extraction.cancel": "Stop",
 		"chat.extraction.cancelA11y": "Stop reading {name}",
 		"chat.extraction.cancelFailed": "{name} could not be stopped.",
@@ -1204,6 +1207,7 @@ const chatDict = {
 			"A kapcsolat megszakadt, mielőtt a válasz elkészült volna. Próbáld újra az üzenetet.",
 		"chat.extractingDocument":
 			"Dokumentum szövegének kinyerése… ez akár ~10 másodpercig is tarthat beolvasott PDF-eknél.",
+		"chat.extraction.busy": "Folyamatban...",
 		"chat.extraction.cancel": "Leállítás",
 		"chat.extraction.cancelA11y": "{name} olvasásának leállítása",
 		"chat.extraction.cancelFailed":

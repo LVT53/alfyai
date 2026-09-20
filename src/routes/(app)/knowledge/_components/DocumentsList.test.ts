@@ -1403,7 +1403,7 @@ describe("DocumentsList", () => {
 					?.getAttribute("data-extraction-status"),
 			).toBe("canceled");
 			expect(
-				within(statusCell()).queryByTestId("extraction-cancel"),
+				within(statusCell()).queryByTestId("extraction-cancel-status"),
 			).toBeNull();
 		});
 
@@ -1431,11 +1431,92 @@ describe("DocumentsList", () => {
 			);
 
 			await fireEvent.click(
-				within(statusCell()).getByTestId("extraction-retry"),
+				within(statusCell()).getByTestId("extraction-retry-status"),
 			);
 			// Keyed on the SOURCE artifact, so a synthesised legacy job id never
 			// has to leave the server.
 			expect(onRetryExtraction).toHaveBeenCalledWith("doc-1");
+		});
+
+		// F21. The Status cell renders twice per row — the desktop column and
+		// the mobile meta strip — and both controls carried the same test id,
+		// so `getByTestId` was ambiguous and a test could not say which one it
+		// meant. They are told apart by where they are.
+		it("gives the two renderings of a control distinct test ids", () => {
+			renderWithJob(
+				makeExtractionJob({
+					status: "failed",
+					retryable: true,
+					error: { code: "max_attempts", message: "gave up" },
+				}),
+			);
+
+			expect(
+				document.querySelectorAll("[data-testid='extraction-retry-status']"),
+			).toHaveLength(1);
+			expect(
+				document.querySelectorAll("[data-testid='extraction-retry-meta']"),
+			).toHaveLength(1);
+		});
+
+		it("fires Retry once per click and returns focus to the row", async () => {
+			let releaseRetry: () => void = () => {};
+			const onRetryExtraction = vi.fn(
+				() =>
+					new Promise<void>((resolve) => {
+						releaseRetry = resolve;
+					}),
+			);
+			renderWithJob(
+				makeExtractionJob({
+					status: "failed",
+					retryable: true,
+					error: { code: "max_attempts", message: "gave up" },
+				}),
+				{ onRetryExtraction },
+			);
+
+			const retry = within(statusCell()).getByTestId("extraction-retry-status");
+			retry.focus();
+			await fireEvent.click(retry);
+			expect(retry).toHaveAttribute("aria-busy", "true");
+
+			// A double click must not spend a second attempt on the document.
+			await fireEvent.click(retry);
+			expect(onRetryExtraction).toHaveBeenCalledTimes(1);
+
+			// The control that was pressed goes away with the verdict that
+			// justified it; a keyboard user must not be dropped on <body>.
+			retry.remove();
+			releaseRetry();
+			await waitFor(() => {
+				expect(document.activeElement).toBe(
+					document.querySelector(".documents-table tbody tr.document-row"),
+				);
+			});
+		});
+
+		it("announces a status change once, not once per re-render", async () => {
+			const job = makeExtractionJob({ status: "parsing" });
+			const { rerender } = renderWithJob(job);
+			const announcer = screen.getByTestId("documents-extraction-announcer");
+			// The state the row was drawn in is not a change.
+			expect(announcer).toHaveTextContent("");
+
+			const documents = [
+				makeDocument({
+					id: "doc-1",
+					name: "Budget.pdf",
+					extraction: makeExtractionJob({ status: "succeeded" }),
+				}),
+			];
+			await rerender({ documents });
+			expect(announcer.textContent?.trim()).toContain("Budget.pdf");
+			const announced = announcer.textContent;
+
+			// Another poll with the same verdict says nothing new.
+			await rerender({ documents: [...documents] });
+			expect(announcer.textContent).toBe(announced);
 		});
 
 		it("hides Retry for a failure a retry cannot fix", () => {
@@ -1447,7 +1528,9 @@ describe("DocumentsList", () => {
 				}),
 			);
 
-			expect(within(statusCell()).queryByTestId("extraction-retry")).toBeNull();
+			expect(
+				within(statusCell()).queryByTestId("extraction-retry-status"),
+			).toBeNull();
 		});
 
 		it("offers Cancel while the job is still cancelable", async () => {
@@ -1458,7 +1541,7 @@ describe("DocumentsList", () => {
 			);
 
 			await fireEvent.click(
-				within(statusCell()).getByTestId("extraction-cancel"),
+				within(statusCell()).getByTestId("extraction-cancel-status"),
 			);
 			expect(onCancelExtraction).toHaveBeenCalledWith("doc-1");
 		});
@@ -1480,7 +1563,7 @@ describe("DocumentsList", () => {
 				document.querySelector(".col-status .extraction-detail")?.textContent,
 			).toMatch(/before processing was tracked/i);
 			await fireEvent.click(
-				within(statusCell()).getByTestId("extraction-retry"),
+				within(statusCell()).getByTestId("extraction-retry-status"),
 			);
 			expect(onRetryExtraction).toHaveBeenCalledWith("doc-1");
 		});

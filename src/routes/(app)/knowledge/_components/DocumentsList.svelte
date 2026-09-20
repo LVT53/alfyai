@@ -1,4 +1,6 @@
 <script lang="ts">
+import { tick } from "svelte";
+import { createExtractionAnnouncer } from "$lib/client/extraction-announcements";
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
 import type { KnowledgeDocumentItem } from "./documents-table";
 import { partitionUploadableFiles } from "$lib/utils/file-drag";
@@ -120,6 +122,37 @@ let {
 // a slow endpoint disables exactly the button that was pressed, and so a
 // double click cannot enqueue the same action twice.
 let extractionActionIds = $state<Set<string>>(new Set());
+
+// The polite live region's one sentence. The list re-renders on every poll,
+// so this is driven by `changed()` rather than by the rows themselves: a
+// region bound to the DTO would read the same status back at a screen-reader
+// user once a second for the whole length of a read.
+let extractionAnnouncement = $state("");
+const extractionAnnouncer = createExtractionAnnouncer();
+
+$effect(() => {
+	const changed = extractionAnnouncer.changed(
+		documents.flatMap((document) =>
+			document.extraction
+				? [
+						{
+							artifactId: document.displayArtifactId,
+							name: document.name,
+							job: document.extraction,
+						},
+					]
+				: [],
+		),
+	);
+	if (changed.length === 0) return;
+	// One string for the whole batch, so five documents settling together is
+	// one announcement rather than five.
+	extractionAnnouncement = changed
+		.map(
+			(entry) => `${entry.name}: ${$t(extractionStatusKey(entry.job.status))}`,
+		)
+		.join(". ");
+});
 
 // Selection state
 let selectedIds = $state<Set<string>>(new Set());
@@ -657,6 +690,11 @@ async function runExtractionAction(
 ) {
 	event.stopPropagation();
 	if (!action || extractionActionIds.has(artifactId)) return;
+	// Retry requeues the job, so the button that was pressed usually unmounts
+	// with the verdict that justified it. Remember the row: it is focusable in
+	// its own right, and it is where a keyboard user should land rather than
+	// on `<body>` at the top of the page.
+	const row = (event.currentTarget as HTMLElement | null)?.closest("tr");
 	extractionActionIds = new Set(extractionActionIds).add(artifactId);
 	try {
 		await action(artifactId);
@@ -664,7 +702,18 @@ async function runExtractionAction(
 		const next = new Set(extractionActionIds);
 		next.delete(artifactId);
 		extractionActionIds = next;
+		await tick();
+		restoreRowFocus(row);
 	}
+}
+
+function restoreRowFocus(row: HTMLTableRowElement | null | undefined) {
+	if (!row?.isConnected) return;
+	const active = document.activeElement;
+	// Still inside the row (the button survived, or the user moved on
+	// themselves): leave it alone.
+	if (active && active !== document.body && row.contains(active)) return;
+	row.focus();
 }
 
 function handleDocumentPreviewIntent(document: KnowledgeDocumentItem) {
@@ -738,7 +787,7 @@ async function handleBulkDelete(): Promise<boolean> {
 	mobile meta line, so the two can never drift into saying different things
 	about the same row.
 -->
-{#snippet statusContent(document: KnowledgeDocumentItem, badge: ReturnType<typeof deriveDocumentStatus>, busy: boolean)}
+{#snippet statusContent(document: KnowledgeDocumentItem, badge: ReturnType<typeof deriveDocumentStatus>, busy: boolean, place: 'status' | 'meta')}
 	{#if badge?.kind === 'extraction'}
 		{@const job = badge.job}
 		{@const detailKey = extractionDetailKey(job)}
@@ -772,8 +821,9 @@ async function handleBulkDelete(): Promise<boolean> {
 				<button
 					type="button"
 					class="extraction-action"
-					data-testid="extraction-retry"
+					data-testid={`extraction-retry-${place}`}
 					disabled={busy}
+					aria-busy={busy}
 					aria-label={$t('knowledge.extraction.retryLabel', { name: document.name })}
 					title={$t('knowledge.extraction.retryLabel', { name: document.name })}
 					onclick={(e) => runExtractionAction(e, document.displayArtifactId, onRetryExtraction)}
@@ -786,8 +836,9 @@ async function handleBulkDelete(): Promise<boolean> {
 				<button
 					type="button"
 					class="extraction-action"
-					data-testid="extraction-cancel"
+					data-testid={`extraction-cancel-${place}`}
 					disabled={busy}
+					aria-busy={busy}
 					aria-label={$t('knowledge.extraction.cancelLabel', { name: document.name })}
 					title={$t('knowledge.extraction.cancelLabel', { name: document.name })}
 					onclick={(e) => runExtractionAction(e, document.displayArtifactId, onCancelExtraction)}
@@ -814,6 +865,17 @@ async function handleBulkDelete(): Promise<boolean> {
 	ondragover={handleDragOver}
 	ondrop={handleDrop}
 >
+	<!-- The Status column, spoken once per real change. A badge that swaps
+	     "Reading" for "Ready" is invisible to a screen reader otherwise. -->
+	<div
+		class="sr-only"
+		role="status"
+		aria-live="polite"
+		data-testid="documents-extraction-announcer"
+	>
+		{extractionAnnouncement}
+	</div>
+
 	<!-- Drop zone overlay - desktop only -->
 	{#if isDragOver}
 		<div class="drop-zone-overlay" data-testid="drop-zone-overlay">
@@ -1085,7 +1147,7 @@ async function handleBulkDelete(): Promise<boolean> {
 											{:else if versionBadge.kind === 'version'}
 												<span class="version-badge">v{versionBadge.versionNumber}</span>
 											{/if}
-											{@render statusContent(document, statusBadge, extractionBusy)}
+											{@render statusContent(document, statusBadge, extractionBusy, 'meta')}
 											{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
 												<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
 											{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
@@ -1118,7 +1180,7 @@ async function handleBulkDelete(): Promise<boolean> {
 								</td>
 								<td class="col-status" data-mobile-label={$t('knowledge.status')}>
 									{#if statusBadge}
-										{@render statusContent(document, statusBadge, extractionBusy)}
+										{@render statusContent(document, statusBadge, extractionBusy, 'status')}
 									{:else}
 										<!-- No extraction verdict and no version family: neither
 										     current nor historical, and nothing left to process. -->
@@ -1304,6 +1366,19 @@ async function handleBulkDelete(): Promise<boolean> {
 </div>
 
 <style>
+	/* Announced, never drawn: the Status column already says this on screen. */
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
 	.documents-list-wrapper {
 		/* Every card on this tab — filter bar, table, bulk bar, pager, drop
 		   overlay — is drawn at one radius rather than at four hand-typed
