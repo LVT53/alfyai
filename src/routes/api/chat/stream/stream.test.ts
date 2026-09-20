@@ -253,6 +253,9 @@ describe("POST /api/chat/stream route adapter", () => {
 		expect(prepareAdmittedChatTurn).toHaveBeenCalledWith({
 			userId: "user-1",
 			admittedTurn,
+			// F20: the request's signal reaches the attachment wait, so a client
+			// that went away releases the server instead of paying out the budget.
+			signal: expect.any(AbortSignal),
 		});
 	});
 

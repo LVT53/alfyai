@@ -653,6 +653,45 @@ describe("preflightChatTurn attachment send gate", () => {
 		consoleError.mockRestore();
 	});
 
+	// F20. The bounded wait held a server task polling the ledger for up to
+	// `DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS` even after the client had gone
+	// away, because the request's signal never reached it.
+	it("hands the request's abort signal to the bounded wait", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		mocks.assertPromptReadyAttachments
+			.mockRejectedValueOnce(pendingFailure())
+			.mockResolvedValue(undefined);
+		mocks.getExtractionJobsForArtifacts.mockResolvedValue([job()]);
+		const controller = new AbortController();
+
+		await preflightChatTurn({
+			userId: "user-1",
+			request: requestWithAttachments(),
+			signal: controller.signal,
+		});
+
+		expect(mocks.waitForExtractionJobVerdict).toHaveBeenCalledWith(
+			expect.objectContaining({ signal: controller.signal }),
+		);
+	});
+
+	it("skips the wait entirely for a send the client already abandoned", async () => {
+		const { preflightChatTurn } = await import("./preflight");
+		mocks.assertPromptReadyAttachments.mockRejectedValue(pendingFailure());
+		mocks.getExtractionJobsForArtifacts.mockResolvedValue([job()]);
+		const controller = new AbortController();
+		controller.abort();
+
+		const result = await preflightChatTurn({
+			userId: "user-1",
+			request: requestWithAttachments(),
+			signal: controller.signal,
+		});
+
+		expect(mocks.waitForExtractionJobVerdict).not.toHaveBeenCalled();
+		expect(result.ok).toBe(false);
+	});
+
 	it("does not wait when an admin has set the budget to zero", async () => {
 		const { preflightChatTurn } = await import("./preflight");
 		mocks.getExtractionConfig.mockReturnValue({ preflightWaitMs: 0 });

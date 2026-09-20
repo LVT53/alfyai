@@ -35,6 +35,8 @@ type PreflightError = { ok: false; error: ChatTurnRequestError };
 export async function preflightChatTurn(params: {
 	userId: string;
 	request: ParsedChatTurnRequest;
+	/** The HTTP request's signal. Aborting releases the bounded wait at once. */
+	signal?: AbortSignal;
 }): Promise<ChatTurnPreparationResult> {
 	const { userId, request } = params;
 	const admission = await admitChatTurn({ userId, request });
@@ -43,6 +45,7 @@ export async function preflightChatTurn(params: {
 	return prepareAdmittedChatTurn({
 		userId,
 		admittedTurn: admission.value,
+		signal: params.signal,
 	});
 }
 
@@ -56,10 +59,12 @@ export async function admitChatTurnStream(params: {
 export async function prepareAdmittedChatTurn(params: {
 	userId: string;
 	admittedTurn: AdmittedChatTurn;
+	signal?: AbortSignal;
 }): Promise<ChatTurnPreparationResult> {
 	return prepareChatTurn({
 		userId: params.userId,
 		request: params.admittedTurn,
+		signal: params.signal,
 	});
 }
 
@@ -85,11 +90,13 @@ async function admitChatTurn(params: {
 async function prepareChatTurn(params: {
 	userId: string;
 	request: ParsedChatTurnRequest;
+	signal?: AbortSignal;
 }): Promise<ChatTurnPreparationResult> {
 	const { userId, request } = params;
 	const attachmentValidation = await validateAttachmentReadiness(
 		userId,
 		request,
+		params.signal,
 	);
 	if (attachmentValidation) return attachmentValidation;
 
@@ -127,6 +134,7 @@ async function prepareChatTurn(params: {
 export async function preflightAtlasTurnSources(params: {
 	userId: string;
 	request: ParsedChatTurnRequest;
+	signal?: AbortSignal;
 }): Promise<
 	| {
 			ok: true;
@@ -146,6 +154,7 @@ export async function preflightAtlasTurnSources(params: {
 	const attachmentValidation = await validateAttachmentReadiness(
 		userId,
 		request,
+		params.signal,
 	);
 	if (attachmentValidation) return attachmentValidation;
 
@@ -251,10 +260,18 @@ async function waitForPendingExtractions(params: {
 	userId: string;
 	jobs: DocumentExtractionJobDTO[];
 	budgetMs: number;
+	/**
+	 * The request's own signal. A user who closed the tab or pressed Stop has
+	 * nobody left to answer, and holding a server task for the rest of
+	 * `DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS` polling the ledger on their
+	 * behalf is pure waste, so the wait releases the moment they abort.
+	 */
+	signal?: AbortSignal;
 }): Promise<void> {
 	const deadline = Date.now() + params.budgetMs;
 
 	for (const job of params.jobs) {
+		if (params.signal?.aborted) return;
 		const remainingMs = deadline - Date.now();
 		if (remainingMs <= 0) return;
 		const artifactId = job.sourceArtifactId;
@@ -265,6 +282,7 @@ async function waitForPendingExtractions(params: {
 				getExtractionJobForArtifact({ userId: params.userId, artifactId }),
 			timeoutMs: remainingMs,
 			pollIntervalMs: PREFLIGHT_POLL_INTERVAL_MS,
+			signal: params.signal,
 		});
 	}
 }
@@ -281,6 +299,7 @@ async function waitForPendingExtractions(params: {
 async function validateAttachmentReadiness(
 	userId: string,
 	request: ParsedChatTurnRequest,
+	signal?: AbortSignal,
 ): Promise<PreflightError | null> {
 	if (request.attachmentIds.length === 0) return null;
 
@@ -303,7 +322,7 @@ async function validateAttachmentReadiness(
 		return toPreflightError(failure);
 	}
 
-	await waitForPendingExtractions({ userId, jobs: waitable, budgetMs });
+	await waitForPendingExtractions({ userId, jobs: waitable, budgetMs, signal });
 
 	const settledFailure = await assertReadiness(userId, request);
 	return settledFailure ? toPreflightError(settledFailure) : null;
