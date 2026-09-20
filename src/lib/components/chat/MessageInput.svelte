@@ -2623,8 +2623,20 @@ async function uploadFiles(files: FileList | null) {
 			throw new Error($t("chat.uploadError"));
 		}
 
-		pendingUploadCount = validFiles.length;
-		onUploadFiles?.({
+		if (!onUploadFiles) {
+			// No host to do the uploading. Without this the optimistic chips would
+			// stand there forever and the composer would stay in `uploading`.
+			throw new Error($t("chat.uploadError"));
+		}
+
+		// Increment, never assign: the file picker is closed while an upload is
+		// in flight (`canAttach` goes false), but a DROP is not — the drop handler
+		// only checks read-only and sending. Dropping two files while three are
+		// uploading used to clobber the counter to 2, which the first batch's
+		// three callbacks then drove to -1, retiring the "Uploading…" line and
+		// opening the send gate while the second batch was still in flight.
+		pendingUploadCount += validFiles.length;
+		onUploadFiles({
 			files: validFiles,
 			conversationId: targetConversationId,
 			done: addUploadedAttachment,

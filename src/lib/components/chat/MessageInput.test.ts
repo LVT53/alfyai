@@ -4542,6 +4542,70 @@ describe("MessageInput extraction chips", () => {
 		).toBeNull();
 	});
 
+	it("keeps the upload state while a dropped second batch is in flight", async () => {
+		// The file picker is closed while an upload runs (`canAttach` goes
+		// false); the page's DROP handler is not — it checks read-only and
+		// sending only, and calls the composer's registered upload function
+		// directly. A second batch used to ASSIGN the pending counter rather than
+		// add to it, so the first batch's callbacks drove it to zero, cleared
+		// "Uploading…" and opened the send gate while the second batch was still
+		// uploading.
+		let uploadFn: ((files: FileList | null) => Promise<void>) | null = null;
+		const dones: Array<(result: UploadDoneResult) => void> = [];
+		const { getByTestId, queryByTestId, getByPlaceholderText } = render(
+			MessageInput,
+			{
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadReady: (fn: (files: FileList | null) => Promise<void>) => {
+				uploadFn = fn;
+			},
+			onUploadFiles: (payload: UploadFilesPayload) => {
+				dones.push(payload.done);
+			},
+			},
+		);
+
+		// The hint only renders once there is a message to send.
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Summarise these" },
+		});
+
+		const drop = (name: string) =>
+			(uploadFn as unknown as (files: File[]) => Promise<void>)([
+				new File(["x"], name, { type: "application/pdf" }),
+			] as unknown as FileList);
+
+		await drop("first.pdf");
+		await drop("second.pdf");
+		await waitFor(() => expect(dones).toHaveLength(2));
+
+		// The first upload lands; the second has not.
+		dones[0]?.({
+			success: true,
+			attachment: {
+				artifact: artifact({ id: "artifact-1", name: "first.pdf" }),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+				extraction: extractionJob({ status: "queued" }),
+			},
+		});
+
+		await waitFor(() =>
+			expect(getByTestId("composer-chip-attachment")).toBeTruthy(),
+		);
+		// The second file’s optimistic chip is still up...
+		expect(queryByTestId("composer-chip-upload")).toBeTruthy();
+		// ...and the composer still knows it is uploading, which is what the
+		// counter is for. With the assignment bug the counter reached zero here
+		// and the hint switched to "preparing" — the wording for a file that has
+		// finished uploading — while the second file was still on the wire.
+		expect(getByTestId("send-disabled-hint")).toHaveTextContent(
+			"Uploading file...",
+		);
+	});
+
 	it("drops the optimistic chip when the upload fails", async () => {
 		const { container, queryByTestId, done } = renderComposer();
 
