@@ -362,11 +362,20 @@ describe("extractionChipState", () => {
 
 	it("reports a stopped job without offering to stop it again", () => {
 		const state = extractionChipState(
-			job({ status: "canceled", cancelable: false }),
+			job({ status: "canceled", cancelable: false, retryable: false }),
 		);
 		expect(state.errorKey).toBe("chat.extraction.canceled");
 		expect(state.canCancel).toBe(false);
 		expect(state.dashed).toBe(false);
+	});
+
+	it("offers Retry on a stopped job, because stopping is undoable", () => {
+		const state = extractionChipState(
+			job({ status: "canceled", cancelable: false, retryable: true }),
+		);
+		expect(state.canRetry).toBe(true);
+		expect(state.errorKey).toBe("chat.extraction.canceledRetry");
+		expect(state.canCancel).toBe(false);
 	});
 
 	it("never offers Cancel for a job that already asked to be canceled", () => {

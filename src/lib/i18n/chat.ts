@@ -78,6 +78,7 @@ const chatDict = {
 		"chat.extraction.cancelA11y": "Stop reading {name}",
 		"chat.extraction.cancelFailed": "{name} could not be stopped.",
 		"chat.extraction.canceled": "Stopped",
+		"chat.extraction.canceledRetry": "Stopped — retry",
 		"chat.extraction.error.auth_failed":
 			"Document reader rejected our credentials",
 		"chat.extraction.error.canceled": "Stopped",
@@ -1208,6 +1209,7 @@ const chatDict = {
 		"chat.extraction.cancelFailed":
 			"A(z) {name} olvasását nem sikerült leállítani.",
 		"chat.extraction.canceled": "Leállítva",
+		"chat.extraction.canceledRetry": "Leállítva — próbáld újra",
 		"chat.extraction.error.auth_failed":
 			"A dokumentumolvasó elutasította a hozzáférést",
 		"chat.extraction.error.canceled": "Leállítva",

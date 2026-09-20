@@ -64,7 +64,13 @@ export function mapExtractionJobRow(
 		fileName: row.fileName,
 		attemptCount: row.attemptCount,
 		maxAttempts,
-		retryable: status === "failed" && Boolean(row.retryable),
+		// `canceled` is always retryable: the ledger has allowed a retry from it
+		// since T15, and reporting otherwise meant a user who hit Stop by mistake
+		// had no way back except deleting the document and uploading it again.
+		// A `failed` job still has to say so on the row — plenty of failures
+		// (`empty_result`, `too_large`) cannot be helped by trying once more.
+		retryable:
+			status === "canceled" || (status === "failed" && Boolean(row.retryable)),
 		cancelable: !terminal && row.cancelRequestedAt === null,
 		error: code ? { code, message: row.errorMessage ?? "" } : null,
 		createdAt: row.createdAt.getTime(),

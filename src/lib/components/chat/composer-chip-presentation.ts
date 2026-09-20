@@ -151,11 +151,16 @@ export function extractionChipState(
 	if (job.status === "succeeded") return idle;
 
 	if (job.status === "canceled") {
+		// Stopping a read is undoable. The ledger has always allowed a retry from
+		// `canceled`, so the chip offers it: the alternative for someone who hit
+		// Stop by mistake was removing the file and uploading it again.
 		return {
 			progressKey: null,
-			errorKey: "chat.extraction.canceled",
+			errorKey: job.retryable
+				? "chat.extraction.canceledRetry"
+				: "chat.extraction.canceled",
 			dashed: false,
-			canRetry: false,
+			canRetry: job.retryable,
 			canCancel: false,
 		};
 	}
