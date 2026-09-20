@@ -279,16 +279,12 @@ let {
 					result:
 						| {
 								success: true;
-								attachment: PendingAttachment;
 								/**
-								 * The upload's extraction job, when the server sent one.
-								 * It rides BESIDE the attachment rather than inside it
-								 * because `PendingAttachment` belongs to another slice;
-								 * once that slice lands and the field exists on the
-								 * attachment itself, this sibling can be collapsed into
-								 * it (the reader below already accepts either).
+								 * The upload's extraction job rides on
+								 * `PendingAttachment.extraction`. One shape, so the
+								 * composer and the draft restore read the same field.
 								 */
-								extraction?: DocumentExtractionJobDTO | null;
+								attachment: PendingAttachment;
 						  }
 						| { success: false; fileName: string; error: string },
 				) => void;
@@ -1075,6 +1071,11 @@ $effect(() => {
 		// Override with draftAttachments
 		for (const attachment of draftAttachments) {
 			merged.set(attachment.artifact.id, attachment);
+			// A draft restored mid-extraction carries the ledger row. Adopting it
+			// here is what makes the chip come back as "Reading…" and dashed
+			// rather than as an ordinary attached file with a red readiness line
+			// under it, for the second or so before the first poll lands.
+			applyExtractionJob(readExtractionJobDTO(attachment.extraction));
 		}
 
 		pendingAttachments = Array.from(merged.values());
@@ -2622,8 +2623,20 @@ async function uploadFiles(files: FileList | null) {
 			throw new Error($t("chat.uploadError"));
 		}
 
-		pendingUploadCount = validFiles.length;
-		onUploadFiles?.({
+		if (!onUploadFiles) {
+			// No host to do the uploading. Without this the optimistic chips would
+			// stand there forever and the composer would stay in `uploading`.
+			throw new Error($t("chat.uploadError"));
+		}
+
+		// Increment, never assign: the file picker is closed while an upload is
+		// in flight (`canAttach` goes false), but a DROP is not — the drop handler
+		// only checks read-only and sending. Dropping two files while three are
+		// uploading used to clobber the counter to 2, which the first batch's
+		// three callbacks then drove to -1, retiring the "Uploading…" line and
+		// opening the send gate while the second batch was still in flight.
+		pendingUploadCount += validFiles.length;
+		onUploadFiles({
 			files: validFiles,
 			conversationId: targetConversationId,
 			done: addUploadedAttachment,
@@ -2680,11 +2693,7 @@ function forgetExtractionJob(artifactId: string) {
 
 function addUploadedAttachment(
 	result:
-		| {
-				success: true;
-				attachment: PendingAttachment;
-				extraction?: DocumentExtractionJobDTO | null;
-		  }
+		| { success: true; attachment: PendingAttachment }
 		| { success: false; fileName: string; error: string },
 ) {
 	if (result.success) {
@@ -2696,14 +2705,7 @@ function addUploadedAttachment(
 		);
 		next.set(result.attachment.artifact.id, result.attachment);
 		pendingAttachments = Array.from(next.values());
-		// Either shape: the DTO beside the attachment, or — once the upload
-		// response carries it on the attachment itself — the one inside it.
-		applyExtractionJob(
-			result.extraction ??
-				readExtractionJobDTO(
-					(result.attachment as { extraction?: unknown }).extraction,
-				),
-		);
+		applyExtractionJob(readExtractionJobDTO(result.attachment.extraction));
 		retireOptimisticUpload(result.attachment.artifact.name);
 		extractionPoller?.sync();
 		draftEmissionVersion += 1;

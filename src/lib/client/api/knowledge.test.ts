@@ -642,7 +642,7 @@ describe("uploadRefusalFromError", () => {
 			}),
 		).toEqual({
 			key: "knowledge.uploadRejectedMedia",
-			params: { name: "clip.mp4", ext: "MP4" },
+			params: { name: "clip.mp4", ext: "MP4", limit: "" },
 		});
 	});
 
@@ -655,7 +655,30 @@ describe("uploadRefusalFromError", () => {
 			}),
 		).toEqual({
 			key: "knowledge.uploadUnsupportedType",
-			params: { name: "clip.mp4", ext: "MP4" },
+			params: { name: "clip.mp4", ext: "MP4", limit: "" },
+		});
+	});
+
+	it("translates the 413 direct-text cap and interpolates the limit", async () => {
+		// The cap answers 413, not 415. Keying only on 415 left both upload
+		// surfaces showing the server's English sentence.
+		expect(
+			await refusalFrom(
+				{
+					error: "Text files are limited to 8 MB.",
+					code: "upload_direct_text_too_large",
+					errorKey: "knowledge.uploadDirectTextTooLarge",
+					details: {
+						fileName: "huge.log",
+						fileSize: 20_000_000,
+						maxBytes: 8_388_608,
+					},
+				},
+				413,
+			),
+		).toEqual({
+			key: "knowledge.uploadDirectTextTooLarge",
+			params: { name: "huge.log", ext: "LOG", limit: "8 MB" },
 		});
 	});
 

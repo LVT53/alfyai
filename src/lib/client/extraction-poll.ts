@@ -20,6 +20,7 @@ import type { FetchLike } from "$lib/client/api/http";
 import { fetchExtractionJobs } from "$lib/client/api/knowledge";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import {
+	EXTRACTION_STATUS_BATCH_LIMIT,
 	isDocumentExtractionStatus,
 	isTerminalExtractionStatus,
 } from "$lib/shared/extraction-status";
@@ -31,11 +32,10 @@ export const EXTRACTION_POLL_SLOW_MS = 2500;
 /** How long the fast cadence lasts, measured from the moment the poller armed. */
 export const EXTRACTION_POLL_ESCALATE_AFTER_MS = 10_000;
 /**
- * Mirrors `MAX_EXTRACTION_ARTIFACT_IDS` in
- * `src/routes/api/knowledge/extraction/+server.ts`. Asking for more is a 400,
- * so a caller with a long list is chunked rather than refused.
+ * The batch endpoint's own cap, so asking for more is impossible rather than
+ * a 400. A caller with a long list is chunked, never refused.
  */
-export const EXTRACTION_POLL_BATCH_SIZE = 50;
+export const EXTRACTION_POLL_BATCH_SIZE = EXTRACTION_STATUS_BATCH_LIMIT;
 
 export interface ExtractionPollerOptions {
 	/** The artifacts to ask about, re-read on every tick. */
@@ -214,7 +214,19 @@ export function createExtractionPoller(
 			}
 			if (jobs.length > 0) options.onJobs(jobs);
 		} catch (error) {
-			if (!stopped) options.onError?.(error);
+			if (stopped) return;
+			options.onError?.(error);
+			if (isUnrecoverablePollError(error)) {
+				// A session that ended in another tab answers 401 to every poll,
+				// for as long as the tab stays open. Retrying that forever is a
+				// request every 2.5 s that can never succeed, and on the composer
+				// it is silent (`onError` is a no-op there) while Send stays
+				// blocked because no DTO ever arrives. The same reasoning covers
+				// 403: neither gets better by asking again.
+				stopped = true;
+				clearTimer();
+				armedAt = null;
+			}
 		} finally {
 			inFlight = false;
 			if (!stopped) schedule();
@@ -254,6 +266,19 @@ export function createExtractionPoller(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
+}
+
+/**
+ * Errors no number of retries can fix. Everything else — a dropped connection,
+ * a 500, a restart mid-deploy — is transient and keeps its retry.
+ *
+ * Read structurally rather than with `instanceof ApiError`: the poller takes an
+ * injected `fetchJobs`, so the rejection may come from a caller's own client.
+ */
+function isUnrecoverablePollError(error: unknown): boolean {
+	if (!isRecord(error)) return false;
+	const status = error.status;
+	return status === 401 || status === 403;
 }
 
 /**

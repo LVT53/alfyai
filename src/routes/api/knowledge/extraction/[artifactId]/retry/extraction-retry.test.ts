@@ -176,6 +176,40 @@ describe("POST /api/knowledge/extraction/[artifactId]/retry", () => {
 		expect(count.count).toBe(0);
 	});
 
+	it("requeues a job the user canceled by mistake", async () => {
+		// The ledger has allowed T15 (canceled -> queued) from the start; before
+		// this, the DTO reported `retryable` only for `failed`, so the route
+		// refused and the only way back was deleting the document and uploading
+		// it again.
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			name: "stopped.pdf",
+		});
+		const { job } = await ledger.enqueueExtractionJob({
+			userId: OWNER,
+			conversationId: null,
+			origin: "upload",
+			intakeRoute: "mineru",
+			fileName: "stopped.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 2048,
+			sourceArtifactId: artifactId,
+		});
+		await ledger.cancelExtractionJob({ userId: OWNER, jobId: job.id });
+
+		const canceled = await readModel.getExtractionJobForArtifact({
+			userId: OWNER,
+			artifactId,
+		});
+		expect(canceled?.status).toBe("canceled");
+		expect(canceled?.retryable).toBe(true);
+
+		const response = await route.POST(makeEvent(artifactId, OWNER));
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { job: { status: string } };
+		expect(body.job.status).toBe("queued");
+	});
+
 	it("answers 401 when there is no session", async () => {
 		const response = await route.POST(makeEvent("artifact-1", null));
 		expect(response.status).toBe(401);

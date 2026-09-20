@@ -44,7 +44,11 @@ const NOW = new Date("2026-09-20T10:00:00.000Z");
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	syncArtifactChunksMock.mockResolvedValue(undefined);
+	syncArtifactChunksMock.mockResolvedValue({
+		chunkCount: 0,
+		truncated: false,
+		totalChunks: 0,
+	});
 	memory = createInMemoryDatabase();
 	memory.db
 		.insert(schema.users)

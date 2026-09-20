@@ -15,19 +15,21 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getExtractionJobsForArtifacts } from "$lib/server/services/extraction";
+import { EXTRACTION_STATUS_BATCH_LIMIT } from "$lib/shared/extraction-status";
 import type { RequestHandler } from "./$types";
 
 /**
  * How many ids one poll may ask about. The cap is what keeps a Knowledge page
  * with hundreds of documents from turning a 1 s poll into a hundred-row scan;
- * clients chunk to it (`EXTRACTION_POLL_BATCH_SIZE` in
- * `$lib/client/extraction-poll`, which mirrors this number).
+ * clients chunk to it.
  *
- * Not exported: SvelteKit allows a route module only its handlers and a few
- * named config exports, so the two copies are kept honest by the poller's
- * chunking test rather than by a shared constant.
+ * The number itself lives in `$lib/shared/extraction-status` because a
+ * SvelteKit route module may export only its handlers and a few named config
+ * exports, so this side cannot own a constant the poller imports — and two
+ * hand-kept copies is exactly the arrangement where lowering one turns every
+ * poll into a 400.
  */
-const MAX_EXTRACTION_ARTIFACT_IDS = 50;
+const MAX_EXTRACTION_ARTIFACT_IDS = EXTRACTION_STATUS_BATCH_LIMIT;
 
 function parseArtifactIds(raw: string | null): string[] {
 	if (!raw) return [];

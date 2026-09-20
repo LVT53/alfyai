@@ -205,7 +205,7 @@ describe("getExtractionJobsForArtifacts — legacy synthesis", () => {
 });
 
 describe("mapExtractionJobRow", () => {
-	it("only offers retry on a failed row, and cancel on a live one", async () => {
+	it("offers cancel on a live row and retry on a stopped one", async () => {
 		const artifactId = fixture.seedArtifact({ userId, name: "x.pdf" });
 		const { job } = await ledger.enqueueExtractionJob({
 			userId,
@@ -237,7 +237,10 @@ describe("mapExtractionJobRow", () => {
 		if (!canceled) throw new Error("expected the cancel to apply");
 		const mapped = readModel.mapExtractionJobRow(canceled, 3);
 		expect(mapped.cancelable).toBe(false);
-		expect(mapped.retryable).toBe(false);
+		// The ledger allows T15 (canceled -> queued), so the DTO has to say so:
+		// a user who hit Stop by mistake otherwise has to delete the document
+		// and upload it again.
+		expect(mapped.retryable).toBe(true);
 	});
 
 	it("surfaces an error while a requeued job waits for its next attempt", async () => {

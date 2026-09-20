@@ -294,15 +294,12 @@ function handleUploadReady(
 type UploadFileResult =
 	| {
 			success: true;
-			attachment: import("$lib/server/services/knowledge/types").PendingAttachment;
 			/**
-			 * The upload's extraction job, when the response carries one. Read
-			 * structurally, so this page works both before and after the upload
-			 * endpoint starts sending it.
+			 * The upload's extraction job rides INSIDE the attachment, on
+			 * `PendingAttachment.extraction`. It used to travel beside it only
+			 * because that field did not exist when this page was written.
 			 */
-			extraction?:
-				| import("$lib/shared/extraction-status").DocumentExtractionJobDTO
-				| null;
+			attachment: import("$lib/server/services/knowledge/types").PendingAttachment;
 	  }
 	| { success: false; fileName: string; error: string };
 
@@ -327,8 +324,8 @@ async function uploadSingleFile(
 						result.readinessError.trim()
 							? result.readinessError
 							: null,
+					extraction: extractionFromUploadResponse(result) ?? undefined,
 				},
-				extraction: extractionFromUploadResponse(result),
 			};
 		}
 		return { success: false, fileName: file.name, error: "Upload failed" };

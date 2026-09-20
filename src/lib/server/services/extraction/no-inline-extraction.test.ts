@@ -95,15 +95,13 @@ describe("no inline extraction in the upload path", () => {
 					referencesExtractionClient,
 				),
 			)
-			.map((absolute) => path.relative(srcRoot, absolute))
-			// `chat-files.ts` is slice S5's to move; until it lands it is a known,
-			// named exception rather than a silent one.
-			.filter((relative) => relative !== "lib/server/services/chat-files.ts");
+			.map((absolute) => path.relative(srcRoot, absolute));
 
-		for (const importer of importers) {
-			expect(ALLOWED_IMPORTERS.has(importer), `${importer} imports it`).toBe(
-				true,
-			);
-		}
+		// Equality, not membership: a loop of `expect(...).toBe(true)` over an
+		// empty list passes while asserting nothing, which is precisely what
+		// happens the day someone deletes the adapter. `chat-files.ts` used to be
+		// a named exception here; slice S5 moved it onto the ledger, so the set
+		// is now exactly the adapter.
+		expect(importers.sort()).toEqual(Array.from(ALLOWED_IMPORTERS).sort());
 	});
 });

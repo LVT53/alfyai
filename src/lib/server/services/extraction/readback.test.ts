@@ -211,7 +211,7 @@ describe("completeGeneratedFileReadback", () => {
 			pageCount: 4,
 		});
 
-		expect(result).toEqual({ artifactId });
+		expect(result).toEqual({ artifactId, chunksTruncated: false });
 		const row = readArtifact(artifactId);
 		expect(row.contentText).toBe(
 			`${WRAPPER_HEAD}\n\nExtracted file content:\n${extracted.trim()}`,

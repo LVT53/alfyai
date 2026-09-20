@@ -16,10 +16,7 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import type { WebCitationAudit } from "$lib/server/services/web-citation-audit";
-import type {
-	DocumentExtractionStatus,
-	ExtractionErrorCode,
-} from "$lib/shared/extraction-status";
+import type { AttachmentExtractionStatusItem } from "$lib/shared/extraction-status";
 
 export type ChatTurnRoute = "send" | "stream";
 
@@ -46,20 +43,11 @@ export type {
  * from `status` and `errorCode`. `retryable` is the DTO's, so the composer can
  * decide whether to offer a Retry affordance without a second round trip.
  *
- * Structurally identical to `AttachmentExtractionStatusItem` in
- * `knowledge/store/attachments.ts`, which is what actually builds the rows.
- * It is restated rather than imported because that module exports it neither
- * through `knowledge/store/index.ts` nor through the service facade, and this
- * is the chat-turn wire shape regardless of who fills it. One re-export would
- * collapse the two — worth doing, in the slice that owns that file.
+ * An alias, not a second declaration: the rows are built by
+ * `knowledge/store/attachments.ts`, carried here, and read by the composer,
+ * and three copies of one wire shape is how the three drift apart.
  */
-export type ChatTurnAttachmentExtraction = {
-	artifactId: string;
-	name: string | null;
-	status: DocumentExtractionStatus;
-	errorCode: ExtractionErrorCode | null;
-	retryable: boolean;
-};
+export type ChatTurnAttachmentExtraction = AttachmentExtractionStatusItem;
 
 export type ChatTurnRequestError = {
 	status: number;

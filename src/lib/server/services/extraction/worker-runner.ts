@@ -65,7 +65,7 @@ export type ReadbackExtractionSink = (input: {
 	text: string;
 	pageCount: number | null;
 	structured?: unknown;
-}) => Promise<{ artifactId: string }>;
+}) => Promise<{ artifactId: string; chunksTruncated?: boolean }>;
 
 let registeredReadbackSink: ReadbackExtractionSink | null = null;
 
@@ -264,9 +264,22 @@ async function executeStep(
 			status: progress.phase,
 			handle: progress.handle ?? undefined,
 			extractor: extractor.name,
-		}).then((ok) => {
-			if (!ok) controller.abort();
-		});
+		})
+			.then((ok) => {
+				if (!ok) controller.abort();
+			})
+			// An extractor calls this synchronously from its own polling loop, so
+			// nothing is awaiting the promise. Without a catch, one SQLITE_BUSY on
+			// a progress write becomes an unhandled rejection — which Node 22
+			// turns into a process exit, taking the whole server down for a status
+			// line nobody was waiting on.
+			.catch((error) => {
+				console.warn("[EXTRACTION] Progress write failed", {
+					jobId: job.id,
+					error,
+				});
+				controller.abort();
+			});
 	};
 
 	let result: ExtractDocumentResult;
@@ -334,7 +347,7 @@ async function executeStep(
 	}
 
 	try {
-		const normalizedArtifactId = await persistExtraction({
+		const persisted = await persistExtraction({
 			job,
 			result,
 			source,
@@ -344,9 +357,15 @@ async function executeStep(
 
 		await completeExtractionAttempt({
 			...owned,
-			normalizedArtifactId,
+			normalizedArtifactId: persisted.artifactId,
 			textLength: result.text.length,
 			pageCount: result.pageCount ?? null,
+			// Recorded on the attempt, not just in a log line: "retrieval only
+			// covers the first N chunks of this document" is the kind of fact
+			// someone reads the ledger to find out.
+			...(persisted.chunksTruncated
+				? { diagnostics: { chunksTruncated: true } }
+				: {}),
 		});
 		return { processed: true, result: { jobId: job.id, status: "succeeded" } };
 	} catch (error) {
@@ -374,13 +393,19 @@ async function executeStep(
 	}
 }
 
+interface PersistedExtraction {
+	artifactId: string;
+	/** The chunk ceiling was hit, so retrieval covers only part of the text. */
+	chunksTruncated: boolean;
+}
+
 async function persistExtraction(params: {
 	job: DocumentExtractionJobRow;
 	result: ExtractDocumentResult;
 	source: ExtractionSource;
 	persistResult?: PersistExtractionResultDependency;
 	persistReadback?: ReadbackExtractionSink;
-}): Promise<string> {
+}): Promise<PersistedExtraction> {
 	const { job, result, source } = params;
 
 	if (job.origin === "generated_file_readback" && job.chatGeneratedFileId) {
@@ -398,7 +423,10 @@ async function persistExtraction(params: {
 			pageCount: result.pageCount ?? null,
 			structured: result.structured,
 		});
-		return persisted.artifactId;
+		return {
+			artifactId: persisted.artifactId,
+			chunksTruncated: persisted.chunksTruncated === true,
+		};
 	}
 
 	if (!job.sourceArtifactId) {
@@ -418,7 +446,10 @@ async function persistExtraction(params: {
 		...(result.pageCount === undefined ? {} : { pageCount: result.pageCount }),
 		structured: result.structured,
 	});
-	return artifact.id;
+	return {
+		artifactId: artifact.id,
+		chunksTruncated: artifact.metadata?.chunksTruncated === true,
+	};
 }
 
 async function bestEffortRemoteCancel(
@@ -487,7 +518,15 @@ async function runStaleRecovery(
 
 /** Fire-and-forget wake, deduped by an in-module promise. */
 export function wakeExtractionWorker(): void {
-	if (drainPromise) {
+	if (drainPromise || isNonServingContext()) {
+		// Under vitest this is the one entry point a test reaches by accident:
+		// any test that uploads a file calls `startUploadExtraction`, which wakes
+		// the worker, which drains with the REAL extractor registry and issues a
+		// live HTTP call to the backend from a unit test — and then leaves the
+		// job requeued behind a backoff gate, so the next explicit
+		// `executeNextExtractionJob` in the same test claims nothing. Tests that
+		// mean to run the worker call `executeNextExtractionJob` or
+		// `drainExtractionWorker` directly; those stay live.
 		return;
 	}
 

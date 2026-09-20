@@ -180,7 +180,7 @@ async function findGeneratedOutputArtifact(
  */
 export async function completeGeneratedFileReadback(
 	input: CompleteGeneratedFileReadbackInput,
-): Promise<{ artifactId: string }> {
+): Promise<{ artifactId: string; chunksTruncated: boolean }> {
 	const artifact = await findGeneratedOutputArtifact(input);
 	if (!artifact) {
 		// The conversation or the file was deleted while the job was queued. The
@@ -219,7 +219,7 @@ export async function completeGeneratedFileReadback(
 		});
 	}
 
-	await syncArtifactChunks({
+	const sync = await syncArtifactChunks({
 		artifactId: updated.id,
 		userId: input.userId,
 		conversationId: updated.conversationId,
@@ -227,7 +227,7 @@ export async function completeGeneratedFileReadback(
 	});
 	queueArtifactSemanticEmbeddingRefresh(mapArtifact(updated));
 
-	return { artifactId: updated.id };
+	return { artifactId: updated.id, chunksTruncated: sync.truncated };
 }
 
 const readbackSink: ReadbackExtractionSink = (input) =>
