@@ -7,7 +7,11 @@
 // nothing that imports the `$t` store. A meta clause comes back as the
 // numbers and a template key for the caller to localize.
 
-import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import type {
+	DocumentExtractionJobDTO,
+	DocumentExtractionStatus,
+	ExtractionErrorCode,
+} from "$lib/shared/extraction-status";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { getFileType } from "./attachment-file-type";
 import type { ComposerChipKind } from "./composer-chip-kinds";
@@ -135,6 +139,35 @@ const EXTRACTION_PROGRESS_KEYS: Record<string, string> = {
 	downloading: "chat.extraction.parsing",
 	indexing: "chat.extraction.indexing",
 };
+
+/**
+ * The reason clause for one attachment the send gate refused.
+ *
+ * The 422 carries `status` + `errorCode` + `retryable` per attachment beside
+ * an English sentence the server built from hard-wired literals; this is what
+ * turns those three facts into the same clause the chip beside the composer is
+ * already showing. Same tables, deliberately: two mappings of one vocabulary
+ * would drift, and the user would be told two different things about one file.
+ */
+export function extractionReasonKey(item: {
+	status: DocumentExtractionStatus;
+	errorCode: ExtractionErrorCode | null;
+	retryable: boolean;
+}): string {
+	if (item.status === "succeeded") return "chat.extraction.queued";
+	if (item.status === "canceled") {
+		return item.retryable
+			? "chat.extraction.canceledRetry"
+			: "chat.extraction.canceled";
+	}
+	if (item.status === "failed") {
+		if (item.retryable) return "chat.extraction.failedRetry";
+		return item.errorCode
+			? `chat.extraction.error.${item.errorCode}`
+			: "chat.extraction.failed";
+	}
+	return EXTRACTION_PROGRESS_KEYS[item.status] ?? "chat.extraction.queued";
+}
 
 export function extractionChipState(
 	job: DocumentExtractionJobDTO | null | undefined,

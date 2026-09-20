@@ -140,6 +140,85 @@ describe("toFriendlySendError", () => {
 	// gone: an error with no recognized `code` no longer gets reclassified by
 	// scanning its message text for keywords like "network"/"capacity"/"file
 	// too large". It always falls through to the generic backend message.
+	it("translates a pending send-gate refusal per attachment", () => {
+		// The 422 carries the rows; before this the composer echoed the
+		// server's English sentence at a Hungarian user.
+		const error = new Error(
+			"One or more attached files are still being prepared for chat.",
+		) as Error & { code?: string; attachmentExtraction?: unknown };
+		error.code = "attachment_extraction_pending";
+		error.attachmentExtraction = [
+			{
+				artifactId: "a1",
+				name: "scan.pdf",
+				status: "parsing",
+				errorCode: null,
+				retryable: false,
+			},
+			{
+				artifactId: "a2",
+				name: "notes.docx",
+				status: "indexing",
+				errorCode: null,
+				retryable: false,
+			},
+		];
+
+		expect(toFriendlySendError(error, translate)).toBe(
+			"scan.pdf: translated:chat.extraction.parsing\n" +
+				"notes.docx: translated:chat.extraction.indexing",
+		);
+	});
+
+	it("names the reason, and points at Retry, for a failed attachment", () => {
+		const error = new Error("English sentence") as Error & {
+			code?: string;
+			attachmentExtraction?: unknown;
+		};
+		error.code = "attachment_extraction_failed";
+		error.attachmentExtraction = [
+			{
+				artifactId: "a1",
+				name: "broken.pdf",
+				status: "failed",
+				errorCode: "max_attempts",
+				retryable: true,
+			},
+			{
+				artifactId: "a2",
+				name: "empty.pdf",
+				status: "failed",
+				errorCode: "empty_result",
+				retryable: false,
+			},
+		];
+
+		expect(toFriendlySendError(error, translate)).toBe(
+			"broken.pdf: translated:chat.extraction.failedRetry\n" +
+				"empty.pdf: translated:chat.extraction.error.empty_result",
+		);
+	});
+
+	it("keeps the server sentence when the refusal carries no rows", () => {
+		// `attachment_not_ready` (a deleted file) never carries them, and an
+		// older server does not send them at all.
+		const error = new Error("Attached file is no longer available.") as Error & {
+			code?: string;
+		};
+		error.code = "attachment_not_ready";
+		expect(toFriendlySendError(error, translate)).toBe(
+			"Attached file is no longer available.",
+		);
+
+		const pendingWithoutRows = new Error("Still preparing.") as Error & {
+			code?: string;
+		};
+		pendingWithoutRows.code = "attachment_extraction_pending";
+		expect(toFriendlySendError(pendingWithoutRows, translate)).toBe(
+			"Still preparing.",
+		);
+	});
+
 	it("does not reclassify an uncoded error by scanning its message text", () => {
 		const messages = [
 			"network error while reaching example.com",

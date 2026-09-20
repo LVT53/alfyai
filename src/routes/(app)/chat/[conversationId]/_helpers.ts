@@ -1,3 +1,4 @@
+import { extractionReasonKey } from "$lib/components/chat/composer-chip-presentation";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
 import type { I18nKey } from "$lib/i18n";
 import type { ModelId } from "$lib/model-types";
@@ -97,7 +98,10 @@ export type StreamToolCallDetails = {
 	map?: ToolCallMapData | null;
 };
 
-type Translate = (key: I18nKey) => string;
+type Translate = (
+	key: I18nKey,
+	params?: Record<string, string | number>,
+) => string;
 
 const FRIENDLY_SEND_ERROR_KEYS = {
 	timeout: "chat.error.timeout",
@@ -152,6 +156,45 @@ function isKnownSendErrorCode(
 	return typeof code === "string" && code in FRIENDLY_SEND_ERROR_KEYS;
 }
 
+/**
+ * One line per blocked attachment: its name and the translated reason.
+ *
+ * Returns null when there is nothing to say — no rows, or no `translate` (a
+ * non-Svelte caller) — and the caller then keeps the server's sentence, which
+ * is English but still specific. The rows are untrusted wire data, so every
+ * field is read defensively.
+ */
+function translateAttachmentExtraction(
+	rows: unknown,
+	translate?: Translate,
+): string | null {
+	if (!translate || !Array.isArray(rows) || rows.length === 0) return null;
+
+	const lines = rows.flatMap((entry) => {
+		if (!entry || typeof entry !== "object") return [];
+		const row = entry as {
+			name?: unknown;
+			status?: unknown;
+			errorCode?: unknown;
+			retryable?: unknown;
+		};
+		if (typeof row.status !== "string") return [];
+		const reason = translate(
+			extractionReasonKey({
+				status: row.status as never,
+				errorCode: (typeof row.errorCode === "string"
+					? row.errorCode
+					: null) as never,
+				retryable: row.retryable === true,
+			}) as I18nKey,
+		);
+		const name = typeof row.name === "string" && row.name.trim() ? row.name : null;
+		return [name ? `${name}: ${reason}` : reason];
+	});
+
+	return lines.length > 0 ? lines.join("\n") : null;
+}
+
 // E2 — the send path's failures now all carry a stable errorKey `code` (E1's
 // cause -> code seam: classifyStreamErrorCause / StreamErrorCode on
 // /api/chat/send and the stream's data-stream-error part; see
@@ -162,12 +205,28 @@ export function toFriendlySendError(
 	error: Error,
 	translate?: Translate,
 ): string {
-	const errorWithCode = error as Error & { code?: unknown };
-	// The three attachment-readiness refusals carry a message built from the
-	// attachment's own name and reason, which beats any generic fallback. The
-	// two extraction codes also carry `attachmentExtraction` — once the
-	// composer renders that array through `chat.extraction.*`, this
-	// passthrough becomes the fallback rather than the answer.
+	const errorWithCode = error as Error & {
+		code?: unknown;
+		attachmentExtraction?: unknown;
+	};
+	// The two extraction refusals carry the per-attachment rows beside the
+	// server's English sentence, so the message is rebuilt from them: name plus
+	// the same translated reason clause the chip beside the composer is already
+	// showing. A retryable failure's clause is `chat.extraction.failedRetry`,
+	// which points at the Retry button the chip puts there.
+	if (
+		errorWithCode.code === "attachment_extraction_pending" ||
+		errorWithCode.code === "attachment_extraction_failed"
+	) {
+		const translated = translateAttachmentExtraction(
+			errorWithCode.attachmentExtraction,
+			translate,
+		);
+		if (translated) return translated;
+	}
+	// `attachment_not_ready` (a deleted file, a non-document) carries no rows,
+	// and its message is already built from the attachment's own name — still
+	// English, but more specific than any generic fallback.
 	if (
 		errorWithCode.code === "attachment_not_ready" ||
 		errorWithCode.code === "attachment_extraction_pending" ||

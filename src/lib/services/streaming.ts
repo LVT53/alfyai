@@ -7,6 +7,11 @@ import {
 	isNormalChatContextPreparationActivityClass,
 	type ResponseActivityEntry,
 } from "$lib/response-activity-types";
+import type { AttachmentExtractionStatusItem } from "$lib/shared/extraction-status";
+import {
+	isDocumentExtractionStatus,
+	isExtractionErrorCode,
+} from "$lib/shared/extraction-status";
 import {
 	type AiSdkUiStreamFrame,
 	consumeAiSdkUiStreamFrames,
@@ -142,10 +147,52 @@ export interface StreamHandle {
 	detach: () => void;
 }
 
-function toStreamError(message: string, code?: string): Error {
-	const error = new Error(message) as Error & { code?: string };
+/**
+ * The per-attachment rows a `attachment_extraction_*` refusal carries.
+ *
+ * Read structurally and defensively: it comes off the wire, and the only thing
+ * downstream does with it is look up an i18n key, so a malformed row is
+ * dropped rather than allowed to throw inside an error handler.
+ */
+function readAttachmentExtraction(
+	value: unknown,
+): AttachmentExtractionStatusItem[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const rows = value.flatMap((entry) => {
+		if (!entry || typeof entry !== "object") return [];
+		const row = entry as Record<string, unknown>;
+		if (typeof row.artifactId !== "string") return [];
+		if (!isDocumentExtractionStatus(row.status)) return [];
+		return [
+			{
+				artifactId: row.artifactId,
+				name: typeof row.name === "string" ? row.name : null,
+				status: row.status,
+				errorCode: isExtractionErrorCode(row.errorCode) ? row.errorCode : null,
+				retryable: row.retryable === true,
+			},
+		];
+	});
+	return rows.length > 0 ? rows : undefined;
+}
+
+function toStreamError(
+	message: string,
+	code?: string,
+	attachmentExtraction?: AttachmentExtractionStatusItem[],
+): Error {
+	const error = new Error(message) as Error & {
+		code?: string;
+		attachmentExtraction?: AttachmentExtractionStatusItem[];
+	};
 	if (code) {
 		error.code = code;
+	}
+	if (attachmentExtraction) {
+		// The send gate's refusals are the one class of send error whose message
+		// is per-file. Carrying the rows lets the composer render a translated
+		// sentence instead of echoing the server's English.
+		error.attachmentExtraction = attachmentExtraction;
 	}
 	return error;
 }
@@ -679,16 +726,22 @@ export function streamChat(
 			if (!res.ok) {
 				let errorMessage = `HTTP ${res.status}`;
 				let errorCode: string | undefined;
+				let attachmentExtraction: AttachmentExtractionStatusItem[] | undefined;
 				try {
 					const json = await res.json();
 					errorMessage = json.error ?? errorMessage;
 					errorCode = json.code;
+					attachmentExtraction = readAttachmentExtraction(
+						json.attachmentExtraction,
+					);
 				} catch {
 					/* noop */
 				}
 				markTimingPhase(BROWSER_STREAM_TIMING_MARKS.ERROR);
 				reportTiming("error");
-				callbacks.onError(toStreamError(errorMessage, errorCode));
+				callbacks.onError(
+					toStreamError(errorMessage, errorCode, attachmentExtraction),
+				);
 				return;
 			}
 
@@ -769,7 +822,13 @@ export function streamChat(
 							typeof parsed.code === "string" ? parsed.code : undefined;
 						markTimingPhase(BROWSER_STREAM_TIMING_MARKS.ERROR);
 						reportTiming("error");
-						callbacks.onError(toStreamError(errorMessage, errorCode));
+						callbacks.onError(
+							toStreamError(
+								errorMessage,
+								errorCode,
+								readAttachmentExtraction(parsed.attachmentExtraction),
+							),
+						);
 						return true;
 					}
 
