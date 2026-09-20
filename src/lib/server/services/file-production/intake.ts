@@ -163,7 +163,15 @@ function optionalTrimmedString(value: unknown): string | null {
 // getExpectedExtensionForOutputType instead would ADD a round-trip guard and
 // start refusing "report.markdown", so it deliberately does not.
 function outputTypeFromFilename(value: unknown): string | null {
-	return fileExtension(trimString(value)) || null;
+	// The registry parser answers "everything after the last dot". `dev` used
+	// /\.([a-z0-9]+)$/i, which is stricter in a load-bearing way: a tail that is
+	// not purely alphanumeric named NO output type, so program mode answered
+	// "nothing here names a file type" and the caller refused with
+	// `missing output type`. Without the guard "data v1.2 draft" becomes the
+	// output type "2 draft" and the request fails as an unsupported type
+	// instead — a different, more confusing refusal.
+	const extension = fileExtension(trimString(value));
+	return /^[a-z0-9]+$/.test(extension) ? extension : null;
 }
 
 // A blank `type` is dropped rather than turned into a `"file"` placeholder:

@@ -308,3 +308,35 @@ describe("preview runtime", () => {
 		expect(networkFailure.error).toBe("Network error");
 	});
 });
+
+// The office renderers load with `await import("./office")`. A dynamic import
+// only splits a chunk when NOTHING imports the module statically as well:
+// Rollup reports INEFFECTIVE_DYNAMIC_IMPORT and folds the module (and
+// `$lib/utils/html-sanitizer` with it) into the caller's chunk. The kinds and
+// the runtime guard therefore live in the leaf `./office/kinds`, and this
+// module must not reach for `./office` outside the dynamic import. The
+// preview-performance note in `src/lib/server/services/AGENTS.md` is the rule
+// this protects.
+describe("office renderer code splitting", () => {
+	it("imports ./office only dynamically", async () => {
+		const { readFileSync } = await import("node:fs");
+		const { join } = await import("node:path");
+		const source = readFileSync(
+			join(
+				process.cwd(),
+				"src/lib/components/document-workspace/preview-runtime/index.ts",
+			),
+			"utf8",
+		);
+
+		expect(source).toContain('await import("./office")');
+		// `import ... from "./office"` in any form except `import type`.
+		const staticImports = [
+			...source.matchAll(/^import\s+(?!type\b)[^;]*?from\s+"\.\/office";/gms),
+		];
+		expect(
+			staticImports.map((match) => match[0]),
+			"import the kinds from ./office/kinds instead",
+		).toEqual([]);
+	});
+});

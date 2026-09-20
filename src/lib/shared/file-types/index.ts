@@ -396,8 +396,46 @@ export function getAcceptAttribute(surface: UploadSurface): string {
 
 // ── server allowlist (pure, so the client may pre-check identically) ────────
 
+/**
+ * The four non-`text/*` MIMEs `document-extraction.isDirectTextExtractionFile`
+ * read directly on `dev`. Each already has a table entry, so they are here only
+ * so the fallback below states the whole of the old rule in one place.
+ */
+const DIRECT_TEXT_FALLBACK_MIME_TYPES: ReadonlySet<string> = new Set([
+	"application/json",
+	"application/xml",
+	"application/yaml",
+	"application/typescript",
+]);
+
+/**
+ * True for a declared MIME that `dev` treated as readable text REGARDLESS of
+ * the file's extension (`document-extraction.ts` on `dev`: `startsWith("text/")`
+ * or one of the four application types above).
+ *
+ * The table cannot enumerate every text extension in the world — `.diff`,
+ * `.patch`, `.rst`, `.tex`, `.srt`, `.vtt`, `.properties` and friends have no
+ * entry — and on `dev` every one of them was read directly whenever the browser
+ * declared a `text/*` MIME. Without this fallback the new allowlist refuses
+ * them as `unknownType` and extraction would post them to MinerU, which is a
+ * regression on both counts.
+ *
+ * A generic or absent MIME is deliberately NOT text: an unknown extension with
+ * `application/octet-stream` went to MinerU on `dev` and still does.
+ */
+export function isDirectTextFallbackMimeType(
+	mimeType: string | null | undefined,
+): boolean {
+	const normalized = normalizeMimeType(mimeType);
+	if (!normalized) return false;
+	return (
+		normalized.startsWith("text/") ||
+		DIRECT_TEXT_FALLBACK_MIME_TYPES.has(normalized)
+	);
+}
+
 export type UploadAdmission =
-	| { readonly allowed: true; readonly entry: FileTypeEntry }
+	| { readonly allowed: true; readonly entry: FileTypeEntry | null }
 	| {
 			readonly allowed: false;
 			readonly reason: RejectReasonKey;
@@ -407,13 +445,23 @@ export type UploadAdmission =
 /**
  * The single upload decision. Surface-independent on purpose: a per-surface
  * server gate would let a caller widen it by lying (spec open question 10).
+ *
+ * `entry` is `null` on the allowed branch only for the text/* fallback above —
+ * a file with no table entry that is still readable as text.
  */
 export function admitUpload(
 	filename: string,
 	mimeType: string | null,
 ): UploadAdmission {
 	const entry = resolveEntry(filename, mimeType);
-	if (!entry) return { allowed: false, reason: "unknownType", entry: null };
+	if (!entry) {
+		// The extension is unknown AND the MIME resolved to nothing. It is still
+		// admitted when the MIME says "text", which is what `dev` did.
+		if (isDirectTextFallbackMimeType(mimeType)) {
+			return { allowed: true, entry: null };
+		}
+		return { allowed: false, reason: "unknownType", entry: null };
+	}
 	if (entry.intake.route === "reject") {
 		return {
 			allowed: false,
@@ -429,15 +477,18 @@ export function admitUpload(
 // ── intake ─────────────────────────────────────────────────────────────────
 
 /**
- * Unknown types answer "mineru", which is where they fall through today
- * (`document-extraction.ts` posts anything it cannot read directly). The intent
- * endpoint refuses them first, so in practice this arm is unreachable.
+ * An unknown type whose declared MIME says "text" is read directly — the same
+ * answer `dev`'s `isDirectTextExtractionFile` gave it, and the same answer
+ * `admitUpload` gives the upload gate, so the two can never disagree. Anything
+ * else unknown answers "mineru", which is where it fell through before.
  */
 export function getIntakeRoute(
 	filename: string,
 	mimeType: string | null,
 ): IntakeRoute {
-	return resolveEntry(filename, mimeType)?.intake.route ?? "mineru";
+	const entry = resolveEntry(filename, mimeType);
+	if (entry) return entry.intake.route;
+	return isDirectTextFallbackMimeType(mimeType) ? "direct-text" : "mineru";
 }
 
 export function getIntakeTierHint(

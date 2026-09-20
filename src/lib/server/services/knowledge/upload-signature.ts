@@ -17,6 +17,7 @@
 
 import { open, unlink } from "node:fs/promises";
 import {
+	FILE_TYPE_ENTRIES,
 	type FileTypeEntry,
 	fileExtension,
 	type RejectReasonKey,
@@ -68,10 +69,23 @@ export function formatUploadRejectMessageEn(
 }
 
 /**
- * 16 is the deepest any declared signature reaches (`heic`/`mp4` read `ftyp`
- * at offset 4; the longest run is OLE2's 8 bytes at offset 0).
+ * How many leading bytes the check reads. Derived from the table rather than
+ * hardcoded, so a new signature cannot land outside the window a reader looks
+ * at: today `pdf`'s 1024-byte search dominates, where every other entry needs
+ * at most 16 (`heic`/`mp4` read `ftyp` at offset 4; OLE2's 8-byte run is the
+ * longest). Never the whole file — an upload may be 100 MB.
  */
-export const SIGNATURE_WINDOW_BYTES = 16;
+export const SIGNATURE_WINDOW_BYTES = Math.max(
+	16,
+	...FILE_TYPE_ENTRIES.flatMap((entry) =>
+		(entry.signatures ?? []).map(
+			(signature) =>
+				signature.offset +
+				(signature.searchWithinBytes ?? 0) +
+				signature.bytes.length,
+		),
+	),
+);
 
 export class KnowledgeUploadContentMismatchError extends Error {
 	readonly code = "upload_content_mismatch" as const;
@@ -105,20 +119,31 @@ export function isKnowledgeUploadContentMismatchError(
 	);
 }
 
-/** True when `head` starts (at the declared offset) with one declared run. */
+/** True when one declared run sits at `at`. */
+function runMatchesAt(
+	bytes: readonly (number | null)[],
+	head: Buffer,
+	at: number,
+): boolean {
+	for (let index = 0; index < bytes.length; index += 1) {
+		const expected = bytes[index];
+		// `null` is a wildcard byte (WebP's 4-byte length field).
+		if (expected === null) continue;
+		if (head[at + index] !== expected) return false;
+	}
+	return true;
+}
+
+/**
+ * True when `head` carries one declared run at its declared offset — or, for a
+ * signature with `searchWithinBytes`, anywhere in that window past it.
+ */
 function matchesSignature(entry: FileTypeEntry, head: Buffer): boolean {
 	for (const signature of entry.signatures ?? []) {
-		let matched = true;
-		for (let index = 0; index < signature.bytes.length; index += 1) {
-			const expected = signature.bytes[index];
-			// `null` is a wildcard byte (WebP's 4-byte length field).
-			if (expected === null) continue;
-			if (head[signature.offset + index] !== expected) {
-				matched = false;
-				break;
-			}
+		const lastStart = signature.offset + (signature.searchWithinBytes ?? 0);
+		for (let at = signature.offset; at <= lastStart; at += 1) {
+			if (runMatchesAt(signature.bytes, head, at)) return true;
 		}
-		if (matched) return true;
 	}
 	return false;
 }

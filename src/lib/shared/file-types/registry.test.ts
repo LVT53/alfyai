@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+	admitUpload,
 	FILE_TYPE_ENTRIES,
 	fileExtension,
 	getAcceptAttribute,
@@ -371,6 +372,90 @@ describe("file-type registry invariants", () => {
 		expect(getIntakeRoute("clip.mp4", "video/mp4")).toBe("reject");
 		expect(getIntakeRoute("notes.txt", null)).toBe("direct-text");
 		expect(getIntakeRoute("scan.pdf", null)).toBe("mineru");
+	});
+
+	// `dev`'s `isDirectTextExtractionFile` read ANY file whose declared MIME
+	// started with "text/" (plus four application types) directly, whatever its
+	// extension. The table cannot enumerate every text extension in the world,
+	// so the MIME keeps that door open: without it `.diff`, `.patch`, `.rst`,
+	// `.tex`, `.srt`, `.vtt` and `.properties` uploads that worked on `dev`
+	// would be refused as `unknownType`.
+	describe("the unknown-extension text/* fallback", () => {
+		const TEXT_MIME_CASES = [
+			["notes.diff", "text/plain"],
+			["fix.patch", "text/x-diff"],
+			["readme.rst", "text/x-rst"],
+			["paper.tex", "text/x-tex"],
+			["subs.srt", "text/plain"],
+			["subs.vtt", "text/vtt"],
+			["app.properties", "text/plain"],
+			["schema.avsc", "application/json"],
+			["feed.rdf", "application/xml"],
+			["chart.tpl", "application/yaml"],
+			["module.mts", "application/typescript"],
+			// A MIME with parameters still counts.
+			["notes.diff", "text/plain; charset=utf-8"],
+			// Nameless uploads resolve on the MIME alone.
+			["", "text/plain"],
+		] as const;
+
+		it.each(
+			TEXT_MIME_CASES,
+		)("admits %s declared as %s and reads it directly", (fileName, mimeType) => {
+			expect(admitUpload(fileName, mimeType)).toMatchObject({
+				allowed: true,
+			});
+			expect(getIntakeRoute(fileName, mimeType)).toBe("direct-text");
+		});
+
+		it("still refuses an unknown extension with a generic or absent MIME", () => {
+			for (const mimeType of [
+				null,
+				"",
+				"application/octet-stream",
+				"application/download",
+			]) {
+				expect(
+					admitUpload("mystery.qqq", mimeType),
+					`${mimeType}`,
+				).toMatchObject({ allowed: false, reason: "unknownType" });
+				expect(getIntakeRoute("mystery.qqq", mimeType)).toBe("mineru");
+			}
+		});
+
+		it("never lets a text/* MIME talk a reject entry past the gate", () => {
+			// The extension still wins: claiming text/plain for a .mp4 or a .zip
+			// must not reopen exception (b)/(c).
+			for (const fileName of ["clip.mp4", "bundle.zip", "memo.rtf"]) {
+				expect(admitUpload(fileName, "text/plain"), fileName).toMatchObject({
+					allowed: false,
+				});
+			}
+		});
+	});
+
+	it("lets only a document header wander from its offset", () => {
+		// `searchWithinBytes` exists for PDF, whose spec tells readers to look
+		// for `%PDF-` within the first 1024 bytes. A container format must not
+		// get the same licence: a ZIP or a PNG whose magic is one byte late is
+		// a real mismatch, and a wide window would weaken the content check
+		// into "does this byte sequence appear anywhere near the start".
+		const searching = FILE_TYPE_ENTRIES.filter((entry) =>
+			entry.signatures?.some(
+				(signature) => signature.searchWithinBytes !== undefined,
+			),
+		).map((entry) => entry.id);
+		expect(searching).toEqual(["pdf"]);
+
+		for (const entry of FILE_TYPE_ENTRIES) {
+			for (const signature of entry.signatures ?? []) {
+				expect(signature.offset, entry.id).toBeGreaterThanOrEqual(0);
+				expect(signature.bytes.length, entry.id).toBeGreaterThan(0);
+				expect(signature.searchWithinBytes ?? 0, entry.id).toBeLessThanOrEqual(
+					1024,
+				);
+			}
+		}
 	});
 
 	it("never reverse-resolves a generic MIME to an entry", () => {

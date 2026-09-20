@@ -6,14 +6,9 @@ import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
-import {
-	formatUploadRejectMessageEn,
-	isKnowledgeUploadContentMismatchError,
-	UPLOAD_REJECT_I18N_KEYS,
-	UPLOAD_UNSUPPORTED_TYPE_CODE,
-} from "$lib/server/services/knowledge/upload-signature";
-import { admitUpload, fileExtension } from "$lib/shared/file-types";
+import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
 import type { RequestHandler } from "./$types";
+import { refuseUnsupportedUploadType } from "./shared";
 
 const UPLOAD_NAME_HEADER = "x-alfyai-upload-name";
 const UPLOAD_SIZE_HEADER = "x-alfyai-upload-size";
@@ -367,31 +362,14 @@ export const POST: RequestHandler = async (event) => {
 	// The same allowlist the intent endpoint applies. This route predates the
 	// intent handshake and is still driven directly by the off-repo
 	// verification scripts, so it cannot rely on intent having refused first.
-	const admission = admitUpload(file.name, file.type || null);
-	if (!admission.allowed) {
-		const extension = fileExtension(file.name) || null;
-		console.warn("[KNOWLEDGE] Multipart upload refused an unsupported type", {
-			traceId,
-			userId: user.id,
-			fileName: file.name,
-			mimeType: file.type || null,
-			extension,
-			reason: admission.reason,
-		});
-		return json(
-			{
-				error: formatUploadRejectMessageEn(admission.reason, {
-					fileName: file.name,
-					extension,
-				}),
-				code: UPLOAD_UNSUPPORTED_TYPE_CODE,
-				errorKey: UPLOAD_REJECT_I18N_KEYS[admission.reason],
-				traceId,
-				details: { fileName: file.name, extension, reason: admission.reason },
-			},
-			{ status: 415 },
-		);
-	}
+	const unsupportedType = refuseUnsupportedUploadType({
+		fileName: file.name,
+		mimeType: file.type || null,
+		traceId,
+		userId: user.id,
+		logLabel: "Multipart upload",
+	});
+	if (unsupportedType) return unsupportedType;
 
 	console.info("[KNOWLEDGE] Multipart upload parsed", {
 		traceId,

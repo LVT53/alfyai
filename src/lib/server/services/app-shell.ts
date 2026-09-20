@@ -36,8 +36,10 @@ export interface AppShellData {
 	projects: Promise<Project[]>;
 	maxMessageLength: number;
 	/**
-	 * Seeds `$lib/stores/upload-limits` before any upload intent is sent —
-	 * drag-and-drop partitioning happens before the first request.
+	 * Seeds `$lib/stores/upload-limits` from `(app)/+layout.svelte`'s
+	 * `onMount` — drag-and-drop partitioning happens before the first upload
+	 * intent is sent. On the client only; see that store's header for why, and
+	 * for what server-rendered HTML shows until hydration.
 	 */
 	maxFileUploadSize: number;
 	composerCommandRegistryEnabled: boolean;

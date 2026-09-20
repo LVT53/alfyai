@@ -24,6 +24,9 @@ import {
 
 import { isRecord, shortHash, stableStringify } from "./shared";
 
+/** What `dev`'s /\.([a-z0-9]+)$/i accepted as an extension. See `outputTypeFromFilename`. */
+const ALPHANUMERIC_EXTENSION = /^[a-z0-9]+$/;
+
 // ── Input schema ───────────────────────────────────────────────
 
 export const requestedOutputSchema = z.object({
@@ -660,7 +663,14 @@ function firstNonEmptyString(
 }
 
 function outputTypeFromFilename(filename?: string): string | null {
-	return fileExtension(filename?.trim() ?? "") || null;
+	// The registry parser answers "everything after the last dot". `dev` used
+	// /\.([a-z0-9]+)$/i, which is stricter in a load-bearing way: a tail that is
+	// not purely alphanumeric named NO output type, and the caller fell through
+	// to its markdown/text/documentSource default. Without the guard
+	// "Q1 vs Q2 (rev. 3)" becomes the output type "3)" and the whole request is
+	// refused as unsupported.
+	const extension = fileExtension(filename?.trim() ?? "");
+	return ALPHANUMERIC_EXTENSION.test(extension) ? extension : null;
 }
 
 function titleFromFilename(filename?: string): string | null {

@@ -1,3 +1,4 @@
+import type { I18nKey } from "$lib/i18n";
 import type {
 	MemoryPersonaSummaryPayload,
 	MemoryProfileActionPayload,
@@ -53,6 +54,56 @@ type KnowledgeDeleteResult = {
 	message?: string;
 	error?: string;
 };
+
+/**
+ * The keys `/api/knowledge/upload*` answers a refused file with. The `error`
+ * string those responses carry is English — the endpoints are not locale-aware
+ * — so a caller that shows `err.message` shows English to a Hungarian user.
+ * These five are the translated equivalents; anything else falls back to the
+ * server string, which is still better than nothing.
+ */
+const UPLOAD_REFUSAL_KEYS: ReadonlySet<string> = new Set<I18nKey>([
+	"knowledge.uploadUnsupportedType",
+	"knowledge.uploadRejectedMedia",
+	"knowledge.uploadRejectedArchive",
+	"knowledge.uploadRejectedFormatNotEnabled",
+	"knowledge.uploadContentMismatch",
+]);
+
+export type UploadRefusal = {
+	readonly key: I18nKey;
+	/** `{name}` and `{ext}`, the only placeholders the five keys use. */
+	readonly params: { readonly name: string; readonly ext: string };
+};
+
+/**
+ * Translate a 415 from the upload path into an i18n key plus its parameters,
+ * or `null` when the error is anything else (the caller then keeps whatever it
+ * did before). `file` supplies the name when the server did not echo one.
+ */
+export function uploadRefusalFromError(
+	error: unknown,
+	file: { name: string },
+): UploadRefusal | null {
+	if (!(error instanceof ApiError) || error.status !== 415) return null;
+	const key = error.errorKey;
+	if (!key || !UPLOAD_REFUSAL_KEYS.has(key)) return null;
+
+	const details = error.details ?? {};
+	const fileName =
+		typeof details.fileName === "string" && details.fileName.trim()
+			? details.fileName
+			: file.name;
+	const extension =
+		typeof details.extension === "string" && details.extension.trim()
+			? details.extension
+			: (fileName.split(".").slice(1).pop() ?? "");
+
+	return {
+		key: key as I18nKey,
+		params: { name: fileName, ext: extension.toUpperCase() },
+	};
+}
 
 const UPLOAD_INTERRUPTED_MESSAGE =
 	"Upload was interrupted before it completed. Try again; if it keeps happening, the server or reverse proxy may be closing large uploads before AlfyAI receives them.";
@@ -328,26 +379,41 @@ export async function uploadKnowledgeAttachment(
 	conversationId?: string | null,
 	fetchImpl: FetchLike = fetch,
 ): Promise<KnowledgeUploadResponse> {
-	const intent = await requestJson<KnowledgeUploadIntentResponse>(
-		"/api/knowledge/upload/intent",
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
+	let intent: KnowledgeUploadIntentResponse;
+	try {
+		intent = await requestJson<KnowledgeUploadIntentResponse>(
+			"/api/knowledge/upload/intent",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					fileName: file.name,
+					fileSize: file.size,
+					mimeType: file.type || null,
+					conversationId: conversationId ?? null,
+				}),
 			},
-			body: JSON.stringify({
-				fileName: file.name,
-				fileSize: file.size,
-				mimeType: file.type || null,
-				conversationId: conversationId ?? null,
-			}),
-		},
-		"Failed to prepare upload.",
-		fetchImpl,
-	);
+			"Failed to prepare upload.",
+			fetchImpl,
+		);
+	} catch (error) {
+		// A 413 is the other authoritative reading of the limit: the admin
+		// lowered it since the page loaded, and the response says by how much.
+		// Adopting it here is what stops the drop zone from going on offering
+		// the old number after the refusal.
+		if (error instanceof ApiError && error.status === 413) {
+			// `setMaxFileUploadSize` ignores anything that is not a positive
+			// finite number, so an absent or malformed `details` is a no-op.
+			const reported = error.details?.maxFileUploadSize;
+			setMaxFileUploadSize(typeof reported === "number" ? reported : null);
+		}
+		throw error;
+	}
 	// The intent response is the authoritative limit: it reflects the live
-	// admin setting, where the SSR seed only reflects the one in force when the
-	// shell was rendered.
+	// admin setting, where the client seed only reflects the one in force when
+	// the shell was rendered.
 	setMaxFileUploadSize(intent.maxFileUploadSize);
 	try {
 		if (file.size > resolveRawUploadLimit(intent)) {

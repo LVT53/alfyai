@@ -131,6 +131,48 @@ describe("extractDocumentText", () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
+	// `dev` read ANY file whose declared MIME started with "text/" directly,
+	// whatever its extension. The table cannot name every text extension, so the
+	// MIME keeps that door open — otherwise a `.patch` or a `.vtt` would be
+	// posted to MinerU, which cannot read it.
+	it.each([
+		["fix.patch", "text/x-diff"],
+		["readme.rst", "text/x-rst"],
+		["subs.vtt", "text/vtt"],
+		["paper.tex", "text/x-tex; charset=utf-8"],
+	])("reads %s directly because its declared MIME is %s", async (filename, mimeType) => {
+		readFileMock.mockResolvedValueOnce(Buffer.from("unknown-extension text"));
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+
+		const result = await extractDocumentText(
+			`/path/to/${filename}`,
+			mimeType,
+			filename,
+		);
+
+		expect(result.text).toBe("unknown-extension text");
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it("still posts an unknown extension with no usable MIME to MinerU", async () => {
+		const fetchSpy = vi
+			.fn()
+			.mockResolvedValue(
+				createMockResponse(200, mineruMdResponse("mystery.qqq", "parsed")),
+			);
+		vi.stubGlobal("fetch", fetchSpy);
+
+		const result = await extractDocumentText(
+			"/path/to/mystery.qqq",
+			"application/octet-stream",
+			"mystery.qqq",
+		);
+
+		expect(result.text).toBe("parsed");
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+	});
+
 	// The registry's "reject" route is unreachable through the upload path —
 	// /api/knowledge/upload/intent refuses these first — but if one ever gets
 	// here it must not be posted to MinerU. The throw lands in this function's

@@ -120,6 +120,48 @@ describe("verifyUploadSignature", () => {
 		}
 	});
 
+	// Every PDF reader accepts a header that is not at byte 0: the spec's own
+	// implementation notes tell them to look within the first 1024 bytes, and
+	// mail gateways, scanners and "optimizers" really do prepend junk.
+	// Refusing those would be a false reject invented by this phase — they
+	// extracted fine before the gate existed.
+	it("accepts a PDF whose header is not at byte 0", () => {
+		for (const preamble of [1, 16, 100, 1019]) {
+			const bytes = [...new Array(preamble).fill(0x20), ...PDF];
+			expect(
+				verifyUploadSignature({
+					fileName: "scan.pdf",
+					mimeType: null,
+					head: Buffer.from(bytes),
+				}).ok,
+				`preamble of ${preamble}`,
+			).toBe(true);
+		}
+	});
+
+	it("still refuses a PDF whose header is past the search window", () => {
+		const bytes = [...new Array(1025).fill(0x20), ...PDF];
+		expect(
+			verifyUploadSignature({
+				fileName: "scan.pdf",
+				mimeType: null,
+				head: Buffer.from(bytes),
+			}).ok,
+		).toBe(false);
+	});
+
+	it("does not let any other type wander from its offset", () => {
+		// The search window is a PDF-specific allowance. A PNG or a ZIP whose
+		// magic is one byte late is a real mismatch.
+		for (const [fileName, bytes] of [
+			["shot.png", PNG],
+			["report.docx", ZIP_LOCAL],
+			["shot.webp", WEBP],
+		] as const) {
+			expect(accepts(fileName, [0x20, ...bytes]), fileName).toBe(false);
+		}
+	});
+
 	it("passes a type the registry does not know", () => {
 		// The intent endpoint already refused it; the completion check is not a
 		// second allowlist.

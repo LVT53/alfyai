@@ -146,4 +146,15 @@ export interface FileTypeSignature {
 	readonly offset: number;
 	/** Byte values. Use 0x??-style holes via `null` for "any byte". */
 	readonly bytes: readonly (number | null)[];
+	/**
+	 * How far past `offset` the run may start. Absent (the default) means the
+	 * run must begin exactly at `offset`.
+	 *
+	 * Only `pdf` uses it. The PDF spec's implementation notes tell readers to
+	 * look for `%PDF-` within the first 1024 bytes, and real files — out of
+	 * mail gateways, scanners and "optimizers" — carry a preamble, so every
+	 * reader accepts them. A container format may NOT have this: a ZIP or a
+	 * PNG whose magic is one byte late is a genuine mismatch.
+	 */
+	readonly searchWithinBytes?: number;
 }

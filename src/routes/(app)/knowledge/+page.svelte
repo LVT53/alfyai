@@ -11,6 +11,7 @@ import {
 	submitKnowledgeMemoryAction,
 	submitMemoryV2Action,
 	uploadKnowledgeAttachment,
+	uploadRefusalFromError,
 } from "$lib/client/api/knowledge";
 import { ApiError } from "$lib/client/api/http";
 import { buildChatSourceMessageHref } from "$lib/client/document-workspace-navigation";
@@ -426,7 +427,14 @@ async function handleDocumentsUpload(files: File[]) {
 		try {
 			await uploadKnowledgeAttachment(file, null);
 		} catch (error) {
-			const reason = error instanceof Error ? error.message : "Upload failed";
+			// A refused type answers with an i18n key; the `error` string beside
+			// it is English whatever the user's language is.
+			const refusal = uploadRefusalFromError(error, file);
+			const reason = refusal
+				? $t(refusal.key, refusal.params)
+				: error instanceof Error
+					? error.message
+					: "Upload failed";
 			failures.push(`${file.name}: ${reason}`);
 		}
 	}

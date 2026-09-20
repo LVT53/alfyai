@@ -14,6 +14,7 @@ import {
 	formatBytes,
 	parseNonNegativeInteger,
 	readKnowledgeUploadRequestMetadata,
+	refuseUnsupportedUploadType,
 	resolveKnowledgeUploadConversation,
 	writeKnowledgeUploadBytes,
 } from "../shared";
@@ -200,6 +201,18 @@ export const POST: RequestHandler = async (event) => {
 			{ status: 400 },
 		);
 	}
+
+	// The same allowlist `/intent` applies. Every chunk carries the file name
+	// and the declared type, so the first part of a refused file is never
+	// written and no part directory is created.
+	const unsupportedType = refuseUnsupportedUploadType({
+		fileName,
+		mimeType,
+		traceId,
+		userId: user.id,
+		logLabel: "Chunked upload",
+	});
+	if (unsupportedType) return unsupportedType;
 
 	const conversation = await resolveKnowledgeUploadConversation({
 		userId: user.id,

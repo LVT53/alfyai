@@ -7,6 +7,14 @@ export class ApiError extends Error {
 	readonly code?: string;
 	readonly errorKey?: string;
 	readonly fieldErrors?: Record<string, string>;
+	/**
+	 * The endpoint's `details` object, verbatim and unvalidated. Endpoints use
+	 * it to carry the values their `errorKey` interpolates (`fileName`,
+	 * `extension`) and the state the client should adopt (`maxFileUploadSize`
+	 * on a 413). Optional and untyped on purpose: every reader narrows the one
+	 * field it wants, so an endpoint may add a field without touching this.
+	 */
+	readonly details?: Record<string, unknown>;
 	readonly status: number;
 
 	constructor(
@@ -15,6 +23,7 @@ export class ApiError extends Error {
 			code?: string;
 			errorKey?: string;
 			fieldErrors?: Record<string, string>;
+			details?: Record<string, unknown>;
 			status: number;
 		},
 	) {
@@ -23,6 +32,7 @@ export class ApiError extends Error {
 		this.code = options.code;
 		this.errorKey = options.errorKey;
 		this.fieldErrors = options.fieldErrors;
+		this.details = options.details;
 		this.status = options.status;
 	}
 }
@@ -48,6 +58,7 @@ async function throwRequestError(
 		code: error.code,
 		errorKey: error.errorKey,
 		fieldErrors: error.fieldErrors,
+		details: error.details,
 		status: response.status,
 	});
 }
@@ -60,6 +71,7 @@ export async function readErrorPayload(
 	code?: string;
 	errorKey?: string;
 	fieldErrors?: Record<string, string>;
+	details?: Record<string, unknown>;
 }> {
 	const text = await response.text().catch(() => "");
 	if (!text) return { message: fallback };
@@ -84,11 +96,12 @@ export async function readErrorPayload(
 						),
 					)
 				: undefined;
+			const details = isRecord(parsed.details) ? parsed.details : undefined;
 			if (typeof message === "string" && message.trim()) {
-				return { message, code, errorKey, fieldErrors };
+				return { message, code, errorKey, fieldErrors, details };
 			}
-			if (code || errorKey || fieldErrors)
-				return { message: fallback, code, errorKey, fieldErrors };
+			if (code || errorKey || fieldErrors || details)
+				return { message: fallback, code, errorKey, fieldErrors, details };
 		}
 	} catch {
 		// Fall back to raw text below.
