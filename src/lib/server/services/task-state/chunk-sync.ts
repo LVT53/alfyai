@@ -9,6 +9,20 @@ const CHUNK_CHAR_TARGET = 1400;
 const CHUNK_CHAR_OVERLAP = 220;
 
 /**
+ * Rows per INSERT statement.
+ *
+ * Every row binds 8 parameters, and better-sqlite3 refuses a statement with
+ * more than SQLITE_MAX_VARIABLE_NUMBER (32766) of them — 4095 rows. One
+ * multi-values INSERT therefore threw `too many SQL variables` on any document
+ * over roughly 4.8 MB, which the 100 MB upload limit allows and which Phase 1
+ * made reachable: the code/text extensions that now take the direct-text route
+ * (a .log, a .sql dump, a .json export) arrive as one long string.
+ *
+ * 500 leaves an order of magnitude of headroom if the row ever gains columns.
+ */
+const CHUNK_INSERT_BATCH_ROWS = 500;
+
+/**
  * Determines if a file should bypass chunking based on its content length.
  * Small files (< threshold) are stored in full without chunking to save storage.
  */
@@ -57,31 +71,42 @@ export async function syncArtifactChunks(params: {
 	conversationId?: string | null;
 	contentText?: string | null;
 }): Promise<void> {
-	// Always delete existing chunks first
-	await db
-		.delete(artifactChunks)
-		.where(eq(artifactChunks.artifactId, params.artifactId));
+	const chunks =
+		params.contentText?.trim() &&
+		// Small file bypass: store full content without chunking.
+		!shouldBypassChunking(params.contentText.length)
+			? splitIntoChunks(params.contentText)
+			: [];
 
-	if (!params.contentText?.trim()) return;
+	const rows = chunks.map((chunk, index) => ({
+		id: randomUUID(),
+		artifactId: params.artifactId,
+		userId: params.userId,
+		conversationId: params.conversationId ?? null,
+		chunkIndex: index,
+		contentText: chunk,
+		tokenEstimate: estimateTokenCount(chunk),
+		updatedAt: new Date(),
+	}));
 
-	// Small file bypass: store full content without chunking
-	if (shouldBypassChunking(params.contentText.length)) {
-		return;
-	}
+	// The delete and every insert batch share one transaction: a failure part
+	// way through must not leave the artifact with the first 500 chunks of its
+	// new text and none of the old ones. better-sqlite3 is synchronous, so the
+	// callback is too — this is the same shape every other transaction in the
+	// tree uses.
+	db.transaction((tx) => {
+		tx.delete(artifactChunks)
+			.where(eq(artifactChunks.artifactId, params.artifactId))
+			.run();
 
-	const chunks = splitIntoChunks(params.contentText);
-	if (chunks.length === 0) return;
-
-	await db.insert(artifactChunks).values(
-		chunks.map((chunk, index) => ({
-			id: randomUUID(),
-			artifactId: params.artifactId,
-			userId: params.userId,
-			conversationId: params.conversationId ?? null,
-			chunkIndex: index,
-			contentText: chunk,
-			tokenEstimate: estimateTokenCount(chunk),
-			updatedAt: new Date(),
-		})),
-	);
+		for (
+			let start = 0;
+			start < rows.length;
+			start += CHUNK_INSERT_BATCH_ROWS
+		) {
+			tx.insert(artifactChunks)
+				.values(rows.slice(start, start + CHUNK_INSERT_BATCH_ROWS))
+				.run();
+		}
+	});
 }

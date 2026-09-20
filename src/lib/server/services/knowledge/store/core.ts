@@ -294,12 +294,26 @@ export async function createArtifact(params: {
 		.returning();
 
 	const mapped = mapArtifact(artifact);
-	await syncArtifactChunks({
-		artifactId: mapped.id,
-		userId: mapped.userId,
-		conversationId: mapped.conversationId,
-		contentText: mapped.contentText,
-	});
+	try {
+		await syncArtifactChunks({
+			artifactId: mapped.id,
+			userId: mapped.userId,
+			conversationId: mapped.conversationId,
+			contentText: mapped.contentText,
+		});
+	} catch (error) {
+		// The artifact row is already committed at this point. Leaving it would
+		// mean an artifact with zero chunks whose full `contentText` still
+		// reaches the prompt pipeline and which retrieval can never search —
+		// worse than no artifact at all, and invisible. Drop it and let the
+		// caller see the failure. The delete is best-effort: if it also fails,
+		// the original error is still what the caller needs.
+		await db
+			.delete(artifacts)
+			.where(eq(artifacts.id, mapped.id))
+			.catch(() => undefined);
+		throw error;
+	}
 	queueArtifactSemanticEmbeddingRefresh(mapped);
 
 	return mapped;
