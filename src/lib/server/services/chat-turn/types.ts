@@ -16,6 +16,10 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import type { WebCitationAudit } from "$lib/server/services/web-citation-audit";
+import type {
+	DocumentExtractionStatus,
+	ExtractionErrorCode,
+} from "$lib/shared/extraction-status";
 
 export type ChatTurnRoute = "send" | "stream";
 
@@ -33,11 +37,41 @@ export type {
 	AtlasProfile,
 } from "$lib/server/services/atlas/public-types";
 
+/**
+ * One blocked attachment, as the send gate saw it.
+ *
+ * The server's prose is English — `knowledge/store/attachments.ts` builds it
+ * from hard-wired literals — so the refusal carries the machine-readable
+ * facts beside the sentence and lets the client render a translated message
+ * from `status` and `errorCode`. `retryable` is the DTO's, so the composer can
+ * decide whether to offer a Retry affordance without a second round trip.
+ *
+ * Structurally identical to `AttachmentExtractionStatusItem` in
+ * `knowledge/store/attachments.ts`, which is what actually builds the rows.
+ * It is restated rather than imported because that module exports it neither
+ * through `knowledge/store/index.ts` nor through the service facade, and this
+ * is the chat-turn wire shape regardless of who fills it. One re-export would
+ * collapse the two — worth doing, in the slice that owns that file.
+ */
+export type ChatTurnAttachmentExtraction = {
+	artifactId: string;
+	name: string | null;
+	status: DocumentExtractionStatus;
+	errorCode: ExtractionErrorCode | null;
+	retryable: boolean;
+};
+
 export type ChatTurnRequestError = {
 	status: number;
 	error: string;
 	code?: string;
 	attachmentIds?: string[];
+	/**
+	 * Set when `code` is `attachment_extraction_pending` or
+	 * `attachment_extraction_failed`. Absent for every other refusal, including
+	 * the plain `attachment_not_ready` a deleted or unreadable file still gets.
+	 */
+	attachmentExtraction?: ChatTurnAttachmentExtraction[];
 };
 
 export type ParsedChatTurnRequest = {

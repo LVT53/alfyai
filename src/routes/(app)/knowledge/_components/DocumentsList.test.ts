@@ -1,7 +1,41 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import type {
+	DocumentExtractionJobDTO,
+	DocumentExtractionStatus,
+} from "$lib/shared/extraction-status";
 import DocumentsList from "./DocumentsList.svelte";
+import type { KnowledgeDocumentItem } from "./documents-table";
+
+function makeExtractionJob(
+	overrides: Partial<DocumentExtractionJobDTO> & {
+		status: DocumentExtractionStatus;
+	},
+): DocumentExtractionJobDTO {
+	return {
+		id: "job-1",
+		sourceArtifactId: "doc-1",
+		normalizedArtifactId: null,
+		intakeRoute: "mineru",
+		fileName: "Budget.pdf",
+		attemptCount: 1,
+		maxAttempts: 3,
+		retryable: false,
+		cancelable: false,
+		error: null,
+		createdAt: 1_000_000_000_000,
+		updatedAt: 1_000_000_000_000,
+		startedAt: null,
+		legacy: false,
+		...overrides,
+	};
+}
 
 const { prewarmDocumentPreviewMock } = vi.hoisted(() => ({
 	prewarmDocumentPreviewMock: vi.fn(),
@@ -70,6 +104,9 @@ function makeDocument(
 		}),
 		...(Object.hasOwn(overrides, "sourceChatFileId") && {
 			sourceChatFileId: overrides.sourceChatFileId,
+		}),
+		...(Object.hasOwn(overrides, "extraction") && {
+			extraction: overrides.extraction,
 		}),
 	};
 }
@@ -1285,6 +1322,191 @@ describe("DocumentsList", () => {
 				".documents-table tbody .col-version",
 			);
 			expect(version?.textContent?.trim()).toBe("\u2014");
+		});
+	});
+
+	describe("extraction status column", () => {
+		function renderWithJob(
+			job: DocumentExtractionJobDTO,
+			props: Record<string, unknown> = {},
+		) {
+			return render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({
+							id: "doc-1",
+							name: "Budget.pdf",
+							extraction: job,
+						}),
+					],
+					...props,
+				},
+			});
+		}
+
+		/**
+		 * The Status cell is rendered twice — once in its own column and once
+		 * in the mobile meta strip, where there are no columns to put it in —
+		 * and CSS shows exactly one of them. jsdom applies no CSS, so every
+		 * query here scopes itself to the column to avoid matching both.
+		 */
+		function statusCell(): HTMLElement {
+			const cell = document.querySelector(
+				".documents-table tbody td.col-status",
+			);
+			if (!cell) throw new Error("no status cell rendered");
+			return cell as HTMLElement;
+		}
+
+		it("renders every non-terminal status in the Status column", () => {
+			for (const status of [
+				"queued",
+				"uploading",
+				"parsing",
+				"downloading",
+				"indexing",
+			] as const) {
+				const { unmount } = renderWithJob(makeExtractionJob({ status }));
+				const cell = document.querySelector(
+					".documents-table .col-status [data-testid='extraction-status']",
+				);
+				expect(cell?.getAttribute("data-extraction-status")).toBe(status);
+				expect(cell?.textContent?.trim()).not.toBe("");
+				unmount();
+			}
+		});
+
+		it("explains a failure by its error code rather than by its enum", () => {
+			renderWithJob(
+				makeExtractionJob({
+					status: "failed",
+					error: { code: "too_large", message: "server-side English" },
+				}),
+			);
+
+			expect(
+				document
+					.querySelector("[data-testid='extraction-status']")
+					?.getAttribute("data-extraction-status"),
+			).toBe("failed");
+			expect(
+				document.querySelector(".col-status .extraction-detail")?.textContent,
+			).toMatch(/too large/i);
+		});
+
+		it("renders a canceled document without offering Cancel again", () => {
+			renderWithJob(makeExtractionJob({ status: "canceled" }));
+
+			expect(
+				document
+					.querySelector("[data-testid='extraction-status']")
+					?.getAttribute("data-extraction-status"),
+			).toBe("canceled");
+			expect(
+				within(statusCell()).queryByTestId("extraction-cancel"),
+			).toBeNull();
+		});
+
+		it("says nothing about a document the ledger has already finished", () => {
+			// A column that read "Ready" on every row would carry no information.
+			renderWithJob(makeExtractionJob({ status: "succeeded" }));
+
+			expect(
+				within(statusCell()).queryByTestId("extraction-status"),
+			).toBeNull();
+			expect(
+				document.querySelector(".documents-table .col-status .cell-blank"),
+			).not.toBeNull();
+		});
+
+		it("offers Retry only for a retryable failure", async () => {
+			const onRetryExtraction = vi.fn();
+			renderWithJob(
+				makeExtractionJob({
+					status: "failed",
+					retryable: true,
+					error: { code: "max_attempts", message: "gave up" },
+				}),
+				{ onRetryExtraction },
+			);
+
+			await fireEvent.click(
+				within(statusCell()).getByTestId("extraction-retry"),
+			);
+			// Keyed on the SOURCE artifact, so a synthesised legacy job id never
+			// has to leave the server.
+			expect(onRetryExtraction).toHaveBeenCalledWith("doc-1");
+		});
+
+		it("hides Retry for a failure a retry cannot fix", () => {
+			renderWithJob(
+				makeExtractionJob({
+					status: "failed",
+					retryable: false,
+					error: { code: "empty_result", message: "nothing readable" },
+				}),
+			);
+
+			expect(within(statusCell()).queryByTestId("extraction-retry")).toBeNull();
+		});
+
+		it("offers Cancel while the job is still cancelable", async () => {
+			const onCancelExtraction = vi.fn();
+			renderWithJob(
+				makeExtractionJob({ status: "parsing", cancelable: true }),
+				{ onCancelExtraction },
+			);
+
+			await fireEvent.click(
+				within(statusCell()).getByTestId("extraction-cancel"),
+			);
+			expect(onCancelExtraction).toHaveBeenCalledWith("doc-1");
+		});
+
+		it("offers Retry on a pre-ledger document the ledger cannot vouch for", async () => {
+			const onRetryExtraction = vi.fn();
+			renderWithJob(
+				makeExtractionJob({
+					id: "legacy-extraction:doc-1",
+					status: "failed",
+					retryable: true,
+					legacy: true,
+					error: { code: "legacy_unknown", message: "unknown" },
+				}),
+				{ onRetryExtraction },
+			);
+
+			expect(
+				document.querySelector(".col-status .extraction-detail")?.textContent,
+			).toMatch(/before processing was tracked/i);
+			await fireEvent.click(
+				within(statusCell()).getByTestId("extraction-retry"),
+			);
+			expect(onRetryExtraction).toHaveBeenCalledWith("doc-1");
+		});
+
+		it("does not open a document that is still being read", async () => {
+			const onSelect = vi.fn();
+			renderWithJob(makeExtractionJob({ status: "parsing" }), { onSelect });
+
+			await fireEvent.click(
+				document.querySelector(".documents-table tbody td.col-name") as Element,
+			);
+			expect(onSelect).not.toHaveBeenCalled();
+
+			expect(
+				screen.getByTestId("what-ai-sees-disabled").getAttribute("title"),
+			).toMatch(/still being processed/i);
+		});
+
+		it("opens a document again once the ledger has settled", async () => {
+			const onSelect = vi.fn();
+			renderWithJob(makeExtractionJob({ status: "failed" }), { onSelect });
+
+			await fireEvent.click(
+				document.querySelector(".documents-table tbody td.col-name") as Element,
+			);
+			expect(onSelect).toHaveBeenCalledTimes(1);
 		});
 	});
 

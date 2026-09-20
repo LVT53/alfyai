@@ -90,6 +90,10 @@ export const POST: RequestHandler = async (event) => {
 				error: preflight.error.error,
 				code: preflight.error.code,
 				attachmentIds: preflight.error.attachmentIds,
+				// Present only for the two extraction refusals; it carries the
+				// status and error code per attachment so the composer can
+				// translate the message instead of echoing the server's English.
+				attachmentExtraction: preflight.error.attachmentExtraction,
 			},
 			{ status: preflight.error.status },
 		);
@@ -208,6 +212,7 @@ async function runAtlasSendTurn({
 					error: atlasPreflight.error.error,
 					code: atlasPreflight.error.code,
 					attachmentIds: atlasPreflight.error.attachmentIds,
+					attachmentExtraction: atlasPreflight.error.attachmentExtraction,
 				},
 				{ status: atlasPreflight.error.status },
 			);

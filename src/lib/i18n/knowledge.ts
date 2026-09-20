@@ -38,6 +38,59 @@ const knowledgeDict = {
 			"Some files are larger than {limit} and were skipped.",
 		"knowledge.dropFiles": "Drop files here to upload (max {max}MB per file)",
 		"knowledge.dropNoValidFiles": "Those files aren't a supported type.",
+		// The document-extraction ledger, rendered in the Knowledge list's
+		// Status column. One key per status and one per error code in
+		// EXTRACTION_ERROR_CODES, so a row can never fall back to printing a
+		// raw enum member at a user. `knowledge.extraction` is an audited
+		// prefix (see i18n.test-helpers.ts) — a key added on one side only
+		// fails the parity test rather than shipping.
+		"knowledge.extraction.actionFailed":
+			"That action could not be completed. Try again.",
+		"knowledge.extraction.attempt": "Attempt {current} of {max}",
+		"knowledge.extraction.busy": "Working...",
+		"knowledge.extraction.cancel": "Cancel",
+		"knowledge.extraction.cancelLabel": "Cancel processing {name}",
+		"knowledge.extraction.error.auth_failed":
+			"The document reader rejected the configured credentials. Ask an administrator to check the API key.",
+		"knowledge.extraction.error.canceled": "Processing was canceled.",
+		"knowledge.extraction.error.empty_result":
+			"No readable text was found in this file.",
+		"knowledge.extraction.error.internal":
+			"Something went wrong while reading this document.",
+		"knowledge.extraction.error.job_failed":
+			"The document reader could not finish this file.",
+		"knowledge.extraction.error.legacy_unknown":
+			"This document was added before processing was tracked, so its readable text is unknown. Retry to read it now.",
+		"knowledge.extraction.error.max_attempts":
+			"Reading this document failed after several attempts.",
+		"knowledge.extraction.error.protocol":
+			"The document reader sent an unexpected response.",
+		"knowledge.extraction.error.rate_limited":
+			"The document reader is busy. This will be retried shortly.",
+		"knowledge.extraction.error.stale_worker":
+			"Processing was interrupted and will be retried.",
+		"knowledge.extraction.error.tier_unavailable":
+			"This extraction tier is not enabled. Ask an administrator to turn it on.",
+		"knowledge.extraction.error.timeout":
+			"Reading this document took too long and timed out.",
+		"knowledge.extraction.error.too_large":
+			"This file is too large to read. Upload a smaller version.",
+		"knowledge.extraction.error.unavailable":
+			"The document reader is unavailable. Try again in a moment.",
+		"knowledge.extraction.error.unsupported_type":
+			"This file type cannot be read for chat.",
+		"knowledge.extraction.inProgressTooltip":
+			"This document is still being processed and cannot be opened yet.",
+		"knowledge.extraction.retry": "Retry",
+		"knowledge.extraction.retryLabel": "Retry processing {name}",
+		"knowledge.extraction.status.canceled": "Canceled",
+		"knowledge.extraction.status.downloading": "Retrieving text",
+		"knowledge.extraction.status.failed": "Failed",
+		"knowledge.extraction.status.indexing": "Indexing",
+		"knowledge.extraction.status.parsing": "Extracting text",
+		"knowledge.extraction.status.queued": "Queued",
+		"knowledge.extraction.status.succeeded": "Ready",
+		"knowledge.extraction.status.uploading": "Uploading",
 		"knowledge.failedLoadMemory": "Failed to load memory profile.",
 		"knowledge.failedRefreshOverview":
 			"Failed to refresh the live memory overview.",
@@ -397,6 +450,54 @@ const knowledgeDict = {
 		"knowledge.dropFiles":
 			"Húzd ide a fájlokat feltöltéshez (max. {max} MB/fájl)",
 		"knowledge.dropNoValidFiles": "Ezek a fájlok nem támogatott típusúak.",
+		"knowledge.extraction.actionFailed":
+			"A műveletet nem sikerült végrehajtani. Próbáld újra.",
+		"knowledge.extraction.attempt": "{max} próbálkozásból a(z) {current}.",
+		"knowledge.extraction.busy": "Folyamatban...",
+		"knowledge.extraction.cancel": "Megszakítás",
+		"knowledge.extraction.cancelLabel":
+			"A(z) {name} feldolgozásának megszakítása",
+		"knowledge.extraction.error.auth_failed":
+			"A dokumentumolvasó elutasította a beállított hitelesítő adatokat. Kérd meg az adminisztrátort, hogy ellenőrizze az API-kulcsot.",
+		"knowledge.extraction.error.canceled": "A feldolgozás meg lett szakítva.",
+		"knowledge.extraction.error.empty_result":
+			"Ebben a fájlban nem található olvasható szöveg.",
+		"knowledge.extraction.error.internal":
+			"Hiba történt a dokumentum feldolgozása közben.",
+		"knowledge.extraction.error.job_failed":
+			"A dokumentumolvasó nem tudta feldolgozni ezt a fájlt.",
+		"knowledge.extraction.error.legacy_unknown":
+			"Ez a dokumentum még a feldolgozás követése előtt került be, ezért az olvasható szövege ismeretlen. Az Újra gombbal most beolvasható.",
+		"knowledge.extraction.error.max_attempts":
+			"A dokumentum beolvasása több próbálkozás után sem sikerült.",
+		"knowledge.extraction.error.protocol":
+			"A dokumentumolvasó váratlan választ küldött.",
+		"knowledge.extraction.error.rate_limited":
+			"A dokumentumolvasó túlterhelt. Hamarosan újrapróbáljuk.",
+		"knowledge.extraction.error.stale_worker":
+			"A feldolgozás félbeszakadt, hamarosan újraindul.",
+		"knowledge.extraction.error.tier_unavailable":
+			"Ez a kinyerési szint nincs engedélyezve. Kérd meg az adminisztrátort, hogy kapcsolja be.",
+		"knowledge.extraction.error.timeout":
+			"A dokumentum beolvasása túllépte az időkorlátot.",
+		"knowledge.extraction.error.too_large":
+			"Ez a fájl túl nagy a beolvasáshoz. Tölts fel egy kisebb változatot.",
+		"knowledge.extraction.error.unavailable":
+			"A dokumentumolvasó nem érhető el. Próbáld újra kicsit később.",
+		"knowledge.extraction.error.unsupported_type":
+			"Ez a fájltípus nem olvasható be a csevegéshez.",
+		"knowledge.extraction.inProgressTooltip":
+			"Ez a dokumentum még feldolgozás alatt áll, ezért még nem nyitható meg.",
+		"knowledge.extraction.retry": "Újra",
+		"knowledge.extraction.retryLabel": "A(z) {name} feldolgozása újra",
+		"knowledge.extraction.status.canceled": "Megszakítva",
+		"knowledge.extraction.status.downloading": "Szöveg letöltése",
+		"knowledge.extraction.status.failed": "Sikertelen",
+		"knowledge.extraction.status.indexing": "Indexelés",
+		"knowledge.extraction.status.parsing": "Szövegkinyerés",
+		"knowledge.extraction.status.queued": "Sorban áll",
+		"knowledge.extraction.status.succeeded": "Kész",
+		"knowledge.extraction.status.uploading": "Feltöltés",
 		"knowledge.failedLoadMemory": "Nem sikerült betölteni a memóriaprofilt.",
 		"knowledge.failedRefreshOverview":
 			"Nem sikerült frissíteni az élő memóriaáttekintést.",

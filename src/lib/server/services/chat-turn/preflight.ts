@@ -2,6 +2,12 @@ import { getConfig } from "$lib/server/config-store";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
 import { getConversation } from "$lib/server/services/conversations";
 import {
+	getExtractionConfig,
+	getExtractionJobForArtifact,
+	getExtractionJobsForArtifacts,
+	waitForExtractionJobVerdict,
+} from "$lib/server/services/extraction";
+import {
 	assertPromptReadyAttachments,
 	isAttachmentReadinessError,
 } from "$lib/server/services/knowledge";
@@ -11,11 +17,14 @@ import {
 } from "$lib/server/services/linked-context-sources";
 import { resolvePendingSkillApplication } from "$lib/server/services/skills/prompt-context";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { resolveReasoningDepthSelection } from "./depth-selection";
 import type {
 	AdmittedChatTurn,
 	AppliedSkillContext,
 	ChatTurnAdmissionResult,
+	ChatTurnAttachmentExtraction,
 	ChatTurnPreparationResult,
 	ChatTurnRequestError,
 	ParsedChatTurnRequest,
@@ -149,12 +158,183 @@ export async function preflightAtlasTurnSources(params: {
 	};
 }
 
+/**
+ * The most attachments we are willing to wait on inside a send request. Past
+ * this, the wait stops being "a file that was 300 ms from done" and becomes a
+ * user staring at a spinner, so we answer at once and leave the waiting to the
+ * composer's poller, where it belongs.
+ */
+const MAX_ATTACHMENTS_WORTH_WAITING_FOR = 5;
+
+/** How often the bounded wait re-reads a job while it is still running. */
+const PREFLIGHT_POLL_INTERVAL_MS = 150;
+
+type AttachmentReadinessFailure = {
+	status: number;
+	message: string;
+	code: string;
+	attachmentIds: string[];
+	items: ChatTurnAttachmentExtraction[];
+};
+
+/**
+ * `AttachmentReadinessError` already carries the classification and the
+ * per-attachment rows — `knowledge/store/attachments.ts` joins the ledger
+ * while it resolves the prompt artifacts, so it knows pending from failed
+ * without a second read. This reads it structurally rather than by
+ * `instanceof` because the error crosses a module boundary that tests mock.
+ */
+function toReadinessFailure(error: unknown): AttachmentReadinessFailure {
+	const readiness = error as {
+		status?: number;
+		message?: string;
+		code?: string;
+		attachmentIds?: string[];
+		items?: ChatTurnAttachmentExtraction[];
+	};
+	return {
+		// HTTP 422 for every readiness refusal, pending included (OQ2): both
+		// client handlers and `isAttachmentReadinessError` key on that path
+		// today, and a distinct `code` buys everything a new status would.
+		status: readiness.status ?? 422,
+		message: readiness.message ?? "Attachments are not ready.",
+		code: readiness.code ?? "attachment_not_ready",
+		attachmentIds: readiness.attachmentIds ?? [],
+		items: readiness.items ?? [],
+	};
+}
+
+/**
+ * A `mineru` job that has not yet left `queued` has not been handed to a
+ * worker at all: the wait would burn the whole budget and still learn nothing
+ * (OQ1). Everything already running is worth a couple of seconds.
+ */
+function isWorthWaitingFor(job: DocumentExtractionJobDTO): boolean {
+	if (isTerminalExtractionStatus(job.status)) return false;
+	return !(job.intakeRoute === "mineru" && job.status === "queued");
+}
+
+/**
+ * The one thing the readiness check cannot answer: which of the pending jobs
+ * are far enough along to be worth waiting for. `AttachmentExtractionStatusItem`
+ * carries the status but not the intake route, and OQ1 turns on the route.
+ */
+async function readWaitableJobs(
+	userId: string,
+	artifactIds: string[],
+): Promise<DocumentExtractionJobDTO[]> {
+	if (artifactIds.length === 0) return [];
+	try {
+		const jobs = await getExtractionJobsForArtifacts({ userId, artifactIds });
+		return jobs.filter(isWorthWaitingFor);
+	} catch (error) {
+		// The ledger being unreachable must not turn a pending attachment into
+		// a hard failure. Skip the wait and report what the readiness check
+		// already decided.
+		console.error("[CHAT_TURN] Failed to read extraction status", {
+			userId,
+			error,
+		});
+		return [];
+	}
+}
+
+/**
+ * Waits, once, for the still-running attachments — bounded by
+ * `DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS` across ALL of them together, not per
+ * file. The p50 direct-text and small-PDF job settles well inside the budget,
+ * so the common case keeps its one-click send instead of asking a user to
+ * press Send twice for a file that was a few hundred milliseconds from done
+ * (D5).
+ */
+async function waitForPendingExtractions(params: {
+	userId: string;
+	jobs: DocumentExtractionJobDTO[];
+	budgetMs: number;
+}): Promise<void> {
+	const deadline = Date.now() + params.budgetMs;
+
+	for (const job of params.jobs) {
+		const remainingMs = deadline - Date.now();
+		if (remainingMs <= 0) return;
+		const artifactId = job.sourceArtifactId;
+		if (!artifactId) continue;
+
+		await waitForExtractionJobVerdict({
+			getJob: () =>
+				getExtractionJobForArtifact({ userId: params.userId, artifactId }),
+			timeoutMs: remainingMs,
+			pollIntervalMs: PREFLIGHT_POLL_INTERVAL_MS,
+		});
+	}
+}
+
+/**
+ * The send gate.
+ *
+ * Extraction happens after the upload request returns, so `promptReady: false`
+ * no longer means "broken" — for a PDF it is the normal state for a few
+ * seconds. The readiness check says which of the three refusals it is; this
+ * adds the one thing it cannot do from inside a resolution pass, which is to
+ * wait a moment and ask again.
+ */
 async function validateAttachmentReadiness(
 	userId: string,
 	request: ParsedChatTurnRequest,
 ): Promise<PreflightError | null> {
 	if (request.attachmentIds.length === 0) return null;
 
+	const failure = await assertReadiness(userId, request);
+	if (!failure) return null;
+
+	if (failure.code !== "attachment_extraction_pending") {
+		// Failed, or not a ledger matter at all (a deleted artifact, a file
+		// that is not a document). Neither gets better by waiting.
+		return toPreflightError(failure);
+	}
+
+	const budgetMs = getExtractionConfig().preflightWaitMs;
+	const waitable = await readWaitableJobs(userId, failure.attachmentIds);
+	if (
+		budgetMs <= 0 ||
+		waitable.length === 0 ||
+		waitable.length > MAX_ATTACHMENTS_WORTH_WAITING_FOR
+	) {
+		return toPreflightError(failure);
+	}
+
+	await waitForPendingExtractions({ userId, jobs: waitable, budgetMs });
+
+	const settledFailure = await assertReadiness(userId, request);
+	return settledFailure ? toPreflightError(settledFailure) : null;
+}
+
+function toPreflightError(failure: AttachmentReadinessFailure): PreflightError {
+	const carriesExtraction =
+		failure.code === "attachment_extraction_pending" ||
+		failure.code === "attachment_extraction_failed";
+
+	return {
+		ok: false,
+		error: {
+			status: failure.status,
+			error: failure.message,
+			code: failure.code,
+			attachmentIds: failure.attachmentIds,
+			// Only the two extraction refusals carry the per-attachment rows.
+			// The server's sentence is English either way, so this is what lets
+			// the composer render a translated one from `status` + `errorCode`.
+			...(carriesExtraction && failure.items.length > 0
+				? { attachmentExtraction: failure.items }
+				: {}),
+		},
+	};
+}
+
+async function assertReadiness(
+	userId: string,
+	request: ParsedChatTurnRequest,
+): Promise<AttachmentReadinessFailure | null> {
 	try {
 		await assertPromptReadyAttachments({
 			userId,
@@ -167,15 +347,7 @@ async function validateAttachmentReadiness(
 		if (!isAttachmentReadinessError(error)) {
 			throw error;
 		}
-		return {
-			ok: false,
-			error: {
-				status: error.status,
-				error: error.message,
-				code: error.code,
-				attachmentIds: error.attachmentIds,
-			},
-		};
+		return toReadinessFailure(error);
 	}
 }
 
