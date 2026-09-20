@@ -10,6 +10,7 @@ import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AvailableModelsResponse } from "$lib/client/api/models";
 import type { PendingAttachment } from "$lib/server/services/knowledge/types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { getAcceptAttribute } from "$lib/shared/file-types";
 import { selectedModel, uiLanguage } from "$lib/stores/settings";
 import {
@@ -20,7 +21,11 @@ import MessageInput from "./MessageInput.svelte";
 import MessageInputWrapper from "./MessageInputWrapper.test.svelte";
 
 type UploadDoneResult =
-	| { success: true; attachment: PendingAttachment }
+	| {
+			success: true;
+			attachment: PendingAttachment;
+			extraction?: DocumentExtractionJobDTO | null;
+	  }
 	| { success: false; fileName: string; error: string };
 
 type UploadFilesPayload = {
@@ -88,8 +93,17 @@ const fetchAvailableModelsMock = vi.hoisted(() =>
 	vi.fn(async (): Promise<AvailableModelsResponse> => ({ providers: [] })),
 );
 
+const fetchExtractionJobsMock = vi.hoisted(() =>
+	vi.fn(async (): Promise<unknown[]> => []),
+);
+const retryExtractionMock = vi.hoisted(() => vi.fn());
+const cancelExtractionMock = vi.hoisted(() => vi.fn());
+
 vi.mock("$lib/client/api/knowledge", () => ({
 	fetchKnowledgeLibrary: fetchKnowledgeLibraryMock,
+	fetchExtractionJobs: fetchExtractionJobsMock,
+	retryExtraction: retryExtractionMock,
+	cancelExtraction: cancelExtractionMock,
 }));
 
 // ADR-0061 — the composer's thinking toggle looks up the selected model's
@@ -4066,5 +4080,443 @@ describe("MessageInput composer menu", () => {
 		expect(queryByTestId("composer-menu-manage-connections")).toBeNull();
 		expect(queryByTestId("composer-menu-connections-master")).toBeNull();
 		expect(getByTestId("connections-toggle")).toBeInTheDocument();
+	});
+});
+
+// Phase 3 — the chip says what the extraction ledger says, and nothing else
+// says anything. The old behaviour this replaces was a 900 ms `setTimeout`
+// that flipped the label to "Extracting document text…" whether or not any
+// extraction was happening.
+describe("MessageInput extraction chips", () => {
+	function artifact(overrides: Record<string, unknown> = {}) {
+		return {
+			id: "artifact-1",
+			type: "source_document",
+			retrievalClass: "durable",
+			name: "scan.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 128,
+			conversationId: "conv-1",
+			summary: null,
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+			...overrides,
+		} as PendingAttachment["artifact"];
+	}
+
+	function extractionJob(
+		overrides: Partial<DocumentExtractionJobDTO> = {},
+	): DocumentExtractionJobDTO {
+		return {
+			id: "job-1",
+			sourceArtifactId: "artifact-1",
+			normalizedArtifactId: null,
+			status: "queued",
+			intakeRoute: "mineru",
+			fileName: "scan.pdf",
+			attemptCount: 0,
+			maxAttempts: 3,
+			retryable: false,
+			cancelable: true,
+			error: null,
+			createdAt: Date.now(),
+			updatedAt: Date.now(),
+			startedAt: null,
+			legacy: false,
+			...overrides,
+		};
+	}
+
+	function renderComposer() {
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
+			doneCallback = payload.done;
+		});
+		const rendered = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadFiles: uploadFilesHandler,
+		});
+		return {
+			...rendered,
+			uploadFilesHandler,
+			done: (result: UploadDoneResult) => completeUpload(doneCallback, result),
+		};
+	}
+
+	async function pickFile(container: HTMLElement, name = "scan.pdf") {
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], name, { type: "application/pdf" })],
+			},
+		});
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		fetchExtractionJobsMock.mockResolvedValue([]);
+	});
+
+	it("shows a chip for the file before the upload POST resolves", async () => {
+		const { container, getByTestId } = renderComposer();
+
+		await pickFile(container);
+
+		// No artifact id exists yet: the chip is keyed on a client id and is
+		// the only thing on screen that knows a file is on its way.
+		await waitFor(() => {
+			expect(getByTestId("composer-chip-upload")).toHaveTextContent("scan.pdf");
+		});
+		expect(getByTestId("composer-chip-upload")).toHaveTextContent("Uploading…");
+	});
+
+	it("swaps the optimistic chip for the real one when the upload lands", async () => {
+		const { container, getByTestId, queryByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		await waitFor(() =>
+			expect(getByTestId("composer-chip-upload")).toBeTruthy(),
+		);
+
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+			},
+			extraction: extractionJob({ status: "queued" }),
+		});
+
+		await waitFor(() => {
+			expect(queryByTestId("composer-chip-upload")).toBeNull();
+		});
+		expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+			"Waiting to be read",
+		);
+	});
+
+	it("walks the real phases from the DTO the poller reports", async () => {
+		const { container, getByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+			},
+			extraction: extractionJob({ status: "queued" }),
+		});
+
+		await waitFor(() => {
+			expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+				"Waiting to be read",
+			);
+		});
+
+		fetchExtractionJobsMock.mockResolvedValue([
+			extractionJob({ status: "parsing" }),
+		]);
+		await waitFor(
+			() => {
+				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+					"Reading…",
+				);
+			},
+			{ timeout: 4000 },
+		);
+
+		fetchExtractionJobsMock.mockResolvedValue([
+			extractionJob({ status: "indexing" }),
+		]);
+		await waitFor(
+			() => {
+				expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+					"Filing…",
+				);
+			},
+			{ timeout: 4000 },
+		);
+
+		fetchExtractionJobsMock.mockResolvedValue([
+			extractionJob({
+				status: "succeeded",
+				cancelable: false,
+				normalizedArtifactId: "normalized-1",
+			}),
+		]);
+		await waitFor(
+			() => {
+				expect(getByTestId("composer-chip-attachment")).not.toHaveTextContent(
+					"Filing…",
+				);
+			},
+			{ timeout: 4000 },
+		);
+	});
+
+	it("never changes the label on a timer when no job is active", async () => {
+		vi.useFakeTimers();
+		try {
+			const { container, getByTestId, done } = renderComposer();
+
+			await pickFile(container);
+			done({
+				success: true,
+				attachment: {
+					artifact: artifact(),
+					// An older server that says nothing about extraction. The chip
+					// must look exactly as it did before the ledger existed, and no
+					// amount of elapsed time may change that.
+					promptReady: true,
+					promptArtifactId: "normalized-1",
+					readinessError: null,
+				},
+			});
+			await tick();
+
+			const before = getByTestId("composer-chip-attachment").textContent;
+			await vi.advanceTimersByTimeAsync(30_000);
+
+			expect(getByTestId("composer-chip-attachment").textContent).toBe(before);
+			// It asks once — it cannot know there is no job without asking — and
+			// then stops for good, because the answer was "nothing here".
+			expect(fetchExtractionJobsMock).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("offers Cancel while the job is running and calls the endpoint", async () => {
+		cancelExtractionMock.mockResolvedValue(
+			extractionJob({ status: "canceled", cancelable: false }),
+		);
+		const { container, getByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+			},
+			extraction: extractionJob({ status: "parsing" }),
+		});
+
+		const cancel = await waitFor(() =>
+			getByTestId("composer-chip-extraction-cancel"),
+		);
+		expect(cancel).toHaveAttribute("aria-label", "Stop reading scan.pdf");
+
+		await fireEvent.click(cancel);
+		expect(cancelExtractionMock).toHaveBeenCalledWith("artifact-1");
+
+		await waitFor(() => {
+			expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+				"Stopped",
+			);
+		});
+	});
+
+	it("offers Retry on a retryable failure and adopts the requeued job", async () => {
+		retryExtractionMock.mockResolvedValue(
+			extractionJob({ status: "queued", retryable: false }),
+		);
+		const { container, getByTestId, queryByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+			},
+			extraction: extractionJob({
+				status: "failed",
+				retryable: true,
+				cancelable: false,
+				error: { code: "max_attempts", message: "gave up" },
+			}),
+		});
+
+		await waitFor(() => {
+			expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+				"Could not be read — retry",
+			);
+		});
+		expect(queryByTestId("composer-chip-extraction-cancel")).toBeNull();
+
+		await fireEvent.click(getByTestId("composer-chip-extraction-retry"));
+		expect(retryExtractionMock).toHaveBeenCalledWith("artifact-1");
+
+		await waitFor(() => {
+			expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+				"Waiting to be read",
+			);
+		});
+	});
+
+	it("names the cause, and offers no Retry, when a retry cannot help", async () => {
+		const { container, getByTestId, queryByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+			},
+			extraction: extractionJob({
+				status: "failed",
+				retryable: false,
+				cancelable: false,
+				error: { code: "too_large", message: "over the cap" },
+			}),
+		});
+
+		await waitFor(() => {
+			expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+				"Too large to read",
+			);
+		});
+		expect(queryByTestId("composer-chip-extraction-retry")).toBeNull();
+	});
+
+	it("says a failed retry failed without rewriting the chip", async () => {
+		retryExtractionMock.mockRejectedValue(new Error("offline"));
+		const { container, getByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+			},
+			extraction: extractionJob({
+				status: "failed",
+				retryable: true,
+				cancelable: false,
+				error: { code: "max_attempts", message: "gave up" },
+			}),
+		});
+
+		await fireEvent.click(
+			await waitFor(() => getByTestId("composer-chip-extraction-retry")),
+		);
+
+		await waitFor(() => {
+			expect(getByTestId("extraction-action-error")).toHaveTextContent(
+				"scan.pdf could not be sent for reading again.",
+			);
+		});
+		// The chip still reflects the last state the SERVER reported.
+		expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+			"Could not be read — retry",
+		);
+	});
+
+	it("treats a pending extraction as 'not yet', not as a failure", async () => {
+		const { container, getByPlaceholderText, getByTestId, queryByText, done } =
+			renderComposer();
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Summarise this" },
+		});
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				// The upload route's own readiness verdict, which for a document
+				// that is still being read is "no" — and used to be shown in red
+				// under the composer as a permanent failure.
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: "This file could not be prepared for chat.",
+			},
+			extraction: extractionJob({ status: "parsing" }),
+		});
+
+		await waitFor(() => {
+			expect(getByTestId("send-disabled-hint")).toHaveTextContent(
+				"Extracting document text…",
+			);
+		});
+		expect(
+			queryByText("scan.pdf: This file could not be prepared for chat."),
+		).toBeNull();
+	});
+
+	it("stops holding Send once the job reaches a terminal status", async () => {
+		const { container, getByPlaceholderText, getByLabelText, done } =
+			renderComposer();
+
+		await fireEvent.input(getByPlaceholderText("Type a message..."), {
+			target: { value: "Summarise this" },
+		});
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+			},
+			extraction: extractionJob({ status: "parsing" }),
+		});
+
+		const sendButton = getByLabelText("Send message") as HTMLButtonElement;
+		await waitFor(() => expect(sendButton.disabled).toBe(true));
+
+		fetchExtractionJobsMock.mockResolvedValue([
+			extractionJob({
+				status: "succeeded",
+				cancelable: false,
+				normalizedArtifactId: "normalized-1",
+			}),
+		]);
+
+		await waitFor(() => expect(sendButton.disabled).toBe(false), {
+			timeout: 4000,
+		});
+	});
+
+	it("drops the optimistic chip when the upload fails", async () => {
+		const { container, queryByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		done({ success: false, fileName: "scan.pdf", error: "Upload failed" });
+
+		await waitFor(() => {
+			expect(queryByTestId("composer-chip-upload")).toBeNull();
+		});
 	});
 });

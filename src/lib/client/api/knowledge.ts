@@ -17,6 +17,7 @@ import type {
 	KnowledgeMemoryOverviewPayload,
 	KnowledgeMemoryPayload,
 } from "$lib/server/services/memory-types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
 import { _unwrapList } from "./_utils";
 import {
@@ -495,6 +496,67 @@ async function uploadChunkedKnowledgeAttachment(
 		throw new Error("Upload finished without a completed server response.");
 	}
 	return finalResponse;
+}
+
+/**
+ * Ask about the extraction state of up to fifty documents at once.
+ *
+ * The endpoint omits ids it cannot resolve for THIS user rather than answering
+ * for them, so the returned array is not guaranteed to be as long as the one
+ * asked about — callers key the result by `sourceArtifactId` instead of by
+ * index. Ids are de-duplicated here because the endpoint's fifty-id cap counts
+ * distinct ids, and a caller holding the same document twice should not lose a
+ * slot to it.
+ */
+export async function fetchExtractionJobs(
+	artifactIds: string[],
+	fetchImpl: FetchLike = fetch,
+): Promise<DocumentExtractionJobDTO[]> {
+	const ids = Array.from(
+		new Set(artifactIds.map((id) => id.trim()).filter(Boolean)),
+	);
+	if (ids.length === 0) return [];
+
+	const query = ids.map((id) => encodeURIComponent(id)).join(",");
+	const payload = await requestJson<{ jobs?: DocumentExtractionJobDTO[] }>(
+		`/api/knowledge/extraction?artifactIds=${query}`,
+		undefined,
+		"Failed to check document processing status.",
+		fetchImpl,
+	);
+	return _unwrapList<DocumentExtractionJobDTO>(payload, "jobs");
+}
+
+/**
+ * Retry a failed extraction. Keyed on the artifact, not the job, so a document
+ * that predates the ledger (and therefore has no job row yet) can be retried
+ * with the same call — the endpoint materialises a row for it first.
+ */
+export async function retryExtraction(
+	artifactId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<DocumentExtractionJobDTO> {
+	const payload = await requestJson<{ job: DocumentExtractionJobDTO }>(
+		`/api/knowledge/extraction/${encodeURIComponent(artifactId)}/retry`,
+		{ method: "POST" },
+		"Failed to retry document processing.",
+		fetchImpl,
+	);
+	return payload.job;
+}
+
+/** Cancel an extraction that is still queued or running. */
+export async function cancelExtraction(
+	artifactId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<DocumentExtractionJobDTO> {
+	const payload = await requestJson<{ job: DocumentExtractionJobDTO }>(
+		`/api/knowledge/extraction/${encodeURIComponent(artifactId)}/cancel`,
+		{ method: "POST" },
+		"Failed to cancel document processing.",
+		fetchImpl,
+	);
+	return payload.job;
 }
 
 export async function recordDocumentWorkspaceOpen(
