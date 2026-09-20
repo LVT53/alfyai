@@ -118,12 +118,6 @@ export function extractionDetailKey(
 	);
 }
 
-export function getDocumentExtraction(
-	document: KnowledgeDocumentItem,
-): DocumentExtractionJobDTO | null {
-	return document.extraction ?? null;
-}
-
 /** True while the ledger still owes this document a verdict. */
 export function isExtractionInProgress(
 	document: KnowledgeDocumentItem,
