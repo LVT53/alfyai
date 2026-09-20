@@ -1420,3 +1420,19 @@ src/lib/server/services/admin-effective-config.test.ts`.
 - **OQ9.** The reviewer of slice S5 must confirm against `conversation-forks.test.ts` that forking cannot collide on `UNIQUE(chat_generated_file_id)`.
 - **Order.** S1 runs alone first and merges into the integration branch `mineru4/p3`; S2 to S5 then run in parallel from it. Branches `mineru4/p3-s1` … `mineru4/p3-s5`. Nothing is pushed.
 - **Toolchain and commits.** Homebrew `node@22`. Stage by explicit path; never `git add -A`.
+
+### Seam changes folded into slice S1 (from `phase2-4-mineru-client-spec.md`, accepted 2026-09-20)
+
+All additive; none names MinerU; the direct-text extractor compiles unchanged. S1 implements them as part of the first version of the seam, so Phase 2 never has to reopen it. The authoritative wording is in the Phase 2 and 4 spec ("Required `DocumentExtractor` changes"); read that section before writing `services/extraction/` types.
+
+- **Δ1** `ExtractDocumentRequest.contentSha256?: string | null` — the ledger passes `artifacts.binary_hash` (verified SHA-256 lowercase hex) so a large file is not re-streamed to recompute it.
+- **Δ2** `ExtractDocumentRequest.sourceArtifactId?: string | null` and `userId` — the parse bundle path is keyed on them.
+- **Δ3** `ExtractDocumentRequest.hints?: Record<string, unknown>` plus a nullable `document_extraction_jobs.hints_json` column, accepted by `enqueueExtractionJob` / `retryExtractionJob` — the durable carrier for "re-extract at tier X".
+- **Δ4** `ExtractDocumentResult.structured?: unknown` — the Phase 4 payload travels here.
+- **Δ5** `persist.ts`: `createNormalizedArtifactFromExtraction(…, structured?)` instead of a text-only function, and `worker-runner.ts` forwards `structured` (ignored until Phase 4).
+- **Δ6** `EXTRACTION_ERROR_CODES` gains `auth_failed` (non-retryable).
+
+### Carried over from the Phase 1 review
+
+- The chunk insert in `task-state/chunk-sync.ts` is batched and `createArtifact` no longer leaves an orphan when chunk sync throws (done in Phase 1). Phase 3 adds the 8 MiB direct-text cap on top and should also add a chunk-count ceiling with a recorded `truncated` flag that the ledger can surface.
+- Phase 1 slice C introduced `upload-signature.ts` (the 415 vocabulary and the magic-byte matcher), a served upload-limit store (`src/lib/stores/upload-limits.ts`), and the 415 contract on all upload routes. Phase 3 slices S2 and S3 must build on those, not around them.
