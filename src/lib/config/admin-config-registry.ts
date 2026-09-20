@@ -179,6 +179,77 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 
+	// --- Resource limits (document extraction) ------------------------------
+	// All eleven are "live": `extraction/config.ts` resolves every one through
+	// getConfig() at the moment it is used — per claim, per failure, per wait —
+	// so a change lands on the next job rather than the next restart.
+	{
+		key: "DOCUMENT_EXTRACTION_WORKER_ENABLED",
+		group: "limits",
+		control: { kind: "bool" },
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_MAX_CONCURRENCY",
+		group: "limits",
+		control: int(1, 16),
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY",
+		group: "limits",
+		control: int(1, 16),
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_MAX_ATTEMPTS",
+		group: "limits",
+		control: int(1, 10),
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_RETRY_BASE_MS",
+		group: "limits",
+		control: int(100, 600000, "ms"),
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_RETRY_MAX_MS",
+		group: "limits",
+		control: int(1000, 3600000, "s", 1000),
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS",
+		group: "limits",
+		control: int(60000, 3600000, "min", 60000),
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_HEARTBEAT_MS",
+		group: "limits",
+		control: int(1000, 120000, "s", 1000),
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_INLINE_BUDGET_MS",
+		group: "limits",
+		control: int(0, 15000, "ms"),
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS",
+		group: "limits",
+		control: int(0, 30000, "ms"),
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES",
+		group: "limits",
+		control: int(1024, 134217728, "mb", MB),
+		effect: "live",
+	},
+
 	// --- Atlas internals ----------------------------------------------------
 	{
 		key: "ATLAS_PIPELINE",
