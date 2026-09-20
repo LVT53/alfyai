@@ -1742,3 +1742,553 @@ row; `metadata.extractionParserVersion` tells which renderer produced it; absenc
 | `routes/api/knowledge/extraction/[artifactId]/reextract/+server.test.ts` | unavailable tier → 400 before any job write; legacy artifact materialises a row; `wakeExtractionWorker` called |
 | `db/schema.test.ts` *(update)* | `page_start` / `page_end` exist and are nullable |
 
+
+---
+
+## 5. Required changes to the Phase 3 `DocumentExtractor` seam
+
+Phase 3 froze `src/lib/server/services/extraction/contracts.ts` (§2.1) and forbade any MinerU 4 concept in
+it. Six changes are needed. **All six are additive, none names MinerU, and none changes an existing field's
+meaning**, so `directTextExtractor` compiles unchanged and Phase 3's own tests stay green.
+
+| Δ | Change | Why the current interface is insufficient |
+| --- | --- | --- |
+| **Δ1** | `ExtractDocumentRequest.contentSha256?: string \| null` | The V1 protocol needs the SHA-256 of the bytes at *three* points: upload create (dedupe), upload complete, and restart recovery (§2.5 R2). `artifacts.binary_hash` already holds exactly that digest (verified: `createHash("sha256").digest("hex")`, `knowledge/store/core.ts:223-225` and `routes/api/knowledge/upload/shared.ts:159`). Without this field the extractor must re-stream every byte of a 200 MB PDF to recompute a value the ledger is already holding. The field is optional and the extractor falls back to computing it, so a ledger that does not supply it still works. |
+| **Δ2** | `ExtractDocumentRequest.sourceArtifactId?: string \| null` | The parse bundle is written to `data/knowledge/<userId>/<sourceArtifactId>.parse/` (§4.2). The extractor is given `filePathAbsolute` only; the artifact id is *derivable* from that path's basename today, but that is an undocumented coupling to `attachments.ts:514-519`'s naming and would break silently the day the storage layout changes. Pass it explicitly. `userId` is needed for the same reason and is already absent — add `userId: string` alongside it, or pass a single `destination: { userId, sourceArtifactId }`. **Recommended: `sourceArtifactId` + `userId`, both optional; when either is missing the extractor skips the bundle and returns text only.** |
+| **Δ3** | `ExtractDocumentRequest.hints?: Readonly<Record<string, unknown>>`, persisted by the ledger in a new nullable `document_extraction_jobs.hints_json` column, accepted by `enqueueExtractionJob` and `retryExtractionJob`, cleared on a successful completion | "Re-extract at a higher tier" (§4.10) is a user action whose only payload is a tier name that must survive the enqueue→claim→attempt round trip. There is no other durable place for it: `remote_handle_json` is extractor-owned output, not input, and is cleared on `handleUnknown`. The ledger never inspects `hints`, exactly as it never inspects `handle.data`. |
+| **Δ4** | `ExtractDocumentResult.structured?: unknown` (opaque to the ledger) | Phase 4's entire payload — page index, blocks, figures, outline, real tier, parser versions, chunk plan — has nowhere to travel today. `ExtractDocumentResult` carries `text`, `normalizedName`, `mimeType`, `pageCount`, `handle`. Typing it as `unknown` keeps `contracts.ts` free of MinerU vocabulary; `persist.ts` narrows it with a type guard. |
+| **Δ5** | `extraction/persist.ts`: `createNormalizedArtifactFromText` gains `structured?: unknown` and is renamed `createNormalizedArtifactFromExtraction` (keep the old name as a deprecated alias for one release); `worker-runner.ts` forwards `result.structured` from the extractor to `persistResult` | `persist.ts` is where the comfort metadata, `createArtifact` and the source-artifact metadata patch live. Everything in §4.4, §4.5 and §4.6 lands there. Today the worker drops every field of `ExtractDocumentResult` except `text`, `normalizedName`, `mimeType`, `pageCount` on the floor. `PersistExtractionResultDependency` widens with it. |
+| **Δ6** | `EXTRACTION_ERROR_CODES` gains **`auth_failed`** (non-retryable; **not** added to `RETRYABLE_EXTRACTION_ERROR_CODES`) | A wrong or missing `MINERU_API_KEY` is a `401 authentication_error / invalid_api_key` on every endpoint except `/v1/health`. None of the ten existing codes fits: `unavailable`/`protocol`/`timeout` are all retryable and would burn three attempts plus backoff on a fault no retry can fix, and `tier_unavailable` would tell the user the wrong thing. `auth_failed` behaves exactly like `tier_unavailable` — non-retryable, admin-fixable — and needs one i18n key pair: `chat.extraction.error.auth_failed` (Phase 3 S3) and `knowledge.extraction.error.auth_failed` (Phase 3 S4), EN + HU. **Fallback if the owner refuses to touch the taxonomy:** map 401 to `tier_unavailable` and accept a misleading message; do *not* map it to a retryable code. |
+
+Nothing else changes. Specifically **unchanged**: `ExtractionHandle` (the `{extractor, version, remoteJobId,
+remoteFileId, data}` shape is exactly right — `remoteJobId` holds `job_id`, `remoteFileId` holds the input
+`file_id`, and `data` holds `{uploadId, sha256, outputZipFileId, requestedTier}`), `ExtractionProgress`
+(`uploading → parsing → downloading` maps cleanly onto upload / poll / zip download), `AbortSignal`
+semantics, `DocumentExtractionError`'s `retryable` / `retryAfterMs` / `handleUnknown` / `details`,
+`supportsResume`, and `cancel?(handle, signal)` (which becomes `DELETE /v1/parse/jobs/{id}` swallowing 404
+and 409).
+
+**Migration note.** Δ3's `hints_json` column rides in the same SQL file as §4.6 (S0 owns the journal):
+append `ALTER TABLE \`document_extraction_jobs\` ADD \`hints_json\` text;` as the first statement of
+`1777140000098_mineru4_extraction.sql`, and add `hintsJson: text("hints_json")` to the Drizzle table.
+
+---
+
+## 6. Work slices
+
+Six slices. **S0 runs alone first** and merges into `mineru4/p24`; the other five then start in parallel
+from it. Branches `mineru4/p24-s0`, `-p2a`, `-p2b`, `-p4a`, `-p4b`, `-p4c`, one worktree each, nothing
+pushed. Every contract in §2–§5 is frozen, so P2-A/P2-B/P4-* can be written against it before S0 merges,
+but **no slice creates a local stub** — they rebase onto `mineru4/p24`.
+
+No file appears in two OWNS lists.
+
+### S0 — schema, migrations, config, admin surface *(blocking; owns every hot config/DDL file for BOTH phases)*
+
+**Goal:** the twelve config keys exist, are validated, are visible and are localized; the two DDL changes and
+the `admin_config` rename have landed; the MinerU status card is live. No extraction behaviour changes.
+
+**OWNS (exclusive):**
+- `src/lib/server/db/schema.ts`, `drizzle/1777140000098_mineru4_extraction.sql`,
+  `drizzle/meta/_journal.json`, `src/lib/server/db/schema.test.ts`, `scripts/prepare-db.ts`
+- `src/lib/server/env.ts`, `src/lib/server/config-store.ts`,
+  `src/lib/config/admin-config-registry.ts` (+ `.test.ts`), `src/lib/i18n/settings.ts`
+- `src/routes/(app)/settings/_components/system/pages.ts`,
+  `.../system/IntegrationsPage.svelte`, `.../system/MineruStatusCard.svelte` *(new)*,
+  `.../SettingsAdminSystemPane.svelte`
+- `src/routes/api/admin/mineru-status/+server.ts` *(new)* (+ `.test.ts`)
+- `src/lib/client/api/admin-system-health.ts`
+- `src/lib/server/services/tool-health/types.ts`, `.../tool-health/registry.ts`
+- `.env.example`, `docs/configuration.md`, `docs/uploads.md`
+- `src/lib/server/services/mineru/config.ts`, `src/lib/server/services/mineru/capabilities.ts`
+  (+ their tests) — the status card needs them, and splitting them from the card would give two slices a
+  reason to edit the same module
+
+**READ-ONLY:** `services/mineru/{schemas,client}.ts` (P2-A owns; S0 codes `capabilities.ts` against the §2.3
+and §2.4 signatures), `extraction/**`, `shared/file-types/**`.
+
+**Depends on:** nothing (Phases 1 and 3 merged, fixtures merged).
+
+**Tests:** new `admin/mineru-status/+server.test.ts`, `mineru/config.test.ts`, `mineru/capabilities.test.ts`,
+`SettingsAdminSystemPane.mineru-status.test.ts` (modelled on
+`SettingsAdminSystemPane.system-health.test.ts`). Updated: `admin-config-registry.test.ts` (the count floor —
+compute it on your branch, §2.10 step 8), `schema.test.ts`, `i18n/settings.test.ts` (must stay green after
+the three key deletions), `admin-effective-config.test.ts`, `disk-reconciliation` **not** here (P4-A).
+
+**DoD:** `npm run check` clean; `npm run check:migrations` clean; `npx vitest run src/lib/config src/lib/i18n
+src/lib/server/db src/routes/api/admin src/lib/server/services/mineru` green; `grep -rn "MINERU_TIMEOUT_MS"
+src/ docs/ .env.example` returns only the deprecation note in `env.ts` and `docs/configuration.md`;
+`grep -rn "opendatalab/mineru" src/` returns nothing; `grep -rn "mineruDocumentExtraction" src/` returns
+nothing; a fresh DB and a DB with a `MINERU_TIMEOUT_MS` override both migrate.
+
+### P2-A — MinerU V1 protocol core *(no repo-wide surface)*
+
+**Goal:** a fully fixture-verified client. Nothing in the app calls it yet.
+
+**OWNS (exclusive):**
+- `src/lib/server/services/mineru/schemas.ts`, `errors.ts`, `client.ts`
+- `src/lib/server/services/mineru/testing/fake-server.ts`
+- tests: `schemas.test.ts`, `errors.test.ts`, `client.contract.test.ts`, `client.streaming.test.ts`,
+  `tier-policy.test.ts`
+- `src/lib/server/services/mineru/tier-policy.ts` *(`decideTier`)*
+
+**READ-ONLY:** `fixtures/mineru-v1/**`, `services/mineru/config.ts` (S0), `extraction/contracts.ts`,
+`shared/extraction-status.ts`.
+
+**Depends on:** S0 only for `MineruConfig`'s field names, which §2.2 freezes. May start immediately.
+
+**Tests by file name:** as listed in §2.13 rows 1–5, 7–8.
+
+**DoD:** every file under `fixtures/mineru-v1/` is read by at least one assertion; `errors.test.ts` fails if a
+probe fixture maps to no taxonomy row; `client.streaming.test.ts` proves no `readFile` of the upload; a
+`grep` shows no `page_range`, `callback`, `"ocr_mode": null` or `"tier": null` can be emitted.
+
+### P2-B — the extractor, the registry flip, and the 3.x retirement
+
+**Goal:** `intake.route === "mineru"` runs MinerU 4; `document-extraction.ts` is gone.
+
+**OWNS (exclusive):**
+- `src/lib/server/services/extraction/extractors/mineru4.ts` (+ `.test.ts`)
+- `src/lib/server/services/extraction/extractors/registry.ts`
+- deletions: `src/lib/server/services/document-extraction.ts`,
+  `src/lib/server/services/document-extraction.test.ts`,
+  `src/lib/server/services/extraction/extractors/legacy-mineru3.ts` (+ its test)
+- `src/lib/server/services/extraction/contracts.ts` and `src/lib/shared/extraction-status.ts`
+  — **the §5 Δ1/Δ2/Δ3/Δ4/Δ6 edits only**
+- `src/lib/server/services/extraction/worker-runner.ts`, `.../job-ledger.ts` — **the Δ3/Δ5 pass-through only**
+- `src/lib/server/services/mineru/integration.test.ts`
+- `src/lib/server/services/extraction/no-inline-extraction.test.ts`,
+  `.../boundary.test.ts` (the new guard assertions)
+
+**READ-ONLY:** everything under `services/mineru/` except `integration.test.ts`; `extraction/persist.ts`
+(P4-B owns the Δ5 body; P2-B only widens the *type*, and the two must agree on §5 Δ5 verbatim);
+`knowledge/**`.
+
+**Depends on:** P2-A (the client), S0 (`hints_json` DDL).
+
+**Tests:** `extractors/mineru4.test.ts`, `mineru/integration.test.ts` (Phase 3 §6.2 scenarios 1, 5, 6 and 7
+re-run against the fake V1 server: slow success, handle resume without re-submit, forget-handle → fresh
+submit, cancel while parsing → `DELETE`), `no-inline-extraction.test.ts`, `boundary.test.ts`.
+
+**DoD:** `grep -rn "document-extraction" src/` returns nothing; `extractDocumentText` has zero importers;
+uploading each of the nine fixture inputs through the fake server yields a non-empty normalized artifact;
+`npm run check` clean.
+
+### P4-A — result model, renderers, parse bundle, figures
+
+**Goal:** a `result.zip` becomes a `StructuredExtractionResult` and a bundle on disk, and the disk is kept
+tidy.
+
+**OWNS (exclusive):**
+- `src/lib/server/services/mineru/result.ts` (+ `result.test.ts`, `outline.test.ts`, `chunk-plan.test.ts`)
+- `src/lib/server/services/mineru/bundle.ts` (+ `bundle.test.ts`)
+- `src/lib/server/services/knowledge/store/cleanup.ts` (+ `cleanup.test.ts`)
+- `src/lib/server/services/disk-reconciliation.ts` (+ `.test.ts`)
+- `src/routes/api/knowledge/[id]/figure/[name]/+server.ts` (+ `.test.ts`)
+
+**READ-ONLY:** `services/mineru/{schemas,client,config}.ts`, `knowledge/store/core.ts`,
+`knowledge/store/working-document-file-serving.ts` (the auth pattern to copy),
+`knowledge/outline.ts` (P4-B owns the `page` field).
+
+**Depends on:** P2-A (`schemas.ts`); S0 (`MINERU_BUNDLE_MAX_BYTES`).
+
+**Tests by file name:** `mineru/result.test.ts`, `mineru/outline.test.ts`, `mineru/chunk-plan.test.ts`,
+`mineru/bundle.test.ts`, `knowledge/store/cleanup.test.ts`, `disk-reconciliation.test.ts`,
+`routes/api/knowledge/[id]/figure/[name]/+server.test.ts`.
+
+**DoD:** the §4.3 equivalence table is asserted and green for all ten zipped fixtures; deleting an artifact
+removes its bundle; `findOrphanFiles` reports zero orphans for a tree containing a bundle and an `.incoming`
+directory; a traversal figure name is refused.
+
+### P4-B — persistence: metadata, outline, re-extract
+
+**Goal:** the structured payload reaches the database; the five-key page-count guess is gone; a user can ask
+for a higher tier.
+
+**OWNS (exclusive):**
+- `src/lib/server/services/extraction/persist.ts` (+ `persist.test.ts`) — the Δ5 body
+- `src/lib/server/services/knowledge/store/documents.ts` (+ `.test.ts`,
+  `document-comfort-metadata.test.ts`)
+- `src/lib/server/services/knowledge/outline.ts` (+ `outline.test.ts`) — the optional `page` field and
+  `readStoredOutline` pass-through
+- `src/lib/server/services/knowledge/types.ts`
+- `src/routes/api/knowledge/extraction/[artifactId]/reextract/+server.ts` (+ `.test.ts`)
+- `src/routes/(app)/knowledge/_components/DocumentsList.svelte` (+ `.test.ts`),
+  `src/lib/i18n/knowledge.ts`
+- `src/lib/client/api/knowledge.ts`
+
+**READ-ONLY:** `services/mineru/**`, `extraction/{contracts,worker-runner,job-ledger}.ts`,
+`knowledge/store/core.ts` (P4-C owns the `chunkPlan` parameter).
+
+**Depends on:** P4-A (`StructuredExtractionResult`), P2-B (Δ4/Δ5 type), S0 (capabilities for the tier list).
+
+**Tests:** `persist.test.ts` (metadata keys per §4.4; legacy rows unaffected; the outline fallback chain),
+`document-comfort-metadata.test.ts` (updated — `pageCount` now comes from `page_count ?? pages.length`),
+`outline.test.ts` (updated — `page` survives a JSON round trip, a non-integer `page` is dropped),
+`reextract/+server.test.ts`, `DocumentsList.test.ts` (updated — the Re-extract submenu, EN + HU).
+
+**DoD:** a fixture upload produces an artifact whose metadata carries `extractionProducer`, `extractionTier`
+(`flash` for the DOCX inside a `basic` job), `pageCountKind` and a non-guessed `pageCount`;
+`grep -rn "total_pages\|num_pages\|pages_count" src/` returns nothing; EN/HU parity green.
+
+### P4-C — structure-aware chunking, page citations, `read_generated_file`
+
+**Goal:** chunks know their pages, the prompt says so, and the model can ask for a page.
+
+**OWNS (exclusive):**
+- `src/lib/server/services/task-state/chunk-sync.ts` (+ `chunk-sync.test.ts`)
+- `src/lib/server/services/task-state/artifacts.ts` (+ `artifacts.test.ts`,
+  `artifacts.page-citation.test.ts`), `src/lib/server/services/task-state/mappers.ts`
+- `src/lib/server/services/knowledge/store/core.ts` — **the `chunkPlan` parameter on `createArtifact` only**
+- `src/lib/server/services/conversation-forks.ts` (+ `conversation-forks.test.ts`) — the chunk-copy columns
+- `src/lib/server/services/normal-chat-tools/read-generated-file.ts` (+ `.test.ts`)
+- **`src/lib/server/services/normal-chat-tools/index.ts`** — HOT, sole owner, the EN + HU description edit
+
+**READ-ONLY:** `services/mineru/result.ts` (`ChunkPlanEntry`, `planStructuredChunks`),
+`extraction/persist.ts` (P4-B calls `createArtifact` with the plan — the two must agree on the parameter
+name verbatim), `chat-turn/context-selection.ts`, `utils/prompt-context.ts` (**neither is edited** — §4.7
+keeps the change inside `combineSnippetChunks`).
+
+**Depends on:** S0 (the `page_start`/`page_end` DDL), P4-A (`planStructuredChunks`).
+
+**Tests by file name:** `task-state/chunk-sync.test.ts`, `task-state/artifacts.page-citation.test.ts`,
+`mineru/chunk-plan.test.ts` *(P4-A owns the file; P4-C must not edit it)*, `conversation-forks.test.ts`,
+`normal-chat-tools/read-generated-file.test.ts`, `normal-chat-tools/index.test.ts` (EN and HU both contain
+the new sentence and nothing else changed).
+
+**DoD:** a chunked PDF never has a chunk that splits a GFM table; a forked conversation keeps
+`page_start`/`page_end`; `[p. N]` appears in the Retrieved Evidence body for a `physical` document and never
+for a `declared` or `logical` one; the small-file bypass is byte-identical to today; the two tool-description
+strings differ from their previous value by exactly one appended sentence each.
+
+### Hot-file ownership summary (both phases)
+
+| File | Concerns that want it | Sole owner |
+| --- | --- | --- |
+| `src/lib/server/db/schema.ts`, `drizzle/**`, `drizzle/meta/_journal.json`, `scripts/prepare-db.ts` | `page_start`/`page_end`, `hints_json`, the `admin_config` rename | **S0** |
+| `src/lib/server/env.ts`, `config-store.ts`, `admin-config-registry.ts`, `i18n/settings.ts` | 12 config keys, the secret, the docker-text removal, the orphan key | **S0** |
+| `settings/_components/system/{pages.ts,IntegrationsPage.svelte}`, `SettingsAdminSystemPane.svelte` | key rows + status card | **S0** |
+| `services/tool-health/{types,registry}.ts` | the MinerU probe | **S0** |
+| `services/mineru/{config,capabilities}.ts` | status card + tier fast-fail | **S0** |
+| `services/mineru/{schemas,errors,client,tier-policy}.ts`, `testing/fake-server.ts` | the protocol | **P2-A** |
+| `extraction/contracts.ts`, `shared/extraction-status.ts`, `extraction/{worker-runner,job-ledger}.ts` | the §5 deltas | **P2-B** |
+| `extraction/extractors/registry.ts` + the 3.x deletions | the flip | **P2-B** |
+| `services/mineru/{result,bundle}.ts` | parse model + bundle | **P4-A** |
+| `knowledge/store/cleanup.ts`, `disk-reconciliation.ts` | bundle lifecycle | **P4-A** |
+| `extraction/persist.ts`, `knowledge/store/documents.ts`, `knowledge/outline.ts`, `knowledge/types.ts` | metadata + outline | **P4-B** |
+| `src/lib/i18n/knowledge.ts`, `DocumentsList.svelte`, `client/api/knowledge.ts` | re-extract UI | **P4-B** |
+| `task-state/{chunk-sync,artifacts,mappers}.ts`, `knowledge/store/core.ts`, `conversation-forks.ts` | chunking + citations | **P4-C** |
+| **`normal-chat-tools/index.ts`** | the EN + HU tool description | **P4-C** |
+| `normal-chat-tools/read-generated-file.ts` | the `page` parameter | **P4-C** |
+
+### Files the Phase 1 or Phase 3 specs also touch
+
+| File | Phase 1 slice | Phase 3 slice | Phase 2/4 slice | Interaction |
+| --- | --- | --- | --- | --- |
+| `src/lib/server/services/document-extraction.ts` | **D** (rows 1, 2 — `getIntakeRoute` switch, `getCanonicalMimeForExtension`) | S1 wraps it in `legacy-mineru3.ts`, does not edit it | **P2-B deletes it** | Both earlier phases must be merged first; the deletion is a `git rm`, not a merge. A reviewer must confirm nothing Phase 1 moved *into* it is lost — it is not: rows 1 and 2 moved logic *out*. |
+| `src/lib/server/env.ts`, `config-store.ts`, `admin-config-registry.ts` (+ test), `i18n/settings.ts` | *(P1: read-only, "nobody owns them")* | **S1** (11 `DOCUMENT_EXTRACTION_*` keys) | **S0** (12 `MINERU_*` keys) | Same blocks, same four config-store idioms. **S0 must rebase onto merged Phase 3, never merge blind.** The `ADVANCED_KEY_SPECS` floor is the collision point: 84 → 95 (P3) → **107** (P3+P2/P4). Recompute, do not copy a number from either spec. |
+| `src/lib/i18n/knowledge.ts` | **C** (5 upload-reject keys) | **S4** (extraction status keys) | **P4-B** (`knowledge.extraction.reextract.*`) | Same `en`/`hu` blocks, three phases deep. P4-B rebases last. `i18n.test-helpers.ts` already audits `"knowledge.extraction"` after P3 S4 — the new keys are covered automatically. |
+| `src/routes/(app)/knowledge/_components/DocumentsList.svelte` | **C** (accept, icons, labels) | **S4** (status column, Retry/Cancel) | **P4-B** (Re-extract submenu) | Disjoint regions, three large edits. P4-B adds to the P3 action menu rather than creating a second one. |
+| `src/lib/client/api/knowledge.ts` | **C** | **S3** (`fetchExtractionJobs`/`retryExtraction`/`cancelExtraction`) | **P4-B** (`reextractDocument`) | Append only. |
+| `src/lib/server/services/knowledge/store/documents.ts` | — | **S2** (`createNormalizedArtifact` → moved to `persist.ts`, wrapper deleted) | **P4-B** | P3 empties this file of extraction logic; P4-B then edits `persist.ts`, not this one — if S2's deletion did not happen, P4-B must do it before starting. |
+| `src/lib/server/services/extraction/persist.ts` | — | **S1** (created) | **P4-B** (Δ5 body) | Frozen signature in §5 Δ5; P2-B widens the type, P4-B writes the body. They must agree verbatim. |
+| `src/lib/server/services/extraction/contracts.ts`, `shared/extraction-status.ts` | — | **S1** (created, "no MinerU concepts by name") | **P2-B** (Δ1–Δ4, Δ6) | Every delta is additive and MinerU-free, so the rule survives. Phase 3's `extraction-status.test.ts` zero-value-import and `canceled`-spelling assertions must stay green after Δ6. |
+| `src/lib/server/services/normal-chat-tools/index.ts` | **E** (HOT, tool description prose "byte-identical") | — | **P4-C** (one appended sentence, EN + HU) | Phase 1 slice E's DoD explicitly demands byte-identical tool descriptions for prefix-cache preservation. **P4-C deliberately breaks that**, once, with the §4.8 rationale and measurement. The reviewer must confirm P1's byte-identity test (if it exists as an assertion) is updated rather than deleted. |
+| `src/lib/server/services/normal-chat-tools/read-generated-file.ts` | **D** | — | **P4-C** | Disjoint. |
+| `src/lib/server/services/conversation-forks.ts` | **D** (`getFileExtension` only) | — | **P4-C** (chunk copy columns) | Disjoint regions. |
+| `src/lib/server/services/knowledge/store/core.ts` | **C** (`fileExtension` becomes a re-export) | read-only | **P4-C** (`chunkPlan` param) | Disjoint. |
+| `src/lib/server/services/knowledge/store/attachments.ts` | **E** (`getSupportedExtractionSummary`) | **S2** (dedupe, rename, readiness) | read-only | No Phase 2/4 edit. |
+| `scripts/verify-live-file-production-types.ts` | **D** (row 64) | — | read-only | §7's new script is a sibling, not an edit. |
+| `docs/uploads.md`, `docs/configuration.md`, `.env.example` | — | **S1** (`DOCUMENT_EXTRACTION_*` rows) | **S0** | Append; S0 rebases. |
+
+---
+
+## 7. `scripts/verify-live-extraction-types.ts`
+
+Modelled on `scripts/verify-live-file-production-types.ts` (534 lines). Owned by **P4-B**. A standalone
+`tsx` script: top-level `main().catch(...)`, no `src/` imports, every type re-declared locally, no `.test.ts`
+beside it. Playwright holds the session cookie; a plain `fetch` does the work.
+
+### Configuration — env only, no CLI args
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `LIVE_AI_BASE_URL` | `https://ai.alfydesign.com` | |
+| `LIVE_AI_EMAIL` / `LIVE_AI_PASSWORD` | *(required, via `requireEnv` inside `login`)* | |
+| `LIVE_AI_HEADLESS` | headless unless `"false"` | |
+| `LIVE_AI_KEEP_CONVERSATION` | delete unless `"true"` | |
+| `LIVE_AI_TIMEOUT_MS` | `600000` | raised from 240 s: a cold `basic` PDF is ~18.6 s and a `standard` PDF is unmeasured |
+| `LIVE_AI_OUTPUT_DIR` | `test-results/live-extraction-types-<ISO with : and . → ->` | |
+| `LIVE_EXTRACTION_FIXTURE_DIR` | `fixtures/mineru-v1` | the nine `<name>/sample.*` inputs |
+| `LIVE_EXTRACTION_CASES` | all | comma-separated case ids, for a narrow smoke |
+| `LIVE_EXTRACTION_TIER` | *(unset)* | when set, each case is additionally re-extracted at this tier |
+
+### Invocation
+
+```
+LIVE_AI_BASE_URL=https://ai.alfydesign.com LIVE_AI_EMAIL=… LIVE_AI_PASSWORD=… \
+  npx tsx scripts/verify-live-extraction-types.ts
+```
+
+Documented in `docs/uploads.md` next to the MinerU section, the same way
+`docs/archive/file-production-job-ledger-deepening-slices.md:130` documents its sibling.
+
+### Case table
+
+Nine cases, one per fixture input, each declaring what the recorded spike says must come back:
+
+```ts
+interface ExtractionCase {
+	id: "pdf" | "docx" | "xlsx" | "pptx" | "html" | "csv" | "epub" | "png" | "jpg";
+	file: string;                       // <fixtureDir>/<id>/sample.<ext>
+	mimeType: string;
+	expect: {
+		/** extensions.mineru.tier, as recorded on a `basic` server. */
+		effectiveTier: "flash" | "basic";
+		pageCount: number;
+		pageCountKind: "physical" | "sheet" | "slide" | "spine" | "declared" | "logical" | "unknown";
+		minTextLength: number;          // the zipped markdown.md byte count, minus slack
+		/** Substrings that MUST appear in contentText — the NATO words from the fixtures. */
+		mustContain: readonly string[]; // e.g. ["ALFA Quarterly Overview", "Northland"]
+		/** Substrings that MUST NOT appear — the running heads. */
+		mustNotContain: readonly string[]; // pdf: ["INDIA Confidential", "JULIET Document Footer", "Page 1"]
+		figureCount: number;
+		outlineMin: number;
+	};
+}
+```
+
+Expected values are transcribed from §1.4 and the fixture markdown, so the script is the live counterpart of
+`result.test.ts`. `png`/`jpg` expect `pageCountKind: "unknown"` and `pageCount: 1`; `csv` expects an empty
+outline; `pdf` and `docx` expect one figure each.
+
+### Flow
+
+1. `mkdir -p` the output dir; `chromium.launch({ headless })`; `login()` → `POST /api/auth/login`, throw on
+   `!response.ok()`.
+2. `GET /api/admin/mineru-status` once. Record `version`, `tiers`, `outputFormats`, `reachable`. **Abort the
+   whole run with a clear message when `reachable` is false** — every case would fail identically.
+3. Create ONE conversation, reused by every case (`POST /api/conversations`, title
+   `Live extraction sweep <ISO>`).
+4. Per case, sequentially (never in parallel — `max_concurrent_jobs` is 1):
+   a. `POST /api/knowledge/upload/intent` → `POST /api/knowledge/upload/raw` with the fixture bytes and the
+      `x-alfyai-upload-conversation` header, exactly as the app does. Record `artifact.id`.
+   b. Poll `GET /api/knowledge/extraction?artifactIds=<id>` every 1 500 ms until
+      `status ∈ {succeeded, failed, canceled}` or `LIVE_AI_TIMEOUT_MS`. Record every distinct status seen,
+      so the run proves the ladder (`queued → uploading → parsing → downloading → indexing → succeeded`)
+      rather than just the end state.
+   c. `GET /api/knowledge/<normalizedArtifactId>/download` for the text, and the Knowledge library read model
+      for the metadata.
+   d. Assert every `expect` field. On a mismatch record it and continue — one bad type must not abort the
+      sweep (the `postProduceFile` "missing-job" trick in the sibling script).
+   e. When `LIVE_EXTRACTION_TIER` is set: `POST /api/knowledge/extraction/<artifactId>/reextract`
+      `{ tier }`, poll again, and record the new `extractionTier`, `pageCount`, text length and
+      `unknownBlockTypes` **as a diff against the first pass**. This is the §8 checklist's data collector.
+5. `finally`: delete the conversation unless `LIVE_AI_KEEP_CONVERSATION=true`; close the browser.
+
+### Output
+
+One `summary` object, pretty-printed to stdout **and** written to `<outputDir>/summary.json`:
+
+```ts
+{
+	baseUrl, conversationId, keptConversation, createdAt,
+	server: { version, tiers, outputFormats, reachable },
+	tierUnderTest: string | null,
+	results: Array<{
+		id, ok, artifactId, normalizedArtifactId,
+		statusesSeen: string[], elapsedMs,
+		actual: { effectiveTier, pageCount, pageCountKind, textLength, figureCount, outlineLength,
+		          unknownBlockTypes: Record<string, number>, parserVersion, producerVersion },
+		mismatches: string[],
+		reextract: { tier, ok, elapsedMs, deltas: Record<string, [unknown, unknown]> } | null,
+	}>,
+	ok: boolean,
+}
+```
+
+`process.exitCode = 1` when `!summary.ok` (soft, so the summary still flushes); an unhandled throw hits
+`main().catch` → `console.error` + `process.exit(1)`.
+
+**Safety.** The script only uploads, reads and deletes its own conversation. It never writes config, never
+touches another user's artifacts, and never runs on the box itself — it drives the deployed app over HTTPS
+from a workstation, which is what keeps it clear of the prod-ssh-write classifier.
+
+---
+
+## 8. GPU-box re-verification checklist (`standard` tier, before cutover)
+
+Everything in §1.5 is unverified. This is the list that must be walked on the GPU box with a server started
+at `--tier standard` (and, if available, `--tier advanced`) **before** MinerU 4 carries production traffic.
+Run `LIVE_EXTRACTION_TIER=standard npx tsx scripts/verify-live-extraction-types.ts` first; it collects most
+of the data mechanically.
+
+**Protocol**
+
+- [ ] `GET /v1/health` still reports `features.output_formats` containing all four of
+      `markdown`, `middle_json`, `structured_content`, `zip`.
+- [ ] `GET /v1/tiers` lists `standard` (and `advanced`), and `decideTier` rule 3 sends it without a 400.
+- [ ] `POST /v1/parse/jobs` with `tier: "standard"` returns **202**, and the terminal job's `tier` field
+      echoes `standard`.
+- [ ] A `standard` job still returns all seven `output_files` keys with `null` for the unrequested ones.
+- [ ] `output_files.zip` still contains `markdown.md`, `middle_json.json`, `structured_content.json`,
+      `model_output.json` and `images/`. **Also probe `output_formats: ["zip"]` alone** and record whether the
+      zip still contains all four — the one unverified assumption behind D1 (§2.6).
+- [ ] `GET /v1/files/{id}/content` still streams 200 with `application/octet-stream` and no 302.
+- [ ] `parse.model_used` — record whether it becomes non-null at `standard`. If it does, add it to
+      `extractionServerModel` in §4.4 metadata.
+- [ ] `parse.parser_version` still `"4.0.4"` (or record the new value).
+- [ ] Re-run the whole `errors/` probe set against the `standard` server and diff against
+      `fixtures/mineru-v1/errors/`; any code that changed breaks the §2.9 table.
+- [ ] Confirm `max_concurrent_jobs` in `/v1/usage` on the GPU box — if it is >1, Phase 3's
+      `DOCUMENT_EXTRACTION_MAX_CONCURRENCY` (3) may need raising, and if it is still 1 the ledger's global
+      cap should be lowered to 1 to stop queueing at the wrong layer.
+- [ ] Trigger `429 rate_limit_exceeded` and `413 file_too_large` at least once each (a 250 MB file against
+      the 200 MB `max_file_size_bytes`), and confirm the taxonomy mapping and `Retry-After` handling.
+- [ ] Time a cold and a warm `standard` PDF; confirm `MINERU_JOB_TIMEOUT_MS` (300 s) and Phase 3's
+      `DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS` (900 s) still bracket it with room (Phase 3 OQ5's
+      `Math.max(stale, timeout * 2)` coupling).
+
+**`structured_content` shape**
+
+- [ ] `pages[].blocks[]` is still the container — not `items`, not a Draft-shaped envelope.
+- [ ] `content` is still a **Markdown string** for every block type at `standard`. **If it becomes an object
+      or an array, `renderPromptMarkdown` must be re-specified before cutover** — this is the single biggest
+      shape risk in the plan.
+- [ ] Record `extractionUnknownBlockTypes` from the sweep. Expect new members of
+      {`equation_interline`, `code`, `chart`, `algorithm`, `index`}. For each one that appears:
+      confirm the atomic-block rule holds (§4.6 rule 2), confirm it renders sensibly, and decide whether it
+      needs a dedicated renderer branch.
+- [ ] `bbox` is still a flat array of four 0..1 floats where present, and still **absent** (not null) for
+      Office/HTML.
+- [ ] `extensions.mineru.tier` reports `standard` for PDF/image, and **still reports `flash` for
+      Office/HTML/CSV/EPUB** inside a `standard` job (the effective-tier trap).
+- [ ] `metadata.document.page_count` / `page_count_kind` unchanged for the seven formats that carry them,
+      still absent for PNG/JPEG.
+- [ ] `metadata.file_suffix` for a PNG — still `"pdf"`, or fixed? Either way the parser ignores it.
+- [ ] `level` on headings at `standard`: is a PDF still flat at level 2, or does the VLM infer depth? If it
+      infers depth, §4.5's PDF row and the outline tests change.
+- [ ] `header` / `footer` / `page_number` still emitted separately for PDF and still excluded from
+      `markdown.md`.
+- [ ] Re-run the §4.3 equivalence check live: `renderMineruMarkdown(structured_content)` vs the zip's
+      `markdown.md` for a `standard` PDF. **A mismatch beyond the known anchor lines blocks cutover.**
+
+**Real-document coverage (none of this exists in any fixture)**
+
+- [ ] A multi-column academic PDF.
+- [ ] A PDF with display equations — confirm the block type and that the chunker treats it as atomic.
+- [ ] A PDF with fenced code.
+- [ ] A PDF with a chart/figure that MinerU classifies as `chart`.
+- [ ] A scanned / skewed / rotated page (forces `parse_mode: "ocr"`).
+- [ ] A document with a table of contents.
+- [ ] A ≥100-page PDF: check `pages.length`, the bundle size against `MINERU_BUNDLE_MAX_BYTES`, the chunk
+      count, and the wall-clock against the job deadline.
+- [ ] A **multi-file** job is never issued by this client, but confirm `status: "partial"` cannot reach us.
+
+**End-to-end in the app**
+
+- [ ] Upload each of the nine types through the real UI; each reaches `succeeded` and the composer chip
+      settles without a manual refresh.
+- [ ] Kill the app process mid-`parsing` and restart: the attempt resumes the same remote job (Phase 3 DoD).
+- [ ] Restart **MinerU** mid-`parsing`: the next attempt re-uploads by hash and succeeds (§2.5 R1–R3).
+- [ ] `[p. N]` citations appear in a real turn's prompt for a `physical` document and nowhere else —
+      verify against a captured prompt, not by reading code.
+- [ ] `read_generated_file` with `page` returns the right window for a ≥10-page PDF.
+- [ ] The figure endpoint serves a real image and refuses another user's artifact.
+- [ ] Re-extract at `standard` from the Knowledge list replaces the bundle, keeps the normalized artifact id,
+      and re-chunks.
+- [ ] Prefix-cache re-warm after the tool-description change: record the vLLM cache hit rate before and after,
+      per the existing prompt-cost runbook.
+
+---
+
+## 9. Non-goals, risks, open questions
+
+### 9.1 Non-goals
+
+- **The ledger, the worker, concurrency, retries, backoff, cancellation bookkeeping.** All Phase 3. This
+  spec adds one optional field to a request, one to a result, one column, and one error code.
+- **The registry.** Phase 1 owns `intake.route` / `intake.tierHint`. Enabling `rtf`/`ods`/`odp`/`epub`/`ofd`/
+  `tsv` stays the one-line-per-entry edit Phase 1 §2.5 describes; this spec does not enable any of them.
+- **Figure UI.** The endpoint and the manifest ship; no component renders an image (§4.9).
+- **Images or page counts for generated-file readback.** `chat-files.ts` has no knowledge-tree bytes and
+  therefore no bundle; it keeps consuming `text` only (§4.4).
+- **`middle_json` consumers.** HTML tables and `styles:["bold"]` are downloaded (free, inside the zip) and
+  discarded. No feature reads them.
+- **Backfilling existing documents** (D12), and **any change to the small-file chunking bypass**, the
+  embedding substrate, `syncArtifactChunks`'s delete-then-insert contract, or the
+  `WORKING_SET_*_TOKEN_BUDGET` values.
+- **A second HTTP protocol.** There is no dual-mode client and no 3.x fallback (D3). If MinerU 4 is
+  unreachable, extraction fails and retries — it does not silently degrade.
+- **`page_range`, `callback`, `url`/`inline`/`local` sources, `/v1/models`, file listing, output formats
+  `html`/`latex`/`docx`.**
+- **Localizing the `## Retrieved Evidence` section.** It is an English-only prompt literal today and stays
+  one (§4.7).
+
+### 9.2 Risks
+
+| Risk | Why it bites here | Mitigation |
+| --- | --- | --- |
+| **`standard`/`advanced` output is completely unverified** | The whole parser is built on `flash`/`basic` fixtures. If `content` stops being a Markdown string at `standard`, `renderPromptMarkdown` is wrong for exactly the tier the GPU box will run. | §8 is a hard gate, not a suggestion. The unknown-type counter is persisted per artifact so a surprise is visible in the data, not only in a log. The atomic-block default means an unknown block is never mangled, only under-chunked. |
+| **The effective-tier trap** | A `standard` job silently runs Office/HTML/CSV/EPUB at `flash`. An admin who sets `MINERU_DEFAULT_TIER=standard` and sees `extractionTier: "flash"` on a DOCX will think it is broken. | `extensions.mineru.tier` is what is persisted and displayed, never the job tier; `extractionJobTier` is kept beside it for diagnostics; the admin card lists the tiers the server actually serves. |
+| **Deleting `document-extraction.ts` across three phases** | Phase 1 rewrites it, Phase 3 wraps it, Phase 2 deletes it. A mis-ordered merge silently resurrects the 3.x client. | The `no-inline-extraction.test.ts` guard asserts the file does not exist and that `extractDocumentText` has zero importers. Both are cheap and fail loudly. |
+| **`conversation-forks.ts` chunk copier** | It hand-lists nine columns (`:869-883`). Forgetting the two new ones loses every page citation in a forked conversation, with no type error and no test failure unless one is added. | Named as a required test in §4.12 and in P4-C's DoD. The adversarial reviewer should grep for the copier and count columns. |
+| **`ADVANCED_KEY_SPECS` floor collision** | Three specs (P1 implicitly, P3 explicitly, this one) each state a number. Whoever merges last is wrong. | §2.10 step 8 refuses to state a single number and requires recomputation on-branch and at integration-merge time. |
+| **Tool-description prefix-cache invalidation** | Phase 1 slice E's DoD demands byte-identical tool descriptions; P4-C breaks that deliberately. | §4.8: one sentence, one release, measured. OQ5 offers the undocumented-parameter fallback. |
+| **Disk growth** | A bundle per source artifact, images included. A 100-page image-heavy PDF could approach the 32 MiB cap. | `MINERU_BUNDLE_MAX_BYTES`, image-dropping with `imagesOmitted`, `extractionBundleBytes` in metadata for reporting, deletion wired into `cleanup.ts`, and the `.parse` exclusion in `findOrphanFiles` so the report stays readable. |
+| **`findOrphanFiles` false positives** | It walks recursively with no exclusions and already mis-reports `.incoming`. A bundle would swamp it. | Fixed in the same slice (P4-A), including the pre-existing `.incoming` bug. |
+| **The zip is the only download** | If a future MinerU stops putting `structured_content.json` in the zip, every extraction fails at once. | Explicit assertion with a `protocol` (retryable) failure and a distinct message, plus the §8 probe of `output_formats: ["zip"]`. |
+| **Small documents have no chunks at all** | The whole 3-page PDF fixture renders to 1 306 characters, well under the 5 000-char bypass. Page citations only exist on chunk rows, so most documents will show none. | Deliberate and documented: `selectDocumentPassages`'s synthesized pseudo-chunk carries `pageStart: null` and simply omits the citation. Lowering the threshold is out of scope (OQ6). |
+| **API key handling** | A key in `admin_config` is read by `getResolvedAdminConfigValues` and returned by `GET /api/admin/config`. | `MINERU_API_KEY` masks to `"[set]"` like the four existing masked secrets — explicitly **not** like `PARALLEL_API_KEY`/`BRAVE_SEARCH_API_KEY`, which leak in cleartext today (a pre-existing bug this spec does not fix; see OQ8). The same-origin rule stops the key following a server-supplied `upload_url`. |
+
+### 9.3 Open questions
+
+| # | Question | Recommended answer |
+| --- | --- | --- |
+| OQ1 | Does `output_formats: ["zip"]` alone still produce a four-artifact zip? If so, should we stop requesting the other three? | **Keep requesting all four** until §8 proves otherwise. Requesting a format costs generation, not transfer, and the four-format request is the only configuration with fixture backing. Revisit with data. |
+| OQ2 | `MINERU_DEFAULT_TIER` default: `auto` (omit, inherit the server's startup tier) or a hard `basic`? | **`auto`.** It reproduces every recorded fixture exactly, it lets the GPU box's `--tier` flag be the single source of truth, and rule 5 already rescues the flash-only case. A hard default would have to be changed in two places whenever the box changes. |
+| OQ3 | Add `auth_failed` to the taxonomy (Δ6), or map 401 onto an existing code? | **Add it.** Three wasted attempts plus backoff on a wrong API key is a worse outcome than two i18n key pairs. If the owner refuses, map to `tier_unavailable` (non-retryable) and accept the misleading message — never to a retryable code. |
+| OQ4 | Should the MinerU status live on the Integrations page as a card, in the Diagnostics tool-health table, or both? | **Both**, as specified. The tool-health row is ten lines and fixes a real gap (MinerU is the only major backend missing from that table); the card is where an admin editing `MINERU_*` keys actually is. |
+| OQ5 | Is the one-time prefix-cache invalidation worth documenting the `page` parameter to the model? | **Yes, once, measured** (§4.8). A parameter the model never discovers is dead weight; the cache re-warms in normal traffic. Fallback if the owner disagrees: ship `page` undocumented and revisit at the next unavoidable tool-description change. |
+| OQ6 | `SMALL_FILE_THRESHOLD_CHARS` is 5 000, so most documents have zero chunks and therefore no page citations. Lower it for `mineru`-route artifacts? | **No, not in this phase.** It changes retrieval behaviour for every existing document and is orthogonal to MinerU. Ship page citations for the documents that are chunked, measure how many real uploads fall under the threshold, and raise it as a separate change if the answer is "most". |
+| OQ7 | Keep `middle_json` in the parse bundle for a future HTML-table or bold-run consumer? | **No.** It is the second-largest artifact and nothing reads it. It stays inside the downloaded zip (free) and is discarded. Re-extract regenerates it in seconds if a consumer ever appears. |
+| OQ8 | `PARALLEL_API_KEY` and `BRAVE_SEARCH_API_KEY` are returned in cleartext by `GET /api/admin/config` while being rendered with `SecretField`. Fix them in this phase? | **No — out of scope, but file it.** `MINERU_API_KEY` is masked correctly from day one. Fixing the other two is a two-line change in `config-store.ts:1617,1639` plus a check that no admin UI depends on reading the value back; it deserves its own review, not a ride-along in a 6-slice migration. |
+| OQ9 | Should `metadata.document.title` (present for PDF/HTML/EPUB) become the artifact `summary` or `name`? | **No.** `guessSummary` is unchanged and renaming an artifact from document metadata would surprise users who named their file deliberately. Store nothing extra; the title is already the first outline entry for HTML/EPUB. |
+| OQ10 | One SQL migration for both phases (as specified), or one per phase? | **One**, per D9. Two files mean two slices editing `drizzle/meta/_journal.json`, which is precisely the conflict Phase 3 §1.2 avoided. The migration is three ALTERs and two `admin_config` statements — small enough to review as one unit. |
+| OQ11 | `page_range` support (extract only pages 5–20 of a 400-page PDF) — worth adding while we are here? | **No.** The server defers non-PDF `page_range` errors to a file-level failure, there is no UI for selecting pages, and partial extraction would make `pageCount` and the page index lie about the source document. Revisit only with a real user request. |
+| OQ12 | Should a failed `standard` re-extract fall back to the previous successful `basic` result? | **No.** Phase 3's ledger keeps the job `failed` with a Retry affordance, and the previous normalized artifact and bundle are only replaced on success (the bundle write is atomic, §4.2). The user sees the old, working document plus an error — which is the correct outcome and needs no new machinery. |
+
+---
+
+## 10. Definition of done for Phases 2 and 4
+
+- [ ] `document-extraction.ts` does not exist; `extractDocumentText` has zero importers.
+- [ ] Every file under `fixtures/mineru-v1/` is read by at least one test; `errors.test.ts` fails on an
+      unmapped probe.
+- [ ] Uploading each of the nine fixture types through the app yields a normalized artifact whose metadata
+      carries `extractionProducer`, `extractionTier`, `pageCountKind` and a non-guessed `pageCount`.
+- [ ] A killed app process mid-`parsing` resumes the remote job; a restarted **MinerU** is recovered by
+      re-upload-by-hash without a user-visible failure.
+- [ ] A chunked PDF never splits a table; a forked conversation keeps `page_start` / `page_end`.
+- [ ] `[p. N]` appears in a captured Retrieved Evidence section for a `physical` document and never for a
+      `declared` or `logical` one.
+- [ ] The admin Integrations page shows MinerU's version, tiers and output formats, and says
+      "unreachable" when the service is down.
+- [ ] `grep -rn "opendatalab/mineru" src/` and `grep -rn "mineruDocumentExtraction" src/` both return
+      nothing; `MINERU_TIMEOUT_MS` survives only as a deprecated env fallback.
+- [ ] `npm run check` clean; `npm run lint` clean; `npm run check:migrations` clean; `npx vitest run` green.
+- [ ] Fallow reports no new findings (`AGENTS.md` Fallow Audit Gate).
+- [ ] EN/HU parity green; the two `read_generated_file` descriptions differ from their previous value by
+      exactly one appended sentence each.
+- [ ] §8's GPU-box checklist is walked and its results recorded before cutover.
+
+---
+
+## Orchestrator rulings (2026-09-20) — these override anything above that conflicts
+
+- **Order of phases.** Phase 3 (ledger) is built and merged first. This spec's slices then start from the merged Phase 3 code, and their file-ownership lists must be re-checked against it. The six additive `DocumentExtractor` changes (Δ1–Δ6) are accepted and are folded INTO Phase 3 slice S1, so the seam is right from the start and Phase 2 does not have to reopen it.
+- **Open questions.** Every recommended answer is adopted. OQ1: request all four output formats until the GPU box proves `zip` alone is enough. OQ2: `MINERU_DEFAULT_TIER` defaults to `auto`. OQ3: add `auth_failed`. OQ6: leave `SMALL_FILE_THRESHOLD_CHARS` alone. OQ8: out of scope, listed in the migration doc for the owner. OQ10: one SQL migration per phase branch; the migration `idx`/`when` pair and the `ADVANCED_KEY_SPECS` floor are recomputed at merge time, never copied from a spec.
+- **OQ5 (prompt prefix cache).** Accepted once: all model-facing prose changes of this migration (the `page` parameter on `read_generated_file`, the missing `area` / `stackedBar` chart types, any format-list change from Phases 5 and 6) ship together in ONE release so the prefix-cache eviction is paid a single time. Until that release the `page` parameter ships undocumented. The Phase 1 byte-identity tests are updated in that same change, deliberately.
+- **Branches.** Integration branch `mineru4/p24`, slices `mineru4/p24-s0`, `-p2a`, `-p2b`, `-p4a`, `-p4b`, `-p4c`. S0 runs alone first. Nothing is pushed.
+- **Worktrees.** Agent worktrees do not start from the integration branch; the first command of every slice is `git checkout -b <slice-branch> <integration-branch>`.
+- **Toolchain and commits.** Homebrew `node@22`. Stage by explicit path; never `git add -A`.
