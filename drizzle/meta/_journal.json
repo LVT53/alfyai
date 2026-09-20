@@ -771,6 +771,13 @@
       "when": 1777140000096,
       "tag": "1777140000096_messages_role_created_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1777140000097,
+      "tag": "1777140000097_document_extraction_ledger",
+      "breakpoints": true
     }
   ]
 }

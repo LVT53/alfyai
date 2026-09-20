@@ -232,6 +232,17 @@ interface Config {
 	fileProductionRendererTimeoutMs: number;
 	fileProductionMaxOutputFileBytes: number;
 	fileProductionMaxTotalOutputBytes: number;
+	documentExtractionWorkerEnabled: boolean;
+	documentExtractionMaxConcurrency: number;
+	documentExtractionPerUserConcurrency: number;
+	documentExtractionMaxAttempts: number;
+	documentExtractionRetryBaseMs: number;
+	documentExtractionRetryMaxMs: number;
+	documentExtractionStaleAttemptMs: number;
+	documentExtractionHeartbeatMs: number;
+	documentExtractionInlineBudgetMs: number;
+	documentExtractionPreflightWaitMs: number;
+	documentExtractionMaxDirectTextBytes: number;
 }
 
 export function getDatabasePath(env: NodeJS.ProcessEnv = process.env): string {
@@ -368,6 +379,22 @@ function parsePositiveIntegerEnv(
 		minimum,
 		Number.isNaN(parsed) || parsed <= 0 ? fallback : parsed,
 	);
+}
+
+/**
+ * A bounded integer whose valid range INCLUDES zero, so the `|| fallback` idiom
+ * the older keys use would silently turn a deliberate `0` back into the
+ * default. Used by the two extraction wait budgets, where `0` means "never wait
+ * inline" and is a setting an admin may legitimately want.
+ */
+function clampParsedInt(
+	value: string | undefined,
+	fallback: number,
+	min: number,
+	max: number,
+): number {
+	const parsed = parseInt(value ?? "", 10);
+	return Math.max(min, Math.min(max, Number.isNaN(parsed) ? fallback : parsed));
 }
 
 // Read and validate environment variables
@@ -972,6 +999,94 @@ function readConfig(): Config {
 				process.env.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES || "262144000",
 				10,
 			) || 262144000,
+		),
+		// Document-extraction ledger. Every clamp here is repeated verbatim in
+		// `config-store.ts`'s override applier: an admin write and an env value
+		// must land on the same number, and nothing else checks that they do.
+		documentExtractionWorkerEnabled:
+			process.env.DOCUMENT_EXTRACTION_WORKER_ENABLED !== "false",
+		documentExtractionMaxConcurrency: Math.max(
+			1,
+			Math.min(
+				16,
+				parseInt(process.env.DOCUMENT_EXTRACTION_MAX_CONCURRENCY || "3", 10) ||
+					3,
+			),
+		),
+		documentExtractionPerUserConcurrency: Math.max(
+			1,
+			Math.min(
+				16,
+				parseInt(
+					process.env.DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY || "2",
+					10,
+				) || 2,
+			),
+		),
+		documentExtractionMaxAttempts: Math.max(
+			1,
+			Math.min(
+				10,
+				parseInt(process.env.DOCUMENT_EXTRACTION_MAX_ATTEMPTS || "3", 10) || 3,
+			),
+		),
+		documentExtractionRetryBaseMs: Math.max(
+			100,
+			Math.min(
+				600000,
+				parseInt(process.env.DOCUMENT_EXTRACTION_RETRY_BASE_MS || "2000", 10) ||
+					2000,
+			),
+		),
+		documentExtractionRetryMaxMs: Math.max(
+			1000,
+			Math.min(
+				3600000,
+				parseInt(process.env.DOCUMENT_EXTRACTION_RETRY_MAX_MS || "60000", 10) ||
+					60000,
+			),
+		),
+		documentExtractionStaleAttemptMs: Math.max(
+			60000,
+			Math.min(
+				3600000,
+				parseInt(
+					process.env.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS || "900000",
+					10,
+				) || 900000,
+			),
+		),
+		documentExtractionHeartbeatMs: Math.max(
+			1000,
+			Math.min(
+				120000,
+				parseInt(process.env.DOCUMENT_EXTRACTION_HEARTBEAT_MS || "15000", 10) ||
+					15000,
+			),
+		),
+		// 0 is a meaningful value (never wait inline), so it cannot ride the
+		// `|| default` idiom the other keys use.
+		documentExtractionInlineBudgetMs: clampParsedInt(
+			process.env.DOCUMENT_EXTRACTION_INLINE_BUDGET_MS,
+			1500,
+			0,
+			15000,
+		),
+		documentExtractionPreflightWaitMs: clampParsedInt(
+			process.env.DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS,
+			2500,
+			0,
+			30000,
+		),
+		documentExtractionMaxDirectTextBytes: Math.max(
+			1024,
+			Math.min(
+				134217728,
+				parseInt(
+					process.env.DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES || "8388608",
+					10,
+				) || 8388608,
+			),
 		),
 	};
 }

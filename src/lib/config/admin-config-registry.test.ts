@@ -66,7 +66,8 @@ describe("advanced key registry", () => {
 	it("counts the keys the Advanced page promises", () => {
 		// The redesign's premise: the settings that used to be env-only are all
 		// reachable here. A drop in this number means a key silently lost its UI.
-		expect(ADVANCED_KEY_SPECS.length).toBeGreaterThanOrEqual(83);
+		// 84 before the document-extraction ledger, + its 11 keys = 95.
+		expect(ADVANCED_KEY_SPECS.length).toBeGreaterThanOrEqual(95);
 	});
 });
 

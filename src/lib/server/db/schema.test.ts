@@ -907,4 +907,251 @@ describe("schema core tables", () => {
 			expect(row).toBeUndefined();
 		});
 	});
+
+	// Document-extraction ledger. As with `activity_events`, exercising the
+	// tables through the same migrated `db` that `beforeAll` built from
+	// ./drizzle + its journal IS the migration-journal test: a malformed journal
+	// entry or SQL file would already have failed beforeAll for the whole file.
+	describe("document_extraction_jobs table", () => {
+		it("has the expected columns and nullability", () => {
+			const columns = sqlite
+				.prepare("PRAGMA table_info(document_extraction_jobs)")
+				.all() as {
+				name: string;
+				notnull: number;
+				dflt_value: string | null;
+			}[];
+
+			const byName = new Map(columns.map((column) => [column.name, column]));
+			expect(byName.get("id")).toMatchObject({ notnull: 1 });
+			expect(byName.get("user_id")).toMatchObject({ notnull: 1 });
+			// Knowledge-page uploads have no conversation, which is the whole
+			// reason this is not a row in file_production_jobs.
+			expect(byName.get("conversation_id")).toMatchObject({ notnull: 0 });
+			expect(byName.get("source_artifact_id")).toMatchObject({ notnull: 0 });
+			expect(byName.get("chat_generated_file_id")).toMatchObject({
+				notnull: 0,
+			});
+			expect(byName.get("normalized_artifact_id")).toMatchObject({
+				notnull: 0,
+			});
+			expect(byName.get("origin")).toMatchObject({
+				notnull: 1,
+				dflt_value: "'upload'",
+			});
+			expect(byName.get("intake_route")).toMatchObject({ notnull: 1 });
+			expect(byName.get("priority")).toMatchObject({
+				notnull: 1,
+				dflt_value: "0",
+			});
+			expect(byName.get("file_name")).toMatchObject({ notnull: 1 });
+			expect(byName.get("status")).toMatchObject({
+				notnull: 1,
+				dflt_value: "'queued'",
+			});
+			expect(byName.get("attempt_count")).toMatchObject({
+				notnull: 1,
+				dflt_value: "0",
+			});
+			expect(byName.get("remote_handle_json")).toMatchObject({ notnull: 0 });
+			expect(byName.get("hints_json")).toMatchObject({ notnull: 0 });
+			expect(byName.get("next_attempt_at")).toMatchObject({ notnull: 0 });
+			expect(byName.get("cancel_requested_at")).toMatchObject({ notnull: 0 });
+			expect(byName.get("created_at")).toMatchObject({ notnull: 1 });
+			expect(byName.get("updated_at")).toMatchObject({ notnull: 1 });
+		});
+
+		it("has the five indexes the claim and the read paths need", () => {
+			const indexNames = (
+				sqlite.prepare("PRAGMA index_list(document_extraction_jobs)").all() as {
+					name: string;
+				}[]
+			).map((index) => index.name);
+
+			expect(indexNames).toContain(
+				"document_extraction_jobs_source_artifact_unique_idx",
+			);
+			expect(indexNames).toContain(
+				"document_extraction_jobs_chat_file_unique_idx",
+			);
+			expect(indexNames).toContain("document_extraction_jobs_claim_idx");
+			expect(indexNames).toContain("document_extraction_jobs_user_status_idx");
+			expect(indexNames).toContain("document_extraction_jobs_conversation_idx");
+
+			// The claim's ORDER BY is (priority, created_at) within a status.
+			const claimColumns = sqlite
+				.prepare("PRAGMA index_info(document_extraction_jobs_claim_idx)")
+				.all() as { name: string }[];
+			expect(claimColumns.map((column) => column.name)).toEqual([
+				"status",
+				"priority",
+				"created_at",
+			]);
+		});
+
+		it("allows only one job per source artifact, but many null ones", () => {
+			const userId = "extraction-unique-user";
+			db.insert(schema.users)
+				.values({
+					id: userId,
+					email: "extraction-unique@example.com",
+					passwordHash: "hash",
+				})
+				.run();
+			const artifactId = "extraction-unique-artifact";
+			db.insert(schema.artifacts)
+				.values({
+					id: artifactId,
+					userId,
+					type: "source_document",
+					name: "a.pdf",
+				})
+				.run();
+
+			const insert = (id: string, sourceArtifactId: string | null) =>
+				db
+					.insert(schema.documentExtractionJobs)
+					.values({
+						id,
+						userId,
+						sourceArtifactId,
+						intakeRoute: "mineru",
+						fileName: "a.pdf",
+					})
+					.run();
+
+			insert("extraction-job-1", artifactId);
+			// The dedupe re-upload bug is structurally impossible: a second job
+			// for the same artifact cannot exist.
+			expect(() => insert("extraction-job-2", artifactId)).toThrow(
+				/UNIQUE constraint failed/,
+			);
+			// The index is partial, so readback jobs (null source) do not collide.
+			expect(() => insert("extraction-job-3", null)).not.toThrow();
+			expect(() => insert("extraction-job-4", null)).not.toThrow();
+		});
+
+		it("cascades delete when the source artifact is deleted", () => {
+			const userId = "extraction-cascade-user";
+			db.insert(schema.users)
+				.values({
+					id: userId,
+					email: "extraction-cascade@example.com",
+					passwordHash: "hash",
+				})
+				.run();
+			db.insert(schema.artifacts)
+				.values({
+					id: "extraction-cascade-artifact",
+					userId,
+					type: "source_document",
+					name: "b.pdf",
+				})
+				.run();
+			db.insert(schema.documentExtractionJobs)
+				.values({
+					id: "extraction-cascade-job",
+					userId,
+					sourceArtifactId: "extraction-cascade-artifact",
+					intakeRoute: "mineru",
+					fileName: "b.pdf",
+				})
+				.run();
+			db.insert(schema.documentExtractionJobAttempts)
+				.values({
+					id: "extraction-cascade-attempt",
+					jobId: "extraction-cascade-job",
+					attemptNumber: 1,
+				})
+				.run();
+
+			db.delete(schema.artifacts)
+				.where(eq(schema.artifacts.id, "extraction-cascade-artifact"))
+				.run();
+
+			expect(
+				db
+					.select()
+					.from(schema.documentExtractionJobs)
+					.where(eq(schema.documentExtractionJobs.id, "extraction-cascade-job"))
+					.get(),
+			).toBeUndefined();
+			// And the attempt goes with it, rather than orphaning.
+			expect(
+				db
+					.select()
+					.from(schema.documentExtractionJobAttempts)
+					.where(
+						eq(
+							schema.documentExtractionJobAttempts.id,
+							"extraction-cascade-attempt",
+						),
+					)
+					.get(),
+			).toBeUndefined();
+		});
+	});
+
+	describe("document_extraction_job_attempts table", () => {
+		it("has the expected columns and nullability", () => {
+			const columns = sqlite
+				.prepare("PRAGMA table_info(document_extraction_job_attempts)")
+				.all() as {
+				name: string;
+				notnull: number;
+				dflt_value: string | null;
+			}[];
+
+			const byName = new Map(columns.map((column) => [column.name, column]));
+			expect(byName.get("id")).toMatchObject({ notnull: 1 });
+			expect(byName.get("job_id")).toMatchObject({ notnull: 1 });
+			expect(byName.get("attempt_number")).toMatchObject({ notnull: 1 });
+			expect(byName.get("status")).toMatchObject({
+				notnull: 1,
+				dflt_value: "'running'",
+			});
+			expect(byName.get("phase")).toMatchObject({ notnull: 0 });
+			expect(byName.get("extractor")).toMatchObject({ notnull: 0 });
+			expect(byName.get("resumed")).toMatchObject({
+				notnull: 1,
+				dflt_value: "0",
+			});
+			expect(byName.get("worker_id")).toMatchObject({ notnull: 0 });
+			expect(byName.get("heartbeat_at")).toMatchObject({ notnull: 0 });
+			expect(byName.get("text_length")).toMatchObject({ notnull: 0 });
+			expect(byName.get("page_count")).toMatchObject({ notnull: 0 });
+		});
+
+		it("has its three indexes and keeps attempt numbers unique per job", () => {
+			const indexNames = (
+				sqlite
+					.prepare("PRAGMA index_list(document_extraction_job_attempts)")
+					.all() as { name: string }[]
+			).map((index) => index.name);
+
+			expect(indexNames).toContain(
+				"document_extraction_job_attempts_job_number_unique_idx",
+			);
+			expect(indexNames).toContain("document_extraction_job_attempts_job_idx");
+			expect(indexNames).toContain(
+				"document_extraction_job_attempts_worker_idx",
+			);
+		});
+	});
+
+	describe("artifacts auto-rename index", () => {
+		it("indexes (user_id, name) so a collision check is not a per-user scan", () => {
+			const indexNames = (
+				sqlite.prepare("PRAGMA index_list(artifacts)").all() as {
+					name: string;
+				}[]
+			).map((index) => index.name);
+			expect(indexNames).toContain("artifacts_user_name_idx");
+
+			const columns = sqlite
+				.prepare("PRAGMA index_info(artifacts_user_name_idx)")
+				.all() as { name: string }[];
+			expect(columns.map((column) => column.name)).toEqual(["user_id", "name"]);
+		});
+	});
 });
