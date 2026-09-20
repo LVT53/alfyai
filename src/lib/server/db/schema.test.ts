@@ -1,5 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
-import { dirname } from "node:path";
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -8,6 +19,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "./schema";
 
 const TEST_DB_PATH = "./test-data/schema-test.db";
+
+/** The migration that renames the MinerU timeout override. */
+const MINERU4_MIGRATION_TAG = "1777140000098_mineru4_extraction";
 
 describe("schema core tables", () => {
 	let sqlite: Database.Database;
@@ -1139,6 +1153,68 @@ describe("schema core tables", () => {
 		});
 	});
 
+	describe("artifact_chunks page columns", () => {
+		it("carries nullable page_start / page_end so legacy rows still migrate", () => {
+			const columns = sqlite
+				.prepare("PRAGMA table_info(artifact_chunks)")
+				.all() as {
+				name: string;
+				type: string;
+				notnull: number;
+				dflt_value: string | null;
+			}[];
+
+			const byName = new Map(columns.map((column) => [column.name, column]));
+			// Nullable on purpose: direct-text extraction has no pages at all, and
+			// every row written before structure-aware chunking has none either. A
+			// NOT NULL here would make the migration unrunnable on a populated DB.
+			for (const name of ["page_start", "page_end"] as const) {
+				const column = byName.get(name);
+				expect(column, name).toBeDefined();
+				expect(column?.type.toLowerCase(), name).toBe("integer");
+				expect(column?.notnull, name).toBe(0);
+				expect(column?.dflt_value, name).toBeNull();
+			}
+		});
+
+		it("accepts a row that leaves both page columns unset", () => {
+			const userId = "chunk-page-user";
+			db.insert(schema.users)
+				.values({
+					id: userId,
+					email: "chunk-page@example.com",
+					passwordHash: "hash",
+					name: "Chunk Page",
+				})
+				.run();
+			db.insert(schema.artifacts)
+				.values({
+					id: "chunk-page-artifact",
+					userId,
+					type: "generated_file",
+					name: "doc.md",
+				})
+				.run();
+			db.insert(schema.artifactChunks)
+				.values({
+					id: "chunk-page-1",
+					artifactId: "chunk-page-artifact",
+					userId,
+					chunkIndex: 0,
+					contentText: "body",
+				})
+				.run();
+
+			const row = db
+				.select()
+				.from(schema.artifactChunks)
+				.where(eq(schema.artifactChunks.id, "chunk-page-1"))
+				.get();
+			expect(row?.pageStart).toBeNull();
+			expect(row?.pageEnd).toBeNull();
+		});
+	});
+
 	describe("artifacts auto-rename index", () => {
 		it("indexes (user_id, name) so a collision check is not a per-user scan", () => {
 			const indexNames = (
@@ -1153,5 +1229,145 @@ describe("schema core tables", () => {
 				.all() as { name: string }[];
 			expect(columns.map((column) => column.name)).toEqual(["user_id", "name"]);
 		});
+	});
+});
+
+// The MinerU 4 migration does two unrelated things in one file on purpose: the
+// journal is a single-owner hot file, so both phases' DDL travels together.
+// The half that can silently lose data is the config rename — a real
+// `admin_config` row for `MINERU_TIMEOUT_MS` (the dev box has 600000) must
+// come out the other side as `MINERU_JOB_TIMEOUT_MS`, because removing the old
+// key from ADMIN_CONFIG_KEYS would otherwise orphan the row: the apply loop
+// iterates the key list, so the override would stop having any effect while
+// still sitting in the table.
+//
+// Proven end to end rather than by reading the SQL: the database is first
+// migrated with every migration EXCEPT this one (an exact copy of `drizzle/`
+// with the last journal entry and its file removed, so drizzle's own hashes
+// still match), the override is written as it exists in production, and only
+// then is the real migrations folder applied.
+describe("MINERU_TIMEOUT_MS override migration", () => {
+	let workDir: string;
+
+	beforeAll(() => {
+		workDir = mkdtempSync(join(tmpdir(), "alfyai-mineru4-migration-"));
+	});
+
+	afterAll(() => {
+		rmSync(workDir, { recursive: true, force: true });
+	});
+
+	function migrationsFolderWithoutMineru4(): string {
+		const folder = join(workDir, "drizzle-before");
+		if (existsSync(folder)) return folder;
+		mkdirSync(join(folder, "meta"), { recursive: true });
+
+		const journal = JSON.parse(
+			readFileSync("./drizzle/meta/_journal.json", "utf8"),
+		) as { entries: Array<{ tag: string }> };
+		const kept = journal.entries.filter(
+			(entry) => entry.tag !== MINERU4_MIGRATION_TAG,
+		);
+		expect(kept.length).toBe(journal.entries.length - 1);
+		writeFileSync(
+			join(folder, "meta", "_journal.json"),
+			JSON.stringify({ ...journal, entries: kept }),
+		);
+
+		for (const file of readdirSync("./drizzle")) {
+			if (!file.endsWith(".sql")) continue;
+			if (file === `${MINERU4_MIGRATION_TAG}.sql`) continue;
+			copyFileSync(join("./drizzle", file), join(folder, file));
+		}
+		return folder;
+	}
+
+	function openDb(name: string) {
+		const sqlite = new Database(join(workDir, name));
+		sqlite.pragma("foreign_keys = ON");
+		return { sqlite, db: drizzle(sqlite, { schema }) };
+	}
+
+	it("carries an existing override over to MINERU_JOB_TIMEOUT_MS", () => {
+		const before = migrationsFolderWithoutMineru4();
+		const { sqlite, db } = openDb("carry-over.db");
+		try {
+			migrate(db, { migrationsFolder: before });
+
+			sqlite
+				.prepare(
+					"INSERT INTO admin_config (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)",
+				)
+				.run("MINERU_TIMEOUT_MS", "600000", 1777140000, "admin-1");
+
+			migrate(db, { migrationsFolder: "./drizzle" });
+
+			const rows = sqlite
+				.prepare(
+					"SELECT key, value, updated_by FROM admin_config WHERE key LIKE 'MINERU%'",
+				)
+				.all() as { key: string; value: string; updated_by: string }[];
+
+			expect(rows).toEqual([
+				{
+					key: "MINERU_JOB_TIMEOUT_MS",
+					value: "600000",
+					updated_by: "admin-1",
+				},
+			]);
+
+			// The Phase 4 half of the same file landed too.
+			const columns = (
+				sqlite.prepare("PRAGMA table_info(artifact_chunks)").all() as {
+					name: string;
+				}[]
+			).map((column) => column.name);
+			expect(columns).toContain("page_start");
+			expect(columns).toContain("page_end");
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("lets an already-set MINERU_JOB_TIMEOUT_MS win and still drops the old row", () => {
+		const before = migrationsFolderWithoutMineru4();
+		const { sqlite, db } = openDb("already-set.db");
+		try {
+			migrate(db, { migrationsFolder: before });
+
+			const insert = sqlite.prepare(
+				"INSERT INTO admin_config (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?)",
+			);
+			insert.run("MINERU_TIMEOUT_MS", "600000", 1777140000, "admin-1");
+			insert.run("MINERU_JOB_TIMEOUT_MS", "120000", 1777140001, "admin-2");
+
+			migrate(db, { migrationsFolder: "./drizzle" });
+
+			const rows = sqlite
+				.prepare(
+					"SELECT key, value FROM admin_config WHERE key LIKE 'MINERU%' ORDER BY key",
+				)
+				.all() as { key: string; value: string }[];
+
+			expect(rows).toEqual([{ key: "MINERU_JOB_TIMEOUT_MS", value: "120000" }]);
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("is a no-op for a database that never had the override", () => {
+		const before = migrationsFolderWithoutMineru4();
+		const { sqlite, db } = openDb("no-override.db");
+		try {
+			migrate(db, { migrationsFolder: before });
+			migrate(db, { migrationsFolder: "./drizzle" });
+
+			const rows = sqlite
+				.prepare("SELECT key FROM admin_config WHERE key LIKE 'MINERU%'")
+				.all();
+			expect(rows).toEqual([]);
+		} finally {
+			sqlite.close();
+		}
 	});
 });
