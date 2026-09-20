@@ -1,0 +1,40 @@
+{
+  "probe": "page_range_out_of_bounds",
+  "method": "POST",
+  "url": "/v1/parse/jobs",
+  "http_status": 202,
+  "content_type": "application/json",
+  "body": {
+    "job_id": "job_8063d0d96603cbef54015449",
+    "status": "queued",
+    "created_at": "2026-09-20T12:50:04Z",
+    "started_at": null,
+    "finished_at": null,
+    "tier": "basic",
+    "output_formats": [
+      "markdown"
+    ],
+    "access_level": "anonymous",
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-aadaadc791c3191667e2182d",
+        "name": "sample.pdf",
+        "page_range": "50-90",
+        "status": "queued",
+        "parse": null,
+        "output_files": null,
+        "error": null
+      }
+    ],
+    "links": {
+      "self": "/v1/parse/jobs/job_8063d0d96603cbef54015449",
+      "cancel": "/v1/parse/jobs/job_8063d0d96603cbef54015449"
+    }
+  },
+  "note": "3-page pdf"
+}

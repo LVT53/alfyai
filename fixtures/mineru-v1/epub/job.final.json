@@ -1,0 +1,59 @@
+{
+  "job_id": "job_6211769d73bb4fdb1704fd6d",
+  "status": "completed",
+  "created_at": "2026-09-20T12:46:22Z",
+  "started_at": "2026-09-20T12:46:22Z",
+  "finished_at": "2026-09-20T12:46:22Z",
+  "tier": "basic",
+  "output_formats": [
+    "markdown",
+    "middle_json",
+    "structured_content",
+    "zip"
+  ],
+  "access_level": "anonymous",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "files": [
+    {
+      "file_id": "file-02162949bdbd9f99d2c178ce",
+      "name": "sample.epub",
+      "page_range": "1",
+      "status": "completed",
+      "parse": {
+        "model_used": null,
+        "duration_ms": 10,
+        "parser_version": "4.0.4"
+      },
+      "output_files": {
+        "markdown": {
+          "file_id": "file-68f2e25605aa6c7953c20ba8",
+          "bytes": 857
+        },
+        "middle_json": {
+          "file_id": "file-8b8e1715fd54285bb8b0d20a",
+          "bytes": 2201
+        },
+        "structured_content": {
+          "file_id": "file-f328481447e3d2e7d0b671bf",
+          "bytes": 1613
+        },
+        "html": null,
+        "latex": null,
+        "docx": null,
+        "zip": {
+          "file_id": "file-96d768574ce078838b113003",
+          "bytes": 3430
+        }
+      },
+      "error": null
+    }
+  ],
+  "links": {
+    "self": "/v1/parse/jobs/job_6211769d73bb4fdb1704fd6d",
+    "cancel": "/v1/parse/jobs/job_6211769d73bb4fdb1704fd6d"
+  }
+}

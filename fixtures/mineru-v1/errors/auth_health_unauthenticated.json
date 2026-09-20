@@ -1,0 +1,26 @@
+{
+  "probe": "auth_health_unauthenticated",
+  "method": "GET",
+  "url": "/v1/health",
+  "http_status": 200,
+  "content_type": "application/json",
+  "body": {
+    "status": "ok",
+    "version": "4.0.4",
+    "features": {
+      "webhook": false,
+      "output_formats": [
+        "markdown",
+        "middle_json",
+        "structured_content",
+        "zip"
+      ],
+      "sources": [
+        "file_id",
+        "url",
+        "inline"
+      ]
+    }
+  },
+  "note": "is health public?"
+}

@@ -1,0 +1,16 @@
+{
+  "probe": "upload_bytes_mismatch_put",
+  "method": "PUT",
+  "url": "/v1/uploads/upload_75ecd2cacdfaecd5d61eb5e6/content",
+  "http_status": 413,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "upload_size_mismatch",
+      "message": "Upload expects 999999 bytes, received 89",
+      "param": null
+    }
+  },
+  "note": ""
+}

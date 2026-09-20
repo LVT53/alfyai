@@ -1,0 +1,438 @@
+[
+  {
+    "probe": "page_range_on_csv",
+    "create_status": 202,
+    "job_id": "job_6c593d0925c7d563e49f4787",
+    "final_job_status": "failed",
+    "job_tier": "basic",
+    "file_status": "failed",
+    "file_page_range": "1-2",
+    "file_error": {
+      "type": "invalid_request_error",
+      "code": "page_range_invalid",
+      "message": "Page range is only supported for PDF files; 'csv' uses full-document parsing.",
+      "param": "page_range"
+    },
+    "final": {
+      "job_id": "job_6c593d0925c7d563e49f4787",
+      "status": "failed",
+      "created_at": "2026-09-20T12:50:04Z",
+      "started_at": "2026-09-20T12:50:04Z",
+      "finished_at": "2026-09-20T12:50:04Z",
+      "tier": "basic",
+      "output_formats": [
+        "markdown"
+      ],
+      "access_level": "anonymous",
+      "progress": {
+        "completed": 0,
+        "failed": 1,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": "file-0e443ce94c9b5d08e963f5a4",
+          "name": "sample.csv",
+          "page_range": "1-2",
+          "status": "failed",
+          "parse": null,
+          "output_files": null,
+          "error": {
+            "type": "invalid_request_error",
+            "code": "page_range_invalid",
+            "message": "Page range is only supported for PDF files; 'csv' uses full-document parsing.",
+            "param": "page_range"
+          }
+        }
+      ],
+      "links": {
+        "self": "/v1/parse/jobs/job_6c593d0925c7d563e49f4787",
+        "cancel": "/v1/parse/jobs/job_6c593d0925c7d563e49f4787"
+      }
+    }
+  },
+  {
+    "probe": "page_range_on_png",
+    "create_status": 202,
+    "job_id": "job_feb6deabdedfd2ff2a17a323",
+    "final_job_status": "failed",
+    "job_tier": "basic",
+    "file_status": "failed",
+    "file_page_range": "1",
+    "file_error": {
+      "type": "invalid_request_error",
+      "code": "page_range_invalid",
+      "message": "Page range is only supported for PDF files; 'png' uses full-document parsing.",
+      "param": "page_range"
+    },
+    "final": {
+      "job_id": "job_feb6deabdedfd2ff2a17a323",
+      "status": "failed",
+      "created_at": "2026-09-20T12:50:04Z",
+      "started_at": "2026-09-20T12:50:04Z",
+      "finished_at": "2026-09-20T12:50:04Z",
+      "tier": "basic",
+      "output_formats": [
+        "markdown"
+      ],
+      "access_level": "anonymous",
+      "progress": {
+        "completed": 0,
+        "failed": 1,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": "file-8f084f6069c9066439fe61f6",
+          "name": "sample.png",
+          "page_range": "1",
+          "status": "failed",
+          "parse": null,
+          "output_files": null,
+          "error": {
+            "type": "invalid_request_error",
+            "code": "page_range_invalid",
+            "message": "Page range is only supported for PDF files; 'png' uses full-document parsing.",
+            "param": "page_range"
+          }
+        }
+      ],
+      "links": {
+        "self": "/v1/parse/jobs/job_feb6deabdedfd2ff2a17a323",
+        "cancel": "/v1/parse/jobs/job_feb6deabdedfd2ff2a17a323"
+      }
+    }
+  },
+  {
+    "probe": "page_range_out_of_bounds",
+    "create_status": 202,
+    "job_id": "job_8063d0d96603cbef54015449",
+    "final_job_status": "failed",
+    "job_tier": "basic",
+    "file_status": "failed",
+    "file_page_range": "50-90",
+    "file_error": {
+      "type": "invalid_request_error",
+      "code": "page_range_invalid",
+      "message": "Invalid page range '50-90': selection does not contain any available pages",
+      "param": "page_range"
+    },
+    "final": {
+      "job_id": "job_8063d0d96603cbef54015449",
+      "status": "failed",
+      "created_at": "2026-09-20T12:50:04Z",
+      "started_at": "2026-09-20T12:50:04Z",
+      "finished_at": "2026-09-20T12:50:04Z",
+      "tier": "basic",
+      "output_formats": [
+        "markdown"
+      ],
+      "access_level": "anonymous",
+      "progress": {
+        "completed": 0,
+        "failed": 1,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": "file-aadaadc791c3191667e2182d",
+          "name": "sample.pdf",
+          "page_range": "50-90",
+          "status": "failed",
+          "parse": null,
+          "output_files": null,
+          "error": {
+            "type": "invalid_request_error",
+            "code": "page_range_invalid",
+            "message": "Invalid page range '50-90': selection does not contain any available pages",
+            "param": "page_range"
+          }
+        }
+      ],
+      "links": {
+        "self": "/v1/parse/jobs/job_8063d0d96603cbef54015449",
+        "cancel": "/v1/parse/jobs/job_8063d0d96603cbef54015449"
+      }
+    }
+  },
+  {
+    "probe": "page_range_reverse_rN",
+    "create_status": 202,
+    "job_id": "job_03b77be88986710de9e71157",
+    "final_job_status": "completed",
+    "job_tier": "basic",
+    "file_status": "completed",
+    "file_page_range": "2-3",
+    "file_error": null,
+    "final": {
+      "job_id": "job_03b77be88986710de9e71157",
+      "status": "completed",
+      "created_at": "2026-09-20T12:50:04Z",
+      "started_at": "2026-09-20T12:50:04Z",
+      "finished_at": "2026-09-20T12:50:05Z",
+      "tier": "basic",
+      "output_formats": [
+        "markdown"
+      ],
+      "access_level": "anonymous",
+      "progress": {
+        "completed": 1,
+        "failed": 0,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": "file-aadaadc791c3191667e2182d",
+          "name": "sample.pdf",
+          "page_range": "2-3",
+          "status": "completed",
+          "parse": {
+            "model_used": null,
+            "duration_ms": 764,
+            "parser_version": "4.0.4"
+          },
+          "output_files": {
+            "markdown": {
+              "file_id": "file-10d6c3b6e69a73d745ae6796",
+              "bytes": 33853
+            },
+            "middle_json": null,
+            "structured_content": null,
+            "html": null,
+            "latex": null,
+            "docx": null,
+            "zip": null
+          },
+          "error": null
+        }
+      ],
+      "links": {
+        "self": "/v1/parse/jobs/job_03b77be88986710de9e71157",
+        "cancel": "/v1/parse/jobs/job_03b77be88986710de9e71157"
+      }
+    }
+  },
+  {
+    "probe": "tier_flash",
+    "create_status": 202,
+    "job_id": "job_57dfeff951083fd5cc7c434b",
+    "final_job_status": "completed",
+    "job_tier": "flash",
+    "file_status": "completed",
+    "file_page_range": "1-3",
+    "file_error": null,
+    "final": {
+      "job_id": "job_57dfeff951083fd5cc7c434b",
+      "status": "completed",
+      "created_at": "2026-09-20T12:50:04Z",
+      "started_at": "2026-09-20T12:50:05Z",
+      "finished_at": "2026-09-20T12:50:05Z",
+      "tier": "flash",
+      "output_formats": [
+        "markdown"
+      ],
+      "access_level": "anonymous",
+      "progress": {
+        "completed": 1,
+        "failed": 0,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": "file-aadaadc791c3191667e2182d",
+          "name": "sample.pdf",
+          "page_range": "1-3",
+          "status": "completed",
+          "parse": {
+            "model_used": null,
+            "duration_ms": 107,
+            "parser_version": "4.0.4"
+          },
+          "output_files": {
+            "markdown": {
+              "file_id": "file-3af5433b9ed8255a7581fa08",
+              "bytes": 31468
+            },
+            "middle_json": null,
+            "structured_content": null,
+            "html": null,
+            "latex": null,
+            "docx": null,
+            "zip": null
+          },
+          "error": null
+        }
+      ],
+      "links": {
+        "self": "/v1/parse/jobs/job_57dfeff951083fd5cc7c434b",
+        "cancel": "/v1/parse/jobs/job_57dfeff951083fd5cc7c434b"
+      }
+    }
+  },
+  {
+    "probe": "tier_basic",
+    "create_status": 202,
+    "job_id": "job_035f66245703f78aad285296",
+    "final_job_status": "completed",
+    "job_tier": "basic",
+    "file_status": "completed",
+    "file_page_range": "1-3",
+    "file_error": null,
+    "final": {
+      "job_id": "job_035f66245703f78aad285296",
+      "status": "completed",
+      "created_at": "2026-09-20T12:50:04Z",
+      "started_at": "2026-09-20T12:50:05Z",
+      "finished_at": "2026-09-20T12:50:06Z",
+      "tier": "basic",
+      "output_formats": [
+        "markdown"
+      ],
+      "access_level": "anonymous",
+      "progress": {
+        "completed": 1,
+        "failed": 0,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": "file-aadaadc791c3191667e2182d",
+          "name": "sample.pdf",
+          "page_range": "1-3",
+          "status": "completed",
+          "parse": {
+            "model_used": null,
+            "duration_ms": 1124,
+            "parser_version": "4.0.4"
+          },
+          "output_files": {
+            "markdown": {
+              "file_id": "file-324a5296f903d60ce81d3db5",
+              "bytes": 34457
+            },
+            "middle_json": null,
+            "structured_content": null,
+            "html": null,
+            "latex": null,
+            "docx": null,
+            "zip": null
+          },
+          "error": null
+        }
+      ],
+      "links": {
+        "self": "/v1/parse/jobs/job_035f66245703f78aad285296",
+        "cancel": "/v1/parse/jobs/job_035f66245703f78aad285296"
+      }
+    }
+  },
+  {
+    "probe": "job_unknown_file_id",
+    "create_status": 202,
+    "job_id": "job_b2536b96b595ba5c2ee9b5e8",
+    "final_job_status": "failed",
+    "job_tier": "basic",
+    "file_status": "failed",
+    "file_page_range": "",
+    "file_error": {
+      "type": "engine_error",
+      "code": "parse_failed",
+      "message": "File file-nope000000000000 not found",
+      "param": null
+    },
+    "final": {
+      "job_id": "job_b2536b96b595ba5c2ee9b5e8",
+      "status": "failed",
+      "created_at": "2026-09-20T12:50:04Z",
+      "started_at": "2026-09-20T12:50:06Z",
+      "finished_at": "2026-09-20T12:50:06Z",
+      "tier": "basic",
+      "output_formats": [
+        "markdown"
+      ],
+      "access_level": "anonymous",
+      "progress": {
+        "completed": 0,
+        "failed": 1,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": "file-nope000000000000",
+          "name": "file-nope000000000000",
+          "page_range": "",
+          "status": "failed",
+          "parse": null,
+          "output_files": null,
+          "error": {
+            "type": "engine_error",
+            "code": "parse_failed",
+            "message": "File file-nope000000000000 not found",
+            "param": null
+          }
+        }
+      ],
+      "links": {
+        "self": "/v1/parse/jobs/job_b2536b96b595ba5c2ee9b5e8",
+        "cancel": "/v1/parse/jobs/job_b2536b96b595ba5c2ee9b5e8"
+      }
+    }
+  },
+  {
+    "probe": "inline_source_ok",
+    "create_status": 202,
+    "job_id": "job_ec2b8e2b4a45f6ddd26af89e",
+    "final_job_status": "completed",
+    "job_tier": "basic",
+    "file_status": "completed",
+    "file_page_range": "1",
+    "file_error": null,
+    "final": {
+      "job_id": "job_ec2b8e2b4a45f6ddd26af89e",
+      "status": "completed",
+      "created_at": "2026-09-20T12:50:09Z",
+      "started_at": "2026-09-20T12:50:09Z",
+      "finished_at": "2026-09-20T12:50:09Z",
+      "tier": "basic",
+      "output_formats": [
+        "markdown"
+      ],
+      "access_level": "anonymous",
+      "progress": {
+        "completed": 1,
+        "failed": 0,
+        "total": 1
+      },
+      "files": [
+        {
+          "file_id": null,
+          "name": "t.csv",
+          "page_range": "1",
+          "status": "completed",
+          "parse": {
+            "model_used": null,
+            "duration_ms": 6,
+            "parser_version": "4.0.4"
+          },
+          "output_files": {
+            "markdown": {
+              "file_id": "file-9c773d7a7d6ccc30684eab58",
+              "bytes": 148
+            },
+            "middle_json": null,
+            "structured_content": null,
+            "html": null,
+            "latex": null,
+            "docx": null,
+            "zip": null
+          },
+          "error": null
+        }
+      ],
+      "links": {
+        "self": "/v1/parse/jobs/job_ec2b8e2b4a45f6ddd26af89e",
+        "cancel": "/v1/parse/jobs/job_ec2b8e2b4a45f6ddd26af89e"
+      }
+    }
+  }
+]

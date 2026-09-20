@@ -1,0 +1,16 @@
+{
+  "probe": "upload_bad_purpose",
+  "method": "POST",
+  "url": "/v1/uploads",
+  "http_status": 400,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "invalid_request",
+      "message": "Invalid request: purpose: Input should be 'parse' or 'input_image'",
+      "param": "purpose"
+    }
+  },
+  "note": ""
+}

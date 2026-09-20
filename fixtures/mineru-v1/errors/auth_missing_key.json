@@ -1,0 +1,16 @@
+{
+  "probe": "auth_missing_key",
+  "method": "GET",
+  "url": "/v1/files",
+  "http_status": 401,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "authentication_error",
+      "code": "invalid_api_key",
+      "message": "Invalid or missing API key",
+      "param": null
+    }
+  },
+  "note": "no Authorization header"
+}

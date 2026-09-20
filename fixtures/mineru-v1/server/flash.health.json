@@ -1,0 +1,18 @@
+{
+  "status": "ok",
+  "version": "4.0.4",
+  "features": {
+    "webhook": false,
+    "output_formats": [
+      "markdown",
+      "middle_json",
+      "structured_content",
+      "zip"
+    ],
+    "sources": [
+      "file_id",
+      "url",
+      "inline"
+    ]
+  }
+}

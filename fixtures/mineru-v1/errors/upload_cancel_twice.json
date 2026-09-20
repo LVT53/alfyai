@@ -1,0 +1,16 @@
+{
+  "probe": "upload_cancel_twice",
+  "method": "POST",
+  "url": "/v1/uploads/upload_c675280357fd45858201020d/cancel",
+  "http_status": 409,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "upload_already_terminal",
+      "message": "Upload is cancelled",
+      "param": null
+    }
+  },
+  "note": "already terminal"
+}

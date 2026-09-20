@@ -1,0 +1,16 @@
+{
+  "probe": "source_file_content_download",
+  "method": "GET",
+  "url": "/v1/files/file-aadaadc791c3191667e2182d/content",
+  "http_status": 403,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "permission_error",
+      "code": "feature_requires_api_key",
+      "message": "Source files cannot be downloaded",
+      "param": null
+    }
+  },
+  "note": "purpose=parse, not parse_output"
+}

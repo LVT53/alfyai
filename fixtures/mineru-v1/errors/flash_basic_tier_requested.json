@@ -1,0 +1,13 @@
+{
+  "probe": "flash_basic_tier_requested",
+  "http_status": 400,
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "invalid_request",
+      "message": "Tier 'basic' not available in this server",
+      "param": null
+    }
+  },
+  "note": "basic not served by this process"
+}

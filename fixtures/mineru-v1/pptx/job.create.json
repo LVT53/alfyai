@@ -1,0 +1,35 @@
+{
+  "job_id": "job_a501f8f9e4188fb7d13db78d",
+  "status": "queued",
+  "created_at": "2026-09-20T12:46:37Z",
+  "started_at": null,
+  "finished_at": null,
+  "tier": "basic",
+  "output_formats": [
+    "markdown",
+    "middle_json",
+    "structured_content",
+    "zip"
+  ],
+  "access_level": "anonymous",
+  "progress": {
+    "completed": 0,
+    "failed": 0,
+    "total": 1
+  },
+  "files": [
+    {
+      "file_id": "file-2b486ff5b770384c0df05e47",
+      "name": "sample.pptx",
+      "page_range": "",
+      "status": "queued",
+      "parse": null,
+      "output_files": null,
+      "error": null
+    }
+  ],
+  "links": {
+    "self": "/v1/parse/jobs/job_a501f8f9e4188fb7d13db78d",
+    "cancel": "/v1/parse/jobs/job_a501f8f9e4188fb7d13db78d"
+  }
+}

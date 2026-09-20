@@ -1,0 +1,16 @@
+{
+  "probe": "upload_wronghash_complete",
+  "method": "POST",
+  "url": "/v1/uploads/upload_2b49bb68ba3bbcd8397b934e/complete",
+  "http_status": 400,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "file_hash_mismatch",
+      "message": "SHA-256 mismatch",
+      "param": null
+    }
+  },
+  "note": ""
+}

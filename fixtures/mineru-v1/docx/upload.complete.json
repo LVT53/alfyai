@@ -1,0 +1,25 @@
+{
+  "id": "upload_7e33e5d48a2a3789f878f873",
+  "object": "upload",
+  "bytes": 38725,
+  "created_at": 1789908380,
+  "expires_at": 1789911980,
+  "filename": "sample.docx",
+  "purpose": "parse",
+  "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "sha256sum": "e77e241d0fadf8c55fca1e1a6ecb9278bc41bdb9959c157489f32f44f6ae0602",
+  "status": "completed",
+  "upload_url": null,
+  "upload_method": null,
+  "upload_headers": null,
+  "file": {
+    "id": "file-b8425a8a38ec4d53b1985365",
+    "object": "file",
+    "bytes": 38725,
+    "created_at": 1789908380,
+    "expires_at": 1789911980,
+    "filename": "sample.docx",
+    "purpose": "parse",
+    "sha256sum": "e77e241d0fadf8c55fca1e1a6ecb9278bc41bdb9959c157489f32f44f6ae0602"
+  }
+}

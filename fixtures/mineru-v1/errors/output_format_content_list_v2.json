@@ -1,0 +1,16 @@
+{
+  "probe": "output_format_content_list_v2",
+  "method": "POST",
+  "url": "/v1/parse/jobs",
+  "http_status": 400,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "unsupported_output_format",
+      "message": "Unknown output format: content_list_v2",
+      "param": null
+    }
+  },
+  "note": ""
+}

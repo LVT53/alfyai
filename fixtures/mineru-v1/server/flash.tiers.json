@@ -1,0 +1,10 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "flash",
+      "description": "Fast local text extraction.",
+      "current_model": "flash"
+    }
+  ]
+}

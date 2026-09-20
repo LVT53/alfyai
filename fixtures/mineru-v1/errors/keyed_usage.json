@@ -1,0 +1,25 @@
+{
+  "probe": "keyed_usage",
+  "http_status": 200,
+  "body": {
+    "object": "usage",
+    "access_level": "registered",
+    "billing_period": {
+      "start": "2026-09-20T12:53:04Z",
+      "end": null
+    },
+    "current": {
+      "pages_processed": 0,
+      "files_processed": 0,
+      "jobs_created": 0
+    },
+    "limits": {
+      "max_pages_per_file": 1000,
+      "max_file_size_bytes": 209715200,
+      "max_files_per_job": 100,
+      "max_concurrent_jobs": 1,
+      "max_file_retention_days": null
+    }
+  },
+  "note": "access_level with a key?"
+}

@@ -1,0 +1,16 @@
+{
+  "probe": "file_unknown_id_content",
+  "method": "GET",
+  "url": "/v1/files/file-doesnotexist000000/content",
+  "http_status": 404,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "file_not_found",
+      "message": "File file-doesnotexist000000 not found",
+      "param": null
+    }
+  },
+  "note": ""
+}

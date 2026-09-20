@@ -1,0 +1,18 @@
+{
+  "id": "upload_645f4e94e7041da003c446e8",
+  "object": "upload",
+  "bytes": 30644,
+  "created_at": 1789908397,
+  "expires_at": 1789911997,
+  "filename": "sample.pptx",
+  "purpose": "parse",
+  "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "sha256sum": "e3f9dec2b0fa8555a05c93b1a0530db49e095e847e0ee6d5ccfbbb120fc04bbc",
+  "status": "pending",
+  "upload_url": "http://127.0.0.1:8765/v1/uploads/upload_645f4e94e7041da003c446e8/content",
+  "upload_method": "PUT",
+  "upload_headers": {
+    "Content-Type": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  },
+  "file": null
+}

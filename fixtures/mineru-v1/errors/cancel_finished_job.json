@@ -1,0 +1,16 @@
+{
+  "probe": "cancel_finished_job",
+  "method": "DELETE",
+  "url": "/v1/parse/jobs/job_986ce72d5c8e5cbefd2f757f",
+  "http_status": 409,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "job_already_terminal",
+      "message": "Job is completed",
+      "param": null
+    }
+  },
+  "note": "job status was completed"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "upload_7e33e5d48a2a3789f878f873",
+  "object": "upload",
+  "bytes": 38725,
+  "created_at": 1789908380,
+  "expires_at": 1789911980,
+  "filename": "sample.docx",
+  "purpose": "parse",
+  "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "sha256sum": "e77e241d0fadf8c55fca1e1a6ecb9278bc41bdb9959c157489f32f44f6ae0602",
+  "status": "pending",
+  "upload_url": "http://127.0.0.1:8765/v1/uploads/upload_7e33e5d48a2a3789f878f873/content",
+  "upload_method": "PUT",
+  "upload_headers": {
+    "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  },
+  "file": null
+}

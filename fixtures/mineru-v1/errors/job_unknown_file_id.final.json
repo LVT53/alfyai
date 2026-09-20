@@ -1,0 +1,52 @@
+{
+  "probe": "job_unknown_file_id",
+  "create_status": 202,
+  "job_id": "job_b2536b96b595ba5c2ee9b5e8",
+  "final_job_status": "failed",
+  "job_tier": "basic",
+  "file_status": "failed",
+  "file_page_range": "",
+  "file_error": {
+    "type": "engine_error",
+    "code": "parse_failed",
+    "message": "File file-nope000000000000 not found",
+    "param": null
+  },
+  "final": {
+    "job_id": "job_b2536b96b595ba5c2ee9b5e8",
+    "status": "failed",
+    "created_at": "2026-09-20T12:50:04Z",
+    "started_at": "2026-09-20T12:50:06Z",
+    "finished_at": "2026-09-20T12:50:06Z",
+    "tier": "basic",
+    "output_formats": [
+      "markdown"
+    ],
+    "access_level": "anonymous",
+    "progress": {
+      "completed": 0,
+      "failed": 1,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-nope000000000000",
+        "name": "file-nope000000000000",
+        "page_range": "",
+        "status": "failed",
+        "parse": null,
+        "output_files": null,
+        "error": {
+          "type": "engine_error",
+          "code": "parse_failed",
+          "message": "File file-nope000000000000 not found",
+          "param": null
+        }
+      }
+    ],
+    "links": {
+      "self": "/v1/parse/jobs/job_b2536b96b595ba5c2ee9b5e8",
+      "cancel": "/v1/parse/jobs/job_b2536b96b595ba5c2ee9b5e8"
+    }
+  }
+}

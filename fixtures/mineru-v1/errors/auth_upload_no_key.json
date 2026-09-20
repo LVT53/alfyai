@@ -1,0 +1,16 @@
+{
+  "probe": "auth_upload_no_key",
+  "method": "POST",
+  "url": "/v1/uploads",
+  "http_status": 401,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "authentication_error",
+      "code": "invalid_api_key",
+      "message": "Invalid or missing API key",
+      "param": null
+    }
+  },
+  "note": "create upload without key"
+}

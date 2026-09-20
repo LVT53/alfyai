@@ -1,0 +1,16 @@
+{
+  "probe": "callback_unsupported",
+  "method": "POST",
+  "url": "/v1/parse/jobs",
+  "http_status": 400,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "invalid_request",
+      "message": "Webhook callback is not supported by this Local Parse Server. Use polling via GET /v1/parse/jobs/{job_id}.",
+      "param": null
+    }
+  },
+  "note": "health.features.webhook=false"
+}

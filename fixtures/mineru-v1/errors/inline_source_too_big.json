@@ -1,0 +1,16 @@
+{
+  "probe": "inline_source_too_big",
+  "method": "POST",
+  "url": "/v1/parse/jobs",
+  "http_status": 400,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "unsupported_source",
+      "message": "inline source exceeds max_inline_bytes (1048576)",
+      "param": "files.0.source"
+    }
+  },
+  "note": "over --max-inline-bytes (1MB default)"
+}

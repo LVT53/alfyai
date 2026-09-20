@@ -1,0 +1,1 @@
+{"object":"usage","access_level":"anonymous","billing_period":{"start":"2026-09-20T12:43:59Z","end":null},"current":{"pages_processed":0,"files_processed":0,"jobs_created":0},"limits":{"max_pages_per_file":1000,"max_file_size_bytes":209715200,"max_files_per_job":100,"max_concurrent_jobs":1,"max_file_retention_days":null}}
