@@ -264,9 +264,22 @@ async function executeStep(
 			status: progress.phase,
 			handle: progress.handle ?? undefined,
 			extractor: extractor.name,
-		}).then((ok) => {
-			if (!ok) controller.abort();
-		});
+		})
+			.then((ok) => {
+				if (!ok) controller.abort();
+			})
+			// An extractor calls this synchronously from its own polling loop, so
+			// nothing is awaiting the promise. Without a catch, one SQLITE_BUSY on
+			// a progress write becomes an unhandled rejection — which Node 22
+			// turns into a process exit, taking the whole server down for a status
+			// line nobody was waiting on.
+			.catch((error) => {
+				console.warn("[EXTRACTION] Progress write failed", {
+					jobId: job.id,
+					error,
+				});
+				controller.abort();
+			});
 	};
 
 	let result: ExtractDocumentResult;
@@ -487,7 +500,15 @@ async function runStaleRecovery(
 
 /** Fire-and-forget wake, deduped by an in-module promise. */
 export function wakeExtractionWorker(): void {
-	if (drainPromise) {
+	if (drainPromise || isNonServingContext()) {
+		// Under vitest this is the one entry point a test reaches by accident:
+		// any test that uploads a file calls `startUploadExtraction`, which wakes
+		// the worker, which drains with the REAL extractor registry and issues a
+		// live HTTP call to the backend from a unit test — and then leaves the
+		// job requeued behind a backoff gate, so the next explicit
+		// `executeNextExtractionJob` in the same test claims nothing. Tests that
+		// mean to run the worker call `executeNextExtractionJob` or
+		// `drainExtractionWorker` directly; those stay live.
 		return;
 	}
 

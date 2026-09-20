@@ -11,6 +11,9 @@
 // this runs, and only then does the job go `succeeded` — so a crash in the
 // middle leaves a job whose heartbeat stops, which stale recovery requeues.
 
+import { eq } from "drizzle-orm";
+import { db } from "$lib/server/db";
+import { artifacts } from "$lib/server/db/schema";
 import {
 	estimateDocumentTokenCount,
 	extractDocumentOutline,
@@ -18,10 +21,14 @@ import {
 import {
 	createArtifact,
 	createArtifactLink,
+	getNormalizedArtifactForSource,
 	guessSummary,
+	mapArtifact,
 	updateArtifactMetadata,
 } from "$lib/server/services/knowledge/store/core";
 import type { Artifact } from "$lib/server/services/knowledge/types";
+import { queueArtifactSemanticEmbeddingRefresh } from "$lib/server/services/semantic-embedding-refresh";
+import { syncArtifactChunks } from "$lib/server/services/task-state/chunk-sync";
 
 export interface CreateNormalizedArtifactFromExtractionParams {
 	userId: string;
@@ -59,6 +66,57 @@ export async function createNormalizedArtifactFromExtraction(
 		...(outline.length > 0 ? { outline } : {}),
 	};
 
+	const metadata = {
+		sourceArtifactId: params.sourceArtifactId,
+		normalizedFrom: params.sourceName,
+		...comfortMetadataPatch,
+	};
+
+	// A source document may only ever have ONE normalized artifact.
+	//
+	// A second extraction of the same source is not hypothetical: a worker that
+	// dies between the artifact insert and `completeExtractionAttempt` leaves an
+	// `indexing` job that stale recovery requeues, and a cancel that lands while
+	// the chunk inserts are running does the same thing in a second. Creating a
+	// fresh artifact on that second pass is worse than a duplicate row —
+	// `getNormalizedArtifactForSource` orders by the link's `created_at` and
+	// takes the FIRST, so the prompt pipeline would keep reading the OLD text
+	// while the ledger's `normalized_artifact_id` pointed at the new one, and
+	// both artifacts' chunks would answer the same retrieval query.
+	//
+	// Rewriting the existing artifact in place keeps the id (so every
+	// `derived_from` link, working-set item and evidence link stays valid) and
+	// makes a re-extraction idempotent.
+	const existing = await getNormalizedArtifactForSource(
+		params.userId,
+		params.sourceArtifactId,
+	);
+	const artifact = existing
+		? await rewriteNormalizedArtifact({
+				existingId: existing.id,
+				userId: params.userId,
+				normalizedName: params.normalizedName,
+				mimeType: params.mimeType,
+				text: params.text,
+				sourceName: params.sourceName,
+				metadata,
+			})
+		: await createNewNormalizedArtifact({ params, metadata });
+
+	await updateArtifactMetadata({
+		artifactId: params.sourceArtifactId,
+		userId: params.userId,
+		patch: comfortMetadataPatch,
+	});
+
+	return artifact;
+}
+
+async function createNewNormalizedArtifact(input: {
+	params: CreateNormalizedArtifactFromExtractionParams;
+	metadata: Record<string, unknown>;
+}): Promise<Artifact> {
+	const { params, metadata } = input;
 	const artifact = await createArtifact({
 		userId: params.userId,
 		conversationId: params.conversationId,
@@ -70,11 +128,7 @@ export async function createNormalizedArtifactFromExtraction(
 		storagePath: null,
 		contentText: params.text,
 		summary: guessSummary(params.text, params.sourceName),
-		metadata: {
-			sourceArtifactId: params.sourceArtifactId,
-			normalizedFrom: params.sourceName,
-			...comfortMetadataPatch,
-		},
+		metadata,
 	});
 
 	await createArtifactLink({
@@ -85,13 +139,54 @@ export async function createNormalizedArtifactFromExtraction(
 		linkType: "derived_from",
 	});
 
-	await updateArtifactMetadata({
-		artifactId: params.sourceArtifactId,
-		userId: params.userId,
-		patch: comfortMetadataPatch,
-	});
-
 	return artifact;
+}
+
+/**
+ * The re-extraction path. Same work `createArtifact` does — row, chunks,
+ * embedding refresh — against an id that already exists, and no second
+ * `derived_from` link, because the one that made this artifact findable is
+ * still there.
+ */
+async function rewriteNormalizedArtifact(input: {
+	existingId: string;
+	userId: string;
+	normalizedName: string;
+	mimeType: string;
+	text: string;
+	sourceName: string;
+	metadata: Record<string, unknown>;
+}): Promise<Artifact> {
+	const [updated] = await db
+		.update(artifacts)
+		.set({
+			name: input.normalizedName,
+			mimeType: input.mimeType,
+			sizeBytes: Buffer.byteLength(input.text, "utf8"),
+			contentText: input.text,
+			summary: guessSummary(input.text, input.sourceName),
+			metadataJson: JSON.stringify(input.metadata),
+			updatedAt: new Date(),
+		})
+		.where(eq(artifacts.id, input.existingId))
+		.returning();
+
+	if (!updated) {
+		throw new Error(
+			`Normalized artifact ${input.existingId} disappeared during re-extraction`,
+		);
+	}
+
+	const mapped = mapArtifact(updated);
+	await syncArtifactChunks({
+		artifactId: mapped.id,
+		userId: mapped.userId,
+		conversationId: mapped.conversationId,
+		contentText: mapped.contentText,
+	});
+	queueArtifactSemanticEmbeddingRefresh(mapped);
+
+	return mapped;
 }
 
 /**
