@@ -152,6 +152,53 @@ describe("syncArtifactChunks", () => {
 		expect(countChunks(artifactId)).toBeGreaterThan(first);
 	});
 
+	// The boundary search used to run `lastIndexOf(needle, end)` over the whole
+	// prefix once per chunk, which is quadratic when the needle is absent. A
+	// log has no sentence punctuation, so three of the five searches always
+	// missed: 5 MB took 23 s of blocking CPU and 10 MB took 98 s. Windowing the
+	// search makes it linear. This case is the shape that was slow, and it is
+	// held to the default 5 s test timeout.
+	it("chunks a log with no sentence punctuation without stalling", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+		const line =
+			"2026-09-20T10:00:00.000Z INFO request id=abcd route=/api/chat status=200\n";
+		const log = line.repeat(Math.ceil((5 * 1024 * 1024) / line.length));
+
+		await syncArtifactChunks({ artifactId, userId: USER, contentText: log });
+
+		expect(countChunks(artifactId)).toBeGreaterThan(4096);
+	});
+
+	it("cuts on the last boundary inside the window, not before the chunk", async () => {
+		// Pins the windowed search against the whole-prefix one it replaced:
+		// a paragraph break well inside the target window wins, and text with
+		// no boundary at all is hard-cut at the target length.
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+		const paragraph = `${"word ".repeat(260)}\n\n`; // 1302 chars
+		await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: paragraph.repeat(4),
+		});
+
+		const stored = memory.db
+			.select({
+				chunkIndex: schema.artifactChunks.chunkIndex,
+				contentText: schema.artifactChunks.contentText,
+			})
+			.from(schema.artifactChunks)
+			.where(eq(schema.artifactChunks.artifactId, artifactId))
+			.all()
+			.sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+		expect(stored.length).toBeGreaterThan(1);
+		// 1300 characters of words, cut at the paragraph break rather than
+		// mid-word at 1400.
+		expect(stored[0].contentText).toBe(paragraph.trim());
+	});
+
 	it("leaves no chunks behind when the text is below the bypass threshold", async () => {
 		const artifactId = randomUUID();
 		seedArtifact(artifactId);
