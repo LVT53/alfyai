@@ -8,6 +8,7 @@ import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
+import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
 import {
 	formatBytes,
 	parseContentLength,
@@ -333,6 +334,31 @@ export const POST: RequestHandler = async (event) => {
 					traceId,
 				},
 				{ status: 400 },
+			);
+		}
+		if (isKnowledgeUploadContentMismatchError(error)) {
+			// The signature check already unlinked the temp file; this is belt
+			// and braces for the case where it could not.
+			await unlink(tempPathAbsolute).catch(() => undefined);
+			console.warn("[KNOWLEDGE] Raw upload refused on a content mismatch", {
+				traceId,
+				userId: user.id,
+				fileName: error.fileName,
+				extension: error.extension,
+			});
+			return json(
+				{
+					error: error.message,
+					code: error.code,
+					errorKey: error.errorKey,
+					traceId,
+					details: {
+						fileName: error.fileName,
+						extension: error.extension,
+						reason: "contentMismatch",
+					},
+				},
+				{ status: error.status },
 			);
 		}
 		throw error;

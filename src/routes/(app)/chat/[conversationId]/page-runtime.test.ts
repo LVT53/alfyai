@@ -183,6 +183,7 @@ function appShellDataFixture(
 		conversations: Promise.resolve([]),
 		projects: Promise.resolve([]),
 		maxMessageLength: 12_000,
+		maxFileUploadSize: 104_857_600,
 		composerCommandRegistryEnabled: false,
 		atlasAvailability: {
 			enabled: true,

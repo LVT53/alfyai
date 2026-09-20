@@ -20,6 +20,7 @@ import type {
 	ArtifactType,
 } from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import { fileExtension as registryFileExtension } from "$lib/shared/file-types";
 import {
 	getDocumentTokenBudget,
 	getCompactionUiThreshold as getPerModelCompactionThreshold,
@@ -201,9 +202,15 @@ function mapArtifactLink(row: typeof artifactLinks.$inferSelect): ArtifactLink {
 	};
 }
 
+/**
+ * The registry parser, wrapped to keep this module's `string | null` contract
+ * (callers at `attachments.ts:402,479,583` test for null). Note it is no
+ * longer `extname`-based: a dotfile like `.env` now answers "env" rather than
+ * null, which is the behaviour `attachment-file-type.ts` always had and the
+ * one the registry standardises on (spec open question 13).
+ */
 export function fileExtension(name: string): string | null {
-	const ext = extname(name).toLowerCase();
-	return ext ? ext.slice(1) : null;
+	return registryFileExtension(name) || null;
 }
 
 export function knowledgeUserDir(userId: string): string {

@@ -175,15 +175,6 @@ const TRANSITIONAL_ALLOWLIST = new Map<string, TransitionalBudget>([
 		},
 	],
 	[
-		"src/routes/(app)/knowledge/_components/DocumentsList.svelte",
-		{
-			ext: 47,
-			mime: 10,
-			slice: "C",
-			what: "acceptedFileTypes, getFileIcon, formatFileType (spec rows 17-20, 52)",
-		},
-	],
-	[
 		"src/lib/server/services/file-production/output-types.ts",
 		{
 			ext: 48,

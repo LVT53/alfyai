@@ -58,6 +58,7 @@ import {
 } from "$lib/stores/settings";
 import { initTheme, setThemeAndSync, type Theme } from "$lib/stores/theme";
 import { initAvatar } from "$lib/stores/avatar";
+import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
 import type { ConversationListItem } from "$lib/server/services/conversations";
 import type { Project } from "$lib/server/services/projects";
@@ -573,6 +574,10 @@ onMount(() => {
 		uiLanguage: data.userUiLanguage,
 	});
 	initAvatar(data.user?.profilePicture ?? null);
+	// Seed the upload limit before the first drag: partitioning a dropped
+	// batch happens without ever asking the server. Set on the client only —
+	// a module-level store written during SSR is shared by every request.
+	setMaxFileUploadSize(data.maxFileUploadSize);
 	initializeServerUpdateSuppression();
 	selectedCampaignModel = data.userModelPreference ?? null;
 	effectiveCampaignModel = data.userModel;

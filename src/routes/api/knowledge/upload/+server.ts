@@ -6,6 +6,13 @@ import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
+import {
+	formatUploadRejectMessageEn,
+	isKnowledgeUploadContentMismatchError,
+	UPLOAD_REJECT_I18N_KEYS,
+	UPLOAD_UNSUPPORTED_TYPE_CODE,
+} from "$lib/server/services/knowledge/upload-signature";
+import { admitUpload, fileExtension } from "$lib/shared/file-types";
 import type { RequestHandler } from "./$types";
 
 const UPLOAD_NAME_HEADER = "x-alfyai-upload-name";
@@ -357,6 +364,35 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 
+	// The same allowlist the intent endpoint applies. This route predates the
+	// intent handshake and is still driven directly by the off-repo
+	// verification scripts, so it cannot rely on intent having refused first.
+	const admission = admitUpload(file.name, file.type || null);
+	if (!admission.allowed) {
+		const extension = fileExtension(file.name) || null;
+		console.warn("[KNOWLEDGE] Multipart upload refused an unsupported type", {
+			traceId,
+			userId: user.id,
+			fileName: file.name,
+			mimeType: file.type || null,
+			extension,
+			reason: admission.reason,
+		});
+		return json(
+			{
+				error: formatUploadRejectMessageEn(admission.reason, {
+					fileName: file.name,
+					extension,
+				}),
+				code: UPLOAD_UNSUPPORTED_TYPE_CODE,
+				errorKey: UPLOAD_REJECT_I18N_KEYS[admission.reason],
+				traceId,
+				details: { fileName: file.name, extension, reason: admission.reason },
+			},
+			{ status: 415 },
+		);
+	}
+
 	console.info("[KNOWLEDGE] Multipart upload parsed", {
 		traceId,
 		userId: user.id,
@@ -380,6 +416,22 @@ export const POST: RequestHandler = async (event) => {
 			return json(
 				{ error: "Conversation not found or access denied" },
 				{ status: 400 },
+			);
+		}
+		if (isKnowledgeUploadContentMismatchError(error)) {
+			return json(
+				{
+					error: error.message,
+					code: error.code,
+					errorKey: error.errorKey,
+					traceId,
+					details: {
+						fileName: error.fileName,
+						extension: error.extension,
+						reason: "contentMismatch",
+					},
+				},
+				{ status: error.status },
 			);
 		}
 		throw error;

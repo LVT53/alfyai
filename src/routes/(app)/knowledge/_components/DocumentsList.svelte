@@ -2,6 +2,18 @@
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
 import { partitionUploadableFiles } from "$lib/utils/file-drag";
+import {
+	fileExtension,
+	getAcceptAttribute,
+	getCategory,
+	getEntryByFilename,
+	getEntryByMimeType,
+	type FileTypeCategory,
+} from "$lib/shared/file-types";
+import {
+	maxFileUploadSizeBytes,
+	maxFileUploadSizeMb,
+} from "$lib/stores/upload-limits";
 import { formatByteSize } from "$lib/utils/format";
 import { formatMediumDateTime } from "$lib/utils/time";
 import { t } from "$lib/i18n";
@@ -181,14 +193,11 @@ $effect(() => {
 	};
 });
 
-// Authoritative per-file upload size limit (100 MiB = 104857600 bytes),
-// mirroring the server default in src/lib/server/env.ts (MAX_FILE_UPLOAD_SIZE).
-// Kept as a client constant because $lib/server/* is server-only.
-const MAX_FILE_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
-
-// Accepted file types for upload
-const acceptedFileTypes =
-	".pdf,.doc,.docx,.txt,.md,.json,.csv,.xlsx,.xls,.pptx,.ppt,.html,.htm,.jpg,.jpeg,.jfif,.png,.gif,.bmp,.tiff,.tif,.webp,.svg,.heic,.heif,.avif";
+// The per-file upload limit and the accepted types both come from one place
+// now: the store the SSR shell and every upload intent write to, and the
+// shared file-type registry. The literals they replaced were the fourth copy
+// of 100 MB and the only hand-maintained accept string in the app.
+const acceptedFileTypes = getAcceptAttribute("knowledge");
 
 function handleDragEnter(event: DragEvent) {
 	event.preventDefault();
@@ -235,7 +244,7 @@ async function handleDrop(event: DragEvent) {
 	const { valid, rejectedUnsupportedType, rejectedTooLarge } =
 		partitionUploadableFiles(Array.from(files), {
 			acceptedTypes: acceptedFileTypes,
-			maxFileSizeBytes: MAX_FILE_UPLOAD_SIZE_BYTES,
+			maxFileSizeBytes: $maxFileUploadSizeBytes,
 		});
 
 	// Surface rejections to the user. If some files were fine we still upload
@@ -243,7 +252,7 @@ async function handleDrop(event: DragEvent) {
 	if (rejectedTooLarge.length > 0) {
 		showDropError(
 			$t("knowledge.dropFileTooLarge", {
-				limit: formatByteSize(MAX_FILE_UPLOAD_SIZE_BYTES, {
+				limit: formatByteSize($maxFileUploadSizeBytes, {
 					trimWholeUnits: true,
 				}),
 			}),
@@ -555,178 +564,48 @@ function getSortIndicator(column: DocumentSortKey): string {
 	return activeSortDirection === "asc" ? "↑" : "↓";
 }
 
-function getFileExtension(filename: string | null | undefined): string {
-	const value = (filename ?? "").trim();
-	if (!value.includes(".")) return "";
-	return value.split(".").pop()?.toLowerCase() ?? "";
-}
-
+/**
+ * The type badge. NOT the canonical extension: canonicalising would print
+ * "JPG" for a .jpeg and "MD" for a .markdown, which the old hand-written
+ * chain never did. The file's own extension is the label; the registry is
+ * consulted only for the one case the old code special-cased (.htm shows
+ * "HTML") and for a file with no extension at all.
+ */
 function formatFileType(mimeType: string | null, filename: string): string {
-	const mime = (mimeType ?? "").toLowerCase();
-	const ext = getFileExtension(filename);
-
-	if (mime === "application/pdf") return "PDF";
-	if (
-		mime.startsWith("text/") ||
-		ext === "txt" ||
-		ext === "md" ||
-		ext === "markdown"
-	) {
-		return ext.toUpperCase() || "TXT";
+	const extension = fileExtension(filename);
+	if (!extension) {
+		const byMime = getEntryByMimeType(mimeType);
+		return byMime ? byMime.extensions[0].toUpperCase() : "FILE";
 	}
-	if (
-		mime ===
-			"application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-		ext === "docx"
-	)
-		return "DOCX";
-	if (mime === "application/msword" || ext === "doc") return "DOC";
-	if (
-		mime ===
-			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-		ext === "xlsx"
-	)
-		return "XLSX";
-	if (mime === "application/vnd.ms-excel" || ext === "xls") return "XLS";
-	if (
-		mime ===
-			"application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
-		ext === "pptx"
-	)
-		return "PPTX";
-	if (mime === "application/vnd.ms-powerpoint" || ext === "ppt") return "PPT";
-	if (mime === "text/csv" || ext === "csv") return "CSV";
-	if (mime === "application/json" || ext === "json") return "JSON";
-	if (
-		mime.startsWith("image/") ||
-		[
-			"png",
-			"jpg",
-			"jpeg",
-			"gif",
-			"bmp",
-			"tiff",
-			"tif",
-			"webp",
-			"svg",
-			"heic",
-			"heif",
-			"avif",
-		].includes(ext)
-	) {
-		return ext.toUpperCase() || "IMG";
-	}
-	if (mime === "text/html" || ext === "html" || ext === "htm") return "HTML";
-	if (ext) return ext.toUpperCase();
-	return "FILE";
+	if (getEntryByFilename(filename)?.preview.kind === "html") return "HTML";
+	return extension.toUpperCase();
 }
+
+/**
+ * This list's glyph vocabulary. The registry stores a neutral `category` and
+ * leaves the icon to the surface (spec conflict 8), so this record is the
+ * whole of what used to be a 90-line `getFileIcon` chain. `media` and `other`
+ * keep the generic glyph. Once slice B's `FileTypeIcon` takes a
+ * `FileTypeCategory`, this record and the Lucide imports collapse into it.
+ */
+const CATEGORY_TO_ICON: Record<FileTypeCategory, typeof FileIcon> = {
+	image: Image,
+	pdf: FileText,
+	spreadsheet: Table,
+	presentation: Monitor,
+	document: FileText,
+	text: FileText,
+	code: Code,
+	archive: Archive,
+	media: FileIcon,
+	other: FileIcon,
+};
 
 function getFileIcon(
 	mimeType: string | null,
 	filename: string,
 ): typeof FileIcon {
-	const mime = normalizeText(mimeType);
-	const extension = getFileExtension(filename);
-
-	if (
-		mime.startsWith("image/") ||
-		[
-			"png",
-			"jpg",
-			"jpeg",
-			"jfif",
-			"gif",
-			"bmp",
-			"tiff",
-			"tif",
-			"svg",
-			"webp",
-			"heic",
-			"heif",
-			"avif",
-		].includes(extension)
-	) {
-		return Image;
-	}
-
-	if (mime === "application/pdf" || extension === "pdf") {
-		return FileText;
-	}
-
-	if (
-		mime.includes("spreadsheet") ||
-		mime.includes("excel") ||
-		mime.includes("csv") ||
-		["csv", "xls", "xlsx", "ods"].includes(extension)
-	) {
-		return Table;
-	}
-
-	if (
-		mime.includes("presentation") ||
-		["ppt", "pptx", "odp"].includes(extension)
-	) {
-		return Monitor;
-	}
-
-	// Word processing lands here rather than in the source-code branch below:
-	// the OOXML mime type is `application/vnd.openxmlformats-officedocument
-	// .wordprocessingml.document`, which CONTAINS "xml", so every .docx was
-	// drawing the `< >` code glyph in the row's icon column.
-	if (
-		mime.includes("wordprocessingml") ||
-		mime.includes("opendocument.text") ||
-		mime.includes("msword") ||
-		["doc", "docx", "odt", "rtf"].includes(extension)
-	) {
-		return FileText;
-	}
-
-	if (
-		mime.includes("code") ||
-		mime.includes("javascript") ||
-		mime.includes("typescript") ||
-		mime.includes("json") ||
-		mime.includes("xml") ||
-		mime.includes("html") ||
-		mime.includes("css") ||
-		[
-			"js",
-			"ts",
-			"tsx",
-			"jsx",
-			"json",
-			"xml",
-			"html",
-			"css",
-			"py",
-			"java",
-			"go",
-			"rs",
-		].includes(extension)
-	) {
-		return Code;
-	}
-
-	if (
-		mime.includes("zip") ||
-		mime.includes("compressed") ||
-		mime.includes("archive") ||
-		["zip", "rar", "7z", "tar", "gz"].includes(extension)
-	) {
-		return Archive;
-	}
-
-	if (
-		mime.includes("text/") ||
-		["txt", "md", "rtf", "log", "odt", "doc", "docx"].includes(extension) ||
-		mime.includes("document") ||
-		mime.includes("word")
-	) {
-		return FileText;
-	}
-
-	return FileIcon;
+	return CATEGORY_TO_ICON[getCategory(filename, mimeType)];
 }
 
 function handleRowClick(event: MouseEvent, document: KnowledgeDocumentItem) {
@@ -823,7 +702,7 @@ async function handleBulkDelete(): Promise<boolean> {
 				<div class="drop-zone-icon">
 					<Upload size={18} strokeWidth={1.5} aria-hidden="true" />
 				</div>
-				<p class="drop-zone-text">{$t('knowledge.dropFiles')}</p>
+				<p class="drop-zone-text">{$t('knowledge.dropFiles', { max: $maxFileUploadSizeMb })}</p>
 			</div>
 		</div>
 	{/if}
@@ -934,7 +813,7 @@ async function handleBulkDelete(): Promise<boolean> {
 					class="upload-btn"
 					aria-label={$t('knowledge.upload')}
 					title={$t('knowledge.uploadLimitTooltip', {
-						limit: formatByteSize(MAX_FILE_UPLOAD_SIZE_BYTES, {
+						limit: formatByteSize($maxFileUploadSizeBytes, {
 							trimWholeUnits: true,
 						}),
 					})}

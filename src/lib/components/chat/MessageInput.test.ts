@@ -10,7 +10,12 @@ import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AvailableModelsResponse } from "$lib/client/api/models";
 import type { PendingAttachment } from "$lib/server/services/knowledge/types";
+import { getAcceptAttribute } from "$lib/shared/file-types";
 import { selectedModel, uiLanguage } from "$lib/stores/settings";
+import {
+	resetMaxFileUploadSize,
+	setMaxFileUploadSize,
+} from "$lib/stores/upload-limits";
 import MessageInput from "./MessageInput.svelte";
 import MessageInputWrapper from "./MessageInputWrapper.test.svelte";
 
@@ -146,6 +151,7 @@ describe("MessageInput", () => {
 		vi.clearAllMocks();
 		uiLanguage.set("en");
 		selectedModel.set("model1");
+		resetMaxFileUploadSize();
 		fetchKnowledgeLibraryMock.mockResolvedValue({
 			documents: [],
 			results: [],
@@ -2355,6 +2361,52 @@ describe("MessageInput", () => {
 		expect(await findByText(/exceed.*100MB|exceed.*upload size/)).toBeDefined();
 	});
 
+	// The composer's limit is no longer a literal 100 MB: it is whatever the
+	// server last reported, seeded by the SSR shell and refreshed by every
+	// upload intent.
+	it("takes the size limit from the store, not a hardcoded 100MB", async () => {
+		setMaxFileUploadSize(10 * 1024 * 1024);
+		const uploadFilesSpy = vi.fn();
+		const { container, findByText } = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadFiles: uploadFilesSpy,
+		});
+
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		// Comfortably under the old 100 MB literal, over the reported limit.
+		const file = new File(["x"], "mid.pdf", { type: "application/pdf" });
+		Object.defineProperty(file, "size", { value: 20 * 1024 * 1024 });
+
+		await fireEvent.change(fileInput, { target: { files: [file] } });
+
+		expect(uploadFilesSpy).not.toHaveBeenCalled();
+		expect(await findByText(/10MB/)).toBeDefined();
+	});
+
+	it("publishes the chat accept list on its file input", async () => {
+		// Before this, the composer's input had no `accept` at all, so the OS
+		// picker offered every file on disk and the server refused it later.
+		const { container } = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+		});
+
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		const accept = fileInput.getAttribute("accept") ?? "";
+
+		expect(accept).toBe(getAcceptAttribute("chat"));
+		expect(accept.split(",")).toContain(".pdf");
+		expect(accept.split(",")).toContain(".py");
+		// Rejected intake routes are offered nowhere.
+		expect(accept.split(",")).not.toContain(".mp4");
+		expect(accept.split(",")).not.toContain(".zip");
+	});
+
 	it("shows a waiting hint when send is blocked by an unready attachment", async () => {
 		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
 		const uploadFilesHandler = vi.fn((payload: UploadFilesPayload) => {
@@ -3228,6 +3280,7 @@ describe("MessageInput send gate (beforeSend contract)", () => {
 		vi.clearAllMocks();
 		uiLanguage.set("en");
 		selectedModel.set("model1");
+		resetMaxFileUploadSize();
 		fetchKnowledgeLibraryMock.mockResolvedValue({
 			documents: [],
 			results: [],

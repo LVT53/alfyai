@@ -61,6 +61,11 @@ import { t, type I18nKey } from "$lib/i18n";
 import { tokenizeTextLinks } from "$lib/services/linkify";
 import { currentConversationId } from "$lib/stores/ui";
 import {
+	maxFileUploadSizeBytes,
+	maxFileUploadSizeMb,
+} from "$lib/stores/upload-limits";
+import { getAcceptAttribute } from "$lib/shared/file-types";
+import {
 	isPhoneViewport,
 	isTouchDevice,
 	initViewportTracking,
@@ -2480,23 +2485,24 @@ async function uploadFiles(files: FileList | null) {
 	}
 
 	try {
-		const MAX_FILE_SIZE = 100 * 1024 * 1024;
+		// The limit the server reports, seeded by the SSR shell and refreshed by
+		// every upload intent. One number, not four copies of 100 MB.
+		const maxFileSize = $maxFileUploadSizeBytes;
+		const maxFileSizeMb = $maxFileUploadSizeMb;
 		for (const file of selectedFiles) {
-			if (file.size > MAX_FILE_SIZE) {
+			if (file.size > maxFileSize) {
 				failures.push(
-					`${file.name}: ${$t("chat.fileSizeExceeded", { size: (file.size / (1024 * 1024)).toFixed(0), max: 100 })}`,
+					`${file.name}: ${$t("chat.fileSizeExceeded", { size: (file.size / (1024 * 1024)).toFixed(0), max: maxFileSizeMb })}`,
 				);
 			}
 		}
 
-		const validFiles = selectedFiles.filter(
-			(file) => file.size <= MAX_FILE_SIZE,
-		);
+		const validFiles = selectedFiles.filter((file) => file.size <= maxFileSize);
 
 		// Show size-check failures immediately for oversized files
 		if (failures.length > 0) {
 			if (validFiles.length === 0) {
-				throw new Error($t("chat.allFilesTooLarge", { max: 100 }));
+				throw new Error($t("chat.allFilesTooLarge", { max: maxFileSizeMb }));
 			}
 			attachmentError = $t("chat.uploadSomeFailed", { count: failures.length });
 		}
@@ -2743,6 +2749,7 @@ async function emitDraftChange(force = false) {
 			type="file"
 			class="hidden"
 			multiple
+			accept={getAcceptAttribute('chat')}
 			disabled={isComposerDisabled}
 			onchange={(event) => uploadFiles((event.currentTarget as HTMLInputElement).files)}
 		/>
