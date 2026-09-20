@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -212,6 +212,61 @@ describe("POST /api/knowledge/upload/raw", () => {
 			error: "Conversation not found or access denied",
 			code: "conversation_not_found",
 			traceId: "upload-missing-conv",
+		});
+	});
+	// Bug B2: a failed receive must not leave its partial bytes behind. Nothing
+	// ever swept `.incoming/`, so every abandoned attempt was permanent.
+	describe("temporary file hygiene (B2)", () => {
+		async function incomingEntries(): Promise<string[]> {
+			return await readdir(
+				join(process.cwd(), "data", "knowledge", "raw-user", ".incoming"),
+			).catch(() => []);
+		}
+
+		it("leaves nothing behind when the declared size does not match", async () => {
+			const response = await POST(
+				makeKnowledgeUploadEvent({
+					body: Buffer.from("hello"),
+					headers: makeKnowledgeUploadHeaders({
+						"x-alfyai-upload-trace-id": "upload-leak-mismatch",
+						"x-alfyai-upload-name": "scan.pdf",
+						"x-alfyai-upload-size": "6",
+					}),
+					requestUrl: "http://localhost/api/knowledge/upload/raw",
+					routeId: "/api/knowledge/upload/raw",
+					userId: "raw-user",
+				}),
+			);
+
+			expect(response.status).toBe(400);
+			expect(await incomingEntries()).toEqual([]);
+		});
+
+		it("leaves nothing behind when the body stream fails mid-transfer", async () => {
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new Uint8Array([1, 2, 3]));
+					controller.error(new Error("connection reset"));
+				},
+			});
+
+			const response = await POST(
+				makeKnowledgeUploadEvent({
+					body,
+					headers: makeKnowledgeUploadHeaders({
+						"x-alfyai-upload-trace-id": "upload-leak-stream",
+						"x-alfyai-upload-name": "scan.pdf",
+						"x-alfyai-upload-size": "9",
+					}),
+					requestUrl: "http://localhost/api/knowledge/upload/raw",
+					routeId: "/api/knowledge/upload/raw",
+					userId: "raw-user",
+				}),
+			);
+
+			expect(response.status).toBeGreaterThanOrEqual(400);
+			expect(await incomingEntries()).toEqual([]);
+			expect(mockCompleteKnowledgeUploadFromStoredFile).not.toHaveBeenCalled();
 		});
 	});
 });

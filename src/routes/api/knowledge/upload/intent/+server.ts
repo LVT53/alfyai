@@ -1,6 +1,11 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { createAttachmentTraceId } from "$lib/server/services/attachment-trace";
+// Imported from the config module rather than the extraction façade on
+// purpose: the façade statically re-exports the read model, and a handshake
+// endpoint that touches no rows should not open the ledger to ask what a
+// number is.
+import { getExtractionConfig } from "$lib/server/services/extraction/config";
 import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
@@ -11,7 +16,11 @@ import {
 	UPLOAD_REJECT_I18N_KEYS,
 	UPLOAD_UNSUPPORTED_TYPE_CODE,
 } from "$lib/server/services/knowledge/upload-signature";
-import { admitUpload, fileExtension } from "$lib/shared/file-types";
+import {
+	admitUpload,
+	fileExtension,
+	getIntakeRoute,
+} from "$lib/shared/file-types";
 import type { RequestHandler } from "./$types";
 
 function formatBytes(value: number | null): string {
@@ -141,6 +150,39 @@ export const POST: RequestHandler = async (event) => {
 				},
 			},
 			{ status: 415 },
+		);
+	}
+
+	// Bug B5. A `direct-text` file is read whole into memory, chunked and
+	// embedded, so a 100 MB `.log` is thousands of chunk rows and as many
+	// embedding calls from a single upload. Refuse it here, before any byte
+	// moves; `directTextExtractor` enforces the same cap again for the raw and
+	// chunk routes, which never call this handshake.
+	const directTextCap = getExtractionConfig().maxDirectTextBytes;
+	if (
+		getIntakeRoute(intent.fileName ?? "", intent.mimeType) === "direct-text" &&
+		intent.fileSize > directTextCap
+	) {
+		console.info("[KNOWLEDGE] Upload intent refused an oversized text file", {
+			traceId,
+			userId: user.id,
+			fileName: intent.fileName,
+			fileSize: intent.fileSize,
+			maxBytes: directTextCap,
+		});
+		return json(
+			{
+				error: `Text files are limited to ${formatBytes(directTextCap)}. Split the file or upload it as a document.`,
+				code: "upload_direct_text_too_large",
+				errorKey: "knowledge.uploadDirectTextTooLarge",
+				traceId,
+				details: {
+					fileName: intent.fileName,
+					fileSize: intent.fileSize,
+					maxBytes: directTextCap,
+				},
+			},
+			{ status: 413 },
 		);
 	}
 

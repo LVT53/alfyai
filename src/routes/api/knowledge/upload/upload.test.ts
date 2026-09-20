@@ -3,6 +3,7 @@ import type {
 	ArtifactSummary,
 	KnowledgeUploadResponse,
 } from "$lib/server/services/knowledge/types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
@@ -45,6 +46,7 @@ const mockResolveKnowledgeUploadLimits = vi.mocked(
 	resolveKnowledgeUploadLimits,
 );
 let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
+let consoleWarnSpy: ReturnType<typeof vi.spyOn> | null = null;
 type KnowledgeUploadEvent = Parameters<typeof POST>[0];
 
 function uploadResponse(overrides: Partial<KnowledgeUploadResponse> = {}) {
@@ -68,8 +70,32 @@ function uploadResponse(overrides: Partial<KnowledgeUploadResponse> = {}) {
 		promptReady: true,
 		promptArtifactId: null,
 		readinessError: null,
+		extraction: extractionJob(),
 		...overrides,
 	} satisfies KnowledgeUploadResponse;
+}
+
+function extractionJob(
+	overrides: Partial<DocumentExtractionJobDTO> = {},
+): DocumentExtractionJobDTO {
+	return {
+		id: "extraction-job-1",
+		sourceArtifactId: "artifact-1",
+		normalizedArtifactId: null,
+		status: "queued",
+		intakeRoute: "mineru",
+		fileName: "doc.pdf",
+		attemptCount: 0,
+		maxAttempts: 3,
+		retryable: false,
+		cancelable: true,
+		error: null,
+		createdAt: 1_777_140_000_000,
+		updatedAt: 1_777_140_000_000,
+		startedAt: null,
+		legacy: false,
+		...overrides,
+	};
 }
 
 function makeEventWithFormData(formData: FormData): KnowledgeUploadEvent {
@@ -93,6 +119,9 @@ describe("POST /api/knowledge/upload", () => {
 		consoleInfoSpy = vi
 			.spyOn(console, "info")
 			.mockImplementation(() => undefined);
+		consoleWarnSpy = vi
+			.spyOn(console, "warn")
+			.mockImplementation(() => undefined);
 		mockRequireAuth.mockReturnValue(undefined);
 		mockCompleteKnowledgeUploadFromFile.mockResolvedValue(uploadResponse());
 		mockIsKnowledgeUploadConversationError.mockReturnValue(false);
@@ -100,7 +129,9 @@ describe("POST /api/knowledge/upload", () => {
 
 	afterEach(() => {
 		consoleInfoSpy?.mockRestore();
+		consoleWarnSpy?.mockRestore();
 		consoleInfoSpy = null;
+		consoleWarnSpy = null;
 	});
 
 	it("rejects files larger than 100MB", async () => {
@@ -590,5 +621,91 @@ describe("POST /api/knowledge/upload", () => {
 				conversationId: "missing-conv",
 			}),
 		);
+	});
+	// Bug B3 / decision D9: the route stays for the off-repo verify scripts, but
+	// it says on the wire that it is on its way out.
+	describe("deprecated multipart wrapper (B3/D9)", () => {
+		it("marks a successful response deprecated and logs it once", async () => {
+			const formData = new FormData();
+			formData.append(
+				"file",
+				new File(["scan"], "scan.pdf", { type: "application/pdf" }),
+			);
+			formData.append("conversationId", "conv-1");
+
+			const response = await POST(makeEventWithFormData(formData));
+
+			expect(response.status).toBe(200);
+			expect(response.headers.get("Deprecation")).toBe("true");
+			expect(response.headers.get("Link")).toContain(
+				"/api/knowledge/upload/raw",
+			);
+			expect(consoleWarnSpy).toHaveBeenCalledWith(
+				"[KNOWLEDGE] legacy multipart upload route used",
+				expect.objectContaining({ userId: "user-1" }),
+			);
+		});
+
+		it("marks a refusal deprecated too", async () => {
+			const formData = new FormData();
+			formData.append(
+				"file",
+				new File(["x"], "clip.mp4", { type: "video/mp4" }),
+			);
+
+			const response = await POST(makeEventWithFormData(formData));
+
+			expect(response.status).toBe(415);
+			expect(response.headers.get("Deprecation")).toBe("true");
+		});
+
+		it("asks intake to wait for a verdict, unlike every other route", async () => {
+			const formData = new FormData();
+			formData.append(
+				"file",
+				new File(["scan"], "scan.pdf", { type: "application/pdf" }),
+			);
+			formData.append("conversationId", "conv-1");
+
+			await POST(makeEventWithFormData(formData));
+
+			expect(mockCompleteKnowledgeUploadFromFile).toHaveBeenCalledWith(
+				expect.objectContaining({ waitForExtraction: true }),
+			);
+		});
+
+		it("keeps the old fields beside the new extraction job", async () => {
+			mockCompleteKnowledgeUploadFromFile.mockResolvedValue(
+				uploadResponse({
+					promptReady: false,
+					promptArtifactId: null,
+					readinessError: "still being prepared",
+					extraction: extractionJob({ status: "parsing" }),
+				}),
+			);
+
+			const formData = new FormData();
+			formData.append(
+				"file",
+				new File(["scan"], "scan.pdf", { type: "application/pdf" }),
+			);
+			formData.append("conversationId", "conv-1");
+
+			const response = await POST(makeEventWithFormData(formData));
+			const data = await response.json();
+
+			expect(response.status).toBe(200);
+			// Backward compatible: every field a pre-Phase-3 caller reads is here.
+			expect(data).toMatchObject({
+				artifact: expect.objectContaining({ id: "artifact-1" }),
+				normalizedArtifact: null,
+				reusedExistingArtifact: false,
+				promptReady: false,
+			});
+			expect(data.extraction).toMatchObject({
+				id: "extraction-job-1",
+				status: "parsing",
+			});
+		});
 	});
 });

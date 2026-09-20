@@ -56,7 +56,6 @@ export {
 	selectLatestGeneratedDocumentCandidatesByFamily,
 } from "./store/document-metadata";
 export {
-	createNormalizedArtifact,
 	findRelevantArtifactsByTypes,
 	findRelevantArtifactsByTypesDetailed,
 	getLogicalDocumentForArtifact,
