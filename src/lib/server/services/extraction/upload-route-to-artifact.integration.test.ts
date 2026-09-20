@@ -143,7 +143,9 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 		const chunkCount = fixture.db
 			.select()
 			.from(schema.artifactChunks)
-			.where(eq(schema.artifactChunks.artifactId, persisted[0]?.artifact.id ?? ""))
+			.where(
+				eq(schema.artifactChunks.artifactId, persisted[0]?.artifact.id ?? ""),
+			)
 			.all();
 		// Small files bypass chunking by design; the row set must at least be
 		// consistent with the artifact rather than belonging to a stale one.
@@ -178,7 +180,9 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 
 		const worker = await import("./worker-runner");
 		const extractor = createFakeExtractor({
-			steps: [{ kind: "succeed", text: "Scanned page one of the quarterly filing." }],
+			steps: [
+				{ kind: "succeed", text: "Scanned page one of the quarterly filing." },
+			],
 		});
 
 		// No `persistResult`: the real `createNormalizedArtifactFromExtraction`
@@ -192,7 +196,9 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 
 		const persisted = normalizedArtifactsFor(payload.artifact.id);
 		expect(persisted).toHaveLength(1);
-		expect(persisted[0]?.artifact.contentText).toBe("Scanned page one of the quarterly filing.");
+		expect(persisted[0]?.artifact.contentText).toBe(
+			"Scanned page one of the quarterly filing.",
+		);
 
 		const [job] = fixture.db
 			.select()
