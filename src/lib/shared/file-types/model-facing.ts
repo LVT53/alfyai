@@ -110,6 +110,12 @@ const EXTRACTION_SUMMARY_LABELS: Readonly<
 };
 
 const EXTRACTION_SUMMARY_TAILS: Readonly<Record<ModelFacingLocale, string>> = {
+	// EN is byte-identical to the literal it replaced and must stay so.
 	en: ", and common image formats (including HEIC/HEIF when server conversion support is installed)",
-	hu: " és a gyakori képformátumok (beleértve a HEIC/HEIF formátumot is, ha a szerveren telepítve van a konvertálási támogatás)",
+	// "telepítve van a konvertálási támogatás" is a word-for-word rendering of
+	// "conversion support is installed" that Hungarian does not use — support
+	// is not a thing one installs. "ha a szerveren elérhető a konvertálás"
+	// ("if conversion is available on the server") says the same thing the way
+	// a Hungarian reader would.
+	hu: " és a gyakori képformátumok (beleértve a HEIC/HEIF formátumot is, ha a szerveren elérhető a konvertálás)",
 };
