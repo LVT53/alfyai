@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { and, asc, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactLinks, artifacts } from "$lib/server/db/schema";
@@ -10,7 +9,6 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { computeDecayScore } from "../../../utils/artifact-decay";
-import { extractDocumentText } from "../../document-extraction";
 import { shortlistSemanticMatchesBySubject } from "../../semantic-ranking";
 import {
 	determineTeiWinningMode,
@@ -20,18 +18,13 @@ import {
 } from "../../tei-observability";
 import { canUseTeiReranker, rerankItems } from "../../tei-reranker";
 import { scoreMatch } from "../../working-set";
-import { estimateDocumentTokenCount, extractDocumentOutline } from "../outline";
 import {
 	buildArtifactVisibilityCondition,
-	createArtifact,
-	createArtifactLink,
 	getArtifactOwnershipScope,
-	guessSummary,
 	isArtifactCanonicallyOwned,
 	knowledgeArtifactListSelection,
 	mapArtifact,
 	mapArtifactSummary,
-	updateArtifactMetadata,
 } from "./core";
 import {
 	getArtifactDocumentOrigin,
@@ -299,72 +292,6 @@ function sortLogicalDocumentRecordEntries(
 	});
 
 	return sorted.map((entry) => entry.record);
-}
-
-export async function createNormalizedArtifact(params: {
-	userId: string;
-	conversationId?: string | null;
-	sourceArtifactId: string;
-	sourceStoragePath: string;
-	sourceName: string;
-	sourceMimeType: string | null;
-}): Promise<Artifact | null> {
-	const absoluteSourcePath = join(process.cwd(), params.sourceStoragePath);
-	const extraction = await extractDocumentText(
-		absoluteSourcePath,
-		params.sourceMimeType,
-		params.sourceName,
-	);
-
-	if (!extraction.text) return null;
-
-	// "Long-document comfort" (owner-approved mockup, 2026-09-06): computed
-	// once here, right after extraction, and stored on both the normalized
-	// artifact (which carries the full text) and the source artifact (the
-	// one actually shown to the user as an attachment chip).
-	const tokenEstimate = estimateDocumentTokenCount(extraction.text);
-	const outline = extractDocumentOutline(extraction.text);
-	const comfortMetadataPatch: Record<string, unknown> = {
-		tokenEstimate,
-		...(extraction.pageCount !== undefined
-			? { pageCount: extraction.pageCount }
-			: {}),
-		...(outline.length > 0 ? { outline } : {}),
-	};
-
-	const artifact = await createArtifact({
-		userId: params.userId,
-		conversationId: params.conversationId,
-		type: "normalized_document",
-		name: extraction.normalizedName,
-		mimeType: extraction.mimeType,
-		extension: "txt",
-		sizeBytes: Buffer.byteLength(extraction.text, "utf8"),
-		storagePath: null,
-		contentText: extraction.text,
-		summary: guessSummary(extraction.text, params.sourceName),
-		metadata: {
-			sourceArtifactId: params.sourceArtifactId,
-			normalizedFrom: params.sourceName,
-			...comfortMetadataPatch,
-		},
-	});
-
-	await createArtifactLink({
-		userId: params.userId,
-		artifactId: artifact.id,
-		relatedArtifactId: params.sourceArtifactId,
-		conversationId: params.conversationId,
-		linkType: "derived_from",
-	});
-
-	await updateArtifactMetadata({
-		artifactId: params.sourceArtifactId,
-		userId: params.userId,
-		patch: comfortMetadataPatch,
-	});
-
-	return artifact;
 }
 
 async function buildLogicalDocumentRecordsFromRows(params: {

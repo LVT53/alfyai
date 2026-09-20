@@ -44,7 +44,6 @@ export {
 	attachArtifactsToMessage,
 	buildArtifactVisibilityCondition,
 	createArtifactLink,
-	createNormalizedArtifact,
 	deleteArtifactForUser,
 	deleteKnowledgeArtifactsByAction,
 	getArtifactForUser,
