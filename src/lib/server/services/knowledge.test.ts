@@ -8,6 +8,7 @@ const mockListLogicalDocuments = vi.fn();
 const mockListLogicalDocumentsPage = vi.fn();
 const mockMapArtifactSummary = vi.fn();
 const mockMapWorkCapsuleFromArtifactRow = vi.fn();
+const mockGetExtractionJobsForArtifacts = vi.fn();
 
 const mockOrderBy = vi.fn();
 const mockWhere = vi.fn();
@@ -43,6 +44,11 @@ vi.mock("./knowledge/store", () => ({
 vi.mock("./knowledge/capsules", () => ({
 	mapWorkCapsuleFromArtifactRow: (...args: unknown[]) =>
 		mockMapWorkCapsuleFromArtifactRow(...args),
+}));
+
+vi.mock("./extraction", () => ({
+	getExtractionJobsForArtifacts: (...args: unknown[]) =>
+		mockGetExtractionJobsForArtifacts(...args),
 }));
 
 import { getKnowledgeLibraryPage, listKnowledgeArtifacts } from "./knowledge";
@@ -123,6 +129,7 @@ describe("knowledge service getKnowledgeLibraryPage", () => {
 			],
 			totalItems: 2,
 		});
+		mockGetExtractionJobsForArtifacts.mockResolvedValue([]);
 	});
 
 	it("returns a searched, sorted, paged library document projection", async () => {
@@ -154,6 +161,90 @@ describe("knowledge service getKnowledgeLibraryPage", () => {
 		});
 		expect(result.query).toBe("onboarding");
 		expect(result.sort).toEqual({ key: "size", direction: "desc" });
+	});
+
+	it("resolves the page's extraction verdicts in one batched read", async () => {
+		mockGetExtractionJobsForArtifacts.mockResolvedValue([
+			{
+				id: "job-1",
+				sourceArtifactId: "doc-larger",
+				normalizedArtifactId: null,
+				status: "parsing",
+				intakeRoute: "mineru",
+				fileName: "Beta onboarding.docx",
+				attemptCount: 1,
+				maxAttempts: 3,
+				retryable: false,
+				cancelable: true,
+				error: null,
+				createdAt: 100,
+				updatedAt: 200,
+				startedAt: 150,
+				legacy: false,
+			},
+		]);
+
+		const result = await getKnowledgeLibraryPage("user-1", { pageSize: 1 });
+
+		expect(mockGetExtractionJobsForArtifacts).toHaveBeenCalledTimes(1);
+		expect(mockGetExtractionJobsForArtifacts).toHaveBeenCalledWith({
+			userId: "user-1",
+			artifactIds: ["doc-larger"],
+		});
+		expect(result.documents[0].extraction).toMatchObject({
+			id: "job-1",
+			status: "parsing",
+			cancelable: true,
+		});
+	});
+
+	it("never asks the ledger about a generated output", async () => {
+		mockListLogicalDocumentsPage.mockResolvedValue({
+			documents: [
+				{
+					id: "gen-1",
+					displayArtifactId: "gen-1",
+					promptArtifactId: null,
+					familyArtifactIds: ["gen-1"],
+					name: "Summary.md",
+					mimeType: "text/markdown",
+					sizeBytes: 10,
+					conversationId: "conv-1",
+					summary: null,
+					normalizedAvailable: true,
+					documentOrigin: "generated",
+					type: "generated_output",
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			],
+			totalItems: 1,
+		});
+
+		const result = await getKnowledgeLibraryPage("user-1");
+
+		expect(mockGetExtractionJobsForArtifacts).not.toHaveBeenCalled();
+		expect(result.documents[0].extraction).toBeUndefined();
+	});
+
+	it("still serves the library when the ledger read fails", async () => {
+		// A Status column with nothing in it beats a Knowledge tab with
+		// nothing in it: the ledger is additive to this page, not load-bearing.
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		mockGetExtractionJobsForArtifacts.mockRejectedValue(
+			new Error("ledger unavailable"),
+		);
+
+		const result = await getKnowledgeLibraryPage("user-1", { pageSize: 1 });
+
+		expect(result.documents.map((document) => document.id)).toEqual([
+			"doc-larger",
+		]);
+		expect(result.documents[0].extraction).toBeUndefined();
+		expect(consoleError).toHaveBeenCalled();
+		consoleError.mockRestore();
 	});
 });
 

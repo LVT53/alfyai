@@ -8,7 +8,22 @@
 // family at all — an unversioned upload is neither current nor historical, and
 // saying "Current" about it would be inventing a fact.
 
-import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import type { I18nKey } from "$lib/i18n";
+import type { KnowledgeLibraryDocumentItem } from "$lib/server/services/knowledge";
+import type {
+	DocumentExtractionJobDTO,
+	DocumentExtractionStatus,
+	ExtractionErrorCode,
+} from "$lib/shared/extraction-status";
+import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
+
+/**
+ * Every row of this table is a library row, so the extraction verdict the
+ * library page attaches travels with it. The narrower
+ * `KnowledgeDocumentItem` is still what the type extends, so nothing that
+ * used to compile here stopped.
+ */
+export type KnowledgeDocumentItem = KnowledgeLibraryDocumentItem;
 
 export type DocumentSortKey = "name" | "version" | "type" | "size" | "date";
 export type SortDirection = "asc" | "desc";
@@ -29,7 +44,111 @@ export type DocumentVersionBadge =
 	| { kind: "version"; versionNumber: number }
 	| { kind: "none" };
 
-export type DocumentStatusBadge = "current" | "historical" | null;
+export type DocumentFamilyBadge = "current" | "historical";
+
+/**
+ * What the Status column draws. The extraction verdict outranks the version
+ * family: a document the reader has not finished with is not yet "Current" —
+ * it is not yet anything, and saying "Current" about a half-read PDF is the
+ * same class of lie the blank cell for an unversioned upload avoids.
+ */
+export type DocumentStatusBadge =
+	| { kind: "extraction"; job: DocumentExtractionJobDTO }
+	| { kind: "family"; value: DocumentFamilyBadge }
+	| null;
+
+const EXTRACTION_STATUS_KEYS: Record<DocumentExtractionStatus, I18nKey> = {
+	queued: "knowledge.extraction.status.queued",
+	uploading: "knowledge.extraction.status.uploading",
+	parsing: "knowledge.extraction.status.parsing",
+	downloading: "knowledge.extraction.status.downloading",
+	indexing: "knowledge.extraction.status.indexing",
+	succeeded: "knowledge.extraction.status.succeeded",
+	failed: "knowledge.extraction.status.failed",
+	canceled: "knowledge.extraction.status.canceled",
+};
+
+const EXTRACTION_ERROR_KEYS: Record<ExtractionErrorCode, I18nKey> = {
+	unavailable: "knowledge.extraction.error.unavailable",
+	tier_unavailable: "knowledge.extraction.error.tier_unavailable",
+	auth_failed: "knowledge.extraction.error.auth_failed",
+	too_large: "knowledge.extraction.error.too_large",
+	rate_limited: "knowledge.extraction.error.rate_limited",
+	job_failed: "knowledge.extraction.error.job_failed",
+	canceled: "knowledge.extraction.error.canceled",
+	timeout: "knowledge.extraction.error.timeout",
+	protocol: "knowledge.extraction.error.protocol",
+	unsupported_type: "knowledge.extraction.error.unsupported_type",
+	empty_result: "knowledge.extraction.error.empty_result",
+	stale_worker: "knowledge.extraction.error.stale_worker",
+	max_attempts: "knowledge.extraction.error.max_attempts",
+	internal: "knowledge.extraction.error.internal",
+	legacy_unknown: "knowledge.extraction.error.legacy_unknown",
+};
+
+/**
+ * The short label for the Status cell. Totality is the point: both records
+ * above are `Record<…, I18nKey>`, so a new status or error code added to the
+ * shared vocabulary is a compile error here rather than a raw enum member
+ * rendered at a user.
+ */
+export function extractionStatusKey(status: DocumentExtractionStatus): I18nKey {
+	return EXTRACTION_STATUS_KEYS[status];
+}
+
+export function extractionErrorKey(code: ExtractionErrorCode): I18nKey {
+	return EXTRACTION_ERROR_KEYS[code];
+}
+
+/**
+ * The sentence under a failed row. A failure with no code at all is still a
+ * failure, so it falls back to the generic one rather than rendering blank.
+ */
+export function extractionDetailKey(
+	job: DocumentExtractionJobDTO,
+): I18nKey | null {
+	if (job.status !== "failed" && job.status !== "canceled") return null;
+	if (!job.error) {
+		return job.status === "canceled"
+			? EXTRACTION_ERROR_KEYS.canceled
+			: EXTRACTION_ERROR_KEYS.internal;
+	}
+	return (
+		EXTRACTION_ERROR_KEYS[job.error.code] ?? EXTRACTION_ERROR_KEYS.internal
+	);
+}
+
+export function getDocumentExtraction(
+	document: KnowledgeDocumentItem,
+): DocumentExtractionJobDTO | null {
+	return document.extraction ?? null;
+}
+
+/** True while the ledger still owes this document a verdict. */
+export function isExtractionInProgress(
+	document: KnowledgeDocumentItem,
+): boolean {
+	const job = document.extraction;
+	return job !== undefined && !isTerminalExtractionStatus(job.status);
+}
+
+/**
+ * A document nobody can read yet must not be openable as a linked source: the
+ * workspace would show an empty AI-facing version and the user would conclude
+ * the file was broken. A failed or canceled one stays openable — the original
+ * bytes are there to download, and the Status cell explains the rest.
+ */
+export function canOpenDocument(document: KnowledgeDocumentItem): boolean {
+	return !isExtractionInProgress(document);
+}
+
+export function canRetryExtraction(document: KnowledgeDocumentItem): boolean {
+	return document.extraction?.retryable === true;
+}
+
+export function canCancelExtraction(document: KnowledgeDocumentItem): boolean {
+	return document.extraction?.cancelable === true;
+}
 
 export type DocumentKind = "generated" | "skill_note" | "uploaded";
 
@@ -48,17 +167,31 @@ export function deriveDocumentVersion(
 }
 
 /**
- * The Status cell. `null` — drawn as an em dash — whenever the document has no
- * version family: there is no newer or older sibling for it to be current or
- * historical against.
+ * The Status cell, in precedence order.
+ *
+ * 1. The extraction ledger, whenever it has anything other than `succeeded`
+ *    to report. A queued, parsing or failed document is that, first.
+ * 2. The version family. `null` — drawn as an em dash — whenever the document
+ *    has no family: there is no newer or older sibling for it to be current or
+ *    historical against.
+ *
+ * A `succeeded` job deliberately falls through: extraction finishing is the
+ * normal state of every readable document in the library, and a column that
+ * said "Ready" on every row would say nothing.
  */
 export function deriveDocumentStatus(
 	document: KnowledgeDocumentItem,
 ): DocumentStatusBadge {
+	const job = document.extraction;
+	if (job && job.status !== "succeeded") {
+		return { kind: "extraction", job };
+	}
 	if (!document.documentFamilyId) return null;
-	return document.documentFamilyStatus === "historical"
-		? "historical"
-		: "current";
+	return {
+		kind: "family",
+		value:
+			document.documentFamilyStatus === "historical" ? "historical" : "current",
+	};
 }
 
 export function getDocumentKind(document: KnowledgeDocumentItem): DocumentKind {

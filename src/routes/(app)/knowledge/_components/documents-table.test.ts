@@ -1,16 +1,56 @@
 import { describe, expect, it } from "vitest";
-import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import type {
+	DocumentExtractionJobDTO,
+	DocumentExtractionStatus,
+} from "$lib/shared/extraction-status";
 import {
+	DOCUMENT_EXTRACTION_STATUSES,
+	EXTRACTION_ERROR_CODES,
+	isTerminalExtractionStatus,
+} from "$lib/shared/extraction-status";
+import type { KnowledgeDocumentItem } from "./documents-table";
+import {
+	canCancelExtraction,
+	canOpenDocument,
+	canRetryExtraction,
 	compareDocuments,
 	DOCUMENT_COLUMN_ORDER,
 	deriveDocumentStatus,
 	deriveDocumentVersion,
 	documentVersionRank,
+	extractionDetailKey,
+	extractionErrorKey,
+	extractionStatusKey,
 	getDocumentKind,
 	hasNormalisedVersion,
+	isExtractionInProgress,
 	nextSortDirection,
 	sortDocuments,
 } from "./documents-table";
+
+function job(
+	overrides: Partial<DocumentExtractionJobDTO> & {
+		status: DocumentExtractionStatus;
+	},
+): DocumentExtractionJobDTO {
+	return {
+		id: "job-1",
+		sourceArtifactId: "artifact-1",
+		normalizedArtifactId: null,
+		intakeRoute: "mineru",
+		fileName: "report.pdf",
+		attemptCount: 1,
+		maxAttempts: 3,
+		retryable: false,
+		cancelable: false,
+		error: null,
+		createdAt: 1_700_000_000,
+		updatedAt: 1_700_000_000,
+		startedAt: null,
+		legacy: false,
+		...overrides,
+	};
+}
 
 function doc(
 	overrides: Partial<KnowledgeDocumentItem> & { id: string; name: string },
@@ -116,7 +156,7 @@ describe("deriveDocumentStatus", () => {
 					documentFamilyStatus: "historical",
 				}),
 			),
-		).toBe("historical");
+		).toEqual({ kind: "family", value: "historical" });
 	});
 
 	it("is Current for a live member of a family", () => {
@@ -129,7 +169,7 @@ describe("deriveDocumentStatus", () => {
 					documentFamilyStatus: "active",
 				}),
 			),
-		).toBe("current");
+		).toEqual({ kind: "family", value: "current" });
 	});
 
 	it("defaults a family member with no status to Current", () => {
@@ -137,7 +177,169 @@ describe("deriveDocumentStatus", () => {
 			deriveDocumentStatus(
 				doc({ id: "4", name: "report.pdf", documentFamilyId: "family-1" }),
 			),
-		).toBe("current");
+		).toEqual({ kind: "family", value: "current" });
+	});
+});
+
+describe("deriveDocumentStatus with an extraction verdict", () => {
+	it("puts the extraction state ahead of the version status", () => {
+		// A half-read document is not "Current" against its siblings — it is
+		// not yet comparable to them at all.
+		const badge = deriveDocumentStatus(
+			doc({
+				id: "1",
+				name: "report.pdf",
+				documentFamilyId: "family-1",
+				documentFamilyStatus: "active",
+				extraction: job({ status: "parsing" }),
+			}),
+		);
+
+		expect(badge).toEqual({
+			kind: "extraction",
+			job: expect.objectContaining({ status: "parsing" }),
+		});
+	});
+
+	it("falls back to the version status once extraction succeeded", () => {
+		// "Ready" on every readable row would say nothing, so a succeeded job
+		// is deliberately invisible in this column.
+		expect(
+			deriveDocumentStatus(
+				doc({
+					id: "1",
+					name: "report.pdf",
+					documentFamilyId: "family-1",
+					documentFamilyStatus: "historical",
+					extraction: job({ status: "succeeded" }),
+				}),
+			),
+		).toEqual({ kind: "family", value: "historical" });
+	});
+
+	it("is blank for a succeeded document with no version family", () => {
+		expect(
+			deriveDocumentStatus(
+				doc({
+					id: "1",
+					name: "report.pdf",
+					extraction: job({ status: "succeeded" }),
+				}),
+			),
+		).toBeNull();
+	});
+
+	it("reports failed and canceled documents even without a family", () => {
+		for (const status of ["failed", "canceled"] as const) {
+			expect(
+				deriveDocumentStatus(
+					doc({ id: "1", name: "report.pdf", extraction: job({ status }) }),
+				),
+			).toMatchObject({ kind: "extraction" });
+		}
+	});
+});
+
+describe("extraction row affordances", () => {
+	it("blocks opening a document the reader has not finished with", () => {
+		for (const status of DOCUMENT_EXTRACTION_STATUSES) {
+			const document = doc({
+				id: "1",
+				name: "report.pdf",
+				extraction: job({ status }),
+			});
+			expect(canOpenDocument(document)).toBe(
+				isTerminalExtractionStatus(status),
+			);
+			expect(isExtractionInProgress(document)).toBe(
+				!isTerminalExtractionStatus(status),
+			);
+		}
+	});
+
+	it("leaves a pre-ledger document openable when it has no verdict at all", () => {
+		const document = doc({ id: "1", name: "report.pdf" });
+		expect(canOpenDocument(document)).toBe(true);
+		expect(isExtractionInProgress(document)).toBe(false);
+	});
+
+	it("offers Retry and Cancel exactly when the DTO says so", () => {
+		expect(
+			canRetryExtraction(
+				doc({
+					id: "1",
+					name: "a.pdf",
+					extraction: job({ status: "failed", retryable: true }),
+				}),
+			),
+		).toBe(true);
+		expect(
+			canRetryExtraction(
+				doc({
+					id: "2",
+					name: "b.pdf",
+					extraction: job({ status: "failed", retryable: false }),
+				}),
+			),
+		).toBe(false);
+		expect(
+			canCancelExtraction(
+				doc({
+					id: "3",
+					name: "c.pdf",
+					extraction: job({ status: "parsing", cancelable: true }),
+				}),
+			),
+		).toBe(true);
+		expect(
+			canCancelExtraction(
+				doc({
+					id: "4",
+					name: "d.pdf",
+					extraction: job({ status: "parsing", cancelable: false }),
+				}),
+			),
+		).toBe(false);
+	});
+});
+
+describe("extraction i18n keys", () => {
+	it("names a dictionary key for every status", () => {
+		for (const status of DOCUMENT_EXTRACTION_STATUSES) {
+			expect(extractionStatusKey(status)).toBe(
+				`knowledge.extraction.status.${status}`,
+			);
+		}
+	});
+
+	it("names a dictionary key for every error code", () => {
+		for (const code of EXTRACTION_ERROR_CODES) {
+			expect(extractionErrorKey(code)).toBe(
+				`knowledge.extraction.error.${code}`,
+			);
+		}
+	});
+
+	it("has no detail line while a job is still running", () => {
+		expect(extractionDetailKey(job({ status: "parsing" }))).toBeNull();
+		expect(extractionDetailKey(job({ status: "succeeded" }))).toBeNull();
+	});
+
+	it("explains a failure by its code, and a code-less failure generically", () => {
+		expect(
+			extractionDetailKey(
+				job({
+					status: "failed",
+					error: { code: "too_large", message: "too big" },
+				}),
+			),
+		).toBe("knowledge.extraction.error.too_large");
+		expect(extractionDetailKey(job({ status: "failed" }))).toBe(
+			"knowledge.extraction.error.internal",
+		);
+		expect(extractionDetailKey(job({ status: "canceled" }))).toBe(
+			"knowledge.extraction.error.canceled",
+		);
 	});
 });
 

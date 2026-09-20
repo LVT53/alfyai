@@ -29,13 +29,20 @@ import type {
 	MemoryProfilePublicPayload,
 	MemoryTimelineReport,
 } from "$lib/memory-profile-types";
-import type {
-	DocumentWorkspaceItem,
-	KnowledgeDocumentItem,
-} from "$lib/server/services/knowledge/types";
+import type { KnowledgeLibraryDocumentItem } from "$lib/server/services/knowledge";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { KnowledgeMemoryOverviewPayload } from "$lib/server/services/memory-types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
+import {
+	cancelExtraction,
+	createExtractionPoller,
+	retryExtraction,
+} from "./_extraction-client";
 import { toWorkspaceDocument } from "./_helpers";
 import type { PageProps } from "./$types";
+
+type KnowledgeDocumentItem = KnowledgeLibraryDocumentItem;
 
 type DocumentSortKey = "name" | "size" | "type" | "date";
 type SortDirection = "asc" | "desc";
@@ -454,6 +461,101 @@ async function refreshKnowledgeLibrary() {
 	await invalidateAll();
 }
 
+// --- Extraction ledger -----------------------------------------------------
+//
+// The list's Status column is only as honest as its last poll. Arming is
+// derived from the rows themselves: a library of finished documents polls
+// nothing, and the poller disarms itself the moment the last tracked job
+// settles (see `_extraction-client.ts`, which is the temporary stand-in for
+// the shared client module).
+
+const hasPendingExtraction = $derived(
+	documents.some(
+		(document) =>
+			document.extraction !== undefined &&
+			!isTerminalExtractionStatus(document.extraction.status),
+	),
+);
+
+function pendingExtractionArtifactIds(): string[] {
+	return documents
+		.filter(
+			(document) =>
+				document.extraction !== undefined &&
+				!isTerminalExtractionStatus(document.extraction.status),
+		)
+		.map((document) => document.displayArtifactId);
+}
+
+function applyExtractionJobs(jobs: DocumentExtractionJobDTO[]): void {
+	const byArtifactId = new Map(
+		jobs
+			.filter((job) => job.sourceArtifactId !== null)
+			.map((job) => [job.sourceArtifactId as string, job]),
+	);
+	if (byArtifactId.size === 0) return;
+
+	let succeededSomething = false;
+	documents = documents.map((document) => {
+		const job = byArtifactId.get(document.displayArtifactId);
+		if (!job) return document;
+		if (
+			document.extraction?.status !== "succeeded" &&
+			job.status === "succeeded"
+		) {
+			succeededSomething = true;
+		}
+		return { ...document, extraction: job };
+	});
+
+	// A finished extraction changes more than the badge: the normalised
+	// artifact now exists, so "What AI sees" and the workspace become real.
+	// Only the server load knows those, hence exactly one reload per batch
+	// that settled rather than one per poll.
+	if (succeededSomething) {
+		void refreshKnowledgeLibrary();
+	}
+}
+
+const extractionPoller = createExtractionPoller({
+	getArtifactIds: pendingExtractionArtifactIds,
+	onJobs: applyExtractionJobs,
+	onError: (error) => {
+		console.warn("[KNOWLEDGE] Extraction status poll failed", error);
+	},
+});
+
+$effect(() => {
+	if (!browser) return;
+	if (activeTab === "documents" && hasPendingExtraction) {
+		extractionPoller.start();
+	} else {
+		extractionPoller.stop();
+	}
+	return () => extractionPoller.stop();
+});
+
+async function handleExtractionRetry(artifactId: string) {
+	manageError = "";
+	try {
+		applyExtractionJobs([await retryExtraction(artifactId)]);
+		extractionPoller.start();
+	} catch (error) {
+		manageError = $t("knowledge.extraction.actionFailed");
+		console.warn("[KNOWLEDGE] Extraction retry failed", error);
+	}
+}
+
+async function handleExtractionCancel(artifactId: string) {
+	manageError = "";
+	try {
+		applyExtractionJobs([await cancelExtraction(artifactId)]);
+	} catch (error) {
+		manageError = $t("knowledge.extraction.actionFailed");
+		console.warn("[KNOWLEDGE] Extraction cancel failed", error);
+	}
+}
+
 async function loadMemoryProfile(force = false) {
 	if (memoryLoading) return;
 	if (memoryLoaded && !force) return;
@@ -747,6 +849,8 @@ $effect(() => {
 						onBulkDelete={handleBulkDocumentDelete}
 						onDownload={handleDocumentDownload}
 						onUpload={handleDocumentsUpload}
+						onRetryExtraction={handleExtractionRetry}
+						onCancelExtraction={handleExtractionCancel}
 					/>
 				</div>
 			{/if}
