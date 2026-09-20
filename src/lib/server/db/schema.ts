@@ -356,6 +356,9 @@ export const artifacts = sqliteTable(
 			table.userId,
 			table.sizeBytes,
 		),
+		// Auto-rename collision checks query (user_id, name) with a LIKE prefix;
+		// without this index every collision was a full per-user artifact scan.
+		userNameIdx: index("artifacts_user_name_idx").on(table.userId, table.name),
 	}),
 );
 
@@ -1608,6 +1611,153 @@ export const fileProductionJobFiles = sqliteTable(
 		jobOrderIdx: index("file_production_job_files_job_order_idx").on(
 			table.jobId,
 			table.sortOrder,
+		),
+	}),
+);
+
+// Document-extraction ledger (Phase 3 / ADR-0005 patterns, not ADR-0005 rows).
+//
+// Deliberately NOT rows in `file_production_jobs`: that ledger's
+// `conversation_id` is NOT NULL and FK-bound to `conversations`, and a
+// Knowledge-page upload has no conversation at all. The claim/heartbeat/attempt
+// shape is copied; the table is not shared.
+export const documentExtractionJobs = sqliteTable(
+	"document_extraction_jobs",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		// Nullable: Knowledge-page uploads have no conversation.
+		conversationId: text("conversation_id").references(() => conversations.id, {
+			onDelete: "set null",
+		}),
+		// Exactly one of sourceArtifactId / chatGeneratedFileId is set.
+		sourceArtifactId: text("source_artifact_id").references(
+			() => artifacts.id,
+			{
+				onDelete: "cascade",
+			},
+		),
+		chatGeneratedFileId: text("chat_generated_file_id").references(
+			() => chatGeneratedFiles.id,
+			{ onDelete: "cascade" },
+		),
+		normalizedArtifactId: text("normalized_artifact_id").references(
+			() => artifacts.id,
+			{ onDelete: "set null" },
+		),
+		/** "upload" | "generated_file_readback" */
+		origin: text("origin").notNull().default("upload"),
+		/** Shared file-type registry verdict, stamped at enqueue: "direct-text" | "mineru". */
+		intakeRoute: text("intake_route").notNull(),
+		/** Ascending = sooner. 0 = user upload, 10 = generated-file readback. */
+		priority: integer("priority").notNull().default(0),
+		fileName: text("file_name").notNull(),
+		mimeType: text("mime_type"),
+		sizeBytes: integer("size_bytes").notNull().default(0),
+		/** queued | uploading | parsing | downloading | indexing | succeeded | failed | canceled */
+		status: text("status").notNull().default("queued"),
+		attemptCount: integer("attempt_count").notNull().default(0),
+		currentAttemptId: text("current_attempt_id"),
+		/** Opaque resumable handle (ExtractionHandle JSON). Survives attempts. */
+		remoteHandleJson: text("remote_handle_json"),
+		/** Opaque, caller-supplied extraction hints. The ledger never inspects them. */
+		hintsJson: text("hints_json"),
+		retryable: integer("retryable", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		errorCode: text("error_code"),
+		errorMessage: text("error_message"),
+		/** Backoff gate: claim ignores queued rows whose nextAttemptAt is in the future. */
+		nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }),
+		cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp" }),
+		startedAt: integer("started_at", { mode: "timestamp" }),
+		completedAt: integer("completed_at", { mode: "timestamp" }),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		sourceArtifactUniqueIdx: uniqueIndex(
+			"document_extraction_jobs_source_artifact_unique_idx",
+		)
+			.on(table.sourceArtifactId)
+			.where(sql`${table.sourceArtifactId} IS NOT NULL`),
+		chatFileUniqueIdx: uniqueIndex(
+			"document_extraction_jobs_chat_file_unique_idx",
+		)
+			.on(table.chatGeneratedFileId)
+			.where(sql`${table.chatGeneratedFileId} IS NOT NULL`),
+		// Claim scan: status + priority + createdAt, in the claim's ORDER BY order.
+		claimIdx: index("document_extraction_jobs_claim_idx").on(
+			table.status,
+			table.priority,
+			table.createdAt,
+		),
+		userStatusIdx: index("document_extraction_jobs_user_status_idx").on(
+			table.userId,
+			table.status,
+		),
+		conversationIdx: index("document_extraction_jobs_conversation_idx").on(
+			table.conversationId,
+			table.createdAt,
+		),
+	}),
+);
+
+export const documentExtractionJobAttempts = sqliteTable(
+	"document_extraction_job_attempts",
+	{
+		id: text("id").primaryKey(),
+		jobId: text("job_id")
+			.notNull()
+			.references(() => documentExtractionJobs.id, { onDelete: "cascade" }),
+		attemptNumber: integer("attempt_number").notNull(),
+		/** running | succeeded | failed | canceled */
+		status: text("status").notNull().default("running"),
+		/** Last observed job status while this attempt owned the job. */
+		phase: text("phase"),
+		/** DocumentExtractor.name, e.g. "direct-text" | "mineru3". */
+		extractor: text("extractor"),
+		/** true when this attempt resumed a handle instead of submitting fresh. */
+		resumed: integer("resumed", { mode: "boolean" }).notNull().default(false),
+		remoteHandleJson: text("remote_handle_json"),
+		workerId: text("worker_id"),
+		claimedAt: integer("claimed_at", { mode: "timestamp" }),
+		heartbeatAt: integer("heartbeat_at", { mode: "timestamp" }),
+		startedAt: integer("started_at", { mode: "timestamp" }),
+		finishedAt: integer("finished_at", { mode: "timestamp" }),
+		errorCode: text("error_code"),
+		errorMessage: text("error_message"),
+		retryable: integer("retryable", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		textLength: integer("text_length"),
+		pageCount: integer("page_count"),
+		diagnosticsJson: text("diagnostics_json"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		jobNumberUniqueIdx: uniqueIndex(
+			"document_extraction_job_attempts_job_number_unique_idx",
+		).on(table.jobId, table.attemptNumber),
+		jobIdx: index("document_extraction_job_attempts_job_idx").on(
+			table.jobId,
+			table.createdAt,
+		),
+		workerIdx: index("document_extraction_job_attempts_worker_idx").on(
+			table.workerId,
+			table.status,
+			table.heartbeatAt,
 		),
 	}),
 );

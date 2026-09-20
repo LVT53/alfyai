@@ -510,6 +510,31 @@ function seedEveryUserScopedTable(userId: string) {
 			updatedAt: now,
 		})
 		.run();
+	db.insert(schema.documentExtractionJobs)
+		.values({
+			id: p("extraction-job"),
+			userId,
+			conversationId: p("conv"),
+			sourceArtifactId: p("art"),
+			intakeRoute: "mineru",
+			fileName: "report.pdf",
+			status: "succeeded",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	// Transitive-cascade grandchild: no user_id of its own, removed only via
+	// document_extraction_jobs -> users cascade.
+	db.insert(schema.documentExtractionJobAttempts)
+		.values({
+			id: p("extraction-attempt"),
+			jobId: p("extraction-job"),
+			attemptNumber: 1,
+			status: "succeeded",
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
 	db.insert(schema.atlasJobs)
 		.values({
 			id: p("atlas"),
@@ -674,6 +699,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"conversation_task_states",
 				"conversation_working_set_items",
 				"conversations",
+				"document_extraction_jobs",
 				"file_production_jobs",
 				"import_jobs",
 				"memory_consolidation_reports",

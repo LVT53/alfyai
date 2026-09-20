@@ -85,6 +85,8 @@ const requiredExistingTables = [
 	"file_production_jobs",
 	"file_production_job_attempts",
 	"file_production_job_files",
+	"document_extraction_jobs",
+	"document_extraction_job_attempts",
 	"atlas_jobs",
 	"atlas_round_checkpoints",
 	"personality_profiles",
