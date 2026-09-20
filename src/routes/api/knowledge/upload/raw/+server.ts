@@ -13,6 +13,7 @@ import {
 	formatBytes,
 	parseContentLength,
 	readKnowledgeUploadRequestMetadata,
+	refuseUnsupportedUploadType,
 	resolveKnowledgeUploadConversation,
 	writeKnowledgeUploadBytes,
 } from "../shared";
@@ -237,6 +238,18 @@ export const POST: RequestHandler = async (event) => {
 			{ status: 413 },
 		);
 	}
+
+	// The same allowlist `/intent` applies, in the same order (size first, then
+	// type) and before a single byte reaches the disk. This route is reachable
+	// without ever calling `/intent`.
+	const unsupportedType = refuseUnsupportedUploadType({
+		fileName: declaredFileName,
+		mimeType,
+		traceId,
+		userId: user.id,
+		logLabel: "Raw upload",
+	});
+	if (unsupportedType) return unsupportedType;
 
 	const conversation = await resolveKnowledgeUploadConversation({
 		userId: user.id,

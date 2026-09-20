@@ -57,6 +57,83 @@ describe("POST /api/knowledge/upload/raw", () => {
 		);
 	});
 
+	// The type allowlist runs here too. /intent is a handshake, not a gate: a
+	// client can skip it and post the bytes straight at this route.
+	it.each([
+		["clip.mp4", "video/mp4", "media", "knowledge.uploadRejectedMedia"],
+		[
+			"bundle.zip",
+			"application/zip",
+			"archive",
+			"knowledge.uploadRejectedArchive",
+		],
+		[
+			"memo.rtf",
+			"application/rtf",
+			"formatNotEnabled",
+			"knowledge.uploadRejectedFormatNotEnabled",
+		],
+		[
+			"mystery.qqq",
+			"application/octet-stream",
+			"unknownType",
+			"knowledge.uploadUnsupportedType",
+		],
+	])(
+		"refuses %s with 415 before any byte is written",
+		async (fileName, mimeType, reason, errorKey) => {
+			const bytes = Buffer.from("hello");
+			const response = await POST(
+				makeKnowledgeUploadEvent({
+					body: bytes,
+					headers: makeKnowledgeUploadHeaders({
+						"content-type": mimeType,
+						"x-alfyai-upload-trace-id": "upload-rawtype",
+						"x-alfyai-upload-name": encodeURIComponent(fileName),
+						"x-alfyai-upload-size": String(bytes.length),
+					}),
+					requestUrl: "http://localhost/api/knowledge/upload/raw",
+					routeId: "/api/knowledge/upload/raw",
+					userId: "raw-user",
+				}),
+			);
+			const data = await response.json();
+			const incoming = await stat(
+				join(process.cwd(), "data", "knowledge", "raw-user", ".incoming"),
+			).catch(() => null);
+
+			expect(response.status).toBe(415);
+			expect(data.code).toBe("upload_unsupported_type");
+			expect(data.errorKey).toBe(errorKey);
+			expect(data.details).toMatchObject({ fileName, reason });
+			// The refusal happens before the temp directory is even created.
+			expect(incoming).toBeNull();
+			expect(mockValidateKnowledgeUploadConversation).not.toHaveBeenCalled();
+			expect(mockCompleteKnowledgeUploadFromStoredFile).not.toHaveBeenCalled();
+		},
+	);
+
+	it("still admits an unknown extension whose declared MIME is text", async () => {
+		const bytes = Buffer.from("--- a\n+++ b\n");
+		const response = await POST(
+			makeKnowledgeUploadEvent({
+				body: bytes,
+				headers: makeKnowledgeUploadHeaders({
+					"content-type": "text/x-diff",
+					"x-alfyai-upload-trace-id": "upload-rawtext",
+					"x-alfyai-upload-name": encodeURIComponent("fix.patch"),
+					"x-alfyai-upload-size": String(bytes.length),
+				}),
+				requestUrl: "http://localhost/api/knowledge/upload/raw",
+				routeId: "/api/knowledge/upload/raw",
+				userId: "raw-user",
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(mockCompleteKnowledgeUploadFromStoredFile).toHaveBeenCalled();
+	});
+
 	it("rejects raw uploads when the declared browser size does not match received bytes", async () => {
 		const response = await POST(
 			makeKnowledgeUploadEvent({
