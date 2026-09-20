@@ -2,12 +2,20 @@ import { getConfig } from "$lib/server/config-store";
 import { getAdapterBodySizeLimitBytes } from "$lib/server/env";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import { getConversation } from "$lib/server/services/conversations";
+import {
+	getExtractionConfig,
+	getExtractionJobForArtifact,
+	startUploadExtraction,
+	waitForExtractionJobVerdict,
+} from "$lib/server/services/extraction";
 import type {
 	Artifact,
 	KnowledgeUploadResponse,
 } from "$lib/server/services/knowledge/types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import {
-	createNormalizedArtifact,
+	getArtifactForUser,
 	resolvePromptAttachmentArtifacts,
 	saveUploadedArtifact,
 	saveUploadedArtifactFromStoredFile,
@@ -126,24 +134,82 @@ export async function validateKnowledgeUploadConversation(params: {
 	return conversationId;
 }
 
-async function createNormalizedArtifactForUpload(params: {
+const EXTRACTION_WAIT_POLL_INTERVAL_MS = 100;
+
+/**
+ * Registers the upload with the extraction ledger.
+ *
+ * This is the whole point of Phase 3 on the intake side: the request no longer
+ * waits on a backend to read the document. A `.txt` still settles inside the
+ * call — `startUploadExtraction` runs direct text inline within its own bounded
+ * budget — and everything else comes back `queued` with a job the client can
+ * poll. A dedupe hit whose text already exists short-circuits to `succeeded`
+ * without ever reaching the worker (bug B1).
+ */
+async function registerUploadExtraction(params: {
 	userId: string;
 	conversationId: string | null;
 	artifact: Artifact;
 	normalizedArtifact: Artifact | null;
-}): Promise<Artifact | null> {
-	if (params.normalizedArtifact || !params.artifact.storagePath) {
-		return params.normalizedArtifact;
-	}
-
-	return await createNormalizedArtifact({
+	signal?: AbortSignal;
+}): Promise<DocumentExtractionJobDTO> {
+	return await startUploadExtraction({
 		userId: params.userId,
 		conversationId: params.conversationId,
-		sourceArtifactId: params.artifact.id,
-		sourceStoragePath: params.artifact.storagePath,
-		sourceName: params.artifact.name,
-		sourceMimeType: params.artifact.mimeType,
+		artifact: params.artifact,
+		existingNormalizedArtifactId: params.normalizedArtifact?.id ?? null,
+		signal: params.signal,
 	});
+}
+
+/**
+ * The bounded wait the deprecated multipart route needs (B3/D9).
+ *
+ * The off-repo on-box verify scripts POST to that route and read the old
+ * `promptReady` / `normalizedArtifact` fields, so it gets a short grace period
+ * in which a small document can still finish and answer the way it always did.
+ * When the budget runs out the response is returned anyway, with the pending
+ * state and every old field still present — never an error.
+ */
+async function awaitExtractionVerdict(params: {
+	userId: string;
+	artifactId: string;
+	extraction: DocumentExtractionJobDTO;
+	waitMs: number;
+	signal?: AbortSignal;
+}): Promise<DocumentExtractionJobDTO> {
+	if (
+		params.waitMs <= 0 ||
+		isTerminalExtractionStatus(params.extraction.status)
+	) {
+		return params.extraction;
+	}
+
+	const verdict = await waitForExtractionJobVerdict({
+		getJob: () =>
+			getExtractionJobForArtifact({
+				userId: params.userId,
+				artifactId: params.artifactId,
+			}),
+		timeoutMs: params.waitMs,
+		pollIntervalMs: EXTRACTION_WAIT_POLL_INTERVAL_MS,
+		signal: params.signal,
+	});
+
+	return verdict.job ?? params.extraction;
+}
+
+async function resolveNormalizedArtifact(params: {
+	userId: string;
+	normalizedArtifact: Artifact | null;
+	extraction: DocumentExtractionJobDTO;
+}): Promise<Artifact | null> {
+	if (params.normalizedArtifact) return params.normalizedArtifact;
+	if (!params.extraction.normalizedArtifactId) return null;
+	return await getArtifactForUser(
+		params.userId,
+		params.extraction.normalizedArtifactId,
+	);
 }
 
 async function buildKnowledgeUploadResponse(params: {
@@ -151,6 +217,7 @@ async function buildKnowledgeUploadResponse(params: {
 	conversationId: string | null;
 	artifact: Artifact;
 	normalizedArtifact: Artifact | null;
+	extraction: DocumentExtractionJobDTO;
 	traceId: string;
 	reusedExistingArtifact: boolean;
 	renameInfo?: UploadRenameInfo;
@@ -176,6 +243,8 @@ async function buildKnowledgeUploadResponse(params: {
 		extractionTextLength: resolvedItem?.contentLength ?? 0,
 		chunkCount: resolvedItem?.chunkCount ?? 0,
 		contentHash: resolvedItem?.contentHash ?? null,
+		extractionJobId: params.extraction.id,
+		extractionStatus: params.extraction.status,
 	});
 
 	return {
@@ -188,6 +257,7 @@ async function buildKnowledgeUploadResponse(params: {
 			: null,
 		readinessError,
 		...(params.renameInfo ? { renameInfo: params.renameInfo } : {}),
+		extraction: params.extraction,
 	};
 }
 
@@ -202,13 +272,16 @@ async function finishKnowledgeUpload(params: {
 	startedAt: number;
 	logPrefix?: UploadLogPrefix;
 	file?: File;
+	/** Bounded grace period before answering. Only the legacy route sets it. */
+	waitForExtractionMs?: number;
+	signal?: AbortSignal;
 }): Promise<KnowledgeUploadResponse> {
 	const sourceSavedMessage = params.logPrefix
 		? "source upload saved"
 		: "Source upload saved";
 	const extractionMessage = params.logPrefix
-		? "upload extraction completed"
-		: "Upload extraction completed";
+		? "upload extraction registered"
+		: "Upload extraction registered";
 
 	console.info(knowledgeLogMessage(params.logPrefix, sourceSavedMessage), {
 		traceId: params.traceId,
@@ -220,17 +293,34 @@ async function finishKnowledgeUpload(params: {
 		durationMs: Date.now() - params.startedAt,
 	});
 
-	const normalizedArtifact = await createNormalizedArtifactForUpload({
+	const enqueued = await registerUploadExtraction({
 		userId: params.userId,
 		conversationId: params.conversationId,
 		artifact: params.artifact,
 		normalizedArtifact: params.normalizedArtifact,
+		signal: params.signal,
 	});
+	const extraction = await awaitExtractionVerdict({
+		userId: params.userId,
+		artifactId: params.artifact.id,
+		extraction: enqueued,
+		waitMs: params.waitForExtractionMs ?? 0,
+		signal: params.signal,
+	});
+	const normalizedArtifact = await resolveNormalizedArtifact({
+		userId: params.userId,
+		normalizedArtifact: params.normalizedArtifact,
+		extraction,
+	});
+
 	console.info(knowledgeLogMessage(params.logPrefix, extractionMessage), {
 		traceId: params.traceId,
 		userId: params.userId,
 		conversationId: params.conversationId,
 		artifactId: params.artifact.id,
+		extractionJobId: extraction.id,
+		extractionStatus: extraction.status,
+		intakeRoute: extraction.intakeRoute,
 		normalizedArtifactId: normalizedArtifact?.id ?? null,
 		normalizedTextLength: normalizedArtifact?.contentText?.length ?? 0,
 		durationMs: Date.now() - params.startedAt,
@@ -241,6 +331,7 @@ async function finishKnowledgeUpload(params: {
 		conversationId: params.conversationId,
 		artifact: params.artifact,
 		normalizedArtifact,
+		extraction,
 		traceId: params.traceId,
 		reusedExistingArtifact: params.reusedExistingArtifact,
 		renameInfo: params.renameInfo,
@@ -254,6 +345,13 @@ export async function completeKnowledgeUploadFromFile(params: {
 	traceId: string;
 	startedAt: number;
 	logPrefix?: string | null;
+	/**
+	 * Legacy multipart route only (B3/D9): wait up to the configured inline
+	 * budget for a verdict before answering, so a small document still comes
+	 * back the way the off-repo verify scripts expect. Omitted everywhere else.
+	 */
+	waitForExtraction?: boolean;
+	signal?: AbortSignal;
 }): Promise<KnowledgeUploadResponse> {
 	const conversationId = await validateKnowledgeUploadConversation({
 		userId: params.userId,
@@ -278,6 +376,10 @@ export async function completeKnowledgeUploadFromFile(params: {
 		startedAt: params.startedAt,
 		logPrefix: params.logPrefix,
 		file: params.file,
+		waitForExtractionMs: params.waitForExtraction
+			? getExtractionConfig().inlineBudgetMs
+			: 0,
+		signal: params.signal,
 	});
 }
 

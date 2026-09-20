@@ -1,6 +1,8 @@
 <script lang="ts">
+import { tick } from "svelte";
+import { createExtractionAnnouncer } from "$lib/client/extraction-announcements";
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
-import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import type { KnowledgeDocumentItem } from "./documents-table";
 import { partitionUploadableFiles } from "$lib/utils/file-drag";
 import {
 	fileExtension,
@@ -33,14 +35,22 @@ import {
 	Table,
 	Trash2,
 	Upload,
+	RotateCw,
+	X,
 } from "@lucide/svelte";
 import Spinner from "$lib/components/ui/Spinner.svelte";
 import {
+	canCancelExtraction,
+	canOpenDocument,
+	canRetryExtraction,
 	compareDocuments,
 	deriveDocumentStatus,
 	deriveDocumentVersion,
+	extractionDetailKey,
+	extractionStatusKey,
 	getDocumentKind,
 	hasNormalisedVersion,
+	isExtractionInProgress,
 	nextSortDirection,
 } from "./documents-table";
 
@@ -74,6 +84,13 @@ interface DocumentsListProps {
 	onBulkDelete?: (documentIds: string[]) => Promise<boolean>;
 	onDownload?: (documentId: string) => void;
 	onUpload?: (files: File[]) => void | Promise<void>;
+	/**
+	 * Called with the SOURCE artifact id (`displayArtifactId`) — the extraction
+	 * ledger is keyed on the artifact, not on the job, so a pre-ledger document
+	 * with a synthesised job id can still be retried.
+	 */
+	onRetryExtraction?: (artifactId: string) => void | Promise<void>;
+	onCancelExtraction?: (artifactId: string) => void | Promise<void>;
 }
 
 let {
@@ -97,7 +114,45 @@ let {
 	onBulkDelete,
 	onDownload,
 	onUpload,
+	onRetryExtraction,
+	onCancelExtraction,
 }: DocumentsListProps = $props();
+
+// Artifact ids with a Retry/Cancel round trip in flight. Local to the row so
+// a slow endpoint disables exactly the button that was pressed, and so a
+// double click cannot enqueue the same action twice.
+let extractionActionIds = $state<Set<string>>(new Set());
+
+// The polite live region's one sentence. The list re-renders on every poll,
+// so this is driven by `changed()` rather than by the rows themselves: a
+// region bound to the DTO would read the same status back at a screen-reader
+// user once a second for the whole length of a read.
+let extractionAnnouncement = $state("");
+const extractionAnnouncer = createExtractionAnnouncer();
+
+$effect(() => {
+	const changed = extractionAnnouncer.changed(
+		documents.flatMap((document) =>
+			document.extraction
+				? [
+						{
+							artifactId: document.displayArtifactId,
+							name: document.name,
+							job: document.extraction,
+						},
+					]
+				: [],
+		),
+	);
+	if (changed.length === 0) return;
+	// One string for the whole batch, so five documents settling together is
+	// one announcement rather than five.
+	extractionAnnouncement = changed
+		.map(
+			(entry) => `${entry.name}: ${$t(extractionStatusKey(entry.job.status))}`,
+		)
+		.join(". ");
+});
 
 // Selection state
 let selectedIds = $state<Set<string>>(new Set());
@@ -616,7 +671,49 @@ function handleRowClick(event: MouseEvent, document: KnowledgeDocumentItem) {
 		)
 	)
 		return;
+	openDocument(document);
+}
+
+// A document the reader has not finished with has no AI-facing version yet.
+// Opening it would show an empty workspace, which reads as "this file is
+// broken" rather than "this file is not ready", so the row stays inert until
+// the ledger settles.
+function openDocument(document: KnowledgeDocumentItem) {
+	if (!canOpenDocument(document)) return;
 	onSelect?.(document);
+}
+
+async function runExtractionAction(
+	event: MouseEvent,
+	artifactId: string,
+	action: ((artifactId: string) => void | Promise<void>) | undefined,
+) {
+	event.stopPropagation();
+	if (!action || extractionActionIds.has(artifactId)) return;
+	// Retry requeues the job, so the button that was pressed usually unmounts
+	// with the verdict that justified it. Remember the row: it is focusable in
+	// its own right, and it is where a keyboard user should land rather than
+	// on `<body>` at the top of the page.
+	const row = (event.currentTarget as HTMLElement | null)?.closest("tr");
+	extractionActionIds = new Set(extractionActionIds).add(artifactId);
+	try {
+		await action(artifactId);
+	} finally {
+		const next = new Set(extractionActionIds);
+		next.delete(artifactId);
+		extractionActionIds = next;
+		await tick();
+		restoreRowFocus(row);
+	}
+}
+
+function restoreRowFocus(row: HTMLTableRowElement | null | undefined) {
+	if (!row?.isConnected) return;
+	const active = document.activeElement;
+	// Still inside the row (the button survived, or the user moved on
+	// themselves): leave it alone.
+	if (active && active !== document.body && row.contains(active)) return;
+	row.focus();
 }
 
 function handleDocumentPreviewIntent(document: KnowledgeDocumentItem) {
@@ -685,6 +782,79 @@ async function handleBulkDelete(): Promise<boolean> {
 }
 </script>
 
+<!--
+	One rendering of the Status cell, shared by the desktop column and the
+	mobile meta line, so the two can never drift into saying different things
+	about the same row.
+-->
+{#snippet statusContent(document: KnowledgeDocumentItem, badge: ReturnType<typeof deriveDocumentStatus>, busy: boolean, place: 'status' | 'meta')}
+	{#if badge?.kind === 'extraction'}
+		{@const job = badge.job}
+		{@const detailKey = extractionDetailKey(job)}
+		<span
+			class="extraction-badge"
+			class:is-working={job.status !== 'failed' && job.status !== 'canceled'}
+			class:is-failed={job.status === 'failed'}
+			class:is-canceled={job.status === 'canceled'}
+			data-testid="extraction-status"
+			data-extraction-status={job.status}
+			title={detailKey ? $t(detailKey) : undefined}
+		>
+			{#if job.status !== 'failed' && job.status !== 'canceled'}
+				<Spinner size={12} />
+			{/if}
+			{$t(extractionStatusKey(job.status))}
+		</span>
+		{#if detailKey}
+			<span class="extraction-detail">{$t(detailKey)}</span>
+		{/if}
+		{#if job.attemptCount > 1 && job.status !== 'succeeded'}
+			<span class="extraction-attempt">
+				{$t('knowledge.extraction.attempt', {
+					current: job.attemptCount,
+					max: job.maxAttempts,
+				})}
+			</span>
+		{/if}
+		<span class="extraction-actions">
+			{#if canRetryExtraction(document)}
+				<button
+					type="button"
+					class="extraction-action"
+					data-testid={`extraction-retry-${place}`}
+					disabled={busy}
+					aria-busy={busy}
+					aria-label={$t('knowledge.extraction.retryLabel', { name: document.name })}
+					title={$t('knowledge.extraction.retryLabel', { name: document.name })}
+					onclick={(e) => runExtractionAction(e, document.displayArtifactId, onRetryExtraction)}
+				>
+					<RotateCw size={13} strokeWidth={2} aria-hidden="true" />
+					{busy ? $t('knowledge.extraction.busy') : $t('knowledge.extraction.retry')}
+				</button>
+			{/if}
+			{#if canCancelExtraction(document)}
+				<button
+					type="button"
+					class="extraction-action"
+					data-testid={`extraction-cancel-${place}`}
+					disabled={busy}
+					aria-busy={busy}
+					aria-label={$t('knowledge.extraction.cancelLabel', { name: document.name })}
+					title={$t('knowledge.extraction.cancelLabel', { name: document.name })}
+					onclick={(e) => runExtractionAction(e, document.displayArtifactId, onCancelExtraction)}
+				>
+					<X size={13} strokeWidth={2} aria-hidden="true" />
+					{busy ? $t('knowledge.extraction.busy') : $t('knowledge.extraction.cancel')}
+				</button>
+			{/if}
+		</span>
+	{:else if badge?.kind === 'family' && badge.value === 'historical'}
+		<span class="historical-badge">{$t('knowledge.historical')}</span>
+	{:else if badge?.kind === 'family'}
+		<span class="status-badge">{$t('knowledge.statusCurrent')}</span>
+	{/if}
+{/snippet}
+
 <div
 	class="documents-list-wrapper"
 	class:drag-over={isDragOver}
@@ -695,6 +865,17 @@ async function handleBulkDelete(): Promise<boolean> {
 	ondragover={handleDragOver}
 	ondrop={handleDrop}
 >
+	<!-- The Status column, spoken once per real change. A badge that swaps
+	     "Reading" for "Ready" is invisible to a screen reader otherwise. -->
+	<div
+		class="sr-only"
+		role="status"
+		aria-live="polite"
+		data-testid="documents-extraction-announcer"
+	>
+		{extractionAnnouncement}
+	</div>
+
 	<!-- Drop zone overlay - desktop only -->
 	{#if isDragOver}
 		<div class="drop-zone-overlay" data-testid="drop-zone-overlay">
@@ -921,9 +1102,12 @@ async function handleBulkDelete(): Promise<boolean> {
 							{@const versionBadge = deriveDocumentVersion(document)}
 							{@const statusBadge = deriveDocumentStatus(document)}
 							{@const aiVersionAvailable = hasNormalisedVersion(document)}
+							{@const extracting = isExtractionInProgress(document)}
+							{@const extractionBusy = extractionActionIds.has(document.displayArtifactId)}
 							<tr
 								class="document-row document-list-item"
 								class:selected={selectedIds.has(document.id)}
+								class:is-extracting={extracting}
 								onclick={(e) => handleRowClick(e, document)}
 								onpointerenter={() => handleDocumentPreviewIntent(document)}
 								onfocus={() => handleDocumentPreviewIntent(document)}
@@ -931,7 +1115,7 @@ async function handleBulkDelete(): Promise<boolean> {
 								onkeydown={(e) => {
 									if (e.key === 'Enter' || e.key === ' ') {
 										e.preventDefault();
-										onSelect?.(document);
+										openDocument(document);
 									}
 								}}
 							>
@@ -963,11 +1147,7 @@ async function handleBulkDelete(): Promise<boolean> {
 											{:else if versionBadge.kind === 'version'}
 												<span class="version-badge">v{versionBadge.versionNumber}</span>
 											{/if}
-											{#if statusBadge === 'historical'}
-												<span class="historical-badge">{$t('knowledge.historical')}</span>
-											{:else if statusBadge === 'current'}
-												<span class="status-badge">{$t('knowledge.statusCurrent')}</span>
-											{/if}
+											{@render statusContent(document, statusBadge, extractionBusy, 'meta')}
 											{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
 												<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
 											{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
@@ -999,12 +1179,11 @@ async function handleBulkDelete(): Promise<boolean> {
 									{/if}
 								</td>
 								<td class="col-status" data-mobile-label={$t('knowledge.status')}>
-									{#if statusBadge === 'historical'}
-										<span class="historical-badge">{$t('knowledge.historical')}</span>
-									{:else if statusBadge === 'current'}
-										<span class="status-badge">{$t('knowledge.statusCurrent')}</span>
+									{#if statusBadge}
+										{@render statusContent(document, statusBadge, extractionBusy, 'status')}
 									{:else}
-										<!-- No version family: neither current nor historical. -->
+										<!-- No extraction verdict and no version family: neither
+										     current nor historical, and nothing left to process. -->
 										<span class="cell-blank" aria-hidden="true">—</span>
 									{/if}
 								</td>
@@ -1038,11 +1217,14 @@ async function handleBulkDelete(): Promise<boolean> {
 											<!-- Kept as a greyed slot rather than removed, so the action
 											     column does not jitter between rows and the absence is
 											     explained on hover. -->
+											{@const absenceReason = extracting
+												? $t('knowledge.extraction.inProgressTooltip')
+												: $t('knowledge.noNormalisedVersion')}
 											<span
 												class="action-btn action-btn-disabled"
 												data-testid="what-ai-sees-disabled"
-												title={$t('knowledge.noNormalisedVersion')}
-												aria-label={$t('knowledge.noNormalisedVersion')}
+												title={absenceReason}
+												aria-label={absenceReason}
 												role="img"
 											>
 												<Eye size={16} strokeWidth={2} aria-hidden="true" />
@@ -1184,6 +1366,19 @@ async function handleBulkDelete(): Promise<boolean> {
 </div>
 
 <style>
+	/* Announced, never drawn: the Status column already says this on screen. */
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
 	.documents-list-wrapper {
 		/* Every card on this tab — filter bar, table, bulk bar, pager, drop
 		   overlay — is drawn at one radius rather than at four hand-typed
@@ -1662,6 +1857,83 @@ async function handleBulkDelete(): Promise<boolean> {
 		white-space: nowrap;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+	}
+
+	/* The extraction ledger's verdict. It shares the Status column's badge
+	   geometry so a row that is mid-extraction does not change the column's
+	   height, and only the colour says which of the three moods it is in. */
+	.extraction-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		min-height: 1.35rem;
+		padding: 0.125rem 0.375rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border-default);
+		color: var(--text-muted);
+		font-size: 0.6875rem;
+		font-weight: 500;
+		line-height: 1;
+		white-space: nowrap;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.extraction-badge.is-failed {
+		border-color: var(--color-danger, var(--border-default));
+		color: var(--color-danger, var(--text-muted));
+	}
+
+	.extraction-badge.is-canceled {
+		border-style: dashed;
+	}
+
+	.extraction-detail,
+	.extraction-attempt {
+		display: block;
+		margin-top: 0.2rem;
+		color: var(--text-muted);
+		font-size: 0.6875rem;
+		line-height: 1.3;
+		/* The failure sentence is the useful half of this cell — let it wrap
+		   rather than truncating the reason a user is about to act on. */
+		white-space: normal;
+	}
+
+	.extraction-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		margin-top: 0.25rem;
+	}
+
+	.extraction-action {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.2rem;
+		padding: 0.125rem 0.35rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border-default);
+		background: var(--surface-page);
+		color: var(--text-primary);
+		font-size: 0.6875rem;
+		line-height: 1.4;
+		cursor: pointer;
+	}
+
+	.extraction-action:hover:not(:disabled) {
+		background: var(--surface-elevated);
+	}
+
+	.extraction-action:disabled {
+		opacity: 0.55;
+		cursor: default;
+	}
+
+	/* The row is not openable while the reader still owes it text; say so with
+	   the cursor as well as with the tooltip on the greyed eye. */
+	.document-row.is-extracting {
+		cursor: default;
 	}
 
 	/* Greyed, not gone: the slot keeps the action column from jittering. At

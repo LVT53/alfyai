@@ -7,6 +7,12 @@
 // nothing that imports the `$t` store. A meta clause comes back as the
 // numbers and a template key for the caller to localize.
 
+import type {
+	DocumentExtractionJobDTO,
+	DocumentExtractionStatus,
+	ExtractionErrorCode,
+} from "$lib/shared/extraction-status";
+import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { getFileType } from "./attachment-file-type";
 import type { ComposerChipKind } from "./composer-chip-kinds";
 
@@ -101,6 +107,142 @@ export function quoteChipLabel(quote: string): string {
 	const colon = trimmed.indexOf(":");
 	const head = colon > 0 ? trimmed.slice(0, colon) : trimmed;
 	return head.trim() || trimmed;
+}
+
+/**
+ * What a chip says, and which controls stand beside it, for a document the
+ * extraction ledger is still working on.
+ *
+ * Progress comes back as `progressKey` (the muted meta clause after the middle
+ * dot) and failure as `errorKey` (the chip's short danger clause), rather than
+ * both landing in the same slot: the chip paints `status` in `--danger`, and a
+ * red "Waiting to be read" would make a perfectly healthy upload look broken.
+ * Which is also why a job with no DTO at all — an old server build, or a draft
+ * attachment restored from before the ledger — returns all nulls and false:
+ * the chip then looks exactly as it did before this phase existed.
+ */
+export type ExtractionChipState = {
+	/** Muted meta clause while the job is queued or running. */
+	progressKey: string | null;
+	/** Danger clause once the job failed or was stopped. */
+	errorKey: string | null;
+	/** The "waiting, not attached" dashed edge. */
+	dashed: boolean;
+	canRetry: boolean;
+	canCancel: boolean;
+};
+
+const EXTRACTION_PROGRESS_KEYS: Record<string, string> = {
+	queued: "chat.extraction.queued",
+	uploading: "chat.extraction.parsing",
+	parsing: "chat.extraction.parsing",
+	downloading: "chat.extraction.parsing",
+	indexing: "chat.extraction.indexing",
+};
+
+/**
+ * The reason clause for one attachment the send gate refused.
+ *
+ * The 422 carries `status` + `errorCode` + `retryable` per attachment beside
+ * an English sentence the server built from hard-wired literals; this is what
+ * turns those three facts into the same clause the chip beside the composer is
+ * already showing. Same tables, deliberately: two mappings of one vocabulary
+ * would drift, and the user would be told two different things about one file.
+ */
+export function extractionReasonKey(item: {
+	status: DocumentExtractionStatus;
+	errorCode: ExtractionErrorCode | null;
+	retryable: boolean;
+}): string {
+	if (item.status === "succeeded") return "chat.extraction.queued";
+	if (item.status === "canceled") {
+		return item.retryable
+			? "chat.extraction.canceledRetry"
+			: "chat.extraction.canceled";
+	}
+	if (item.status === "failed") {
+		if (item.retryable) return "chat.extraction.failedRetry";
+		return item.errorCode
+			? `chat.extraction.error.${item.errorCode}`
+			: "chat.extraction.failed";
+	}
+	return EXTRACTION_PROGRESS_KEYS[item.status] ?? "chat.extraction.queued";
+}
+
+export function extractionChipState(
+	job: DocumentExtractionJobDTO | null | undefined,
+): ExtractionChipState {
+	const idle: ExtractionChipState = {
+		progressKey: null,
+		errorKey: null,
+		dashed: false,
+		canRetry: false,
+		canCancel: false,
+	};
+	if (!job) return idle;
+
+	if (job.status === "succeeded") return idle;
+
+	if (job.status === "canceled") {
+		// Stopping a read is undoable. The ledger has always allowed a retry from
+		// `canceled`, so the chip offers it: the alternative for someone who hit
+		// Stop by mistake was removing the file and uploading it again.
+		return {
+			progressKey: null,
+			errorKey: job.retryable
+				? "chat.extraction.canceledRetry"
+				: "chat.extraction.canceled",
+			dashed: false,
+			canRetry: job.retryable,
+			canCancel: false,
+		};
+	}
+
+	if (job.status === "failed") {
+		// A retryable failure leads with the offer rather than the cause: the
+		// cause of a `max_attempts` or a `stale_worker` is infrastructure the
+		// user can do nothing about, and the one useful thing they CAN do is
+		// press the button now standing beside the chip.
+		const errorKey = job.retryable
+			? "chat.extraction.failedRetry"
+			: job.error
+				? `chat.extraction.error.${job.error.code}`
+				: "chat.extraction.failed";
+		return {
+			progressKey: null,
+			errorKey,
+			dashed: false,
+			canRetry: job.retryable,
+			canCancel: false,
+		};
+	}
+
+	return {
+		progressKey: EXTRACTION_PROGRESS_KEYS[job.status] ?? null,
+		errorKey: null,
+		dashed: true,
+		canRetry: false,
+		canCancel: job.cancelable,
+	};
+}
+
+/** The dashed "waiting, not attached" edge. Split out for the §4.3 table. */
+export function extractionChipDashed(
+	job: DocumentExtractionJobDTO | null | undefined,
+): boolean {
+	return extractionChipState(job).dashed;
+}
+
+/**
+ * Whether this attachment is still on its way. `undefined` (no DTO) counts as
+ * settled: a build whose upload endpoint says nothing about extraction must
+ * not hold Send hostage to a status it will never learn.
+ */
+export function isExtractionPending(
+	job: DocumentExtractionJobDTO | null | undefined,
+): boolean {
+	if (!job) return false;
+	return !isTerminalExtractionStatus(job.status);
 }
 
 export type OutlineQuoteSource = {

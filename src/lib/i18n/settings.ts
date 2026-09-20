@@ -1433,6 +1433,50 @@ const settingsDict = {
 			"All outputs",
 		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES.meaning":
 			"Combined bytes one run may write to disk.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.label":
+			"Document extraction worker",
+		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.meaning":
+			"Off pauses every queued document; nothing is lost.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_CONCURRENCY.label":
+			"Documents at once",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_CONCURRENCY.meaning":
+			"Documents being read across everyone at the same time.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY.label":
+			"Documents at once · per person",
+		"admin.system.keys.DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY.meaning":
+			"Stops one person's batch filling every slot.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_ATTEMPTS.label":
+			"Extraction attempts",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_ATTEMPTS.meaning":
+			"Automatic tries before a document is called failed.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_BASE_MS.label":
+			"First retry wait",
+		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_BASE_MS.meaning":
+			"Pause before the second try; it triples after that.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_MAX_MS.label":
+			"Longest retry wait",
+		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_MAX_MS.meaning":
+			"Ceiling the growing retry pause stops at.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.label":
+			"Abandoned attempt timeout",
+		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.meaning":
+			"Silence after which a document is handed to another worker.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_HEARTBEAT_MS.label":
+			"Extraction heartbeat",
+		"admin.system.keys.DOCUMENT_EXTRACTION_HEARTBEAT_MS.meaning":
+			"How often a working extraction says it is still alive.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_INLINE_BUDGET_MS.label":
+			"Upload wait for plain text",
+		"admin.system.keys.DOCUMENT_EXTRACTION_INLINE_BUDGET_MS.meaning":
+			"How long an upload waits for a text file to finish.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS.label":
+			"Send wait for attachments",
+		"admin.system.keys.DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS.meaning":
+			"How long Send waits for an attachment that is nearly ready.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES.label":
+			"Plain-text upload limit",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES.meaning":
+			"Largest text file read straight in without a parser.",
 		"admin.system.keys.ATLAS_PIPELINE.label": "Report pipeline",
 		"admin.system.keys.ATLAS_PIPELINE.meaning":
 			"Which pipeline a new report is stamped with.",
@@ -3305,6 +3349,50 @@ const settingsDict = {
 			"Összes kimenet",
 		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES.meaning":
 			"Amennyit egy futás összesen lemezre írhat.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.label":
+			"Dokumentumfeldolgozó",
+		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.meaning":
+			"Kikapcsolva minden sorban álló dokumentum vár; semmi nem vész el.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_CONCURRENCY.label":
+			"Egyszerre feldolgozott dokumentum",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_CONCURRENCY.meaning":
+			"Ennyi dokumentum olvasása fut egyszerre, mindenkit együttvéve.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY.label":
+			"Egyszerre feldolgozott · személyenként",
+		"admin.system.keys.DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY.meaning":
+			"Megakadályozza, hogy egy valaki foglalja le az összes helyet.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_ATTEMPTS.label":
+			"Feldolgozási próbálkozások",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_ATTEMPTS.meaning":
+			"Ennyi automatikus próba után lesz a dokumentum sikertelen.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_BASE_MS.label":
+			"Első újrapróbálkozás előtt",
+		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_BASE_MS.meaning":
+			"Szünet a második próba előtt; utána háromszorozódik.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_MAX_MS.label":
+			"Leghosszabb újrapróbálkozási szünet",
+		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_MAX_MS.meaning":
+			"Ennél tovább a növekvő szünet nem nyúlik.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.label":
+			"Elakadt feldolgozás időkorlátja",
+		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.meaning":
+			"Ennyi csend után másik feldolgozó veszi át a dokumentumot.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_HEARTBEAT_MS.label":
+			"Feldolgozás életjele",
+		"admin.system.keys.DOCUMENT_EXTRACTION_HEARTBEAT_MS.meaning":
+			"Ilyen gyakran jelzi a futó feldolgozás, hogy él.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_INLINE_BUDGET_MS.label":
+			"Feltöltés várakozása szöveges fájlra",
+		"admin.system.keys.DOCUMENT_EXTRACTION_INLINE_BUDGET_MS.meaning":
+			"Ennyit vár a feltöltés, hogy egy szövegfájl elkészüljön.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS.label":
+			"Küldés várakozása mellékletre",
+		"admin.system.keys.DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS.meaning":
+			"Ennyit vár a Küldés egy majdnem kész mellékletre.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES.label":
+			"Szövegfájl felső mérete",
+		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES.meaning":
+			"Ekkora szövegfájlt olvasunk be közvetlenül, feldolgozó nélkül.",
 		"admin.system.keys.ATLAS_PIPELINE.label": "Jelentésfolyamat",
 		"admin.system.keys.ATLAS_PIPELINE.meaning":
 			"Melyik folyamattal indul egy új jelentés.",

@@ -2196,4 +2196,156 @@ describe("conversation forks", () => {
 		expect(stoppedMessage).toMatchObject({ wasStopped: true });
 		expect(stoppedMessage?.renderKey).toBeUndefined();
 	});
+
+	// A generated PDF's readback runs in the background. Fork the conversation
+	// before it lands and the copy inherits the pre-extraction wrapper AND a
+	// brand-new chat-file id — which the source's job does not reference and the
+	// partial UNIQUE index would never let it adopt. Without an enqueue of its
+	// own the fork says "no readable text" for that file forever.
+	async function seedForkWithPendingReadback(params: {
+		contentText: string;
+		filename: string;
+		mimeType: string;
+	}) {
+		seedTextConversation();
+		writeStoredChatFile("source-conv/source-file-1.bin", "%PDF-1.4 bytes");
+		const { sqlite, db } = openDatabase();
+		db.insert(schema.chatGeneratedFiles)
+			.values({
+				id: "source-file-1",
+				conversationId: "source-conv",
+				assistantMessageId: "source-assistant-1",
+				userId: "user-1",
+				filename: params.filename,
+				mimeType: params.mimeType,
+				sizeBytes: 14,
+				storagePath: "source-conv/source-file-1.bin",
+				createdAt: new Date("2026-05-15T10:00:02.500Z"),
+			})
+			.run();
+		db.insert(schema.artifacts)
+			.values({
+				id: "source-generated-current",
+				userId: "user-1",
+				conversationId: "source-conv",
+				type: "generated_output",
+				retrievalClass: "durable",
+				name: "Generated report",
+				mimeType: params.mimeType,
+				contentText: params.contentText,
+				summary: "Generated report summary",
+				metadataJson: JSON.stringify({
+					generatedFile: true,
+					originalChatFileId: "source-file-1",
+					generatedFilename: params.filename,
+					assistantMessageId: "source-assistant-1",
+					documentFamilyId: "source-family-1",
+					documentFamilyStatus: "active",
+					versionNumber: 1,
+					originConversationId: "source-conv",
+					originAssistantMessageId: "source-assistant-1",
+					sourceChatFileId: "source-file-1",
+				}),
+				createdAt: new Date("2026-05-15T10:00:03.000Z"),
+				updatedAt: new Date("2026-05-15T10:00:03.000Z"),
+			})
+			.run();
+		sqlite.close();
+	}
+
+	function readExtractionJobs() {
+		const { sqlite, db } = openDatabase();
+		const rows = db.select().from(schema.documentExtractionJobs).all();
+		sqlite.close();
+		return rows;
+	}
+
+	it("queues a readback for a forked generated file whose text never arrived", async () => {
+		const { GENERATED_FILE_NO_EXTRACTION_TEXT } = await import(
+			"./extraction/readback"
+		);
+		await seedForkWithPendingReadback({
+			filename: "report.pdf",
+			mimeType: "application/pdf",
+			contentText: [
+				"Generated file: report.pdf",
+				"",
+				`Extracted file content: ${GENERATED_FILE_NO_EXTRACTION_TEXT}`,
+			].join("\n"),
+		});
+		const { createConversationFork } = await import("./conversation-forks");
+
+		const result = await createConversationFork({
+			userId: "user-1",
+			sourceConversationId: "source-conv",
+			sourceMessageId: "source-assistant-1",
+		});
+		const forkGeneratedWork = readGeneratedWorkRows(result.conversation.id);
+		trackStoredChatPath(forkGeneratedWork.generatedFiles[0]?.storagePath);
+		const copiedChatFileId = forkGeneratedWork.generatedFiles[0]?.id;
+
+		const jobs = readExtractionJobs();
+		expect(jobs).toHaveLength(1);
+		expect(jobs[0]).toMatchObject({
+			userId: "user-1",
+			conversationId: result.conversation.id,
+			chatGeneratedFileId: copiedChatFileId,
+			origin: "generated_file_readback",
+			intakeRoute: "mineru",
+			status: "queued",
+			// EXTRACTION_PRIORITY_READBACK — behind every user upload.
+			priority: 10,
+		});
+		expect(jobs[0]?.chatGeneratedFileId).not.toBe("source-file-1");
+	});
+
+	it("queues nothing for a forked generated file whose text is already there", async () => {
+		await seedForkWithPendingReadback({
+			filename: "report.pdf",
+			mimeType: "application/pdf",
+			contentText: [
+				"Generated file: report.pdf",
+				"",
+				"Extracted file content:",
+				"The quarterly ledger reconciles.",
+			].join("\n"),
+		});
+		const { createConversationFork } = await import("./conversation-forks");
+
+		const result = await createConversationFork({
+			userId: "user-1",
+			sourceConversationId: "source-conv",
+			sourceMessageId: "source-assistant-1",
+		});
+		trackStoredChatPath(
+			readGeneratedWorkRows(result.conversation.id).generatedFiles[0]
+				?.storagePath,
+		);
+
+		expect(readExtractionJobs()).toEqual([]);
+	});
+
+	it("queues nothing for a text-like generated file, which never needed a backend", async () => {
+		const { GENERATED_FILE_NO_EXTRACTION_TEXT } = await import(
+			"./extraction/readback"
+		);
+		await seedForkWithPendingReadback({
+			filename: "report.md",
+			mimeType: "text/markdown",
+			contentText: `Extracted file content: ${GENERATED_FILE_NO_EXTRACTION_TEXT}`,
+		});
+		const { createConversationFork } = await import("./conversation-forks");
+
+		const result = await createConversationFork({
+			userId: "user-1",
+			sourceConversationId: "source-conv",
+			sourceMessageId: "source-assistant-1",
+		});
+		trackStoredChatPath(
+			readGeneratedWorkRows(result.conversation.id).generatedFiles[0]
+				?.storagePath,
+		);
+
+		expect(readExtractionJobs()).toEqual([]);
+	});
 });

@@ -1903,6 +1903,26 @@ describe("chat page cloud-connector warning gate (Issue 7.4 fix pass)", () => {
 			promptReady: true,
 			promptArtifactId: "normalized-queued-1",
 			readinessError: null,
+			// Phase 3: every upload response carries its ledger row. This one is
+			// already `succeeded`, which is what releases the queued send — the
+			// composer's readiness now reads the row, not `promptReady`.
+			extraction: {
+				id: "extraction-queued-1",
+				sourceArtifactId: "artifact-queued-1",
+				normalizedArtifactId: "normalized-queued-1",
+				status: "succeeded",
+				intakeRoute: "mineru",
+				fileName: "notes.pdf",
+				attemptCount: 1,
+				maxAttempts: 3,
+				retryable: false,
+				cancelable: false,
+				error: null,
+				createdAt: Date.now(),
+				updatedAt: Date.now(),
+				startedAt: Date.now(),
+				legacy: false,
+			},
 		});
 
 		await waitFor(() => {

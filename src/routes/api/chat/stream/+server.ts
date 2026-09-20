@@ -112,6 +112,7 @@ export const POST: RequestHandler = async (event) => {
 			prepareAdmittedChatTurn({
 				userId: user.id,
 				admittedTurn: turn,
+				signal: event.request.signal,
 			}),
 		upstreamMessage,
 		downstreamAbortSignal: event.request.signal,

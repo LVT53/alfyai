@@ -173,6 +173,26 @@ engine the app POSTs files to.
 | `MINERU_API_URL` | No | `http://127.0.0.1:8001` | Base URL of the MinerU service (the app POSTs uploads to `${MINERU_API_URL}/file_parse`) | Set it when MinerU runs on another host or port | Must be reachable from the app server. See [docs/uploads.md](uploads.md) |
 | `MINERU_TIMEOUT_MS` | No | `300000` | Timeout for a MinerU extraction request | Raise it for very large documents | Long extractions may need a higher value |
 
+### Document Extraction Ledger
+
+Extraction is a durable background job, not a step inside the upload request. These eleven keys are
+editable live on **Settings → System → Advanced** (group *Limits*); a change applies on the next
+claim, failure or wait, with no restart.
+
+| Variable | Required? | Default | What it does | When to set it | Caveats |
+|---|---|---:|---|---|---|
+| `DOCUMENT_EXTRACTION_WORKER_ENABLED` | No | `true` | Runs the background extraction worker | Set `false` to pause extraction during maintenance | Queued documents wait; nothing is lost or failed |
+| `DOCUMENT_EXTRACTION_MAX_CONCURRENCY` | No | `3` | Documents extracted at once across all users (1–16) | Raise it when the extraction backend has spare capacity | Counted from ledger rows, so it holds across processes |
+| `DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY` | No | `2` | Of those slots, how many one user may hold (1–16) | Lower it on a multi-tenant box | Must be ≤ the global cap to have any effect |
+| `DOCUMENT_EXTRACTION_MAX_ATTEMPTS` | No | `3` | Automatic attempts before a document is reported failed (1–10) | Raise it for a flaky backend | A user's Retry always grants exactly one more attempt on top |
+| `DOCUMENT_EXTRACTION_RETRY_BASE_MS` | No | `2000` | Backoff before the second attempt (100–600000) | Raise it to be gentler on a recovering backend | Triples per attempt, jittered ±20% |
+| `DOCUMENT_EXTRACTION_RETRY_MAX_MS` | No | `60000` | Ceiling the growing backoff stops at (1000–3600000) | Raise it for long outages | A `rate_limited` error's own `retryAfterMs` wins over both |
+| `DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS` | No | `900000` | Heartbeat silence after which an attempt is reclaimed (60000–3600000) | Raise it if extractions legitimately run longer | Effective value is `max(this, MINERU_TIMEOUT_MS × 2)`, so raising the MinerU timeout raises this too |
+| `DOCUMENT_EXTRACTION_HEARTBEAT_MS` | No | `15000` | How often a running attempt marks itself alive (1000–120000) | Lower it to detect a dead worker sooner | Must stay well below the stale window |
+| `DOCUMENT_EXTRACTION_INLINE_BUDGET_MS` | No | `1500` | How long an upload request waits inline for a plain-text file (0–15000) | Set `0` to always return immediately | Only applies to the `direct-text` route; parsed formats never wait |
+| `DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS` | No | `2500` | How long Send waits for an attachment that is nearly ready (0–30000) | Set `0` to always ask the user to wait | Bounded and abortable; never waits for a job still queued |
+| `DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES` | No | `8388608` | Largest file read straight in as text without a parser (1024–134217728) | Raise it if users legitimately attach huge logs | 8 MiB of text is roughly 2M tokens and thousands of embedding calls from one upload |
+
 ## Maps And Routing
 
 Base configuration for the `map_route` tool and the inline map-card tile proxy. On-demand region

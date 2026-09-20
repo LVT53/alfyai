@@ -46,6 +46,7 @@ import {
 	uploadKnowledgeAttachment,
 	uploadRefusalFromError,
 } from "$lib/client/api/knowledge";
+import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import {
 	ackCloudConnector,
@@ -2511,6 +2512,13 @@ function handleUploadReady(
 type UploadFileResult =
 	| {
 			success: true;
+			/**
+			 * The upload's extraction job rides INSIDE the attachment, on
+			 * `PendingAttachment.extraction`. It used to travel beside it only
+			 * because that field did not exist when this page was written. An
+			 * older server response simply has none, and the composer chip then
+			 * looks exactly as it did before the ledger existed.
+			 */
 			attachment: import("$lib/server/services/knowledge/types").PendingAttachment;
 	  }
 	| { success: false; fileName: string; error: string };
@@ -2536,6 +2544,7 @@ async function uploadSingleFile(
 						result.readinessError.trim()
 							? result.readinessError
 							: null,
+					extraction: extractionFromUploadResponse(result) ?? undefined,
 				},
 			};
 		}

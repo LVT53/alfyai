@@ -16,6 +16,7 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import type { WebCitationAudit } from "$lib/server/services/web-citation-audit";
+import type { AttachmentExtractionStatusItem } from "$lib/shared/extraction-status";
 
 export type ChatTurnRoute = "send" | "stream";
 
@@ -33,11 +34,32 @@ export type {
 	AtlasProfile,
 } from "$lib/server/services/atlas/public-types";
 
+/**
+ * One blocked attachment, as the send gate saw it.
+ *
+ * The server's prose is English — `knowledge/store/attachments.ts` builds it
+ * from hard-wired literals — so the refusal carries the machine-readable
+ * facts beside the sentence and lets the client render a translated message
+ * from `status` and `errorCode`. `retryable` is the DTO's, so the composer can
+ * decide whether to offer a Retry affordance without a second round trip.
+ *
+ * An alias, not a second declaration: the rows are built by
+ * `knowledge/store/attachments.ts`, carried here, and read by the composer,
+ * and three copies of one wire shape is how the three drift apart.
+ */
+export type ChatTurnAttachmentExtraction = AttachmentExtractionStatusItem;
+
 export type ChatTurnRequestError = {
 	status: number;
 	error: string;
 	code?: string;
 	attachmentIds?: string[];
+	/**
+	 * Set when `code` is `attachment_extraction_pending` or
+	 * `attachment_extraction_failed`. Absent for every other refusal, including
+	 * the plain `attachment_not_ready` a deleted or unreadable file still gets.
+	 */
+	attachmentExtraction?: ChatTurnAttachmentExtraction[];
 };
 
 export type ParsedChatTurnRequest = {

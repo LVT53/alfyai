@@ -23,6 +23,36 @@ const CHUNK_CHAR_OVERLAP = 220;
 const CHUNK_INSERT_BATCH_ROWS = 500;
 
 /**
+ * The most chunk rows one artifact may have. A safety net, not a product
+ * limit.
+ *
+ * Sized so that the largest document the app admits without a backend still
+ * chunks in full: the direct-text cap is 8 MiB
+ * (`DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES`), the chunker advances
+ * `CHUNK_CHAR_TARGET - CHUNK_CHAR_OVERLAP` = 1180 characters per chunk, so the
+ * worst case — 8 MiB of single-byte characters — is about 7 110 rows. 12 000
+ * leaves that whole range untouched with room for a smaller target later, and
+ * still stops a pathological input (a parser that returns a 500 MB string, a
+ * future backend with no cap of its own) from inserting hundreds of thousands
+ * of rows and queueing as many embedding calls.
+ *
+ * Truncation is REPORTED, never silent: `syncArtifactChunks` returns
+ * `truncated`, the extraction worker records it on the attempt's diagnostics,
+ * and the artifact carries `chunksTruncated` in its metadata — so "retrieval
+ * only sees the first 12 000 chunks of this file" is a fact someone can find
+ * rather than a mystery about missing search hits.
+ */
+export const MAX_ARTIFACT_CHUNKS = 12_000;
+
+export interface SyncArtifactChunksResult {
+	chunkCount: number;
+	/** true when the text produced more chunks than the ceiling allows. */
+	truncated: boolean;
+	/** How many chunks the text would have produced. Equals `chunkCount` when not truncated. */
+	totalChunks: number;
+}
+
+/**
  * Determines if a file should bypass chunking based on its content length.
  * Small files (< threshold) are stored in full without chunking to save storage.
  */
@@ -80,13 +110,28 @@ export async function syncArtifactChunks(params: {
 	userId: string;
 	conversationId?: string | null;
 	contentText?: string | null;
-}): Promise<void> {
-	const chunks =
+}): Promise<SyncArtifactChunksResult> {
+	const allChunks =
 		params.contentText?.trim() &&
 		// Small file bypass: store full content without chunking.
 		!shouldBypassChunking(params.contentText.length)
 			? splitIntoChunks(params.contentText)
 			: [];
+
+	const truncated = allChunks.length > MAX_ARTIFACT_CHUNKS;
+	const chunks = truncated
+		? allChunks.slice(0, MAX_ARTIFACT_CHUNKS)
+		: allChunks;
+
+	if (truncated) {
+		console.warn("[CHUNK_SYNC] Chunk ceiling reached; retrieval is partial", {
+			artifactId: params.artifactId,
+			userId: params.userId,
+			totalChunks: allChunks.length,
+			keptChunks: chunks.length,
+			maxChunks: MAX_ARTIFACT_CHUNKS,
+		});
+	}
 
 	const rows = chunks.map((chunk, index) => ({
 		id: randomUUID(),
@@ -115,4 +160,10 @@ export async function syncArtifactChunks(params: {
 				.run();
 		}
 	});
+
+	return {
+		chunkCount: rows.length,
+		truncated,
+		totalChunks: allChunks.length,
+	};
 }

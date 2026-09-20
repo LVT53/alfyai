@@ -5,6 +5,8 @@
 // former src/lib/types.ts god-module (architecture-deepening T1); this
 // file carries no behavior change, only a new home.
 
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+
 export type ArtifactType =
 	| "source_document"
 	| "normalized_document"
@@ -113,10 +115,22 @@ export interface PendingAttachment {
 	promptReady: boolean;
 	promptArtifactId?: string | null;
 	readinessError?: string | null;
+	/**
+	 * Present for an attachment that came from a real upload in this session;
+	 * absent for one restored from a saved draft, where the ledger row is
+	 * fetched by the poller rather than carried in the draft payload.
+	 */
+	extraction?: DocumentExtractionJobDTO;
 }
 
 export interface KnowledgeUploadResponse {
 	artifact: ArtifactSummary;
+	/**
+	 * `null` while extraction is still running — which, since Phase 3, is the
+	 * normal case for anything that is not direct text. A consumer that reads
+	 * this (or `promptReady: false`) as a permanent failure is wrong; consult
+	 * `extraction.status` instead.
+	 */
 	normalizedArtifact: ArtifactSummary | null;
 	reusedExistingArtifact: boolean;
 	promptReady: boolean;
@@ -126,6 +140,8 @@ export interface KnowledgeUploadResponse {
 		originalName: string;
 		wasRenamed: boolean;
 	};
+	/** Always present. The one row every surface renders readiness from. */
+	extraction: DocumentExtractionJobDTO;
 }
 
 export interface Artifact extends ArtifactSummary {

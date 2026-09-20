@@ -164,6 +164,17 @@ export const ADMIN_CONFIG_KEYS = [
 	"FILE_PRODUCTION_RENDERER_TIMEOUT_MS",
 	"FILE_PRODUCTION_MAX_OUTPUT_FILE_BYTES",
 	"FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES",
+	"DOCUMENT_EXTRACTION_WORKER_ENABLED",
+	"DOCUMENT_EXTRACTION_MAX_CONCURRENCY",
+	"DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY",
+	"DOCUMENT_EXTRACTION_MAX_ATTEMPTS",
+	"DOCUMENT_EXTRACTION_RETRY_BASE_MS",
+	"DOCUMENT_EXTRACTION_RETRY_MAX_MS",
+	"DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS",
+	"DOCUMENT_EXTRACTION_HEARTBEAT_MS",
+	"DOCUMENT_EXTRACTION_INLINE_BUDGET_MS",
+	"DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS",
+	"DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES",
 	"ANALYTICS_EXCLUDED_USER_IDS",
 	"CONTEXT_DIAGNOSTICS_DEBUG",
 	// Admin System redesign: keys that were env-only but are read live through
@@ -342,6 +353,17 @@ export interface RuntimeConfig {
 	fileProductionRendererTimeoutMs: number;
 	fileProductionMaxOutputFileBytes: number;
 	fileProductionMaxTotalOutputBytes: number;
+	documentExtractionWorkerEnabled: boolean;
+	documentExtractionMaxConcurrency: number;
+	documentExtractionPerUserConcurrency: number;
+	documentExtractionMaxAttempts: number;
+	documentExtractionRetryBaseMs: number;
+	documentExtractionRetryMaxMs: number;
+	documentExtractionStaleAttemptMs: number;
+	documentExtractionHeartbeatMs: number;
+	documentExtractionInlineBudgetMs: number;
+	documentExtractionPreflightWaitMs: number;
+	documentExtractionMaxDirectTextBytes: number;
 	analyticsExcludedUserIds: string[];
 }
 
@@ -1170,6 +1192,89 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		if (parsed !== undefined)
 			config.fileProductionMaxTotalOutputBytes = Math.max(1024, parsed);
 	},
+	// Document-extraction ledger. Each clamp below must match `env.ts`'s clamp
+	// for the same key exactly; an admin write and a deployment env var have to
+	// mean the same number, and no test compares the two.
+	DOCUMENT_EXTRACTION_WORKER_ENABLED: (config, value) => {
+		config.documentExtractionWorkerEnabled = value !== "false";
+	},
+	DOCUMENT_EXTRACTION_MAX_CONCURRENCY: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionMaxConcurrency = Math.max(
+				1,
+				Math.min(16, parsed),
+			);
+	},
+	DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionPerUserConcurrency = Math.max(
+				1,
+				Math.min(16, parsed),
+			);
+	},
+	DOCUMENT_EXTRACTION_MAX_ATTEMPTS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionMaxAttempts = Math.max(1, Math.min(10, parsed));
+	},
+	DOCUMENT_EXTRACTION_RETRY_BASE_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionRetryBaseMs = Math.max(
+				100,
+				Math.min(600000, parsed),
+			);
+	},
+	DOCUMENT_EXTRACTION_RETRY_MAX_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionRetryMaxMs = Math.max(
+				1000,
+				Math.min(3600000, parsed),
+			);
+	},
+	DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionStaleAttemptMs = Math.max(
+				60000,
+				Math.min(3600000, parsed),
+			);
+	},
+	DOCUMENT_EXTRACTION_HEARTBEAT_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionHeartbeatMs = Math.max(
+				1000,
+				Math.min(120000, parsed),
+			);
+	},
+	DOCUMENT_EXTRACTION_INLINE_BUDGET_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionInlineBudgetMs = Math.max(
+				0,
+				Math.min(15000, parsed),
+			);
+	},
+	DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionPreflightWaitMs = Math.max(
+				0,
+				Math.min(30000, parsed),
+			);
+	},
+	DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionMaxDirectTextBytes = Math.max(
+				1024,
+				Math.min(134217728, parsed),
+			);
+	},
 	ANALYTICS_EXCLUDED_USER_IDS: (config, value) => {
 		try {
 			const parsed: unknown = JSON.parse(value);
@@ -1742,6 +1847,39 @@ export function getResolvedAdminConfigValues(
 		),
 		FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES: String(
 			config.fileProductionMaxTotalOutputBytes,
+		),
+		DOCUMENT_EXTRACTION_WORKER_ENABLED: String(
+			config.documentExtractionWorkerEnabled,
+		),
+		DOCUMENT_EXTRACTION_MAX_CONCURRENCY: String(
+			config.documentExtractionMaxConcurrency,
+		),
+		DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY: String(
+			config.documentExtractionPerUserConcurrency,
+		),
+		DOCUMENT_EXTRACTION_MAX_ATTEMPTS: String(
+			config.documentExtractionMaxAttempts,
+		),
+		DOCUMENT_EXTRACTION_RETRY_BASE_MS: String(
+			config.documentExtractionRetryBaseMs,
+		),
+		DOCUMENT_EXTRACTION_RETRY_MAX_MS: String(
+			config.documentExtractionRetryMaxMs,
+		),
+		DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS: String(
+			config.documentExtractionStaleAttemptMs,
+		),
+		DOCUMENT_EXTRACTION_HEARTBEAT_MS: String(
+			config.documentExtractionHeartbeatMs,
+		),
+		DOCUMENT_EXTRACTION_INLINE_BUDGET_MS: String(
+			config.documentExtractionInlineBudgetMs,
+		),
+		DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS: String(
+			config.documentExtractionPreflightWaitMs,
+		),
+		DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES: String(
+			config.documentExtractionMaxDirectTextBytes,
 		),
 		ANALYTICS_EXCLUDED_USER_IDS: JSON.stringify(
 			config.analyticsExcludedUserIds,

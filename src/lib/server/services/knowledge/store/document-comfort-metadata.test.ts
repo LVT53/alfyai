@@ -1,8 +1,13 @@
-// "Long-document comfort" (owner-approved mockup, 2026-09-06): tests that
-// createNormalizedArtifact computes and stores tokenEstimate/pageCount/
-// outline at ingestion — on the normalized artifact's own metadata, and
-// patched onto the source artifact (the one actually shown as an
-// attachment chip in the UI).
+// "Long-document comfort" (owner-approved mockup, 2026-09-06): tests that the
+// `indexing` phase computes and stores tokenEstimate/pageCount/outline — on the
+// normalized artifact's own metadata, and patched onto the source artifact (the
+// one actually shown as an attachment chip in the UI).
+//
+// Phase 3 moved that code out of `store/documents.ts`'s `createNormalizedArtifact`
+// (deleted with its inline `extractDocumentText` call) and into
+// `extraction/persist.ts`, which takes text in and gives an artifact out. The
+// behaviour under test is unchanged, so the assertions are too; only the
+// extraction half of the old function is gone, and it is now the extractor's.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 
@@ -27,29 +32,26 @@ vi.mock("drizzle-orm", () => ({
 	sql: vi.fn(),
 }));
 
-vi.mock("../../semantic-ranking", () => ({
-	shortlistSemanticMatchesBySubject: vi.fn(),
-}));
-
-vi.mock("../../tei-reranker", () => ({
-	canUseTeiReranker: vi.fn(),
-	rerankItems: vi.fn(),
-}));
-
 const {
 	mockCreateArtifact,
 	mockCreateArtifactLink,
 	mockUpdateArtifactMetadata,
+	mockGetNormalizedArtifactForSource,
 } = vi.hoisted(() => ({
 	mockCreateArtifact: vi.fn(),
 	mockCreateArtifactLink: vi.fn(),
 	mockUpdateArtifactMetadata: vi.fn(),
+	// Phase 3 review: persist now asks whether this source already HAS a
+	// normalized artifact, so a re-extraction rewrites it instead of minting a
+	// second one. These cases are a first extraction, so: none.
+	mockGetNormalizedArtifactForSource: vi.fn(async () => null),
 }));
 
-vi.mock("./core", () => ({
+vi.mock("$lib/server/services/knowledge/store/core", () => ({
 	createArtifact: mockCreateArtifact,
 	createArtifactLink: mockCreateArtifactLink,
 	updateArtifactMetadata: mockUpdateArtifactMetadata,
+	getNormalizedArtifactForSource: mockGetNormalizedArtifactForSource,
 	guessSummary: (text: string) => text.slice(0, 20),
 	buildArtifactVisibilityCondition: vi.fn(),
 	getArtifactOwnershipScope: vi.fn(),
@@ -59,12 +61,7 @@ vi.mock("./core", () => ({
 	mapArtifactSummary: vi.fn(),
 }));
 
-const mockExtractDocumentText = vi.hoisted(() => vi.fn());
-vi.mock("../../document-extraction", () => ({
-	extractDocumentText: mockExtractDocumentText,
-}));
-
-import { createNormalizedArtifact } from "./documents";
+import { createNormalizedArtifactFromExtraction } from "$lib/server/services/extraction/persist";
 
 function fakeArtifact(overrides: Partial<Artifact> = {}): Artifact {
 	return {
@@ -87,7 +84,7 @@ function fakeArtifact(overrides: Partial<Artifact> = {}): Artifact {
 	};
 }
 
-describe("createNormalizedArtifact — long-document comfort metadata", () => {
+describe("createNormalizedArtifactFromExtraction — long-document comfort metadata", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCreateArtifact.mockResolvedValue(fakeArtifact());
@@ -106,20 +103,15 @@ describe("createNormalizedArtifact — long-document comfort metadata", () => {
 			"Either party may terminate this agreement with 30 days notice.",
 		].join("\n");
 
-		mockExtractDocumentText.mockResolvedValue({
+		await createNormalizedArtifactFromExtraction({
+			userId: "user-1",
+			conversationId: "conv-1",
+			sourceArtifactId: "source-1",
+			sourceName: "contract.pdf",
 			text,
 			normalizedName: "contract.md",
 			mimeType: "text/markdown",
 			pageCount: 38,
-		});
-
-		await createNormalizedArtifact({
-			userId: "user-1",
-			conversationId: "conv-1",
-			sourceArtifactId: "source-1",
-			sourceStoragePath: "data/knowledge/user-1/source-1.pdf",
-			sourceName: "contract.pdf",
-			sourceMimeType: "application/pdf",
 		});
 
 		expect(mockCreateArtifact).toHaveBeenCalledTimes(1);
@@ -147,45 +139,19 @@ describe("createNormalizedArtifact — long-document comfort metadata", () => {
 	});
 
 	it("omits pageCount and outline from the patch when neither is available", async () => {
-		mockExtractDocumentText.mockResolvedValue({
-			text: "just some plain unstructured text with no headings at all",
-			normalizedName: "notes.md",
-			mimeType: "text/markdown",
-		});
-
-		await createNormalizedArtifact({
+		await createNormalizedArtifactFromExtraction({
 			userId: "user-1",
 			conversationId: null,
 			sourceArtifactId: "source-2",
-			sourceStoragePath: "data/knowledge/user-1/source-2.txt",
 			sourceName: "notes.txt",
-			sourceMimeType: "text/plain",
+			text: "just some plain unstructured text with no headings at all",
+			normalizedName: "notes.md",
+			mimeType: "text/markdown",
 		});
 
 		const patchCall = mockUpdateArtifactMetadata.mock.calls[0][0];
 		expect(patchCall.patch.tokenEstimate).toBeGreaterThan(0);
 		expect(patchCall.patch.pageCount).toBeUndefined();
 		expect(patchCall.patch.outline).toBeUndefined();
-	});
-
-	it("does nothing when extraction produces no text", async () => {
-		mockExtractDocumentText.mockResolvedValue({
-			text: null,
-			normalizedName: "empty.md",
-			mimeType: "text/markdown",
-		});
-
-		const result = await createNormalizedArtifact({
-			userId: "user-1",
-			conversationId: null,
-			sourceArtifactId: "source-3",
-			sourceStoragePath: "data/knowledge/user-1/source-3.pdf",
-			sourceName: "empty.pdf",
-			sourceMimeType: "application/pdf",
-		});
-
-		expect(result).toBeNull();
-		expect(mockCreateArtifact).not.toHaveBeenCalled();
-		expect(mockUpdateArtifactMetadata).not.toHaveBeenCalled();
 	});
 });

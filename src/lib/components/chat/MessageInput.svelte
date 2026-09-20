@@ -1,12 +1,14 @@
 <script lang="ts">
 import { onMount, tick, untrack } from "svelte";
 import {
+	Ban,
 	Bell,
 	Brain,
 	Clock,
 	Paperclip,
 	Plug,
 	Plus,
+	RotateCw,
 	Send,
 	Square,
 	VenetianMask,
@@ -42,7 +44,17 @@ import { markPreviousConversationId } from "$lib/client/conversation-session";
 import { recordComposerCommandUsed } from "$lib/client/composer-command-analytics";
 import { selectedModel } from "$lib/stores/settings";
 import { showToast } from "$lib/stores/toast";
-import { fetchKnowledgeLibrary } from "$lib/client/api/knowledge";
+import {
+	cancelExtraction,
+	fetchKnowledgeLibrary,
+	retryExtraction,
+} from "$lib/client/api/knowledge";
+import { createExtractionAnnouncer } from "$lib/client/extraction-announcements";
+import {
+	createExtractionPoller,
+	type ExtractionPoller,
+	readExtractionJobDTO,
+} from "$lib/client/extraction-poll";
 import {
 	linkedContextSourceArtifactIds,
 	linkedContextSourcesOverlap,
@@ -100,6 +112,9 @@ import {
 	attachmentChipKind,
 	attachmentChipMeta,
 	attachmentThumbnailUrl,
+	extractionChipState,
+	extractionReasonKey,
+	isExtractionPending,
 	quoteChipLabel,
 } from "./composer-chip-presentation";
 import LinkedDocumentPicker from "./LinkedDocumentPicker.svelte";
@@ -128,6 +143,7 @@ import type {
 	KnowledgeDocumentItem,
 	PendingAttachment,
 } from "$lib/server/services/knowledge/types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 
@@ -263,7 +279,15 @@ let {
 				conversationId: string;
 				done: (
 					result:
-						| { success: true; attachment: PendingAttachment }
+						| {
+								success: true;
+								/**
+								 * The upload's extraction job rides on
+								 * `PendingAttachment.extraction`. One shape, so the
+								 * composer and the draft restore read the same field.
+								 */
+								attachment: PendingAttachment;
+						  }
 						| { success: false; fileName: string; error: string },
 				) => void;
 		  }) => void)
@@ -349,7 +373,36 @@ let pendingSkill = $state<PendingSkillSelection | null>(null);
 // cleared with every other per-turn selection.
 let pendingQuotes = $state<{ id: string; text: string; label: string }[]>([]);
 let quoteIdSeed = 0;
-let uploadState = $state<"idle" | "uploading" | "preparing">("idle");
+// "preparing" is gone. It used to arrive on a fixed delay after an upload
+// started, from a timer that knew nothing about the file, and it lied in both
+// directions: a one-line .txt was called "preparing" for as long as a scanned
+// 40 MB PDF, and a PDF that took a minute stopped saying anything the moment
+// the HTTP response landed. The extraction ledger answers the real question
+// per file, so the composer asks it instead of guessing.
+let uploadState = $state<"idle" | "uploading">("idle");
+// Per-artifact extraction state, keyed on the source artifact id. Seeded from
+// the upload response and kept current by the poller.
+let extractionJobs = $state<Record<string, DocumentExtractionJobDTO>>({});
+// OQ6 — a chip the instant the user picks a file, before the upload POST has
+// resolved and before there is an artifact id to key one on. Keyed on a
+// client-generated id and swapped for the real chip when the response lands,
+// the same trick `buildPendingFileProductionJobPlaceholder` plays for a
+// generated file. Without it the composer shows nothing at all for the whole
+// round trip, which on a 40 MB file is the longest it ever shows nothing.
+let optimisticUploads = $state<{ id: string; name: string }[]>([]);
+let optimisticUploadSeed = 0;
+let extractionActionError = $state("");
+let extractionPoller: ExtractionPoller | null = null;
+// Artifacts whose Retry or Cancel is in flight. A second click on a control
+// the first click has not finished with would fire a second request and, for
+// Retry, burn a second attempt on the same document.
+let extractionActionIds = $state<Set<string>>(new Set());
+// The polite live region's text. Set only when a document's state really
+// moved (see `extraction-announcements`), because the poller answers every
+// second and a region bound straight to the DTO would read the same sentence
+// back at a screen-reader user for the whole length of a read.
+let extractionAnnouncement = $state("");
+const extractionAnnouncer = createExtractionAnnouncer();
 let attachmentError = $state("");
 let documentPickerOpen = $state(false);
 let sourceManagerOpen = $state(false);
@@ -460,11 +513,26 @@ let effectiveLinkedSources = $derived(
 		),
 	),
 );
+// The ledger decides, when it has an opinion. `promptReady: false` now means
+// "not yet" for the whole normal case of a document upload, so treating it as
+// the readiness signal would hold Send behind every PDF forever; but a build
+// whose upload endpoint says nothing about extraction still needs an answer,
+// and there `promptReady` is the only one available.
 let hasUnreadyAttachment = $derived(
-	pendingAttachments.some((attachment) => !attachment.promptReady),
+	pendingAttachments.some((attachment) => {
+		const job = extractionJobs[attachment.artifact.id];
+		return job ? isExtractionPending(job) : !attachment.promptReady;
+	}),
 );
 let attachmentReadinessErrors = $derived(
-	pendingAttachments.filter((attachment) => Boolean(attachment.readinessError)),
+	pendingAttachments.filter((attachment) => {
+		if (!attachment.readinessError) return false;
+		// A red "this file could not be prepared" under a chip that says
+		// "Reading…" is the composer contradicting itself. While the ledger is
+		// still working, the chip is the honest surface and this line waits.
+		const job = extractionJobs[attachment.artifact.id];
+		return !job || !isExtractionPending(job);
+	}),
 );
 
 // "Long-document comfort" (owner-approved mockup, 2026-09-06): an outline
@@ -573,6 +641,7 @@ let hasComposerChips = $derived(
 		(forceWebSearch && !selectedAtlasProfile) ||
 		Boolean(selectedAtlasProfile) ||
 		pendingAttachments.length > 0 ||
+		optimisticUploads.length > 0 ||
 		pendingQuotes.length > 0 ||
 		(composerCommandRegistryEnabled && effectiveLinkedSources.length > 0),
 );
@@ -1014,6 +1083,11 @@ $effect(() => {
 		// Override with draftAttachments
 		for (const attachment of draftAttachments) {
 			merged.set(attachment.artifact.id, attachment);
+			// A draft restored mid-extraction carries the ledger row. Adopting it
+			// here is what makes the chip come back as "Reading…" and dashed
+			// rather than as an ordinary attached file with a red readiness line
+			// under it, for the second or so before the first poll lands.
+			applyExtractionJob(readExtractionJobDTO(attachment.extraction));
 		}
 
 		pendingAttachments = Array.from(merged.values());
@@ -1037,7 +1111,9 @@ $effect(() => {
 					}
 				: null;
 		attachmentError = "";
+		extractionActionError = "";
 		uploadState = "idle";
+		optimisticUploads = [];
 		queuedSendAfterProcessing = false;
 		showToolsMenu = false;
 		selectedAtlasProfile = draftAtlasMode
@@ -1111,10 +1187,13 @@ $effect(() => {
 	if (!message) {
 		message = "";
 		pendingAttachments = [];
+		extractionJobs = {};
+		optimisticUploads = [];
 		selectedLinkedSources = [];
 		pendingSkill = null;
 		pendingQuotes = [];
 		attachmentError = "";
+		extractionActionError = "";
 		uploadState = "idle";
 		queuedSendAfterProcessing = false;
 		showToolsMenu = false;
@@ -1409,10 +1488,12 @@ function buildSendPayload(nextMessage = message): SendPayload {
 function clearComposerAfterSubmit() {
 	message = "";
 	pendingAttachments = [];
+	extractionJobs = {};
 	selectedLinkedSources = [];
 	pendingSkill = null;
 	pendingQuotes = [];
 	attachmentError = "";
+	extractionActionError = "";
 	queuedSendAfterProcessing = false;
 	showToolsMenu = false;
 	sourceManagerOpen = false;
@@ -1560,6 +1641,24 @@ onMount(() => {
 	onUploadReady?.(uploadFiles);
 	onCapabilitiesReady?.(ensureCapabilitiesLoaded);
 	onComposeReady?.(composeAndSend);
+	// One poller for the composer's whole attachment list, armed by the
+	// effect below only while something it holds is unfinished. Created here
+	// rather than in that effect so there is exactly one for the component's
+	// lifetime, and exactly one thing to stop on teardown.
+	extractionPoller = createExtractionPoller({
+		getArtifactIds: () =>
+			pendingAttachments.map((attachment) => attachment.artifact.id),
+		onJobs: (jobs) => {
+			const next = { ...extractionJobs };
+			for (const job of jobs) {
+				if (job.sourceArtifactId) next[job.sourceArtifactId] = job;
+			}
+			extractionJobs = next;
+		},
+		// A poll that fails is retried on the next tick; telling the user their
+		// network hiccuped under a chip that is still correct would be noise.
+		onError: () => undefined,
+	});
 	void ensureCapabilitiesLoaded();
 	void fetchAvailableModels()
 		.then((response) => {
@@ -1572,10 +1671,59 @@ onMount(() => {
 		window.removeEventListener("resize", adjustHeight);
 		stopWatchingPhoneViewport();
 		clearLongPress();
+		extractionPoller?.stop();
+		extractionPoller = null;
 		if (textareaValueSyncFrame !== null) {
 			cancelAnimationFrame(textareaValueSyncFrame);
 		}
 	};
+});
+
+// Arm or disarm the poller whenever the tracked set changes. The poller does
+// the rest itself: it stops as soon as every job it has seen is terminal, so
+// a composer holding three finished attachments costs nothing.
+$effect(() => {
+	const trackedIds = pendingAttachments
+		.map((attachment) => attachment.artifact.id)
+		.join(",");
+	void trackedIds;
+	extractionPoller?.sync();
+});
+
+// The polite live region's one sentence. `changed()` is what keeps this from
+// firing on every poll: it answers only for the documents whose state really
+// moved, and a batch of them becomes ONE string, so five files finishing
+// together is one announcement rather than five.
+$effect(() => {
+	const changed = extractionAnnouncer.changed(
+		pendingAttachments.flatMap((attachment) => {
+			const job = extractionJobs[attachment.artifact.id];
+			return job
+				? [
+						{
+							artifactId: attachment.artifact.id,
+							name: attachment.artifact.name,
+							job,
+						},
+					]
+				: [];
+		}),
+	);
+	if (changed.length === 0) return;
+	extractionAnnouncement = changed
+		.map(
+			(entry) =>
+				`${entry.name}: ${$t(
+					asI18nKey(
+						extractionReasonKey({
+							status: entry.job.status,
+							errorCode: entry.job.error?.code ?? null,
+							retryable: entry.job.retryable,
+						}),
+					),
+				)}`,
+		)
+		.join(". ");
 });
 
 // Everyday redesign — where "attach" goes.
@@ -2477,12 +2625,9 @@ async function uploadFiles(files: FileList | null) {
 	if (selectedFiles.length === 0) return;
 	uploadState = "uploading";
 	attachmentError = "";
+	extractionActionError = "";
 	const failures: string[] = [];
-	if (typeof window !== "undefined") {
-		preparingTimer = window.setTimeout(() => {
-			uploadState = "preparing";
-		}, 900);
-	}
+	const optimisticIds: string[] = [];
 
 	try {
 		// The limit the server reports, seeded by the SSR shell and refreshed by
@@ -2507,30 +2652,45 @@ async function uploadFiles(files: FileList | null) {
 			attachmentError = $t("chat.uploadSomeFailed", { count: failures.length });
 		}
 
+		// OQ6 — the chip goes up now, not when the round trip ends. Creating a
+		// conversation, storing 40 MB of bytes and getting an artifact id back
+		// is exactly the stretch the composer used to spend showing nothing.
+		for (const file of validFiles) {
+			optimisticUploadSeed += 1;
+			const id = `optimistic-upload:${optimisticUploadSeed}`;
+			optimisticIds.push(id);
+			optimisticUploads = [...optimisticUploads, { id, name: file.name }];
+		}
+
 		let targetConversationId = resolvedConversationId;
 		if (!targetConversationId && ensureConversation) {
 			targetConversationId = await ensureConversation();
 			resolvedConversationId = targetConversationId;
 		}
 		if (!targetConversationId) {
-			if (preparingTimer) {
-				clearTimeout(preparingTimer);
-			}
-			uploadState = "idle";
 			throw new Error($t("chat.uploadError"));
 		}
 
-		pendingUploadCount = validFiles.length;
-		onUploadFiles?.({
+		if (!onUploadFiles) {
+			// No host to do the uploading. Without this the optimistic chips would
+			// stand there forever and the composer would stay in `uploading`.
+			throw new Error($t("chat.uploadError"));
+		}
+
+		// Increment, never assign: the file picker is closed while an upload is
+		// in flight (`canAttach` goes false), but a DROP is not — the drop handler
+		// only checks read-only and sending. Dropping two files while three are
+		// uploading used to clobber the counter to 2, which the first batch's
+		// three callbacks then drove to -1, retiring the "Uploading…" line and
+		// opening the send gate while the second batch was still in flight.
+		pendingUploadCount += validFiles.length;
+		onUploadFiles({
 			files: validFiles,
 			conversationId: targetConversationId,
 			done: addUploadedAttachment,
 		});
 	} catch (error) {
-		if (preparingTimer) {
-			clearTimeout(preparingTimer);
-			preparingTimer = null;
-		}
+		dropOptimisticUploads(optimisticIds);
 		uploadState = "idle";
 		if (fileInput) fileInput.value = "";
 		attachmentError =
@@ -2541,7 +2701,43 @@ async function uploadFiles(files: FileList | null) {
 }
 
 let pendingUploadCount = $state(0);
-let preparingTimer = $state<number | null>(null);
+
+function dropOptimisticUploads(ids: string[]) {
+	if (ids.length === 0) return;
+	const dropped = new Set(ids);
+	optimisticUploads = optimisticUploads.filter(
+		(upload) => !dropped.has(upload.id),
+	);
+}
+
+/**
+ * Retires ONE optimistic chip now that a file has finished, preferring the one
+ * wearing the same name. A name match is not guaranteed — the server may have
+ * auto-renamed the artifact on a collision — so the fallback retires the
+ * oldest, which keeps the count right even when the labels cannot be paired.
+ */
+function retireOptimisticUpload(name: string | null) {
+	if (optimisticUploads.length === 0) return;
+	const index = name
+		? optimisticUploads.findIndex((upload) => upload.name === name)
+		: -1;
+	const target = index >= 0 ? index : 0;
+	optimisticUploads = optimisticUploads.filter(
+		(_, position) => position !== target,
+	);
+}
+
+function applyExtractionJob(job: DocumentExtractionJobDTO | null | undefined) {
+	if (!job?.sourceArtifactId) return;
+	extractionJobs = { ...extractionJobs, [job.sourceArtifactId]: job };
+	extractionPoller?.observe(job);
+}
+
+function forgetExtractionJob(artifactId: string) {
+	if (!(artifactId in extractionJobs)) return;
+	const { [artifactId]: _removed, ...rest } = extractionJobs;
+	extractionJobs = rest;
+}
 
 function addUploadedAttachment(
 	result:
@@ -2557,17 +2753,17 @@ function addUploadedAttachment(
 		);
 		next.set(result.attachment.artifact.id, result.attachment);
 		pendingAttachments = Array.from(next.values());
+		applyExtractionJob(readExtractionJobDTO(result.attachment.extraction));
+		retireOptimisticUpload(result.attachment.artifact.name);
+		extractionPoller?.sync();
 		draftEmissionVersion += 1;
 		void emitDraftChange();
 	} else {
 		attachmentError = `${result.fileName}: ${result.error}`;
+		retireOptimisticUpload(result.fileName);
 	}
 	pendingUploadCount -= 1;
 	if (pendingUploadCount <= 0) {
-		if (preparingTimer) {
-			clearTimeout(preparingTimer);
-			preparingTimer = null;
-		}
 		uploadState = "idle";
 		if (fileInput) fileInput.value = "";
 	}
@@ -2577,11 +2773,88 @@ function removePendingAttachment(id: string) {
 	pendingAttachments = pendingAttachments.filter(
 		(attachment) => attachment.artifact.id !== id,
 	);
+	forgetExtractionJob(id);
+	extractionPoller?.sync();
 	if (pendingAttachments.length === 0) {
 		queuedSendAfterProcessing = false;
 	}
 	draftEmissionVersion += 1;
 	void emitDraftChange();
+}
+
+/**
+ * Retry and Cancel act on the artifact, so a document with no row yet (one
+ * that predates the ledger) needs no special case here — the endpoint
+ * materialises one. A failure to reach the endpoint is shown as its own line
+ * rather than mutating the chip: the chip still reflects the last state the
+ * SERVER reported, which is the only state that is true.
+ */
+async function retryAttachmentExtraction(
+	event: MouseEvent,
+	artifactId: string,
+	name: string,
+) {
+	await runChipExtractionAction(event, artifactId, async () => {
+		try {
+			applyExtractionJob(await retryExtraction(artifactId));
+			extractionPoller?.sync();
+		} catch {
+			extractionActionError = $t("chat.extraction.retryFailed", { name });
+		}
+	});
+}
+
+async function cancelAttachmentExtraction(
+	event: MouseEvent,
+	artifactId: string,
+	name: string,
+) {
+	await runChipExtractionAction(event, artifactId, async () => {
+		try {
+			applyExtractionJob(await cancelExtraction(artifactId));
+			extractionPoller?.sync();
+		} catch {
+			extractionActionError = $t("chat.extraction.cancelFailed", { name });
+		}
+	});
+}
+
+/**
+ * The in-flight guard and the focus rescue, shared by both chip controls.
+ *
+ * Pressing Retry or Cancel usually makes the button that was pressed
+ * disappear — Retry requeues the job, so the chip swaps Retry for Cancel —
+ * and a keyboard user was then left on `<body>`, at the top of the document,
+ * with no idea where they had been. Focus moves to the chip's own control,
+ * its ×, which is the one thing in that `<li>` that is always there.
+ */
+async function runChipExtractionAction(
+	event: MouseEvent,
+	artifactId: string,
+	run: () => Promise<void>,
+) {
+	if (extractionActionIds.has(artifactId)) return;
+	const item = (event.currentTarget as HTMLElement | null)?.closest("li");
+	extractionActionError = "";
+	extractionActionIds = new Set(extractionActionIds).add(artifactId);
+	try {
+		await run();
+	} finally {
+		const next = new Set(extractionActionIds);
+		next.delete(artifactId);
+		extractionActionIds = next;
+		await tick();
+		restoreChipFocus(item);
+	}
+}
+
+function restoreChipFocus(item: Element | null | undefined) {
+	if (!item?.isConnected) return;
+	const active = document.activeElement;
+	// Still somewhere inside the chip (the button survived, or the user moved
+	// on themselves): leave it alone.
+	if (active && active !== document.body && item.contains(active)) return;
+	item.querySelector<HTMLElement>(".composer-chip__remove")?.focus();
 }
 
 function editQueuedMessage() {
@@ -2702,7 +2975,12 @@ async function emitDraftChange(force = false) {
 			onanimationend={handleCommandTrayAnimationEnd}
 		>
 			{#if visibleCommandTrayRows.length > 0}
-				<div class="sr-only" role="status" aria-live="polite">
+				<div
+					class="sr-only"
+					role="status"
+					aria-live="polite"
+					data-testid="composer-command-announcer"
+				>
 					{activeCommandAnnouncement}
 				</div>
 				{#each visibleCommandTrayRows as command, index (command.id)}
@@ -2860,18 +3138,59 @@ async function emitDraftChange(force = false) {
 					</li>
 				{/if}
 
+				<!-- The extraction ledger speaks here. A running job's clause is
+				     the MUTED meta after the middle dot, because nothing has
+				     gone wrong; only a failure takes the chip's danger slot.
+				     Retry and Cancel stand BESIDE the pill, like the Atlas
+				     bell and the outline disclosure — a chip still has exactly
+				     one control of its own, its ×. -->
 				{#each pendingAttachments as attachment (attachment.artifact.id)}
+					{@const extraction = extractionJobs[attachment.artifact.id] ?? null}
+					{@const chip = extractionChipState(extraction)}
+					{@const extractionBusy = extractionActionIds.has(attachment.artifact.id)}
 					<li class="composer-chip-item">
 						<ComposerChip
 							kind={attachmentChipKind(attachment.artifact)}
 							label={attachment.artifact.name}
-							meta={chipMetaText(attachment.artifact)}
+							meta={chip.progressKey
+								? $t(asI18nKey(chip.progressKey))
+								: chipMetaText(attachment.artifact)}
+							status={chip.errorKey ? $t(asI18nKey(chip.errorKey)) : null}
+							dashed={chip.dashed}
 							thumbnailUrl={attachmentThumbnailUrl(attachment.artifact)}
 							removable
 							removeLabel={$t('composerChips.removeAttachment', { name: attachment.artifact.name })}
 							onRemove={() => removePendingAttachment(attachment.artifact.id)}
 							testId="composer-chip-attachment"
 						/>
+						{#if chip.canRetry}
+							<button
+								type="button"
+								class="composer-chip-disclosure"
+								data-testid="composer-chip-extraction-retry"
+								aria-label={$t('chat.extraction.retryA11y', { name: attachment.artifact.name })}
+								title={extractionBusy ? $t('chat.extraction.busy') : $t('chat.extraction.retry')}
+								disabled={extractionBusy}
+								aria-busy={extractionBusy}
+								onclick={(event) => void retryAttachmentExtraction(event, attachment.artifact.id, attachment.artifact.name)}
+							>
+								<RotateCw size={13} strokeWidth={2} aria-hidden="true" />
+							</button>
+						{/if}
+						{#if chip.canCancel}
+							<button
+								type="button"
+								class="composer-chip-disclosure"
+								data-testid="composer-chip-extraction-cancel"
+								aria-label={$t('chat.extraction.cancelA11y', { name: attachment.artifact.name })}
+								title={extractionBusy ? $t('chat.extraction.busy') : $t('chat.extraction.cancel')}
+								disabled={extractionBusy}
+								aria-busy={extractionBusy}
+								onclick={(event) => void cancelAttachmentExtraction(event, attachment.artifact.id, attachment.artifact.name)}
+							>
+								<Ban size={13} strokeWidth={2} aria-hidden="true" />
+							</button>
+						{/if}
 						{#if attachment.artifact.outline && attachment.artifact.outline.length > 0}
 							<AttachmentOutline
 								outline={attachment.artifact.outline}
@@ -2880,6 +3199,22 @@ async function emitDraftChange(force = false) {
 								disclosureLabel={$t('composerChips.outlineDisclosure', { name: attachment.artifact.name })}
 							/>
 						{/if}
+					</li>
+				{/each}
+
+				<!-- OQ6 — a file whose bytes are still moving. No artifact id
+				     exists yet, so it cannot be removed or cancelled; it is a
+				     promise that a real chip is coming, in the place the real
+				     chip will take. -->
+				{#each optimisticUploads as upload (upload.id)}
+					<li class="composer-chip-item">
+						<ComposerChip
+							kind="queued"
+							label={upload.name}
+							meta={$t('chat.extraction.uploading')}
+							dashed
+							testId="composer-chip-upload"
+						/>
 					</li>
 				{/each}
 
@@ -2923,6 +3258,19 @@ async function emitDraftChange(force = false) {
 			{/snippet}
 		</ComposerChipRow>
 	{/if}
+
+		<!-- The chips' extraction state, spoken once per real change. A chip
+		     that says "Reading…" is invisible to a screen reader otherwise,
+		     and binding this to the DTO itself would re-announce the same
+		     sentence on every one-second poll. -->
+		<div
+			class="sr-only"
+			role="status"
+			aria-live="polite"
+			data-testid="composer-extraction-announcer"
+		>
+			{extractionAnnouncement}
+		</div>
 
 		<!-- The queued-message banner keeps its own shape, because it has a
 		     sentence to hold, but inherits the chip's dashed edge, 999px
@@ -3214,20 +3562,19 @@ async function emitDraftChange(force = false) {
 		</div>
 	{/if}
 
-	{#if isUploadingAttachment || attachmentError || attachmentReadinessErrors.length > 0 || queuedSendAfterProcessing}
+	{#if isUploadingAttachment || attachmentError || extractionActionError || attachmentReadinessErrors.length > 0 || queuedSendAfterProcessing}
 		<div class="mt-2 flex flex-col gap-1 px-2 text-xs font-sans">
-			{#if (uploadState === 'uploading' && sendDisabledHint !== 'uploading') || (uploadState === 'preparing' && sendDisabledHint !== 'preparing')}
-				{#if uploadState === 'uploading'}
-					<span class="text-text-muted">{$t('chat.uploadingFile')}</span>
-				{:else if uploadState === 'preparing'}
-					<span class="text-text-muted">{$t('chat.extractingDocument')}</span>
-				{/if}
+			{#if uploadState === 'uploading' && sendDisabledHint !== 'uploading'}
+				<span class="text-text-muted">{$t('chat.uploadingFile')}</span>
 			{/if}
 			{#if queuedSendAfterProcessing && (isUploadingAttachment || hasUnreadyAttachment)}
 				<span class="text-text-muted">{$t('chat.messageWillSendAutomatically')}</span>
 			{/if}
 			{#if attachmentError}
 				<span class="text-danger">{attachmentError}</span>
+			{/if}
+			{#if extractionActionError}
+				<span class="text-danger" data-testid="extraction-action-error">{extractionActionError}</span>
 			{/if}
 			{#each attachmentReadinessErrors as attachment (attachment.artifact.id)}
 				<span class="text-danger">

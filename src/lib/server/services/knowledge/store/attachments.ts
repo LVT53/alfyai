@@ -8,12 +8,18 @@ import {
 	artifactLinks,
 	artifacts,
 } from "$lib/server/db/schema";
+import { getExtractionJobsForArtifacts } from "$lib/server/services/extraction";
 import type {
 	Artifact,
 	ArtifactType,
 } from "$lib/server/services/knowledge/types";
 import type { ChatAttachment } from "$lib/server/services/messages-types";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import type {
+	AttachmentExtractionStatusItem,
+	DocumentExtractionJobDTO,
+} from "$lib/shared/extraction-status";
+import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { getSupportedExtractionSummary } from "$lib/shared/file-types/model-facing";
 import {
 	hasMeaningfulAttachmentText,
@@ -54,6 +60,18 @@ export const NOT_PREPARED_READINESS_ERROR = `This file could not be prepared for
 	"en",
 )}.`;
 
+/**
+ * Phase 3: extraction runs in the background, so "no normalized artifact yet"
+ * is the NORMAL state of a freshly uploaded PDF rather than a verdict on it.
+ * These two sentences are what keeps the send gate from calling a document
+ * broken one second after the upload that will finish preparing it.
+ */
+export const STILL_PREPARING_READINESS_ERROR =
+	"This file is still being prepared for chat. Wait a moment and send it again.";
+
+export const EXTRACTION_RETRYABLE_READINESS_ERROR =
+	"This file could not be prepared for chat. Try the Retry action on it, then send again.";
+
 type PromptArtifactDiagnostics = {
 	contentLength: number;
 	contentPreview: string | null;
@@ -71,17 +89,55 @@ type PromptAttachmentResolutionItem = {
 	contentPreview: string | null;
 	contentHash: string | null;
 	chunkCount: number;
+	/** The ledger row behind this attachment, when one is resolvable. */
+	extraction: DocumentExtractionJobDTO | null;
 };
 
+/**
+ * The three reasons a send can be refused. All three keep HTTP 422 (OQ2): both
+ * client handlers and `isAttachmentReadinessError` key on that status today, and
+ * a distinct `code` carries everything a new status would have.
+ */
+export const ATTACHMENT_READINESS_ERROR_CODES = [
+	"attachment_not_ready",
+	"attachment_extraction_pending",
+	"attachment_extraction_failed",
+] as const;
+export type AttachmentReadinessErrorCode =
+	(typeof ATTACHMENT_READINESS_ERROR_CODES)[number];
+
+const ATTACHMENT_READINESS_ERROR_CODE_SET: ReadonlySet<string> =
+	new Set<string>(ATTACHMENT_READINESS_ERROR_CODES);
+
+/**
+ * One row per refused attachment, for the client to render per file.
+ *
+ * Defined in the shared vocabulary, not here: `chat-turn/types.ts` carries the
+ * same rows on `ChatTurnRequestError` and the composer renders them, and a
+ * client module cannot import `$lib/server`. Re-exported so this module's
+ * existing importers keep working.
+ */
+export type { AttachmentExtractionStatusItem };
+
 export class AttachmentReadinessError extends Error {
-	code = "attachment_not_ready" as const;
+	code: AttachmentReadinessErrorCode;
 	status = 422 as const;
 	attachmentIds: string[];
+	items: AttachmentExtractionStatusItem[];
 
-	constructor(message: string, attachmentIds: string[]) {
+	constructor(
+		message: string,
+		attachmentIds: string[],
+		options?: {
+			code?: AttachmentReadinessErrorCode;
+			items?: AttachmentExtractionStatusItem[];
+		},
+	) {
 		super(message);
 		this.name = "AttachmentReadinessError";
 		this.attachmentIds = attachmentIds;
+		this.code = options?.code ?? "attachment_not_ready";
+		this.items = options?.items ?? [];
 	}
 }
 
@@ -93,12 +149,33 @@ export function isAttachmentReadinessError(
 		(typeof error === "object" &&
 			error !== null &&
 			"code" in error &&
-			(error as { code?: unknown }).code === "attachment_not_ready")
+			typeof (error as { code?: unknown }).code === "string" &&
+			ATTACHMENT_READINESS_ERROR_CODE_SET.has((error as { code: string }).code))
 	);
+}
+
+function isPendingExtraction(job: DocumentExtractionJobDTO | null): boolean {
+	return job !== null && !isTerminalExtractionStatus(job.status);
+}
+
+export function classifyAttachmentReadinessErrorCode(
+	items: PromptAttachmentResolutionItem[],
+): AttachmentReadinessErrorCode {
+	if (items.some((item) => item.displayArtifact === null)) {
+		return "attachment_not_ready";
+	}
+	if (items.some((item) => isPendingExtraction(item.extraction))) {
+		return "attachment_extraction_pending";
+	}
+	if (items.some((item) => item.extraction?.status === "failed")) {
+		return "attachment_extraction_failed";
+	}
+	return "attachment_not_ready";
 }
 
 function buildAttachmentReadinessErrorMessage(
 	items: PromptAttachmentResolutionItem[],
+	code: AttachmentReadinessErrorCode,
 ): string {
 	if (items.some((item) => item.displayArtifact === null)) {
 		return "One or more attached files are no longer available. Remove them and upload again.";
@@ -111,7 +188,29 @@ function buildAttachmentReadinessErrorMessage(
 		}
 	}
 
+	if (code === "attachment_extraction_pending") {
+		return "One or more attached files are still being prepared for chat. Wait a moment and send again.";
+	}
+
 	return "One or more attached files could not be prepared for chat. Remove the file or upload a supported text-readable document.";
+}
+
+function toAttachmentExtractionStatusItems(
+	items: PromptAttachmentResolutionItem[],
+): AttachmentExtractionStatusItem[] {
+	return items.flatMap((item) =>
+		item.extraction
+			? [
+					{
+						artifactId: item.requestedArtifactId,
+						name: item.displayArtifact?.name ?? null,
+						status: item.extraction.status,
+						errorCode: item.extraction.error?.code ?? null,
+						retryable: item.extraction.retryable,
+					},
+				]
+			: [],
+	);
 }
 
 async function getPromptArtifactDiagnostics(
@@ -171,7 +270,73 @@ async function buildPromptAttachmentResolutionItem(params: {
 		contentPreview: diagnostics.contentPreview,
 		contentHash: diagnostics.contentHash,
 		chunkCount: diagnostics.chunkCount,
+		extraction: null,
 	};
+}
+
+/**
+ * Second pass over the attachments that are not prompt-ready.
+ *
+ * The ledger is only consulted for those — a conversation whose attachments are
+ * all long since extracted must not pay a batch query per turn just so the
+ * unhappy path can be worded better. For the ones that are not ready, the row
+ * is the difference between "wait a second" and "this file is broken", which is
+ * the single biggest behavioural risk of moving extraction off the request.
+ */
+async function annotateWithExtractionStatus(
+	userId: string,
+	items: PromptAttachmentResolutionItem[],
+): Promise<PromptAttachmentResolutionItem[]> {
+	const pendingIds = items.flatMap((item) =>
+		!item.promptReady && item.displayArtifact?.type === "source_document"
+			? [item.requestedArtifactId]
+			: [],
+	);
+	if (pendingIds.length === 0) return items;
+
+	let jobs: DocumentExtractionJobDTO[] = [];
+	try {
+		jobs = await getExtractionJobsForArtifacts({
+			userId,
+			artifactIds: pendingIds,
+		});
+	} catch (error) {
+		// A read-model failure must not turn a send into a 500. Without the row
+		// the caller falls back to the pre-Phase-3 wording, which is what it
+		// would have said anyway.
+		console.warn("[ATTACHMENTS] Extraction status lookup failed", { error });
+		return items;
+	}
+
+	const jobsByArtifactId = new Map(
+		jobs.flatMap((job) =>
+			job.sourceArtifactId ? [[job.sourceArtifactId, job] as const] : [],
+		),
+	);
+
+	return items.map((item) => {
+		const job = jobsByArtifactId.get(item.requestedArtifactId);
+		if (!job || item.promptReady) return item;
+		return {
+			...item,
+			extraction: job,
+			readinessError: extractionReadinessError(job, item.readinessError),
+		};
+	});
+}
+
+function extractionReadinessError(
+	job: DocumentExtractionJobDTO,
+	fallback: string | null,
+): string | null {
+	if (!isTerminalExtractionStatus(job.status)) {
+		return STILL_PREPARING_READINESS_ERROR;
+	}
+	if (job.status === "failed") {
+		if (job.retryable) return EXTRACTION_RETRYABLE_READINESS_ERROR;
+		return job.error?.message || fallback;
+	}
+	return fallback;
 }
 
 export async function resolvePromptAttachmentArtifacts(
@@ -195,6 +360,7 @@ export async function resolvePromptAttachmentArtifacts(
 			contentPreview: null,
 			contentHash: null,
 			chunkCount: 0,
+			extraction: null,
 		}));
 		return {
 			displayArtifacts: [],
@@ -207,7 +373,7 @@ export async function resolvePromptAttachmentArtifacts(
 	const displayArtifactsById = new Map(
 		displayArtifacts.map((artifact) => [artifact.id, artifact]),
 	);
-	const items = await Promise.all(
+	const resolvedItems = await Promise.all(
 		attachmentIds.map(async (attachmentId) => {
 			const displayArtifact = displayArtifactsById.get(attachmentId) ?? null;
 			if (!displayArtifact) {
@@ -221,6 +387,7 @@ export async function resolvePromptAttachmentArtifacts(
 					contentPreview: null,
 					contentHash: null,
 					chunkCount: 0,
+					extraction: null,
 				};
 			}
 
@@ -253,6 +420,7 @@ export async function resolvePromptAttachmentArtifacts(
 					contentPreview: null,
 					contentHash: null,
 					chunkCount: 0,
+					extraction: null,
 				};
 			}
 
@@ -266,6 +434,7 @@ export async function resolvePromptAttachmentArtifacts(
 			});
 		}),
 	);
+	const items = await annotateWithExtractionStatus(userId, resolvedItems);
 	const unresolvedItems = items.filter((item) => !item.promptReady);
 
 	return {
@@ -325,14 +494,20 @@ export async function assertPromptReadyAttachments(params: {
 				contentLength: item.contentLength,
 				chunkCount: item.chunkCount,
 				contentHash: item.contentHash,
+				extractionStatus: item.extraction?.status ?? null,
 			})),
 		});
 	}
 
 	if (resolved.unresolvedItems.length > 0) {
+		const code = classifyAttachmentReadinessErrorCode(resolved.unresolvedItems);
 		throw new AttachmentReadinessError(
-			buildAttachmentReadinessErrorMessage(resolved.unresolvedItems),
+			buildAttachmentReadinessErrorMessage(resolved.unresolvedItems, code),
 			resolved.unresolvedItems.map((item) => item.requestedArtifactId),
+			{
+				code,
+				items: toAttachmentExtractionStatusItems(resolved.unresolvedItems),
+			},
 		);
 	}
 
@@ -435,13 +610,52 @@ function generateUniqueFilename(
 	return newName;
 }
 
-async function getAllArtifactNamesForUser(
-	userId: string,
-): Promise<Set<string>> {
+/**
+ * Escapes the three characters SQLite's LIKE treats specially, so a file
+ * literally named `report_1.pdf` cannot be matched by `_` as a wildcard.
+ * Underscores are common in uploaded file names, which is exactly why this
+ * cannot be skipped.
+ */
+function escapeLikePattern(value: string): string {
+	return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+/**
+ * Bug B4. This used to load EVERY artifact name the user owns on each name
+ * collision, which on a large library is a full table scan per upload. The
+ * candidates that can possibly matter are the ones sharing the base name, so
+ * ask for those: `<base>%<.ext>` against `artifacts_user_name_idx`
+ * (`artifacts(user_id, name)`), added in the Phase 3 migration.
+ *
+ * LIKE is ASCII-case-insensitive in SQLite, so the result is a SUPERSET of the
+ * names that could collide — and a superset is exactly what
+ * `generateUniqueFilename`'s case-sensitive `Set.has` needs to stay correct.
+ */
+export function buildArtifactNamePrefixPattern(originalName: string): string {
+	const extension = fileExtension(originalName);
+	const baseName = extension
+		? originalName.slice(0, -(extension.length + 1))
+		: originalName;
+	return `${escapeLikePattern(baseName)}%${
+		extension ? `.${escapeLikePattern(extension)}` : ""
+	}`;
+}
+
+async function getArtifactNamesWithBasePrefix(params: {
+	userId: string;
+	originalName: string;
+}): Promise<Set<string>> {
+	const pattern = buildArtifactNamePrefixPattern(params.originalName);
+
 	const rows = db
 		.select({ name: artifacts.name })
 		.from(artifacts)
-		.where(eq(artifacts.userId, userId));
+		.where(
+			and(
+				eq(artifacts.userId, params.userId),
+				sql`${artifacts.name} LIKE ${pattern} ESCAPE '\\'`,
+			),
+		);
 	const names = await executeQuery<{ name: string | null }>(rows);
 
 	return new Set(names.flatMap((row) => (row.name ? [row.name] : [])));
@@ -468,9 +682,16 @@ async function resolveArtifactNameWithAutoRename(params: {
 		};
 	}
 
-	// Conflict detected - get all names and generate unique one
-	const allNames = await getAllArtifactNamesForUser(params.userId);
-	const uniqueName = generateUniqueFilename(params.originalName, allNames);
+	// Conflict detected — fetch only the names that could collide, then pick the
+	// first free suffix.
+	const candidateNames = await getArtifactNamesWithBasePrefix({
+		userId: params.userId,
+		originalName: params.originalName,
+	});
+	const uniqueName = generateUniqueFilename(
+		params.originalName,
+		candidateNames,
+	);
 
 	return {
 		finalName: uniqueName,
@@ -511,9 +732,16 @@ export async function saveUploadedArtifact(params: {
 			});
 		}
 
+		// Bug B1. This branch used to hardcode `normalizedArtifact: null`, so the
+		// caller saw "deduped artifact, no extracted text" and extracted the very
+		// same bytes again — minting a second `normalized_document` every time a
+		// user re-dropped a file. The already-extracted text is right there.
 		return {
 			artifact: existingArtifact,
-			normalizedArtifact: null,
+			normalizedArtifact: await getNormalizedArtifactForSource(
+				params.userId,
+				existingArtifact.id,
+			),
 			reusedExistingArtifact: true,
 		};
 	}
@@ -615,9 +843,15 @@ export async function saveUploadedArtifactFromStoredFile(params: {
 			});
 		}
 
+		// Bug B1, the raw/chunk half of it. Same fix, same reason as the browser
+		// File path above: a re-upload of identical bytes must reuse the text that
+		// was already extracted from them.
 		return {
 			artifact: existingArtifact,
-			normalizedArtifact: null,
+			normalizedArtifact: await getNormalizedArtifactForSource(
+				params.userId,
+				existingArtifact.id,
+			),
 			reusedExistingArtifact: true,
 		};
 	}

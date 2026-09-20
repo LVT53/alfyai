@@ -3,11 +3,13 @@ import { goto, invalidateAll } from "$app/navigation";
 import { browser } from "$app/environment";
 import { page as kitPage } from "$app/state";
 import {
+	cancelExtraction,
 	deleteKnowledgeArtifact,
 	fetchKnowledgeMemoryOverview,
 	fetchMemoryProfile,
 	fetchMemorySummary,
 	fetchMemoryTimeline,
+	retryExtraction,
 	submitKnowledgeMemoryAction,
 	submitMemoryV2Action,
 	uploadKnowledgeAttachment,
@@ -29,13 +31,16 @@ import type {
 	MemoryProfilePublicPayload,
 	MemoryTimelineReport,
 } from "$lib/memory-profile-types";
-import type {
-	DocumentWorkspaceItem,
-	KnowledgeDocumentItem,
-} from "$lib/server/services/knowledge/types";
+import type { KnowledgeLibraryDocumentItem } from "$lib/server/services/knowledge";
+import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { KnowledgeMemoryOverviewPayload } from "$lib/server/services/memory-types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
+import { createExtractionPoller } from "$lib/client/extraction-poll";
 import { toWorkspaceDocument } from "./_helpers";
 import type { PageProps } from "./$types";
+
+type KnowledgeDocumentItem = KnowledgeLibraryDocumentItem;
 
 type DocumentSortKey = "name" | "size" | "type" | "date";
 type SortDirection = "asc" | "desc";
@@ -454,6 +459,118 @@ async function refreshKnowledgeLibrary() {
 	await invalidateAll();
 }
 
+// --- Extraction ledger -----------------------------------------------------
+//
+// The Status column is only as honest as its last poll. This mounts the one
+// shared poller (`$lib/client/extraction-poll`) rather than a second one of
+// its own, so the composer, the landing page and this list are one poll storm
+// at worst. Arming is derived from the rows: a library of finished documents
+// asks for nothing, and the poller disarms itself the moment the last tracked
+// job settles.
+
+const hasPendingExtraction = $derived(
+	documents.some(
+		(document) =>
+			document.extraction !== undefined &&
+			!isTerminalExtractionStatus(document.extraction.status),
+	),
+);
+
+/**
+ * Only the rows that still owe an answer, and only while the Documents tab is
+ * the one on screen. An empty list is how the poller learns to disarm.
+ */
+function pendingExtractionArtifactIds(): string[] {
+	if (activeTab !== "documents") return [];
+	return documents
+		.filter(
+			(document) =>
+				document.extraction !== undefined &&
+				!isTerminalExtractionStatus(document.extraction.status),
+		)
+		.map((document) => document.displayArtifactId);
+}
+
+function applyExtractionJobs(jobs: DocumentExtractionJobDTO[]): void {
+	const byArtifactId = new Map(
+		jobs
+			.filter((job) => job.sourceArtifactId !== null)
+			.map((job) => [job.sourceArtifactId as string, job]),
+	);
+	if (byArtifactId.size === 0) return;
+
+	let succeededSomething = false;
+	documents = documents.map((document) => {
+		const job = byArtifactId.get(document.displayArtifactId);
+		if (!job) return document;
+		if (
+			document.extraction?.status !== "succeeded" &&
+			job.status === "succeeded"
+		) {
+			succeededSomething = true;
+		}
+		return { ...document, extraction: job };
+	});
+
+	// A finished extraction changes more than the badge: the normalised
+	// artifact now exists, so "What AI sees" and the workspace become real.
+	// Only the server load knows those, hence exactly one reload per batch
+	// that settled rather than one per poll.
+	if (succeededSomething) {
+		void refreshKnowledgeLibrary();
+	}
+}
+
+const extractionPoller = createExtractionPoller({
+	getArtifactIds: pendingExtractionArtifactIds,
+	onJobs: applyExtractionJobs,
+	onError: (error) => {
+		console.warn("[KNOWLEDGE] Extraction status poll failed", error);
+	},
+});
+
+// Re-evaluate arming whenever the tracked set could have changed. `sync()` is
+// cheap and idempotent — it leaves an already-armed timer alone precisely so
+// that a page re-rendering on every poll cannot postpone the next one.
+$effect(() => {
+	void hasPendingExtraction;
+	void activeTab;
+	if (browser) extractionPoller.sync();
+});
+
+// Teardown only. Deliberately a second effect with no reactive reads: the
+// poller's `stop()` is permanent, so putting it in the cleanup of the effect
+// above would kill it on the first re-render rather than on unmount.
+$effect(() => () => extractionPoller.stop());
+
+async function handleExtractionRetry(artifactId: string) {
+	manageError = "";
+	try {
+		const job = await retryExtraction(artifactId);
+		applyExtractionJobs([job]);
+		// The poller did not fetch this one, so tell it the job exists or it
+		// will not count the row as unsettled and will stay disarmed.
+		extractionPoller.observe(job);
+		extractionPoller.sync();
+	} catch (error) {
+		manageError = $t("knowledge.extraction.actionFailed");
+		console.warn("[KNOWLEDGE] Extraction retry failed", error);
+	}
+}
+
+async function handleExtractionCancel(artifactId: string) {
+	manageError = "";
+	try {
+		const job = await cancelExtraction(artifactId);
+		applyExtractionJobs([job]);
+		extractionPoller.observe(job);
+		extractionPoller.sync();
+	} catch (error) {
+		manageError = $t("knowledge.extraction.actionFailed");
+		console.warn("[KNOWLEDGE] Extraction cancel failed", error);
+	}
+}
+
 async function loadMemoryProfile(force = false) {
 	if (memoryLoading) return;
 	if (memoryLoaded && !force) return;
@@ -747,6 +864,8 @@ $effect(() => {
 						onBulkDelete={handleBulkDocumentDelete}
 						onDownload={handleDocumentDownload}
 						onUpload={handleDocumentsUpload}
+						onRetryExtraction={handleExtractionRetry}
+						onCancelExtraction={handleExtractionCancel}
 					/>
 				</div>
 			{/if}

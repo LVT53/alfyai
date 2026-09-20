@@ -9,6 +9,7 @@ import {
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
 import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
+import { scheduleKnowledgeUploadTempSweep } from "$lib/server/services/knowledge/upload-temp-sweep";
 import {
 	formatBytes,
 	parseContentLength,
@@ -269,6 +270,8 @@ export const POST: RequestHandler = async (event) => {
 		".incoming",
 	);
 	await mkdir(tempDir, { recursive: true });
+	// Throttled to once an hour per process; see upload-temp-sweep.ts (B2).
+	scheduleKnowledgeUploadTempSweep();
 	const tempPathAbsolute = join(tempDir, `${traceId}-${Date.now()}.upload`);
 
 	let received: { receivedBytes: number; binaryHash: string };
@@ -286,6 +289,12 @@ export const POST: RequestHandler = async (event) => {
 			startedAt,
 		});
 	} catch (error) {
+		// Bug B2. Every other failure path in this file unlinks; this one used to
+		// return straight out, so an aborted or oversized upload left its partial
+		// bytes in `.incoming/` forever. `writeKnowledgeUploadBytes` cleans up the
+		// cases it can see, but it cannot see a failure raised above it, and an
+		// `unlink` of a file that is already gone costs nothing.
+		await unlink(tempPathAbsolute).catch(() => undefined);
 		const message = error instanceof Error ? error.message : String(error);
 		const status =
 			error instanceof RawUploadLimitError ||

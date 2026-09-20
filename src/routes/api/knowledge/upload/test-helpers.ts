@@ -3,6 +3,35 @@ import { join } from "node:path";
 import type { Cookies, RequestEvent } from "@sveltejs/kit";
 import { afterEach, beforeEach, vi } from "vitest";
 import type { SessionUser } from "$lib/server/services/auth-types";
+import type { KnowledgeUploadResponse } from "$lib/server/services/knowledge/types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+
+/**
+ * The ledger row every upload response now carries. Phase 3: the request ends
+ * when the bytes are stored, so `queued` is the ordinary answer.
+ */
+export function makeExtractionJobDTO(
+	overrides: Partial<DocumentExtractionJobDTO> = {},
+): DocumentExtractionJobDTO {
+	return {
+		id: "extraction-job-1",
+		sourceArtifactId: "artifact-1",
+		normalizedArtifactId: null,
+		status: "queued",
+		intakeRoute: "mineru",
+		fileName: "scan.pdf",
+		attemptCount: 0,
+		maxAttempts: 3,
+		retryable: false,
+		cancelable: true,
+		error: null,
+		createdAt: 1_777_140_000_000,
+		updatedAt: 1_777_140_000_000,
+		startedAt: null,
+		legacy: false,
+		...overrides,
+	};
+}
 
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
@@ -54,7 +83,8 @@ const defaultCompleteKnowledgeUploadResponse = {
 	normalizedArtifact: null,
 	reusedExistingArtifact: false,
 	promptReady: true,
-} as const;
+	extraction: makeExtractionJobDTO(),
+} satisfies KnowledgeUploadResponse;
 
 const mockRequireAuth = vi.mocked(requireAuth);
 export const mockCompleteKnowledgeUploadFromStoredFile = vi.mocked(
@@ -149,7 +179,10 @@ export function makeKnowledgeUploadEvent<RouteId extends string>(params: {
 			method: "POST",
 			headers: params.headers,
 			body: params.body,
-		}),
+			// Undici requires this for a streamed body, which is the only way to
+			// simulate a connection that dies mid-upload.
+			...(params.body instanceof ReadableStream ? { duplex: "half" } : {}),
+		} as RequestInit),
 		requestUrl: params.requestUrl,
 		routeId: params.routeId,
 		userId: params.userId,

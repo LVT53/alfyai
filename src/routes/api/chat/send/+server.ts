@@ -69,6 +69,7 @@ export const POST: RequestHandler = async (event) => {
 		return runAtlasSendTurn({
 			user,
 			turn: parsedRequest.value,
+			signal: event.request.signal,
 		});
 	}
 
@@ -83,6 +84,9 @@ export const POST: RequestHandler = async (event) => {
 	const preflight = await preflightChatTurn({
 		userId: user.id,
 		request: parsedRequest.value,
+		// A send the client already abandoned must not keep a server task
+		// polling the extraction ledger for the rest of the preflight budget.
+		signal: event.request.signal,
 	});
 	if (!preflight.ok) {
 		return json(
@@ -90,6 +94,10 @@ export const POST: RequestHandler = async (event) => {
 				error: preflight.error.error,
 				code: preflight.error.code,
 				attachmentIds: preflight.error.attachmentIds,
+				// Present only for the two extraction refusals; it carries the
+				// status and error code per attachment so the composer can
+				// translate the message instead of echoing the server's English.
+				attachmentExtraction: preflight.error.attachmentExtraction,
 			},
 			{ status: preflight.error.status },
 		);
@@ -147,9 +155,11 @@ export const POST: RequestHandler = async (event) => {
 async function runAtlasSendTurn({
 	user,
 	turn,
+	signal,
 }: {
 	user: { id: string; displayName: string | null; email: string | null };
 	turn: ParsedChatTurnRequest;
+	signal?: AbortSignal;
 }): Promise<Response> {
 	if (!turn.atlasProfile) {
 		return json(
@@ -201,6 +211,7 @@ async function runAtlasSendTurn({
 		const atlasPreflight = await preflightAtlasTurnSources({
 			userId: user.id,
 			request: turn,
+			signal,
 		});
 		if (!atlasPreflight.ok) {
 			return json(
@@ -208,6 +219,7 @@ async function runAtlasSendTurn({
 					error: atlasPreflight.error.error,
 					code: atlasPreflight.error.code,
 					attachmentIds: atlasPreflight.error.attachmentIds,
+					attachmentExtraction: atlasPreflight.error.attachmentExtraction,
 				},
 				{ status: atlasPreflight.error.status },
 			);

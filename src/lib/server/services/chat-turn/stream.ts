@@ -1262,6 +1262,11 @@ export function streamRequestErrorEvent(error: ChatTurnRequestError): string {
 				message: error.error,
 				error: error.error,
 				attachmentIds: error.attachmentIds,
+				// Carries the per-attachment extraction facts for the
+				// `attachment_extraction_pending` / `_failed` refusals, so the
+				// composer can render a translated message instead of echoing
+				// the server's English sentence.
+				attachmentExtraction: error.attachmentExtraction,
 			}),
 		),
 		streamFinishEvent("error"),

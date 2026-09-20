@@ -25,6 +25,15 @@ const AUDITED_PREFIXES = [
 	"composerCommands.",
 	"composerMenu.",
 	"composerSheet.",
+	// The document-extraction ledger's two client surfaces. Both namespaces
+	// are otherwise unaudited (`chat.` and `knowledge.` carry pre-existing
+	// drift), so these narrow prefixes are the only thing that notices a
+	// status or error-code string that landed in EN and not in HU — and the
+	// codes are exactly the ones a user sees on a file that failed to read.
+	// `chat.extraction` is owned by the composer slice; the prefix is added
+	// here, with the other audit entries, so there is one list to read.
+	"chat.extraction",
+	"knowledge.extraction",
 	// The chat home's greeting pool: ~76 keys a side, all of them optional to
 	// any one render, so a line that landed in EN and not in HU would show as
 	// the raw key to exactly the users who read Hungarian and nobody else.

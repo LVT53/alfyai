@@ -22,6 +22,7 @@ import {
 } from "$lib/server/security-headers";
 import { ensureAtlasWorker } from "$lib/server/services/atlas";
 import { validateSession } from "$lib/server/services/auth";
+import { ensureExtractionWorker } from "$lib/server/services/extraction";
 import { ensureFileProductionWorker } from "$lib/server/services/file-production";
 import {
 	ensureMemoryConsolidationScheduler,
@@ -153,6 +154,11 @@ export const init: ServerInit = async () => {
 	prewarmSandboxImageInBackground();
 	ensureFileProductionWorker().catch((error) =>
 		console.error("Failed to start file production worker:", error),
+	);
+	// Deliberately not awaited: the stale-attempt sweep and the first drain must
+	// never sit between the process starting and it answering a health check.
+	ensureExtractionWorker().catch((error) =>
+		console.error("Failed to start document extraction worker:", error),
 	);
 	ensureAtlasWorker().catch((error) =>
 		console.error("Failed to start Atlas worker:", error),

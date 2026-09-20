@@ -1,12 +1,16 @@
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EXTRACTION_STATUS_BATCH_LIMIT } from "$lib/shared/extraction-status";
 import {
 	maxFileUploadSizeBytes,
 	resetMaxFileUploadSize,
 } from "$lib/stores/upload-limits";
 import type { ApiError } from "./http";
 import {
+	cancelExtraction,
+	fetchExtractionJobs,
 	fetchMemoryProfileItemDetail,
+	retryExtraction,
 	submitKnowledgeMemoryAction,
 	uploadKnowledgeAttachment,
 	uploadRefusalFromError,
@@ -639,7 +643,7 @@ describe("uploadRefusalFromError", () => {
 			}),
 		).toEqual({
 			key: "knowledge.uploadRejectedMedia",
-			params: { name: "clip.mp4", ext: "MP4" },
+			params: { name: "clip.mp4", ext: "MP4", limit: "" },
 		});
 	});
 
@@ -652,7 +656,30 @@ describe("uploadRefusalFromError", () => {
 			}),
 		).toEqual({
 			key: "knowledge.uploadUnsupportedType",
-			params: { name: "clip.mp4", ext: "MP4" },
+			params: { name: "clip.mp4", ext: "MP4", limit: "" },
+		});
+	});
+
+	it("translates the 413 direct-text cap and interpolates the limit", async () => {
+		// The cap answers 413, not 415. Keying only on 415 left both upload
+		// surfaces showing the server's English sentence.
+		expect(
+			await refusalFrom(
+				{
+					error: "Text files are limited to 8 MB.",
+					code: "upload_direct_text_too_large",
+					errorKey: "knowledge.uploadDirectTextTooLarge",
+					details: {
+						fileName: "huge.log",
+						fileSize: 20_000_000,
+						maxBytes: 8_388_608,
+					},
+				},
+				413,
+			),
+		).toEqual({
+			key: "knowledge.uploadDirectTextTooLarge",
+			params: { name: "huge.log", ext: "LOG", limit: "8 MB" },
 		});
 	});
 
@@ -674,5 +701,133 @@ describe("uploadRefusalFromError", () => {
 			uploadRefusalFromError(new Error("boom"), { name: "a.txt" }),
 		).toBeNull();
 		expect(uploadRefusalFromError(null, { name: "a.txt" })).toBeNull();
+	});
+});
+
+describe("extraction status client API", () => {
+	function jsonResponse(body: unknown, status = 200): Response {
+		return new Response(JSON.stringify(body), {
+			status,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	const dto = {
+		id: "job-1",
+		sourceArtifactId: "artifact-1",
+		normalizedArtifactId: null,
+		status: "parsing",
+		intakeRoute: "mineru",
+		fileName: "report.pdf",
+		attemptCount: 1,
+		maxAttempts: 3,
+		retryable: false,
+		cancelable: true,
+		error: null,
+		createdAt: 1,
+		updatedAt: 2,
+		startedAt: 1,
+		legacy: false,
+	};
+
+	it("asks for de-duplicated, encoded ids and unwraps the list", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse({ jobs: [dto] }));
+
+		await expect(
+			fetchExtractionJobs(["artifact-1", " artifact-1 ", "a/b", ""], fetchImpl),
+		).resolves.toEqual([dto]);
+
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/knowledge/extraction?artifactIds=artifact-1,a%2Fb",
+		);
+	});
+
+	// F22. The fifty-id cap is the endpoint's, so the shared client has to
+	// respect it: a caller other than the poller handing it a longer list used
+	// to get a 400 that looked like the endpoint being broken.
+	it("splits a list longer than the endpoint's cap into several requests", async () => {
+		const ids = Array.from(
+			{ length: EXTRACTION_STATUS_BATCH_LIMIT + 2 },
+			(_, index) => `artifact-${index}`,
+		);
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse({ jobs: [dto] }))
+			.mockResolvedValueOnce(jsonResponse({ jobs: [{ ...dto, id: "job-2" }] }));
+
+		await expect(fetchExtractionJobs(ids, fetchImpl)).resolves.toHaveLength(2);
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		const asked = (fetchImpl.mock.calls as Array<[string]>).map(
+			(call) =>
+				new URL(call[0], "http://localhost").searchParams
+					.get("artifactIds")
+					?.split(",").length,
+		);
+		expect(asked).toEqual([EXTRACTION_STATUS_BATCH_LIMIT, 2]);
+	});
+
+	it("never calls the endpoint with an empty id list", async () => {
+		const fetchImpl = vi.fn();
+		await expect(fetchExtractionJobs(["", "  "], fetchImpl)).resolves.toEqual(
+			[],
+		);
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("answers an empty list when the payload has no jobs field", async () => {
+		const fetchImpl = vi.fn().mockResolvedValueOnce(jsonResponse({}));
+		await expect(
+			fetchExtractionJobs(["artifact-1"], fetchImpl),
+		).resolves.toEqual([]);
+	});
+
+	it("posts a retry and returns the refreshed job", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({ job: { ...dto, status: "queued" } }),
+			);
+
+		await expect(
+			retryExtraction("artifact-1", fetchImpl),
+		).resolves.toMatchObject({ status: "queued" });
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/knowledge/extraction/artifact-1/retry",
+			{ method: "POST" },
+		);
+	});
+
+	it("posts a cancel and returns the refreshed job", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({ job: { ...dto, status: "canceled" } }),
+			);
+
+		await expect(
+			cancelExtraction("artifact-1", fetchImpl),
+		).resolves.toMatchObject({ status: "canceled" });
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/knowledge/extraction/artifact-1/cancel",
+			{ method: "POST" },
+		);
+	});
+
+	it("throws an ApiError carrying the endpoint's code", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({ error: "nope", code: "extraction_job_not_found" }, 404),
+			);
+
+		await expect(
+			retryExtraction("artifact-1", fetchImpl),
+		).rejects.toMatchObject({
+			status: 404,
+			code: "extraction_job_not_found",
+		});
 	});
 });

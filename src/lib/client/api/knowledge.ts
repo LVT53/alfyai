@@ -17,7 +17,10 @@ import type {
 	KnowledgeMemoryOverviewPayload,
 	KnowledgeMemoryPayload,
 } from "$lib/server/services/memory-types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import { EXTRACTION_STATUS_BATCH_LIMIT } from "$lib/shared/extraction-status";
 import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
+import { formatByteSize } from "$lib/utils/format";
 import { _unwrapList } from "./_utils";
 import {
 	ApiError,
@@ -70,24 +73,42 @@ const UPLOAD_REFUSAL_KEYS: ReadonlySet<string> = new Set<I18nKey>([
 	"knowledge.uploadContentMismatch",
 ]);
 
+/**
+ * The refusals that are not a 415. Phase 3's direct-text cap answers 413 with
+ * its own key and a `maxBytes` detail, and a set keyed only on 415 let that
+ * fall through to the server's English sentence on all three upload surfaces.
+ */
+const UPLOAD_REFUSAL_KEYS_413: ReadonlySet<string> = new Set<I18nKey>([
+	"knowledge.uploadDirectTextTooLarge",
+]);
+
 export type UploadRefusal = {
 	readonly key: I18nKey;
-	/** `{name}` and `{ext}`, the only placeholders the five keys use. */
-	readonly params: { readonly name: string; readonly ext: string };
+	/** `{name}`, `{ext}` and `{limit}` — every placeholder these keys use. */
+	readonly params: {
+		readonly name: string;
+		readonly ext: string;
+		readonly limit: string;
+	};
 };
 
 /**
- * Translate a 415 from the upload path into an i18n key plus its parameters,
- * or `null` when the error is anything else (the caller then keeps whatever it
- * did before). `file` supplies the name when the server did not echo one.
+ * Translate a refused upload into an i18n key plus its parameters, or `null`
+ * when the error is anything else (the caller then keeps whatever it did
+ * before). `file` supplies the name when the server did not echo one.
  */
 export function uploadRefusalFromError(
 	error: unknown,
 	file: { name: string },
 ): UploadRefusal | null {
-	if (!(error instanceof ApiError) || error.status !== 415) return null;
+	if (!(error instanceof ApiError)) return null;
 	const key = error.errorKey;
-	if (!key || !UPLOAD_REFUSAL_KEYS.has(key)) return null;
+	if (!key) return null;
+
+	const recognized =
+		(error.status === 415 && UPLOAD_REFUSAL_KEYS.has(key)) ||
+		(error.status === 413 && UPLOAD_REFUSAL_KEYS_413.has(key));
+	if (!recognized) return null;
 
 	const details = error.details ?? {};
 	const fileName =
@@ -98,10 +119,23 @@ export function uploadRefusalFromError(
 		typeof details.extension === "string" && details.extension.trim()
 			? details.extension
 			: (fileName.split(".").slice(1).pop() ?? "");
+	const maxBytes =
+		typeof details.maxBytes === "number" && Number.isFinite(details.maxBytes)
+			? details.maxBytes
+			: null;
 
 	return {
 		key: key as I18nKey,
-		params: { name: fileName, ext: extension.toUpperCase() },
+		params: {
+			name: fileName,
+			ext: extension.toUpperCase(),
+			limit:
+				maxBytes === null
+					? ""
+					: formatByteSize(maxBytes, {
+							trimWholeUnits: true,
+						}),
+		},
 	};
 }
 
@@ -495,6 +529,81 @@ async function uploadChunkedKnowledgeAttachment(
 		throw new Error("Upload finished without a completed server response.");
 	}
 	return finalResponse;
+}
+
+/**
+ * Ask about the extraction state of any number of documents.
+ *
+ * The endpoint omits ids it cannot resolve for THIS user rather than answering
+ * for them, so the returned array is not guaranteed to be as long as the one
+ * asked about — callers key the result by `sourceArtifactId` instead of by
+ * index. Ids are de-duplicated here because the endpoint's fifty-id cap counts
+ * distinct ids, and a caller holding the same document twice should not lose a
+ * slot to it.
+ *
+ * The cap is enforced HERE, not only in the poller: this is the shared client
+ * for the endpoint, and any other caller handing it a long list would
+ * otherwise get a 400 that looks like the endpoint being broken. A list longer
+ * than the cap becomes several requests, never a refusal.
+ */
+export async function fetchExtractionJobs(
+	artifactIds: string[],
+	fetchImpl: FetchLike = fetch,
+): Promise<DocumentExtractionJobDTO[]> {
+	const ids = Array.from(
+		new Set(artifactIds.map((id) => id.trim()).filter(Boolean)),
+	);
+	if (ids.length === 0) return [];
+
+	const jobs: DocumentExtractionJobDTO[] = [];
+	for (
+		let start = 0;
+		start < ids.length;
+		start += EXTRACTION_STATUS_BATCH_LIMIT
+	) {
+		const batch = ids.slice(start, start + EXTRACTION_STATUS_BATCH_LIMIT);
+		const query = batch.map((id) => encodeURIComponent(id)).join(",");
+		const payload = await requestJson<{ jobs?: DocumentExtractionJobDTO[] }>(
+			`/api/knowledge/extraction?artifactIds=${query}`,
+			undefined,
+			"Failed to check document processing status.",
+			fetchImpl,
+		);
+		jobs.push(..._unwrapList<DocumentExtractionJobDTO>(payload, "jobs"));
+	}
+	return jobs;
+}
+
+/**
+ * Retry a failed extraction. Keyed on the artifact, not the job, so a document
+ * that predates the ledger (and therefore has no job row yet) can be retried
+ * with the same call — the endpoint materialises a row for it first.
+ */
+export async function retryExtraction(
+	artifactId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<DocumentExtractionJobDTO> {
+	const payload = await requestJson<{ job: DocumentExtractionJobDTO }>(
+		`/api/knowledge/extraction/${encodeURIComponent(artifactId)}/retry`,
+		{ method: "POST" },
+		"Failed to retry document processing.",
+		fetchImpl,
+	);
+	return payload.job;
+}
+
+/** Cancel an extraction that is still queued or running. */
+export async function cancelExtraction(
+	artifactId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<DocumentExtractionJobDTO> {
+	const payload = await requestJson<{ job: DocumentExtractionJobDTO }>(
+		`/api/knowledge/extraction/${encodeURIComponent(artifactId)}/cancel`,
+		{ method: "POST" },
+		"Failed to cancel document processing.",
+		fetchImpl,
+	);
+	return payload.job;
 }
 
 export async function recordDocumentWorkspaceOpen(

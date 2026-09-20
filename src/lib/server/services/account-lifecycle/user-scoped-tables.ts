@@ -21,6 +21,7 @@ import {
 	conversations,
 	conversationTaskStates,
 	conversationWorkingSetItems,
+	documentExtractionJobs,
 	fileProductionJobs,
 	homeSuggestionEvents,
 	importJobs,
@@ -349,6 +350,21 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "file_production_jobs",
 		table: fileProductionJobs,
 		userColumn: fileProductionJobs.userId,
+		erasure: "cascade",
+		resets: [],
+	},
+	// Document-extraction ledger. Like file production, the job row is
+	// bookkeeping ABOUT a document rather than content of its own: it holds a
+	// file name, a status and an error string, and the document itself lives in
+	// `artifacts` / `chat_generated_files`. It therefore needs no reset scope of
+	// its own — a job row cannot outlive the thing it describes, because both
+	// `source_artifact_id` and `chat_generated_file_id` cascade, and whichever
+	// reset removes the document removes the job with it. Full erasure reaches
+	// it through the real `ON DELETE CASCADE` to `users.id`.
+	{
+		name: "document_extraction_jobs",
+		table: documentExtractionJobs,
+		userColumn: documentExtractionJobs.userId,
 		erasure: "cascade",
 		resets: [],
 	},

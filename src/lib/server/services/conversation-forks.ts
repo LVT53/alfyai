@@ -15,9 +15,10 @@ import {
 	memoryEvents,
 	messages,
 } from "$lib/server/db/schema";
+import { GENERATED_FILE_NO_EXTRACTION_TEXT } from "$lib/server/services/extraction/readback";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import type { MessageRole } from "$lib/server/services/messages-types";
-import { fileExtension } from "$lib/shared/file-types";
+import { fileExtension, getIntakeRoute } from "$lib/shared/file-types";
 import type { Conversation } from "./conversations";
 import { reconcileStaleFileProductionJobs } from "./file-production";
 import type {
@@ -60,9 +61,28 @@ type GeneratedFileCopyPlan = {
 	copiedFileId: string;
 	storagePath: string;
 };
+/**
+ * A copied generated file whose artifact still says it has no readable text.
+ *
+ * The fork copies the memory wrapper verbatim, so a file whose readback job was
+ * still queued when the fork happened arrives carrying the pre-extraction
+ * section — and the copy gets a NEW `chat_generated_files` id, which the
+ * original's job does not know about and the partial UNIQUE index would never
+ * let it adopt. Without an enqueue of its own, the fork says "no readable text"
+ * for that file forever.
+ */
+type PendingForkReadback = {
+	chatGeneratedFileId: string;
+	assistantMessageId: string | null;
+	fileName: string;
+	mimeType: string | null;
+	sizeBytes: number;
+};
+
 type GeneratedWorkSnapshotResult = {
 	copiedArtifactIdBySourceId: Map<string, string>;
 	copiedArtifacts: Artifact[];
+	pendingReadbacks: PendingForkReadback[];
 };
 
 const MAX_FORK_SEQUENCE_ATTEMPTS = 5;
@@ -549,6 +569,26 @@ function copyDurableDocumentLinks(params: {
 		.run();
 }
 
+/**
+ * True when this generated file's memory wrapper is still waiting for a
+ * readback.
+ *
+ * Two conditions, both necessary. The route has to be the one that needs a
+ * backend — a markdown or CSV output is decoded inline when it is stored and
+ * never had a job at all — and the wrapper's last section has to be the
+ * "no readable text" shape that `chat-files.ts` writes before the text lands.
+ * A file whose readback already failed also matches, and re-queueing it is the
+ * right answer: a fork is as good a moment as any to try the backend again.
+ */
+function generatedFileAwaitsReadback(
+	contentText: string | null,
+	fileName: string,
+	mimeType: string | null,
+): boolean {
+	if (getIntakeRoute(fileName, mimeType) !== "mineru") return false;
+	return (contentText ?? "").includes(GENERATED_FILE_NO_EXTRACTION_TEXT);
+}
+
 function copyGeneratedWorkSnapshot(params: {
 	tx: Parameters<Parameters<typeof db.transaction>[0]>[0];
 	userId: string;
@@ -564,6 +604,7 @@ function copyGeneratedWorkSnapshot(params: {
 		return {
 			copiedArtifactIdBySourceId: new Map(),
 			copiedArtifacts: [],
+			pendingReadbacks: [],
 		};
 	}
 
@@ -735,10 +776,13 @@ function copyGeneratedWorkSnapshot(params: {
 		return {
 			copiedArtifactIdBySourceId,
 			copiedArtifacts: [],
+			pendingReadbacks: [],
 		};
 	}
 
 	const copiedArtifacts: Artifact[] = [];
+	const pendingReadbacks: PendingForkReadback[] = [];
+	const sourceFileById = new Map(sourceFiles.map((file) => [file.id, file]));
 	for (const sourceArtifact of sourceGeneratedArtifacts) {
 		const sourceMetadata = parseJsonRecord(sourceArtifact.metadataJson);
 		const sourceOriginalChatFileId =
@@ -856,6 +900,31 @@ function copyGeneratedWorkSnapshot(params: {
 				mapArtifactForSemanticRefresh(copiedArtifact, nextMetadata),
 			);
 		}
+
+		// The wrapper was copied verbatim. If its extracted-content section is
+		// still the "nothing yet" shape, the source's readback had not finished
+		// when the fork ran — and the copy's brand-new chat-file id means no job
+		// anywhere will ever fill it in. Queue one for the copy.
+		const sourceFile = copiedChatFileId
+			? (sourceFileById.get(sourceOriginalChatFileId ?? "") ?? null)
+			: null;
+		if (
+			sourceFile &&
+			copiedChatFileId &&
+			generatedFileAwaitsReadback(
+				sourceArtifact.contentText,
+				sourceFile.filename,
+				sourceFile.mimeType,
+			)
+		) {
+			pendingReadbacks.push({
+				chatGeneratedFileId: copiedChatFileId,
+				assistantMessageId: copiedAssistantMessageId,
+				fileName: sourceFile.filename,
+				mimeType: sourceFile.mimeType,
+				sizeBytes: sourceFile.sizeBytes,
+			});
+		}
 	}
 
 	const sourceChunks = params.tx
@@ -950,6 +1019,7 @@ function copyGeneratedWorkSnapshot(params: {
 	return {
 		copiedArtifactIdBySourceId,
 		copiedArtifacts,
+		pendingReadbacks,
 	};
 }
 
@@ -972,6 +1042,7 @@ export async function createConversationFork(
 		let transactionResult: {
 			result: ConversationForkResult;
 			copiedArtifacts: Artifact[];
+			pendingReadbacks: PendingForkReadback[];
 		};
 
 		try {
@@ -1134,6 +1205,7 @@ export async function createConversationFork(
 						forkOrigin: mapForkOrigin(lineage),
 					},
 					copiedArtifacts: generatedSnapshot.copiedArtifacts,
+					pendingReadbacks: generatedSnapshot.pendingReadbacks,
 				};
 			});
 		} catch (error) {
@@ -1157,6 +1229,11 @@ export async function createConversationFork(
 		for (const copiedArtifact of transactionResult.copiedArtifacts) {
 			queueArtifactSemanticEmbeddingRefresh(copiedArtifact);
 		}
+		await enqueueForkReadbacks({
+			userId: params.userId,
+			conversationId: transactionResult.result.conversation.id,
+			pending: transactionResult.pendingReadbacks,
+		});
 		return transactionResult.result;
 	}
 
@@ -1165,6 +1242,50 @@ export async function createConversationFork(
 		"Could not allocate a fork sequence after retrying concurrent fork creation",
 		409,
 	);
+}
+
+/**
+ * Queues a readback for every copied generated file whose text never arrived.
+ *
+ * After the transaction commits, not inside it: the ledger's enqueue is async
+ * and better-sqlite3 transactions are synchronous, and a fork must not fail
+ * because a document could not be queued for re-reading. A failure here leaves
+ * the fork exactly as it was before this ran — the file keeps its metadata and
+ * says it has no readable text, which is what a failed readback has always
+ * looked like.
+ */
+async function enqueueForkReadbacks(params: {
+	userId: string;
+	conversationId: string;
+	pending: PendingForkReadback[];
+}): Promise<void> {
+	if (params.pending.length === 0) return;
+
+	try {
+		const { startGeneratedFileReadback } = await import(
+			"$lib/server/services/extraction"
+		);
+		for (const file of params.pending) {
+			await startGeneratedFileReadback({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				assistantMessageId: file.assistantMessageId,
+				chatGeneratedFileId: file.chatGeneratedFileId,
+				fileName: file.fileName,
+				mimeType: file.mimeType,
+				sizeBytes: file.sizeBytes,
+			});
+		}
+	} catch (error) {
+		console.warn(
+			"[FORK] Could not queue generated file text extraction for the fork",
+			{
+				conversationId: params.conversationId,
+				fileCount: params.pending.length,
+				error,
+			},
+		);
+	}
 }
 
 export async function getConversationForkOrigin(

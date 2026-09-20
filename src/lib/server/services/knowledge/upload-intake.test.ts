@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 
 vi.mock("./store", () => ({
-	createNormalizedArtifact: vi.fn(),
+	getArtifactForUser: vi.fn(),
 	resolvePromptAttachmentArtifacts: vi.fn(),
 	saveUploadedArtifact: vi.fn(),
 	saveUploadedArtifactFromStoredFile: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/extraction", () => ({
+	getExtractionConfig: vi.fn(() => ({ inlineBudgetMs: 1500 })),
+	getExtractionJobForArtifact: vi.fn(),
+	startUploadExtraction: vi.fn(),
+	waitForExtractionJobVerdict: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/attachment-trace", () => ({
@@ -36,7 +44,13 @@ import { getAdapterBodySizeLimitBytes } from "$lib/server/env";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import { getConversation } from "$lib/server/services/conversations";
 import {
-	createNormalizedArtifact,
+	getExtractionConfig,
+	getExtractionJobForArtifact,
+	startUploadExtraction,
+	waitForExtractionJobVerdict,
+} from "$lib/server/services/extraction";
+import {
+	getArtifactForUser,
 	resolvePromptAttachmentArtifacts,
 	saveUploadedArtifact,
 	saveUploadedArtifactFromStoredFile,
@@ -51,9 +65,7 @@ import {
 	assertUploadSignatureForStoredFile,
 } from "./upload-signature";
 
-const mockCreateNormalizedArtifact = createNormalizedArtifact as ReturnType<
-	typeof vi.fn
->;
+const mockGetArtifactForUser = getArtifactForUser as ReturnType<typeof vi.fn>;
 const mockResolvePromptAttachmentArtifacts =
 	resolvePromptAttachmentArtifacts as ReturnType<typeof vi.fn>;
 const mockSaveUploadedArtifact = saveUploadedArtifact as ReturnType<
@@ -70,6 +82,14 @@ const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
 const mockGetAdapterBodySizeLimitBytes =
 	getAdapterBodySizeLimitBytes as ReturnType<typeof vi.fn>;
+const mockStartUploadExtraction = startUploadExtraction as ReturnType<
+	typeof vi.fn
+>;
+const mockWaitForExtractionJobVerdict =
+	waitForExtractionJobVerdict as ReturnType<typeof vi.fn>;
+const mockGetExtractionJobForArtifact =
+	getExtractionJobForArtifact as ReturnType<typeof vi.fn>;
+const mockGetExtractionConfig = getExtractionConfig as ReturnType<typeof vi.fn>;
 
 const now = Date.parse("2026-05-31T10:00:00Z");
 let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
@@ -96,6 +116,54 @@ function artifact(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+function extractionJob(
+	overrides: Partial<DocumentExtractionJobDTO> = {},
+): DocumentExtractionJobDTO {
+	return {
+		id: "job-1",
+		sourceArtifactId: "artifact-1",
+		normalizedArtifactId: null,
+		status: "queued",
+		intakeRoute: "mineru",
+		fileName: "recipe.pdf",
+		attemptCount: 0,
+		maxAttempts: 3,
+		retryable: false,
+		cancelable: true,
+		error: null,
+		createdAt: now,
+		updatedAt: now,
+		startedAt: null,
+		legacy: false,
+		...overrides,
+	};
+}
+
+function resolvedReady(
+	sourceArtifact: { id: string },
+	promptArtifactId: string,
+) {
+	return {
+		displayArtifacts: [sourceArtifact],
+		promptArtifacts: [{ id: promptArtifactId }],
+		items: [
+			{
+				requestedArtifactId: sourceArtifact.id,
+				displayArtifact: sourceArtifact,
+				promptArtifact: { id: promptArtifactId },
+				promptReady: true,
+				readinessError: null,
+				contentLength: 320,
+				contentPreview: "Readable text",
+				contentHash: "content-hash",
+				chunkCount: 2,
+				extraction: null,
+			},
+		],
+		unresolvedItems: [],
+	};
+}
+
 describe("Knowledge Upload Intake", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -107,7 +175,9 @@ describe("Knowledge Upload Intake", () => {
 		mockAssertUploadSignatureForStoredFile.mockResolvedValue(undefined);
 		mockGetConfig.mockReturnValue({ maxFileUploadSize: 50 * 1024 * 1024 });
 		mockGetAdapterBodySizeLimitBytes.mockReturnValue(40 * 1024 * 1024);
-		mockCreateNormalizedArtifact.mockResolvedValue(null);
+		mockGetExtractionConfig.mockReturnValue({ inlineBudgetMs: 1500 });
+		mockStartUploadExtraction.mockResolvedValue(extractionJob());
+		mockGetArtifactForUser.mockResolvedValue(null);
 		mockResolvePromptAttachmentArtifacts.mockResolvedValue({
 			displayArtifacts: [],
 			promptArtifacts: [],
@@ -152,27 +222,19 @@ describe("Knowledge Upload Intake", () => {
 		});
 		mockSaveUploadedArtifact.mockResolvedValue({
 			artifact: sourceArtifact,
-			normalizedArtifact,
+			normalizedArtifact: null,
 			reusedExistingArtifact: false,
 		});
-		mockResolvePromptAttachmentArtifacts.mockResolvedValue({
-			displayArtifacts: [sourceArtifact],
-			promptArtifacts: [normalizedArtifact],
-			items: [
-				{
-					requestedArtifactId: sourceArtifact.id,
-					displayArtifact: sourceArtifact,
-					promptArtifact: normalizedArtifact,
-					promptReady: true,
-					readinessError: null,
-					contentLength: 320,
-					contentPreview: "Readable recipe text",
-					contentHash: "content-hash",
-					chunkCount: 2,
-				},
-			],
-			unresolvedItems: [],
-		});
+		mockStartUploadExtraction.mockResolvedValue(
+			extractionJob({
+				status: "succeeded",
+				normalizedArtifactId: "normalized-1",
+			}),
+		);
+		mockGetArtifactForUser.mockResolvedValue(normalizedArtifact);
+		mockResolvePromptAttachmentArtifacts.mockResolvedValue(
+			resolvedReady(sourceArtifact, "normalized-1"),
+		);
 
 		const response = await completeKnowledgeUploadFromFile({
 			userId: "user-1",
@@ -190,6 +252,7 @@ describe("Knowledge Upload Intake", () => {
 			promptArtifactId: "normalized-1",
 			readinessError: null,
 		});
+		expect(response.extraction.status).toBe("succeeded");
 		expect(mockSaveUploadedArtifact).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "conv-1",
@@ -206,6 +269,8 @@ describe("Knowledge Upload Intake", () => {
 				extractionTextLength: 320,
 				chunkCount: 2,
 				contentHash: "content-hash",
+				extractionJobId: "job-1",
+				extractionStatus: "succeeded",
 			}),
 		);
 	});
@@ -229,31 +294,24 @@ describe("Knowledge Upload Intake", () => {
 		});
 		mockSaveUploadedArtifactFromStoredFile.mockResolvedValue({
 			artifact: sourceArtifact,
-			normalizedArtifact,
+			normalizedArtifact: null,
 			reusedExistingArtifact: false,
 			renameInfo: {
 				originalName: "report.pdf",
 				wasRenamed: true,
 			},
 		});
-		mockResolvePromptAttachmentArtifacts.mockResolvedValue({
-			displayArtifacts: [sourceArtifact],
-			promptArtifacts: [normalizedArtifact],
-			items: [
-				{
-					requestedArtifactId: sourceArtifact.id,
-					displayArtifact: sourceArtifact,
-					promptArtifact: normalizedArtifact,
-					promptReady: true,
-					readinessError: null,
-					contentLength: 480,
-					contentPreview: "Stored report text",
-					contentHash: "stored-content-hash",
-					chunkCount: 3,
-				},
-			],
-			unresolvedItems: [],
-		});
+		mockStartUploadExtraction.mockResolvedValue(
+			extractionJob({
+				sourceArtifactId: "artifact-stored",
+				status: "succeeded",
+				normalizedArtifactId: "normalized-stored",
+			}),
+		);
+		mockGetArtifactForUser.mockResolvedValue(normalizedArtifact);
+		mockResolvePromptAttachmentArtifacts.mockResolvedValue(
+			resolvedReady(sourceArtifact, "normalized-stored"),
+		);
 
 		const response = await completeKnowledgeUploadFromStoredFile({
 			userId: "user-1",
@@ -290,73 +348,22 @@ describe("Knowledge Upload Intake", () => {
 		});
 	});
 
-	it("resolves prompt readiness from the normalized artifact for a native upload", async () => {
-		const sourceArtifact = artifact({
-			id: "artifact-image",
-			name: "photo.png",
-			mimeType: "image/png",
-			extension: "png",
-		});
-		const normalizedArtifact = artifact({
-			id: "normalized-image",
-			type: "normalized_document",
-			name: "photo.txt",
-			mimeType: "text/plain",
-			extension: "txt",
-			sizeBytes: 220,
-			contentText: "OCR text",
-			storagePath: null,
-		});
-		const file = new File(["image"], "photo.png", { type: "image/png" });
-		mockSaveUploadedArtifact.mockResolvedValue({
-			artifact: sourceArtifact,
-			normalizedArtifact,
-			reusedExistingArtifact: false,
-		});
-		mockResolvePromptAttachmentArtifacts.mockResolvedValue({
-			displayArtifacts: [sourceArtifact],
-			promptArtifacts: [normalizedArtifact],
-			items: [
-				{
-					requestedArtifactId: sourceArtifact.id,
-					displayArtifact: sourceArtifact,
-					promptArtifact: normalizedArtifact,
-					promptReady: true,
-					readinessError: null,
-					contentLength: 180,
-					contentPreview: "OCR text",
-					contentHash: "ocr-hash",
-					chunkCount: 1,
-				},
-			],
-			unresolvedItems: [],
-		});
-
-		const response = await completeKnowledgeUploadFromFile({
-			userId: "user-1",
-			conversationId: "conv-1",
-			file,
-			traceId: "trace-fallback",
-			startedAt: now,
-		});
-
-		expect(response.promptReady).toBe(true);
-		expect(response.promptArtifactId).toBe("normalized-image");
-	});
-
-	it("returns readiness failure metadata when extraction cannot produce prompt-ready text", async () => {
-		const sourceArtifact = artifact({
-			id: "artifact-scan",
-			name: "scan.pdf",
-			storagePath: "data/knowledge/user-1/artifact-scan.pdf",
-		});
+	// The headline of the phase: the request ends when the bytes are stored and
+	// the job exists, not when a backend has finished reading the document.
+	it("returns a queued job without extracting anything inside the request", async () => {
+		const sourceArtifact = artifact({ id: "artifact-scan", name: "scan.pdf" });
 		const file = new File(["scan"], "scan.pdf", { type: "application/pdf" });
 		mockSaveUploadedArtifact.mockResolvedValue({
 			artifact: sourceArtifact,
 			normalizedArtifact: null,
 			reusedExistingArtifact: false,
 		});
-		mockCreateNormalizedArtifact.mockResolvedValue(null);
+		mockStartUploadExtraction.mockResolvedValue(
+			extractionJob({
+				sourceArtifactId: "artifact-scan",
+				fileName: "scan.pdf",
+			}),
+		);
 		mockResolvePromptAttachmentArtifacts.mockResolvedValue({
 			displayArtifacts: [sourceArtifact],
 			promptArtifacts: [],
@@ -366,11 +373,13 @@ describe("Knowledge Upload Intake", () => {
 					displayArtifact: sourceArtifact,
 					promptArtifact: null,
 					promptReady: false,
-					readinessError: "This file could not be prepared for chat.",
+					readinessError:
+						"This file is still being prepared for chat. Wait a moment and send it again.",
 					contentLength: 0,
 					contentPreview: null,
 					contentHash: null,
 					chunkCount: 0,
+					extraction: null,
 				},
 			],
 			unresolvedItems: [],
@@ -380,23 +389,233 @@ describe("Knowledge Upload Intake", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			file,
-			traceId: "trace-unreadable",
+			traceId: "trace-queued",
 			startedAt: now,
 		});
 
+		expect(response.extraction).toMatchObject({
+			id: "job-1",
+			status: "queued",
+			intakeRoute: "mineru",
+			sourceArtifactId: "artifact-scan",
+		});
+		expect(response.normalizedArtifact).toBeNull();
 		expect(response.promptReady).toBe(false);
-		expect(response.promptArtifactId).toBeNull();
-		expect(response.readinessError).toBe(
-			"This file could not be prepared for chat.",
+		// "not ready" is not "broken" — the message has to say so.
+		expect(response.readinessError).toContain("still being prepared");
+		expect(mockStartUploadExtraction).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: "user-1",
+				conversationId: "conv-1",
+				artifact: sourceArtifact,
+				existingNormalizedArtifactId: null,
+			}),
 		);
-		expect(mockCreateNormalizedArtifact).toHaveBeenCalledWith({
+		// No route but the deprecated multipart one waits for a verdict.
+		expect(mockWaitForExtractionJobVerdict).not.toHaveBeenCalled();
+	});
+
+	it("reports a direct-text upload that settled inline as succeeded", async () => {
+		const sourceArtifact = artifact({
+			id: "artifact-notes",
+			name: "notes.txt",
+			mimeType: "text/plain",
+			extension: "txt",
+		});
+		const normalizedArtifact = artifact({
+			id: "normalized-notes",
+			type: "normalized_document",
+			contentText: "note text",
+		});
+		const file = new File(["notes"], "notes.txt", { type: "text/plain" });
+		mockSaveUploadedArtifact.mockResolvedValue({
+			artifact: sourceArtifact,
+			normalizedArtifact: null,
+			reusedExistingArtifact: false,
+		});
+		mockStartUploadExtraction.mockResolvedValue(
+			extractionJob({
+				sourceArtifactId: "artifact-notes",
+				fileName: "notes.txt",
+				intakeRoute: "direct-text",
+				status: "succeeded",
+				normalizedArtifactId: "normalized-notes",
+				cancelable: false,
+			}),
+		);
+		mockGetArtifactForUser.mockResolvedValue(normalizedArtifact);
+		mockResolvePromptAttachmentArtifacts.mockResolvedValue(
+			resolvedReady(sourceArtifact, "normalized-notes"),
+		);
+
+		const response = await completeKnowledgeUploadFromFile({
 			userId: "user-1",
 			conversationId: "conv-1",
-			sourceArtifactId: "artifact-scan",
-			sourceStoragePath: "data/knowledge/user-1/artifact-scan.pdf",
-			sourceName: "scan.pdf",
-			sourceMimeType: "application/pdf",
+			file,
+			traceId: "trace-direct-text",
+			startedAt: now,
 		});
+
+		expect(response.extraction).toMatchObject({
+			status: "succeeded",
+			intakeRoute: "direct-text",
+		});
+		expect(response.normalizedArtifact).toMatchObject({
+			id: "normalized-notes",
+		});
+		expect(response.promptReady).toBe(true);
+	});
+
+	// Bug B1: the same bytes, uploaded twice, must not be extracted twice.
+	it("hands a dedupe hit's existing normalized artifact to the ledger", async () => {
+		const sourceArtifact = artifact({ id: "artifact-dupe" });
+		const normalizedArtifact = artifact({
+			id: "normalized-dupe",
+			type: "normalized_document",
+			contentText: "already extracted",
+		});
+		const file = new File(["recipe"], "recipe.pdf", {
+			type: "application/pdf",
+		});
+		mockSaveUploadedArtifact.mockResolvedValue({
+			artifact: sourceArtifact,
+			normalizedArtifact,
+			reusedExistingArtifact: true,
+		});
+		mockStartUploadExtraction.mockResolvedValue(
+			extractionJob({
+				sourceArtifactId: "artifact-dupe",
+				status: "succeeded",
+				normalizedArtifactId: "normalized-dupe",
+				cancelable: false,
+			}),
+		);
+		mockResolvePromptAttachmentArtifacts.mockResolvedValue(
+			resolvedReady(sourceArtifact, "normalized-dupe"),
+		);
+
+		const response = await completeKnowledgeUploadFromFile({
+			userId: "user-1",
+			conversationId: "conv-1",
+			file,
+			traceId: "trace-dupe",
+			startedAt: now,
+		});
+
+		expect(mockStartUploadExtraction).toHaveBeenCalledWith(
+			expect.objectContaining({
+				existingNormalizedArtifactId: "normalized-dupe",
+			}),
+		);
+		expect(response.reusedExistingArtifact).toBe(true);
+		expect(response.normalizedArtifact).toBe(normalizedArtifact);
+		expect(response.extraction.status).toBe("succeeded");
+		// The already-known artifact is reused as-is; nothing goes looking for it.
+		expect(mockGetArtifactForUser).not.toHaveBeenCalled();
+	});
+
+	// B3/D9: the deprecated multipart route is the one caller that still waits.
+	it("waits up to the inline budget when the caller asks it to", async () => {
+		const sourceArtifact = artifact({ id: "artifact-legacy" });
+		const file = new File(["recipe"], "recipe.pdf", {
+			type: "application/pdf",
+		});
+		mockSaveUploadedArtifact.mockResolvedValue({
+			artifact: sourceArtifact,
+			normalizedArtifact: null,
+			reusedExistingArtifact: false,
+		});
+		mockStartUploadExtraction.mockResolvedValue(
+			extractionJob({ sourceArtifactId: "artifact-legacy" }),
+		);
+		mockWaitForExtractionJobVerdict.mockResolvedValue({
+			settled: true,
+			job: extractionJob({
+				sourceArtifactId: "artifact-legacy",
+				status: "succeeded",
+				normalizedArtifactId: "normalized-legacy",
+			}),
+		});
+		mockGetArtifactForUser.mockResolvedValue(
+			artifact({ id: "normalized-legacy", type: "normalized_document" }),
+		);
+		mockResolvePromptAttachmentArtifacts.mockResolvedValue(
+			resolvedReady(sourceArtifact, "normalized-legacy"),
+		);
+
+		const response = await completeKnowledgeUploadFromFile({
+			userId: "user-1",
+			conversationId: "conv-1",
+			file,
+			traceId: "trace-legacy",
+			startedAt: now,
+			waitForExtraction: true,
+		});
+
+		expect(mockWaitForExtractionJobVerdict).toHaveBeenCalledWith(
+			expect.objectContaining({ timeoutMs: 1500 }),
+		);
+		expect(response.extraction.status).toBe("succeeded");
+		expect(response.promptReady).toBe(true);
+	});
+
+	it("still answers with the old fields when the wait budget runs out", async () => {
+		const sourceArtifact = artifact({ id: "artifact-slow" });
+		const file = new File(["recipe"], "recipe.pdf", {
+			type: "application/pdf",
+		});
+		mockSaveUploadedArtifact.mockResolvedValue({
+			artifact: sourceArtifact,
+			normalizedArtifact: null,
+			reusedExistingArtifact: false,
+		});
+		const pending = extractionJob({
+			sourceArtifactId: "artifact-slow",
+			status: "parsing",
+		});
+		mockStartUploadExtraction.mockResolvedValue(pending);
+		mockWaitForExtractionJobVerdict.mockResolvedValue({
+			settled: false,
+			job: pending,
+		});
+		mockResolvePromptAttachmentArtifacts.mockResolvedValue({
+			displayArtifacts: [sourceArtifact],
+			promptArtifacts: [],
+			items: [
+				{
+					requestedArtifactId: sourceArtifact.id,
+					displayArtifact: sourceArtifact,
+					promptArtifact: null,
+					promptReady: false,
+					readinessError: "still going",
+					contentLength: 0,
+					contentPreview: null,
+					contentHash: null,
+					chunkCount: 0,
+					extraction: pending,
+				},
+			],
+			unresolvedItems: [],
+		});
+
+		const response = await completeKnowledgeUploadFromFile({
+			userId: "user-1",
+			conversationId: "conv-1",
+			file,
+			traceId: "trace-slow",
+			startedAt: now,
+			waitForExtraction: true,
+		});
+
+		// Backward compatible: every field the off-repo scripts read is present.
+		expect(response).toMatchObject({
+			artifact: sourceArtifact,
+			normalizedArtifact: null,
+			reusedExistingArtifact: false,
+			promptReady: false,
+		});
+		expect(response.extraction.status).toBe("parsing");
+		expect(mockGetExtractionJobForArtifact).not.toHaveBeenCalled();
 	});
 
 	it("rejects missing conversations before artifact insert or link writes", async () => {
@@ -424,6 +643,7 @@ describe("Knowledge Upload Intake", () => {
 
 		expect(mockSaveUploadedArtifact).not.toHaveBeenCalled();
 		expect(mockSaveUploadedArtifactFromStoredFile).not.toHaveBeenCalled();
+		expect(mockStartUploadExtraction).not.toHaveBeenCalled();
 	});
 
 	it("content-checks a stored upload before it becomes an artifact", async () => {

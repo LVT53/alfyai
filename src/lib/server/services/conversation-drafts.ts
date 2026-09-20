@@ -167,6 +167,13 @@ export async function getConversationDraft(
 				promptReady: item.promptReady,
 				promptArtifactId: item.promptArtifact?.id ?? null,
 				readinessError: item.readinessError ?? null,
+				// The resolution pass already joined the ledger for anything that
+				// is not prompt-ready, so carrying the row costs nothing. Dropping
+				// it was what made a page reloaded mid-extraction draw an ordinary,
+				// solid chip — no "Reading…", no dashed edge, no Stop — with the
+				// server's English "still being prepared" sentence in red beneath
+				// it, until the first poll landed.
+				...(item.extraction ? { extraction: item.extraction } : {}),
 			},
 		];
 	});

@@ -17,6 +17,7 @@ import {
 	uploadKnowledgeAttachment,
 	uploadRefusalFromError,
 } from "$lib/client/api/knowledge";
+import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
 import {
 	createNewConversation,
 	updateConversationMemoryIncognitoLocal,
@@ -293,6 +294,11 @@ function handleUploadReady(
 type UploadFileResult =
 	| {
 			success: true;
+			/**
+			 * The upload's extraction job rides INSIDE the attachment, on
+			 * `PendingAttachment.extraction`. It used to travel beside it only
+			 * because that field did not exist when this page was written.
+			 */
 			attachment: import("$lib/server/services/knowledge/types").PendingAttachment;
 	  }
 	| { success: false; fileName: string; error: string };
@@ -318,6 +324,7 @@ async function uploadSingleFile(
 						result.readinessError.trim()
 							? result.readinessError
 							: null,
+					extraction: extractionFromUploadResponse(result) ?? undefined,
 				},
 			};
 		}
