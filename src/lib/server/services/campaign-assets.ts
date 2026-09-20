@@ -4,22 +4,35 @@ import { dirname, join, normalize } from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
 import { db as defaultDb } from "$lib/server/db";
 import { campaignAssets } from "$lib/server/db/schema";
+import { FILE_TYPE_ENTRIES } from "$lib/shared/file-types";
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = new Set([
-	"image/jpeg",
-	"image/png",
-	"image/webp",
-	"image/gif",
-	"image/avif",
-	"image/heic",
-	"image/heif",
-	"image/tiff",
-	"image/bmp",
-	"image/svg+xml",
-]);
 
-const MIME_EXTENSIONS: Record<string, string> = {
+/**
+ * Every image type the registry knows, SVG included.
+ *
+ * Spec row 45. The derived set reproduces the ten MIME types this module
+ * listed by hand — asserted in `legacy-equivalence.test.ts` ("reproduces the
+ * campaign ALLOWED_IMAGE_TYPES list") and, against this live set, in
+ * `campaign-assets.test.ts`.
+ */
+export const ALLOWED_IMAGE_TYPES = new Set(
+	FILE_TYPE_ENTRIES.filter((entry) => entry.category === "image").map(
+		(entry) => entry.mimeTypes[0],
+	),
+);
+
+/**
+ * MIME -> ON-DISK extension for stored campaign assets.
+ *
+ * Deliberately NOT derived (spec decision row 46 / open question 6): this map
+ * writes `image/tiff` as "tiff" while the registry canonicalises "tif", and
+ * deriving it would change the storage path of assets already on disk. It is
+ * kept in place and held to the registry by the parity test in
+ * `campaign-assets.test.ts`, which asserts every key is a registry image MIME
+ * and every value is one of that entry's extensions.
+ */
+export const MIME_EXTENSIONS: Record<string, string> = {
 	"image/jpeg": "jpg",
 	"image/png": "png",
 	"image/webp": "webp",

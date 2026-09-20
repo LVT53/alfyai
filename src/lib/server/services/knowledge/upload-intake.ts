@@ -12,6 +12,10 @@ import {
 	saveUploadedArtifact,
 	saveUploadedArtifactFromStoredFile,
 } from "./store";
+import {
+	assertUploadSignatureForFile,
+	assertUploadSignatureForStoredFile,
+} from "./upload-signature";
 
 const DEFAULT_READINESS_ERROR =
 	"This file could not be prepared for chat. Remove it or upload a supported text-readable document.";
@@ -255,6 +259,8 @@ export async function completeKnowledgeUploadFromFile(params: {
 		userId: params.userId,
 		conversationId: params.conversationId,
 	});
+	// Content check before anything is stored (spec section 4.2).
+	await assertUploadSignatureForFile(params.file);
 	const uploadResult = await saveUploadedArtifact({
 		userId: params.userId,
 		conversationId,
@@ -290,6 +296,13 @@ export async function completeKnowledgeUploadFromStoredFile(params: {
 	const conversationId = await validateKnowledgeUploadConversation({
 		userId: params.userId,
 		conversationId: params.conversationId,
+	});
+	// Content check before the bytes become an artifact. On a mismatch this
+	// unlinks the temp file and throws (spec section 4.2).
+	await assertUploadSignatureForStoredFile({
+		fileName: params.fileName,
+		mimeType: params.mimeType,
+		tempPathAbsolute: params.tempPathAbsolute,
 	});
 	const uploadResult = await saveUploadedArtifactFromStoredFile({
 		userId: params.userId,

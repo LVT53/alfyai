@@ -12,12 +12,26 @@ const mockWhere = vi.fn();
 const mockOrderBy = vi.fn();
 const mockLimit = vi.fn();
 const mockGet = vi.fn();
+/**
+ * `syncArtifactChunks` writes the delete and every insert batch inside one
+ * transaction. better-sqlite3's transactions are synchronous, so the double
+ * just hands the same builders to the callback and returns what it returns.
+ */
+const mockTransaction = vi.fn(
+	(callback: (tx: Record<string, unknown>) => unknown) =>
+		callback({
+			delete: mockDelete,
+			insert: mockInsert,
+			select: mockSelect,
+		}),
+);
 
 vi.mock("$lib/server/db", () => ({
 	db: {
 		delete: mockDelete,
 		insert: mockInsert,
 		select: mockSelect,
+		transaction: mockTransaction,
 	},
 }));
 
@@ -86,12 +100,21 @@ describe("artifacts", () => {
 		mockGet.mockResolvedValue(null);
 		mockOrderBy.mockResolvedValue([]);
 
+		mockTransaction.mockImplementation(
+			(callback: (tx: Record<string, unknown>) => unknown) =>
+				callback({
+					delete: mockDelete,
+					insert: mockInsert,
+					select: mockSelect,
+				}),
+		);
+
 		mockDelete.mockReturnValue({
-			where: vi.fn().mockResolvedValue(undefined),
+			where: vi.fn().mockReturnValue({ run: vi.fn() }),
 		});
 
 		mockInsert.mockReturnValue({
-			values: vi.fn().mockResolvedValue(undefined),
+			values: vi.fn().mockReturnValue({ run: vi.fn() }),
 		});
 	});
 

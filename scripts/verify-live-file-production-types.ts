@@ -2,6 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { chromium, type Page } from "playwright";
+import { getCanonicalMimeForExtension } from "$lib/shared/file-types";
+import { getExpectedExtensionForOutputType } from "$lib/shared/file-types/production";
 
 type ConversationDetail = {
 	fileProductionJobs?: FileProductionJob[];
@@ -27,10 +29,33 @@ type FileTypeCase = {
 	label: string;
 	sourceMode: "document_source" | "program";
 	requestedType: string;
-	expectedExtension: string;
-	expectedMimePrefix: string;
 	body: (conversationId: string) => Record<string, unknown>;
 };
+
+type ExpectedFileType = {
+	expectedExtension: string;
+	expectedMimePrefix: string;
+};
+
+// This script used to restate the extension and MIME of all 12 types — a
+// second source of truth next to the production table. It asks the shared
+// registry now, so a table change cannot leave the live sweep asserting the
+// old answer (spec row 64).
+function expectedFileType(requestedType: string): ExpectedFileType {
+	const expectedExtension = getExpectedExtensionForOutputType(requestedType);
+	if (!expectedExtension) {
+		throw new Error(
+			`${requestedType} is not a producible output type in the registry`,
+		);
+	}
+	const expectedMimePrefix = getCanonicalMimeForExtension(expectedExtension);
+	if (!expectedMimePrefix) {
+		throw new Error(
+			`${requestedType} resolves to ${expectedExtension}, which has no canonical MIME`,
+		);
+	}
+	return { expectedExtension, expectedMimePrefix };
+}
 
 const baseUrl = process.env.LIVE_AI_BASE_URL ?? "https://ai.alfydesign.com";
 const email = process.env.LIVE_AI_EMAIL;
@@ -208,33 +233,24 @@ const cases: FileTypeCase[] = [
 		label: "document-pdf",
 		sourceMode: "document_source",
 		requestedType: "pdf",
-		expectedExtension: ".pdf",
-		expectedMimePrefix: "application/pdf",
 		body: (conversationId) => documentSourceBody("pdf", conversationId),
 	},
 	{
 		label: "document-docx",
 		sourceMode: "document_source",
 		requestedType: "docx",
-		expectedExtension: ".docx",
-		expectedMimePrefix:
-			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		body: (conversationId) => documentSourceBody("docx", conversationId),
 	},
 	{
 		label: "document-html",
 		sourceMode: "document_source",
 		requestedType: "html",
-		expectedExtension: ".html",
-		expectedMimePrefix: "text/html",
 		body: (conversationId) => documentSourceBody("html", conversationId),
 	},
 	{
 		label: "program-csv",
 		sourceMode: "program",
 		requestedType: "csv",
-		expectedExtension: ".csv",
-		expectedMimePrefix: "text/csv",
 		body: (conversationId) =>
 			programBody(
 				"csv",
@@ -248,8 +264,6 @@ const cases: FileTypeCase[] = [
 		label: "program-json",
 		sourceMode: "program",
 		requestedType: "json",
-		expectedExtension: ".json",
-		expectedMimePrefix: "application/json",
 		body: (conversationId) =>
 			programBody(
 				"json",
@@ -263,8 +277,6 @@ const cases: FileTypeCase[] = [
 		label: "program-txt",
 		sourceMode: "program",
 		requestedType: "txt",
-		expectedExtension: ".txt",
-		expectedMimePrefix: "text/plain",
 		body: (conversationId) =>
 			programBody(
 				"txt",
@@ -278,8 +290,6 @@ const cases: FileTypeCase[] = [
 		label: "program-markdown",
 		sourceMode: "program",
 		requestedType: "markdown",
-		expectedExtension: ".md",
-		expectedMimePrefix: "text/markdown",
 		body: (conversationId) =>
 			programBody(
 				"markdown",
@@ -293,8 +303,6 @@ const cases: FileTypeCase[] = [
 		label: "program-svg",
 		sourceMode: "program",
 		requestedType: "svg",
-		expectedExtension: ".svg",
-		expectedMimePrefix: "image/svg+xml",
 		body: (conversationId) =>
 			programBody(
 				"svg",
@@ -308,8 +316,6 @@ const cases: FileTypeCase[] = [
 		label: "program-zip",
 		sourceMode: "program",
 		requestedType: "zip",
-		expectedExtension: ".zip",
-		expectedMimePrefix: "application/zip",
 		body: (conversationId) =>
 			programBody(
 				"zip",
@@ -323,9 +329,6 @@ const cases: FileTypeCase[] = [
 		label: "program-xlsx",
 		sourceMode: "program",
 		requestedType: "xlsx",
-		expectedExtension: ".xlsx",
-		expectedMimePrefix:
-			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 		body: (conversationId) =>
 			programBody(
 				"xlsx",
@@ -347,9 +350,6 @@ await workbook.xlsx.writeFile('/output/live-type.xlsx');
 		label: "program-pptx",
 		sourceMode: "program",
 		requestedType: "pptx",
-		expectedExtension: ".pptx",
-		expectedMimePrefix:
-			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
 		body: (conversationId) =>
 			programBody(
 				"pptx",
@@ -369,9 +369,6 @@ await pptx.writeFile({ fileName: '/output/live-type.pptx' });
 		label: "program-docx",
 		sourceMode: "program",
 		requestedType: "docx",
-		expectedExtension: ".docx",
-		expectedMimePrefix:
-			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		body: (conversationId) =>
 			programBody(
 				"docx",
@@ -392,8 +389,6 @@ fs.writeFileSync('/output/live-type.docx', await Packer.toBuffer(doc));
 		label: "program-odt",
 		sourceMode: "program",
 		requestedType: "odt",
-		expectedExtension: ".odt",
-		expectedMimePrefix: "application/vnd.oasis.opendocument.text",
 		body: (conversationId) =>
 			programBody(
 				"odt",
@@ -442,7 +437,7 @@ async function postProduceFile(
 async function verifyDownload(
 	page: Page,
 	file: ProducedFile,
-	expected: Pick<FileTypeCase, "expectedExtension" | "expectedMimePrefix">,
+	expected: ExpectedFileType,
 ) {
 	const response = await authenticatedFetch(page, file.downloadUrl);
 	const bytes = new Uint8Array(await response.arrayBuffer());
@@ -482,7 +477,13 @@ async function main() {
 					? accepted
 					: await pollForJob(page, conversationId, accepted.id);
 			const file = terminal.files?.[0] ?? null;
-			const download = file ? await verifyDownload(page, file, testCase) : null;
+			const download = file
+				? await verifyDownload(
+						page,
+						file,
+						expectedFileType(testCase.requestedType),
+					)
+				: null;
 			const ok =
 				terminal.status === "succeeded" &&
 				Boolean(file) &&

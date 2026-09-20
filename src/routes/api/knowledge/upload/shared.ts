@@ -7,6 +7,12 @@ import {
 	isKnowledgeUploadConversationError,
 	validateKnowledgeUploadConversation,
 } from "$lib/server/services/knowledge/upload-intake";
+import {
+	formatUploadRejectMessageEn,
+	UPLOAD_REJECT_I18N_KEYS,
+	UPLOAD_UNSUPPORTED_TYPE_CODE,
+} from "$lib/server/services/knowledge/upload-signature";
+import { admitUpload, fileExtension } from "$lib/shared/file-types";
 
 const UPLOAD_NAME_HEADER = "x-alfyai-upload-name";
 const UPLOAD_SIZE_HEADER = "x-alfyai-upload-size";
@@ -158,6 +164,55 @@ export async function writeKnowledgeUploadBytes(
 		receivedBytes,
 		binaryHash: hash.digest("hex"),
 	};
+}
+
+/**
+ * The type allowlist, in the one shape all four upload entry points answer
+ * with (spec section 4.1). Returns the 415 response, or `null` when the file
+ * may proceed.
+ *
+ * Every route that can receive bytes carries this check. `/intent` is a
+ * handshake, not a gate: nothing stops a client from skipping it — or lying to
+ * it and posting anyway — so `raw`, `chunk` and the legacy multipart route each
+ * make the decision themselves, from server-visible values only (the declared
+ * name and the request's own `Content-Type`), before a byte is written.
+ */
+export function refuseUnsupportedUploadType(params: {
+	fileName: string | null;
+	mimeType: string | null;
+	traceId: string;
+	userId: string;
+	logLabel: string;
+}): Response | null {
+	const admission = admitUpload(params.fileName ?? "", params.mimeType);
+	if (admission.allowed) return null;
+
+	const extension = fileExtension(params.fileName ?? "") || null;
+	console.warn(`[KNOWLEDGE] ${params.logLabel} refused an unsupported type`, {
+		traceId: params.traceId,
+		userId: params.userId,
+		fileName: params.fileName,
+		mimeType: params.mimeType,
+		extension,
+		reason: admission.reason,
+	});
+	return json(
+		{
+			error: formatUploadRejectMessageEn(admission.reason, {
+				fileName: params.fileName,
+				extension,
+			}),
+			code: UPLOAD_UNSUPPORTED_TYPE_CODE,
+			errorKey: UPLOAD_REJECT_I18N_KEYS[admission.reason],
+			traceId: params.traceId,
+			details: {
+				fileName: params.fileName,
+				extension,
+				reason: admission.reason,
+			},
+		},
+		{ status: 415 },
+	);
 }
 
 export async function resolveKnowledgeUploadConversation(params: {

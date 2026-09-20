@@ -1,11 +1,11 @@
 import { escapeHtml, sanitizeHtml } from "$lib/utils/html-sanitizer";
+// The kinds and the guard live in a leaf module so `preview-runtime/index.ts`
+// can reach them without statically importing THIS module, which would undo
+// its `await import("./office")` split. See `./kinds`.
+import type { OfficePreviewKind, OfficeRuntimeAdapter } from "./kinds";
 
-export type OfficePreviewKind = "docx" | "xlsx" | "pptx" | "odt";
-type OfficeRuntimeAdapter =
-	| { kind: "docx"; blob: Blob }
-	| { kind: "xlsx"; blob: Blob }
-	| { kind: "pptx"; blob: Blob }
-	| { kind: "odt"; blob: Blob };
+export { isOfficePreviewKind } from "./kinds";
+export type { OfficePreviewKind, OfficeRuntimeAdapter };
 
 export type OfficePreviewRenderResult =
 	| {

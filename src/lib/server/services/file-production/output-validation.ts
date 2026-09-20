@@ -1,142 +1,23 @@
 import path from "node:path";
 import JSZip from "jszip";
 import {
+	getCanonicalMimeForExtension,
+	isGenericMimeType,
+} from "$lib/shared/file-types";
+import {
+	getAllowedMimeTypesForProducedExtension,
 	getExpectedExtensionForOutputType,
 	isSupportedFileProductionOutputType,
+	isTextLikeExtension,
 	normalizeRequestedOutputType,
-} from "./output-types";
+} from "$lib/shared/file-types/production";
 
 export {
 	FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES,
 	isSupportedFileProductionOutputType,
 } from "./output-types";
 
-const EXTENSION_MIME_TYPES: Record<string, string[]> = {
-	".pdf": ["application/pdf"],
-	".txt": ["text/plain"],
-	".md": ["text/markdown", "text/plain"],
-	".markdown": ["text/markdown", "text/plain"],
-	".csv": ["text/csv", "text/plain"],
-	".html": ["text/html"],
-	".htm": ["text/html"],
-	".css": ["text/css", "text/plain"],
-	".scss": ["text/x-scss", "text/plain"],
-	".sass": ["text/x-sass", "text/plain"],
-	".less": ["text/x-less", "text/plain"],
-	".js": ["application/javascript", "text/javascript", "text/plain"],
-	".mjs": ["application/javascript", "text/javascript", "text/plain"],
-	".cjs": ["application/javascript", "text/javascript", "text/plain"],
-	".jsx": ["text/jsx", "application/javascript", "text/plain"],
-	".ts": ["application/typescript", "text/typescript", "text/plain"],
-	".tsx": ["text/tsx", "application/typescript", "text/plain"],
-	".py": ["text/x-python", "text/plain"],
-	".sh": ["application/x-sh", "text/x-shellscript", "text/plain"],
-	".bash": ["application/x-sh", "text/x-shellscript", "text/plain"],
-	".zsh": ["application/x-sh", "text/x-shellscript", "text/plain"],
-	".json": ["application/json", "text/json", "text/plain"],
-	".svg": ["image/svg+xml", "application/xml", "text/xml", "text/plain"],
-	".xml": ["application/xml", "text/xml", "text/plain"],
-	".yaml": ["application/yaml", "text/yaml", "text/plain"],
-	".yml": ["application/yaml", "text/yaml", "text/plain"],
-	".toml": ["application/toml", "text/plain"],
-	".sql": ["application/sql", "text/plain"],
-	".graphql": ["application/graphql", "text/plain"],
-	".gql": ["application/graphql", "text/plain"],
-	".ini": ["text/plain"],
-	".env": ["text/plain"],
-	".conf": ["text/plain"],
-	".log": ["text/plain"],
-	".rb": ["text/x-ruby", "text/plain"],
-	".rs": ["text/rust", "text/plain"],
-	".go": ["text/x-go", "text/plain"],
-	".java": ["text/x-java-source", "text/plain"],
-	".kt": ["text/x-kotlin", "text/plain"],
-	".kts": ["text/x-kotlin", "text/plain"],
-	".swift": ["text/x-swift", "text/plain"],
-	".cs": ["text/x-csharp", "text/plain"],
-	".cpp": ["text/x-c++src", "text/plain"],
-	".cxx": ["text/x-c++src", "text/plain"],
-	".cc": ["text/x-c++src", "text/plain"],
-	".c": ["text/x-csrc", "text/plain"],
-	".h": ["text/x-csrc", "text/plain"],
-	".hpp": ["text/x-c++src", "text/plain"],
-	".php": ["application/x-httpd-php", "text/plain"],
-	".r": ["text/x-r-source", "text/plain"],
-	".xlsx": [
-		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-	],
-	".docx": [
-		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-	],
-	".pptx": [
-		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
-	],
-	".odt": ["application/vnd.oasis.opendocument.text"],
-	".zip": [
-		"application/zip",
-		"application/x-zip-compressed",
-		"application/octet-stream",
-	],
-};
-
-const GENERIC_MIME_TYPES = new Set([
-	"application/octet-stream",
-	"application/download",
-]);
-
-const TEXT_LIKE_EXTENSIONS = new Set([
-	".txt",
-	".md",
-	".markdown",
-	".csv",
-	".html",
-	".htm",
-	".css",
-	".scss",
-	".sass",
-	".less",
-	".js",
-	".mjs",
-	".cjs",
-	".jsx",
-	".ts",
-	".tsx",
-	".py",
-	".sh",
-	".bash",
-	".zsh",
-	".json",
-	".xml",
-	".yaml",
-	".yml",
-	".toml",
-	".sql",
-	".graphql",
-	".gql",
-	".ini",
-	".env",
-	".conf",
-	".log",
-	".rb",
-	".rs",
-	".go",
-	".java",
-	".kt",
-	".kts",
-	".swift",
-	".cs",
-	".cpp",
-	".cxx",
-	".cc",
-	".c",
-	".h",
-	".hpp",
-	".php",
-	".r",
-]);
-
-const XLSX_MIME_TYPE =
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const XLSX_MIME_TYPE = getCanonicalMimeForExtension("xlsx") ?? "";
 const DEFAULT_XLSX_VALIDATION_MAX_BYTES = 100 * 1024 * 1024;
 const DEFAULT_XLSX_VALIDATION_MAX_ZIP_ENTRIES = 5000;
 const REQUIRED_XLSX_ZIP_ENTRIES = [
@@ -170,20 +51,12 @@ function normalizeMimeType(mimeType: string | null | undefined): string {
 	return mimeType?.toLowerCase().split(";")[0]?.trim() ?? "";
 }
 
-function isGenericMimeType(mimeType: string): boolean {
-	return !mimeType || GENERIC_MIME_TYPES.has(mimeType);
-}
-
-function isTextLikeExtension(extension: string): boolean {
-	return TEXT_LIKE_EXTENSIONS.has(extension);
-}
-
 function outputTypeFromFilename(filename: string): string | null {
 	const extension = path.extname(filename).toLowerCase();
 	if (!extension) return null;
 	const type = extension.replace(/^\./, "");
-	// The derived type has to round-trip: `.markdown` resolves to the type
-	// `markdown`, whose expected extension is `.md`, so deriving it would only
+	// The derived type has to round-trip: a .markdown file resolves to the
+	// type markdown, whose expected extension is .md, so deriving it would only
 	// produce a `program_output_type_mismatch` against the very file it came
 	// from. Only a type that validates this file is worth deriving.
 	return getExpectedExtensionForOutputType(type) === extension ? type : null;
@@ -214,8 +87,10 @@ export function isGeneratedFileTypeAllowed(
 		return true;
 	}
 
-	const allowedMimeTypes = EXTENSION_MIME_TYPES[extension];
-	if (!allowedMimeTypes) {
+	// `[]` means "the registry constrains nothing for this extension", which is
+	// the old `EXTENSION_MIME_TYPES[extension] === undefined` arm.
+	const allowedMimeTypes = getAllowedMimeTypesForProducedExtension(extension);
+	if (allowedMimeTypes.length === 0) {
 		return true;
 	}
 
@@ -368,7 +243,8 @@ export async function validateProgramOutputContract(params: {
 	// here only comes from a job queued before that rule existed. Rather than
 	// waste the run that already happened, take the type from the one file the
 	// program wrote — but ONLY when the request named nothing resolvable at
-	// all. A request for `["pdf", "file"]` still has to produce a PDF; letting
+	// all. A request naming pdf plus an unresolvable token still has to produce
+	// a PDF; letting
 	// the produced file redefine the whole request would turn "you asked for a
 	// PDF and got a CSV" into a success.
 	const resolvableOutputTypes = declaredOutputTypes.filter((type) =>

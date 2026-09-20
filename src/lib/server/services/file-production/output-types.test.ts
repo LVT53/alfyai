@@ -45,9 +45,22 @@ describe("file-production output types", () => {
 		expect(read(relative)).not.toMatch(/from\s+"[^"]*output-validation"/);
 	});
 
-	it("keeps output-types itself free of heavy dependencies", () => {
-		const source = read("lib/server/services/file-production/output-types.ts");
-		expect(source).not.toContain("jszip");
-		expect(source.match(/^import\s/gm)).toBeNull();
+	// The table moved to `$lib/shared/file-types` in Phase 1, so the assertion
+	// follows it: `table.ts` is the module that must stay dependency-free, and
+	// the two modules between it and the request path (`production.ts`, and this
+	// module's own re-export shim) must stay off JSZip.
+	it("keeps the shared type table free of heavy dependencies", () => {
+		const table = read("lib/shared/file-types/table.ts");
+		expect(table).not.toMatch(/from\s+"jszip"/i);
+		expect(table.match(/^import\s+(?!type\b)/gm)).toBeNull();
+	});
+
+	it.each([
+		"lib/shared/file-types/production.ts",
+		"lib/server/services/file-production/output-types.ts",
+	])("keeps %s off JSZip", (relative) => {
+		const source = read(relative);
+		expect(source).not.toMatch(/from\s+"jszip"/i);
+		expect(source).not.toMatch(/from\s+"[^"]*output-validation"/);
 	});
 });

@@ -17,7 +17,7 @@ const chatDict = {
 		// The drag-and-drop overlay over the whole chat page
 		// (DropZoneOverlay.svelte). Both lines are the largest text on screen
 		// while a drag is in flight, and both were English for everyone.
-		"chat.dropZone.attach": "Drop files to attach (max 100MB per file)",
+		"chat.dropZone.attach": "Drop files to attach (max {max}MB per file)",
 		"chat.dropZone.blocked": "Cannot upload while generating",
 		// Landmark labels for the two chat pages. A region with a role and no
 		// name is announced as an unnamed region, so these carry real weight.
@@ -1118,7 +1118,7 @@ const chatDict = {
 		"chat.checkingPrivacy": "Adatvédelem ellenőrzése…",
 		"chat.delete": "Törlés",
 		"chat.dropZone.attach":
-			"Húzd ide a fájlokat csatoláshoz (max. 100 MB/fájl)",
+			"Húzd ide a fájlokat csatoláshoz (max. {max} MB/fájl)",
 		"chat.dropZone.blocked": "Válaszírás közben nem tudsz feltölteni",
 		"chat.landingRegionLabel": "Kezdőoldal",
 		"chat.pageRegionLabel": "Beszélgetés oldala",

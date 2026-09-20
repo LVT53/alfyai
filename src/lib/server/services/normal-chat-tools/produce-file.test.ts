@@ -609,3 +609,50 @@ describe("produceFileModelInputSchema", () => {
 		);
 	});
 });
+
+// `dev` derived the output type with /\.([a-z0-9]+)$/i, so a filename whose
+// tail after the last dot is not purely alphanumeric named NO type and the
+// caller fell through to its markdown/text/documentSource default. Swapping in
+// the registry's `fileExtension` (which returns everything after the last dot)
+// turned those tails into bogus output types, and the request is then refused
+// as an unsupported type instead of producing the file.
+describe("output type derived from a filename", () => {
+	function outputsFor(
+		input: Partial<Parameters<typeof normalizeProduceFileInput>[0]>,
+	): Array<{ type: string }> {
+		const result = normalizeProduceFileInput({
+			requestTitle: "Test report",
+			...input,
+		} as Parameters<typeof normalizeProduceFileInput>[0]);
+		if (!result.ok) {
+			throw new Error(`expected ok result, got error: ${result.error}`);
+		}
+		return result.input.requestedOutputs;
+	}
+
+	const BODY = [
+		"# Quarterly summary",
+		"",
+		"Revenue grew 12% quarter over quarter, driven by the two enterprise",
+		"renewals that closed in March. Support load fell for the third quarter",
+		"running, and the migration backlog is now under fifty tickets.",
+	].join("\n");
+
+	it.each([
+		"Q1 vs Q2 (rev. 3)",
+		"Report 3.5 Final",
+		"Budget v1.2 draft",
+		"chart.c++",
+	])("ignores the non-extension tail of %s", (filename) => {
+		expect(outputsFor({ filename, markdown: BODY })).toEqual([{ type: "md" }]);
+	});
+
+	it("still derives a real extension", () => {
+		expect(outputsFor({ filename: "summary.xlsx", markdown: BODY })).toEqual([
+			{ type: "xlsx" },
+		]);
+		expect(outputsFor({ filename: "notes.tar.gz", markdown: BODY })).toEqual([
+			{ type: "gz" },
+		]);
+	});
+});

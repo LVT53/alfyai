@@ -9,10 +9,12 @@ import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
+import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
 import {
 	formatBytes,
 	parseNonNegativeInteger,
 	readKnowledgeUploadRequestMetadata,
+	refuseUnsupportedUploadType,
 	resolveKnowledgeUploadConversation,
 	writeKnowledgeUploadBytes,
 } from "../shared";
@@ -200,6 +202,18 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 
+	// The same allowlist `/intent` applies. Every chunk carries the file name
+	// and the declared type, so the first part of a refused file is never
+	// written and no part directory is created.
+	const unsupportedType = refuseUnsupportedUploadType({
+		fileName,
+		mimeType,
+		traceId,
+		userId: user.id,
+		logLabel: "Chunked upload",
+	});
+	if (unsupportedType) return unsupportedType;
+
 	const conversation = await resolveKnowledgeUploadConversation({
 		userId: user.id,
 		conversationId,
@@ -319,6 +333,32 @@ export const POST: RequestHandler = async (event) => {
 					traceId,
 				},
 				{ status: 400 },
+			);
+		}
+		if (isKnowledgeUploadContentMismatchError(error)) {
+			// Drops the assembled file together with every part it came from.
+			await rm(uploadDir, { force: true, recursive: true }).catch(
+				() => undefined,
+			);
+			console.warn("[KNOWLEDGE] Chunked upload refused on a content mismatch", {
+				traceId,
+				userId: user.id,
+				fileName: error.fileName,
+				extension: error.extension,
+			});
+			return json(
+				{
+					error: error.message,
+					code: error.code,
+					errorKey: error.errorKey,
+					traceId,
+					details: {
+						fileName: error.fileName,
+						extension: error.extension,
+						reason: "contentMismatch",
+					},
+				},
+				{ status: error.status },
 			);
 		}
 		throw error;

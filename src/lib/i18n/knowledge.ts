@@ -36,7 +36,7 @@ const knowledgeDict = {
 		"knowledge.documents": "Documents",
 		"knowledge.dropFileTooLarge":
 			"Some files are larger than {limit} and were skipped.",
-		"knowledge.dropFiles": "Drop files here to upload (max 100MB per file)",
+		"knowledge.dropFiles": "Drop files here to upload (max {max}MB per file)",
 		"knowledge.dropNoValidFiles": "Those files aren't a supported type.",
 		"knowledge.failedLoadMemory": "Failed to load memory profile.",
 		"knowledge.failedRefreshOverview":
@@ -80,10 +80,24 @@ const knowledgeDict = {
 		"knowledge.title": "Knowledge Base",
 		"knowledge.type": "Type",
 		"knowledge.upload": "Upload",
+		// The five upload refusals the server can answer with. It sends an
+		// English `error` plus an `errorKey` from this family; the client
+		// renders the key when it knows it. Keys, not codes, because one
+		// machine code (`upload_unsupported_type`) covers four reasons.
+		"knowledge.uploadContentMismatch":
+			"{name} doesn't look like a real {ext} file — its contents don't match its extension.",
 		"knowledge.uploadLimitTooltip":
 			"Upload files — up to {limit} each. Generated reports and skill notes arrive here on their own.",
 		"knowledge.uploadOrGenerateHint":
 			"Upload or generate documents to see them here",
+		"knowledge.uploadRejectedArchive":
+			"Archives can't be opened on upload. Unpack it and upload the files inside.",
+		"knowledge.uploadRejectedFormatNotEnabled":
+			"{ext} files aren't supported yet. Save it as PDF or DOCX and upload that.",
+		"knowledge.uploadRejectedMedia":
+			"Audio and video files can't be read yet. Upload a document or an image instead.",
+		"knowledge.uploadUnsupportedType":
+			"We can't read {name} — that file type isn't supported.",
 		"knowledge.uploaded": "Uploaded",
 		"knowledge.uploading": "Uploading...",
 		"knowledge.whatAiSees": "What the AI sees",
@@ -381,7 +395,7 @@ const knowledgeDict = {
 		"knowledge.dropFileTooLarge":
 			"Néhány fájl nagyobb, mint {limit}, és ki lett hagyva.",
 		"knowledge.dropFiles":
-			"Húzd ide a fájlokat feltöltéshez (max. 100 MB/fájl)",
+			"Húzd ide a fájlokat feltöltéshez (max. {max} MB/fájl)",
 		"knowledge.dropNoValidFiles": "Ezek a fájlok nem támogatott típusúak.",
 		"knowledge.failedLoadMemory": "Nem sikerült betölteni a memóriaprofilt.",
 		"knowledge.failedRefreshOverview":
@@ -423,10 +437,20 @@ const knowledgeDict = {
 		"knowledge.title": "Tudásbázis",
 		"knowledge.type": "Típus",
 		"knowledge.upload": "Feltöltés",
+		"knowledge.uploadContentMismatch":
+			"A(z) {name} nem valódi {ext} fájlnak tűnik — a tartalma nem illik a kiterjesztéséhez.",
 		"knowledge.uploadLimitTooltip":
 			"Fájlok feltöltése — egyenként legfeljebb {limit}. A létrehozott jelentések és skill jegyzetek maguktól kerülnek ide.",
 		"knowledge.uploadOrGenerateHint":
 			"Tölts fel vagy generálj dokumentumokat, hogy itt lásd őket",
+		"knowledge.uploadRejectedArchive":
+			"Az archívumokat feltöltéskor nem tudjuk kibontani. Csomagold ki, és töltsd fel a benne lévő fájlokat.",
+		"knowledge.uploadRejectedFormatNotEnabled":
+			"A(z) {ext} fájlokat még nem támogatjuk. Mentsd el PDF- vagy DOCX-formátumban, és azt töltsd fel.",
+		"knowledge.uploadRejectedMedia":
+			"Hang- és videofájlokat még nem tudunk olvasni. Tölts fel helyette dokumentumot vagy képet.",
+		"knowledge.uploadUnsupportedType":
+			"A(z) {name} fájlt nem tudjuk olvasni — ez a fájltípus nem támogatott.",
 		"knowledge.uploaded": "Feltöltött",
 		"knowledge.uploading": "Feltöltés...",
 		"knowledge.whatAiSees": "Amit az MI lát",

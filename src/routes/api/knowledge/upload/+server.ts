@@ -6,7 +6,9 @@ import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
+import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
 import type { RequestHandler } from "./$types";
+import { refuseUnsupportedUploadType } from "./shared";
 
 const UPLOAD_NAME_HEADER = "x-alfyai-upload-name";
 const UPLOAD_SIZE_HEADER = "x-alfyai-upload-size";
@@ -357,6 +359,18 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 
+	// The same allowlist the intent endpoint applies. This route predates the
+	// intent handshake and is still driven directly by the off-repo
+	// verification scripts, so it cannot rely on intent having refused first.
+	const unsupportedType = refuseUnsupportedUploadType({
+		fileName: file.name,
+		mimeType: file.type || null,
+		traceId,
+		userId: user.id,
+		logLabel: "Multipart upload",
+	});
+	if (unsupportedType) return unsupportedType;
+
 	console.info("[KNOWLEDGE] Multipart upload parsed", {
 		traceId,
 		userId: user.id,
@@ -380,6 +394,22 @@ export const POST: RequestHandler = async (event) => {
 			return json(
 				{ error: "Conversation not found or access denied" },
 				{ status: 400 },
+			);
+		}
+		if (isKnowledgeUploadContentMismatchError(error)) {
+			return json(
+				{
+					error: error.message,
+					code: error.code,
+					errorKey: error.errorKey,
+					traceId,
+					details: {
+						fileName: error.fileName,
+						extension: error.extension,
+						reason: "contentMismatch",
+					},
+				},
+				{ status: error.status },
 			);
 		}
 		throw error;

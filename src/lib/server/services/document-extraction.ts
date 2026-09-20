@@ -1,5 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
+import {
+	getCanonicalMimeForExtension,
+	getIntakeRoute,
+} from "$lib/shared/file-types";
 import { getConfig } from "../config-store";
 
 interface ExtractionResult {
@@ -10,48 +14,6 @@ interface ExtractionResult {
 	// for the source document ("long-document comfort", 2026-09-06) — most
 	// MinerU backends don't, so this is best-effort and frequently absent.
 	pageCount?: number;
-}
-
-function mimeFromExtension(ext: string): string | null {
-	const map: Record<string, string> = {
-		".pdf": "application/pdf",
-		".docx":
-			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-		".pptx":
-			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
-		".xlsx":
-			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-		".odt": "application/vnd.oasis.opendocument.text",
-		".doc": "application/msword",
-		".xls": "application/vnd.ms-excel",
-		".ppt": "application/vnd.ms-powerpoint",
-		".png": "image/png",
-		".jpg": "image/jpeg",
-		".jpeg": "image/jpeg",
-		".gif": "image/gif",
-		".bmp": "image/bmp",
-		".webp": "image/webp",
-		".tiff": "image/tiff",
-		".tif": "image/tiff",
-		".svg": "image/svg+xml",
-		".heic": "image/heic",
-		".heif": "image/heif",
-		".avif": "image/avif",
-		".txt": "text/plain",
-		".md": "text/markdown",
-		".html": "text/html",
-		".htm": "text/html",
-		".csv": "text/csv",
-		".json": "application/json",
-		".py": "text/x-python",
-		".js": "text/javascript",
-		".ts": "application/typescript",
-		".css": "text/css",
-		".yaml": "application/yaml",
-		".yml": "application/yaml",
-		".xml": "application/xml",
-	};
-	return map[ext] ?? null;
 }
 
 function extractMdContent(data: unknown, originalName: string): string {
@@ -112,36 +74,6 @@ function toNormalizedName(originalName: string): string {
 	return `${stem || "document"}.md`;
 }
 
-function isDirectTextExtractionFile(
-	ext: string,
-	mimeType: string | null,
-): boolean {
-	const normalizedMime = mimeType?.toLowerCase() ?? "";
-	return (
-		normalizedMime.startsWith("text/") ||
-		normalizedMime === "application/json" ||
-		normalizedMime === "application/xml" ||
-		normalizedMime === "application/yaml" ||
-		normalizedMime === "application/typescript" ||
-		[
-			".txt",
-			".md",
-			".markdown",
-			".html",
-			".htm",
-			".csv",
-			".json",
-			".py",
-			".js",
-			".ts",
-			".css",
-			".yaml",
-			".yml",
-			".xml",
-		].includes(ext)
-	);
-}
-
 export function resetDocumentExtractionExecutableCache(): void {
 	// No persistent state with MinerU — each call is stateless HTTP.
 	// Kept as a no-op to preserve the existing public API contract.
@@ -164,14 +96,32 @@ export async function extractDocumentText(
 		}
 
 		const ext = extname(originalName).toLowerCase();
-		const mime = mimeFromExtension(ext) ?? "application/octet-stream";
-		if (isDirectTextExtractionFile(ext, _mimeType ?? mime)) {
-			const text = fileBuffer.toString("utf8").trim();
-			return {
-				text: text || null,
-				normalizedName,
-				mimeType: "text/markdown",
-			};
+		const mime =
+			getCanonicalMimeForExtension(ext) ?? "application/octet-stream";
+
+		// The route decision — and ONLY the route decision — comes from the
+		// registry now. Everything below this switch (the MinerU request body,
+		// `backend: "hybrid-auto-engine"`, the response parsing and the timeout)
+		// is unchanged.
+		switch (getIntakeRoute(originalName, _mimeType ?? mime)) {
+			case "direct-text": {
+				const text = fileBuffer.toString("utf8").trim();
+				return {
+					text: text || null,
+					normalizedName,
+					mimeType: "text/markdown",
+				};
+			}
+			case "reject":
+				// Unreachable in practice: /api/knowledge/upload/intent refuses a
+				// reject-route file before anything is stored. The throw is caught
+				// by this function's own catch, which logs and returns `text: null`
+				// — the same answer these files got from MinerU before.
+				throw new Error(
+					`Extraction route "reject" for ${originalName}; this file type is not ingestible.`,
+				);
+			default:
+				break;
 		}
 
 		const file = new File([fileBuffer], originalName, { type: mime });

@@ -1,10 +1,26 @@
 import {
+	getEntryByFilename,
+	getEntryByMimeType,
+	isGenericMimeType,
+	normalizeMimeType,
+} from "$lib/shared/file-types";
+import {
 	determinePreviewFileType,
 	getPreviewLanguage,
 	type PreviewFileType,
 } from "$lib/utils/file-preview";
 import type { OfficePreviewRenderResult } from "./office";
+// From the leaf module, NOT from "./office": a static import of the renderer
+// module would make the `await import("./office")` below split nothing.
+import {
+	isOfficePreviewKind,
+	type OfficePreviewKind,
+	type OfficeRuntimeAdapter,
+} from "./office/kinds";
 import type { TextPreviewRenderResult } from "./text";
+
+export type { OfficePreviewKind, OfficeRuntimeAdapter };
+export { isOfficePreviewKind };
 
 export type TextPreviewKind = "csv" | "markdown" | "highlighted";
 
@@ -66,11 +82,6 @@ export type OfficePreviewReady = Extract<
 	OfficePreviewRenderResult,
 	{ status: "ready" }
 >;
-
-const GENERIC_MIME_TYPES = new Set([
-	"application/octet-stream",
-	"application/download",
-]);
 
 export function resolvePreviewSourceUrl({
 	artifactId,
@@ -159,13 +170,21 @@ export async function renderPreviewTextAdapter(
 }
 
 export async function renderPreviewOfficeAdapter(
-	adapter: Extract<
-		PreviewRuntimeAdapter,
-		{ kind: "docx" | "xlsx" | "pptx" | "odt" }
-	>,
+	adapter: OfficeRuntimeAdapter,
 ): Promise<OfficePreviewRenderResult> {
 	const { renderOfficePreview } = await import("./office");
 	return renderOfficePreview(adapter);
+}
+
+/**
+ * Narrows a loaded adapter to the office renderer's. The kinds live in
+ * `./office` next to the renderers that consume them (spec row 40), so no
+ * caller has to restate the union.
+ */
+export function isOfficePreviewAdapter(
+	adapter: PreviewRuntimeAdapter,
+): adapter is OfficeRuntimeAdapter {
+	return isOfficePreviewKind(adapter.kind);
 }
 
 export async function resolvePreviewFileType({
@@ -249,11 +268,6 @@ async function buildPreviewAdapter({
 	};
 }
 
-function isGenericMimeType(mimeType: string | null): boolean {
-	const mime = normalizeMimeType(mimeType);
-	return !mime || GENERIC_MIME_TYPES.has(mime);
-}
-
 function getEffectiveMimeType(
 	metadataMimeType: string | null,
 	blobMimeType: string | null,
@@ -263,11 +277,6 @@ function getEffectiveMimeType(
 	if (!isGenericMimeType(metadataMime)) return metadataMime;
 	if (!isGenericMimeType(blobMime)) return blobMime;
 	return metadataMime || blobMime || null;
-}
-
-function normalizeMimeType(mimeType: string | null): string | null {
-	const mime = mimeType?.split(";")[0]?.trim().toLowerCase() ?? "";
-	return mime || null;
 }
 
 function readResponseHeader(response: Response, name: string): string | null {
@@ -294,20 +303,21 @@ export function allowsTrustedHtmlPreviewRuntime(
 	].every((token) => normalized.includes(token));
 }
 
+/**
+ * Which text renderer a text preview gets (spec row 72).
+ *
+ * The extension and the declared MIME each get a vote, and `csv` is asked
+ * before `md` — the same precedence the two hand-written checks had. The
+ * registry answers both votes, so `.markdown` counts as markdown because it is
+ * an alias extension of the `md` entry, not because this function lists it.
+ */
 function getTextPreviewKind(
 	mimeType: string | null,
 	filename: string,
 ): TextPreviewKind {
-	if (mimeType === "text/csv" || filename.toLowerCase().endsWith(".csv")) {
-		return "csv";
-	}
-	const lowercaseFilename = filename.toLowerCase();
-	if (
-		mimeType === "text/markdown" ||
-		lowercaseFilename.endsWith(".md") ||
-		lowercaseFilename.endsWith(".markdown")
-	) {
-		return "markdown";
-	}
+	const byExtension = getEntryByFilename(filename);
+	const byMimeType = getEntryByMimeType(mimeType);
+	if (byExtension?.id === "csv" || byMimeType?.id === "csv") return "csv";
+	if (byExtension?.id === "md" || byMimeType?.id === "md") return "markdown";
 	return "highlighted";
 }

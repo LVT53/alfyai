@@ -163,6 +163,55 @@ describe("file-production architecture boundaries", () => {
 		}
 	});
 
+	// Phase 1: the server-side extension/MIME tables moved to
+	// $lib/shared/file-types. `no-ad-hoc-maps.test.ts` stops a NEW table
+	// appearing anywhere; this stops these specific ones coming back by name.
+	it("keeps the server-side type tables in the shared registry", () => {
+		for (const [relative, goneSymbol] of [
+			[
+				"src/lib/server/services/file-production/output-types.ts",
+				"const OUTPUT_TYPE_EXTENSIONS",
+			],
+			[
+				"src/lib/server/services/file-production/output-validation.ts",
+				"const EXTENSION_MIME_TYPES",
+			],
+			[
+				"src/lib/server/services/file-production/output-validation.ts",
+				"const TEXT_LIKE_EXTENSIONS",
+			],
+			[
+				"src/lib/server/services/file-production/execution-adapter.ts",
+				"function normalizeDocumentOutput",
+			],
+			["src/lib/server/services/sandbox-execution.ts", "const MIME_TYPES"],
+			[
+				"src/lib/server/services/generated-file-serving.ts",
+				"const FULL_VALIDATION_EXTENSIONS",
+			],
+			[
+				"src/lib/server/services/document-extraction.ts",
+				"function mimeFromExtension",
+			],
+			[
+				"src/lib/server/services/document-extraction.ts",
+				"function isDirectTextExtractionFile",
+			],
+			[
+				"src/lib/server/services/normal-chat-tools/produce-file.ts",
+				"const OUTPUT_TYPE_EXTENSIONS",
+			],
+			[
+				"src/lib/server/services/normal-chat-tools/files.ts",
+				"const TEXT_LIKE_MIME_TYPES",
+			],
+		]) {
+			expect(readSource(relative), `${relative}: ${goneSymbol}`).not.toContain(
+				goneSymbol,
+			);
+		}
+	});
+
 	it("keeps legacy job backfill out of the durable ledger", () => {
 		const ledger = readSource(
 			"src/lib/server/services/file-production/job-ledger.ts",

@@ -64,6 +64,7 @@ import {
 	type PlacementRect,
 } from "./composer-placement";
 import { t, type I18nKey } from "$lib/i18n";
+import { maxFileUploadSizeMb } from "$lib/stores/upload-limits";
 import {
 	getPersonalityProfileDisplayDescription,
 	getPersonalityProfileDisplayName,
@@ -93,7 +94,9 @@ let {
 	triggerElement = null,
 	canAttach = false,
 	attachmentsEnabled = false,
-	maxUploadMb = 100,
+	// Defaults to the server-reported limit rather than a hardcoded 100 (spec
+	// section 4.3). An explicit prop still wins, which is what the tests use.
+	maxUploadMb = undefined,
 	onClose,
 	onAttach,
 	personalityProfiles = [],
@@ -553,13 +556,13 @@ onMount(() => {
 				use:registerRow={row.id}
 				data-testid="composer-menu-attach"
 				disabled={!canAttach}
-				title={attachmentsEnabled ? $t('composerTools.attachFileMaxSize', { max: maxUploadMb }) : $t('composerTools.uploadsUnavailable')}
+				title={attachmentsEnabled ? $t('composerTools.attachFileMaxSize', { max: maxUploadMb ?? $maxFileUploadSizeMb }) : $t('composerTools.uploadsUnavailable')}
 				onfocus={() => (focusedIndex = index)}
 				onclick={handleAttach}
 			>
 				<span class="menu-row__icon" aria-hidden="true"><Paperclip size={16} strokeWidth={2} /></span>
 				<span class="menu-row__label">{$t('composerTools.attachFile')}</span>
-				<span class="menu-row__value">{$t('composerMenu.attachHint', { max: maxUploadMb })}</span>
+				<span class="menu-row__value">{$t('composerMenu.attachHint', { max: maxUploadMb ?? $maxFileUploadSizeMb })}</span>
 			</button>
 
 		{:else if row.id === 'skills'}

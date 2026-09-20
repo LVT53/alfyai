@@ -97,7 +97,9 @@ vi.mock("../../../db", () => ({
 	db: mockDb,
 }));
 
-const { saveUploadedArtifact } = await import("./attachments");
+const { NOT_PREPARED_READINESS_ERROR, saveUploadedArtifact } = await import(
+	"./attachments"
+);
 
 describe("Attachments - Auto-Rename on Conflict", () => {
 	beforeEach(() => {
@@ -475,5 +477,26 @@ describe("Attachments - Auto-Rename on Conflict", () => {
 			expect(result.renameInfo?.wasRenamed).toBe(true);
 			expect(result.renameInfo?.originalName).toBe("README");
 		});
+	});
+});
+
+describe("prompt-attachment readiness error", () => {
+	// Spec row 41 (slice E). The format list now comes from the registry, so
+	// this is the byte-identity guard: the sentence a user sees must not have
+	// moved when the literal was replaced by a derivation.
+	//
+	// Frozen copy of `attachments.ts:234` as it read before slice E.
+	const FROZEN_NOT_PREPARED =
+		"This file could not be prepared for chat. Supported extraction currently works best for text, HTML, JSON, PDF, DOCX, PPTX, XLSX, and common image formats (including HEIC/HEIF when server conversion support is installed).";
+
+	it("renders byte-identically to the literal it replaced", () => {
+		expect(NOT_PREPARED_READINESS_ERROR).toBe(FROZEN_NOT_PREPARED);
+	});
+
+	it("owns the sentence, including the full stop", () => {
+		// `getSupportedExtractionSummary` returns the list without terminal
+		// punctuation (slice A outcome, spec section 10).
+		expect(NOT_PREPARED_READINESS_ERROR.endsWith(".")).toBe(true);
+		expect(NOT_PREPARED_READINESS_ERROR).not.toContain("..");
 	});
 });

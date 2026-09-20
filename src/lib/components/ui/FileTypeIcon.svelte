@@ -1,17 +1,24 @@
 <script lang="ts">
 /**
- * Shared file type icon component.
+ * Shared file type icon component — the product's glyph vocabulary.
  *
- * Renders a Lucide icon for a given file type.
- * Supports: pdf, docx, xlsx, pptx, odt, image, text, unsupported
+ * The map is keyed on the registry's `FileTypeCategory`, so a caller that has
+ * already asked `getCategory(filename, mimeType)` can hand the answer straight
+ * over:
  *
- * Usage:
  * ```svelte
- * <FileTypeIcon type="pdf" />
- * <FileTypeIcon type="docx" size={20} class="text-icon-muted" />
+ * <FileTypeIcon category={getCategory(file.name, file.mimeType)} />
  * ```
+ *
+ * `type` is the compatibility prop the older call sites still use. It accepts
+ * a `PreviewFileType` (OpenDocumentsRail) or an `AttachmentFileType`
+ * (FileAttachment) as well as a bare category, and translates the handful of
+ * values that are not categories. Spec open question 15 keeps it until both
+ * call sites pass a category; it is the one place in the app allowed to know
+ * that "docx" and "document" draw the same glyph.
  */
 
+import type { FileTypeCategory } from "$lib/shared/file-types";
 import {
 	Archive,
 	Code,
@@ -22,23 +29,46 @@ import {
 	Table,
 } from "@lucide/svelte";
 
-let { type = "unsupported", size = 16 }: { type?: string; size?: number } =
-	$props();
+let {
+	type,
+	category,
+	size = 16,
+}: {
+	type?: string;
+	category?: FileTypeCategory;
+	size?: number;
+} = $props();
 
-const iconMap: Record<string, typeof File> = {
-	pdf: FileText,
-	docx: FileText,
-	xlsx: Table,
-	pptx: Presentation,
-	odt: FileText,
+const iconMap: Record<FileTypeCategory, typeof File> = {
 	image: Image,
-	text: FileText,
-	html: Code,
+	pdf: FileText,
+	document: FileText,
+	spreadsheet: Table,
+	presentation: Presentation,
 	code: Code,
+	text: FileText,
 	archive: Archive,
+	media: File,
+	other: File,
 };
 
-let Icon = $derived(iconMap[type] ?? File);
+/** Preview kinds and attachment types that are not category names. */
+const LEGACY_TYPE_TO_CATEGORY: Record<string, FileTypeCategory> = {
+	docx: "document",
+	odt: "document",
+	xlsx: "spreadsheet",
+	pptx: "presentation",
+	html: "code",
+	unsupported: "other",
+};
+
+let resolvedCategory = $derived<FileTypeCategory>(
+	category ??
+		LEGACY_TYPE_TO_CATEGORY[type ?? ""] ??
+		((type ?? "") in iconMap ? (type as FileTypeCategory) : "other"),
+);
+
+let Icon = $derived(iconMap[resolvedCategory]);
 </script>
 
 <span aria-hidden="true">

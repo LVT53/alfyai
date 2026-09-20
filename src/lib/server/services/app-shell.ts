@@ -35,6 +35,13 @@ export interface AppShellData {
 	conversations: Promise<ConversationListItem[]>;
 	projects: Promise<Project[]>;
 	maxMessageLength: number;
+	/**
+	 * Seeds `$lib/stores/upload-limits` from `(app)/+layout.svelte`'s
+	 * `onMount` — drag-and-drop partitioning happens before the first upload
+	 * intent is sent. On the client only; see that store's header for why, and
+	 * for what server-rendered HTML shows until hydration.
+	 */
+	maxFileUploadSize: number;
 	composerCommandRegistryEnabled: boolean;
 	atlasAvailability: AtlasAvailability;
 	userTheme: "system" | "light" | "dark";
@@ -83,6 +90,7 @@ export async function getAuthenticatedAppShellData(
 		conversations,
 		projects,
 		maxMessageLength: config.maxMessageLength,
+		maxFileUploadSize: config.maxFileUploadSize,
 		composerCommandRegistryEnabled: config.composerCommandRegistryEnabled,
 		atlasAvailability: getAtlasAvailability(config),
 		userTheme: resolveUserTheme(userRow?.theme),

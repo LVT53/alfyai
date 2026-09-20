@@ -11,6 +11,14 @@ vi.mock("$lib/server/services/attachment-trace", () => ({
 	logAttachmentTrace: vi.fn(),
 }));
 
+// The magic-byte check has its own test file; these fixtures are named files
+// with placeholder bytes and paths that never existed on disk. What matters
+// here is that intake calls it, and calls it BEFORE anything is stored.
+vi.mock("./upload-signature", () => ({
+	assertUploadSignatureForFile: vi.fn(async () => undefined),
+	assertUploadSignatureForStoredFile: vi.fn(async () => undefined),
+}));
+
 vi.mock("$lib/server/services/conversations", () => ({
 	getConversation: vi.fn(),
 }));
@@ -38,6 +46,10 @@ import {
 	completeKnowledgeUploadFromStoredFile,
 	resolveKnowledgeUploadLimits,
 } from "./upload-intake";
+import {
+	assertUploadSignatureForFile,
+	assertUploadSignatureForStoredFile,
+} from "./upload-signature";
 
 const mockCreateNormalizedArtifact = createNormalizedArtifact as ReturnType<
 	typeof vi.fn
@@ -49,6 +61,10 @@ const mockSaveUploadedArtifact = saveUploadedArtifact as ReturnType<
 >;
 const mockSaveUploadedArtifactFromStoredFile =
 	saveUploadedArtifactFromStoredFile as ReturnType<typeof vi.fn>;
+const mockAssertUploadSignatureForFile =
+	assertUploadSignatureForFile as ReturnType<typeof vi.fn>;
+const mockAssertUploadSignatureForStoredFile =
+	assertUploadSignatureForStoredFile as ReturnType<typeof vi.fn>;
 const mockLogAttachmentTrace = logAttachmentTrace as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
@@ -87,6 +103,8 @@ describe("Knowledge Upload Intake", () => {
 			.spyOn(console, "info")
 			.mockImplementation(() => undefined);
 		mockGetConversation.mockResolvedValue({ id: "conv-1" });
+		mockAssertUploadSignatureForFile.mockResolvedValue(undefined);
+		mockAssertUploadSignatureForStoredFile.mockResolvedValue(undefined);
 		mockGetConfig.mockReturnValue({ maxFileUploadSize: 50 * 1024 * 1024 });
 		mockGetAdapterBodySizeLimitBytes.mockReturnValue(40 * 1024 * 1024);
 		mockCreateNormalizedArtifact.mockResolvedValue(null);
@@ -406,5 +424,68 @@ describe("Knowledge Upload Intake", () => {
 
 		expect(mockSaveUploadedArtifact).not.toHaveBeenCalled();
 		expect(mockSaveUploadedArtifactFromStoredFile).not.toHaveBeenCalled();
+	});
+
+	it("content-checks a stored upload before it becomes an artifact", async () => {
+		mockGetConversation.mockResolvedValue({ id: "conv-1" });
+		mockAssertUploadSignatureForStoredFile.mockRejectedValueOnce(
+			Object.assign(new Error("fake.png doesn't look like a real png file"), {
+				name: "KnowledgeUploadContentMismatchError",
+				status: 415,
+			}),
+		);
+
+		await expect(
+			completeKnowledgeUploadFromStoredFile({
+				userId: "user-1",
+				conversationId: "conv-1",
+				fileName: "fake.png",
+				mimeType: "image/png",
+				sizeBytes: 2048,
+				binaryHash: "stored-binary-hash",
+				tempPathAbsolute: "/tmp/fake-upload",
+				traceId: "trace-mismatch",
+				startedAt: now,
+				logPrefix: "Raw",
+			}),
+		).rejects.toMatchObject({
+			name: "KnowledgeUploadContentMismatchError",
+			status: 415,
+		});
+
+		expect(mockAssertUploadSignatureForStoredFile).toHaveBeenCalledWith({
+			fileName: "fake.png",
+			mimeType: "image/png",
+			tempPathAbsolute: "/tmp/fake-upload",
+		});
+		// Nothing was stored, so nothing has to be rolled back.
+		expect(mockSaveUploadedArtifactFromStoredFile).not.toHaveBeenCalled();
+	});
+
+	it("content-checks a multipart upload before it becomes an artifact", async () => {
+		mockGetConversation.mockResolvedValue({ id: "conv-1" });
+		const file = new File(["%PDF-"], "fake.png", { type: "image/png" });
+		mockAssertUploadSignatureForFile.mockRejectedValueOnce(
+			Object.assign(new Error("fake.png doesn't look like a real png file"), {
+				name: "KnowledgeUploadContentMismatchError",
+				status: 415,
+			}),
+		);
+
+		await expect(
+			completeKnowledgeUploadFromFile({
+				userId: "user-1",
+				conversationId: "conv-1",
+				file,
+				traceId: "trace-mismatch-file",
+				startedAt: now,
+			}),
+		).rejects.toMatchObject({
+			name: "KnowledgeUploadContentMismatchError",
+			status: 415,
+		});
+
+		expect(mockAssertUploadSignatureForFile).toHaveBeenCalledWith(file);
+		expect(mockSaveUploadedArtifact).not.toHaveBeenCalled();
 	});
 });

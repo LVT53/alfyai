@@ -1,5 +1,7 @@
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
+import { normalizeDocumentOutput } from "$lib/shared/file-types/production";
+import type { DocumentRenderKind } from "$lib/shared/file-types/types";
 import { createDefaultGeneratedDocumentImageLoader } from "./image-loader";
 import { renderStandardReportDocx } from "./renderers/standard-report-docx";
 import { renderStandardReportHtml } from "./renderers/standard-report-html";
@@ -43,7 +45,7 @@ export type ParsedFileProductionJobRequest =
 	| {
 			sourceMode: "document_source";
 			documentSource: GeneratedDocumentSource;
-			outputs: Array<"pdf" | "docx" | "html" | "markdown">;
+			outputs: Array<DocumentRenderKind>;
 	  };
 
 export interface ExecutePersistedFileProductionRequestInput {
@@ -95,37 +97,13 @@ function normalizeOutputTypes(value: unknown): string[] {
 		.filter(Boolean);
 }
 
-function normalizeDocumentOutput(
-	type: string,
-): "pdf" | "docx" | "html" | "markdown" | null {
-	switch (type) {
-		case "pdf":
-		case "application/pdf":
-			return "pdf";
-		case "docx":
-		case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-			return "docx";
-		case "html":
-		case "text/html":
-			return "html";
-		case "markdown":
-		case "md":
-		case "text/markdown":
-			return "markdown";
-		default:
-			return null;
-	}
-}
-
 function selectDocumentOutputs(
 	outputs: string[],
-): Array<"pdf" | "docx" | "html" | "markdown"> | null {
+): Array<DocumentRenderKind> | null {
 	if (outputs.length === 0) return ["pdf"];
 	const normalized = outputs.map(normalizeDocumentOutput);
 	if (normalized.some((output) => output === null)) return null;
-	return Array.from(new Set(normalized)) as Array<
-		"pdf" | "docx" | "html" | "markdown"
-	>;
+	return Array.from(new Set(normalized)) as Array<DocumentRenderKind>;
 }
 
 function parseFileProductionJobRequest(requestJson: string | null):

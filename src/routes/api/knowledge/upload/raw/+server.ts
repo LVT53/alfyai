@@ -8,10 +8,12 @@ import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
+import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
 import {
 	formatBytes,
 	parseContentLength,
 	readKnowledgeUploadRequestMetadata,
+	refuseUnsupportedUploadType,
 	resolveKnowledgeUploadConversation,
 	writeKnowledgeUploadBytes,
 } from "../shared";
@@ -237,6 +239,18 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 
+	// The same allowlist `/intent` applies, in the same order (size first, then
+	// type) and before a single byte reaches the disk. This route is reachable
+	// without ever calling `/intent`.
+	const unsupportedType = refuseUnsupportedUploadType({
+		fileName: declaredFileName,
+		mimeType,
+		traceId,
+		userId: user.id,
+		logLabel: "Raw upload",
+	});
+	if (unsupportedType) return unsupportedType;
+
 	const conversation = await resolveKnowledgeUploadConversation({
 		userId: user.id,
 		conversationId,
@@ -333,6 +347,31 @@ export const POST: RequestHandler = async (event) => {
 					traceId,
 				},
 				{ status: 400 },
+			);
+		}
+		if (isKnowledgeUploadContentMismatchError(error)) {
+			// The signature check already unlinked the temp file; this is belt
+			// and braces for the case where it could not.
+			await unlink(tempPathAbsolute).catch(() => undefined);
+			console.warn("[KNOWLEDGE] Raw upload refused on a content mismatch", {
+				traceId,
+				userId: user.id,
+				fileName: error.fileName,
+				extension: error.extension,
+			});
+			return json(
+				{
+					error: error.message,
+					code: error.code,
+					errorKey: error.errorKey,
+					traceId,
+					details: {
+						fileName: error.fileName,
+						extension: error.extension,
+						reason: "contentMismatch",
+					},
+				},
+				{ status: error.status },
 			);
 		}
 		throw error;

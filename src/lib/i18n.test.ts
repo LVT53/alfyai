@@ -37,6 +37,44 @@ describe("i18n composer and skills namespaces", () => {
 		}
 	});
 
+	it("localizes every upload refusal the server can answer with", () => {
+		// The server sends an English `error` plus one of these keys. A key that
+		// landed in EN only would show the raw key to exactly the Hungarian
+		// readers whose upload was just refused. `knowledge.` as a whole is not
+		// audited, so the narrow `knowledge.upload` prefix in
+		// `i18n.test-helpers.ts` is what makes the parity test above see these.
+		const keys = collectDictionaryKeys();
+		const uploadRefusalKeys = [
+			"knowledge.uploadContentMismatch",
+			"knowledge.uploadRejectedArchive",
+			"knowledge.uploadRejectedFormatNotEnabled",
+			"knowledge.uploadRejectedMedia",
+			"knowledge.uploadUnsupportedType",
+		];
+
+		for (const key of uploadRefusalKeys) {
+			expect(keys.en).toContain(key);
+			expect(keys.hu).toContain(key);
+			expect(knowledgeDict.hu[key as keyof typeof knowledgeDict.hu]).not.toBe(
+				knowledgeDict.en[key as keyof typeof knowledgeDict.en],
+			);
+		}
+	});
+
+	it("parameterizes the two drop-zone size limits", () => {
+		// Both used to spell "100MB" in four places. They now read the limit the
+		// server reports, so the placeholder has to survive translation.
+		for (const value of [
+			knowledgeDict.en["knowledge.dropFiles"],
+			knowledgeDict.hu["knowledge.dropFiles"],
+			chatDict.en["chat.dropZone.attach"],
+			chatDict.hu["chat.dropZone.attach"],
+		]) {
+			expect(value).toContain("{max}");
+			expect(value).not.toContain("100");
+		}
+	});
+
 	it("localizes the inherited Skill Draft copy guard", () => {
 		const keys = collectDictionaryKeys();
 

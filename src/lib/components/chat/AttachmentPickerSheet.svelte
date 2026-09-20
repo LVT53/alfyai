@@ -18,9 +18,12 @@
 import { Camera, ChevronRight, File, Folder, Image } from "@lucide/svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import { maxFileUploadSizeMb } from "$lib/stores/upload-limits";
 
 let {
-	maxUploadMb = 100,
+	// Defaults to the server-reported limit rather than a hardcoded 100 (spec
+	// section 4.3).
+	maxUploadMb = undefined,
 	onFiles,
 	onOpenLibrary,
 	onCancel,
@@ -70,7 +73,7 @@ function handlePicked(event: Event) {
 		<header class="attachment-sheet__head">
 			<h3 class="attachment-sheet__title">{$t('attachmentPicker.title')}</h3>
 			<p class="attachment-sheet__subtitle">
-				{$t('attachmentPicker.subtitle', { max: maxUploadMb })}
+				{$t('attachmentPicker.subtitle', { max: maxUploadMb ?? $maxFileUploadSizeMb })}
 			</p>
 		</header>
 

@@ -16,8 +16,16 @@ import {
 	pickBarMatchedColumn,
 	sameChartCategories,
 } from "$lib/services/ascii-bar-chart";
+import { fileExtension } from "$lib/shared/file-types";
+import {
+	getExpectedExtensionForOutputType,
+	shouldUseDocumentSourceForOutputs as shouldUseDocumentSourceForOutputTypes,
+} from "$lib/shared/file-types/production";
 
 import { isRecord, shortHash, stableStringify } from "./shared";
+
+/** What `dev`'s /\.([a-z0-9]+)$/i accepted as an extension. See `outputTypeFromFilename`. */
+const ALPHANUMERIC_EXTENSION = /^[a-z0-9]+$/;
 
 // ── Input schema ───────────────────────────────────────────────
 
@@ -655,10 +663,14 @@ function firstNonEmptyString(
 }
 
 function outputTypeFromFilename(filename?: string): string | null {
-	const trimmed = filename?.trim();
-	if (!trimmed) return null;
-	const match = /\.([a-z0-9]+)$/i.exec(trimmed);
-	return match?.[1]?.toLowerCase() ?? null;
+	// The registry parser answers "everything after the last dot". `dev` used
+	// /\.([a-z0-9]+)$/i, which is stricter in a load-bearing way: a tail that is
+	// not purely alphanumeric named NO output type, and the caller fell through
+	// to its markdown/text/documentSource default. Without the guard
+	// "Q1 vs Q2 (rev. 3)" becomes the output type "3)" and the whole request is
+	// refused as unsupported.
+	const extension = fileExtension(filename?.trim() ?? "");
+	return ALPHANUMERIC_EXTENSION.test(extension) ? extension : null;
 }
 
 function titleFromFilename(filename?: string): string | null {
@@ -672,42 +684,19 @@ function titleFromFilename(filename?: string): string | null {
 	return title || null;
 }
 
+// Thin wrapper over the registry so the call site keeps passing output
+// objects. The registry matches on ENTRY ID only, which is exactly the old
+// {pdf, docx, html} set — a MIME token such as "application/pdf" was never in
+// it and still is not (spec conflict 5).
 function shouldUseDocumentSourceForOutputs(
 	outputs: Array<{ type: string }>,
 ): boolean {
-	const documentTypes = new Set(["pdf", "docx", "html"]);
-	return outputs.every((output) =>
-		documentTypes.has(output.type.trim().toLowerCase()),
+	return shouldUseDocumentSourceForOutputTypes(
+		outputs.map((output) => output.type),
 	);
 }
 
 // ── Filename / program helpers ─────────────────────────────────
-
-const OUTPUT_TYPE_EXTENSIONS: Record<string, string> = {
-	markdown: "md",
-	"text/markdown": "md",
-	md: "md",
-	txt: "txt",
-	text: "txt",
-	"text/plain": "txt",
-	json: "json",
-	"application/json": "json",
-	csv: "csv",
-	"text/csv": "csv",
-	html: "html",
-	"text/html": "html",
-	css: "css",
-	js: "js",
-	javascript: "js",
-	ts: "ts",
-	typescript: "ts",
-	sh: "sh",
-	shell: "sh",
-	svg: "svg",
-	xml: "xml",
-	yaml: "yaml",
-	yml: "yml",
-};
 
 function resolveTextFilename(params: {
 	filename?: string;
@@ -716,8 +705,11 @@ function resolveTextFilename(params: {
 }): string {
 	const explicit = sanitizeFilename(params.filename);
 	if (explicit) return explicit;
+	// The registry token map replaces a local, narrower copy; the raw-token
+	// fallback below is unchanged, so an unknown token still becomes the
+	// extension verbatim.
 	const normalizedType =
-		OUTPUT_TYPE_EXTENSIONS[params.outputType?.trim().toLowerCase() ?? ""] ??
+		getExpectedExtensionForOutputType(params.outputType ?? "") ??
 		params.outputType?.trim().toLowerCase() ??
 		"txt";
 	const extension = normalizedType.replace(/^\./, "") || "txt";
