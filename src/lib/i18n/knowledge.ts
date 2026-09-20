@@ -139,6 +139,8 @@ const knowledgeDict = {
 		// machine code (`upload_unsupported_type`) covers four reasons.
 		"knowledge.uploadContentMismatch":
 			"{name} doesn't look like a real {ext} file — its contents don't match its extension.",
+		"knowledge.uploadDirectTextTooLarge":
+			"{name} is too big to read as plain text — the limit is {limit}. Split it, or save it as a PDF or DOCX and upload that.",
 		"knowledge.uploadLimitTooltip":
 			"Upload files — up to {limit} each. Generated reports and skill notes arrive here on their own.",
 		"knowledge.uploadOrGenerateHint":
@@ -540,6 +542,8 @@ const knowledgeDict = {
 		"knowledge.upload": "Feltöltés",
 		"knowledge.uploadContentMismatch":
 			"A(z) {name} nem valódi {ext} fájlnak tűnik — a tartalma nem illik a kiterjesztéséhez.",
+		"knowledge.uploadDirectTextTooLarge":
+			"A(z) {name} túl nagy ahhoz, hogy egyszerű szövegként olvassuk be — a korlát {limit}. Bontsd szét, vagy mentsd PDF- vagy DOCX-formátumban, és azt töltsd fel.",
 		"knowledge.uploadLimitTooltip":
 			"Fájlok feltöltése — egyenként legfeljebb {limit}. A létrehozott jelentések és skill jegyzetek maguktól kerülnek ide.",
 		"knowledge.uploadOrGenerateHint":

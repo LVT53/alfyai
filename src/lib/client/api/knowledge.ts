@@ -18,6 +18,7 @@ import type {
 	KnowledgeMemoryPayload,
 } from "$lib/server/services/memory-types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import { formatByteSize } from "$lib/utils/format";
 import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
 import { _unwrapList } from "./_utils";
 import {
@@ -71,24 +72,42 @@ const UPLOAD_REFUSAL_KEYS: ReadonlySet<string> = new Set<I18nKey>([
 	"knowledge.uploadContentMismatch",
 ]);
 
+/**
+ * The refusals that are not a 415. Phase 3's direct-text cap answers 413 with
+ * its own key and a `maxBytes` detail, and a set keyed only on 415 let that
+ * fall through to the server's English sentence on all three upload surfaces.
+ */
+const UPLOAD_REFUSAL_KEYS_413: ReadonlySet<string> = new Set<I18nKey>([
+	"knowledge.uploadDirectTextTooLarge",
+]);
+
 export type UploadRefusal = {
 	readonly key: I18nKey;
-	/** `{name}` and `{ext}`, the only placeholders the five keys use. */
-	readonly params: { readonly name: string; readonly ext: string };
+	/** `{name}`, `{ext}` and `{limit}` — every placeholder these keys use. */
+	readonly params: {
+		readonly name: string;
+		readonly ext: string;
+		readonly limit: string;
+	};
 };
 
 /**
- * Translate a 415 from the upload path into an i18n key plus its parameters,
- * or `null` when the error is anything else (the caller then keeps whatever it
- * did before). `file` supplies the name when the server did not echo one.
+ * Translate a refused upload into an i18n key plus its parameters, or `null`
+ * when the error is anything else (the caller then keeps whatever it did
+ * before). `file` supplies the name when the server did not echo one.
  */
 export function uploadRefusalFromError(
 	error: unknown,
 	file: { name: string },
 ): UploadRefusal | null {
-	if (!(error instanceof ApiError) || error.status !== 415) return null;
+	if (!(error instanceof ApiError)) return null;
 	const key = error.errorKey;
-	if (!key || !UPLOAD_REFUSAL_KEYS.has(key)) return null;
+	if (!key) return null;
+
+	const recognized =
+		(error.status === 415 && UPLOAD_REFUSAL_KEYS.has(key)) ||
+		(error.status === 413 && UPLOAD_REFUSAL_KEYS_413.has(key));
+	if (!recognized) return null;
 
 	const details = error.details ?? {};
 	const fileName =
@@ -99,10 +118,20 @@ export function uploadRefusalFromError(
 		typeof details.extension === "string" && details.extension.trim()
 			? details.extension
 			: (fileName.split(".").slice(1).pop() ?? "");
+	const maxBytes =
+		typeof details.maxBytes === "number" && Number.isFinite(details.maxBytes)
+			? details.maxBytes
+			: null;
 
 	return {
 		key: key as I18nKey,
-		params: { name: fileName, ext: extension.toUpperCase() },
+		params: {
+			name: fileName,
+			ext: extension.toUpperCase(),
+			limit: maxBytes === null ? "" : formatByteSize(maxBytes, {
+				trimWholeUnits: true,
+			}),
+		},
 	};
 }
 
