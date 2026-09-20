@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AtlasJobCard } from "$lib/server/services/atlas/public-types";
+import { toFriendlySendError } from "../../../routes/(app)/chat/[conversationId]/_helpers";
 import { cancelAtlasJob, submitAtlasTurn } from "./atlas";
-import type { FetchLike } from "./http";
+import { ApiError, type FetchLike } from "./http";
 
 function atlasJobFixture(overrides: Partial<AtlasJobCard> = {}): AtlasJobCard {
 	return {
@@ -109,6 +110,59 @@ describe("Atlas client API", () => {
 			message: "Atlas is queued.",
 			atlasJob,
 		});
+	});
+
+	// F15. Atlas mode does not stream, so its send-gate refusal comes back
+	// through `requestJson`. The rows the 422 carries used to be dropped by
+	// `readErrorPayload`, so an Atlas user got the server's English sentence
+	// where a streaming user got the translated per-file one.
+	it("carries the send gate's per-attachment rows onto the thrown ApiError", async () => {
+		const attachmentExtraction = [
+			{
+				artifactId: "artifact-1",
+				name: "scan.pdf",
+				status: "parsing",
+				errorCode: null,
+				retryable: false,
+			},
+		];
+		const fetchImpl = vi.fn<FetchLike>(
+			async () =>
+				new Response(
+					JSON.stringify({
+						error:
+							"One or more attached files are still being prepared for chat.",
+						code: "attachment_extraction_pending",
+						attachmentIds: ["artifact-1"],
+						attachmentExtraction,
+					}),
+					{ status: 422, headers: { "Content-Type": "application/json" } },
+				),
+		);
+
+		const error = await submitAtlasTurn(
+			{
+				conversationId: "conv-1",
+				message: "Summarize this",
+				attachmentIds: ["artifact-1"],
+				profile: "overview",
+				action: "create",
+				clientAtlasTurnId: "client-atlas-1",
+			},
+			fetchImpl,
+		).catch((thrown: unknown) => thrown);
+
+		expect(error).toBeInstanceOf(ApiError);
+		expect((error as ApiError).code).toBe("attachment_extraction_pending");
+		expect((error as ApiError).attachmentExtraction).toEqual(
+			attachmentExtraction,
+		);
+
+		// And the composer's one renderer turns them into the translated
+		// sentence, exactly as it does for the streaming path's error.
+		expect(
+			toFriendlySendError(error as Error, (key) => `translated:${key}`),
+		).toBe("scan.pdf: translated:chat.extraction.parsing");
 	});
 
 	it("cancels Atlas jobs through the owned Atlas endpoint", async () => {

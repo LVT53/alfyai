@@ -15,6 +15,17 @@ export class ApiError extends Error {
 	 * field it wants, so an endpoint may add a field without touching this.
 	 */
 	readonly details?: Record<string, unknown>;
+	/**
+	 * The send gate's per-attachment rows, verbatim off the 422 body. The
+	 * streaming client already carries them on its error so the composer can
+	 * render a translated sentence per file instead of echoing the server's
+	 * English; `/api/chat/send` answers the same body, so the non-streaming
+	 * Atlas path has to carry them too or the same refusal reads differently
+	 * depending on which client made the request. Left untyped here for the
+	 * same reason as `details`: the one reader
+	 * (`chat/[conversationId]/_helpers.ts`) validates it structurally.
+	 */
+	readonly attachmentExtraction?: unknown;
 	readonly status: number;
 
 	constructor(
@@ -24,6 +35,7 @@ export class ApiError extends Error {
 			errorKey?: string;
 			fieldErrors?: Record<string, string>;
 			details?: Record<string, unknown>;
+			attachmentExtraction?: unknown;
 			status: number;
 		},
 	) {
@@ -33,6 +45,7 @@ export class ApiError extends Error {
 		this.errorKey = options.errorKey;
 		this.fieldErrors = options.fieldErrors;
 		this.details = options.details;
+		this.attachmentExtraction = options.attachmentExtraction;
 		this.status = options.status;
 	}
 }
@@ -59,6 +72,7 @@ async function throwRequestError(
 		errorKey: error.errorKey,
 		fieldErrors: error.fieldErrors,
 		details: error.details,
+		attachmentExtraction: error.attachmentExtraction,
 		status: response.status,
 	});
 }
@@ -72,6 +86,7 @@ export async function readErrorPayload(
 	errorKey?: string;
 	fieldErrors?: Record<string, string>;
 	details?: Record<string, unknown>;
+	attachmentExtraction?: unknown;
 }> {
 	const text = await response.text().catch(() => "");
 	if (!text) return { message: fallback };
@@ -97,11 +112,28 @@ export async function readErrorPayload(
 					)
 				: undefined;
 			const details = isRecord(parsed.details) ? parsed.details : undefined;
+			const attachmentExtraction = Array.isArray(parsed.attachmentExtraction)
+				? parsed.attachmentExtraction
+				: undefined;
 			if (typeof message === "string" && message.trim()) {
-				return { message, code, errorKey, fieldErrors, details };
+				return {
+					message,
+					code,
+					errorKey,
+					fieldErrors,
+					details,
+					attachmentExtraction,
+				};
 			}
-			if (code || errorKey || fieldErrors || details)
-				return { message: fallback, code, errorKey, fieldErrors, details };
+			if (code || errorKey || fieldErrors || details || attachmentExtraction)
+				return {
+					message: fallback,
+					code,
+					errorKey,
+					fieldErrors,
+					details,
+					attachmentExtraction,
+				};
 		}
 	} catch {
 		// Fall back to raw text below.
