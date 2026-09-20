@@ -115,49 +115,46 @@ describe("POST /api/knowledge/upload/chunk", () => {
 			"unknownType",
 			"knowledge.uploadUnsupportedType",
 		],
-	])(
-		"refuses %s with 415 before a single part is written",
-		async (fileName, mimeType, reason, errorKey) => {
-			const response = await POST(
-				makeKnowledgeUploadEvent({
-					body: Buffer.from("hello"),
-					headers: makeKnowledgeUploadHeaders({
-						"content-type": mimeType,
-						"x-alfyai-upload-trace-id": "upload-chunktype",
-						"x-alfyai-upload-name": encodeURIComponent(fileName),
-						"x-alfyai-chunk-index": "0",
-						"x-alfyai-chunk-start": "0",
-						"x-alfyai-chunk-size": "5",
-						"x-alfyai-chunk-final": "false",
-						"x-alfyai-chunk-total": "2",
-					}),
-					requestUrl: "http://localhost/api/knowledge/upload/chunk",
-					routeId: "/api/knowledge/upload/chunk",
-					userId: "user-1",
+	])("refuses %s with 415 before a single part is written", async (fileName, mimeType, reason, errorKey) => {
+		const response = await POST(
+			makeKnowledgeUploadEvent({
+				body: Buffer.from("hello"),
+				headers: makeKnowledgeUploadHeaders({
+					"content-type": mimeType,
+					"x-alfyai-upload-trace-id": "upload-chunktype",
+					"x-alfyai-upload-name": encodeURIComponent(fileName),
+					"x-alfyai-chunk-index": "0",
+					"x-alfyai-chunk-start": "0",
+					"x-alfyai-chunk-size": "5",
+					"x-alfyai-chunk-final": "false",
+					"x-alfyai-chunk-total": "2",
 				}),
-			);
-			const data = await response.json();
-			const uploadDir = await stat(
-				join(
-					process.cwd(),
-					"data",
-					"knowledge",
-					"user-1",
-					".incoming",
-					"upload-chunktype",
-				),
-			).catch(() => null);
+				requestUrl: "http://localhost/api/knowledge/upload/chunk",
+				routeId: "/api/knowledge/upload/chunk",
+				userId: "user-1",
+			}),
+		);
+		const data = await response.json();
+		const uploadDir = await stat(
+			join(
+				process.cwd(),
+				"data",
+				"knowledge",
+				"user-1",
+				".incoming",
+				"upload-chunktype",
+			),
+		).catch(() => null);
 
-			expect(response.status).toBe(415);
-			expect(data.code).toBe("upload_unsupported_type");
-			expect(data.errorKey).toBe(errorKey);
-			expect(data.details).toMatchObject({ fileName, reason });
-			// Nothing was written, so there is nothing to clean up.
-			expect(uploadDir).toBeNull();
-			expect(mockValidateKnowledgeUploadConversation).not.toHaveBeenCalled();
-			expect(mockCompleteKnowledgeUploadFromStoredFile).not.toHaveBeenCalled();
-		},
-	);
+		expect(response.status).toBe(415);
+		expect(data.code).toBe("upload_unsupported_type");
+		expect(data.errorKey).toBe(errorKey);
+		expect(data.details).toMatchObject({ fileName, reason });
+		// Nothing was written, so there is nothing to clean up.
+		expect(uploadDir).toBeNull();
+		expect(mockValidateKnowledgeUploadConversation).not.toHaveBeenCalled();
+		expect(mockCompleteKnowledgeUploadFromStoredFile).not.toHaveBeenCalled();
+	});
 
 	it("still admits an unknown extension whose declared MIME is text", async () => {
 		const response = await POST(

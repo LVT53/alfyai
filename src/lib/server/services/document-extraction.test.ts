@@ -140,23 +140,20 @@ describe("extractDocumentText", () => {
 		["readme.rst", "text/x-rst"],
 		["subs.vtt", "text/vtt"],
 		["paper.tex", "text/x-tex; charset=utf-8"],
-	])(
-		"reads %s directly because its declared MIME is %s",
-		async (filename, mimeType) => {
-			readFileMock.mockResolvedValueOnce(Buffer.from("unknown-extension text"));
-			const fetchSpy = vi.fn();
-			vi.stubGlobal("fetch", fetchSpy);
+	])("reads %s directly because its declared MIME is %s", async (filename, mimeType) => {
+		readFileMock.mockResolvedValueOnce(Buffer.from("unknown-extension text"));
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
 
-			const result = await extractDocumentText(
-				`/path/to/${filename}`,
-				mimeType,
-				filename,
-			);
+		const result = await extractDocumentText(
+			`/path/to/${filename}`,
+			mimeType,
+			filename,
+		);
 
-			expect(result.text).toBe("unknown-extension text");
-			expect(fetchSpy).not.toHaveBeenCalled();
-		},
-	);
+		expect(result.text).toBe("unknown-extension text");
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
 
 	it("still posts an unknown extension with no usable MIME to MinerU", async () => {
 		const fetchSpy = vi

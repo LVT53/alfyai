@@ -399,15 +399,14 @@ describe("file-type registry invariants", () => {
 			["", "text/plain"],
 		] as const;
 
-		it.each(TEXT_MIME_CASES)(
-			"admits %s declared as %s and reads it directly",
-			(fileName, mimeType) => {
-				expect(admitUpload(fileName, mimeType)).toMatchObject({
-					allowed: true,
-				});
-				expect(getIntakeRoute(fileName, mimeType)).toBe("direct-text");
-			},
-		);
+		it.each(
+			TEXT_MIME_CASES,
+		)("admits %s declared as %s and reads it directly", (fileName, mimeType) => {
+			expect(admitUpload(fileName, mimeType)).toMatchObject({
+				allowed: true,
+			});
+			expect(getIntakeRoute(fileName, mimeType)).toBe("direct-text");
+		});
 
 		it("still refuses an unknown extension with a generic or absent MIME", () => {
 			for (const mimeType of [

@@ -7,8 +7,8 @@ import {
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
 import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
-import { refuseUnsupportedUploadType } from "./shared";
 import type { RequestHandler } from "./$types";
+import { refuseUnsupportedUploadType } from "./shared";
 
 const UPLOAD_NAME_HEADER = "x-alfyai-upload-name";
 const UPLOAD_SIZE_HEADER = "x-alfyai-upload-size";

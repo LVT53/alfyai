@@ -79,39 +79,36 @@ describe("POST /api/knowledge/upload/raw", () => {
 			"unknownType",
 			"knowledge.uploadUnsupportedType",
 		],
-	])(
-		"refuses %s with 415 before any byte is written",
-		async (fileName, mimeType, reason, errorKey) => {
-			const bytes = Buffer.from("hello");
-			const response = await POST(
-				makeKnowledgeUploadEvent({
-					body: bytes,
-					headers: makeKnowledgeUploadHeaders({
-						"content-type": mimeType,
-						"x-alfyai-upload-trace-id": "upload-rawtype",
-						"x-alfyai-upload-name": encodeURIComponent(fileName),
-						"x-alfyai-upload-size": String(bytes.length),
-					}),
-					requestUrl: "http://localhost/api/knowledge/upload/raw",
-					routeId: "/api/knowledge/upload/raw",
-					userId: "raw-user",
+	])("refuses %s with 415 before any byte is written", async (fileName, mimeType, reason, errorKey) => {
+		const bytes = Buffer.from("hello");
+		const response = await POST(
+			makeKnowledgeUploadEvent({
+				body: bytes,
+				headers: makeKnowledgeUploadHeaders({
+					"content-type": mimeType,
+					"x-alfyai-upload-trace-id": "upload-rawtype",
+					"x-alfyai-upload-name": encodeURIComponent(fileName),
+					"x-alfyai-upload-size": String(bytes.length),
 				}),
-			);
-			const data = await response.json();
-			const incoming = await stat(
-				join(process.cwd(), "data", "knowledge", "raw-user", ".incoming"),
-			).catch(() => null);
+				requestUrl: "http://localhost/api/knowledge/upload/raw",
+				routeId: "/api/knowledge/upload/raw",
+				userId: "raw-user",
+			}),
+		);
+		const data = await response.json();
+		const incoming = await stat(
+			join(process.cwd(), "data", "knowledge", "raw-user", ".incoming"),
+		).catch(() => null);
 
-			expect(response.status).toBe(415);
-			expect(data.code).toBe("upload_unsupported_type");
-			expect(data.errorKey).toBe(errorKey);
-			expect(data.details).toMatchObject({ fileName, reason });
-			// The refusal happens before the temp directory is even created.
-			expect(incoming).toBeNull();
-			expect(mockValidateKnowledgeUploadConversation).not.toHaveBeenCalled();
-			expect(mockCompleteKnowledgeUploadFromStoredFile).not.toHaveBeenCalled();
-		},
-	);
+		expect(response.status).toBe(415);
+		expect(data.code).toBe("upload_unsupported_type");
+		expect(data.errorKey).toBe(errorKey);
+		expect(data.details).toMatchObject({ fileName, reason });
+		// The refusal happens before the temp directory is even created.
+		expect(incoming).toBeNull();
+		expect(mockValidateKnowledgeUploadConversation).not.toHaveBeenCalled();
+		expect(mockCompleteKnowledgeUploadFromStoredFile).not.toHaveBeenCalled();
+	});
 
 	it("still admits an unknown extension whose declared MIME is text", async () => {
 		const bytes = Buffer.from("--- a\n+++ b\n");

@@ -109,11 +109,7 @@ export async function syncArtifactChunks(params: {
 			.where(eq(artifactChunks.artifactId, params.artifactId))
 			.run();
 
-		for (
-			let start = 0;
-			start < rows.length;
-			start += CHUNK_INSERT_BATCH_ROWS
-		) {
+		for (let start = 0; start < rows.length; start += CHUNK_INSERT_BATCH_ROWS) {
 			tx.insert(artifactChunks)
 				.values(rows.slice(start, start + CHUNK_INSERT_BATCH_ROWS))
 				.run();

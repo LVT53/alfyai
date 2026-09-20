@@ -224,5 +224,4 @@ describe("createArtifact", () => {
 
 		expect(countChunks(artifact.id)).toBeGreaterThan(4096);
 	});
-
 });

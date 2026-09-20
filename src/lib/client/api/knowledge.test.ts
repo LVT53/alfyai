@@ -605,7 +605,11 @@ describe("knowledge client API", () => {
 				}),
 			);
 
-		await uploadKnowledgeAttachment(new File(["x"], "doc.pdf"), null, fetchImpl);
+		await uploadKnowledgeAttachment(
+			new File(["x"], "doc.pdf"),
+			null,
+			fetchImpl,
+		);
 		expect(get(maxFileUploadSizeBytes)).toBe(12 * 1024 * 1024);
 	});
 });
@@ -619,11 +623,9 @@ describe("uploadRefusalFromError", () => {
 			}),
 		);
 		const file = new File(["x"], "clip.mp4", { type: "video/mp4" });
-		const error = await uploadKnowledgeAttachment(
-			file,
-			null,
-			fetchImpl,
-		).catch((caught: unknown) => caught);
+		const error = await uploadKnowledgeAttachment(file, null, fetchImpl).catch(
+			(caught: unknown) => caught,
+		);
 		return uploadRefusalFromError(error, file);
 	}
 
