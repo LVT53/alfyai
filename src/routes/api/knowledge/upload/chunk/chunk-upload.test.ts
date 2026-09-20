@@ -482,4 +482,43 @@ describe("POST /api/knowledge/upload/chunk", () => {
 			traceId: "upload-missing-conv",
 		});
 	});
+	// Bug B2: assembly is the last moment every part is still on disk. Returning
+	// 400 without dropping the part directory left a full copy of the file in
+	// `.incoming/<trace>/` that nothing would ever come back for.
+	it("drops the part directory when assembly fails", async () => {
+		const uploadDir = join(
+			process.cwd(),
+			"data",
+			"knowledge",
+			"user-1",
+			".incoming",
+			"upload-assembly-fail",
+		);
+
+		// Only the LAST part is ever sent, so part-000000 is missing when the
+		// route tries to stitch the file back together.
+		const response = await POST(
+			makeKnowledgeUploadEvent({
+				body: Buffer.from("world"),
+				headers: makeKnowledgeUploadHeaders({
+					"x-alfyai-upload-trace-id": "upload-assembly-fail",
+					"x-alfyai-chunk-index": "1",
+					"x-alfyai-chunk-start": "5",
+					"x-alfyai-chunk-size": "5",
+					"x-alfyai-chunk-final": "true",
+					"x-alfyai-chunk-total": "2",
+					"x-alfyai-upload-size": "10",
+				}),
+				requestUrl: "http://localhost/api/knowledge/upload/chunk",
+				routeId: "/api/knowledge/upload/chunk",
+				userId: "user-1",
+			}),
+		);
+		const data = await response.json();
+
+		expect(response.status).toBe(400);
+		expect(data.code).toBe("chunk_assembly_failed");
+		expect(await stat(uploadDir).catch(() => null)).toBeNull();
+		expect(mockCompleteKnowledgeUploadFromStoredFile).not.toHaveBeenCalled();
+	});
 });

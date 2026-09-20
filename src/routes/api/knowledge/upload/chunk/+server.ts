@@ -10,6 +10,7 @@ import {
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
 import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
+import { scheduleKnowledgeUploadTempSweep } from "$lib/server/services/knowledge/upload-temp-sweep";
 import {
 	formatBytes,
 	parseNonNegativeInteger,
@@ -245,6 +246,9 @@ export const POST: RequestHandler = async (event) => {
 		traceId,
 	);
 	await mkdir(uploadDir, { recursive: true });
+	// Throttled to once an hour per process; see upload-temp-sweep.ts (B2). A
+	// chunked upload whose final part never arrives is the main thing it sweeps.
+	scheduleKnowledgeUploadTempSweep();
 	await writeFile(join(uploadDir, partName(chunkIndex)), chunkBuffer);
 	const receivedBytes = await countReceivedBytes(uploadDir);
 
@@ -281,6 +285,12 @@ export const POST: RequestHandler = async (event) => {
 			totalSize,
 		});
 	} catch (error) {
+		// Bug B2: assembly is the last point at which every part is still on
+		// disk. Returning without dropping them left a full copy of the file in
+		// `.incoming/<trace>/` that nothing would ever come back for.
+		await rm(uploadDir, { force: true, recursive: true }).catch(
+			() => undefined,
+		);
 		const message = error instanceof Error ? error.message : String(error);
 		console.warn("[KNOWLEDGE] Chunked upload assembly failed", {
 			traceId,

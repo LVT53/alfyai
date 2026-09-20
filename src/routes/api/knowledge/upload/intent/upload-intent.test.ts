@@ -8,6 +8,10 @@ vi.mock("$lib/server/services/attachment-trace", () => ({
 	createAttachmentTraceId: vi.fn(() => "trace-upload"),
 }));
 
+vi.mock("$lib/server/services/extraction/config", () => ({
+	getExtractionConfig: vi.fn(() => ({ maxDirectTextBytes: 8 * 1024 * 1024 })),
+}));
+
 vi.mock("$lib/server/services/knowledge/upload-intake", () => ({
 	isKnowledgeUploadConversationError: vi.fn(() => false),
 	resolveKnowledgeUploadLimits: vi.fn(() => ({
@@ -26,6 +30,7 @@ vi.mock("$lib/server/services/knowledge/upload-intake", () => ({
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
+import { getExtractionConfig } from "$lib/server/services/extraction/config";
 import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
@@ -43,6 +48,7 @@ const mockResolveKnowledgeUploadLimits = vi.mocked(
 const mockValidateKnowledgeUploadConversation = vi.mocked(
 	validateKnowledgeUploadConversation,
 );
+const mockGetExtractionConfig = vi.mocked(getExtractionConfig);
 let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
 type UploadIntentEvent = Parameters<typeof POST>[0];
 
@@ -79,6 +85,9 @@ describe("POST /api/knowledge/upload/intent", () => {
 			async (params: { conversationId?: string | null }) =>
 				params.conversationId?.trim() || null,
 		);
+		mockGetExtractionConfig.mockReturnValue({
+			maxDirectTextBytes: 8 * 1024 * 1024,
+		} as ReturnType<typeof getExtractionConfig>);
 	});
 
 	afterEach(() => {
@@ -318,6 +327,101 @@ describe("POST /api/knowledge/upload/intent", () => {
 		expect(mockValidateKnowledgeUploadConversation).toHaveBeenCalledWith({
 			userId: "user-1",
 			conversationId: "missing-conv",
+		});
+	});
+	// Bug B5. A direct-text file is read whole, chunked and embedded, so the cap
+	// is a user-visible refusal of something that uploads fine today — it is
+	// admin-raisable, and the extractor enforces the same number again for the
+	// routes that never call this handshake.
+	describe("direct-text size cap (B5)", () => {
+		it("refuses an oversized text file with 413 before the conversation lookup", async () => {
+			const response = await POST(
+				makeEvent({
+					fileName: "server.log",
+					fileSize: 9 * 1024 * 1024,
+					mimeType: "text/plain",
+					conversationId: "conv-1",
+				}),
+			);
+			const data = await response.json();
+
+			expect(response.status).toBe(413);
+			expect(data.code).toBe("upload_direct_text_too_large");
+			expect(data.errorKey).toBe("knowledge.uploadDirectTextTooLarge");
+			expect(data.details).toMatchObject({
+				fileName: "server.log",
+				fileSize: 9 * 1024 * 1024,
+				maxBytes: 8 * 1024 * 1024,
+			});
+			expect(mockValidateKnowledgeUploadConversation).not.toHaveBeenCalled();
+		});
+
+		it("admits a text file exactly at the cap", async () => {
+			const response = await POST(
+				makeEvent({
+					fileName: "notes.txt",
+					fileSize: 8 * 1024 * 1024,
+					mimeType: "text/plain",
+					conversationId: "conv-1",
+				}),
+			);
+
+			expect(response.status).toBe(200);
+		});
+
+		it("does not apply the text cap to a document that goes to the backend", async () => {
+			const response = await POST(
+				makeEvent({
+					fileName: "scan.pdf",
+					fileSize: 9 * 1024 * 1024,
+					mimeType: "application/pdf",
+					conversationId: "conv-1",
+				}),
+			);
+
+			expect(response.status).toBe(200);
+		});
+
+		it("keeps the Phase 1 refusals ahead of it", async () => {
+			// Over the app file limit: still 413 upload_file_too_large.
+			const tooLarge = await POST(
+				makeEvent({
+					fileName: "huge.txt",
+					fileSize: 200 * 1024 * 1024,
+					mimeType: "text/plain",
+					conversationId: "conv-1",
+				}),
+			);
+			expect((await tooLarge.json()).code).toBe("upload_file_too_large");
+
+			// Refused type: still 415, even though it is also over the text cap.
+			const unsupported = await POST(
+				makeEvent({
+					fileName: "clip.mp4",
+					fileSize: 9 * 1024 * 1024,
+					mimeType: "video/mp4",
+					conversationId: "conv-1",
+				}),
+			);
+			expect(unsupported.status).toBe(415);
+			expect((await unsupported.json()).code).toBe("upload_unsupported_type");
+		});
+
+		it("follows the admin-configured cap", async () => {
+			mockGetExtractionConfig.mockReturnValue({
+				maxDirectTextBytes: 32 * 1024 * 1024,
+			} as ReturnType<typeof getExtractionConfig>);
+
+			const response = await POST(
+				makeEvent({
+					fileName: "server.log",
+					fileSize: 9 * 1024 * 1024,
+					mimeType: "text/plain",
+					conversationId: "conv-1",
+				}),
+			);
+
+			expect(response.status).toBe(200);
 		});
 	});
 });
