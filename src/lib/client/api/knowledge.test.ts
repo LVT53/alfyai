@@ -6,7 +6,10 @@ import {
 } from "$lib/stores/upload-limits";
 import type { ApiError } from "./http";
 import {
+	cancelExtraction,
+	fetchExtractionJobs,
 	fetchMemoryProfileItemDetail,
+	retryExtraction,
 	submitKnowledgeMemoryAction,
 	uploadKnowledgeAttachment,
 	uploadRefusalFromError,
@@ -674,5 +677,108 @@ describe("uploadRefusalFromError", () => {
 			uploadRefusalFromError(new Error("boom"), { name: "a.txt" }),
 		).toBeNull();
 		expect(uploadRefusalFromError(null, { name: "a.txt" })).toBeNull();
+	});
+});
+
+describe("extraction status client API", () => {
+	function jsonResponse(body: unknown, status = 200): Response {
+		return new Response(JSON.stringify(body), {
+			status,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	const dto = {
+		id: "job-1",
+		sourceArtifactId: "artifact-1",
+		normalizedArtifactId: null,
+		status: "parsing",
+		intakeRoute: "mineru",
+		fileName: "report.pdf",
+		attemptCount: 1,
+		maxAttempts: 3,
+		retryable: false,
+		cancelable: true,
+		error: null,
+		createdAt: 1,
+		updatedAt: 2,
+		startedAt: 1,
+		legacy: false,
+	};
+
+	it("asks for de-duplicated, encoded ids and unwraps the list", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse({ jobs: [dto] }));
+
+		await expect(
+			fetchExtractionJobs(["artifact-1", " artifact-1 ", "a/b", ""], fetchImpl),
+		).resolves.toEqual([dto]);
+
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/knowledge/extraction?artifactIds=artifact-1,a%2Fb",
+		);
+	});
+
+	it("never calls the endpoint with an empty id list", async () => {
+		const fetchImpl = vi.fn();
+		await expect(fetchExtractionJobs(["", "  "], fetchImpl)).resolves.toEqual(
+			[],
+		);
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("answers an empty list when the payload has no jobs field", async () => {
+		const fetchImpl = vi.fn().mockResolvedValueOnce(jsonResponse({}));
+		await expect(
+			fetchExtractionJobs(["artifact-1"], fetchImpl),
+		).resolves.toEqual([]);
+	});
+
+	it("posts a retry and returns the refreshed job", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({ job: { ...dto, status: "queued" } }),
+			);
+
+		await expect(
+			retryExtraction("artifact-1", fetchImpl),
+		).resolves.toMatchObject({ status: "queued" });
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/knowledge/extraction/artifact-1/retry",
+			{ method: "POST" },
+		);
+	});
+
+	it("posts a cancel and returns the refreshed job", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({ job: { ...dto, status: "canceled" } }),
+			);
+
+		await expect(
+			cancelExtraction("artifact-1", fetchImpl),
+		).resolves.toMatchObject({ status: "canceled" });
+		expect(fetchImpl).toHaveBeenCalledWith(
+			"/api/knowledge/extraction/artifact-1/cancel",
+			{ method: "POST" },
+		);
+	});
+
+	it("throws an ApiError carrying the endpoint's code", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				jsonResponse({ error: "nope", code: "extraction_job_not_found" }, 404),
+			);
+
+		await expect(
+			retryExtraction("artifact-1", fetchImpl),
+		).rejects.toMatchObject({
+			status: 404,
+			code: "extraction_job_not_found",
+		});
 	});
 });
