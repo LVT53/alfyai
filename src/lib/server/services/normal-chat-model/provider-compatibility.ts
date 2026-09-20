@@ -61,6 +61,13 @@ export type OpenAICompatibleProviderAdapterProfile = {
 		body: Record<string, unknown>,
 		provider: NormalChatModelRunCompatibilityProvider,
 	) => Record<string, unknown>;
+	defaultSampling?: NormalChatModelRunSamplingDefaults;
+};
+
+export type NormalChatModelRunSamplingDefaults = {
+	temperature?: number;
+	topP?: number;
+	topK?: number;
 };
 
 type AdapterBehavior = {
@@ -81,6 +88,12 @@ type AdapterBehavior = {
 	// "flatten" folds them into assistant text for a provider that rejects
 	// tool messages. Defaults to native.
 	historyToolMessages?: "native" | "flatten";
+	// Recommended sampling defaults for this family, applied to the outbound
+	// request only when the app doesn't set them explicitly. Needed because some
+	// NVFP4 re-uploads ship generation_config.json with temperature 1.0, which
+	// makes Qwen thinking models ramble (starving the answer budget) and degrades
+	// non-English coherence. Left undefined for families whose own defaults are fine.
+	defaultSampling?: NormalChatModelRunSamplingDefaults;
 };
 
 type ProviderAdapterProfileDefinition =
@@ -189,6 +202,9 @@ const PROVIDER_FAMILY_REGISTRY: ProviderFamilyRegistryEntry[] = [
 		behavior: {
 			family: "qwen",
 			thinkingOptions: "qwen",
+			// Qwen3 thinking models want temp 0.6 / top_p 0.95 / top_k 20; the
+			// checkpoint's generation_config ships temp 1.0, so set them explicitly.
+			defaultSampling: { temperature: 0.6, topP: 0.95, topK: 20 },
 		},
 		modelPatterns: [
 			/^qwen(?:3(?:\.[67])?|[-_])/,
@@ -298,6 +314,7 @@ function createProviderAdapterProfile(
 	const behavior = entry.behavior;
 	return {
 		family: behavior.family,
+		defaultSampling: behavior.defaultSampling,
 		usesMaxCompletionTokens: behavior.usesMaxCompletionTokens === true,
 		replaysReasoningContentForToolCalls:
 			behavior.replaysReasoningContentForToolCalls === true,

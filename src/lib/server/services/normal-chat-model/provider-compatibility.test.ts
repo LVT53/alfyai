@@ -837,3 +837,41 @@ describe("OpenAI-compatible provider adapter profiles", () => {
 		expect(none).not.toHaveProperty("chat_template_kwargs");
 	});
 });
+
+describe("defaultSampling", () => {
+	it("gives the Qwen family temp 0.6 / top_p 0.95 / top_k 20", () => {
+		const qwenProvider: NormalChatModelRunCompatibilityProvider = {
+			name: "local_vllm",
+			displayName: "Qwen 3.6 40B",
+			baseUrl: "http://192.168.1.96:30000/v1",
+			modelName: "qwen3-6-27b",
+		};
+		expect(
+			resolveOpenAICompatibleProviderAdapterProfile(qwenProvider)
+				.defaultSampling,
+		).toEqual({ temperature: 0.6, topP: 0.95, topK: 20 });
+	});
+
+	it("leaves non-Qwen families without sampling overrides", () => {
+		const deepseekProvider: NormalChatModelRunCompatibilityProvider = {
+			name: "deepseek",
+			displayName: "DeepSeek",
+			baseUrl: "https://api.deepseek.com",
+			modelName: "deepseek-flash",
+		};
+		expect(
+			resolveOpenAICompatibleProviderAdapterProfile(deepseekProvider)
+				.defaultSampling,
+		).toBeUndefined();
+		const openaiProvider: NormalChatModelRunCompatibilityProvider = {
+			name: "openai",
+			displayName: "OpenAI",
+			baseUrl: "https://api.openai.com/v1",
+			modelName: "chat-latest",
+		};
+		expect(
+			resolveOpenAICompatibleProviderAdapterProfile(openaiProvider)
+				.defaultSampling,
+		).toBeUndefined();
+	});
+});

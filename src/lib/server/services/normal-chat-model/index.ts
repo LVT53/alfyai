@@ -1270,6 +1270,9 @@ async function runPlainNormalChatModelRunAttempt(
 	const prepareStep = params.tools
 		? buildFirstStepOnlyPrepareStep(params.firstStepToolChoice)
 		: undefined;
+	const samplingDefaults = resolveOpenAICompatibleProviderAdapterProfile(
+		params.provider,
+	).defaultSampling;
 
 	const request = {
 		model: provider(params.provider.modelName),
@@ -1280,6 +1283,9 @@ async function runPlainNormalChatModelRunAttempt(
 		stopWhen,
 		prepareStep,
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
+		temperature: samplingDefaults?.temperature,
+		topP: samplingDefaults?.topP,
+		topK: samplingDefaults?.topK,
 		maxRetries: params.maxRetries ?? DEFAULT_MODEL_MAX_RETRIES,
 		abortSignal: createProviderAttemptAbortSignal(params),
 		headers: params.headers,
@@ -1574,6 +1580,9 @@ async function* streamStreamingNormalChatModelRunAttempt(
 		(params.tools
 			? buildToolStopWhen(params.maxToolSteps ?? DEFAULT_MAX_TOOL_STEPS)
 			: undefined);
+	const samplingDefaults = resolveOpenAICompatibleProviderAdapterProfile(
+		params.provider,
+	).defaultSampling;
 	const buildStreamConfig = (
 		tools?: ToolSet,
 		toolStopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>,
@@ -1588,6 +1597,9 @@ async function* streamStreamingNormalChatModelRunAttempt(
 			? buildFirstStepOnlyPrepareStep(params.firstStepToolChoice)
 			: undefined,
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
+		temperature: samplingDefaults?.temperature,
+		topP: samplingDefaults?.topP,
+		topK: samplingDefaults?.topK,
 		maxRetries: params.maxRetries ?? DEFAULT_MODEL_MAX_RETRIES,
 		abortSignal: createProviderAttemptAbortSignal(params),
 		headers: params.headers,
