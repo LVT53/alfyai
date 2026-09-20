@@ -4509,6 +4509,39 @@ describe("MessageInput extraction chips", () => {
 		});
 	});
 
+	it("re-hydrates the chip from a draft restored mid-extraction", async () => {
+		// Reload the page while a PDF is being read. Before this the restored
+		// chip came back solid and ordinary — no "Reading…", no dashed edge, no
+		// Stop — with the server's English readiness sentence in red beneath it,
+		// until the first poll landed a second later.
+		const { getByTestId, queryByText } = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadFiles: vi.fn(),
+			draftVersion: 1,
+			draftText: "Summarise this",
+			draftAttachments: [
+				{
+					artifact: artifact(),
+					promptReady: false,
+					promptArtifactId: null,
+					readinessError:
+						"This file is still being prepared for chat. Wait a moment and send it again.",
+					extraction: extractionJob({ status: "parsing" }),
+				},
+			],
+		});
+
+		await waitFor(() => {
+			expect(getByTestId("composer-chip-attachment")).toHaveTextContent(
+				"Reading…",
+			);
+		});
+		expect(
+			queryByText(/still being prepared for chat/i),
+		).toBeNull();
+	});
+
 	it("drops the optimistic chip when the upload fails", async () => {
 		const { container, queryByTestId, done } = renderComposer();
 

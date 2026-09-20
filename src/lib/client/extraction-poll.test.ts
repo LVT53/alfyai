@@ -240,6 +240,60 @@ describe("createExtractionPoller", () => {
 		poller.stop();
 	});
 
+	it("stops for good when the session is gone", async () => {
+		// A session that ended in another tab answers 401 to every poll. Retrying
+		// that is a request every 2.5 s that can never succeed — silent on the
+		// composer, where onError is a no-op, while Send stays blocked because no
+		// DTO ever arrives.
+		const unauthorized = Object.assign(new Error("Unauthorized"), {
+			status: 401,
+		});
+		const fetchJobs = vi
+			.fn<(ids: string[]) => Promise<DocumentExtractionJobDTO[]>>()
+			.mockRejectedValue(unauthorized);
+		const onError = vi.fn();
+		const poller = createExtractionPoller({
+			getArtifactIds: () => ["a"],
+			onJobs: vi.fn(),
+			onError,
+			fetchJobs,
+		});
+
+		poller.sync();
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(fetchJobs).toHaveBeenCalledTimes(1);
+		expect(onError).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(fetchJobs).toHaveBeenCalledTimes(1);
+		expect(poller.active).toBe(false);
+
+		poller.stop();
+	});
+
+	it("keeps retrying a transient failure", async () => {
+		// A 500 or a dropped connection is not a reason to give up: the box may
+		// be mid-restart and the job is still running.
+		const serverError = Object.assign(new Error("boom"), { status: 500 });
+		const fetchJobs = vi
+			.fn<(ids: string[]) => Promise<DocumentExtractionJobDTO[]>>()
+			.mockRejectedValueOnce(serverError)
+			.mockResolvedValue([job({ sourceArtifactId: "a" })]);
+		const poller = createExtractionPoller({
+			getArtifactIds: () => ["a"],
+			onJobs: vi.fn(),
+			onError: vi.fn(),
+			fetchJobs,
+		});
+
+		poller.sync();
+		await vi.advanceTimersByTimeAsync(1000);
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(fetchJobs).toHaveBeenCalledTimes(2);
+
+		poller.stop();
+	});
+
 	it("leaves no timer and no listener behind on stop", async () => {
 		const removeSpy = vi.spyOn(document, "removeEventListener");
 		const fetchJobs = vi.fn(async () => [job({ sourceArtifactId: "a" })]);

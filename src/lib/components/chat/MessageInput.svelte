@@ -1071,6 +1071,11 @@ $effect(() => {
 		// Override with draftAttachments
 		for (const attachment of draftAttachments) {
 			merged.set(attachment.artifact.id, attachment);
+			// A draft restored mid-extraction carries the ledger row. Adopting it
+			// here is what makes the chip come back as "Reading…" and dashed
+			// rather than as an ordinary attached file with a red readiness line
+			// under it, for the second or so before the first poll lands.
+			applyExtractionJob(readExtractionJobDTO(attachment.extraction));
 		}
 
 		pendingAttachments = Array.from(merged.values());
