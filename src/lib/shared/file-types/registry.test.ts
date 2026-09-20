@@ -435,6 +435,30 @@ describe("file-type registry invariants", () => {
 		});
 	});
 
+	it("lets only a document header wander from its offset", () => {
+		// `searchWithinBytes` exists for PDF, whose spec tells readers to look
+		// for `%PDF-` within the first 1024 bytes. A container format must not
+		// get the same licence: a ZIP or a PNG whose magic is one byte late is
+		// a real mismatch, and a wide window would weaken the content check
+		// into "does this byte sequence appear anywhere near the start".
+		const searching = FILE_TYPE_ENTRIES.filter((entry) =>
+			entry.signatures?.some(
+				(signature) => signature.searchWithinBytes !== undefined,
+			),
+		).map((entry) => entry.id);
+		expect(searching).toEqual(["pdf"]);
+
+		for (const entry of FILE_TYPE_ENTRIES) {
+			for (const signature of entry.signatures ?? []) {
+				expect(signature.offset, entry.id).toBeGreaterThanOrEqual(0);
+				expect(signature.bytes.length, entry.id).toBeGreaterThan(0);
+				expect(signature.searchWithinBytes ?? 0, entry.id).toBeLessThanOrEqual(
+					1024,
+				);
+			}
+		}
+	});
+
 	it("never reverse-resolves a generic MIME to an entry", () => {
 		// `application/octet-stream` is an accepted alias of `zip`; resolving it
 		// backwards would refuse every unknown upload as an archive.

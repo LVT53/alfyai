@@ -596,7 +596,16 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		},
 		textLike: false,
 		surfaces: ["knowledge", "chat"],
-		signatures: [{ offset: 0, bytes: [0x25, 0x50, 0x44, 0x46, 0x2d] }],
+		// `%PDF-`, within the first 1024 bytes rather than exactly at byte 0:
+		// the PDF spec's implementation notes tell readers to look that far,
+		// and real files carry a preamble often enough that every reader does.
+		signatures: [
+			{
+				offset: 0,
+				bytes: [0x25, 0x50, 0x44, 0x46, 0x2d],
+				searchWithinBytes: 1024,
+			},
+		],
 	},
 	{
 		id: "docx",
