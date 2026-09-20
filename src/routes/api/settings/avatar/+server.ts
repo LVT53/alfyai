@@ -5,20 +5,23 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "$lib/server/auth/hooks";
 import { db } from "$lib/server/db";
 import { users } from "$lib/server/db/schema";
+import { FILE_TYPE_ENTRIES } from "$lib/shared/file-types";
 import type { RequestHandler } from "./$types";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
-const ALLOWED_TYPES = [
-	"image/jpeg",
-	"image/png",
-	"image/webp",
-	"image/gif",
-	"image/avif",
-	"image/heic",
-	"image/heif",
-	"image/tiff",
-	"image/bmp",
-];
+
+/**
+ * Every image type the registry knows, except SVG.
+ *
+ * Spec row 44. SVG is excluded because an avatar is re-served to other users
+ * and an SVG can carry script; the campaign-asset allowlist, which is
+ * admin-only, keeps it. The derived list reproduces the nine MIME types this
+ * route listed by hand — asserted in `legacy-equivalence.test.ts`
+ * ("reproduces the avatar ALLOWED_TYPES list").
+ */
+const ALLOWED_TYPES = FILE_TYPE_ENTRIES.filter(
+	(entry) => entry.category === "image" && entry.id !== "svg",
+).map((entry) => entry.mimeTypes[0]);
 
 function avatarsDir() {
 	return join(process.cwd(), "data", "avatars");

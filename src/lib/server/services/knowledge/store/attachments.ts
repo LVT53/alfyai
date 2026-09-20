@@ -14,6 +14,7 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import type { ChatAttachment } from "$lib/server/services/messages-types";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import { getSupportedExtractionSummary } from "$lib/shared/file-types/model-facing";
 import {
 	hasMeaningfulAttachmentText,
 	logAttachmentTrace,
@@ -35,6 +36,23 @@ import {
 	knowledgeUserDir,
 	withAttachmentDisplayName,
 } from "./core";
+
+/**
+ * Readiness error shown when an uploaded file produced no normalized artifact.
+ *
+ * Spec row 41: the format list is derived from the registry so it can never
+ * advertise a format the upload endpoint refuses. The sentence around it stays
+ * here — `getSupportedExtractionSummary` deliberately returns the list WITHOUT
+ * a trailing full stop, so the caller owns the punctuation.
+ *
+ * This string is a RUNTIME error message; it is not part of any prompt, so it
+ * does not sit in the model's cached prompt prefix. It still renders
+ * byte-identically to the literal this replaced — asserted in
+ * `attachments.test.ts` and `model-facing.test.ts`.
+ */
+export const NOT_PREPARED_READINESS_ERROR = `This file could not be prepared for chat. Supported extraction currently works best for ${getSupportedExtractionSummary(
+	"en",
+)}.`;
 
 type PromptArtifactDiagnostics = {
 	contentLength: number;
@@ -230,8 +248,7 @@ export async function resolvePromptAttachmentArtifacts(
 					displayArtifact,
 					promptArtifact: null,
 					promptReady: false,
-					readinessError:
-						"This file could not be prepared for chat. Supported extraction currently works best for text, HTML, JSON, PDF, DOCX, PPTX, XLSX, and common image formats (including HEIC/HEIF when server conversion support is installed).",
+					readinessError: NOT_PREPARED_READINESS_ERROR,
 					contentLength: 0,
 					contentPreview: null,
 					contentHash: null,
