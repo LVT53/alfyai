@@ -1,35 +1,11 @@
-import type { PreviewKind } from "$lib/shared/file-types";
 import { escapeHtml, sanitizeHtml } from "$lib/utils/html-sanitizer";
+// The kinds and the guard live in a leaf module so `preview-runtime/index.ts`
+// can reach them without statically importing THIS module, which would undo
+// its `await import("./office")` split. See `./kinds`.
+import type { OfficePreviewKind, OfficeRuntimeAdapter } from "./kinds";
 
-/**
- * The preview kinds this renderer owns, carved out of the registry's
- * `PreviewKind` rather than restated (spec row 38). Adding an office format to
- * the registry therefore does not silently widen this union — the `switch` in
- * `renderOfficePreview` stops compiling until the new kind gets a renderer.
- */
-export type OfficePreviewKind = Extract<
-	PreviewKind,
-	"docx" | "xlsx" | "pptx" | "odt"
->;
-
-/**
- * The runtime half of the union. Typed as a total record so dropping a kind
- * here is a compile error rather than a preview that silently stops opening.
- */
-const OFFICE_PREVIEW_KINDS: Record<OfficePreviewKind, true> = {
-	docx: true,
-	xlsx: true,
-	pptx: true,
-	odt: true,
-};
-
-export function isOfficePreviewKind(
-	kind: string | null | undefined,
-): kind is OfficePreviewKind {
-	return kind != null && Object.hasOwn(OFFICE_PREVIEW_KINDS, kind);
-}
-
-export type OfficeRuntimeAdapter = { kind: OfficePreviewKind; blob: Blob };
+export type { OfficePreviewKind, OfficeRuntimeAdapter };
+export { isOfficePreviewKind } from "./kinds";
 
 export type OfficePreviewRenderResult =
 	| {

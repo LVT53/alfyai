@@ -9,12 +9,14 @@ import {
 	getPreviewLanguage,
 	type PreviewFileType,
 } from "$lib/utils/file-preview";
+import type { OfficePreviewRenderResult } from "./office";
+// From the leaf module, NOT from "./office": a static import of the renderer
+// module would make the `await import("./office")` below split nothing.
 import {
 	isOfficePreviewKind,
 	type OfficePreviewKind,
-	type OfficePreviewRenderResult,
 	type OfficeRuntimeAdapter,
-} from "./office";
+} from "./office/kinds";
 import type { TextPreviewRenderResult } from "./text";
 
 export type { OfficePreviewKind, OfficeRuntimeAdapter };

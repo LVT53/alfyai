@@ -139,7 +139,16 @@ const TRANSITIONAL_ALLOWLIST = new Map<string, TransitionalBudget>([
 			ext: 4,
 			mime: 2,
 			slice: "B",
-			what: "OfficePreviewKind union (spec row 38)",
+			what: "the four renderer branches; the union itself moved to ./kinds",
+		},
+	],
+	[
+		"src/lib/components/document-workspace/preview-runtime/office/kinds.ts",
+		{
+			ext: 4,
+			mime: 0,
+			slice: "B",
+			what: "OfficePreviewKind union (spec row 38), in a leaf module so the renderers stay behind a dynamic import",
 		},
 	],
 	[
