@@ -1,0 +1,35 @@
+{
+  "upload": {
+    "url": "/v1/uploads/upload_9516313f34ac924c51370ba9",
+    "http_status": 404,
+    "body": "{\"error\": {\"type\": \"invalid_request_error\", \"code\": \"upload_not_found\", \"message\": \"Upload upload_9516313f34ac924c51370ba9 not found\", \"param\": null}}"
+  },
+  "input_file": {
+    "url": "/v1/files/file-a796714dbdbf32c86a3c1fb5",
+    "http_status": 404,
+    "body": "{\"error\": {\"type\": \"invalid_request_error\", \"code\": \"file_not_found\", \"message\": \"File file-a796714dbdbf32c86a3c1fb5 not found\", \"param\": null}}"
+  },
+  "job": {
+    "url": "/v1/parse/jobs/job_9acb0e3f8524539bd4cfa5e0",
+    "http_status": 404,
+    "body": "{\"error\": {\"type\": \"invalid_request_error\", \"code\": \"job_not_found\", \"message\": \"Job job_9acb0e3f8524539bd4cfa5e0 not found\", \"param\": null}}"
+  },
+  "output_md_meta": {
+    "url": "/v1/files/file-ed21ae6f2aa5604af22c3391",
+    "http_status": 404,
+    "body": "{\"error\": {\"type\": \"invalid_request_error\", \"code\": \"file_not_found\", \"message\": \"File file-ed21ae6f2aa5604af22c3391 not found\", \"param\": null}}"
+  },
+  "output_md_content": {
+    "url": "/v1/files/file-ed21ae6f2aa5604af22c3391/content",
+    "http_status": 404,
+    "body": "{\"error\": {\"type\": \"invalid_request_error\", \"code\": \"file_not_found\", \"message\": \"File file-ed21ae6f2aa5604af22c3391 not found\", \"param\": null}}"
+  },
+  "output_zip_content": {
+    "url": "/v1/files/file-4e21258eeeeb8461d8c32955/content",
+    "http_status": 404,
+    "body": "{\"error\": {\"type\": \"invalid_request_error\", \"code\": \"file_not_found\", \"message\": \"File file-4e21258eeeeb8461d8c32955 not found\", \"param\": null}}"
+  },
+  "list_files_after_restart": [],
+  "list_jobs_after_restart_count": 0,
+  "dedupe_after_restart_status": "completed"
+}

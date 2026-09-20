@@ -1,0 +1,25 @@
+{
+  "id": "upload_cf9d8f263cdf7bce5834aacc",
+  "object": "upload",
+  "bytes": 44757,
+  "created_at": 1789908395,
+  "expires_at": 1789911995,
+  "filename": "sample.png",
+  "purpose": "parse",
+  "mime_type": "image/png",
+  "sha256sum": "15b97fabc7e52a37970c698a806d27790a4146a7b194bc60b65750e762aa8e8b",
+  "status": "completed",
+  "upload_url": null,
+  "upload_method": null,
+  "upload_headers": null,
+  "file": {
+    "id": "file-1341cd7f21210307183c6421",
+    "object": "file",
+    "bytes": 44757,
+    "created_at": 1789908395,
+    "expires_at": 1789911995,
+    "filename": "sample.png",
+    "purpose": "parse",
+    "sha256sum": "15b97fabc7e52a37970c698a806d27790a4146a7b194bc60b65750e762aa8e8b"
+  }
+}

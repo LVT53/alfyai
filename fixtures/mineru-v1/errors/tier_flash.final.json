@@ -1,0 +1,57 @@
+{
+  "probe": "tier_flash",
+  "create_status": 202,
+  "job_id": "job_57dfeff951083fd5cc7c434b",
+  "final_job_status": "completed",
+  "job_tier": "flash",
+  "file_status": "completed",
+  "file_page_range": "1-3",
+  "file_error": null,
+  "final": {
+    "job_id": "job_57dfeff951083fd5cc7c434b",
+    "status": "completed",
+    "created_at": "2026-09-20T12:50:04Z",
+    "started_at": "2026-09-20T12:50:05Z",
+    "finished_at": "2026-09-20T12:50:05Z",
+    "tier": "flash",
+    "output_formats": [
+      "markdown"
+    ],
+    "access_level": "anonymous",
+    "progress": {
+      "completed": 1,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-aadaadc791c3191667e2182d",
+        "name": "sample.pdf",
+        "page_range": "1-3",
+        "status": "completed",
+        "parse": {
+          "model_used": null,
+          "duration_ms": 107,
+          "parser_version": "4.0.4"
+        },
+        "output_files": {
+          "markdown": {
+            "file_id": "file-3af5433b9ed8255a7581fa08",
+            "bytes": 31468
+          },
+          "middle_json": null,
+          "structured_content": null,
+          "html": null,
+          "latex": null,
+          "docx": null,
+          "zip": null
+        },
+        "error": null
+      }
+    ],
+    "links": {
+      "self": "/v1/parse/jobs/job_57dfeff951083fd5cc7c434b",
+      "cancel": "/v1/parse/jobs/job_57dfeff951083fd5cc7c434b"
+    }
+  }
+}

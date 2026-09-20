@@ -1,0 +1,25 @@
+{
+  "id": "upload_b5d0bd1c6ebe4f9eef4195c6",
+  "object": "upload",
+  "bytes": 1765,
+  "created_at": 1789908382,
+  "expires_at": 1789911982,
+  "filename": "sample.epub",
+  "purpose": "parse",
+  "mime_type": "application/epub+zip",
+  "sha256sum": "c3119e3aee26df275c8ef3a0b5eeb73c1131ce2e70db991bbfe069476c57a175",
+  "status": "completed",
+  "upload_url": null,
+  "upload_method": null,
+  "upload_headers": null,
+  "file": {
+    "id": "file-02162949bdbd9f99d2c178ce",
+    "object": "file",
+    "bytes": 1765,
+    "created_at": 1789908382,
+    "expires_at": 1789911982,
+    "filename": "sample.epub",
+    "purpose": "parse",
+    "sha256sum": "c3119e3aee26df275c8ef3a0b5eeb73c1131ce2e70db991bbfe069476c57a175"
+  }
+}

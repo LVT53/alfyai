@@ -1,0 +1,25 @@
+{
+  "id": "upload_49ec9286af5d59176c622f94",
+  "object": "upload",
+  "bytes": 6727,
+  "created_at": 1789908394,
+  "expires_at": 1789911994,
+  "filename": "sample.pdf",
+  "purpose": "parse",
+  "mime_type": "application/pdf",
+  "sha256sum": "5637ad7a417669669f181aec769fa3ac3a392285f1b9c222830337360a2f42bd",
+  "status": "completed",
+  "upload_url": null,
+  "upload_method": null,
+  "upload_headers": null,
+  "file": {
+    "id": "file-10c3b409b0ab0e3b7da5fc00",
+    "object": "file",
+    "bytes": 6727,
+    "created_at": 1789908394,
+    "expires_at": 1789911994,
+    "filename": "sample.pdf",
+    "purpose": "parse",
+    "sha256sum": "5637ad7a417669669f181aec769fa3ac3a392285f1b9c222830337360a2f42bd"
+  }
+}

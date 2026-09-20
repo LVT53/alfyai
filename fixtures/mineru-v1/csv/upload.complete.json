@@ -1,0 +1,25 @@
+{
+  "id": "upload_1895dc3302018183d506cbf7",
+  "object": "upload",
+  "bytes": 89,
+  "created_at": 1789908378,
+  "expires_at": 1789911978,
+  "filename": "sample.csv",
+  "purpose": "parse",
+  "mime_type": "text/csv",
+  "sha256sum": "7df632ee3702226e1d6130367fec2243276094a0654f29c3e4409a2117e529c4",
+  "status": "completed",
+  "upload_url": null,
+  "upload_method": null,
+  "upload_headers": null,
+  "file": {
+    "id": "file-7145e6029a64eaae97c9649d",
+    "object": "file",
+    "bytes": 89,
+    "created_at": 1789908378,
+    "expires_at": 1789911978,
+    "filename": "sample.csv",
+    "purpose": "parse",
+    "sha256sum": "7df632ee3702226e1d6130367fec2243276094a0654f29c3e4409a2117e529c4"
+  }
+}

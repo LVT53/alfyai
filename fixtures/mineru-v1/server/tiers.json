@@ -1,0 +1,1 @@
+{"object":"list","data":[{"id":"flash","description":"Fast local text extraction.","current_model":"flash"},{"id":"basic","description":"Basic parsing with local lightweight models.","current_model":"hybrid-basic"}]}

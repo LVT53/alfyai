@@ -1,0 +1,40 @@
+{
+  "probe": "inline_source_ok",
+  "method": "POST",
+  "url": "/v1/parse/jobs",
+  "http_status": 202,
+  "content_type": "application/json",
+  "body": {
+    "job_id": "job_ec2b8e2b4a45f6ddd26af89e",
+    "status": "queued",
+    "created_at": "2026-09-20T12:50:09Z",
+    "started_at": null,
+    "finished_at": null,
+    "tier": "basic",
+    "output_formats": [
+      "markdown"
+    ],
+    "access_level": "anonymous",
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": null,
+        "name": "t.csv",
+        "page_range": "",
+        "status": "queued",
+        "parse": null,
+        "output_files": null,
+        "error": null
+      }
+    ],
+    "links": {
+      "self": "/v1/parse/jobs/job_ec2b8e2b4a45f6ddd26af89e",
+      "cancel": "/v1/parse/jobs/job_ec2b8e2b4a45f6ddd26af89e"
+    }
+  },
+  "note": "small inline"
+}

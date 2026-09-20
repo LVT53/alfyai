@@ -1,0 +1,13 @@
+{
+  "probe": "keyed_callback",
+  "http_status": 400,
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "invalid_request",
+      "message": "Webhook callback is not supported by this Local Parse Server. Use polling via GET /v1/parse/jobs/{job_id}.",
+      "param": null
+    }
+  },
+  "note": "webhook with a key"
+}

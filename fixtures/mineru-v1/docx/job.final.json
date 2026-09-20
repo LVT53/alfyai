@@ -1,0 +1,59 @@
+{
+  "job_id": "job_1706d797d86f8c475f9f0b55",
+  "status": "completed",
+  "created_at": "2026-09-20T12:46:20Z",
+  "started_at": "2026-09-20T12:46:20Z",
+  "finished_at": "2026-09-20T12:46:20Z",
+  "tier": "basic",
+  "output_formats": [
+    "markdown",
+    "middle_json",
+    "structured_content",
+    "zip"
+  ],
+  "access_level": "anonymous",
+  "progress": {
+    "completed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "files": [
+    {
+      "file_id": "file-b8425a8a38ec4d53b1985365",
+      "name": "sample.docx",
+      "page_range": "1",
+      "status": "completed",
+      "parse": {
+        "model_used": null,
+        "duration_ms": 419,
+        "parser_version": "4.0.4"
+      },
+      "output_files": {
+        "markdown": {
+          "file_id": "file-87ceea44a9dd2243bed5e577",
+          "bytes": 10650
+        },
+        "middle_json": {
+          "file_id": "file-d96f499b5391e3a51fa88fac",
+          "bytes": 12459
+        },
+        "structured_content": {
+          "file_id": "file-8d93cc688931c353f0316c1d",
+          "bytes": 11609
+        },
+        "html": null,
+        "latex": null,
+        "docx": null,
+        "zip": {
+          "file_id": "file-d088ed02e69f284a4226e16b",
+          "bytes": 12879
+        }
+      },
+      "error": null
+    }
+  ],
+  "links": {
+    "self": "/v1/parse/jobs/job_1706d797d86f8c475f9f0b55",
+    "cancel": "/v1/parse/jobs/job_1706d797d86f8c475f9f0b55"
+  }
+}

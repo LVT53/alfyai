@@ -1,0 +1,13 @@
+{
+  "probe": "keyed_output_latex",
+  "http_status": 400,
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "unsupported_output_format",
+      "message": "Unknown output format: latex",
+      "param": null
+    }
+  },
+  "note": "gated format with a valid key"
+}
