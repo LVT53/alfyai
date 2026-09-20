@@ -15,6 +15,7 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import { selectDocumentPassages } from "$lib/server/services/task-state/artifacts";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import { getEntryByMimeType } from "$lib/shared/file-types";
 import {
 	buildToolResultCacheKey,
 	getCachedToolResult,
@@ -96,12 +97,12 @@ async function readGeneratedFileBinaryContent(
 		const buffer = await readFile(fullPath);
 
 		const mimeType = fileRow.mimeType?.toLowerCase() ?? "";
+		// Every member of the old inline list is a registry MIME on a text-like
+		// entry, including "application/x-yaml", which is carried as a yaml alias
+		// for exactly this call site (spec open question 7).
 		const isTextBased =
 			mimeType.startsWith("text/") ||
-			mimeType === "application/json" ||
-			mimeType === "application/javascript" ||
-			mimeType === "application/xml" ||
-			mimeType === "application/x-yaml";
+			getEntryByMimeType(mimeType)?.textLike === true;
 
 		if (
 			isTextBased ||

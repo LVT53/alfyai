@@ -539,6 +539,36 @@ describe("chat-files service", () => {
 			expect(result.storagePath).toMatch(/\.bin$/);
 		});
 
+		// Spec section 10: the extension parser is the shared registry one now.
+		// `extname(".env")` returned "" and the file stored as `<id>.bin`;
+		// the registry parser answers "env", so the dotfile keeps its name.
+		// Ordinary names, including multi-dot and upper-case ones, are unchanged.
+		it("stores a dotfile under its own extension", async () => {
+			const { storeGeneratedFile } = await import("./chat-files");
+
+			const result = await storeGeneratedFile("conv-123", "user-456", {
+				filename: ".env",
+				content: Buffer.from("KEY=value"),
+			});
+
+			expect(result.storagePath).toMatch(/^conv-123\/[a-f0-9-]+\.env$/);
+		});
+
+		it.each([
+			["report.final.PDF", "pdf"],
+			["archive.tar.gz", "gz"],
+			["sheet.xlsx", "xlsx"],
+		])("keeps the stored extension of %s as .%s", async (filename, extension) => {
+			const { storeGeneratedFile } = await import("./chat-files");
+
+			const result = await storeGeneratedFile("conv-123", "user-456", {
+				filename,
+				content: Buffer.from("x"),
+			});
+
+			expect(result.storagePath).toBe(`conv-123/${result.id}.${extension}`);
+		});
+
 		it("handles Uint8Array content", async () => {
 			const { storeGeneratedFile } = await import("./chat-files");
 

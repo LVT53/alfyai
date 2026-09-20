@@ -106,6 +106,70 @@ describe("extractDocumentText", () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
+	// Spec section 2.4(a): the registry is the route decision now, and the 34
+	// code/text extensions that previously went to MinerU (which could not read
+	// them) take the direct-text branch. One representative per family.
+	it.each([
+		"script.py",
+		"app.rb",
+		"main.go",
+		"notes.log",
+		"Makefile.toml",
+	])("reads %s directly instead of posting it to MinerU", async (filename) => {
+		readFileMock.mockResolvedValueOnce(Buffer.from("direct text body"));
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+
+		const result = await extractDocumentText(
+			`/path/to/${filename}`,
+			null,
+			filename,
+		);
+
+		expect(result.text).toBe("direct text body");
+		expect(result.mimeType).toBe("text/markdown");
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	// The registry's "reject" route is unreachable through the upload path —
+	// /api/knowledge/upload/intent refuses these first — but if one ever gets
+	// here it must not be posted to MinerU. The throw lands in this function's
+	// own catch, so the caller still sees the usual `text: null` answer.
+	it.each([
+		"clip.mp4",
+		"bundle.zip",
+		"memo.rtf",
+	])("never posts %s to MinerU", async (filename) => {
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+
+		const result = await extractDocumentText(
+			`/path/to/${filename}`,
+			null,
+			filename,
+		);
+
+		expect(result.text).toBeNull();
+		expect(result.mimeType).toBe("text/markdown");
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	// Spec conflict 2: `.jfif` had no entry in the old mimeFromExtension map and
+	// was posted as application/octet-stream. The registry knows it is JPEG.
+	it("posts a .jfif image with its real image/jpeg type", async () => {
+		const fetchSpy = vi
+			.fn()
+			.mockResolvedValue(
+				createMockResponse(200, mineruMdResponse("scan.jfif", "ocr text")),
+			);
+		vi.stubGlobal("fetch", fetchSpy);
+
+		await extractDocumentText("/path/to/scan.jfif", null, "scan.jfif");
+
+		const formData = fetchSpy.mock.calls[0][1].body as FormData;
+		expect((formData.get("files") as File).type).toBe("image/jpeg");
+	});
+
 	it("returns null text when MinerU returns empty md_content", async () => {
 		vi.stubGlobal(
 			"fetch",
