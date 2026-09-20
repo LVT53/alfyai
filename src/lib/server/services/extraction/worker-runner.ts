@@ -237,6 +237,13 @@ async function executeStep(
 	// another backend's job id.
 	const resumeHandle = latestHandle;
 
+	// The heartbeat runs until the attempt is completed or failed, INDEXING
+	// INCLUDED. It used to stop the moment the extractor returned, which left
+	// the whole indexing pass — chunking and embedding a large document, the
+	// slowest thing this worker does — with a frozen `heartbeat_at`: long
+	// enough and `recoverStaleExtractionAttempts` reclaimed a perfectly healthy
+	// attempt and re-ran the extraction. Every exit path clears it, in a
+	// `finally`, so a throw between here and the verdict cannot leak a timer.
 	const heartbeatMs = Math.max(250, input.heartbeatMs ?? config.heartbeatMs);
 	const heartbeat = setInterval(() => {
 		void (async () => {
@@ -282,114 +289,121 @@ async function executeStep(
 			});
 	};
 
-	let result: ExtractDocumentResult;
 	try {
-		result = await extractor.extract({
-			filePathAbsolute: source.filePathAbsolute,
-			fileName: job.fileName,
-			mimeType: job.mimeType,
-			sizeBytes: job.sizeBytes,
-			intakeRoute,
-			signal: controller.signal,
-			onProgress,
-			resumeHandle,
-			contentSha256: source.contentSha256,
-			sourceArtifactId: job.sourceArtifactId,
-			userId: job.userId,
-			hints: parseExtractionHints(job.hintsJson),
+		let result: ExtractDocumentResult;
+		try {
+			result = await extractor.extract({
+				filePathAbsolute: source.filePathAbsolute,
+				fileName: job.fileName,
+				mimeType: job.mimeType,
+				sizeBytes: job.sizeBytes,
+				intakeRoute,
+				signal: controller.signal,
+				onProgress,
+				resumeHandle,
+				contentSha256: source.contentSha256,
+				sourceArtifactId: job.sourceArtifactId,
+				userId: job.userId,
+				hints: parseExtractionHints(job.hintsJson),
+			});
+		} catch (error) {
+			const failure = toDocumentExtractionError(error);
+
+			if (cancelObserved || (await isCancelRequested(job.id))) {
+				await bestEffortRemoteCancel(extractor, latestHandle);
+				return {
+					processed: true,
+					result: { jobId: job.id, status: "canceled" },
+				};
+			}
+
+			const outcome = await failExtractionAttempt({
+				...owned,
+				errorCode: failure.code,
+				errorMessage: failure.message,
+				retryable: failure.retryable,
+				retryAfterMs: failure.retryAfterMs,
+				clearHandle: failure.handleUnknown,
+				maxAttempts: config.maxAttempts,
+				retryBaseMs: config.retryBaseMs,
+				retryMaxMs: config.retryMaxMs,
+				diagnostics: failure.details,
+			});
+			if (!outcome.applied) {
+				// The claim was gone before the verdict landed. Whoever holds the
+				// job now owns its status; reporting "failed" here would be
+				// asserting a write we did not make.
+				return { processed: true, result: null };
+			}
+			return {
+				processed: true,
+				result: {
+					jobId: job.id,
+					status: outcome.requeued ? "queued" : "failed",
+				},
+			};
+		}
+
+		const movedToIndexing = await reportExtractionProgress({
+			...owned,
+			status: "indexing",
+			handle: result.handle ?? undefined,
+			extractor: extractor.name,
 		});
-	} catch (error) {
+		if (!movedToIndexing) {
+			return { processed: true, result: null };
+		}
+
+		try {
+			const persisted = await persistExtraction({
+				job,
+				result,
+				source,
+				persistResult: input.persistResult,
+				persistReadback: input.persistReadback,
+			});
+
+			await completeExtractionAttempt({
+				...owned,
+				normalizedArtifactId: persisted.artifactId,
+				textLength: result.text.length,
+				pageCount: result.pageCount ?? null,
+				// Recorded on the attempt, not just in a log line: "retrieval only
+				// covers the first N chunks of this document" is the kind of fact
+				// someone reads the ledger to find out.
+				...(persisted.chunksTruncated
+					? { diagnostics: { chunksTruncated: true } }
+					: {}),
+			});
+			return {
+				processed: true,
+				result: { jobId: job.id, status: "succeeded" },
+			};
+		} catch (error) {
+			const failure = toDocumentExtractionError(error);
+			const outcome = await failExtractionAttempt({
+				...owned,
+				errorCode: failure.code,
+				errorMessage: failure.message,
+				retryable: failure.retryable,
+				clearHandle: true,
+				maxAttempts: config.maxAttempts,
+				retryBaseMs: config.retryBaseMs,
+				retryMaxMs: config.retryMaxMs,
+			});
+			if (!outcome.applied) {
+				return { processed: true, result: null };
+			}
+			return {
+				processed: true,
+				result: {
+					jobId: job.id,
+					status: outcome.requeued ? "queued" : "failed",
+				},
+			};
+		}
+	} finally {
 		clearInterval(heartbeat);
-		const failure = toDocumentExtractionError(error);
-
-		if (cancelObserved || (await isCancelRequested(job.id))) {
-			await bestEffortRemoteCancel(extractor, latestHandle);
-			return { processed: true, result: { jobId: job.id, status: "canceled" } };
-		}
-
-		const outcome = await failExtractionAttempt({
-			...owned,
-			errorCode: failure.code,
-			errorMessage: failure.message,
-			retryable: failure.retryable,
-			retryAfterMs: failure.retryAfterMs,
-			clearHandle: failure.handleUnknown,
-			maxAttempts: config.maxAttempts,
-			retryBaseMs: config.retryBaseMs,
-			retryMaxMs: config.retryMaxMs,
-			diagnostics: failure.details,
-		});
-		if (!outcome.applied) {
-			// The claim was gone before the verdict landed. Whoever holds the job
-			// now owns its status; reporting "failed" here would be asserting a
-			// write we did not make.
-			return { processed: true, result: null };
-		}
-		return {
-			processed: true,
-			result: {
-				jobId: job.id,
-				status: outcome.requeued ? "queued" : "failed",
-			},
-		};
-	}
-
-	clearInterval(heartbeat);
-
-	const movedToIndexing = await reportExtractionProgress({
-		...owned,
-		status: "indexing",
-		handle: result.handle ?? undefined,
-		extractor: extractor.name,
-	});
-	if (!movedToIndexing) {
-		return { processed: true, result: null };
-	}
-
-	try {
-		const persisted = await persistExtraction({
-			job,
-			result,
-			source,
-			persistResult: input.persistResult,
-			persistReadback: input.persistReadback,
-		});
-
-		await completeExtractionAttempt({
-			...owned,
-			normalizedArtifactId: persisted.artifactId,
-			textLength: result.text.length,
-			pageCount: result.pageCount ?? null,
-			// Recorded on the attempt, not just in a log line: "retrieval only
-			// covers the first N chunks of this document" is the kind of fact
-			// someone reads the ledger to find out.
-			...(persisted.chunksTruncated
-				? { diagnostics: { chunksTruncated: true } }
-				: {}),
-		});
-		return { processed: true, result: { jobId: job.id, status: "succeeded" } };
-	} catch (error) {
-		const failure = toDocumentExtractionError(error);
-		const outcome = await failExtractionAttempt({
-			...owned,
-			errorCode: failure.code,
-			errorMessage: failure.message,
-			retryable: failure.retryable,
-			clearHandle: true,
-			maxAttempts: config.maxAttempts,
-			retryBaseMs: config.retryBaseMs,
-			retryMaxMs: config.retryMaxMs,
-		});
-		if (!outcome.applied) {
-			return { processed: true, result: null };
-		}
-		return {
-			processed: true,
-			result: {
-				jobId: job.id,
-				status: outcome.requeued ? "queued" : "failed",
-			},
-		};
 	}
 }
 
