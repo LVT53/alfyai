@@ -162,6 +162,38 @@ describe("executeNextExtractionJob", () => {
 		expect(row?.retryable).toBe(false);
 	});
 
+	// F19. The missing-file branch reported "failed" whatever
+	// `failExtractionAttempt` answered, so a worker that had already lost its
+	// claim asserted a verdict it never wrote — the one thing the `applied`
+	// flag exists to prevent, and which its two sibling branches honour.
+	it("reports nothing when the claim is lost before the missing-file verdict", async () => {
+		const artifactId = fixture.seedArtifact({
+			userId,
+			name: "ghost-lost.pdf",
+			storagePath: null,
+		});
+		const job = await enqueue(artifactId, "ghost-lost.pdf");
+
+		const result = await worker.executeNextExtractionJob({
+			workerId: "w1",
+			// Runs between the claim and the source lookup: whoever holds the
+			// attempt now is the only legitimate writer.
+			resolveExtractor: () => {
+				fixture.sqlite
+					.prepare(
+						"UPDATE document_extraction_job_attempts SET status = 'canceled' WHERE job_id = ?",
+					)
+					.run(job.id);
+				return createFakeExtractor({ steps: [{ kind: "succeed" }] });
+			},
+		});
+
+		expect(result).toBeNull();
+		const row = await ledger.getExtractionJobRow(job.id);
+		expect(row?.status).toBe("uploading");
+		expect(row?.errorCode).toBeNull();
+	});
+
 	it("requeues a retryable throw and fails a non-retryable one", async () => {
 		const retryableArtifact = await seedStoredDocument("retry.pdf");
 		const retryableJob = await enqueue(retryableArtifact, "retry.pdf");

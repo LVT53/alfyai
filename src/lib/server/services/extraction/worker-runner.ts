@@ -211,7 +211,7 @@ async function executeStep(
 
 	const source = await resolveExtractionSource(job);
 	if (!source) {
-		await failExtractionAttempt({
+		const outcome = await failExtractionAttempt({
 			...owned,
 			errorCode: "internal",
 			errorMessage: `The stored file for ${job.fileName} could not be located.`,
@@ -221,7 +221,19 @@ async function executeStep(
 			retryBaseMs: config.retryBaseMs,
 			retryMaxMs: config.retryMaxMs,
 		});
-		return { processed: true, result: { jobId: job.id, status: "failed" } };
+		// Same rule as the other two failure branches: `applied: false` means
+		// the claim was already gone and nothing was written, so reporting
+		// "failed" here would assert a verdict this worker never wrote.
+		if (!outcome.applied) {
+			return { processed: true, result: null };
+		}
+		return {
+			processed: true,
+			result: {
+				jobId: job.id,
+				status: outcome.requeued ? "queued" : "failed",
+			},
+		};
 	}
 
 	const controller = new AbortController();
