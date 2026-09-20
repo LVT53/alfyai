@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import chatDict from "$lib/i18n/chat";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import {
 	DOCUMENT_EXTRACTION_STATUSES,
 	EXTRACTION_ERROR_CODES,
 } from "$lib/shared/extraction-status";
-import chatDict from "$lib/i18n/chat";
 import {
 	attachmentChipKind,
 	attachmentChipMeta,

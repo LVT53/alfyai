@@ -63,7 +63,10 @@ async function enqueueQueued(userId: string, artifactId: string) {
 
 describe("POST /api/knowledge/extraction/[artifactId]/cancel", () => {
 	it("cancels a queued job", async () => {
-		const artifactId = fixture.seedArtifact({ userId: OWNER, name: "slow.pdf" });
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			name: "slow.pdf",
+		});
 		await enqueueQueued(OWNER, artifactId);
 
 		const response = await route.POST(makeEvent(artifactId, OWNER));

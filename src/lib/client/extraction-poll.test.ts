@@ -299,8 +299,9 @@ describe("readExtractionJobDTO", () => {
 describe("extractionFromUploadResponse", () => {
 	it("reads the field when the server sends one", () => {
 		const dto = job({ sourceArtifactId: "a" });
-		expect(extractionFromUploadResponse({ artifact: {}, extraction: dto }))
-			.toEqual(dto);
+		expect(
+			extractionFromUploadResponse({ artifact: {}, extraction: dto }),
+		).toEqual(dto);
 	});
 
 	it("tolerates an upload response that has no extraction field", () => {

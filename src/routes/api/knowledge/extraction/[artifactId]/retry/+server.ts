@@ -47,7 +47,7 @@ export const POST: RequestHandler = async (event) => {
 		userId: user.id,
 		artifactId,
 	});
-	if (!current || !current.retryable) return notFound();
+	if (!current?.retryable) return notFound();
 
 	let jobId = current.id;
 	if (current.legacy) {

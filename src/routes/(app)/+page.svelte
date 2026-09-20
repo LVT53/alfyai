@@ -17,6 +17,7 @@ import {
 	uploadKnowledgeAttachment,
 	uploadRefusalFromError,
 } from "$lib/client/api/knowledge";
+import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
 import {
 	createNewConversation,
 	updateConversationMemoryIncognitoLocal,
@@ -294,6 +295,14 @@ type UploadFileResult =
 	| {
 			success: true;
 			attachment: import("$lib/server/services/knowledge/types").PendingAttachment;
+			/**
+			 * The upload's extraction job, when the response carries one. Read
+			 * structurally, so this page works both before and after the upload
+			 * endpoint starts sending it.
+			 */
+			extraction?:
+				| import("$lib/shared/extraction-status").DocumentExtractionJobDTO
+				| null;
 	  }
 	| { success: false; fileName: string; error: string };
 
@@ -319,6 +328,7 @@ async function uploadSingleFile(
 							? result.readinessError
 							: null,
 				},
+				extraction: extractionFromUploadResponse(result),
 			};
 		}
 		return { success: false, fileName: file.name, error: "Upload failed" };

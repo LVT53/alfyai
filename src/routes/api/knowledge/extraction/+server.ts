@@ -20,9 +20,14 @@ import type { RequestHandler } from "./$types";
 /**
  * How many ids one poll may ask about. The cap is what keeps a Knowledge page
  * with hundreds of documents from turning a 1 s poll into a hundred-row scan;
- * clients chunk (see `$lib/client/extraction-poll`).
+ * clients chunk to it (`EXTRACTION_POLL_BATCH_SIZE` in
+ * `$lib/client/extraction-poll`, which mirrors this number).
+ *
+ * Not exported: SvelteKit allows a route module only its handlers and a few
+ * named config exports, so the two copies are kept honest by the poller's
+ * chunking test rather than by a shared constant.
  */
-export const MAX_EXTRACTION_ARTIFACT_IDS = 50;
+const MAX_EXTRACTION_ARTIFACT_IDS = 50;
 
 function parseArtifactIds(raw: string | null): string[] {
 	if (!raw) return [];

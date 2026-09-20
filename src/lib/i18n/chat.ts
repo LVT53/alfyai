@@ -1205,7 +1205,8 @@ const chatDict = {
 			"Dokumentum szövegének kinyerése… ez akár ~10 másodpercig is tarthat beolvasott PDF-eknél.",
 		"chat.extraction.cancel": "Leállítás",
 		"chat.extraction.cancelA11y": "{name} olvasásának leállítása",
-		"chat.extraction.cancelFailed": "A(z) {name} olvasását nem sikerült leállítani.",
+		"chat.extraction.cancelFailed":
+			"A(z) {name} olvasását nem sikerült leállítani.",
 		"chat.extraction.canceled": "Leállítva",
 		"chat.extraction.error.auth_failed":
 			"A dokumentumolvasó elutasította a hozzáférést",
@@ -1214,19 +1215,16 @@ const chatDict = {
 		"chat.extraction.error.internal": "Váratlan hiba történt",
 		"chat.extraction.error.job_failed": "A beolvasás meghiúsult",
 		"chat.extraction.error.legacy_unknown": "Ezt még nem dolgoztuk fel",
-		"chat.extraction.error.max_attempts":
-			"Több próbálkozás után sem sikerült",
+		"chat.extraction.error.max_attempts": "Több próbálkozás után sem sikerült",
 		"chat.extraction.error.protocol": "Váratlan válasz az olvasótól",
 		"chat.extraction.error.rate_limited": "A dokumentumolvasó túlterhelt",
 		"chat.extraction.error.stale_worker": "A beolvasás félbeszakadt",
 		"chat.extraction.error.tier_unavailable":
 			"Ez az olvasási mód nem érhető el",
-		"chat.extraction.error.timeout":
-			"A beolvasás túllépte az időkeretet",
+		"chat.extraction.error.timeout": "A beolvasás túllépte az időkeretet",
 		"chat.extraction.error.too_large": "Túl nagy a beolvasáshoz",
 		"chat.extraction.error.unavailable": "A dokumentumolvasó nem érhető el",
-		"chat.extraction.error.unsupported_type":
-			"Ez a fájltípus nem olvasható be",
+		"chat.extraction.error.unsupported_type": "Ez a fájltípus nem olvasható be",
 		"chat.extraction.failed": "Nem olvasható be",
 		"chat.extraction.failedRetry": "Nem olvasható be — próbáld újra",
 		"chat.extraction.indexing": "Feldolgozás…",

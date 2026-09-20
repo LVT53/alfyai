@@ -16,8 +16,8 @@
 // It holds no framework state: the caller supplies the ids and receives the
 // DTOs, so the same module serves a Svelte 5 rune component and a plain page.
 
-import { fetchExtractionJobs } from "$lib/client/api/knowledge";
 import type { FetchLike } from "$lib/client/api/http";
+import { fetchExtractionJobs } from "$lib/client/api/knowledge";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import {
 	isDocumentExtractionStatus,
@@ -109,7 +109,12 @@ export function createExtractionPoller(
 
 	function trackedIds(): string[] {
 		return Array.from(
-			new Set(options.getArtifactIds().map((id) => id.trim()).filter(Boolean)),
+			new Set(
+				options
+					.getArtifactIds()
+					.map((id) => id.trim())
+					.filter(Boolean),
+			),
 		);
 	}
 
@@ -234,7 +239,10 @@ export function createExtractionPoller(
 			clearTimer();
 			armedAt = null;
 			if (listening && typeof document !== "undefined") {
-				document.removeEventListener("visibilitychange", handleVisibilityChange);
+				document.removeEventListener(
+					"visibilitychange",
+					handleVisibilityChange,
+				);
 				listening = false;
 			}
 		},
