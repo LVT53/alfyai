@@ -315,7 +315,9 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 		await worker.executeNextExtractionJob({
 			workerId: "worker-before-delete",
 			resolveExtractor: () =>
-				createFakeExtractor({ steps: [{ kind: "succeed", text: "First read." }] }),
+				createFakeExtractor({
+					steps: [{ kind: "succeed", text: "First read." }],
+				}),
 		});
 
 		const first = normalizedArtifactsFor(payload.artifact.id);

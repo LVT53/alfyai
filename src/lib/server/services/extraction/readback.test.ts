@@ -376,9 +376,9 @@ describe("the registered sink", () => {
 			resolveExtractor: () =>
 				createFakeExtractor({ steps: [{ kind: "succeed", text: "body" }] }),
 		});
-		expect((await ledger.getExtractionJobRow(jobId))?.normalizedArtifactId).toBe(
-			artifactId,
-		);
+		expect(
+			(await ledger.getExtractionJobRow(jobId))?.normalizedArtifactId,
+		).toBe(artifactId);
 		expect(await ledger.listExtractionJobAttempts(jobId)).not.toHaveLength(0);
 
 		const { deleteKnowledgeArtifactsByAction } = await import(
