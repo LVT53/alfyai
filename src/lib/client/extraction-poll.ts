@@ -108,14 +108,23 @@ export function createExtractionPoller(
 	let listening = false;
 
 	function trackedIds(): string[] {
-		return Array.from(
-			new Set(
-				options
-					.getArtifactIds()
-					.map((id) => id.trim())
-					.filter(Boolean),
-			),
+		const tracked = new Set(
+			options
+				.getArtifactIds()
+				.map((id) => id.trim())
+				.filter(Boolean),
 		);
+		// Remembered state for an id the caller dropped is state nothing will
+		// ever clear otherwise: a composer that uploads and removes files all
+		// afternoon grew both maps without bound, and a document removed and
+		// re-added was answered from the status of the row it no longer has.
+		for (const id of lastStatus.keys()) {
+			if (!tracked.has(id)) lastStatus.delete(id);
+		}
+		for (const id of unresolved) {
+			if (!tracked.has(id)) unresolved.delete(id);
+		}
+		return Array.from(tracked);
 	}
 
 	function hasUnsettled(ids: string[]): boolean {
@@ -195,10 +204,30 @@ export function createExtractionPoller(
 		inFlight = true;
 		try {
 			const jobs: DocumentExtractionJobDTO[] = [];
+			// Ids from chunks that actually came back. A chunk that throws leaves
+			// its own ids unknown; marking them unresolved on the strength of a
+			// failed request would retire them permanently over one 500.
+			const asked = new Set<string>();
+			let failure: unknown;
+			let failed = false;
+
 			for (const batch of chunk(ids, EXTRACTION_POLL_BATCH_SIZE)) {
-				jobs.push(...(await fetchJobs(batch)));
+				try {
+					const fetched = await fetchJobs(batch);
+					for (const id of batch) asked.add(id);
+					jobs.push(...fetched);
+				} catch (error) {
+					// Keep what the earlier chunks already answered. Throwing the
+					// whole poll away meant a Knowledge page past fifty documents
+					// could show nothing at all because its last chunk hiccuped.
+					failure = error;
+					failed = true;
+					break;
+				}
 			}
+
 			if (stopped) return;
+
 			const answered = new Set<string>();
 			for (const job of jobs) {
 				if (!job.sourceArtifactId) continue;
@@ -209,10 +238,14 @@ export function createExtractionPoller(
 			// An id the endpoint omitted is one it could not resolve for this
 			// user. Polling it again forever would be a storm with no possible
 			// answer, so it stops being tracked.
-			for (const id of ids) {
+			for (const id of asked) {
 				if (!answered.has(id)) unresolved.add(id);
 			}
 			if (jobs.length > 0) options.onJobs(jobs);
+
+			// Reported only after the partial answer has been delivered, so the
+			// failure is still handled exactly as before.
+			if (failed) throw failure;
 		} catch (error) {
 			if (stopped) return;
 			options.onError?.(error);

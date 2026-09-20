@@ -822,7 +822,10 @@ describe("MessageInput", () => {
 	});
 
 	it("announces the active command row while navigating the tray", async () => {
-		const { getByPlaceholderText, getByRole } = render(MessageInput, {
+		// Addressed by test id, not by role: the composer now carries a second
+		// polite region for extraction status, and `getByRole("status")` would
+		// be ambiguous rather than wrong.
+		const { getByPlaceholderText, getByTestId } = render(MessageInput, {
 			composerCommandRegistryEnabled: true,
 		});
 		const input = getByPlaceholderText(
@@ -831,12 +834,12 @@ describe("MessageInput", () => {
 
 		await fireEvent.input(input, { target: { value: "/" } });
 
-		expect(getByRole("status")).toHaveTextContent(
+		expect(getByTestId("composer-command-announcer")).toHaveTextContent(
 			"Active command: /model Model",
 		);
 		await fireEvent.keyDown(input, { key: "ArrowDown" });
 
-		expect(getByRole("status")).toHaveTextContent(
+		expect(getByTestId("composer-command-announcer")).toHaveTextContent(
 			"Active command: /style Style",
 		);
 	});
@@ -4376,6 +4379,97 @@ describe("MessageInput extraction chips", () => {
 				"Waiting to be read",
 			);
 		});
+	});
+
+	// F21. Retry requeues the job, so the button that was just pressed
+	// unmounts and a keyboard user was left on `<body>`, at the top of the
+	// page, with no idea where they had been.
+	it("fires Retry once per click and moves focus to the chip when it unmounts", async () => {
+		let releaseRetry: (job: DocumentExtractionJobDTO) => void = () => {};
+		retryExtractionMock.mockImplementation(
+			() =>
+				new Promise<DocumentExtractionJobDTO>((resolve) => {
+					releaseRetry = resolve;
+				}),
+		);
+		const { container, getByTestId, queryByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+				extraction: extractionJob({
+					status: "failed",
+					retryable: true,
+					cancelable: false,
+					error: { code: "max_attempts", message: "gave up" },
+				}),
+			},
+		});
+
+		const retry = await waitFor(() =>
+			getByTestId("composer-chip-extraction-retry"),
+		);
+		retry.focus();
+		await fireEvent.click(retry);
+		await waitFor(() => {
+			expect(getByTestId("composer-chip-extraction-retry")).toHaveAttribute(
+				"aria-busy",
+				"true",
+			);
+		});
+
+		// A second click while the first is still in flight must not fire a
+		// second request — each one burns another attempt on the same document.
+		await fireEvent.click(getByTestId("composer-chip-extraction-retry"));
+		expect(retryExtractionMock).toHaveBeenCalledTimes(1);
+
+		releaseRetry(extractionJob({ status: "queued", retryable: false }));
+
+		await waitFor(() => {
+			expect(queryByTestId("composer-chip-extraction-retry")).toBeNull();
+		});
+		await waitFor(() => {
+			expect(document.activeElement).toBe(
+				container.querySelector(".composer-chip__remove"),
+			);
+		});
+	});
+
+	it("announces a real state change once, not once per poll", async () => {
+		const { container, getByTestId, done } = renderComposer();
+
+		await pickFile(container);
+		done({
+			success: true,
+			attachment: {
+				artifact: artifact(),
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: null,
+				extraction: extractionJob({ status: "parsing" }),
+			},
+		});
+
+		const announcer = await waitFor(() =>
+			getByTestId("composer-extraction-announcer"),
+		);
+		// The state it was drawn in is not a change: the user can see the chip.
+		expect(announcer).toHaveTextContent("");
+
+		fetchExtractionJobsMock.mockResolvedValue([
+			extractionJob({ status: "succeeded", cancelable: false }),
+		]);
+		await waitFor(
+			() => {
+				expect(announcer).toHaveTextContent("scan.pdf:");
+			},
+			{ timeout: 3000 },
+		);
 	});
 
 	it("names the cause, and offers no Retry, when a retry cannot help", async () => {

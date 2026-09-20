@@ -359,4 +359,52 @@ describe("the registered sink", () => {
 		expect(row?.status).toBe("failed");
 		expect(row?.attemptCount).toBe(1);
 	});
+
+	// F6. "Forget all results" hard-deletes every `generated_output` artifact,
+	// which is exactly the artifact a succeeded readback job points at. Under
+	// ON DELETE SET NULL the job survived as a `succeeded` row pointing at
+	// nothing, and the partial UNIQUE index on `chat_generated_file_id` then
+	// made every later re-sync of that chat file reuse it — so the text could
+	// never be read back again.
+	it("loses its job when Forget all results deletes the generated artifact", async () => {
+		const artifactId = seedGeneratedArtifact();
+		await seedStoredChatFile();
+		const jobId = await enqueueReadback();
+
+		await worker.executeNextExtractionJob({
+			workerId: "w1",
+			resolveExtractor: () =>
+				createFakeExtractor({ steps: [{ kind: "succeed", text: "body" }] }),
+		});
+		expect(
+			(await ledger.getExtractionJobRow(jobId))?.normalizedArtifactId,
+		).toBe(artifactId);
+		expect(await ledger.listExtractionJobAttempts(jobId)).not.toHaveLength(0);
+
+		const { deleteKnowledgeArtifactsByAction } = await import(
+			"$lib/server/services/knowledge/store/cleanup"
+		);
+		const deleted = await deleteKnowledgeArtifactsByAction(
+			userId,
+			"forget_all_results",
+		);
+		expect(deleted.deletedArtifactIds).toContain(artifactId);
+
+		expect(await ledger.getExtractionJobRow(jobId)).toBeNull();
+		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(0);
+
+		// And the next sync of the same chat file enqueues a fresh job instead of
+		// adopting a terminal one.
+		const intake = await import("./intake");
+		const dto = await intake.startGeneratedFileReadback({
+			userId,
+			conversationId,
+			chatGeneratedFileId: chatFileId,
+			fileName: "report.pdf",
+			mimeType: "application/pdf",
+			sizeBytes: 15,
+		});
+		expect(dto.id).not.toBe(jobId);
+		expect(dto.status).toBe("queued");
+	});
 });

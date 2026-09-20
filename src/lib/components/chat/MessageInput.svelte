@@ -49,6 +49,7 @@ import {
 	fetchKnowledgeLibrary,
 	retryExtraction,
 } from "$lib/client/api/knowledge";
+import { createExtractionAnnouncer } from "$lib/client/extraction-announcements";
 import {
 	createExtractionPoller,
 	type ExtractionPoller,
@@ -112,6 +113,7 @@ import {
 	attachmentChipMeta,
 	attachmentThumbnailUrl,
 	extractionChipState,
+	extractionReasonKey,
 	isExtractionPending,
 	quoteChipLabel,
 } from "./composer-chip-presentation";
@@ -391,6 +393,16 @@ let optimisticUploads = $state<{ id: string; name: string }[]>([]);
 let optimisticUploadSeed = 0;
 let extractionActionError = $state("");
 let extractionPoller: ExtractionPoller | null = null;
+// Artifacts whose Retry or Cancel is in flight. A second click on a control
+// the first click has not finished with would fire a second request and, for
+// Retry, burn a second attempt on the same document.
+let extractionActionIds = $state<Set<string>>(new Set());
+// The polite live region's text. Set only when a document's state really
+// moved (see `extraction-announcements`), because the poller answers every
+// second and a region bound straight to the DTO would read the same sentence
+// back at a screen-reader user for the whole length of a read.
+let extractionAnnouncement = $state("");
+const extractionAnnouncer = createExtractionAnnouncer();
 let attachmentError = $state("");
 let documentPickerOpen = $state(false);
 let sourceManagerOpen = $state(false);
@@ -1678,6 +1690,42 @@ $effect(() => {
 	extractionPoller?.sync();
 });
 
+// The polite live region's one sentence. `changed()` is what keeps this from
+// firing on every poll: it answers only for the documents whose state really
+// moved, and a batch of them becomes ONE string, so five files finishing
+// together is one announcement rather than five.
+$effect(() => {
+	const changed = extractionAnnouncer.changed(
+		pendingAttachments.flatMap((attachment) => {
+			const job = extractionJobs[attachment.artifact.id];
+			return job
+				? [
+						{
+							artifactId: attachment.artifact.id,
+							name: attachment.artifact.name,
+							job,
+						},
+					]
+				: [];
+		}),
+	);
+	if (changed.length === 0) return;
+	extractionAnnouncement = changed
+		.map(
+			(entry) =>
+				`${entry.name}: ${$t(
+					asI18nKey(
+						extractionReasonKey({
+							status: entry.job.status,
+							errorCode: entry.job.error?.code ?? null,
+							retryable: entry.job.retryable,
+						}),
+					),
+				)}`,
+		)
+		.join(". ");
+});
+
 // Everyday redesign — where "attach" goes.
 //
 // On a desktop it still hands straight to the OS, because a sheet offering
@@ -2741,24 +2789,72 @@ function removePendingAttachment(id: string) {
  * rather than mutating the chip: the chip still reflects the last state the
  * SERVER reported, which is the only state that is true.
  */
-async function retryAttachmentExtraction(artifactId: string, name: string) {
+async function retryAttachmentExtraction(
+	event: MouseEvent,
+	artifactId: string,
+	name: string,
+) {
+	await runChipExtractionAction(event, artifactId, async () => {
+		try {
+			applyExtractionJob(await retryExtraction(artifactId));
+			extractionPoller?.sync();
+		} catch {
+			extractionActionError = $t("chat.extraction.retryFailed", { name });
+		}
+	});
+}
+
+async function cancelAttachmentExtraction(
+	event: MouseEvent,
+	artifactId: string,
+	name: string,
+) {
+	await runChipExtractionAction(event, artifactId, async () => {
+		try {
+			applyExtractionJob(await cancelExtraction(artifactId));
+			extractionPoller?.sync();
+		} catch {
+			extractionActionError = $t("chat.extraction.cancelFailed", { name });
+		}
+	});
+}
+
+/**
+ * The in-flight guard and the focus rescue, shared by both chip controls.
+ *
+ * Pressing Retry or Cancel usually makes the button that was pressed
+ * disappear — Retry requeues the job, so the chip swaps Retry for Cancel —
+ * and a keyboard user was then left on `<body>`, at the top of the document,
+ * with no idea where they had been. Focus moves to the chip's own control,
+ * its ×, which is the one thing in that `<li>` that is always there.
+ */
+async function runChipExtractionAction(
+	event: MouseEvent,
+	artifactId: string,
+	run: () => Promise<void>,
+) {
+	if (extractionActionIds.has(artifactId)) return;
+	const item = (event.currentTarget as HTMLElement | null)?.closest("li");
 	extractionActionError = "";
+	extractionActionIds = new Set(extractionActionIds).add(artifactId);
 	try {
-		applyExtractionJob(await retryExtraction(artifactId));
-		extractionPoller?.sync();
-	} catch {
-		extractionActionError = $t("chat.extraction.retryFailed", { name });
+		await run();
+	} finally {
+		const next = new Set(extractionActionIds);
+		next.delete(artifactId);
+		extractionActionIds = next;
+		await tick();
+		restoreChipFocus(item);
 	}
 }
 
-async function cancelAttachmentExtraction(artifactId: string, name: string) {
-	extractionActionError = "";
-	try {
-		applyExtractionJob(await cancelExtraction(artifactId));
-		extractionPoller?.sync();
-	} catch {
-		extractionActionError = $t("chat.extraction.cancelFailed", { name });
-	}
+function restoreChipFocus(item: Element | null | undefined) {
+	if (!item?.isConnected) return;
+	const active = document.activeElement;
+	// Still somewhere inside the chip (the button survived, or the user moved
+	// on themselves): leave it alone.
+	if (active && active !== document.body && item.contains(active)) return;
+	item.querySelector<HTMLElement>(".composer-chip__remove")?.focus();
 }
 
 function editQueuedMessage() {
@@ -2879,7 +2975,12 @@ async function emitDraftChange(force = false) {
 			onanimationend={handleCommandTrayAnimationEnd}
 		>
 			{#if visibleCommandTrayRows.length > 0}
-				<div class="sr-only" role="status" aria-live="polite">
+				<div
+					class="sr-only"
+					role="status"
+					aria-live="polite"
+					data-testid="composer-command-announcer"
+				>
 					{activeCommandAnnouncement}
 				</div>
 				{#each visibleCommandTrayRows as command, index (command.id)}
@@ -3046,6 +3147,7 @@ async function emitDraftChange(force = false) {
 				{#each pendingAttachments as attachment (attachment.artifact.id)}
 					{@const extraction = extractionJobs[attachment.artifact.id] ?? null}
 					{@const chip = extractionChipState(extraction)}
+					{@const extractionBusy = extractionActionIds.has(attachment.artifact.id)}
 					<li class="composer-chip-item">
 						<ComposerChip
 							kind={attachmentChipKind(attachment.artifact)}
@@ -3067,8 +3169,10 @@ async function emitDraftChange(force = false) {
 								class="composer-chip-disclosure"
 								data-testid="composer-chip-extraction-retry"
 								aria-label={$t('chat.extraction.retryA11y', { name: attachment.artifact.name })}
-								title={$t('chat.extraction.retry')}
-								onclick={() => void retryAttachmentExtraction(attachment.artifact.id, attachment.artifact.name)}
+								title={extractionBusy ? $t('chat.extraction.busy') : $t('chat.extraction.retry')}
+								disabled={extractionBusy}
+								aria-busy={extractionBusy}
+								onclick={(event) => void retryAttachmentExtraction(event, attachment.artifact.id, attachment.artifact.name)}
 							>
 								<RotateCw size={13} strokeWidth={2} aria-hidden="true" />
 							</button>
@@ -3079,8 +3183,10 @@ async function emitDraftChange(force = false) {
 								class="composer-chip-disclosure"
 								data-testid="composer-chip-extraction-cancel"
 								aria-label={$t('chat.extraction.cancelA11y', { name: attachment.artifact.name })}
-								title={$t('chat.extraction.cancel')}
-								onclick={() => void cancelAttachmentExtraction(attachment.artifact.id, attachment.artifact.name)}
+								title={extractionBusy ? $t('chat.extraction.busy') : $t('chat.extraction.cancel')}
+								disabled={extractionBusy}
+								aria-busy={extractionBusy}
+								onclick={(event) => void cancelAttachmentExtraction(event, attachment.artifact.id, attachment.artifact.name)}
 							>
 								<Ban size={13} strokeWidth={2} aria-hidden="true" />
 							</button>
@@ -3152,6 +3258,19 @@ async function emitDraftChange(force = false) {
 			{/snippet}
 		</ComposerChipRow>
 	{/if}
+
+		<!-- The chips' extraction state, spoken once per real change. A chip
+		     that says "Reading…" is invisible to a screen reader otherwise,
+		     and binding this to the DTO itself would re-announce the same
+		     sentence on every one-second poll. -->
+		<div
+			class="sr-only"
+			role="status"
+			aria-live="polite"
+			data-testid="composer-extraction-announcer"
+		>
+			{extractionAnnouncement}
+		</div>
 
 		<!-- The queued-message banner keeps its own shape, because it has a
 		     sentence to hold, but inherits the chip's dashed edge, 999px

@@ -1,5 +1,6 @@
 import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { EXTRACTION_STATUS_BATCH_LIMIT } from "$lib/shared/extraction-status";
 import {
 	maxFileUploadSizeBytes,
 	resetMaxFileUploadSize,
@@ -741,6 +742,31 @@ describe("extraction status client API", () => {
 		expect(fetchImpl).toHaveBeenCalledWith(
 			"/api/knowledge/extraction?artifactIds=artifact-1,a%2Fb",
 		);
+	});
+
+	// F22. The fifty-id cap is the endpoint's, so the shared client has to
+	// respect it: a caller other than the poller handing it a longer list used
+	// to get a 400 that looked like the endpoint being broken.
+	it("splits a list longer than the endpoint's cap into several requests", async () => {
+		const ids = Array.from(
+			{ length: EXTRACTION_STATUS_BATCH_LIMIT + 2 },
+			(_, index) => `artifact-${index}`,
+		);
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(jsonResponse({ jobs: [dto] }))
+			.mockResolvedValueOnce(jsonResponse({ jobs: [{ ...dto, id: "job-2" }] }));
+
+		await expect(fetchExtractionJobs(ids, fetchImpl)).resolves.toHaveLength(2);
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		const asked = (fetchImpl.mock.calls as Array<[string]>).map(
+			(call) =>
+				new URL(call[0], "http://localhost").searchParams
+					.get("artifactIds")
+					?.split(",").length,
+		);
+		expect(asked).toEqual([EXTRACTION_STATUS_BATCH_LIMIT, 2]);
 	});
 
 	it("never calls the endpoint with an empty id list", async () => {

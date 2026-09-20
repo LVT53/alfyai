@@ -196,6 +196,82 @@ describe("createExtractionPoller", () => {
 		poller.stop();
 	});
 
+	// F22. A chunk that failed used to throw the whole poll away, so a
+	// Knowledge page past fifty documents could show nothing at all because its
+	// last chunk hiccuped — and the ids of the failed chunk were then retired
+	// as "unanswerable" on the strength of a request that never landed.
+	it("keeps the chunks that answered when a later one fails", async () => {
+		const ids = Array.from(
+			{ length: EXTRACTION_POLL_BATCH_SIZE + 3 },
+			(_, index) => `artifact-${index}`,
+		);
+		const fetchJobs = vi
+			.fn<(batch: string[]) => Promise<DocumentExtractionJobDTO[]>>()
+			.mockImplementationOnce(async (batch) =>
+				batch.map((id) => job({ sourceArtifactId: id })),
+			)
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockImplementation(async (batch) =>
+				batch.map((id) => job({ sourceArtifactId: id })),
+			);
+		const onJobs = vi.fn();
+		const onError = vi.fn();
+		const poller = createExtractionPoller({
+			getArtifactIds: () => ids,
+			onJobs,
+			onError,
+			fetchJobs,
+		});
+
+		poller.sync();
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(onJobs).toHaveBeenCalledTimes(1);
+		expect(onJobs.mock.calls[0]?.[0]).toHaveLength(EXTRACTION_POLL_BATCH_SIZE);
+		expect(onError).toHaveBeenCalledTimes(1);
+
+		// The tail is still tracked: it was never answered, only never asked.
+		await vi.advanceTimersByTimeAsync(1000);
+		const tailBatches = fetchJobs.mock.calls
+			.slice(2)
+			.map((call) => call[0]?.length);
+		expect(tailBatches).toContain(3);
+
+		poller.stop();
+	});
+
+	// F22. `lastStatus` and `unresolved` grew for the lifetime of the poller: a
+	// composer that uploads and removes files all afternoon never dropped a
+	// single entry.
+	it("forgets ids the caller stopped tracking", async () => {
+		let tracked = ["a", "b"];
+		const fetchJobs = vi.fn(async (batch: string[]) =>
+			batch.map((id) => job({ sourceArtifactId: id, status: "succeeded" })),
+		);
+		const poller = createExtractionPoller({
+			getArtifactIds: () => tracked,
+			onJobs: vi.fn(),
+			fetchJobs,
+		});
+
+		poller.sync();
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(fetchJobs).toHaveBeenCalledTimes(1);
+
+		// "a" goes away and comes back — a fresh upload of the same document
+		// after a delete, which reuses nothing but must not be answered from a
+		// status remembered for the row that no longer exists.
+		tracked = ["b"];
+		poller.sync();
+		tracked = ["a", "b"];
+		poller.sync();
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(fetchJobs).toHaveBeenCalledTimes(2);
+		await poller.refresh();
+		poller.stop();
+	});
+
 	it("stops tracking an id the endpoint declines to answer for", async () => {
 		const fetchJobs = vi.fn(async () => []);
 		const onError = vi.fn();

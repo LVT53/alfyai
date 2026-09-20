@@ -162,6 +162,38 @@ describe("executeNextExtractionJob", () => {
 		expect(row?.retryable).toBe(false);
 	});
 
+	// F19. The missing-file branch reported "failed" whatever
+	// `failExtractionAttempt` answered, so a worker that had already lost its
+	// claim asserted a verdict it never wrote — the one thing the `applied`
+	// flag exists to prevent, and which its two sibling branches honour.
+	it("reports nothing when the claim is lost before the missing-file verdict", async () => {
+		const artifactId = fixture.seedArtifact({
+			userId,
+			name: "ghost-lost.pdf",
+			storagePath: null,
+		});
+		const job = await enqueue(artifactId, "ghost-lost.pdf");
+
+		const result = await worker.executeNextExtractionJob({
+			workerId: "w1",
+			// Runs between the claim and the source lookup: whoever holds the
+			// attempt now is the only legitimate writer.
+			resolveExtractor: () => {
+				fixture.sqlite
+					.prepare(
+						"UPDATE document_extraction_job_attempts SET status = 'canceled' WHERE job_id = ?",
+					)
+					.run(job.id);
+				return createFakeExtractor({ steps: [{ kind: "succeed" }] });
+			},
+		});
+
+		expect(result).toBeNull();
+		const row = await ledger.getExtractionJobRow(job.id);
+		expect(row?.status).toBe("uploading");
+		expect(row?.errorCode).toBeNull();
+	});
+
 	it("requeues a retryable throw and fails a non-retryable one", async () => {
 		const retryableArtifact = await seedStoredDocument("retry.pdf");
 		const retryableJob = await enqueue(retryableArtifact, "retry.pdf");
@@ -288,6 +320,74 @@ describe("executeNextExtractionJob", () => {
 		expect(row?.status).toBe("failed");
 		expect(row?.errorMessage).toContain("chunk sync exploded");
 		expect(row?.normalizedArtifactId).toBeNull();
+	});
+
+	// F16. The heartbeat used to stop the moment the extractor returned, so the
+	// indexing pass — chunking and embedding a large document, the slowest step
+	// here — ran with a frozen `heartbeat_at` and could be reclaimed as stale
+	// while it was working perfectly.
+	it("keeps heartbeating through indexing so a long index is not reclaimed", async () => {
+		const artifactId = await seedStoredDocument();
+		const job = await enqueue(artifactId);
+
+		let releaseIndexing: () => void = () => {};
+		const indexing = new Promise<void>((resolve) => {
+			releaseIndexing = resolve;
+		});
+		let markBackdated: () => void = () => {};
+		const backdated = new Promise<void>((resolve) => {
+			markBackdated = resolve;
+		});
+
+		const running = worker.executeNextExtractionJob({
+			workerId: "w1",
+			resolveExtractor: () =>
+				createFakeExtractor({ steps: [{ kind: "succeed", text: "body" }] }),
+			heartbeatMs: 100,
+			persistResult: (async () => {
+				// Backdate the attempt: as far as the ledger can see nothing has
+				// touched it for ten minutes, and only a live heartbeat can put
+				// that right while indexing runs.
+				fixture.sqlite
+					.prepare(
+						"UPDATE document_extraction_job_attempts SET heartbeat_at = ? WHERE job_id = ?",
+					)
+					.run(Math.floor((Date.now() - 600_000) / 1000), job.id);
+				markBackdated();
+				await indexing;
+				const id = fixture.seedArtifact({
+					userId,
+					type: "normalized_document",
+					name: "normalized-indexing.md",
+				});
+				return { id } as Artifact;
+			}) as never,
+		});
+
+		await backdated;
+		const staleBefore = new Date(Date.now() - 300_000);
+		await vi.waitFor(
+			async () => {
+				const [attempt] = await ledger.listExtractionJobAttempts(job.id);
+				expect(attempt?.heartbeatAt?.getTime() ?? 0).toBeGreaterThan(
+					staleBefore.getTime(),
+				);
+			},
+			{ timeout: 3000 },
+		);
+
+		expect(
+			await ledger.recoverStaleExtractionAttempts({
+				staleBefore,
+				maxAttempts: 3,
+				retryBaseMs: 2000,
+				retryMaxMs: 60000,
+			}),
+		).toEqual({ recovered: 0, requeued: 0 });
+		expect((await ledger.getExtractionJobRow(job.id))?.status).toBe("indexing");
+
+		releaseIndexing();
+		expect(await running).toEqual({ jobId: job.id, status: "succeeded" });
 	});
 
 	it("refuses a readback job with no sink registered, rather than losing it", async () => {

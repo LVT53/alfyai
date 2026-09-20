@@ -3,7 +3,12 @@ import {
 	EXTRACTION_ERROR_CODES,
 	RETRYABLE_EXTRACTION_ERROR_CODES,
 } from "$lib/shared/extraction-status";
-import { computeBackoffMs, decideExtractionRetry } from "./retry-policy";
+import {
+	computeBackoffMs,
+	decideExtractionRetry,
+	EXTRACTION_USER_RETRY_GRANTS,
+	extractionAttemptCeiling,
+} from "./retry-policy";
 
 /** Pins the jitter so an exponent bug cannot hide inside a range assertion. */
 const noJitter = () => 0.5;
@@ -83,6 +88,37 @@ describe("decideExtractionRetry", () => {
 			delayMs: 0,
 			jobErrorCode: "max_attempts",
 			jobRetryable: true,
+		});
+	});
+
+	// Each user Retry grants one more attempt, which is what makes the button
+	// useful once the automatic budget runs out. Without a ceiling on top,
+	// one user with one broken document can generate unbounded backend work by
+	// pressing it.
+	it("stops offering Retry once the total-attempt ceiling is reached", () => {
+		const ceiling = extractionAttemptCeiling(base.maxAttempts);
+		expect(ceiling).toBe(base.maxAttempts + EXTRACTION_USER_RETRY_GRANTS);
+
+		// One short of the ceiling the user still gets a press.
+		expect(
+			decideExtractionRetry({
+				...base,
+				code: "unavailable",
+				attemptCount: ceiling - 1,
+			}),
+		).toMatchObject({ jobErrorCode: "max_attempts", jobRetryable: true });
+
+		expect(
+			decideExtractionRetry({
+				...base,
+				code: "unavailable",
+				attemptCount: ceiling,
+			}),
+		).toEqual({
+			requeue: false,
+			delayMs: 0,
+			jobErrorCode: "max_attempts",
+			jobRetryable: false,
 		});
 	});
 

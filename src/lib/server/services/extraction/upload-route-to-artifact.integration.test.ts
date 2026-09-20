@@ -293,4 +293,108 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 		expect(forPrompt?.id).toBe(job?.normalizedArtifactId);
 		expect(forPrompt?.contentText).toBe("Second read.");
 	});
+
+	// F6. `normalized_artifact_id` used to be ON DELETE SET NULL, which left a
+	// `succeeded` job pointing at nothing: the partial UNIQUE index made a fresh
+	// enqueue reuse that row, and retry is legal only from failed/canceled, so
+	// the document could never be read again. The result and the record of
+	// producing it now go together.
+	it("deletes the job with its result artifact so the document can be re-extracted", async () => {
+		const bytes = new Uint8Array([
+			0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a,
+		]);
+		const response = await postUpload(
+			new File([bytes], "lost-result.pdf", { type: "application/pdf" }),
+		);
+		const payload = (await response.json()) as {
+			artifact: { id: string };
+			extraction: { id: string };
+		};
+
+		const worker = await import("./worker-runner");
+		await worker.executeNextExtractionJob({
+			workerId: "worker-before-delete",
+			resolveExtractor: () =>
+				createFakeExtractor({
+					steps: [{ kind: "succeed", text: "First read." }],
+				}),
+		});
+
+		const first = normalizedArtifactsFor(payload.artifact.id);
+		expect(first).toHaveLength(1);
+		const normalizedId = first[0]?.artifact.id as string;
+
+		const attemptsBefore = fixture.db
+			.select()
+			.from(schema.documentExtractionJobAttempts)
+			.where(
+				eq(schema.documentExtractionJobAttempts.jobId, payload.extraction.id),
+			)
+			.all();
+		expect(attemptsBefore.length).toBeGreaterThan(0);
+
+		const { hardDeleteArtifactsForUser } = await import(
+			"$lib/server/services/knowledge/store/cleanup"
+		);
+		await hardDeleteArtifactsForUser(USER_ID, [normalizedId]);
+
+		// The job row went with it, and so did its attempts.
+		expect(
+			fixture.db
+				.select()
+				.from(schema.documentExtractionJobs)
+				.where(eq(schema.documentExtractionJobs.id, payload.extraction.id))
+				.all(),
+		).toHaveLength(0);
+		expect(
+			fixture.db
+				.select()
+				.from(schema.documentExtractionJobAttempts)
+				.where(
+					eq(schema.documentExtractionJobAttempts.jobId, payload.extraction.id),
+				)
+				.all(),
+		).toHaveLength(0);
+
+		// Past the legacy grace window, so the read model calls the job-less
+		// source failed rather than "probably still enqueueing".
+		fixture.db
+			.update(schema.artifacts)
+			.set({ createdAt: new Date(Date.now() - 60 * 60 * 1000) })
+			.where(eq(schema.artifacts.id, payload.artifact.id))
+			.run();
+
+		// The source survives, so the read model answers with a synthesised
+		// legacy failure the Retry button can act on.
+		const { getExtractionJobForArtifact } = await import("./read-model");
+		const legacy = await getExtractionJobForArtifact({
+			userId: USER_ID,
+			artifactId: payload.artifact.id,
+		});
+		expect(legacy?.legacy).toBe(true);
+		expect(legacy?.status).toBe("failed");
+		expect(legacy?.retryable).toBe(true);
+		expect(legacy?.error?.code).toBe("legacy_unknown");
+
+		const { POST: retry } = await import(
+			"../../../../routes/api/knowledge/extraction/[artifactId]/retry/+server"
+		);
+		const retryResponse = (await retry({
+			locals: { user: { id: USER_ID } },
+			params: { artifactId: payload.artifact.id },
+		} as never)) as Response;
+		expect(retryResponse.status).toBe(200);
+
+		await worker.executeNextExtractionJob({
+			workerId: "worker-after-delete",
+			resolveExtractor: () =>
+				createFakeExtractor({
+					steps: [{ kind: "succeed", text: "Second read." }],
+				}),
+		});
+
+		const after = normalizedArtifactsFor(payload.artifact.id);
+		expect(after).toHaveLength(1);
+		expect(after[0]?.artifact.contentText).toBe("Second read.");
+	});
 });
