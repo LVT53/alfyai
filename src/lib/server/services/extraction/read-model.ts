@@ -31,6 +31,7 @@ import {
 	legacyExtractionJobId,
 } from "$lib/shared/extraction-status";
 import { getExtractionConfig } from "./config";
+import { extractionAttemptCeiling } from "./retry-policy";
 import type { DocumentExtractionJobRow } from "./types";
 
 /**
@@ -69,8 +70,13 @@ export function mapExtractionJobRow(
 		// had no way back except deleting the document and uploading it again.
 		// A `failed` job still has to say so on the row — plenty of failures
 		// (`empty_result`, `too_large`) cannot be helped by trying once more.
+		//
+		// The ceiling overrides both. `retryExtractionJob` refuses past it, so
+		// offering the button there would be a promise the ledger will not keep.
 		retryable:
-			status === "canceled" || (status === "failed" && Boolean(row.retryable)),
+			row.attemptCount < extractionAttemptCeiling(maxAttempts) &&
+			(status === "canceled" ||
+				(status === "failed" && Boolean(row.retryable))),
 		cancelable: !terminal && row.cancelRequestedAt === null,
 		error: code ? { code, message: row.errorMessage ?? "" } : null,
 		createdAt: row.createdAt.getTime(),

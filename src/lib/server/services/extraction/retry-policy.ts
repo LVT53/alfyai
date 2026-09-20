@@ -4,6 +4,26 @@
 import type { ExtractionErrorCode } from "$lib/shared/extraction-status";
 import { RETRYABLE_EXTRACTION_ERROR_CODES } from "$lib/shared/extraction-status";
 
+/**
+ * How many attempts a user may add to a job by pressing Retry, in total, ever.
+ *
+ * Each Retry grants exactly one more attempt by design — that is what makes
+ * the button useful the moment the automatic budget runs out. With no ceiling
+ * on top of it, one user holding one broken document can generate unbounded
+ * backend work simply by pressing Retry, which is a denial-of-service with a
+ * mouse. Five is generous for a transient outage and finite for a loop.
+ */
+export const EXTRACTION_USER_RETRY_GRANTS = 5;
+
+/**
+ * The hard ceiling on TOTAL attempts for one job: the automatic budget plus
+ * every retry a user may ever be granted. Enforced in the ledger, not just at
+ * the endpoint, so no future caller can route around it.
+ */
+export function extractionAttemptCeiling(maxAttempts: number): number {
+	return Math.max(1, Math.floor(maxAttempts)) + EXTRACTION_USER_RETRY_GRANTS;
+}
+
 /** Jitter band. A fixed backoff would sync every requeued job onto one tick. */
 export const EXTRACTION_BACKOFF_JITTER_MIN = 0.8;
 export const EXTRACTION_BACKOFF_JITTER_MAX = 1.2;
@@ -77,6 +97,17 @@ export function decideExtractionRetry(
 	const retryable =
 		input.retryable ?? RETRYABLE_EXTRACTION_ERROR_CODES.has(input.code);
 	const attemptsLeft = input.attemptCount < input.maxAttempts;
+
+	// The ceiling is checked before anything else: past it the job is done,
+	// whatever the code says and however many times the user presses Retry.
+	if (input.attemptCount >= extractionAttemptCeiling(input.maxAttempts)) {
+		return {
+			requeue: false,
+			delayMs: 0,
+			jobErrorCode: "max_attempts",
+			jobRetryable: false,
+		};
+	}
 
 	if (retryable && attemptsLeft) {
 		const delayMs =

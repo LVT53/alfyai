@@ -34,12 +34,16 @@ import {
 	isTerminalExtractionStatus,
 } from "$lib/shared/extraction-status";
 import { getIntakeRoute } from "$lib/shared/file-types";
+import { getExtractionConfig } from "./config";
 import {
 	type ExtractionHandle,
 	parseExtractionHandle,
 	serializeExtractionHandle,
 } from "./contracts";
-import { decideExtractionRetry } from "./retry-policy";
+import {
+	decideExtractionRetry,
+	extractionAttemptCeiling,
+} from "./retry-policy";
 import { canReportExtractionPhase } from "./state-machine";
 import type {
 	DocumentExtractionAttemptRow,
@@ -857,6 +861,11 @@ export interface RetryExtractionJobInput {
 	jobId: string;
 	/** Replaces the stored hints for the next attempt when supplied. */
 	hints?: Readonly<Record<string, unknown>> | null;
+	/**
+	 * The automatic attempt budget. The hard ceiling on total attempts is
+	 * derived from it; omitted, the live config value is used.
+	 */
+	maxAttempts?: number;
 	now?: Date;
 }
 
@@ -868,11 +877,18 @@ export interface RetryExtractionJobInput {
  * reset does is clear the error state and the backoff gate, so the claim picks
  * the job up immediately and `failExtractionAttempt` grants it exactly one more
  * attempt before capping again.
+ *
+ * Bounded by `extractionAttemptCeiling`. Without it, "one more attempt per
+ * press" has no end: one user with one broken document could keep a backend
+ * seat busy for as long as they were willing to click.
  */
 export async function retryExtractionJob(
 	input: RetryExtractionJobInput,
 ): Promise<DocumentExtractionJobRow | null> {
 	const now = input.now ?? new Date();
+	const ceiling = extractionAttemptCeiling(
+		input.maxAttempts ?? getExtractionConfig().maxAttempts,
+	);
 	return db.transaction((tx) => {
 		const [job] = tx
 			.select()
@@ -888,6 +904,7 @@ export async function retryExtractionJob(
 
 		if (!job) return null;
 		if (job.status !== "failed" && job.status !== "canceled") return null;
+		if (job.attemptCount >= ceiling) return null;
 
 		const result = tx
 			.update(documentExtractionJobs)

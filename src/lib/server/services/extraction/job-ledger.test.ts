@@ -630,6 +630,71 @@ describe("user actions", () => {
 		).toBeNull();
 	});
 
+	// Each Retry grants one more attempt with no ceiling, so one user holding
+	// one broken document could keep a backend seat busy for as long as they
+	// were willing to click. The ledger, not the endpoint, has to say no.
+	it("refuses a retry past the total-attempt ceiling", async () => {
+		const { extractionAttemptCeiling } = await import("./retry-policy");
+		const ceiling = extractionAttemptCeiling(RETRY.maxAttempts);
+		const job = await enqueue();
+
+		// Burn every attempt the automatic budget and the retry grants allow,
+		// pressing Retry each time the job goes terminal.
+		for (let round = 0; round < ceiling + 3; round += 1) {
+			const current = await ledger.getExtractionJobRow(job.id);
+			if (current?.status === "failed") {
+				const retried = await ledger.retryExtractionJob({
+					userId,
+					jobId: job.id,
+					maxAttempts: RETRY.maxAttempts,
+				});
+				if (!retried) break;
+			}
+			fixture.sqlite
+				.prepare("UPDATE document_extraction_jobs SET next_attempt_at = NULL")
+				.run();
+			const claimed = await ledger.claimNextExtractionJob({
+				workerId: WORKER,
+				globalLimit: 5,
+				perUserLimit: 5,
+			});
+			if (!claimed) break;
+			await ledger.failExtractionAttempt({
+				jobId: claimed.job.id,
+				attemptId: claimed.attempt.id,
+				workerId: WORKER,
+				errorCode: "unavailable",
+				errorMessage: "down",
+				retryable: true,
+				clearHandle: false,
+				...RETRY,
+			});
+		}
+
+		const row = await ledger.getExtractionJobRow(job.id);
+		expect(row?.attemptCount).toBe(ceiling);
+		expect(row?.status).toBe("failed");
+		expect(row?.errorCode).toBe("max_attempts");
+		// The row itself stops advertising a retry, so the DTO and the UI stop
+		// offering the button…
+		expect(row?.retryable).toBe(false);
+		// …and pressing it anyway changes nothing.
+		expect(
+			await ledger.retryExtractionJob({
+				userId,
+				jobId: job.id,
+				maxAttempts: RETRY.maxAttempts,
+			}),
+		).toBeNull();
+		expect(
+			await ledger.claimNextExtractionJob({
+				workerId: WORKER,
+				globalLimit: 5,
+				perUserLimit: 5,
+			}),
+		).toBeNull();
+	});
+
 	it("updates the stored hints when a retry supplies new ones", async () => {
 		await enqueue({ hints: { tier: "basic" } });
 		const claimed = await claim();
