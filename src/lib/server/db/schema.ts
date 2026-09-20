@@ -1643,9 +1643,17 @@ export const documentExtractionJobs = sqliteTable(
 			() => chatGeneratedFiles.id,
 			{ onDelete: "cascade" },
 		),
+		// CASCADE, not SET NULL: a `succeeded` job whose result artifact was
+		// deleted ("Forget all results", or any delete of a normalized_document)
+		// would otherwise be a job pointing at nothing that can never be
+		// re-enqueued (the partial UNIQUE index makes a fresh enqueue reuse it)
+		// and never retried (retry is legal only from failed/canceled). The
+		// result and the record of producing it are deleted together, which lets
+		// the read model fall back to a synthesised legacy status and lets Retry
+		// re-extract the source.
 		normalizedArtifactId: text("normalized_artifact_id").references(
 			() => artifacts.id,
-			{ onDelete: "set null" },
+			{ onDelete: "cascade" },
 		),
 		/** "upload" | "generated_file_readback" */
 		origin: text("origin").notNull().default("upload"),

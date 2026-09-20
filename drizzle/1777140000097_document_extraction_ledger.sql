@@ -29,11 +29,11 @@ CREATE TABLE `document_extraction_jobs` (
 	FOREIGN KEY (`conversation_id`) REFERENCES `conversations`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`source_artifact_id`) REFERENCES `artifacts`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`chat_generated_file_id`) REFERENCES `chat_generated_files`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`normalized_artifact_id`) REFERENCES `artifacts`(`id`) ON UPDATE no action ON DELETE set null
+	FOREIGN KEY (`normalized_artifact_id`) REFERENCES `artifacts`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `document_extraction_jobs_source_artifact_unique_idx` ON `document_extraction_jobs` (`source_artifact_id`) WHERE `source_artifact_id` IS NOT NULL;--> statement-breakpoint
-CREATE UNIQUE INDEX `document_extraction_jobs_chat_file_unique_idx` ON `document_extraction_jobs` (`chat_generated_file_id`) WHERE `chat_generated_file_id` IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX `document_extraction_jobs_source_artifact_unique_idx` ON `document_extraction_jobs` (`source_artifact_id`) WHERE "document_extraction_jobs"."source_artifact_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX `document_extraction_jobs_chat_file_unique_idx` ON `document_extraction_jobs` (`chat_generated_file_id`) WHERE "document_extraction_jobs"."chat_generated_file_id" IS NOT NULL;--> statement-breakpoint
 CREATE INDEX `document_extraction_jobs_claim_idx` ON `document_extraction_jobs` (`status`,`priority`,`created_at`);--> statement-breakpoint
 CREATE INDEX `document_extraction_jobs_user_status_idx` ON `document_extraction_jobs` (`user_id`,`status`);--> statement-breakpoint
 CREATE INDEX `document_extraction_jobs_conversation_idx` ON `document_extraction_jobs` (`conversation_id`,`created_at`);--> statement-breakpoint
