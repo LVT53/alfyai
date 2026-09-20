@@ -3,14 +3,16 @@ import {
 	renderHighlightedText,
 	renderMarkdown,
 } from "$lib/utils/markdown-loader";
-import type { PreviewRuntimeAdapter } from "../index";
+import type { PreviewRuntimeAdapter, TextPreviewKind } from "../index";
 
 type TextRuntimeAdapter = Extract<PreviewRuntimeAdapter, { kind: "text" }>;
 type HtmlRuntimeAdapter = Extract<PreviewRuntimeAdapter, { kind: "html" }>;
 
 export type TextPreviewRenderResult =
+	// One vocabulary: the renderer answers with the kind the runtime asked for
+	// (`TextPreviewKind`), plus the html case this module handles on its own.
 	| {
-			kind: "csv" | "markdown" | "highlighted";
+			kind: TextPreviewKind;
 			html: string;
 	  }
 	| {

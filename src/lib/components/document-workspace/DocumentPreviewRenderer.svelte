@@ -7,6 +7,8 @@ import { tick } from "svelte";
 import DocumentPreviewToolbar from "./DocumentPreviewToolbar.svelte";
 import { AlertCircle, FileText } from "@lucide/svelte";
 import {
+	isOfficePreviewAdapter,
+	isOfficePreviewKind,
 	loadImagePreviewComponent,
 	loadPdfPreviewComponent,
 	loadPreviewRuntime,
@@ -171,7 +173,7 @@ async function fetchFile(loadToken: number) {
 			return;
 		}
 
-		if (isOfficeAdapter(result.adapter)) {
+		if (isOfficePreviewAdapter(result.adapter)) {
 			const renderedOffice = await renderPreviewOfficeAdapter(result.adapter);
 			if (isStalePreviewLoad(loadToken)) return;
 			if (renderedOffice.status === "error") {
@@ -197,20 +199,6 @@ function isDarkTheme(): boolean {
 	return browser
 		? (document?.documentElement?.classList.contains("dark") ?? false)
 		: false;
-}
-
-function isOfficeAdapter(
-	nextAdapter: PreviewRuntimeAdapter,
-): nextAdapter is Extract<
-	PreviewRuntimeAdapter,
-	{ kind: "docx" | "xlsx" | "pptx" | "odt" }
-> {
-	return (
-		nextAdapter.kind === "docx" ||
-		nextAdapter.kind === "xlsx" ||
-		nextAdapter.kind === "pptx" ||
-		nextAdapter.kind === "odt"
-	);
 }
 
 function htmlPreviewSandbox(preview: TextPreviewRenderResult | null): string {
@@ -336,7 +324,7 @@ function downloadFile() {
 							></iframe>
 						</div>
 					{/if}
-				{:else if fileType === "docx" || fileType === "xlsx" || fileType === "pptx" || fileType === "odt"}
+				{:else if isOfficePreviewKind(fileType)}
 					{#if officePreview}
 						{#if officePreview.kind === "pptx" && totalPages > 0}
 							<DocumentPreviewToolbar

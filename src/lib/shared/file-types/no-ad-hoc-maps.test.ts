@@ -120,31 +120,17 @@ interface TransitionalBudget {
  * a slice that deletes its map simply comes in under budget.
  */
 const TRANSITIONAL_ALLOWLIST = new Map<string, TransitionalBudget>([
-	[
-		"src/lib/utils/file-preview.ts",
-		{
-			ext: 64,
-			mime: 56,
-			slice: "B",
-			what: "TEXT_EXTENSIONS, IMAGE_EXTENSIONS, EXTENSION_CONTENT_TYPES, TRUSTED_PREVIEW_EXTENSIONS, both language maps (spec rows 3-12)",
-		},
-	],
-	[
-		"src/lib/components/chat/attachment-file-type.ts",
-		{
-			ext: 48,
-			mime: 1,
-			slice: "B",
-			what: "the six *_EXTENSIONS arrays (spec rows 13-15)",
-		},
-	],
+	// `src/lib/utils/file-preview.ts` and
+	// `src/lib/components/chat/attachment-file-type.ts` were slice B's largest
+	// rows; both are now re-exports over the registry and carry no table, so
+	// their rows are gone and the guard holds them to the 4/4 threshold.
 	[
 		"src/lib/components/document-workspace/preview-runtime/index.ts",
 		{
-			ext: 9,
-			mime: 4,
+			ext: 6,
+			mime: 0,
 			slice: "B",
-			what: "the inline docx|xlsx|pptx|odt union and getTextPreviewKind (spec rows 39, 72)",
+			what: "the PreviewKind / TextPreviewKind discriminants themselves — the tables are gone (spec rows 39, 72)",
 		},
 	],
 	[
@@ -159,10 +145,10 @@ const TRANSITIONAL_ALLOWLIST = new Map<string, TransitionalBudget>([
 	[
 		"src/lib/components/document-workspace/DocumentPreviewRenderer.svelte",
 		{
-			ext: 9,
+			ext: 6,
 			mime: 0,
 			slice: "B",
-			what: "the office union restated twice (spec row 40)",
+			what: 'the preview-kind branches in the template plus lang="ts" — the office union is gone (spec row 40)',
 		},
 	],
 	[

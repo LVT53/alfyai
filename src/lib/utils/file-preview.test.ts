@@ -63,9 +63,7 @@ describe("file-preview utils", () => {
 		expect(getPreviewContentType("file.xml", null)).toBe("application/xml");
 		expect(getPreviewContentType("file.rtf", null)).toBe("application/rtf");
 		expect(getPreviewContentType("file.css", null)).toBe("text/css");
-		expect(getPreviewContentType("file.js", null)).toBe(
-			"application/javascript",
-		);
+		expect(getPreviewContentType("file.js", null)).toBe("text/javascript");
 		expect(getPreviewContentType("file.sh", null)).toBe("application/x-sh");
 		expect(getPreviewContentType("file.tsx", null)).toBe("text/tsx");
 		expect(getPreviewContentType("file.graphql", null)).toBe(
@@ -74,6 +72,28 @@ describe("file-preview utils", () => {
 		expect(getPreviewContentType("file.py", null)).toBe("text/x-python");
 		expect(getPreviewContentType("file.heic", null)).toBe("image/heic");
 		expect(getPreviewContentType("file.heif", null)).toBe("image/heif");
+	});
+
+	// The two content-type deltas the shared registry deliberately introduces
+	// (spec section 2.3 conflicts 1 and 2). Both are also pinned in
+	// `file-types/legacy-equivalence.test.ts`'s KNOWN_DELTAS; they are repeated
+	// here because this is the module whose OUTPUT changed.
+	it("serves JavaScript as text/javascript, keeping the old value readable", () => {
+		expect(getPreviewContentType("bundle.js", null)).toBe("text/javascript");
+		expect(getPreviewContentType("bundle.mjs", null)).toBe("text/javascript");
+		expect(getPreviewContentType("bundle.cjs", null)).toBe("text/javascript");
+		// `application/javascript` is still an accepted alias on the way in.
+		expect(getPreviewContentType("bundle.js", "application/javascript")).toBe(
+			"application/javascript",
+		);
+		expect(getPreviewLanguage("application/javascript", "x.bin")).toBe(
+			"javascript",
+		);
+	});
+
+	it("knows a .jfif is a JPEG rather than an unknown blob", () => {
+		expect(getPreviewContentType("scan.jfif", null)).toBe("image/jpeg");
+		expect(determinePreviewFileType(null, "scan.jfif")).toBe("image");
 	});
 
 	it("classifies extension-only HTML as a rendered HTML preview", () => {
