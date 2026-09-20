@@ -1,10 +1,18 @@
 <script lang="ts">
 // Every secret in the product, in one place and one idiom. Two of these — the
 // VAPID keys — used to live inside the Atlas card, which they never belonged to.
-import { t } from "$lib/i18n";
+import {
+	ADVANCED_KEY_SPEC_BY_KEY,
+	type AdminConfigKeySpec,
+	fromDisplayNumber,
+	toDisplayNumber,
+} from "$lib/config/admin-config-registry";
+import { t, type I18nKey } from "$lib/i18n";
+import MineruStatusCard from "./MineruStatusCard.svelte";
 import SecretField from "./SecretField.svelte";
 import SettingRow from "./SettingRow.svelte";
 import SystemCard from "./SystemCard.svelte";
+import SystemToggle from "./SystemToggle.svelte";
 import ValueField from "./ValueField.svelte";
 import "./system.css";
 
@@ -36,6 +44,92 @@ let {
 // the case an admin needs it for. (`isDirty` alone hid it there.)
 function canResetKey(key: string): boolean {
 	return isDirty(key) || (adminConfig[key] ?? "") !== (envDefaults[key] ?? "");
+}
+
+// The MinerU rows, in the order an admin reads them: where the service is,
+// what it is allowed to do, then the timings. Each key's control shape comes
+// from its AdminConfigKeySpec, so the page and the Advanced page can never
+// disagree about a bound or an option list; only the wording is local, because
+// these rows have room for a full sentence where the Advanced table does not.
+const MINERU_ROWS: ReadonlyArray<{
+	key: string;
+	label: I18nKey;
+	meaning: I18nKey;
+}> = [
+	{
+		key: "MINERU_API_URL",
+		label: "admin.mineruApiUrl",
+		meaning: "admin.mineruApiDescription",
+	},
+	{
+		key: "MINERU_API_KEY",
+		label: "admin.mineruApiKey",
+		meaning: "admin.mineruApiKeyDescription",
+	},
+	{
+		key: "MINERU_DEFAULT_TIER",
+		label: "admin.mineruDefaultTier",
+		meaning: "admin.mineruDefaultTierDescription",
+	},
+	{
+		key: "MINERU_OCR_MODE",
+		label: "admin.mineruOcrMode",
+		meaning: "admin.mineruOcrModeDescription",
+	},
+	{
+		key: "MINERU_JOB_TIMEOUT_MS",
+		label: "admin.mineruJobTimeoutMs",
+		meaning: "admin.mineruJobTimeoutMsDescription",
+	},
+	{
+		key: "MINERU_REQUEST_TIMEOUT_MS",
+		label: "admin.mineruRequestTimeoutMs",
+		meaning: "admin.mineruRequestTimeoutMsDescription",
+	},
+	{
+		key: "MINERU_TRANSFER_TIMEOUT_MS",
+		label: "admin.mineruTransferTimeoutMs",
+		meaning: "admin.mineruTransferTimeoutMsDescription",
+	},
+	{
+		key: "MINERU_POLL_MIN_MS",
+		label: "admin.mineruPollMinMs",
+		meaning: "admin.mineruPollMinMsDescription",
+	},
+	{
+		key: "MINERU_POLL_MAX_MS",
+		label: "admin.mineruPollMaxMs",
+		meaning: "admin.mineruPollMaxMsDescription",
+	},
+	{
+		key: "MINERU_CAPABILITIES_TTL_MS",
+		label: "admin.mineruCapabilitiesTtlMs",
+		meaning: "admin.mineruCapabilitiesTtlMsDescription",
+	},
+	{
+		key: "MINERU_BUNDLE_MAX_BYTES",
+		label: "admin.mineruBundleMaxBytes",
+		meaning: "admin.mineruBundleMaxBytesDescription",
+	},
+	{
+		key: "MINERU_STRUCTURE_CHUNKING_ENABLED",
+		label: "admin.mineruStructureChunking",
+		meaning: "admin.mineruStructureChunkingDescription",
+	},
+];
+
+// Every MinerU key has a spec (that is the point of dual-registering them), so
+// the fallback here is a type narrowing, never a real case.
+function specFor(key: string): AdminConfigKeySpec {
+	const spec = ADVANCED_KEY_SPEC_BY_KEY.get(key);
+	if (!spec) throw new Error(`no admin config spec for ${key}`);
+	return spec;
+}
+
+function unitKeyFor(spec: AdminConfigKeySpec): I18nKey | null {
+	return spec.control.kind === "int" && spec.control.unit
+		? (`admin.system.unit.${spec.control.unit}` as I18nKey)
+		: null;
 }
 </script>
 
@@ -91,51 +185,74 @@ function canResetKey(key: string): boolean {
 
 	<hr class="sys-hr" />
 	<span class="sys-eyebrow">{$t('admin.system.integrations.documentExtraction')}</span>
+	<MineruStatusCard />
 	<div class="sys-rows">
-		<SettingRow
-			label={$t('admin.mineruApiUrl')}
-			meaning={$t('admin.mineruApiDescription')}
-			configKey="MINERU_API_URL"
-			controlId="MINERU_API_URL"
-			dirty={isDirty('MINERU_API_URL')}
-			highlighted={highlightKey === 'MINERU_API_URL'}
-			onReset={() => resetValue('MINERU_API_URL')}
-			canReset={canResetKey('MINERU_API_URL')}
-		>
-			{#snippet control()}
-				<ValueField
-					id="MINERU_API_URL"
-					mono
-					value={adminConfig.MINERU_API_URL ?? ''}
-					placeholder={envDefaults.MINERU_API_URL ?? ''}
-					onchange={(next) => setValue('MINERU_API_URL', next)}
-				/>
-			{/snippet}
-		</SettingRow>
-
-		<SettingRow
-			label={$t('admin.mineruTimeoutMs')}
-			meaning={$t('admin.mineruTimeoutDescription')}
-			configKey="MINERU_TIMEOUT_MS"
-			controlId="MINERU_TIMEOUT_MS"
-			dirty={isDirty('MINERU_TIMEOUT_MS')}
-			highlighted={highlightKey === 'MINERU_TIMEOUT_MS'}
-			onReset={() => resetValue('MINERU_TIMEOUT_MS')}
-			canReset={canResetKey('MINERU_TIMEOUT_MS')}
-		>
-			{#snippet control()}
-				<ValueField
-					id="MINERU_TIMEOUT_MS"
-					type="number"
-					size="sm"
-					min={10000}
-					unit={$t('admin.system.unit.ms')}
-					value={adminConfig.MINERU_TIMEOUT_MS ?? ''}
-					placeholder={envDefaults.MINERU_TIMEOUT_MS ?? ''}
-					onchange={(next) => setValue('MINERU_TIMEOUT_MS', next)}
-				/>
-			{/snippet}
-		</SettingRow>
+		{#each MINERU_ROWS as row (row.key)}
+			{@const spec = specFor(row.key)}
+			{@const unitKey = unitKeyFor(spec)}
+			<SettingRow
+				label={$t(row.label)}
+				meaning={$t(row.meaning)}
+				configKey={row.key}
+				controlId={spec.control.kind === 'bool' || spec.control.kind === 'secret'
+					? undefined
+					: row.key}
+				dirty={isDirty(row.key)}
+				highlighted={highlightKey === row.key}
+				onReset={() => resetValue(row.key)}
+				canReset={canResetKey(row.key)}
+			>
+				{#snippet control()}
+					{#if spec.control.kind === 'secret'}
+						<SecretField
+							inputId={row.key}
+							label={$t(row.label)}
+							value={adminConfig[row.key] ?? ''}
+							lastChanged={secretChangedAt[row.key] ?? ''}
+							onchange={(next) => setValue(row.key, next)}
+							onCancelReplace={() => revertValue(row.key)}
+						/>
+					{:else if spec.control.kind === 'bool'}
+						<SystemToggle
+							id={row.key}
+							label={$t(row.label)}
+							checked={(adminConfig[row.key] ?? envDefaults[row.key]) !== 'false'}
+							onchange={(next) => setValue(row.key, next ? 'true' : 'false')}
+						/>
+					{:else if spec.control.kind === 'select'}
+						<select
+							id={row.key}
+							class="sys-input sys-input-md"
+							aria-label={$t(row.label)}
+							value={adminConfig[row.key] ?? envDefaults[row.key] ?? ''}
+							onchange={(event) => setValue(row.key, event.currentTarget.value)}
+						>
+							{#each spec.control.options as option (option)}
+								<option value={option}>{option}</option>
+							{/each}
+						</select>
+					{:else if spec.control.kind === 'int'}
+						<ValueField
+							id={row.key}
+							type="number"
+							size="sm"
+							unit={unitKey ? $t(unitKey) : ''}
+							value={toDisplayNumber(spec, adminConfig[row.key] ?? '')}
+							placeholder={toDisplayNumber(spec, envDefaults[row.key] ?? '')}
+							onchange={(next) => setValue(row.key, fromDisplayNumber(spec, next))}
+						/>
+					{:else}
+						<ValueField
+							id={row.key}
+							mono={spec.control.kind === 'url'}
+							value={adminConfig[row.key] ?? ''}
+							placeholder={envDefaults[row.key] ?? ''}
+							onchange={(next) => setValue(row.key, next)}
+						/>
+					{/if}
+				{/snippet}
+			</SettingRow>
+		{/each}
 	</div>
 
 	<hr class="sys-hr" />

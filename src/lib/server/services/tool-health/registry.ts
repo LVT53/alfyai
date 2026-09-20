@@ -386,6 +386,24 @@ export const TOOL_HEALTH_REGISTRY: readonly ToolHealthEntry[] = [
 		probe: probeDocker,
 		probeKey: DOCKER_PROBE_KEY,
 	},
+	// Not a chat tool — document extraction is an upload-path backend — but it
+	// is the one remaining server-side dependency that could be down without
+	// the Diagnostics page saying so. `/v1/health` stays public even when
+	// MinerU runs under `--api-key`, so the probe needs no credential and
+	// cannot leak one.
+	{
+		id: "document_extraction",
+		name: "document_extraction",
+		backend: "MinerU",
+		configured: (config) => hasValue(config.mineruApiUrl),
+		probe: (ctx) =>
+			httpProbe(
+				ctx,
+				`${trimBase(ctx.config.mineruApiUrl)}/v1/health`,
+				{},
+				expectOk,
+			),
+	},
 	{
 		id: "location",
 		name: "location",

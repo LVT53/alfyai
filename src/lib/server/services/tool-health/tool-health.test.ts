@@ -27,6 +27,8 @@ function fullConfig(
 		owntracksRecorderUrl: "http://owntracks:8083",
 		owntracksRecorderUser: "alfy",
 		owntracksRecorderPass: "secret",
+		mineruApiUrl: "http://mineru:8001",
+		mineruApiKey: "",
 		...overrides,
 	};
 }
@@ -42,6 +44,7 @@ function emptyConfig(): ToolHealthConfig {
 		routingGtfsFeeds: "",
 		routingOnDemandEnabled: false,
 		owntracksRecorderUrl: "",
+		mineruApiUrl: "",
 	});
 }
 

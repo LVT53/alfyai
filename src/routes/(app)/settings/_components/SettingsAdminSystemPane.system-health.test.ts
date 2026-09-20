@@ -26,6 +26,7 @@ vi.mock("$lib/client/api/campaign-assets", () => ({
 vi.mock("$lib/client/api/admin-system-health", () => ({
 	fetchAdminConfigOverrideMeta: vi.fn(() => Promise.resolve({})),
 	fetchAdminEffectiveConfig: vi.fn(),
+	fetchAdminMineruStatus: vi.fn(() => new Promise(() => {})),
 	fetchAdminToolHealth: vi.fn(),
 	validateProviderConnection: vi.fn(() => Promise.resolve({ valid: true })),
 }));
