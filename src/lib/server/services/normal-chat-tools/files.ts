@@ -28,6 +28,7 @@ import {
 	type WritePreview,
 } from "$lib/server/services/connections/write-guard";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import { getEntryByMimeType } from "$lib/shared/file-types";
 
 import { applyLocalDistillGate } from "./connector-distill";
 import { noMatchingConnectionMessage, truncateText } from "./shared";
@@ -128,19 +129,14 @@ const MAX_SEARCH_RESULTS = 20;
 // budget the way research_web's per-source char budgets do.
 const MAX_INLINE_TEXT_CHARS = 100_000;
 
-const TEXT_LIKE_MIME_TYPES = new Set([
-	"application/json",
-	"application/xml",
-	"application/javascript",
-	"application/x-yaml",
-	"application/yaml",
-]);
-
+// The old TEXT_LIKE_MIME_TYPES set (json, xml, javascript, x-yaml, yaml) is
+// exactly the set of non-"text/" MIMEs the registry marks text-like, so the
+// members survive without a local table (spec row 56).
 function isTextLike(contentType: string | null): boolean {
 	if (!contentType) return false;
 	const type = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
 	if (type.startsWith("text/")) return true;
-	return TEXT_LIKE_MIME_TYPES.has(type);
+	return getEntryByMimeType(type)?.textLike === true;
 }
 
 function fileLabel(path: string): string {

@@ -170,79 +170,21 @@ const TRANSITIONAL_ALLOWLIST = new Map<string, TransitionalBudget>([
 		},
 	],
 	[
-		"src/lib/server/services/file-production/output-types.ts",
-		{
-			ext: 48,
-			mime: 41,
-			slice: "D",
-			what: "OUTPUT_TYPE_EXTENSIONS (spec rows 26-27)",
-		},
-	],
-	[
-		"src/lib/server/services/file-production/output-validation.ts",
-		{
-			ext: 52,
-			mime: 47,
-			slice: "D",
-			what: "EXTENSION_MIME_TYPES, TEXT_LIKE_EXTENSIONS, XLSX_MIME_TYPE (spec rows 30-33)",
-		},
-	],
-	[
 		"src/lib/server/services/file-production/execution-adapter.ts",
 		{
-			ext: 5,
-			mime: 4,
+			ext: 4,
+			mime: 0,
 			slice: "D",
-			what: "normalizeDocumentOutput (spec row 34)",
-		},
-	],
-	[
-		"src/lib/server/services/sandbox-execution.ts",
-		{ ext: 57, mime: 43, slice: "D", what: "MIME_TYPES (spec row 35)" },
-	],
-	[
-		"src/lib/server/services/generated-file-serving.ts",
-		{
-			ext: 46,
-			mime: 1,
-			slice: "D",
-			what: "FULL_VALIDATION_EXTENSIONS (spec row 36); :206 resolvePreviewProfile is frozen (spec row 59)",
-		},
-	],
-	[
-		"src/lib/server/services/document-extraction.ts",
-		{
-			ext: 34,
-			mime: 30,
-			slice: "D",
-			what: "mimeFromExtension, isDirectTextExtractionFile (spec rows 1-2)",
+			what: "normalizeDocumentOutput is gone (spec row 34); what is left is the four render-kind branches in renderDocumentOutputs",
 		},
 	],
 	[
 		"src/lib/server/services/normal-chat-tools/produce-file.ts",
 		{
-			ext: 16,
-			mime: 5,
+			ext: 7,
+			mime: 1,
 			slice: "D",
-			what: "the duplicate OUTPUT_TYPE_EXTENSIONS and shouldUseDocumentSourceForOutputs (spec rows 28-29)",
-		},
-	],
-	[
-		"src/lib/server/services/normal-chat-tools/read-generated-file.ts",
-		{
-			ext: 0,
-			mime: 5,
-			slice: "D",
-			what: "the inline isTextBased MIME test (spec row 37)",
-		},
-	],
-	[
-		"src/lib/server/services/normal-chat-tools/files.ts",
-		{
-			ext: 0,
-			mime: 5,
-			slice: "D",
-			what: "TEXT_LIKE_MIME_TYPES / isTextLike (spec row 56)",
+			what: "both maps are gone (spec rows 28-29); what is left is the default-type ladder in normalizeRequestedOutputs",
 		},
 	],
 ]);

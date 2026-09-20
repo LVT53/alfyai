@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, extname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
@@ -17,6 +17,7 @@ import {
 } from "$lib/server/db/schema";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import type { MessageRole } from "$lib/server/services/messages-types";
+import { fileExtension } from "$lib/shared/file-types";
 import type { Conversation } from "./conversations";
 import { reconcileStaleFileProductionJobs } from "./file-production";
 import type {
@@ -436,9 +437,12 @@ function getChatFilesDir(): string {
 	return join(process.cwd(), "data", "chat-files");
 }
 
+// Storage-path extension. The parser is the shared registry one (spec row
+// 54); it agrees with the old extname-based copy on every ordinary name and
+// differs only for a dotfile: ".env" used to fall back to "bin" and now
+// stores as "env".
 function getFileExtension(filename: string): string {
-	const ext = extname(filename).toLowerCase();
-	return ext ? ext.slice(1) : "bin";
+	return fileExtension(filename) || "bin";
 }
 
 function isConversationLevelLinkVisibleAtFork(

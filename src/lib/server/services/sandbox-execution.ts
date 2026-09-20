@@ -2,6 +2,7 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import type { Container } from "dockerode";
 import tar from "tar-stream";
+import { getSandboxMimeTypeForExtension } from "$lib/shared/file-types/production";
 import {
 	createSandbox,
 	executeSandboxCommand,
@@ -26,71 +27,6 @@ export interface ExecutionResult {
 	exitCode?: number;
 	error?: string;
 }
-
-const MIME_TYPES: Record<string, string> = {
-	".pdf": "application/pdf",
-	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-	".xls": "application/vnd.ms-excel",
-	".pptx":
-		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
-	".docx":
-		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-	".odt": "application/vnd.oasis.opendocument.text",
-	".png": "image/png",
-	".jpg": "image/jpeg",
-	".jpeg": "image/jpeg",
-	".js": "text/javascript",
-	".mjs": "text/javascript",
-	".cjs": "text/javascript",
-	".jsx": "text/jsx",
-	".py": "text/x-python",
-	".ts": "application/typescript",
-	".tsx": "text/tsx",
-	".css": "text/css",
-	".scss": "text/x-scss",
-	".sass": "text/x-sass",
-	".less": "text/x-less",
-	".csv": "text/csv",
-	".json": "application/json",
-	".zip": "application/zip",
-	".txt": "text/plain",
-	".md": "text/markdown",
-	".markdown": "text/markdown",
-	".xml": "application/xml",
-	".rtf": "application/rtf",
-	".svg": "image/svg+xml",
-	".html": "text/html",
-	".htm": "text/html",
-	".yaml": "application/yaml",
-	".yml": "application/yaml",
-	".sh": "application/x-sh",
-	".bash": "application/x-sh",
-	".zsh": "application/x-sh",
-	".sql": "application/sql",
-	".graphql": "application/graphql",
-	".gql": "application/graphql",
-	".toml": "application/toml",
-	".ini": "text/plain",
-	".env": "text/plain",
-	".conf": "text/plain",
-	".log": "text/plain",
-	".rb": "text/x-ruby",
-	".rs": "text/rust",
-	".go": "text/x-go",
-	".java": "text/x-java-source",
-	".kt": "text/x-kotlin",
-	".kts": "text/x-kotlin",
-	".swift": "text/x-swift",
-	".cs": "text/x-csharp",
-	".cpp": "text/x-c++src",
-	".cxx": "text/x-c++src",
-	".cc": "text/x-c++src",
-	".c": "text/x-csrc",
-	".h": "text/x-csrc",
-	".hpp": "text/x-c++src",
-	".php": "application/x-httpd-php",
-	".r": "text/x-r-source",
-};
 
 const OUTPUT_DIR = "/output";
 const MAX_ERROR_DETAIL_CHARS = 1600;
@@ -368,9 +304,12 @@ print(json.dumps({"files": files}))
 	return ["python3", "-c", readbackScript];
 }
 
+// The extension -> MIME table moved to the shared registry (Phase 1). The
+// registry answers for a few extensions the old local map omitted (gif, webp
+// and doc), where the sandbox previously fell back to the generic type.
 function getMimeType(filename: string): string {
 	const ext = path.extname(filename).toLowerCase();
-	return MIME_TYPES[ext] || "application/octet-stream";
+	return getSandboxMimeTypeForExtension(ext) || "application/octet-stream";
 }
 
 function compactErrorDetail(value: string): string | null {

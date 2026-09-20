@@ -7,7 +7,7 @@ import {
 	unlink,
 	writeFile,
 } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
@@ -26,6 +26,7 @@ import type { Artifact } from "$lib/server/services/knowledge/types";
 import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { previewText } from "$lib/server/utils/text";
+import { fileExtension } from "$lib/shared/file-types";
 import { extractDocumentText } from "./document-extraction";
 
 const chatGeneratedFileSelection = {
@@ -367,9 +368,12 @@ function getConversationDir(conversationId: string): string {
 	return join(getChatFilesDir(), conversationId);
 }
 
+// Storage-path extension. The parser is the shared registry one (spec row
+// 54); it agrees with the old extname-based copy on every ordinary name and
+// differs only for a dotfile: ".env" used to fall back to "bin" and now
+// stores as "env".
 function getFileExtension(filename: string): string {
-	const ext = extname(filename).toLowerCase();
-	return ext ? ext.slice(1) : "bin";
+	return fileExtension(filename) || "bin";
 }
 
 /**

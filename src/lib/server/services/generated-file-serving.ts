@@ -17,6 +17,7 @@ import {
 	type FileServingPreviewProfile,
 	parseFileServingRange,
 } from "$lib/server/services/file-serving-response-policy";
+import { requiresFullContentValidation } from "$lib/shared/file-types/production";
 import { getPreviewContentType } from "$lib/utils/file-preview";
 
 export type GeneratedFileServingMode = "preview" | "download";
@@ -39,61 +40,6 @@ export type GeneratedFileServingResult =
 	| GeneratedFileServingError;
 
 const CHAT_FILES_DIR = join(process.cwd(), "data", "chat-files");
-// These generated-file types need full-content validation before serving. Range
-// requests for them fall back to a full read, then the response policy copies the
-// selected byte window so the full backing buffer is not retained by the response.
-const FULL_VALIDATION_EXTENSIONS = new Set([
-	".txt",
-	".md",
-	".markdown",
-	".csv",
-	".html",
-	".htm",
-	".css",
-	".scss",
-	".sass",
-	".less",
-	".js",
-	".mjs",
-	".cjs",
-	".jsx",
-	".ts",
-	".tsx",
-	".py",
-	".sh",
-	".bash",
-	".zsh",
-	".json",
-	".xml",
-	".yaml",
-	".yml",
-	".toml",
-	".sql",
-	".graphql",
-	".gql",
-	".ini",
-	".env",
-	".conf",
-	".log",
-	".rb",
-	".rs",
-	".go",
-	".java",
-	".kt",
-	".kts",
-	".swift",
-	".cs",
-	".cpp",
-	".cxx",
-	".cc",
-	".c",
-	".h",
-	".hpp",
-	".php",
-	".r",
-	".xlsx",
-]);
-
 export async function resolveGeneratedFileServing(params: {
 	userId: string;
 	fileId: string;
@@ -279,8 +225,13 @@ async function resolveGeneratedFilePartialRange(params: {
 	}
 }
 
+// These generated-file types need full-content validation before serving. Range
+// requests for them fall back to a full read, then the response policy copies the
+// selected byte window so the full backing buffer is not retained by the response.
+// The set is the registry's text-like extensions plus .xlsx, which is exactly
+// what the local FULL_VALIDATION_EXTENSIONS listed (spec conflict 4).
 function requiresFullGeneratedFileValidation(filename: string): boolean {
-	return FULL_VALIDATION_EXTENSIONS.has(extname(filename).toLowerCase());
+	return requiresFullContentValidation(extname(filename).toLowerCase());
 }
 
 function isSafeChatFileStoragePath(storagePath: string): boolean {
