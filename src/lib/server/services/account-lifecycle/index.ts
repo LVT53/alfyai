@@ -8,11 +8,14 @@ import {
 	announcementCampaigns,
 	artifacts,
 	campaignAssets,
+	documentExtractionJobAttempts,
+	documentExtractionJobs,
 	fileProductionJobAttempts,
 	fileProductionJobs,
 	userSkillDefinitions,
 	users,
 } from "$lib/server/db/schema";
+import { DOCUMENT_EXTRACTION_ACTIVE_STATUSES } from "$lib/shared/extraction-status";
 import { cancelActiveAtlasJobsForUser, deleteAtlasJobsForUser } from "../atlas";
 import { deleteAllChatFilesForUser } from "../chat-files";
 import { requestActiveChatStreamsStopForUser } from "../chat-turn/active-streams";
@@ -33,6 +36,16 @@ export const DETACHED_SHARED_CONTENT_OWNER_ID = "detached-shared-content-owner";
 export const DETACHED_SHARED_CONTENT_OWNER_EMAIL =
 	"detached-shared-content-owner@alfyai.local";
 const ACTIVE_FILE_PRODUCTION_STATUSES = ["queued", "running"] as const;
+/**
+ * Everything an extraction worker could still be holding or about to claim.
+ * `queued` is included for the same reason it is on the file-production list:
+ * a job the worker has not picked up yet would otherwise be claimed moments
+ * after the quiesce and write an artifact into an account being erased.
+ */
+const ACTIVE_DOCUMENT_EXTRACTION_STATUSES = [
+	"queued",
+	...DOCUMENT_EXTRACTION_ACTIVE_STATUSES,
+] as const;
 
 /**
  * ONE owner for the account lifecycle. Every destructive account operation —
@@ -255,7 +268,82 @@ export async function quiesceUserWorkspace(userId: string): Promise<void> {
 	requestActiveChatStreamsStopForUser(userId);
 	await cancelActiveAtlasJobsForUser(userId);
 	await cancelActiveFileProductionForUser(userId);
+	await cancelActiveDocumentExtractionForUser(userId);
 	await quiesceUserMemoryMaintenance(userId);
+}
+
+/**
+ * The extraction ledger's half of the quiesce, following
+ * `cancelActiveFileProductionForUser` exactly.
+ *
+ * The row goes terminal here and `cancel_requested_at` is stamped; the worker
+ * finds out on its next heartbeat (which stops matching a `running` attempt) or
+ * its next `isCancelRequested` poll, aborts its signal and writes nothing more.
+ * Without this an in-flight extraction kept writing a normalized artifact and
+ * its chunk rows into an account whose erasure had already started — rows born
+ * after the user asked to be forgotten.
+ */
+async function cancelActiveDocumentExtractionForUser(
+	userId: string,
+): Promise<void> {
+	const now = new Date();
+	const activeJobs = await db
+		.select({
+			id: documentExtractionJobs.id,
+			currentAttemptId: documentExtractionJobs.currentAttemptId,
+		})
+		.from(documentExtractionJobs)
+		.where(
+			and(
+				eq(documentExtractionJobs.userId, userId),
+				inArray(
+					documentExtractionJobs.status,
+					ACTIVE_DOCUMENT_EXTRACTION_STATUSES,
+				),
+			),
+		);
+	if (activeJobs.length === 0) return;
+
+	const activeAttemptIds = activeJobs
+		.map((job) => job.currentAttemptId)
+		.filter((id): id is string => Boolean(id));
+
+	db.transaction((tx) => {
+		if (activeAttemptIds.length > 0) {
+			tx.update(documentExtractionJobAttempts)
+				.set({
+					status: "canceled",
+					finishedAt: now,
+					errorCode: "canceled",
+					errorMessage: "Canceled by the user.",
+					retryable: false,
+					updatedAt: now,
+				})
+				.where(inArray(documentExtractionJobAttempts.id, activeAttemptIds))
+				.run();
+		}
+
+		tx.update(documentExtractionJobs)
+			.set({
+				status: "canceled",
+				currentAttemptId: null,
+				retryable: false,
+				nextAttemptAt: null,
+				completedAt: now,
+				cancelRequestedAt: now,
+				updatedAt: now,
+			})
+			.where(
+				and(
+					eq(documentExtractionJobs.userId, userId),
+					inArray(
+						documentExtractionJobs.status,
+						ACTIVE_DOCUMENT_EXTRACTION_STATUSES,
+					),
+				),
+			)
+			.run();
+	});
 }
 
 async function cancelActiveFileProductionForUser(

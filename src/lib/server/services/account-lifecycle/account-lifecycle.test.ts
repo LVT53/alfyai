@@ -875,11 +875,22 @@ describe("full account erasure leaves no person-linked survivor", () => {
 						sql`${schema.atlasRoundCheckpoints.id} = 'erase-me-atlas-checkpoint'`,
 					)
 			).length,
+			// F18: seeded since the ledger landed but never asserted, so the
+			// document_extraction_jobs -> users cascade was untested.
+			documentExtractionJobAttempts: (
+				await db
+					.select({ id: schema.documentExtractionJobAttempts.id })
+					.from(schema.documentExtractionJobAttempts)
+					.where(
+						sql`${schema.documentExtractionJobAttempts.id} = 'erase-me-extraction-attempt'`,
+					)
+			).length,
 		};
 		expect(transitiveSurvivors).toEqual({
 			messages: 0,
 			fileProductionJobAttempts: 0,
 			atlasRoundCheckpoints: 0,
+			documentExtractionJobAttempts: 0,
 		});
 
 		// The erased users row itself is gone.
@@ -917,6 +928,66 @@ describe("full account erasure leaves no person-linked survivor", () => {
 		expect(mockRequestActiveChatStreamsStopForUser).toHaveBeenCalledWith(
 			"erase-me",
 		);
+	});
+
+	// F17. The quiesce stopped Atlas and file production but not extraction, so
+	// a document being parsed when erasure started kept running and wrote a
+	// normalized artifact and its chunk rows into an account that had asked to
+	// be forgotten.
+	it("cancels the user's extraction jobs before deletion, sparing another user's", async () => {
+		seedEveryUserScopedTable("quiesce-me");
+		seedEveryUserScopedTable("keep-me");
+
+		const { sqlite } = openMigratedDb();
+		// The seeded extraction job is `succeeded`; both users get a live one
+		// with a running attempt, which is the state that matters.
+		for (const owner of ["quiesce-me", "keep-me"]) {
+			sqlite
+				.prepare(
+					`UPDATE document_extraction_jobs
+					 SET status = 'parsing', current_attempt_id = ?
+					 WHERE user_id = ?`,
+				)
+				.run(`${owner}-extraction-attempt`, owner);
+		}
+		sqlite
+			.prepare("UPDATE document_extraction_job_attempts SET status = 'running'")
+			.run();
+		sqlite.close();
+
+		const { quiesceUserWorkspace } = await import("./index");
+		await quiesceUserWorkspace("quiesce-me");
+
+		const { db: appDb } = await import("$lib/server/db");
+		const jobs = await appDb
+			.select({
+				id: schema.documentExtractionJobs.id,
+				userId: schema.documentExtractionJobs.userId,
+				status: schema.documentExtractionJobs.status,
+				cancelRequestedAt: schema.documentExtractionJobs.cancelRequestedAt,
+			})
+			.from(schema.documentExtractionJobs);
+		const mine = jobs.find((row) => row.userId === "quiesce-me");
+		const theirs = jobs.find((row) => row.userId === "keep-me");
+		expect(mine?.status).toBe("canceled");
+		expect(mine?.cancelRequestedAt).not.toBeNull();
+		// The worker is told, not just overwritten: it polls `cancel_requested_at`
+		// and aborts rather than finishing its write.
+		expect(theirs?.status).toBe("parsing");
+
+		const attempts = await appDb
+			.select({
+				id: schema.documentExtractionJobAttempts.id,
+				status: schema.documentExtractionJobAttempts.status,
+			})
+			.from(schema.documentExtractionJobAttempts);
+		expect(
+			attempts.find((row) => row.id === "quiesce-me-extraction-attempt")
+				?.status,
+		).toBe("canceled");
+		expect(
+			attempts.find((row) => row.id === "keep-me-extraction-attempt")?.status,
+		).toBe("running");
 	});
 });
 
