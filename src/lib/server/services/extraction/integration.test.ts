@@ -418,4 +418,53 @@ describe("legacy artifacts alongside real rows", () => {
 		expect(after?.legacy).toBe(false);
 		expect(after?.status).toBe("queued");
 	});
+
+	// F14. Every legacy row used to be stamped `mineru`, so retrying a
+	// pre-ledger `.txt` paid for a backend round trip — and produced a
+	// different result — for a file the registry reads locally.
+	it.each([
+		{ name: "notes.txt", mimeType: "text/plain", route: "direct-text" },
+		{ name: "scan.pdf", mimeType: "application/pdf", route: "mineru" },
+	])("retries a legacy $name through the $route extractor", async ({
+		name,
+		mimeType,
+		route,
+	}) => {
+		const absolute = join(storageDir, name);
+		await writeFile(absolute, "legacy bytes", "utf8");
+		const legacyId = fixture.seedArtifact({
+			userId: "user-1",
+			name,
+			mimeType,
+			storagePath: relative(process.cwd(), absolute),
+			createdAt: PAST,
+		});
+
+		const materialized = await ledger.materializeLegacyExtractionJob({
+			userId: "user-1",
+			sourceArtifactId: legacyId,
+			fileName: name,
+		});
+		expect(materialized?.intakeRoute).toBe(route);
+
+		await ledger.retryExtractionJob({
+			userId: "user-1",
+			jobId: materialized?.id ?? "",
+		});
+
+		const routesSeen: string[] = [];
+		const result = await worker.executeNextExtractionJob({
+			workerId: "worker-legacy",
+			resolveExtractor: (intakeRoute) => {
+				routesSeen.push(intakeRoute);
+				return createFakeExtractor({
+					steps: [{ kind: "succeed", text: "legacy body" }],
+				});
+			},
+			persistResult: persistInto(fixture),
+		});
+
+		expect(result).toEqual({ jobId: materialized?.id, status: "succeeded" });
+		expect(routesSeen).toEqual([route]);
+	});
 });

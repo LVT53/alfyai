@@ -20,6 +20,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
+	artifacts,
 	documentExtractionJobAttempts,
 	documentExtractionJobs,
 } from "$lib/server/db/schema";
@@ -32,6 +33,7 @@ import {
 	DOCUMENT_EXTRACTION_ACTIVE_STATUSES,
 	isTerminalExtractionStatus,
 } from "$lib/shared/extraction-status";
+import { getIntakeRoute } from "$lib/shared/file-types";
 import {
 	type ExtractionHandle,
 	parseExtractionHandle,
@@ -1025,6 +1027,22 @@ export interface MaterializeLegacyExtractionJobInput {
 }
 
 /**
+ * The route a pre-ledger artifact would get if it were uploaded today.
+ *
+ * `reject` collapses to `mineru`: the file is already in the library, so the
+ * retry has to resolve to a route the worker can run, and `mineru` is what the
+ * pre-ledger path used for everything it did not read inline.
+ */
+function resolveLegacyIntakeRoute(
+	fileName: string,
+	mimeType: string | null,
+): DocumentExtractionIntakeRoute {
+	return getIntakeRoute(fileName, mimeType) === "direct-text"
+		? "direct-text"
+		: "mineru";
+}
+
+/**
  * Turns a pre-ledger artifact into a real, `failed` + `retryable` row so the
  * Retry button has something to act on.
  *
@@ -1044,15 +1062,39 @@ export async function materializeLegacyExtractionJob(
 		return existing.userId === input.userId ? existing : null;
 	}
 
+	// The artifact is the only record of what this document actually is, and
+	// the retry endpoint only knows its name. Stamping every legacy row
+	// `mineru` sent a pre-ledger `.txt` to the backend parser on retry instead
+	// of through direct text — a remote round trip, and a different result, for
+	// a file the registry can read locally.
+	const [artifact] = await db
+		.select({
+			name: artifacts.name,
+			mimeType: artifacts.mimeType,
+			sizeBytes: artifacts.sizeBytes,
+		})
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.id, input.sourceArtifactId),
+				eq(artifacts.userId, input.userId),
+			),
+		)
+		.limit(1);
+
+	const fileName = input.fileName ?? artifact?.name ?? "document";
+	const mimeType = input.mimeType ?? artifact?.mimeType ?? null;
+
 	const now = input.now ?? new Date();
 	const { job } = await enqueueExtractionJob({
 		userId: input.userId,
 		conversationId: input.conversationId ?? null,
 		origin: "upload",
-		intakeRoute: input.intakeRoute ?? "mineru",
-		fileName: input.fileName ?? "document",
-		mimeType: input.mimeType ?? null,
-		sizeBytes: input.sizeBytes ?? 0,
+		intakeRoute:
+			input.intakeRoute ?? resolveLegacyIntakeRoute(fileName, mimeType),
+		fileName,
+		mimeType,
+		sizeBytes: input.sizeBytes ?? artifact?.sizeBytes ?? 0,
 		sourceArtifactId: input.sourceArtifactId,
 		failure: {
 			errorCode: "legacy_unknown",
