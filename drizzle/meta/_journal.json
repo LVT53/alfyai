@@ -778,6 +778,13 @@
       "when": 1777140000097,
       "tag": "1777140000097_document_extraction_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1777140000098,
+      "tag": "1777140000098_mineru4_extraction",
+      "breakpoints": true
     }
   ]
 }
