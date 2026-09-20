@@ -163,7 +163,16 @@ export function toFriendlySendError(
 	translate?: Translate,
 ): string {
 	const errorWithCode = error as Error & { code?: unknown };
-	if (errorWithCode.code === "attachment_not_ready") {
+	// The three attachment-readiness refusals carry a message built from the
+	// attachment's own name and reason, which beats any generic fallback. The
+	// two extraction codes also carry `attachmentExtraction` — once the
+	// composer renders that array through `chat.extraction.*`, this
+	// passthrough becomes the fallback rather than the answer.
+	if (
+		errorWithCode.code === "attachment_not_ready" ||
+		errorWithCode.code === "attachment_extraction_pending" ||
+		errorWithCode.code === "attachment_extraction_failed"
+	) {
 		return error.message;
 	}
 	if (isKnownSendErrorCode(errorWithCode.code)) {
