@@ -3,11 +3,13 @@ import { goto, invalidateAll } from "$app/navigation";
 import { browser } from "$app/environment";
 import { page as kitPage } from "$app/state";
 import {
+	cancelExtraction,
 	deleteKnowledgeArtifact,
 	fetchKnowledgeMemoryOverview,
 	fetchMemoryProfile,
 	fetchMemorySummary,
 	fetchMemoryTimeline,
+	retryExtraction,
 	submitKnowledgeMemoryAction,
 	submitMemoryV2Action,
 	uploadKnowledgeAttachment,
@@ -34,11 +36,7 @@ import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types
 import type { KnowledgeMemoryOverviewPayload } from "$lib/server/services/memory-types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
-import {
-	cancelExtraction,
-	createExtractionPoller,
-	retryExtraction,
-} from "./_extraction-client";
+import { createExtractionPoller } from "$lib/client/extraction-poll";
 import { toWorkspaceDocument } from "./_helpers";
 import type { PageProps } from "./$types";
 
@@ -463,11 +461,12 @@ async function refreshKnowledgeLibrary() {
 
 // --- Extraction ledger -----------------------------------------------------
 //
-// The list's Status column is only as honest as its last poll. Arming is
-// derived from the rows themselves: a library of finished documents polls
-// nothing, and the poller disarms itself the moment the last tracked job
-// settles (see `_extraction-client.ts`, which is the temporary stand-in for
-// the shared client module).
+// The Status column is only as honest as its last poll. This mounts the one
+// shared poller (`$lib/client/extraction-poll`) rather than a second one of
+// its own, so the composer, the landing page and this list are one poll storm
+// at worst. Arming is derived from the rows: a library of finished documents
+// asks for nothing, and the poller disarms itself the moment the last tracked
+// job settles.
 
 const hasPendingExtraction = $derived(
 	documents.some(
@@ -477,7 +476,12 @@ const hasPendingExtraction = $derived(
 	),
 );
 
+/**
+ * Only the rows that still owe an answer, and only while the Documents tab is
+ * the one on screen. An empty list is how the poller learns to disarm.
+ */
 function pendingExtractionArtifactIds(): string[] {
+	if (activeTab !== "documents") return [];
 	return documents
 		.filter(
 			(document) =>
@@ -525,21 +529,29 @@ const extractionPoller = createExtractionPoller({
 	},
 });
 
+// Re-evaluate arming whenever the tracked set could have changed. `sync()` is
+// cheap and idempotent — it leaves an already-armed timer alone precisely so
+// that a page re-rendering on every poll cannot postpone the next one.
 $effect(() => {
-	if (!browser) return;
-	if (activeTab === "documents" && hasPendingExtraction) {
-		extractionPoller.start();
-	} else {
-		extractionPoller.stop();
-	}
-	return () => extractionPoller.stop();
+	void hasPendingExtraction;
+	void activeTab;
+	if (browser) extractionPoller.sync();
 });
+
+// Teardown only. Deliberately a second effect with no reactive reads: the
+// poller's `stop()` is permanent, so putting it in the cleanup of the effect
+// above would kill it on the first re-render rather than on unmount.
+$effect(() => () => extractionPoller.stop());
 
 async function handleExtractionRetry(artifactId: string) {
 	manageError = "";
 	try {
-		applyExtractionJobs([await retryExtraction(artifactId)]);
-		extractionPoller.start();
+		const job = await retryExtraction(artifactId);
+		applyExtractionJobs([job]);
+		// The poller did not fetch this one, so tell it the job exists or it
+		// will not count the row as unsettled and will stay disarmed.
+		extractionPoller.observe(job);
+		extractionPoller.sync();
 	} catch (error) {
 		manageError = $t("knowledge.extraction.actionFailed");
 		console.warn("[KNOWLEDGE] Extraction retry failed", error);
@@ -549,7 +561,10 @@ async function handleExtractionRetry(artifactId: string) {
 async function handleExtractionCancel(artifactId: string) {
 	manageError = "";
 	try {
-		applyExtractionJobs([await cancelExtraction(artifactId)]);
+		const job = await cancelExtraction(artifactId);
+		applyExtractionJobs([job]);
+		extractionPoller.observe(job);
+		extractionPoller.sync();
 	} catch (error) {
 		manageError = $t("knowledge.extraction.actionFailed");
 		console.warn("[KNOWLEDGE] Extraction cancel failed", error);
