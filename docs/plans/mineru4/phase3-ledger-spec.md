@@ -1436,3 +1436,27 @@ All additive; none names MinerU; the direct-text extractor compiles unchanged. S
 
 - The chunk insert in `task-state/chunk-sync.ts` is batched and `createArtifact` no longer leaves an orphan when chunk sync throws (done in Phase 1). Phase 3 adds the 8 MiB direct-text cap on top and should also add a chunk-count ceiling with a recorded `truncated` flag that the ledger can surface.
 - Phase 1 slice C introduced `upload-signature.ts` (the 415 vocabulary and the magic-byte matcher), a served upload-limit store (`src/lib/stores/upload-limits.ts`), and the 415 contract on all upload routes. Phase 3 slices S2 and S3 must build on those, not around them.
+
+---
+
+## Slice S1 outcome (merged into `mineru4/p3`) — the frozen contract for S2 to S5
+
+The code under `src/lib/server/services/extraction/` and `src/lib/shared/extraction-status.ts` is the contract now. Where this section or the code disagrees with the body of the spec, the code wins. Read those modules before writing anything.
+
+**Worktree base.** Agent worktrees do NOT start from `mineru4/p3`. Your first command must be `git checkout -b mineru4/p3-<slice> mineru4/p3`. A fresh worktree has no gitignored `data/` directory: run `mkdir -p data` before `npx vite build`.
+
+**Migration.** `drizzle/1777140000097_document_extraction_ledger.sql`, journal `idx: 110`. It already contains `hints_json` and the `artifacts_user_name_idx` index on `artifacts(user_id, name)` (bug B4's index). No other slice adds a migration.
+
+**Tables.** `document_extraction_jobs` and `document_extraction_job_attempts` (Drizzle exports `documentExtractionJobs`, `documentExtractionJobAttempts`). One job per `source_artifact_id` and per `chat_generated_file_id` (partial unique indexes). Already registered in `account-lifecycle/user-scoped-tables.ts`; do not touch that again.
+
+**Shared vocabulary** (`$lib/shared/extraction-status`, client-safe): the eight statuses, active/terminal sets and guards; `EXTRACTION_ERROR_CODES` = unavailable, tier_unavailable, auth_failed, too_large, rate_limited, job_failed, canceled, timeout, protocol, unsupported_type, empty_result, stale_worker, max_attempts, internal, legacy_unknown; `DocumentExtractionJobDTO`; `legacyExtractionJobId(artifactId)` / `isLegacyExtractionJobId(id)`.
+
+**Server API** (import from `$lib/server/services/extraction`): `enqueueExtractionJob`, `retryExtractionJob` (accepts `hints`), `cancelExtractionJob`, `materializeLegacyExtractionJob`, `getExtractionJobsForArtifacts`, `getExtractionJobForArtifact`, `getExtractionJobById`, `waitForExtractionJobVerdict`, `startUploadExtraction`, `startGeneratedFileReadback`, `wakeExtractionWorker`, `ensureExtractionWorker`, `setGeneratedFileReadbackSink`, `createNormalizedArtifactFromExtraction` (the old `createNormalizedArtifactFromText` is a deprecated alias), `getExtractionConfig()`. Priorities: `EXTRACTION_PRIORITY_UPLOAD` = 0, `EXTRACTION_PRIORITY_READBACK` = 10.
+
+**Behaviour already built in.** `startUploadExtraction` short-circuits to `succeeded` when given `existingNormalizedArtifactId` (this is the dedup fix's hook), runs direct-text inline within `INLINE_BUDGET_MS`, and enqueues a `reject`-route file born-failed with `unsupported_type`. `mapExtractionJobRow` keeps `error` set while a requeued job is back in `queued`; `retryable` is true only when `status === "failed"`; `cancelable` is false once cancel was requested. `failExtractionAttempt` returns `applied`. `isDocumentExtractionError` is structural, not `instanceof`.
+
+**Config keys** (group `limits`, live): `DOCUMENT_EXTRACTION_WORKER_ENABLED` true, `_MAX_CONCURRENCY` 3, `_PER_USER_CONCURRENCY` 2, `_MAX_ATTEMPTS` 3, `_RETRY_BASE_MS` 2000, `_RETRY_MAX_MS` 60000, `_STALE_ATTEMPT_MS` 900000, `_HEARTBEAT_MS` 15000, `_INLINE_BUDGET_MS` 1500, `_PREFLIGHT_WAIT_MS` 2500, `_MAX_DIRECT_TEXT_BYTES` 8388608. The `ADVANCED_KEY_SPECS` floor is now 95.
+
+**Testing.** `createLedgerFixture()` (`extraction/testing/ledger-fixtures`) builds a migrated temp DB; set `process.env.DATABASE_PATH`, `vi.resetModules()`, then dynamic-import. `createFakeExtractor({ steps, emitHandleAfterPhase })` (`extraction/testing/fake-extractor`) scripts success, each error, hangs and forgotten handles. Drive the worker with `executeNextExtractionJob({ workerId, resolveExtractor, persistResult, persistReadback, jobId, directTextOnly })`; clocks and the backoff RNG are injectable. A fake `persistResult` must insert a real artifact row (foreign key). `resetExtractionWorkerForTests()` clears the bootstrap guard. The worker is inert under vitest.
+
+**Owed by later slices.** S2 adds `no-inline-extraction.test.ts` (nothing under `services/knowledge/**` imports `document-extraction`). S3 and S4 add i18n for the `auth_failed` error code in EN and HU (`chat.extraction.error.auth_failed`, `knowledge.extraction.error.auth_failed`). S5 registers the readback sink with `setGeneratedFileReadbackSink` from a module it owns; until then a readback job fails with `internal`.
