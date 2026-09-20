@@ -2292,3 +2292,23 @@ of the data mechanically.
 - **Branches.** Integration branch `mineru4/p24`, slices `mineru4/p24-s0`, `-p2a`, `-p2b`, `-p4a`, `-p4b`, `-p4c`. S0 runs alone first. Nothing is pushed.
 - **Worktrees.** Agent worktrees do not start from the integration branch; the first command of every slice is `git checkout -b <slice-branch> <integration-branch>`.
 - **Toolchain and commits.** Homebrew `node@22`. Stage by explicit path; never `git add -A`.
+
+---
+
+## Slice S0 outcome (merged into `mineru4/p24`) — the frozen contract for P2-A, P2-B, P4-A, P4-B, P4-C
+
+The merged code is the contract. Where this section or the code disagrees with the body of the spec, the code wins. Read `src/lib/server/services/mineru/{config,capabilities}.ts` and `src/lib/server/services/extraction/` before writing anything.
+
+**Worktree base.** Agent worktrees do NOT start from `mineru4/p24`. First command: `git checkout -b mineru4/p24-<slice> mineru4/p24`. Then `mkdir -p data`.
+
+**Already landed before this phase (do not add again).** The ledger migration `…097` (journal idx 110) with `hints_json`; `auth_failed` in `EXTRACTION_ERROR_CODES`; seam changes Δ1–Δ6 in `extraction/contracts.ts`, `persist.ts` (`createNormalizedArtifactFromExtraction(…, structured?)`), `worker-runner.ts`; `job.normalized_artifact_id` is `ON DELETE CASCADE`; re-extraction rewrites the existing normalized artifact in place (one normalized document per source, id preserved); `task-state/chunk-sync.ts` has a batched insert, a windowed boundary search and `MAX_ARTIFACT_CHUNKS = 12000` with a `truncated` indication; fixtures are in `fixtures/mineru-v1/` on this branch.
+
+**Migration.** `drizzle/1777140000098_mineru4_extraction.sql`, journal idx 111. `artifact_chunks.page_start` / `page_end` (Drizzle `artifactChunks.pageStart` / `.pageEnd`), nullable, no index. It also renames an `admin_config` override of `MINERU_TIMEOUT_MS` to `MINERU_JOB_TIMEOUT_MS`. No other slice adds a migration. P4-C: the chunk copy in `conversation-forks.ts` must carry both columns.
+
+**Config.** Twelve keys, group `integrations`, live: `MINERU_API_URL`, `MINERU_API_KEY` (masked `[set]`), `MINERU_DEFAULT_TIER` (`auto`), `MINERU_OCR_MODE` (`auto`), `MINERU_JOB_TIMEOUT_MS` (300000), `MINERU_POLL_MIN_MS` (2000), `MINERU_POLL_MAX_MS` (30000), `MINERU_REQUEST_TIMEOUT_MS` (30000), `MINERU_TRANSFER_TIMEOUT_MS` (600000), `MINERU_CAPABILITIES_TTL_MS` (300000), `MINERU_BUNDLE_MAX_BYTES` (33554432), `MINERU_STRUCTURE_CHUNKING_ENABLED` (true). Never read `getConfig()` fields directly: use `resolveMineruConfig()` from `$lib/server/services/mineru/config`, which also exports `MINERU_TIER_IDS` / `MineruTierId` (P2-A re-exports these, never redeclares), `MINERU_OUTPUT_FORMATS`, `MineruConfig`, `mineruUrl(config, "/v1/…")`, `isSameMineruOrigin`, `isMineruConfigured`, `mineruDisplayOrigin`. The `ADVANCED_KEY_SPECS` floor is 107.
+
+**Capabilities** (`services/mineru/capabilities.ts`, S0-owned, nobody else edits it): `getMineruCapabilities(signal?, opts?)` → `{version, outputFormats, tiers: readonly MineruTierId[]}` (throws `MineruProbeError` with an `ExtractionErrorCode`), `getMineruStatusReport()` (never throws), `setMineruProbeClientFactory(factory | null)`, `resetMineruCapabilitiesCacheForTests()`. It ships its own minimal fetch probe, so the admin card works without P2-A. To route it through the real client, P2-A's `MineruClient` exposes `getHealth(signal)`, `getTiers(signal)`, `getUsage(signal)` returning the server's snake_case shapes, and **P2-B** calls `setMineruProbeClientFactory((config) => new MineruClient({ config }))` from the module init of `extractors/mineru4.ts`.
+
+**Status endpoint.** `GET /api/admin/mineru-status[?refresh=1]` → `{ report: MineruStatusReport }`, admin-gated, always 200. Client: `fetchAdminMineruStatus` in `$lib/client/api/admin-system-health`; any test that mocks that module by export list must include it. Tool-health row id `document_extraction` probes `/v1/health`.
+
+**Owed by P2-B.** `RuntimeConfig.mineruTimeoutMs` survives only as a deprecated mirror of `mineruJobTimeoutMs` because `extraction/config.ts:42` and `document-extraction.ts` still read it. When P2-B deletes `document-extraction.ts` it also switches `extraction/config.ts` to `mineruJobTimeoutMs` and drops the mirror from `env.ts` / `config-store.ts` (these two hot files are otherwise S0's and frozen; this one removal is P2-B's). P2-B also fixes `docs/architecture.md`, which still describes `POST /file_parse`.
