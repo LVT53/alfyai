@@ -890,26 +890,27 @@ describe("sanitizeReadGeneratedFileInput", () => {
 
 /**
  * The advertised input schema, serialised exactly the way a request does it,
- * frozen as it read before the `page` parameter existed.
+ * re-frozen in slice P6-D with `page` advertised.
  *
- * Tool schemas travel inside the CACHED prompt prefix. Adding `page` to this
- * object measures at +180 bytes, which evicts every 1600-token cache block
- * from that offset on — a cost the OQ5 ruling says is paid once, in the Phase
- * 6 prose release, together with every other model-facing change of this
- * migration. Until then `page` works but is not advertised, and this byte
- * string is what says so.
+ * Tool schemas travel inside the CACHED prompt prefix. Advertising `page`
+ * costs +151 bytes here, which evicts every 1600-token cache block from that
+ * offset on — the one-time cost the OQ5 ruling schedules for this release,
+ * together with every other model-facing change of this migration. A failure
+ * here is not a test to update: it means another eviction is about to ship.
  */
 const FROZEN_READ_GENERATED_FILE_JSON_SCHEMA =
-	'{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"filename":{"type":"string","minLength":1},"requestTitle":{"type":"string","minLength":1},"from":{"description":"Character offset to continue from. Pass the previous result\'s nextFrom to read the next window.","type":"integer","minimum":0,"maximum":9007199254740991},"query":{"description":"Instead of the text window, return up to 3 passages of this one file about the query.","type":"string","minLength":1,"maxLength":300}},"additionalProperties":false}';
+	'{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"filename":{"type":"string","minLength":1},"requestTitle":{"type":"string","minLength":1},"from":{"description":"Character offset to continue from. Pass the previous result\'s nextFrom to read the next window.","type":"integer","minimum":0,"maximum":9007199254740991},"query":{"description":"Instead of the text window, return up to 3 passages of this one file about the query.","type":"string","minLength":1,"maxLength":300},"page":{"description":"1-based page to start at, for a paged document. `query` and `from` take precedence.","type":"integer","minimum":1,"maximum":9007199254740991}},"additionalProperties":false}';
 
 describe("the tool schema the model is sent", () => {
-	it("is byte-identical to the one before `page` existed", () => {
+	it("is byte-identical to the frozen P6-D serialisation", () => {
 		expect(
 			JSON.stringify(asSchema(readGeneratedFileInputSchema).jsonSchema),
 		).toBe(FROZEN_READ_GENERATED_FILE_JSON_SCHEMA);
 	});
 
-	it("does not advertise `page`", () => {
+	it("advertises `page` last, after the four older fields", () => {
+		// Order matters for the prefix: appending keeps every cache block
+		// before `page` intact, inserting would not.
 		const properties = (
 			asSchema(readGeneratedFileInputSchema).jsonSchema as {
 				properties: Record<string, unknown>;
@@ -920,13 +921,11 @@ describe("the tool schema the model is sent", () => {
 			"requestTitle",
 			"from",
 			"query",
+			"page",
 		]);
 	});
 
-	it("still lets an undocumented `page` reach execute", () => {
-		// A strict object strips unknown keys during the SDK's tool-call
-		// validation, so the parameter would never arrive. This is the half of
-		// "undocumented but working" that has no visible symptom when it breaks.
+	it("lets a well-formed `page` through both schemas", () => {
 		expect(readGeneratedFileInputSchema.parse({ from: 1, page: 3 })).toEqual({
 			from: 1,
 			page: 3,
@@ -937,12 +936,25 @@ describe("the tool schema the model is sent", () => {
 	});
 
 	it("drops a malformed `page` instead of failing the call", () => {
+		// Advertising the parameter did not make it strict: a model that sends
+		// `page: 0` still gets its file, just without the page jump. The
+		// advertised schema is now the one the SDK validates against, so the
+		// tolerance has to hold there too.
+		for (const schema of [
+			readGeneratedFileInputSchema,
+			readGeneratedFileExecutionInputSchema,
+		]) {
+			expect(schema.parse({ page: 0 }).page).toBeUndefined();
+			expect(schema.parse({ page: "two" }).page).toBeUndefined();
+		}
+	});
+
+	it("strips a key it does not advertise", () => {
+		// The loose object Phase 4 used to smuggle `page` through forwarded
+		// every invented key as well; a strict object does not.
 		expect(
-			readGeneratedFileExecutionInputSchema.parse({ page: 0 }).page,
-		).toBeUndefined();
-		expect(
-			readGeneratedFileExecutionInputSchema.parse({ page: "two" }).page,
-		).toBeUndefined();
+			readGeneratedFileInputSchema.parse({ from: 1, pageNumber: 3 }),
+		).toEqual({ from: 1 });
 	});
 });
 
