@@ -148,17 +148,16 @@ describe("generated document source schema", () => {
 				},
 			],
 		});
-		// Recorded, not endorsed: the Markdown renderer carries the paragraph but
-		// not its attached sources, while the HTML, PDF and DOCX renderers all
-		// do. The deleted projection listed them, so D9 makes this Markdown gap
-		// visible to the model as well — it is a renderer bug to fix in
-		// `standard-report-markdown.ts`, which also improves the downloadable
-		// `.md`, and pinning it here is what makes that fix show up as a change.
+		// Recorded AND shown: the Markdown renderer trails a paragraph's attached
+		// sources as a compact parenthetical, same as the HTML, PDF and DOCX
+		// renderers all already did — the deleted projection listed them too, so
+		// this closes the one gap D9 left in `standard-report-markdown.ts`.
 		const markdown = markdownOf(result.source);
 		expect(markdown).toContain(
-			"Surface code maturity is backed by accepted source evidence.",
+			"Surface code maturity is backed by accepted source evidence. " +
+				"*(Sources: [Vendor docs](https://example.com/docs), " +
+				"Uploaded strategy memo)*",
 		);
-		expect(markdown).not.toContain("Vendor docs");
 	});
 
 	it("accepts paragraph-level basis markers and marks them in the markdown", () => {
@@ -204,11 +203,13 @@ describe("generated document source schema", () => {
 				},
 			],
 		});
-		// The rationale itself lives in the source object and is drawn by the
-		// HTML and PDF renderers; Markdown carries the short label only, so the
-		// claim is still marked as supported wherever the text is read.
+		// The rationale now renders in Markdown too, same as the HTML and PDF
+		// renderers, so the claim is both marked and explained wherever the text
+		// is read.
 		expect(markdownOf(result.source)).toContain(
-			"Revenue increased by 12% while churn evidence remains thin. *(Basis: Supported)*",
+			"Revenue increased by 12% while churn evidence remains thin. " +
+				"*(Basis: Supported — Accepted source states revenue increased by " +
+				"12%. This should compact.)*",
 		);
 	});
 
