@@ -55,16 +55,20 @@ describe("attachmentChipMeta", () => {
 			attachmentChipMeta({
 				name: "lease.pdf",
 				pageCount: 24,
+				pageCountKind: "physical",
 				tokenEstimate: 18_400,
 			}),
 		).toEqual({ key: "composerChips.fileMeta", pages: "24", tokens: "18k" });
 	});
 
 	it("says whichever half it knows", () => {
-		expect(attachmentChipMeta({ name: "a.pdf", pageCount: 24 })).toEqual({
-			key: "composerChips.filePages",
-			pages: "24",
-		});
+		expect(
+			attachmentChipMeta({
+				name: "a.pdf",
+				pageCount: 24,
+				pageCountKind: "physical",
+			}),
+		).toEqual({ key: "composerChips.filePages", pages: "24" });
 		expect(attachmentChipMeta({ name: "a.pdf", tokenEstimate: 900 })).toEqual({
 			key: "composerChips.fileTokens",
 			tokens: "900",
@@ -76,6 +80,92 @@ describe("attachmentChipMeta", () => {
 		expect(
 			attachmentChipMeta({ name: "a.pdf", pageCount: 0, tokenEstimate: 0 }),
 		).toBeNull();
+	});
+
+	it("counts a deck in slides and a workbook in sheets", () => {
+		// The chip said "12 pp" for a PowerPoint and "3 pp" for an Excel file,
+		// because the only thing it was ever given was the number.
+		expect(
+			attachmentChipMeta({
+				name: "kickoff.pptx",
+				pageCount: 12,
+				pageCountKind: "slide",
+			}),
+		).toEqual({ key: "composerChips.fileSlides", pages: "12" });
+		expect(
+			attachmentChipMeta({
+				name: "budget.xlsx",
+				pageCount: 3,
+				pageCountKind: "sheet",
+				tokenEstimate: 2_400,
+			}),
+		).toEqual({
+			key: "composerChips.fileSheetsMeta",
+			pages: "3",
+			tokens: "2k",
+		});
+	});
+
+	it("calls an EPUB's spine pages", () => {
+		expect(
+			attachmentChipMeta({
+				name: "novel.epub",
+				pageCount: 41,
+				pageCountKind: "spine",
+			}),
+		).toEqual({ key: "composerChips.filePages", pages: "41" });
+	});
+
+	it("shows no count for a kind that counts nothing a reader can turn to", () => {
+		// `declared` is what DOCX reports and it is routinely 1 for a document
+		// with four headings; `logical` is CSV's and HTML's. Neither is a page.
+		for (const kind of ["declared", "logical", "unknown"]) {
+			expect(
+				attachmentChipMeta({
+					name: "a.docx",
+					pageCount: 9,
+					pageCountKind: kind,
+				}),
+			).toBeNull();
+		}
+		// And a token clause still survives on its own.
+		expect(
+			attachmentChipMeta({
+				name: "a.docx",
+				pageCount: 9,
+				pageCountKind: "declared",
+				tokenEstimate: 900,
+			}),
+		).toEqual({ key: "composerChips.fileTokens", tokens: "900" });
+	});
+
+	it("shows no count when the kind is unknown, rather than guessing pages", () => {
+		// Every document parsed before the structured extractor. The absence IS
+		// the signal; defaulting it to "physical" would relabel the whole
+		// library on the day this shipped.
+		expect(attachmentChipMeta({ name: "old.pdf", pageCount: 12 })).toBeNull();
+		expect(
+			attachmentChipMeta({
+				name: "old.pdf",
+				pageCount: 12,
+				pageCountKind: null,
+			}),
+		).toBeNull();
+	});
+
+	it("shows a single physical page but not a single slide or sheet", () => {
+		expect(
+			attachmentChipMeta({
+				name: "receipt.pdf",
+				pageCount: 1,
+				pageCountKind: "physical",
+			}),
+		).toEqual({ key: "composerChips.filePages", pages: "1" });
+		for (const kind of ["slide", "sheet", "spine"]) {
+			expect(
+				attachmentChipMeta({ name: "x", pageCount: 1, pageCountKind: kind }),
+			).toBeNull();
+		}
 	});
 });
 

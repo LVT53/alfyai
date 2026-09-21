@@ -35,6 +35,7 @@ import { syncArtifactChunks } from "../../task-state/chunk-sync";
 import {
 	readStoredOutline,
 	readStoredPageCount,
+	readStoredPageCountKind,
 	readStoredTokenEstimate,
 } from "../outline";
 
@@ -159,6 +160,7 @@ export function mapArtifactSummary(row: ArtifactSummaryRow): ArtifactSummary {
 	const metadata = parseJsonRecord(row.metadataJson ?? null);
 	const tokenEstimate = readStoredTokenEstimate(metadata?.tokenEstimate);
 	const pageCount = readStoredPageCount(metadata?.pageCount);
+	const pageCountKind = readStoredPageCountKind(metadata?.pageCountKind);
 	const outline = readStoredOutline(metadata?.outline);
 
 	return {
@@ -175,6 +177,7 @@ export function mapArtifactSummary(row: ArtifactSummaryRow): ArtifactSummary {
 		updatedAt: row.updatedAt.getTime(),
 		...(tokenEstimate !== undefined ? { tokenEstimate } : {}),
 		...(pageCount !== undefined ? { pageCount } : {}),
+		...(pageCountKind !== undefined ? { pageCountKind } : {}),
 		...(outline.length > 0 ? { outline } : {}),
 	};
 }

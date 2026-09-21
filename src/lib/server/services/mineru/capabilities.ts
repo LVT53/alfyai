@@ -31,6 +31,11 @@ import {
 	mineruUrl,
 	resolveMineruConfig,
 } from "./config";
+import {
+	isMineruApiError,
+	mapMineruError,
+	redactMineruSecrets,
+} from "./errors";
 
 // ---------------------------------------------------------------------------
 // The shapes read from the server
@@ -142,8 +147,11 @@ export class MineruProbeError extends Error {
 	}
 }
 
-function clampBody(text: string): string {
-	const single = text.replace(/\s+/g, " ").trim();
+function clampBody(text: string, apiKey = ""): string {
+	// Scrubbed BEFORE it is clamped: a 401 body that echoes the Authorization
+	// header would otherwise reach the admin card AND, through the extractor,
+	// the document owner's own error message on the job row.
+	const single = redactMineruSecrets(text, apiKey).replace(/\s+/g, " ").trim();
 	return single.length > MAX_ERROR_BODY_CHARS
 		? `${single.slice(0, MAX_ERROR_BODY_CHARS)}…`
 		: single;
@@ -159,44 +167,84 @@ function clampBody(text: string): string {
 function mapProbeFailure(
 	status: number,
 	body: string,
+	apiKey: string,
 ): { code: ExtractionErrorCode; message: string } {
+	const message = clampBody(body, apiKey) || `HTTP ${status}`;
 	if (status === 401 || status === 403) {
-		return {
-			code: "auth_failed",
-			message: clampBody(body) || `HTTP ${status}`,
-		};
+		return { code: "auth_failed", message };
 	}
-	if (status === 429) {
-		return {
-			code: "rate_limited",
-			message: clampBody(body) || `HTTP ${status}`,
-		};
-	}
-	if (status >= 500) {
-		return {
-			code: "unavailable",
-			message: clampBody(body) || `HTTP ${status}`,
-		};
-	}
-	return { code: "protocol", message: clampBody(body) || `HTTP ${status}` };
+	if (status === 429) return { code: "rate_limited", message };
+	if (status >= 500) return { code: "unavailable", message };
+	return { code: "protocol", message };
 }
 
+/**
+ * Everything a probe can throw, on the taxonomy.
+ *
+ * This used to recognise only its own `MineruProbeError` and map every other
+ * `Error` to `unavailable` — retryable. The moment `MineruClient` became the
+ * probe (which is the whole point of the seam), that turned the one failure
+ * which must be PERMANENT into an infinite retry: a deployment still pointing
+ * at MinerU 3.x answers 404 on `/v1/health`, which is `protocol`, and it would
+ * have been re-probed forever while every upload failed. A wrong API key had
+ * the same problem in the other direction.
+ *
+ * So the protocol client's own table decides. The only thing added on top is a
+ * status backstop: `mapMineruError`'s 4xx fallback is deliberately coarse, and
+ * a capability read knows more than it does about what a bare 401 or 429 on
+ * three plain GETs means.
+ */
 function describeTransportError(
 	error: unknown,
 	signal: AbortSignal,
+	apiKey = "",
 ): { code: ExtractionErrorCode; message: string } {
 	if (signal.aborted) return { code: "timeout", message: "probe timed out" };
 	if (error instanceof MineruProbeError) {
 		return { code: error.code, message: error.message };
 	}
+
+	const mapping = mapMineruError(error);
+	let code = mapping.taxonomy;
+	if (!mapping.known && isMineruApiError(error) && error.status !== null) {
+		if (error.status === 401 || error.status === 403) code = "auth_failed";
+		else if (error.status === 429) code = "rate_limited";
+	}
+
 	if (error instanceof Error) {
 		const cause = (error as { cause?: { code?: string } }).cause;
+		const base = redactMineruSecrets(error.message, apiKey);
 		return {
-			code: "unavailable",
-			message: cause?.code ? `${error.message} (${cause.code})` : error.message,
+			code,
+			message:
+				cause?.code && code === "unavailable"
+					? `${base} (${cause.code})`
+					: base,
 		};
 	}
-	return { code: "unavailable", message: String(error) };
+	return { code, message: redactMineruSecrets(String(error), apiKey) };
+}
+
+/**
+ * The one failure that has to be said by name.
+ *
+ * A MinerU 3.x server has no `/v1` namespace at all, so the probe gets a 404
+ * rather than a version. "unreachable" would send an admin looking at the
+ * network; this sends them at `MINERU_API_URL`. Applied here rather than in the
+ * extractor's adapter so the built-in fetch probe — the one the admin card uses
+ * before anything imports the extractor — says it too.
+ */
+function describeHealthFailure(
+	error: unknown,
+	signal: AbortSignal,
+	config: MineruConfig,
+): { code: ExtractionErrorCode; message: string } {
+	const described = describeTransportError(error, signal, config.apiKey);
+	if (described.code !== "protocol") return described;
+	return {
+		code: "protocol",
+		message: `${mineruDisplayOrigin(config)} is not a MinerU 4 server: ${described.message}. MinerU 3.x is no longer supported; point MINERU_API_URL at a MinerU 4 endpoint.`,
+	};
 }
 
 /**
@@ -225,7 +273,7 @@ export function createDefaultMineruProbeClient(
 		});
 		if (!response.ok) {
 			const body = await response.text().catch(() => "");
-			const mapped = mapProbeFailure(response.status, body);
+			const mapped = mapProbeFailure(response.status, body, config.apiKey);
 			throw new MineruProbeError(mapped.code, mapped.message);
 		}
 		try {
@@ -360,7 +408,13 @@ async function probe(
 
 	try {
 		const client = probeClientFactory(config);
-		const health = await client.getHealth(controller.signal);
+		let health: MineruHealthLike;
+		try {
+			health = await client.getHealth(controller.signal);
+		} catch (error) {
+			const described = describeHealthFailure(error, controller.signal, config);
+			throw new MineruProbeError(described.code, described.message);
+		}
 		const features = health.features ?? null;
 
 		// Health is the only call that is public under `--api-key`, so the other
@@ -374,7 +428,7 @@ async function probe(
 		} catch (error) {
 			console.warn(
 				`${LOG_PREFIX} tier list unavailable:`,
-				describeTransportError(error, controller.signal).message,
+				describeTransportError(error, controller.signal, config.apiKey).message,
 			);
 		}
 		try {
@@ -407,7 +461,11 @@ async function probe(
 				: null,
 		};
 	} catch (error) {
-		const described = describeTransportError(error, controller.signal);
+		const described = describeTransportError(
+			error,
+			controller.signal,
+			config.apiKey,
+		);
 		console.warn(`${LOG_PREFIX} status probe failed:`, described.message);
 		return { ...base, error: described };
 	} finally {

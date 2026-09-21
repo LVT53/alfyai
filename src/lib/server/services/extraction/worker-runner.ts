@@ -30,8 +30,10 @@ import { type ExtractionConfig, getExtractionConfig } from "./config";
 import {
 	type DocumentExtractor,
 	type ExtractDocumentResult,
+	ExtractionAbortError,
 	type ExtractionHandle,
 	type ExtractionProgress,
+	readExtractionAbortReason,
 	toDocumentExtractionError,
 } from "./contracts";
 import { resolveExtractor as defaultResolveExtractor } from "./extractors/registry";
@@ -347,16 +349,19 @@ async function executeStep(
 		void (async () => {
 			if (await isCancelRequested(job.id)) {
 				cancelObserved = true;
-				controller.abort();
+				controller.abort(new ExtractionAbortError("user-cancel"));
 				return;
 			}
 			const alive = await heartbeatExtractionAttempt(owned);
 			if (!alive) {
 				// The claim is gone: stale recovery, or a cancel, took it. Abort and
 				// write nothing — whoever holds it now is the only legitimate writer.
-				controller.abort();
+				// Labelled `claim-lost` rather than left bare: the extractor must NOT
+				// delete the remote job, because the worker that now holds the claim
+				// is about to resume it from the same stored handle.
+				controller.abort(new ExtractionAbortError("claim-lost"));
 			}
-		})().catch(() => controller.abort());
+		})().catch(() => controller.abort(new ExtractionAbortError("claim-lost")));
 	}, heartbeatMs);
 	heartbeat.unref?.();
 
@@ -371,7 +376,7 @@ async function executeStep(
 			extractor: extractor.name,
 		})
 			.then((ok) => {
-				if (!ok) controller.abort();
+				if (!ok) controller.abort(new ExtractionAbortError("claim-lost"));
 			})
 			// An extractor calls this synchronously from its own polling loop, so
 			// nothing is awaiting the promise. Without a catch, one SQLITE_BUSY on
@@ -383,7 +388,7 @@ async function executeStep(
 					jobId: job.id,
 					error,
 				});
-				controller.abort();
+				controller.abort(new ExtractionAbortError("claim-lost"));
 			});
 	};
 
@@ -420,6 +425,27 @@ async function executeStep(
 					processed: true,
 					result: { jobId: job.id, status: "canceled" },
 				};
+			}
+
+			if (
+				controller.signal.aborted &&
+				readExtractionAbortReason(controller.signal.reason) === "claim-lost"
+			) {
+				// We aborted this attempt ourselves, and NOT because anyone asked for
+				// the document to stop: the claim was taken from us, or a progress
+				// write failed. Writing "canceled, not retryable" here would fail a
+				// document permanently over a transient SQLITE_BUSY, and would assert
+				// a verdict over whoever holds the claim now. Leave the row alone —
+				// the stale sweep requeues it, and the stored handle makes that a
+				// resume rather than a second upload.
+				console.warn("[EXTRACTION] Attempt released without a verdict", {
+					jobId: job.id,
+					attemptId: attempt.id,
+					attemptNumber: attempt.attemptNumber,
+					extractor: extractor.name,
+					durationMs: Date.now() - attemptStartedAtMs,
+				});
+				return { processed: true, result: null };
 			}
 
 			const outcome = await failExtractionAttempt({

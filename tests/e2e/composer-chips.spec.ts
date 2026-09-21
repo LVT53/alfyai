@@ -29,6 +29,8 @@ type UploadArtifact = {
 	sizeBytes: number;
 	tokenEstimate?: number;
 	pageCount?: number;
+	/** What `pageCount` counts. A structured parse always writes one. */
+	pageCountKind?: string;
 	outline?: { level: number; title: string; offset: number; preview: string }[];
 };
 
@@ -39,6 +41,9 @@ const PDF_ARTIFACT: UploadArtifact = {
 	sizeBytes: 482_112,
 	tokenEstimate: 18_400,
 	pageCount: 24,
+	// A real PDF row carries this, and without it the chip deliberately shows
+	// no count at all: a count whose unit is unknown is not a page count.
+	pageCountKind: "physical",
 	outline: [
 		{
 			level: 2,
@@ -132,6 +137,9 @@ async function mockChipRoutes(page: Page) {
 						? { tokenEstimate: artifact.tokenEstimate }
 						: {}),
 					...(artifact.pageCount ? { pageCount: artifact.pageCount } : {}),
+					...(artifact.pageCountKind
+						? { pageCountKind: artifact.pageCountKind }
+						: {}),
 					...(artifact.outline ? { outline: artifact.outline } : {}),
 				},
 				promptReady: true,

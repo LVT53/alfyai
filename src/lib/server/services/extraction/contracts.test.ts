@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+	abortDiscardsRemoteWork,
 	DocumentExtractionError,
+	ExtractionAbortError,
 	isDocumentExtractionError,
 	parseExtractionHandle,
+	readExtractionAbortReason,
 	serializeExtractionHandle,
 	toDocumentExtractionError,
 } from "./contracts";
@@ -68,19 +71,60 @@ describe("toDocumentExtractionError", () => {
 		const alienAbort = { name: "AbortError", message: "aborted" };
 		expect(toDocumentExtractionError(alienAbort).code).toBe("canceled");
 		expect(toDocumentExtractionError(alienAbort).retryable).toBe(false);
+	});
 
-		// `AbortSignal.timeout` rejects with this one, and it must not be read as
-		// an unknown throw either.
+	it("maps a TimeoutError to a RETRYABLE timeout, never to canceled", () => {
+		// `AbortSignal.timeout` rejects with a TimeoutError, and this used to
+		// share the cancel branch: one leaked request timeout therefore failed a
+		// document permanently as "Extraction was canceled." — a final verdict,
+		// on a transient fault, in words that blame a user who did nothing.
 		const alienTimeout = Object.assign(new Error("timed out"), {
 			name: "TimeoutError",
 		});
-		expect(toDocumentExtractionError(alienTimeout).code).toBe("canceled");
+		expect(toDocumentExtractionError(alienTimeout).code).toBe("timeout");
+		expect(toDocumentExtractionError(alienTimeout).retryable).toBe(true);
+		expect(toDocumentExtractionError(alienTimeout).message).not.toMatch(
+			/cancel/i,
+		);
 
-		// A real DOMException keeps working; the structural check is a widening,
-		// never a replacement.
-		expect(
-			toDocumentExtractionError(new DOMException("t", "TimeoutError")).code,
-		).toBe("canceled");
+		// A real DOMException takes the same branch; the structural check is a
+		// widening, never a replacement.
+		const real = toDocumentExtractionError(
+			new DOMException("t", "TimeoutError"),
+		);
+		expect(real.code).toBe("timeout");
+		expect(real.retryable).toBe(true);
+	});
+
+	it("labels an abort with the reason that decides whether remote work dies", () => {
+		const cancel = new AbortController();
+		cancel.abort(new ExtractionAbortError("user-cancel"));
+		expect(abortDiscardsRemoteWork(cancel.signal)).toBe(true);
+		expect(readExtractionAbortReason(cancel.signal.reason)).toBe("user-cancel");
+		expect(toDocumentExtractionError(cancel.signal.reason).code).toBe(
+			"canceled",
+		);
+
+		for (const reason of ["claim-lost", "shutdown"] as const) {
+			const controller = new AbortController();
+			controller.abort(new ExtractionAbortError(reason));
+			// A lost claim and a shutdown both abort; neither means the remote job
+			// is garbage, because the stored handle is what the next attempt
+			// resumes from.
+			expect(abortDiscardsRemoteWork(controller.signal)).toBe(false);
+			expect(toDocumentExtractionError(controller.signal.reason).code).toBe(
+				"canceled",
+			);
+		}
+
+		// A bare abort carries no reason, and the conservative reading wins:
+		// keeping a remote job nobody reads costs a queue slot, deleting one that
+		// is still wanted costs the whole parse.
+		const bare = new AbortController();
+		bare.abort();
+		expect(abortDiscardsRemoteWork(bare.signal)).toBe(false);
+		expect(abortDiscardsRemoteWork(new AbortController().signal)).toBe(false);
+		expect(abortDiscardsRemoteWork(null)).toBe(false);
 	});
 
 	it("maps a failed fetch to unavailable", () => {
