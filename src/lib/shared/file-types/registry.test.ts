@@ -11,13 +11,17 @@ import { describe, expect, it } from "vitest";
 
 import {
 	admitUpload,
+	buildAcceptAttribute,
 	FILE_TYPE_ENTRIES,
 	fileExtension,
 	getAcceptAttribute,
 	getAcceptedExtensions,
 	getEntryByExtension,
 	getEntryByMimeType,
+	getIntakeFallbackRoute,
 	getIntakeRoute,
+	getMineru4FallbackFileTypeIds,
+	getMineru4GatedFileTypeIds,
 	KNOWLEDGE_ACCEPT_OMISSIONS,
 	SURFACE_ACCEPT_ORDER,
 } from "./index";
@@ -28,6 +32,7 @@ import {
 import {
 	FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES,
 	getExpectedExtensionForOutputType,
+	isInlineTextOutputType,
 	isSupportedFileProductionOutputType,
 } from "./production";
 
@@ -77,10 +82,34 @@ const PREVIEW_LANGUAGES = new Set([
 describe("file-type registry invariants", () => {
 	it("has the expected size", () => {
 		// A tripwire, not a target: changing it is fine, doing so by accident is
-		// not. (The spec's section 2.1 footer says 80/92; counting its own tables
-		// gives 70/88, plus the `tsv` entry from open question 12.)
-		expect(FILE_TYPE_ENTRIES.length).toBe(71);
-		expect(ALL_EXTENSIONS.length).toBe(89);
+		// not. Phase 1 landed 71 entries / 89 extensions; Phase 5 adds `epub`
+		// and `ofd` and no other entry, so 73 / 91.
+		expect(FILE_TYPE_ENTRIES.length).toBe(73);
+		expect(ALL_EXTENSIONS.length).toBe(91);
+	});
+
+	it("keeps the reject/non-reject split where Phase 5 left it", () => {
+		// The other half of the tripwire, and the one the accept strings are
+		// built from: `rtf`, `ods`, `odp` and `tsv` became ingestible, `ofd`
+		// arrived as the only new refusal.
+		const rejectExtensions = FILE_TYPE_ENTRIES.filter(
+			(entry) => entry.intake.route === "reject",
+		).flatMap((entry) => [...entry.extensions]);
+		expect(rejectExtensions.length).toBe(17);
+		expect(ALL_EXTENSIONS.length - rejectExtensions.length).toBe(74);
+
+		const requestable = FILE_TYPE_ENTRIES.filter(
+			(entry) => entry.production.requestable,
+		);
+		expect(requestable.length).toBe(41);
+
+		// `formatNotEnabled` has exactly one user left in the table; every other
+		// use of it is a runtime decision by the MinerU-4 gate.
+		expect(
+			FILE_TYPE_ENTRIES.filter(
+				(entry) => entry.intake.rejectReason === "formatNotEnabled",
+			).map((entry) => entry.id),
+		).toEqual(["ofd"]);
 	});
 
 	it("gives every entry a unique id equal to its canonical extension", () => {
@@ -255,12 +284,38 @@ describe("file-type registry invariants", () => {
 				`${extension} is not a knowledge entry`,
 			).toBe(true);
 		}
-		// `.markdown` is the single documented gap (spec open question 3). Any
-		// OTHER knowledge extension missing from the order is a drift bug.
+		// Phase 5 D5 closed the one documented gap (`.markdown`), so
+		// KNOWLEDGE_ACCEPT_OMISSIONS is empty and NOTHING may be missing. A new
+		// knowledge entry still has to be added to SURFACE_ACCEPT_ORDER by hand.
 		const missing = [...fromEntries].filter(
 			(extension) => !fromOrder.includes(extension),
 		);
 		expect(missing.sort()).toEqual([...KNOWLEDGE_ACCEPT_OMISSIONS].sort());
+		expect([...KNOWLEDGE_ACCEPT_OMISSIONS]).toEqual([]);
+	});
+
+	it("offers the same set of extensions on both surfaces", () => {
+		// Phase 5 D5 / OQ4. The server gate is surface-independent, so a
+		// narrower knowledge list only hid types the server already accepted.
+		// The two lists now differ only in ORDER.
+		const knowledge = new Set(getAcceptedExtensions("knowledge"));
+		const chat = new Set(getAcceptedExtensions("chat"));
+		expect(knowledge).toEqual(chat);
+
+		const nonReject = new Set(
+			FILE_TYPE_ENTRIES.filter(
+				(entry) => entry.intake.route !== "reject",
+			).flatMap((entry) => [...entry.extensions]),
+		);
+		expect(knowledge).toEqual(nonReject);
+		expect(knowledge.size).toBe(74);
+
+		// The converse: a reject entry is offered nowhere.
+		for (const entry of FILE_TYPE_ENTRIES) {
+			expect(entry.surfaces, entry.id).toEqual(
+				entry.intake.route === "reject" ? [] : ["knowledge", "chat"],
+			);
+		}
 	});
 
 	it("builds accept attributes from the surface lists", () => {
@@ -325,13 +380,44 @@ describe("file-type registry invariants", () => {
 	});
 
 	it("lets only `zip` be producible but not ingestible", () => {
-		// Spec conflict 10 / open question 4: Phase >= 2 moves it to the RESERVED
-		// "archive" route.
+		// Phase 5 D11 keeps the by-name exemption. The `archive` intake route is
+		// described in phase5-6-uploads-generation-spec.md section 3.4 and
+		// deliberately NOT built, so `zip` stays `reject`/`archive`: flipping the
+		// route would make `admitUpload` answer `allowed: true` for a `.zip`
+		// with no extractor behind it.
 		const productionOnly = FILE_TYPE_ENTRIES.filter(
 			(entry) =>
 				entry.production.requestable && entry.intake.route === "reject",
 		).map((entry) => entry.id);
 		expect(productionOnly).toEqual(["zip"]);
+	});
+
+	it("names the inline_text output types exactly", () => {
+		// Phase 6 D8: the outputs that are bytes we already hold, i.e. the set
+		// `buildTextFileProgram` was spawning a container for. `html` is
+		// text-validated but is a document source, so it belongs to the report
+		// renderers; `svg`, `xlsx`, `pptx` and `zip` are not text-validated.
+		const inlineIds = FILE_TYPE_ENTRIES.filter(
+			(entry) =>
+				entry.production.requestable &&
+				Object.keys(entry.production.types).some((token) =>
+					isInlineTextOutputType(token),
+				),
+		).map((entry) => entry.id);
+		expect(inlineIds).toContain("md");
+		expect(inlineIds).toContain("tsv");
+		expect(inlineIds).toContain("csv");
+		expect(inlineIds).not.toContain("html");
+
+		for (const token of ["md", "markdown", "tsv", "csv", "txt", "json"]) {
+			expect(isInlineTextOutputType(token), token).toBe(true);
+		}
+		for (const token of ["html", "pdf", "docx", "xlsx", "pptx", "zip", "svg"]) {
+			expect(isInlineTextOutputType(token), token).toBe(false);
+		}
+		// An unknown token is never inline, and a mixed request is decided by
+		// the caller's `every`.
+		expect(isInlineTextOutputType("qqq")).toBe(false);
 	});
 
 	it("only advertises extraction formats the upload endpoint admits", () => {
@@ -372,6 +458,136 @@ describe("file-type registry invariants", () => {
 		expect(getIntakeRoute("clip.mp4", "video/mp4")).toBe("reject");
 		expect(getIntakeRoute("notes.txt", null)).toBe("direct-text");
 		expect(getIntakeRoute("scan.pdf", null)).toBe("mineru");
+		// Phase 5: the three routes that moved.
+		expect(getIntakeRoute("page.html", null)).toBe("mineru");
+		expect(getIntakeRoute("data.tsv", null)).toBe("direct-text");
+		expect(getIntakeRoute("doc.ofd", null)).toBe("reject");
+	});
+
+	it("routes HTML with an odd extension through the entry, not the MIME", () => {
+		// `resolveEntry` misses on the extension, hits `text/html` -> the `html`
+		// entry -> mineru. `isDirectTextFallbackMimeType` would have said
+		// "direct-text" before Phase 5; the entry wins because `getIntakeRoute`
+		// consults `resolveEntry` first.
+		expect(getIntakeRoute("page.download", "text/html")).toBe("mineru");
+		// And the extension still beats a contradicting MIME.
+		expect(getIntakeRoute("page.html", "text/plain")).toBe("mineru");
+		expect(getIntakeRoute("page.htm", null)).toBe("mineru");
+	});
+
+	it("gates only the formats a 3.x backend cannot parse", () => {
+		// D6 + the amended OQ2. Gated = hidden and refused on a positively
+		// pre-4 backend. `html` is NOT here: it carries `requiresMineru4` too,
+		// but with a `fallbackRoute`, so it degrades instead of disappearing.
+		expect(getMineru4GatedFileTypeIds()).toEqual([
+			"epub",
+			"odp",
+			"ods",
+			"odt",
+			"rtf",
+		]);
+		expect(getMineru4FallbackFileTypeIds()).toEqual(["html"]);
+
+		for (const id of [
+			...getMineru4GatedFileTypeIds(),
+			...getMineru4FallbackFileTypeIds(),
+		]) {
+			const entry = FILE_TYPE_ENTRIES.find((candidate) => candidate.id === id);
+			// Only a MinerU-routed entry can be gated: a direct-text or reject
+			// entry does not talk to the backend at all, so the flag would be a
+			// lie there.
+			expect(entry?.intake.route, id).toBe("mineru");
+		}
+
+		for (const entry of FILE_TYPE_ENTRIES) {
+			if (entry.intake.requiresMineru4) {
+				expect(entry.intake.route, entry.id).toBe("mineru");
+				continue;
+			}
+			// A fallback without the flag is unreachable — nothing would ever
+			// consult it.
+			expect(entry.intake.fallbackRoute, entry.id).toBeUndefined();
+		}
+
+		// A fallback is a DOWNGRADE, never a refusal: a refusal is expressed by
+		// leaving `fallbackRoute` absent and letting the gate hide the entry.
+		expect(getIntakeFallbackRoute("page.html", null)).toBe("direct-text");
+		expect(getIntakeFallbackRoute("page.htm", null)).toBe("direct-text");
+		expect(getIntakeFallbackRoute("book.epub", null)).toBeNull();
+		expect(getIntakeFallbackRoute("notes.txt", null)).toBeNull();
+		for (const entry of FILE_TYPE_ENTRIES) {
+			expect(entry.intake.fallbackRoute, entry.id).not.toBe("reject");
+		}
+	});
+
+	it("gives every mineru Office entry a flash tier hint", () => {
+		// D4 / OQ11. PDF and the images stay unhinted: they are the only inputs
+		// the fixtures show resolving to `basic`.
+		for (const id of [
+			"docx",
+			"xlsx",
+			"pptx",
+			"odt",
+			"ods",
+			"odp",
+			"doc",
+			"xls",
+			"ppt",
+			"rtf",
+			"epub",
+			"html",
+		]) {
+			const entry = FILE_TYPE_ENTRIES.find((candidate) => candidate.id === id);
+			expect(entry?.intake.tierHint, id).toBe("flash");
+		}
+		for (const id of [
+			"pdf",
+			"jpg",
+			"png",
+			"gif",
+			"webp",
+			"bmp",
+			"tif",
+			"heic",
+			"heif",
+			"avif",
+		]) {
+			const entry = FILE_TYPE_ENTRIES.find((candidate) => candidate.id === id);
+			expect(entry?.intake.tierHint, id).toBeUndefined();
+		}
+		// A tier hint on a route that never reaches MinerU is meaningless.
+		for (const entry of FILE_TYPE_ENTRIES) {
+			if (entry.intake.tierHint === undefined) continue;
+			expect(entry.intake.route, entry.id).toBe("mineru");
+		}
+	});
+
+	it("`buildAcceptAttribute` drops exactly the disabled entries", () => {
+		const disabled = new Set(getMineru4GatedFileTypeIds());
+		for (const surface of ["knowledge", "chat"] as const) {
+			const full = getAcceptAttribute(surface).split(",");
+			const gated = buildAcceptAttribute(surface, disabled).split(",");
+			expect(
+				full.filter((extension) => !gated.includes(extension)).sort(),
+			).toEqual([".epub", ".odp", ".ods", ".odt", ".rtf"]);
+			// Order of what survives is untouched.
+			expect(gated).toEqual(
+				full.filter(
+					(extension) =>
+						![".epub", ".odp", ".ods", ".odt", ".rtf"].includes(extension),
+				),
+			);
+			// `.html`/`.htm` keep their place — they fall back, they do not hide.
+			expect(gated).toContain(".html");
+			expect(gated).toContain(".htm");
+		}
+		// The empty and absent cases are the memoised fast path.
+		expect(buildAcceptAttribute("knowledge")).toBe(
+			getAcceptAttribute("knowledge"),
+		);
+		expect(buildAcceptAttribute("chat", new Set())).toBe(
+			getAcceptAttribute("chat"),
+		);
 	});
 
 	// `dev`'s `isDirectTextExtractionFile` read ANY file whose declared MIME
@@ -425,8 +641,10 @@ describe("file-type registry invariants", () => {
 
 		it("never lets a text/* MIME talk a reject entry past the gate", () => {
 			// The extension still wins: claiming text/plain for a .mp4 or a .zip
-			// must not reopen exception (b)/(c).
-			for (const fileName of ["clip.mp4", "bundle.zip", "memo.rtf"]) {
+			// must not reopen exception (b)/(c). `memo.rtf` used to be the third
+			// case; Phase 5 made `.rtf` ingestible, so `.ofd` — the one entry
+			// still refused as `formatNotEnabled` — takes its place.
+			for (const fileName of ["clip.mp4", "bundle.zip", "scan.ofd"]) {
 				expect(admitUpload(fileName, "text/plain"), fileName).toMatchObject({
 					allowed: false,
 				});

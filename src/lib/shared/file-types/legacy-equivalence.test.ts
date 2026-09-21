@@ -20,6 +20,7 @@ import {
 	getContentTypeForFile,
 	getEntryByFilename,
 	getEntryByMimeType,
+	getIntakeFallbackRoute,
 	getIntakeRoute,
 	getPreviewKind,
 	getPreviewLanguage,
@@ -222,6 +223,82 @@ const KNOWN_DELTAS = {
 		"text/x-swift: text -> code",
 		"text/yaml: text -> code",
 	] as readonly string[],
+
+	/**
+	 * Phase 5 + 6 enablement — every divergence caused by
+	 * `docs/plans/mineru4/phase5-6-uploads-generation-spec.md` sections 2.2-2.5
+	 * (D1-D5, D7) and its amended OQ2.
+	 *
+	 * It is ONE named group rather than members scattered through the six above
+	 * on purpose: the frozen copies document pre-migration behaviour and the
+	 * first six groups document Phase 1's re-partition of it, so a reviewer of
+	 * THIS migration can read its whole behaviour delta in one place.
+	 *
+	 * Two members are unlike anything in the groups above and are called out
+	 * where they are declared: `directTextContraction` is the only SUBTRACTIVE
+	 * delta in the object, and `newEntryMimeGlyphs` contains the only move
+	 * between two REAL glyphs.
+	 */
+	phase5Enablement: {
+		/**
+		 * D3 + the amended OQ2. `.html`/`.htm` were read as raw bytes straight
+		 * into the prompt and now go to MinerU at `flash`, which strips
+		 * scripts, style, nav, ad slots and the footer (-34.3 % chars on the
+		 * spike fixture, -43.2 % after anchor stripping).
+		 *
+		 * THE ONLY SUBTRACTIVE DELTA IN THIS OBJECT: everything else, in every
+		 * group, gives an answer where the old code had none. It is also why
+		 * the `html` entry is the one gated entry with a `fallbackRoute` — an
+		 * upload that works today must never become a refusal.
+		 */
+		directTextContraction: ["html", "htm"] as readonly string[],
+
+		/**
+		 * D2 / OQ1. `.tsv` was `reject` / `formatNotEnabled`; it is now read
+		 * directly, and therefore previews as text. It is absent from
+		 * `FROZEN_TEXT_EXTENSIONS` because it had no entry at all before
+		 * Phase 1 and no route before Phase 5.
+		 */
+		directTextGained: ["tsv"] as readonly string[],
+
+		/**
+		 * D7. The one new requestable output type of the whole migration, so
+		 * `OUTPUT_TYPE_EXTENSIONS` gains exactly these two tokens and
+		 * TEXT_LIKE/FULL_VALIDATION gain exactly `.tsv`. No `exampleRank`, so
+		 * `FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES` — and therefore every prompt
+		 * string built from it — does not move.
+		 */
+		outputTokensGained: {
+			tsv: ".tsv",
+			"text/tab-separated-values": ".tsv",
+		} as Readonly<Record<string, string>>,
+
+		/**
+		 * D1 / OQ3. `epub` and `ofd` are brand-new entries, so both glyph
+		 * surfaces now answer where they fell through to the generic icon.
+		 */
+		newEntryGlyphs: {
+			epub: ["unsupported", "text"],
+			ofd: ["unsupported", "text"],
+		} as Readonly<Record<string, readonly [string, string]>>,
+		newEntryIcons: {
+			epub: ["FileIcon", "FileText"],
+			ofd: ["FileIcon", "FileText"],
+		} as Readonly<Record<string, readonly [string, string]>>,
+
+		/**
+		 * THE ONLY MOVE BETWEEN TWO REAL GLYPHS anywhere in KNOWN_DELTAS.
+		 * `frozenGetFileType` reached its `mime.includes("zip")` arm for
+		 * `application/epub+zip` and called an EPUB an archive. The registry
+		 * answers from the entry, so it is a document. That is a fix, not a
+		 * regression, and it is why "keeps the glyph expansions purely
+		 * additive" checks `mimeOnlyGlyphExpansion` and not this list.
+		 */
+		newEntryMimeGlyphs: [
+			"application/epub+zip: archive -> text",
+			"application/ofd: unsupported -> text",
+		] as readonly string[],
+	},
 } as const;
 
 const ALL_EXTENSIONS = FILE_TYPE_ENTRIES.flatMap((entry) => [
@@ -943,9 +1020,20 @@ const CATEGORY_TO_ATTACHMENT_TYPE: Record<FileTypeCategory, string> = {
 // FROZEN: src/routes/(app)/knowledge/_components/DocumentsList.svelte
 // ───────────────────────────────────────────────────────────────────────────
 
-// :190 — the accept string the knowledge upload input publishes today.
+// :190 — the accept string the knowledge upload input published before the
+// registry existed. Phase 5 D5 APPENDS to it; it is never reordered, so it is
+// still a readable prefix of what we publish and this constant stays frozen.
 const FROZEN_ACCEPT_STRING =
 	".pdf,.doc,.docx,.txt,.md,.json,.csv,.xlsx,.xls,.pptx,.ppt,.html,.htm,.jpg,.jpeg,.jfif,.png,.gif,.bmp,.tiff,.tif,.webp,.svg,.heic,.heif,.avif";
+
+/**
+ * The knowledge accept string after Phase 5 D5 / OQ4 — the frozen head above
+ * plus every other non-reject extension, 74 in all. Deliberately spelled out
+ * rather than derived: widening the file picker by 48 extensions is a visible
+ * product change, and the point of this assertion is that it cannot happen by
+ * accident.
+ */
+const FROZEN_ACCEPT_STRING_V2 = `${FROZEN_ACCEPT_STRING},.markdown,.odt,.rtf,.ods,.odp,.epub,.tsv,.xml,.css,.scss,.sass,.less,.js,.mjs,.cjs,.jsx,.ts,.tsx,.py,.sh,.bash,.zsh,.yaml,.yml,.toml,.sql,.graphql,.gql,.ini,.env,.conf,.log,.rb,.rs,.go,.java,.kt,.kts,.swift,.cs,.cpp,.cxx,.cc,.hpp,.c,.h,.php,.r`;
 
 // :556-558 — note it differs from `fileExtension`: no dot means "".
 function frozenGetFileExtension(value: string): string {
@@ -1291,8 +1379,28 @@ function sorted(values: Iterable<string>): string[] {
 
 describe("legacy equivalence — production tables", () => {
 	it("reproduces OUTPUT_TYPE_EXTENSIONS exactly, both directions", () => {
-		expect(buildOutputTokenMap()).toEqual(FROZEN_OUTPUT_TYPE_EXTENSIONS);
-		expect(FROZEN_OUTPUT_TYPE_EXTENSIONS).toEqual(buildOutputTokenMap());
+		const expected = {
+			...FROZEN_OUTPUT_TYPE_EXTENSIONS,
+			...KNOWN_DELTAS.phase5Enablement.outputTokensGained,
+		};
+		expect(buildOutputTokenMap()).toEqual(expected);
+		expect(expected).toEqual(buildOutputTokenMap());
+		// Stated separately so the gain cannot hide a second, unnoticed token:
+		// no frozen token may change extension, and exactly two are added.
+		for (const [token, extension] of Object.entries(
+			FROZEN_OUTPUT_TYPE_EXTENSIONS,
+		)) {
+			expect(buildOutputTokenMap()[token], token).toBe(extension);
+		}
+		expect(
+			sorted(
+				Object.keys(buildOutputTokenMap()).filter(
+					(token) => !(token in FROZEN_OUTPUT_TYPE_EXTENSIONS),
+				),
+			),
+		).toEqual(
+			sorted(Object.keys(KNOWN_DELTAS.phase5Enablement.outputTokensGained)),
+		);
 	});
 
 	it("reproduces EXTENSION_MIME_TYPES key by key, order included", () => {
@@ -1313,26 +1421,42 @@ describe("legacy equivalence — production tables", () => {
 	});
 
 	it("reproduces TEXT_LIKE_EXTENSIONS", () => {
+		// Phase 6 D7 adds `.tsv` and nothing else: it is the one entry whose
+		// `production.validation` becomes "text" in this migration.
+		const expected = [
+			...FROZEN_TEXT_LIKE_EXTENSIONS,
+			...KNOWN_DELTAS.phase5Enablement.directTextGained.map(
+				(extension) => `.${extension}`,
+			),
+		];
 		const fromRegistry = ALL_EXTENSIONS.filter((extension) =>
 			isTextLikeExtension(`.${extension}`),
 		).map((extension) => `.${extension}`);
-		expect(sorted(fromRegistry)).toEqual(sorted(FROZEN_TEXT_LIKE_EXTENSIONS));
+		expect(sorted(fromRegistry)).toEqual(sorted(expected));
 
 		for (const extension of FROZEN_TEXT_LIKE_EXTENSIONS) {
 			expect(getProductionValidationClass(extension), extension).toBe("text");
 		}
-		// The single documented difference from file-preview's TEXT_EXTENSIONS.
+		// The documented differences from file-preview's TEXT_EXTENSIONS. `.rtf`
+		// stays false through Phase 5 too: the invariant
+		// `production.validation === "text" <=> textLike` forbids moving one
+		// without the other, and `.rtf` was never in TEXT_LIKE_EXTENSIONS.
 		expect(isTextLikeExtension(".rtf")).toBe(false);
 		expect(isTextLikeExtension(".svg")).toBe(false);
+		expect(isTextLikeExtension(".tsv")).toBe(true);
 	});
 
 	it("derives FULL_VALIDATION_EXTENSIONS as textLike + xlsx", () => {
+		const expected = [
+			...FROZEN_FULL_VALIDATION_EXTENSIONS,
+			...KNOWN_DELTAS.phase5Enablement.directTextGained.map(
+				(extension) => `.${extension}`,
+			),
+		];
 		const fromRegistry = ALL_EXTENSIONS.filter((extension) =>
 			requiresFullContentValidation(`.${extension}`),
 		).map((extension) => `.${extension}`);
-		expect(sorted(fromRegistry)).toEqual(
-			sorted(FROZEN_FULL_VALIDATION_EXTENSIONS),
-		);
+		expect(sorted(fromRegistry)).toEqual(sorted(expected));
 		expect(getProductionValidationClass(".xlsx")).toBe("xlsx");
 	});
 
@@ -1458,12 +1582,17 @@ describe("legacy equivalence — preview tables", () => {
 		// `html`/`htm` are in TEXT_EXTENSIONS but TRUSTED_PREVIEW_EXTENSIONS wins
 		// for them, so they never resolved to "text" either. The registry stores
 		// that directly: preview.kind === "html".
+		//
+		// `.tsv` is the one gain: Phase 5 D2 made it `direct-text`, so its
+		// preview kind moves from "unsupported" to "text". It was never in
+		// TEXT_EXTENSIONS because it had no entry before Phase 1.
 		expect(sorted(previewsAsText)).toEqual(
-			sorted(
-				FROZEN_TEXT_EXTENSIONS.filter(
+			sorted([
+				...FROZEN_TEXT_EXTENSIONS.filter(
 					(extension) => extension !== "html" && extension !== "htm",
 				),
-			),
+				...KNOWN_DELTAS.phase5Enablement.directTextGained,
+			]),
 		);
 		for (const extension of ["html", "htm"]) {
 			expect(FROZEN_TEXT_EXTENSIONS).toContain(extension);
@@ -1531,11 +1660,15 @@ describe("legacy equivalence — glyph surfaces", () => {
 			const after = CATEGORY_TO_ATTACHMENT_TYPE[getCategory(filename, null)];
 			if (before !== after) observed[extension] = [before, after];
 		}
-		expect(observed).toEqual(KNOWN_DELTAS.attachmentGlyphExpansion);
+		expect(observed).toEqual({
+			...KNOWN_DELTAS.attachmentGlyphExpansion,
+			...KNOWN_DELTAS.phase5Enablement.newEntryGlyphs,
+		});
 		// Every delta is a file that used to draw the generic glyph.
-		for (const [before] of Object.values(
-			KNOWN_DELTAS.attachmentGlyphExpansion,
-		)) {
+		for (const [before] of [
+			...Object.values(KNOWN_DELTAS.attachmentGlyphExpansion),
+			...Object.values(KNOWN_DELTAS.phase5Enablement.newEntryGlyphs),
+		]) {
 			expect(before).toBe("unsupported");
 		}
 	});
@@ -1555,7 +1688,10 @@ describe("legacy equivalence — glyph surfaces", () => {
 			if (before !== after) observed.push(`${mimeType}: ${before} -> ${after}`);
 		}
 		expect(sorted(observed)).toEqual(
-			sorted(KNOWN_DELTAS.mimeOnlyGlyphExpansion),
+			sorted([
+				...KNOWN_DELTAS.mimeOnlyGlyphExpansion,
+				...KNOWN_DELTAS.phase5Enablement.newEntryMimeGlyphs,
+			]),
 		);
 	});
 
@@ -1567,8 +1703,14 @@ describe("legacy equivalence — glyph surfaces", () => {
 			const after = CATEGORY_TO_ICON[getCategory(filename, null)];
 			if (before !== after) observed[extension] = [before, after];
 		}
-		expect(observed).toEqual(KNOWN_DELTAS.knowledgeIconExpansion);
-		for (const [before] of Object.values(KNOWN_DELTAS.knowledgeIconExpansion)) {
+		expect(observed).toEqual({
+			...KNOWN_DELTAS.knowledgeIconExpansion,
+			...KNOWN_DELTAS.phase5Enablement.newEntryIcons,
+		});
+		for (const [before] of [
+			...Object.values(KNOWN_DELTAS.knowledgeIconExpansion),
+			...Object.values(KNOWN_DELTAS.phase5Enablement.newEntryIcons),
+		]) {
 			expect(before).toBe("FileIcon");
 		}
 	});
@@ -1585,8 +1727,15 @@ describe("legacy equivalence — glyph surfaces", () => {
 		expect(registryFormatFileType(null, "x.htm")).toBe("HTML");
 	});
 
-	it("reproduces the knowledge accept string byte for byte", () => {
-		expect(getAcceptAttribute("knowledge")).toBe(FROZEN_ACCEPT_STRING);
+	it("still opens the knowledge accept string with the frozen one, byte for byte", () => {
+		// Phase 5 D5 appends; it never reorders. Keeping the prefix assertion
+		// lets a reviewer see the historical 26 are untouched and in order, and
+		// the exact assertion below pins what was added to them.
+		expect(
+			getAcceptAttribute("knowledge").startsWith(`${FROZEN_ACCEPT_STRING},`),
+		).toBe(true);
+		expect(getAcceptAttribute("knowledge")).toBe(FROZEN_ACCEPT_STRING_V2);
+		expect(FROZEN_ACCEPT_STRING_V2.split(",")).toHaveLength(74);
 	});
 });
 
@@ -1600,19 +1749,42 @@ describe("legacy equivalence — intake", () => {
 	});
 
 	it("reproduces isDirectTextExtractionFile apart from the sanctioned expansion", () => {
+		// Two kinds of divergence now, and the split is the point: the loop used
+		// to assert `before === false` on every one of them, which would have
+		// hidden Phase 5's html contraction inside the Phase 1 expansion.
 		const gained: string[] = [];
+		const lost: string[] = [];
 		for (const extension of ALL_EXTENSIONS) {
 			const before = frozenIsDirectTextExtractionFile(`.${extension}`, null);
 			const after = getIntakeRoute(`x.${extension}`, null) === "direct-text";
 			if (before === after) continue;
-			expect(before, extension).toBe(false);
-			gained.push(extension);
+			(before ? lost : gained).push(extension);
 		}
-		expect(sorted(gained)).toEqual(sorted(KNOWN_DELTAS.directTextExpansion));
+
+		// Additive: Phase 1's 34 text/code extensions, plus Phase 5's `.tsv`.
+		expect(sorted(gained)).toEqual(
+			sorted([
+				...KNOWN_DELTAS.directTextExpansion,
+				...KNOWN_DELTAS.phase5Enablement.directTextGained,
+			]),
+		);
 		expect(KNOWN_DELTAS.directTextExpansion).toHaveLength(34);
-		// `.rtf` is NOT part of the expansion — it stays refused.
-		expect(gained).not.toContain("rtf");
-		expect(getIntakeRoute("x.rtf", null)).toBe("reject");
+
+		// Subtractive: html/htm and nothing else, ever.
+		expect(sorted(lost)).toEqual(
+			sorted(KNOWN_DELTAS.phase5Enablement.directTextContraction),
+		);
+		expect(getIntakeRoute("x.html", null)).toBe("mineru");
+		expect(getIntakeRoute("x.htm", null)).toBe("mineru");
+		// …and the contraction is bounded by a fallback, so an old backend
+		// still reads the bytes rather than refusing the upload.
+		expect(getIntakeFallbackRoute("x.html", null)).toBe("direct-text");
+
+		// `.ofd` is NOT part of the expansion — it is the one type still
+		// refused as `formatNotEnabled`. `.rtf` used to be this assertion.
+		expect(gained).not.toContain("ofd");
+		expect(getIntakeRoute("x.ofd", null)).toBe("reject");
+		expect(getIntakeRoute("x.rtf", null)).toBe("mineru");
 	});
 
 	it("keeps the direct-text MIME shortcuts working", () => {
@@ -1666,11 +1838,12 @@ describe("legacy equivalence — image allowlists", () => {
 });
 
 describe("KNOWN_DELTAS", () => {
-	it("has exactly six groups", () => {
-		// The spec (section 6.2) told the reviewer to expect THREE. The last
-		// three are forced by the spec's own per-entry `category` field and are
+	it("has exactly seven groups", () => {
+		// The spec (section 6.2) told the reviewer to expect THREE. Groups 4-6
+		// are forced by the spec's own per-entry `category` field and are
 		// documented on each group above; every member of them is a file that
-		// used to draw a generic or over-broad glyph.
+		// used to draw a generic or over-broad glyph. Group 7 is this
+		// migration's own behaviour delta, kept in one place on purpose.
 		expect(Object.keys(KNOWN_DELTAS)).toEqual([
 			"javascriptCanonicalMime",
 			"jfifCanonicalMime",
@@ -1678,16 +1851,41 @@ describe("KNOWN_DELTAS", () => {
 			"attachmentGlyphExpansion",
 			"knowledgeIconExpansion",
 			"mimeOnlyGlyphExpansion",
+			"phase5Enablement",
 		]);
 	});
 
-	it("keeps the glyph expansions purely additive", () => {
+	it("keeps the PHASE 1 glyph expansions purely additive", () => {
 		// No file moves between two SPECIFIC glyphs: the only moves are out of
 		// the generic bucket, or from the catch-all "text" into a real category.
 		for (const line of KNOWN_DELTAS.mimeOnlyGlyphExpansion) {
 			const before = line.split(": ")[1]?.split(" -> ")[0];
 			expect(["unsupported", "text"], line).toContain(before);
 		}
+	});
+
+	it("holds Phase 5's one real-glyph move, and only that one", () => {
+		// `application/epub+zip` hit `frozenGetFileType`'s `includes("zip")`
+		// arm and came back "archive". It is the single exception to the
+		// additive rule above, so it is asserted rather than waved through.
+		const moves = KNOWN_DELTAS.phase5Enablement.newEntryMimeGlyphs.filter(
+			(line) => {
+				const before = line.split(": ")[1]?.split(" -> ")[0];
+				return before !== "unsupported" && before !== "text";
+			},
+		);
+		expect(moves).toEqual(["application/epub+zip: archive -> text"]);
+	});
+
+	it("keeps the html contraction the only subtractive delta", () => {
+		// Everything else in the object gives an answer where the old code had
+		// none. A second subtractive group would mean an upload that works
+		// today stopped working, which needs its own ruling — html got one
+		// (the amended OQ2) and pays for it with `fallbackRoute`.
+		expect(KNOWN_DELTAS.phase5Enablement.directTextContraction).toEqual([
+			"html",
+			"htm",
+		]);
 	});
 
 	it("names only extensions the table knows", () => {
@@ -1698,6 +1896,10 @@ describe("KNOWN_DELTAS", () => {
 			...KNOWN_DELTAS.directTextExpansion,
 			...Object.keys(KNOWN_DELTAS.attachmentGlyphExpansion),
 			...Object.keys(KNOWN_DELTAS.knowledgeIconExpansion),
+			...KNOWN_DELTAS.phase5Enablement.directTextContraction,
+			...KNOWN_DELTAS.phase5Enablement.directTextGained,
+			...Object.keys(KNOWN_DELTAS.phase5Enablement.newEntryGlyphs),
+			...Object.keys(KNOWN_DELTAS.phase5Enablement.newEntryIcons),
 		];
 		for (const extension of named) {
 			expect(known.has(extension), extension).toBe(true);
