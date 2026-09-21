@@ -9,6 +9,7 @@ import {
 	messages,
 	taskStateEvidenceLinks,
 } from "$lib/server/db/schema";
+import { removeMineruParseBundle } from "$lib/server/services/mineru/bundle";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	buildArtifactVisibilityCondition,
@@ -87,6 +88,15 @@ export async function hardDeleteArtifactsForUser(
 	const deletedStoragePaths: string[] = [];
 	const failedStoragePaths: string[] = [];
 	for (const row of scopedArtifactsToDelete) {
+		// The MinerU parse bundle is keyed on the artifact id, not on the
+		// storage path, so it is removed for every row the delete covers —
+		// which is what makes this work for both the direct
+		// `deleteArtifactForUser` path and the source → normalized expansion.
+		// Best effort by design: `removeMineruParseBundle` warns rather than
+		// throwing, because an orphaned bundle is a line in the disk report
+		// while a throw here would abandon the remaining unlinks.
+		await removeMineruParseBundle(userId, row.id).catch(() => undefined);
+
 		if (!row.storagePath) continue;
 		try {
 			await unlink(join(process.cwd(), row.storagePath));
