@@ -312,15 +312,22 @@ export function getCategory(
 // ── upload surfaces ────────────────────────────────────────────────────────
 
 /**
- * Per-surface extension order for the `accept` attribute. Frozen for
- * `knowledge` so `getAcceptAttribute("knowledge")` reproduces
- * `DocumentsList.svelte:190`'s literal byte for byte; new knowledge types
- * append at the end. `null` means "table order".
+ * Per-surface extension order for the `accept` attribute. `null` means "table
+ * order".
+ *
+ * `knowledge` keeps its frozen 26-extension head, so the string
+ * `DocumentsList.svelte:190` published before the registry existed is still a
+ * readable PREFIX of what we publish now (`legacy-equivalence.test.ts` asserts
+ * exactly that). Phase 5 D5 / OQ4 then appends every other non-reject
+ * extension, in one deliberate block: the two surfaces now offer the same SET
+ * and differ only in order (knowledge = frozen-then-appended, chat = table
+ * order). New types append at the end.
  */
 export const SURFACE_ACCEPT_ORDER: Readonly<
 	Record<UploadSurface, readonly string[] | null>
 > = {
 	knowledge: [
+		// — the frozen head, unchanged and unreordered —
 		"pdf",
 		"doc",
 		"docx",
@@ -347,20 +354,73 @@ export const SURFACE_ACCEPT_ORDER: Readonly<
 		"heic",
 		"heif",
 		"avif",
+		// — Phase 5 D5: the alias the head omitted —
+		"markdown",
+		// — Phase 5 D1/D2: the newly ingestible document and data formats —
+		"odt",
+		"rtf",
+		"ods",
+		"odp",
+		"epub",
+		"tsv",
+		// — Phase 5 OQ4: the code and config formats chat already offered —
+		"xml",
+		"css",
+		"scss",
+		"sass",
+		"less",
+		"js",
+		"mjs",
+		"cjs",
+		"jsx",
+		"ts",
+		"tsx",
+		"py",
+		"sh",
+		"bash",
+		"zsh",
+		"yaml",
+		"yml",
+		"toml",
+		"sql",
+		"graphql",
+		"gql",
+		"ini",
+		"env",
+		"conf",
+		"log",
+		"rb",
+		"rs",
+		"go",
+		"java",
+		"kt",
+		"kts",
+		"swift",
+		"cs",
+		"cpp",
+		"cxx",
+		"cc",
+		"hpp",
+		"c",
+		"h",
+		"php",
+		"r",
 	],
 	chat: null,
 };
 
 /**
- * Extensions of a `knowledge` entry that the frozen accept string deliberately
- * omits. `.md` is offered but `.markdown` is not; adding it is a visible
- * product change, deferred by spec open question 3. `registry.test.ts` asserts
- * this is the ONLY gap, so a new knowledge entry still forces an explicit edit
- * to `SURFACE_ACCEPT_ORDER`.
+ * Extensions of a `knowledge` entry that the accept string deliberately omits.
+ *
+ * EMPTY since Phase 5 D5: `.markdown` was the single documented gap and is now
+ * offered. The export stays (and stays frozen-empty) because `registry.test.ts`
+ * asserts `SURFACE_ACCEPT_ORDER.knowledge` has no OTHER gap, so a new knowledge
+ * entry still forces an explicit edit to the order above — and the next
+ * deliberate omission has a home to be declared in.
  */
-export const KNOWLEDGE_ACCEPT_OMISSIONS: ReadonlySet<string> = new Set([
-	"markdown",
-]);
+export const KNOWLEDGE_ACCEPT_OMISSIONS: ReadonlySet<string> = new Set<string>(
+	[],
+);
 
 const acceptedExtensionsCache = new Map<UploadSurface, readonly string[]>();
 const acceptAttributeCache = new Map<UploadSurface, string>();
@@ -392,6 +452,34 @@ export function getAcceptAttribute(surface: UploadSurface): string {
 		.join(",");
 	acceptAttributeCache.set(surface, attribute);
 	return attribute;
+}
+
+/**
+ * `getAcceptAttribute` minus a set of disabled entry ids — every extension of a
+ * disabled entry is dropped, order otherwise untouched.
+ *
+ * Pure and deliberately NOT memoised: the disabled set is a function of backend
+ * health (`getMineru4GatedFileTypeIds` on a pre-4.x probe), which changes at
+ * runtime, so it cannot be an option on the memoised accessor without making
+ * that cache wrong. An empty or absent set is the memoised fast path.
+ */
+export function buildAcceptAttribute(
+	surface: UploadSurface,
+	disabledEntryIds?: ReadonlySet<string>,
+): string {
+	if (!disabledEntryIds || disabledEntryIds.size === 0) {
+		return getAcceptAttribute(surface);
+	}
+
+	const disabledExtensions = new Set(
+		FILE_TYPE_ENTRIES.filter((entry) => disabledEntryIds.has(entry.id)).flatMap(
+			(entry) => [...entry.extensions],
+		),
+	);
+	return getAcceptedExtensions(surface)
+		.filter((extension) => !disabledExtensions.has(extension))
+		.map((extension) => `.${extension}`)
+		.join(",");
 }
 
 // ── server allowlist (pure, so the client may pre-check identically) ────────
@@ -496,6 +584,68 @@ export function getIntakeTierHint(
 	mimeType: string | null,
 ): "flash" | undefined {
 	return resolveEntry(filename, mimeType)?.intake.tierHint;
+}
+
+// ── MinerU 4.x gating (phase5-6 spec D6 + the amended OQ2) ─────────────────
+//
+// The registry only LABELS entries. The probe (`/v1/health`, major >= 4), the
+// cache, the fail-open policy and the 415 all live server-side in
+// `knowledge/format-availability.ts`; nothing here knows what backend is
+// running, which is why every accessor below is a pure function of the table.
+
+/** `intake.requiresMineru4`, split on whether the entry declares a fallback. */
+function mineru4Ids(hasFallback: boolean): readonly string[] {
+	return FILE_TYPE_ENTRIES.filter(
+		(entry) =>
+			entry.intake.requiresMineru4 === true &&
+			(entry.intake.fallbackRoute !== undefined) === hasFallback,
+	)
+		.map((entry) => entry.id)
+		.sort();
+}
+
+// Memoised by construction: the table is a module-level constant.
+const MINERU4_GATED_IDS = mineru4Ids(false);
+const MINERU4_FALLBACK_IDS = mineru4Ids(true);
+
+/**
+ * Entry ids to REFUSE (and to hide from both accept strings) when the backend
+ * has positively probed as pre-4.x: `["epub","odp","ods","odt","rtf"]`.
+ *
+ * These are the formats that never worked before this migration, so refusing
+ * them costs a user nothing they had. Feed the set to `buildAcceptAttribute`
+ * for the picker and compare `admission.entry.id` against it at intent.
+ *
+ * NOT every entry carrying `requiresMineru4`: `html` carries the flag too but
+ * declares a `fallbackRoute`, so it degrades instead of disappearing.
+ */
+export function getMineru4GatedFileTypeIds(): readonly string[] {
+	return MINERU4_GATED_IDS;
+}
+
+/**
+ * Entry ids that stay OFFERED on a pre-4.x backend but change route:
+ * `["html"]`. Sorted, memoised. The route to use is `intake.fallbackRoute`,
+ * or `getIntakeFallbackRoute` for a filename.
+ */
+export function getMineru4FallbackFileTypeIds(): readonly string[] {
+	return MINERU4_FALLBACK_IDS;
+}
+
+/**
+ * The route to use for this file INSTEAD of `getIntakeRoute`'s answer when the
+ * backend has positively probed as pre-4.x. `null` means "no fallback" — either
+ * the entry is not gated at all (use `getIntakeRoute`) or it is one of the
+ * gated ids above (refuse it).
+ *
+ * Callers must not apply this on an unknown or unreachable backend: the gate
+ * fails OPEN (OQ9), so only a positive pre-4 answer may downgrade a route.
+ */
+export function getIntakeFallbackRoute(
+	filename: string,
+	mimeType: string | null,
+): IntakeRoute | null {
+	return resolveEntry(filename, mimeType)?.intake.fallbackRoute ?? null;
 }
 
 // ── limits ─────────────────────────────────────────────────────────────────

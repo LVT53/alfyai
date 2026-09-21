@@ -81,6 +81,29 @@ export interface FileTypeIntake {
 	readonly tierHint?: IntakeTierHint;
 	/** Required iff route === "reject". */
 	readonly rejectReason?: RejectReasonKey;
+	/**
+	 * True iff a pre-4.x MinerU cannot serve this entry the way `route` assumes
+	 * (phase5-6 spec section 2.1, D6). The registry only LABELS the entry — the
+	 * version probe and the refusal live in the upload path.
+	 *
+	 * Two shapes, told apart by `fallbackRoute`:
+	 *  - WITHOUT `fallbackRoute` (rtf, odt, ods, odp, epub): the format never
+	 *    worked before this migration, so a backend that positively answers
+	 *    "major < 4" hides it from both accept strings and refuses it exactly
+	 *    like `reject` / `formatNotEnabled`. See `getMineru4GatedFileTypeIds`.
+	 *  - WITH `fallbackRoute` (html/htm): the format works TODAY and must never
+	 *    become a refusal, so a pre-4 backend falls back to that route instead
+	 *    (orchestrator ruling "OQ2, amended"). See
+	 *    `getMineru4FallbackFileTypeIds` / `getIntakeFallbackRoute`.
+	 */
+	readonly requiresMineru4?: true;
+	/**
+	 * The route to use INSTEAD of `route` when the backend has positively
+	 * probed as pre-4.x. Only meaningful together with `requiresMineru4`, and
+	 * never `"reject"`: a refusal is expressed by leaving this absent.
+	 * `registry.test.ts` asserts both halves of that pairing.
+	 */
+	readonly fallbackRoute?: IntakeRoute;
 }
 
 export interface FileTypeProduction {

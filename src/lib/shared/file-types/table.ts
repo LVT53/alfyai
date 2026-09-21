@@ -36,6 +36,12 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 	// intake: direct-text, textLike: true, validation: "text".
 	// Deliberate change (spec section 2.4a): 33 of these previously fell
 	// through to MinerU, which cannot read them.
+	//
+	// Phase 5 (phase5-6 spec D5 / OQ4): every non-reject entry is now offered on
+	// BOTH surfaces. The server gate (`admitUpload`) has always been
+	// surface-independent, so a narrower knowledge list only hid types the
+	// server already accepted — a `.py` dropped on the Knowledge page was
+	// silently discarded while the identical file worked in chat.
 	{
 		id: "txt",
 		extensions: ["txt"],
@@ -86,6 +92,32 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		surfaces: ["knowledge", "chat"],
 	},
 	{
+		// Phase 5 D2 / OQ1: `direct-text`, NOT MinerU. The spike's csv fixture
+		// goes 89 chars in -> 148 chars out (+66.3 %) because pipes, padding and
+		// the `| --- |` separator row cost more than the delimiters they
+		// replace, and `run_python`/exceljs need the raw delimiters anyway.
+		// Requestable as an OUTPUT from Phase 6 D7 — it is the one format added
+		// there: plain text, zero libraries, and it closes the gap with the
+		// shipped spreadsheet skill, which already advertises TSV.
+		id: "tsv",
+		extensions: ["tsv"],
+		mimeTypes: ["text/tab-separated-values"],
+		category: "spreadsheet",
+		preview: { kind: "text" },
+		intake: { route: "direct-text" },
+		production: {
+			requestable: true,
+			types: { tsv: ".tsv", "text/tab-separated-values": ".tsv" },
+			validation: "text",
+			// No exampleRank on purpose: FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES
+			// stays "xlsx, docx, pptx, pdf, csv, zip", so no prompt string moves
+			// before the single prose release (D13 / slice P6-D).
+		},
+		textLike: true,
+		surfaces: ["knowledge", "chat"],
+		// No signature: delimited text is text, and text is never sniffed.
+	},
+	{
 		id: "json",
 		extensions: ["json"],
 		mimeTypes: ["application/json", "text/json"],
@@ -113,7 +145,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "html",
@@ -122,7 +154,24 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		category: "code",
 		// The extension decides: `html`/`htm` were in TRUSTED_PREVIEW_EXTENSIONS.
 		preview: { kind: "html", language: "html", extensionAuthoritative: true },
-		intake: { route: "direct-text" },
+		// Phase 5 D3. Measured on `fixtures/mineru-v1/html/`: 1 753 chars raw
+		// against 1 152 through MinerU flash (-34.3 %, -43.2 % once the four
+		// `<a id="html-…"></a>` anchors are stripped), with scripts, style, nav,
+		// ad slots and the footer removed and the most faithful heading levels
+		// of any input format. Two consequences the reader should know about:
+		// the 8 MiB direct-text cap no longer applies to HTML, and HTML now
+		// depends on the backend like every other MinerU type.
+		//
+		// `requiresMineru4` WITH a `fallbackRoute` (orchestrator ruling "OQ2,
+		// amended"): HTML uploads work today, so a pre-4 backend must degrade
+		// to reading the bytes, never refuse. It is the only entry of the two
+		// shapes that keeps a route on an old backend.
+		intake: {
+			route: "mineru",
+			tierHint: "flash",
+			requiresMineru4: true,
+			fallbackRoute: "direct-text",
+		},
 		production: {
 			requestable: true,
 			// `htm` carries no production token today — recognition only.
@@ -147,7 +196,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "scss",
@@ -162,7 +211,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "sass",
@@ -177,7 +226,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "less",
@@ -192,7 +241,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "js",
@@ -216,7 +265,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "jsx",
@@ -231,7 +280,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "ts",
@@ -251,7 +300,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "tsx",
@@ -266,7 +315,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "py",
@@ -281,7 +330,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "sh",
@@ -304,7 +353,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "yaml",
@@ -322,7 +371,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "toml",
@@ -337,7 +386,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "sql",
@@ -352,7 +401,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "graphql",
@@ -371,7 +420,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "ini",
@@ -387,7 +436,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "log",
@@ -402,7 +451,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "rb",
@@ -417,7 +466,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "rs",
@@ -432,7 +481,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "go",
@@ -447,7 +496,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "java",
@@ -462,7 +511,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "kt",
@@ -478,7 +527,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "swift",
@@ -493,7 +542,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "cs",
@@ -508,7 +557,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "cpp",
@@ -529,7 +578,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "c",
@@ -544,7 +593,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "php",
@@ -559,7 +608,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 	{
 		id: "r",
@@ -574,11 +623,18 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "text",
 		},
 		textLike: true,
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
 	},
 
 	// ── Documents ──────────────────────────────────────────────────────────
 	// intake: mineru, textLike: false.
+	//
+	// Phase 5 D4 / OQ11: every Office and ODF entry carries `tierHint: "flash"`.
+	// The spike resolved docx/xlsx/pptx to `flash` file-level inside a `basic`
+	// job anyway, and OMITTING the tier is a 503 on a flash-only server
+	// (`decideTier` rule 2). `pdf` and every image stay UNHINTED on purpose:
+	// they are the only inputs the fixtures show resolving to `basic`, and
+	// hinting them would trade OCR quality for ~300 ms.
 	{
 		id: "pdf",
 		extensions: ["pdf"],
@@ -615,7 +671,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		],
 		category: "document",
 		preview: { kind: "docx", extensionAuthoritative: true },
-		intake: { route: "mineru" },
+		intake: { route: "mineru", tierHint: "flash" },
 		production: {
 			requestable: true,
 			types: {
@@ -638,7 +694,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		mimeTypes: ["application/msword"],
 		category: "document",
 		preview: { kind: "unsupported" },
-		intake: { route: "mineru" },
+		intake: { route: "mineru", tierHint: "flash" },
 		production: { requestable: false, types: {}, validation: "none" },
 		textLike: false,
 		surfaces: ["knowledge", "chat"],
@@ -652,7 +708,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		],
 		category: "spreadsheet",
 		preview: { kind: "xlsx", extensionAuthoritative: true },
-		intake: { route: "mineru" },
+		intake: { route: "mineru", tierHint: "flash" },
 		production: {
 			requestable: true,
 			types: {
@@ -673,7 +729,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		mimeTypes: ["application/vnd.ms-excel"],
 		category: "spreadsheet",
 		preview: { kind: "unsupported" },
-		intake: { route: "mineru" },
+		intake: { route: "mineru", tierHint: "flash" },
 		production: { requestable: false, types: {}, validation: "none" },
 		textLike: false,
 		surfaces: ["knowledge", "chat"],
@@ -687,7 +743,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		],
 		category: "presentation",
 		preview: { kind: "pptx", extensionAuthoritative: true },
-		intake: { route: "mineru" },
+		intake: { route: "mineru", tierHint: "flash" },
 		production: {
 			requestable: true,
 			types: {
@@ -708,7 +764,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		mimeTypes: ["application/vnd.ms-powerpoint"],
 		category: "presentation",
 		preview: { kind: "unsupported" },
-		intake: { route: "mineru" },
+		intake: { route: "mineru", tierHint: "flash" },
 		production: { requestable: false, types: {}, validation: "none" },
 		textLike: false,
 		surfaces: ["knowledge", "chat"],
@@ -720,7 +776,10 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		mimeTypes: ["application/vnd.oasis.opendocument.text"],
 		category: "document",
 		preview: { kind: "odt", extensionAuthoritative: true },
-		intake: { route: "mineru" },
+		// Already `mineru` before Phase 5; it gains the tier hint, the knowledge
+		// surface and the MinerU-4 gate. No spike fixture covers ODF at any
+		// tier, which is exactly what `requiresMineru4` is for.
+		intake: { route: "mineru", tierHint: "flash", requiresMineru4: true },
 		production: {
 			requestable: true,
 			types: {
@@ -730,9 +789,68 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 			validation: "none",
 		},
 		textLike: false,
-		// Deliberately absent from the knowledge accept string today
-		// (DocumentsList.svelte:190) — preserved.
-		surfaces: ["chat"],
+		surfaces: ["knowledge", "chat"],
+		signatures: ZIP_SIGNATURES,
+	},
+	{
+		// Phase 5 D1. No ODS preview renderer exists: `OfficePreviewKind` is
+		// `Extract<PreviewKind, "docx"|"xlsx"|"pptx"|"odt">`, and naming a kind
+		// with no renderer behind it is a compile error there by design.
+		id: "ods",
+		extensions: ["ods"],
+		mimeTypes: ["application/vnd.oasis.opendocument.spreadsheet"],
+		category: "spreadsheet",
+		preview: { kind: "unsupported" },
+		intake: { route: "mineru", tierHint: "flash", requiresMineru4: true },
+		production: { requestable: false, types: {}, validation: "none" },
+		textLike: false,
+		surfaces: ["knowledge", "chat"],
+		signatures: ZIP_SIGNATURES,
+	},
+	{
+		// Phase 5 D1. Ditto — no ODP renderer.
+		id: "odp",
+		extensions: ["odp"],
+		mimeTypes: ["application/vnd.oasis.opendocument.presentation"],
+		category: "presentation",
+		preview: { kind: "unsupported" },
+		intake: { route: "mineru", tierHint: "flash", requiresMineru4: true },
+		production: { requestable: false, types: {}, validation: "none" },
+		textLike: false,
+		surfaces: ["knowledge", "chat"],
+		signatures: ZIP_SIGNATURES,
+	},
+	{
+		// Phase 5 D1. No spike fixture; MinerU upstream lists RTF, and the live
+		// matrix (spec section 5.1) is what has to confirm it. Gated.
+		id: "rtf",
+		extensions: ["rtf"],
+		mimeTypes: ["application/rtf"],
+		category: "text",
+		// `rtf` IS in file-preview's TEXT_EXTENSIONS, but NOT in
+		// output-validation's TEXT_LIKE_EXTENSIONS (spec conflict 3), and the
+		// invariant `production.validation === "text" <=> textLike` forbids
+		// moving one without the other. Phase 5 does not move either.
+		preview: { kind: "text" },
+		intake: { route: "mineru", tierHint: "flash", requiresMineru4: true },
+		production: { requestable: false, types: {}, validation: "none" },
+		textLike: false,
+		surfaces: ["knowledge", "chat"],
+		// `{\rtf` — the only non-container signature added by this phase.
+		signatures: [{ offset: 0, bytes: [0x7b, 0x5c, 0x72, 0x74, 0x66] }],
+	},
+	{
+		// Phase 5 D1. The cheapest input the spike measured: 10 ms, `spine`
+		// paging, faithful headings. No EPUB renderer exists either.
+		id: "epub",
+		extensions: ["epub"],
+		mimeTypes: ["application/epub+zip"],
+		category: "document",
+		preview: { kind: "unsupported" },
+		intake: { route: "mineru", tierHint: "flash", requiresMineru4: true },
+		production: { requestable: false, types: {}, validation: "none" },
+		textLike: false,
+		surfaces: ["knowledge", "chat"],
 		signatures: ZIP_SIGNATURES,
 	},
 
@@ -895,56 +1013,31 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 	},
 
 	// ── Recognised, not ingestible ─────────────────────────────────────────
+	//
+	// Phase 5 emptied most of this section: `rtf`, `ods` and `odp` moved to the
+	// Documents group and `tsv` to Text / code. What is left is `ofd`, the
+	// archives and the media types.
 	{
-		id: "rtf",
-		extensions: ["rtf"],
-		mimeTypes: ["application/rtf"],
-		category: "text",
-		// `rtf` IS in file-preview's TEXT_EXTENSIONS, but NOT in
-		// output-validation's TEXT_LIKE_EXTENSIONS (spec conflict 3).
-		preview: { kind: "text" },
-		intake: { route: "reject", rejectReason: "formatNotEnabled" },
-		production: { requestable: false, types: {}, validation: "none" },
-		textLike: false,
-		surfaces: [],
-	},
-	{
-		id: "ods",
-		extensions: ["ods"],
-		mimeTypes: ["application/vnd.oasis.opendocument.spreadsheet"],
-		category: "spreadsheet",
+		// Recognised so an .ofd upload gets the "save it as PDF" message rather
+		// than "that file type isn't supported". NOT enabled (OQ3): the
+		// 2026-09-20 spike recorded nine inputs and OFD was not one of them, and
+		// no fixture, latency figure or output sample exists for it anywhere in
+		// the tree. Flipping it later is the same one-line edit `rtf` just had.
+		// It is also the sole remaining user of `rejectReason: "formatNotEnabled"`
+		// in the table, which keeps that reason and its EN/HU copy alive.
+		id: "ofd",
+		extensions: ["ofd"],
+		// No IANA registration; `application/ofd` is what the GB/T 33190 tooling
+		// emits. Alias `application/octet-stream` is NOT added — it is a `zip`
+		// alias and generic MIMEs never reverse-resolve (`index.ts`).
+		mimeTypes: ["application/ofd"],
+		category: "document",
 		preview: { kind: "unsupported" },
 		intake: { route: "reject", rejectReason: "formatNotEnabled" },
 		production: { requestable: false, types: {}, validation: "none" },
 		textLike: false,
 		surfaces: [],
 		signatures: ZIP_SIGNATURES,
-	},
-	{
-		id: "odp",
-		extensions: ["odp"],
-		mimeTypes: ["application/vnd.oasis.opendocument.presentation"],
-		category: "presentation",
-		preview: { kind: "unsupported" },
-		intake: { route: "reject", rejectReason: "formatNotEnabled" },
-		production: { requestable: false, types: {}, validation: "none" },
-		textLike: false,
-		surfaces: [],
-		signatures: ZIP_SIGNATURES,
-	},
-	{
-		// Named in the built-in skill prose (user-skills.ts) but present in no
-		// map today. Added as `reject` so the prose token resolves without
-		// changing behaviour — spec open question 12.
-		id: "tsv",
-		extensions: ["tsv"],
-		mimeTypes: ["text/tab-separated-values"],
-		category: "spreadsheet",
-		preview: { kind: "unsupported" },
-		intake: { route: "reject", rejectReason: "formatNotEnabled" },
-		production: { requestable: false, types: {}, validation: "none" },
-		textLike: false,
-		surfaces: [],
 	},
 	{
 		id: "zip",
@@ -957,8 +1050,13 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		],
 		category: "archive",
 		preview: { kind: "unsupported" },
-		// The one entry that is producible but never ingestible; Phase >= 2
-		// moves it to the RESERVED "archive" route (spec conflict 10).
+		// The one entry that is producible but never ingestible, exempted by
+		// name from the "every requestable type has a non-reject route"
+		// invariant. Phase 5 D11 keeps it: the `archive` route is described in
+		// phase5-6-uploads-generation-spec.md section 3.4 and deliberately NOT
+		// built, because flipping the route now would make `admitUpload` answer
+		// `allowed: true` for a `.zip` with no extractor behind it — worse than
+		// the honest refusal it gives today.
 		intake: { route: "reject", rejectReason: "archive" },
 		production: {
 			requestable: true,

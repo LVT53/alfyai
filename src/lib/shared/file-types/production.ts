@@ -88,6 +88,29 @@ export function shouldUseDocumentSourceForOutputs(
 	);
 }
 
+/**
+ * True iff a produced file of this type is just bytes we already hold: its
+ * entry is text-validated (`production.validation === "text"`) and is NOT a
+ * document source.
+ *
+ * Exactly the set `buildTextFileProgram` was being used for — the outputs that
+ * spawn a Docker container whose only job is `write_text` — so it is the
+ * registry half of Phase 6 D8's `inline_text` production mode. `html` is
+ * excluded although it is text-validated, because a PDF/DOCX/HTML request
+ * belongs to the report renderers.
+ *
+ * P6-B's `isInlineTextRequest(types)` is
+ * `types.length > 0 && types.every(isInlineTextOutputType)` — an empty list is
+ * false there, because the caller's default-type ladder has already run.
+ */
+export function isInlineTextOutputType(type: string): boolean {
+	const entry = getEntryForOutputType(type);
+	if (!entry) return false;
+	return (
+		entry.production.validation === "text" && !entry.production.documentSource
+	);
+}
+
 /** `normalizeDocumentOutput` — pdf | docx | html | markdown | null. */
 export function normalizeDocumentOutput(
 	type: string,
@@ -154,6 +177,10 @@ const PRODUCED_EXTENSION_MIME_TYPES: Readonly<
 	".md": ["text/markdown", "text/plain"],
 	".markdown": ["text/markdown", "text/plain"],
 	".csv": ["text/csv", "text/plain"],
+	// Phase 6 D7 — the one row this migration adds. Same shape as `.csv`:
+	// the canonical MIME plus `text/plain`, because a program that writes a
+	// tab-separated file very often labels it as plain text.
+	".tsv": ["text/tab-separated-values", "text/plain"],
 	".html": ["text/html"],
 	".htm": ["text/html"],
 	".css": ["text/css", "text/plain"],
