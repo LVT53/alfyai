@@ -761,7 +761,7 @@ function outputTypesOf(outputs: Array<{ type: string }>): string[] {
  * caller's default-type ladder has already run, so "nothing named a type" is
  * not "every type qualifies".
  *
- * `html` is text-validated but IS a document source, so it stays with the
+ * HTML is text-validated but IS a document source, so it stays with the
  * report renderers.
  */
 export function isInlineTextRequest(types: readonly string[]): boolean {

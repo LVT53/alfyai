@@ -251,8 +251,8 @@ type InlineTextNormalization =
  * Phase 6 D8. Everything that makes the bytes safe to write without a renderer
  * or a sandbox is decided here, before a job is queued:
  *  - the content must be a non-empty string (the bytes ARE the request);
- *  - every output type must be one the registry calls inline text, so `pdf`,
- *    `docx`, `xlsx`, `pptx`, `zip` and `html` can never reach this mode;
+ *  - every output type must be one `isInlineTextOutputType` accepts, so no
+ *    document-source type and no binary container type can reach this mode;
  *  - every filename must be a bare basename whose extension is exactly the one
  *    its output type expects, which is what guarantees the stored bytes match
  *    the extension they are stored under.

@@ -212,8 +212,8 @@ export async function validateGeneratedOutputFile(
  * Defence in depth for Phase 6 P6-B: bytes we are about to STORE must match
  * the extension we are about to store them under.
  *
- * `pdf`, `docx`, `odt`, `pptx` and `zip` carry `validation: "none"`, so until
- * now a producer that wrote plain text into `report.pdf` was accepted and the
+ * The binary container formats carry `validation: "none"`, so until now a
+ * producer that wrote plain text into a PDF-named file was accepted and the
  * user downloaded a "PDF" that was a text file. The registry already knows the
  * leading-byte signatures the upload side checks, so this reuses that matcher
  * rather than adding a second table; an entry with no signatures — every text

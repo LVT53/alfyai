@@ -294,7 +294,7 @@ class InlineTextOutputError extends Error {
  * never consulted: there is nothing to time out.
  *
  * The buffer goes through the SAME `validateGeneratedOutputFile` every other
- * produced file does, so `tsv`/`md`/`txt` still get the NUL and fatal-UTF-8
+ * produced file does, so a text output still gets the NUL and fatal-UTF-8
  * check, and the produced-file signature check still refuses bytes that do not
  * match their extension. Storage, limits, linking and memory sync are then the
  * storage adapter's, unchanged.
