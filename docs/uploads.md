@@ -69,6 +69,22 @@ Documents that predate structured extraction have no recorded tier and are offer
 server has. There is no automatic backfill: an old document keeps working exactly as it did, and
 re-extraction is the only thing that gives it pages, figures and a parse bundle.
 
+A tier at or below the one a document was last read at is refused by the server, not just hidden by
+the menu: re-extraction replaces the text, the chunks and the bundle, so accepting a lower tier
+would throw away a better parse and report success. Operators and scripts can override it with
+`{"force": true}` in the POST body. Each account may also have at most five re-extractions queued or
+running at once; over that the endpoint answers `429` and the seat frees as jobs finish.
+
+### What the account data archive contains
+
+The Account Data Archive ships the **original uploaded file** plus its readable text, and
+deliberately not the `.parse` bundle beside it: `normalized.md`, `structured_content.json`,
+`pages.json` and the extracted `images/` are all derived from the source file the archive already
+contains, so including them would make the download much larger and no more informative.
+Half-written uploads under `.incoming` are excluded for the same reason — they are not the user's
+data yet. The exclusion is named and tested in
+`src/lib/server/services/account-data-archive/index.ts`.
+
 ### Verifying a deployment
 
 `scripts/verify-live-extraction-types.ts` uploads the nine `fixtures/mineru-v1/*/sample.*` inputs

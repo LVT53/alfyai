@@ -283,6 +283,12 @@ export async function createArtifact(params: {
 	 * extraction persist path.
 	 */
 	chunkPlan?: readonly ChunkPlanEntry[] | null;
+	/**
+	 * `chunkPlanSourceDigest()` of the text the plan was derived from.
+	 * Forwarded verbatim; a plan whose digest does not match `contentText` is
+	 * ignored by the sync in favour of the character chunker.
+	 */
+	chunkPlanSourceDigest?: string | null;
 }): Promise<Artifact> {
 	const id = params.id ?? randomUUID();
 	const [artifact] = await db
@@ -314,6 +320,7 @@ export async function createArtifact(params: {
 			conversationId: mapped.conversationId,
 			contentText: mapped.contentText,
 			chunkPlan: params.chunkPlan ?? null,
+			chunkPlanSourceDigest: params.chunkPlanSourceDigest ?? null,
 		});
 		if (sync.truncated) {
 			// Retrieval now sees only the first `MAX_ARTIFACT_CHUNKS` of this

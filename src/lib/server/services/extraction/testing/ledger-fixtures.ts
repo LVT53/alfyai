@@ -28,6 +28,8 @@ export interface SeededArtifactInput {
 	contentText?: string | null;
 	conversationId?: string | null;
 	createdAt?: Date;
+	/** `artifacts.metadata_json`. `extractionTier` lives here. */
+	metadata?: Record<string, unknown> | null;
 }
 
 export interface LedgerFixture {
@@ -101,6 +103,7 @@ export function createLedgerFixture(prefix = "extraction"): LedgerFixture {
 					storagePath: input.storagePath ?? null,
 					binaryHash: input.binaryHash ?? null,
 					contentText: input.contentText ?? null,
+					metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
 					createdAt,
 					updatedAt: createdAt,
 				})
