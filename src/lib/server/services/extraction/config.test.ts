@@ -1,6 +1,6 @@
 // What the stale window is allowed to depend on.
 //
-// It used to be `max(configured, mineruTimeoutMs * 2)`. On the dev box, where
+// It used to be `max(configured, mineruJobTimeoutMs * 2)`. On the dev box, where
 // an admin had raised the MinerU timeout to 600 s to get a 250-page PDF through,
 // that silently turned a 15-minute window into a 20-minute one: a restart
 // orphaned a `parsing` attempt and nothing was allowed to call it dead for
@@ -31,7 +31,7 @@ function stored(overrides: Record<string, unknown> = {}) {
 		documentExtractionInlineBudgetMs: 1500,
 		documentExtractionPreflightWaitMs: 2500,
 		documentExtractionMaxDirectTextBytes: 8388608,
-		mineruTimeoutMs: 600000,
+		mineruJobTimeoutMs: 600000,
 		...overrides,
 	};
 }
@@ -47,7 +47,7 @@ describe("getExtractionConfig stale window", () => {
 	});
 
 	it("still ignores it when the admin raises it far past the window", () => {
-		getConfig.mockReturnValue(stored({ mineruTimeoutMs: 3_600_000 }));
+		getConfig.mockReturnValue(stored({ mineruJobTimeoutMs: 3_600_000 }));
 		expect(getExtractionConfig().staleAttemptMs).toBe(120000);
 	});
 

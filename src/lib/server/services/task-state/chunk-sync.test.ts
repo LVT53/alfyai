@@ -37,12 +37,36 @@ vi.mock("$lib/server/config-store", async () => {
 	return { ...actual, getSmallFileThreshold: () => 1024 };
 });
 
-const { syncArtifactChunks, MAX_ARTIFACT_CHUNKS } = await import(
-	"./chunk-sync"
-);
+/**
+ * `MINERU_STRUCTURE_CHUNKING_ENABLED`. On by default; the flag-off case is
+ * the rollback, and it must put the character chunker back exactly.
+ */
+let structureChunkingEnabled = true;
+vi.mock("$lib/server/services/mineru/config", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/mineru/config")
+	>("$lib/server/services/mineru/config");
+	return {
+		...actual,
+		resolveMineruConfig: () => ({
+			structureChunking: structureChunkingEnabled,
+		}),
+	};
+});
+
+const {
+	syncArtifactChunks,
+	MAX_ARTIFACT_CHUNKS,
+	CHUNK_CHAR_TARGET,
+	CHUNK_CHAR_OVERLAP,
+} = await import("./chunk-sync");
 const { createArtifact } = await import(
 	"$lib/server/services/knowledge/store/core"
 );
+const { parseMineruResultZip, planStructuredChunks } = await import(
+	"$lib/server/services/mineru/result"
+);
+type ChunkPlanEntry = Awaited<ReturnType<typeof planStructuredChunks>>[number];
 
 const USER = "user-1";
 const NOW = new Date("2026-09-20T10:00:00.000Z");
@@ -65,6 +89,7 @@ function longText(minChunks: number): string {
 }
 
 beforeEach(() => {
+	structureChunkingEnabled = true;
 	memory = createInMemoryDatabase();
 	memory.db
 		.insert(schema.users)
@@ -102,6 +127,54 @@ function countChunks(artifactId: string): number {
 		.from(schema.artifactChunks)
 		.where(eq(schema.artifactChunks.artifactId, artifactId))
 		.all().length;
+}
+
+function storedChunks(artifactId: string) {
+	return memory.db
+		.select({
+			chunkIndex: schema.artifactChunks.chunkIndex,
+			contentText: schema.artifactChunks.contentText,
+			tokenEstimate: schema.artifactChunks.tokenEstimate,
+			pageStart: schema.artifactChunks.pageStart,
+			pageEnd: schema.artifactChunks.pageEnd,
+		})
+		.from(schema.artifactChunks)
+		.where(eq(schema.artifactChunks.artifactId, artifactId))
+		.all()
+		.sort((a, b) => a.chunkIndex - b.chunkIndex);
+}
+
+/**
+ * A real MinerU result, parsed the way the extractor parses it. The fixtures
+ * are the contract for this whole migration, so the chunking tests plan
+ * against the recorded bytes rather than against hand-written blocks —
+ * `mineru/chunk-plan.test.ts` (P4-A) is where the planner's own rules live.
+ */
+async function fixturePlan(
+	input: "pdf" | "xlsx",
+	charTarget = CHUNK_CHAR_TARGET,
+): Promise<{
+	markdown: string;
+	pageCount: number;
+	tables: string[];
+	plan: ChunkPlanEntry[];
+}> {
+	const { result } = await parseMineruResultZip({
+		zipPathAbsolute: `fixtures/mineru-v1/${input}/result.zip`,
+		sourceFilename: `sample.${input}`,
+	});
+	return {
+		markdown: result.markdown,
+		pageCount: result.pageCount,
+		tables: result.blocks
+			.filter((block) => block.type === "table")
+			.map((block) => block.text),
+		plan: planStructuredChunks({
+			blocks: result.blocks,
+			charTarget,
+			charOverlap: CHUNK_CHAR_OVERLAP,
+		}),
+	};
 }
 
 describe("syncArtifactChunks", () => {
@@ -278,6 +351,256 @@ describe("the chunk ceiling", () => {
 	});
 });
 
+describe("structure-aware chunking", () => {
+	it("writes the plan's page ranges onto the rows", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+		const { markdown, pageCount, plan } = await fixturePlan("pdf");
+
+		const result = await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: markdown,
+			chunkPlan: plan,
+		});
+
+		const stored = storedChunks(artifactId);
+		expect(result.chunkCount).toBe(plan.length);
+		expect(stored).toHaveLength(plan.length);
+		expect(stored.map((row) => row.contentText)).toEqual(
+			plan.map((entry) => entry.text),
+		);
+		// The recorded PDF is three physical pages of running-head-stripped
+		// text, so a chunk of it spans real pages rather than page 1 twice.
+		expect(pageCount).toBe(3);
+		expect(stored[0].pageStart).toBe(1);
+		expect(stored[stored.length - 1].pageEnd).toBe(3);
+		for (const row of stored) {
+			expect(row.tokenEstimate).toBeGreaterThan(0);
+		}
+	});
+
+	it("keeps page ranges ordered and inside the document", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+		const { markdown, pageCount, plan } = await fixturePlan("pdf", 120);
+
+		await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: markdown,
+			chunkPlan: plan,
+		});
+
+		const stored = storedChunks(artifactId);
+		expect(stored.length).toBeGreaterThan(1);
+		let previousStart = 0;
+		for (const row of stored) {
+			expect(row.pageStart).not.toBeNull();
+			expect(row.pageEnd).not.toBeNull();
+			const start = row.pageStart as number;
+			const end = row.pageEnd as number;
+			expect(start).toBeGreaterThanOrEqual(1);
+			expect(end).toBeGreaterThanOrEqual(start);
+			expect(end).toBeLessThanOrEqual(pageCount);
+			// Chunks are emitted in reading order, so a chunk never starts on
+			// an earlier page than the one before it.
+			expect(start).toBeGreaterThanOrEqual(previousStart);
+			previousStart = start;
+		}
+	});
+
+	it("stores a table whole even when it is larger than the target", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+		// The recorded PDF's GFM table is 125 characters wide. A 60-character
+		// target is smaller than the table itself — exactly the case the
+		// character chunker would have cut through the middle of.
+		const { markdown, tables, plan } = await fixturePlan("pdf", 60);
+		expect(tables.length).toBeGreaterThan(0);
+		expect(Math.max(...tables.map((table) => table.length))).toBeGreaterThan(
+			60,
+		);
+
+		await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: markdown,
+			chunkPlan: plan,
+		});
+
+		const stored = storedChunks(artifactId);
+		for (const table of tables) {
+			expect(
+				stored.filter((row) => row.contentText.includes(table)),
+				`table not stored whole: ${table.slice(0, 40)}…`,
+			).toHaveLength(1);
+		}
+	});
+
+	it("keeps the small-file bypass ahead of the plan", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+
+		const result = await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: "One short page of text.",
+			chunkPlan: [
+				{
+					chunkIndex: 0,
+					text: "One short page of text.",
+					pageStart: 1,
+					pageEnd: 1,
+				},
+			],
+		});
+
+		expect(result.chunkCount).toBe(0);
+		expect(countChunks(artifactId)).toBe(0);
+	});
+
+	it("falls back to the character chunker with the flag off", async () => {
+		const planned = randomUUID();
+		const unplanned = randomUUID();
+		seedArtifact(planned);
+		seedArtifact(unplanned);
+		const { markdown, plan } = await fixturePlan("pdf", 300);
+		expect(plan.length).toBeGreaterThan(1);
+
+		structureChunkingEnabled = false;
+		await syncArtifactChunks({
+			artifactId: planned,
+			userId: USER,
+			contentText: markdown,
+			chunkPlan: plan,
+		});
+		await syncArtifactChunks({
+			artifactId: unplanned,
+			userId: USER,
+			contentText: markdown,
+		});
+
+		const withPlan = storedChunks(planned);
+		const withoutPlan = storedChunks(unplanned);
+		expect(withPlan.map((row) => row.contentText)).toEqual(
+			withoutPlan.map((row) => row.contentText),
+		);
+		for (const row of withPlan) {
+			expect(row.pageStart).toBeNull();
+			expect(row.pageEnd).toBeNull();
+		}
+	});
+
+	it("leaves both columns null on the character path", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+
+		await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: longText(10),
+		});
+
+		for (const row of storedChunks(artifactId)) {
+			expect(row.pageStart).toBeNull();
+			expect(row.pageEnd).toBeNull();
+		}
+	});
+
+	it("re-syncing replaces a structured chunk set with a plain one", async () => {
+		// Re-extraction rewrites the normalized artifact in place, so the same
+		// artifact id goes from planned rows to unplanned ones (and back). No
+		// row may survive that with a stale page range.
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+		const { markdown, plan } = await fixturePlan("pdf", 300);
+
+		await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: markdown,
+			chunkPlan: plan,
+		});
+		const first = storedChunks(artifactId);
+		expect(first.some((row) => row.pageStart !== null)).toBe(true);
+
+		await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: markdown,
+		});
+		const second = storedChunks(artifactId);
+		expect(second.every((row) => row.pageStart === null)).toBe(true);
+		expect(second[0].chunkIndex).toBe(0);
+	});
+
+	it("is idempotent: the same plan twice yields the same rows", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+		const { markdown, plan } = await fixturePlan("pdf", 300);
+
+		await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: markdown,
+			chunkPlan: plan,
+		});
+		const first = storedChunks(artifactId);
+		await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: markdown,
+			chunkPlan: plan,
+		});
+
+		expect(storedChunks(artifactId)).toEqual(first);
+	});
+
+	it("drops a page range it cannot stand behind rather than storing it", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+		const body = "x".repeat(2000);
+
+		await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: body,
+			chunkPlan: [{ chunkIndex: 0, text: body, pageStart: 0, pageEnd: 4 }],
+		});
+
+		const [row] = storedChunks(artifactId);
+		expect(row.pageStart).toBeNull();
+		expect(row.pageEnd).toBeNull();
+	});
+
+	it("stops a structured plan at the ceiling and says so", async () => {
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+		const plan = Array.from(
+			{ length: MAX_ARTIFACT_CHUNKS + 500 },
+			(_, index) => ({
+				chunkIndex: index,
+				text: `Planned block ${index}.`,
+				pageStart: index + 1,
+				pageEnd: index + 1,
+			}),
+		);
+
+		const result = await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: longText(20),
+			chunkPlan: plan,
+		});
+
+		expect(result.truncated).toBe(true);
+		expect(result.chunkCount).toBe(MAX_ARTIFACT_CHUNKS);
+		expect(result.totalChunks).toBe(plan.length);
+		expect(countChunks(artifactId)).toBe(MAX_ARTIFACT_CHUNKS);
+	});
+});
+
 describe("createArtifact", () => {
 	it("chunks a document that needs more than one insert statement", async () => {
 		const artifact = await createArtifact({
@@ -288,5 +611,22 @@ describe("createArtifact", () => {
 		});
 
 		expect(countChunks(artifact.id)).toBeGreaterThan(4096);
+	});
+
+	it("forwards a chunk plan to the sync", async () => {
+		// The parameter name is the P4-B hand-off: `persist.ts` passes the plan
+		// it built from the parsed blocks under exactly this key.
+		const { markdown, plan } = await fixturePlan("pdf", 300);
+		const artifact = await createArtifact({
+			userId: USER,
+			type: "normalized_document",
+			name: "sample.md",
+			contentText: markdown,
+			chunkPlan: plan,
+		});
+
+		const stored = storedChunks(artifact.id);
+		expect(stored).toHaveLength(plan.length);
+		expect(stored[0].pageStart).toBe(1);
 	});
 });

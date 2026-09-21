@@ -950,6 +950,12 @@ function copyGeneratedWorkSnapshot(params: {
 					chunkIndex: chunk.chunkIndex,
 					contentText: chunk.contentText,
 					tokenEstimate: chunk.tokenEstimate,
+					// Hand-listed columns: a page range left out here is a fork
+					// whose every prompt citation silently disappears, with no
+					// type error to catch it. Anything added to
+					// `artifact_chunks` belongs in this list.
+					pageStart: chunk.pageStart,
+					pageEnd: chunk.pageEnd,
 					createdAt: chunk.createdAt,
 					updatedAt: chunk.updatedAt,
 				})),

@@ -124,12 +124,27 @@ authenticate per-provider inside the app.
 
 ## Document extraction (MinerU)
 
-Uploaded and in-chat documents are parsed by MinerU, a Docker-hosted parsing engine the app POSTs
-files to (`${MINERU_API_URL}/file_parse`, in
-[`src/lib/server/services/document-extraction.ts`](../src/lib/server/services/document-extraction.ts)).
-MinerU handles PDF/Office/image/web inputs with built-in OCR. Knowledge upload intake is a dedicated
-boundary ([ADR 0024](adr/0024-knowledge-upload-intake-boundary.md)). See
-[docs/uploads.md](uploads.md).
+Uploaded and in-chat documents are parsed by MinerU 4.x over its **V1 job API**, a Docker-hosted
+parsing engine that handles PDF/Office/image/web inputs with built-in OCR.
+
+Extraction never runs inside the upload request. An upload returns when the bytes are stored; a
+durable ledger (`document_extraction_jobs`, `src/lib/server/services/extraction/`) then claims the
+job, runs it, and persists the result, so a restart resumes rather than restarts. The route decision
+comes from the shared file-type registry: text-like files are read directly
+([`extractors/direct-text.ts`](../src/lib/server/services/extraction/extractors/direct-text.ts)) and
+everything else goes to MinerU
+([`extractors/mineru4.ts`](../src/lib/server/services/extraction/extractors/mineru4.ts)).
+
+The protocol itself lives in [`src/lib/server/services/mineru/`](../src/lib/server/services/mineru/)
+and is the only place that knows it: `POST /v1/uploads` (sha256-deduplicated) → `PUT` the bytes →
+`POST /v1/uploads/{id}/complete` → `POST /v1/parse/jobs` → poll `GET /v1/parse/jobs/{id}` → download
+the result zip from `GET /v1/files/{id}/content`. There is no MinerU 3.x fallback and no second
+protocol: a server that does not answer `GET /v1/health` fails clearly rather than degrading.
+
+The zip yields the prompt Markdown plus a parse bundle on disk at
+`data/knowledge/<userId>/<sourceArtifactId>.parse/` (page index, structured content, figures).
+Knowledge upload intake is a dedicated boundary
+([ADR 0024](adr/0024-knowledge-upload-intake-boundary.md)). See [docs/uploads.md](uploads.md).
 
 ## Maps and routing
 

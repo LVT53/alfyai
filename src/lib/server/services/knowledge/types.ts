@@ -177,6 +177,15 @@ export interface ArtifactChunk {
 	chunkIndex: number;
 	contentText: string;
 	tokenEstimate: number;
+	/**
+	 * 1-based inclusive page the chunk starts on, for a document parsed with
+	 * structure. NULL for direct text and for every row written before
+	 * structure-aware chunking existed — which is what a page citation checks
+	 * before it prints anything.
+	 */
+	pageStart: number | null;
+	/** 1-based inclusive page the chunk ends on. NULL when `pageStart` is. */
+	pageEnd: number | null;
 	createdAt: number;
 	updatedAt: number;
 }
