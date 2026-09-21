@@ -1410,16 +1410,26 @@ export function planStructuredChunks(
 		}
 
 		const previousLast = current.blocks[current.blocks.length - 1];
-		const closedText = openChunkText(current);
 		emit(current);
 
 		// No overlap across an atomic boundary (rule 3), and none when a
 		// heading was carried forward: the heading IS the context bridge, and
 		// prefixing it with a tail of the previous paragraph buries it.
+		//
+		// The tail comes from `previousLast.text` and NOT from the whole closed
+		// chunk. Taking it from the chunk only checked atomicity at the
+		// boundary, so a SHORT last block — a caption, a one-line paragraph —
+		// let the 220-character tail reach back across the separator into
+		// whatever preceded it. When that was a table, the next chunk opened
+		// with header-less table rows: the split-table fragment this whole
+		// design exists to prevent, with a page range that claimed the short
+		// block's page for text from the table's. Bounding the tail by the
+		// block it is attributed to makes `overlapSource` honest by
+		// construction.
 		const boundaryIsAtomic = previousLast.atomic || block.atomic;
 		const overlap =
 			!boundaryIsAtomic && carried.length === 0 && charOverlap > 0
-				? overlapTail(closedText, charOverlap)
+				? overlapTail(previousLast.text, charOverlap)
 				: "";
 
 		current = {

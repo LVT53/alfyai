@@ -201,6 +201,46 @@ describe("planStructuredChunks — atomic blocks", () => {
 		expect(plan[2].text.startsWith("SECOND")).toBe(true);
 	});
 
+	it("never reaches back THROUGH a short block into the atomic one before it", () => {
+		// The atomicity guard only ever looked at the two blocks either side of
+		// the boundary, while the overlap tail was taken from the whole CLOSED
+		// CHUNK. So a short block after a table — a caption, a one-line
+		// paragraph — was shorter than the 220-character overlap, and the tail
+		// reached back across the separator into the table: the next chunk
+		// opened with header-less table rows, which is precisely the fragment
+		// "retrieval will return … the model reads as complete" that this whole
+		// design exists to prevent. The page range lied about it too, because
+		// `overlapSource` claimed the short block's page for text from the
+		// table's page.
+		const caption = "Short caption line after the table.";
+		const prose = paragraph("PROSE", 900);
+		const blocks = synthetic([
+			[{ type: "table", content: TABLE }],
+			[{ type: "text", content: caption }],
+			[{ type: "text", content: prose }],
+		]);
+
+		const plan = planStructuredChunks({
+			blocks,
+			charTarget: 400,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		const tableRows = TABLE.split("\n");
+		for (const chunk of plan) {
+			// A chunk either holds the whole table or none of its rows.
+			const holdsWhole = chunk.text.includes(TABLE);
+			if (holdsWhole) continue;
+			for (const row of tableRows) {
+				expect(chunk.text).not.toContain(row);
+			}
+		}
+
+		// And no chunk claims a page range that excludes text it actually holds.
+		const withTable = plan.find((chunk) => chunk.text.includes(TABLE));
+		expect(withTable?.pageStart).toBe(1);
+	});
+
 	it("applies the overlap between two plain prose chunks", () => {
 		const blocks = synthetic([
 			[
