@@ -104,6 +104,7 @@ import {
 	buildSameTurnProduceFileDedupeKey,
 	buildScopedIdempotencyKey,
 	createProduceFileToolCallEntry,
+	isInlineTextRequest,
 	MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN,
 	MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS,
 	normalizeProduceFileInput,
@@ -1143,7 +1144,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							intakeStatus: 422,
 						});
 					}
-					const normalizedInput = normalized.input;
+					let normalizedInput = normalized.input;
 
 					// Resolve patches: if the model provided surgical edits instead of full content,
 					// fetch the previous version and apply patches to reconstruct the full file.
@@ -1179,10 +1180,51 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								intakeStatus: 422,
 							});
 						}
-						normalizedInput.program.sourceCode = buildResolvedProgramSource(
-							normalizedInput.program.filename ?? "generated-file.txt",
-							patchResult.resolvedText,
-						);
+						// Phase 6 D8. `normalizeProduceFileInput` sends every
+						// patch-carrying request down the program path, because only
+						// here — after the previous version has been fetched — do the
+						// patched bytes exist. But once they do, a request whose
+						// outputs are ALL plain-text types is indistinguishable from
+						// the content-carrying request that would have been written
+						// inline: same bytes, same types, no renderer and no sandbox.
+						// Patching a `.md` was starting a Docker container to run a
+						// generated `write_text` one-liner.
+						//
+						// Re-normalising the patched text as `content` rather than
+						// building the inline request here is deliberate: filename
+						// resolution, the mixed-group refusal and the inline-vs-program
+						// decision stay in ONE place, so a patched file can never be
+						// named differently from the same file sent whole. If that
+						// re-normalisation refuses (a patch that leaves the file too
+						// short to look substantive), the program path below still
+						// runs, so no request that worked before stops working.
+						const patchedInline = isInlineTextRequest(
+							normalizedInput.requestedOutputs.map((output) => output.type),
+						)
+							? normalizeProduceFileInput({
+									...parsedInput.data,
+									requestTitle: normalizedInput.requestTitle,
+									requestedOutputs: normalizedInput.requestedOutputs,
+									content: patchResult.resolvedText,
+									markdown: undefined,
+									text: undefined,
+									patches: undefined,
+									sourceMode: undefined,
+									program: undefined,
+									documentSource: undefined,
+								})
+							: null;
+						if (
+							patchedInline?.ok &&
+							patchedInline.input.sourceMode === "inline_text"
+						) {
+							normalizedInput = patchedInline.input;
+						} else {
+							normalizedInput.program.sourceCode = buildResolvedProgramSource(
+								normalizedInput.program.filename ?? "generated-file.txt",
+								patchResult.resolvedText,
+							);
+						}
 					}
 					const { patches: _patches, ...intakeNormalizedInput } =
 						normalizedInput;

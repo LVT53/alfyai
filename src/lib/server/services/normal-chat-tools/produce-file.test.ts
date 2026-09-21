@@ -843,8 +843,11 @@ describe("inline_text production mode", () => {
 	});
 
 	// Patch resolution needs the PREVIOUS version of the file, which only the
-	// tool adapter can fetch, and it rewrites `program.sourceCode`. A
-	// patch-carrying request therefore stays on the program path.
+	// tool adapter can fetch, so normalization cannot decide the mode here: a
+	// patch-carrying request leaves this function on the program path with its
+	// patches attached. Once the adapter HAS the patched bytes it re-runs this
+	// function with them as `content`, which is how an all-plain-text patch
+	// reaches inline_text — see `produce-file-patch-mode.test.ts`.
 	it("keeps a patch-carrying request on the program path so patches still resolve", () => {
 		const withPatches = expectOk(
 			normalize({
