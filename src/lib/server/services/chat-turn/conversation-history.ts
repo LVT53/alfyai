@@ -18,6 +18,7 @@ import type {
 	ThinkingSegment,
 	ToolCallEntry,
 } from "$lib/server/services/messages-types";
+import { isFileProductionToolName } from "$lib/utils/tool-calls";
 
 export type HistoryMessage = {
 	id?: string;
@@ -101,6 +102,36 @@ export function buildHistoryToolDigest(
 	};
 }
 
+/**
+ * Telemetry-only keys of a recorded `produce_file` input.
+ *
+ * `sanitizeProduceFileInput` already replaces the document JSON, the program
+ * source and the inline text with a SHAPE — a content hash, a key count, a
+ * length — so nothing here is user content. But a hash and a byte count are
+ * also nothing the model can use a turn later, and the history pays for them
+ * on every turn the call stays in the window. What it needs is the title, the
+ * output types and the source mode; the filenames and the verdict come with
+ * the digest below.
+ */
+const TELEMETRY_ONLY_FILE_PRODUCTION_INPUT_KEYS = [
+	"documentSource",
+	"program",
+	"inlineText",
+	"idempotencyKey",
+];
+
+function historyToolCallInput(
+	segment: ToolCallSegment,
+): Record<string, unknown> {
+	const input = segment.input ?? {};
+	if (!isFileProductionToolName(segment.name)) return input;
+	return Object.fromEntries(
+		Object.entries(input).filter(
+			([key]) => !TELEMETRY_ONLY_FILE_PRODUCTION_INPUT_KEYS.includes(key),
+		),
+	);
+}
+
 function userText(message: HistoryMessage): string {
 	const attachmentLines = (message.attachments ?? [])
 		.map((attachment) => attachment.name?.trim())
@@ -161,7 +192,7 @@ export function renderHistoryTurn(
 					type: "tool-call" as const,
 					toolCallId: ids[index],
 					toolName: segment.name,
-					input: segment.input ?? {},
+					input: historyToolCallInput(segment),
 				})),
 			],
 		});

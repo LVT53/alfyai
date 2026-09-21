@@ -2293,7 +2293,28 @@ export function createProduceFileToolCallEntry(params: {
 		// history all key off this.
 		status: params.payload.ok ? "done" : "failed",
 		outputSummary: params.outputSummary,
+		resultDigest: buildProduceFileResultDigest(params.payload),
 		sourceType: "tool",
 		metadata,
 	};
+}
+
+/**
+ * The one line the NEXT turn's history carries under this call's tool result
+ * (`buildHistoryToolDigest` puts `outputSummary` in `summary` and this in
+ * `detail`).
+ *
+ * The summary already names the files and the job verdict; what a model asked
+ * "what is in the file you just made?" a turn later also needs is the way back
+ * into it, by the name it actually produced. Kept to one short sentence: it is
+ * paid once per produced file, per turn, for as long as the turn stays in the
+ * history window.
+ */
+function buildProduceFileResultDigest(
+	payload: ProduceFileModelPayload,
+): string | null {
+	if (payload.status !== "succeeded") return null;
+	const first = payload.files[0]?.filename;
+	if (!first) return null;
+	return `Read it back with read_generated_file({filename:"${first}"}).`;
 }

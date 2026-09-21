@@ -1,11 +1,8 @@
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import { type Tool, type ToolExecutionOptions, tool } from "ai";
-import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getConfig } from "$lib/server/config-store";
-import { db } from "$lib/server/db";
-import { artifacts } from "$lib/server/db/schema";
 import { recordParallelUsage } from "$lib/server/services/analytics";
 import type { ReasoningDepthWebSourceBudget } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
@@ -39,7 +36,6 @@ import {
 	selectTopDistinctSourceUrls,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
-import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	calendarToolInputSchema,
 	runCalendarTool,
@@ -121,11 +117,10 @@ import {
 } from "./produce-file";
 import {
 	buildReadGeneratedFileModelPayload,
-	extractContentFromMemoryText,
 	readGeneratedFileContent,
 	readGeneratedFileExecutionInputSchema,
 	readGeneratedFileInputSchema,
-	resolveBestContent,
+	resolveGeneratedFilePatchBase,
 	sanitizeReadGeneratedFileInput,
 	summarizeReadGeneratedFileResult,
 } from "./read-generated-file";
@@ -1157,11 +1152,17 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					// UNPATCHED document. The tool's description promises patches for
 					// every format, so the resolution now runs for every mode.
 					if (normalizedInput.patches && normalizedInput.patches.length > 0) {
-						const previousContent = await getPreviousGeneratedFileContent(
-							ctx.userId,
-							ctx.conversationId,
-							normalizedInput.requestTitle,
-						);
+						const previousContent = await resolveGeneratedFilePatchBase({
+							userId: ctx.userId,
+							conversationId: ctx.conversationId,
+							// The name the patched file will carry, which is the name the
+							// previous version carries too — `normalizeProduceFileInput`
+							// resolved both through the same `resolveTextFilename`. This
+							// is what lets the base be found on disk, before the deferred
+							// memory sync has minted any artifact for it.
+							filename: normalizedInput.program?.filename ?? null,
+							requestTitle: normalizedInput.requestTitle,
+						});
 						if (previousContent === null) {
 							return refuse({
 								input: sanitizeProduceFileInput(normalizedInput),
@@ -2606,72 +2607,12 @@ function compactToolSchemas<T extends Record<string, Tool>>(toolSet: T): T {
 	return out as T;
 }
 
-/**
- * The previous version of a generated file, as the patch resolver needs it.
- *
- * `text` is what `read_generated_file` would show the model — the base a
- * patch's `oldText` was copied from. `documentSource` is the stored source
- * JSON when the previous version was a rendered document, which is how the
- * resolver can tell that rebuilding that document from its Markdown would
- * drop something the Markdown cannot carry.
- */
-interface PreviousGeneratedFileVersion {
-	text: string;
-	documentSource: unknown;
-}
-
-async function getPreviousGeneratedFileContent(
-	userId: string,
-	conversationId: string,
-	requestTitle: string,
-): Promise<PreviousGeneratedFileVersion | null> {
-	const rows = await db
-		.select({
-			contentText: artifacts.contentText,
-			metadataJson: artifacts.metadataJson,
-		})
-		.from(artifacts)
-		.where(
-			and(
-				eq(artifacts.userId, userId),
-				eq(artifacts.conversationId, conversationId),
-				eq(artifacts.type, "generated_output"),
-			),
-		)
-		.orderBy(desc(artifacts.updatedAt))
-		.limit(24);
-
-	const normalizedTitle = requestTitle.trim().toLowerCase();
-	for (const row of rows) {
-		if (!row.contentText) continue;
-		if (!row.contentText.toLowerCase().includes(normalizedTitle)) continue;
-		// The SAME resolution `read_generated_file` gives the model, and it has
-		// to be: a patch's `oldText` is an excerpt of what the model was shown.
-		//
-		// The memory wrapper's last section is a `previewText` of the file —
-		// every run of whitespace collapsed to one space, truncated at 6 000
-		// characters — so reading the base out of it applied the patch to a
-		// one-line, clipped copy and wrote THAT back as the new version. A
-		// multi-line `oldText` could not match it at all (`patch_failed`), and a
-		// single-line one matched and silently destroyed every line break in the
-		// user's document.
-		const documentSource = parseJsonRecord(
-			row.metadataJson,
-		)?.generatedDocumentSource;
-		const resolved = await resolveBestContent(
-			userId,
-			row.contentText,
-			row.metadataJson,
-		);
-		const text =
-			resolved ??
-			extractContentFromMemoryText(row.contentText) ??
-			row.contentText;
-		return { text, documentSource: documentSource ?? null };
-	}
-
-	return null;
-}
+// The patch base lives in `read-generated-file.ts` now
+// (`resolveGeneratedFilePatchBase`): a patch's `oldText` is an excerpt of
+// exactly what `read_generated_file` showed the model, so the two must be one
+// resolver, not two that agree by hand. This module's copy could only see
+// artifacts, which made a same-turn patch impossible and a second patch land
+// on the stale previous version.
 
 /**
  * The block types a document source loses when it is rebuilt from its own

@@ -235,6 +235,78 @@ describe("ThinkingBlock tool activity", () => {
 		expect(within(files).getByTestId("tool-activity-body")).toBeInTheDocument();
 	});
 
+	// The `produce_file` call is now PERSISTED as a thinking segment, so the
+	// next turn's history can say the file was made (see stream.ts and
+	// conversation-history.ts). The chat must look exactly as it did: the one
+	// file card comes from the job read-model, and the segment renders nothing
+	// at all — no second card, no raw tool row in the rail or the summary.
+	it("renders no second card or tool row for a persisted produce_file segment", () => {
+		const produceFileSegment: ThinkingSegment = {
+			type: "tool_call",
+			callId: "call-produce",
+			name: "produce_file",
+			input: {
+				requestTitle: "Cork weekend packing list",
+				requestedOutputs: [{ type: "xlsx" }],
+				sourceMode: "document_source",
+			},
+			status: "done",
+			outputSummary:
+				"File production job job-1 succeeded: Cork weekend packing list.xlsx.",
+		};
+
+		render(ThinkingBlock, {
+			props: {
+				content: "Building the workbook.",
+				thinkingIsDone: true,
+				thinkingDurationSeconds: 14,
+				segments: [searchSegment, produceFileSegment],
+				fileProductionJobs: [makeJob()],
+			},
+		});
+
+		// Exactly one file row in the whole block: the job's. The segment adds
+		// none — not in the pinned deliverables, not in the rail.
+		const files = screen.getByTestId("tool-activity-files");
+		expect(within(files).getAllByTestId("tool-activity-row")).toHaveLength(1);
+		expect(screen.getAllByTestId("tool-activity-row")).toHaveLength(1);
+
+		// And the collapsed summary strip counts the ONE visible tool call (the
+		// web search) — a second "Created file" item there would be the
+		// duplicate this test exists to catch.
+		const strip = screen.getByTestId("tool-activity-summary");
+		expect(strip.querySelectorAll(".summary-item")).toHaveLength(1);
+		expect(strip.textContent).toContain("Searched 1 source");
+		expect(document.body.textContent).not.toContain("produce_file");
+		expect(document.body.textContent).not.toContain("File production job");
+	});
+
+	it("keeps a persisted produce_file segment out of the LIVE rail too", () => {
+		render(ThinkingBlock, {
+			props: {
+				content: "Building the workbook.",
+				thinkingIsDone: false,
+				segments: [
+					searchSegment,
+					{
+						type: "tool_call",
+						callId: "call-produce",
+						name: "produce_file",
+						input: { requestTitle: "Cork weekend packing list" },
+						status: "running",
+					},
+				],
+				fileProductionJobs: [makeJob({ status: "running", files: [] })],
+			},
+		});
+
+		// The live list holds the search only; the job has its own pinned row.
+		const stack = screen.getByTestId("tool-activity-stack");
+		expect(within(stack).getAllByTestId("tool-activity-row")).toHaveLength(1);
+		const files = screen.getByTestId("tool-activity-files");
+		expect(within(files).getAllByTestId("tool-activity-row")).toHaveLength(1);
+	});
+
 	it("renders a file job with no reasoning behind it as a bare pinned row, with no thinking header", () => {
 		render(ThinkingBlock, {
 			props: {

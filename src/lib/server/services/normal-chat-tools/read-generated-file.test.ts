@@ -1240,3 +1240,512 @@ describe("readGeneratedFileContent — page mode", () => {
 		expect(second.from).toBe(pages[2].start);
 	});
 });
+
+/**
+ * The read-back blocker (live, 2026-09-21).
+ *
+ * `read_generated_file({ filename })` resolved its target by matching
+ * `artifacts.name`, and the SQL pre-filtered on an exact name, so:
+ *
+ *  - a DOCUMENT-SOURCE file was unreachable by its own filename (that
+ *    artifact is named after the document TITLE), and the pre-filter emptied
+ *    the row set, so even the newest-file fallback could not fire — the model
+ *    got "No matching file found.", concluded it had lied, publicly retracted
+ *    a true statement and produced the file a second time;
+ *  - a file produced in THIS turn had no artifact at all yet (the memory sync
+ *    is deferred until the assistant message is assigned), so the same-turn
+ *    read-back returned nothing;
+ *  - a patched file's NEW version had no artifact yet while the OLD one did,
+ *    so the read-back served the stale v1.
+ *
+ * The filename the model produced now resolves against `chat_generated_files`
+ * first. These tests pin that, the version rule, the truthful "text pending"
+ * answer for a binary the ledger has not read back yet, and ownership.
+ */
+describe("readGeneratedFileContent — the filename the model produced", () => {
+	const CHAT_FILES_DIR = join(process.cwd(), "data", "chat-files");
+	const writtenFiles: string[] = [];
+
+	async function seedChatFile(params: {
+		filename: string;
+		content: string | Buffer;
+		mimeType: string;
+		createdAt?: Date;
+		conversationId?: string;
+		userId?: string;
+	}): Promise<string> {
+		const id = randomUUID();
+		const conversationId = params.conversationId ?? CONVERSATION;
+		const extension = params.filename.split(".").pop() ?? "bin";
+		const storagePath = join(conversationId, `${id}.${extension}`);
+		const absolute = join(CHAT_FILES_DIR, storagePath);
+		const { mkdir, writeFile } = await import("node:fs/promises");
+		const { dirname } = await import("node:path");
+		await mkdir(dirname(absolute), { recursive: true });
+		const buffer = Buffer.isBuffer(params.content)
+			? params.content
+			: Buffer.from(params.content, "utf8");
+		await writeFile(absolute, buffer);
+		writtenFiles.push(absolute);
+
+		memory.db
+			.insert(schema.chatGeneratedFiles)
+			.values({
+				id,
+				conversationId,
+				userId: params.userId ?? USER,
+				filename: params.filename,
+				mimeType: params.mimeType,
+				sizeBytes: buffer.length,
+				storagePath,
+				createdAt: params.createdAt ?? NOW,
+			})
+			.run();
+		return id;
+	}
+
+	function seedFileProductionJob(params: {
+		id: string;
+		chatFileIds: string[];
+	}) {
+		memory.db
+			.insert(schema.fileProductionJobs)
+			.values({
+				id: params.id,
+				conversationId: CONVERSATION,
+				userId: USER,
+				title: "job",
+				status: "succeeded",
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+		memory.db
+			.insert(schema.fileProductionJobFiles)
+			.values(
+				params.chatFileIds.map((chatGeneratedFileId, sortOrder) => ({
+					id: randomUUID(),
+					jobId: params.id,
+					chatGeneratedFileId,
+					sortOrder,
+					createdAt: NOW,
+				})),
+			)
+			.run();
+	}
+
+	/** The wrapper `chat-files.ts` writes; the last section is the only part a
+	 * readback ever rewrites. */
+	function memoryWrapper(filename: string, extracted: string | null): string {
+		const head = [
+			`Generated file: ${filename}`,
+			"File type: application/pdf",
+			`Generated in conversation: ${CONVERSATION}`,
+		].join("\n");
+		return extracted
+			? `${head}\n\nExtracted file content:\n${extracted}`
+			: `${head}\n\nExtracted file content: No readable text could be extracted from this file. Use the filename, file type, and surrounding chat context when continuing it.`;
+	}
+
+	afterEach(async () => {
+		await Promise.all(
+			writtenFiles.splice(0).map((file) => rm(file, { force: true })),
+		);
+	});
+
+	const DOCUMENT_MARKDOWN =
+		"# Tobacco Cost Breakdown\n\nMonthly spend: 42 EUR.\n\nPouch price: 6.10 EUR.";
+	const PDF_BYTES = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
+
+	it("finds a document-source PDF by its produced filename, with the artifact present", async () => {
+		const fileId = await seedChatFile({
+			filename: "tobacco-cost-breakdown.pdf",
+			content: PDF_BYTES,
+			mimeType: "application/pdf",
+		});
+		// The artifact is named after the DOCUMENT TITLE, which is exactly why
+		// the old name-matching path could never find it.
+		seedArtifact({
+			type: "generated_output",
+			name: "Tobacco Cost Breakdown - Monthly Spend and Pouch Prices",
+			contentText: DOCUMENT_MARKDOWN,
+			metadata: {
+				generatedDocumentSource: {
+					version: 1,
+					title: "Tobacco Cost Breakdown",
+				},
+				fileProductionJobId: "job-1",
+				originalChatFileId: fileId,
+				sourceChatFileId: fileId,
+				generatedDocumentRenderedChatFileIds: [fileId],
+				documentLabel: "Tobacco Cost Breakdown",
+				versionNumber: 1,
+			},
+		});
+
+		const result = await read({ filename: "tobacco-cost-breakdown.pdf" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.filename).toBe("tobacco-cost-breakdown.pdf");
+		expect(result.source).toBe("generated");
+		expect(result.contentText).toBe(DOCUMENT_MARKDOWN);
+		expect(buildReadGeneratedFileModelPayload(result)).toMatchObject({
+			found: true,
+			filename: "tobacco-cost-breakdown.pdf",
+		});
+	});
+
+	it("finds a document-source PDF in the SAME turn, before the artifact is linked", async () => {
+		// Mid-job: the source artifact exists (it carries the rendered Markdown)
+		// but its rendered chat files have not been attached yet, so nothing in
+		// its metadata names this file. The job row is the link.
+		const fileId = await seedChatFile({
+			filename: "tobacco-cost-breakdown.pdf",
+			content: PDF_BYTES,
+			mimeType: "application/pdf",
+		});
+		seedFileProductionJob({ id: "job-2", chatFileIds: [fileId] });
+		seedArtifact({
+			type: "generated_output",
+			name: "Tobacco Cost Breakdown - Monthly Spend and Pouch Prices",
+			contentText: DOCUMENT_MARKDOWN,
+			metadata: {
+				generatedDocumentSource: {
+					version: 1,
+					title: "Tobacco Cost Breakdown",
+				},
+				generatedDocumentSourceStatus: "pending",
+				fileProductionJobId: "job-2",
+			},
+		});
+
+		const result = await read({ filename: "tobacco-cost-breakdown.pdf" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.textPending).toBe(false);
+		expect(result.contentText).toBe(DOCUMENT_MARKDOWN);
+	});
+
+	it("reads an inline_text file produced in this turn straight off disk", async () => {
+		// No artifact at all: the memory sync has not run yet.
+		await seedChatFile({
+			filename: "release-notes.md",
+			content: "# Release notes\n\n- First cut.",
+			mimeType: "text/markdown",
+		});
+
+		const result = await read({ filename: "release-notes.md" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.contentText).toBe("# Release notes\n\n- First cut.");
+		expect(result.versionNumber).toBe(1);
+		expect(result.mimeType).toBe("text/markdown");
+	});
+
+	it("tells the truth about a program-mode PDF whose readback is still queued", async () => {
+		const fileId = await seedChatFile({
+			filename: "chart.pdf",
+			content: PDF_BYTES,
+			mimeType: "application/pdf",
+		});
+		const artifactId = seedArtifact({
+			type: "generated_output",
+			name: "chart.pdf",
+			contentText: memoryWrapper("chart.pdf", null),
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: fileId,
+				generatedFilename: "chart.pdf",
+				versionNumber: 1,
+			},
+		});
+
+		const pending = await read({ filename: "chart.pdf" });
+
+		expect(pending.notFound).toBe(false);
+		expect(pending.textPending).toBe(true);
+		expect(pending.contentText).toBeNull();
+		expect(pending.sizeBytes).toBe(PDF_BYTES.length);
+		const payload = buildReadGeneratedFileModelPayload(pending);
+		expect(payload).toMatchObject({ found: true, textPending: true });
+		expect(String(payload.note)).toContain("chart.pdf");
+		expect(summarizeReadGeneratedFileResult(pending)).not.toBe(
+			"No matching file found.",
+		);
+
+		// …and once the readback sink has filled the wrapper's last section in.
+		memory.db
+			.update(schema.artifacts)
+			.set({
+				contentText: memoryWrapper("chart.pdf", "Quarterly chart, 3 series."),
+			})
+			.where(eq(schema.artifacts.id, artifactId))
+			.run();
+
+		const ready = await read({ filename: "chart.pdf" });
+		expect(ready.textPending).toBe(false);
+		expect(ready.contentText).toBe("Quarterly chart, 3 series.");
+	});
+
+	it("returns the newest version of a filename, never the stale previous one", async () => {
+		const v1 = await seedChatFile({
+			filename: "release-notes.md",
+			content: "# Release notes\n\n- First cut.",
+			mimeType: "text/markdown",
+			createdAt: new Date("2026-09-15T10:00:00.000Z"),
+		});
+		seedArtifact({
+			type: "generated_output",
+			name: "release-notes.md",
+			contentText:
+				"Generated file: release-notes.md\n\nExtracted file content:\n# Release notes\n\n- First cut.",
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: v1,
+				generatedFilename: "release-notes.md",
+				versionNumber: 1,
+			},
+		});
+
+		// The patch lands: v2 is on disk, and its artifact does not exist yet.
+		await seedChatFile({
+			filename: "release-notes.md",
+			content: "# Release notes\n\n- First cut.\n- Second cut.",
+			mimeType: "text/markdown",
+			createdAt: new Date("2026-09-15T10:01:00.000Z"),
+		});
+
+		const result = await read({ filename: "release-notes.md" });
+
+		expect(result.contentText).toBe(
+			"# Release notes\n\n- First cut.\n- Second cut.",
+		);
+		expect(result.versionNumber).toBe(2);
+		expect(summarizeReadGeneratedFileResult(result)).toContain("v2");
+	});
+
+	it("matches case-insensitively and by stem", async () => {
+		await seedChatFile({
+			filename: "Quarterly-Report.md",
+			content: "# Quarterly report",
+			mimeType: "text/markdown",
+		});
+
+		const caseInsensitive = await read({ filename: "quarterly-report.md" });
+		expect(caseInsensitive.contentText).toBe("# Quarterly report");
+
+		const byStem = await read({ filename: "Quarterly-Report.pdf" });
+		expect(byStem.contentText).toBe("# Quarterly report");
+	});
+
+	// A stem match is the weakest tier there is — same basename, different
+	// extension — and it must not shadow a document the user UPLOADED under
+	// exactly the name that was asked for.
+	it("prefers an uploaded document named exactly as asked over a generated file's stem match", async () => {
+		await seedChatFile({
+			filename: "contract.md",
+			content: "the summary the assistant wrote",
+			mimeType: "text/markdown",
+		});
+		seedArtifact({
+			type: "normalized_document",
+			name: "contract.md",
+			contentText: "the contract the user uploaded",
+			metadata: { normalizedFrom: "contract.pdf" },
+		});
+
+		const result = await read({ filename: "contract.pdf" });
+
+		expect(result.source).toBe("document");
+		expect(result.contentText).toBe("the contract the user uploaded");
+	});
+
+	it("still answers a stem match from the generated file when no such upload exists", async () => {
+		await seedChatFile({
+			filename: "contract.md",
+			content: "the summary the assistant wrote",
+			mimeType: "text/markdown",
+		});
+
+		const result = await read({ filename: "contract.pdf" });
+
+		expect(result.source).toBe("generated");
+		expect(result.contentText).toBe("the summary the assistant wrote");
+	});
+
+	// An exact filename still wins outright — the reordering above only moved
+	// the STEM tier.
+	it("keeps an exactly named generated file ahead of an uploaded document", async () => {
+		await seedChatFile({
+			filename: "notes.md",
+			content: "generated notes",
+			mimeType: "text/markdown",
+		});
+		seedArtifact({
+			type: "normalized_document",
+			name: "notes.md",
+			contentText: "uploaded notes",
+		});
+
+		const result = await read({ filename: "notes.md" });
+
+		expect(result.source).toBe("generated");
+		expect(result.contentText).toBe("generated notes");
+	});
+
+	// The wrapper is bookkeeping — the chat-file id, the conversation id, the
+	// prior-version list and a 900-char excerpt of a DIFFERENT turn's answer.
+	// `resolveBestContent` fell back to the whole of it whenever the extracted
+	// section was still the "no text yet" sentence, so a requestTitle call on a
+	// pending binary handed the model internal ids and unrelated text and let
+	// it read them as the file's contents.
+	it("never returns the memory wrapper as content on the requestTitle path", async () => {
+		const fileId = await seedChatFile({
+			filename: "chart.pdf",
+			content: PDF_BYTES,
+			mimeType: "application/pdf",
+		});
+		const wrapper = [
+			"Generated file: chart.pdf",
+			"File type: application/pdf",
+			`Chat file id: ${fileId}`,
+			`Generated in conversation: ${CONVERSATION}`,
+			"Generated file version: v1",
+			"",
+			"Assistant response context:",
+			"Here is the quarterly chart you asked about last week.",
+			"",
+			"Extracted file content: No readable text could be extracted from this file. Use the filename, file type, and surrounding chat context when continuing it.",
+		].join("\n");
+		seedArtifact({
+			type: "generated_output",
+			name: "chart.pdf",
+			contentText: wrapper,
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: fileId,
+				generatedFilename: "chart.pdf",
+				documentLabel: "Quarterly chart",
+				versionNumber: 1,
+			},
+		});
+
+		const result = await read({ requestTitle: "Quarterly chart" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.textPending).toBe(true);
+		expect(result.contentText).toBeNull();
+		// The facts come from the stored file, not from the wrapper.
+		expect(result.sizeBytes).toBe(PDF_BYTES.length);
+		expect(result.mimeType).toBe("application/pdf");
+		expect(result.versionNumber).toBe(1);
+
+		const payload = JSON.stringify(buildReadGeneratedFileModelPayload(result));
+		expect(payload).not.toContain(fileId);
+		expect(payload).not.toContain(CONVERSATION);
+		expect(payload).not.toContain("Assistant response context");
+		expect(payload).not.toContain("No readable text could be extracted");
+	});
+
+	it("still returns a document-source artifact's raw Markdown, which has no wrapper", async () => {
+		seedArtifact({
+			type: "generated_output",
+			name: "Tobacco Cost Breakdown - Monthly Spend and Pouch Prices",
+			contentText: DOCUMENT_MARKDOWN,
+			metadata: {
+				generatedDocumentSource: {
+					version: 1,
+					title: "Tobacco Cost Breakdown",
+				},
+				documentLabel: "Tobacco Cost Breakdown",
+			},
+		});
+
+		const result = await read({ requestTitle: "Tobacco Cost Breakdown" });
+
+		expect(result.textPending).toBe(false);
+		expect(result.contentText).toBe(DOCUMENT_MARKDOWN);
+	});
+
+	it("lists this conversation's filenames as candidates on a genuine miss", async () => {
+		await seedChatFile({
+			filename: "release-notes.md",
+			content: "# Release notes",
+			mimeType: "text/markdown",
+		});
+
+		const result = await read({ filename: "realease-notes.md" });
+
+		expect(result.notFound).toBe(true);
+		expect(result.candidates.map((candidate) => candidate.filename)).toContain(
+			"release-notes.md",
+		);
+	});
+
+	it("never reads a file of another conversation or another user", async () => {
+		await seedChatFile({
+			filename: "secret.md",
+			content: "other conversation",
+			mimeType: "text/markdown",
+			conversationId: OTHER_CONVERSATION,
+		});
+		seedConversation("conv-foreign", OTHER_USER);
+		await seedChatFile({
+			filename: "foreign.md",
+			content: "another user",
+			mimeType: "text/markdown",
+			conversationId: "conv-foreign",
+			userId: OTHER_USER,
+		});
+
+		const otherConversation = await read({ filename: "secret.md" });
+		expect(otherConversation.notFound).toBe(true);
+		expect(otherConversation.candidates).toEqual([]);
+
+		const otherUser = await read({ filename: "foreign.md" });
+		expect(otherUser.notFound).toBe(true);
+
+		// …and the foreign conversation's own owner cannot reach across either.
+		const fromForeign = await readGeneratedFileContent({
+			userId: OTHER_USER,
+			conversationId: "conv-foreign",
+			filename: "secret.md",
+		});
+		expect(fromForeign.notFound).toBe(true);
+	});
+
+	it("reads a forked conversation's copied file back by filename", async () => {
+		// A fork copies the chat file row (new id, new conversation) and rewrites
+		// the copied artifact's `originalChatFileId` to point at it.
+		seedConversation("conv-fork", USER);
+		const copiedFileId = await seedChatFile({
+			filename: "release-notes.md",
+			content: "# Release notes\n\n- First cut.",
+			mimeType: "text/markdown",
+			conversationId: "conv-fork",
+		});
+		seedArtifact({
+			type: "generated_output",
+			name: "release-notes.md",
+			conversationId: "conv-fork",
+			contentText:
+				"Generated file: release-notes.md\n\nExtracted file content:\n# Release notes\n\n- First cut.",
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: copiedFileId,
+				sourceChatFileId: copiedFileId,
+				generatedFilename: "release-notes.md",
+				versionNumber: 1,
+			},
+		});
+
+		const result = await readGeneratedFileContent({
+			userId: USER,
+			conversationId: "conv-fork",
+			filename: "release-notes.md",
+		});
+
+		expect(result.notFound).toBe(false);
+		expect(result.contentText).toBe("# Release notes\n\n- First cut.");
+	});
+});

@@ -7,6 +7,10 @@ import {
 	extractAiSdkUiStreamMetadataData,
 } from "$lib/services/ai-sdk-ui-stream-contract";
 import {
+	isVisibleThinkingSegment,
+	isVisibleThinkingToolCall,
+} from "$lib/utils/tool-calls";
+import {
 	aiSdkUiStreamContractMetadata,
 	aiSdkUiStreamContractParts,
 	aiSdkUiStreamContractSequence,
@@ -708,7 +712,16 @@ describe("createServerChunkRuntime", () => {
 		]);
 	});
 
-	it("keeps file-production tool calls out of persisted thinking segments", () => {
+	// This used to assert the opposite — that a produce_file call was kept OUT
+	// of `serverSegments`, because the chat renders its file card from the job
+	// read-model and the segment looked like duplicate UI. But `serverSegments`
+	// is `messages.toolCalls`, which is what the NEXT turn's native history
+	// replays, so the model had no evidence in its own history that it had
+	// produced anything: live, it retracted a true statement ("I said 'PDF
+	// attached' but never ran the build") and produced the same file a second
+	// time. The segment is persisted now; the UI stays unchanged because every
+	// segment consumer filters through `isVisibleThinkingToolCall`.
+	it("persists file-production tool calls as thinking segments the UI still hides", () => {
 		const chunks: string[] = [];
 		const runtime = createServerChunkRuntime({
 			enqueueChunk(chunk) {
@@ -722,13 +735,34 @@ describe("createServerChunkRuntime", () => {
 			{ requestTitle: "Report" },
 			"running",
 		);
-		runtime.emitToolCallEvent("produce_file", {}, "done");
+		runtime.emitToolCallEvent("produce_file", {}, "done", {
+			outputSummary: "File production job job-1 succeeded: report.pdf.",
+			resultDigest:
+				'Read it back with read_generated_file({filename:"report.pdf"}).',
+		});
 
 		expect(toolCallEvents(chunks)).toHaveLength(2);
 		expect(runtime.toolCallRecords).toEqual([
 			expect.objectContaining({ name: "produce_file", status: "done" }),
 		]);
-		expect(runtime.serverSegments).toEqual([]);
+		expect(runtime.serverSegments).toEqual([
+			expect.objectContaining({
+				type: "tool_call",
+				name: "produce_file",
+				status: "done",
+				input: { requestTitle: "Report" },
+				outputSummary: "File production job job-1 succeeded: report.pdf.",
+				resultDigest:
+					'Read it back with read_generated_file({filename:"report.pdf"}).',
+			}),
+		]);
+		// The UI predicate every segment consumer goes through (ThinkingBlock,
+		// MessageBubble): a file-production call never renders a tool row, so no
+		// duplicate card appears beside the job card.
+		expect(runtime.serverSegments.filter(isVisibleThinkingSegment)).toEqual([]);
+		expect(runtime.serverSegments.filter(isVisibleThinkingToolCall)).toEqual(
+			[],
+		);
 	});
 
 	it("records prefetched done-only web tool calls with citation candidates", () => {

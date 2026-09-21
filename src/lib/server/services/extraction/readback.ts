@@ -25,23 +25,28 @@ import { parseJsonRecord } from "$lib/server/utils/json";
 import { previewText } from "$lib/server/utils/text";
 import { DocumentExtractionError } from "./contracts";
 import {
+	GENERATED_FILE_EXTRACT_PREVIEW_CHARS,
+	GENERATED_FILE_EXTRACTED_CONTENT_LABEL,
+	GENERATED_FILE_NO_EXTRACTION_TEXT,
+} from "./generated-file-memory-format";
+import {
 	type ReadbackExtractionSink,
 	setGeneratedFileReadbackSink,
 } from "./worker-runner";
 
 /**
- * The label the memory wrapper's last section starts with. `read_generated_file`
- * splits on it (`normal-chat-tools/read-generated-file.ts`), so it is a wire
- * format between two modules, not a cosmetic string.
+ * The wrapper's wire format. It now lives in a dependency-free module of its
+ * own (`./generated-file-memory-format`) so `read_generated_file` can share
+ * these exact bytes without importing this file — and with it the extraction
+ * worker, the extractor registry and a zip reader — into a chat turn's
+ * bundle. Re-exported here because this module is where every existing caller
+ * imports them from.
  */
-export const GENERATED_FILE_EXTRACTED_CONTENT_LABEL = "Extracted file content:";
-
-/** What the section says while there is no text — today's "extraction failed" prose. */
-export const GENERATED_FILE_NO_EXTRACTION_TEXT =
-	"No readable text could be extracted from this file. Use the filename, file type, and surrounding chat context when continuing it.";
-
-/** How much of the extracted text the wrapper carries. Unchanged from the inline path. */
-export const GENERATED_FILE_EXTRACT_PREVIEW_CHARS = 6000;
+export {
+	GENERATED_FILE_EXTRACT_PREVIEW_CHARS,
+	GENERATED_FILE_EXTRACTED_CONTENT_LABEL,
+	GENERATED_FILE_NO_EXTRACTION_TEXT,
+} from "./generated-file-memory-format";
 
 /**
  * The wrapper's final section, in both of its shapes.
