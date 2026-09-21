@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import { getFileProductionLimits } from "./limits";
 
 let dbPath: string;
 const XLSX_MIME_TYPE =
@@ -1950,8 +1951,15 @@ describe("file production service", () => {
 		expect(executeCode).toHaveBeenCalledWith(
 			'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
 			"python",
-			// The attempt's abort signal: a cancel has to reach the container.
-			{ signal: expect.any(AbortSignal) },
+			{
+				// The attempt's abort signal: a cancel has to reach the container.
+				signal: expect.any(AbortSignal),
+				// And the admin's FILE_PRODUCTION_SANDBOX_TIMEOUT_MS as the
+				// container's deadline. Without it the run was killed on
+				// `getSandboxTimeout()`'s hard-coded 90 s and the key meant
+				// nothing.
+				timeoutMs: getFileProductionLimits().sandboxTimeoutMs,
+			},
 		);
 		expect(storeGeneratedFile).toHaveBeenCalledWith("conv-1", "user-1", {
 			assistantMessageId: null,
@@ -2558,6 +2566,10 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 
 		expect(executeCode).toHaveBeenCalledWith(sourceCode, "javascript", {
 			signal: expect.any(AbortSignal),
+			// The configured deadline reaches the container for JavaScript too,
+			// where the hard-coded default it replaces is a different number
+			// (135 s, not 90 s) — so a caller-supplied value must win over both.
+			timeoutMs: getFileProductionLimits().sandboxTimeoutMs,
 		});
 		expect(storeGeneratedFile).toHaveBeenCalledTimes(1);
 		const jobs = await listConversationFileProductionJobs("user-1", "conv-1");

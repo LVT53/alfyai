@@ -370,3 +370,68 @@ describe("[FILE_PRODUCTION] sandbox log lines", () => {
 		expect(logged.endsWith("...")).toBe(true);
 	});
 });
+
+// The admin key's actual teeth. `FILE_PRODUCTION_SANDBOX_TIMEOUT_MS` was
+// parsed, clamped, surfaced in the health readout and then discarded: the
+// container was always killed on `getSandboxTimeout()`'s hard-coded value,
+// whatever the admin had set. `executeCode` now takes the deadline as an
+// option, and only file production passes one — `run_python` shares this
+// function and keeps the constant, because its envelope timeout is derived
+// from that same constant.
+describe("the sandbox deadline", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		mockSandbox.execute.mockImplementation(() => new Promise(() => {}));
+		mockCreateSandbox.mockResolvedValue(mockSandbox);
+		mockContainer.kill.mockResolvedValue(undefined);
+		mockSandbox.destroy.mockResolvedValue(undefined);
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	/**
+	 * When the run finished, in fake-clock milliseconds. The surfaced error is
+	 * normalised to "Execution timed out" whatever the deadline was, so WHEN
+	 * the container is killed is the only observable difference — which is
+	 * exactly the thing the admin key is supposed to control.
+	 */
+	async function millisecondsUntilKilled(
+		options?: Parameters<typeof executeCode>[2],
+	): Promise<number | null> {
+		let elapsed: number | null = null;
+		const run = executeCode('print("test")', "python", options).then(
+			(result) => {
+				if (result.error) elapsed = Date.now() - startedAt;
+				return result;
+			},
+		);
+		const startedAt = Date.now();
+		// Past the mocked language default of 60 s, so a deadline that was
+		// ignored still lands inside the window.
+		await vi.advanceTimersByTimeAsync(70_000);
+		await run;
+		return elapsed;
+	}
+
+	it("kills the container on the caller's deadline, not the default", async () => {
+		expect(await millisecondsUntilKilled({ timeoutMs: 5_000 })).toBe(5_000);
+		expect(mockContainer.kill).toHaveBeenCalledWith({ signal: "SIGKILL" });
+	});
+
+	it("keeps the language default when no deadline is passed", async () => {
+		// 60000 is what the mocked `getSandboxTimeout` gives; `run_python` has
+		// to keep landing here.
+		expect(await millisecondsUntilKilled()).toBe(60_000);
+	});
+
+	it("ignores a deadline that is not a usable number", async () => {
+		// A zero or a NaN would otherwise arm a timer that fires immediately or
+		// never. The env and admin appliers both clamp to >= 1000, so this is
+		// the belt to their braces.
+		expect(await millisecondsUntilKilled({ timeoutMs: Number.NaN })).toBe(
+			60_000,
+		);
+		expect(await millisecondsUntilKilled({ timeoutMs: 0 })).toBe(60_000);
+	});
+});

@@ -174,9 +174,7 @@ describe("PUT /api/admin/config validation", () => {
 	// key alongside a dozen good ones could no longer save anything at all.
 	describe("keys nothing reads", () => {
 		it("drops one and names it, without calling the value invalid", async () => {
-			const response = await PUT(
-				makeEvent({ FILE_PRODUCTION_SANDBOX_TIMEOUT_MS: "120000" }),
-			);
+			const response = await PUT(makeEvent({ TEI_RERANKER_MODEL: "bge-m3" }));
 			const body = (await response.json()) as {
 				success: boolean;
 				ignored: Record<string, { reason: string }>;
@@ -184,18 +182,40 @@ describe("PUT /api/admin/config validation", () => {
 
 			expect(response.status).toBe(200);
 			expect(body.success).toBe(true);
-			expect(body.ignored.FILE_PRODUCTION_SANDBOX_TIMEOUT_MS).toEqual({
+			expect(body.ignored.TEI_RERANKER_MODEL).toEqual({
 				reason: "unwired",
 			});
 			expect(upserted).toEqual([]);
 			expect(deleted).toEqual([]);
 		});
 
+		// And the other direction: a key that WAS inert and is now wired has to
+		// be stored, not silently dropped. Both timeouts were on this list.
+		it("stores the sandbox timeout now that the sandbox enforces it", async () => {
+			const response = await PUT(
+				makeEvent({ FILE_PRODUCTION_SANDBOX_TIMEOUT_MS: "120000" }),
+			);
+			const body = (await response.json()) as {
+				success: boolean;
+				ignored?: Record<string, { reason: string }>;
+			};
+
+			expect(response.status).toBe(200);
+			expect(body.success).toBe(true);
+			// Nothing was dropped, so the endpoint does not report an `ignored`
+			// map at all.
+			expect(body.ignored?.FILE_PRODUCTION_SANDBOX_TIMEOUT_MS).toBeUndefined();
+			expect(upserted).toEqual([
+				{ key: "FILE_PRODUCTION_SANDBOX_TIMEOUT_MS", value: "120000" },
+			]);
+		});
+
 		it("drops every one of them, including the text control", async () => {
 			for (const key of [
-				"FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
-				// FILE_PRODUCTION_RENDERER_TIMEOUT_MS used to be here. It is wired
-				// now — the attempt's RenderBudget deadline — so it is writable.
+				// FILE_PRODUCTION_RENDERER_TIMEOUT_MS and
+				// FILE_PRODUCTION_SANDBOX_TIMEOUT_MS used to be here. Both are
+				// wired now — the attempt's RenderBudget deadline and the
+				// program-mode container's deadline — so both are writable.
 				"TEI_RERANKER_MODEL",
 				"WORKING_SET_DOCUMENT_TOKEN_BUDGET",
 				"WORKING_SET_PROMPT_TOKEN_BUDGET",

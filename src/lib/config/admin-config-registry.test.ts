@@ -239,7 +239,9 @@ describe("url controls and unwired keys", () => {
 	it("labels the keys no consumer reads yet as unwired, not live", () => {
 		for (const key of [
 			"TEI_RERANKER_MODEL",
-			"FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
+			// FILE_PRODUCTION_SANDBOX_TIMEOUT_MS used to be here. It is the
+			// program-mode container's deadline now — `execution-adapter.ts`
+			// hands it to `executeCode` — so it is live and writable.
 			"WORKING_SET_DOCUMENT_TOKEN_BUDGET",
 			"WORKING_SET_PROMPT_TOKEN_BUDGET",
 		]) {
@@ -257,7 +259,6 @@ describe("url controls and unwired keys", () => {
 // three places.
 describe("the inert set", () => {
 	const EXPECTED = [
-		"FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
 		"TEI_RERANKER_MODEL",
 		"WORKING_SET_DOCUMENT_TOKEN_BUDGET",
 		"WORKING_SET_PROMPT_TOKEN_BUDGET",

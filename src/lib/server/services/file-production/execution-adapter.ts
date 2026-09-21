@@ -536,13 +536,23 @@ export async function executePersistedFileProductionRequest(
 	if (request.value.sourceMode === "program") {
 		const executeCode = input.executeCode ?? executeSandboxCode;
 		try {
-			// The sandbox has its own timeout and its own SIGKILL; the signal is
-			// what makes a CANCEL reach the container instead of waiting out the
-			// full sandbox timeout on work nobody wants.
+			// The sandbox has its own SIGKILL; the signal is what makes a CANCEL
+			// reach the container instead of waiting out the full deadline on
+			// work nobody wants.
+			//
+			// `limits.sandboxTimeoutMs` is the admin's
+			// `FILE_PRODUCTION_SANDBOX_TIMEOUT_MS`, and passing it here is what
+			// makes that key mean anything: until now the value was parsed,
+			// clamped, surfaced in the health readout and then discarded, while
+			// the container was killed on `getSandboxTimeout()`'s hard-coded 90 s
+			// whatever the admin had set. Only file production passes it —
+			// `run_python` shares `executeCode` but not this knob, and its own
+			// envelope timeout is derived from the same hard-coded constant, so
+			// raising the file-production deadline must not move it.
 			const execution = await executeCode(
 				request.value.sourceCode,
 				request.value.language,
-				{ signal: input.signal },
+				{ signal: input.signal, timeoutMs: limits.sandboxTimeoutMs },
 			);
 			if (execution.error) {
 				return {

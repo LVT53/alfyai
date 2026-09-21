@@ -158,7 +158,13 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		key: "FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
 		group: "limits",
 		control: int(1000, undefined, "s", 1000),
-		effect: "unwired",
+		// Live: `execution-adapter.ts` passes it to `executeCode` as the
+		// container's deadline for program-mode jobs, so a change applies to the
+		// next job. It was `unwired` for as long as the sandbox killed on
+		// `getSandboxTimeout()`'s hard-coded 90 s whatever this said. Only file
+		// production passes it — `run_python` shares `executeCode` but keeps the
+		// constant, because its envelope timeout is derived from that constant.
+		effect: "live",
 	},
 	{
 		key: "FILE_PRODUCTION_RENDERER_TIMEOUT_MS",
@@ -839,16 +845,15 @@ export const ADMIN_CONFIG_EFFECT_BY_KEY: Readonly<
  * Every key here was checked against its would-be consumer before being left
  * unwired; none of them is a one-line hook-up:
  *
- *  - FILE_PRODUCTION_SANDBOX_TIMEOUT_MS reaches `getFileProductionLimits()` as
- *    `sandboxTimeoutMs` and stops there: the sandbox has a real deadline, but
- *    it comes from `getSandboxTimeout()` in the sandbox module, which this key
- *    does not feed. Wiring it means making that module read this config, not
- *    passing a number along.
- *
- *    FILE_PRODUCTION_RENDERER_TIMEOUT_MS used to sit here for the same reason
- *    and no longer does. It is now the attempt's `RenderBudget` deadline in
- *    `execution-adapter.ts`, enforced cooperatively at page, block and table-row
- *    boundaries — see `render-budget.ts` for why a timer could not have done it.
+ *    FILE_PRODUCTION_RENDERER_TIMEOUT_MS and FILE_PRODUCTION_SANDBOX_TIMEOUT_MS
+ *    both used to sit here and no longer do. The renderer one is the attempt's
+ *    `RenderBudget` deadline in `execution-adapter.ts`, enforced cooperatively
+ *    at page, block and table-row boundaries — see `render-budget.ts` for why a
+ *    timer could not have done it. The sandbox one is now passed to
+ *    `executeCode` as that run's deadline, which is what `getSandboxTimeout()`
+ *    would otherwise have supplied; the shared constant stays as the default so
+ *    `run_python`, which uses the same function and derives its envelope
+ *    timeout from that constant, is unaffected.
  *  - TEI_RERANKER_MODEL has no field to go in. A Text Embeddings Inference
  *    server serves ONE model per process and its `/rerank` body has no `model`
  *    member; the model is chosen when the container starts. There is no
