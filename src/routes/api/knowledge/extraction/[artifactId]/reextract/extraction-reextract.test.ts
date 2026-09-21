@@ -51,6 +51,13 @@ let ledger: Ledger;
 
 const OWNER = "user-owner";
 const STRANGER = "user-stranger";
+/**
+ * Mirrors `MAX_ACTIVE_REEXTRACTIONS_PER_USER`. Restated rather than imported:
+ * `reextract.ts` pulls in `$lib/server/db`, which opens a database at import
+ * time, and this file has to seed one and point `DATABASE_PATH` at it first.
+ * The `limit` assertion below fails loudly if the two ever drift.
+ */
+const REEXTRACT_LIMIT = 5;
 const LONG_AGO = new Date("2026-01-01T00:00:00.000Z");
 
 function makeEvent(
@@ -158,11 +165,90 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 
 		const row = jobRow(job.id);
 		expect(row.status).toBe("queued");
-		expect(JSON.parse(row.hints_json ?? "null")).toEqual({ tier: "basic" });
+		// `reextract: true` is what the per-user cap counts; the ledger itself
+		// never reads either key.
+		expect(JSON.parse(row.hints_json ?? "null")).toEqual({
+			tier: "basic",
+			reextract: true,
+		});
 		expect(row.remote_handle_json).toBeNull();
 		// The façade wakes the worker through a lazy import, so the call lands a
 		// microtask after the response.
 		await vi.waitFor(() => expect(wake).toHaveBeenCalledTimes(1));
+	});
+
+	it("refuses a tier that is not higher than the recorded one, before any job write", async () => {
+		// The component disabled these menu items; nothing stopped a direct
+		// POST. Accepting it would overwrite a `standard` parse — text, chunks
+		// and bundle — with a `flash` one, and the job would report success.
+		probe.tiers = ["flash", "basic", "standard"];
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			metadata: { extractionTier: "standard" },
+		});
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "flash" }),
+		);
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as {
+			code: string;
+			currentTier: string;
+		};
+		expect(body.code).toBe("tier_not_higher");
+		expect(body.currentTier).toBe("standard");
+
+		expect(jobRow(job.id).status).toBe("succeeded");
+		expect(jobRow(job.id).hints_json).toBeNull();
+		expect(wake).not.toHaveBeenCalled();
+	});
+
+	it("refuses the tier the document is already at", async () => {
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			metadata: { extractionTier: "basic" },
+		});
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "basic" }),
+		);
+		expect(response.status).toBe(400);
+		expect((await response.json()).code).toBe("tier_not_higher");
+		expect(jobRow(job.id).status).toBe("succeeded");
+	});
+
+	it("accepts a lower tier when an operator forces it", async () => {
+		// Not a UI affordance: `force` exists for an operator re-reading a
+		// document after an OCR-mode change or a MinerU upgrade.
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			metadata: { extractionTier: "basic" },
+		});
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "flash", force: true }),
+		);
+		expect(response.status).toBe(200);
+		expect(jobRow(job.id).status).toBe("queued");
+		expect(JSON.parse(jobRow(job.id).hints_json ?? "null")).toMatchObject({
+			tier: "flash",
+		});
+	});
+
+	it("treats a document with no recorded tier as below every tier", async () => {
+		// D12: a pre-Phase-4 document is exactly what this action exists for,
+		// and it must not be locked out by a tier it never recorded.
+		const artifactId = fixture.seedArtifact({ userId: OWNER });
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "flash" }),
+		);
+		expect(response.status).toBe(200);
+		expect(jobRow(job.id).status).toBe("queued");
 	});
 
 	it("refuses a tier the server does not offer, before any job write", async () => {
@@ -264,6 +350,93 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 		expect((await response.json()).code).toBe("extraction_job_active");
 	});
 
+	it("caps how many re-extractions one user may have in flight", async () => {
+		// The per-document guards bound one file. Nothing bounded a library:
+		// fifty rows and fifty clicks is fifty parses queued on a backend that
+		// serves one job at a time.
+		const queued: string[] = [];
+		for (let index = 0; index < REEXTRACT_LIMIT; index++) {
+			const artifactId = fixture.seedArtifact({ userId: OWNER });
+			const { job } = await enqueueSucceeded(OWNER, artifactId);
+			const response = await route.POST(
+				makeEvent(artifactId, OWNER, { tier: "basic" }),
+			);
+			expect(response.status).toBe(200);
+			queued.push(job.id);
+		}
+		for (const jobId of queued) {
+			expect(jobRow(jobId).status).toBe("queued");
+			expect(JSON.parse(jobRow(jobId).hints_json ?? "null")).toEqual({
+				tier: "basic",
+				reextract: true,
+			});
+		}
+
+		const oneMore = fixture.seedArtifact({ userId: OWNER });
+		const { job: refused } = await enqueueSucceeded(OWNER, oneMore);
+		const response = await route.POST(
+			makeEvent(oneMore, OWNER, { tier: "basic" }),
+		);
+		expect(response.status).toBe(429);
+		expect(response.headers.get("Retry-After")).toBeTruthy();
+		const body = (await response.json()) as { code: string; limit: number };
+		expect(body.code).toBe("reextract_limit");
+		expect(body.limit).toBe(REEXTRACT_LIMIT);
+		expect(jobRow(refused.id).status).toBe("succeeded");
+
+		// Another user is unaffected: the cap is per account, not global.
+		const theirs = fixture.seedArtifact({ userId: STRANGER });
+		await enqueueSucceeded(STRANGER, theirs);
+		const stranger = await route.POST(
+			makeEvent(theirs, STRANGER, { tier: "basic" }),
+		);
+		expect(stranger.status).toBe(200);
+	});
+
+	it("does not count an upload's queued job against the re-extract cap", async () => {
+		// Only jobs that CAME FROM Re-extract hold a seat. A library that is
+		// still uploading must not lock the action out.
+		for (let index = 0; index < REEXTRACT_LIMIT + 2; index++) {
+			await ledger.enqueueExtractionJob({
+				userId: OWNER,
+				conversationId: null,
+				origin: "upload",
+				intakeRoute: "mineru",
+				fileName: `upload-${index}.pdf`,
+				mimeType: "application/pdf",
+				sizeBytes: 2048,
+				sourceArtifactId: fixture.seedArtifact({ userId: OWNER }),
+			});
+		}
+
+		const artifactId = fixture.seedArtifact({ userId: OWNER });
+		await enqueueSucceeded(OWNER, artifactId);
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "basic" }),
+		);
+		expect(response.status).toBe(200);
+	});
+
+	it("frees a seat when a re-extraction finishes", async () => {
+		const jobIds: string[] = [];
+		for (let index = 0; index < REEXTRACT_LIMIT; index++) {
+			const artifactId = fixture.seedArtifact({ userId: OWNER });
+			const { job } = await enqueueSucceeded(OWNER, artifactId);
+			await route.POST(makeEvent(artifactId, OWNER, { tier: "basic" }));
+			jobIds.push(job.id);
+		}
+		fixture.sqlite
+			.prepare("UPDATE document_extraction_jobs SET status = ? WHERE id = ?")
+			.run("succeeded", jobIds[0]);
+
+		const artifactId = fixture.seedArtifact({ userId: OWNER });
+		await enqueueSucceeded(OWNER, artifactId);
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "basic" }),
+		);
+		expect(response.status).toBe(200);
+	});
+
 	it("refuses past the total-attempt ceiling, exactly as Retry does", async () => {
 		const artifactId = fixture.seedArtifact({ userId: OWNER });
 		const { job } = await enqueueSucceeded(OWNER, artifactId);
@@ -278,6 +451,55 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 		);
 		expect(response.status).toBe(409);
 		expect((await response.json()).code).toBe("max_attempts");
+	});
+
+	// The ceiling counts DOCUMENT attempts — `attempt_count` minus the attempts
+	// that were spent waiting on an unreachable backend (`$outage.waits`).
+	// `retryExtractionJob` discounts them; this route must too, or one 30-minute
+	// outage (about twelve waits at the default window) permanently disables
+	// Re-extract for a document that never failed once, while the Retry button
+	// beside it still works.
+	it("discounts outage waits from the ceiling, exactly as Retry does", async () => {
+		const artifactId = fixture.seedArtifact({ userId: OWNER });
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+		fixture.sqlite
+			.prepare(
+				"UPDATE document_extraction_jobs SET attempt_count = ?, hints_json = ? WHERE id = ?",
+			)
+			.run(12, JSON.stringify({ $outage: { since: null, waits: 12 } }), job.id);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "basic" }),
+		);
+
+		expect(response.status).toBe(200);
+	});
+
+	// `$outage.waits` is cumulative and is the ONLY record of which attempts
+	// were not the document's fault. Replacing the whole `hints_json` column
+	// destroys it, so the waits retroactively start counting against both the
+	// ceiling and the Retry button.
+	it("carries the outage discount across a re-extraction", async () => {
+		const artifactId = fixture.seedArtifact({ userId: OWNER });
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+		fixture.sqlite
+			.prepare(
+				"UPDATE document_extraction_jobs SET attempt_count = ?, hints_json = ? WHERE id = ?",
+			)
+			.run(6, JSON.stringify({ $outage: { since: 1_000, waits: 3 } }), job.id);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "basic" }),
+		);
+		expect(response.status).toBe(200);
+
+		expect(JSON.parse(jobRow(job.id).hints_json ?? "null")).toEqual({
+			tier: "basic",
+			reextract: true,
+			// A re-extraction is a fresh look, so the CURRENT window is cleared,
+			// but the cumulative discount survives — same rule as Retry.
+			$outage: { since: null, waits: 3 },
+		});
 	});
 
 	it("materialises a row for a pre-ledger document before requeuing it", async () => {
@@ -309,7 +531,10 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 			)
 			.get(artifactId) as { status: string; hints_json: string };
 		expect(row.status).toBe("queued");
-		expect(JSON.parse(row.hints_json)).toEqual({ tier: "basic" });
+		expect(JSON.parse(row.hints_json)).toEqual({
+			tier: "basic",
+			reextract: true,
+		});
 	});
 
 	it("does not materialise a row for a stranger's pre-ledger document", async () => {
@@ -353,6 +578,25 @@ describe("GET /api/knowledge/extraction/[artifactId]/reextract", () => {
 			"basic",
 			"standard",
 		]);
+	});
+
+	it("offers only tiers strictly above the one the document already has", async () => {
+		probe.tiers = ["flash", "basic", "standard", "advanced"];
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			metadata: { extractionTier: "basic" },
+		});
+		await enqueueSucceeded(OWNER, artifactId);
+
+		const response = await route.GET(makeEvent(artifactId, OWNER));
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			tiers: string[];
+			currentTier: string | null;
+		};
+		// A menu that listed `flash` or `basic` would be offering a 400.
+		expect(body.tiers).toEqual(["standard", "advanced"]);
+		expect(body.currentTier).toBe("basic");
 	});
 
 	it("gives another user's document the ownership 404", async () => {

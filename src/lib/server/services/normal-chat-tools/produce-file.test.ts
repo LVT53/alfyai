@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { validateGeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
 
 import {
+	applyTextPatches,
+	isInlineTextRequest,
 	type NormalizedProduceFileInput,
 	normalizeProduceFileInput,
 	produceFileModelInputSchema,
@@ -654,5 +656,331 @@ describe("output type derived from a filename", () => {
 		expect(outputsFor({ filename: "notes.tar.gz", markdown: BODY })).toEqual([
 			{ type: "gz" },
 		]);
+	});
+});
+
+// Phase 6 D8 / §4.2. A request whose outputs are ALL plain-text types and whose
+// bytes the model supplied verbatim is written by the app, not by a Python
+// one-liner inside a Docker container.
+describe("inline_text production mode", () => {
+	const MARKDOWN = [
+		"# Quarterly summary",
+		"",
+		"Revenue grew 12% quarter over quarter, driven by the two enterprise",
+		"renewals that closed in March, and the migration backlog is now under",
+		"fifty tickets.",
+		"",
+		"| Region | Revenue |",
+		"|---|---|",
+		"| North | €24.25 |",
+		"",
+		"```python",
+		"print('kept verbatim')",
+		"```",
+	].join("\n");
+
+	const TSV = [
+		"region\trevenue\trenewals\tbacklog",
+		"North\t24.25\t2\t48",
+		"South\t25.75\t3\t31",
+		"East\t18.50\t1\t12",
+		"West\t31.00\t4\t27",
+		"Central\t22.75\t2\t19",
+	].join("\n");
+
+	function normalize(
+		input: Partial<Parameters<typeof normalizeProduceFileInput>[0]>,
+	) {
+		return normalizeProduceFileInput({
+			requestTitle: "Quarterly summary",
+			...input,
+		} as Parameters<typeof normalizeProduceFileInput>[0]);
+	}
+
+	function expectOk(result: ReturnType<typeof normalizeProduceFileInput>) {
+		if (!result.ok) {
+			throw new Error(`expected ok result, got error: ${result.error}`);
+		}
+		return result.input;
+	}
+
+	it("classifies a request by whether every output is a plain-text type", () => {
+		expect(isInlineTextRequest(["md"])).toBe(true);
+		expect(isInlineTextRequest(["txt", "csv", "tsv", "json"])).toBe(true);
+		expect(isInlineTextRequest(["py"])).toBe(true);
+		// html is text-validated but is a document source: it belongs to the
+		// report renderers, not to a verbatim byte copy.
+		expect(isInlineTextRequest(["html"])).toBe(false);
+		expect(isInlineTextRequest(["pdf"])).toBe(false);
+		expect(isInlineTextRequest(["xlsx"])).toBe(false);
+		expect(isInlineTextRequest(["md", "pdf"])).toBe(false);
+		// The caller's default-type ladder has already run, so an empty list is
+		// "nothing named a type", not "every type qualifies".
+		expect(isInlineTextRequest([])).toBe(false);
+	});
+
+	it("routes a bare markdown call to inline_text with the content verbatim", () => {
+		const input = expectOk(normalize({ markdown: MARKDOWN }));
+
+		expect(input.sourceMode).toBe("inline_text");
+		expect(input.program).toBeUndefined();
+		expect(input.documentSource).toBeUndefined();
+		expect(input.inlineText).toEqual({
+			content: MARKDOWN,
+			files: [{ filename: "quarterly-summary.md", outputType: "md" }],
+		});
+	});
+
+	it("writes the same bytes the program path would have written", () => {
+		// `buildTextFileProgram` embedded `content` in a Python `write_text` call,
+		// so the container wrote exactly the (already trimmed) string. The inline
+		// mode must hand storage that same string — no reformatting, no added or
+		// stripped trailing newline, CRLF left alone.
+		const crlf = `${MARKDOWN.replace(/\n/g, "\r\n")}\r\n\r\n`;
+		const input = expectOk(normalize({ content: crlf }));
+
+		expect(input.sourceMode).toBe("inline_text");
+		// `firstNonEmptyString` trims, exactly as it did for the program path.
+		expect(input.inlineText?.content).toBe(crlf.trim());
+	});
+
+	it("honours an explicit filename and its extension", () => {
+		const input = expectOk(
+			normalize({ filename: "Q1 report.tsv", content: TSV }),
+		);
+
+		expect(input.sourceMode).toBe("inline_text");
+		expect(input.requestedOutputs).toEqual([{ type: "tsv" }]);
+		expect(input.inlineText?.files).toEqual([
+			{ filename: "Q1 report.tsv", outputType: "tsv" },
+		]);
+	});
+
+	it("writes one file per requested text output", () => {
+		const input = expectOk(
+			normalize({
+				requestedOutputs: [{ type: "md" }, { type: "txt" }],
+				markdown: MARKDOWN,
+			}),
+		);
+
+		expect(input.sourceMode).toBe("inline_text");
+		expect(input.inlineText?.files).toEqual([
+			{ filename: "quarterly-summary.md", outputType: "md" },
+			{ filename: "quarterly-summary.txt", outputType: "txt" },
+		]);
+	});
+
+	it("keeps the document-source path for pdf, docx and html", () => {
+		for (const type of ["pdf", "docx", "html"]) {
+			const input = expectOk(
+				normalize({ requestedOutputs: [{ type }], markdown: MARKDOWN }),
+			);
+			expect(input.sourceMode).toBe("document_source");
+			expect(input.inlineText).toBeUndefined();
+		}
+	});
+
+	it("keeps the sandbox path for xlsx, pptx, odt, zip and svg", () => {
+		for (const type of ["xlsx", "pptx", "odt", "zip", "svg"]) {
+			const input = expectOk(
+				normalize({ requestedOutputs: [{ type }], content: MARKDOWN }),
+			);
+			expect(input.sourceMode).toBe("program");
+			expect(input.inlineText).toBeUndefined();
+		}
+	});
+
+	// Condition 1 of §4.2: an explicit program-mode request returns two branches
+	// earlier and is completely unaffected, markdown output or not.
+	it("leaves an explicit program-mode markdown request on the sandbox path", () => {
+		const input = expectOk(
+			normalize({
+				sourceMode: "program",
+				requestedOutputs: [{ type: "md" }],
+				program: {
+					language: "python",
+					sourceCode:
+						"from pathlib import Path\nPath('/output/notes.md').write_text('# hi')",
+					filename: "notes.md",
+				},
+			}),
+		);
+
+		expect(input.sourceMode).toBe("program");
+		expect(input.program?.sourceCode).toContain("write_text");
+		expect(input.inlineText).toBeUndefined();
+	});
+
+	// Condition 2: an explicit documentSource keeps the report renderers even
+	// when markdown is among the outputs.
+	it("leaves an explicit documentSource markdown request on the renderer path", () => {
+		const input = expectOk(
+			normalize({
+				sourceMode: "document_source",
+				requestedOutputs: [{ type: "md" }],
+				documentSource: {
+					blocks: [
+						{
+							type: "paragraph",
+							text: "Substantive content for the standard report renderer.",
+						},
+					],
+				},
+			}),
+		);
+
+		expect(input.sourceMode).toBe("document_source");
+		expect(input.inlineText).toBeUndefined();
+	});
+
+	// Condition 3: `hasSubstantiveContent` still gates the whole content branch.
+	it("still refuses placeholder content before choosing a mode", () => {
+		const result = normalize({ markdown: "TODO" });
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("expected the call to be refused");
+		expect(result.error).toContain("Content is too short");
+	});
+
+	// Patch resolution needs the PREVIOUS version of the file, which only the
+	// tool adapter can fetch, so normalization cannot decide the mode here: a
+	// patch-carrying request leaves this function on the program path with its
+	// patches attached. Once the adapter HAS the patched bytes it re-runs this
+	// function with them as `content`, which is how an all-plain-text patch
+	// reaches inline_text — see `produce-file-patch-mode.test.ts`.
+	it("keeps a patch-carrying request on the program path so patches still resolve", () => {
+		const withPatches = expectOk(
+			normalize({
+				markdown: MARKDOWN,
+				patches: [{ oldText: "North", newText: "South" }],
+			}),
+		);
+		expect(withPatches.sourceMode).toBe("program");
+		expect(withPatches.patches).toEqual([
+			{ oldText: "North", newText: "South" },
+		]);
+
+		const patchOnly = expectOk(
+			normalize({
+				filename: "notes.md",
+				patches: [{ oldText: "North", newText: "South" }],
+			}),
+		);
+		expect(patchOnly.sourceMode).toBe("program");
+	});
+
+	it("round-trips applyTextPatches output back through an inline_text produce", () => {
+		const patched = applyTextPatches(MARKDOWN, [
+			{ oldText: "North", newText: "South" },
+		]);
+		expect(patched.ok).toBe(true);
+		if (!patched.ok) throw new Error(patched.error);
+
+		const input = expectOk(normalize({ markdown: patched.resolvedText }));
+		expect(input.sourceMode).toBe("inline_text");
+		expect(input.inlineText?.content).toBe(patched.resolvedText);
+		expect(input.inlineText?.content).toContain("| South | €24.25 |");
+	});
+});
+
+// THE SHIPPED BUG (spec §1.4 / §4.2 bonus fix). `[pdf, md]` fails
+// `shouldUseDocumentSourceForOutputs` (md is not a document source), so the
+// request fell through to program mode and `resolveTextFilename` named the file
+// after `requestedOutputs[0]` — `.pdf`. The generated Python one-liner then
+// wrote raw markdown into a file called `.pdf`.
+describe("mixed document/text output requests", () => {
+	const MARKDOWN = [
+		"# Quarterly summary",
+		"",
+		"Revenue grew 12% quarter over quarter, driven by the two enterprise",
+		"renewals that closed in March, and the migration backlog is now under",
+		"fifty tickets.",
+	].join("\n");
+
+	it.each([
+		["pdf", "md"],
+		["docx", "txt"],
+		["html", "md"],
+		["pdf", "csv"],
+	])("refuses [%s, %s] instead of mis-naming a text file", (first, second) => {
+		const result = normalizeProduceFileInput({
+			requestTitle: "Quarterly summary",
+			requestedOutputs: [{ type: first }, { type: second }],
+			markdown: MARKDOWN,
+		});
+
+		expect(result.ok).toBe(false);
+		if (result.ok) {
+			throw new Error(
+				`expected a refusal, got sourceMode=${result.input.sourceMode} ` +
+					`filename=${result.input.program?.filename ?? "-"}`,
+			);
+		}
+		expect(result.error).toContain(`${first}, ${second}`);
+		expect(result.error).toContain("Request one group of formats at a time");
+		expect(result.error).toContain("documentSource");
+	});
+
+	it("refuses the same mix when the model asked for program mode without code", () => {
+		const result = normalizeProduceFileInput({
+			requestTitle: "Quarterly summary",
+			sourceMode: "program",
+			requestedOutputs: [{ type: "pdf" }, { type: "md" }],
+			markdown: MARKDOWN,
+		});
+
+		expect(result.ok).toBe(false);
+	});
+
+	// A single pdf with raw markdown and no documentSource already works: the
+	// registry says pdf IS a document source, so the content is parsed into
+	// blocks and the report renderer produces a real PDF.
+	it("still renders a single pdf request through the document source", () => {
+		const result = normalizeProduceFileInput({
+			requestTitle: "Quarterly summary",
+			requestedOutputs: [{ type: "pdf" }],
+			markdown: MARKDOWN,
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error(result.error);
+		expect(result.input.sourceMode).toBe("document_source");
+		expect(result.input.documentSource?.blocks).toBeTruthy();
+	});
+
+	it("leaves a mixed request alone when the model supplied the program itself", () => {
+		const result = normalizeProduceFileInput({
+			requestTitle: "Quarterly summary",
+			sourceMode: "program",
+			requestedOutputs: [{ type: "pdf" }, { type: "md" }],
+			program: {
+				language: "python",
+				sourceCode: "# writes both /output/report.pdf and /output/report.md",
+			},
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error(result.error);
+		expect(result.input.sourceMode).toBe("program");
+	});
+
+	it("leaves a mixed request alone when the model supplied a documentSource", () => {
+		const result = normalizeProduceFileInput({
+			requestTitle: "Quarterly summary",
+			sourceMode: "document_source",
+			requestedOutputs: [{ type: "pdf" }, { type: "md" }],
+			documentSource: {
+				blocks: [
+					{
+						type: "paragraph",
+						text: "Substantive content for the standard report renderer.",
+					},
+				],
+			},
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error(result.error);
+		expect(result.input.sourceMode).toBe("document_source");
 	});
 });

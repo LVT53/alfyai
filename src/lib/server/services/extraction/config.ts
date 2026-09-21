@@ -14,6 +14,15 @@ export interface ExtractionConfig {
 	maxAttempts: number;
 	retryBaseMs: number;
 	retryMaxMs: number;
+	/**
+	 * How long a job may keep waiting on a backend that is not answering,
+	 * in total, before it gives up and asks the user to try again.
+	 *
+	 * Separate from `maxAttempts` on purpose: an outage is not evidence against
+	 * the document, so it must not spend the document's attempts. See
+	 * `retry-policy.ts`.
+	 */
+	outageWindowMs: number;
 	staleAttemptMs: number;
 	heartbeatMs: number;
 	inlineBudgetMs: number;
@@ -43,6 +52,7 @@ export function getExtractionConfig(): ExtractionConfig {
 		maxAttempts: config.documentExtractionMaxAttempts,
 		retryBaseMs: config.documentExtractionRetryBaseMs,
 		retryMaxMs: config.documentExtractionRetryMaxMs,
+		outageWindowMs: config.documentExtractionOutageWindowMs,
 		// The stale window used to be dragged up to `mineruJobTimeoutMs * 2` (OQ5),
 		// on the theory that an attempt must not be reclaimed while its own HTTP
 		// call is still in flight. That theory no longer holds: the heartbeat runs

@@ -83,6 +83,7 @@ describe("MessageArea", () => {
 					previewUrl: "/api/chat/files/file-1/preview",
 				},
 			],
+			sourceMode: overrides.sourceMode ?? null,
 		};
 	}
 
@@ -1362,6 +1363,7 @@ describe("MessageArea", () => {
 			warnings: [],
 			dismissed: false,
 			error: null,
+			sourceMode: null,
 			files: [
 				{
 					id: "file-pdf",
@@ -1548,6 +1550,7 @@ describe("MessageArea", () => {
 				message: "Renderer timed out.",
 				retryable: true,
 			},
+			sourceMode: null,
 			files: [],
 		};
 		const runningJob: FileProductionJob = {

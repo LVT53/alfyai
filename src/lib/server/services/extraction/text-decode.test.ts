@@ -1,0 +1,148 @@
+import { describe, expect, it } from "vitest";
+import { decodeTextBuffer } from "./text-decode";
+
+function utf16leBytes(text: string, withBom: boolean): Buffer {
+	const body = Buffer.from(text, "utf16le");
+	return withBom ? Buffer.concat([Buffer.from([0xff, 0xfe]), body]) : body;
+}
+
+function utf16beBytes(text: string): Buffer {
+	const le = Buffer.from(text, "utf16le");
+	le.swap16();
+	return Buffer.concat([Buffer.from([0xfe, 0xff]), le]);
+}
+
+describe("decodeTextBuffer", () => {
+	it("strips a UTF-8 BOM and decodes the rest as utf-8", () => {
+		const buffer = Buffer.concat([
+			Buffer.from([0xef, 0xbb, 0xbf]),
+			Buffer.from("hello\n", "utf8"),
+		]);
+
+		const result = decodeTextBuffer(buffer);
+
+		expect(result).toEqual({ ok: true, text: "hello", encoding: "utf-8" });
+	});
+
+	it("decodes UTF-16LE with a BOM and strips it", () => {
+		const buffer = utf16leBytes("hello", true);
+
+		const result = decodeTextBuffer(buffer);
+
+		expect(result).toEqual({ ok: true, text: "hello", encoding: "utf-16le" });
+	});
+
+	it("decodes UTF-16BE with a BOM, byte-swapping the remainder", () => {
+		const buffer = utf16beBytes("hello");
+
+		const result = decodeTextBuffer(buffer);
+
+		expect(result).toEqual({ ok: true, text: "hello", encoding: "utf-16be" });
+	});
+
+	it.each([
+		["UTF-32LE", Buffer.from([0xff, 0xfe, 0x00, 0x00, 0x48, 0x00, 0x00, 0x00])],
+		["UTF-32BE", Buffer.from([0x00, 0x00, 0xfe, 0xff, 0x00, 0x00, 0x00, 0x48])],
+	])("reports unsupported_encoding for a %s BOM", (_label, buffer) => {
+		const result = decodeTextBuffer(buffer);
+
+		expect(result).toEqual({
+			ok: false,
+			failure: {
+				reason: "unsupported_encoding",
+				detail: expect.stringContaining("UTF-32"),
+			},
+		});
+	});
+
+	it("reports binary_content for a NUL byte", () => {
+		// Built from raw bytes, not a source-level escape sequence, so the
+		// control byte never has to round-trip through an editor or a diff.
+		const buffer = Buffer.concat([
+			Buffer.from("before", "utf8"),
+			Buffer.from([0x00]),
+			Buffer.from("after", "utf8"),
+		]);
+
+		const result = decodeTextBuffer(buffer);
+
+		expect(result).toEqual({
+			ok: false,
+			failure: {
+				reason: "binary_content",
+				detail: expect.any(String),
+			},
+		});
+	});
+
+	it("reports binary_content when replacement characters exceed 1% of the sample", () => {
+		// Genuinely invalid UTF-8 byte sequences (lone continuation bytes),
+		// interleaved so Node's decoder substitutes the replacement character
+		// for each one.
+		const junk = Buffer.alloc(400, 0x80);
+		const buffer = Buffer.concat([Buffer.from("some preamble text "), junk]);
+
+		const result = decodeTextBuffer(buffer);
+
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.failure.reason).toBe("binary_content");
+		}
+	});
+
+	it("tolerates a handful of bad bytes without failing", () => {
+		// A mostly-clean UTF-8 file with a couple of stray invalid bytes should
+		// still read: only a small fraction of the sample is a replacement
+		// character.
+		const clean = Buffer.from("x".repeat(5000), "utf8");
+		const buffer = Buffer.concat([clean, Buffer.from([0x80, 0x81])]);
+
+		const result = decodeTextBuffer(buffer);
+
+		expect(result.ok).toBe(true);
+	});
+
+	it("normalises CRLF to LF and trims, exactly like chunk-sync", () => {
+		const buffer = Buffer.from("  \r\nfirst\r\nsecond\r\n  ", "utf8");
+
+		const result = decodeTextBuffer(buffer);
+
+		expect(result).toEqual({
+			ok: true,
+			text: "first\nsecond",
+			encoding: "utf-8",
+		});
+	});
+
+	it("passes legitimate non-ASCII UTF-8 text through untouched", () => {
+		const text = "árvíztűrő tükörfúrógép";
+		const buffer = Buffer.from(text, "utf8");
+
+		const result = decodeTextBuffer(buffer);
+
+		expect(result).toEqual({ ok: true, text, encoding: "utf-8" });
+	});
+
+	it("treats a BOM-less UTF-16 file as UTF-8 and lets the binary rule catch it", () => {
+		// No heuristic UTF-16 sniffing (spec §3.3): without a BOM this is read as
+		// UTF-8, and ASCII-range UTF-16LE bytes are riddled with zero bytes,
+		// which the binary_content rule rejects.
+		const buffer = utf16leBytes("Hello World", false);
+
+		const result = decodeTextBuffer(buffer);
+
+		expect(result).toEqual({
+			ok: false,
+			failure: {
+				reason: "binary_content",
+				detail: expect.any(String),
+			},
+		});
+	});
+
+	it("decodes an empty buffer to empty text rather than failing", () => {
+		const result = decodeTextBuffer(Buffer.alloc(0));
+
+		expect(result).toEqual({ ok: true, text: "", encoding: "utf-8" });
+	});
+});

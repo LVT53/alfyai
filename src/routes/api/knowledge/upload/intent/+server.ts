@@ -7,6 +7,10 @@ import { createAttachmentTraceId } from "$lib/server/services/attachment-trace";
 // number is.
 import { getExtractionConfig } from "$lib/server/services/extraction/config";
 import {
+	getUploadFormatGate,
+	resolveEffectiveIntakeRoute,
+} from "$lib/server/services/knowledge/format-availability";
+import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
 	validateKnowledgeUploadConversation,
@@ -16,11 +20,7 @@ import {
 	UPLOAD_REJECT_I18N_KEYS,
 	UPLOAD_UNSUPPORTED_TYPE_CODE,
 } from "$lib/server/services/knowledge/upload-signature";
-import {
-	admitUpload,
-	fileExtension,
-	getIntakeRoute,
-} from "$lib/shared/file-types";
+import { admitUpload, fileExtension } from "$lib/shared/file-types";
 import type { RequestHandler } from "./$types";
 
 function formatBytes(value: number | null): string {
@@ -153,14 +153,59 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 
+	// The MinerU-4 availability gate (phase5-6 spec §3.5). Never a network call
+	// on this hot path — `getUploadFormatGate` reads the capabilities module's
+	// own cache and fails open when it is cold or the probe errored.
+	const gate = await getUploadFormatGate();
+	if (admission.entry && gate.disabledEntryIds.has(admission.entry.id)) {
+		const extension = fileExtension(intent.fileName ?? "") || null;
+		console.info("[KNOWLEDGE] Upload intent refused a MinerU-4-gated type", {
+			traceId,
+			userId: user.id,
+			fileName: intent.fileName,
+			mimeType: intent.mimeType,
+			extension,
+			backendVersion: gate.backendVersion,
+		});
+		return json(
+			{
+				// Identical envelope to the admitUpload refusal above: same 415,
+				// same code, same errorKey. A gated format on an old backend is
+				// indistinguishable from a not-yet-enabled one, which is exactly
+				// what it is.
+				error: formatUploadRejectMessageEn("formatNotEnabled", {
+					fileName: intent.fileName,
+					extension,
+				}),
+				code: UPLOAD_UNSUPPORTED_TYPE_CODE,
+				errorKey: UPLOAD_REJECT_I18N_KEYS.formatNotEnabled,
+				traceId,
+				details: {
+					fileName: intent.fileName,
+					extension,
+					reason: "formatNotEnabled",
+				},
+			},
+			{ status: 415 },
+		);
+	}
+
 	// Bug B5. A `direct-text` file is read whole into memory, chunked and
 	// embedded, so a 100 MB `.log` is thousands of chunk rows and as many
 	// embedding calls from a single upload. Refuse it here, before any byte
 	// moves; `directTextExtractor` enforces the same cap again for the raw and
 	// chunk routes, which never call this handshake.
+	//
+	// The route consulted is the EFFECTIVE one: on a gate-closed pre-4 backend,
+	// `html`/`htm` fall back to `direct-text` (§3.2.4) and the cap applies to
+	// them again exactly as it did before Phase 5.
 	const directTextCap = getExtractionConfig().maxDirectTextBytes;
 	if (
-		getIntakeRoute(intent.fileName ?? "", intent.mimeType) === "direct-text" &&
+		resolveEffectiveIntakeRoute(
+			intent.fileName ?? "",
+			intent.mimeType,
+			gate,
+		) === "direct-text" &&
 		intent.fileSize > directTextCap
 	) {
 		console.info("[KNOWLEDGE] Upload intent refused an oversized text file", {
@@ -212,5 +257,11 @@ export const POST: RequestHandler = async (event) => {
 		requestBodyLimit,
 		rawUploadLimit,
 		chunkBodyLimit,
+		// Authoritative, and lands before any other upload on the page: the
+		// client republishes this into `$disabledFileTypeIds`
+		// (`$lib/client/api/knowledge.ts`) next to `maxFileUploadSize`, so the
+		// picker's accept string and drag-drop partitioning reflect the live
+		// gate even when the SSR shell payload is stale.
+		disabledFileTypeIds: [...gate.disabledEntryIds],
 	});
 };

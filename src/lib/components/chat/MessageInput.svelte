@@ -76,7 +76,16 @@ import {
 	maxFileUploadSizeBytes,
 	maxFileUploadSizeMb,
 } from "$lib/stores/upload-limits";
-import { getAcceptAttribute } from "$lib/shared/file-types";
+import { disabledFileTypeIds } from "$lib/stores/upload-format-gate";
+import {
+	admitUpload,
+	buildAcceptAttribute,
+	fileExtension,
+} from "$lib/shared/file-types";
+import {
+	decideClipboardAttachment,
+	UPLOAD_REJECT_I18N_KEYS,
+} from "$lib/utils/clipboard-attachments";
 import {
 	isPhoneViewport,
 	isTouchDevice,
@@ -403,6 +412,10 @@ let extractionActionIds = $state<Set<string>>(new Set());
 // back at a screen-reader user for the whole length of a read.
 let extractionAnnouncement = $state("");
 const extractionAnnouncer = createExtractionAnnouncer();
+// The paste-to-attach live region's text. Its own region rather than a second
+// writer on the extraction one: that region is driven by the poller and would
+// overwrite this the moment the first chip moved to "Reading…".
+let pasteAnnouncement = $state("");
 let attachmentError = $state("");
 let documentPickerOpen = $state(false);
 let sourceManagerOpen = $state(false);
@@ -576,6 +589,15 @@ let canAttach = $derived(
 	attachmentsEnabled &&
 		Boolean(resolvedConversationId || ensureConversation) &&
 		!isUploadingAttachment,
+);
+// Both of the composer's accept surfaces — the hidden `<input>` below and the
+// phone sheet's "Files on this phone" row — publish THIS string and nothing
+// else. `buildAcceptAttribute` is deliberately not memoised (the disabled set
+// moves with backend health), so it is derived once per gate change instead of
+// once per render. An open gate (the default, and the failure mode) returns
+// the memoised full string unchanged.
+let chatAcceptAttribute = $derived(
+	buildAcceptAttribute("chat", $disabledFileTypeIds),
 );
 let composerArtifacts = $derived(
 	Array.from(
@@ -1222,6 +1244,52 @@ function adjustHeight() {
 		const maxHeight = isMobileDevice ? 112 : 240;
 		textarea.style.height = `${Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight))}px`;
 	});
+}
+
+// Paste-to-attach (phase5-6 spec §3.6). The composer's FIRST paste handler:
+// before this, the textarea had only the browser's native behaviour, and
+// `insertQuoteAtCursor` below — which is an in-app outline pick and never
+// touches the clipboard — is what must keep working unchanged.
+//
+// The rule lives in `decideClipboardAttachment`, deliberately: a clipboard
+// carrying any `text/plain` flavour is a text paste, so copying from Word,
+// Excel or a web page (all of which put an image on the clipboard beside the
+// text) still pastes text exactly as it did yesterday. Only files with no text
+// — a screenshot, a Finder/Explorer copy — become attachments, and only then
+// is the event's default prevented.
+function handlePaste(event: ClipboardEvent) {
+	// A composer that cannot attach must still paste TEXT normally, so every
+	// early return here leaves the event alone rather than swallowing it.
+	// NOT gated on `canAttach`: that goes false while an upload is in flight,
+	// and pasting during an upload is exactly the case the batch counter in
+	// `uploadFiles` was fixed to survive.
+	if (isComposerDisabled || !attachmentsEnabled) return;
+
+	const decision = decideClipboardAttachment(event.clipboardData, {
+		disabledEntryIds: $disabledFileTypeIds,
+	});
+
+	if (decision.preventDefault) {
+		event.preventDefault();
+		// Nothing to look at on this attach path: no picker closed, no drop
+		// overlay faded out, just chips that appeared. So it is spoken.
+		pasteAnnouncement =
+			decision.files.length === 1
+				? $t("chat.pasteAttached", { name: decision.files[0].name })
+				: $t("chat.pasteAttachedMany", { count: decision.files.length });
+		// Synchronous up to its first await, and it clears `attachmentError` —
+		// which is why the refusal below is applied AFTER it, and only if it
+		// left the line empty.
+		void uploadFiles(decision.files);
+	}
+
+	const refusal = decision.refused[0];
+	if (refusal && !attachmentError) {
+		attachmentError = $t(refusal.errorKey as I18nKey, {
+			name: refusal.name,
+			ext: refusal.ext,
+		});
+	}
 }
 
 // Chips redesign (owner-approved boards, 2026-09-15): picking a section
@@ -2620,14 +2688,38 @@ function removePendingSkill() {
 	void emitDraftChange();
 }
 
-async function uploadFiles(files: FileList | null) {
+/**
+ * The refusal the upload endpoints would answer this file with, already
+ * translated — or `null` when they would take it.
+ *
+ * Same table, same reasons, one round trip earlier. The `<input accept>` has
+ * already filtered a PICKED file, so this is what covers the two paths that
+ * hand over whatever the user had: a drop (the chat pages pass the raw
+ * `FileList` straight through) and a paste. It is also the only place the
+ * MinerU-4 gate reaches those two paths — an open gate (the default, and the
+ * failure mode) disables nothing.
+ */
+function uploadTypeRefusal(file: File): string | null {
+	const admission = admitUpload(file.name, file.type || null);
+	const reason = !admission.allowed
+		? admission.reason
+		: admission.entry && $disabledFileTypeIds.has(admission.entry.id)
+			? ("formatNotEnabled" as const)
+			: null;
+	if (!reason) return null;
+	return $t(UPLOAD_REJECT_I18N_KEYS[reason] as I18nKey, {
+		name: file.name,
+		ext: fileExtension(file.name).toUpperCase(),
+	});
+}
+
+async function uploadFiles(files: FileList | readonly File[] | null) {
 	if (!files) return;
 	const selectedFiles = Array.from(files);
 	if (selectedFiles.length === 0) return;
 	uploadState = "uploading";
 	attachmentError = "";
 	extractionActionError = "";
-	const failures: string[] = [];
 	const optimisticIds: string[] = [];
 
 	try {
@@ -2635,22 +2727,42 @@ async function uploadFiles(files: FileList | null) {
 		// every upload intent. One number, not four copies of 100 MB.
 		const maxFileSize = $maxFileUploadSizeBytes;
 		const maxFileSizeMb = $maxFileUploadSizeMb;
+
+		// Two failure buckets, because they read differently: a file the
+		// server would refuse outright gets the sentence the server would have
+		// sent ("Archives can't be opened on upload. Unpack it…"), where an
+		// oversized one keeps the existing count line.
+		const refused: string[] = [];
+		const tooLarge: string[] = [];
+		const validFiles: File[] = [];
 		for (const file of selectedFiles) {
+			const refusal = uploadTypeRefusal(file);
+			if (refusal) {
+				refused.push(refusal);
+				continue;
+			}
 			if (file.size > maxFileSize) {
-				failures.push(
+				tooLarge.push(
 					`${file.name}: ${$t("chat.fileSizeExceeded", { size: (file.size / (1024 * 1024)).toFixed(0), max: maxFileSizeMb })}`,
 				);
+				continue;
 			}
+			validFiles.push(file);
 		}
+		const failureCount = refused.length + tooLarge.length;
 
-		const validFiles = selectedFiles.filter((file) => file.size <= maxFileSize);
-
-		// Show size-check failures immediately for oversized files
-		if (failures.length > 0) {
+		// Show the check failures immediately.
+		if (failureCount > 0) {
 			if (validFiles.length === 0) {
-				throw new Error($t("chat.allFilesTooLarge", { max: maxFileSizeMb }));
+				throw new Error(
+					refused.length === 0
+						? $t("chat.allFilesTooLarge", { max: maxFileSizeMb })
+						: failureCount === 1
+							? refused[0]
+							: $t("chat.uploadAllFailed", { count: failureCount }),
+				);
 			}
-			attachmentError = $t("chat.uploadSomeFailed", { count: failures.length });
+			attachmentError = $t("chat.uploadSomeFailed", { count: failureCount });
 		}
 
 		// OQ6 — the chip goes up now, not when the round trip ends. Creating a
@@ -3028,7 +3140,7 @@ async function emitDraftChange(force = false) {
 			type="file"
 			class="hidden"
 			multiple
-			accept={getAcceptAttribute('chat')}
+			accept={chatAcceptAttribute}
 			disabled={isComposerDisabled}
 			onchange={(event) => uploadFiles((event.currentTarget as HTMLInputElement).files)}
 		/>
@@ -3041,6 +3153,7 @@ async function emitDraftChange(force = false) {
 			onscroll={handleTextareaScroll}
 			onkeydown={handleKeydown}
 			onkeyup={handleKeyup}
+			onpaste={handlePaste}
 			onfocus={handleTextareaFocus}
 			onblur={handleTextareaBlur}
 			disabled={isComposerDisabled}
@@ -3271,6 +3384,18 @@ async function emitDraftChange(force = false) {
 			data-testid="composer-extraction-announcer"
 		>
 			{extractionAnnouncement}
+		</div>
+
+		<!-- Paste-to-attach. Every other attach path has something visible
+		     happen at the same moment — a picker closes, a drop overlay
+		     fades — so a paste is the one that needs saying out loud. -->
+		<div
+			class="sr-only"
+			role="status"
+			aria-live="polite"
+			data-testid="composer-attachment-announcer"
+		>
+			{pasteAnnouncement}
 		</div>
 
 		<!-- The queued-message banner keeps its own shape, because it has a

@@ -39,6 +39,7 @@ import {
 	selectTopDistinctSourceUrls,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
+import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	calendarToolInputSchema,
 	runCalendarTool,
@@ -124,6 +125,7 @@ import {
 	readGeneratedFileContent,
 	readGeneratedFileExecutionInputSchema,
 	readGeneratedFileInputSchema,
+	resolveBestContent,
 	sanitizeReadGeneratedFileInput,
 	summarizeReadGeneratedFileResult,
 } from "./read-generated-file";
@@ -283,12 +285,12 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		produce_file: {
 			description:
-				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write its file into `/output` (e.g. `/output/report.xlsx`) — a bare filename lands outside `/output` and is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.",
+				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. Do not mix PDF/DOCX/HTML with md/txt/csv/tsv/json/code in one request; call twice. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write its file into `/output` (e.g. `/output/report.xlsx`) — a bare filename lands outside `/output` and is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.",
 			errorPrefix: "File production intake failed",
 		},
 		read_generated_file: {
 			description:
-				"Read the full current text of a file in THIS conversation — one produced here, or a document uploaded or linked here (the names under Conversation Files) — by `filename` or `requestTitle`. Call it before sending `produce_file` patches (a patch whose oldText does not match exactly is rejected), or when the user wants more of a document than your context shows. Long text comes in windows: when the result says `hasMore`, call again with `from: nextFrom`. Pass `query` to get up to 3 passages of that one file about a topic instead of the window. Do not use it for connected cloud storage (files), web pages (fetch_url), remembered preferences (memory_context), or when the passage you need is already quoted in your context. Returns text with `hasMore`/`nextFrom`, or not found / ambiguous (several files match — retry with one exact name); then say so instead of guessing.",
+				"Read the full current text of a file in THIS conversation — one produced here, or a document uploaded or linked here (the names under Conversation Files) — by `filename` or `requestTitle`. Call it before sending `produce_file` patches (a patch whose oldText does not match exactly is rejected), or when the user wants more of a document than your context shows. Long text comes in windows: when the result says `hasMore`, call again with `from: nextFrom`. Pass `query` to get up to 3 passages of that one file about a topic instead of the window. For a paged document, pass `page`; context excerpts carry citable `[p. 3]`/`[slide 2]` markers. Do not use it for connected cloud storage (files), web pages (fetch_url), remembered preferences (memory_context), or when the passage you need is already quoted in your context. Returns text with `hasMore`/`nextFrom`, or not found / ambiguous (several files match — retry with one exact name); then say so instead of guessing.",
 			errorPrefix: "Read generated file failed",
 		},
 		run_python: {
@@ -375,12 +377,12 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		produce_file: {
 			description:
-				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.",
+				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Egy kérésben ne keverd a PDF/DOCX/HTML formátumokat az md/txt/csv/tsv/json/code fájlokkal; hívd meg kétszer. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.",
 			errorPrefix: "A fájl-előállítás sikertelen",
 		},
 		read_generated_file: {
 			description:
-				"Egy EBBEN a beszélgetésben lévő fájl teljes aktuális szövegének beolvasása — itt előállított fájlé, vagy ide feltöltött/csatolt dokumentumé (a Conversation Files alatti nevek) — `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél (a pontosan nem egyező oldText-ű patch-et a szerver elutasítja), vagy ha a felhasználó többet kér egy dokumentumból, mint amennyit a kontextusod mutat. A hosszú szöveg ablakokban érkezik: ha az eredményben `hasMore` áll, hívd újra `from: nextFrom` értékkel. A `query` megadásával az ablak helyett annak az egy fájlnak legfeljebb 3, a témához tartozó részletét kapod. Ne használd csatlakoztatott felhőtárhoz (files), weboldalhoz (fetch_url), megjegyzett preferenciákhoz (memory_context), sem akkor, ha a szükséges részlet már idézve van a kontextusodban. Szöveget ad vissza `hasMore`/`nextFrom` mezőkkel, vagy azt, hogy nincs meg / több fájl is egyezik (akkor hívd újra egy pontos névvel); ilyenkor mondd ki, ne találgass.",
+				"Egy EBBEN a beszélgetésben lévő fájl teljes aktuális szövegének beolvasása — itt előállított fájlé, vagy ide feltöltött/csatolt dokumentumé (a Conversation Files alatti nevek) — `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél (a pontosan nem egyező oldText-ű patch-et a szerver elutasítja), vagy ha a felhasználó többet kér egy dokumentumból, mint amennyit a kontextusod mutat. A hosszú szöveg ablakokban érkezik: ha az eredményben `hasMore` áll, hívd újra `from: nextFrom` értékkel. A `query` megadásával az ablak helyett annak az egy fájlnak legfeljebb 3, a témához tartozó részletét kapod. Oldalszámozott dokumentumnál a `page` megadásával onnan indul az olvasás; a kontextusodban lévő részletek `[p. 3]`/`[slide 2]` jelölései idézhetők. Ne használd csatlakoztatott felhőtárhoz (files), weboldalhoz (fetch_url), megjegyzett preferenciákhoz (memory_context), sem akkor, ha a szükséges részlet már idézve van a kontextusodban. Szöveget ad vissza `hasMore`/`nextFrom` mezőkkel, vagy azt, hogy nincs meg / több fájl is egyezik (akkor hívd újra egy pontos névvel); ilyenkor mondd ki, ne találgass.",
 			errorPrefix: "A fájl beolvasása sikertelen",
 		},
 		run_python: {
@@ -1143,16 +1145,18 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							intakeStatus: 422,
 						});
 					}
-					const normalizedInput = normalized.input;
+					let normalizedInput = normalized.input;
 
 					// Resolve patches: if the model provided surgical edits instead of full content,
 					// fetch the previous version and apply patches to reconstruct the full file.
-					if (
-						normalizedInput.patches &&
-						normalizedInput.patches.length > 0 &&
-						normalizedInput.sourceMode === "program" &&
-						normalizedInput.program
-					) {
+					//
+					// This used to run only for `sourceMode === "program"`, so a
+					// request whose outputs are a PDF/DOCX/HTML — which the
+					// normaliser sends down the document_source path — had its
+					// patches stripped a few lines below and reported success on the
+					// UNPATCHED document. The tool's description promises patches for
+					// every format, so the resolution now runs for every mode.
+					if (normalizedInput.patches && normalizedInput.patches.length > 0) {
 						const previousContent = await getPreviousGeneratedFileContent(
 							ctx.userId,
 							ctx.conversationId,
@@ -1168,7 +1172,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							});
 						}
 						const patchResult = applyTextPatches(
-							previousContent,
+							previousContent.text,
 							normalizedInput.patches,
 						);
 						if (!patchResult.ok) {
@@ -1179,10 +1183,84 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								intakeStatus: 422,
 							});
 						}
-						normalizedInput.program.sourceCode = buildResolvedProgramSource(
-							normalizedInput.program.filename ?? "generated-file.txt",
-							patchResult.resolvedText,
-						);
+						// Phase 6 D8, now for every mode. The patched bytes exist only
+						// here, after the previous version has been fetched, so the
+						// request is re-normalised as if the model had sent that text
+						// as `content`: the plain-text outputs become `inline_text`
+						// (same bytes, same types, no renderer and no sandbox — a
+						// patched `.md` used to start a Docker container to run a
+						// generated `write_text` one-liner), and the document outputs
+						// become a `document_source` built from the PATCHED Markdown.
+						//
+						// Re-normalising rather than hand-building the request is
+						// deliberate: filename resolution, the mixed-group refusal and
+						// the mode decision stay in ONE place, so a patched file can
+						// never be named — or produced — differently from the same
+						// file sent whole.
+						const patched = normalizeProduceFileInput({
+							...parsedInput.data,
+							requestTitle: normalizedInput.requestTitle,
+							requestedOutputs: normalizedInput.requestedOutputs,
+							content: patchResult.resolvedText,
+							markdown: undefined,
+							text: undefined,
+							patches: undefined,
+							sourceMode: undefined,
+							program: undefined,
+							documentSource: undefined,
+						});
+						// The text a patch is applied to is the text
+						// `read_generated_file` showed the model — for a
+						// document-source file, the rendered Markdown that its
+						// `oldText` was copied from. Producing a document from the
+						// result therefore means rebuilding the source from that
+						// Markdown, which a chart or an image does not survive: it
+						// would ship a report with the chart silently gone. Better a
+						// refusal the model can act on than a success that lost data.
+						const unpatchableBlock =
+							patched.ok && patched.input.sourceMode === "document_source"
+								? unpatchableDocumentBlockType(previousContent.documentSource)
+								: null;
+						if (unpatchableBlock) {
+							return refuse({
+								input: sanitizeProduceFileInput(normalizedInput),
+								errorCode: "patch_not_applicable",
+								message: `This document contains a ${unpatchableBlock} block, which cannot be rebuilt from the text you patched. Resend the full content (or documentSource) for this file instead of patches.`,
+								intakeStatus: 422,
+							});
+						}
+						if (
+							patched.ok &&
+							(patched.input.sourceMode === "inline_text" ||
+								patched.input.sourceMode === "document_source")
+						) {
+							normalizedInput = patched.input;
+						} else if (
+							normalizedInput.sourceMode === "program" &&
+							normalizedInput.program
+						) {
+							// A program is what runs, so the patched bytes go into the
+							// program that writes them — unchanged, including the
+							// fallback for a patch whose result the normaliser will not
+							// take as `content` (too short to look substantive).
+							normalizedInput.program.sourceCode = buildResolvedProgramSource(
+								normalizedInput.program.filename ?? "generated-file.txt",
+								patchResult.resolvedText,
+							);
+						} else {
+							// No mode can carry the patched text: refusing is the only
+							// honest answer, because shipping `normalizedInput` here
+							// would produce the file WITHOUT the patch and report
+							// success.
+							return refuse({
+								input: sanitizeProduceFileInput(normalizedInput),
+								errorCode: "patch_not_applicable",
+								message: `The patched file could not be produced as requested${
+									patched.ok ? "" : `: ${patched.error}`
+								}. Resend the full content for this file instead of patches.`,
+								intakeStatus: 422,
+							});
+						}
 					}
 					const { patches: _patches, ...intakeNormalizedInput } =
 						normalizedInput;
@@ -2528,14 +2606,29 @@ function compactToolSchemas<T extends Record<string, Tool>>(toolSet: T): T {
 	return out as T;
 }
 
+/**
+ * The previous version of a generated file, as the patch resolver needs it.
+ *
+ * `text` is what `read_generated_file` would show the model — the base a
+ * patch's `oldText` was copied from. `documentSource` is the stored source
+ * JSON when the previous version was a rendered document, which is how the
+ * resolver can tell that rebuilding that document from its Markdown would
+ * drop something the Markdown cannot carry.
+ */
+interface PreviousGeneratedFileVersion {
+	text: string;
+	documentSource: unknown;
+}
+
 async function getPreviousGeneratedFileContent(
 	userId: string,
 	conversationId: string,
 	requestTitle: string,
-): Promise<string | null> {
+): Promise<PreviousGeneratedFileVersion | null> {
 	const rows = await db
 		.select({
 			contentText: artifacts.contentText,
+			metadataJson: artifacts.metadataJson,
 		})
 		.from(artifacts)
 		.where(
@@ -2551,12 +2644,64 @@ async function getPreviousGeneratedFileContent(
 	const normalizedTitle = requestTitle.trim().toLowerCase();
 	for (const row of rows) {
 		if (!row.contentText) continue;
-		if (row.contentText.toLowerCase().includes(normalizedTitle)) {
-			const extracted = extractContentFromMemoryText(row.contentText);
-			return extracted ?? row.contentText;
-		}
+		if (!row.contentText.toLowerCase().includes(normalizedTitle)) continue;
+		// The SAME resolution `read_generated_file` gives the model, and it has
+		// to be: a patch's `oldText` is an excerpt of what the model was shown.
+		//
+		// The memory wrapper's last section is a `previewText` of the file —
+		// every run of whitespace collapsed to one space, truncated at 6 000
+		// characters — so reading the base out of it applied the patch to a
+		// one-line, clipped copy and wrote THAT back as the new version. A
+		// multi-line `oldText` could not match it at all (`patch_failed`), and a
+		// single-line one matched and silently destroyed every line break in the
+		// user's document.
+		const documentSource = parseJsonRecord(
+			row.metadataJson,
+		)?.generatedDocumentSource;
+		const resolved = await resolveBestContent(
+			userId,
+			row.contentText,
+			row.metadataJson,
+		);
+		const text =
+			resolved ??
+			extractContentFromMemoryText(row.contentText) ??
+			row.contentText;
+		return { text, documentSource: documentSource ?? null };
 	}
 
+	return null;
+}
+
+/**
+ * The block types a document source loses when it is rebuilt from its own
+ * Markdown, which is what patching a document-source file has to do.
+ *
+ * A chart's data points and an image's bytes have no Markdown form to parse
+ * back — the Markdown carries a sentence about the chart and, for an inline
+ * image, the placeholder `(embedded image/png)` that the artifact text
+ * substitutes. Re-deriving the source from that text would quietly ship a
+ * report with the chart or the picture gone, so the request is refused and
+ * the model is told to resend the document instead.
+ */
+const UNPATCHABLE_DOCUMENT_BLOCK_TYPES = new Set(["chart", "image"]);
+
+function unpatchableDocumentBlockType(documentSource: unknown): string | null {
+	if (!documentSource || typeof documentSource !== "object") return null;
+	const blocks = (documentSource as { blocks?: unknown }).blocks;
+	if (!Array.isArray(blocks)) return null;
+	for (const block of blocks) {
+		const type =
+			block && typeof block === "object"
+				? (block as { type?: unknown }).type
+				: null;
+		if (
+			typeof type === "string" &&
+			UNPATCHABLE_DOCUMENT_BLOCK_TYPES.has(type)
+		) {
+			return type;
+		}
+	}
 	return null;
 }
 

@@ -31,6 +31,7 @@ function fileProductionJob(
 		warnings: [],
 		dismissed: false,
 		error: null,
+		sourceMode: null,
 		...overrides,
 	};
 }

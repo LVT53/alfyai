@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readExtractionOutageState } from "./retry-policy";
 import {
 	createLedgerFixture,
 	type LedgerFixture,
@@ -11,6 +12,7 @@ const RETRY = {
 	maxAttempts: 3,
 	retryBaseMs: 2000,
 	retryMaxMs: 60000,
+	outageWindowMs: 1_800_000,
 	random: () => 0.5,
 };
 
@@ -377,7 +379,7 @@ describe("failure", () => {
 			jobId: claimed.job.id,
 			attemptId: claimed.attempt.id,
 			workerId: WORKER,
-			errorCode: "unavailable",
+			errorCode: "job_failed",
 			errorMessage: "backend down",
 			retryable: true,
 			clearHandle: false,
@@ -392,7 +394,7 @@ describe("failure", () => {
 		expect(row?.status).toBe("queued");
 		expect(row?.currentAttemptId).toBeNull();
 		// Kept on purpose: the UI has to be able to say "retrying after X".
-		expect(row?.errorCode).toBe("unavailable");
+		expect(row?.errorCode).toBe("job_failed");
 		expect(row?.attemptCount).toBe(1);
 	});
 
@@ -427,7 +429,7 @@ describe("failure", () => {
 				jobId: claimed.job.id,
 				attemptId: claimed.attempt.id,
 				workerId: WORKER,
-				errorCode: "unavailable",
+				errorCode: "job_failed",
 				errorMessage: "backend down",
 				retryable: true,
 				clearHandle: false,
@@ -461,7 +463,7 @@ describe("failure", () => {
 			jobId: first.job.id,
 			attemptId: first.attempt.id,
 			workerId: WORKER,
-			errorCode: "unavailable",
+			errorCode: "job_failed",
 			errorMessage: "down",
 			retryable: true,
 			clearHandle: false,
@@ -588,7 +590,7 @@ describe("user actions", () => {
 				jobId: claimed.job.id,
 				attemptId: claimed.attempt.id,
 				workerId: WORKER,
-				errorCode: "unavailable",
+				errorCode: "job_failed",
 				errorMessage: "down",
 				retryable: true,
 				clearHandle: false,
@@ -609,7 +611,7 @@ describe("user actions", () => {
 			jobId: fourth.job.id,
 			attemptId: fourth.attempt.id,
 			workerId: WORKER,
-			errorCode: "unavailable",
+			errorCode: "job_failed",
 			errorMessage: "down",
 			retryable: true,
 			clearHandle: false,
@@ -663,7 +665,7 @@ describe("user actions", () => {
 				jobId: claimed.job.id,
 				attemptId: claimed.attempt.id,
 				workerId: WORKER,
-				errorCode: "unavailable",
+				errorCode: "job_failed",
 				errorMessage: "down",
 				retryable: true,
 				clearHandle: false,
@@ -758,5 +760,142 @@ describe("materializeLegacyExtractionJob", () => {
 				sourceArtifactId: artifactId,
 			}),
 		).toBeNull();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 1: an outage spends its own budget, not the document's
+// ---------------------------------------------------------------------------
+
+describe("the outage budget in the ledger", () => {
+	async function failWith(
+		code: "unavailable" | "job_failed",
+		now: Date,
+	): Promise<void> {
+		fixture.sqlite
+			.prepare("UPDATE document_extraction_jobs SET next_attempt_at = NULL")
+			.run();
+		const claimed = await claim();
+		await ledger.failExtractionAttempt({
+			jobId: claimed.job.id,
+			attemptId: claimed.attempt.id,
+			workerId: WORKER,
+			errorCode: code,
+			errorMessage: code === "unavailable" ? "backend down" : "engine failed",
+			retryable: true,
+			clearHandle: false,
+			now,
+			...RETRY,
+		});
+	}
+
+	it("requeues past the attempt budget and leaves the document's attempts unspent", async () => {
+		const job = await enqueue();
+		const start = new Date("2026-09-20T10:00:00.000Z");
+
+		// Eight claims, all outage failures — well past `maxAttempts: 3`.
+		for (let i = 0; i < 8; i += 1) {
+			await failWith("unavailable", new Date(start.getTime() + i * 1000));
+		}
+
+		const row = await ledger.getExtractionJobRow(job.id);
+		expect(row?.status).toBe("queued");
+		expect(row?.errorCode).toBe("unavailable");
+		expect(row?.attemptCount).toBe(8);
+		expect(row?.nextAttemptAt).not.toBeNull();
+
+		// Every one of those eight is recorded as an outage wait, so the
+		// document's own budget — and the user's Retry budget on top of it — is
+		// exactly where it started.
+		expect(readExtractionOutageState(row?.hintsJson ?? null)).toMatchObject({
+			waits: 8,
+		});
+
+		// The next ORDINARY failure is the document's FIRST attempt, not its
+		// ninth: it requeues rather than reporting max_attempts.
+		await failWith("job_failed", new Date(start.getTime() + 9000));
+		const after = await ledger.getExtractionJobRow(job.id);
+		expect(after?.status).toBe("queued");
+		expect(after?.errorCode).toBe("job_failed");
+	});
+
+	it("gives up after the window, user-retryable, and the Retry still works", async () => {
+		const job = await enqueue();
+		const start = new Date("2026-09-20T10:00:00.000Z");
+
+		await failWith("unavailable", start);
+		// Half an hour later the backend is still not answering.
+		await failWith("unavailable", new Date(start.getTime() + 1_800_001));
+
+		const row = await ledger.getExtractionJobRow(job.id);
+		expect(row?.status).toBe("failed");
+		expect(row?.errorCode).toBe("unavailable");
+		expect(row?.retryable).toBe(true);
+
+		// The button the live failure could not offer.
+		expect(
+			await ledger.retryExtractionJob({ userId, jobId: job.id }),
+		).not.toBeNull();
+		expect((await ledger.getExtractionJobRow(job.id))?.status).toBe("queued");
+	});
+
+	// `attempt_count` is never reset, so a job that succeeds after an outage
+	// keeps carrying those attempts. The ONLY record that they were not the
+	// document's fault is `$outage.waits`, and the success path used to clear
+	// the whole `hints_json` column — which silently handed the waits back to
+	// the ceiling the moment anyone pressed Re-extract on the finished
+	// document.
+	it("keeps the outage discount when the job finally succeeds", async () => {
+		const normalizedId = fixture.seedArtifact({
+			userId,
+			type: "normalized_document",
+			name: "report.md",
+		});
+		const job = await enqueue({ hints: { tier: "basic" } });
+		await failWith("unavailable", new Date("2026-09-20T10:00:00.000Z"));
+		fixture.sqlite
+			.prepare("UPDATE document_extraction_jobs SET next_attempt_at = NULL")
+			.run();
+
+		const claimed = await claim();
+		const owned = {
+			jobId: claimed.job.id,
+			attemptId: claimed.attempt.id,
+			workerId: WORKER,
+		};
+		await ledger.reportExtractionProgress({ ...owned, status: "parsing" });
+		await ledger.reportExtractionProgress({ ...owned, status: "indexing" });
+		await ledger.completeExtractionAttempt({
+			...owned,
+			normalizedArtifactId: normalizedId,
+			textLength: 42,
+			pageCount: 7,
+		});
+
+		const row = await ledger.getExtractionJobRow(job.id);
+		expect(row?.status).toBe("succeeded");
+		// The caller's own hint is gone — it steered a parse that is over, and
+		// `parseExtractionHints` answers null once nothing outside the reserved
+		// `$` namespace is left.
+		expect(ledger.parseExtractionHints(row?.hintsJson ?? null)).toBeNull();
+		// The bookkeeping is not.
+		expect(readExtractionOutageState(row?.hintsJson ?? null)).toEqual({
+			since: null,
+			waits: 1,
+		});
+	});
+
+	it("keeps the ledger's bookkeeping out of the extractor's hints", async () => {
+		const job = await enqueue({ hints: { tier: "basic" } });
+		await failWith("unavailable", new Date("2026-09-20T10:00:00.000Z"));
+
+		const row = await ledger.getExtractionJobRow(job.id);
+		// Stored beside the caller's hints…
+		expect(row?.hintsJson).toContain("$outage");
+		expect(row?.hintsJson).toContain("basic");
+		// …and invisible to the extractor, which owns the rest of the blob.
+		expect(ledger.parseExtractionHints(row?.hintsJson ?? null)).toEqual({
+			tier: "basic",
+		});
 	});
 });

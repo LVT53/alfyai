@@ -3,6 +3,9 @@ import { z } from "zod";
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
 // Leaf module (no imports of its own), so this pulls no DB into the tool graph.
 import { redactHostPathsFromFileProductionMessage } from "$lib/server/services/file-production/error-message";
+// Leaf module too: the mixed-output-family rule, shared with the HTTP intake
+// so both callers refuse the same shapes with the same words.
+import { refuseMixedOutputGroups as refuseMixedOutputGroupsForTypes } from "$lib/server/services/file-production/mixed-output-groups";
 import { FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES } from "$lib/server/services/file-production/output-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
@@ -19,6 +22,7 @@ import {
 import { fileExtension } from "$lib/shared/file-types";
 import {
 	getExpectedExtensionForOutputType,
+	isInlineTextOutputType,
 	shouldUseDocumentSourceForOutputs as shouldUseDocumentSourceForOutputTypes,
 } from "$lib/shared/file-types/production";
 
@@ -117,11 +121,23 @@ export const produceFileModelInputSchema = z
 // ── Types ──────────────────────────────────────────────────────
 
 export type ProduceFileInput = z.infer<typeof produceFileInputSchema>;
+
+/**
+ * Phase 6 D8. The model already supplied the bytes, and every requested output
+ * is a plain-text type, so the app writes them itself: no Docker container, no
+ * generated Python `write_text` one-liner. One entry in `files` per requested
+ * output type, all carrying the same `content`.
+ */
+export type NormalizedInlineTextRequest = {
+	content: string;
+	files: Array<{ filename: string; outputType: string }>;
+};
+
 export type NormalizedProduceFileInput = {
 	idempotencyKey?: string;
 	requestTitle: string;
 	requestedOutputs: Array<{ type: string }>;
-	sourceMode: "program" | "document_source";
+	sourceMode: "program" | "document_source" | "inline_text";
 	documentIntent?: string;
 	templateHint?: string;
 	patches?: Array<{ oldText: string; newText: string }>;
@@ -131,6 +147,7 @@ export type NormalizedProduceFileInput = {
 		filename?: string;
 	};
 	documentSource?: Record<string, unknown>;
+	inlineText?: NormalizedInlineTextRequest;
 };
 export type SafeProduceFileInput = Record<string, unknown>;
 
@@ -220,6 +237,13 @@ export function normalizeProduceFileInput(
 					error: "program or content is required when sourceMode is program",
 				};
 			}
+			// The model named program mode but supplied prose, so WE pick the
+			// writer — and must refuse the shapes that would write bytes not
+			// matching their extension. A model-authored `program.sourceCode`
+			// (below) is left alone: a real program may legitimately write both a
+			// PDF and a Markdown file.
+			const mixed = refuseMixedOutputGroups(requestedOutputs);
+			if (mixed) return mixed;
 			return {
 				ok: true,
 				input: {
@@ -331,6 +355,37 @@ export function normalizeProduceFileInput(
 				},
 			};
 		}
+		const mixed = refuseMixedOutputGroups(requestedOutputs);
+		if (mixed) return mixed;
+		const patches = normalizePatches(input.patches);
+		// Phase 6 D8: the bytes are already here and every output is a plain-text
+		// type, so nothing has to run. Patch-carrying calls stay on the program
+		// path — the tool adapter resolves a patch against the PREVIOUS version
+		// of the file and rewrites `program.sourceCode` to do it.
+		if (!patches && isInlineTextRequest(outputTypesOf(requestedOutputs))) {
+			return {
+				ok: true,
+				input: {
+					idempotencyKey: input.idempotencyKey,
+					requestTitle,
+					requestedOutputs,
+					sourceMode: "inline_text",
+					documentIntent: input.documentIntent ?? "data export",
+					templateHint: input.templateHint,
+					inlineText: {
+						content,
+						files: requestedOutputs.map((output) => ({
+							filename: resolveInlineTextFilename({
+								filename: input.filename,
+								requestTitle,
+								outputType: output.type,
+							}),
+							outputType: output.type,
+						})),
+					},
+				},
+			};
+		}
 		return {
 			ok: true,
 			input: {
@@ -340,7 +395,7 @@ export function normalizeProduceFileInput(
 				sourceMode: "program",
 				documentIntent: input.documentIntent ?? "data export",
 				templateHint: input.templateHint,
-				patches: normalizePatches(input.patches),
+				patches,
 				program: buildTextFileProgram({
 					content,
 					filename: resolveTextFilename({
@@ -373,6 +428,8 @@ export function normalizeProduceFileInput(
 			requestedOutputs.length > 0
 				? requestedOutputs
 				: [{ type: outputTypeFromFilename(patchedFilename) ?? "txt" }];
+		const mixed = refuseMixedOutputGroups(patchedOutputs);
+		if (mixed) return mixed;
 		return {
 			ok: true,
 			input: {
@@ -696,6 +753,45 @@ function shouldUseDocumentSourceForOutputs(
 	);
 }
 
+function outputTypesOf(outputs: Array<{ type: string }>): string[] {
+	return outputs.map((output) => output.type);
+}
+
+/**
+ * True iff EVERY requested output resolves to a registry entry that is
+ * text-validated and is not a document source — exactly the set
+ * `buildTextFileProgram` was being used for. An EMPTY list is false: the
+ * caller's default-type ladder has already run, so "nothing named a type" is
+ * not "every type qualifies".
+ *
+ * HTML is text-validated but IS a document source, so it stays with the
+ * report renderers.
+ */
+export function isInlineTextRequest(types: readonly string[]): boolean {
+	return types.length > 0 && types.every(isInlineTextOutputType);
+}
+
+/**
+ * The refusal for a request that mixes the two production families when WE,
+ * not the model, choose the writer.
+ *
+ * The rule itself now lives in `file-production/mixed-output-groups.ts`, so
+ * the HTTP intake — which Atlas and the signed service-assertion callers use
+ * and which the tool layer never passes through — applies the identical rule
+ * and the identical message. This wrapper keeps the call sites below taking
+ * output objects.
+ *
+ * Only the paths that synthesise the writer call it. A model-authored
+ * `program.sourceCode` or `documentSource` may legitimately produce both
+ * families from one request.
+ */
+function refuseMixedOutputGroups(
+	outputs: Array<{ type: string }>,
+): { ok: false; error: string } | null {
+	const mixed = refuseMixedOutputGroupsForTypes(outputTypesOf(outputs));
+	return mixed ? { ok: false, error: mixed.error } : null;
+}
+
 // ── Filename / program helpers ─────────────────────────────────
 
 function resolveTextFilename(params: {
@@ -721,6 +817,29 @@ function resolveTextFilename(params: {
 			.replace(/^-+|-+$/g, "")
 			.slice(0, 80) || "generated-file";
 	return `${basename}.${extension}`;
+}
+
+/**
+ * `resolveTextFilename` for one output of a possibly multi-output inline_text
+ * request. An explicit `filename` names ONE file, so it is honoured only for
+ * the output type whose extension it already carries; every other output is
+ * named from the request title. Without that, a `[md, txt]` request with
+ * `filename: "notes.md"` would try to write two files called `notes.md`.
+ */
+function resolveInlineTextFilename(params: {
+	filename?: string;
+	requestTitle: string;
+	outputType: string;
+}): string {
+	const explicit = sanitizeFilename(params.filename);
+	const expected = getExpectedExtensionForOutputType(params.outputType);
+	if (explicit && expected && explicit.toLowerCase().endsWith(expected)) {
+		return explicit;
+	}
+	return resolveTextFilename({
+		requestTitle: params.requestTitle,
+		outputType: params.outputType,
+	});
 }
 
 function sanitizeFilename(value?: string): string | null {
@@ -1729,7 +1848,11 @@ export function buildSameTurnProduceFileDedupeKey(
 	const programFilename =
 		input.sourceMode === "program" && input.program?.filename
 			? input.program.filename.trim().toLowerCase()
-			: null;
+			: input.sourceMode === "inline_text" && input.inlineText
+				? input.inlineText.files
+						.map((file) => file.filename.trim().toLowerCase())
+						.join("|")
+				: null;
 
 	return stableStringify({
 		requestTitle: input.requestTitle.trim().toLowerCase(),
@@ -1781,6 +1904,19 @@ export function sanitizeProduceFileInput(
 			contentHash: shortHash(input.documentSource),
 			topLevelKeyCount: Object.keys(input.documentSource).length,
 			serializedLength: serializedDocumentSource.length,
+		};
+	}
+
+	if (input.inlineText) {
+		// The recorded tool call keeps the SHAPE, never the bytes — the content
+		// is the user's own text and the recording ends up in prompt context.
+		safe.inlineText = {
+			files: input.inlineText.files.map((file) => ({
+				filename: file.filename,
+				outputType: file.outputType,
+			})),
+			contentHash: shortHash(input.inlineText.content),
+			contentLength: input.inlineText.content.length,
 		};
 	}
 
@@ -1927,6 +2063,9 @@ const MODEL_CORRECTABLE_ERROR_CODES = new Set([
 	// where the fix is literally "name a supported outputType".
 	"missing_request_title",
 	"unsupported_source_mode",
+	// Two families of output in one request. The fix is literally "call
+	// produce_file twice", which the message says, so the model can act on it.
+	"mixed_output_groups",
 	"invalid_program_language",
 	"missing_program_source",
 	"missing_program_output_type",

@@ -15,6 +15,7 @@ const expectedPositiveFixtures = [
 ];
 const expectedNegativeFixtures = [
 	"disallowed-image-url.json",
+	"disallowed-source-url.json",
 	"injection-attempts.json",
 	"merged-nested-table.json",
 	"output-type-mismatch.json",
@@ -116,6 +117,11 @@ describe("AlfyAI Standard Report fixtures", () => {
 	it("maps schema-level negative fixtures to their expected validation codes", () => {
 		const schemaFailures = new Map([
 			["disallowed-image-url.json", "image_limit_exceeded"],
+			// A model-written source URL whose scheme is not http(s) fails the
+			// whole document rather than being dropped: the HTML report is
+			// previewed in a trusted profile, so a `javascript:` link there is
+			// script execution inside the app.
+			["disallowed-source-url.json", "unsupported_document_block"],
 			["injection-attempts.json", "unsupported_document_block"],
 			["merged-nested-table.json", "unsupported_table_structure"],
 			["raw-html-block.json", "unsupported_document_block"],

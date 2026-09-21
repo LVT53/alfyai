@@ -29,6 +29,47 @@ export interface ChatGeneratedFile {
 	createdAt: number;
 }
 
+/**
+ * Phase 6 D8 — the `inline_text` production mode.
+ *
+ * Bytes we already hold, written straight to storage: no Docker container, no
+ * renderer, no sandbox timeout. Restricted at intake to outputs whose registry
+ * entry is text-validated and is not a document source (`isInlineTextOutputType`),
+ * which is precisely the set `buildTextFileProgram` was being used for. A
+ * PDF/DOCX/HTML request still goes to the report renderers; an XLSX/PPTX/ZIP
+ * request still goes to the sandbox.
+ *
+ * It travels the SAME durable job ledger as every other mode — same storage
+ * adapter, same `validateGeneratedOutputFile`, same limits, same idempotency,
+ * same memory sync — so the card, retry/cancel/dismiss, download/preview and
+ * readback behave identically.
+ *
+ * `content` is one string shared by every entry in `files`: a request may ask
+ * for the same text as both `.md` and `.txt`.
+ */
+export interface FileProductionInlineTextFile {
+	readonly filename: string;
+	readonly outputType: string;
+}
+
+export interface FileProductionInlineTextRequest {
+	readonly sourceMode: "inline_text";
+	/** Verbatim. The tool has already trimmed it; nothing else rewrites it. */
+	readonly content: string;
+	readonly files: readonly FileProductionInlineTextFile[];
+}
+
+/**
+ * The value `file_production_jobs.source_mode` carries for an inline_text job.
+ * The column is a plain `text` with no CHECK constraint and no enum, so the new
+ * mode needs no migration; `read-model.ts` reads it as `string | null` and the
+ * only consumer that branches on its value is
+ * `generated-file-serving.resolvePreviewProfile`, which asks about
+ * `document_source` for `text/html` previews only — an output type inline_text
+ * can never produce.
+ */
+export const FILE_PRODUCTION_INLINE_TEXT_SOURCE_MODE = "inline_text" as const;
+
 export type FileProductionJobStatus =
 	| "queued"
 	| "running"
@@ -71,4 +112,11 @@ export interface FileProductionJob {
 		message: string;
 		retryable: boolean;
 	} | null;
+	/**
+	 * `file_production_jobs.source_mode` verbatim: `"program"`,
+	 * `"document_source"`, `"inline_text"`, or `null` for a job the column
+	 * predates — every legacy-synthesised job (`ensureLegacyJobs`) included,
+	 * since it never wrote the column at all.
+	 */
+	sourceMode: string | null;
 }

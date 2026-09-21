@@ -323,6 +323,31 @@ describe("extraction i18n keys", () => {
 	it("has no detail line while a job is still running", () => {
 		expect(extractionDetailKey(job({ status: "parsing" }))).toBeNull();
 		expect(extractionDetailKey(job({ status: "succeeded" }))).toBeNull();
+		expect(extractionDetailKey(job({ status: "queued" }))).toBeNull();
+	});
+
+	// Ruling 1: the one non-terminal state that owes the user an explanation.
+	// "Queued", for half an hour, looks like a stuck app.
+	it("explains a queued job that is waiting for an unreachable backend", () => {
+		expect(
+			extractionDetailKey(
+				job({
+					status: "queued",
+					error: { code: "unavailable", message: "unreachable" },
+					nextAttemptAt: 60_000,
+				}),
+			),
+		).toBe("knowledge.extraction.status.waitingForBackend");
+
+		// A document failure waiting out its own backoff is not an outage.
+		expect(
+			extractionDetailKey(
+				job({
+					status: "queued",
+					error: { code: "job_failed", message: "engine failed" },
+				}),
+			),
+		).toBeNull();
 	});
 
 	it("explains a failure by its code, and a code-less failure generically", () => {

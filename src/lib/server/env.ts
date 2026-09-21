@@ -240,6 +240,7 @@ interface Config {
 	fileProductionMaxTotalImageBytes: number;
 	fileProductionSandboxTimeoutMs: number;
 	fileProductionRendererTimeoutMs: number;
+	fileProductionStaleAttemptMs: number;
 	fileProductionMaxOutputFileBytes: number;
 	fileProductionMaxTotalOutputBytes: number;
 	documentExtractionWorkerEnabled: boolean;
@@ -248,6 +249,7 @@ interface Config {
 	documentExtractionMaxAttempts: number;
 	documentExtractionRetryBaseMs: number;
 	documentExtractionRetryMaxMs: number;
+	documentExtractionOutageWindowMs: number;
 	documentExtractionStaleAttemptMs: number;
 	documentExtractionHeartbeatMs: number;
 	documentExtractionInlineBudgetMs: number;
@@ -1068,6 +1070,16 @@ function readConfig(): Config {
 				10,
 			) || 300000,
 		),
+		fileProductionStaleAttemptMs: Math.max(
+			60000,
+			Math.min(
+				3600000,
+				parseInt(
+					process.env.FILE_PRODUCTION_STALE_ATTEMPT_MS || "120000",
+					10,
+				) || 120000,
+			),
+		),
 		fileProductionMaxOutputFileBytes: Math.max(
 			1024,
 			parseInt(
@@ -1126,6 +1138,19 @@ function readConfig(): Config {
 				3600000,
 				parseInt(process.env.DOCUMENT_EXTRACTION_RETRY_MAX_MS || "60000", 10) ||
 					60000,
+			),
+		),
+		// Half an hour of patience for a backend that is not answering. The
+		// floor is one minute — anything shorter is the ten-second tolerance
+		// this key exists to replace — and the ceiling is a day.
+		documentExtractionOutageWindowMs: Math.max(
+			60000,
+			Math.min(
+				86400000,
+				parseInt(
+					process.env.DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS || "1800000",
+					10,
+				) || 1800000,
 			),
 		),
 		documentExtractionStaleAttemptMs: Math.max(

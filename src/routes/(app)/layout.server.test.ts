@@ -66,6 +66,17 @@ vi.mock("$lib/server/db/schema", () => ({
 	},
 }));
 
+vi.mock("$lib/server/services/knowledge/format-availability", () => ({
+	getUploadFormatGate: vi.fn(() =>
+		Promise.resolve({
+			disabledEntryIds: new Set<string>(),
+			reason: null,
+			backendVersion: null,
+			checkedAt: new Date(0).toISOString(),
+		}),
+	),
+}));
+
 vi.mock("drizzle-orm", () => ({
 	eq: vi.fn(),
 }));

@@ -37,7 +37,12 @@ const knowledgeDict = {
 		"knowledge.dropFileTooLarge":
 			"Some files are larger than {limit} and were skipped.",
 		"knowledge.dropFiles": "Drop files here to upload (max {max}MB per file)",
-		"knowledge.dropNoValidFiles": "Those files aren't a supported type.",
+		// Phase 5 P5-C: the batch fallback, used only when a drop was refused
+		// for MORE than one reason — a single reason is named with the matching
+		// `knowledge.uploadRejected*` message instead, which is the one the
+		// server would have sent. Both say what to do next.
+		"knowledge.dropNoValidFiles":
+			"Those files aren't a supported type. Save them as PDF, DOCX or plain text and upload those.",
 		// The document-extraction ledger, rendered in the Knowledge list's
 		// Status column. One key per status and one per error code in
 		// EXTRACTION_ERROR_CODES, so a row can never fall back to printing a
@@ -52,6 +57,8 @@ const knowledgeDict = {
 		"knowledge.extraction.cancelLabel": "Cancel processing {name}",
 		"knowledge.extraction.error.auth_failed":
 			"The document reader rejected the configured credentials. Ask an administrator to check the API key.",
+		"knowledge.extraction.error.backend_misconfigured":
+			"The configured document reader is not a MinerU 4 server. Ask an administrator to check the address, then retry.",
 		"knowledge.extraction.error.canceled": "Processing was canceled.",
 		"knowledge.extraction.error.empty_result":
 			"No readable text was found in this file.",
@@ -78,13 +85,19 @@ const knowledgeDict = {
 		"knowledge.extraction.error.unavailable":
 			"The document reader is unavailable. Try again in a moment.",
 		"knowledge.extraction.error.unsupported_type":
-			"This file type cannot be read for chat.",
+			"The document reader cannot read this file type. Convert it to PDF and upload that.",
 		"knowledge.extraction.inProgressTooltip":
 			"This document is still being processed and cannot be opened yet.",
+		"knowledge.extraction.status.waitingForBackend":
+			"The document service is not reachable right now. We'll keep trying.",
 		"knowledge.extraction.reextract.action": "Re-extract",
 		"knowledge.extraction.reextract.current": "Current",
 		"knowledge.extraction.reextract.empty":
 			"No extraction quality is available right now.",
+		"knowledge.extraction.reextract.error.reextract_limit":
+			"Too many re-extractions are already running. Wait for one to finish, then try again.",
+		"knowledge.extraction.reextract.error.tier_not_higher":
+			"This document was already read at that quality or better. Pick a higher one.",
 		"knowledge.extraction.reextract.failed":
 			"Could not start re-extraction. Please try again.",
 		"knowledge.extraction.reextract.label":
@@ -149,12 +162,19 @@ const knowledgeDict = {
 		"knowledge.title": "Knowledge Base",
 		"knowledge.type": "Type",
 		"knowledge.upload": "Upload",
-		// The five upload refusals the server can answer with. It sends an
+		// The six upload refusals the server can answer with. It sends an
 		// English `error` plus an `errorKey` from this family; the client
 		// renders the key when it knows it. Keys, not codes, because one
-		// machine code (`upload_unsupported_type`) covers four reasons.
+		// machine code (`upload_unsupported_type`) covers five reasons
+		// (`uploadRejectedConvertImage` joined the family in the phase5-6
+		// follow-up, for AVIF, which MinerU 4.0.4 permanently refuses).
+		// Phase 5 P5-C, reject-copy audit: every refusal now ends with the next
+		// thing to try. These two were the only ones that named a problem and
+		// stopped there; `uploadRejectedArchive`, `uploadRejectedMedia`,
+		// `uploadRejectedFormatNotEnabled` and `uploadDirectTextTooLarge`
+		// already did and are untouched.
 		"knowledge.uploadContentMismatch":
-			"{name} doesn't look like a real {ext} file — its contents don't match its extension.",
+			"{name} doesn't look like a real {ext} file — its contents don't match its extension. Open it, save it again in the right format, and upload that.",
 		"knowledge.uploadDirectTextTooLarge":
 			"{name} is too big to read as plain text — the limit is {limit}. Split it, or save it as a PDF or DOCX and upload that.",
 		"knowledge.uploadLimitTooltip":
@@ -163,12 +183,14 @@ const knowledgeDict = {
 			"Upload or generate documents to see them here",
 		"knowledge.uploadRejectedArchive":
 			"Archives can't be opened on upload. Unpack it and upload the files inside.",
+		"knowledge.uploadRejectedConvertImage":
+			"{ext} images can't be read yet. Save it as PNG or JPG and upload that.",
 		"knowledge.uploadRejectedFormatNotEnabled":
 			"{ext} files aren't supported yet. Save it as PDF or DOCX and upload that.",
 		"knowledge.uploadRejectedMedia":
 			"Audio and video files can't be read yet. Upload a document or an image instead.",
 		"knowledge.uploadUnsupportedType":
-			"We can't read {name} — that file type isn't supported.",
+			"We can't read {name} — that file type isn't supported. Save it as PDF, DOCX or plain text and upload that.",
 		"knowledge.uploaded": "Uploaded",
 		"knowledge.uploading": "Uploading...",
 		"knowledge.whatAiSees": "What the AI sees",
@@ -467,7 +489,8 @@ const knowledgeDict = {
 			"Néhány fájl nagyobb, mint {limit}, és ki lett hagyva.",
 		"knowledge.dropFiles":
 			"Húzd ide a fájlokat feltöltéshez (max. {max} MB/fájl)",
-		"knowledge.dropNoValidFiles": "Ezek a fájlok nem támogatott típusúak.",
+		"knowledge.dropNoValidFiles":
+			"Ezek a fájlok nem támogatott típusúak. Mentsd el őket PDF-, DOCX- vagy egyszerű szöveges formátumban, és azokat töltsd fel.",
 		"knowledge.extraction.actionFailed":
 			"A műveletet nem sikerült végrehajtani. Próbáld újra.",
 		"knowledge.extraction.attempt": "{max} próbálkozásból a(z) {current}.",
@@ -477,6 +500,8 @@ const knowledgeDict = {
 			"A(z) {name} feldolgozásának megszakítása",
 		"knowledge.extraction.error.auth_failed":
 			"A dokumentumolvasó elutasította a beállított hitelesítő adatokat. Kérd meg az adminisztrátort, hogy ellenőrizze az API-kulcsot.",
+		"knowledge.extraction.error.backend_misconfigured":
+			"A beállított dokumentumolvasó nem MinerU 4 kiszolgáló. Kérd meg az adminisztrátort, hogy ellenőrizze a címet, majd próbáld újra.",
 		"knowledge.extraction.error.canceled": "A feldolgozás meg lett szakítva.",
 		"knowledge.extraction.error.empty_result":
 			"Ebben a fájlban nem található olvasható szöveg.",
@@ -503,13 +528,19 @@ const knowledgeDict = {
 		"knowledge.extraction.error.unavailable":
 			"A dokumentumolvasó nem érhető el. Próbáld újra kicsit később.",
 		"knowledge.extraction.error.unsupported_type":
-			"Ez a fájltípus nem olvasható be a csevegéshez.",
+			"A dokumentumolvasó nem tudja beolvasni ezt a fájltípust. Alakítsd át PDF-fé, és azt töltsd fel.",
 		"knowledge.extraction.inProgressTooltip":
 			"Ez a dokumentum még feldolgozás alatt áll, ezért még nem nyitható meg.",
+		"knowledge.extraction.status.waitingForBackend":
+			"A dokumentumszolgáltatás jelenleg nem érhető el. Tovább próbálkozunk.",
 		"knowledge.extraction.reextract.action": "Újrafeldolgozás",
 		"knowledge.extraction.reextract.current": "Jelenlegi",
 		"knowledge.extraction.reextract.empty":
 			"Jelenleg nincs elérhető feldolgozási minőség.",
+		"knowledge.extraction.reextract.error.reextract_limit":
+			"Túl sok újrafeldolgozás fut egyszerre. Várd meg, amíg az egyik befejeződik, majd próbáld újra.",
+		"knowledge.extraction.reextract.error.tier_not_higher":
+			"Ezt a dokumentumot már ilyen vagy jobb minőségben feldolgoztuk. Válassz magasabbat.",
 		"knowledge.extraction.reextract.failed":
 			"Az újrafeldolgozás nem indítható el. Próbáld meg újra.",
 		"knowledge.extraction.reextract.label":
@@ -573,7 +604,7 @@ const knowledgeDict = {
 		"knowledge.type": "Típus",
 		"knowledge.upload": "Feltöltés",
 		"knowledge.uploadContentMismatch":
-			"A(z) {name} nem valódi {ext} fájlnak tűnik — a tartalma nem illik a kiterjesztéséhez.",
+			"A(z) {name} nem valódi {ext} fájlnak tűnik — a tartalma nem illik a kiterjesztéséhez. Nyisd meg, mentsd el újra a megfelelő formátumban, és azt töltsd fel.",
 		"knowledge.uploadDirectTextTooLarge":
 			"A(z) {name} túl nagy ahhoz, hogy egyszerű szövegként olvassuk be — a korlát {limit}. Bontsd szét, vagy mentsd PDF- vagy DOCX-formátumban, és azt töltsd fel.",
 		"knowledge.uploadLimitTooltip":
@@ -582,12 +613,14 @@ const knowledgeDict = {
 			"Tölts fel vagy generálj dokumentumokat, hogy itt lásd őket",
 		"knowledge.uploadRejectedArchive":
 			"Az archívumokat feltöltéskor nem tudjuk kibontani. Csomagold ki, és töltsd fel a benne lévő fájlokat.",
+		"knowledge.uploadRejectedConvertImage":
+			"A(z) {ext} képeket még nem tudjuk olvasni. Mentsd el PNG- vagy JPG-formátumban, és azt töltsd fel.",
 		"knowledge.uploadRejectedFormatNotEnabled":
 			"A(z) {ext} fájlokat még nem támogatjuk. Mentsd el PDF- vagy DOCX-formátumban, és azt töltsd fel.",
 		"knowledge.uploadRejectedMedia":
 			"Hang- és videofájlokat még nem tudunk olvasni. Tölts fel helyette dokumentumot vagy képet.",
 		"knowledge.uploadUnsupportedType":
-			"A(z) {name} fájlt nem tudjuk olvasni — ez a fájltípus nem támogatott.",
+			"A(z) {name} fájlt nem tudjuk olvasni — ez a fájltípus nem támogatott. Mentsd el PDF-, DOCX- vagy egyszerű szöveges formátumban, és azt töltsd fel.",
 		"knowledge.uploaded": "Feltöltött",
 		"knowledge.uploading": "Feltöltés...",
 		"knowledge.whatAiSees": "Amit az MI lát",

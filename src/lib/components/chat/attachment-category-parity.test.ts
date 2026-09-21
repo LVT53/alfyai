@@ -126,9 +126,13 @@ function frozenGetFileType(mimeType: string | null, filename: string): string {
 // ───────────────────────────────────────────────────────────────────────────
 // The two sanctioned delta groups. Both are copies of
 // `legacy-equivalence.test.ts`'s KNOWN_DELTAS groups 4 and 6, kept here so a
-// change to the shipped map has to be justified twice. Every member is a file
-// that drew the GENERIC glyph before and draws a real one now; nothing moves
-// between two real glyphs.
+// change to the shipped map has to be justified twice. Every member of
+// DELTA_BY_EXTENSION is a file that drew the GENERIC glyph before and draws a
+// real one now; nothing moves between two real glyphs there.
+//
+// Phase 5 adds two ENTRIES the frozen implementation had never heard of
+// (`epub`, `ofd`), so both arrive as `unsupported -> …` by extension. The
+// EPUB *MIME* is the one exception and carries its own note below.
 // ───────────────────────────────────────────────────────────────────────────
 
 /** KNOWN_DELTAS.attachmentGlyphExpansion */
@@ -164,11 +168,32 @@ const DELTA_BY_EXTENSION: Readonly<Record<string, readonly [string, string]>> =
 		php: ["unsupported", "code"],
 		r: ["unsupported", "code"],
 		tsv: ["unsupported", "xlsx"],
+		// Phase 5 D1/§2.3 — both are new table entries, so the frozen map had
+		// no extension rule for either and answered `unsupported`. `epub` and
+		// `ofd` are both `category: "document"`, which the chips draw with the
+		// document glyph (`FileText`), and the Knowledge list with the same.
+		epub: ["unsupported", "text"],
+		ofd: ["unsupported", "text"],
 	};
 
 /** KNOWN_DELTAS.mimeOnlyGlyphExpansion, as `mime: before -> after` lines. */
 const DELTA_BY_MIME_TYPE: readonly string[] = [
+	// EPUB is the one row in this whole file that moves a file between two
+	// REAL glyphs, and it is a fix rather than an expansion. The frozen
+	// implementation had no `epub` rule at all, so an EPUB with no usable
+	// extension fell through to its `mime.includes("zip")` arm and drew the
+	// ARCHIVE glyph — an EPUB *is* a zip container, but a reader who is told
+	// "archive" is told to unpack it, and Phase 5 makes it a format we read.
+	// The registry answers from the entry (`category: "document"`), so it now
+	// draws the document glyph, exactly as the `.epub` extension already did
+	// through DELTA_BY_EXTENSION above.
+	"application/epub+zip: archive -> text",
 	"application/graphql: unsupported -> code",
+	// `.ofd` stays a REFUSED upload (spec OQ3, zero evidence). The entry exists
+	// only so the refusal can say "save it as PDF or DOCX" instead of "that
+	// file type isn't supported" — and a file the user can see named in that
+	// message should not be wearing the generic glyph while they read it.
+	"application/ofd: unsupported -> text",
 	"application/rtf: unsupported -> text",
 	"application/sql: unsupported -> code",
 	"application/toml: unsupported -> code",

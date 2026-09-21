@@ -36,17 +36,25 @@ export const UPLOAD_UNSUPPORTED_TYPE_CODE = "upload_unsupported_type" as const;
  * `src/lib/i18n/knowledge.ts` — placeholders included, so the two cannot
  * drift. The endpoint is not locale-aware: the client renders `$t(errorKey)`
  * when it has one and falls back to this string.
+ *
+ * Phase 5 P5-B reject-copy audit: `unknownType` is re-frozen to match
+ * `knowledge.uploadUnsupportedType` byte for byte, after P5-C's reject-copy
+ * pass gave every refusal a next thing to try. The other three were already
+ * identical.
  */
 export const UPLOAD_REJECT_MESSAGES_EN: Readonly<
 	Record<RejectReasonKey, string>
 > = {
-	unknownType: "We can't read {name} — that file type isn't supported.",
+	unknownType:
+		"We can't read {name} — that file type isn't supported. Save it as PDF, DOCX or plain text and upload that.",
 	media:
 		"Audio and video files can't be read yet. Upload a document or an image instead.",
 	archive:
 		"Archives can't be opened on upload. Unpack it and upload the files inside.",
 	formatNotEnabled:
 		"{ext} files aren't supported yet. Save it as PDF or DOCX and upload that.",
+	convertImage:
+		"{ext} images can't be read yet. Save it as PNG or JPG and upload that.",
 };
 
 export const UPLOAD_REJECT_I18N_KEYS: Readonly<
@@ -56,6 +64,7 @@ export const UPLOAD_REJECT_I18N_KEYS: Readonly<
 	media: "knowledge.uploadRejectedMedia",
 	archive: "knowledge.uploadRejectedArchive",
 	formatNotEnabled: "knowledge.uploadRejectedFormatNotEnabled",
+	convertImage: "knowledge.uploadRejectedConvertImage",
 };
 
 /** Fills `{name}` / `{ext}` the way `$t` does on the client. */

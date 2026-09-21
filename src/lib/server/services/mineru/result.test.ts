@@ -879,3 +879,196 @@ describe("MinerU result zip — hostile input", () => {
 		expect(Buffer.from(image as Uint8Array).toString("utf8")).toBe("AAA");
 	});
 });
+
+// ── page attribution ───────────────────────────────────────────────────────
+//
+// A block's page used to be its array index + 1, full stop, and the parsed
+// `page_idx` was read by the schema and then thrown away. That is right only
+// for a `pages` array that is dense, ordered and complete — which every
+// recorded fixture happens to be, and which nothing in the format guarantees.
+
+describe("MinerU structured result — page attribution", () => {
+	function content(
+		pages: ReadonlyArray<Record<string, unknown>>,
+	): StructuredContent {
+		return parseStructuredContent({
+			pages,
+			metadata: { document: {} },
+			extensions: {},
+		});
+	}
+
+	it.each([
+		"pdf",
+		"docx",
+		"pptx",
+		"xlsx",
+		"csv",
+		"html",
+		"epub",
+		"png",
+	])("%s: uses page_idx, and the recorded fixtures agree with array position", async (id) => {
+		const result = buildStructuredExtractionResult({
+			content: await loadContent(id),
+		});
+		// Every fixture is dense and ordered, so the two rules coincide —
+		// which is exactly why nobody noticed the array index was the only
+		// one implemented.
+		expect(result.stats.pageNumberSource).toBe("page_idx");
+	});
+
+	it("cites a sparse pages array from page_idx, not from position", () => {
+		const result = buildStructuredExtractionResult({
+			content: content([
+				{ page_idx: 0, blocks: [{ type: "text", content: "FIRST" }] },
+				{ page_idx: 4, blocks: [{ type: "text", content: "FIFTH" }] },
+				{ page_idx: 9, blocks: [{ type: "text", content: "TENTH" }] },
+			]),
+		});
+
+		expect(result.stats.pageNumberSource).toBe("page_idx");
+		expect(result.blocks.map((block) => block.page)).toEqual([1, 5, 10]);
+		// The offsets table has to be able to answer about page 10.
+		expect(result.pages.length).toBeGreaterThanOrEqual(10);
+		expect(result.pageCount).toBeGreaterThanOrEqual(10);
+	});
+
+	it("cites a reordered pages array from page_idx", () => {
+		const result = buildStructuredExtractionResult({
+			content: content([
+				{ page_idx: 2, blocks: [{ type: "text", content: "THIRD" }] },
+				{ page_idx: 0, blocks: [{ type: "text", content: "FIRST" }] },
+				{ page_idx: 1, blocks: [{ type: "text", content: "SECOND" }] },
+			]),
+		});
+
+		expect(result.blocks.map((block) => block.page)).toEqual([3, 1, 2]);
+	});
+
+	it("falls back to array position when a page_idx repeats", () => {
+		// A half-trusted index is worse than a consistent one: a citation that
+		// is right for four pages and wrong for the fifth cannot be checked.
+		const result = buildStructuredExtractionResult({
+			content: content([
+				{ page_idx: 0, blocks: [{ type: "text", content: "A" }] },
+				{ page_idx: 0, blocks: [{ type: "text", content: "B" }] },
+				{ page_idx: 7, blocks: [{ type: "text", content: "C" }] },
+			]),
+		});
+
+		expect(result.stats.pageNumberSource).toBe("array_index");
+		expect(result.blocks.map((block) => block.page)).toEqual([1, 2, 3]);
+	});
+
+	it("falls back to array position for a negative page_idx", () => {
+		const result = buildStructuredExtractionResult({
+			content: content([
+				{ page_idx: -1, blocks: [{ type: "text", content: "A" }] },
+				{ page_idx: 1, blocks: [{ type: "text", content: "B" }] },
+			]),
+		});
+
+		expect(result.stats.pageNumberSource).toBe("array_index");
+		expect(result.blocks.map((block) => block.page)).toEqual([1, 2]);
+	});
+
+	it("clamps an absurd page_idx rather than sizing an array from it", () => {
+		const result = buildStructuredExtractionResult({
+			content: content([
+				{ page_idx: 0, blocks: [{ type: "text", content: "A" }] },
+				{ page_idx: 900_000_000, blocks: [{ type: "text", content: "B" }] },
+			]),
+		});
+
+		expect(result.blocks[1].page).toBeLessThanOrEqual(50_000);
+		expect(result.pages.length).toBeLessThanOrEqual(50_000);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 6: two small gaps that only real output shows
+// ---------------------------------------------------------------------------
+
+/** The minimum a `structured_content.json` needs to be parseable. */
+function syntheticContent(
+	blocks: ReadonlyArray<{ type: string; content: string }>,
+	document: Record<string, unknown> = {},
+): StructuredContent {
+	return parseStructuredContent(
+		JSON.stringify({
+			pages: [{ page_idx: 0, blocks }],
+			metadata: { document },
+			is_full_document: true,
+		}),
+	);
+}
+
+describe("the `index` block type", () => {
+	// Live, every real PDF with a table of contents reported `index` in
+	// `stats.unknownTypes` — which is the GPU-box signal, so a type this common
+	// drowns out the ones actually worth reading.
+	it("is known, keeps its text, and is not atomic", () => {
+		const result = buildStructuredExtractionResult({
+			content: syntheticContent([
+				{ type: "doc_title", content: "Annual Report" },
+				{ type: "index", content: "1. Overview 2. Results 3. Outlook" },
+			]),
+			sourceFilename: "report.pdf",
+		});
+
+		expect(result.stats.unknownTypes).toEqual({});
+		expect(result.markdown).toContain("1. Overview 2. Results 3. Outlook");
+		expect(result.blocks.find((block) => block.type === "index")).toMatchObject(
+			{
+				unknownType: false,
+				atomic: false,
+			},
+		);
+		expect(isAtomicBlockType("index")).toBe(false);
+	});
+});
+
+describe("page counts for the legacy Office formats", () => {
+	// `docx` / `xlsx` / `pptx` get `declared` / `sheet` / `slide` from MinerU's
+	// own metadata; `doc` / `xls` / `ppt` carry real pages, sheets and slides
+	// but no `page_count_kind` at all, so they landed on `unknown` — the one
+	// kind that suppresses the count and the citation entirely.
+	it.each([
+		["legacy.doc", "declared"],
+		["legacy.xls", "sheet"],
+		["legacy.ppt", "slide"],
+	])("%s derives %s from the file's own registry category", (name, kind) => {
+		const result = buildStructuredExtractionResult({
+			content: syntheticContent([{ type: "text", content: "Body" }], {
+				page_count: 4,
+			}),
+			sourceFilename: name,
+		});
+
+		expect(result.pageCountKind).toBe(kind);
+		expect(result.pageCount).toBe(4);
+	});
+
+	it("still says unknown when nothing can name the unit", () => {
+		// PNG/JPEG carry no `page_count` and no kind, and "image" is not a unit
+		// anyone could turn to.
+		expect(
+			buildStructuredExtractionResult({
+				content: syntheticContent([{ type: "text", content: "Body" }]),
+				sourceFilename: "photo.png",
+			}).pageCountKind,
+		).toBe("unknown");
+	});
+
+	it("never overrides a kind MinerU did report", () => {
+		expect(
+			buildStructuredExtractionResult({
+				content: syntheticContent([{ type: "text", content: "Body" }], {
+					page_count: 3,
+					page_count_kind: "physical",
+				}),
+				sourceFilename: "legacy.doc",
+			}).pageCountKind,
+		).toBe("physical");
+	});
+});

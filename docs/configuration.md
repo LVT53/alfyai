@@ -172,21 +172,21 @@ also shows a status card with the server's version, quality tiers and output for
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
 | `MINERU_API_URL` | No | `http://127.0.0.1:8001` | Base URL of the MinerU V1 API | Set it when MinerU runs on another host or port | Must be reachable from the app server. See [docs/uploads.md](uploads.md) |
-| `MINERU_API_KEY` | No | empty | Bearer token sent with every call except `/v1/health` | Set it when MinerU runs with `--api-key` | Masked everywhere it is read back; empty means anonymous access |
-| `MINERU_DEFAULT_TIER` | No | `auto` | Quality tier requested per document (`auto`, `flash`, `basic`, `standard`, `advanced`) | Pin a tier when the server offers several and you want one | `auto` sends no tier at all and defers to the server. Naming a tier the server does not offer fails the extraction rather than downgrading it |
+| `MINERU_API_KEY` | No | empty | Bearer token sent with every call to the configured origin, `/v1/health` included | Set it when MinerU runs with `--api-key` | Masked everywhere it is read back; empty means anonymous access |
+| `MINERU_DEFAULT_TIER` | No | `auto` | Quality tier requested per document (`auto`, `flash`, `basic`, `standard`, `advanced`) | Pin a tier when the server offers several and you want one | `auto` means "do not force a tier for this deployment", not "never send one": a registry `tierHint` (every Office, HTML, RTF and EPUB format) and a server that offers only `flash` both still send an explicit tier, ahead of this value. Naming a tier the server does not offer fails the extraction rather than downgrading it |
 | `MINERU_OCR_MODE` | No | `auto` | Text-layer handling (`auto`, `txt`, `ocr`) | Force `ocr` for scanned archives, `txt` to skip OCR entirely | `auto` omits the field; the API rejects an explicit null |
 | `MINERU_JOB_TIMEOUT_MS` | No | `300000` | Whole-document deadline, upload through result (10000–3600000) | Raise it for very large documents | Replaces `MINERU_TIMEOUT_MS`, which is still read as a deprecated env fallback for one release; an existing `admin_config` override is migrated automatically |
 | `MINERU_POLL_MIN_MS` | No | `2000` | First wait before checking whether a parse has finished (250–60000) | Lower it when parses are typically fast | Backoff grows from here toward the maximum |
 | `MINERU_POLL_MAX_MS` | No | `30000` | Where the growing wait between status checks stops (1000–300000) | Raise it to be gentler on a busy server | Must stay well below the job timeout to be useful |
 | `MINERU_REQUEST_TIMEOUT_MS` | No | `30000` | Timeout for one control-plane call such as a status check (1000–300000) | Raise it on a slow or loaded host | Does not cover file transfers |
 | `MINERU_TRANSFER_TIMEOUT_MS` | No | `600000` | Timeout for sending a document or downloading its result (10000–3600000) | Raise it on a slow link or for very large files | Applies per transfer, not per job |
-| `MINERU_CAPABILITIES_TTL_MS` | No | `300000` | How long MinerU's version, tiers and output formats are reused (0–3600000) | Lower it while reconfiguring the server | `0` re-reads on every extraction; a failed refresh keeps a fresh answer for up to twice the TTL |
+| `MINERU_CAPABILITIES_TTL_MS` | No | `300000` | How long MinerU's version, tiers and output formats are reused (0–3600000) | Lower it while reconfiguring the server | `0` re-reads on every extraction; a failed refresh keeps a fresh answer for up to twice the TTL. This is also the cache the upload-time MinerU-4 gate reads (`epub`/`odt`/`ods`/`odp`/`rtf` refused, `html`/`htm` fall back to direct-text) — see [docs/uploads.md](uploads.md#the-mineru-4-availability-gate); the gate never probes on the upload's own request, so a change here is only visible after the next background refresh |
 | `MINERU_BUNDLE_MAX_BYTES` | No | `33554432` | Disk budget for one document's parse bundle (1048576–536870912) | Raise it for image-heavy documents | Text and structure are always written; figures are dropped once the budget is reached |
 | `MINERU_STRUCTURE_CHUNKING_ENABLED` | No | `true` | Cut documents on block boundaries and record each chunk's pages | Set `false` to fall back to plain character chunking | The rollback switch for structure-aware chunking; existing chunk rows are re-derived on the next sync |
 
 ### Document Extraction Ledger
 
-Extraction is a durable background job, not a step inside the upload request. These eleven keys are
+Extraction is a durable background job, not a step inside the upload request. These twelve keys are
 editable live on **Settings → System → Advanced** (group *Limits*); a change applies on the next
 claim, failure or wait, with no restart.
 
@@ -198,11 +198,24 @@ claim, failure or wait, with no restart.
 | `DOCUMENT_EXTRACTION_MAX_ATTEMPTS` | No | `3` | Automatic attempts before a document is reported failed (1–10) | Raise it for a flaky backend | A user's Retry always grants exactly one more attempt on top |
 | `DOCUMENT_EXTRACTION_RETRY_BASE_MS` | No | `2000` | Backoff before the second attempt (100–600000) | Raise it to be gentler on a recovering backend | Triples per attempt, jittered ±20% |
 | `DOCUMENT_EXTRACTION_RETRY_MAX_MS` | No | `60000` | Ceiling the growing backoff stops at (1000–3600000) | Raise it for long outages | A `rate_limited` error's own `retryAfterMs` wins over both |
+| `DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS` | No | `1800000` | How long a document keeps waiting while the backend is unreachable (60000–86400000) | Raise it if the extraction backend is restarted often or for long | Availability failures (`unavailable`, `rate_limited`, `timeout`) back off 5 s → 5 min inside this window and do NOT consume `DOCUMENT_EXTRACTION_MAX_ATTEMPTS`; after it the job fails as `unavailable`, user-retryable |
 | `DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS` | No | `120000` | Heartbeat silence after which an attempt is reclaimed (60000–3600000) | Raise it only if the box is so loaded that healthy attempts miss four heartbeats in a row | Independent of `MINERU_JOB_TIMEOUT_MS`: a running attempt heartbeats through every phase. Effective value is `max(this, DOCUMENT_EXTRACTION_HEARTBEAT_MS × 4)` |
 | `DOCUMENT_EXTRACTION_HEARTBEAT_MS` | No | `15000` | How often a running attempt marks itself alive (1000–120000) | Lower it to detect a dead worker sooner | Must stay well below the stale window |
 | `DOCUMENT_EXTRACTION_INLINE_BUDGET_MS` | No | `1500` | How long an upload request waits inline for a plain-text file (0–15000) | Set `0` to always return immediately | Only applies to the `direct-text` route; parsed formats never wait |
 | `DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS` | No | `2500` | How long Send waits for an attachment that is nearly ready (0–30000) | Set `0` to always ask the user to wait | Bounded and abortable; never waits for a job still queued |
-| `DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES` | No | `8388608` | Largest file read straight in as text without a parser (1024–134217728) | Raise it if users legitimately attach huge logs | 8 MiB of text is roughly 2M tokens and thousands of embedding calls from one upload |
+| `DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES` | No | `8388608` | Largest file read straight in as text without a parser (1024–134217728) | Raise it if users legitimately attach huge logs | 8 MiB of text is roughly 2M tokens and thousands of embedding calls from one upload. No longer applies to `html`/`htm` (Phase 5: they route to MinerU `flash` and are bounded by `MAX_FILE_UPLOAD_SIZE` instead) — unless the MinerU-4 gate has fallen them back to `direct-text` on a pre-4.x backend, in which case this cap applies to them again |
+
+## File Production
+
+Producing a file is durable background work (ADR-0005): the chat turn queues a job and an
+in-process worker claims it, heartbeats while it runs, and reclaims attempts whose worker died.
+This key is editable live on **Settings → System → Advanced** (group *Limits*); a change applies on
+the next sweep, with no restart. The other `FILE_PRODUCTION_*` keys are output and limit knobs and
+are listed on that page rather than here.
+
+| Variable | Required? | Default | What it does | When to set it | Caveats |
+|---|---|---:|---|---|---|
+| `FILE_PRODUCTION_STALE_ATTEMPT_MS` | No | `120000` | Heartbeat silence after which a stuck attempt is reclaimed and the job becomes a retryable failure (60000–3600000) | Raise it only if the box is so loaded that healthy attempts miss four heartbeats in a row | Independent of `FILE_PRODUCTION_SANDBOX_TIMEOUT_MS` and `FILE_PRODUCTION_RENDERER_TIMEOUT_MS`: a running attempt heartbeats on its own timer. The effective value is `max(this, 60000)`, four heartbeat periods. One stuck `running` row blocks every other production, so raising this raises how long that can last |
 
 ## Maps And Routing
 

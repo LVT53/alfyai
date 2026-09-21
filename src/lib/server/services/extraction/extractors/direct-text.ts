@@ -15,6 +15,7 @@ import type {
 	ExtractDocumentResult,
 } from "../contracts";
 import { DocumentExtractionError } from "../contracts";
+import { decodeTextBuffer } from "../text-decode";
 
 export const DIRECT_TEXT_EXTRACTOR_NAME = "direct-text";
 
@@ -84,10 +85,24 @@ export function createDirectTextExtractor(
 
 			assertNotAborted(request.signal);
 
-			// CRLF is normalised the same way `task-state/chunk-sync.ts` does, so a
-			// Windows-authored file and its Unix twin produce identical chunk text
-			// and therefore identical embeddings.
-			const text = buffer.toString("utf8").replace(/\r\n/g, "\n").trim();
+			// `decodeTextBuffer` strips a BOM, rejects UTF-32, rejects anything
+			// that looks binary, and normalises CRLF the same way
+			// `task-state/chunk-sync.ts` does, so a Windows-authored file and its
+			// Unix twin still produce identical chunk text and therefore identical
+			// embeddings.
+			const decoded = decodeTextBuffer(buffer);
+			if (!decoded.ok) {
+				throw new DocumentExtractionError({
+					code: "unsupported_type",
+					message:
+						decoded.failure.reason === "binary_content"
+							? `${request.fileName} does not look like readable text — its contents look binary.`
+							: `${request.fileName} is encoded in a way this app cannot read (${decoded.failure.detail}). Save it as UTF-8 and upload that.`,
+					retryable: false,
+					details: { reason: decoded.failure.reason },
+				});
+			}
+			const text = decoded.text;
 
 			if (!text) {
 				throw new DocumentExtractionError({

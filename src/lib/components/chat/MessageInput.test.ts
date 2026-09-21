@@ -12,7 +12,12 @@ import type { AvailableModelsResponse } from "$lib/client/api/models";
 import type { PendingAttachment } from "$lib/server/services/knowledge/types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { getAcceptAttribute } from "$lib/shared/file-types";
+import { requestComposerQuote } from "$lib/stores/composer-quote";
 import { selectedModel, uiLanguage } from "$lib/stores/settings";
+import {
+	resetDisabledFileTypeIds,
+	setDisabledFileTypeIds,
+} from "$lib/stores/upload-format-gate";
 import {
 	resetMaxFileUploadSize,
 	setMaxFileUploadSize,
@@ -4707,5 +4712,351 @@ describe("MessageInput extraction chips", () => {
 		await waitFor(() => {
 			expect(queryByTestId("composer-chip-upload")).toBeNull();
 		});
+	});
+});
+
+// Paste-to-attach (phase5-6 spec §3.6). The composer's first paste handler,
+// so most of what this block asserts is what it does NOT do: every text paste
+// in the product now passes through here, and one that is not an attachment
+// must reach the browser untouched.
+describe("MessageInput paste-to-attach", () => {
+	/**
+	 * A real event rather than `fireEvent.paste`'s synthetic one, so
+	 * `defaultPrevented` can be read back — "did this swallow the paste?" is
+	 * the most important assertion in this block and it is invisible from the
+	 * component's props.
+	 */
+	function paste(
+		target: HTMLElement,
+		clipboard: { types: string[]; files?: File[] },
+	): Event {
+		const event = new Event("paste", { bubbles: true, cancelable: true });
+		Object.defineProperty(event, "clipboardData", {
+			value: { types: clipboard.types, files: clipboard.files ?? [] },
+		});
+		target.dispatchEvent(event);
+		return event;
+	}
+
+	function screenshot(name = "image.png"): File {
+		return new File(["png bytes"], name, { type: "image/png" });
+	}
+
+	function renderComposer(props: Record<string, unknown> = {}) {
+		const uploadFilesHandler = vi.fn((_payload: UploadFilesPayload) => {});
+		const rendered = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadFiles: uploadFilesHandler,
+			...props,
+		});
+		return {
+			...rendered,
+			uploadFilesHandler,
+			textarea: rendered.container.querySelector(
+				"textarea",
+			) as HTMLTextAreaElement,
+		};
+	}
+
+	function pastedFiles(handler: ReturnType<typeof vi.fn>): File[] {
+		const payload = handler.mock.calls[0]?.[0] as UploadFilesPayload;
+		return payload.files;
+	}
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		uiLanguage.set("en");
+		resetMaxFileUploadSize();
+		resetDisabledFileTypeIds();
+		fetchKnowledgeLibraryMock.mockResolvedValue({
+			documents: [],
+			results: [],
+			workflows: [],
+		});
+		fetchActiveCapabilitiesMock.mockResolvedValue({
+			served: [],
+			defaultOn: [],
+			accounts: [],
+		});
+		fetchExtractionJobsMock.mockResolvedValue([]);
+	});
+
+	afterEach(() => {
+		resetDisabledFileTypeIds();
+	});
+
+	it("attaches a screenshot, which carries files and no text", async () => {
+		const { textarea, uploadFilesHandler } = renderComposer();
+
+		const event = paste(textarea, {
+			types: ["Files", "image/png"],
+			files: [screenshot()],
+		});
+
+		await waitFor(() => expect(uploadFilesHandler).toHaveBeenCalledTimes(1));
+		expect(event.defaultPrevented).toBe(true);
+		const files = pastedFiles(uploadFilesHandler);
+		expect(files).toHaveLength(1);
+		// The browser's placeholder name is replaced with a generated one
+		// carrying the registry's canonical extension for the MIME.
+		expect(files[0].name).toMatch(/^pasted-\d{8}-\d{6}\.png$/);
+	});
+
+	it("leaves a plain text paste to the browser", async () => {
+		const { textarea, uploadFilesHandler } = renderComposer();
+
+		const event = paste(textarea, { types: ["text/plain"] });
+
+		await tick();
+		expect(uploadFilesHandler).not.toHaveBeenCalled();
+		expect(event.defaultPrevented).toBe(false);
+	});
+
+	// The case the conservative rule exists for. Copying a range from Excel, a
+	// paragraph from Word or a figure from a web page puts an image on the
+	// clipboard BESIDE the text; attaching those would make the composer
+	// unusable for the everyday paste.
+	it("leaves a Word/Excel paste alone although it carries an image", async () => {
+		const { textarea, uploadFilesHandler } = renderComposer();
+
+		const event = paste(textarea, {
+			types: ["text/plain", "text/html", "Files"],
+			files: [screenshot()],
+		});
+
+		await tick();
+		expect(uploadFilesHandler).not.toHaveBeenCalled();
+		expect(event.defaultPrevented).toBe(false);
+	});
+
+	it("attaches every file of a multi-file paste, in order", async () => {
+		const { textarea, uploadFilesHandler } = renderComposer();
+
+		paste(textarea, {
+			types: ["Files"],
+			files: [
+				new File(["a"], "notes.md", { type: "text/markdown" }),
+				new File(["b"], "budget.xlsx", { type: "application/vnd.ms-excel" }),
+			],
+		});
+
+		await waitFor(() => expect(uploadFilesHandler).toHaveBeenCalledTimes(1));
+		expect(pastedFiles(uploadFilesHandler).map((file) => file.name)).toEqual([
+			"notes.md",
+			"budget.xlsx",
+		]);
+	});
+
+	it("speaks the attach in the live region", async () => {
+		const { textarea, getByTestId } = renderComposer();
+
+		paste(textarea, { types: ["Files"], files: [screenshot("chart.png")] });
+
+		await waitFor(() =>
+			expect(getByTestId("composer-attachment-announcer")).toHaveTextContent(
+				"chart.png attached from the clipboard.",
+			),
+		);
+	});
+
+	it("counts a multi-file paste as one announcement", async () => {
+		const { textarea, getByTestId } = renderComposer();
+
+		paste(textarea, {
+			types: ["Files"],
+			files: [screenshot("a.png"), screenshot("b.png")],
+		});
+
+		await waitFor(() =>
+			expect(getByTestId("composer-attachment-announcer")).toHaveTextContent(
+				"2 files attached from the clipboard.",
+			),
+		);
+	});
+
+	it("shows the refusal for a file the server would refuse", async () => {
+		const { textarea, uploadFilesHandler, findByText } = renderComposer();
+
+		const event = paste(textarea, {
+			types: ["Files"],
+			files: [new File(["mp4"], "clip.mp4", { type: "video/mp4" })],
+		});
+
+		expect(
+			await findByText(/Audio and video files can't be read yet/i),
+		).toBeDefined();
+		expect(uploadFilesHandler).not.toHaveBeenCalled();
+		// Nothing was attached, so nothing was swallowed either.
+		expect(event.defaultPrevented).toBe(false);
+	});
+
+	it("attaches the good files of a mixed paste and names the refusal", async () => {
+		const { textarea, uploadFilesHandler, findByText } = renderComposer();
+
+		paste(textarea, {
+			types: ["Files"],
+			files: [
+				new File(["pdf"], "report.pdf", { type: "application/pdf" }),
+				new File(["zip"], "archive.zip", { type: "application/zip" }),
+			],
+		});
+
+		await waitFor(() => expect(uploadFilesHandler).toHaveBeenCalledTimes(1));
+		expect(pastedFiles(uploadFilesHandler).map((file) => file.name)).toEqual([
+			"report.pdf",
+		]);
+		expect(
+			await findByText(/Unpack it and upload the files inside/i),
+		).toBeDefined();
+	});
+
+	// The MinerU-4 gate (spec D6) reaches a paste through the same store both
+	// accept strings read.
+	it("refuses a gated format once the gate closes", async () => {
+		const { textarea, uploadFilesHandler, container } = renderComposer();
+		const epub = () =>
+			new File(["epub"], "novel.epub", { type: "application/epub+zip" });
+
+		paste(textarea, { types: ["Files"], files: [epub()] });
+		await waitFor(() => expect(uploadFilesHandler).toHaveBeenCalledTimes(1));
+
+		setDisabledFileTypeIds(["epub"]);
+		await tick();
+
+		paste(textarea, { types: ["Files"], files: [epub()] });
+		await tick();
+		// Still one call: the second paste was refused, not attached.
+		expect(uploadFilesHandler).toHaveBeenCalledTimes(1);
+
+		// ...and the picker stopped offering it at the same moment.
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		expect(fileInput.getAttribute("accept")?.split(",")).not.toContain(".epub");
+	});
+
+	it("publishes the gated accept string on the file input", async () => {
+		const { container } = renderComposer();
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+
+		// Open gate: byte-identical to the ungated string, so no surface moved.
+		expect(fileInput.getAttribute("accept")).toBe(getAcceptAttribute("chat"));
+
+		setDisabledFileTypeIds(["rtf", "odt", "ods", "odp", "epub"]);
+		await tick();
+
+		const offered = fileInput.getAttribute("accept")?.split(",") ?? [];
+		expect(offered).not.toContain(".rtf");
+		expect(offered).not.toContain(".epub");
+		// HTML is gated too but declares a fallback route, so it never leaves.
+		expect(offered).toContain(".html");
+		expect(offered).toContain(".pdf");
+	});
+
+	it("does nothing when the composer is disabled", async () => {
+		const { textarea, uploadFilesHandler } = renderComposer({ disabled: true });
+
+		const event = paste(textarea, { types: ["Files"], files: [screenshot()] });
+
+		await tick();
+		expect(uploadFilesHandler).not.toHaveBeenCalled();
+		// A disabled composer still must not swallow the event.
+		expect(event.defaultPrevented).toBe(false);
+	});
+
+	it("does nothing when attachments are switched off", async () => {
+		const { textarea, uploadFilesHandler } = renderComposer({
+			attachmentsEnabled: false,
+		});
+
+		const event = paste(textarea, { types: ["Files"], files: [screenshot()] });
+
+		await tick();
+		expect(uploadFilesHandler).not.toHaveBeenCalled();
+		expect(event.defaultPrevented).toBe(false);
+	});
+
+	// The batch counter Phase 3 fixed: the file picker closes while an upload
+	// is in flight, but a paste does not, so the second batch must ADD to the
+	// count rather than replace it.
+	it("counts a paste made while an upload is already in flight", async () => {
+		const dones: ((result: UploadDoneResult) => void)[] = [];
+		const { container, getByPlaceholderText, getByTestId } = render(
+			MessageInput,
+			{
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				onUploadFiles: (payload: UploadFilesPayload) => {
+					dones.push(payload.done);
+				},
+			},
+		);
+		const textarea = getByPlaceholderText(
+			"Type a message...",
+		) as HTMLTextAreaElement;
+		await fireEvent.input(textarea, { target: { value: "Summarise these" } });
+
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["scan"], "scan.pdf", { type: "application/pdf" })],
+			},
+		});
+		await waitFor(() => expect(dones).toHaveLength(1));
+
+		paste(textarea, { types: ["Files"], files: [screenshot("shot.png")] });
+		await waitFor(() => expect(dones).toHaveLength(2));
+
+		// The picked file lands; the pasted one has not.
+		dones[0]?.({
+			success: false,
+			fileName: "scan.pdf",
+			error: "Upload failed",
+		});
+		await tick();
+
+		// The composer still knows it is uploading. With an assignment rather
+		// than an increment the counter would have hit zero here and opened the
+		// send gate while the pasted screenshot was still on the wire.
+		expect(getByTestId("send-disabled-hint")).toHaveTextContent(
+			"Uploading file...",
+		);
+	});
+
+	it("attaches a paste on a phone viewport too", async () => {
+		const original = Object.getOwnPropertyDescriptor(window, "innerWidth");
+		Object.defineProperty(window, "innerWidth", {
+			configurable: true,
+			value: 390,
+		});
+		try {
+			const { textarea, uploadFilesHandler } = renderComposer();
+			paste(textarea, { types: ["Files"], files: [screenshot()] });
+			await waitFor(() => expect(uploadFilesHandler).toHaveBeenCalledTimes(1));
+		} finally {
+			if (original) Object.defineProperty(window, "innerWidth", original);
+		}
+	});
+
+	it("leaves the quote chips alone", async () => {
+		const { textarea, getByTestId, queryByTestId } = renderComposer();
+
+		requestComposerQuote("A quoted section of the document.");
+		await waitFor(() =>
+			expect(getByTestId("composer-chip-quote")).toBeDefined(),
+		);
+
+		paste(textarea, { types: ["Files"], files: [screenshot()] });
+		await tick();
+
+		// A paste attaches files; it neither adds nor removes a quote, and the
+		// words in the textarea stay the user's own.
+		expect(queryByTestId("composer-chip-quote")).toBeTruthy();
+		expect(textarea.value).toBe("");
 	});
 });

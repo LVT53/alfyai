@@ -47,6 +47,7 @@ describe("i18n composer and skills namespaces", () => {
 		const uploadRefusalKeys = [
 			"knowledge.uploadContentMismatch",
 			"knowledge.uploadRejectedArchive",
+			"knowledge.uploadRejectedConvertImage",
 			"knowledge.uploadRejectedFormatNotEnabled",
 			"knowledge.uploadRejectedMedia",
 			"knowledge.uploadUnsupportedType",

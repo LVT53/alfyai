@@ -175,6 +175,12 @@ const TRANSITIONAL_ALLOWLIST = new Map<string, TransitionalBudget>([
 			ext: 4,
 			mime: 0,
 			slice: "D",
+			// Re-measured on Phase 6 P6-B (the inline_text production mode), which
+			// added a third source-mode arm to this file: still exactly 4 / 0. The
+			// new arm names no extension and no MIME of its own — it derives the
+			// produced MIME through getSandboxMimeTypeForExtension — so the budget
+			// does not move. It cannot go lower while the render-kind branches
+			// exist, because each one IS one of the four literals.
 			what: "normalizeDocumentOutput is gone (spec row 34); what is left is the four render-kind branches in renderDocumentOutputs",
 		},
 	],
@@ -184,6 +190,11 @@ const TRANSITIONAL_ALLOWLIST = new Map<string, TransitionalBudget>([
 			ext: 7,
 			mime: 1,
 			slice: "D",
+			// Re-measured on Phase 6 P6-B: still exactly 7 / 1. P6-B routes text
+			// outputs away from buildTextFileProgram but does not delete it —
+			// program mode still uses it for a non-text output — and the
+			// default-type ladder below it is untouched, so no literal was
+			// removed. Lowering this row needs the ladder itself to go.
 			what: "both maps are gone (spec rows 28-29); what is left is the default-type ladder in normalizeRequestedOutputs",
 		},
 	],

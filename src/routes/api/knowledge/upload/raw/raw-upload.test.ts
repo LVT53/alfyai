@@ -68,10 +68,16 @@ describe("POST /api/knowledge/upload/raw", () => {
 			"knowledge.uploadRejectedArchive",
 		],
 		[
-			"memo.rtf",
-			"application/rtf",
+			"scan.ofd",
+			"application/ofd",
 			"formatNotEnabled",
 			"knowledge.uploadRejectedFormatNotEnabled",
+		],
+		[
+			"photo.avif",
+			"image/avif",
+			"convertImage",
+			"knowledge.uploadRejectedConvertImage",
 		],
 		[
 			"mystery.qqq",

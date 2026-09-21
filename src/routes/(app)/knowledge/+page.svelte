@@ -566,6 +566,20 @@ async function handleExtractionRetry(artifactId: string) {
  * artifact keeps its id, so nothing that references it dangles while the new
  * parse runs.
  */
+function reextractErrorMessage(error: unknown): string {
+	const code = error instanceof ApiError ? error.code : null;
+	if (code === "tier_unavailable") {
+		return $t("knowledge.extraction.error.tier_unavailable");
+	}
+	if (code === "tier_not_higher") {
+		return $t("knowledge.extraction.reextract.error.tier_not_higher");
+	}
+	if (code === "reextract_limit") {
+		return $t("knowledge.extraction.reextract.error.reextract_limit");
+	}
+	return $t("knowledge.extraction.reextract.failed");
+}
+
 async function handleReextract(artifactId: string, tier: string) {
 	manageError = "";
 	try {
@@ -576,11 +590,12 @@ async function handleReextract(artifactId: string, tier: string) {
 	} catch (error) {
 		// The endpoint's refusals reuse the extraction taxonomy, so a tier that
 		// vanished between opening the menu and pressing it reads as "that
-		// quality is not available" rather than as a generic failure.
-		manageError =
-			error instanceof ApiError && error.code === "tier_unavailable"
-				? $t("knowledge.extraction.error.tier_unavailable")
-				: $t("knowledge.extraction.reextract.failed");
+		// quality is not available" rather than as a generic failure. The two
+		// refusals the SERVER owns — "that is not an upgrade" and "you already
+		// have too many of these running" — say so in their own words, because
+		// both are recoverable by doing something different rather than by
+		// trying again.
+		manageError = reextractErrorMessage(error);
 		console.warn("[KNOWLEDGE] Re-extraction failed", error);
 	}
 }

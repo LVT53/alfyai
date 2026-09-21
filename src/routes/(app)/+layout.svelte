@@ -59,6 +59,10 @@ import {
 import { initTheme, setThemeAndSync, type Theme } from "$lib/stores/theme";
 import { initAvatar } from "$lib/stores/avatar";
 import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
+import {
+	readShellDisabledFileTypeIds,
+	setDisabledFileTypeIds,
+} from "$lib/stores/upload-format-gate";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
 import type { ConversationListItem } from "$lib/server/services/conversations";
 import type { Project } from "$lib/server/services/projects";
@@ -578,6 +582,12 @@ onMount(() => {
 	// batch happens without ever asking the server. Set on the client only —
 	// a module-level store written during SSR is shared by every request.
 	setMaxFileUploadSize(data.maxFileUploadSize);
+	// The MinerU-4 gate, same reasoning and same one-frame cost: both file
+	// pickers build their `accept` before any request is made. Read through
+	// the store's tolerant reader because P5-B owns `AppShellData` and adds
+	// `disabledFileTypeIds` there — an absent field means the gate is OPEN,
+	// which is also what it means on a backend that has never answered.
+	setDisabledFileTypeIds(readShellDisabledFileTypeIds(data));
 	initializeServerUpdateSuppression();
 	selectedCampaignModel = data.userModelPreference ?? null;
 	effectiveCampaignModel = data.userModel;

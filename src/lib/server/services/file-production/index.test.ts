@@ -130,6 +130,9 @@ describe("file production service", () => {
 				assistantMessageId: "assistant-1",
 				title: "report.pdf",
 				status: "succeeded",
+				// A legacy job synthesised by `ensureLegacyJobs` never wrote the
+				// `source_mode` column at all, so the DTO carries null.
+				sourceMode: null,
 				files: [
 					expect.objectContaining({
 						id: "file-1",
@@ -261,6 +264,44 @@ describe("file production service", () => {
 			status: "queued",
 			files: [],
 		});
+	});
+
+	// `sourceMode` is stored on `file_production_jobs.source_mode` and is now
+	// part of the client-facing job DTO (both `mapJobRow` implementations) so
+	// `FileProductionCard` and callers can tell an inline_text job apart from a
+	// document-source or program one without guessing from its files.
+	it("carries sourceMode through creation and the read model", async () => {
+		const { createFileProductionJob, listConversationFileProductionJobs } =
+			await import("./index");
+
+		const created = await createFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Quarterly memo",
+			origin: "unified_produce",
+			sourceMode: "document_source",
+		});
+		expect(created.sourceMode).toBe("document_source");
+
+		const jobs = await listConversationFileProductionJobs("user-1", "conv-1");
+		expect(jobs.find((job) => job.id === created.id)).toMatchObject({
+			sourceMode: "document_source",
+		});
+	});
+
+	it("leaves sourceMode null when the caller never sets it", async () => {
+		const { createFileProductionJob } = await import("./index");
+
+		const created = await createFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Untitled",
+			origin: "unified_produce",
+		});
+
+		expect(created.sourceMode).toBeNull();
 	});
 
 	it("accepts a parsed program-mode intake request and wakes queued work", async () => {
@@ -514,6 +555,74 @@ describe("file production service", () => {
 			},
 		});
 		expect(wakeWorker).not.toHaveBeenCalled();
+	});
+
+	// `/api/chat/files/produce` is reachable without the produce_file tool
+	// (Atlas, and the signed service-assertion path in the route's
+	// `resolveOwnerUserId`). The mixed-family rule used to live only inside the
+	// tool's in-process normalization, so a direct caller sending the very
+	// shape the tool refuses by name got a generic `unsupported_source_mode`.
+	it("refuses a mixed-family request at intake, not only in the chat tool", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-mixed-groups",
+				requestTitle: "Live negative mixed outputs",
+				requestedOutputs: [{ type: "pdf" }, { type: "md" }],
+				markdown: "# Mixed output negative case\n\nBody text.\n",
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:26.650Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			status: 422,
+			code: "mixed_output_groups",
+			job: {
+				status: "failed",
+				error: { code: "mixed_output_groups", retryable: false },
+				files: [],
+			},
+		});
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.error).toContain("Cannot produce pdf, md from one request");
+		expect(wakeWorker).not.toHaveBeenCalled();
+	});
+
+	// The two shapes the rule must NOT touch: a caller-authored program may
+	// legitimately write both families in one run, and a document_source job
+	// renders `pdf` and `markdown` off one source (the spec's
+	// `document-markdown` live row).
+	it("still accepts a caller-authored program that names both families", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-mixed-program-ok",
+				requestTitle: "Report plus notes",
+				sourceMode: "program",
+				requestedOutputs: [{ type: "pdf" }, { type: "md" }],
+				program: {
+					language: "python",
+					sourceCode:
+						"from pathlib import Path\nPath('/output/a.pdf').write_bytes(b'%PDF-1.4')\nPath('/output/a.md').write_text('# hi')",
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:26.700Z"),
+		});
+
+		expect(result).toMatchObject({ ok: true, status: 202 });
 	});
 
 	it("rejects an unsupported program output type at intake rather than after the run", async () => {
@@ -1186,6 +1295,86 @@ describe("file production service", () => {
 				retryable: true,
 			},
 		});
+	});
+
+	// Ruling 5, the same change as the extraction worker's. It matters more
+	// here: this claim refuses while ANY row is `running`, so one attempt a
+	// deploy orphaned holds every later production for every user until the
+	// stale window closes — minutes on a box that was serving again in seconds.
+	it("reclaims a dead process's attempt at boot, without the stale window", async () => {
+		const {
+			claimNextFileProductionJob,
+			createFileProductionJob,
+			listConversationFileProductionJobs,
+			reclaimDeadWorkerFileProductionAttempts,
+			recoverStaleFileProductionAttempts,
+		} = await import("./index");
+		const job = await createFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Orphaned by a deploy",
+			origin: "unified_produce",
+			now: new Date("2026-05-03T19:41:00.000Z"),
+		});
+		await claimNextFileProductionJob({
+			workerId: "file-production:box-1:9001:nonce-a",
+			now: new Date("2026-05-03T19:42:00.000Z"),
+		});
+
+		// Its heartbeat is seconds old, so a stale sweep declines to touch it.
+		expect(
+			await recoverStaleFileProductionAttempts({
+				staleBefore: new Date("2026-05-03T19:41:30.000Z"),
+				now: new Date("2026-05-03T19:42:05.000Z"),
+			}),
+		).toEqual({ recovered: 0 });
+
+		expect(
+			await reclaimDeadWorkerFileProductionAttempts({
+				workerId: "file-production:box-1:4242:nonce-b",
+				isProcessAlive: (pid) => pid === 4242,
+				now: new Date("2026-05-03T19:42:05.000Z"),
+			}),
+		).toEqual({ recovered: 1 });
+
+		// ADR-0005: failed + retryable, NOT requeued. The user presses Retry.
+		expect(
+			(await listConversationFileProductionJobs("user-1", "conv-1")).find(
+				(row) => row.id === job.id,
+			),
+		).toMatchObject({
+			status: "failed",
+			error: { code: "worker_heartbeat_timeout", retryable: true },
+		});
+	});
+
+	it("leaves another host's and the previous id format's attempts to the stale sweep", async () => {
+		const {
+			claimNextFileProductionJob,
+			createFileProductionJob,
+			reclaimDeadWorkerFileProductionAttempts,
+		} = await import("./index");
+		await createFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Someone else's box",
+			origin: "unified_produce",
+			now: new Date("2026-05-03T19:41:00.000Z"),
+		});
+		await claimNextFileProductionJob({
+			workerId: "file-production:box-2:9001:nonce-a",
+			now: new Date("2026-05-03T19:42:00.000Z"),
+		});
+
+		expect(
+			await reclaimDeadWorkerFileProductionAttempts({
+				workerId: "file-production:box-1:4242:nonce-b",
+				isProcessAlive: (pid) => pid === 4242,
+				now: new Date("2026-05-03T19:42:05.000Z"),
+			}),
+		).toEqual({ recovered: 0 });
 	});
 
 	it("reconciles stale queued and running jobs while preserving fresh queued work", async () => {
@@ -2903,7 +3092,7 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		expect(storeGeneratedFile).toHaveBeenCalledTimes(3);
 	});
 
-	it("persists generated-document source JSON and readable projection on a generated_output artifact", async () => {
+	it("persists generated-document source JSON and the rendered markdown on a generated_output artifact", async () => {
 		const { db } = await import("$lib/server/db");
 		const { persistGeneratedDocumentSourceArtifact } = await import(
 			"./source-persistence"
@@ -2937,8 +3126,10 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			type: "generated_output",
 			retrievalClass: "ephemeral_followup",
 			name: "Quarterly report",
+			// D9: the Markdown renderer's bytes, which is also exactly what a
+			// `markdown` output of this job would have written to disk.
 			contentText:
-				"Quarterly report\nExecutive summary\n\n## Revenue\nRevenue increased by 12%.",
+				"# Quarterly report\n\nExecutive summary\n\n## Revenue\n\nRevenue increased by 12%.\n",
 		});
 		expect(metadata).toMatchObject({
 			generatedDocumentSourceVersion: 1,

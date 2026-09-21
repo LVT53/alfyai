@@ -184,6 +184,7 @@ function appShellDataFixture(
 		projects: Promise.resolve([]),
 		maxMessageLength: 12_000,
 		maxFileUploadSize: 104_857_600,
+		disabledFileTypeIds: [],
 		composerCommandRegistryEnabled: false,
 		atlasAvailability: {
 			enabled: true,
@@ -1126,6 +1127,7 @@ describe("chat page runtime integration", () => {
 					],
 					warnings: [],
 					dismissed: false,
+					sourceMode: null,
 				},
 			],
 			generationDurationMs: 250,
@@ -1348,6 +1350,7 @@ describe("chat page runtime integration", () => {
 					],
 					warnings: [],
 					dismissed: false,
+					sourceMode: null,
 				},
 			],
 			contextCompressionSnapshots: [

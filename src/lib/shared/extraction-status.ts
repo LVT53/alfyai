@@ -49,6 +49,7 @@ export const EXTRACTION_ERROR_CODES = [
 	"unavailable",
 	"tier_unavailable",
 	"auth_failed",
+	"backend_misconfigured",
 	"too_large",
 	"rate_limited",
 	"job_failed",
@@ -66,23 +67,126 @@ export const EXTRACTION_ERROR_CODES = [
 export type ExtractionErrorCode = (typeof EXTRACTION_ERROR_CODES)[number];
 
 /**
- * Default retryability per code. An extractor may override per throw (a 503
- * with a Retry-After is retryable even under a code that usually is not), but
- * when it says nothing this set decides.
+ * How the WORKER treats a code, which is a different question from whether the
+ * USER may press Retry.
  *
- * `auth_failed` is deliberately absent: a wrong API key is not a fault a retry
- * can fix, and burning three attempts plus backoff on it only delays the
- * honest "ask an admin" message.
+ *  - `attempts` — an ordinary retryable document failure. It consumes the small
+ *    per-job attempt budget and backs off between tries.
+ *  - `outage` — the backend is not answering right now. This is not evidence
+ *    against the document, so it gets its own patient budget: a long,
+ *    exponentially backed-off window that does NOT consume the attempt budget.
+ *  - `none` — trying again changes nothing until a human changes something.
+ */
+export const EXTRACTION_AUTO_RETRY_POLICIES = [
+	"none",
+	"attempts",
+	"outage",
+] as const;
+export type ExtractionAutoRetryPolicy =
+	(typeof EXTRACTION_AUTO_RETRY_POLICIES)[number];
+
+export interface ExtractionErrorPolicy {
+	/** What the worker does on its own. */
+	readonly autoRetry: ExtractionAutoRetryPolicy;
+	/**
+	 * Whether the user's Retry button should be offered once the job is
+	 * terminal. "The system may retry" and "the user may retry" are different
+	 * facts: an `auth_failed` is never worth retrying automatically, but the
+	 * moment an admin fixes the key, every document that failed on it must be
+	 * retryable — otherwise the only way back is to delete and re-upload.
+	 */
+	readonly userRetryable: boolean;
+}
+
+/**
+ * The one table. Every code, both facts, in one place.
+ *
+ * Configuration and environment failures (`auth_failed`, `tier_unavailable`,
+ * `backend_misconfigured`, and `unavailable` once its outage window is spent)
+ * are NOT auto-retried but ARE user-retryable. Document-level permanent
+ * failures (`unsupported_type`, `too_large`, `empty_result`) are neither:
+ * nothing anyone can do from the outside makes the same bytes readable.
+ */
+export const EXTRACTION_ERROR_POLICIES: Readonly<
+	Record<ExtractionErrorCode, ExtractionErrorPolicy>
+> = {
+	// -- the backend is not answering right now -----------------------------
+	unavailable: { autoRetry: "outage", userRetryable: true },
+	rate_limited: { autoRetry: "outage", userRetryable: true },
+	// A timeout — ours on a connect or a poll, or the whole-job deadline — is a
+	// statement about the backend's responsiveness, never about the document.
+	timeout: { autoRetry: "outage", userRetryable: true },
+
+	// -- ordinary retryable document failures --------------------------------
+	job_failed: { autoRetry: "attempts", userRetryable: true },
+	// A garbled or unexpected response. Worth one or two more tries, and worth
+	// a user retry afterwards because the usual cure is an admin fixing a proxy.
+	protocol: { autoRetry: "attempts", userRetryable: true },
+	stale_worker: { autoRetry: "attempts", userRetryable: true },
+
+	// -- configuration and environment: an admin fixes it, then the user retries
+	auth_failed: { autoRetry: "none", userRetryable: true },
+	tier_unavailable: { autoRetry: "none", userRetryable: true },
+	backend_misconfigured: { autoRetry: "none", userRetryable: true },
+
+	// -- permanent facts about this document ---------------------------------
+	unsupported_type: { autoRetry: "none", userRetryable: false },
+	too_large: { autoRetry: "none", userRetryable: false },
+	empty_result: { autoRetry: "none", userRetryable: false },
+	internal: { autoRetry: "none", userRetryable: false },
+
+	// -- ledger-side verdicts -------------------------------------------------
+	// The user asked for this one; letting them undo it is the whole point.
+	canceled: { autoRetry: "none", userRetryable: true },
+	max_attempts: { autoRetry: "none", userRetryable: true },
+	legacy_unknown: { autoRetry: "none", userRetryable: true },
+};
+
+export function extractionErrorPolicy(
+	code: ExtractionErrorCode,
+): ExtractionErrorPolicy {
+	return EXTRACTION_ERROR_POLICIES[code];
+}
+
+/**
+ * Default AUTOMATIC retryability per code, derived from the table above so the
+ * two can never disagree. An extractor may still override per throw (a 503 with
+ * a Retry-After is retryable even under a code that usually is not).
  */
 export const RETRYABLE_EXTRACTION_ERROR_CODES: ReadonlySet<ExtractionErrorCode> =
-	new Set<ExtractionErrorCode>([
-		"unavailable",
-		"rate_limited",
-		"timeout",
-		"protocol",
-		"job_failed",
-		"stale_worker",
-	]);
+	new Set<ExtractionErrorCode>(
+		EXTRACTION_ERROR_CODES.filter(
+			(code) => EXTRACTION_ERROR_POLICIES[code].autoRetry !== "none",
+		),
+	);
+
+/**
+ * The codes that mean "the backend is not answering right now".
+ *
+ * They share the patient outage budget instead of the small attempt budget:
+ * `MAX_ATTEMPTS 3` with a 2 s base backoff tolerates about ten seconds of
+ * downtime, and a backend restart takes longer than that, so every in-flight
+ * document used to fail permanently on a blip it had nothing to do with.
+ */
+export const OUTAGE_EXTRACTION_ERROR_CODES: ReadonlySet<ExtractionErrorCode> =
+	new Set<ExtractionErrorCode>(
+		EXTRACTION_ERROR_CODES.filter(
+			(code) => EXTRACTION_ERROR_POLICIES[code].autoRetry === "outage",
+		),
+	);
+
+export function isOutageExtractionErrorCode(
+	code: ExtractionErrorCode,
+): boolean {
+	return OUTAGE_EXTRACTION_ERROR_CODES.has(code);
+}
+
+/** Whether the user's Retry button may be offered for this code. */
+export function isUserRetryableExtractionErrorCode(
+	code: ExtractionErrorCode,
+): boolean {
+	return EXTRACTION_ERROR_POLICIES[code].userRetryable;
+}
 
 const TERMINAL_SET: ReadonlySet<string> = new Set<string>(
 	DOCUMENT_EXTRACTION_TERMINAL_STATUSES,
@@ -147,8 +251,35 @@ export interface DocumentExtractionJobDTO {
 	updatedAt: number;
 	/** Set once the job left `queued`. Drives the elapsed clock. */
 	startedAt: number | null;
+	/**
+	 * When the worker will claim this job again, for a `queued` row sitting
+	 * behind a backoff gate. The one thing a client needs beyond `retryable` to
+	 * say when a waiting document will be tried again.
+	 *
+	 * Optional rather than required: a client that predates it treats the whole
+	 * DTO as data it may not have all of, and a `null` from an older server is
+	 * indistinguishable from "no gate", which is the honest reading anyway.
+	 */
+	nextAttemptAt?: number | null;
 	/** true when the row is synthesised from a pre-ledger artifact. */
 	legacy: boolean;
+}
+
+/**
+ * True while the job is queued behind a backoff gate BECAUSE the backend is
+ * not answering — as opposed to queued because the worker has not reached it.
+ *
+ * The chip and the Knowledge row say two different things about those two, so
+ * the distinction is drawn once, here, rather than in each surface.
+ */
+export function isExtractionWaitingForBackend(
+	job: Pick<DocumentExtractionJobDTO, "status" | "error">,
+): boolean {
+	return (
+		job.status === "queued" &&
+		job.error !== null &&
+		isOutageExtractionErrorCode(job.error.code)
+	);
 }
 
 /**

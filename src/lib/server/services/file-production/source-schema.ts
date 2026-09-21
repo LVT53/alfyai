@@ -263,6 +263,74 @@ function cleanDocumentLanguage(
 	return value === "hu" || value === "en" ? value : undefined;
 }
 
+/**
+ * The only schemes a model-written link may carry into a rendered report.
+ *
+ * The document source is written by the MODEL, and the HTML report is
+ * previewed in the app's `standard-report` profile, which is trusted: inline
+ * scripts run and the sanitiser is bypassed. A `javascript:` (or `data:`,
+ * `vbscript:`, `file:`) source URL was therefore one click from script
+ * execution inside the app. No fixture uses `mailto:`, so the allowlist stays
+ * at the two schemes a report actually needs; image sources keep their own,
+ * stricter `https://`-only rule.
+ */
+export const GENERATED_DOCUMENT_ALLOWED_URL_SCHEMES = [
+	"http",
+	"https",
+] as const;
+
+const URL_SCHEME_PATTERN = /^([A-Za-z][A-Za-z0-9+.-]*):/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point
+const URL_CONTROL_CHARACTER_PATTERN = /[ -]/;
+
+/**
+ * True for a URL a renderer may turn into a link.
+ *
+ * Whitespace tricks are rejected rather than repaired: the HTML URL parser
+ * strips tabs, newlines and carriage returns before it reads the scheme, so
+ * `java&#9;script:alert(1)` IS `javascript:` to a browser, and a leading space
+ * hides nothing once the string is trimmed. A URL with no scheme at all is
+ * refused too — that covers protocol-relative `//host` as well.
+ */
+export function isAllowedGeneratedDocumentUrl(value: string): boolean {
+	if (URL_CONTROL_CHARACTER_PATTERN.test(value)) return false;
+	const trimmed = value.trim();
+	if (!trimmed) return false;
+	const scheme = URL_SCHEME_PATTERN.exec(trimmed)?.[1]?.toLowerCase();
+	if (!scheme) return false;
+	return (GENERATED_DOCUMENT_ALLOWED_URL_SCHEMES as readonly string[]).includes(
+		scheme,
+	);
+}
+
+/**
+ * Thrown by `cleanUrl` and caught by `validateGeneratedDocumentSource`.
+ *
+ * The normalisers that carry URLs (`normalizeSourceChip`,
+ * `normalizeSourceAttribution`, `normalizeBasisSourceRef`) all report failure
+ * by returning `null`, and every caller DROPS a null — which would turn a
+ * smuggled `javascript:` link into a silently missing source rather than a
+ * refusal the model can act on. Throwing is what lets one rejected URL fail
+ * the whole document with the schema's ordinary `{ ok: false, code, message }`
+ * without threading a result type through six helpers.
+ */
+class DisallowedDocumentUrlError extends Error {}
+
+/**
+ * `cleanText` for URL-typed fields: no whitespace collapsing (a URL is not
+ * prose) and a scheme allowlist. Absent stays absent; present-and-disallowed
+ * rejects the document.
+ */
+function cleanUrl(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	if (!isAllowedGeneratedDocumentUrl(trimmed)) {
+		throw new DisallowedDocumentUrlError(trimmed);
+	}
+	return trimmed;
+}
+
 function cleanKey(value: unknown): string | null {
 	const text = cleanText(value);
 	return text && /^[A-Za-z0-9_.-]+$/.test(text) ? text : null;
@@ -780,7 +848,7 @@ function normalizeBasisSourceRef(
 	if (!isRecord(value)) return null;
 	const title = cleanText(value.title);
 	if (!title) return null;
-	return { title, url: cleanText(value.url) };
+	return { title, url: cleanUrl(value.url) };
 }
 
 function normalizeBasisSourceRefs(
@@ -874,7 +942,7 @@ function normalizeSourceAttribution(
 ): GeneratedDocumentSourceAttribution | null {
 	if (!isRecord(value)) return null;
 	const title = cleanText(value.title);
-	const url = cleanText(value.url);
+	const url = cleanUrl(value.url);
 	return title && url ? { title, url } : null;
 }
 
@@ -936,7 +1004,7 @@ function normalizeSourceChip(
 	if (!isRecord(value)) return null;
 	const title = cleanText(value.title);
 	if (!title) return null;
-	const url = cleanText(value.url);
+	const url = cleanUrl(value.url);
 	const kind =
 		value.kind === "web" || value.kind === "library"
 			? value.kind
@@ -1250,7 +1318,22 @@ export function validateGeneratedDocumentSource(
 
 	const blocks: GeneratedDocumentBlock[] = [];
 	for (const block of value.blocks) {
-		const normalized = normalizeBlock(block);
+		let normalized: BlockNormalizationResult;
+		try {
+			normalized = normalizeBlock(block);
+		} catch (error) {
+			if (!(error instanceof DisallowedDocumentUrlError)) throw error;
+			// The scheme, not the URL: this message is carried back to the model
+			// and shown on the file card, and echoing the whole hostile string
+			// would only widen where it can land.
+			return {
+				ok: false,
+				code: "unsupported_document_block",
+				message: `Generated document source contains a link with an unsupported URL scheme. Only ${GENERATED_DOCUMENT_ALLOWED_URL_SCHEMES.map(
+					(scheme) => `${scheme}:`,
+				).join(" and ")} links are allowed.`,
+			};
+		}
 		if (!normalized.ok) {
 			return {
 				ok: false,
@@ -1282,17 +1365,6 @@ export function validateGeneratedDocumentSource(
 			blocks,
 		},
 	};
-}
-
-function formatSourceProjection(source: GeneratedDocumentSourceChip): string {
-	const details = [
-		source.url,
-		source.provided ? "You provided these" : null,
-		source.reasoning,
-	].filter((part): part is string => Boolean(part));
-	return details.length > 0
-		? `${source.title} (${details.join("; ")})`
-		: source.title;
 }
 
 export function generatedDocumentBasisClaimLabel(
@@ -1391,126 +1463,4 @@ export function generatedDocumentCitationPlainText(text: string): string {
 				: `${segment.sourceNumber === null ? "" : `[${segment.sourceNumber}]`}${generatedDocumentCitationLevelGlyph(segment.level)}`,
 		)
 		.join("");
-}
-
-export function buildGeneratedDocumentProjection(
-	source: GeneratedDocumentSource,
-): string {
-	const lines: string[] = [source.title];
-	if (source.subtitle) {
-		lines.push(source.subtitle);
-	}
-	if (source.date) {
-		lines.push(source.date);
-	}
-	if (source.cover) {
-		lines.push(
-			source.cover.eyebrow ? `Cover: ${source.cover.eyebrow}` : "Cover",
-		);
-		if (source.cover.dateLabel) lines.push(source.cover.dateLabel);
-	}
-	lines.push("");
-
-	for (const block of source.blocks) {
-		switch (block.type) {
-			case "heading":
-				lines.push(`${"#".repeat(block.level)} ${block.text}`);
-				break;
-			case "paragraph":
-				lines.push(generatedDocumentCitationPlainText(block.text));
-				if (block.sources && block.sources.length > 0) {
-					lines.push(
-						`Sources: ${block.sources.map(formatSourceProjection).join("; ")}`,
-					);
-				}
-				if (block.basisMarkers && block.basisMarkers.length > 0) {
-					for (const marker of block.basisMarkers) {
-						lines.push(
-							`${generatedDocumentBasisClaimLabel(marker.support)}: ${marker.rationale}`,
-						);
-					}
-				}
-				break;
-			case "list":
-				block.items.forEach((item, index) => {
-					lines.push(
-						block.style === "numbered" ? `${index + 1}. ${item}` : `- ${item}`,
-					);
-				});
-				break;
-			case "callout": {
-				const label = block.tone.charAt(0).toUpperCase() + block.tone.slice(1);
-				lines.push(block.title ? `${label}: ${block.title}` : `${label}:`);
-				lines.push(block.text);
-				break;
-			}
-			case "confidenceMarker":
-				lines.push(`${block.label}: ${block.message}`);
-				break;
-			case "basisMarker":
-				lines.push(
-					`${generatedDocumentBasisClaimLabel(block.support)}: ${block.rationale}`,
-				);
-				break;
-			case "code":
-				lines.push(block.language ? `Code (${block.language}):` : "Code:");
-				lines.push(block.text);
-				break;
-			case "quote":
-				lines.push(
-					block.citation
-						? `> ${block.text} -- ${block.citation}`
-						: `> ${block.text}`,
-				);
-				break;
-			case "divider":
-				lines.push("---");
-				break;
-			case "sourceChips":
-				lines.push(block.title);
-				block.sources.forEach((source) => {
-					lines.push(`- ${formatSourceProjection(source)}`);
-				});
-				break;
-			case "table":
-				if (block.title) lines.push(`Table: ${block.title}`);
-				lines.push(block.columns.map((column) => column.label).join(" | "));
-				block.rows.forEach((row) => {
-					lines.push(
-						block.columns
-							.map((column) => String(row[column.key] ?? ""))
-							.join(" | "),
-					);
-				});
-				if (block.caption) lines.push(`Caption: ${block.caption}`);
-				break;
-			case "chart": {
-				const label = block.title
-					? `${block.chartType}: ${block.title}`
-					: block.chartType;
-				lines.push(`Chart: ${label}`);
-				if (block.altText) lines.push(`Alt text: ${block.altText}`);
-				if (block.caption) lines.push(`Caption: ${block.caption}`);
-				lines.push(`Data points: ${block.data.length}`);
-				break;
-			}
-			case "image":
-				lines.push(`Image: ${block.altText}`);
-				if (block.caption) lines.push(`Caption: ${block.caption}`);
-				if (block.sourceAttribution) {
-					lines.push(
-						`Source: ${block.sourceAttribution.title} - ${block.sourceAttribution.url}`,
-					);
-				}
-				break;
-			case "pageBreak":
-				lines.push("[Page break]");
-				break;
-		}
-	}
-
-	return lines
-		.join("\n")
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
 }

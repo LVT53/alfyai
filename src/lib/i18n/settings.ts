@@ -1483,6 +1483,10 @@ const settingsDict = {
 			"All outputs",
 		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES.meaning":
 			"Combined bytes one run may write to disk.",
+		"admin.system.keys.FILE_PRODUCTION_STALE_ATTEMPT_MS.label":
+			"Abandoned file production timeout",
+		"admin.system.keys.FILE_PRODUCTION_STALE_ATTEMPT_MS.meaning":
+			"Silence after which a stuck file is offered again.",
 		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.label":
 			"Document extraction worker",
 		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.meaning":
@@ -1507,6 +1511,10 @@ const settingsDict = {
 			"Longest retry wait",
 		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_MAX_MS.meaning":
 			"Ceiling the growing retry pause stops at.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS.label":
+			"Document service outage patience",
+		"admin.system.keys.DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS.meaning":
+			"How long a document keeps waiting while the reader is unreachable.",
 		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.label":
 			"Abandoned attempt timeout",
 		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.meaning":
@@ -3487,6 +3495,10 @@ const settingsDict = {
 			"Összes kimenet",
 		"admin.system.keys.FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES.meaning":
 			"Amennyit egy futás összesen lemezre írhat.",
+		"admin.system.keys.FILE_PRODUCTION_STALE_ATTEMPT_MS.label":
+			"Elakadt fájlkészítés időkorlátja",
+		"admin.system.keys.FILE_PRODUCTION_STALE_ATTEMPT_MS.meaning":
+			"Ennyi csend után az elakadt fájl újra felajánlható.",
 		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.label":
 			"Dokumentumfeldolgozó",
 		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.meaning":
@@ -3511,6 +3523,10 @@ const settingsDict = {
 			"Leghosszabb újrapróbálkozási szünet",
 		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_MAX_MS.meaning":
 			"Ennél tovább a növekvő szünet nem nyúlik.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS.label":
+			"Türelmi idő a dokumentumszolgáltatás kimaradásakor",
+		"admin.system.keys.DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS.meaning":
+			"Eddig vár a dokumentum, amíg a feldolgozó nem érhető el.",
 		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.label":
 			"Elakadt feldolgozás időkorlátja",
 		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.meaning":

@@ -206,7 +206,7 @@ export const POST: RequestHandler = async (event) => {
 	// The same allowlist `/intent` applies. Every chunk carries the file name
 	// and the declared type, so the first part of a refused file is never
 	// written and no part directory is created.
-	const unsupportedType = refuseUnsupportedUploadType({
+	const unsupportedType = await refuseUnsupportedUploadType({
 		fileName,
 		mimeType,
 		traceId,

@@ -1,0 +1,158 @@
+// The single decoder for bytes that are supposed to be text (phase5-6 spec
+// §3.3). Today's caller is `extractors/direct-text.ts`; `chat-files.ts`'s
+// `decodeTextLikeGeneratedFile` decodes generated text-like output the same
+// way by hand and is a candidate to adopt this module too (P6-A owns that
+// file, so this slice does not touch it — see the slice report).
+//
+// Order is load-bearing: BOM first (a UTF-16 file's bytes are NOT valid UTF-8
+// and would otherwise be read as NUL-interleaved mojibake), then the binary
+// check on the DECODED string, then CRLF normalisation and trim — the last two
+// exactly as `task-state/chunk-sync.ts:75` does them, so chunk text and
+// therefore embeddings are unchanged for every file that decoded before this
+// module existed.
+
+/** How many leading bytes of the decoded text the replacement-char ratio is measured over. */
+const REPLACEMENT_CHAR_SAMPLE_CHARS = 64 * 1024;
+/** Above this fraction of the Unicode replacement character in the sample, the input is treated as binary. */
+const REPLACEMENT_CHAR_RATIO_THRESHOLD = 0.01;
+/** Unicode codepoint 0 (NUL). Decimal, not a source-level escape sequence, so it never has to round-trip as a literal control byte through an editor, a diff, or a copy-paste. */
+const NUL_CHAR = String.fromCharCode(0);
+/** Decimal codepoint of the Unicode replacement character. */
+const REPLACEMENT_CHAR_CODE = 65533;
+
+export type TextDecodeFailure =
+	| { reason: "binary_content"; detail: string }
+	| { reason: "unsupported_encoding"; detail: string };
+
+export type TextDecodeResult =
+	| { ok: true; text: string; encoding: "utf-8" | "utf-16le" | "utf-16be" }
+	| { ok: false; failure: TextDecodeFailure };
+
+type TextDecodeEncoding = Extract<TextDecodeResult, { ok: true }>["encoding"];
+
+function fail(failure: TextDecodeFailure): TextDecodeResult {
+	return { ok: false, failure };
+}
+
+function ok(text: string, encoding: TextDecodeEncoding): TextDecodeResult {
+	return { ok: true, text, encoding };
+}
+
+/**
+ * A UTF-32LE or UTF-32BE byte-order mark. Checked BEFORE the UTF-16LE test
+ * below, which would otherwise misread a UTF-32LE BOM as a UTF-16LE BOM
+ * followed by two zero bytes of "content".
+ */
+function isUtf32Bom(buffer: Buffer): boolean {
+	if (buffer.length < 4) return false;
+	const le =
+		buffer[0] === 0xff &&
+		buffer[1] === 0xfe &&
+		buffer[2] === 0x00 &&
+		buffer[3] === 0x00;
+	const be =
+		buffer[0] === 0x00 &&
+		buffer[1] === 0x00 &&
+		buffer[2] === 0xfe &&
+		buffer[3] === 0xff;
+	return le || be;
+}
+
+function isUtf8Bom(buffer: Buffer): boolean {
+	return (
+		buffer.length >= 3 &&
+		buffer[0] === 0xef &&
+		buffer[1] === 0xbb &&
+		buffer[2] === 0xbf
+	);
+}
+
+function isUtf16LeBom(buffer: Buffer): boolean {
+	return buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe;
+}
+
+function isUtf16BeBom(buffer: Buffer): boolean {
+	return buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff;
+}
+
+/** Byte-swaps a UTF-16BE buffer in place into UTF-16LE, the only encoding Node decodes natively. */
+function swapUtf16Endianness(buffer: Buffer): Buffer {
+	const swapped = Buffer.from(buffer);
+	swapped.swap16();
+	return swapped;
+}
+
+/**
+ * True when the decoded string is binary rather than text: a NUL character
+ * anywhere, or more than 1% Unicode replacement characters in the first 64
+ * KiB. A mostly-Latin-1 file with a handful of bad bytes still reads; a JPEG
+ * renamed `.txt` does not.
+ */
+function looksBinary(text: string): boolean {
+	if (text.includes(NUL_CHAR)) return true;
+
+	const sample =
+		text.length > REPLACEMENT_CHAR_SAMPLE_CHARS
+			? text.slice(0, REPLACEMENT_CHAR_SAMPLE_CHARS)
+			: text;
+	if (sample.length === 0) return false;
+
+	let replacementCount = 0;
+	for (let index = 0; index < sample.length; index += 1) {
+		if (sample.charCodeAt(index) === REPLACEMENT_CHAR_CODE) {
+			replacementCount += 1;
+		}
+	}
+	return replacementCount / sample.length > REPLACEMENT_CHAR_RATIO_THRESHOLD;
+}
+
+function finish(
+	text: string,
+	encoding: "utf-8" | "utf-16le" | "utf-16be",
+): TextDecodeResult {
+	if (looksBinary(text)) {
+		return fail({
+			reason: "binary_content",
+			detail:
+				"the decoded content contains a NUL character or is mostly unreadable replacement characters",
+		});
+	}
+	// CRLF handling exactly as `task-state/chunk-sync.ts` does it, so chunk
+	// text and therefore embeddings are unchanged for every file that decoded
+	// before this module existed.
+	return ok(text.replace(/\r\n/g, "\n").trim(), encoding);
+}
+
+/**
+ * Decodes bytes that are supposed to be text. See the module header for the
+ * rules; this is their exact implementation.
+ */
+export function decodeTextBuffer(buffer: Buffer): TextDecodeResult {
+	if (isUtf32Bom(buffer)) {
+		return fail({
+			reason: "unsupported_encoding",
+			detail: "UTF-32 is not supported",
+		});
+	}
+
+	if (isUtf8Bom(buffer)) {
+		return finish(buffer.subarray(3).toString("utf8"), "utf-8");
+	}
+
+	if (isUtf16LeBom(buffer)) {
+		return finish(buffer.subarray(2).toString("utf16le"), "utf-16le");
+	}
+
+	if (isUtf16BeBom(buffer)) {
+		const rest = buffer.subarray(2);
+		return finish(swapUtf16Endianness(rest).toString("utf16le"), "utf-16be");
+	}
+
+	// No BOM: decode as UTF-8. No heuristic UTF-16 sniffing — a file that is
+	// UTF-16 without a BOM is indistinguishable from a binary, and guessing
+	// would mangle legitimate Latin-1-ish text. Node's UTF-8 decoder replaces
+	// invalid sequences with the Unicode replacement character rather than
+	// throwing, which is exactly what `looksBinary`'s replacement-character
+	// ratio is for.
+	return finish(buffer.toString("utf8"), "utf-8");
+}

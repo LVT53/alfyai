@@ -8,6 +8,12 @@ import {
 	fileProductionJobs,
 } from "$lib/server/db/schema";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import {
+	isProcessAlive,
+	type ParsedWorkerId,
+	parseWorkerId,
+} from "../worker-identity";
+import { getFileProductionWorkerConfig } from "./config";
 
 export interface CreateFileProductionJobInput {
 	userId: string;
@@ -113,7 +119,15 @@ export interface ClaimedFileProductionJob {
 	attempt: FileProductionJobAttempt;
 }
 
-export const DEFAULT_STALE_ATTEMPT_MS = 10 * 60 * 1000;
+/**
+ * The fork reconciler's own fallback window, resolved from the same key the
+ * worker sweeps with rather than from a second constant that can drift from it.
+ */
+function defaultStaleBefore(now: Date): Date {
+	return new Date(
+		now.getTime() - getFileProductionWorkerConfig().staleAttemptMs,
+	);
+}
 
 function isUniqueConstraintError(error: unknown): boolean {
 	if (!(error instanceof Error)) {
@@ -192,6 +206,7 @@ export async function createFileProductionJob(
 		warnings: [],
 		dismissed: false,
 		error: null,
+		sourceMode: input.sourceMode ?? null,
 	};
 }
 
@@ -304,6 +319,7 @@ export async function createFailedFileProductionJob(
 			message: input.errorMessage,
 			retryable: input.retryable,
 		},
+		sourceMode: input.sourceMode ?? null,
 	};
 }
 
@@ -338,6 +354,7 @@ function mapJobRow(
 		warnings: [],
 		dismissed: Boolean(job.dismissed),
 		error: mapError(job),
+		sourceMode: job.sourceMode,
 	};
 }
 
@@ -656,12 +673,135 @@ export async function recoverStaleFileProductionAttempts(
 	return { recovered };
 }
 
+export interface ReclaimDeadWorkerFileProductionAttemptsInput {
+	/** This process's own worker id. Its attempts are never reclaimed. */
+	workerId: string;
+	/** Injected so a test can decide liveness without spawning processes. */
+	isProcessAlive?: (pid: number) => boolean;
+	now?: Date;
+}
+
+const DEAD_WORKER_ERROR_MESSAGE =
+	"File production stopped when the server restarted.";
+
+/**
+ * The boot sweep: reclaim, IMMEDIATELY, every running attempt whose worker id
+ * proves it belonged to a process that no longer exists on this host.
+ *
+ * Same reasoning as the extraction ledger's twin, and it matters more here:
+ * this claim refuses while ANY row is `running`, so one attempt orphaned by a
+ * deploy holds every later production for every user until the stale window
+ * closes. Per ADR-0005 a reclaimed job is `failed` + retryable rather than
+ * requeued — the user presses Retry — so this writes the same verdict the
+ * heartbeat sweep does, only sooner.
+ *
+ * A worker id from another host, or in the format that carried no hostname, is
+ * never touched: it falls back to the stale-window path.
+ */
+export async function reclaimDeadWorkerFileProductionAttempts(
+	input: ReclaimDeadWorkerFileProductionAttemptsInput,
+): Promise<{ recovered: number }> {
+	const now = input.now ?? new Date();
+	const self = parseWorkerId(input.workerId);
+	const isAlive = input.isProcessAlive ?? isProcessAlive;
+
+	const recovered = db.transaction((tx) => {
+		const running = tx
+			.select({
+				attemptId: fileProductionJobAttempts.id,
+				jobId: fileProductionJobAttempts.jobId,
+				workerId: fileProductionJobAttempts.workerId,
+			})
+			.from(fileProductionJobAttempts)
+			.innerJoin(
+				fileProductionJobs,
+				eq(fileProductionJobs.id, fileProductionJobAttempts.jobId),
+			)
+			.where(
+				and(
+					eq(fileProductionJobs.status, "running"),
+					eq(fileProductionJobs.currentAttemptId, fileProductionJobAttempts.id),
+					eq(fileProductionJobAttempts.status, "running"),
+				),
+			)
+			.all();
+
+		let recoveredCount = 0;
+
+		for (const attempt of running) {
+			if (!isDeadFileProductionWorkerId(attempt.workerId, self, isAlive)) {
+				continue;
+			}
+
+			const attemptResult = tx
+				.update(fileProductionJobAttempts)
+				.set({
+					status: "failed",
+					finishedAt: now,
+					errorCode: "worker_heartbeat_timeout",
+					errorMessage: DEAD_WORKER_ERROR_MESSAGE,
+					retryable: true,
+					updatedAt: now,
+				})
+				.where(
+					and(
+						eq(fileProductionJobAttempts.id, attempt.attemptId),
+						eq(fileProductionJobAttempts.jobId, attempt.jobId),
+						eq(fileProductionJobAttempts.status, "running"),
+					),
+				)
+				.run();
+
+			if (attemptResult.changes === 0) continue;
+
+			tx.update(fileProductionJobs)
+				.set({
+					status: "failed",
+					stage: null,
+					retryable: true,
+					errorCode: "worker_heartbeat_timeout",
+					errorMessage: DEAD_WORKER_ERROR_MESSAGE,
+					completedAt: now,
+					updatedAt: now,
+				})
+				.where(
+					and(
+						eq(fileProductionJobs.id, attempt.jobId),
+						eq(fileProductionJobs.status, "running"),
+						eq(fileProductionJobs.currentAttemptId, attempt.attemptId),
+					),
+				)
+				.run();
+			recoveredCount += 1;
+		}
+
+		return recoveredCount;
+	});
+
+	return { recovered };
+}
+
+function isDeadFileProductionWorkerId(
+	candidate: string | null,
+	self: ParsedWorkerId | null,
+	isAlive: (pid: number) => boolean,
+): boolean {
+	if (!candidate || !self) return false;
+	if (candidate === self.raw) return false;
+	const parsed = parseWorkerId(candidate);
+	// An id in the previous format says nothing about which host or process
+	// wrote it, so it keeps the stale-window path it has always had.
+	if (!parsed) return false;
+	if (parsed.hostname !== self.hostname) return false;
+	if (parsed.pid === self.pid && parsed.nonce === self.nonce) return false;
+	return !isAlive(parsed.pid);
+}
+
 export async function reconcileStaleFileProductionJobs(
 	input: ReconcileStaleFileProductionJobsInput,
 ): Promise<{ recovered: number }> {
 	const now = input.now ?? new Date();
-	const staleBefore =
-		input.staleBefore ?? new Date(now.getTime() - DEFAULT_STALE_ATTEMPT_MS);
+	const staleBefore = input.staleBefore ?? defaultStaleBefore(now);
 	const assistantMessageIds = input.assistantMessageIds
 		? Array.from(new Set(input.assistantMessageIds.filter(Boolean)))
 		: null;

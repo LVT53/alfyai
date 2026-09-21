@@ -18,6 +18,8 @@
 import { Camera, ChevronRight, File, Folder, Image } from "@lucide/svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import { t } from "$lib/i18n";
+import { buildAcceptAttribute } from "$lib/shared/file-types";
+import { disabledFileTypeIds } from "$lib/stores/upload-format-gate";
 import { maxFileUploadSizeMb } from "$lib/stores/upload-limits";
 
 let {
@@ -93,10 +95,16 @@ function handlePicked(event: Event) {
 			capture="environment"
 			onchange={handlePicked}
 		/>
+		<!-- The two rows above keep `accept="image/*"`: those are INTENT filters
+		     for Photos and the camera (Phase 1 OQ8), not type gates. This one
+		     hands over to the system file picker, so it publishes the same
+		     gated chat accept string the composer's own input does — otherwise
+		     a phone would offer formats a desktop does not. -->
 		<input
 			bind:this={fileInput}
 			type="file"
 			class="hidden"
+			accept={buildAcceptAttribute('chat', $disabledFileTypeIds)}
 			multiple
 			onchange={handlePicked}
 		/>

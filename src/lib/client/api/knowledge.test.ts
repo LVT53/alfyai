@@ -2,6 +2,10 @@ import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EXTRACTION_STATUS_BATCH_LIMIT } from "$lib/shared/extraction-status";
 import {
+	disabledFileTypeIds,
+	resetDisabledFileTypeIds,
+} from "$lib/stores/upload-format-gate";
+import {
 	maxFileUploadSizeBytes,
 	resetMaxFileUploadSize,
 } from "$lib/stores/upload-limits";
@@ -19,6 +23,7 @@ import {
 describe("knowledge client API", () => {
 	beforeEach(() => {
 		resetMaxFileUploadSize();
+		resetDisabledFileTypeIds();
 	});
 
 	it("submits projection-backed memory profile actions", async () => {
@@ -616,6 +621,69 @@ describe("knowledge client API", () => {
 		);
 		expect(get(maxFileUploadSizeBytes)).toBe(12 * 1024 * 1024);
 	});
+
+	it("publishes the MinerU-4 gate the intent response reports", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						traceId: "trace-upload",
+						maxFileUploadSize: 12 * 1024 * 1024,
+						disabledFileTypeIds: ["epub", "odp", "ods", "odt", "rtf"],
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ artifact: { id: "a" } }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+
+		await uploadKnowledgeAttachment(
+			new File(["x"], "doc.pdf"),
+			null,
+			fetchImpl,
+		);
+
+		expect([...get(disabledFileTypeIds)].sort()).toEqual([
+			"epub",
+			"odp",
+			"ods",
+			"odt",
+			"rtf",
+		]);
+	});
+
+	it("leaves the gate open when the intent response omits it", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						traceId: "trace-upload",
+						maxFileUploadSize: 12 * 1024 * 1024,
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+			)
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ artifact: { id: "a" } }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+
+		await uploadKnowledgeAttachment(
+			new File(["x"], "doc.pdf"),
+			null,
+			fetchImpl,
+		);
+
+		expect(get(disabledFileTypeIds).size).toBe(0);
+	});
 });
 
 describe("uploadRefusalFromError", () => {
@@ -644,6 +712,27 @@ describe("uploadRefusalFromError", () => {
 		).toEqual({
 			key: "knowledge.uploadRejectedMedia",
 			params: { name: "clip.mp4", ext: "MP4", limit: "" },
+		});
+	});
+
+	// phase5-6 follow-up: AVIF's own reject reason, distinct from
+	// `formatNotEnabled` because "Save it as PDF or DOCX" is wrong advice for
+	// an image.
+	it("turns the convertImage refusal into its own i18n key", async () => {
+		expect(
+			await refusalFrom({
+				error: "AVIF images can't be read yet.",
+				code: "upload_unsupported_type",
+				errorKey: "knowledge.uploadRejectedConvertImage",
+				details: {
+					fileName: "photo.avif",
+					extension: "avif",
+					reason: "convertImage",
+				},
+			}),
+		).toEqual({
+			key: "knowledge.uploadRejectedConvertImage",
+			params: { name: "photo.avif", ext: "AVIF", limit: "" },
 		});
 	});
 

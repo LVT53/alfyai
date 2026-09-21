@@ -43,6 +43,7 @@ import { queueArtifactSemanticEmbeddingRefresh } from "$lib/server/services/sema
 import {
 	CHUNK_CHAR_OVERLAP,
 	CHUNK_CHAR_TARGET,
+	chunkPlanSourceDigest,
 	syncArtifactChunks,
 } from "$lib/server/services/task-state/chunk-sync";
 
@@ -91,6 +92,13 @@ export async function createNormalizedArtifactFromExtraction(
 	// is passed down rather than the blocks: `chunk-sync.ts` keeps its current
 	// dependency set that way, and never has to read the bundle off disk.
 	const chunkPlan = structured ? buildChunkPlan(structured) : null;
+	// The plan was packed from the blocks that rendered `structured.markdown`,
+	// which is what SHOULD also be `params.text`. Tagging the plan with that
+	// text's digest is what lets the sync notice when it is not: the two arrive
+	// through different parameters, and a mismatch would otherwise store chunk
+	// text from one parse with page numbers from another.
+	const chunkPlanDigest =
+		chunkPlan && structured ? chunkPlanSourceDigest(structured.markdown) : null;
 
 	const comfortMetadataPatch: Record<string, unknown> = {
 		tokenEstimate,
@@ -135,8 +143,14 @@ export async function createNormalizedArtifactFromExtraction(
 				sourceName: params.sourceName,
 				metadata,
 				chunkPlan,
+				chunkPlanDigest,
 			})
-		: await createNewNormalizedArtifact({ params, metadata, chunkPlan });
+		: await createNewNormalizedArtifact({
+				params,
+				metadata,
+				chunkPlan,
+				chunkPlanDigest,
+			});
 
 	await updateArtifactMetadata({
 		artifactId: params.sourceArtifactId,
@@ -330,6 +344,7 @@ async function createNewNormalizedArtifact(input: {
 	params: CreateNormalizedArtifactFromExtractionParams;
 	metadata: Record<string, unknown>;
 	chunkPlan: ChunkPlanEntry[] | null;
+	chunkPlanDigest: string | null;
 }): Promise<Artifact> {
 	const { params, metadata } = input;
 	const artifact = await createArtifact({
@@ -347,7 +362,12 @@ async function createNewNormalizedArtifact(input: {
 		// Spread rather than written inline so this compiles against the
 		// `createArtifact` that does not know the parameter yet; it is forwarded
 		// verbatim to `syncArtifactChunks` by the one that does.
-		...(input.chunkPlan ? { chunkPlan: input.chunkPlan } : {}),
+		...(input.chunkPlan
+			? {
+					chunkPlan: input.chunkPlan,
+					chunkPlanSourceDigest: input.chunkPlanDigest,
+				}
+			: {}),
 	});
 
 	try {
@@ -392,6 +412,7 @@ async function rewriteNormalizedArtifact(input: {
 	sourceName: string;
 	metadata: Record<string, unknown>;
 	chunkPlan: ChunkPlanEntry[] | null;
+	chunkPlanDigest: string | null;
 }): Promise<Artifact> {
 	const [updated] = await db
 		.update(artifacts)
@@ -421,7 +442,12 @@ async function rewriteNormalizedArtifact(input: {
 		contentText: mapped.contentText,
 		// Re-extraction re-derives every chunk row, so the new parse's pages
 		// replace the old parse's rather than being migrated onto them.
-		...(input.chunkPlan ? { chunkPlan: input.chunkPlan } : {}),
+		...(input.chunkPlan
+			? {
+					chunkPlan: input.chunkPlan,
+					chunkPlanSourceDigest: input.chunkPlanDigest,
+				}
+			: {}),
 	});
 	if (sync.truncated) {
 		// Same bookkeeping `createArtifact` does on the insert path, so a

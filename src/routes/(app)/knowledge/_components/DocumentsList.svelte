@@ -3,15 +3,20 @@ import { tick } from "svelte";
 import { createExtractionAnnouncer } from "$lib/client/extraction-announcements";
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
 import type { KnowledgeDocumentItem } from "./documents-table";
-import { partitionUploadableFiles } from "$lib/utils/file-drag";
 import {
+	partitionUploadableFiles,
+	type UploadTypeRefusal,
+} from "$lib/utils/file-drag";
+import { UPLOAD_REJECT_I18N_KEYS } from "$lib/utils/clipboard-attachments";
+import {
+	buildAcceptAttribute,
 	fileExtension,
-	getAcceptAttribute,
 	getCategory,
 	getEntryByFilename,
 	getEntryByMimeType,
 	type FileTypeCategory,
 } from "$lib/shared/file-types";
+import { disabledFileTypeIds } from "$lib/stores/upload-format-gate";
 import {
 	maxFileUploadSizeBytes,
 	maxFileUploadSizeMb,
@@ -265,7 +270,15 @@ $effect(() => {
 // now: the store the SSR shell and every upload intent write to, and the
 // shared file-type registry. The literals they replaced were the fourth copy
 // of 100 MB and the only hand-maintained accept string in the app.
-const acceptedFileTypes = getAcceptAttribute("knowledge");
+//
+// Phase 5: no longer a `const`. The MinerU-4 gate (spec D6) can narrow the
+// offered set at runtime, so the `<input accept>` and the drop filter below
+// both read THIS derived string — one source, and they cannot disagree about
+// what the page offers. An open gate (the default, and the failure mode)
+// yields the memoised full string.
+let acceptedFileTypes = $derived(
+	buildAcceptAttribute("knowledge", $disabledFileTypeIds),
+);
 
 function handleDragEnter(event: DragEvent) {
 	event.preventDefault();
@@ -300,6 +313,38 @@ function showDropError(message: string) {
 	}, 6000);
 }
 
+/**
+ * What a fully refused drop says.
+ *
+ * A drop that failed for ONE reason gets that reason's own sentence — the
+ * same one the upload endpoint would have answered with, and the one that
+ * ends in what to do instead ("Unpack it and upload the files inside.").
+ * Anything else keeps the generic line: a batch refused for three different
+ * reasons has no single remedy, and presenting one file's problem as the
+ * batch's would be worse than saying less.
+ *
+ * The count matters because two of the four messages name a file: they are
+ * used for a batch only when every file in it also shares an extension, so
+ * "EPUB files aren't supported yet" is true of all of them.
+ */
+function dropRefusalMessage(refusals: readonly UploadTypeRefusal[]): string {
+	const first = refusals[0];
+	if (!first) return $t("knowledge.dropNoValidFiles");
+
+	const oneReason = refusals.every(
+		(refusal) => refusal.reason === first.reason,
+	);
+	const speaksForAll =
+		refusals.length === 1 ||
+		refusals.every((refusal) => refusal.ext === first.ext);
+	if (!oneReason || !speaksForAll) return $t("knowledge.dropNoValidFiles");
+
+	return $t(UPLOAD_REJECT_I18N_KEYS[first.reason] as I18nKey, {
+		name: first.name,
+		ext: first.ext,
+	});
+}
+
 async function handleDrop(event: DragEvent) {
 	event.preventDefault();
 	event.stopPropagation();
@@ -309,7 +354,7 @@ async function handleDrop(event: DragEvent) {
 	const files = event.dataTransfer?.files;
 	if (!files || files.length === 0) return;
 
-	const { valid, rejectedUnsupportedType, rejectedTooLarge } =
+	const { valid, rejectedUnsupportedType, rejectedTooLarge, refusals } =
 		partitionUploadableFiles(Array.from(files), {
 			acceptedTypes: acceptedFileTypes,
 			maxFileSizeBytes: $maxFileUploadSizeBytes,
@@ -326,7 +371,7 @@ async function handleDrop(event: DragEvent) {
 			}),
 		);
 	} else if (rejectedUnsupportedType.length > 0 && valid.length === 0) {
-		showDropError($t("knowledge.dropNoValidFiles"));
+		showDropError(dropRefusalMessage(refusals));
 	}
 
 	if (valid.length === 0) return;
@@ -773,10 +818,12 @@ function orderedReextractTiers(tiers: string[]): string[] {
 }
 
 /**
- * Everything at or below the tier this document was last parsed at is offered
- * but inert: re-reading a PDF at the same quality it already has produces the
- * same PDF, and the menu should say so rather than spend a backend seat
- * proving it.
+ * A second guard, not the only one. `GET .../reextract` now filters the list
+ * down to tiers strictly ABOVE the document's own, and POST refuses a lower or
+ * equal one outright, so this normally has nothing left to disable. It stays
+ * for a row whose `extractionTier` is fresher than the tier list beside it —
+ * then the menu says "already at this quality" rather than offering a request
+ * the server will refuse.
  */
 function isReextractTierDisabled(
 	document: KnowledgeDocumentItem,

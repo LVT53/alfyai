@@ -364,6 +364,9 @@ export function buildPendingFileProductionJobPlaceholder(params: {
 		files: [],
 		warnings: [],
 		dismissed: false,
+		// Unknown until the real job lands — this placeholder predates the
+		// server round-trip that would tell us.
+		sourceMode: null,
 	};
 }
 

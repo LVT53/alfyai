@@ -936,6 +936,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 				files: [],
 				warnings: [],
 				dismissed: false,
+				sourceMode: null,
 			},
 		];
 		const mergeFileProductionJobs = vi.fn();
@@ -1076,6 +1077,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 					files: [],
 					warnings: [],
 					dismissed: false,
+					sourceMode: null,
 				},
 			];
 			streamInvocations[0].callbacks.onEnd("Done", {

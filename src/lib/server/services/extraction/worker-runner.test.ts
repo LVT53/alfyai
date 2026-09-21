@@ -1,8 +1,9 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Artifact } from "$lib/server/services/knowledge/types";
+import { parseWorkerId } from "../worker-identity";
 import { createFakeExtractor } from "./testing/fake-extractor";
 import {
 	createLedgerFixture,
@@ -260,6 +261,7 @@ describe("executeNextExtractionJob", () => {
 			maxAttempts: 3,
 			retryBaseMs: 2000,
 			retryMaxMs: 60000,
+			outageWindowMs: 1_800_000,
 		});
 
 		const result = await running;
@@ -382,6 +384,7 @@ describe("executeNextExtractionJob", () => {
 				maxAttempts: 3,
 				retryBaseMs: 2000,
 				retryMaxMs: 60000,
+				outageWindowMs: 1_800_000,
 			}),
 		).toEqual({ recovered: 0, requeued: 0 });
 		expect((await ledger.getExtractionJobRow(job.id))?.status).toBe("indexing");
@@ -563,6 +566,45 @@ describe("runDirectTextExtractionInline", () => {
 		// The real direct-text extractor and the real persist path both run here.
 		expect(dto?.status).toBe("succeeded");
 		expect(dto?.normalizedArtifactId).not.toBeNull();
+	});
+
+	// The boot reclaim asks `parseWorkerId` whose process wrote an attempt. The
+	// inline runner used to stamp `${DEFAULT_WORKER_ID}:inline` — five
+	// segments, which the parser refuses by design — so a previous boot's
+	// inline attempt never parsed, never looked dead, and always waited out the
+	// full stale window. It is the one class of job a user watches
+	// synchronously.
+	it("stamps an attempt with a worker id the reclaim can read back", async () => {
+		const absolute = join(storageDir, "inline-id.txt");
+		await writeFile(absolute, "inline text", "utf8");
+		const artifactId = fixture.seedArtifact({
+			userId,
+			name: "inline-id.txt",
+			mimeType: "text/plain",
+			storagePath: relative(process.cwd(), absolute),
+		});
+		const { job } = await ledger.enqueueExtractionJob({
+			userId,
+			conversationId: null,
+			origin: "upload",
+			intakeRoute: "direct-text",
+			fileName: "inline-id.txt",
+			mimeType: "text/plain",
+			sizeBytes: 11,
+			sourceArtifactId: artifactId,
+		});
+
+		await worker.runDirectTextExtractionInline({
+			jobId: job.id,
+			budgetMs: 5000,
+		});
+
+		const [attempt] = await ledger.listExtractionJobAttempts(job.id);
+		expect(attempt).toBeDefined();
+		expect(parseWorkerId(attempt.workerId)).toMatchObject({
+			hostname: (hostname() || "unknown").split(":").join(""),
+			pid: process.pid,
+		});
 	});
 
 	it("returns the non-terminal DTO when the budget is zero", async () => {

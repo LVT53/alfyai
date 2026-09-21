@@ -84,6 +84,7 @@ const chatDict = {
 		"chat.extraction.canceledRetry": "Stopped — retry",
 		"chat.extraction.error.auth_failed":
 			"Document reader rejected our credentials",
+		"chat.extraction.error.backend_misconfigured": "Reader address is wrong",
 		"chat.extraction.error.canceled": "Stopped",
 		"chat.extraction.error.empty_result": "No readable text found",
 		"chat.extraction.error.internal": "Something went wrong",
@@ -103,6 +104,8 @@ const chatDict = {
 		"chat.extraction.indexing": "Filing…",
 		"chat.extraction.parsing": "Reading…",
 		"chat.extraction.queued": "Waiting to be read",
+		"chat.extraction.waitingForBackend":
+			"The document service is not reachable right now. We'll keep trying.",
 		"chat.extraction.retry": "Retry",
 		"chat.extraction.retryA11y": "Read {name} again",
 		"chat.extraction.retryFailed":
@@ -138,6 +141,15 @@ const chatDict = {
 		"chat.nextMessageQueued": "Next message queued.",
 		"chat.openComposerTools": "Open composer tools",
 		"chat.overLengthCounter": "{current} / {max} — too long to send",
+		// ── Phase 5 P5-C (paste-to-attach) — EN ────────────────────────────
+		// Spoken by the composer's attachment live region, because attaching
+		// by paste is the one attach path with nothing to look at: no picker
+		// closed, no drop overlay faded out, just chips that appeared. The
+		// single-file line names the file so a pasted screenshot's generated
+		// name is heard rather than guessed at.
+		"chat.pasteAttached": "{name} attached from the clipboard.",
+		"chat.pasteAttachedMany": "{count} files attached from the clipboard.",
+		// ── end Phase 5 P5-C (EN) ──────────────────────────────────────────
 		"chat.preparingResponse": "Preparing response...",
 		"chat.queueMessage": "Send follow-up",
 		"chat.queuedNext": "Queued next",
@@ -684,6 +696,20 @@ const chatDict = {
 			"That file type cannot be produced.",
 		"fileProduction.error.unsupported_table_structure":
 			"The document contains an unsupported table structure.",
+		// A job reclaimed after the worker never sent another heartbeat — most
+		// often a server restart mid-job. `worker_heartbeat_timeout` is also
+		// used by the boot-time dead-worker sweep, so the wording stays general
+		// rather than naming one specific cause.
+		"fileProduction.error.worker_heartbeat_timeout":
+			"The file could not be finished because the server restarted while it was working.",
+		// The ledger lost track of a running attempt's state (no attempt row, or
+		// one stuck without a heartbeat) before the job finished.
+		"fileProduction.error.worker_state_lost":
+			"The file could not be finished because the server lost track of the job.",
+		// A queued job that never got picked up by a worker before the queue
+		// timeout.
+		"fileProduction.error.worker_queue_timeout":
+			"The file waited too long in the queue and could not be finished.",
 		"fileProduction.failed": "Error",
 		"fileProduction.failedDescription": "File production did not finish.",
 		"fileProduction.placeholderTitle": "Preparing your file…",
@@ -1223,6 +1249,7 @@ const chatDict = {
 		"chat.extraction.canceledRetry": "Leállítva — próbáld újra",
 		"chat.extraction.error.auth_failed":
 			"A dokumentumolvasó elutasította a hozzáférést",
+		"chat.extraction.error.backend_misconfigured": "Rossz az olvasó címe",
 		"chat.extraction.error.canceled": "Leállítva",
 		"chat.extraction.error.empty_result": "Nem találtunk benne szöveget",
 		"chat.extraction.error.internal": "Váratlan hiba történt",
@@ -1243,6 +1270,8 @@ const chatDict = {
 		"chat.extraction.indexing": "Feldolgozás…",
 		"chat.extraction.parsing": "Olvasás…",
 		"chat.extraction.queued": "Sorban áll",
+		"chat.extraction.waitingForBackend":
+			"A dokumentumszolgáltatás jelenleg nem érhető el. Tovább próbálkozunk.",
 		"chat.extraction.retry": "Újra",
 		"chat.extraction.retryA11y": "A(z) {name} újbóli beolvasása",
 		"chat.extraction.retryFailed":
@@ -1278,6 +1307,10 @@ const chatDict = {
 		"chat.nextMessageQueued": "Következő üzenet várakozik.",
 		"chat.openComposerTools": "Szerkesztőeszközök megnyitása",
 		"chat.overLengthCounter": "{current} / {max} — túl hosszú a küldéshez",
+		// ── Phase 5 P5-C (paste-to-attach) — HU ────────────────────────────
+		"chat.pasteAttached": "A(z) {name} csatolva a vágólapról.",
+		"chat.pasteAttachedMany": "{count} fájl csatolva a vágólapról.",
+		// ── end Phase 5 P5-C (HU) ──────────────────────────────────────────
 		"chat.preparingResponse": "Válasz előkészítése...",
 		"chat.queueMessage": "Következő üzenet küldése",
 		"chat.queuedNext": "Következő üzenet várakozik",
@@ -1801,6 +1834,12 @@ const chatDict = {
 			"Ez a fájltípus nem készíthető el.",
 		"fileProduction.error.unsupported_table_structure":
 			"A dokumentum nem támogatott táblaszerkezetet tartalmaz.",
+		"fileProduction.error.worker_heartbeat_timeout":
+			"A fájlt nem sikerült elkészíteni, mert a szerver újraindult közben.",
+		"fileProduction.error.worker_state_lost":
+			"A fájlt nem sikerült elkészíteni, mert a szerver elvesztette a feladat nyomát.",
+		"fileProduction.error.worker_queue_timeout":
+			"A fájl túl sokáig várakozott a sorban, ezért nem készült el.",
 		"fileProduction.failed": "Hiba",
 		"fileProduction.failedDescription": "A fájlkészítés nem fejeződött be.",
 		"fileProduction.placeholderTitle": "A fájl előkészítése…",

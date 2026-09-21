@@ -386,7 +386,7 @@ const handleLegacyMultipartUpload: RequestHandler = async (event) => {
 	// The same allowlist the intent endpoint applies. This route predates the
 	// intent handshake and is still driven directly by the off-repo
 	// verification scripts, so it cannot rely on intent having refused first.
-	const unsupportedType = refuseUnsupportedUploadType({
+	const unsupportedType = await refuseUnsupportedUploadType({
 		fileName: file.name,
 		mimeType: file.type || null,
 		traceId,

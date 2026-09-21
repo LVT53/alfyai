@@ -444,7 +444,7 @@ describe("a probe client that is NOT the built-in one", () => {
 		return getMineruStatusReport({ config: config(), now });
 	}
 
-	it("calls a MinerU 3.x backend a permanent protocol failure, by name", async () => {
+	it("calls a MinerU 3.x backend a permanent misconfiguration, by name", async () => {
 		const report = await reportFor(
 			apiError({
 				status: 404,
@@ -453,9 +453,12 @@ describe("a probe client that is NOT the built-in one", () => {
 			}),
 		);
 		expect(report.reachable).toBe(false);
-		// `protocol`, not `unavailable`: there is no dual-protocol fallback, so
-		// retrying a server that does not speak V1 only delays the honest message.
-		expect(report.error?.code).toBe("protocol");
+		// `backend_misconfigured`, not `unavailable` and not the generic
+		// `protocol`: there is no dual-protocol fallback, so retrying a server
+		// that does not speak V1 only delays the honest message — and once an
+		// admin has repointed MINERU_API_URL, every document that failed on it
+		// must become retryable, which a plain `protocol` never was.
+		expect(report.error?.code).toBe("backend_misconfigured");
 		expect(report.error?.message).toContain("not a MinerU 4 server");
 		expect(report.error?.message).toContain(
 			"MinerU 3.x is no longer supported",

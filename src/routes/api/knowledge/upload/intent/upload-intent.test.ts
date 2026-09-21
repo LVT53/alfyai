@@ -12,6 +12,23 @@ vi.mock("$lib/server/services/extraction/config", () => ({
 	getExtractionConfig: vi.fn(() => ({ maxDirectTextBytes: 8 * 1024 * 1024 })),
 }));
 
+const OPEN_GATE = {
+	disabledEntryIds: new Set<string>(),
+	reason: null as "backend_version" | null,
+	backendVersion: null as string | null,
+	checkedAt: new Date(0).toISOString(),
+};
+
+vi.mock("$lib/server/services/knowledge/format-availability", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/knowledge/format-availability")
+	>("$lib/server/services/knowledge/format-availability");
+	return {
+		...actual,
+		getUploadFormatGate: vi.fn(async () => OPEN_GATE),
+	};
+});
+
 vi.mock("$lib/server/services/knowledge/upload-intake", () => ({
 	isKnowledgeUploadConversationError: vi.fn(() => false),
 	resolveKnowledgeUploadLimits: vi.fn(() => ({
@@ -31,6 +48,7 @@ vi.mock("$lib/server/services/knowledge/upload-intake", () => ({
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getExtractionConfig } from "$lib/server/services/extraction/config";
+import { getUploadFormatGate } from "$lib/server/services/knowledge/format-availability";
 import {
 	isKnowledgeUploadConversationError,
 	resolveKnowledgeUploadLimits,
@@ -49,6 +67,7 @@ const mockValidateKnowledgeUploadConversation = vi.mocked(
 	validateKnowledgeUploadConversation,
 );
 const mockGetExtractionConfig = vi.mocked(getExtractionConfig);
+const mockGetUploadFormatGate = vi.mocked(getUploadFormatGate);
 let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
 type UploadIntentEvent = Parameters<typeof POST>[0];
 
@@ -72,6 +91,7 @@ describe("POST /api/knowledge/upload/intent", () => {
 			.mockImplementation(() => undefined);
 		mockRequireAuth.mockReturnValue(undefined);
 		mockIsKnowledgeUploadConversationError.mockReturnValue(false);
+		mockGetUploadFormatGate.mockResolvedValue(OPEN_GATE);
 		mockResolveKnowledgeUploadLimits.mockReturnValue({
 			maxFileUploadSize: 100 * 1024 * 1024,
 			adapterBodySizeLimit: 100 * 1024 * 1024,
@@ -194,10 +214,16 @@ describe("POST /api/knowledge/upload/intent", () => {
 			"knowledge.uploadRejectedArchive",
 		],
 		[
-			"memo.rtf",
-			"application/rtf",
+			"scan.ofd",
+			"application/ofd",
 			"formatNotEnabled",
 			"knowledge.uploadRejectedFormatNotEnabled",
+		],
+		[
+			"photo.avif",
+			"image/avif",
+			"convertImage",
+			"knowledge.uploadRejectedConvertImage",
 		],
 		["mystery.wat", null, "unknownType", "knowledge.uploadUnsupportedType"],
 	])("refuses %s with 415 and a localizable reason", async (fileName, mimeType, reason, errorKey) => {
@@ -227,14 +253,21 @@ describe("POST /api/knowledge/upload/intent", () => {
 			makeEvent({ fileName: "mystery.wat", fileSize: 1, mimeType: null }),
 		);
 		expect((await unknown.json()).error).toBe(
-			"We can't read mystery.wat — that file type isn't supported.",
+			"We can't read mystery.wat — that file type isn't supported. Save it as PDF, DOCX or plain text and upload that.",
 		);
 
-		const rtf = await POST(
-			makeEvent({ fileName: "memo.rtf", fileSize: 1, mimeType: null }),
+		const ofd = await POST(
+			makeEvent({ fileName: "scan.ofd", fileSize: 1, mimeType: null }),
 		);
-		expect((await rtf.json()).error).toBe(
-			"RTF files aren't supported yet. Save it as PDF or DOCX and upload that.",
+		expect((await ofd.json()).error).toBe(
+			"OFD files aren't supported yet. Save it as PDF or DOCX and upload that.",
+		);
+
+		const avif = await POST(
+			makeEvent({ fileName: "photo.avif", fileSize: 1, mimeType: null }),
+		);
+		expect((await avif.json()).error).toBe(
+			"AVIF images can't be read yet. Save it as PNG or JPG and upload that.",
 		);
 	});
 
@@ -422,6 +455,137 @@ describe("POST /api/knowledge/upload/intent", () => {
 			);
 
 			expect(response.status).toBe(200);
+		});
+	});
+
+	// Phase 5 P5-B: the MinerU-4 availability gate (spec §3.5). The registry
+	// admits epub/rtf/odt/ods/odp unconditionally; whether the CONFIGURED
+	// backend can actually parse them right now is this gate's call.
+	describe("MinerU-4 availability gate", () => {
+		it("admits a gated format when the gate is open (unknown or healthy backend)", async () => {
+			const response = await POST(
+				makeEvent({
+					fileName: "book.epub",
+					fileSize: 1024,
+					mimeType: "application/epub+zip",
+					conversationId: "conv-1",
+				}),
+			);
+
+			expect(response.status).toBe(200);
+			const data = await response.json();
+			expect(data.disabledFileTypeIds).toEqual([]);
+		});
+
+		it("refuses a gated format with 415 formatNotEnabled when a pre-4 backend is detected", async () => {
+			mockGetUploadFormatGate.mockResolvedValueOnce({
+				disabledEntryIds: new Set(["epub", "odp", "ods", "odt", "rtf"]),
+				reason: "backend_version",
+				backendVersion: "3.9.0",
+				checkedAt: new Date(0).toISOString(),
+			});
+
+			const response = await POST(
+				makeEvent({
+					fileName: "book.epub",
+					fileSize: 1024,
+					mimeType: "application/epub+zip",
+					conversationId: "conv-1",
+				}),
+			);
+			const data = await response.json();
+
+			expect(response.status).toBe(415);
+			expect(data.code).toBe("upload_unsupported_type");
+			expect(data.errorKey).toBe("knowledge.uploadRejectedFormatNotEnabled");
+			expect(data.details).toMatchObject({
+				fileName: "book.epub",
+				extension: "epub",
+				reason: "formatNotEnabled",
+			});
+		});
+
+		it("does not gate html: a closed gate degrades it to direct-text instead of refusing it", async () => {
+			mockGetUploadFormatGate.mockResolvedValueOnce({
+				disabledEntryIds: new Set(["epub", "odp", "ods", "odt", "rtf"]),
+				reason: "backend_version",
+				backendVersion: "3.9.0",
+				checkedAt: new Date(0).toISOString(),
+			});
+
+			const response = await POST(
+				makeEvent({
+					fileName: "page.html",
+					fileSize: 1024,
+					mimeType: "text/html",
+					conversationId: "conv-1",
+				}),
+			);
+
+			expect(response.status).toBe(200);
+		});
+
+		it("applies the direct-text cap to html once a closed gate falls it back to direct-text", async () => {
+			mockGetUploadFormatGate.mockResolvedValueOnce({
+				disabledEntryIds: new Set(["epub", "odp", "ods", "odt", "rtf"]),
+				reason: "backend_version",
+				backendVersion: "3.9.0",
+				checkedAt: new Date(0).toISOString(),
+			});
+
+			const response = await POST(
+				makeEvent({
+					fileName: "huge.html",
+					fileSize: 9 * 1024 * 1024,
+					mimeType: "text/html",
+					conversationId: "conv-1",
+				}),
+			);
+			const data = await response.json();
+
+			expect(response.status).toBe(413);
+			expect(data.code).toBe("upload_direct_text_too_large");
+		});
+
+		it("does not apply the direct-text cap to html while the gate stays open", async () => {
+			const response = await POST(
+				makeEvent({
+					fileName: "huge.html",
+					fileSize: 9 * 1024 * 1024,
+					mimeType: "text/html",
+					conversationId: "conv-1",
+				}),
+			);
+
+			expect(response.status).toBe(200);
+		});
+
+		it("reports the disabled entry ids on the success payload", async () => {
+			mockGetUploadFormatGate.mockResolvedValueOnce({
+				disabledEntryIds: new Set(["epub", "odp", "ods", "odt", "rtf"]),
+				reason: "backend_version",
+				backendVersion: "3.9.0",
+				checkedAt: new Date(0).toISOString(),
+			});
+
+			const response = await POST(
+				makeEvent({
+					fileName: "brief.pdf",
+					fileSize: 1024,
+					mimeType: "application/pdf",
+					conversationId: "conv-1",
+				}),
+			);
+			const data = await response.json();
+
+			expect(response.status).toBe(200);
+			expect([...data.disabledFileTypeIds].sort()).toEqual([
+				"epub",
+				"odp",
+				"ods",
+				"odt",
+				"rtf",
+			]);
 		});
 	});
 });

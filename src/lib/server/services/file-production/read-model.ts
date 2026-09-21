@@ -444,6 +444,7 @@ function mapJobRow(
 		warnings: [],
 		dismissed: Boolean(job.dismissed),
 		error: mapError(job),
+		sourceMode: job.sourceMode,
 	};
 }
 
