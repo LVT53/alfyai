@@ -209,7 +209,7 @@ const readGeneratedFileAdvertisedFields = {
  * from that offset onward and costs a full re-warm.
  *
  * Phase 4 added `page` but left it undocumented behind a `looseObject`,
- * because advertising it costs +151 bytes here and the OQ5 ruling is that
+ * because advertising it costs 165 bytes here (538 → 703) and OQ5 rules that
  * every model-facing prose and schema change of this migration ships in ONE
  * release so the eviction is paid once. This is that release (slice P6-D), so
  * the object is strict again and `page` is in it.

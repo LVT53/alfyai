@@ -893,10 +893,11 @@ describe("sanitizeReadGeneratedFileInput", () => {
  * re-frozen in slice P6-D with `page` advertised.
  *
  * Tool schemas travel inside the CACHED prompt prefix. Advertising `page`
- * costs +151 bytes here, which evicts every 1600-token cache block from that
- * offset on — the one-time cost the OQ5 ruling schedules for this release,
- * together with every other model-facing change of this migration. A failure
- * here is not a test to update: it means another eviction is about to ship.
+ * costs 165 bytes here (538 → 703), which evicts every 1600-token cache block
+ * from that offset on — the one-time cost the OQ5 ruling schedules for this
+ * release, together with every other model-facing change of this migration. A
+ * failure here is not a test to update: it means another eviction is about to
+ * ship.
  */
 const FROZEN_READ_GENERATED_FILE_JSON_SCHEMA =
 	'{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"filename":{"type":"string","minLength":1},"requestTitle":{"type":"string","minLength":1},"from":{"description":"Character offset to continue from. Pass the previous result\'s nextFrom to read the next window.","type":"integer","minimum":0,"maximum":9007199254740991},"query":{"description":"Instead of the text window, return up to 3 passages of this one file about the query.","type":"string","minLength":1,"maxLength":300},"page":{"description":"1-based page to start at, for a paged document. `query` and `from` take precedence.","type":"integer","minimum":1,"maximum":9007199254740991}},"additionalProperties":false}';
