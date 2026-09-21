@@ -502,10 +502,12 @@ Post-deploy checks:
   restarts. Under `scripts/deploy.sh`'s release layout this lives at `shared/data/` and is symlinked
   into every `releases/<sha>/`, so no deploy rebuilds or removes it (see
   [Release layout](#release-layout)).
-- On Linux/macOS, install `libreoffice` and `imagemagick` so MinerU can normalize Office/image uploads
-  consistently. HEIC/HEIF/AVIF uploads need ImageMagick delegate support — see
-  [docs/uploads.md](../docs/uploads.md) for the accepted-format list and the AlmaLinux/RHEL delegate
-  setup.
+- Office/image normalization (and, for HEIC/HEIF/AVIF, the ImageMagick delegate support) is a
+  requirement of **MinerU's own container host**, not of this app: `MINERU_API_URL` can point at a
+  MinerU instance running anywhere, and the Node app never shells out to `libreoffice`,
+  `ImageMagick`, `ghostscript` or `poppler-utils` itself. If you build or operate that container, see
+  [docs/uploads.md](../docs/uploads.md#mineru-operations-host-requirements-for-a-custom-image) for
+  the accepted-format list and the AlmaLinux/RHEL delegate setup.
 - MinerU handles OCR natively in all backends; no separate OCR service is required.
 - A sandboxed file-production run that does not actually write a file to `/output` returns an explicit
   error instead of a silent empty success.
