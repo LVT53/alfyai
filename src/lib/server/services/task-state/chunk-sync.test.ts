@@ -56,6 +56,7 @@ vi.mock("$lib/server/services/mineru/config", async () => {
 
 const {
 	syncArtifactChunks,
+	chunkPlanSourceDigest,
 	MAX_ARTIFACT_CHUNKS,
 	CHUNK_CHAR_TARGET,
 	CHUNK_CHAR_OVERLAP,
@@ -158,6 +159,8 @@ async function fixturePlan(
 	pageCount: number;
 	tables: string[];
 	plan: ChunkPlanEntry[];
+	/** The tag `syncArtifactChunks` checks the plan against. */
+	digest: string;
 }> {
 	const { result } = await parseMineruResultZip({
 		zipPathAbsolute: `fixtures/mineru-v1/${input}/result.zip`,
@@ -174,6 +177,7 @@ async function fixturePlan(
 			charTarget,
 			charOverlap: CHUNK_CHAR_OVERLAP,
 		}),
+		digest: chunkPlanSourceDigest(result.markdown),
 	};
 }
 
@@ -355,13 +359,14 @@ describe("structure-aware chunking", () => {
 	it("writes the plan's page ranges onto the rows", async () => {
 		const artifactId = randomUUID();
 		seedArtifact(artifactId);
-		const { markdown, pageCount, plan } = await fixturePlan("pdf");
+		const { markdown, pageCount, plan, digest } = await fixturePlan("pdf");
 
 		const result = await syncArtifactChunks({
 			artifactId,
 			userId: USER,
 			contentText: markdown,
 			chunkPlan: plan,
+			chunkPlanSourceDigest: digest,
 		});
 
 		const stored = storedChunks(artifactId);
@@ -383,13 +388,14 @@ describe("structure-aware chunking", () => {
 	it("keeps page ranges ordered and inside the document", async () => {
 		const artifactId = randomUUID();
 		seedArtifact(artifactId);
-		const { markdown, pageCount, plan } = await fixturePlan("pdf", 120);
+		const { markdown, pageCount, plan, digest } = await fixturePlan("pdf", 120);
 
 		await syncArtifactChunks({
 			artifactId,
 			userId: USER,
 			contentText: markdown,
 			chunkPlan: plan,
+			chunkPlanSourceDigest: digest,
 		});
 
 		const stored = storedChunks(artifactId);
@@ -416,7 +422,7 @@ describe("structure-aware chunking", () => {
 		// The recorded PDF's GFM table is 125 characters wide. A 60-character
 		// target is smaller than the table itself — exactly the case the
 		// character chunker would have cut through the middle of.
-		const { markdown, tables, plan } = await fixturePlan("pdf", 60);
+		const { markdown, tables, plan, digest } = await fixturePlan("pdf", 60);
 		expect(tables.length).toBeGreaterThan(0);
 		expect(Math.max(...tables.map((table) => table.length))).toBeGreaterThan(
 			60,
@@ -427,6 +433,7 @@ describe("structure-aware chunking", () => {
 			userId: USER,
 			contentText: markdown,
 			chunkPlan: plan,
+			chunkPlanSourceDigest: digest,
 		});
 
 		const stored = storedChunks(artifactId);
@@ -465,7 +472,7 @@ describe("structure-aware chunking", () => {
 		const unplanned = randomUUID();
 		seedArtifact(planned);
 		seedArtifact(unplanned);
-		const { markdown, plan } = await fixturePlan("pdf", 300);
+		const { markdown, plan, digest } = await fixturePlan("pdf", 300);
 		expect(plan.length).toBeGreaterThan(1);
 
 		structureChunkingEnabled = false;
@@ -474,6 +481,7 @@ describe("structure-aware chunking", () => {
 			userId: USER,
 			contentText: markdown,
 			chunkPlan: plan,
+			chunkPlanSourceDigest: digest,
 		});
 		await syncArtifactChunks({
 			artifactId: unplanned,
@@ -514,13 +522,14 @@ describe("structure-aware chunking", () => {
 		// row may survive that with a stale page range.
 		const artifactId = randomUUID();
 		seedArtifact(artifactId);
-		const { markdown, plan } = await fixturePlan("pdf", 300);
+		const { markdown, plan, digest } = await fixturePlan("pdf", 300);
 
 		await syncArtifactChunks({
 			artifactId,
 			userId: USER,
 			contentText: markdown,
 			chunkPlan: plan,
+			chunkPlanSourceDigest: digest,
 		});
 		const first = storedChunks(artifactId);
 		expect(first.some((row) => row.pageStart !== null)).toBe(true);
@@ -538,13 +547,14 @@ describe("structure-aware chunking", () => {
 	it("is idempotent: the same plan twice yields the same rows", async () => {
 		const artifactId = randomUUID();
 		seedArtifact(artifactId);
-		const { markdown, plan } = await fixturePlan("pdf", 300);
+		const { markdown, plan, digest } = await fixturePlan("pdf", 300);
 
 		await syncArtifactChunks({
 			artifactId,
 			userId: USER,
 			contentText: markdown,
 			chunkPlan: plan,
+			chunkPlanSourceDigest: digest,
 		});
 		const first = storedChunks(artifactId);
 		await syncArtifactChunks({
@@ -552,9 +562,78 @@ describe("structure-aware chunking", () => {
 			userId: USER,
 			contentText: markdown,
 			chunkPlan: plan,
+			chunkPlanSourceDigest: digest,
 		});
 
 		expect(storedChunks(artifactId)).toEqual(first);
+	});
+
+	it("ignores a plan that was not derived from the text being stored", async () => {
+		// The plan and the text arrive through different parameters and are
+		// produced at different moments. Nothing checked that they agreed, so a
+		// caller that rewrote one and forwarded a stale copy of the other would
+		// store chunk text from one parse with PAGE NUMBERS from another — a
+		// citation that is confidently wrong, with nothing in the data to show
+		// it.
+		const stale = randomUUID();
+		const plain = randomUUID();
+		seedArtifact(stale);
+		seedArtifact(plain);
+		const { markdown, plan } = await fixturePlan("pdf", 300);
+		const otherText = `${markdown}\n\nA paragraph the plan has never seen.`;
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		const result = await syncArtifactChunks({
+			artifactId: stale,
+			userId: USER,
+			contentText: otherText,
+			chunkPlan: plan,
+			// The digest of the text the plan REALLY came from.
+			chunkPlanSourceDigest: chunkPlanSourceDigest(markdown),
+		});
+		await syncArtifactChunks({
+			artifactId: plain,
+			userId: USER,
+			contentText: otherText,
+		});
+
+		// One structured line, and no throw: the document is still readable, it
+		// has just lost its page citations.
+		expect(warn).toHaveBeenCalledTimes(1);
+		expect(String(warn.mock.calls[0][0])).toContain("[CHUNK_SYNC]");
+		warn.mockRestore();
+
+		const stored = storedChunks(stale);
+		expect(stored.map((row) => row.contentText)).toEqual(
+			storedChunks(plain).map((row) => row.contentText),
+		);
+		expect(result.chunkCount).toBe(stored.length);
+		for (const row of stored) {
+			expect(row.pageStart).toBeNull();
+			expect(row.pageEnd).toBeNull();
+		}
+	});
+
+	it("ignores a plan that carries no digest at all", async () => {
+		// An untagged plan is by definition one nobody vouched for: the single
+		// caller that builds plans tags them.
+		const artifactId = randomUUID();
+		seedArtifact(artifactId);
+		const { markdown, plan } = await fixturePlan("pdf", 300);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await syncArtifactChunks({
+			artifactId,
+			userId: USER,
+			contentText: markdown,
+			chunkPlan: plan,
+		});
+
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
+		for (const row of storedChunks(artifactId)) {
+			expect(row.pageStart).toBeNull();
+		}
 	});
 
 	it("drops a page range it cannot stand behind rather than storing it", async () => {
@@ -567,6 +646,7 @@ describe("structure-aware chunking", () => {
 			userId: USER,
 			contentText: body,
 			chunkPlan: [{ chunkIndex: 0, text: body, pageStart: 0, pageEnd: 4 }],
+			chunkPlanSourceDigest: chunkPlanSourceDigest(body),
 		});
 
 		const [row] = storedChunks(artifactId);
@@ -586,12 +666,17 @@ describe("structure-aware chunking", () => {
 				pageEnd: index + 1,
 			}),
 		);
+		// The plan is synthetic, so the text it claims to come from is too: the
+		// ceiling is what this case is about, and a plan the sync would reject
+		// as stale would never reach it.
+		const contentText = plan.map((entry) => entry.text).join("\n\n");
 
 		const result = await syncArtifactChunks({
 			artifactId,
 			userId: USER,
-			contentText: longText(20),
+			contentText,
 			chunkPlan: plan,
+			chunkPlanSourceDigest: chunkPlanSourceDigest(contentText),
 		});
 
 		expect(result.truncated).toBe(true);
@@ -616,13 +701,14 @@ describe("createArtifact", () => {
 	it("forwards a chunk plan to the sync", async () => {
 		// The parameter name is the P4-B hand-off: `persist.ts` passes the plan
 		// it built from the parsed blocks under exactly this key.
-		const { markdown, plan } = await fixturePlan("pdf", 300);
+		const { markdown, plan, digest } = await fixturePlan("pdf", 300);
 		const artifact = await createArtifact({
 			userId: USER,
 			type: "normalized_document",
 			name: "sample.md",
 			contentText: markdown,
 			chunkPlan: plan,
+			chunkPlanSourceDigest: digest,
 		});
 
 		const stored = storedChunks(artifact.id);

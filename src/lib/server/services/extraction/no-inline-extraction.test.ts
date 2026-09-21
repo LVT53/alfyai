@@ -51,7 +51,12 @@ const SCANNED_ROOTS = [
  *  - the re-extract endpoint validates the requested tier against the tiers
  *    the server actually serves, before it writes a job;
  *  - `chunk-sync.ts` and `read-generated-file.ts` read the structure-chunking
- *    flag and the page index respectively.
+ *    flag and the page index respectively;
+ *  - `task-state/artifacts.ts` reads the same page index to put `[p. N]`
+ *    markers into the full text of a document too small to have chunk rows,
+ *    which is the only way such a document can cite a page at all. It reads
+ *    the index, verifies the bundle digest and nothing else — no client, no
+ *    zip.
  *
  * Everything else that wants a MinerU type imports it with `import type`,
  * which this rule ignores.
@@ -61,6 +66,7 @@ const ALLOWED_MINERU_IMPORTERS = new Set([
 	"lib/server/services/extraction/persist.ts",
 	"lib/server/services/knowledge/store/cleanup.ts",
 	"lib/server/services/normal-chat-tools/read-generated-file.ts",
+	"lib/server/services/task-state/artifacts.ts",
 	"lib/server/services/task-state/chunk-sync.ts",
 	"routes/api/admin/mineru-status/+server.ts",
 	"routes/api/knowledge/[id]/figure/[name]/+server.ts",

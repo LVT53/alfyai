@@ -15,6 +15,7 @@ import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import {
 	buildStructuredExtractionResult,
+	CHUNK_HARD_LIMIT_MULTIPLE,
 	type ChunkPlanEntry,
 	MINERU_ZIP_STRUCTURED_CONTENT,
 	parseStructuredContent,
@@ -335,14 +336,39 @@ describe("planStructuredChunks — headings", () => {
 				{ type: "text", content: paragraph("BIG", 900) },
 			],
 		]);
+		// 150 × CHUNK_HARD_LIMIT_MULTIPLE = 1 200, so the 900-character block is
+		// under the ceiling and the overflow really is bounded. (At charTarget
+		// 50 the ceiling would be 400 and the block would be split first — see
+		// the next case.)
+		const plan = planStructuredChunks({
+			blocks,
+			charTarget: 150,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		expect(plan).toHaveLength(1);
+		expect(plan[0].text.startsWith("## SOLO")).toBe(true);
+	});
+
+	it("puts the ceiling above the heading rule when the two disagree", () => {
+		const blocks = synthetic([
+			[
+				{ type: "paragraph_title", level: 2, content: "SOLO" },
+				{ type: "text", content: paragraph("BIG", 900) },
+			],
+		]);
 		const plan = planStructuredChunks({
 			blocks,
 			charTarget: 50,
 			charOverlap: CHAR_OVERLAP,
 		});
 
-		expect(plan).toHaveLength(1);
-		expect(plan[0].text.startsWith("## SOLO")).toBe(true);
+		expect(plan.length).toBeGreaterThan(1);
+		for (const chunk of plan) {
+			expect(chunk.text.length).toBeLessThanOrEqual(
+				50 * CHUNK_HARD_LIMIT_MULTIPLE,
+			);
+		}
 	});
 });
 
@@ -404,6 +430,205 @@ describe("planStructuredChunks — page ranges", () => {
 		expect(
 			planStructuredChunks({
 				blocks: [],
+				charTarget: CHAR_TARGET,
+				charOverlap: CHAR_OVERLAP,
+			}),
+		).toEqual([]);
+	});
+});
+
+// ── the hard per-chunk ceiling ─────────────────────────────────────────────
+//
+// "Never split an atomic block" is right for a table that is a page long and
+// wrong for one that is five megabytes long: the row is then ranked, reranked
+// and possibly injected whole. `standard`/`advanced` may also return UNKNOWN
+// block types, which are atomic by the same rule, so this is not hypothetical
+// for the tier the GPU box will actually run.
+
+/** The header + delimiter rows a continuation fragment repeats. */
+function tableHeader(table: string): string {
+	return table.split("\n").slice(0, 2).join("\n");
+}
+
+/**
+ * The plan's text with the repeated table headers of continuation fragments
+ * removed — what "concatenating the chunks loses no content" has to be checked
+ * against once a split table repeats its header.
+ */
+function reassemble(plan: readonly ChunkPlanEntry[], header: string): string {
+	return plan
+		.map((chunk, index) =>
+			index > 0 && chunk.text.startsWith(`${header}\n`)
+				? chunk.text.slice(header.length + 1)
+				: chunk.text,
+		)
+		.join("\n");
+}
+
+function hugeTable(rows: number): string {
+	return [
+		"| Region | Widgets | Sprockets |",
+		"| --- | --- | --- |",
+		...Array.from(
+			{ length: rows },
+			(_, index) => `| Region ${index} | ${index} | ${index * 2} |`,
+		),
+	].join("\n");
+}
+
+describe("planStructuredChunks — the hard per-chunk ceiling", () => {
+	it.each(
+		FIXTURE_IDS,
+	)("%s: no recorded fixture produces a chunk over the ceiling", async (id) => {
+		const content = await loadContent(id);
+		const result = buildStructuredExtractionResult({ content });
+		for (const target of [80, 200, CHAR_TARGET]) {
+			const plan = planStructuredChunks({
+				blocks: result.blocks,
+				charTarget: target,
+				charOverlap: CHAR_OVERLAP,
+			});
+			for (const chunk of plan) {
+				expect(
+					chunk.text.length,
+					`${id}: chunk over the ceiling at charTarget=${target}`,
+				).toBeLessThanOrEqual(target * CHUNK_HARD_LIMIT_MULTIPLE);
+			}
+		}
+	});
+
+	it("splits a 5 MB table on row boundaries, repeating the header", () => {
+		// ~5 MB of table in one atomic block. Before the ceiling this was one
+		// chunk row of five megabytes.
+		const table = hugeTable(150_000);
+		expect(table.length).toBeGreaterThan(5_000_000);
+		const blocks = synthetic([[{ type: "table", content: table }]]);
+
+		const plan = planStructuredChunks({
+			blocks,
+			charTarget: CHAR_TARGET,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		const limit = CHAR_TARGET * CHUNK_HARD_LIMIT_MULTIPLE;
+		expect(plan.length).toBeGreaterThan(1);
+		const header = tableHeader(table);
+		for (const [index, chunk] of plan.entries()) {
+			expect(chunk.text.length).toBeLessThanOrEqual(limit);
+			// Every fragment is a table a model can read, not a run of
+			// anonymous cells.
+			expect(chunk.text.startsWith(header)).toBe(true);
+			// Split on ROW boundaries: no fragment ends mid-row.
+			if (index < plan.length - 1) expect(chunk.text.endsWith("|")).toBe(true);
+			// Page attribution stays the block's.
+			expect(chunk.pageStart).toBe(1);
+			expect(chunk.pageEnd).toBe(1);
+		}
+		// Nothing was lost: strip the repeated headers and the table is back.
+		expect(reassemble(plan, header)).toBe(table);
+	});
+
+	it("hard-splits a single line that alone exceeds the ceiling", () => {
+		// The one case a line boundary cannot serve: there is no boundary.
+		const line = "x".repeat(CHAR_TARGET * CHUNK_HARD_LIMIT_MULTIPLE * 3 + 17);
+		const blocks = synthetic([[{ type: "hologram", content: line }]]);
+		expect(blocks[0].atomic).toBe(true);
+
+		const plan = planStructuredChunks({
+			blocks,
+			charTarget: CHAR_TARGET,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		const limit = CHAR_TARGET * CHUNK_HARD_LIMIT_MULTIPLE;
+		for (const chunk of plan) {
+			expect(chunk.text.length).toBeLessThanOrEqual(limit);
+		}
+		expect(plan.map((chunk) => chunk.text).join("")).toBe(line);
+	});
+
+	it("never cuts mid-line when the lines fit", () => {
+		const lines = Array.from(
+			{ length: 400 },
+			(_, index) => `line ${index}: ${"abcdefghij".repeat(6)}`,
+		);
+		const blocks = synthetic([
+			[{ type: "equation_interline", content: lines.join("\n") }],
+		]);
+
+		const plan = planStructuredChunks({
+			blocks,
+			charTarget: 200,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		expect(plan.length).toBeGreaterThan(1);
+		for (const chunk of plan) {
+			for (const line of chunk.text.split("\n")) {
+				expect(lines).toContain(line);
+			}
+		}
+		expect(plan.map((chunk) => chunk.text).join("\n")).toBe(lines.join("\n"));
+	});
+
+	it("survives 100 000 tiny blocks", () => {
+		const blocks = synthetic([
+			Array.from({ length: 100_000 }, (_, index) => ({
+				type: "text",
+				content: `b${index}`,
+			})),
+		]);
+
+		const plan = planStructuredChunks({
+			blocks,
+			charTarget: CHAR_TARGET,
+			charOverlap: CHAR_OVERLAP,
+		});
+
+		const limit = CHAR_TARGET * CHUNK_HARD_LIMIT_MULTIPLE;
+		expect(plan.length).toBeGreaterThan(0);
+		for (const chunk of plan) {
+			expect(chunk.text.length).toBeLessThanOrEqual(limit);
+			expect(chunk.pageStart).toBe(1);
+		}
+		expect(plan[plan.length - 1].text.endsWith("b99999")).toBe(true);
+	});
+
+	it("plans only figure labels for a page of images", () => {
+		const blocks = synthetic([
+			[
+				{ type: "image", image_source: "images/page_1_image_body_1.jpg" },
+				{ type: "image", image_source: "images/page_1_image_body_2.jpg" },
+			],
+		]);
+
+		// The prompt renderer emits `[Figure N]` for each, which is text, so the
+		// plan is two labels rather than nothing — the point is that it does not
+		// throw and stays inside the ceiling.
+		const plan = planStructuredChunks({
+			blocks,
+			charTarget: CHAR_TARGET,
+			charOverlap: CHAR_OVERLAP,
+		});
+		for (const chunk of plan) {
+			expect(chunk.text.length).toBeLessThanOrEqual(
+				CHAR_TARGET * CHUNK_HARD_LIMIT_MULTIPLE,
+			);
+		}
+	});
+
+	it("plans nothing for blocks that are all empty", () => {
+		const blocks = synthetic([
+			[
+				{ type: "text", content: "" },
+				{ type: "table", content: "   " },
+				{ type: "text", content: "\n\n" },
+			],
+		]);
+
+		expect(
+			planStructuredChunks({
+				blocks,
 				charTarget: CHAR_TARGET,
 				charOverlap: CHAR_OVERLAP,
 			}),
