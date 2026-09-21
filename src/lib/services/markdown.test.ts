@@ -281,6 +281,103 @@ describe("Markdown Rendering Service", () => {
 		expect(html).toContain("echo");
 	});
 
+	// The Shiki success branch used to return its HTML straight to `{@html}`,
+	// the one path in this module that skipped the sanitizer. These pin the
+	// contract both ways: the sanitizer now runs over it, AND it takes nothing
+	// away from a legitimately highlighted block.
+	describe("highlighted code is sanitized (and survives sanitizing)", () => {
+		async function highlight(code: string, lang: string, isDark = false) {
+			const mod = await import("./markdown");
+			await mod.initHighlighter();
+			return mod.renderHighlightedText(code, lang, isDark);
+		}
+
+		it("keeps a normal highlighted block byte-identical to Shiki's own output", async () => {
+			const mod = await import("./markdown");
+			await mod.initHighlighter();
+			const { sanitizeHtml } = await import("$lib/utils/html-sanitizer");
+
+			const rendered = await mod.renderHighlightedText(
+				"const answer = 42;\n",
+				"ts",
+				false,
+			);
+
+			// Sanitizing the rendered output again is a no-op: the string that
+			// reaches the DOM is exactly what the sanitizer already blessed.
+			expect(sanitizeHtml(rendered, { allowStyleAttributes: true })).toBe(
+				rendered,
+			);
+			// And the markup the app's CSS keys off is all still there.
+			expect(rendered).toMatch(/<pre class="shiki github-light"/);
+			expect(rendered).toContain('tabindex="0"');
+			expect(rendered).toContain("<code>");
+			expect(rendered).toContain('<span class="line">');
+			expect(rendered).toMatch(/<span style="color:#[0-9A-Fa-f]{6}">/);
+			expect(rendered).toContain("background-color:");
+			expect(rendered).toContain("answer");
+		});
+
+		it("carries the dark theme's container styles through the sanitizer", async () => {
+			const rendered = await highlight("const a = 1;\n", "ts", true);
+
+			expect(rendered).toMatch(/<pre class="shiki github-dark"/);
+			expect(rendered).toContain("background-color:#24292e");
+		});
+
+		it("neutralizes markup inside highlighted code", async () => {
+			const rendered = await highlight(
+				'const x = "<img src=x onerror=alert(1)>";\n',
+				"js",
+			);
+
+			// The `<img` never opens a tag — Shiki writes `&#x3C;` and DOMPurify
+			// re-serializes it as `&lt;`; either way it is text, not markup.
+			expect(rendered).not.toContain("<img");
+			expect(rendered).toMatch(/&lt;img src=x onerror=alert\(1\)&gt;/);
+		});
+
+		it.each([
+			'js" onmouseover="alert(1)',
+			"<img src=x onerror=alert(1)>",
+			"js onload=alert(1)",
+			"../../etc/passwd",
+		])("falls back to an escaped plain block for hostile fence info %j", async (lang) => {
+			const rendered = await highlight("const a = 1;\n", lang);
+
+			// Shiki has no such language, so this takes the catch branch —
+			// which was already sanitized. Nothing from the info string may
+			// reach the output as markup.
+			expect(rendered).toBe("<pre><code>const a = 1;\n</code></pre>");
+			expect(rendered).not.toContain("onmouseover");
+			expect(rendered).not.toContain("onerror");
+			expect(rendered).not.toContain("<img");
+		});
+
+		it("never lets the fence info string become an attribute", async () => {
+			// The only externally-supplied string that reaches Shiki is the fence
+			// language; the theme is a module constant. Shiki resolves the
+			// language against its loaded set and interpolates only the THEME name
+			// into the container's class, so an attacker-controlled language can
+			// neither select a theme nor break out of an attribute.
+			const rendered = await highlight("x\n", 'javascript" data-evil="1');
+
+			expect(rendered).not.toContain("data-evil");
+			expect(rendered).toBe("<pre><code>x\n</code></pre>");
+		});
+
+		it("sanitizes a highlighted block rendered inside a full document too", async () => {
+			const mod = await import("./markdown");
+			const html = await mod.renderMarkdown(
+				'```js\nconst x = "<script>alert(1)</script>";\n```',
+				false,
+			);
+
+			expect(html).toContain("shiki");
+			expect(html).not.toContain("<script");
+		});
+	});
+
 	it("wraps tables as a first-class block from the renderer (not a post-process)", async () => {
 		const mod = await import("./markdown");
 		const html = await mod.renderMarkdown(
