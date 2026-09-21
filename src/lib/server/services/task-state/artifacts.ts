@@ -5,6 +5,7 @@ import type {
 	Artifact,
 	ArtifactChunk,
 } from "$lib/server/services/knowledge/types";
+import { readMineruPageIndex } from "$lib/server/services/mineru/bundle";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import { scoreMatch } from "$lib/server/services/working-set";
 import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
@@ -145,6 +146,7 @@ export async function getPromptArtifactSnippets(params: {
 
 		const chunks = chunksByArtifactId.get(artifact.id) ?? [];
 		const snippet = await resolveArtifactSnippet({
+			userId: params.userId,
 			artifact,
 			queryContext,
 			useFullContent: params.useFullContent,
@@ -226,6 +228,7 @@ function setSnippetWithBudget(args: {
 }
 
 async function resolveArtifactSnippet(args: {
+	userId: string;
 	artifact: Artifact;
 	queryContext: ArtifactQueryContext;
 	useFullContent?: boolean;
@@ -246,8 +249,21 @@ async function resolveArtifactSnippet(args: {
 	}
 
 	if (args.chunks.length === 0) {
+		// A document under `SMALL_FILE_THRESHOLD_CHARS` has no chunk rows at
+		// all, so it has nothing to hang a page citation on — and every recorded
+		// fixture is under the threshold, which made "page citations" a feature
+		// most real uploads would never show. The threshold is deliberate and
+		// stays; what changes is that the full text it injects can carry the
+		// page boundaries itself.
+		const paged = await buildPagedFullText({
+			userId: args.userId,
+			artifact: args.artifact,
+		});
 		return (
-			args.artifact.contentText ?? args.artifact.summary ?? args.artifact.name
+			paged ??
+			args.artifact.contentText ??
+			args.artifact.summary ??
+			args.artifact.name
 		);
 	}
 
@@ -470,6 +486,81 @@ function combineSnippetChunks(
 			return citation ? `${citation} ${body}` : body;
 		})
 		.join("\n\n");
+}
+
+/**
+ * The whole text of a small structured document, with `[p. N]` markers at its
+ * page boundaries — or null when this document cannot honestly carry them.
+ *
+ * Why it exists: documents under `SMALL_FILE_THRESHOLD_CHARS` get no chunk
+ * rows, page citations live only on chunk rows, and every recorded fixture is
+ * under the threshold. Lowering the threshold would change retrieval for every
+ * existing document (OQ6 says no), so instead the text that IS injected for
+ * these documents carries the boundaries itself, in exactly the vocabulary the
+ * chunk citations use.
+ *
+ * The offsets come from the parse bundle's `pages.json`, and the bundle is
+ * written by the EXTRACTOR before `persist.ts` rewrites the artifact's text.
+ * An attempt that parses and then dies leaves a bundle one parse ahead of the
+ * document, and every offset in it then lands somewhere else — so
+ * `readMineruPageIndex` is given the text to check `markdownSha256` against,
+ * exactly as `read_generated_file` does. A missing or stale bundle means no
+ * markers, never wrong ones.
+ *
+ * Returns null — plain text, as before — for a direct-text document, for a
+ * document whose page kind is not citable, for a single-page document, and for
+ * anything whose bundle does not match.
+ */
+async function buildPagedFullText(args: {
+	userId: string;
+	artifact: Artifact;
+}): Promise<string | null> {
+	const text = args.artifact.contentText;
+	if (!text?.trim()) return null;
+
+	// Same gate the chunk citations use: a citable page kind and more than one
+	// page. `[p. 1]` on a one-page document is noise.
+	const label = resolveArtifactPageLabel(args.artifact);
+	if (!label) return null;
+
+	const sourceArtifactId = args.artifact.metadata?.sourceArtifactId;
+	if (typeof sourceArtifactId !== "string" || !sourceArtifactId) return null;
+
+	const pages = await readMineruPageIndex(args.userId, sourceArtifactId, {
+		expectedMarkdown: text,
+	}).catch(() => null);
+	if (!pages || pages.length < 2) return null;
+
+	const marked = insertPageMarkers(text, pages, label);
+	return marked === text ? null : marked;
+}
+
+/**
+ * `text` with `[label N] ` inserted at the start of each page's range.
+ *
+ * The ranges are a contiguous partition of the text, so nothing is dropped and
+ * nothing is reordered: the output is the input plus the markers. A page whose
+ * blocks were all dropped — a PDF page of nothing but a running head — has a
+ * zero-length range and gets no marker, because there is nothing on it to cite.
+ */
+function insertPageMarkers(
+	text: string,
+	pages: readonly { page: number; start: number; end: number }[],
+	label: string,
+): string {
+	let out = "";
+	let cursor = 0;
+	for (const page of pages) {
+		if (!Number.isInteger(page.page) || page.page < 1) continue;
+		const start = Math.min(Math.max(page.start, cursor), text.length);
+		const end = Math.min(Math.max(page.end, start), text.length);
+		if (end <= start) continue;
+		out += text.slice(cursor, start);
+		out += `[${label} ${page.page}] `;
+		out += text.slice(start, end);
+		cursor = end;
+	}
+	return cursor === 0 ? text : out + text.slice(cursor);
 }
 
 export type DocumentPassage = {
