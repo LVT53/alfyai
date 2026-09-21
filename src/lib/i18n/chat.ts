@@ -138,6 +138,15 @@ const chatDict = {
 		"chat.nextMessageQueued": "Next message queued.",
 		"chat.openComposerTools": "Open composer tools",
 		"chat.overLengthCounter": "{current} / {max} — too long to send",
+		// ── Phase 5 P5-C (paste-to-attach) — EN ────────────────────────────
+		// Spoken by the composer's attachment live region, because attaching
+		// by paste is the one attach path with nothing to look at: no picker
+		// closed, no drop overlay faded out, just chips that appeared. The
+		// single-file line names the file so a pasted screenshot's generated
+		// name is heard rather than guessed at.
+		"chat.pasteAttached": "{name} attached from the clipboard.",
+		"chat.pasteAttachedMany": "{count} files attached from the clipboard.",
+		// ── end Phase 5 P5-C (EN) ──────────────────────────────────────────
 		"chat.preparingResponse": "Preparing response...",
 		"chat.queueMessage": "Send follow-up",
 		"chat.queuedNext": "Queued next",
@@ -1271,6 +1280,10 @@ const chatDict = {
 		"chat.nextMessageQueued": "Következő üzenet várakozik.",
 		"chat.openComposerTools": "Szerkesztőeszközök megnyitása",
 		"chat.overLengthCounter": "{current} / {max} — túl hosszú a küldéshez",
+		// ── Phase 5 P5-C (paste-to-attach) — HU ────────────────────────────
+		"chat.pasteAttached": "A(z) {name} csatolva a vágólapról.",
+		"chat.pasteAttachedMany": "{count} fájl csatolva a vágólapról.",
+		// ── end Phase 5 P5-C (HU) ──────────────────────────────────────────
 		"chat.preparingResponse": "Válasz előkészítése...",
 		"chat.queueMessage": "Következő üzenet küldése",
 		"chat.queuedNext": "Következő üzenet várakozik",

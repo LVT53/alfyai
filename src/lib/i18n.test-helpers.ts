@@ -34,6 +34,12 @@ const AUDITED_PREFIXES = [
 	// here, with the other audit entries, so there is one list to read.
 	"chat.extraction",
 	"knowledge.extraction",
+	// Phase 5 P5-C — the composer's paste-to-attach live region. Two keys, and
+	// the only thing a screen-reader user gets told when a paste turns into
+	// chips, so a line that landed in EN and not in HU would silently leave
+	// Hungarian readers with the raw key. `chat.` as a whole is NOT audited
+	// (it carries pre-existing drift), hence the narrow prefix.
+	"chat.paste",
 	// The chat home's greeting pool: ~76 keys a side, all of them optional to
 	// any one render, so a line that landed in EN and not in HU would show as
 	// the raw key to exactly the users who read Hungarian and nobody else.

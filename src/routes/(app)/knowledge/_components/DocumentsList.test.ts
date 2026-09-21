@@ -351,7 +351,73 @@ describe("DocumentsList", () => {
 
 			expect(onUpload).not.toHaveBeenCalled();
 			const errorBanner = screen.getByRole("alert");
+			// Phase 5 P5-C: a drop refused for ONE reason now says that reason
+			// and what to do about it, instead of the generic "not a supported
+			// type" — which told a user holding a .zip nothing they could act on.
+			// It is the same sentence the upload endpoint would have answered
+			// with, so forcing the file through the picker reads identically.
+			expect(errorBanner.textContent ?? "").toMatch(
+				/unpack it and upload the files inside/i,
+			);
+		});
+
+		it("keeps the generic line when a drop is refused for several reasons", async () => {
+			const onUpload = vi.fn().mockResolvedValue(undefined);
+
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					onUpload,
+				},
+			});
+
+			const dropSurface = screen.getByRole("region", {
+				name: /documents/i,
+			});
+			const zip = new File(["data"], "archive.zip", {
+				type: "application/zip",
+			});
+			const movie = new File(["data"], "clip.mp4", { type: "video/mp4" });
+
+			await fireEvent.drop(dropSurface, {
+				dataTransfer: { files: [zip, movie], types: ["Files"] },
+			});
+
+			expect(onUpload).not.toHaveBeenCalled();
+			// Two different reasons, so there is no single remedy to offer;
+			// presenting one file's problem as the batch's would be worse than
+			// saying less.
+			const errorBanner = screen.getByRole("alert");
 			expect(errorBanner.textContent ?? "").toMatch(/supported type/i);
+		});
+
+		it("names the reason for a batch that shares one", async () => {
+			const onUpload = vi.fn().mockResolvedValue(undefined);
+
+			render(DocumentsList, {
+				props: {
+					documents: [mockUploadedDocument],
+					onUpload,
+				},
+			});
+
+			const dropSurface = screen.getByRole("region", {
+				name: /documents/i,
+			});
+			const files = [
+				new File(["data"], "one.mp4", { type: "video/mp4" }),
+				new File(["data"], "two.mp4", { type: "video/mp4" }),
+			];
+
+			await fireEvent.drop(dropSurface, {
+				dataTransfer: { files, types: ["Files"] },
+			});
+
+			expect(onUpload).not.toHaveBeenCalled();
+			const errorBanner = screen.getByRole("alert");
+			expect(errorBanner.textContent ?? "").toMatch(
+				/upload a document or an image instead/i,
+			);
 		});
 
 		it("skips oversized files but still uploads the valid ones in a mixed drop", async () => {
