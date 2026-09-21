@@ -104,8 +104,8 @@ describe("POST /api/knowledge/upload/chunk", () => {
 			"knowledge.uploadRejectedArchive",
 		],
 		[
-			"memo.rtf",
-			"application/rtf",
+			"scan.ofd",
+			"application/ofd",
 			"formatNotEnabled",
 			"knowledge.uploadRejectedFormatNotEnabled",
 		],

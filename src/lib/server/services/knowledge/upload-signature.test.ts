@@ -29,6 +29,7 @@ const MP3_FRAME = [0xff, 0xfb];
 const RAR = [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07];
 const SEVEN_ZIP = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c];
 const GZIP = [0x1f, 0x8b];
+const RTF = [0x7b, 0x5c, 0x72, 0x74, 0x66, 0x31];
 
 /** Padded to 16 bytes so an offset-4 signature has something to read. */
 function head(bytes: number[]): Buffer {
@@ -72,6 +73,7 @@ describe("verifyUploadSignature", () => {
 		["bundle.7z", SEVEN_ZIP],
 		["bundle.gz", GZIP],
 		["bundle.zip", ZIP_LOCAL],
+		["memo.rtf", RTF],
 	])("accepts %s with its own leading bytes", (fileName, bytes) => {
 		expect(accepts(fileName, bytes)).toBe(true);
 	});
@@ -91,6 +93,7 @@ describe("verifyUploadSignature", () => {
 		["bundle.rar", ZIP_LOCAL],
 		["bundle.7z", ZIP_LOCAL],
 		["bundle.gz", ZIP_LOCAL],
+		["memo.rtf", PDF],
 	])("refuses %s carrying the wrong leading bytes", (fileName, bytes) => {
 		expect(accepts(fileName, bytes)).toBe(false);
 	});
@@ -105,6 +108,10 @@ describe("verifyUploadSignature", () => {
 	it("never sniffs a text or code type", () => {
 		// Any byte sequence is a legal text file, so these entries declare no
 		// signature at all and the matcher must not invent one.
+		//
+		// `memo.rtf` moved out of this list in Phase 5 P5-B: `rtf` gained a
+		// `{\rtf` signature (`registry.test.ts`), so it is sniffed like any other
+		// signed type now — see the accepts/refuses tables above.
 		for (const fileName of [
 			"notes.txt",
 			"notes.md",
@@ -113,7 +120,6 @@ describe("verifyUploadSignature", () => {
 			"page.html",
 			"script.py",
 			"chart.svg",
-			"memo.rtf",
 		]) {
 			expect(accepts(fileName, PDF), fileName).toBe(true);
 			expect(accepts(fileName, [0x00, 0x00, 0x00]), fileName).toBe(true);

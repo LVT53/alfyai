@@ -61,7 +61,31 @@ vi.mock("$lib/server/services/knowledge/upload-intake", () => ({
 	),
 }));
 
+/**
+ * The MinerU-4 availability gate defaults to OPEN for every route test in
+ * this directory: these suites exercise the registry allowlist and the byte
+ * plumbing, not backend-health gating, which `format-availability.test.ts`
+ * and `upload-intent.test.ts`'s own gate `describe` block cover. Mocked here
+ * (rather than left to hit the real capabilities probe) so no route test
+ * depends on network reachability or the live admin config.
+ */
+vi.mock("$lib/server/services/knowledge/format-availability", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/knowledge/format-availability")
+	>("$lib/server/services/knowledge/format-availability");
+	return {
+		...actual,
+		getUploadFormatGate: vi.fn(async () => ({
+			disabledEntryIds: new Set<string>(),
+			reason: null,
+			backendVersion: null,
+			checkedAt: new Date(0).toISOString(),
+		})),
+	};
+});
+
 import { requireAuth } from "$lib/server/auth/hooks";
+import { getUploadFormatGate } from "$lib/server/services/knowledge/format-availability";
 import {
 	completeKnowledgeUploadFromStoredFile,
 	isKnowledgeUploadConversationError,
@@ -97,6 +121,13 @@ export const mockIsKnowledgeUploadConversationError = vi.mocked(
 export const mockValidateKnowledgeUploadConversation = vi.mocked(
 	validateKnowledgeUploadConversation,
 );
+export const mockGetUploadFormatGate = vi.mocked(getUploadFormatGate);
+const OPEN_UPLOAD_FORMAT_GATE = {
+	disabledEntryIds: new Set<string>(),
+	reason: null as "backend_version" | null,
+	backendVersion: null as string | null,
+	checkedAt: new Date(0).toISOString(),
+};
 
 type KnowledgeUploadRouteEvent<RouteId extends string = string> = RequestEvent<
 	Record<string, never>,
@@ -261,6 +292,7 @@ export function createKnowledgeUploadRouteHarness(params: {
 			async (candidate: { conversationId?: string | null }) =>
 				candidate.conversationId?.trim() || null,
 		);
+		mockGetUploadFormatGate.mockResolvedValue(OPEN_UPLOAD_FORMAT_GATE);
 		mockCompleteKnowledgeUploadFromStoredFile.mockResolvedValue(
 			defaultCompleteKnowledgeUploadResponse,
 		);
