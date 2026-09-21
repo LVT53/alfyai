@@ -9,7 +9,7 @@
 // every test re-imports the module graph after setting it.
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,8 +28,6 @@ import {
 type Worker = typeof import("$lib/server/services/extraction/worker-runner");
 type Ledger = typeof import("$lib/server/services/extraction/job-ledger");
 type Capabilities = typeof import("./capabilities");
-
-const TMP_PREFIX = "alfyai-mineru4-";
 
 /** The nine recorded inputs, with the file each fixture directory carries. */
 const FIXTURE_INPUTS: ReadonlyArray<[string, string, string]> = [
@@ -159,11 +157,6 @@ function countRequests(method: string, path: string): number {
 	).length;
 }
 
-async function tempDirCount(): Promise<number> {
-	const entries = await readdir(tmpdir());
-	return entries.filter((entry) => entry.startsWith(TMP_PREFIX)).length;
-}
-
 beforeEach(async () => {
 	persisted.length = 0;
 	userId = `u${randomUUID().replace(/-/g, "")}`;
@@ -214,6 +207,43 @@ describe("every recorded input reaches a normalized artifact", () => {
 		const row = await ledger.getExtractionJobRow(jobId);
 		expect(row?.status).toBe("succeeded");
 		expect(row?.errorCode).toBeNull();
+	});
+});
+
+describe("direct text does not care what MinerU is", () => {
+	it("still succeeds while MINERU_API_URL points at something that is not MinerU 4", async () => {
+		// The consequence of having exactly one protocol: a deployment still
+		// aimed at a 3.x server must fail the MinerU route CLEARLY and leave the
+		// direct-text route completely untouched. The registry, not the backend,
+		// decides which one a file takes.
+		await boot({}, { MINERU_API_URL: "http://127.0.0.1:9/not-mineru4" });
+
+		const absolute = join(storageDir, "notes.txt");
+		await writeFile(absolute, "# Notes\n\nPlain text needs no backend.\n");
+		const artifactId = randomUUID();
+		fixture.seedArtifact({
+			id: artifactId,
+			userId,
+			name: "notes.txt",
+			mimeType: "text/plain",
+			sizeBytes: 38,
+			storagePath: relative(process.cwd(), absolute),
+		});
+		const { job } = await ledger.enqueueExtractionJob({
+			userId,
+			conversationId: null,
+			origin: "upload",
+			intakeRoute: "direct-text",
+			fileName: "notes.txt",
+			mimeType: "text/plain",
+			sizeBytes: 38,
+			sourceArtifactId: artifactId,
+		});
+
+		expect(await run()).toEqual({ jobId: job.id, status: "succeeded" });
+		expect(persisted[0].text).toContain("Plain text needs no backend.");
+		// Not one request left the process.
+		expect(server.requests).toEqual([]);
 	});
 });
 
@@ -344,7 +374,6 @@ describe("cancel while parsing", () => {
 	it("DELETEs the remote job, settles canceled and leaves no temp directory", async () => {
 		await boot({ neverFinish: true });
 		const { jobId } = await seedJob();
-		const before = await tempDirCount();
 
 		const running = run({ heartbeatMs: 100 });
 		await vi.waitFor(async () => {
@@ -366,8 +395,10 @@ describe("cancel while parsing", () => {
 		});
 		const row = await ledger.getExtractionJobRow(jobId);
 		expect(row?.status).toBe("canceled");
-		expect(await tempDirCount()).toBe(before);
 		expect(persisted).toHaveLength(0);
+		// Temp-directory cleanup is asserted in `extractors/mineru4.test.ts`,
+		// which can give the extractor a private root: counting entries in the
+		// shared OS temp directory from here would race every other test file.
 	});
 });
 

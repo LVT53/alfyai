@@ -10,7 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetMineruCapabilitiesCacheForTests } from "$lib/server/services/mineru/capabilities";
+import {
+	getMineruStatusReport,
+	resetMineruCapabilitiesCacheForTests,
+} from "$lib/server/services/mineru/capabilities";
 import { MineruClient } from "$lib/server/services/mineru/client";
 import type { MineruConfig } from "$lib/server/services/mineru/config";
 import {
@@ -39,6 +42,7 @@ const TMP_PREFIX = "alfyai-mineru4-";
 
 let server: FakeMineruServer;
 let workDir: string;
+let tempRoot: string;
 
 function config(
 	baseUrl: string,
@@ -68,6 +72,7 @@ function extractorFor(
 	const resolved = config(server.baseUrl, overrides);
 	return createMineru4Extractor({
 		resolveConfig: () => resolved,
+		tempDirRoot: tempRoot,
 		...(clientOverride ? { createClient: clientOverride } : {}),
 	});
 }
@@ -108,8 +113,16 @@ async function buildRequest(overrides: RequestOverrides = {}): Promise<{
 	};
 }
 
+/**
+ * Per-attempt download directories, counted inside a PRIVATE root.
+ *
+ * The extractor defaults to the OS temp directory, which every other test file
+ * and every other process on the box also writes to — counting there is a race
+ * that fails for reasons that have nothing to do with this code. `tempDirRoot`
+ * exists so the count is about this test and nothing else.
+ */
 async function tempDirCount(): Promise<number> {
-	const entries = await readdir(tmpdir());
+	const entries = await readdir(tempRoot);
 	return entries.filter((entry) => entry.startsWith(TMP_PREFIX)).length;
 }
 
@@ -123,17 +136,18 @@ beforeEach(async () => {
 	// Deliberately NOT the `alfyai-mineru4-` prefix the extractor uses for its
 	// own per-attempt directories: `tempDirCount()` counts those, and a source
 	// directory that shared the prefix would make every cleanup assertion lie.
-	workDir = join(
-		tmpdir(),
-		`alfyai-m4src-${Math.random().toString(36).slice(2)}`,
-	);
+	const suffix = Math.random().toString(36).slice(2);
+	workDir = join(tmpdir(), `alfyai-m4src-${suffix}`);
+	tempRoot = join(tmpdir(), `alfyai-m4tmp-${suffix}`);
 	await mkdir(workDir, { recursive: true });
+	await mkdir(tempRoot, { recursive: true });
 });
 
 afterEach(async () => {
 	await server?.close();
 	resetMineruCapabilitiesCacheForTests();
 	await rm(workDir, { recursive: true, force: true });
+	await rm(tempRoot, { recursive: true, force: true });
 	vi.restoreAllMocks();
 });
 
@@ -304,6 +318,7 @@ describe("the digest", () => {
 		await createMineru4Extractor({
 			resolveConfig: () => resolved,
 			createClient: () => client,
+			tempDirRoot: tempRoot,
 		}).extract({ ...request, contentSha256: sha });
 
 		expect(spy).not.toHaveBeenCalled();
@@ -386,6 +401,7 @@ describe("a backend that is not MinerU 4", () => {
 		resetMineruCapabilitiesCacheForTests();
 		const error = await createMineru4Extractor({
 			resolveConfig: () => resolved,
+			tempDirRoot: tempRoot,
 		})
 			.extract(request)
 			.catch((thrown) => thrown);
@@ -396,6 +412,27 @@ describe("a backend that is not MinerU 4", () => {
 		expect(
 			server.requests.some((entry) => entry.path.includes("/v1/uploads")),
 		).toBe(false);
+	});
+
+	it("tells the admin status card the same thing, in words", async () => {
+		// The card renders `report.error.message` under an "unreachable" pill.
+		// Installing the real client as the capability probe is what makes that
+		// message specific: the built-in probe would say "HTTP 404", and a bare
+		// `new MineruClient()` would be read as an unrecognised Error and become
+		// `unavailable` — an outage that retries forever.
+		await start();
+		resetMineruCapabilitiesCacheForTests();
+		const report = await getMineruStatusReport({
+			config: config(`${server.baseUrl}/not-mineru4`),
+		});
+
+		expect(report.reachable).toBe(false);
+		expect(report.error?.code).toBe("protocol");
+		expect(report.error?.message).toContain("not a MinerU 4 server");
+		expect(report.error?.message).toContain(
+			"MinerU 3.x is no longer supported",
+		);
+		expect(report.version).toBeNull();
 	});
 
 	it("still calls a refused connection an outage, which IS retryable", async () => {
@@ -409,6 +446,7 @@ describe("a backend that is not MinerU 4", () => {
 		await expect(
 			createMineru4Extractor({
 				resolveConfig: () => config(deadUrl),
+				tempDirRoot: tempRoot,
 			}).extract(request),
 		).rejects.toMatchObject({ code: "unavailable", retryable: true });
 	});
@@ -463,6 +501,7 @@ describe("mapped failures", () => {
 			createMineru4Extractor({
 				resolveConfig: () => resolved,
 				createClient: () => client,
+				tempDirRoot: tempRoot,
 			}).extract(request),
 		).rejects.toMatchObject({
 			code: "rate_limited",
@@ -540,6 +579,7 @@ describe("mapped failures", () => {
 			createMineru4Extractor({
 				resolveConfig: () => resolved,
 				createClient: () => client,
+				tempDirRoot: tempRoot,
 			}).extract(request),
 		).rejects.toMatchObject({ code: "protocol", handleUnknown: true });
 	});
@@ -572,6 +612,7 @@ describe("hostile and oversized downloads", () => {
 			createMineru4Extractor({
 				resolveConfig: () => resolved,
 				createClient: () => client,
+				tempDirRoot: tempRoot,
 			}).extract(request),
 		).rejects.toMatchObject({
 			code: "protocol",
@@ -614,6 +655,7 @@ describe("hostile and oversized downloads", () => {
 			createMineru4Extractor({
 				resolveConfig: () => resolved,
 				createClient: () => client,
+				tempDirRoot: tempRoot,
 			}).extract(request),
 		).rejects.toMatchObject({
 			code: "protocol",
@@ -645,6 +687,7 @@ describe("the temp directory", () => {
 		const error = await createMineru4Extractor({
 			resolveConfig: () => resolved,
 			createClient: () => client,
+			tempDirRoot: tempRoot,
 		})
 			.extract(request)
 			.catch((thrown) => thrown);

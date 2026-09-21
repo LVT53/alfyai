@@ -368,6 +368,12 @@ export interface Mineru4ExtractorOptions {
 	createClient?: (config: MineruConfig) => MineruClient;
 	/** Test seam. Defaults to `resolveMineruConfig()`. */
 	resolveConfig?: () => MineruConfig;
+	/**
+	 * Where the per-attempt download directory is created. Defaults to the OS
+	 * temp directory. A test seam, so a test can assert the directory is gone
+	 * without racing every other process that writes to `/tmp`.
+	 */
+	tempDirRoot?: string;
 	now?: () => number;
 }
 
@@ -616,7 +622,9 @@ export function createMineru4Extractor(
 				state.outputZipFileId = output.file_id;
 				emit("downloading", true);
 
-				tempDir ??= await mkdtemp(join(tmpdir(), "alfyai-mineru4-"));
+				tempDir ??= await mkdtemp(
+					join(options.tempDirRoot ?? tmpdir(), "alfyai-mineru4-"),
+				);
 				const zipPathAbsolute = join(tempDir, "result.zip");
 				await client.downloadFile({
 					fileId: output.file_id,
