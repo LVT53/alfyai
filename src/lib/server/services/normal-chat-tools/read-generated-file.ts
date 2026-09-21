@@ -9,6 +9,7 @@ import {
 	chatGeneratedFiles,
 	conversations,
 	fileProductionJobFiles,
+	fileProductionJobs,
 } from "$lib/server/db/schema";
 import {
 	GENERATED_FILE_EXTRACTED_CONTENT_MARKER,
@@ -518,8 +519,16 @@ async function loadGeneratedOutputArtifactLinks(params: {
  * artifact metadata does not already name — a document-source artifact records
  * its rendered files only once the job has attached them, and this closes the
  * window in between.
+ *
+ * `file_production_job_files` has no `user_id` of its own, so this was the one
+ * query in the module whose tenancy rested on the ids its caller happened to
+ * pass rather than on SQL. Safe by construction and nowhere else: a helper is
+ * only as scoped as its next caller remembers to be. It joins
+ * `file_production_jobs` and requires the job to be this user's, so the
+ * invariant is in the `where` here like everywhere else.
  */
 async function loadJobIdsForChatFiles(
+	userId: string,
 	fileIds: string[],
 ): Promise<Map<string, string>> {
 	if (fileIds.length === 0) return new Map();
@@ -529,7 +538,16 @@ async function loadJobIdsForChatFiles(
 			jobId: fileProductionJobFiles.jobId,
 		})
 		.from(fileProductionJobFiles)
-		.where(inArray(fileProductionJobFiles.chatGeneratedFileId, fileIds));
+		.innerJoin(
+			fileProductionJobs,
+			eq(fileProductionJobs.id, fileProductionJobFiles.jobId),
+		)
+		.where(
+			and(
+				inArray(fileProductionJobFiles.chatGeneratedFileId, fileIds),
+				eq(fileProductionJobs.userId, userId),
+			),
+		);
 	return new Map(rows.map((row) => [row.chatGeneratedFileId, row.jobId]));
 }
 
@@ -617,7 +635,7 @@ async function findChatFileTarget(params: {
 	const unlinked = matches
 		.filter((file) => !links.byChatFileId.has(file.id))
 		.map((file) => file.id);
-	const jobIdsByFile = await loadJobIdsForChatFiles(unlinked);
+	const jobIdsByFile = await loadJobIdsForChatFiles(params.userId, unlinked);
 	const linkOf = (file: ChatFileRow): GeneratedArtifactLink | null => {
 		const direct = links.byChatFileId.get(file.id);
 		if (direct) return direct;

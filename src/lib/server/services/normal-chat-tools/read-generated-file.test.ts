@@ -1307,13 +1307,15 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 	function seedFileProductionJob(params: {
 		id: string;
 		chatFileIds: string[];
+		userId?: string;
+		conversationId?: string;
 	}) {
 		memory.db
 			.insert(schema.fileProductionJobs)
 			.values({
 				id: params.id,
-				conversationId: CONVERSATION,
-				userId: USER,
+				conversationId: params.conversationId ?? CONVERSATION,
+				userId: params.userId ?? USER,
 				title: "job",
 				status: "succeeded",
 				createdAt: NOW,
@@ -1424,6 +1426,50 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 		expect(result.notFound).toBe(false);
 		expect(result.textPending).toBe(false);
 		expect(result.contentText).toBe(DOCUMENT_MARKDOWN);
+	});
+
+	// `file_production_job_files` has no `user_id` of its own, so the job-id
+	// lookup was scoped only by the ids its caller happened to pass. That was
+	// safe by construction and nowhere else — the one place in this module
+	// where the tenancy invariant rode on an argument instead of on SQL. It now
+	// joins `file_production_jobs` and requires the job to be this user's, so a
+	// job row belonging to somebody else contributes nothing even when a chat
+	// file points at it.
+	it("ignores a job row that belongs to another user", async () => {
+		const fileId = await seedChatFile({
+			filename: "tobacco-cost-breakdown.pdf",
+			content: PDF_BYTES,
+			mimeType: "application/pdf",
+		});
+		seedUser("intruder");
+		seedConversation("conv-intruder", "intruder");
+		seedFileProductionJob({
+			id: "job-foreign",
+			chatFileIds: [fileId],
+			userId: "intruder",
+			conversationId: "conv-intruder",
+		});
+		// This user's own artifact happens to name the same job id. Without the
+		// join it is reached through the foreign job row and its text is served
+		// for a file the job never produced.
+		seedArtifact({
+			type: "generated_output",
+			name: "Tobacco Cost Breakdown - Monthly Spend and Pouch Prices",
+			contentText: DOCUMENT_MARKDOWN,
+			metadata: {
+				generatedDocumentSource: {
+					version: 1,
+					title: "Tobacco Cost Breakdown",
+				},
+				generatedDocumentSourceStatus: "pending",
+				fileProductionJobId: "job-foreign",
+			},
+		});
+
+		const result = await read({ filename: "tobacco-cost-breakdown.pdf" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.contentText).not.toBe(DOCUMENT_MARKDOWN);
 	});
 
 	it("reads an inline_text file produced in this turn straight off disk", async () => {
