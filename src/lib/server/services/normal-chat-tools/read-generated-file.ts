@@ -340,6 +340,9 @@ type ChatFileRow = {
 	sizeBytes: number;
 	storagePath: string;
 	createdAt: Date;
+	/** The owning conversation's timestamps, for the fork tie-break. */
+	conversationUpdatedAt?: Date | null;
+	conversationCreatedAt?: Date | null;
 };
 
 /** Every file THIS conversation produced, for THIS user. Ownership is in the
@@ -348,9 +351,15 @@ async function listConversationChatFiles(params: {
 	userId: string;
 	conversationId: string;
 }): Promise<ChatFileRow[]> {
+	// Joined for the same two conversation columns the elsewhere pass reads,
+	// so one comparator serves both lists.
 	return db
 		.select(chatFileSelection)
 		.from(chatGeneratedFiles)
+		.innerJoin(
+			conversations,
+			eq(conversations.id, chatGeneratedFiles.conversationId),
+		)
 		.where(
 			and(
 				eq(chatGeneratedFiles.userId, params.userId),
@@ -419,6 +428,11 @@ const chatFileSelection = {
 	sizeBytes: chatGeneratedFiles.sizeBytes,
 	storagePath: chatGeneratedFiles.storagePath,
 	createdAt: chatGeneratedFiles.createdAt,
+	// The fork tie-break: a forked copy shares its filename and its
+	// `created_at` with the original, so the only durable difference between
+	// them is the conversation each one lives in.
+	conversationUpdatedAt: conversations.updatedAt,
+	conversationCreatedAt: conversations.createdAt,
 } as const;
 
 /** One stored file by id, scoped to its owner. */
@@ -429,6 +443,10 @@ async function loadChatFileById(
 	const [row] = await db
 		.select(chatFileSelection)
 		.from(chatGeneratedFiles)
+		.innerJoin(
+			conversations,
+			eq(conversations.id, chatGeneratedFiles.conversationId),
+		)
 		.where(
 			and(
 				eq(chatGeneratedFiles.id, fileId),
@@ -574,13 +592,34 @@ function chatFileMatchTier(filename: string, needle: string): number {
 }
 
 /**
- * Newest first.
+ * Newest first, and fully ordered — no pair may compare equal.
  *
  * The version metadata decides when BOTH files have one; otherwise creation
  * time does. That order — and not "version first, creation time as a
  * tiebreak" — is what makes the same-turn patch case correct: the v2 file on
  * disk has no artifact and therefore no version number yet, so ranking by
  * version would hand back the stale v1 that does have one.
+ *
+ * The rest of the chain exists because of FORKS. Forking a conversation copies
+ * each chat file with the SAME filename and the SAME `created_at`
+ * (`conversation-forks.ts`), so from a third conversation the original and the
+ * copy tie on step 1, and the copy's artifact is reset to `versionNumber: 1`
+ * while the original may be v3 — so step 2 ties only when neither has an
+ * artifact yet. Below that this used to return 0 and the winner was whatever
+ * order SQLite happened to yield, which for two byte-identical files is
+ * harmless and for two that have since diverged is a coin toss over the user's
+ * content.
+ *
+ *   3. the conversation touched most recently, which is where the user is
+ *      working;
+ *   4. the conversation created FIRST, which is the original rather than the
+ *      fork — the fork's conversation is minted at fork time, so this is the
+ *      one durable difference between two copies that share everything else;
+ *   5. the file id, which is a primary key and therefore never ties.
+ *
+ * Step 4 is why the original wins a true tie. That is deliberate: at fork time
+ * the two files are byte-identical, so the choice cannot be wrong, and the
+ * moment either side is edited its `created_at` moves and step 1 settles it.
  */
 function compareChatFileRecency(
 	left: { file: ChatFileRow; versionNumber: number | null },
@@ -589,9 +628,21 @@ function compareChatFileRecency(
 	const byTime = right.file.createdAt.getTime() - left.file.createdAt.getTime();
 	if (byTime !== 0) return byTime;
 	if (left.versionNumber !== null && right.versionNumber !== null) {
-		return right.versionNumber - left.versionNumber;
+		const byVersion = right.versionNumber - left.versionNumber;
+		if (byVersion !== 0) return byVersion;
 	}
-	return 0;
+	const at = (value: Date | null | undefined): number => value?.getTime() ?? 0;
+	const byActivity =
+		at(right.file.conversationUpdatedAt) - at(left.file.conversationUpdatedAt);
+	if (byActivity !== 0) return byActivity;
+	const byOrigin =
+		at(left.file.conversationCreatedAt) - at(right.file.conversationCreatedAt);
+	if (byOrigin !== 0) return byOrigin;
+	return left.file.id < right.file.id
+		? -1
+		: left.file.id > right.file.id
+			? 1
+			: 0;
 }
 
 /**

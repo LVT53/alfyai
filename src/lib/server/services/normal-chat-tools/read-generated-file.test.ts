@@ -2185,6 +2185,88 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 		// so "your four most recent spreadsheets from other chats" was an
 		// unprompted disclosure of names the model then reads aloud. Names are
 		// content. Only names that are plausibly the one asked for qualify.
+		// Forking a conversation copies each chat file with the SAME filename and
+		// the SAME `created_at`, so from a THIRD conversation the original and
+		// the copy tie on recency. The comparator used to return 0 there and the
+		// winner was whatever order SQLite happened to yield — harmless while
+		// the bytes are identical, a coin toss over the user's content once
+		// either side is edited.
+		describe("a fork's copy against its original", () => {
+			const FORK_CONVERSATION = "conv-fork";
+			const SHARED_CREATED_AT = new Date("2026-09-10T10:00:00.000Z");
+
+			async function seedForkPair(params: { forkContent: string }) {
+				// The fork's conversation is minted AFTER the original's.
+				memory.db
+					.insert(schema.conversations)
+					.values({
+						id: FORK_CONVERSATION,
+						userId: USER,
+						title: FORK_CONVERSATION,
+						createdAt: new Date("2026-09-12T10:00:00.000Z"),
+						updatedAt: new Date("2026-09-12T10:00:00.000Z"),
+					})
+					.run();
+				await seedChatFile({
+					filename: "release-notes.md",
+					content: "# Release notes\n\n- Original.",
+					mimeType: "text/markdown",
+					conversationId: OTHER_CONVERSATION,
+					createdAt: SHARED_CREATED_AT,
+				});
+				await seedChatFile({
+					filename: "release-notes.md",
+					content: params.forkContent,
+					mimeType: "text/markdown",
+					conversationId: FORK_CONVERSATION,
+					// `conversation-forks.ts` copies the source file's timestamp.
+					createdAt: SHARED_CREATED_AT,
+				});
+			}
+
+			it("is a harmless tie at fork time, and resolves to the original", async () => {
+				// Byte-identical, which is what makes the tie safe: whichever
+				// side wins, the user gets the same document.
+				await seedForkPair({ forkContent: "# Release notes\n\n- Original." });
+
+				const result = await read({ filename: "release-notes.md" });
+
+				expect(result.contentText).toBe("# Release notes\n\n- Original.");
+			});
+
+			it("is deterministic rather than whatever SQLite yields", async () => {
+				await seedForkPair({ forkContent: "# Release notes\n\n- Original." });
+
+				// Same answer every time, not merely the same answer once.
+				const answers = new Set<string | null | undefined>();
+				for (let attempt = 0; attempt < 5; attempt += 1) {
+					answers.add(
+						(await read({ filename: "release-notes.md" })).contentText,
+					);
+				}
+				expect(answers.size).toBe(1);
+			});
+
+			it("hands back the diverged side once either one is edited", async () => {
+				await seedForkPair({ forkContent: "# Release notes\n\n- Original." });
+				// The fork is worked on: a new version lands with a newer
+				// timestamp, and step 1 of the comparator settles it.
+				await seedChatFile({
+					filename: "release-notes.md",
+					content: "# Release notes\n\n- Diverged in the fork.",
+					mimeType: "text/markdown",
+					conversationId: FORK_CONVERSATION,
+					createdAt: new Date("2026-09-15T10:00:00.000Z"),
+				});
+
+				const result = await read({ filename: "release-notes.md" });
+
+				expect(result.contentText).toBe(
+					"# Release notes\n\n- Diverged in the fork.",
+				);
+			});
+		});
+
 		it("offers nothing from elsewhere when no name is similar", async () => {
 			await seedEarlierVersion({
 				filename: "quarterly-budget.md",
