@@ -1544,6 +1544,11 @@ describe("conversation forks", () => {
 				chunkIndex: 0,
 				contentText: "Generated report chunk",
 				tokenEstimate: 4,
+				// The copier hand-lists its columns, so a page range that is not
+				// copied disappears with no type error and no failing test
+				// anywhere else — and a forked conversation then cites nothing.
+				pageStart: 2,
+				pageEnd: 3,
 				createdAt,
 				updatedAt: createdAt,
 			})
@@ -1655,6 +1660,8 @@ describe("conversation forks", () => {
 				chunkIndex: 0,
 				contentText: "Generated report chunk",
 				tokenEstimate: 4,
+				pageStart: 2,
+				pageEnd: 3,
 			}),
 		]);
 		expect(links.filter((link) => link.linkType === "supersedes")).toEqual([]);
