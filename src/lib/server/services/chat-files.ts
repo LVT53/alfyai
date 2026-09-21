@@ -616,8 +616,9 @@ function decodeTextLikeGeneratedFile(content: Buffer): string | null {
 	// `decodeTextBuffer` from `extraction/text-decode.ts` once that module
 	// lands — `return decodeTextBuffer(content).ok ? …text : null`, keeping
 	// `null` as the "no readable text" answer. It is the single call site, and
-	// it must stay the single call site: an uploaded `.md` and a generated one
-	// have to decode identically or the same bytes chunk two different ways.
+	// it must stay the single call site: an uploaded Markdown file and a
+	// generated one have to decode identically, or the same bytes chunk two
+	// different ways.
 	return content.toString("utf8").replace(/\r\n/g, "\n").trim() || null;
 }
 
@@ -627,12 +628,12 @@ function decodeTextLikeGeneratedFile(content: Buffer): string | null {
  * Three answers, decided once, from the registry rather than from a list:
  *
  *  - `inline`: the bytes ARE text (`textLike`), so they are decoded here and
- *    now. Every `inline_text` output is in this set — `md`, `txt`, `csv`,
- *    `tsv`, `json` and the code extensions — and so is `html`, which matters:
- *    `html` routes to MinerU for UPLOADS (Phase 5 D3, where MinerU strips a
- *    real page's nav, scripts and ads), but a `.html` this app generated is
- *    our own markup, already clean, and making it wait on a backend to read
- *    back what we just wrote would be a regression with no upside.
+ *    now. Every `inline_text` output is in this set — Markdown, plain text,
+ *    delimited text, JSON and the code extensions — and so is HTML, which
+ *    matters: HTML routes to MinerU for UPLOADS (Phase 5 D3, where MinerU
+ *    strips a real page's nav, scripts and ads), but HTML this app generated
+ *    is our own markup, already clean, and making it wait on a backend to
+ *    read back what we just wrote would be a regression with no upside.
  *  - `ledger`: a binary a parser has to open — PDF, DOCX, XLSX, PPTX, ODT.
  *  - `none`: an image, an archive, an SVG. No backend can find text in them,
  *    so they get no job rather than a permanently failed ledger row each.
@@ -643,8 +644,8 @@ export type GeneratedFileTextSource = "inline" | "ledger" | "none";
  * Exported because a second module asks the same question and must not answer
  * it differently: `conversation-forks.ts` decides whether a copied generated
  * file is still waiting for a readback, and it currently asks
- * `getIntakeRoute(…) !== "mineru"`, which now misreads a generated `.html` as
- * a file that needs a backend. The fix is to call this — INTEGRATOR
+ * `getIntakeRoute(…) !== "mineru"`, which now misreads a generated HTML file
+ * as one that needs a backend. The fix is to call this — INTEGRATOR
  * FOLLOW-UP, since that file belongs to no slice of this wave.
  */
 export function generatedFileTextSource(
