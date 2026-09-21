@@ -67,8 +67,10 @@ const EXTRACTION_OUTAGE_BACKOFF_FACTOR = 2;
  * `waits` is cumulative and never reset, because it is what the attempt budget
  * is discounted by: an attempt spent waiting on a dead backend is not an
  * attempt spent on the document, and the arithmetic has to keep saying so for
- * as long as the row exists. `since` is the start of the CURRENT outage and is
- * cleared the moment anything else happens to the job.
+ * as long as the row exists. `since` anchors the outage window at the FIRST
+ * outage wait of the job's current run, and only three things end that run: a
+ * success, a user-initiated Retry/re-extract, and the window running out. An
+ * ordinary failure in between does NOT clear it — see `decideExtractionRetry`.
  */
 export interface ExtractionOutageState {
 	/** Epoch ms of the first failure in the current outage, or null. */
@@ -255,9 +257,18 @@ export function decideExtractionRetry(
 		return decideOutageWait({ ...input, outage, nowMs });
 	}
 
-	// Anything that is not an outage ends the current outage run. `waits` stays:
-	// those attempts were still not spent on the document.
-	const carried: ExtractionOutageState = { since: null, waits: outage.waits };
+	// A failure that is not an outage does NOT re-anchor the outage window.
+	// Clearing `since` here let a backend that alternates between "not
+	// answering" and any other code serve a brand-new half-hour window after
+	// every interleaved failure, so a job could wait for hours while the docs —
+	// and the DTO the user reads — promised half an hour. The window belongs to
+	// the RUN, and only a success or a user-initiated retry starts a new run.
+	// `waits` stays for the same reason it always did: those attempts were
+	// still not spent on the document.
+	const carried: ExtractionOutageState = {
+		since: outage.since,
+		waits: outage.waits,
+	};
 	const attempts = extractionDocumentAttempts(input.attemptCount, carried);
 	const attemptsLeft = attempts < input.maxAttempts;
 

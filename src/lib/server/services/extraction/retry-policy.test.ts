@@ -327,7 +327,10 @@ describe("the outage budget", () => {
 		).toBe(10_000);
 	});
 
-	it("starts a fresh window when something other than an outage happens", () => {
+	it("does not re-anchor the window when something other than an outage happens", () => {
+		// The window belongs to the RUN, not to the last outage failure: an
+		// ordinary failure in the middle of an outage is not evidence that the
+		// backend came back, so it must not buy another half hour.
 		const decision = decideExtractionRetry({
 			...base,
 			code: "job_failed",
@@ -335,7 +338,103 @@ describe("the outage budget", () => {
 			outage: { since: 1000, waits: 4 },
 			nowMs: 5000,
 		});
-		expect(decision.outage).toEqual({ since: null, waits: 4 });
+		expect(decision.outage).toEqual({ since: 1000, waits: 4 });
+	});
+
+	it("cannot serve more than one window when codes alternate", () => {
+		// The live shape: a backend that answers some claims with "not
+		// answering" and drops others as `stale_worker`. Re-basing `since` on
+		// the `stale_worker` gave the `unavailable` run a brand-new half hour
+		// every other failure, so one job could wait for hours.
+		//
+		// `maxAttempts` is set high enough that the DOCUMENT budget cannot be
+		// what stops the loop — the window has to.
+		let outage = { since: null as number | null, waits: 0 };
+		let nowMs = 0;
+		let attemptCount = 0;
+		let lastCode = "";
+		let terminal = false;
+		for (let i = 0; i < 200 && !terminal; i++) {
+			attemptCount += 1;
+			const decision = decideExtractionRetry({
+				...base,
+				maxAttempts: 500,
+				code: i % 2 === 0 ? "unavailable" : "stale_worker",
+				attemptCount,
+				outage,
+				nowMs,
+			});
+			outage = decision.outage;
+			lastCode = decision.jobErrorCode;
+			terminal = !decision.requeue;
+			nowMs += decision.delayMs;
+		}
+
+		expect(terminal).toBe(true);
+		expect(lastCode).toBe("unavailable");
+		// One window, not two: the last wait may end at most one full outage
+		// backoff past the window's end.
+		expect(nowMs).toBeLessThanOrEqual(
+			WINDOW_MS + EXTRACTION_OUTAGE_BACKOFF_MAX_MS,
+		);
+	});
+
+	it("gives a user retry a fresh window after an exhausted one", () => {
+		// `retryExtractionJob` / `requestReextraction` write back `since: null`
+		// with `waits` carried, which is the state this asserts on: the next
+		// outage failure anchors a new window at the moment it happens.
+		const exhausted = decideExtractionRetry({
+			...base,
+			code: "unavailable",
+			attemptCount: 9,
+			outage: { since: 0, waits: 8 },
+			nowMs: WINDOW_MS,
+		});
+		expect(exhausted.requeue).toBe(false);
+
+		const afterUserRetry = { since: null, waits: exhausted.outage.waits };
+		const decision = decideExtractionRetry({
+			...base,
+			code: "unavailable",
+			attemptCount: 10,
+			outage: afterUserRetry,
+			nowMs: WINDOW_MS + 60_000,
+		});
+		expect(decision).toMatchObject({ requeue: true, outageWait: true });
+		expect(decision.outage.since).toBe(WINDOW_MS + 60_000);
+	});
+
+	it("still ends the document's budget and the ceiling exactly as before", () => {
+		// The carried `since` must not leak into the attempt arithmetic: three
+		// ordinary failures still exhaust `maxAttempts`, and the ceiling still
+		// counts DOCUMENT attempts only.
+		expect(
+			decideExtractionRetry({
+				...base,
+				code: "job_failed",
+				attemptCount: 3,
+				outage: { since: 1000, waits: 0 },
+				nowMs: 5000,
+			}),
+		).toMatchObject({
+			requeue: false,
+			jobErrorCode: "max_attempts",
+			jobRetryable: true,
+		});
+
+		expect(
+			decideExtractionRetry({
+				...base,
+				code: "job_failed",
+				attemptCount: 3 + EXTRACTION_USER_RETRY_GRANTS + 12,
+				outage: { since: 1000, waits: 12 },
+				nowMs: 5000,
+			}),
+		).toMatchObject({
+			requeue: false,
+			jobErrorCode: "max_attempts",
+			jobRetryable: false,
+		});
 	});
 });
 
