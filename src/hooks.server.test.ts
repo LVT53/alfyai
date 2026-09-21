@@ -92,6 +92,7 @@ function makeHookEvent(
 	path: string,
 	sessionToken?: string,
 	requestHeaders: Record<string, string> = {},
+	method = "GET",
 ): HookEvent {
 	const url = new URL(`http://localhost${path}`);
 	return {
@@ -99,10 +100,26 @@ function makeHookEvent(
 		locals: {},
 		url,
 		// The security-header pass reads x-forwarded-proto off the request, so
-		// the fake needs one now.
-		request: new Request(url, { headers: requestHeaders }),
+		// the fake needs one now. The auth gate reads the Fetch Metadata headers
+		// and the method off it too, to tell a navigation from a fetch.
+		request: new Request(url, { headers: requestHeaders, method }),
 	} as unknown as HookEvent;
 }
+
+/** What a browser sends for an in-page `fetch()` to the app's own origin. */
+const FETCH_HEADERS = {
+	"sec-fetch-mode": "same-origin",
+	"sec-fetch-dest": "empty",
+	accept: "*/*",
+};
+
+/** What a browser sends when the address bar goes somewhere. */
+const NAVIGATION_HEADERS = {
+	"sec-fetch-mode": "navigate",
+	"sec-fetch-dest": "document",
+	accept:
+		"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,*/*;q=0.8",
+};
 
 describe("hooks.server.ts", () => {
 	beforeEach(() => {
@@ -443,6 +460,184 @@ describe("hooks.server.ts", () => {
 				status: 303,
 				location: "/login",
 			});
+		});
+	});
+
+	// An `/api/` path a PERSON is looking at, rather than a program. The OAuth
+	// callbacks are reached by the provider bouncing the address bar back to
+	// us, and a download or preview link is opened in a tab; answering those
+	// with raw JSON in the viewport would be a worse experience than the login
+	// screen. The browser's Fetch Metadata headers separate the two cases, and
+	// a page script cannot forge them for its own requests.
+	describe("unauthenticated API requests that are browser navigations", () => {
+		it.each([
+			"/api/oauth/google/callback",
+			"/api/oauth/onedrive/callback",
+			"/api/knowledge/doc-1/download",
+			"/api/knowledge/doc-1/preview",
+			"/api/chat/files/file-1/download",
+		])("redirects the navigation to %s to /login", async (path) => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent(path, undefined, NAVIGATION_HEADERS);
+
+			await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
+				status: 303,
+				location: "/login",
+			});
+		});
+
+		it.each([
+			{ label: "a framed document", headers: { "sec-fetch-dest": "iframe" } },
+			{
+				label: "a top-level document",
+				headers: { "sec-fetch-dest": "document" },
+			},
+			{
+				label: "a declared navigation",
+				headers: { "sec-fetch-mode": "navigate" },
+			},
+		])("redirects $label", async ({ headers }) => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent("/api/knowledge/doc-1/preview", undefined, {
+				...headers,
+			});
+
+			await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
+				status: 303,
+				location: "/login",
+			});
+		});
+
+		// The app's own calls. `Sec-Fetch-Mode` is set by the browser, so this is
+		// what every fetch/XHR from a page looks like — the client's 401
+		// handling is untouched by the navigation exception.
+		it.each([
+			{ label: "same-origin fetch", headers: FETCH_HEADERS },
+			{
+				label: "cors fetch",
+				headers: { "sec-fetch-mode": "cors", "sec-fetch-dest": "empty" },
+			},
+			{
+				label: "an image element",
+				headers: { "sec-fetch-mode": "no-cors", "sec-fetch-dest": "image" },
+			},
+			{
+				label: "a fetch that asks for html anyway",
+				headers: { "sec-fetch-mode": "cors", accept: "text/html" },
+			},
+		])("still answers $label with 401", async ({ headers }) => {
+			const { handle } = await import("./hooks.server");
+			const resolve = vi.fn();
+			const event = makeHookEvent("/api/conversations", undefined, headers);
+
+			const response = await handle({ event, resolve });
+
+			expect(response.status).toBe(401);
+			expect(await response.json()).toEqual({ error: "Unauthorized" });
+			expect(resolve).not.toHaveBeenCalled();
+		});
+
+		// Old browser, curl, a server-side client: no Fetch Metadata at all, so
+		// fall back to what the caller says it wants.
+		describe("without Fetch Metadata headers", () => {
+			it.each([
+				"GET",
+				"HEAD",
+			])("redirects a %s that explicitly asks for html", async (method) => {
+				const { handle } = await import("./hooks.server");
+				const event = makeHookEvent(
+					"/api/knowledge/doc-1/download",
+					undefined,
+					{
+						accept:
+							"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+					},
+					method,
+				);
+
+				await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject(
+					{ status: 303, location: "/login" },
+				);
+			});
+
+			it.each([
+				{ label: "application/json", accept: "application/json" },
+				{ label: "*/* (curl's default)", accept: "*/*" },
+				{ label: "no Accept at all", accept: undefined },
+			])("answers a GET asking for $label with 401", async ({ accept }) => {
+				const { handle } = await import("./hooks.server");
+				const event = makeHookEvent(
+					"/api/conversations",
+					undefined,
+					accept === undefined ? {} : { accept },
+				);
+
+				const response = await handle({ event, resolve: vi.fn() });
+
+				expect(response.status).toBe(401);
+				expect(await response.json()).toEqual({ error: "Unauthorized" });
+			});
+
+			// A person's address bar only ever issues GET or HEAD. Anything else
+			// asking for html is a program, however it fills in Accept.
+			it.each([
+				"POST",
+				"PUT",
+				"PATCH",
+				"DELETE",
+			])("answers a %s asking for html with 401", async (method) => {
+				const { handle } = await import("./hooks.server");
+				const event = makeHookEvent(
+					"/api/conversations",
+					undefined,
+					{ accept: "text/html" },
+					method,
+				);
+
+				const response = await handle({ event, resolve: vi.fn() });
+
+				expect(response.status).toBe(401);
+			});
+		});
+
+		it("does not change anything for an authenticated navigation", async () => {
+			const { handle } = await import("./hooks.server");
+			mockValidateSession.mockResolvedValue({
+				id: "user-1",
+				email: "test@example.com",
+				displayName: "Test User",
+				role: "user",
+				profilePicture: null,
+			});
+			const resolve = vi.fn(async () => new Response("ok"));
+			const event = makeHookEvent(
+				"/api/oauth/google/callback",
+				"session-token",
+				NAVIGATION_HEADERS,
+			);
+
+			const response = await handle({ event, resolve });
+
+			expect(resolve).toHaveBeenCalledOnce();
+			expect(response.status).toBe(200);
+		});
+
+		it("does not change anything for the service-assertion paths", async () => {
+			const { handle } = await import("./hooks.server");
+			const resolve = vi.fn(async () => new Response("ok"));
+
+			const response = await handle({
+				event: makeHookEvent(
+					"/api/admin/drain",
+					undefined,
+					NAVIGATION_HEADERS,
+					"POST",
+				),
+				resolve,
+			});
+
+			expect(resolve).toHaveBeenCalledOnce();
+			expect(response.status).toBe(200);
 		});
 	});
 

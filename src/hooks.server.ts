@@ -71,6 +71,43 @@ function isApiRequest(pathname: string): boolean {
 	return pathname.startsWith("/api/");
 }
 
+/**
+ * Is a PERSON looking at this response, rather than a program reading it?
+ *
+ * Some `/api/` URLs are reached by the address bar: the OAuth callbacks, which
+ * the provider bounces the browser back to, and the download/preview routes,
+ * which are opened in a tab (`window.open`) or pasted as a link. Answering
+ * those with raw JSON in the viewport is worse than the login screen, so they
+ * keep the 303.
+ *
+ * Fetch Metadata is the right signal because the browser sets it and page
+ * script cannot: an in-page `fetch()` or XHR is stamped `Sec-Fetch-Mode:
+ * cors`/`same-origin`, never `navigate`, so nothing the app itself calls can
+ * talk its way into a redirect — `Accept` alone would have let it. `Sec-Fetch-
+ * Dest: document`/`iframe` is treated the same as `navigate`; every other
+ * destination (empty, image, script, …) is a subresource and gets the 401.
+ *
+ * Without those headers at all — an old browser, curl, a server-side client —
+ * fall back to what the caller asked for, and only for the methods an address
+ * bar can issue: an explicit `text/html` on a GET or HEAD redirects, anything
+ * else (`application/json`, curl's `*&#47;*`, no Accept, any other method) gets
+ * the 401.
+ */
+function isBrowserNavigation(request: Request): boolean {
+	const mode = request.headers.get("sec-fetch-mode");
+	const dest = request.headers.get("sec-fetch-dest");
+
+	if (mode !== null || dest !== null) {
+		return mode === "navigate" || dest === "document" || dest === "iframe";
+	}
+
+	const method = request.method.toUpperCase();
+	if (method !== "GET" && method !== "HEAD") return false;
+	return (request.headers.get("accept") ?? "")
+		.toLowerCase()
+		.includes("text/html");
+}
+
 const sentryDsn = cleanSentryEnvValue(
 	process.env.SENTRY_DSN ?? process.env.PUBLIC_SENTRY_DSN,
 );
@@ -241,11 +278,18 @@ const appHandle: Handle = async ({ event, resolve }) => {
 		// the route itself refused. No `WWW-Authenticate`: this app has no HTTP
 		// auth scheme to name, and nothing in the repo sends that header today.
 		//
+		// The exception is an `/api/` URL a person is looking at — an OAuth
+		// callback the provider bounced the address bar to, a download or
+		// preview link opened in a tab. Those keep the 303, because raw JSON in
+		// the viewport helps nobody. `isBrowserNavigation` reads the browser's
+		// own Fetch Metadata for that, which page script cannot forge for its
+		// own requests, so the app's fetches are always on the 401 side.
+		//
 		// Access is unchanged either way — this is the shape of the refusal, not
 		// whether it refuses. The public/allow list above still admits the
 		// service-assertion routes (the drain bearer token, the produce-file
 		// signing key) before this gate, so how those authenticate is untouched.
-		if (isApiRequest(path)) {
+		if (isApiRequest(path) && !isBrowserNavigation(event.request)) {
 			const response = json({ error: "Unauthorized" }, { status: 401 });
 			applySecurityHeaders(event, response);
 			return response;

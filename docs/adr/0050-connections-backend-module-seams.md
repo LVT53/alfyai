@@ -144,7 +144,12 @@ Verified live post-deploy: unauth `/api/connections` → 303; authenticated → 
 answers an unauthenticated request whose path starts with `/api/` with **401 JSON**
 (`{"error":"Unauthorized"}`) instead of the 303; page requests keep the 303 to `/login`,
 and `PUBLIC_PATHS` is unchanged. So an unauth `/api/connections` call is now a **401 from
-the hook**, matching the shape `requireApiUser` produces at the handler level.
+the hook**, matching the shape `requireApiUser` produces at the handler level. One
+exception keeps the friendly behaviour for the `/api/` URLs a person actually looks at —
+the OAuth callbacks, and download/preview links opened in a tab: a request the browser
+marks as a top-level navigation (`Sec-Fetch-Mode: navigate`, or `Sec-Fetch-Dest:
+document`/`iframe`; absent those headers, an explicit `text/html` in `Accept` on a GET or
+HEAD) still gets the 303, and page script cannot forge those headers for its own `fetch`.
 
 **Note:** `mapConnectError` duck-types on `.code` rather than assuming every provider error
 extends `ConnectionHttpError` — `ImapError` extends `Error` (IMAP was out of B1's scope).

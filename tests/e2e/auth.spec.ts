@@ -39,6 +39,16 @@ test.describe("Authentication", () => {
 		expect(await response.json()).toEqual({ error: "Unauthorized" });
 	});
 
+	// The exception: an /api/ URL a person is looking at. A real navigation
+	// carries Sec-Fetch-Mode: navigate, which page script cannot forge, so this
+	// lands on the login screen rather than showing raw JSON in the viewport.
+	test("sends a top-level navigation to an API URL to the login screen", async ({
+		page,
+	}) => {
+		await page.goto("/api/knowledge/doc-1/download");
+		await expect(page).toHaveURL(/\/login/);
+	});
+
 	test("keeps the public API routes reachable without a session", async ({
 		request,
 	}) => {
