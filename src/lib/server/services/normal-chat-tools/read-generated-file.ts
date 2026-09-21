@@ -1,10 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "$lib/server/db";
-import { artifacts, chatGeneratedFiles } from "$lib/server/db/schema";
+import {
+	artifacts,
+	chatGeneratedFiles,
+	fileProductionJobFiles,
+} from "$lib/server/db/schema";
+import { decodeTextBuffer } from "$lib/server/services/extraction/text-decode";
 import {
 	readStoredOutline,
 	readStoredPageCountKind,
@@ -78,6 +83,36 @@ const CHAT_FILES_DIR = join(process.cwd(), "data", "chat-files");
  * Falls back to `null` when the file is not on disk, is binary, or
  * cannot be decoded as UTF‑8.
  */
+async function decodeStoredChatFile(file: {
+	storagePath: string;
+	mimeType: string | null;
+}): Promise<string | null> {
+	const fullPath = join(CHAT_FILES_DIR, file.storagePath);
+	const buffer = await readFile(fullPath);
+
+	const mimeType = file.mimeType?.toLowerCase() ?? "";
+	// Every member of the old inline list is a registry MIME on a text-like
+	// entry, including "application/x-yaml", which is carried as a yaml alias
+	// for exactly this call site (spec open question 7).
+	const isTextBased =
+		mimeType.startsWith("text/") ||
+		getEntryByMimeType(mimeType)?.textLike === true;
+
+	if (
+		isTextBased ||
+		mimeType === "" ||
+		mimeType === "application/octet-stream"
+	) {
+		// The shared decoder `chat-files.ts` feeds the memory wrapper with, so the
+		// text a model reads back off disk here and the text that was chunked and
+		// embedded from the same bytes are byte-identical (BOM handling, the
+		// binary guard, CRLF normalisation and trim all in one place).
+		const decoded = decodeTextBuffer(buffer);
+		return decoded.ok ? decoded.text || null : null;
+	}
+	return null;
+}
+
 async function readGeneratedFileBinaryContent(
 	userId: string,
 	originalChatFileId: string,
@@ -98,26 +133,7 @@ async function readGeneratedFileBinaryContent(
 			.limit(1);
 
 		if (!fileRow) return null;
-
-		const fullPath = join(CHAT_FILES_DIR, fileRow.storagePath);
-		const buffer = await readFile(fullPath);
-
-		const mimeType = fileRow.mimeType?.toLowerCase() ?? "";
-		// Every member of the old inline list is a registry MIME on a text-like
-		// entry, including "application/x-yaml", which is carried as a yaml alias
-		// for exactly this call site (spec open question 7).
-		const isTextBased =
-			mimeType.startsWith("text/") ||
-			getEntryByMimeType(mimeType)?.textLike === true;
-
-		if (
-			isTextBased ||
-			mimeType === "" ||
-			mimeType === "application/octet-stream"
-		) {
-			return buffer.toString("utf-8").trim() || null;
-		}
-		return null;
+		return await decodeStoredChatFile(fileRow);
 	} catch (error) {
 		console.warn(
 			"[READ_GENERATED_FILE] Disk read failed, falling back to memory text",
@@ -257,8 +273,24 @@ export interface ReadGeneratedFileCandidate {
 	conversation: ReadGeneratedFileConversation;
 }
 
+/**
+ * A file this conversation produced, matched by the name the model gave it.
+ *
+ * `row` is the `generated_output` artifact when one is already linked to this
+ * exact chat file; it is null in the window between the file being written and
+ * the deferred memory sync minting its artifact — the same-turn read-back the
+ * model does right after `produce_file`.
+ */
+type ResolvedChatFile = {
+	file: ChatFileRow;
+	row: ArtifactRow | null;
+	versionNumber: number | null;
+};
+
 type ResolvedTarget = {
-	row: ArtifactRow;
+	row: ArtifactRow | null;
+	/** Set only on the chat-file path; the artifact paths leave it null. */
+	chatFile: ResolvedChatFile | null;
 	source: ReadGeneratedFileSource;
 	conversation: ReadGeneratedFileConversation;
 };
@@ -276,6 +308,305 @@ function stemOf(value: string): string {
 	const trimmed = value.trim();
 	const ext = extname(trimmed);
 	return normalizeName(ext ? basename(trimmed, ext) : trimmed);
+}
+
+// ── Chat-file resolution (the filename the model actually produced) ──
+//
+// The artifact-name lookup below cannot answer for a document-source file: the
+// `generated_output` artifact of a `document_source` job is named after the
+// DOCUMENT TITLE ("Tobacco Cost Breakdown — …"), never after the produced
+// `tobacco-cost-breakdown.pdf` the model, the file card and the download all
+// use. And for every other kind of generated file the artifact does not exist
+// yet during the turn that produced it (the memory sync is deferred until the
+// assistant message is assigned), so a same-turn read-back found nothing at
+// all. `chat_generated_files` is the row that always exists, under the name the
+// model actually used, so it is asked first.
+
+type ChatFileRow = {
+	id: string;
+	filename: string;
+	mimeType: string | null;
+	sizeBytes: number;
+	storagePath: string;
+	createdAt: Date;
+};
+
+/** Every file THIS conversation produced, for THIS user. Ownership is in the
+ * `where`, never in a later filter. */
+async function listConversationChatFiles(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<ChatFileRow[]> {
+	return db
+		.select({
+			id: chatGeneratedFiles.id,
+			filename: chatGeneratedFiles.filename,
+			mimeType: chatGeneratedFiles.mimeType,
+			sizeBytes: chatGeneratedFiles.sizeBytes,
+			storagePath: chatGeneratedFiles.storagePath,
+			createdAt: chatGeneratedFiles.createdAt,
+		})
+		.from(chatGeneratedFiles)
+		.where(
+			and(
+				eq(chatGeneratedFiles.userId, params.userId),
+				eq(chatGeneratedFiles.conversationId, params.conversationId),
+			),
+		)
+		.orderBy(desc(chatGeneratedFiles.createdAt));
+}
+
+type GeneratedArtifactLink = { row: ArtifactRow; versionNumber: number | null };
+
+/**
+ * This conversation's `generated_output` artifacts, indexed by every chat file
+ * they speak for and by the file-production job they came from.
+ *
+ * Deliberately NOT filtered on `retrievalClass`: a document-source artifact is
+ * written `ephemeral_followup` and only becomes `durable` when its rendered
+ * files are attached, and the whole point here is to be able to answer in that
+ * window.
+ */
+async function loadGeneratedOutputArtifactLinks(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<{
+	byChatFileId: Map<string, GeneratedArtifactLink>;
+	byJobId: Map<string, GeneratedArtifactLink>;
+}> {
+	const rows = await db
+		.select()
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.userId, params.userId),
+				eq(artifacts.conversationId, params.conversationId),
+				eq(artifacts.type, "generated_output"),
+			),
+		)
+		.orderBy(desc(artifacts.updatedAt));
+
+	const byChatFileId = new Map<string, GeneratedArtifactLink>();
+	const byJobId = new Map<string, GeneratedArtifactLink>();
+	for (const row of rows) {
+		const metadata = parseJsonRecord(row.metadataJson);
+		const documentMetadata = parseWorkingDocumentMetadata(metadata);
+		const versionNumber =
+			typeof documentMetadata.versionNumber === "number" &&
+			Number.isFinite(documentMetadata.versionNumber)
+				? Math.trunc(documentMetadata.versionNumber)
+				: typeof metadata?.generatedFileVersion === "number" &&
+						Number.isFinite(metadata.generatedFileVersion)
+					? Math.trunc(metadata.generatedFileVersion)
+					: null;
+		const link: GeneratedArtifactLink = { row, versionNumber };
+
+		const ids = [
+			typeof metadata?.originalChatFileId === "string"
+				? metadata.originalChatFileId.trim()
+				: null,
+			typeof metadata?.sourceChatFileId === "string"
+				? metadata.sourceChatFileId.trim()
+				: null,
+			...(Array.isArray(metadata?.generatedDocumentRenderedChatFileIds)
+				? metadata.generatedDocumentRenderedChatFileIds.filter(
+						(id): id is string => typeof id === "string",
+					)
+				: []),
+		];
+		for (const id of ids) {
+			if (id && !byChatFileId.has(id)) byChatFileId.set(id, link);
+		}
+
+		const jobId =
+			typeof metadata?.fileProductionJobId === "string"
+				? metadata.fileProductionJobId.trim()
+				: null;
+		if (jobId && !byJobId.has(jobId)) byJobId.set(jobId, link);
+	}
+	return { byChatFileId, byJobId };
+}
+
+/**
+ * The job each of these chat files came out of. Only consulted for a file the
+ * artifact metadata does not already name — a document-source artifact records
+ * its rendered files only once the job has attached them, and this closes the
+ * window in between.
+ */
+async function loadJobIdsForChatFiles(
+	fileIds: string[],
+): Promise<Map<string, string>> {
+	if (fileIds.length === 0) return new Map();
+	const rows = await db
+		.select({
+			chatGeneratedFileId: fileProductionJobFiles.chatGeneratedFileId,
+			jobId: fileProductionJobFiles.jobId,
+		})
+		.from(fileProductionJobFiles)
+		.where(inArray(fileProductionJobFiles.chatGeneratedFileId, fileIds));
+	return new Map(rows.map((row) => [row.chatGeneratedFileId, row.jobId]));
+}
+
+/** Exact, then case-insensitive, then stem. Strongest first, as a number so
+ * the winning tier can be compared. */
+function chatFileMatchTier(filename: string, needle: string): number {
+	const trimmedNeedle = needle.trim();
+	const trimmedName = filename.trim();
+	if (!trimmedNeedle || !trimmedName) return 0;
+	if (trimmedName === trimmedNeedle) return 3;
+	if (normalizeName(trimmedName) === normalizeName(trimmedNeedle)) return 2;
+	const needleStem = stemOf(trimmedNeedle);
+	if (needleStem && stemOf(trimmedName) === needleStem) return 1;
+	return 0;
+}
+
+/**
+ * Newest first.
+ *
+ * The version metadata decides when BOTH files have one; otherwise creation
+ * time does. That order — and not "version first, creation time as a
+ * tiebreak" — is what makes the same-turn patch case correct: the v2 file on
+ * disk has no artifact and therefore no version number yet, so ranking by
+ * version would hand back the stale v1 that does have one.
+ */
+function compareChatFileRecency(
+	left: { file: ChatFileRow; versionNumber: number | null },
+	right: { file: ChatFileRow; versionNumber: number | null },
+): number {
+	const byTime = right.file.createdAt.getTime() - left.file.createdAt.getTime();
+	if (byTime !== 0) return byTime;
+	if (left.versionNumber !== null && right.versionNumber !== null) {
+		return right.versionNumber - left.versionNumber;
+	}
+	return 0;
+}
+
+async function findChatFileTarget(params: {
+	userId: string;
+	conversationId: string;
+	filename: string;
+}): Promise<ResolvedChatFile | null> {
+	const files = await listConversationChatFiles(params);
+	if (files.length === 0) return null;
+
+	let bestTier = 0;
+	let matches: ChatFileRow[] = [];
+	for (const file of files) {
+		const tier = chatFileMatchTier(file.filename, params.filename);
+		if (tier === 0) continue;
+		if (tier > bestTier) {
+			bestTier = tier;
+			matches = [file];
+		} else if (tier === bestTier) {
+			matches.push(file);
+		}
+	}
+	if (matches.length === 0) return null;
+
+	const links = await loadGeneratedOutputArtifactLinks(params);
+	const unlinked = matches
+		.filter((file) => !links.byChatFileId.has(file.id))
+		.map((file) => file.id);
+	const jobIdsByFile = await loadJobIdsForChatFiles(unlinked);
+	const linkOf = (file: ChatFileRow): GeneratedArtifactLink | null => {
+		const direct = links.byChatFileId.get(file.id);
+		if (direct) return direct;
+		const jobId = jobIdsByFile.get(file.id);
+		return (jobId ? links.byJobId.get(jobId) : null) ?? null;
+	};
+
+	const ranked = matches
+		.map((file) => ({
+			file,
+			versionNumber: linkOf(file)?.versionNumber ?? null,
+		}))
+		.sort(compareChatFileRecency);
+	const winner = ranked[0];
+	const link = linkOf(winner.file);
+
+	// A file the memory sync has not reached yet has no version metadata at
+	// all. Its position among the same-named files of this conversation is the
+	// honest answer, and it is the one the next sync will record.
+	const sameName = files.filter(
+		(file) =>
+			normalizeName(file.filename) === normalizeName(winner.file.filename),
+	);
+	const positionalVersion =
+		sameName.filter(
+			(file) => file.createdAt.getTime() <= winner.file.createdAt.getTime(),
+		).length || 1;
+
+	return {
+		file: winner.file,
+		row: link?.row ?? null,
+		versionNumber: link?.versionNumber ?? positionalVersion,
+	};
+}
+
+/**
+ * The text of a chat file, and whether it merely has not arrived yet.
+ *
+ * Order: the bytes on disk when they ARE the text (a Markdown, JSON or code
+ * output is readable the instant it is written, and disk is both untruncated
+ * and unambiguously this version, where the memory wrapper carries a 6 000-char
+ * preview of whichever file the artifact calls its original); then the linked
+ * artifact; then, for a document-source artifact with no text, the same
+ * renderer the memory sync uses. A binary whose text the extraction ledger is
+ * still reading back returns `pending`, never "not found" — the file exists.
+ */
+async function resolveChatFileText(params: {
+	userId: string;
+	file: ChatFileRow;
+	row: ArtifactRow | null;
+}): Promise<{ text: string | null; pending: boolean }> {
+	const { generatedFileTextSource } = await import(
+		"$lib/server/services/chat-files"
+	);
+	const textSource = generatedFileTextSource(
+		params.file.filename,
+		params.file.mimeType,
+	);
+
+	if (textSource === "inline") {
+		try {
+			const text = await decodeStoredChatFile(params.file);
+			if (text) return { text, pending: false };
+		} catch (error) {
+			console.warn("[READ_GENERATED_FILE] Generated file is not on disk", {
+				fileId: params.file.id,
+				filename: params.file.filename,
+				error,
+			});
+		}
+	}
+
+	if (params.row) {
+		const metadata = parseJsonRecord(params.row.metadataJson);
+		if (metadata?.generatedDocumentSource !== undefined) {
+			// A document-source artifact's `contentText` IS the rendered Markdown
+			// (no memory wrapper), so it is used as-is and never rendered twice.
+			const stored = params.row.contentText?.trim();
+			if (stored) return { text: stored, pending: false };
+			const { renderGeneratedDocumentSourceText } = await import(
+				"$lib/server/services/file-production/source-persistence"
+			);
+			const rendered = renderGeneratedDocumentSourceText(
+				metadata.generatedDocumentSource,
+			);
+			if (rendered) return { text: rendered, pending: false };
+		} else if (params.row.contentText?.includes(EXTRACTED_CONTENT_MARKER)) {
+			// The wrapper only grows that marker once real text landed; while the
+			// readback is queued the section is the one-line "nothing yet" shape.
+			const text = await resolveBestContent(
+				params.userId,
+				params.row.contentText,
+				params.row.metadataJson,
+			);
+			if (text) return { text, pending: false };
+		}
+	}
+
+	return { text: null, pending: textSource === "ledger" };
 }
 
 async function listGeneratedOutputRows(params: {
@@ -518,7 +849,12 @@ async function findNormalizedDocument(params: {
 	if (!row) return { status: "none" };
 	return {
 		status: "match",
-		target: { row, source: "document", conversation: pick.conversation },
+		target: {
+			row,
+			chatFile: null,
+			source: "document",
+			conversation: pick.conversation,
+		},
 	};
 }
 
@@ -528,11 +864,34 @@ async function resolveReadTarget(params: {
 	filename?: string | null;
 	requestTitle?: string | null;
 }): Promise<TargetLookup> {
+	// (1) The filename the model produced, against the rows that carry it.
+	const requestedFilename = params.filename?.trim() ?? "";
+	if (requestedFilename) {
+		const chatFile = await findChatFileTarget({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			filename: requestedFilename,
+		});
+		if (chatFile) {
+			return {
+				status: "match",
+				target: {
+					row: chatFile.row,
+					chatFile,
+					source: "generated",
+					conversation: "this",
+				},
+			};
+		}
+	}
+
+	// (2) The pre-existing artifact-name matching: uploaded documents, titles,
+	// and generated files whose artifact happens to be named after the file.
 	const generatedRows = await listGeneratedOutputRows(params);
 	const generated = pickGeneratedOutputRow(generatedRows, params);
 	const asGenerated = (row: ArtifactRow): TargetLookup => ({
 		status: "match",
-		target: { row, source: "generated", conversation: "this" },
+		target: { row, chatFile: null, source: "generated", conversation: "this" },
 	});
 	if (generated && !generated.contentOnly) return asGenerated(generated.row);
 
@@ -556,12 +915,44 @@ async function resolveReadTarget(params: {
 			status: "match",
 			target: {
 				row: generatedRows[0],
+				chatFile: null,
 				source: "generated",
 				conversation: "this",
 			},
 		};
 	}
 	return { status: "none" };
+}
+
+/**
+ * What this conversation actually produced, for a miss.
+ *
+ * A model that mistypes a filename used to get `candidates: []` and no way
+ * back; these are the names it can copy verbatim.
+ */
+async function listChatFileCandidates(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<ReadGeneratedFileCandidate[]> {
+	try {
+		const files = await listConversationChatFiles(params);
+		const seen = new Set<string>();
+		const candidates: ReadGeneratedFileCandidate[] = [];
+		for (const file of files) {
+			const key = normalizeName(file.filename);
+			if (!key || seen.has(key)) continue;
+			seen.add(key);
+			candidates.push({
+				filename: file.filename,
+				updatedAt: file.createdAt.toISOString(),
+				conversation: "this",
+			});
+			if (candidates.length >= 8) break;
+		}
+		return candidates;
+	} catch {
+		return [];
+	}
 }
 
 // ── Passages ───────────────────────────────────────────────────
@@ -609,6 +1000,35 @@ function rowToArtifact(row: ArtifactRow, contentText: string | null): Artifact {
 		storagePath: row.storagePath ?? null,
 		contentText,
 		metadata,
+	};
+}
+
+/**
+ * The shape `selectDocumentPassages` needs for a file that has no artifact
+ * yet. It is only ever used with `useStoredChunks: false`, so the synthetic id
+ * never reaches the chunk table — the text is chunked in memory.
+ */
+function chatFileToArtifact(
+	chatFile: ResolvedChatFile,
+	userId: string,
+	contentText: string | null,
+): Artifact {
+	return {
+		id: chatFile.file.id,
+		type: "generated_output",
+		retrievalClass: "durable",
+		name: chatFile.file.filename,
+		mimeType: chatFile.file.mimeType,
+		sizeBytes: chatFile.file.sizeBytes,
+		conversationId: null,
+		summary: null,
+		createdAt: chatFile.file.createdAt.getTime(),
+		updatedAt: chatFile.file.createdAt.getTime(),
+		userId,
+		extension: extname(chatFile.file.filename).replace(/^\./, "") || null,
+		storagePath: chatFile.file.storagePath,
+		contentText,
+		metadata: null,
 	};
 }
 
@@ -748,6 +1168,15 @@ export interface ReadGeneratedFileResult {
 	pageUnit: PageCountUnit | null;
 	/** Why a requested `page` was ignored. One line, for the model. */
 	pageNote: string | null;
+	/**
+	 * The file exists and was found, but a backend is still reading its text
+	 * back. Never set together with `notFound`: "no matching file" is reserved
+	 * for a file that is not there at all.
+	 */
+	textPending: boolean;
+	/** Facts about the stored file, so a `textPending` answer is still useful. */
+	sizeBytes: number | null;
+	createdAt: string | null;
 }
 
 /** The word for each unit in the one-line tool summary. */
@@ -785,6 +1214,9 @@ function emptyResult(
 		pageCount: null,
 		pageUnit: null,
 		pageNote: null,
+		textPending: false,
+		sizeBytes: null,
+		createdAt: null,
 		...overrides,
 	};
 }
@@ -902,7 +1334,11 @@ export async function readGeneratedFileContent(params: {
 
 	const lookup = await resolveReadTarget(params);
 	if (lookup.status === "none") {
-		return emptyResult({ filename: params.filename ?? null, notFound: true });
+		return emptyResult({
+			filename: params.filename ?? null,
+			notFound: true,
+			candidates: await listChatFileCandidates(params),
+		});
 	}
 	if (lookup.status === "ambiguous") {
 		return emptyResult({
@@ -913,17 +1349,20 @@ export async function readGeneratedFileContent(params: {
 		});
 	}
 
-	const { row, source, conversation } = lookup.target;
+	const { row, chatFile, source, conversation } = lookup.target;
 	// Keyed on the resolved artifact (plus its updatedAt, so a rewritten
 	// file is never served stale) and the turn, so a repeat call for the
-	// same window or query inside one turn is answered from memory.
+	// same window or query inside one turn is answered from memory. A
+	// chat-file hit with no artifact yet keys on the file row instead.
 	const cacheKey = params.turnId
 		? buildToolResultCacheKey({
 				conversationId: params.conversationId,
 				toolName: "read_generated_file",
 				input: {
-					artifactId: row.id,
-					updatedAt: row.updatedAt.getTime(),
+					artifactId: row?.id ?? null,
+					chatFileId: chatFile?.file.id ?? null,
+					updatedAt:
+						row?.updatedAt.getTime() ?? chatFile?.file.createdAt.getTime() ?? 0,
 					from,
 					query,
 					page: pageRequested ? requestedPage : null,
@@ -937,27 +1376,48 @@ export async function readGeneratedFileContent(params: {
 	}
 
 	const metadata = parseWorkingDocumentMetadata(
-		parseJsonRecord(row.metadataJson),
+		parseJsonRecord(row?.metadataJson ?? null),
 	);
-	const resolvedContent =
-		source === "generated"
-			? await resolveBestContent(
-					params.userId,
-					row.contentText,
-					row.metadataJson,
-				)
-			: (row.contentText?.trim() ?? null);
+	// A target is either a chat file (which may or may not have an artifact
+	// yet) or an artifact; the two branches never overlap, so each reads only
+	// the row it is guaranteed to have.
+	const chatFileText = chatFile
+		? await resolveChatFileText({
+				userId: params.userId,
+				file: chatFile.file,
+				row: chatFile.row,
+			})
+		: null;
+	let resolvedContent: string | null = null;
+	let displayName: string | null = null;
+	if (chatFile) {
+		resolvedContent = chatFileText?.text ?? null;
+		displayName = chatFile.file.filename;
+	} else if (row) {
+		resolvedContent =
+			source === "generated"
+				? await resolveBestContent(
+						params.userId,
+						row.contentText,
+						row.metadataJson,
+					)
+				: (row.contentText?.trim() ?? null);
+		displayName =
+			source === "document"
+				? toCandidate(row, conversation).filename
+				: row.name;
+	}
 	const contentLength = resolvedContent?.length ?? 0;
-	const displayName =
-		source === "document" ? toCandidate(row, conversation).filename : row.name;
 
 	const base: ReadGeneratedFileResult = {
 		filename: displayName,
 		documentLabel: metadata.documentLabel ?? null,
-		versionNumber: metadata.versionNumber ?? null,
+		versionNumber: chatFile
+			? (metadata.versionNumber ?? chatFile.versionNumber)
+			: (metadata.versionNumber ?? null),
 		contentText: null,
-		summary: row.summary?.trim() ?? null,
-		mimeType: row.mimeType,
+		summary: row?.summary?.trim() ?? null,
+		mimeType: chatFile?.file.mimeType ?? row?.mimeType ?? null,
 		contentLength,
 		notFound: false,
 		ambiguous: false,
@@ -974,26 +1434,43 @@ export async function readGeneratedFileContent(params: {
 		pageCount: null,
 		pageUnit: null,
 		pageNote: null,
+		textPending: chatFileText?.pending ?? false,
+		sizeBytes: chatFile?.file.sizeBytes ?? row?.sizeBytes ?? null,
+		createdAt:
+			(chatFile?.file.createdAt ?? row?.createdAt)?.toISOString() ?? null,
 	};
+
+	// The file exists; only its text does not, yet. Short-circuit before the
+	// window arithmetic so nothing has to invent an empty document.
+	if (base.textPending) {
+		if (cacheKey) setCachedToolResult(cacheKey, base);
+		return base;
+	}
 
 	// One small JSON read, and only when `page` is both passed and not
 	// outranked by `query`/`from`.
-	const pageLookup = pageRequested
-		? await resolvePageOffset({
-				userId: params.userId,
-				row,
-				page: requestedPage as number,
-				contentLength,
-				contentText: resolvedContent ?? null,
-			})
-		: null;
+	const pageLookup =
+		pageRequested && row
+			? await resolvePageOffset({
+					userId: params.userId,
+					row,
+					page: requestedPage as number,
+					contentLength,
+					contentText: resolvedContent ?? null,
+				})
+			: null;
+
+	const passageArtifact = row
+		? rowToArtifact(row, resolvedContent)
+		: chatFile
+			? chatFileToArtifact(chatFile, params.userId, resolvedContent)
+			: null;
 
 	let result: ReadGeneratedFileResult;
-	if (query) {
-		const artifact = rowToArtifact(row, resolvedContent);
+	if (query && passageArtifact) {
 		const { passages, hasMore } = await buildPassages({
 			userId: params.userId,
-			artifact,
+			artifact: passageArtifact,
 			query,
 			// A generated file's stored chunks were cut from the memory
 			// wrapper (header + assistant reply + extracted content), not from
@@ -1068,6 +1545,20 @@ export function buildReadGeneratedFileModelPayload(
 		contentLength: result.contentLength,
 	};
 
+	// The file is real, the text is not there yet. Saying "no matching file
+	// found" here is what made a model retract a true statement and produce the
+	// same file a second time, so this says what is actually the case.
+	if (result.textPending) {
+		return {
+			...base,
+			content: null,
+			textPending: true,
+			...(result.sizeBytes !== null ? { sizeBytes: result.sizeBytes } : {}),
+			...(result.createdAt ? { createdAt: result.createdAt } : {}),
+			note: `The file "${result.filename ?? ""}" exists and was produced in this conversation; its text is still being extracted. Do not produce it again — tell the user it is ready and call read_generated_file with the same filename again shortly if you need its contents.`,
+		};
+	}
+
 	if (result.passages) {
 		return {
 			...base,
@@ -1135,6 +1626,10 @@ export function summarizeReadGeneratedFileResult(
 	const label = result.documentLabel ?? result.filename ?? "file";
 	const version = result.versionNumber ? ` v${result.versionNumber}` : "";
 	const length = result.contentLength ? ` (${result.contentLength} chars)` : "";
+	if (result.textPending) {
+		const size = result.sizeBytes !== null ? `, ${result.sizeBytes} bytes` : "";
+		return `Found "${label}"${version}${size}; its text is still being extracted.`;
+	}
 	if (result.passages) {
 		return `Found "${label}"${version}${length}: ${result.passages.length} passage(s) for "${result.query ?? ""}".`;
 	}

@@ -89,6 +89,25 @@ function buildGeneratedDocumentSourceText(
 	return text.trim() ? text : null;
 }
 
+/**
+ * The readable text of a stored document source, for a caller that holds the
+ * source object but not the artifact's text.
+ *
+ * `read_generated_file` needs exactly what the memory sync stores — the same
+ * renderer, the same data-URI replacement — for a document-source file whose
+ * artifact text is missing (a render that threw at persist time). Re-deriving
+ * it there would be a second source→text path, which is the thing D9 removed.
+ * Returns `null` when the source is not a valid document source or renders to
+ * nothing, which is the caller's signal to fall back.
+ */
+export function renderGeneratedDocumentSourceText(
+	source: unknown,
+): string | null {
+	const validation = validateGeneratedDocumentSource(source);
+	if (!validation.ok) return null;
+	return buildGeneratedDocumentSourceText(validation.source, undefined);
+}
+
 function readStringArray(value: unknown): string[] {
 	if (!Array.isArray(value)) {
 		return [];
