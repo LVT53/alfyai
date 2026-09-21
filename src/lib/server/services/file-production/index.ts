@@ -25,6 +25,7 @@ export type {
 	FailFileProductionAttemptInput,
 	FileProductionJobAttempt,
 	OwnedFileProductionAttemptInput,
+	ReclaimDeadWorkerFileProductionAttemptsInput,
 	ReconcileStaleFileProductionJobsInput,
 	RecoverStaleFileProductionAttemptsInput,
 	RetryFileProductionJobInput,
@@ -157,6 +158,15 @@ export async function recoverStaleFileProductionAttempts(
 ): ReturnType<JobLedgerModule["recoverStaleFileProductionAttempts"]> {
 	const { recoverStaleFileProductionAttempts } = await loadJobLedger();
 	return recoverStaleFileProductionAttempts(...args);
+}
+
+export async function reclaimDeadWorkerFileProductionAttempts(
+	...args: Parameters<
+		JobLedgerModule["reclaimDeadWorkerFileProductionAttempts"]
+	>
+): ReturnType<JobLedgerModule["reclaimDeadWorkerFileProductionAttempts"]> {
+	const { reclaimDeadWorkerFileProductionAttempts } = await loadJobLedger();
+	return reclaimDeadWorkerFileProductionAttempts(...args);
 }
 
 export async function retryFileProductionJob(

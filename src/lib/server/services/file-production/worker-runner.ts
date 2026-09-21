@@ -12,11 +12,11 @@
 // is not in a worker with a concurrency cap — one attempt nobody ever calls
 // dead is not one stuck card, it is every later production for every user.
 
-import { randomUUID } from "node:crypto";
 import { inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { fileProductionJobs } from "$lib/server/db/schema";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import { createWorkerId } from "../worker-identity";
 import {
 	type FileProductionWorkerConfig,
 	getFileProductionWorkerConfig,
@@ -31,6 +31,7 @@ import {
 	failFileProductionJobAttempt,
 	getCurrentOwnedRunningJob,
 	heartbeatFileProductionJobAttempt,
+	reclaimDeadWorkerFileProductionAttempts,
 	recoverStaleFileProductionAttempts,
 } from "./job-ledger";
 import type { FileProductionLimits } from "./limits";
@@ -70,7 +71,14 @@ interface ExecuteNextFileProductionJobStepResult {
 	result: ExecuteNextFileProductionJobResult | null;
 }
 
-const DEFAULT_WORKER_ID = `file-production:${process.pid}:${randomUUID()}`;
+/**
+ * `file-production:<hostname>:<pid>:<boot-nonce>`.
+ *
+ * The hostname and the nonce are what let the BOOT sweep tell an attempt this
+ * very restart orphaned from one a healthy process is still working on. See
+ * `worker-identity.ts`.
+ */
+const DEFAULT_WORKER_ID = createWorkerId("file-production");
 
 /**
  * The bootstrap guard for THIS module instance. The authoritative one lives on
@@ -431,6 +439,31 @@ async function runStaleRecovery(
 	return outcome;
 }
 
+/**
+ * The boot sweep that does not wait.
+ *
+ * The heartbeat sweep can only ask "has this attempt been silent for the stale
+ * window", and after a deploy the answer is no: the orphaned attempt
+ * heartbeated seconds before the old process died. This asks the question the
+ * new process can answer — is that process still on this host — so an install
+ * whose only slot is held by a dead attempt is free in seconds, not minutes.
+ */
+export async function runDeadWorkerReclaim(
+	workerId: string,
+	isProcessAlive?: (pid: number) => boolean,
+): Promise<{ recovered: number }> {
+	const outcome = await reclaimDeadWorkerFileProductionAttempts({
+		workerId,
+		...(isProcessAlive ? { isProcessAlive } : {}),
+	});
+	if (outcome.recovered > 0) {
+		console.warn("[FILE_PRODUCTION] Reclaimed attempts from a dead worker", {
+			recovered: outcome.recovered,
+		});
+	}
+	return outcome;
+}
+
 /** Fire-and-forget wake, deduped by an in-module promise. */
 export function wakeFileProductionWorker(): void {
 	scheduler().wakeRequests += 1;
@@ -628,6 +661,7 @@ export async function ensureFileProductionWorker(
 		heartbeatMs: config.heartbeatMs,
 	});
 
+	await runDeadWorkerReclaim(drainInput.workerId ?? DEFAULT_WORKER_ID);
 	await runStaleRecovery(config, "boot");
 
 	state.bootSweep = setTimeout(() => {
