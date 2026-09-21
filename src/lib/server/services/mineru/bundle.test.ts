@@ -338,9 +338,7 @@ describe("readMineruParseManifest / readMineruPageIndex", () => {
 
 		// An unchecked read still answers, for the callers that have no text to
 		// compare against.
-		expect(
-			await readMineruPageIndex(userId, sourceArtifactId),
-		).not.toBeNull();
+		expect(await readMineruPageIndex(userId, sourceArtifactId)).not.toBeNull();
 	});
 
 	it("survives a crash part-way through the normalized-id patch", async () => {
