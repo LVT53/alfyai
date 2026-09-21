@@ -296,6 +296,9 @@ const settingsDict = {
 		"admin.mineruBundleMaxBytes": "Parse bundle size cap",
 		"admin.mineruBundleMaxBytesDescription":
 			"Disk budget for one document's saved parse bundle. Text and structure are always kept; figures are dropped once the budget is reached.",
+		"admin.mineruBundleUserQuotaBytes": "Parse bundle storage per user",
+		"admin.mineruBundleUserQuotaBytesDescription":
+			"Total disk one account's parse bundles may occupy. A bundle is derived data — the document text lives in the database and Re-extract rebuilds one — so when the budget is exceeded the oldest bundles lose their figures first, then whole bundles go. 0 means no limit.",
 		"admin.mineruCapabilitiesTtlMs": "Capability cache",
 		"admin.mineruCapabilitiesTtlMsDescription":
 			"How long MinerU's version, tiers and output formats are reused before being re-read. 0 re-reads on every extraction.",
@@ -1785,6 +1788,10 @@ const settingsDict = {
 		"admin.system.keys.MINERU_CAPABILITIES_TTL_MS.label": "Capability cache",
 		"admin.system.keys.MINERU_CAPABILITIES_TTL_MS.meaning":
 			"How long MinerU's version and tier list are reused. 0 re-reads every time.",
+		"admin.system.keys.MINERU_BUNDLE_USER_QUOTA_BYTES.label":
+			"Parse bundle storage per user",
+		"admin.system.keys.MINERU_BUNDLE_USER_QUOTA_BYTES.meaning":
+			"Total disk one account's parse bundles may occupy. Bundles are derived data — the document text lives in the database and Re-extract rebuilds one — so when the budget is exceeded the oldest bundles' figures are dropped first, then whole bundles. 0 means no limit.",
 		"admin.system.keys.MINERU_BUNDLE_MAX_BYTES.label": "Parse bundle size cap",
 		"admin.system.keys.MINERU_BUNDLE_MAX_BYTES.meaning":
 			"Disk budget per document. Figures are dropped once it is reached; text never is.",
@@ -2278,6 +2285,10 @@ const settingsDict = {
 		"admin.mineruBundleMaxBytes": "Elemzési csomag mérethatára",
 		"admin.mineruBundleMaxBytesDescription":
 			"Egy dokumentum elmentett elemzési csomagjának lemezkerete. A szöveget és a szerkezetet mindig megtartjuk; az ábrák a keret elérése után kimaradnak.",
+		"admin.mineruBundleUserQuotaBytes":
+			"Elemzési csomagok tárhelye felhasználónként",
+		"admin.mineruBundleUserQuotaBytesDescription":
+			"Egy fiók összes elemzési csomagjának lemezkerete. A csomag származtatott adat — a dokumentum szövege az adatbázisban van, az Újraelemzés pedig újraépíti —, ezért a keret túllépésekor először a legrégebbi csomagok ábrái vesznek el, majd a teljes csomagok. A 0 azt jelenti, hogy nincs korlát.",
 		"admin.mineruCapabilitiesTtlMs": "Képességek gyorsítótára",
 		"admin.mineruCapabilitiesTtlMsDescription":
 			"Meddig használjuk újra a MinerU verzióját, szintjeit és kimeneti formátumait, mielőtt újra lekérnénk. A 0 minden kinyerésnél újraolvassa.",
@@ -3819,6 +3830,10 @@ const settingsDict = {
 			"Elemzési csomag mérethatára",
 		"admin.system.keys.MINERU_BUNDLE_MAX_BYTES.meaning":
 			"Dokumentumonkénti lemezkeret. Elérésekor az ábrák maradnak ki, a szöveg sosem.",
+		"admin.system.keys.MINERU_BUNDLE_USER_QUOTA_BYTES.label":
+			"Elemzési csomagok tárhelye felhasználónként",
+		"admin.system.keys.MINERU_BUNDLE_USER_QUOTA_BYTES.meaning":
+			"Egy fiók összes elemzési csomagjának lemezkerete. A csomagok származtatott adatok — a szöveg az adatbázisban van, az Újraelemzés újraépíti őket —, ezért a keret túllépésekor először a legrégebbi csomagok ábrái vesznek el, majd a teljes csomagok. A 0 azt jelenti, hogy nincs korlát.",
 		"admin.system.keys.MINERU_STRUCTURE_CHUNKING_ENABLED.label":
 			"Szerkezetkövető darabolás",
 		"admin.system.keys.MINERU_STRUCTURE_CHUNKING_ENABLED.meaning":

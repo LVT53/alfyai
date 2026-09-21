@@ -950,6 +950,7 @@ const NAMED_KEY_LABEL: Record<string, I18nKey> = {
 	MINERU_TRANSFER_TIMEOUT_MS: "admin.mineruTransferTimeoutMs",
 	MINERU_CAPABILITIES_TTL_MS: "admin.mineruCapabilitiesTtlMs",
 	MINERU_BUNDLE_MAX_BYTES: "admin.mineruBundleMaxBytes",
+	MINERU_BUNDLE_USER_QUOTA_BYTES: "admin.mineruBundleUserQuotaBytes",
 	MINERU_STRUCTURE_CHUNKING_ENABLED: "admin.mineruStructureChunking",
 	WEB_PUSH_VAPID_PUBLIC_KEY: "admin.webPushVapidPublicKey",
 	WEB_PUSH_VAPID_PRIVATE_KEY: "admin.webPushVapidPrivateKey",

@@ -106,6 +106,8 @@ export interface MineruConfig {
 	readonly capabilitiesTtlMs: number;
 	/** Phase 4: the on-disk parse bundle's size budget. */
 	readonly bundleMaxBytes: number;
+	/** Total bytes one user's parse bundles may occupy. 0 = unlimited. */
+	readonly bundleUserQuotaBytes: number;
 	/** Phase 4: structure-aware chunking, with the flag as the rollback. */
 	readonly structureChunking: boolean;
 }
@@ -144,6 +146,7 @@ export function resolveMineruConfig(
 		transferTimeoutMs: config.mineruTransferTimeoutMs,
 		capabilitiesTtlMs: config.mineruCapabilitiesTtlMs,
 		bundleMaxBytes: config.mineruBundleMaxBytes,
+		bundleUserQuotaBytes: config.mineruBundleUserQuotaBytes,
 		structureChunking: config.mineruStructureChunkingEnabled,
 	};
 }

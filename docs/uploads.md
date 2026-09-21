@@ -66,12 +66,33 @@ with a reason when it is down.
 
 ### Configuration
 
-Full rows in [docs/configuration.md](configuration.md#document-extraction-mineru). The twelve keys
+Full rows in [docs/configuration.md](configuration.md#document-extraction-mineru). The thirteen keys
 are `MINERU_API_URL`, `MINERU_API_KEY`, `MINERU_DEFAULT_TIER`, `MINERU_OCR_MODE`,
 `MINERU_JOB_TIMEOUT_MS`, `MINERU_POLL_MIN_MS`, `MINERU_POLL_MAX_MS`, `MINERU_REQUEST_TIMEOUT_MS`,
-`MINERU_TRANSFER_TIMEOUT_MS`, `MINERU_CAPABILITIES_TTL_MS`, `MINERU_BUNDLE_MAX_BYTES` and
-`MINERU_STRUCTURE_CHUNKING_ENABLED`. All twelve are editable live on the admin screen and apply on
-the next extraction — no restart.
+`MINERU_TRANSFER_TIMEOUT_MS`, `MINERU_CAPABILITIES_TTL_MS`, `MINERU_BUNDLE_MAX_BYTES`,
+`MINERU_BUNDLE_USER_QUOTA_BYTES` and `MINERU_STRUCTURE_CHUNKING_ENABLED`. All thirteen are editable
+live on the admin screen and apply on the next extraction — no restart.
+
+### Parse bundle retention
+
+`MINERU_BUNDLE_MAX_BYTES` caps ONE bundle; `MINERU_BUNDLE_USER_QUOTA_BYTES` (default 2 GiB, `0` =
+unlimited) caps a user's bundles in total. Bundles are derived data — the normalized text is in the
+database, and **Re-extract** rebuilds a bundle — so the budget is enforced by throwing the cheapest
+thing away first.
+
+After a bundle is written, if that user's `data/knowledge/<userId>/*.parse/` directories exceed the
+quota, OTHER documents' bundles are evicted least-recently-written first:
+
+1. the bundle's `images/` directory is removed and its manifest marked `imagesEvicted: true`.
+   `normalized.md`, `pages.json` and `structured_content.json` stay, so page citations and
+   `read_generated_file?page=` keep working; the figure endpoint answers 404 and any figure list
+   renders empty;
+2. if still over, whole bundles go, oldest first.
+
+The bundle just written is never evicted, each eviction is a rename-then-remove (so a concurrent
+figure read sees the file or does not, never a half-removed directory), and the number of bundles
+examined per write is bounded. One `[MINERU]` line per eviction pass records counts and bytes
+only.
 
 `MINERU_TIMEOUT_MS` was replaced by `MINERU_JOB_TIMEOUT_MS`. The old environment variable is still
 read as a fallback for one release, and an existing admin override is carried over by the

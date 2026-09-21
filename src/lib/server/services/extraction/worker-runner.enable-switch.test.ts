@@ -178,13 +178,11 @@ describe("DOCUMENT_EXTRACTION_WORKER_ENABLED is live", () => {
 		vi.useFakeTimers();
 
 		const jobId = await enqueue("in-flight.pdf");
-		// The extractor stalls in `parsing`; the switch goes off while it is
-		// there. Killing it would strand the job and spend an attempt.
-		const extractor = createFakeExtractor({
-			steps: [{ kind: "progress", phase: "parsing" }, { kind: "succeed" }],
-		});
+		const extractor = createFakeExtractor({ steps: [{ kind: "succeed" }] });
 		await bootWorker(extractor);
-		await vi.advanceTimersByTimeAsync(500);
+		// The switch goes off while the attempt this worker already owns is
+		// running. Killing it would strand the job and spend an attempt.
+		await vi.advanceTimersByTimeAsync(0);
 
 		extractionConfig.value = {
 			...extractionConfig.value,

@@ -61,6 +61,7 @@ function config(
 		transferTimeoutMs: 10_000,
 		capabilitiesTtlMs: 0,
 		bundleMaxBytes: 33_554_432,
+		bundleUserQuotaBytes: 0,
 		structureChunking: true,
 		...overrides,
 	};
