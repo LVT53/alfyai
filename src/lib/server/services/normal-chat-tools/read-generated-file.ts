@@ -130,8 +130,14 @@ async function readGeneratedFileBinaryContent(
 /**
  * Resolve the best available content for a generated‑output artifact,
  * preferring disk bytes over memory‑wrapper text.
+ *
+ * Exported because `produce_file`'s patch resolver needs the SAME answer this
+ * tool gives the model. The memory wrapper's last section is a `previewText`
+ * of the file — every run of whitespace collapsed to one space and truncated
+ * at 6 000 characters — so resolving a patch base from it rewrote the whole
+ * document onto one line.
  */
-async function resolveBestContent(
+export async function resolveBestContent(
 	userId: string,
 	artifactContentText: string | null,
 	artifactMetadataJson: string | null,

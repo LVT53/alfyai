@@ -125,6 +125,7 @@ import {
 	readGeneratedFileContent,
 	readGeneratedFileExecutionInputSchema,
 	readGeneratedFileInputSchema,
+	resolveBestContent,
 	sanitizeReadGeneratedFileInput,
 	summarizeReadGeneratedFileResult,
 } from "./read-generated-file";
@@ -2578,6 +2579,7 @@ async function getPreviousGeneratedFileContent(
 	const rows = await db
 		.select({
 			contentText: artifacts.contentText,
+			metadataJson: artifacts.metadataJson,
 		})
 		.from(artifacts)
 		.where(
@@ -2593,10 +2595,24 @@ async function getPreviousGeneratedFileContent(
 	const normalizedTitle = requestTitle.trim().toLowerCase();
 	for (const row of rows) {
 		if (!row.contentText) continue;
-		if (row.contentText.toLowerCase().includes(normalizedTitle)) {
-			const extracted = extractContentFromMemoryText(row.contentText);
-			return extracted ?? row.contentText;
-		}
+		if (!row.contentText.toLowerCase().includes(normalizedTitle)) continue;
+		// The SAME resolution `read_generated_file` gives the model, and it has
+		// to be: a patch's `oldText` is an excerpt of what the model was shown.
+		//
+		// The memory wrapper's last section is a `previewText` of the file —
+		// every run of whitespace collapsed to one space, truncated at 6 000
+		// characters — so reading the base out of it applied the patch to a
+		// one-line, clipped copy and wrote THAT back as the new version. A
+		// multi-line `oldText` could not match it at all (`patch_failed`), and a
+		// single-line one matched and silently destroyed every line break in the
+		// user's document.
+		const resolved = await resolveBestContent(
+			userId,
+			row.contentText,
+			row.metadataJson,
+		);
+		if (resolved) return resolved;
+		return extractContentFromMemoryText(row.contentText) ?? row.contentText;
 	}
 
 	return null;
