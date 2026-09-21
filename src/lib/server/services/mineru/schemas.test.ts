@@ -433,6 +433,29 @@ describe("mineru fixtures — coverage", () => {
 		expect(summary.length).toBeGreaterThanOrEqual(9);
 	});
 
+	/**
+	 * Phase 5 P5-B (spec §5.1). rtf/odt/ods/odp/tsv/ofd have no recorded
+	 * response bundle — none of them were in the Phase 0 spike, so there is no
+	 * upstream `job.*.json` to validate a schema against yet. Live coverage for
+	 * them is `scripts/verify-live-extraction-types.ts`, run against a real
+	 * MinerU 4 server. Reading the sample inputs here only keeps them out of
+	 * "leaves no fixture unread" below; it is not a substitute for that live
+	 * run.
+	 */
+	it("has a non-empty sample input for every new Phase 5 format", () => {
+		const newFormatSamples: Array<[string, string]> = [
+			["rtf", "sample.rtf"],
+			["odt", "sample.odt"],
+			["ods", "sample.ods"],
+			["odp", "sample.odp"],
+			["tsv", "sample.tsv"],
+			["ofd", "sample.ofd"],
+		];
+		for (const [dir, name] of newFormatSamples) {
+			expect(readBytes(dir, name).byteLength).toBeGreaterThan(0);
+		}
+	});
+
 	it("leaves no fixture unread", () => {
 		const all = walk(MINERU_FIXTURE_ROOT);
 		const unread = all
