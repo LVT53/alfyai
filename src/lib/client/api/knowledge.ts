@@ -118,13 +118,42 @@ function refusalLimitBytes(details: Record<string, unknown>): number | null {
 
 export type UploadRefusal = {
 	readonly key: I18nKey;
-	/** `{name}`, `{ext}` and `{limit}` — every placeholder these keys use. */
-	readonly params: {
+	/**
+	 * `{name}`, `{ext}` and `{limit}` are what the server's refusal keys use.
+	 * The client-composed failures below add their own (`{status}`, `{size}`),
+	 * so the record is open — a key only ever reads the placeholders it names.
+	 */
+	readonly params: Record<string, string | number> & {
 		readonly name: string;
-		readonly ext: string;
-		readonly limit: string;
 	};
 };
+
+/**
+ * A failure the CLIENT composed, carrying the i18n key for it.
+ *
+ * Most upload refusals are the server's: it answers `errorKey` and
+ * `uploadRefusalFromError` turns that into a translated sentence. Two are not
+ * — a transport abort and a gateway status — because no server body reaches us
+ * to carry a key. Those were plain `Error`s with English prose in `message`,
+ * which every call site then rendered verbatim whatever language the user was
+ * in; the gateway one was operator prose about reverse proxy body limits and
+ * the Node server, shown to an end user.
+ *
+ * `message` keeps the English so a non-UI caller (a test, a log line) still
+ * reads something, and `key`/`params` are what the three upload surfaces
+ * actually render.
+ */
+export class TranslatableUploadError extends Error {
+	readonly key: I18nKey;
+	readonly params: UploadRefusal["params"];
+
+	constructor(message: string, key: I18nKey, params: UploadRefusal["params"]) {
+		super(message);
+		this.name = "TranslatableUploadError";
+		this.key = key;
+		this.params = params;
+	}
+}
 
 /**
  * Translate a refused upload into an i18n key plus its parameters, or `null`
@@ -135,6 +164,11 @@ export function uploadRefusalFromError(
 	error: unknown,
 	file: { name: string },
 ): UploadRefusal | null {
+	// The client-composed failures carry their own key; they never had a
+	// server body to read one off.
+	if (error instanceof TranslatableUploadError) {
+		return { key: error.key, params: error.params };
+	}
 	if (!(error instanceof ApiError)) return null;
 	const key = error.errorKey;
 	if (!key) return null;
@@ -171,8 +205,17 @@ export function uploadRefusalFromError(
 	};
 }
 
+/** The English fallback. The user sees `knowledge.uploadInterrupted`. */
 const UPLOAD_INTERRUPTED_MESSAGE =
 	"Upload was interrupted before it completed. Try again; if it keeps happening, the server or reverse proxy may be closing large uploads before AlfyAI receives them.";
+
+function uploadInterruptedError(file: File): TranslatableUploadError {
+	return new TranslatableUploadError(
+		UPLOAD_INTERRUPTED_MESSAGE,
+		"knowledge.uploadInterrupted",
+		{ name: file.name },
+	);
+}
 const UPLOAD_GATEWAY_STATUSES = new Set([502, 503, 504]);
 const UPLOAD_NAME_HEADER = "X-AlfyAI-Upload-Name";
 const UPLOAD_SIZE_HEADER = "X-AlfyAI-Upload-Size";
@@ -226,8 +269,20 @@ function formatUploadBytes(value: number): string {
 	return `${Number.isInteger(mb) ? mb : mb.toFixed(1)}MB`;
 }
 
+/** The English fallback. The user sees `knowledge.uploadGatewayFailed`. */
 function uploadGatewayMessage(file: File, status: number): string {
 	return `Upload gateway failed with HTTP ${status} while receiving "${file.name}" (${formatUploadBytes(file.size)}). AlfyAI did not finish receiving the file, so extraction did not start. Check reverse proxy body limits/timeouts and whether the Node server restarted while streaming the upload body.`;
+}
+
+function uploadGatewayError(
+	file: File,
+	status: number,
+): TranslatableUploadError {
+	return new TranslatableUploadError(
+		uploadGatewayMessage(file, status),
+		"knowledge.uploadGatewayFailed",
+		{ name: file.name, status, size: formatUploadBytes(file.size) },
+	);
 }
 
 function buildUploadHeaders(
@@ -514,10 +569,10 @@ export async function uploadKnowledgeAttachment(
 			error instanceof ApiError &&
 			UPLOAD_GATEWAY_STATUSES.has(error.status)
 		) {
-			throw new Error(uploadGatewayMessage(file, error.status));
+			throw uploadGatewayError(file, error.status);
 		}
 		if (isUploadTransportAbort(error)) {
-			throw new Error(UPLOAD_INTERRUPTED_MESSAGE);
+			throw uploadInterruptedError(file);
 		}
 		throw error;
 	}

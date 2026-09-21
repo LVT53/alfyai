@@ -27,6 +27,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "$lib/server/db";
+import { selectInBatches } from "$lib/server/db/id-batches";
 import {
 	artifactLinks,
 	artifacts,
@@ -34,7 +35,6 @@ import {
 	conversations,
 	messages,
 } from "$lib/server/db/schema";
-import { selectInBatches } from "$lib/server/db/id-batches";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { parseWorkingDocumentMetadata } from "./document-metadata";
 

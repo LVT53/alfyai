@@ -915,7 +915,9 @@ export async function executeCode(
 		}>((resolve, reject) => {
 			const override = options.timeoutMs;
 			const timeoutMs =
-				typeof override === "number" && Number.isFinite(override) && override > 0
+				typeof override === "number" &&
+				Number.isFinite(override) &&
+				override > 0
 					? Math.trunc(override)
 					: getSandboxTimeout(language);
 			const killContainer = async () => {
