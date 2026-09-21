@@ -277,6 +277,7 @@ export const structuredContentSchema = z
 
 export type StructuredContent = z.infer<typeof structuredContentSchema>;
 export type StructuredBlock = z.infer<typeof structuredBlockSchema>;
+export type StructuredPage = z.infer<typeof structuredPageSchema>;
 
 // ── the parsed model ───────────────────────────────────────────────────────
 
@@ -362,6 +363,12 @@ export interface MineruOutlineEntry {
 	page?: number;
 }
 
+/**
+ * Where a block's page number came from. `page_idx` when the parsed indices are
+ * trustworthy, `array_index` when they are not and position had to stand in.
+ */
+export type PageNumberSource = "page_idx" | "array_index";
+
 export interface StructuredExtractionStats {
 	/** Every block in `structured_content`, including the dropped running heads. */
 	blockCount: number;
@@ -370,6 +377,12 @@ export interface StructuredExtractionStats {
 	unknownTypes: Readonly<Record<string, number>>;
 	bboxPresent: boolean;
 	anchorsPresent: boolean;
+	/**
+	 * Which rule produced the page numbers. Recorded so the GPU-box checklist
+	 * can see, in the data, whether a real `standard` PDF is cited from its own
+	 * `page_idx` or from array position.
+	 */
+	pageNumberSource: PageNumberSource;
 }
 
 export interface StructuredExtractionResult {
@@ -887,6 +900,51 @@ export function renderPromptMarkdown(
 	return renderInternal(sc, options, "prompt");
 }
 
+/**
+ * The 1-based page number of each entry in `pages`, and where it came from.
+ *
+ * `page_idx` is the producer's own answer and the only one that survives a
+ * sparse or reordered array — but it is a passthrough field nobody validated,
+ * so it is used only when EVERY page carries a non-negative integer and no two
+ * pages carry the same one. One duplicate or one negative and the whole
+ * document falls back to array position, because a half-trusted index is worse
+ * than a consistent one: a citation that is right for pages 1-4 and wrong for
+ * page 5 is a citation nobody can check.
+ *
+ * Clamped to `MAX_STRUCTURED_PAGE_COUNT` for the same reason the page count is:
+ * a silly value must not size an array.
+ */
+export function resolvePageNumbers(pages: readonly StructuredPage[]): {
+	numbers: number[];
+	source: PageNumberSource;
+} {
+	const seen = new Set<number>();
+	const fromIndices: number[] = [];
+	let trustworthy = pages.length > 0;
+	for (const page of pages) {
+		const raw = page.page_idx;
+		if (
+			typeof raw !== "number" ||
+			!Number.isInteger(raw) ||
+			raw < 0 ||
+			seen.has(raw)
+		) {
+			trustworthy = false;
+			break;
+		}
+		seen.add(raw);
+		fromIndices.push(Math.min(raw + 1, MAX_STRUCTURED_PAGE_COUNT));
+	}
+	return trustworthy
+		? { numbers: fromIndices, source: "page_idx" }
+		: {
+				numbers: pages.map((_, index) =>
+					Math.min(index + 1, MAX_STRUCTURED_PAGE_COUNT),
+				),
+				source: "array_index",
+			};
+}
+
 interface RenderDraft {
 	page: number;
 	blockIndex: number;
@@ -907,10 +965,14 @@ function renderInternal(
 	const levelOffset = headingLevelOffsetForFormat(resolveFormatId(options));
 	const drafts: RenderDraft[] = [];
 	const figures: RenderedFigure[] = [];
+	// `page_idx` is the producer's own page number and the only thing that is
+	// right when the array is sparse or reordered. Position is the fallback,
+	// not the rule.
+	const pageNumbers = resolvePageNumbers(sc.pages).numbers;
 
 	for (let pageIndex = 0; pageIndex < sc.pages.length; pageIndex++) {
 		const page = sc.pages[pageIndex];
-		const pageNumber = pageIndex + 1;
+		const pageNumber = pageNumbers[pageIndex];
 		const blocks = page.blocks ?? [];
 
 		for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
@@ -1006,7 +1068,13 @@ function renderInternal(
 
 	return {
 		markdown,
-		pages: buildPageOffsets(sc.pages.length, blocks, markdown.length),
+		// The offsets table must be able to answer about every page a block
+		// claims, which a sparse `page_idx` pushes past `pages.length`.
+		pages: buildPageOffsets(
+			Math.max(sc.pages.length, ...pageNumbers, 0),
+			blocks,
+			markdown.length,
+		),
 		blocks,
 		figures,
 	};
@@ -1136,6 +1204,7 @@ function collectStats(sc: StructuredContent): StructuredExtractionStats {
 		unknownTypes,
 		bboxPresent,
 		anchorsPresent,
+		pageNumberSource: resolvePageNumbers(sc.pages).source,
 	};
 }
 
@@ -1173,7 +1242,10 @@ export function buildStructuredExtractionResult(
 			? Math.min(Math.trunc(document.page_count), MAX_STRUCTURED_PAGE_COUNT)
 			: null;
 	// PNG/JPEG carry no `page_count` at all — `metadata.document` is `{}`.
-	const pageCount = declaredPageCount ?? sc.pages.length;
+	// `rendered.pages` already spans the highest page any block claims, which a
+	// sparse `page_idx` pushes past `pages.length`.
+	const pageCount =
+		declaredPageCount ?? Math.max(sc.pages.length, rendered.pages.length);
 
 	// `pages` must cover every page the index can be asked about. The declared
 	// count wins for `pageCount` (the spec's rule), but a page that really
