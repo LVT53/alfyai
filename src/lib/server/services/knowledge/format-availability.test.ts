@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	getMineruStatusReport,
 	type MineruHealthLike,
 	type MineruProbeClient,
 	MineruProbeError,
@@ -93,6 +94,30 @@ describe("getUploadFormatGate", () => {
 		expect(gate.reason).toBe("backend_version");
 		// The server never answered a version at all.
 		expect(gate.backendVersion).toBeNull();
+		expect([...gate.disabledEntryIds].sort()).toEqual(
+			[...getMineru4GatedFileTypeIds()].sort(),
+		);
+	});
+
+	it("names the exact capabilities code the gate keys on", async () => {
+		// Guards the branch interaction that broke this gate once already: the
+		// capabilities probe used to report a non-MinerU-4 endpoint as
+		// `protocol` and a later slice renamed that outcome to
+		// `backend_misconfigured`. `getUploadFormatGate` reads the code, so a
+		// rename here silently re-opens the gate on a 3.x backend. Assert the
+		// wire value, not just the gate's verdict.
+		setMineruProbeClientFactory(() =>
+			fakeClient({
+				getHealth: vi.fn(async () => {
+					throw new MineruProbeError("protocol", "404 Not Found");
+				}),
+			}),
+		);
+
+		const report = await getMineruStatusReport();
+
+		expect(report.reachable).toBe(false);
+		expect(report.error?.code).toBe("backend_misconfigured");
 	});
 
 	it("stays open on a generic transport failure (connection refused)", async () => {

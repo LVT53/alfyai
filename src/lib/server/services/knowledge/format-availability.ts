@@ -88,7 +88,17 @@ function isPositivelyPreMineru4(report: {
 	// the transport failure looks like "no /v1 namespace at all" — the shape
 	// of a MinerU 3.x response. An unconfigured server, a timeout, a DNS
 	// failure or a 5xx all map to a different code and stay "unknown".
-	return report.error?.code === "protocol";
+	//
+	// The code is `backend_misconfigured`. It used to be `protocol`, and a
+	// later slice split the two apart precisely so that "MINERU_API_URL does
+	// not point at a MinerU 4 server" could be said by name
+	// (`capabilities.ts`'s `describeHealthFailure`). `protocol` is kept here
+	// only so that a future probe path that still raises the older code closes
+	// the gate as it always did; on this branch `describeHealthFailure`
+	// rewrites every `/v1/health` `protocol` failure, so the live signal is
+	// `backend_misconfigured`.
+	const code = report.error?.code;
+	return code === "backend_misconfigured" || code === "protocol";
 }
 
 const CACHE_MISS = Symbol("upload-format-gate:cache-miss");
