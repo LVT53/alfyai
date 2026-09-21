@@ -13,6 +13,18 @@ import { SANDBOX_PYTHON_SITE_PACKAGES_RELPATH } from "../../src/lib/server/sandb
 const REPO_ROOT = process.cwd();
 const ORIGINAL_DATABASE_PATH = process.env.DATABASE_PATH;
 
+/**
+ * These are integration JOURNEYS, and the default 5 s was never a budget
+ * chosen for them — the Docker case below already concedes the point with its
+ * own 180 s. Each one runs the 113 migrations, re-imports six large server
+ * graphs after `vi.resetModules()`, renders real HTML and makes two route
+ * round-trips: ~1.4 s on an idle machine, which full-suite contention eats.
+ * Nothing is shared with another file (vitest forks and isolates each one), so
+ * the fix is a budget that matches the work. Per test, never the global
+ * default, so a genuinely hung unit test still fails fast.
+ */
+const JOURNEY_TIMEOUT_MS = 30_000;
+
 const JOURNEY_USER_ID = "journey-user";
 const JOURNEY_CONVERSATION_ID = "journey-conversation";
 const JOURNEY_ASSISTANT_MESSAGE_ID = "journey-assistant-message";
@@ -213,286 +225,294 @@ describe("File Production journey gate", () => {
 		});
 	});
 
-	it("runs a document-source produce_file journey through read-model preview and download", async () => {
-		const { createNormalChatTools } = await import(
-			"../../src/lib/server/services/normal-chat-tools"
-		);
-		const {
-			assignFileProductionJobsToAssistantMessage,
-			drainFileProductionWorker,
-		} = await import("$lib/server/services/file-production");
-		const { getConversationDetail } = await import(
-			"../../src/lib/server/services/conversation-detail/read-model"
-		);
-		const { GET: previewFile } = await import(
-			"../../src/routes/api/chat/files/[id]/preview/+server"
-		);
-		const { GET: downloadFile } = await import(
-			"../../src/routes/api/chat/files/[id]/download/+server"
-		);
-		const { tools, getToolCalls } = createNormalChatTools({
-			userId: JOURNEY_USER_ID,
-			conversationId: JOURNEY_CONVERSATION_ID,
-			turnId: "journey-turn",
-			// This journey stages the worker itself (installDeterministicProduceFileToolWake
-			// above makes intake's wake a no-op), so the tool must not sit on its
-			// in-turn wait: it polls once and reports the job as still running,
-			// which is exactly the verdict a job this far from settling deserves.
-			fileProductionVerdictWaitMs: 0,
-		});
+	it(
+		"runs a document-source produce_file journey through read-model preview and download",
+		async () => {
+			const { createNormalChatTools } = await import(
+				"../../src/lib/server/services/normal-chat-tools"
+			);
+			const {
+				assignFileProductionJobsToAssistantMessage,
+				drainFileProductionWorker,
+			} = await import("$lib/server/services/file-production");
+			const { getConversationDetail } = await import(
+				"../../src/lib/server/services/conversation-detail/read-model"
+			);
+			const { GET: previewFile } = await import(
+				"../../src/routes/api/chat/files/[id]/preview/+server"
+			);
+			const { GET: downloadFile } = await import(
+				"../../src/routes/api/chat/files/[id]/download/+server"
+			);
+			const { tools, getToolCalls } = createNormalChatTools({
+				userId: JOURNEY_USER_ID,
+				conversationId: JOURNEY_CONVERSATION_ID,
+				turnId: "journey-turn",
+				// This journey stages the worker itself (installDeterministicProduceFileToolWake
+				// above makes intake's wake a no-op), so the tool must not sit on its
+				// in-turn wait: it polls once and reports the job as still running,
+				// which is exactly the verdict a job this far from settling deserves.
+				fileProductionVerdictWaitMs: 0,
+			});
 
-		const toolResult = await tools.produce_file.execute(
-			{
-				idempotencyKey: "document-source-html",
-				requestTitle: "Journey Report",
-				requestedOutputs: [{ type: "html" }],
-				sourceMode: "document_source",
-				documentIntent: "journey gate",
-				documentSource: {
-					version: 1,
-					template: "alfyai_standard_report",
-					title: "Journey Report",
-					subtitle: "Deterministic document-source coverage",
-					blocks: [
-						{ type: "heading", text: "Result" },
-						{
-							type: "paragraph",
-							text: "Deterministic acceptance path for Slice 4.",
-						},
-						{
-							type: "table",
-							title: "Boundaries",
-							headers: ["Boundary", "Expected result"],
-							rows: [
-								["tool adapter", "queued"],
-								["worker", "succeeded"],
-								["preview", "served"],
-								["download", "served"],
-							],
-						},
-					],
+			const toolResult = await tools.produce_file.execute(
+				{
+					idempotencyKey: "document-source-html",
+					requestTitle: "Journey Report",
+					requestedOutputs: [{ type: "html" }],
+					sourceMode: "document_source",
+					documentIntent: "journey gate",
+					documentSource: {
+						version: 1,
+						template: "alfyai_standard_report",
+						title: "Journey Report",
+						subtitle: "Deterministic document-source coverage",
+						blocks: [
+							{ type: "heading", text: "Result" },
+							{
+								type: "paragraph",
+								text: "Deterministic acceptance path for Slice 4.",
+							},
+							{
+								type: "table",
+								title: "Boundaries",
+								headers: ["Boundary", "Expected result"],
+								rows: [
+									["tool adapter", "queued"],
+									["worker", "succeeded"],
+									["preview", "served"],
+									["download", "served"],
+								],
+							},
+						],
+					},
 				},
-			},
-			{
-				toolCallId: "call-document-source-html",
-				messages: [],
-			},
-		);
+				{
+					toolCallId: "call-document-source-html",
+					messages: [],
+				},
+			);
 
-		expect(toolResult).toMatchObject({
-			ok: true,
-			status: "running",
-		});
-		expect(getToolCalls()[0]).toMatchObject({
-			name: "produce_file",
-			status: "done",
-			metadata: {
+			expect(toolResult).toMatchObject({
 				ok: true,
-				intakeStatus: 202,
-				jobStatus: "running",
-			},
-		});
-		const jobId = expectPresent(
-			"jobId" in toolResult ? toolResult.jobId : null,
-			"tool adapter",
-		);
+				status: "running",
+			});
+			expect(getToolCalls()[0]).toMatchObject({
+				name: "produce_file",
+				status: "done",
+				metadata: {
+					ok: true,
+					intakeStatus: 202,
+					jobStatus: "running",
+				},
+			});
+			const jobId = expectPresent(
+				"jobId" in toolResult ? toolResult.jobId : null,
+				"tool adapter",
+			);
 
-		await drainFileProductionWorker({
-			workerId: "journey-worker",
-			now: new Date("2026-05-03T21:00:01.000Z"),
-			syncGeneratedFilesToMemory: async () => {},
-		});
-		await assignFileProductionJobsToAssistantMessage(
-			JOURNEY_USER_ID,
-			JOURNEY_CONVERSATION_ID,
-			JOURNEY_ASSISTANT_MESSAGE_ID,
-			[jobId],
-		);
+			await drainFileProductionWorker({
+				workerId: "journey-worker",
+				now: new Date("2026-05-03T21:00:01.000Z"),
+				syncGeneratedFilesToMemory: async () => {},
+			});
+			await assignFileProductionJobsToAssistantMessage(
+				JOURNEY_USER_ID,
+				JOURNEY_CONVERSATION_ID,
+				JOURNEY_ASSISTANT_MESSAGE_ID,
+				[jobId],
+			);
 
-		const detail = await getConversationDetail({
-			userId: JOURNEY_USER_ID,
-			conversationId: JOURNEY_CONVERSATION_ID,
-		});
-		const card = expectPresent(
-			detail?.fileProductionJobs.find((job) => job.id === jobId),
-			"read projection",
-		);
-		expect(card).toMatchObject({
-			id: jobId,
-			assistantMessageId: JOURNEY_ASSISTANT_MESSAGE_ID,
-			title: "Journey Report",
-			status: "succeeded",
-			files: [
-				expect.objectContaining({
-					filename: "journey-report.html",
-					mimeType: "text/html",
-					downloadUrl: expect.stringContaining("/download"),
-					previewUrl: expect.stringContaining("/preview"),
-					artifactId: expect.any(String),
-					documentFamilyStatus: "active",
-					documentRole: "journey gate",
-				}),
-			],
-		});
-		const file = expectPresent(card.files[0], "storage");
+			const detail = await getConversationDetail({
+				userId: JOURNEY_USER_ID,
+				conversationId: JOURNEY_CONVERSATION_ID,
+			});
+			const card = expectPresent(
+				detail?.fileProductionJobs.find((job) => job.id === jobId),
+				"read projection",
+			);
+			expect(card).toMatchObject({
+				id: jobId,
+				assistantMessageId: JOURNEY_ASSISTANT_MESSAGE_ID,
+				title: "Journey Report",
+				status: "succeeded",
+				files: [
+					expect.objectContaining({
+						filename: "journey-report.html",
+						mimeType: "text/html",
+						downloadUrl: expect.stringContaining("/download"),
+						previewUrl: expect.stringContaining("/preview"),
+						artifactId: expect.any(String),
+						documentFamilyStatus: "active",
+						documentRole: "journey gate",
+					}),
+				],
+			});
+			const file = expectPresent(card.files[0], "storage");
 
-		const preview = await previewFile(makeFileRouteEvent("preview", file.id));
-		await expectResponseStatus(preview, 200, "preview");
-		expect(preview.headers.get("Content-Type")).toBe(
-			"text/html; charset=utf-8",
-		);
-		expect(preview.headers.get("Content-Disposition")).toContain(
-			'inline; filename="journey-report.html"',
-		);
-		expect(preview.headers.get("Content-Security-Policy")).toContain(
-			"default-src 'none'",
-		);
-		expect(await preview.text()).toContain(
-			"Deterministic acceptance path for Slice 4.",
-		);
+			const preview = await previewFile(makeFileRouteEvent("preview", file.id));
+			await expectResponseStatus(preview, 200, "preview");
+			expect(preview.headers.get("Content-Type")).toBe(
+				"text/html; charset=utf-8",
+			);
+			expect(preview.headers.get("Content-Disposition")).toContain(
+				'inline; filename="journey-report.html"',
+			);
+			expect(preview.headers.get("Content-Security-Policy")).toContain(
+				"default-src 'none'",
+			);
+			expect(await preview.text()).toContain(
+				"Deterministic acceptance path for Slice 4.",
+			);
 
-		const download = await downloadFile(
-			makeFileRouteEvent("download", file.id),
-		);
-		await expectResponseStatus(download, 200, "download");
-		expect(download.headers.get("Content-Type")).toBe("text/html");
-		expect(download.headers.get("Content-Disposition")).toContain(
-			"attachment; filename*=UTF-8''journey-report.html",
-		);
-		expect(await download.text()).toContain("Journey Report");
-	});
+			const download = await downloadFile(
+				makeFileRouteEvent("download", file.id),
+			);
+			await expectResponseStatus(download, 200, "download");
+			expect(download.headers.get("Content-Type")).toBe("text/html");
+			expect(download.headers.get("Content-Disposition")).toContain(
+				"attachment; filename*=UTF-8''journey-report.html",
+			);
+			expect(await download.text()).toContain("Journey Report");
+		},
+		JOURNEY_TIMEOUT_MS,
+	);
 
 	// Phase 6 D8. This is the journey the Docker case below CANNOT be: a plain
 	// markdown request that produces a real, downloadable file with no container
 	// anywhere in the path, so it runs in CI on a box with no Docker daemon.
-	it("runs an inline_text produce_file journey with no container in the path", async () => {
-		const { createNormalChatTools } = await import(
-			"../../src/lib/server/services/normal-chat-tools"
-		);
-		const {
-			assignFileProductionJobsToAssistantMessage,
-			drainFileProductionWorker,
-		} = await import("$lib/server/services/file-production");
-		const { getConversationDetail } = await import(
-			"../../src/lib/server/services/conversation-detail/read-model"
-		);
-		const { GET: previewFile } = await import(
-			"../../src/routes/api/chat/files/[id]/preview/+server"
-		);
-		const { GET: downloadFile } = await import(
-			"../../src/routes/api/chat/files/[id]/download/+server"
-		);
-		const { db } = await import("../../src/lib/server/db");
-		const schemaModule = await import("../../src/lib/server/db/schema");
-		const { eq } = await import("drizzle-orm");
-		const sandbox = await import(
-			"../../src/lib/server/services/sandbox-execution"
-		);
-		const executeCodeSpy = vi.spyOn(sandbox, "executeCode");
+	it(
+		"runs an inline_text produce_file journey with no container in the path",
+		async () => {
+			const { createNormalChatTools } = await import(
+				"../../src/lib/server/services/normal-chat-tools"
+			);
+			const {
+				assignFileProductionJobsToAssistantMessage,
+				drainFileProductionWorker,
+			} = await import("$lib/server/services/file-production");
+			const { getConversationDetail } = await import(
+				"../../src/lib/server/services/conversation-detail/read-model"
+			);
+			const { GET: previewFile } = await import(
+				"../../src/routes/api/chat/files/[id]/preview/+server"
+			);
+			const { GET: downloadFile } = await import(
+				"../../src/routes/api/chat/files/[id]/download/+server"
+			);
+			const { db } = await import("../../src/lib/server/db");
+			const schemaModule = await import("../../src/lib/server/db/schema");
+			const { eq } = await import("drizzle-orm");
+			const sandbox = await import(
+				"../../src/lib/server/services/sandbox-execution"
+			);
+			const executeCodeSpy = vi.spyOn(sandbox, "executeCode");
 
-		const { tools } = createNormalChatTools({
-			userId: JOURNEY_USER_ID,
-			conversationId: JOURNEY_CONVERSATION_ID,
-			turnId: "journey-turn-inline",
-			// Same staging as the document-source journey above.
-			fileProductionVerdictWaitMs: 0,
-		});
+			const { tools } = createNormalChatTools({
+				userId: JOURNEY_USER_ID,
+				conversationId: JOURNEY_CONVERSATION_ID,
+				turnId: "journey-turn-inline",
+				// Same staging as the document-source journey above.
+				fileProductionVerdictWaitMs: 0,
+			});
 
-		// Exactly the call `prompts.ts` teaches the model, which used to start a
-		// Docker container to run a Python `write_text` one-liner.
-		const markdown = [
-			"# Journey Notes",
-			"",
-			"| Boundary | Expected result |",
-			"|---|---|",
-			"| tool adapter | queued |",
-			"| worker | succeeded |",
-			"| preview | served |",
-			"| download | served |",
-			"",
-			"```python",
-			"print('this fence must survive verbatim')",
-			"```",
-		].join("\n");
+			// Exactly the call `prompts.ts` teaches the model, which used to start a
+			// Docker container to run a Python `write_text` one-liner.
+			const markdown = [
+				"# Journey Notes",
+				"",
+				"| Boundary | Expected result |",
+				"|---|---|",
+				"| tool adapter | queued |",
+				"| worker | succeeded |",
+				"| preview | served |",
+				"| download | served |",
+				"",
+				"```python",
+				"print('this fence must survive verbatim')",
+				"```",
+			].join("\n");
 
-		const toolResult = await tools.produce_file.execute(
-			{
-				idempotencyKey: "inline-markdown",
-				requestTitle: "Journey Notes",
-				filename: "journey-notes.md",
-				markdown,
-			},
-			{ toolCallId: "call-inline-markdown", messages: [] },
-		);
-
-		expect(toolResult).toMatchObject({ ok: true, status: "running" });
-		const jobId = expectPresent(
-			"jobId" in toolResult ? toolResult.jobId : null,
-			"tool adapter",
-		);
-
-		const [queued] = await db
-			.select({ sourceMode: schemaModule.fileProductionJobs.sourceMode })
-			.from(schemaModule.fileProductionJobs)
-			.where(eq(schemaModule.fileProductionJobs.id, jobId));
-		expect(queued.sourceMode).toBe("inline_text");
-
-		await drainFileProductionWorker({
-			workerId: "journey-worker-inline",
-			now: new Date("2026-05-03T21:10:01.000Z"),
-			syncGeneratedFilesToMemory: async () => {},
-		});
-		await assignFileProductionJobsToAssistantMessage(
-			JOURNEY_USER_ID,
-			JOURNEY_CONVERSATION_ID,
-			JOURNEY_ASSISTANT_MESSAGE_ID,
-			[jobId],
-		);
-
-		const detail = await getConversationDetail({
-			userId: JOURNEY_USER_ID,
-			conversationId: JOURNEY_CONVERSATION_ID,
-		});
-		const card = expectPresent(
-			detail?.fileProductionJobs.find((job) => job.id === jobId),
-			"read projection",
-		);
-		expect(card).toMatchObject({
-			id: jobId,
-			assistantMessageId: JOURNEY_ASSISTANT_MESSAGE_ID,
-			title: "Journey Notes",
-			status: "succeeded",
-			files: [
-				expect.objectContaining({
+			const toolResult = await tools.produce_file.execute(
+				{
+					idempotencyKey: "inline-markdown",
+					requestTitle: "Journey Notes",
 					filename: "journey-notes.md",
-					mimeType: "text/markdown",
-					downloadUrl: expect.stringContaining("/download"),
-					previewUrl: expect.stringContaining("/preview"),
-				}),
-			],
-		});
-		const file = expectPresent(card.files[0], "storage");
+					markdown,
+				},
+				{ toolCallId: "call-inline-markdown", messages: [] },
+			);
 
-		const preview = await previewFile(makeFileRouteEvent("preview", file.id));
-		await expectResponseStatus(preview, 200, "preview");
-		expect(preview.headers.get("Content-Type")).toBe("text/markdown");
+			expect(toolResult).toMatchObject({ ok: true, status: "running" });
+			const jobId = expectPresent(
+				"jobId" in toolResult ? toolResult.jobId : null,
+				"tool adapter",
+			);
 
-		const download = await downloadFile(
-			makeFileRouteEvent("download", file.id),
-		);
-		await expectResponseStatus(download, 200, "download");
-		expect(download.headers.get("Content-Disposition")).toContain(
-			"attachment; filename*=UTF-8''journey-notes.md",
-		);
-		// The D8 no-reformatting guarantee, asserted on the bytes the user
-		// actually downloads: the pipe table and the fenced block survive exactly
-		// as the model wrote them.
-		expect(await download.text()).toBe(markdown);
+			const [queued] = await db
+				.select({ sourceMode: schemaModule.fileProductionJobs.sourceMode })
+				.from(schemaModule.fileProductionJobs)
+				.where(eq(schemaModule.fileProductionJobs.id, jobId));
+			expect(queued.sourceMode).toBe("inline_text");
 
-		// And nothing ever asked the sandbox for a container.
-		expect(executeCodeSpy).not.toHaveBeenCalled();
-		executeCodeSpy.mockRestore();
-	});
+			await drainFileProductionWorker({
+				workerId: "journey-worker-inline",
+				now: new Date("2026-05-03T21:10:01.000Z"),
+				syncGeneratedFilesToMemory: async () => {},
+			});
+			await assignFileProductionJobsToAssistantMessage(
+				JOURNEY_USER_ID,
+				JOURNEY_CONVERSATION_ID,
+				JOURNEY_ASSISTANT_MESSAGE_ID,
+				[jobId],
+			);
+
+			const detail = await getConversationDetail({
+				userId: JOURNEY_USER_ID,
+				conversationId: JOURNEY_CONVERSATION_ID,
+			});
+			const card = expectPresent(
+				detail?.fileProductionJobs.find((job) => job.id === jobId),
+				"read projection",
+			);
+			expect(card).toMatchObject({
+				id: jobId,
+				assistantMessageId: JOURNEY_ASSISTANT_MESSAGE_ID,
+				title: "Journey Notes",
+				status: "succeeded",
+				files: [
+					expect.objectContaining({
+						filename: "journey-notes.md",
+						mimeType: "text/markdown",
+						downloadUrl: expect.stringContaining("/download"),
+						previewUrl: expect.stringContaining("/preview"),
+					}),
+				],
+			});
+			const file = expectPresent(card.files[0], "storage");
+
+			const preview = await previewFile(makeFileRouteEvent("preview", file.id));
+			await expectResponseStatus(preview, 200, "preview");
+			expect(preview.headers.get("Content-Type")).toBe("text/markdown");
+
+			const download = await downloadFile(
+				makeFileRouteEvent("download", file.id),
+			);
+			await expectResponseStatus(download, 200, "download");
+			expect(download.headers.get("Content-Disposition")).toContain(
+				"attachment; filename*=UTF-8''journey-notes.md",
+			);
+			// The D8 no-reformatting guarantee, asserted on the bytes the user
+			// actually downloads: the pipe table and the fenced block survive exactly
+			// as the model wrote them.
+			expect(await download.text()).toBe(markdown);
+
+			// And nothing ever asked the sandbox for a container.
+			expect(executeCodeSpy).not.toHaveBeenCalled();
+			executeCodeSpy.mockRestore();
+		},
+		JOURNEY_TIMEOUT_MS,
+	);
 
 	it.skipIf(!dockerAvailability.available)(
 		`runs a program-mode produce_file journey through Docker sandbox preview and download${
