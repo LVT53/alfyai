@@ -571,6 +571,67 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		retryable: false,
 		reason: "the same refusal, should a build ever give it a code of its own",
 	},
+	/**
+	 * The document itself cannot be opened — a deterministic fact about these
+	 * bytes, which 4.0.4 reports under the same generic `parse_failed`.
+	 *
+	 * MinerU loads PDFs through pypdfium2, whose one raise site is
+	 * `_helpers/document.py`:
+	 *
+	 *     raise PdfiumError(f"Failed to load document (PDFium: {ErrorToStr.get(err_code)}).")
+	 *
+	 * reached both when PDFium refuses the file and when the loaded document has
+	 * FEWER THAN ONE PAGE — which is why a corrupt PDF and a zero-page PDF, the
+	 * two files the live test admitted, arrive wearing the same sentence. The
+	 * `ErrorToStr` table (`internal/consts.py`) is the whole sibling family:
+	 * "Data format error", "Incorrect password error", "Unsupported security
+	 * scheme error", "File access error", "Page not found or content error",
+	 * "Unknown error", "Success" (the zero-page case).
+	 *
+	 * Matched on the wording rather than the code, exactly as the
+	 * `unsupported-type` rule above is, and anchored on the PHRASE so a renamed
+	 * file cannot change the verdict. Read as an ordinary `job_failed` this
+	 * burned the whole attempt budget re-parsing bytes that cannot parse.
+	 *
+	 * ORDER IS LOAD-BEARING TWICE. These sit before
+	 * `file:parse_failed:missing-file`, because "Page not found or content
+	 * error" contains "not found" and would otherwise be read as the server
+	 * dropping an id; and the protection rule sits before the general one,
+	 * because every PDFium reason arrives under "Failed to load document".
+	 */
+	{
+		rule: "file:parse_failed:protected",
+		code: "parse_failed",
+		message:
+			/incorrect password|unsupported security scheme|password[\s-]?protected|\bencrypted\b/i,
+		taxonomy: "document_unreadable",
+		retryable: false,
+		reason:
+			"the document is locked; the same bytes stay locked however often we ask",
+	},
+	{
+		rule: "file:file_encrypted",
+		code: "file_encrypted",
+		taxonomy: "document_unreadable",
+		retryable: false,
+		reason: "4.0.4 registers this code; treat it as the locked document it is",
+	},
+	{
+		rule: "file:parse_failed:unreadable-document",
+		code: "parse_failed",
+		message: /failed to load document|\bpdfium\b|data format error/i,
+		taxonomy: "document_unreadable",
+		retryable: false,
+		reason:
+			"the reader cannot open these bytes at all; a retry repeats the refusal",
+	},
+	{
+		rule: "file:file_corrupted",
+		code: "file_corrupted",
+		taxonomy: "document_unreadable",
+		retryable: false,
+		reason: "4.0.4 registers this code; the bytes are damaged, not the server",
+	},
 	{
 		rule: "file:parse_failed:missing-file",
 		code: "parse_failed",
@@ -801,6 +862,31 @@ export interface MineruJobFailureOptions {
 }
 
 /**
+ * A terminal remote job is SPENT, whatever it failed on.
+ *
+ * `mapMineruJobFailure` is only ever reached with a job MinerU has already
+ * settled, so every failure it returns is a final answer about that job id. Any
+ * later attempt that resumed the id would issue one `GET` against a job that
+ * cannot change its mind and fail again for the same reason — which is exactly
+ * what a corrupt PDF did: three attempts, two of them `resumed: true` against
+ * the same dead job, and then a Retry that resumed it a fourth time.
+ *
+ * So the handle is poisoned here, at the one place that knows the remote job is
+ * finished. The ledger's `clearHandle` then makes the NEXT attempt — automatic,
+ * user Retry, re-upload or re-extract alike — submit a fresh job. Re-uploading
+ * costs nothing extra: `createUpload` deduplicates by sha256, so the bytes are
+ * already there and the PUT is skipped.
+ *
+ * The cases that legitimately KEEP a handle never come through here: a lost
+ * claim, a stale-worker reclaim, a shutdown and a transport error all leave the
+ * remote job RUNNING, and resuming it is the whole reason the handle is emitted
+ * before the first poll.
+ */
+function spent(mapping: MineruErrorMapping): MineruErrorMapping {
+	return mapping.handleUnknown ? mapping : { ...mapping, handleUnknown: true };
+}
+
+/**
  * Reads a TERMINAL job and decides whether it actually succeeded.
  *
  * A `202` at create proves nothing and neither does `status: "completed"`: an
@@ -808,6 +894,8 @@ export interface MineruJobFailureOptions {
  * bad `page_range` as a file-level `page_range_invalid`, and a job can report
  * `completed` with `output_files.zip === null`. Returns `null` when the job is
  * genuinely usable.
+ *
+ * Every non-null return carries `handleUnknown: true`; see `spent` above.
  */
 export function mapMineruJobFailure(
 	job: MineruJob,
@@ -817,7 +905,7 @@ export function mapMineruJobFailure(
 
 	if (job.status === "canceled") {
 		if (options.canceledByUs) return null;
-		return {
+		return spent({
 			rule: "job:canceled-by-someone-else",
 			known: true,
 			taxonomy: "job_failed",
@@ -826,7 +914,7 @@ export function mapMineruJobFailure(
 			disposition: "fail",
 			retryAfterMs: null,
 			reason: "the job was canceled while we were not cancelling",
-		};
+		});
 	}
 
 	const file = job.files[0] ?? null;
@@ -839,8 +927,8 @@ export function mapMineruJobFailure(
 			param: detail.param ?? null,
 			message: detail.message,
 		});
-		if (rule) return toMapping(rule, null);
-		return {
+		if (rule) return spent(toMapping(rule, null));
+		return spent({
 			rule: "job:file-error-unmapped",
 			known: false,
 			taxonomy: "job_failed",
@@ -849,11 +937,11 @@ export function mapMineruJobFailure(
 			disposition: "fail",
 			retryAfterMs: null,
 			reason: `unmapped file-level code ${detail.code ?? "(none)"}`,
-		};
+		});
 	}
 
 	if (job.status === "failed" || job.status === "partial" || !file) {
-		return {
+		return spent({
 			rule: "job:failed-without-detail",
 			known: true,
 			taxonomy: "job_failed",
@@ -862,11 +950,11 @@ export function mapMineruJobFailure(
 			disposition: "fail",
 			retryAfterMs: null,
 			reason: `job status ${job.status} with no file-level error`,
-		};
+		});
 	}
 
 	if (file.status !== "completed") {
-		return {
+		return spent({
 			rule: "job:file-not-completed",
 			known: true,
 			taxonomy: "job_failed",
@@ -875,11 +963,11 @@ export function mapMineruJobFailure(
 			disposition: "fail",
 			retryAfterMs: null,
 			reason: `file status ${file.status} on a terminal job`,
-		};
+		});
 	}
 
 	if (!file.output_files?.[requiredOutput]) {
-		return {
+		return spent({
 			rule: "job:missing-output",
 			known: true,
 			taxonomy: "protocol",
@@ -888,7 +976,7 @@ export function mapMineruJobFailure(
 			disposition: "fail",
 			retryAfterMs: null,
 			reason: `terminal completed job without output_files.${String(requiredOutput)}`,
-		};
+		});
 	}
 
 	return null;

@@ -97,6 +97,7 @@ describe("the error policy table", () => {
 	it("offers nothing at all for a permanent fact about the document", () => {
 		for (const code of [
 			"unsupported_type",
+			"document_unreadable",
 			"too_large",
 			"empty_result",
 		] as const) {

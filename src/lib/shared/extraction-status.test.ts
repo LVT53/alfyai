@@ -86,6 +86,7 @@ describe("extraction error codes", () => {
 			"tier_unavailable",
 			"too_large",
 			"unsupported_type",
+			"document_unreadable",
 			"empty_result",
 			"canceled",
 			"max_attempts",

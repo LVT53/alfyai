@@ -389,6 +389,126 @@ describe("mapped failures reach the ledger row", () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// Defect 1: a damaged document must not burn the budget on identical work
+// ---------------------------------------------------------------------------
+
+/** The message 4.0.4 returned live for a corrupt PDF and for a zero-page PDF. */
+const PDFIUM_DAMAGED = "Failed to load document (PDFium: Data format error).";
+
+describe("a document the reader cannot open", () => {
+	it("fails once, permanently, and is not offered a Retry", async () => {
+		await boot({
+			jobOutcome: "file-failed",
+			fileError: { message: PDFIUM_DAMAGED },
+		});
+		const { jobId } = await seedJob();
+
+		// `failed`, not `queued`: no second attempt is scheduled at all.
+		expect(await run()).toEqual({ jobId, status: "failed" });
+
+		const row = await ledger.getExtractionJobRow(jobId);
+		expect(row?.status).toBe("failed");
+		expect(row?.errorCode).toBe("document_unreadable");
+		expect(row?.retryable).toBe(false);
+		// The sentence comes from the code; "PDFium" is an operator's word.
+		expect(row?.errorMessage).toContain("damaged or password-protected");
+		expect(row?.errorMessage).not.toContain("PDFium");
+		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
+
+		// One submission, and the dead job id is not left behind for anyone to
+		// resume. Live this cost three attempts, two of them `resumed: true`
+		// against the same terminal job, and then a Retry that resumed it again.
+		expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
+		expect(row?.remoteHandleJson).toBeNull();
+	});
+
+	it("survives the whole round trip to the DTO the chip reads", async () => {
+		await boot({
+			jobOutcome: "file-failed",
+			fileError: { message: PDFIUM_DAMAGED },
+		});
+		const { artifactId } = await seedJob();
+		await run();
+
+		const readModel = await import(
+			"$lib/server/services/extraction/read-model"
+		);
+		const dto = await readModel.getExtractionJobForArtifact({
+			userId,
+			artifactId,
+		});
+		expect(dto?.status).toBe("failed");
+		expect(dto?.error?.code).toBe("document_unreadable");
+		// Both i18n families key off the code, so this IS the message key.
+		expect(`chat.extraction.error.${dto?.error?.code}`).toBe(
+			"chat.extraction.error.document_unreadable",
+		);
+		expect(dto?.retryable).toBe(false);
+	});
+});
+
+describe("an ordinary parse failure keeps its budget", () => {
+	it("spends every attempt on a NEW remote job, never on the dead one", async () => {
+		// The default `file-failed` message — "Parse failed" — explains nothing,
+		// so it stays a retryable `job_failed`. What changes is that each retry
+		// is now a real re-parse instead of one GET on an already-failed job.
+		await boot({ jobOutcome: "file-failed" });
+		const { jobId } = await seedJob();
+
+		const remoteJobIds: string[] = [];
+		for (let i = 0; i < 3; i += 1) {
+			clearBackoffGates();
+			await run();
+			const handle = (await ledger.getExtractionJobRow(jobId))
+				?.remoteHandleJson;
+			if (handle) remoteJobIds.push(JSON.parse(handle).remoteJobId);
+		}
+
+		const row = await ledger.getExtractionJobRow(jobId);
+		expect(row?.status).toBe("failed");
+		expect(row?.errorCode).toBe("max_attempts");
+		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(3);
+
+		// Three attempts, three DISTINCT remote jobs. Every one of them was
+		// cleared on failure, so nothing was ever resumed.
+		expect(countRequests("POST", "/v1/parse/jobs")).toBe(3);
+		expect(remoteJobIds).toEqual([]);
+
+		// And it cost no extra bytes: the upload dedupes on sha256, so the
+		// three submissions share the one PUT the first attempt made.
+		expect(countRequests("POST", "/v1/uploads")).toBe(3);
+		expect(
+			server.requests.filter((entry) => entry.method === "PUT"),
+		).toHaveLength(1);
+	});
+
+	it("gives a user Retry after max_attempts a fresh remote job", async () => {
+		await boot({ jobOutcome: "file-failed" });
+		const { jobId } = await seedJob();
+
+		for (let i = 0; i < 3; i += 1) {
+			clearBackoffGates();
+			await run();
+		}
+		expect((await ledger.getExtractionJobRow(jobId))?.errorCode).toBe(
+			"max_attempts",
+		);
+
+		// The server is healthy again and the file was always fine.
+		server.setOptions({ jobOutcome: "completed" });
+		server.resetLog();
+		await ledger.retryExtractionJob({ userId, jobId });
+		expect(await run()).toEqual({ jobId, status: "succeeded" });
+
+		// A brand new job, because no handle survived the last failure.
+		expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
+		expect(
+			server.requests.filter((entry) => entry.method === "GET"),
+		).not.toEqual([]);
+	});
+});
+
 describe("cancel while parsing", () => {
 	it("DELETEs the remote job, settles canceled and leaves no temp directory", async () => {
 		await boot({ neverFinish: true });

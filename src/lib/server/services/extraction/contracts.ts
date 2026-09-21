@@ -192,6 +192,10 @@ const EXTRACTION_ERROR_MESSAGES: Partial<Record<ExtractionErrorCode, string>> =
 		// probe, which is allowed to know, composes that message itself.
 		unsupported_type:
 			"The document service cannot read this file type. Convert it to PDF (or another supported format) and upload it again.",
+		// The upstream sentence here is "Failed to load document (PDFium: Data
+		// format error)." — true, and useless to the person holding the file.
+		document_unreadable:
+			"This file appears to be damaged or password-protected, so it could not be read. Open it, re-export or re-save it (removing any password), and upload that copy.",
 	};
 
 /**

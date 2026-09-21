@@ -57,8 +57,10 @@ export interface StartUploadExtractionParams {
  * button is drawn from. A configuration failure (`backend_misconfigured`,
  * `auth_failed`, `protocol`) is about the server and an admin may well have
  * fixed it since; a refusal of the document itself (`unsupported_type`,
- * `too_large`, `empty_result`, `internal`) is about these exact bytes, and
- * sending them a second time cannot change the answer.
+ * `document_unreadable`, `too_large`, `empty_result`, `internal`) is about
+ * these exact bytes, and sending them a second time cannot change the answer.
+ * A repaired or unlocked file has a different sha256, so it arrives as a new
+ * document rather than as a re-upload of this one.
  *
  * A `failed` row with no readable code is treated as the latter: the ledger
  * only writes one on a path that already decided not to offer the button.

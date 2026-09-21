@@ -400,6 +400,119 @@ describe("mapMineruError — deferred, file-level failures", () => {
 		});
 	});
 
+	/**
+	 * A terminal job with a file-level `parse_failed` carrying `message`.
+	 * Built from the recorded PDF job so the rest of the shape stays real.
+	 */
+	function failedJobSaying(message: string, code = "parse_failed") {
+		return mineruJobSchema.parse({
+			...(JSON.parse(
+				readFileSync(
+					join(MINERU_FIXTURE_ROOT, "pdf", "job.final.json"),
+					"utf8",
+				),
+			) as Record<string, unknown>),
+			status: "failed",
+			files: [
+				{
+					file_id: "file-000000000001",
+					name: "broken.pdf",
+					page_range: "",
+					status: "failed",
+					parse: null,
+					output_files: null,
+					error: { type: "engine_error", code, message, param: null },
+				},
+			],
+		});
+	}
+
+	// Defect 1(b). The LIVE 4.0.4 wording, verbatim: a corrupt PDF (valid
+	// `%PDF-` header, garbage body) and a zero-page PDF both come back as a
+	// file-level `parse_failed` saying "Failed to load document (PDFium: …)".
+	// MinerU reads PDFs through pypdfium2, whose single raise site
+	// (`_helpers/document.py`) fires both when PDFium refuses the bytes and
+	// when the document has fewer than one page — which is why two different
+	// broken files wear one sentence. The reasons are pypdfium2's own
+	// `ErrorToStr` table (`internal/consts.py`).
+	it.each([
+		// The exact message the live test recorded.
+		"Failed to load document (PDFium: Data format error).",
+		// The zero-page PDF: page count < 1 with no error code set.
+		"Failed to load document (PDFium: Success).",
+		"Failed to load document (PDFium: File access error).",
+		"Failed to load document (PDFium: Unknown error).",
+	])("reads %s as a damaged document, not a retryable failure", (message) => {
+		const mapping = mapMineruJobFailure(failedJobSaying(message));
+		expect(mapping?.taxonomy).toBe("document_unreadable");
+		expect(mapping?.retryable).toBe(false);
+		expect(mapping?.known).toBe(true);
+		expect(mapping?.rule).toBe("file:parse_failed:unreadable-document");
+	});
+
+	// "Page not found or content error" contains "not found", which the
+	// `missing-file` rule matches. Getting this one wrong would read a damaged
+	// document as "the server dropped our id" and retry it three times.
+	it("does not mistake a PDFium page error for a dropped file id", () => {
+		const mapping = mapMineruJobFailure(
+			failedJobSaying(
+				"Failed to load document (PDFium: Page not found or content error).",
+			),
+		);
+		expect(mapping?.taxonomy).toBe("document_unreadable");
+		expect(mapping?.rule).toBe("file:parse_failed:unreadable-document");
+	});
+
+	// A locked document is its own rule so an operator can tell the two apart
+	// in `details.mineruRule`, even though both reach one user-facing sentence.
+	it.each([
+		"Failed to load document (PDFium: Incorrect password error).",
+		"Failed to load document (PDFium: Unsupported security scheme error).",
+		"The document is encrypted and no password was supplied.",
+	])("reads %s as a locked document", (message) => {
+		const mapping = mapMineruJobFailure(failedJobSaying(message));
+		expect(mapping?.taxonomy).toBe("document_unreadable");
+		expect(mapping?.retryable).toBe(false);
+		expect(mapping?.rule).toBe("file:parse_failed:protected");
+	});
+
+	it.each([
+		["file_corrupted", "file:file_corrupted"],
+		["file_encrypted", "file:file_encrypted"],
+	])("maps the registered 4.0.4 code %s on its own", (code, rule) => {
+		const mapping = mapMineruJobFailure(
+			failedJobSaying("The file could not be read.", code),
+		);
+		expect(mapping?.taxonomy).toBe("document_unreadable");
+		expect(mapping?.retryable).toBe(false);
+		expect(mapping?.rule).toBe(rule);
+	});
+
+	it("still reads a plain engine crash as a retryable job_failed", () => {
+		const mapping = mapMineruJobFailure(
+			failedJobSaying("Engine crashed while rendering page 3"),
+		);
+		expect(mapping?.taxonomy).toBe("job_failed");
+		expect(mapping?.retryable).toBe(true);
+	});
+
+	// Defect 1(a). A job MinerU has already settled cannot answer differently
+	// on a second GET, so the stored handle dies with it — otherwise every
+	// later attempt re-polls the same dead id instead of re-parsing.
+	it("poisons the handle on every terminal failure, whatever the verdict", () => {
+		const cases = [
+			failedJobSaying("Failed to load document (PDFium: Data format error)."),
+			failedJobSaying("Engine crashed while rendering page 3"),
+			failedJobSaying("Unsupported file type: cover.avif"),
+			failedJobSaying("Something nobody has mapped", "brand_new_code"),
+		];
+		for (const job of cases) {
+			expect(mapMineruJobFailure(job)?.handleUnknown, job.files[0]?.name).toBe(
+				true,
+			);
+		}
+	});
+
 	it("accepts the recorded PDF job, which is the success case", () => {
 		const job = mineruJobSchema.parse(
 			JSON.parse(
@@ -585,6 +698,25 @@ describe("mineruErrorToExtractionError", () => {
 		expect(error.retryable).toBe(false);
 		expect(error.message).toContain("Convert it to PDF");
 		expect(error.details?.rawMessage).toContain("cover.avif");
+	});
+
+	it("tells the user to re-export a file the reader cannot open", () => {
+		const error = mineruErrorToExtractionError(
+			new MineruApiError({
+				code: "parse_failed",
+				message: "Failed to load document (PDFium: Data format error).",
+				status: null,
+			}),
+		);
+		expect(error.code).toBe("document_unreadable");
+		expect(error.retryable).toBe(false);
+		// The upstream sentence is true and useless; the code owns the advice.
+		expect(error.message).toContain("damaged or password-protected");
+		expect(error.message).not.toContain("PDFium");
+		expect(error.details?.rawMessage).toContain("PDFium");
+		expect(error.details?.mineruRule).toBe(
+			"file:parse_failed:unreadable-document",
+		);
 	});
 
 	it("passes handleUnknown through for a server that dropped our file id", () => {

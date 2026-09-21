@@ -24,9 +24,13 @@
  *     upload/file/job id 404s after one; the bytes survive as content-addressed
  *     blobs. `job_not_found` / `file_not_found` / `upload_not_found` therefore
  *     mean "re-`POST /v1/uploads` with the known sha256 and take the NEW
- *     file_id", never "fail". `handleUnknown` is raised only where the merged
- *     error table raises it: a file-level `parse_failed` whose message says the
- *     file was not found.
+ *     file_id", never "fail". `handleUnknown` is raised where the merged error
+ *     table raises it — a file-level `parse_failed` whose message says the file
+ *     was not found — and on EVERY terminal remote failure, because a job
+ *     MinerU has already settled cannot answer differently on a second `GET`
+ *     (see `spent` in `mineru/errors.ts`). Resuming survives only for the cases
+ *     where the remote job is still RUNNING: a lost claim, a stale-worker
+ *     reclaim, a shutdown, a transport error.
  *  4. **Only the zip is downloaded**, into a per-attempt temp directory that is
  *     removed on every exit path — success, failure, cancel, throw.
  *  5. **The bundle is written here, while the zip still exists.** The zip is

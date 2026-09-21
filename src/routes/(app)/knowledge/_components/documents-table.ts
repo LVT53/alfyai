@@ -83,6 +83,7 @@ const EXTRACTION_ERROR_KEYS: Record<ExtractionErrorCode, I18nKey> = {
 	timeout: "knowledge.extraction.error.timeout",
 	protocol: "knowledge.extraction.error.protocol",
 	unsupported_type: "knowledge.extraction.error.unsupported_type",
+	document_unreadable: "knowledge.extraction.error.document_unreadable",
 	empty_result: "knowledge.extraction.error.empty_result",
 	stale_worker: "knowledge.extraction.error.stale_worker",
 	max_attempts: "knowledge.extraction.error.max_attempts",
