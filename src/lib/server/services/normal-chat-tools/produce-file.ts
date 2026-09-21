@@ -245,7 +245,26 @@ export function normalizeProduceFileInput(
 		input.content,
 		input.text,
 	);
-	const explicitMode = input.sourceMode;
+	// A patch brings its own content: the base file, plus the edit. So a request
+	// that carries `patches` and nothing else to produce from has named no mode
+	// it can be held to — the mode follows from the base file and the requested
+	// outputs, which the patch path below (and the adapter, once it HAS the
+	// patched bytes) decides. Validating the named mode against content the
+	// model was never going to send is what refused the live call
+	// `{filename, sourceMode: "document_source", patches}` with "documentSource
+	// or content is required", after which the model gave up on patching and
+	// rewrote the whole file.
+	//
+	// A model-authored `program` or `documentSource` is content of its own, so
+	// those calls are untouched: they keep running their own writer with the
+	// patched text folded in.
+	const patchesAreTheWholeRequest =
+		Array.isArray(input.patches) &&
+		input.patches.length > 0 &&
+		!content &&
+		!input.documentSource &&
+		!input.program;
+	const explicitMode = patchesAreTheWholeRequest ? undefined : input.sourceMode;
 
 	if (explicitMode === "program" || input.program) {
 		if (!input.program) {

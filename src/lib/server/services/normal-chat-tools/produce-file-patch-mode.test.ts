@@ -901,3 +901,104 @@ describe("a patch whose outputs are a document", () => {
 		expect(submitIntakeMock).not.toHaveBeenCalled();
 	});
 });
+
+/**
+ * THE LIVE FAILURE. The model's first patch call was
+ * `{filename:"alpha-notes.md", sourceMode:"document_source", patches:[…]}` —
+ * no content of its own, because a patch's content IS the base file plus the
+ * edit. `normalizeProduceFileInput` ran its explicit-mode branches first and
+ * refused with `documentSource or content is required when sourceMode is
+ * document_source`, so the model abandoned patching and rewrote the whole
+ * file.
+ *
+ * A request that carries patches and nothing of its own is a PATCH request
+ * whatever `sourceMode` says: the mode follows from the base file and the
+ * requested outputs, which is what the patch path already decides.
+ */
+describe("a patch request whose sourceMode names a mode it brought no content for", () => {
+	const ALPHA_NOTES = [
+		"# Alpha notes",
+		"",
+		"Line one introduces the alpha.",
+		"Line two lists the headline change.",
+		"Line three is the one the user wants changed.",
+		"Line four thanks the testers.",
+	].join("\n");
+
+	it.each([
+		"document_source",
+		"program",
+	] as const)("is produced as the next version of the base file with sourceMode %o", async (sourceMode) => {
+		await seedChatFileOnDisk({
+			filename: "alpha-notes.md",
+			content: ALPHA_NOTES,
+		});
+
+		const body = await callProduceFile({
+			requestTitle: "Alpha notes",
+			filename: "alpha-notes.md",
+			sourceMode,
+			patches: [
+				{
+					oldText: "Line three is the one the user wants changed.",
+					newText: "Line three now says what the user asked for.",
+				},
+			],
+		});
+
+		// The base is a Markdown file, so the mode the SERVER picks is
+		// inline_text — no container, no report renderer — whatever mode the
+		// model named for the content it did not send.
+		expect(body.sourceMode).toBe("inline_text");
+		expect(body.program).toBeUndefined();
+		const inlineText = body.inlineText as {
+			content: string;
+			files: Array<{ filename: string; outputType: string }>;
+		};
+		expect(inlineText.content).toBe(
+			ALPHA_NOTES.replace(
+				"Line three is the one the user wants changed.",
+				"Line three now says what the user asked for.",
+			),
+		);
+		expect(inlineText.files).toEqual([
+			{ filename: "alpha-notes.md", outputType: "md" },
+		]);
+	});
+
+	it("still goes down the document path when the outputs are a document", async () => {
+		// Same shape, but the request asks for a PDF: the patched Markdown is
+		// rebuilt into a document source, exactly as a patch with no sourceMode
+		// already was.
+		seedPreviousVersion(PREVIOUS_MARKDOWN);
+
+		const body = await callProduceFile({
+			requestTitle: TITLE,
+			outputType: "pdf",
+			sourceMode: "document_source",
+			patches: [{ oldText: "| North | 24.25 |", newText: "| South | 25.75 |" }],
+		});
+
+		expect(body.sourceMode).toBe("document_source");
+		expect(body.program).toBeUndefined();
+		const blocks = JSON.stringify(
+			(body.documentSource as { blocks?: unknown })?.blocks ?? [],
+		);
+		expect(blocks).toContain("25.75");
+		expect(blocks).not.toContain("24.25");
+	});
+
+	it("still refuses when there is no base to patch", async () => {
+		// Ignoring the named mode must not turn a patch with no previous version
+		// into something else: it is the same honest refusal as before.
+		const result = await refuseProduceFile({
+			requestTitle: "Alpha notes",
+			filename: "alpha-notes.md",
+			sourceMode: "document_source",
+			patches: [{ oldText: "Line three", newText: "Line 3" }],
+		});
+
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("no_previous_version_for_patches");
+	});
+});
