@@ -486,7 +486,7 @@ describe("hooks.server.ts", () => {
 			});
 		});
 
-		it.each([
+		it.each<{ label: string; headers: Record<string, string> }>([
 			{ label: "a framed document", headers: { "sec-fetch-dest": "iframe" } },
 			{
 				label: "a top-level document",
@@ -498,9 +498,11 @@ describe("hooks.server.ts", () => {
 			},
 		])("redirects $label", async ({ headers }) => {
 			const { handle } = await import("./hooks.server");
-			const event = makeHookEvent("/api/knowledge/doc-1/preview", undefined, {
-				...headers,
-			});
+			const event = makeHookEvent(
+				"/api/knowledge/doc-1/preview",
+				undefined,
+				headers,
+			);
 
 			await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
 				status: 303,
@@ -511,7 +513,7 @@ describe("hooks.server.ts", () => {
 		// The app's own calls. `Sec-Fetch-Mode` is set by the browser, so this is
 		// what every fetch/XHR from a page looks like — the client's 401
 		// handling is untouched by the navigation exception.
-		it.each([
+		it.each<{ label: string; headers: Record<string, string> }>([
 			{ label: "same-origin fetch", headers: FETCH_HEADERS },
 			{
 				label: "cors fetch",
