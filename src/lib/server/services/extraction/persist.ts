@@ -11,12 +11,14 @@
 // this runs, and only then does the job go `succeeded` — so a crash in the
 // middle leaves a job whose heartbeat stops, which stale recovery requeues.
 
+import { stat } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifacts } from "$lib/server/db/schema";
 import {
 	estimateDocumentTokenCount,
 	extractDocumentOutline,
+	MAX_OUTLINE_ENTRIES,
 } from "$lib/server/services/knowledge/outline";
 import {
 	createArtifact,
@@ -26,7 +28,21 @@ import {
 	mapArtifact,
 	updateArtifactMetadata,
 } from "$lib/server/services/knowledge/store/core";
-import type { Artifact } from "$lib/server/services/knowledge/types";
+import type {
+	Artifact,
+	DocumentOutlineEntry,
+} from "$lib/server/services/knowledge/types";
+import type { MineruParseBundleManifest } from "$lib/server/services/mineru/bundle";
+import {
+	readMineruParseManifest,
+	setMineruParseBundleNormalizedArtifactId,
+	writeMineruParseBundle,
+} from "$lib/server/services/mineru/bundle";
+import { resolveMineruConfig } from "$lib/server/services/mineru/config";
+import type {
+	MineruOutlineEntry,
+	StructuredExtractionResult,
+} from "$lib/server/services/mineru/result";
 import { queueArtifactSemanticEmbeddingRefresh } from "$lib/server/services/semantic-embedding-refresh";
 import { syncArtifactChunks } from "$lib/server/services/task-state/chunk-sync";
 
@@ -40,9 +56,9 @@ export interface CreateNormalizedArtifactFromExtractionParams {
 	mimeType: string;
 	pageCount?: number;
 	/**
-	 * Backend-specific structured payload. Opaque here until something narrows
-	 * it with a type guard; carried so the seam does not have to be reopened to
-	 * start using it.
+	 * Backend-specific structured payload, opaque to the ledger and the worker.
+	 * `narrowStructuredExtraction` is the only thing that reads it, and it
+	 * accepts exactly two shapes — see that function.
 	 */
 	structured?: unknown;
 }
@@ -58,12 +74,37 @@ export interface CreateNormalizedArtifactFromExtractionParams {
 export async function createNormalizedArtifactFromExtraction(
 	params: CreateNormalizedArtifactFromExtractionParams,
 ): Promise<Artifact> {
+	const structured = narrowStructuredExtraction(params.structured);
+
+	// The bundle is written BEFORE the row, and deliberately cannot fail the
+	// job: the text is the thing the user asked for, and a document that is
+	// readable but has no figures on disk is a far better outcome than a
+	// failed extraction that retries three times and ends up with neither.
+	const bundle = structured
+		? await syncParseBundle({
+				userId: params.userId,
+				sourceArtifactId: params.sourceArtifactId,
+				structured,
+			})
+		: null;
+
 	const tokenEstimate = estimateDocumentTokenCount(params.text);
-	const outline = extractDocumentOutline(params.text);
+	// Structured parses carry their own outline, which already falls back to
+	// `extractDocumentOutline` internally for the formats that have no title
+	// blocks (CSV) and for producers that type their headings as bold body
+	// text. The direct-text route has no blocks at all, so it stays on the
+	// heuristics exactly as before.
+	const outline = structured
+		? normalizeStructuredOutline(structured.result.outline)
+		: extractDocumentOutline(params.text);
+	const pageCount = structured ? structured.result.pageCount : params.pageCount;
+
 	const comfortMetadataPatch: Record<string, unknown> = {
 		tokenEstimate,
-		...(params.pageCount !== undefined ? { pageCount: params.pageCount } : {}),
+		...(structured ? clearedStructuredMetadata() : {}),
+		...(pageCount !== undefined ? { pageCount } : {}),
 		...(outline.length > 0 ? { outline } : {}),
+		...(structured ? structuredMetadata(structured.result, bundle) : {}),
 	};
 
 	const metadata = {
@@ -109,7 +150,219 @@ export async function createNormalizedArtifactFromExtraction(
 		patch: comfortMetadataPatch,
 	});
 
+	if (bundle?.manifest) {
+		// The manifest is written before the normalized artifact exists, so the
+		// id it should carry is only knowable here. A false return means the
+		// bundle vanished between the two writes (a concurrent delete), which is
+		// not worth failing a completed extraction over.
+		await setMineruParseBundleNormalizedArtifactId(
+			params.userId,
+			params.sourceArtifactId,
+			artifact.id,
+		).catch(() => false);
+	}
+
 	return artifact;
+}
+
+// ── the structured hand-off ────────────────────────────────────────────────
+
+/**
+ * What `ExtractDocumentResult.structured` is allowed to be.
+ *
+ * The spec's contract (§3) names one object: a `StructuredExtractionResult`.
+ * That object carries no zip path, so an extractor that returns it bare has
+ * necessarily written the parse bundle itself — it is the only party that ever
+ * holds the downloaded `result.zip`. An extractor that would rather hand the
+ * zip over instead wraps the same object in `{ result, zipPathAbsolute }`, and
+ * this module writes the bundle. Both shapes are accepted, and an absent or
+ * unrecognised payload is simply "no structured data": the direct-text route
+ * and the generated-file readback go down that path and must keep working.
+ */
+interface StructuredExtractionHandoff {
+	result: StructuredExtractionResult;
+	/** The downloaded result zip, when the extractor left it for us to read. */
+	zipPathAbsolute: string | null;
+}
+
+function isStructuredExtractionResult(
+	value: unknown,
+): value is StructuredExtractionResult {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const candidate = value as Partial<StructuredExtractionResult>;
+	return (
+		typeof candidate.parserVersion === "string" &&
+		typeof candidate.markdown === "string" &&
+		typeof candidate.pageCount === "number" &&
+		typeof candidate.pageCountKind === "string" &&
+		Array.isArray(candidate.pages) &&
+		Array.isArray(candidate.blocks) &&
+		Array.isArray(candidate.figures) &&
+		Array.isArray(candidate.outline) &&
+		typeof candidate.stats === "object" &&
+		candidate.stats !== null
+	);
+}
+
+export function narrowStructuredExtraction(
+	value: unknown,
+): StructuredExtractionHandoff | null {
+	if (isStructuredExtractionResult(value)) {
+		return { result: value, zipPathAbsolute: null };
+	}
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const envelope = value as { result?: unknown; zipPathAbsolute?: unknown };
+	if (!isStructuredExtractionResult(envelope.result)) return null;
+	return {
+		result: envelope.result,
+		zipPathAbsolute:
+			typeof envelope.zipPathAbsolute === "string" && envelope.zipPathAbsolute
+				? envelope.zipPathAbsolute
+				: null,
+	};
+}
+
+interface ParseBundleOutcome {
+	manifest: MineruParseBundleManifest | null;
+	/** A one-line reason, recorded on the artifact rather than thrown. */
+	error: string | null;
+}
+
+/**
+ * Brings the on-disk bundle up to date with this parse, without ever throwing.
+ *
+ * Three cases, in order: the extractor handed over a zip that is still there
+ * (we write, replacing any previous bundle atomically); the extractor already
+ * wrote the bundle (we read its manifest for the metadata below); there is no
+ * bundle at all (metadata simply omits the bundle keys).
+ */
+async function syncParseBundle(input: {
+	userId: string;
+	sourceArtifactId: string;
+	structured: StructuredExtractionHandoff;
+}): Promise<ParseBundleOutcome> {
+	const { structured } = input;
+
+	if (structured.zipPathAbsolute) {
+		const readable = await stat(structured.zipPathAbsolute)
+			.then((stats) => stats.isFile())
+			.catch(() => false);
+		if (readable) {
+			try {
+				const manifest = await writeMineruParseBundle({
+					userId: input.userId,
+					sourceArtifactId: input.sourceArtifactId,
+					zipPathAbsolute: structured.zipPathAbsolute,
+					result: structured.result,
+					maxBytes: resolveMineruConfig().bundleMaxBytes,
+				});
+				return { manifest, error: null };
+			} catch (error) {
+				const message =
+					error instanceof Error ? error.message : String(error);
+				console.warn("[EXTRACTION] Parse bundle write failed", {
+					sourceArtifactId: input.sourceArtifactId,
+					error: message,
+				});
+				return { manifest: null, error: message.slice(0, 300) };
+			}
+		}
+	}
+
+	// No zip to read: either the extractor wrote the bundle itself, or there is
+	// nothing on disk. `readMineruParseManifest` answers both without throwing.
+	const manifest = await readMineruParseManifest(
+		input.userId,
+		input.sourceArtifactId,
+	).catch(() => null);
+	return { manifest, error: null };
+}
+
+// ── metadata ───────────────────────────────────────────────────────────────
+
+/**
+ * Every key a structured parse owns. Listed once, and written as `undefined`
+ * before the real values are spread on top, so a re-extraction cannot leave a
+ * previous parse's tier, figure count or unknown-block census sitting on a row
+ * that no longer has one: `updateArtifactMetadata` merges the patch and then
+ * `JSON.stringify` drops the undefined members, which is a removal.
+ */
+const STRUCTURED_METADATA_KEYS = [
+	"pageCount",
+	"pageCountKind",
+	"outline",
+	"extractionProducer",
+	"extractionProducerVersion",
+	"extractionServerParserVersion",
+	"extractionParserVersion",
+	"extractionTier",
+	"extractionJobTier",
+	"extractionParseMode",
+	"extractionBundleBytes",
+	"extractionFigureCount",
+	"extractionImagesOmitted",
+	"extractionUnknownBlockTypes",
+	"extractionBundleError",
+] as const;
+
+function clearedStructuredMetadata(): Record<string, undefined> {
+	const cleared: Record<string, undefined> = {};
+	for (const key of STRUCTURED_METADATA_KEYS) cleared[key] = undefined;
+	return cleared;
+}
+
+function structuredMetadata(
+	result: StructuredExtractionResult,
+	bundle: ParseBundleOutcome | null,
+): Record<string, unknown> {
+	const unknownTypes = result.stats.unknownTypes ?? {};
+	return {
+		pageCountKind: result.pageCountKind,
+		// The legacy marker (D12): a row without it predates this extractor and
+		// is identified by that absence, never by a backfill.
+		extractionProducer: "mineru",
+		extractionProducerVersion: result.producerVersion ?? undefined,
+		extractionServerParserVersion: result.serverParserVersion ?? undefined,
+		extractionParserVersion: result.parserVersion,
+		// `extensions.mineru.tier`, not the job's tier: a `basic` job runs
+		// Office/HTML/CSV/EPUB at `flash`, and showing the job's answer would
+		// tell an admin their tier setting did something it did not do.
+		extractionTier: result.effectiveTier ?? undefined,
+		extractionJobTier: result.jobTier ?? undefined,
+		extractionParseMode: result.parseMode ?? undefined,
+		extractionFigureCount: result.figures.length,
+		...(bundle?.manifest
+			? {
+					extractionBundleBytes: bundle.manifest.totalBytes,
+					extractionImagesOmitted: bundle.manifest.imagesOmitted,
+				}
+			: {}),
+		...(bundle?.error ? { extractionBundleError: bundle.error } : {}),
+		...(Object.keys(unknownTypes).length > 0
+			? { extractionUnknownBlockTypes: unknownTypes }
+			: {}),
+	};
+}
+
+/**
+ * Block-derived outline entries, trimmed to what storage promises: the same
+ * `MAX_OUTLINE_ENTRIES` cap the heuristic producer honours, and a `page` only
+ * when it is a real 1-based page number.
+ */
+function normalizeStructuredOutline(
+	entries: readonly MineruOutlineEntry[],
+): DocumentOutlineEntry[] {
+	return entries.slice(0, MAX_OUTLINE_ENTRIES).map((entry) => ({
+		level: entry.level,
+		title: entry.title,
+		offset: entry.offset,
+		preview: entry.preview,
+		...(typeof entry.page === "number" &&
+		Number.isInteger(entry.page) &&
+		entry.page > 0
+			? { page: entry.page }
+			: {}),
+	}));
 }
 
 async function createNewNormalizedArtifact(input: {

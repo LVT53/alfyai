@@ -82,6 +82,17 @@ interface LogicalDocumentRecord {
 	originConversationId?: string | null;
 	originAssistantMessageId?: string | null;
 	sourceChatFileId?: string | null;
+	/** `metadata.extractionProducer` — absent on every pre-Phase-4 row. */
+	extractionProducer?: string | null;
+	/** `metadata.extractionTier` — the real per-file tier of the last parse. */
+	extractionTier?: string | null;
+}
+
+/** A metadata value that is a usable, short, non-empty string, or undefined. */
+function readMetadataLabel(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	return trimmed.length > 0 && trimmed.length <= 64 ? trimmed : undefined;
 }
 
 function mapLogicalDocumentItem(
@@ -116,6 +127,17 @@ function mapLogicalDocumentItem(
 			: {}),
 		...(params.displayArtifact.outline !== undefined
 			? { outline: params.displayArtifact.outline }
+			: {}),
+		// Extraction provenance rides on the row so the Library can offer
+		// "Re-extract" only where the backend can honour it, and can mark the
+		// tier the document is already at. Omitted (never null) when the
+		// artifact predates the structured extractor — that absence IS the
+		// legacy marker (D12).
+		...(params.extractionProducer
+			? { extractionProducer: params.extractionProducer }
+			: {}),
+		...(params.extractionTier
+			? { extractionTier: params.extractionTier }
 			: {}),
 		createdAt: params.displayArtifact.createdAt,
 		updatedAt: params.updatedAt,
@@ -322,6 +344,11 @@ async function buildLogicalDocumentRecordsFromRows(params: {
 			parseWorkingDocumentMetadata(parseJsonRecord(row.metadataJson ?? null)),
 		]),
 	);
+	// The working-document projection above is deliberately narrow, so the raw
+	// record is kept beside it for the two extraction-provenance keys.
+	const rawMetadataById = new Map(
+		rows.map((row) => [row.id, parseJsonRecord(row.metadataJson ?? null)]),
+	);
 
 	const derivedRows =
 		normalizedArtifacts.length === 0
@@ -354,7 +381,10 @@ async function buildLogicalDocumentRecordsFromRows(params: {
 	const records: LogicalDocumentRecord[] = [];
 	for (const source of sourceArtifacts) {
 		const normalized = normalizedBySourceId.get(source.id) ?? null;
+		const rawMetadata = rawMetadataById.get(source.id) ?? null;
 		records.push({
+			extractionProducer: readMetadataLabel(rawMetadata?.extractionProducer),
+			extractionTier: readMetadataLabel(rawMetadata?.extractionTier),
 			displayArtifact: source,
 			promptArtifactId: normalized?.id ?? null,
 			familyArtifactIds: [source.id, normalized?.id ?? null].filter(
