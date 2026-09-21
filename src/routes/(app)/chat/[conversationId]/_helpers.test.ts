@@ -44,6 +44,7 @@ function makeJob(
 		warnings: [],
 		dismissed: false,
 		error: null,
+		sourceMode: null,
 	};
 }
 

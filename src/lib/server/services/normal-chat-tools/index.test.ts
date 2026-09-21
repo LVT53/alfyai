@@ -242,6 +242,7 @@ function makeFileProductionJob(
 		warnings: [],
 		dismissed: false,
 		error: null,
+		sourceMode: null,
 		...overrides,
 	};
 }

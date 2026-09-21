@@ -26,6 +26,7 @@ function makeJob(overrides: Partial<FileProductionJob>): FileProductionJob {
 		warnings: [],
 		dismissed: false,
 		error: null,
+		sourceMode: null,
 		...overrides,
 	};
 }

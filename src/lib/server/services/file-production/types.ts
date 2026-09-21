@@ -112,4 +112,11 @@ export interface FileProductionJob {
 		message: string;
 		retryable: boolean;
 	} | null;
+	/**
+	 * `file_production_jobs.source_mode` verbatim: `"program"`,
+	 * `"document_source"`, `"inline_text"`, or `null` for a job the column
+	 * predates — every legacy-synthesised job (`ensureLegacyJobs`) included,
+	 * since it never wrote the column at all.
+	 */
+	sourceMode: string | null;
 }
