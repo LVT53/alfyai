@@ -19,6 +19,7 @@ import type {
 } from "$lib/server/services/memory-types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { EXTRACTION_STATUS_BATCH_LIMIT } from "$lib/shared/extraction-status";
+import { setDisabledFileTypeIds } from "$lib/stores/upload-format-gate";
 import { setMaxFileUploadSize } from "$lib/stores/upload-limits";
 import { formatByteSize } from "$lib/utils/format";
 import { _unwrapList } from "./_utils";
@@ -161,6 +162,12 @@ type KnowledgeUploadIntentResponse = {
 	chunkBodyLimit?: number;
 	rawUploadLimit?: number;
 	requestBodyLimit?: number;
+	/**
+	 * The MinerU-4 gate's current answer (phase5-6 spec §3.5), published into
+	 * `$disabledFileTypeIds` next to `maxFileUploadSize`. Absent or malformed
+	 * means "open" — see `setDisabledFileTypeIds`.
+	 */
+	disabledFileTypeIds?: string[];
 };
 
 type ChunkUploadResponse =
@@ -447,8 +454,10 @@ export async function uploadKnowledgeAttachment(
 	}
 	// The intent response is the authoritative limit: it reflects the live
 	// admin setting, where the client seed only reflects the one in force when
-	// the shell was rendered.
+	// the shell was rendered. Same reasoning for the gate: it lands here before
+	// any other upload on the page, so it is never staler than the SSR shell.
 	setMaxFileUploadSize(intent.maxFileUploadSize);
+	setDisabledFileTypeIds(intent.disabledFileTypeIds);
 	try {
 		if (file.size > resolveRawUploadLimit(intent)) {
 			return await uploadChunkedKnowledgeAttachment(

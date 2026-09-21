@@ -13,6 +13,7 @@ import type { AtlasAvailability } from "$lib/server/services/atlas/public-types"
 import type { SessionUser } from "$lib/server/services/auth-types";
 import type { ConversationListItem } from "$lib/server/services/conversations";
 import { listConversations } from "$lib/server/services/conversations";
+import { getUploadFormatGate } from "$lib/server/services/knowledge/format-availability";
 import { resolveUserModelPreference } from "$lib/server/services/model-preferences";
 import type { Project } from "$lib/server/services/projects";
 import { listProjects } from "$lib/server/services/projects";
@@ -42,6 +43,14 @@ export interface AppShellData {
 	 * for what server-rendered HTML shows until hydration.
 	 */
 	maxFileUploadSize: number;
+	/**
+	 * Seeds `$lib/stores/upload-format-gate` the same way, and just as early:
+	 * registry entry ids the configured backend currently refuses (phase5-6
+	 * spec §3.5). Empty when the backend is healthy or has never answered — the
+	 * gate fails open, so a stale or absent SSR payload can never shrink the
+	 * picker more than it should.
+	 */
+	disabledFileTypeIds: string[];
 	composerCommandRegistryEnabled: boolean;
 	atlasAvailability: AtlasAvailability;
 	userTheme: "system" | "light" | "dark";
@@ -70,10 +79,15 @@ export async function getAuthenticatedAppShellData(
 	const projects = markStreamedPromiseHandled(listProjects(user.id));
 	const appVersion = markStreamedPromiseHandled(getAppVersionMetadata());
 	const availableModels = getAvailableModelsWithProviders();
-	const [[userRow], availableModelsList, config] = await Promise.all([
+	// Never a network call: `getUploadFormatGate` fails open when the
+	// capabilities cache is cold, exactly like every other upload-time read of
+	// it. Page render must not wait on a MinerU probe.
+	const uploadFormatGate = getUploadFormatGate();
+	const [[userRow], availableModelsList, config, gate] = await Promise.all([
 		db.select().from(users).where(eq(users.id, user.id)),
 		availableModels,
 		Promise.resolve(getConfig()),
+		uploadFormatGate,
 	]);
 	const resolvedModelPreference = await resolveUserModelPreference(
 		userRow?.preferredModel,
@@ -91,6 +105,7 @@ export async function getAuthenticatedAppShellData(
 		projects,
 		maxMessageLength: config.maxMessageLength,
 		maxFileUploadSize: config.maxFileUploadSize,
+		disabledFileTypeIds: [...gate.disabledEntryIds],
 		composerCommandRegistryEnabled: config.composerCommandRegistryEnabled,
 		atlasAvailability: getAtlasAvailability(config),
 		userTheme: resolveUserTheme(userRow?.theme),
