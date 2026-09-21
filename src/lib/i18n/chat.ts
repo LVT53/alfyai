@@ -1235,8 +1235,7 @@ const chatDict = {
 		"chat.extraction.canceledRetry": "Leállítva — próbáld újra",
 		"chat.extraction.error.auth_failed":
 			"A dokumentumolvasó elutasította a hozzáférést",
-		"chat.extraction.error.backend_misconfigured":
-			"Rossz az olvasó címe",
+		"chat.extraction.error.backend_misconfigured": "Rossz az olvasó címe",
 		"chat.extraction.error.canceled": "Leállítva",
 		"chat.extraction.error.empty_result": "Nem találtunk benne szöveget",
 		"chat.extraction.error.internal": "Váratlan hiba történt",

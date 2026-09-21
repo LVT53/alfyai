@@ -120,15 +120,15 @@ describe("decideExtractionRetry", () => {
 	};
 
 	it("requeues a retryable document failure that has attempts left", () => {
-		expect(decideExtractionRetry({ ...base, code: "job_failed" })).toMatchObject(
-			{
-				requeue: true,
-				delayMs: 2000,
-				jobErrorCode: "job_failed",
-				jobRetryable: true,
-				outageWait: false,
-			},
-		);
+		expect(
+			decideExtractionRetry({ ...base, code: "job_failed" }),
+		).toMatchObject({
+			requeue: true,
+			delayMs: 2000,
+			jobErrorCode: "job_failed",
+			jobRetryable: true,
+			outageWait: false,
+		});
 	});
 
 	it("turns an exhausted retryable code into max_attempts, still user-retryable", () => {
@@ -172,12 +172,14 @@ describe("decideExtractionRetry", () => {
 	});
 
 	it("fails a non-retryable code on the first attempt, with its own code", () => {
-		expect(decideExtractionRetry({ ...base, code: "too_large" })).toMatchObject({
-			requeue: false,
-			delayMs: 0,
-			jobErrorCode: "too_large",
-			jobRetryable: false,
-		});
+		expect(decideExtractionRetry({ ...base, code: "too_large" })).toMatchObject(
+			{
+				requeue: false,
+				delayMs: 0,
+				jobErrorCode: "too_large",
+				jobRetryable: false,
+			},
+		);
 	});
 
 	it("keeps a non-retryable code non-retryable even at the cap", () => {

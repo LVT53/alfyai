@@ -47,10 +47,10 @@ import {
 } from "./contracts";
 import {
 	decideExtractionRetry,
-	extractionAttemptCeiling,
 	EXTRACTION_OUTAGE_HINT_KEY,
-	extractionDocumentAttempts,
 	type ExtractionOutageState,
+	extractionAttemptCeiling,
+	extractionDocumentAttempts,
 	readExtractionOutageState,
 } from "./retry-policy";
 import { canReportExtractionPhase } from "./state-machine";
@@ -142,7 +142,7 @@ function withOutageState(
 	if (state.since === null && state.waits === 0) {
 		delete next[EXTRACTION_OUTAGE_HINT_KEY];
 	} else {
-			next[EXTRACTION_OUTAGE_HINT_KEY] = {
+		next[EXTRACTION_OUTAGE_HINT_KEY] = {
 			since: state.since,
 			waits: state.waits,
 		};

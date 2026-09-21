@@ -1183,17 +1183,17 @@ export function pageForOffset(
 /**
  * What a count counts, when MinerU says and when it does not.
  *
- * `docx` / `xlsx` / `pptx` come back with `declared` / `sheet` / `slide`
- * because the OOXML readers report `page_count_kind`; their legacy siblings
- * `doc` / `xls` / `ppt` come back with nothing at all, and `unknown` is the one
- * kind `displayablePageCountUnit` refuses to name — so a real `.xls` with four
- * sheets showed no count and could not be cited by sheet, purely because of the
- * suffix. The file's own registry category answers the same question the
+ * The OOXML formats come back with `declared` / `sheet` / `slide` because their
+ * readers report `page_count_kind`; the legacy Office formats beside them come
+ * back with nothing at all, and `unknown` is the one kind
+ * `displayablePageCountUnit` refuses to name — so a real legacy workbook with
+ * four sheets showed no count and could not be cited by sheet, purely because
+ * of its suffix. The file's own registry CATEGORY answers the same question the
  * missing metadata would have: a spreadsheet counts sheets, a presentation
  * counts slides, a word processor declares a number it will not stand behind.
  *
  * The source filename is used, never `metadata.file_suffix`, for the reason
- * `MineruRenderOptions` gives: the suffix reports "pdf" for a PNG.
+ * `MineruRenderOptions` gives: the suffix reports the wrong format for images.
  */
 function normalizePageCountKind(
 	value: string | undefined,

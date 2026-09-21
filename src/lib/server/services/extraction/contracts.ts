@@ -178,20 +178,21 @@ export interface ExtractDocumentResult {
  * Only the codes whose upstream message is useless are listed. A `job_failed`
  * carries the engine's own reason and that reason is worth keeping.
  */
-const EXTRACTION_ERROR_MESSAGES: Partial<Record<ExtractionErrorCode, string>> = {
-	unavailable: "The document service could not be reached.",
-	timeout: "The document service did not answer in time.",
-	rate_limited: "The document service is busy right now.",
-	auth_failed:
-		"The document service rejected our credentials. Ask an administrator to check the API key.",
-	// `backend_misconfigured` is deliberately ABSENT. The only useful sentence
-	// for it names the endpoint and the setting to change, and this module may
-	// not name a backend — the seam is what lets one be swapped by editing a
-	// registry entry, and `boundary.test.ts` holds it to that. The capability
-	// probe, which is allowed to know, composes that message itself.
-	unsupported_type:
-		"The document service cannot read this file type. Convert it to PDF (or another supported format) and upload it again.",
-};
+const EXTRACTION_ERROR_MESSAGES: Partial<Record<ExtractionErrorCode, string>> =
+	{
+		unavailable: "The document service could not be reached.",
+		timeout: "The document service did not answer in time.",
+		rate_limited: "The document service is busy right now.",
+		auth_failed:
+			"The document service rejected our credentials. Ask an administrator to check the API key.",
+		// `backend_misconfigured` is deliberately ABSENT. The only useful sentence
+		// for it names the endpoint and the setting to change, and this module may
+		// not name a backend — the seam is what lets one be swapped by editing a
+		// registry entry, and `boundary.test.ts` holds it to that. The capability
+		// probe, which is allowed to know, composes that message itself.
+		unsupported_type:
+			"The document service cannot read this file type. Convert it to PDF (or another supported format) and upload it again.",
+	};
 
 /**
  * The user-facing message for a code, falling back to what the backend said.

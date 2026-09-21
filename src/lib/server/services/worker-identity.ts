@@ -50,7 +50,9 @@ export interface ParsedWorkerId {
  * is load-bearing: "I cannot tell whose process this was" must never be read
  * as "it is dead".
  */
-export function parseWorkerId(id: string | null | undefined): ParsedWorkerId | null {
+export function parseWorkerId(
+	id: string | null | undefined,
+): ParsedWorkerId | null {
 	if (!id) return null;
 	const parts = id.split(":");
 	if (parts.length !== 4) return null;

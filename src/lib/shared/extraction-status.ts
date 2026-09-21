@@ -175,7 +175,9 @@ export const OUTAGE_EXTRACTION_ERROR_CODES: ReadonlySet<ExtractionErrorCode> =
 		),
 	);
 
-export function isOutageExtractionErrorCode(code: ExtractionErrorCode): boolean {
+export function isOutageExtractionErrorCode(
+	code: ExtractionErrorCode,
+): boolean {
 	return OUTAGE_EXTRACTION_ERROR_CODES.has(code);
 }
 

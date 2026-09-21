@@ -596,13 +596,11 @@ describe("a backend that is not answering", () => {
 
 			// The old budget would have been spent after three.
 			expect(waits).toBeGreaterThan(3);
-			expect(
-				(await ledger.getExtractionJobRow(jobId))?.status,
-			).toBe("queued");
+			expect((await ledger.getExtractionJobRow(jobId))?.status).toBe("queued");
 			// The message is the code's, not undici's.
-			expect((await ledger.getExtractionJobRow(jobId))?.errorMessage).not.toContain(
-				"fetch failed",
-			);
+			expect(
+				(await ledger.getExtractionJobRow(jobId))?.errorMessage,
+			).not.toContain("fetch failed");
 
 			// The backend comes back. No user action, no second upload: the same
 			// job row, the same bytes.
@@ -665,9 +663,7 @@ describe("a user cancel", () => {
 		// A second remote job, and not one request to the deleted one.
 		expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
 		expect(
-			server.requests.filter((entry) =>
-				entry.path.includes(firstRemoteJobId),
-			),
+			server.requests.filter((entry) => entry.path.includes(firstRemoteJobId)),
 		).toEqual([]);
 	});
 });

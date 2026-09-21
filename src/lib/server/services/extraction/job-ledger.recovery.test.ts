@@ -305,7 +305,9 @@ describe("reclaimDeadWorkerExtractionAttempts", () => {
 	});
 
 	it("falls back to the stale window for a row in the previous id format", async () => {
-		await enqueueClaimed("extraction:9001:1f0c7a3e-0000-4000-8000-000000000000");
+		await enqueueClaimed(
+			"extraction:9001:1f0c7a3e-0000-4000-8000-000000000000",
+		);
 		expect(
 			(
 				await ledger.reclaimDeadWorkerExtractionAttempts({

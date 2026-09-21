@@ -561,7 +561,8 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		message: /unsupported (file|input|document|source) (type|format)/i,
 		taxonomy: "unsupported_type",
 		retryable: false,
-		reason: "MinerU cannot read this format at all; a retry repeats the refusal",
+		reason:
+			"MinerU cannot read this format at all; a retry repeats the refusal",
 	},
 	{
 		rule: "file:unsupported_file_type",

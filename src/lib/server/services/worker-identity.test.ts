@@ -1,6 +1,10 @@
 import { hostname } from "node:os";
 import { describe, expect, it } from "vitest";
-import { createWorkerId, isProcessAlive, parseWorkerId } from "./worker-identity";
+import {
+	createWorkerId,
+	isProcessAlive,
+	parseWorkerId,
+} from "./worker-identity";
 
 describe("createWorkerId", () => {
 	it("carries the slice, this host and this pid, and is stable per process", () => {

@@ -1018,10 +1018,12 @@ describe("the `index` block type", () => {
 
 		expect(result.stats.unknownTypes).toEqual({});
 		expect(result.markdown).toContain("1. Overview 2. Results 3. Outlook");
-		expect(result.blocks.find((block) => block.type === "index")).toMatchObject({
-			unknownType: false,
-			atomic: false,
-		});
+		expect(result.blocks.find((block) => block.type === "index")).toMatchObject(
+			{
+				unknownType: false,
+				atomic: false,
+			},
+		);
 		expect(isAtomicBlockType("index")).toBe(false);
 	});
 });
