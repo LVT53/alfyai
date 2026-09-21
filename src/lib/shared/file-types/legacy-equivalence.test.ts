@@ -246,10 +246,12 @@ const KNOWN_DELTAS = {
 		 * scripts, style, nav, ad slots and the footer (-34.3 % chars on the
 		 * spike fixture, -43.2 % after anchor stripping).
 		 *
-		 * THE ONLY SUBTRACTIVE DELTA IN THIS OBJECT: everything else, in every
-		 * group, gives an answer where the old code had none. It is also why
-		 * the `html` entry is the one gated entry with a `fallbackRoute` — an
-		 * upload that works today must never become a refusal.
+		 * The original migration's only subtractive delta — everything else in
+		 * this group, in every wave, gives an answer where the old code had
+		 * none. It is also why the `html` entry is the one gated entry with a
+		 * `fallbackRoute` — an upload that works today must never become a
+		 * refusal. (The phase5-6 follow-up adds one more subtractive delta of
+		 * its own: `avifAcceptDropped` below.)
 		 */
 		directTextContraction: ["html", "htm"] as readonly string[],
 
@@ -298,6 +300,28 @@ const KNOWN_DELTAS = {
 			"application/epub+zip: archive -> text",
 			"application/ofd: unsupported -> text",
 		] as readonly string[],
+
+		/**
+		 * The phase5-6 FOLLOW-UP (distinct wave from the rest of this group):
+		 * `.svg` moved from `mineru` to `direct-text` after a live probe showed
+		 * MinerU 4.0.4 permanently refuses it. SVG is XML text, so this was
+		 * never a MinerU-shaped problem — same additive shape as
+		 * `directTextGained` above, kept as its own key because it names a
+		 * later, separate change.
+		 */
+		directTextGainedFollowUp: ["svg"] as readonly string[],
+
+		/**
+		 * The phase5-6 FOLLOW-UP's other half: `.avif` moved from `mineru` to
+		 * `reject` (`convertImage`) after the same live probe showed MinerU
+		 * 4.0.4 permanently refuses it too. It therefore drops entirely out of
+		 * the knowledge accept string — including the historical
+		 * `FROZEN_ACCEPT_STRING` head below, which originally published it. A
+		 * second subtractive delta, alongside `directTextContraction`;
+		 * `FROZEN_ACCEPT_STRING` itself stays byte-for-byte what
+		 * DocumentsList.svelte:190 published before the registry existed.
+		 */
+		avifAcceptDropped: "avif" as const,
 	},
 } as const;
 
@@ -1027,13 +1051,24 @@ const FROZEN_ACCEPT_STRING =
 	".pdf,.doc,.docx,.txt,.md,.json,.csv,.xlsx,.xls,.pptx,.ppt,.html,.htm,.jpg,.jpeg,.jfif,.png,.gif,.bmp,.tiff,.tif,.webp,.svg,.heic,.heif,.avif";
 
 /**
- * The knowledge accept string after Phase 5 D5 / OQ4 — the frozen head above
- * plus every other non-reject extension, 74 in all. Deliberately spelled out
- * rather than derived: widening the file picker by 48 extensions is a visible
- * product change, and the point of this assertion is that it cannot happen by
- * accident.
+ * `FROZEN_ACCEPT_STRING` minus `KNOWN_DELTAS.phase5Enablement.avifAcceptDropped`
+ * — the base every LIVE accept-string comparison below is built from.
+ * `FROZEN_ACCEPT_STRING` itself is never edited; this is the derived value.
  */
-const FROZEN_ACCEPT_STRING_V2 = `${FROZEN_ACCEPT_STRING},.markdown,.odt,.rtf,.ods,.odp,.epub,.tsv,.xml,.css,.scss,.sass,.less,.js,.mjs,.cjs,.jsx,.ts,.tsx,.py,.sh,.bash,.zsh,.yaml,.yml,.toml,.sql,.graphql,.gql,.ini,.env,.conf,.log,.rb,.rs,.go,.java,.kt,.kts,.swift,.cs,.cpp,.cxx,.cc,.hpp,.c,.h,.php,.r`;
+const FROZEN_ACCEPT_STRING_HEAD_MINUS_AVIF = FROZEN_ACCEPT_STRING.replace(
+	`,.${KNOWN_DELTAS.phase5Enablement.avifAcceptDropped}`,
+	"",
+);
+
+/**
+ * The knowledge accept string after Phase 5 D5 / OQ4 and the phase5-6
+ * follow-up — the frozen head above (minus the follow-up's `.avif` drop, 25
+ * extensions) plus every other non-reject extension (48 appended, unchanged
+ * from Phase 5), 73 in all. Deliberately spelled out rather than derived:
+ * widening the file picker is a visible product change, and the point of
+ * this assertion is that it cannot happen by accident.
+ */
+const FROZEN_ACCEPT_STRING_V2 = `${FROZEN_ACCEPT_STRING_HEAD_MINUS_AVIF},.markdown,.odt,.rtf,.ods,.odp,.epub,.tsv,.xml,.css,.scss,.sass,.less,.js,.mjs,.cjs,.jsx,.ts,.tsx,.py,.sh,.bash,.zsh,.yaml,.yml,.toml,.sql,.graphql,.gql,.ini,.env,.conf,.log,.rb,.rs,.go,.java,.kt,.kts,.swift,.cs,.cpp,.cxx,.cc,.hpp,.c,.h,.php,.r`;
 
 // :556-558 — note it differs from `fileExtension`: no dot means "".
 function frozenGetFileExtension(value: string): string {
@@ -1727,15 +1762,20 @@ describe("legacy equivalence — glyph surfaces", () => {
 		expect(registryFormatFileType(null, "x.htm")).toBe("HTML");
 	});
 
-	it("still opens the knowledge accept string with the frozen one, byte for byte", () => {
+	it("still opens the knowledge accept string with the frozen one minus the phase5-6 avif drop, byte for byte", () => {
 		// Phase 5 D5 appends; it never reorders. Keeping the prefix assertion
-		// lets a reviewer see the historical 26 are untouched and in order, and
-		// the exact assertion below pins what was added to them.
+		// lets a reviewer see the historical 26 (minus the one phase5-6 follow-up
+		// subtraction, `.avif` — `KNOWN_DELTAS.phase5Enablement.avifAcceptDropped`)
+		// are untouched and in order, and the exact assertion below pins what was
+		// added to them. `FROZEN_ACCEPT_STRING` itself stays byte-for-byte what
+		// DocumentsList.svelte:190 published before the registry existed.
 		expect(
-			getAcceptAttribute("knowledge").startsWith(`${FROZEN_ACCEPT_STRING},`),
+			getAcceptAttribute("knowledge").startsWith(
+				`${FROZEN_ACCEPT_STRING_HEAD_MINUS_AVIF},`,
+			),
 		).toBe(true);
 		expect(getAcceptAttribute("knowledge")).toBe(FROZEN_ACCEPT_STRING_V2);
-		expect(FROZEN_ACCEPT_STRING_V2.split(",")).toHaveLength(74);
+		expect(FROZEN_ACCEPT_STRING_V2.split(",")).toHaveLength(73);
 	});
 });
 
@@ -1761,11 +1801,13 @@ describe("legacy equivalence — intake", () => {
 			(before ? lost : gained).push(extension);
 		}
 
-		// Additive: Phase 1's 34 text/code extensions, plus Phase 5's `.tsv`.
+		// Additive: Phase 1's 34 text/code extensions, plus Phase 5's `.tsv`,
+		// plus the phase5-6 follow-up's `.svg`.
 		expect(sorted(gained)).toEqual(
 			sorted([
 				...KNOWN_DELTAS.directTextExpansion,
 				...KNOWN_DELTAS.phase5Enablement.directTextGained,
+				...KNOWN_DELTAS.phase5Enablement.directTextGainedFollowUp,
 			]),
 		);
 		expect(KNOWN_DELTAS.directTextExpansion).toHaveLength(34);
@@ -1898,8 +1940,10 @@ describe("KNOWN_DELTAS", () => {
 			...Object.keys(KNOWN_DELTAS.knowledgeIconExpansion),
 			...KNOWN_DELTAS.phase5Enablement.directTextContraction,
 			...KNOWN_DELTAS.phase5Enablement.directTextGained,
+			...KNOWN_DELTAS.phase5Enablement.directTextGainedFollowUp,
 			...Object.keys(KNOWN_DELTAS.phase5Enablement.newEntryGlyphs),
 			...Object.keys(KNOWN_DELTAS.phase5Enablement.newEntryIcons),
+			KNOWN_DELTAS.phase5Enablement.avifAcceptDropped,
 		];
 		for (const extension of named) {
 			expect(known.has(extension), extension).toBe(true);

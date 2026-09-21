@@ -961,6 +961,8 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		mimeTypes: ["image/heic"],
 		category: "image",
 		preview: { kind: "image", extensionAuthoritative: true },
+		// Untested upstream against MinerU 4 — unlike svg/avif below, nobody has
+		// live-probed HEIC yet, so it keeps the `mineru` route it had.
 		intake: { route: "mineru" },
 		production: { requestable: false, types: {}, validation: "none" },
 		textLike: false,
@@ -973,6 +975,7 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		mimeTypes: ["image/heif"],
 		category: "image",
 		preview: { kind: "image", extensionAuthoritative: true },
+		// Untested upstream against MinerU 4 — same as heic above.
 		intake: { route: "mineru" },
 		production: { requestable: false, types: {}, validation: "none" },
 		textLike: false,
@@ -985,10 +988,14 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		mimeTypes: ["image/avif"],
 		category: "image",
 		preview: { kind: "image", extensionAuthoritative: true },
-		intake: { route: "mineru" },
+		// Live-tested against MinerU 4.0.4 (phase5-6 follow-up): it permanently
+		// refuses `.avif`, so routing it to `mineru` only ever produces a failed
+		// extraction. `formatNotEnabled`'s "Save it as PDF or DOCX" copy is wrong
+		// advice for an image, hence the dedicated `convertImage` reason.
+		intake: { route: "reject", rejectReason: "convertImage" },
 		production: { requestable: false, types: {}, validation: "none" },
 		textLike: false,
-		surfaces: ["knowledge", "chat"],
+		surfaces: [],
 		signatures: FTYP_SIGNATURES,
 	},
 	{
@@ -999,7 +1006,10 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		category: "image",
 		// `xml` highlighting, from EXTENSION_TO_PREVIEW_LANGUAGE.
 		preview: { kind: "image", language: "xml", extensionAuthoritative: true },
-		intake: { route: "mineru" },
+		// Live-tested against MinerU 4.0.4 (phase5-6 follow-up): it permanently
+		// refuses `.svg`. SVG is XML text, so `direct-text` reads it the same
+		// way it always could — this was never a MinerU-shaped problem.
+		intake: { route: "direct-text" },
 		production: {
 			requestable: true,
 			types: { svg: ".svg", "image/svg+xml": ".svg" },
@@ -1009,7 +1019,10 @@ export const FILE_TYPE_ENTRIES: readonly FileTypeEntry[] = [
 		},
 		textLike: false,
 		surfaces: ["knowledge", "chat"],
-		// No signature: SVG is text.
+		// No signature: SVG is text, and text types are never byte-sniffed
+		// (`upload-signature.ts`'s `verifyUploadSignature` skips any entry with
+		// no declared `signatures`) — true before this change (route `mineru`
+		// carried no signature either) and unchanged by the move to `direct-text`.
 	},
 
 	// ── Recognised, not ingestible ─────────────────────────────────────────

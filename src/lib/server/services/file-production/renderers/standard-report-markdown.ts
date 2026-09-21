@@ -1,11 +1,15 @@
 import type {
+	GeneratedDocumentBasisMarkerBlock,
 	GeneratedDocumentBlock,
+	GeneratedDocumentChartBlock,
+	GeneratedDocumentParagraphBasisMarker,
 	GeneratedDocumentSource,
+	GeneratedDocumentSourceChip,
 	GeneratedDocumentTableBlock,
 } from "../source-schema";
 import {
+	formatGeneratedDocumentBasisNote,
 	GENERATED_DOCUMENT_CITATION_LEVELS,
-	generatedDocumentBasisClaimShortLabel,
 	generatedDocumentCitationLevelGlyph,
 	generatedDocumentCitationLevelLabel,
 	generatedDocumentCitationPlainText,
@@ -36,6 +40,42 @@ function scalarToMarkdown(value: unknown): string {
 		.trim();
 }
 
+/** Shared by the `sourceChips` block and paragraph-level `sources`. */
+function stripHtml(text: string): string {
+	return text.replace(/<[^>]*>/g, "").replace(/&[^;]+;/g, " ");
+}
+
+/** `[Title](url)`, or plain `Title` when the source has no URL. */
+function sourceLinkMarkdown(source: GeneratedDocumentSourceChip): string {
+	const cleanTitle = stripHtml(source.title);
+	return source.url ? `[${cleanTitle}](${source.url})` : cleanTitle;
+}
+
+/**
+ * `stackedBar` -> `stacked bar`. No label table to keep in step with the
+ * schema's `GeneratedDocumentChartType` union — every value already reads as
+ * a word or two once the camelCase boundary gets a space.
+ */
+function chartTypeLabel(
+	chartType: GeneratedDocumentChartBlock["chartType"],
+): string {
+	return chartType.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+}
+
+/**
+ * `*(Basis: Supported — rationale)*`, matching this renderer's existing
+ * `Basis: <label>` phrasing but now carrying the rationale the HTML and PDF
+ * renderers already show — the short label alone left the model, and the
+ * user reading the downloaded `.md`, with a claim marked but not explained.
+ */
+function basisNoteMarkdown(
+	marker:
+		| GeneratedDocumentBasisMarkerBlock
+		| GeneratedDocumentParagraphBasisMarker,
+): string {
+	return `*(Basis: ${formatGeneratedDocumentBasisNote(marker)})*`;
+}
+
 function renderTable(block: GeneratedDocumentTableBlock): string {
 	const header = `| ${block.columns.map((column) => scalarToMarkdown(column.label)).join(" | ")} |`;
 	const separator = `| ${block.columns.map(() => "---").join(" | ")} |`;
@@ -45,7 +85,13 @@ function renderTable(block: GeneratedDocumentTableBlock): string {
 				.map((column) => scalarToMarkdown(row[column.key]))
 				.join(" | ")} |`,
 	);
-	return [block.title ? `### ${block.title}` : null, header, separator, ...rows]
+	return [
+		block.title ? `### ${block.title}` : null,
+		block.caption ? `*${block.caption}*` : null,
+		header,
+		separator,
+		...rows,
+	]
 		.filter((line): line is string => Boolean(line))
 		.join("\n");
 }
@@ -67,14 +113,19 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 		case "paragraph": {
 			const text = generatedDocumentCitationPlainText(block.text);
 			const markers = block.basisMarkers ?? [];
-			if (markers.length === 0) return text;
-			const markerText = markers
-				.map(
-					(m) =>
-						`*(Basis: ${generatedDocumentBasisClaimShortLabel(m.support)})*`,
-				)
-				.join(" ");
-			return `${text} ${markerText}`;
+			const sources = block.sources ?? [];
+			const parts = [
+				text,
+				markers.length > 0 ? markers.map(basisNoteMarkdown).join(" ") : null,
+				// Recorded, not endorsed: the paragraph is generated from these
+				// sources but the sources themselves are not woven into the prose,
+				// so they trail as a compact parenthetical rather than inline
+				// citation chips (the HTML/PDF/DOCX renderers' job).
+				sources.length > 0
+					? `*(Sources: ${sources.map(sourceLinkMarkdown).join(", ")})*`
+					: null,
+			].filter((part): part is string => Boolean(part));
+			return parts.join(" ");
 		}
 		case "list":
 			return block.items
@@ -89,7 +140,7 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 		case "confidenceMarker":
 			return `> **${block.label}.** ${block.message}`;
 		case "basisMarker":
-			return `*(Basis: ${generatedDocumentBasisClaimShortLabel(block.support)})*`;
+			return basisNoteMarkdown(block);
 		case "code":
 			return `\`\`\`${block.language ?? ""}\n${block.text}\n\`\`\``;
 		case "quote":
@@ -97,15 +148,10 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 		case "divider":
 			return "---";
 		case "sourceChips": {
-			const stripHtml = (text: string): string =>
-				text.replace(/<[^>]*>/g, "").replace(/&[^;]+;/g, " ");
 			return [
 				`### ${block.title}`,
 				...block.sources.map((source) => {
-					const cleanTitle = stripHtml(source.title);
-					const label = source.url
-						? `[${cleanTitle}](${source.url})`
-						: cleanTitle;
+					const label = sourceLinkMarkdown(source);
 					const cleanReasoning = source.reasoning
 						? stripHtml(source.reasoning)
 						: null;
@@ -121,8 +167,15 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 		}
 		case "table":
 			return renderTable(block);
-		case "chart":
-			return `### ${block.title ?? "Chart"}\n\n${block.altText ?? block.caption ?? "Chart data is available in the rendered report."}`;
+		case "chart": {
+			const description =
+				block.altText ??
+				block.caption ??
+				"Chart data is available in the rendered report.";
+			const pointCount = block.data.length;
+			const pointLabel = `${pointCount} data point${pointCount === 1 ? "" : "s"}`;
+			return `### ${block.title ?? "Chart"}\n\n${description}\n\n*(${chartTypeLabel(block.chartType)} chart, ${pointLabel})*`;
+		}
 		case "image": {
 			const src = renderImageSource(block);
 			return [
@@ -171,6 +224,11 @@ export function renderStandardReportMarkdown(
 	source: GeneratedDocumentSource,
 ): StandardReportMarkdownRenderResult {
 	const content = [
+		// The cover eyebrow (the PDF/HTML/DOCX cover's small label above the
+		// title, e.g. "AlfyAI Standard Report") only exists when a cover is
+		// requested — a plain `.md` gets no synthetic default, unlike the PDF
+		// renderer, which always draws one.
+		source.cover?.eyebrow ? `*${source.cover.eyebrow}*` : null,
 		`# ${source.title}`,
 		source.subtitle ?? null,
 		source.date ?? null,

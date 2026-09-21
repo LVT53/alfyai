@@ -162,10 +162,12 @@ const knowledgeDict = {
 		"knowledge.title": "Knowledge Base",
 		"knowledge.type": "Type",
 		"knowledge.upload": "Upload",
-		// The five upload refusals the server can answer with. It sends an
+		// The six upload refusals the server can answer with. It sends an
 		// English `error` plus an `errorKey` from this family; the client
 		// renders the key when it knows it. Keys, not codes, because one
-		// machine code (`upload_unsupported_type`) covers four reasons.
+		// machine code (`upload_unsupported_type`) covers five reasons
+		// (`uploadRejectedConvertImage` joined the family in the phase5-6
+		// follow-up, for AVIF, which MinerU 4.0.4 permanently refuses).
 		// Phase 5 P5-C, reject-copy audit: every refusal now ends with the next
 		// thing to try. These two were the only ones that named a problem and
 		// stopped there; `uploadRejectedArchive`, `uploadRejectedMedia`,
@@ -181,6 +183,8 @@ const knowledgeDict = {
 			"Upload or generate documents to see them here",
 		"knowledge.uploadRejectedArchive":
 			"Archives can't be opened on upload. Unpack it and upload the files inside.",
+		"knowledge.uploadRejectedConvertImage":
+			"{ext} images can't be read yet. Save it as PNG or JPG and upload that.",
 		"knowledge.uploadRejectedFormatNotEnabled":
 			"{ext} files aren't supported yet. Save it as PDF or DOCX and upload that.",
 		"knowledge.uploadRejectedMedia":
@@ -609,6 +613,8 @@ const knowledgeDict = {
 			"Tölts fel vagy generálj dokumentumokat, hogy itt lásd őket",
 		"knowledge.uploadRejectedArchive":
 			"Az archívumokat feltöltéskor nem tudjuk kibontani. Csomagold ki, és töltsd fel a benne lévő fájlokat.",
+		"knowledge.uploadRejectedConvertImage":
+			"A(z) {ext} képeket még nem tudjuk olvasni. Mentsd el PNG- vagy JPG-formátumban, és azt töltsd fel.",
 		"knowledge.uploadRejectedFormatNotEnabled":
 			"A(z) {ext} fájlokat még nem támogatjuk. Mentsd el PDF- vagy DOCX-formátumban, és azt töltsd fel.",
 		"knowledge.uploadRejectedMedia":

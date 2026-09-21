@@ -120,6 +120,23 @@ describe("decideClipboardAttachment", () => {
 		expect(decision.files).toEqual([]);
 	});
 
+	// phase5-6 follow-up: AVIF gets its own reason, not `formatNotEnabled` —
+	// "Save it as PDF or DOCX" would be wrong advice for a pasted image.
+	it("refuses a pasted AVIF with the image-specific message", () => {
+		const decision = decideClipboardAttachment(
+			clipboard(["Files"], [makeFile("photo.avif", "image/avif")]),
+			{ now: FIXED_NOW },
+		);
+		expect(decision.refused).toEqual([
+			{
+				name: "photo.avif",
+				errorKey: "knowledge.uploadRejectedConvertImage",
+				ext: "AVIF",
+			},
+		]);
+		expect(decision.files).toEqual([]);
+	});
+
 	it("keeps the good files of a mixed paste and refuses the rest", () => {
 		const decision = decideClipboardAttachment(
 			clipboard(
@@ -181,6 +198,7 @@ describe("UPLOAD_REJECT_I18N_KEYS", () => {
 			media: "knowledge.uploadRejectedMedia",
 			archive: "knowledge.uploadRejectedArchive",
 			formatNotEnabled: "knowledge.uploadRejectedFormatNotEnabled",
+			convertImage: "knowledge.uploadRejectedConvertImage",
 		});
 	});
 });

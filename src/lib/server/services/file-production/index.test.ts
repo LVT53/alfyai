@@ -130,6 +130,9 @@ describe("file production service", () => {
 				assistantMessageId: "assistant-1",
 				title: "report.pdf",
 				status: "succeeded",
+				// A legacy job synthesised by `ensureLegacyJobs` never wrote the
+				// `source_mode` column at all, so the DTO carries null.
+				sourceMode: null,
 				files: [
 					expect.objectContaining({
 						id: "file-1",
@@ -261,6 +264,44 @@ describe("file production service", () => {
 			status: "queued",
 			files: [],
 		});
+	});
+
+	// `sourceMode` is stored on `file_production_jobs.source_mode` and is now
+	// part of the client-facing job DTO (both `mapJobRow` implementations) so
+	// `FileProductionCard` and callers can tell an inline_text job apart from a
+	// document-source or program one without guessing from its files.
+	it("carries sourceMode through creation and the read model", async () => {
+		const { createFileProductionJob, listConversationFileProductionJobs } =
+			await import("./index");
+
+		const created = await createFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Quarterly memo",
+			origin: "unified_produce",
+			sourceMode: "document_source",
+		});
+		expect(created.sourceMode).toBe("document_source");
+
+		const jobs = await listConversationFileProductionJobs("user-1", "conv-1");
+		expect(jobs.find((job) => job.id === created.id)).toMatchObject({
+			sourceMode: "document_source",
+		});
+	});
+
+	it("leaves sourceMode null when the caller never sets it", async () => {
+		const { createFileProductionJob } = await import("./index");
+
+		const created = await createFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Untitled",
+			origin: "unified_produce",
+		});
+
+		expect(created.sourceMode).toBeNull();
 	});
 
 	it("accepts a parsed program-mode intake request and wakes queued work", async () => {

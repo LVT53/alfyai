@@ -245,7 +245,10 @@ describe("DocumentsList", () => {
 			const fileInput = screen.getByTestId("file-input") as HTMLInputElement;
 			expect(fileInput.getAttribute("accept")).toContain(".heic");
 			expect(fileInput.getAttribute("accept")).toContain(".heif");
-			expect(fileInput.getAttribute("accept")).toContain(".avif");
+			// `.avif` no longer offered (phase5-6 follow-up): MinerU 4.0.4
+			// permanently refuses it, so the registry moved it to `reject` and it
+			// dropped off both surfaces' accept strings.
+			expect(fileInput.getAttribute("accept")).not.toContain(".avif");
 		});
 
 		it("supports drag and drop uploads when documents already exist", async () => {

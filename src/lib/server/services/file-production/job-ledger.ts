@@ -206,6 +206,7 @@ export async function createFileProductionJob(
 		warnings: [],
 		dismissed: false,
 		error: null,
+		sourceMode: input.sourceMode ?? null,
 	};
 }
 
@@ -318,6 +319,7 @@ export async function createFailedFileProductionJob(
 			message: input.errorMessage,
 			retryable: input.retryable,
 		},
+		sourceMode: input.sourceMode ?? null,
 	};
 }
 
@@ -352,6 +354,7 @@ function mapJobRow(
 		warnings: [],
 		dismissed: Boolean(job.dismissed),
 		error: mapError(job),
+		sourceMode: job.sourceMode,
 	};
 }
 

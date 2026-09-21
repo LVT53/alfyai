@@ -91,12 +91,14 @@ describe("file-type registry invariants", () => {
 	it("keeps the reject/non-reject split where Phase 5 left it", () => {
 		// The other half of the tripwire, and the one the accept strings are
 		// built from: `rtf`, `ods`, `odp` and `tsv` became ingestible, `ofd`
-		// arrived as the only new refusal.
+		// arrived as the only new refusal. The phase5-6 follow-up then moved
+		// `avif` from `mineru` to `reject` (MinerU 4.0.4 permanently refuses it),
+		// so the reject count is 18, not 17, from here on.
 		const rejectExtensions = FILE_TYPE_ENTRIES.filter(
 			(entry) => entry.intake.route === "reject",
 		).flatMap((entry) => [...entry.extensions]);
-		expect(rejectExtensions.length).toBe(17);
-		expect(ALL_EXTENSIONS.length - rejectExtensions.length).toBe(74);
+		expect(rejectExtensions.length).toBe(18);
+		expect(ALL_EXTENSIONS.length - rejectExtensions.length).toBe(73);
 
 		const requestable = FILE_TYPE_ENTRIES.filter(
 			(entry) => entry.production.requestable,
@@ -110,6 +112,15 @@ describe("file-type registry invariants", () => {
 				(entry) => entry.intake.rejectReason === "formatNotEnabled",
 			).map((entry) => entry.id),
 		).toEqual(["ofd"]);
+
+		// `convertImage` — the phase5-6 follow-up reason for a format that is an
+		// image, not a document, so `formatNotEnabled`'s "Save it as PDF or
+		// DOCX" copy would be wrong advice. `avif` is its only user.
+		expect(
+			FILE_TYPE_ENTRIES.filter(
+				(entry) => entry.intake.rejectReason === "convertImage",
+			).map((entry) => entry.id),
+		).toEqual(["avif"]);
 	});
 
 	it("gives every entry a unique id equal to its canonical extension", () => {
@@ -308,7 +319,9 @@ describe("file-type registry invariants", () => {
 			).flatMap((entry) => [...entry.extensions]),
 		);
 		expect(knowledge).toEqual(nonReject);
-		expect(knowledge.size).toBe(74);
+		// 74 through the phase5-6 P5-A merge; `avif` moving to `reject` in the
+		// follow-up (MinerU 4.0.4 permanently refuses it) drops this to 73.
+		expect(knowledge.size).toBe(73);
 
 		// The converse: a reject entry is offered nowhere.
 		for (const entry of FILE_TYPE_ENTRIES) {

@@ -647,6 +647,7 @@ describe("MessageBubble", () => {
 			warnings: [],
 			dismissed: false,
 			error: null,
+			sourceMode: null,
 		};
 
 		const { rerender } = render(MessageBubble, { message: baseMessage });

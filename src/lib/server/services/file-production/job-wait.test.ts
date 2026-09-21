@@ -17,6 +17,7 @@ function job(status: FileProductionJobStatus): FileProductionJob {
 		warnings: [],
 		dismissed: false,
 		error: null,
+		sourceMode: null,
 	};
 }
 

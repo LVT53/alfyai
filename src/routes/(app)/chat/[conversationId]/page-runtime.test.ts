@@ -1127,6 +1127,7 @@ describe("chat page runtime integration", () => {
 					],
 					warnings: [],
 					dismissed: false,
+					sourceMode: null,
 				},
 			],
 			generationDurationMs: 250,
@@ -1349,6 +1350,7 @@ describe("chat page runtime integration", () => {
 					],
 					warnings: [],
 					dismissed: false,
+					sourceMode: null,
 				},
 			],
 			contextCompressionSnapshots: [

@@ -46,14 +46,14 @@
 //     `negative-program-pdf-signature-mismatch`) proving two ways a bad
 //     request is refused rather than silently mis-produced.
 //
-// A significant finding from writing this file, restated in the slice
-// report: `FileProductionJob` (`file-production/types.ts`) and both
-// `mapJobRow` implementations (`job-ledger.ts`, `read-model.ts`) never
-// serialize `source_mode` to the client, so "assert `job.sourceMode ===
-// 'inline_text'`" cannot be done against the live HTTP API as written. See
-// `negative-mixed-outputs` and the `document-pdf-readback-skip` case below
-// for how each affected assertion was adapted, and the script's own
-// comments at each site for why.
+// `FileProductionJob` (`file-production/types.ts`) and both `mapJobRow`
+// implementations (`job-ledger.ts`, `read-model.ts`) now serialize
+// `source_mode` to the client as `sourceMode`, so every `document-*`,
+// `program-*` and `inline-*` case below asserts `job.sourceMode` against the
+// value the intake route is expected to have stored — `"document_source"`,
+// `"program"`, or `"inline_text"` for a case whose own `sourceMode` label is
+// `"inline"` (the request-shape label; the ledger's stored value is D8's
+// `FILE_PRODUCTION_INLINE_TEXT_SOURCE_MODE`).
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -71,6 +71,9 @@ type FileProductionJob = {
 	status?: string;
 	error?: { code?: string; message?: string; retryable?: boolean } | null;
 	files?: ProducedFile[];
+	/** `file_production_jobs.source_mode` verbatim: `"document_source"`,
+	 * `"program"`, `"inline_text"`, or `null`/absent for a legacy job. */
+	sourceMode?: string | null;
 };
 
 type ProducedFile = {
@@ -118,6 +121,20 @@ type ExpectedFileType = {
 	expectedExtension: string;
 	expectedMimePrefix: string;
 };
+
+/**
+ * The `file_production_jobs.source_mode` value the intake route is expected
+ * to have stored for a case, given that case's own `sourceMode` label.
+ * `"inline"` is this script's request-shape label (`FileTypeCase.sourceMode`,
+ * used to build the request body); the ledger stores D8's
+ * `FILE_PRODUCTION_INLINE_TEXT_SOURCE_MODE` (`"inline_text"`) for it.
+ * `"document_source"` and `"program"` pass through unchanged.
+ */
+function expectedServerSourceMode(
+	caseSourceMode: FileTypeCase["sourceMode"],
+): string {
+	return caseSourceMode === "inline" ? "inline_text" : caseSourceMode;
+}
 
 // This script used to restate the extension and MIME of all 12 types — a
 // second source of truth next to the production table. It asks the shared
@@ -999,10 +1016,21 @@ async function main() {
 								expectedBytes,
 							)
 						: { ok: false, perFile: [] };
-				const ok = terminal.status === "succeeded" && verification.ok;
+				const expectedSourceMode = expectedServerSourceMode(
+					testCase.sourceMode,
+				);
+				const sourceModeMatches =
+					terminal.status === "succeeded" &&
+					terminal.sourceMode === expectedSourceMode;
+				const ok =
+					terminal.status === "succeeded" &&
+					verification.ok &&
+					sourceModeMatches;
 				results.push({
 					label: testCase.label,
 					sourceMode: testCase.sourceMode,
+					expectedSourceMode,
+					actualSourceMode: terminal.sourceMode ?? null,
 					requestedType: testCase.requestedType,
 					expectedOutputTypes,
 					ok,

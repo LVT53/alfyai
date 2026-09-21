@@ -353,7 +353,9 @@ export const SURFACE_ACCEPT_ORDER: Readonly<
 		"svg",
 		"heic",
 		"heif",
-		"avif",
+		// "avif" removed (phase5-6 follow-up): MinerU 4.0.4 permanently refuses
+		// it, so it moved to `reject` and dropped off both surfaces —
+		// `entry.surfaces` for a reject-route entry is always `[]`.
 		// — Phase 5 D5: the alias the head omitted —
 		"markdown",
 		// — Phase 5 D1/D2: the newly ingestible document and data formats —

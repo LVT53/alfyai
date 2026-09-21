@@ -63,7 +63,7 @@ type KnowledgeDeleteResult = {
  * The keys `/api/knowledge/upload*` answers a refused file with. The `error`
  * string those responses carry is English — the endpoints are not locale-aware
  * — so a caller that shows `err.message` shows English to a Hungarian user.
- * These five are the translated equivalents; anything else falls back to the
+ * These six are the translated equivalents; anything else falls back to the
  * server string, which is still better than nothing.
  */
 const UPLOAD_REFUSAL_KEYS: ReadonlySet<string> = new Set<I18nKey>([
@@ -71,6 +71,7 @@ const UPLOAD_REFUSAL_KEYS: ReadonlySet<string> = new Set<I18nKey>([
 	"knowledge.uploadRejectedMedia",
 	"knowledge.uploadRejectedArchive",
 	"knowledge.uploadRejectedFormatNotEnabled",
+	"knowledge.uploadRejectedConvertImage",
 	"knowledge.uploadContentMismatch",
 ]);
 

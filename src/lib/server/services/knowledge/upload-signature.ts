@@ -53,6 +53,8 @@ export const UPLOAD_REJECT_MESSAGES_EN: Readonly<
 		"Archives can't be opened on upload. Unpack it and upload the files inside.",
 	formatNotEnabled:
 		"{ext} files aren't supported yet. Save it as PDF or DOCX and upload that.",
+	convertImage:
+		"{ext} images can't be read yet. Save it as PNG or JPG and upload that.",
 };
 
 export const UPLOAD_REJECT_I18N_KEYS: Readonly<
@@ -62,6 +64,7 @@ export const UPLOAD_REJECT_I18N_KEYS: Readonly<
 	media: "knowledge.uploadRejectedMedia",
 	archive: "knowledge.uploadRejectedArchive",
 	formatNotEnabled: "knowledge.uploadRejectedFormatNotEnabled",
+	convertImage: "knowledge.uploadRejectedConvertImage",
 };
 
 /** Fills `{name}` / `{ext}` the way `$t` does on the client. */

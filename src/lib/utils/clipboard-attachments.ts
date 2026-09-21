@@ -33,6 +33,7 @@ export const UPLOAD_REJECT_I18N_KEYS: Readonly<
 	media: "knowledge.uploadRejectedMedia",
 	archive: "knowledge.uploadRejectedArchive",
 	formatNotEnabled: "knowledge.uploadRejectedFormatNotEnabled",
+	convertImage: "knowledge.uploadRejectedConvertImage",
 };
 
 export interface ClipboardAttachmentRefusal {
