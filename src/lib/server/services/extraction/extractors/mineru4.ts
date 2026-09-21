@@ -66,6 +66,7 @@ import {
 	type StructuredExtractionResult,
 } from "$lib/server/services/mineru/result";
 import type { MineruJob } from "$lib/server/services/mineru/schemas";
+import { scheduleMineruTempSweep } from "$lib/server/services/mineru/temp-sweep";
 import {
 	assertMineruOutputFormatsSupported,
 	decideOcrMode,
@@ -356,6 +357,18 @@ export function createMineru4Extractor(
 			request: ExtractDocumentRequest,
 		): Promise<ExtractDocumentResult> {
 			assertNotAborted(request.signal);
+
+			// Debris from a process that was KILLED. Every ordinary exit path
+			// removes the per-attempt download directory and the half-written
+			// bundle; a SIGKILL removes neither, and the bundle temp directory in
+			// particular is inside `data/`, is up to MINERU_BUNDLE_MAX_BYTES, and
+			// is deliberately skipped by the orphan report so nothing even names
+			// it. Throttled to once per six hours per process, age-gated well past
+			// any live job, and fire-and-forget — it must never delay an
+			// extraction.
+			scheduleMineruTempSweep(
+				options.tempDirRoot ? { tempRootAbsolute: options.tempDirRoot } : {},
+			);
 
 			const config = resolveConfig();
 			const client = createClient(config);
