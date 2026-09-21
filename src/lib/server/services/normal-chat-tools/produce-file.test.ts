@@ -9,6 +9,7 @@ import {
 	isInlineTextRequest,
 	type NormalizedProduceFileInput,
 	normalizeProduceFileInput,
+	PATCHES_WITH_OWN_CONTENT_ERROR,
 	produceFileInputSchema,
 	produceFileModelInputSchema,
 	sanitizeProduceFileInput,
@@ -855,17 +856,6 @@ describe("inline_text production mode", () => {
 	// function with them as `content`, which is how an all-plain-text patch
 	// reaches inline_text — see `produce-file-patch-mode.test.ts`.
 	it("keeps a patch-carrying request on the program path so patches still resolve", () => {
-		const withPatches = expectOk(
-			normalize({
-				markdown: MARKDOWN,
-				patches: [{ oldText: "North", newText: "South" }],
-			}),
-		);
-		expect(withPatches.sourceMode).toBe("program");
-		expect(withPatches.patches).toEqual([
-			{ oldText: "North", newText: "South" },
-		]);
-
 		const patchOnly = expectOk(
 			normalize({
 				filename: "notes.md",
@@ -873,6 +863,7 @@ describe("inline_text production mode", () => {
 			}),
 		);
 		expect(patchOnly.sourceMode).toBe("program");
+		expect(patchOnly.patches).toEqual([{ oldText: "North", newText: "South" }]);
 	});
 
 	// A patch brings its own content — the base file plus the edit — so a call
@@ -898,32 +889,51 @@ describe("inline_text production mode", () => {
 		expect(patchOnly.program?.filename).toBe("notes.md");
 	});
 
-	// …and a call that DOES carry its own content keeps today's behaviour,
-	// which is not the same in both directions and is deliberately left alone
-	// here: an explicit mode takes the content at face value and the patches
-	// are dropped, while the same call without a mode resolves them. Pinned so
-	// the asymmetry cannot change unnoticed.
-	it("keeps an explicit mode when the call carries its own content", () => {
-		const explicit = expectOk(
-			normalize({
-				filename: "notes.md",
-				sourceMode: "document_source",
-				markdown: MARKDOWN,
-				patches: [{ oldText: "North", newText: "South" }],
-			}),
-		);
-		expect(explicit.sourceMode).toBe("document_source");
-		expect(explicit.patches).toBeUndefined();
-
-		const implicit = expectOk(
-			normalize({
-				filename: "notes.md",
-				markdown: MARKDOWN,
-				patches: [{ oldText: "North", newText: "South" }],
-			}),
-		);
-		expect(implicit.sourceMode).toBe("program");
-		expect(implicit.patches).toEqual([{ oldText: "North", newText: "South" }]);
+	// …and a call that carries BOTH patches and content of its own is refused.
+	// It used to be honoured in whichever direction the request happened to
+	// point — an explicit mode took the content and threw the patches away, no
+	// mode took the patches and threw the content away — and both reported
+	// success on a file the model had not asked for. The two claims are
+	// contradictory (a patch changes the previous version, content replaces the
+	// whole file), so neither half is safe to guess at.
+	it.each([
+		[
+			"content with an explicit mode",
+			{ sourceMode: "document_source" as const, markdown: MARKDOWN },
+		],
+		["content with no mode at all", { markdown: MARKDOWN }],
+		[
+			"a model-authored documentSource",
+			{
+				sourceMode: "document_source" as const,
+				documentSource: {
+					title: "Notes",
+					blocks: [{ type: "paragraph" as const, text: MARKDOWN }],
+				},
+			},
+		],
+		[
+			"a model-authored program",
+			{
+				outputType: "xlsx",
+				sourceMode: "program" as const,
+				program: {
+					language: "python",
+					sourceCode: "print('builds the workbook')",
+					filename: "notes.xlsx",
+				},
+			},
+		],
+	])("refuses patches sent alongside %s", (_label, rest) => {
+		const result = normalize({
+			filename: "notes.md",
+			...rest,
+			patches: [{ oldText: "North", newText: "South" }],
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("expected the call to be refused");
+		expect(result.error).toBe(PATCHES_WITH_OWN_CONTENT_ERROR);
+		expect(result.error).toContain("not both");
 	});
 
 	it("leaves a model-authored program or documentSource in charge", () => {
@@ -936,7 +946,6 @@ describe("inline_text production mode", () => {
 					sourceCode: "print('builds the workbook')",
 					filename: "notes.xlsx",
 				},
-				patches: [{ oldText: "North", newText: "South" }],
 			}),
 		);
 		expect(withProgram.sourceMode).toBe("program");

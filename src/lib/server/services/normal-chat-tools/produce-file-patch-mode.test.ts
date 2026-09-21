@@ -694,11 +694,37 @@ describe("a patch whose outputs are all plain text", () => {
 	});
 });
 
-describe("every other patch-carrying request is unchanged", () => {
-	it("resolves a model-authored program's patch into program.sourceCode", async () => {
+/**
+ * A request may bring patches, or it may bring the whole new version — never
+ * both.
+ *
+ * These calls used to be accepted, and whichever half the branch order
+ * happened to reach was the one that ran: an explicit `sourceMode` took the
+ * content and threw the patches away, a model-authored `program` ran its own
+ * code with the patch folded in or not at all. Either way a request the model
+ * meant as "change these two lines" could ship a file built from something
+ * else and report success. The two claims contradict each other, so the call
+ * is refused and the model told to pick one.
+ */
+describe("a patch-carrying request that also brings its own content", () => {
+	async function refusal(
+		input: Record<string, unknown>,
+	): Promise<{ status: string; errorCode: string | null; message?: string }> {
+		const { tools } = createNormalChatTools({
+			userId: USER,
+			conversationId: CONVERSATION,
+			turnId: "turn-1",
+		});
+		return (await tools.produce_file.execute(input, {
+			toolCallId: "tool-call-1",
+			messages: [],
+		})) as { status: string; errorCode: string | null; message?: string };
+	}
+
+	it("refuses a model-authored program sent with patches", async () => {
 		seedPreviousVersion(PREVIOUS_MARKDOWN);
 
-		const body = await callProduceFile({
+		const result = await refusal({
 			requestTitle: TITLE,
 			outputType: "xlsx",
 			sourceMode: "program",
@@ -710,36 +736,32 @@ describe("every other patch-carrying request is unchanged", () => {
 			patches: [{ oldText: "North", newText: "South" }],
 		});
 
-		// `xlsx` is not an inline-text type, so nothing about this path moved:
-		// the program is still what runs.
-		expect(body.sourceMode).toBe("program");
-		expect(body.inlineText).toBeUndefined();
-		expect(body.program).toEqual(
-			expect.objectContaining({ filename: "quarterly-summary.xlsx" }),
-		);
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("invalid_tool_input");
+		expect(result.message).toContain("not both");
+		expect(submitIntakeMock).not.toHaveBeenCalled();
 	});
 
-	it("leaves a PDF patch on the document_source path", async () => {
+	it("refuses markdown sent with patches", async () => {
 		seedPreviousVersion(PREVIOUS_MARKDOWN);
 
-		const body = await callProduceFile({
+		const result = await refusal({
 			requestTitle: TITLE,
 			outputType: "pdf",
 			markdown: PREVIOUS_MARKDOWN,
 			patches: [{ oldText: "North", newText: "South" }],
 		});
 
-		expect(body.sourceMode).toBe("document_source");
-		expect(body.inlineText).toBeUndefined();
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("invalid_tool_input");
+		expect(result.message).toContain("not both");
+		expect(submitIntakeMock).not.toHaveBeenCalled();
 	});
 
-	it("writes a text patch through a program when the model authored one", async () => {
-		// An explicit `program` for a `.md` output is the model saying it wants
-		// code to run. The inline path is for the requests where the SERVER
-		// picks the writer, so this one keeps its container.
+	it("refuses a model-authored text program sent with patches", async () => {
 		seedPreviousVersion(PREVIOUS_MARKDOWN);
 
-		const body = await callProduceFile({
+		const result = await refusal({
 			requestTitle: TITLE,
 			outputType: "md",
 			sourceMode: "program",
@@ -751,8 +773,10 @@ describe("every other patch-carrying request is unchanged", () => {
 			patches: [{ oldText: "North", newText: "South" }],
 		});
 
-		expect(body.sourceMode).toBe("program");
-		expect(body.inlineText).toBeUndefined();
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("invalid_tool_input");
+		expect(result.message).toContain("not both");
+		expect(submitIntakeMock).not.toHaveBeenCalled();
 	});
 });
 
@@ -778,7 +802,6 @@ describe("a patch whose outputs are a document", () => {
 		const body = await callProduceFile({
 			requestTitle: TITLE,
 			outputType: "pdf",
-			markdown: PREVIOUS_MARKDOWN,
 			patches: [{ oldText: "| North | 24.25 |", newText: "| South | 25.75 |" }],
 		});
 
@@ -869,7 +892,6 @@ describe("a patch whose outputs are a document", () => {
 			{
 				requestTitle: TITLE,
 				outputType: "pdf",
-				markdown: PREVIOUS_MARKDOWN,
 				patches: [{ oldText: "nothing like this exists", newText: "x" }],
 			},
 			{ toolCallId: "tool-call-1", messages: [] },
@@ -890,7 +912,6 @@ describe("a patch whose outputs are a document", () => {
 			{
 				requestTitle: TITLE,
 				outputType: "pdf",
-				markdown: PREVIOUS_MARKDOWN,
 				patches: [{ oldText: "North", newText: "South" }],
 			},
 			{ toolCallId: "tool-call-1", messages: [] },
