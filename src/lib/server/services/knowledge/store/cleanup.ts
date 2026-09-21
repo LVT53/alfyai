@@ -92,10 +92,19 @@ export async function hardDeleteArtifactsForUser(
 		// storage path, so it is removed for every row the delete covers —
 		// which is what makes this work for both the direct
 		// `deleteArtifactForUser` path and the source → normalized expansion.
+		//
+		// `row.userId`, NOT the acting `userId`. This function deliberately
+		// covers rows the actor does not own but is canonically entitled to
+		// delete (ownership through a conversation), and the bundle lives under
+		// the OWNER's `data/knowledge/<userId>/` — the same directory
+		// `row.storagePath` already names on the line below. Deriving it from
+		// the deleter's id meant those rows lost their database row and kept
+		// their bundle, permanently, in a directory nothing revisits.
+		//
 		// Best effort by design: `removeMineruParseBundle` warns rather than
 		// throwing, because an orphaned bundle is a line in the disk report
 		// while a throw here would abandon the remaining unlinks.
-		await removeMineruParseBundle(userId, row.id).catch(() => undefined);
+		await removeMineruParseBundle(row.userId, row.id).catch(() => undefined);
 
 		if (!row.storagePath) continue;
 		try {

@@ -20,14 +20,30 @@ import {
 import { db } from "$lib/server/db";
 import { adminConfig } from "$lib/server/db/schema";
 import { normalizeSystemPromptReference } from "$lib/server/prompts";
+import {
+	isSecretConfigKey,
+	SECRET_MASK,
+} from "$lib/server/services/admin-effective-config";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async (event) => {
 	requireAdmin(event);
 
 	const rows = await db.select().from(adminConfig);
+	// MASKED, like `currentValues` and `envDefaults` beside it.
+	//
+	// This field used to return the `admin_config` table verbatim, which handed
+	// every stored credential — MINERU_API_KEY, MODEL_1_API_KEY, the OAuth
+	// secrets — back in cleartext to anyone who could reach this route, and
+	// quietly defeated the masking the other two fields do. Nothing in the
+	// System screen reads the raw value: a secret row renders "Set · last
+	// changed <date>" from `overrideMeta`, and an admin who wants to change one
+	// types a new value rather than reading the old.
 	const overrides: Record<string, string> = Object.fromEntries(
-		rows.map((r) => [r.key, r.value]),
+		rows.map((r) => [
+			r.key,
+			isSecretConfigKey(r.key) && r.value.trim() !== "" ? SECRET_MASK : r.value,
+		]),
 	);
 	// Additive: when each override was last written, and by whom. The redesigned
 	// System screen shows it on secret rows ("Set · last changed <date>"), where

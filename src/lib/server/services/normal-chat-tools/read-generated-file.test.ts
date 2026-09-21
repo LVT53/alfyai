@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { asSchema } from "ai";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInMemoryDatabase,
@@ -987,7 +988,15 @@ describe("readGeneratedFileContent — page mode", () => {
 			name: "sample.md",
 			contentText: markdown,
 			userId: bundleUser,
-			metadata: { normalizedFrom: "sample.pdf", pageCount: result.pageCount },
+			// `pageCountKind` rides every structured parse (`persist.ts`), and
+			// page mode now refuses to name a page without it — a `declared`
+			// DOCX count or a `logical` CSV count is not a page anyone can turn
+			// to, and reporting one is an invention, not a citation.
+			metadata: {
+				normalizedFrom: "sample.pdf",
+				pageCount: result.pageCount,
+				pageCountKind: result.pageCountKind,
+			},
 		});
 		memory.db
 			.insert(schema.artifactLinks)
@@ -1156,6 +1165,58 @@ describe("readGeneratedFileContent — page mode", () => {
 		});
 
 		expect(result.passages?.[0]).toMatchObject({ pageStart: 2, pageEnd: 2 });
+	});
+
+	it("refuses to name a page for a kind that has none", async () => {
+		// `artifacts.ts` already refused to CITE a `declared` DOCX count or a
+		// `logical` CSV count — "p. 1" there is an invention, not a citation —
+		// but this path reported one anyway, and the summary said "p." for it.
+		memory.db
+			.update(schema.artifacts)
+			.set({
+				metadataJson: JSON.stringify({
+					normalizedFrom: "sample.pdf",
+					pageCount: 3,
+					pageCountKind: "declared",
+				}),
+			})
+			.where(eq(schema.artifacts.id, normalizedArtifactId))
+			.run();
+
+		const result = await readPage({ page: 2 });
+
+		expect(result.page).toBeNull();
+		expect(result.pageCount).toBeNull();
+		expect(result.pageUnit).toBeNull();
+		expect(result.from).toBe(0);
+		expect(result.pageNote).toBeTruthy();
+		expect(summarizeReadGeneratedFileResult(result)).not.toContain("p. ");
+	});
+
+	it("names slides for a deck and sheets for a workbook", async () => {
+		for (const [kind, word] of [
+			["slide", "slide"],
+			["sheet", "sheet"],
+			["physical", "p."],
+		] as const) {
+			memory.db
+				.update(schema.artifacts)
+				.set({
+					metadataJson: JSON.stringify({
+						normalizedFrom: "sample.pdf",
+						pageCount: 3,
+						pageCountKind: kind,
+					}),
+				})
+				.where(eq(schema.artifacts.id, normalizedArtifactId))
+				.run();
+
+			const result = await readPage({ page: 2 });
+			expect(result.page).toBe(2);
+			expect(summarizeReadGeneratedFileResult(result)).toContain(
+				`from ${word} 2`,
+			);
+		}
 	});
 
 	it("keys the per-turn cache on the page", async () => {

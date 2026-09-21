@@ -111,6 +111,28 @@ describe("GET /api/knowledge/[id]/figure/[name]", () => {
 		);
 	});
 
+	it("serves a figure of an artifact the caller may read but does not own", async () => {
+		// `getArtifactForUser` grants access to an artifact canonically owned
+		// through a conversation the caller owns — which is exactly why it
+		// exists instead of a `userId` equality check. The bundle nonetheless
+		// lives under the OWNER's directory, so a route that derived the path
+		// from the CALLER 404'd every figure of such a document.
+		await writeBundle();
+		mockGetArtifactForUser.mockResolvedValue({
+			id: sourceArtifactId,
+			userId, // the owner; the session below is somebody else
+			type: "source_document",
+		});
+		const event = makeEvent(sourceArtifactId, FIGURE_NAME);
+		(event as unknown as { locals: { user: { id: string } } }).locals = {
+			user: { id: `other-${randomUUID()}` },
+		};
+
+		const response = await GET(event);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe("image/jpeg");
+	});
+
 	it("401s without a session", async () => {
 		const event = makeEvent(sourceArtifactId, FIGURE_NAME);
 		(event as unknown as { locals: { user: null } }).locals = { user: null };

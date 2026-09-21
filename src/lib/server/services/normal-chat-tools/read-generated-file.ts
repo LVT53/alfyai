@@ -5,7 +5,10 @@ import { z } from "zod";
 
 import { db } from "$lib/server/db";
 import { artifacts, chatGeneratedFiles } from "$lib/server/db/schema";
-import { readStoredOutline } from "$lib/server/services/knowledge/outline";
+import {
+	readStoredOutline,
+	readStoredPageCountKind,
+} from "$lib/server/services/knowledge/outline";
 import { getSourceArtifactIdForNormalizedArtifact } from "$lib/server/services/knowledge/store/core";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 import type {
@@ -18,6 +21,7 @@ import { readMineruPageIndex } from "$lib/server/services/mineru/bundle";
 import { selectDocumentPassages } from "$lib/server/services/task-state/artifacts";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { getEntryByMimeType } from "$lib/shared/file-types";
+import { type PageCountUnit, pageCountUnit } from "$lib/shared/page-count";
 import {
 	buildToolResultCacheKey,
 	getCachedToolResult,
@@ -723,9 +727,18 @@ export interface ReadGeneratedFileResult {
 	page: number | null;
 	/** Pages the document has, when it has a parse bundle to say so. */
 	pageCount: number | null;
+	/** What `page`/`pageCount` count: pages, slides or sheets. */
+	pageUnit: PageCountUnit | null;
 	/** Why a requested `page` was ignored. One line, for the model. */
 	pageNote: string | null;
 }
+
+/** The word for each unit in the one-line tool summary. */
+const PAGE_WORDS: Readonly<Record<PageCountUnit, string>> = {
+	page: "p.",
+	slide: "slide",
+	sheet: "sheet",
+};
 
 const NO_PAGE_INFORMATION_NOTE =
 	"This document has no page information, so `page` was ignored; the text is shown from the start. Use `from` or `query` instead.";
@@ -753,6 +766,7 @@ function emptyResult(
 		passages: null,
 		page: null,
 		pageCount: null,
+		pageUnit: null,
 		pageNote: null,
 		...overrides,
 	};
@@ -790,26 +804,54 @@ async function resolvePageOffset(params: {
 	row: ArtifactRow;
 	page: number;
 	contentLength: number;
-}): Promise<{ offset: number | null; pageCount: number | null }> {
+	/** The text the offsets will be applied to, for the staleness check. */
+	contentText: string | null;
+}): Promise<{
+	offset: number | null;
+	pageCount: number | null;
+	unit: PageCountUnit | null;
+}> {
 	if (params.row.type !== "normalized_document") {
-		return { offset: null, pageCount: null };
+		return { offset: null, pageCount: null, unit: null };
 	}
+	// The same honesty rule the prompt citation applies: a `declared` DOCX
+	// count, a `logical` CSV count or a kind we never learned is not a page a
+	// reader could turn to, and handing the model "page 3" for one of them is
+	// an invention rather than a citation. `artifacts.ts` refused to cite them;
+	// this path reported them anyway.
+	const unit = pageCountUnit(
+		readStoredPageCountKind(
+			parseJsonRecord(params.row.metadataJson ?? null)?.pageCountKind,
+		) ?? null,
+	);
+	if (!unit) return { offset: null, pageCount: null, unit: null };
 	const sourceArtifactId = await getSourceArtifactIdForNormalizedArtifact(
 		params.userId,
 		params.row.id,
 	);
-	if (!sourceArtifactId) return { offset: null, pageCount: null };
+	if (!sourceArtifactId) return { offset: null, pageCount: null, unit: null };
 
-	const pages = await readMineruPageIndex(params.userId, sourceArtifactId);
-	if (!pages || pages.length === 0) return { offset: null, pageCount: null };
+	// The text is handed in so the bundle's own `markdownSha256` can be checked
+	// against it. The bundle is written by the extractor BEFORE the artifact
+	// text is rewritten, so an attempt that parsed and then failed to persist
+	// leaves an index one parse ahead of the document — and every page it
+	// resolves would land somewhere else in the text, silently, with a citation
+	// on it. A mismatch reads as "no page index", which is the existing
+	// read-from-the-start path.
+	const pages = await readMineruPageIndex(params.userId, sourceArtifactId, {
+		expectedMarkdown: params.contentText,
+	});
+	if (!pages || pages.length === 0) {
+		return { offset: null, pageCount: null, unit: null };
+	}
 
 	const entry = pages.find((page) => page.page === params.page);
 	if (!entry) {
 		// Past the last page: the end-of-content note is the honest answer.
-		return { offset: params.contentLength, pageCount: pages.length };
+		return { offset: params.contentLength, pageCount: pages.length, unit };
 	}
 	const offset = Math.max(0, Math.min(params.contentLength, entry.start));
-	return { offset, pageCount: pages.length };
+	return { offset, pageCount: pages.length, unit };
 }
 
 function normalizeQuery(value: unknown): string | null {
@@ -913,6 +955,7 @@ export async function readGeneratedFileContent(params: {
 		passages: null,
 		page: null,
 		pageCount: null,
+		pageUnit: null,
 		pageNote: null,
 	};
 
@@ -924,6 +967,7 @@ export async function readGeneratedFileContent(params: {
 				row,
 				page: requestedPage as number,
 				contentLength,
+				contentText: resolvedContent ?? null,
 			})
 		: null;
 
@@ -961,6 +1005,7 @@ export async function readGeneratedFileContent(params: {
 			nextFrom: hasMore ? to : null,
 			page: pageOffset === null ? null : requestedPage,
 			pageCount: pageLookup?.pageCount ?? null,
+			pageUnit: pageLookup?.unit ?? null,
 			pageNote:
 				pageRequested && pageOffset === null ? NO_PAGE_INFORMATION_NOTE : null,
 		};
@@ -1080,7 +1125,13 @@ export function summarizeReadGeneratedFileResult(
 		result.from > 0 || result.hasMore
 			? `, chars ${result.from}–${result.to}${result.hasMore ? `, more from ${result.nextFrom}` : ""}`
 			: "";
-	const page = result.page !== null ? `, from p. ${result.page}` : "";
+	// "p." was hardcoded, so a deck read "from p. 3" and a spreadsheet named a
+	// page nobody can turn to. The unit comes from the same shared vocabulary
+	// the chip and the citation use.
+	const page =
+		result.page !== null
+			? `, from ${PAGE_WORDS[result.pageUnit ?? "page"]} ${result.page}`
+			: "";
 	return `Found "${label}"${version}${length}${page}${window}.`;
 }
 

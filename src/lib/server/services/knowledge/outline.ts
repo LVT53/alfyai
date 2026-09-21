@@ -19,6 +19,7 @@
 // Entries are capped at MAX_OUTLINE_ENTRIES for storage; the UI applies its
 // own, smaller display cap on top of that.
 
+import { isPageCountKind, type PageCountKind } from "$lib/shared/page-count";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import type { DocumentOutlineEntry } from "./types";
 
@@ -229,4 +230,17 @@ export function readStoredPageCount(value: unknown): number | undefined {
 	return isFiniteNonNegativeInteger(value) && value > 0
 		? Math.trunc(value)
 		: undefined;
+}
+
+/**
+ * `metadata.pageCountKind`, when it is one this app knows.
+ *
+ * Undefined for every row written before the structured extractor existed, and
+ * that absence is load-bearing: a client that cannot tell what a count counts
+ * must not print a unit for it. Never defaulted to "physical".
+ */
+export function readStoredPageCountKind(
+	value: unknown,
+): PageCountKind | undefined {
+	return isPageCountKind(value) ? value : undefined;
 }

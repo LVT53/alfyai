@@ -29,6 +29,7 @@ import {
 import {
 	readStoredOutline,
 	readStoredPageCount,
+	readStoredPageCountKind,
 	readStoredTokenEstimate,
 } from "../outline";
 import {
@@ -948,6 +949,7 @@ export async function listMessageAttachments(
 		const metadata = parseJsonRecord(row.artifact.metadataJson ?? null);
 		const tokenEstimate = readStoredTokenEstimate(metadata?.tokenEstimate);
 		const pageCount = readStoredPageCount(metadata?.pageCount);
+		const pageCountKind = readStoredPageCountKind(metadata?.pageCountKind);
 		const outline = readStoredOutline(metadata?.outline);
 		const attachments = result.get(row.link.messageId) ?? [];
 		attachments.push({
@@ -962,6 +964,7 @@ export async function listMessageAttachments(
 			createdAt: row.link.createdAt.getTime(),
 			...(tokenEstimate !== undefined ? { tokenEstimate } : {}),
 			...(pageCount !== undefined ? { pageCount } : {}),
+			...(pageCountKind !== undefined ? { pageCountKind } : {}),
 			...(outline.length > 0 ? { outline } : {}),
 		});
 		result.set(row.link.messageId, attachments);

@@ -125,6 +125,9 @@ function mapLogicalDocumentItem(
 		...(params.displayArtifact.pageCount !== undefined
 			? { pageCount: params.displayArtifact.pageCount }
 			: {}),
+		...(params.displayArtifact.pageCountKind !== undefined
+			? { pageCountKind: params.displayArtifact.pageCountKind }
+			: {}),
 		...(params.displayArtifact.outline !== undefined
 			? { outline: params.displayArtifact.outline }
 			: {}),

@@ -1147,6 +1147,13 @@ const chatDict = {
 		"composerChips.removeQuote": "Remove quote {name}",
 		"composerChips.fileMeta": "{pages} pp · {tokens} tok",
 		"composerChips.filePages": "{pages} pp",
+		// A PPTX counts slides and an XLSX counts sheets; saying "pp" for those
+		// was a small lie on every chip. `displayablePageCountUnit` picks the
+		// pair, and shows nothing at all for a count whose unit is unknown.
+		"composerChips.fileSlidesMeta": "{pages} slides · {tokens} tok",
+		"composerChips.fileSlides": "{pages} slides",
+		"composerChips.fileSheetsMeta": "{pages} sheets · {tokens} tok",
+		"composerChips.fileSheets": "{pages} sheets",
 		"composerChips.fileTokens": "{tokens} tok",
 		"composerChips.outlineDisclosure": "Outline of {name}",
 		"composerChips.atlasMeta": "{profile} · {time}",
@@ -2265,6 +2272,11 @@ const chatDict = {
 		"composerChips.removeQuote": "{name} idézet eltávolítása",
 		"composerChips.fileMeta": "{pages} o. · {tokens} token",
 		"composerChips.filePages": "{pages} o.",
+		// Magyarul a számnév után egyes szám áll: "12 dia", "3 munkalap".
+		"composerChips.fileSlidesMeta": "{pages} dia · {tokens} token",
+		"composerChips.fileSlides": "{pages} dia",
+		"composerChips.fileSheetsMeta": "{pages} munkalap · {tokens} token",
+		"composerChips.fileSheets": "{pages} munkalap",
 		"composerChips.fileTokens": "{tokens} token",
 		"composerChips.outlineDisclosure": "{name} vázlata",
 		"composerChips.atlasMeta": "{profile} · {time}",

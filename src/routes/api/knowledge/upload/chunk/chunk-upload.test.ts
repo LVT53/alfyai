@@ -13,7 +13,7 @@ import {
 } from "../test-helpers";
 import { POST } from "./+server";
 
-const harness = createKnowledgeUploadRouteHarness({ userId: "user-1" });
+const harness = createKnowledgeUploadRouteHarness({ userId: "chunk-user" });
 
 describe("POST /api/knowledge/upload/chunk", () => {
 	it("accepts non-final chunks without starting extraction", async () => {
@@ -30,7 +30,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
@@ -55,7 +55,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const firstData = await firstResponse.json();
@@ -72,7 +72,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const secondData = await secondResponse.json();
@@ -131,7 +131,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
@@ -140,7 +140,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				process.cwd(),
 				"data",
 				"knowledge",
-				"user-1",
+				harness.userId,
 				".incoming",
 				"upload-chunktype",
 			),
@@ -172,7 +172,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 
@@ -198,7 +198,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
@@ -207,7 +207,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				process.cwd(),
 				"data",
 				"knowledge",
-				"user-1",
+				harness.userId,
 				".incoming",
 				"upload-chunktest",
 			),
@@ -249,7 +249,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 			}),
 			requestUrl: "http://localhost/api/knowledge/upload/chunk",
 			routeId: "/api/knowledge/upload/chunk",
-			userId: "user-1",
+			userId: harness.userId,
 		});
 		const arrayBufferSpy = vi
 			.spyOn(event.request, "arrayBuffer")
@@ -281,7 +281,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 			}),
 			requestUrl: "http://localhost/api/knowledge/upload/chunk",
 			routeId: "/api/knowledge/upload/chunk",
-			userId: "user-1",
+			userId: harness.userId,
 		});
 		const arrayBufferSpy = vi
 			.spyOn(event.request, "arrayBuffer")
@@ -314,7 +314,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
@@ -340,7 +340,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 			}),
 			requestUrl: "http://localhost/api/knowledge/upload/chunk",
 			routeId: "/api/knowledge/upload/chunk",
-			userId: "user-1",
+			userId: harness.userId,
 		});
 		const arrayBufferSpy = vi
 			.spyOn(event.request, "arrayBuffer")
@@ -372,7 +372,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const response = await POST(
@@ -388,7 +388,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
@@ -397,7 +397,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 		expect(data.complete).toBe(true);
 		expect(mockCompleteKnowledgeUploadFromStoredFile).toHaveBeenCalledWith(
 			expect.objectContaining({
-				userId: "user-1",
+				userId: harness.userId,
 				conversationId: "conv-1",
 				fileName: "scan.pdf",
 				mimeType: "application/pdf",
@@ -424,7 +424,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
@@ -453,7 +453,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const response = await POST(
@@ -470,7 +470,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
@@ -490,7 +490,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 			process.cwd(),
 			"data",
 			"knowledge",
-			"user-1",
+			harness.userId,
 			".incoming",
 			"upload-assembly-fail",
 		);
@@ -511,7 +511,7 @@ describe("POST /api/knowledge/upload/chunk", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/chunk",
 				routeId: "/api/knowledge/upload/chunk",
-				userId: "user-1",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();

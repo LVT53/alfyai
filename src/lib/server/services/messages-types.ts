@@ -33,6 +33,7 @@ import type {
 	WebCitationAudit,
 	WebCitationRepairSummary,
 } from "$lib/server/services/web-citation-audit";
+import type { PageCountKind } from "$lib/shared/page-count";
 import type {
 	EvidenceSourceType,
 	ToolEvidenceCandidate,
@@ -346,5 +347,7 @@ export interface ChatAttachment {
 	// computed at ingestion (older attachments, or extraction failures).
 	tokenEstimate?: number;
 	pageCount?: number;
+	/** What `pageCount` counts. See `ArtifactSummary.pageCountKind`. */
+	pageCountKind?: PageCountKind;
 	outline?: DocumentOutlineEntry[];
 }
