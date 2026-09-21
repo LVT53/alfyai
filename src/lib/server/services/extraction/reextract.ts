@@ -20,7 +20,13 @@ import { documentExtractionJobs } from "$lib/server/db/schema";
 import type { DocumentExtractionStatus } from "$lib/shared/extraction-status";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
 import { getExtractionConfig } from "./config";
-import { extractionAttemptCeiling } from "./retry-policy";
+import { withOutageState } from "./job-ledger";
+import {
+	type ExtractionOutageState,
+	extractionAttemptCeiling,
+	extractionDocumentAttempts,
+	readExtractionOutageState,
+} from "./retry-policy";
 import type { DocumentExtractionJobRow } from "./types";
 
 export type RequeueExtractionRefusal =
@@ -152,9 +158,25 @@ export async function requeueExtractionJobForReextraction(
 			// the first or be refused by the job row's UNIQUE(source_artifact_id).
 			return { ok: false as const, reason: "active" as const };
 		}
-		if (job.attemptCount >= ceiling) {
+		// Measured in DOCUMENT attempts, exactly as `retryExtractionJob` does.
+		// The raw `attempt_count` also carries every attempt spent waiting on an
+		// unreachable backend; one 30-minute outage costs about a dozen of them,
+		// which is already past the ceiling. Charging those to the document
+		// disabled Re-extract permanently for a file that never failed once,
+		// while the Retry button beside it — which discounts them — still
+		// worked.
+		const outage = readExtractionOutageState(job.hintsJson);
+		if (extractionDocumentAttempts(job.attemptCount, outage) >= ceiling) {
 			return { ok: false as const, reason: "attempt_ceiling" as const };
 		}
+
+		// A re-extraction is a fresh look, so the CURRENT outage window is
+		// cleared; `waits` is cumulative and carries, or the discount above
+		// would be destroyed by the very write that just used it.
+		const carriedOutage: ExtractionOutageState = {
+			since: null,
+			waits: outage.waits,
+		};
 
 		// Every unfinished job of this user's, filtered in JS rather than with a
 		// LIKE on `hints_json`: the set is bounded by the number of documents a
@@ -194,14 +216,14 @@ export async function requeueExtractionJobForReextraction(
 				// Resuming into it would hand the extractor a finished remote job
 				// and, worse, one parsed at the tier the user is trying to leave.
 				remoteHandleJson: null,
-				...(input.hints === undefined
-					? {}
-					: {
-							hintsJson:
-								input.hints && Object.keys(input.hints).length > 0
-									? JSON.stringify(input.hints)
-									: null,
-						}),
+				hintsJson: withOutageState(
+					input.hints === undefined
+						? job.hintsJson
+						: input.hints && Object.keys(input.hints).length > 0
+							? JSON.stringify(input.hints)
+							: null,
+					carriedOutage,
+				),
 				updatedAt: now,
 			})
 			.where(

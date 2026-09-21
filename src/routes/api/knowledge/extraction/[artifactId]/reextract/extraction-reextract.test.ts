@@ -453,6 +453,59 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 		expect((await response.json()).code).toBe("max_attempts");
 	});
 
+	// The ceiling counts DOCUMENT attempts — `attempt_count` minus the attempts
+	// that were spent waiting on an unreachable backend (`$outage.waits`).
+	// `retryExtractionJob` discounts them; this route must too, or one 30-minute
+	// outage (about twelve waits at the default window) permanently disables
+	// Re-extract for a document that never failed once, while the Retry button
+	// beside it still works.
+	it("discounts outage waits from the ceiling, exactly as Retry does", async () => {
+		const artifactId = fixture.seedArtifact({ userId: OWNER });
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+		fixture.sqlite
+			.prepare(
+				"UPDATE document_extraction_jobs SET attempt_count = ?, hints_json = ? WHERE id = ?",
+			)
+			.run(12, JSON.stringify({ $outage: { since: null, waits: 12 } }), job.id);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "basic" }),
+		);
+
+		expect(response.status).toBe(200);
+	});
+
+	// `$outage.waits` is cumulative and is the ONLY record of which attempts
+	// were not the document's fault. Replacing the whole `hints_json` column
+	// destroys it, so the waits retroactively start counting against both the
+	// ceiling and the Retry button.
+	it("carries the outage discount across a re-extraction", async () => {
+		const artifactId = fixture.seedArtifact({ userId: OWNER });
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+		fixture.sqlite
+			.prepare(
+				"UPDATE document_extraction_jobs SET attempt_count = ?, hints_json = ? WHERE id = ?",
+			)
+			.run(
+				6,
+				JSON.stringify({ $outage: { since: 1_000, waits: 3 } }),
+				job.id,
+			);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "basic" }),
+		);
+		expect(response.status).toBe(200);
+
+		expect(JSON.parse(jobRow(job.id).hints_json ?? "null")).toEqual({
+			tier: "basic",
+			reextract: true,
+			// A re-extraction is a fresh look, so the CURRENT window is cleared,
+			// but the cumulative discount survives — same rule as Retry.
+			$outage: { since: null, waits: 3 },
+		});
+	});
+
 	it("materialises a row for a pre-ledger document before requeuing it", async () => {
 		const artifactId = fixture.seedArtifact({
 			userId: OWNER,

@@ -133,7 +133,16 @@ export function parseExtractionHints(
 }
 
 /** Writes the outage state back beside whatever hints the caller supplied. */
-function withOutageState(
+/**
+ * Rewrites the reserved `$outage` key inside a job's `hints_json`, leaving
+ * every caller-owned key alone.
+ *
+ * Exported because `reextract.ts` requeues a job too and must carry the
+ * cumulative `waits` across, exactly as `retryExtractionJob` does. It writes
+ * the whole column, so without this it would destroy the one record of which
+ * attempts were not the document's fault.
+ */
+export function withOutageState(
 	hintsJson: string | null | undefined,
 	state: ExtractionOutageState,
 ): string | null {
@@ -645,8 +654,16 @@ export async function completeExtractionAttempt(
 				errorMessage: null,
 				remoteHandleJson: null,
 				// A hint has done its job once the extraction it steered succeeded;
-				// leaving it would silently re-apply to a later user retry.
-				hintsJson: null,
+				// leaving it would silently re-apply to a later user retry. The
+				// reserved `$outage` bookkeeping is NOT a hint and must survive:
+				// `attempt_count` is never reset, so a document that waited out an
+				// outage before succeeding carries those attempts forever, and
+				// `waits` is the only thing that keeps the ceiling (and the
+				// Re-extract button) from charging them to the document.
+				hintsJson: withOutageState(null, {
+					since: null,
+					waits: readExtractionOutageState(job.hintsJson).waits,
+				}),
 				currentAttemptId: null,
 				updatedAt: now,
 			})
