@@ -33,6 +33,7 @@ import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { ZodType } from "zod";
 import {
 	isSameMineruOrigin,
+	MINERU_TIER_IDS,
 	type MineruConfig,
 	type MineruTierId,
 	mineruUrl,
@@ -237,7 +238,8 @@ export class MineruClient {
 			body,
 			"/v1/tiers",
 		);
-		const known = new Set<string>(["flash", "basic", "standard", "advanced"]);
+		// The vocabulary is config.ts's, never a second copy of the four ids.
+		const known = new Set<string>(MINERU_TIER_IDS);
 		return parsed.data.filter((tier): tier is MineruTier => known.has(tier.id));
 	}
 

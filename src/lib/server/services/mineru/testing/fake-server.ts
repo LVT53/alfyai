@@ -19,7 +19,7 @@
  * Control API (everything a test needs, and nothing that hides a bug):
  *
  * ```ts
- * const server = await createFakeMineruServer({ fixtureInput: "pdf" });
+ * const server = await createFakeMineruServer({ fixtureInput: "docx" });
  * server.baseUrl;            // "http://127.0.0.1:<port>" — feed it to MineruConfig
  * server.crossOriginBaseUrl; // same port, hostname "localhost" — a FOREIGN origin
  * server.requests;           // every request, in order: method, path, json, headers
@@ -39,7 +39,11 @@ import {
 } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { MineruTierId } from "../config";
+import {
+	MINERU_OCR_MODES,
+	MINERU_OUTPUT_FORMATS,
+	type MineruTierId,
+} from "../config";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** `<repo>/fixtures/mineru-v1` — six levels up from `services/mineru/testing/`. */
@@ -48,17 +52,24 @@ export const MINERU_FIXTURE_ROOT = join(
 	"../../../../../../fixtures/mineru-v1",
 );
 
-export type FakeMineruFixtureInput =
-	| "pdf"
-	| "docx"
-	| "csv"
-	| "html"
-	| "epub"
-	| "png"
-	| "xlsx"
-	| "pptx"
-	| "jpg"
-	| "flash-pdf";
+/**
+ * A directory name under `fixtures/mineru-v1/`: one of the nine recorded
+ * inputs (pdf, docx, xlsx, pptx, html, csv, epub, png, jpg) or flash-pdf, the
+ * same PDF parsed by a flash-tier server.
+ *
+ * Deliberately a plain string rather than a union of those names: a union of
+ * file extensions inside a module is exactly the ad-hoc file-type map that
+ * `shared/file-types/no-ad-hoc-maps.test.ts` exists to forbid, and this module
+ * classifies FIXTURE DIRECTORIES, not user files. A wrong name fails loudly on
+ * the first read.
+ */
+export type FakeMineruFixtureInput = string;
+
+/** The default fixture directory: the three-page PDF. */
+const DEFAULT_FIXTURE_INPUT = "pdf";
+
+/** Recorded probes are stored one per JSON file under `errors/`. */
+const PROBE_SUFFIX = ".json";
 
 /** What a job does once it reaches a terminal state. */
 export type FakeMineruJobOutcome =
@@ -78,7 +89,7 @@ export interface FakeMineruFailure {
 	method?: string;
 	/** 1-based. Omitted ⇒ every matching request fails. */
 	nth?: number;
-	/** A file name under `fixtures/mineru-v1/errors/`, with or without `.json`. */
+	/** A probe name under `fixtures/mineru-v1/errors/`, with or without a suffix. */
 	fixture: string;
 }
 
@@ -92,7 +103,7 @@ export interface FakeMineruServerOptions {
 	failures?: ReadonlyArray<FakeMineruFailure>;
 	/** Bytes persist, ids do not — exactly the recorded restart semantics. */
 	restartAfterMs?: number;
-	/** Which input fixture directory answers downloads. Default "pdf". */
+	/** Which input fixture directory answers downloads. Defaults to the PDF. */
 	fixtureInput?: FakeMineruFixtureInput;
 	/** When set, everything but `/v1/health` demands this bearer token. */
 	apiKey?: string;
@@ -199,7 +210,24 @@ export async function createFakeMineruServer(
 	};
 
 	const fixtureDir = () =>
-		join(MINERU_FIXTURE_ROOT, options.fixtureInput ?? "pdf");
+		join(MINERU_FIXTURE_ROOT, options.fixtureInput ?? DEFAULT_FIXTURE_INPUT);
+
+	/**
+	 * Whether this input needs a quality tier, read from the fixture rather
+	 * than from a hard-coded list: `extensions.mineru.tier` records what
+	 * actually parsed the file, and it is flash for every Office/HTML/CSV/EPUB
+	 * input even inside a basic job.
+	 */
+	function fixtureNeedsQualityTier(): boolean {
+		try {
+			const structured = JSON.parse(
+				readFileSync(join(fixtureDir(), "structured_content.json"), "utf8"),
+			) as { extensions?: { mineru?: { tier?: string } } };
+			return (structured.extensions?.mineru?.tier ?? "flash") !== "flash";
+		} catch {
+			return false;
+		}
+	}
 
 	function tiers(): readonly MineruTierId[] {
 		return options.tiers ?? ["flash", "basic"];
@@ -241,9 +269,9 @@ export async function createFakeMineruServer(
 			const seen = (failureCounts.get(key) ?? 0) + 1;
 			failureCounts.set(key, seen);
 			if (failure.nth !== undefined && failure.nth !== seen) continue;
-			const name = failure.fixture.endsWith(".json")
+			const name = failure.fixture.includes(".")
 				? failure.fixture
-				: `${failure.fixture}.json`;
+				: `${failure.fixture}${PROBE_SUFFIX}`;
 			const probe = JSON.parse(
 				readFileSync(join(MINERU_FIXTURE_ROOT, "errors", name), "utf8"),
 			) as { http_status: number; body: unknown };
@@ -482,12 +510,7 @@ export async function createFakeMineruServer(
 				version: "4.0.4",
 				features: {
 					webhook: false,
-					output_formats: [
-						"markdown",
-						"middle_json",
-						"structured_content",
-						"zip",
-					],
+					output_formats: [...MINERU_OUTPUT_FORMATS],
 					sources: ["file_id", "url", "inline"],
 				},
 			});
@@ -775,13 +798,15 @@ export async function createFakeMineruServer(
 		}
 		if ("ocr_mode" in body) {
 			const mode = body.ocr_mode;
-			if (mode !== "auto" && mode !== "txt" && mode !== "ocr") {
+			if (!(MINERU_OCR_MODES as readonly unknown[]).includes(mode)) {
 				errorResponse(
 					res,
 					400,
 					"invalid_request_error",
 					"invalid_request",
-					"Invalid request: ocr_mode: Input should be 'auto', 'txt' or 'ocr'",
+					`Invalid request: ocr_mode: Input should be ${MINERU_OCR_MODES.map(
+						(value) => `'${value}'`,
+					).join(" or ")}`,
 					"ocr_mode",
 				);
 				return;
@@ -790,10 +815,8 @@ export async function createFakeMineruServer(
 
 		const formats = Array.isArray(body.output_formats)
 			? (body.output_formats as string[])
-			: ["markdown"];
-		const unsupported = formats.filter(
-			(format) => !(format in ARTIFACTS) && format !== "html",
-		);
+			: [...MINERU_OUTPUT_FORMATS];
+		const unsupported = formats.filter((format) => !(format in ARTIFACTS));
 		if (unsupported.length > 0) {
 			errorResponse(
 				res,
@@ -855,8 +878,7 @@ export async function createFakeMineruServer(
 			}
 			tier = value as MineruTierId;
 		} else {
-			const input = options.fixtureInput ?? "pdf";
-			const needsQuality = ["pdf", "png", "jpg"].includes(input);
+			const needsQuality = fixtureNeedsQualityTier();
 			if (flashOnly && needsQuality) {
 				errorResponse(
 					res,

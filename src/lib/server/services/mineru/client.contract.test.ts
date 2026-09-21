@@ -18,6 +18,12 @@ import { readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+	getMineruStatusReport,
+	type MineruProbeClientFactory,
+	resetMineruCapabilitiesCacheForTests,
+	setMineruProbeClientFactory,
+} from "./capabilities";
 import { MineruClient } from "./client";
 import type { MineruConfig } from "./config";
 import { MineruApiError, mapMineruError, mapMineruJobFailure } from "./errors";
@@ -830,5 +836,34 @@ describe("against the fake V1 server", () => {
 		const mapping = mapMineruError(error);
 		expect(mapping.taxonomy).toBe("protocol");
 		expect(mapping.retryable).toBe(true);
+	});
+
+	/**
+	 * The seam S0 left for this slice: `MineruClient` satisfies
+	 * `MineruProbeClient` structurally, so P2-B can route the admin card's
+	 * capability read through the real client with one line at module init.
+	 * If a signature here ever drifts, this case stops compiling.
+	 */
+	it("satisfies MineruProbeClient, so the capability read can use it", async () => {
+		const { server: fake } = await start();
+		const factory: MineruProbeClientFactory = (config) =>
+			new MineruClient({ config });
+		setMineruProbeClientFactory(factory);
+		resetMineruCapabilitiesCacheForTests();
+		try {
+			const report = await getMineruStatusReport({
+				config: testConfig({ baseUrl: fake.baseUrl }),
+			});
+			expect(report.reachable).toBe(true);
+			expect(report.version).toBe("4.0.4");
+			expect(report.tiers.map((tier) => tier.id)).toEqual(["flash", "basic"]);
+			expect(report.outputFormats).toContain("structured_content");
+			expect(report.accessLevel).toBe("anonymous");
+			// The origin only — never a key, never a path.
+			expect(report.baseUrl).toBe(fake.baseUrl);
+		} finally {
+			setMineruProbeClientFactory(null);
+			resetMineruCapabilitiesCacheForTests();
+		}
 	});
 });
