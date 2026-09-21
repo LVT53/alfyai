@@ -979,6 +979,69 @@ describe("chat-files service", () => {
 			expect(mockCreateGeneratedOutputArtifact).not.toHaveBeenCalled();
 		});
 
+		// The other half of D9's ruling: the source's text has to actually be
+		// there. When the markdown render failed, the source artifact carries
+		// none, and the rendered binaries must not be left permanently
+		// unreadable — they fall back to exactly what any other generated file
+		// does, a memory wrapper plus a readback job.
+		it("falls back to readback when the document source carries no text", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			const now = new Date("2026-01-01T12:00:00.000Z");
+			mockRows.push({
+				id: "file-empty-source-pdf",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename: "report.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 5000,
+				storagePath: "conv-a/file-empty-source-pdf.pdf",
+				createdAt: now,
+			});
+			mockArtifactRows.push({
+				id: "artifact-empty-source",
+				userId: "user-1",
+				type: "generated_output",
+				retrievalClass: "durable",
+				name: "Source-first report",
+				mimeType: "application/vnd.alfyai.generated-document+json",
+				sizeBytes: null,
+				conversationId: "conv-a",
+				summary: "Source-first report",
+				metadataJson: JSON.stringify({
+					generatedDocumentSourceVersion: 1,
+					generatedDocumentSource: {
+						version: 1,
+						template: "alfyai_standard_report",
+						title: "Source-first report",
+					},
+					fileProductionJobId: "job-source-2",
+					originalChatFileId: "file-empty-source-pdf",
+					generatedDocumentRenderedChatFileIds: ["file-empty-source-pdf"],
+				}),
+				contentText: "",
+				extension: "alfyidoc.json",
+				storagePath: null,
+				createdAt: now,
+				updatedAt: now,
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-empty-source-pdf"],
+				assistantResponse: "Here is the report.",
+			});
+
+			expect(mockStartGeneratedFileReadback).toHaveBeenCalledWith(
+				expect.objectContaining({
+					chatGeneratedFileId: "file-empty-source-pdf",
+					hints: { preferredTier: "flash" },
+				}),
+			);
+		});
+
 		// The core of slice S5: the artifact, its version metadata and its family
 		// link are all written now; only the text waits.
 		it("creates the generated-file artifact immediately and queues the binary's text", async () => {
@@ -1036,6 +1099,11 @@ describe("chat-files service", () => {
 				fileName: "report.pdf",
 				mimeType: "application/pdf",
 				sizeBytes: 5000,
+				// D10: a PDF this app produced is born-digital, so it parses at
+				// flash rather than waiting on a cold OCR-capable tier. Soft —
+				// `preferredTier`, not `tier` — so a server without flash still
+				// parses it instead of failing the job.
+				hints: { preferredTier: "flash" },
 			});
 		});
 
@@ -1068,6 +1136,121 @@ describe("chat-files service", () => {
 			expect(
 				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content,
 			).toContain("Extracted file content:\n# Report Generated markdown body.");
+		});
+
+		// D8's `inline_text` outputs, which never spawn a container to be
+		// written and must not spawn a MinerU job to be read either.
+		it.each([
+			[
+				"file-tsv",
+				"regions.tsv",
+				"text/tab-separated-values",
+				"a\tb\n1\t2\n",
+				"a b 1 2",
+			],
+			["file-csv", "regions.csv", "text/csv", "a,b\n1,2\n", "a,b 1,2"],
+			["file-json", "data.json", "application/json", '{"a":1}\n', '{"a":1}'],
+			["file-txt", "notes.txt", "text/plain", "plain notes\n", "plain notes"],
+		])("decodes an inline_text output (%s) without a ledger job", async (id, filename, mimeType, body, expectedPreview) => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			mockReadFile.mockResolvedValueOnce(Buffer.from(body));
+			mockRows.push({
+				id,
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename,
+				mimeType,
+				sizeBytes: body.length,
+				storagePath: `conv-a/${id}`,
+				createdAt: new Date("2026-01-01"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: [id],
+				assistantResponse: "Here is the file.",
+			});
+
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
+			// The wrapper's preview collapses runs of whitespace, so the
+			// delimiters are the assertion, not the line breaks.
+			expect(
+				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content,
+			).toContain(`Extracted file content:\n${expectedPreview}`);
+		});
+
+		// HTML is a MinerU route for UPLOADS since Phase 5 (a real page is
+		// mostly nav, scripts and ads, which MinerU strips). A `.html` this app
+		// generated is our own markup, so it is decoded on the spot: waiting on
+		// a backend to read back what we just wrote would be a regression with
+		// no upside, and it would break while MinerU is down.
+		it("decodes a generated .html instead of sending it to MinerU", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			mockReadFile.mockResolvedValueOnce(
+				Buffer.from("<h1>Quarterly report</h1>\r\n<p>Revenue grew.</p>\n"),
+			);
+			mockRows.push({
+				id: "file-html",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename: "report.html",
+				mimeType: "text/html",
+				sizeBytes: 48,
+				storagePath: "conv-a/file-html.html",
+				createdAt: new Date("2026-01-01"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-html"],
+				assistantResponse: "Here is the report.",
+			});
+
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
+			expect(
+				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content,
+			).toContain("Extracted file content:\n<h1>Quarterly report</h1>");
+		});
+
+		it("round-trips a generated .md that carries a UTF-8 BOM", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			mockReadFile.mockResolvedValueOnce(
+				Buffer.concat([
+					Buffer.from([0xef, 0xbb, 0xbf]),
+					Buffer.from("# Report\n\nBody.\n"),
+				]),
+			);
+			mockRows.push({
+				id: "file-bom",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename: "report.md",
+				mimeType: "text/markdown",
+				sizeBytes: 19,
+				storagePath: "conv-a/file-bom.md",
+				createdAt: new Date("2026-01-01"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-bom"],
+				assistantResponse: "Here is the report.",
+			});
+
+			const content =
+				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content;
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
+			expect(content).toContain("Extracted file content:\n# Report");
+			expect(content).not.toContain("﻿");
 		});
 
 		it("queues nothing for a generated file no backend can read", async () => {
