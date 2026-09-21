@@ -1,0 +1,20 @@
+{
+  "fixtureId": "disallowed-source-url",
+  "expectedErrorCode": "unsupported_document_block",
+  "documentSource": {
+    "version": 1,
+    "template": "alfyai_standard_report",
+    "title": "Disallowed Source URL",
+    "blocks": [
+      { "type": "paragraph", "text": "The sources below carry a script URL instead of a web address." },
+      {
+        "type": "sourceChips",
+        "title": "Sources",
+        "sources": [
+          { "title": "Internal memo", "url": "https://example.com/memo" },
+          { "title": "Totally legitimate source", "url": "JaVaScRiPt:alert(document.domain)" }
+        ]
+      }
+    ]
+  }
+}

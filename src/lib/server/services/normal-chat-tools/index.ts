@@ -39,6 +39,7 @@ import {
 	selectTopDistinctSourceUrls,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
+import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	calendarToolInputSchema,
 	runCalendarTool,
@@ -104,7 +105,6 @@ import {
 	buildSameTurnProduceFileDedupeKey,
 	buildScopedIdempotencyKey,
 	createProduceFileToolCallEntry,
-	isInlineTextRequest,
 	MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN,
 	MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS,
 	normalizeProduceFileInput,
@@ -1149,12 +1149,14 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 
 					// Resolve patches: if the model provided surgical edits instead of full content,
 					// fetch the previous version and apply patches to reconstruct the full file.
-					if (
-						normalizedInput.patches &&
-						normalizedInput.patches.length > 0 &&
-						normalizedInput.sourceMode === "program" &&
-						normalizedInput.program
-					) {
+					//
+					// This used to run only for `sourceMode === "program"`, so a
+					// request whose outputs are a PDF/DOCX/HTML — which the
+					// normaliser sends down the document_source path — had its
+					// patches stripped a few lines below and reported success on the
+					// UNPATCHED document. The tool's description promises patches for
+					// every format, so the resolution now runs for every mode.
+					if (normalizedInput.patches && normalizedInput.patches.length > 0) {
 						const previousContent = await getPreviousGeneratedFileContent(
 							ctx.userId,
 							ctx.conversationId,
@@ -1170,7 +1172,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							});
 						}
 						const patchResult = applyTextPatches(
-							previousContent,
+							previousContent.text,
 							normalizedInput.patches,
 						);
 						if (!patchResult.ok) {
@@ -1181,50 +1183,83 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								intakeStatus: 422,
 							});
 						}
-						// Phase 6 D8. `normalizeProduceFileInput` sends every
-						// patch-carrying request down the program path, because only
-						// here — after the previous version has been fetched — do the
-						// patched bytes exist. But once they do, a request whose
-						// outputs are ALL plain-text types is indistinguishable from
-						// the content-carrying request that would have been written
-						// inline: same bytes, same types, no renderer and no sandbox.
-						// Patching a `.md` was starting a Docker container to run a
-						// generated `write_text` one-liner.
+						// Phase 6 D8, now for every mode. The patched bytes exist only
+						// here, after the previous version has been fetched, so the
+						// request is re-normalised as if the model had sent that text
+						// as `content`: the plain-text outputs become `inline_text`
+						// (same bytes, same types, no renderer and no sandbox — a
+						// patched `.md` used to start a Docker container to run a
+						// generated `write_text` one-liner), and the document outputs
+						// become a `document_source` built from the PATCHED Markdown.
 						//
-						// Re-normalising the patched text as `content` rather than
-						// building the inline request here is deliberate: filename
-						// resolution, the mixed-group refusal and the inline-vs-program
-						// decision stay in ONE place, so a patched file can never be
-						// named differently from the same file sent whole. If that
-						// re-normalisation refuses (a patch that leaves the file too
-						// short to look substantive), the program path below still
-						// runs, so no request that worked before stops working.
-						const patchedInline = isInlineTextRequest(
-							normalizedInput.requestedOutputs.map((output) => output.type),
-						)
-							? normalizeProduceFileInput({
-									...parsedInput.data,
-									requestTitle: normalizedInput.requestTitle,
-									requestedOutputs: normalizedInput.requestedOutputs,
-									content: patchResult.resolvedText,
-									markdown: undefined,
-									text: undefined,
-									patches: undefined,
-									sourceMode: undefined,
-									program: undefined,
-									documentSource: undefined,
-								})
-							: null;
+						// Re-normalising rather than hand-building the request is
+						// deliberate: filename resolution, the mixed-group refusal and
+						// the mode decision stay in ONE place, so a patched file can
+						// never be named — or produced — differently from the same
+						// file sent whole.
+						const patched = normalizeProduceFileInput({
+							...parsedInput.data,
+							requestTitle: normalizedInput.requestTitle,
+							requestedOutputs: normalizedInput.requestedOutputs,
+							content: patchResult.resolvedText,
+							markdown: undefined,
+							text: undefined,
+							patches: undefined,
+							sourceMode: undefined,
+							program: undefined,
+							documentSource: undefined,
+						});
+						// The text a patch is applied to is the text
+						// `read_generated_file` showed the model — for a
+						// document-source file, the rendered Markdown that its
+						// `oldText` was copied from. Producing a document from the
+						// result therefore means rebuilding the source from that
+						// Markdown, which a chart or an image does not survive: it
+						// would ship a report with the chart silently gone. Better a
+						// refusal the model can act on than a success that lost data.
+						const unpatchableBlock =
+							patched.ok && patched.input.sourceMode === "document_source"
+								? unpatchableDocumentBlockType(previousContent.documentSource)
+								: null;
+						if (unpatchableBlock) {
+							return refuse({
+								input: sanitizeProduceFileInput(normalizedInput),
+								errorCode: "patch_not_applicable",
+								message: `This document contains a ${unpatchableBlock} block, which cannot be rebuilt from the text you patched. Resend the full content (or documentSource) for this file instead of patches.`,
+								intakeStatus: 422,
+							});
+						}
 						if (
-							patchedInline?.ok &&
-							patchedInline.input.sourceMode === "inline_text"
+							patched.ok &&
+							(patched.input.sourceMode === "inline_text" ||
+								patched.input.sourceMode === "document_source")
 						) {
-							normalizedInput = patchedInline.input;
-						} else {
+							normalizedInput = patched.input;
+						} else if (
+							normalizedInput.sourceMode === "program" &&
+							normalizedInput.program
+						) {
+							// A program is what runs, so the patched bytes go into the
+							// program that writes them — unchanged, including the
+							// fallback for a patch whose result the normaliser will not
+							// take as `content` (too short to look substantive).
 							normalizedInput.program.sourceCode = buildResolvedProgramSource(
 								normalizedInput.program.filename ?? "generated-file.txt",
 								patchResult.resolvedText,
 							);
+						} else {
+							// No mode can carry the patched text: refusing is the only
+							// honest answer, because shipping `normalizedInput` here
+							// would produce the file WITHOUT the patch and report
+							// success.
+							return refuse({
+								input: sanitizeProduceFileInput(normalizedInput),
+								errorCode: "patch_not_applicable",
+								message: `The patched file could not be produced as requested${
+									patched.ok ? "" : `: ${patched.error}`
+								}. Resend the full content for this file instead of patches.`,
+								intakeStatus: 422,
+							});
 						}
 					}
 					const { patches: _patches, ...intakeNormalizedInput } =
@@ -2571,11 +2606,25 @@ function compactToolSchemas<T extends Record<string, Tool>>(toolSet: T): T {
 	return out as T;
 }
 
+/**
+ * The previous version of a generated file, as the patch resolver needs it.
+ *
+ * `text` is what `read_generated_file` would show the model — the base a
+ * patch's `oldText` was copied from. `documentSource` is the stored source
+ * JSON when the previous version was a rendered document, which is how the
+ * resolver can tell that rebuilding that document from its Markdown would
+ * drop something the Markdown cannot carry.
+ */
+interface PreviousGeneratedFileVersion {
+	text: string;
+	documentSource: unknown;
+}
+
 async function getPreviousGeneratedFileContent(
 	userId: string,
 	conversationId: string,
 	requestTitle: string,
-): Promise<string | null> {
+): Promise<PreviousGeneratedFileVersion | null> {
 	const rows = await db
 		.select({
 			contentText: artifacts.contentText,
@@ -2606,15 +2655,53 @@ async function getPreviousGeneratedFileContent(
 		// multi-line `oldText` could not match it at all (`patch_failed`), and a
 		// single-line one matched and silently destroyed every line break in the
 		// user's document.
+		const documentSource = parseJsonRecord(
+			row.metadataJson,
+		)?.generatedDocumentSource;
 		const resolved = await resolveBestContent(
 			userId,
 			row.contentText,
 			row.metadataJson,
 		);
-		if (resolved) return resolved;
-		return extractContentFromMemoryText(row.contentText) ?? row.contentText;
+		const text =
+			resolved ??
+			extractContentFromMemoryText(row.contentText) ??
+			row.contentText;
+		return { text, documentSource: documentSource ?? null };
 	}
 
+	return null;
+}
+
+/**
+ * The block types a document source loses when it is rebuilt from its own
+ * Markdown, which is what patching a document-source file has to do.
+ *
+ * A chart's data points and an image's bytes have no Markdown form to parse
+ * back — the Markdown carries a sentence about the chart and, for an inline
+ * image, the placeholder `(embedded image/png)` that the artifact text
+ * substitutes. Re-deriving the source from that text would quietly ship a
+ * report with the chart or the picture gone, so the request is refused and
+ * the model is told to resend the document instead.
+ */
+const UNPATCHABLE_DOCUMENT_BLOCK_TYPES = new Set(["chart", "image"]);
+
+function unpatchableDocumentBlockType(documentSource: unknown): string | null {
+	if (!documentSource || typeof documentSource !== "object") return null;
+	const blocks = (documentSource as { blocks?: unknown }).blocks;
+	if (!Array.isArray(blocks)) return null;
+	for (const block of blocks) {
+		const type =
+			block && typeof block === "object"
+				? (block as { type?: unknown }).type
+				: null;
+		if (
+			typeof type === "string" &&
+			UNPATCHABLE_DOCUMENT_BLOCK_TYPES.has(type)
+		) {
+			return type;
+		}
+	}
 	return null;
 }
 

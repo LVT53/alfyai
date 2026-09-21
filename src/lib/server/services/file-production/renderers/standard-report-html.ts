@@ -15,6 +15,7 @@ import {
 	generatedDocumentCitationLevelLabel,
 	generatedDocumentUsesCitationAnnotations,
 	hasGeneratedDocumentCitationAnnotations,
+	isAllowedGeneratedDocumentUrl,
 	parseGeneratedDocumentInlineText,
 } from "../source-schema";
 import { renderChartSvg } from "./chart-svg";
@@ -23,6 +24,19 @@ export interface StandardReportHtmlRenderResult {
 	filename: string;
 	mimeType: "text/html";
 	content: Buffer;
+}
+
+/**
+ * The URL this renderer may put in an `href`, or null.
+ *
+ * Defence in depth behind the schema's allowlist: a source JSON stored BEFORE
+ * that allowlist existed can still carry a `javascript:` link, and this report
+ * is previewed in the app's trusted `standard-report` profile, where inline
+ * scripts run and the sanitiser is bypassed. A URL we may not link to renders
+ * as plain text instead — the title is still there, it just is not clickable.
+ */
+function linkableUrl(url: string | null | undefined): string | null {
+	return url && isAllowedGeneratedDocumentUrl(url) ? url : null;
 }
 
 function escapeHtml(value: string): string {
@@ -315,8 +329,9 @@ function renderSourceChip(
 		.join(" ");
 	const content = `${renderSourceFavicon(source.url, chrome)}${renderSourceTooltip(source, chrome)}`;
 
-	if (source.url && options.link !== false) {
-		return `<a ${attributes} href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${content}</a>`;
+	const href = linkableUrl(source.url);
+	if (href && options.link !== false) {
+		return `<a ${attributes} href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${content}</a>`;
 	}
 	return `<span ${attributes}>${content}</span>`;
 }
@@ -361,8 +376,13 @@ function renderImage(
 	block: Extract<GeneratedDocumentBlock, { type: "image" }>,
 ): string {
 	const src = renderImageSource(block);
+	const attributionHref = linkableUrl(block.sourceAttribution?.url);
 	const attribution = block.sourceAttribution
-		? `<p class="figure-source">Source: <a href="${escapeHtml(block.sourceAttribution.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(block.sourceAttribution.title)}</a></p>`
+		? `<p class="figure-source">Source: ${
+				attributionHref
+					? `<a href="${escapeHtml(attributionHref)}" target="_blank" rel="noopener noreferrer">${escapeHtml(block.sourceAttribution.title)}</a>`
+					: escapeHtml(block.sourceAttribution.title)
+			}</p>`
 		: "";
 	const caption = block.caption
 		? `<figcaption class="figure-caption">${escapeHtml(block.caption)}</figcaption>`
@@ -399,8 +419,9 @@ function renderSourcesGroup(
 			const domain = escapeHtml(sourceDomain(source.url, chrome));
 			const title = escapeHtml(source.title);
 			const sourceNumber = sourceNumberFor(sourceIndex, source);
-			const titleNode = source.url
-				? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${title}</a>`
+			const titleHref = linkableUrl(source.url);
+			const titleNode = titleHref
+				? `<a href="${escapeHtml(titleHref)}" target="_blank" rel="noopener noreferrer">${title}</a>`
 				: `<span class="source-title">${title}</span>`;
 			const provided = source.provided
 				? `<span class="source-provided">${escapeHtml(chrome.providedLabel)}</span>`
@@ -619,8 +640,9 @@ function renderBasisMarker(
 			.map((ref) => {
 				const favicon = renderSourceFavicon(ref.url, chrome);
 				const title = escapeHtml(ref.title);
-				const link = ref.url
-					? `<a href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer" class="basis-tooltip-source-link">${title}</a>`
+				const refHref = linkableUrl(ref.url);
+				const link = refHref
+					? `<a href="${escapeHtml(refHref)}" target="_blank" rel="noopener noreferrer" class="basis-tooltip-source-link">${title}</a>`
 					: `<span class="basis-tooltip-source-link">${title}</span>`;
 				return `<li class="basis-tooltip-source-item">${favicon}${link}</li>`;
 			})
