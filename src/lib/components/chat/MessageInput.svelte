@@ -3738,7 +3738,7 @@ async function emitDraftChange(force = false) {
 				<span class="text-text-muted">{$t('chat.messageWillSendAutomatically')}</span>
 			{/if}
 			{#if attachmentError}
-				<span class="text-danger">{attachmentError}</span>
+				<span class="text-danger" data-testid="attachment-error">{attachmentError}</span>
 			{/if}
 			{#if extractionActionError}
 				<span class="text-danger" data-testid="extraction-action-error">{extractionActionError}</span>
