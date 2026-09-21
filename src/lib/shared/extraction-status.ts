@@ -57,6 +57,7 @@ export const EXTRACTION_ERROR_CODES = [
 	"timeout",
 	"protocol",
 	"unsupported_type",
+	"document_unreadable",
 	"empty_result",
 	// Ledger-side, never thrown by an extractor:
 	"stale_worker",
@@ -104,8 +105,9 @@ export interface ExtractionErrorPolicy {
  * Configuration and environment failures (`auth_failed`, `tier_unavailable`,
  * `backend_misconfigured`, and `unavailable` once its outage window is spent)
  * are NOT auto-retried but ARE user-retryable. Document-level permanent
- * failures (`unsupported_type`, `too_large`, `empty_result`) are neither:
- * nothing anyone can do from the outside makes the same bytes readable.
+ * failures (`unsupported_type`, `document_unreadable`, `too_large`,
+ * `empty_result`) are neither: nothing anyone can do from the outside makes the
+ * same bytes readable.
  */
 export const EXTRACTION_ERROR_POLICIES: Readonly<
 	Record<ExtractionErrorCode, ExtractionErrorPolicy>
@@ -131,6 +133,12 @@ export const EXTRACTION_ERROR_POLICIES: Readonly<
 
 	// -- permanent facts about this document ---------------------------------
 	unsupported_type: { autoRetry: "none", userRetryable: false },
+	// The format is one we support; THESE BYTES are damaged, truncated, empty or
+	// password-protected, and the reader said so deterministically. Re-sending
+	// the same bytes reproduces the same refusal, which is why the Retry button
+	// is withheld: the way forward is to re-export or unlock the file, and a
+	// repaired file has a different hash and therefore becomes a new document.
+	document_unreadable: { autoRetry: "none", userRetryable: false },
 	too_large: { autoRetry: "none", userRetryable: false },
 	empty_result: { autoRetry: "none", userRetryable: false },
 	internal: { autoRetry: "none", userRetryable: false },

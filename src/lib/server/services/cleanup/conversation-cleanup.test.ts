@@ -235,4 +235,46 @@ describe("deleteConversationWithCleanup", () => {
 		expect(checkpoints).toEqual([]);
 		expect(files).toEqual([{ id: "atlas-file-keep" }]);
 	});
+
+	// A working artifact cannot outlive its conversation. It is owned ONLY
+	// through the conversation link, and `artifacts.conversation_id` is
+	// `ON DELETE SET NULL`, so "preserving" one stranded it: invisible in the
+	// library, 404 on GET, and a cheerful "already removed" 200 on DELETE, while
+	// the row, its file and its parse bundle stayed on disk forever.
+	it("deletes generated outputs and work capsules even when referenced elsewhere", async () => {
+		seedConversation();
+
+		mockListConversationOwnedArtifacts.mockResolvedValue([
+			{ id: "generated-1", type: "generated_output" },
+			{ id: "capsule-1", type: "work_capsule" },
+			{ id: "source-1", type: "source_document" },
+		]);
+		// The heuristic that used to spare them. A link confers no ownership, and
+		// `conversation_id` holds exactly one conversation, so for these two types
+		// there is nothing an outside reference can rescue them into.
+		mockArtifactHasReferencesOutsideConversation.mockResolvedValue(true);
+
+		const { deleteConversationWithCleanup } = await import(
+			"./conversation-cleanup"
+		);
+
+		const result = await deleteConversationWithCleanup(
+			"user-1",
+			"conversation-1",
+		);
+
+		expect(result?.deletedArtifactIds).toEqual(["generated-1", "capsule-1"]);
+		// A real document still gets the benefit of the doubt.
+		expect(result?.preservedArtifactIds).toEqual(["source-1"]);
+		expect(mockHardDeleteArtifactsForUser).toHaveBeenCalledWith("user-1", [
+			"generated-1",
+			"capsule-1",
+		]);
+		// The question is never even asked for the two conversation-scoped types.
+		expect(
+			mockArtifactHasReferencesOutsideConversation.mock.calls.map(
+				(call) => call[1],
+			),
+		).toEqual(["source-1"]);
+	});
 });

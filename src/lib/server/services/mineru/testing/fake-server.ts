@@ -108,6 +108,13 @@ export interface FakeMineruServerOptions {
 	/** When set, everything but `/v1/health` demands this bearer token. */
 	apiKey?: string;
 	jobOutcome?: FakeMineruJobOutcome;
+	/**
+	 * The file-level error a `file-failed` job reports. Defaults to the generic
+	 * `parse_failed` / "Parse failed". 4.0.4 says a great deal more than that —
+	 * "Failed to load document (PDFium: Data format error)." for a damaged PDF —
+	 * and the verdict turns entirely on the wording.
+	 */
+	fileError?: { code?: string; message?: string };
 	/** Serve `/v1/files/{id}/content` as a 302 instead of a stream. */
 	redirectDownloads?: "same-origin" | "cross-origin";
 }
@@ -379,8 +386,8 @@ export async function createFakeMineruServer(
 			(terminal && outcome === "file-failed"
 				? {
 						type: "engine_error",
-						code: "parse_failed",
-						message: "Parse failed",
+						code: options.fileError?.code ?? "parse_failed",
+						message: options.fileError?.message ?? "Parse failed",
 						param: null,
 					}
 				: null);

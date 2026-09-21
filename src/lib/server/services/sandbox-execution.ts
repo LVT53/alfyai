@@ -2,6 +2,7 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import type { Container } from "dockerode";
 import tar from "tar-stream";
+import { fileExtension } from "$lib/shared/file-types";
 import { getSandboxMimeTypeForExtension } from "$lib/shared/file-types/production";
 import {
 	createSandbox,
@@ -346,6 +347,29 @@ function isPathTraversalAttempt(name: string): boolean {
 	);
 }
 
+/**
+ * The only thing a log line may say about a file someone else named.
+ *
+ * Output filenames in `/output` are chosen by the model, and through it by the
+ * user ("save it as Q3 layoffs.xlsx"). These lines carry ids, counts, codes and
+ * durations because they end up in places the document itself is not allowed to
+ * reach, and a filename is content: it can name a person, a deal or a
+ * diagnosis. The extension is the part that is actually diagnostic — it says
+ * which writer produced the file — and it carries nothing of the user's.
+ *
+ * `fileExtension` rather than `path.extname` on purpose: it is the repo's one
+ * true parser, so this agrees with the rest of the codebase on `.env` and on
+ * "REPORT.Final.PDF".
+ */
+function logSafeExtension(nameOrPath: string): string {
+	return fileExtension(path.basename(nameOrPath)) || "none";
+}
+
+/** The same, for a whole batch: sorted, deduplicated, never a name. */
+function logSafeExtensions(namesOrPaths: ReadonlyArray<string>): string[] {
+	return [...new Set(namesOrPaths.map(logSafeExtension))].sort();
+}
+
 function isDangerousEntryType(header: tar.Headers): boolean {
 	return (
 		header.type === "symlink" ||
@@ -404,7 +428,7 @@ async function extractFilesFromContainer(
 				if (isDangerousEntryType(header)) {
 					console.warn("[FILE_PRODUCTION] Skipping sandbox archive entry", {
 						containerId: container.id,
-						name,
+						extension: logSafeExtension(name),
 						type,
 						reason: "dangerous-entry-type",
 					});
@@ -422,7 +446,7 @@ async function extractFilesFromContainer(
 				if (isPathTraversalAttempt(name)) {
 					console.warn("[FILE_PRODUCTION] Skipping sandbox archive entry", {
 						containerId: container.id,
-						name,
+						extension: logSafeExtension(name),
 						type,
 						reason: "path-traversal",
 					});
@@ -434,7 +458,7 @@ async function extractFilesFromContainer(
 				if (files.length >= SANDBOX_MAX_OUTPUT_FILES) {
 					console.warn("[FILE_PRODUCTION] Skipping sandbox archive entry", {
 						containerId: container.id,
-						name,
+						extension: logSafeExtension(name),
 						type,
 						reason: "max-files-limit",
 						maxFiles: SANDBOX_MAX_OUTPUT_FILES,
@@ -460,7 +484,7 @@ async function extractFilesFromContainer(
 					if (fileSize > maxFileSizeBytes) {
 						console.warn("[FILE_PRODUCTION] Skipping sandbox archive entry", {
 							containerId: container.id,
-							name,
+							extension: logSafeExtension(name),
 							type,
 							reason: "max-file-size-limit",
 							sizeBytes: fileSize,
@@ -475,7 +499,7 @@ async function extractFilesFromContainer(
 					if (totalBytes + content.length > maxTotalBytes) {
 						console.warn("[FILE_PRODUCTION] Skipping sandbox archive entry", {
 							containerId: container.id,
-							name,
+							extension: logSafeExtension(name),
 							type,
 							reason: "max-total-size-limit",
 							sizeBytes: content.length,
@@ -502,7 +526,7 @@ async function extractFilesFromContainer(
 				stream.on("error", (error) => {
 					console.warn("[FILE_PRODUCTION] Sandbox archive entry read failed", {
 						containerId: container.id,
-						name,
+						extension: logSafeExtension(name),
 						type,
 						error,
 					});
@@ -597,12 +621,18 @@ async function inspectOutputDirectory(
 		buildInspectionCommand(language),
 	);
 
+	// The inspection script's stdout IS the path listing — `{"path":
+	// "/output/<model-chosen name>", …}` for every file — and its stderr is an
+	// interpreter traceback over those same paths. Neither may be logged, and
+	// neither can be safely excerpted, because the names are the payload. Their
+	// byte counts answer the only question these lines exist to answer: did the
+	// script produce anything, and did it complain.
 	if (inspection.exitCode !== 0) {
 		console.warn("[FILE_PRODUCTION] In-container output inspection failed", {
 			containerId: container.id,
 			exitCode: inspection.exitCode,
-			stdoutPreview: inspection.stdout || null,
-			stderrPreview: inspection.stderr || null,
+			stdoutBytes: inspection.stdout.length,
+			stderrBytes: inspection.stderr.length,
 		});
 		return null;
 	}
@@ -612,7 +642,7 @@ async function inspectOutputDirectory(
 			"[FILE_PRODUCTION] In-container output inspection returned no stdout",
 			{
 				containerId: container.id,
-				stderrPreview: inspection.stderr || null,
+				stderrBytes: inspection.stderr.length,
 			},
 		);
 		return null;
@@ -625,9 +655,10 @@ async function inspectOutputDirectory(
 			"[FILE_PRODUCTION] In-container output inspection parse failed",
 			{
 				containerId: container.id,
-				stdoutPreview: inspection.stdout.slice(0, 500),
-				stderrPreview: inspection.stderr || null,
-				error,
+				stdoutBytes: inspection.stdout.length,
+				stderrBytes: inspection.stderr.length,
+				// The parse error names a position, not the content at it.
+				error: error instanceof Error ? error.message : String(error),
 			},
 		);
 		return null;
@@ -673,7 +704,7 @@ async function readFilesFromInsideContainer(
 		if (files.length >= SANDBOX_MAX_OUTPUT_FILES) {
 			console.warn("[FILE_PRODUCTION] Skipping in-container output file", {
 				containerId: container.id,
-				path: file.path,
+				extension: logSafeExtension(file.path),
 				reason: "max-files-limit",
 				maxFiles: SANDBOX_MAX_OUTPUT_FILES,
 			});
@@ -684,7 +715,7 @@ async function readFilesFromInsideContainer(
 		if (content.length !== file.sizeBytes) {
 			console.warn("[FILE_PRODUCTION] Skipping in-container output file", {
 				containerId: container.id,
-				path: file.path,
+				extension: logSafeExtension(file.path),
 				reason: "size-mismatch",
 				reportedSizeBytes: file.sizeBytes,
 				decodedSizeBytes: content.length,
@@ -695,7 +726,7 @@ async function readFilesFromInsideContainer(
 		if (content.length > maxFileSizeBytes) {
 			console.warn("[FILE_PRODUCTION] Skipping in-container output file", {
 				containerId: container.id,
-				path: file.path,
+				extension: logSafeExtension(file.path),
 				reason: "max-file-size-limit",
 				sizeBytes: content.length,
 				maxFileSizeBytes,
@@ -706,7 +737,7 @@ async function readFilesFromInsideContainer(
 		if (totalBytes + content.length > maxTotalBytes) {
 			console.warn("[FILE_PRODUCTION] Skipping in-container output file", {
 				containerId: container.id,
-				path: file.path,
+				extension: logSafeExtension(file.path),
 				reason: "max-total-size-limit",
 				sizeBytes: content.length,
 				totalBytes,
@@ -835,7 +866,14 @@ export async function executeCode(
 						totalInspectionFiles: inspectionFiles.length,
 						extractedFiles: files.length,
 						missingFiles: missingFiles.length,
-						missing: missingFiles,
+						// `missing` used to be the whole OutputInspectionFile[] —
+						// `/output/<model-chosen name>` and its relative path, one entry
+						// per file. The count above and the extensions here say which
+						// writer produced what went missing, which is the diagnostic; the
+						// names were never anything but the user's content.
+						missingExtensions: logSafeExtensions(
+							missingFiles.map((f) => f.relativePath),
+						),
 					},
 				);
 				try {
@@ -879,7 +917,9 @@ export async function executeCode(
 					{
 						containerId: sandbox.container.id,
 						fileCount: reInspection.files.length,
-						files: reInspection.files,
+						extensions: logSafeExtensions(
+							reInspection.files.map((f) => f.relativePath),
+						),
 					},
 				);
 				try {

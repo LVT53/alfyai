@@ -45,6 +45,28 @@ export async function deleteConversationWithCleanup(
 	const preservedArtifactIds: string[] = [];
 
 	for (const artifact of ownedArtifacts) {
+		// A working artifact cannot outlive its conversation.
+		//
+		// `generated_output` and `work_capsule` are owned ONLY through their
+		// conversation link (`isArtifactCanonicallyOwned`), and
+		// `artifacts.conversation_id` is `ON DELETE SET NULL`. Preserving one
+		// therefore did not keep it — it stranded it: the link was cleared moments
+		// later by the conversation delete below, and the row became invisible in
+		// the library, unreachable from any chat, and impossible to remove, while
+		// its chunks, its stored file and its MinerU parse bundle stayed on disk.
+		//
+		// A reference from outside the conversation cannot rescue one either,
+		// because a link confers no ownership and `conversation_id` holds exactly
+		// one conversation. So for these two types there is nothing to weigh: they
+		// belong to this conversation alone and they go with it.
+		if (
+			artifact.type === "generated_output" ||
+			artifact.type === "work_capsule"
+		) {
+			deletedArtifactIds.push(artifact.id);
+			continue;
+		}
+
 		if (artifact.type === "normalized_document") {
 			const sourceArtifactId = await getSourceArtifactIdForNormalizedArtifact(
 				userId,

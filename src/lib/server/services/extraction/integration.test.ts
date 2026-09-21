@@ -219,6 +219,7 @@ describe("4 — codes the worker will not retry on its own", () => {
 		["backend_misconfigured", true],
 		["too_large", false],
 		["unsupported_type", false],
+		["document_unreadable", false],
 		["empty_result", false],
 		["internal", false],
 	];

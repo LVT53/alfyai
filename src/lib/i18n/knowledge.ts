@@ -60,6 +60,8 @@ const knowledgeDict = {
 		"knowledge.extraction.error.backend_misconfigured":
 			"The configured document reader is not a MinerU 4 server. Ask an administrator to check the address, then retry.",
 		"knowledge.extraction.error.canceled": "Processing was canceled.",
+		"knowledge.extraction.error.document_unreadable":
+			"This file appears to be damaged or password-protected, so it could not be read. Re-export or re-save it (removing any password) and upload that copy.",
 		"knowledge.extraction.error.empty_result":
 			"No readable text was found in this file.",
 		"knowledge.extraction.error.internal":
@@ -503,6 +505,8 @@ const knowledgeDict = {
 		"knowledge.extraction.error.backend_misconfigured":
 			"A beállított dokumentumolvasó nem MinerU 4 kiszolgáló. Kérd meg az adminisztrátort, hogy ellenőrizze a címet, majd próbáld újra.",
 		"knowledge.extraction.error.canceled": "A feldolgozás meg lett szakítva.",
+		"knowledge.extraction.error.document_unreadable":
+			"Ez a fájl sérültnek vagy jelszóval védettnek tűnik, ezért nem sikerült beolvasni. Mentsd vagy exportáld újra (jelszó nélkül), és azt a példányt töltsd fel.",
 		"knowledge.extraction.error.empty_result":
 			"Ebben a fájlban nem található olvasható szöveg.",
 		"knowledge.extraction.error.internal":
