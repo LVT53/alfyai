@@ -37,7 +37,12 @@ const knowledgeDict = {
 		"knowledge.dropFileTooLarge":
 			"Some files are larger than {limit} and were skipped.",
 		"knowledge.dropFiles": "Drop files here to upload (max {max}MB per file)",
-		"knowledge.dropNoValidFiles": "Those files aren't a supported type.",
+		// Phase 5 P5-C: the batch fallback, used only when a drop was refused
+		// for MORE than one reason — a single reason is named with the matching
+		// `knowledge.uploadRejected*` message instead, which is the one the
+		// server would have sent. Both say what to do next.
+		"knowledge.dropNoValidFiles":
+			"Those files aren't a supported type. Save them as PDF, DOCX or plain text and upload those.",
 		// The document-extraction ledger, rendered in the Knowledge list's
 		// Status column. One key per status and one per error code in
 		// EXTRACTION_ERROR_CODES, so a row can never fall back to printing a
@@ -153,8 +158,13 @@ const knowledgeDict = {
 		// English `error` plus an `errorKey` from this family; the client
 		// renders the key when it knows it. Keys, not codes, because one
 		// machine code (`upload_unsupported_type`) covers four reasons.
+		// Phase 5 P5-C, reject-copy audit: every refusal now ends with the next
+		// thing to try. These two were the only ones that named a problem and
+		// stopped there; `uploadRejectedArchive`, `uploadRejectedMedia`,
+		// `uploadRejectedFormatNotEnabled` and `uploadDirectTextTooLarge`
+		// already did and are untouched.
 		"knowledge.uploadContentMismatch":
-			"{name} doesn't look like a real {ext} file — its contents don't match its extension.",
+			"{name} doesn't look like a real {ext} file — its contents don't match its extension. Open it, save it again in the right format, and upload that.",
 		"knowledge.uploadDirectTextTooLarge":
 			"{name} is too big to read as plain text — the limit is {limit}. Split it, or save it as a PDF or DOCX and upload that.",
 		"knowledge.uploadLimitTooltip":
@@ -168,7 +178,7 @@ const knowledgeDict = {
 		"knowledge.uploadRejectedMedia":
 			"Audio and video files can't be read yet. Upload a document or an image instead.",
 		"knowledge.uploadUnsupportedType":
-			"We can't read {name} — that file type isn't supported.",
+			"We can't read {name} — that file type isn't supported. Save it as PDF, DOCX or plain text and upload that.",
 		"knowledge.uploaded": "Uploaded",
 		"knowledge.uploading": "Uploading...",
 		"knowledge.whatAiSees": "What the AI sees",
@@ -467,7 +477,8 @@ const knowledgeDict = {
 			"Néhány fájl nagyobb, mint {limit}, és ki lett hagyva.",
 		"knowledge.dropFiles":
 			"Húzd ide a fájlokat feltöltéshez (max. {max} MB/fájl)",
-		"knowledge.dropNoValidFiles": "Ezek a fájlok nem támogatott típusúak.",
+		"knowledge.dropNoValidFiles":
+			"Ezek a fájlok nem támogatott típusúak. Mentsd el őket PDF-, DOCX- vagy egyszerű szöveges formátumban, és azokat töltsd fel.",
 		"knowledge.extraction.actionFailed":
 			"A műveletet nem sikerült végrehajtani. Próbáld újra.",
 		"knowledge.extraction.attempt": "{max} próbálkozásból a(z) {current}.",
@@ -573,7 +584,7 @@ const knowledgeDict = {
 		"knowledge.type": "Típus",
 		"knowledge.upload": "Feltöltés",
 		"knowledge.uploadContentMismatch":
-			"A(z) {name} nem valódi {ext} fájlnak tűnik — a tartalma nem illik a kiterjesztéséhez.",
+			"A(z) {name} nem valódi {ext} fájlnak tűnik — a tartalma nem illik a kiterjesztéséhez. Nyisd meg, mentsd el újra a megfelelő formátumban, és azt töltsd fel.",
 		"knowledge.uploadDirectTextTooLarge":
 			"A(z) {name} túl nagy ahhoz, hogy egyszerű szövegként olvassuk be — a korlát {limit}. Bontsd szét, vagy mentsd PDF- vagy DOCX-formátumban, és azt töltsd fel.",
 		"knowledge.uploadLimitTooltip":
@@ -587,7 +598,7 @@ const knowledgeDict = {
 		"knowledge.uploadRejectedMedia":
 			"Hang- és videofájlokat még nem tudunk olvasni. Tölts fel helyette dokumentumot vagy képet.",
 		"knowledge.uploadUnsupportedType":
-			"A(z) {name} fájlt nem tudjuk olvasni — ez a fájltípus nem támogatott.",
+			"A(z) {name} fájlt nem tudjuk olvasni — ez a fájltípus nem támogatott. Mentsd el PDF-, DOCX- vagy egyszerű szöveges formátumban, és azt töltsd fel.",
 		"knowledge.uploaded": "Feltöltött",
 		"knowledge.uploading": "Feltöltés...",
 		"knowledge.whatAiSees": "Amit az MI lát",
