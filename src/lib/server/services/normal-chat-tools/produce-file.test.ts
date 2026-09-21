@@ -4,10 +4,16 @@ import { validateGeneratedDocumentSource } from "$lib/server/services/file-produ
 
 import {
 	applyTextPatches,
+	buildNoPatchBaseMessage,
+	createProduceFileToolCallEntry,
 	isInlineTextRequest,
 	type NormalizedProduceFileInput,
 	normalizeProduceFileInput,
+	produceFileInputSchema,
 	produceFileModelInputSchema,
+	sanitizeProduceFileInput,
+	sanitizeUnsafeProduceFileInput,
+	summarizeProduceFileResult,
 } from "./produce-file";
 
 function documentBlocks(
@@ -982,5 +988,188 @@ describe("mixed document/text output requests", () => {
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error(result.error);
 		expect(result.input.sourceMode).toBe("document_source");
+	});
+});
+
+/**
+ * THE LIVE FAILURE. Turn 1 produced `release-notes.md` as `inline_text`, and
+ * that mode was persisted as the call's `input` — which the next turn replays
+ * to the model as its own history. Turn 2 the model imitated it, sent
+ * `sourceMode: "inline_text"` with its patches, and the call was REJECTED: the
+ * model-facing schema only admits `program` and `document_source`. The retry
+ * then lost the filename too, so the user paid two failed tool calls for one
+ * edit.
+ *
+ * Two independent guards, because either one alone leaves a trap: the history
+ * must not teach an argument the tool refuses, AND the tool must not refuse a
+ * whole request over a field whose value it was going to choose anyway.
+ */
+describe("what the model's own history teaches it about sourceMode", () => {
+	const MARKDOWN = [
+		"# Release notes",
+		"",
+		"Version 2.0 ships the new file production pipeline, with patches for",
+		"every format and a read-back tool the model can call by filename.",
+		"",
+		"Line three names the thing the user will want to change.",
+	].join("\n");
+
+	function recordedInput(
+		input: Parameters<typeof normalizeProduceFileInput>[0],
+	) {
+		const normalized = normalizeProduceFileInput(input);
+		if (!normalized.ok) throw new Error(normalized.error);
+		const payload = {
+			ok: true as const,
+			status: "succeeded" as const,
+			jobId: "job-1",
+			files: [
+				{
+					filename: "release-notes.md",
+					mimeType: "text/markdown",
+					sizeBytes: 1,
+				},
+			],
+		};
+		return createProduceFileToolCallEntry({
+			callId: "call-1",
+			input: sanitizeProduceFileInput(normalized.input),
+			payload,
+			outputSummary: summarizeProduceFileResult(payload),
+		});
+	}
+
+	it("is an input the tool would accept back", () => {
+		const entry = recordedInput({
+			requestTitle: "Release notes",
+			filename: "release-notes.md",
+			markdown: MARKDOWN,
+		});
+
+		// The mode the SERVER chose is never persisted as an argument…
+		expect(entry.input.sourceMode).toBeUndefined();
+		// …and the record as a whole replays: this is exactly the object
+		// `conversation-history.ts` hands back to the model as its own tool call.
+		expect(produceFileModelInputSchema.safeParse(entry.input).success).toBe(
+			true,
+		);
+		// It is still recorded, as what it is: a fact about the run.
+		expect(entry.metadata?.sourceMode).toBe("inline_text");
+	});
+
+	it("keeps a mode the model itself may send in the input", () => {
+		const entry = recordedInput({
+			requestTitle: "Fruit workbook",
+			requestedOutputs: [{ type: "xlsx" }],
+			sourceMode: "program",
+			program: {
+				language: "python",
+				sourceCode: "open('/output/fruits.xlsx','w').write('x')",
+				filename: "fruits.xlsx",
+			},
+		});
+
+		expect(entry.input.sourceMode).toBe("program");
+		expect(entry.metadata?.sourceMode).toBeUndefined();
+	});
+
+	it("does not persist a mode the model invented", () => {
+		const entry = createProduceFileToolCallEntry({
+			callId: "call-2",
+			input: sanitizeUnsafeProduceFileInput({
+				requestTitle: "Release notes",
+				sourceMode: "inline_text",
+				content: MARKDOWN,
+			}),
+			payload: {
+				ok: false,
+				status: "failed",
+				errorCode: "invalid_tool_input",
+				message: "nope",
+				retryable: true,
+			},
+			outputSummary: "File production failed (invalid_tool_input): nope",
+		});
+
+		// The refusal record is replayed too (`conversation-history.ts` strips the
+		// content digest beside it), so it must not carry the value back either.
+		expect(entry.input.sourceMode).toBeUndefined();
+		expect(entry.metadata?.sourceMode).toBe("inline_text");
+	});
+
+	it.each([
+		"inline_text",
+		"auto",
+		"",
+	])("accepts a call whose sourceMode is %o and lets the server choose", (sourceMode) => {
+		const raw = {
+			requestTitle: "Release notes",
+			filename: "release-notes.md",
+			sourceMode,
+			markdown: MARKDOWN,
+		};
+
+		// The schema the SDK validates the raw tool call against…
+		const model = produceFileModelInputSchema.safeParse(raw);
+		expect(model.success).toBe(true);
+		// …and the one `execute` parses with.
+		const parsed = produceFileInputSchema.safeParse(raw);
+		expect(parsed.success).toBe(true);
+		if (!parsed.success) return;
+		expect(parsed.data.sourceMode).toBeUndefined();
+
+		const normalized = normalizeProduceFileInput(parsed.data);
+		expect(normalized.ok).toBe(true);
+		if (!normalized.ok) return;
+		expect(normalized.input.sourceMode).toBe("inline_text");
+	});
+});
+
+describe("what a produced file's digest tells the next turn", () => {
+	it("names the file for reading it back AND for changing it", () => {
+		const payload = {
+			ok: true as const,
+			status: "succeeded" as const,
+			jobId: "job-1",
+			files: [
+				{
+					filename: "release-notes.md",
+					mimeType: "text/markdown",
+					sizeBytes: 12,
+				},
+			],
+		};
+		const entry = createProduceFileToolCallEntry({
+			callId: "call-1",
+			input: {},
+			payload,
+			outputSummary: summarizeProduceFileResult(payload),
+		});
+
+		expect(entry.resultDigest).toBe(
+			'Read it back with read_generated_file({filename:"release-notes.md"}). Change it with produce_file patches on "release-notes.md".',
+		);
+		// The digest is paid on every turn the call stays in the window, so it
+		// stays well inside the ~100-token budget (4 chars ≈ 1 token).
+		expect(
+			Math.ceil((entry.resultDigest?.length ?? 0) / 4),
+		).toBeLessThanOrEqual(100);
+	});
+});
+
+describe("the refusal for a patch with no base", () => {
+	it("names the files the model can choose between", () => {
+		const message = buildNoPatchBaseMessage([
+			"release-notes.md",
+			"changelog.md",
+		]);
+		expect(message).toContain("release-notes.md, changelog.md");
+		expect(message).toContain("filename");
+	});
+
+	it("keeps the old wording when this conversation produced nothing", () => {
+		expect(buildNoPatchBaseMessage([])).toBe(
+			"No previous version of this file could be found. Use content, markdown, or text to create the initial version instead of patches.",
+		);
 	});
 });

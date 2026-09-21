@@ -94,6 +94,7 @@ import {
 } from "./photos";
 import {
 	applyTextPatches,
+	buildNoPatchBaseMessage,
 	buildProduceFileFailedPayload,
 	buildProduceFileIntakeFailurePayload,
 	buildProduceFileRunningPayload,
@@ -103,7 +104,9 @@ import {
 	createProduceFileToolCallEntry,
 	MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN,
 	MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS,
+	namedOutputTypeFromInput,
 	normalizeProduceFileInput,
+	outputTypeFromFilename,
 	PRODUCE_FILE_RETRY_LIMIT_ERROR_CODE,
 	PRODUCE_FILE_TURN_LIMIT_ERROR_CODE,
 	PRODUCE_FILE_VERDICT_POLL_INTERVAL_MS,
@@ -1152,26 +1155,33 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					// UNPATCHED document. The tool's description promises patches for
 					// every format, so the resolution now runs for every mode.
 					if (normalizedInput.patches && normalizedInput.patches.length > 0) {
-						const previousContent = await resolveGeneratedFilePatchBase({
+						// Only a name the MODEL supplied. `normalizedInput.program.filename`
+						// is derived from the request TITLE when the model named no file,
+						// and looking for a file under a name the app has just invented
+						// could only ever miss: live, a patch of `release-notes.md` was
+						// answered `no_previous_version_for_patches` because the resolver
+						// was sent `release-notes-for-small-app-release.md`.
+						const modelFilename =
+							parsedInput.data.filename ??
+							parsedInput.data.program?.filename ??
+							null;
+						const namedOutputType = namedOutputTypeFromInput(parsedInput.data);
+						const patchBase = await resolveGeneratedFilePatchBase({
 							userId: ctx.userId,
 							conversationId: ctx.conversationId,
-							// The name the patched file will carry, which is the name the
-							// previous version carries too — `normalizeProduceFileInput`
-							// resolved both through the same `resolveTextFilename`. This
-							// is what lets the base be found on disk, before the deferred
-							// memory sync has minted any artifact for it.
-							filename: normalizedInput.program?.filename ?? null,
+							filename: modelFilename,
 							requestTitle: normalizedInput.requestTitle,
+							outputType: namedOutputType,
 						});
-						if (previousContent === null) {
+						if (patchBase.status !== "found") {
 							return refuse({
 								input: sanitizeProduceFileInput(normalizedInput),
 								errorCode: "no_previous_version_for_patches",
-								message:
-									"No previous version of this file could be found. Use content, markdown, or text to create the initial version instead of patches.",
+								message: buildNoPatchBaseMessage(patchBase.candidates),
 								intakeStatus: 422,
 							});
 						}
+						const previousContent = patchBase.base;
 						const patchResult = applyTextPatches(
 							previousContent.text,
 							normalizedInput.patches,
@@ -1198,10 +1208,30 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						// the mode decision stay in ONE place, so a patched file can
 						// never be named — or produced — differently from the same
 						// file sent whole.
+						//
+						// The patched file is the NEXT VERSION of the file the base came
+						// from, so it keeps that file's name — never a fresh one derived
+						// from this turn's title, which would fork the artifact and leave
+						// the next patch resolving against a file nobody can see. When the
+						// request named no output type either, the base's own extension is
+						// the honest answer: a patch-only call defaults to `txt`, and
+						// writing `release-notes.txt` beside `release-notes.md` is the
+						// same fork.
+						const baseFilename = previousContent.filename;
 						const patched = normalizeProduceFileInput({
 							...parsedInput.data,
 							requestTitle: normalizedInput.requestTitle,
-							requestedOutputs: normalizedInput.requestedOutputs,
+							requestedOutputs:
+								!namedOutputType && baseFilename
+									? [
+											{
+												type:
+													outputTypeFromFilename(baseFilename) ??
+													normalizedInput.requestedOutputs[0].type,
+											},
+										]
+									: normalizedInput.requestedOutputs,
+							filename: baseFilename ?? parsedInput.data.filename,
 							content: patchResult.resolvedText,
 							markdown: undefined,
 							text: undefined,

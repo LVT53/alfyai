@@ -179,6 +179,23 @@ async function callProduceFile(
 	return submitIntakeMock.mock.calls[0][0].body as Record<string, unknown>;
 }
 
+/** The refusal payload of a call that never reaches intake. */
+async function refuseProduceFile(
+	input: Record<string, unknown>,
+): Promise<{ status: string; errorCode: string | null; message: string }> {
+	const { tools } = createNormalChatTools({
+		userId: USER,
+		conversationId: CONVERSATION,
+		turnId: "turn-1",
+	});
+	const result = (await tools.produce_file.execute(input, {
+		toolCallId: "tool-call-1",
+		messages: [],
+	})) as { status: string; errorCode: string | null; message: string };
+	expect(submitIntakeMock).not.toHaveBeenCalled();
+	return result;
+}
+
 beforeEach(() => {
 	memory = createInMemoryDatabase();
 	memory.db
@@ -356,6 +373,209 @@ describe("the base a patch is applied to", () => {
 		);
 		// The first edit survives; the stale v1 was never the base.
 		expect(inlineText.content).not.toContain("| North | 24.25 |");
+	});
+});
+
+/**
+ * THE LIVE FAILURE. The model produced `release-notes.md`, was asked to change
+ * line 3 with a patch, and sent the patch with no filename — it had never been
+ * told the name mattered, and its own history did not carry one. The app then
+ * derived a FRESH name from that turn's request title
+ * ("release-notes-for-small-app-release.md"), looked for a previous version
+ * under THAT name, found nothing and answered `no_previous_version_for_patches`
+ * for a file the user could see in the chat. The model gave up on patching and
+ * regenerated the whole document.
+ *
+ * A name the app has just invented can only miss. What the request does carry
+ * is a title and, sometimes, an output type; the file it means is one of THIS
+ * conversation's own outputs.
+ */
+describe("which file a patch that names none is about", () => {
+	const RELEASE_NOTES = [
+		"# Release notes",
+		"",
+		"Line one introduces the release.",
+		"Line two lists the headline change.",
+		"Line three is the one the user wants changed.",
+		"Line four thanks the contributors.",
+	].join("\n");
+
+	const CHANGELOG = [
+		"# Changelog",
+		"",
+		"Line four is here too, which is why a patch has to say which file it",
+		"means: the same excerpt matches in both of this conversation's outputs.",
+		"Nothing else in this file is interesting.",
+	].join("\n");
+
+	it("is the conversation's only generated file, whatever the title would have named", async () => {
+		await seedChatFileOnDisk({
+			filename: "release-notes.md",
+			content: RELEASE_NOTES,
+		});
+
+		const body = await callProduceFile({
+			// The title of THIS turn, which would derive
+			// `release-notes-for-small-app-release.txt` — a file that does not exist.
+			requestTitle: "Release notes for small app release",
+			patches: [
+				{
+					oldText: "Line three is the one the user wants changed.",
+					newText: "Line three now says what the user asked for.",
+				},
+			],
+		});
+
+		const inlineText = body.inlineText as {
+			content: string;
+			files: Array<{ filename: string; outputType: string }>;
+		};
+		expect(inlineText.content).toBe(
+			RELEASE_NOTES.replace(
+				"Line three is the one the user wants changed.",
+				"Line three now says what the user asked for.",
+			),
+		);
+		// The patched file is the NEXT VERSION of the file it patched: same name,
+		// same type — never `release-notes-for-small-app-release.txt` beside it.
+		expect(inlineText.files).toEqual([
+			{ filename: "release-notes.md", outputType: "md" },
+		]);
+		expect(body.requestedOutputs).toEqual([{ type: "md" }]);
+	});
+
+	it("is the file whose own name answers to the request title", async () => {
+		await seedChatFileOnDisk({
+			filename: "changelog.md",
+			content: "# Changelog\n\nNothing to see here.",
+			createdAt: new Date("2026-09-20T10:02:00.000Z"),
+		});
+		await seedChatFileOnDisk({
+			filename: "release-notes.md",
+			content: RELEASE_NOTES,
+			createdAt: new Date("2026-09-20T10:00:00.000Z"),
+		});
+
+		const body = await callProduceFile({
+			requestTitle: "Release notes for small app release",
+			outputType: "md",
+			patches: [{ oldText: "Line four", newText: "The last line" }],
+		});
+
+		// Two candidates of the same type, but only one answers to this title —
+		// and it is the OLDER of the two, so "newest file" alone is not the rule.
+		const inlineText = body.inlineText as {
+			content: string;
+			files: Array<{ filename: string }>;
+		};
+		expect(inlineText.files).toEqual([
+			{ filename: "release-notes.md", outputType: "md" },
+		]);
+		expect(inlineText.content).toContain("The last line thanks");
+	});
+
+	it("refuses with the names when two files could be meant", async () => {
+		await seedChatFileOnDisk({
+			filename: "release-notes.md",
+			content: RELEASE_NOTES,
+			createdAt: new Date("2026-09-20T10:00:00.000Z"),
+		});
+		await seedChatFileOnDisk({
+			filename: "changelog.md",
+			content: CHANGELOG,
+			createdAt: new Date("2026-09-20T10:02:00.000Z"),
+		});
+
+		const result = await refuseProduceFile({
+			requestTitle: "Small app",
+			outputType: "md",
+			patches: [{ oldText: "Line four", newText: "The last line" }],
+		});
+
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("no_previous_version_for_patches");
+		// Guessing here would edit the wrong document and report success. The
+		// names are the way out: the model can only say which with `filename`.
+		expect(result.message).toContain("release-notes.md");
+		expect(result.message).toContain("changelog.md");
+		expect(result.message).toContain("filename");
+	});
+
+	it("is the one the model names, when it names one", async () => {
+		await seedChatFileOnDisk({
+			filename: "release-notes.md",
+			content: RELEASE_NOTES,
+			createdAt: new Date("2026-09-20T10:00:00.000Z"),
+		});
+		await seedChatFileOnDisk({
+			filename: "changelog.md",
+			content: CHANGELOG,
+			createdAt: new Date("2026-09-20T10:02:00.000Z"),
+		});
+
+		const body = await callProduceFile({
+			requestTitle: "Small app",
+			filename: "changelog.md",
+			patches: [{ oldText: "Line four", newText: "The last line" }],
+		});
+
+		const inlineText = body.inlineText as {
+			content: string;
+			files: Array<{ filename: string; outputType: string }>;
+		};
+		expect(inlineText.files).toEqual([
+			{ filename: "changelog.md", outputType: "md" },
+		]);
+		expect(inlineText.content).toContain("The last line is here too,");
+		// The file the model did NOT name is untouched by this request.
+		expect(inlineText.content).not.toContain("Release notes");
+	});
+
+	it("keeps the original filename when the patched file becomes v2", async () => {
+		await seedChatFileOnDisk({
+			filename: "release-notes.md",
+			content: RELEASE_NOTES,
+			createdAt: new Date("2026-09-20T10:00:00.000Z"),
+		});
+
+		const body = await callProduceFile({
+			requestTitle: "Release notes",
+			patches: [{ oldText: "Line two", newText: "Line 2" }],
+		});
+		const patched = (body.inlineText as { content: string }).content;
+
+		// Intake is mocked, so stand in for the production job: the file it would
+		// write is the one the request names, under the same name.
+		const files = (body.inlineText as { files: Array<{ filename: string }> })
+			.files;
+		expect(files).toEqual([{ filename: "release-notes.md", outputType: "md" }]);
+		await seedChatFileOnDisk({
+			filename: files[0].filename,
+			content: patched,
+			createdAt: new Date("2026-09-20T10:05:00.000Z"),
+		});
+
+		// …and the model reading it back by that one name gets the NEW version.
+		const { tools } = createNormalChatTools({
+			userId: USER,
+			conversationId: CONVERSATION,
+			turnId: "turn-2",
+		});
+		const read = (await tools.read_generated_file.execute(
+			{ filename: "release-notes.md" },
+			{ toolCallId: "tool-call-read", messages: [] },
+		)) as {
+			found: boolean;
+			filename: string | null;
+			content: string;
+			versionNumber: number | null;
+		};
+
+		expect(read.found).toBe(true);
+		expect(read.filename).toBe("release-notes.md");
+		expect(read.content).toContain("Line 2 lists the headline change.");
+		expect(read.content).not.toContain("Line two lists");
+		expect(read.versionNumber).toBe(2);
 	});
 });
 
