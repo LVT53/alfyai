@@ -27,7 +27,10 @@ import type {
 	ExtractionHandle,
 	ExtractionProgress,
 } from "../contracts";
-import { isDocumentExtractionError } from "../contracts";
+import {
+	ExtractionAbortError,
+	isDocumentExtractionError,
+} from "../contracts";
 import {
 	createMineru4Extractor,
 	installMineruProbeClientFactory,
@@ -707,13 +710,14 @@ describe("the temp directory", () => {
 });
 
 describe("cancel", () => {
-	it("DELETEs the remote job and throws canceled", async () => {
-		await start({ neverFinish: true });
+	/** Runs an attempt up to the point a remote job exists, then aborts it. */
+	async function abortMidJob(reason?: ExtractionAbortError): Promise<{
+		rejection: Promise<unknown>;
+		before: number;
+	}> {
 		const { request, controller } = await buildRequest();
 		const before = await tempDirCount();
-
 		const running = extractorFor().extract(request);
-		// Abort once the job exists, so there is something to cancel.
 		await vi.waitFor(() => {
 			expect(
 				server.requests.some(
@@ -721,9 +725,17 @@ describe("cancel", () => {
 				),
 			).toBe(true);
 		});
-		controller.abort();
+		controller.abort(reason);
+		return { rejection: running, before };
+	}
 
-		await expect(running).rejects.toMatchObject({
+	it("DELETEs the remote job and throws canceled on a USER cancel", async () => {
+		await start({ neverFinish: true });
+		const { rejection, before } = await abortMidJob(
+			new ExtractionAbortError("user-cancel"),
+		);
+
+		await expect(rejection).rejects.toMatchObject({
 			code: "canceled",
 			retryable: false,
 		});
@@ -733,6 +745,42 @@ describe("cancel", () => {
 			);
 		});
 		expect(await tempDirCount()).toBe(before);
+	});
+
+	it.each(["claim-lost", "shutdown"] as const)(
+		"leaves the remote job alive on a %s abort",
+		async (reason) => {
+			// The stored handle exists precisely so the next attempt RESUMES this
+			// remote job. Deleting it on a stale-claim reclaim or a deploy restart
+			// turned a one-`getJob` resume into a full re-upload and re-parse, and
+			// raced the worker that had just taken the claim.
+			await start({ neverFinish: true });
+			const { rejection, before } = await abortMidJob(
+				new ExtractionAbortError(reason),
+			);
+
+			await expect(rejection).rejects.toMatchObject({ code: "canceled" });
+			expect(server.requests.some((entry) => entry.method === "DELETE")).toBe(
+				false,
+			);
+			// The job is still there for the next attempt to poll.
+			const jobId = [...server.jobs.keys()].at(-1) as string;
+			expect(server.jobs.get(jobId)?.status).not.toBe("canceled");
+			expect(await tempDirCount()).toBe(before);
+		},
+	);
+
+	it("leaves the remote job alive on an unlabelled abort", async () => {
+		// Deleting a job that is still wanted costs the whole parse; keeping one
+		// nobody reads costs a queue slot. An abort with no reason takes the
+		// cheaper mistake.
+		await start({ neverFinish: true });
+		const { rejection } = await abortMidJob();
+
+		await expect(rejection).rejects.toMatchObject({ code: "canceled" });
+		expect(server.requests.some((entry) => entry.method === "DELETE")).toBe(
+			false,
+		);
 	});
 
 	it("cancels from a stored handle without re-reading the document", async () => {

@@ -455,6 +455,48 @@ describe("a worker that died mid-parse", () => {
 
 		await orphaned;
 	});
+
+	it("does not DELETE the remote job when a stale sweep takes the claim", async () => {
+		// The dangerous variant of the test above: here the running attempt DOES
+		// notice it lost the claim, on its next heartbeat. It used to read that
+		// abort as a cancel and DELETE the very job the new claimant had just
+		// been handed — so a stale sweep during a slow parse destroyed the remote
+		// work the stored handle exists to resume, and the next attempt paid for
+		// a second upload and a second parse.
+		await boot({ neverFinish: true });
+		const { jobId } = await seedJob();
+
+		const orphaned = run({ heartbeatMs: 100 }).catch(() => null);
+		await vi.waitFor(async () => {
+			expect(
+				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
+			).not.toBeNull();
+		});
+		const handleJson = (await ledger.getExtractionJobRow(jobId))
+			?.remoteHandleJson as string;
+		const remoteJobId = JSON.parse(handleJson).remoteJobId as string;
+
+		// Another worker reclaims the attempt out from under the running one.
+		await ledger.recoverStaleExtractionAttempts({
+			staleBefore: new Date(Date.now() + 60_000),
+			maxAttempts: 3,
+			retryBaseMs: 2000,
+			retryMaxMs: 60000,
+		});
+
+		// Give the losing attempt time to observe the loss and unwind.
+		expect(await orphaned).toBeNull();
+		expect(server.requests.some((entry) => entry.method === "DELETE")).toBe(
+			false,
+		);
+		expect(server.jobs.get(remoteJobId)?.status).not.toBe("canceled");
+
+		// And the handle the next attempt needs is still on the row.
+		const row = await ledger.getExtractionJobRow(jobId);
+		expect(row?.remoteHandleJson).toContain(remoteJobId);
+		expect(row?.status).not.toBe("canceled");
+		expect(row?.status).not.toBe("failed");
+	});
 });
 
 describe("a MinerU that forgot every id", () => {

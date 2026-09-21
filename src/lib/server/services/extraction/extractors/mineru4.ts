@@ -83,6 +83,7 @@ import type {
 	ExtractionHandle,
 } from "../contracts";
 import {
+	abortDiscardsRemoteWork,
 	DocumentExtractionError,
 	EXTRACTION_HANDLE_VERSION,
 } from "../contracts";
@@ -709,8 +710,21 @@ export function createMineru4Extractor(
 				}
 			} catch (error) {
 				if (isAbortLike(error) || request.signal.aborted) {
-					canceledByUs = true;
-					await cancelRemoteJob(client, state.remoteJobId);
+					// ONLY a user cancel may destroy the remote job.
+					//
+					// A lost claim, a stale-worker reclaim and a process shutdown all
+					// abort this same signal, and for all three the remote job is the
+					// thing the NEXT attempt resumes from: the handle was emitted
+					// before the first poll precisely so a restart costs one `getJob`
+					// rather than a second upload and a second parse. DELETEing it
+					// here turned every deploy restart during `parsing` into a full
+					// re-parse of every in-flight document, and turned a stale sweep
+					// into a race that killed the job the new claimant had just
+					// picked up.
+					if (abortDiscardsRemoteWork(request.signal)) {
+						canceledByUs = true;
+						await cancelRemoteJob(client, state.remoteJobId);
+					}
 					throw canceledError();
 				}
 				if (error instanceof DocumentExtractionError) throw error;

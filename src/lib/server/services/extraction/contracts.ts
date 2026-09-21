@@ -36,6 +36,76 @@ export interface ExtractionHandle {
 
 export const EXTRACTION_HANDLE_VERSION = 1 as const;
 
+/**
+ * WHY an in-flight attempt's signal was aborted.
+ *
+ * The distinction is not cosmetic, and getting it wrong destroys work:
+ *
+ *  - `user-cancel` — the user (or an account erasure) asked for this document
+ *    to stop. The remote job is now garbage and DELETEing it frees the
+ *    backend's queue slot.
+ *  - `claim-lost` — a stale-attempt sweep or a failed progress write took this
+ *    attempt away from us. Another worker is about to resume the very job we
+ *    would be deleting.
+ *  - `shutdown` — the process is going away. The stored `ExtractionHandle`
+ *    exists precisely so the next boot resumes that remote job without a
+ *    second upload; deleting it turns a deploy restart into a re-parse.
+ *
+ * Only `user-cancel` may destroy resumable remote work. An abort that carries
+ * no reason at all is treated as if it were `claim-lost`, because keeping a
+ * remote job that nobody reads costs a queue slot, while deleting one that is
+ * still wanted costs the whole parse.
+ */
+export const EXTRACTION_ABORT_REASONS = [
+	"user-cancel",
+	"claim-lost",
+	"shutdown",
+] as const;
+export type ExtractionAbortReason = (typeof EXTRACTION_ABORT_REASONS)[number];
+
+/**
+ * The abort reason an extraction signal carries.
+ *
+ * `name` is `AbortError` so every structural abort check — here, in the
+ * extractor, in `mineru/errors.ts` — keeps reading it as an abort. The reason
+ * rides alongside rather than replacing it.
+ */
+export class ExtractionAbortError extends Error {
+	readonly name = "AbortError";
+	readonly extractionAbortReason: ExtractionAbortReason;
+
+	constructor(reason: ExtractionAbortReason, message?: string) {
+		super(message ?? `Extraction aborted: ${reason}`);
+		this.extractionAbortReason = reason;
+	}
+}
+
+const ABORT_REASON_SET: ReadonlySet<string> = new Set(EXTRACTION_ABORT_REASONS);
+
+/** Structural, so a second copy of this module cannot hide the reason. */
+export function readExtractionAbortReason(
+	value: unknown,
+): ExtractionAbortReason | null {
+	const reason = (value as { extractionAbortReason?: unknown } | null)
+		?.extractionAbortReason;
+	return typeof reason === "string" && ABORT_REASON_SET.has(reason)
+		? (reason as ExtractionAbortReason)
+		: null;
+}
+
+/**
+ * May this abort destroy resumable remote work?
+ *
+ * Only for a user cancel. Everything else — an unlabelled abort included — must
+ * leave the remote job alone so the stored handle still points at something.
+ */
+export function abortDiscardsRemoteWork(
+	signal: AbortSignal | null | undefined,
+): boolean {
+	if (!signal?.aborted) return false;
+	return readExtractionAbortReason(signal.reason) === "user-cancel";
+}
+
 export interface ExtractionProgress {
 	phase: ExtractionPhase;
 	/** 0-100, best effort. Persisted nowhere; used only for log lines today. */
@@ -52,7 +122,12 @@ export interface ExtractDocumentRequest {
 	sizeBytes: number;
 	/** Shared registry verdict. "reject" never reaches an extractor. */
 	intakeRoute: "direct-text" | "mineru";
-	/** Aborted on user cancel, on stale-claim loss, and on process shutdown. */
+	/**
+	 * Aborted on user cancel, on stale-claim loss, and on process shutdown.
+	 * `signal.reason` carries an `ExtractionAbortError` saying which — read it
+	 * with `abortDiscardsRemoteWork` before throwing away anything the next
+	 * attempt could resume.
+	 */
 	signal: AbortSignal;
 	onProgress: (progress: ExtractionProgress) => void;
 	/** Set when a previous attempt persisted a handle. Undefined = submit fresh. */
@@ -166,15 +241,22 @@ export function isDocumentExtractionError(
  * `internal` — which is how a user pressing Cancel could end up looking like a
  * permanently broken document. The name is the only property that survives
  * every one of those boundaries.
- *
- * The name set is unchanged: `AbortError` is the caller's own cancel and
- * `TimeoutError` is what `AbortSignal.timeout` rejects with. An extractor maps
- * its own deadlines before they reach here, so this is the fallback for a throw
- * nobody classified.
  */
-function isAbortLike(error: unknown): boolean {
-	const name = (error as { name?: unknown } | null)?.name;
-	return name === "AbortError" || name === "TimeoutError";
+export function isAbortError(error: unknown): boolean {
+	return (error as { name?: unknown } | null)?.name === "AbortError";
+}
+
+/**
+ * `AbortSignal.timeout` rejects with this, and it is NOT a cancel.
+ *
+ * The two used to share one branch, which meant a request timeout that leaked
+ * past an extractor's own mapping failed the document permanently as
+ * "Extraction was canceled." — a non-retryable verdict, on a fault that is
+ * both transient and nobody's decision. A timeout is `timeout` (retryable); a
+ * cancel is `canceled` (final). Only the abort path may produce the latter.
+ */
+export function isTimeoutError(error: unknown): boolean {
+	return (error as { name?: unknown } | null)?.name === "TimeoutError";
 }
 
 function isConnectionLike(error: unknown): boolean {
@@ -219,11 +301,23 @@ export function toDocumentExtractionError(
 		});
 	}
 
-	if (isAbortLike(error)) {
+	if (isAbortError(error)) {
 		return new DocumentExtractionError({
 			code: "canceled",
 			message: "Extraction was canceled.",
 			retryable: false,
+			cause: error,
+		});
+	}
+
+	if (isTimeoutError(error)) {
+		return new DocumentExtractionError({
+			code: "timeout",
+			message:
+				error instanceof Error && error.message
+					? error.message
+					: "The extraction backend did not answer in time.",
+			retryable: true,
 			cause: error,
 		});
 	}
