@@ -139,6 +139,10 @@ describe("partitionUploadableFiles", () => {
 		expect(result.rejectedUnsupportedType).toEqual([zip]);
 	});
 
+	// Phase 5 D5/OQ4: the two surfaces now offer the SAME set and differ only in
+	// order, so the named-surface and the default answers are identical for
+	// every file — `.py` on the Knowledge page used to be discarded as
+	// `dropNoValidFiles` while the identical file worked in chat.
 	it("defaults to the knowledge surface when none is named", () => {
 		const python = makeFile("train.py", ONE_MB);
 		const explicit = partitionUploadableFiles([python], {
@@ -148,20 +152,80 @@ describe("partitionUploadableFiles", () => {
 		const implicit = partitionUploadableFiles([python], {
 			maxFileSizeBytes: SIZE_LIMIT,
 		});
-		// `.py` is a chat type, not a knowledge one — the knowledge accept string
-		// is frozen in this phase (spec open question 2).
 		expect(implicit.rejectedUnsupportedType).toEqual(
 			explicit.rejectedUnsupportedType,
 		);
-		expect(implicit.valid).toEqual([]);
+		expect(implicit.valid).toEqual([python]);
 	});
 
-	it("offers the wider chat set when the chat surface asks", () => {
+	it("offers the same set on both surfaces", () => {
 		const python = makeFile("train.py", ONE_MB);
-		const result = partitionUploadableFiles([python], {
+		const epub = makeFile("novel.epub", ONE_MB);
+		for (const surface of ["knowledge", "chat"] as const) {
+			const result = partitionUploadableFiles([python, epub], {
+				surface,
+				maxFileSizeBytes: SIZE_LIMIT,
+			});
+			expect(result.valid).toEqual([python, epub]);
+		}
+	});
+
+	// The MinerU-4 gate (spec D6). It is the ONLY thing that may narrow a
+	// surface, it only ever narrows it on a positive pre-4.x probe, and the
+	// empty set below is what "unknown backend" looks like.
+	it("drops the gated entries a closed MinerU-4 gate names", () => {
+		const epub = makeFile("novel.epub", ONE_MB);
+		const pdf = makeFile("report.pdf", ONE_MB);
+		const result = partitionUploadableFiles([epub, pdf], {
+			surface: "chat",
+			disabledEntryIds: new Set(["epub"]),
+			maxFileSizeBytes: SIZE_LIMIT,
+		});
+		expect(result.valid).toEqual([pdf]);
+		expect(result.rejectedUnsupportedType).toEqual([epub]);
+		// The server answers a gated format with the reason it would give a
+		// format that was never enabled, because that is what it is.
+		expect(result.refusals).toEqual([
+			{ name: "novel.epub", ext: "EPUB", reason: "formatNotEnabled" },
+		]);
+	});
+
+	it("leaves everything offered when the gate is open", () => {
+		const epub = makeFile("novel.epub", ONE_MB);
+		const result = partitionUploadableFiles([epub], {
+			surface: "chat",
+			disabledEntryIds: new Set<string>(),
+			maxFileSizeBytes: SIZE_LIMIT,
+		});
+		expect(result.valid).toEqual([epub]);
+		expect(result.refusals).toEqual([]);
+	});
+
+	it("names the reason for every unsupported file", () => {
+		const archive = makeFile("archive.zip", ONE_MB);
+		const movie = makeFile("clip.mp4", ONE_MB);
+		const mystery = makeFile("notes.wat", ONE_MB);
+		const nameless = makeFile("README", ONE_MB);
+		const result = partitionUploadableFiles(
+			[archive, movie, mystery, nameless],
+			{ surface: "chat", maxFileSizeBytes: SIZE_LIMIT },
+		);
+		expect(result.valid).toEqual([]);
+		expect(result.refusals).toEqual([
+			{ name: "archive.zip", ext: "ZIP", reason: "archive" },
+			{ name: "clip.mp4", ext: "MP4", reason: "media" },
+			{ name: "notes.wat", ext: "WAT", reason: "unknownType" },
+			{ name: "README", ext: "", reason: "unknownType" },
+		]);
+	});
+
+	it("reports no refusal for a file that only failed on size", () => {
+		const oversized = makeFile("huge.pdf", SIZE_LIMIT + 1);
+		const result = partitionUploadableFiles([oversized], {
 			surface: "chat",
 			maxFileSizeBytes: SIZE_LIMIT,
 		});
-		expect(result.valid).toEqual([python]);
+		expect(result.refusals).toEqual([]);
+		expect(result.rejectedTooLarge).toEqual([oversized]);
 	});
 });
