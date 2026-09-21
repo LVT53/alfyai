@@ -88,21 +88,21 @@ describe("decideClipboardAttachment", () => {
 	// allowed) — so deriving the new extension from the MIME alone turned an
 	// acceptable screenshot into `pasted-….bin` and then refused it as an
 	// unknown type.
-	it.each(["application/octet-stream", ""])(
-		"keeps the original extension when the MIME says nothing (%s)",
-		(mimeType) => {
-			const decision = decideClipboardAttachment(
-				clipboard(["Files"], [makeFile("image.png", mimeType)]),
-				{ now: FIXED_NOW },
-			);
+	it.each([
+		"application/octet-stream",
+		"",
+	])("keeps the original extension when the MIME says nothing (%s)", (mimeType) => {
+		const decision = decideClipboardAttachment(
+			clipboard(["Files"], [makeFile("image.png", mimeType)]),
+			{ now: FIXED_NOW },
+		);
 
-			expect(decision.refused).toEqual([]);
-			expect(decision.preventDefault).toBe(true);
-			expect(decision.files.map((file) => file.name)).toEqual([
-				"pasted-20260921-041500.png",
-			]);
-		},
-	);
+		expect(decision.refused).toEqual([]);
+		expect(decision.preventDefault).toBe(true);
+		expect(decision.files.map((file) => file.name)).toEqual([
+			"pasted-20260921-041500.png",
+		]);
+	});
 
 	it("still answers bin when neither the MIME nor the name names a type", () => {
 		const decision = decideClipboardAttachment(
