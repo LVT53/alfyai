@@ -13,15 +13,25 @@ rather than degrading.
 MinerU handles PDF, DOCX, PPTX, XLSX, images, and web pages, with multi-language OCR built in. No
 separate OCR service is required — MinerU handles OCR natively in all backends.
 
-This is the one place the container command belongs:
+This is the one place the container command belongs. **Pin the tag to a 4.x release.** This app
+speaks the V1 API only, so a `:latest` that resolves to a 3.x image does not fail loudly — it
+answers `GET /v1/health` with a 404, the availability gate closes, and five formats quietly
+disappear from the file picker:
 
 ```bash
-docker run -d --name mineru -p 8001:8001 opendatalab/mineru:latest
+docker run -d --name mineru -p 8001:8001 opendatalab/mineru:4.0.4 --api-key "$MINERU_API_KEY"
 ```
 
-A development MinerU 4.0.4 server also runs on the dev box at `http://127.0.0.1:8003` — basic tier,
-CPU only, API key required. Point a local checkout's `MINERU_API_URL`/`MINERU_API_KEY` at it to test
-against a real MinerU 4 without standing up your own container.
+Drop `--api-key` only on a host where nothing else can reach the port; `MINERU_API_KEY` must match
+whatever the container was started with.
+
+#### The dev box's MinerU (development only)
+
+A MinerU 4.0.4 server runs on the dev box at `http://127.0.0.1:8003` — basic tier, CPU only, API key
+required. It exists so a local checkout can point `MINERU_API_URL`/`MINERU_API_KEY` at a real
+MinerU 4 without standing up a container. It is **not** a production endpoint: it is CPU-only, it
+serves one tier, and its port deliberately differs from the `8001` default so a deployment cannot
+drift onto it by accident.
 
 ### The V1 endpoints the app uses
 
@@ -41,10 +51,14 @@ against a real MinerU 4 without standing up your own container.
 ### Quality tiers
 
 MinerU exposes up to four tiers — `flash`, `basic`, `standard`, `advanced` — and a given server
-offers only some of them. `MINERU_DEFAULT_TIER=auto` (the default) sends no tier at all and defers
-to whatever the server was started with; naming a tier the server does not offer fails the
-extraction with a clear "tier unavailable" rather than silently producing worse output. Office,
-HTML, CSV and EPUB inputs run at `flash` regardless, because that is what the engine picks for them.
+offers only some of them. `MINERU_DEFAULT_TIER=auto` (the default) means "do not force a tier for
+this deployment"; it does not mean no tier is ever sent. Two rules still send one explicitly, both
+ahead of the configured value: a registry entry carrying `tierHint: "flash"` (every Office, HTML,
+RTF and EPUB format) is submitted at `flash` whenever the server lists that tier, and on a server
+that offers **only** `flash` every input is submitted at `flash` — including PDFs and images, which
+would otherwise have taken the server's own default. Naming a tier the server does not offer fails
+the extraction with a clear "tier unavailable" rather than silently producing worse output; a
+`tierHint` the server does not offer simply falls through.
 
 **Settings → System → Integrations & keys** shows a MinerU status card: the version that answered,
 the tiers and output formats it reports, its size and page limits, and an explicit "unreachable"
@@ -66,8 +80,10 @@ read as a fallback for one release, and an existing admin override is carried ov
 ### Re-extracting at a different quality
 
 A document that came back thin can be read again without being re-uploaded: the Knowledge list's
-row actions offer the tiers the server reports, with the tier the document is already at — and
-everything below it — shown but inert. The normalized document keeps its id, so every link, working
+row actions offer only the tiers ABOVE the one the document is already at. The list comes from the
+server (`GET .../reextract`), which filters out the current tier and everything below it rather
+than leaving them visible and disabled — a menu that listed one would be offering a request the
+POST refuses. The normalized document keeps its id, so every link, working
 set entry and citation that points at it stays valid; its chunks, outline and page index are
 rebuilt from the new parse.
 
@@ -100,15 +116,18 @@ anything.
 
 Each entry's `intake.route` decides what happens next:
 
-- **`mineru`** — sent to the MinerU V1 API described above (PDF, Office formats, images, HTML, EPUB,
-  RTF, and the open-document formats).
+- **`mineru`** — sent to the MinerU V1 API described above (PDF, Office formats, raster images
+  except AVIF, HTML, EPUB, RTF, and the open-document formats).
 - **`direct-text`** — read straight into the ledger as text, no MinerU round trip (plain text,
-  Markdown, code, CSV, TSV, and a handful of MIME-sniffed extensionless files). See
+  Markdown, code, CSV, TSV, SVG — which is XML, not a raster image — and a handful of MIME-sniffed
+  extensionless files). See
   [Direct-text decoding and the size cap](#direct-text-decoding-and-the-size-cap) below.
-- **`reject`** — refused at upload time with a 415 and a reason (`media`, `archive`,
-  `formatNotEnabled` or `unknownType`). `.ofd` is the one format recognised by name specifically so
-  it gets the better "save it as PDF or DOCX" message instead of a generic "unsupported type" —
-  nothing in this app has ever parsed OFD, so it stays refused until there is real evidence it works.
+- **`reject`** — refused at upload time with a 415 and a reason: `media`, `archive`,
+  `convertImage`, `formatNotEnabled` or `unknownType`. Two entries are recognised by name purely to
+  get a better message than "unsupported type": `.ofd` gets "save it as PDF or DOCX" (nothing in
+  this app has ever parsed OFD, so it stays refused until there is real evidence it works), and
+  `.avif` gets `convertImage` — every other raster image goes to MinerU, but AVIF is the one the
+  engine cannot decode, so the message asks for a PNG or JPEG instead.
 
 ### The MinerU-4 availability gate
 

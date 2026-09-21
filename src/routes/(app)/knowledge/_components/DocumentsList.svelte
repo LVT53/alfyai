@@ -818,10 +818,12 @@ function orderedReextractTiers(tiers: string[]): string[] {
 }
 
 /**
- * Everything at or below the tier this document was last parsed at is offered
- * but inert: re-reading a PDF at the same quality it already has produces the
- * same PDF, and the menu should say so rather than spend a backend seat
- * proving it.
+ * A second guard, not the only one. `GET .../reextract` now filters the list
+ * down to tiers strictly ABOVE the document's own, and POST refuses a lower or
+ * equal one outright, so this normally has nothing left to disable. It stays
+ * for a row whose `extractionTier` is fresher than the tier list beside it —
+ * then the menu says "already at this quality" rather than offering a request
+ * the server will refuse.
  */
 function isReextractTierDisabled(
 	document: KnowledgeDocumentItem,
