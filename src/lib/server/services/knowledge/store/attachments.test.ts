@@ -696,12 +696,20 @@ describe("prompt-attachment readiness error", () => {
 	// this is the byte-identity guard: the sentence a user sees must not have
 	// moved when the literal was replaced by a derivation.
 	//
-	// Frozen copy of `attachments.ts:234` as it read before slice E.
+	// Frozen copy. DELIBERATELY RE-FROZEN: the old copy promised HEIC/HEIF
+	// "when server conversion support is installed", and no such server
+	// conversion exists — .heic/.heif go straight to MinerU. It also left out
+	// OpenDocument, EPUB and RTF, which the registry does admit.
 	const FROZEN_NOT_PREPARED =
-		"This file could not be prepared for chat. Supported extraction currently works best for text, HTML, JSON, PDF, DOCX, PPTX, XLSX, and common image formats (including HEIC/HEIF when server conversion support is installed).";
+		"This file could not be prepared for chat. Supported extraction currently works best for text, HTML, JSON, PDF, Word, Excel, PowerPoint, OpenDocument, EPUB, RTF, and common image formats.";
 
-	it("renders byte-identically to the literal it replaced", () => {
+	it("renders byte-identically to its frozen copy", () => {
 		expect(NOT_PREPARED_READINESS_ERROR).toBe(FROZEN_NOT_PREPARED);
+	});
+
+	it("does not promise a HEIC conversion the server cannot do", () => {
+		expect(NOT_PREPARED_READINESS_ERROR).not.toContain("HEIC");
+		expect(NOT_PREPARED_READINESS_ERROR).not.toContain("conversion");
 	});
 
 	it("owns the sentence, including the full stop", () => {

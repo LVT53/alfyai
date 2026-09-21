@@ -30,6 +30,10 @@ import type {
 	SkillDraftProposal,
 } from "$lib/server/services/skills/types";
 import type { StreamMetadata } from "$lib/services/streaming";
+import {
+	attachmentReadinessReasonKey,
+	isAttachmentReadinessReason,
+} from "$lib/shared/attachment-readiness";
 import { isOsFileDropEvent } from "$lib/utils/file-drag";
 import {
 	isConnectionWriteToolName,
@@ -196,6 +200,36 @@ function translateAttachmentExtraction(
 	return lines.length > 0 ? lines.join("\n") : null;
 }
 
+/**
+ * One line per blocked attachment, from the readiness REASON rather than the
+ * ledger row — the only description a refusal without a ledger row has.
+ *
+ * Same defensive reading as `translateAttachmentExtraction`: the rows are
+ * untrusted wire data. An unrecognised reason is dropped rather than printed,
+ * so a server newer than this client cannot put a raw key in front of a user;
+ * if every row drops, the caller falls back to the server's sentence.
+ */
+function translateAttachmentReadiness(
+	rows: unknown,
+	translate?: Translate,
+): string | null {
+	if (!translate || !Array.isArray(rows) || rows.length === 0) return null;
+
+	const lines = rows.flatMap((entry) => {
+		if (!entry || typeof entry !== "object") return [];
+		const row = entry as { name?: unknown; reason?: unknown };
+		if (!isAttachmentReadinessReason(row.reason)) return [];
+		const reason = translate(
+			attachmentReadinessReasonKey(row.reason) as I18nKey,
+		);
+		const name =
+			typeof row.name === "string" && row.name.trim() ? row.name : null;
+		return [name ? `${name}: ${reason}` : reason];
+	});
+
+	return lines.length > 0 ? lines.join("\n") : null;
+}
+
 // E2 — the send path's failures now all carry a stable errorKey `code` (E1's
 // cause -> code seam: classifyStreamErrorCause / StreamErrorCode on
 // /api/chat/send and the stream's data-stream-error part; see
@@ -209,6 +243,7 @@ export function toFriendlySendError(
 	const errorWithCode = error as Error & {
 		code?: unknown;
 		attachmentExtraction?: unknown;
+		attachmentReadiness?: unknown;
 	};
 	// The two extraction refusals carry the per-attachment rows beside the
 	// server's English sentence, so the message is rebuilt from them: name plus
@@ -225,14 +260,21 @@ export function toFriendlySendError(
 		);
 		if (translated) return translated;
 	}
-	// `attachment_not_ready` (a deleted file, a non-document) carries no rows,
-	// and its message is already built from the attachment's own name — still
-	// English, but more specific than any generic fallback.
+	// Every readiness refusal — `attachment_not_ready` included — now carries a
+	// reason code per attachment. That is the last of the server's English
+	// readiness sentences: a deleted file and a non-document have no ledger row
+	// for the clause above to read, so their message used to reach a Hungarian
+	// user verbatim.
 	if (
 		errorWithCode.code === "attachment_not_ready" ||
 		errorWithCode.code === "attachment_extraction_pending" ||
 		errorWithCode.code === "attachment_extraction_failed"
 	) {
+		const translated = translateAttachmentReadiness(
+			errorWithCode.attachmentReadiness,
+			translate,
+		);
+		if (translated) return translated;
 		return error.message;
 	}
 	if (isKnownSendErrorCode(errorWithCode.code)) {

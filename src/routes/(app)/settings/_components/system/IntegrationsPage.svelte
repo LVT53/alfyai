@@ -112,6 +112,11 @@ const MINERU_ROWS: ReadonlyArray<{
 		meaning: "admin.mineruBundleMaxBytesDescription",
 	},
 	{
+		key: "MINERU_BUNDLE_USER_QUOTA_BYTES",
+		label: "admin.mineruBundleUserQuotaBytes",
+		meaning: "admin.mineruBundleUserQuotaBytesDescription",
+	},
+	{
 		key: "MINERU_STRUCTURE_CHUNKING_ENABLED",
 		label: "admin.mineruStructureChunking",
 		meaning: "admin.mineruStructureChunkingDescription",

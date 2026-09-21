@@ -20,6 +20,7 @@ import {
 } from "./core";
 import { parseWorkingDocumentMetadata } from "./document-metadata";
 import { listLogicalDocuments } from "./documents";
+import { listOrphanGeneratedArtifacts } from "./orphan-artifacts";
 
 export async function hardDeleteArtifactsForUser(
 	userId: string,
@@ -361,7 +362,20 @@ export async function deleteKnowledgeArtifactsByAction(
 			userId,
 			"generated_output",
 		);
-		return hardDeleteArtifactsForUser(userId, resultArtifactIds);
+		// Plus the ones canonical ownership cannot see. A `generated_output`
+		// whose conversation was deleted before release f41f7931 has a null
+		// `conversation_id`, which `isArtifactCanonicallyOwned` reads as "not
+		// this user's" — so "forget all generated results" quietly left exactly
+		// the results a user most wants gone. `listOrphanGeneratedArtifacts`
+		// only returns rows nothing can reach, and `hardDeleteArtifactsForUser`
+		// still applies the DELETE authority to each one.
+		const orphans = await listOrphanGeneratedArtifacts({ userId });
+		return hardDeleteArtifactsForUser(userId, [
+			...resultArtifactIds,
+			...orphans
+				.filter((row) => row.type === "generated_output")
+				.map((row) => row.id),
+		]);
 	}
 
 	if (action === "forget_all_workflows") {

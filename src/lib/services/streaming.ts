@@ -8,6 +8,8 @@ import {
 	isNormalChatContextPreparationActivityClass,
 	type ResponseActivityEntry,
 } from "$lib/response-activity-types";
+import type { AttachmentReadinessItem } from "$lib/shared/attachment-readiness";
+import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import type { AttachmentExtractionStatusItem } from "$lib/shared/extraction-status";
 import {
 	isDocumentExtractionStatus,
@@ -177,14 +179,49 @@ function readAttachmentExtraction(
 	return rows.length > 0 ? rows : undefined;
 }
 
+/**
+ * The send gate's per-attachment REASON rows, read defensively.
+ *
+ * Beside `readAttachmentExtraction`, which reads ledger rows: those only exist
+ * where an extraction ran, so the plain `attachment_not_ready` refusal — a
+ * deleted file, a non-document — had nothing but the server's English sentence
+ * to show. An unrecognised reason is dropped rather than carried, so a server
+ * newer than this client cannot put a raw key in front of a user.
+ */
+function readAttachmentReadiness(
+	value: unknown,
+): AttachmentReadinessItem[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const rows = value.flatMap((entry) => {
+		if (!entry || typeof entry !== "object") return [];
+		const row = entry as {
+			artifactId?: unknown;
+			name?: unknown;
+			reason?: unknown;
+		};
+		if (typeof row.artifactId !== "string") return [];
+		if (!isAttachmentReadinessReason(row.reason)) return [];
+		return [
+			{
+				artifactId: row.artifactId,
+				name: typeof row.name === "string" ? row.name : null,
+				reason: row.reason,
+			},
+		];
+	});
+	return rows.length > 0 ? rows : undefined;
+}
+
 function toStreamError(
 	message: string,
 	code?: string,
 	attachmentExtraction?: AttachmentExtractionStatusItem[],
+	attachmentReadiness?: AttachmentReadinessItem[],
 ): Error {
 	const error = new Error(message) as Error & {
 		code?: string;
 		attachmentExtraction?: AttachmentExtractionStatusItem[];
+		attachmentReadiness?: AttachmentReadinessItem[];
 	};
 	if (code) {
 		error.code = code;
@@ -194,6 +231,9 @@ function toStreamError(
 		// is per-file. Carrying the rows lets the composer render a translated
 		// sentence instead of echoing the server's English.
 		error.attachmentExtraction = attachmentExtraction;
+	}
+	if (attachmentReadiness) {
+		error.attachmentReadiness = attachmentReadiness;
 	}
 	return error;
 }
@@ -728,12 +768,16 @@ export function streamChat(
 				let errorMessage = `HTTP ${res.status}`;
 				let errorCode: string | undefined;
 				let attachmentExtraction: AttachmentExtractionStatusItem[] | undefined;
+				let attachmentReadiness: AttachmentReadinessItem[] | undefined;
 				try {
 					const json = await res.json();
 					errorMessage = json.error ?? errorMessage;
 					errorCode = json.code;
 					attachmentExtraction = readAttachmentExtraction(
 						json.attachmentExtraction,
+					);
+					attachmentReadiness = readAttachmentReadiness(
+						json.attachmentReadiness,
 					);
 				} catch {
 					/* noop */
@@ -748,7 +792,12 @@ export function streamChat(
 				// exactly as it does for a non-streaming call.
 				reportAuthFailure(res.status, errorMessage);
 				callbacks.onError(
-					toStreamError(errorMessage, errorCode, attachmentExtraction),
+					toStreamError(
+						errorMessage,
+						errorCode,
+						attachmentExtraction,
+						attachmentReadiness,
+					),
 				);
 				return;
 			}
@@ -835,6 +884,7 @@ export function streamChat(
 								errorMessage,
 								errorCode,
 								readAttachmentExtraction(parsed.attachmentExtraction),
+								readAttachmentReadiness(parsed.attachmentReadiness),
 							),
 						);
 						return true;

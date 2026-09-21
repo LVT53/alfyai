@@ -654,6 +654,7 @@ export function createMineru4Extractor(
 						zipPathAbsolute,
 						result: parsed.result,
 						maxBytes: config.bundleMaxBytes,
+						userQuotaBytes: config.bundleUserQuotaBytes,
 					});
 				}
 

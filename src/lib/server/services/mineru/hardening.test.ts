@@ -79,6 +79,7 @@ function testConfig(overrides: Partial<MineruConfig> = {}): MineruConfig {
 		transferTimeoutMs: 1_000,
 		capabilitiesTtlMs: 1_000,
 		bundleMaxBytes: 1_024,
+		bundleUserQuotaBytes: 0,
 		structureChunking: true,
 		...overrides,
 	} as MineruConfig;

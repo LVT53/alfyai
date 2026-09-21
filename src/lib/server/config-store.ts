@@ -81,6 +81,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"MINERU_TRANSFER_TIMEOUT_MS",
 	"MINERU_CAPABILITIES_TTL_MS",
 	"MINERU_BUNDLE_MAX_BYTES",
+	"MINERU_BUNDLE_USER_QUOTA_BYTES",
 	"MINERU_STRUCTURE_CHUNKING_ENABLED",
 	"GOOGLE_OAUTH_CLIENT_ID",
 	"GOOGLE_OAUTH_CLIENT_SECRET",
@@ -325,6 +326,7 @@ export interface RuntimeConfig {
 	mineruTransferTimeoutMs: number;
 	mineruCapabilitiesTtlMs: number;
 	mineruBundleMaxBytes: number;
+	mineruBundleUserQuotaBytes: number;
 	mineruStructureChunkingEnabled: boolean;
 	owntracksRecorderUrl: string;
 	owntracksRecorderUser: string;
@@ -885,6 +887,16 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 			config.mineruBundleMaxBytes = Math.max(
 				1048576,
 				Math.min(536870912, parsed),
+			);
+	},
+	MINERU_BUNDLE_USER_QUOTA_BYTES: (config, value) => {
+		const parsed = parseIntOverride(value);
+		// 0 is meaningful here — "no total budget" — so it must not be clamped
+		// away by the `|| fallback` idiom or by a non-zero floor.
+		if (parsed !== undefined)
+			config.mineruBundleUserQuotaBytes = Math.max(
+				0,
+				Math.min(549755813888, parsed),
 			);
 	},
 	MINERU_STRUCTURE_CHUNKING_ENABLED: (config, value) => {
@@ -1829,6 +1841,7 @@ export function getResolvedAdminConfigValues(
 		MINERU_TRANSFER_TIMEOUT_MS: String(config.mineruTransferTimeoutMs),
 		MINERU_CAPABILITIES_TTL_MS: String(config.mineruCapabilitiesTtlMs),
 		MINERU_BUNDLE_MAX_BYTES: String(config.mineruBundleMaxBytes),
+		MINERU_BUNDLE_USER_QUOTA_BYTES: String(config.mineruBundleUserQuotaBytes),
 		MINERU_STRUCTURE_CHUNKING_ENABLED: String(
 			config.mineruStructureChunkingEnabled,
 		),

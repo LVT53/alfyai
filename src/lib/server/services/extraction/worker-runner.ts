@@ -1015,12 +1015,32 @@ async function rearmAfterDrain(): Promise<void> {
  */
 async function runIdleTick(): Promise<void> {
 	const state = scheduler();
-	if (!state.running) return;
+	if (!state.initialized) return;
 
+	// The tick is also the SUPERVISOR for the enable switch, which is why it
+	// runs even while the worker is off. `DOCUMENT_EXTRACTION_WORKER_ENABLED`
+	// is documented as live in both directions, and it was live in neither:
+	// the bootstrap set its once-per-process `initialized` flag BEFORE reading
+	// the switch, so a false-to-true flip did nothing until a restart.
 	const config = getExtractionConfig();
-	// Honoured live: an admin who switches the worker off mid-flight gets a
-	// scheduler that stops taking work without a restart.
-	if (!config.workerEnabled) return;
+	if (!config.workerEnabled) {
+		if (state.running) {
+			// Live OFF. Nothing in flight is touched: the running drain's own
+			// `executeStep` re-reads the switch and declines the NEXT claim,
+			// while the attempt it already owns finishes and reports normally.
+			// All that stops here is arming more work.
+			state.running = false;
+			clearBackoffTimer(state);
+			console.info("[EXTRACTION] Worker paused by configuration");
+		}
+		return;
+	}
+	if (!state.running) {
+		// Live ON. A full start, recovery sweeps included — the queue may have
+		// been sitting untouched for however long the switch was off.
+		await startExtractionWorkerLoops(config);
+		return;
+	}
 
 	const now = Date.now();
 	const snapshot = await readExtractionQueueSnapshot(now);
@@ -1104,15 +1124,34 @@ export async function ensureExtractionWorker(
 		return;
 	}
 	state.initialized = true;
+	state.drainInput = drainInput;
 
 	const config = getExtractionConfig();
 	if (!config.workerEnabled) {
 		console.info("[EXTRACTION] Worker disabled by configuration");
+		// The SUPERVISOR. Nothing else is started — no drain, no recovery, no
+		// boot sweep — but this one unref'd interval has to exist, because it
+		// is what notices the switch being turned back on. Without it the
+		// process had nothing left running and a false-to-true flip did
+		// nothing until a restart, though the key is registered as live.
+		startIdleTick(config);
 		return;
 	}
 
+	await startExtractionWorkerLoops(config);
+}
+
+/**
+ * Everything that has to happen when the worker goes from off to on, whether
+ * that is at boot or at the idle tick that saw the switch flip.
+ */
+async function startExtractionWorkerLoops(
+	config: ExtractionConfig,
+): Promise<void> {
+	const state = scheduler();
+	if (state.running) return;
 	state.running = true;
-	state.drainInput = drainInput;
+	const drainInput = state.drainInput ?? {};
 
 	console.info("[EXTRACTION] Worker started", {
 		idleTickMs: idleTickIntervalMs(config),
@@ -1128,6 +1167,7 @@ export async function ensureExtractionWorker(
 	await runDeadWorkerReclaim(config, drainInput.workerId ?? DEFAULT_WORKER_ID);
 	await runStaleRecovery(config, "boot");
 
+	if (state.bootSweep) clearTimeout(state.bootSweep);
 	state.bootSweep = setTimeout(() => {
 		state.bootSweep = null;
 		void (async () => {

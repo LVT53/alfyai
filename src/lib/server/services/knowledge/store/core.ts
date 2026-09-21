@@ -8,7 +8,9 @@ import {
 	inArray,
 	isNotNull,
 	isNull,
+	notInArray,
 	or,
+	sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { db } from "$lib/server/db";
@@ -130,6 +132,48 @@ export function buildArtifactVisibilityCondition(params: {
 	}
 
 	return or(...conditions);
+}
+
+/**
+ * `isArtifactCanonicallyOwned` as a WHERE clause, for a query that cannot pair
+ * its rows with the JS predicate — a `count(*)`.
+ *
+ * It exists because the Knowledge library's pagination had the two halves
+ * disagreeing: the ROWS were filtered by `isArtifactCanonicallyOwned` after
+ * they came back, and the `totalItems` beside them counted with only
+ * `buildArtifactVisibilityCondition`, which is strictly wider. A linked or
+ * non-owned artifact was therefore counted and not shown, and the library
+ * advertised more documents than it could ever page through.
+ *
+ * Kept adjacent to the JS predicate on purpose, and `core.test.ts` drives the
+ * same fixtures through both. Two spellings of one rule is exactly the pair
+ * that drifted.
+ */
+export function buildArtifactCanonicalOwnershipCondition(params: {
+	userId: string;
+	ownershipScope: ArtifactOwnershipScope;
+}) {
+	const conversationIds = Array.from(params.ownershipScope.conversationIds);
+	// A row WITH a conversation is owned iff that conversation is the user's —
+	// which, with no conversations at all, is never.
+	const throughConversation =
+		conversationIds.length > 0
+			? and(
+					isNotNull(artifacts.conversationId),
+					inArray(artifacts.conversationId, conversationIds),
+				)
+			: sql`0 = 1`;
+
+	// A row WITHOUT one falls back to the user stamp, except for the two
+	// working types, which require a live conversation link and so are never
+	// owned once it is gone.
+	const throughUserStamp = and(
+		isNull(artifacts.conversationId),
+		eq(artifacts.userId, params.userId),
+		notInArray(artifacts.type, ["generated_output", "work_capsule"]),
+	);
+
+	return or(throughConversation, throughUserStamp);
 }
 
 export function isArtifactCanonicallyOwned(params: {

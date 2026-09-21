@@ -19,6 +19,7 @@ import {
 import { canUseTeiReranker, rerankItems } from "../../tei-reranker";
 import { scoreMatch } from "../../working-set";
 import {
+	buildArtifactCanonicalOwnershipCondition,
 	buildArtifactVisibilityCondition,
 	getArtifactOwnershipScope,
 	isArtifactCanonicallyOwned,
@@ -730,8 +731,13 @@ export async function listLogicalDocumentsPage(
 	if (!query && sortKey === "date") {
 		const displayArtifactCondition =
 			buildLogicalDocumentDisplayArtifactCondition(includeGeneratedOutputs);
+		// ONE predicate for the count and for the rows. The count used to run
+		// with only `buildArtifactVisibilityCondition`, which is strictly wider
+		// than the `isArtifactCanonicallyOwned` the rows are then filtered by,
+		// so a linked or non-owned artifact was counted and never shown and
+		// `totalItems` advertised pages the user could not reach.
 		const whereCondition = and(
-			buildArtifactVisibilityCondition({ userId, ownershipScope }),
+			buildArtifactCanonicalOwnershipCondition({ userId, ownershipScope }),
 			displayArtifactCondition,
 		);
 		const [countRow, rows] = await Promise.all([

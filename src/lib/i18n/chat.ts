@@ -65,6 +65,25 @@ const chatDict = {
 			"The model provider had a problem while generating this response. Retry the message.",
 		"chat.completionWarning.streamClosedWithoutFinish":
 			"The connection closed before the response finished. Retry the message.",
+		// The composer's red line under a chip, and the upload response, used to
+		// show a hard-wired English sentence built on the server. Each of those
+		// sentences now travels as an `AttachmentReadinessReason` code beside
+		// the English text, and these are its translations. The format list in
+		// `notPrepared` is pinned to the registry-derived
+		// `getSupportedExtractionSummary` by `attachment-readiness.test.ts`, so
+		// it cannot drift from what the upload endpoint actually admits.
+		"chat.attachmentReadiness.not_available":
+			"Attached file is no longer available.",
+		"chat.attachmentReadiness.not_prepared":
+			"This file could not be prepared for chat. Supported extraction currently works best for text, HTML, JSON, PDF, Word, Excel, PowerPoint, OpenDocument, EPUB, RTF, and common image formats.",
+		"chat.attachmentReadiness.still_preparing":
+			"This file is still being prepared for chat. Wait a moment and send it again.",
+		"chat.attachmentReadiness.extraction_retryable":
+			"This file could not be prepared for chat. Try the Retry action on it, then send again.",
+		"chat.attachmentReadiness.not_text_readable":
+			"This attachment does not contain enough readable text to use in chat. Remove it or upload a supported text-readable document.",
+		"chat.attachmentReadiness.no_usable_text":
+			"This file was uploaded, but no usable readable text could be prepared for chat from it.",
 		"chat.extractingDocument":
 			"Extracting document text… this can take up to ~10s for scanned PDFs.",
 		// Phase 3 — the composer chip's per-file extraction state, one clause
@@ -1239,6 +1258,18 @@ const chatDict = {
 			"A modellszolgáltatónál hiba történt a válasz elkészítése közben. Próbáld újra az üzenetet.",
 		"chat.completionWarning.streamClosedWithoutFinish":
 			"A kapcsolat megszakadt, mielőtt a válasz elkészült volna. Próbáld újra az üzenetet.",
+		"chat.attachmentReadiness.not_available":
+			"A csatolt fájl már nem érhető el.",
+		"chat.attachmentReadiness.not_prepared":
+			"Ezt a fájlt nem sikerült előkészíteni a csevegéshez. A szövegkinyerés jelenleg ezekkel működik a legjobban: szöveg, HTML, JSON, PDF, Word, Excel, PowerPoint, OpenDocument, EPUB, RTF és a gyakori képformátumok.",
+		"chat.attachmentReadiness.still_preparing":
+			"Ez a fájl még előkészítés alatt áll. Várj egy pillanatot, majd küldd el újra.",
+		"chat.attachmentReadiness.extraction_retryable":
+			"Ezt a fájlt nem sikerült előkészíteni a csevegéshez. Használd rajta az Újra gombot, majd küldd el ismét.",
+		"chat.attachmentReadiness.not_text_readable":
+			"Ez a csatolmány nem tartalmaz elég olvasható szöveget a csevegéshez. Távolítsd el, vagy tölts fel egy szövegesen olvasható dokumentumot.",
+		"chat.attachmentReadiness.no_usable_text":
+			"A fájl feltöltése sikerült, de nem sikerült belőle használható szöveget előkészíteni a csevegéshez.",
 		"chat.extractingDocument":
 			"Dokumentum szövegének kinyerése… ez akár ~10 másodpercig is tarthat beolvasott PDF-eknél.",
 		"chat.extraction.busy": "Folyamatban...",

@@ -70,8 +70,11 @@ export function getProducibleFormatList(locale: ModelFacingLocale): string {
  *   `This file could not be prepared for chat. Supported extraction currently
  *    works best for ${getSupportedExtractionSummary("en")}.`
  *
- * The EN rendering is byte-identical to the literal at
- * `knowledge/store/attachments.ts:234` today.
+ * NOT model-facing despite this module's name: no prompt and no tool
+ * description consumes it (the only importer is
+ * `knowledge/store/attachments.ts`), so changing it evicts no cached prompt
+ * prefix. It lives here because it is registry-derived prose with a Hungarian
+ * twin, which is what this module is for.
  */
 export function getSupportedExtractionSummary(
 	locale: ModelFacingLocale,
@@ -84,10 +87,21 @@ export function getSupportedExtractionSummary(
 }
 
 /**
- * The ids the readiness error names, in the order the English literal names
- * them. `registry.test.ts` asserts each one is a real entry that is NOT
- * rejected at intake, so the prose can never advertise a format the upload
- * endpoint refuses.
+ * The ids the readiness error names, one per FAMILY the registry admits at
+ * intake. `registry.test.ts` asserts each one is a real entry that is NOT
+ * rejected, so the prose can never advertise a format the upload endpoint
+ * refuses.
+ *
+ * One id stands for its whole family: `docx` also covers `doc`, `xlsx` covers
+ * `xls`, `pptx` covers `ppt`, and `odt` covers the three OpenDocument entries
+ * (`odt`/`ods`/`odp`). The names are the ones a user recognises ("Word", not
+ * "DOCX"), because this sentence is read by a person whose upload just failed,
+ * not by the model.
+ *
+ * The HEIC/HEIF caveat that used to close this sentence is GONE: there is no
+ * server-side conversion step. `.heic`/`.heif` are admitted like every other
+ * image and handed to MinerU, so the caveat described a component that does
+ * not exist. "common image formats" is what is actually true.
  */
 const EXTRACTION_SUMMARY_IDS: readonly string[] = [
 	"txt",
@@ -95,8 +109,11 @@ const EXTRACTION_SUMMARY_IDS: readonly string[] = [
 	"json",
 	"pdf",
 	"docx",
-	"pptx",
 	"xlsx",
+	"pptx",
+	"odt",
+	"epub",
+	"rtf",
 ];
 
 const EXTRACTION_SUMMARY_LABELS: Readonly<
@@ -107,28 +124,31 @@ const EXTRACTION_SUMMARY_LABELS: Readonly<
 		html: "HTML",
 		json: "JSON",
 		pdf: "PDF",
-		docx: "DOCX",
-		pptx: "PPTX",
-		xlsx: "XLSX",
+		docx: "Word",
+		xlsx: "Excel",
+		pptx: "PowerPoint",
+		odt: "OpenDocument",
+		epub: "EPUB",
+		rtf: "RTF",
 	},
 	hu: {
+		// The product names are the same in Hungarian; only the generic word
+		// for plain text is translated.
 		txt: "szöveg",
 		html: "HTML",
 		json: "JSON",
 		pdf: "PDF",
-		docx: "DOCX",
-		pptx: "PPTX",
-		xlsx: "XLSX",
+		docx: "Word",
+		xlsx: "Excel",
+		pptx: "PowerPoint",
+		odt: "OpenDocument",
+		epub: "EPUB",
+		rtf: "RTF",
 	},
 };
 
 const EXTRACTION_SUMMARY_TAILS: Readonly<Record<ModelFacingLocale, string>> = {
-	// EN is byte-identical to the literal it replaced and must stay so.
-	en: ", and common image formats (including HEIC/HEIF when server conversion support is installed)",
-	// "telepítve van a konvertálási támogatás" is a word-for-word rendering of
-	// "conversion support is installed" that Hungarian does not use — support
-	// is not a thing one installs. "ha a szerveren elérhető a konvertálás"
-	// ("if conversion is available on the server") says the same thing the way
-	// a Hungarian reader would.
-	hu: " és a gyakori képformátumok (beleértve a HEIC/HEIF formátumot is, ha a szerveren elérhető a konvertálás)",
+	en: ", and common image formats",
+	// Hungarian does not put a comma before the closing "és".
+	hu: " és a gyakori képformátumok",
 };

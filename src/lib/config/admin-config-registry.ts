@@ -757,6 +757,15 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		effect: "live",
 	},
 	{
+		// The TOTAL a user's parse bundles may occupy, against
+		// MINERU_BUNDLE_MAX_BYTES's per-bundle cap. 0 means unlimited, which is
+		// what every box did before this key existed.
+		key: "MINERU_BUNDLE_USER_QUOTA_BYTES",
+		group: "integrations",
+		control: int(0, 549755813888, "mb", MB),
+		effect: "live",
+	},
+	{
 		key: "MINERU_STRUCTURE_CHUNKING_ENABLED",
 		group: "integrations",
 		control: { kind: "bool" },

@@ -5,6 +5,7 @@
 // former src/lib/types.ts god-module (architecture-deepening T1); this
 // file carries no behavior change, only a new home.
 
+import type { AttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import type { PageCountKind } from "$lib/shared/page-count";
 
@@ -144,6 +145,11 @@ export interface PendingAttachment {
 	promptArtifactId?: string | null;
 	readinessError?: string | null;
 	/**
+	 * The machine-readable twin of `readinessError`, so the client can render
+	 * the refusal in the user's own language instead of the server's English.
+	 */
+	readinessErrorCode?: AttachmentReadinessReason | null;
+	/**
 	 * Present for an attachment that came from a real upload in this session;
 	 * absent for one restored from a saved draft, where the ledger row is
 	 * fetched by the poller rather than carried in the draft payload.
@@ -164,6 +170,8 @@ export interface KnowledgeUploadResponse {
 	promptReady: boolean;
 	promptArtifactId?: string | null;
 	readinessError?: string | null;
+	/** See `PendingAttachment.readinessErrorCode`. */
+	readinessErrorCode?: AttachmentReadinessReason | null;
 	renameInfo?: {
 		originalName: string;
 		wasRenamed: boolean;

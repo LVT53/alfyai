@@ -97,9 +97,17 @@ vi.mock("drizzle-orm", () => ({
 		field: field.name,
 		value,
 	})),
+	isNotNull: vi.fn((field: { name: string }) => ({
+		field: field.name,
+		isNotNull: true,
+	})),
 	isNull: vi.fn((field: { name: string }) => ({
 		field: field.name,
 		isNull: true,
+	})),
+	notInArray: vi.fn((field: { name: string }, value: unknown[]) => ({
+		field: field.name,
+		notIn: value,
 	})),
 	like: vi.fn(),
 	ne: vi.fn(),

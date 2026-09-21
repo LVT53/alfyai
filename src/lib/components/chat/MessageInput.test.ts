@@ -1902,6 +1902,108 @@ describe("MessageInput", () => {
 		expect(sendSpy).not.toHaveBeenCalled();
 	});
 
+	// The server's readiness sentence is English whatever the user's language
+	// is. It now travels with a code beside it, and THAT is what the composer
+	// renders — otherwise a Hungarian user reads Hungarian chips above an
+	// English refusal.
+	it("renders the readiness refusal in the user's language, from its code", async () => {
+		uiLanguage.set("hu");
+		try {
+			let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+			const { container, findByText } = render(MessageInput, {
+				conversationId: "conv-1",
+				attachmentsEnabled: true,
+				onUploadFiles: (payload: UploadFilesPayload) => {
+					doneCallback = payload.done;
+				},
+			});
+			const fileInput = container.querySelector(
+				'input[type="file"]',
+			) as HTMLInputElement;
+			await fireEvent.change(fileInput, {
+				target: {
+					files: [new File(["scan"], "scan.pdf", { type: "application/pdf" })],
+				},
+			});
+
+			completeUpload(doneCallback, {
+				success: true,
+				attachment: {
+					artifact: {
+						id: "artifact-hu",
+						type: "source_document",
+						retrievalClass: "durable",
+						name: "scan.pdf",
+						mimeType: "application/pdf",
+						sizeBytes: 128,
+						conversationId: "conv-1",
+						summary: null,
+						createdAt: Date.now(),
+						updatedAt: Date.now(),
+					},
+					promptReady: false,
+					promptArtifactId: null,
+					readinessError:
+						"This file could not be prepared for chat. Supported extraction currently works best for text.",
+					readinessErrorCode: "not_prepared",
+				},
+			});
+
+			const line = await findByText(/scan\.pdf: Ezt a fájlt nem sikerült/i);
+			expect(line).toBeDefined();
+			expect(line.textContent).not.toContain("could not be prepared");
+		} finally {
+			uiLanguage.set("en");
+		}
+	});
+
+	// A server that predates the codes still has to say something specific.
+	it("falls back to the server sentence when no code came with it", async () => {
+		let doneCallback: ((result: UploadDoneResult) => void) | null = null;
+		const { container, findByText } = render(MessageInput, {
+			conversationId: "conv-1",
+			attachmentsEnabled: true,
+			onUploadFiles: (payload: UploadFilesPayload) => {
+				doneCallback = payload.done;
+			},
+		});
+		const fileInput = container.querySelector(
+			'input[type="file"]',
+		) as HTMLInputElement;
+		await fireEvent.change(fileInput, {
+			target: {
+				files: [new File(["old"], "legacy.pdf", { type: "application/pdf" })],
+			},
+		});
+
+		completeUpload(doneCallback, {
+			success: true,
+			attachment: {
+				artifact: {
+					id: "artifact-legacy",
+					type: "source_document",
+					retrievalClass: "durable",
+					name: "legacy.pdf",
+					mimeType: "application/pdf",
+					sizeBytes: 128,
+					conversationId: "conv-1",
+					summary: null,
+					createdAt: Date.now(),
+					updatedAt: Date.now(),
+				},
+				promptReady: false,
+				promptArtifactId: null,
+				readinessError: "Something specific the old server said.",
+			},
+		});
+
+		expect(
+			await findByText(
+				/legacy\.pdf: Something specific the old server said\./i,
+			),
+		).toBeDefined();
+	});
+
 	it("emits onUploadFiles with all selected files from one picker action", async () => {
 		const uploadFilesSpy = vi.fn();
 		const { container, findByText } = render(MessageInput, {

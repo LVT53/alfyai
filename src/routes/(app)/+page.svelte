@@ -18,6 +18,7 @@ import {
 	uploadRefusalFromError,
 } from "$lib/client/api/knowledge";
 import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
+import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import {
 	createNewConversation,
 	updateConversationMemoryIncognitoLocal,
@@ -324,6 +325,14 @@ async function uploadSingleFile(
 						result.readinessError.trim()
 							? result.readinessError
 							: null,
+					// The code beside the sentence is what the composer renders,
+					// so a Hungarian user reads Hungarian. The sentence stays for
+					// a build whose server has not shipped the codes yet.
+					readinessErrorCode: isAttachmentReadinessReason(
+						result.readinessErrorCode,
+					)
+						? result.readinessErrorCode
+						: null,
 					extraction: extractionFromUploadResponse(result) ?? undefined,
 				},
 			};

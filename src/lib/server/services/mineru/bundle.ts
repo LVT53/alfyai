@@ -29,13 +29,15 @@
  */
 
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, type Dirent } from "node:fs";
 import {
 	lstat,
 	mkdir,
+	readdir,
 	readFile,
 	rename,
 	rm,
+	stat,
 	writeFile,
 } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
@@ -89,6 +91,16 @@ export interface MineruParseBundleManifest {
 	figures: readonly RenderedFigure[];
 	/** True when an image was dropped to stay inside the byte budget. */
 	imagesOmitted: boolean;
+	/**
+	 * True when `images/` was removed AFTER the fact, to bring the user's total
+	 * bundle storage back under `MINERU_BUNDLE_USER_QUOTA_BYTES`.
+	 *
+	 * Distinct from `imagesOmitted`, which is about THIS document's own
+	 * per-bundle budget at write time. Optional, and absent on every bundle
+	 * written before the quota existed — a reader must treat that absence as
+	 * false rather than as "unknown".
+	 */
+	imagesEvicted?: boolean;
 	/**
 	 * The bundle's payload bytes: `normalized.md` + `structured_content.json` +
 	 * `pages.json` + `images/`. The manifest cannot include its own size
@@ -155,6 +167,12 @@ export interface WriteMineruParseBundleInput {
 	result: StructuredExtractionResult;
 	/** `resolveMineruConfig().bundleMaxBytes`. */
 	maxBytes: number;
+	/**
+	 * `resolveMineruConfig().bundleUserQuotaBytes`. 0 (and omitted) disable the
+	 * per-user retention pass entirely, which is what every box did before the
+	 * key existed.
+	 */
+	userQuotaBytes?: number;
 	/** Set when the caller already knows it; otherwise patched in later. */
 	normalizedArtifactId?: string | null;
 	limits?: Partial<MineruZipLimits>;
@@ -245,6 +263,19 @@ export async function writeMineruParseBundle(
 
 		await rm(bundleDir, { recursive: true, force: true });
 		await rename(tempDir, bundleDir);
+
+		// AFTER the rename, so the bundle this parse just produced is on disk
+		// and counted before anything is evicted to make room for it — and so a
+		// failure here cannot cost the caller the parse it already paid for.
+		await enforceMineruParseBundleQuota({
+			userId: input.userId,
+			keepSourceArtifactId: input.sourceArtifactId,
+			quotaBytes: input.userQuotaBytes ?? 0,
+		}).catch((error) => {
+			console.warn("[MINERU] Parse bundle quota pass failed", { error });
+			return null;
+		});
+
 		return manifest;
 	} catch (error) {
 		await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
@@ -307,6 +338,262 @@ async function writeBundleImages(params: {
 	}
 
 	return { imageBytes, imagesOmitted };
+}
+
+// ---------------------------------------------------------------------------
+// Per-user retention
+// ---------------------------------------------------------------------------
+
+/**
+ * The most bundle directories one quota pass will measure and consider.
+ *
+ * The pass runs on the extraction path, after every successful parse, so it
+ * has to be bounded rather than proportional to a user's whole library. 256 is
+ * chosen against `MINERU_BUNDLE_MAX_BYTES`: 256 bundles at the 32 MiB per-file
+ * cap is 8 GiB, four times the default quota, so the budget bites long before
+ * the cap does. When it does bite, the pass simply frees less this time and
+ * the next write continues — it is a bound on WORK, not on correctness.
+ *
+ * Bundles are measured oldest-first, so the cap never hides the candidates
+ * eviction would have chosen anyway.
+ */
+export const MINERU_BUNDLE_QUOTA_MAX_EXAMINED = 256;
+
+export interface MineruBundleQuotaResult {
+	quotaBytes: number;
+	examined: number;
+	usedBytesBefore: number;
+	usedBytesAfter: number;
+	/** Bundles whose `images/` was dropped but which otherwise still work. */
+	imagesEvicted: number;
+	/** Bundles removed whole. */
+	bundlesRemoved: number;
+	freedBytes: number;
+}
+
+interface BundleCandidate {
+	sourceArtifactId: string;
+	dir: string;
+	/** Last write of the bundle directory itself — when it was renamed into place. */
+	writtenAtMs: number;
+	bytes: number;
+}
+
+/** Real bytes on disk under `dir`, following no symlink. 0 when unreadable. */
+async function directoryBytes(dir: string): Promise<number> {
+	let total = 0;
+	let entries: Dirent[];
+	try {
+		entries = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return 0;
+	}
+	for (const entry of entries) {
+		const path = join(dir, entry.name);
+		if (entry.isDirectory()) {
+			total += await directoryBytes(path);
+			continue;
+		}
+		try {
+			const stats = await lstat(path);
+			if (stats.isFile()) total += stats.size;
+		} catch {
+			// Raced with a delete. It is not occupying bytes any more either.
+		}
+	}
+	return total;
+}
+
+/**
+ * Rename-then-remove.
+ *
+ * The rename is the atomic part: a concurrent reader either resolves the old
+ * path and gets the file, or does not and gets an ENOENT, which every reader
+ * here already answers with `null` (and the figure endpoint with a 404). It
+ * never sees a directory with half its files gone. The renamed name carries
+ * `MINERU_BUNDLE_TMP_INFIX`, so if the process dies between the two steps the
+ * leftovers are what `temp-sweep.ts` already collects and what the disk report
+ * already ignores.
+ */
+async function evictPath(path: string): Promise<boolean> {
+	const parked = `${path}${MINERU_BUNDLE_TMP_INFIX}evict-${process.pid}-${Math.random()
+		.toString(36)
+		.slice(2, 10)}`;
+	try {
+		await rename(path, parked);
+	} catch {
+		return false;
+	}
+	await rm(parked, { recursive: true, force: true }).catch(() => undefined);
+	return true;
+}
+
+async function markImagesEvicted(
+	userId: string,
+	sourceArtifactId: string,
+): Promise<void> {
+	const manifest = await readMineruParseManifest(userId, sourceArtifactId);
+	if (!manifest) return;
+	await writeManifest(userId, sourceArtifactId, {
+		...manifest,
+		// The figure list IS the endpoint's allow-list, so emptying it makes the
+		// endpoint answer 404 before it touches the filesystem, and makes any
+		// surface that enumerates figures render none — which is the truth
+		// about this bundle now. The flag beside it says the figures were
+		// evicted rather than never produced, so "Re-extract" is the honest
+		// offer and `imagesOmitted` keeps its own, different meaning.
+		figures: [],
+		imagesEvicted: true,
+	});
+}
+
+/**
+ * Brings one user's total parse-bundle storage back under the quota.
+ *
+ * A bundle is DERIVED data: the normalized text is in the database and
+ * "Re-extract" rebuilds a bundle from scratch. So the budget is met by
+ * throwing the cheapest thing away first, and in this order:
+ *
+ *   1. other documents' `images/` directories, least-recently-written first.
+ *      `normalized.md`, `pages.json` and `structured_content.json` stay, so
+ *      page citations and `read_generated_file?page=` keep working; only the
+ *      figures go, and the figure endpoint already answers 404 for a file that
+ *      is not there;
+ *   2. if that is not enough, whole bundles, least-recently-written first.
+ *
+ * `keepSourceArtifactId` — the bundle the caller just wrote — is never
+ * touched. Evicting the document a user is looking at right now, to make room
+ * for itself, would be the one obviously wrong outcome.
+ *
+ * Returns null when the quota is disabled (`0`) or the user is under it.
+ * Never throws: a failed eviction costs disk, and throwing here would fail an
+ * extraction that has already succeeded.
+ */
+export async function enforceMineruParseBundleQuota(input: {
+	userId: string;
+	keepSourceArtifactId: string;
+	quotaBytes: number;
+	maxExamined?: number;
+}): Promise<MineruBundleQuotaResult | null> {
+	if (!Number.isFinite(input.quotaBytes) || input.quotaBytes <= 0) return null;
+
+	let userDir: string;
+	try {
+		userDir = knowledgeUserDirectory(assertSafeSegment(input.userId, "userId"));
+	} catch {
+		return null;
+	}
+
+	let entries: Dirent[];
+	try {
+		entries = await readdir(userDir, { withFileTypes: true });
+	} catch {
+		return null;
+	}
+
+	// Name + mtime first (one stat each), so the expensive recursive sizing is
+	// only paid for the bundles this pass can actually act on.
+	const named: Array<{ sourceArtifactId: string; dir: string; mtime: number }> =
+		[];
+	for (const entry of entries) {
+		if (!entry.isDirectory()) continue;
+		if (entry.name.includes(MINERU_BUNDLE_TMP_INFIX)) continue;
+		if (!entry.name.endsWith(MINERU_BUNDLE_DIR_SUFFIX)) continue;
+		const sourceArtifactId = entry.name.slice(
+			0,
+			-MINERU_BUNDLE_DIR_SUFFIX.length,
+		);
+		if (!sourceArtifactId) continue;
+		const dir = join(userDir, entry.name);
+		try {
+			const stats = await stat(dir);
+			named.push({ sourceArtifactId, dir, mtime: stats.mtimeMs });
+		} catch {
+			// Gone between readdir and stat.
+		}
+	}
+
+	const maxExamined = input.maxExamined ?? MINERU_BUNDLE_QUOTA_MAX_EXAMINED;
+	// Oldest first, but the bundle just written is always measured: it counts
+	// towards the total even though it can never be evicted.
+	const ordered = named.sort((a, b) => a.mtime - b.mtime);
+	const fresh = ordered.filter(
+		(row) => row.sourceArtifactId === input.keepSourceArtifactId,
+	);
+	const rest = ordered.filter(
+		(row) => row.sourceArtifactId !== input.keepSourceArtifactId,
+	);
+	const selected = [...fresh, ...rest.slice(0, Math.max(0, maxExamined - 1))];
+
+	const candidates: BundleCandidate[] = [];
+	for (const row of selected) {
+		candidates.push({
+			sourceArtifactId: row.sourceArtifactId,
+			dir: row.dir,
+			writtenAtMs: row.mtime,
+			bytes: await directoryBytes(row.dir),
+		});
+	}
+
+	const usedBytesBefore = candidates.reduce((sum, row) => sum + row.bytes, 0);
+	if (usedBytesBefore <= input.quotaBytes) return null;
+
+	const evictable = candidates
+		.filter((row) => row.sourceArtifactId !== input.keepSourceArtifactId)
+		.sort((a, b) => a.writtenAtMs - b.writtenAtMs);
+
+	let used = usedBytesBefore;
+	let imagesEvicted = 0;
+	let bundlesRemoved = 0;
+	const emptied = new Set<string>();
+
+	// Pass 1 — figures only.
+	for (const row of evictable) {
+		if (used <= input.quotaBytes) break;
+		const imagesDir = join(row.dir, MINERU_BUNDLE_IMAGES_DIR);
+		const imageBytes = await directoryBytes(imagesDir);
+		if (imageBytes === 0) continue;
+		if (!(await evictPath(imagesDir))) continue;
+		await markImagesEvicted(input.userId, row.sourceArtifactId);
+		used -= imageBytes;
+		row.bytes -= imageBytes;
+		imagesEvicted += 1;
+		emptied.add(row.sourceArtifactId);
+	}
+
+	// Pass 2 — whole bundles.
+	for (const row of evictable) {
+		if (used <= input.quotaBytes) break;
+		if (!(await evictPath(row.dir))) continue;
+		used -= row.bytes;
+		if (emptied.has(row.sourceArtifactId)) imagesEvicted -= 1;
+		bundlesRemoved += 1;
+	}
+
+	const result: MineruBundleQuotaResult = {
+		quotaBytes: input.quotaBytes,
+		examined: candidates.length,
+		usedBytesBefore,
+		usedBytesAfter: used,
+		imagesEvicted,
+		bundlesRemoved,
+		freedBytes: usedBytesBefore - used,
+	};
+
+	// Counts and bytes only. No artifact ids, no file names, no user id — the
+	// line is about disk, and a log line that named documents would turn a
+	// retention sweep into a record of what this account uploaded.
+	console.info("[MINERU] Parse bundle quota enforced", {
+		quotaBytes: result.quotaBytes,
+		examined: result.examined,
+		usedBytesBefore: result.usedBytesBefore,
+		usedBytesAfter: result.usedBytesAfter,
+		imagesEvicted: result.imagesEvicted,
+		bundlesRemoved: result.bundlesRemoved,
+		freedBytes: result.freedBytes,
+	});
+
+	return result;
 }
 
 async function readBundleJson<T>(
@@ -476,21 +763,35 @@ export async function setMineruParseBundleNormalizedArtifactId(
 ): Promise<boolean> {
 	const manifest = await readMineruParseManifest(userId, sourceArtifactId);
 	if (!manifest) return false;
-	const next: MineruParseBundleManifest = { ...manifest, normalizedArtifactId };
+	return writeManifest(userId, sourceArtifactId, {
+		...manifest,
+		normalizedArtifactId,
+	});
+}
+
+/**
+ * Replaces a live bundle's manifest.
+ *
+ * Write-then-rename, not a plain overwrite. The manifest IS the figure
+ * endpoint's allow-list and the page index's staleness check, so a crash
+ * part-way through an in-place write would truncate it to invalid JSON,
+ * `readMineruParseManifest` would return null forever after, and every figure
+ * of that document would 404 with nothing left to repair it from.
+ */
+async function writeManifest(
+	userId: string,
+	sourceArtifactId: string,
+	manifest: MineruParseBundleManifest,
+): Promise<boolean> {
 	const manifestPath = join(
 		mineruBundleDir(userId, sourceArtifactId),
 		MINERU_BUNDLE_MANIFEST,
 	);
-	// Write-then-rename, not a plain overwrite of the live file. The manifest IS
-	// the figure endpoint's allow-list and the page index's staleness check, so
-	// a crash part-way through an in-place write would truncate it to invalid
-	// JSON, `readMineruParseManifest` would return null forever after, and every
-	// figure of that document would 404 with nothing left to repair it from.
 	const tempPath = `${manifestPath}.tmp-${process.pid}-${Math.random()
 		.toString(36)
 		.slice(2, 10)}`;
 	try {
-		await writeFile(tempPath, JSON.stringify(next, null, 2), "utf8");
+		await writeFile(tempPath, JSON.stringify(manifest, null, 2), "utf8");
 		await rename(tempPath, manifestPath);
 		return true;
 	} catch {

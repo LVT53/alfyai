@@ -142,6 +142,7 @@ interface Config {
 	mineruTransferTimeoutMs: number;
 	mineruCapabilitiesTtlMs: number;
 	mineruBundleMaxBytes: number;
+	mineruBundleUserQuotaBytes: number;
 	mineruStructureChunkingEnabled: boolean;
 	// On-box OwnTracks Recorder base URL (e.g. http://127.0.0.1:8083). Admin
 	// config only — the user never supplies this (see providers/owntracks.ts)
@@ -926,6 +927,14 @@ function readConfig(): Config {
 			33554432,
 			1048576,
 			536870912,
+		),
+		// 2 GiB by default. Zero is a legitimate value — "no total budget" —
+		// so the floor is 0, not one bundle's worth.
+		mineruBundleUserQuotaBytes: clampParsedInt(
+			process.env.MINERU_BUNDLE_USER_QUOTA_BYTES,
+			2147483648,
+			0,
+			549755813888,
 		),
 		mineruStructureChunkingEnabled:
 			process.env.MINERU_STRUCTURE_CHUNKING_ENABLED !== "false",

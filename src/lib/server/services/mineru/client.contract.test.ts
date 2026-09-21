@@ -51,6 +51,7 @@ function testConfig(patch: Partial<MineruConfig> = {}): MineruConfig {
 		transferTimeoutMs: 4000,
 		capabilitiesTtlMs: 0,
 		bundleMaxBytes: 33554432,
+		bundleUserQuotaBytes: 0,
 		structureChunking: true,
 		...patch,
 	};

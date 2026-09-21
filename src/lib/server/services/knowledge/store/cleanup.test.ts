@@ -68,10 +68,13 @@ vi.mock("$lib/server/db/schema", () => ({
 		metadataJson: { name: "metadataJson" },
 	},
 	artifactLinks: {
+		id: { name: "id" },
 		artifactId: { name: "artifactId" },
 		relatedArtifactId: { name: "relatedArtifactId" },
 		userId: { name: "userId" },
 		linkType: { name: "linkType" },
+		conversationId: { name: "conversationId" },
+		messageId: { name: "messageId" },
 	},
 	conversationWorkingSetItems: {
 		artifactId: { name: "artifactId" },
@@ -79,7 +82,12 @@ vi.mock("$lib/server/db/schema", () => ({
 	taskStateEvidenceLinks: {
 		artifactId: { name: "artifactId" },
 	},
-	messages: {},
+	messages: { id: { name: "id" } },
+	conversations: { id: { name: "id" } },
+	chatGeneratedFiles: {
+		id: { name: "id" },
+		storagePath: { name: "storagePath" },
+	},
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -91,6 +99,10 @@ vi.mock("drizzle-orm", () => ({
 	inArray: vi.fn((field: { name: string }, value: unknown[]) => ({
 		field: field.name,
 		value,
+	})),
+	isNull: vi.fn((field: { name: string }) => ({
+		field: field.name,
+		isNull: true,
 	})),
 	ne: vi.fn(),
 	or: vi.fn(),
@@ -524,6 +536,10 @@ describe("knowledge store cleanup", () => {
 
 			queueMockResponses(mockSelect, [
 				makeSelectResult(resultArtifacts),
+				makeSelectResult(resultArtifacts),
+				// The orphan pass runs beside the owned-by-type list now. No
+				// stranded rows in this fixture, so it short-circuits.
+				makeSelectResult([]),
 				makeSelectResult(resultArtifacts),
 			]);
 			installTransactionStub();

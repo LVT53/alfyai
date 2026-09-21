@@ -284,7 +284,17 @@ describe("the scheduler's timers", () => {
 		expect(state.bootSweepArmed).toBe(false);
 	});
 
-	it("arms nothing when the worker is switched off", async () => {
+	it("takes no work when the worker is switched off, but keeps watching", async () => {
+		// `running` and the boot sweep stay off, which is what "switched off"
+		// has to mean: no claims, no recovery, no drains.
+		//
+		// The idle tick is now DELIBERATELY armed, and this assertion is
+		// inverted on purpose. `DOCUMENT_EXTRACTION_WORKER_ENABLED` is
+		// registered `effect: "live"`, and with nothing left running there was
+		// nothing to notice the switch being turned back on — the flip did
+		// nothing at all until a restart. The tick is the supervisor: one
+		// unref'd interval whose callback returns immediately while the switch
+		// is off.
 		process.env.DOCUMENT_EXTRACTION_WORKER_ENABLED = "false";
 		vi.resetModules();
 		const disabled = (await import("./worker-runner")) as Worker;
@@ -295,7 +305,7 @@ describe("the scheduler's timers", () => {
 			});
 			const state = disabled.inspectExtractionSchedulerForTests();
 			expect(state.running).toBe(false);
-			expect(state.idleTickArmed).toBe(false);
+			expect(state.idleTickArmed).toBe(true);
 			expect(state.bootSweepArmed).toBe(false);
 		} finally {
 			disabled.resetExtractionWorkerForTests();

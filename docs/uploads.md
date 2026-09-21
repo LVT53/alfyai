@@ -66,12 +66,33 @@ with a reason when it is down.
 
 ### Configuration
 
-Full rows in [docs/configuration.md](configuration.md#document-extraction-mineru). The twelve keys
+Full rows in [docs/configuration.md](configuration.md#document-extraction-mineru). The thirteen keys
 are `MINERU_API_URL`, `MINERU_API_KEY`, `MINERU_DEFAULT_TIER`, `MINERU_OCR_MODE`,
 `MINERU_JOB_TIMEOUT_MS`, `MINERU_POLL_MIN_MS`, `MINERU_POLL_MAX_MS`, `MINERU_REQUEST_TIMEOUT_MS`,
-`MINERU_TRANSFER_TIMEOUT_MS`, `MINERU_CAPABILITIES_TTL_MS`, `MINERU_BUNDLE_MAX_BYTES` and
-`MINERU_STRUCTURE_CHUNKING_ENABLED`. All twelve are editable live on the admin screen and apply on
-the next extraction — no restart.
+`MINERU_TRANSFER_TIMEOUT_MS`, `MINERU_CAPABILITIES_TTL_MS`, `MINERU_BUNDLE_MAX_BYTES`,
+`MINERU_BUNDLE_USER_QUOTA_BYTES` and `MINERU_STRUCTURE_CHUNKING_ENABLED`. All thirteen are editable
+live on the admin screen and apply on the next extraction — no restart.
+
+### Parse bundle retention
+
+`MINERU_BUNDLE_MAX_BYTES` caps ONE bundle; `MINERU_BUNDLE_USER_QUOTA_BYTES` (default 2 GiB, `0` =
+unlimited) caps a user's bundles in total. Bundles are derived data — the normalized text is in the
+database, and **Re-extract** rebuilds a bundle — so the budget is enforced by throwing the cheapest
+thing away first.
+
+After a bundle is written, if that user's `data/knowledge/<userId>/*.parse/` directories exceed the
+quota, OTHER documents' bundles are evicted least-recently-written first:
+
+1. the bundle's `images/` directory is removed and its manifest marked `imagesEvicted: true`.
+   `normalized.md`, `pages.json` and `structured_content.json` stay, so page citations and
+   `read_generated_file?page=` keep working; the figure endpoint answers 404 and any figure list
+   renders empty;
+2. if still over, whole bundles go, oldest first.
+
+The bundle just written is never evicted, each eviction is a rename-then-remove (so a concurrent
+figure read sees the file or does not, never a half-removed directory), and the number of bundles
+examined per write is bounded. One `[MINERU]` line per eviction pass records counts and bytes
+only.
 
 `MINERU_TIMEOUT_MS` was replaced by `MINERU_JOB_TIMEOUT_MS`. The old environment variable is still
 read as a fallback for one release, and an existing admin override is carried over by the
@@ -222,6 +243,46 @@ tested in `src/lib/server/services/account-data-archive/index.ts`.
 
 Knowledge upload intake is a dedicated boundary
 ([ADR 0024](adr/0024-knowledge-upload-intake-boundary.md)).
+
+## Maintenance scripts
+
+### Sweeping orphaned generated artifacts — REQUIRED ONCE AFTER THE CUTOVER
+
+`artifacts.conversation_id` is `ON DELETE SET NULL`. Before release `f41f7931`, deleting a
+conversation therefore cleared the link on every `generated_output` / `work_capsule` it preserved,
+and from that moment the row was unreachable from every direction: `isArtifactCanonicallyOwned`
+refuses those two types without a live conversation, so the Library did not list it, `GET` answered
+404, and the bulk "forget all" actions skipped it. The row, its chunks, its embeddings, its
+extraction job row, its stored file and its MinerU parse bundle stayed on disk with nothing able to
+remove them.
+
+The delete path is fixed and the bulk "forget all generated results" action now includes these
+rows for the acting user. Neither reaches backwards across every account, so
+**`scripts/sweep-orphan-generated-artifacts.ts` must be run once with `--apply` after the
+production cutover.**
+
+```
+# Report only. --dry-run is the DEFAULT: with no flag nothing is deleted.
+DATABASE_PATH=./data/chat.db npx tsx scripts/sweep-orphan-generated-artifacts.ts
+
+# Delete.
+DATABASE_PATH=./data/chat.db npx tsx scripts/sweep-orphan-generated-artifacts.ts --apply
+```
+
+`DATABASE_PATH` must be set explicitly — the script refuses to run without it rather than picking
+up the app's `./data/chat.db` default, because a destructive sweep that silently follows a default
+can be pointed at production by a `cd`.
+
+The dry run prints counts per user and per type plus the first 20 ids. `--apply` deletes through
+`hardDeleteArtifactsForUser`, the same service function the app's own delete uses, so chunks,
+links, embeddings, parse bundles, extraction job rows and files on disk all go the way they would
+from the UI.
+
+What counts as unreachable is defined once, in
+`src/lib/server/services/knowledge/store/orphan-artifacts.ts`, and shared with the bulk action. An
+artifact is NEVER swept when it still has a conversation, when an `artifact_links` row connects it
+to a conversation or message that still exists, when it belongs to a document family with any
+reachable member, or when its chat file row and its bytes both survive.
 
 ## Verifying a deployment
 

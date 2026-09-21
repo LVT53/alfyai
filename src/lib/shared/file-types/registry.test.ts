@@ -434,17 +434,29 @@ describe("file-type registry invariants", () => {
 	});
 
 	it("only advertises extraction formats the upload endpoint admits", () => {
-		// The ids `model-facing.getSupportedExtractionSummary` names.
-		for (const id of ["txt", "html", "json", "pdf", "docx", "pptx", "xlsx"]) {
+		// The ids `model-facing.getSupportedExtractionSummary` names. One id per
+		// family: `docx` stands for `doc` too, `odt` for `ods`/`odp`.
+		for (const id of [
+			"txt",
+			"html",
+			"json",
+			"pdf",
+			"docx",
+			"xlsx",
+			"pptx",
+			"odt",
+			"epub",
+			"rtf",
+		]) {
 			const entry = FILE_TYPE_ENTRIES.find((candidate) => candidate.id === id);
 			expect(entry, `${id} is named in the extraction summary`).toBeDefined();
 			expect(entry?.intake.route).not.toBe("reject");
 		}
 		expect(getSupportedExtractionSummary("en")).toContain(
-			"PDF, DOCX, PPTX, XLSX",
+			"PDF, Word, Excel, PowerPoint, OpenDocument, EPUB, RTF",
 		);
 		expect(getSupportedExtractionSummary("hu")).toContain(
-			"PDF, DOCX, PPTX, XLSX",
+			"PDF, Word, Excel, PowerPoint, OpenDocument, EPUB, RTF",
 		);
 	});
 

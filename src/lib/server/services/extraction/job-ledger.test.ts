@@ -182,6 +182,173 @@ describe("claimNextExtractionJob", () => {
 			}),
 		).toBeNull();
 	});
+
+	// Fairness. The claim used to take the oldest 32 rows OVERALL, so one user
+	// who queues a folder of documents fills the whole window with their own
+	// rows; the per-user cap then rejects all 32 and the next user's single
+	// upload is never even looked at. The window now holds one row per user.
+	describe("fairness across users", () => {
+		async function enqueueFor(
+			owner: string,
+			artifact: string,
+			overrides: Record<string, unknown> = {},
+		) {
+			const { job } = await ledger.enqueueExtractionJob({
+				userId: owner,
+				conversationId: null,
+				origin: "upload",
+				intakeRoute: "mineru",
+				fileName: "report.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 2048,
+				sourceArtifactId: artifact,
+				...overrides,
+			});
+			return job;
+		}
+
+		it("claims B's only job no later than the second claim", async () => {
+			const busy = fixture.seedUser("user-busy");
+			const quiet = fixture.seedUser("user-quiet");
+
+			// A queues 100 documents FIRST, so every one of them is older than
+			// B's single upload.
+			for (let index = 0; index < 100; index += 1) {
+				const artifact = fixture.seedArtifact({
+					userId: busy,
+					name: `busy-${index}.pdf`,
+				});
+				await enqueueFor(busy, artifact);
+			}
+			const quietArtifact = fixture.seedArtifact({
+				userId: quiet,
+				name: "invoice.pdf",
+			});
+			const quietJob = await enqueueFor(quiet, quietArtifact);
+
+			const claimedIds: string[] = [];
+			for (let index = 0; index < 2; index += 1) {
+				const claimed = await ledger.claimNextExtractionJob({
+					workerId: `worker-${index}`,
+					globalLimit: 10,
+					// One in flight per user: A's second job is not claimable
+					// while A's first one runs, which is precisely the case the
+					// old window handled by claiming nothing at all for B.
+					perUserLimit: 1,
+				});
+				if (claimed) claimedIds.push(claimed.job.id);
+			}
+
+			expect(claimedIds).toContain(quietJob.id);
+		});
+
+		it("still puts priority before fairness", async () => {
+			const first = fixture.seedUser("user-first");
+			const second = fixture.seedUser("user-second");
+
+			const readbackArtifact = fixture.seedArtifact({
+				userId: first,
+				name: "old-readback.pdf",
+			});
+			// Older, but a readback: priority 1 loses to an upload.
+			await enqueueFor(first, readbackArtifact, {
+				origin: "readback",
+				priority: 1,
+			});
+			const uploadArtifact = fixture.seedArtifact({
+				userId: second,
+				name: "new-upload.pdf",
+			});
+			const upload = await enqueueFor(second, uploadArtifact, {
+				priority: 0,
+			});
+
+			const claimed = await ledger.claimNextExtractionJob({
+				workerId: WORKER,
+				globalLimit: 10,
+				perUserLimit: 5,
+			});
+			expect(claimed?.job.id).toBe(upload.id);
+		});
+
+		it("still honours the per-user cap and the next_attempt_at gate", async () => {
+			const owner = fixture.seedUser("user-capped");
+			const firstArtifact = fixture.seedArtifact({
+				userId: owner,
+				name: "one.pdf",
+			});
+			const secondArtifact = fixture.seedArtifact({
+				userId: owner,
+				name: "two.pdf",
+			});
+			await enqueueFor(owner, firstArtifact);
+			await enqueueFor(owner, secondArtifact);
+
+			const first = await ledger.claimNextExtractionJob({
+				workerId: "worker-1",
+				globalLimit: 10,
+				perUserLimit: 1,
+			});
+			expect(first).not.toBeNull();
+			// The cap, not the window, is what refuses the second one.
+			expect(
+				await ledger.claimNextExtractionJob({
+					workerId: "worker-2",
+					globalLimit: 10,
+					perUserLimit: 1,
+				}),
+			).toBeNull();
+
+			// And a job whose backoff has not elapsed is invisible whatever the
+			// caps say.
+			const backoffOwner = fixture.seedUser("user-backoff");
+			const backoffArtifact = fixture.seedArtifact({
+				userId: backoffOwner,
+				name: "later.pdf",
+			});
+			const backoffJob = await enqueueFor(backoffOwner, backoffArtifact);
+			fixture.sqlite
+				.prepare(
+					"UPDATE document_extraction_jobs SET next_attempt_at = ? WHERE id = ?",
+				)
+				.run(Math.floor(Date.now() / 1000) + 3600, backoffJob.id);
+
+			expect(
+				await ledger.claimNextExtractionJob({
+					workerId: "worker-3",
+					globalLimit: 10,
+					perUserLimit: 1,
+				}),
+			).toBeNull();
+		});
+
+		// "Fair" must not mean "scans the table". The candidate query is driven
+		// by document_extraction_jobs_claim_idx, whose leading column is the
+		// status the gate pins.
+		it("drives the candidate query from the claim index", () => {
+			const plan = fixture.sqlite
+				.prepare(
+					`EXPLAIN QUERY PLAN
+					 select id from (
+					   select id, priority, created_at,
+					          row_number() over (
+					            partition by user_id
+					            order by priority asc, created_at asc, id asc
+					          ) as user_rank
+					   from document_extraction_jobs
+					   where status = 'queued'
+					     and (next_attempt_at is null or next_attempt_at <= 0)
+					 )
+					 where user_rank = 1
+					 order by priority asc, created_at asc, id asc
+					 limit 32`,
+				)
+				.all() as Array<{ detail: string }>;
+			const detail = plan.map((row) => row.detail).join(" | ");
+			expect(detail).toContain("document_extraction_jobs_claim_idx");
+			expect(detail).not.toMatch(/\bSCAN document_extraction_jobs\b(?! USING)/);
+		});
+	});
 });
 
 describe("progress and heartbeat", () => {
