@@ -1810,6 +1810,55 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			expect(result.contentText).toBe("# Release notes\n\n- First cut.");
 		});
 
+		// Incognito is a promise the UI makes in plain words — "Incognito ·
+		// nothing here is remembered", and the sidebar marks the chat "not
+		// remembered". Before cross-conversation pickup, a file made in an
+		// incognito chat could not surface anywhere else, so the promise held
+		// by construction. Now it can: `chat_generated_files` carries no
+		// incognito flag and the lookup never joins `conversations`, so the
+		// same user's next chat can read the file by name and is told it came
+		// "from an earlier conversation". Incognito must gate the file the way
+		// it gates the memory pipeline.
+		it("never reads a file out of an incognito conversation", async () => {
+			memory.db
+				.update(schema.conversations)
+				.set({ memoryIncognito: true })
+				.where(eq(schema.conversations.id, OTHER_CONVERSATION))
+				.run();
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Secret.",
+				mimeType: "text/markdown",
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(result.notFound).toBe(true);
+			expect(result.contentText ?? null).toBeNull();
+		});
+
+		it("does not even name an incognito conversation's file as a candidate", async () => {
+			memory.db
+				.update(schema.conversations)
+				.set({ memoryIncognito: true })
+				.where(eq(schema.conversations.id, OTHER_CONVERSATION))
+				.run();
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Secret.",
+				mimeType: "text/markdown",
+			});
+
+			// A miss hands the model up to four filenames from elsewhere. An
+			// incognito filename is still the content of an incognito chat.
+			const result = await read({ filename: "no-such-file.md" });
+
+			expect(result.notFound).toBe(true);
+			expect(
+				(result.candidates ?? []).map((candidate) => candidate.filename),
+			).not.toContain("release-notes.md");
+		});
+
 		it("says where it came from, and how many versions there are", async () => {
 			await seedEarlierVersion({
 				filename: "release-notes.md",

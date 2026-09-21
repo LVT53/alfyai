@@ -7,6 +7,7 @@ import { db } from "$lib/server/db";
 import {
 	artifacts,
 	chatGeneratedFiles,
+	conversations,
 	fileProductionJobFiles,
 } from "$lib/server/db/schema";
 import {
@@ -375,6 +376,17 @@ const CROSS_CONVERSATION_FILE_SCAN_LIMIT = 300;
  * because nothing has to: `chat_generated_files.conversation_id` is
  * `on delete cascade`, and conversation deletion is a real DELETE, so those
  * rows are gone rather than hidden.
+ *
+ * INCOGNITO IS EXCLUDED, and it is the one thing here that is not about
+ * ownership. `conversations.memory_incognito` is a promise the composer makes
+ * in plain words — "nothing here is remembered" — and until this pass existed
+ * that promise held by construction, because a file made in one conversation
+ * could not surface in another at all. Reaching across conversations without
+ * this join would have turned an incognito chat's output into something the
+ * user's NEXT chat can read back by name and describe as coming "from an
+ * earlier conversation". The join is on the conversation, not on the file,
+ * because incognito is a property of the chat and can be toggled after the
+ * file was produced; the current setting is the one that governs.
  */
 async function listUserChatFilesElsewhere(params: {
 	userId: string;
@@ -383,10 +395,15 @@ async function listUserChatFilesElsewhere(params: {
 	return db
 		.select(chatFileSelection)
 		.from(chatGeneratedFiles)
+		.innerJoin(
+			conversations,
+			eq(conversations.id, chatGeneratedFiles.conversationId),
+		)
 		.where(
 			and(
 				eq(chatGeneratedFiles.userId, params.userId),
 				ne(chatGeneratedFiles.conversationId, params.conversationId),
+				eq(conversations.memoryIncognito, false),
 			),
 		)
 		.orderBy(desc(chatGeneratedFiles.createdAt))
