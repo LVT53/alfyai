@@ -574,6 +574,9 @@ function reextractErrorMessage(error: unknown): string {
 	if (code === "tier_not_higher") {
 		return $t("knowledge.extraction.reextract.error.tier_not_higher");
 	}
+	if (code === "reextract_limit") {
+		return $t("knowledge.extraction.reextract.error.reextract_limit");
+	}
 	return $t("knowledge.extraction.reextract.failed");
 }
 

@@ -25,7 +25,12 @@ import {
 	materializeLegacyExtractionJob,
 	wakeExtractionWorker,
 } from "$lib/server/services/extraction";
-import { requeueExtractionJobForReextraction } from "$lib/server/services/extraction/reextract";
+import {
+	MAX_ACTIVE_REEXTRACTIONS_PER_USER,
+	REEXTRACT_HINT_KEY,
+	REEXTRACT_RETRY_AFTER_SECONDS,
+	requeueExtractionJobForReextraction,
+} from "$lib/server/services/extraction/reextract";
 import { getArtifactForUser } from "$lib/server/services/knowledge/store/core";
 import { getMineruCapabilities } from "$lib/server/services/mineru/capabilities";
 import {
@@ -243,7 +248,11 @@ export const POST: RequestHandler = async (event) => {
 	const requeued = await requeueExtractionJobForReextraction({
 		userId: user.id,
 		jobId,
-		hints: { tier: requestedTier },
+		// `reextract: true` is what the per-user cap counts. The ledger has no
+		// column that separates "this row was requeued by the Re-extract action"
+		// from "this row was enqueued by an upload", and hints are the durable,
+		// already-rewritten-per-requeue place to record it without a migration.
+		hints: { tier: requestedTier, [REEXTRACT_HINT_KEY]: true },
 	});
 
 	if (!requeued.ok) {
@@ -254,6 +263,22 @@ export const POST: RequestHandler = async (event) => {
 					code: "extraction_job_active",
 				},
 				{ status: 409 },
+			);
+		}
+		if (requeued.reason === "user_limit") {
+			// 429, not 409: this is "too many of these at once", and it clears on
+			// its own as the queued jobs drain. `Retry-After` is one job's worth
+			// of MinerU time — advisory, because the seat frees when a job ends.
+			return json(
+				{
+					error: "Too many re-extractions are already queued for this account",
+					code: "reextract_limit",
+					limit: MAX_ACTIVE_REEXTRACTIONS_PER_USER,
+				},
+				{
+					status: 429,
+					headers: { "Retry-After": String(REEXTRACT_RETRY_AFTER_SECONDS) },
+				},
 			);
 		}
 		if (requeued.reason === "attempt_ceiling") {

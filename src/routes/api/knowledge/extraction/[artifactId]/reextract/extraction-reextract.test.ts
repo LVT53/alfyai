@@ -51,6 +51,13 @@ let ledger: Ledger;
 
 const OWNER = "user-owner";
 const STRANGER = "user-stranger";
+/**
+ * Mirrors `MAX_ACTIVE_REEXTRACTIONS_PER_USER`. Restated rather than imported:
+ * `reextract.ts` pulls in `$lib/server/db`, which opens a database at import
+ * time, and this file has to seed one and point `DATABASE_PATH` at it first.
+ * The `limit` assertion below fails loudly if the two ever drift.
+ */
+const REEXTRACT_LIMIT = 5;
 const LONG_AGO = new Date("2026-01-01T00:00:00.000Z");
 
 function makeEvent(
@@ -158,7 +165,12 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 
 		const row = jobRow(job.id);
 		expect(row.status).toBe("queued");
-		expect(JSON.parse(row.hints_json ?? "null")).toEqual({ tier: "basic" });
+		// `reextract: true` is what the per-user cap counts; the ledger itself
+		// never reads either key.
+		expect(JSON.parse(row.hints_json ?? "null")).toEqual({
+			tier: "basic",
+			reextract: true,
+		});
 		expect(row.remote_handle_json).toBeNull();
 		// The façade wakes the worker through a lazy import, so the call lands a
 		// microtask after the response.
@@ -338,6 +350,93 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 		expect((await response.json()).code).toBe("extraction_job_active");
 	});
 
+	it("caps how many re-extractions one user may have in flight", async () => {
+		// The per-document guards bound one file. Nothing bounded a library:
+		// fifty rows and fifty clicks is fifty parses queued on a backend that
+		// serves one job at a time.
+		const queued: string[] = [];
+		for (let index = 0; index < REEXTRACT_LIMIT; index++) {
+			const artifactId = fixture.seedArtifact({ userId: OWNER });
+			const { job } = await enqueueSucceeded(OWNER, artifactId);
+			const response = await route.POST(
+				makeEvent(artifactId, OWNER, { tier: "basic" }),
+			);
+			expect(response.status).toBe(200);
+			queued.push(job.id);
+		}
+		for (const jobId of queued) {
+			expect(jobRow(jobId).status).toBe("queued");
+			expect(JSON.parse(jobRow(jobId).hints_json ?? "null")).toEqual({
+				tier: "basic",
+				reextract: true,
+			});
+		}
+
+		const oneMore = fixture.seedArtifact({ userId: OWNER });
+		const { job: refused } = await enqueueSucceeded(OWNER, oneMore);
+		const response = await route.POST(
+			makeEvent(oneMore, OWNER, { tier: "basic" }),
+		);
+		expect(response.status).toBe(429);
+		expect(response.headers.get("Retry-After")).toBeTruthy();
+		const body = (await response.json()) as { code: string; limit: number };
+		expect(body.code).toBe("reextract_limit");
+		expect(body.limit).toBe(REEXTRACT_LIMIT);
+		expect(jobRow(refused.id).status).toBe("succeeded");
+
+		// Another user is unaffected: the cap is per account, not global.
+		const theirs = fixture.seedArtifact({ userId: STRANGER });
+		await enqueueSucceeded(STRANGER, theirs);
+		const stranger = await route.POST(
+			makeEvent(theirs, STRANGER, { tier: "basic" }),
+		);
+		expect(stranger.status).toBe(200);
+	});
+
+	it("does not count an upload's queued job against the re-extract cap", async () => {
+		// Only jobs that CAME FROM Re-extract hold a seat. A library that is
+		// still uploading must not lock the action out.
+		for (let index = 0; index < REEXTRACT_LIMIT + 2; index++) {
+			await ledger.enqueueExtractionJob({
+				userId: OWNER,
+				conversationId: null,
+				origin: "upload",
+				intakeRoute: "mineru",
+				fileName: `upload-${index}.pdf`,
+				mimeType: "application/pdf",
+				sizeBytes: 2048,
+				sourceArtifactId: fixture.seedArtifact({ userId: OWNER }),
+			});
+		}
+
+		const artifactId = fixture.seedArtifact({ userId: OWNER });
+		await enqueueSucceeded(OWNER, artifactId);
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "basic" }),
+		);
+		expect(response.status).toBe(200);
+	});
+
+	it("frees a seat when a re-extraction finishes", async () => {
+		const jobIds: string[] = [];
+		for (let index = 0; index < REEXTRACT_LIMIT; index++) {
+			const artifactId = fixture.seedArtifact({ userId: OWNER });
+			const { job } = await enqueueSucceeded(OWNER, artifactId);
+			await route.POST(makeEvent(artifactId, OWNER, { tier: "basic" }));
+			jobIds.push(job.id);
+		}
+		fixture.sqlite
+			.prepare("UPDATE document_extraction_jobs SET status = ? WHERE id = ?")
+			.run("succeeded", jobIds[0]);
+
+		const artifactId = fixture.seedArtifact({ userId: OWNER });
+		await enqueueSucceeded(OWNER, artifactId);
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "basic" }),
+		);
+		expect(response.status).toBe(200);
+	});
+
 	it("refuses past the total-attempt ceiling, exactly as Retry does", async () => {
 		const artifactId = fixture.seedArtifact({ userId: OWNER });
 		const { job } = await enqueueSucceeded(OWNER, artifactId);
@@ -383,7 +482,10 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 			)
 			.get(artifactId) as { status: string; hints_json: string };
 		expect(row.status).toBe("queued");
-		expect(JSON.parse(row.hints_json)).toEqual({ tier: "basic" });
+		expect(JSON.parse(row.hints_json)).toEqual({
+			tier: "basic",
+			reextract: true,
+		});
 	});
 
 	it("does not materialise a row for a stranger's pre-ledger document", async () => {
