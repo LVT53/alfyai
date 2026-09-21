@@ -2,6 +2,7 @@ import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { and, eq, inArray, like, ne, or } from "drizzle-orm";
 import { db } from "$lib/server/db";
+import { batchIds, selectInBatches } from "$lib/server/db/id-batches";
 import {
 	artifactLinks,
 	artifacts,
@@ -40,15 +41,21 @@ export async function hardDeleteArtifactsForUser(
 	}
 
 	const ownershipScope = await getArtifactOwnershipScope(userId);
-	const artifactsToDelete = await db
-		.select()
-		.from(artifacts)
-		.where(
-			and(
-				inArray(artifacts.id, uniqueIds),
-				buildArtifactVisibilityCondition({ userId, ownershipScope }),
+	// Batched from here down. A bulk "forget all" for a heavy user, and the
+	// orphan sweep for a box that stranded rows for a year, both arrive here
+	// with more ids than SQLite will bind into one `IN (...)` — and the
+	// `artifact_links` delete below spends two parameters per id.
+	const artifactsToDelete = await selectInBatches(uniqueIds, (batch) =>
+		db
+			.select()
+			.from(artifacts)
+			.where(
+				and(
+					inArray(artifacts.id, batch),
+					buildArtifactVisibilityCondition({ userId, ownershipScope }),
+				),
 			),
-		);
+	);
 	// The DELETE authority, not the retrieval one: a row the user owns is theirs
 	// to remove even after its conversation link was cleared. See
 	// `isArtifactDeletableByUser`.
@@ -69,25 +76,30 @@ export async function hardDeleteArtifactsForUser(
 		};
 	}
 
+	// One transaction for the whole batch set, so a crash mid-way leaves either
+	// every row or none: a half-applied delete would leave links pointing at
+	// artifacts that are gone.
 	await db.transaction((tx) => {
-		tx.delete(conversationWorkingSetItems)
-			.where(inArray(conversationWorkingSetItems.artifactId, ids))
-			.run();
+		for (const batch of batchIds(ids)) {
+			tx.delete(conversationWorkingSetItems)
+				.where(inArray(conversationWorkingSetItems.artifactId, batch))
+				.run();
 
-		tx.delete(taskStateEvidenceLinks)
-			.where(inArray(taskStateEvidenceLinks.artifactId, ids))
-			.run();
+			tx.delete(taskStateEvidenceLinks)
+				.where(inArray(taskStateEvidenceLinks.artifactId, batch))
+				.run();
 
-		tx.delete(artifactLinks)
-			.where(
-				or(
-					inArray(artifactLinks.artifactId, ids),
-					inArray(artifactLinks.relatedArtifactId, ids),
-				),
-			)
-			.run();
+			tx.delete(artifactLinks)
+				.where(
+					or(
+						inArray(artifactLinks.artifactId, batch),
+						inArray(artifactLinks.relatedArtifactId, batch),
+					),
+				)
+				.run();
 
-		tx.delete(artifacts).where(inArray(artifacts.id, ids)).run();
+			tx.delete(artifacts).where(inArray(artifacts.id, batch)).run();
+		}
 	});
 
 	const deletedStoragePaths: string[] = [];
@@ -357,33 +369,38 @@ export async function deleteKnowledgeArtifactsByAction(
 	deletedStoragePaths: string[];
 	failedStoragePaths: string[];
 }> {
-	if (action === "forget_all_results") {
-		const resultArtifactIds = await listOwnedArtifactIdsByType(
+	// Both working types are stranded the same way and must be swept the same
+	// way. A `generated_output` or a `work_capsule` whose conversation was
+	// deleted before release f41f7931 has a null `conversation_id`, which
+	// `isArtifactCanonicallyOwned` reads as "not this user's" — so the bulk
+	// buttons quietly left behind exactly the rows a user most wants gone.
+	// `listOrphanGeneratedArtifacts` is the ONE definition of unreachable, the
+	// same one the maintenance sweep uses, and `hardDeleteArtifactsForUser`
+	// still applies the DELETE authority to every id it returns.
+	//
+	// `forget_all_results` learned this first and `forget_all_workflows` did
+	// not, which left one button fixed and the other still skipping the
+	// capsules — one predicate, two answers, which is the failure this module
+	// exists to prevent.
+	const bulkArtifactType =
+		action === "forget_all_results"
+			? "generated_output"
+			: action === "forget_all_workflows"
+				? "work_capsule"
+				: null;
+
+	if (bulkArtifactType) {
+		const ownedArtifactIds = await listOwnedArtifactIdsByType(
 			userId,
-			"generated_output",
+			bulkArtifactType,
 		);
-		// Plus the ones canonical ownership cannot see. A `generated_output`
-		// whose conversation was deleted before release f41f7931 has a null
-		// `conversation_id`, which `isArtifactCanonicallyOwned` reads as "not
-		// this user's" — so "forget all generated results" quietly left exactly
-		// the results a user most wants gone. `listOrphanGeneratedArtifacts`
-		// only returns rows nothing can reach, and `hardDeleteArtifactsForUser`
-		// still applies the DELETE authority to each one.
 		const orphans = await listOrphanGeneratedArtifacts({ userId });
 		return hardDeleteArtifactsForUser(userId, [
-			...resultArtifactIds,
+			...ownedArtifactIds,
 			...orphans
-				.filter((row) => row.type === "generated_output")
+				.filter((row) => row.type === bulkArtifactType)
 				.map((row) => row.id),
 		]);
-	}
-
-	if (action === "forget_all_workflows") {
-		const workflowArtifactIds = await listOwnedArtifactIdsByType(
-			userId,
-			"work_capsule",
-		);
-		return hardDeleteArtifactsForUser(userId, workflowArtifactIds);
 	}
 
 	const rootArtifactIds = await listDocumentRootArtifactIds(userId);
