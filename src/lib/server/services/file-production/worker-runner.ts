@@ -191,7 +191,12 @@ async function executeNextFileProductionJobStep(
 		workerId: input.workerId,
 	};
 	const attemptStartedAtMs = Date.now();
-	const stopHeartbeat = startAttemptHeartbeat(owned, input.heartbeatMs);
+	// One controller per ATTEMPT, fired by the heartbeat the moment the claim
+	// turns out to be gone — which is what a user cancel and a stale reclaim
+	// both look like from here. It reaches every renderer, the inline_text
+	// writer and the sandbox container.
+	const abort = new AbortController();
+	const stopHeartbeat = startAttemptHeartbeat(owned, input.heartbeatMs, abort);
 
 	try {
 		const execution = await executePersistedFileProductionRequest({
@@ -203,6 +208,8 @@ async function executeNextFileProductionJobStep(
 			title: currentJobRow.title,
 			documentIntent: currentJobRow.documentIntent,
 			executeCode: input.executeCode,
+			signal: abort.signal,
+			limits: input.limits,
 		});
 		if (!execution.ok) {
 			await failAttempt({
@@ -302,15 +309,19 @@ async function executeNextFileProductionJobStep(
  * had to be longer than the sandbox timeout, and why a restart-orphaned attempt
  * looked healthy for ten minutes.
  *
- * A beat that comes back `false` means the claim is gone — a sweep or a cancel
- * took it — so there is nothing left to mark alive and the timer stops. Nothing
- * aborts the work in flight: the renderers take no `AbortSignal` today, and the
- * ledger's CAS already refuses this attempt's late verdict, so the worst case
- * is wasted CPU, never a stale write over newer state.
+ * A beat that comes back `false` means the claim is gone — a stale sweep took
+ * it, or the user cancelled, which writes `cancelled` over the `running` row
+ * and so fails the very same CAS. The timer stops, and the attempt's abort
+ * controller fires: the renderers and the sandbox both honour it now, so the
+ * work in flight stops at its next cooperative checkpoint instead of laying out
+ * another few hundred pages for a job nobody is waiting for. The ledger's CAS
+ * still refuses this attempt's late verdict, so this is about CPU, never about
+ * a stale write over newer state.
  */
 function startAttemptHeartbeat(
 	owned: { jobId: string; attemptId: string; workerId: string },
 	overrideMs?: number,
+	abort?: AbortController,
 ): () => void {
 	const heartbeatMs = Math.max(
 		250,
@@ -319,7 +330,9 @@ function startAttemptHeartbeat(
 	const timer = setInterval(() => {
 		void heartbeatFileProductionJobAttempt(owned)
 			.then((alive) => {
-				if (!alive) clearInterval(timer);
+				if (alive) return;
+				clearInterval(timer);
+				abort?.abort();
 			})
 			// Nothing awaits this promise, so without a catch one SQLITE_BUSY on a
 			// heartbeat write becomes an unhandled rejection — which Node 22 turns

@@ -9,6 +9,7 @@ import {
 	TextRun,
 	WidthType,
 } from "docx";
+import type { RenderBudget } from "../render-budget";
 import type {
 	GeneratedDocumentBlock,
 	GeneratedDocumentSource,
@@ -211,14 +212,30 @@ function renderBlock(block: GeneratedDocumentBlock): Array<Paragraph | Table> {
 	}
 }
 
+export interface StandardReportDocxRenderOptions {
+	/** The renderer timeout and the cancel signal; omitted, unbounded. */
+	budget?: RenderBudget;
+}
+
 export async function renderStandardReportDocx(
 	source: GeneratedDocumentSource,
+	options: StandardReportDocxRenderOptions = {},
 ): Promise<StandardReportDocxRenderResult> {
+	const budget = options.budget ?? null;
+	budget?.checkpoint();
 	const children: Array<Paragraph | Table> = [
 		new Paragraph({ text: source.title, heading: HeadingLevel.TITLE }),
 		...(source.subtitle ? [paragraph(source.subtitle)] : []),
-		...source.blocks.flatMap(renderBlock),
 	];
+	// Block by block rather than one `flatMap`, so the deadline and the cancel
+	// signal are honoured here too. DOCX layout peaks around 0.2 s, so this is
+	// mostly about cancel arriving promptly — but "every renderer" has to mean
+	// every renderer, or the one that is exempt is the one that hangs.
+	for (const block of source.blocks) {
+		if (budget) await budget.yieldIfDue();
+		children.push(...renderBlock(block));
+	}
+	budget?.checkpoint();
 	const document = new Document({
 		creator: "AlfyAI",
 		title: source.title,

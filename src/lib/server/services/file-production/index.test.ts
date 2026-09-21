@@ -1950,6 +1950,8 @@ describe("file production service", () => {
 		expect(executeCode).toHaveBeenCalledWith(
 			'from pathlib import Path\nPath("/output/data.csv").write_text("a,b\\n1,2")',
 			"python",
+			// The attempt's abort signal: a cancel has to reach the container.
+			{ signal: expect.any(AbortSignal) },
 		);
 		expect(storeGeneratedFile).toHaveBeenCalledWith("conv-1", "user-1", {
 			assistantMessageId: null,
@@ -2554,7 +2556,9 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			now: new Date("2026-05-03T20:08:00.000Z"),
 		});
 
-		expect(executeCode).toHaveBeenCalledWith(sourceCode, "javascript");
+		expect(executeCode).toHaveBeenCalledWith(sourceCode, "javascript", {
+			signal: expect.any(AbortSignal),
+		});
 		expect(storeGeneratedFile).toHaveBeenCalledTimes(1);
 		const jobs = await listConversationFileProductionJobs("user-1", "conv-1");
 		expect(jobs.find((job) => job.id === created.job.id)).toMatchObject({

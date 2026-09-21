@@ -852,6 +852,17 @@ export interface ExecuteCodeOptions {
 	// arithmetic that is well over a second of pure latency on every single
 	// successful call, spent collecting files the caller then throws away.
 	collectFiles?: boolean;
+	/**
+	 * Stops the run early: the container is SIGKILLed the same way the sandbox
+	 * timeout kills it.
+	 *
+	 * Without this, a cancelled file-production job kept a container busy for
+	 * the whole remaining sandbox timeout — up to five minutes of CPU spent on
+	 * a file the user had already told us to throw away, and, because the claim
+	 * refuses to take anything while one row is `running`, five minutes during
+	 * which nobody else's file could be produced either.
+	 */
+	signal?: AbortSignal;
 }
 
 export async function executeCode(
@@ -860,6 +871,14 @@ export async function executeCode(
 	options: ExecuteCodeOptions = {},
 ): Promise<ExecutionResult> {
 	const collectFiles = options.collectFiles ?? true;
+	if (options.signal?.aborted) {
+		return {
+			files: [],
+			stdout: "",
+			stderr: "",
+			error: "Execution cancelled",
+		};
+	}
 	if (language !== "python" && language !== "javascript") {
 		return {
 			files: [],
@@ -880,24 +899,40 @@ export async function executeCode(
 			exitCode: number;
 		}>((resolve, reject) => {
 			const timeoutMs = getSandboxTimeout(language);
-			const timeoutId = setTimeout(async () => {
-				// SECURITY: Kill the container on timeout, not just reject
+			const killContainer = async () => {
 				try {
 					await sandbox.container.kill({ signal: "SIGKILL" });
 				} catch {
 					// Container may already be stopped
 				}
+			};
+			const timeoutId = setTimeout(async () => {
+				// SECURITY: Kill the container on timeout, not just reject
+				await killContainer();
 				reject(new Error(`Sandbox execution timed out after ${timeoutMs}ms`));
 			}, timeoutMs);
+
+			// A cancel takes the same route the timeout does — kill the container,
+			// then reject — because there is no other way to stop code that is
+			// already running inside it.
+			const onAbort = () => {
+				clearTimeout(timeoutId);
+				void killContainer().then(() => {
+					reject(new Error("Sandbox execution cancelled"));
+				});
+			};
+			options.signal?.addEventListener("abort", onAbort, { once: true });
 
 			sandbox
 				.execute(wrappedCode)
 				.then((res) => {
 					clearTimeout(timeoutId);
+					options.signal?.removeEventListener("abort", onAbort);
 					resolve(res);
 				})
 				.catch((err) => {
 					clearTimeout(timeoutId);
+					options.signal?.removeEventListener("abort", onAbort);
 					reject(err);
 				});
 		});
@@ -1041,6 +1076,14 @@ export async function executeCode(
 	} catch (err) {
 		const errorMessage = err instanceof Error ? err.message : String(err);
 
+		if (errorMessage.includes("cancelled")) {
+			return {
+				files: [],
+				stdout: "",
+				stderr: "",
+				error: "Execution cancelled",
+			};
+		}
 		if (errorMessage.includes("timed out")) {
 			return {
 				files: [],

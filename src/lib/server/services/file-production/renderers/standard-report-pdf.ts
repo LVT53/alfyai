@@ -16,6 +16,7 @@ import {
 	type GeneratedDocumentImageLoadResult,
 	loadGeneratedDocumentImage,
 } from "../image-loader";
+import type { RenderBudget } from "../render-budget";
 import type {
 	GeneratedDocumentBlock,
 	GeneratedDocumentChartBlock,
@@ -172,6 +173,18 @@ export interface StandardReportPdfRenderOptions {
 		source: Extract<GeneratedDocumentBlock, { type: "image" }>["source"],
 	) => Promise<GeneratedDocumentImageLoadResult>;
 	now?: Date;
+	/**
+	 * The renderer timeout and the cancel signal. Omitted, the layout runs
+	 * unbounded, which is what every existing direct caller (tests, fixtures)
+	 * wants; the worker always passes one.
+	 */
+	budget?: RenderBudget;
+	/**
+	 * Hard ceiling on pages. Checked as each page is added rather than after
+	 * `pdfDoc.save()`, so a runaway document stops costing CPU at the page that
+	 * crosses the line instead of after every page has been laid out.
+	 */
+	maxPages?: number;
 }
 
 export class StandardReportPdfRenderError extends Error {
@@ -622,6 +635,8 @@ class StandardReportPdfLayout {
 		private readonly source: GeneratedDocumentSource,
 		private readonly fonts: FontSet,
 		private readonly generatedAt: Date,
+		private readonly budget: RenderBudget | null = null,
+		private readonly maxPages: number | null = null,
 	) {
 		this.page = this.createPage();
 		this.y = this.contentTop();
@@ -655,7 +670,25 @@ class StandardReportPdfLayout {
 		return page;
 	}
 
+	/**
+	 * The one place a page is added, and therefore the one place worth
+	 * checking: it is reached from every drawing path, its state is consistent,
+	 * and the two things that have to stop a runaway layout — the page ceiling
+	 * and the deadline — are both about how much of this document has been laid
+	 * out so far.
+	 *
+	 * The page limit used to be declared in `limits.ts` and enforced nowhere, so
+	 * a document that would have run to thousands of pages was laid out in full,
+	 * saved in full, and only then measured — if it was measured at all.
+	 */
 	private addPage(): void {
+		this.budget?.checkpoint();
+		if (this.maxPages !== null && this.pdfDoc.getPageCount() >= this.maxPages) {
+			throw new StandardReportPdfRenderError(
+				"page_limit_exceeded",
+				`This document is longer than the ${this.maxPages}-page limit for a generated PDF. Shorten it, or split it into several files.`,
+			);
+		}
 		this.page = this.createPage();
 		this.y = this.contentTop();
 	}
@@ -1191,7 +1224,17 @@ class StandardReportPdfLayout {
 		}
 	}
 
-	drawTable(block: Extract<GeneratedDocumentBlock, { type: "table" }>): void {
+	/**
+	 * Async only so the row loop can yield.
+	 *
+	 * A table is the one block that can be arbitrarily long on its own — the
+	 * row cap is 10 000 — so yielding between BLOCKS is not enough: one table
+	 * would still hold the event loop for the whole of its layout, which is
+	 * precisely the shape that made a timer-based timeout impossible.
+	 */
+	async drawTable(
+		block: Extract<GeneratedDocumentBlock, { type: "table" }>,
+	): Promise<void> {
 		if (block.columns.length > 8) {
 			throw new StandardReportPdfRenderError(
 				"table_limit_exceeded",
@@ -1317,6 +1360,7 @@ class StandardReportPdfLayout {
 		const maxRowHeight =
 			this.contentTop() - this.contentBottom() - headerHeight - 12;
 		for (const [rowIndex, row] of block.rows.entries()) {
+			if (this.budget) await this.budget.yieldIfDue();
 			const rowLines = block.columns.map((column, index) =>
 				wrapText(
 					this.formatTableValue(row[column.key], column.kind),
@@ -2027,6 +2071,8 @@ export async function renderStandardReportPdf(
 	pdfDoc.setSubject("AlfyAI Standard Report");
 	pdfDoc.setKeywords(["AlfyAI", "generated document", "standard report"]);
 
+	const budget = options.budget ?? null;
+	budget?.checkpoint();
 	const fonts = await embedFonts(pdfDoc);
 	const generatedAt = options.now ?? new Date();
 	const layout = new StandardReportPdfLayout(
@@ -2034,6 +2080,10 @@ export async function renderStandardReportPdf(
 		source,
 		fonts,
 		generatedAt,
+		budget,
+		typeof options.maxPages === "number" && options.maxPages > 0
+			? Math.trunc(options.maxPages)
+			: null,
 	);
 	if (source.cover) {
 		layout.drawCover();
@@ -2062,6 +2112,9 @@ export async function renderStandardReportPdf(
 		: -1;
 	let legendDrawn = false;
 	for (const [blockIndex, block] of visibleBlocks.entries()) {
+		// The block boundary: state is consistent, nothing is half-drawn, and it
+		// is the natural place to let the heartbeat and the abort signal through.
+		if (budget) await budget.yieldIfDue();
 		switch (block.type) {
 			case "heading":
 				layout.drawHeading(block.level, block.text);
@@ -2105,7 +2158,7 @@ export async function renderStandardReportPdf(
 				layout.drawPageBreak();
 				break;
 			case "table":
-				layout.drawTable(block);
+				await layout.drawTable(block);
 				break;
 			case "image":
 				await layout.drawImageBlock(block, imageLoader);
@@ -2124,6 +2177,9 @@ export async function renderStandardReportPdf(
 	}
 	layout.drawHeadersAndFooters();
 
+	// Last gate before `save()`, which is itself a long synchronous pass over
+	// every page: a render already past its deadline must not pay for it.
+	budget?.checkpoint();
 	const content = Buffer.from(await pdfDoc.save());
 	return {
 		filename: slugifyFilename(source.title),

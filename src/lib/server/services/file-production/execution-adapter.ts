@@ -11,10 +11,15 @@ import {
 } from "$lib/shared/file-types/production";
 import type { DocumentRenderKind } from "$lib/shared/file-types/types";
 import { createDefaultGeneratedDocumentImageLoader } from "./image-loader";
+import { type FileProductionLimits, getFileProductionLimits } from "./limits";
 import {
 	validateGeneratedOutputFile,
 	validateProducedFileSignature,
 } from "./output-validation";
+import {
+	FileProductionRenderAbortedError,
+	RenderBudget,
+} from "./render-budget";
 import { renderStandardReportDocx } from "./renderers/standard-report-docx";
 import { renderStandardReportHtml } from "./renderers/standard-report-html";
 import { renderStandardReportMarkdown } from "./renderers/standard-report-markdown";
@@ -72,7 +77,18 @@ export interface ExecutePersistedFileProductionRequestInput {
 	executeCode?: (
 		sourceCode: string,
 		language: "python" | "javascript",
+		options?: { signal?: AbortSignal },
 	) => Promise<ProgramExecutionResult>;
+	/**
+	 * Aborted when this ATTEMPT should stop: the user cancelled, the claim was
+	 * taken by a stale sweep, or the process is going away. Every renderer, the
+	 * inline_text writer and the sandbox honour it; the ledger's CAS refuses the
+	 * late verdict either way, so this is about not burning CPU on a job nobody
+	 * is waiting for rather than about correctness.
+	 */
+	signal?: AbortSignal;
+	/** Overrides individual configured limits. Test seam. */
+	limits?: Partial<FileProductionLimits>;
 }
 
 export type ExecutePersistedFileProductionRequestResult =
@@ -301,11 +317,15 @@ class InlineTextOutputError extends Error {
  */
 function runInlineText(
 	request: FileProductionInlineTextRequest,
+	budget: RenderBudget,
 ): Promise<ProgramExecutionResult> {
 	const content = Buffer.from(request.content, "utf8");
 	return (async () => {
 		const files: ProgramExecutionFile[] = [];
 		for (const file of request.files) {
+			// Per file: validation and the signature check are cheap, but a request
+			// may name several outputs and a cancel has to land somewhere.
+			await budget.yieldIfDue();
 			const mimeType =
 				getSandboxMimeTypeForExtension(extname(file.filename).toLowerCase()) ??
 				undefined;
@@ -340,6 +360,8 @@ async function renderDocumentSource(
 		{ sourceMode: "document_source" }
 	>,
 	input: ExecutePersistedFileProductionRequestInput,
+	budget: RenderBudget,
+	limits: FileProductionLimits,
 ): Promise<{ execution: ProgramExecutionResult; sourceArtifact: Artifact }> {
 	let sourceArtifact: Artifact;
 	try {
@@ -368,6 +390,8 @@ async function renderDocumentSource(
 					userId: input.userId,
 					conversationId: input.conversationId,
 				}),
+				budget,
+				maxPages: limits.maxPdfPages,
 			});
 			files.push({
 				filename: rendered.filename,
@@ -377,7 +401,9 @@ async function renderDocumentSource(
 			});
 		}
 		if (request.outputs.includes("docx")) {
-			const rendered = await renderStandardReportDocx(request.documentSource);
+			const rendered = await renderStandardReportDocx(request.documentSource, {
+				budget,
+			});
 			files.push({
 				filename: rendered.filename,
 				mimeType: rendered.mimeType,
@@ -391,11 +417,17 @@ async function renderDocumentSource(
 			// app, where a remote icon URL would both fail to resolve and tell every
 			// cited domain the reader opened this report. A failed lookup just means
 			// that source keeps the neutral globe.
+			await budget.yieldIfDue();
 			const favicons = await resolveReportFavicons(request.documentSource);
+			// HTML and Markdown lay out in microseconds and stay synchronous, so
+			// their bound is a gate on either side rather than checks inside them:
+			// a render already out of time never starts, and one that somehow
+			// overshoots is caught before its bytes are kept.
 			const rendered = renderStandardReportHtml(
 				request.documentSource,
 				favicons,
 			);
+			budget.checkpoint();
 			files.push({
 				filename: rendered.filename,
 				mimeType: rendered.mimeType,
@@ -404,7 +436,9 @@ async function renderDocumentSource(
 			});
 		}
 		if (request.outputs.includes("markdown")) {
+			await budget.yieldIfDue();
 			const rendered = renderStandardReportMarkdown(request.documentSource);
+			budget.checkpoint();
 			files.push({
 				filename: rendered.filename,
 				mimeType: rendered.mimeType,
@@ -451,15 +485,37 @@ export async function executePersistedFileProductionRequest(
 		};
 	}
 
+	const limits: FileProductionLimits = {
+		...getFileProductionLimits(),
+		...input.limits,
+	};
+	// One budget for the whole attempt, not one per renderer: a request for a
+	// PDF and a DOCX is one job, and giving each output its own full timeout
+	// would let a two-output request run for twice the configured bound.
+	const budget = new RenderBudget({
+		timeoutMs: limits.rendererTimeoutMs,
+		signal: input.signal,
+	});
+
 	if (request.value.sourceMode === "inline_text") {
 		try {
 			return {
 				ok: true,
 				request: request.value,
-				execution: await runInlineText(request.value),
+				execution: await runInlineText(request.value, budget),
 				sourceArtifact: null,
 			};
 		} catch (error) {
+			if (error instanceof FileProductionRenderAbortedError) {
+				return {
+					ok: false,
+					errorCode: error.code,
+					errorMessage: error.message,
+					// A timeout is worth another go on a quieter box; a cancel is
+					// not, and the ledger's CAS will refuse this verdict anyway.
+					retryable: error.code === "renderer_timeout",
+				};
+			}
 			// Bad bytes are the model's to fix, not the infrastructure's: an
 			// inline_text failure is never retryable under the same request.
 			return {
@@ -480,9 +536,13 @@ export async function executePersistedFileProductionRequest(
 	if (request.value.sourceMode === "program") {
 		const executeCode = input.executeCode ?? executeSandboxCode;
 		try {
+			// The sandbox has its own timeout and its own SIGKILL; the signal is
+			// what makes a CANCEL reach the container instead of waiting out the
+			// full sandbox timeout on work nobody wants.
 			const execution = await executeCode(
 				request.value.sourceCode,
 				request.value.language,
+				{ signal: input.signal },
 			);
 			if (execution.error) {
 				return {
@@ -513,6 +573,8 @@ export async function executePersistedFileProductionRequest(
 		const { execution, sourceArtifact } = await renderDocumentSource(
 			request.value,
 			input,
+			budget,
+			limits,
 		);
 		return {
 			ok: true,
@@ -521,6 +583,14 @@ export async function executePersistedFileProductionRequest(
 			sourceArtifact,
 		};
 	} catch (error) {
+		if (error instanceof FileProductionRenderAbortedError) {
+			return {
+				ok: false,
+				errorCode: error.code,
+				errorMessage: error.message,
+				retryable: error.code === "renderer_timeout",
+			};
+		}
 		if (error instanceof GeneratedDocumentSourcePersistenceError) {
 			return {
 				ok: false,
