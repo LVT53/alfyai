@@ -241,8 +241,14 @@ function describeHealthFailure(
 ): { code: ExtractionErrorCode; message: string } {
 	const described = describeTransportError(error, signal, config.apiKey);
 	if (described.code !== "protocol") return described;
+	// `backend_misconfigured`, not `protocol`. The two used to share a code and
+	// therefore shared a verdict, which is wrong in both directions: a garbled
+	// response from a real MinerU 4 is worth another attempt, while THIS is a
+	// statement about `MINERU_API_URL` that no number of retries changes — and
+	// once an admin has changed it, every document that failed in the meantime
+	// has to be retryable, which a plain `protocol` was not.
 	return {
-		code: "protocol",
+		code: "backend_misconfigured",
 		message: `${mineruDisplayOrigin(config)} is not a MinerU 4 server: ${described.message}. MinerU 3.x is no longer supported; point MINERU_API_URL at a MinerU 4 endpoint.`,
 	};
 }

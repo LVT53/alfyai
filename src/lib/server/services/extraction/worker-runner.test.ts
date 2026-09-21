@@ -260,6 +260,7 @@ describe("executeNextExtractionJob", () => {
 			maxAttempts: 3,
 			retryBaseMs: 2000,
 			retryMaxMs: 60000,
+			outageWindowMs: 1_800_000,
 		});
 
 		const result = await running;
@@ -382,6 +383,7 @@ describe("executeNextExtractionJob", () => {
 				maxAttempts: 3,
 				retryBaseMs: 2000,
 				retryMaxMs: 60000,
+				outageWindowMs: 1_800_000,
 			}),
 		).toEqual({ recovered: 0, requeued: 0 });
 		expect((await ledger.getExtractionJobRow(job.id))?.status).toBe("indexing");

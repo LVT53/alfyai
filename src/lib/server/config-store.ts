@@ -181,6 +181,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"DOCUMENT_EXTRACTION_MAX_ATTEMPTS",
 	"DOCUMENT_EXTRACTION_RETRY_BASE_MS",
 	"DOCUMENT_EXTRACTION_RETRY_MAX_MS",
+	"DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS",
 	"DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS",
 	"DOCUMENT_EXTRACTION_HEARTBEAT_MS",
 	"DOCUMENT_EXTRACTION_INLINE_BUDGET_MS",
@@ -381,6 +382,7 @@ export interface RuntimeConfig {
 	documentExtractionMaxAttempts: number;
 	documentExtractionRetryBaseMs: number;
 	documentExtractionRetryMaxMs: number;
+	documentExtractionOutageWindowMs: number;
 	documentExtractionStaleAttemptMs: number;
 	documentExtractionHeartbeatMs: number;
 	documentExtractionInlineBudgetMs: number;
@@ -1321,6 +1323,14 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 				Math.min(3600000, parsed),
 			);
 	},
+	DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.documentExtractionOutageWindowMs = Math.max(
+				60000,
+				Math.min(86400000, parsed),
+			);
+	},
 	DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS: (config, value) => {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined)
@@ -1969,6 +1979,9 @@ export function getResolvedAdminConfigValues(
 		),
 		DOCUMENT_EXTRACTION_RETRY_MAX_MS: String(
 			config.documentExtractionRetryMaxMs,
+		),
+		DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS: String(
+			config.documentExtractionOutageWindowMs,
 		),
 		DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS: String(
 			config.documentExtractionStaleAttemptMs,

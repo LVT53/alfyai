@@ -271,6 +271,7 @@ describe("mapExtractionJobRow", () => {
 			maxAttempts: 3,
 			retryBaseMs: 2000,
 			retryMaxMs: 60000,
+			outageWindowMs: 1_800_000,
 		});
 
 		const dto = await readModel.getExtractionJobForArtifact({

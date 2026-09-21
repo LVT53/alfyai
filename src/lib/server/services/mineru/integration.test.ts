@@ -83,6 +83,22 @@ async function boot(
 	process.env.MINERU_CAPABILITIES_TTL_MS = "0";
 	for (const [key, value] of Object.entries(env)) process.env[key] = value;
 
+	await reimportAt(server.baseUrl, env.MINERU_API_URL);
+}
+
+/**
+ * Re-reads the whole module graph against a (possibly different) backend URL.
+ *
+ * The configuration is captured at module load, so "the backend moved" and
+ * "the backend came back" are both a re-import. The ledger rows live in the
+ * SQLite fixture and survive it, which is exactly what lets one test watch a
+ * job wait out an outage and then finish.
+ */
+async function reimportAt(
+	baseUrl: string,
+	override?: string | undefined,
+): Promise<void> {
+	process.env.MINERU_API_URL = override ?? baseUrl;
 	vi.resetModules();
 	worker = await import("$lib/server/services/extraction/worker-runner");
 	ledger = await import("$lib/server/services/extraction/job-ledger");
@@ -283,7 +299,7 @@ describe("a slow job walks the status ladder", () => {
 });
 
 describe("mapped failures reach the ledger row", () => {
-	it("auth_failed on a wrong key, once, non-retryably", async () => {
+	it("auth_failed on a wrong key: once, and only the USER may retry", async () => {
 		await boot({ apiKey: "the-real-key" }, { MINERU_API_KEY: "wrong-key" });
 		const { jobId } = await seedJob();
 
@@ -291,7 +307,10 @@ describe("mapped failures reach the ledger row", () => {
 
 		const row = await ledger.getExtractionJobRow(jobId);
 		expect(row?.errorCode).toBe("auth_failed");
-		expect(row?.retryable).toBe(false);
+		// Not auto-retried — the attempt table proves it, one row — but offered
+		// to the user, because the cure is an admin fixing the key and then
+		// somebody pressing the button.
+		expect(row?.retryable).toBe(true);
 		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
 
 		// `/v1/health` stays PUBLIC under `--api-key`, so a wrong key cannot be
@@ -334,7 +353,7 @@ describe("mapped failures reach the ledger row", () => {
 
 		const row = await ledger.getExtractionJobRow(job.id);
 		expect(row?.errorCode).toBe("tier_unavailable");
-		expect(row?.retryable).toBe(false);
+		expect(row?.retryable).toBe(true);
 		expect(countRequests("POST", "/v1/uploads")).toBe(0);
 	});
 
@@ -423,6 +442,7 @@ describe("a worker that died mid-parse", () => {
 			maxAttempts: 3,
 			retryBaseMs: 2000,
 			retryMaxMs: 60000,
+			outageWindowMs: 1_800_000,
 		});
 		clearBackoffGates();
 
@@ -482,6 +502,7 @@ describe("a worker that died mid-parse", () => {
 			maxAttempts: 3,
 			retryBaseMs: 2000,
 			retryMaxMs: 60000,
+			outageWindowMs: 1_800_000,
 		});
 
 		// Give the losing attempt time to observe the loss and unwind.
@@ -515,6 +536,135 @@ describe("a MinerU that forgot every id", () => {
 		expect(countRequests("POST", "/v1/parse/jobs")).toBe(2);
 		expect(persisted).toHaveLength(1);
 		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 1: an outage is not evidence against the document
+// ---------------------------------------------------------------------------
+
+describe("a backend that is not answering", () => {
+	/**
+	 * The live failure, reproduced: `MAX_ATTEMPTS 3` with a 2 s base backoff
+	 * tolerates about ten seconds of downtime. A MinerU restart took 54 s and
+	 * the job was permanently failed 37 s before the backend was back; with
+	 * MinerU stopped, a job was terminal in 10 s and never self-healed.
+	 *
+	 * Date is faked so three minutes pass in milliseconds; the sockets, the
+	 * server and the timers are all real.
+	 */
+	it("waits out a three-minute outage and then finishes on its own", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const startedAtMs = Date.UTC(2026, 8, 20, 9, 0, 0);
+		vi.setSystemTime(startedAtMs);
+
+		try {
+			// A port nothing is listening on: `fetch` fails with ECONNREFUSED,
+			// which is the transport failure a stopped MinerU produces.
+			const dead = await createFakeMineruServer();
+			const deadUrl = dead.baseUrl;
+			await dead.close();
+
+			await boot({}, { MINERU_API_URL: deadUrl });
+			const { jobId, artifactId } = await seedJob();
+
+			let waits = 0;
+			while (Date.now() - startedAtMs < 180_000) {
+				expect(await run()).toEqual({ jobId, status: "queued" });
+				waits += 1;
+
+				const row = await ledger.getExtractionJobRow(jobId);
+				expect(row?.status).toBe("queued");
+				expect(row?.errorCode).toBe("unavailable");
+				// The DTO has to say so while it waits, or the chip shows a
+				// cheerful "Waiting to be read" for half an hour.
+				const dto = await (
+					await import("$lib/server/services/extraction/read-model")
+				).getExtractionJobForArtifact({ userId, artifactId });
+				expect(dto?.status).toBe("queued");
+				expect(dto?.error?.code).toBe("unavailable");
+				expect(dto?.nextAttemptAt).toBeGreaterThan(Date.now());
+				// Not one of the document's three attempts was spent.
+				expect(dto?.attemptCount).toBe(0);
+
+				const gate = row?.nextAttemptAt?.getTime();
+				expect(gate).toBeGreaterThan(Date.now());
+				// Nothing is claimable before the gate: the wait is real.
+				expect(await run()).toBeNull();
+				vi.setSystemTime(gate as number);
+			}
+
+			// The old budget would have been spent after three.
+			expect(waits).toBeGreaterThan(3);
+			expect((await ledger.getExtractionJobRow(jobId))?.status).toBe("queued");
+			// The message is the code's, not undici's.
+			expect(
+				(await ledger.getExtractionJobRow(jobId))?.errorMessage,
+			).not.toContain("fetch failed");
+
+			// The backend comes back. No user action, no second upload: the same
+			// job row, the same bytes.
+			await reimportAt(server.baseUrl);
+			expect(await run()).toEqual({ jobId, status: "succeeded" });
+			expect(persisted).toHaveLength(1);
+			expect(countRequests("POST", "/v1/uploads")).toBe(1);
+			expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 4: a user cancel, and exactly one DELETE
+// ---------------------------------------------------------------------------
+
+describe("a user cancel", () => {
+	it("sends exactly one DELETE, and a later Retry starts a NEW remote job", async () => {
+		await boot({ neverFinish: true });
+		const { jobId } = await seedJob();
+
+		const running = run({ heartbeatMs: 100 });
+		await vi.waitFor(async () => {
+			expect(
+				(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson,
+			).toContain("job_");
+		});
+		const firstRemoteJobId = JSON.parse(
+			(await ledger.getExtractionJobRow(jobId))?.remoteHandleJson ?? "{}",
+		).remoteJobId as string;
+
+		await ledger.cancelExtractionJob({ userId, jobId });
+		expect(await running).toEqual({ jobId, status: "canceled" });
+
+		// ONE. The extractor's own abort path issues it; the worker used to
+		// issue a second one on top, which the server answers 409.
+		const deletes = server.requests.filter(
+			(entry) => entry.method === "DELETE",
+		);
+		expect(deletes.map((entry) => entry.path)).toEqual([
+			`/v1/parse/jobs/${firstRemoteJobId}`,
+		]);
+		expect(server.jobs.get(firstRemoteJobId)?.status).toBe("canceled");
+
+		// The handle is gone with it. Keeping it meant a later Retry resumed a
+		// job the backend had thrown away: `getJob` answers `canceled`, which
+		// the error table reads as "canceled by someone else" — a `job_failed`
+		// the user never caused, on a document that parses perfectly fresh.
+		const canceled = await ledger.getExtractionJobRow(jobId);
+		expect(canceled?.status).toBe("canceled");
+		expect(canceled?.remoteHandleJson).toBeNull();
+
+		server.setOptions({ neverFinish: false });
+		server.resetLog();
+		await ledger.retryExtractionJob({ userId, jobId });
+		expect(await run()).toEqual({ jobId, status: "succeeded" });
+
+		// A second remote job, and not one request to the deleted one.
+		expect(countRequests("POST", "/v1/parse/jobs")).toBe(1);
+		expect(
+			server.requests.filter((entry) => entry.path.includes(firstRemoteJobId)),
+		).toEqual([]);
 	});
 });
 

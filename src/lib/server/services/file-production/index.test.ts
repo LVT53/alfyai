@@ -1188,6 +1188,86 @@ describe("file production service", () => {
 		});
 	});
 
+	// Ruling 5, the same change as the extraction worker's. It matters more
+	// here: this claim refuses while ANY row is `running`, so one attempt a
+	// deploy orphaned holds every later production for every user until the
+	// stale window closes — minutes on a box that was serving again in seconds.
+	it("reclaims a dead process's attempt at boot, without the stale window", async () => {
+		const {
+			claimNextFileProductionJob,
+			createFileProductionJob,
+			listConversationFileProductionJobs,
+			reclaimDeadWorkerFileProductionAttempts,
+			recoverStaleFileProductionAttempts,
+		} = await import("./index");
+		const job = await createFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Orphaned by a deploy",
+			origin: "unified_produce",
+			now: new Date("2026-05-03T19:41:00.000Z"),
+		});
+		await claimNextFileProductionJob({
+			workerId: "file-production:box-1:9001:nonce-a",
+			now: new Date("2026-05-03T19:42:00.000Z"),
+		});
+
+		// Its heartbeat is seconds old, so a stale sweep declines to touch it.
+		expect(
+			await recoverStaleFileProductionAttempts({
+				staleBefore: new Date("2026-05-03T19:41:30.000Z"),
+				now: new Date("2026-05-03T19:42:05.000Z"),
+			}),
+		).toEqual({ recovered: 0 });
+
+		expect(
+			await reclaimDeadWorkerFileProductionAttempts({
+				workerId: "file-production:box-1:4242:nonce-b",
+				isProcessAlive: (pid) => pid === 4242,
+				now: new Date("2026-05-03T19:42:05.000Z"),
+			}),
+		).toEqual({ recovered: 1 });
+
+		// ADR-0005: failed + retryable, NOT requeued. The user presses Retry.
+		expect(
+			(await listConversationFileProductionJobs("user-1", "conv-1")).find(
+				(row) => row.id === job.id,
+			),
+		).toMatchObject({
+			status: "failed",
+			error: { code: "worker_heartbeat_timeout", retryable: true },
+		});
+	});
+
+	it("leaves another host's and the previous id format's attempts to the stale sweep", async () => {
+		const {
+			claimNextFileProductionJob,
+			createFileProductionJob,
+			reclaimDeadWorkerFileProductionAttempts,
+		} = await import("./index");
+		await createFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Someone else's box",
+			origin: "unified_produce",
+			now: new Date("2026-05-03T19:41:00.000Z"),
+		});
+		await claimNextFileProductionJob({
+			workerId: "file-production:box-2:9001:nonce-a",
+			now: new Date("2026-05-03T19:42:00.000Z"),
+		});
+
+		expect(
+			await reclaimDeadWorkerFileProductionAttempts({
+				workerId: "file-production:box-1:4242:nonce-b",
+				isProcessAlive: (pid) => pid === 4242,
+				now: new Date("2026-05-03T19:42:05.000Z"),
+			}),
+		).toEqual({ recovered: 0 });
+	});
+
 	it("reconciles stale queued and running jobs while preserving fresh queued work", async () => {
 		const {
 			claimNextFileProductionJob,

@@ -11,7 +11,6 @@
 // across an `await` on an extractor. Each status write is its own transaction;
 // the extraction, and the indexing that follows it, run between them.
 
-import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
@@ -26,6 +25,7 @@ import type {
 	ExtractionErrorCode,
 } from "$lib/shared/extraction-status";
 import { DOCUMENT_EXTRACTION_ACTIVE_STATUSES } from "$lib/shared/extraction-status";
+import { createWorkerId } from "../worker-identity";
 import { type ExtractionConfig, getExtractionConfig } from "./config";
 import {
 	type DocumentExtractor,
@@ -46,6 +46,7 @@ import {
 	heartbeatExtractionAttempt,
 	isCancelRequested,
 	parseExtractionHints,
+	reclaimDeadWorkerExtractionAttempts,
 	recoverStaleExtractionAttempts,
 	reportExtractionProgress,
 } from "./job-ledger";
@@ -110,7 +111,14 @@ export interface ExecuteNextExtractionJobResult {
 export interface DrainExtractionWorkerInput
 	extends Partial<ExecuteNextExtractionJobInput> {}
 
-const DEFAULT_WORKER_ID = `extraction:${process.pid}:${randomUUID()}`;
+/**
+ * `extraction:<hostname>:<pid>:<boot-nonce>`.
+ *
+ * The nonce and the hostname are what let a BOOT sweep tell "an attempt this
+ * very restart orphaned" from "an attempt a healthy process is working on":
+ * same host, pid no longer alive, not us. See `worker-identity.ts`.
+ */
+const DEFAULT_WORKER_ID = createWorkerId("extraction");
 let drainPromise: Promise<void> | null = null;
 /** A wake that arrived while a drain was running, to be honoured after it. */
 let drainRequestedAgain = false;
@@ -302,6 +310,7 @@ async function executeStep(
 			maxAttempts: config.maxAttempts,
 			retryBaseMs: config.retryBaseMs,
 			retryMaxMs: config.retryMaxMs,
+			outageWindowMs: config.outageWindowMs,
 		});
 		// Same rule as the other two failure branches: `applied: false` means
 		// the claim was already gone and nothing was written, so reporting
@@ -413,7 +422,18 @@ async function executeStep(
 			const failure = toDocumentExtractionError(error);
 
 			if (cancelObserved || (await isCancelRequested(job.id))) {
-				await bestEffortRemoteCancel(extractor, latestHandle);
+				// Exactly one DELETE reaches the backend.
+				//
+				// An extractor that declares `cancelsOnAbort` has already issued it
+				// from its own abort path, which is where the live remote job id
+				// lives; calling `cancel` here too would be a second DELETE for one
+				// Stop. Everything else — an extractor that ignores the reason, and
+				// the case where a cancel landed while the extractor was failing for
+				// an unrelated reason and so never saw an abort at all — still needs
+				// this call, and it is the only chance either gets.
+				if (!(cancelObserved && extractor.cancelsOnAbort === true)) {
+					await bestEffortRemoteCancel(extractor, latestHandle);
+				}
 				console.info("[EXTRACTION] Cancel honoured", {
 					jobId: job.id,
 					attemptId: attempt.id,
@@ -458,6 +478,7 @@ async function executeStep(
 				maxAttempts: config.maxAttempts,
 				retryBaseMs: config.retryBaseMs,
 				retryMaxMs: config.retryMaxMs,
+				outageWindowMs: config.outageWindowMs,
 				diagnostics: failure.details,
 			});
 			if (!outcome.applied) {
@@ -538,6 +559,7 @@ async function executeStep(
 				maxAttempts: config.maxAttempts,
 				retryBaseMs: config.retryBaseMs,
 				retryMaxMs: config.retryMaxMs,
+				outageWindowMs: config.outageWindowMs,
 			});
 			if (!outcome.applied) {
 				return { processed: true, result: null };
@@ -732,6 +754,7 @@ async function runStaleRecovery(
 		maxAttempts: config.maxAttempts,
 		retryBaseMs: config.retryBaseMs,
 		retryMaxMs: config.retryMaxMs,
+		outageWindowMs: config.outageWindowMs,
 	});
 
 	// Silence on a sweep that found nothing is the point: this runs every tick
@@ -743,6 +766,38 @@ async function runStaleRecovery(
 			recovered: outcome.recovered,
 			requeued: outcome.requeued,
 			staleAttemptMs: config.staleAttemptMs,
+		});
+	}
+	return outcome;
+}
+
+/**
+ * The boot sweep that does not wait.
+ *
+ * `recoverStaleExtractionAttempts` can only ask "has this attempt been silent
+ * for two minutes", and after a deploy the answer is no: the orphaned attempts
+ * heartbeated seconds before the old process died. This asks a question the new
+ * process can actually answer — "is the process that wrote this claim still
+ * running on this host" — so a restart costs the boot sweep rather than the
+ * whole stale window.
+ */
+export async function runDeadWorkerReclaim(
+	config: ExtractionConfig,
+	workerId: string,
+	isProcessAlive?: (pid: number) => boolean,
+): Promise<{ recovered: number; requeued: number }> {
+	const outcome = await reclaimDeadWorkerExtractionAttempts({
+		workerId,
+		maxAttempts: config.maxAttempts,
+		retryBaseMs: config.retryBaseMs,
+		retryMaxMs: config.retryMaxMs,
+		outageWindowMs: config.outageWindowMs,
+		...(isProcessAlive ? { isProcessAlive } : {}),
+	});
+	if (outcome.recovered > 0) {
+		console.warn("[EXTRACTION] Reclaimed attempts from a dead worker", {
+			recovered: outcome.recovered,
+			requeued: outcome.requeued,
 		});
 	}
 	return outcome;
@@ -1057,6 +1112,7 @@ export async function ensureExtractionWorker(
 		retryMaxMs: config.retryMaxMs,
 	});
 
+	await runDeadWorkerReclaim(config, drainInput.workerId ?? DEFAULT_WORKER_ID);
 	await runStaleRecovery(config, "boot");
 
 	state.bootSweep = setTimeout(() => {

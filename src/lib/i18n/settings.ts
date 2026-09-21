@@ -1511,6 +1511,10 @@ const settingsDict = {
 			"Longest retry wait",
 		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_MAX_MS.meaning":
 			"Ceiling the growing retry pause stops at.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS.label":
+			"Document service outage patience",
+		"admin.system.keys.DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS.meaning":
+			"How long a document keeps waiting while the reader is unreachable.",
 		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.label":
 			"Abandoned attempt timeout",
 		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.meaning":
@@ -3519,6 +3523,10 @@ const settingsDict = {
 			"Leghosszabb újrapróbálkozási szünet",
 		"admin.system.keys.DOCUMENT_EXTRACTION_RETRY_MAX_MS.meaning":
 			"Ennél tovább a növekvő szünet nem nyúlik.",
+		"admin.system.keys.DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS.label":
+			"Türelmi idő a dokumentumszolgáltatás kimaradásakor",
+		"admin.system.keys.DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS.meaning":
+			"Eddig vár a dokumentum, amíg a feldolgozó nem érhető el.",
 		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.label":
 			"Elakadt feldolgozás időkorlátja",
 		"admin.system.keys.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS.meaning":

@@ -57,6 +57,8 @@ const knowledgeDict = {
 		"knowledge.extraction.cancelLabel": "Cancel processing {name}",
 		"knowledge.extraction.error.auth_failed":
 			"The document reader rejected the configured credentials. Ask an administrator to check the API key.",
+		"knowledge.extraction.error.backend_misconfigured":
+			"The configured document reader is not a MinerU 4 server. Ask an administrator to check the address, then retry.",
 		"knowledge.extraction.error.canceled": "Processing was canceled.",
 		"knowledge.extraction.error.empty_result":
 			"No readable text was found in this file.",
@@ -83,9 +85,11 @@ const knowledgeDict = {
 		"knowledge.extraction.error.unavailable":
 			"The document reader is unavailable. Try again in a moment.",
 		"knowledge.extraction.error.unsupported_type":
-			"This file type cannot be read for chat.",
+			"The document reader cannot read this file type. Convert it to PDF and upload that.",
 		"knowledge.extraction.inProgressTooltip":
 			"This document is still being processed and cannot be opened yet.",
+		"knowledge.extraction.status.waitingForBackend":
+			"The document service is not reachable right now. We'll keep trying.",
 		"knowledge.extraction.reextract.action": "Re-extract",
 		"knowledge.extraction.reextract.current": "Current",
 		"knowledge.extraction.reextract.empty":
@@ -492,6 +496,8 @@ const knowledgeDict = {
 			"A(z) {name} feldolgozásának megszakítása",
 		"knowledge.extraction.error.auth_failed":
 			"A dokumentumolvasó elutasította a beállított hitelesítő adatokat. Kérd meg az adminisztrátort, hogy ellenőrizze az API-kulcsot.",
+		"knowledge.extraction.error.backend_misconfigured":
+			"A beállított dokumentumolvasó nem MinerU 4 kiszolgáló. Kérd meg az adminisztrátort, hogy ellenőrizze a címet, majd próbáld újra.",
 		"knowledge.extraction.error.canceled": "A feldolgozás meg lett szakítva.",
 		"knowledge.extraction.error.empty_result":
 			"Ebben a fájlban nem található olvasható szöveg.",
@@ -518,9 +524,11 @@ const knowledgeDict = {
 		"knowledge.extraction.error.unavailable":
 			"A dokumentumolvasó nem érhető el. Próbáld újra kicsit később.",
 		"knowledge.extraction.error.unsupported_type":
-			"Ez a fájltípus nem olvasható be a csevegéshez.",
+			"A dokumentumolvasó nem tudja beolvasni ezt a fájltípust. Alakítsd át PDF-fé, és azt töltsd fel.",
 		"knowledge.extraction.inProgressTooltip":
 			"Ez a dokumentum még feldolgozás alatt áll, ezért még nem nyitható meg.",
+		"knowledge.extraction.status.waitingForBackend":
+			"A dokumentumszolgáltatás jelenleg nem érhető el. Tovább próbálkozunk.",
 		"knowledge.extraction.reextract.action": "Újrafeldolgozás",
 		"knowledge.extraction.reextract.current": "Jelenlegi",
 		"knowledge.extraction.reextract.empty":

@@ -129,14 +129,14 @@ describe("[EXTRACTION] worker log lines", () => {
 			workerId: "w1",
 			resolveExtractor: () =>
 				createFakeExtractor({
-					steps: [{ kind: "throw", code: "unavailable" }],
+					steps: [{ kind: "throw", code: "job_failed" }],
 				}),
 		});
 
 		const [line] = payloadsFor(warn, "[EXTRACTION] Attempt failed");
 		expect(line).toMatchObject({
 			jobId,
-			errorCode: "unavailable",
+			errorCode: "job_failed",
 			requeued: true,
 		});
 		expect(typeof line.nextAttemptAt).toBe("string");
@@ -148,7 +148,7 @@ describe("[EXTRACTION] worker log lines", () => {
 	it("says when a job has burned its attempts", async () => {
 		const jobId = await enqueueStored("doomed.pdf");
 		const extractor = createFakeExtractor({
-			steps: [{ kind: "throw", code: "unavailable" }],
+			steps: [{ kind: "throw", code: "job_failed" }],
 		});
 
 		for (let attempt = 0; attempt < 3; attempt += 1) {

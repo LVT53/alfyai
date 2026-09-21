@@ -324,6 +324,82 @@ describe("mapMineruError — deferred, file-level failures", () => {
 		expect(mapping?.retryable).toBe(true);
 	});
 
+	// Ruling 3. Live, MinerU 4.0.4 answered AVIF and SVG with a file-level
+	// `parse_failed` reading "Unsupported file type: <name>". Read as an
+	// ordinary `job_failed` it burned three attempts plus backoff and then
+	// offered a Retry that could never succeed — the most expensive possible
+	// way to tell someone their file cannot be read.
+	it.each([
+		["Unsupported file type: cover.avif", "cover.avif"],
+		["Unsupported file type: diagram.svg", "diagram.svg"],
+		["unsupported input format: chart.heic", "chart.heic"],
+	])("reads %s as a permanent refusal, not a retryable failure", (message) => {
+		const job = mineruJobSchema.parse({
+			...(JSON.parse(
+				readFileSync(
+					join(MINERU_FIXTURE_ROOT, "pdf", "job.final.json"),
+					"utf8",
+				),
+			) as Record<string, unknown>),
+			status: "failed",
+			files: [
+				{
+					file_id: "file-000000000001",
+					name: "cover.avif",
+					page_range: "",
+					status: "failed",
+					parse: null,
+					output_files: null,
+					error: {
+						type: "engine_error",
+						code: "parse_failed",
+						message,
+						param: null,
+					},
+				},
+			],
+		});
+
+		const mapping = mapMineruJobFailure(job);
+		expect(mapping?.taxonomy).toBe("unsupported_type");
+		expect(mapping?.retryable).toBe(false);
+		expect(mapping?.known).toBe(true);
+		expect(mapping?.rule).toBe("file:parse_failed:unsupported-type");
+	});
+
+	it("still reads an ordinary parse failure as retryable", () => {
+		const job = mineruJobSchema.parse({
+			...(JSON.parse(
+				readFileSync(
+					join(MINERU_FIXTURE_ROOT, "pdf", "job.final.json"),
+					"utf8",
+				),
+			) as Record<string, unknown>),
+			status: "failed",
+			files: [
+				{
+					file_id: "file-000000000001",
+					name: "scan.pdf",
+					page_range: "",
+					status: "failed",
+					parse: null,
+					output_files: null,
+					error: {
+						type: "engine_error",
+						code: "parse_failed",
+						message: "Engine crashed while rendering page 3",
+						param: null,
+					},
+				},
+			],
+		});
+
+		expect(mapMineruJobFailure(job)).toMatchObject({
+			taxonomy: "job_failed",
+			retryable: true,
+		});
+	});
+
 	it("accepts the recorded PDF job, which is the success case", () => {
 		const job = mineruJobSchema.parse(
 			JSON.parse(
@@ -485,10 +561,30 @@ describe("mineruErrorToExtractionError", () => {
 		);
 		expect(error.code).toBe("auth_failed");
 		expect(error.retryable).toBe(false);
-		expect(error.message).toContain("MinerU upload failed");
+		// The MESSAGE is the code's, not the backend's: `error_message` is read
+		// by the send gate and by the Knowledge row, and "MinerU upload failed:
+		// …" is an operator's line. The raw text is kept beside it.
+		expect(error.message).toBe(
+			"The document service rejected our credentials. Ask an administrator to check the API key.",
+		);
+		expect(error.details?.rawMessage).toContain("MinerU upload failed");
 		expect(error.details?.mineruCode).toBe("invalid_api_key");
 		expect(error.details?.httpStatus).toBe(401);
 		expect(error.details?.path).toBe("/v1/uploads");
+	});
+
+	it("tells the user to convert a file the backend refuses outright", () => {
+		const error = mineruErrorToExtractionError(
+			new MineruApiError({
+				code: "parse_failed",
+				message: "Unsupported file type: cover.avif",
+				status: null,
+			}),
+		);
+		expect(error.code).toBe("unsupported_type");
+		expect(error.retryable).toBe(false);
+		expect(error.message).toContain("Convert it to PDF");
+		expect(error.details?.rawMessage).toContain("cover.avif");
 	});
 
 	it("passes handleUnknown through for a server that dropped our file id", () => {
