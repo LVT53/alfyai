@@ -413,7 +413,12 @@ export function createMineru4Extractor(
 			// -- 1. capabilities, before a byte moves --------------------------
 			let capabilities: Awaited<ReturnType<typeof getMineruCapabilities>>;
 			try {
-				capabilities = await getMineruCapabilities(request.signal);
+				// The config is passed explicitly so one attempt reads the runtime
+				// configuration exactly once, rather than letting the cache probe
+				// re-read it and possibly disagree with the client beside it.
+				capabilities = await getMineruCapabilities(request.signal, {
+					config,
+				});
 			} catch (error) {
 				if (isAbortLike(error)) throw canceledError();
 				if (error instanceof MineruProbeError) {
