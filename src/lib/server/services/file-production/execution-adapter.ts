@@ -1,8 +1,20 @@
+import { extname } from "node:path";
+import type {
+	FileProductionInlineTextFile,
+	FileProductionInlineTextRequest,
+} from "$lib/server/services/file-production/types";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
-import { normalizeDocumentOutput } from "$lib/shared/file-types/production";
+import {
+	getSandboxMimeTypeForExtension,
+	normalizeDocumentOutput,
+} from "$lib/shared/file-types/production";
 import type { DocumentRenderKind } from "$lib/shared/file-types/types";
 import { createDefaultGeneratedDocumentImageLoader } from "./image-loader";
+import {
+	validateGeneratedOutputFile,
+	validateProducedFileSignature,
+} from "./output-validation";
 import { renderStandardReportDocx } from "./renderers/standard-report-docx";
 import { renderStandardReportHtml } from "./renderers/standard-report-html";
 import { renderStandardReportMarkdown } from "./renderers/standard-report-markdown";
@@ -46,7 +58,8 @@ export type ParsedFileProductionJobRequest =
 			sourceMode: "document_source";
 			documentSource: GeneratedDocumentSource;
 			outputs: Array<DocumentRenderKind>;
-	  };
+	  }
+	| FileProductionInlineTextRequest;
 
 export interface ExecutePersistedFileProductionRequestInput {
 	requestJson: string | null;
@@ -143,6 +156,19 @@ function parseFileProductionJobRequest(requestJson: string | null):
 		};
 	}
 
+	if (parsed.sourceMode === "inline_text") {
+		const inlineText = parseInlineTextRequest(parsed.inlineText);
+		if (!inlineText) {
+			return {
+				ok: false,
+				errorCode: "invalid_file_production_request",
+				errorMessage:
+					"Inline text file production request details are invalid.",
+			};
+		}
+		return { ok: true, value: inlineText };
+	}
+
 	if (parsed.sourceMode === "document_source") {
 		const documentValidation = validateGeneratedDocumentSource(
 			parsed.documentSource,
@@ -220,6 +246,92 @@ function parseFileProductionJobRequest(requestJson: string | null):
 			outputs,
 		},
 	};
+}
+
+/**
+ * Re-reads what intake already validated. The persisted request is the source
+ * of truth for a retry, and a job row can outlive the rules that accepted it,
+ * so the shape is checked again rather than trusted.
+ */
+function parseInlineTextRequest(
+	value: unknown,
+): FileProductionInlineTextRequest | null {
+	if (!isRecord(value)) return null;
+	if (typeof value.content !== "string" || value.content.length === 0) {
+		return null;
+	}
+	if (!Array.isArray(value.files) || value.files.length === 0) return null;
+
+	const files: FileProductionInlineTextFile[] = [];
+	for (const file of value.files) {
+		if (!isRecord(file)) return null;
+		const filename =
+			typeof file.filename === "string" ? file.filename.trim() : "";
+		const outputType =
+			typeof file.outputType === "string"
+				? file.outputType.trim().toLowerCase()
+				: "";
+		if (!filename || !outputType) return null;
+		files.push({ filename, outputType });
+	}
+
+	return { sourceMode: "inline_text", content: value.content, files };
+}
+
+class InlineTextOutputError extends Error {
+	readonly code: string;
+
+	constructor(code: string, message: string) {
+		super(message);
+		this.name = "InlineTextOutputError";
+		this.code = code;
+	}
+}
+
+/**
+ * Phase 6 D8 — the whole of "produce a text file" when the model already sent
+ * the bytes. No container, no renderer, and `sandboxTimeoutMs` is deliberately
+ * never consulted: there is nothing to time out.
+ *
+ * The buffer goes through the SAME `validateGeneratedOutputFile` every other
+ * produced file does, so `tsv`/`md`/`txt` still get the NUL and fatal-UTF-8
+ * check, and the produced-file signature check still refuses bytes that do not
+ * match their extension. Storage, limits, linking and memory sync are then the
+ * storage adapter's, unchanged.
+ */
+function runInlineText(
+	request: FileProductionInlineTextRequest,
+): Promise<ProgramExecutionResult> {
+	const content = Buffer.from(request.content, "utf8");
+	return (async () => {
+		const files: ProgramExecutionFile[] = [];
+		for (const file of request.files) {
+			const mimeType =
+				getSandboxMimeTypeForExtension(extname(file.filename).toLowerCase()) ??
+				undefined;
+			const validation = await validateGeneratedOutputFile(
+				{ filename: file.filename, mimeType, content },
+				{ requireKnownMimeType: true },
+			);
+			if (!validation.ok) {
+				throw new InlineTextOutputError(validation.code, validation.message);
+			}
+			const signature = validateProducedFileSignature({
+				filename: file.filename,
+				content,
+			});
+			if (!signature.ok) {
+				throw new InlineTextOutputError(signature.code, signature.message);
+			}
+			files.push({
+				filename: file.filename,
+				mimeType,
+				content,
+				sizeBytes: content.length,
+			});
+		}
+		return { files, stdout: "", stderr: "", error: null };
+	})();
 }
 
 async function renderDocumentSource(
@@ -337,6 +449,32 @@ export async function executePersistedFileProductionRequest(
 			errorMessage: request.errorMessage,
 			retryable: false,
 		};
+	}
+
+	if (request.value.sourceMode === "inline_text") {
+		try {
+			return {
+				ok: true,
+				request: request.value,
+				execution: await runInlineText(request.value),
+				sourceArtifact: null,
+			};
+		} catch (error) {
+			// Bad bytes are the model's to fix, not the infrastructure's: an
+			// inline_text failure is never retryable under the same request.
+			return {
+				ok: false,
+				errorCode:
+					error instanceof InlineTextOutputError
+						? error.code
+						: "inline_text_write_failed",
+				errorMessage:
+					error instanceof Error
+						? error.message
+						: "Inline text file production failed.",
+				retryable: false,
+			};
+		}
 	}
 
 	if (request.value.sourceMode === "program") {

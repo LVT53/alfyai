@@ -1,6 +1,10 @@
 import path from "node:path";
 import JSZip from "jszip";
 import {
+	SIGNATURE_WINDOW_BYTES,
+	verifyUploadSignature,
+} from "$lib/server/services/knowledge/upload-signature";
+import {
 	getCanonicalMimeForExtension,
 	isGenericMimeType,
 } from "$lib/shared/file-types";
@@ -204,6 +208,44 @@ export async function validateGeneratedOutputFile(
 	return validateXlsxBytes(file.content);
 }
 
+/**
+ * Defence in depth for Phase 6 P6-B: bytes we are about to STORE must match
+ * the extension we are about to store them under.
+ *
+ * `pdf`, `docx`, `odt`, `pptx` and `zip` carry `validation: "none"`, so until
+ * now a producer that wrote plain text into `report.pdf` was accepted and the
+ * user downloaded a "PDF" that was a text file. The registry already knows the
+ * leading-byte signatures the upload side checks, so this reuses that matcher
+ * rather than adding a second table; an entry with no signatures — every text
+ * and code type, and SVG — is never sniffed, because any byte sequence is a
+ * legal text file.
+ *
+ * PRODUCTION TIME ONLY. `generated-file-serving.ts` also calls
+ * `validateGeneratedOutputFile`, and a file that is already stored has to stay
+ * downloadable, so the check lives here instead of there.
+ */
+export function validateProducedFileSignature(file: {
+	filename: string;
+	mimeType?: string | null;
+	content: Buffer | Uint8Array;
+}): FileProductionOutputValidationResult {
+	const bytes = Buffer.isBuffer(file.content)
+		? file.content
+		: Buffer.from(file.content);
+	const result = verifyUploadSignature({
+		fileName: file.filename,
+		mimeType: file.mimeType ?? null,
+		head: bytes.subarray(0, SIGNATURE_WINDOW_BYTES),
+	});
+	if (result.ok) return { ok: true };
+
+	const extension = path.extname(file.filename).toLowerCase() || "file";
+	return fail(
+		"program_output_signature_mismatch",
+		`Produced file ${file.filename} does not contain ${extension} content — its bytes do not match its extension. Write a real ${extension} file, or request a text format instead.`,
+	);
+}
+
 function validateTextLikeOutputBytes(
 	content: Buffer | Uint8Array,
 ): FileProductionOutputValidationResult {
@@ -324,6 +366,13 @@ export async function validateProgramOutputContract(params: {
 		});
 		if (!validation.ok) {
 			return validation;
+		}
+
+		// After the type-specific checks, so an XLSX still reports the more
+		// precise `invalid_xlsx_output` rather than a bare signature mismatch.
+		const signature = validateProducedFileSignature(file);
+		if (!signature.ok) {
+			return signature;
 		}
 	}
 
