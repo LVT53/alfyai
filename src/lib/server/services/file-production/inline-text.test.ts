@@ -14,6 +14,8 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import type { FileInput } from "$lib/server/services/chat-files";
+import type { StoreGeneratedFileDependency } from "./storage-adapter";
 
 let dbPath: string;
 
@@ -69,36 +71,33 @@ function seedDatabase() {
  * so a case can assert the exact bytes without touching the filesystem.
  */
 function makeStoreGeneratedFile() {
-	const stored: Array<{ filename: string; mimeType: string; content: Buffer }> =
-		[];
+	const stored: Array<{
+		filename: string;
+		mimeType: string | null;
+		content: Buffer;
+	}> = [];
 	let counter = 0;
-	const storeGeneratedFile = vi.fn(
-		async (
-			conversationId: string,
-			userId: string,
-			file: {
-				assistantMessageId: string | null;
-				filename: string;
-				mimeType: string;
-				content: Buffer;
-			},
-		) => {
+	const storeGeneratedFile: StoreGeneratedFileDependency = vi.fn(
+		async (conversationId: string, userId: string, file: FileInput) => {
 			counter += 1;
 			const id = `file-inline-${counter}`;
+			const content = Buffer.isBuffer(file.content)
+				? file.content
+				: Buffer.from(file.content);
 			stored.push({
 				filename: file.filename,
-				mimeType: file.mimeType,
-				content: file.content,
+				mimeType: file.mimeType ?? null,
+				content,
 			});
 			const { db } = await import("$lib/server/db");
 			await db.insert(schema.chatGeneratedFiles).values({
 				id,
 				conversationId,
-				assistantMessageId: file.assistantMessageId,
+				assistantMessageId: file.assistantMessageId ?? null,
 				userId,
 				filename: file.filename,
-				mimeType: file.mimeType,
-				sizeBytes: file.content.length,
+				mimeType: file.mimeType ?? null,
+				sizeBytes: content.length,
 				storagePath: `${conversationId}/${id}`,
 				createdAt: NOW,
 			});
@@ -109,8 +108,8 @@ function makeStoreGeneratedFile() {
 				artifactId: null,
 				userId,
 				filename: file.filename,
-				mimeType: file.mimeType,
-				sizeBytes: file.content.length,
+				mimeType: file.mimeType ?? null,
+				sizeBytes: content.length,
 				storagePath: `${conversationId}/${id}`,
 				createdAt: NOW.getTime(),
 			};
@@ -424,7 +423,6 @@ describe("inline_text production mode", () => {
 
 		const cancelled = await cancelFileProductionJob({
 			userId: "user-1",
-			conversationId: "conv-1",
 			jobId: intake.job.id,
 			now: new Date(NOW.getTime() + 500),
 		});

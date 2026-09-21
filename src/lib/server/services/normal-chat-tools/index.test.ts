@@ -532,8 +532,11 @@ describe("createNormalChatTools", () => {
 			}),
 		);
 		// No program is synthesised any more, so nothing asks for a container.
-		const [call] = submitFileProductionIntakeMock.mock.calls;
-		expect(call[0].body.program).toBeUndefined();
+		expect(submitFileProductionIntakeMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({
+				body: expect.objectContaining({ program: expect.anything() }),
+			}),
+		);
 	});
 
 	it("rejects empty document_source tool calls instead of queuing placeholder reports", async () => {
