@@ -337,7 +337,11 @@ async function uploadSingleFile(
 				},
 			};
 		}
-		return { success: false, fileName: file.name, error: "Upload failed" };
+		return {
+			success: false,
+			fileName: file.name,
+			error: $t("knowledge.uploadFailedFallback"),
+		};
 	} catch (err) {
 		// A refused type answers with an i18n key; the `error` string beside it
 		// is English whatever the user's language is.
@@ -349,7 +353,7 @@ async function uploadSingleFile(
 				? $t(refusal.key, refusal.params)
 				: err instanceof Error
 					? err.message
-					: "Upload failed",
+					: $t("knowledge.uploadFailedFallback"),
 		};
 	}
 }

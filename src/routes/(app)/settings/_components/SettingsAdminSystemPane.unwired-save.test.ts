@@ -53,14 +53,17 @@ describe("SettingsAdminSystemPane — inert keys and the save payload", () => {
 				COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
 				MODEL_2_ENABLED: "true",
 				TEI_RERANKER_MODEL: "bge-reranker-v2-m3",
-				FILE_PRODUCTION_SANDBOX_TIMEOUT_MS: "120000",
+				// FILE_PRODUCTION_SANDBOX_TIMEOUT_MS used to stand here. It is
+				// wired now — the program-mode container's deadline — so a
+				// difference in it IS a pending change and must not be filtered.
+				WORKING_SET_DOCUMENT_TOKEN_BUDGET: "1200",
 				WORKING_SET_PROMPT_TOKEN_BUDGET: "999",
 			},
 			adminConfigSaved: {
 				COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
 				MODEL_2_ENABLED: "true",
 				TEI_RERANKER_MODEL: "",
-				FILE_PRODUCTION_SANDBOX_TIMEOUT_MS: "300000",
+				WORKING_SET_DOCUMENT_TOKEN_BUDGET: "4000",
 				WORKING_SET_PROMPT_TOKEN_BUDGET: "20000",
 			},
 			envDefaults: {},

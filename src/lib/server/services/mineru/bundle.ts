@@ -536,7 +536,35 @@ export async function enforceMineruParseBundleQuota(input: {
 	}
 
 	const usedBytesBefore = candidates.reduce((sum, row) => sum + row.bytes, 0);
-	if (usedBytesBefore <= input.quotaBytes) return null;
+
+	// The quota this PASS enforces, which is the whole quota only when the
+	// window covers every bundle the user has.
+	//
+	// The examination cap bounds the work, and its reasoning argues from
+	// `MINERU_BUNDLE_MAX_BYTES`: 256 bundles at the 32 MiB per-file cap is four
+	// times the default quota, so the window would always see the excess. That
+	// holds for large bundles and fails completely for small ones. 256 bundles
+	// of 100 KiB is 25 MiB — under any quota — while the 2 000 bundles the user
+	// actually has are 195 MiB. `usedBytesBefore` then reports 25 MiB, the
+	// comparison below finds no excess, and a user 551% over quota has nothing
+	// evicted, ever. The cap silently switched the quota off rather than
+	// bounding it.
+	//
+	// So the window is measured against its own SHARE of the quota. It is the
+	// oldest bundles, which is what eviction would take first anyway, and each
+	// write walks the same bounded number of directories — but now every write
+	// makes real progress, and repeated writes converge on the true quota
+	// instead of stalling above it. When the window is everything, the share is
+	// the whole quota and nothing changes.
+	const windowQuotaBytes =
+		named.length > selected.length
+			? Math.max(
+					1,
+					Math.floor((input.quotaBytes * selected.length) / named.length),
+				)
+			: input.quotaBytes;
+
+	if (usedBytesBefore <= windowQuotaBytes) return null;
 
 	const evictable = candidates
 		.filter((row) => row.sourceArtifactId !== input.keepSourceArtifactId)
@@ -549,7 +577,7 @@ export async function enforceMineruParseBundleQuota(input: {
 
 	// Pass 1 — figures only.
 	for (const row of evictable) {
-		if (used <= input.quotaBytes) break;
+		if (used <= windowQuotaBytes) break;
 		const imagesDir = join(row.dir, MINERU_BUNDLE_IMAGES_DIR);
 		const imageBytes = await directoryBytes(imagesDir);
 		if (imageBytes === 0) continue;
@@ -563,7 +591,7 @@ export async function enforceMineruParseBundleQuota(input: {
 
 	// Pass 2 — whole bundles.
 	for (const row of evictable) {
-		if (used <= input.quotaBytes) break;
+		if (used <= windowQuotaBytes) break;
 		if (!(await evictPath(row.dir))) continue;
 		used -= row.bytes;
 		if (emptied.has(row.sourceArtifactId)) imagesEvicted -= 1;

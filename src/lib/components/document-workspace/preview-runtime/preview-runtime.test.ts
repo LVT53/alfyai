@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+
+// `$lib/client/api/http` navigates to /login on an expired session, and this
+// module now reads its error bodies through it.
+const goto = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock("$app/navigation", () => ({ goto }));
+
 import {
 	allowsTrustedHtmlPreviewRuntime,
 	loadPreviewRuntime,
@@ -306,6 +312,38 @@ describe("preview runtime", () => {
 		});
 		expectError(networkFailure);
 		expect(networkFailure.error).toBe("Network error");
+	});
+
+	// This is the one call site that CONSUMED the old 303-to-login: `fetch`
+	// followed the redirect, `response.ok` was true, and the runtime blobbed an
+	// HTML login page and handed it to a renderer. The hook now answers 401
+	// instead, which stops that — but the runtime dead-ends on a generic
+	// "Failed to load file" and tells the rest of the app nothing, so the
+	// workspace sits on that message forever on an expired session while every
+	// centrally-routed call in the app has already noticed.
+	it("reports an expired session instead of dead-ending on it", async () => {
+		const unauthorized = await loadPreviewRuntime({
+			artifactId: "artifact-401",
+			previewUrl: null,
+			filename: "private.pdf",
+			mimeType: "application/pdf",
+			fetchImpl: vi.fn().mockResolvedValue(
+				new Response(JSON.stringify({ error: "Unauthorized" }), {
+					status: 401,
+					headers: { "Content-Type": "application/json" },
+				}),
+			),
+		});
+
+		expectError(unauthorized);
+		// The whole chain, not a spy on the middle of it: the runtime reads the
+		// error body through the same helper every centrally-routed call uses,
+		// and that helper's one reaction to an expired session is to navigate.
+		// The navigation is deliberately not awaited by the caller — it collapses
+		// a burst of 401s into one — so wait for it rather than for the call.
+		await vi.waitFor(() =>
+			expect(goto).toHaveBeenCalledWith("/login", { invalidateAll: true }),
+		);
 	});
 });
 

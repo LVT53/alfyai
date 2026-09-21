@@ -361,6 +361,38 @@ describe("forget_all_results", () => {
 		expect(await liveDb.select().from(schema.artifacts)).toEqual([]);
 	});
 
+	// The sweep's whole reason to exist is a box that ran the old delete path
+	// for a long time, so "many stranded rows" is its NORMAL input, not an edge
+	// case. SQLite's bound-parameter ceiling is 32766, and the reachability
+	// passes spend TWO parameters per candidate (`artifact_id` OR
+	// `related_artifact_id`), so the predicate stopped working at roughly 16k
+	// candidates — by throwing, from inside the cutover script, having reported
+	// nothing.
+	it("handles more candidates than SQLite's bound-parameter ceiling", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seedBase(db);
+		const insert = sqlite.prepare(
+			"INSERT INTO artifacts (id, user_id, conversation_id, type, retrieval_class, name, created_at, updated_at) VALUES (?, ?, NULL, 'generated_output', 'durable', 'report.docx', 0, 0)",
+		);
+		const seedMany = sqlite.transaction((count: number) => {
+			for (let index = 0; index < count; index += 1) {
+				insert.run(`stranded-${index}`, USER);
+			}
+		});
+		seedMany(17_000);
+		sqlite.close();
+
+		const { listOrphanGeneratedArtifacts } = await import("./orphan-artifacts");
+		expect((await listOrphanGeneratedArtifacts()).length).toBe(17_000);
+
+		// And the delete side of the same sweep, which batches the ids into an
+		// `IN (...)` of its own.
+		const { hardDeleteArtifactsForUser } = await import("./cleanup");
+		const ids = Array.from({ length: 17_000 }, (_, i) => `stranded-${i}`);
+		const result = await hardDeleteArtifactsForUser(USER, ids);
+		expect(result.deletedArtifactIds.length).toBe(17_000);
+	}, 120_000);
+
 	it("does not touch a reachable orphan candidate", async () => {
 		const { sqlite, db } = openSeedDatabase();
 		seedBase(db);
@@ -387,5 +419,70 @@ describe("forget_all_results", () => {
 		// A work capsule is not a "generated result" anyway, and this one is
 		// reachable besides.
 		expect(result.deletedArtifactIds).toEqual([]);
+	});
+});
+
+// The two bulk actions must answer the same question about unreachable rows.
+// `forget_all_results` learned to include `generated_output` orphans in this
+// release; `forget_all_workflows` did not, so "forget all workflows" left the
+// user's stranded capsules exactly where they were — the same bug, on the other
+// button, with the same shared predicate sitting right there.
+describe("forget_all_workflows", () => {
+	beforeEach(async () => {
+		dbPath = `/tmp/alfyai-orphan-wf-${randomUUID()}.db`;
+		storageDir = await mkdtemp(join(tmpdir(), "alfyai-orphan-wf-"));
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
+	});
+
+	afterEach(async () => {
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// Never imported.
+		}
+		await rm(dbPath, { force: true }).catch(() => undefined);
+		await rm(storageDir, { recursive: true, force: true }).catch(
+			() => undefined,
+		);
+	});
+
+	it("removes the stranded work capsules it used to skip", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seedBase(db);
+		seedConversation(db, "conv-live");
+		seedArtifact(db, {
+			id: "visible",
+			type: "work_capsule",
+			conversationId: "conv-live",
+		});
+		seedArtifact(db, { id: "stranded", type: "work_capsule" });
+		sqlite.close();
+
+		const { deleteKnowledgeArtifactsByAction } = await import("./cleanup");
+		const result = await deleteKnowledgeArtifactsByAction(
+			USER,
+			"forget_all_workflows",
+		);
+
+		expect(result.deletedArtifactIds.sort()).toEqual(["stranded", "visible"]);
+	});
+
+	it("leaves a stranded generated output alone", async () => {
+		const { sqlite, db } = openSeedDatabase();
+		seedBase(db);
+		seedArtifact(db, { id: "stranded-output" });
+		seedArtifact(db, { id: "stranded-capsule", type: "work_capsule" });
+		sqlite.close();
+
+		const { deleteKnowledgeArtifactsByAction } = await import("./cleanup");
+		const result = await deleteKnowledgeArtifactsByAction(
+			USER,
+			"forget_all_workflows",
+		);
+
+		// Each button owns exactly one type, orphans included.
+		expect(result.deletedArtifactIds).toEqual(["stranded-capsule"]);
 	});
 });

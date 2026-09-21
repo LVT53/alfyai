@@ -187,6 +187,24 @@ const knowledgeDict = {
 			"{name} doesn't look like a real {ext} file — its contents don't match its extension. Open it, save it again in the right format, and upload that.",
 		"knowledge.uploadDirectTextTooLarge":
 			"{name} is too big to read as plain text — the limit is {limit}. Split it, or save it as a PDF or DOCX and upload that.",
+		// The two failures the CLIENT composes, with no server body to carry an
+		// `errorKey`: a transport abort and a gateway status. Both were English
+		// sentences built in `client/api/knowledge.ts`, and the gateway one was
+		// operator prose about reverse proxy limits and the Node server shown
+		// to an end user. The operator detail belongs in the server log, so the
+		// sentence a user reads says what happened and what to do.
+		"knowledge.uploadGatewayFailed":
+			"The server did not finish receiving {name} ({size}) — it answered {status}. Nothing was processed. Try again; if it keeps happening, an administrator should check the upload size and timeout limits.",
+		"knowledge.uploadInterrupted":
+			"The upload of {name} was interrupted before it finished. Try again; if it keeps happening, an administrator should check whether large uploads are being closed early.",
+		// The Library's own upload banner, which summarises a batch. It was
+		// built in the page with template literals and an inline `s` plural.
+		"knowledge.uploadFailedFallback": "Upload failed",
+		"knowledge.uploadFailuresAll":
+			"Failed to upload {count} file{count, plural, one {} other {s}}: {details}",
+		"knowledge.uploadFailuresSome":
+			"{count} file{count, plural, one {} other {s}} failed to upload: {details}",
+		"knowledge.uploadFailuresMore": "{count} more failed.",
 		"knowledge.uploadFileTooLarge":
 			"{name} is larger than the upload limit of {limit}. Upload a smaller file, or ask an administrator to raise the limit.",
 		"knowledge.uploadLimitTooltip":
@@ -625,6 +643,18 @@ const knowledgeDict = {
 			"A(z) {name} nem valódi {ext} fájlnak tűnik — a tartalma nem illik a kiterjesztéséhez. Nyisd meg, mentsd el újra a megfelelő formátumban, és azt töltsd fel.",
 		"knowledge.uploadDirectTextTooLarge":
 			"A(z) {name} túl nagy ahhoz, hogy egyszerű szövegként olvassuk be — a korlát {limit}. Bontsd szét, vagy mentsd PDF- vagy DOCX-formátumban, és azt töltsd fel.",
+		"knowledge.uploadGatewayFailed":
+			"A szerver nem kapta meg teljesen a(z) {name} fájlt ({size}) — {status} hibakóddal válaszolt. Semmi nem dolgozódott fel. Próbáld újra; ha ismétlődik, az adminisztrátor ellenőrizze a feltöltési méret- és időkorlátokat.",
+		"knowledge.uploadInterrupted":
+			"A(z) {name} feltöltése félbeszakadt, mielőtt befejeződött volna. Próbáld újra; ha ismétlődik, az adminisztrátor ellenőrizze, hogy nem zárulnak-e le idő előtt a nagy feltöltések.",
+		// Magyarul a számnév után egyes szám áll, így a `{count, plural, ...}`
+		// szerkezet itt elmarad.
+		"knowledge.uploadFailedFallback": "A feltöltés nem sikerült",
+		"knowledge.uploadFailuresAll":
+			"Mind a(z) {count} fájl feltöltése sikertelen: {details}",
+		"knowledge.uploadFailuresSome":
+			"{count} fájl feltöltése sikertelen: {details}",
+		"knowledge.uploadFailuresMore": "További {count} fájl hibára futott.",
 		"knowledge.uploadFileTooLarge":
 			"A(z) {name} meghaladja a feltöltési korlátot, ami {limit}. Tölts fel kisebb fájlt, vagy kérd meg az adminisztrátort, hogy emelje meg a korlátot.",
 		"knowledge.uploadLimitTooltip":

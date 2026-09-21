@@ -20,6 +20,7 @@ vi.mock("./source-persistence", () => ({
 }));
 
 import { executePersistedFileProductionRequest } from "./execution-adapter";
+import { getFileProductionLimits } from "./limits";
 import {
 	FileProductionRenderAbortedError,
 	RenderBudget,
@@ -337,6 +338,9 @@ describe("the attempt's verdict", () => {
 
 		expect(executeCode).toHaveBeenCalledWith("print('hi')", "python", {
 			signal: controller.signal,
+			// The sandbox deadline rides along with the signal now — the same
+			// options object carries the cancel and the timeout.
+			timeoutMs: getFileProductionLimits().sandboxTimeoutMs,
 		});
 	});
 });

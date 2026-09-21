@@ -836,6 +836,61 @@ describe("uploadRefusalFromError", () => {
 		});
 	});
 
+	// The two failures the CLIENT composes itself, rather than reading off a
+	// server body. They were English sentences with no code, so they reached a
+	// Hungarian user verbatim — and the gateway one is operator prose about
+	// reverse proxies and the Node server, which is worse than untranslated.
+	it("translates a browser-side abort the client composed itself", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ traceId: "trace-upload" }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			)
+			.mockRejectedValueOnce(
+				new DOMException("The operation was aborted.", "AbortError"),
+			);
+		const file = new File(["x"], "big.pdf", { type: "application/pdf" });
+
+		const error = await uploadKnowledgeAttachment(file, null, fetchImpl).catch(
+			(caught: unknown) => caught,
+		);
+
+		expect(uploadRefusalFromError(error, file)).toEqual({
+			key: "knowledge.uploadInterrupted",
+			params: expect.objectContaining({ name: "big.pdf" }),
+		});
+	});
+
+	it("translates an upload gateway failure the client composed itself", async () => {
+		const fetchImpl = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ traceId: "trace-upload" }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				}),
+			)
+			.mockResolvedValueOnce(
+				new Response("Bad Gateway", {
+					status: 502,
+					headers: { "Content-Type": "text/plain" },
+				}),
+			);
+		const file = new File(["x"], "large.pdf", { type: "application/pdf" });
+
+		const error = await uploadKnowledgeAttachment(file, null, fetchImpl).catch(
+			(caught: unknown) => caught,
+		);
+
+		expect(uploadRefusalFromError(error, file)).toEqual({
+			key: "knowledge.uploadGatewayFailed",
+			params: expect.objectContaining({ name: "large.pdf", status: 502 }),
+		});
+	});
+
 	it("ignores a key it does not own, a non-415, and a plain Error", async () => {
 		expect(
 			await refusalFrom({

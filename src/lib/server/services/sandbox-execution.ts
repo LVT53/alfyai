@@ -853,6 +853,21 @@ export interface ExecuteCodeOptions {
 	// successful call, spent collecting files the caller then throws away.
 	collectFiles?: boolean;
 	/**
+	 * The container's deadline, overriding `getSandboxTimeout(language)`.
+	 *
+	 * Only file production passes it, carrying the admin's
+	 * `FILE_PRODUCTION_SANDBOX_TIMEOUT_MS`. `run_python` shares this function
+	 * and deliberately does NOT pass it: its envelope timeout
+	 * (`TOOL_TIMEOUTS_MS.run_python`) is defined as `SANDBOX_TIMEOUT_MS +
+	 * 15_000` so the sandbox's graceful `timedOut` always wins the race, and
+	 * moving the sandbox deadline without moving the envelope would invert
+	 * that. One knob, one caller.
+	 *
+	 * Non-finite or non-positive values fall back to the language default
+	 * rather than arming a `setTimeout` that fires immediately or never.
+	 */
+	timeoutMs?: number;
+	/**
 	 * Stops the run early: the container is SIGKILLed the same way the sandbox
 	 * timeout kills it.
 	 *
@@ -898,7 +913,13 @@ export async function executeCode(
 			stderr: string;
 			exitCode: number;
 		}>((resolve, reject) => {
-			const timeoutMs = getSandboxTimeout(language);
+			const override = options.timeoutMs;
+			const timeoutMs =
+				typeof override === "number" &&
+				Number.isFinite(override) &&
+				override > 0
+					? Math.trunc(override)
+					: getSandboxTimeout(language);
 			const killContainer = async () => {
 				try {
 					await sandbox.container.kill({ signal: "SIGKILL" });

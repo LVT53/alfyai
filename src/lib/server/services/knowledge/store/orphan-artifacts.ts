@@ -27,6 +27,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "$lib/server/db";
+import { selectInBatches } from "$lib/server/db/id-batches";
 import {
 	artifactLinks,
 	artifacts,
@@ -133,20 +134,26 @@ async function candidatesWithLiveLink(
 ): Promise<Set<string>> {
 	const ids = candidates.map((row) => row.id);
 	const candidateSet = new Set(ids);
-	const linkRows = await db
-		.select({
-			artifactId: artifactLinks.artifactId,
-			relatedArtifactId: artifactLinks.relatedArtifactId,
-			conversationId: artifactLinks.conversationId,
-			messageId: artifactLinks.messageId,
-		})
-		.from(artifactLinks)
-		.where(
-			or(
-				inArray(artifactLinks.artifactId, ids),
-				inArray(artifactLinks.relatedArtifactId, ids),
+	// Batched: this statement spends TWO bound parameters per candidate, so it
+	// hit SQLite's 32766 ceiling at roughly 16k stranded rows — which is well
+	// inside what a box that ran the old delete path for a year carries, and is
+	// exactly the input this sweep exists for.
+	const linkRows = await selectInBatches(ids, (batch) =>
+		db
+			.select({
+				artifactId: artifactLinks.artifactId,
+				relatedArtifactId: artifactLinks.relatedArtifactId,
+				conversationId: artifactLinks.conversationId,
+				messageId: artifactLinks.messageId,
+			})
+			.from(artifactLinks)
+			.where(
+				or(
+					inArray(artifactLinks.artifactId, batch),
+					inArray(artifactLinks.relatedArtifactId, batch),
+				),
 			),
-		);
+	);
 	if (linkRows.length === 0) return new Set();
 
 	const conversationIds = uniqueStrings(
@@ -155,24 +162,24 @@ async function candidatesWithLiveLink(
 	const messageIds = uniqueStrings(linkRows.map((row) => row.messageId));
 
 	const liveConversations = new Set(
-		conversationIds.length === 0
-			? []
-			: (
-					await db
-						.select({ id: conversations.id })
-						.from(conversations)
-						.where(inArray(conversations.id, conversationIds))
-				).map((row) => row.id),
+		(
+			await selectInBatches(conversationIds, (batch) =>
+				db
+					.select({ id: conversations.id })
+					.from(conversations)
+					.where(inArray(conversations.id, batch)),
+			)
+		).map((row) => row.id),
 	);
 	const liveMessages = new Set(
-		messageIds.length === 0
-			? []
-			: (
-					await db
-						.select({ id: messages.id })
-						.from(messages)
-						.where(inArray(messages.id, messageIds))
-				).map((row) => row.id),
+		(
+			await selectInBatches(messageIds, (batch) =>
+				db
+					.select({ id: messages.id })
+					.from(messages)
+					.where(inArray(messages.id, batch)),
+			)
+		).map((row) => row.id),
 	);
 
 	const reachable = new Set<string>();
@@ -215,13 +222,17 @@ async function candidatesWithLiveChatFile(
 	}
 	if (byChatFileId.size === 0) return new Set();
 
-	const fileRows = await db
-		.select({
-			id: chatGeneratedFiles.id,
-			storagePath: chatGeneratedFiles.storagePath,
-		})
-		.from(chatGeneratedFiles)
-		.where(inArray(chatGeneratedFiles.id, Array.from(byChatFileId.keys())));
+	const fileRows = await selectInBatches(
+		Array.from(byChatFileId.keys()),
+		(batch) =>
+			db
+				.select({
+					id: chatGeneratedFiles.id,
+					storagePath: chatGeneratedFiles.storagePath,
+				})
+				.from(chatGeneratedFiles)
+				.where(inArray(chatGeneratedFiles.id, batch)),
+	);
 
 	const reachable = new Set<string>();
 	for (const file of fileRows) {
@@ -263,20 +274,22 @@ async function candidatesInLiveDocumentFamily(
 	if (familyByCandidate.size === 0) return new Set();
 
 	const owners = uniqueStrings(candidates.map((row) => row.userId));
-	const siblings = (await db
-		.select({
-			id: artifacts.id,
-			userId: artifacts.userId,
-			conversationId: artifacts.conversationId,
-			metadataJson: artifacts.metadataJson,
-		})
-		.from(artifacts)
-		.where(
-			and(
-				inArray(artifacts.type, [...ORPHANABLE_ARTIFACT_TYPES]),
-				inArray(artifacts.userId, owners),
+	const siblings = (await selectInBatches(owners, (batch) =>
+		db
+			.select({
+				id: artifacts.id,
+				userId: artifacts.userId,
+				conversationId: artifacts.conversationId,
+				metadataJson: artifacts.metadataJson,
+			})
+			.from(artifacts)
+			.where(
+				and(
+					inArray(artifacts.type, [...ORPHANABLE_ARTIFACT_TYPES]),
+					inArray(artifacts.userId, batch),
+				),
 			),
-		)) as Array<{
+	)) as Array<{
 		id: string;
 		userId: string;
 		conversationId: string | null;

@@ -414,14 +414,25 @@ async function jumpToWorkspaceSource(document: DocumentWorkspaceItem) {
 	);
 }
 
+// The batch summary above the per-file reasons. Every per-file reason already
+// comes back translated (`uploadRefusalFromError` → `$t`); the sentence that
+// wrapped them was built here from template literals and an inline English `s`
+// plural, so a Hungarian user read their own reasons inside an English frame.
 function formatUploadFailures(files: File[], failures: string[]): string {
-	const failureDetails = failures.slice(0, 3).join(" ");
-	const remainingFailures =
-		failures.length > 3 ? ` ${failures.length - 3} more failed.` : "";
-	if (failures.length === files.length) {
-		return `Failed to upload ${files.length} file${files.length === 1 ? "" : "s"}: ${failureDetails}${remainingFailures}`;
-	}
-	return `${failures.length} file${failures.length === 1 ? "" : "s"} failed to upload: ${failureDetails}${remainingFailures}`;
+	const details = failures.slice(0, 3).join(" ");
+	const remaining =
+		failures.length > 3
+			? ` ${$t("knowledge.uploadFailuresMore", { count: failures.length - 3 })}`
+			: "";
+	const allFailed = failures.length === files.length;
+	return (
+		$t(
+			allFailed
+				? "knowledge.uploadFailuresAll"
+				: "knowledge.uploadFailuresSome",
+			{ count: allFailed ? files.length : failures.length, details },
+		) + remaining
+	);
 }
 
 async function handleDocumentsUpload(files: File[]) {
@@ -441,7 +452,7 @@ async function handleDocumentsUpload(files: File[]) {
 				? $t(refusal.key, refusal.params)
 				: error instanceof Error
 					? error.message
-					: "Upload failed";
+					: $t("knowledge.uploadFailedFallback");
 			failures.push(`${file.name}: ${reason}`);
 		}
 	}

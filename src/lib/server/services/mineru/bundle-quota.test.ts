@@ -419,6 +419,51 @@ describe("enforceMineruParseBundleQuota", () => {
 		expect(result?.examined).toBe(3);
 	});
 
+	// ...and still enforces something when it cannot see everything.
+	//
+	// The examination cap bounds the work; it must not silently switch the
+	// quota off. A user with many SMALL bundles is the case the cap's own
+	// reasoning misses: it argues from `MINERU_BUNDLE_MAX_BYTES`, so 256
+	// bundles at the 32 MiB per-file cap is four times the default quota — but
+	// 256 bundles of 100 KiB is 25 MiB, comfortably under any quota, while the
+	// user's actual 2 000 bundles are 195 MiB. The window then measures no
+	// excess and the pass returns null, so a user 551% over quota has nothing
+	// evicted, ever.
+	it("still enforces the quota when there are more bundles than it examines", async () => {
+		const fresh = randomUUID();
+		await seedBundle({
+			sourceArtifactId: fresh,
+			textBytes: 1_000,
+			imageBytes: 0,
+			ageMs: 0,
+		});
+		// 20 bundles of 10 000 bytes = 200 000 total, against a 100 000 quota.
+		// The 4-directory window sees only ~30 000 and would call that fine.
+		for (let index = 0; index < 20; index += 1) {
+			await seedBundle({
+				sourceArtifactId: randomUUID(),
+				textBytes: 10_000,
+				imageBytes: 0,
+				ageMs: 10_000 * (index + 1),
+			});
+		}
+
+		const result = await enforceMineruParseBundleQuota({
+			userId,
+			keepSourceArtifactId: fresh,
+			quotaBytes: 100_000,
+			maxExamined: 4,
+		});
+
+		expect(result).not.toBeNull();
+		expect(result?.bundlesRemoved ?? 0).toBeGreaterThan(0);
+		// The bundle just written is never the one evicted.
+		const remaining = await readdir(
+			join(process.cwd(), "data", "knowledge", userId),
+		);
+		expect(remaining.some((name) => name.startsWith(fresh))).toBe(true);
+	});
+
 	it("logs counts and bytes, and nothing that identifies a document", async () => {
 		const info = vi.spyOn(console, "info").mockImplementation(() => {});
 		const fresh = randomUUID();

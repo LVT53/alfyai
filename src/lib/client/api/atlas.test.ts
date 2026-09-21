@@ -165,6 +165,56 @@ describe("Atlas client API", () => {
 		).toBe("scan.pdf: translated:chat.extraction.parsing");
 	});
 
+	// The readiness half of the same refusal. `toFriendlySendError` has read
+	// `attachmentReadiness` since the reason codes landed, but only the
+	// streaming client ever attached it — `ApiError` had no such field — so an
+	// `attachment_not_ready` refusal reached a Hungarian Atlas user as the
+	// server's English sentence while the identical refusal on the stream read
+	// Hungarian.
+	it("carries the send gate's per-attachment readiness rows onto the thrown ApiError", async () => {
+		const attachmentReadiness = [
+			{
+				artifactId: "artifact-1",
+				name: "photo.heic",
+				reason: "not_text_readable",
+			},
+		];
+		const fetchImpl = vi.fn<FetchLike>(
+			async () =>
+				new Response(
+					JSON.stringify({
+						error: "One or more attached files are not ready for chat.",
+						code: "attachment_not_ready",
+						attachmentIds: ["artifact-1"],
+						attachmentReadiness,
+					}),
+					{ status: 422, headers: { "Content-Type": "application/json" } },
+				),
+		);
+
+		const error = await submitAtlasTurn(
+			{
+				conversationId: "conv-1",
+				message: "Summarize this",
+				attachmentIds: ["artifact-1"],
+				profile: "overview",
+				action: "create",
+				clientAtlasTurnId: "client-atlas-1",
+			},
+			fetchImpl,
+		).catch((thrown: unknown) => thrown);
+
+		expect(error).toBeInstanceOf(ApiError);
+		expect((error as ApiError).code).toBe("attachment_not_ready");
+		expect((error as ApiError).attachmentReadiness).toEqual(
+			attachmentReadiness,
+		);
+
+		expect(
+			toFriendlySendError(error as Error, (key) => `translated:${key}`),
+		).toBe("photo.heic: translated:chat.attachmentReadiness.not_text_readable");
+	});
+
 	it("cancels Atlas jobs through the owned Atlas endpoint", async () => {
 		const atlasJob = atlasJobFixture({
 			status: "cancelled",
