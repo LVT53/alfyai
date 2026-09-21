@@ -81,6 +81,22 @@ const knowledgeDict = {
 			"This file type cannot be read for chat.",
 		"knowledge.extraction.inProgressTooltip":
 			"This document is still being processed and cannot be opened yet.",
+		"knowledge.extraction.reextract.action": "Re-extract",
+		"knowledge.extraction.reextract.current": "Current",
+		"knowledge.extraction.reextract.empty":
+			"No extraction quality is available right now.",
+		"knowledge.extraction.reextract.failed":
+			"Could not start re-extraction. Please try again.",
+		"knowledge.extraction.reextract.label":
+			"Re-extract {name} at a different quality",
+		"knowledge.extraction.reextract.loading": "Loading qualities...",
+		"knowledge.extraction.reextract.menuLabel": "Extraction quality",
+		"knowledge.extraction.reextract.queued":
+			"{name}: re-extraction queued at {tier}.",
+		"knowledge.extraction.reextract.tier.advanced": "Advanced (most thorough)",
+		"knowledge.extraction.reextract.tier.basic": "Basic (balanced)",
+		"knowledge.extraction.reextract.tier.flash": "Flash (fastest)",
+		"knowledge.extraction.reextract.tier.standard": "Standard (detailed)",
 		"knowledge.extraction.retry": "Retry",
 		"knowledge.extraction.retryLabel": "Retry processing {name}",
 		"knowledge.extraction.status.canceled": "Canceled",
@@ -490,6 +506,22 @@ const knowledgeDict = {
 			"Ez a fájltípus nem olvasható be a csevegéshez.",
 		"knowledge.extraction.inProgressTooltip":
 			"Ez a dokumentum még feldolgozás alatt áll, ezért még nem nyitható meg.",
+		"knowledge.extraction.reextract.action": "Újrafeldolgozás",
+		"knowledge.extraction.reextract.current": "Jelenlegi",
+		"knowledge.extraction.reextract.empty":
+			"Jelenleg nincs elérhető feldolgozási minőség.",
+		"knowledge.extraction.reextract.failed":
+			"Az újrafeldolgozás nem indítható el. Próbáld meg újra.",
+		"knowledge.extraction.reextract.label":
+			"A(z) {name} újrafeldolgozása más minőségben",
+		"knowledge.extraction.reextract.loading": "Minőségek betöltése...",
+		"knowledge.extraction.reextract.menuLabel": "Feldolgozási minőség",
+		"knowledge.extraction.reextract.queued":
+			"{name}: újrafeldolgozás sorba állítva ({tier}).",
+		"knowledge.extraction.reextract.tier.advanced": "Haladó (legalaposabb)",
+		"knowledge.extraction.reextract.tier.basic": "Alap (kiegyensúlyozott)",
+		"knowledge.extraction.reextract.tier.flash": "Flash (leggyorsabb)",
+		"knowledge.extraction.reextract.tier.standard": "Normál (részletes)",
 		"knowledge.extraction.retry": "Újra",
 		"knowledge.extraction.retryLabel": "A(z) {name} feldolgozása újra",
 		"knowledge.extraction.status.canceled": "Megszakítva",

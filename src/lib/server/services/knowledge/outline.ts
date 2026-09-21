@@ -1,10 +1,10 @@
 // "Long-document comfort" (owner-approved mockup, 2026-09-06): derives a
 // lightweight section outline from a document's extracted text so a user who
 // attaches a long file can jump straight to a section instead of
-// re-describing it. Runs purely on the already-extracted text (MinerU
-// normalizes PDF/DOCX/PPTX/XLSX to Markdown before this ever sees it — see
-// ../document-extraction.ts — and plain text/Markdown files are extracted
-// directly), so one heuristic set covers every supported format:
+// re-describing it. Runs purely on the already-extracted text (the MinerU
+// route normalizes PDF/DOCX/PPTX/XLSX to Markdown before this ever sees it,
+// and plain text/Markdown files are read directly by the direct-text
+// extractor), so one heuristic set covers every supported format:
 //
 //   1. Markdown ATX headings (`#` .. `######`) — the common case, since
 //      MinerU emits these for most structured documents.
@@ -42,7 +42,7 @@ interface HeadingCandidate {
 // `offset` is where the line starts and `bodyStart` where the NEXT line
 // starts, both measured against `text` itself. Line endings are measured
 // rather than assumed to be one character: plain .txt/.md uploads bypass
-// MinerU and are read straight off disk (see ../document-extraction.ts), so
+// MinerU and are read straight off disk by the direct-text extractor, so
 // a Windows-authored file arrives with CRLF endings, and charging every
 // separator a single character would drift every offset and preview further
 // out of alignment with each line consumed.
@@ -199,11 +199,22 @@ export function readStoredOutline(value: unknown): DocumentOutlineEntry[] {
 			? Math.trunc(record.offset)
 			: null;
 		if (level === null || !title || offset === null) continue;
+		// `page` is 1-based and optional. A stored `0`, a float, a string or a
+		// null is dropped rather than repaired: the citation surfaces treat a
+		// present page as a fact about the source document, so a value that
+		// cannot be one must not become "page 1".
+		const page =
+			isFiniteNonNegativeInteger(record.page) &&
+			Number.isInteger(record.page) &&
+			record.page > 0
+				? record.page
+				: null;
 		result.push({
 			level,
 			title,
 			offset,
 			preview: typeof record.preview === "string" ? record.preview : "",
+			...(page === null ? {} : { page }),
 		});
 		if (result.length >= MAX_OUTLINE_ENTRIES) break;
 	}

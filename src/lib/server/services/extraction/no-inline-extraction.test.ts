@@ -38,16 +38,33 @@ const SCANNED_ROOTS = [
 /**
  * Every module allowed to reach the MinerU protocol at runtime.
  *
- * The extractor is the seam; the rest are the three surfaces that legitimately
- * need a piece of it — the admin status card's endpoint, the figure endpoint
- * that serves a byte out of a parse bundle, and artifact deletion, which is the
- * only place that removes one.
+ * The extractor is the seam. The rest are the surfaces that legitimately need
+ * one piece of it, and each is here for a reason that is worth reading before
+ * adding a sixth:
+ *
+ *  - the admin status card's endpoint reads the server's capabilities;
+ *  - the figure endpoint serves a byte out of a parse bundle;
+ *  - artifact deletion is the only place that removes one;
+ *  - `persist.ts` stamps the normalized artifact's id into the manifest the
+ *    extractor wrote, and turns the parsed blocks into a chunk plan — it is
+ *    the one module that holds both the parse and the artifact;
+ *  - the re-extract endpoint validates the requested tier against the tiers
+ *    the server actually serves, before it writes a job;
+ *  - `chunk-sync.ts` and `read-generated-file.ts` read the structure-chunking
+ *    flag and the page index respectively.
+ *
+ * Everything else that wants a MinerU type imports it with `import type`,
+ * which this rule ignores.
  */
 const ALLOWED_MINERU_IMPORTERS = new Set([
 	"lib/server/services/extraction/extractors/mineru4.ts",
+	"lib/server/services/extraction/persist.ts",
+	"lib/server/services/knowledge/store/cleanup.ts",
+	"lib/server/services/normal-chat-tools/read-generated-file.ts",
+	"lib/server/services/task-state/chunk-sync.ts",
 	"routes/api/admin/mineru-status/+server.ts",
 	"routes/api/knowledge/[id]/figure/[name]/+server.ts",
-	"lib/server/services/knowledge/store/cleanup.ts",
+	"routes/api/knowledge/extraction/[artifactId]/reextract/+server.ts",
 ]);
 
 function listSourceFiles(absoluteDir: string): string[] {

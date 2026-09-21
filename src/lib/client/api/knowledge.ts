@@ -592,6 +592,51 @@ export async function retryExtraction(
 	return payload.job;
 }
 
+/**
+ * The extraction tiers this server offers for one document.
+ *
+ * Read when the Re-extract menu opens rather than with the library page: the
+ * answer costs a capability probe, it is the same for every row, and a library
+ * of fifty documents should not pay for a menu nobody opened. An `ApiError`
+ * carrying `code` is the caller's cue — `unavailable` means the backend is
+ * down, not that the document is broken.
+ */
+export async function fetchReextractTiers(
+	artifactId: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<string[]> {
+	const payload = await requestJson<{ tiers?: string[] }>(
+		`/api/knowledge/extraction/${encodeURIComponent(artifactId)}/reextract`,
+		undefined,
+		"Failed to read the available extraction tiers.",
+		fetchImpl,
+	);
+	return Array.isArray(payload.tiers) ? payload.tiers : [];
+}
+
+/**
+ * Re-extract a document at a chosen tier. Keyed on the artifact like Retry,
+ * and legal from a SUCCEEDED job — which is the whole point: the document is
+ * readable, and the user wants it read better.
+ */
+export async function reextractDocument(
+	artifactId: string,
+	tier: string,
+	fetchImpl: FetchLike = fetch,
+): Promise<DocumentExtractionJobDTO> {
+	const payload = await requestJson<{ job: DocumentExtractionJobDTO }>(
+		`/api/knowledge/extraction/${encodeURIComponent(artifactId)}/reextract`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ tier }),
+		},
+		"Failed to start re-extraction.",
+		fetchImpl,
+	);
+	return payload.job;
+}
+
 /** Cancel an extraction that is still queued or running. */
 export async function cancelExtraction(
 	artifactId: string,

@@ -45,6 +45,14 @@ export interface DocumentOutlineEntry {
 	title: string;
 	offset: number;
 	preview: string;
+	/**
+	 * 1-based page the heading sits on. Present only for a document whose
+	 * extractor reported page boundaries (a structured parse); absent for the
+	 * direct-text route and for every row written before that existed, which is
+	 * why it is optional rather than nullable — a heading with no page is not a
+	 * heading on page `null`.
+	 */
+	page?: number;
 }
 
 export interface ArtifactSummary {
@@ -94,6 +102,15 @@ export interface KnowledgeDocumentItem {
 	tokenEstimate?: number;
 	pageCount?: number;
 	outline?: DocumentOutlineEntry[];
+	/**
+	 * `metadata.extractionProducer` — `"mineru"` for a document parsed by the
+	 * structured extractor, absent for a row that predates it. The Library row
+	 * uses it to decide whether "Re-extract at a higher quality" is a promise
+	 * the backend can keep.
+	 */
+	extractionProducer?: string;
+	/** `metadata.extractionTier` — the REAL per-file tier, not the job's. */
+	extractionTier?: string;
 	createdAt: number;
 	updatedAt: number;
 }
