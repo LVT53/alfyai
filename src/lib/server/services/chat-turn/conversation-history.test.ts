@@ -462,16 +462,16 @@ describe("digest and text rendering", () => {
 			"native",
 		);
 
-		const call = out
-			.flatMap((message) =>
-				Array.isArray(message.content) ? message.content : [],
-			)
-			.find((part) => part.type === "tool-call");
+		const parts = out.flatMap((message) =>
+			Array.isArray(message.content)
+				? (message.content as Array<{ type: string; input?: unknown }>)
+				: [],
+		);
+		const call = parts.find((part) => part.type === "tool-call");
 		expect(call).toBeDefined();
-		expect(
-			produceFileModelInputSchema.safeParse((call as { input: unknown }).input)
-				.success,
-		).toBe(true);
+		expect(produceFileModelInputSchema.safeParse(call?.input).success).toBe(
+			true,
+		);
 	});
 
 	it("renders history as flat text for control calls", () => {
