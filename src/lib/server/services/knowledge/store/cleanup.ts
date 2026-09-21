@@ -11,6 +11,7 @@ import {
 	taskStateEvidenceLinks,
 } from "$lib/server/db/schema";
 import { removeMineruParseBundle } from "$lib/server/services/mineru/bundle";
+import { resolveDeletablePath } from "$lib/server/storage-containment";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	buildArtifactVisibilityCondition,
@@ -124,8 +125,27 @@ export async function hardDeleteArtifactsForUser(
 		await removeMineruParseBundle(row.userId, row.id).catch(() => undefined);
 
 		if (!row.storagePath) continue;
+
+		// Containment before the unlink. Every `storage_path` this app writes is
+		// server-generated and safe, which is an argument about the writers, not
+		// about this loop — and this loop is what the orphan sweep drives, box
+		// wide, over every user's rows, from a maintenance script. One bad row
+		// (a restore from an older schema, a hand-edited database) would
+		// otherwise make it `unlink` whatever that row named. A refusal is
+		// reported beside the unlinks that failed, so it reaches the disk
+		// report instead of stopping a sweep with thousands of good rows left.
+		const target = await resolveDeletablePath(row.storagePath);
+		if (!target) {
+			failedStoragePaths.push(row.storagePath);
+			console.warn("[KNOWLEDGE_DELETE] Refused a path outside the data roots", {
+				userId,
+				artifactId: row.id,
+			});
+			continue;
+		}
+
 		try {
-			await unlink(join(process.cwd(), row.storagePath));
+			await unlink(target);
 			deletedStoragePaths.push(row.storagePath);
 		} catch (error) {
 			failedStoragePaths.push(row.storagePath);

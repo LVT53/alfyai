@@ -393,6 +393,52 @@ describe("forget_all_results", () => {
 		expect(result.deletedArtifactIds.length).toBe(17_000);
 	}, 120_000);
 
+	// The sweep is the first reader that takes a `storage_path` out of a row and
+	// deletes it box-wide, over every user, from a maintenance script. Every
+	// path this app WRITES is server-generated and safe; that is an argument
+	// about the writers, and one bad row — a restore from an older schema, a
+	// hand-edited database — would otherwise make the sweep unlink whatever it
+	// named. A refusal has to land in the failed-paths result, not stop the
+	// sweep.
+	it("refuses a stored path that escapes the data directories", async () => {
+		const { mkdir, readFile, writeFile } = await import("node:fs/promises");
+		const { join: joinPath, relative: relativePath } = await import(
+			"node:path"
+		);
+		await mkdir(storageDir, { recursive: true });
+		const victim = joinPath(storageDir, "victim.txt");
+		await writeFile(victim, "must survive");
+
+		// A REAL traversal, relative to the working directory exactly as every
+		// storage path is, landing on a real file outside `data/`. The old code
+		// built its target with `join(process.cwd(), storagePath)`, which walks
+		// `..` happily — so without the guard this unlink succeeds and the file
+		// is gone.
+		const traversal = relativePath(process.cwd(), victim);
+		expect(traversal.startsWith("..")).toBe(true);
+
+		const { sqlite, db } = openSeedDatabase();
+		seedBase(db);
+		seedArtifact(db, { id: "traversal", storagePath: traversal });
+		seedArtifact(db, { id: "absolute", storagePath: victim });
+		sqlite.close();
+
+		const { hardDeleteArtifactsForUser } = await import("./cleanup");
+		const result = await hardDeleteArtifactsForUser(USER, [
+			"traversal",
+			"absolute",
+		]);
+
+		// The rows go — they are the user's to delete — the file does not, and
+		// both refusals are reported rather than swallowed.
+		expect(result.deletedArtifactIds.sort()).toEqual(["absolute", "traversal"]);
+		expect(result.deletedStoragePaths).toEqual([]);
+		expect(result.failedStoragePaths.sort()).toEqual(
+			[traversal, victim].sort(),
+		);
+		expect(await readFile(victim, "utf8")).toBe("must survive");
+	});
+
 	it("does not touch a reachable orphan candidate", async () => {
 		const { sqlite, db } = openSeedDatabase();
 		seedBase(db);

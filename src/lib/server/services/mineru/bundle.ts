@@ -42,6 +42,7 @@ import {
 } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
+import { resolveDeletablePath } from "$lib/server/storage-containment";
 import { getEntryByFilename } from "$lib/shared/file-types";
 import {
 	MINERU_IMAGE_NAME_PATTERN,
@@ -416,6 +417,14 @@ async function directoryBytes(dir: string): Promise<number> {
  * already ignores.
  */
 async function evictPath(path: string): Promise<boolean> {
+	// Containment before the rename. These paths come from listing the disk
+	// rather than from a row, so `assertSafeSegment` never saw them: a
+	// symlinked bundle directory would otherwise let a recursive `rm` walk out
+	// of `data/knowledge/` entirely.
+	if (!(await resolveDeletablePath(path))) {
+		console.warn("[MINERU] Refused to evict a path outside the data roots");
+		return false;
+	}
 	const parked = `${path}${MINERU_BUNDLE_TMP_INFIX}evict-${process.pid}-${Math.random()
 		.toString(36)
 		.slice(2, 10)}`;
@@ -846,6 +855,20 @@ export async function removeMineruParseBundle(
 			sourceArtifactId,
 			error: error instanceof Error ? error.message : error,
 		});
+		return;
+	}
+
+	// `mineruBundleDir` already refuses an unsafe SEGMENT; this refuses an
+	// unsafe RESOLVED path, which is the part a symlinked user directory could
+	// still have moved outside `data/knowledge/`.
+	if (!(await resolveDeletablePath(bundleDir))) {
+		console.warn(
+			"[KNOWLEDGE_DELETE] Parse bundle path outside the data roots",
+			{
+				userId,
+				sourceArtifactId,
+			},
+		);
 		return;
 	}
 
