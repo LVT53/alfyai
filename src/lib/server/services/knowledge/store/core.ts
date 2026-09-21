@@ -19,6 +19,7 @@ import type {
 	ArtifactSummary,
 	ArtifactType,
 } from "$lib/server/services/knowledge/types";
+import type { ChunkPlanEntry } from "$lib/server/services/mineru/result";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { fileExtension as registryFileExtension } from "$lib/shared/file-types";
 import {
@@ -270,6 +271,15 @@ export async function createArtifact(params: {
 	contentText?: string | null;
 	summary?: string | null;
 	metadata?: Record<string, unknown> | null;
+	/**
+	 * A structure-aware chunk plan for this artifact's text, from
+	 * `planStructuredChunks`. Forwarded verbatim to `syncArtifactChunks`,
+	 * which decides whether to use it (the small-file bypass and the
+	 * `MINERU_STRUCTURE_CHUNKING_ENABLED` flag both outrank it). Omitted by
+	 * every caller that has no parsed blocks, which is all of them but the
+	 * extraction persist path.
+	 */
+	chunkPlan?: readonly ChunkPlanEntry[] | null;
 }): Promise<Artifact> {
 	const id = params.id ?? randomUUID();
 	const [artifact] = await db
@@ -300,6 +310,7 @@ export async function createArtifact(params: {
 			userId: mapped.userId,
 			conversationId: mapped.conversationId,
 			contentText: mapped.contentText,
+			chunkPlan: params.chunkPlan ?? null,
 		});
 		if (sync.truncated) {
 			// Retrieval now sees only the first `MAX_ARTIFACT_CHUNKS` of this
