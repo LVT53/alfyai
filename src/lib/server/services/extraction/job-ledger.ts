@@ -391,6 +391,13 @@ export async function claimNextExtractionJob(
 		// One row PER USER — that user's oldest claimable job — and only then
 		// ordered by priority and age. See CLAIM_CANDIDATE_LIMIT for why the
 		// previous "oldest 32 rows overall" was unfair.
+		//
+		// `rowid` is the tie-break, NOT `id`. `created_at` is stored with
+		// one-second granularity, so a burst of uploads ties on it routinely,
+		// and `id` is a random UUID — ordering by it would shuffle jobs queued
+		// in the same second into an arbitrary order that changes per row.
+		// `rowid` is insertion order, which is what "oldest" means once the
+		// timestamp has run out of resolution.
 		const headIds = tx
 			.all<{ id: string }>(
 				sql`
@@ -399,15 +406,16 @@ export async function claimNextExtractionJob(
 							id,
 							priority,
 							created_at,
+							rowid as seq,
 							row_number() over (
 								partition by user_id
-								order by priority asc, created_at asc, id asc
+								order by priority asc, created_at asc, rowid asc
 							) as user_rank
 						from ${documentExtractionJobs}
 						where ${gate}
 					)
 					where user_rank = 1
-					order by priority asc, created_at asc, id asc
+					order by priority asc, created_at asc, seq asc
 					limit ${CLAIM_CANDIDATE_LIMIT}
 				`,
 			)
