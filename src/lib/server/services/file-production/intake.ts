@@ -1,5 +1,12 @@
-import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import type {
+	FileProductionInlineTextFile,
+	FileProductionJob,
+} from "$lib/server/services/file-production/types";
 import { fileExtension } from "$lib/shared/file-types";
+import {
+	getExpectedExtensionForOutputType,
+	isInlineTextOutputType,
+} from "$lib/shared/file-types/production";
 import { validateFileProductionStaticLimits } from "./limits";
 import {
 	FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES,
@@ -36,9 +43,18 @@ interface NormalizedDocumentSourceIntake extends NormalizedIntakeBase {
 	documentSource: GeneratedDocumentSource;
 }
 
+interface NormalizedInlineTextIntake extends NormalizedIntakeBase {
+	sourceMode: "inline_text";
+	inlineText: {
+		content: string;
+		files: FileProductionInlineTextFile[];
+	};
+}
+
 type NormalizedFileProductionIntake =
 	| NormalizedProgramIntake
-	| NormalizedDocumentSourceIntake;
+	| NormalizedDocumentSourceIntake
+	| NormalizedInlineTextIntake;
 
 interface CreateOrReuseFileProductionJobInput {
 	userId: string;
@@ -212,6 +228,113 @@ function normalizeProgramOutputs(
 	return derived ? [{ type: derived }] : [];
 }
 
+/**
+ * A produced filename must be a bare basename: it is joined onto the chat-file
+ * storage directory and handed to `Content-Disposition`. Program mode gets this
+ * from the sandbox, which can only report what it found in `/output`; the
+ * inline_text mode is handed a name by the caller, so it is checked here.
+ */
+function sanitizedProducedFilename(value: unknown): string | null {
+	const trimmed = trimString(value);
+	if (!trimmed || trimmed.length > 120) return null;
+	if (/[\\/]/.test(trimmed)) return null;
+	if (trimmed === "." || trimmed === "..") return null;
+	if (trimmed.startsWith(".")) return null;
+	return trimmed;
+}
+
+type InlineTextNormalization =
+	| { ok: true; content: string; files: FileProductionInlineTextFile[] }
+	| { ok: false; code: string; error: string };
+
+/**
+ * Phase 6 D8. Everything that makes the bytes safe to write without a renderer
+ * or a sandbox is decided here, before a job is queued:
+ *  - the content must be a non-empty string (the bytes ARE the request);
+ *  - every output type must be one `isInlineTextOutputType` accepts, so no
+ *    document-source type and no binary container type can reach this mode;
+ *  - every filename must be a bare basename whose extension is exactly the one
+ *    its output type expects, which is what guarantees the stored bytes match
+ *    the extension they are stored under.
+ */
+function normalizeInlineTextIntake(body: unknown): InlineTextNormalization {
+	const inlineText = isRecord(body) ? body : null;
+	if (!inlineText || !isRecord(inlineText.inlineText)) {
+		return {
+			ok: false,
+			code: "invalid_inline_text_request",
+			error: "inlineText is required when sourceMode is inline_text",
+		};
+	}
+
+	const request = inlineText.inlineText;
+	if (typeof request.content !== "string" || request.content.length === 0) {
+		return {
+			ok: false,
+			code: "missing_inline_text_content",
+			error: "inlineText.content is required and must be a non-empty string",
+		};
+	}
+
+	const rawFiles = Array.isArray(request.files) ? request.files : [];
+	if (rawFiles.length === 0) {
+		return {
+			ok: false,
+			code: "invalid_inline_text_request",
+			error: "inlineText.files must name at least one file to write",
+		};
+	}
+
+	const files: FileProductionInlineTextFile[] = [];
+	for (const rawFile of rawFiles) {
+		if (!isRecord(rawFile)) {
+			return {
+				ok: false,
+				code: "invalid_inline_text_request",
+				error: "Each inlineText.files entry must be an object",
+			};
+		}
+		const outputType = trimString(rawFile.outputType).toLowerCase();
+		if (!outputType || !isInlineTextOutputType(outputType)) {
+			return {
+				ok: false,
+				code: "unsupported_inline_text_output_type",
+				error: `Output type ${outputType || "(missing)"} cannot be written as inline text. Use program mode for binary formats, or documentSource for PDF, DOCX and HTML.`,
+			};
+		}
+		const filename = sanitizedProducedFilename(rawFile.filename);
+		if (!filename) {
+			return {
+				ok: false,
+				code: "invalid_inline_text_request",
+				error:
+					"Each inlineText.files entry needs a plain filename with no path separators",
+			};
+		}
+		const expectedExtension = getExpectedExtensionForOutputType(outputType);
+		if (
+			!expectedExtension ||
+			!filename.toLowerCase().endsWith(expectedExtension)
+		) {
+			return {
+				ok: false,
+				code: "invalid_inline_text_request",
+				error: `Output type ${outputType} must produce a ${expectedExtension ?? "matching"} file, but the filename is ${filename}.`,
+			};
+		}
+		if (files.some((existing) => existing.filename === filename)) {
+			return {
+				ok: false,
+				code: "invalid_inline_text_request",
+				error: `inlineText.files names ${filename} twice; one job cannot write the same file twice.`,
+			};
+		}
+		files.push({ filename, outputType });
+	}
+
+	return { ok: true, content: request.content, files };
+}
+
 export function getFileProductionIntakeConversationId(
 	body: unknown,
 ): FileProductionIntakeConversationIdResult {
@@ -332,13 +455,46 @@ function normalizeFileProductionIntake(
 			error: "requestTitle is required",
 		});
 	}
-	if (sourceMode !== "program" && sourceMode !== "document_source") {
+	if (
+		sourceMode !== "program" &&
+		sourceMode !== "document_source" &&
+		sourceMode !== "inline_text"
+	) {
 		return validationFailure({
 			body,
 			status: 422,
 			code: "unsupported_source_mode",
-			error: "sourceMode must be program or document_source",
+			error: "sourceMode must be program, document_source or inline_text",
 		});
+	}
+	if (sourceMode === "inline_text") {
+		const inlineText = normalizeInlineTextIntake(body);
+		if (!inlineText.ok) {
+			return validationFailure({
+				body,
+				status: 422,
+				code: inlineText.code,
+				error: inlineText.error,
+			});
+		}
+
+		return {
+			ok: true,
+			value: {
+				conversationId,
+				assistantMessageId: optionalTrimmedString(body.assistantMessageId),
+				idempotencyKey,
+				requestTitle,
+				sourceMode: "inline_text",
+				// The files ARE the request: one output per file we are about to
+				// write, so `maxRequestedOutputs` counts the real thing and no
+				// declared output can go unproduced.
+				outputs: inlineText.files.map((file) => ({ type: file.outputType })),
+				documentIntent: optionalTrimmedString(body.documentIntent),
+				templateHint: optionalTrimmedString(body.templateHint),
+				inlineText: { content: inlineText.content, files: inlineText.files },
+			},
+		};
 	}
 	if (sourceMode === "document_source") {
 		const documentValidation = validateGeneratedDocumentSource(
@@ -466,6 +622,11 @@ export async function submitFileProductionIntakeWithDependencies(
 		program: request.sourceMode === "program" ? request.program : null,
 		documentSource:
 			request.sourceMode === "document_source" ? request.documentSource : null,
+		// The content rides the same persisted request the other modes use, so a
+		// retry re-runs the identical bytes and the static source-size limit
+		// bounds it exactly as it bounds a documentSource.
+		inlineText:
+			request.sourceMode === "inline_text" ? request.inlineText : null,
 	};
 	const staticLimit = validateFileProductionStaticLimits({
 		outputCount: request.outputs.length,

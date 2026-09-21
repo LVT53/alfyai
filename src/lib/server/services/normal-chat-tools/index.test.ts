@@ -475,6 +475,10 @@ describe("createNormalChatTools", () => {
 		);
 	});
 
+	// Phase 6 D8. This call — the one prompts.ts teaches the model — used to be
+	// handed to a Python `write_text` one-liner inside a Docker container. It is
+	// now normalized to the inline_text source mode, which carries the model's
+	// bytes verbatim to the same intake.
 	it("accepts simple markdown content without requiring program or documentSource", async () => {
 		submitFileProductionIntakeMock.mockResolvedValue({
 			ok: true,
@@ -513,14 +517,24 @@ describe("createNormalChatTools", () => {
 					conversationId: "conversation-1",
 					requestTitle: "Hungarian Parliament News",
 					requestedOutputs: [{ type: "md" }],
-					sourceMode: "program",
+					sourceMode: "inline_text",
 					documentIntent: "data export",
-					program: expect.objectContaining({
-						language: "python",
-						filename: "hungarian-parliament-news.md",
-						sourceCode: expect.stringContaining("Latest News"),
+					inlineText: expect.objectContaining({
+						content: expect.stringContaining("Latest News"),
+						files: [
+							{
+								filename: "hungarian-parliament-news.md",
+								outputType: "md",
+							},
+						],
 					}),
 				}),
+			}),
+		);
+		// No program is synthesised any more, so nothing asks for a container.
+		expect(submitFileProductionIntakeMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({
+				body: expect.objectContaining({ program: expect.anything() }),
 			}),
 		);
 	});

@@ -79,7 +79,14 @@ describe("file-production output validation", () => {
 					{
 						filename: "archive.zip",
 						mimeType: "application/zip",
-						content: Buffer.from("zip bytes"),
+						// Real local-file-header magic: the produced-output contract
+						// now refuses bytes that do not match the extension
+						// (`validateProducedFileSignature`), so the fixture has to be
+						// a plausible archive rather than the words "zip bytes".
+						content: Buffer.concat([
+							Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+							Buffer.from(" entries"),
+						]),
 					},
 				],
 			}),

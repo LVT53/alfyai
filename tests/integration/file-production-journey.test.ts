@@ -362,6 +362,138 @@ describe("File Production journey gate", () => {
 		expect(await download.text()).toContain("Journey Report");
 	});
 
+	// Phase 6 D8. This is the journey the Docker case below CANNOT be: a plain
+	// markdown request that produces a real, downloadable file with no container
+	// anywhere in the path, so it runs in CI on a box with no Docker daemon.
+	it("runs an inline_text produce_file journey with no container in the path", async () => {
+		const { createNormalChatTools } = await import(
+			"../../src/lib/server/services/normal-chat-tools"
+		);
+		const {
+			assignFileProductionJobsToAssistantMessage,
+			drainFileProductionWorker,
+		} = await import("$lib/server/services/file-production");
+		const { getConversationDetail } = await import(
+			"../../src/lib/server/services/conversation-detail/read-model"
+		);
+		const { GET: previewFile } = await import(
+			"../../src/routes/api/chat/files/[id]/preview/+server"
+		);
+		const { GET: downloadFile } = await import(
+			"../../src/routes/api/chat/files/[id]/download/+server"
+		);
+		const { db } = await import("../../src/lib/server/db");
+		const schemaModule = await import("../../src/lib/server/db/schema");
+		const { eq } = await import("drizzle-orm");
+		const sandbox = await import(
+			"../../src/lib/server/services/sandbox-execution"
+		);
+		const executeCodeSpy = vi.spyOn(sandbox, "executeCode");
+
+		const { tools } = createNormalChatTools({
+			userId: JOURNEY_USER_ID,
+			conversationId: JOURNEY_CONVERSATION_ID,
+			turnId: "journey-turn-inline",
+			// Same staging as the document-source journey above.
+			fileProductionVerdictWaitMs: 0,
+		});
+
+		// Exactly the call `prompts.ts` teaches the model, which used to start a
+		// Docker container to run a Python `write_text` one-liner.
+		const markdown = [
+			"# Journey Notes",
+			"",
+			"| Boundary | Expected result |",
+			"|---|---|",
+			"| tool adapter | queued |",
+			"| worker | succeeded |",
+			"| preview | served |",
+			"| download | served |",
+			"",
+			"```python",
+			"print('this fence must survive verbatim')",
+			"```",
+		].join("\n");
+
+		const toolResult = await tools.produce_file.execute(
+			{
+				idempotencyKey: "inline-markdown",
+				requestTitle: "Journey Notes",
+				filename: "journey-notes.md",
+				markdown,
+			},
+			{ toolCallId: "call-inline-markdown", messages: [] },
+		);
+
+		expect(toolResult).toMatchObject({ ok: true, status: "running" });
+		const jobId = expectPresent(
+			"jobId" in toolResult ? toolResult.jobId : null,
+			"tool adapter",
+		);
+
+		const [queued] = await db
+			.select({ sourceMode: schemaModule.fileProductionJobs.sourceMode })
+			.from(schemaModule.fileProductionJobs)
+			.where(eq(schemaModule.fileProductionJobs.id, jobId));
+		expect(queued.sourceMode).toBe("inline_text");
+
+		await drainFileProductionWorker({
+			workerId: "journey-worker-inline",
+			now: new Date("2026-05-03T21:10:01.000Z"),
+			syncGeneratedFilesToMemory: async () => {},
+		});
+		await assignFileProductionJobsToAssistantMessage(
+			JOURNEY_USER_ID,
+			JOURNEY_CONVERSATION_ID,
+			JOURNEY_ASSISTANT_MESSAGE_ID,
+			[jobId],
+		);
+
+		const detail = await getConversationDetail({
+			userId: JOURNEY_USER_ID,
+			conversationId: JOURNEY_CONVERSATION_ID,
+		});
+		const card = expectPresent(
+			detail?.fileProductionJobs.find((job) => job.id === jobId),
+			"read projection",
+		);
+		expect(card).toMatchObject({
+			id: jobId,
+			assistantMessageId: JOURNEY_ASSISTANT_MESSAGE_ID,
+			title: "Journey Notes",
+			status: "succeeded",
+			files: [
+				expect.objectContaining({
+					filename: "journey-notes.md",
+					mimeType: "text/markdown",
+					downloadUrl: expect.stringContaining("/download"),
+					previewUrl: expect.stringContaining("/preview"),
+				}),
+			],
+		});
+		const file = expectPresent(card.files[0], "storage");
+
+		const preview = await previewFile(makeFileRouteEvent("preview", file.id));
+		await expectResponseStatus(preview, 200, "preview");
+		expect(preview.headers.get("Content-Type")).toBe("text/markdown");
+
+		const download = await downloadFile(
+			makeFileRouteEvent("download", file.id),
+		);
+		await expectResponseStatus(download, 200, "download");
+		expect(download.headers.get("Content-Disposition")).toContain(
+			"attachment; filename*=UTF-8''journey-notes.md",
+		);
+		// The D8 no-reformatting guarantee, asserted on the bytes the user
+		// actually downloads: the pipe table and the fenced block survive exactly
+		// as the model wrote them.
+		expect(await download.text()).toBe(markdown);
+
+		// And nothing ever asked the sandbox for a container.
+		expect(executeCodeSpy).not.toHaveBeenCalled();
+		executeCodeSpy.mockRestore();
+	});
+
 	it.skipIf(!dockerAvailability.available)(
 		`runs a program-mode produce_file journey through Docker sandbox preview and download${
 			dockerAvailability.available
