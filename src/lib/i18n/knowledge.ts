@@ -93,8 +93,7 @@ const knowledgeDict = {
 		"knowledge.extraction.reextract.menuLabel": "Extraction quality",
 		"knowledge.extraction.reextract.queued":
 			"{name}: re-extraction queued at {tier}.",
-		"knowledge.extraction.reextract.tier.advanced":
-			"Advanced (most thorough)",
+		"knowledge.extraction.reextract.tier.advanced": "Advanced (most thorough)",
 		"knowledge.extraction.reextract.tier.basic": "Basic (balanced)",
 		"knowledge.extraction.reextract.tier.flash": "Flash (fastest)",
 		"knowledge.extraction.reextract.tier.standard": "Standard (detailed)",
@@ -519,8 +518,7 @@ const knowledgeDict = {
 		"knowledge.extraction.reextract.menuLabel": "Feldolgozási minőség",
 		"knowledge.extraction.reextract.queued":
 			"{name}: újrafeldolgozás sorba állítva ({tier}).",
-		"knowledge.extraction.reextract.tier.advanced":
-			"Haladó (legalaposabb)",
+		"knowledge.extraction.reextract.tier.advanced": "Haladó (legalaposabb)",
 		"knowledge.extraction.reextract.tier.basic": "Alap (kiegyensúlyozott)",
 		"knowledge.extraction.reextract.tier.flash": "Flash (leggyorsabb)",
 		"knowledge.extraction.reextract.tier.standard": "Normál (részletes)",

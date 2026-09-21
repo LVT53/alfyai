@@ -73,7 +73,8 @@ async function resolveJob(userId: string, artifactId: string) {
 
 /** The tiers this server actually serves, or a 503-shaped refusal. */
 async function readTiers(): Promise<
-	{ ok: true; tiers: readonly MineruTierId[] } | { ok: false; response: Response }
+	| { ok: true; tiers: readonly MineruTierId[] }
+	| { ok: false; response: Response }
 > {
 	try {
 		const capabilities = await getMineruCapabilities();
@@ -88,10 +89,7 @@ async function readTiers(): Promise<
 				: "unavailable";
 		return {
 			ok: false,
-			response: json(
-				{ error: "MinerU is unavailable", code },
-				{ status: 503 },
-			),
+			response: json({ error: "MinerU is unavailable", code }, { status: 503 }),
 		};
 	}
 }

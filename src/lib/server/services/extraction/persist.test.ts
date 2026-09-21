@@ -236,7 +236,10 @@ describe("createNormalizedArtifactFromExtraction — structured results", () => 
 						],
 					},
 				],
-				metadata: { producer: { name: "mineru", version: "4.0.4" }, document: {} },
+				metadata: {
+					producer: { name: "mineru", version: "4.0.4" },
+					document: {},
+				},
 				extensions: { mineru: { tier: "flash", parse_mode: "txt" } },
 			} as never,
 			jobTier: "basic",
@@ -494,9 +497,9 @@ describe("createNormalizedArtifactFromExtraction — hostile inputs", () => {
 
 	it("survives the source artifact disappearing mid-persist", async () => {
 		const result = await parsedFixture("pdf");
-		fixture.sqlite.prepare("DELETE FROM artifacts WHERE id = ?").run(
-			sourceArtifactId,
-		);
+		fixture.sqlite
+			.prepare("DELETE FROM artifacts WHERE id = ?")
+			.run(sourceArtifactId);
 
 		// The normalized artifact cannot be linked to a row that is gone, so the
 		// attempt fails rather than half-succeeding — the ledger requeues it and

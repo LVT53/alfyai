@@ -136,9 +136,7 @@ function mapLogicalDocumentItem(
 		...(params.extractionProducer
 			? { extractionProducer: params.extractionProducer }
 			: {}),
-		...(params.extractionTier
-			? { extractionTier: params.extractionTier }
-			: {}),
+		...(params.extractionTier ? { extractionTier: params.extractionTier } : {}),
 		createdAt: params.displayArtifact.createdAt,
 		updatedAt: params.updatedAt,
 	};

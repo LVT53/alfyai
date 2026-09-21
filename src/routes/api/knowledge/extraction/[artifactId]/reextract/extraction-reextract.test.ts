@@ -144,7 +144,10 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 			.prepare(
 				"UPDATE document_extraction_jobs SET remote_handle_json = ? WHERE id = ?",
 			)
-			.run('{"extractor":"mineru4","version":1,"remoteJobId":"job_old"}', job.id);
+			.run(
+				'{"extractor":"mineru4","version":1,"remoteJobId":"job_old"}',
+				job.id,
+			);
 
 		const response = await route.POST(
 			makeEvent(artifactId, OWNER, { tier: "basic" }),
@@ -208,9 +211,7 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 		const theirs = fixture.seedArtifact({ userId: STRANGER });
 		await enqueueSucceeded(STRANGER, theirs);
 
-		const owned = await route.POST(
-			makeEvent(theirs, OWNER, { tier: "basic" }),
-		);
+		const owned = await route.POST(makeEvent(theirs, OWNER, { tier: "basic" }));
 		const unknown = await route.POST(
 			makeEvent("no-such-artifact", OWNER, { tier: "basic" }),
 		);
@@ -231,7 +232,10 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 	});
 
 	it("refuses a direct-text document: it has no tiers to choose between", async () => {
-		const artifactId = fixture.seedArtifact({ userId: OWNER, name: "notes.txt" });
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			name: "notes.txt",
+		});
 		await enqueueSucceeded(OWNER, artifactId, "direct-text");
 
 		const response = await route.POST(
@@ -264,7 +268,9 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 		const artifactId = fixture.seedArtifact({ userId: OWNER });
 		const { job } = await enqueueSucceeded(OWNER, artifactId);
 		fixture.sqlite
-			.prepare("UPDATE document_extraction_jobs SET attempt_count = ? WHERE id = ?")
+			.prepare(
+				"UPDATE document_extraction_jobs SET attempt_count = ? WHERE id = ?",
+			)
 			.run(99, job.id);
 
 		const response = await route.POST(
