@@ -60,6 +60,29 @@ describe("toDocumentExtractionError", () => {
 		expect(mapped.retryable).toBe(false);
 	});
 
+	it("recognises an abort by name, not by instanceof", () => {
+		// The regression this pins: `instanceof DOMException` is false for the
+		// abort reason under jsdom, and false across any realm boundary. An abort
+		// that fell through to the `internal` branch would be a non-retryable
+		// permanent failure for a document the user merely cancelled.
+		const alienAbort = { name: "AbortError", message: "aborted" };
+		expect(toDocumentExtractionError(alienAbort).code).toBe("canceled");
+		expect(toDocumentExtractionError(alienAbort).retryable).toBe(false);
+
+		// `AbortSignal.timeout` rejects with this one, and it must not be read as
+		// an unknown throw either.
+		const alienTimeout = Object.assign(new Error("timed out"), {
+			name: "TimeoutError",
+		});
+		expect(toDocumentExtractionError(alienTimeout).code).toBe("canceled");
+
+		// A real DOMException keeps working; the structural check is a widening,
+		// never a replacement.
+		expect(
+			toDocumentExtractionError(new DOMException("t", "TimeoutError")).code,
+		).toBe("canceled");
+	});
+
 	it("maps a failed fetch to unavailable", () => {
 		const mapped = toDocumentExtractionError(new TypeError("fetch failed"));
 		expect(mapped.code).toBe("unavailable");

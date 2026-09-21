@@ -43,7 +43,7 @@ export function getExtractionConfig(): ExtractionConfig {
 		maxAttempts: config.documentExtractionMaxAttempts,
 		retryBaseMs: config.documentExtractionRetryBaseMs,
 		retryMaxMs: config.documentExtractionRetryMaxMs,
-		// The stale window used to be dragged up to `mineruTimeoutMs * 2` (OQ5),
+		// The stale window used to be dragged up to `mineruJobTimeoutMs * 2` (OQ5),
 		// on the theory that an attempt must not be reclaimed while its own HTTP
 		// call is still in flight. That theory no longer holds: the heartbeat runs
 		// on its own interval through every phase, indexing included, and an

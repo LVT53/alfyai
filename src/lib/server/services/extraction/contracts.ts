@@ -155,11 +155,26 @@ export function isDocumentExtractionError(
 	);
 }
 
+/**
+ * Structural, for the same reason `isDocumentExtractionError` is.
+ *
+ * `AbortSignal` rejects with a DOMException, and `instanceof DOMException` is
+ * not a reliable test for one: under jsdom the abort reason fails BOTH
+ * `instanceof DOMException` and `instanceof Error`, and any realm boundary
+ * (a worker, a second copy of a module, a vm context) does the same in
+ * production. An abort read as "an unknown throw" becomes a non-retryable
+ * `internal` — which is how a user pressing Cancel could end up looking like a
+ * permanently broken document. The name is the only property that survives
+ * every one of those boundaries.
+ *
+ * The name set is unchanged: `AbortError` is the caller's own cancel and
+ * `TimeoutError` is what `AbortSignal.timeout` rejects with. An extractor maps
+ * its own deadlines before they reach here, so this is the fallback for a throw
+ * nobody classified.
+ */
 function isAbortLike(error: unknown): boolean {
-	if (error instanceof DOMException) {
-		return error.name === "AbortError" || error.name === "TimeoutError";
-	}
-	return error instanceof Error && error.name === "AbortError";
+	const name = (error as { name?: unknown } | null)?.name;
+	return name === "AbortError" || name === "TimeoutError";
 }
 
 function isConnectionLike(error: unknown): boolean {

@@ -136,13 +136,6 @@ interface Config {
 	mineruDefaultTier: string;
 	mineruOcrMode: string;
 	mineruJobTimeoutMs: number;
-	/**
-	 * @deprecated Mirrors `mineruJobTimeoutMs`. `MINERU_TIMEOUT_MS` is gone as a
-	 * key; this field stays for one release so the 3.x extractor adapter and
-	 * `extraction/config.ts`'s stale-window coupling keep reading a timeout that
-	 * is now fed from `MINERU_JOB_TIMEOUT_MS`.
-	 */
-	mineruTimeoutMs: number;
 	mineruPollMinMs: number;
 	mineruPollMaxMs: number;
 	mineruRequestTimeoutMs: number;
@@ -893,10 +886,6 @@ function readConfig(): Config {
 		),
 		mineruOcrMode: normalizeMineruOcrMode(process.env.MINERU_OCR_MODE),
 		mineruJobTimeoutMs,
-		// Deprecated mirror, kept for one release: the 3.x adapter and
-		// `extraction/config.ts` still read `mineruTimeoutMs`, and both must keep
-		// seeing a timeout while `MINERU_TIMEOUT_MS` itself is retired.
-		mineruTimeoutMs: mineruJobTimeoutMs,
 		mineruPollMinMs: clampParsedInt(
 			process.env.MINERU_POLL_MIN_MS,
 			2000,

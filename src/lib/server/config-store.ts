@@ -316,8 +316,6 @@ export interface RuntimeConfig {
 	mineruDefaultTier: string;
 	mineruOcrMode: string;
 	mineruJobTimeoutMs: number;
-	/** @deprecated Mirrors `mineruJobTimeoutMs`; see env.ts. */
-	mineruTimeoutMs: number;
 	mineruPollMinMs: number;
 	mineruPollMaxMs: number;
 	mineruRequestTimeoutMs: number;
@@ -844,11 +842,7 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	MINERU_JOB_TIMEOUT_MS: (config, value) => {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined) {
-			const clamped = Math.max(10000, Math.min(3600000, parsed));
-			config.mineruJobTimeoutMs = clamped;
-			// The deprecated mirror moves with it, so the 3.x adapter and the
-			// ledger's stale-window coupling see the admin's value too.
-			config.mineruTimeoutMs = clamped;
+			config.mineruJobTimeoutMs = Math.max(10000, Math.min(3600000, parsed));
 		}
 	},
 	MINERU_POLL_MIN_MS: (config, value) => {
