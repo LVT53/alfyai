@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Cookies, RequestEvent } from "@sveltejs/kit";
@@ -214,16 +215,39 @@ export function makeKnowledgeUploadRequestEvent<
 	});
 }
 
+/**
+ * A per-TEST upload user, and therefore a per-test `.incoming` directory.
+ *
+ * These suites drive the real route, which writes to
+ * `data/knowledge/<userId>/.incoming` under `process.cwd()` — a directory
+ * shared by every suite in the run and by every test in this file. With a
+ * fixed id ("raw-user", "user-1") three things could put a stranger's file
+ * into the listing a "leaves nothing behind" assertion reads:
+ *
+ *  - a partial write from an EARLIER test in this file whose unlink resolved
+ *    after that test's `afterEach` had already swept the directory;
+ *  - any other suite that happens to use the same literal user id — "user-1"
+ *    is the most common test user in this repo;
+ *  - the route's own `scheduleKnowledgeUploadTempSweep`, which is throttled
+ *    once an hour PER PROCESS and walks the whole real knowledge root, so it
+ *    couples every suite that runs in the same worker.
+ *
+ * A fresh uuid per test removes all three at once, without touching the
+ * assertion — which is the point: "nothing left behind" is the property under
+ * test, and a test that swept harder would stop testing it.
+ */
 export function createKnowledgeUploadRouteHarness(params: {
+	/** Prefix only. The id itself is minted fresh for every test. */
 	userId: string;
-	incomingCleanupUserId?: string;
 }) {
 	const state = {
+		userId: params.userId,
 		consoleInfoSpy: null as ReturnType<typeof vi.spyOn> | null,
 		consoleWarnSpy: null as ReturnType<typeof vi.spyOn> | null,
 	};
 
 	beforeEach(() => {
+		state.userId = `${params.userId}-${randomUUID()}`;
 		vi.clearAllMocks();
 		state.consoleInfoSpy = vi
 			.spyOn(console, "info")
@@ -247,19 +271,12 @@ export function createKnowledgeUploadRouteHarness(params: {
 		state.consoleWarnSpy?.mockRestore();
 		state.consoleInfoSpy = null;
 		state.consoleWarnSpy = null;
-		await rm(
-			join(
-				process.cwd(),
-				"data",
-				"knowledge",
-				params.incomingCleanupUserId ?? params.userId,
-				".incoming",
-			),
-			{
-				force: true,
-				recursive: true,
-			},
-		);
+		// The whole user directory, not just `.incoming`: the id is unique to
+		// this test, so nothing else can be under it.
+		await rm(join(process.cwd(), "data", "knowledge", state.userId), {
+			force: true,
+			recursive: true,
+		});
 	});
 
 	return state;
