@@ -275,11 +275,39 @@ describe("hooks.server.ts", () => {
 		{ segments: ["api", "tools", "research-web"] },
 		{ segments: ["api", "webhook", "sentence"] },
 		{ segments: ["api", "stream", "webhook", "session-1"] },
-	])("redirects retired public route %# without a session", async ({
+	])("refuses retired public route %# without a session", async ({
 		segments,
 	}) => {
 		const { handle } = await import("./hooks.server");
 		const path = `/${segments.join("/")}`;
+		const resolve = vi.fn();
+		const event = makeHookEvent(path);
+
+		// Still not public — the refusal is now a 401 rather than a 303, but the
+		// route handler is just as unreachable.
+		const response = await handle({ event, resolve });
+
+		expect(response.status).toBe(401);
+		expect(resolve).not.toHaveBeenCalled();
+	});
+
+	it("redirects protected PAGE routes to /login when no user is present", async () => {
+		const { handle } = await import("./hooks.server");
+		const event = makeHookEvent("/");
+
+		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
+			status: 303,
+			location: "/login",
+		});
+	});
+
+	it.each([
+		"/chat/conversation-1",
+		"/knowledge",
+		"/settings",
+		"/privacy/x",
+	])("redirects the page route %s to /login when no user is present", async (path) => {
+		const { handle } = await import("./hooks.server");
 		const event = makeHookEvent(path);
 
 		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
@@ -288,13 +316,133 @@ describe("hooks.server.ts", () => {
 		});
 	});
 
-	it("redirects protected routes to /login when no user is present", async () => {
-		const { handle } = await import("./hooks.server");
-		const event = makeHookEvent("/");
+	// The contract bug this replaced: EVERY unauthenticated request, including
+	// `/api/*`, was answered with a 303 to /login. `fetch` follows it, so an API
+	// client with an expired session got a 200 and an HTML login page, and the
+	// explicit `401` branch these routes all carry could never run.
+	describe("unauthenticated API requests", () => {
+		it.each([
+			"/api/conversations",
+			"/api/chat/send",
+			"/api/chat/stream",
+			"/api/chat/stream/status",
+			"/api/knowledge/doc-1/preview",
+			"/api/chat/files/file-1/download",
+			"/api/favicon",
+			"/api/auth/logout",
+		])("answers %s with 401 instead of a redirect", async (path) => {
+			const { handle } = await import("./hooks.server");
+			const resolve = vi.fn();
+			const event = makeHookEvent(path);
 
-		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
-			status: 303,
-			location: "/login",
+			const response = await handle({ event, resolve });
+
+			expect(response.status).toBe(401);
+			// The route handler never runs: the gate still denies access, it just
+			// says so in the protocol the caller speaks.
+			expect(resolve).not.toHaveBeenCalled();
+		});
+
+		it("uses the same JSON error shape the routes' own 401 branches return", async () => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent("/api/conversations");
+
+			const response = await handle({ event, resolve: vi.fn() });
+
+			expect(response.headers.get("content-type")).toContain(
+				"application/json",
+			);
+			expect(await response.json()).toEqual({ error: "Unauthorized" });
+		});
+
+		it("does not advertise an HTTP auth scheme", async () => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent("/api/conversations");
+
+			const response = await handle({ event, resolve: vi.fn() });
+
+			// Nothing in this app authenticates with a WWW-Authenticate scheme, so
+			// naming one would be a lie a client could act on.
+			expect(response.headers.get("www-authenticate")).toBeNull();
+		});
+
+		it("carries the same baseline security headers as any other API response", async () => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent("/api/conversations");
+
+			const response = await handle({ event, resolve: vi.fn() });
+
+			expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+		});
+
+		it("still admits the public API routes without a session", async () => {
+			const { handle } = await import("./hooks.server");
+
+			for (const path of ["/api/auth/login", "/api/health"]) {
+				const resolve = vi.fn(async () => new Response("ok"));
+				const response = await handle({
+					event: makeHookEvent(path),
+					resolve,
+				});
+
+				expect(resolve).toHaveBeenCalledOnce();
+				expect(response.status).toBe(200);
+			}
+		});
+
+		// The two service-assertion routes authenticate on their own (a bearer
+		// token equal to ALFYAI_API_SIGNING_KEY), which is why they are on the
+		// public list. The 401 gate must not start intercepting them, or the
+		// deploy's drain call and the file-production callback would break.
+		it.each([
+			"/api/admin/drain",
+			"/api/chat/files/produce",
+		])("lets the service-assertion route %s reach its own auth check", async (path) => {
+			const { handle } = await import("./hooks.server");
+			const resolve = vi.fn(async () => new Response("ok"));
+
+			const response = await handle({
+				event: makeHookEvent(path, undefined, {
+					authorization: "Bearer signing-key",
+				}),
+				resolve,
+			});
+
+			expect(resolve).toHaveBeenCalledOnce();
+			expect(response.status).toBe(200);
+		});
+
+		it("lets an authenticated API request through untouched", async () => {
+			const { handle } = await import("./hooks.server");
+			mockValidateSession.mockResolvedValue({
+				id: "user-1",
+				email: "test@example.com",
+				displayName: "Test User",
+				role: "user",
+				profilePicture: null,
+			});
+			const resolve = vi.fn(async () => new Response("ok"));
+			const event = makeHookEvent("/api/conversations", "session-token");
+
+			const response = await handle({ event, resolve });
+
+			expect(resolve).toHaveBeenCalledOnce();
+			expect(response.status).toBe(200);
+		});
+
+		// `/api` itself is not a route; only the `/api/` prefix switches the
+		// refusal. A page path that merely mentions api stays a page.
+		it.each([
+			"/apiary",
+			"/docs/api/reference",
+		])("treats the page path %s as a page", async (path) => {
+			const { handle } = await import("./hooks.server");
+			const event = makeHookEvent(path);
+
+			await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
+				status: 303,
+				location: "/login",
+			});
 		});
 	});
 

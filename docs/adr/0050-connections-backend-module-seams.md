@@ -140,6 +140,12 @@ prod. Making `/api/**` genuinely return 401 is a global hook change (affects eve
 route) and is intentionally left as a separate follow-up, not slipped into this slice.
 Verified live post-deploy: unauth `/api/connections` → 303; authenticated → 200 JSON.
 
+**Follow-up landed:** the hook change named above has been made. `src/hooks.server.ts` now
+answers an unauthenticated request whose path starts with `/api/` with **401 JSON**
+(`{"error":"Unauthorized"}`) instead of the 303; page requests keep the 303 to `/login`,
+and `PUBLIC_PATHS` is unchanged. So an unauth `/api/connections` call is now a **401 from
+the hook**, matching the shape `requireApiUser` produces at the handler level.
+
 **Note:** `mapConnectError` duck-types on `.code` rather than assuming every provider error
 extends `ConnectionHttpError` — `ImapError` extends `Error` (IMAP was out of B1's scope).
 
