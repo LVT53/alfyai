@@ -15,10 +15,11 @@ import {
 	memoryEvents,
 	messages,
 } from "$lib/server/db/schema";
+import { generatedFileTextSource } from "$lib/server/services/chat-files";
 import { GENERATED_FILE_NO_EXTRACTION_TEXT } from "$lib/server/services/extraction/readback";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import type { MessageRole } from "$lib/server/services/messages-types";
-import { fileExtension, getIntakeRoute } from "$lib/shared/file-types";
+import { fileExtension } from "$lib/shared/file-types";
 import type { Conversation } from "./conversations";
 import { reconcileStaleFileProductionJobs } from "./file-production";
 import type {
@@ -573,19 +574,27 @@ function copyDurableDocumentLinks(params: {
  * True when this generated file's memory wrapper is still waiting for a
  * readback.
  *
- * Two conditions, both necessary. The route has to be the one that needs a
- * backend — a markdown or CSV output is decoded inline when it is stored and
- * never had a job at all — and the wrapper's last section has to be the
- * "no readable text" shape that `chat-files.ts` writes before the text lands.
- * A file whose readback already failed also matches, and re-queueing it is the
- * right answer: a fork is as good a moment as any to try the backend again.
+ * Two conditions, both necessary. The text source has to be the one that
+ * needs a backend at all — `generatedFileTextSource` answers `"ledger"` only
+ * for binaries a parser has to open; an inline-decoded output (markdown, CSV,
+ * and now generated HTML, which routes to MinerU on upload but is decoded
+ * inline when *we* produce it) never had a job to wait for — and the
+ * wrapper's last section has to be the "no readable text" shape that
+ * `chat-files.ts` writes before the text lands. A file whose readback already
+ * failed also matches, and re-queueing it is the right answer: a fork is as
+ * good a moment as any to try the backend again.
+ *
+ * This must ask `generatedFileTextSource`, not `getIntakeRoute`, so that a
+ * forked generated `.html` (inline text source, never had a readback job) is
+ * never misclassified as awaiting one just because `.html` uploads route to
+ * MinerU.
  */
 function generatedFileAwaitsReadback(
 	contentText: string | null,
 	fileName: string,
 	mimeType: string | null,
 ): boolean {
-	if (getIntakeRoute(fileName, mimeType) !== "mineru") return false;
+	if (generatedFileTextSource(fileName, mimeType) !== "ledger") return false;
 	return (contentText ?? "").includes(GENERATED_FILE_NO_EXTRACTION_TEXT);
 }
 

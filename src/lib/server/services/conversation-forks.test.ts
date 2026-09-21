@@ -2355,4 +2355,63 @@ describe("conversation forks", () => {
 
 		expect(readExtractionJobs()).toEqual([]);
 	});
+
+	// `.html` uploads route to MinerU (Phase 5 D3), but a generated `.html` is
+	// our own markup, decoded inline the moment it is written — it never had a
+	// readback job, so a fork must not invent one just because
+	// `getIntakeRoute("html", …) === "mineru"`.
+	it("queues nothing for a forked generated .html, which is decoded inline like markdown", async () => {
+		const { GENERATED_FILE_NO_EXTRACTION_TEXT } = await import(
+			"./extraction/readback"
+		);
+		await seedForkWithPendingReadback({
+			filename: "report.html",
+			mimeType: "text/html",
+			contentText: `Extracted file content: ${GENERATED_FILE_NO_EXTRACTION_TEXT}`,
+		});
+		const { createConversationFork } = await import("./conversation-forks");
+
+		const result = await createConversationFork({
+			userId: "user-1",
+			sourceConversationId: "source-conv",
+			sourceMessageId: "source-assistant-1",
+		});
+		trackStoredChatPath(
+			readGeneratedWorkRows(result.conversation.id).generatedFiles[0]
+				?.storagePath,
+		);
+
+		expect(readExtractionJobs()).toEqual([]);
+	});
+
+	// A program-mode PDF (a binary a parser has to open) keeps needing a
+	// readback job on fork — `generatedFileTextSource` answers `"ledger"` for
+	// it just as it did before the predicate switched off `getIntakeRoute`.
+	it("still queues a readback for a forked program-mode .pdf lacking text", async () => {
+		const { GENERATED_FILE_NO_EXTRACTION_TEXT } = await import(
+			"./extraction/readback"
+		);
+		await seedForkWithPendingReadback({
+			filename: "report.pdf",
+			mimeType: "application/pdf",
+			contentText: [
+				"Generated file: report.pdf",
+				"",
+				`Extracted file content: ${GENERATED_FILE_NO_EXTRACTION_TEXT}`,
+			].join("\n"),
+		});
+		const { createConversationFork } = await import("./conversation-forks");
+
+		const result = await createConversationFork({
+			userId: "user-1",
+			sourceConversationId: "source-conv",
+			sourceMessageId: "source-assistant-1",
+		});
+		trackStoredChatPath(
+			readGeneratedWorkRows(result.conversation.id).generatedFiles[0]
+				?.storagePath,
+		);
+
+		expect(readExtractionJobs()).toHaveLength(1);
+	});
 });
