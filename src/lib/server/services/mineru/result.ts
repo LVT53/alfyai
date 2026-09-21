@@ -429,12 +429,6 @@ export const DEFAULT_MINERU_ZIP_LIMITS: MineruZipLimits = {
 	maxCompressedBytes: 256 * 1024 * 1024,
 };
 
-export interface MineruZipEntry {
-	name: string;
-	/** The uncompressed size declared by the central directory. */
-	declaredBytes: number;
-}
-
 export interface MineruResultZip {
 	/** Entry name → declared uncompressed size, for the accepted entries only. */
 	readonly entries: ReadonlyMap<string, number>;
