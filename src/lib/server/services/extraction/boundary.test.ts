@@ -57,9 +57,10 @@ describe("extraction module boundaries", () => {
 	});
 
 	it("keeps the read model off the knowledge store", () => {
-		// `knowledge/store/documents.ts` imports today's extraction client, so a
-		// convenience import of `getNormalizedArtifactForSource` would pull the
-		// whole backend client into a poll endpoint.
+		// `knowledge/store/**` reaches the parse bundle (deleting an artifact
+		// removes it), so a convenience import of
+		// `getNormalizedArtifactForSource` would pull a zip reader and `node:fs`
+		// into a poll endpoint.
 		const specifiers = staticImportSpecifiers(
 			read("lib/server/services/extraction/read-model.ts"),
 		);
@@ -75,6 +76,27 @@ describe("extraction module boundaries", () => {
 		expect(specifiers).not.toContain("./intake");
 		expect(facade).toContain('import("./worker-runner")');
 		expect(facade).toContain('import("./intake")');
+	});
+
+	it("keeps the seam and the shared status off the MinerU protocol", () => {
+		// The extractor is the ONLY module outside `services/mineru/` that may
+		// import the protocol. The seam files are the two that would be most
+		// tempting to "just" reach through, and the two whose bundles travel
+		// furthest — `extraction-status.ts` reaches Svelte components.
+		for (const relative of [
+			"lib/server/services/extraction/contracts.ts",
+			"lib/server/services/extraction/job-ledger.ts",
+			"lib/server/services/extraction/read-model.ts",
+			"lib/shared/extraction-status.ts",
+		]) {
+			const specifiers = staticImportSpecifiers(read(relative));
+			for (const specifier of specifiers) {
+				expect(
+					/services\/mineru(\/|$)/.test(specifier),
+					`${relative} imports ${specifier}`,
+				).toBe(false);
+			}
+		}
 	});
 
 	it("never reaches a specific extraction backend from the seam", () => {

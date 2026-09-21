@@ -34,7 +34,6 @@ function config(overrides: Partial<RuntimeConfig> = {}): MineruConfig {
 		mineruDefaultTier: "auto",
 		mineruOcrMode: "auto",
 		mineruJobTimeoutMs: 300000,
-		mineruTimeoutMs: 300000,
 		mineruPollMinMs: 2000,
 		mineruPollMaxMs: 30000,
 		mineruRequestTimeoutMs: 30000,
