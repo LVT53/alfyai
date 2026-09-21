@@ -384,13 +384,29 @@ async function createNewNormalizedArtifact(input: {
 		metadata,
 	});
 
-	await createArtifactLink({
-		userId: params.userId,
-		artifactId: artifact.id,
-		relatedArtifactId: params.sourceArtifactId,
-		conversationId: params.conversationId,
-		linkType: "derived_from",
-	});
+	try {
+		await createArtifactLink({
+			userId: params.userId,
+			artifactId: artifact.id,
+			relatedArtifactId: params.sourceArtifactId,
+			conversationId: params.conversationId,
+			linkType: "derived_from",
+		});
+	} catch (error) {
+		// The link is what makes a normalized artifact findable: without it
+		// `getNormalizedArtifactForSource` will never see this row again, so the
+		// next attempt would mint a second one and the first would sit in the
+		// library forever, unreachable and unowned. The commonest way to get
+		// here is the source artifact being deleted while its extraction was
+		// still running, in which case the link's foreign key refuses. Drop the
+		// row and let the ledger see the failure — the same bargain
+		// `createArtifact` strikes when chunking fails.
+		await db
+			.delete(artifacts)
+			.where(eq(artifacts.id, artifact.id))
+			.catch(() => undefined);
+		throw error;
+	}
 
 	return artifact;
 }
