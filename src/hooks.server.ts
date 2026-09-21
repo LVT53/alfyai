@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/sveltekit";
 import type { Handle, ServerInit } from "@sveltejs/kit";
-import { redirect } from "@sveltejs/kit";
+import { json, redirect } from "@sveltejs/kit";
 import { sequence } from "@sveltejs/kit/hooks";
 import { eq } from "drizzle-orm";
 import {
@@ -38,6 +38,11 @@ import {
 	stopRoutingRegionScheduler,
 } from "$lib/server/services/routing/region-runtime";
 import { assertSessionSecret } from "$lib/server/session-secret";
+import {
+	SESSION_EXPIRED_CODE,
+	SESSION_EXPIRED_HEADER,
+	SESSION_EXPIRED_MESSAGE,
+} from "$lib/session-expiry";
 
 const PUBLIC_PATHS = [
 	"/login",
@@ -181,10 +186,16 @@ export const init: ServerInit = async () => {
 const appHandle: Handle = async ({ event, resolve }) => {
 	await ensureRuntimeConfigReady();
 
+	// Remembered so the gate below can tell "never signed in" (no cookie at
+	// all) from "was signed in, and the session has since ended" — the second
+	// one is the case that deserves a word on the login screen.
+	let hadSessionCookie = false;
+
 	try {
 		const token = event.cookies.get("session");
 
 		if (token) {
+			hadSessionCookie = true;
 			const sessionUser = await validateSession(token);
 			event.locals.user = sessionUser ?? null;
 		} else {
@@ -210,7 +221,36 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
 
 	if (!PUBLIC_PATHS.includes(path) && !event.locals.user) {
-		throw redirect(303, "/login");
+		// An API caller cannot be sent to a login page. `fetch` follows the 303
+		// itself, the public /login route answers 200 with HTML, and the caller
+		// is left parsing a web page as its payload — which is how an expired
+		// session used to present: missing models, empty lists, and sends that
+		// died on "invalid response from the server", with nothing anywhere
+		// saying the session had ended. Answer the refusal in the API's own
+		// language instead, so the browser can put the "sign in again" row on
+		// screen and say so again the moment an action is refused.
+		if (path.startsWith("/api/")) {
+			const unauthorized = json(
+				{ error: SESSION_EXPIRED_MESSAGE, code: SESSION_EXPIRED_CODE },
+				{
+					status: 401,
+					headers: {
+						[SESSION_EXPIRED_HEADER]: "1",
+						// A refusal is true of one moment and one cookie. Signing
+						// back in must not be able to hand anyone a stored copy of
+						// it.
+						"Cache-Control": "private, no-store",
+					},
+				},
+			);
+			applySecurityHeaders(event, unauthorized);
+			return unauthorized;
+		}
+
+		// A page navigation keeps the redirect it always had — the browser
+		// follows it and lands on a login form, which is the right outcome. It
+		// carries a marker so that form can say why the user is looking at it.
+		throw redirect(303, hadSessionCookie ? "/login?session=expired" : "/login");
 	}
 
 	if (path === "/login" && event.locals.user) {

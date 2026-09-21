@@ -9,6 +9,7 @@ import Toast from "$lib/components/ui/Toast.svelte";
 import CampaignModal from "$lib/components/campaigns/CampaignModal.svelte";
 import ServerDrainingNotice from "./_components/ServerDrainingNotice.svelte";
 import ServerUpdateNotice from "./_components/ServerUpdateNotice.svelte";
+import SessionExpiredNotice from "./_components/SessionExpiredNotice.svelte";
 import type { Component } from "svelte";
 import {
 	currentConversationId,
@@ -58,6 +59,9 @@ import {
 } from "$lib/stores/settings";
 import { initTheme, setThemeAndSync, type Theme } from "$lib/stores/theme";
 import { initAvatar } from "$lib/stores/avatar";
+import { sessionExpiry } from "$lib/stores/session";
+import { showToast } from "$lib/stores/toast";
+import { t } from "$lib/i18n";
 import type { ModelId, UserModelPreference } from "$lib/model-types";
 import type { ConversationListItem } from "$lib/server/services/conversations";
 import type { Project } from "$lib/server/services/projects";
@@ -99,6 +103,16 @@ let serverUpdateSuppressionTimeout: number | null = null;
 // itself once the deploy's restart completes (see scheduleServerDrainingPoll).
 let serverDraining = $state(false);
 let serverDrainingPollTimeout: number | null = null;
+// The session row and its announcement read the same store, which the browser
+// transports update from the server's own refusals (see $lib/stores/session).
+// Not $state: it is only ever compared against the store's counter inside the
+// effect below, and making it reactive would re-run that effect on its own
+// write.
+let announcedSessionAlertCount = 0;
+// Measured, not assumed: the row is one line on a phone and one line with a
+// sentence on a desktop, and the toast region has to start below whatever it
+// actually is.
+let sessionNoticeHeight = $state(0);
 let activeCampaign: Campaign | null = $state(null);
 let campaignMode: CampaignDisplayMode = $state("auto");
 let campaignSlideIndex = $state(0);
@@ -243,6 +257,17 @@ $effect(() => {
 	}
 });
 
+// The row at the top says the session ended; this says it again at the moment
+// it bites, so pressing something that the server just refused is never
+// silent. Throttled in the store, so a page-load burst of refused calls is one
+// announcement, not one per call.
+$effect(() => {
+	const alertCount = $sessionExpiry.alertCount;
+	if (alertCount === 0 || alertCount === announcedSessionAlertCount) return;
+	announcedSessionAlertCount = alertCount;
+	showToast({ type: "error", message: $t("sessionExpired.alert") });
+});
+
 $effect(() => {
 	const nextDefault = data.systemDefaultModel ?? data.userModel;
 	const nextKey = `${nextDefault}:${data.userModel}`;
@@ -368,6 +393,26 @@ function refreshForServerUpdate() {
 	markServerUpdateRefreshRequested(window.sessionStorage);
 	serverUpdateAvailable = false;
 	window.location.reload();
+}
+
+// The toast region is pinned to the top-right corner of the viewport, which is
+// inside the session row while that row is up. Publishing the row's height
+// moves the toasts below it, so an announcement never covers the row's own
+// "Sign in again" button.
+$effect(() => {
+	if (!browser) return;
+	document.documentElement.style.setProperty(
+		"--app-top-row-height",
+		`${sessionNoticeHeight}px`,
+	);
+});
+
+// A full document navigation, not a client-side one: everything this tab holds
+// was loaded for a session that no longer exists, so the login screen should
+// come from the server with nothing carried over.
+function goToLoginAfterSessionExpiry() {
+	if (!browser) return;
+	window.location.assign("/login?session=expired");
 }
 
 function isServerUpdateNoticeSuppressed() {
@@ -635,6 +680,13 @@ onDestroy(() => {
   - See SCROLL OWNERSHIP CONTRACT in src/app.css
 -->
 <div class="flex h-[100dvh] w-full flex-col overflow-hidden bg-primary text-text-primary">
+	<div class="shrink-0" bind:clientHeight={sessionNoticeHeight}>
+		<SessionExpiredNotice
+			visible={$sessionExpiry.expired}
+			onSignIn={goToLoginAfterSessionExpiry}
+		/>
+	</div>
+
 	<Header conversationTitle={activeConversationTitle} />
 
 	<div class="flex h-full flex-1 overflow-hidden">

@@ -7,6 +7,7 @@ import {
 	isNormalChatContextPreparationActivityClass,
 	type ResponseActivityEntry,
 } from "$lib/response-activity-types";
+import { observeSessionFromResponse } from "$lib/stores/session";
 import {
 	type AiSdkUiStreamFrame,
 	consumeAiSdkUiStreamFrames,
@@ -352,6 +353,7 @@ export async function checkForOrphanedStream(
 		const res = await fetch(
 			`/api/chat/stream/status?conversationId=${encodeURIComponent(conversationId)}`,
 		);
+		observeSessionFromResponse(res);
 		if (!res.ok) return null;
 		const data = await res.json();
 		return data.hasOrphanedStream ? data.streamId : null;
@@ -379,6 +381,7 @@ export async function getStreamBufferInfo(
 		const res = await fetch(
 			`/api/chat/stream/buffer?streamId=${encodeURIComponent(streamId)}&conversationId=${encodeURIComponent(conversationId)}`,
 		);
+		observeSessionFromResponse(res);
 		if (!res.ok) return null;
 		return await res.json();
 	} catch {
@@ -671,6 +674,10 @@ export function streamChat(
 				signal: controller.signal,
 			});
 			markTimingPhase(BROWSER_STREAM_TIMING_MARKS.RESPONSE_HEADERS);
+			// This transport does not go through `client/api/http.ts`, so it
+			// reports the session gate's verdict itself. Without this a send on
+			// an expired session would only ever surface as one failed turn.
+			observeSessionFromResponse(res);
 			serverTiming = res.headers.get("Server-Timing");
 			parsedServerTiming = serverTiming
 				? parseServerTimingHeader(serverTiming)

@@ -1,3 +1,5 @@
+import { observeSessionFromResponse } from "$lib/stores/session";
+
 export type FetchLike = (
 	input: RequestInfo | URL,
 	init?: RequestInit,
@@ -37,6 +39,19 @@ function performRequest(
 	init: RequestInit | undefined,
 ): Promise<Response> {
 	return init === undefined ? fetchImpl(input) : fetchImpl(input, init);
+}
+
+/**
+ * Report what the response says about this tab's session, and hand it straight
+ * back. Called by each helper below on a response it has already awaited —
+ * deliberately not folded into `performRequest`, because turning that into an
+ * `async` function (or chaining a `.then` onto it) would put an extra microtask
+ * between `fetch` resolving and the caller seeing it. Component code that
+ * renders after one `await tick()` is sensitive to exactly that.
+ */
+function observed(response: Response): Response {
+	observeSessionFromResponse(response);
+	return response;
 }
 
 async function throwRequestError(
@@ -103,7 +118,7 @@ export async function requestJson<T>(
 	errorMessage: string,
 	fetchImpl: FetchLike = fetch,
 ): Promise<T> {
-	const response = await performRequest(fetchImpl, input, init);
+	const response = observed(await performRequest(fetchImpl, input, init));
 	if (!response.ok) {
 		await throwRequestError(response, errorMessage);
 	}
@@ -123,7 +138,7 @@ export async function requestVoid(
 	errorMessage: string,
 	fetchImpl: FetchLike = fetch,
 ): Promise<void> {
-	const response = await performRequest(fetchImpl, input, init);
+	const response = observed(await performRequest(fetchImpl, input, init));
 	if (!response.ok) {
 		await throwRequestError(response, errorMessage);
 	}
@@ -134,7 +149,7 @@ export async function requestResponse(
 	init: RequestInit | undefined,
 	fetchImpl: FetchLike = fetch,
 ): Promise<Response> {
-	return performRequest(fetchImpl, input, init);
+	return observed(await performRequest(fetchImpl, input, init));
 }
 
 export async function requestText(
@@ -143,7 +158,7 @@ export async function requestText(
 	errorMessage: string,
 	fetchImpl: FetchLike = fetch,
 ): Promise<string> {
-	const response = await performRequest(fetchImpl, input, init);
+	const response = observed(await performRequest(fetchImpl, input, init));
 	if (!response.ok) {
 		await throwRequestError(response, errorMessage);
 	}

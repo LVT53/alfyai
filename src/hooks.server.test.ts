@@ -275,17 +275,22 @@ describe("hooks.server.ts", () => {
 		{ segments: ["api", "tools", "research-web"] },
 		{ segments: ["api", "webhook", "sentence"] },
 		{ segments: ["api", "stream", "webhook", "session-1"] },
-	])("redirects retired public route %# without a session", async ({
+	])("refuses retired public route %# without a session", async ({
 		segments,
 	}) => {
 		const { handle } = await import("./hooks.server");
+		const { SESSION_EXPIRED_HEADER } = await import("$lib/session-expiry");
 		const path = `/${segments.join("/")}`;
+		const resolve = vi.fn();
 		const event = makeHookEvent(path);
 
-		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
-			status: 303,
-			location: "/login",
-		});
+		// Still gated, and as API paths they are now refused in the API's own
+		// language rather than redirected to a login page.
+		const response = await handle({ event, resolve });
+
+		expect(resolve).not.toHaveBeenCalled();
+		expect(response.status).toBe(401);
+		expect(response.headers.get(SESSION_EXPIRED_HEADER)).toBe("1");
 	});
 
 	it("redirects protected routes to /login when no user is present", async () => {
@@ -296,6 +301,64 @@ describe("hooks.server.ts", () => {
 			status: 303,
 			location: "/login",
 		});
+	});
+
+	it("marks the login redirect when the browser arrived with a dead session", async () => {
+		const { handle } = await import("./hooks.server");
+		// A cookie was sent and the session behind it is gone: the user was
+		// signed in a moment ago, so the login screen gets to say why it is
+		// showing.
+		mockValidateSession.mockResolvedValue(null);
+		const event = makeHookEvent("/chat/abc", "stale-token");
+
+		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
+			status: 303,
+			location: "/login?session=expired",
+		});
+	});
+
+	it("answers an API path with 401 instead of redirecting it to the login page", async () => {
+		const { handle } = await import("./hooks.server");
+		const { SESSION_EXPIRED_CODE, SESSION_EXPIRED_HEADER } = await import(
+			"$lib/session-expiry"
+		);
+		mockValidateSession.mockResolvedValue(null);
+		const resolve = vi.fn();
+		const event = makeHookEvent("/api/conversations", "stale-token");
+
+		// Not a redirect: `fetch` would follow it, the public login route would
+		// answer 200 with HTML, and the caller would parse a web page as its
+		// payload — the silent failure this gate exists to avoid.
+		const response = await handle({ event, resolve });
+
+		expect(resolve).not.toHaveBeenCalled();
+		expect(response.status).toBe(401);
+		expect(response.headers.get(SESSION_EXPIRED_HEADER)).toBe("1");
+		expect(response.headers.get("content-type")).toContain("application/json");
+		expect(await response.json()).toMatchObject({
+			code: SESSION_EXPIRED_CODE,
+		});
+	});
+
+	it("answers an API path with 401 even when no cookie was sent at all", async () => {
+		const { handle } = await import("./hooks.server");
+		const { SESSION_EXPIRED_HEADER } = await import("$lib/session-expiry");
+		const event = makeHookEvent("/api/models");
+
+		const response = await handle({ event, resolve: vi.fn() });
+
+		expect(response.status).toBe(401);
+		expect(response.headers.get(SESSION_EXPIRED_HEADER)).toBe("1");
+	});
+
+	it("puts the baseline security headers on the gate's 401, and keeps it out of caches", async () => {
+		const { handle } = await import("./hooks.server");
+		const event = makeHookEvent("/api/conversations");
+
+		const response = await handle({ event, resolve: vi.fn() });
+
+		expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
 	});
 
 	it("loads the session user when a valid token is present", async () => {
