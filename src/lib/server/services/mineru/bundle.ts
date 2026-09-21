@@ -40,6 +40,7 @@ import {
 } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
+import { getEntryByFilename } from "$lib/shared/file-types";
 import {
 	MINERU_IMAGE_NAME_PATTERN,
 	MINERU_ZIP_IMAGE_PREFIX,
@@ -62,22 +63,6 @@ export const MINERU_BUNDLE_MARKDOWN = "normalized.md";
 export const MINERU_BUNDLE_STRUCTURED_CONTENT = "structured_content.json";
 export const MINERU_BUNDLE_PAGES = "pages.json";
 export const MINERU_BUNDLE_IMAGES_DIR = "images";
-
-/**
- * The only content types a figure may be served as.
- *
- * SVG is deliberately absent: an SVG is a script-bearing document, and these
- * bytes came from a service parsing a user-supplied file. There is no SVG in
- * any recorded output, and if one ever appears it is dropped rather than
- * stored.
- */
-export const MINERU_FIGURE_CONTENT_TYPES: Readonly<Record<string, string>> = {
-	jpg: "image/jpeg",
-	jpeg: "image/jpeg",
-	png: "image/png",
-	webp: "image/webp",
-	gif: "image/gif",
-};
 
 /** A path segment the app may join: a UUID in practice, checked anyway. */
 const SAFE_PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -139,11 +124,21 @@ export function mineruBundleDir(
 	);
 }
 
-/** The content type for a figure name, or null when it is not a served image. */
+/**
+ * The content type a figure may be served as, or null when it is not one.
+ *
+ * The answer comes from the shared file-type registry rather than a table
+ * here, with two conditions on top: the entry must be an image, and its
+ * canonical type must not be an XML dialect. That second rule is what
+ * excludes SVG — a script-bearing document, produced by a service parsing a
+ * user-supplied file, which must never be served inline. No recorded MinerU
+ * output contains one; if one ever appears it is dropped rather than stored.
+ */
 export function mineruFigureContentType(name: string): string | null {
-	const dot = name.lastIndexOf(".");
-	if (dot <= 0) return null;
-	return MINERU_FIGURE_CONTENT_TYPES[name.slice(dot + 1).toLowerCase()] ?? null;
+	const entry = getEntryByFilename(name);
+	if (!entry || entry.category !== "image") return null;
+	const contentType = entry.mimeTypes[0];
+	return contentType.endsWith("+xml") ? null : contentType;
 }
 
 function figureLeafName(path: string): string | null {

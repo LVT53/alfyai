@@ -204,7 +204,8 @@ export const structuredContentSchema = z
 		pages: z.array(structuredPageSchema).default([]),
 		metadata: z
 			.object({
-				/** UNRELIABLE: `"pdf"` for a PNG input. Never derive the format from it. */
+				/** UNRELIABLE: a PNG reports the PDF suffix, because MinerU wraps
+				 * the image in a PDF internally. Never derive the format from it. */
 				file_suffix: z.string().optional(),
 				producer: z
 					.object({
@@ -371,7 +372,7 @@ export interface StructuredExtractionResult {
 	pageCountKind: PageCountKind;
 	/** normalized.md, byte-identical to the artifact's contentText. */
 	markdown: string;
-	/** Page → [start, end) offsets into `markdown`. A contiguous partition. */
+	/** Page → [start, end) offsets into the Markdown. A contiguous partition. */
 	pages: readonly PageOffset[];
 	blocks: readonly RenderedBlock[];
 	figures: readonly RenderedFigure[];
@@ -764,7 +765,8 @@ export interface MineruRenderOptions {
 	/**
 	 * The name the user uploaded. Used ONLY to pick the heading normalisation
 	 * (DOCX reports every heading one level too deep and wraps the title in
-	 * `**…**`). Never `metadata.file_suffix`, which says `"pdf"` for a PNG.
+	 * `**…**`). Never `metadata.file_suffix`, which reports the PDF suffix for
+	 * a PNG.
 	 */
 	sourceFilename?: string | null;
 	sourceMimeType?: string | null;
