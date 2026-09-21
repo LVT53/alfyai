@@ -208,6 +208,47 @@ describe("the worker keeps itself alive", () => {
 	});
 });
 
+describe("a job that is genuinely still running", () => {
+	it("is not reclaimed, however long the work takes", async () => {
+		// Ruling 2, and the reason the window may be two minutes instead of ten:
+		// the heartbeat is on its own timer, so an attempt that legitimately runs
+		// for five times the stale window is never called dead. Before this, the
+		// worker wrote `heartbeat_at` exactly once — at the claim — and the window
+		// had to be longer than the sandbox timeout to compensate.
+		const jobId = fixture.seedJob({ userId, conversationId });
+		let release: (() => void) | null = null;
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		vi.useFakeTimers();
+
+		await bootWorker({
+			executeCode: async () => {
+				await held;
+				return textOutput();
+			},
+		});
+		await vi.advanceTimersByTimeAsync(1);
+		expect(fixture.jobStatus(jobId)).toBe("running");
+
+		await vi.advanceTimersByTimeAsync(STALE_ATTEMPT_MS * 5);
+		expect(fixture.jobStatus(jobId)).toBe("running");
+		expect(warn).not.toHaveBeenCalledWith(
+			"[FILE_PRODUCTION] Reclaimed stale attempts",
+			expect.anything(),
+		);
+		// The heartbeat has kept the row young the whole time.
+		expect(
+			fixture.attemptHeartbeatAgeMs(jobId, new Date(Date.now())),
+		).toBeLessThan(STALE_ATTEMPT_MS);
+
+		release?.();
+		await vi.advanceTimersByTimeAsync(1);
+		expect(fixture.jobStatus(jobId)).toBe("succeeded");
+	});
+});
+
 describe("a wake that arrives during a drain", () => {
 	it("is honoured instead of dropped", async () => {
 		// The dedupe used to drop a wake that landed while a drain was running,
