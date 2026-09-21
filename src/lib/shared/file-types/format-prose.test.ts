@@ -12,9 +12,11 @@
 //   3. the EN and HU descriptions name the SAME formats, which nothing
 //      checked before (spec section 7, "HU tool description drift").
 //
-// Where the prose and the code genuinely disagree today, the disagreement is
-// recorded in KNOWN_PROSE_EXCEPTIONS rather than fixed: fixing prose means
-// taking the cache eviction, which is scheduled for a later phase.
+// Slice P6-D took that eviction, once, for the whole MinerU 4 migration, so
+// the disagreements this file used to record as KNOWN_PROSE_EXCEPTIONS are
+// gone except `.xls`, which only the unchangeable migration baseline names.
+// A new exception is not a way to land prose that is not true: the frozen
+// copies below are re-frozen deliberately, in the commit that changes them.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -49,11 +51,16 @@ const SOURCE_SCHEMA = read(
 const KNOWN_PROSE_EXCEPTIONS = {
 	/**
 	 * Formats the built-in skill prose names that the registry knows but
-	 * `produce_file` cannot produce. `.tsv` has an entry only so this prose
-	 * resolves (spec open question 12); `.xls` is legacy-Excel, recognised on
-	 * upload and never generated.
+	 * `produce_file` cannot produce. `.xls` is legacy-Excel: recognised on
+	 * upload and never generated, and it is named only by the frozen
+	 * migration baseline, which cannot be reworded.
+	 *
+	 * `.tsv` left this set in slice P6-D — it is now a real direct-text
+	 * upload and a requestable output. Shrinking the set is the only allowed
+	 * direction; a new entry means the prose is promising something the
+	 * registry does not have.
 	 */
-	nonRequestableSkillFormats: new Set(["tsv", "xls"]),
+	nonRequestableSkillFormats: new Set(["xls"]),
 } as const;
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -264,25 +271,33 @@ describe("built-in skill prose names only real formats", () => {
 		}
 	});
 
-	it("names exactly two formats produce_file cannot produce", () => {
+	it("names exactly one format produce_file cannot produce", () => {
 		const ids = [...formatIds(USER_SKILLS)].filter(
 			(id) => entryById(id)?.production.requestable === false,
 		);
 		expect(new Set(ids)).toEqual(
 			KNOWN_PROSE_EXCEPTIONS.nonRequestableSkillFormats,
 		);
-		// `.tsv` exists in the registry ONLY so this prose resolves — it is a
-		// deferred MinerU format with no accept string and no output token
-		// (spec open question 12). If it ever becomes producible, delete it
-		// from the exception set rather than widening the set.
-		expect(entryById("tsv")?.intake.route).toBe("reject");
-		expect(entryById("tsv")?.intake.rejectReason).toBe("formatNotEnabled");
+		// `.tsv` was the other one: it had an entry only so this prose
+		// resolved, and slice P5-A made it a real direct-text upload and a
+		// requestable output. The prose that already said "XLSX/CSV/TSV"
+		// became true without being touched, which is why these two
+		// assertions replaced the exception rather than a re-freeze.
+		expect(entryById("tsv")?.intake.route).toBe("direct-text");
+		expect(entryById("tsv")?.production.requestable).toBe(true);
 	});
 
 	it("keeps the eval fixture byte-identical to the shipped skill prose", () => {
 		// Spec row 63: `scripts/skill-eval-fixtures.ts` duplicates the
 		// spreadsheet-builder instructions. A fixture that drifts from the
 		// prose it is meant to measure silently invalidates the eval.
+		//
+		// The duplication stays duplication on purpose. These three lines are
+		// the `previousBuiltInSystemSkillDefaults` MIGRATION BASELINE, which
+		// every user's stored copy is diffed against, so neither side may
+		// change; and importing them would pull `user-skills.ts` — and with it
+		// `$lib/server/db` — into a script whose whole job is to measure prose
+		// offline. The byte-identity below is the cheaper guarantee.
 		const instructionLines = [
 			"Use this skill when the user asks to create, edit, analyze, visualize, or work with spreadsheet files such as .xlsx, .xls, .csv, or .tsv.",
 			'For downloadable XLSX creation, route the work through produce_file with structured tool input: sourceMode: "program", requestedOutputs: [{ "type": "xlsx" }], program: { language: "javascript", sourceCode, filename }, idempotencyKey, requestTitle, and documentIntent.',
