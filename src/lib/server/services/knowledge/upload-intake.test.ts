@@ -375,6 +375,7 @@ describe("Knowledge Upload Intake", () => {
 					promptReady: false,
 					readinessError:
 						"This file is still being prepared for chat. Wait a moment and send it again.",
+					readinessErrorCode: "still_preparing",
 					contentLength: 0,
 					contentPreview: null,
 					contentHash: null,
@@ -403,6 +404,9 @@ describe("Knowledge Upload Intake", () => {
 		expect(response.promptReady).toBe(false);
 		// "not ready" is not "broken" — the message has to say so.
 		expect(response.readinessError).toContain("still being prepared");
+		// …and it has to say so in the user's language, which needs the code,
+		// not the server's English sentence.
+		expect(response.readinessErrorCode).toBe("still_preparing");
 		expect(mockStartUploadExtraction).toHaveBeenCalledWith(
 			expect.objectContaining({
 				userId: "user-1",

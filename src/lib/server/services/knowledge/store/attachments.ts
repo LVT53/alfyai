@@ -15,6 +15,7 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import type { ChatAttachment } from "$lib/server/services/messages-types";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import type { AttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import type {
 	AttachmentExtractionStatusItem,
 	DocumentExtractionJobDTO,
@@ -86,6 +87,13 @@ type PromptAttachmentResolutionItem = {
 	promptArtifact: Artifact | null;
 	promptReady: boolean;
 	readinessError: string | null;
+	/**
+	 * The same refusal as `readinessError`, as a code the client can translate.
+	 * Null only when the sentence came from somewhere with no code of its own —
+	 * today, a failed ledger row's own `error.message`, which the client renders
+	 * from `extraction` instead.
+	 */
+	readinessErrorCode: AttachmentReadinessReason | null;
 	contentLength: number;
 	contentPreview: string | null;
 	contentHash: string | null;
@@ -251,6 +259,7 @@ async function buildPromptAttachmentResolutionItem(params: {
 	displayArtifact: Artifact;
 	promptArtifact: Artifact | null;
 	readinessError: string;
+	readinessErrorCode: AttachmentReadinessReason;
 }): Promise<PromptAttachmentResolutionItem> {
 	const diagnostics = await getPromptArtifactDiagnostics(
 		params.userId,
@@ -267,6 +276,7 @@ async function buildPromptAttachmentResolutionItem(params: {
 		promptArtifact: params.promptArtifact,
 		promptReady,
 		readinessError: promptReady ? null : params.readinessError,
+		readinessErrorCode: promptReady ? null : params.readinessErrorCode,
 		contentLength: diagnostics.contentLength,
 		contentPreview: diagnostics.contentPreview,
 		contentHash: diagnostics.contentHash,
@@ -318,24 +328,40 @@ async function annotateWithExtractionStatus(
 	return items.map((item) => {
 		const job = jobsByArtifactId.get(item.requestedArtifactId);
 		if (!job || item.promptReady) return item;
+		const resolved = extractionReadinessError(job, {
+			message: item.readinessError,
+			code: item.readinessErrorCode,
+		});
 		return {
 			...item,
 			extraction: job,
-			readinessError: extractionReadinessError(job, item.readinessError),
+			readinessError: resolved.message,
+			readinessErrorCode: resolved.code,
 		};
 	});
 }
 
 function extractionReadinessError(
 	job: DocumentExtractionJobDTO,
-	fallback: string | null,
-): string | null {
+	fallback: { message: string | null; code: AttachmentReadinessReason | null },
+): { message: string | null; code: AttachmentReadinessReason | null } {
 	if (!isTerminalExtractionStatus(job.status)) {
-		return STILL_PREPARING_READINESS_ERROR;
+		return {
+			message: STILL_PREPARING_READINESS_ERROR,
+			code: "still_preparing",
+		};
 	}
 	if (job.status === "failed") {
-		if (job.retryable) return EXTRACTION_RETRYABLE_READINESS_ERROR;
-		return job.error?.message || fallback;
+		if (job.retryable) {
+			return {
+				message: EXTRACTION_RETRYABLE_READINESS_ERROR,
+				code: "extraction_retryable",
+			};
+		}
+		// A terminal, non-retryable failure carries an `ExtractionErrorCode` of
+		// its own on the ledger row the client already has. It renders THAT —
+		// one vocabulary, not two — so no readiness code is minted here.
+		if (job.error?.message) return { message: job.error.message, code: null };
 	}
 	return fallback;
 }
@@ -357,6 +383,7 @@ export async function resolvePromptAttachmentArtifacts(
 			promptArtifact: null,
 			promptReady: false,
 			readinessError: "Attached file is no longer available.",
+			readinessErrorCode: "not_available" as const,
 			contentLength: 0,
 			contentPreview: null,
 			contentHash: null,
@@ -384,6 +411,7 @@ export async function resolvePromptAttachmentArtifacts(
 					promptArtifact: null,
 					promptReady: false,
 					readinessError: "Attached file is no longer available.",
+					readinessErrorCode: "not_available" as const,
 					contentLength: 0,
 					contentPreview: null,
 					contentHash: null,
@@ -403,6 +431,7 @@ export async function resolvePromptAttachmentArtifacts(
 					),
 					readinessError:
 						"This attachment does not contain enough readable text to use in chat. Remove it or upload a supported text-readable document.",
+					readinessErrorCode: "not_text_readable",
 				});
 			}
 
@@ -417,6 +446,7 @@ export async function resolvePromptAttachmentArtifacts(
 					promptArtifact: null,
 					promptReady: false,
 					readinessError: NOT_PREPARED_READINESS_ERROR,
+					readinessErrorCode: "not_prepared" as const,
 					contentLength: 0,
 					contentPreview: null,
 					contentHash: null,
@@ -432,6 +462,7 @@ export async function resolvePromptAttachmentArtifacts(
 				promptArtifact: withAttachmentDisplayName(normalized, displayArtifact),
 				readinessError:
 					"This file was uploaded, but no usable readable text could be prepared for chat from it.",
+				readinessErrorCode: "no_usable_text",
 			});
 		}),
 	);

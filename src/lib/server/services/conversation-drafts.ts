@@ -167,6 +167,7 @@ export async function getConversationDraft(
 				promptReady: item.promptReady,
 				promptArtifactId: item.promptArtifact?.id ?? null,
 				readinessError: item.readinessError ?? null,
+				readinessErrorCode: item.readinessErrorCode ?? null,
 				// The resolution pass already joined the ledger for anything that
 				// is not prompt-ready, so carrying the row costs nothing. Dropping
 				// it was what made a page reloaded mid-extraction draw an ordinary,

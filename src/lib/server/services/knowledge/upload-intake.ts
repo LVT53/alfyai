@@ -236,6 +236,11 @@ async function buildKnowledgeUploadResponse(params: {
 	const readinessError = resolvedItem
 		? resolvedItem.readinessError
 		: DEFAULT_READINESS_ERROR;
+	// The fallback branch is only reached when resolution returned nothing at
+	// all, which is the same thing the resolver calls `not_prepared`.
+	const readinessErrorCode = resolvedItem
+		? resolvedItem.readinessErrorCode
+		: ("not_prepared" as const);
 
 	logAttachmentTrace("upload_result", {
 		traceId: params.traceId,
@@ -261,6 +266,7 @@ async function buildKnowledgeUploadResponse(params: {
 			? (resolvedItem?.promptArtifact?.id ?? null)
 			: null,
 		readinessError,
+		readinessErrorCode,
 		...(params.renameInfo ? { renameInfo: params.renameInfo } : {}),
 		extraction: params.extraction,
 	};

@@ -115,6 +115,10 @@ import {
 	type ComposerTooltip,
 	thinkingTooltip,
 } from "./composer-bar";
+import {
+	attachmentReadinessReasonKey,
+	isAttachmentReadinessReason,
+} from "$lib/shared/attachment-readiness";
 import ComposerChip from "./ComposerChip.svelte";
 import ComposerChipRow from "./ComposerChipRow.svelte";
 import {
@@ -629,6 +633,43 @@ let activeCommandRow = $derived(
 );
 function asI18nKey(key: string): I18nKey {
 	return key as I18nKey;
+}
+
+/**
+ * The refusal sentence for one blocked attachment, in the user's language.
+ *
+ * Three sources, in order of how specific they are:
+ *
+ *  1. A terminal FAILED ledger row already carries an `ExtractionErrorCode`,
+ *     and the chip above this line is already naming it. Reuse that clause —
+ *     two mappings of one vocabulary would drift, and the user would be told
+ *     two different things about one file.
+ *  2. Otherwise the server's `readinessErrorCode`, which is the machine twin
+ *     of the sentence it sends beside it.
+ *  3. Otherwise that sentence itself. English, but a server that predates the
+ *     codes should still say something specific rather than nothing.
+ */
+function attachmentReadinessText(
+	attachment: PendingAttachment,
+	translate: (key: I18nKey, params?: Record<string, string | number>) => string,
+): string {
+	const job = extractionJobs[attachment.artifact.id];
+	if (job?.status === "failed") {
+		return translate(
+			asI18nKey(
+				extractionReasonKey({
+					status: job.status,
+					errorCode: job.error?.code ?? null,
+					retryable: job.retryable,
+				}),
+			),
+		);
+	}
+	const code = attachment.readinessErrorCode;
+	if (isAttachmentReadinessReason(code)) {
+		return translate(asI18nKey(attachmentReadinessReasonKey(code)));
+	}
+	return attachment.readinessError ?? "";
 }
 
 let activeCommandAnnouncement = $derived(
@@ -3704,7 +3745,7 @@ async function emitDraftChange(force = false) {
 			{/if}
 			{#each attachmentReadinessErrors as attachment (attachment.artifact.id)}
 				<span class="text-danger">
-					{attachment.artifact.name}: {attachment.readinessError}
+					{attachment.artifact.name}: {attachmentReadinessText(attachment, $t)}
 				</span>
 			{/each}
 		</div>
