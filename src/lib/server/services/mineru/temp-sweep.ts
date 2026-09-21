@@ -94,7 +94,7 @@ async function dropIfStale(
 	// `lstat`, so a symlink planted here is skipped rather than followed into a
 	// recursive delete of whatever it names.
 	const info = await lstat(pathAbsolute).catch(() => null);
-	if (!info || !info.isDirectory()) return false;
+	if (!info?.isDirectory()) return false;
 	if (info.mtimeMs > cutoff) return false;
 	return await rm(pathAbsolute, { recursive: true, force: true })
 		.then(() => true)
