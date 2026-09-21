@@ -13,14 +13,20 @@
 
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { artifacts, chatGeneratedFiles } from "$lib/server/db/schema";
+import {
+	artifacts,
+	chatGeneratedFiles,
+	documentExtractionJobs,
+} from "$lib/server/db/schema";
 import type {
 	DocumentExtractionJobDTO,
 	DocumentExtractionStatus,
+	ExtractionErrorCode,
 } from "$lib/shared/extraction-status";
-import { getExtractionConfig } from "./config";
+import { DOCUMENT_EXTRACTION_ACTIVE_STATUSES } from "$lib/shared/extraction-status";
+import { type ExtractionConfig, getExtractionConfig } from "./config";
 import {
 	type DocumentExtractor,
 	type ExtractDocumentResult,
@@ -32,6 +38,7 @@ import { resolveExtractor as defaultResolveExtractor } from "./extractors/regist
 import {
 	claimNextExtractionJob,
 	completeExtractionAttempt,
+	type FailExtractionAttemptResult,
 	failExtractionAttempt,
 	getExtractionJobRow,
 	heartbeatExtractionAttempt,
@@ -102,9 +109,81 @@ export interface DrainExtractionWorkerInput
 	extends Partial<ExecuteNextExtractionJobInput> {}
 
 const DEFAULT_WORKER_ID = `extraction:${process.pid}:${randomUUID()}`;
-let workerInitialized = false;
 let drainPromise: Promise<void> | null = null;
-let lastRecoveryAt = 0;
+/** A wake that arrived while a drain was running, to be honoured after it. */
+let drainRequestedAgain = false;
+
+/**
+ * The scheduler's state, held on `globalThis` rather than in a module binding.
+ *
+ * `workerInitialized` used to be a plain module-level flag, which makes a double
+ * IMPORT a no-op (the module registry hands back the same instance) but not an
+ * HMR re-EVALUATION: vite hands the new instance a fresh set of bindings, and
+ * the old instance's timers keep firing beside the new one's. Two schedulers
+ * against one ledger is not a correctness bug — every claim is a CAS — but it is
+ * two sweeps and two drains per tick for as long as the dev server lives, and
+ * the same shape of mistake in a future `node --watch` deploy would be one per
+ * reload forever. A `Symbol.for` key is the one thing every instance shares.
+ */
+interface ExtractionSchedulerState {
+	initialized: boolean;
+	/** True only while timers may be armed: serving context, worker enabled. */
+	running: boolean;
+	idleTick: ReturnType<typeof setInterval> | null;
+	idleTickMs: number | null;
+	backoff: ReturnType<typeof setTimeout> | null;
+	/** Epoch ms the armed backoff timer will fire at, for the no-stacking check. */
+	backoffFiresAtMs: number | null;
+	bootSweep: ReturnType<typeof setTimeout> | null;
+	/** Dependencies every scheduler-driven drain runs with. Test seam. */
+	drainInput: DrainExtractionWorkerInput | null;
+	lastRecoveryAt: number;
+	/** Every call to `wakeExtractionWorker`, including the ones it drops. */
+	wakeRequests: number;
+}
+
+const SCHEDULER_KEY = Symbol.for("alfyai.extraction.worker-scheduler");
+
+function scheduler(): ExtractionSchedulerState {
+	const host = globalThis as typeof globalThis & {
+		[SCHEDULER_KEY]?: ExtractionSchedulerState;
+	};
+	host[SCHEDULER_KEY] ??= {
+		initialized: false,
+		running: false,
+		idleTick: null,
+		idleTickMs: null,
+		backoff: null,
+		backoffFiresAtMs: null,
+		bootSweep: null,
+		drainInput: null,
+		lastRecoveryAt: 0,
+		wakeRequests: 0,
+	};
+	return host[SCHEDULER_KEY];
+}
+
+/** Idle-tick bounds. Fast enough to bound recovery, slow enough to be free. */
+const IDLE_TICK_MIN_MS = 5_000;
+const IDLE_TICK_MAX_MS = 60_000;
+
+/**
+ * Added to a job's own `next_attempt_at` when arming the backoff timer.
+ *
+ * `next_attempt_at` is stored with one-second granularity and the claim gate is
+ * `next_attempt_at <= now`, so a timer that fired on the exact millisecond could
+ * round to the second before its own gate and claim nothing. A second of margin
+ * costs a second of latency on a retry and removes the whole class of misses.
+ */
+const BACKOFF_TIMER_MARGIN_MS = 1_000;
+
+/** Never sleep longer than this in one hop; the idle tick re-arms the rest. */
+const BACKOFF_TIMER_MAX_MS = 3_600_000;
+
+const QUEUE_STATUSES: readonly string[] = [
+	"queued",
+	...DOCUMENT_EXTRACTION_ACTIVE_STATUSES,
+];
 
 interface ExtractionSource {
 	filePathAbsolute: string;
@@ -204,6 +283,7 @@ async function executeStep(
 		attemptId: attempt.id,
 		workerId: input.workerId,
 	};
+	const attemptStartedAtMs = Date.now();
 	const resolve = input.resolveExtractor ?? defaultResolveExtractor;
 	const intakeRoute: DocumentExtractionIntakeRoute =
 		job.intakeRoute === "direct-text" ? "direct-text" : "mineru";
@@ -227,6 +307,12 @@ async function executeStep(
 		if (!outcome.applied) {
 			return { processed: true, result: null };
 		}
+		await logFailedAttempt({
+			...owned,
+			errorCode: "internal",
+			outcome,
+			startedAtMs: attemptStartedAtMs,
+		});
 		return {
 			processed: true,
 			result: {
@@ -323,6 +409,13 @@ async function executeStep(
 
 			if (cancelObserved || (await isCancelRequested(job.id))) {
 				await bestEffortRemoteCancel(extractor, latestHandle);
+				console.info("[EXTRACTION] Cancel honoured", {
+					jobId: job.id,
+					attemptId: attempt.id,
+					attemptNumber: attempt.attemptNumber,
+					extractor: extractor.name,
+					durationMs: Date.now() - attemptStartedAtMs,
+				});
 				return {
 					processed: true,
 					result: { jobId: job.id, status: "canceled" },
@@ -347,6 +440,12 @@ async function executeStep(
 				// asserting a write we did not make.
 				return { processed: true, result: null };
 			}
+			await logFailedAttempt({
+				...owned,
+				errorCode: failure.code,
+				outcome,
+				startedAtMs: attemptStartedAtMs,
+			});
 			return {
 				processed: true,
 				result: {
@@ -387,6 +486,17 @@ async function executeStep(
 					? { diagnostics: { chunksTruncated: true } }
 					: {}),
 			});
+			console.info("[EXTRACTION] Job succeeded", {
+				jobId: job.id,
+				attemptId: attempt.id,
+				attemptNumber: attempt.attemptNumber,
+				extractor: extractor.name,
+				intakeRoute,
+				durationMs: Date.now() - attemptStartedAtMs,
+				textLength: result.text.length,
+				pageCount: result.pageCount ?? null,
+				chunksTruncated: persisted.chunksTruncated,
+			});
 			return {
 				processed: true,
 				result: { jobId: job.id, status: "succeeded" },
@@ -406,6 +516,12 @@ async function executeStep(
 			if (!outcome.applied) {
 				return { processed: true, result: null };
 			}
+			await logFailedAttempt({
+				...owned,
+				errorCode: failure.code,
+				outcome,
+				startedAtMs: attemptStartedAtMs,
+			});
 			return {
 				processed: true,
 				result: {
@@ -416,6 +532,41 @@ async function executeStep(
 		}
 	} finally {
 		clearInterval(heartbeat);
+	}
+}
+
+/**
+ * One line per failed attempt, and a second one when that failure exhausted the
+ * job's attempts. The terminal branch re-reads the job row rather than
+ * re-deriving the verdict here: `decideExtractionRetry` already made that call
+ * inside the ledger transaction, and a copy of its arithmetic in a log helper
+ * is a copy that can disagree with the row a user is looking at.
+ */
+async function logFailedAttempt(params: {
+	jobId: string;
+	attemptId: string;
+	errorCode: ExtractionErrorCode;
+	outcome: FailExtractionAttemptResult;
+	startedAtMs: number;
+}): Promise<void> {
+	console.warn("[EXTRACTION] Attempt failed", {
+		jobId: params.jobId,
+		attemptId: params.attemptId,
+		errorCode: params.errorCode,
+		requeued: params.outcome.requeued,
+		nextAttemptAt: params.outcome.nextAttemptAt?.toISOString() ?? null,
+		durationMs: Date.now() - params.startedAtMs,
+	});
+
+	if (params.outcome.requeued) return;
+
+	const row = await getExtractionJobRow(params.jobId);
+	if (row?.errorCode === "max_attempts") {
+		console.warn("[EXTRACTION] Job reached max attempts", {
+			jobId: params.jobId,
+			attemptCount: row.attemptCount,
+			retryable: row.retryable,
+		});
 	}
 }
 
@@ -504,47 +655,78 @@ export async function executeNextExtractionJob(
 }
 
 /**
- * Loops until the claim returns nothing. Between empty drains it re-runs stale
- * recovery, but no more often than every `staleAttemptMs / 2` — a worker that
- * swept on every idle tick would be a write storm on an idle box.
+ * Loops until the claim returns nothing, then re-arms.
+ *
+ * Between empty drains it re-runs stale recovery, but no more often than one
+ * idle tick — sweeping on every empty claim would be a write storm on a busy
+ * box. It used to be gated on `staleAttemptMs / 2` instead, which on the dev
+ * box (stale window dragged to 20 minutes by the MinerU timeout) meant a drain
+ * woken by an upload would decline to sweep for ten minutes at a time.
+ *
+ * The re-arm in the `finally` is the other half of ruling 1. A drain that
+ * requeues a job behind a backoff and then returns has left work in the table
+ * with nothing scheduled to pick it up: before this, the job waited for an
+ * unrelated upload, which on an idle box never comes.
  */
 export async function drainExtractionWorker(
 	input: DrainExtractionWorkerInput = {},
 ): Promise<void> {
 	const workerId = input.workerId ?? DEFAULT_WORKER_ID;
 
-	for (;;) {
-		const step = await executeStep({ ...input, workerId });
-		if (step.processed) continue;
+	try {
+		for (;;) {
+			const step = await executeStep({ ...input, workerId });
+			if (step.processed) continue;
 
-		const config = getExtractionConfig();
-		const sinceRecovery = Date.now() - lastRecoveryAt;
-		if (sinceRecovery < config.staleAttemptMs / 2) {
-			return;
-		}
+			const config = getExtractionConfig();
+			if (
+				Date.now() - scheduler().lastRecoveryAt <
+				idleTickIntervalMs(config)
+			) {
+				return;
+			}
 
-		const { requeued } = await runStaleRecovery(config);
-		if (requeued === 0) {
-			return;
+			const { requeued } = await runStaleRecovery(config, "drain");
+			if (requeued === 0) {
+				return;
+			}
 		}
+	} finally {
+		await rearmAfterDrain();
 	}
 }
 
 async function runStaleRecovery(
-	config: ReturnType<typeof getExtractionConfig>,
+	config: ExtractionConfig,
+	reason: string,
 ): Promise<{ recovered: number; requeued: number }> {
-	lastRecoveryAt = Date.now();
-	return recoverStaleExtractionAttempts({
+	scheduler().lastRecoveryAt = Date.now();
+	const outcome = await recoverStaleExtractionAttempts({
 		staleBefore: new Date(Date.now() - config.staleAttemptMs),
 		maxAttempts: config.maxAttempts,
 		retryBaseMs: config.retryBaseMs,
 		retryMaxMs: config.retryMaxMs,
 	});
+
+	// Silence on a sweep that found nothing is the point: this runs every tick
+	// forever. A sweep that DID reclaim something is the one line that explains
+	// why a document the user was watching started over.
+	if (outcome.recovered > 0) {
+		console.warn("[EXTRACTION] Reclaimed stale attempts", {
+			reason,
+			recovered: outcome.recovered,
+			requeued: outcome.requeued,
+			staleAttemptMs: config.staleAttemptMs,
+		});
+	}
+	return outcome;
 }
 
 /** Fire-and-forget wake, deduped by an in-module promise. */
 export function wakeExtractionWorker(): void {
-	if (drainPromise || isNonServingContext()) {
+	scheduler().wakeRequests += 1;
+
+	if (isNonServingContext()) {
 		// Under vitest this is the one entry point a test reaches by accident:
 		// any test that uploads a file calls `startUploadExtraction`, which wakes
 		// the worker, which drains with the REAL extractor registry and issues a
@@ -556,13 +738,35 @@ export function wakeExtractionWorker(): void {
 		return;
 	}
 
+	startDrain();
+}
+
+/**
+ * Starts a drain, or records that one is owed.
+ *
+ * The dedupe used to drop a wake that arrived while a drain was running, which
+ * is wrong whenever the enqueue landed after that drain's last claim: the job
+ * was then invisible to the drain that swallowed its wake, and waited for the
+ * next unrelated upload. The flag costs nothing and closes the window.
+ */
+function startDrain(): void {
+	if (drainPromise) {
+		drainRequestedAgain = true;
+		return;
+	}
+
+	const input = scheduler().drainInput ?? {};
 	drainPromise = Promise.resolve()
-		.then(() => drainExtractionWorker())
+		.then(() => drainExtractionWorker(input))
 		.catch((error) => {
 			console.error("[EXTRACTION] Worker drain failed", { error });
 		})
 		.finally(() => {
 			drainPromise = null;
+			if (drainRequestedAgain) {
+				drainRequestedAgain = false;
+				startDrain();
+			}
 		});
 }
 
@@ -573,19 +777,239 @@ function isNonServingContext(): boolean {
 	return Boolean(process.env.VITEST) || process.env.NODE_ENV === "test";
 }
 
+interface ExtractionQueueSnapshot {
+	/** Rows in an active status, i.e. rows a stale sweep could have work on. */
+	activeCount: number;
+	/** Queued rows whose backoff gate is already open. */
+	claimableCount: number;
+	/** Earliest future `next_attempt_at` among queued rows, in epoch ms. */
+	earliestGatedAtMs: number | null;
+}
+
+const EMPTY_QUEUE_SNAPSHOT: ExtractionQueueSnapshot = {
+	activeCount: 0,
+	claimableCount: 0,
+	earliestGatedAtMs: null,
+};
+
+/**
+ * One indexed aggregate over the jobs table: is there anything to do, and if
+ * not yet, when.
+ *
+ * It is deliberately one query and deliberately aggregate-only, because the
+ * idle tick runs it forever on boxes where the table is empty. The `WHERE
+ * status IN (...)` leads `document_extraction_jobs_claim_idx`, so an idle box
+ * pays an index probe that matches nothing.
+ */
+async function readExtractionQueueSnapshot(
+	nowMs: number,
+): Promise<ExtractionQueueSnapshot> {
+	// `next_attempt_at` is a drizzle `timestamp` column: unix SECONDS.
+	const nowSeconds = Math.floor(nowMs / 1000);
+	const status = documentExtractionJobs.status;
+	const gate = documentExtractionJobs.nextAttemptAt;
+
+	const [row] = await db
+		.select({
+			activeCount: sql<number>`sum(case when ${status} <> 'queued' then 1 else 0 end)`,
+			claimableCount: sql<number>`sum(case when ${status} = 'queued' and (${gate} is null or ${gate} <= ${nowSeconds}) then 1 else 0 end)`,
+			earliestGated: sql<
+				number | null
+			>`min(case when ${status} = 'queued' and ${gate} > ${nowSeconds} then ${gate} end)`,
+		})
+		.from(documentExtractionJobs)
+		.where(inArray(status, QUEUE_STATUSES));
+
+	if (!row) return EMPTY_QUEUE_SNAPSHOT;
+	const earliest = row.earliestGated;
+	return {
+		activeCount: Number(row.activeCount ?? 0),
+		claimableCount: Number(row.claimableCount ?? 0),
+		earliestGatedAtMs:
+			earliest === null || earliest === undefined
+				? null
+				: Number(earliest) * 1000,
+	};
+}
+
+/** `heartbeatMs × 2`, clamped. 30 s on the default config. */
+function idleTickIntervalMs(config: ExtractionConfig): number {
+	return Math.min(
+		IDLE_TICK_MAX_MS,
+		Math.max(IDLE_TICK_MIN_MS, config.heartbeatMs * 2),
+	);
+}
+
+/**
+ * Arms at most ONE backoff timer, for the earliest moment work becomes
+ * claimable. An existing timer that already fires at or before that moment is
+ * left alone rather than replaced, so repeated drains cannot stack timers.
+ */
+function armBackoffTimer(dueAtMs: number): void {
+	const state = scheduler();
+	if (!state.running) return;
+
+	const delayMs = Math.min(
+		BACKOFF_TIMER_MAX_MS,
+		Math.max(0, dueAtMs + BACKOFF_TIMER_MARGIN_MS - Date.now()),
+	);
+	const firesAtMs = Date.now() + delayMs;
+
+	if (
+		state.backoff &&
+		state.backoffFiresAtMs !== null &&
+		state.backoffFiresAtMs <= firesAtMs
+	) {
+		return;
+	}
+
+	clearBackoffTimer(state);
+	state.backoffFiresAtMs = firesAtMs;
+	state.backoff = setTimeout(() => {
+		state.backoff = null;
+		state.backoffFiresAtMs = null;
+		startDrain();
+	}, delayMs);
+	state.backoff.unref?.();
+}
+
+function clearBackoffTimer(state: ExtractionSchedulerState): void {
+	if (state.backoff) clearTimeout(state.backoff);
+	state.backoff = null;
+	state.backoffFiresAtMs = null;
+}
+
+/**
+ * Called at the end of every drain. A drain that emptied the queue arms
+ * nothing; one that left work behind a backoff gate arms the single timer that
+ * will pick it up.
+ *
+ * `claimableCount > 0` after a drain that claimed nothing means the caps are
+ * full (the inline direct-text path holds a slot, say) or a row landed during
+ * the final claim. Retrying immediately would spin, so that case waits one idle
+ * tick — bounded, and free of a hot loop.
+ */
+async function rearmAfterDrain(): Promise<void> {
+	const state = scheduler();
+	if (!state.running) return;
+
+	try {
+		const now = Date.now();
+		const snapshot = await readExtractionQueueSnapshot(now);
+		const dueCandidates: number[] = [];
+		if (snapshot.claimableCount > 0) {
+			dueCandidates.push(now + idleTickIntervalMs(getExtractionConfig()));
+		}
+		if (snapshot.earliestGatedAtMs !== null) {
+			dueCandidates.push(snapshot.earliestGatedAtMs);
+		}
+		if (dueCandidates.length > 0) {
+			armBackoffTimer(Math.min(...dueCandidates));
+		}
+	} catch (error) {
+		// The idle tick is still running; a failed re-arm costs latency, never
+		// the job. Throwing here would also replace whatever the drain was
+		// reporting with a database error from its `finally`.
+		console.warn("[EXTRACTION] Re-arm after drain failed", { error });
+	}
+}
+
+/**
+ * The periodic sweep, and the only thing that runs on a box where nobody
+ * uploads anything. Recovery latency after a crash is therefore bounded by
+ * roughly `staleAttemptMs + idleTick`, not by the next unrelated upload.
+ */
+async function runIdleTick(): Promise<void> {
+	const state = scheduler();
+	if (!state.running) return;
+
+	const config = getExtractionConfig();
+	// Honoured live: an admin who switches the worker off mid-flight gets a
+	// scheduler that stops taking work without a restart.
+	if (!config.workerEnabled) return;
+
+	const now = Date.now();
+	const snapshot = await readExtractionQueueSnapshot(now);
+	if (
+		snapshot.activeCount === 0 &&
+		snapshot.claimableCount === 0 &&
+		snapshot.earliestGatedAtMs === null
+	) {
+		return;
+	}
+
+	if (snapshot.activeCount > 0) {
+		const { requeued } = await runStaleRecovery(config, "idle-tick");
+		if (requeued > 0) {
+			// The requeued rows sit behind a fresh backoff; the drain claims what
+			// it can and re-arms for the rest.
+			startDrain();
+			return;
+		}
+	}
+
+	if (snapshot.claimableCount > 0) {
+		startDrain();
+		return;
+	}
+	if (snapshot.earliestGatedAtMs !== null) {
+		armBackoffTimer(snapshot.earliestGatedAtMs);
+	}
+}
+
+function startIdleTick(config: ExtractionConfig): void {
+	const state = scheduler();
+	if (state.idleTick) return;
+
+	const intervalMs = idleTickIntervalMs(config);
+	state.idleTickMs = intervalMs;
+	state.idleTick = setInterval(() => {
+		void runIdleTick().catch((error) => {
+			console.error("[EXTRACTION] Idle tick failed", { error });
+		});
+	}, intervalMs);
+	state.idleTick.unref?.();
+}
+
+export interface EnsureExtractionWorkerInput
+	extends DrainExtractionWorkerInput {
+	/**
+	 * Test seam: start the scheduler even under vitest, and run every drain it
+	 * arms with the rest of this input (a fake extractor, a fake persist). The
+	 * production call site in `hooks.server.ts` passes nothing, so the default
+	 * stays "do nothing outside a serving process".
+	 */
+	startInNonServingContextForTests?: boolean;
+}
+
 /**
  * Once per process, from `hooks.server.ts` init.
  *
- * Idempotent: the module-level flag makes a double import (or an HMR
- * re-evaluation that kept the module instance) a no-op. It does not block
- * server start — the caller does not await it — and it is safe against an empty
- * table, where the recovery sweep and the drain both return immediately.
+ * Idempotent: the scheduler flag makes a double import a no-op, and it lives on
+ * a `Symbol.for` key so an HMR re-evaluation that builds a fresh module
+ * instance is a no-op too. It does not block server start — the caller does not
+ * await it — and it is safe against an empty table, where the recovery sweep
+ * and the drain both return immediately.
+ *
+ * Boot recovery runs TWICE by design (ruling 3). The sweep at boot reclaims
+ * attempts whose worker died long enough ago to look stale; the one scheduled
+ * `staleAttemptMs` later reclaims the attempts this very restart orphaned,
+ * whose heartbeats were seconds old at boot and so looked perfectly healthy.
+ * Without it, a box where nobody uploads anything for an hour keeps a job in
+ * `parsing` for that hour with a heartbeat frozen at the restart.
  */
-export async function ensureExtractionWorker(): Promise<void> {
-	if (workerInitialized || isNonServingContext()) {
+export async function ensureExtractionWorker(
+	input: EnsureExtractionWorkerInput = {},
+): Promise<void> {
+	const state = scheduler();
+	const { startInNonServingContextForTests, ...drainInput } = input;
+	if (state.initialized) {
 		return;
 	}
-	workerInitialized = true;
+	if (isNonServingContext() && startInNonServingContextForTests !== true) {
+		return;
+	}
+	state.initialized = true;
 
 	const config = getExtractionConfig();
 	if (!config.workerEnabled) {
@@ -593,16 +1017,97 @@ export async function ensureExtractionWorker(): Promise<void> {
 		return;
 	}
 
-	await runStaleRecovery(config);
-	wakeExtractionWorker();
+	state.running = true;
+	state.drainInput = drainInput;
+
+	console.info("[EXTRACTION] Worker started", {
+		idleTickMs: idleTickIntervalMs(config),
+		staleAttemptMs: config.staleAttemptMs,
+		heartbeatMs: config.heartbeatMs,
+		maxConcurrency: config.maxConcurrency,
+		perUserConcurrency: config.perUserConcurrency,
+		maxAttempts: config.maxAttempts,
+		retryBaseMs: config.retryBaseMs,
+		retryMaxMs: config.retryMaxMs,
+	});
+
+	await runStaleRecovery(config, "boot");
+
+	state.bootSweep = setTimeout(() => {
+		state.bootSweep = null;
+		void (async () => {
+			if (!state.running) return;
+			const current = getExtractionConfig();
+			if (!current.workerEnabled) return;
+			const { requeued } = await runStaleRecovery(current, "boot-followup");
+			if (requeued > 0) startDrain();
+		})().catch((error) => {
+			console.error("[EXTRACTION] Boot follow-up sweep failed", { error });
+		});
+	}, config.staleAttemptMs);
+	state.bootSweep.unref?.();
+
+	startIdleTick(config);
+	startDrain();
 }
 
-/** Test helper: forget the once-per-process bootstrap guard. */
+/** Test helper: forget the bootstrap guard and disarm every timer. */
 export function resetExtractionWorkerForTests(): void {
-	workerInitialized = false;
+	const state = scheduler();
+	if (state.idleTick) clearInterval(state.idleTick);
+	if (state.bootSweep) clearTimeout(state.bootSweep);
+	clearBackoffTimer(state);
+	state.idleTick = null;
+	state.idleTickMs = null;
+	state.bootSweep = null;
+	state.initialized = false;
+	state.running = false;
+	state.drainInput = null;
+	state.lastRecoveryAt = 0;
+	state.wakeRequests = 0;
 	drainPromise = null;
-	lastRecoveryAt = 0;
+	drainRequestedAgain = false;
 	registeredReadbackSink = null;
+}
+
+export interface ExtractionSchedulerInspection {
+	running: boolean;
+	idleTickArmed: boolean;
+	idleTickMs: number | null;
+	/** `hasRef()` on the armed interval, or null when it cannot be asked. */
+	idleTickRefed: boolean | null;
+	backoffArmed: boolean;
+	backoffFiresInMs: number | null;
+	backoffRefed: boolean | null;
+	bootSweepArmed: boolean;
+	bootSweepRefed: boolean | null;
+	/** Wakes requested, including the ones dropped in a non-serving context. */
+	wakeRequests: number;
+}
+
+/**
+ * Test helper: what the scheduler currently has armed.
+ *
+ * Returning facts rather than the handles themselves keeps a test from
+ * clearing a timer the scheduler still believes it owns.
+ */
+export function inspectExtractionSchedulerForTests(): ExtractionSchedulerInspection {
+	const state = scheduler();
+	return {
+		running: state.running,
+		idleTickArmed: state.idleTick !== null,
+		idleTickMs: state.idleTickMs,
+		idleTickRefed: state.idleTick?.hasRef?.() ?? null,
+		backoffArmed: state.backoff !== null,
+		backoffFiresInMs:
+			state.backoffFiresAtMs === null
+				? null
+				: state.backoffFiresAtMs - Date.now(),
+		backoffRefed: state.backoff?.hasRef?.() ?? null,
+		bootSweepArmed: state.bootSweep !== null,
+		bootSweepRefed: state.bootSweep?.hasRef?.() ?? null,
+		wakeRequests: state.wakeRequests,
+	};
 }
 
 /**
