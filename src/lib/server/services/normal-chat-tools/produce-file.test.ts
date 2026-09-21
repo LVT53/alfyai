@@ -680,11 +680,12 @@ describe("inline_text production mode", () => {
 	].join("\n");
 
 	const TSV = [
-		"region\trevenue\trenewals",
-		"North\t24.25\t2",
-		"South\t25.75\t3",
-		"East\t18.50\t1",
-		"West\t31.00\t4",
+		"region\trevenue\trenewals\tbacklog",
+		"North\t24.25\t2\t48",
+		"South\t25.75\t3\t31",
+		"East\t18.50\t1\t12",
+		"West\t31.00\t4\t27",
+		"Central\t22.75\t2\t19",
 	].join("\n");
 
 	function normalize(
