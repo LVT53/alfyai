@@ -122,6 +122,7 @@ import {
 	buildReadGeneratedFileModelPayload,
 	extractContentFromMemoryText,
 	readGeneratedFileContent,
+	readGeneratedFileExecutionInputSchema,
 	readGeneratedFileInputSchema,
 	sanitizeReadGeneratedFileInput,
 	summarizeReadGeneratedFileResult,
@@ -1422,7 +1423,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					input: z.infer<typeof readGeneratedFileInputSchema>,
 					options: ToolExecutionOptions,
 				) => {
-					const parsedInput = readGeneratedFileInputSchema.safeParse(input);
+					// Parsed with the EXECUTION schema, not the advertised one: it
+					// is the only place the undocumented `page` (OQ5, undocumented
+					// until the single Phase 6 prose release) is read.
+					const parsedInput =
+						readGeneratedFileExecutionInputSchema.safeParse(input);
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
@@ -1445,6 +1450,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								requestTitle: parsedInput.data.requestTitle ?? null,
 								from: parsedInput.data.from ?? null,
 								query: parsedInput.data.query ?? null,
+								page: parsedInput.data.page ?? null,
 								turnId: ctx.turnId,
 							});
 							const modelPayload = buildReadGeneratedFileModelPayload(result);
