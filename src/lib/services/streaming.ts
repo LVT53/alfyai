@@ -1,3 +1,4 @@
+import { reportAuthFailure } from "$lib/client/api/http";
 import {
 	type MessageUserIntent,
 	parseMessageUserIntent,
@@ -739,6 +740,13 @@ export function streamChat(
 				}
 				markTimingPhase(BROWSER_STREAM_TIMING_MARKS.ERROR);
 				reportTiming("error");
+				// This client builds its own fetch, so it does not pass through
+				// `readErrorPayload` where every other API call notices an expired
+				// session. Tell the same central handler: the turn still fails
+				// cleanly through `onError` below (the composer shows the message
+				// and re-enables Send), and the one navigation to /login happens
+				// exactly as it does for a non-streaming call.
+				reportAuthFailure(res.status, errorMessage);
 				callbacks.onError(
 					toStreamError(errorMessage, errorCode, attachmentExtraction),
 				);

@@ -354,7 +354,20 @@ function renderCodeBlock(
 
 	try {
 		const theme = isDark ? "github-dark" : "github-light";
-		return highlighter.codeToHtml(content, { lang: normalized, theme });
+		// Every HTML string this module returns goes through the sanitizer — this
+		// branch used to be the one exception. Shiki escapes the code it
+		// highlights, so there is no known injection today, but the guarantee
+		// should not rest on a third-party renderer's escaping: a future Shiki
+		// option or transformer that emitted markup would land in `{@html}`
+		// unchecked. `allowStyleAttributes` is scoped to THIS call — the argument
+		// is the highlighted-code container and nothing else — because Shiki
+		// carries every colour as an inline `style` (and the CSS scrubbing hooks
+		// that flag turns on run over those values). Legitimate output survives
+		// byte-for-byte; see markdown.test.ts.
+		return sanitizeHtml(
+			highlighter.codeToHtml(content, { lang: normalized, theme }),
+			{ allowStyleAttributes: true },
+		);
 	} catch {
 		return sanitizeHtml(`<pre><code>${escapedContent}</code></pre>`);
 	}

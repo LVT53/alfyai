@@ -199,7 +199,9 @@ prod HEAD = the merge commit.
 - Authenticated `GET /api/connections` → **200**, 5 connections, `hasSecret=true`, **no
   secret leak** in the DTO (store.toPublic firewall holds live). `active-capabilities` → 200.
 - Unauth `/api/connections` → 303 (global hook redirect — see ADR-0050 §Route Seams; not a
-  regression; the handler-level 401 is shadowed by the hook).
+  regression; the handler-level 401 is shadowed by the hook). *Since superseded: the hook
+  now returns 401 JSON for `/api/**` (ADR-0050 §Route Seams, "Follow-up landed"), so this
+  call answers **401** today.*
 - OwnTracks: `OWNTRACKS_RECORDER_URL` is **SET** on prod (so the not_configured/409 path —
   and the E1 message — is for the unset case; if OwnTracks still misbehaves in prod UI the
   cause is elsewhere: recorder reachability/creds/device binding — separate diagnostic).

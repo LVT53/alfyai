@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/sveltekit";
 import type { Handle, ServerInit } from "@sveltejs/kit";
-import { redirect } from "@sveltejs/kit";
+import { json, redirect } from "@sveltejs/kit";
 import { sequence } from "@sveltejs/kit/hooks";
 import { eq } from "drizzle-orm";
 import {
@@ -57,6 +57,56 @@ const PUBLIC_PATHS = [
 	// verification URL.
 	"/privacy",
 ];
+
+/**
+ * Every endpoint in this app lives under `/api/` — there is no `+server.ts`
+ * anywhere else in `src/routes` — so the prefix is an exact test for "this
+ * request wants data, not a screen". It deliberately covers the streaming
+ * (`/api/chat/stream`), SSE, download and preview routes too: an `<img>` or an
+ * `EventSource` that followed a 303 to `/login` got an HTML page where it
+ * expected bytes or an event stream, which is no more useful than a 401 and is
+ * much harder for the caller to detect.
+ */
+function isApiRequest(pathname: string): boolean {
+	return pathname.startsWith("/api/");
+}
+
+/**
+ * Is a PERSON looking at this response, rather than a program reading it?
+ *
+ * Some `/api/` URLs are reached by the address bar: the OAuth callbacks, which
+ * the provider bounces the browser back to, and the download/preview routes,
+ * which are opened in a tab (`window.open`) or pasted as a link. Answering
+ * those with raw JSON in the viewport is worse than the login screen, so they
+ * keep the 303.
+ *
+ * Fetch Metadata is the right signal because the browser sets it and page
+ * script cannot: an in-page `fetch()` or XHR is stamped `Sec-Fetch-Mode:
+ * cors`/`same-origin`, never `navigate`, so nothing the app itself calls can
+ * talk its way into a redirect — `Accept` alone would have let it. `Sec-Fetch-
+ * Dest: document`/`iframe` is treated the same as `navigate`; every other
+ * destination (empty, image, script, …) is a subresource and gets the 401.
+ *
+ * Without those headers at all — an old browser, curl, a server-side client —
+ * fall back to what the caller asked for, and only for the methods an address
+ * bar can issue: an explicit `text/html` on a GET or HEAD redirects, anything
+ * else (`application/json`, curl's `*&#47;*`, no Accept, any other method) gets
+ * the 401.
+ */
+function isBrowserNavigation(request: Request): boolean {
+	const mode = request.headers.get("sec-fetch-mode");
+	const dest = request.headers.get("sec-fetch-dest");
+
+	if (mode !== null || dest !== null) {
+		return mode === "navigate" || dest === "document" || dest === "iframe";
+	}
+
+	const method = request.method.toUpperCase();
+	if (method !== "GET" && method !== "HEAD") return false;
+	return (request.headers.get("accept") ?? "")
+		.toLowerCase()
+		.includes("text/html");
+}
 
 const sentryDsn = cleanSentryEnvValue(
 	process.env.SENTRY_DSN ?? process.env.PUBLIC_SENTRY_DSN,
@@ -216,6 +266,34 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
 
 	if (!PUBLIC_PATHS.includes(path) && !event.locals.user) {
+		// A page request keeps the 303 to /login: the browser is asking for a
+		// screen, and the login screen is the right screen.
+		//
+		// An API request does not. It used to get the same 303, which `fetch`
+		// follows: the caller was handed a 200 and a login PAGE, and the `401`
+		// branch every one of these routes carries was unreachable. Answer with
+		// that 401 instead, in the body shape the routes themselves use
+		// (`{"error":"Unauthorized"}`, via the same `json()` helper) so a
+		// session that expired mid-session is indistinguishable from a request
+		// the route itself refused. No `WWW-Authenticate`: this app has no HTTP
+		// auth scheme to name, and nothing in the repo sends that header today.
+		//
+		// The exception is an `/api/` URL a person is looking at — an OAuth
+		// callback the provider bounced the address bar to, a download or
+		// preview link opened in a tab. Those keep the 303, because raw JSON in
+		// the viewport helps nobody. `isBrowserNavigation` reads the browser's
+		// own Fetch Metadata for that, which page script cannot forge for its
+		// own requests, so the app's fetches are always on the 401 side.
+		//
+		// Access is unchanged either way — this is the shape of the refusal, not
+		// whether it refuses. The public/allow list above still admits the
+		// service-assertion routes (the drain bearer token, the produce-file
+		// signing key) before this gate, so how those authenticate is untouched.
+		if (isApiRequest(path) && !isBrowserNavigation(event.request)) {
+			const response = json({ error: "Unauthorized" }, { status: 401 });
+			applySecurityHeaders(event, response);
+			return response;
+		}
 		throw redirect(303, "/login");
 	}
 
