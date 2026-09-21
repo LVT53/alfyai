@@ -875,6 +875,74 @@ describe("inline_text production mode", () => {
 		expect(patchOnly.sourceMode).toBe("program");
 	});
 
+	// A patch brings its own content — the base file plus the edit — so a call
+	// that sends patches and nothing else has named no mode it can be held to.
+	// Validating the mode it DID name against the content it was never going to
+	// send is what refused the live call
+	// (`documentSource or content is required when sourceMode is
+	// document_source`) and made the model rewrite the whole file. The adapter
+	// decides the real mode once it has the patched bytes.
+	it.each([
+		"document_source",
+		"program",
+	] as const)("ignores sourceMode %o on a call that carries only patches", (sourceMode) => {
+		const patchOnly = expectOk(
+			normalize({
+				filename: "notes.md",
+				sourceMode,
+				patches: [{ oldText: "North", newText: "South" }],
+			}),
+		);
+		expect(patchOnly.sourceMode).toBe("program");
+		expect(patchOnly.patches).toEqual([{ oldText: "North", newText: "South" }]);
+		expect(patchOnly.program?.filename).toBe("notes.md");
+	});
+
+	// …and a call that DOES carry its own content keeps today's behaviour,
+	// which is not the same in both directions and is deliberately left alone
+	// here: an explicit mode takes the content at face value and the patches
+	// are dropped, while the same call without a mode resolves them. Pinned so
+	// the asymmetry cannot change unnoticed.
+	it("keeps an explicit mode when the call carries its own content", () => {
+		const explicit = expectOk(
+			normalize({
+				filename: "notes.md",
+				sourceMode: "document_source",
+				markdown: MARKDOWN,
+				patches: [{ oldText: "North", newText: "South" }],
+			}),
+		);
+		expect(explicit.sourceMode).toBe("document_source");
+		expect(explicit.patches).toBeUndefined();
+
+		const implicit = expectOk(
+			normalize({
+				filename: "notes.md",
+				markdown: MARKDOWN,
+				patches: [{ oldText: "North", newText: "South" }],
+			}),
+		);
+		expect(implicit.sourceMode).toBe("program");
+		expect(implicit.patches).toEqual([{ oldText: "North", newText: "South" }]);
+	});
+
+	it("leaves a model-authored program or documentSource in charge", () => {
+		const withProgram = expectOk(
+			normalize({
+				outputType: "xlsx",
+				sourceMode: "program",
+				program: {
+					language: "python",
+					sourceCode: "print('builds the workbook')",
+					filename: "notes.xlsx",
+				},
+				patches: [{ oldText: "North", newText: "South" }],
+			}),
+		);
+		expect(withProgram.sourceMode).toBe("program");
+		expect(withProgram.program?.sourceCode).toContain("builds the workbook");
+	});
+
 	it("round-trips applyTextPatches output back through an inline_text produce", () => {
 		const patched = applyTextPatches(MARKDOWN, [
 			{ oldText: "North", newText: "South" },
