@@ -918,7 +918,7 @@ describe("inline_text production mode", () => {
 				outputType: "xlsx",
 				sourceMode: "program" as const,
 				program: {
-					language: "python",
+					language: "python" as const,
 					sourceCode: "print('builds the workbook')",
 					filename: "notes.xlsx",
 				},
