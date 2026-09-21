@@ -79,10 +79,42 @@ const UPLOAD_REFUSAL_KEYS: ReadonlySet<string> = new Set<I18nKey>([
  * The refusals that are not a 415. Phase 3's direct-text cap answers 413 with
  * its own key and a `maxBytes` detail, and a set keyed only on 415 let that
  * fall through to the server's English sentence on all three upload surfaces.
+ *
+ * The two SIZE refusals beside it fell through the same way, for longer: the
+ * endpoints have always minted `knowledge.uploadFileTooLarge` and
+ * `knowledge.uploadBodyTooLarge`, and no dictionary ever defined them, so
+ * "File too large. Maximum size is 50 MB." reached a Hungarian user verbatim.
+ * They carry their limit under a different detail name, which
+ * `refusalLimitBytes` below now reads.
  */
 const UPLOAD_REFUSAL_KEYS_413: ReadonlySet<string> = new Set<I18nKey>([
 	"knowledge.uploadDirectTextTooLarge",
+	"knowledge.uploadFileTooLarge",
+	"knowledge.uploadBodyTooLarge",
 ]);
+
+/**
+ * A 400: the upload was cut off part-way. Not a refusal of the file, but it
+ * reaches the same banner and was equally untranslated.
+ */
+const UPLOAD_REFUSAL_KEYS_400: ReadonlySet<string> = new Set<I18nKey>([
+	"knowledge.uploadAborted",
+]);
+
+/**
+ * The byte limit a refusal is about, whichever detail name carries it.
+ *
+ * `maxBytes` is the direct-text cap, `maxFileUploadSize` the per-file admin
+ * limit and `maxBodySize` the request-body ceiling. Three names for one
+ * `{limit}` placeholder.
+ */
+function refusalLimitBytes(details: Record<string, unknown>): number | null {
+	for (const name of ["maxBytes", "maxFileUploadSize", "maxBodySize"]) {
+		const value = details[name];
+		if (typeof value === "number" && Number.isFinite(value)) return value;
+	}
+	return null;
+}
 
 export type UploadRefusal = {
 	readonly key: I18nKey;
@@ -109,7 +141,8 @@ export function uploadRefusalFromError(
 
 	const recognized =
 		(error.status === 415 && UPLOAD_REFUSAL_KEYS.has(key)) ||
-		(error.status === 413 && UPLOAD_REFUSAL_KEYS_413.has(key));
+		(error.status === 413 && UPLOAD_REFUSAL_KEYS_413.has(key)) ||
+		(error.status === 400 && UPLOAD_REFUSAL_KEYS_400.has(key));
 	if (!recognized) return null;
 
 	const details = error.details ?? {};
@@ -121,10 +154,7 @@ export function uploadRefusalFromError(
 		typeof details.extension === "string" && details.extension.trim()
 			? details.extension
 			: (fileName.split(".").slice(1).pop() ?? "");
-	const maxBytes =
-		typeof details.maxBytes === "number" && Number.isFinite(details.maxBytes)
-			? details.maxBytes
-			: null;
+	const maxBytes = refusalLimitBytes(details);
 
 	return {
 		key: key as I18nKey,

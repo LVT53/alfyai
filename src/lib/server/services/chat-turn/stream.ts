@@ -1271,6 +1271,7 @@ export function streamRequestErrorEvent(error: ChatTurnRequestError): string {
 				// composer can render a translated message instead of echoing
 				// the server's English sentence.
 				attachmentExtraction: error.attachmentExtraction,
+				attachmentReadiness: error.attachmentReadiness,
 			}),
 		),
 		streamFinishEvent("error"),

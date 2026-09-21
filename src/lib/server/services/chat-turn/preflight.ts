@@ -23,6 +23,7 @@ import { resolveReasoningDepthSelection } from "./depth-selection";
 import type {
 	AdmittedChatTurn,
 	AppliedSkillContext,
+	AttachmentReadinessItem,
 	ChatTurnAdmissionResult,
 	ChatTurnAttachmentExtraction,
 	ChatTurnPreparationResult,
@@ -184,6 +185,7 @@ type AttachmentReadinessFailure = {
 	code: string;
 	attachmentIds: string[];
 	items: ChatTurnAttachmentExtraction[];
+	readiness: AttachmentReadinessItem[];
 };
 
 /**
@@ -200,6 +202,7 @@ function toReadinessFailure(error: unknown): AttachmentReadinessFailure {
 		code?: string;
 		attachmentIds?: string[];
 		items?: ChatTurnAttachmentExtraction[];
+		readiness?: AttachmentReadinessItem[];
 	};
 	return {
 		// HTTP 422 for every readiness refusal, pending included (OQ2): both
@@ -210,6 +213,7 @@ function toReadinessFailure(error: unknown): AttachmentReadinessFailure {
 		code: readiness.code ?? "attachment_not_ready",
 		attachmentIds: readiness.attachmentIds ?? [],
 		items: readiness.items ?? [],
+		readiness: readiness.readiness ?? [],
 	};
 }
 
@@ -345,6 +349,13 @@ function toPreflightError(failure: AttachmentReadinessFailure): PreflightError {
 			// the composer render a translated one from `status` + `errorCode`.
 			...(carriesExtraction && failure.items.length > 0
 				? { attachmentExtraction: failure.items }
+				: {}),
+			// Unconditional, unlike the rows above: every readiness refusal has
+			// a reason code per attachment, and `attachment_not_ready` — which
+			// has no ledger row at all — is exactly the one that used to reach
+			// the user as the server's English sentence.
+			...(failure.readiness.length > 0
+				? { attachmentReadiness: failure.readiness }
 				: {}),
 		},
 	};

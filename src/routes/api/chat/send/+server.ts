@@ -98,6 +98,7 @@ export const POST: RequestHandler = async (event) => {
 				// status and error code per attachment so the composer can
 				// translate the message instead of echoing the server's English.
 				attachmentExtraction: preflight.error.attachmentExtraction,
+				attachmentReadiness: preflight.error.attachmentReadiness,
 			},
 			{ status: preflight.error.status },
 		);
@@ -220,6 +221,7 @@ async function runAtlasSendTurn({
 					code: atlasPreflight.error.code,
 					attachmentIds: atlasPreflight.error.attachmentIds,
 					attachmentExtraction: atlasPreflight.error.attachmentExtraction,
+					attachmentReadiness: atlasPreflight.error.attachmentReadiness,
 				},
 				{ status: atlasPreflight.error.status },
 			);

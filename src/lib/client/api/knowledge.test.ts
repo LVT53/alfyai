@@ -772,6 +772,70 @@ describe("uploadRefusalFromError", () => {
 		});
 	});
 
+	// The two SIZE refusals. The endpoints have always minted these keys and
+	// no dictionary ever defined them, so "File too large. Maximum size is
+	// 50 MB." reached a Hungarian user verbatim on all three upload surfaces.
+	// They carry their limit under a different detail name than the
+	// direct-text cap does.
+	it("translates the per-file size refusal and reads its own limit detail", async () => {
+		expect(
+			await refusalFrom(
+				{
+					error: "File too large. Maximum size is 50 MB.",
+					code: "upload_file_too_large",
+					errorKey: "knowledge.uploadFileTooLarge",
+					details: {
+						fileName: "big.pdf",
+						fileSize: 90_000_000,
+						maxFileUploadSize: 52_428_800,
+					},
+				},
+				413,
+			),
+		).toEqual({
+			key: "knowledge.uploadFileTooLarge",
+			params: { name: "big.pdf", ext: "PDF", limit: "50 MB" },
+		});
+	});
+
+	it("translates the request-body refusal and reads maxBodySize", async () => {
+		expect(
+			await refusalFrom(
+				{
+					error: "Request body too large.",
+					code: "upload_body_too_large",
+					errorKey: "knowledge.uploadBodyTooLarge",
+					details: {
+						fileName: "big.pdf",
+						maxBodySize: 104_857_600,
+					},
+				},
+				413,
+			),
+		).toEqual({
+			key: "knowledge.uploadBodyTooLarge",
+			params: { name: "big.pdf", ext: "PDF", limit: "100 MB" },
+		});
+	});
+
+	it("translates the aborted upload, which answers 400", async () => {
+		expect(
+			await refusalFrom(
+				{
+					error:
+						"Upload was interrupted before it completed. Try again; if it keeps happening…",
+					code: "upload_aborted",
+					errorKey: "knowledge.uploadAborted",
+					details: { fileName: "big.pdf" },
+				},
+				400,
+			),
+		).toEqual({
+			key: "knowledge.uploadAborted",
+			params: { name: "big.pdf", ext: "PDF", limit: "" },
+		});
+	});
+
 	it("ignores a key it does not own, a non-415, and a plain Error", async () => {
 		expect(
 			await refusalFrom({

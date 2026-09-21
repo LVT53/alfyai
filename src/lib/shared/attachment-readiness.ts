@@ -50,6 +50,22 @@ export function isAttachmentReadinessReason(
 }
 
 /**
+ * One refused attachment, as the send gate's 422 carries it.
+ *
+ * The sibling of `AttachmentExtractionStatusItem`: that one describes a
+ * LEDGER row and so only exists for an attachment extraction actually touched.
+ * This one describes the refusal itself, and exists for every unresolved
+ * attachment — including the `attachment_not_ready` cases (a deleted file, a
+ * non-document) that have no ledger row at all and whose sentence was
+ * therefore the one thing still rendered in the server's English.
+ */
+export interface AttachmentReadinessItem {
+	artifactId: string;
+	name: string | null;
+	reason: AttachmentReadinessReason;
+}
+
+/**
  * The i18n key for a reason. Typed as `string` on purpose: `I18nKey` lives in
  * `$lib/i18n`, which pulls in a Svelte store, and this module is imported by
  * server code that must not. `chat.test.ts` asserts every key exists in both

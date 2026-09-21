@@ -15,7 +15,10 @@ import type {
 } from "$lib/server/services/knowledge/types";
 import type { ChatAttachment } from "$lib/server/services/messages-types";
 import { parseJsonRecord } from "$lib/server/utils/json";
-import type { AttachmentReadinessReason } from "$lib/shared/attachment-readiness";
+import type {
+	AttachmentReadinessItem,
+	AttachmentReadinessReason,
+} from "$lib/shared/attachment-readiness";
 import type {
 	AttachmentExtractionStatusItem,
 	DocumentExtractionJobDTO,
@@ -133,6 +136,12 @@ export class AttachmentReadinessError extends Error {
 	status = 422 as const;
 	attachmentIds: string[];
 	items: AttachmentExtractionStatusItem[];
+	/**
+	 * One row per refused attachment, whether or not it has a ledger row. This
+	 * is what lets the composer translate a refusal the extraction rows cannot
+	 * describe — `attachment_not_ready` has no ledger row by definition.
+	 */
+	readiness: AttachmentReadinessItem[];
 
 	constructor(
 		message: string,
@@ -140,6 +149,7 @@ export class AttachmentReadinessError extends Error {
 		options?: {
 			code?: AttachmentReadinessErrorCode;
 			items?: AttachmentExtractionStatusItem[];
+			readiness?: AttachmentReadinessItem[];
 		},
 	) {
 		super(message);
@@ -147,6 +157,7 @@ export class AttachmentReadinessError extends Error {
 		this.attachmentIds = attachmentIds;
 		this.code = options?.code ?? "attachment_not_ready";
 		this.items = options?.items ?? [];
+		this.readiness = options?.readiness ?? [];
 	}
 }
 
@@ -202,6 +213,22 @@ function buildAttachmentReadinessErrorMessage(
 	}
 
 	return "One or more attached files could not be prepared for chat. Remove the file or upload a supported text-readable document.";
+}
+
+function toAttachmentReadinessItems(
+	items: PromptAttachmentResolutionItem[],
+): AttachmentReadinessItem[] {
+	return items.flatMap((item) =>
+		item.readinessErrorCode
+			? [
+					{
+						artifactId: item.requestedArtifactId,
+						name: item.displayArtifact?.name ?? null,
+						reason: item.readinessErrorCode,
+					},
+				]
+			: [],
+	);
 }
 
 function toAttachmentExtractionStatusItems(
@@ -539,6 +566,7 @@ export async function assertPromptReadyAttachments(params: {
 			{
 				code,
 				items: toAttachmentExtractionStatusItems(resolved.unresolvedItems),
+				readiness: toAttachmentReadinessItems(resolved.unresolvedItems),
 			},
 		);
 	}

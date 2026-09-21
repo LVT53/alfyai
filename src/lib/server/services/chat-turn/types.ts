@@ -16,6 +16,7 @@ import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 import type { TaskState } from "$lib/server/services/task-state/types";
 import type { WebCitationAudit } from "$lib/server/services/web-citation-audit";
+import type { AttachmentReadinessItem } from "$lib/shared/attachment-readiness";
 import type { AttachmentExtractionStatusItem } from "$lib/shared/extraction-status";
 
 export type ChatTurnRoute = "send" | "stream";
@@ -49,6 +50,8 @@ export type {
  */
 export type ChatTurnAttachmentExtraction = AttachmentExtractionStatusItem;
 
+export type { AttachmentReadinessItem };
+
 export type ChatTurnRequestError = {
 	status: number;
 	error: string;
@@ -60,6 +63,15 @@ export type ChatTurnRequestError = {
 	 * the plain `attachment_not_ready` a deleted or unreadable file still gets.
 	 */
 	attachmentExtraction?: ChatTurnAttachmentExtraction[];
+	/**
+	 * One row per refused attachment, present for EVERY readiness refusal.
+	 *
+	 * `attachmentExtraction` above only exists where a ledger row does, so the
+	 * plain `attachment_not_ready` refusal — a deleted file, a non-document —
+	 * had nothing but the server's English sentence to show. These rows carry
+	 * the reason as a code the composer translates.
+	 */
+	attachmentReadiness?: AttachmentReadinessItem[];
 };
 
 export type ParsedChatTurnRequest = {

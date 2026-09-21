@@ -175,10 +175,20 @@ const knowledgeDict = {
 		// stopped there; `uploadRejectedArchive`, `uploadRejectedMedia`,
 		// `uploadRejectedFormatNotEnabled` and `uploadDirectTextTooLarge`
 		// already did and are untouched.
+		// The size and interruption refusals. The upload endpoints mint these
+		// three `errorKey`s and no dictionary ever defined them, so every one
+		// of them fell through to the server's English sentence on all three
+		// upload surfaces — the two composers and the Library banner.
+		"knowledge.uploadAborted":
+			"The upload of {name} was cut off before it finished. Try again; if it keeps happening, the server may be closing large uploads early.",
+		"knowledge.uploadBodyTooLarge":
+			"{name} is too large to send in one request — the limit is {limit}. Upload a smaller file, or ask an administrator to raise the limit.",
 		"knowledge.uploadContentMismatch":
 			"{name} doesn't look like a real {ext} file — its contents don't match its extension. Open it, save it again in the right format, and upload that.",
 		"knowledge.uploadDirectTextTooLarge":
 			"{name} is too big to read as plain text — the limit is {limit}. Split it, or save it as a PDF or DOCX and upload that.",
+		"knowledge.uploadFileTooLarge":
+			"{name} is larger than the upload limit of {limit}. Upload a smaller file, or ask an administrator to raise the limit.",
 		"knowledge.uploadLimitTooltip":
 			"Upload files — up to {limit} each. Generated reports and skill notes arrive here on their own.",
 		"knowledge.uploadOrGenerateHint":
@@ -607,10 +617,16 @@ const knowledgeDict = {
 		"knowledge.title": "Tudásbázis",
 		"knowledge.type": "Típus",
 		"knowledge.upload": "Feltöltés",
+		"knowledge.uploadAborted":
+			"A(z) {name} feltöltése félbeszakadt, mielőtt befejeződött volna. Próbáld újra; ha ismétlődik, elképzelhető, hogy a szerver idő előtt lezárja a nagy feltöltéseket.",
+		"knowledge.uploadBodyTooLarge":
+			"A(z) {name} túl nagy ahhoz, hogy egyetlen kérésben elküldjük — a korlát {limit}. Tölts fel kisebb fájlt, vagy kérd meg az adminisztrátort, hogy emelje meg a korlátot.",
 		"knowledge.uploadContentMismatch":
 			"A(z) {name} nem valódi {ext} fájlnak tűnik — a tartalma nem illik a kiterjesztéséhez. Nyisd meg, mentsd el újra a megfelelő formátumban, és azt töltsd fel.",
 		"knowledge.uploadDirectTextTooLarge":
 			"A(z) {name} túl nagy ahhoz, hogy egyszerű szövegként olvassuk be — a korlát {limit}. Bontsd szét, vagy mentsd PDF- vagy DOCX-formátumban, és azt töltsd fel.",
+		"knowledge.uploadFileTooLarge":
+			"A(z) {name} meghaladja a feltöltési korlátot, ami {limit}. Tölts fel kisebb fájlt, vagy kérd meg az adminisztrátort, hogy emelje meg a korlátot.",
 		"knowledge.uploadLimitTooltip":
 			"Fájlok feltöltése — egyenként legfeljebb {limit}. A létrehozott jelentések és skill jegyzetek maguktól kerülnek ide.",
 		"knowledge.uploadOrGenerateHint":

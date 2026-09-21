@@ -200,9 +200,44 @@ describe("toFriendlySendError", () => {
 		);
 	});
 
+	// The last of the server's English readiness sentences. An
+	// `attachment_not_ready` refusal has no ledger row by definition, so the
+	// clause above cannot describe it -- it used to reach a Hungarian user
+	// as the server's own English.
+	it("translates a readiness refusal from its per-attachment reason codes", () => {
+		const error = new Error(
+			"One or more attached files are no longer available. Remove them and upload again.",
+		) as Error & { code?: string; attachmentReadiness?: unknown };
+		error.code = "attachment_not_ready";
+		error.attachmentReadiness = [
+			{ artifactId: "a1", name: "gone.pdf", reason: "not_available" },
+			{ artifactId: "a2", name: "thin.txt", reason: "not_text_readable" },
+		];
+
+		expect(toFriendlySendError(error, translate)).toBe(
+			"gone.pdf: translated:chat.attachmentReadiness.not_available\n" +
+				"thin.txt: translated:chat.attachmentReadiness.not_text_readable",
+		);
+	});
+
+	it("drops a readiness reason it does not recognise rather than printing it", () => {
+		// A server newer than this client must never put a raw key, or its own
+		// English, in front of a user through this path.
+		const error = new Error("Server sentence.") as Error & {
+			code?: string;
+			attachmentReadiness?: unknown;
+		};
+		error.code = "attachment_not_ready";
+		error.attachmentReadiness = [
+			{ artifactId: "a1", name: "x.pdf", reason: "reason_from_the_future" },
+		];
+
+		expect(toFriendlySendError(error, translate)).toBe("Server sentence.");
+	});
+
 	it("keeps the server sentence when the refusal carries no rows", () => {
-		// `attachment_not_ready` (a deleted file) never carries them, and an
-		// older server does not send them at all.
+		// `attachment_not_ready` from a server that predates the reason codes,
+		// and an older server that does not send extraction rows at all.
 		const error = new Error(
 			"Attached file is no longer available.",
 		) as Error & {
