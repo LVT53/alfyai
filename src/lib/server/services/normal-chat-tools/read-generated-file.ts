@@ -9,6 +9,11 @@ import {
 	chatGeneratedFiles,
 	fileProductionJobFiles,
 } from "$lib/server/db/schema";
+import {
+	GENERATED_FILE_EXTRACTED_CONTENT_MARKER,
+	isGeneratedFileMemoryWrapper,
+	readGeneratedFileExtractedText,
+} from "$lib/server/services/extraction/generated-file-memory-format";
 import { decodeTextBuffer } from "$lib/server/services/extraction/text-decode";
 import {
 	readStoredOutline,
@@ -46,29 +51,31 @@ import {
  * confuse models that use {@link read_generated_file} as a "file
  * recall" mechanism.  Returning only the extracted content avoids
  * leaking that fork‑specific metadata.
+ *
+ * The label, the sentence and the marker are no longer copied here: they are
+ * a wire format this module shares with the writer (`chat-files.ts`) and the
+ * rewriter (`extraction/readback.ts`), and two private copies of them only
+ * ever matched by luck.
+ *
+ * NOTE the fallback below: with NO marker at all the whole text is returned,
+ * which is right for a document-source artifact (its text is the rendered
+ * Markdown, with no wrapper) and wrong for a wrapper whose extracted section
+ * is still the "no text yet" sentence. Callers distinguish the two with
+ * {@link isGeneratedFileMemoryWrapper}; see `resolveGeneratedArtifactText`.
  */
-const EXTRACTED_CONTENT_MARKER = "\nExtracted file content:\n";
-const NO_EXTRACTION_TEXT =
-	"No readable text could be extracted from this file. Use the filename, file type, and surrounding chat context when continuing it.";
-
 export function extractContentFromMemoryText(
 	memoryText: string | null,
 ): string | null {
 	if (!memoryText) return null;
-	const markerIndex = memoryText.lastIndexOf(EXTRACTED_CONTENT_MARKER);
-	if (markerIndex < 0) {
-		// No standard marker — return the full text as a fallback.
-		const trimmed = memoryText.trim();
-		return trimmed || null;
-	}
-	const extracted = memoryText
-		.slice(markerIndex + EXTRACTED_CONTENT_MARKER.length)
-		.trim();
-	if (!extracted || extracted === NO_EXTRACTION_TEXT) {
-		// Extraction produced nothing usable.
+	const extracted = readGeneratedFileExtractedText(memoryText);
+	if (extracted) return extracted;
+	if (memoryText.includes(GENERATED_FILE_EXTRACTED_CONTENT_MARKER)) {
+		// The marker is there but the section is empty or the "nothing yet"
+		// sentence: extraction produced nothing usable.
 		return null;
 	}
-	return extracted;
+	// No standard marker — return the full text as a fallback.
+	return memoryText.trim() || null;
 }
 
 // ── Optional disk read ─────────────────────────────────────────
@@ -338,14 +345,7 @@ async function listConversationChatFiles(params: {
 	conversationId: string;
 }): Promise<ChatFileRow[]> {
 	return db
-		.select({
-			id: chatGeneratedFiles.id,
-			filename: chatGeneratedFiles.filename,
-			mimeType: chatGeneratedFiles.mimeType,
-			sizeBytes: chatGeneratedFiles.sizeBytes,
-			storagePath: chatGeneratedFiles.storagePath,
-			createdAt: chatGeneratedFiles.createdAt,
-		})
+		.select(chatFileSelection)
 		.from(chatGeneratedFiles)
 		.where(
 			and(
@@ -354,6 +354,33 @@ async function listConversationChatFiles(params: {
 			),
 		)
 		.orderBy(desc(chatGeneratedFiles.createdAt));
+}
+
+const chatFileSelection = {
+	id: chatGeneratedFiles.id,
+	filename: chatGeneratedFiles.filename,
+	mimeType: chatGeneratedFiles.mimeType,
+	sizeBytes: chatGeneratedFiles.sizeBytes,
+	storagePath: chatGeneratedFiles.storagePath,
+	createdAt: chatGeneratedFiles.createdAt,
+} as const;
+
+/** One stored file by id, scoped to its owner. */
+async function loadChatFileById(
+	userId: string,
+	fileId: string,
+): Promise<ChatFileRow | null> {
+	const [row] = await db
+		.select(chatFileSelection)
+		.from(chatGeneratedFiles)
+		.where(
+			and(
+				eq(chatGeneratedFiles.id, fileId),
+				eq(chatGeneratedFiles.userId, userId),
+			),
+		)
+		.limit(1);
+	return row ?? null;
 }
 
 type GeneratedArtifactLink = { row: ArtifactRow; versionNumber: number | null };
@@ -447,6 +474,15 @@ async function loadJobIdsForChatFiles(
 	return new Map(rows.map((row) => [row.chatGeneratedFileId, row.jobId]));
 }
 
+/**
+ * The weakest chat-file tier that still counts as a NAME match: exact or
+ * case-insensitive. A stem match (the extension differs) is deliberately not
+ * in it — see `resolveReadTarget`.
+ */
+const CHAT_FILE_NAME_TIER = 2;
+/** A stem match: same basename, different extension. */
+const CHAT_FILE_STEM_TIER = 1;
+
 /** Exact, then case-insensitive, then stem. Strongest first, as a number so
  * the winning tier can be compared. */
 function chatFileMatchTier(filename: string, needle: string): number {
@@ -485,6 +521,8 @@ async function findChatFileTarget(params: {
 	userId: string;
 	conversationId: string;
 	filename: string;
+	/** Weakest tier this pass accepts. */
+	minTier: number;
 }): Promise<ResolvedChatFile | null> {
 	const files = await listConversationChatFiles(params);
 	if (files.length === 0) return null;
@@ -493,7 +531,7 @@ async function findChatFileTarget(params: {
 	let matches: ChatFileRow[] = [];
 	for (const file of files) {
 		const tier = chatFileMatchTier(file.filename, params.filename);
-		if (tier === 0) continue;
+		if (tier < params.minTier) continue;
 		if (tier > bestTier) {
 			bestTier = tier;
 			matches = [file];
@@ -594,9 +632,10 @@ async function resolveChatFileText(params: {
 				metadata.generatedDocumentSource,
 			);
 			if (rendered) return { text: rendered, pending: false };
-		} else if (params.row.contentText?.includes(EXTRACTED_CONTENT_MARKER)) {
-			// The wrapper only grows that marker once real text landed; while the
-			// readback is queued the section is the one-line "nothing yet" shape.
+		} else if (readGeneratedFileExtractedText(params.row.contentText)) {
+			// The wrapper only grows the marker shape once real text landed; while
+			// the readback is queued the section is the one-line "nothing yet"
+			// shape, and the wrapper around it is bookkeeping, not content.
 			const text = await resolveBestContent(
 				params.userId,
 				params.row.contentText,
@@ -607,6 +646,56 @@ async function resolveChatFileText(params: {
 	}
 
 	return { text: null, pending: textSource === "ledger" };
+}
+
+/**
+ * The text of a `generated_output` artifact reached WITHOUT a chat-file row —
+ * a `requestTitle` call, or a file whose chat row is gone.
+ *
+ * `resolveBestContent` falls back to the raw memory wrapper when the extracted
+ * section is still the "no text yet" sentence, and the wrapper is bookkeeping:
+ * the chat-file id, the conversation id, the prior-version list and a 900-char
+ * excerpt of a DIFFERENT turn's answer. Handing that to the model as the
+ * file's content leaks internal ids and unrelated text, and reads as a file
+ * whose contents are that bookkeeping. It is the same "the text has not
+ * arrived yet" state the chat-file path reports, so it reports it the same
+ * way — with the stored file's own facts, looked up only on this branch.
+ */
+async function resolveGeneratedArtifactText(params: {
+	userId: string;
+	row: ArtifactRow;
+}): Promise<{
+	text: string | null;
+	pending: boolean;
+	file: ChatFileRow | null;
+}> {
+	const metadata = parseJsonRecord(params.row.metadataJson);
+	const text = await resolveBestContent(
+		params.userId,
+		params.row.contentText,
+		params.row.metadataJson,
+	);
+	// A document source's `contentText` is the rendered Markdown, never a
+	// wrapper, so the fallback above is exactly right for it.
+	if (metadata?.generatedDocumentSource !== undefined) {
+		return { text, pending: false, file: null };
+	}
+	if (
+		text &&
+		isGeneratedFileMemoryWrapper(text) &&
+		!readGeneratedFileExtractedText(text)
+	) {
+		const fileId =
+			typeof metadata?.originalChatFileId === "string"
+				? metadata.originalChatFileId.trim()
+				: null;
+		return {
+			text: null,
+			pending: true,
+			file: fileId ? await loadChatFileById(params.userId, fileId) : null,
+		};
+	}
+	return { text, pending: false, file: null };
 }
 
 async function listGeneratedOutputRows(params: {
@@ -772,16 +861,20 @@ type DocumentPick =
 	| { status: "ambiguous"; candidates: ReadGeneratedFileCandidate[] }
 	| { status: "none" };
 
+/** The document tier that is an EXACT name match — see `resolveReadTarget`. */
+const DOCUMENT_EXACT_NAME_TIER = 3;
+
 function pickDocumentRows(
 	rows: DocumentNameRow[],
 	needle: string,
 	conversation: ReadGeneratedFileConversation,
+	minTier = 1,
 ): DocumentPick {
 	let bestTier = 0;
 	let best: DocumentNameRow[] = [];
 	for (const row of rows) {
 		const tier = documentMatchTier(row, needle);
-		if (tier === 0) continue;
+		if (tier < minTier) continue;
 		if (tier > bestTier) {
 			bestTier = tier;
 			best = [row];
@@ -808,6 +901,8 @@ async function findNormalizedDocument(params: {
 	userId: string;
 	conversationId: string;
 	needle: string;
+	/** Weakest document tier this pass accepts. */
+	minTier?: number;
 }): Promise<TargetLookup> {
 	const rows = await db
 		.select({
@@ -830,12 +925,17 @@ async function findNormalizedDocument(params: {
 	const inConversation = rows.filter(
 		(row) => row.conversationId === params.conversationId,
 	);
-	let pick = pickDocumentRows(inConversation, params.needle, "this");
+	let pick = pickDocumentRows(
+		inConversation,
+		params.needle,
+		"this",
+		params.minTier,
+	);
 	if (pick.status === "none") {
 		const library = rows.filter(
 			(row) => row.conversationId !== params.conversationId,
 		);
-		pick = pickDocumentRows(library, params.needle, "library");
+		pick = pickDocumentRows(library, params.needle, "library", params.minTier);
 	}
 	if (pick.status !== "match") return pick;
 
@@ -864,25 +964,27 @@ async function resolveReadTarget(params: {
 	filename?: string | null;
 	requestTitle?: string | null;
 }): Promise<TargetLookup> {
-	// (1) The filename the model produced, against the rows that carry it.
 	const requestedFilename = params.filename?.trim() ?? "";
+	const asChatFile = (chatFile: ResolvedChatFile): TargetLookup => ({
+		status: "match",
+		target: {
+			row: chatFile.row,
+			chatFile,
+			source: "generated",
+			conversation: "this",
+		},
+	});
+
+	// (1) The filename the model produced, matched by NAME — exact, then
+	// case-insensitive. A stem match waits: see (3a).
 	if (requestedFilename) {
 		const chatFile = await findChatFileTarget({
 			userId: params.userId,
 			conversationId: params.conversationId,
 			filename: requestedFilename,
+			minTier: CHAT_FILE_NAME_TIER,
 		});
-		if (chatFile) {
-			return {
-				status: "match",
-				target: {
-					row: chatFile.row,
-					chatFile,
-					source: "generated",
-					conversation: "this",
-				},
-			};
-		}
+		if (chatFile) return asChatFile(chatFile);
 	}
 
 	// (2) The pre-existing artifact-name matching: uploaded documents, titles,
@@ -896,6 +998,32 @@ async function resolveReadTarget(params: {
 	if (generated && !generated.contentOnly) return asGenerated(generated.row);
 
 	const needle = params.filename?.trim() || params.requestTitle?.trim() || "";
+	if (needle) {
+		// (3) A document the user UPLOADED under exactly this name outranks a
+		// generated file that merely shares its basename: asked for
+		// `contract.pdf`, with an uploaded `contract.pdf` and a generated
+		// `contract.md` in the same conversation, the uploaded PDF is the answer.
+		const exactDocument = await findNormalizedDocument({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			needle,
+			minTier: DOCUMENT_EXACT_NAME_TIER,
+		});
+		if (exactDocument.status !== "none") return exactDocument;
+	}
+
+	// (3a) …and with no such upload, the stem match answers, so
+	// `contract.pdf` still finds the generated `contract.md`.
+	if (requestedFilename) {
+		const chatFile = await findChatFileTarget({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			filename: requestedFilename,
+			minTier: CHAT_FILE_STEM_TIER,
+		});
+		if (chatFile) return asChatFile(chatFile);
+	}
+
 	if (needle) {
 		const document = await findNormalizedDocument({
 			userId: params.userId,
@@ -1381,31 +1509,32 @@ export async function readGeneratedFileContent(params: {
 	// A target is either a chat file (which may or may not have an artifact
 	// yet) or an artifact; the two branches never overlap, so each reads only
 	// the row it is guaranteed to have.
-	const chatFileText = chatFile
-		? await resolveChatFileText({
-				userId: params.userId,
-				file: chatFile.file,
-				row: chatFile.row,
-			})
-		: null;
 	let resolvedContent: string | null = null;
 	let displayName: string | null = null;
+	let textPending = false;
+	/** The stored file the answer describes, for its size / type / created-at. */
+	let describedFile: ChatFileRow | null = chatFile?.file ?? null;
 	if (chatFile) {
-		resolvedContent = chatFileText?.text ?? null;
+		const resolved = await resolveChatFileText({
+			userId: params.userId,
+			file: chatFile.file,
+			row: chatFile.row,
+		});
+		resolvedContent = resolved.text;
+		textPending = resolved.pending;
 		displayName = chatFile.file.filename;
+	} else if (row && source === "generated") {
+		const resolved = await resolveGeneratedArtifactText({
+			userId: params.userId,
+			row,
+		});
+		resolvedContent = resolved.text;
+		textPending = resolved.pending;
+		describedFile = resolved.file;
+		displayName = row.name;
 	} else if (row) {
-		resolvedContent =
-			source === "generated"
-				? await resolveBestContent(
-						params.userId,
-						row.contentText,
-						row.metadataJson,
-					)
-				: (row.contentText?.trim() ?? null);
-		displayName =
-			source === "document"
-				? toCandidate(row, conversation).filename
-				: row.name;
+		resolvedContent = row.contentText?.trim() ?? null;
+		displayName = toCandidate(row, conversation).filename;
 	}
 	const contentLength = resolvedContent?.length ?? 0;
 
@@ -1417,7 +1546,7 @@ export async function readGeneratedFileContent(params: {
 			: (metadata.versionNumber ?? null),
 		contentText: null,
 		summary: row?.summary?.trim() ?? null,
-		mimeType: chatFile?.file.mimeType ?? row?.mimeType ?? null,
+		mimeType: describedFile?.mimeType ?? row?.mimeType ?? null,
 		contentLength,
 		notFound: false,
 		ambiguous: false,
@@ -1434,10 +1563,10 @@ export async function readGeneratedFileContent(params: {
 		pageCount: null,
 		pageUnit: null,
 		pageNote: null,
-		textPending: chatFileText?.pending ?? false,
-		sizeBytes: chatFile?.file.sizeBytes ?? row?.sizeBytes ?? null,
+		textPending,
+		sizeBytes: describedFile?.sizeBytes ?? row?.sizeBytes ?? null,
 		createdAt:
-			(chatFile?.file.createdAt ?? row?.createdAt)?.toISOString() ?? null,
+			(describedFile?.createdAt ?? row?.createdAt)?.toISOString() ?? null,
 	};
 
 	// The file exists; only its text does not, yet. Short-circuit before the

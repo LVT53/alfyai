@@ -1538,6 +1538,135 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 		expect(byStem.contentText).toBe("# Quarterly report");
 	});
 
+	// A stem match is the weakest tier there is — same basename, different
+	// extension — and it must not shadow a document the user UPLOADED under
+	// exactly the name that was asked for.
+	it("prefers an uploaded document named exactly as asked over a generated file's stem match", async () => {
+		await seedChatFile({
+			filename: "contract.md",
+			content: "the summary the assistant wrote",
+			mimeType: "text/markdown",
+		});
+		seedArtifact({
+			type: "normalized_document",
+			name: "contract.md",
+			contentText: "the contract the user uploaded",
+			metadata: { normalizedFrom: "contract.pdf" },
+		});
+
+		const result = await read({ filename: "contract.pdf" });
+
+		expect(result.source).toBe("document");
+		expect(result.contentText).toBe("the contract the user uploaded");
+	});
+
+	it("still answers a stem match from the generated file when no such upload exists", async () => {
+		await seedChatFile({
+			filename: "contract.md",
+			content: "the summary the assistant wrote",
+			mimeType: "text/markdown",
+		});
+
+		const result = await read({ filename: "contract.pdf" });
+
+		expect(result.source).toBe("generated");
+		expect(result.contentText).toBe("the summary the assistant wrote");
+	});
+
+	// An exact filename still wins outright — the reordering above only moved
+	// the STEM tier.
+	it("keeps an exactly named generated file ahead of an uploaded document", async () => {
+		await seedChatFile({
+			filename: "notes.md",
+			content: "generated notes",
+			mimeType: "text/markdown",
+		});
+		seedArtifact({
+			type: "normalized_document",
+			name: "notes.md",
+			contentText: "uploaded notes",
+		});
+
+		const result = await read({ filename: "notes.md" });
+
+		expect(result.source).toBe("generated");
+		expect(result.contentText).toBe("generated notes");
+	});
+
+	// The wrapper is bookkeeping — the chat-file id, the conversation id, the
+	// prior-version list and a 900-char excerpt of a DIFFERENT turn's answer.
+	// `resolveBestContent` fell back to the whole of it whenever the extracted
+	// section was still the "no text yet" sentence, so a requestTitle call on a
+	// pending binary handed the model internal ids and unrelated text and let
+	// it read them as the file's contents.
+	it("never returns the memory wrapper as content on the requestTitle path", async () => {
+		const fileId = await seedChatFile({
+			filename: "chart.pdf",
+			content: PDF_BYTES,
+			mimeType: "application/pdf",
+		});
+		const wrapper = [
+			"Generated file: chart.pdf",
+			"File type: application/pdf",
+			`Chat file id: ${fileId}`,
+			`Generated in conversation: ${CONVERSATION}`,
+			"Generated file version: v1",
+			"",
+			"Assistant response context:",
+			"Here is the quarterly chart you asked about last week.",
+			"",
+			"Extracted file content: No readable text could be extracted from this file. Use the filename, file type, and surrounding chat context when continuing it.",
+		].join("\n");
+		seedArtifact({
+			type: "generated_output",
+			name: "chart.pdf",
+			contentText: wrapper,
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: fileId,
+				generatedFilename: "chart.pdf",
+				documentLabel: "Quarterly chart",
+				versionNumber: 1,
+			},
+		});
+
+		const result = await read({ requestTitle: "Quarterly chart" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.textPending).toBe(true);
+		expect(result.contentText).toBeNull();
+		// The facts come from the stored file, not from the wrapper.
+		expect(result.sizeBytes).toBe(PDF_BYTES.length);
+		expect(result.mimeType).toBe("application/pdf");
+		expect(result.versionNumber).toBe(1);
+
+		const payload = JSON.stringify(buildReadGeneratedFileModelPayload(result));
+		expect(payload).not.toContain(fileId);
+		expect(payload).not.toContain(CONVERSATION);
+		expect(payload).not.toContain("Assistant response context");
+		expect(payload).not.toContain("No readable text could be extracted");
+	});
+
+	it("still returns a document-source artifact's raw Markdown, which has no wrapper", async () => {
+		seedArtifact({
+			type: "generated_output",
+			name: "Tobacco Cost Breakdown - Monthly Spend and Pouch Prices",
+			contentText: DOCUMENT_MARKDOWN,
+			metadata: {
+				generatedDocumentSource: {
+					version: 1,
+					title: "Tobacco Cost Breakdown",
+				},
+				documentLabel: "Tobacco Cost Breakdown",
+			},
+		});
+
+		const result = await read({ requestTitle: "Tobacco Cost Breakdown" });
+
+		expect(result.textPending).toBe(false);
+		expect(result.contentText).toBe(DOCUMENT_MARKDOWN);
+	});
+
 	it("lists this conversation's filenames as candidates on a genuine miss", async () => {
 		await seedChatFile({
 			filename: "release-notes.md",
