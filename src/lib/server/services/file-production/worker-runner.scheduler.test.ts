@@ -67,6 +67,15 @@ function textOutput() {
 	};
 }
 
+/** A promise the test releases by hand, to hold an attempt open. */
+function deferred(): { promise: Promise<void>; release: () => void } {
+	let release: () => void = () => undefined;
+	const promise = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	return { promise, release };
+}
+
 let storedFileCounter = 0;
 
 /** Stores a produced file without touching the real chat-files service. */
@@ -129,9 +138,9 @@ describe("the worker keeps itself alive", () => {
 
 		await bootWorker();
 		expect(fixture.jobStatus(jobId)).toBe("running");
-		expect(
-			worker.inspectFileProductionSchedulerForTests().bootSweepArmed,
-		).toBe(true);
+		expect(worker.inspectFileProductionSchedulerForTests().bootSweepArmed).toBe(
+			true,
+		);
 
 		await vi.advanceTimersByTimeAsync(STALE_ATTEMPT_MS - 1_000);
 		expect(fixture.jobStatus(jobId)).toBe("running");
@@ -166,9 +175,9 @@ describe("the worker keeps itself alive", () => {
 		await vi.advanceTimersByTimeAsync(STALE_ATTEMPT_MS + IDLE_TICK_MS);
 		expect(fixture.jobStatus(orphanId)).toBe("failed");
 		expect(fixture.jobStatus(blockedId)).toBe("succeeded");
-		expect(
-			worker.inspectFileProductionSchedulerForTests().wakeRequests,
-		).toBe(0);
+		expect(worker.inspectFileProductionSchedulerForTests().wakeRequests).toBe(
+			0,
+		);
 	});
 
 	it("reclaims an attempt that only goes stale later, on the idle tick", async () => {
@@ -202,9 +211,9 @@ describe("the worker keeps itself alive", () => {
 		await vi.advanceTimersByTimeAsync(1);
 
 		expect(fixture.jobStatus(jobId)).toBe("succeeded");
-		expect(
-			worker.inspectFileProductionSchedulerForTests().wakeRequests,
-		).toBe(0);
+		expect(worker.inspectFileProductionSchedulerForTests().wakeRequests).toBe(
+			0,
+		);
 	});
 });
 
@@ -216,10 +225,7 @@ describe("a job that is genuinely still running", () => {
 		// worker wrote `heartbeat_at` exactly once — at the claim — and the window
 		// had to be longer than the sandbox timeout to compensate.
 		const jobId = fixture.seedJob({ userId, conversationId });
-		let release: (() => void) | null = null;
-		const held = new Promise<void>((resolve) => {
-			release = resolve;
-		});
+		const { promise: held, release } = deferred();
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		vi.useFakeTimers();
 
@@ -243,7 +249,7 @@ describe("a job that is genuinely still running", () => {
 			fixture.attemptHeartbeatAgeMs(jobId, new Date(Date.now())),
 		).toBeLessThan(STALE_ATTEMPT_MS);
 
-		release?.();
+		release();
 		await vi.advanceTimersByTimeAsync(1);
 		expect(fixture.jobStatus(jobId)).toBe("succeeded");
 	});
@@ -256,10 +262,7 @@ describe("a wake that arrives during a drain", () => {
 		// claim: the job was invisible to the drain that swallowed its wake, and
 		// waited for the next unrelated production.
 		fixture.seedJob({ userId, conversationId });
-		let release: (() => void) | null = null;
-		const held = new Promise<void>((resolve) => {
-			release = resolve;
-		});
+		const { promise: held, release } = deferred();
 
 		await bootWorker({
 			executeCode: async () => {
@@ -268,18 +271,14 @@ describe("a wake that arrives during a drain", () => {
 			},
 		});
 		await vi.waitFor(() => {
-			expect(
-				worker.inspectFileProductionSchedulerForTests().drainRuns,
-			).toBe(1);
+			expect(worker.inspectFileProductionSchedulerForTests().drainRuns).toBe(1);
 		});
 
 		worker.wakeFileProductionWorker();
-		release?.();
+		release();
 
 		await vi.waitFor(() => {
-			expect(
-				worker.inspectFileProductionSchedulerForTests().drainRuns,
-			).toBe(2);
+			expect(worker.inspectFileProductionSchedulerForTests().drainRuns).toBe(2);
 		});
 	});
 });
