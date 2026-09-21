@@ -24,6 +24,47 @@ test.describe("Authentication", () => {
 		await expect(page).toHaveURL(/\/login/);
 	});
 
+	// A page request gets the login screen; an API request gets a 401 it can
+	// act on. It used to get the same 303, which `fetch` follows — so the
+	// caller was handed a 200 and the login page's HTML.
+	test("answers an unauthenticated API call with 401 JSON, not a redirect", async ({
+		request,
+	}) => {
+		const response = await request.get("/api/conversations", {
+			maxRedirects: 0,
+		});
+
+		expect(response.status()).toBe(401);
+		expect(response.headers()["content-type"]).toContain("application/json");
+		expect(await response.json()).toEqual({ error: "Unauthorized" });
+	});
+
+	test("keeps the public API routes reachable without a session", async ({
+		request,
+	}) => {
+		const response = await request.get("/api/health", { maxRedirects: 0 });
+
+		expect(response.status()).toBe(200);
+	});
+
+	// The client's half of the same contract: a session that dies underneath an
+	// open tab ends on the login screen instead of silently failing every call.
+	test("sends the tab to login when the session disappears mid-session", async ({
+		page,
+		context,
+	}) => {
+		await login(page);
+		await page.waitForURL("/");
+
+		await context.clearCookies();
+		// The shell refreshes the conversation list whenever the window regains
+		// focus — an ordinary API call through the shared HTTP layer, and the
+		// most likely way a user meets an expired session.
+		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+		await expect(page).toHaveURL(/\/login/, { timeout: 15000 });
+	});
+
 	test("shows error on invalid credentials", async ({ page }) => {
 		await page.goto("/login");
 		await page.waitForSelector('input[name="email"]', { state: "visible" });
