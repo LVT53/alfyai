@@ -440,3 +440,149 @@ describe("every other patch-carrying request is unchanged", () => {
 		expect(body.inlineText).toBeUndefined();
 	});
 });
+
+/**
+ * The document half of the same promise.
+ *
+ * `produce_file`'s description tells the model that patches change an existing
+ * file "to change an existing file … send `patches`", for every format. On the
+ * document_source path they were stripped one line before intake, so a PDF
+ * request reported success and shipped the file WITHOUT the edit.
+ */
+describe("a patch whose outputs are a document", () => {
+	/** Every text block a `documentSource` envelope carries, flattened. */
+	function documentText(body: Record<string, unknown>): string {
+		return JSON.stringify(
+			(body.documentSource as { blocks?: unknown })?.blocks ?? [],
+		);
+	}
+
+	it("produces the document from the PATCHED markdown", async () => {
+		seedPreviousVersion(PREVIOUS_MARKDOWN);
+
+		const body = await callProduceFile({
+			requestTitle: TITLE,
+			outputType: "pdf",
+			markdown: PREVIOUS_MARKDOWN,
+			patches: [{ oldText: "| North | 24.25 |", newText: "| South | 25.75 |" }],
+		});
+
+		expect(body.sourceMode).toBe("document_source");
+		expect(body.patches).toBeUndefined();
+		const text = documentText(body);
+		expect(text).toContain("South");
+		expect(text).toContain("25.75");
+		expect(text).not.toContain("North");
+		expect(text).not.toContain("24.25");
+	});
+
+	it("builds the document even when the model sends patches alone", async () => {
+		// No `markdown`: the previous version IS the content, and the request
+		// names a document output. This used to write the patched TEXT into a
+		// file called `.pdf`.
+		seedPreviousVersion(PREVIOUS_MARKDOWN);
+
+		const body = await callProduceFile({
+			requestTitle: TITLE,
+			outputType: "pdf",
+			patches: [{ oldText: "North", newText: "South" }],
+		});
+
+		expect(body.sourceMode).toBe("document_source");
+		expect(body.program).toBeUndefined();
+		expect(documentText(body)).toContain("South");
+	});
+
+	it("refuses when the previous document holds a block its text cannot carry", async () => {
+		// The base a patch applies to is the Markdown `read_generated_file`
+		// showed the model, and a chart does not survive a round trip through
+		// it. Rebuilding the document from that text would ship a report with
+		// the chart gone, so the call is refused instead.
+		seedPreviousVersion(PREVIOUS_MARKDOWN, {
+			generatedFile: true,
+			generatedDocumentSource: {
+				version: 1,
+				template: "alfyai_standard_report",
+				title: TITLE,
+				blocks: [
+					{ type: "paragraph", text: "Revenue grew 12% quarter over quarter." },
+					{
+						type: "chart",
+						chartType: "bar",
+						title: "Revenue by region",
+						caption: "Quarterly revenue.",
+						units: "EUR",
+						altText: "Revenue by region.",
+						xKey: "label",
+						yKey: "value",
+						data: [{ label: "North", value: 24.25 }],
+					},
+				],
+			},
+		});
+
+		const { tools } = createNormalChatTools({
+			userId: USER,
+			conversationId: CONVERSATION,
+			turnId: "turn-1",
+		});
+		const result = (await tools.produce_file.execute(
+			{
+				requestTitle: TITLE,
+				outputType: "pdf",
+				patches: [{ oldText: "North", newText: "South" }],
+			},
+			{ toolCallId: "tool-call-1", messages: [] },
+		)) as { status: string; errorCode: string | null; message?: string };
+
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("patch_not_applicable");
+		expect(result.message).toContain("chart");
+		// Never a success on an unpatched document.
+		expect(submitIntakeMock).not.toHaveBeenCalled();
+	});
+
+	it("still refuses a document patch whose oldText does not match", async () => {
+		seedPreviousVersion(PREVIOUS_MARKDOWN);
+
+		const { tools } = createNormalChatTools({
+			userId: USER,
+			conversationId: CONVERSATION,
+			turnId: "turn-1",
+		});
+		const result = (await tools.produce_file.execute(
+			{
+				requestTitle: TITLE,
+				outputType: "pdf",
+				markdown: PREVIOUS_MARKDOWN,
+				patches: [{ oldText: "nothing like this exists", newText: "x" }],
+			},
+			{ toolCallId: "tool-call-1", messages: [] },
+		)) as { status: string; errorCode: string | null };
+
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("patch_failed");
+		expect(submitIntakeMock).not.toHaveBeenCalled();
+	});
+
+	it("refuses a document patch with no previous version at all", async () => {
+		const { tools } = createNormalChatTools({
+			userId: USER,
+			conversationId: CONVERSATION,
+			turnId: "turn-1",
+		});
+		const result = (await tools.produce_file.execute(
+			{
+				requestTitle: TITLE,
+				outputType: "pdf",
+				markdown: PREVIOUS_MARKDOWN,
+				patches: [{ oldText: "North", newText: "South" }],
+			},
+			{ toolCallId: "tool-call-1", messages: [] },
+		)) as { status: string; errorCode: string | null };
+
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("no_previous_version_for_patches");
+		expect(submitIntakeMock).not.toHaveBeenCalled();
+	});
+});
