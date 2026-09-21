@@ -715,6 +715,27 @@ describe("uploadRefusalFromError", () => {
 		});
 	});
 
+	// phase5-6 follow-up: AVIF's own reject reason, distinct from
+	// `formatNotEnabled` because "Save it as PDF or DOCX" is wrong advice for
+	// an image.
+	it("turns the convertImage refusal into its own i18n key", async () => {
+		expect(
+			await refusalFrom({
+				error: "AVIF images can't be read yet.",
+				code: "upload_unsupported_type",
+				errorKey: "knowledge.uploadRejectedConvertImage",
+				details: {
+					fileName: "photo.avif",
+					extension: "avif",
+					reason: "convertImage",
+				},
+			}),
+		).toEqual({
+			key: "knowledge.uploadRejectedConvertImage",
+			params: { name: "photo.avif", ext: "AVIF", limit: "" },
+		});
+	});
+
 	it("falls back to the file's own name and extension", async () => {
 		expect(
 			await refusalFrom({

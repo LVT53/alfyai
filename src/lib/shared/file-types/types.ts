@@ -52,7 +52,11 @@ export type RejectReasonKey =
 	| "media"
 	| "archive"
 	| "formatNotEnabled"
-	| "unknownType";
+	| "unknownType"
+	// MinerU 4.0.4 permanently refuses AVIF (live-tested against the dev box,
+	// phase5-6 follow-up); `formatNotEnabled`'s copy ("Save it as PDF or DOCX")
+	// is wrong advice for an image, so this is its own reason.
+	| "convertImage";
 
 /** Post-production byte validation, in src/lib/server/services/file-production/output-validation.ts terms. */
 export type ProductionValidationClass = "text" | "xlsx" | "none";

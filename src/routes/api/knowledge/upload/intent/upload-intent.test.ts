@@ -219,6 +219,12 @@ describe("POST /api/knowledge/upload/intent", () => {
 			"formatNotEnabled",
 			"knowledge.uploadRejectedFormatNotEnabled",
 		],
+		[
+			"photo.avif",
+			"image/avif",
+			"convertImage",
+			"knowledge.uploadRejectedConvertImage",
+		],
 		["mystery.wat", null, "unknownType", "knowledge.uploadUnsupportedType"],
 	])("refuses %s with 415 and a localizable reason", async (fileName, mimeType, reason, errorKey) => {
 		const response = await POST(
@@ -255,6 +261,13 @@ describe("POST /api/knowledge/upload/intent", () => {
 		);
 		expect((await ofd.json()).error).toBe(
 			"OFD files aren't supported yet. Save it as PDF or DOCX and upload that.",
+		);
+
+		const avif = await POST(
+			makeEvent({ fileName: "photo.avif", fileSize: 1, mimeType: null }),
+		);
+		expect((await avif.json()).error).toBe(
+			"AVIF images can't be read yet. Save it as PNG or JPG and upload that.",
 		);
 	});
 

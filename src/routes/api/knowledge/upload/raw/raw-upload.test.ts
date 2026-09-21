@@ -74,6 +74,12 @@ describe("POST /api/knowledge/upload/raw", () => {
 			"knowledge.uploadRejectedFormatNotEnabled",
 		],
 		[
+			"photo.avif",
+			"image/avif",
+			"convertImage",
+			"knowledge.uploadRejectedConvertImage",
+		],
+		[
 			"mystery.qqq",
 			"application/octet-stream",
 			"unknownType",
