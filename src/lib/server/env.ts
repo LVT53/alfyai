@@ -1144,9 +1144,9 @@ function readConfig(): Config {
 			Math.min(
 				3600000,
 				parseInt(
-					process.env.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS || "900000",
+					process.env.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS || "120000",
 					10,
-				) || 900000,
+				) || 120000,
 			),
 		),
 		documentExtractionHeartbeatMs: Math.max(
