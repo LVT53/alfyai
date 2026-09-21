@@ -486,11 +486,7 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 			.prepare(
 				"UPDATE document_extraction_jobs SET attempt_count = ?, hints_json = ? WHERE id = ?",
 			)
-			.run(
-				6,
-				JSON.stringify({ $outage: { since: 1_000, waits: 3 } }),
-				job.id,
-			);
+			.run(6, JSON.stringify({ $outage: { since: 1_000, waits: 3 } }), job.id);
 
 		const response = await route.POST(
 			makeEvent(artifactId, OWNER, { tier: "basic" }),
