@@ -3,6 +3,10 @@
 // route decision is stamped and exactly one place where a dedupe hit
 // short-circuits.
 
+import {
+	getUploadFormatGate,
+	resolveEffectiveIntakeRoute,
+} from "$lib/server/services/knowledge/format-availability";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { getIntakeRoute } from "$lib/shared/file-types";
@@ -45,9 +49,15 @@ export async function startUploadExtraction(
 	params: StartUploadExtractionParams,
 ): Promise<DocumentExtractionJobDTO> {
 	const config = getExtractionConfig();
-	const route = getIntakeRoute(
+	// The MinerU-4 availability gate (phase5-6 spec §3.5, amended OQ2): on a
+	// positively-detected pre-4.x backend, `html`/`htm` are stamped
+	// `direct-text` instead of `mineru` — the only entry with a fallback route.
+	// Never a network call: `getUploadFormatGate` fails open on a cold cache.
+	const gate = await getUploadFormatGate();
+	const route = resolveEffectiveIntakeRoute(
 		params.artifact.name,
 		params.artifact.mimeType ?? null,
+		gate,
 	);
 
 	const { job } = await enqueueExtractionJob({
