@@ -94,6 +94,27 @@ export function resolvePreviewSourceUrl({
 	);
 }
 
+/**
+ * Hands a 401 to the app's one session-expiry reaction.
+ *
+ * `reportAuthFailure` only acts on the exact "Unauthorized" message every
+ * session gate sends, so the body has to be read — and `$lib/client/api/http`
+ * is imported lazily because this module is loaded by the preview renderers
+ * and has no other reason to pull the API client into their chunk.
+ */
+async function reportUnauthorizedPreview(response: Response): Promise<void> {
+	try {
+		const text = await response.text();
+		const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+		const message = parsed.error ?? parsed.message;
+		if (typeof message !== "string") return;
+		const { reportAuthFailure } = await import("$lib/client/api/http");
+		reportAuthFailure(401, message);
+	} catch {
+		// A body we cannot read is still a failed preview.
+	}
+}
+
 export async function loadPreviewRuntime(
 	input: PreviewRuntimeLoadInput,
 ): Promise<PreviewRuntimeResult> {
@@ -105,6 +126,19 @@ export async function loadPreviewRuntime(
 	try {
 		const response = await (input.fetchImpl ?? fetch)(sourceUrl);
 		if (!response.ok) {
+			// This is the one call site that CONSUMED the old 303-to-login:
+			// `fetch` followed the redirect, `response.ok` was true, and an HTML
+			// login page went to a renderer as a Blob. The 401 stops that, but
+			// only telling the user "Failed to load file" would leave the
+			// workspace stuck on an expired session that the rest of the app has
+			// already reacted to.
+			//
+			// Only for a 401, and never allowed to change the outcome: this
+			// function's contract is a `PreviewRuntimeResult`, and a body that
+			// cannot be read is still a failed preview, not a different one.
+			if (response.status === 401) {
+				await reportUnauthorizedPreview(response);
+			}
 			return {
 				status: "error",
 				sourceUrl,

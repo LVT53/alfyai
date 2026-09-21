@@ -23,6 +23,7 @@ import {
 } from "$lib/stores/upload-limits";
 import { formatByteSize } from "$lib/utils/format";
 import { formatMediumDateTime } from "$lib/utils/time";
+import { readErrorPayload } from "$lib/client/api/http";
 import { type I18nKey, t } from "$lib/i18n";
 import {
 	ArrowDown,
@@ -633,7 +634,16 @@ async function toggleAiVersion(documentId: string, promptArtifactId: string) {
 			signal: controller.signal,
 		});
 		if (!response.ok) {
-			throw new Error(`Failed to load content (${response.status})`);
+			// Two things at once. `readErrorPayload` is how every centrally-routed
+			// call notices an expired session, and this raw `fetch` bypassed it —
+			// so a 401 here left the panel stuck instead of navigating. And the
+			// status code was interpolated into user-visible copy, which after
+			// the 401 change read literally "Failed to load content (401)".
+			await readErrorPayload(
+				response,
+				$t("knowledge.aiVersionLoadFailed"),
+			).catch(() => undefined);
+			throw new Error($t("knowledge.aiVersionLoadFailed"));
 		}
 		const data = await response.json();
 		const text = data?.artifact?.contentText ?? null;
