@@ -285,6 +285,7 @@ const CASES: ExtractionCase[] = [
 	{
 		id: "csv",
 		file: "csv/sample.csv",
+		mimeType: "text/csv",
 		// `csv` has been `direct-text` in the registry since Phase 1, so it
 		// never reaches MinerU and has no tier, page count, figure count or
 		// parser version to check. The expectations below were transcribed from

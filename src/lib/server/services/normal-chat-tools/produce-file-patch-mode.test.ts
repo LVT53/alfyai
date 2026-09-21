@@ -239,7 +239,6 @@ describe("the base a patch is applied to", () => {
 				storagePath,
 				sizeBytes: Buffer.byteLength(PREVIOUS_MARKDOWN),
 				createdAt: NOW,
-				updatedAt: NOW,
 			})
 			.run();
 		seedPreviousVersion(wrapAsMemoryText(PREVIOUS_MARKDOWN), {
