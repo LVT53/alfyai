@@ -16,6 +16,17 @@
 //
 // It only ever uploads into, reads from and deletes its OWN conversation, and
 // it never writes configuration. See docs/uploads.md.
+//
+// Phase 5 P5-B added six cases (rtf, odt, ods, odp, tsv, plus the `ofd`
+// refusal) and new assertions on `html` (spec §5.1). NOT automated here: the
+// gate case — point a SEPARATE deployment's `MINERU_API_URL` at a stub
+// answering `/v1/health` with `{"version":"3.9.0"}`, then confirm
+// `GET /api/knowledge/upload/intent` for `x.epub` answers 415
+// `formatNotEnabled` and the SSR shell's accept string omits `.epub`. That
+// needs a second app instance wired to a fake backend, which this
+// single-deployment sweep has no way to stand up; run it by hand (or from a
+// staging box already pointed at a 3.x-shaped stub) before trusting D6's gate
+// in production.
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -112,6 +123,13 @@ type ExtractionCase = {
 	id: string;
 	file: string;
 	mimeType: string;
+	/**
+	 * Phase 5 P5-B, `tsv`. Defaults to "mineru". A `direct-text` case never
+	 * reaches MinerU at all, so `compare()` skips every MinerU-specific field
+	 * (tier, page count/kind, figures, outline) and checks only the text and
+	 * `statusesSeen` instead.
+	 */
+	route?: "mineru" | "direct-text";
 	expect: {
 		/** `extensions.mineru.tier` — the REAL per-file tier, which is not the job's. */
 		effectiveTier: "flash" | "expected-pdf-tier";
@@ -125,8 +143,38 @@ type ExtractionCase = {
 		mustNotContain: string[];
 		figureCount: number;
 		outlineMin: number;
+		/**
+		 * Phase 5 P5-B, `tsv`. `direct-text` never reaches MinerU at all — a
+		 * `parsing` phase in `statusesSeen` would mean the registry route
+		 * regressed back to `mineru`.
+		 */
+		mustNotSeeStatus?: string;
 	};
 };
+
+/**
+ * Phase 5 P5-B, `ofd`. Not a `route: "mineru"` type at all (spec §2.3: zero
+ * spike evidence, kept `reject`/`formatNotEnabled`) — the live assertion is
+ * that `/upload/intent` refuses it with 415, never that it extracts.
+ */
+type RefusalCase = {
+	id: string;
+	file: string;
+	mimeType: string;
+	expect: {
+		status: number;
+		reason: string;
+	};
+};
+
+const REFUSAL_CASES: RefusalCase[] = [
+	{
+		id: "ofd",
+		file: "ofd/sample.ofd",
+		mimeType: "application/ofd",
+		expect: { status: 415, reason: "formatNotEnabled" },
+	},
+];
 
 /**
  * Transcribed from §1.4 of the spec and from the fixture Markdown, so this
@@ -214,10 +262,22 @@ const CASES: ExtractionCase[] = [
 			effectiveTier: "flash",
 			pageCount: 1,
 			pageCountKind: "logical",
+			// The 1 753-char raw fixture (§1.2) came back 1 152 chars through MinerU
+			// flash in the spike (−34.3%); this is a floor, not the live number —
+			// `textLength` is logged in `result.actual` for every run so the real
+			// saving is measured on the box, not assumed from the fixture.
 			minTextLength: 800,
 			mustContain: ["ALFA Quarterly Overview"],
-			// Anchors are never emitted by the prompt renderer.
-			mustNotContain: ['<a id="'],
+			// Phase 5 P5-B: scripts, style, nav, ad slot and the footer are all
+			// stripped by MinerU flash (§1.1/§1.2); anchors are never emitted by
+			// the prompt renderer either way.
+			mustNotContain: [
+				'<a id="',
+				"SPONSORED PLACEHOLDER",
+				"JULIET Document Footer",
+				"site-nav",
+				"window.__tracking",
+			],
 			figureCount: 0,
 			outlineMin: 3,
 		},
@@ -251,6 +311,95 @@ const CASES: ExtractionCase[] = [
 			mustNotContain: ['<a id="'],
 			figureCount: 0,
 			outlineMin: 2,
+		},
+	},
+	// Phase 5 P5-B (spec §5.1). None of the five below were in the Phase 0
+	// spike — "Not tested anywhere in the spike, at any tier: rtf, odt, ods,
+	// odp, ofd, tsv" (§1.1). This sweep is the first live evidence for them; a
+	// format that fails here is dropped from D1 before merge (§8.2 risk row).
+	{
+		id: "rtf",
+		file: "rtf/sample.rtf",
+		mimeType: "application/rtf",
+		expect: {
+			effectiveTier: "flash",
+			pageCount: 1,
+			// UNVERIFIED (§5.1): record which of "logical"/"declared" the live box
+			// actually reports and correct this if it differs.
+			pageCountKind: "logical",
+			minTextLength: 100,
+			mustContain: ["ALFA Quarterly Overview", "Northland"],
+			mustNotContain: [],
+			figureCount: 0,
+			outlineMin: 1,
+		},
+	},
+	{
+		id: "odt",
+		file: "odt/sample.odt",
+		mimeType: "application/vnd.oasis.opendocument.text",
+		expect: {
+			effectiveTier: "flash",
+			pageCount: 1,
+			pageCountKind: "declared",
+			minTextLength: 100,
+			mustContain: ["ALFA Quarterly Overview", "Northland"],
+			mustNotContain: [],
+			figureCount: 0,
+			outlineMin: 2,
+		},
+	},
+	{
+		id: "ods",
+		file: "ods/sample.ods",
+		mimeType: "application/vnd.oasis.opendocument.spreadsheet",
+		expect: {
+			effectiveTier: "flash",
+			pageCount: 2,
+			pageCountKind: "sheet",
+			minTextLength: 50,
+			mustContain: ["Northland"],
+			mustNotContain: [],
+			figureCount: 0,
+			// Mirrors the xlsx finding (§1.1): formula-derived cells come back
+			// empty. This fixture has no formulas, so nothing to assert on that
+			// beyond the sheet-name headings surviving.
+			outlineMin: 2,
+		},
+	},
+	{
+		id: "odp",
+		file: "odp/sample.odp",
+		mimeType: "application/vnd.oasis.opendocument.presentation",
+		expect: {
+			effectiveTier: "flash",
+			pageCount: 2,
+			pageCountKind: "slide",
+			minTextLength: 30,
+			mustContain: [],
+			mustNotContain: [],
+			figureCount: 0,
+			outlineMin: 1,
+		},
+	},
+	{
+		id: "tsv",
+		file: "tsv/sample.tsv",
+		mimeType: "text/tab-separated-values",
+		route: "direct-text",
+		expect: {
+			// Unused by `compare()` for a direct-text case (kept only so every
+			// case satisfies the same type); the real assertions are
+			// minTextLength, mustContain and mustNotSeeStatus below.
+			effectiveTier: "flash",
+			pageCount: 1,
+			pageCountKind: "unknown",
+			minTextLength: 20,
+			mustContain: ["Northland"],
+			mustNotContain: [],
+			figureCount: 0,
+			outlineMin: 0,
+			mustNotSeeStatus: "parsing",
 		},
 	},
 	{
@@ -403,6 +552,53 @@ async function uploadFixture(
 }
 
 /**
+ * The negative counterpart of `uploadFixture` (spec §5.1, `ofd`): the
+ * expectation is a refusal at `/upload/intent`, so this hits the endpoint
+ * directly instead of going through `apiJson`, which would throw on the very
+ * 415 this case exists to observe.
+ */
+async function checkRefusal(
+	page: Page,
+	conversationId: string,
+	testCase: RefusalCase,
+): Promise<string[]> {
+	const absolute = path.join(fixtureDir, testCase.file);
+	const bytes = await readFile(absolute);
+	const fileName = path.basename(absolute);
+
+	const response = await authenticatedFetch(
+		page,
+		"/api/knowledge/upload/intent",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				fileName,
+				fileSize: bytes.byteLength,
+				mimeType: testCase.mimeType,
+				conversationId,
+			}),
+		},
+	);
+	const body = (await response.json().catch(() => null)) as {
+		details?: { reason?: string };
+	} | null;
+
+	const mismatches: string[] = [];
+	if (response.status !== testCase.expect.status) {
+		mismatches.push(
+			`status: expected ${testCase.expect.status}, got ${response.status}`,
+		);
+	}
+	if (body?.details?.reason !== testCase.expect.reason) {
+		mismatches.push(
+			`reason: expected ${testCase.expect.reason}, got ${String(body?.details?.reason)}`,
+		);
+	}
+	return mismatches;
+}
+
+/**
  * Polls to a terminal status, recording every distinct status on the way so
  * the run proves the ladder rather than just the end state.
  */
@@ -474,28 +670,47 @@ function compare(
 	testCase: ExtractionCase,
 	actual: ActualExtraction,
 	text: string,
+	statusesSeen: string[],
 ): string[] {
 	const mismatches: string[] = [];
-	const expectedTier =
-		testCase.expect.effectiveTier === "expected-pdf-tier"
-			? expectedPdfTier
-			: testCase.expect.effectiveTier;
+	const isDirectText = testCase.route === "direct-text";
 
-	if (actual.effectiveTier !== expectedTier) {
-		mismatches.push(
-			`effectiveTier: expected ${expectedTier}, got ${String(actual.effectiveTier)}`,
-		);
+	if (!isDirectText) {
+		const expectedTier =
+			testCase.expect.effectiveTier === "expected-pdf-tier"
+				? expectedPdfTier
+				: testCase.expect.effectiveTier;
+
+		if (actual.effectiveTier !== expectedTier) {
+			mismatches.push(
+				`effectiveTier: expected ${expectedTier}, got ${String(actual.effectiveTier)}`,
+			);
+		}
+		if (actual.pageCount !== testCase.expect.pageCount) {
+			mismatches.push(
+				`pageCount: expected ${testCase.expect.pageCount}, got ${String(actual.pageCount)}`,
+			);
+		}
+		if (actual.pageCountKind !== testCase.expect.pageCountKind) {
+			mismatches.push(
+				`pageCountKind: expected ${testCase.expect.pageCountKind}, got ${String(actual.pageCountKind)}`,
+			);
+		}
+		if (actual.figureCount !== testCase.expect.figureCount) {
+			mismatches.push(
+				`figureCount: expected ${testCase.expect.figureCount}, got ${String(actual.figureCount)}`,
+			);
+		}
+		if (actual.outlineLength < testCase.expect.outlineMin) {
+			mismatches.push(
+				`outline: expected at least ${testCase.expect.outlineMin} entries, got ${actual.outlineLength}`,
+			);
+		}
+		if (actual.parserVersion === undefined) {
+			mismatches.push("extractionParserVersion is missing");
+		}
 	}
-	if (actual.pageCount !== testCase.expect.pageCount) {
-		mismatches.push(
-			`pageCount: expected ${testCase.expect.pageCount}, got ${String(actual.pageCount)}`,
-		);
-	}
-	if (actual.pageCountKind !== testCase.expect.pageCountKind) {
-		mismatches.push(
-			`pageCountKind: expected ${testCase.expect.pageCountKind}, got ${String(actual.pageCountKind)}`,
-		);
-	}
+
 	if (actual.textLength < testCase.expect.minTextLength) {
 		mismatches.push(
 			`textLength: expected at least ${testCase.expect.minTextLength}, got ${actual.textLength}`,
@@ -507,18 +722,13 @@ function compare(
 	for (const needle of testCase.expect.mustNotContain) {
 		if (text.includes(needle)) mismatches.push(`unexpected text: ${needle}`);
 	}
-	if (actual.figureCount !== testCase.expect.figureCount) {
+	if (
+		testCase.expect.mustNotSeeStatus &&
+		statusesSeen.includes(testCase.expect.mustNotSeeStatus)
+	) {
 		mismatches.push(
-			`figureCount: expected ${testCase.expect.figureCount}, got ${String(actual.figureCount)}`,
+			`unexpected status: saw "${testCase.expect.mustNotSeeStatus}" (route regressed to mineru?) in [${statusesSeen.join(", ")}]`,
 		);
-	}
-	if (actual.outlineLength < testCase.expect.outlineMin) {
-		mismatches.push(
-			`outline: expected at least ${testCase.expect.outlineMin} entries, got ${actual.outlineLength}`,
-		);
-	}
-	if (actual.parserVersion === undefined) {
-		mismatches.push("extractionParserVersion is missing");
 	}
 	return mismatches;
 }
@@ -604,7 +814,7 @@ async function main() {
 					job.normalizedArtifactId,
 				);
 				result.actual = actual;
-				const mismatches = compare(testCase, actual, text);
+				const mismatches = compare(testCase, actual, text, statusesSeen);
 				(result.mismatches as string[]).push(...mismatches);
 
 				if (reextractTier) {
@@ -620,6 +830,28 @@ async function main() {
 			} catch (error) {
 				// One bad type must not abort the sweep: the other eight are the
 				// data this run exists to collect.
+				(result.mismatches as string[]).push(
+					error instanceof Error ? error.message : String(error),
+				);
+			}
+		}
+
+		// The negative case(s): `ofd` must stay refused, never reach the ledger.
+		const selectedRefusals = onlyCases.length
+			? REFUSAL_CASES.filter((testCase) => onlyCases.includes(testCase.id))
+			: REFUSAL_CASES;
+		for (const testCase of selectedRefusals) {
+			const result: Record<string, unknown> = {
+				id: testCase.id,
+				ok: false,
+				mismatches: [] as string[],
+			};
+			results.push(result);
+			try {
+				const mismatches = await checkRefusal(page, conversationId, testCase);
+				(result.mismatches as string[]).push(...mismatches);
+				result.ok = (result.mismatches as string[]).length === 0;
+			} catch (error) {
 				(result.mismatches as string[]).push(
 					error instanceof Error ? error.message : String(error),
 				);

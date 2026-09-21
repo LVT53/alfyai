@@ -135,6 +135,76 @@ describe("startUploadExtraction", () => {
 		expect(dto.status).toBe("failed");
 		expect(wakes()).toBeGreaterThan(0);
 	});
+
+	// Phase 5 P5-B: the MinerU-4 availability gate's html fallback (amended
+	// OQ2). `getIntakeRoute("page.html", ...)` alone always says "mineru"; the
+	// gate is what can downgrade it to "direct-text" — and only for html.
+	describe("MinerU-4 gate fallback (html)", () => {
+		async function freshIntakeWithGate(reason: "backend_version" | null) {
+			vi.doMock(
+				"$lib/server/services/knowledge/format-availability",
+				async () => {
+					const actual = await vi.importActual<
+						typeof import("$lib/server/services/knowledge/format-availability")
+					>("$lib/server/services/knowledge/format-availability");
+					return {
+						...actual,
+						getUploadFormatGate: vi.fn(async () => ({
+							disabledEntryIds: new Set<string>(),
+							reason,
+							backendVersion: reason === "backend_version" ? "3.9.0" : null,
+							checkedAt: new Date(0).toISOString(),
+						})),
+					};
+				},
+			);
+			vi.resetModules();
+			const freshIntake: Intake = await import("./intake");
+			const freshWorker: Worker = await import("./worker-runner");
+			freshWorker.resetExtractionWorkerForTests();
+			return { freshIntake, freshWorker };
+		}
+
+		it("keeps html on the mineru route while the gate is open", async () => {
+			const { freshIntake } = await freshIntakeWithGate(null);
+			const artifact = await storedArtifact("page.html", "text/html");
+
+			const dto = await freshIntake.startUploadExtraction({
+				userId,
+				conversationId: null,
+				artifact,
+			});
+
+			expect(dto.intakeRoute).toBe("mineru");
+		});
+
+		it("falls html back to direct-text once the gate positively closes", async () => {
+			const { freshIntake } = await freshIntakeWithGate("backend_version");
+			const artifact = await storedArtifact("page.html", "text/html");
+
+			const dto = await freshIntake.startUploadExtraction({
+				userId,
+				conversationId: null,
+				artifact,
+				inlineBudgetMs: 5000,
+			});
+
+			expect(dto.intakeRoute).toBe("direct-text");
+		});
+
+		it("leaves an ungated type's route untouched even when the gate is closed", async () => {
+			const { freshIntake } = await freshIntakeWithGate("backend_version");
+			const artifact = await storedArtifact("report.pdf", "application/pdf");
+
+			const dto = await freshIntake.startUploadExtraction({
+				userId,
+				conversationId: null,
+				artifact,
+			});
+
+			expect(dto.intakeRoute).toBe("mineru");
+		});
+	});
 });
 
 describe("startGeneratedFileReadback", () => {

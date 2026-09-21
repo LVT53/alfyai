@@ -52,6 +52,10 @@ const SCANNED_ROOTS = [
  *    the server actually serves, before it writes a job;
  *  - `chunk-sync.ts` and `read-generated-file.ts` read the structure-chunking
  *    flag and the page index respectively;
+ *  - `format-availability.ts` (phase5-6 spec §3.5) reads the same cached
+ *    capabilities/status read as the admin card, to decide the upload-time
+ *    MinerU-4 gate. It never probes the network itself — see its own
+ *    docstring — it only reads what `capabilities.ts` already cached;
  *  - `task-state/artifacts.ts` reads the same page index to put `[p. N]`
  *    markers into the full text of a document too small to have chunk rows,
  *    which is the only way such a document can cite a page at all. It reads
@@ -64,6 +68,7 @@ const SCANNED_ROOTS = [
 const ALLOWED_MINERU_IMPORTERS = new Set([
 	"lib/server/services/extraction/extractors/mineru4.ts",
 	"lib/server/services/extraction/persist.ts",
+	"lib/server/services/knowledge/format-availability.ts",
 	"lib/server/services/knowledge/store/cleanup.ts",
 	"lib/server/services/normal-chat-tools/read-generated-file.ts",
 	"lib/server/services/task-state/artifacts.ts",

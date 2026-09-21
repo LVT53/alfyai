@@ -7,6 +7,13 @@ import type { ExtractDocumentRequest } from "../contracts";
 import { isDocumentExtractionError } from "../contracts";
 import { createDirectTextExtractor } from "./direct-text";
 
+function utf16leBomBytes(text: string): Buffer {
+	return Buffer.concat([
+		Buffer.from([0xff, 0xfe]),
+		Buffer.from(text, "utf16le"),
+	]);
+}
+
 let dir: string;
 
 beforeEach(async () => {
@@ -20,6 +27,15 @@ afterEach(async () => {
 async function writeFixture(name: string, content: string): Promise<string> {
 	const filePath = join(dir, name);
 	await writeFile(filePath, content, "utf8");
+	return filePath;
+}
+
+async function writeBinaryFixture(
+	name: string,
+	bytes: Buffer,
+): Promise<string> {
+	const filePath = join(dir, name);
+	await writeFile(filePath, bytes);
 	return filePath;
 }
 
@@ -138,6 +154,44 @@ describe("directTextExtractor", () => {
 
 	it("never resumes, and so is never handed a handle", () => {
 		expect(createDirectTextExtractor().supportsResume).toBe(false);
+	});
+
+	// Phase 5 P5-B: the extractor now goes through the shared `decodeTextBuffer`
+	// (text-decode.ts) instead of a bare `buffer.toString("utf8")`.
+	it("decodes a UTF-16LE upload with a BOM", async () => {
+		const filePathAbsolute = await writeBinaryFixture(
+			"notes-utf16.txt",
+			utf16leBomBytes("árvíztűrő tükörfúrógép"),
+		);
+
+		const result = await createDirectTextExtractor({ maxBytes: 1024 }).extract(
+			request({ filePathAbsolute, fileName: "notes-utf16.txt" }),
+		);
+
+		expect(result.text).toBe("árvíztűrő tükörfúrógép");
+	});
+
+	it("refuses a renamed JPEG with unsupported_type, non-retryable", async () => {
+		// A real JPEG SOI/APP0 header, saved with a `.txt` extension the way a
+		// browser might mislabel a pasted screenshot.
+		const jpegBytes = Buffer.from([
+			0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+			0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xd9,
+		]);
+		const filePathAbsolute = await writeBinaryFixture(
+			"screenshot.txt",
+			jpegBytes,
+		);
+
+		const error = await capture(
+			createDirectTextExtractor({ maxBytes: 1024 }).extract(
+				request({ filePathAbsolute, fileName: "screenshot.txt" }),
+			),
+		);
+
+		expect(error.code).toBe("unsupported_type");
+		expect(error.retryable).toBe(false);
+		expect(error.details).toMatchObject({ reason: "binary_content" });
 	});
 
 	it("reads the cap from configuration when none is injected", async () => {

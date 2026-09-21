@@ -243,7 +243,7 @@ export const POST: RequestHandler = async (event) => {
 	// The same allowlist `/intent` applies, in the same order (size first, then
 	// type) and before a single byte reaches the disk. This route is reachable
 	// without ever calling `/intent`.
-	const unsupportedType = refuseUnsupportedUploadType({
+	const unsupportedType = await refuseUnsupportedUploadType({
 		fileName: declaredFileName,
 		mimeType,
 		traceId,

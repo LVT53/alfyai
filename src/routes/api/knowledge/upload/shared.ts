@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { createWriteStream } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { json } from "@sveltejs/kit";
+import { getUploadFormatGate } from "$lib/server/services/knowledge/format-availability";
 import {
 	isKnowledgeUploadConversationError,
 	validateKnowledgeUploadConversation,
@@ -12,7 +13,11 @@ import {
 	UPLOAD_REJECT_I18N_KEYS,
 	UPLOAD_UNSUPPORTED_TYPE_CODE,
 } from "$lib/server/services/knowledge/upload-signature";
-import { admitUpload, fileExtension } from "$lib/shared/file-types";
+import {
+	admitUpload,
+	fileExtension,
+	type RejectReasonKey,
+} from "$lib/shared/file-types";
 
 const UPLOAD_NAME_HEADER = "x-alfyai-upload-name";
 const UPLOAD_SIZE_HEADER = "x-alfyai-upload-size";
@@ -166,6 +171,40 @@ export async function writeKnowledgeUploadBytes(
 	};
 }
 
+function unsupportedTypeResponse(params: {
+	fileName: string | null;
+	traceId: string;
+	userId: string;
+	logLabel: string;
+	reason: RejectReasonKey;
+}): Response {
+	const extension = fileExtension(params.fileName ?? "") || null;
+	console.warn(`[KNOWLEDGE] ${params.logLabel} refused an unsupported type`, {
+		traceId: params.traceId,
+		userId: params.userId,
+		fileName: params.fileName,
+		extension,
+		reason: params.reason,
+	});
+	return json(
+		{
+			error: formatUploadRejectMessageEn(params.reason, {
+				fileName: params.fileName,
+				extension,
+			}),
+			code: UPLOAD_UNSUPPORTED_TYPE_CODE,
+			errorKey: UPLOAD_REJECT_I18N_KEYS[params.reason],
+			traceId: params.traceId,
+			details: {
+				fileName: params.fileName,
+				extension,
+				reason: params.reason,
+			},
+		},
+		{ status: 415 },
+	);
+}
+
 /**
  * The type allowlist, in the one shape all four upload entry points answer
  * with (spec section 4.1). Returns the 415 response, or `null` when the file
@@ -176,43 +215,46 @@ export async function writeKnowledgeUploadBytes(
  * it and posting anyway — so `raw`, `chunk` and the legacy multipart route each
  * make the decision themselves, from server-visible values only (the declared
  * name and the request's own `Content-Type`), before a byte is written.
+ *
+ * The MinerU-4 gate (phase5-6 spec §3.5) runs right after the registry
+ * admission: a format the registry allows but the configured backend cannot
+ * parse right now (positively probed pre-4.x) gets the identical 415
+ * `formatNotEnabled` envelope a not-yet-enabled format would. The gate fails
+ * open, so this never blocks on the network — see
+ * `format-availability.ts`'s `getUploadFormatGate`.
  */
-export function refuseUnsupportedUploadType(params: {
+export async function refuseUnsupportedUploadType(params: {
 	fileName: string | null;
 	mimeType: string | null;
 	traceId: string;
 	userId: string;
 	logLabel: string;
-}): Response | null {
+}): Promise<Response | null> {
 	const admission = admitUpload(params.fileName ?? "", params.mimeType);
-	if (admission.allowed) return null;
-
-	const extension = fileExtension(params.fileName ?? "") || null;
-	console.warn(`[KNOWLEDGE] ${params.logLabel} refused an unsupported type`, {
-		traceId: params.traceId,
-		userId: params.userId,
-		fileName: params.fileName,
-		mimeType: params.mimeType,
-		extension,
-		reason: admission.reason,
-	});
-	return json(
-		{
-			error: formatUploadRejectMessageEn(admission.reason, {
-				fileName: params.fileName,
-				extension,
-			}),
-			code: UPLOAD_UNSUPPORTED_TYPE_CODE,
-			errorKey: UPLOAD_REJECT_I18N_KEYS[admission.reason],
+	if (!admission.allowed) {
+		return unsupportedTypeResponse({
+			fileName: params.fileName,
 			traceId: params.traceId,
-			details: {
+			userId: params.userId,
+			logLabel: params.logLabel,
+			reason: admission.reason,
+		});
+	}
+
+	if (admission.entry) {
+		const gate = await getUploadFormatGate();
+		if (gate.disabledEntryIds.has(admission.entry.id)) {
+			return unsupportedTypeResponse({
 				fileName: params.fileName,
-				extension,
-				reason: admission.reason,
-			},
-		},
-		{ status: 415 },
-	);
+				traceId: params.traceId,
+				userId: params.userId,
+				logLabel: params.logLabel,
+				reason: "formatNotEnabled",
+			});
+		}
+	}
+
+	return null;
 }
 
 export async function resolveKnowledgeUploadConversation(params: {
