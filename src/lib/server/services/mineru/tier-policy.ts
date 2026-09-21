@@ -33,6 +33,7 @@ export { MINERU_TIER_IDS, type MineruTierId } from "./config";
 
 export type TierDecisionReason =
 	| "hint-override"
+	| "hint-preferred"
 	| "hint-flash"
 	| "config-explicit"
 	| "auto-quality"
@@ -54,6 +55,18 @@ export interface DecideTierInput {
 	availableTiers: readonly MineruTierId[];
 	/** The re-extract override: "run this document again at <tier>". */
 	hintedTier?: MineruTierId | null;
+	/**
+	 * A caller's PREFERENCE, not its demand (Phase 6 D10). The generated-file
+	 * readback sets it to `flash`: a file this app rendered itself is
+	 * born-digital, so OCR is waste and a cold `basic` PDF job costs 18 600 ms.
+	 *
+	 * Soft, and that is the entire point of the second key. `hintedTier` is a
+	 * button the user pressed, so a tier the server lacks has to fail loudly;
+	 * this one is a background job nobody is waiting on, and failing it
+	 * permanently with `tier_unavailable` because a server dropped `flash` would
+	 * trade a slower parse for no parse at all.
+	 */
+	preferredTier?: MineruTierId | null;
 }
 
 /** The tiers that mean "better than flash". */
@@ -78,7 +91,8 @@ export function isMineruTierId(value: string): value is MineruTierId {
 /**
  * Resolution order, first match wins. Throws `tier_unavailable` (via
  * `mapMineruError`) when an explicitly requested tier is not offered — before
- * any bytes move.
+ * any bytes move. A `preferredTier` is the one exception: an unavailable
+ * preference falls through instead of throwing.
  */
 export function decideTier(input: DecideTierInput): TierDecision {
 	const available = new Set<string>(input.availableTiers);
@@ -92,6 +106,17 @@ export function decideTier(input: DecideTierInput): TierDecision {
 			tier: input.hintedTier,
 			reason: "hint-override",
 			explanation: `re-extract requested tier "${input.hintedTier}"`,
+		};
+	}
+
+	// 1½ — the caller would like a tier. Taken only when the server offers it;
+	// otherwise this rule is silent and the ladder continues, which is the one
+	// behavioural difference from rule 1 (see `preferredTier`).
+	if (input.preferredTier && available.has(input.preferredTier)) {
+		return {
+			tier: input.preferredTier,
+			reason: "hint-preferred",
+			explanation: `caller prefers tier "${input.preferredTier}"`,
 		};
 	}
 

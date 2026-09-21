@@ -231,6 +231,21 @@ export function readHintedTier(
 	return typeof raw === "string" && isMineruTierId(raw) ? raw : null;
 }
 
+/**
+ * The SOFT tier preference (Phase 6 D10), read the same defensive way.
+ *
+ * A separate key from `tier` on purpose: this one degrades when the server does
+ * not offer the tier, and conflating them would turn a generated-file readback
+ * into a permanent `tier_unavailable` failure the moment a server dropped
+ * `flash`.
+ */
+export function readPreferredTier(
+	hints: Readonly<Record<string, unknown>> | null | undefined,
+): MineruTierId | null {
+	const raw = hints?.preferredTier;
+	return typeof raw === "string" && isMineruTierId(raw) ? raw : null;
+}
+
 interface HandleState {
 	remoteJobId: string | null;
 	remoteFileId: string | null;
@@ -406,6 +421,7 @@ export function createMineru4Extractor(
 					configuredTier: config.defaultTier,
 					availableTiers: capabilities.tiers,
 					hintedTier: readHintedTier(request.hints),
+					preferredTier: readPreferredTier(request.hints),
 				});
 				tier = decision.tier;
 				console.info(`${LOG_PREFIX} MinerU tier decided`, {

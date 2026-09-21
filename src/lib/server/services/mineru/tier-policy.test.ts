@@ -63,6 +63,65 @@ describe("decideTier — the recorded server shapes", () => {
 		expect(mapping.retryable).toBe(false);
 	});
 
+	// Phase 6 D10. The generated-file readback is the only caller: a PDF this
+	// app rendered itself never needs OCR, and 811 ms of flash beats 18 600 ms
+	// of a cold basic job for a file nobody is waiting on.
+	it("row 1½: a soft preference is used when the server offers it", () => {
+		const decision = decideTier({
+			preferredTier: "flash",
+			configuredTier: "auto",
+			availableTiers: BASIC_SERVER,
+		});
+		// Without the preference this input omits the key (row 4) and the
+		// server's start-up tier parses a born-digital PDF at basic.
+		expect(decision.tier).toBe("flash");
+		expect(decision.reason).toBe("hint-preferred");
+		expect(
+			decideTier({ configuredTier: "auto", availableTiers: BASIC_SERVER }).tier,
+		).toBeUndefined();
+	});
+
+	it("row 1″: a soft preference the server lacks degrades, it does not throw", () => {
+		const decision = decideTier({
+			preferredTier: "flash",
+			configuredTier: "auto",
+			availableTiers: ["basic"],
+		});
+		expect(decision.tier).toBeUndefined();
+		expect(decision.reason).toBe("auto-quality");
+	});
+
+	it("row 1″: the configured tier still wins behind an unavailable preference", () => {
+		const decision = decideTier({
+			preferredTier: "flash",
+			configuredTier: "basic",
+			availableTiers: ["basic"],
+		});
+		expect(decision.tier).toBe("basic");
+		expect(decision.reason).toBe("config-explicit");
+	});
+
+	it("keeps the hard re-extract tier hard even next to a preference", () => {
+		// The two keys must never be conflated: a button the user pressed fails
+		// loudly, a background preference degrades.
+		expect(() =>
+			decideTier({
+				hintedTier: "standard",
+				preferredTier: "flash",
+				configuredTier: "auto",
+				availableTiers: BASIC_SERVER,
+			}),
+		).toThrow();
+		const decision = decideTier({
+			hintedTier: "basic",
+			preferredTier: "flash",
+			configuredTier: "auto",
+			availableTiers: BASIC_SERVER,
+		});
+		expect(decision.tier).toBe("basic");
+		expect(decision.reason).toBe("hint-override");
+	});
+
 	it("row 2: a flash-hinted format asks for flash on either server", () => {
 		for (const available of [BASIC_SERVER, FLASH_SERVER]) {
 			const decision = decideTier({
@@ -144,6 +203,16 @@ describe("decideTier — the recorded server shapes", () => {
 				configuredTier: "auto" as const,
 				availableTiers: BASIC_SERVER,
 				hintedTier: "basic" as const,
+			},
+			{
+				configuredTier: "auto" as const,
+				availableTiers: BASIC_SERVER,
+				preferredTier: "flash" as const,
+			},
+			{
+				configuredTier: "auto" as const,
+				availableTiers: ["basic" as const],
+				preferredTier: "flash" as const,
 			},
 		];
 		for (const input of inputs) {

@@ -35,6 +35,7 @@ import {
 	MINERU4_EXTRACTOR_NAME,
 	type Mineru4StructuredPayload,
 	readHintedTier,
+	readPreferredTier,
 	toNormalizedName,
 } from "./mineru4";
 
@@ -172,6 +173,14 @@ describe("tier hints", () => {
 		expect(readHintedTier({ tier: 3 })).toBeNull();
 		expect(readHintedTier(null)).toBeNull();
 		expect(readHintedTier(undefined)).toBeNull();
+	});
+
+	it("keeps the soft preference on its own key", () => {
+		expect(readPreferredTier({ preferredTier: "flash" })).toBe("flash");
+		expect(readPreferredTier({ preferredTier: "bogus" })).toBeNull();
+		expect(readPreferredTier({ tier: "flash" })).toBeNull();
+		expect(readHintedTier({ preferredTier: "flash" })).toBeNull();
+		expect(readPreferredTier(null)).toBeNull();
 	});
 });
 
@@ -371,6 +380,39 @@ describe("tier resolution happens before any byte moves", () => {
 			(entry) => entry.method === "POST" && entry.path === "/v1/parse/jobs",
 		);
 		expect((create?.json as { tier?: string }).tier).toBe("flash");
+	});
+
+	// Phase 6 D10: the generated-file readback's soft preference. A born-digital
+	// PDF parses at flash instead of waiting on a cold basic job…
+	it("sends a soft preferred tier the server offers", async () => {
+		await start({ tiers: ["flash", "basic"] });
+		const { request } = await buildRequest({
+			hints: { preferredTier: "flash" },
+		});
+
+		await extractorFor().extract(request);
+
+		const create = server.requests.find(
+			(entry) => entry.method === "POST" && entry.path === "/v1/parse/jobs",
+		);
+		expect((create?.json as { tier?: string }).tier).toBe("flash");
+	});
+
+	// …and a server without flash still parses it, rather than failing the job
+	// permanently the way an unavailable `hints.tier` does.
+	it("degrades a soft preferred tier the server lacks", async () => {
+		await start({ tiers: ["basic"] });
+		const { request } = await buildRequest({
+			hints: { preferredTier: "flash" },
+		});
+
+		const result = await extractorFor().extract(request);
+
+		expect(result.text.length).toBeGreaterThan(0);
+		const create = server.requests.find(
+			(entry) => entry.method === "POST" && entry.path === "/v1/parse/jobs",
+		);
+		expect("tier" in (create?.json as Record<string, unknown>)).toBe(false);
 	});
 
 	it("honours a re-extract hint the server does offer", async () => {

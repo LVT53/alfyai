@@ -30,7 +30,11 @@ import type { Artifact } from "$lib/server/services/knowledge/types";
 import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { previewText } from "$lib/server/utils/text";
-import { fileExtension, getIntakeRoute } from "$lib/shared/file-types";
+import {
+	fileExtension,
+	getIntakeRoute,
+	resolveEntry,
+} from "$lib/shared/file-types";
 
 const chatGeneratedFileSelection = {
 	id: chatGeneratedFiles.id,
@@ -608,7 +612,50 @@ export async function assignGeneratedFilesToAssistantMessage(
  * normalised so a Windows-authored file and its Unix twin chunk identically.
  */
 function decodeTextLikeGeneratedFile(content: Buffer): string | null {
+	// INTEGRATOR FOLLOW-UP (P5-B): replace this body with the shared
+	// `decodeTextBuffer` from `extraction/text-decode.ts` once that module
+	// lands — `return decodeTextBuffer(content).ok ? …text : null`, keeping
+	// `null` as the "no readable text" answer. It is the single call site, and
+	// it must stay the single call site: an uploaded Markdown file and a
+	// generated one have to decode identically, or the same bytes chunk two
+	// different ways.
 	return content.toString("utf8").replace(/\r\n/g, "\n").trim() || null;
+}
+
+/**
+ * Where a generated file's readable text comes from.
+ *
+ * Three answers, decided once, from the registry rather than from a list:
+ *
+ *  - `inline`: the bytes ARE text (`textLike`), so they are decoded here and
+ *    now. Every `inline_text` output is in this set — Markdown, plain text,
+ *    delimited text, JSON and the code extensions — and so is HTML, which
+ *    matters: HTML routes to MinerU for UPLOADS (Phase 5 D3, where MinerU
+ *    strips a real page's nav, scripts and ads), but HTML this app generated
+ *    is our own markup, already clean, and making it wait on a backend to
+ *    read back what we just wrote would be a regression with no upside.
+ *  - `ledger`: a binary a parser has to open — PDF, DOCX, XLSX, PPTX, ODT.
+ *  - `none`: an image, an archive, an SVG. No backend can find text in them,
+ *    so they get no job rather than a permanently failed ledger row each.
+ */
+export type GeneratedFileTextSource = "inline" | "ledger" | "none";
+
+/**
+ * Exported because a second module asks the same question and must not answer
+ * it differently: `conversation-forks.ts` decides whether a copied generated
+ * file is still waiting for a readback, and it currently asks
+ * `getIntakeRoute(…) !== "mineru"`, which now misreads a generated HTML file
+ * as one that needs a backend. The fix is to call this — INTEGRATOR
+ * FOLLOW-UP, since that file belongs to no slice of this wave.
+ */
+export function generatedFileTextSource(
+	filename: string,
+	mimeType: string | null,
+): GeneratedFileTextSource {
+	if (resolveEntry(filename, mimeType)?.textLike === true) return "inline";
+	const route = getIntakeRoute(filename, mimeType);
+	if (route === "direct-text") return "inline";
+	return route === "mineru" ? "ledger" : "none";
 }
 
 /**
@@ -639,6 +686,19 @@ async function enqueueGeneratedFileReadback(params: {
 			fileName: params.file.filename,
 			mimeType: params.file.mimeType,
 			sizeBytes: params.file.sizeBytes,
+			// D10. Everything that reaches this line is a file this app just
+			// produced: a DOCX/XLSX/PPTX executes at flash server-side anyway, and
+			// a generated PDF came out of a renderer or a sandbox library, so it
+			// is born-digital and OCR is pure waste on it. Flash parses it in
+			// 811 ms against 1 126 ms warm and 18 600 ms COLD at basic — and
+			// readback queues behind every user upload, so the cold start is
+			// exactly the one worth avoiding.
+			//
+			// `preferredTier`, never `tier`: this is a preference, not the
+			// re-extract button. A server without flash parses the file at
+			// whatever tier it has (`decideTier` rule 1½) instead of failing the
+			// job permanently with `tier_unavailable`.
+			hints: { preferredTier: "flash" },
 		});
 	} catch (error) {
 		console.warn(
@@ -651,6 +711,49 @@ async function enqueueGeneratedFileReadback(params: {
 			},
 		);
 	}
+}
+
+/**
+ * The one case where a source-first document still needs a parser.
+ *
+ * `persistGeneratedDocumentSourceArtifact` writes the rendered Markdown as the
+ * artifact's text, so this is close to unreachable — it takes a renderer throw
+ * on an already-validated source. When it does happen the file exists, the
+ * artifact exists, and only the text is missing, which is exactly the shape
+ * the readback path was built for. The job is queued for the file the sink can
+ * find (`metadata.originalChatFileId`), and only when a backend could read it
+ * at all.
+ */
+async function enqueueSourceFirstFallbackReadback(params: {
+	userId: string;
+	conversationId: string;
+	assistantMessageId: string;
+	fileId: string;
+	sourceArtifact: Artifact;
+}): Promise<void> {
+	const originalChatFileId = params.sourceArtifact.metadata?.originalChatFileId;
+	if (originalChatFileId !== params.fileId) {
+		return;
+	}
+	const file = await getChatFile(params.conversationId, params.fileId);
+	if (!file) return;
+	if (generatedFileTextSource(file.filename, file.mimeType) !== "ledger") {
+		return;
+	}
+	console.warn(
+		"[CHAT_FILES] Generated document source has no text; reading the rendered file back instead",
+		{
+			conversationId: params.conversationId,
+			fileId: params.fileId,
+			artifactId: params.sourceArtifact.id,
+		},
+	);
+	await enqueueGeneratedFileReadback({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		assistantMessageId: params.assistantMessageId,
+		file,
+	});
 }
 
 /**
@@ -687,10 +790,31 @@ export async function syncGeneratedFilesToMemory(params: {
 	for (const fileId of uniqueFileIds) {
 		try {
 			const existingArtifact = artifactIdsByChatFile.get(fileId);
-			if (
-				existingArtifact?.isGeneratedDocumentSource &&
-				existingArtifact.sourceArtifact
-			) {
+			const sourceArtifact = existingArtifact?.isGeneratedDocumentSource
+				? existingArtifact.sourceArtifact
+				: null;
+			if (sourceArtifact) {
+				// A source-first render — the PDF, DOCX, HTML or MD of a
+				// `document_source` job. Its text is the source artifact's, written
+				// by `renderStandardReportMarkdown` when the job persisted the
+				// source (ADR-0005, D9), so it is readable the moment the job
+				// succeeds and it never reaches the ledger: round-tripping our own
+				// PDF through a parser could only ever lose what we already hold.
+				if ((sourceArtifact.contentText ?? "").trim()) {
+					continue;
+				}
+				// Unless the render failed and left no text. Then this binary is
+				// the only copy of the document, and the ledger is the way to read
+				// it — onto this same artifact, which is the one the readback sink
+				// looks up by `originalChatFileId`. Any other rendered file of the
+				// same job has nowhere to be written, so it is left alone.
+				await enqueueSourceFirstFallbackReadback({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					assistantMessageId: params.assistantMessageId,
+					fileId,
+					sourceArtifact,
+				});
 				continue;
 			}
 			if (existingArtifact) {
@@ -712,17 +836,10 @@ export async function syncGeneratedFilesToMemory(params: {
 				continue;
 			}
 
-			// The route decision is the shared registry's, exactly as the old inline
-			// call made it. "reject" files (images, archives) have no text for any
-			// backend to find, so they get no job — the same nothing the extractor
-			// returned for them before, without a permanently failed ledger row per
-			// generated PNG.
-			const intakeRoute = getIntakeRoute(file.filename, file.mimeType);
+			const textSource = generatedFileTextSource(file.filename, file.mimeType);
 			const extractedText =
-				intakeRoute === "direct-text"
-					? decodeTextLikeGeneratedFile(content)
-					: null;
-			const needsReadback = intakeRoute === "mineru";
+				textSource === "inline" ? decodeTextLikeGeneratedFile(content) : null;
+			const needsReadback = textSource === "ledger";
 
 			const recentVersions = await listRecentGeneratedFileVersions(
 				params.userId,

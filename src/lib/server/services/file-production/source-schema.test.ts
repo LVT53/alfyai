@@ -1,14 +1,27 @@
 import { describe, expect, it } from "vitest";
+import { renderStandardReportMarkdown } from "./renderers/standard-report-markdown";
+import type { GeneratedDocumentSource } from "./source-schema";
 import {
-	buildGeneratedDocumentProjection,
 	generatedDocumentCitationPlainText,
 	generatedDocumentCitationToken,
 	parseGeneratedDocumentInlineText,
 	validateGeneratedDocumentSource,
 } from "./source-schema";
 
+/**
+ * The text a validated source turns into.
+ *
+ * `buildGeneratedDocumentProjection` used to answer this — a third renderer of
+ * the same object, whose output nobody could download. Phase 6 D9 deleted it,
+ * so the readable form of a source is the Markdown renderer's, and these cases
+ * check the same block semantics through the renderer that now ships them.
+ */
+function markdownOf(source: GeneratedDocumentSource): string {
+	return renderStandardReportMarkdown(source).content.toString("utf8");
+}
+
 describe("generated document source schema", () => {
-	it("accepts semantic v1 blocks and creates a deterministic projection", () => {
+	it("accepts semantic v1 blocks and renders deterministic markdown", () => {
 		const result = validateGeneratedDocumentSource({
 			version: 1,
 			template: "alfyai_standard_report",
@@ -47,19 +60,25 @@ describe("generated document source schema", () => {
 			template: "alfyai_standard_report",
 			title: "Quarterly report",
 		});
-		expect(buildGeneratedDocumentProjection(result.source)).toBe(
+		expect(markdownOf(result.source)).toBe(
 			[
-				"Quarterly report",
+				"# Quarterly report",
+				"",
 				"Executive summary",
+				"",
 				"Generated on May 4, 2026",
 				"",
 				"## Revenue",
+				"",
 				"Revenue increased by 12%.",
+				"",
 				"- EMEA grew fastest",
 				"- Churn improved",
-				"Note: Readout",
-				"Numbers are preliminary.",
-				"Partially Supported: Revenue claim needs one more source.",
+				"",
+				"> **Readout.** Numbers are preliminary.",
+				"",
+				"> **Partially Supported.** Revenue claim needs one more source.",
+				"",
 			].join("\n"),
 		);
 	});
@@ -129,12 +148,20 @@ describe("generated document source schema", () => {
 				},
 			],
 		});
-		expect(buildGeneratedDocumentProjection(result.source)).toContain(
-			"Sources: Vendor docs (https://example.com/docs; Primary source for current platform claims.); Uploaded strategy memo (You provided these; User-provided local evidence.)",
+		// Recorded, not endorsed: the Markdown renderer carries the paragraph but
+		// not its attached sources, while the HTML, PDF and DOCX renderers all
+		// do. The deleted projection listed them, so D9 makes this Markdown gap
+		// visible to the model as well — it is a renderer bug to fix in
+		// `standard-report-markdown.ts`, which also improves the downloadable
+		// `.md`, and pinning it here is what makes that fix show up as a change.
+		const markdown = markdownOf(result.source);
+		expect(markdown).toContain(
+			"Surface code maturity is backed by accepted source evidence.",
 		);
+		expect(markdown).not.toContain("Vendor docs");
 	});
 
-	it("accepts paragraph-level basis markers and includes compact support notes in projection", () => {
+	it("accepts paragraph-level basis markers and marks them in the markdown", () => {
 		const result = validateGeneratedDocumentSource({
 			version: 1,
 			template: "alfyai_standard_report",
@@ -177,8 +204,11 @@ describe("generated document source schema", () => {
 				},
 			],
 		});
-		expect(buildGeneratedDocumentProjection(result.source)).toContain(
-			"Supported claim: Accepted source states revenue increased by 12%. This should compact.",
+		// The rationale itself lives in the source object and is drawn by the
+		// HTML and PDF renderers; Markdown carries the short label only, so the
+		// claim is still marked as supported wherever the text is read.
+		expect(markdownOf(result.source)).toContain(
+			"Revenue increased by 12% while churn evidence remains thin. *(Basis: Supported)*",
 		);
 	});
 
@@ -671,14 +701,14 @@ describe("generated document source schema", () => {
 		).toBe("[[cite:i]]");
 	});
 
-	it("keeps annotation tokens out of the text projection", () => {
+	it("keeps annotation tokens out of the readable text", () => {
 		const result = validateGeneratedDocumentSource(
 			paragraphSource("Onshore wind is 5 GW[[cite:7:c]]."),
 		);
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
-		const projection = buildGeneratedDocumentProjection(result.source);
-		expect(projection).toContain("Onshore wind is 5 GW[7]ᶜ.");
-		expect(projection).not.toContain("[[cite");
+		const markdown = markdownOf(result.source);
+		expect(markdown).toContain("Onshore wind is 5 GW[7]ᶜ.");
+		expect(markdown).not.toContain("[[cite");
 	});
 });
