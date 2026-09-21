@@ -26,6 +26,19 @@ export class ApiError extends Error {
 	 * (`chat/[conversationId]/_helpers.ts`) validates it structurally.
 	 */
 	readonly attachmentExtraction?: unknown;
+	/**
+	 * The readiness half of the same 422, carried for the same reason and
+	 * validated by the same reader.
+	 *
+	 * `attachmentExtraction` explains a file the extraction ledger is still
+	 * working on; `attachmentReadiness` explains the ones the ledger has
+	 * nothing to say about — a deleted file, a non-document, an image with no
+	 * text — and those are exactly the refusals whose server sentence is
+	 * English prose. `toFriendlySendError` has read this field since the reason
+	 * codes landed, but only `streaming.ts` ever attached it, so the identical
+	 * refusal read Hungarian on the stream and English on `/api/chat/send`.
+	 */
+	readonly attachmentReadiness?: unknown;
 	readonly status: number;
 
 	constructor(
@@ -36,6 +49,7 @@ export class ApiError extends Error {
 			fieldErrors?: Record<string, string>;
 			details?: Record<string, unknown>;
 			attachmentExtraction?: unknown;
+			attachmentReadiness?: unknown;
 			status: number;
 		},
 	) {
@@ -46,6 +60,7 @@ export class ApiError extends Error {
 		this.fieldErrors = options.fieldErrors;
 		this.details = options.details;
 		this.attachmentExtraction = options.attachmentExtraction;
+		this.attachmentReadiness = options.attachmentReadiness;
 		this.status = options.status;
 	}
 }
@@ -162,6 +177,7 @@ async function throwRequestError(
 		fieldErrors: error.fieldErrors,
 		details: error.details,
 		attachmentExtraction: error.attachmentExtraction,
+		attachmentReadiness: error.attachmentReadiness,
 		status: response.status,
 	});
 }
@@ -173,6 +189,7 @@ type ErrorPayload = {
 	fieldErrors?: Record<string, string>;
 	details?: Record<string, unknown>;
 	attachmentExtraction?: unknown;
+	attachmentReadiness?: unknown;
 };
 
 /**
@@ -223,6 +240,10 @@ async function parseErrorPayload(
 			const attachmentExtraction = Array.isArray(parsed.attachmentExtraction)
 				? parsed.attachmentExtraction
 				: undefined;
+			// Shallow, like its sibling: the one reader validates each row.
+			const attachmentReadiness = Array.isArray(parsed.attachmentReadiness)
+				? parsed.attachmentReadiness
+				: undefined;
 			if (typeof message === "string" && message.trim()) {
 				return {
 					message,
@@ -231,9 +252,17 @@ async function parseErrorPayload(
 					fieldErrors,
 					details,
 					attachmentExtraction,
+					attachmentReadiness,
 				};
 			}
-			if (code || errorKey || fieldErrors || details || attachmentExtraction)
+			if (
+				code ||
+				errorKey ||
+				fieldErrors ||
+				details ||
+				attachmentExtraction ||
+				attachmentReadiness
+			)
 				return {
 					message: fallback,
 					code,
@@ -241,6 +270,7 @@ async function parseErrorPayload(
 					fieldErrors,
 					details,
 					attachmentExtraction,
+					attachmentReadiness,
 				};
 		}
 	} catch {
