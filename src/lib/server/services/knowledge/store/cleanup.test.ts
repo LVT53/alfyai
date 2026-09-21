@@ -16,6 +16,7 @@ const {
 	mockGetArtifactOwnershipScope,
 	mockBuildArtifactVisibilityCondition,
 	mockIsArtifactCanonicallyOwned,
+	mockRemoveMineruParseBundle,
 } = vi.hoisted(() => {
 	const mockArtifacts: Array<Record<string, unknown>> = [];
 	const mockSelect = vi.fn();
@@ -26,6 +27,7 @@ const {
 	const mockGetArtifactOwnershipScope = vi.fn();
 	const mockBuildArtifactVisibilityCondition = vi.fn();
 	const mockIsArtifactCanonicallyOwned = vi.fn();
+	const mockRemoveMineruParseBundle = vi.fn();
 
 	return {
 		mockArtifacts,
@@ -37,8 +39,13 @@ const {
 		mockGetArtifactOwnershipScope,
 		mockBuildArtifactVisibilityCondition,
 		mockIsArtifactCanonicallyOwned,
+		mockRemoveMineruParseBundle,
 	};
 });
+
+vi.mock("$lib/server/services/mineru/bundle", () => ({
+	removeMineruParseBundle: mockRemoveMineruParseBundle,
+}));
 
 vi.mock("$lib/server/db", () => ({
 	db: {
@@ -130,6 +137,108 @@ describe("knowledge store cleanup", () => {
 		});
 		mockIsArtifactCanonicallyOwned.mockReturnValue(true);
 		mockUnlink.mockResolvedValue(undefined);
+		mockRemoveMineruParseBundle.mockResolvedValue(undefined);
+	});
+
+	// ── MinerU parse bundles ───────────────────────────────────────────────
+	//
+	// The bundle is the only artifact-scoped thing on disk that is NOT a
+	// `storage_path`, so it is the one thing this loop could silently leave
+	// behind. It is keyed on the row id, which is what makes it work for the
+	// source → normalized expansion as well as a direct delete.
+
+	describe("MinerU parse bundle cleanup", () => {
+		it("removes the bundle of every artifact the delete covers", async () => {
+			const { hardDeleteArtifactsForUser } = await import("./cleanup");
+
+			mockSelect.mockReturnValue(
+				makeSelectResult([
+					makeArtifactRow({
+						id: "source-1",
+						type: "source_document",
+						storagePath: "data/knowledge/user-1/source-1.pdf",
+					}),
+					makeArtifactRow({
+						id: "normalized-1",
+						type: "normalized_document",
+						storagePath: null,
+					}),
+				]),
+			);
+			installTransactionStub();
+
+			await hardDeleteArtifactsForUser("user-1", ["source-1", "normalized-1"]);
+
+			expect(mockRemoveMineruParseBundle.mock.calls).toEqual([
+				["user-1", "source-1"],
+				["user-1", "normalized-1"],
+			]);
+		});
+
+		it("removes the bundle even for a row with no storage path", async () => {
+			const { hardDeleteArtifactsForUser } = await import("./cleanup");
+
+			mockSelect.mockReturnValue(
+				makeSelectResult([
+					makeArtifactRow({ id: "source-1", storagePath: null }),
+				]),
+			);
+			installTransactionStub();
+
+			await hardDeleteArtifactsForUser("user-1", ["source-1"]);
+
+			expect(mockRemoveMineruParseBundle).toHaveBeenCalledWith(
+				"user-1",
+				"source-1",
+			);
+		});
+
+		it("does not abort the remaining unlinks when a bundle removal rejects", async () => {
+			const { hardDeleteArtifactsForUser } = await import("./cleanup");
+			const { mkdir, rm, writeFile } = await import("node:fs/promises");
+			const { join } = await import("node:path");
+
+			// Real files: `hardDeleteArtifactsForUser` unlinks from disk, and
+			// this case is about the unlinks SURVIVING a bundle failure, which a
+			// stubbed unlink could not show.
+			const userId = `cleanup-user-${Date.now()}`;
+			const userDir = join(process.cwd(), "data", "knowledge", userId);
+			await mkdir(userDir, { recursive: true });
+			const paths = [
+				`data/knowledge/${userId}/source-1.pdf`,
+				`data/knowledge/${userId}/source-2.pdf`,
+			];
+			for (const path of paths) {
+				await writeFile(join(process.cwd(), path), "bytes");
+			}
+
+			try {
+				mockSelect.mockReturnValue(
+					makeSelectResult([
+						makeArtifactRow({ id: "source-1", storagePath: paths[0] }),
+						makeArtifactRow({ id: "source-2", storagePath: paths[1] }),
+					]),
+				);
+				installTransactionStub();
+				mockRemoveMineruParseBundle.mockRejectedValueOnce(
+					new Error("EACCES: permission denied"),
+				);
+
+				const result = await hardDeleteArtifactsForUser(userId, [
+					"source-1",
+					"source-2",
+				]);
+
+				// Both files still unlinked, and the delete still reports success:
+				// an orphaned bundle is a line in the disk report, not a reason to
+				// leave real bytes behind.
+				expect(result.deletedStoragePaths).toEqual(paths);
+				expect(result.failedStoragePaths).toEqual([]);
+				expect(mockRemoveMineruParseBundle).toHaveBeenCalledTimes(2);
+			} finally {
+				await rm(userDir, { recursive: true, force: true });
+			}
+		});
 	});
 
 	describe("hardDeleteArtifactsForUser", () => {

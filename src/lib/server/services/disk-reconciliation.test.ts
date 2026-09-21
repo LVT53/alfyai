@@ -261,4 +261,120 @@ describe("findOrphanFiles", () => {
 		const paths = report.orphanFiles.map((f) => f.path);
 		expect(paths).toEqual([...paths].sort());
 	});
+
+	// ── parse bundles and upload staging ───────────────────────────────────
+	//
+	// `data/knowledge/` is not flat any more. A MinerU parse bundle is a
+	// directory of JSON and images beside the artifact's own bytes, and the
+	// upload path stages incoming files under `.incoming/`. Neither is an
+	// artifact, so neither may be matched against `storage_path` file by file
+	// — the bundle alone would add one orphan row per image and per JSON and
+	// drown the report it is supposed to be read from.
+
+	describe("parse bundles", () => {
+		async function writeBundle(artifactRelPath: string, suffix = ".parse") {
+			const dir = `knowledge/${artifactRelPath}${suffix}`;
+			await writeTestFile(tempDir, `${dir}/manifest.json`, '{"version":1}');
+			await writeTestFile(tempDir, `${dir}/normalized.md`, "# doc");
+			await writeTestFile(tempDir, `${dir}/pages.json`, "[]");
+			await writeTestFile(tempDir, `${dir}/structured_content.json`, "{}");
+			await writeTestFile(tempDir, `${dir}/images/page_1_x.jpg`, "IMG");
+		}
+
+		it("does not report a bundle whose source artifact still exists", async () => {
+			mockArtifactStoragePaths.push("data/knowledge/user-1/doc.pdf");
+			await writeTestFile(tempDir, "knowledge/user-1/doc.pdf", "PDF");
+			await writeBundle("user-1/doc");
+
+			const report = await findOrphanFiles({ dataDir: tempDir });
+
+			expect(report.orphanFiles).toEqual([]);
+			// Its bytes still count towards what is on disk.
+			expect(report.totalFileCount).toBe(6);
+			expect(report.totalSizeBytes).toBeGreaterThan("PDF".length);
+		});
+
+		it("reports a bundle whose source artifact is gone, as ONE entry", async () => {
+			mockArtifactStoragePaths.push("data/knowledge/user-1/kept.pdf");
+			await writeTestFile(tempDir, "knowledge/user-1/kept.pdf", "PDF");
+			await writeBundle("user-1/deleted");
+
+			const report = await findOrphanFiles({ dataDir: tempDir });
+
+			expect(report.orphanFiles).toEqual([
+				{
+					path: "user-1/deleted.parse",
+					sizeBytes: '{"version":1}'.length + "# doc".length + 2 + 2 + 3,
+					category: "knowledge",
+					kind: "bundle",
+				},
+			]);
+		});
+
+		it("never reports a half-written bundle", async () => {
+			// `<id>.parse.tmp-<pid>-<rand>` is either in flight right now or the
+			// debris of a crash; the next write removes it either way. Note the
+			// shape: a plain `endsWith(".parse.tmp")` would match none of these.
+			await writeBundle("user-1/doc", ".parse.tmp-4242-ab12cd");
+			await writeBundle("user-1/other", ".parse.tmp");
+
+			const report = await findOrphanFiles({ dataDir: tempDir });
+
+			expect(report.orphanFiles).toEqual([]);
+			expect(report.totalFileCount).toBe(10);
+		});
+
+		it("does not report upload staging files", async () => {
+			// A pre-existing false positive: `.incoming` was reported on every
+			// run before parse bundles existed.
+			await writeTestFile(tempDir, "knowledge/user-1/.incoming/part-1", "x");
+
+			const report = await findOrphanFiles({ dataDir: tempDir });
+
+			expect(report.orphanFiles).toEqual([]);
+			expect(report.totalFileCount).toBe(1);
+			expect(report.totalSizeBytes).toBe(1);
+		});
+
+		it("still reports a genuine stray file beside a bundle", async () => {
+			mockArtifactStoragePaths.push("data/knowledge/user-1/doc.pdf");
+			await writeTestFile(tempDir, "knowledge/user-1/doc.pdf", "PDF");
+			await writeBundle("user-1/doc");
+			await writeTestFile(tempDir, "knowledge/user-1/stray.bin", "STRAY");
+
+			const report = await findOrphanFiles({ dataDir: tempDir });
+
+			expect(report.orphanFiles).toEqual([
+				{
+					path: "user-1/stray.bin",
+					sizeBytes: "STRAY".length,
+					category: "knowledge",
+				},
+			]);
+		});
+
+		it("scopes the liveness check to the owning user", async () => {
+			// `user-2` owns an artifact with the same id; `user-1`'s bundle is
+			// still an orphan.
+			mockArtifactStoragePaths.push("data/knowledge/user-2/doc.pdf");
+			await writeTestFile(tempDir, "knowledge/user-2/doc.pdf", "PDF");
+			await writeBundle("user-1/doc");
+
+			const report = await findOrphanFiles({ dataDir: tempDir });
+
+			expect(report.orphanFiles.map((f) => f.path)).toEqual([
+				"user-1/doc.parse",
+			]);
+		});
+
+		it("does not apply the knowledge ignore rules to chat-files", async () => {
+			await writeTestFile(tempDir, "chat-files/conv/x.parse/inner.bin", "Z");
+
+			const report = await findOrphanFiles({ dataDir: tempDir });
+
+			expect(report.orphanFiles.map((f) => f.path)).toEqual([
+				"conv/x.parse/inner.bin",
+			]);
+		});
+	});
 });
