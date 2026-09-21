@@ -22,7 +22,10 @@
  */
 
 import type { ExtractionErrorCode } from "$lib/shared/extraction-status";
-import { DocumentExtractionError } from "../extraction/contracts";
+import {
+	DocumentExtractionError,
+	extractionErrorMessage,
+} from "../extraction/contracts";
 import {
 	fastapiValidationErrorSchema,
 	type MineruErrorDetail,
@@ -537,6 +540,36 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 	},
 
 	// -- file-level (deferred) failures ------------------------------------
+	/**
+	 * MinerU's permanent refusal, which looks exactly like a transient one.
+	 *
+	 * 4.0.4 answers AVIF, SVG and anything else its readers do not implement
+	 * with a file-level `parse_failed` whose message is "Unsupported file type:
+	 * <name>". Read as an ordinary `job_failed` it burned three attempts plus
+	 * backoff and then offered a Retry that could never succeed — the most
+	 * expensive possible way to tell a user their file cannot be read. It is
+	 * matched on the message because the CODE is the generic one; the regex is
+	 * anchored on the phrase rather than the filename so a renamed file or a
+	 * different suffix still matches.
+	 *
+	 * Ordered before `file:parse_failed`, which is the catch-all for the same
+	 * code.
+	 */
+	{
+		rule: "file:parse_failed:unsupported-type",
+		code: "parse_failed",
+		message: /unsupported (file|input|document|source) (type|format)/i,
+		taxonomy: "unsupported_type",
+		retryable: false,
+		reason: "MinerU cannot read this format at all; a retry repeats the refusal",
+	},
+	{
+		rule: "file:unsupported_file_type",
+		code: "unsupported_file_type",
+		taxonomy: "unsupported_type",
+		retryable: false,
+		reason: "the same refusal, should a build ever give it a code of its own",
+	},
 	{
 		rule: "file:parse_failed:missing-file",
 		code: "parse_failed",
@@ -888,10 +921,15 @@ export function mineruErrorToExtractionError(
 		error instanceof Error
 			? error.message
 			: "MinerU failed for an unknown reason";
-	const message = options.context ? `${options.context}: ${base}` : base;
+	const raw = options.context ? `${options.context}: ${base}` : base;
+	// For a code whose upstream message explains nothing a user can act on —
+	// "fetch failed" is the canonical example — the sentence comes from the
+	// code. The raw text is kept in the diagnostics either way.
+	const message = extractionErrorMessage(mapping.taxonomy, raw);
 
 	const details: Record<string, unknown> = { ...options.details };
 	details.mineruRule = mapping.rule;
+	if (message !== raw) details.rawMessage = raw;
 	if (isMineruApiError(error)) {
 		if (error.status !== null) details.httpStatus = error.status;
 		details.mineruCode = error.code;

@@ -12,6 +12,7 @@ import {
 	buildOutlineQuote,
 	extractionChipDashed,
 	extractionChipState,
+	extractionReasonKey,
 	formatTokenCount,
 	isExtractionPending,
 	quoteChipLabel,
@@ -389,6 +390,50 @@ describe("extractionChipState", () => {
 			expect(state.canCancel, status).toBe(true);
 			expect(state.canRetry, status).toBe(false);
 		}
+	});
+
+	// Ruling 1. A job queued behind an outage backoff is still going to be
+	// read — the worker re-drains at `nextAttemptAt` with no user action — so
+	// this stays a progress clause rather than a red failure. What it must not
+	// do is say "Waiting to be read" for half an hour while a backend is down:
+	// that reads as a stuck app and sends the user looking for a button.
+	it("says the document service is unreachable while it waits for it", () => {
+		const waiting = job({
+			status: "queued",
+			error: { code: "unavailable", message: "unreachable" },
+			nextAttemptAt: 60_000,
+		});
+
+		const state = extractionChipState(waiting);
+		expect(state.progressKey).toBe("chat.extraction.waitingForBackend");
+		expect(state.errorKey).toBeNull();
+		expect(state.canRetry).toBe(false);
+		expect(state.dashed).toBe(true);
+
+		// The send gate's per-attachment row says the same thing, from the same
+		// table, so one file is never described two different ways.
+		expect(
+			extractionReasonKey({
+				status: "queued",
+				errorCode: "unavailable",
+				retryable: false,
+			}),
+		).toBe("chat.extraction.waitingForBackend");
+	});
+
+	it("keeps the ordinary queued clause for a job nobody has reached yet", () => {
+		expect(extractionChipState(job({ status: "queued" })).progressKey).toBe(
+			"chat.extraction.queued",
+		);
+		// A retryable DOCUMENT failure waiting out its backoff is not an outage.
+		expect(
+			extractionChipState(
+				job({
+					status: "queued",
+					error: { code: "job_failed", message: "engine failed" },
+				}),
+			).progressKey,
+		).toBe("chat.extraction.queued");
 	});
 
 	it("collapses the three in-flight phases into one honest clause", () => {

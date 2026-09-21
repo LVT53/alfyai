@@ -34,6 +34,11 @@ import {
 	isTerminalExtractionStatus,
 } from "$lib/shared/extraction-status";
 import { getIntakeRoute } from "$lib/shared/file-types";
+import {
+	isProcessAlive,
+	type ParsedWorkerId,
+	parseWorkerId,
+} from "../worker-identity";
 import { getExtractionConfig } from "./config";
 import {
 	type ExtractionHandle,
@@ -43,6 +48,10 @@ import {
 import {
 	decideExtractionRetry,
 	extractionAttemptCeiling,
+	EXTRACTION_OUTAGE_HINT_KEY,
+	extractionDocumentAttempts,
+	type ExtractionOutageState,
+	readExtractionOutageState,
 } from "./retry-policy";
 import { canReportExtractionPhase } from "./state-machine";
 import type {
@@ -81,7 +90,20 @@ function serializeHints(
 	return keys.length === 0 ? null : JSON.stringify(hints);
 }
 
-export function parseExtractionHints(
+/**
+ * The one key inside `hints_json` the LEDGER owns.
+ *
+ * `hints_json` is the only job-level JSON column, and the outage counter has to
+ * live somewhere durable: it is what separates "attempts spent on this
+ * document" from "attempts spent waiting for a backend that was down", and
+ * without it a half-hour outage silently eats the user's Retry budget. A
+ * reserved, `$`-prefixed key costs no migration and is stripped before the
+ * hints ever reach an extractor, so the seam's "opaque, caller-supplied" rule
+ * still holds from the extractor's side.
+ */
+const LEDGER_HINT_PREFIX = "$";
+
+function parseHintObject(
 	json: string | null | undefined,
 ): Record<string, unknown> | null {
 	if (!json) return null;
@@ -95,6 +117,37 @@ export function parseExtractionHints(
 		// input, never required for correctness, so dropping it is safe.
 	}
 	return null;
+}
+
+export function parseExtractionHints(
+	json: string | null | undefined,
+): Record<string, unknown> | null {
+	const parsed = parseHintObject(json);
+	if (!parsed) return null;
+	const caller = Object.fromEntries(
+		Object.entries(parsed).filter(
+			([key]) => !key.startsWith(LEDGER_HINT_PREFIX),
+		),
+	);
+	return Object.keys(caller).length === 0 ? null : caller;
+}
+
+/** Writes the outage state back beside whatever hints the caller supplied. */
+function withOutageState(
+	hintsJson: string | null | undefined,
+	state: ExtractionOutageState,
+): string | null {
+	const base = parseHintObject(hintsJson) ?? {};
+	const next: Record<string, unknown> = { ...base };
+	if (state.since === null && state.waits === 0) {
+		delete next[EXTRACTION_OUTAGE_HINT_KEY];
+	} else {
+			next[EXTRACTION_OUTAGE_HINT_KEY] = {
+			since: state.since,
+			waits: state.waits,
+		};
+	}
+	return Object.keys(next).length === 0 ? null : JSON.stringify(next);
 }
 
 export interface EnqueueExtractionJobInput {
@@ -642,6 +695,8 @@ export interface FailExtractionAttemptInput extends OwnedAttemptInput {
 	maxAttempts: number;
 	retryBaseMs: number;
 	retryMaxMs: number;
+	/** The patient budget for "the backend is not answering right now". */
+	outageWindowMs: number;
 	diagnostics?: Record<string, unknown>;
 	/** Injected so the backoff jitter is deterministic under test. */
 	random?: () => number;
@@ -650,6 +705,8 @@ export interface FailExtractionAttemptInput extends OwnedAttemptInput {
 export interface FailExtractionAttemptResult {
 	requeued: boolean;
 	nextAttemptAt: Date | null;
+	/** True when this requeue is a patient wait on an unreachable backend. */
+	outageWait: boolean;
 	/**
 	 * false when this worker no longer owned the attempt and nothing was
 	 * written. Distinct from `requeued: false`, which means a verdict WAS
@@ -672,7 +729,14 @@ export async function failExtractionAttempt(
 	const now = input.now ?? new Date();
 	return db.transaction((tx) => {
 		const job = ownedActiveJob(tx, input);
-		if (!job) return { requeued: false, nextAttemptAt: null, applied: false };
+		if (!job) {
+			return {
+				requeued: false,
+				nextAttemptAt: null,
+				outageWait: false,
+				applied: false,
+			};
+		}
 
 		const decision = decideExtractionRetry({
 			code: input.errorCode,
@@ -682,6 +746,9 @@ export async function failExtractionAttempt(
 			maxAttempts: input.maxAttempts,
 			retryBaseMs: input.retryBaseMs,
 			retryMaxMs: input.retryMaxMs,
+			outageWindowMs: input.outageWindowMs,
+			outage: readExtractionOutageState(job.hintsJson),
+			nowMs: now.getTime(),
 			random: input.random,
 		});
 
@@ -709,7 +776,12 @@ export async function failExtractionAttempt(
 			.run();
 
 		if (attemptResult.changes === 0) {
-			return { requeued: false, nextAttemptAt: null, applied: false };
+			return {
+				requeued: false,
+				nextAttemptAt: null,
+				outageWait: false,
+				applied: false,
+			};
 		}
 
 		const nextAttemptAt = decision.requeue
@@ -725,7 +797,11 @@ export async function failExtractionAttempt(
 				retryable: decision.jobRetryable,
 				nextAttemptAt,
 				completedAt: decision.requeue ? null : now,
-				...(input.clearHandle || !decision.requeue
+				hintsJson: withOutageState(job.hintsJson, decision.outage),
+				// An outage wait KEEPS the handle even when the failure asked for it
+				// to be cleared only because the job went terminal: the remote job
+				// may well still be there when the backend comes back.
+				...(input.clearHandle || (!decision.requeue && !decision.outageWait)
 					? { remoteHandleJson: null }
 					: {}),
 				updatedAt: now,
@@ -738,7 +814,12 @@ export async function failExtractionAttempt(
 			)
 			.run();
 
-		return { requeued: decision.requeue, nextAttemptAt, applied: true };
+		return {
+			requeued: decision.requeue,
+			nextAttemptAt,
+			outageWait: decision.outageWait,
+			applied: true,
+		};
 	});
 }
 
@@ -747,6 +828,7 @@ export interface RecoverStaleExtractionAttemptsInput {
 	maxAttempts: number;
 	retryBaseMs: number;
 	retryMaxMs: number;
+	outageWindowMs: number;
 	random?: () => number;
 	now?: Date;
 }
@@ -797,63 +879,205 @@ export async function recoverStaleExtractionAttempts(
 		let requeued = 0;
 
 		for (const row of stale) {
-			const attemptResult = tx
-				.update(documentExtractionJobAttempts)
-				.set({
-					status: "failed",
-					finishedAt: now,
-					errorCode: "stale_worker",
-					errorMessage: STALE_WORKER_MESSAGE,
-					retryable: true,
-					updatedAt: now,
-				})
-				.where(
-					and(
-						eq(documentExtractionJobAttempts.id, row.attemptId),
-						eq(documentExtractionJobAttempts.status, "running"),
-					),
-				)
-				.run();
-
-			if (attemptResult.changes === 0) continue;
-
-			const decision = decideExtractionRetry({
-				code: "stale_worker",
-				retryable: true,
-				attemptCount: row.job.attemptCount,
+			const outcome = reclaimRunningAttempt(tx, {
+				job: row.job,
+				attemptId: row.attemptId,
+				now,
 				maxAttempts: input.maxAttempts,
 				retryBaseMs: input.retryBaseMs,
 				retryMaxMs: input.retryMaxMs,
+				outageWindowMs: input.outageWindowMs,
 				random: input.random,
 			});
-
-			tx.update(documentExtractionJobs)
-				.set({
-					status: decision.requeue ? "queued" : "failed",
-					currentAttemptId: null,
-					errorCode: decision.jobErrorCode,
-					errorMessage: STALE_WORKER_MESSAGE,
-					retryable: decision.jobRetryable,
-					nextAttemptAt: decision.requeue
-						? new Date(now.getTime() + decision.delayMs)
-						: null,
-					completedAt: decision.requeue ? null : now,
-					updatedAt: now,
-				})
-				.where(
-					and(
-						eq(documentExtractionJobs.id, row.job.id),
-						eq(documentExtractionJobs.currentAttemptId, row.attemptId),
-					),
-				)
-				.run();
-
+			if (!outcome) continue;
 			recovered += 1;
-			if (decision.requeue) requeued += 1;
+			if (outcome.requeued) requeued += 1;
 		}
 
 		return { recovered, requeued };
 	});
+}
+
+/**
+ * One reclaim: mark the attempt `stale_worker` and run the ordinary retry
+ * rules over the job. Shared by the heartbeat sweep and the boot sweep, which
+ * differ only in how they decide an attempt is dead.
+ */
+function reclaimRunningAttempt(
+	tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+	params: {
+		job: DocumentExtractionJobRow;
+		attemptId: string;
+		now: Date;
+		maxAttempts: number;
+		retryBaseMs: number;
+		retryMaxMs: number;
+		outageWindowMs: number;
+		random?: () => number;
+	},
+): { requeued: boolean } | null {
+	const { now } = params;
+	const attemptResult = tx
+		.update(documentExtractionJobAttempts)
+		.set({
+			status: "failed",
+			finishedAt: now,
+			errorCode: "stale_worker",
+			errorMessage: STALE_WORKER_MESSAGE,
+			retryable: true,
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(documentExtractionJobAttempts.id, params.attemptId),
+				eq(documentExtractionJobAttempts.status, "running"),
+			),
+		)
+		.run();
+
+	if (attemptResult.changes === 0) return null;
+
+	const decision = decideExtractionRetry({
+		code: "stale_worker",
+		retryable: true,
+		attemptCount: params.job.attemptCount,
+		maxAttempts: params.maxAttempts,
+		retryBaseMs: params.retryBaseMs,
+		retryMaxMs: params.retryMaxMs,
+		outageWindowMs: params.outageWindowMs,
+		outage: readExtractionOutageState(params.job.hintsJson),
+		nowMs: now.getTime(),
+		random: params.random,
+	});
+
+	tx.update(documentExtractionJobs)
+		.set({
+			status: decision.requeue ? "queued" : "failed",
+			currentAttemptId: null,
+			errorCode: decision.jobErrorCode,
+			errorMessage: STALE_WORKER_MESSAGE,
+			retryable: decision.jobRetryable,
+			nextAttemptAt: decision.requeue
+				? new Date(now.getTime() + decision.delayMs)
+				: null,
+			completedAt: decision.requeue ? null : now,
+			hintsJson: withOutageState(params.job.hintsJson, decision.outage),
+			updatedAt: now,
+		})
+		.where(
+			and(
+				eq(documentExtractionJobs.id, params.job.id),
+				eq(documentExtractionJobs.currentAttemptId, params.attemptId),
+			),
+		)
+		.run();
+
+	return { requeued: decision.requeue };
+}
+
+export interface ReclaimDeadWorkerExtractionAttemptsInput {
+	/** This process's own worker id. Its attempts are never reclaimed. */
+	workerId: string;
+	maxAttempts: number;
+	retryBaseMs: number;
+	retryMaxMs: number;
+	outageWindowMs: number;
+	/** Injected so a test can decide liveness without spawning processes. */
+	isProcessAlive?: (pid: number) => boolean;
+	random?: () => number;
+	now?: Date;
+}
+
+/**
+ * The boot sweep: reclaim, IMMEDIATELY, every running attempt whose worker id
+ * proves it belonged to a process that no longer exists on this host.
+ *
+ * Before this, a deploy left its orphaned attempts looking perfectly healthy —
+ * their heartbeats were seconds old at the moment the process died — so nothing
+ * touched them until the whole stale window (two minutes) had passed, on a box
+ * that was serving again after eleven seconds. A worker id that carries
+ * hostname + pid + a per-boot nonce turns that wait into a question the new
+ * process can answer at boot: same host, pid not alive, not us ⇒ dead.
+ *
+ * Conservative in every direction that matters. A worker id from another host
+ * is never touched (we cannot see its process table). A worker id in the old
+ * format carries no hostname, so it falls back to the stale-window path. An
+ * `EPERM` from `kill(pid, 0)` means a process we may not signal, which is a
+ * process that EXISTS. Only a pid that is provably gone is reclaimed.
+ */
+export async function reclaimDeadWorkerExtractionAttempts(
+	input: ReclaimDeadWorkerExtractionAttemptsInput,
+): Promise<{ recovered: number; requeued: number }> {
+	const now = input.now ?? new Date();
+	const self = parseWorkerId(input.workerId);
+	const isAlive = input.isProcessAlive ?? isProcessAlive;
+
+	return db.transaction((tx) => {
+		const running = tx
+			.select({
+				job: documentExtractionJobs,
+				attemptId: documentExtractionJobAttempts.id,
+				workerId: documentExtractionJobAttempts.workerId,
+			})
+			.from(documentExtractionJobAttempts)
+			.innerJoin(
+				documentExtractionJobs,
+				eq(documentExtractionJobs.id, documentExtractionJobAttempts.jobId),
+			)
+			.where(
+				and(
+					inArray(documentExtractionJobs.status, ACTIVE_STATUSES),
+					eq(
+						documentExtractionJobs.currentAttemptId,
+						documentExtractionJobAttempts.id,
+					),
+					eq(documentExtractionJobAttempts.status, "running"),
+				),
+			)
+			.all();
+
+		let recovered = 0;
+		let requeued = 0;
+
+		for (const row of running) {
+			if (!isDeadWorkerId(row.workerId, self, isAlive)) continue;
+			const outcome = reclaimRunningAttempt(tx, {
+				job: row.job,
+				attemptId: row.attemptId,
+				now,
+				maxAttempts: input.maxAttempts,
+				retryBaseMs: input.retryBaseMs,
+				retryMaxMs: input.retryMaxMs,
+				outageWindowMs: input.outageWindowMs,
+				random: input.random,
+			});
+			if (!outcome) continue;
+			recovered += 1;
+			if (outcome.requeued) requeued += 1;
+		}
+
+		return { recovered, requeued };
+	});
+}
+
+function isDeadWorkerId(
+	candidate: string | null,
+	self: ParsedWorkerId | null,
+	isAlive: (pid: number) => boolean,
+): boolean {
+	if (!candidate || !self) return false;
+	// Our own attempts, including the inline direct-text runner's, are alive by
+	// definition — we are the process holding them.
+	if (candidate === self.raw || candidate.startsWith(`${self.raw}:`)) {
+		return false;
+	}
+	const parsed = parseWorkerId(candidate);
+	// An id in the previous format says nothing about which host or process
+	// wrote it, so it keeps the stale-window path it has always had.
+	if (!parsed) return false;
+	if (parsed.hostname !== self.hostname) return false;
+	if (parsed.pid === self.pid && parsed.nonce === self.nonce) return false;
+	return !isAlive(parsed.pid);
 }
 
 export interface RetryExtractionJobInput {
@@ -904,7 +1128,21 @@ export async function retryExtractionJob(
 
 		if (!job) return null;
 		if (job.status !== "failed" && job.status !== "canceled") return null;
-		if (job.attemptCount >= ceiling) return null;
+		const outage = readExtractionOutageState(job.hintsJson);
+		// Measured in DOCUMENT attempts. A job that spent twelve attempts waiting
+		// for a backend that was down has used none of the user's budget, and
+		// refusing the button there would punish them for the outage.
+		if (extractionDocumentAttempts(job.attemptCount, outage) >= ceiling) {
+			return null;
+		}
+
+		// A user retry starts a fresh outage window: they are asking us to look
+		// again, and the backend may well be back. `waits` is carried so the
+		// attempt discount survives.
+		const carriedOutage: ExtractionOutageState = {
+			since: null,
+			waits: outage.waits,
+		};
 
 		const result = tx
 			.update(documentExtractionJobs)
@@ -917,9 +1155,12 @@ export async function retryExtractionJob(
 				nextAttemptAt: null,
 				cancelRequestedAt: null,
 				completedAt: null,
-				...(input.hints === undefined
-					? {}
-					: { hintsJson: serializeHints(input.hints) }),
+				hintsJson: withOutageState(
+					input.hints === undefined
+						? job.hintsJson
+						: serializeHints(input.hints),
+					carriedOutage,
+				),
 				updatedAt: now,
 			})
 			.where(
@@ -990,6 +1231,15 @@ export async function cancelExtractionJob(
 				currentAttemptId: null,
 				retryable: false,
 				nextAttemptAt: null,
+				// The handle is DROPPED, unlike on a stale reclaim.
+				//
+				// A user cancel is the one abort that DELETEs the remote job, so the
+				// stored handle now points at something the backend has thrown away.
+				// Keeping it meant a later Retry resumed a deleted job: `getJob`
+				// answers `status: "canceled"`, which the error table reads as
+				// "canceled by someone else" — a `job_failed` the user never caused,
+				// on a document that would have parsed perfectly from scratch.
+				remoteHandleJson: null,
 				updatedAt: now,
 			})
 			.where(

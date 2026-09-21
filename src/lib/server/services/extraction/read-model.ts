@@ -31,7 +31,11 @@ import {
 	legacyExtractionJobId,
 } from "$lib/shared/extraction-status";
 import { getExtractionConfig } from "./config";
-import { extractionAttemptCeiling } from "./retry-policy";
+import {
+	extractionAttemptCeiling,
+	extractionDocumentAttempts,
+	readExtractionOutageState,
+} from "./retry-policy";
 import type { DocumentExtractionJobRow } from "./types";
 
 /**
@@ -56,6 +60,14 @@ export function mapExtractionJobRow(
 			? "internal"
 			: null;
 
+	// Attempts spent waiting on an unreachable backend are not attempts spent on
+	// the document: counting them would tell a user "attempt 12 of 3" after an
+	// outage, and would silently close the Retry button they are owed.
+	const attemptCount = extractionDocumentAttempts(
+		row.attemptCount,
+		readExtractionOutageState(row.hintsJson),
+	);
+
 	return {
 		id: row.id,
 		sourceArtifactId: row.sourceArtifactId,
@@ -63,7 +75,7 @@ export function mapExtractionJobRow(
 		status,
 		intakeRoute: row.intakeRoute === "direct-text" ? "direct-text" : "mineru",
 		fileName: row.fileName,
-		attemptCount: row.attemptCount,
+		attemptCount,
 		maxAttempts,
 		// `canceled` is always retryable: the ledger has allowed a retry from it
 		// since T15, and reporting otherwise meant a user who hit Stop by mistake
@@ -74,7 +86,7 @@ export function mapExtractionJobRow(
 		// The ceiling overrides both. `retryExtractionJob` refuses past it, so
 		// offering the button there would be a promise the ledger will not keep.
 		retryable:
-			row.attemptCount < extractionAttemptCeiling(maxAttempts) &&
+			attemptCount < extractionAttemptCeiling(maxAttempts) &&
 			(status === "canceled" ||
 				(status === "failed" && Boolean(row.retryable))),
 		cancelable: !terminal && row.cancelRequestedAt === null,
@@ -82,6 +94,9 @@ export function mapExtractionJobRow(
 		createdAt: row.createdAt.getTime(),
 		updatedAt: row.updatedAt.getTime(),
 		startedAt: row.startedAt ? row.startedAt.getTime() : null,
+		// Carried for a queued row so the chip can say "we'll try again at…"
+		// rather than "waiting to be read" while a backend is down.
+		nextAttemptAt: row.nextAttemptAt ? row.nextAttemptAt.getTime() : null,
 		legacy: false,
 	};
 }
@@ -109,6 +124,7 @@ function synthesizeLegacyDTO(params: {
 		cancelable: false,
 		legacy: true,
 		startedAt: null,
+		nextAttemptAt: null,
 	};
 
 	if (params.normalized) {

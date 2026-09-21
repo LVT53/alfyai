@@ -186,7 +186,7 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 	},
 
 	// --- Resource limits (document extraction) ------------------------------
-	// All eleven are "live": `extraction/config.ts` resolves every one through
+	// All twelve are "live": `extraction/config.ts` resolves every one through
 	// getConfig() at the moment it is used — per claim, per failure, per wait —
 	// so a change lands on the next job rather than the next restart.
 	{
@@ -223,6 +223,12 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		key: "DOCUMENT_EXTRACTION_RETRY_MAX_MS",
 		group: "limits",
 		control: int(1000, 3600000, "s", 1000),
+		effect: "live",
+	},
+	{
+		key: "DOCUMENT_EXTRACTION_OUTAGE_WINDOW_MS",
+		group: "limits",
+		control: int(60000, 86400000, "min", 60000),
 		effect: "live",
 	},
 	{

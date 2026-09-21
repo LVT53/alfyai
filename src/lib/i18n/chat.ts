@@ -84,6 +84,7 @@ const chatDict = {
 		"chat.extraction.canceledRetry": "Stopped — retry",
 		"chat.extraction.error.auth_failed":
 			"Document reader rejected our credentials",
+		"chat.extraction.error.backend_misconfigured": "Reader address is wrong",
 		"chat.extraction.error.canceled": "Stopped",
 		"chat.extraction.error.empty_result": "No readable text found",
 		"chat.extraction.error.internal": "Something went wrong",
@@ -103,6 +104,8 @@ const chatDict = {
 		"chat.extraction.indexing": "Filing…",
 		"chat.extraction.parsing": "Reading…",
 		"chat.extraction.queued": "Waiting to be read",
+		"chat.extraction.waitingForBackend":
+			"The document service is not reachable right now. We'll keep trying.",
 		"chat.extraction.retry": "Retry",
 		"chat.extraction.retryA11y": "Read {name} again",
 		"chat.extraction.retryFailed":
@@ -1232,6 +1235,8 @@ const chatDict = {
 		"chat.extraction.canceledRetry": "Leállítva — próbáld újra",
 		"chat.extraction.error.auth_failed":
 			"A dokumentumolvasó elutasította a hozzáférést",
+		"chat.extraction.error.backend_misconfigured":
+			"Rossz az olvasó címe",
 		"chat.extraction.error.canceled": "Leállítva",
 		"chat.extraction.error.empty_result": "Nem találtunk benne szöveget",
 		"chat.extraction.error.internal": "Váratlan hiba történt",
@@ -1252,6 +1257,8 @@ const chatDict = {
 		"chat.extraction.indexing": "Feldolgozás…",
 		"chat.extraction.parsing": "Olvasás…",
 		"chat.extraction.queued": "Sorban áll",
+		"chat.extraction.waitingForBackend":
+			"A dokumentumszolgáltatás jelenleg nem érhető el. Tovább próbálkozunk.",
 		"chat.extraction.retry": "Újra",
 		"chat.extraction.retryA11y": "A(z) {name} újbóli beolvasása",
 		"chat.extraction.retryFailed":

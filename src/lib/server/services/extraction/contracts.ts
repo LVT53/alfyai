@@ -165,6 +165,47 @@ export interface ExtractDocumentResult {
 	structured?: unknown;
 }
 
+/**
+ * The sentence a user is shown for a failure whose real message is not one.
+ *
+ * `error_message` on the job row is read by the send gate and by the Knowledge
+ * row, and for an availability failure it used to be whatever undici said —
+ * "fetch failed", "MinerU capability read failed: fetch failed". That is an
+ * implementation detail of a HTTP client presented as an explanation of the
+ * user's document. The taxonomy code is what actually knows what happened, so
+ * the text comes from the code.
+ *
+ * Only the codes whose upstream message is useless are listed. A `job_failed`
+ * carries the engine's own reason and that reason is worth keeping.
+ */
+const EXTRACTION_ERROR_MESSAGES: Partial<Record<ExtractionErrorCode, string>> = {
+	unavailable: "The document service could not be reached.",
+	timeout: "The document service did not answer in time.",
+	rate_limited: "The document service is busy right now.",
+	auth_failed:
+		"The document service rejected our credentials. Ask an administrator to check the API key.",
+	// `backend_misconfigured` is deliberately ABSENT. The only useful sentence
+	// for it names the endpoint and the setting to change, and this module may
+	// not name a backend — the seam is what lets one be swapped by editing a
+	// registry entry, and `boundary.test.ts` holds it to that. The capability
+	// probe, which is allowed to know, composes that message itself.
+	unsupported_type:
+		"The document service cannot read this file type. Convert it to PDF (or another supported format) and upload it again.",
+};
+
+/**
+ * The user-facing message for a code, falling back to what the backend said.
+ *
+ * The fallback is never dropped silently: it lands in the attempt's
+ * diagnostics and in the log line, so an operator still has the raw text.
+ */
+export function extractionErrorMessage(
+	code: ExtractionErrorCode,
+	fallback: string,
+): string {
+	return EXTRACTION_ERROR_MESSAGES[code] ?? fallback;
+}
+
 export interface DocumentExtractionErrorInit {
 	code: ExtractionErrorCode;
 	message: string;
@@ -259,6 +300,13 @@ export function isTimeoutError(error: unknown): boolean {
 	return (error as { name?: unknown } | null)?.name === "TimeoutError";
 }
 
+/** Keeps the raw text where an operator can still find it. */
+function rawMessageDetail(error: unknown): Record<string, unknown> | undefined {
+	return error instanceof Error && error.message
+		? { rawMessage: error.message }
+		: undefined;
+}
+
 function isConnectionLike(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
 	if (error instanceof TypeError && /fetch failed/i.test(error.message)) {
@@ -313,22 +361,23 @@ export function toDocumentExtractionError(
 	if (isTimeoutError(error)) {
 		return new DocumentExtractionError({
 			code: "timeout",
-			message:
-				error instanceof Error && error.message
-					? error.message
-					: "The extraction backend did not answer in time.",
+			message: extractionErrorMessage("timeout", "The backend timed out."),
 			retryable: true,
+			details: rawMessageDetail(error),
 			cause: error,
 		});
 	}
 
 	if (isConnectionLike(error)) {
+		// NOT `error.message`: that is "fetch failed", which is undici's account
+		// of its own socket, not an explanation anyone can act on.
 		return new DocumentExtractionError({
 			code: "unavailable",
-			message:
-				error instanceof Error
-					? error.message
-					: "The extraction backend is unreachable.",
+			message: extractionErrorMessage(
+				"unavailable",
+				"The backend is unreachable.",
+			),
+			details: rawMessageDetail(error),
 			cause: error,
 		});
 	}
@@ -353,6 +402,18 @@ export interface DocumentExtractor {
 	readonly name: string;
 	/** false ⇒ the ledger never passes `resumeHandle` and discards stored handles. */
 	readonly supportsResume: boolean;
+	/**
+	 * true ⇒ `extract` cleans the remote up itself when its signal is aborted
+	 * with `user-cancel`, so the worker must NOT call `cancel` as well.
+	 *
+	 * Without this the worker had no way to tell "the extractor has already
+	 * issued the DELETE" from "nobody has", so it always issued one — and an
+	 * extractor that honours the abort reason properly, which is what
+	 * `abortDiscardsRemoteWork` exists for, sent two DELETEs for one Stop. The
+	 * second is answered 409 and is harmless, but "exactly one request per user
+	 * action" is the only version of this anyone can reason about from a log.
+	 */
+	readonly cancelsOnAbort?: boolean;
 	extract(request: ExtractDocumentRequest): Promise<ExtractDocumentResult>;
 	/** Best effort remote cleanup on user cancel. Must not throw. */
 	cancel?(handle: ExtractionHandle, signal?: AbortSignal): Promise<void>;

@@ -137,8 +137,8 @@ describe("2 — two transient failures then success", () => {
 		const { jobId } = await seedJob({ name: "flaky.pdf" });
 		const extractor = createFakeExtractor({
 			steps: [
-				{ kind: "throw", code: "unavailable" },
-				{ kind: "throw", code: "unavailable" },
+				{ kind: "throw", code: "job_failed" },
+				{ kind: "throw", code: "job_failed" },
 				{ kind: "succeed" },
 			],
 		});
@@ -166,7 +166,7 @@ describe("3 — the attempt cap, then a user retry", () => {
 	it("caps at max_attempts and grants exactly one more attempt", async () => {
 		const { jobId, artifactId } = await seedJob({ name: "down.pdf" });
 		const extractor = createFakeExtractor({
-			steps: [{ kind: "throw", code: "unavailable" }],
+			steps: [{ kind: "throw", code: "job_failed" }],
 		});
 
 		for (let i = 0; i < 3; i += 1) {
@@ -200,31 +200,49 @@ describe("3 — the attempt cap, then a user retry", () => {
 	});
 });
 
-describe("4 — non-retryable codes fail on the first attempt", () => {
-	const codes: (typeof EXTRACTION_ERROR_CODES)[number][] = [
-		"tier_unavailable",
-		"auth_failed",
-		"too_large",
-		"unsupported_type",
-		"empty_result",
-		"internal",
+describe("4 — codes the worker will not retry on its own", () => {
+	/**
+	 * "The system may retry" and "the user may retry" are different facts.
+	 *
+	 * Every code here fails on the FIRST attempt — no backoff, no burned
+	 * budget, because nothing about trying again changes the answer. What
+	 * differs is whether the Retry button is worth offering afterwards: a wrong
+	 * key or a disabled tier is fixed by an admin, and the moment they fix it
+	 * the document has to be retryable, which is exactly what used to be
+	 * impossible (the endpoint answered 404 forever).
+	 */
+	const codes: Array<
+		[(typeof EXTRACTION_ERROR_CODES)[number], userRetryable: boolean]
+	> = [
+		["tier_unavailable", true],
+		["auth_failed", true],
+		["backend_misconfigured", true],
+		["too_large", false],
+		["unsupported_type", false],
+		["empty_result", false],
+		["internal", false],
 	];
 
-	it.each(codes)("%s fails once and is not user-retryable", async (code) => {
-		const { jobId, artifactId } = await seedJob({ name: `${code}.pdf` });
-		const extractor = createFakeExtractor({ steps: [{ kind: "throw", code }] });
+	it.each(codes)(
+		"%s fails once, user-retryable: %s",
+		async (code, userRetryable) => {
+			const { jobId, artifactId } = await seedJob({ name: `${code}.pdf` });
+			const extractor = createFakeExtractor({
+				steps: [{ kind: "throw", code }],
+			});
 
-		expect(await runOnce(extractor)).toEqual({ jobId, status: "failed" });
-		expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
+			expect(await runOnce(extractor)).toEqual({ jobId, status: "failed" });
+			expect(await ledger.listExtractionJobAttempts(jobId)).toHaveLength(1);
 
-		const dto = await readModel.getExtractionJobForArtifact({
-			userId: "user-1",
-			artifactId,
-		});
-		expect(dto?.status).toBe("failed");
-		expect(dto?.error?.code).toBe(code);
-		expect(dto?.retryable).toBe(false);
-	});
+			const dto = await readModel.getExtractionJobForArtifact({
+				userId: "user-1",
+				artifactId,
+			});
+			expect(dto?.status).toBe("failed");
+			expect(dto?.error?.code).toBe(code);
+			expect(dto?.retryable).toBe(userRetryable);
+		},
+	);
 });
 
 describe("5 — a worker restart resumes the remote job", () => {
@@ -248,6 +266,7 @@ describe("5 — a worker restart resumes the remote job", () => {
 			maxAttempts: 3,
 			retryBaseMs: 2000,
 			retryMaxMs: 60000,
+			outageWindowMs: 1_800_000,
 		});
 		await running;
 		clearBackoffGates();
@@ -272,7 +291,7 @@ describe("6 — a forgotten handle is cleared and the next attempt submits fresh
 		const { jobId } = await seedJob({ name: "forgotten.pdf" });
 		const extractor = createFakeExtractor({
 			steps: [
-				{ kind: "throw", code: "unavailable" },
+				{ kind: "throw", code: "job_failed" },
 				{ kind: "forget-handle" },
 				{ kind: "succeed" },
 			],

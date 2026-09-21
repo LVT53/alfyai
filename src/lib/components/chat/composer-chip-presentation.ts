@@ -12,7 +12,10 @@ import type {
 	DocumentExtractionStatus,
 	ExtractionErrorCode,
 } from "$lib/shared/extraction-status";
-import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
+import {
+	isExtractionWaitingForBackend,
+	isTerminalExtractionStatus,
+} from "$lib/shared/extraction-status";
 import { displayablePageCountUnit } from "$lib/shared/page-count";
 import { getFileType } from "./attachment-file-type";
 import type { ComposerChipKind } from "./composer-chip-kinds";
@@ -198,6 +201,14 @@ export function extractionReasonKey(item: {
 			? `chat.extraction.error.${item.errorCode}`
 			: "chat.extraction.failed";
 	}
+	if (
+		isExtractionWaitingForBackend({
+			status: item.status,
+			error: item.errorCode ? { code: item.errorCode, message: "" } : null,
+		})
+	) {
+		return "chat.extraction.waitingForBackend";
+	}
 	return EXTRACTION_PROGRESS_KEYS[item.status] ?? "chat.extraction.queued";
 }
 
@@ -250,7 +261,15 @@ export function extractionChipState(
 	}
 
 	return {
-		progressKey: EXTRACTION_PROGRESS_KEYS[job.status] ?? null,
+		// A job queued behind an outage backoff is still going to be read — the
+		// worker re-drains at `nextAttemptAt` with no user action — so this stays
+		// a progress clause rather than becoming a red failure. What it must not
+		// do is say "Waiting to be read" for half an hour while a backend is
+		// down: that reads as a stuck app, and the user goes looking for a button
+		// that should not exist.
+		progressKey: isExtractionWaitingForBackend(job)
+			? "chat.extraction.waitingForBackend"
+			: (EXTRACTION_PROGRESS_KEYS[job.status] ?? null),
 		errorKey: null,
 		dashed: true,
 		canRetry: false,

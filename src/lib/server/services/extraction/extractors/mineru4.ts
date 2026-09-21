@@ -85,6 +85,7 @@ import {
 	abortDiscardsRemoteWork,
 	DocumentExtractionError,
 	EXTRACTION_HANDLE_VERSION,
+	extractionErrorMessage,
 } from "../contracts";
 
 export const MINERU4_EXTRACTOR_NAME = "mineru4";
@@ -204,9 +205,14 @@ function probeFailureToExtractionError(
 ): DocumentExtractionError {
 	return new DocumentExtractionError({
 		code: error.code,
-		message: error.message,
+		// `backend_misconfigured` carries the endpoint and the fix, which is more
+		// useful than the generic sentence; everything else takes the code's.
+		message:
+			error.code === "backend_misconfigured"
+				? error.message
+				: extractionErrorMessage(error.code, error.message),
 		retryable: error.code === "protocol" ? false : undefined,
-		details: { stage: "capabilities" },
+		details: { stage: "capabilities", rawMessage: error.message },
 		cause: error,
 	});
 }
@@ -352,6 +358,9 @@ export function createMineru4Extractor(
 	return {
 		name: MINERU4_EXTRACTOR_NAME,
 		supportsResume: true,
+		// `extract` DELETEs the remote job itself when the abort says
+		// `user-cancel` (see the catch below), so the worker must not do it again.
+		cancelsOnAbort: true,
 
 		async extract(
 			request: ExtractDocumentRequest,
@@ -565,14 +574,21 @@ export function createMineru4Extractor(
 
 				const failure = mapMineruJobFailure(job, { canceledByUs });
 				if (failure) {
+					const upstream = `MinerU job ${jobId} failed: ${
+						job.files[0]?.error?.message ?? failure.reason
+					}`;
 					throw new DocumentExtractionError({
 						code: failure.taxonomy,
-						message: `MinerU job ${jobId} failed: ${
-							job.files[0]?.error?.message ?? failure.reason
-						}`,
+						// "MinerU job job_0001 failed: Unsupported file type: x.avif"
+						// is an operator's line, not an answer to "what do I do now".
+						message: extractionErrorMessage(failure.taxonomy, upstream),
 						retryable: failure.retryable,
 						handleUnknown: failure.handleUnknown,
-						details: { mineruRule: failure.rule, jobStatus: job.status },
+						details: {
+							mineruRule: failure.rule,
+							jobStatus: job.status,
+							rawMessage: upstream,
+						},
 					});
 				}
 

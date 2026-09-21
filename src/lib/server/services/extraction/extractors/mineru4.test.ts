@@ -407,7 +407,10 @@ describe("a backend that is not MinerU 4", () => {
 			.catch((thrown) => thrown);
 
 		expect(isDocumentExtractionError(error)).toBe(true);
-		expect(error).toMatchObject({ code: "protocol", retryable: false });
+		expect(error).toMatchObject({
+			code: "backend_misconfigured",
+			retryable: false,
+		});
 		expect(String((error as Error).message)).toContain("not a MinerU 4 server");
 		expect(
 			server.requests.some((entry) => entry.path.includes("/v1/uploads")),
@@ -427,7 +430,7 @@ describe("a backend that is not MinerU 4", () => {
 		});
 
 		expect(report.reachable).toBe(false);
-		expect(report.error?.code).toBe("protocol");
+		expect(report.error?.code).toBe("backend_misconfigured");
 		expect(report.error?.message).toContain("not a MinerU 4 server");
 		expect(report.error?.message).toContain(
 			"MinerU 3.x is no longer supported",

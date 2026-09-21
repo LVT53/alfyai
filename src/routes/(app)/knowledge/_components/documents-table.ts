@@ -15,7 +15,10 @@ import type {
 	DocumentExtractionStatus,
 	ExtractionErrorCode,
 } from "$lib/shared/extraction-status";
-import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
+import {
+	isExtractionWaitingForBackend,
+	isTerminalExtractionStatus,
+} from "$lib/shared/extraction-status";
 
 /**
  * Every row of this table is a library row, so the extraction verdict the
@@ -72,6 +75,7 @@ const EXTRACTION_ERROR_KEYS: Record<ExtractionErrorCode, I18nKey> = {
 	unavailable: "knowledge.extraction.error.unavailable",
 	tier_unavailable: "knowledge.extraction.error.tier_unavailable",
 	auth_failed: "knowledge.extraction.error.auth_failed",
+	backend_misconfigured: "knowledge.extraction.error.backend_misconfigured",
 	too_large: "knowledge.extraction.error.too_large",
 	rate_limited: "knowledge.extraction.error.rate_limited",
 	job_failed: "knowledge.extraction.error.job_failed",
@@ -101,12 +105,18 @@ export function extractionErrorKey(code: ExtractionErrorCode): I18nKey {
 }
 
 /**
- * The sentence under a failed row. A failure with no code at all is still a
- * failure, so it falls back to the generic one rather than rendering blank.
+ * The sentence under a failed row — or under a queued one that is waiting for
+ * a backend that is down, which is the one non-terminal state that owes the
+ * user an explanation. "Queued" alone, for half an hour, looks like a stuck
+ * app; "the document service is not reachable right now, we'll keep trying" is
+ * the truth and needs no action from them.
  */
 export function extractionDetailKey(
 	job: DocumentExtractionJobDTO,
 ): I18nKey | null {
+	if (isExtractionWaitingForBackend(job)) {
+		return "knowledge.extraction.status.waitingForBackend";
+	}
 	if (job.status !== "failed" && job.status !== "canceled") return null;
 	if (!job.error) {
 		return job.status === "canceled"
