@@ -8,11 +8,9 @@
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	resetMineruCapabilitiesCacheForTests,
-	setMineruProbeClientFactory,
-} from "$lib/server/services/mineru/capabilities";
+import { resetMineruCapabilitiesCacheForTests } from "$lib/server/services/mineru/capabilities";
 import { MineruClient } from "$lib/server/services/mineru/client";
 import type { MineruConfig } from "$lib/server/services/mineru/config";
 import {
@@ -547,6 +545,85 @@ describe("mapped failures", () => {
 	});
 });
 
+describe("hostile and oversized downloads", () => {
+	it("refuses a zip whose entry escapes the bundle directory", async () => {
+		await start();
+		const before = await tempDirCount();
+		const zip = new JSZip();
+		// A traversal entry beside a perfectly valid payload: the reader must
+		// refuse the archive rather than quietly skip the entry, because a
+		// skipped entry is a decision nobody reviewed.
+		zip.file(
+			"structured_content.json",
+			JSON.stringify({ pages: [], metadata: {}, extensions: {} }),
+		);
+		zip.file("../escape.txt", "owned");
+		const bytes = await zip.generateAsync({ type: "nodebuffer" });
+
+		const resolved = config(server.baseUrl);
+		const client = new MineruClient({ config: resolved });
+		vi.spyOn(client, "downloadFile").mockImplementation(async (input) => {
+			await writeFile(input.destinationPathAbsolute, bytes);
+			return { bytes: bytes.byteLength };
+		});
+
+		const { request } = await buildRequest();
+		await expect(
+			createMineru4Extractor({
+				resolveConfig: () => resolved,
+				createClient: () => client,
+			}).extract(request),
+		).rejects.toMatchObject({
+			code: "protocol",
+			details: { mineruResultCode: "zip_entry_rejected" },
+		});
+		expect(await tempDirCount()).toBe(before);
+	});
+
+	it("aborts a download that runs past the size the job promised", async () => {
+		await start();
+		const before = await tempDirCount();
+		// The cap is `max(bundleMaxBytes, expectedBytes)`: a job may always
+		// deliver the bytes it declared, whatever the bundle budget says. So the
+		// only way past it is a stream that runs past its own declared length,
+		// and the download must stop mid-stream rather than write the whole thing
+		// and complain afterwards.
+		const resolved = config(server.baseUrl, { bundleMaxBytes: 1024 });
+		const client = new MineruClient({
+			config: resolved,
+			fetchImpl: async (input, init) => {
+				const url = String(
+					typeof input === "string" ? input : (input as Request).url,
+				);
+				if (!url.includes("/v1/files/")) return fetch(input, init);
+				const real = await fetch(input, init);
+				const promised = Number(real.headers.get("content-length") ?? 0);
+				await real.arrayBuffer();
+				// Twice what `output_files.zip.bytes` declared: the cap is
+				// max(bundleMaxBytes, expectedBytes), so this is the only way a
+				// stream can blow through it.
+				return new Response(Buffer.alloc(promised * 2 + 1024), {
+					status: 200,
+					headers: { "content-type": "application/octet-stream" },
+				});
+			},
+		});
+
+		const { request } = await buildRequest();
+		await expect(
+			createMineru4Extractor({
+				resolveConfig: () => resolved,
+				createClient: () => client,
+			}).extract(request),
+		).rejects.toMatchObject({
+			code: "protocol",
+			retryable: true,
+			details: { mineruCode: "client_download_too_large" },
+		});
+		expect(await tempDirCount()).toBe(before);
+	});
+});
+
 describe("the temp directory", () => {
 	it("is removed after a hostile or unreadable result zip", async () => {
 		await start();
@@ -670,6 +747,25 @@ describe("restart recovery", () => {
 		expect(uploads[0].json).toMatchObject({
 			sha256sum: (uploads[1].json as { sha256sum: string }).sha256sum,
 		});
+	});
+
+	it("never reports a phase backwards while recovering", async () => {
+		// The ledger's state machine refuses `parsing → uploading` and the worker
+		// reads that refusal as a lost claim, aborting the attempt. A recovery
+		// that re-uploads must therefore report the phase it already announced,
+		// not the one it is literally performing — otherwise a survivable server
+		// restart cancels the document.
+		await start({ parseDelayMs: 150, restartAfterMs: 40 });
+		const { request, progress } = await buildRequest();
+
+		await extractorFor().extract(request);
+
+		const order = { uploading: 0, parsing: 1, downloading: 2 } as const;
+		const seen = progress.map((entry) => order[entry.phase]);
+		expect(seen).toEqual([...seen].sort((a, b) => a - b));
+		// And the handle the ledger ends up holding names the SECOND job.
+		const last = progress.filter((entry) => entry.handle).at(-1);
+		expect(last?.handle?.remoteJobId).toBe([...server.jobs.keys()].at(-1));
 	});
 
 	it("resumes a stored handle without a second upload", async () => {

@@ -472,12 +472,30 @@ export function createMineru4Extractor(
 			let tempDir: string | null = null;
 			let canceledByUs = false;
 
+			// A phase is never reported BACKWARDS.
+			//
+			// The ledger's state machine refuses `parsing → uploading`, and the
+			// worker reads that refusal as "this attempt lost its claim" and aborts
+			// the signal — which a restart recovery would otherwise trigger on
+			// itself, turning a recoverable server restart into a canceled
+			// document. Re-submitting after a forgotten id genuinely does upload
+			// again, but the JOB has not gone backwards, so the report is clamped
+			// to the furthest phase this attempt has already announced. Repeating a
+			// phase is legal and is a pure heartbeat.
+			const PHASE_ORDER = { uploading: 0, parsing: 1, downloading: 2 } as const;
+			let reported: keyof typeof PHASE_ORDER | null = null;
+
 			const emit = (
-				phase: "uploading" | "parsing" | "downloading",
+				phase: keyof typeof PHASE_ORDER,
 				withHandle: boolean,
 			): void => {
+				const effective =
+					reported && PHASE_ORDER[reported] > PHASE_ORDER[phase]
+						? reported
+						: phase;
+				reported = effective;
 				request.onProgress({
-					phase,
+					phase: effective,
 					...(withHandle ? { handle: toHandle(state, sha256 as string) } : {}),
 				});
 			};
