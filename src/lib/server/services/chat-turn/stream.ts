@@ -51,10 +51,7 @@ export {
 // Internal helpers (moved to sub-modules, retained here for local use)
 // ---------------------------------------------------------------------------
 import { getNestedObject } from "$lib/services/stream-protocol";
-import {
-	isFileProductionToolName,
-	toolCallInputKey,
-} from "$lib/utils/tool-calls";
+import { toolCallInputKey } from "$lib/utils/tool-calls";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const SSE_HEADERS = {
@@ -633,7 +630,20 @@ export function createServerChunkRuntime({
 		status: "running" | "done" | "failed",
 		details?: StreamToolCallDetails,
 	) => {
-		const shouldStoreThinkingSegment = !isFileProductionToolName(name);
+		// EVERY tool call is stored as a thinking segment, `produce_file`
+		// included.
+		//
+		// `serverSegments` is what `messages.toolCalls` stores and what the NEXT
+		// turn's native history replays (conversation-history.ts), so a call
+		// left out of it is a call the model has no evidence of having made.
+		// `produce_file` used to be left out — the file card is rendered from
+		// the job read-model, so the segment looked like duplicate UI — and the
+		// result was a model that had produced a PDF one turn earlier, saw
+		// nothing about it in its own history, and retracted a true statement
+		// about it. The UI still hides it: every segment consumer filters
+		// through `isVisibleThinkingToolCall`, which drops file-production
+		// calls by name. The recorded input is already the SANITIZED one
+		// (`sanitizeProduceFileInput`) — shapes and hashes, never the bytes.
 		const rawCallId = details?.callId;
 		const callId = rawCallId
 			? (toolCallAliases.get(rawCallId) ?? rawCallId)
@@ -733,15 +743,13 @@ export function createServerChunkRuntime({
 		);
 
 		if (status === "running") {
-			if (shouldStoreThinkingSegment) {
-				serverSegments.push({
-					type: "tool_call",
-					...(callId ? { callId } : {}),
-					name,
-					input,
-					status: "running",
-				});
-			}
+			serverSegments.push({
+				type: "tool_call",
+				...(callId ? { callId } : {}),
+				name,
+				input,
+				status: "running",
+			});
 			toolCallRecords.push({
 				...(callId ? { callId } : {}),
 				name,
@@ -751,29 +759,27 @@ export function createServerChunkRuntime({
 			return;
 		}
 
-		if (shouldStoreThinkingSegment) {
-			for (let i = serverSegments.length - 1; i >= 0; i--) {
-				const segment = serverSegments[i];
-				if (
-					segment.type === "tool_call" &&
-					segment.name === name &&
-					segment.status === "running" &&
-					(callId ? segment.callId === callId : true)
-				) {
-					// `status` here is the terminal value passed in by the caller —
-					// "done" or "failed" — never re-derived as a hardcoded "done".
-					segment.status = status;
-					if (Object.keys(input).length > 0) {
-						segment.input = input;
-					}
-					segment.outputSummary = details?.outputSummary ?? null;
-					segment.resultDigest = details?.resultDigest ?? null;
-					segment.sourceType = details?.sourceType ?? null;
-					segment.candidates = details?.candidates;
-					segment.metadata = details?.metadata;
-					segment.map = details?.map ?? null;
-					break;
+		for (let i = serverSegments.length - 1; i >= 0; i--) {
+			const segment = serverSegments[i];
+			if (
+				segment.type === "tool_call" &&
+				segment.name === name &&
+				segment.status === "running" &&
+				(callId ? segment.callId === callId : true)
+			) {
+				// `status` here is the terminal value passed in by the caller —
+				// "done" or "failed" — never re-derived as a hardcoded "done".
+				segment.status = status;
+				if (Object.keys(input).length > 0) {
+					segment.input = input;
 				}
+				segment.outputSummary = details?.outputSummary ?? null;
+				segment.resultDigest = details?.resultDigest ?? null;
+				segment.sourceType = details?.sourceType ?? null;
+				segment.candidates = details?.candidates;
+				segment.metadata = details?.metadata;
+				segment.map = details?.map ?? null;
+				break;
 			}
 		}
 
@@ -793,21 +799,19 @@ export function createServerChunkRuntime({
 				map: details?.map ?? null,
 			};
 			toolCallRecords.push(terminalRecord);
-			if (shouldStoreThinkingSegment) {
-				serverSegments.push({
-					type: "tool_call",
-					...(callId ? { callId } : {}),
-					name,
-					input,
-					status,
-					outputSummary: details?.outputSummary ?? null,
-					resultDigest: details?.resultDigest ?? null,
-					sourceType: details?.sourceType ?? null,
-					candidates: details?.candidates,
-					metadata: details?.metadata,
-					map: details?.map ?? null,
-				});
-			}
+			serverSegments.push({
+				type: "tool_call",
+				...(callId ? { callId } : {}),
+				name,
+				input,
+				status,
+				outputSummary: details?.outputSummary ?? null,
+				resultDigest: details?.resultDigest ?? null,
+				sourceType: details?.sourceType ?? null,
+				candidates: details?.candidates,
+				metadata: details?.metadata,
+				map: details?.map ?? null,
+			});
 			return;
 		}
 		for (let i = toolCallRecords.length - 1; i >= 0; i--) {

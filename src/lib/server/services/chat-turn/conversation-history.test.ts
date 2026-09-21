@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildHistoryModelMessages,
 	buildHistoryToolDigest,
+	estimateHistoryMessagesTokens,
 	type HistoryTurn,
 	historyToolCallId,
 	renderHistoryAsText,
@@ -331,6 +332,81 @@ describe("digest and text rendering", () => {
 			summary: "Found 3 events.",
 			sources: [{ title: "Standup" }],
 		});
+	});
+
+	// The live failure this pins: a model produced `tobacco-cost-breakdown.pdf`
+	// in turn 1, was asked "what is in the file you just made?" in turn 2, and
+	// found NO evidence in its own history that it had produced anything —
+	// `produce_file` was the one tool whose segment was never persisted. It
+	// then retracted a true statement and produced a second PDF. The digest
+	// below is what the next turn now sees: the filenames and job verdict in
+	// the summary, and the way back into the file in the detail.
+	it("carries a produce_file call and its outcome into the next turn's history", () => {
+		const segment = {
+			type: "tool_call" as const,
+			callId: "call_pf",
+			name: "produce_file",
+			input: {
+				requestTitle: "Tobacco cost breakdown",
+				requestedOutputs: [{ type: "pdf" }],
+				sourceMode: "document_source",
+				documentSource: {
+					contentHash: "9f1c2a",
+					topLevelKeyCount: 4,
+					serializedLength: 2184,
+				},
+			},
+			status: "done" as const,
+			outputSummary:
+				"File production job job-42 succeeded: tobacco-cost-breakdown.pdf.",
+			resultDigest:
+				'Read it back with read_generated_file({filename:"tobacco-cost-breakdown.pdf"}).',
+			metadata: { ok: true, jobStatus: "succeeded", jobId: "job-42" },
+		};
+
+		expect(buildHistoryToolDigest(segment)).toEqual({
+			ok: true,
+			summary:
+				"File production job job-42 succeeded: tobacco-cost-breakdown.pdf.",
+			detail:
+				'Read it back with read_generated_file({filename:"tobacco-cost-breakdown.pdf"}).',
+		});
+
+		const out = renderHistoryTurn(
+			turn("Make me a cost breakdown PDF", {
+				content: "PDF attached.",
+				thinkingSegments: [segment],
+			}),
+			"native",
+		);
+		const toolMessage = out.find((message) => message.role === "tool");
+		expect(toolMessage).toBeDefined();
+		expect(JSON.stringify(toolMessage)).toContain("tobacco-cost-breakdown.pdf");
+
+		// The digest must stay cheap: it is paid on every turn the produced
+		// file is still inside the history window. The document bytes never ride
+		// along — `sanitizeProduceFileInput` reduces the source to a hash, a key
+		// count and a length before it is ever recorded.
+		const cost = estimateHistoryMessagesTokens(out, estimate);
+		const baseline = estimateHistoryMessagesTokens(
+			renderHistoryTurn(
+				turn("Make me a cost breakdown PDF", { content: "PDF attached." }),
+				"native",
+			),
+			estimate,
+		);
+		// 83 estimated tokens for this call as measured (49 of them the digest,
+		// 25 the trimmed input, the rest message framing); it was 108 before the
+		// input trim below.
+		expect(cost - baseline).toBeLessThan(100);
+		// The telemetry-only shape of the source (a hash, a key count, a byte
+		// length) is not something the model can use a turn later, so it does
+		// not ride along — and the document bytes never did.
+		const serialized = JSON.stringify(out);
+		expect(serialized).not.toContain("contentHash");
+		expect(serialized).not.toContain("serializedLength");
+		expect(serialized).not.toContain("blocks");
+		expect(serialized).toContain("document_source");
 	});
 
 	it("renders history as flat text for control calls", () => {
