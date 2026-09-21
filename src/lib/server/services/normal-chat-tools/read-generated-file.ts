@@ -167,7 +167,7 @@ async function resolveBestContent(
 
 const MAX_QUERY_LENGTH = 300;
 
-/** The four fields the model is told about. */
+/** The five fields the model is told about. */
 const readGeneratedFileAdvertisedFields = {
 	filename: z.string().min(1).optional(),
 	requestTitle: z.string().min(1).optional(),
@@ -187,6 +187,19 @@ const readGeneratedFileAdvertisedFields = {
 		.describe(
 			"Instead of the text window, return up to 3 passages of this one file about the query.",
 		),
+	// `.catch(undefined)` is what keeps a malformed `page` from failing the
+	// whole tool call: it drops the value during the SDK's own validation, so
+	// the call proceeds without it. It does not change the serialised JSON
+	// Schema by one byte — `read-generated-file.test.ts` pins that.
+	page: z
+		.number()
+		.int()
+		.min(1)
+		.optional()
+		.catch(undefined)
+		.describe(
+			"1-based page to start at, for a paged document. `query` and `from` take precedence.",
+		),
 };
 
 /**
@@ -195,33 +208,31 @@ const readGeneratedFileAdvertisedFields = {
  * caches in 1 600-token blocks, so a byte added here invalidates every block
  * from that offset onward and costs a full re-warm.
  *
- * Adding `page` to it measures at +180 bytes of JSON Schema, and the
- * orchestrator's OQ5 ruling is that every model-facing prose and schema change
- * of this migration ships together in ONE release (Phase 6) so that eviction is
- * paid once. So `page` is implemented, accepted and tested — and NOT advertised
- * yet.
+ * Phase 4 added `page` but left it undocumented behind a `looseObject`,
+ * because advertising it costs 165 bytes here (538 → 703) and OQ5 rules that
+ * every model-facing prose and schema change of this migration ships in ONE
+ * release so the eviction is paid once. This is that release (slice P6-D), so
+ * the object is strict again and `page` is in it.
  *
- * `looseObject` rather than `object` is what makes "accepted" true: a strict
- * object strips unknown keys during the SDK's tool-call validation, so a `page`
- * would never reach `execute`. A loose one keeps it, and — measured against
- * `asSchema` from the AI SDK, the same conversion the request uses — serialises
- * BYTE-IDENTICALLY to the strict object it replaced. `read-generated-file.test.ts`
- * pins that byte string, so the day someone adds a field here, the test says so.
+ * `looseObject` is no longer needed for `page` to reach `execute` — a declared
+ * field is kept by definition — and a strict object is the better contract: it
+ * strips the unknown keys a model invents instead of forwarding them.
+ * `read-generated-file.test.ts` pins the serialised byte string, so the day
+ * someone adds a field here, the test says so.
  */
-export const readGeneratedFileInputSchema = z.looseObject(
+export const readGeneratedFileInputSchema = z.object(
 	readGeneratedFileAdvertisedFields,
 );
 
 /**
- * What `execute` actually reads: the advertised fields plus the undocumented
- * `page`. A `page` that is not a 1-based integer is dropped rather than
- * failing the call — an undocumented parameter must never be the reason a tool
- * call errors.
+ * What `execute` actually reads. Identical to the advertised schema since
+ * `page` became advertised; it stays a separate export because `execute`
+ * parses its input again, and the two are free to diverge if a field is ever
+ * accepted without being offered.
  */
-export const readGeneratedFileExecutionInputSchema = z.object({
-	...readGeneratedFileAdvertisedFields,
-	page: z.number().int().min(1).optional().catch(undefined),
-});
+export const readGeneratedFileExecutionInputSchema = z.object(
+	readGeneratedFileAdvertisedFields,
+);
 
 export type ReadGeneratedFileInput = z.infer<
 	typeof readGeneratedFileExecutionInputSchema

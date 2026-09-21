@@ -104,6 +104,7 @@ import {
 	buildSameTurnProduceFileDedupeKey,
 	buildScopedIdempotencyKey,
 	createProduceFileToolCallEntry,
+	isInlineTextRequest,
 	MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN,
 	MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS,
 	normalizeProduceFileInput,
@@ -283,12 +284,12 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		produce_file: {
 			description:
-				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write its file into `/output` (e.g. `/output/report.xlsx`) — a bare filename lands outside `/output` and is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.",
+				"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. Do not mix PDF/DOCX/HTML with md/txt/csv/tsv/json/code in one request; call twice. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write its file into `/output` (e.g. `/output/report.xlsx`) — a bare filename lands outside `/output` and is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.",
 			errorPrefix: "File production intake failed",
 		},
 		read_generated_file: {
 			description:
-				"Read the full current text of a file in THIS conversation — one produced here, or a document uploaded or linked here (the names under Conversation Files) — by `filename` or `requestTitle`. Call it before sending `produce_file` patches (a patch whose oldText does not match exactly is rejected), or when the user wants more of a document than your context shows. Long text comes in windows: when the result says `hasMore`, call again with `from: nextFrom`. Pass `query` to get up to 3 passages of that one file about a topic instead of the window. Do not use it for connected cloud storage (files), web pages (fetch_url), remembered preferences (memory_context), or when the passage you need is already quoted in your context. Returns text with `hasMore`/`nextFrom`, or not found / ambiguous (several files match — retry with one exact name); then say so instead of guessing.",
+				"Read the full current text of a file in THIS conversation — one produced here, or a document uploaded or linked here (the names under Conversation Files) — by `filename` or `requestTitle`. Call it before sending `produce_file` patches (a patch whose oldText does not match exactly is rejected), or when the user wants more of a document than your context shows. Long text comes in windows: when the result says `hasMore`, call again with `from: nextFrom`. Pass `query` to get up to 3 passages of that one file about a topic instead of the window. For a paged document, pass `page`; context excerpts carry citable `[p. 3]`/`[slide 2]` markers. Do not use it for connected cloud storage (files), web pages (fetch_url), remembered preferences (memory_context), or when the passage you need is already quoted in your context. Returns text with `hasMore`/`nextFrom`, or not found / ambiguous (several files match — retry with one exact name); then say so instead of guessing.",
 			errorPrefix: "Read generated file failed",
 		},
 		run_python: {
@@ -375,12 +376,12 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 		produce_file: {
 			description:
-				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.",
+				"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Egy kérésben ne keverd a PDF/DOCX/HTML formátumokat az md/txt/csv/tsv/json/code fájlokkal; hívd meg kétszer. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.",
 			errorPrefix: "A fájl-előállítás sikertelen",
 		},
 		read_generated_file: {
 			description:
-				"Egy EBBEN a beszélgetésben lévő fájl teljes aktuális szövegének beolvasása — itt előállított fájlé, vagy ide feltöltött/csatolt dokumentumé (a Conversation Files alatti nevek) — `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél (a pontosan nem egyező oldText-ű patch-et a szerver elutasítja), vagy ha a felhasználó többet kér egy dokumentumból, mint amennyit a kontextusod mutat. A hosszú szöveg ablakokban érkezik: ha az eredményben `hasMore` áll, hívd újra `from: nextFrom` értékkel. A `query` megadásával az ablak helyett annak az egy fájlnak legfeljebb 3, a témához tartozó részletét kapod. Ne használd csatlakoztatott felhőtárhoz (files), weboldalhoz (fetch_url), megjegyzett preferenciákhoz (memory_context), sem akkor, ha a szükséges részlet már idézve van a kontextusodban. Szöveget ad vissza `hasMore`/`nextFrom` mezőkkel, vagy azt, hogy nincs meg / több fájl is egyezik (akkor hívd újra egy pontos névvel); ilyenkor mondd ki, ne találgass.",
+				"Egy EBBEN a beszélgetésben lévő fájl teljes aktuális szövegének beolvasása — itt előállított fájlé, vagy ide feltöltött/csatolt dokumentumé (a Conversation Files alatti nevek) — `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél (a pontosan nem egyező oldText-ű patch-et a szerver elutasítja), vagy ha a felhasználó többet kér egy dokumentumból, mint amennyit a kontextusod mutat. A hosszú szöveg ablakokban érkezik: ha az eredményben `hasMore` áll, hívd újra `from: nextFrom` értékkel. A `query` megadásával az ablak helyett annak az egy fájlnak legfeljebb 3, a témához tartozó részletét kapod. Oldalszámozott dokumentumnál a `page` megadásával onnan indul az olvasás; a kontextusodban lévő részletek `[p. 3]`/`[slide 2]` jelölései idézhetők. Ne használd csatlakoztatott felhőtárhoz (files), weboldalhoz (fetch_url), megjegyzett preferenciákhoz (memory_context), sem akkor, ha a szükséges részlet már idézve van a kontextusodban. Szöveget ad vissza `hasMore`/`nextFrom` mezőkkel, vagy azt, hogy nincs meg / több fájl is egyezik (akkor hívd újra egy pontos névvel); ilyenkor mondd ki, ne találgass.",
 			errorPrefix: "A fájl beolvasása sikertelen",
 		},
 		run_python: {
@@ -1143,7 +1144,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							intakeStatus: 422,
 						});
 					}
-					const normalizedInput = normalized.input;
+					let normalizedInput = normalized.input;
 
 					// Resolve patches: if the model provided surgical edits instead of full content,
 					// fetch the previous version and apply patches to reconstruct the full file.
@@ -1179,10 +1180,51 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								intakeStatus: 422,
 							});
 						}
-						normalizedInput.program.sourceCode = buildResolvedProgramSource(
-							normalizedInput.program.filename ?? "generated-file.txt",
-							patchResult.resolvedText,
-						);
+						// Phase 6 D8. `normalizeProduceFileInput` sends every
+						// patch-carrying request down the program path, because only
+						// here — after the previous version has been fetched — do the
+						// patched bytes exist. But once they do, a request whose
+						// outputs are ALL plain-text types is indistinguishable from
+						// the content-carrying request that would have been written
+						// inline: same bytes, same types, no renderer and no sandbox.
+						// Patching a `.md` was starting a Docker container to run a
+						// generated `write_text` one-liner.
+						//
+						// Re-normalising the patched text as `content` rather than
+						// building the inline request here is deliberate: filename
+						// resolution, the mixed-group refusal and the inline-vs-program
+						// decision stay in ONE place, so a patched file can never be
+						// named differently from the same file sent whole. If that
+						// re-normalisation refuses (a patch that leaves the file too
+						// short to look substantive), the program path below still
+						// runs, so no request that worked before stops working.
+						const patchedInline = isInlineTextRequest(
+							normalizedInput.requestedOutputs.map((output) => output.type),
+						)
+							? normalizeProduceFileInput({
+									...parsedInput.data,
+									requestTitle: normalizedInput.requestTitle,
+									requestedOutputs: normalizedInput.requestedOutputs,
+									content: patchResult.resolvedText,
+									markdown: undefined,
+									text: undefined,
+									patches: undefined,
+									sourceMode: undefined,
+									program: undefined,
+									documentSource: undefined,
+								})
+							: null;
+						if (
+							patchedInline?.ok &&
+							patchedInline.input.sourceMode === "inline_text"
+						) {
+							normalizedInput = patchedInline.input;
+						} else {
+							normalizedInput.program.sourceCode = buildResolvedProgramSource(
+								normalizedInput.program.filename ?? "generated-file.txt",
+								patchResult.resolvedText,
+							);
+						}
 					}
 					const { patches: _patches, ...intakeNormalizedInput } =
 						normalizedInput;

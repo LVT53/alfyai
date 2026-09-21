@@ -5,11 +5,24 @@
 // `$lib/server/services/normal-chat-tools/index.ts` and
 // `$lib/server/services/knowledge/store/attachments.ts`.
 //
-// NOTE for slice E: the `produce_file` tool descriptions and `prompts.ts`'s
-// row stay HAND-WRITTEN. They sit inside a cached prompt prefix (Flash-Next
-// caches on 1600-token blocks), so a one-character change evicts every cached
-// prefix for every user. `format-prose.test.ts` verifies them against the
-// registry instead of generating them.
+// The `produce_file` tool descriptions and `prompts.ts`'s row stay
+// HAND-WRITTEN. They sit inside a cached prompt prefix (Flash-Next caches on
+// 1600-token blocks), so a one-character change evicts every cached prefix for
+// every user. `format-prose.test.ts` verifies them against the registry
+// instead of generating them.
+//
+// Slice P6-D re-confirmed that with the numbers in front of it, since it was
+// the one slice allowed to change those strings: `getProducibleFormatList`
+// now renders 41 tokens / 243 characters per locale, against the six-format
+// "(PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...)" the prose actually carries —
+// and a DERIVED string would move the cached prefix on every future registry
+// edit, turning a one-off eviction into a recurring one. The list stays where
+// a human can weigh each word; the ASSERTIONS are what is derived.
+//
+// `getProducibleFormatList` therefore still has no prompt consumer. It is not
+// dead: it is the honest answer to "what can produce_file make?" for any
+// surface that wants the whole list rather than a curated six, and
+// `model-facing.test.ts` keeps it in step with the table.
 
 import { FILE_TYPE_ENTRIES } from "./table";
 

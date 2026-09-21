@@ -12,9 +12,11 @@
 //   3. the EN and HU descriptions name the SAME formats, which nothing
 //      checked before (spec section 7, "HU tool description drift").
 //
-// Where the prose and the code genuinely disagree today, the disagreement is
-// recorded in KNOWN_PROSE_EXCEPTIONS rather than fixed: fixing prose means
-// taking the cache eviction, which is scheduled for a later phase.
+// Slice P6-D took that eviction, once, for the whole MinerU 4 migration, so
+// the disagreements this file used to record as KNOWN_PROSE_EXCEPTIONS are
+// gone except `.xls`, which only the unchangeable migration baseline names.
+// A new exception is not a way to land prose that is not true: the frozen
+// copies below are re-frozen deliberately, in the commit that changes them.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -49,19 +51,16 @@ const SOURCE_SCHEMA = read(
 const KNOWN_PROSE_EXCEPTIONS = {
 	/**
 	 * Formats the built-in skill prose names that the registry knows but
-	 * `produce_file` cannot produce. `.tsv` has an entry only so this prose
-	 * resolves (spec open question 12); `.xls` is legacy-Excel, recognised on
-	 * upload and never generated.
+	 * `produce_file` cannot produce. `.xls` is legacy-Excel: recognised on
+	 * upload and never generated, and it is named only by the frozen
+	 * migration baseline, which cannot be reworded.
+	 *
+	 * `.tsv` left this set in slice P6-D — it is now a real direct-text
+	 * upload and a requestable output. Shrinking the set is the only allowed
+	 * direction; a new entry means the prose is promising something the
+	 * registry does not have.
 	 */
-	nonRequestableSkillFormats: new Set(["tsv", "xls"]),
-	/**
-	 * Chart types `documentSource` accepts that the EN/HU `produce_file`
-	 * descriptions do not offer the model. The prose lists five of the seven
-	 * in `GeneratedDocumentChartType`, so a stacked-bar or area chart is
-	 * reachable only by guessing. Fixing the sentence evicts the prompt cache,
-	 * so it is deferred; see the slice-E report.
-	 */
-	chartTypesMissingFromToolProse: ["area", "stackedBar"],
+	nonRequestableSkillFormats: new Set(["xls"]),
 } as const;
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -80,19 +79,19 @@ const FROZEN_PROMPTS_PRODUCE_FILE_GUIDANCE = [
 
 /** src/lib/server/services/normal-chat-tools/index.ts:285 (EN produce_file). */
 const FROZEN_EN_PRODUCE_FILE =
-	"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write its file into `/output` (e.g. `/output/report.xlsx`) — a bare filename lands outside `/output` and is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.";
+	"Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. Do not mix PDF/DOCX/HTML with md/txt/csv/tsv/json/code in one request; call twice. To change an existing file, call `read_generated_file` first, then resend the full content or send `patches` [{oldText, newText}] where each oldText is an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write its file into `/output` (e.g. `/output/report.xlsx`) — a bare filename lands outside `/output` and is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.";
 
 /** src/lib/server/services/normal-chat-tools/index.ts:377 (HU produce_file). */
 const FROZEN_HU_PRODUCE_FILE =
-	"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|line|pie|donut|scatter,title,labelKey,valueKey,data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.";
+	"Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Egy kérésben ne keverd a PDF/DOCX/HTML formátumokat az md/txt/csv/tsv/json/code fájlokkal; hívd meg kétszer. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.";
 
 /** src/lib/server/services/normal-chat-tools/index.ts:290 (EN read_generated_file). */
 const FROZEN_EN_READ_GENERATED_FILE =
-	"Read the full current text of a file in THIS conversation — one produced here, or a document uploaded or linked here (the names under Conversation Files) — by `filename` or `requestTitle`. Call it before sending `produce_file` patches (a patch whose oldText does not match exactly is rejected), or when the user wants more of a document than your context shows. Long text comes in windows: when the result says `hasMore`, call again with `from: nextFrom`. Pass `query` to get up to 3 passages of that one file about a topic instead of the window. Do not use it for connected cloud storage (files), web pages (fetch_url), remembered preferences (memory_context), or when the passage you need is already quoted in your context. Returns text with `hasMore`/`nextFrom`, or not found / ambiguous (several files match — retry with one exact name); then say so instead of guessing.";
+	"Read the full current text of a file in THIS conversation — one produced here, or a document uploaded or linked here (the names under Conversation Files) — by `filename` or `requestTitle`. Call it before sending `produce_file` patches (a patch whose oldText does not match exactly is rejected), or when the user wants more of a document than your context shows. Long text comes in windows: when the result says `hasMore`, call again with `from: nextFrom`. Pass `query` to get up to 3 passages of that one file about a topic instead of the window. For a paged document, pass `page`; context excerpts carry citable `[p. 3]`/`[slide 2]` markers. Do not use it for connected cloud storage (files), web pages (fetch_url), remembered preferences (memory_context), or when the passage you need is already quoted in your context. Returns text with `hasMore`/`nextFrom`, or not found / ambiguous (several files match — retry with one exact name); then say so instead of guessing.";
 
 /** src/lib/server/services/normal-chat-tools/index.ts:382 (HU read_generated_file). */
 const FROZEN_HU_READ_GENERATED_FILE =
-	"Egy EBBEN a beszélgetésben lévő fájl teljes aktuális szövegének beolvasása — itt előállított fájlé, vagy ide feltöltött/csatolt dokumentumé (a Conversation Files alatti nevek) — `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél (a pontosan nem egyező oldText-ű patch-et a szerver elutasítja), vagy ha a felhasználó többet kér egy dokumentumból, mint amennyit a kontextusod mutat. A hosszú szöveg ablakokban érkezik: ha az eredményben `hasMore` áll, hívd újra `from: nextFrom` értékkel. A `query` megadásával az ablak helyett annak az egy fájlnak legfeljebb 3, a témához tartozó részletét kapod. Ne használd csatlakoztatott felhőtárhoz (files), weboldalhoz (fetch_url), megjegyzett preferenciákhoz (memory_context), sem akkor, ha a szükséges részlet már idézve van a kontextusodban. Szöveget ad vissza `hasMore`/`nextFrom` mezőkkel, vagy azt, hogy nincs meg / több fájl is egyezik (akkor hívd újra egy pontos névvel); ilyenkor mondd ki, ne találgass.";
+	"Egy EBBEN a beszélgetésben lévő fájl teljes aktuális szövegének beolvasása — itt előállított fájlé, vagy ide feltöltött/csatolt dokumentumé (a Conversation Files alatti nevek) — `filename` vagy `requestTitle` alapján. Hívd meg, mielőtt `produce_file` patch-eket küldenél (a pontosan nem egyező oldText-ű patch-et a szerver elutasítja), vagy ha a felhasználó többet kér egy dokumentumból, mint amennyit a kontextusod mutat. A hosszú szöveg ablakokban érkezik: ha az eredményben `hasMore` áll, hívd újra `from: nextFrom` értékkel. A `query` megadásával az ablak helyett annak az egy fájlnak legfeljebb 3, a témához tartozó részletét kapod. Oldalszámozott dokumentumnál a `page` megadásával onnan indul az olvasás; a kontextusodban lévő részletek `[p. 3]`/`[slide 2]` jelölései idézhetők. Ne használd csatlakoztatott felhőtárhoz (files), weboldalhoz (fetch_url), megjegyzett preferenciákhoz (memory_context), sem akkor, ha a szükséges részlet már idézve van a kontextusodban. Szöveget ad vissza `hasMore`/`nextFrom` mezőkkel, vagy azt, hogy nincs meg / több fájl is egyezik (akkor hívd újra egy pontos névvel); ilyenkor mondd ki, ne találgass.";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Extraction
@@ -272,25 +271,33 @@ describe("built-in skill prose names only real formats", () => {
 		}
 	});
 
-	it("names exactly two formats produce_file cannot produce", () => {
+	it("names exactly one format produce_file cannot produce", () => {
 		const ids = [...formatIds(USER_SKILLS)].filter(
 			(id) => entryById(id)?.production.requestable === false,
 		);
 		expect(new Set(ids)).toEqual(
 			KNOWN_PROSE_EXCEPTIONS.nonRequestableSkillFormats,
 		);
-		// `.tsv` exists in the registry ONLY so this prose resolves — it is a
-		// deferred MinerU format with no accept string and no output token
-		// (spec open question 12). If it ever becomes producible, delete it
-		// from the exception set rather than widening the set.
-		expect(entryById("tsv")?.intake.route).toBe("reject");
-		expect(entryById("tsv")?.intake.rejectReason).toBe("formatNotEnabled");
+		// `.tsv` was the other one: it had an entry only so this prose
+		// resolved, and slice P5-A made it a real direct-text upload and a
+		// requestable output. The prose that already said "XLSX/CSV/TSV"
+		// became true without being touched, which is why these two
+		// assertions replaced the exception rather than a re-freeze.
+		expect(entryById("tsv")?.intake.route).toBe("direct-text");
+		expect(entryById("tsv")?.production.requestable).toBe(true);
 	});
 
 	it("keeps the eval fixture byte-identical to the shipped skill prose", () => {
 		// Spec row 63: `scripts/skill-eval-fixtures.ts` duplicates the
 		// spreadsheet-builder instructions. A fixture that drifts from the
 		// prose it is meant to measure silently invalidates the eval.
+		//
+		// The duplication stays duplication on purpose. These three lines are
+		// the `previousBuiltInSystemSkillDefaults` MIGRATION BASELINE, which
+		// every user's stored copy is diffed against, so neither side may
+		// change; and importing them would pull `user-skills.ts` — and with it
+		// `$lib/server/db` — into a script whose whole job is to measure prose
+		// offline. The byte-identity below is the cheaper guarantee.
 		const instructionLines = [
 			"Use this skill when the user asks to create, edit, analyze, visualize, or work with spreadsheet files such as .xlsx, .xls, .csv, or .tsv.",
 			'For downloadable XLSX creation, route the work through produce_file with structured tool input: sourceMode: "program", requestedOutputs: [{ "type": "xlsx" }], program: { language: "javascript", sourceCode, filename }, idempotencyKey, requestTitle, and documentIntent.',
@@ -310,24 +317,22 @@ describe("documentSource chart types the tool prose offers", () => {
 		);
 	});
 
-	it("offers only chart types documentSource accepts", () => {
-		const supported = new Set(supportedChartTypes());
-		expect(supported.size).toBeGreaterThan(4);
-		for (const chartType of advertisedChartTypes(FROZEN_EN_PRODUCE_FILE)) {
-			expect(supported.has(chartType), chartType).toBe(true);
-		}
+	it("offers exactly the chart types documentSource accepts", () => {
+		// Bidirectional since slice P6-D: the prose used to name five of the
+		// seven, which left `area` and `stackedBar` reachable only by guessing.
+		// Now every supported type is offered and every offered type is
+		// supported, so neither list can move without the other.
+		const supported = supportedChartTypes();
+		expect(supported.length).toBeGreaterThan(4);
+		expect(advertisedChartTypes(FROZEN_EN_PRODUCE_FILE)).toEqual(supported);
 	});
 
-	it("still hides `area` and `stackedBar` from the model", () => {
-		// A real inconsistency, deliberately NOT fixed in this phase: naming
-		// them would rewrite a cached-prefix string. When the sentence is
-		// rewritten, delete this test and the KNOWN_PROSE_EXCEPTIONS entry.
-		const advertised = new Set(advertisedChartTypes(FROZEN_EN_PRODUCE_FILE));
-		const missing = supportedChartTypes()
-			.filter((chartType) => !advertised.has(chartType))
-			.sort();
-		expect(missing).toEqual([
-			...KNOWN_PROSE_EXCEPTIONS.chartTypesMissingFromToolProse,
-		]);
+	it("tells the model that stackedBar needs a seriesKey", () => {
+		// `source-schema.ts` refuses a stacked bar without one, so advertising
+		// the type without the field would offer a chart that always fails.
+		expect(SOURCE_SCHEMA).toContain('chartType === "stackedBar"');
+		for (const prose of [FROZEN_EN_PRODUCE_FILE, FROZEN_HU_PRODUCE_FILE]) {
+			expect(prose).toContain("seriesKey(stackedBar only)");
+		}
 	});
 });
