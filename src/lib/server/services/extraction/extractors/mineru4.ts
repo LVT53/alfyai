@@ -139,78 +139,24 @@ export function isMineru4StructuredPayload(
 // The capability probe seam
 // ---------------------------------------------------------------------------
 
-/**
- * Routes `capabilities.ts`'s probe through the real protocol client.
- *
- * NOT a bare `new MineruClient({config})`, although the three method signatures
- * match: `capabilities.ts` recognises only its own `MineruProbeError` and maps
- * every other `Error` to `unavailable` (retryable), so a bare client would turn
- * a 404 from a MinerU 3.x server — the one failure that must be permanent —
- * into an outage that retries forever. Translating here keeps that file, which
- * this slice does not own, untouched.
- */
-function createProbeClient(config: MineruConfig): MineruProbeClient {
-	const client = new MineruClient({ config });
-	const origin = mineruDisplayOrigin(config);
-
-	async function guard<T>(
-		path: "/v1/health" | "/v1/tiers" | "/v1/usage",
-		run: () => Promise<T>,
-	): Promise<T> {
-		try {
-			return await run();
-		} catch (error) {
-			throw toProbeError(error, path, origin);
-		}
-	}
-
-	return {
-		getHealth: (signal) => guard("/v1/health", () => client.getHealth(signal)),
-		getTiers: (signal) => guard("/v1/tiers", () => client.getTiers(signal)),
-		getUsage: (signal) => guard("/v1/usage", () => client.getUsage(signal)),
-	};
-}
-
-/**
- * A 4xx on `/v1/health` is the MinerU 3.x signature: the 3.x server has no
- * `/v1` namespace at all, so the probe gets a 404 rather than a version. Saying
- * so by name is the difference between an admin reading "unreachable" and an
- * admin reading "this is not a MinerU 4 server".
- */
-function toProbeError(
-	error: unknown,
-	path: string,
-	origin: string,
-): MineruProbeError {
-	if (error instanceof MineruProbeError) return error;
-
-	const mapping = mineruErrorToExtractionError(error);
-	if (
-		path === "/v1/health" &&
-		mapping.code === "protocol" &&
-		isMineruApiError(error) &&
-		error.status !== null &&
-		error.status >= 400 &&
-		error.status < 500
-	) {
-		return new MineruProbeError(
-			"protocol",
-			`${origin} answered ${error.status} for /v1/health, so it is not a MinerU 4 server. MinerU 3.x is no longer supported; point MINERU_API_URL at a MinerU 4 endpoint.`,
-		);
-	}
-	return new MineruProbeError(mapping.code, mapping.message);
-}
-
 let probeFactoryInstalled = false;
 
 /**
  * Installed at module init, as the S0 hand-off asks. Idempotent so an HMR
  * re-evaluation cannot leave two factories fighting over the same cache.
+ *
+ * A BARE client, with no translating adapter. There used to be one, because
+ * `capabilities.ts` recognised only its own `MineruProbeError` and mapped
+ * every other `Error` to a retryable `unavailable` — so a bare client would
+ * have turned a MinerU 3.x 404 into an infinite retry. That is fixed at the
+ * source now: the probe runs every failure through `mapMineruError` and names
+ * the 3.x case itself, which means the built-in fetch probe behind the admin
+ * card gets the same verdicts as this one instead of a second opinion.
  */
 export function installMineruProbeClientFactory(): void {
 	if (probeFactoryInstalled) return;
 	probeFactoryInstalled = true;
-	setMineruProbeClientFactory((config) => createProbeClient(config));
+	setMineruProbeClientFactory((config) => new MineruClient({ config }));
 }
 
 installMineruProbeClientFactory();

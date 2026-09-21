@@ -402,3 +402,137 @@ describe("the default probe client", () => {
 		).rejects.toMatchObject({ code: "protocol" });
 	});
 });
+
+describe("a probe client that is NOT the built-in one", () => {
+	// The regression this pins. `describeTransportError` recognised only
+	// `MineruProbeError` and sent everything else to `unavailable`, which is
+	// RETRYABLE. The seam exists so `MineruClient` can be the probe — and
+	// `MineruClient` throws `MineruApiError`. The day that swap happened, "this
+	// is a MinerU 3.x server" (a permanent 404) became an outage that re-probed
+	// forever while every upload failed. P2-B papered over it with an adapter
+	// inside the extractor, which left the admin card — the one surface that
+	// loads `capabilities.ts` without the extractor — still reading the wrong
+	// answer.
+
+	function apiError(init: {
+		status: number | null;
+		code: string;
+		message: string;
+	}) {
+		return Object.assign(new Error(init.message), {
+			name: "MineruApiError",
+			status: init.status,
+			code: init.code,
+			type: null,
+			param: null,
+			detail: null,
+			fastapiValidation: false,
+			bodyExcerpt: null,
+			retryAfterMs: null,
+			requestPath: "/v1/health",
+		});
+	}
+
+	async function reportFor(error: unknown) {
+		setMineruProbeClientFactory(() =>
+			fakeClient({
+				getHealth: vi.fn(async () => {
+					throw error;
+				}),
+			}),
+		);
+		return getMineruStatusReport({ config: config(), now });
+	}
+
+	it("calls a MinerU 3.x backend a permanent protocol failure, by name", async () => {
+		const report = await reportFor(
+			apiError({
+				status: 404,
+				code: "",
+				message: "MinerU /v1/health failed with 404: Not Found",
+			}),
+		);
+		expect(report.reachable).toBe(false);
+		// `protocol`, not `unavailable`: there is no dual-protocol fallback, so
+		// retrying a server that does not speak V1 only delays the honest message.
+		expect(report.error?.code).toBe("protocol");
+		expect(report.error?.message).toContain("not a MinerU 4 server");
+		expect(report.error?.message).toContain("MinerU 3.x is no longer supported");
+		expect(report.error?.message).toContain("MINERU_API_URL");
+	});
+
+	it("calls a wrong API key auth_failed", async () => {
+		const report = await reportFor(
+			apiError({
+				status: 401,
+				code: "invalid_api_key",
+				message: "MinerU /v1/health failed with 401: Invalid or missing API key",
+			}),
+		);
+		expect(report.error?.code).toBe("auth_failed");
+		expect(report.error?.message).toContain("401");
+	});
+
+	it("calls a bare 401 with no MinerU code auth_failed too", async () => {
+		// A reverse proxy in front of MinerU answers 401 without MinerU's error
+		// envelope. `mapMineruError`'s 4xx fallback would call that `protocol`;
+		// for three plain GETs it is an authentication problem and nothing else.
+		const report = await reportFor(
+			apiError({ status: 401, code: "", message: "HTTP 401" }),
+		);
+		expect(report.error?.code).toBe("auth_failed");
+	});
+
+	it("calls a refused connection, a DNS miss and a TLS failure unavailable", async () => {
+		for (const code of ["ECONNREFUSED", "ENOTFOUND", "UND_ERR_SOCKET"]) {
+			const report = await reportFor(
+				Object.assign(new TypeError("fetch failed"), { cause: { code } }),
+			);
+			resetMineruCapabilitiesCacheForTests();
+			// Retryable, and it stays retryable: this one really is an outage.
+			expect(report.error?.code).toBe("unavailable");
+			expect(report.error?.message).toContain(code);
+		}
+	});
+
+	it("keeps 429 as rate_limited rather than a protocol fault", async () => {
+		const report = await reportFor(
+			apiError({ status: 429, code: "", message: "HTTP 429" }),
+		);
+		expect(report.error?.code).toBe("rate_limited");
+	});
+
+	it("never puts the API key into the report or the log", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		setMineruProbeClientFactory((cfg) =>
+			createDefaultMineruProbeClient(
+				cfg,
+				vi.fn(async () =>
+					// A server that echoes the Authorization header back in its 401
+					// body. Nothing stops one from doing that, and the message it
+					// produces reaches the document owner's own job row.
+					new Response(
+						JSON.stringify({
+							error: {
+								type: "authentication_error",
+								code: "invalid_api_key",
+								message: "rejected Bearer sk-super-secret",
+							},
+						}),
+						{ status: 401 },
+					),
+				) as unknown as typeof fetch,
+			),
+		);
+
+		const report = await getMineruStatusReport({
+			config: config({ mineruApiKey: "sk-super-secret" }),
+			now,
+		});
+
+		expect(report.error?.code).toBe("auth_failed");
+		expect(JSON.stringify(report)).not.toContain("sk-super-secret");
+		expect(report.error?.message).toContain("[redacted]");
+		expect(JSON.stringify(warn.mock.calls)).not.toContain("sk-super-secret");
+	});
+});
