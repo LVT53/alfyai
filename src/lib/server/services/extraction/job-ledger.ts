@@ -306,6 +306,23 @@ export async function enqueueExtractionJob(
 	return { job: inserted, reused: false };
 }
 
+/**
+ * How many per-user HEADS the claim looks at before giving up for this tick.
+ *
+ * It used to be 32 rows chosen by `ORDER BY priority, created_at` over the
+ * whole queue, which is the starvation bug: one user who queues a folder of
+ * 100 documents fills the entire window with their own rows, and the per-user
+ * cap then rejects all 32 of them. Another user's single upload, queued a
+ * second later, is not in the window at all and cannot be claimed until the
+ * first user's backlog drains below the window — potentially for as long as
+ * they keep uploading.
+ *
+ * The window now holds at most ONE row per user, so it is 32 DISTINCT users
+ * deep. The ordering across users is unchanged (priority first — uploads
+ * before readbacks — then age), so a fair claim is still a prioritised one.
+ */
+const CLAIM_CANDIDATE_LIMIT = 32;
+
 export interface ClaimExtractionJobInput {
 	workerId: string;
 	globalLimit: number;
@@ -371,16 +388,45 @@ export async function claimNextExtractionJob(
 			input.jobId ? eq(documentExtractionJobs.id, input.jobId) : undefined,
 		);
 
-		const candidates = tx
-			.select()
-			.from(documentExtractionJobs)
-			.where(gate)
-			.orderBy(
-				asc(documentExtractionJobs.priority),
-				asc(documentExtractionJobs.createdAt),
+		// One row PER USER — that user's oldest claimable job — and only then
+		// ordered by priority and age. See CLAIM_CANDIDATE_LIMIT for why the
+		// previous "oldest 32 rows overall" was unfair.
+		const headIds = tx
+			.all<{ id: string }>(
+				sql`
+					select id from (
+						select
+							id,
+							priority,
+							created_at,
+							row_number() over (
+								partition by user_id
+								order by priority asc, created_at asc, id asc
+							) as user_rank
+						from ${documentExtractionJobs}
+						where ${gate}
+					)
+					where user_rank = 1
+					order by priority asc, created_at asc, id asc
+					limit ${CLAIM_CANDIDATE_LIMIT}
+				`,
 			)
-			.limit(32)
-			.all();
+			.map((row) => row.id);
+
+		if (headIds.length === 0) return null;
+
+		const candidatesById = new Map(
+			tx
+				.select()
+				.from(documentExtractionJobs)
+				.where(inArray(documentExtractionJobs.id, headIds))
+				.all()
+				.map((row) => [row.id, row] as const),
+		);
+		const candidates = headIds.flatMap((id) => {
+			const row = candidatesById.get(id);
+			return row ? [row] : [];
+		});
 
 		for (const candidate of candidates) {
 			if (!directTextOnly) {
