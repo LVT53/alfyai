@@ -1682,13 +1682,7 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 		);
 	});
 
-	it("never reads a file of another conversation or another user", async () => {
-		await seedChatFile({
-			filename: "secret.md",
-			content: "other conversation",
-			mimeType: "text/markdown",
-			conversationId: OTHER_CONVERSATION,
-		});
+	it("never reads another user's file, however it is asked for", async () => {
 		seedConversation("conv-foreign", OTHER_USER);
 		await seedChatFile({
 			filename: "foreign.md",
@@ -1697,19 +1691,23 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			conversationId: "conv-foreign",
 			userId: OTHER_USER,
 		});
+		await seedChatFile({
+			filename: "mine.md",
+			content: "this user",
+			mimeType: "text/markdown",
+			conversationId: OTHER_CONVERSATION,
+		});
 
-		const otherConversation = await read({ filename: "secret.md" });
-		expect(otherConversation.notFound).toBe(true);
-		expect(otherConversation.candidates).toEqual([]);
-
+		// Ownership is a `user_id` term in every query, never a filter applied
+		// after the rows come back, so the cross-conversation fallback cannot
+		// widen it.
 		const otherUser = await read({ filename: "foreign.md" });
 		expect(otherUser.notFound).toBe(true);
 
-		// …and the foreign conversation's own owner cannot reach across either.
 		const fromForeign = await readGeneratedFileContent({
 			userId: OTHER_USER,
 			conversationId: "conv-foreign",
-			filename: "secret.md",
+			filename: "mine.md",
 		});
 		expect(fromForeign.notFound).toBe(true);
 	});
@@ -1747,5 +1745,262 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 
 		expect(result.notFound).toBe(false);
 		expect(result.contentText).toBe("# Release notes\n\n- First cut.");
+	});
+
+	/**
+	 * A generated file's document family and version number are per user and
+	 * per filename ACROSS conversations, deliberately: "if the conversation is
+	 * about continuing a file it should be able to pick it up, just like how it
+	 * can pick up past made files." So the first `release-notes.md` of a fresh
+	 * conversation really is v3, and the label was right all along — what was
+	 * missing is that the tools could not reach the file the label refers to.
+	 * `read_generated_file` answered "no matching file" for a document it had
+	 * just called the third version of.
+	 */
+	describe("picking a file up from an earlier conversation", () => {
+		/** Seeds v1 in the other conversation, with the family metadata. */
+		async function seedEarlierVersion(params: {
+			filename: string;
+			content: string;
+			mimeType: string;
+			familyId?: string;
+			versionNumber?: number;
+			userId?: string;
+			conversationId?: string;
+		}) {
+			const fileId = await seedChatFile({
+				filename: params.filename,
+				content: params.content,
+				mimeType: params.mimeType,
+				conversationId: params.conversationId ?? OTHER_CONVERSATION,
+				userId: params.userId,
+				createdAt: new Date("2026-09-10T10:00:00.000Z"),
+			});
+			seedArtifact({
+				type: "generated_output",
+				name: `${params.filename} generated file`,
+				conversationId: params.conversationId ?? OTHER_CONVERSATION,
+				userId: params.userId,
+				contentText: `Generated file: ${params.filename}\n\nExtracted file content:\n${params.content}`,
+				metadata: {
+					generatedFile: true,
+					originalChatFileId: fileId,
+					generatedFilename: params.filename,
+					documentFamilyId: params.familyId ?? "family-release-notes",
+					documentLabel: params.filename,
+					versionNumber: params.versionNumber ?? 1,
+				},
+			});
+			return fileId;
+		}
+
+		it("reads a markdown file made in another conversation", async () => {
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- First cut.",
+				mimeType: "text/markdown",
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(result.notFound).toBe(false);
+			expect(result.source).toBe("generated");
+			expect(result.conversation).toBe("library");
+			expect(result.filename).toBe("release-notes.md");
+			expect(result.contentText).toBe("# Release notes\n\n- First cut.");
+		});
+
+		it("says where it came from, and how many versions there are", async () => {
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Second cut.",
+				mimeType: "text/markdown",
+				versionNumber: 2,
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+			const payload = buildReadGeneratedFileModelPayload(result);
+
+			expect(result.versionNumber).toBe(2);
+			expect(result.versionCount).toBe(2);
+			expect(payload.origin).toBe("from an earlier conversation, v2 of 2");
+			expect(summarizeReadGeneratedFileResult(result)).toContain(
+				"v2 of 2, from an earlier conversation",
+			);
+
+			// One short clause and nothing else: no conversation id, no other
+			// conversation's title, no other filename.
+			const rendered = JSON.stringify(payload);
+			expect(rendered).not.toContain(OTHER_CONVERSATION);
+			expect(rendered).not.toContain("conv-");
+		});
+
+		it("says nothing about origin for a file from this conversation", async () => {
+			await seedChatFile({
+				filename: "here.md",
+				content: "# Here",
+				mimeType: "text/markdown",
+			});
+
+			const payload = buildReadGeneratedFileModelPayload(
+				await read({ filename: "here.md" }),
+			);
+			expect(payload.origin).toBeUndefined();
+			expect(payload.conversation).toBe("this");
+		});
+
+		it("lets this conversation's file win over an older one elsewhere", async () => {
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Old cut.",
+				mimeType: "text/markdown",
+			});
+			await seedChatFile({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- New cut.",
+				mimeType: "text/markdown",
+				createdAt: new Date("2026-09-14T10:00:00.000Z"),
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(result.conversation).toBe("this");
+			expect(result.contentText).toBe("# Release notes\n\n- New cut.");
+		});
+
+		it("reads a document-source PDF made in another conversation", async () => {
+			// The artifact of a document_source job is named after the DOCUMENT
+			// and its `contentText` IS the rendered Markdown, so this is the path
+			// that had to keep working across conversations too.
+			const fileId = await seedChatFile({
+				filename: "tobacco-cost-breakdown.pdf",
+				content: Buffer.from("%PDF-1.7 not really a pdf"),
+				mimeType: "application/pdf",
+				conversationId: OTHER_CONVERSATION,
+				createdAt: new Date("2026-09-10T10:00:00.000Z"),
+			});
+			seedArtifact({
+				type: "generated_output",
+				name: "Tobacco Cost Breakdown — September",
+				conversationId: OTHER_CONVERSATION,
+				contentText: DOCUMENT_MARKDOWN,
+				metadata: {
+					generatedFile: true,
+					generatedDocumentSource: { title: "Tobacco Cost Breakdown" },
+					originalChatFileId: fileId,
+					documentFamilyId: "family-tobacco",
+					documentLabel: "Tobacco Cost Breakdown",
+					versionNumber: 1,
+				},
+			});
+
+			const result = await read({ filename: "tobacco-cost-breakdown.pdf" });
+
+			expect(result.conversation).toBe("library");
+			expect(result.textPending).toBe(false);
+			expect(result.contentText).toBe(DOCUMENT_MARKDOWN);
+		});
+
+		it("tells the truth about a read-back binary from another conversation", async () => {
+			// A binary whose text the extraction ledger has not written yet: the
+			// file exists, so "no matching file" would be a lie, and the note has
+			// to say so exactly as it does for this conversation's own files.
+			await seedChatFile({
+				filename: "quarterly.xlsx",
+				content: Buffer.from("PK not really a workbook"),
+				mimeType:
+					"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+				conversationId: OTHER_CONVERSATION,
+				createdAt: new Date("2026-09-10T10:00:00.000Z"),
+			});
+
+			const result = await read({ filename: "quarterly.xlsx" });
+
+			expect(result.notFound).toBe(false);
+			expect(result.conversation).toBe("library");
+			expect(result.textPending).toBe(true);
+			expect(result.sizeBytes).toBeGreaterThan(0);
+		});
+
+		it("cannot reach a deleted conversation's file", async () => {
+			seedConversation("conv-doomed", USER);
+			await seedChatFile({
+				filename: "doomed.md",
+				content: "# Doomed",
+				mimeType: "text/markdown",
+				conversationId: "conv-doomed",
+			});
+			expect((await read({ filename: "doomed.md" })).notFound).toBe(false);
+
+			// Deleting a conversation is a real DELETE and the chat-file rows
+			// cascade with it, so the file is gone rather than merely hidden.
+			memory.db
+				.delete(schema.conversations)
+				.where(eq(schema.conversations.id, "conv-doomed"))
+				.run();
+
+			const result = await read({ filename: "doomed.md" });
+			expect(result.notFound).toBe(true);
+			expect(
+				result.candidates.map((candidate) => candidate.filename),
+			).not.toContain("doomed.md");
+		});
+
+		it("lists this conversation's names first, then a few from elsewhere", async () => {
+			await seedChatFile({
+				filename: "release-notes.md",
+				content: "# Here",
+				mimeType: "text/markdown",
+			});
+			await seedEarlierVersion({
+				filename: "release-notes-draft.md",
+				content: "# There",
+				mimeType: "text/markdown",
+			});
+			await seedChatFile({
+				filename: "totally-unrelated.csv",
+				content: "a,b\n1,2",
+				mimeType: "text/csv",
+				conversationId: OTHER_CONVERSATION,
+				createdAt: new Date("2026-09-11T10:00:00.000Z"),
+			});
+
+			// A misspelling, which is what a miss usually is.
+			const result = await read({ filename: "relase-notes-draught.md" });
+
+			expect(result.notFound).toBe(true);
+			// This conversation's names come first…
+			expect(result.candidates[0]).toMatchObject({
+				filename: "release-notes.md",
+				conversation: "this",
+			});
+			// …then, separated by `conversation`, the user's recent files of the
+			// kind that was asked for. The `.csv` is not one of them.
+			const elsewhere = result.candidates.filter(
+				(candidate) => candidate.conversation === "library",
+			);
+			expect(elsewhere.map((candidate) => candidate.filename)).toEqual([
+				"release-notes-draft.md",
+			]);
+			// Names only — nothing about where they live.
+			for (const candidate of result.candidates) {
+				expect(JSON.stringify(candidate)).not.toContain("conv-");
+			}
+		});
+
+		it("offers no other user's name as a candidate", async () => {
+			seedConversation("conv-foreign", OTHER_USER);
+			await seedChatFile({
+				filename: "release-notes.md",
+				content: "# Foreign",
+				mimeType: "text/markdown",
+				conversationId: "conv-foreign",
+				userId: OTHER_USER,
+			});
+
+			const result = await read({ filename: "relase-notes.md" });
+			expect(result.notFound).toBe(true);
+			expect(result.candidates).toEqual([]);
+		});
 	});
 });

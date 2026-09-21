@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "$lib/server/db";
@@ -332,6 +332,7 @@ function stemOf(value: string): string {
 
 type ChatFileRow = {
 	id: string;
+	conversationId: string;
 	filename: string;
 	mimeType: string | null;
 	sizeBytes: number;
@@ -357,8 +358,44 @@ async function listConversationChatFiles(params: {
 		.orderBy(desc(chatGeneratedFiles.createdAt));
 }
 
+/**
+ * How many of the user's files from OTHER conversations a cross-conversation
+ * pass looks at. Newest first, so the bound drops the oldest files rather than
+ * an arbitrary set; a file older than the user's last few hundred outputs is
+ * not what "continue the file we were working on" means.
+ */
+const CROSS_CONVERSATION_FILE_SCAN_LIMIT = 300;
+
+/**
+ * The same user's generated files from their OTHER conversations, newest first.
+ *
+ * Ownership is in the `where` — `user_id` — and never a filter applied after
+ * the rows come back, so another user's identically named file is not merely
+ * skipped, it is never read. Nothing here excludes a deleted conversation
+ * because nothing has to: `chat_generated_files.conversation_id` is
+ * `on delete cascade`, and conversation deletion is a real DELETE, so those
+ * rows are gone rather than hidden.
+ */
+async function listUserChatFilesElsewhere(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<ChatFileRow[]> {
+	return db
+		.select(chatFileSelection)
+		.from(chatGeneratedFiles)
+		.where(
+			and(
+				eq(chatGeneratedFiles.userId, params.userId),
+				ne(chatGeneratedFiles.conversationId, params.conversationId),
+			),
+		)
+		.orderBy(desc(chatGeneratedFiles.createdAt))
+		.limit(CROSS_CONVERSATION_FILE_SCAN_LIMIT);
+}
+
 const chatFileSelection = {
 	id: chatGeneratedFiles.id,
+	conversationId: chatGeneratedFiles.conversationId,
 	filename: chatGeneratedFiles.filename,
 	mimeType: chatGeneratedFiles.mimeType,
 	sizeBytes: chatGeneratedFiles.sizeBytes,
@@ -397,18 +434,22 @@ type GeneratedArtifactLink = { row: ArtifactRow; versionNumber: number | null };
  */
 async function loadGeneratedOutputArtifactLinks(params: {
 	userId: string;
-	conversationId: string;
+	/** The conversations whose artifacts to index. Always this user's. */
+	conversationIds: string[];
 }): Promise<{
 	byChatFileId: Map<string, GeneratedArtifactLink>;
 	byJobId: Map<string, GeneratedArtifactLink>;
 }> {
+	if (params.conversationIds.length === 0) {
+		return { byChatFileId: new Map(), byJobId: new Map() };
+	}
 	const rows = await db
 		.select()
 		.from(artifacts)
 		.where(
 			and(
 				eq(artifacts.userId, params.userId),
-				eq(artifacts.conversationId, params.conversationId),
+				inArray(artifacts.conversationId, params.conversationIds),
 				eq(artifacts.type, "generated_output"),
 			),
 		)
@@ -518,14 +559,22 @@ function compareChatFileRecency(
 	return 0;
 }
 
+/**
+ * The best match among a set of the user's stored files.
+ *
+ * `files` is passed in rather than queried here so the same ranking serves
+ * both passes: this conversation's outputs, and — when nothing here answers —
+ * the user's outputs from elsewhere. Both lists are already `user_id`-scoped
+ * by the query that built them.
+ */
 async function findChatFileTarget(params: {
 	userId: string;
-	conversationId: string;
+	files: ChatFileRow[];
 	filename: string;
 	/** Weakest tier this pass accepts. */
 	minTier: number;
 }): Promise<ResolvedChatFile | null> {
-	const files = await listConversationChatFiles(params);
+	const files = params.files;
 	if (files.length === 0) return null;
 
 	let bestTier = 0;
@@ -542,7 +591,12 @@ async function findChatFileTarget(params: {
 	}
 	if (matches.length === 0) return null;
 
-	const links = await loadGeneratedOutputArtifactLinks(params);
+	// Only the conversations the surviving matches actually came from, so a
+	// cross-conversation pass does not pull every artifact this user owns.
+	const links = await loadGeneratedOutputArtifactLinks({
+		userId: params.userId,
+		conversationIds: [...new Set(matches.map((file) => file.conversationId))],
+	});
 	const unlinked = matches
 		.filter((file) => !links.byChatFileId.has(file.id))
 		.map((file) => file.id);
@@ -580,6 +634,61 @@ async function findChatFileTarget(params: {
 		row: link?.row ?? null,
 		versionNumber: link?.versionNumber ?? positionalVersion,
 	};
+}
+
+// ── Family size ────────────────────────────────────────────────
+
+/**
+ * How many of the user's most recent generated artifacts a version count looks
+ * at. Versions are sequential and a family's newest version is the one anyone
+ * reads back, so the newest few hundred cover every family still in play.
+ */
+const FAMILY_VERSION_SCAN_LIMIT = 200;
+
+/**
+ * How many versions this document family has, across every conversation.
+ *
+ * A generated file's family and version number are per user and per filename
+ * ACROSS conversations — that is what makes "continue the release notes" work
+ * in a fresh conversation, and it is why the first `release-notes.md` there is
+ * honestly v3. On its own, "v3" in a conversation with no v1 and no v2 reads
+ * like a bug, so the count that makes it self-explaining is fetched with it:
+ * `v3 of 3`.
+ *
+ * The family id lives in artifact metadata, which SQLite cannot index, so this
+ * is a bounded scan of the user's newest generated artifacts rather than a
+ * lookup. It runs only on an explicit `read_generated_file` call, never on the
+ * prompt-assembly path. Returns null when there is nothing better to say than
+ * the version number itself.
+ */
+async function countGeneratedFileFamilyVersions(params: {
+	userId: string;
+	familyId: string | null;
+}): Promise<number | null> {
+	if (!params.familyId) return null;
+	const rows = await db
+		.select({ metadataJson: artifacts.metadataJson })
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.userId, params.userId),
+				eq(artifacts.type, "generated_output"),
+			),
+		)
+		.orderBy(desc(artifacts.updatedAt))
+		.limit(FAMILY_VERSION_SCAN_LIMIT);
+
+	let highest = 0;
+	for (const row of rows) {
+		const metadata = parseWorkingDocumentMetadata(
+			parseJsonRecord(row.metadataJson),
+		);
+		if (metadata.documentFamilyId !== params.familyId) continue;
+		if (typeof metadata.versionNumber === "number") {
+			highest = Math.max(highest, Math.trunc(metadata.versionNumber));
+		}
+	}
+	return highest > 0 ? highest : null;
 }
 
 /**
@@ -966,26 +1075,40 @@ async function resolveReadTarget(params: {
 	requestTitle?: string | null;
 }): Promise<TargetLookup> {
 	const requestedFilename = params.filename?.trim() ?? "";
-	const asChatFile = (chatFile: ResolvedChatFile): TargetLookup => ({
+	const asChatFile = (
+		chatFile: ResolvedChatFile,
+		conversation: ReadGeneratedFileConversation,
+	): TargetLookup => ({
 		status: "match",
 		target: {
 			row: chatFile.row,
 			chatFile,
 			source: "generated",
-			conversation: "this",
+			conversation,
 		},
 	});
+
+	// This conversation's own outputs, fetched once and used by both name passes.
+	const ownFiles = requestedFilename
+		? await listConversationChatFiles(params)
+		: [];
+	/** The user's outputs from elsewhere, fetched only if a pass needs them. */
+	let elsewhereFiles: ChatFileRow[] | null = null;
+	const filesElsewhere = async (): Promise<ChatFileRow[]> => {
+		elsewhereFiles ??= await listUserChatFilesElsewhere(params);
+		return elsewhereFiles;
+	};
 
 	// (1) The filename the model produced, matched by NAME — exact, then
 	// case-insensitive. A stem match waits: see (3a).
 	if (requestedFilename) {
 		const chatFile = await findChatFileTarget({
 			userId: params.userId,
-			conversationId: params.conversationId,
+			files: ownFiles,
 			filename: requestedFilename,
 			minTier: CHAT_FILE_NAME_TIER,
 		});
-		if (chatFile) return asChatFile(chatFile);
+		if (chatFile) return asChatFile(chatFile, "this");
 	}
 
 	// (2) The pre-existing artifact-name matching: uploaded documents, titles,
@@ -1018,11 +1141,38 @@ async function resolveReadTarget(params: {
 	if (requestedFilename) {
 		const chatFile = await findChatFileTarget({
 			userId: params.userId,
-			conversationId: params.conversationId,
+			files: ownFiles,
 			filename: requestedFilename,
 			minTier: CHAT_FILE_STEM_TIER,
 		});
-		if (chatFile) return asChatFile(chatFile);
+		if (chatFile) return asChatFile(chatFile, "this");
+	}
+
+	// (3b) Nothing in THIS conversation answers to the name. A generated file's
+	// document family and version number already span conversations — the first
+	// `release-notes.md` of a fresh conversation is reported as v3 because it
+	// genuinely is the third version — so the label was already telling the
+	// model the earlier file exists while the tools could not reach it. These
+	// two passes are what make the label actionable: the same user's outputs
+	// from elsewhere, strongest tier first, newest version of the matching
+	// family first, under exactly the rules above. This conversation is always
+	// tried in full before any of it, so a same-named file here always wins
+	// over an older one elsewhere, and the exact-name upload at (3) still beats
+	// a stem match wherever it lives.
+	// `needle` rather than the filename alone, so a `requestTitle` that happens
+	// to be the file's name reaches the same rules — the tiers are exact,
+	// case-insensitive and stem, so a title that is not a name still matches
+	// nothing.
+	if (needle) {
+		for (const minTier of [CHAT_FILE_NAME_TIER, CHAT_FILE_STEM_TIER]) {
+			const chatFile = await findChatFileTarget({
+				userId: params.userId,
+				files: await filesElsewhere(),
+				filename: needle,
+				minTier,
+			});
+			if (chatFile) return asChatFile(chatFile, "library");
+		}
 	}
 
 	if (needle) {
@@ -1189,31 +1339,60 @@ async function inferPatchBaseFilename(params: {
 	return { status: "ambiguous", candidates: names(pool) };
 }
 
-/** The stored file under this exact name, and its text, or null. */
+/**
+ * The stored file under this exact name, and its text, or null.
+ *
+ * This conversation's outputs first, then — only when the MODEL named the file
+ * — the same user's outputs from elsewhere, under the same tiers. The patched
+ * result is written into THIS conversation as the next version of the same
+ * family, which the memory sync does on its own: it already resolves a file's
+ * family and version number per user and per filename across conversations, so
+ * the new version inherits the family id and supersedes the previous version's
+ * artifact wherever that artifact lives.
+ *
+ * `allowElsewhere` is false for every caller that GUESSED the name. Reaching
+ * into another conversation on a guess would let a title-only patch rewrite a
+ * document the user has not mentioned in this conversation at all.
+ */
 async function patchBaseFromFilename(params: {
 	userId: string;
 	conversationId: string;
 	filename: string;
+	allowElsewhere?: boolean;
 }): Promise<GeneratedFilePatchBase | null> {
-	for (const minTier of [CHAT_FILE_NAME_TIER, CHAT_FILE_STEM_TIER]) {
-		const chatFile = await findChatFileTarget({ ...params, minTier });
-		if (!chatFile) continue;
-		const { text } = await resolveChatFileText({
-			userId: params.userId,
-			file: chatFile.file,
-			row: chatFile.row,
-		});
-		// A file whose text has not arrived yet is not a patch base: patching
-		// it would write the model's `oldText` expectations onto nothing. Fall
-		// through so the caller reports "no previous version" honestly.
-		if (!text) break;
-		return {
-			text,
-			documentSource:
-				parseJsonRecord(chatFile.row?.metadataJson ?? null)
-					?.generatedDocumentSource ?? null,
-			filename: chatFile.file.filename,
-		};
+	const scopes: Array<ReadGeneratedFileConversation> = params.allowElsewhere
+		? ["this", "library"]
+		: ["this"];
+	for (const scope of scopes) {
+		const files =
+			scope === "this"
+				? await listConversationChatFiles(params)
+				: await listUserChatFilesElsewhere(params);
+		for (const minTier of [CHAT_FILE_NAME_TIER, CHAT_FILE_STEM_TIER]) {
+			const chatFile = await findChatFileTarget({
+				userId: params.userId,
+				files,
+				filename: params.filename,
+				minTier,
+			});
+			if (!chatFile) continue;
+			const { text } = await resolveChatFileText({
+				userId: params.userId,
+				file: chatFile.file,
+				row: chatFile.row,
+			});
+			// A file whose text has not arrived yet is not a patch base: patching
+			// it would write the model's `oldText` expectations onto nothing. Fall
+			// through so the caller reports "no previous version" honestly.
+			if (!text) break;
+			return {
+				text,
+				documentSource:
+					parseJsonRecord(chatFile.row?.metadataJson ?? null)
+						?.generatedDocumentSource ?? null,
+				filename: chatFile.file.filename,
+			};
+		}
 	}
 	return null;
 }
@@ -1250,10 +1429,16 @@ export async function resolveGeneratedFilePatchBase(params: {
 }): Promise<GeneratedFilePatchBaseLookup> {
 	const filename = params.filename?.trim();
 	if (filename) {
+		// An explicit name is the model saying which file it means, so it may
+		// reach a file from an earlier conversation — the same reach
+		// `read_generated_file` has, since the patch's `oldText` was copied from
+		// exactly what that tool showed. Everything below infers the name, and
+		// stays in this conversation.
 		const base = await patchBaseFromFilename({
 			userId: params.userId,
 			conversationId: params.conversationId,
 			filename,
+			allowElsewhere: true,
 		});
 		if (base) return { status: "found", base };
 	}
@@ -1346,30 +1531,76 @@ async function findPatchBaseByTitle(params: {
 	return null;
 }
 
+/** At most this many of this conversation's names in a miss. */
+const MAX_OWN_CANDIDATES = 8;
+/** …and at most this many from the user's other conversations. */
+const MAX_ELSEWHERE_CANDIDATES = 4;
+
 /**
- * What this conversation actually produced, for a miss.
+ * What the user actually has, for a miss.
  *
  * A model that mistypes a filename used to get `candidates: []` and no way
- * back; these are the names it can copy verbatim.
+ * back; these are the names it can copy verbatim. This conversation's names
+ * come first and are the ones to reach for; then, clearly separated by each
+ * entry's `conversation` field, a few of the user's most recent matching names
+ * from elsewhere — because a file the model means may well have been made in
+ * an earlier conversation, and the resolver can now reach it.
+ *
+ * Names only. No conversation ids, no titles of other conversations, nothing
+ * about where a file lives beyond "not here".
  */
 async function listChatFileCandidates(params: {
 	userId: string;
 	conversationId: string;
+	/** What was asked for, so the elsewhere half is relevant rather than recent. */
+	needle?: string | null;
 }): Promise<ReadGeneratedFileCandidate[]> {
 	try {
-		const files = await listConversationChatFiles(params);
 		const seen = new Set<string>();
 		const candidates: ReadGeneratedFileCandidate[] = [];
-		for (const file of files) {
-			const key = normalizeName(file.filename);
-			if (!key || seen.has(key)) continue;
-			seen.add(key);
-			candidates.push({
-				filename: file.filename,
-				updatedAt: file.createdAt.toISOString(),
-				conversation: "this",
-			});
-			if (candidates.length >= 8) break;
+		const take = (
+			files: ChatFileRow[],
+			conversation: ReadGeneratedFileConversation,
+			limit: number,
+		) => {
+			let taken = 0;
+			for (const file of files) {
+				if (taken >= limit) break;
+				const key = normalizeName(file.filename);
+				if (!key || seen.has(key)) continue;
+				seen.add(key);
+				candidates.push({
+					filename: file.filename,
+					updatedAt: file.createdAt.toISOString(),
+					conversation,
+				});
+				taken += 1;
+			}
+		};
+
+		take(await listConversationChatFiles(params), "this", MAX_OWN_CANDIDATES);
+
+		const needle = params.needle?.trim();
+		if (needle) {
+			const elsewhere = await listUserChatFilesElsewhere(params);
+			// The user's most recent files from elsewhere, narrowed to the KIND
+			// asked for when the request named an extension. Narrowing by name
+			// instead would be worse than useless here: a miss usually means the
+			// model had the name slightly wrong, and a name filter applied to a
+			// misspelling drops exactly the file it was reaching for. The
+			// extension survives a typo in the stem, and the cap keeps the list
+			// short enough to read.
+			const wantedExtension = extname(needle).toLowerCase();
+			take(
+				wantedExtension
+					? elsewhere.filter(
+							(file) =>
+								extname(file.filename).toLowerCase() === wantedExtension,
+						)
+					: elsewhere,
+				"library",
+				MAX_ELSEWHERE_CANDIDATES,
+			);
 		}
 		return candidates;
 	} catch {
@@ -1565,6 +1796,12 @@ export interface ReadGeneratedFileResult {
 	filename: string | null;
 	documentLabel: string | null;
 	versionNumber: number | null;
+	/**
+	 * Versions this document family has, across every conversation, when it can
+	 * be established. Turns a bare `v3` in a fresh conversation — which is the
+	 * honest label, because the family spans conversations — into `v3 of 3`.
+	 */
+	versionCount: number | null;
 	/** The requested window of the text (null in passage mode / not found). */
 	contentText: string | null;
 	summary: string | null;
@@ -1618,6 +1855,7 @@ function emptyResult(
 		filename: null,
 		documentLabel: null,
 		versionNumber: null,
+		versionCount: null,
 		contentText: null,
 		summary: null,
 		mimeType: null,
@@ -1759,7 +1997,10 @@ export async function readGeneratedFileContent(params: {
 		return emptyResult({
 			filename: params.filename ?? null,
 			notFound: true,
-			candidates: await listChatFileCandidates(params),
+			candidates: await listChatFileCandidates({
+				...params,
+				needle: params.filename?.trim() || params.requestTitle?.trim() || null,
+			}),
 		});
 	}
 	if (lookup.status === "ambiguous") {
@@ -1832,12 +2073,26 @@ export async function readGeneratedFileContent(params: {
 	}
 	const contentLength = resolvedContent?.length ?? 0;
 
+	const versionNumber = chatFile
+		? (metadata.versionNumber ?? chatFile.versionNumber)
+		: (metadata.versionNumber ?? null);
+	// Only worth a query when there IS a version to qualify. A family of one
+	// says "v1 of 1", which is not wrong but is not worth a scan either, so the
+	// count falls back to the version itself when no family is recorded yet —
+	// the same-turn read-back case, where this file is the newest by
+	// construction.
+	const familyCount = versionNumber
+		? ((await countGeneratedFileFamilyVersions({
+				userId: params.userId,
+				familyId: metadata.documentFamilyId ?? null,
+			})) ?? versionNumber)
+		: null;
+
 	const base: ReadGeneratedFileResult = {
 		filename: displayName,
 		documentLabel: metadata.documentLabel ?? null,
-		versionNumber: chatFile
-			? (metadata.versionNumber ?? chatFile.versionNumber)
-			: (metadata.versionNumber ?? null),
+		versionNumber,
+		versionCount: familyCount,
 		contentText: null,
 		summary: row?.summary?.trim() ?? null,
 		mimeType: describedFile?.mimeType ?? row?.mimeType ?? null,
@@ -1934,6 +2189,31 @@ export async function readGeneratedFileContent(params: {
 
 // ── Model payload ──────────────────────────────────────────────
 
+/**
+ * Where this file came from and how far along it is, in one clause.
+ *
+ * Only present when the answer did NOT come from this conversation, because
+ * that is the only case the model cannot work out for itself — and it has to
+ * know, or it will tell the user "here is the file we made" about a file made
+ * somewhere else. Deliberately says nothing beyond that: no conversation id,
+ * no title of the other conversation, no other filename.
+ *
+ * `v2 of 2` rides along because a version number from a family that spans
+ * conversations is the other thing the model cannot otherwise explain.
+ */
+function buildOriginClause(
+	result: ReadGeneratedFileResult,
+): string | undefined {
+	if (result.conversation !== "library") return undefined;
+	const version =
+		result.versionNumber && result.versionCount
+			? `, v${result.versionNumber} of ${result.versionCount}`
+			: result.versionNumber
+				? `, v${result.versionNumber}`
+				: "";
+	return `from an earlier conversation${version}`;
+}
+
 export function buildReadGeneratedFileModelPayload(
 	result: ReadGeneratedFileResult,
 ): Record<string, unknown> {
@@ -1941,6 +2221,7 @@ export function buildReadGeneratedFileModelPayload(
 		return {
 			found: false,
 			filename: result.filename,
+			candidates: result.candidates,
 			error:
 				"No file matching the requested filename or title was found in this conversation or the user's documents.",
 		};
@@ -1956,6 +2237,7 @@ export function buildReadGeneratedFileModelPayload(
 		};
 	}
 
+	const origin = buildOriginClause(result);
 	const base = {
 		found: true,
 		filename: result.filename,
@@ -1963,6 +2245,10 @@ export function buildReadGeneratedFileModelPayload(
 		conversation: result.conversation,
 		documentLabel: result.documentLabel,
 		versionNumber: result.versionNumber,
+		...(result.versionCount !== null
+			? { versionCount: result.versionCount }
+			: {}),
+		...(origin ? { origin } : {}),
 		summary: result.summary,
 		mimeType: result.mimeType,
 		contentLength: result.contentLength,
@@ -2047,14 +2333,21 @@ export function summarizeReadGeneratedFileResult(
 		return `Several files match "${result.filename ?? ""}": ${names.join(", ")}.`;
 	}
 	const label = result.documentLabel ?? result.filename ?? "file";
-	const version = result.versionNumber ? ` v${result.versionNumber}` : "";
+	// `v3 of 3`, so a v3 in a conversation that has no v1 or v2 explains itself.
+	const version = result.versionNumber
+		? result.versionCount && result.versionCount > 1
+			? ` v${result.versionNumber} of ${result.versionCount}`
+			: ` v${result.versionNumber}`
+		: "";
+	const origin =
+		result.conversation === "library" ? ", from an earlier conversation" : "";
 	const length = result.contentLength ? ` (${result.contentLength} chars)` : "";
 	if (result.textPending) {
 		const size = result.sizeBytes !== null ? `, ${result.sizeBytes} bytes` : "";
-		return `Found "${label}"${version}${size}; its text is still being extracted.`;
+		return `Found "${label}"${version}${origin}${size}; its text is still being extracted.`;
 	}
 	if (result.passages) {
-		return `Found "${label}"${version}${length}: ${result.passages.length} passage(s) for "${result.query ?? ""}".`;
+		return `Found "${label}"${version}${origin}${length}: ${result.passages.length} passage(s) for "${result.query ?? ""}".`;
 	}
 	const window =
 		result.from > 0 || result.hasMore
@@ -2067,7 +2360,7 @@ export function summarizeReadGeneratedFileResult(
 		result.page !== null
 			? `, from ${PAGE_WORDS[result.pageUnit ?? "page"]} ${result.page}`
 			: "";
-	return `Found "${label}"${version}${length}${page}${window}.`;
+	return `Found "${label}"${version}${origin}${length}${page}${window}.`;
 }
 
 // ── Sanitization ───────────────────────────────────────────────
