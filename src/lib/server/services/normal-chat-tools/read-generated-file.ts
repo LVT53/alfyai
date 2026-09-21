@@ -1616,7 +1616,85 @@ async function findPatchBaseByTitle(params: {
 /** At most this many of this conversation's names in a miss. */
 const MAX_OWN_CANDIDATES = 8;
 /** …and at most this many from the user's other conversations. */
-const MAX_ELSEWHERE_CANDIDATES = 4;
+const MAX_ELSEWHERE_CANDIDATES = 3;
+
+/** Stem, lowercased, punctuation flattened to single spaces. */
+function candidateStem(name: string): string {
+	const stem = basename(name, extname(name));
+	return stem
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, " ")
+		.trim();
+}
+
+/** Words worth matching on. Shorter ones ("of", "v2", "the") match everything. */
+const SIGNIFICANT_TOKEN_MIN_LENGTH = 4;
+
+function significantTokens(stem: string): Set<string> {
+	return new Set(
+		stem.split(" ").filter((t) => t.length >= SIGNIFICANT_TOKEN_MIN_LENGTH),
+	);
+}
+
+/** Levenshtein, two rows. The inputs are filename stems, so they are short. */
+function editDistance(left: string, right: string): number {
+	if (left === right) return 0;
+	if (left.length === 0) return right.length;
+	if (right.length === 0) return left.length;
+	let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+	for (let i = 1; i <= left.length; i += 1) {
+		const current = [i];
+		for (let j = 1; j <= right.length; j += 1) {
+			const substitution =
+				previous[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1);
+			current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, substitution);
+		}
+		previous = current;
+	}
+	return previous[right.length];
+}
+
+/**
+ * Is this name plausibly the one that was asked for?
+ *
+ * A miss used to hand the model the user's most recent files from OTHER
+ * conversations, narrowed only by extension. That fires precisely when the
+ * user referred to none of them: ask for a `budget.xlsx` that does not exist
+ * and the model was read the names of four unrelated spreadsheets from
+ * unrelated chats. Names are content.
+ *
+ * The rule has to survive the thing that causes most misses — the model having
+ * the name slightly wrong — without turning into "anything of the same type".
+ * Three ways to qualify, cheapest first:
+ *
+ *   1. the same stem once punctuation and case are flattened, so
+ *      `Release Notes.md` answers a request for `release-notes.pdf`;
+ *   2. a shared word of four characters or more, so `release-notes-v2.md`
+ *      answers `release notes`, and `q3.md` does not answer everything;
+ *   3. a small edit distance on the whole stem — one per five characters, at
+ *      most three — so `relase-notes` and `release-note` still reach it while
+ *      two unrelated names of similar length do not.
+ *
+ * Nothing similar means nothing from elsewhere, which is the honest answer.
+ */
+export function isPlausibleCandidateName(
+	candidateName: string,
+	requestedName: string,
+): boolean {
+	const candidate = candidateStem(candidateName);
+	const needle = candidateStem(requestedName);
+	if (!candidate || !needle) return false;
+	if (candidate === needle) return true;
+
+	const shared = significantTokens(needle);
+	for (const token of significantTokens(candidate)) {
+		if (shared.has(token)) return true;
+	}
+
+	const longest = Math.max(candidate.length, needle.length);
+	const threshold = Math.min(3, Math.max(1, Math.floor(longest / 5)));
+	return editDistance(candidate, needle) <= threshold;
+}
 
 /**
  * What the user actually has, for a miss.
@@ -1665,21 +1743,16 @@ async function listChatFileCandidates(params: {
 		const needle = params.needle?.trim();
 		if (needle) {
 			const elsewhere = await listUserChatFilesElsewhere(params);
-			// The user's most recent files from elsewhere, narrowed to the KIND
-			// asked for when the request named an extension. Narrowing by name
-			// instead would be worse than useless here: a miss usually means the
-			// model had the name slightly wrong, and a name filter applied to a
-			// misspelling drops exactly the file it was reaching for. The
-			// extension survives a typo in the stem, and the cap keeps the list
-			// short enough to read.
-			const wantedExtension = extname(needle).toLowerCase();
+			// Narrowed by NAME, not by extension. Extension alone made a miss
+			// disclose the names of the user's recent files from unrelated
+			// conversations — which fires exactly when the user referred to none
+			// of them. `isPlausibleCandidateName` keeps the case a miss is for (a
+			// name the model had slightly wrong) and drops the rest; nothing
+			// similar means nothing from elsewhere.
 			take(
-				wantedExtension
-					? elsewhere.filter(
-							(file) =>
-								extname(file.filename).toLowerCase() === wantedExtension,
-						)
-					: elsewhere,
+				elsewhere.filter((file) =>
+					isPlausibleCandidateName(file.filename, needle),
+				),
 				"library",
 				MAX_ELSEWHERE_CANDIDATES,
 			);

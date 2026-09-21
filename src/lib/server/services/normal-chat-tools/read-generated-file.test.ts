@@ -2181,6 +2181,67 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			}
 		});
 
+		// A miss fires precisely when the user referred to none of these files,
+		// so "your four most recent spreadsheets from other chats" was an
+		// unprompted disclosure of names the model then reads aloud. Names are
+		// content. Only names that are plausibly the one asked for qualify.
+		it("offers nothing from elsewhere when no name is similar", async () => {
+			await seedEarlierVersion({
+				filename: "quarterly-budget.md",
+				content: "# Budget",
+				mimeType: "text/markdown",
+			});
+			await seedChatFile({
+				filename: "holiday-photos-list.md",
+				content: "# Photos",
+				mimeType: "text/markdown",
+				conversationId: OTHER_CONVERSATION,
+				createdAt: new Date("2026-09-11T10:00:00.000Z"),
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(result.notFound).toBe(true);
+			expect(result.candidates).toEqual([]);
+		});
+
+		it("still offers a near-miss of the same stem from elsewhere", async () => {
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# There",
+				mimeType: "text/markdown",
+			});
+
+			// Same stem, different extension — the ruling's first rule.
+			const result = await read({ filename: "release notes.pdf" });
+
+			expect(
+				(result.candidates ?? []).map((candidate) => candidate.filename),
+			).toContain("release-notes.md");
+		});
+
+		it("names at most three from elsewhere", async () => {
+			for (const suffix of ["a", "b", "c", "d", "e"]) {
+				await seedChatFile({
+					filename: `release-notes-${suffix}.md`,
+					content: `# ${suffix}`,
+					mimeType: "text/markdown",
+					conversationId: OTHER_CONVERSATION,
+					createdAt: new Date(
+						`2026-09-1${suffix === "a" ? 1 : 2}T10:00:00.000Z`,
+					),
+				});
+			}
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(
+				(result.candidates ?? []).filter(
+					(candidate) => candidate.conversation === "library",
+				),
+			).toHaveLength(3);
+		});
+
 		it("offers no other user's name as a candidate", async () => {
 			seedConversation("conv-foreign", OTHER_USER);
 			await seedChatFile({
