@@ -655,4 +655,45 @@ describe("re-uploading identical bytes after a terminal failure", () => {
 		expect(third.extraction.status).toBe("parsing");
 		expect(jobRowsFor(first.artifact.id)).toHaveLength(1);
 	});
+
+	// The last row of the table: a source artifact with no job row and no
+	// normalized document, which the read model synthesises as a
+	// `legacy_unknown` failure. Deleting the result takes the job with it
+	// (F6), so this is the state a real library lands in, not only a
+	// pre-ledger one. A re-upload has to enqueue, the way pressing Retry on
+	// the synthesised chip materialises and enqueues.
+	it("enqueues a document whose job row no longer exists", async () => {
+		const first = await uploadViaStoredFile({
+			name: "orphaned.pdf",
+			logPrefix: "Raw",
+		});
+		await runWorker({ kind: "succeed", text: "First read." });
+		const [normalized] = normalizedArtifactsFor(first.artifact.id);
+		expect(normalized).toBeDefined();
+
+		const { hardDeleteArtifactsForUser } = await import(
+			"$lib/server/services/knowledge/store/cleanup"
+		);
+		await hardDeleteArtifactsForUser(USER_ID, [
+			normalized?.artifact.id as string,
+		]);
+		expect(jobRowsFor(first.artifact.id)).toHaveLength(0);
+
+		const second = await uploadViaStoredFile({
+			name: "orphaned.pdf",
+			logPrefix: "Raw",
+		});
+		expect(second.artifact.id).toBe(first.artifact.id);
+		expect(second.reusedExistingArtifact).toBe(true);
+		expect(second.extraction.status).toBe("queued");
+
+		expect(
+			(await runWorker({ kind: "succeed", text: "Read again from scratch." }))
+				?.status,
+		).toBe("succeeded");
+		expect(sourceArtifactsNamed("orphaned.pdf")).toHaveLength(1);
+		const persisted = normalizedArtifactsFor(first.artifact.id);
+		expect(persisted).toHaveLength(1);
+		expect(persisted[0]?.artifact.contentText).toBe("Read again from scratch.");
+	});
 });
