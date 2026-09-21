@@ -464,7 +464,11 @@ function combineSnippetChunks(
 				return clipText(entry.chunk.contentText, perChunkBudget);
 			}
 			const body = clipText(entry.chunk.contentText, bodyBudget);
-			return citation ? `${citation}\n${body}` : body;
+			// A space, not a newline: `getPromptArtifactSnippets` clips the
+			// combined snippet with `clipText`, which normalizes whitespace, so
+			// a newline here would reach the prompt as a space anyway. Writing
+			// the space is honest about what the model sees.
+			return citation ? `${citation} ${body}` : body;
 		})
 		.join("\n\n");
 }
