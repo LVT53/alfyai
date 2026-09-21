@@ -11,7 +11,6 @@
 // this runs, and only then does the job go `succeeded` — so a crash in the
 // middle leaves a job whose heartbeat stops, which stale recovery requeues.
 
-import { stat } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifacts } from "$lib/server/db/schema";
@@ -33,18 +32,28 @@ import type {
 	DocumentOutlineEntry,
 } from "$lib/server/services/knowledge/types";
 import type { MineruParseBundleManifest } from "$lib/server/services/mineru/bundle";
-import {
-	readMineruParseManifest,
-	setMineruParseBundleNormalizedArtifactId,
-	writeMineruParseBundle,
-} from "$lib/server/services/mineru/bundle";
-import { resolveMineruConfig } from "$lib/server/services/mineru/config";
+import { setMineruParseBundleNormalizedArtifactId } from "$lib/server/services/mineru/bundle";
 import type {
+	ChunkPlanEntry,
 	MineruOutlineEntry,
 	StructuredExtractionResult,
 } from "$lib/server/services/mineru/result";
+import { planStructuredChunks } from "$lib/server/services/mineru/result";
 import { queueArtifactSemanticEmbeddingRefresh } from "$lib/server/services/semantic-embedding-refresh";
 import { syncArtifactChunks } from "$lib/server/services/task-state/chunk-sync";
+
+/**
+ * The chunk sizes a structured plan has to land in.
+ *
+ * They are `chunk-sync.ts`'s own numbers, restated here because this slice
+ * does not own that file and cannot export them from it. The slice that adds
+ * structure-aware chunking exports them as `CHUNK_CHAR_TARGET` /
+ * `CHUNK_CHAR_OVERLAP`; at integration these two lines become an import from
+ * there, and until then a plan built with the wrong size would simply produce
+ * differently sized rows, never wrong ones.
+ */
+const CHUNK_PLAN_CHAR_TARGET = 1400;
+const CHUNK_PLAN_CHAR_OVERLAP = 220;
 
 export interface CreateNormalizedArtifactFromExtractionParams {
 	userId: string;
@@ -75,19 +84,6 @@ export async function createNormalizedArtifactFromExtraction(
 	params: CreateNormalizedArtifactFromExtractionParams,
 ): Promise<Artifact> {
 	const structured = narrowStructuredExtraction(params.structured);
-
-	// The bundle is written BEFORE the row, and deliberately cannot fail the
-	// job: the text is the thing the user asked for, and a document that is
-	// readable but has no figures on disk is a far better outcome than a
-	// failed extraction that retries three times and ends up with neither.
-	const bundle = structured
-		? await syncParseBundle({
-				userId: params.userId,
-				sourceArtifactId: params.sourceArtifactId,
-				structured,
-			})
-		: null;
-
 	const tokenEstimate = estimateDocumentTokenCount(params.text);
 	// Structured parses carry their own outline, which already falls back to
 	// `extractDocumentOutline` internally for the formats that have no title
@@ -95,16 +91,22 @@ export async function createNormalizedArtifactFromExtraction(
 	// text. The direct-text route has no blocks at all, so it stays on the
 	// heuristics exactly as before.
 	const outline = structured
-		? normalizeStructuredOutline(structured.result.outline)
+		? normalizeStructuredOutline(structured.outline)
 		: extractDocumentOutline(params.text);
-	const pageCount = structured ? structured.result.pageCount : params.pageCount;
+	const pageCount = structured ? structured.pageCount : params.pageCount;
+
+	// The blocks are the atoms a structure-aware chunker packs, and this is the
+	// only place that holds both them and the artifact they belong to. The plan
+	// is passed down rather than the blocks: `chunk-sync.ts` keeps its current
+	// dependency set that way, and never has to read the bundle off disk.
+	const chunkPlan = structured ? buildChunkPlan(structured) : null;
 
 	const comfortMetadataPatch: Record<string, unknown> = {
 		tokenEstimate,
 		...(structured ? clearedStructuredMetadata() : {}),
 		...(pageCount !== undefined ? { pageCount } : {}),
 		...(outline.length > 0 ? { outline } : {}),
-		...(structured ? structuredMetadata(structured.result, bundle) : {}),
+		...(structured ? structuredMetadata(structured) : {}),
 	};
 
 	const metadata = {
@@ -141,8 +143,9 @@ export async function createNormalizedArtifactFromExtraction(
 				text: params.text,
 				sourceName: params.sourceName,
 				metadata,
+				chunkPlan,
 			})
-		: await createNewNormalizedArtifact({ params, metadata });
+		: await createNewNormalizedArtifact({ params, metadata, chunkPlan });
 
 	await updateArtifactMetadata({
 		artifactId: params.sourceArtifactId,
@@ -150,11 +153,13 @@ export async function createNormalizedArtifactFromExtraction(
 		patch: comfortMetadataPatch,
 	});
 
-	if (bundle?.manifest) {
-		// The manifest is written before the normalized artifact exists, so the
-		// id it should carry is only knowable here. A false return means the
-		// bundle vanished between the two writes (a concurrent delete), which is
-		// not worth failing a completed extraction over.
+	if (structured?.bundle) {
+		// The extractor writes the bundle while it still holds the downloaded
+		// zip — a per-attempt temp directory that is gone by the time this runs —
+		// and leaves `normalizedArtifactId` null because the artifact did not
+		// exist yet. This is the one moment that id is knowable. A false return
+		// means the bundle vanished between the two writes (a concurrent
+		// delete), which is not worth failing a completed extraction over.
 		await setMineruParseBundleNormalizedArtifactId(
 			params.userId,
 			params.sourceArtifactId,
@@ -165,32 +170,65 @@ export async function createNormalizedArtifactFromExtraction(
 	return artifact;
 }
 
+/**
+ * The structure-aware chunk plan, or null when there is nothing to plan from.
+ *
+ * A plan is advisory: `syncArtifactChunks` still applies the small-file bypass
+ * and the structure-chunking flag on top of it, and falls back to the
+ * character chunker when either says no. So a failure to build one is not a
+ * failure to extract — it costs page citations, not the document.
+ */
+function buildChunkPlan(
+	structured: StructuredExtractionHandoff,
+): ChunkPlanEntry[] | null {
+	if (structured.blocks.length === 0) return null;
+	try {
+		const plan = planStructuredChunks({
+			blocks: structured.blocks,
+			charTarget: CHUNK_PLAN_CHAR_TARGET,
+			charOverlap: CHUNK_PLAN_CHAR_OVERLAP,
+		});
+		return plan.length > 0 ? plan : null;
+	} catch (error) {
+		console.warn("[EXTRACTION] Structured chunk plan failed; using the text", {
+			error: error instanceof Error ? error.message : error,
+		});
+		return null;
+	}
+}
+
 // ── the structured hand-off ────────────────────────────────────────────────
 
 /**
- * What `ExtractDocumentResult.structured` is allowed to be.
+ * What `ExtractDocumentResult.structured` is: a `StructuredExtractionResult`
+ * spread flat, plus the parse bundle's manifest.
  *
- * The spec's contract (§3) names one object: a `StructuredExtractionResult`.
- * That object carries no zip path, so an extractor that returns it bare has
- * necessarily written the parse bundle itself — it is the only party that ever
- * holds the downloaded `result.zip`. An extractor that would rather hand the
- * zip over instead wraps the same object in `{ result, zipPathAbsolute }`, and
- * this module writes the bundle. Both shapes are accepted, and an absent or
- * unrecognised payload is simply "no structured data": the direct-text route
- * and the generated-file readback go down that path and must keep working.
+ * The extractor writes the bundle, not this module — it is the only party that
+ * ever holds the downloaded `result.zip`, which lives in a per-attempt temp
+ * directory that is removed the moment `extract()` returns. It leaves
+ * `manifest.normalizedArtifactId` null because the artifact does not exist
+ * yet, and sets `bundle` to null when it had no `userId`/`sourceArtifactId` to
+ * write under or when the write failed. A null bundle is not an error: the
+ * text is what the user asked for, and a readable document with no figures on
+ * disk beats a failed extraction that retries three times and ends with
+ * neither.
+ *
+ * Narrowed structurally, and only here. `contracts.ts` types the field as
+ * `unknown` so the ledger never learns a backend's vocabulary, and an import
+ * guard keeps this module off `extractors/**` — so the shape is checked, not
+ * assumed, and an unrecognised payload is simply "no structured data". The
+ * direct-text route and the generated-file readback both go down that path.
  */
-interface StructuredExtractionHandoff {
-	result: StructuredExtractionResult;
-	/** The downloaded result zip, when the extractor left it for us to read. */
-	zipPathAbsolute: string | null;
+interface StructuredExtractionHandoff extends StructuredExtractionResult {
+	bundle?: MineruParseBundleManifest | null;
 }
 
-function isStructuredExtractionResult(
+export function narrowStructuredExtraction(
 	value: unknown,
-): value is StructuredExtractionResult {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-	const candidate = value as Partial<StructuredExtractionResult>;
-	return (
+): StructuredExtractionHandoff | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const candidate = value as Partial<StructuredExtractionHandoff>;
+	const looksParsed =
 		typeof candidate.parserVersion === "string" &&
 		typeof candidate.markdown === "string" &&
 		typeof candidate.pageCount === "number" &&
@@ -200,82 +238,8 @@ function isStructuredExtractionResult(
 		Array.isArray(candidate.figures) &&
 		Array.isArray(candidate.outline) &&
 		typeof candidate.stats === "object" &&
-		candidate.stats !== null
-	);
-}
-
-export function narrowStructuredExtraction(
-	value: unknown,
-): StructuredExtractionHandoff | null {
-	if (isStructuredExtractionResult(value)) {
-		return { result: value, zipPathAbsolute: null };
-	}
-	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-	const envelope = value as { result?: unknown; zipPathAbsolute?: unknown };
-	if (!isStructuredExtractionResult(envelope.result)) return null;
-	return {
-		result: envelope.result,
-		zipPathAbsolute:
-			typeof envelope.zipPathAbsolute === "string" && envelope.zipPathAbsolute
-				? envelope.zipPathAbsolute
-				: null,
-	};
-}
-
-interface ParseBundleOutcome {
-	manifest: MineruParseBundleManifest | null;
-	/** A one-line reason, recorded on the artifact rather than thrown. */
-	error: string | null;
-}
-
-/**
- * Brings the on-disk bundle up to date with this parse, without ever throwing.
- *
- * Three cases, in order: the extractor handed over a zip that is still there
- * (we write, replacing any previous bundle atomically); the extractor already
- * wrote the bundle (we read its manifest for the metadata below); there is no
- * bundle at all (metadata simply omits the bundle keys).
- */
-async function syncParseBundle(input: {
-	userId: string;
-	sourceArtifactId: string;
-	structured: StructuredExtractionHandoff;
-}): Promise<ParseBundleOutcome> {
-	const { structured } = input;
-
-	if (structured.zipPathAbsolute) {
-		const readable = await stat(structured.zipPathAbsolute)
-			.then((stats) => stats.isFile())
-			.catch(() => false);
-		if (readable) {
-			try {
-				const manifest = await writeMineruParseBundle({
-					userId: input.userId,
-					sourceArtifactId: input.sourceArtifactId,
-					zipPathAbsolute: structured.zipPathAbsolute,
-					result: structured.result,
-					maxBytes: resolveMineruConfig().bundleMaxBytes,
-				});
-				return { manifest, error: null };
-			} catch (error) {
-				const message =
-					error instanceof Error ? error.message : String(error);
-				console.warn("[EXTRACTION] Parse bundle write failed", {
-					sourceArtifactId: input.sourceArtifactId,
-					error: message,
-				});
-				return { manifest: null, error: message.slice(0, 300) };
-			}
-		}
-	}
-
-	// No zip to read: either the extractor wrote the bundle itself, or there is
-	// nothing on disk. `readMineruParseManifest` answers both without throwing.
-	const manifest = await readMineruParseManifest(
-		input.userId,
-		input.sourceArtifactId,
-	).catch(() => null);
-	return { manifest, error: null };
+		candidate.stats !== null;
+	return looksParsed ? (value as StructuredExtractionHandoff) : null;
 }
 
 // ── metadata ───────────────────────────────────────────────────────────────
@@ -302,7 +266,7 @@ const STRUCTURED_METADATA_KEYS = [
 	"extractionFigureCount",
 	"extractionImagesOmitted",
 	"extractionUnknownBlockTypes",
-	"extractionBundleError",
+	"extractionBundleMissing",
 ] as const;
 
 function clearedStructuredMetadata(): Record<string, undefined> {
@@ -312,10 +276,10 @@ function clearedStructuredMetadata(): Record<string, undefined> {
 }
 
 function structuredMetadata(
-	result: StructuredExtractionResult,
-	bundle: ParseBundleOutcome | null,
+	result: StructuredExtractionHandoff,
 ): Record<string, unknown> {
 	const unknownTypes = result.stats.unknownTypes ?? {};
+	const bundle = result.bundle ?? null;
 	return {
 		pageCountKind: result.pageCountKind,
 		// The legacy marker (D12): a row without it predates this extractor and
@@ -331,13 +295,16 @@ function structuredMetadata(
 		extractionJobTier: result.jobTier ?? undefined,
 		extractionParseMode: result.parseMode ?? undefined,
 		extractionFigureCount: result.figures.length,
-		...(bundle?.manifest
+		...(bundle
 			? {
-					extractionBundleBytes: bundle.manifest.totalBytes,
-					extractionImagesOmitted: bundle.manifest.imagesOmitted,
+					extractionBundleBytes: bundle.totalBytes,
+					extractionImagesOmitted: bundle.imagesOmitted,
 				}
-			: {}),
-		...(bundle?.error ? { extractionBundleError: bundle.error } : {}),
+			: // Recorded rather than inferred from the absence of the two keys
+				// above: "this document parsed but has no bundle on disk" is the
+				// difference between a missing figure and a missing feature, and
+				// it is the row an operator looks at to tell them apart.
+				{ extractionBundleMissing: true }),
 		...(Object.keys(unknownTypes).length > 0
 			? { extractionUnknownBlockTypes: unknownTypes }
 			: {}),
@@ -368,6 +335,7 @@ function normalizeStructuredOutline(
 async function createNewNormalizedArtifact(input: {
 	params: CreateNormalizedArtifactFromExtractionParams;
 	metadata: Record<string, unknown>;
+	chunkPlan: ChunkPlanEntry[] | null;
 }): Promise<Artifact> {
 	const { params, metadata } = input;
 	const artifact = await createArtifact({
@@ -382,6 +350,10 @@ async function createNewNormalizedArtifact(input: {
 		contentText: params.text,
 		summary: guessSummary(params.text, params.sourceName),
 		metadata,
+		// Spread rather than written inline so this compiles against the
+		// `createArtifact` that does not know the parameter yet; it is forwarded
+		// verbatim to `syncArtifactChunks` by the one that does.
+		...(input.chunkPlan ? { chunkPlan: input.chunkPlan } : {}),
 	});
 
 	try {
@@ -425,6 +397,7 @@ async function rewriteNormalizedArtifact(input: {
 	text: string;
 	sourceName: string;
 	metadata: Record<string, unknown>;
+	chunkPlan: ChunkPlanEntry[] | null;
 }): Promise<Artifact> {
 	const [updated] = await db
 		.update(artifacts)
@@ -452,6 +425,9 @@ async function rewriteNormalizedArtifact(input: {
 		userId: mapped.userId,
 		conversationId: mapped.conversationId,
 		contentText: mapped.contentText,
+		// Re-extraction re-derives every chunk row, so the new parse's pages
+		// replace the old parse's rather than being migrated onto them.
+		...(input.chunkPlan ? { chunkPlan: input.chunkPlan } : {}),
 	});
 	if (sync.truncated) {
 		// Same bookkeeping `createArtifact` does on the insert path, so a

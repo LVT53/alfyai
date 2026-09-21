@@ -18,7 +18,7 @@ import {
 } from "$lib/stores/upload-limits";
 import { formatByteSize } from "$lib/utils/format";
 import { formatMediumDateTime } from "$lib/utils/time";
-import { t } from "$lib/i18n";
+import { type I18nKey, t } from "$lib/i18n";
 import {
 	ArrowDown,
 	ArrowUp,
@@ -91,6 +91,17 @@ interface DocumentsListProps {
 	 */
 	onRetryExtraction?: (artifactId: string) => void | Promise<void>;
 	onCancelExtraction?: (artifactId: string) => void | Promise<void>;
+	/**
+	 * "Read this document again, better." Only ever called with a tier the
+	 * server itself offered through `onLoadReextractTiers`.
+	 */
+	onReextract?: (artifactId: string, tier: string) => void | Promise<void>;
+	/**
+	 * The tiers the backend serves. Asked for when a menu opens rather than
+	 * with the page: the answer costs a capability probe and is the same for
+	 * every row, so a library nobody re-extracts pays nothing for it.
+	 */
+	onLoadReextractTiers?: (artifactId: string) => Promise<string[]>;
 }
 
 let {
@@ -116,6 +127,8 @@ let {
 	onUpload,
 	onRetryExtraction,
 	onCancelExtraction,
+	onReextract,
+	onLoadReextractTiers,
 }: DocumentsListProps = $props();
 
 // Artifact ids with a Retry/Cancel round trip in flight. Local to the row so
@@ -707,6 +720,139 @@ async function runExtractionAction(
 	}
 }
 
+// ── Re-extract at a different quality ──────────────────────────────────────
+
+/**
+ * The tiers, worst to best. The menu is ordered by this rather than by the
+ * server's reply so the list reads as a ladder, and so "everything at or below
+ * where this document already is" is a prefix rather than a set membership
+ * test.
+ */
+const REEXTRACT_TIERS = ['flash', 'basic', 'standard', 'advanced'] as const;
+const REEXTRACT_TIER_KEYS = {
+	flash: 'knowledge.extraction.reextract.tier.flash',
+	basic: 'knowledge.extraction.reextract.tier.basic',
+	standard: 'knowledge.extraction.reextract.tier.standard',
+	advanced: 'knowledge.extraction.reextract.tier.advanced',
+} as const satisfies Record<(typeof REEXTRACT_TIERS)[number], I18nKey>;
+
+type ReextractTierState =
+	| { kind: 'loading' }
+	| { kind: 'error' }
+	| { kind: 'ready'; tiers: string[] };
+
+// One open menu at a time, keyed on the artifact. Tier lists are cached per
+// artifact for the life of the page: they come from one server-wide probe, and
+// re-asking on every open would make the menu feel slower than it is.
+let reextractMenuId = $state<string | null>(null);
+let reextractTiers = $state<Record<string, ReextractTierState>>({});
+
+/**
+ * Re-extraction is a MinerU-route promise: a direct-text upload has no tiers
+ * to choose between, and a generated output has no source bytes at all. A row
+ * with no producer recorded is a pre-Phase-4 document, which is exactly the
+ * case this action exists for (D12 — no automatic backfill).
+ */
+function canReextractDocument(document: KnowledgeDocumentItem): boolean {
+	const job = document.extraction;
+	if (!job || isExtractionInProgress(document)) return false;
+	if (job.intakeRoute !== 'mineru') return false;
+	const producer = document.extractionProducer;
+	return !producer || producer === 'mineru';
+}
+
+function isKnownReextractTier(
+	tier: string,
+): tier is (typeof REEXTRACT_TIERS)[number] {
+	return (REEXTRACT_TIERS as readonly string[]).includes(tier);
+}
+
+/** Server order is ignored; the ladder's order is the one a user reads. */
+function orderedReextractTiers(tiers: string[]): string[] {
+	return REEXTRACT_TIERS.filter((tier) => tiers.includes(tier));
+}
+
+/**
+ * Everything at or below the tier this document was last parsed at is offered
+ * but inert: re-reading a PDF at the same quality it already has produces the
+ * same PDF, and the menu should say so rather than spend a backend seat
+ * proving it.
+ */
+function isReextractTierDisabled(
+	document: KnowledgeDocumentItem,
+	tier: string,
+): boolean {
+	const current = document.extractionTier;
+	if (!current || !isKnownReextractTier(current)) return false;
+	return REEXTRACT_TIERS.indexOf(tier as (typeof REEXTRACT_TIERS)[number]) <=
+		REEXTRACT_TIERS.indexOf(current);
+}
+
+async function toggleReextractMenu(event: MouseEvent, artifactId: string) {
+	event.stopPropagation();
+	if (reextractMenuId === artifactId) {
+		reextractMenuId = null;
+		return;
+	}
+	reextractMenuId = artifactId;
+	if (reextractTiers[artifactId]?.kind === 'ready') return;
+	if (!onLoadReextractTiers) {
+		reextractTiers = { ...reextractTiers, [artifactId]: { kind: 'error' } };
+		return;
+	}
+	reextractTiers = { ...reextractTiers, [artifactId]: { kind: 'loading' } };
+	try {
+		const tiers = await onLoadReextractTiers(artifactId);
+		reextractTiers = {
+			...reextractTiers,
+			[artifactId]: { kind: 'ready', tiers },
+		};
+	} catch {
+		// The reason is the page's to report (it owns the error banner); the
+		// menu only has to stop claiming it is still loading.
+		reextractTiers = { ...reextractTiers, [artifactId]: { kind: 'error' } };
+	}
+}
+
+function closeReextractMenu(artifactId: string, refocus = true) {
+	if (reextractMenuId !== artifactId) return;
+	reextractMenuId = null;
+	if (!refocus) return;
+	const toggle = document.querySelector<HTMLButtonElement>(
+		`[data-reextract-toggle="${CSS.escape(artifactId)}"]`,
+	);
+	toggle?.focus();
+}
+
+async function chooseReextractTier(
+	event: MouseEvent,
+	document_: KnowledgeDocumentItem,
+	tier: string,
+) {
+	event.stopPropagation();
+	const artifactId = document_.displayArtifactId;
+	if (!onReextract || extractionActionIds.has(artifactId)) return;
+	reextractMenuId = null;
+	const row = (event.currentTarget as HTMLElement | null)?.closest('tr');
+	extractionActionIds = new Set(extractionActionIds).add(artifactId);
+	try {
+		await onReextract(artifactId, tier);
+		// The status announcer only speaks when a job's STATUS changes, and a
+		// document going from "Ready" to "Queued" via a menu the user just used
+		// deserves a sentence of its own.
+		extractionAnnouncement = $t('knowledge.extraction.reextract.queued', {
+			name: document_.name,
+			tier: isKnownReextractTier(tier) ? $t(REEXTRACT_TIER_KEYS[tier]) : tier,
+		});
+	} finally {
+		const next = new Set(extractionActionIds);
+		next.delete(artifactId);
+		extractionActionIds = next;
+		await tick();
+		restoreRowFocus(row);
+	}
+}
+
 function restoreRowFocus(row: HTMLTableRowElement | null | undefined) {
 	if (!row?.isConnected) return;
 	const active = document.activeElement;
@@ -854,6 +1000,91 @@ async function handleBulkDelete(): Promise<boolean> {
 		<span class="status-badge">{$t('knowledge.statusCurrent')}</span>
 	{/if}
 {/snippet}
+
+<!--
+	"Re-extract at a different quality". Lives in the Actions column rather than
+	beside Retry/Cancel because those two only exist while the Status cell has a
+	verdict to show, and the document this action is for is usually one that
+	succeeded — the Status cell has already moved on.
+-->
+{#snippet reextractAction(document: KnowledgeDocumentItem, busy: boolean)}
+	{@const artifactId = document.displayArtifactId}
+	{@const open = reextractMenuId === artifactId}
+	{@const state = reextractTiers[artifactId]}
+	<div class="reextract-wrap">
+		<button
+			type="button"
+			class="action-btn"
+			class:is-open={open}
+			data-testid="extraction-reextract-toggle"
+			data-reextract-toggle={artifactId}
+			disabled={busy}
+			aria-busy={busy}
+			aria-haspopup="menu"
+			aria-expanded={open}
+			aria-label={$t('knowledge.extraction.reextract.label', { name: document.name })}
+			title={$t('knowledge.extraction.reextract.label', { name: document.name })}
+			onclick={(e) => void toggleReextractMenu(e, artifactId)}
+		>
+			<RotateCw size={16} strokeWidth={2} aria-hidden="true" />
+		</button>
+		{#if open}
+			<div
+				class="reextract-menu"
+				role="menu"
+				tabindex="-1"
+				data-testid="extraction-reextract-menu"
+				aria-label={$t('knowledge.extraction.reextract.menuLabel')}
+				onclick={(e) => e.stopPropagation()}
+				onkeydown={(e) => {
+					if (e.key === 'Escape') {
+						e.preventDefault();
+						e.stopPropagation();
+						closeReextractMenu(artifactId);
+					}
+				}}
+			>
+				<p class="reextract-menu-label">{$t('knowledge.extraction.reextract.menuLabel')}</p>
+				{#if !state || state.kind === 'loading'}
+					<p class="reextract-menu-note">{$t('knowledge.extraction.reextract.loading')}</p>
+				{:else if state.kind === 'error'}
+					<p class="reextract-menu-note">{$t('knowledge.extraction.reextract.failed')}</p>
+				{:else}
+					{@const tiers = orderedReextractTiers(state.tiers)}
+					{#if tiers.length === 0}
+						<p class="reextract-menu-note">{$t('knowledge.extraction.reextract.empty')}</p>
+					{:else}
+						{#each tiers as tier (tier)}
+							{@const current = document.extractionTier === tier}
+							<button
+								type="button"
+								role="menuitem"
+								class="reextract-menu-item"
+								data-testid={`extraction-reextract-tier-${tier}`}
+								disabled={busy || isReextractTierDisabled(document, tier)}
+								aria-current={current ? 'true' : undefined}
+								onclick={(e) => void chooseReextractTier(e, document, tier)}
+							>
+								<span>{$t(REEXTRACT_TIER_KEYS[tier as keyof typeof REEXTRACT_TIER_KEYS])}</span>
+								{#if current}
+									<span class="reextract-menu-current"
+										>{$t('knowledge.extraction.reextract.current')}</span
+									>
+								{/if}
+							</button>
+						{/each}
+					{/if}
+				{/if}
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+<svelte:window
+	onclick={() => {
+		if (reextractMenuId) closeReextractMenu(reextractMenuId, false);
+	}}
+/>
 
 <div
 	class="documents-list-wrapper"
@@ -1229,6 +1460,9 @@ async function handleBulkDelete(): Promise<boolean> {
 											>
 												<Eye size={16} strokeWidth={2} aria-hidden="true" />
 											</span>
+										{/if}
+										{#if canReextractDocument(document)}
+											{@render reextractAction(document, extractionBusy)}
 										{/if}
 										<button
 											type="button"
@@ -2216,6 +2450,89 @@ async function handleBulkDelete(): Promise<boolean> {
 
 	.action-btn-ai:active {
 		background: color-mix(in srgb, var(--accent) 20%, transparent);
+	}
+
+	.action-btn:disabled {
+		cursor: default;
+		opacity: 0.5;
+	}
+
+	/* The re-extract tier menu. Anchored to its own button rather than to the
+	   cell so it opens under the control that was pressed, and right-aligned so
+	   it never escapes the table's right edge. */
+	.reextract-wrap {
+		position: relative;
+		display: flex;
+	}
+
+	.action-btn.is-open {
+		background: color-mix(in srgb, var(--text-primary) 8%, transparent 92%);
+		color: var(--icon-primary);
+	}
+
+	.reextract-menu {
+		position: absolute;
+		top: calc(100% + var(--space-2xs, 2px));
+		right: 0;
+		z-index: 20;
+		display: flex;
+		min-width: 200px;
+		flex-direction: column;
+		gap: 2px;
+		padding: var(--space-xs);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		background: var(--surface-raised, var(--surface-page));
+		box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 18%));
+		text-align: left;
+	}
+
+	.reextract-menu-label {
+		margin: 0;
+		padding: var(--space-2xs, 2px) var(--space-xs);
+		font-size: 0.6875rem;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+	}
+
+	.reextract-menu-note {
+		margin: 0;
+		padding: var(--space-xs);
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.reextract-menu-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-sm);
+		padding: var(--space-xs);
+		border: none;
+		border-radius: var(--radius-sm);
+		background: transparent;
+		font-size: 0.8125rem;
+		color: var(--text-primary);
+		cursor: pointer;
+		text-align: left;
+	}
+
+	.reextract-menu-item:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--accent) 12%, transparent);
+	}
+
+	.reextract-menu-item:disabled {
+		cursor: default;
+		color: var(--text-muted);
+	}
+
+	.reextract-menu-current {
+		font-size: 0.6875rem;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
 	}
 
 	.ai-version-row {

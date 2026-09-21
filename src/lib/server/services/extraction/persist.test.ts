@@ -5,21 +5,23 @@
 // because the facts worth asserting are facts about rows and files: that a
 // re-extraction keeps the normalized artifact's id, that it leaves exactly one
 // `derived_from` link, that the previous parse's metadata keys do not survive
-// it, and that a bundle failure costs the figures but never the text.
+// it, and that a document whose bundle never made it to disk still becomes a
+// readable artifact.
 //
-// The one mock is `resolveMineruConfig`, so a case can shrink the bundle
-// budget below the fixture's own images — the real config floor is 1 MiB and
-// the PDF's figures are kilobytes.
+// The extractor writes the bundle (it holds the zip, in a temp directory that
+// is gone by the time persist runs), so these cases write it the same way and
+// hand persist the manifest, exactly as `structured.bundle` carries it.
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	MINERU_BUNDLE_MANIFEST,
+	type MineruParseBundleManifest,
 	mineruBundleDir,
+	writeMineruParseBundle,
 } from "$lib/server/services/mineru/bundle";
 import {
 	buildStructuredExtractionResult,
@@ -30,22 +32,6 @@ import {
 	createLedgerFixture,
 	type LedgerFixture,
 } from "./testing/ledger-fixtures";
-
-const { bundleMaxBytes } = vi.hoisted(() => ({
-	bundleMaxBytes: { value: 33_554_432 },
-}));
-
-vi.mock("$lib/server/services/mineru/config", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("$lib/server/services/mineru/config")>();
-	return {
-		...actual,
-		resolveMineruConfig: () => ({
-			...actual.resolveMineruConfig(),
-			bundleMaxBytes: bundleMaxBytes.value,
-		}),
-	};
-});
 
 type Persist = typeof import("./persist");
 
@@ -70,15 +56,26 @@ let fixture: LedgerFixture;
 let persist: Persist;
 let userId: string;
 let sourceArtifactId: string;
-let tempDir: string;
+
+/** What the extractor does before it returns: write the bundle, keep the id. */
+async function writeBundle(
+	result: StructuredExtractionResult,
+	options: { name?: string; maxBytes?: number } = {},
+): Promise<MineruParseBundleManifest> {
+	return writeMineruParseBundle({
+		userId,
+		sourceArtifactId,
+		zipPathAbsolute: fixtureZip(options.name ?? "pdf"),
+		result,
+		maxBytes: options.maxBytes ?? 33_554_432,
+	});
+}
 
 beforeEach(async () => {
-	bundleMaxBytes.value = 33_554_432;
 	userId = `persist-user-${randomUUID()}`;
 	fixture = createLedgerFixture("persist");
 	fixture.seedUser(userId);
 	sourceArtifactId = fixture.seedArtifact({ userId, name: "sample.pdf" });
-	tempDir = await mkdtemp(join(tmpdir(), "alfyai-persist-"));
 
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
@@ -87,7 +84,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	fixture.cleanup();
-	await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
 	await rm(join(process.cwd(), "data", "knowledge", userId), {
 		recursive: true,
 		force: true,
@@ -113,30 +109,39 @@ function linkCount(normalizedArtifactId: string): number {
 	return row.count;
 }
 
+/**
+ * One extraction, shaped exactly as the worker hands it over: the parsed
+ * result spread flat, plus the bundle manifest the extractor wrote (or null).
+ */
 async function persistFixture(options: {
 	name?: string;
 	extension?: string;
-	zip?: string | null;
 	result?: StructuredExtractionResult;
+	/** Omit to write the bundle first; pass null for "the extractor had none". */
+	bundle?: MineruParseBundleManifest | null;
+	maxBytes?: number;
 	text?: string;
 }) {
-	const result = options.result ?? (await parsedFixture(options.name ?? "pdf"));
-	const zip =
-		options.zip === null ? null : (options.zip ?? fixtureZip(options.name ?? "pdf"));
+	const name = options.name ?? "pdf";
+	const result = options.result ?? (await parsedFixture(name));
+	const bundle =
+		options.bundle === undefined
+			? await writeBundle(result, { name, maxBytes: options.maxBytes })
+			: options.bundle;
 	return persist.createNormalizedArtifactFromExtraction({
 		userId,
 		conversationId: null,
 		sourceArtifactId,
-		sourceName: `sample.${options.extension ?? options.name ?? "pdf"}`,
+		sourceName: `sample.${options.extension ?? name}`,
 		text: options.text ?? result.markdown,
 		normalizedName: "sample.md",
 		mimeType: "text/markdown",
-		structured: zip ? { result, zipPathAbsolute: zip } : result,
+		structured: { ...result, bundle },
 	});
 }
 
 describe("createNormalizedArtifactFromExtraction — structured results", () => {
-	it("writes the parse bundle, the artifact and the metadata on both rows", async () => {
+	it("stamps the bundle with the artifact id and the metadata on both rows", async () => {
 		const result = await parsedFixture("pdf");
 		const artifact = await persistFixture({ name: "pdf" });
 
@@ -165,7 +170,7 @@ describe("createNormalizedArtifactFromExtraction — structured results", () => 
 			expect(metadata.extractionFigureCount).toBe(1);
 			expect(metadata.extractionImagesOmitted).toBe(false);
 			expect(metadata.extractionBundleBytes).toBe(manifest.totalBytes);
-			expect(metadata.extractionBundleError).toBeUndefined();
+			expect(metadata.extractionBundleMissing).toBeUndefined();
 			// Every fixture block type is known, so the GPU-box signal stays off
 			// the row rather than being stored as an empty object.
 			expect(metadata.extractionUnknownBlockTypes).toBeUndefined();
@@ -238,7 +243,11 @@ describe("createNormalizedArtifactFromExtraction — structured results", () => 
 			sourceFilename: "notes.docx",
 		});
 
-		const artifact = await persistFixture({ result, zip: null, name: "docx" });
+		const artifact = await persistFixture({
+			result,
+			bundle: null,
+			name: "docx",
+		});
 		const outline = metadataOf(artifact.id).outline as Array<
 			Record<string, unknown>
 		>;
@@ -248,13 +257,12 @@ describe("createNormalizedArtifactFromExtraction — structured results", () => 
 		]);
 	});
 
-	it("omits the bundle keys and stores no outline when the parse has neither", async () => {
+	it("stores no outline when the parse has no headings at all", async () => {
 		const result = await parsedFixture("csv");
-		const artifact = await persistFixture({ result, zip: null, name: "csv" });
+		const artifact = await persistFixture({ result, name: "csv" });
 
 		const metadata = metadataOf(artifact.id);
 		expect(metadata.outline).toBeUndefined();
-		expect(metadata.extractionBundleBytes).toBeUndefined();
 		expect(metadata.extractionFigureCount).toBe(0);
 		expect(metadata.pageCountKind).toBe("logical");
 	});
@@ -297,12 +305,11 @@ describe("createNormalizedArtifactFromExtraction — re-extraction", () => {
 	});
 });
 
-describe("createNormalizedArtifactFromExtraction — bundle failures", () => {
-	it("drops images that do not fit the budget and records it", async () => {
-		// Below the PDF figure's own size, so the image is skipped while the
-		// JSON and the Markdown are still written.
-		bundleMaxBytes.value = 24_000;
-		const artifact = await persistFixture({ name: "pdf" });
+describe("createNormalizedArtifactFromExtraction — bundle edges", () => {
+	it("records the budget verdict the extractor reached", async () => {
+		// A budget below the PDF figure's own size: the JSON and the Markdown
+		// are still written, the image is not, and the row says so.
+		const artifact = await persistFixture({ name: "pdf", maxBytes: 24_000 });
 
 		const bundleDir = mineruBundleDir(userId, sourceArtifactId);
 		expect(await readdir(join(bundleDir, "images"))).toEqual([]);
@@ -312,40 +319,32 @@ describe("createNormalizedArtifactFromExtraction — bundle failures", () => {
 		expect(artifact.contentText).toContain("ALFA Quarterly Overview");
 	});
 
-	it("keeps the text and records the failure when the bundle cannot be written", async () => {
-		const corruptZip = join(tempDir, "result.zip");
-		await writeFile(corruptZip, "this is not a zip file", "utf8");
+	it("keeps the text and says so when there is no bundle at all", async () => {
+		// What the extractor reports when it could not write one — a failed
+		// bundle write, or a request with no artifact to write under.
 		const result = await parsedFixture("pdf");
-
-		const artifact = await persistFixture({ result, zip: corruptZip });
+		const artifact = await persistFixture({ result, bundle: null });
 
 		expect(artifact.contentText).toBe(result.markdown);
 		expect(existsSync(mineruBundleDir(userId, sourceArtifactId))).toBe(false);
 		for (const id of [artifact.id, sourceArtifactId]) {
 			const metadata = metadataOf(id);
-			expect(typeof metadata.extractionBundleError).toBe("string");
+			expect(metadata.extractionBundleMissing).toBe(true);
 			expect(metadata.extractionBundleBytes).toBeUndefined();
 			// The parse itself still happened, so its provenance is still true.
 			expect(metadata.extractionProducer).toBe("mineru");
 			expect(metadata.pageCount).toBe(3);
+			expect(metadata.extractionFigureCount).toBe(1);
 		}
 	});
 
-	it("uses a bundle the extractor wrote itself when no zip is handed over", async () => {
-		const { writeMineruParseBundle } = await import(
-			"$lib/server/services/mineru/bundle"
-		);
+	it("patches the normalized artifact id into the bundle the extractor wrote", async () => {
 		const result = await parsedFixture("pdf");
-		const manifest = await writeMineruParseBundle({
-			userId,
-			sourceArtifactId,
-			zipPathAbsolute: fixtureZip("pdf"),
-			result,
-			maxBytes: 33_554_432,
-		});
+		const manifest = await writeBundle(result);
+		// The extractor cannot know the id: the artifact does not exist yet.
+		expect(manifest.normalizedArtifactId).toBeNull();
 
-		// The bare `StructuredExtractionResult` — the contract's own shape.
-		const artifact = await persistFixture({ result, zip: null });
+		const artifact = await persistFixture({ result, bundle: manifest });
 
 		expect(metadataOf(artifact.id).extractionBundleBytes).toBe(
 			manifest.totalBytes,
