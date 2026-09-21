@@ -8,6 +8,7 @@ import {
 	fileProductionJobs,
 } from "$lib/server/db/schema";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import { getFileProductionWorkerConfig } from "./config";
 
 export interface CreateFileProductionJobInput {
 	userId: string;
@@ -113,7 +114,15 @@ export interface ClaimedFileProductionJob {
 	attempt: FileProductionJobAttempt;
 }
 
-export const DEFAULT_STALE_ATTEMPT_MS = 10 * 60 * 1000;
+/**
+ * The fork reconciler's own fallback window, resolved from the same key the
+ * worker sweeps with rather than from a second constant that can drift from it.
+ */
+function defaultStaleBefore(now: Date): Date {
+	return new Date(
+		now.getTime() - getFileProductionWorkerConfig().staleAttemptMs,
+	);
+}
 
 function isUniqueConstraintError(error: unknown): boolean {
 	if (!(error instanceof Error)) {
@@ -660,8 +669,7 @@ export async function reconcileStaleFileProductionJobs(
 	input: ReconcileStaleFileProductionJobsInput,
 ): Promise<{ recovered: number }> {
 	const now = input.now ?? new Date();
-	const staleBefore =
-		input.staleBefore ?? new Date(now.getTime() - DEFAULT_STALE_ATTEMPT_MS);
+	const staleBefore = input.staleBefore ?? defaultStaleBefore(now);
 	const assistantMessageIds = input.assistantMessageIds
 		? Array.from(new Set(input.assistantMessageIds.filter(Boolean)))
 		: null;
