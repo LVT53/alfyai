@@ -49,7 +49,15 @@ export const MINERU_PARSER_VERSION = "mineru4/1";
 
 // ── block vocabulary ───────────────────────────────────────────────────────
 
-/** Exactly the vocabulary observed across the nine fixture inputs. */
+/**
+ * Exactly the vocabulary observed across the nine fixture inputs, plus `index`.
+ *
+ * `index` is a table of contents. It was not in any recorded fixture but real
+ * PDFs emit it, and every one of them was reporting an unknown type — which is
+ * the GPU-box signal, so a type this common drowns out the ones worth reading.
+ * It renders as its own text (the `else` branch: a TOC is prose) and is NOT
+ * atomic: a long contents list may be split across chunks like any other text.
+ */
 export const KNOWN_BLOCK_TYPES = [
 	"text",
 	"paragraph_title",
@@ -57,6 +65,7 @@ export const KNOWN_BLOCK_TYPES = [
 	"list",
 	"table",
 	"image",
+	"index",
 	"header",
 	"footer",
 	"page_number",
@@ -1171,8 +1180,41 @@ export function pageForOffset(
 
 // ── the whole result ───────────────────────────────────────────────────────
 
-function normalizePageCountKind(value: string | undefined): PageCountKind {
-	return isPageCountKind(value) ? value : "unknown";
+/**
+ * What a count counts, when MinerU says and when it does not.
+ *
+ * `docx` / `xlsx` / `pptx` come back with `declared` / `sheet` / `slide`
+ * because the OOXML readers report `page_count_kind`; their legacy siblings
+ * `doc` / `xls` / `ppt` come back with nothing at all, and `unknown` is the one
+ * kind `displayablePageCountUnit` refuses to name — so a real `.xls` with four
+ * sheets showed no count and could not be cited by sheet, purely because of the
+ * suffix. The file's own registry category answers the same question the
+ * missing metadata would have: a spreadsheet counts sheets, a presentation
+ * counts slides, a word processor declares a number it will not stand behind.
+ *
+ * The source filename is used, never `metadata.file_suffix`, for the reason
+ * `MineruRenderOptions` gives: the suffix reports "pdf" for a PNG.
+ */
+function normalizePageCountKind(
+	value: string | undefined,
+	options?: MineruRenderOptions,
+): PageCountKind {
+	if (isPageCountKind(value)) return value;
+	switch (
+		options?.sourceFilename
+			? resolveEntry(options.sourceFilename, options.sourceMimeType ?? null)
+					?.category
+			: null
+	) {
+		case "spreadsheet":
+			return "sheet";
+		case "presentation":
+			return "slide";
+		case "document":
+			return "declared";
+		default:
+			return "unknown";
+	}
 }
 
 function collectStats(sc: StructuredContent): StructuredExtractionStats {
@@ -1268,7 +1310,7 @@ export function buildStructuredExtractionResult(
 		jobTier: input.jobTier ?? null,
 		parseMode: sc.extensions?.mineru?.parse_mode ?? null,
 		pageCount,
-		pageCountKind: normalizePageCountKind(document.page_count_kind),
+		pageCountKind: normalizePageCountKind(document.page_count_kind, options),
 		markdown: rendered.markdown,
 		pages: offsets,
 		blocks: rendered.blocks,

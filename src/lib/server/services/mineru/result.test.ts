@@ -984,3 +984,89 @@ describe("MinerU structured result — page attribution", () => {
 		expect(result.pages.length).toBeLessThanOrEqual(50_000);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Ruling 6: two small gaps that only real output shows
+// ---------------------------------------------------------------------------
+
+/** The minimum a `structured_content.json` needs to be parseable. */
+function syntheticContent(
+	blocks: ReadonlyArray<{ type: string; content: string }>,
+	document: Record<string, unknown> = {},
+): StructuredContent {
+	return parseStructuredContent(
+		JSON.stringify({
+			pages: [{ page_idx: 0, blocks }],
+			metadata: { document },
+			is_full_document: true,
+		}),
+	);
+}
+
+describe("the `index` block type", () => {
+	// Live, every real PDF with a table of contents reported `index` in
+	// `stats.unknownTypes` — which is the GPU-box signal, so a type this common
+	// drowns out the ones actually worth reading.
+	it("is known, keeps its text, and is not atomic", () => {
+		const result = buildStructuredExtractionResult({
+			content: syntheticContent([
+				{ type: "doc_title", content: "Annual Report" },
+				{ type: "index", content: "1. Overview 2. Results 3. Outlook" },
+			]),
+			sourceFilename: "report.pdf",
+		});
+
+		expect(result.stats.unknownTypes).toEqual({});
+		expect(result.markdown).toContain("1. Overview 2. Results 3. Outlook");
+		expect(result.blocks.find((block) => block.type === "index")).toMatchObject({
+			unknownType: false,
+			atomic: false,
+		});
+		expect(isAtomicBlockType("index")).toBe(false);
+	});
+});
+
+describe("page counts for the legacy Office formats", () => {
+	// `docx` / `xlsx` / `pptx` get `declared` / `sheet` / `slide` from MinerU's
+	// own metadata; `doc` / `xls` / `ppt` carry real pages, sheets and slides
+	// but no `page_count_kind` at all, so they landed on `unknown` — the one
+	// kind that suppresses the count and the citation entirely.
+	it.each([
+		["legacy.doc", "declared"],
+		["legacy.xls", "sheet"],
+		["legacy.ppt", "slide"],
+	])("%s derives %s from the file's own registry category", (name, kind) => {
+		const result = buildStructuredExtractionResult({
+			content: syntheticContent([{ type: "text", content: "Body" }], {
+				page_count: 4,
+			}),
+			sourceFilename: name,
+		});
+
+		expect(result.pageCountKind).toBe(kind);
+		expect(result.pageCount).toBe(4);
+	});
+
+	it("still says unknown when nothing can name the unit", () => {
+		// PNG/JPEG carry no `page_count` and no kind, and "image" is not a unit
+		// anyone could turn to.
+		expect(
+			buildStructuredExtractionResult({
+				content: syntheticContent([{ type: "text", content: "Body" }]),
+				sourceFilename: "photo.png",
+			}).pageCountKind,
+		).toBe("unknown");
+	});
+
+	it("never overrides a kind MinerU did report", () => {
+		expect(
+			buildStructuredExtractionResult({
+				content: syntheticContent([{ type: "text", content: "Body" }], {
+					page_count: 3,
+					page_count_kind: "physical",
+				}),
+				sourceFilename: "legacy.doc",
+			}).pageCountKind,
+		).toBe("physical");
+	});
+});
