@@ -2903,7 +2903,7 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		expect(storeGeneratedFile).toHaveBeenCalledTimes(3);
 	});
 
-	it("persists generated-document source JSON and readable projection on a generated_output artifact", async () => {
+	it("persists generated-document source JSON and the rendered markdown on a generated_output artifact", async () => {
 		const { db } = await import("$lib/server/db");
 		const { persistGeneratedDocumentSourceArtifact } = await import(
 			"./source-persistence"
@@ -2937,8 +2937,10 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 			type: "generated_output",
 			retrievalClass: "ephemeral_followup",
 			name: "Quarterly report",
+			// D9: the Markdown renderer's bytes, which is also exactly what a
+			// `markdown` output of this job would have written to disk.
 			contentText:
-				"Quarterly report\nExecutive summary\n\n## Revenue\nRevenue increased by 12%.",
+				"# Quarterly report\n\nExecutive summary\n\n## Revenue\n\nRevenue increased by 12%.\n",
 		});
 		expect(metadata).toMatchObject({
 			generatedDocumentSourceVersion: 1,

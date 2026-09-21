@@ -8,8 +8,8 @@ import {
 } from "$lib/server/services/knowledge/store/core";
 import type { Artifact } from "$lib/server/services/knowledge/types";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import { renderStandardReportMarkdown } from "./renderers/standard-report-markdown";
 import {
-	buildGeneratedDocumentProjection,
 	type GeneratedDocumentSource,
 	validateGeneratedDocumentSource,
 } from "./source-schema";
@@ -22,6 +22,14 @@ export interface PersistGeneratedDocumentSourceInput {
 	title: string;
 	documentIntent?: string | null;
 	source: unknown;
+	/**
+	 * The already-rendered Markdown, when the job requested `markdown` among its
+	 * outputs and the worker therefore rendered it anyway. Omitted ⇒ this
+	 * function renders it once itself. Either way the renderer runs exactly once
+	 * per job: it is a pure, synchronous function of the validated source
+	 * object, with no image loader and no favicon resolution.
+	 */
+	readonly renderedMarkdown?: string;
 }
 
 export const GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY =
@@ -30,6 +38,56 @@ export const GENERATED_DOCUMENT_SOURCE_STATUS_KEY =
 	"generatedDocumentSourceStatus";
 
 type GeneratedDocumentSourceStatus = "pending" | "succeeded" | "failed";
+
+/**
+ * An inline image's bytes, as the Markdown renderer writes them into a file
+ * meant to be opened on its own.
+ *
+ * Correct in a download, wrong in an artifact: this text is chunked, embedded
+ * and handed back to the model through `read_generated_file`, where up to
+ * 2 MiB of base64 (the static `maxSourceJsonBytes` ceiling) would fill the
+ * window with something no reader can use. Only the payload is replaced — the
+ * alt text, the caption and the attribution stay exactly where the renderer
+ * put them.
+ */
+const DATA_URI_IMAGE_PATTERN = /\(data:([^;,)]+);base64,[^)]*\)/g;
+
+/**
+ * The document's text, as one renderer (D9).
+ *
+ * It used to be `buildGeneratedDocumentProjection`, a third rendering of the
+ * same source beside the Markdown and HTML/PDF/DOCX renderers, which meant the
+ * text the model read back was never quite the file the user downloaded.
+ * `renderStandardReportMarkdown` is now the only source→text path, so the two
+ * agree by construction.
+ *
+ * Returns `null` when there is no text to write, which is the caller's signal
+ * to leave the readback path to fill the gap rather than store an empty
+ * document.
+ */
+function buildGeneratedDocumentSourceText(
+	source: GeneratedDocumentSource,
+	renderedMarkdown: string | undefined,
+): string | null {
+	let markdown = renderedMarkdown;
+	if (markdown === undefined) {
+		try {
+			markdown = renderStandardReportMarkdown(source).content.toString("utf8");
+		} catch (error) {
+			// Pure, synchronous and fed an already-validated source, so this is
+			// close to unreachable — and if it ever fires, the file still exists
+			// and `chat-files.ts` falls through to a readback for the rendered
+			// binaries, which is exactly what a non-source generated file does.
+			console.warn(
+				"[FILE_PRODUCTION] Generated document markdown render failed; the rendered files keep their own readback",
+				{ title: source.title, error },
+			);
+			return null;
+		}
+	}
+	const text = markdown.replace(DATA_URI_IMAGE_PATTERN, "(embedded $1)");
+	return text.trim() ? text : null;
+}
 
 function readStringArray(value: unknown): string[] {
 	if (!Array.isArray(value)) {
@@ -131,7 +189,10 @@ export async function persistGeneratedDocumentSourceArtifact(
 	}
 
 	const source: GeneratedDocumentSource = validation.source;
-	const projection = buildGeneratedDocumentProjection(source);
+	const documentText = buildGeneratedDocumentSourceText(
+		source,
+		input.renderedMarkdown,
+	);
 	const existing = await findGeneratedDocumentSourceArtifactForJob({
 		userId: input.userId,
 		conversationId: input.conversationId,
@@ -168,7 +229,7 @@ export async function persistGeneratedDocumentSourceArtifact(
 		name: input.title,
 		mimeType: "application/vnd.alfyai.generated-document+json",
 		extension: "alfyidoc.json",
-		contentText: projection,
+		contentText: documentText ?? "",
 		summary: source.subtitle ?? source.title,
 		metadata: {
 			generatedDocumentSourceVersion: source.version,
