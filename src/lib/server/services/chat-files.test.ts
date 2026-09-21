@@ -1253,6 +1253,112 @@ describe("chat-files service", () => {
 			expect(content).not.toContain("﻿");
 		});
 
+		// The shared `decodeTextBuffer` (`extraction/text-decode.ts`) is the
+		// single decoder now — the same module the direct-text extractor uses for
+		// uploads. These four cases exercise behaviour the old hand-rolled
+		// `content.toString("utf8")...` body could not have: real UTF-16LE
+		// decoding, and NUL bytes turning into "no readable text" instead of
+		// leaking a control character into memory.
+		it("decodes a generated .txt that carries a UTF-16LE BOM", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			mockReadFile.mockResolvedValueOnce(
+				Buffer.concat([
+					Buffer.from([0xff, 0xfe]),
+					Buffer.from("Grew 12%\n", "utf16le"),
+				]),
+			);
+			mockRows.push({
+				id: "file-utf16le",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename: "notes.txt",
+				mimeType: "text/plain",
+				sizeBytes: 20,
+				storagePath: "conv-a/file-utf16le.txt",
+				createdAt: new Date("2026-01-01"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-utf16le"],
+				assistantResponse: "Here is the file.",
+			});
+
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
+			expect(
+				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content,
+			).toContain("Extracted file content:\nGrew 12%");
+		});
+
+		it("treats a generated text-like file with a NUL byte as unreadable rather than storing it", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			mockReadFile.mockResolvedValueOnce(
+				Buffer.from("before\0after\n", "utf8"),
+			);
+			mockRows.push({
+				id: "file-nul",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename: "notes.txt",
+				mimeType: "text/plain",
+				sizeBytes: 13,
+				storagePath: "conv-a/file-nul.txt",
+				createdAt: new Date("2026-01-01"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-nul"],
+				assistantResponse: "Here is the file.",
+			});
+
+			// A text-like route never enqueues a ledger job, even when the decode
+			// fails — there is no backend to send it to.
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
+			const content =
+				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content;
+			expect(content).toContain(
+				"Extracted file content: No readable text could be extracted from this file.",
+			);
+			expect(content).not.toContain("before");
+		});
+
+		it("round-trips ordinary Hungarian UTF-8 text untouched", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			const body = "Árvíztűrő tükörfúrógép.\n";
+			mockReadFile.mockResolvedValueOnce(Buffer.from(body, "utf8"));
+			mockRows.push({
+				id: "file-hu",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				userId: "user-1",
+				filename: "jegyzet.txt",
+				mimeType: "text/plain",
+				sizeBytes: Buffer.byteLength(body, "utf8"),
+				storagePath: "conv-a/file-hu.txt",
+				createdAt: new Date("2026-01-01"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-a",
+				assistantMessageId: "assistant-a",
+				fileIds: ["file-hu"],
+				assistantResponse: "Here is the file.",
+			});
+
+			expect(mockStartGeneratedFileReadback).not.toHaveBeenCalled();
+			expect(
+				mockCreateGeneratedOutputArtifact.mock.calls[0][0].content,
+			).toContain("Extracted file content:\nÁrvíztűrő tükörfúrógép.");
+		});
+
 		it("queues nothing for a generated file no backend can read", async () => {
 			const { syncGeneratedFilesToMemory } = await import("./chat-files");
 			mockRows.push({

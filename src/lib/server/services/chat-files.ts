@@ -19,6 +19,7 @@ import {
 	buildGeneratedFileExtractedContentSection,
 	ensureGeneratedFileReadbackSinkRegistered,
 } from "$lib/server/services/extraction/readback";
+import { decodeTextBuffer } from "$lib/server/services/extraction/text-decode";
 import { GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY } from "$lib/server/services/file-production/source-persistence";
 import { mapArtifact } from "$lib/server/services/knowledge/store/core";
 import {
@@ -607,19 +608,18 @@ export async function assignGeneratedFilesToAssistantMessage(
  * Decoded from the bytes this function has already read rather than routed
  * through the ledger: a markdown, delimited-text or HTML output never needed a
  * parser, and making the user wait for a worker to hand back what is already in
- * memory would be a regression dressed up as an improvement. The rule is the
- * direct-text extractor's (`extraction/extractors/direct-text.ts`): CRLF
- * normalised so a Windows-authored file and its Unix twin chunk identically.
+ * memory would be a regression dressed up as an improvement.
+ *
+ * Delegates to the shared `decodeTextBuffer` (`extraction/text-decode.ts`) —
+ * the same decoder `extraction/extractors/direct-text.ts` uses — so an
+ * uploaded Markdown file and a generated one decode identically, and the same
+ * bytes chunk the same way. `null` on a failed decode (binary content or an
+ * unsupported encoding) is this function's contract; CRLF normalisation and
+ * trim happen inside the shared decoder, exactly as they did here before.
  */
 function decodeTextLikeGeneratedFile(content: Buffer): string | null {
-	// INTEGRATOR FOLLOW-UP (P5-B): replace this body with the shared
-	// `decodeTextBuffer` from `extraction/text-decode.ts` once that module
-	// lands — `return decodeTextBuffer(content).ok ? …text : null`, keeping
-	// `null` as the "no readable text" answer. It is the single call site, and
-	// it must stay the single call site: an uploaded Markdown file and a
-	// generated one have to decode identically, or the same bytes chunk two
-	// different ways.
-	return content.toString("utf8").replace(/\r\n/g, "\n").trim() || null;
+	const result = decodeTextBuffer(content);
+	return result.ok ? result.text || null : null;
 }
 
 /**
