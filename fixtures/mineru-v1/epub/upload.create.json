@@ -1,0 +1,18 @@
+{
+  "id": "upload_b5d0bd1c6ebe4f9eef4195c6",
+  "object": "upload",
+  "bytes": 1765,
+  "created_at": 1789908382,
+  "expires_at": 1789911982,
+  "filename": "sample.epub",
+  "purpose": "parse",
+  "mime_type": "application/epub+zip",
+  "sha256sum": "c3119e3aee26df275c8ef3a0b5eeb73c1131ce2e70db991bbfe069476c57a175",
+  "status": "pending",
+  "upload_url": "http://127.0.0.1:8765/v1/uploads/upload_b5d0bd1c6ebe4f9eef4195c6/content",
+  "upload_method": "PUT",
+  "upload_headers": {
+    "Content-Type": "application/epub+zip"
+  },
+  "file": null
+}

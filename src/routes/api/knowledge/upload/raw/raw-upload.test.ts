@@ -28,7 +28,7 @@ describe("POST /api/knowledge/upload/raw", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/raw",
 				routeId: "/api/knowledge/upload/raw",
-				userId: "raw-user",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
@@ -37,7 +37,7 @@ describe("POST /api/knowledge/upload/raw", () => {
 		expect(data.artifact.id).toBe("artifact-1");
 		expect(mockCompleteKnowledgeUploadFromStoredFile).toHaveBeenCalledWith(
 			expect.objectContaining({
-				userId: "raw-user",
+				userId: harness.userId,
 				conversationId: "conv-1",
 				fileName: "scan.pdf",
 				mimeType: "application/pdf",
@@ -92,12 +92,12 @@ describe("POST /api/knowledge/upload/raw", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/raw",
 				routeId: "/api/knowledge/upload/raw",
-				userId: "raw-user",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
 		const incoming = await stat(
-			join(process.cwd(), "data", "knowledge", "raw-user", ".incoming"),
+			join(process.cwd(), "data", "knowledge", harness.userId, ".incoming"),
 		).catch(() => null);
 
 		expect(response.status).toBe(415);
@@ -123,7 +123,7 @@ describe("POST /api/knowledge/upload/raw", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/raw",
 				routeId: "/api/knowledge/upload/raw",
-				userId: "raw-user",
+				userId: harness.userId,
 			}),
 		);
 
@@ -142,7 +142,7 @@ describe("POST /api/knowledge/upload/raw", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/raw",
 				routeId: "/api/knowledge/upload/raw",
-				userId: "raw-user",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
@@ -168,12 +168,12 @@ describe("POST /api/knowledge/upload/raw", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/raw",
 				routeId: "/api/knowledge/upload/raw",
-				userId: "raw-user",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
 		const incomingDir = await stat(
-			join(process.cwd(), "data", "knowledge", "raw-user", ".incoming"),
+			join(process.cwd(), "data", "knowledge", harness.userId, ".incoming"),
 		).catch(() => null);
 
 		expect(response.status).toBe(400);
@@ -202,7 +202,7 @@ describe("POST /api/knowledge/upload/raw", () => {
 				}),
 				requestUrl: "http://localhost/api/knowledge/upload/raw",
 				routeId: "/api/knowledge/upload/raw",
-				userId: "raw-user",
+				userId: harness.userId,
 			}),
 		);
 		const data = await response.json();
@@ -219,7 +219,7 @@ describe("POST /api/knowledge/upload/raw", () => {
 	describe("temporary file hygiene (B2)", () => {
 		async function incomingEntries(): Promise<string[]> {
 			return await readdir(
-				join(process.cwd(), "data", "knowledge", "raw-user", ".incoming"),
+				join(process.cwd(), "data", "knowledge", harness.userId, ".incoming"),
 			).catch(() => []);
 		}
 
@@ -234,7 +234,7 @@ describe("POST /api/knowledge/upload/raw", () => {
 					}),
 					requestUrl: "http://localhost/api/knowledge/upload/raw",
 					routeId: "/api/knowledge/upload/raw",
-					userId: "raw-user",
+					userId: harness.userId,
 				}),
 			);
 
@@ -260,7 +260,7 @@ describe("POST /api/knowledge/upload/raw", () => {
 					}),
 					requestUrl: "http://localhost/api/knowledge/upload/raw",
 					routeId: "/api/knowledge/upload/raw",
-					userId: "raw-user",
+					userId: harness.userId,
 				}),
 			);
 

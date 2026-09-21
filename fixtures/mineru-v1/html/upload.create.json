@@ -1,0 +1,18 @@
+{
+  "id": "upload_5815498332397d31581292be",
+  "object": "upload",
+  "bytes": 1753,
+  "created_at": 1789908383,
+  "expires_at": 1789911983,
+  "filename": "sample.html",
+  "purpose": "parse",
+  "mime_type": "text/html",
+  "sha256sum": "31960ad8644da3c6f70f35f00749ef20126c44adb5f1db04845898d6e3f0d468",
+  "status": "pending",
+  "upload_url": "http://127.0.0.1:8765/v1/uploads/upload_5815498332397d31581292be/content",
+  "upload_method": "PUT",
+  "upload_headers": {
+    "Content-Type": "text/html"
+  },
+  "file": null
+}

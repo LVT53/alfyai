@@ -108,6 +108,12 @@ function makeDocument(
 		...(Object.hasOwn(overrides, "extraction") && {
 			extraction: overrides.extraction,
 		}),
+		...(Object.hasOwn(overrides, "extractionProducer") && {
+			extractionProducer: overrides.extractionProducer,
+		}),
+		...(Object.hasOwn(overrides, "extractionTier") && {
+			extractionTier: overrides.extractionTier,
+		}),
 	};
 }
 
@@ -1590,6 +1596,182 @@ describe("DocumentsList", () => {
 				document.querySelector(".documents-table tbody td.col-name") as Element,
 			);
 			expect(onSelect).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe("re-extract at a different quality", () => {
+		function renderReextractable(
+			overrides: Partial<KnowledgeDocumentItem> = {},
+			props: Record<string, unknown> = {},
+		) {
+			return render(DocumentsList, {
+				props: {
+					documents: [
+						makeDocument({
+							id: "doc-1",
+							name: "Budget.pdf",
+							extraction: makeExtractionJob({ status: "succeeded" }),
+							extractionProducer: "mineru",
+							extractionTier: "flash",
+							...overrides,
+						}),
+					],
+					onLoadReextractTiers: vi.fn(async () => [
+						"flash",
+						"basic",
+						"standard",
+					]),
+					...props,
+				},
+			});
+		}
+
+		it("offers the action for a document the MinerU route read", () => {
+			renderReextractable();
+			expect(screen.getByTestId("extraction-reextract-toggle")).toBeTruthy();
+		});
+
+		it("hides the action for a direct-text document", () => {
+			renderReextractable({
+				extraction: makeExtractionJob({
+					status: "succeeded",
+					intakeRoute: "direct-text",
+				}),
+				extractionProducer: undefined,
+				extractionTier: undefined,
+			});
+			expect(screen.queryByTestId("extraction-reextract-toggle")).toBeNull();
+		});
+
+		it("hides the action while the document is still being read", () => {
+			renderReextractable({
+				extraction: makeExtractionJob({ status: "parsing" }),
+			});
+			expect(screen.queryByTestId("extraction-reextract-toggle")).toBeNull();
+		});
+
+		it("offers the action on a pre-ledger document, which has no producer", () => {
+			// D12: no backfill, so an old document is identified by the ABSENCE
+			// of a producer — and re-extraction is the only way it ever gets one.
+			renderReextractable({
+				extraction: makeExtractionJob({
+					status: "succeeded",
+					legacy: true,
+					id: "legacy-extraction:doc-1",
+				}),
+				extractionProducer: undefined,
+				extractionTier: undefined,
+			});
+			expect(screen.getByTestId("extraction-reextract-toggle")).toBeTruthy();
+		});
+
+		it("asks the server for the tiers when the menu opens, once", async () => {
+			const onLoadReextractTiers = vi.fn(async () => ["flash", "basic"]);
+			renderReextractable({}, { onLoadReextractTiers });
+
+			const toggle = screen.getByTestId("extraction-reextract-toggle");
+			expect(onLoadReextractTiers).not.toHaveBeenCalled();
+
+			await fireEvent.click(toggle);
+			await waitFor(() =>
+				expect(screen.getByTestId("extraction-reextract-menu")).toBeTruthy(),
+			);
+			expect(toggle).toHaveAttribute("aria-expanded", "true");
+			expect(onLoadReextractTiers).toHaveBeenCalledWith("doc-1");
+
+			// Closing and reopening reads the cached answer.
+			await fireEvent.click(toggle);
+			await fireEvent.click(toggle);
+			await waitFor(() =>
+				expect(screen.getByTestId("extraction-reextract-menu")).toBeTruthy(),
+			);
+			expect(onLoadReextractTiers).toHaveBeenCalledTimes(1);
+		});
+
+		it("marks the current tier and disables everything at or below it", async () => {
+			renderReextractable({ extractionTier: "basic" });
+			await fireEvent.click(screen.getByTestId("extraction-reextract-toggle"));
+			await waitFor(() =>
+				expect(
+					screen.getByTestId("extraction-reextract-tier-standard"),
+				).toBeTruthy(),
+			);
+
+			const flash = screen.getByTestId("extraction-reextract-tier-flash");
+			const basic = screen.getByTestId("extraction-reextract-tier-basic");
+			const standard = screen.getByTestId("extraction-reextract-tier-standard");
+
+			expect(basic).toHaveAttribute("aria-current", "true");
+			expect(basic.textContent).toMatch(/current/i);
+			expect((flash as HTMLButtonElement).disabled).toBe(true);
+			expect((basic as HTMLButtonElement).disabled).toBe(true);
+			expect((standard as HTMLButtonElement).disabled).toBe(false);
+		});
+
+		it("re-extracts once per choice and announces it", async () => {
+			let release: () => void = () => {};
+			const onReextract = vi.fn(
+				() =>
+					new Promise<void>((resolve) => {
+						release = resolve;
+					}),
+			);
+			renderReextractable({}, { onReextract });
+
+			await fireEvent.click(screen.getByTestId("extraction-reextract-toggle"));
+			await waitFor(() =>
+				expect(
+					screen.getByTestId("extraction-reextract-tier-standard"),
+				).toBeTruthy(),
+			);
+			const standard = screen.getByTestId("extraction-reextract-tier-standard");
+			await fireEvent.click(standard);
+
+			expect(onReextract).toHaveBeenCalledWith("doc-1", "standard");
+			// The menu closes on the choice, so a second press is impossible —
+			// and the in-flight guard holds even if the markup came back.
+			expect(screen.queryByTestId("extraction-reextract-menu")).toBeNull();
+
+			release();
+			await waitFor(() => {
+				expect(
+					screen
+						.getByTestId("documents-extraction-announcer")
+						.textContent?.trim(),
+				).toMatch(/Budget\.pdf/);
+			});
+			expect(onReextract).toHaveBeenCalledTimes(1);
+		});
+
+		it("says so when the tiers cannot be read", async () => {
+			renderReextractable(
+				{},
+				{
+					onLoadReextractTiers: vi.fn(async () => {
+						throw new Error("unavailable");
+					}),
+				},
+			);
+
+			await fireEvent.click(screen.getByTestId("extraction-reextract-toggle"));
+			await waitFor(() => {
+				expect(
+					screen.getByTestId("extraction-reextract-menu").textContent,
+				).toMatch(/could not start|not available/i);
+			});
+		});
+
+		it("closes on Escape and returns focus to the control", async () => {
+			renderReextractable();
+			const toggle = screen.getByTestId("extraction-reextract-toggle");
+			await fireEvent.click(toggle);
+			const menu = await waitFor(() =>
+				screen.getByTestId("extraction-reextract-menu"),
+			);
+
+			await fireEvent.keyDown(menu, { key: "Escape" });
+			expect(screen.queryByTestId("extraction-reextract-menu")).toBeNull();
+			expect(document.activeElement).toBe(toggle);
 		});
 	});
 

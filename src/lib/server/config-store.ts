@@ -71,7 +71,17 @@ export const ADMIN_CONFIG_KEYS = [
 	"TEI_RERANKER_MODEL",
 	"TEI_RERANKER_MAX_TEXTS",
 	"MINERU_API_URL",
-	"MINERU_TIMEOUT_MS",
+	"MINERU_API_KEY",
+	"MINERU_DEFAULT_TIER",
+	"MINERU_OCR_MODE",
+	"MINERU_JOB_TIMEOUT_MS",
+	"MINERU_POLL_MIN_MS",
+	"MINERU_POLL_MAX_MS",
+	"MINERU_REQUEST_TIMEOUT_MS",
+	"MINERU_TRANSFER_TIMEOUT_MS",
+	"MINERU_CAPABILITIES_TTL_MS",
+	"MINERU_BUNDLE_MAX_BYTES",
+	"MINERU_STRUCTURE_CHUNKING_ENABLED",
 	"GOOGLE_OAUTH_CLIENT_ID",
 	"GOOGLE_OAUTH_CLIENT_SECRET",
 	"ONEDRIVE_CLIENT_ID",
@@ -302,7 +312,17 @@ export interface RuntimeConfig {
 	model2Enabled: boolean;
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
-	mineruTimeoutMs: number;
+	mineruApiKey: string;
+	mineruDefaultTier: string;
+	mineruOcrMode: string;
+	mineruJobTimeoutMs: number;
+	mineruPollMinMs: number;
+	mineruPollMaxMs: number;
+	mineruRequestTimeoutMs: number;
+	mineruTransferTimeoutMs: number;
+	mineruCapabilitiesTtlMs: number;
+	mineruBundleMaxBytes: number;
+	mineruStructureChunkingEnabled: boolean;
 	owntracksRecorderUrl: string;
 	owntracksRecorderUser: string;
 	owntracksRecorderPass: string;
@@ -802,11 +822,67 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	MINERU_API_URL: (config, value) => {
 		config.mineruApiUrl = value;
 	},
-	MINERU_TIMEOUT_MS: (config, value) => {
+	MINERU_API_KEY: (config, value) => {
+		config.mineruApiKey = value.trim();
+	},
+	MINERU_DEFAULT_TIER: (config, value) => {
+		const normalized = value.trim().toLowerCase();
+		if (
+			["auto", "flash", "basic", "standard", "advanced"].includes(normalized)
+		) {
+			config.mineruDefaultTier = normalized;
+		}
+	},
+	MINERU_OCR_MODE: (config, value) => {
+		const normalized = value.trim().toLowerCase();
+		if (["auto", "txt", "ocr"].includes(normalized)) {
+			config.mineruOcrMode = normalized;
+		}
+	},
+	MINERU_JOB_TIMEOUT_MS: (config, value) => {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined) {
-			config.mineruTimeoutMs = Math.max(10000, parsed);
+			config.mineruJobTimeoutMs = Math.max(10000, Math.min(3600000, parsed));
 		}
+	},
+	MINERU_POLL_MIN_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.mineruPollMinMs = Math.max(250, Math.min(60000, parsed));
+	},
+	MINERU_POLL_MAX_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.mineruPollMaxMs = Math.max(1000, Math.min(300000, parsed));
+	},
+	MINERU_REQUEST_TIMEOUT_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.mineruRequestTimeoutMs = Math.max(1000, Math.min(300000, parsed));
+	},
+	MINERU_TRANSFER_TIMEOUT_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.mineruTransferTimeoutMs = Math.max(
+				10000,
+				Math.min(3600000, parsed),
+			);
+	},
+	MINERU_CAPABILITIES_TTL_MS: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.mineruCapabilitiesTtlMs = Math.max(0, Math.min(3600000, parsed));
+	},
+	MINERU_BUNDLE_MAX_BYTES: (config, value) => {
+		const parsed = parseIntOverride(value);
+		if (parsed !== undefined)
+			config.mineruBundleMaxBytes = Math.max(
+				1048576,
+				Math.min(536870912, parsed),
+			);
+	},
+	MINERU_STRUCTURE_CHUNKING_ENABLED: (config, value) => {
+		config.mineruStructureChunkingEnabled = value !== "false";
 	},
 	OWNTRACKS_RECORDER_URL: (config, value) => {
 		config.owntracksRecorderUrl = value.trim();
@@ -1715,7 +1791,22 @@ export function getResolvedAdminConfigValues(
 		TEI_RERANKER_MODEL: config.teiRerankerModel,
 		TEI_RERANKER_MAX_TEXTS: String(config.teiRerankerMaxTexts),
 		MINERU_API_URL: config.mineruApiUrl,
-		MINERU_TIMEOUT_MS: String(config.mineruTimeoutMs),
+		// Masked from day one. The four older API-key rows above return their
+		// value in cleartext from GET /api/admin/config; that is the pattern this
+		// key deliberately does NOT copy.
+		MINERU_API_KEY: config.mineruApiKey ? "[set]" : "",
+		MINERU_DEFAULT_TIER: config.mineruDefaultTier,
+		MINERU_OCR_MODE: config.mineruOcrMode,
+		MINERU_JOB_TIMEOUT_MS: String(config.mineruJobTimeoutMs),
+		MINERU_POLL_MIN_MS: String(config.mineruPollMinMs),
+		MINERU_POLL_MAX_MS: String(config.mineruPollMaxMs),
+		MINERU_REQUEST_TIMEOUT_MS: String(config.mineruRequestTimeoutMs),
+		MINERU_TRANSFER_TIMEOUT_MS: String(config.mineruTransferTimeoutMs),
+		MINERU_CAPABILITIES_TTL_MS: String(config.mineruCapabilitiesTtlMs),
+		MINERU_BUNDLE_MAX_BYTES: String(config.mineruBundleMaxBytes),
+		MINERU_STRUCTURE_CHUNKING_ENABLED: String(
+			config.mineruStructureChunkingEnabled,
+		),
 		OWNTRACKS_RECORDER_URL: config.owntracksRecorderUrl,
 		OWNTRACKS_RECORDER_USER: config.owntracksRecorderUser,
 		OWNTRACKS_RECORDER_PASS: config.owntracksRecorderPass ? "[set]" : "",

@@ -1,0 +1,13 @@
+{
+  "probe": "cancel_running_job",
+  "method": "DELETE",
+  "url": "/v1/parse/jobs/job_f0d182d26a0ee846322a5a70",
+  "http_status": 200,
+  "content_type": "application/json",
+  "body": {
+    "job_id": "job_f0d182d26a0ee846322a5a70",
+    "status": "canceled",
+    "canceled_at": "2026-09-20T12:50:07Z"
+  },
+  "note": "status just before cancel: running"
+}

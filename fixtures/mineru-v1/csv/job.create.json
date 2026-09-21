@@ -1,0 +1,35 @@
+{
+  "job_id": "job_b726bd785bc49e1021b843c3",
+  "status": "queued",
+  "created_at": "2026-09-20T12:46:18Z",
+  "started_at": null,
+  "finished_at": null,
+  "tier": "basic",
+  "output_formats": [
+    "markdown",
+    "middle_json",
+    "structured_content",
+    "zip"
+  ],
+  "access_level": "anonymous",
+  "progress": {
+    "completed": 0,
+    "failed": 0,
+    "total": 1
+  },
+  "files": [
+    {
+      "file_id": "file-7145e6029a64eaae97c9649d",
+      "name": "sample.csv",
+      "page_range": "",
+      "status": "queued",
+      "parse": null,
+      "output_files": null,
+      "error": null
+    }
+  ],
+  "links": {
+    "self": "/v1/parse/jobs/job_b726bd785bc49e1021b843c3",
+    "cancel": "/v1/parse/jobs/job_b726bd785bc49e1021b843c3"
+  }
+}

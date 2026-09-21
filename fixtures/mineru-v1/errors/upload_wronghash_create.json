@@ -1,0 +1,26 @@
+{
+  "probe": "upload_wronghash_create",
+  "method": "POST",
+  "url": "/v1/uploads",
+  "http_status": 200,
+  "content_type": "application/json",
+  "body": {
+    "id": "upload_2b49bb68ba3bbcd8397b934e",
+    "object": "upload",
+    "bytes": 89,
+    "created_at": 1789908604,
+    "expires_at": 1789912204,
+    "filename": "wrong.csv",
+    "purpose": "parse",
+    "mime_type": "text/csv",
+    "sha256sum": "0000000000000000000000000000000000000000000000000000000000000000",
+    "status": "pending",
+    "upload_url": "http://127.0.0.1:8765/v1/uploads/upload_2b49bb68ba3bbcd8397b934e/content",
+    "upload_method": "PUT",
+    "upload_headers": {
+      "Content-Type": "text/csv"
+    },
+    "file": null
+  },
+  "note": ""
+}

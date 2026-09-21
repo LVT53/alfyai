@@ -1,0 +1,91 @@
+[
+  {
+    "probe": "auth_missing_key",
+    "method": "GET",
+    "url": "/v1/files",
+    "http_status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": {
+        "type": "authentication_error",
+        "code": "invalid_api_key",
+        "message": "Invalid or missing API key",
+        "param": null
+      }
+    },
+    "note": "no Authorization header"
+  },
+  {
+    "probe": "auth_invalid_key",
+    "method": "GET",
+    "url": "/v1/files",
+    "http_status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": {
+        "type": "authentication_error",
+        "code": "invalid_api_key",
+        "message": "Invalid or missing API key",
+        "param": null
+      }
+    },
+    "note": "wrong bearer"
+  },
+  {
+    "probe": "auth_health_unauthenticated",
+    "method": "GET",
+    "url": "/v1/health",
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": {
+      "status": "ok",
+      "version": "4.0.4",
+      "features": {
+        "webhook": false,
+        "output_formats": [
+          "markdown",
+          "middle_json",
+          "structured_content",
+          "zip"
+        ],
+        "sources": [
+          "file_id",
+          "url",
+          "inline"
+        ]
+      }
+    },
+    "note": "is health public?"
+  },
+  {
+    "probe": "auth_upload_no_key",
+    "method": "POST",
+    "url": "/v1/uploads",
+    "http_status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": {
+        "type": "authentication_error",
+        "code": "invalid_api_key",
+        "message": "Invalid or missing API key",
+        "param": null
+      }
+    },
+    "note": "create upload without key"
+  },
+  {
+    "probe": "auth_valid_key_files",
+    "method": "GET",
+    "url": "/v1/files",
+    "http_status": 200,
+    "content_type": "application/json",
+    "body": {
+      "object": "list",
+      "data": [],
+      "first_id": null,
+      "last_id": null,
+      "has_more": false
+    },
+    "note": "correct bearer"
+  }
+]

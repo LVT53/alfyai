@@ -1,0 +1,18 @@
+{
+  "id": "upload_ef0fe143bd50c38304d8a559",
+  "object": "upload",
+  "bytes": 5577,
+  "created_at": 1789908398,
+  "expires_at": 1789911998,
+  "filename": "sample.xlsx",
+  "purpose": "parse",
+  "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "sha256sum": "fdfb8ef22124afeb4eb31651cf62e553b65da81b149001dda8221a31c88a1204",
+  "status": "pending",
+  "upload_url": "http://127.0.0.1:8765/v1/uploads/upload_ef0fe143bd50c38304d8a559/content",
+  "upload_method": "PUT",
+  "upload_headers": {
+    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  },
+  "file": null
+}

@@ -13,6 +13,7 @@ import type {
 	ExtractionErrorCode,
 } from "$lib/shared/extraction-status";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
+import { displayablePageCountUnit } from "$lib/shared/page-count";
 import { getFileType } from "./attachment-file-type";
 import type { ComposerChipKind } from "./composer-chip-kinds";
 
@@ -21,6 +22,12 @@ export type AttachmentChipSource = {
 	mimeType?: string | null;
 	tokenEstimate?: number | undefined;
 	pageCount?: number | undefined;
+	/**
+	 * What `pageCount` counts. Absent for every document parsed before the
+	 * structured extractor, which is exactly why the chip shows no count at all
+	 * when it is missing — see `attachmentChipMeta`.
+	 */
+	pageCountKind?: string | null | undefined;
 };
 
 /**
@@ -49,8 +56,19 @@ export function formatTokenCount(value: number): string {
 export type AttachmentChipMeta =
 	| { key: "composerChips.fileMeta"; pages: string; tokens: string }
 	| { key: "composerChips.filePages"; pages: string }
+	| { key: "composerChips.fileSlidesMeta"; pages: string; tokens: string }
+	| { key: "composerChips.fileSlides"; pages: string }
+	| { key: "composerChips.fileSheetsMeta"; pages: string; tokens: string }
+	| { key: "composerChips.fileSheets"; pages: string }
 	| { key: "composerChips.fileTokens"; tokens: string }
 	| null;
+
+/** The two i18n keys each unit owns: with a token clause, and without. */
+const CHIP_COUNT_KEYS = {
+	page: ["composerChips.fileMeta", "composerChips.filePages"],
+	slide: ["composerChips.fileSlidesMeta", "composerChips.fileSlides"],
+	sheet: ["composerChips.fileSheetsMeta", "composerChips.fileSheets"],
+} as const;
 
 /**
  * The muted clause after the middle dot: "24 pp · 18k tok".
@@ -62,20 +80,34 @@ export type AttachmentChipMeta =
  * short (see ComposerChip's shrink factors) — deliberately, because a label
  * the user can no longer read is worse than a number they have to widen the
  * window for. Returns null when the turn knows neither figure.
+ *
+ * The count is only ever shown in the unit it is actually IN. A PPTX counts
+ * slides, an XLSX counts sheets, a DOCX reports a `declared` count that is 1
+ * for a four-heading document, and a CSV's `logical` count corresponds to
+ * nothing a reader could turn to. This chip said "N pp" for all of them —
+ * a small, confident lie on every attachment. `displayablePageCountUnit`
+ * decides; a document whose kind is unknown (everything parsed before the
+ * structured extractor) shows no count rather than a guess.
  */
 export function attachmentChipMeta(
 	source: AttachmentChipSource,
 ): AttachmentChipMeta {
-	const pages =
-		typeof source.pageCount === "number" && source.pageCount > 0
-			? String(source.pageCount)
-			: null;
+	const unit = displayablePageCountUnit(
+		source.pageCount ?? null,
+		source.pageCountKind ?? null,
+	);
+	const pages = unit ? String(source.pageCount) : null;
 	const tokens =
 		typeof source.tokenEstimate === "number" && source.tokenEstimate > 0
 			? formatTokenCount(source.tokenEstimate)
 			: null;
-	if (pages && tokens) return { key: "composerChips.fileMeta", pages, tokens };
-	if (pages) return { key: "composerChips.filePages", pages };
+
+	if (unit && pages) {
+		const [withTokens, alone] = CHIP_COUNT_KEYS[unit];
+		return tokens
+			? ({ key: withTokens, pages, tokens } as AttachmentChipMeta)
+			: ({ key: alone, pages } as AttachmentChipMeta);
+	}
 	if (tokens) return { key: "composerChips.fileTokens", tokens };
 	return null;
 }

@@ -1,0 +1,16 @@
+{
+  "probe": "cancel_unknown_job",
+  "method": "DELETE",
+  "url": "/v1/parse/jobs/job_nope0000000000",
+  "http_status": 404,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "job_not_found",
+      "message": "Job job_nope0000000000 not found",
+      "param": null
+    }
+  },
+  "note": ""
+}

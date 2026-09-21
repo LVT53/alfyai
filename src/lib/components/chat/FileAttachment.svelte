@@ -25,6 +25,8 @@ interface FileAttachmentData {
 	// a per-turn cost line under the filename when present.
 	tokenEstimate?: number;
 	pageCount?: number;
+	/** What `pageCount` counts; absent means "do not name a unit". */
+	pageCountKind?: string | null;
 }
 
 let {
@@ -55,12 +57,12 @@ let {
 let chipMeta = $derived.by(() => {
 	const meta = attachmentChipMeta(attachment);
 	if (!meta) return null;
-	if (meta.key === "composerChips.fileMeta") {
+	// A count clause and a token clause, or one of the two. The key already
+	// names the unit the count is in; only the interpolation happens here.
+	if ("pages" in meta && "tokens" in meta) {
 		return $t(meta.key, { pages: meta.pages, tokens: meta.tokens });
 	}
-	if (meta.key === "composerChips.filePages") {
-		return $t(meta.key, { pages: meta.pages });
-	}
+	if ("pages" in meta) return $t(meta.key, { pages: meta.pages });
 	return $t(meta.key, { tokens: meta.tokens });
 });
 

@@ -1,0 +1,130 @@
+{
+  "probe": "list_jobs",
+  "method": "GET",
+  "url": "/v1/parse/jobs",
+  "http_status": 200,
+  "content_type": "application/json",
+  "body": {
+    "object": "list",
+    "data": [
+      {
+        "job_id": "job_f0d182d26a0ee846322a5a70",
+        "status": "canceled",
+        "created_at": "2026-09-20T12:50:07Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_6c593d0925c7d563e49f4787",
+        "status": "failed",
+        "created_at": "2026-09-20T12:50:04Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_feb6deabdedfd2ff2a17a323",
+        "status": "failed",
+        "created_at": "2026-09-20T12:50:04Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_8063d0d96603cbef54015449",
+        "status": "failed",
+        "created_at": "2026-09-20T12:50:04Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_03b77be88986710de9e71157",
+        "status": "completed",
+        "created_at": "2026-09-20T12:50:04Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_57dfeff951083fd5cc7c434b",
+        "status": "completed",
+        "created_at": "2026-09-20T12:50:04Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_035f66245703f78aad285296",
+        "status": "completed",
+        "created_at": "2026-09-20T12:50:04Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_b2536b96b595ba5c2ee9b5e8",
+        "status": "failed",
+        "created_at": "2026-09-20T12:50:04Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_986ce72d5c8e5cbefd2f757f",
+        "status": "completed",
+        "created_at": "2026-09-20T12:50:04Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_116951baae44589e59e4bf93",
+        "status": "completed",
+        "created_at": "2026-09-20T12:46:38Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_a501f8f9e4188fb7d13db78d",
+        "status": "completed",
+        "created_at": "2026-09-20T12:46:37Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_fbfc61399c894454221bb694",
+        "status": "completed",
+        "created_at": "2026-09-20T12:46:35Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_d14ed531dc2a7873ddd84e16",
+        "status": "completed",
+        "created_at": "2026-09-20T12:46:34Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_2adc22b3d02ccc31547e03d8",
+        "status": "completed",
+        "created_at": "2026-09-20T12:46:25Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_4fd376421775b627f483cb54",
+        "status": "completed",
+        "created_at": "2026-09-20T12:46:23Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_6211769d73bb4fdb1704fd6d",
+        "status": "completed",
+        "created_at": "2026-09-20T12:46:22Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_1706d797d86f8c475f9f0b55",
+        "status": "completed",
+        "created_at": "2026-09-20T12:46:20Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_b726bd785bc49e1021b843c3",
+        "status": "completed",
+        "created_at": "2026-09-20T12:46:18Z",
+        "file_count": 1
+      },
+      {
+        "job_id": "job_6f28f5d5c16c381238a704bb",
+        "status": "completed",
+        "created_at": "2026-09-20T12:45:25Z",
+        "file_count": 1
+      }
+    ],
+    "first_id": "job_f0d182d26a0ee846322a5a70",
+    "last_id": "job_6f28f5d5c16c381238a704bb",
+    "has_more": false
+  },
+  "note": ""
+}

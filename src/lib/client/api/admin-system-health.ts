@@ -4,6 +4,7 @@
 // that mock that module by explicit export list keep working unchanged.
 
 import type { EffectiveConfigReport } from "$lib/server/services/admin-effective-config";
+import type { MineruStatusReport } from "$lib/server/services/mineru/capabilities";
 import type { ToolHealthSnapshot } from "$lib/server/services/tool-health";
 import { type FetchLike, requestJson } from "./http";
 
@@ -13,6 +14,10 @@ export type {
 	EffectiveConfigReport,
 	EffectiveConfigSource,
 } from "$lib/server/services/admin-effective-config";
+export type {
+	MineruStatusReport,
+	MineruStatusTier,
+} from "$lib/server/services/mineru/capabilities";
 export type {
 	ToolHealthReport,
 	ToolHealthSnapshot,
@@ -46,6 +51,75 @@ export async function fetchAdminToolHealth(
 		fetchImpl,
 	);
 	return normalizeSnapshot(response.snapshot);
+}
+
+interface MineruStatusResponse {
+	report?: Partial<MineruStatusReport>;
+}
+
+/**
+ * Same defensive treatment as the tool-health snapshot: the card reads every
+ * field of this without guarding, so a truncated or hand-rolled body must
+ * become an honest "unreachable, nothing known" rather than a render crash.
+ */
+function normalizeMineruReport(
+	report: Partial<MineruStatusReport> | undefined,
+): MineruStatusReport {
+	const limits = report?.limits;
+	return {
+		checkedAt: typeof report?.checkedAt === "string" ? report.checkedAt : "",
+		baseUrl: typeof report?.baseUrl === "string" ? report.baseUrl : "",
+		reachable: report?.reachable === true,
+		version: typeof report?.version === "string" ? report.version : null,
+		webhook: typeof report?.webhook === "boolean" ? report.webhook : null,
+		outputFormats: Array.isArray(report?.outputFormats)
+			? report.outputFormats
+			: [],
+		sources: Array.isArray(report?.sources) ? report.sources : [],
+		tiers: Array.isArray(report?.tiers) ? report.tiers : [],
+		accessLevel:
+			report?.accessLevel === "anonymous" ||
+			report?.accessLevel === "registered"
+				? report.accessLevel
+				: null,
+		limits: limits
+			? {
+					maxFileSizeBytes:
+						typeof limits.maxFileSizeBytes === "number"
+							? limits.maxFileSizeBytes
+							: null,
+					maxPagesPerFile:
+						typeof limits.maxPagesPerFile === "number"
+							? limits.maxPagesPerFile
+							: null,
+					maxFilesPerJob:
+						typeof limits.maxFilesPerJob === "number"
+							? limits.maxFilesPerJob
+							: null,
+					maxConcurrentJobs:
+						typeof limits.maxConcurrentJobs === "number"
+							? limits.maxConcurrentJobs
+							: null,
+				}
+			: null,
+		error: report?.error ?? null,
+		cached: report?.cached === true,
+	};
+}
+
+export async function fetchAdminMineruStatus(
+	options: { refresh?: boolean } = {},
+	fetchImpl: FetchLike = fetch,
+): Promise<MineruStatusReport> {
+	const response = await requestJson<MineruStatusResponse>(
+		options.refresh
+			? "/api/admin/mineru-status?refresh=1"
+			: "/api/admin/mineru-status",
+		undefined,
+		"Failed to load MinerU status",
+		fetchImpl,
+	);
+	return normalizeMineruReport(response.report);
 }
 
 export async function fetchAdminEffectiveConfig(

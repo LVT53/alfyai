@@ -1,0 +1,13 @@
+{
+  "probe": "flash_pdf_tier_null",
+  "http_status": 503,
+  "body": {
+    "error": {
+      "type": "engine_error",
+      "code": "quality_tier_unavailable",
+      "message": "No basic, standard, or advanced tier available in this server. Pass tier='flash' explicitly for flash parsing.",
+      "param": null
+    }
+  },
+  "note": ""
+}

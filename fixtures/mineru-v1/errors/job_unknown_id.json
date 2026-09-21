@@ -1,0 +1,16 @@
+{
+  "probe": "job_unknown_id",
+  "method": "GET",
+  "url": "/v1/parse/jobs/job_doesnotexist000000",
+  "http_status": 404,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "job_not_found",
+      "message": "Job job_doesnotexist000000 not found",
+      "param": null
+    }
+  },
+  "note": ""
+}

@@ -1,0 +1,52 @@
+{
+  "probe": "page_range_on_csv",
+  "create_status": 202,
+  "job_id": "job_6c593d0925c7d563e49f4787",
+  "final_job_status": "failed",
+  "job_tier": "basic",
+  "file_status": "failed",
+  "file_page_range": "1-2",
+  "file_error": {
+    "type": "invalid_request_error",
+    "code": "page_range_invalid",
+    "message": "Page range is only supported for PDF files; 'csv' uses full-document parsing.",
+    "param": "page_range"
+  },
+  "final": {
+    "job_id": "job_6c593d0925c7d563e49f4787",
+    "status": "failed",
+    "created_at": "2026-09-20T12:50:04Z",
+    "started_at": "2026-09-20T12:50:04Z",
+    "finished_at": "2026-09-20T12:50:04Z",
+    "tier": "basic",
+    "output_formats": [
+      "markdown"
+    ],
+    "access_level": "anonymous",
+    "progress": {
+      "completed": 0,
+      "failed": 1,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-0e443ce94c9b5d08e963f5a4",
+        "name": "sample.csv",
+        "page_range": "1-2",
+        "status": "failed",
+        "parse": null,
+        "output_files": null,
+        "error": {
+          "type": "invalid_request_error",
+          "code": "page_range_invalid",
+          "message": "Page range is only supported for PDF files; 'csv' uses full-document parsing.",
+          "param": "page_range"
+        }
+      }
+    ],
+    "links": {
+      "self": "/v1/parse/jobs/job_6c593d0925c7d563e49f4787",
+      "cancel": "/v1/parse/jobs/job_6c593d0925c7d563e49f4787"
+    }
+  }
+}

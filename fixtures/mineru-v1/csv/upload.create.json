@@ -1,0 +1,18 @@
+{
+  "id": "upload_1895dc3302018183d506cbf7",
+  "object": "upload",
+  "bytes": 89,
+  "created_at": 1789908378,
+  "expires_at": 1789911978,
+  "filename": "sample.csv",
+  "purpose": "parse",
+  "mime_type": "text/csv",
+  "sha256sum": "7df632ee3702226e1d6130367fec2243276094a0654f29c3e4409a2117e529c4",
+  "status": "pending",
+  "upload_url": "http://127.0.0.1:8765/v1/uploads/upload_1895dc3302018183d506cbf7/content",
+  "upload_method": "PUT",
+  "upload_headers": {
+    "Content-Type": "text/csv"
+  },
+  "file": null
+}

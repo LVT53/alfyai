@@ -70,6 +70,8 @@ vi.mock("./mappers", () => ({
 			chunkIndex: row.chunkIndex,
 			contentText: row.contentText,
 			tokenEstimate: row.tokenEstimate,
+			pageStart: row.pageStart ?? null,
+			pageEnd: row.pageEnd ?? null,
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt,
 		}),

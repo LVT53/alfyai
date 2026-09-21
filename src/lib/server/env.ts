@@ -132,7 +132,17 @@ interface Config {
 	model2Enabled: boolean;
 	memoryMaintenanceIntervalMinutes: number;
 	mineruApiUrl: string;
-	mineruTimeoutMs: number;
+	mineruApiKey: string;
+	mineruDefaultTier: string;
+	mineruOcrMode: string;
+	mineruJobTimeoutMs: number;
+	mineruPollMinMs: number;
+	mineruPollMaxMs: number;
+	mineruRequestTimeoutMs: number;
+	mineruTransferTimeoutMs: number;
+	mineruCapabilitiesTtlMs: number;
+	mineruBundleMaxBytes: number;
+	mineruStructureChunkingEnabled: boolean;
 	// On-box OwnTracks Recorder base URL (e.g. http://127.0.0.1:8083). Admin
 	// config only — the user never supplies this (see providers/owntracks.ts)
 	// — so, unlike Immich/Plex/Nextcloud's user-pasted serverUrl, this is
@@ -382,6 +392,29 @@ function parsePositiveIntegerEnv(
 }
 
 /**
+ * The tier MinerU is asked for by default. `auto` means "send no `tier` key at
+ * all and let the server's start-up tier decide" — deliberately distinct from
+ * naming a tier, because `tier: null` is a 400 on the real V1 API.
+ *
+ * An unrecognised value clamps to `auto` rather than throwing: the admin route
+ * validates this key against its `select` spec, so the only way a bad value
+ * reaches here is a hand-edited environment, where refusing to boot would be a
+ * worse outcome than falling back to the server's own choice.
+ */
+function normalizeMineruDefaultTier(value: string | undefined): string {
+	const normalized = (value ?? "").trim().toLowerCase();
+	return ["auto", "flash", "basic", "standard", "advanced"].includes(normalized)
+		? normalized
+		: "auto";
+}
+
+/** Same rule for `ocr_mode`, where `auto` also means "omit the key". */
+function normalizeMineruOcrMode(value: string | undefined): string {
+	const normalized = (value ?? "").trim().toLowerCase();
+	return ["auto", "txt", "ocr"].includes(normalized) ? normalized : "auto";
+}
+
+/**
  * A bounded integer whose valid range INCLUDES zero, so the `|| fallback` idiom
  * the older keys use would silently turn a deliberate `0` back into the
  * default. Used by the two extraction wait budgets, where `0` means "never wait
@@ -418,6 +451,18 @@ function readConfig(): Config {
 
 	const databasePath = getDatabasePath();
 	const model2Enabled = process.env.MODEL_2_ENABLED !== "false";
+	// MINERU_JOB_TIMEOUT_MS replaces MINERU_TIMEOUT_MS. The old variable is kept
+	// in the chain for one release so an unchanged `.env` on a deployed box does
+	// not silently fall back to the default the day this ships; the admin_config
+	// half of the rename is done by the 1777140000098 migration.
+	const mineruJobTimeoutMs = clampParsedInt(
+		process.env.MINERU_JOB_TIMEOUT_MS ||
+			process.env.MINERU_TIMEOUT_MS ||
+			process.env.REQUEST_TIMEOUT_MS,
+		300000,
+		10000,
+		3600000,
+	);
 	const maxModelContext = parsePositiveIntegerEnv(
 		process.env.MAX_MODEL_CONTEXT,
 		DEFAULT_MAX_MODEL_CONTEXT_TOKENS,
@@ -835,15 +880,52 @@ function readConfig(): Config {
 			parseInt(process.env.MEMORY_MAINTENANCE_INTERVAL_MINUTES || "0", 10) || 0,
 		),
 		mineruApiUrl: process.env.MINERU_API_URL || "http://127.0.0.1:8001",
-		mineruTimeoutMs: Math.max(
-			10000,
-			parseInt(
-				process.env.MINERU_TIMEOUT_MS ||
-					process.env.REQUEST_TIMEOUT_MS ||
-					"300000",
-				10,
-			) || 300000,
+		mineruApiKey: process.env.MINERU_API_KEY || "",
+		mineruDefaultTier: normalizeMineruDefaultTier(
+			process.env.MINERU_DEFAULT_TIER,
 		),
+		mineruOcrMode: normalizeMineruOcrMode(process.env.MINERU_OCR_MODE),
+		mineruJobTimeoutMs,
+		mineruPollMinMs: clampParsedInt(
+			process.env.MINERU_POLL_MIN_MS,
+			2000,
+			250,
+			60000,
+		),
+		mineruPollMaxMs: clampParsedInt(
+			process.env.MINERU_POLL_MAX_MS,
+			30000,
+			1000,
+			300000,
+		),
+		mineruRequestTimeoutMs: clampParsedInt(
+			process.env.MINERU_REQUEST_TIMEOUT_MS,
+			30000,
+			1000,
+			300000,
+		),
+		mineruTransferTimeoutMs: clampParsedInt(
+			process.env.MINERU_TRANSFER_TIMEOUT_MS,
+			600000,
+			10000,
+			3600000,
+		),
+		// Zero is a legitimate value here — it means "never serve a cached
+		// capability probe" — so this one must not use the `|| fallback` idiom.
+		mineruCapabilitiesTtlMs: clampParsedInt(
+			process.env.MINERU_CAPABILITIES_TTL_MS,
+			300000,
+			0,
+			3600000,
+		),
+		mineruBundleMaxBytes: clampParsedInt(
+			process.env.MINERU_BUNDLE_MAX_BYTES,
+			33554432,
+			1048576,
+			536870912,
+		),
+		mineruStructureChunkingEnabled:
+			process.env.MINERU_STRUCTURE_CHUNKING_ENABLED !== "false",
 		owntracksRecorderUrl: process.env.OWNTRACKS_RECORDER_URL || "",
 		owntracksRecorderUser: process.env.OWNTRACKS_RECORDER_USER || "",
 		owntracksRecorderPass: process.env.OWNTRACKS_RECORDER_PASS || "",
@@ -1051,9 +1133,9 @@ function readConfig(): Config {
 			Math.min(
 				3600000,
 				parseInt(
-					process.env.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS || "900000",
+					process.env.DOCUMENT_EXTRACTION_STALE_ATTEMPT_MS || "120000",
 					10,
-				) || 900000,
+				) || 120000,
 			),
 		),
 		documentExtractionHeartbeatMs: Math.max(

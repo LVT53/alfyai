@@ -10,12 +10,18 @@
  * arithmetic, the passage cap, and the per-turn cache.
  */
 import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
+import { asSchema } from "ai";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInMemoryDatabase,
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
+import { writeMineruParseBundle } from "$lib/server/services/mineru/bundle";
+import { parseMineruResultZip } from "$lib/server/services/mineru/result";
 
 let memory: InMemoryDatabase;
 
@@ -38,6 +44,8 @@ vi.mock("$lib/server/services/task-state/control-model", () => ({
 const {
 	buildReadGeneratedFileModelPayload,
 	readGeneratedFileContent,
+	readGeneratedFileExecutionInputSchema,
+	readGeneratedFileInputSchema,
 	sanitizeReadGeneratedFileInput,
 	summarizeReadGeneratedFileResult,
 } = await import("./read-generated-file");
@@ -870,5 +878,352 @@ describe("sanitizeReadGeneratedFileInput", () => {
 				query: 42,
 			} as unknown as Record<string, unknown>),
 		).toEqual({});
+	});
+
+	it("records an honoured `page` in the tool-call log", () => {
+		expect(sanitizeReadGeneratedFileInput({ page: 4.6 })).toEqual({ page: 4 });
+		expect(sanitizeReadGeneratedFileInput({ page: 0 })).toEqual({});
+	});
+});
+
+// ── `page`, and the prompt prefix it must not disturb ──────────
+
+/**
+ * The advertised input schema, serialised exactly the way a request does it,
+ * frozen as it read before the `page` parameter existed.
+ *
+ * Tool schemas travel inside the CACHED prompt prefix. Adding `page` to this
+ * object measures at +180 bytes, which evicts every 1600-token cache block
+ * from that offset on — a cost the OQ5 ruling says is paid once, in the Phase
+ * 6 prose release, together with every other model-facing change of this
+ * migration. Until then `page` works but is not advertised, and this byte
+ * string is what says so.
+ */
+const FROZEN_READ_GENERATED_FILE_JSON_SCHEMA =
+	'{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"filename":{"type":"string","minLength":1},"requestTitle":{"type":"string","minLength":1},"from":{"description":"Character offset to continue from. Pass the previous result\'s nextFrom to read the next window.","type":"integer","minimum":0,"maximum":9007199254740991},"query":{"description":"Instead of the text window, return up to 3 passages of this one file about the query.","type":"string","minLength":1,"maxLength":300}},"additionalProperties":false}';
+
+describe("the tool schema the model is sent", () => {
+	it("is byte-identical to the one before `page` existed", () => {
+		expect(
+			JSON.stringify(asSchema(readGeneratedFileInputSchema).jsonSchema),
+		).toBe(FROZEN_READ_GENERATED_FILE_JSON_SCHEMA);
+	});
+
+	it("does not advertise `page`", () => {
+		const properties = (
+			asSchema(readGeneratedFileInputSchema).jsonSchema as {
+				properties: Record<string, unknown>;
+			}
+		).properties;
+		expect(Object.keys(properties)).toEqual([
+			"filename",
+			"requestTitle",
+			"from",
+			"query",
+		]);
+	});
+
+	it("still lets an undocumented `page` reach execute", () => {
+		// A strict object strips unknown keys during the SDK's tool-call
+		// validation, so the parameter would never arrive. This is the half of
+		// "undocumented but working" that has no visible symptom when it breaks.
+		expect(readGeneratedFileInputSchema.parse({ from: 1, page: 3 })).toEqual({
+			from: 1,
+			page: 3,
+		});
+		expect(
+			readGeneratedFileExecutionInputSchema.parse({ from: 1, page: 3 }),
+		).toEqual({ from: 1, page: 3 });
+	});
+
+	it("drops a malformed `page` instead of failing the call", () => {
+		expect(
+			readGeneratedFileExecutionInputSchema.parse({ page: 0 }).page,
+		).toBeUndefined();
+		expect(
+			readGeneratedFileExecutionInputSchema.parse({ page: "two" }).page,
+		).toBeUndefined();
+	});
+});
+
+describe("readGeneratedFileContent — page mode", () => {
+	let bundleUser: string;
+	let sourceArtifactId: string;
+	let normalizedArtifactId: string;
+	let markdown: string;
+	let pages: ReadonlyArray<{ page: number; start: number; end: number }>;
+
+	async function seedParsedDocument(): Promise<void> {
+		const { result } = await parseMineruResultZip({
+			zipPathAbsolute: join(
+				process.cwd(),
+				"fixtures",
+				"mineru-v1",
+				"pdf",
+				"result.zip",
+			),
+			jobTier: "basic",
+			sourceFilename: "sample.pdf",
+		});
+		markdown = result.markdown;
+		pages = result.pages;
+
+		sourceArtifactId = randomUUID();
+		memory.db
+			.insert(schema.artifacts)
+			.values({
+				id: sourceArtifactId,
+				userId: bundleUser,
+				conversationId: CONVERSATION,
+				type: "source_document",
+				retrievalClass: "durable",
+				name: "sample.pdf",
+				mimeType: "application/pdf",
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+		normalizedArtifactId = seedArtifact({
+			type: "normalized_document",
+			name: "sample.md",
+			contentText: markdown,
+			userId: bundleUser,
+			// `pageCountKind` rides every structured parse (`persist.ts`), and
+			// page mode now refuses to name a page without it — a `declared`
+			// DOCX count or a `logical` CSV count is not a page anyone can turn
+			// to, and reporting one is an invention, not a citation.
+			metadata: {
+				normalizedFrom: "sample.pdf",
+				pageCount: result.pageCount,
+				pageCountKind: result.pageCountKind,
+			},
+		});
+		memory.db
+			.insert(schema.artifactLinks)
+			.values({
+				id: randomUUID(),
+				userId: bundleUser,
+				artifactId: normalizedArtifactId,
+				relatedArtifactId: sourceArtifactId,
+				conversationId: CONVERSATION,
+				linkType: "derived_from",
+				createdAt: NOW,
+			})
+			.run();
+
+		await writeMineruParseBundle({
+			userId: bundleUser,
+			sourceArtifactId,
+			zipPathAbsolute: join(
+				process.cwd(),
+				"fixtures",
+				"mineru-v1",
+				"pdf",
+				"result.zip",
+			),
+			result,
+			maxBytes: 33_554_432,
+		});
+	}
+
+	function readPage(
+		overrides: Partial<Parameters<typeof readGeneratedFileContent>[0]> = {},
+	) {
+		return readGeneratedFileContent({
+			userId: bundleUser,
+			conversationId: CONVERSATION,
+			filename: "sample.pdf",
+			...overrides,
+		});
+	}
+
+	beforeEach(async () => {
+		bundleUser = `rgf-page-${randomUUID()}`;
+		seedUser(bundleUser);
+		await seedParsedDocument();
+	});
+
+	afterEach(async () => {
+		await rm(join(process.cwd(), "data", "knowledge", bundleUser), {
+			recursive: true,
+			force: true,
+		}).catch(() => undefined);
+	});
+
+	it("starts the window at the requested page", async () => {
+		const result = await readPage({ page: 2 });
+
+		expect(pages).toHaveLength(3);
+		expect(result.page).toBe(2);
+		expect(result.pageCount).toBe(3);
+		expect(result.from).toBe(pages[1].start);
+		expect(result.from).toBeGreaterThan(0);
+		expect(result.contentText).toBe(markdown.slice(pages[1].start));
+		expect(result.pageNote).toBeNull();
+	});
+
+	it("reads page one from the start", async () => {
+		const result = await readPage({ page: 1 });
+
+		expect(result.page).toBe(1);
+		expect(result.from).toBe(0);
+	});
+
+	it("lets `query` win over `page`", async () => {
+		const result = await readPage({ page: 3, query: "Northland" });
+
+		expect(result.passages).not.toBeNull();
+		expect(result.page).toBeNull();
+	});
+
+	it("lets an explicit `from` win over `page`", async () => {
+		const result = await readPage({ page: 3, from: 0 });
+
+		expect(result.from).toBe(0);
+		expect(result.page).toBeNull();
+	});
+
+	it("answers a page past the end with the end-of-content note", async () => {
+		const result = await readPage({ page: 99 });
+
+		expect(result.from).toBe(result.contentLength);
+		expect(result.pageNote).toBeNull();
+		const payload = buildReadGeneratedFileModelPayload(result);
+		expect(payload.note).toContain("at or past the end");
+		expect(payload.pageCount).toBe(3);
+	});
+
+	it("tells the model when a document has no page information", async () => {
+		seedArtifact({
+			type: "normalized_document",
+			name: "plain.md",
+			contentText: "A document that was never parsed with structure.",
+			userId: bundleUser,
+		});
+
+		const result = await readPage({ filename: "plain.md", page: 2 });
+
+		expect(result.page).toBeNull();
+		expect(result.pageCount).toBeNull();
+		expect(result.from).toBe(0);
+		expect(result.pageNote).toContain("no page information");
+		const payload = buildReadGeneratedFileModelPayload(result);
+		expect(payload.note).toBe(result.pageNote);
+		expect(payload.page).toBeUndefined();
+	});
+
+	it("says nothing about pages when none was asked for", async () => {
+		const payload = buildReadGeneratedFileModelPayload(await readPage({}));
+
+		expect(payload.page).toBeUndefined();
+		expect(payload.pageCount).toBeUndefined();
+		expect(payload.note).toBeUndefined();
+	});
+
+	it("carries the page range of every passage", async () => {
+		const chunked = seedArtifact({
+			type: "normalized_document",
+			name: "chunked.md",
+			contentText: "Northland on two.\n\nSouthland on five.",
+			userId: bundleUser,
+		});
+		memory.db
+			.insert(schema.artifactChunks)
+			.values([
+				{
+					id: `${chunked}:0`,
+					artifactId: chunked,
+					userId: bundleUser,
+					conversationId: CONVERSATION,
+					chunkIndex: 0,
+					contentText: "Northland on two.",
+					tokenEstimate: 5,
+					pageStart: 2,
+					pageEnd: 2,
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+				{
+					id: `${chunked}:1`,
+					artifactId: chunked,
+					userId: bundleUser,
+					conversationId: CONVERSATION,
+					chunkIndex: 1,
+					contentText: "Southland on five.",
+					tokenEstimate: 5,
+					pageStart: 5,
+					pageEnd: 6,
+					createdAt: NOW,
+					updatedAt: NOW,
+				},
+			])
+			.run();
+
+		const result = await readPage({
+			filename: "chunked.md",
+			query: "Northland",
+		});
+
+		expect(result.passages?.[0]).toMatchObject({ pageStart: 2, pageEnd: 2 });
+	});
+
+	it("refuses to name a page for a kind that has none", async () => {
+		// `artifacts.ts` already refused to CITE a `declared` DOCX count or a
+		// `logical` CSV count — "p. 1" there is an invention, not a citation —
+		// but this path reported one anyway, and the summary said "p." for it.
+		memory.db
+			.update(schema.artifacts)
+			.set({
+				metadataJson: JSON.stringify({
+					normalizedFrom: "sample.pdf",
+					pageCount: 3,
+					pageCountKind: "declared",
+				}),
+			})
+			.where(eq(schema.artifacts.id, normalizedArtifactId))
+			.run();
+
+		const result = await readPage({ page: 2 });
+
+		expect(result.page).toBeNull();
+		expect(result.pageCount).toBeNull();
+		expect(result.pageUnit).toBeNull();
+		expect(result.from).toBe(0);
+		expect(result.pageNote).toBeTruthy();
+		expect(summarizeReadGeneratedFileResult(result)).not.toContain("p. ");
+	});
+
+	it("names slides for a deck and sheets for a workbook", async () => {
+		for (const [kind, word] of [
+			["slide", "slide"],
+			["sheet", "sheet"],
+			["physical", "p."],
+		] as const) {
+			memory.db
+				.update(schema.artifacts)
+				.set({
+					metadataJson: JSON.stringify({
+						normalizedFrom: "sample.pdf",
+						pageCount: 3,
+						pageCountKind: kind,
+					}),
+				})
+				.where(eq(schema.artifacts.id, normalizedArtifactId))
+				.run();
+
+			const result = await readPage({ page: 2 });
+			expect(result.page).toBe(2);
+			expect(summarizeReadGeneratedFileResult(result)).toContain(
+				`from ${word} 2`,
+			);
+		}
+	});
+
+	it("keys the per-turn cache on the page", async () => {
+		const first = await readPage({ page: 1, turnId: "turn-1" });
+		const second = await readPage({ page: 3, turnId: "turn-1" });
+
+		expect(first.from).toBe(0);
+		expect(second.from).toBe(pages[2].start);
 	});
 });

@@ -3,22 +3,33 @@ import { eq } from "drizzle-orm";
 import { getSmallFileThreshold } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { artifactChunks } from "$lib/server/db/schema";
+import { resolveMineruConfig } from "$lib/server/services/mineru/config";
+import type { ChunkPlanEntry } from "$lib/server/services/mineru/result";
 import { estimateTokenCount } from "$lib/utils/tokens";
 
-const CHUNK_CHAR_TARGET = 1400;
-const CHUNK_CHAR_OVERLAP = 220;
+/**
+ * The character chunker's target and overlap — and, because a structured plan
+ * has to land in rows of the same size, the two numbers
+ * `planStructuredChunks` (`services/mineru/result.ts`) must be called with.
+ * Exported so the caller that builds the plan (`extraction/persist.ts`) reads
+ * them from here rather than repeating the literals.
+ */
+export const CHUNK_CHAR_TARGET = 1400;
+export const CHUNK_CHAR_OVERLAP = 220;
 
 /**
  * Rows per INSERT statement.
  *
- * Every row binds 8 parameters, and better-sqlite3 refuses a statement with
- * more than SQLITE_MAX_VARIABLE_NUMBER (32766) of them — 4095 rows. One
- * multi-values INSERT therefore threw `too many SQL variables` on any document
- * over roughly 4.8 MB, which the 100 MB upload limit allows and which Phase 1
- * made reachable: the code/text extensions that now take the direct-text route
- * (a .log, a .sql dump, a .json export) arrive as one long string.
+ * Every row binds 10 parameters (8 before `page_start`/`page_end`), and
+ * better-sqlite3 refuses a statement with more than SQLITE_MAX_VARIABLE_NUMBER
+ * (32766) of them — 3276 rows. One multi-values INSERT therefore threw `too
+ * many SQL variables` on any document over roughly 4.8 MB, which the 100 MB
+ * upload limit allows and which Phase 1 made reachable: the code/text
+ * extensions that now take the direct-text route (a .log, a .sql dump, a .json
+ * export) arrive as one long string.
  *
- * 500 leaves an order of magnitude of headroom if the row ever gains columns.
+ * 500 leaves an order of magnitude of headroom — the two page columns spent
+ * none of it — if the row ever gains more.
  */
 const CHUNK_INSERT_BATCH_ROWS = 500;
 
@@ -105,18 +116,95 @@ function splitIntoChunks(text: string): string[] {
 	return chunks;
 }
 
+/**
+ * One chunk before it becomes a row. The character chunker leaves both pages
+ * null; a structured plan fills them in.
+ */
+interface PlannedChunk {
+	text: string;
+	pageStart: number | null;
+	pageEnd: number | null;
+}
+
+/**
+ * A plan entry's pages, or nulls.
+ *
+ * A row may only claim a page range it can stand behind: both ends must be
+ * 1-based integers and the end may not precede the start. Anything else is
+ * stored as NULL — the same state a direct-text or legacy row is in, which
+ * every consumer already handles — rather than as a citation that would point
+ * the model at a page that does not exist.
+ */
+function normalizePageRange(
+	entry: ChunkPlanEntry,
+): Pick<PlannedChunk, "pageStart" | "pageEnd"> {
+	const start = Math.trunc(entry.pageStart);
+	const end = Math.trunc(entry.pageEnd);
+	if (!Number.isFinite(start) || !Number.isFinite(end)) {
+		return { pageStart: null, pageEnd: null };
+	}
+	if (start < 1 || end < start) {
+		return { pageStart: null, pageEnd: null };
+	}
+	return { pageStart: start, pageEnd: end };
+}
+
+/**
+ * Structure-aware chunking, with two conditions and one order.
+ *
+ * The small-file bypass runs FIRST and is unchanged: a document under
+ * `getSmallFileThreshold()` characters gets no rows at all, plan or no plan.
+ * The whole 3-page PDF fixture renders to 1 306 characters, so this is the
+ * common case, and the pseudo-chunk fallbacks in `artifacts.ts` are what serve
+ * it. Then the flag: with `MINERU_STRUCTURE_CHUNKING_ENABLED` off — the
+ * rollback — a plan is ignored and the character chunker produces exactly
+ * what it produces today, both columns NULL.
+ */
+function planChunks(params: {
+	contentText?: string | null;
+	chunkPlan?: readonly ChunkPlanEntry[] | null;
+}): PlannedChunk[] {
+	const text = params.contentText;
+	if (!text?.trim() || shouldBypassChunking(text.length)) return [];
+
+	if (
+		params.chunkPlan &&
+		params.chunkPlan.length > 0 &&
+		resolveMineruConfig().structureChunking
+	) {
+		return params.chunkPlan
+			.map((entry) => ({
+				text: entry.text.trim(),
+				...normalizePageRange(entry),
+			}))
+			.filter((chunk) => chunk.text.length > 0);
+	}
+
+	return splitIntoChunks(text).map((chunk) => ({
+		text: chunk,
+		pageStart: null,
+		pageEnd: null,
+	}));
+}
+
 export async function syncArtifactChunks(params: {
 	artifactId: string;
 	userId: string;
 	conversationId?: string | null;
 	contentText?: string | null;
+	/**
+	 * A structure-aware plan from `planStructuredChunks`, built by the caller
+	 * that holds the parsed blocks. Absent for direct text, for a legacy
+	 * re-sync and whenever the parse produced no structure — all of which fall
+	 * back to the character chunker.
+	 *
+	 * This module never reads the parse bundle from disk: the plan arrives as
+	 * a parameter so chunk-sync keeps its current dependency set and stays
+	 * callable from anywhere an artifact's text changes.
+	 */
+	chunkPlan?: readonly ChunkPlanEntry[] | null;
 }): Promise<SyncArtifactChunksResult> {
-	const allChunks =
-		params.contentText?.trim() &&
-		// Small file bypass: store full content without chunking.
-		!shouldBypassChunking(params.contentText.length)
-			? splitIntoChunks(params.contentText)
-			: [];
+	const allChunks = planChunks(params);
 
 	const truncated = allChunks.length > MAX_ARTIFACT_CHUNKS;
 	const chunks = truncated
@@ -139,8 +227,10 @@ export async function syncArtifactChunks(params: {
 		userId: params.userId,
 		conversationId: params.conversationId ?? null,
 		chunkIndex: index,
-		contentText: chunk,
-		tokenEstimate: estimateTokenCount(chunk),
+		contentText: chunk.text,
+		tokenEstimate: estimateTokenCount(chunk.text),
+		pageStart: chunk.pageStart,
+		pageEnd: chunk.pageEnd,
 		updatedAt: new Date(),
 	}));
 

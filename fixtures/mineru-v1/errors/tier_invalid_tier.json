@@ -1,0 +1,16 @@
+{
+  "probe": "tier_invalid_tier",
+  "method": "POST",
+  "url": "/v1/parse/jobs",
+  "http_status": 400,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "invalid_request",
+      "message": "Invalid request: tier: Input should be 'flash', 'basic', 'standard' or 'advanced'",
+      "param": "tier"
+    }
+  },
+  "note": ""
+}

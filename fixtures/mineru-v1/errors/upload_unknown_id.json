@@ -1,0 +1,16 @@
+{
+  "probe": "upload_unknown_id",
+  "method": "GET",
+  "url": "/v1/uploads/upload_doesnotexist0000",
+  "http_status": 404,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "upload_not_found",
+      "message": "Upload upload_doesnotexist0000 not found",
+      "param": null
+    }
+  },
+  "note": ""
+}

@@ -1,0 +1,16 @@
+{
+  "probe": "upload_complete_without_bytes",
+  "method": "POST",
+  "url": "/v1/uploads/upload_c675280357fd45858201020d/complete",
+  "http_status": 409,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "upload_not_ready",
+      "message": "Upload bytes not yet received",
+      "param": null
+    }
+  },
+  "note": "no PUT performed"
+}

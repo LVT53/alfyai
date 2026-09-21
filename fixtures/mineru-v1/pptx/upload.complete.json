@@ -1,0 +1,25 @@
+{
+  "id": "upload_645f4e94e7041da003c446e8",
+  "object": "upload",
+  "bytes": 30644,
+  "created_at": 1789908397,
+  "expires_at": 1789911997,
+  "filename": "sample.pptx",
+  "purpose": "parse",
+  "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "sha256sum": "e3f9dec2b0fa8555a05c93b1a0530db49e095e847e0ee6d5ccfbbb120fc04bbc",
+  "status": "completed",
+  "upload_url": null,
+  "upload_method": null,
+  "upload_headers": null,
+  "file": {
+    "id": "file-2b486ff5b770384c0df05e47",
+    "object": "file",
+    "bytes": 30644,
+    "created_at": 1789908397,
+    "expires_at": 1789911997,
+    "filename": "sample.pptx",
+    "purpose": "parse",
+    "sha256sum": "e3f9dec2b0fa8555a05c93b1a0530db49e095e847e0ee6d5ccfbbb120fc04bbc"
+  }
+}

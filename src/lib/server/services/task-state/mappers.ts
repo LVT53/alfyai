@@ -87,6 +87,10 @@ export function mapArtifactChunk(
 		chunkIndex: row.chunkIndex,
 		contentText: row.contentText,
 		tokenEstimate: row.tokenEstimate,
+		// NULL for direct text and for every row written before structure-aware
+		// chunking existed. `formatPageCitation` reads that as "no citation".
+		pageStart: row.pageStart ?? null,
+		pageEnd: row.pageEnd ?? null,
 		createdAt: row.createdAt.getTime(),
 		updatedAt: row.updatedAt.getTime(),
 	};

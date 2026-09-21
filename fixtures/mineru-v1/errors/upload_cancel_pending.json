@@ -1,0 +1,24 @@
+{
+  "probe": "upload_cancel_pending",
+  "method": "POST",
+  "url": "/v1/uploads/upload_c675280357fd45858201020d/cancel",
+  "http_status": 200,
+  "content_type": "application/json",
+  "body": {
+    "id": "upload_c675280357fd45858201020d",
+    "object": "upload",
+    "bytes": 89,
+    "created_at": 1789908604,
+    "expires_at": 1789912204,
+    "filename": "nobytes.csv",
+    "purpose": "parse",
+    "mime_type": "text/csv",
+    "sha256sum": null,
+    "status": "cancelled",
+    "upload_url": null,
+    "upload_method": null,
+    "upload_headers": null,
+    "file": null
+  },
+  "note": ""
+}

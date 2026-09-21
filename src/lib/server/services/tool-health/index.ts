@@ -133,6 +133,8 @@ function safeConfig(deps: ToolHealthDeps): ToolHealthConfig {
 			owntracksRecorderUrl: "",
 			owntracksRecorderUser: "",
 			owntracksRecorderPass: "",
+			mineruApiUrl: "",
+			mineruApiKey: "",
 		};
 	}
 }

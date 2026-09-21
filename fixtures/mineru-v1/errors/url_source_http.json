@@ -1,0 +1,16 @@
+{
+  "probe": "url_source_http",
+  "method": "POST",
+  "url": "/v1/parse/jobs",
+  "http_status": 400,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "unsupported_source",
+      "message": "url source must use https unless --allow-http-source is enabled",
+      "param": "files.0.source"
+    }
+  },
+  "note": "plain http, --allow-http-source not set"
+}

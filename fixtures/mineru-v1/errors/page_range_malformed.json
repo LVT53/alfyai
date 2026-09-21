@@ -1,0 +1,16 @@
+{
+  "probe": "page_range_malformed",
+  "method": "POST",
+  "url": "/v1/parse/jobs",
+  "http_status": 400,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "page_range_invalid",
+      "message": "Invalid page range 'not-a-range': expected a page, an inclusive range, or 'all'",
+      "param": "files.0.page_range"
+    }
+  },
+  "note": ""
+}

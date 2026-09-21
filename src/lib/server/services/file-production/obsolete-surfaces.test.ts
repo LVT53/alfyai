@@ -4,8 +4,21 @@ import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
 
+/**
+ * A file that no longer exists reads as empty rather than throwing.
+ *
+ * Every assertion below is "this symbol is NOT in that file", so a deleted file
+ * satisfies it trivially and correctly — and the guard still fires if the file
+ * ever comes back carrying the symbol. `services/document-extraction.ts` is the
+ * case: the MinerU 3.x client was deleted outright, and an ENOENT here would
+ * turn its removal into a failing test about file-production boundaries.
+ */
 function readSource(path: string): string {
-	return readFileSync(join(root, path), "utf8");
+	try {
+		return readFileSync(join(root, path), "utf8");
+	} catch {
+		return "";
+	}
 }
 
 describe("file-production architecture boundaries", () => {

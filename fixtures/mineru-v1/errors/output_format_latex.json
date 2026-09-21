@@ -1,0 +1,16 @@
+{
+  "probe": "output_format_latex",
+  "method": "POST",
+  "url": "/v1/parse/jobs",
+  "http_status": 403,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "permission_error",
+      "code": "feature_requires_api_key",
+      "message": "Output format 'latex' requires an API key",
+      "param": null
+    }
+  },
+  "note": ""
+}

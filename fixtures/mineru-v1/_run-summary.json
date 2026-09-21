@@ -1,0 +1,603 @@
+[
+  {
+    "name": "csv",
+    "input": "sample.csv",
+    "bytes": 89,
+    "mime_type": "text/csv",
+    "sha256": "7df632ee3702226e1d6130367fec2243276094a0654f29c3e4409a2117e529c4",
+    "upload_create_status": 200,
+    "upload_create_state": "pending",
+    "upload_put_status": 200,
+    "upload_put_body": "",
+    "upload_complete_status": 200,
+    "file_id": "file-7145e6029a64eaae97c9649d",
+    "job_create_status": 202,
+    "job_id": "job_b726bd785bc49e1021b843c3",
+    "job_status": "completed",
+    "wall_seconds": 1.5,
+    "tier_requested": null,
+    "tier_resolved": "basic",
+    "file_status": "completed",
+    "page_range": "1",
+    "parse": {
+      "model_used": null,
+      "duration_ms": 49,
+      "parser_version": "4.0.4"
+    },
+    "file_error": null,
+    "outputs": {
+      "markdown": {
+        "file_id": "file-b75319b55e9f8613463823ab",
+        "declared_bytes": 148,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 148
+      },
+      "middle_json": {
+        "file_id": "file-6c6fa2f64c4015cab2a80151",
+        "declared_bytes": 832,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 832
+      },
+      "structured_content": {
+        "file_id": "file-34effc1d945c17f057bf540f",
+        "declared_bytes": 501,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 501
+      },
+      "zip": {
+        "file_id": "file-7f9dac90ea736a7a6376992c",
+        "declared_bytes": 1755,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 1755,
+        "entries": 4
+      }
+    },
+    "output_files_null_keys": [
+      "docx",
+      "html",
+      "latex"
+    ]
+  },
+  {
+    "name": "docx",
+    "input": "sample.docx",
+    "bytes": 38725,
+    "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "sha256": "e77e241d0fadf8c55fca1e1a6ecb9278bc41bdb9959c157489f32f44f6ae0602",
+    "upload_create_status": 200,
+    "upload_create_state": "pending",
+    "upload_put_status": 200,
+    "upload_put_body": "",
+    "upload_complete_status": 200,
+    "file_id": "file-b8425a8a38ec4d53b1985365",
+    "job_create_status": 202,
+    "job_id": "job_1706d797d86f8c475f9f0b55",
+    "job_status": "completed",
+    "wall_seconds": 1.5,
+    "tier_requested": null,
+    "tier_resolved": "basic",
+    "file_status": "completed",
+    "page_range": "1",
+    "parse": {
+      "model_used": null,
+      "duration_ms": 419,
+      "parser_version": "4.0.4"
+    },
+    "file_error": null,
+    "outputs": {
+      "markdown": {
+        "file_id": "file-87ceea44a9dd2243bed5e577",
+        "declared_bytes": 10650,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 10650
+      },
+      "middle_json": {
+        "file_id": "file-d96f499b5391e3a51fa88fac",
+        "declared_bytes": 12459,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 12459
+      },
+      "structured_content": {
+        "file_id": "file-8d93cc688931c353f0316c1d",
+        "declared_bytes": 11609,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 11609
+      },
+      "zip": {
+        "file_id": "file-d088ed02e69f284a4226e16b",
+        "declared_bytes": 12879,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 12879,
+        "entries": 5
+      }
+    },
+    "output_files_null_keys": [
+      "docx",
+      "html",
+      "latex"
+    ]
+  },
+  {
+    "name": "epub",
+    "input": "sample.epub",
+    "bytes": 1765,
+    "mime_type": "application/epub+zip",
+    "sha256": "c3119e3aee26df275c8ef3a0b5eeb73c1131ce2e70db991bbfe069476c57a175",
+    "upload_create_status": 200,
+    "upload_create_state": "pending",
+    "upload_put_status": 200,
+    "upload_put_body": "",
+    "upload_complete_status": 200,
+    "file_id": "file-02162949bdbd9f99d2c178ce",
+    "job_create_status": 202,
+    "job_id": "job_6211769d73bb4fdb1704fd6d",
+    "job_status": "completed",
+    "wall_seconds": 1.5,
+    "tier_requested": null,
+    "tier_resolved": "basic",
+    "file_status": "completed",
+    "page_range": "1",
+    "parse": {
+      "model_used": null,
+      "duration_ms": 10,
+      "parser_version": "4.0.4"
+    },
+    "file_error": null,
+    "outputs": {
+      "markdown": {
+        "file_id": "file-68f2e25605aa6c7953c20ba8",
+        "declared_bytes": 857,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 857
+      },
+      "middle_json": {
+        "file_id": "file-8b8e1715fd54285bb8b0d20a",
+        "declared_bytes": 2201,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 2201
+      },
+      "structured_content": {
+        "file_id": "file-f328481447e3d2e7d0b671bf",
+        "declared_bytes": 1613,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 1613
+      },
+      "zip": {
+        "file_id": "file-96d768574ce078838b113003",
+        "declared_bytes": 3430,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 3430,
+        "entries": 4
+      }
+    },
+    "output_files_null_keys": [
+      "docx",
+      "html",
+      "latex"
+    ]
+  },
+  {
+    "name": "html",
+    "input": "sample.html",
+    "bytes": 1753,
+    "mime_type": "text/html",
+    "sha256": "31960ad8644da3c6f70f35f00749ef20126c44adb5f1db04845898d6e3f0d468",
+    "upload_create_status": 200,
+    "upload_create_state": "pending",
+    "upload_put_status": 200,
+    "upload_put_body": "",
+    "upload_complete_status": 200,
+    "file_id": "file-70b935855b675e70d8707c30",
+    "job_create_status": 202,
+    "job_id": "job_4fd376421775b627f483cb54",
+    "job_status": "completed",
+    "wall_seconds": 1.5,
+    "tier_requested": null,
+    "tier_resolved": "basic",
+    "file_status": "completed",
+    "page_range": "1",
+    "parse": {
+      "model_used": null,
+      "duration_ms": 26,
+      "parser_version": "4.0.4"
+    },
+    "file_error": null,
+    "outputs": {
+      "markdown": {
+        "file_id": "file-29021a4252a60a229f9bd188",
+        "declared_bytes": 1152,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 1152
+      },
+      "middle_json": {
+        "file_id": "file-10fc02ad32cfd59b8366a9b7",
+        "declared_bytes": 2590,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 2590
+      },
+      "structured_content": {
+        "file_id": "file-41eb374ad49b8662957c7f03",
+        "declared_bytes": 1886,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 1886
+      },
+      "zip": {
+        "file_id": "file-4d252747a89f4500a719af60",
+        "declared_bytes": 3465,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 3465,
+        "entries": 4
+      }
+    },
+    "output_files_null_keys": [
+      "docx",
+      "html",
+      "latex"
+    ]
+  },
+  {
+    "name": "jpg",
+    "input": "sample.jpg",
+    "bytes": 66483,
+    "mime_type": "image/jpeg",
+    "sha256": "055c140f2aafc647c930fcdc72e9d06436fc81d95b92240715895b29a4fde1c5",
+    "upload_create_status": 200,
+    "upload_create_state": "pending",
+    "upload_put_status": 200,
+    "upload_put_body": "",
+    "upload_complete_status": 200,
+    "file_id": "file-913ef26d6712d732f82c172f",
+    "job_create_status": 202,
+    "job_id": "job_2adc22b3d02ccc31547e03d8",
+    "job_status": "completed",
+    "wall_seconds": 9.1,
+    "tier_requested": null,
+    "tier_resolved": "basic",
+    "file_status": "completed",
+    "page_range": "1",
+    "parse": {
+      "model_used": null,
+      "duration_ms": 8961,
+      "parser_version": "4.0.4"
+    },
+    "file_error": null,
+    "outputs": {
+      "markdown": {
+        "file_id": "file-7760681107ad6263f076d465",
+        "declared_bytes": 401,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 401
+      },
+      "middle_json": {
+        "file_id": "file-eaacf9d7df2dac18759ce36e",
+        "declared_bytes": 1779,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 1779
+      },
+      "structured_content": {
+        "file_id": "file-f04ce257da3f13dec6a9a426",
+        "declared_bytes": 45054,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 45054
+      },
+      "zip": {
+        "file_id": "file-7b91aa0bd7e4c9f26cc0fe9c",
+        "declared_bytes": 46321,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 46321,
+        "entries": 5
+      }
+    },
+    "output_files_null_keys": [
+      "docx",
+      "html",
+      "latex"
+    ]
+  },
+  {
+    "name": "pdf",
+    "input": "sample.pdf",
+    "bytes": 6727,
+    "mime_type": "application/pdf",
+    "sha256": "5637ad7a417669669f181aec769fa3ac3a392285f1b9c222830337360a2f42bd",
+    "upload_create_status": 200,
+    "upload_create_state": "completed",
+    "instant_dedupe": true,
+    "file_id": "file-10c3b409b0ab0e3b7da5fc00",
+    "job_create_status": 202,
+    "job_id": "job_d14ed531dc2a7873ddd84e16",
+    "job_status": "completed",
+    "wall_seconds": 1.5,
+    "tier_requested": null,
+    "tier_resolved": "basic",
+    "file_status": "completed",
+    "page_range": "1-3",
+    "parse": {
+      "model_used": null,
+      "duration_ms": 1126,
+      "parser_version": "4.0.4"
+    },
+    "file_error": null,
+    "outputs": {
+      "markdown": {
+        "file_id": "file-c0361fe7da7f17dd7e485c82",
+        "declared_bytes": 34457,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 34457
+      },
+      "middle_json": {
+        "file_id": "file-3fe6d4cdcad9b5124a9026d0",
+        "declared_bytes": 5297,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 5297
+      },
+      "structured_content": {
+        "file_id": "file-6ef01497b4b73cb420b565be",
+        "declared_bytes": 75829,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 75829
+      },
+      "zip": {
+        "file_id": "file-d3aae163fbf484a7ae8ae604",
+        "declared_bytes": 71547,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 71547,
+        "entries": 6
+      }
+    },
+    "output_files_null_keys": [
+      "docx",
+      "html",
+      "latex"
+    ]
+  },
+  {
+    "name": "png",
+    "input": "sample.png",
+    "bytes": 44757,
+    "mime_type": "image/png",
+    "sha256": "15b97fabc7e52a37970c698a806d27790a4146a7b194bc60b65750e762aa8e8b",
+    "upload_create_status": 200,
+    "upload_create_state": "pending",
+    "upload_put_status": 200,
+    "upload_put_body": "",
+    "upload_complete_status": 200,
+    "file_id": "file-1341cd7f21210307183c6421",
+    "job_create_status": 202,
+    "job_id": "job_fbfc61399c894454221bb694",
+    "job_status": "completed",
+    "wall_seconds": 1.5,
+    "tier_requested": null,
+    "tier_resolved": "basic",
+    "file_status": "completed",
+    "page_range": "1",
+    "parse": {
+      "model_used": null,
+      "duration_ms": 1387,
+      "parser_version": "4.0.4"
+    },
+    "file_error": null,
+    "outputs": {
+      "markdown": {
+        "file_id": "file-028f754cc455b4b3d59327fd",
+        "declared_bytes": 401,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 401
+      },
+      "middle_json": {
+        "file_id": "file-2dc125bc8952c962744fcfa8",
+        "declared_bytes": 1779,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 1779
+      },
+      "structured_content": {
+        "file_id": "file-4ea71854c0fb5e864bc12422",
+        "declared_bytes": 43894,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 43894
+      },
+      "zip": {
+        "file_id": "file-a9a598d9fb5524b0bf191cb0",
+        "declared_bytes": 44301,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 44301,
+        "entries": 5
+      }
+    },
+    "output_files_null_keys": [
+      "docx",
+      "html",
+      "latex"
+    ]
+  },
+  {
+    "name": "pptx",
+    "input": "sample.pptx",
+    "bytes": 30644,
+    "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "sha256": "e3f9dec2b0fa8555a05c93b1a0530db49e095e847e0ee6d5ccfbbb120fc04bbc",
+    "upload_create_status": 200,
+    "upload_create_state": "pending",
+    "upload_put_status": 200,
+    "upload_put_body": "",
+    "upload_complete_status": 200,
+    "file_id": "file-2b486ff5b770384c0df05e47",
+    "job_create_status": 202,
+    "job_id": "job_a501f8f9e4188fb7d13db78d",
+    "job_status": "completed",
+    "wall_seconds": 1.5,
+    "tier_requested": null,
+    "tier_resolved": "basic",
+    "file_status": "completed",
+    "page_range": "1-2",
+    "parse": {
+      "model_used": null,
+      "duration_ms": 48,
+      "parser_version": "4.0.4"
+    },
+    "file_error": null,
+    "outputs": {
+      "markdown": {
+        "file_id": "file-64ce33a89a138bf7fd569fab",
+        "declared_bytes": 9760,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 9760
+      },
+      "middle_json": {
+        "file_id": "file-7526de623af5bf9aa609bea0",
+        "declared_bytes": 10833,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 10833
+      },
+      "structured_content": {
+        "file_id": "file-07c2dc3c94cd6bf1ef19c4ab",
+        "declared_bytes": 10466,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 10466
+      },
+      "zip": {
+        "file_id": "file-8c12ab1389851aee8e54915b",
+        "declared_bytes": 11619,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 11619,
+        "entries": 5
+      }
+    },
+    "output_files_null_keys": [
+      "docx",
+      "html",
+      "latex"
+    ]
+  },
+  {
+    "name": "xlsx",
+    "input": "sample.xlsx",
+    "bytes": 5577,
+    "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "sha256": "fdfb8ef22124afeb4eb31651cf62e553b65da81b149001dda8221a31c88a1204",
+    "upload_create_status": 200,
+    "upload_create_state": "pending",
+    "upload_put_status": 200,
+    "upload_put_body": "",
+    "upload_complete_status": 200,
+    "file_id": "file-261a7e9b8e549e5f9ccdad8b",
+    "job_create_status": 202,
+    "job_id": "job_116951baae44589e59e4bf93",
+    "job_status": "completed",
+    "wall_seconds": 1.5,
+    "tier_requested": null,
+    "tier_resolved": "basic",
+    "file_status": "completed",
+    "page_range": "1-2",
+    "parse": {
+      "model_used": null,
+      "duration_ms": 22,
+      "parser_version": "4.0.4"
+    },
+    "file_error": null,
+    "outputs": {
+      "markdown": {
+        "file_id": "file-e41a0f6b6091058746f2b677",
+        "declared_bytes": 353,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 353
+      },
+      "middle_json": {
+        "file_id": "file-a6c83e37224fdd8c7ccc57e7",
+        "declared_bytes": 2053,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 2053
+      },
+      "structured_content": {
+        "file_id": "file-ff8839b6a1f453607d913ffd",
+        "declared_bytes": 1079,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 1079
+      },
+      "zip": {
+        "file_id": "file-3fe92b23c55573c7bb5d7ff0",
+        "declared_bytes": 2533,
+        "http_status": 200,
+        "content_type": "application/octet-stream",
+        "content_disposition": null,
+        "actual_bytes": 2533,
+        "entries": 4
+      }
+    },
+    "output_files_null_keys": [
+      "docx",
+      "html",
+      "latex"
+    ]
+  }
+]

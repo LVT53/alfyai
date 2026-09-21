@@ -5,7 +5,11 @@ import { z } from "zod";
 
 import { db } from "$lib/server/db";
 import { artifacts, chatGeneratedFiles } from "$lib/server/db/schema";
-import { readStoredOutline } from "$lib/server/services/knowledge/outline";
+import {
+	readStoredOutline,
+	readStoredPageCountKind,
+} from "$lib/server/services/knowledge/outline";
+import { getSourceArtifactIdForNormalizedArtifact } from "$lib/server/services/knowledge/store/core";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 import type {
 	Artifact,
@@ -13,9 +17,11 @@ import type {
 	ArtifactType,
 	DocumentOutlineEntry,
 } from "$lib/server/services/knowledge/types";
+import { readMineruPageIndex } from "$lib/server/services/mineru/bundle";
 import { selectDocumentPassages } from "$lib/server/services/task-state/artifacts";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { getEntryByMimeType } from "$lib/shared/file-types";
+import { type PageCountUnit, pageCountUnit } from "$lib/shared/page-count";
 import {
 	buildToolResultCacheKey,
 	getCachedToolResult,
@@ -161,7 +167,8 @@ async function resolveBestContent(
 
 const MAX_QUERY_LENGTH = 300;
 
-export const readGeneratedFileInputSchema = z.object({
+/** The four fields the model is told about. */
+const readGeneratedFileAdvertisedFields = {
 	filename: z.string().min(1).optional(),
 	requestTitle: z.string().min(1).optional(),
 	from: z
@@ -180,10 +187,44 @@ export const readGeneratedFileInputSchema = z.object({
 		.describe(
 			"Instead of the text window, return up to 3 passages of this one file about the query.",
 		),
+};
+
+/**
+ * The schema the model sees. It is what `tool()` serialises into the request's
+ * tool list, which sits inside the CACHED PROMPT PREFIX: the local model
+ * caches in 1 600-token blocks, so a byte added here invalidates every block
+ * from that offset onward and costs a full re-warm.
+ *
+ * Adding `page` to it measures at +180 bytes of JSON Schema, and the
+ * orchestrator's OQ5 ruling is that every model-facing prose and schema change
+ * of this migration ships together in ONE release (Phase 6) so that eviction is
+ * paid once. So `page` is implemented, accepted and tested — and NOT advertised
+ * yet.
+ *
+ * `looseObject` rather than `object` is what makes "accepted" true: a strict
+ * object strips unknown keys during the SDK's tool-call validation, so a `page`
+ * would never reach `execute`. A loose one keeps it, and — measured against
+ * `asSchema` from the AI SDK, the same conversion the request uses — serialises
+ * BYTE-IDENTICALLY to the strict object it replaced. `read-generated-file.test.ts`
+ * pins that byte string, so the day someone adds a field here, the test says so.
+ */
+export const readGeneratedFileInputSchema = z.looseObject(
+	readGeneratedFileAdvertisedFields,
+);
+
+/**
+ * What `execute` actually reads: the advertised fields plus the undocumented
+ * `page`. A `page` that is not a 1-based integer is dropped rather than
+ * failing the call — an undocumented parameter must never be the reason a tool
+ * call errors.
+ */
+export const readGeneratedFileExecutionInputSchema = z.object({
+	...readGeneratedFileAdvertisedFields,
+	page: z.number().int().min(1).optional().catch(undefined),
 });
 
 export type ReadGeneratedFileInput = z.infer<
-	typeof readGeneratedFileInputSchema
+	typeof readGeneratedFileExecutionInputSchema
 >;
 
 // ── Target resolution ──────────────────────────────────────────
@@ -518,6 +559,13 @@ export interface ReadGeneratedFilePassage {
 	charOffset: number | null;
 	/** Nearest preceding outline heading, when the document has an outline. */
 	section: string | null;
+	/**
+	 * 1-based inclusive pages this passage spans, for a document parsed with
+	 * structure. Null for direct text, for legacy rows and for a document too
+	 * small to be chunked. The same pair the prompt cites as `[p. N]`.
+	 */
+	pageStart: number | null;
+	pageEnd: number | null;
 	/** The file continues past this passage. */
 	hasMore: boolean;
 	/** Offset to pass as `from` to read on from this passage. */
@@ -626,6 +674,8 @@ async function buildPassages(params: {
 			text: passage.text,
 			charOffset,
 			section: sectionTitleAt(params.artifact.outline, charOffset),
+			pageStart: passage.pageStart,
+			pageEnd: passage.pageEnd,
 			hasMore,
 			nextFrom:
 				nextFrom !== null && nextFrom < contentText.length ? nextFrom : null,
@@ -673,7 +723,25 @@ export interface ReadGeneratedFileResult {
 	nextFrom: number | null;
 	query: string | null;
 	passages: ReadGeneratedFilePassage[] | null;
+	/** The 1-based page the window was started at, when `page` was honoured. */
+	page: number | null;
+	/** Pages the document has, when it has a parse bundle to say so. */
+	pageCount: number | null;
+	/** What `page`/`pageCount` count: pages, slides or sheets. */
+	pageUnit: PageCountUnit | null;
+	/** Why a requested `page` was ignored. One line, for the model. */
+	pageNote: string | null;
 }
+
+/** The word for each unit in the one-line tool summary. */
+const PAGE_WORDS: Readonly<Record<PageCountUnit, string>> = {
+	page: "p.",
+	slide: "slide",
+	sheet: "sheet",
+};
+
+const NO_PAGE_INFORMATION_NOTE =
+	"This document has no page information, so `page` was ignored; the text is shown from the start. Use `from` or `query` instead.";
 
 function emptyResult(
 	overrides: Partial<ReadGeneratedFileResult> & { notFound: boolean },
@@ -696,6 +764,10 @@ function emptyResult(
 		nextFrom: null,
 		query: null,
 		passages: null,
+		page: null,
+		pageCount: null,
+		pageUnit: null,
+		pageNote: null,
 		...overrides,
 	};
 }
@@ -703,6 +775,83 @@ function emptyResult(
 function normalizeFrom(value: number | null | undefined): number {
 	if (typeof value !== "number" || !Number.isFinite(value)) return 0;
 	return Math.max(0, Math.floor(value));
+}
+
+/** A 1-based page, or null when the caller did not ask for one. */
+function normalizePage(value: number | null | undefined): number | null {
+	if (typeof value !== "number" || !Number.isFinite(value)) return null;
+	const page = Math.floor(value);
+	return page >= 1 ? page : null;
+}
+
+/**
+ * Where a page starts in the document's text, from the parse bundle's page
+ * index.
+ *
+ * The bundle is keyed on the SOURCE artifact while the text belongs to its
+ * normalized half, so this makes the same hop the figure endpoint and
+ * `working-document-file-serving.ts` make. `pages.json` is a small file read
+ * only on a tool call that actually passes `page` — never on the prompt
+ * assembly path.
+ *
+ * `offset: null` means the document has no page index at all (direct text, a
+ * legacy row, a generated file): the caller says so and reads from the start.
+ * A page past the end resolves to the end of the text, which lands on the
+ * existing "nothing further to read" note rather than inventing an error.
+ */
+async function resolvePageOffset(params: {
+	userId: string;
+	row: ArtifactRow;
+	page: number;
+	contentLength: number;
+	/** The text the offsets will be applied to, for the staleness check. */
+	contentText: string | null;
+}): Promise<{
+	offset: number | null;
+	pageCount: number | null;
+	unit: PageCountUnit | null;
+}> {
+	if (params.row.type !== "normalized_document") {
+		return { offset: null, pageCount: null, unit: null };
+	}
+	// The same honesty rule the prompt citation applies: a `declared` DOCX
+	// count, a `logical` CSV count or a kind we never learned is not a page a
+	// reader could turn to, and handing the model "page 3" for one of them is
+	// an invention rather than a citation. `artifacts.ts` refused to cite them;
+	// this path reported them anyway.
+	const unit = pageCountUnit(
+		readStoredPageCountKind(
+			parseJsonRecord(params.row.metadataJson ?? null)?.pageCountKind,
+		) ?? null,
+	);
+	if (!unit) return { offset: null, pageCount: null, unit: null };
+	const sourceArtifactId = await getSourceArtifactIdForNormalizedArtifact(
+		params.userId,
+		params.row.id,
+	);
+	if (!sourceArtifactId) return { offset: null, pageCount: null, unit: null };
+
+	// The text is handed in so the bundle's own `markdownSha256` can be checked
+	// against it. The bundle is written by the extractor BEFORE the artifact
+	// text is rewritten, so an attempt that parsed and then failed to persist
+	// leaves an index one parse ahead of the document — and every page it
+	// resolves would land somewhere else in the text, silently, with a citation
+	// on it. A mismatch reads as "no page index", which is the existing
+	// read-from-the-start path.
+	const pages = await readMineruPageIndex(params.userId, sourceArtifactId, {
+		expectedMarkdown: params.contentText,
+	});
+	if (!pages || pages.length === 0) {
+		return { offset: null, pageCount: null, unit: null };
+	}
+
+	const entry = pages.find((page) => page.page === params.page);
+	if (!entry) {
+		// Past the last page: the end-of-content note is the honest answer.
+		return { offset: params.contentLength, pageCount: pages.length, unit };
+	}
+	const offset = Math.max(0, Math.min(params.contentLength, entry.start));
+	return { offset, pageCount: pages.length, unit };
 }
 
 function normalizeQuery(value: unknown): string | null {
@@ -717,11 +866,22 @@ export async function readGeneratedFileContent(params: {
 	requestTitle?: string | null;
 	from?: number | null;
 	query?: string | null;
+	/**
+	 * 1-based page of a parsed document to start the window at. Lowest
+	 * precedence: `query` wins, then an explicit `from`, then this.
+	 */
+	page?: number | null;
 	/** Scopes the per-turn cache; omit to bypass caching. */
 	turnId?: string | null;
 }): Promise<ReadGeneratedFileResult> {
 	const from = normalizeFrom(params.from);
 	const query = normalizeQuery(params.query);
+	const requestedPage = normalizePage(params.page);
+	// `from: 0` is a real instruction ("start at the beginning"), so precedence
+	// turns on whether `from` was PASSED, not on its value.
+	const fromWasPassed =
+		typeof params.from === "number" && Number.isFinite(params.from);
+	const pageRequested = requestedPage !== null && !query && !fromWasPassed;
 
 	const lookup = await resolveReadTarget(params);
 	if (lookup.status === "none") {
@@ -749,6 +909,7 @@ export async function readGeneratedFileContent(params: {
 					updatedAt: row.updatedAt.getTime(),
 					from,
 					query,
+					page: pageRequested ? requestedPage : null,
 					turnId: params.turnId,
 				},
 			})
@@ -792,7 +953,23 @@ export async function readGeneratedFileContent(params: {
 		nextFrom: null,
 		query,
 		passages: null,
+		page: null,
+		pageCount: null,
+		pageUnit: null,
+		pageNote: null,
 	};
+
+	// One small JSON read, and only when `page` is both passed and not
+	// outranked by `query`/`from`.
+	const pageLookup = pageRequested
+		? await resolvePageOffset({
+				userId: params.userId,
+				row,
+				page: requestedPage as number,
+				contentLength,
+				contentText: resolvedContent ?? null,
+			})
+		: null;
 
 	let result: ReadGeneratedFileResult;
 	if (query) {
@@ -809,7 +986,8 @@ export async function readGeneratedFileContent(params: {
 		});
 		result = { ...base, passages, hasMore };
 	} else {
-		const start = Math.min(from, contentLength);
+		const pageOffset = pageLookup?.offset ?? null;
+		const start = Math.min(pageOffset ?? from, contentLength);
 		const window = resolvedContent
 			? resolvedContent.slice(
 					start,
@@ -825,6 +1003,11 @@ export async function readGeneratedFileContent(params: {
 			to,
 			hasMore,
 			nextFrom: hasMore ? to : null,
+			page: pageOffset === null ? null : requestedPage,
+			pageCount: pageLookup?.pageCount ?? null,
+			pageUnit: pageLookup?.unit ?? null,
+			pageNote:
+				pageRequested && pageOffset === null ? NO_PAGE_INFORMATION_NOTE : null,
 		};
 	}
 
@@ -883,12 +1066,17 @@ export function buildReadGeneratedFileModelPayload(
 		};
 	}
 
+	const pageFields = {
+		...(result.page !== null ? { page: result.page } : {}),
+		...(result.pageCount !== null ? { pageCount: result.pageCount } : {}),
+	};
 	const remaining = result.contentLength - result.to;
 	// `from` at or past the end: found, but nothing to show — say so rather
 	// than returning a bare `found: true` the model may read as empty file.
 	if (result.contentLength > 0 && result.from >= result.contentLength) {
 		return {
 			...base,
+			...pageFields,
 			from: result.from,
 			to: result.to,
 			hasMore: false,
@@ -906,12 +1094,14 @@ export function buildReadGeneratedFileModelPayload(
 
 	return {
 		...base,
+		...pageFields,
 		content,
 		from: result.from,
 		to: result.to,
 		hasMore: result.hasMore,
 		nextFrom: result.nextFrom,
 		truncated: result.hasMore,
+		...(result.pageNote ? { note: result.pageNote } : {}),
 	};
 }
 
@@ -935,7 +1125,14 @@ export function summarizeReadGeneratedFileResult(
 		result.from > 0 || result.hasMore
 			? `, chars ${result.from}–${result.to}${result.hasMore ? `, more from ${result.nextFrom}` : ""}`
 			: "";
-	return `Found "${label}"${version}${length}${window}.`;
+	// "p." was hardcoded, so a deck read "from p. 3" and a spreadsheet named a
+	// page nobody can turn to. The unit comes from the same shared vocabulary
+	// the chip and the citation use.
+	const page =
+		result.page !== null
+			? `, from ${PAGE_WORDS[result.pageUnit ?? "page"]} ${result.page}`
+			: "";
+	return `Found "${label}"${version}${length}${page}${window}.`;
 }
 
 // ── Sanitization ───────────────────────────────────────────────
@@ -956,6 +1153,10 @@ export function sanitizeReadGeneratedFileInput(
 	const query = normalizeQuery(input.query);
 	if (query) {
 		safe.query = query;
+	}
+	const page = normalizePage(input.page);
+	if (page !== null) {
+		safe.page = page;
 	}
 	return safe;
 }

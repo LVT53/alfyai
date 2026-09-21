@@ -378,6 +378,15 @@ export const artifactChunks = sqliteTable(
 		chunkIndex: integer("chunk_index").notNull(),
 		contentText: text("content_text").notNull(),
 		tokenEstimate: integer("token_estimate").notNull().default(0),
+		/**
+		 * 1-based inclusive page the chunk starts on. NULL for direct-text and
+		 * for every row written before structure-aware chunking existed, which
+		 * is why both columns are nullable and neither is indexed: every read of
+		 * them already carries `artifact_id`.
+		 */
+		pageStart: integer("page_start"),
+		/** 1-based inclusive page the chunk ends on. NULL when pageStart is NULL. */
+		pageEnd: integer("page_end"),
 		createdAt: integer("created_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`),

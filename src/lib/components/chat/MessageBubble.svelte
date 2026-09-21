@@ -756,6 +756,9 @@ function toArtifactSummary(
 		...(attachment.pageCount !== undefined
 			? { pageCount: attachment.pageCount }
 			: {}),
+		...(attachment.pageCountKind !== undefined
+			? { pageCountKind: attachment.pageCountKind }
+			: {}),
 		...(attachment.outline !== undefined
 			? { outline: attachment.outline }
 			: {}),

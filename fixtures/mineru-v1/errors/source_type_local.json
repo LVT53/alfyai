@@ -1,0 +1,16 @@
+{
+  "probe": "source_type_local",
+  "method": "POST",
+  "url": "/v1/parse/jobs",
+  "http_status": 400,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "unsupported_source",
+      "message": "local source is disabled; enable --allow-local-source",
+      "param": "files.0.source"
+    }
+  },
+  "note": "--allow-local-source NOT set"
+}

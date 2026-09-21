@@ -1,0 +1,37 @@
+{
+  "probe": "flash_csv_tier_omitted",
+  "http_status": 202,
+  "body": {
+    "job_id": "job_54283ce45f9867e6066185e9",
+    "status": "queued",
+    "created_at": "2026-09-20T12:52:50Z",
+    "started_at": null,
+    "finished_at": null,
+    "tier": "flash",
+    "output_formats": [
+      "markdown"
+    ],
+    "access_level": "anonymous",
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "total": 1
+    },
+    "files": [
+      {
+        "file_id": "file-67bd25956d7811d1650da4ef",
+        "name": "sample.csv",
+        "page_range": "",
+        "status": "queued",
+        "parse": null,
+        "output_files": null,
+        "error": null
+      }
+    ],
+    "links": {
+      "self": "/v1/parse/jobs/job_54283ce45f9867e6066185e9",
+      "cancel": "/v1/parse/jobs/job_54283ce45f9867e6066185e9"
+    }
+  },
+  "note": "non-PDF normalizes to flash"
+}

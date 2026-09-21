@@ -1,0 +1,59 @@
+{
+  "upload_create_status_for_known_sha": "completed",
+  "dedupe_hit_no_bytes_needed": true,
+  "upload_id": "upload_9516313f34ac924c51370ba9",
+  "file_id": "file-a796714dbdbf32c86a3c1fb5",
+  "job_id": "job_9acb0e3f8524539bd4cfa5e0",
+  "job_status_before": "completed",
+  "output_md_file_id": "file-ed21ae6f2aa5604af22c3391",
+  "output_zip_file_id": "file-4e21258eeeeb8461d8c32955",
+  "content_http_status": 200,
+  "content_is_redirect": false,
+  "content_location_header": null,
+  "content_headers": {
+    "content-length": "148",
+    "content-type": "application/octet-stream"
+  },
+  "zip_content_headers": {
+    "content-length": "1583",
+    "content-type": "application/octet-stream"
+  },
+  "output_file_object": {
+    "id": "file-ed21ae6f2aa5604af22c3391",
+    "object": "file",
+    "bytes": 148,
+    "created_at": 1789908673,
+    "expires_at": null,
+    "filename": "restartprobe.csv.md",
+    "purpose": "parse_output",
+    "sha256sum": "b92338988ab951a8773b8b2f8c51b4814297282b465f5b8f009295cc64096c4a"
+  },
+  "usage": {
+    "object": "usage",
+    "access_level": "anonymous",
+    "billing_period": {
+      "start": "2026-09-20T12:43:59Z",
+      "end": null
+    },
+    "current": {
+      "pages_processed": 27,
+      "files_processed": 16,
+      "jobs_created": 21
+    },
+    "limits": {
+      "max_pages_per_file": 1000,
+      "max_file_size_bytes": 209715200,
+      "max_files_per_job": 100,
+      "max_concurrent_jobs": 1,
+      "max_file_retention_days": null
+    }
+  },
+  "reupload_same_sha_status": "completed",
+  "reupload_same_sha_returns_file": true,
+  "reupload_same_sha_same_file_id": false,
+  "reupload_upload_url": null,
+  "upload_without_sha_status": "pending",
+  "upload_without_sha_has_url": true,
+  "reparse_duration_ms": 5,
+  "reparse_wall_s": 0.52
+}

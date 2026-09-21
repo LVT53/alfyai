@@ -9,6 +9,8 @@ import {
 	fetchMemoryProfile,
 	fetchMemorySummary,
 	fetchMemoryTimeline,
+	fetchReextractTiers,
+	reextractDocument,
 	retryExtraction,
 	submitKnowledgeMemoryAction,
 	submitMemoryV2Action,
@@ -558,6 +560,31 @@ async function handleExtractionRetry(artifactId: string) {
 	}
 }
 
+/**
+ * "Read this one again, better." The ledger row goes back to `queued` and the
+ * poller picks the document up exactly as it does after a Retry; the normalized
+ * artifact keeps its id, so nothing that references it dangles while the new
+ * parse runs.
+ */
+async function handleReextract(artifactId: string, tier: string) {
+	manageError = "";
+	try {
+		const job = await reextractDocument(artifactId, tier);
+		applyExtractionJobs([job]);
+		extractionPoller.observe(job);
+		extractionPoller.sync();
+	} catch (error) {
+		// The endpoint's refusals reuse the extraction taxonomy, so a tier that
+		// vanished between opening the menu and pressing it reads as "that
+		// quality is not available" rather than as a generic failure.
+		manageError =
+			error instanceof ApiError && error.code === "tier_unavailable"
+				? $t("knowledge.extraction.error.tier_unavailable")
+				: $t("knowledge.extraction.reextract.failed");
+		console.warn("[KNOWLEDGE] Re-extraction failed", error);
+	}
+}
+
 async function handleExtractionCancel(artifactId: string) {
 	manageError = "";
 	try {
@@ -866,6 +893,8 @@ $effect(() => {
 						onUpload={handleDocumentsUpload}
 						onRetryExtraction={handleExtractionRetry}
 						onCancelExtraction={handleExtractionCancel}
+						onReextract={handleReextract}
+						onLoadReextractTiers={fetchReextractTiers}
 					/>
 				</div>
 			{/if}

@@ -6,6 +6,7 @@
 // file carries no behavior change, only a new home.
 
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import type { PageCountKind } from "$lib/shared/page-count";
 
 export type ArtifactType =
 	| "source_document"
@@ -45,6 +46,14 @@ export interface DocumentOutlineEntry {
 	title: string;
 	offset: number;
 	preview: string;
+	/**
+	 * 1-based page the heading sits on. Present only for a document whose
+	 * extractor reported page boundaries (a structured parse); absent for the
+	 * direct-text route and for every row written before that existed, which is
+	 * why it is optional rather than nullable — a heading with no page is not a
+	 * heading on page `null`.
+	 */
+	page?: number;
 }
 
 export interface ArtifactSummary {
@@ -64,6 +73,14 @@ export interface ArtifactSummary {
 	// shape.
 	tokenEstimate?: number;
 	pageCount?: number;
+	/**
+	 * What `pageCount` counts. Absent for a document parsed before the
+	 * structured extractor existed, and that absence is the reason it is
+	 * optional rather than defaulted: a surface that does not know whether a
+	 * count is pages, slides or a DOCX's declared 1 must print no unit at all
+	 * rather than guess "pages".
+	 */
+	pageCountKind?: PageCountKind;
 	outline?: DocumentOutlineEntry[];
 }
 
@@ -93,7 +110,18 @@ export interface KnowledgeDocumentItem {
 	sourceChatFileId?: string | null;
 	tokenEstimate?: number;
 	pageCount?: number;
+	/** What `pageCount` counts. See `ArtifactSummary.pageCountKind`. */
+	pageCountKind?: PageCountKind;
 	outline?: DocumentOutlineEntry[];
+	/**
+	 * `metadata.extractionProducer` — `"mineru"` for a document parsed by the
+	 * structured extractor, absent for a row that predates it. The Library row
+	 * uses it to decide whether "Re-extract at a higher quality" is a promise
+	 * the backend can keep.
+	 */
+	extractionProducer?: string;
+	/** `metadata.extractionTier` — the REAL per-file tier, not the job's. */
+	extractionTier?: string;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -160,6 +188,15 @@ export interface ArtifactChunk {
 	chunkIndex: number;
 	contentText: string;
 	tokenEstimate: number;
+	/**
+	 * 1-based inclusive page the chunk starts on, for a document parsed with
+	 * structure. NULL for direct text and for every row written before
+	 * structure-aware chunking existed — which is what a page citation checks
+	 * before it prints anything.
+	 */
+	pageStart: number | null;
+	/** 1-based inclusive page the chunk ends on. NULL when `pageStart` is. */
+	pageEnd: number | null;
 	createdAt: number;
 	updatedAt: number;
 }

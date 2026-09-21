@@ -1,0 +1,13 @@
+{
+  "probe": "keyed_source_download",
+  "http_status": 403,
+  "body": {
+    "error": {
+      "type": "permission_error",
+      "code": "feature_requires_api_key",
+      "message": "Source files cannot be downloaded",
+      "param": null
+    }
+  },
+  "note": "source file with a key"
+}

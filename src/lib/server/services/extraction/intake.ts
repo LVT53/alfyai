@@ -73,8 +73,15 @@ export async function startUploadExtraction(
 		now: params.now,
 	});
 
+	// Every path wakes, including the two that return without leaving a job of
+	// their own queued. A wake is one claim query against an indexed status
+	// scan, and the thing it costs nothing to catch is the job some OTHER
+	// enqueue left behind a backoff gate: an idle box has no other reason to
+	// look. The inline direct-text settle used to return here without waking at
+	// all, which is why a `.txt` upload could not unstick anything.
 	const dto = mapExtractionJobRow(job, config.maxAttempts);
 	if (dto.status !== "queued") {
+		wakeExtractionWorker();
 		return dto;
 	}
 
@@ -85,7 +92,10 @@ export async function startUploadExtraction(
 			budgetMs,
 			signal: params.signal,
 		});
-		if (settled) return settled;
+		if (settled) {
+			wakeExtractionWorker();
+			return settled;
+		}
 	}
 
 	wakeExtractionWorker();
@@ -139,9 +149,10 @@ export async function startGeneratedFileReadback(
 		now: params.now,
 	});
 
+	// Unconditional for the same reason as the upload path: a readback that
+	// dedupes into a terminal row is still the only thing that happened on this
+	// box for the last hour, and the queue may be holding a job behind a gate.
 	const dto = mapExtractionJobRow(job, config.maxAttempts);
-	if (dto.status === "queued") {
-		wakeExtractionWorker();
-	}
+	wakeExtractionWorker();
 	return dto;
 }

@@ -1,0 +1,16 @@
+{
+  "probe": "list_bad_limit",
+  "method": "GET",
+  "url": "/v1/files?limit=99999",
+  "http_status": 400,
+  "content_type": "application/json",
+  "body": {
+    "error": {
+      "type": "invalid_request_error",
+      "code": "invalid_request",
+      "message": "Invalid request: limit: Input should be less than or equal to 1000",
+      "param": "limit"
+    }
+  },
+  "note": ""
+}
