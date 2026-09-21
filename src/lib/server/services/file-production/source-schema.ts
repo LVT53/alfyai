@@ -263,6 +263,74 @@ function cleanDocumentLanguage(
 	return value === "hu" || value === "en" ? value : undefined;
 }
 
+/**
+ * The only schemes a model-written link may carry into a rendered report.
+ *
+ * The document source is written by the MODEL, and the HTML report is
+ * previewed in the app's `standard-report` profile, which is trusted: inline
+ * scripts run and the sanitiser is bypassed. A `javascript:` (or `data:`,
+ * `vbscript:`, `file:`) source URL was therefore one click from script
+ * execution inside the app. No fixture uses `mailto:`, so the allowlist stays
+ * at the two schemes a report actually needs; image sources keep their own,
+ * stricter `https://`-only rule.
+ */
+export const GENERATED_DOCUMENT_ALLOWED_URL_SCHEMES = [
+	"http",
+	"https",
+] as const;
+
+const URL_SCHEME_PATTERN = /^([A-Za-z][A-Za-z0-9+.-]*):/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point
+const URL_CONTROL_CHARACTER_PATTERN = /[ -]/;
+
+/**
+ * True for a URL a renderer may turn into a link.
+ *
+ * Whitespace tricks are rejected rather than repaired: the HTML URL parser
+ * strips tabs, newlines and carriage returns before it reads the scheme, so
+ * `java&#9;script:alert(1)` IS `javascript:` to a browser, and a leading space
+ * hides nothing once the string is trimmed. A URL with no scheme at all is
+ * refused too — that covers protocol-relative `//host` as well.
+ */
+export function isAllowedGeneratedDocumentUrl(value: string): boolean {
+	if (URL_CONTROL_CHARACTER_PATTERN.test(value)) return false;
+	const trimmed = value.trim();
+	if (!trimmed) return false;
+	const scheme = URL_SCHEME_PATTERN.exec(trimmed)?.[1]?.toLowerCase();
+	if (!scheme) return false;
+	return (GENERATED_DOCUMENT_ALLOWED_URL_SCHEMES as readonly string[]).includes(
+		scheme,
+	);
+}
+
+/**
+ * Thrown by `cleanUrl` and caught by `validateGeneratedDocumentSource`.
+ *
+ * The normalisers that carry URLs (`normalizeSourceChip`,
+ * `normalizeSourceAttribution`, `normalizeBasisSourceRef`) all report failure
+ * by returning `null`, and every caller DROPS a null — which would turn a
+ * smuggled `javascript:` link into a silently missing source rather than a
+ * refusal the model can act on. Throwing is what lets one rejected URL fail
+ * the whole document with the schema's ordinary `{ ok: false, code, message }`
+ * without threading a result type through six helpers.
+ */
+class DisallowedDocumentUrlError extends Error {}
+
+/**
+ * `cleanText` for URL-typed fields: no whitespace collapsing (a URL is not
+ * prose) and a scheme allowlist. Absent stays absent; present-and-disallowed
+ * rejects the document.
+ */
+function cleanUrl(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	if (!isAllowedGeneratedDocumentUrl(trimmed)) {
+		throw new DisallowedDocumentUrlError(trimmed);
+	}
+	return trimmed;
+}
+
 function cleanKey(value: unknown): string | null {
 	const text = cleanText(value);
 	return text && /^[A-Za-z0-9_.-]+$/.test(text) ? text : null;
@@ -780,7 +848,7 @@ function normalizeBasisSourceRef(
 	if (!isRecord(value)) return null;
 	const title = cleanText(value.title);
 	if (!title) return null;
-	return { title, url: cleanText(value.url) };
+	return { title, url: cleanUrl(value.url) };
 }
 
 function normalizeBasisSourceRefs(
@@ -874,7 +942,7 @@ function normalizeSourceAttribution(
 ): GeneratedDocumentSourceAttribution | null {
 	if (!isRecord(value)) return null;
 	const title = cleanText(value.title);
-	const url = cleanText(value.url);
+	const url = cleanUrl(value.url);
 	return title && url ? { title, url } : null;
 }
 
@@ -936,7 +1004,7 @@ function normalizeSourceChip(
 	if (!isRecord(value)) return null;
 	const title = cleanText(value.title);
 	if (!title) return null;
-	const url = cleanText(value.url);
+	const url = cleanUrl(value.url);
 	const kind =
 		value.kind === "web" || value.kind === "library"
 			? value.kind
@@ -1250,7 +1318,22 @@ export function validateGeneratedDocumentSource(
 
 	const blocks: GeneratedDocumentBlock[] = [];
 	for (const block of value.blocks) {
-		const normalized = normalizeBlock(block);
+		let normalized: BlockNormalizationResult;
+		try {
+			normalized = normalizeBlock(block);
+		} catch (error) {
+			if (!(error instanceof DisallowedDocumentUrlError)) throw error;
+			// The scheme, not the URL: this message is carried back to the model
+			// and shown on the file card, and echoing the whole hostile string
+			// would only widen where it can land.
+			return {
+				ok: false,
+				code: "unsupported_document_block",
+				message: `Generated document source contains a link with an unsupported URL scheme. Only ${GENERATED_DOCUMENT_ALLOWED_URL_SCHEMES.map(
+					(scheme) => `${scheme}:`,
+				).join(" and ")} links are allowed.`,
+			};
+		}
 		if (!normalized.ok) {
 			return {
 				ok: false,

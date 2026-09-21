@@ -14,6 +14,7 @@ import {
 	generatedDocumentCitationLevelLabel,
 	generatedDocumentCitationPlainText,
 	generatedDocumentUsesCitationAnnotations,
+	isAllowedGeneratedDocumentUrl,
 } from "../source-schema";
 
 export interface StandardReportMarkdownRenderResult {
@@ -45,10 +46,23 @@ function stripHtml(text: string): string {
 	return text.replace(/<[^>]*>/g, "").replace(/&[^;]+;/g, " ");
 }
 
-/** `[Title](url)`, or plain `Title` when the source has no URL. */
+/**
+ * The URL this renderer may turn into a link, or null.
+ *
+ * Defence in depth behind the schema's scheme allowlist: a source JSON stored
+ * before that allowlist existed can still carry a `javascript:` URL, and this
+ * Markdown is both downloaded and stored as the document's text, so a viewer
+ * that renders it would make the link clickable.
+ */
+function linkableUrl(url: string | null | undefined): string | null {
+	return url && isAllowedGeneratedDocumentUrl(url) ? url : null;
+}
+
+/** `[Title](url)`, or plain `Title` when the source has no linkable URL. */
 function sourceLinkMarkdown(source: GeneratedDocumentSourceChip): string {
 	const cleanTitle = stripHtml(source.title);
-	return source.url ? `[${cleanTitle}](${source.url})` : cleanTitle;
+	const url = linkableUrl(source.url);
+	return url ? `[${cleanTitle}](${url})` : cleanTitle;
 }
 
 /**
@@ -182,7 +196,11 @@ function renderBlock(block: GeneratedDocumentBlock): string {
 				src ? `![${block.altText}](${src})` : `**Image:** ${block.altText}`,
 				block.caption ?? null,
 				block.sourceAttribution
-					? `Source: [${block.sourceAttribution.title}](${block.sourceAttribution.url})`
+					? `Source: ${
+							linkableUrl(block.sourceAttribution.url)
+								? `[${block.sourceAttribution.title}](${block.sourceAttribution.url})`
+								: block.sourceAttribution.title
+						}`
 					: null,
 			]
 				.filter((line): line is string => Boolean(line))
