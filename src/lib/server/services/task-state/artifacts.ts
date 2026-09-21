@@ -9,6 +9,7 @@ import type { TaskState } from "$lib/server/services/task-state/types";
 import { scoreMatch } from "$lib/server/services/working-set";
 import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
 import { clipText } from "$lib/server/utils/text";
+import { type PageCountUnit, pageCountUnit } from "$lib/shared/page-count";
 import { canUseTeiReranker, rerankItems } from "../tei-reranker";
 import {
 	canUseContextSummarizer,
@@ -384,9 +385,8 @@ async function chooseArtifactChunks(
  * CSV and HTML report; "p. 1" there would be an invention, not a citation.
  * `unknown` (PNG/JPEG, whose `metadata.document` is `{}`) is the same.
  */
-const PAGE_CITATION_LABELS: Readonly<Record<string, string>> = {
-	physical: "p.",
-	spine: "p.",
+const PAGE_CITATION_LABELS: Readonly<Record<PageCountUnit, string>> = {
+	page: "p.",
 	slide: "slide",
 	sheet: "sheet",
 };
@@ -400,12 +400,11 @@ const PAGE_CITATION_LABELS: Readonly<Record<string, string>> = {
  */
 export function resolveArtifactPageLabel(artifact: Artifact): string | null {
 	const metadata = artifact.metadata;
-	const kind =
-		typeof metadata?.pageCountKind === "string"
-			? metadata.pageCountKind.trim().toLowerCase()
-			: null;
-	const label = kind ? PAGE_CITATION_LABELS[kind] : undefined;
-	if (!label) return null;
+	const unit = pageCountUnit(
+		typeof metadata?.pageCountKind === "string" ? metadata.pageCountKind : null,
+	);
+	if (!unit) return null;
+	const label = PAGE_CITATION_LABELS[unit];
 
 	const metadataPageCount =
 		typeof metadata?.pageCount === "number" ? metadata.pageCount : null;

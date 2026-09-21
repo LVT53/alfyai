@@ -6,6 +6,7 @@
 // file carries no behavior change, only a new home.
 
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import type { PageCountKind } from "$lib/shared/page-count";
 
 export type ArtifactType =
 	| "source_document"
@@ -72,6 +73,14 @@ export interface ArtifactSummary {
 	// shape.
 	tokenEstimate?: number;
 	pageCount?: number;
+	/**
+	 * What `pageCount` counts. Absent for a document parsed before the
+	 * structured extractor existed, and that absence is the reason it is
+	 * optional rather than defaulted: a surface that does not know whether a
+	 * count is pages, slides or a DOCX's declared 1 must print no unit at all
+	 * rather than guess "pages".
+	 */
+	pageCountKind?: PageCountKind;
 	outline?: DocumentOutlineEntry[];
 }
 
@@ -101,6 +110,8 @@ export interface KnowledgeDocumentItem {
 	sourceChatFileId?: string | null;
 	tokenEstimate?: number;
 	pageCount?: number;
+	/** What `pageCount` counts. See `ArtifactSummary.pageCountKind`. */
+	pageCountKind?: PageCountKind;
 	outline?: DocumentOutlineEntry[];
 	/**
 	 * `metadata.extractionProducer` — `"mineru"` for a document parsed by the

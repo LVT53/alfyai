@@ -510,6 +510,11 @@ export function createNormalChatClientTurnRuntime(
 					...(artifact.pageCount !== undefined
 						? { pageCount: artifact.pageCount }
 						: {}),
+					// Without the kind the optimistic bubble would print "N pp" for a
+					// deck and the refresh would replace it with "N slides".
+					...(artifact.pageCountKind !== undefined
+						? { pageCountKind: artifact.pageCountKind }
+						: {}),
 					...(artifact.outline && artifact.outline.length > 0
 						? { outline: artifact.outline }
 						: {}),

@@ -27,10 +27,7 @@ import type {
 	ExtractionHandle,
 	ExtractionProgress,
 } from "../contracts";
-import {
-	ExtractionAbortError,
-	isDocumentExtractionError,
-} from "../contracts";
+import { ExtractionAbortError, isDocumentExtractionError } from "../contracts";
 import {
 	createMineru4Extractor,
 	installMineruProbeClientFactory,
@@ -747,28 +744,28 @@ describe("cancel", () => {
 		expect(await tempDirCount()).toBe(before);
 	});
 
-	it.each(["claim-lost", "shutdown"] as const)(
-		"leaves the remote job alive on a %s abort",
-		async (reason) => {
-			// The stored handle exists precisely so the next attempt RESUMES this
-			// remote job. Deleting it on a stale-claim reclaim or a deploy restart
-			// turned a one-`getJob` resume into a full re-upload and re-parse, and
-			// raced the worker that had just taken the claim.
-			await start({ neverFinish: true });
-			const { rejection, before } = await abortMidJob(
-				new ExtractionAbortError(reason),
-			);
+	it.each([
+		"claim-lost",
+		"shutdown",
+	] as const)("leaves the remote job alive on a %s abort", async (reason) => {
+		// The stored handle exists precisely so the next attempt RESUMES this
+		// remote job. Deleting it on a stale-claim reclaim or a deploy restart
+		// turned a one-`getJob` resume into a full re-upload and re-parse, and
+		// raced the worker that had just taken the claim.
+		await start({ neverFinish: true });
+		const { rejection, before } = await abortMidJob(
+			new ExtractionAbortError(reason),
+		);
 
-			await expect(rejection).rejects.toMatchObject({ code: "canceled" });
-			expect(server.requests.some((entry) => entry.method === "DELETE")).toBe(
-				false,
-			);
-			// The job is still there for the next attempt to poll.
-			const jobId = [...server.jobs.keys()].at(-1) as string;
-			expect(server.jobs.get(jobId)?.status).not.toBe("canceled");
-			expect(await tempDirCount()).toBe(before);
-		},
-	);
+		await expect(rejection).rejects.toMatchObject({ code: "canceled" });
+		expect(server.requests.some((entry) => entry.method === "DELETE")).toBe(
+			false,
+		);
+		// The job is still there for the next attempt to poll.
+		const jobId = [...server.jobs.keys()].at(-1) as string;
+		expect(server.jobs.get(jobId)?.status).not.toBe("canceled");
+		expect(await tempDirCount()).toBe(before);
+	});
 
 	it("leaves the remote job alive on an unlabelled abort", async () => {
 		// Deleting a job that is still wanted costs the whole parse; keeping one

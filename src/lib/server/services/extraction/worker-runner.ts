@@ -29,8 +29,8 @@ import { DOCUMENT_EXTRACTION_ACTIVE_STATUSES } from "$lib/shared/extraction-stat
 import { type ExtractionConfig, getExtractionConfig } from "./config";
 import {
 	type DocumentExtractor,
-	ExtractionAbortError,
 	type ExtractDocumentResult,
+	ExtractionAbortError,
 	type ExtractionHandle,
 	type ExtractionProgress,
 	readExtractionAbortReason,

@@ -457,7 +457,9 @@ describe("a probe client that is NOT the built-in one", () => {
 		// retrying a server that does not speak V1 only delays the honest message.
 		expect(report.error?.code).toBe("protocol");
 		expect(report.error?.message).toContain("not a MinerU 4 server");
-		expect(report.error?.message).toContain("MinerU 3.x is no longer supported");
+		expect(report.error?.message).toContain(
+			"MinerU 3.x is no longer supported",
+		);
 		expect(report.error?.message).toContain("MINERU_API_URL");
 	});
 
@@ -466,7 +468,8 @@ describe("a probe client that is NOT the built-in one", () => {
 			apiError({
 				status: 401,
 				code: "invalid_api_key",
-				message: "MinerU /v1/health failed with 401: Invalid or missing API key",
+				message:
+					"MinerU /v1/health failed with 401: Invalid or missing API key",
 			}),
 		);
 		expect(report.error?.code).toBe("auth_failed");
@@ -507,20 +510,21 @@ describe("a probe client that is NOT the built-in one", () => {
 		setMineruProbeClientFactory((cfg) =>
 			createDefaultMineruProbeClient(
 				cfg,
-				vi.fn(async () =>
-					// A server that echoes the Authorization header back in its 401
-					// body. Nothing stops one from doing that, and the message it
-					// produces reaches the document owner's own job row.
-					new Response(
-						JSON.stringify({
-							error: {
-								type: "authentication_error",
-								code: "invalid_api_key",
-								message: "rejected Bearer sk-super-secret",
-							},
-						}),
-						{ status: 401 },
-					),
+				vi.fn(
+					async () =>
+						// A server that echoes the Authorization header back in its 401
+						// body. Nothing stops one from doing that, and the message it
+						// produces reaches the document owner's own job row.
+						new Response(
+							JSON.stringify({
+								error: {
+									type: "authentication_error",
+									code: "invalid_api_key",
+									message: "rejected Bearer sk-super-secret",
+								},
+							}),
+							{ status: 401 },
+						),
 				) as unknown as typeof fetch,
 			),
 		);

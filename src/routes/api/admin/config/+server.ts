@@ -19,11 +19,11 @@ import {
 } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { adminConfig } from "$lib/server/db/schema";
+import { normalizeSystemPromptReference } from "$lib/server/prompts";
 import {
 	isSecretConfigKey,
 	SECRET_MASK,
 } from "$lib/server/services/admin-effective-config";
-import { normalizeSystemPromptReference } from "$lib/server/prompts";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async (event) => {

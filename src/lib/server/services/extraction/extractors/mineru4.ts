@@ -45,7 +45,6 @@ import {
 } from "$lib/server/services/mineru/bundle";
 import {
 	getMineruCapabilities,
-	type MineruProbeClient,
 	MineruProbeError,
 	setMineruProbeClientFactory,
 } from "$lib/server/services/mineru/capabilities";
@@ -53,7 +52,6 @@ import { MineruClient } from "$lib/server/services/mineru/client";
 import {
 	MINERU_OUTPUT_FORMATS,
 	type MineruConfig,
-	mineruDisplayOrigin,
 	resolveMineruConfig,
 } from "$lib/server/services/mineru/config";
 import {

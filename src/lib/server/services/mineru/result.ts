@@ -31,6 +31,11 @@ import { z } from "zod";
 import { extractDocumentOutline } from "$lib/server/services/knowledge/outline";
 import type { ExtractionErrorCode } from "$lib/shared/extraction-status";
 import { resolveEntry } from "$lib/shared/file-types";
+import {
+	isPageCountKind,
+	PAGE_COUNT_KINDS,
+	type PageCountKind,
+} from "$lib/shared/page-count";
 import { MINERU_MAX_DOWNLOAD_BYTES } from "./config";
 
 // ── version ────────────────────────────────────────────────────────────────
@@ -275,18 +280,11 @@ export type StructuredBlock = z.infer<typeof structuredBlockSchema>;
 
 // ── the parsed model ───────────────────────────────────────────────────────
 
-export const PAGE_COUNT_KINDS = [
-	"physical",
-	"sheet",
-	"slide",
-	"spine",
-	"declared",
-	"logical",
-	"unknown",
-] as const;
-export type PageCountKind = (typeof PAGE_COUNT_KINDS)[number];
-
-const PAGE_COUNT_KIND_SET: ReadonlySet<string> = new Set(PAGE_COUNT_KINDS);
+// The vocabulary itself lives in `$lib/shared/page-count`, because the chip
+// that renders the count and the citation that names it both need it and
+// neither may reach into a server service. Re-exported so existing importers
+// of this module keep working.
+export { PAGE_COUNT_KINDS, type PageCountKind };
 
 /**
  * The most pages a declared `metadata.document.page_count` may add.
@@ -1106,8 +1104,7 @@ export function pageForOffset(
 // ── the whole result ───────────────────────────────────────────────────────
 
 function normalizePageCountKind(value: string | undefined): PageCountKind {
-	if (value && PAGE_COUNT_KIND_SET.has(value)) return value as PageCountKind;
-	return "unknown";
+	return isPageCountKind(value) ? value : "unknown";
 }
 
 function collectStats(sc: StructuredContent): StructuredExtractionStats {

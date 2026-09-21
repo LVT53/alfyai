@@ -104,6 +104,7 @@ describe("FileAttachment — the in-message chip variant", () => {
 					mimeType: "application/pdf",
 					tokenEstimate: 18_400,
 					pageCount: 24,
+					pageCountKind: "physical",
 				},
 				variant: "chip" as const,
 			},
@@ -114,6 +115,47 @@ describe("FileAttachment — the in-message chip variant", () => {
 		expect(chip.dataset.chipSize).toBe("message");
 		expect(chip.textContent).toContain("Lease agreement 2026.pdf");
 		expect(chip.textContent).toContain("24 pp · 18k tok");
+	});
+
+	it("counts a deck in slides, not in pages", () => {
+		const { getByTestId } = render(FileAttachment, {
+			props: {
+				attachment: {
+					id: "a6",
+					name: "Kickoff.pptx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+					pageCount: 12,
+					pageCountKind: "slide",
+				},
+				variant: "chip" as const,
+			},
+		});
+
+		const chip = getByTestId("message-attachment-chip");
+		expect(chip.textContent).toContain("12 slides");
+		expect(chip.textContent).not.toContain("12 pp");
+	});
+
+	it("shows no count for a DOCX's declared page count", () => {
+		const { getByTestId } = render(FileAttachment, {
+			props: {
+				attachment: {
+					id: "a7",
+					name: "Handbook.docx",
+					mimeType:
+						"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					pageCount: 1,
+					pageCountKind: "declared",
+					tokenEstimate: 9_000,
+				},
+				variant: "chip" as const,
+			},
+		});
+
+		const chip = getByTestId("message-attachment-chip");
+		expect(chip.textContent).toContain("9k tok");
+		expect(chip.textContent).not.toContain("1 pp");
 	});
 
 	it("wears a crop of the file itself when the attachment is an image", () => {

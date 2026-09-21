@@ -151,9 +151,7 @@ function clampBody(text: string, apiKey = ""): string {
 	// Scrubbed BEFORE it is clamped: a 401 body that echoes the Authorization
 	// header would otherwise reach the admin card AND, through the extractor,
 	// the document owner's own error message on the job row.
-	const single = redactMineruSecrets(text, apiKey)
-		.replace(/\s+/g, " ")
-		.trim();
+	const single = redactMineruSecrets(text, apiKey).replace(/\s+/g, " ").trim();
 	return single.length > MAX_ERROR_BODY_CHARS
 		? `${single.slice(0, MAX_ERROR_BODY_CHARS)}…`
 		: single;
@@ -463,7 +461,11 @@ async function probe(
 				: null,
 		};
 	} catch (error) {
-		const described = describeTransportError(error, controller.signal, config.apiKey);
+		const described = describeTransportError(
+			error,
+			controller.signal,
+			config.apiKey,
+		);
 		console.warn(`${LOG_PREFIX} status probe failed:`, described.message);
 		return { ...base, error: described };
 	} finally {

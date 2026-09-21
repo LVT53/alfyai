@@ -178,7 +178,11 @@ export interface DownloadFileInput {
 	/** `output_files.<format>.bytes`. The download must match it exactly. */
 	expectedBytes: number;
 	signal: AbortSignal;
-	/** Hard cap. Defaults to max(expectedBytes, config.bundleMaxBytes). */
+	/**
+	 * Cap. Defaults to `max(expectedBytes, config.bundleMaxBytes)`, and is in
+	 * every case clamped to `MINERU_MAX_DOWNLOAD_BYTES` — the server does not
+	 * get to raise it by declaring a larger output.
+	 */
 	maxBytes?: number;
 }
 
@@ -471,7 +475,10 @@ export class MineruClient {
 		// A zip larger than the reader will ever open cannot become a parse, so
 		// it is refused here rather than after the bytes have landed.
 		const cap = Math.min(
-			Math.max(input.maxBytes ?? this.config.bundleMaxBytes, input.expectedBytes),
+			Math.max(
+				input.maxBytes ?? this.config.bundleMaxBytes,
+				input.expectedBytes,
+			),
 			MINERU_MAX_DOWNLOAD_BYTES,
 		);
 		if (input.expectedBytes > cap) {
