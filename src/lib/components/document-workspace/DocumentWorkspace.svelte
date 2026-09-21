@@ -6,6 +6,7 @@ import {
 	summarizeTextComparison,
 } from "$lib/utils/text-compare";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
+import { handleDownloadAnchorClick } from "$lib/client/downloads";
 import { t } from "$lib/i18n";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
@@ -800,10 +801,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 									class="workspace-download-option"
 									href={option.url}
 									role="menuitem"
-									target="_blank"
-									rel="noopener noreferrer"
-									onclick={() => {
+									download
+									onclick={(event) => {
 										expandedDownloadMenuOpen = false;
+										handleDownloadAnchorClick(event, option.url);
 									}}
 								>
 									{#if option.key === 'markdown'}
@@ -822,8 +823,13 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			<a
 				class="btn-icon-bare workspace-download-button"
 				href={getDocumentDownloadUrl(document)}
-				target="_blank"
-				rel="noopener noreferrer"
+				download={document.filename}
+				onclick={(event) =>
+					handleDownloadAnchorClick(
+						event,
+						getDocumentDownloadUrl(document) ?? '',
+						document.filename,
+					)}
 				aria-label={$t('filePreview.download', { filename: document.filename })}
 				title={$t('filePreview.download', { filename: document.filename })}
 			>

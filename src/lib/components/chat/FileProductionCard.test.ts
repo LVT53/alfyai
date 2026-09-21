@@ -263,6 +263,88 @@ describe("FileProductionCard", () => {
 		);
 	});
 
+	// A `<a download>` is a NAVIGATION, so an expired session gets the 303 to
+	// /login and the browser saves the login PAGE under the file's own name —
+	// a `report.pdf` full of `<!DOCTYPE html>`, with nothing on screen to say
+	// so. The anchor keeps its href (status bar, middle-click, keyboard) and
+	// the plain left click goes through the shared helper first.
+	describe("downloading with an expired session", () => {
+		const succeeded = () =>
+			makeJob({
+				status: "succeeded",
+				files: [
+					{
+						id: "file-1",
+						filename: "report.pdf",
+						mimeType: "application/pdf",
+						sizeBytes: 2048,
+						downloadUrl: "/api/chat/files/file-1/download",
+						previewUrl: "/api/chat/files/file-1/preview",
+						versionNumber: null,
+					},
+				],
+			});
+
+		it("writes no file when the session probe answers 401", async () => {
+			const clicks: string[] = [];
+			const realClick = HTMLAnchorElement.prototype.click;
+			HTMLAnchorElement.prototype.click = function patched(
+				this: HTMLAnchorElement,
+			) {
+				clicks.push(this.getAttribute("href") ?? "");
+			};
+			const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+				new Response(JSON.stringify({ error: "Unauthorized" }), {
+					status: 401,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+			try {
+				const { getByRole } = render(FileProductionCard, { job: succeeded() });
+				const anchor = getByRole("link", { name: "Download report.pdf" });
+				await fireEvent.click(anchor);
+				await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+				// The anchor still advertises the real URL…
+				expect(anchor.getAttribute("href")).toBe(
+					"/api/chat/files/file-1/download",
+				);
+				// …and nothing was downloaded.
+				expect(clicks).toEqual([]);
+			} finally {
+				HTMLAnchorElement.prototype.click = realClick;
+				fetchSpy.mockRestore();
+			}
+		});
+
+		it("downloads normally when the session is still good", async () => {
+			const clicks: string[] = [];
+			const realClick = HTMLAnchorElement.prototype.click;
+			HTMLAnchorElement.prototype.click = function patched(
+				this: HTMLAnchorElement,
+			) {
+				clicks.push(this.getAttribute("href") ?? "");
+			};
+			const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+				new Response(JSON.stringify({ error: "conversationId is required" }), {
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				}),
+			);
+			try {
+				const { getByRole } = render(FileProductionCard, { job: succeeded() });
+				await fireEvent.click(
+					getByRole("link", { name: "Download report.pdf" }),
+				);
+				await vi.waitFor(() =>
+					expect(clicks).toEqual(["/api/chat/files/file-1/download"]),
+				);
+			} finally {
+				HTMLAnchorElement.prototype.click = realClick;
+				fetchSpy.mockRestore();
+			}
+		});
+	});
+
 	it("prewarms produced file previews on intent without opening until click", async () => {
 		const onOpenDocument = vi.fn();
 		const file = {

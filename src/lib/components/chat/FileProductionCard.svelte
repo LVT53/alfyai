@@ -11,6 +11,7 @@
 // background and read as a single element.
 import { Download, FileText, RotateCw, Square, X } from "@lucide/svelte";
 import { prewarmDocumentPreview } from "$lib/client/document-preview-prewarm";
+import { handleDownloadAnchorClick } from "$lib/client/downloads";
 import { t } from "$lib/i18n";
 import type { I18nKey } from "$lib/i18n";
 import type {
@@ -185,6 +186,8 @@ function handlePreviewIntent(file: FileProductionJobFile) {
 							class="mini-btn"
 							href={file.downloadUrl}
 							download={file.filename}
+							onclick={(event) =>
+								handleDownloadAnchorClick(event, file.downloadUrl, file.filename)}
 							aria-label={$t('fileProduction.downloadLabel', { filename: file.filename })}
 							title={$t('fileProduction.downloadLabel', { filename: file.filename })}
 						>

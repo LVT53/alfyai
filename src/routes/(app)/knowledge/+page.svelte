@@ -18,6 +18,7 @@ import {
 	uploadRefusalFromError,
 } from "$lib/client/api/knowledge";
 import { ApiError } from "$lib/client/api/http";
+import { startAuthenticatedDownload } from "$lib/client/downloads";
 import { buildChatSourceMessageHref } from "$lib/client/document-workspace-navigation";
 import ConfirmDialog from "$lib/components/ui/ConfirmDialog.svelte";
 import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
@@ -336,7 +337,15 @@ function handleDocumentDownload(documentId: string) {
 	if (!document) return;
 	const artifactId = toWorkspaceDocument(document).artifactId;
 	if (!artifactId) return;
-	window.open(`/api/knowledge/${artifactId}/download`, "_blank");
+	// `window.open(..., "_blank")` sent a NAVIGATION, which an expired session
+	// answers with the 303 to /login — so the user got a blank tab showing the
+	// login screen where their file should have been, and nothing here noticed.
+	// The shared helper confirms the session first and then streams the file
+	// straight to disk.
+	void startAuthenticatedDownload(
+		`/api/knowledge/${artifactId}/download`,
+		document.name,
+	);
 }
 
 async function handleDocumentDelete(documentId: string) {
