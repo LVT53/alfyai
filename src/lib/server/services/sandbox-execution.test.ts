@@ -18,6 +18,12 @@ vi.mock("../sandbox/config", () => ({
 	createSandbox: vi.fn().mockResolvedValue(mockSandbox),
 	executeSandboxCommand: vi.fn(),
 	getSandboxTimeout: vi.fn().mockReturnValue(60000),
+	// The one resolver both the kill timer and the container StopTimeout use.
+	resolveSandboxTimeout: vi.fn((_language: string, timeoutMs?: number) =>
+		typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+			? Math.trunc(timeoutMs)
+			: 60000,
+	),
 	SANDBOX_TIMEOUT_MS: 60000,
 	SANDBOX_MEMORY_MB: 1024,
 	SANDBOX_MAX_FILE_MB: 100,
@@ -568,7 +574,9 @@ describe("sandbox-execution", () => {
 			);
 
 			expect(result.stdout).toBe("Hello from Node");
-			expect(mockCreateSandbox).toHaveBeenCalledWith("javascript");
+			// The resolved deadline goes to the container too, so its `StopTimeout`
+			// and the kill timer cannot disagree.
+			expect(mockCreateSandbox).toHaveBeenCalledWith("javascript", 60000);
 		});
 
 		it("rejects unsupported languages", async () => {

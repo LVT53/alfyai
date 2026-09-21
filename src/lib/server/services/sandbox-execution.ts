@@ -7,7 +7,7 @@ import { getSandboxMimeTypeForExtension } from "$lib/shared/file-types/productio
 import {
 	createSandbox,
 	executeSandboxCommand,
-	getSandboxTimeout,
+	resolveSandboxTimeout,
 	SANDBOX_MAX_FILE_MB,
 	SANDBOX_MAX_OUTPUT_FILES,
 	SANDBOX_MAX_TOTAL_OUTPUT_MB,
@@ -903,7 +903,10 @@ export async function executeCode(
 		};
 	}
 
-	const sandbox = await createSandbox(language);
+	// Resolved ONCE and handed to the container too, so the `StopTimeout` it is
+	// created with and the deadline it is killed on are the same number.
+	const timeoutMs = resolveSandboxTimeout(language, options.timeoutMs);
+	const sandbox = await createSandbox(language, timeoutMs);
 
 	try {
 		const wrappedCode = buildSandboxBootstrapCode(code, language);
@@ -913,13 +916,6 @@ export async function executeCode(
 			stderr: string;
 			exitCode: number;
 		}>((resolve, reject) => {
-			const override = options.timeoutMs;
-			const timeoutMs =
-				typeof override === "number" &&
-				Number.isFinite(override) &&
-				override > 0
-					? Math.trunc(override)
-					: getSandboxTimeout(language);
 			const killContainer = async () => {
 				try {
 					await sandbox.container.kill({ signal: "SIGKILL" });
