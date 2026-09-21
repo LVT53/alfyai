@@ -1,10 +1,12 @@
 // The MinerU-4 availability gate, client side (phase5-6 spec D6 / §3.5).
 //
-// The registry LABELS five entries `requiresMineru4` (`epub`, `odp`, `ods`,
-// `odt`, `rtf`). Whether the configured backend can actually parse them is a
-// server fact — `GET /v1/health`, major >= 4 — so this store holds nothing but
-// the answer the server sent, and every UI surface derives its accept string
-// from it through `buildAcceptAttribute(surface, $disabledFileTypeIds)`.
+// The registry LABELS the entries that need a 4.x backend — ask
+// `getMineru4GatedFileTypeIds()` for the list; this file deliberately does not
+// repeat it, because a copy here is exactly the drift the registry exists to
+// end. Whether the configured backend can actually parse them is a server fact
+// (`GET /v1/health`, major >= 4), so this store holds nothing but the answer
+// the server sent, and every UI surface derives its accept string from it
+// through `buildAcceptAttribute(surface, $disabledFileTypeIds)`.
 //
 // **It fails OPEN, and that is the whole point of the default.** "Unknown" —
 // no shell payload yet, a probe that never answered, a payload that arrived
