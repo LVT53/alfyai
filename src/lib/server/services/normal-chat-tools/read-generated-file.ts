@@ -31,6 +31,7 @@ import { readMineruPageIndex } from "$lib/server/services/mineru/bundle";
 import { selectDocumentPassages } from "$lib/server/services/task-state/artifacts";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { getEntryByMimeType } from "$lib/shared/file-types";
+import { getExpectedExtensionForOutputType } from "$lib/shared/file-types/production";
 import { type PageCountUnit, pageCountUnit } from "$lib/shared/page-count";
 import {
 	buildToolResultCacheKey,
@@ -1066,6 +1067,155 @@ async function resolveReadTarget(params: {
 export interface GeneratedFilePatchBase {
 	text: string;
 	documentSource: unknown;
+	/**
+	 * The stored file the base came from — the name the patched version has to
+	 * keep, because it IS the next version of that file. Null when the base came
+	 * from the artifact scan below, which knows the request title but not the
+	 * filename it was produced under.
+	 */
+	filename: string | null;
+}
+
+/**
+ * Either the previous version, or the names the model can choose between.
+ *
+ * A miss is never silent: the caller turns `candidates` into the refusal, so a
+ * model that could not name the file gets the list instead of being told the
+ * file does not exist.
+ */
+export type GeneratedFilePatchBaseLookup =
+	| { status: "found"; base: GeneratedFilePatchBase }
+	| { status: "not_found"; candidates: string[] };
+
+/** At most this many names in a refusal — enough to choose from, short enough
+ * for one line of prompt. */
+const MAX_PATCH_BASE_CANDIDATES = 8;
+
+/** Letters and digits only, for comparing a filename stem with a request
+ * title: "Release notes" and "release-notes.md" are the same name. */
+function alphanumericKey(value: string | null | undefined): string {
+	return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * A stem short enough to be an accident ("q1", "doc") never matches a title by
+ * containment; it still matches one exactly.
+ */
+const MIN_CONTAINED_STEM_LENGTH = 4;
+
+/**
+ * Whether a produced filename is the file this request title is about.
+ *
+ * Exact first. Containment either way is what makes the live case work: the
+ * turn that produced `release-notes.md` and the turn that patches it rarely
+ * send the SAME title, and the second one ("Release notes for the small app
+ * release") contains the first.
+ */
+function filenameAnswersToTitle(
+	filename: string,
+	title: string | null | undefined,
+): boolean {
+	const titleKey = alphanumericKey(title);
+	if (!titleKey) return false;
+	const stemKey = alphanumericKey(stemOf(filename));
+	if (!stemKey) return false;
+	if (stemKey === titleKey) return true;
+	if (stemKey.length < MIN_CONTAINED_STEM_LENGTH) return false;
+	return titleKey.includes(stemKey) || stemKey.includes(titleKey);
+}
+
+/** This conversation's produced filenames, newest first, one per name. */
+async function listGeneratedFilenames(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<ChatFileRow[]> {
+	const files = await listConversationChatFiles(params);
+	const seen = new Set<string>();
+	const unique: ChatFileRow[] = [];
+	for (const file of files) {
+		const key = normalizeName(file.filename);
+		if (!key || seen.has(key)) continue;
+		seen.add(key);
+		unique.push(file);
+	}
+	return unique;
+}
+
+type InferredPatchBaseName =
+	| { status: "one"; filename: string }
+	| { status: "ambiguous"; candidates: string[] }
+	| { status: "none"; candidates: string[] };
+
+/**
+ * Which file a patch that named none is about.
+ *
+ * The request carries a title and (sometimes) an output type, never the
+ * filename — the model has no reason to repeat a name the app chose for it.
+ * Deriving a FRESH name from the title and looking for that is what used to
+ * happen, and it could only miss: the file on disk was named from the title of
+ * the turn that created it.
+ *
+ * Order: the newest file of the requested type whose own name answers to this
+ * title; then, if the conversation has exactly one file of that type, that one;
+ * then nothing, with the names for the refusal.
+ */
+async function inferPatchBaseFilename(params: {
+	userId: string;
+	conversationId: string;
+	requestTitle?: string | null;
+	outputType?: string | null;
+}): Promise<InferredPatchBaseName> {
+	const files = await listGeneratedFilenames(params);
+	if (files.length === 0) return { status: "none", candidates: [] };
+
+	const requestedType = params.outputType?.trim().toLowerCase();
+	const expectedExtension = requestedType
+		? (getExpectedExtensionForOutputType(requestedType) ?? `.${requestedType}`)
+		: null;
+	const pool = expectedExtension
+		? files.filter((file) =>
+				normalizeName(file.filename).endsWith(expectedExtension),
+			)
+		: files;
+	const names = (rows: ChatFileRow[]) =>
+		rows.slice(0, MAX_PATCH_BASE_CANDIDATES).map((row) => row.filename);
+	if (pool.length === 0) return { status: "none", candidates: names(files) };
+
+	const titled = pool.filter((file) =>
+		filenameAnswersToTitle(file.filename, params.requestTitle),
+	);
+	if (titled.length > 0) return { status: "one", filename: titled[0].filename };
+	if (pool.length === 1) return { status: "one", filename: pool[0].filename };
+	return { status: "ambiguous", candidates: names(pool) };
+}
+
+/** The stored file under this exact name, and its text, or null. */
+async function patchBaseFromFilename(params: {
+	userId: string;
+	conversationId: string;
+	filename: string;
+}): Promise<GeneratedFilePatchBase | null> {
+	for (const minTier of [CHAT_FILE_NAME_TIER, CHAT_FILE_STEM_TIER]) {
+		const chatFile = await findChatFileTarget({ ...params, minTier });
+		if (!chatFile) continue;
+		const { text } = await resolveChatFileText({
+			userId: params.userId,
+			file: chatFile.file,
+			row: chatFile.row,
+		});
+		// A file whose text has not arrived yet is not a patch base: patching
+		// it would write the model's `oldText` expectations onto nothing. Fall
+		// through so the caller reports "no previous version" honestly.
+		if (!text) break;
+		return {
+			text,
+			documentSource:
+				parseJsonRecord(chatFile.row?.metadataJson ?? null)
+					?.generatedDocumentSource ?? null,
+			filename: chatFile.file.filename,
+		};
+	}
+	return null;
 }
 
 /**
@@ -1082,44 +1232,54 @@ export interface GeneratedFilePatchBase {
  * stale previous version — the artifact of v1, while v2 was on disk with no
  * artifact yet. Both are the read-back blocker in a second costume.
  *
- * The artifact scan is kept as the fallback, unchanged, for a call that names
- * no filename (a patch request carries one, but `requestTitle` alone is still
- * a legal shape) and for a file whose chat row is gone.
+ * Resolution order: the name the request carries, then the conversation's own
+ * outputs (see `inferPatchBaseFilename`), then the artifact scan — kept
+ * unchanged for a file whose chat row is gone and for the `requestTitle`-only
+ * shape. `candidates` is what the refusal lists.
  */
 export async function resolveGeneratedFilePatchBase(params: {
 	userId: string;
 	conversationId: string;
+	/** A name the MODEL supplied. Never one derived from the request title:
+	 * that name belongs to the file this call will WRITE, not to one that
+	 * exists. */
 	filename?: string | null;
 	requestTitle?: string | null;
-}): Promise<GeneratedFilePatchBase | null> {
+	/** The output type the model named, when it named one. */
+	outputType?: string | null;
+}): Promise<GeneratedFilePatchBaseLookup> {
 	const filename = params.filename?.trim();
 	if (filename) {
-		for (const minTier of [CHAT_FILE_NAME_TIER, CHAT_FILE_STEM_TIER]) {
-			const chatFile = await findChatFileTarget({
-				userId: params.userId,
-				conversationId: params.conversationId,
-				filename,
-				minTier,
-			});
-			if (!chatFile) continue;
-			const { text } = await resolveChatFileText({
-				userId: params.userId,
-				file: chatFile.file,
-				row: chatFile.row,
-			});
-			// A file whose text has not arrived yet is not a patch base: patching
-			// it would write the model's `oldText` expectations onto nothing. Fall
-			// through so the caller reports "no previous version" honestly.
-			if (!text) break;
-			return {
-				text,
-				documentSource:
-					parseJsonRecord(chatFile.row?.metadataJson ?? null)
-						?.generatedDocumentSource ?? null,
-			};
-		}
+		const base = await patchBaseFromFilename({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			filename,
+		});
+		if (base) return { status: "found", base };
 	}
-	return findPatchBaseByTitle(params);
+
+	const inferred = await inferPatchBaseFilename(params);
+	if (inferred.status === "one") {
+		const base = await patchBaseFromFilename({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			filename: inferred.filename,
+		});
+		if (base) return { status: "found", base };
+	}
+	if (inferred.status === "ambiguous") {
+		// Several files could be meant and nothing in the request says which.
+		// Guessing would edit the wrong document and report success.
+		return { status: "not_found", candidates: inferred.candidates };
+	}
+
+	const byTitle = await findPatchBaseByTitle(params);
+	if (byTitle) return { status: "found", base: byTitle };
+	return {
+		status: "not_found",
+		candidates:
+			inferred.status === "one" ? [inferred.filename] : inferred.candidates,
+	};
 }
 
 /** The pre-existing artifact scan, moved here so both resolvers live together. */
@@ -1177,7 +1337,10 @@ async function findPatchBaseByTitle(params: {
 		}
 		const text = resolved ?? extractContentFromMemoryText(row.contentText);
 		if (!text) return null;
-		return { text, documentSource: documentSource ?? null };
+		// The artifact of a document-source job is named after the DOCUMENT, not
+		// after the file that was produced, so this path names no filename and the
+		// caller keeps the name the request resolves to.
+		return { text, documentSource: documentSource ?? null, filename: null };
 	}
 
 	return null;
