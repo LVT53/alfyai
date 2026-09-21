@@ -370,6 +370,81 @@ function logSafeExtensions(namesOrPaths: ReadonlyArray<string>): string[] {
 	return [...new Set(namesOrPaths.map(logSafeExtension))].sort();
 }
 
+/** How much of a redacted error a log line carries. Long enough for the
+ * exception class and the first frame, short enough not to be a document. */
+const MAX_LOG_ERROR_EXCERPT_CHARS = 300;
+
+/**
+ * `/output/…` up to a delimiter that cannot be inside a path.
+ *
+ * Whitespace is NOT a delimiter, because a model-chosen name routinely has
+ * spaces in it ("Q3 layoffs and severance.xlsx") and stopping at the first one
+ * would redact `/output/Q3` and leave the rest of the name in the line. The
+ * cost is that prose after an unquoted path on the same line is redacted with
+ * it; in a traceback the exception class comes first, so the diagnostic
+ * survives.
+ */
+const OUTPUT_PATH_PATTERN = /\/output\/[^'"`)\]}\n]*/g;
+/** A run inside single, double or back quotes — how a traceback names a file. */
+const QUOTED_RUN_PATTERN = /(['"`])([^'"`\n]*)\1/g;
+
+/** The extension of a name, as `<file>.ext`, or a bare `<file>`. */
+function redactedName(nameOrPath: string): string {
+	const extension = fileExtension(path.basename(nameOrPath));
+	return extension ? `<file>.${extension}` : "<file>";
+}
+
+/**
+ * An `/output/…` run, as `/output/<file>.ext`.
+ *
+ * The extension is taken from the run's FIRST whitespace-delimited token: the
+ * run may have swallowed trailing prose (see `OUTPUT_PATH_PATTERN`), and the
+ * extension of "directory" in "…report.xlsx: No such file or directory" is not
+ * the one worth reporting.
+ */
+function redactedOutputRun(run: string): string {
+	const [firstToken = run] = run.split(/\s/, 1);
+	return `/output/${redactedName(firstToken)}`;
+}
+
+/**
+ * An error message with every file name taken out, for a log line.
+ *
+ * An interpreter traceback from inside the sandbox quotes the paths it was
+ * working on — `open('/output/Q3 layoffs and severance.xlsx')` — and those
+ * names are chosen by the model, and through it by the user. Throwing the
+ * message away entirely would leave "the in-container read failed" and nothing
+ * about WHY, so the message is kept and the names are not: an `/output/…` path
+ * and any quoted run become `<file>`, with the extension preserved because it
+ * says which writer was involved and nothing about whose file it is.
+ *
+ * Quoted runs are redacted whether or not they look like a file name. A
+ * traceback gives no reliable way to tell `'/output/notes.md'` from `'notes'`,
+ * and guessing wrong in the permissive direction writes the user's words into
+ * a log. The exception class, the error code and the frame text are outside the
+ * quotes and survive, which is the diagnostic these lines exist for.
+ *
+ * The full, unredacted message still reaches the job's stored `error_message`,
+ * which only the job's own user can read.
+ */
+function logSafeErrorExcerpt(value: unknown): string {
+	const raw =
+		value instanceof Error ? value.message : String(value ?? "").trim();
+	// Quoted runs first: a quote is an unambiguous delimiter, so this handles a
+	// name with spaces in it exactly. Whatever `/output/` is left after that was
+	// unquoted, and the greedier pattern takes it.
+	const redacted = raw
+		.replace(
+			QUOTED_RUN_PATTERN,
+			(_match, quote: string, inner: string) =>
+				`${quote}${redactedName(inner)}${quote}`,
+		)
+		.replace(OUTPUT_PATH_PATTERN, redactedOutputRun);
+	return redacted.length > MAX_LOG_ERROR_EXCERPT_CHARS
+		? `${redacted.slice(0, MAX_LOG_ERROR_EXCERPT_CHARS)}...`
+		: redacted;
+}
+
 function isDangerousEntryType(header: tar.Headers): boolean {
 	return (
 		header.type === "symlink" ||
@@ -528,7 +603,9 @@ async function extractFilesFromContainer(
 						containerId: container.id,
 						extension: logSafeExtension(name),
 						type,
-						error,
+						// A tar read error names the entry it choked on, and that entry
+						// is `output/<model-chosen name>`.
+						error: logSafeErrorExcerpt(error),
 					});
 					next();
 				});
@@ -544,8 +621,10 @@ async function extractFilesFromContainer(
 		console.error("[FILE_PRODUCTION] Failed to read sandbox output archive", {
 			containerId: container.id,
 			outputDir: OUTPUT_DIR,
-			error,
+			error: logSafeErrorExcerpt(error),
 		});
+		// The unredacted error keeps travelling to the caller, which turns it into
+		// the job's stored `error_message` — readable only by the job's own user.
 		throw error;
 	}
 }
@@ -893,10 +972,11 @@ export async function executeCode(
 						"[FILE_PRODUCTION] In-container fallback read also failed; will attempt re-inspection if applicable",
 						{
 							containerId: sandbox.container.id,
-							error:
-								fallbackError instanceof Error
-									? fallbackError.message
-									: String(fallbackError),
+							// This message IS the readback script's stderr — an interpreter
+							// traceback over the `/output/<model-chosen name>` paths it was
+							// asked to read. `extractionError` above keeps the full text for
+							// the job's stored error; the log gets it with the names out.
+							error: logSafeErrorExcerpt(fallbackError),
 						},
 					);
 				}
