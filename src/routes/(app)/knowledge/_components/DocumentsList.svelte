@@ -728,18 +728,18 @@ async function runExtractionAction(
  * where this document already is" is a prefix rather than a set membership
  * test.
  */
-const REEXTRACT_TIERS = ['flash', 'basic', 'standard', 'advanced'] as const;
+const REEXTRACT_TIERS = ["flash", "basic", "standard", "advanced"] as const;
 const REEXTRACT_TIER_KEYS = {
-	flash: 'knowledge.extraction.reextract.tier.flash',
-	basic: 'knowledge.extraction.reextract.tier.basic',
-	standard: 'knowledge.extraction.reextract.tier.standard',
-	advanced: 'knowledge.extraction.reextract.tier.advanced',
+	flash: "knowledge.extraction.reextract.tier.flash",
+	basic: "knowledge.extraction.reextract.tier.basic",
+	standard: "knowledge.extraction.reextract.tier.standard",
+	advanced: "knowledge.extraction.reextract.tier.advanced",
 } as const satisfies Record<(typeof REEXTRACT_TIERS)[number], I18nKey>;
 
 type ReextractTierState =
-	| { kind: 'loading' }
-	| { kind: 'error' }
-	| { kind: 'ready'; tiers: string[] };
+	| { kind: "loading" }
+	| { kind: "error" }
+	| { kind: "ready"; tiers: string[] };
 
 // One open menu at a time, keyed on the artifact. Tier lists are cached per
 // artifact for the life of the page: they come from one server-wide probe, and
@@ -756,9 +756,9 @@ let reextractTiers = $state<Record<string, ReextractTierState>>({});
 function canReextractDocument(document: KnowledgeDocumentItem): boolean {
 	const job = document.extraction;
 	if (!job || isExtractionInProgress(document)) return false;
-	if (job.intakeRoute !== 'mineru') return false;
+	if (job.intakeRoute !== "mineru") return false;
 	const producer = document.extractionProducer;
-	return !producer || producer === 'mineru';
+	return !producer || producer === "mineru";
 }
 
 function isKnownReextractTier(
@@ -784,8 +784,10 @@ function isReextractTierDisabled(
 ): boolean {
 	const current = document.extractionTier;
 	if (!current || !isKnownReextractTier(current)) return false;
-	return REEXTRACT_TIERS.indexOf(tier as (typeof REEXTRACT_TIERS)[number]) <=
-		REEXTRACT_TIERS.indexOf(current);
+	return (
+		REEXTRACT_TIERS.indexOf(tier as (typeof REEXTRACT_TIERS)[number]) <=
+		REEXTRACT_TIERS.indexOf(current)
+	);
 }
 
 async function toggleReextractMenu(event: MouseEvent, artifactId: string) {
@@ -795,22 +797,22 @@ async function toggleReextractMenu(event: MouseEvent, artifactId: string) {
 		return;
 	}
 	reextractMenuId = artifactId;
-	if (reextractTiers[artifactId]?.kind === 'ready') return;
+	if (reextractTiers[artifactId]?.kind === "ready") return;
 	if (!onLoadReextractTiers) {
-		reextractTiers = { ...reextractTiers, [artifactId]: { kind: 'error' } };
+		reextractTiers = { ...reextractTiers, [artifactId]: { kind: "error" } };
 		return;
 	}
-	reextractTiers = { ...reextractTiers, [artifactId]: { kind: 'loading' } };
+	reextractTiers = { ...reextractTiers, [artifactId]: { kind: "loading" } };
 	try {
 		const tiers = await onLoadReextractTiers(artifactId);
 		reextractTiers = {
 			...reextractTiers,
-			[artifactId]: { kind: 'ready', tiers },
+			[artifactId]: { kind: "ready", tiers },
 		};
 	} catch {
 		// The reason is the page's to report (it owns the error banner); the
 		// menu only has to stop claiming it is still loading.
-		reextractTiers = { ...reextractTiers, [artifactId]: { kind: 'error' } };
+		reextractTiers = { ...reextractTiers, [artifactId]: { kind: "error" } };
 	}
 }
 
@@ -833,14 +835,14 @@ async function chooseReextractTier(
 	const artifactId = document_.displayArtifactId;
 	if (!onReextract || extractionActionIds.has(artifactId)) return;
 	reextractMenuId = null;
-	const row = (event.currentTarget as HTMLElement | null)?.closest('tr');
+	const row = (event.currentTarget as HTMLElement | null)?.closest("tr");
 	extractionActionIds = new Set(extractionActionIds).add(artifactId);
 	try {
 		await onReextract(artifactId, tier);
 		// The status announcer only speaks when a job's STATUS changes, and a
 		// document going from "Ready" to "Queued" via a menu the user just used
 		// deserves a sentence of its own.
-		extractionAnnouncement = $t('knowledge.extraction.reextract.queued', {
+		extractionAnnouncement = $t("knowledge.extraction.reextract.queued", {
 			name: document_.name,
 			tier: isKnownReextractTier(tier) ? $t(REEXTRACT_TIER_KEYS[tier]) : tier,
 		});
