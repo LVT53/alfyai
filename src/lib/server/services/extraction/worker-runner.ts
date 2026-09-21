@@ -119,6 +119,19 @@ export interface DrainExtractionWorkerInput
  * same host, pid no longer alive, not us. See `worker-identity.ts`.
  */
 const DEFAULT_WORKER_ID = createWorkerId("extraction");
+
+/**
+ * The inline direct-text runner's own id.
+ *
+ * A real four-segment id of its own slice, NOT `${DEFAULT_WORKER_ID}:inline`.
+ * `parseWorkerId` refuses a five-segment id by design — "I cannot tell whose
+ * process this was" must never read as "it is dead" — so the suffixed form
+ * made a PREVIOUS boot's inline attempt invisible to the boot reclaim and it
+ * always paid the full stale window. Sharing this process's boot nonce is what
+ * keeps our OWN inline attempts from being reclaimed: same host, same pid,
+ * same nonce.
+ */
+const INLINE_WORKER_ID = createWorkerId("extraction-inline");
 let drainPromise: Promise<void> | null = null;
 /** A wake that arrived while a drain was running, to be honoured after it. */
 let drainRequestedAgain = false;
@@ -1213,7 +1226,7 @@ export async function runDirectTextExtractionInline(input: {
 
 	if (budgetMs > 0 && !input.signal?.aborted) {
 		const run = executeNextExtractionJob({
-			workerId: `${DEFAULT_WORKER_ID}:inline`,
+			workerId: INLINE_WORKER_ID,
 			directTextOnly: true,
 			jobId: input.jobId,
 		}).catch((error) => {
