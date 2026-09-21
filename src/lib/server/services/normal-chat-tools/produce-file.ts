@@ -3,6 +3,9 @@ import { z } from "zod";
 import type { FileProductionIntakeResult } from "$lib/server/services/file-production";
 // Leaf module (no imports of its own), so this pulls no DB into the tool graph.
 import { redactHostPathsFromFileProductionMessage } from "$lib/server/services/file-production/error-message";
+// Leaf module too: the mixed-output-family rule, shared with the HTTP intake
+// so both callers refuse the same shapes with the same words.
+import { refuseMixedOutputGroups as refuseMixedOutputGroupsForTypes } from "$lib/server/services/file-production/mixed-output-groups";
 import { FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES } from "$lib/server/services/file-production/output-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
@@ -772,36 +775,21 @@ export function isInlineTextRequest(types: readonly string[]): boolean {
  * The refusal for a request that mixes the two production families when WE,
  * not the model, choose the writer.
  *
- * `shouldUseDocumentSourceForOutputs` demands that EVERY type be a document
- * source, so `[pdf, md]` answered false, fell through to program mode, and
- * `resolveTextFilename` named the file after `requestedOutputs[0]` — a `.pdf`
- * holding raw markdown, which `pdf`'s `validation: "none"` then waved through.
+ * The rule itself now lives in `file-production/mixed-output-groups.ts`, so
+ * the HTTP intake — which Atlas and the signed service-assertion callers use
+ * and which the tool layer never passes through — applies the identical rule
+ * and the identical message. This wrapper keeps the call sites below taking
+ * output objects.
  *
- * Only the paths that synthesise the writer call this. A model-authored
+ * Only the paths that synthesise the writer call it. A model-authored
  * `program.sourceCode` or `documentSource` may legitimately produce both
  * families from one request.
  */
 function refuseMixedOutputGroups(
 	outputs: Array<{ type: string }>,
 ): { ok: false; error: string } | null {
-	const types = outputTypesOf(outputs);
-	if (types.length < 2) return null;
-	const documentTypes = types.filter((type) =>
-		shouldUseDocumentSourceForOutputTypes([type]),
-	);
-	if (documentTypes.length === 0 || documentTypes.length === types.length) {
-		return null;
-	}
-	const textTypes = types.filter((type) => !documentTypes.includes(type));
-	return {
-		ok: false,
-		error:
-			`Cannot produce ${types.join(", ")} from one request. ` +
-			`Request one group of formats at a time: PDF, DOCX and HTML are rendered from a document source, ` +
-			`while md, txt, csv, tsv, json and code files are written as plain text. ` +
-			`Call produce_file once for ${documentTypes.join(", ")} (send documentSource, or content with only those formats in requestedOutputs), ` +
-			`and again for ${textTypes.join(", ")}.`,
-	};
+	const mixed = refuseMixedOutputGroupsForTypes(outputTypesOf(outputs));
+	return mixed ? { ok: false, error: mixed.error } : null;
 }
 
 // ── Filename / program helpers ─────────────────────────────────
@@ -2075,6 +2063,9 @@ const MODEL_CORRECTABLE_ERROR_CODES = new Set([
 	// where the fix is literally "name a supported outputType".
 	"missing_request_title",
 	"unsupported_source_mode",
+	// Two families of output in one request. The fix is literally "call
+	// produce_file twice", which the message says, so the model can act on it.
+	"mixed_output_groups",
 	"invalid_program_language",
 	"missing_program_source",
 	"missing_program_output_type",

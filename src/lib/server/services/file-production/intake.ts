@@ -8,6 +8,7 @@ import {
 	isInlineTextOutputType,
 } from "$lib/shared/file-types/production";
 import { validateFileProductionStaticLimits } from "./limits";
+import { refuseMixedOutputGroups } from "./mixed-output-groups";
 import {
 	FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES,
 	isSupportedFileProductionOutputType,
@@ -454,6 +455,44 @@ function normalizeFileProductionIntake(
 			code: "missing_request_title",
 			error: "requestTitle is required",
 		});
+	}
+	// The mixed-output-family rule, for EVERY caller of this route and not just
+	// the produce_file tool (which resolves the writer itself, in process,
+	// before it ever calls here).
+	//
+	// Exempt, deliberately, are the two shapes where the caller — not this
+	// module — owns the writer and may legitimately span both families:
+	//   * a caller-authored `program.sourceCode`, which can write a PDF and a
+	//     Markdown file in one run (`produce-file.ts` exempts it for the same
+	//     reason);
+	//   * `document_source`, where the renderers turn one source into `pdf`
+	//     AND `markdown` — the spec's `document-markdown` live row.
+	// `inline_text` derives its outputs from `inlineText.files`, each of which
+	// is checked against `isInlineTextOutputType` with a more precise message,
+	// so it is left to that check.
+	//
+	// What is left is exactly the shape with no resolved writer: the ambiguous
+	// `{ markdown, requestedOutputs: [pdf, md] }` a direct caller sends, and
+	// `sourceMode: "program"` with no program at all. Both used to be refused
+	// generically (`unsupported_source_mode` / `invalid_program_language`),
+	// which told the caller nothing about the real problem.
+	if (sourceMode !== "document_source" && sourceMode !== "inline_text") {
+		const callerAuthoredProgram =
+			sourceCode.length > 0 &&
+			(language === "python" || language === "javascript");
+		if (!callerAuthoredProgram) {
+			const mixed = refuseMixedOutputGroups(
+				normalizeProgramOutputs(body, program).map((output) => output.type),
+			);
+			if (mixed) {
+				return validationFailure({
+					body,
+					status: 422,
+					code: mixed.code,
+					error: mixed.error,
+				});
+			}
+		}
 	}
 	if (
 		sourceMode !== "program" &&
