@@ -348,7 +348,29 @@ export async function readMineruParseManifest(
 export async function readMineruPageIndex(
 	userId: string,
 	sourceArtifactId: string,
+	options: { expectedMarkdown?: string | null } = {},
 ): Promise<readonly PageOffset[] | null> {
+	// The offsets index the bundle's `normalized.md`, and the bundle is written
+	// by the EXTRACTOR — before `persist.ts` rewrites the artifact's
+	// `contentText`. An attempt that succeeds at the parse and then dies, is
+	// cancelled, or loses its claim before persisting leaves a bundle that is
+	// one parse ahead of the text, and every offset in it then lands somewhere
+	// else in the document. That failure is silent: the reader gets the wrong
+	// page, confidently, with a citation.
+	//
+	// `manifest.markdownSha256` exists precisely so a reader can detect that,
+	// and nothing was checking it. A caller that knows the text it is about to
+	// index passes it; a mismatch means "no page index", which the caller
+	// already handles by reading from the start.
+	if (typeof options.expectedMarkdown === "string") {
+		const manifest = await readMineruParseManifest(userId, sourceArtifactId);
+		if (!manifest) return null;
+		const digest = createHash("sha256")
+			.update(options.expectedMarkdown, "utf8")
+			.digest("hex");
+		if (manifest.markdownSha256 !== digest) return null;
+	}
+
 	const pages = await readBundleJson<PageOffset[]>(
 		userId,
 		sourceArtifactId,
@@ -455,14 +477,24 @@ export async function setMineruParseBundleNormalizedArtifactId(
 	const manifest = await readMineruParseManifest(userId, sourceArtifactId);
 	if (!manifest) return false;
 	const next: MineruParseBundleManifest = { ...manifest, normalizedArtifactId };
+	const manifestPath = join(
+		mineruBundleDir(userId, sourceArtifactId),
+		MINERU_BUNDLE_MANIFEST,
+	);
+	// Write-then-rename, not a plain overwrite of the live file. The manifest IS
+	// the figure endpoint's allow-list and the page index's staleness check, so
+	// a crash part-way through an in-place write would truncate it to invalid
+	// JSON, `readMineruParseManifest` would return null forever after, and every
+	// figure of that document would 404 with nothing left to repair it from.
+	const tempPath = `${manifestPath}.tmp-${process.pid}-${Math.random()
+		.toString(36)
+		.slice(2, 10)}`;
 	try {
-		await writeFile(
-			join(mineruBundleDir(userId, sourceArtifactId), MINERU_BUNDLE_MANIFEST),
-			JSON.stringify(next, null, 2),
-			"utf8",
-		);
+		await writeFile(tempPath, JSON.stringify(next, null, 2), "utf8");
+		await rename(tempPath, manifestPath);
 		return true;
 	} catch {
+		await rm(tempPath, { force: true }).catch(() => undefined);
 		return false;
 	}
 }

@@ -308,6 +308,65 @@ describe("readMineruParseManifest / readMineruPageIndex", () => {
 		);
 	});
 
+	it("refuses the index when the bundle is not the text it will be applied to", async () => {
+		// The extractor writes the bundle BEFORE `persist.ts` rewrites the
+		// artifact's text. An attempt that parsed and then died, was cancelled,
+		// or lost its claim leaves a bundle one parse ahead of the document —
+		// and every offset in it then lands somewhere else in the text. That
+		// failure is silent: the reader gets the wrong page, confidently, with a
+		// citation on it. `manifest.markdownSha256` exists to catch exactly this
+		// and nothing was checking it.
+		const result = await pdfResult();
+		await writePdfBundle({ result });
+
+		expect(
+			await readMineruPageIndex(userId, sourceArtifactId, {
+				expectedMarkdown: result.markdown,
+			}),
+		).toEqual(result.pages.map((page) => ({ ...page })));
+
+		expect(
+			await readMineruPageIndex(userId, sourceArtifactId, {
+				expectedMarkdown: `${result.markdown}\n\nA later parse added this.`,
+			}),
+		).toBeNull();
+		expect(
+			await readMineruPageIndex(userId, sourceArtifactId, {
+				expectedMarkdown: "",
+			}),
+		).toBeNull();
+
+		// An unchecked read still answers, for the callers that have no text to
+		// compare against.
+		expect(
+			await readMineruPageIndex(userId, sourceArtifactId),
+		).not.toBeNull();
+	});
+
+	it("survives a crash part-way through the normalized-id patch", async () => {
+		// The manifest is the figure endpoint's allow-list and the page index's
+		// staleness check. An in-place overwrite that is interrupted truncates it
+		// to invalid JSON, and then every figure of that document 404s forever
+		// with nothing left to repair it from. Write-then-rename instead.
+		await writePdfBundle();
+		const bundle = mineruBundleDir(userId, sourceArtifactId);
+
+		await setMineruParseBundleNormalizedArtifactId(
+			userId,
+			sourceArtifactId,
+			"normalized-1",
+		);
+
+		// No temp file survives a successful patch.
+		const entries = await readdir(bundle);
+		expect(entries.filter((entry) => entry.includes(".tmp-"))).toEqual([]);
+		expect(entries).toContain(MINERU_BUNDLE_MANIFEST);
+		expect(
+			(await readMineruParseManifest(userId, sourceArtifactId))
+				?.normalizedArtifactId,
+		).toBe("normalized-1");
+	});
+
 	it("returns null when there is no bundle", async () => {
 		expect(await readMineruParseManifest(userId, sourceArtifactId)).toBeNull();
 		expect(await readMineruPageIndex(userId, sourceArtifactId)).toBeNull();

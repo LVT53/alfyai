@@ -790,6 +790,8 @@ async function resolvePageOffset(params: {
 	row: ArtifactRow;
 	page: number;
 	contentLength: number;
+	/** The text the offsets will be applied to, for the staleness check. */
+	contentText: string | null;
 }): Promise<{ offset: number | null; pageCount: number | null }> {
 	if (params.row.type !== "normalized_document") {
 		return { offset: null, pageCount: null };
@@ -800,7 +802,16 @@ async function resolvePageOffset(params: {
 	);
 	if (!sourceArtifactId) return { offset: null, pageCount: null };
 
-	const pages = await readMineruPageIndex(params.userId, sourceArtifactId);
+	// The text is handed in so the bundle's own `markdownSha256` can be checked
+	// against it. The bundle is written by the extractor BEFORE the artifact
+	// text is rewritten, so an attempt that parsed and then failed to persist
+	// leaves an index one parse ahead of the document — and every page it
+	// resolves would land somewhere else in the text, silently, with a citation
+	// on it. A mismatch reads as "no page index", which is the existing
+	// read-from-the-start path.
+	const pages = await readMineruPageIndex(params.userId, sourceArtifactId, {
+		expectedMarkdown: params.contentText,
+	});
 	if (!pages || pages.length === 0) return { offset: null, pageCount: null };
 
 	const entry = pages.find((page) => page.page === params.page);
@@ -924,6 +935,7 @@ export async function readGeneratedFileContent(params: {
 				row,
 				page: requestedPage as number,
 				contentLength,
+				contentText: resolvedContent ?? null,
 			})
 		: null;
 

@@ -175,6 +175,37 @@ describe("knowledge store cleanup", () => {
 			]);
 		});
 
+		it("removes the bundle from the OWNER's directory, not the deleter's", async () => {
+			// `hardDeleteArtifactsForUser` deliberately covers rows whose
+			// `userId` is not the acting user: an artifact is canonically owned
+			// through a conversation the actor owns. The storage-path unlink
+			// already got this right, because `row.storagePath` carries the
+			// owner's directory in it. The bundle path is DERIVED from a user id,
+			// and it was being derived from the wrong one — so for exactly those
+			// rows the DB row went and up to 32 MiB of bundle stayed on disk
+			// forever, under a directory nothing would ever revisit.
+			const { hardDeleteArtifactsForUser } = await import("./cleanup");
+
+			mockSelect.mockReturnValue(
+				makeSelectResult([
+					makeArtifactRow({
+						id: "source-1",
+						userId: "owner-9",
+						conversationId: "conv-1",
+						storagePath: "data/knowledge/owner-9/source-1.pdf",
+					}),
+				]),
+			);
+			installTransactionStub();
+
+			await hardDeleteArtifactsForUser("user-1", ["source-1"]);
+
+			expect(mockRemoveMineruParseBundle).toHaveBeenCalledWith(
+				"owner-9",
+				"source-1",
+			);
+		});
+
 		it("removes the bundle even for a row with no storage path", async () => {
 			const { hardDeleteArtifactsForUser } = await import("./cleanup");
 

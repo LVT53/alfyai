@@ -53,8 +53,17 @@ export const GET: RequestHandler = async (event) => {
 	// list, a type that is not a servable image and a symlink. It returns null
 	// for every one of them, and for a missing file, so none of those cases is
 	// distinguishable from the outside.
+	//
+	// The bundle sits under the OWNER's `data/knowledge/<userId>/`, and an
+	// artifact the caller may read is not always one they own — an artifact is
+	// also canonically owned through a conversation the caller owns, which is
+	// the whole reason `getArtifactForUser` exists rather than a `userId`
+	// equality check. Deriving the directory from the CALLER made every figure
+	// of such a document 404. `getArtifactForUser` above is the authorization;
+	// this is only where the bytes live, exactly as `row.storagePath` is for
+	// download and preview.
 	const figure = await readMineruFigure({
-		userId: user.id,
+		userId: artifact.userId,
 		sourceArtifactId,
 		name: event.params.name,
 	});
