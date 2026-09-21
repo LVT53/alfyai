@@ -33,6 +33,7 @@ import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type { ZodType } from "zod";
 import {
 	isSameMineruOrigin,
+	MINERU_MAX_DOWNLOAD_BYTES,
 	MINERU_TIER_IDS,
 	type MineruConfig,
 	type MineruTierId,
@@ -462,10 +463,25 @@ export class MineruClient {
 	async downloadFile(input: DownloadFileInput): Promise<{ bytes: number }> {
 		const path =
 			`/v1/files/${encodeURIComponent(input.fileId)}/content` as const;
-		const cap = Math.max(
-			input.maxBytes ?? this.config.bundleMaxBytes,
-			input.expectedBytes,
+
+		// `expectedBytes` is the SERVER's claim about the server's own output.
+		// Taking it as the cap meant the server chose the cap; a lying
+		// `output_files.zip.bytes` could fill the disk while
+		// `MINERU_BUNDLE_MAX_BYTES` — which bounds only what is kept — watched.
+		// A zip larger than the reader will ever open cannot become a parse, so
+		// it is refused here rather than after the bytes have landed.
+		const cap = Math.min(
+			Math.max(input.maxBytes ?? this.config.bundleMaxBytes, input.expectedBytes),
+			MINERU_MAX_DOWNLOAD_BYTES,
 		);
+		if (input.expectedBytes > cap) {
+			throw new MineruApiError({
+				code: MINERU_CLIENT_ERROR_CODES.downloadTooLarge,
+				message: `MinerU declared a ${input.expectedBytes} byte result, over the ${cap} byte ceiling.`,
+				requestPath: path,
+				details: { cap, expectedBytes: input.expectedBytes },
+			});
+		}
 
 		let response = await this.send(
 			mineruUrl(this.config, path),

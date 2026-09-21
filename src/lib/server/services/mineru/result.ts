@@ -31,6 +31,7 @@ import { z } from "zod";
 import { extractDocumentOutline } from "$lib/server/services/knowledge/outline";
 import type { ExtractionErrorCode } from "$lib/shared/extraction-status";
 import { resolveEntry } from "$lib/shared/file-types";
+import { MINERU_MAX_DOWNLOAD_BYTES } from "./config";
 
 // ── version ────────────────────────────────────────────────────────────────
 
@@ -287,6 +288,23 @@ export type PageCountKind = (typeof PAGE_COUNT_KINDS)[number];
 
 const PAGE_COUNT_KIND_SET: ReadonlySet<string> = new Set(PAGE_COUNT_KINDS);
 
+/**
+ * The most pages a declared `metadata.document.page_count` may add.
+ *
+ * `page_count` is one integer in a JSON document the MinerU server chose, and
+ * the offset table is padded out to it so a page lookup never misses. A server
+ * that says `50000000` therefore asked this process to allocate fifty million
+ * objects — 3.3 GB, in about a second, on the single Node process that serves
+ * every request. One document was enough to OOM the box.
+ *
+ * MinerU's own `/v1/usage.limits.max_pages_per_file` is 1000. Fifty thousand is
+ * fifty times that: far past anything real, small enough to be harmless. A
+ * count beyond it is clamped rather than rejected — the pages that actually
+ * came back are still readable, and refusing the whole parse over a silly
+ * metadata field would be the worse failure.
+ */
+export const MAX_STRUCTURED_PAGE_COUNT = 50_000;
+
 export interface RenderedFigure {
 	/** 1-based across the document, in reading order. */
 	index: number;
@@ -426,7 +444,9 @@ export const DEFAULT_MINERU_ZIP_LIMITS: MineruZipLimits = {
 	maxEntries: 4096,
 	maxEntryBytes: 64 * 1024 * 1024,
 	maxTotalBytes: 256 * 1024 * 1024,
-	maxCompressedBytes: 256 * 1024 * 1024,
+	// The same number `client.ts` refuses to download past, so the two cannot
+	// drift into a window where a zip is fetched and then never opened.
+	maxCompressedBytes: MINERU_MAX_DOWNLOAD_BYTES,
 };
 
 export interface MineruResultZip {
@@ -1150,8 +1170,10 @@ export function buildStructuredExtractionResult(
 
 	const document = sc.metadata?.document ?? {};
 	const declaredPageCount =
-		typeof document.page_count === "number" && document.page_count > 0
-			? Math.trunc(document.page_count)
+		typeof document.page_count === "number" &&
+		Number.isFinite(document.page_count) &&
+		document.page_count > 0
+			? Math.min(Math.trunc(document.page_count), MAX_STRUCTURED_PAGE_COUNT)
 			: null;
 	// PNG/JPEG carry no `page_count` at all — `metadata.document` is `{}`.
 	const pageCount = declaredPageCount ?? sc.pages.length;

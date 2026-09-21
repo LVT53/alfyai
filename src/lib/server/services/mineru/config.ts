@@ -47,6 +47,26 @@ export const MINERU_OUTPUT_FORMATS = [
 	"zip",
 ] as const;
 
+/**
+ * The most bytes this app will ever pull down from MinerU, whatever the job
+ * says about itself.
+ *
+ * `output_files.zip.bytes` is the server's own claim about its own output, and
+ * the download cap used to be `max(expectedBytes, bundleMaxBytes)` — which let
+ * the server pick the cap. Declare ten gigabytes, stream ten gigabytes, fill
+ * the disk; `MINERU_BUNDLE_MAX_BYTES` bounded only what was KEPT, never what
+ * was fetched.
+ *
+ * 256 MB is not arbitrary: it is `DEFAULT_MINERU_ZIP_LIMITS.maxCompressedBytes`
+ * in `result.ts`, the size past which the zip reader refuses to open the file
+ * anyway. Downloading more than that could never produce a parse, so a job that
+ * declares more is refused before a byte moves rather than after.
+ *
+ * Kept here rather than in `result.ts` so `client.ts` can read it without
+ * dragging `jszip` into every module that touches the protocol.
+ */
+export const MINERU_MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024;
+
 export interface MineruConfig {
 	/** MINERU_API_URL, trailing slash stripped. */
 	readonly baseUrl: string;
