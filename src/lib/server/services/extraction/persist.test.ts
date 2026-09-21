@@ -268,6 +268,113 @@ describe("createNormalizedArtifactFromExtraction — structured results", () => 
 	});
 });
 
+describe("createNormalizedArtifactFromExtraction — chunk plan", () => {
+	/**
+	 * A document long enough to survive the small-file bypass, with one block
+	 * per page, so every chunk row can be traced back to a page.
+	 */
+	function longStructuredResult(pages: number): StructuredExtractionResult {
+		return buildStructuredExtractionResult({
+			content: {
+				pages: Array.from({ length: pages }, (_, index) => ({
+					page_idx: index,
+					blocks: [
+						{
+							type: "paragraph_title",
+							level: 2,
+							content: `Section ${index + 1}`,
+						},
+						{
+							type: "text",
+							content: `Body of section ${index + 1}. ${"lorem ipsum ".repeat(120)}`,
+						},
+					],
+				})),
+				metadata: {
+					producer: { name: "mineru", version: "4.0.4" },
+					document: { page_count: pages, page_count_kind: "physical" },
+				},
+				extensions: { mineru: { tier: "basic", parse_mode: "txt" } },
+			} as never,
+			jobTier: "basic",
+			sourceFilename: "long.pdf",
+		});
+	}
+
+	function chunkRows(artifactId: string) {
+		return fixture.sqlite
+			.prepare(
+				"SELECT chunk_index, page_start, page_end FROM artifact_chunks WHERE artifact_id = ? ORDER BY chunk_index",
+			)
+			.all(artifactId) as Array<{
+			chunk_index: number;
+			page_start: number | null;
+			page_end: number | null;
+		}>;
+	}
+
+	it("gives every chunk row the page its blocks came from", async () => {
+		const result = longStructuredResult(6);
+		expect(result.markdown.length).toBeGreaterThan(5000);
+
+		const artifact = await persistFixture({ result, bundle: null });
+		const rows = chunkRows(artifact.id);
+
+		expect(rows.length).toBeGreaterThan(1);
+		for (const row of rows) {
+			expect(row.page_start).not.toBeNull();
+			expect(row.page_end).not.toBeNull();
+			expect(row.page_start).toBeGreaterThanOrEqual(1);
+			expect(row.page_end).toBeGreaterThanOrEqual(row.page_start as number);
+			expect(row.page_end).toBeLessThanOrEqual(6);
+		}
+		// The pages advance with the document rather than all claiming page 1.
+		expect(rows[rows.length - 1].page_end).toBeGreaterThan(
+			rows[0].page_start as number,
+		);
+	});
+
+	it("re-derives the pages on a re-extraction rather than keeping the old ones", async () => {
+		const first = await persistFixture({
+			result: longStructuredResult(6),
+			bundle: null,
+		});
+		expect(chunkRows(first.id).length).toBeGreaterThan(1);
+
+		// The same document read again, shorter: the rows are rebuilt, not
+		// merged with the previous parse's.
+		const second = await persistFixture({
+			result: longStructuredResult(4),
+			bundle: null,
+		});
+		expect(second.id).toBe(first.id);
+		const rows = chunkRows(second.id);
+		expect(rows.length).toBeGreaterThan(0);
+		for (const row of rows) {
+			expect(row.page_end).toBeLessThanOrEqual(4);
+		}
+	});
+
+	it("leaves the pages null for a document with no structure", async () => {
+		const artifact = await persist.createNormalizedArtifactFromExtraction({
+			userId,
+			conversationId: null,
+			sourceArtifactId,
+			sourceName: "notes.txt",
+			text: `# Notes\n\n${"lorem ipsum ".repeat(900)}`,
+			normalizedName: "notes.md",
+			mimeType: "text/markdown",
+		});
+
+		const rows = chunkRows(artifact.id);
+		expect(rows.length).toBeGreaterThan(0);
+		for (const row of rows) {
+			expect(row.page_start).toBeNull();
+			expect(row.page_end).toBeNull();
+		}
+	});
+});
+
 describe("createNormalizedArtifactFromExtraction — re-extraction", () => {
 	it("rewrites the same artifact, replaces the bundle and drops stale keys", async () => {
 		const first = await persistFixture({ name: "pdf" });

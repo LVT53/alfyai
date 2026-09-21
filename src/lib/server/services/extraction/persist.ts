@@ -40,20 +40,11 @@ import type {
 } from "$lib/server/services/mineru/result";
 import { planStructuredChunks } from "$lib/server/services/mineru/result";
 import { queueArtifactSemanticEmbeddingRefresh } from "$lib/server/services/semantic-embedding-refresh";
-import { syncArtifactChunks } from "$lib/server/services/task-state/chunk-sync";
-
-/**
- * The chunk sizes a structured plan has to land in.
- *
- * They are `chunk-sync.ts`'s own numbers, restated here because this slice
- * does not own that file and cannot export them from it. The slice that adds
- * structure-aware chunking exports them as `CHUNK_CHAR_TARGET` /
- * `CHUNK_CHAR_OVERLAP`; at integration these two lines become an import from
- * there, and until then a plan built with the wrong size would simply produce
- * differently sized rows, never wrong ones.
- */
-const CHUNK_PLAN_CHAR_TARGET = 1400;
-const CHUNK_PLAN_CHAR_OVERLAP = 220;
+import {
+	CHUNK_CHAR_OVERLAP,
+	CHUNK_CHAR_TARGET,
+	syncArtifactChunks,
+} from "$lib/server/services/task-state/chunk-sync";
 
 export interface CreateNormalizedArtifactFromExtractionParams {
 	userId: string;
@@ -183,10 +174,13 @@ function buildChunkPlan(
 ): ChunkPlanEntry[] | null {
 	if (structured.blocks.length === 0) return null;
 	try {
+		// The sizes come from the chunker itself rather than being restated
+		// here: a plan built to a different target would silently produce rows
+		// of a different size than every other document's.
 		const plan = planStructuredChunks({
 			blocks: structured.blocks,
-			charTarget: CHUNK_PLAN_CHAR_TARGET,
-			charOverlap: CHUNK_PLAN_CHAR_OVERLAP,
+			charTarget: CHUNK_CHAR_TARGET,
+			charOverlap: CHUNK_CHAR_OVERLAP,
 		});
 		return plan.length > 0 ? plan : null;
 	} catch (error) {
