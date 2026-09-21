@@ -120,6 +120,43 @@ describe("FileProductionCard", () => {
 		expect(onRetry).toHaveBeenCalledWith("job-1");
 	});
 
+	// A job the ledger reclaimed after a restart, a lost worker, or a queue
+	// timeout used to fall through ERROR_MESSAGE_KEYS and show the raw server
+	// string. All three write `retryable: true`, so the card must still offer
+	// Retry, exactly like any other retryable failure.
+	it.each([
+		[
+			"worker_heartbeat_timeout",
+			"File production worker stopped before finishing.",
+			"The file could not be finished because the server restarted while it was working.",
+		],
+		[
+			"worker_state_lost",
+			"File production worker state was lost before finishing.",
+			"The file could not be finished because the server lost track of the job.",
+		],
+		[
+			"worker_queue_timeout",
+			"File production worker did not start before the queue timeout.",
+			"The file waited too long in the queue and could not be finished.",
+		],
+	])("localizes the %s worker-reclaim error and still offers Retry", async (code, rawServerMessage, localizedMessage) => {
+		const onRetry = vi.fn();
+		const { getByRole, getByText, queryByText } = render(FileProductionCard, {
+			job: makeJob({
+				status: "failed",
+				error: { code, message: rawServerMessage, retryable: true },
+			}),
+			onRetry,
+		});
+
+		expect(getByText(localizedMessage)).toBeInTheDocument();
+		expect(queryByText(rawServerMessage)).toBeNull();
+
+		await fireEvent.click(getByRole("button", { name: "Retry" }));
+		expect(onRetry).toHaveBeenCalledWith("job-1");
+	});
+
 	it("renders a non-retryable failed job with the cause and a Dismiss action", async () => {
 		const onDismiss = vi.fn();
 		const { getByRole, getByText } = render(FileProductionCard, {

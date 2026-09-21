@@ -696,6 +696,20 @@ const chatDict = {
 			"That file type cannot be produced.",
 		"fileProduction.error.unsupported_table_structure":
 			"The document contains an unsupported table structure.",
+		// A job reclaimed after the worker never sent another heartbeat — most
+		// often a server restart mid-job. `worker_heartbeat_timeout` is also
+		// used by the boot-time dead-worker sweep, so the wording stays general
+		// rather than naming one specific cause.
+		"fileProduction.error.worker_heartbeat_timeout":
+			"The file could not be finished because the server restarted while it was working.",
+		// The ledger lost track of a running attempt's state (no attempt row, or
+		// one stuck without a heartbeat) before the job finished.
+		"fileProduction.error.worker_state_lost":
+			"The file could not be finished because the server lost track of the job.",
+		// A queued job that never got picked up by a worker before the queue
+		// timeout.
+		"fileProduction.error.worker_queue_timeout":
+			"The file waited too long in the queue and could not be finished.",
 		"fileProduction.failed": "Error",
 		"fileProduction.failedDescription": "File production did not finish.",
 		"fileProduction.placeholderTitle": "Preparing your file…",
@@ -1820,6 +1834,12 @@ const chatDict = {
 			"Ez a fájltípus nem készíthető el.",
 		"fileProduction.error.unsupported_table_structure":
 			"A dokumentum nem támogatott táblaszerkezetet tartalmaz.",
+		"fileProduction.error.worker_heartbeat_timeout":
+			"A fájlt nem sikerült elkészíteni, mert a szerver újraindult közben.",
+		"fileProduction.error.worker_state_lost":
+			"A fájlt nem sikerült elkészíteni, mert a szerver elvesztette a feladat nyomát.",
+		"fileProduction.error.worker_queue_timeout":
+			"A fájl túl sokáig várakozott a sorban, ezért nem készült el.",
 		"fileProduction.failed": "Hiba",
 		"fileProduction.failedDescription": "A fájlkészítés nem fejeződött be.",
 		"fileProduction.placeholderTitle": "A fájl előkészítése…",

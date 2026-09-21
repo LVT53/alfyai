@@ -25,6 +25,11 @@ const AUDITED_PREFIXES = [
 	"composerCommands.",
 	"composerMenu.",
 	"composerSheet.",
+	// The file-production card's server-error-code -> localized-line map
+	// (`FileProductionCard.svelte`'s `ERROR_MESSAGE_KEYS`). `chat.` as a whole
+	// is NOT audited (pre-existing drift), so this narrow prefix is what
+	// would have caught the three worker-reclaim codes landing in EN only.
+	"fileProduction.error.",
 	// The document-extraction ledger's two client surfaces. Both namespaces
 	// are otherwise unaudited (`chat.` and `knowledge.` carry pre-existing
 	// drift), so these narrow prefixes are the only thing that notices a

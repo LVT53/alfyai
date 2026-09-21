@@ -55,6 +55,12 @@ const ERROR_MESSAGE_KEYS: Partial<Record<string, I18nKey>> = {
 	document_render_failed: "fileProduction.error.document_render_failed",
 	output_file_too_large: "fileProduction.error.output_file_too_large",
 	job_outputs_too_large: "fileProduction.error.job_outputs_too_large",
+	// A job the ledger reclaimed after a restart or a lost worker, or one that
+	// never got picked up before its queue timeout. All three are retryable —
+	// the card still offers Retry, same as any other retryable failure.
+	worker_heartbeat_timeout: "fileProduction.error.worker_heartbeat_timeout",
+	worker_state_lost: "fileProduction.error.worker_state_lost",
+	worker_queue_timeout: "fileProduction.error.worker_queue_timeout",
 	// Item 6 (UX-speed plan) — set on a placeholder card when its
 	// produce_file tool call fails before a real job ever gets queued (see
 	// buildPendingFileProductionJobPlaceholder / failPendingFileProduction-
