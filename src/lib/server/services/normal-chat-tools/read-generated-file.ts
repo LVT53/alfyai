@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "$lib/server/db";
@@ -681,7 +681,7 @@ async function findChatFileTarget(params: {
 const FAMILY_VERSION_SCAN_LIMIT = 200;
 
 /**
- * How many versions this document family has, across every conversation.
+ * How many versions of this document family the user can still OPEN.
  *
  * A generated file's family and version number are per user and per filename
  * ACROSS conversations — that is what makes "continue the release notes" work
@@ -690,40 +690,87 @@ const FAMILY_VERSION_SCAN_LIMIT = 200;
  * like a bug, so the count that makes it self-explaining is fetched with it:
  * `v3 of 3`.
  *
+ * REACHABLE versions only, which is the whole difference from what this used
+ * to do. It returned the highest `versionNumber` in the family whatever had
+ * become of the artifacts since, and `artifacts.conversation_id` is
+ * `ON DELETE SET NULL` — so a user who deleted the conversations holding v1
+ * and v2 was still told "of 3", about two files nothing can open. A count is a
+ * promise that those versions are there to look at; it has to be derivable
+ * from files the user can still reach. The join does both jobs at once: an
+ * orphaned artifact has no conversation row to join to and drops out, and an
+ * incognito conversation is excluded for the same reason its file is —
+ * counting it would tell the model that chat produced something, which is the
+ * fact incognito hides. THIS conversation is always counted, incognito or not:
+ * the user is in it.
+ *
  * The family id lives in artifact metadata, which SQLite cannot index, so this
- * is a bounded scan of the user's newest generated artifacts rather than a
- * lookup. It runs only on an explicit `read_generated_file` call, never on the
- * prompt-assembly path. Returns null when there is nothing better to say than
- * the version number itself.
+ * is a bounded scan of the user's newest reachable generated artifacts rather
+ * than a lookup. It runs only on an explicit `read_generated_file` call, never
+ * on the prompt-assembly path. Returns null when there is nothing better to
+ * say than the version number itself.
  */
 async function countGeneratedFileFamilyVersions(params: {
 	userId: string;
+	conversationId: string;
 	familyId: string | null;
 }): Promise<number | null> {
 	if (!params.familyId) return null;
 	const rows = await db
 		.select({ metadataJson: artifacts.metadataJson })
 		.from(artifacts)
+		.innerJoin(conversations, eq(conversations.id, artifacts.conversationId))
 		.where(
 			and(
 				eq(artifacts.userId, params.userId),
 				eq(artifacts.type, "generated_output"),
+				or(
+					eq(conversations.memoryIncognito, false),
+					eq(conversations.id, params.conversationId),
+				),
 			),
 		)
 		.orderBy(desc(artifacts.updatedAt))
 		.limit(FAMILY_VERSION_SCAN_LIMIT);
 
-	let highest = 0;
+	// Distinct version NUMBERS, not rows: a family can carry two artifacts for
+	// one version (a document source and its rendered output), and counting
+	// rows would inflate "of N" past anything the user could point at.
+	const versions = new Set<number>();
 	for (const row of rows) {
 		const metadata = parseWorkingDocumentMetadata(
 			parseJsonRecord(row.metadataJson),
 		);
 		if (metadata.documentFamilyId !== params.familyId) continue;
 		if (typeof metadata.versionNumber === "number") {
-			highest = Math.max(highest, Math.trunc(metadata.versionNumber));
+			versions.add(Math.trunc(metadata.versionNumber));
 		}
 	}
-	return highest > 0 ? highest : null;
+	return versions.size > 0 ? versions.size : null;
+}
+
+/**
+ * `v3 of 3`, or what to say instead when they do not line up.
+ *
+ * `versionNumber` is what this file IS and never moves — it is stamped in the
+ * artifact and the user may have it written down. `versionCount` is how many
+ * of the family survive. When every version is still there the two agree and
+ * this reads exactly as it always did. When earlier ones were deleted, "of N"
+ * would be a smaller number next to a larger one, which reads as a bug; the
+ * clause says what is actually available instead of implying a total.
+ */
+export function formatGeneratedFileVersion(
+	versionNumber: number | null,
+	versionCount: number | null,
+): string {
+	if (!versionNumber) return "";
+	if (!versionCount) return `v${versionNumber}`;
+	if (versionCount >= versionNumber) {
+		return `v${versionNumber} of ${versionCount}`;
+	}
+	const earlier = versionCount - 1;
+	if (earlier <= 0)
+		return `v${versionNumber}, earlier versions no longer available`;
+	return `v${versionNumber}, ${earlier} earlier version${earlier === 1 ? "" : "s"} still available`;
 }
 
 /**
@@ -2119,6 +2166,7 @@ export async function readGeneratedFileContent(params: {
 	const familyCount = versionNumber
 		? ((await countGeneratedFileFamilyVersions({
 				userId: params.userId,
+				conversationId: params.conversationId,
 				familyId: metadata.documentFamilyId ?? null,
 			})) ?? versionNumber)
 		: null;
@@ -2240,13 +2288,11 @@ function buildOriginClause(
 	result: ReadGeneratedFileResult,
 ): string | undefined {
 	if (result.conversation !== "library") return undefined;
-	const version =
-		result.versionNumber && result.versionCount
-			? `, v${result.versionNumber} of ${result.versionCount}`
-			: result.versionNumber
-				? `, v${result.versionNumber}`
-				: "";
-	return `from an earlier conversation${version}`;
+	const version = formatGeneratedFileVersion(
+		result.versionNumber,
+		result.versionCount,
+	);
+	return `from an earlier conversation${version ? `, ${version}` : ""}`;
 }
 
 export function buildReadGeneratedFileModelPayload(
@@ -2369,11 +2415,14 @@ export function summarizeReadGeneratedFileResult(
 	}
 	const label = result.documentLabel ?? result.filename ?? "file";
 	// `v3 of 3`, so a v3 in a conversation that has no v1 or v2 explains itself.
-	const version = result.versionNumber
-		? result.versionCount && result.versionCount > 1
-			? ` v${result.versionNumber} of ${result.versionCount}`
-			: ` v${result.versionNumber}`
-		: "";
+	// A family of one stays plain `v1` rather than saying "of 1".
+	const versionClause =
+		result.versionCount === 1 && result.versionNumber === 1
+			? result.versionNumber
+				? `v${result.versionNumber}`
+				: ""
+			: formatGeneratedFileVersion(result.versionNumber, result.versionCount);
+	const version = versionClause ? ` ${versionClause}` : "";
 	const origin =
 		result.conversation === "library" ? ", from an earlier conversation" : "";
 	const length = result.contentLength ? ` (${result.contentLength} chars)` : "";

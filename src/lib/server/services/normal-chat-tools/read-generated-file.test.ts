@@ -1905,6 +1905,12 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			).not.toContain("release-notes.md");
 		});
 
+		// DELIBERATELY RE-PINNED. This fixture seeds a single artifact stamped
+		// v2, with no v1 row anywhere, and used to assert "of 2" — because the
+		// count was the highest version NUMBER in the family rather than a count
+		// of anything. It was extrapolating a v1 that had never existed as a
+		// row. The count now answers the question the clause actually asks, so
+		// one reachable version reads as one.
 		it("says where it came from, and how many versions there are", async () => {
 			await seedEarlierVersion({
 				filename: "release-notes.md",
@@ -1917,10 +1923,12 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			const payload = buildReadGeneratedFileModelPayload(result);
 
 			expect(result.versionNumber).toBe(2);
-			expect(result.versionCount).toBe(2);
-			expect(payload.origin).toBe("from an earlier conversation, v2 of 2");
+			expect(result.versionCount).toBe(1);
+			expect(payload.origin).toBe(
+				"from an earlier conversation, v2, earlier versions no longer available",
+			);
 			expect(summarizeReadGeneratedFileResult(result)).toContain(
-				"v2 of 2, from an earlier conversation",
+				"v2, earlier versions no longer available, from an earlier conversation",
 			);
 
 			// One short clause and nothing else: no conversation id, no other
@@ -1928,6 +1936,96 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			const rendered = JSON.stringify(payload);
 			expect(rendered).not.toContain(OTHER_CONVERSATION);
 			expect(rendered).not.toContain("conv-");
+		});
+
+		// "v3 of 3" is a promise that three versions exist to look at. The count
+		// was the highest `versionNumber` in the family whatever had happened to
+		// the artifacts since, and `artifacts.conversation_id` is SET NULL on
+		// delete — so a user who deleted the conversations holding v1 and v2 was
+		// still told "of 3", about two files nothing can open, and the count
+		// asserted the existence of content they had deleted.
+		it("counts only the versions the user can still open", async () => {
+			// v1 in a conversation that has since been deleted.
+			seedConversation("conv-deleted", USER);
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- First cut.",
+				mimeType: "text/markdown",
+				versionNumber: 1,
+				conversationId: "conv-deleted",
+			});
+			memory.db
+				.delete(schema.conversations)
+				.where(eq(schema.conversations.id, "conv-deleted"))
+				.run();
+			// v3 survives, elsewhere.
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Third cut.",
+				mimeType: "text/markdown",
+				versionNumber: 3,
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(result.versionNumber).toBe(3);
+			expect(result.versionCount).toBe(1);
+			// The stored version number is kept — it is what the file IS — and
+			// the clause says what is actually there instead of claiming "of 3".
+			expect(buildReadGeneratedFileModelPayload(result).origin).toBe(
+				"from an earlier conversation, v3, earlier versions no longer available",
+			);
+		});
+
+		it("does not count a version held only by an incognito conversation", async () => {
+			seedConversation("conv-secret", USER);
+			memory.db
+				.update(schema.conversations)
+				.set({ memoryIncognito: true })
+				.where(eq(schema.conversations.id, "conv-secret"))
+				.run();
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Secret cut.",
+				mimeType: "text/markdown",
+				versionNumber: 2,
+				conversationId: "conv-secret",
+			});
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Third cut.",
+				mimeType: "text/markdown",
+				versionNumber: 3,
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			// A count that included the incognito version would tell the model
+			// that chat produced something, which is the fact incognito hides.
+			expect(result.versionCount).toBe(1);
+		});
+
+		it("still says `of N` when every version is reachable", async () => {
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- First cut.",
+				mimeType: "text/markdown",
+				versionNumber: 1,
+			});
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Second cut.",
+				mimeType: "text/markdown",
+				versionNumber: 2,
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(result.versionNumber).toBe(2);
+			expect(result.versionCount).toBe(2);
+			expect(buildReadGeneratedFileModelPayload(result).origin).toBe(
+				"from an earlier conversation, v2 of 2",
+			);
 		});
 
 		it("says nothing about origin for a file from this conversation", async () => {
