@@ -13,6 +13,7 @@ const {
 	mockDelete,
 	mockUnlink,
 	mockGetArtifactForUser,
+	mockGetArtifactForUserToDelete,
 	mockGetArtifactOwnershipScope,
 	mockBuildArtifactVisibilityCondition,
 	mockIsArtifactCanonicallyOwned,
@@ -24,6 +25,7 @@ const {
 	const mockDelete = vi.fn();
 	const mockUnlink = vi.fn();
 	const mockGetArtifactForUser = vi.fn();
+	const mockGetArtifactForUserToDelete = vi.fn();
 	const mockGetArtifactOwnershipScope = vi.fn();
 	const mockBuildArtifactVisibilityCondition = vi.fn();
 	const mockIsArtifactCanonicallyOwned = vi.fn();
@@ -36,6 +38,7 @@ const {
 		mockDelete,
 		mockUnlink,
 		mockGetArtifactForUser,
+		mockGetArtifactForUserToDelete,
 		mockGetArtifactOwnershipScope,
 		mockBuildArtifactVisibilityCondition,
 		mockIsArtifactCanonicallyOwned,
@@ -108,9 +111,11 @@ vi.mock("fs/promises", async (importOriginal) => {
 
 vi.mock("./core", () => ({
 	getArtifactForUser: mockGetArtifactForUser,
+	getArtifactForUserToDelete: mockGetArtifactForUserToDelete,
 	getArtifactOwnershipScope: mockGetArtifactOwnershipScope,
 	buildArtifactVisibilityCondition: mockBuildArtifactVisibilityCondition,
 	isArtifactCanonicallyOwned: mockIsArtifactCanonicallyOwned,
+	isArtifactDeletableByUser: mockIsArtifactCanonicallyOwned,
 }));
 
 vi.mock("./documents", () => ({
@@ -323,7 +328,7 @@ describe("knowledge store cleanup", () => {
 		it("deletes all generated_output artifacts in the same document family", async () => {
 			const { deleteArtifactForUser } = await import("./cleanup");
 
-			mockGetArtifactForUser.mockResolvedValue({
+			mockGetArtifactForUserToDelete.mockResolvedValue({
 				id: "artifact-1",
 				userId: "user-1",
 				type: "generated_output",
@@ -395,7 +400,7 @@ describe("knowledge store cleanup", () => {
 		it("does not expand deletion when generated_output has no documentFamilyId", async () => {
 			const { deleteArtifactForUser } = await import("./cleanup");
 
-			mockGetArtifactForUser.mockResolvedValue({
+			mockGetArtifactForUserToDelete.mockResolvedValue({
 				id: "artifact-1",
 				userId: "user-1",
 				type: "generated_output",
@@ -433,7 +438,7 @@ describe("knowledge store cleanup", () => {
 		it("respects ownership boundaries when expanding family deletion", async () => {
 			const { deleteArtifactForUser } = await import("./cleanup");
 
-			mockGetArtifactForUser.mockResolvedValue({
+			mockGetArtifactForUserToDelete.mockResolvedValue({
 				id: "artifact-1",
 				userId: "user-1",
 				type: "generated_output",
@@ -491,7 +496,7 @@ describe("knowledge store cleanup", () => {
 		it("returns null when artifact does not exist or is not owned", async () => {
 			const { deleteArtifactForUser } = await import("./cleanup");
 
-			mockGetArtifactForUser.mockResolvedValue(null);
+			mockGetArtifactForUserToDelete.mockResolvedValue(null);
 
 			const result = await deleteArtifactForUser("user-1", "nonexistent");
 

@@ -24,19 +24,23 @@ export const DELETE: RequestHandler = async (event) => {
 	const user = event.locals.user;
 	try {
 		const result = await deleteArtifactForUser(user.id, event.params.id);
-		if (!result) {
-			console.info(
-				"[KNOWLEDGE_DELETE] Artifact already removed or unavailable",
-				{
-					userId: user.id,
-					artifactId: event.params.id,
-				},
-			);
-			return json({
-				success: true,
-				deletedArtifactIds: [event.params.id],
-				message: "This item was already removed from the Knowledge Base.",
+		// Nothing was deleted — either no such id, or not this user's to delete.
+		//
+		// This used to answer 200 with `deletedArtifactIds: [params.id]`,
+		// fabricating the id it had NOT removed. For an unknown id that was
+		// merely untrue; for a `generated_output` whose conversation had been
+		// deleted it was the bug that hid the leak, because the row was still
+		// there and the caller was told it was gone. The body matches the
+		// unknown-id case exactly so a 404 never reveals whether an id exists.
+		if (!result || result.deletedArtifactIds.length === 0) {
+			console.info("[KNOWLEDGE_DELETE] Artifact not found for delete", {
+				userId: user.id,
+				artifactId: event.params.id,
+				// Distinguishes "no row" from "row present but out of scope" in the
+				// log, where it is safe, while the response cannot tell them apart.
+				reason: result ? "out-of-scope" : "not-found",
 			});
+			return json({ error: "Artifact not found" }, { status: 404 });
 		}
 
 		return json({

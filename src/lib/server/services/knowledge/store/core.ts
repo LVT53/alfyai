@@ -156,6 +156,43 @@ export function isArtifactCanonicallyOwned(params: {
 	return artifact.userId === userId;
 }
 
+/**
+ * Whether this user may DELETE this row — a different question from whether the
+ * artifact may be RETRIEVED, which `isArtifactCanonicallyOwned` answers.
+ *
+ * The two were the same function once, and that is how a `generated_output`
+ * became undeletable. Retrieval deliberately requires a LIVE conversation link
+ * for `generated_output` / `work_capsule`: a working artifact whose
+ * conversation is gone must never come back as context. But `conversation_id`
+ * is `ON DELETE SET NULL`, so deleting a conversation cleared the link on every
+ * artifact the cleanup pass chose to preserve — and from that moment the row
+ * was invisible in the library, 404 on GET, and answered "already removed" on
+ * DELETE while it, its chunks, its stored file and its MinerU parse bundle sat
+ * on disk with no way for anyone to ever remove them.
+ *
+ * Deletion asks something simpler and stricter than retrieval: is this the
+ * user's OWN row, or one they hold through a live conversation of theirs? A row
+ * stamped with the user's id is theirs to delete whatever its `conversation_id`
+ * says — it is the same row the account data archive ships to them and the same
+ * row an account erasure removes. The conversation branch is kept because
+ * `hardDeleteArtifactsForUser` deliberately covers rows the actor does not own
+ * but is entitled to delete through a conversation.
+ */
+export function isArtifactDeletableByUser(params: {
+	userId: string;
+	ownershipScope: ArtifactOwnershipScope;
+	artifact: ArtifactOwnershipCandidate;
+}): boolean {
+	const { artifact, ownershipScope, userId } = params;
+
+	if (artifact.userId === userId) return true;
+
+	return Boolean(
+		artifact.conversationId &&
+			ownershipScope.conversationIds.has(artifact.conversationId),
+	);
+}
+
 export function mapArtifactSummary(row: ArtifactSummaryRow): ArtifactSummary {
 	const metadata = parseJsonRecord(row.metadataJson ?? null);
 	const tokenEstimate = readStoredTokenEstimate(metadata?.tokenEstimate);
@@ -487,6 +524,41 @@ export async function getArtifactForUser(
 	if (
 		!row ||
 		!isArtifactCanonicallyOwned({
+			userId,
+			ownershipScope,
+			artifact: row,
+		})
+	) {
+		return null;
+	}
+	return mapArtifact(row);
+}
+
+/**
+ * The same lookup, under the DELETE authority instead of the retrieval one.
+ *
+ * `getArtifactForUser` above is the right gate for reading an artifact and the
+ * wrong one for removing it: it hides a `generated_output` whose conversation
+ * link has been cleared, which is precisely the row a user most needs to be
+ * able to delete. See `isArtifactDeletableByUser`.
+ */
+export async function getArtifactForUserToDelete(
+	userId: string,
+	artifactId: string,
+): Promise<Artifact | null> {
+	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const [row] = await db
+		.select()
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.id, artifactId),
+				buildArtifactVisibilityCondition({ userId, ownershipScope }),
+			),
+		);
+	if (
+		!row ||
+		!isArtifactDeletableByUser({
 			userId,
 			ownershipScope,
 			artifact: row,

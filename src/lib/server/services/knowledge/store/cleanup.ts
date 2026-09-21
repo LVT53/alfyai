@@ -13,9 +13,10 @@ import { removeMineruParseBundle } from "$lib/server/services/mineru/bundle";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import {
 	buildArtifactVisibilityCondition,
-	getArtifactForUser,
+	getArtifactForUserToDelete,
 	getArtifactOwnershipScope,
 	isArtifactCanonicallyOwned,
+	isArtifactDeletableByUser,
 } from "./core";
 import { parseWorkingDocumentMetadata } from "./document-metadata";
 import { listLogicalDocuments } from "./documents";
@@ -47,8 +48,11 @@ export async function hardDeleteArtifactsForUser(
 				buildArtifactVisibilityCondition({ userId, ownershipScope }),
 			),
 		);
+	// The DELETE authority, not the retrieval one: a row the user owns is theirs
+	// to remove even after its conversation link was cleared. See
+	// `isArtifactDeletableByUser`.
 	const scopedArtifactsToDelete = artifactsToDelete.filter((row) =>
-		isArtifactCanonicallyOwned({
+		isArtifactDeletableByUser({
 			userId,
 			ownershipScope,
 			artifact: row,
@@ -215,7 +219,7 @@ export async function deleteArtifactForUser(
 	failedStoragePaths: string[];
 } | null> {
 	const startedAt = Date.now();
-	const artifact = await getArtifactForUser(userId, artifactId);
+	const artifact = await getArtifactForUserToDelete(userId, artifactId);
 	if (!artifact) return null;
 
 	const artifactIdsToDelete = new Set<string>([artifact.id]);
@@ -266,8 +270,10 @@ export async function deleteArtifactForUser(
 				);
 				// Double-check the family ID matches (LIKE is approximate)
 				if (rowMetadata.documentFamilyId === documentFamilyId) {
+					// The delete authority again: a family whose conversation is gone
+					// must still come away whole rather than leaving detached versions.
 					if (
-						isArtifactCanonicallyOwned({
+						isArtifactDeletableByUser({
 							userId,
 							ownershipScope,
 							artifact: row,
