@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { produceFileModelInputSchema } from "$lib/server/services/normal-chat-tools/produce-file";
 import {
 	buildHistoryModelMessages,
 	buildHistoryToolDigest,
@@ -360,7 +361,7 @@ describe("digest and text rendering", () => {
 			outputSummary:
 				"File production job job-42 succeeded: tobacco-cost-breakdown.pdf.",
 			resultDigest:
-				'Read it back with read_generated_file({filename:"tobacco-cost-breakdown.pdf"}).',
+				'Read it back with read_generated_file({filename:"tobacco-cost-breakdown.pdf"}). Change it with produce_file patches on "tobacco-cost-breakdown.pdf".',
 			metadata: { ok: true, jobStatus: "succeeded", jobId: "job-42" },
 		};
 
@@ -369,7 +370,7 @@ describe("digest and text rendering", () => {
 			summary:
 				"File production job job-42 succeeded: tobacco-cost-breakdown.pdf.",
 			detail:
-				'Read it back with read_generated_file({filename:"tobacco-cost-breakdown.pdf"}).',
+				'Read it back with read_generated_file({filename:"tobacco-cost-breakdown.pdf"}). Change it with produce_file patches on "tobacco-cost-breakdown.pdf".',
 		});
 
 		const out = renderHistoryTurn(
@@ -395,10 +396,16 @@ describe("digest and text rendering", () => {
 			),
 			estimate,
 		);
-		// 83 estimated tokens for this call as measured (49 of them the digest,
+		// 101 estimated tokens for this call as measured (67 of them the digest,
 		// 25 the trimmed input, the rest message framing); it was 108 before the
-		// input trim below.
-		expect(cost - baseline).toBeLessThan(100);
+		// input trim below and 83 before the digest gained its second clause.
+		//
+		// That clause — "Change it with produce_file patches on <name>" — is 18
+		// tokens per produced file per turn in the window, and it buys the edit
+		// path: without it the model regenerates the whole file (a second
+		// production job and its bytes) instead of patching it, which live cost
+		// two rejected tool calls and a full rewrite for a one-line change.
+		expect(cost - baseline).toBeLessThan(110);
 		// The telemetry-only shape of the source (a hash, a key count, a byte
 		// length) is not something the model can use a turn later, so it does
 		// not ride along — and the document bytes never did.
@@ -407,6 +414,64 @@ describe("digest and text rendering", () => {
 		expect(serialized).not.toContain("serializedLength");
 		expect(serialized).not.toContain("blocks");
 		expect(serialized).toContain("document_source");
+	});
+
+	// THE LIVE FAILURE that follows from the one above: whatever this replays as
+	// the call's `input` is what the model imitates next turn, so it has to be
+	// an input `produce_file` would accept. It was not — an inline_text call
+	// replayed `sourceMode: "inline_text"`, which the model-facing schema does
+	// not admit, and a refused call replayed `content` as a hash/length object
+	// where the schema declares a string. Both were rejected on sight.
+	it.each([
+		[
+			"a file the server wrote itself",
+			{
+				requestTitle: "Release notes",
+				requestedOutputs: [{ type: "md" }],
+				documentIntent: "data export",
+				inlineText: {
+					files: [{ filename: "release-notes.md", outputType: "md" }],
+					contentHash: "9f1c2a3b4c5d",
+					contentLength: 184,
+				},
+			},
+		],
+		[
+			"a call the server refused",
+			{
+				requestTitle: "Release notes",
+				content: { contentHash: "9f1c2a3b4c5d", contentLength: 184 },
+			},
+		],
+	])("replays %s as an input produce_file accepts", (_name, input) => {
+		const out = renderHistoryTurn(
+			turn("Write the release notes", {
+				content: "Done.",
+				thinkingSegments: [
+					{
+						type: "tool_call",
+						callId: "call_pf",
+						name: "produce_file",
+						input,
+						status: "done",
+						outputSummary:
+							"File production job job-1 succeeded: release-notes.md.",
+					},
+				],
+			}),
+			"native",
+		);
+
+		const call = out
+			.flatMap((message) =>
+				Array.isArray(message.content) ? message.content : [],
+			)
+			.find((part) => part.type === "tool-call");
+		expect(call).toBeDefined();
+		expect(
+			produceFileModelInputSchema.safeParse((call as { input: unknown }).input)
+				.success,
+		).toBe(true);
 	});
 
 	it("renders history as flat text for control calls", () => {

@@ -112,12 +112,21 @@ export function buildHistoryToolDigest(
  * on every turn the call stays in the window. What it needs is the title, the
  * output types and the source mode; the filenames and the verdict come with
  * the digest below.
+ *
+ * `content`/`markdown`/`text` are the same thing on the REFUSAL path, where
+ * `sanitizeUnsafeProduceFileInput` replaces the model's own prose with a hash
+ * and a length. Replaying `content: {contentHash, contentLength}` taught the
+ * model a shape the tool rejects — the schema declares a string — which is the
+ * defect `sourceMode` had.
  */
 const TELEMETRY_ONLY_FILE_PRODUCTION_INPUT_KEYS = [
 	"documentSource",
 	"program",
 	"inlineText",
 	"idempotencyKey",
+	"content",
+	"markdown",
+	"text",
 ];
 
 function historyToolCallInput(

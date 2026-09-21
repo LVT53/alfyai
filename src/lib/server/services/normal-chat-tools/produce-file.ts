@@ -47,7 +47,13 @@ export const produceFileInputSchema = z
 		outputType: z.string().min(1).optional(),
 		fileType: z.string().min(1).optional(),
 		filename: z.string().min(1).optional(),
-		sourceMode: z.enum(["program", "document_source"]).optional(),
+		// `.catch(undefined)` for the same reason as on the model schema below:
+		// the server picks the mode, so an unrecognised one is dropped rather
+		// than failing a request whose content is perfectly good.
+		sourceMode: z
+			.enum(["program", "document_source"])
+			.optional()
+			.catch(undefined),
 		documentIntent: z.string().min(1).optional(),
 		templateHint: z.string().min(1).optional(),
 		content: z.string().min(1).optional(),
@@ -97,7 +103,19 @@ export const produceFileModelInputSchema = z
 			),
 		// Named by the built-in skills, so the model has to be able to see it.
 		// Omitting it is still normal: the server infers the mode.
-		sourceMode: z.enum(["program", "document_source"]).optional(),
+		//
+		// `.catch(undefined)` is what keeps an unrecognised value from failing the
+		// whole tool call: it drops the value during the SDK's own validation, so
+		// the call proceeds and the server picks the mode — which the description
+		// already says it does. The mode the server picks can be `inline_text`,
+		// which is NOT one the model may send, and a model imitating its own
+		// history sent it straight back and had the call rejected. It does not
+		// change the serialised JSON Schema by one byte (1 479, verified), exactly
+		// as `read_generated_file`'s `page` does not.
+		sourceMode: z
+			.enum(["program", "document_source"])
+			.optional()
+			.catch(undefined),
 		markdown: z.string().min(1).optional(),
 		content: z.string().min(1).optional(),
 		patches: z
@@ -697,16 +715,40 @@ function normalizeToolRequestedOutputs(
 			.filter((output) => output.type.length > 0);
 		if (named.length > 0) return named;
 	}
-	const directType =
-		input.outputType?.trim() ||
-		input.fileType?.trim() ||
-		outputTypeFromFilename(input.filename) ||
-		outputTypeFromFilename(input.program?.filename);
+	const directType = namedOutputTypeFromInput(input);
 	if (directType) return [{ type: directType }];
 	if (input.markdown) return [{ type: "md" }];
 	if (input.text || input.content) return [{ type: "txt" }];
 	if (input.documentSource) return [{ type: "pdf" }];
 	return [];
+}
+
+/**
+ * The output type the MODEL named, or null when nothing in the request names
+ * one and `normalizeToolRequestedOutputs`'s default ladder (markdown → md,
+ * text → txt, documentSource → pdf, patches → txt) would have to answer.
+ *
+ * The patch resolver needs that difference: a patch-only call defaults to
+ * `txt`, and looking for the previous version of the file among THIS
+ * conversation's `.txt` outputs would miss the `.md` the model actually means.
+ */
+export function namedOutputTypeFromInput(
+	input: ProduceFileInput,
+): string | null {
+	const explicitOutputs = input.requestedOutputs ?? input.outputs;
+	if (Array.isArray(explicitOutputs)) {
+		const named = explicitOutputs
+			.map((output) => output.type?.trim())
+			.find((type) => type);
+		if (named) return named;
+	}
+	return (
+		input.outputType?.trim() ||
+		input.fileType?.trim() ||
+		outputTypeFromFilename(input.filename) ||
+		outputTypeFromFilename(input.program?.filename) ||
+		null
+	);
 }
 
 function firstNonEmptyString(
@@ -719,7 +761,7 @@ function firstNonEmptyString(
 	return null;
 }
 
-function outputTypeFromFilename(filename?: string): string | null {
+export function outputTypeFromFilename(filename?: string): string | null {
 	// The registry parser answers "everything after the last dot". `dev` used
 	// /\.([a-z0-9]+)$/i, which is stricter in a load-bearing way: a tail that is
 	// not purely alphanumeric named NO output type, and the caller fell through
@@ -2253,6 +2295,37 @@ export function summarizeProduceFileResult(
 
 // ── Tool call entry creation ───────────────────────────────────
 
+/** The two `sourceMode` values `produceFileModelInputSchema` lets the model
+ * send. */
+const MODEL_SENDABLE_SOURCE_MODES = new Set(["program", "document_source"]);
+
+/**
+ * The recorded `input` of a call is REPLAYED to the model next turn as its own
+ * history (`conversation-history.ts` puts it in the tool-call part), so it has
+ * to be an input the tool would accept back. `inline_text` is the server's own
+ * choice, not one the model may send, and a model imitating its history sent it
+ * straight back and had the call rejected — two failed tool calls per edit.
+ *
+ * The chosen mode is a fact about the RUN rather than an argument, so it moves
+ * to the entry's metadata. A value the model itself invented moves too: with
+ * the schema's `.catch(undefined)` the server would drop it anyway, so the
+ * honest record of what ran is "the server chose".
+ */
+function splitServerChosenSourceMode(input: SafeProduceFileInput): {
+	input: SafeProduceFileInput;
+	serverSourceMode: string | null;
+} {
+	const sourceMode = input.sourceMode;
+	if (
+		typeof sourceMode !== "string" ||
+		MODEL_SENDABLE_SOURCE_MODES.has(sourceMode)
+	) {
+		return { input, serverSourceMode: null };
+	}
+	const { sourceMode: _serverChosen, ...rest } = input;
+	return { input: rest, serverSourceMode: sourceMode };
+}
+
 export function createProduceFileToolCallEntry(params: {
 	callId: string;
 	input: SafeProduceFileInput;
@@ -2263,9 +2336,11 @@ export function createProduceFileToolCallEntry(params: {
 	intakeStatus?: number;
 	metadata?: Record<string, string | number | boolean | null>;
 }): ToolCallEntry {
+	const { input, serverSourceMode } = splitServerChosenSourceMode(params.input);
 	const metadata: ToolCallEntry["metadata"] = {
 		ok: params.payload.ok,
 		jobStatus: params.payload.status,
+		...(serverSourceMode ? { sourceMode: serverSourceMode } : {}),
 		...(params.intakeStatus === undefined
 			? {}
 			: { intakeStatus: params.intakeStatus }),
@@ -2287,7 +2362,7 @@ export function createProduceFileToolCallEntry(params: {
 	return {
 		callId: params.callId,
 		name: "produce_file",
-		input: params.input,
+		input,
 		// E1 — an `ok: false` produce_file is a FAILED tool call, not a "done"
 		// one. The activity row, the completion warning and the next turn's
 		// history all key off this.
@@ -2306,8 +2381,11 @@ export function createProduceFileToolCallEntry(params: {
  *
  * The summary already names the files and the job verdict; what a model asked
  * "what is in the file you just made?" a turn later also needs is the way back
- * into it, by the name it actually produced. Kept to one short sentence: it is
- * paid once per produced file, per turn, for as long as the turn stays in the
+ * into it, by the name it actually produced — and, when the user asks for an
+ * edit, the way to CHANGE that same file instead of regenerating it. Both
+ * clauses name the file, because `filename` is the argument that makes a patch
+ * land on it. Kept to two short clauses (~40 estimated tokens): they are paid
+ * once per produced file, per turn, for as long as the turn stays in the
  * history window.
  */
 function buildProduceFileResultDigest(
@@ -2316,5 +2394,23 @@ function buildProduceFileResultDigest(
 	if (payload.status !== "succeeded") return null;
 	const first = payload.files[0]?.filename;
 	if (!first) return null;
-	return `Read it back with read_generated_file({filename:"${first}"}).`;
+	return `Read it back with read_generated_file({filename:"${first}"}). Change it with produce_file patches on "${first}".`;
+}
+
+/**
+ * The refusal for a patch whose previous version could not be found.
+ *
+ * When this conversation HAS produced files, naming them is the whole remedy:
+ * the resolver could not tell which one the patch meant, and the model can only
+ * say so with `filename`. Listing them beats "no previous version", which the
+ * model could answer only by regenerating the file from scratch — which is
+ * exactly what it did live.
+ */
+export function buildNoPatchBaseMessage(candidates: readonly string[]): string {
+	if (candidates.length === 0) {
+		return "No previous version of this file could be found. Use content, markdown, or text to create the initial version instead of patches.";
+	}
+	return `No previous version of this file could be found. Files produced in this conversation: ${candidates.join(
+		", ",
+	)}. Send the patches again with filename set to the one you mean, or use content, markdown, or text to create a new file.`;
 }
