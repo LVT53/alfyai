@@ -241,6 +241,7 @@ interface Config {
 	fileProductionSandboxTimeoutMs: number;
 	fileProductionRendererTimeoutMs: number;
 	fileProductionStaleAttemptMs: number;
+	fileProductionWorkerEnabled: boolean;
 	fileProductionMaxOutputFileBytes: number;
 	fileProductionMaxTotalOutputBytes: number;
 	documentExtractionWorkerEnabled: boolean;
@@ -1080,6 +1081,11 @@ function readConfig(): Config {
 				) || 120000,
 			),
 		),
+		// Default true, like every other worker switch: the flag exists to pause
+		// production deliberately, never to be something a deploy can forget to
+		// set and quietly lose the worker to.
+		fileProductionWorkerEnabled:
+			process.env.FILE_PRODUCTION_WORKER_ENABLED !== "false",
 		fileProductionMaxOutputFileBytes: Math.max(
 			1024,
 			parseInt(

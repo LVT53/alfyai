@@ -2244,6 +2244,21 @@ export type ProduceFileModelPayload =
 const STILL_RUNNING_MESSAGE =
 	"The file is still being made and does not exist yet. Tell the user it is still being produced and that it will appear on its own; do not say it is ready and do not call produce_file again for it.";
 
+/**
+ * The same shape, for the case where nothing is making the file because file
+ * production is switched off on this server.
+ *
+ * The job is real and durable — it sits in the ledger and runs as soon as
+ * production is switched back on, so nothing the user asked for is lost — but
+ * "still being made" would be a plain untruth while the worker is paused, and
+ * a model told that will keep telling the user to wait for something that is
+ * not happening. The `status` stays `running` because that is the vocabulary
+ * the tool's description gives the model for "queued, not ready"; only the
+ * sentence it relays changes.
+ */
+const PRODUCTION_PAUSED_MESSAGE =
+	"File production is paused on this server, so nothing is making this file at the moment. The request is queued and will be produced as soon as production is switched back on. Tell the user file production is paused and that their file will appear once it resumes; do not say it is ready and do not call produce_file again for it.";
+
 export function buildProduceFileSucceededPayload(params: {
 	jobId: string;
 	files: Array<{
@@ -2269,12 +2284,16 @@ export function buildProduceFileSucceededPayload(params: {
 export function buildProduceFileRunningPayload(params: {
 	jobId: string;
 	reused?: boolean;
+	/** True when the worker is switched off, so nothing is making this file. */
+	productionPaused?: boolean;
 }): ProduceFileModelPayload {
 	return {
 		ok: true,
 		status: "running",
 		jobId: params.jobId,
-		message: STILL_RUNNING_MESSAGE,
+		message: params.productionPaused
+			? PRODUCTION_PAUSED_MESSAGE
+			: STILL_RUNNING_MESSAGE,
 		...(params.reused ? { reused: true } : {}),
 	};
 }

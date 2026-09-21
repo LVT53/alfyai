@@ -184,6 +184,12 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		control: int(60000, 3600000, "min", 60000),
 		effect: "live",
 	},
+	{
+		key: "FILE_PRODUCTION_WORKER_ENABLED",
+		group: "limits",
+		control: { kind: "bool" },
+		effect: "live",
+	},
 
 	// --- Resource limits (document extraction) ------------------------------
 	// All twelve are "live": `extraction/config.ts` resolves every one through

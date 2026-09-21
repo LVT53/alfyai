@@ -22,6 +22,30 @@ import {
 
 type Worker = typeof import("./worker-runner");
 
+/**
+ * Lets a test flip `FILE_PRODUCTION_WORKER_ENABLED` mid-run, the way an admin
+ * write to `admin_config` does — that is the case worth proving, because an
+ * env var read at import can only ever test the boot half of the switch.
+ * `null` passes the real resolved config straight through, so every other test
+ * in this file is untouched.
+ */
+const switchOverride = vi.hoisted(() => ({
+	workerEnabled: null as boolean | null,
+}));
+
+vi.mock("./config", async () => {
+	const actual = await vi.importActual<typeof import("./config")>("./config");
+	return {
+		...actual,
+		getFileProductionWorkerConfig: () => ({
+			...actual.getFileProductionWorkerConfig(),
+			...(switchOverride.workerEnabled === null
+				? {}
+				: { workerEnabled: switchOverride.workerEnabled }),
+		}),
+	};
+});
+
 let fixture: FileProductionLedgerFixture;
 let worker: Worker;
 const userId = "user-1";
@@ -38,6 +62,8 @@ beforeEach(async () => {
 
 	process.env.DATABASE_PATH = fixture.dbPath;
 	delete process.env.FILE_PRODUCTION_STALE_ATTEMPT_MS;
+	delete process.env.FILE_PRODUCTION_WORKER_ENABLED;
+	switchOverride.workerEnabled = null;
 	vi.resetModules();
 	worker = await import("./worker-runner");
 	worker.resetFileProductionWorkerForTests();
@@ -319,6 +345,82 @@ describe("the scheduler's timers", () => {
 		expect(cleared.idleTickArmed).toBe(false);
 		expect(cleared.bootSweepArmed).toBe(false);
 		expect(cleared.running).toBe(false);
+	});
+
+	// FILE_PRODUCTION_WORKER_ENABLED. Extraction and Atlas both had a switch and
+	// file production did not, so the only way to stop it taking work was to
+	// stop the server.
+	it("takes no new work while the worker is switched off", async () => {
+		switchOverride.workerEnabled = false;
+		const jobId = fixture.seedJob({ userId, conversationId });
+		vi.useFakeTimers();
+
+		await bootWorker();
+		// Several ticks' worth, and a wake on top of them: nothing may claim.
+		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS * 4);
+		worker.wakeFileProductionWorker();
+		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS);
+
+		// Queued, not failed: the request is durable and the user loses nothing.
+		expect(fixture.jobStatus(jobId)).toBe("queued");
+
+		// …and the scheduler is still armed, which is what makes the switch live
+		// in the other direction. Returning early at boot instead would mean an
+		// admin who turns it back on gets nothing until the next restart.
+		const state = worker.inspectFileProductionSchedulerForTests();
+		expect(state.running).toBe(true);
+		expect(state.idleTickArmed).toBe(true);
+	});
+
+	it("starts claiming again when it is switched back on, with no restart", async () => {
+		switchOverride.workerEnabled = false;
+		const jobId = fixture.seedJob({ userId, conversationId });
+		vi.useFakeTimers();
+
+		await bootWorker();
+		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS * 2);
+		expect(fixture.jobStatus(jobId)).toBe("queued");
+
+		// The admin flips the key. No restart, no wake — the idle tick re-reads.
+		switchOverride.workerEnabled = true;
+		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS + 1);
+
+		expect(fixture.jobStatus(jobId)).toBe("succeeded");
+		expect(worker.inspectFileProductionSchedulerForTests().wakeRequests).toBe(
+			0,
+		);
+	});
+
+	it("lets an attempt that is already running finish", async () => {
+		// "Paused" means "takes no new work", not "throws away the file someone
+		// is waiting for": the switch must never abandon an attempt mid-flight.
+		const runningId = fixture.seedJob({ userId, conversationId });
+		const queuedId = fixture.seedJob({
+			userId,
+			conversationId,
+			createdAt: new Date("2026-09-20T10:00:00.000Z"),
+		});
+		const held = deferred();
+		vi.useFakeTimers();
+
+		await bootWorker({
+			executeCode: async () => {
+				// Switch off while this attempt is mid-flight.
+				switchOverride.workerEnabled = false;
+				await held.promise;
+				return textOutput();
+			},
+		});
+		await vi.advanceTimersByTimeAsync(1);
+		expect(fixture.jobStatus(runningId)).toBe("running");
+
+		held.release();
+		await vi.advanceTimersByTimeAsync(IDLE_TICK_MS * 2);
+
+		// The in-flight attempt wrote its verdict…
+		expect(fixture.jobStatus(runningId)).toBe("succeeded");
+		// …and the one behind it was not taken.
+		expect(fixture.jobStatus(queuedId)).toBe("queued");
 	});
 
 	it("arms nothing in a non-serving context", async () => {

@@ -158,6 +158,15 @@ const LIVE_JOB_STATUSES = ["queued", "running"] as const;
 async function executeNextFileProductionJobStep(
 	input: ExecuteNextFileProductionJobInput,
 ): Promise<ExecuteNextFileProductionJobStepResult> {
+	// Read per step, never captured, so switching the worker off stops the very
+	// next claim — including the one the drain loop is about to make — without a
+	// restart. An attempt already running is untouched: it keeps its heartbeat
+	// and writes its verdict, because "paused" means "takes no new work", not
+	// "throws away the file someone is waiting for".
+	if (!getFileProductionWorkerConfig().workerEnabled) {
+		return { processed: false, result: null };
+	}
+
 	const now = input.now ?? new Date();
 	const claimed = await claimNextFileProductionJob({
 		workerId: input.workerId,
@@ -578,6 +587,13 @@ async function runIdleTick(): Promise<void> {
 	const state = scheduler();
 	if (!state.running) return;
 
+	// Re-read every tick, which is what makes the switch live in BOTH
+	// directions. The tick stays armed while the worker is off — it is one
+	// early return every 30 s — so switching it back on starts claiming again
+	// at the next tick instead of at the next restart. Checked before the
+	// snapshot query so a paused install does no database work at all.
+	if (!getFileProductionWorkerConfig().workerEnabled) return;
+
 	const snapshot = await readQueueSnapshot();
 	if (snapshot.runningCount === 0 && snapshot.queuedCount === 0) {
 		return;
@@ -666,16 +682,27 @@ export async function ensureFileProductionWorker(
 		idleTickMs: idleTickIntervalMs(config),
 		staleAttemptMs: config.staleAttemptMs,
 		heartbeatMs: config.heartbeatMs,
+		workerEnabled: config.workerEnabled,
 	});
 
-	await runDeadWorkerReclaim(drainInput.workerId ?? DEFAULT_WORKER_ID);
-	await runStaleRecovery(config, "boot");
+	// The timers below are armed whether or not the worker is enabled, and each
+	// one re-reads the switch when it fires. Returning early here instead —
+	// which is what the extraction worker does — would make the switch live in
+	// one direction only: an admin who turned it back on would get nothing
+	// until the next restart, because the scheduler that would have noticed was
+	// never started. Everything that actually takes work is gated, so a paused
+	// install does no database work.
+	if (config.workerEnabled) {
+		await runDeadWorkerReclaim(drainInput.workerId ?? DEFAULT_WORKER_ID);
+		await runStaleRecovery(config, "boot");
+	}
 
 	state.bootSweep = setTimeout(() => {
 		state.bootSweep = null;
 		void (async () => {
 			if (!state.running) return;
 			const current = getFileProductionWorkerConfig();
+			if (!current.workerEnabled) return;
 			const { recovered } = await runStaleRecovery(current, "boot-followup");
 			if (recovered > 0) startDrain();
 		})().catch((error) => {
@@ -685,7 +712,7 @@ export async function ensureFileProductionWorker(
 	state.bootSweep.unref?.();
 
 	startIdleTick(config);
-	startDrain();
+	if (config.workerEnabled) startDrain();
 }
 
 /** Test helper: forget the bootstrap guard and disarm every timer. */

@@ -11,6 +11,7 @@ import {
 	submitFileProductionIntake,
 	waitForFileProductionJobVerdict,
 } from "$lib/server/services/file-production";
+import { getFileProductionWorkerConfig } from "$lib/server/services/file-production/config";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
@@ -472,9 +473,19 @@ async function resolveProduceFileVerdict(params: {
 	});
 
 	if (!verdict.settled) {
+		// A job that is still QUEUED while the worker is switched off is not
+		// "being made" — nothing is making it. It is not lost either: it stays in
+		// the ledger and runs when production is switched back on. Read here
+		// rather than at intake so an admin who paused during the wait is
+		// reflected, and only for a queued job: an attempt already running
+		// finishes whatever the switch says.
+		const paused =
+			verdict.job?.status !== "running" &&
+			!getFileProductionWorkerConfig().workerEnabled;
 		return buildProduceFileRunningPayload({
 			jobId: params.job.id,
 			reused: params.reused,
+			productionPaused: paused,
 		});
 	}
 	if (verdict.job.status === "succeeded") {

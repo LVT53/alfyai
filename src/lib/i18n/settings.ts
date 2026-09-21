@@ -1487,6 +1487,10 @@ const settingsDict = {
 			"Abandoned file production timeout",
 		"admin.system.keys.FILE_PRODUCTION_STALE_ATTEMPT_MS.meaning":
 			"Silence after which a stuck file is offered again.",
+		"admin.system.keys.FILE_PRODUCTION_WORKER_ENABLED.label":
+			"File production worker",
+		"admin.system.keys.FILE_PRODUCTION_WORKER_ENABLED.meaning":
+			"Off queues new files and says so; nothing is lost.",
 		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.label":
 			"Document extraction worker",
 		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.meaning":
@@ -3499,6 +3503,9 @@ const settingsDict = {
 			"Elakadt fájlkészítés időkorlátja",
 		"admin.system.keys.FILE_PRODUCTION_STALE_ATTEMPT_MS.meaning":
 			"Ennyi csend után az elakadt fájl újra felajánlható.",
+		"admin.system.keys.FILE_PRODUCTION_WORKER_ENABLED.label": "Fájlkészítő",
+		"admin.system.keys.FILE_PRODUCTION_WORKER_ENABLED.meaning":
+			"Kikapcsolva az új fájlok sorba állnak, és ez látszik is; semmi nem vész el.",
 		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.label":
 			"Dokumentumfeldolgozó",
 		"admin.system.keys.DOCUMENT_EXTRACTION_WORKER_ENABLED.meaning":
