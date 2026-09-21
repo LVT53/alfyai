@@ -1297,3 +1297,29 @@ owned by a Phase 4 slice. No slice here touches that file.
 - **OQ2, amended.** HTML moves to MinerU `flash`, and there is no second path while MinerU 4 is the backend: an unavailable server is handled by the ledger's retry. But HTML uploads work today, so they must never become refusals: `html` / `htm` carry `requiresMineru4`, and when the gate positively detects a pre-4 backend they fall back to the `direct-text` route instead of being refused. Only formats that never worked before (`rtf`, `odt`, `ods`, `odp`, `epub`) are hidden or refused on a pre-4 backend.
 - **Outputs.** `tsv` is the only new requestable output. `png` / `jpg` stay out until there is a reason to pay for the sandbox packages and the prose change.
 - **Worktrees, toolchain, commits.** First command of every slice: `git checkout -b <slice-branch> <integration-branch>`. Homebrew `node@22`. `mkdir -p data` before `vite build`. Stage by explicit path; never `git add -A`. Do not use `git stash` (shared between worktrees).
+
+---
+
+## Slice P5-A outcome (merged into `mineru4/p56`) — the frozen contract for P5-B, P5-C, P6-A, P6-B, P6-C, P6-D
+
+The merged registry under `src/lib/shared/file-types/` is the contract; where this section or the code disagrees with the body of the spec, the code wins.
+
+**Worktree base.** First command of every slice: `git checkout -b mineru4/p56-<slice> mineru4/p56`, then `mkdir -p data`. On this machine `npx` can resolve to Node 26 and break `better-sqlite3`; use `PATH=/opt/homebrew/opt/node@22/bin:$PATH`, or run `/opt/homebrew/opt/node@22/bin/node node_modules/vitest/vitest.mjs run …` and `…/node node_modules/vite/bin/vite.js build`.
+
+**Table.** 73 entries, 91 extensions, 74 non-reject extensions, 41 requestable output types. New: `epub` (mineru / flash / gated), `ofd` (reject / `formatNotEnabled`, now the only user of that reason). Changed: `html`, `htm` → mineru / flash / `requiresMineru4` with `fallbackRoute: "direct-text"`; `rtf`, `ods`, `odp`, `odt` → mineru / flash / gated (`rtf` has a `{\rtf` byte signature); `tsv` → `direct-text` and requestable as an output (validated as text); `docx`, `xlsx`, `pptx`, `doc`, `xls`, `ppt` gain `tierHint: "flash"`; PDF and images stay unhinted. Every non-reject entry is on both surfaces, so the Knowledge and chat accept strings are identical; `KNOWLEDGE_ACCEPT_OMISSIONS` is empty.
+
+**New fields and accessors.**
+- `FileTypeIntake.requiresMineru4?: true` and `FileTypeIntake.fallbackRoute?: IntakeRoute` (never `"reject"`; absent means "refuse on a pre-4 backend").
+- `getMineru4GatedFileTypeIds()` → `["epub","odp","ods","odt","rtf"]`: hide and refuse these on a POSITIVELY detected pre-4 backend only (the gate fails open).
+- `getMineru4FallbackFileTypeIds()` → `["html"]`; `getIntakeFallbackRoute(filename, mimeType)` → `"direct-text"` for html/htm, else `null`. Apply only on a positive pre-4 answer.
+- `buildAcceptAttribute(surface, disabledEntryIds?)`: the accept string minus the disabled entries, order preserved.
+- `isInlineTextOutputType(type)` in `production.ts`: text-validated and not a document source (`md`, `txt`, `csv`, `tsv`, `json`, code; NOT `html`). P6-B's request-level rule is `types.length > 0 && types.every(isInlineTextOutputType)`.
+
+**Behaviour that changed the moment P5-A merged** (this branch already speaks MinerU 4 only): HTML goes to MinerU `flash` and is no longer subject to the 8 MiB direct-text cap; `.tsv` is admitted as direct text (and gets that cap) and can be requested from `produce_file`; `.rtf`, `.ods`, `.odp`, `.epub` are admitted with NO backend gate yet (P5-B adds it); Office uploads send `tier: flash`; both pickers accept the same 74 extensions.
+
+**Tests left red on purpose, by owner.**
+- **P5-B** (5): `upload/intent/upload-intent.test.ts` (the `memo.rtf` 415 row and the English fallback text become `scan.ofd` / "OFD files aren't supported yet. Save it as PDF or DOCX and upload that."), `upload/chunk/chunk-upload.test.ts` and `upload/raw/raw-upload.test.ts` (`memo.rtf` → `scan.ofd` in the 415 lists), `services/knowledge/upload-signature.test.ts` (drop `memo.rtf` from the never-sniffed list; add a positive `{\rtf1` case and a refusal case).
+- **P5-C** (3): `src/lib/utils/file-drag.test.ts` "defaults to the knowledge surface" (`train.py` is now accepted), `src/lib/components/chat/attachment-category-parity.test.ts` (add `epub` and `ofd` extension deltas and the `application/epub+zip: archive -> text`, `application/ofd: unsupported -> text` MIME deltas; the epub row is the only move between two real glyphs and needs its own note).
+- **P6-D** (1 test, 3 assertions): `format-prose.test.ts` "names exactly two formats produce_file cannot produce" → the exception set shrinks to `xls`; `tsv` is `direct-text` and requestable.
+
+**Model-facing strings.** Nothing changed: every frozen prompt and tool-description literal is byte-identical. `getProducibleFormatList` now ends with ", TSV" but has no runtime consumer; P6-D decides whether to wire it into prose.
