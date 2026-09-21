@@ -240,6 +240,7 @@ interface Config {
 	fileProductionMaxTotalImageBytes: number;
 	fileProductionSandboxTimeoutMs: number;
 	fileProductionRendererTimeoutMs: number;
+	fileProductionStaleAttemptMs: number;
 	fileProductionMaxOutputFileBytes: number;
 	fileProductionMaxTotalOutputBytes: number;
 	documentExtractionWorkerEnabled: boolean;
@@ -1067,6 +1068,16 @@ function readConfig(): Config {
 				process.env.FILE_PRODUCTION_RENDERER_TIMEOUT_MS || "300000",
 				10,
 			) || 300000,
+		),
+		fileProductionStaleAttemptMs: Math.max(
+			60000,
+			Math.min(
+				3600000,
+				parseInt(
+					process.env.FILE_PRODUCTION_STALE_ATTEMPT_MS || "120000",
+					10,
+				) || 120000,
+			),
 		),
 		fileProductionMaxOutputFileBytes: Math.max(
 			1024,

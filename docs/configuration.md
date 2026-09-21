@@ -204,6 +204,18 @@ claim, failure or wait, with no restart.
 | `DOCUMENT_EXTRACTION_PREFLIGHT_WAIT_MS` | No | `2500` | How long Send waits for an attachment that is nearly ready (0–30000) | Set `0` to always ask the user to wait | Bounded and abortable; never waits for a job still queued |
 | `DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES` | No | `8388608` | Largest file read straight in as text without a parser (1024–134217728) | Raise it if users legitimately attach huge logs | 8 MiB of text is roughly 2M tokens and thousands of embedding calls from one upload |
 
+## File Production
+
+Producing a file is durable background work (ADR-0005): the chat turn queues a job and an
+in-process worker claims it, heartbeats while it runs, and reclaims attempts whose worker died.
+This key is editable live on **Settings → System → Advanced** (group *Limits*); a change applies on
+the next sweep, with no restart. The other `FILE_PRODUCTION_*` keys are output and limit knobs and
+are listed on that page rather than here.
+
+| Variable | Required? | Default | What it does | When to set it | Caveats |
+|---|---|---:|---|---|---|
+| `FILE_PRODUCTION_STALE_ATTEMPT_MS` | No | `120000` | Heartbeat silence after which a stuck attempt is reclaimed and the job becomes a retryable failure (60000–3600000) | Raise it only if the box is so loaded that healthy attempts miss four heartbeats in a row | Independent of `FILE_PRODUCTION_SANDBOX_TIMEOUT_MS` and `FILE_PRODUCTION_RENDERER_TIMEOUT_MS`: a running attempt heartbeats on its own timer. The effective value is `max(this, 60000)`, four heartbeat periods. One stuck `running` row blocks every other production, so raising this raises how long that can last |
+
 ## Maps And Routing
 
 Base configuration for the `map_route` tool and the inline map-card tile proxy. On-demand region
