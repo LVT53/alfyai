@@ -1215,6 +1215,73 @@ describe("schema core tables", () => {
 		});
 	});
 
+	// The claim runs `status = 'running' limit 1` and then
+	// `status = 'queued' order by created_at asc limit 1`; the idle tick runs one
+	// aggregate over the same two statuses, forever, on boxes where nobody
+	// produces anything. All three used to scan the whole table.
+	describe("file_production_jobs live-claim index", () => {
+		it("is a partial index on (status, created_at) over the live statuses", () => {
+			const indexNames = (
+				sqlite.prepare("PRAGMA index_list(file_production_jobs)").all() as {
+					name: string;
+					partial: number;
+				}[]
+			).map((index) => index.name);
+			expect(indexNames).toContain("file_production_jobs_live_claim_idx");
+
+			const partial = (
+				sqlite.prepare("PRAGMA index_list(file_production_jobs)").all() as {
+					name: string;
+					partial: number;
+				}[]
+			).find((index) => index.name === "file_production_jobs_live_claim_idx");
+			expect(partial?.partial).toBe(1);
+
+			// `created_at` second, so the claim's ORDER BY needs no temp b-tree.
+			const columns = sqlite
+				.prepare("PRAGMA index_info(file_production_jobs_live_claim_idx)")
+				.all() as { name: string }[];
+			expect(columns.map((column) => column.name)).toEqual([
+				"status",
+				"created_at",
+			]);
+		});
+
+		// SQLite only uses a partial index when it can see the index's own WHERE
+		// terms in the query's. It proves `status = 'running'` implies
+		// `status = 'queued' or status = 'running'` and does NOT prove it implies
+		// `status in ('queued','running')`, so the predicate is spelled with
+		// `or`. Spelled the other way, both claim probes went back to a scan
+		// while the plan for the idle tick still looked healthy — which is why
+		// this is asserted on the plan rather than on the DDL text.
+		it("is the plan the claim and the idle tick actually get", () => {
+			const planFor = (sql: string) =>
+				(
+					sqlite.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as {
+						detail: string;
+					}[]
+				)
+					.map((row) => row.detail)
+					.join(" | ");
+
+			expect(
+				planFor(
+					"SELECT id FROM file_production_jobs WHERE status = 'running' LIMIT 1",
+				),
+			).toContain("file_production_jobs_live_claim_idx");
+			const queued = planFor(
+				"SELECT * FROM file_production_jobs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1",
+			);
+			expect(queued).toContain("file_production_jobs_live_claim_idx");
+			expect(queued).not.toContain("TEMP B-TREE");
+			expect(
+				planFor(
+					"SELECT sum(case when status = 'running' then 1 else 0 end), sum(case when status = 'queued' then 1 else 0 end) FROM file_production_jobs WHERE status = 'queued' or status = 'running'",
+				),
+			).toContain("file_production_jobs_live_claim_idx");
+		});
+	});
+
 	describe("artifacts auto-rename index", () => {
 		it("indexes (user_id, name) so a collision check is not a per-user scan", () => {
 			const indexNames = (
@@ -1257,7 +1324,19 @@ describe("MINERU_TIMEOUT_MS override migration", () => {
 		rmSync(workDir, { recursive: true, force: true });
 	});
 
-	function migrationsFolderWithoutMineru4(): string {
+	/**
+	 * The migrations folder as it stood the moment BEFORE the MinerU 4
+	 * migration — every entry up to it, and none after.
+	 *
+	 * "Every migration except that one" is the same thing only while it is the
+	 * last entry, and it stopped being the last entry. Drizzle decides what to
+	 * apply by comparing each migration's `folderMillis` against the newest one
+	 * already recorded, so replaying a folder that still held the LATER
+	 * migrations left a newer timestamp in `__drizzle_migrations` and the second
+	 * pass skipped the MinerU 4 file entirely — the test then asserted a rename
+	 * that had never been given the chance to run.
+	 */
+	function migrationsFolderBeforeMineru4(): string {
 		const folder = join(workDir, "drizzle-before");
 		if (existsSync(folder)) return folder;
 		mkdirSync(join(folder, "meta"), { recursive: true });
@@ -1265,10 +1344,12 @@ describe("MINERU_TIMEOUT_MS override migration", () => {
 		const journal = JSON.parse(
 			readFileSync("./drizzle/meta/_journal.json", "utf8"),
 		) as { entries: Array<{ tag: string }> };
-		const kept = journal.entries.filter(
-			(entry) => entry.tag !== MINERU4_MIGRATION_TAG,
+		const cutoff = journal.entries.findIndex(
+			(entry) => entry.tag === MINERU4_MIGRATION_TAG,
 		);
-		expect(kept.length).toBe(journal.entries.length - 1);
+		expect(cutoff).toBeGreaterThan(0);
+		const kept = journal.entries.slice(0, cutoff);
+		const keptTags = new Set(kept.map((entry) => entry.tag));
 		writeFileSync(
 			join(folder, "meta", "_journal.json"),
 			JSON.stringify({ ...journal, entries: kept }),
@@ -1276,7 +1357,7 @@ describe("MINERU_TIMEOUT_MS override migration", () => {
 
 		for (const file of readdirSync("./drizzle")) {
 			if (!file.endsWith(".sql")) continue;
-			if (file === `${MINERU4_MIGRATION_TAG}.sql`) continue;
+			if (!keptTags.has(file.slice(0, -".sql".length))) continue;
 			copyFileSync(join("./drizzle", file), join(folder, file));
 		}
 		return folder;
@@ -1289,7 +1370,7 @@ describe("MINERU_TIMEOUT_MS override migration", () => {
 	}
 
 	it("carries an existing override over to MINERU_JOB_TIMEOUT_MS", () => {
-		const before = migrationsFolderWithoutMineru4();
+		const before = migrationsFolderBeforeMineru4();
 		const { sqlite, db } = openDb("carry-over.db");
 		try {
 			migrate(db, { migrationsFolder: before });
@@ -1330,7 +1411,7 @@ describe("MINERU_TIMEOUT_MS override migration", () => {
 	});
 
 	it("lets an already-set MINERU_JOB_TIMEOUT_MS win and still drops the old row", () => {
-		const before = migrationsFolderWithoutMineru4();
+		const before = migrationsFolderBeforeMineru4();
 		const { sqlite, db } = openDb("already-set.db");
 		try {
 			migrate(db, { migrationsFolder: before });
@@ -1356,7 +1437,7 @@ describe("MINERU_TIMEOUT_MS override migration", () => {
 	});
 
 	it("is a no-op for a database that never had the override", () => {
-		const before = migrationsFolderWithoutMineru4();
+		const before = migrationsFolderBeforeMineru4();
 		const { sqlite, db } = openDb("no-override.db");
 		try {
 			migrate(db, { migrationsFolder: before });

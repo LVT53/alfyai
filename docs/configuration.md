@@ -209,12 +209,13 @@ claim, failure or wait, with no restart.
 
 Producing a file is durable background work (ADR-0005): the chat turn queues a job and an
 in-process worker claims it, heartbeats while it runs, and reclaims attempts whose worker died.
-This key is editable live on **Settings → System → Advanced** (group *Limits*); a change applies on
-the next sweep, with no restart. The other `FILE_PRODUCTION_*` keys are output and limit knobs and
-are listed on that page rather than here.
+These keys are editable live on **Settings → System → Advanced** (group *Limits*); a change applies
+on the next claim or the next sweep, with no restart. The other `FILE_PRODUCTION_*` keys are output
+and limit knobs and are listed on that page rather than here.
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
+| `FILE_PRODUCTION_WORKER_ENABLED` | No | `true` | Runs the background file-production worker | Set `false` to pause file production during maintenance | Live in both directions: off stops the next claim and leaves an attempt already running to finish; on starts claiming again at the next idle tick. Requests made while it is off are queued, not failed — the file card reads *Queued — waiting for the file worker* and `produce_file` tells the model production is paused rather than that the file is being made |
 | `FILE_PRODUCTION_STALE_ATTEMPT_MS` | No | `120000` | Heartbeat silence after which a stuck attempt is reclaimed and the job becomes a retryable failure (60000–3600000) | Raise it only if the box is so loaded that healthy attempts miss four heartbeats in a row | Independent of `FILE_PRODUCTION_SANDBOX_TIMEOUT_MS` and `FILE_PRODUCTION_RENDERER_TIMEOUT_MS`: a running attempt heartbeats on its own timer. The effective value is `max(this, 60000)`, four heartbeat periods. One stuck `running` row blocks every other production, so raising this raises how long that can last |
 
 ## Maps And Routing

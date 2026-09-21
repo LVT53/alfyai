@@ -68,6 +68,8 @@ const DATA_URI_IMAGE_PATTERN = /\(data:([^;,)]+);base64,[^)]*\)/g;
 function buildGeneratedDocumentSourceText(
 	source: GeneratedDocumentSource,
 	renderedMarkdown: string | undefined,
+	/** Ids for the log line below; the document's own words never go in it. */
+	logContext?: { fileProductionJobId?: string | null },
 ): string | null {
 	let markdown = renderedMarkdown;
 	if (markdown === undefined) {
@@ -78,9 +80,19 @@ function buildGeneratedDocumentSourceText(
 			// close to unreachable — and if it ever fires, the file still exists
 			// and `chat-files.ts` falls through to a readback for the rendered
 			// binaries, which is exactly what a non-source generated file does.
+			//
+			// The title used to be in this line. A document title is chosen by the
+			// user or the model and is the document's content, which log lines do
+			// not carry: they carry ids, counts, codes and durations. The job id
+			// finds the document; its shape says what failed to render.
 			console.warn(
 				"[FILE_PRODUCTION] Generated document markdown render failed; the rendered files keep their own readback",
-				{ title: source.title, error },
+				{
+					fileProductionJobId: logContext?.fileProductionJobId ?? null,
+					titleLength: source.title.length,
+					blockCount: source.blocks.length,
+					error,
+				},
 			);
 			return null;
 		}
@@ -211,6 +223,7 @@ export async function persistGeneratedDocumentSourceArtifact(
 	const documentText = buildGeneratedDocumentSourceText(
 		source,
 		input.renderedMarkdown,
+		{ fileProductionJobId: input.fileProductionJobId },
 	);
 	const existing = await findGeneratedDocumentSourceArtifactForJob({
 		userId: input.userId,

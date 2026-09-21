@@ -1548,6 +1548,24 @@ export const fileProductionJobs = sqliteTable(
 			table.sourceMode,
 			table.createdAt,
 		),
+		// The claim and the idle tick, and nothing else. Both used to scan the
+		// whole table on every claim and every tick, which on a busy ledger is a
+		// scan of mostly terminal rows to find the handful that are still live.
+		//
+		// Partial, so the index holds only those live rows (5 of 20 000 in the
+		// measurement). Written as two `=` terms joined by `or` rather than an
+		// `in (…)` list on purpose: SQLite only uses a partial index when it can
+		// see the index's own WHERE terms in the query's, and it proves
+		// `status = 'running'` implies `status = 'queued' or status = 'running'`
+		// while it does NOT prove it implies `status in ('queued','running')`.
+		// With the `in` spelling the claim probes still scanned.
+		// `readQueueSnapshot` uses the same `or` spelling for the same reason.
+		//
+		// `createdAt` second so the claim's `order by created_at asc` is served
+		// by the index order instead of a temp b-tree.
+		liveClaimIdx: index("file_production_jobs_live_claim_idx")
+			.on(table.status, table.createdAt)
+			.where(sql`${table.status} = 'queued' or ${table.status} = 'running'`),
 	}),
 );
 

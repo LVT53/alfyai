@@ -229,6 +229,14 @@ export function applyTextPatches(
 
 // ── Input normalization ────────────────────────────────────────
 
+/**
+ * What a request that sends both a change and a replacement is told. One
+ * sentence naming both halves, and the one thing to do about it, because the
+ * model has to be able to resend without guessing which field offended.
+ */
+export const PATCHES_WITH_OWN_CONTENT_ERROR =
+	"Send either the full content or patches, not both: patches change the previous version of the file, while content, markdown, text, documentSource and program replace it entirely. Resend this call with only one of them.";
+
 export function normalizeProduceFileInput(
 	input: ProduceFileInput,
 ):
@@ -245,26 +253,36 @@ export function normalizeProduceFileInput(
 		input.content,
 		input.text,
 	);
+	// `patches` and content of the request's own are two different claims about
+	// the same file: the patches describe a CHANGE to the previous version,
+	// while `content`/`markdown`/`text`, a `documentSource` or a `program`
+	// describe the WHOLE new version. A request that sends both says two
+	// incompatible things, and whichever one this function honoured, the other
+	// was thrown away without a word — an explicit `sourceMode` took the
+	// content and dropped the patches, no mode took the patches and dropped the
+	// content, and both reported success on a file the model did not ask for.
+	// Neither half is safe to guess at, so the call is refused and the model is
+	// told to resend with one of them.
+	const hasPatches = Array.isArray(input.patches) && input.patches.length > 0;
+	const hasOwnContent = Boolean(
+		content || input.documentSource || input.program,
+	);
+	if (hasPatches && hasOwnContent) {
+		return {
+			ok: false,
+			error: PATCHES_WITH_OWN_CONTENT_ERROR,
+		};
+	}
 	// A patch brings its own content: the base file, plus the edit. So a request
-	// that carries `patches` and nothing else to produce from has named no mode
-	// it can be held to — the mode follows from the base file and the requested
-	// outputs, which the patch path below (and the adapter, once it HAS the
-	// patched bytes) decides. Validating the named mode against content the
-	// model was never going to send is what refused the live call
-	// `{filename, sourceMode: "document_source", patches}` with "documentSource
-	// or content is required", after which the model gave up on patching and
-	// rewrote the whole file.
-	//
-	// A model-authored `program` or `documentSource` is content of its own, so
-	// those calls are untouched: they keep running their own writer with the
-	// patched text folded in.
-	const patchesAreTheWholeRequest =
-		Array.isArray(input.patches) &&
-		input.patches.length > 0 &&
-		!content &&
-		!input.documentSource &&
-		!input.program;
-	const explicitMode = patchesAreTheWholeRequest ? undefined : input.sourceMode;
+	// that carries `patches` — and, after the refusal above, nothing else to
+	// produce from — has named no mode it can be held to: the mode follows from
+	// the base file and the requested outputs, which the patch path below (and
+	// the adapter, once it HAS the patched bytes) decides. Validating the named
+	// mode against content the model was never going to send is what refused the
+	// live call `{filename, sourceMode: "document_source", patches}` with
+	// "documentSource or content is required", after which the model gave up on
+	// patching and rewrote the whole file.
+	const explicitMode = hasPatches ? undefined : input.sourceMode;
 
 	if (explicitMode === "program" || input.program) {
 		if (!input.program) {
@@ -384,7 +402,6 @@ export function normalizeProduceFileInput(
 					sourceMode: "document_source",
 					documentIntent: input.documentIntent ?? "document",
 					templateHint: input.templateHint,
-					patches: normalizePatches(input.patches),
 					documentSource: buildDocumentSourceFromText({
 						title: requestTitle,
 						text: content,
@@ -394,12 +411,13 @@ export function normalizeProduceFileInput(
 		}
 		const mixed = refuseMixedOutputGroups(requestedOutputs);
 		if (mixed) return mixed;
-		const patches = normalizePatches(input.patches);
 		// Phase 6 D8: the bytes are already here and every output is a plain-text
-		// type, so nothing has to run. Patch-carrying calls stay on the program
-		// path — the tool adapter resolves a patch against the PREVIOUS version
-		// of the file and rewrites `program.sourceCode` to do it.
-		if (!patches && isInlineTextRequest(outputTypesOf(requestedOutputs))) {
+		// type, so nothing has to run. This branch never carries patches — a
+		// request holding both was refused above — so the mode follows from the
+		// output types alone. It is also the branch the adapter re-enters with
+		// the PATCHED bytes as `content`, which is how a patched `.md` reaches
+		// `inline_text` instead of starting a container.
+		if (isInlineTextRequest(outputTypesOf(requestedOutputs))) {
 			return {
 				ok: true,
 				input: {
@@ -432,7 +450,6 @@ export function normalizeProduceFileInput(
 				sourceMode: "program",
 				documentIntent: input.documentIntent ?? "data export",
 				templateHint: input.templateHint,
-				patches,
 				program: buildTextFileProgram({
 					content,
 					filename: resolveTextFilename({
@@ -2227,6 +2244,21 @@ export type ProduceFileModelPayload =
 const STILL_RUNNING_MESSAGE =
 	"The file is still being made and does not exist yet. Tell the user it is still being produced and that it will appear on its own; do not say it is ready and do not call produce_file again for it.";
 
+/**
+ * The same shape, for the case where nothing is making the file because file
+ * production is switched off on this server.
+ *
+ * The job is real and durable — it sits in the ledger and runs as soon as
+ * production is switched back on, so nothing the user asked for is lost — but
+ * "still being made" would be a plain untruth while the worker is paused, and
+ * a model told that will keep telling the user to wait for something that is
+ * not happening. The `status` stays `running` because that is the vocabulary
+ * the tool's description gives the model for "queued, not ready"; only the
+ * sentence it relays changes.
+ */
+const PRODUCTION_PAUSED_MESSAGE =
+	"File production is paused on this server, so nothing is making this file at the moment. The request is queued and will be produced as soon as production is switched back on. Tell the user file production is paused and that their file will appear once it resumes; do not say it is ready and do not call produce_file again for it.";
+
 export function buildProduceFileSucceededPayload(params: {
 	jobId: string;
 	files: Array<{
@@ -2252,12 +2284,16 @@ export function buildProduceFileSucceededPayload(params: {
 export function buildProduceFileRunningPayload(params: {
 	jobId: string;
 	reused?: boolean;
+	/** True when the worker is switched off, so nothing is making this file. */
+	productionPaused?: boolean;
 }): ProduceFileModelPayload {
 	return {
 		ok: true,
 		status: "running",
 		jobId: params.jobId,
-		message: STILL_RUNNING_MESSAGE,
+		message: params.productionPaused
+			? PRODUCTION_PAUSED_MESSAGE
+			: STILL_RUNNING_MESSAGE,
 		...(params.reused ? { reused: true } : {}),
 	};
 }

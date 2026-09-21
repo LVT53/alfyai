@@ -1580,6 +1580,84 @@ describe("chat-files service", () => {
 				}),
 			);
 		});
+
+		// The owner's ruling: a document family is per user and per filename
+		// ACROSS conversations, so continuing a file in a NEW conversation joins
+		// the same family rather than starting a second one at v1. That is what
+		// makes the first `report.pdf` of a fresh conversation honestly v3, and
+		// it is the half `read_generated_file` and `produce_file` patches now
+		// match by being able to reach the earlier version.
+		it("continues the family when the new version lands in another conversation", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			const previousUpdatedAt = new Date("2026-01-01T12:00:00.000Z");
+			mockArtifactRows.push({
+				id: "artifact-prev",
+				userId: "user-1",
+				type: "generated_output",
+				retrievalClass: "durable",
+				name: "report.pdf",
+				mimeType: "text/markdown",
+				sizeBytes: 1200,
+				conversationId: "conv-a",
+				summary: "Previous report summary",
+				metadataJson: JSON.stringify({
+					generatedFile: true,
+					generatedFilename: "report.pdf",
+					generatedFileVersion: 2,
+					documentFamilyId: "family-report",
+					documentFamilyStatus: "active",
+					documentLabel: "report.pdf",
+					documentRole: "draft",
+					versionNumber: 2,
+					sourceChatFileId: "file-prev",
+				}),
+				contentText: "Previous generated report body.",
+				extension: "md",
+				storagePath: null,
+				createdAt: previousUpdatedAt,
+				updatedAt: previousUpdatedAt,
+			});
+			mockRows.push({
+				id: "file-next",
+				conversationId: "conv-b",
+				assistantMessageId: "assistant-next",
+				userId: "user-1",
+				filename: "report.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 5000,
+				storagePath: "conv-b/file-next.pdf",
+				createdAt: new Date("2026-01-02T12:00:00.000Z"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-b",
+				assistantMessageId: "assistant-next",
+				fileIds: ["file-next"],
+				assistantResponse: "Here is the revised report.",
+			});
+
+			expect(mockCreateGeneratedOutputArtifact).toHaveBeenCalledWith(
+				expect.objectContaining({
+					conversationId: "conv-b",
+					metadata: expect.objectContaining({
+						documentFamilyId: "family-report",
+						documentLabel: "report.pdf",
+						versionNumber: 3,
+						// Still linked to the version from the OTHER conversation.
+						supersedesArtifactId: "artifact-prev",
+						originConversationId: "conv-b",
+					}),
+				}),
+			);
+			expect(mockCreateArtifactLink).toHaveBeenCalledWith(
+				expect.objectContaining({
+					relatedArtifactId: "artifact-prev",
+					conversationId: "conv-b",
+					linkType: "supersedes",
+				}),
+			);
+		});
 	});
 
 	describe("deleteChatFile", () => {

@@ -8,6 +8,11 @@
 import { getConfig } from "$lib/server/config-store";
 
 export interface FileProductionWorkerConfig {
+	/**
+	 * Whether the worker may claim. Off stops NEW claims at the next claim and
+	 * the next tick, and leaves an attempt already running alone to finish.
+	 */
+	workerEnabled: boolean;
 	/** Heartbeat silence after which a running attempt is called dead. */
 	staleAttemptMs: number;
 	/** How often a running attempt writes `heartbeat_at`. */
@@ -60,14 +65,21 @@ export const FILE_PRODUCTION_STALE_HEARTBEAT_FLOOR = 4;
 export const FILE_PRODUCTION_DEFAULT_STALE_ATTEMPT_MS = 120_000;
 
 export function getFileProductionWorkerConfig(): FileProductionWorkerConfig {
-	const stored = (getConfig() as { fileProductionStaleAttemptMs?: number })
-		.fileProductionStaleAttemptMs;
+	const config = getConfig() as {
+		fileProductionStaleAttemptMs?: number;
+		fileProductionWorkerEnabled?: boolean;
+	};
+	const stored = config.fileProductionStaleAttemptMs;
 	const configured =
 		typeof stored === "number" && Number.isFinite(stored) && stored > 0
 			? stored
 			: FILE_PRODUCTION_DEFAULT_STALE_ATTEMPT_MS;
 
 	return {
+		// Default ON for a config object that predates the key — a worker that
+		// silently stopped taking work because a field was missing would look
+		// exactly like the bug this switch exists to work around.
+		workerEnabled: config.fileProductionWorkerEnabled !== false,
 		staleAttemptMs: Math.max(
 			configured,
 			FILE_PRODUCTION_HEARTBEAT_MS * FILE_PRODUCTION_STALE_HEARTBEAT_FLOOR,

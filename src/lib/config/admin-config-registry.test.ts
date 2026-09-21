@@ -67,8 +67,8 @@ describe("advanced key registry", () => {
 		// The redesign's premise: the settings that used to be env-only are all
 		// reachable here. A drop in this number means a key silently lost its UI.
 		// 84 before the document-extraction ledger, + its 11 keys = 95,
-		// + the 12 MinerU 4 keys = 107.
-		expect(ADVANCED_KEY_SPECS.length).toBeGreaterThanOrEqual(107);
+		// + the 12 MinerU 4 keys = 107, + FILE_PRODUCTION_WORKER_ENABLED = 108.
+		expect(ADVANCED_KEY_SPECS.length).toBeGreaterThanOrEqual(108);
 	});
 });
 
@@ -240,7 +240,6 @@ describe("url controls and unwired keys", () => {
 		for (const key of [
 			"TEI_RERANKER_MODEL",
 			"FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
-			"FILE_PRODUCTION_RENDERER_TIMEOUT_MS",
 			"WORKING_SET_DOCUMENT_TOKEN_BUDGET",
 			"WORKING_SET_PROMPT_TOKEN_BUDGET",
 		]) {
@@ -258,7 +257,6 @@ describe("url controls and unwired keys", () => {
 // three places.
 describe("the inert set", () => {
 	const EXPECTED = [
-		"FILE_PRODUCTION_RENDERER_TIMEOUT_MS",
 		"FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
 		"TEI_RERANKER_MODEL",
 		"WORKING_SET_DOCUMENT_TOKEN_BUDGET",

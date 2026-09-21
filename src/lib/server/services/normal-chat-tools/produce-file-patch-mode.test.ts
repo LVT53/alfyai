@@ -137,10 +137,13 @@ async function seedChatFileOnDisk(params: {
 	filename: string;
 	content: string;
 	createdAt?: Date;
+	conversationId?: string;
+	userId?: string;
 }): Promise<string> {
 	const chatFileId = randomUUID();
+	const conversationId = params.conversationId ?? CONVERSATION;
 	const extension = params.filename.split(".").pop() ?? "bin";
-	const storagePath = join(CONVERSATION, `${chatFileId}.${extension}`);
+	const storagePath = join(conversationId, `${chatFileId}.${extension}`);
 	const absolute = join(CHAT_FILES_DIR, storagePath);
 	await mkdir(dirname(absolute), { recursive: true });
 	await writeFile(absolute, params.content, "utf8");
@@ -150,8 +153,8 @@ async function seedChatFileOnDisk(params: {
 		.insert(schema.chatGeneratedFiles)
 		.values({
 			id: chatFileId,
-			userId: USER,
-			conversationId: CONVERSATION,
+			userId: params.userId ?? USER,
+			conversationId,
 			filename: params.filename,
 			mimeType: "text/markdown",
 			storagePath,
@@ -694,11 +697,37 @@ describe("a patch whose outputs are all plain text", () => {
 	});
 });
 
-describe("every other patch-carrying request is unchanged", () => {
-	it("resolves a model-authored program's patch into program.sourceCode", async () => {
+/**
+ * A request may bring patches, or it may bring the whole new version — never
+ * both.
+ *
+ * These calls used to be accepted, and whichever half the branch order
+ * happened to reach was the one that ran: an explicit `sourceMode` took the
+ * content and threw the patches away, a model-authored `program` ran its own
+ * code with the patch folded in or not at all. Either way a request the model
+ * meant as "change these two lines" could ship a file built from something
+ * else and report success. The two claims contradict each other, so the call
+ * is refused and the model told to pick one.
+ */
+describe("a patch-carrying request that also brings its own content", () => {
+	async function refusal(
+		input: Record<string, unknown>,
+	): Promise<{ status: string; errorCode: string | null; message?: string }> {
+		const { tools } = createNormalChatTools({
+			userId: USER,
+			conversationId: CONVERSATION,
+			turnId: "turn-1",
+		});
+		return (await tools.produce_file.execute(input, {
+			toolCallId: "tool-call-1",
+			messages: [],
+		})) as { status: string; errorCode: string | null; message?: string };
+	}
+
+	it("refuses a model-authored program sent with patches", async () => {
 		seedPreviousVersion(PREVIOUS_MARKDOWN);
 
-		const body = await callProduceFile({
+		const result = await refusal({
 			requestTitle: TITLE,
 			outputType: "xlsx",
 			sourceMode: "program",
@@ -710,36 +739,32 @@ describe("every other patch-carrying request is unchanged", () => {
 			patches: [{ oldText: "North", newText: "South" }],
 		});
 
-		// `xlsx` is not an inline-text type, so nothing about this path moved:
-		// the program is still what runs.
-		expect(body.sourceMode).toBe("program");
-		expect(body.inlineText).toBeUndefined();
-		expect(body.program).toEqual(
-			expect.objectContaining({ filename: "quarterly-summary.xlsx" }),
-		);
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("invalid_tool_input");
+		expect(result.message).toContain("not both");
+		expect(submitIntakeMock).not.toHaveBeenCalled();
 	});
 
-	it("leaves a PDF patch on the document_source path", async () => {
+	it("refuses markdown sent with patches", async () => {
 		seedPreviousVersion(PREVIOUS_MARKDOWN);
 
-		const body = await callProduceFile({
+		const result = await refusal({
 			requestTitle: TITLE,
 			outputType: "pdf",
 			markdown: PREVIOUS_MARKDOWN,
 			patches: [{ oldText: "North", newText: "South" }],
 		});
 
-		expect(body.sourceMode).toBe("document_source");
-		expect(body.inlineText).toBeUndefined();
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("invalid_tool_input");
+		expect(result.message).toContain("not both");
+		expect(submitIntakeMock).not.toHaveBeenCalled();
 	});
 
-	it("writes a text patch through a program when the model authored one", async () => {
-		// An explicit `program` for a `.md` output is the model saying it wants
-		// code to run. The inline path is for the requests where the SERVER
-		// picks the writer, so this one keeps its container.
+	it("refuses a model-authored text program sent with patches", async () => {
 		seedPreviousVersion(PREVIOUS_MARKDOWN);
 
-		const body = await callProduceFile({
+		const result = await refusal({
 			requestTitle: TITLE,
 			outputType: "md",
 			sourceMode: "program",
@@ -751,8 +776,10 @@ describe("every other patch-carrying request is unchanged", () => {
 			patches: [{ oldText: "North", newText: "South" }],
 		});
 
-		expect(body.sourceMode).toBe("program");
-		expect(body.inlineText).toBeUndefined();
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("invalid_tool_input");
+		expect(result.message).toContain("not both");
+		expect(submitIntakeMock).not.toHaveBeenCalled();
 	});
 });
 
@@ -778,7 +805,6 @@ describe("a patch whose outputs are a document", () => {
 		const body = await callProduceFile({
 			requestTitle: TITLE,
 			outputType: "pdf",
-			markdown: PREVIOUS_MARKDOWN,
 			patches: [{ oldText: "| North | 24.25 |", newText: "| South | 25.75 |" }],
 		});
 
@@ -869,7 +895,6 @@ describe("a patch whose outputs are a document", () => {
 			{
 				requestTitle: TITLE,
 				outputType: "pdf",
-				markdown: PREVIOUS_MARKDOWN,
 				patches: [{ oldText: "nothing like this exists", newText: "x" }],
 			},
 			{ toolCallId: "tool-call-1", messages: [] },
@@ -890,7 +915,6 @@ describe("a patch whose outputs are a document", () => {
 			{
 				requestTitle: TITLE,
 				outputType: "pdf",
-				markdown: PREVIOUS_MARKDOWN,
 				patches: [{ oldText: "North", newText: "South" }],
 			},
 			{ toolCallId: "tool-call-1", messages: [] },
@@ -996,6 +1020,134 @@ describe("a patch request whose sourceMode names a mode it brought no content fo
 			filename: "alpha-notes.md",
 			sourceMode: "document_source",
 			patches: [{ oldText: "Line three", newText: "Line 3" }],
+		});
+
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("no_previous_version_for_patches");
+	});
+});
+
+/**
+ * The other half of the owner's ruling on cross-conversation families.
+ *
+ * A generated file's family and version number already span conversations, so
+ * a patch aimed at the release notes from a fresh conversation was aimed at a
+ * file `produce_file` could not reach: it answered
+ * `no_previous_version_for_patches` for a document the app itself had just
+ * called v2. An explicitly NAMED file may now come from an earlier
+ * conversation; an inferred one may not.
+ */
+describe("patching a file made in an earlier conversation", () => {
+	const EARLIER_CONVERSATION = "conversation-earlier";
+
+	function seedOtherConversation(id = EARLIER_CONVERSATION, userId = USER) {
+		memory.db
+			.insert(schema.conversations)
+			.values({
+				id,
+				userId,
+				title: "Earlier",
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+	}
+
+	it("uses the named file from elsewhere as the base", async () => {
+		seedOtherConversation();
+		await seedChatFileOnDisk({
+			filename: "quarterly-summary.md",
+			content: PREVIOUS_MARKDOWN,
+			conversationId: EARLIER_CONVERSATION,
+		});
+
+		const body = await callProduceFile({
+			requestTitle: TITLE,
+			filename: "quarterly-summary.md",
+			patches: [{ oldText: "| North | 24.25 |", newText: "| South | 25.75 |" }],
+		});
+
+		// Patched from the earlier version, and written into THIS conversation
+		// under the SAME filename — the next version of that family, not a fork.
+		expect(body.conversationId).toBe(CONVERSATION);
+		expect(body.sourceMode).toBe("inline_text");
+		expect(body.inlineText).toMatchObject({
+			files: [{ filename: "quarterly-summary.md", outputType: "md" }],
+		});
+		const content = (body.inlineText as { content: string }).content;
+		expect(content).toContain("| South | 25.75 |");
+		expect(content).not.toContain("| North | 24.25 |");
+	});
+
+	it("prefers this conversation's copy over the earlier one", async () => {
+		seedOtherConversation();
+		await seedChatFileOnDisk({
+			filename: "quarterly-summary.md",
+			content: PREVIOUS_MARKDOWN,
+			conversationId: EARLIER_CONVERSATION,
+		});
+		await seedChatFileOnDisk({
+			filename: "quarterly-summary.md",
+			content: PREVIOUS_MARKDOWN.replace(
+				"| North | 24.25 |",
+				"| East | 11.00 |",
+			),
+			createdAt: new Date("2026-09-21T10:00:00.000Z"),
+		});
+
+		const body = await callProduceFile({
+			requestTitle: TITLE,
+			filename: "quarterly-summary.md",
+			patches: [{ oldText: "| East | 11.00 |", newText: "| West | 12.00 |" }],
+		});
+
+		const content = (body.inlineText as { content: string }).content;
+		expect(content).toContain("| West | 12.00 |");
+	});
+
+	it("does not guess across conversations without a filename", async () => {
+		// Title-only resolution stays scoped to THIS conversation: reaching into
+		// another one on a guess would let "update the summary" rewrite a
+		// document the user has not mentioned here at all.
+		seedOtherConversation();
+		await seedChatFileOnDisk({
+			filename: "quarterly-summary.md",
+			content: PREVIOUS_MARKDOWN,
+			conversationId: EARLIER_CONVERSATION,
+		});
+
+		const result = await refuseProduceFile({
+			requestTitle: TITLE,
+			patches: [{ oldText: "| North | 24.25 |", newText: "| South | 25.75 |" }],
+		});
+
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("no_previous_version_for_patches");
+	});
+
+	it("never patches another user's file of the same name", async () => {
+		memory.db
+			.insert(schema.users)
+			.values({
+				id: "user-2",
+				email: "user-2@example.com",
+				passwordHash: "hash",
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+		seedOtherConversation("conversation-foreign", "user-2");
+		await seedChatFileOnDisk({
+			filename: "quarterly-summary.md",
+			content: PREVIOUS_MARKDOWN,
+			conversationId: "conversation-foreign",
+			userId: "user-2",
+		});
+
+		const result = await refuseProduceFile({
+			requestTitle: TITLE,
+			filename: "quarterly-summary.md",
+			patches: [{ oldText: "| North | 24.25 |", newText: "| South | 25.75 |" }],
 		});
 
 		expect(result.status).toBe("failed");

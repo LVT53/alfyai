@@ -175,6 +175,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"FILE_PRODUCTION_MAX_OUTPUT_FILE_BYTES",
 	"FILE_PRODUCTION_MAX_TOTAL_OUTPUT_BYTES",
 	"FILE_PRODUCTION_STALE_ATTEMPT_MS",
+	"FILE_PRODUCTION_WORKER_ENABLED",
 	"DOCUMENT_EXTRACTION_WORKER_ENABLED",
 	"DOCUMENT_EXTRACTION_MAX_CONCURRENCY",
 	"DOCUMENT_EXTRACTION_PER_USER_CONCURRENCY",
@@ -376,6 +377,7 @@ export interface RuntimeConfig {
 	fileProductionMaxOutputFileBytes: number;
 	fileProductionMaxTotalOutputBytes: number;
 	fileProductionStaleAttemptMs: number;
+	fileProductionWorkerEnabled: boolean;
 	documentExtractionWorkerEnabled: boolean;
 	documentExtractionMaxConcurrency: number;
 	documentExtractionPerUserConcurrency: number;
@@ -1280,6 +1282,9 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 				Math.min(3600000, parsed),
 			);
 	},
+	FILE_PRODUCTION_WORKER_ENABLED: (config, value) => {
+		config.fileProductionWorkerEnabled = value !== "false";
+	},
 	// Document-extraction ledger. Each clamp below must match `env.ts`'s clamp
 	// for the same key exactly; an admin write and a deployment env var have to
 	// mean the same number, and no test compares the two.
@@ -1962,6 +1967,7 @@ export function getResolvedAdminConfigValues(
 		FILE_PRODUCTION_STALE_ATTEMPT_MS: String(
 			config.fileProductionStaleAttemptMs,
 		),
+		FILE_PRODUCTION_WORKER_ENABLED: String(config.fileProductionWorkerEnabled),
 		DOCUMENT_EXTRACTION_WORKER_ENABLED: String(
 			config.documentExtractionWorkerEnabled,
 		),

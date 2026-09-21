@@ -194,7 +194,8 @@ describe("PUT /api/admin/config validation", () => {
 		it("drops every one of them, including the text control", async () => {
 			for (const key of [
 				"FILE_PRODUCTION_SANDBOX_TIMEOUT_MS",
-				"FILE_PRODUCTION_RENDERER_TIMEOUT_MS",
+				// FILE_PRODUCTION_RENDERER_TIMEOUT_MS used to be here. It is wired
+				// now — the attempt's RenderBudget deadline — so it is writable.
 				"TEI_RERANKER_MODEL",
 				"WORKING_SET_DOCUMENT_TOKEN_BUDGET",
 				"WORKING_SET_PROMPT_TOKEN_BUDGET",

@@ -259,4 +259,114 @@ describe("[FILE_PRODUCTION] sandbox log lines", () => {
 		expect(payload).not.toHaveProperty("stderrPreview");
 		expect(everythingLogged()).not.toContain(SECRET_STEM);
 	});
+
+	// The in-container fallback read throws its script's STDERR as the error
+	// message — an interpreter traceback over the `/output/<name>` paths it was
+	// asked to open. That message was logged verbatim, which put a model-chosen
+	// filename in the server log through the back door. It is now redacted for
+	// the log; the full text still reaches the job's stored error.
+	it("redacts the filenames out of a failed in-container read before logging it", async () => {
+		mockContainer.getArchive.mockResolvedValue(emptyOutputArchive());
+		const inspection = {
+			stdout: JSON.stringify({
+				exists: true,
+				isDir: true,
+				directories: ["."],
+				files: [
+					{
+						path: `/output/${SECRET_NAME}`,
+						relativePath: SECRET_NAME,
+						sizeBytes: 5,
+					},
+				],
+			}),
+			stderr: "",
+			exitCode: 0,
+		};
+		const failedReadback = {
+			stdout: "",
+			stderr: [
+				"Traceback (most recent call last):",
+				`  File "/tmp/readback.py", line 4, in <module>`,
+				`    open('/output/${SECRET_NAME}', 'rb')`,
+				`PermissionError: [Errno 13] Permission denied: '/output/${SECRET_NAME}'`,
+			].join("\n"),
+			exitCode: 1,
+		};
+		// The re-inspection that follows an empty collection finds nothing, so the
+		// failure above is the verdict.
+		mockExecuteSandboxCommand
+			.mockResolvedValueOnce(inspection)
+			.mockResolvedValueOnce(failedReadback)
+			.mockResolvedValue({
+				stdout: JSON.stringify({
+					exists: true,
+					isDir: true,
+					directories: ["."],
+					files: [],
+				}),
+				stderr: "",
+				exitCode: 0,
+			});
+
+		const result = await executeCode('print("test")', "python");
+
+		const [payload] = payloadsFor(
+			warn as unknown as ConsoleSpy,
+			"[FILE_PRODUCTION] In-container fallback read also failed; will attempt re-inspection if applicable",
+		);
+		expect(payload).toMatchObject({ containerId: "test-container-id" });
+		const logged = (payload as { error: string }).error;
+		// Still a diagnostic: the exception class and the errno survive.
+		expect(logged).toContain("PermissionError");
+		expect(logged).toContain("Errno 13");
+		// …with every name taken out, extension kept.
+		expect(logged).toContain("<file>.xlsx");
+		expect(logged).not.toContain(SECRET_STEM);
+
+		// And nowhere else either.
+		expect(everythingLogged()).not.toContain(SECRET_STEM);
+		expect(everythingLogged()).not.toContain("/output/Q3");
+
+		// The user's own copy of the failure keeps the whole message.
+		expect(result.error).toContain(SECRET_NAME);
+	});
+
+	it("caps a very long redacted excerpt", async () => {
+		mockContainer.getArchive.mockResolvedValue(emptyOutputArchive());
+		const inspection = {
+			stdout: JSON.stringify({
+				exists: true,
+				isDir: true,
+				directories: ["."],
+				files: [
+					{
+						path: `/output/${SECRET_NAME}`,
+						relativePath: SECRET_NAME,
+						sizeBytes: 5,
+					},
+				],
+			}),
+			stderr: "",
+			exitCode: 0,
+		};
+		mockExecuteSandboxCommand
+			.mockResolvedValueOnce(inspection)
+			.mockResolvedValueOnce({
+				stdout: "",
+				stderr: `RuntimeError: ${"x".repeat(5000)}`,
+				exitCode: 1,
+			})
+			.mockResolvedValue(inspection);
+
+		await executeCode('print("test")', "python");
+
+		const [payload] = payloadsFor(
+			warn as unknown as ConsoleSpy,
+			"[FILE_PRODUCTION] In-container fallback read also failed; will attempt re-inspection if applicable",
+		);
+		const logged = (payload as { error: string }).error;
+		expect(logged.length).toBeLessThanOrEqual(303);
+		expect(logged.endsWith("...")).toBe(true);
+	});
 });
