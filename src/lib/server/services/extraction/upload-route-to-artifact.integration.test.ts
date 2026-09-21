@@ -14,13 +14,16 @@
 // off-repo on-box verify scripts POST to, so its contract is the one most
 // likely to break silently.
 
-import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import type { KnowledgeUploadResponse } from "$lib/server/services/knowledge/types";
+import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
+import type { FakeExtractorStep } from "./testing/fake-extractor";
 import { createFakeExtractor } from "./testing/fake-extractor";
 import {
 	createLedgerFixture,
@@ -396,5 +399,262 @@ describe("upload route → ledger → worker → persisted normalized artifact",
 		const after = normalizedArtifactsFor(payload.artifact.id);
 		expect(after).toHaveLength(1);
 		expect(after[0]?.artifact.contentText).toBe("Second read.");
+	});
+});
+
+// The live defect: a user uploads a PDF while the document backend is
+// misconfigured, the job fails, an admin fixes the config, and the user drops
+// the SAME file in again. Dedupe answered with the old artifact, the enqueue
+// answered with the old FAILED job row, and the upload replayed a terminal
+// verdict — no new attempt, and the only ways on were the Retry button on an
+// old chip or deleting the document. Confirmed live for `backend_misconfigured`
+// and `auth_failed`.
+//
+// All three upload paths are exercised, because all three hit dedupe: the
+// legacy multipart route (which waits out the inline budget before answering)
+// and the stored-file entry point that `/upload/raw` and `/upload/chunk` both
+// hand their temp file to.
+describe("re-uploading identical bytes after a terminal failure", () => {
+	// A real PDF header, so the magic-byte check admits the bytes.
+	const PDF_BYTES = new Uint8Array([
+		0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a, 0x25, 0xe2, 0xe3,
+		0xcf, 0xd3, 0x0a,
+	]);
+
+	type UploadPayload = {
+		artifact: { id: string };
+		normalizedArtifact: { id: string; contentText?: string } | null;
+		reusedExistingArtifact: boolean;
+		promptReady: boolean;
+		extraction: DocumentExtractionJobDTO;
+	};
+
+	/** The deprecated multipart route, verbatim. */
+	async function uploadViaMultipart(name: string): Promise<UploadPayload> {
+		const response = await postUpload(
+			new File([PDF_BYTES], name, { type: "application/pdf" }),
+		);
+		expect(response.status).toBe(200);
+		return (await response.json()) as UploadPayload;
+	}
+
+	/**
+	 * What `/upload/raw` and `/upload/chunk` do once their bytes are on disk:
+	 * they differ from each other only in how the body arrived and in the log
+	 * prefix, so one helper covers both.
+	 */
+	async function uploadViaStoredFile(params: {
+		name: string;
+		logPrefix: "Raw" | "Chunked";
+		bytes?: Uint8Array;
+		mimeType?: string;
+	}): Promise<UploadPayload> {
+		const { completeKnowledgeUploadFromStoredFile } = await import(
+			"$lib/server/services/knowledge/upload-intake"
+		);
+		const buffer = Buffer.from(params.bytes ?? PDF_BYTES);
+		const tempPathAbsolute = join(cwdDir, `${randomUUID()}.incoming`);
+		await writeFile(tempPathAbsolute, buffer);
+
+		const response: KnowledgeUploadResponse =
+			await completeKnowledgeUploadFromStoredFile({
+				userId: USER_ID,
+				conversationId: null,
+				fileName: params.name,
+				mimeType: params.mimeType ?? "application/pdf",
+				sizeBytes: buffer.byteLength,
+				binaryHash: createHash("sha256").update(buffer).digest("hex"),
+				tempPathAbsolute,
+				traceId: `upload-${randomUUID()}`,
+				startedAt: Date.now(),
+				logPrefix: params.logPrefix,
+			});
+		return response as unknown as UploadPayload;
+	}
+
+	async function runWorker(step: FakeExtractorStep) {
+		const worker = await import("./worker-runner");
+		return await worker.executeNextExtractionJob({
+			workerId: `worker-${randomUUID()}`,
+			resolveExtractor: () => createFakeExtractor({ steps: [step] }),
+		});
+	}
+
+	function jobRowsFor(sourceArtifactId: string) {
+		return fixture.db
+			.select()
+			.from(schema.documentExtractionJobs)
+			.where(
+				eq(schema.documentExtractionJobs.sourceArtifactId, sourceArtifactId),
+			)
+			.all();
+	}
+
+	function sourceArtifactsNamed(name: string) {
+		return fixture.db
+			.select()
+			.from(schema.artifacts)
+			.where(
+				and(
+					eq(schema.artifacts.userId, USER_ID),
+					eq(schema.artifacts.type, "source_document"),
+					eq(schema.artifacts.name, name),
+				),
+			)
+			.all();
+	}
+
+	it(
+		"runs a fresh attempt on the multipart route after a backend_misconfigured failure",
+		async () => {
+			const first = await uploadViaMultipart("misconfigured.pdf");
+			expect(first.extraction.status).toBe("queued");
+
+			expect(
+				(await runWorker({ kind: "throw", code: "backend_misconfigured" }))
+					?.status,
+			).toBe("failed");
+			const [failed] = jobRowsFor(first.artifact.id);
+			expect(failed?.status).toBe("failed");
+			expect(failed?.errorCode).toBe("backend_misconfigured");
+			expect(failed?.attemptCount).toBe(1);
+
+			// The admin fixes the URL; the user drops the same file in again.
+			const second = await uploadViaMultipart("misconfigured.pdf");
+			expect(second.artifact.id).toBe(first.artifact.id);
+			expect(second.reusedExistingArtifact).toBe(true);
+			expect(second.extraction.id).toBe(first.extraction.id);
+			expect(second.extraction.status).toBe("queued");
+			expect(second.extraction.error).toBeNull();
+
+			expect(
+				(await runWorker({ kind: "succeed", text: "Read on the second try." }))
+					?.status,
+			).toBe("succeeded");
+
+			// One of everything: one source artifact, one job row carrying both
+			// attempts, one normalized document.
+			expect(sourceArtifactsNamed("misconfigured.pdf")).toHaveLength(1);
+			const rows = jobRowsFor(first.artifact.id);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.status).toBe("succeeded");
+			expect(rows[0]?.attemptCount).toBe(2);
+			const persisted = normalizedArtifactsFor(first.artifact.id);
+			expect(persisted).toHaveLength(1);
+			expect(persisted[0]?.artifact.contentText).toBe(
+				"Read on the second try.",
+			);
+		},
+		20_000,
+	);
+
+	it("runs a fresh attempt on the raw path after an auth_failed failure", async () => {
+		const first = await uploadViaStoredFile({
+			name: "bad-key.pdf",
+			logPrefix: "Raw",
+		});
+		expect(first.extraction.status).toBe("queued");
+		await runWorker({ kind: "throw", code: "auth_failed" });
+		expect(jobRowsFor(first.artifact.id)[0]?.errorCode).toBe("auth_failed");
+
+		const second = await uploadViaStoredFile({
+			name: "bad-key.pdf",
+			logPrefix: "Raw",
+		});
+		expect(second.artifact.id).toBe(first.artifact.id);
+		expect(second.reusedExistingArtifact).toBe(true);
+		expect(second.extraction.status).toBe("queued");
+		expect(second.extraction.error).toBeNull();
+
+		expect(
+			(await runWorker({ kind: "succeed", text: "Read once the key was fixed." }))
+				?.status,
+		).toBe("succeeded");
+
+		expect(sourceArtifactsNamed("bad-key.pdf")).toHaveLength(1);
+		expect(jobRowsFor(first.artifact.id)).toHaveLength(1);
+		expect(jobRowsFor(first.artifact.id)[0]?.attemptCount).toBe(2);
+		expect(normalizedArtifactsFor(first.artifact.id)).toHaveLength(1);
+	});
+
+	it("runs a fresh attempt on the chunked path after the user canceled", async () => {
+		const first = await uploadViaStoredFile({
+			name: "stopped.pdf",
+			logPrefix: "Chunked",
+		});
+		const ledger = await import("./job-ledger");
+		await ledger.cancelExtractionJob({
+			userId: USER_ID,
+			jobId: first.extraction.id,
+		});
+		expect(jobRowsFor(first.artifact.id)[0]?.status).toBe("canceled");
+
+		const second = await uploadViaStoredFile({
+			name: "stopped.pdf",
+			logPrefix: "Chunked",
+		});
+		expect(second.extraction.id).toBe(first.extraction.id);
+		expect(second.extraction.status).toBe("queued");
+
+		expect(
+			(await runWorker({ kind: "succeed", text: "Read after the restart." }))
+				?.status,
+		).toBe("succeeded");
+		expect(jobRowsFor(first.artifact.id)).toHaveLength(1);
+		expect(normalizedArtifactsFor(first.artifact.id)).toHaveLength(1);
+	});
+
+	it("leaves a failure about the document itself terminal", async () => {
+		const first = await uploadViaStoredFile({
+			name: "enormous.pdf",
+			logPrefix: "Raw",
+		});
+		await runWorker({ kind: "throw", code: "too_large" });
+		expect(jobRowsFor(first.artifact.id)[0]?.status).toBe("failed");
+
+		const second = await uploadViaStoredFile({
+			name: "enormous.pdf",
+			logPrefix: "Raw",
+		});
+		expect(second.reusedExistingArtifact).toBe(true);
+		expect(second.extraction.status).toBe("failed");
+		expect(second.extraction.error?.code).toBe("too_large");
+
+		// Nothing to claim: the re-upload queued no work.
+		expect(await runWorker({ kind: "succeed" })).toBeNull();
+		expect(jobRowsFor(first.artifact.id)[0]?.attemptCount).toBe(1);
+		expect(normalizedArtifactsFor(first.artifact.id)).toHaveLength(0);
+	});
+
+	it("never enqueues a second job while the first is still queued", async () => {
+		const first = await uploadViaStoredFile({
+			name: "in-flight.pdf",
+			logPrefix: "Raw",
+		});
+		expect(first.extraction.status).toBe("queued");
+
+		const second = await uploadViaStoredFile({
+			name: "in-flight.pdf",
+			logPrefix: "Raw",
+		});
+		expect(second.extraction.id).toBe(first.extraction.id);
+		expect(second.extraction.status).toBe("queued");
+		expect(jobRowsFor(first.artifact.id)).toHaveLength(1);
+		expect(jobRowsFor(first.artifact.id)[0]?.attemptCount).toBe(0);
+
+		// And the same while an attempt is genuinely mid-flight.
+		fixture.db
+			.update(schema.documentExtractionJobs)
+			.set({ status: "parsing", startedAt: new Date() })
+			.where(eq(schema.documentExtractionJobs.id, first.extraction.id))
+			.run();
+
+		const third = await uploadViaStoredFile({
+			name: "in-flight.pdf",
+			logPrefix: "Raw",
+		});
+		expect(third.extraction.id).toBe(first.extraction.id);
+		expect(third.extraction.status).toBe("parsing");
+		expect(jobRowsFor(first.artifact.id)).toHaveLength(1);
 	});
 });
