@@ -54,6 +54,95 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
+const LOGIN_PATH = "/login";
+
+/**
+ * Does this 401 mean "your session is gone", or "this endpoint refused this
+ * particular request"?
+ *
+ * The distinction is not academic. `/api/auth/login` answers 401 with "Invalid
+ * email or password", and the settings routes that re-ask for the password
+ * before a destructive action answer 401 with "Incorrect password" — inside a
+ * perfectly good session. Bouncing the user to the login screen because they
+ * mistyped their password in a confirmation dialog would be worse than the bug
+ * this fixes.
+ *
+ * Every SESSION gate in the app, by contrast, says exactly "Unauthorized": the
+ * hook's own `{"error":"Unauthorized"}`, the routes' `json({error:
+ * "Unauthorized"})` / `createJsonErrorResponse("Unauthorized", 401)`, and
+ * `requireApiUser`'s `error(401, "Unauthorized")` (which serializes as
+ * `{"message":"Unauthorized"}` — `readErrorPayload` reads both keys). Matching
+ * on that is deliberately conservative: if a gate ever stops saying it, the
+ * caller still gets its `ApiError` and shows it, which is only ever today's
+ * behaviour, never a spurious redirect.
+ */
+function isSessionExpiry(status: number, message: string): boolean {
+	return status === 401 && message.trim().toLowerCase() === "unauthorized";
+}
+
+/**
+ * The single in-flight navigation. Not a permanent latch: it is cleared when
+ * the navigation settles, so signing in again re-arms the handling. Between
+ * being set and settling it absorbs every other 401 — a page with a poller
+ * running, an evidence fetch and a conversation refresh can produce a handful
+ * at once, and they must produce ONE navigation.
+ */
+let pendingSessionExpiry: Promise<void> | null = null;
+
+/**
+ * The app's one reaction to an expired session.
+ *
+ * Nothing used to notice. The server hook answered every unauthenticated
+ * request — API calls included — with a 303 to /login, `fetch` followed it, and
+ * the client was handed a 200 and an HTML page; `requestJson` then failed to
+ * parse it and threw a plain `Error` with no status, so even the one 401 guard
+ * that existed (the extraction poller's) never fired. Now that the hook answers
+ * 401, this is where the client acts on it.
+ *
+ * The loop defences, in order:
+ *  - on the login page this does nothing, so the 401 that a wrong password
+ *    produces never navigates;
+ *  - `pendingSessionExpiry` collapses a burst into one navigation;
+ *  - after it lands, `window.location.pathname` is already /login, so every
+ *    later 401 — from a poller whose component has not torn down yet, from an
+ *    in-flight request that resolves after the fact — is a no-op.
+ * Background pollers therefore cannot cause a redirect storm even though they
+ * go through this same path. The extraction poller additionally stops itself
+ * for good on 401/403; that behaviour is unchanged and still wanted.
+ *
+ * `goto` is imported lazily so that merely importing this module does not pull
+ * in SvelteKit's navigation runtime on the server or in a unit test.
+ */
+function noteSessionExpiry(status: number, message: string): void {
+	if (!isSessionExpiry(status, message)) return;
+	if (typeof window === "undefined") return;
+	if (pendingSessionExpiry) return;
+	if (window.location.pathname === LOGIN_PATH) return;
+
+	pendingSessionExpiry = (async () => {
+		const { goto } = await import("$app/navigation");
+		await goto(LOGIN_PATH, { invalidateAll: true });
+	})()
+		.catch(() => {
+			// No SPA router to hand this to (or it refused). A full load reaches
+			// the login screen from anywhere and throws away the stale client
+			// state on the way.
+			window.location.assign(LOGIN_PATH);
+		})
+		.finally(() => {
+			pendingSessionExpiry = null;
+		});
+}
+
+/**
+ * Report a 401 that did not come through this module's helpers. The streaming
+ * client (`$lib/services/streaming.ts`) builds its own `fetch` and reads its
+ * own error body, so it calls this to get the same one-navigation behaviour.
+ */
+export function reportAuthFailure(status: number, message: string): void {
+	noteSessionExpiry(status, message);
+}
+
 function performRequest(
 	fetchImpl: FetchLike,
 	input: RequestInfo | URL,
@@ -77,17 +166,36 @@ async function throwRequestError(
 	});
 }
 
-export async function readErrorPayload(
-	response: Response,
-	fallback: string,
-): Promise<{
+type ErrorPayload = {
 	message: string;
 	code?: string;
 	errorKey?: string;
 	fieldErrors?: Record<string, string>;
 	details?: Record<string, unknown>;
 	attachmentExtraction?: unknown;
-}> {
+};
+
+/**
+ * The one place every failed response is read.
+ *
+ * `requestJson` / `requestVoid` / `requestText` reach it through
+ * `throwRequestError`, and the three `requestResponse` callers that build their
+ * own errors call it directly — so noticing an expired session here covers
+ * every interactive API call the app makes, without a branch in each helper.
+ */
+export async function readErrorPayload(
+	response: Response,
+	fallback: string,
+): Promise<ErrorPayload> {
+	const payload = await parseErrorPayload(response, fallback);
+	noteSessionExpiry(response.status, payload.message);
+	return payload;
+}
+
+async function parseErrorPayload(
+	response: Response,
+	fallback: string,
+): Promise<ErrorPayload> {
 	const text = await response.text().catch(() => "");
 	if (!text) return { message: fallback };
 
