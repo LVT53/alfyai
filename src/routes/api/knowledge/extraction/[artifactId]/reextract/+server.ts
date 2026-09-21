@@ -26,10 +26,12 @@ import {
 	wakeExtractionWorker,
 } from "$lib/server/services/extraction";
 import { requeueExtractionJobForReextraction } from "$lib/server/services/extraction/reextract";
+import { getArtifactForUser } from "$lib/server/services/knowledge/store/core";
 import { getMineruCapabilities } from "$lib/server/services/mineru/capabilities";
 import {
 	MINERU_TIER_IDS,
 	type MineruTierId,
+	mineruTierRank,
 } from "$lib/server/services/mineru/config";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import type { RequestHandler } from "./$types";
@@ -69,6 +71,25 @@ function isReextractable(job: DocumentExtractionJobDTO): boolean {
 async function resolveJob(userId: string, artifactId: string) {
 	const job = await getExtractionJobForArtifact({ userId, artifactId });
 	return job && isReextractable(job) ? job : null;
+}
+
+/**
+ * The tier this document's text was actually produced at — `extractionTier`,
+ * the per-file `extensions.mineru.tier`, NOT the job's, which lies for
+ * Office/HTML inside a `standard` job.
+ *
+ * `persist.ts` writes it onto the source artifact as well as the normalized
+ * one, which is the row this route already owns by id. A document parsed
+ * before Phase 4 has no such key and comes back null: `mineruTierRank` ranks
+ * that below every real tier, so every offer is an upgrade for it.
+ */
+async function currentEffectiveTier(
+	userId: string,
+	artifactId: string,
+): Promise<string | null> {
+	const artifact = await getArtifactForUser(userId, artifactId);
+	const tier = artifact?.metadata?.extractionTier;
+	return typeof tier === "string" && tier ? tier : null;
 }
 
 /** The tiers this server actually serves, or a 503-shaped refusal. */
@@ -116,7 +137,18 @@ export const GET: RequestHandler = async (event) => {
 	const tiers = await readTiers();
 	if (!tiers.ok) return tiers.response;
 
-	return json({ tiers: tiers.tiers });
+	// Only UPGRADES are offered. The "don't go backwards" rule used to live in
+	// the component alone, which made the menu a suggestion rather than a rule;
+	// POST now refuses a lower or equal tier outright, so a menu that still
+	// listed one would be offering a 400. `currentTier` rides along so the UI
+	// can say where the document already is without a second request.
+	const currentTier = await currentEffectiveTier(user.id, artifactId);
+	const currentRank = mineruTierRank(currentTier);
+
+	return json({
+		tiers: tiers.tiers.filter((tier) => mineruTierRank(tier) > currentRank),
+		currentTier,
+	});
 };
 
 export const POST: RequestHandler = async (event) => {
@@ -140,6 +172,13 @@ export const POST: RequestHandler = async (event) => {
 		body && typeof body === "object" && !Array.isArray(body)
 			? (body as { tier?: unknown }).tier
 			: undefined;
+	// Not sent by any UI, on purpose. An operator re-reading a document at the
+	// same tier after changing `MINERU_OCR_MODE`, or after a MinerU upgrade,
+	// has a real reason to; a user clicking a menu item never does.
+	const force =
+		body && typeof body === "object" && !Array.isArray(body)
+			? (body as { force?: unknown }).force === true
+			: false;
 
 	const job = await resolveJob(user.id, artifactId);
 	if (!job) return notFound();
@@ -164,6 +203,24 @@ export const POST: RequestHandler = async (event) => {
 				error: `Tier '${requestedTier}' is not available on this server`,
 				code: "tier_unavailable",
 				tiers: tiers.tiers,
+			},
+			{ status: 400 },
+		);
+	}
+
+	// A re-extraction REPLACES the text, the chunks and the bundle. Asking for
+	// a tier at or below the one the document already carries therefore throws
+	// away a better parse for a worse one — silently, because the job succeeds.
+	// The component disabled those menu items, but a client is not a guard: the
+	// server is the only place this can be enforced, and it is enforced BEFORE
+	// any job row is touched so a refused request costs nothing.
+	const currentTier = await currentEffectiveTier(user.id, artifactId);
+	if (!force && mineruTierRank(requestedTier) <= mineruTierRank(currentTier)) {
+		return json(
+			{
+				error: `Tier '${requestedTier}' is not higher than the current '${currentTier ?? "unknown"}'`,
+				code: "tier_not_higher",
+				currentTier,
 			},
 			{ status: 400 },
 		);

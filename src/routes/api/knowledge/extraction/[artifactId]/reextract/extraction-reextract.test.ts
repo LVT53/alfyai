@@ -165,6 +165,80 @@ describe("POST /api/knowledge/extraction/[artifactId]/reextract", () => {
 		await vi.waitFor(() => expect(wake).toHaveBeenCalledTimes(1));
 	});
 
+	it("refuses a tier that is not higher than the recorded one, before any job write", async () => {
+		// The component disabled these menu items; nothing stopped a direct
+		// POST. Accepting it would overwrite a `standard` parse — text, chunks
+		// and bundle — with a `flash` one, and the job would report success.
+		probe.tiers = ["flash", "basic", "standard"];
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			metadata: { extractionTier: "standard" },
+		});
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "flash" }),
+		);
+		expect(response.status).toBe(400);
+		const body = (await response.json()) as {
+			code: string;
+			currentTier: string;
+		};
+		expect(body.code).toBe("tier_not_higher");
+		expect(body.currentTier).toBe("standard");
+
+		expect(jobRow(job.id).status).toBe("succeeded");
+		expect(jobRow(job.id).hints_json).toBeNull();
+		expect(wake).not.toHaveBeenCalled();
+	});
+
+	it("refuses the tier the document is already at", async () => {
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			metadata: { extractionTier: "basic" },
+		});
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "basic" }),
+		);
+		expect(response.status).toBe(400);
+		expect((await response.json()).code).toBe("tier_not_higher");
+		expect(jobRow(job.id).status).toBe("succeeded");
+	});
+
+	it("accepts a lower tier when an operator forces it", async () => {
+		// Not a UI affordance: `force` exists for an operator re-reading a
+		// document after an OCR-mode change or a MinerU upgrade.
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			metadata: { extractionTier: "basic" },
+		});
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "flash", force: true }),
+		);
+		expect(response.status).toBe(200);
+		expect(jobRow(job.id).status).toBe("queued");
+		expect(JSON.parse(jobRow(job.id).hints_json ?? "null")).toMatchObject({
+			tier: "flash",
+		});
+	});
+
+	it("treats a document with no recorded tier as below every tier", async () => {
+		// D12: a pre-Phase-4 document is exactly what this action exists for,
+		// and it must not be locked out by a tier it never recorded.
+		const artifactId = fixture.seedArtifact({ userId: OWNER });
+		const { job } = await enqueueSucceeded(OWNER, artifactId);
+
+		const response = await route.POST(
+			makeEvent(artifactId, OWNER, { tier: "flash" }),
+		);
+		expect(response.status).toBe(200);
+		expect(jobRow(job.id).status).toBe("queued");
+	});
+
 	it("refuses a tier the server does not offer, before any job write", async () => {
 		const artifactId = fixture.seedArtifact({ userId: OWNER });
 		const { job } = await enqueueSucceeded(OWNER, artifactId);
@@ -353,6 +427,25 @@ describe("GET /api/knowledge/extraction/[artifactId]/reextract", () => {
 			"basic",
 			"standard",
 		]);
+	});
+
+	it("offers only tiers strictly above the one the document already has", async () => {
+		probe.tiers = ["flash", "basic", "standard", "advanced"];
+		const artifactId = fixture.seedArtifact({
+			userId: OWNER,
+			metadata: { extractionTier: "basic" },
+		});
+		await enqueueSucceeded(OWNER, artifactId);
+
+		const response = await route.GET(makeEvent(artifactId, OWNER));
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			tiers: string[];
+			currentTier: string | null;
+		};
+		// A menu that listed `flash` or `basic` would be offering a 400.
+		expect(body.tiers).toEqual(["standard", "advanced"]);
+		expect(body.currentTier).toBe("basic");
 	});
 
 	it("gives another user's document the ownership 404", async () => {

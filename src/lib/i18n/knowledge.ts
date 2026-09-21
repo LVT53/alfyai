@@ -85,6 +85,8 @@ const knowledgeDict = {
 		"knowledge.extraction.reextract.current": "Current",
 		"knowledge.extraction.reextract.empty":
 			"No extraction quality is available right now.",
+		"knowledge.extraction.reextract.error.tier_not_higher":
+			"This document was already read at that quality or better. Pick a higher one.",
 		"knowledge.extraction.reextract.failed":
 			"Could not start re-extraction. Please try again.",
 		"knowledge.extraction.reextract.label":
@@ -510,6 +512,8 @@ const knowledgeDict = {
 		"knowledge.extraction.reextract.current": "Jelenlegi",
 		"knowledge.extraction.reextract.empty":
 			"Jelenleg nincs elérhető feldolgozási minőség.",
+		"knowledge.extraction.reextract.error.tier_not_higher":
+			"Ezt a dokumentumot már ilyen vagy jobb minőségben feldolgoztuk. Válassz magasabbat.",
 		"knowledge.extraction.reextract.failed":
 			"Az újrafeldolgozás nem indítható el. Próbáld meg újra.",
 		"knowledge.extraction.reextract.label":
