@@ -145,6 +145,11 @@ const EXTRACTION_WAIT_POLL_INTERVAL_MS = 100;
  * budget — and everything else comes back `queued` with a job the client can
  * poll. A dedupe hit whose text already exists short-circuits to `succeeded`
  * without ever reaching the worker (bug B1).
+ *
+ * A dedupe hit whose extraction ENDED BADLY is the opposite case and is
+ * handled in `startUploadExtraction`, for all three upload routes at once: a
+ * re-upload of the same bytes is read as the user's Retry, so the response can
+ * come back `queued` on a job that was `failed` or `canceled` a moment ago.
  */
 async function registerUploadExtraction(params: {
 	userId: string;

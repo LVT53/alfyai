@@ -504,49 +504,43 @@ describe("re-uploading identical bytes after a terminal failure", () => {
 			.all();
 	}
 
-	it(
-		"runs a fresh attempt on the multipart route after a backend_misconfigured failure",
-		async () => {
-			const first = await uploadViaMultipart("misconfigured.pdf");
-			expect(first.extraction.status).toBe("queued");
+	it("runs a fresh attempt on the multipart route after a backend_misconfigured failure", async () => {
+		const first = await uploadViaMultipart("misconfigured.pdf");
+		expect(first.extraction.status).toBe("queued");
 
-			expect(
-				(await runWorker({ kind: "throw", code: "backend_misconfigured" }))
-					?.status,
-			).toBe("failed");
-			const [failed] = jobRowsFor(first.artifact.id);
-			expect(failed?.status).toBe("failed");
-			expect(failed?.errorCode).toBe("backend_misconfigured");
-			expect(failed?.attemptCount).toBe(1);
+		expect(
+			(await runWorker({ kind: "throw", code: "backend_misconfigured" }))
+				?.status,
+		).toBe("failed");
+		const [failed] = jobRowsFor(first.artifact.id);
+		expect(failed?.status).toBe("failed");
+		expect(failed?.errorCode).toBe("backend_misconfigured");
+		expect(failed?.attemptCount).toBe(1);
 
-			// The admin fixes the URL; the user drops the same file in again.
-			const second = await uploadViaMultipart("misconfigured.pdf");
-			expect(second.artifact.id).toBe(first.artifact.id);
-			expect(second.reusedExistingArtifact).toBe(true);
-			expect(second.extraction.id).toBe(first.extraction.id);
-			expect(second.extraction.status).toBe("queued");
-			expect(second.extraction.error).toBeNull();
+		// The admin fixes the URL; the user drops the same file in again.
+		const second = await uploadViaMultipart("misconfigured.pdf");
+		expect(second.artifact.id).toBe(first.artifact.id);
+		expect(second.reusedExistingArtifact).toBe(true);
+		expect(second.extraction.id).toBe(first.extraction.id);
+		expect(second.extraction.status).toBe("queued");
+		expect(second.extraction.error).toBeNull();
 
-			expect(
-				(await runWorker({ kind: "succeed", text: "Read on the second try." }))
-					?.status,
-			).toBe("succeeded");
+		expect(
+			(await runWorker({ kind: "succeed", text: "Read on the second try." }))
+				?.status,
+		).toBe("succeeded");
 
-			// One of everything: one source artifact, one job row carrying both
-			// attempts, one normalized document.
-			expect(sourceArtifactsNamed("misconfigured.pdf")).toHaveLength(1);
-			const rows = jobRowsFor(first.artifact.id);
-			expect(rows).toHaveLength(1);
-			expect(rows[0]?.status).toBe("succeeded");
-			expect(rows[0]?.attemptCount).toBe(2);
-			const persisted = normalizedArtifactsFor(first.artifact.id);
-			expect(persisted).toHaveLength(1);
-			expect(persisted[0]?.artifact.contentText).toBe(
-				"Read on the second try.",
-			);
-		},
-		20_000,
-	);
+		// One of everything: one source artifact, one job row carrying both
+		// attempts, one normalized document.
+		expect(sourceArtifactsNamed("misconfigured.pdf")).toHaveLength(1);
+		const rows = jobRowsFor(first.artifact.id);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.status).toBe("succeeded");
+		expect(rows[0]?.attemptCount).toBe(2);
+		const persisted = normalizedArtifactsFor(first.artifact.id);
+		expect(persisted).toHaveLength(1);
+		expect(persisted[0]?.artifact.contentText).toBe("Read on the second try.");
+	}, 20_000);
 
 	it("runs a fresh attempt on the raw path after an auth_failed failure", async () => {
 		const first = await uploadViaStoredFile({
@@ -567,8 +561,12 @@ describe("re-uploading identical bytes after a terminal failure", () => {
 		expect(second.extraction.error).toBeNull();
 
 		expect(
-			(await runWorker({ kind: "succeed", text: "Read once the key was fixed." }))
-				?.status,
+			(
+				await runWorker({
+					kind: "succeed",
+					text: "Read once the key was fixed.",
+				})
+			)?.status,
 		).toBe("succeeded");
 
 		expect(sourceArtifactsNamed("bad-key.pdf")).toHaveLength(1);

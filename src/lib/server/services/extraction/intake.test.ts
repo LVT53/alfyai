@@ -328,9 +328,7 @@ describe("startUploadExtraction on a re-upload of the same bytes", () => {
 
 		const { extractionAttemptCeiling } = await import("./retry-policy");
 		const { getExtractionConfig } = await import("./config");
-		const ceiling = extractionAttemptCeiling(
-			getExtractionConfig().maxAttempts,
-		);
+		const ceiling = extractionAttemptCeiling(getExtractionConfig().maxAttempts);
 		// The shape a job has after the user spent every retry they are granted:
 		// user-retryable by code, refused by the ceiling.
 		fixture.db
