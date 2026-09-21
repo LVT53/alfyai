@@ -21,8 +21,20 @@ export interface ExtractionConfig {
 	maxDirectTextBytes: number;
 }
 
+/**
+ * The stale window may never fall below this many heartbeat periods.
+ *
+ * The floor is about the event loop, not about the backend: an attempt writes
+ * `heartbeat_at` every `heartbeatMs`, so a window of one or two periods would
+ * reclaim a perfectly healthy attempt the first time a garbage collection or a
+ * burst of SQLite writes delayed one beat. Four periods means three beats have
+ * to be missed in a row before the worker is called dead.
+ */
+export const EXTRACTION_STALE_HEARTBEAT_FLOOR = 4;
+
 export function getExtractionConfig(): ExtractionConfig {
 	const config = getConfig();
+	const heartbeatMs = config.documentExtractionHeartbeatMs;
 
 	return {
 		workerEnabled: config.documentExtractionWorkerEnabled,
@@ -31,17 +43,19 @@ export function getExtractionConfig(): ExtractionConfig {
 		maxAttempts: config.documentExtractionMaxAttempts,
 		retryBaseMs: config.documentExtractionRetryBaseMs,
 		retryMaxMs: config.documentExtractionRetryMaxMs,
-		// OQ5, soft coupling: an attempt must never be reclaimed while its own
-		// HTTP call is still legitimately in flight. An admin who raises the
-		// backend timeout past the stale window would otherwise have live
-		// attempts torn out from under a working backend, so the stale window
-		// follows the timeout up instead of fighting it. Deliberately one-way:
-		// lowering the backend timeout never shortens the stale window.
+		// The stale window used to be dragged up to `mineruTimeoutMs * 2` (OQ5),
+		// on the theory that an attempt must not be reclaimed while its own HTTP
+		// call is still in flight. That theory no longer holds: the heartbeat runs
+		// on its own interval through every phase, indexing included, and an
+		// extractor call is async I/O that does not block it. Coupling the two
+		// only bought latency — a 600 s backend timeout turned every orphaned
+		// attempt into a 20-minute wait before anything noticed. What the window
+		// genuinely must clear is the heartbeat itself.
 		staleAttemptMs: Math.max(
 			config.documentExtractionStaleAttemptMs,
-			config.mineruTimeoutMs * 2,
+			heartbeatMs * EXTRACTION_STALE_HEARTBEAT_FLOOR,
 		),
-		heartbeatMs: config.documentExtractionHeartbeatMs,
+		heartbeatMs,
 		inlineBudgetMs: config.documentExtractionInlineBudgetMs,
 		preflightWaitMs: config.documentExtractionPreflightWaitMs,
 		maxDirectTextBytes: config.documentExtractionMaxDirectTextBytes,
