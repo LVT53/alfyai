@@ -91,6 +91,10 @@ function job(overrides: Partial<FileProductionJob> = {}): FileProductionJob {
 		warnings: [],
 		dismissed: false,
 		error: null,
+		// Required on the DTO since the follow-up that exposed the job's
+		// source mode to the client. Omitting it made this factory the one
+		// `tsc --noEmit` error outside the two known component-test files.
+		sourceMode: null,
 		...overrides,
 	};
 }
