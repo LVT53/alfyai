@@ -40,6 +40,35 @@ export type AccountDataArchiveInput = {
 type ArchiveDb = DatabaseInstance;
 
 const ENTRY_FILE = "Open AlfyAI Data Archive.html";
+
+/**
+ * Directories under `data/knowledge/<userId>/` that are DELIBERATELY left out
+ * of the archive.
+ *
+ * The archive is built from database rows, not from a walk of the user's
+ * knowledge tree, so nothing here is "skipped" by code — it is excluded by
+ * construction. Naming the directories anyway, with a test that holds the
+ * exclusion, is what makes it a decision rather than an accident of how
+ * `addFilesSection` happens to be written:
+ *
+ *   - `.parse` — a MinerU parse bundle: `normalized.md`,
+ *     `structured_content.json`, `pages.json` and the extracted `images/`.
+ *     Every byte of it is DERIVED from the source file, which IS archived, and
+ *     the readable text is archived a second time under `Files/Readable/`. A
+ *     user who re-uploads their file gets an identical bundle back; shipping
+ *     megabytes of parser intermediates would make the archive bigger and no
+ *     more informative.
+ *   - `.incoming` — a half-written upload. It is not the user's data yet, and
+ *     by the time an archive is built it is either a finished artifact or
+ *     rubbish awaiting the temp sweep.
+ *
+ * `EXCLUSION_NOTES` already tells the user "parser internals … are not
+ * included"; this is what that sentence means on disk.
+ */
+export const ARCHIVE_EXCLUDED_DERIVED_DIRECTORIES = [
+	".parse",
+	".incoming",
+] as const;
 const EXCLUSION_NOTES = [
 	"Passwords, password hashes, active logins, sessions, cookies, service assertions, and API keys are not included.",
 	"Private server settings, provider secrets, storage paths, server logs, local process logs, hidden prompt context, assistant thinking traces, raw tool JSON, provider payloads, retry/debug fields, diagnostics, embeddings, and embedding hashes are not included.",

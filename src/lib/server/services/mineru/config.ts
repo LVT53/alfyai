@@ -14,7 +14,14 @@
 
 import { getConfig, type RuntimeConfig } from "$lib/server/config-store";
 
-/** The four tiers the V1 API defines. `auto` is NOT one of them. */
+/**
+ * The four tiers the V1 API defines. `auto` is NOT one of them.
+ *
+ * THE ORDER IS THE QUALITY LADDER — worst first — and is load-bearing:
+ * `mineruTierRank` is the single source of truth for "is this tier better than
+ * that one", which the re-extract endpoint enforces and the Knowledge list's
+ * menu merely mirrors. Reordering this array reorders the ladder.
+ */
 export const MINERU_TIER_IDS = [
 	"flash",
 	"basic",
@@ -22,6 +29,20 @@ export const MINERU_TIER_IDS = [
 	"advanced",
 ] as const;
 export type MineruTierId = (typeof MINERU_TIER_IDS)[number];
+
+/**
+ * Where a tier sits on the ladder: 0 for `flash`, 3 for `advanced`.
+ *
+ * Anything that is not one of the four ranks BELOW all of them (-1), which is
+ * exactly what a document parsed before the tier was recorded should count as:
+ * every real tier is then an upgrade for it, and a legacy document can still be
+ * re-read at `flash` if that is all the server serves.
+ */
+export function mineruTierRank(tier: string | null | undefined): number {
+	return typeof tier === "string"
+		? (MINERU_TIER_IDS as readonly string[]).indexOf(tier)
+		: -1;
+}
 
 /**
  * What `MINERU_DEFAULT_TIER` may hold. `auto` means "send no `tier` key at

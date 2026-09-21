@@ -8,7 +8,10 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as schema from "$lib/server/db/schema";
-import { createAccountDataArchive } from "./index";
+import {
+	ARCHIVE_EXCLUDED_DERIVED_DIRECTORIES,
+	createAccountDataArchive,
+} from "./index";
 
 type TestDb = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -423,6 +426,83 @@ describe("createAccountDataArchive", () => {
 		expect(combinedText).not.toContain("DO_NOT_EXPORT_ATLAS_SOURCE_POOL");
 		expect(combinedText).not.toContain("DO_NOT_EXPORT_ATLAS_FINDINGS");
 		expect(combinedText).not.toContain("DO_NOT_EXPORT_ATLAS_DIAGNOSTICS");
+	});
+
+	it("archives the source file and deliberately not its parse bundle", async () => {
+		// A MinerU parse bundle is DERIVED data: every byte of it comes from the
+		// source file, which is archived, and its readable text is archived a
+		// second time under `Files/Readable/`. Excluding it is a decision, not
+		// an omission — the archive is built from database rows and never walks
+		// the knowledge tree — and this is the test that holds the decision.
+		await seedArchiveUser();
+		const bundleDir = join(
+			tempDir,
+			"data",
+			"knowledge",
+			"user-1",
+			"artifact-upload.parse",
+		);
+		await mkdir(join(bundleDir, "images"), { recursive: true });
+		await writeFile(
+			join(bundleDir, "manifest.json"),
+			'{"version":1,"markdownSha256":"DO_NOT_EXPORT_BUNDLE"}',
+		);
+		await writeFile(
+			join(bundleDir, "normalized.md"),
+			"# DO_NOT_EXPORT_BUNDLE normalized markdown",
+		);
+		await writeFile(
+			join(bundleDir, "structured_content.json"),
+			'{"pages":[],"DO_NOT_EXPORT_BUNDLE":true}',
+		);
+		await writeFile(join(bundleDir, "pages.json"), "[]");
+		await writeFile(
+			join(bundleDir, "images", "page_1_image_body_1.jpg"),
+			"jpeg-bytes",
+		);
+		// And a half-written upload, the other intentionally excluded directory.
+		await mkdir(join(tempDir, "data", "knowledge", "user-1", ".incoming"), {
+			recursive: true,
+		});
+		await writeFile(
+			join(tempDir, "data", "knowledge", "user-1", ".incoming", "part.bin"),
+			"DO_NOT_EXPORT_BUNDLE partial upload",
+		);
+
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+			now: new Date("2026-06-15T08:00:00Z"),
+		});
+		expect(result.status).toBe("ok");
+		if (result.status !== "ok") return;
+
+		const zip = await JSZip.loadAsync(
+			Buffer.from(await new Response(result.zipStream).arrayBuffer()),
+		);
+		const names = Object.keys(zip.files);
+
+		// The SOURCE file is there, byte for byte…
+		expect(
+			await zip.file("Files/Uploaded/roadmap-notes.txt")?.async("string"),
+		).toBe("Original uploaded roadmap file.");
+		// …and so is its readable text.
+		expect(
+			names.some((name) => name.startsWith("Files/Readable/roadmap-notes")),
+		).toBe(true);
+
+		for (const excluded of ARCHIVE_EXCLUDED_DERIVED_DIRECTORIES) {
+			expect(names.filter((name) => name.includes(excluded))).toEqual([]);
+		}
+		const combined = await Promise.all(
+			names.map((name) => {
+				const file = zip.file(name);
+				if (!file || file.dir) return "";
+				return file.async("string").catch(() => "");
+			}),
+		).then((parts) => parts.join("\n"));
+		expect(combined).not.toContain("DO_NOT_EXPORT_BUNDLE");
 	});
 
 	it("fails the whole archive when an in-scope original file cannot be read", async () => {

@@ -277,6 +277,7 @@ export const structuredContentSchema = z
 
 export type StructuredContent = z.infer<typeof structuredContentSchema>;
 export type StructuredBlock = z.infer<typeof structuredBlockSchema>;
+export type StructuredPage = z.infer<typeof structuredPageSchema>;
 
 // ── the parsed model ───────────────────────────────────────────────────────
 
@@ -362,6 +363,12 @@ export interface MineruOutlineEntry {
 	page?: number;
 }
 
+/**
+ * Where a block's page number came from. `page_idx` when the parsed indices are
+ * trustworthy, `array_index` when they are not and position had to stand in.
+ */
+export type PageNumberSource = "page_idx" | "array_index";
+
 export interface StructuredExtractionStats {
 	/** Every block in `structured_content`, including the dropped running heads. */
 	blockCount: number;
@@ -370,6 +377,12 @@ export interface StructuredExtractionStats {
 	unknownTypes: Readonly<Record<string, number>>;
 	bboxPresent: boolean;
 	anchorsPresent: boolean;
+	/**
+	 * Which rule produced the page numbers. Recorded so the GPU-box checklist
+	 * can see, in the data, whether a real `standard` PDF is cited from its own
+	 * `page_idx` or from array position.
+	 */
+	pageNumberSource: PageNumberSource;
 }
 
 export interface StructuredExtractionResult {
@@ -887,6 +900,51 @@ export function renderPromptMarkdown(
 	return renderInternal(sc, options, "prompt");
 }
 
+/**
+ * The 1-based page number of each entry in `pages`, and where it came from.
+ *
+ * `page_idx` is the producer's own answer and the only one that survives a
+ * sparse or reordered array — but it is a passthrough field nobody validated,
+ * so it is used only when EVERY page carries a non-negative integer and no two
+ * pages carry the same one. One duplicate or one negative and the whole
+ * document falls back to array position, because a half-trusted index is worse
+ * than a consistent one: a citation that is right for pages 1-4 and wrong for
+ * page 5 is a citation nobody can check.
+ *
+ * Clamped to `MAX_STRUCTURED_PAGE_COUNT` for the same reason the page count is:
+ * a silly value must not size an array.
+ */
+export function resolvePageNumbers(pages: readonly StructuredPage[]): {
+	numbers: number[];
+	source: PageNumberSource;
+} {
+	const seen = new Set<number>();
+	const fromIndices: number[] = [];
+	let trustworthy = pages.length > 0;
+	for (const page of pages) {
+		const raw = page.page_idx;
+		if (
+			typeof raw !== "number" ||
+			!Number.isInteger(raw) ||
+			raw < 0 ||
+			seen.has(raw)
+		) {
+			trustworthy = false;
+			break;
+		}
+		seen.add(raw);
+		fromIndices.push(Math.min(raw + 1, MAX_STRUCTURED_PAGE_COUNT));
+	}
+	return trustworthy
+		? { numbers: fromIndices, source: "page_idx" }
+		: {
+				numbers: pages.map((_, index) =>
+					Math.min(index + 1, MAX_STRUCTURED_PAGE_COUNT),
+				),
+				source: "array_index",
+			};
+}
+
 interface RenderDraft {
 	page: number;
 	blockIndex: number;
@@ -907,10 +965,14 @@ function renderInternal(
 	const levelOffset = headingLevelOffsetForFormat(resolveFormatId(options));
 	const drafts: RenderDraft[] = [];
 	const figures: RenderedFigure[] = [];
+	// `page_idx` is the producer's own page number and the only thing that is
+	// right when the array is sparse or reordered. Position is the fallback,
+	// not the rule.
+	const pageNumbers = resolvePageNumbers(sc.pages).numbers;
 
 	for (let pageIndex = 0; pageIndex < sc.pages.length; pageIndex++) {
 		const page = sc.pages[pageIndex];
-		const pageNumber = pageIndex + 1;
+		const pageNumber = pageNumbers[pageIndex];
 		const blocks = page.blocks ?? [];
 
 		for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
@@ -1006,7 +1068,13 @@ function renderInternal(
 
 	return {
 		markdown,
-		pages: buildPageOffsets(sc.pages.length, blocks, markdown.length),
+		// The offsets table must be able to answer about every page a block
+		// claims, which a sparse `page_idx` pushes past `pages.length`.
+		pages: buildPageOffsets(
+			Math.max(sc.pages.length, ...pageNumbers, 0),
+			blocks,
+			markdown.length,
+		),
 		blocks,
 		figures,
 	};
@@ -1136,6 +1204,7 @@ function collectStats(sc: StructuredContent): StructuredExtractionStats {
 		unknownTypes,
 		bboxPresent,
 		anchorsPresent,
+		pageNumberSource: resolvePageNumbers(sc.pages).source,
 	};
 }
 
@@ -1173,7 +1242,10 @@ export function buildStructuredExtractionResult(
 			? Math.min(Math.trunc(document.page_count), MAX_STRUCTURED_PAGE_COUNT)
 			: null;
 	// PNG/JPEG carry no `page_count` at all — `metadata.document` is `{}`.
-	const pageCount = declaredPageCount ?? sc.pages.length;
+	// `rendered.pages` already spans the highest page any block claims, which a
+	// sparse `page_idx` pushes past `pages.length`.
+	const pageCount =
+		declaredPageCount ?? Math.max(sc.pages.length, rendered.pages.length);
 
 	// `pages` must cover every page the index can be asked about. The declared
 	// count wins for `pageCount` (the spec's rule), but a page that really
@@ -1297,6 +1369,157 @@ export interface PlanStructuredChunksInput {
 	charOverlap: number;
 }
 
+/**
+ * The hard ceiling on one chunk, as a multiple of `charTarget`.
+ *
+ * An ATOMIC block is never split by the packer — that is the rule that keeps a
+ * table whole — and `standard`/`advanced` may legitimately return an UNKNOWN
+ * block type, which is atomic too. Without a ceiling, one such block became one
+ * chunk row of its own size: a 5 MB table is a 5 MB row that is then lexically
+ * ranked, sent to the reranker, and, if it wins, injected into a prompt.
+ *
+ * Eight is the largest multiple that is still safely inside everything
+ * downstream:
+ *
+ *   - `chat-turn/context-budget.ts` gives one artifact between 1 400 chars
+ *     (`DOCUMENT_REFERENCE_MAX_PER_ARTIFACT_CHARS`) and 18 000
+ *     (`DOCUMENT_EXCERPT_MAX_PER_ARTIFACT_CHARS`) in the normal excerpt mode.
+ *     8 × 1 400 = 11 200 fits inside the excerpt ceiling, so a maximal chunk is
+ *     still a chunk the prompt can carry rather than one it can only truncate.
+ *   - the embedding clip is 32 768 tokens × 4 chars
+ *     (`semantic-embedding-refresh.ts`), so a maximal chunk is embedded whole
+ *     rather than silently losing its tail.
+ *
+ * Smaller would start cutting real tables that fit today; larger would let one
+ * row eat a whole artifact's budget.
+ */
+export const CHUNK_HARD_LIMIT_MULTIPLE = 8;
+
+/** A GFM delimiter row: `| --- | :--: |`. Only pipes, dashes, colons, spaces. */
+function isTableDelimiterLine(line: string): boolean {
+	const trimmed = line.trim();
+	return (
+		trimmed.includes("|") && trimmed.includes("-") && /^[|\s:-]+$/.test(trimmed)
+	);
+}
+
+/**
+ * The header row + delimiter row a split table must repeat, and the index just
+ * past them. `null` when the text is not a GFM table.
+ *
+ * Searched rather than assumed at line 0: a `table` block is rendered as its
+ * captions, then the table, then its footnotes, so the header is usually a few
+ * lines in.
+ */
+function tableHeaderLines(
+	lines: readonly string[],
+): { header: string[]; bodyStart: number } | null {
+	for (let index = 1; index < lines.length; index++) {
+		if (!isTableDelimiterLine(lines[index])) continue;
+		if (!lines[index - 1].trim().startsWith("|")) continue;
+		return { header: [lines[index - 1], lines[index]], bodyStart: index + 1 };
+	}
+	return null;
+}
+
+/**
+ * One over-long block's text as a list of fragments, none longer than `limit`.
+ *
+ * Split on LINE boundaries, so a Markdown table breaks between rows and a
+ * paragraph breaks between its lines; a single line that alone exceeds the
+ * limit is the only case that is cut mid-line, because there is nothing else
+ * to cut. For a GFM table the header row and the delimiter row are repeated at
+ * the top of every continuation fragment, so each fragment is a table a model
+ * can read rather than a run of anonymous cells.
+ */
+function splitOversizeText(text: string, limit: number): string[] {
+	const lines = text.split("\n");
+	const table = tableHeaderLines(lines);
+	const header = table ? table.header : [];
+	const headerLength = header.length
+		? header.join("\n").length + 1 // + the newline before the first body line
+		: 0;
+
+	const fragments: string[] = [];
+	let current: string[] = [];
+	let currentLength = 0;
+	let isContinuation = false;
+
+	const budget = () => limit - (isContinuation ? headerLength : 0);
+	const flush = () => {
+		if (current.length === 0) return;
+		const body = current.join("\n");
+		fragments.push(isContinuation ? [...header, body].join("\n") : body);
+		current = [];
+		currentLength = 0;
+		isContinuation = true;
+	};
+
+	for (const line of lines) {
+		// A line that cannot fit even on its own: hard-split it. Whatever is
+		// already open is flushed first so the pieces stay in order.
+		if (line.length > budget()) {
+			flush();
+			for (let start = 0; start < line.length; start += budget()) {
+				fragments.push(
+					isContinuation
+						? [...header, line.slice(start, start + budget())].join("\n")
+						: line.slice(start, start + budget()),
+				);
+				isContinuation = true;
+			}
+			continue;
+		}
+		const projected =
+			currentLength + (current.length > 0 ? 1 : 0) + line.length;
+		if (current.length > 0 && projected > budget()) flush();
+		currentLength += (current.length > 0 ? 1 : 0) + line.length;
+		current.push(line);
+	}
+	flush();
+	return fragments.filter((fragment) => fragment.length > 0);
+}
+
+/**
+ * The blocks the packer actually sees: every block longer than `limit` replaced
+ * by its fragments.
+ *
+ * A fragment is ATOMIC whatever its source was. Two reasons: the packer must
+ * not then re-split it, and overlap must not be carried between two halves of
+ * one block, which would duplicate the very text the split exists to bound.
+ * Only the first fragment keeps the heading fields, so a continuation can never
+ * be mistaken for a bare heading. Page attribution is the block's, unchanged —
+ * a fragment is part of the same block and sits on the same page.
+ *
+ * `start`/`end` stay the WHOLE block's span on every fragment: the planner does
+ * not read them, and a fragment has no honest span of its own once a table
+ * header is repeated into it.
+ */
+function splitOversizeBlocks(
+	blocks: readonly RenderedBlock[],
+	limit: number,
+): RenderedBlock[] {
+	const out: RenderedBlock[] = [];
+	for (const block of blocks) {
+		if (block.text.length <= limit) {
+			out.push(block);
+			continue;
+		}
+		const fragments = splitOversizeText(block.text, limit);
+		for (let index = 0; index < fragments.length; index++) {
+			out.push({
+				...block,
+				text: fragments[index],
+				atomic: true,
+				headingLevel: index === 0 ? block.headingLevel : null,
+				headingTitle: index === 0 ? block.headingTitle : null,
+				figure: index === 0 ? block.figure : null,
+			});
+		}
+	}
+	return out;
+}
+
 interface OpenChunk {
 	blocks: RenderedBlock[];
 	/** The trailing text carried over from the previous chunk, or null. */
@@ -1321,6 +1544,14 @@ function openChunkLength(chunk: OpenChunk): number {
 
 function openChunkText(chunk: OpenChunk): string {
 	return openChunkParts(chunk).join("\n\n").trim();
+}
+
+/** The joined length of a run of blocks, separators included. */
+function carriedLength(blocks: readonly RenderedBlock[]): number {
+	if (blocks.length === 0) return 0;
+	let length = 2 * (blocks.length - 1);
+	for (const block of blocks) length += block.text.length;
+	return length;
 }
 
 /**
@@ -1351,13 +1582,23 @@ function overlapTail(text: string, charOverlap: number): string {
  *     the block it introduces;
  *   - `pageStart`/`pageEnd` span every block in the chunk INCLUDING the block
  *     the overlap text came from.
+ *
+ * And one ceiling on top of them: no chunk exceeds
+ * `charTarget * CHUNK_HARD_LIMIT_MULTIPLE`. "Never split an atomic block" is
+ * the right rule for a table that is a page long and the wrong one for a table
+ * that is five megabytes long, so an over-long block is split on line
+ * boundaries FIRST and the four rules then apply to its fragments.
  */
 export function planStructuredChunks(
 	input: PlanStructuredChunksInput,
 ): ChunkPlanEntry[] {
 	const charTarget = Math.max(1, Math.trunc(input.charTarget));
 	const charOverlap = Math.max(0, Math.trunc(input.charOverlap));
-	const blocks = input.blocks.filter((block) => block.text.trim().length > 0);
+	const hardLimit = charTarget * CHUNK_HARD_LIMIT_MULTIPLE;
+	const blocks = splitOversizeBlocks(
+		input.blocks.filter((block) => block.text.trim().length > 0),
+		hardLimit,
+	);
 	if (blocks.length === 0) return [];
 
 	const plan: ChunkPlanEntry[] = [];
@@ -1398,10 +1639,24 @@ export function planStructuredChunks(
 		) {
 			carried.unshift(current.blocks.pop() as RenderedBlock);
 		}
+		// The ceiling outranks rule 4. Carrying headings onto a block that is
+		// already at the limit would be the one chunk that escapes it, so in
+		// that case the headings stay where they are and the previous chunk
+		// closes on them — ugly, and still bounded.
+		while (
+			carried.length > 0 &&
+			carriedLength(carried) + 2 + block.text.length > hardLimit
+		) {
+			current.blocks.push(carried.shift() as RenderedBlock);
+		}
 		if (
 			carried.length === 0 &&
 			current.blocks.length === 1 &&
-			current.blocks[0].headingLevel !== null
+			current.blocks[0].headingLevel !== null &&
+			// …but not past the ceiling. `block` is at most `hardLimit` after the
+			// split above, so a heading plus a maximal block would otherwise be
+			// the one chunk that escapes it.
+			projected <= hardLimit
 		) {
 			// A lone heading would otherwise become a chunk of its own. Take the
 			// overflow instead: one heading plus one block is bounded.

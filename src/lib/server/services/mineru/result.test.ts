@@ -879,3 +879,108 @@ describe("MinerU result zip — hostile input", () => {
 		expect(Buffer.from(image as Uint8Array).toString("utf8")).toBe("AAA");
 	});
 });
+
+// ── page attribution ───────────────────────────────────────────────────────
+//
+// A block's page used to be its array index + 1, full stop, and the parsed
+// `page_idx` was read by the schema and then thrown away. That is right only
+// for a `pages` array that is dense, ordered and complete — which every
+// recorded fixture happens to be, and which nothing in the format guarantees.
+
+describe("MinerU structured result — page attribution", () => {
+	function content(
+		pages: ReadonlyArray<Record<string, unknown>>,
+	): StructuredContent {
+		return parseStructuredContent({
+			pages,
+			metadata: { document: {} },
+			extensions: {},
+		});
+	}
+
+	it.each([
+		"pdf",
+		"docx",
+		"pptx",
+		"xlsx",
+		"csv",
+		"html",
+		"epub",
+		"png",
+	])("%s: uses page_idx, and the recorded fixtures agree with array position", async (id) => {
+		const result = buildStructuredExtractionResult({
+			content: await loadContent(id),
+		});
+		// Every fixture is dense and ordered, so the two rules coincide —
+		// which is exactly why nobody noticed the array index was the only
+		// one implemented.
+		expect(result.stats.pageNumberSource).toBe("page_idx");
+	});
+
+	it("cites a sparse pages array from page_idx, not from position", () => {
+		const result = buildStructuredExtractionResult({
+			content: content([
+				{ page_idx: 0, blocks: [{ type: "text", content: "FIRST" }] },
+				{ page_idx: 4, blocks: [{ type: "text", content: "FIFTH" }] },
+				{ page_idx: 9, blocks: [{ type: "text", content: "TENTH" }] },
+			]),
+		});
+
+		expect(result.stats.pageNumberSource).toBe("page_idx");
+		expect(result.blocks.map((block) => block.page)).toEqual([1, 5, 10]);
+		// The offsets table has to be able to answer about page 10.
+		expect(result.pages.length).toBeGreaterThanOrEqual(10);
+		expect(result.pageCount).toBeGreaterThanOrEqual(10);
+	});
+
+	it("cites a reordered pages array from page_idx", () => {
+		const result = buildStructuredExtractionResult({
+			content: content([
+				{ page_idx: 2, blocks: [{ type: "text", content: "THIRD" }] },
+				{ page_idx: 0, blocks: [{ type: "text", content: "FIRST" }] },
+				{ page_idx: 1, blocks: [{ type: "text", content: "SECOND" }] },
+			]),
+		});
+
+		expect(result.blocks.map((block) => block.page)).toEqual([3, 1, 2]);
+	});
+
+	it("falls back to array position when a page_idx repeats", () => {
+		// A half-trusted index is worse than a consistent one: a citation that
+		// is right for four pages and wrong for the fifth cannot be checked.
+		const result = buildStructuredExtractionResult({
+			content: content([
+				{ page_idx: 0, blocks: [{ type: "text", content: "A" }] },
+				{ page_idx: 0, blocks: [{ type: "text", content: "B" }] },
+				{ page_idx: 7, blocks: [{ type: "text", content: "C" }] },
+			]),
+		});
+
+		expect(result.stats.pageNumberSource).toBe("array_index");
+		expect(result.blocks.map((block) => block.page)).toEqual([1, 2, 3]);
+	});
+
+	it("falls back to array position for a negative page_idx", () => {
+		const result = buildStructuredExtractionResult({
+			content: content([
+				{ page_idx: -1, blocks: [{ type: "text", content: "A" }] },
+				{ page_idx: 1, blocks: [{ type: "text", content: "B" }] },
+			]),
+		});
+
+		expect(result.stats.pageNumberSource).toBe("array_index");
+		expect(result.blocks.map((block) => block.page)).toEqual([1, 2]);
+	});
+
+	it("clamps an absurd page_idx rather than sizing an array from it", () => {
+		const result = buildStructuredExtractionResult({
+			content: content([
+				{ page_idx: 0, blocks: [{ type: "text", content: "A" }] },
+				{ page_idx: 900_000_000, blocks: [{ type: "text", content: "B" }] },
+			]),
+		});
+
+		expect(result.blocks[1].page).toBeLessThanOrEqual(50_000);
+		expect(result.pages.length).toBeLessThanOrEqual(50_000);
+	});
+});

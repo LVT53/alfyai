@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { getSmallFileThreshold } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
@@ -150,6 +150,26 @@ function normalizePageRange(
 }
 
 /**
+ * The digest a chunk plan is tagged with: sha256 of the exact text the plan
+ * was derived from.
+ *
+ * Chosen over "check that every planned chunk's text occurs in `contentText`
+ * in order" for two reasons. It is cheaper: one linear hash of the text
+ * against one linear hash, rather than a scan per chunk that degrades to a
+ * full-string search the moment anything is wrong — which is precisely the
+ * case that must stay cheap. And it is exact: once a split table repeats its
+ * header row into continuation chunks (the per-chunk ceiling), a planned
+ * chunk's text is legitimately NOT a substring of the document, so a
+ * containment check would need a heuristic that strips repeated header lines
+ * and would then be answering a question nobody asked. The digest answers the
+ * only question that matters — "was this plan built from THIS text?" — and
+ * answers it with no heuristic at all.
+ */
+export function chunkPlanSourceDigest(text: string): string {
+	return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+/**
  * Structure-aware chunking, with two conditions and one order.
  *
  * The small-file bypass runs FIRST and is unchanged: a document under
@@ -161,8 +181,11 @@ function normalizePageRange(
  * what it produces today, both columns NULL.
  */
 function planChunks(params: {
+	artifactId: string;
+	userId: string;
 	contentText?: string | null;
 	chunkPlan?: readonly ChunkPlanEntry[] | null;
+	chunkPlanSourceDigest?: string | null;
 }): PlannedChunk[] {
 	const text = params.contentText;
 	if (!text?.trim() || shouldBypassChunking(text.length)) return [];
@@ -172,12 +195,37 @@ function planChunks(params: {
 		params.chunkPlan.length > 0 &&
 		resolveMineruConfig().structureChunking
 	) {
-		return params.chunkPlan
-			.map((entry) => ({
-				text: entry.text.trim(),
-				...normalizePageRange(entry),
-			}))
-			.filter((chunk) => chunk.text.length > 0);
+		// Nothing used to check that the plan and the text came from the same
+		// parse. They arrive through different parameters and are produced at
+		// different moments, so a caller that rewrote one and forwarded a stale
+		// copy of the other would store chunk rows whose text belongs to one
+		// document and whose PAGE NUMBERS belong to another — a citation that is
+		// confidently wrong, with nothing in the data to show it.
+		//
+		// A plan with no digest is a mismatch: the one caller that builds plans
+		// tags them, and an untagged plan is by definition one nobody vouched
+		// for.
+		const actual = chunkPlanSourceDigest(text);
+		if (params.chunkPlanSourceDigest !== actual) {
+			console.warn("[CHUNK_SYNC] Chunk plan does not match the stored text", {
+				artifactId: params.artifactId,
+				userId: params.userId,
+				plannedChunks: params.chunkPlan.length,
+				expectedDigest: params.chunkPlanSourceDigest ?? null,
+				actualDigest: actual,
+			});
+			// Never throw: the document is still readable, it just loses its page
+			// citations. Falling through to the character chunker leaves both page
+			// columns NULL, which is the state every direct-text and legacy row is
+			// already in and which every consumer already handles.
+		} else {
+			return params.chunkPlan
+				.map((entry) => ({
+					text: entry.text.trim(),
+					...normalizePageRange(entry),
+				}))
+				.filter((chunk) => chunk.text.length > 0);
+		}
 	}
 
 	return splitIntoChunks(text).map((chunk) => ({
@@ -203,6 +251,12 @@ export async function syncArtifactChunks(params: {
 	 * callable from anywhere an artifact's text changes.
 	 */
 	chunkPlan?: readonly ChunkPlanEntry[] | null;
+	/**
+	 * `chunkPlanSourceDigest(text)` of the exact text the plan was derived
+	 * from. A plan whose digest is missing or does not match `contentText` is
+	 * ignored — see `planChunks`.
+	 */
+	chunkPlanSourceDigest?: string | null;
 }): Promise<SyncArtifactChunksResult> {
 	const allChunks = planChunks(params);
 
