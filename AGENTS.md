@@ -258,7 +258,8 @@ Do not:
   - [`src/lib/server/services/working-set.ts`](./src/lib/server/services/working-set.ts)
   - [`src/lib/server/services/workspace-search.ts`](./src/lib/server/services/workspace-search.ts)
   - [`src/lib/server/services/document-resolution.ts`](./src/lib/server/services/document-resolution.ts)
-  - [`src/lib/server/services/document-extraction.ts`](./src/lib/server/services/document-extraction.ts)
+  - [`src/lib/server/services/extraction/`](./src/lib/server/services/extraction/) — the durable extraction ledger and its worker; replaced the deleted `document-extraction.ts`
+  - [`src/lib/shared/file-types/`](./src/lib/shared/file-types/) — the one registry of extensions, MIME types, intake routes and producible outputs
   - [`src/lib/server/services/evidence-family.ts`](./src/lib/server/services/evidence-family.ts)
   - [`src/lib/server/services/knowledge-labels.ts`](./src/lib/server/services/knowledge-labels.ts)
   - [`src/lib/server/services/tei-embedder.ts`](./src/lib/server/services/tei-embedder.ts)

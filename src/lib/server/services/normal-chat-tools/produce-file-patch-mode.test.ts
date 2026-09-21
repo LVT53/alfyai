@@ -14,7 +14,9 @@
  * stays exactly where it was.
  */
 import { randomUUID } from "node:crypto";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createInMemoryDatabase,
 	type InMemoryDatabase,
@@ -91,16 +93,27 @@ function job(overrides: Partial<FileProductionJob> = {}): FileProductionJob {
 		warnings: [],
 		dismissed: false,
 		error: null,
+		// Required on the DTO since the follow-up that exposed the job's
+		// source mode to the client. Omitting it made this factory the one
+		// `tsc --noEmit` error outside the two known component-test files.
+		sourceMode: null,
 		...overrides,
 	};
 }
+
+/** Mirrors `read-generated-file.ts`'s own constant. */
+const CHAT_FILES_DIR = join(process.cwd(), "data", "chat-files");
+const diskFiles: string[] = [];
 
 /**
  * `getPreviousGeneratedFileContent` finds the most recent `generated_output`
  * artifact of this conversation whose text contains the request title, so the
  * seeded row has to carry the title the call will use.
  */
-function seedPreviousVersion(contentText: string): void {
+function seedPreviousVersion(
+	contentText: string,
+	metadata?: Record<string, unknown>,
+): void {
 	memory.db
 		.insert(schema.artifacts)
 		.values({
@@ -112,7 +125,7 @@ function seedPreviousVersion(contentText: string): void {
 			name: "quarterly-summary.md",
 			mimeType: "text/markdown",
 			contentText,
-			metadataJson: null,
+			metadataJson: metadata ? JSON.stringify(metadata) : null,
 			createdAt: NOW,
 			updatedAt: NOW,
 		})
@@ -171,6 +184,84 @@ beforeEach(() => {
 	// left to time out.
 	getJobMock.mockReset();
 	getJobMock.mockResolvedValue(job({ status: "succeeded" }));
+});
+
+afterEach(async () => {
+	while (diskFiles.length > 0) {
+		await rm(diskFiles.pop() as string, { force: true });
+	}
+});
+
+/**
+ * What a REAL `generated_output` artifact's text looks like: the memory
+ * wrapper `chat-files.buildGeneratedFileMemoryContent` writes, whose last
+ * section is `buildGeneratedFileExtractedContentSection(text)` — and that
+ * section runs the file through `previewText`, which collapses every run of
+ * whitespace to one space and truncates at 6000 characters.
+ *
+ * Every other test in this file seeds the raw markdown directly, so none of
+ * them sees what the patch resolver actually reads in production.
+ */
+function wrapAsMemoryText(fileText: string): string {
+	const preview = fileText.replace(/\s+/g, " ").trim();
+	return [
+		"Generated file: quarterly-summary.md",
+		"File type: text/markdown",
+		"Chat file id: chat-file-1",
+		`Generated in conversation: ${CONVERSATION}`,
+		"Generated file version: v1",
+		"",
+		"Assistant response context:",
+		"Here is the quarterly summary you asked for.",
+		"",
+		"Extracted file content:",
+		preview,
+	].join("\n");
+}
+
+describe("the base a patch is applied to", () => {
+	it("is the file on disk, not the whitespace-collapsed memory preview", async () => {
+		const chatFileId = randomUUID();
+		const storagePath = join(CONVERSATION, `${chatFileId}.md`);
+		const absolute = join(CHAT_FILES_DIR, storagePath);
+		await mkdir(dirname(absolute), { recursive: true });
+		await writeFile(absolute, PREVIOUS_MARKDOWN, "utf8");
+		diskFiles.push(absolute);
+
+		memory.db
+			.insert(schema.chatGeneratedFiles)
+			.values({
+				id: chatFileId,
+				userId: USER,
+				conversationId: CONVERSATION,
+				filename: "quarterly-summary.md",
+				mimeType: "text/markdown",
+				storagePath,
+				sizeBytes: Buffer.byteLength(PREVIOUS_MARKDOWN),
+				createdAt: NOW,
+			})
+			.run();
+		seedPreviousVersion(wrapAsMemoryText(PREVIOUS_MARKDOWN), {
+			generatedFile: true,
+			originalChatFileId: chatFileId,
+			generatedFilename: "quarterly-summary.md",
+		});
+
+		const body = await callProduceFile({
+			requestTitle: TITLE,
+			filename: "quarterly-summary.md",
+			// A single-line excerpt, which is what a model sends most often and
+			// the only kind that could still MATCH a base whose newlines are gone.
+			patches: [{ oldText: "| North | 24.25 |", newText: "| South | 25.75 |" }],
+		});
+
+		const inlineText = body.inlineText as { content: string };
+		// Before the fix this was the whole document on one line, because the
+		// base came from the memory wrapper's `previewText` section.
+		expect(inlineText.content).toBe(
+			PREVIOUS_MARKDOWN.replace("| North | 24.25 |", "| South | 25.75 |"),
+		);
+	});
 });
 
 describe("a patch whose outputs are all plain text", () => {

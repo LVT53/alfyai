@@ -673,26 +673,20 @@ type NegativeCase = {
  * Sends the shape the `produce_file` MODEL TOOL would receive from a model
  * that named two formats from different families without an explicit
  * `sourceMode` — `{ markdown, requestedOutputs: [{type:"pdf"},{type:"md"}] }`.
- * Inside the app, `normal-chat-tools/produce-file.ts`'s
- * `normalizeProduceFileInput` resolves that ambiguity itself and refuses it
- * in-process with `refuseMixedOutputGroups`'s "Cannot produce pdf, md from one
- * request. Request one group of formats at a time: …" — but that
- * normalization step runs ONLY inside the tool's `execute()`
- * (`normal-chat-tools/index.ts`), before `submitFileProductionIntake` is ever
- * called. `/api/chat/files/produce` calls `submitFileProductionIntake`
- * directly, and its validator (`file-production/intake.ts`) has no
- * equivalent step: it requires an already-resolved `sourceMode` of
- * `program`, `document_source` or `inline_text`, and refuses anything else
- * with a generic `unsupported_source_mode` — it never sees `markdown` or
- * `requestedOutputs` as a pair to reconcile.
  *
- * So this case is a genuine, reachable refusal (422, no job files, no
- * ambiguous request silently misrouted), but NOT the same refusal the model
- * sees, and not the "Cannot produce" text. That gap is the finding: a
- * caller that talks to this route directly (the signed service-assertion
- * path this route also accepts, per `+server.ts`'s `resolveOwnerUserId`) has
- * to already know which family it wants and cannot rely on the tool's
- * helpful mixed-family message.
+ * The mixed-family rule used to live inside
+ * `normal-chat-tools/produce-file.ts`, i.e. it ran only in the tool's
+ * in-process `normalizeProduceFileInput` step and never on this route, so a
+ * direct caller — Atlas, or the signed service-assertion path in
+ * `+server.ts`'s `resolveOwnerUserId` — got a generic `unsupported_source_mode`
+ * instead. The predicate now lives in
+ * `file-production/mixed-output-groups.ts` and `file-production/intake.ts`
+ * applies it, so this route answers `mixed_output_groups` with the SAME
+ * message the model sees.
+ *
+ * A caller-authored `program.sourceCode` and a `document_source` job are
+ * deliberately exempt (both may legitimately span the two families), which is
+ * why this case sends neither.
  */
 async function runNegativeMixedOutputsCase(
 	page: Page,
@@ -734,19 +728,23 @@ async function runNegativeMixedOutputsCase(
 		sourceMode: "unresolved",
 		requestedTypes: ["pdf", "md"],
 		// The real, reachable bar for this route: refused, no file written.
-		ok: refused && noFilesProduced && code === "unsupported_source_mode",
+		ok:
+			refused &&
+			noFilesProduced &&
+			code === "mixed_output_groups" &&
+			matchesToolLayerMessage,
 		httpStatus,
 		errorCode: code,
 		errorMessage: message,
 		matchesToolLayerMessage,
 		note:
-			"refuseMixedOutputGroups (produce-file.ts) runs only inside the " +
-			"produce_file tool's in-process normalizeProduceFileInput step and " +
-			"never reaches /api/chat/files/produce; intake.ts has no equivalent " +
-			"check. This route refuses the ambiguous shape generically " +
-			"(unsupported_source_mode) instead of with the tool's 'Cannot " +
-			"produce …' message. matchesToolLayerMessage records whether that " +
-			"text showed up anyway, in case a future change unifies the two.",
+			"refuseMixedOutputGroups now lives in " +
+			"file-production/mixed-output-groups.ts and is applied by " +
+			"file-production/intake.ts, so this route refuses the ambiguous " +
+			"shape with the tool's own 'Cannot produce …' message and the " +
+			"mixed_output_groups code rather than a generic " +
+			"unsupported_source_mode. matchesToolLayerMessage is now part of " +
+			"the pass condition.",
 	};
 }
 

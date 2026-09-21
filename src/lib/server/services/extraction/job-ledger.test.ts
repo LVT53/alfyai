@@ -839,6 +839,52 @@ describe("the outage budget in the ledger", () => {
 		expect((await ledger.getExtractionJobRow(job.id))?.status).toBe("queued");
 	});
 
+	// `attempt_count` is never reset, so a job that succeeds after an outage
+	// keeps carrying those attempts. The ONLY record that they were not the
+	// document's fault is `$outage.waits`, and the success path used to clear
+	// the whole `hints_json` column — which silently handed the waits back to
+	// the ceiling the moment anyone pressed Re-extract on the finished
+	// document.
+	it("keeps the outage discount when the job finally succeeds", async () => {
+		const normalizedId = fixture.seedArtifact({
+			userId,
+			type: "normalized_document",
+			name: "report.md",
+		});
+		const job = await enqueue({ hints: { tier: "basic" } });
+		await failWith("unavailable", new Date("2026-09-20T10:00:00.000Z"));
+		fixture.sqlite
+			.prepare("UPDATE document_extraction_jobs SET next_attempt_at = NULL")
+			.run();
+
+		const claimed = await claim();
+		const owned = {
+			jobId: claimed.job.id,
+			attemptId: claimed.attempt.id,
+			workerId: WORKER,
+		};
+		await ledger.reportExtractionProgress({ ...owned, status: "parsing" });
+		await ledger.reportExtractionProgress({ ...owned, status: "indexing" });
+		await ledger.completeExtractionAttempt({
+			...owned,
+			normalizedArtifactId: normalizedId,
+			textLength: 42,
+			pageCount: 7,
+		});
+
+		const row = await ledger.getExtractionJobRow(job.id);
+		expect(row?.status).toBe("succeeded");
+		// The caller's own hint is gone — it steered a parse that is over, and
+		// `parseExtractionHints` answers null once nothing outside the reserved
+		// `$` namespace is left.
+		expect(ledger.parseExtractionHints(row?.hintsJson ?? null)).toBeNull();
+		// The bookkeeping is not.
+		expect(readExtractionOutageState(row?.hintsJson ?? null)).toEqual({
+			since: null,
+			waits: 1,
+		});
+	});
+
 	it("keeps the ledger's bookkeeping out of the extractor's hints", async () => {
 		const job = await enqueue({ hints: { tier: "basic" } });
 		await failWith("unavailable", new Date("2026-09-20T10:00:00.000Z"));

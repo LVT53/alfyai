@@ -81,6 +81,41 @@ describe("decideClipboardAttachment", () => {
 		expect(decision.files[0].name).toBe("pasted-20260921-041500.jpg");
 	});
 
+	// The rename must never make a file LESS acceptable than it was. A
+	// clipboard that hands over `image.png` with a generic or empty MIME is
+	// exactly what the OS picker and the drop zone accept — the extension wins
+	// there (`admitUpload("image.png", "application/octet-stream")` is
+	// allowed) — so deriving the new extension from the MIME alone turned an
+	// acceptable screenshot into `pasted-….bin` and then refused it as an
+	// unknown type.
+	it.each([
+		"application/octet-stream",
+		"",
+	])("keeps the original extension when the MIME says nothing (%s)", (mimeType) => {
+		const decision = decideClipboardAttachment(
+			clipboard(["Files"], [makeFile("image.png", mimeType)]),
+			{ now: FIXED_NOW },
+		);
+
+		expect(decision.refused).toEqual([]);
+		expect(decision.preventDefault).toBe(true);
+		expect(decision.files.map((file) => file.name)).toEqual([
+			"pasted-20260921-041500.png",
+		]);
+	});
+
+	it("still answers bin when neither the MIME nor the name names a type", () => {
+		const decision = decideClipboardAttachment(
+			clipboard(["Files"], [makeFile("", "application/octet-stream")]),
+			{ now: FIXED_NOW },
+		);
+
+		expect(decision.files).toEqual([]);
+		expect(decision.refused.map((refusal) => refusal.name)).toEqual([
+			"pasted-20260921-041500.bin",
+		]);
+	});
+
 	it("numbers a multi-file paste so two screenshots are two chips", () => {
 		const decision = decideClipboardAttachment(
 			clipboard(

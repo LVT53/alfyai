@@ -109,12 +109,23 @@ function needsGeneratedName(name: string): boolean {
 /**
  * `pasted-20260921-041500.png`. The extension comes from the registry's view
  * of the MIME, so a clipboard PNG is named `.png` and a JPEG `.jpg` — the
- * canonical extension, not whatever alias the browser declared. `bin` is the
- * honest answer for a MIME the table has never heard of; `admitUpload` refuses
- * it a line later, which is the right outcome.
+ * canonical extension, not whatever alias the browser declared.
+ *
+ * When the MIME names nothing the ORIGINAL extension is kept. Renaming must
+ * never make a file less acceptable than it was: `getEntryByMimeType`
+ * deliberately answers null for a generic MIME and for an empty one, and
+ * `admitUpload` resolves the extension FIRST, so `image.png` with
+ * `application/octet-stream` — which is what several engines hand over — is
+ * admitted through the picker and the drop zone and would have been refused
+ * here as `pasted-….bin`. `bin` stays the honest answer when neither the MIME
+ * nor the name names a type; `admitUpload` refuses it a line later, which is
+ * the right outcome.
  */
 function generatedName(file: File, now: Date, ordinal: number): string {
-	const extension = getEntryByMimeType(file.type)?.extensions[0] ?? "bin";
+	const extension =
+		getEntryByMimeType(file.type)?.extensions[0] ||
+		fileExtension(file.name) ||
+		"bin";
 	const suffix = ordinal > 0 ? `-${ordinal + 1}` : "";
 	return `pasted-${timestamp(now)}${suffix}.${extension}`;
 }

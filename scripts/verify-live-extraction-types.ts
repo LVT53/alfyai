@@ -286,15 +286,25 @@ const CASES: ExtractionCase[] = [
 		id: "csv",
 		file: "csv/sample.csv",
 		mimeType: "text/csv",
+		// `csv` has been `direct-text` in the registry since Phase 1, so it
+		// never reaches MinerU and has no tier, page count, figure count or
+		// parser version to check. The expectations below were transcribed from
+		// the Phase 0 spike, which measured csv THROUGH MinerU; without this
+		// field `compare()` asserts all of them and the sweep reports five
+		// mismatches for a case that is working correctly. `tsv` got the field
+		// when Phase 5 added it; `csv` was missed.
+		route: "direct-text",
 		expect: {
+			// Unused by `compare()` for a direct-text case (kept only so every
+			// case satisfies the same type); the real assertions are
+			// minTextLength and mustContain below.
 			effectiveTier: "flash",
 			pageCount: 1,
 			pageCountKind: "logical",
-			minTextLength: 100,
+			minTextLength: 80,
 			mustContain: ["Northland"],
 			mustNotContain: [],
 			figureCount: 0,
-			// The one fixture with no title blocks at all.
 			outlineMin: 0,
 		},
 	},

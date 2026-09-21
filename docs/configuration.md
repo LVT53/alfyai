@@ -172,8 +172,8 @@ also shows a status card with the server's version, quality tiers and output for
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
 | `MINERU_API_URL` | No | `http://127.0.0.1:8001` | Base URL of the MinerU V1 API | Set it when MinerU runs on another host or port | Must be reachable from the app server. See [docs/uploads.md](uploads.md) |
-| `MINERU_API_KEY` | No | empty | Bearer token sent with every call except `/v1/health` | Set it when MinerU runs with `--api-key` | Masked everywhere it is read back; empty means anonymous access |
-| `MINERU_DEFAULT_TIER` | No | `auto` | Quality tier requested per document (`auto`, `flash`, `basic`, `standard`, `advanced`) | Pin a tier when the server offers several and you want one | `auto` sends no tier at all and defers to the server. Naming a tier the server does not offer fails the extraction rather than downgrading it |
+| `MINERU_API_KEY` | No | empty | Bearer token sent with every call to the configured origin, `/v1/health` included | Set it when MinerU runs with `--api-key` | Masked everywhere it is read back; empty means anonymous access |
+| `MINERU_DEFAULT_TIER` | No | `auto` | Quality tier requested per document (`auto`, `flash`, `basic`, `standard`, `advanced`) | Pin a tier when the server offers several and you want one | `auto` means "do not force a tier for this deployment", not "never send one": a registry `tierHint` (every Office, HTML, RTF and EPUB format) and a server that offers only `flash` both still send an explicit tier, ahead of this value. Naming a tier the server does not offer fails the extraction rather than downgrading it |
 | `MINERU_OCR_MODE` | No | `auto` | Text-layer handling (`auto`, `txt`, `ocr`) | Force `ocr` for scanned archives, `txt` to skip OCR entirely | `auto` omits the field; the API rejects an explicit null |
 | `MINERU_JOB_TIMEOUT_MS` | No | `300000` | Whole-document deadline, upload through result (10000–3600000) | Raise it for very large documents | Replaces `MINERU_TIMEOUT_MS`, which is still read as a deprecated env fallback for one release; an existing `admin_config` override is migrated automatically |
 | `MINERU_POLL_MIN_MS` | No | `2000` | First wait before checking whether a parse has finished (250–60000) | Lower it when parses are typically fast | Backoff grows from here toward the maximum |
@@ -186,7 +186,7 @@ also shows a status card with the server's version, quality tiers and output for
 
 ### Document Extraction Ledger
 
-Extraction is a durable background job, not a step inside the upload request. These eleven keys are
+Extraction is a durable background job, not a step inside the upload request. These twelve keys are
 editable live on **Settings → System → Advanced** (group *Limits*); a change applies on the next
 claim, failure or wait, with no restart.
 

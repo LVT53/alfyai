@@ -275,6 +275,48 @@ describe("reclaimDeadWorkerExtractionAttempts", () => {
 		).toBe(0);
 	});
 
+	// The inline direct-text runner claims under its own slice, so its id is a
+	// real four-segment one. It used to be `${DEFAULT_WORKER_ID}:inline` —
+	// five segments, which `parseWorkerId` refuses by design — and a PREVIOUS
+	// boot's inline attempt therefore never parsed, never looked dead, and
+	// always paid the full stale window. That is the one class of job a user
+	// watches synchronously.
+	it("reclaims a dead boot's inline runner, which is a worker like any other", async () => {
+		await enqueueClaimed(
+			`extraction-inline:${HOST}:9001:boot-1`,
+			"inline-old.txt",
+		);
+
+		expect(
+			(
+				await ledger.reclaimDeadWorkerExtractionAttempts({
+					workerId: SELF,
+					isProcessAlive: onlySelfAlive,
+					...RETRY,
+				})
+			).recovered,
+		).toBe(1);
+	});
+
+	it("leaves THIS process's inline runner alone", async () => {
+		// Same pid and same boot nonce as `SELF`: a different slice of the very
+		// process doing the reclaiming.
+		await enqueueClaimed(
+			`extraction-inline:${HOST}:4242:boot-2`,
+			"inline-live.txt",
+		);
+
+		expect(
+			(
+				await ledger.reclaimDeadWorkerExtractionAttempts({
+					workerId: SELF,
+					isProcessAlive: onlySelfAlive,
+					...RETRY,
+				})
+			).recovered,
+		).toBe(0);
+	});
+
 	it("never touches another host, whose process table we cannot see", async () => {
 		await enqueueClaimed(workerId("box-2", 9001));
 		expect(

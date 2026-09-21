@@ -557,6 +557,74 @@ describe("file production service", () => {
 		expect(wakeWorker).not.toHaveBeenCalled();
 	});
 
+	// `/api/chat/files/produce` is reachable without the produce_file tool
+	// (Atlas, and the signed service-assertion path in the route's
+	// `resolveOwnerUserId`). The mixed-family rule used to live only inside the
+	// tool's in-process normalization, so a direct caller sending the very
+	// shape the tool refuses by name got a generic `unsupported_source_mode`.
+	it("refuses a mixed-family request at intake, not only in the chat tool", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-mixed-groups",
+				requestTitle: "Live negative mixed outputs",
+				requestedOutputs: [{ type: "pdf" }, { type: "md" }],
+				markdown: "# Mixed output negative case\n\nBody text.\n",
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:26.650Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			status: 422,
+			code: "mixed_output_groups",
+			job: {
+				status: "failed",
+				error: { code: "mixed_output_groups", retryable: false },
+				files: [],
+			},
+		});
+		if (result.ok) throw new Error("expected a refusal");
+		expect(result.error).toContain("Cannot produce pdf, md from one request");
+		expect(wakeWorker).not.toHaveBeenCalled();
+	});
+
+	// The two shapes the rule must NOT touch: a caller-authored program may
+	// legitimately write both families in one run, and a document_source job
+	// renders `pdf` and `markdown` off one source (the spec's
+	// `document-markdown` live row).
+	it("still accepts a caller-authored program that names both families", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-mixed-program-ok",
+				requestTitle: "Report plus notes",
+				sourceMode: "program",
+				requestedOutputs: [{ type: "pdf" }, { type: "md" }],
+				program: {
+					language: "python",
+					sourceCode:
+						"from pathlib import Path\nPath('/output/a.pdf').write_bytes(b'%PDF-1.4')\nPath('/output/a.md').write_text('# hi')",
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:26.700Z"),
+		});
+
+		expect(result).toMatchObject({ ok: true, status: 202 });
+	});
+
 	it("rejects an unsupported program output type at intake rather than after the run", async () => {
 		const { submitFileProductionIntake } = await import("./index");
 		const wakeWorker = vi.fn();
