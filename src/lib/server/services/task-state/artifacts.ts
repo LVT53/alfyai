@@ -261,7 +261,11 @@ async function resolveArtifactSnippet(args: {
 		args.queryContext,
 		ranked,
 	);
-	return combineSnippetChunks(chosen, args.queryContext.perArtifactCharBudget);
+	return combineSnippetChunks(
+		chosen,
+		args.queryContext.perArtifactCharBudget,
+		resolveArtifactPageLabel(args.artifact),
+	);
 }
 
 async function resolveFullContentSnippet(args: {
@@ -371,17 +375,101 @@ async function chooseArtifactChunks(
 	return chosen;
 }
 
+/**
+ * The page vocabulary a citation may use, keyed by the artifact's
+ * `pageCountKind`.
+ *
+ * Only these four kinds are citable. `declared` is what DOCX reports — a
+ * four-heading document comes back as `page_count: 1` — and `logical` is what
+ * CSV and HTML report; "p. 1" there would be an invention, not a citation.
+ * `unknown` (PNG/JPEG, whose `metadata.document` is `{}`) is the same.
+ */
+const PAGE_CITATION_LABELS: Readonly<Record<string, string>> = {
+	physical: "p.",
+	spine: "p.",
+	slide: "slide",
+	sheet: "sheet",
+};
+
+/**
+ * The label this artifact's chunks may cite with, or null when it may not
+ * cite at all.
+ *
+ * A single-page document is never cited either: "[p. 1]" on every chunk of a
+ * one-page document is noise that buys the model nothing.
+ */
+export function resolveArtifactPageLabel(artifact: Artifact): string | null {
+	const metadata = artifact.metadata;
+	const kind =
+		typeof metadata?.pageCountKind === "string"
+			? metadata.pageCountKind.trim().toLowerCase()
+			: null;
+	const label = kind ? PAGE_CITATION_LABELS[kind] : undefined;
+	if (!label) return null;
+
+	const metadataPageCount =
+		typeof metadata?.pageCount === "number" ? metadata.pageCount : null;
+	const pageCount = artifact.pageCount ?? metadataPageCount;
+	if (typeof pageCount !== "number" || pageCount <= 1) return null;
+
+	return label;
+}
+
+/**
+ * `[p. 3]` / `[p. 3–4]` / `[slide 2]` / `[sheet 1]`, or `""` when this chunk
+ * carries no usable page range. En dash for the span, ASCII otherwise.
+ */
+export function formatPageCitation(
+	chunk: Pick<ArtifactChunk, "pageStart" | "pageEnd">,
+	label: string | null,
+): string {
+	if (!label) return "";
+	const start = chunk.pageStart;
+	if (typeof start !== "number" || !Number.isInteger(start) || start < 1) {
+		return "";
+	}
+	const end = chunk.pageEnd;
+	const spansPages =
+		typeof end === "number" && Number.isInteger(end) && end > start;
+	return spansPages ? `[${label} ${start}–${end}]` : `[${label} ${start}]`;
+}
+
+/**
+ * The chunks the model sees, each prefixed with its page when the document
+ * has citable pages.
+ *
+ * The prefix is paid for OUT OF the chunk's share of the character budget —
+ * the body is clipped by the citation's own length — so a cited snippet is
+ * never longer than an uncited one. The evidence section is clipped again by
+ * token budget further up (`serializeWorkingSetArtifacts`), and citations
+ * displacing body text there rather than growing the section is the whole
+ * point: a prompt that gets longer because it cites is a prompt that trims
+ * something else away instead.
+ */
 function combineSnippetChunks(
 	chosen: RankedChunkEntry[],
 	perArtifactCharBudget: number,
+	pageLabel: string | null,
 ): string {
+	const perChunkBudget = Math.floor(perArtifactCharBudget / chosen.length);
 	return chosen
-		.map((entry) =>
-			clipText(
-				entry.chunk.contentText,
-				Math.floor(perArtifactCharBudget / chosen.length),
-			),
-		)
+		.map((entry) => {
+			const citation = formatPageCitation(entry.chunk, pageLabel);
+			// Nothing to cite with: a budget so small the citation would leave no
+			// room for text drops the citation, never the text.
+			const bodyBudget = citation
+				? perChunkBudget - citation.length - 1
+				: perChunkBudget;
+			if (bodyBudget <= 0) {
+				return clipText(entry.chunk.contentText, perChunkBudget);
+			}
+			const body = clipText(entry.chunk.contentText, bodyBudget);
+			// A space, not a newline: `getPromptArtifactSnippets` clips the
+			// combined snippet with `clipText`, which normalizes whitespace, so
+			// a newline here would reach the prompt as a space anyway. Writing
+			// the space is honest about what the model sees.
+			return citation ? `${citation} ${body}` : body;
+		})
 		.join("\n\n");
 }
 
@@ -400,6 +488,13 @@ export type DocumentPassage = {
 	truncated: boolean;
 	/** The chunk's full (uncut) text, for callers deriving offsets. */
 	chunkText: string;
+	/**
+	 * 1-based inclusive pages the chunk spans, for a document parsed with
+	 * structure. Null for direct text, for legacy rows and for the synthesized
+	 * pseudo-chunk of a document that is too small to have chunks at all.
+	 */
+	pageStart: number | null;
+	pageEnd: number | null;
 };
 
 /**
@@ -454,6 +549,10 @@ export async function selectDocumentPassages(params: {
 				chunkIndex: 0,
 				contentText: params.artifact.contentText.trim(),
 				tokenEstimate: 0,
+				// The whole document as one chunk: it spans every page, so no
+				// single page is the honest answer.
+				pageStart: null,
+				pageEnd: null,
 				createdAt: params.artifact.createdAt,
 				updatedAt: params.artifact.updatedAt,
 			},
@@ -485,6 +584,8 @@ export async function selectDocumentPassages(params: {
 			score: entry.score,
 			truncated: entry.chunk.contentText.length > perPassageChars,
 			chunkText: entry.chunk.contentText,
+			pageStart: entry.chunk.pageStart,
+			pageEnd: entry.chunk.pageEnd,
 		})),
 	};
 }
