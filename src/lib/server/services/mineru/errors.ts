@@ -632,6 +632,44 @@ const MINERU_ERROR_RULES: readonly MineruErrorRule[] = [
 		retryable: false,
 		reason: "4.0.4 registers this code; the bytes are damaged, not the server",
 	},
+	/**
+	 * The parse SUCCEEDED and found nothing — which is a fact about the
+	 * document, not about the server.
+	 *
+	 * 4.0.4 answers a scan with nothing legible on it, and a file whose pages
+	 * are all empty, with `parse_empty` / "Parse completed but returned no
+	 * pages". Unmapped, that fell through to the `job_failed` catch-all below
+	 * and was RETRYABLE: three attempts plus backoff re-parsing bytes that
+	 * cannot become text, and then a Retry button offered to the user that
+	 * could never succeed.
+	 *
+	 * `empty_result` is the code the result parser already raises for exactly
+	 * this outcome when it reads the zip itself (`result.ts`, "every block was
+	 * a running head or empty"). The two paths reach the same verdict on
+	 * purpose: `empty_result` is `{ autoRetry: "none", userRetryable: false }`
+	 * in the shared status table, so neither the worker nor the user is
+	 * invited to try again.
+	 *
+	 * Ordered before `file:parse_failed:missing-file`, whose /not found/ would
+	 * otherwise swallow a message like "no pages found".
+	 */
+	{
+		rule: "file:parse_empty",
+		code: "parse_empty",
+		taxonomy: "empty_result",
+		retryable: false,
+		reason: "the parse finished and there was nothing in the document",
+	},
+	{
+		rule: "file:parse_failed:empty",
+		code: "parse_failed",
+		message:
+			/returned no pages|no (readable )?(text|pages) (was )?(found|extracted)|empty (document|result)/i,
+		taxonomy: "empty_result",
+		retryable: false,
+		reason:
+			"the same outcome under the generic code; the document has no text to find",
+	},
 	{
 		rule: "file:parse_failed:missing-file",
 		code: "parse_failed",

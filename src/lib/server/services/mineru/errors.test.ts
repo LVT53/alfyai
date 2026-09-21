@@ -27,6 +27,7 @@ import {
 	redactMineruSecrets,
 	truncateMineruBody,
 } from "./errors";
+import { MineruResultError } from "./result";
 import { mineruJobSchema } from "./schemas";
 import { MINERU_FIXTURE_ROOT } from "./testing/fake-server";
 
@@ -365,6 +366,74 @@ describe("mapMineruError — deferred, file-level failures", () => {
 		expect(mapping?.retryable).toBe(false);
 		expect(mapping?.known).toBe(true);
 		expect(mapping?.rule).toBe("file:parse_failed:unsupported-type");
+	});
+
+	// "Parse completed but returned no pages" is a fact about the DOCUMENT.
+	// Unmapped it fell through to the retryable `job_failed` catch-all, which
+	// burned the attempt budget re-parsing bytes that cannot become text and
+	// then offered the user a Retry that could never succeed.
+	it.each([
+		["parse_empty", "Parse completed but returned no pages"],
+		["parse_failed", "Parse completed but returned no pages"],
+		["parse_failed", "No readable text was extracted from this document"],
+	])("reads %s / %s as an empty document, once", (code, message) => {
+		const job = mineruJobSchema.parse({
+			...(JSON.parse(
+				readFileSync(
+					join(MINERU_FIXTURE_ROOT, "pdf", "job.final.json"),
+					"utf8",
+				),
+			) as Record<string, unknown>),
+			status: "failed",
+			files: [
+				{
+					file_id: "file-000000000001",
+					name: "blank-scan.pdf",
+					page_range: "",
+					status: "failed",
+					parse: null,
+					output_files: null,
+					error: {
+						type: "engine_error",
+						code,
+						message,
+						param: null,
+					},
+				},
+			],
+		});
+
+		const mapping = mapMineruJobFailure(job);
+		expect(mapping?.taxonomy).toBe("empty_result");
+		expect(mapping?.retryable).toBe(false);
+		expect(mapping?.known).toBe(true);
+	});
+
+	// The result parser raises the same verdict when it reads the zip itself,
+	// and the two paths must agree — otherwise the same blank scan is
+	// retryable or not depending on where it was noticed.
+	it("agrees with the result parser's own empty_result verdict", () => {
+		const fromZip = new MineruResultError(
+			"empty_result",
+			"MinerU returned a document with no renderable text",
+		);
+		expect(fromZip.taxonomy).toBe("empty_result");
+		expect(fromZip.retryable).toBe(false);
+	});
+
+	it("tells the user the document has no text, not that parsing broke", () => {
+		const error = mineruErrorToExtractionError(
+			new MineruApiError({
+				code: "parse_empty",
+				message: "Parse completed but returned no pages",
+				status: null,
+			}),
+		);
+		expect(error.code).toBe("empty_result");
+		expect(error.retryable).toBe(false);
+		expect(error.message).toContain("no readable text");
+		expect(error.message).not.toContain("returned no pages");
+		expect(error.details?.rawMessage).toContain("returned no pages");
 	});
 
 	it("still reads an ordinary parse failure as retryable", () => {

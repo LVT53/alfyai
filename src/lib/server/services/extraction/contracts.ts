@@ -196,6 +196,12 @@ const EXTRACTION_ERROR_MESSAGES: Partial<Record<ExtractionErrorCode, string>> =
 		// format error)." — true, and useless to the person holding the file.
 		document_unreadable:
 			"This file appears to be damaged or password-protected, so it could not be read. Open it, re-export or re-save it (removing any password), and upload that copy.",
+		// Upstream says "Parse completed but returned no pages", which reads as
+		// a server fault and is not one: the parse worked, and the document had
+		// nothing in it. A scan with nothing legible on it and an empty file
+		// both land here, so the sentence names both.
+		empty_result:
+			"This document contains no readable text — an empty file, or a scan with nothing legible on it, both look like this. Check the file, and if it is a scan, upload a clearer copy.",
 	};
 
 /**
