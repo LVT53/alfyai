@@ -132,6 +132,36 @@ function seedPreviousVersion(
 		.run();
 }
 
+/** A stored generated file: bytes on disk plus its `chat_generated_files` row. */
+async function seedChatFileOnDisk(params: {
+	filename: string;
+	content: string;
+	createdAt?: Date;
+}): Promise<string> {
+	const chatFileId = randomUUID();
+	const extension = params.filename.split(".").pop() ?? "bin";
+	const storagePath = join(CONVERSATION, `${chatFileId}.${extension}`);
+	const absolute = join(CHAT_FILES_DIR, storagePath);
+	await mkdir(dirname(absolute), { recursive: true });
+	await writeFile(absolute, params.content, "utf8");
+	diskFiles.push(absolute);
+
+	memory.db
+		.insert(schema.chatGeneratedFiles)
+		.values({
+			id: chatFileId,
+			userId: USER,
+			conversationId: CONVERSATION,
+			filename: params.filename,
+			mimeType: "text/markdown",
+			storagePath,
+			sizeBytes: Buffer.byteLength(params.content),
+			createdAt: params.createdAt ?? NOW,
+		})
+		.run();
+	return chatFileId;
+}
+
 async function callProduceFile(
 	input: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
@@ -261,6 +291,71 @@ describe("the base a patch is applied to", () => {
 		expect(inlineText.content).toBe(
 			PREVIOUS_MARKDOWN.replace("| North | 24.25 |", "| South | 25.75 |"),
 		);
+	});
+
+	// The patch base used to be its own resolver: scan this conversation's
+	// `generated_output` artifacts, take the first whose BODY contains the
+	// request title. It could only ever see artifacts — and the memory sync
+	// that mints them is deferred until the assistant message is assigned, so
+	// a file produced a moment earlier in the SAME turn had none. Patching it
+	// was refused with `no_previous_version_for_patches`, for a file the user
+	// could already see in the chat.
+	it("is the file produced earlier in this same turn, before any artifact exists", async () => {
+		await seedChatFileOnDisk({
+			filename: "quarterly-summary.md",
+			content: PREVIOUS_MARKDOWN,
+		});
+
+		const body = await callProduceFile({
+			requestTitle: TITLE,
+			filename: "quarterly-summary.md",
+			patches: [{ oldText: "| North | 24.25 |", newText: "| South | 25.75 |" }],
+		});
+
+		const inlineText = body.inlineText as { content: string };
+		expect(inlineText.content).toBe(
+			PREVIOUS_MARKDOWN.replace("| North | 24.25 |", "| South | 25.75 |"),
+		);
+	});
+
+	// And the second patch of the same file: v2 is on disk with no artifact
+	// yet, v1 has one. The artifact scan could only find v1, so a patch whose
+	// `oldText` came from v2 either failed to match or silently reverted the
+	// first edit.
+	it("is the newest version, not the one that happens to have an artifact", async () => {
+		const version2 = PREVIOUS_MARKDOWN.replace(
+			"| North | 24.25 |",
+			"| South | 25.75 |",
+		);
+		const v1 = await seedChatFileOnDisk({
+			filename: "quarterly-summary.md",
+			content: PREVIOUS_MARKDOWN,
+			createdAt: new Date("2026-09-20T10:00:00.000Z"),
+		});
+		seedPreviousVersion(wrapAsMemoryText(PREVIOUS_MARKDOWN), {
+			generatedFile: true,
+			originalChatFileId: v1,
+			generatedFilename: "quarterly-summary.md",
+			versionNumber: 1,
+		});
+		await seedChatFileOnDisk({
+			filename: "quarterly-summary.md",
+			content: version2,
+			createdAt: new Date("2026-09-20T10:01:00.000Z"),
+		});
+
+		const body = await callProduceFile({
+			requestTitle: TITLE,
+			filename: "quarterly-summary.md",
+			patches: [{ oldText: "| South | 25.75 |", newText: "| East | 31.00 |" }],
+		});
+
+		const inlineText = body.inlineText as { content: string };
+		expect(inlineText.content).toBe(
+			version2.replace("| South | 25.75 |", "| East | 31.00 |"),
+		);
+		// The first edit survives; the stale v1 was never the base.
+		expect(inlineText.content).not.toContain("| North | 24.25 |");
 	});
 });
 

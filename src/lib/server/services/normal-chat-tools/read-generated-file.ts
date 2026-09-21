@@ -1052,6 +1052,137 @@ async function resolveReadTarget(params: {
 	return { status: "none" };
 }
 
+// ── Patch base ─────────────────────────────────────────────────
+
+/**
+ * The previous version of a generated file, as `produce_file`'s patch
+ * resolver needs it.
+ *
+ * `text` is the base a patch's `oldText` was copied from; `documentSource`
+ * is the stored source JSON when the previous version was a rendered
+ * document, which is how the resolver can tell that rebuilding it from
+ * Markdown would drop a chart or an image.
+ */
+export interface GeneratedFilePatchBase {
+	text: string;
+	documentSource: unknown;
+}
+
+/**
+ * The patch base, resolved the SAME way `read_generated_file` resolves what
+ * it shows the model — because a patch's `oldText` is an excerpt of exactly
+ * that text.
+ *
+ * It used to be its own resolver in `normal-chat-tools/index.ts`: scan this
+ * conversation's `generated_output` artifacts and take the first whose BODY
+ * contains the request title. That could only ever see artifacts, so patching
+ * a file produced earlier in the same turn found no base at all
+ * (`no_previous_version_for_patches` for a file the user can see in the
+ * chat), and patching a file that had already been patched once found the
+ * stale previous version — the artifact of v1, while v2 was on disk with no
+ * artifact yet. Both are the read-back blocker in a second costume.
+ *
+ * The artifact scan is kept as the fallback, unchanged, for a call that names
+ * no filename (a patch request carries one, but `requestTitle` alone is still
+ * a legal shape) and for a file whose chat row is gone.
+ */
+export async function resolveGeneratedFilePatchBase(params: {
+	userId: string;
+	conversationId: string;
+	filename?: string | null;
+	requestTitle?: string | null;
+}): Promise<GeneratedFilePatchBase | null> {
+	const filename = params.filename?.trim();
+	if (filename) {
+		for (const minTier of [CHAT_FILE_NAME_TIER, CHAT_FILE_STEM_TIER]) {
+			const chatFile = await findChatFileTarget({
+				userId: params.userId,
+				conversationId: params.conversationId,
+				filename,
+				minTier,
+			});
+			if (!chatFile) continue;
+			const { text } = await resolveChatFileText({
+				userId: params.userId,
+				file: chatFile.file,
+				row: chatFile.row,
+			});
+			// A file whose text has not arrived yet is not a patch base: patching
+			// it would write the model's `oldText` expectations onto nothing. Fall
+			// through so the caller reports "no previous version" honestly.
+			if (!text) break;
+			return {
+				text,
+				documentSource:
+					parseJsonRecord(chatFile.row?.metadataJson ?? null)
+						?.generatedDocumentSource ?? null,
+			};
+		}
+	}
+	return findPatchBaseByTitle(params);
+}
+
+/** The pre-existing artifact scan, moved here so both resolvers live together. */
+async function findPatchBaseByTitle(params: {
+	userId: string;
+	conversationId: string;
+	requestTitle?: string | null;
+}): Promise<GeneratedFilePatchBase | null> {
+	const normalizedTitle = params.requestTitle?.trim().toLowerCase();
+	if (!normalizedTitle) return null;
+
+	const rows = await db
+		.select({
+			contentText: artifacts.contentText,
+			metadataJson: artifacts.metadataJson,
+		})
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.userId, params.userId),
+				eq(artifacts.conversationId, params.conversationId),
+				eq(artifacts.type, "generated_output"),
+			),
+		)
+		.orderBy(desc(artifacts.updatedAt))
+		.limit(24);
+
+	for (const row of rows) {
+		if (!row.contentText) continue;
+		if (!row.contentText.toLowerCase().includes(normalizedTitle)) continue;
+		const documentSource = parseJsonRecord(
+			row.metadataJson,
+		)?.generatedDocumentSource;
+		// The memory wrapper's last section is a `previewText` of the file —
+		// every run of whitespace collapsed to one space, truncated at 6 000
+		// characters — so reading the base out of it applied the patch to a
+		// one-line, clipped copy and wrote THAT back as the new version. A
+		// multi-line `oldText` could not match it at all (`patch_failed`), and a
+		// single-line one matched and silently destroyed every line break in the
+		// user's document.
+		const resolved = await resolveBestContent(
+			params.userId,
+			row.contentText,
+			row.metadataJson,
+		);
+		// …and a wrapper whose text never arrived is not a base either: it would
+		// hand the patcher the bookkeeping to edit.
+		if (
+			resolved &&
+			documentSource === undefined &&
+			isGeneratedFileMemoryWrapper(resolved) &&
+			!readGeneratedFileExtractedText(resolved)
+		) {
+			return null;
+		}
+		const text = resolved ?? extractContentFromMemoryText(row.contentText);
+		if (!text) return null;
+		return { text, documentSource: documentSource ?? null };
+	}
+
+	return null;
+}
+
 /**
  * What this conversation actually produced, for a miss.
  *
