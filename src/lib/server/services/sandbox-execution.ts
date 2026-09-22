@@ -923,7 +923,17 @@ export async function executeCode(
 					// Container may already be stopped
 				}
 			};
+			// Set by the two handlers below BEFORE they kill the container. The
+			// SIGKILL makes the in-flight exec settle on its own — with exit code
+			// 137, which `classifyError` reads as "memory limit exceeded" — and
+			// whichever settlement reaches this promise first wins. Without the
+			// flag a plain timeout raced its own kill and was reported as an
+			// out-of-memory failure. The flag makes the timeout (or the cancel)
+			// the outcome deterministically: the exit the kill induced is ours,
+			// not a diagnosis of the code that was running.
+			let killedByRunner = false;
 			const timeoutId = setTimeout(async () => {
+				killedByRunner = true;
 				// SECURITY: Kill the container on timeout, not just reject
 				await killContainer();
 				reject(new Error(`Sandbox execution timed out after ${timeoutMs}ms`));
@@ -933,6 +943,7 @@ export async function executeCode(
 			// then reject — because there is no other way to stop code that is
 			// already running inside it.
 			const onAbort = () => {
+				killedByRunner = true;
 				clearTimeout(timeoutId);
 				void killContainer().then(() => {
 					reject(new Error("Sandbox execution cancelled"));
@@ -943,11 +954,13 @@ export async function executeCode(
 			sandbox
 				.execute(wrappedCode)
 				.then((res) => {
+					if (killedByRunner) return;
 					clearTimeout(timeoutId);
 					options.signal?.removeEventListener("abort", onAbort);
 					resolve(res);
 				})
 				.catch((err) => {
+					if (killedByRunner) return;
 					clearTimeout(timeoutId);
 					options.signal?.removeEventListener("abort", onAbort);
 					reject(err);
