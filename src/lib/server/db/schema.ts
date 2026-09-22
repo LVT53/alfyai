@@ -1699,6 +1699,17 @@ export const documentExtractionJobs = sqliteTable(
 		remoteHandleJson: text("remote_handle_json"),
 		/** Opaque, caller-supplied extraction hints. The ledger never inspects them. */
 		hintsJson: text("hints_json"),
+		/**
+		 * Who/what asked for this row, beyond the normal upload/re-extract paths.
+		 * Null for everything the app itself creates. `scripts/backfill-extractions.ts`
+		 * is the one writer today, stamping `"backfill"` AFTER materializing/requeuing
+		 * through the normal service functions — never inspected by the ledger or the
+		 * worker, and deliberately NOT cleared by `completeExtractionAttempt` the way
+		 * `hints_json` is, because it has to survive success: it is what lets the
+		 * script tell its own rows apart from an organic upload or a user's own
+		 * re-extraction on a later, resumed run.
+		 */
+		requestedBy: text("requested_by"),
 		retryable: integer("retryable", { mode: "boolean" })
 			.notNull()
 			.default(false),
