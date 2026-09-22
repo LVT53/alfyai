@@ -26,7 +26,12 @@ import {
 	updateConversationMemoryIncognitoLocal,
 	upsertConversationLocal,
 } from "$lib/stores/conversations";
-import { currentConversationId, requestSearchModalOpen } from "$lib/stores/ui";
+import {
+	currentConversationId,
+	landingIncognitoArmed,
+	landingIncognitoArmVisible,
+	requestSearchModalOpen,
+} from "$lib/stores/ui";
 import {
 	EMPTY_HOME_SUMMARY,
 	type HomeSuggestion,
@@ -161,12 +166,14 @@ let conversationDraft: ConversationDraft | null = $state(null);
 const draftPersistence = createDraftPersistence();
 
 // Incognito, one-way (docs/plans/incognito-one-way-spec.md §2-3). The mask
-// button here is the ONLY place incognito can be armed — it exists only
-// while no conversation exists yet (`!hasStarted && !preparedConversationId`)
-// and disappears the moment it is tapped or a conversation starts by any
-// other route (e.g. an attachment triggering ensurePreparedConversation).
-// Once armed it stays armed for the life of this page; there is no way back.
-let landingIncognitoArmed = $state(false);
+// button here — and its phone-header twin, see stores/ui.ts — is the ONLY
+// place incognito can be armed: it exists only while no conversation exists
+// yet (`!hasStarted && !preparedConversationId`) and disappears the moment
+// it is tapped or a conversation starts by any other route (e.g. an
+// attachment triggering ensurePreparedConversation). The armed flag itself
+// lives in a shared store (`landingIncognitoArmed`) rather than local state
+// so Header's phone button — mounted in the layout, not this page — arms
+// the same flag instead of a second copy of it.
 let incognitoArmTooltipVisible = $state(false);
 // Picked once per mount (not at arm time) so it is ready the instant the
 // button is tapped, and stable for the rest of the page's life — no re-roll
@@ -179,12 +186,15 @@ const incognitoGreeting = $derived.by(() => {
 	return pool[incognitoGreetingIndex % pool.length] ?? INCOGNITO_GREETINGS.en[0];
 });
 const showIncognitoArm = $derived(
-	!hasStarted && !preparedConversationId && !landingIncognitoArmed,
+	!hasStarted && !preparedConversationId && !$landingIncognitoArmed,
 );
 
+$effect(() => {
+	landingIncognitoArmVisible.set(showIncognitoArm);
+});
+
 function armIncognito() {
-	if (landingIncognitoArmed) return;
-	landingIncognitoArmed = true;
+	landingIncognitoArmed.set(true);
 	incognitoArmTooltipVisible = false;
 }
 
@@ -436,6 +446,12 @@ function handleDrop(event: DragEvent) {
 }
 
 onMount(() => {
+	// A fresh landing visit always starts unarmed — these are shared stores
+	// (Header's phone button reads/writes the same ones), so a previous
+	// visit's true must not leak into this one.
+	landingIncognitoArmed.set(false);
+	landingIncognitoArmVisible.set(false);
+
 	const previousId = consumePreviousConversationId();
 	if (previousId) {
 		isFromChat = true;
@@ -496,6 +512,9 @@ onMount(() => {
 
 onDestroy(() => {
 	void draftPersistence.flush();
+	// Leaving the landing page — Header's phone mask button must not keep
+	// showing (or keep armable) for a route that is no longer this page.
+	landingIncognitoArmVisible.set(false);
 });
 
 async function ensurePreparedConversation(): Promise<string> {
@@ -507,7 +526,7 @@ async function ensurePreparedConversation(): Promise<string> {
 	}
 	if (!preparedConversationPromise) {
 		preparedConversationPromise = createNewConversation({
-			memoryIncognito: landingIncognitoArmed,
+			memoryIncognito: $landingIncognitoArmed,
 		})
 			.then((id) => {
 				preparedConversationId = id;
@@ -667,7 +686,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 	<DropZoneOverlay active={fileDragActive} rejected={fileDragRejected} />
 	<div
 		class="chat-stage relative flex min-h-0 flex-1 overflow-hidden rounded-lg"
-		class:stage--incognito={landingIncognitoArmed}
+		class:stage--incognito={$landingIncognitoArmed}
 	>
 		<!-- Incognito, one-way (spec §2) — the ONLY place the flag can be
 		     armed, and only while no conversation exists yet. Tapping it arms
@@ -718,7 +737,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					     single italic line — nothing here is counted, so the weekly
 					     bars go with the rest of the board. -->
 					<div class="home-band" in:greetingFade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
-						{#if landingIncognitoArmed}
+						{#if $landingIncognitoArmed}
 							<h1 class="home-greeting home-greeting--incognito" data-testid="home-greeting">
 								{incognitoGreeting}
 							</h1>
@@ -760,7 +779,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					showSlashHintProp={false}
 					composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
 					conversationId={preparedConversationId}
-					memoryIncognito={landingIncognitoArmed}
+					memoryIncognito={$landingIncognitoArmed}
 					onMemoryIncognitoChange={(value, id) =>
 						updateConversationMemoryIncognitoLocal(id, value)}
 					contextStatus={null}
@@ -786,7 +805,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					onUploadFiles={handleUploadFiles}
 				/>
 
-				{#if !hasStarted && !landingIncognitoArmed && summaryLoaded}
+				{#if !hasStarted && !$landingIncognitoArmed && summaryLoaded}
 					<!-- Armed incognito hides the whole board: no history, no
 					     counting, just the greeting and the composer (spec §3). -->
 					<!-- The owner's one change to the board: the suggestion chips sit

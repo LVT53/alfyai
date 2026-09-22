@@ -87,6 +87,19 @@ export function initUIListeners(): () => void {
 export const currentConversationId = writable<string | null>(null);
 
 /**
+ * Incognito, one-way (docs/plans/incognito-one-way-spec.md §2). The landing
+ * page's own armed state, lifted here so the phone Header — which lives in
+ * the shared layout, not the page — can show the same mask button and arm
+ * the SAME flag, rather than maintaining a second implementation of what
+ * arming does. `landingIncognitoArmVisible` mirrors the page's own
+ * "no conversation yet" visibility rule; Header only reads it, never writes
+ * it. Both are reset to false by the landing page on every mount, so a
+ * stale true from a previous visit never survives navigating back to "/".
+ */
+export const landingIncognitoArmed = writable<boolean>(false);
+export const landingIncognitoArmVisible = writable<boolean>(false);
+
+/**
  * One-shot signal requesting that the Workspace Search modal open.
  *
  * The modal's actual open/close state (`showSearchModal`) is owned locally

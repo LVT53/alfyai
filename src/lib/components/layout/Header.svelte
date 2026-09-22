@@ -4,7 +4,15 @@ import { onMount } from "svelte";
 import { logout } from "$lib/client/api/auth";
 import { clearClientAccountState } from "$lib/client/session-boundary";
 import { t } from "$lib/i18n";
-import { BookOpen, Menu, User, Plus, Search, LogOut } from "@lucide/svelte";
+import {
+	BookOpen,
+	Menu,
+	User,
+	Plus,
+	Search,
+	LogOut,
+	VenetianMask,
+} from "@lucide/svelte";
 import { markPreviousConversationId } from "$lib/client/conversation-session";
 import {
 	portal,
@@ -16,6 +24,8 @@ import {
 	sidebarOpen,
 	sidebarCollapsed,
 	currentConversationId,
+	landingIncognitoArmed,
+	landingIncognitoArmVisible,
 	requestSearchModalOpen,
 } from "$lib/stores/ui";
 import { viewportStore } from "$lib/utils/viewport.svelte";
@@ -24,8 +34,11 @@ import LogoMark from "$lib/components/chat/LogoMark.svelte";
 
 let {
 	conversationTitle = null,
+	conversationIsIncognito = false,
 }: {
 	conversationTitle?: string | null;
+	/** Incognito, one-way — draws the 16px mask mark before the title. */
+	conversationIsIncognito?: boolean;
 } = $props();
 
 let mobileMenuOpen = $state(false);
@@ -68,6 +81,15 @@ async function handleNewConversation() {
 		console.error("Failed to create new conversation:", error);
 		alert($t("header.failedCreateConversation"));
 	}
+}
+
+/**
+ * Incognito, one-way (docs/plans/incognito-one-way-spec.md §2). Arms the
+ * SAME shared flag the landing page's own desktop mask button arms — see
+ * stores/ui.ts — rather than a second implementation of what arming does.
+ */
+function armIncognito() {
+	landingIncognitoArmed.set(true);
 }
 
 async function handleOpenKnowledge() {
@@ -128,7 +150,8 @@ onMount(() => {
 <svelte:window onclick={handleOutsideClick} />
 
 <header
-	class="z-10 box-border grid h-[52px] w-full max-w-full flex-none grid-cols-[44px_minmax(0,1fr)_44px] items-center border-b border-border bg-surface-page pl-4 pr-4 pt-[max(0.35rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:hidden"
+	class="header-bar z-10 box-border grid h-[52px] w-full max-w-full flex-none grid-cols-[44px_minmax(0,1fr)_44px_44px] items-center border-b border-border bg-surface-page pl-4 pr-4 pt-[max(0.35rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:hidden"
+	class:stage--incognito={conversationIsIncognito}
 >
 	<div class="flex min-w-0 items-center justify-start">
 		<button
@@ -140,11 +163,19 @@ onMount(() => {
 		</button>
 	</div>
 
-	<div class="pointer-events-none flex min-w-0 items-center justify-center gap-2 px-2">
+	<div class="pointer-events-none flex min-w-0 items-center justify-center gap-1.5 px-2">
 			<span data-testid="mobile-header-logo" class="flex shrink-0 items-center">
 				<LogoMark size={20} />
 			</span>
 			{#if conversationTitle}
+				{#if conversationIsIncognito}
+					<VenetianMask
+						size={16}
+						strokeWidth={1.8}
+						class="shrink-0 text-text-muted"
+						aria-label={$t('sidebar.incognitoMark')}
+					/>
+				{/if}
 				<div
 					class="max-w-full truncate text-center text-[13px] font-medium leading-5 text-text-primary"
 					title={conversationTitle}
@@ -154,6 +185,24 @@ onMount(() => {
 				</div>
 			{/if}
 		</div>
+
+	<!-- Incognito, one-way (spec §2) — the only other place the flag can be
+	     armed, mirroring the landing page's own desktop button and the same
+	     visibility rule. Reserves its 44px slot whether or not the button is
+	     drawn, so the wordmark stays where it is once a conversation exists. -->
+	<div class="flex min-w-0 items-center justify-center">
+		{#if $landingIncognitoArmVisible}
+			<button
+				class="btn-icon-bare hbtn"
+				data-testid="incognito-arm-phone"
+				onclick={armIncognito}
+				aria-label={$t('chat.incognitoArm')}
+				title={$t('chat.incognitoArm')}
+			>
+				<VenetianMask size={20} strokeWidth={1.8} aria-hidden="true" />
+			</button>
+		{/if}
+	</div>
 
 	<div class="flex min-w-0 items-center justify-end">
 
@@ -233,6 +282,25 @@ onMount(() => {
 </header>
 
 <style>
+	/* Incognito, one-way (spec §2) — the phone header's own tint. Everything
+	   else the stage-scoped variables touch (message bubbles, the composer)
+	   lives inside the chat page's own .stage--incognito element; the header
+	   is a layout-level sibling of that, so it carries its own copy of the
+	   class when the route's conversation is incognito. */
+	.header-bar.stage--incognito {
+		border-bottom-style: dashed;
+	}
+
+	/* The phone incognito arm button — same 44px hit area as every other
+	   header icon, drawn with the same bare-icon treatment. */
+	.hbtn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 44px;
+		height: 44px;
+	}
+
 	.mobile-user-trigger {
 		color: var(--accent);
 	}
