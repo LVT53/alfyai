@@ -331,7 +331,8 @@ way they would from the UI.
   every path the app writes is server-generated and safe, and the guard exists because this script
   is the first thing that reads those paths box-wide.
 - The counts the script logs are counts. No filenames, no artifact ids beyond the preview list, no
-  document text.
+  document text. The preview list is id, type and byte size only — a generated output's `name` IS
+  the filename the model chose for the user, so it is not printed.
 
 What counts as unreachable is defined once, in
 `src/lib/server/services/knowledge/store/orphan-artifacts.ts`, and shared with the bulk action. An

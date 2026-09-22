@@ -571,14 +571,19 @@ describe("which file a patch that names none is about", () => {
 			found: boolean;
 			filename: string | null;
 			content: string;
-			versionNumber: number | null;
+			versionNumber: number | string | null;
 		};
 
 		expect(read.found).toBe(true);
 		expect(read.filename).toBe("release-notes.md");
 		expect(read.content).toContain("Line 2 lists the headline change.");
 		expect(read.content).not.toContain("Line two lists");
-		expect(read.versionNumber).toBe(2);
+		// The patched file is on disk and its artifact link is not minted yet,
+		// so the tool says "latest" rather than a number. It used to count the
+		// same-named files of THIS conversation and answer 2 — right here, and
+		// a stale 1 whenever the earlier version of the family lived in another
+		// conversation, which the sync then contradicted seconds later.
+		expect(read.versionNumber).toBe("latest");
 	});
 });
 

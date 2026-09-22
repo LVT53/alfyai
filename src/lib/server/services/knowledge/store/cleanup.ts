@@ -40,7 +40,9 @@ export async function hardDeleteArtifactsForUser(
 		};
 	}
 
-	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		includeIncognito: true,
+	});
 	// Batched from here down. A bulk "forget all" for a heavy user, and the
 	// orphan sweep for a box that stranded rows for a year, both arrive here
 	// with more ids than SQLite will bind into one `IN (...)` — and the
@@ -279,7 +281,9 @@ export async function deleteArtifactForUser(
 		const documentFamilyId = metadata.documentFamilyId;
 
 		if (documentFamilyId) {
-			const ownershipScope = await getArtifactOwnershipScope(userId);
+			const ownershipScope = await getArtifactOwnershipScope(userId, {
+				includeIncognito: true,
+			});
 			// Use LIKE prefilter to narrow scope before in-memory verification
 			const familyRows = await db
 				.select()
@@ -357,7 +361,9 @@ async function listOwnedArtifactIdsByType(
 	userId: string,
 	artifactType: "generated_output" | "work_capsule",
 ): Promise<string[]> {
-	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		includeIncognito: true,
+	});
 	const rows = await db
 		.select()
 		.from(artifacts)

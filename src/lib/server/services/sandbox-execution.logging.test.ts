@@ -440,4 +440,76 @@ describe("the sandbox deadline", () => {
 		);
 		expect(await millisecondsUntilKilled({ timeoutMs: 0 })).toBe(60_000);
 	});
+
+	/**
+	 * What a real container does when the deadline's SIGKILL lands: the exec
+	 * that was in flight settles with exit code 137 — the same code the kernel
+	 * OOM killer produces. Above, `execute` never settled at all, so the kill
+	 * had nothing to race.
+	 */
+	function resolveExecWhenKilled(exitCode = 137) {
+		let settleExec: ((result: SandboxResult) => void) | undefined;
+		mockSandbox.execute.mockImplementation(
+			() =>
+				new Promise<SandboxResult>((resolve) => {
+					settleExec = resolve;
+				}),
+		);
+		mockContainer.kill.mockImplementation(async () => {
+			settleExec?.({ stdout: "", stderr: "", exitCode });
+		});
+	}
+
+	it("reports a timeout as a timeout even though the kill exits 137", async () => {
+		// The defect: the handler awaited the kill and only then rejected, so
+		// the exec's SIGKILL-induced exit resolved the promise first and a
+		// plain timeout was surfaced as "memory limit exceeded".
+		resolveExecWhenKilled();
+		mockContainer.getArchive.mockResolvedValue(null);
+
+		const run = executeCode('print("test")', "python", { timeoutMs: 5_000 });
+		await vi.advanceTimersByTimeAsync(70_000);
+		const result = await run;
+
+		expect(result.error).toBe("Execution timed out");
+		expect(result.error).not.toContain("memory");
+		expect(mockContainer.kill).toHaveBeenCalledWith({ signal: "SIGKILL" });
+	});
+
+	it("reports a cancel as a cancel even though the kill exits 137", async () => {
+		resolveExecWhenKilled();
+		mockContainer.getArchive.mockResolvedValue(null);
+
+		const controller = new AbortController();
+		const run = executeCode('print("test")', "python", {
+			timeoutMs: 5_000,
+			signal: controller.signal,
+		});
+		// Let the sandbox come up and the abort listener attach before the
+		// cancel, and stay well inside the 5 s deadline so the two cannot be
+		// confused for one another.
+		await vi.advanceTimersByTimeAsync(1_000);
+		controller.abort();
+		await vi.advanceTimersByTimeAsync(70_000);
+
+		expect((await run).error).toBe("Execution cancelled");
+	});
+
+	it("still reports a genuine out-of-memory kill as one", async () => {
+		// Exit 137 with no deadline reached and no cancel: the kernel did it,
+		// and the diagnosis is the one the user needs.
+		mockSandbox.execute.mockResolvedValue({
+			stdout: "",
+			stderr: "",
+			exitCode: 137,
+		} satisfies SandboxResult);
+		mockContainer.getArchive.mockResolvedValue(null);
+
+		const run = executeCode("x = [0] * 10**9", "python", { timeoutMs: 5_000 });
+		await vi.advanceTimersByTimeAsync(70_000);
+		const result = await run;
+
+		expect(result.error).toBe("Execution failed: memory limit exceeded");
+		expect(result.exitCode).toBe(137);
+	});
 });

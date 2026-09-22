@@ -107,16 +107,61 @@ export const knowledgeArtifactListSelection = {
 	updatedAt: artifacts.updatedAt,
 } as const;
 
+/**
+ * Options for {@link getArtifactOwnershipScope}, which is where incognito is
+ * enforced for everything that reads `artifacts`.
+ *
+ * The scope is the set of conversations an artifact may be held through, and
+ * every user-scoped artifact query in the app derives its answer from it —
+ * through `buildArtifactCanonicalOwnershipCondition` in SQL or
+ * `isArtifactCanonicallyOwned` in JS. Dropping a conversation from the set
+ * therefore removes its artifacts from the Knowledge library, from workspace
+ * search, from the semantic candidate pool every evidence selection draws on,
+ * and from the working set — in one place, rather than in each of them.
+ *
+ * The default is the strict one: no incognito conversation is in scope. The
+ * two ways back in are both deliberate and both named at the call site.
+ */
+export type ArtifactOwnershipScopeOptions = {
+	/**
+	 * The conversation being served. Its own artifacts stay in scope even when
+	 * it is incognito: incognito hides a chat's work from the user's OTHER
+	 * chats, never from itself, and inside it everything keeps working.
+	 */
+	conversationId?: string | null;
+	/**
+	 * Administration — deletion, account export, erasure, disk sweeps. These
+	 * have to see every row the user owns: a scope that hid an incognito
+	 * conversation's artifacts from the delete path would leave them on disk
+	 * for ever, which is the opposite of what incognito promises.
+	 */
+	includeIncognito?: boolean;
+};
+
 export async function getArtifactOwnershipScope(
 	userId: string,
+	options: ArtifactOwnershipScopeOptions = {},
 ): Promise<ArtifactOwnershipScope> {
 	const conversationRows = await db
-		.select({ id: conversations.id })
+		.select({
+			id: conversations.id,
+			memoryIncognito: conversations.memoryIncognito,
+		})
 		.from(conversations)
 		.where(eq(conversations.userId, userId));
 
+	// The CURRENT setting governs, as it does everywhere else incognito is
+	// read (`memory-controls.ts`, `listUserChatFilesElsewhere`): the flag lives
+	// on the chat, not on the file, and the user can move it either way.
+	const reachable = conversationRows.filter(
+		(row) =>
+			options.includeIncognito === true ||
+			!row.memoryIncognito ||
+			row.id === options.conversationId,
+	);
+
 	return {
-		conversationIds: new Set(conversationRows.map((row) => row.id)),
+		conversationIds: new Set(reachable.map((row) => row.id)),
 	};
 }
 
@@ -551,11 +596,24 @@ export async function createArtifactLink(params: {
 	return mapArtifactLink(row);
 }
 
+/**
+ * One artifact the user holds, BY ID.
+ *
+ * `includeIncognito` because this is authorization, not discovery: the id
+ * comes from a caller that already has it — a file card in the chat that made
+ * it, a preview or figure URL, a working-set row — and an incognito
+ * conversation has to keep working from the inside. Nothing here can be
+ * enumerated: the queries that hand out ids (the library listing, search, the
+ * semantic candidate pool) all take the strict scope, so an incognito
+ * artifact's id never leaves the conversation that produced it.
+ */
 export async function getArtifactForUser(
 	userId: string,
 	artifactId: string,
 ): Promise<Artifact | null> {
-	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		includeIncognito: true,
+	});
 	const [row] = await db
 		.select()
 		.from(artifacts)
@@ -590,7 +648,9 @@ export async function getArtifactForUserToDelete(
 	userId: string,
 	artifactId: string,
 ): Promise<Artifact | null> {
-	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		includeIncognito: true,
+	});
 	const [row] = await db
 		.select()
 		.from(artifacts)
@@ -630,12 +690,15 @@ export async function listArtifactLinksForUser(
 	return rows.map(mapArtifactLink);
 }
 
+/** The batched twin of {@link getArtifactForUser}, and scoped like it. */
 export async function getArtifactsForUser(
 	userId: string,
 	artifactIds: string[],
 ): Promise<Artifact[]> {
 	if (artifactIds.length === 0) return [];
-	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		includeIncognito: true,
+	});
 	const rows = await db
 		.select()
 		.from(artifacts)

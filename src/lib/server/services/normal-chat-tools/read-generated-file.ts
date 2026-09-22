@@ -15,13 +15,19 @@ import {
 	GENERATED_FILE_EXTRACTED_CONTENT_MARKER,
 	isGeneratedFileMemoryWrapper,
 	readGeneratedFileExtractedText,
+	redactGeneratedFileMemoryWrapper,
 } from "$lib/server/services/extraction/generated-file-memory-format";
 import { decodeTextBuffer } from "$lib/server/services/extraction/text-decode";
 import {
 	readStoredOutline,
 	readStoredPageCountKind,
 } from "$lib/server/services/knowledge/outline";
-import { getSourceArtifactIdForNormalizedArtifact } from "$lib/server/services/knowledge/store/core";
+import {
+	buildArtifactCanonicalOwnershipCondition,
+	getArtifactOwnershipScope,
+	getSourceArtifactIdForNormalizedArtifact,
+	guessSummary,
+} from "$lib/server/services/knowledge/store/core";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 import type {
 	Artifact,
@@ -704,21 +710,18 @@ async function findChatFileTarget(params: {
 	const link = linkOf(winner.file);
 
 	// A file the memory sync has not reached yet has no version metadata at
-	// all. Its position among the same-named files of this conversation is the
-	// honest answer, and it is the one the next sync will record.
-	const sameName = files.filter(
-		(file) =>
-			normalizeName(file.filename) === normalizeName(winner.file.filename),
-	);
-	const positionalVersion =
-		sameName.filter(
-			(file) => file.createdAt.getTime() <= winner.file.createdAt.getTime(),
-		).length || 1;
-
+	// all, and NO number here is safe to invent. Its position among the
+	// same-named files of this conversation used to stand in, which is a
+	// stale, lower number whenever an earlier version of the same family lives
+	// in another conversation: a file read back in the turn that produced it
+	// was reported as v1 and settled as v2 seconds later, when the artifact
+	// link landed and the sync resolved the family across conversations.
+	// `null` is what the caller turns into "latest" — true whatever the number
+	// turns out to be, because this IS the newest file of that name.
 	return {
 		file: winner.file,
 		row: link?.row ?? null,
-		versionNumber: link?.versionNumber ?? positionalVersion,
+		versionNumber: link?.versionNumber ?? null,
 	};
 }
 
@@ -732,7 +735,7 @@ async function findChatFileTarget(params: {
 const FAMILY_VERSION_SCAN_LIMIT = 200;
 
 /**
- * How many versions of this document family the user can still OPEN.
+ * WHICH versions of this document family the user can still OPEN.
  *
  * A generated file's family and version number are per user and per filename
  * ACROSS conversations — that is what makes "continue the release notes" work
@@ -759,12 +762,19 @@ const FAMILY_VERSION_SCAN_LIMIT = 200;
  * than a lookup. It runs only on an explicit `read_generated_file` call, never
  * on the prompt-assembly path. Returns null when there is nothing better to
  * say than the version number itself.
+ *
+ * It returns the version NUMBERS rather than their count because two answers
+ * are built from them and they must not disagree: the `v3 of 3` label, and
+ * the prior-version list the memory wrapper carries into the returned summary
+ * (`redactGeneratedFileMemoryWrapper`). The wrapper was written when those
+ * versions existed and lists them for ever; this is the set that says which
+ * of them the user can still open.
  */
-async function countGeneratedFileFamilyVersions(params: {
+async function listReachableFamilyVersions(params: {
 	userId: string;
 	conversationId: string;
 	familyId: string | null;
-}): Promise<number | null> {
+}): Promise<Set<number> | null> {
 	if (!params.familyId) return null;
 	const rows = await db
 		.select({ metadataJson: artifacts.metadataJson })
@@ -796,7 +806,37 @@ async function countGeneratedFileFamilyVersions(params: {
 			versions.add(Math.trunc(metadata.versionNumber));
 		}
 	}
-	return versions.size > 0 ? versions.size : null;
+	return versions.size > 0 ? versions : null;
+}
+
+/**
+ * The artifact summary as the MODEL may see it.
+ *
+ * A generated file's stored summary is `guessSummary` over the memory
+ * wrapper's head, so it carries the wrapper's chat-file id, its origin
+ * conversation id and the top of its prior-version list. The payload's
+ * `origin` clause was written to disclose nothing but "from an earlier
+ * conversation"; the summary rode straight past it with the id in hand. The
+ * wrapper is redacted first and the summary is then derived from the redacted
+ * text by the SAME function that derived the stored one, so a summary nothing
+ * had to be taken out of comes back exactly as it was stored.
+ */
+function modelVisibleSummary(params: {
+	row: ArtifactRow | null;
+	hideOrigin: boolean;
+	reachableVersions: ReadonlySet<number> | null;
+}): string | null {
+	const stored = params.row?.summary?.trim() ?? null;
+	const wrapper = params.row?.contentText ?? null;
+	if (!stored || !wrapper || !isGeneratedFileMemoryWrapper(wrapper)) {
+		return stored;
+	}
+	const redacted = redactGeneratedFileMemoryWrapper(wrapper, {
+		hideOrigin: params.hideOrigin,
+		reachableVersions: params.reachableVersions,
+	});
+	if (redacted === wrapper) return stored;
+	return guessSummary(redacted, redacted).trim() || null;
 }
 
 /**
@@ -1139,6 +1179,13 @@ function pickDocumentRows(
  * Indexed uploads the user owns: first the ones attached to THIS
  * conversation, then the rest of the Knowledge Library. Every query is
  * scoped by `artifacts.userId`.
+ *
+ * And by the ownership SCOPE, which is where incognito is enforced. This pass
+ * has no conversation filter at all — the split into "this" and "library"
+ * happens in JS below — so a document uploaded inside an incognito chat was
+ * reachable by name from every other chat the user had, which is the one
+ * thing incognito promises cannot happen. The scope is asked for THIS
+ * conversation, so an incognito chat still finds its own uploads.
  */
 async function findNormalizedDocument(params: {
 	userId: string;
@@ -1147,6 +1194,9 @@ async function findNormalizedDocument(params: {
 	/** Weakest document tier this pass accepts. */
 	minTier?: number;
 }): Promise<TargetLookup> {
+	const ownershipScope = await getArtifactOwnershipScope(params.userId, {
+		conversationId: params.conversationId,
+	});
 	const rows = await db
 		.select({
 			id: artifacts.id,
@@ -1161,6 +1211,10 @@ async function findNormalizedDocument(params: {
 				eq(artifacts.userId, params.userId),
 				eq(artifacts.type, "normalized_document"),
 				eq(artifacts.retrievalClass, "durable"),
+				buildArtifactCanonicalOwnershipCondition({
+					userId: params.userId,
+					ownershipScope,
+				}),
 			),
 		)
 		.orderBy(desc(artifacts.updatedAt));
@@ -2008,6 +2062,12 @@ export interface ReadGeneratedFileResult {
 	 * honest label, because the family spans conversations — into `v3 of 3`.
 	 */
 	versionCount: number | null;
+	/**
+	 * The file is the newest of its name but its version NUMBER is not settled
+	 * yet — the artifact link the sync mints arrives after the turn that made
+	 * it. Reported as "latest" rather than as a number that would be wrong.
+	 */
+	versionPending: boolean;
 	/** The requested window of the text (null in passage mode / not found). */
 	contentText: string | null;
 	summary: string | null;
@@ -2062,6 +2122,7 @@ function emptyResult(
 		documentLabel: null,
 		versionNumber: null,
 		versionCount: null,
+		versionPending: false,
 		contentText: null,
 		summary: null,
 		mimeType: null,
@@ -2287,12 +2348,15 @@ export async function readGeneratedFileContent(params: {
 	// count falls back to the version itself when no family is recorded yet —
 	// the same-turn read-back case, where this file is the newest by
 	// construction.
-	const familyCount = versionNumber
-		? ((await countGeneratedFileFamilyVersions({
+	const reachableVersions = versionNumber
+		? await listReachableFamilyVersions({
 				userId: params.userId,
 				conversationId: params.conversationId,
 				familyId: metadata.documentFamilyId ?? null,
-			})) ?? versionNumber)
+			})
+		: null;
+	const familyCount = versionNumber
+		? (reachableVersions?.size ?? versionNumber)
 		: null;
 
 	const base: ReadGeneratedFileResult = {
@@ -2300,8 +2364,13 @@ export async function readGeneratedFileContent(params: {
 		documentLabel: metadata.documentLabel ?? null,
 		versionNumber,
 		versionCount: familyCount,
+		versionPending: Boolean(chatFile) && versionNumber === null,
 		contentText: null,
-		summary: row?.summary?.trim() ?? null,
+		summary: modelVisibleSummary({
+			row,
+			hideOrigin: conversation === "library",
+			reachableVersions,
+		}),
 		mimeType: describedFile?.mimeType ?? row?.mimeType ?? null,
 		contentLength,
 		notFound: false,
@@ -2449,7 +2518,10 @@ export function buildReadGeneratedFileModelPayload(
 		source: result.source,
 		conversation: result.conversation,
 		documentLabel: result.documentLabel,
-		versionNumber: result.versionNumber,
+		// "latest" while the artifact link is still on its way: this is the
+		// newest file of that name, and any number here would be a guess the
+		// sync contradicts a few seconds later.
+		versionNumber: result.versionPending ? "latest" : result.versionNumber,
 		...(result.versionCount !== null
 			? { versionCount: result.versionCount }
 			: {}),
@@ -2540,8 +2612,9 @@ export function summarizeReadGeneratedFileResult(
 	const label = result.documentLabel ?? result.filename ?? "file";
 	// `v3 of 3`, so a v3 in a conversation that has no v1 or v2 explains itself.
 	// A family of one stays plain `v1` rather than saying "of 1".
-	const versionClause =
-		result.versionCount === 1 && result.versionNumber === 1
+	const versionClause = result.versionPending
+		? "latest"
+		: result.versionCount === 1 && result.versionNumber === 1
 			? result.versionNumber
 				? `v${result.versionNumber}`
 				: ""
