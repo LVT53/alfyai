@@ -20,6 +20,16 @@ import { getConversationForkSummaries } from "./conversation-forks";
 
 type CreateConversationOptions = {
 	projectId?: string | null;
+	/**
+	 * Incognito, one-way: the ONLY place the flag can be set true from the
+	 * outside without going through the empty-conversation PATCH guard. A
+	 * landing-page arm-before-creation choice rides in on the same request
+	 * that makes the conversation, so there is never a window where the
+	 * conversation exists without it (see docs/plans/incognito-one-way-spec.md).
+	 * `false`/absent both mean "not incognito" — there is no way to request
+	 * `false` explicitly, because that is never a meaningful thing to ask for.
+	 */
+	memoryIncognito?: boolean;
 };
 
 function toConversation(row: typeof conversations.$inferSelect): Conversation {
@@ -69,6 +79,7 @@ export async function createConversation(
 			userId,
 			title: title ?? "New Conversation",
 			projectId,
+			...(options.memoryIncognito ? { memoryIncognito: true } : {}),
 		})
 		.returning();
 	// Opportunistically flush any pending idle judge runs for this user now that
@@ -323,14 +334,20 @@ export async function setConversationSidebarPinned(
 	return conversation ? toConversation(conversation) : null;
 }
 
+/**
+ * Incognito, one-way: arms the flag, and only that. It takes no value,
+ * because `false` is never a legal write — the PATCH route refuses it with a
+ * 409 (docs/plans/incognito-one-way-spec.md §1) and this is the only place
+ * that writes the column, so a boolean parameter here would be nothing but
+ * an invitation to make it legal again.
+ */
 export async function setConversationMemoryIncognito(
 	userId: string,
 	conversationId: string,
-	memoryIncognito: boolean,
 ): Promise<Conversation | null> {
 	const [conversation] = await db
 		.update(conversations)
-		.set({ memoryIncognito })
+		.set({ memoryIncognito: true })
 		.where(
 			and(
 				eq(conversations.id, conversationId),
@@ -339,6 +356,25 @@ export async function setConversationMemoryIncognito(
 		)
 		.returning();
 	return conversation ? toConversation(conversation) : null;
+}
+
+/**
+ * True once anything has been sent in the conversation. The one-way incognito
+ * guard in the PATCH route uses this to decide whether `memoryIncognito: true`
+ * is still a legal write (see docs/plans/incognito-one-way-spec.md §1): a
+ * message already sent through a normal conversation may have been learned
+ * into memory before the flag flips, so arming incognito after the fact would
+ * promise something it cannot make true retroactively.
+ */
+export async function conversationHasMessages(
+	conversationId: string,
+): Promise<boolean> {
+	const [row] = await db
+		.select({ id: messages.id })
+		.from(messages)
+		.where(eq(messages.conversationId, conversationId))
+		.limit(1);
+	return Boolean(row);
 }
 
 export async function savePinnedConversationSidebarOrder(

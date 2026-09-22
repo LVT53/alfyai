@@ -169,8 +169,10 @@ test.describe("Composer Direction B — desktop", () => {
 		await expect(menu).toBeVisible();
 		await expect(trigger).toHaveAttribute("aria-expanded", "true");
 
-		// Incognito lives here and nowhere else now.
-		await expect(page.getByTestId("incognito-toggle")).toBeVisible();
+		// Incognito redesign (one-way): the switch is gone from every menu —
+		// it is armed once, on the landing page, before a conversation
+		// exists (see incognito-indicator.spec.ts), and never appears here.
+		await expect(page.getByTestId("incognito-toggle")).toHaveCount(0);
 		// And Web search lives nowhere in here at all: the owner read the
 		// switch as claiming the web was off until you flipped it. `/web`
 		// still forces a search, and the chip above the composer shows it.
@@ -190,18 +192,24 @@ test.describe("Composer Direction B — desktop", () => {
 		await expect(menu).toBeHidden();
 	});
 
-	// Was written against the Web search row. Incognito is the switch every
-	// deployment draws, so it is the one that can stand for the rule.
+	// Was written against the Web search row, then against the incognito row
+	// — both gone from the menu now (Web search never had a switch to begin
+	// with; incognito redesign, one-way, moved arming it to the landing
+	// page). Thinking is the switch every deployment draws, so it is the one
+	// that can stand for the rule.
 	test("a switch row flips in place and the menu stays open", async ({
 		page,
 	}) => {
 		await page.getByTestId("composer-tools-trigger").click();
-		const incognito = page.getByTestId("incognito-toggle");
-		await expect(incognito).toHaveAttribute("aria-checked", "false");
+		const thinking = page.getByTestId("thinking-toggle");
+		const before = await thinking.getAttribute("aria-checked");
 
-		await incognito.click();
+		await thinking.click();
 
-		await expect(incognito).toHaveAttribute("aria-checked", "true");
+		await expect(thinking).toHaveAttribute(
+			"aria-checked",
+			before === "true" ? "false" : "true",
+		);
 		await expect(page.getByTestId("composer-tools-menu")).toBeVisible();
 	});
 
@@ -305,7 +313,7 @@ test.describe("Composer Direction B — a short window with the composer at the 
 	}) => {
 		await openMenuAtBottom(page, CONVERSATION_ID);
 
-		const switchBox = await page.getByTestId("incognito-toggle").boundingBox();
+		const switchBox = await page.getByTestId("thinking-toggle").boundingBox();
 		const modelRow = page.locator(".menu-row-wrap--static").first();
 		const modelRowBox = await modelRow.boundingBox();
 		const modelTriggerBox = await page

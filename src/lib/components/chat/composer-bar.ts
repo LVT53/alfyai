@@ -189,10 +189,17 @@ export function buildComposerMenuRows(
 	// `/web` command sets it, and the chip above the composer shows and
 	// clears it — so the capability survives without a switch that
 	// misdescribed the default.
+	//
+	// No incognito switch either, any more. Incognito redesign (one-way):
+	// the toggle lived here and in the face's popover, both of which implied
+	// a chat could be walked back out of incognito once it was in. It
+	// cannot — the flag is armed once, on the landing page, before a
+	// conversation exists, and stays for that conversation's whole life. The
+	// only place left to arm it is the landing page's mask button; this menu
+	// no longer mentions it at all.
 	if (input.thinkingAvailable) {
 		rows.push({ id: "thinking", kind: "switch", section: "switches" });
 	}
-	rows.push({ id: "incognito", kind: "switch", section: "switches" });
 
 	rows.push({ id: "model", kind: "nav", section: "conversation" });
 	if (input.personalityCount > 0) {

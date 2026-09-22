@@ -67,7 +67,10 @@ import type { ModelId, UserModelPreference } from "$lib/model-types";
 import type { ConversationListItem } from "$lib/server/services/conversations";
 import type { Project } from "$lib/server/services/projects";
 import type { LayoutProps } from "./$types";
-import { resolveActiveConversationTitle } from "./layout-title";
+import {
+	resolveActiveConversationIncognito,
+	resolveActiveConversationTitle,
+} from "./layout-title";
 
 let { data, children }: LayoutProps = $props();
 
@@ -135,6 +138,16 @@ const routeConversationId = $derived(
 );
 const activeConversationTitle = $derived.by(() => {
 	return resolveActiveConversationTitle({
+		routeConversationId,
+		conversationStore: $conversations,
+		shellConversations,
+		pageData: page.data,
+	});
+});
+// Incognito, one-way (docs/plans/incognito-one-way-spec.md §2) — feeds the
+// phone header's 16px mask mark before the conversation title.
+const activeConversationIsIncognito = $derived.by(() => {
+	return resolveActiveConversationIncognito({
 		routeConversationId,
 		conversationStore: $conversations,
 		shellConversations,
@@ -650,7 +663,10 @@ onDestroy(() => {
   - See SCROLL OWNERSHIP CONTRACT in src/app.css
 -->
 <div class="flex h-[100dvh] w-full flex-col overflow-hidden bg-primary text-text-primary">
-	<Header conversationTitle={activeConversationTitle} />
+	<Header
+		conversationTitle={activeConversationTitle}
+		conversationIsIncognito={activeConversationIsIncognito}
+	/>
 
 	<div class="flex h-full flex-1 overflow-hidden">
 		<Sidebar

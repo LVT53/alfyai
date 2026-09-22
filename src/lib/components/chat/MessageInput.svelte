@@ -320,12 +320,22 @@ let {
 	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
 	composerCommandRegistryEnabled?: boolean;
 	atlasAvailability?: AtlasAvailability | null;
-	/** Whether the current conversation is excluded from the memory pipeline. */
+	/**
+	 * Whether the current conversation is excluded from the memory pipeline —
+	 * OR, on the landing page before a conversation exists, whether the
+	 * incognito mask button has been armed. One-way: the composer only ever
+	 * reads this as "on"; there is no path left that flips it back to "off"
+	 * once it has been true.
+	 */
 	memoryIncognito?: boolean;
 	/**
-	 * Emitted after a successful incognito toggle so parents can reconcile.
-	 * The id travels with it because on the landing page the prepared
-	 * conversation can be cleared between the flip and the persist landing.
+	 * Emitted after the one remaining server round trip that can arm
+	 * incognito from inside the composer — the empty-conversation PATCH
+	 * fallback described in docs/plans/incognito-one-way-spec.md §1, for a
+	 * conversation that already exists (with no messages yet) but was not
+	 * created with the flag. The id travels with it because on the landing
+	 * page the prepared conversation can be cleared between the arm and the
+	 * persist landing.
 	 */
 	onMemoryIncognitoChange?:
 		| ((value: boolean, conversationId: string) => void)
@@ -724,71 +734,71 @@ $effect(() => {
 	}
 });
 
-// Per-conversation incognito toggle. `incognitoOn` mirrors the conversation's
-// stored value but is held locally so it can be toggled mid-chat and, for a
-// brand-new (unsaved) conversation, applied once the conversation exists.
+// Per-conversation incognito state — ONE-WAY (docs/plans/incognito-one-way-
+// spec.md). `incognitoOn` mirrors the conversation's stored value, held
+// locally so a landing-page arm (before the conversation exists) survives
+// the null → id creation step without waiting on a round trip, and so
+// switching between an incognito and a normal conversation on the chat page
+// still reads each conversation's own flag rather than sticking on the last
+// one shown. There is no toggle any more: this can only ever become true.
 let incognitoOn = $state(false);
-let incognitoBusy = $state(false);
-// Tracks the conversation id the current `incognitoOn` value has been synced
-// with, so switching conversations re-reads the stored flag but in-chat toggles
-// are not clobbered, and a pending local choice is persisted on creation.
+// Tracks the conversation id the current `incognitoOn` value was synced
+// against, so a `memoryIncognito` flip while still bound to the SAME id
+// (armed locally on the landing page while conversationId is still null) is
+// picked up without waiting for the id itself to change.
 let incognitoSyncedConversationId = $state<string | null>(null);
 
 $effect(() => {
-	// Reset the local flag to the stored value whenever the conversation the
-	// composer is bound to changes (including the null → id creation step).
 	const boundId = conversationId ?? null;
-	if (incognitoSyncedConversationId === boundId) return;
-	if (boundId === null) {
-		incognitoSyncedConversationId = null;
+	if (incognitoSyncedConversationId !== boundId) {
+		// The conversation identity changed, including the null → newly-
+		// created-id step. A landing-page arm rides on `memoryIncognito` all
+		// the way through the creation call (see +page.svelte), so by the
+		// time boundId updates the new binding's own prop is normally already
+		// true — but if it is not (a caller that does not wire the flag
+		// through creation, or a prop update lagging one tick behind), fall
+		// back to a direct PATCH rather than silently dropping the arm.
+		const wasArmedBeforeConversationExisted =
+			incognitoSyncedConversationId === null && incognitoOn;
+		incognitoSyncedConversationId = boundId;
+		if (
+			boundId !== null &&
+			wasArmedBeforeConversationExisted &&
+			!memoryIncognito
+		) {
+			void persistIncognitoFallback(boundId);
+			return;
+		}
 		incognitoOn = memoryIncognito;
 		return;
 	}
-	// A conversation just became available. If the user pre-set incognito on the
-	// draft composer, persist that choice; otherwise adopt the stored value.
-	if (
-		incognitoSyncedConversationId === null &&
-		incognitoOn &&
-		!memoryIncognito
-	) {
-		incognitoSyncedConversationId = boundId;
-		void persistIncognito(boundId, true);
-		return;
+	// Same binding: a `memoryIncognito` flip to true always wins, whatever it
+	// was before — one-way, so this never has to run in the other direction.
+	if (memoryIncognito && !incognitoOn) {
+		incognitoOn = true;
 	}
-	incognitoSyncedConversationId = boundId;
-	incognitoOn = memoryIncognito;
 });
 
-async function persistIncognito(id: string, value: boolean): Promise<boolean> {
+/**
+ * The fallback described in spec §1: PATCHes `memoryIncognito: true` for a
+ * conversation that already exists, with no messages yet, but was not
+ * created with the flag. Best-effort — the face and the stage tint already
+ * reflect the local arm regardless of whether this round trip lands, and the
+ * server's empty-conversation guard means it is always safe to retry.
+ */
+async function persistIncognitoFallback(id: string): Promise<void> {
 	try {
-		await setConversationMemoryIncognito(id, value);
-		onMemoryIncognitoChange?.(value, id);
-		return true;
+		await setConversationMemoryIncognito(id);
+		onMemoryIncognitoChange?.(true, id);
 	} catch {
-		return false;
+		// See above — nothing else to do with a failure here.
 	}
-}
-
-async function toggleIncognito() {
-	if (incognitoBusy) return;
-	const next = !incognitoOn;
-	incognitoOn = next;
-	const id = conversationId ?? resolvedConversationId;
-	if (!id) {
-		// Brand-new conversation with no id yet: hold the choice locally; the
-		// conversation-bound effect above persists it once the id exists.
-		return;
-	}
-	incognitoBusy = true;
-	const ok = await persistIncognito(id, next);
-	if (!ok) incognitoOn = !next;
-	incognitoBusy = false;
 }
 
 // Incognito redesign — while the flag is on the action row grows a fifth
 // face, a mask in ink, and the placeholder says what the mask means. The
-// face opens a small card with the same switch the "+" menu has. Nothing is
-// painted above the composer any more.
+// face opens a small card that says what incognito means for this chat and,
+// one-way, offers a new chat instead of a switch back to normal.
 let showIncognitoPopover = $state(false);
 let incognitoFaceTrigger = $state<HTMLButtonElement | undefined>(undefined);
 
@@ -808,13 +818,13 @@ function closeIncognitoPopover(reason: IncognitoPopoverCloseReason) {
 	if (reason === "escape") incognitoFaceTrigger?.focus({ preventScroll: true });
 }
 
-// The card is about a state; when the state ends (from its own switch, the
-// "+" menu, or a failed persist rolling back) the card goes with the face.
-// Focus was on the card's switch or on the face, and both are about to
-// leave the DOM — left alone it would fall to <body>, so it moves to the
-// textarea, which is where the next thing the user does happens anyway.
-// A pre-effect, because it has to see where focus is before the DOM update
-// takes the face and the card away.
+// The card and the face it hangs off both leave the DOM when the composer
+// switches to a conversation that is not incognito (sidebar navigation away
+// from an incognito chat — the one direction `incognitoOn` still moves).
+// Focus may have been on either, and left alone it would fall to <body>, so
+// it moves to the textarea, which is where the next thing the user does
+// happens anyway. A pre-effect, because it has to see where focus is before
+// the DOM update takes the face and the card away.
 $effect.pre(() => {
 	if (incognitoOn || !untrack(() => showIncognitoPopover)) return;
 	showIncognitoPopover = false;
@@ -826,6 +836,18 @@ $effect.pre(() => {
 		void tick().then(() => textarea?.focus({ preventScroll: true }));
 	}
 });
+
+/**
+ * The popover's "New chat" pill — the one-way exit. Not a way to turn THIS
+ * chat back to normal (it cannot be), but the same "start fresh" navigation
+ * the sidebar's own New chat button runs.
+ */
+function startNewChatFromIncognito() {
+	showIncognitoPopover = false;
+	markPreviousConversationId(conversationId ?? resolvedConversationId ?? null);
+	currentConversationId.set(null);
+	void goto("/");
+}
 
 let composerPlaceholder = $derived(
 	incognitoOn
@@ -3512,9 +3534,6 @@ async function emitDraftChange(force = false) {
 							thinkingAvailable={currentModelSupportsReasoningControls}
 							thinkingOn={thinkingIsOn}
 							onToggleThinking={toggleThinking}
-							{incognitoOn}
-							{incognitoBusy}
-							onToggleIncognito={toggleIncognito}
 							{skillCount}
 							pendingSkillName={pendingSkill?.displayName ?? null}
 							onOpenSkills={openSkillsPicker}
@@ -3609,16 +3628,18 @@ async function emitDraftChange(force = false) {
 					</button>
 				{/if}
 
-				<!-- Incognito redesign — the fifth face, only while the flag is on.
-				     Accent like every other active face: it is on for this
-				     conversation, and the on state reads the same across the row. -->
+				<!-- Incognito redesign — the fifth face, only while the flag is on
+				     (one-way: it can never turn back off for this conversation).
+				     Drawn with a dashed ring rather than the other faces' filled
+				     accent-on-nothing, so the composer's own dashed hairline and
+				     this face read as the same idea. -->
 				{#if incognitoOn}
 					<div class="relative flex items-center">
 						<button
 							type="button"
 							bind:this={incognitoFaceTrigger}
 							data-testid="incognito-face"
-							class="composer-face composer-face--on"
+							class="composer-face composer-face--on composer-face--incognito"
 							onclick={toggleIncognitoPopover}
 							aria-label={$t('chat.incognitoOn')}
 							title={$t('chat.incognitoOn')}
@@ -3637,9 +3658,7 @@ async function emitDraftChange(force = false) {
 						{#if showIncognitoPopover}
 							<IncognitoPopover
 								triggerElement={incognitoFaceTrigger}
-								{incognitoOn}
-								{incognitoBusy}
-								onToggle={toggleIncognito}
+								onNewChat={startNewChatFromIncognito}
 								onClose={closeIncognitoPopover}
 							/>
 						{/if}
@@ -4233,6 +4252,18 @@ async function emitDraftChange(force = false) {
 
 	.composer-face--plus.composer-face--on {
 		color: var(--accent);
+	}
+
+	/* The incognito face draws a dashed ring rather than sitting on bare
+	   nothing like every other face — it echoes the composer's own dashed
+	   hairline, so the one face that can never turn off reads differently
+	   from the ones that can. */
+	.composer-face--incognito {
+		border: 1px dashed var(--accent);
+	}
+
+	.composer-face--incognito[aria-expanded='true'] {
+		background: color-mix(in srgb, var(--accent) 8%, transparent);
 	}
 
 	/* Shown but greyed for users with no connections yet — the tooltip
