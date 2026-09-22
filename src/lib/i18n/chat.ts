@@ -141,12 +141,18 @@ const chatDict = {
 			"Connections: off — your connected accounts won't be used this chat",
 		"chat.connectionsToggleNoConnections":
 			"No connections yet — connect your first service in Settings",
+		"chat.incognitoArm": "Start this chat in incognito",
+		"chat.incognitoArmTitle": "Incognito for this chat",
+		"chat.incognitoArmBody":
+			"Nothing here is remembered. Can't be undone — start a new chat to be remembered again.",
 		"chat.incognitoOn": "Incognito is on",
+		"chat.incognitoOpening": "Off the record from here",
 		"chat.incognitoPlaceholder": "Incognito · nothing here is remembered",
 		"chat.incognitoPlaceholderShort": "Incognito · not remembered",
 		"chat.incognitoPopoverBody":
-			"Nothing in this chat is remembered. Memory stays off for the whole conversation, and it is left out of your analytics.",
-		"chat.incognitoToggle": "Incognito — don't remember this chat",
+			"Nothing in this chat is remembered or counted. It stays that way for the whole conversation.",
+		"chat.incognitoNewChat": "New chat",
+		"chat.incognitoNewChatHint": "To be remembered again",
 		"chat.thinkingToggleOn": "Thinking on",
 		"chat.thinkingToggleOff": "Thinking off",
 		"chat.jumpRailA11yLabel": "Conversation navigation",
@@ -1130,7 +1136,6 @@ const chatDict = {
 		"composerMenu.atlasOff": "Off",
 		"composerMenu.atlasReport": "Atlas report",
 		"composerMenu.attachHint": "max {max} MB",
-		"composerMenu.incognito": "Incognito",
 		"composerMenu.label": "Composer menu",
 		"composerMenu.sectionConversation": "This conversation",
 		"composerMenu.sectionMessage": "This message",
@@ -1320,12 +1325,18 @@ const chatDict = {
 			"Kapcsolatok: kikapcsolva — a csatlakoztatott fiókjaid nem lesznek használva ebben a beszélgetésben",
 		"chat.connectionsToggleNoConnections":
 			"Még nincs kapcsolat — csatlakoztasd az első szolgáltatásod a Beállításokban",
+		"chat.incognitoArm": "Inkognitó beszélgetés indítása",
+		"chat.incognitoArmTitle": "Inkognitó ehhez a beszélgetéshez",
+		"chat.incognitoArmBody":
+			"Itt semmi nem marad meg. Nem vonható vissza — új beszélgetést kell indítani, ha újra megjegyezhető legyen.",
 		"chat.incognitoOn": "Inkognitó bekapcsolva",
+		"chat.incognitoOpening": "Innentől semmi nem marad meg",
 		"chat.incognitoPlaceholder": "Inkognitó · itt semmi nem marad meg",
 		"chat.incognitoPlaceholderShort": "Inkognitó · nem marad meg",
 		"chat.incognitoPopoverBody":
-			"Ebből a beszélgetésből semmi nem marad meg. A memória az egész beszélgetésre kikapcsolva marad, és az elemzésekből is kimarad.",
-		"chat.incognitoToggle": "Inkognitó — ne jegyezze meg ezt a beszélgetést",
+			"Ebből a beszélgetésből semmi nem marad meg, és nem is számít bele semmibe. Ez az egész beszélgetésre így marad.",
+		"chat.incognitoNewChat": "Új beszélgetés",
+		"chat.incognitoNewChatHint": "Ha újra megjegyezhető legyen",
 		"chat.thinkingToggleOn": "Gondolkodás bekapcsolva",
 		"chat.thinkingToggleOff": "Gondolkodás kikapcsolva",
 		"chat.jumpRailA11yLabel": "Beszélgetés navigáció",
@@ -2276,7 +2287,6 @@ const chatDict = {
 		"composerMenu.atlasOff": "Ki",
 		"composerMenu.atlasReport": "Atlas jelentés",
 		"composerMenu.attachHint": "legfeljebb {max} MB",
-		"composerMenu.incognito": "Inkognitó",
 		"composerMenu.label": "Szerkesztő menü",
 		"composerMenu.sectionConversation": "Ez a beszélgetés",
 		"composerMenu.sectionMessage": "Ez az üzenet",
@@ -2346,3 +2356,60 @@ const chatDict = {
 } as const;
 
 export default chatDict;
+
+/**
+ * The landing page's incognito greeting, once armed (spec §3 / §6). Not part
+ * of `chatDict` above — the `t()` dictionary's values are plain strings, and
+ * this is a pool one is picked from with `Math.random()`, not a single
+ * lookup. Index-aligned across languages (line N in `en` is the same idea as
+ * line N in `hu`; a native phrasing that reorders would break that), and
+ * pinned to the same length by `chat.test.ts`.
+ */
+export const INCOGNITO_GREETINGS = {
+	en: [
+		"Off the record.",
+		"Nothing here sticks.",
+		"Just between us.",
+		"No notes taken.",
+		"This one doesn't count.",
+		"Unlisted.",
+		"Not for the record.",
+		"Nobody's counting.",
+		"Blank slate.",
+		"Not in the books.",
+		"This room forgets.",
+		"Off the books.",
+		"Unremembered, by design.",
+		"No lessons learned here.",
+		"Nothing learned from this.",
+		"Memory's off.",
+		"Quiet room.",
+		"Strictly unofficial.",
+		"Fresh every time.",
+		"Untracked.",
+		"Nothing to remember.",
+	],
+	hu: [
+		"Jegyzőkönyvön kívül.",
+		"Itt semmi nem ragad meg.",
+		"Csak köztünk.",
+		"Jegyzet nélkül.",
+		"Ez nem számít.",
+		"Listán kívül.",
+		"Nem kerül jegyzőkönyvbe.",
+		"Senki sem számol.",
+		"Tiszta lap.",
+		"Nincs a könyvekben.",
+		"Ez a szoba felejt.",
+		"Könyveken kívül.",
+		"Szándékosan nem jegyzi meg.",
+		"Innen nincs tanulság.",
+		"Ebből nem tanul.",
+		"Memória kikapcsolva.",
+		"Csendes szoba.",
+		"Szigorúan nem hivatalos.",
+		"Minden alkalommal újra.",
+		"Nem követett.",
+		"Nincs mit megjegyezni.",
+	],
+} as const;

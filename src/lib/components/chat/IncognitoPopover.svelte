@@ -4,20 +4,23 @@ export type IncognitoPopoverCloseReason = "escape" | "dismiss";
 </script>
 
 <script lang="ts">
-// Incognito redesign — the mask face, opened.
+// Incognito redesign (one-way) — the mask face, opened.
 //
 // While a conversation is incognito the composer's action row grows a fifth
 // face: a mask drawn in ink. This is what that face opens: a small card that
-// says what incognito means for this chat, and carries the same switch the
-// "+" menu has, so the state can be turned off from the place that shows it.
-// It replaced a full-width accent notice above the composer that repeated
-// itself on every turn.
+// says what incognito means for this chat. It USED to carry the same switch
+// the "+" menu had, so the state could be turned off from the place that
+// showed it — that switch is gone from both places now. The flag is one-way:
+// once a conversation is incognito it stays that way for its whole life, so
+// there is nothing left to toggle here. What is left is the same information
+// the switch row used to carry, plus a way out that is honest about what
+// "out" means: not turning this chat back to normal, but starting a new one.
 //
 // Desktop: anchored above the face and portalled to <body>, measured against
 // the viewport by composer-placement so it never grows off the top of a
 // short window. Phone: the same bottom sheet the connections popover and the
 // "+" menu use — scrim, grabber, 44px rows.
-import { VenetianMask } from "@lucide/svelte";
+import { Plus, VenetianMask } from "@lucide/svelte";
 import { onMount, tick } from "svelte";
 import { fade, fly } from "svelte/transition";
 import { t } from "$lib/i18n";
@@ -35,16 +38,13 @@ import {
 
 let {
 	triggerElement = undefined,
-	incognitoOn,
-	incognitoBusy = false,
-	onToggle,
+	onNewChat,
 	onClose,
 }: {
 	/** The mask face this hangs off. Without it the card opens in place. */
 	triggerElement?: HTMLElement | undefined;
-	incognitoOn: boolean;
-	incognitoBusy?: boolean;
-	onToggle: () => void;
+	/** Runs the same "New chat" navigation the sidebar's button does. */
+	onNewChat: () => void;
 	onClose: (reason: IncognitoPopoverCloseReason) => void;
 } = $props();
 
@@ -60,7 +60,7 @@ const POPOVER_WIDTH = 292;
 const POPOVER_MIN_SPACE_ABOVE = 200;
 
 let root = $state<HTMLDivElement | undefined>(undefined);
-let switchElement = $state<HTMLButtonElement | undefined>(undefined);
+let newChatElement = $state<HTMLButtonElement | undefined>(undefined);
 let isPhone = $state(isPhoneViewport());
 
 // Wrapped so the outro plays under reduced motion as a cut rather than a
@@ -145,9 +145,10 @@ onMount(() => {
 	window.addEventListener("scroll", handleReflow, true);
 
 	remeasure();
-	// Opened from the keyboard or the pointer, the switch takes focus so
-	// Space and Escape have somewhere to land.
-	void tick().then(() => switchElement?.focus({ preventScroll: true }));
+	// Opened from the keyboard or the pointer, "New chat" takes focus — the
+	// only actionable thing left in a card that is otherwise information —
+	// so Escape has somewhere to land.
+	void tick().then(() => newChatElement?.focus({ preventScroll: true }));
 
 	return () => {
 		stopWatchingViewport();
@@ -205,25 +206,21 @@ onMount(() => {
 
 	<div class="incognito-popover__divider" role="presentation"></div>
 
-	<!-- The row is the switch, as it is in the "+" menu: the whole line is
-	     the target, and the face beside the label is drawn, not a second
-	     control. -->
-	<button
-		type="button"
-		role="switch"
-		class="incognito-popover__row"
-		bind:this={switchElement}
-		aria-checked={incognitoOn}
-		aria-label={$t('chat.incognitoToggle')}
-		data-testid="incognito-popover-toggle"
-		disabled={incognitoBusy}
-		onclick={() => onToggle()}
-	>
-		<span class="incognito-popover__row-label">{$t('composerMenu.incognito')}</span>
-		<span class="switch-face" class:switch-face--on={incognitoOn} aria-hidden="true">
-			<span class="switch-face__thumb"></span>
-		</span>
-	</button>
+	<!-- One-way: there is no switch here any more, only the way out that is
+	     honest about what "out" means — not this chat, a new one. -->
+	<div class="incognito-popover__footer">
+		<span class="incognito-popover__hint">{$t('chat.incognitoNewChatHint')}</span>
+		<button
+			type="button"
+			class="incognito-popover__new-chat"
+			bind:this={newChatElement}
+			data-testid="incognito-popover-new-chat"
+			onclick={() => onNewChat()}
+		>
+			<Plus size={14} strokeWidth={2.2} aria-hidden="true" />
+			<span>{$t('chat.incognitoNewChat')}</span>
+		</button>
+	</div>
 </div>
 
 <style>
@@ -338,108 +335,64 @@ onMount(() => {
 		background: var(--border-subtle);
 	}
 
-	/* The switch row, drawn as the "+" menu draws its rows: full width, the
-	   fill rounded to the row and eased in. */
-	.incognito-popover__row {
+	/* One-way: no switch, so no row that reads as a control. Just the hint
+	   and the one actionable thing left in the card, on the same line the
+	   switch row used to occupy. */
+	.incognito-popover__footer {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 0.75rem;
-		width: calc(100% + 0.75rem);
-		min-height: 2.2rem;
-		margin: 0 -0.375rem;
-		border: 0;
-		border-radius: 0.5rem;
-		background: transparent;
-		padding: 0.34rem 0.375rem;
-		text-align: left;
-		color: var(--text-primary);
-		cursor: pointer;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out);
+		gap: 0.5rem;
 	}
 
-	.incognito-popover__row:hover:not(:disabled),
-	.incognito-popover__row:focus-visible {
-		background: color-mix(in srgb, var(--accent) 14%, transparent);
-		outline: none;
-	}
-
-	.incognito-popover__row:focus-visible {
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 40%, transparent 60%);
-	}
-
-	.incognito-popover__row:disabled {
-		cursor: not-allowed;
-		opacity: 0.5;
-	}
-
-	.incognito-popover--sheet .incognito-popover__row {
-		min-height: 44px;
-	}
-
-	.incognito-popover__row-label {
+	.incognito-popover__hint {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		color: var(--text-muted);
+	}
+
+	/* The "dark pill" — ink on the popover's own surface, which is light in
+	   light mode and light-on-dark automatically once the theme flips, since
+	   both colours are the same pair the rest of the page inverts by. */
+	.incognito-popover__new-chat {
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 0.375rem;
+		height: 30px;
+		border: 0;
+		border-radius: 9999px;
+		background: var(--text-primary);
+		padding: 0 0.75rem;
+		font-family: var(--font-sans);
 		font-size: var(--text-xs);
 		font-weight: 500;
+		color: var(--surface-page);
+		cursor: pointer;
+		transition: opacity var(--duration-standard) var(--ease-out);
 	}
 
-	/* ── The switch face ── the one the "+" menu draws, so the two places
-	   that show incognito's switch show the same switch. */
-	.switch-face {
-		position: relative;
-		width: 34px;
-		height: 20px;
-		flex-shrink: 0;
-		border-radius: 9999px;
-		background: var(--border-default);
-		transition: background var(--duration-standard) var(--ease-out);
+	.incognito-popover__new-chat:hover {
+		opacity: 0.85;
 	}
 
-	.switch-face--on {
-		background: var(--accent);
+	.incognito-popover__new-chat:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 40%, transparent 60%);
 	}
 
-	.switch-face__thumb {
-		position: absolute;
-		top: 2px;
-		left: 2px;
-		width: 16px;
-		height: 16px;
-		border-radius: 9999px;
-		background: var(--accent-contrast);
-		box-shadow: var(--shadow-sm);
-		transition: transform var(--duration-standard) var(--ease-out);
-	}
-
-	.switch-face--on .switch-face__thumb {
-		transform: translateX(14px);
-	}
-
-	.incognito-popover--sheet .switch-face {
-		width: 44px;
-		height: 24px;
-	}
-
-	.incognito-popover--sheet .switch-face__thumb {
-		width: 20px;
-		height: 20px;
-	}
-
-	.incognito-popover--sheet .switch-face--on .switch-face__thumb {
-		transform: translateX(20px);
+	.incognito-popover--sheet .incognito-popover__new-chat {
+		height: 44px;
+		padding: 0 1rem;
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.incognito-popover__row,
 		.incognito-popover__grip span,
-		.switch-face,
-		.switch-face__thumb {
+		.incognito-popover__new-chat {
 			transition: none;
 		}
 	}
