@@ -51,6 +51,14 @@ const RECENT_VERSION_LINE = /^- v(\d+) from /;
 const RECENT_VERSION_LOCATION = / in conversation [^\s:]+/;
 
 /**
+ * Any UUID, anywhere in the text. Every id the wrapper can carry — a chat file's,
+ * a conversation's — is one of these, and `randomUUID()` is where they all come
+ * from.
+ */
+const UUID_ANYWHERE =
+	/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/**
  * True when this text is a memory WRAPPER rather than a file's own text.
  *
  * A document-source artifact stores the rendered Markdown directly, with no
@@ -107,6 +115,18 @@ export function readGeneratedFileExtractedText(
  * version line is dropped. `hideOrigin` is set when the file did not come from
  * the conversation being read.
  *
+ * `ownIds` is the defence in depth the line-prefix rules above could not be:
+ * every id the CURRENT conversation may legitimately show — its own id and its
+ * own chat files' — so that any OTHER uuid left anywhere in the text can be
+ * taken out wherever it sits. The prefix rules only ever matched an id on a
+ * line of its own, and a wrapper nests: a prior version's excerpt was built
+ * from that version's own wrapper and carried both of its ids flattened onto
+ * one `- v1 from …` line, where no prefix reaches them. That hole is closed
+ * structurally at the writer (`chat-files.ts`), and closed again here for
+ * everything the writer never controlled — the assistant-response snippet, an
+ * older wrapper written before the fix, a future section nobody thought about.
+ * `null` disables the sweep, for a caller that cannot establish the set.
+ *
  * Returns the text unchanged when nothing had to go, which is what keeps the
  * ordinary same-conversation answer byte-for-byte what it always was.
  */
@@ -115,6 +135,7 @@ export function redactGeneratedFileMemoryWrapper(
 	options: {
 		hideOrigin: boolean;
 		reachableVersions: ReadonlySet<number> | null;
+		ownIds?: ReadonlySet<string> | null;
 	},
 ): string {
 	const lines = text.split("\n");
@@ -153,7 +174,43 @@ export function redactGeneratedFileMemoryWrapper(
 		}
 		kept.push(line);
 	}
-	return dropEmptyVersionList(kept).join("\n");
+	return scrubForeignUuids(
+		dropEmptyVersionList(kept).join("\n"),
+		options.ownIds ?? null,
+	);
+}
+
+/** A bookkeeping line whose id has just been taken out of it. */
+const EMPTY_ID_LINE = /^(?:Chat file id|Generated in conversation):\s*$/;
+
+/**
+ * Every uuid that is not one of this conversation's own, removed wherever it
+ * sits — in a version line's excerpt, in the assistant-response snippet, in a
+ * section that did not exist when this was written.
+ *
+ * Deletion rather than a placeholder: the id is the disclosure, and a marker
+ * where one used to be still tells the model that the file it is reading came
+ * from a chat it cannot see. The tidy-up afterwards runs ONLY when something
+ * was actually removed, so a wrapper with nothing foreign in it comes back
+ * byte-for-byte.
+ */
+function scrubForeignUuids(
+	text: string,
+	ownIds: ReadonlySet<string> | null,
+): string {
+	if (!ownIds) return text;
+	let removed = false;
+	const scrubbed = text.replace(UUID_ANYWHERE, (uuid) => {
+		if (ownIds.has(uuid.toLowerCase())) return uuid;
+		removed = true;
+		return "";
+	});
+	if (!removed) return text;
+	return scrubbed
+		.split("\n")
+		.map((line) => line.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+$/, ""))
+		.filter((line) => !EMPTY_ID_LINE.test(line))
+		.join("\n");
 }
 
 /**

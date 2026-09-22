@@ -9,6 +9,7 @@ import {
 	projects,
 	taskCheckpoints,
 } from "$lib/server/db/schema";
+import { buildConversationContextScopeCondition } from "$lib/server/services/conversation-scope";
 import type { TaskMemoryItem } from "$lib/server/services/memory-types";
 import { messageOrderDesc } from "$lib/server/services/message-ordering";
 import type {
@@ -205,6 +206,15 @@ function scoreSiblingPromotionCandidate(params: {
 	return { score, matchedTerms };
 }
 
+/**
+ * The stored summaries of a set of the user's conversations.
+ *
+ * The ids come from a sibling listing that is already scoped, and the join
+ * here asks the boundary a second time anyway: a summary is derived text of a
+ * whole conversation, this helper is one `conversationIds` argument away from
+ * any caller, and the one thing that must never happen is an incognito chat's
+ * summary arriving in another chat's prompt.
+ */
 async function getConversationSummaryMap(params: {
 	userId: string;
 	conversationIds: string[];
@@ -216,10 +226,15 @@ async function getConversationSummaryMap(params: {
 			summary: conversationSummaries.summary,
 		})
 		.from(conversationSummaries)
+		.innerJoin(
+			conversations,
+			eq(conversations.id, conversationSummaries.conversationId),
+		)
 		.where(
 			and(
 				eq(conversationSummaries.userId, params.userId),
 				inArray(conversationSummaries.conversationId, params.conversationIds),
+				buildConversationContextScopeCondition(),
 			),
 		);
 
@@ -262,6 +277,10 @@ export async function getProjectFolderReferenceContext(params: {
 		eq(conversations.userId, params.userId),
 		eq(conversations.projectId, conversationRow.projectId),
 		ne(conversations.id, params.conversationId),
+		// A folder sibling's title, objective and summary are injected into this
+		// conversation's prompt. An incognito sibling is a chat the assistant is
+		// not allowed to know happened, so it is neither listed nor counted.
+		buildConversationContextScopeCondition(),
 	);
 	const [siblingCountRows, siblingRows] = await Promise.all([
 		db
@@ -427,6 +446,11 @@ export async function findProjectFolderReferenceContextByQuery(params: {
 	const folderWhere = and(
 		eq(conversations.userId, params.userId),
 		eq(conversations.projectId, selected.projectId),
+		// This listing includes the conversation doing the asking, so the scope
+		// keeps it — an incognito chat still sees itself in its own folder.
+		buildConversationContextScopeCondition({
+			conversationId: params.conversationId,
+		}),
 	);
 	const [conversationCountRows, conversationRows] = await Promise.all([
 		db.select({ siblingCount: count() }).from(conversations).where(folderWhere),
@@ -547,6 +571,10 @@ export async function selectProjectFolderSiblingPromotion(params: {
 					eq(conversations.userId, params.userId),
 					eq(conversations.projectId, conversationRow.projectId),
 					ne(conversations.id, params.conversationId),
+					// The winner of this ranking has its whole recent dialogue
+					// read into the prompt below, which is the single largest
+					// cross-conversation disclosure in the app.
+					buildConversationContextScopeCondition(),
 				),
 			)
 			.orderBy(desc(conversations.updatedAt), asc(conversations.id))

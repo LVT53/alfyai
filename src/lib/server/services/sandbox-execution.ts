@@ -29,6 +29,17 @@ export interface ExecutionResult {
 	error?: string;
 }
 
+/**
+ * The exact `error` a timed-out execution reports, normalised away from the
+ * deadline that produced it (see the catch tail of `executeCode`).
+ *
+ * It is a SENTINEL, not prose: callers tell a timeout apart from a crash by
+ * comparing against it — `run_python` to report `timedOut`, file production to
+ * fail the job as `sandbox_timeout` rather than `program_execution_failed` —
+ * and a private copy of the string in each of them only ever matched by luck.
+ */
+export const SANDBOX_TIMEOUT_ERROR = "Execution timed out";
+
 const OUTPUT_DIR = "/output";
 const MAX_ERROR_DETAIL_CHARS = 1600;
 const PYTHON_OUTPUT_INSPECTION_SCRIPT = `
@@ -1119,7 +1130,7 @@ export async function executeCode(
 				files: [],
 				stdout: "",
 				stderr: "",
-				error: "Execution timed out",
+				error: SANDBOX_TIMEOUT_ERROR,
 			};
 		}
 

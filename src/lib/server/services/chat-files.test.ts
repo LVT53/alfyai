@@ -1690,6 +1690,84 @@ describe("chat-files service", () => {
 			);
 		});
 
+		// The wrapper a new version carries lists the earlier ones, and that list
+		// used to quote each earlier version's stored SUMMARY. A generated file's
+		// summary IS its own wrapper's head — `Chat file id: …`, `Generated in
+		// conversation: …` — so every version line carried the ids of the chat
+		// and the file it came from, flattened onto one line where the read-back
+		// redaction's line-prefix rules could never reach them. The excerpt is
+		// now the earlier version's own TEXT, which cannot contain either.
+		it("quotes only a prior version's content, never its id-bearing summary", async () => {
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			const previousUpdatedAt = new Date("2026-01-01T12:00:00.000Z");
+			const previousWrapper = [
+				"Generated file: report.pdf",
+				"File type: application/pdf",
+				"Chat file id: file-prev",
+				"Generated in conversation: conv-a",
+				"Generated file version: v2",
+				"",
+				"Extracted file content:",
+				"Quarterly revenue was flat.",
+			].join("\n");
+			mockArtifactRows.push({
+				id: "artifact-prev",
+				userId: "user-1",
+				type: "generated_output",
+				retrievalClass: "durable",
+				name: "report.pdf",
+				mimeType: "text/markdown",
+				sizeBytes: 1200,
+				conversationId: "conv-a",
+				// What `guessSummary` stores for a generated file: the wrapper's
+				// own head, ids and all.
+				summary: previousWrapper.replace(/\s+/g, " ").trim().slice(0, 240),
+				metadataJson: JSON.stringify({
+					generatedFile: true,
+					generatedFilename: "report.pdf",
+					documentFamilyId: "family-report",
+					documentLabel: "report.pdf",
+					versionNumber: 2,
+				}),
+				contentText: previousWrapper,
+				extension: "md",
+				storagePath: null,
+				createdAt: previousUpdatedAt,
+				updatedAt: previousUpdatedAt,
+			});
+			mockRows.push({
+				id: "file-next",
+				conversationId: "conv-b",
+				assistantMessageId: "assistant-next",
+				userId: "user-1",
+				filename: "report.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 5000,
+				storagePath: "conv-b/file-next.pdf",
+				createdAt: new Date("2026-01-02T12:00:00.000Z"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-b",
+				assistantMessageId: "assistant-next",
+				fileIds: ["file-next"],
+				assistantResponse: "Here is the revised report.",
+			});
+
+			const call = mockCreateGeneratedOutputArtifact.mock.calls[0][0] as {
+				content: string;
+			};
+			const versionLine = call.content
+				.split("\n")
+				.find((line) => line.startsWith("- v2 from "));
+			expect(versionLine).toBeDefined();
+			expect(versionLine).toContain("Quarterly revenue was flat.");
+			expect(versionLine).not.toContain("file-prev");
+			expect(versionLine).not.toContain("Chat file id");
+			expect(versionLine).not.toContain("Generated in conversation");
+		});
+
 		it("does not continue a family seeded in an INCOGNITO conversation", async () => {
 			// The family scan is per user and per filename across conversations,
 			// which is what makes the test above work — and is exactly how an
