@@ -334,14 +334,20 @@ export async function setConversationSidebarPinned(
 	return conversation ? toConversation(conversation) : null;
 }
 
+/**
+ * Incognito, one-way: arms the flag, and only that. It takes no value,
+ * because `false` is never a legal write — the PATCH route refuses it with a
+ * 409 (docs/plans/incognito-one-way-spec.md §1) and this is the only place
+ * that writes the column, so a boolean parameter here would be nothing but
+ * an invitation to make it legal again.
+ */
 export async function setConversationMemoryIncognito(
 	userId: string,
 	conversationId: string,
-	memoryIncognito: boolean,
 ): Promise<Conversation | null> {
 	const [conversation] = await db
 		.update(conversations)
-		.set({ memoryIncognito })
+		.set({ memoryIncognito: true })
 		.where(
 			and(
 				eq(conversations.id, conversationId),

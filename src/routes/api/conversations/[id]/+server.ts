@@ -108,11 +108,7 @@ export const PATCH: RequestHandler = async (event) => {
 			);
 		}
 
-		const conversation = await setConversationMemoryIncognito(
-			user.id,
-			id,
-			true,
-		);
+		const conversation = await setConversationMemoryIncognito(user.id, id);
 		if (!conversation) {
 			return json({ error: "Conversation not found" }, { status: 404 });
 		}

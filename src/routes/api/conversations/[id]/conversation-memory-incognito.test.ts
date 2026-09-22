@@ -115,10 +115,11 @@ describe("PATCH /api/conversations/[id] — memoryIncognito is one-way", () => {
 
 		expect(response.status).toBe(200);
 		expect(data.memoryIncognito).toBe(true);
+		// No third argument: the service can only arm (see its own comment),
+		// so there is no value here that could ever be `false`.
 		expect(mockSetConversationMemoryIncognito).toHaveBeenCalledWith(
 			"user-1",
 			"conv-1",
-			true,
 		);
 	});
 

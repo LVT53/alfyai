@@ -562,6 +562,11 @@ onDestroy(() => {
 	// Leaving the landing page — Header's phone mask button must not keep
 	// showing (or keep armable) for a route that is no longer this page.
 	landingIncognitoArmVisible.set(false);
+	// And the armed flag goes with it. `onMount` resets it too, but on a
+	// client-side return to "/" (arm, open Knowledge, come back) that reset
+	// lands a beat after the first paint, which would otherwise be a landing
+	// page dressed as incognito over a conversation that is not.
+	landingIncognitoArmed.set(false);
 });
 
 async function ensurePreparedConversation(): Promise<string> {
