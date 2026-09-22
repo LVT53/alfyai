@@ -65,6 +65,12 @@ interface ConversationDraftPayload {
 
 interface CreateConversationOptions {
 	projectId?: string | null;
+	/**
+	 * Incognito, one-way: arms the conversation atomically at creation. Only
+	 * `true` is meaningful — there is no way to create a conversation
+	 * "explicitly not incognito", because that is just the default.
+	 */
+	memoryIncognito?: boolean;
 }
 
 export async function fetchConversations(): Promise<ConversationListItem[]> {
@@ -116,6 +122,7 @@ export async function createConversation(
 	const body: Record<string, unknown> = {};
 	if (title) body.title = title;
 	if (options.projectId !== undefined) body.projectId = options.projectId;
+	if (options.memoryIncognito) body.memoryIncognito = true;
 	const payload = await requestJson<ConversationSummary>(
 		"/api/conversations",
 		{
@@ -218,9 +225,16 @@ export async function setConversationSidebarPinned(
 	);
 }
 
+/**
+ * Incognito, one-way: this only ever arms it. There is no client path that
+ * turns it back off (the server refuses `memoryIncognito: false` with a 409
+ * regardless), so the signature does not pretend otherwise — the fallback
+ * this exists for is the one described in
+ * docs/plans/incognito-one-way-spec.md §1, for a conversation that already
+ * exists (with no messages yet) but was not created with the flag.
+ */
 export async function setConversationMemoryIncognito(
 	id: string,
-	memoryIncognito: boolean,
 	fetchImpl: FetchLike = fetch,
 ): Promise<Conversation> {
 	return requestJson<Conversation>(
@@ -230,7 +244,7 @@ export async function setConversationMemoryIncognito(
 			headers: {
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({ memoryIncognito }),
+			body: JSON.stringify({ memoryIncognito: true }),
 		},
 		"Failed to update conversation memory setting",
 		fetchImpl,

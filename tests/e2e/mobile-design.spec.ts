@@ -113,9 +113,10 @@ test.describe("Mobile Design Polish", () => {
 		expect(attachBox?.width).toBeGreaterThanOrEqual(44);
 		expect(attachBox?.height).toBeGreaterThanOrEqual(44);
 
-		// Incognito moved off the bar and into the menu; the accounts row is
-		// reachable from the same visit.
-		await expect(page.getByTestId("incognito-toggle")).toBeVisible();
+		// Incognito redesign (one-way): the switch is gone from the menu
+		// entirely — arming it happens once, on the landing page, before a
+		// conversation exists (see incognito-indicator.spec.ts).
+		await expect(page.getByTestId("incognito-toggle")).toHaveCount(0);
 
 		await grabber.click();
 		await expect(page.getByTestId("composer-tools-menu")).toBeHidden();

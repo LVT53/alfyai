@@ -7,10 +7,15 @@
 // say anything went wrong.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const goto = vi.hoisted(() => vi.fn(async () => undefined));
-vi.mock("$app/navigation", () => ({ goto }));
-
+import {
+	SESSION_EXPIRED_CODE,
+	SESSION_EXPIRED_HEADER,
+} from "$lib/session-expiry";
+import {
+	clearSessionExpiry,
+	isSessionExpired,
+	markSessionExpired,
+} from "$lib/stores/session";
 import {
 	confirmSessionForDownload,
 	handleDownloadAnchorClick,
@@ -19,10 +24,14 @@ import {
 	triggerBrowserDownload,
 } from "./downloads";
 
-function jsonResponse(status: number, body: unknown): Response {
+function jsonResponse(
+	status: number,
+	body: unknown,
+	headers: Record<string, string> = {},
+): Response {
 	return new Response(JSON.stringify(body), {
 		status,
-		headers: { "Content-Type": "application/json" },
+		headers: { "Content-Type": "application/json", ...headers },
 	});
 }
 
@@ -31,7 +40,7 @@ function clickEvent(init: Partial<MouseEventInit> = {}): MouseEvent {
 }
 
 beforeEach(() => {
-	goto.mockClear();
+	clearSessionExpiry();
 	document.body.innerHTML = "";
 });
 
@@ -55,18 +64,50 @@ describe("confirmSessionForDownload", () => {
 			jsonResponse(400, { error: "conversationId is required" }),
 		);
 		expect(await confirmSessionForDownload(fetchImpl)).toBe(true);
-		expect(goto).not.toHaveBeenCalled();
+		expect(isSessionExpired()).toBe(false);
 	});
 
 	it("reports an expired session and refuses", async () => {
 		const fetchImpl = vi.fn(async () =>
-			jsonResponse(401, { error: "Unauthorized" }),
+			jsonResponse(
+				401,
+				{ error: "expired", code: SESSION_EXPIRED_CODE },
+				{ [SESSION_EXPIRED_HEADER]: "1" },
+			),
 		);
 
 		expect(await confirmSessionForDownload(fetchImpl)).toBe(false);
-		await vi.waitFor(() =>
-			expect(goto).toHaveBeenCalledWith("/login", { invalidateAll: true }),
-		);
+		// The download affordances are outside `http.ts`, but the verdict they
+		// reach is the same one every other transport reports: the shell's
+		// signed-out row, with its way back.
+		expect(isSessionExpired()).toBe(true);
+	});
+
+	// A route's own gate never reaches the hook, so it has no header to send.
+	it("reports a route's own Unauthorized too", async () => {
+		expect(
+			await confirmSessionForDownload(
+				vi.fn(async () => jsonResponse(401, { error: "Unauthorized" })),
+			),
+		).toBe(false);
+
+		expect(isSessionExpired()).toBe(true);
+	});
+
+	// The other direction: signing in on another tab has to heal this one, and
+	// the probe reaching the handler at all is the proof that it did.
+	it("lowers a stale row when the probe gets through", async () => {
+		markSessionExpired();
+
+		expect(
+			await confirmSessionForDownload(
+				vi.fn(async () =>
+					jsonResponse(400, { error: "conversationId is required" }),
+				),
+			),
+		).toBe(true);
+
+		expect(isSessionExpired()).toBe(false);
 	});
 
 	it("does not block a download when the probe itself fails", async () => {
@@ -83,7 +124,19 @@ describe("confirmSessionForDownload", () => {
 				}),
 			),
 		).toBe(true);
-		expect(goto).not.toHaveBeenCalled();
+		expect(isSessionExpired()).toBe(false);
+	});
+
+	// ...and it is equally not evidence the session is GOOD, so a row already
+	// on screen stays up.
+	it("leaves a raised row alone when the probe cannot answer", async () => {
+		markSessionExpired();
+
+		expect(
+			await confirmSessionForDownload(vi.fn(async () => jsonResponse(500, {}))),
+		).toBe(true);
+
+		expect(isSessionExpired()).toBe(true);
 	});
 });
 

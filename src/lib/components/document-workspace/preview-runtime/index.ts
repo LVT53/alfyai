@@ -97,22 +97,30 @@ export function resolvePreviewSourceUrl({
 /**
  * Hands a 401 to the app's one session-expiry reaction.
  *
- * `reportAuthFailure` only acts on the exact "Unauthorized" message every
- * session gate sends, so the body has to be read — and `$lib/client/api/http`
- * is imported lazily because this module is loaded by the preview renderers
- * and has no other reason to pull the API client into their chunk.
+ * The response goes along with the message because the gate's own refusal is
+ * discriminated by the `x-session-expired` header rather than by its wording;
+ * the message still matters for a route's own "Unauthorized", which never
+ * reaches the gate and so carries no header. Reporting happens even when the
+ * body turns out to be unreadable, since the header alone is decisive.
+ *
+ * `$lib/client/api/http` is imported lazily because this module is loaded by
+ * the preview renderers and has no other reason to pull the API client into
+ * their chunk.
  */
 async function reportUnauthorizedPreview(response: Response): Promise<void> {
+	let message = "";
 	try {
 		const text = await response.text();
 		const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
-		const message = parsed.error ?? parsed.message;
-		if (typeof message !== "string") return;
-		const { reportAuthFailure } = await import("$lib/client/api/http");
-		reportAuthFailure(401, message);
+		const body = parsed.error ?? parsed.message;
+		if (typeof body === "string") message = body;
 	} catch {
-		// A body we cannot read is still a failed preview.
+		// A body we cannot read is still a failed preview — and the header,
+		// which is what the gate actually signs its refusal with, is still
+		// readable.
 	}
+	const { reportAuthFailure } = await import("$lib/client/api/http");
+	reportAuthFailure(401, message, response);
 }
 
 export async function loadPreviewRuntime(

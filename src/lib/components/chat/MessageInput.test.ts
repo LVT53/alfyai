@@ -2737,7 +2737,12 @@ describe("MessageInput", () => {
 	});
 });
 
-describe("MessageInput incognito toggle", () => {
+// Incognito, one-way (docs/plans/incognito-one-way-spec.md). There is no
+// switch anywhere in the composer any more — not on the bar, not in the "+"
+// menu, not in the face's own card. The flag can only ever be armed, and only
+// from the landing page's mask button (page.svelte / Header.svelte own
+// tests) before a conversation exists; once a conversation has it, it stays.
+describe("MessageInput incognito menu row", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		uiLanguage.set("en");
@@ -2750,92 +2755,27 @@ describe("MessageInput incognito toggle", () => {
 		setConversationMemoryIncognitoMock.mockResolvedValue({});
 	});
 
-	// Everyday redesign: incognito left the bar and lives in the "+" menu
-	// only — it is a per-conversation decision, not a per-message one, so it
-	// does not earn one of the three resting icons.
-	it("is not on the resting bar", () => {
-		const { queryByTestId } = render(MessageInput, {
-			props: { conversationId: "conv-1", memoryIncognito: true },
-		});
-		expect(queryByTestId("incognito-toggle")).toBeNull();
-	});
-
-	it("reflects the conversation's stored incognito state", async () => {
-		const { getByTestId } = render(MessageInput, {
-			props: { conversationId: "conv-1", memoryIncognito: true },
-		});
-		await openComposerMenu(getByTestId);
-		expect(getByTestId("incognito-toggle")).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
-	});
-
-	it("persists the toggle for an existing conversation and raises the mask face", async () => {
-		const { getByTestId, findByTestId, getByPlaceholderText } = render(
-			MessageInput,
-			{
-				props: { conversationId: "conv-1", memoryIncognito: false },
-			},
-		);
-		await openComposerMenu(getByTestId);
-
-		const toggle = getByTestId("incognito-toggle");
-		expect(toggle).toHaveAttribute("aria-checked", "false");
-
-		await fireEvent.click(toggle);
-
-		await waitFor(() => {
-			expect(setConversationMemoryIncognitoMock).toHaveBeenCalledWith(
-				"conv-1",
-				true,
-			);
-		});
-		// The menu stays open: a switch row flips in place, so turning two
-		// things on is one visit rather than two.
-		expect(getByTestId("incognito-toggle")).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
-		// Incognito redesign: the state shows as a fifth face on the bar and
-		// in the placeholder — never as a notice row above the composer.
-		await findByTestId("incognito-face");
-		expect(
-			getByPlaceholderText("Incognito · nothing here is remembered"),
-		).toBeInTheDocument();
-	});
-
-	it("holds local state for a brand-new conversation with no id yet", async () => {
-		const { getByTestId, findByTestId, getByPlaceholderText } = render(
-			MessageInput,
-			{
-				props: { conversationId: null, memoryIncognito: false },
-			},
-		);
-		await openComposerMenu(getByTestId);
-
-		await fireEvent.click(getByTestId("incognito-toggle"));
-
-		// No conversation id: nothing is persisted, but the UI reflects it —
-		// the landing composer shows the face and placeholder like any chat.
-		expect(setConversationMemoryIncognitoMock).not.toHaveBeenCalled();
-		expect(getByTestId("incognito-toggle")).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
-		await findByTestId("incognito-face");
-		expect(
-			getByPlaceholderText("Incognito · nothing here is remembered"),
-		).toBeInTheDocument();
+	it("draws no incognito row in the '+' menu, incognito on or off", async () => {
+		for (const memoryIncognito of [true, false]) {
+			const { getByTestId, queryByTestId, unmount } = render(MessageInput, {
+				props: { conversationId: "conv-1", memoryIncognito },
+			});
+			await openComposerMenu(getByTestId);
+			expect(queryByTestId("incognito-toggle")).toBeNull();
+			unmount();
+		}
 	});
 });
 
-// ── Incognito redesign: the mask face, the placeholder and the card ──
+// ── Incognito redesign (one-way): the mask face, the placeholder and the
+// card ──
 //
-// The old full-width accent notice above the composer is gone. While the
-// flag is on, the action row grows a fifth face (a mask in ink), the empty
-// textarea says what the mask means, and the face opens a small card with
-// the same switch the "+" menu has.
+// The old full-width accent notice above the composer is gone, and so is the
+// switch the card used to carry. While the flag is on, the action row grows
+// a fifth face (a dashed mask in ink), the empty textarea says what the mask
+// means, and the face opens a small card that says what incognito means for
+// this chat and offers a "New chat" pill — not a way back to normal, which
+// does not exist.
 describe("MessageInput incognito indicator", () => {
 	let animateSpy: { mockRestore: () => void } | null = null;
 
@@ -2906,13 +2846,14 @@ describe("MessageInput incognito indicator", () => {
 		expect(getByPlaceholderText("Type a message...")).toBeInTheDocument();
 	});
 
-	it("shows the mask as a fifth face, in accent like the other active faces, with the incognito placeholder", () => {
+	it("shows the mask as a fifth face, dashed like the composer's own hairline, with the incognito placeholder", () => {
 		const { getByTestId, getByPlaceholderText, queryByText, queryByRole } =
 			renderIncognito();
 
 		const face = getByTestId("incognito-face");
 		expect(face).toHaveClass("composer-face");
 		expect(face).toHaveClass("composer-face--on");
+		expect(face).toHaveClass("composer-face--incognito");
 		expect(face).toHaveAttribute("aria-label", "Incognito is on");
 		expect(face).toHaveAttribute("aria-expanded", "false");
 		// After thinking, before anything that is not a face.
@@ -2966,7 +2907,7 @@ describe("MessageInput incognito indicator", () => {
 		);
 	});
 
-	it("opens a card from the face with the explanation and the same switch", async () => {
+	it("opens a card from the face with the explanation and no switch", async () => {
 		const { getByTestId, queryByTestId } = renderIncognito();
 
 		expect(queryByTestId("incognito-popover")).toBeNull();
@@ -2986,42 +2927,64 @@ describe("MessageInput incognito indicator", () => {
 		expect(within(popover).getByText("Incognito is on")).toBeInTheDocument();
 		expect(
 			within(popover).getByText(
-				"Nothing in this chat is remembered. Memory stays off for the whole conversation, and it is left out of your analytics.",
+				"Nothing in this chat is remembered or counted. It stays that way for the whole conversation.",
 			),
 		).toBeInTheDocument();
 
-		const toggle = getByTestId("incognito-popover-toggle");
-		expect(toggle).toHaveAttribute("role", "switch");
-		expect(toggle).toHaveAttribute("aria-checked", "true");
-		expect(within(toggle).getByText("Incognito")).toBeInTheDocument();
-		expect(toggle.querySelector(".switch-face--on")).not.toBeNull();
-		// The switch takes focus, so Space and Escape have somewhere to land.
-		await waitFor(() => expect(document.activeElement).toBe(toggle));
+		// One-way: no switch anywhere in the card.
+		expect(queryByTestId("incognito-popover-toggle")).toBeNull();
+		expect(popover.querySelector('[role="switch"]')).toBeNull();
+
+		const newChat = getByTestId("incognito-popover-new-chat");
+		expect(within(newChat).getByText("New chat")).toBeInTheDocument();
+		expect(
+			within(popover).getByText("To be remembered again"),
+		).toBeInTheDocument();
+		// "New chat" takes focus, so Escape has somewhere to land.
+		await waitFor(() => expect(document.activeElement).toBe(newChat));
 	});
 
-	it("turning it off from the card persists, closes the card and removes the face", async () => {
-		const { getByTestId, queryByTestId, getByPlaceholderText } =
-			renderIncognito();
+	it("'New chat' navigates away rather than turning incognito off, which cannot be done", async () => {
+		const { getByTestId } = renderIncognito();
 
 		await fireEvent.click(getByTestId("incognito-face"));
-		await fireEvent.click(getByTestId("incognito-popover-toggle"));
+		await fireEvent.click(getByTestId("incognito-popover-new-chat"));
 
 		await waitFor(() => {
-			expect(setConversationMemoryIncognitoMock).toHaveBeenCalledWith(
-				"conv-1",
-				false,
-			);
+			expect(gotoMock).toHaveBeenCalledWith("/");
+		});
+		// One-way: nothing in this flow ever PATCHes the flag false — there is
+		// no client path left that sends it.
+		expect(setConversationMemoryIncognitoMock).not.toHaveBeenCalled();
+	});
+
+	it("falls back to a direct PATCH if a locally-armed conversation's own flag has not caught up yet", async () => {
+		const onMemoryIncognitoChange = vi.fn();
+		const { getByTestId, rerender } = render(MessageInput, {
+			props: {
+				conversationId: null,
+				memoryIncognito: true,
+				onMemoryIncognitoChange,
+			},
+		});
+
+		// Armed on the landing page before the conversation existed.
+		expect(getByTestId("incognito-face")).toBeInTheDocument();
+
+		// The conversation now exists, but its own memoryIncognito prop has
+		// not caught up yet — the empty-conversation PATCH fallback
+		// (spec §1) arms it directly rather than silently dropping the arm.
+		await rerender({ conversationId: "conv-1", memoryIncognito: false });
+
+		await waitFor(() => {
+			expect(setConversationMemoryIncognitoMock).toHaveBeenCalledWith("conv-1");
 		});
 		await waitFor(() => {
-			expect(queryByTestId("incognito-face")).toBeNull();
-			expect(queryByTestId("incognito-popover")).toBeNull();
+			expect(onMemoryIncognitoChange).toHaveBeenCalledWith(true, "conv-1");
 		});
-		expect(getByPlaceholderText("Type a message...")).toBeInTheDocument();
-		// Focus was on the switch, which has left the DOM with the face; it
-		// lands on the textarea rather than falling to <body>.
-		await waitFor(() =>
-			expect(document.activeElement).toBe(getByTestId("message-input")),
-		);
+		// One-way: the face never disappears, even though the prop briefly
+		// read false mid-transition.
+		expect(getByTestId("incognito-face")).toBeInTheDocument();
 	});
 
 	it("opening the card puts the plus menu away, and the plus menu puts the card away", async () => {
@@ -3057,20 +3020,6 @@ describe("MessageInput incognito indicator", () => {
 		);
 	});
 
-	it("puts the face back when the server refuses the change", async () => {
-		setConversationMemoryIncognitoMock.mockRejectedValueOnce(new Error("nope"));
-		const { getByTestId, findByTestId } = renderIncognito();
-
-		await fireEvent.click(getByTestId("incognito-face"));
-		await fireEvent.click(getByTestId("incognito-popover-toggle"));
-
-		await findByTestId("incognito-face");
-		expect(getByTestId("incognito-face")).toHaveAttribute(
-			"aria-expanded",
-			"false",
-		);
-	});
-
 	it("closes on Escape and hands focus back to the face", async () => {
 		const { getByTestId } = renderIncognito();
 
@@ -3092,7 +3041,7 @@ describe("MessageInput incognito indicator", () => {
 		expect(document.activeElement).toBe(getByTestId("incognito-face"));
 	});
 
-	it("closes on a press outside, and the switch in the plus menu closes it too", async () => {
+	it("closes on a press outside", async () => {
 		const { getByTestId } = renderIncognito();
 
 		await fireEvent.click(getByTestId("incognito-face"));
@@ -3102,43 +3051,6 @@ describe("MessageInput incognito indicator", () => {
 			"aria-expanded",
 			"false",
 		);
-
-		// Reopen, then flip the flag from the menu: the card is about a state,
-		// and goes with it.
-		await fireEvent.click(getByTestId("incognito-face"));
-		expect(getByTestId("incognito-face")).toHaveAttribute(
-			"aria-expanded",
-			"true",
-		);
-		await openComposerMenu(getByTestId);
-		await fireEvent.click(getByTestId("incognito-toggle"));
-		await waitFor(() => {
-			expect(setConversationMemoryIncognitoMock).toHaveBeenCalledWith(
-				"conv-1",
-				false,
-			);
-		});
-		await waitFor(() => {
-			expect(screen.queryByTestId("incognito-face")).toBeNull();
-		});
-	});
-
-	it("reports the change so the sidebar can redraw its mark", async () => {
-		const onMemoryIncognitoChange = vi.fn();
-		const { getByTestId } = render(MessageInput, {
-			props: {
-				conversationId: "conv-1",
-				memoryIncognito: true,
-				onMemoryIncognitoChange,
-			},
-		});
-
-		await fireEvent.click(getByTestId("incognito-face"));
-		await fireEvent.click(getByTestId("incognito-popover-toggle"));
-
-		await waitFor(() => {
-			expect(onMemoryIncognitoChange).toHaveBeenCalledWith(false, "conv-1");
-		});
 	});
 });
 
@@ -3812,8 +3724,9 @@ describe("MessageInput long-document outline quoting", () => {
 //
 // The bar at rest is five controls and no more: "+", attach, accounts,
 // thinking, send. What the old bar had that these assert is gone: the
-// incognito icon (now in the menu), the bare "0" bubble on the plug, and the
-// ring that showed "0" before there was anything to measure.
+// incognito icon (a normal, non-incognito conversation never grows a sixth
+// face), the bare "0" bubble on the plug, and the ring that showed "0"
+// before there was anything to measure.
 describe("MessageInput composer bar (Direction B)", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -3834,7 +3747,7 @@ describe("MessageInput composer bar (Direction B)", () => {
 		});
 	});
 
-	it("rests as five controls, with incognito moved into the menu", () => {
+	it("rests as five controls, with no incognito face on a normal conversation", () => {
 		const { getByTestId, queryByTestId } = render(MessageInput, {
 			reasoningDepth: "quick",
 		});
@@ -4121,25 +4034,41 @@ describe("MessageInput composer menu", () => {
 		});
 	});
 
-	// Was written against the Web search row, which the menu no longer has.
-	// Incognito is the switch every deployment shows, so it is the one that
-	// can stand for the rule.
+	// Was written against the Web search row, which the menu no longer has,
+	// then against the incognito row, which the menu no longer has either
+	// (incognito redesign, one-way — see MessageInput.test.ts's own
+	// "incognito menu row" describe block). Thinking is the switch every
+	// deployment shows, so it is the one that can stand for the rule.
 	it("flips a switch row in place and stays open", async () => {
-		const { getByTestId, queryByTestId } = render(MessageInput);
+		// Thinking is controlled (reasoningDepth in, onReasoningDepthChange
+		// out) rather than holding its own state, so the click is answered
+		// with a rerender carrying the new depth — same pattern as the
+		// toolbar's own thinking-toggle tests above.
+		const reasoningDepthChangeSpy = vi.fn();
+		const { getByTestId, queryByTestId, rerender } = render(MessageInput, {
+			reasoningDepth: "quick",
+			onReasoningDepthChange: reasoningDepthChangeSpy,
+		});
 		await openComposerMenu(getByTestId);
 
-		const incognito = getByTestId("incognito-toggle");
-		expect(incognito).toHaveAttribute("aria-checked", "false");
+		const thinking = getByTestId("thinking-toggle");
+		expect(thinking).toHaveAttribute("aria-checked", "false");
 
-		await fireEvent.click(incognito);
+		await fireEvent.click(thinking);
 
+		expect(reasoningDepthChangeSpy).toHaveBeenCalledWith("thorough");
 		expect(queryByTestId("composer-tools-menu")).not.toBeNull();
-		await waitFor(() => {
-			expect(getByTestId("incognito-toggle")).toHaveAttribute(
-				"aria-checked",
-				"true",
-			);
+
+		await rerender({
+			reasoningDepth: "thorough",
+			onReasoningDepthChange: reasoningDepthChangeSpy,
 		});
+		expect(getByTestId("thinking-toggle")).toHaveAttribute(
+			"aria-checked",
+			"true",
+		);
+		// Flipping it did not close the menu.
+		expect(queryByTestId("composer-tools-menu")).not.toBeNull();
 	});
 
 	// The switch is gone; the capability is not — "/web selects a one-turn Web

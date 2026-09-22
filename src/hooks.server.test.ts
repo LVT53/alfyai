@@ -296,16 +296,18 @@ describe("hooks.server.ts", () => {
 		segments,
 	}) => {
 		const { handle } = await import("./hooks.server");
+		const { SESSION_EXPIRED_HEADER } = await import("$lib/session-expiry");
 		const path = `/${segments.join("/")}`;
 		const resolve = vi.fn();
 		const event = makeHookEvent(path);
 
-		// Still not public — the refusal is now a 401 rather than a 303, but the
-		// route handler is just as unreachable.
+		// Still gated, and as API paths they are now refused in the API's own
+		// language rather than redirected to a login page.
 		const response = await handle({ event, resolve });
 
-		expect(response.status).toBe(401);
 		expect(resolve).not.toHaveBeenCalled();
+		expect(response.status).toBe(401);
+		expect(response.headers.get(SESSION_EXPIRED_HEADER)).toBe("1");
 	});
 
 	it("redirects protected PAGE routes to /login when no user is present", async () => {
@@ -360,8 +362,18 @@ describe("hooks.server.ts", () => {
 			expect(resolve).not.toHaveBeenCalled();
 		});
 
-		it("uses the same JSON error shape the routes' own 401 branches return", async () => {
+		// The same `{error}` shape the routes' own 401 branches return, through
+		// the same `json()` helper — so a caller that only reads `error` handles
+		// the gate's refusal exactly as it handles a route's. The sentence is
+		// the server's own English rather than the bare word "Unauthorized",
+		// because every error surface in the app shows this string verbatim when
+		// it has nothing better; `code` and the header carry the machine-
+		// readable half.
+		it("uses the routes' own 401 body shape, with a sentence worth showing", async () => {
 			const { handle } = await import("./hooks.server");
+			const { SESSION_EXPIRED_CODE, SESSION_EXPIRED_MESSAGE } = await import(
+				"$lib/session-expiry"
+			);
 			const event = makeHookEvent("/api/conversations");
 
 			const response = await handle({ event, resolve: vi.fn() });
@@ -369,7 +381,10 @@ describe("hooks.server.ts", () => {
 			expect(response.headers.get("content-type")).toContain(
 				"application/json",
 			);
-			expect(await response.json()).toEqual({ error: "Unauthorized" });
+			expect(await response.json()).toEqual({
+				error: SESSION_EXPIRED_MESSAGE,
+				code: SESSION_EXPIRED_CODE,
+			});
 		});
 
 		it("does not advertise an HTTP auth scheme", async () => {
@@ -529,13 +544,14 @@ describe("hooks.server.ts", () => {
 			},
 		])("still answers $label with 401", async ({ headers }) => {
 			const { handle } = await import("./hooks.server");
+			const { SESSION_EXPIRED_HEADER } = await import("$lib/session-expiry");
 			const resolve = vi.fn();
 			const event = makeHookEvent("/api/conversations", undefined, headers);
 
 			const response = await handle({ event, resolve });
 
 			expect(response.status).toBe(401);
-			expect(await response.json()).toEqual({ error: "Unauthorized" });
+			expect(response.headers.get(SESSION_EXPIRED_HEADER)).toBe("1");
 			expect(resolve).not.toHaveBeenCalled();
 		});
 
@@ -568,6 +584,7 @@ describe("hooks.server.ts", () => {
 				{ label: "no Accept at all", accept: undefined },
 			])("answers a GET asking for $label with 401", async ({ accept }) => {
 				const { handle } = await import("./hooks.server");
+				const { SESSION_EXPIRED_HEADER } = await import("$lib/session-expiry");
 				const event = makeHookEvent(
 					"/api/conversations",
 					undefined,
@@ -577,7 +594,7 @@ describe("hooks.server.ts", () => {
 				const response = await handle({ event, resolve: vi.fn() });
 
 				expect(response.status).toBe(401);
-				expect(await response.json()).toEqual({ error: "Unauthorized" });
+				expect(response.headers.get(SESSION_EXPIRED_HEADER)).toBe("1");
 			});
 
 			// A person's address bar only ever issues GET or HEAD. Anything else
@@ -641,6 +658,64 @@ describe("hooks.server.ts", () => {
 			expect(resolve).toHaveBeenCalledOnce();
 			expect(response.status).toBe(200);
 		});
+	});
+
+	it("marks the login redirect when the browser arrived with a dead session", async () => {
+		const { handle } = await import("./hooks.server");
+		// A cookie was sent and the session behind it is gone: the user was
+		// signed in a moment ago, so the login screen gets to say why it is
+		// showing.
+		mockValidateSession.mockResolvedValue(null);
+		const event = makeHookEvent("/chat/abc", "stale-token");
+
+		await expect(handle({ event, resolve: vi.fn() })).rejects.toMatchObject({
+			status: 303,
+			location: "/login?session=expired",
+		});
+	});
+
+	it("answers an API path with 401 instead of redirecting it to the login page", async () => {
+		const { handle } = await import("./hooks.server");
+		const { SESSION_EXPIRED_CODE, SESSION_EXPIRED_HEADER } = await import(
+			"$lib/session-expiry"
+		);
+		mockValidateSession.mockResolvedValue(null);
+		const resolve = vi.fn();
+		const event = makeHookEvent("/api/conversations", "stale-token");
+
+		// Not a redirect: `fetch` would follow it, the public login route would
+		// answer 200 with HTML, and the caller would parse a web page as its
+		// payload — the silent failure this gate exists to avoid.
+		const response = await handle({ event, resolve });
+
+		expect(resolve).not.toHaveBeenCalled();
+		expect(response.status).toBe(401);
+		expect(response.headers.get(SESSION_EXPIRED_HEADER)).toBe("1");
+		expect(response.headers.get("content-type")).toContain("application/json");
+		expect(await response.json()).toMatchObject({
+			code: SESSION_EXPIRED_CODE,
+		});
+	});
+
+	it("answers an API path with 401 even when no cookie was sent at all", async () => {
+		const { handle } = await import("./hooks.server");
+		const { SESSION_EXPIRED_HEADER } = await import("$lib/session-expiry");
+		const event = makeHookEvent("/api/models");
+
+		const response = await handle({ event, resolve: vi.fn() });
+
+		expect(response.status).toBe(401);
+		expect(response.headers.get(SESSION_EXPIRED_HEADER)).toBe("1");
+	});
+
+	it("puts the baseline security headers on the gate's 401, and keeps it out of caches", async () => {
+		const { handle } = await import("./hooks.server");
+		const event = makeHookEvent("/api/conversations");
+
+		const response = await handle({ event, resolve: vi.fn() });
+
+		expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
 	});
 
 	it("loads the session user when a valid token is present", async () => {

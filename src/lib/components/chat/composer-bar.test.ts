@@ -89,7 +89,6 @@ describe("buildComposerMenuRows", () => {
 			"skills",
 			"atlas",
 			"thinking",
-			"incognito",
 			"model",
 			"style",
 		]);
@@ -113,22 +112,29 @@ describe("buildComposerMenuRows", () => {
 		}
 	});
 
-	it("opens the switches section with thinking now that web search is gone", () => {
+	it("leaves the switches section to thinking alone", () => {
 		const switches = buildComposerMenuRows(fullMenu).filter(
 			(row) => row.section === "switches",
 		);
-		expect(switches.map((row) => row.id)).toEqual(["thinking", "incognito"]);
+		expect(switches.map((row) => row.id)).toEqual(["thinking"]);
 		expect(switches.every((row) => row.kind === "switch")).toBe(true);
 	});
 
-	it("keeps incognito in the menu and nowhere else", () => {
-		const rows = buildComposerMenuRows(fullMenu);
-		const incognito = rows.find((row) => row.id === "incognito");
-		expect(incognito).toEqual({
-			id: "incognito",
-			kind: "switch",
-			section: "switches",
-		});
+	// Incognito redesign (one-way): the switch is gone from every menu and
+	// every popover. The only way to arm it is the landing page's mask
+	// button, before a conversation exists — this menu says nothing about it
+	// in any configuration.
+	it("has no incognito row anywhere, in any configuration", () => {
+		for (const input of [
+			fullMenu,
+			{ ...fullMenu, thinkingAvailable: false },
+			{ ...fullMenu, personalityCount: 0 },
+			{ ...fullMenu, atlasVisible: false, skillsEnabled: false },
+		]) {
+			expect(buildComposerMenuRows(input).map((row) => row.id)).not.toContain(
+				"incognito",
+			);
+		}
 	});
 
 	it("drops thinking where the model has no reasoning controls", () => {

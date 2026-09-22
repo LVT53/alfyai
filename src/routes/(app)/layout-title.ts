@@ -4,6 +4,7 @@ type PageConversationTitleData = {
 	conversation?: {
 		id?: string;
 		title?: string | null;
+		memoryIncognito?: boolean;
 	} | null;
 };
 
@@ -40,5 +41,45 @@ export function resolveActiveConversationTitle(params: {
 			(conversation) => conversation.id === routeConversationId,
 		)?.title ??
 		null
+	);
+}
+
+/**
+ * Incognito, one-way (docs/plans/incognito-one-way-spec.md §2). Same
+ * resolution order as the title above — the page's own freshly-loaded data
+ * first, then the two client mirrors — so the phone header's mask mark
+ * cannot show a stale "not incognito" for a beat after opening a conversation
+ * that is.
+ */
+export function resolveActiveConversationIncognito(params: {
+	routeConversationId: string | null;
+	conversationStore: ConversationListItem[];
+	shellConversations: ConversationListItem[];
+	pageData?: unknown;
+}): boolean {
+	const {
+		routeConversationId,
+		conversationStore,
+		shellConversations,
+		pageData,
+	} = params;
+	if (!routeConversationId) return false;
+
+	const pageConversation =
+		pageData && typeof pageData === "object"
+			? (pageData as PageConversationTitleData).conversation
+			: null;
+	if (pageConversation && pageConversation.id === routeConversationId) {
+		return pageConversation.memoryIncognito === true;
+	}
+
+	return (
+		conversationStore.find(
+			(conversation) => conversation.id === routeConversationId,
+		)?.memoryIncognito ??
+		shellConversations.find(
+			(conversation) => conversation.id === routeConversationId,
+		)?.memoryIncognito ??
+		false
 	);
 }

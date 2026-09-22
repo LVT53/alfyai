@@ -14,6 +14,7 @@ import {
 	Eye,
 	EyeOff,
 	RotateCw,
+	VenetianMask,
 } from "@lucide/svelte";
 import type {
 	AtlasAction,
@@ -36,6 +37,7 @@ import { buildJumpRailTurns } from "./jump-rail";
 let {
 	messages = [],
 	conversationId = null,
+	isIncognito = false,
 	isThinkingActive = false,
 	contextDebug = null,
 	modelIcons = {},
@@ -67,6 +69,13 @@ let {
 }: {
 	messages?: ChatMessage[];
 	conversationId?: string | null;
+	/**
+	 * Incognito, one-way (docs/plans/incognito-one-way-spec.md §5). Renders
+	 * the opening mark — a single dashed-hairline row, once, before the first
+	 * message — for every incognito conversation (new or reopened), never for
+	 * a normal one. Part of the scrolling thread, not a sticky banner.
+	 */
+	isIncognito?: boolean;
 	isThinkingActive?: boolean;
 	contextDebug?: ContextDebugState | null;
 	modelIcons?: Record<string, string | null | undefined>;
@@ -707,6 +716,17 @@ async function scrollToMessage(messageId: string) {
 		aria-atomic="false"
 	>
 	<div class="mx-auto flex min-h-full w-full max-w-[760px] flex-col gap-lg px-sm py-lg md:px-lg md:py-xl lg:px-xl">
+		{#if isIncognito}
+			<!-- The one-time opening mark (spec §5): part of the scrolling
+			     thread, not sticky, not a banner. Rendered for every incognito
+			     conversation, new or reopened — never for a normal one. -->
+			<div class="incognito-opening" data-testid="incognito-opening">
+				<span class="incognito-opening__rule" aria-hidden="true"></span>
+				<VenetianMask size={16} strokeWidth={1.8} aria-hidden="true" />
+				<span>{$t('chat.incognitoOpening')}</span>
+				<span class="incognito-opening__rule" aria-hidden="true"></span>
+			</div>
+		{/if}
 		{#if messages.length === 0}
 			<div class="conversation-empty-state">
 				<span data-testid="empty-state-logo" class="conversation-empty-logo">
@@ -908,6 +928,25 @@ async function scrollToMessage(messageId: string) {
 		   overlaying the bottom of the scroll area. */
 		height: 10.5rem;
 		flex: 0 0 auto;
+	}
+
+	/* Incognito opening mark (spec §5) — a dashed hairline / mask / label /
+	   dashed hairline row, once, before the first message. It scrolls away
+	   with the rest of the thread like any other row here; nothing about it
+	   is sticky or fixed. */
+	.incognito-opening {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+		font-size: var(--text-2xs);
+		letter-spacing: 0.02em;
+	}
+
+	.incognito-opening__rule {
+		flex: 1 1 auto;
+		border-top: 1px dashed var(--border-default);
 	}
 
 	/* B2 — floating "jump to latest" control. Anchored to the message area's

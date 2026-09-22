@@ -635,8 +635,10 @@ async function toggleAiVersion(documentId: string, promptArtifactId: string) {
 		});
 		if (!response.ok) {
 			// Two things at once. `readErrorPayload` is how every centrally-routed
-			// call notices an expired session, and this raw `fetch` bypassed it —
-			// so a 401 here left the panel stuck instead of navigating. And the
+			// call notices an expired session — it reads the gate's
+			// `x-session-expired` header off the response and raises the shell's
+			// signed-out row — and this raw `fetch` bypassed it, so a 401 here
+			// left the panel stuck with nothing on screen to explain it. And the
 			// status code was interpolated into user-visible copy, which after
 			// the 401 change read literally "Failed to load content (401)".
 			await readErrorPayload(
@@ -2154,11 +2156,20 @@ async function handleBulkDelete(): Promise<boolean> {
 
 	/* The extraction ledger's verdict. It shares the Status column's badge
 	   geometry so a row that is mid-extraction does not change the column's
-	   height, and only the colour says which of the three moods it is in. */
+	   height, and only the colour says which of the three moods it is in.
+	   `white-space: normal` (not the version/type/size/date columns' nowrap) is
+	   the point of this rule, not an oversight: "Extracting text" and
+	   "Retrieving text" are wider than the Status column ever gets between
+	   1024px and 1440px, and a `nowrap` badge does not shrink to fit — it draws
+	   past the column's edge and over the Size cell's numbers. Wrapping onto a
+	   second line keeps the badge inside its own cell at every width the
+	   fixed-layout table is drawn at; `overflow-wrap: break-word` is the
+	   fallback for the one width where even a single word does not fit. */
 	.extraction-badge {
 		display: inline-flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: 0.3rem;
+		max-width: 100%;
 		min-height: 1.35rem;
 		padding: 0.125rem 0.375rem;
 		border-radius: var(--radius-sm);
@@ -2166,8 +2177,9 @@ async function handleBulkDelete(): Promise<boolean> {
 		color: var(--text-muted);
 		font-size: 0.6875rem;
 		font-weight: 500;
-		line-height: 1;
-		white-space: nowrap;
+		line-height: 1.3;
+		white-space: normal;
+		overflow-wrap: break-word;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -2315,8 +2327,13 @@ async function handleBulkDelete(): Promise<boolean> {
 		width: 12%;
 	}
 
+	/* Wider than its neighbours' 8-9%: unlike a version or type badge, the
+	   extraction chip's text ("Extracting text", "Retrieving text") is
+	   sentence-length, not a three-letter tag. The extra 2% comes off the name
+	   column's remainder rather than out of version/type/size/date, whose
+	   widths are each tuned to their own content elsewhere in this file. */
 	.col-status {
-		width: 9%;
+		width: 11%;
 	}
 
 	.col-size {
@@ -2339,10 +2356,27 @@ async function handleBulkDelete(): Promise<boolean> {
 	}
 
 	.col-version,
-	.col-status,
 	.col-size,
 	.col-date {
 		white-space: nowrap;
+	}
+
+	/* Status is deliberately NOT in the nowrap group above: its content is the
+	   one badge in this row that does not reliably fit on one line (see
+	   `.extraction-badge`), and a column that cannot wrap can only overflow. */
+	.col-status {
+		white-space: normal;
+	}
+
+	/* The default cell padding is tuned for a three-letter type tag, not a
+	   two-line sentence — at `var(--space-md)` on both sides it leaves the
+	   extraction chip less room to wrap into than the column already has.
+	   Scoped through `.documents-table .col-status` for the same reason the
+	   glyph columns override padding: to beat `.documents-table th`/`td`'s
+	   own rule on specificity. Vertical padding is untouched. */
+	.documents-table .col-status {
+		padding-left: 0.5rem;
+		padding-right: 0.5rem;
 	}
 
 	/* A column of measurements reads down its last digit, like every other

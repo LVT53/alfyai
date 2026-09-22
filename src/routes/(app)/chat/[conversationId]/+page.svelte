@@ -277,11 +277,17 @@ const skillDraftLocalizedApiErrorKeys: Record<string, I18nKey> = {
 };
 
 $effect(() => {
+	// Incognito, one-way — pass the freshly-loaded server truth directly
+	// rather than relying on the local map alone: the landing page's
+	// creation flow hard-navigates here (a full page load), which wipes
+	// that map, so on this row's first paint after arming incognito it
+	// would otherwise be empty. See upsertConversationLocal's own comment.
 	upsertConversationLocal(
 		data.conversation.id,
 		data.conversation.title,
 		data.conversation.updatedAt,
 		data.conversation.projectId ?? null,
+		data.conversation.memoryIncognito ?? false,
 	);
 });
 
@@ -2026,6 +2032,7 @@ async function handleFork(payload: { messageId: string }) {
 			result.conversation.title,
 			result.conversation.updatedAt,
 			result.conversation.projectId ?? null,
+			result.conversation.memoryIncognito ?? false,
 		);
 		conversationDraft = null;
 		queuedTurn = null;
@@ -2644,6 +2651,7 @@ function handleDrop(event: DragEvent) {
 	<div
 		class="chat-stage relative flex min-h-0 flex-1 overflow-hidden rounded-lg"
 		class:chat-stage-workspace-open={workspaceOpen && workspaceDocuments.length > 0}
+		class:stage--incognito={data.conversation.memoryIncognito}
 	>
 		<div class="chat-main relative flex min-h-0 flex-1 flex-col overflow-hidden">
 			<div class="chat-title-bar hidden h-10 shrink-0 items-center justify-center border-b border-border px-6 lg:flex">
@@ -2678,6 +2686,7 @@ function handleDrop(event: DragEvent) {
 					<ChatMessagePane
 						messages={$messages}
 						conversationId={data.conversation.id}
+						isIncognito={data.conversation.memoryIncognito ?? false}
 						{isThinkingActive}
 						{contextDebug}
 						{modelIcons}

@@ -18,6 +18,7 @@ import type { MessageEditPayload, MessageRegeneratePayload } from "../_helpers";
 let {
 	messages,
 	conversationId,
+	isIncognito = false,
 	isThinkingActive,
 	contextDebug,
 	modelIcons = {},
@@ -49,6 +50,8 @@ let {
 }: {
 	messages: ChatMessage[];
 	conversationId: string;
+	/** Renders the one-time "Off the record from here" opening mark. */
+	isIncognito?: boolean;
 	isThinkingActive: boolean;
 	contextDebug: ContextDebugState | null;
 	modelIcons?: Record<string, string | null | undefined>;
@@ -103,6 +106,7 @@ let {
 	<MessageArea
 		{messages}
 		{conversationId}
+		{isIncognito}
 		{isThinkingActive}
 		{contextDebug}
 		{modelIcons}

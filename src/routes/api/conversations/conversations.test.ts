@@ -85,6 +85,38 @@ describe("/api/conversations", () => {
 		expect(mockCreateConversation).not.toHaveBeenCalled();
 	});
 
+	it("creates an incognito conversation atomically when armed at creation", async () => {
+		mockCreateConversation.mockResolvedValue({
+			id: "conv-1",
+			title: "New Conversation",
+			createdAt: 1,
+			updatedAt: 1,
+			memoryIncognito: true,
+		});
+
+		const response = await POST(makeEvent({ memoryIncognito: true }));
+		const data = await response.json();
+
+		expect(response.status).toBe(201);
+		expect(data.memoryIncognito).toBe(true);
+		expect(mockCreateConversation).toHaveBeenCalledWith(
+			"owner-user",
+			undefined,
+			{ projectId: null, memoryIncognito: true },
+		);
+	});
+
+	it("ignores memoryIncognito: false — it is never a meaningful write", async () => {
+		const response = await POST(makeEvent({ memoryIncognito: false }));
+
+		expect(response.status).toBe(201);
+		expect(mockCreateConversation).toHaveBeenCalledWith(
+			"owner-user",
+			undefined,
+			{ projectId: null },
+		);
+	});
+
 	it("rejects invalid project ids", async () => {
 		const response = await POST(makeEvent({ projectId: 12 }));
 		const data = await response.json();

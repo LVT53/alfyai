@@ -18,7 +18,25 @@ Add work under [Unreleased] as it lands and rename that heading on release.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- Incognito is now chosen once, before a chat exists, and stays on for that
+  chat's whole life. A mask button sits in the top-right corner of the new-chat
+  page (and in the phone header); tapping it tints the stage, dashes the
+  composer and replaces the greeting, and the chat it starts is incognito from
+  its first message. What incognito means has not changed: the chat is saved
+  and you can revisit it, but nothing from it is learned into memory, counted
+  in analytics or used to personalise later replies.
+- An incognito chat opens with a single "Off the record from here" mark above
+  its first message, and the mask in the composer opens a card that says what
+  incognito means for that chat and offers a new chat.
+
+### Removed
+
+- The incognito switch in the composer's "+" menu and in the mask's card. A
+  chat can no longer be taken out of incognito, or put into it once it has
+  started — start a new chat to be remembered again. The API refuses both
+  writes.
 
 ## [2.0.0] - 2026-09-17
 

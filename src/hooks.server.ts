@@ -39,6 +39,11 @@ import {
 	stopRoutingRegionScheduler,
 } from "$lib/server/services/routing/region-runtime";
 import { assertSessionSecret } from "$lib/server/session-secret";
+import {
+	SESSION_EXPIRED_CODE,
+	SESSION_EXPIRED_HEADER,
+	SESSION_EXPIRED_MESSAGE,
+} from "$lib/session-expiry";
 
 const PUBLIC_PATHS = [
 	"/login",
@@ -237,10 +242,16 @@ export const init: ServerInit = async () => {
 const appHandle: Handle = async ({ event, resolve }) => {
 	await ensureRuntimeConfigReady();
 
+	// Remembered so the gate below can tell "never signed in" (no cookie at
+	// all) from "was signed in, and the session has since ended" — the second
+	// one is the case that deserves a word on the login screen.
+	let hadSessionCookie = false;
+
 	try {
 		const token = event.cookies.get("session");
 
 		if (token) {
+			hadSessionCookie = true;
 			const sessionUser = await validateSession(token);
 			event.locals.user = sessionUser ?? null;
 		} else {
@@ -266,35 +277,60 @@ const appHandle: Handle = async ({ event, resolve }) => {
 	const path = event.url.pathname;
 
 	if (!PUBLIC_PATHS.includes(path) && !event.locals.user) {
-		// A page request keeps the 303 to /login: the browser is asking for a
-		// screen, and the login screen is the right screen.
+		// An API caller cannot be sent to a login page. `fetch` follows the 303
+		// itself, the public /login route answers 200 with HTML, and the caller
+		// is left parsing a web page as its payload — which is how an expired
+		// session used to present: missing models, empty lists, and sends that
+		// died on "invalid response from the server", with nothing anywhere
+		// saying the session had ended. Answer the refusal in the API's own
+		// language instead, so the browser can put the "sign in again" row on
+		// screen and say so again the moment an action is refused.
 		//
-		// An API request does not. It used to get the same 303, which `fetch`
-		// follows: the caller was handed a 200 and a login PAGE, and the `401`
-		// branch every one of these routes carries was unreachable. Answer with
-		// that 401 instead, in the body shape the routes themselves use
-		// (`{"error":"Unauthorized"}`, via the same `json()` helper) so a
-		// session that expired mid-session is indistinguishable from a request
-		// the route itself refused. No `WWW-Authenticate`: this app has no HTTP
-		// auth scheme to name, and nothing in the repo sends that header today.
-		//
-		// The exception is an `/api/` URL a person is looking at — an OAuth
-		// callback the provider bounced the address bar to, a download or
-		// preview link opened in a tab. Those keep the 303, because raw JSON in
-		// the viewport helps nobody. `isBrowserNavigation` reads the browser's
-		// own Fetch Metadata for that, which page script cannot forge for its
-		// own requests, so the app's fetches are always on the 401 side.
+		// The exception is an `/api/` URL a PERSON is looking at — an OAuth
+		// callback the provider bounced the address bar to, a preview link
+		// opened in a tab. Those keep the 303, because raw JSON in the viewport
+		// helps nobody. `isBrowserNavigation` reads the browser's own Fetch
+		// Metadata for that, which page script cannot forge for its own
+		// requests, so the app's fetches are always on the 401 side. (The
+		// download affordances confirm the session in the client before they let
+		// the browser navigate — see `$lib/client/downloads` — so a `<a download>`
+		// landing here is a URL someone pasted, and the login screen is the
+		// honest answer to it.)
 		//
 		// Access is unchanged either way — this is the shape of the refusal, not
 		// whether it refuses. The public/allow list above still admits the
 		// service-assertion routes (the drain bearer token, the produce-file
 		// signing key) before this gate, so how those authenticate is untouched.
+		// No `WWW-Authenticate`: this app has no HTTP auth scheme to name, and
+		// nothing in the repo sends that header today.
 		if (isApiRequest(path) && !isBrowserNavigation(event.request)) {
-			const response = json({ error: "Unauthorized" }, { status: 401 });
-			applySecurityHeaders(event, response);
-			return response;
+			const unauthorized = json(
+				{ error: SESSION_EXPIRED_MESSAGE, code: SESSION_EXPIRED_CODE },
+				{
+					status: 401,
+					headers: {
+						// The discriminator the browser keys on. Readable without
+						// consuming the body, so one check covers JSON endpoints,
+						// SSE streams and the download probe alike, and it can
+						// never be confused with this app's credential 401s (a
+						// wrong password on the login form, a wrong current
+						// password in Settings).
+						[SESSION_EXPIRED_HEADER]: "1",
+						// A refusal is true of one moment and one cookie. Signing
+						// back in must not be able to hand anyone a stored copy of
+						// it.
+						"Cache-Control": "private, no-store",
+					},
+				},
+			);
+			applySecurityHeaders(event, unauthorized);
+			return unauthorized;
 		}
-		throw redirect(303, "/login");
+
+		// A page navigation keeps the redirect it always had — the browser
+		// follows it and lands on a login form, which is the right outcome. It
+		// carries a marker so that form can say why the user is looking at it.
+		throw redirect(303, hadSessionCookie ? "/login?session=expired" : "/login");
 	}
 
 	if (path === "/login" && event.locals.user) {

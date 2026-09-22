@@ -51,7 +51,8 @@ const SCOPE = [
 	"src/lib/components/chat/ComposerChip.svelte",
 	"src/lib/components/chat/ComposerChipRow.svelte",
 	// The incognito card (2026-09-16) is a menu-shaped surface with one
-	// hoverable switch row; it is in scope for the same reason the chips are.
+	// hoverable control — a switch row until the one-way redesign, a "New
+	// chat" pill since; it is in scope for the same reason the chips are.
 	"src/lib/components/chat/IncognitoPopover.svelte",
 	"src/routes/(app)/settings/_components",
 	"src/routes/(app)/knowledge/_components/MemoryPortraitCard.svelte",

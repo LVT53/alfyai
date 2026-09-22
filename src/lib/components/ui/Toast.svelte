@@ -9,11 +9,18 @@ import { reducedMotionAware } from "$lib/utils/motion";
 // every active $toasts entry as a stacked, top-right region so it never
 // competes for the same corner as ServerDrainingNotice (top-center) or
 // ServerUpdateNotice (bottom-right).
+//
+// `--app-top-row-height` is how a full-width row pinned to the top of the shell
+// (today: SessionExpiredNotice) pushes this region below itself. Without it the
+// first toast lands on that row and swallows the clicks meant for the row's own
+// button — the shell publishes the row's measured height, and 0 when there is
+// no row.
 const flyIn = reducedMotionAware(fly);
 </script>
 
 <div
-	class="pointer-events-none fixed right-md top-md z-[10100] flex w-full max-w-[360px] flex-col gap-sm"
+	class="pointer-events-none fixed right-md z-[10100] flex w-full max-w-[360px] flex-col gap-sm"
+	style="top: calc(var(--space-md) + var(--app-top-row-height, 0px));"
 	data-testid="toast-region"
 >
 	{#each $toasts as toast (toast.id)}

@@ -168,6 +168,17 @@
 		--duration-micro: 100ms;
 		--duration-standard: 150ms;
 		--duration-emphasis: 250ms;
+
+		/* Incognito, one-way (docs/plans/incognito-one-way-spec.md §4) — the
+		   ambient tint. `.stage--incognito` overrides --surface-page,
+		   --surface-elevated, --surface-message-user and --border-default
+		   locally, scoped to the chat stage only: the sidebar keeps the warm
+		   palette so the contrast between "this room" and "the rest of the
+		   app" is always on screen. These are the values it swaps in. */
+		--incognito-surface-page: #ebecea;
+		--incognito-surface-elevated: #f3f4f2;
+		--incognito-surface-message-user: #e2e3e0;
+		--incognito-border: #c3c4c1;
 	}
 
 	.dark {
@@ -233,6 +244,43 @@
 
 		/* Semantic Tokens - Surface (message-specific) */
 		--surface-message-user: #2f2f2f;
+
+		/* Incognito, one-way — dark pair. See the light-mode block above. */
+		--incognito-surface-page: #111214;
+		--incognito-surface-elevated: #1a1c1f;
+		--incognito-surface-message-user: #24272b;
+		--incognito-border: #3a3d41;
+	}
+}
+
+/* Incognito, one-way (docs/plans/incognito-one-way-spec.md §4) — applied to
+   the chat stage root, on the landing page once armed and on an incognito
+   conversation. Overrides the surface tokens for the stage's subtree only
+   (everything inside already reads these variables, so nothing downstream
+   needs its own incognito-aware branch); the sidebar sits outside the stage
+   and keeps the normal palette. */
+.stage--incognito {
+	--surface-page: var(--incognito-surface-page);
+	--surface-elevated: var(--incognito-surface-elevated);
+	--surface-message-user: var(--incognito-surface-message-user);
+	--border-default: var(--incognito-border);
+	background-color: var(--surface-page);
+	transition: background-color var(--duration-standard) var(--ease-out);
+}
+
+/* The composer's own border is a Tailwind `border` utility (solid, from
+   --border-default) — this file's rules sit outside Tailwind's `@layer`, so
+   an unlayered selector here always wins regardless of specificity, which is
+   what lets one rule dash the hairline without touching MessageInput.svelte
+   itself. Width and colour still come from --border-default, already
+   remapped above. */
+.stage--incognito .message-composer {
+	border-style: dashed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.stage--incognito {
+		transition: none;
 	}
 }
 

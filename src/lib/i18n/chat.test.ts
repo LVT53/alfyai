@@ -4,7 +4,7 @@ import {
 	EXTRACTION_ERROR_CODES,
 } from "$lib/shared/extraction-status";
 import { TOOL_ACTIVITY_I18N_KEYS } from "$lib/utils/tool-activity";
-import chatDict from "./chat";
+import chatDict, { INCOGNITO_GREETINGS } from "./chat";
 
 describe("chat i18n dictionary", () => {
 	it("has an en key for every hu key and vice versa", () => {
@@ -12,6 +12,18 @@ describe("chat i18n dictionary", () => {
 		const huKeys = Object.keys(chatDict.hu).sort();
 
 		expect(enKeys).toEqual(huKeys);
+	});
+
+	// The incognito landing greeting is picked by array index (spec §3), so
+	// an en/hu length mismatch would either throw or silently pick from the
+	// wrong line once the shorter list runs out — pin the lengths together,
+	// not just "both non-empty".
+	it("keeps the incognito greeting pools index-aligned and non-empty", () => {
+		expect(INCOGNITO_GREETINGS.en.length).toBe(INCOGNITO_GREETINGS.hu.length);
+		expect(INCOGNITO_GREETINGS.en.length).toBeGreaterThan(0);
+		for (const line of [...INCOGNITO_GREETINGS.en, ...INCOGNITO_GREETINGS.hu]) {
+			expect(line.trim().length).toBeGreaterThan(0);
+		}
 	});
 
 	// Unified tool activity rows — a verb the dictionary is missing would not
