@@ -19,7 +19,7 @@ answers `GET /v1/health` with a 404, the availability gate closes, and five form
 disappear from the file picker:
 
 ```bash
-docker run -d --name mineru -p 8001:8001 opendatalab/mineru:4.0.4 --api-key "$MINERU_API_KEY"
+docker run -d --name mineru -p 8001:8001 opendatalab/mineru:4.0.6 --api-key "$MINERU_API_KEY"
 ```
 
 Drop `--api-key` only on a host where nothing else can reach the port; `MINERU_API_KEY` must match
@@ -27,7 +27,7 @@ whatever the container was started with.
 
 #### The dev box's MinerU (development only)
 
-A MinerU 4.0.4 server runs on the dev box at `http://127.0.0.1:8003` — basic tier, CPU only, API key
+A MinerU 4.0.6 server runs on the dev box at `http://127.0.0.1:8003` — basic tier, CPU only, API key
 required. It exists so a local checkout can point `MINERU_API_URL`/`MINERU_API_KEY` at a real
 MinerU 4 without standing up a container. It is **not** a production endpoint: it is CPU-only, it
 serves one tier, and its port deliberately differs from the `8001` default so a deployment cannot
