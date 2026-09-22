@@ -2977,9 +2977,7 @@ describe("MessageInput incognito indicator", () => {
 		await rerender({ conversationId: "conv-1", memoryIncognito: false });
 
 		await waitFor(() => {
-			expect(setConversationMemoryIncognitoMock).toHaveBeenCalledWith(
-				"conv-1",
-			);
+			expect(setConversationMemoryIncognitoMock).toHaveBeenCalledWith("conv-1");
 		});
 		await waitFor(() => {
 			expect(onMemoryIncognitoChange).toHaveBeenCalledWith(true, "conv-1");

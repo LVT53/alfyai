@@ -62,9 +62,7 @@ describe("Header — incognito", () => {
 	it("draws no mask button when the landing page has not asked for one", () => {
 		render(Header, {});
 
-		expect(
-			screen.queryByTestId("incognito-arm-phone"),
-		).not.toBeInTheDocument();
+		expect(screen.queryByTestId("incognito-arm-phone")).not.toBeInTheDocument();
 	});
 
 	it("draws the mask button once the landing page says it is visible, and arms the shared flag", async () => {

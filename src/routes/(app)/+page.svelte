@@ -183,7 +183,9 @@ let incognitoGreetingIndex = $state(-1);
 const incognitoGreeting = $derived.by(() => {
 	if (incognitoGreetingIndex < 0) return "";
 	const pool = INCOGNITO_GREETINGS[$uiLanguage] ?? INCOGNITO_GREETINGS.en;
-	return pool[incognitoGreetingIndex % pool.length] ?? INCOGNITO_GREETINGS.en[0];
+	return (
+		pool[incognitoGreetingIndex % pool.length] ?? INCOGNITO_GREETINGS.en[0]
+	);
 });
 const showIncognitoArm = $derived(
 	!hasStarted && !preparedConversationId && !$landingIncognitoArmed,
@@ -476,7 +478,9 @@ onMount(() => {
 	// independent of the picked-once-per-day memory below, on purpose: this
 	// line is not trying to avoid repeating itself across visits the way the
 	// normal greeting does, only within a single mount.
-	incognitoGreetingIndex = Math.floor(Math.random() * INCOGNITO_GREETINGS.en.length);
+	incognitoGreetingIndex = Math.floor(
+		Math.random() * INCOGNITO_GREETINGS.en.length,
+	);
 
 	// The browser's clock and the browser's memory of yesterday's line, neither
 	// of which the server could have supplied.

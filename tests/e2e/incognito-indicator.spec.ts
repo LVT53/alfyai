@@ -1,13 +1,9 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
+import { INCOGNITO_GREETINGS } from "../../src/lib/i18n/chat";
 import { db } from "../../src/lib/server/db";
 import { conversations, messages, users } from "../../src/lib/server/db/schema";
-import { INCOGNITO_GREETINGS } from "../../src/lib/i18n/chat";
-import {
-	ensureSidebarExpanded,
-	login,
-	sendMessage,
-} from "./helpers";
+import { ensureSidebarExpanded, login, sendMessage } from "./helpers";
 
 /**
  * Incognito, one-way (docs/plans/incognito-one-way-spec.md).
