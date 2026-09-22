@@ -1,41 +1,73 @@
+import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const goto = vi.fn(async () => undefined);
-
-vi.mock("$app/navigation", () => ({ goto }));
-
-/**
- * `noteSessionExpiry` keeps one module-level promise, so each test imports a
- * fresh copy of the module rather than leaking a pending navigation into the
- * next one.
- */
-async function freshHttp() {
-	vi.resetModules();
-	return import("./http");
-}
+import {
+	SESSION_EXPIRED_CODE,
+	SESSION_EXPIRED_HEADER,
+	SESSION_EXPIRED_MESSAGE,
+} from "$lib/session-expiry";
+import {
+	clearSessionExpiry,
+	isSessionExpired,
+	markSessionExpired,
+	sessionExpiry,
+} from "$lib/stores/session";
+import {
+	ApiError,
+	readErrorPayload,
+	reportAuthFailure,
+	requestJson,
+	requestResponse,
+	requestVoid,
+} from "./http";
 
 function setPathname(pathname: string) {
 	window.history.replaceState({}, "", pathname);
 }
 
-function jsonResponse(body: unknown, status: number): Response {
+function jsonResponse(
+	body: unknown,
+	status: number,
+	headers: Record<string, string> = {},
+): Response {
 	return new Response(JSON.stringify(body), {
 		status,
-		headers: { "content-type": "application/json" },
+		headers: { "content-type": "application/json", ...headers },
 	});
 }
 
+/**
+ * What the gate in `hooks.server.ts` answers an API call with once the session
+ * is gone: 401, the code in the body, and the header the browser keys on.
+ */
+function gateRefusal(): Response {
+	return jsonResponse(
+		{ error: SESSION_EXPIRED_MESSAGE, code: SESSION_EXPIRED_CODE },
+		401,
+		{ [SESSION_EXPIRED_HEADER]: "1" },
+	);
+}
+
+/**
+ * What a session gate INSIDE a route answers with. Those refusals never reach
+ * the hook, so they carry no header — the word is all there is to go on, and it
+ * has to be enough.
+ */
 const unauthorized = () => jsonResponse({ error: "Unauthorized" }, 401);
 
+/**
+ * A clean slate for both halves of the store: no verdict, and the announcement
+ * throttle re-armed (`clearSessionExpiry` only resets it when there was
+ * something to clear). Tests compare `alertCount` as a delta, since it is
+ * monotonic by design and deliberately survives a clear.
+ */
+beforeEach(() => {
+	markSessionExpired();
+	clearSessionExpiry();
+	setPathname("/chat/conversation-1");
+});
+
 describe("ApiError surfacing", () => {
-	beforeEach(() => {
-		goto.mockClear();
-		setPathname("/chat/conversation-1");
-	});
-
 	it("throws an ApiError with status 401 for an unauthenticated API call", async () => {
-		const { ApiError, requestJson } = await freshHttp();
-
 		const error = await requestJson(
 			"/api/conversations",
 			undefined,
@@ -44,13 +76,11 @@ describe("ApiError surfacing", () => {
 		).catch((err: unknown) => err);
 
 		expect(error).toBeInstanceOf(ApiError);
-		expect((error as InstanceType<typeof ApiError>).status).toBe(401);
+		expect((error as ApiError).status).toBe(401);
 		expect((error as Error).message).toBe("Unauthorized");
 	});
 
 	it("carries the details and code fields through a 401", async () => {
-		const { ApiError, requestVoid } = await freshHttp();
-
 		const error = await requestVoid(
 			"/api/conversations/c1",
 			{ method: "DELETE" },
@@ -63,117 +93,138 @@ describe("ApiError surfacing", () => {
 		).catch((err: unknown) => err);
 
 		expect(error).toBeInstanceOf(ApiError);
-		expect((error as InstanceType<typeof ApiError>).code).toBe("no_session");
-		expect((error as InstanceType<typeof ApiError>).details).toEqual({ a: 1 });
+		expect((error as ApiError).code).toBe("no_session");
+		expect((error as ApiError).details).toEqual({ a: 1 });
+	});
+
+	it("carries the gate's own code to the caller", async () => {
+		const error = await requestJson(
+			"/api/conversations",
+			undefined,
+			"failed",
+			vi.fn(async () => gateRefusal()),
+		).catch((err: unknown) => err);
+
+		expect(error).toBeInstanceOf(ApiError);
+		expect((error as ApiError).status).toBe(401);
+		expect((error as ApiError).code).toBe(SESSION_EXPIRED_CODE);
+		// The gate's body carries a sentence worth showing, rather than the bare
+		// word every error surface used to echo.
+		expect((error as Error).message).toBe(SESSION_EXPIRED_MESSAGE);
 	});
 });
 
-describe("central session-expiry navigation", () => {
-	beforeEach(() => {
-		goto.mockClear();
-		setPathname("/chat/conversation-1");
+/**
+ * The app's one reaction to an expired session: the shell's signed-out row goes
+ * up. Not a navigation — see the note on `noteSessionExpiry`.
+ */
+describe("central session-expiry handling", () => {
+	it("raises the row when the gate refuses the call", async () => {
+		await expect(
+			requestJson(
+				"/api/conversations",
+				undefined,
+				"failed",
+				vi.fn(async () => gateRefusal()),
+			),
+		).rejects.toBeInstanceOf(ApiError);
+
+		expect(isSessionExpired()).toBe(true);
 	});
 
-	it("navigates to /login once when the session is gone", async () => {
-		const { requestJson } = await freshHttp();
-
+	// The second signal. A route's own gate answers before the hook ever sees
+	// the request, so there is no header on it.
+	it("raises the row for a route's own Unauthorized, with no header to read", async () => {
 		await requestJson("/api/conversations", undefined, "Failed", async () =>
 			unauthorized(),
 		).catch(() => undefined);
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledTimes(1));
 
-		expect(goto).toHaveBeenCalledWith("/login", { invalidateAll: true });
-	});
-
-	it("also fires for the requestResponse callers that read the body themselves", async () => {
-		const { readErrorPayload } = await freshHttp();
-
-		await readErrorPayload(unauthorized(), "Failed to export conversation");
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledTimes(1));
+		expect(isSessionExpired()).toBe(true);
 	});
 
 	it("recognises the thrown-error body shape requireApiUser produces", async () => {
-		const { requestJson } = await freshHttp();
-
 		await requestJson("/api/connections", undefined, "Failed", async () =>
 			jsonResponse({ message: "Unauthorized" }, 401),
 		).catch(() => undefined);
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledTimes(1));
+
+		expect(isSessionExpired()).toBe(true);
 	});
 
-	it("reports a streaming 401 through the same handler", async () => {
-		const { reportAuthFailure } = await freshHttp();
+	it("covers the void and raw-response helpers too", async () => {
+		await requestVoid(
+			"/api/conversations/x",
+			{ method: "DELETE" },
+			"failed",
+			vi.fn(async () => gateRefusal()),
+		).catch(() => undefined);
+		expect(isSessionExpired()).toBe(true);
+
+		clearSessionExpiry();
+		await requestResponse(
+			"/api/knowledge/x/download",
+			undefined,
+			vi.fn(async () => gateRefusal()),
+		);
+		expect(isSessionExpired()).toBe(true);
+	});
+
+	// The three `requestResponse` callers build their own errors and read the
+	// body themselves, as do the two raw `fetch` sites (`preview-runtime`,
+	// `DocumentsList`) and the download probe. All of them land here.
+	it("also fires for the callers that read the body themselves", async () => {
+		await readErrorPayload(gateRefusal(), "Failed to export conversation");
+
+		expect(isSessionExpired()).toBe(true);
+	});
+
+	it("reports a streaming 401 through the same handler", () => {
+		reportAuthFailure(401, "Unauthorized");
+
+		expect(isSessionExpired()).toBe(true);
+	});
+
+	it("reads the header off a streaming response whose body says nothing useful", () => {
+		reportAuthFailure(401, "HTTP 401", gateRefusal());
+
+		expect(isSessionExpired()).toBe(true);
+	});
+
+	// Signing in on another tab heals this one without a reload.
+	it("lowers the row again once a call succeeds", async () => {
+		markSessionExpired();
+
+		await requestJson(
+			"/api/conversations",
+			undefined,
+			"failed",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ ok: true }), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					}),
+			),
+		);
+
+		expect(isSessionExpired()).toBe(false);
+	});
+
+	it("re-arms once the session is restored", () => {
+		reportAuthFailure(401, "Unauthorized");
+		expect(isSessionExpired()).toBe(true);
+
+		clearSessionExpiry();
+		expect(isSessionExpired()).toBe(false);
 
 		reportAuthFailure(401, "Unauthorized");
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledTimes(1));
-	});
-
-	it("falls back to a full page load when the router refuses", async () => {
-		const assign = vi.fn();
-		const original = window.location;
-		Object.defineProperty(window, "location", {
-			configurable: true,
-			value: { ...original, pathname: "/chat/c1", assign },
-		});
-		goto.mockRejectedValueOnce(new Error("no router"));
-
-		try {
-			const { reportAuthFailure } = await freshHttp();
-			reportAuthFailure(401, "Unauthorized");
-			await vi.waitFor(() => expect(assign).toHaveBeenCalledWith("/login"));
-		} finally {
-			Object.defineProperty(window, "location", {
-				configurable: true,
-				value: original,
-			});
-		}
+		expect(isSessionExpired()).toBe(true);
 	});
 });
 
-describe("no redirect storms", () => {
-	beforeEach(() => {
-		goto.mockClear();
-		setPathname("/chat/conversation-1");
-	});
-
-	// A page with a poller, an evidence fetch and a conversation refresh in
-	// flight produces a burst of 401s the moment the session dies. One
-	// navigation, not one per request.
-	it("collapses a burst of concurrent 401s into a single navigation", async () => {
-		const { requestJson } = await freshHttp();
-
-		await Promise.all(
-			Array.from({ length: 12 }, () =>
-				requestJson(
-					"/api/knowledge/extraction",
-					undefined,
-					"Failed",
-					async () => unauthorized(),
-				).catch(() => undefined),
-			),
-		);
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledTimes(1));
-		await Promise.resolve();
-
-		expect(goto).toHaveBeenCalledTimes(1);
-	});
-
-	// The poller's component has not torn down yet, or a request that was
-	// already in flight resolves after the navigation landed.
-	it("ignores 401s that arrive once the login page is showing", async () => {
-		const { reportAuthFailure } = await freshHttp();
-		setPathname("/login");
-
-		for (let i = 0; i < 5; i += 1) reportAuthFailure(401, "Unauthorized");
-		await Promise.resolve();
-
-		expect(goto).not.toHaveBeenCalled();
-	});
-
-	// The login form's own 401 — a wrong password — must not bounce the page
-	// it is already on, nor any other page.
-	it("does not navigate for a failed login attempt", async () => {
-		const { requestJson } = await freshHttp();
+describe("401s that are not the session", () => {
+	// The login form's own 401 — a wrong password — must not tell the user they
+	// have been signed out of a session they never had.
+	it("leaves the row alone for a failed login attempt", async () => {
 		setPathname("/login");
 
 		await requestJson(
@@ -182,9 +233,8 @@ describe("no redirect storms", () => {
 			"Login failed",
 			async () => jsonResponse({ error: "Invalid email or password" }, 401),
 		).catch(() => undefined);
-		await Promise.resolve();
 
-		expect(goto).not.toHaveBeenCalled();
+		expect(isSessionExpired()).toBe(false);
 	});
 
 	// The settings routes re-ask for the password before a destructive action
@@ -193,24 +243,19 @@ describe("no redirect storms", () => {
 		"Incorrect password",
 		"Current password is incorrect",
 		"Invalid email or password",
-	])("does not navigate for the re-auth refusal %j", async (message) => {
-		const { requestJson } = await freshHttp();
-
+	])("leaves the row alone for the re-auth refusal %j", async (message) => {
 		const error = await requestJson(
 			"/api/settings/account",
 			{ method: "DELETE" },
 			"Failed",
 			async () => jsonResponse({ error: message }, 401),
 		).catch((err: unknown) => err);
-		await Promise.resolve();
 
-		expect((error as { status?: number }).status).toBe(401);
-		expect(goto).not.toHaveBeenCalled();
+		expect((error as ApiError).status).toBe(401);
+		expect(isSessionExpired()).toBe(false);
 	});
 
-	it("does not navigate for a provider's own 401", async () => {
-		const { requestJson } = await freshHttp();
-
+	it("leaves the row alone for a provider's own 401", async () => {
 		await requestJson(
 			"/api/connections/immich/start",
 			{ method: "POST" },
@@ -221,34 +266,50 @@ describe("no redirect storms", () => {
 					401,
 				),
 		).catch(() => undefined);
-		await Promise.resolve();
 
-		expect(goto).not.toHaveBeenCalled();
+		expect(isSessionExpired()).toBe(false);
 	});
 
 	it.each([
 		403, 404, 500,
-	])("does not navigate for an unrelated %i", async (status) => {
-		const { requestJson } = await freshHttp();
-
+	])("leaves the row alone for an unrelated %i", async (status) => {
 		await requestJson("/api/conversations", undefined, "Failed", async () =>
 			jsonResponse({ error: "Unauthorized" }, status),
 		).catch(() => undefined);
-		await Promise.resolve();
 
-		expect(goto).not.toHaveBeenCalled();
+		expect(isSessionExpired()).toBe(false);
+	});
+});
+
+describe("one row, one announcement", () => {
+	// A page with a poller, an evidence fetch and a conversation refresh in
+	// flight produces a burst of 401s the moment the session dies. One row and
+	// one announcement, not one per request.
+	it("collapses a burst of concurrent 401s into a single announcement", async () => {
+		const before = get(sessionExpiry).alertCount;
+
+		await Promise.all(
+			Array.from({ length: 12 }, () =>
+				requestJson(
+					"/api/knowledge/extraction",
+					undefined,
+					"Failed",
+					async () => gateRefusal(),
+				).catch(() => undefined),
+			),
+		);
+
+		expect(isSessionExpired()).toBe(true);
+		expect(get(sessionExpiry).alertCount).toBe(before + 1);
 	});
 
-	// Signing in again has to re-arm the handling: the guard is an in-flight
-	// latch, not a once-per-page-load flag.
-	it("re-arms after the navigation settles", async () => {
-		const { reportAuthFailure } = await freshHttp();
+	// There is no shell on /login and so no row, and a refusal there must not
+	// leave a verdict behind for whatever the user lands on next.
+	it("ignores 401s that arrive once the login page is showing", () => {
+		setPathname("/login");
 
-		reportAuthFailure(401, "Unauthorized");
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledTimes(1));
+		for (let i = 0; i < 5; i += 1) reportAuthFailure(401, "Unauthorized");
 
-		setPathname("/chat/conversation-2");
-		reportAuthFailure(401, "Unauthorized");
-		await vi.waitFor(() => expect(goto).toHaveBeenCalledTimes(2));
+		expect(isSessionExpired()).toBe(false);
 	});
 });

@@ -23,6 +23,7 @@
  */
 
 import { readErrorPayload } from "$lib/client/api/http";
+import { clearSessionExpiry } from "$lib/stores/session";
 
 /**
  * The session probe.
@@ -47,8 +48,16 @@ export type FetchLike = typeof fetch;
  *
  * On a 401 this routes through `readErrorPayload`, which is the same helper
  * every centrally-routed call uses and which runs the app's one
- * session-expiry reaction — so the user lands on the login screen instead of
- * silently saving an HTML page called `report.pdf`.
+ * session-expiry reaction — so the shell's "You have been signed out" row goes
+ * up, with its way back, instead of the browser silently saving an HTML page
+ * called `report.pdf`.
+ *
+ * The other direction matters just as much. The probe reaching the handler is
+ * proof the gate admitted it, so a tab that was showing the row because of an
+ * earlier refusal lowers it again here — the same "a request that succeeded
+ * heals this tab" rule the HTTP helpers apply, which is how signing in from
+ * another tab gets this one working without a reload. A 5xx is not that proof:
+ * the request may never have reached the gate at all.
  */
 export async function confirmSessionForDownload(
 	fetchImpl: FetchLike = fetch,
@@ -58,9 +67,13 @@ export async function confirmSessionForDownload(
 			method: "GET",
 			headers: { Accept: "application/json" },
 		});
-		if (response.status !== 401) return true;
-		await readErrorPayload(response, "Unauthorized").catch(() => undefined);
-		return false;
+		if (response.status === 401) {
+			await readErrorPayload(response, "Unauthorized").catch(() => undefined);
+			return false;
+		}
+		// 400 is this probe's healthy answer — see SESSION_PROBE_URL above.
+		if (response.status < 500) clearSessionExpiry();
+		return true;
 	} catch {
 		// The probe could not be made at all. Not evidence of an expired
 		// session, so do not act like it is.

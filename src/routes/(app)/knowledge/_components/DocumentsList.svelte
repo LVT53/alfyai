@@ -635,8 +635,10 @@ async function toggleAiVersion(documentId: string, promptArtifactId: string) {
 		});
 		if (!response.ok) {
 			// Two things at once. `readErrorPayload` is how every centrally-routed
-			// call notices an expired session, and this raw `fetch` bypassed it —
-			// so a 401 here left the panel stuck instead of navigating. And the
+			// call notices an expired session — it reads the gate's
+			// `x-session-expired` header off the response and raises the shell's
+			// signed-out row — and this raw `fetch` bypassed it, so a 401 here
+			// left the panel stuck with nothing on screen to explain it. And the
 			// status code was interpolated into user-visible copy, which after
 			// the 401 change read literally "Failed to load content (401)".
 			await readErrorPayload(

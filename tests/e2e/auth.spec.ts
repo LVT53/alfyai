@@ -27,6 +27,11 @@ test.describe("Authentication", () => {
 	// A page request gets the login screen; an API request gets a 401 it can
 	// act on. It used to get the same 303, which `fetch` follows — so the
 	// caller was handed a 200 and the login page's HTML.
+	//
+	// The `x-session-expired` header is the discriminator the browser keys on,
+	// and the one thing on this response that no other 401 in the app (a wrong
+	// password on the login form, a wrong current password in Settings) can
+	// carry. Pinned here because both halves of the client read it.
 	test("answers an unauthenticated API call with 401 JSON, not a redirect", async ({
 		request,
 	}) => {
@@ -36,7 +41,9 @@ test.describe("Authentication", () => {
 
 		expect(response.status()).toBe(401);
 		expect(response.headers()["content-type"]).toContain("application/json");
-		expect(await response.json()).toEqual({ error: "Unauthorized" });
+		expect(response.headers()["x-session-expired"]).toBe("1");
+		expect(response.headers()["cache-control"]).toBe("private, no-store");
+		expect(await response.json()).toMatchObject({ code: "session_expired" });
 	});
 
 	// The exception: an /api/ URL a person is looking at. A real navigation
@@ -57,23 +64,10 @@ test.describe("Authentication", () => {
 		expect(response.status()).toBe(200);
 	});
 
-	// The client's half of the same contract: a session that dies underneath an
-	// open tab ends on the login screen instead of silently failing every call.
-	test("sends the tab to login when the session disappears mid-session", async ({
-		page,
-		context,
-	}) => {
-		await login(page);
-		await page.waitForURL("/");
-
-		await context.clearCookies();
-		// The shell refreshes the conversation list whenever the window regains
-		// focus — an ordinary API call through the shared HTTP layer, and the
-		// most likely way a user meets an expired session.
-		await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-
-		await expect(page).toHaveURL(/\/login/, { timeout: 15000 });
-	});
+	// The client's half of the same contract — what the browser does with this
+	// 401 — lives in tests/e2e/session-expiry.spec.ts, which owns the whole
+	// signed-out surface (the row, its button, the announcement, the login
+	// screen's explanation).
 
 	test("shows error on invalid credentials", async ({ page }) => {
 		await page.goto("/login");

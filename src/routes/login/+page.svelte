@@ -1,5 +1,6 @@
 <script lang="ts">
 import { goto, invalidateAll } from "$app/navigation";
+import { page } from "$app/state";
 import { login } from "$lib/client/api/auth";
 import { ApiError } from "$lib/client/api/http";
 import { clearClientAccountState } from "$lib/client/session-boundary";
@@ -23,6 +24,16 @@ let hydrated = $state(false);
 let showPassword = $state(false);
 let rememberMe = $state(false);
 let formRef = $state<HTMLFormElement | null>(null);
+
+/**
+ * The session gate sends a page navigation here with this marker when the
+ * browser arrived holding a session cookie the server would not accept — i.e.
+ * the user was signed in a moment ago. Without it this screen looks like a
+ * plain sign-in prompt and never explains why the app stopped.
+ */
+const sessionExpired = $derived(
+	page.url.searchParams.get("session") === "expired",
+);
 
 $effect(() => {
 	hydrated = true;
@@ -93,6 +104,13 @@ function handleFormKeydown(event: KeyboardEvent) {
       <h1 class="login-title">{$t('login.signIn')}</h1>
       <p class="text-sm text-text-muted">{$t('login.welcomeBack')}</p>
     </div>
+
+    {#if sessionExpired && !error}
+      <p class="login-session-expired" role="status" data-testid="login-session-expired">
+        <AlertTriangle size={13} strokeWidth={2} aria-hidden="true" />
+        <span>{$t('sessionExpired.loginNotice')}</span>
+      </p>
+    {/if}
 
     <form bind:this={formRef} method="post" action="/api/auth/login" onsubmit={handleSubmit} class="flex flex-col">
       <div class="flex flex-col gap-md">
@@ -230,5 +248,28 @@ function handleFormKeydown(event: KeyboardEvent) {
 	.login-error :global(svg) {
 		flex-shrink: 0;
 		margin-top: 0.125rem;
+	}
+
+	/* Same line, warning tone: the session ending is not a rejected attempt,
+	   it is the reason the user is looking at this screen at all. Sits above
+	   the form, and steps aside for a real error once one exists. */
+	.login-session-expired {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.4375rem;
+		margin: 0 0 var(--space-md) 0;
+		padding: 0.5rem 0.625rem;
+		border: 1px solid color-mix(in srgb, var(--warning) 34%, transparent);
+		border-radius: var(--radius-md);
+		background: color-mix(in srgb, var(--warning) 8%, var(--surface-page));
+		font-size: 0.8125rem;
+		line-height: 1.45;
+		color: var(--text-secondary);
+	}
+
+	.login-session-expired :global(svg) {
+		flex-shrink: 0;
+		margin-top: 0.125rem;
+		color: var(--warning);
 	}
 </style>
