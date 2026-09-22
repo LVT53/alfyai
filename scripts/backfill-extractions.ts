@@ -56,9 +56,11 @@
  * on `--since`, on purpose: a document that is already at the right quality
  * should never be re-touched, whoever produced that parse and whenever they
  * did it. `--since` instead scopes `--status` and `--only-failed` to "this
- * script's own campaign": it defaults to the `created_at` of the earliest job
- * row this script has ever stamped `requested_by = 'backfill'` (the schema
- * has no column that already fit; migration
+ * script's own campaign", measured in `updated_at` — the column a requeue and
+ * a completion actually move, unlike `created_at`, which for every document
+ * that already had a ledger row is the day it was UPLOADED. It defaults to the
+ * earliest `updated_at` among the job rows this script has ever stamped
+ * `requested_by = 'backfill'` (the schema had no column that fit; migration
  * `1777140000100_document_extraction_jobs_requested_by.sql` added one,
  * deliberately never cleared by `completeExtractionAttempt` the way
  * `hints_json` is, so it survives success).
@@ -95,7 +97,7 @@ dotenvConfig();
 
 import { resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
 // ── CLI args ────────────────────────────────────────────────────────────
 
@@ -120,6 +122,19 @@ function readFlagValue(argv: string[], flag: string): string | null {
 	return null;
 }
 
+/**
+ * The four tier ids, restated as a plain literal so `parseArgs` stays a pure
+ * function with no `$lib` import — the CLI must be able to refuse a typo
+ * before it opens a database or probes a backend. Kept honest by a test that
+ * compares it against `MINERU_TIER_IDS`.
+ */
+export const BACKFILL_TIER_IDS = [
+	"flash",
+	"basic",
+	"standard",
+	"advanced",
+] as const;
+
 export function parseArgs(argv: string[]): BackfillArgs {
 	const limitRaw = readFlagValue(argv, "--limit");
 	const sinceRaw = readFlagValue(argv, "--since");
@@ -131,12 +146,42 @@ export function parseArgs(argv: string[]): BackfillArgs {
 		}
 		since = parsed;
 	}
+
+	// A typo'd tier used to be accepted in silence and then do two wrong things
+	// at once: `mineruTierRank` ranks an unknown string at -1, so EVERY already
+	// parsed document outranked it and was skipped as "already at tier", while
+	// the documents that did get enqueued carried a `tier` hint the extractor's
+	// own `readHintedTier` rejects — so they were parsed at the server's default
+	// instead. For a once-only run over a whole production library, that is a
+	// silent wrong answer dressed up as a clean one.
+	const tier = readFlagValue(argv, "--tier");
+	if (
+		tier !== null &&
+		!(BACKFILL_TIER_IDS as readonly string[]).includes(tier)
+	) {
+		throw new Error(
+			`--tier must be one of ${BACKFILL_TIER_IDS.join(", ")}; got "${tier}"`,
+		);
+	}
+
+	// `Number("abc")` is NaN, and `items.slice(0, NaN)` is the empty array: an
+	// unparseable --limit used to enqueue nothing and report "Enqueued 0
+	// document(s)", which reads exactly like a finished library.
+	let limit: number | null = null;
+	if (limitRaw !== null) {
+		const parsed = Number(limitRaw);
+		if (!Number.isInteger(parsed) || parsed < 1) {
+			throw new Error(`--limit must be a positive integer; got "${limitRaw}"`);
+		}
+		limit = parsed;
+	}
+
 	return {
 		apply: argv.includes("--apply"),
-		tier: readFlagValue(argv, "--tier"),
+		tier,
 		includeDirectText: argv.includes("--include-direct-text"),
 		since,
-		limit: limitRaw ? Number(limitRaw) : null,
+		limit,
 		user: readFlagValue(argv, "--user"),
 		onlyFailed: argv.includes("--only-failed"),
 		status: argv.includes("--status"),
@@ -250,6 +295,54 @@ async function resolveDefaultTier(deps: Deps): Promise<string> {
 	return best;
 }
 
+/**
+ * The tier every `mineru` document in this run is requested at, checked
+ * against the tiers the backend actually serves.
+ *
+ * The Re-extract endpoint refuses an unserved tier before it writes a single
+ * ledger row, and says why: "A tier MinerU does not serve is a 400
+ * `invalid_request` from the backend three seconds into an attempt, i.e. a
+ * failed job and a wasted attempt for a mistake that was knowable up front."
+ * That argument is a thousand times stronger for a whole-library backfill,
+ * which would otherwise mark an entire production library `failed` — with the
+ * old content intact, but with every document's attempt budget spent and an
+ * operator with a thousand red rows to sort out.
+ *
+ * A dry run still works with MinerU down: planning before the cutover is a
+ * legitimate thing to do, and it writes nothing. `--apply` does not.
+ */
+async function resolveRequestedTier(
+	deps: Deps,
+	args: BackfillArgs,
+): Promise<string> {
+	const tier = args.tier ?? (await resolveDefaultTier(deps));
+
+	let offered: readonly string[] | null = null;
+	try {
+		offered = (await deps.capabilities.getMineruCapabilities()).tiers;
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		if (args.apply) {
+			throw new Error(
+				`MinerU is unreachable, so tier "${tier}" could not be verified before enqueueing: ${detail}\n` +
+					"Fix the backend first, or re-run without --apply to plan offline.",
+			);
+		}
+		console.warn(
+			`WARNING: MinerU is unreachable, so tier "${tier}" was NOT verified (${detail}).\n` +
+				"         --apply will refuse until the backend answers.",
+		);
+	}
+
+	if (offered && !offered.includes(tier)) {
+		throw new Error(
+			`MinerU does not serve tier "${tier}". It serves: ${offered.join(", ") || "(none)"}.`,
+		);
+	}
+
+	return tier;
+}
+
 async function resolveUserFilter(
 	deps: Deps,
 	userArg: string | null,
@@ -265,13 +358,24 @@ async function resolveUserFilter(
 	return row.id;
 }
 
-/** The `created_at` of the earliest job this script has ever stamped. */
+/**
+ * When this script's campaign started, measured in `updated_at`.
+ *
+ * NOT `created_at`. A job row's `created_at` is when the DOCUMENT was first
+ * enqueued, which for everything except the legacy rows this script
+ * materialises itself is the day the user uploaded the file — often years
+ * before the backfill. Windowing on it made `--since <cutover>` report only
+ * the handful of freshly materialised rows and silently omit every document
+ * that already had a ledger row, i.e. most of the library. `updated_at` is
+ * written by the requeue and by every completion, so it is the column that
+ * actually moves when this campaign touches a job.
+ */
 async function resolveDefaultSince(deps: Deps): Promise<Date> {
 	const [row] = await deps.db
 		.select({
 			min: sql<
 				number | null
-			>`min(${deps.schema.documentExtractionJobs.createdAt})`,
+			>`min(${deps.schema.documentExtractionJobs.updatedAt})`,
 		})
 		.from(deps.schema.documentExtractionJobs)
 		.where(eq(deps.schema.documentExtractionJobs.requestedBy, "backfill"));
@@ -304,7 +408,7 @@ export async function buildBackfillPlan(
 	args: BackfillArgs,
 ): Promise<BackfillPlan> {
 	const deps = await loadDeps();
-	const cliTier = args.tier ?? (await resolveDefaultTier(deps));
+	const cliTier = await resolveRequestedTier(deps, args);
 	const since = args.since ?? (await resolveDefaultSince(deps));
 	const userId = await resolveUserFilter(deps, args.user);
 
@@ -325,6 +429,16 @@ export async function buildBackfillPlan(
 				eq(deps.schema.artifacts.type, "source_document"),
 				userId ? eq(deps.schema.artifacts.userId, userId) : undefined,
 			),
+		)
+		// Ordered so a run is reproducible. Without it SQLite is free to return
+		// rows in whatever order the plan it picked happens to produce, which made
+		// "--limit 20, look at the result, then run the rest" an inspection of an
+		// arbitrary twenty — and, since the artifact table is clustered by
+		// insertion, in practice the twenty oldest documents of whichever account
+		// joined first.
+		.orderBy(
+			asc(deps.schema.artifacts.createdAt),
+			asc(deps.schema.artifacts.id),
 		);
 
 	const items: PlanItem[] = [];
@@ -531,39 +645,128 @@ export async function buildBackfillPlan(
 /**
  * Narrows an already-built plan to `--only-failed`: documents whose most
  * recent job was THIS script's own (`requested_by = 'backfill'`), is
- * terminal `failed`, and is user-retryable.
+ * terminal `failed`, is user-retryable, and whose failure falls inside the
+ * `--since` window.
+ *
+ * The skip reasons matter here as much as the job status. A plan item can
+ * carry a retryable failed job AND be excluded — a document whose file is gone
+ * from disk is the common one — and re-enqueueing that only spends another
+ * attempt to arrive at the same `internal` failure. Only `already_at_tier`,
+ * which cannot co-exist with `failed`, and the include-able items are eligible.
  */
+const ONLY_FAILED_INELIGIBLE_SKIPS: ReadonlySet<SkipReason> = new Set([
+	"missing_file",
+	"in_flight",
+	"route_reject",
+	"route_direct_text_excluded",
+]);
+
 export function filterOnlyFailed(
 	plan: BackfillPlan,
 	backfillJobsById: Map<
 		string,
-		{ requestedBy: string | null; status: string; retryable: boolean }
+		{
+			requestedBy: string | null;
+			status: string;
+			retryable: boolean;
+			updatedAt?: Date | null;
+		}
 	>,
+	since?: Date | null,
 ): PlanItem[] {
 	return plan.items.filter((item) => {
 		if (!item.jobId) return false;
+		if (item.skipReason && ONLY_FAILED_INELIGIBLE_SKIPS.has(item.skipReason)) {
+			return false;
+		}
 		const job = backfillJobsById.get(item.jobId);
 		if (!job) return false;
-		return (
-			job.requestedBy === "backfill" && job.status === "failed" && job.retryable
-		);
+		if (
+			!(
+				job.requestedBy === "backfill" &&
+				job.status === "failed" &&
+				job.retryable
+			)
+		) {
+			return false;
+		}
+		// `--since` is documented to scope `--only-failed` to one campaign; it
+		// used to be parsed, printed and then ignored here.
+		if (since && job.updatedAt && job.updatedAt.getTime() < since.getTime()) {
+			return false;
+		}
+		return true;
 	});
 }
 
 // ── Apply ───────────────────────────────────────────────────────────────
+
+/**
+ * The first `limit` documents to touch, sampled ACROSS accounts rather than
+ * taken off the front of one.
+ *
+ * `--limit` exists to make a first batch you can look at before committing the
+ * library. A flat `slice` gave you one account's twenty oldest files, which
+ * answers "does this work for that account's 2019 PDFs" and nothing else; a
+ * round robin over users answers "does this work for my library", which is the
+ * question the flag is for. Order within each account stays the plan's, so the
+ * batch is still reproducible.
+ */
+export function selectLimitedBatch(
+	items: PlanItem[],
+	limit: number | null,
+): PlanItem[] {
+	if (limit == null || items.length <= limit) return items;
+
+	const byUser = new Map<string, PlanItem[]>();
+	for (const item of items) {
+		const queue = byUser.get(item.doc.userId);
+		if (queue) queue.push(item);
+		else byUser.set(item.doc.userId, [item]);
+	}
+
+	const queues = [...byUser.values()];
+	const picked: PlanItem[] = [];
+	let tookOne = true;
+	while (picked.length < limit && tookOne) {
+		tookOne = false;
+		for (const queue of queues) {
+			if (picked.length >= limit) break;
+			const next = queue.shift();
+			if (!next) continue;
+			picked.push(next);
+			tookOne = true;
+		}
+	}
+	return picked;
+}
 
 export async function applyBackfillPlan(
 	items: PlanItem[],
 	options: { limit: number | null },
 ): Promise<ApplyResult> {
 	const deps = await loadDeps();
-	const toApply = options.limit != null ? items.slice(0, options.limit) : items;
+	const toApply = selectLimitedBatch(items, options.limit);
 
 	const enqueued: ApplyOutcome[] = [];
 	const failed: ApplyOutcome[] = [];
 
 	for (const item of toApply) {
-		if (!item.include || !item.effectiveTier) continue;
+		if (!item.include) continue;
+		// A `mineru` document with no effective tier is a bug in the plan, not a
+		// document to skip quietly: `continue` here used to swallow EVERY
+		// `direct-text` item too (they have no tier by construction), so
+		// `--include-direct-text --apply` enqueued nothing at all and still printed
+		// "Enqueued 0" as if there had been nothing to do.
+		if (item.route === "mineru" && !item.effectiveTier) {
+			failed.push({
+				artifactId: item.doc.artifactId,
+				userId: item.doc.userId,
+				ok: false,
+				reason: "no_effective_tier",
+			});
+			continue;
+		}
 		try {
 			let jobId = item.jobId;
 			if (item.legacy || !jobId) {
@@ -588,6 +791,27 @@ export async function applyBackfillPlan(
 				jobId = materialized.id;
 			}
 
+			// Stamped BEFORE the requeue, not after.
+			//
+			// The stamp and the requeue are two transactions either way, and the
+			// order decides what a Ctrl-C (or a crash) between them leaves behind.
+			// Stamping second left a window where a job was `queued` for the worker
+			// but invisible to `--status` and to `--only-failed` — a document this
+			// script had genuinely started, which no later run of this script could
+			// ever see as its own. Stamping first means the only thing a crash can
+			// leave is a row labelled ours that we did not requeue, and the `include`
+			// classification above already had to be true for us to be here, so a
+			// resumed run reaches exactly the same verdict for it.
+			const [previous] = await deps.db
+				.select({ requestedBy: deps.schema.documentExtractionJobs.requestedBy })
+				.from(deps.schema.documentExtractionJobs)
+				.where(eq(deps.schema.documentExtractionJobs.id, jobId))
+				.limit(1);
+			await deps.db
+				.update(deps.schema.documentExtractionJobs)
+				.set({ requestedBy: "backfill" })
+				.where(eq(deps.schema.documentExtractionJobs.id, jobId));
+
 			const requeued = await deps.reextract.requeueExtractionJobForReextraction(
 				{
 					userId: item.doc.userId,
@@ -604,6 +828,13 @@ export async function applyBackfillPlan(
 			);
 
 			if (!requeued.ok) {
+				// Refused, so this row is not ours after all: put back whatever it
+				// said before, or a `user_limit`/`attempt_ceiling` refusal would
+				// relabel somebody's organic upload as part of this campaign.
+				await deps.db
+					.update(deps.schema.documentExtractionJobs)
+					.set({ requestedBy: previous?.requestedBy ?? null })
+					.where(eq(deps.schema.documentExtractionJobs.id, jobId));
 				failed.push({
 					artifactId: item.doc.artifactId,
 					userId: item.doc.userId,
@@ -612,11 +843,6 @@ export async function applyBackfillPlan(
 				});
 				continue;
 			}
-
-			await deps.db
-				.update(deps.schema.documentExtractionJobs)
-				.set({ requestedBy: "backfill" })
-				.where(eq(deps.schema.documentExtractionJobs.id, jobId));
 
 			enqueued.push({
 				artifactId: item.doc.artifactId,
@@ -633,17 +859,40 @@ export async function applyBackfillPlan(
 		}
 	}
 
-	if (enqueued.length > 0) {
-		const worker = await import(
-			"$lib/server/services/extraction/worker-runner"
-		);
-		worker.wakeExtractionWorker();
-	}
+	// Deliberately NOT waking the worker from here.
+	//
+	// That function is in-process: it starts a drain in whatever process calls
+	// it. It cannot reach the SERVER's worker, which is the one that has to run
+	// this queue — and calling it here turned this short-lived CLI into a second
+	// extraction worker that claimed jobs against the live database and was then
+	// killed by `process.exit` a few milliseconds later, mid-attempt, leaving
+	// rows in `uploading`/`parsing` for the server's stale sweep to reclaim.
+	// Nothing is lost that way, but a MinerU backend that serves one job at a
+	// time gets a competing claimant for no reason.
+	//
+	// Nothing needs waking: the server's scheduler idle-ticks every 5–60 s
+	// (`IDLE_TICK_MIN_MS`/`IDLE_TICK_MAX_MS` in worker-runner.ts) and claims
+	// whatever is queued, so the backfill starts draining within a minute.
 
 	return { enqueued, failed };
 }
 
 // ── Status ──────────────────────────────────────────────────────────────
+
+/**
+ * How many ids to bind in one `IN (...)`. Well under SQLite's compiled
+ * `SQLITE_MAX_VARIABLE_NUMBER`, and small enough that the query plan stays
+ * boring on a library with tens of thousands of documents.
+ */
+const SQL_VARIABLE_CHUNK = 500;
+
+function chunked<T>(values: readonly T[], size: number): T[][] {
+	const chunks: T[][] = [];
+	for (let i = 0; i < values.length; i += size) {
+		chunks.push(values.slice(i, i + size));
+	}
+	return chunks;
+}
 
 export interface StatusReport {
 	byStatus: Record<string, number>;
@@ -668,7 +917,8 @@ export async function buildStatusReport(
 		.where(
 			and(
 				eq(deps.schema.documentExtractionJobs.requestedBy, "backfill"),
-				sql`${deps.schema.documentExtractionJobs.createdAt} >= ${Math.floor(effectiveSince.getTime() / 1000)}`,
+				// `updated_at`, not `created_at` — see `resolveDefaultSince`.
+				sql`${deps.schema.documentExtractionJobs.updatedAt} >= ${Math.floor(effectiveSince.getTime() / 1000)}`,
 			),
 		);
 
@@ -680,14 +930,16 @@ export async function buildStatusReport(
 		.filter((row) => row.status === "succeeded" && row.normalizedArtifactId)
 		.map((row) => row.normalizedArtifactId as string);
 	const normalizedById = new Map<string, string | null>();
-	if (normalizedIds.length > 0) {
+	// Chunked: `inArray` binds one SQLite variable per id, and a whole-library
+	// campaign can hand this list every succeeded document on the box.
+	for (const idChunk of chunked(normalizedIds, SQL_VARIABLE_CHUNK)) {
 		const normalizedRows = await deps.db
 			.select({
 				id: deps.schema.artifacts.id,
 				metadataJson: deps.schema.artifacts.metadataJson,
 			})
 			.from(deps.schema.artifacts)
-			.where(inArray(deps.schema.artifacts.id, normalizedIds));
+			.where(inArray(deps.schema.artifacts.id, idChunk));
 		for (const row of normalizedRows) {
 			let tier: string | null = null;
 			if (row.metadataJson) {
@@ -729,10 +981,25 @@ export async function buildStatusReport(
 
 // ── Reporting ───────────────────────────────────────────────────────────
 
+/**
+ * The label the per-type breakdown groups on: the file's extension, or its
+ * MIME type when it has none. Derived here rather than through the registry on
+ * purpose — the report should say what is actually in the library, including
+ * the extensions the registry does not recognise (which `getIntakeRoute`
+ * routes to `mineru` by fallback, so they DO get enqueued and an operator
+ * should see them by name before that happens).
+ */
+function fileTypeLabel(fileName: string, mimeType: string | null): string {
+	const dot = fileName.lastIndexOf(".");
+	const extension = dot > 0 ? fileName.slice(dot + 1).toLowerCase() : "";
+	if (/^[a-z0-9]{1,8}$/.test(extension)) return extension;
+	return mimeType?.trim() || "(no extension)";
+}
+
 function printDryRunReport(plan: BackfillPlan, limit: number | null): void {
 	const included = plan.items.filter((item) => item.include);
 	const excluded = plan.items.filter((item) => !item.include);
-	const toEnqueue = limit != null ? included.slice(0, limit) : included;
+	const toEnqueue = selectLimitedBatch(included, limit);
 
 	console.log(`Tier:          ${plan.tier}`);
 	console.log(`Since default: ${plan.since.toISOString()}`);
@@ -745,14 +1012,33 @@ function printDryRunReport(plan: BackfillPlan, limit: number | null): void {
 
 	const byRoute = new Map<string, number>();
 	const byUser = new Map<string, number>();
+	const byType = new Map<string, number>();
+	const byTier = new Map<string, number>();
 	let totalBytes = 0;
 	for (const item of toEnqueue) {
 		byRoute.set(item.route, (byRoute.get(item.route) ?? 0) + 1);
 		byUser.set(item.doc.userId, (byUser.get(item.doc.userId) ?? 0) + 1);
+		const type = fileTypeLabel(item.doc.fileName, item.doc.mimeType);
+		byType.set(type, (byType.get(type) ?? 0) + 1);
+		const tier = item.effectiveTier ?? "(no tier — direct text)";
+		byTier.set(tier, (byTier.get(tier) ?? 0) + 1);
 		totalBytes += item.doc.sizeBytes;
 	}
 	console.log("\nPer intake route (documents this run would enqueue):");
 	for (const [route, count] of byRoute) console.log(`  ${route}  ${count}`);
+	// Documented since the runbook was written, and never actually printed. It
+	// is also the line that tells an operator how much of a whole-library run is
+	// pasted screenshots: every image format is `mineru`-routed, so a library
+	// with 400 PNGs in it books 400 MinerU parses that the route breakdown above
+	// shows only as "mineru 400".
+	console.log("\nPer file type:");
+	for (const [type, count] of [...byType].sort((a, b) => b[1] - a[1])) {
+		console.log(`  ${type}  ${count}`);
+	}
+	console.log("\nPer requested tier:");
+	for (const [tier, count] of [...byTier].sort((a, b) => b[1] - a[1])) {
+		console.log(`  ${tier}  ${count}`);
+	}
 	console.log("\nPer user:");
 	for (const [userId, count] of [...byUser].sort((a, b) => b[1] - a[1])) {
 		console.log(`  ${userId}  ${count}`);
@@ -766,6 +1052,24 @@ function printDryRunReport(plan: BackfillPlan, limit: number | null): void {
 		byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
 	}
 	for (const [reason, count] of byReason) console.log(`  ${reason}  ${count}`);
+
+	// `in_flight` broken out by the status it is in flight AT. A handful of
+	// `queued` rows is an ordinary busy queue; a pile of `parsing` rows is a
+	// worker that died, and those are skipped by every run of this script until
+	// the server's stale sweep reclaims them — which an operator watching a
+	// backfill stall needs to be told, not left to infer from one number.
+	const inFlightByStatus = new Map<string, number>();
+	for (const item of excluded) {
+		if (item.skipReason !== "in_flight") continue;
+		const status = item.jobStatus ?? "unknown";
+		inFlightByStatus.set(status, (inFlightByStatus.get(status) ?? 0) + 1);
+	}
+	if (inFlightByStatus.size > 0) {
+		console.log("\nAlready in flight, by ledger status:");
+		for (const [status, count] of inFlightByStatus) {
+			console.log(`  ${status}  ${count}`);
+		}
+	}
 
 	const rejectByReason = new Map<string, number>();
 	for (const item of excluded) {
@@ -823,10 +1127,26 @@ function printStatusReport(report: StatusReport): void {
 // ── main ────────────────────────────────────────────────────────────────
 
 export async function main(argv: string[]): Promise<number> {
-	if (!process.env.DATABASE_PATH?.trim()) {
+	const databasePath = process.env.DATABASE_PATH?.trim();
+	if (!databasePath) {
 		console.error(
 			"ERROR: DATABASE_PATH must be set explicitly, e.g.\n" +
 				"  DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts",
+		);
+		return 1;
+	}
+
+	// better-sqlite3 CREATES a missing file. A mistyped DATABASE_PATH therefore
+	// used to produce a brand-new, empty database, zero migrations, zero
+	// artifacts — and a dry run that cheerfully reported "Eligible: 0
+	// document(s)", which is exactly what a finished backfill looks like. On a
+	// once-only production operation that is the difference between "done" and
+	// "never ran".
+	const { existsSync } = await import("node:fs");
+	if (!existsSync(databasePath)) {
+		console.error(
+			`ERROR: DATABASE_PATH does not exist: ${databasePath}\n` +
+				"       (this script never creates a database; check the path)",
 		);
 		return 1;
 	}
@@ -845,13 +1165,17 @@ export async function main(argv: string[]): Promise<number> {
 		const jobIds = plan.items
 			.map((item) => item.jobId)
 			.filter((id): id is string => Boolean(id));
-		const jobRows =
-			jobIds.length > 0
-				? await deps.db
-						.select()
-						.from(deps.schema.documentExtractionJobs)
-						.where(inArray(deps.schema.documentExtractionJobs.id, jobIds))
-				: [];
+		const jobRows: Array<
+			typeof deps.schema.documentExtractionJobs.$inferSelect
+		> = [];
+		for (const idChunk of chunked(jobIds, SQL_VARIABLE_CHUNK)) {
+			jobRows.push(
+				...(await deps.db
+					.select()
+					.from(deps.schema.documentExtractionJobs)
+					.where(inArray(deps.schema.documentExtractionJobs.id, idChunk))),
+			);
+		}
 		const byId = new Map(
 			jobRows.map((row) => [
 				row.id,
@@ -859,10 +1183,11 @@ export async function main(argv: string[]): Promise<number> {
 					requestedBy: row.requestedBy,
 					status: row.status,
 					retryable: row.retryable,
+					updatedAt: row.updatedAt,
 				},
 			]),
 		);
-		const items = filterOnlyFailed(plan, byId).map((item) => ({
+		const items = filterOnlyFailed(plan, byId, args.since).map((item) => ({
 			...item,
 			include: true,
 		}));
@@ -870,7 +1195,7 @@ export async function main(argv: string[]): Promise<number> {
 			`--only-failed: ${items.length} document(s) with a user-retryable backfill failure.`,
 		);
 		if (!args.apply) {
-			for (const item of items.slice(0, args.limit ?? items.length)) {
+			for (const item of selectLimitedBatch(items, args.limit)) {
 				console.log(`  ${item.doc.artifactId}  ${item.doc.fileName}`);
 			}
 			console.log(

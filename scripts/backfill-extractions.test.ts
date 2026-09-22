@@ -5,6 +5,7 @@
 // throwaway database, and imports the script fresh after pointing
 // `DATABASE_PATH` at it.
 
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,7 @@ import {
 	createLedgerFixture,
 	type LedgerFixture,
 } from "$lib/server/services/extraction/testing/ledger-fixtures";
+import { MINERU_TIER_IDS } from "$lib/server/services/mineru/config";
 import {
 	createFakeMineruServer,
 	type FakeMineruServer,
@@ -22,6 +24,10 @@ import {
 } from "$lib/server/services/mineru/testing/fake-server";
 
 type ScriptModule = typeof import("./backfill-extractions");
+type PlanItem = import("./backfill-extractions").PlanItem;
+
+/** Captured before any test chdirs into its own throwaway working directory. */
+const REPO_ROOT = process.cwd();
 
 let fixture: LedgerFixture;
 let cwdDir: string;
@@ -32,6 +38,33 @@ async function reimport() {
 	process.env.DATABASE_PATH = fixture.dbPath;
 	vi.resetModules();
 	script = await import("./backfill-extractions");
+}
+
+/**
+ * A checksum over the CONTENT of every table, not over the file.
+ *
+ * The file itself is not usable for this: opening the database puts it in WAL
+ * mode and writes a header, which is a write the dry-run promise is not about.
+ * What "writes nothing" means is that no row anywhere changed, so that is what
+ * is hashed — every table `sqlite_master` knows, in a stable order.
+ */
+function contentChecksum(): string {
+	const sqlite = fixture.sqlite;
+	const tables = sqlite
+		.prepare(
+			"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+		)
+		.all() as Array<{ name: string }>;
+	const hash = createHash("sha256");
+	for (const { name } of tables) {
+		hash.update(`\n--${name}--\n`);
+		const rows = sqlite
+			.prepare(`SELECT * FROM ${JSON.stringify(name)}`)
+			.all() as unknown[];
+		const serialized = rows.map((row) => JSON.stringify(row)).sort();
+		for (const row of serialized) hash.update(row);
+	}
+	return hash.digest("hex");
 }
 
 /** Writes a real file under data/knowledge/<userId>/ so resolveDeletablePath sees it. */
@@ -97,6 +130,98 @@ describe("parseArgs", () => {
 
 	it("rejects an unparseable --since", () => {
 		expect(() => script.parseArgs(["--since", "not-a-date"])).toThrow();
+	});
+
+	it("rejects a --tier that is not one of the four ids", () => {
+		// `mineruTierRank` ranks an unknown string at -1, so a typo used to skip
+		// every already-parsed document as "already at tier" AND send a hint the
+		// extractor discards — a silently wrong whole-library run.
+		expect(() => script.parseArgs(["--tier", "standrad"])).toThrow(
+			/--tier must be one of/,
+		);
+		expect(() => script.parseArgs(["--tier", "auto"])).toThrow();
+		expect(() => script.parseArgs(["--tier", ""])).toThrow();
+		for (const tier of MINERU_TIER_IDS) {
+			expect(script.parseArgs(["--tier", tier]).tier).toBe(tier);
+		}
+	});
+
+	it("keeps its own tier list identical to the registry's", () => {
+		expect([...script.BACKFILL_TIER_IDS]).toEqual([...MINERU_TIER_IDS]);
+	});
+
+	it("rejects a --limit that is not a positive integer", () => {
+		// `Number("abc")` is NaN and `slice(0, NaN)` is empty: this used to print
+		// "Enqueued 0 document(s)", which reads exactly like a finished library.
+		for (const bad of ["abc", "0", "-3", "2.5", ""]) {
+			expect(() => script.parseArgs(["--limit", bad])).toThrow(
+				/--limit must be a positive integer/,
+			);
+		}
+		expect(script.parseArgs(["--limit", "20"]).limit).toBe(20);
+	});
+});
+
+describe("selectLimitedBatch", () => {
+	function item(userId: string, artifactId: string): PlanItem {
+		return {
+			doc: {
+				artifactId,
+				userId,
+				fileName: `${artifactId}.pdf`,
+				mimeType: "application/pdf",
+				sizeBytes: 1,
+				storagePath: null,
+				createdAt: new Date(0),
+				conversationId: null,
+			},
+			route: "mineru",
+			include: true,
+			effectiveTier: "standard",
+			tierForced: false,
+			currentTier: null,
+			jobStatus: null,
+			jobId: null,
+			legacy: true,
+		};
+	}
+
+	it("returns everything when there is no limit, or the limit is not binding", () => {
+		const items = [item("a", "1"), item("b", "2")];
+		expect(script.selectLimitedBatch(items, null)).toHaveLength(2);
+		expect(script.selectLimitedBatch(items, 5)).toHaveLength(2);
+	});
+
+	it("samples across accounts instead of taking one account's front", () => {
+		const items = [
+			item("heavy", "h1"),
+			item("heavy", "h2"),
+			item("heavy", "h3"),
+			item("heavy", "h4"),
+			item("light", "l1"),
+			item("other", "o1"),
+		];
+		const picked = script.selectLimitedBatch(items, 3);
+		expect(picked.map((entry) => entry.doc.artifactId)).toEqual([
+			"h1",
+			"l1",
+			"o1",
+		]);
+	});
+
+	it("falls back to the remaining accounts once one runs out", () => {
+		const items = [
+			item("heavy", "h1"),
+			item("heavy", "h2"),
+			item("heavy", "h3"),
+			item("light", "l1"),
+		];
+		const picked = script.selectLimitedBatch(items, 3);
+		expect(picked.map((entry) => entry.doc.artifactId)).toEqual([
+			"h1",
+			"l1",
+			"h2",
+		]);
 	});
 });
 
@@ -380,6 +505,200 @@ describe("applyBackfillPlan: idempotency, --limit", () => {
 	});
 });
 
+describe("--include-direct-text", () => {
+	it("actually enqueues direct-text documents on apply", async () => {
+		// These have no tier by construction, and the apply loop's
+		// `if (!item.include || !item.effectiveTier) continue` used to swallow
+		// every one of them in silence: the dry run listed them, `--apply`
+		// enqueued nothing, and the summary said "Enqueued 0 document(s)".
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-txt",
+			userId: "user-1",
+			name: "notes.txt",
+			mimeType: "text/plain",
+			storagePath: await seedFile("user-1", "notes.txt"),
+		});
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard", "--include-direct-text"]),
+		);
+		const included = plan.items.filter((item) => item.include);
+		expect(included).toMatchObject([
+			{ route: "direct-text", effectiveTier: null },
+		]);
+
+		const result = await script.applyBackfillPlan(included, { limit: null });
+		expect(result.failed).toEqual([]);
+		expect(result.enqueued).toHaveLength(1);
+
+		const [job] = fixture.db
+			.select()
+			.from(schema.documentExtractionJobs)
+			.where(eq(schema.documentExtractionJobs.sourceArtifactId, "doc-txt"))
+			.all();
+		expect(job?.status).toBe("queued");
+		expect(job?.intakeRoute).toBe("direct-text");
+		expect(job?.requestedBy).toBe("backfill");
+	});
+
+	it("skips a direct-text document this script already finished", async () => {
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-txt",
+			userId: "user-1",
+			name: "notes.txt",
+			mimeType: "text/plain",
+			storagePath: await seedFile("user-1", "notes.txt"),
+		});
+		fixture.db
+			.insert(schema.documentExtractionJobs)
+			.values({
+				id: "job-txt",
+				userId: "user-1",
+				sourceArtifactId: "doc-txt",
+				intakeRoute: "direct-text",
+				fileName: "notes.txt",
+				status: "succeeded",
+				requestedBy: "backfill",
+			})
+			.run();
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard", "--include-direct-text"]),
+		);
+		expect(plan.items[0]).toMatchObject({
+			include: false,
+			skipReason: "already_backfilled",
+		});
+	});
+});
+
+describe("the dry run writes nothing", () => {
+	it("leaves every row of the database byte-identical", async () => {
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-pdf",
+			userId: "user-1",
+			name: "report.pdf",
+			mimeType: "application/pdf",
+			storagePath: await seedFile("user-1", "report.pdf"),
+		});
+		fixture.seedArtifact({
+			id: "doc-txt",
+			userId: "user-1",
+			name: "notes.txt",
+			mimeType: "text/plain",
+			storagePath: await seedFile("user-1", "notes.txt"),
+		});
+		// A legacy document — no ledger row at all — is the one the plan is most
+		// tempted to materialise early.
+		fixture.seedArtifact({
+			id: "doc-legacy",
+			userId: "user-1",
+			name: "old.pdf",
+			mimeType: "application/pdf",
+			storagePath: await seedFile("user-1", "old.pdf"),
+		});
+
+		const before = contentChecksum();
+		await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard", "--include-direct-text"]),
+		);
+		expect(contentChecksum()).toBe(before);
+
+		// And the status pass, which also only reads.
+		await script.buildStatusReport(null);
+		expect(contentChecksum()).toBe(before);
+
+		// The control: applying DOES change it, so the checksum is not vacuous.
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		await script.applyBackfillPlan(
+			plan.items.filter((item) => item.include),
+			{ limit: null },
+		);
+		expect(contentChecksum()).not.toBe(before);
+	});
+});
+
+describe("--status", () => {
+	it("counts a requeued job whose row was created long before the campaign", async () => {
+		// A job row's `created_at` is when the DOCUMENT was first enqueued — for
+		// everything except the legacy rows this script materialises itself, that
+		// is the day the user uploaded the file. Windowing `--status` on it
+		// reported only the freshly materialised rows and silently omitted every
+		// document that already had a ledger row, i.e. most of a real library.
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-old",
+			userId: "user-1",
+			name: "ancient.pdf",
+			mimeType: "application/pdf",
+			storagePath: await seedFile("user-1", "ancient.pdf"),
+		});
+		const normalizedId = fixture.seedArtifact({
+			id: "norm-old",
+			userId: "user-1",
+			type: "normalized_document",
+			name: "ancient (normalized)",
+			metadata: { extractionTier: "standard" },
+		});
+		fixture.db
+			.insert(schema.documentExtractionJobs)
+			.values({
+				id: "job-old",
+				userId: "user-1",
+				sourceArtifactId: "doc-old",
+				normalizedArtifactId: normalizedId,
+				intakeRoute: "mineru",
+				fileName: "ancient.pdf",
+				status: "succeeded",
+				requestedBy: "backfill",
+				createdAt: new Date("2024-03-01T00:00:00.000Z"),
+				updatedAt: new Date("2026-09-22T12:00:00.000Z"),
+			})
+			.run();
+
+		const report = await script.buildStatusReport(
+			new Date("2026-09-22T00:00:00.000Z"),
+		);
+		expect(report.byStatus).toEqual({ succeeded: 1 });
+		expect(report.byTier).toEqual({ standard: 1 });
+	});
+
+	it("excludes a backfill row last touched before the window", async () => {
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-old",
+			userId: "user-1",
+			name: "ancient.pdf",
+			mimeType: "application/pdf",
+			storagePath: await seedFile("user-1", "ancient.pdf"),
+		});
+		fixture.db
+			.insert(schema.documentExtractionJobs)
+			.values({
+				id: "job-old",
+				userId: "user-1",
+				sourceArtifactId: "doc-old",
+				intakeRoute: "mineru",
+				fileName: "ancient.pdf",
+				status: "succeeded",
+				requestedBy: "backfill",
+				createdAt: new Date("2024-03-01T00:00:00.000Z"),
+				updatedAt: new Date("2024-03-01T00:00:00.000Z"),
+			})
+			.run();
+
+		const report = await script.buildStatusReport(
+			new Date("2026-09-22T00:00:00.000Z"),
+		);
+		expect(report.byStatus).toEqual({});
+	});
+});
+
 describe("--only-failed", () => {
 	it("selects only this campaign's user-retryable failures", async () => {
 		fixture.seedUser("user-1");
@@ -463,6 +782,110 @@ describe("--only-failed", () => {
 		expect(onlyFailed.map((item) => item.doc.artifactId)).toEqual([
 			"doc-backfill-retryable",
 		]);
+	});
+
+	it("does not re-enqueue a failure whose file is gone from disk", async () => {
+		// `filterOnlyFailed` runs over EVERY plan item, including the ones the
+		// plan excluded, so a retryable failed job on a document whose bytes are
+		// missing used to be re-enqueued on every `--only-failed` run — one more
+		// attempt spent to reach the same `internal` failure.
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-gone",
+			userId: "user-1",
+			name: "gone.pdf",
+			mimeType: "application/pdf",
+			storagePath: "data/knowledge/user-1/gone.pdf",
+		});
+		fixture.db
+			.insert(schema.documentExtractionJobs)
+			.values({
+				id: "job-gone",
+				userId: "user-1",
+				sourceArtifactId: "doc-gone",
+				intakeRoute: "mineru",
+				fileName: "gone.pdf",
+				status: "failed",
+				retryable: true,
+				errorCode: "internal",
+				requestedBy: "backfill",
+			})
+			.run();
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		expect(plan.items[0]).toMatchObject({ skipReason: "missing_file" });
+
+		const byId = new Map([
+			[
+				"job-gone",
+				{ requestedBy: "backfill", status: "failed", retryable: true },
+			],
+		]);
+		expect(script.filterOnlyFailed(plan, byId)).toEqual([]);
+	});
+
+	it("honours --since, which used to be parsed and then ignored", async () => {
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-a",
+			userId: "user-1",
+			name: "a.pdf",
+			mimeType: "application/pdf",
+			storagePath: await seedFile("user-1", "a.pdf"),
+		});
+		fixture.db
+			.insert(schema.documentExtractionJobs)
+			.values({
+				id: "job-a",
+				userId: "user-1",
+				sourceArtifactId: "doc-a",
+				intakeRoute: "mineru",
+				fileName: "a.pdf",
+				status: "failed",
+				retryable: true,
+				errorCode: "job_failed",
+				requestedBy: "backfill",
+			})
+			.run();
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		const job = {
+			requestedBy: "backfill",
+			status: "failed",
+			retryable: true,
+			updatedAt: new Date("2026-09-20T00:00:00.000Z"),
+		};
+		const byId = new Map([["job-a", job]]);
+
+		expect(script.filterOnlyFailed(plan, byId, null)).toHaveLength(1);
+		expect(
+			script.filterOnlyFailed(plan, byId, new Date("2026-09-19T00:00:00.000Z")),
+		).toHaveLength(1);
+		expect(
+			script.filterOnlyFailed(plan, byId, new Date("2026-09-21T00:00:00.000Z")),
+		).toHaveLength(0);
+	});
+});
+
+describe("the script is not a second extraction worker", () => {
+	it("never calls wakeExtractionWorker", async () => {
+		// `wakeExtractionWorker` is in-process: it starts a drain in whoever calls
+		// it. From this CLI it could not reach the server's worker at all, and it
+		// DID turn the script into a competing claimant that `process.exit` then
+		// killed mid-attempt. Asserted against the source, because under vitest
+		// the function is a deliberate no-op and a behavioural test would pass
+		// either way. The server's scheduler idle-ticks the queue on its own.
+		const source = await readFile(
+			join(REPO_ROOT, "scripts", "backfill-extractions.ts"),
+			"utf8",
+		);
+		const code = source.slice(source.indexOf("import { config"));
+		expect(code).not.toMatch(/\bwakeExtractionWorker\s*\(/);
+		expect(code).not.toMatch(/import\s*\([^)]*worker-runner/);
 	});
 });
 
