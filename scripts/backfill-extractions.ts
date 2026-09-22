@@ -85,11 +85,33 @@
  *   DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts
  *   DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --apply
  *   DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --status
+ *   DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts \
+ *     --verify data/backfill-snapshots/<stamp>.json
  *
  * Flags: --apply, --tier <flash|basic|standard|advanced>, --include-direct-text,
- * --since <iso>, --limit N, --user <id|email>, --only-failed, --status.
+ * --since <iso>, --limit N, --user <id|email>, --only-failed, --status,
+ * --verify <snapshot>, --shrink-threshold <0..1>.
  *
  * `--dry-run` is the DEFAULT: with no `--apply`, nothing is written.
+ *
+ * ── The shrink check ────────────────────────────────────────────────────
+ * The replace path is safe against a parse that returns NOTHING (the result
+ * parser raises `empty_result`, which never reaches `persist.ts`). It is not
+ * safe against a parse that returns a tenth of the text: that succeeds, and
+ * `rewriteNormalizedArtifact` replaces the old content with it. Nothing in
+ * the ledger can tell those apart from a good parse.
+ *
+ * So `--apply` writes `data/backfill-snapshots/<stamp>.json` BEFORE it
+ * enqueues anything — every document in the batch, with the text length and
+ * chunk count it had at that moment — and prints the path. Afterwards,
+ * `--verify <that file>` compares every SUCCEEDED document against it and
+ * lists the ones that came back below `--shrink-threshold` (default 0.5) of
+ * their old size, with old/new sizes, the account and the file name.
+ *
+ * It is a report. Nothing is re-queued, repaired or deleted on a shrink, and
+ * `--verify` always exits 0 — the operator opens the listed documents and
+ * decides. The snapshot lives OUTSIDE `data/knowledge/`, so none of the
+ * storage-cleanup paths can reach it.
  */
 import { config as dotenvConfig } from "dotenv";
 
@@ -121,7 +143,25 @@ export interface BackfillArgs {
 	user: string | null;
 	onlyFailed: boolean;
 	status: boolean;
+	/** Path to a snapshot written by an earlier `--apply`. */
+	verify: string | null;
+	/** The remaining fraction below which a document counts as shrunk. */
+	shrinkThreshold: number;
 }
+
+/**
+ * How much of a document's text may survive a re-parse before it is worth
+ * looking at by hand.
+ *
+ * 0.5 means "flag anything that came back smaller than half its old size".
+ * The pipeline already refuses a parse that produced NOTHING — the MinerU
+ * result parser raises `empty_result`, which is terminal and non-retryable —
+ * so the gap this covers is the one nothing else can see: a parse that
+ * succeeds and returns a fraction of the text, which replaces the old content
+ * and reports `succeeded`. Over a whole library nobody would notice by
+ * reading; over a snapshot it is one line.
+ */
+export const DEFAULT_SHRINK_THRESHOLD = 0.5;
 
 function readFlagValue(argv: string[], flag: string): string | null {
 	const eqPrefix = `${flag}=`;
@@ -191,10 +231,32 @@ export function parseArgs(argv: string[]): BackfillArgs {
 		limit = parsed;
 	}
 
+	const thresholdRaw = readFlagValue(argv, "--shrink-threshold");
+	let shrinkThreshold = DEFAULT_SHRINK_THRESHOLD;
+	if (thresholdRaw !== null) {
+		const parsed = Number(thresholdRaw);
+		// `> 0` and `<= 1`: zero would flag nothing at all (no document can be
+		// smaller than none of itself), and above one would flag every document
+		// that did not grow, which is a report nobody would read twice.
+		if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) {
+			throw new BackfillUsageError(
+				`--shrink-threshold must be a fraction in (0, 1]; got "${thresholdRaw}"`,
+			);
+		}
+		shrinkThreshold = parsed;
+	}
+
+	const verify = readFlagValue(argv, "--verify");
+	if (verify !== null && verify.trim().length === 0) {
+		throw new BackfillUsageError("--verify needs the path of a snapshot file");
+	}
+
 	return {
 		apply: argv.includes("--apply"),
 		tier,
 		includeDirectText: argv.includes("--include-direct-text"),
+		verify,
+		shrinkThreshold,
 		since,
 		limit,
 		user: readFlagValue(argv, "--user"),
@@ -244,6 +306,13 @@ export interface PlanItem {
 export interface BackfillPlan {
 	tier: string;
 	since: Date;
+	/**
+	 * The MinerU endpoint this run resolved to, AFTER the `admin_config`
+	 * overlay. Printed, because the whole class of bug it belongs to — the
+	 * script talking to a different backend than the app — is invisible unless
+	 * somebody says which one out loud. The API key is never printed.
+	 */
+	mineruApiUrl: string;
 	items: PlanItem[];
 }
 
@@ -257,9 +326,48 @@ export interface ApplyOutcome {
 export interface ApplyResult {
 	enqueued: ApplyOutcome[];
 	failed: ApplyOutcome[];
+	/** Where the pre-backfill snapshot went, for `--verify`. */
+	snapshotPath: string | null;
 }
 
 type Deps = Awaited<ReturnType<typeof loadDeps>>;
+
+/**
+ * Overlays `admin_config` onto the env-derived defaults, exactly as the server
+ * does on its first request.
+ *
+ * `getConfig()` returns whatever `buildDefaultConfig()` made out of the
+ * PROCESS ENVIRONMENT until somebody calls `refreshConfig()`; the running app
+ * calls it once from `ensureRuntimeConfigReady` in `src/hooks.server.ts`. A
+ * script that skips it is not reading the deployment's configuration at all —
+ * it is reading `.env`.
+ *
+ * That is not academic. On the dev box, `shared/.env` says
+ * `MINERU_API_URL=http://127.0.0.1:8001` and the `admin_config` row the app
+ * actually runs on says `http://127.0.0.1:8002`, so the dry run probed a
+ * backend nobody uses and reported it unreachable. Every MinerU key is
+ * admin-overridable — the URL, the API key, `MINERU_DEFAULT_TIER`, the
+ * timeouts — so without this the tier this script requests and the endpoint it
+ * verifies against can both be wrong, in a way that looks exactly like a
+ * working script.
+ *
+ * Done once per process, after the database is open (it reads `admin_config`)
+ * and before anything asks for a MinerU setting.
+ */
+let configOverlay: Promise<void> | null = null;
+
+async function ensureAdminConfigOverlay(): Promise<void> {
+	configOverlay ??= (async () => {
+		const { refreshConfig } = await import("$lib/server/config-store");
+		await refreshConfig();
+	})().catch((error) => {
+		// Do not cache a failure: a transient SQLITE_BUSY on the first read
+		// should not leave the whole run on env-only configuration in silence.
+		configOverlay = null;
+		throw error;
+	});
+	await configOverlay;
+}
 
 async function loadDeps() {
 	const [
@@ -281,6 +389,9 @@ async function loadDeps() {
 		import("$lib/server/services/extraction/reextract"),
 		import("$lib/server/storage-containment"),
 	]);
+	// After the imports (the db module opens the file on import) and before any
+	// caller can read a MinerU or extraction setting off `getConfig()`.
+	await ensureAdminConfigOverlay();
 	return {
 		db: dbModule.db,
 		schema,
@@ -654,7 +765,12 @@ export async function buildBackfillPlan(
 		});
 	}
 
-	return { tier: cliTier, since, items };
+	return {
+		tier: cliTier,
+		since,
+		mineruApiUrl: deps.mineruConfig.resolveMineruConfig().baseUrl,
+		items,
+	};
 }
 
 /**
@@ -714,6 +830,173 @@ export function filterOnlyFailed(
 	});
 }
 
+// ── The pre-backfill snapshot ───────────────────────────────────────────
+
+/**
+ * Where snapshots go: `data/backfill-snapshots/`.
+ *
+ * Deliberately a SIBLING of `data/knowledge`, never inside it. Everything
+ * under `data/knowledge/<userId>/` belongs to a user and is reachable by the
+ * orphan sweep, by bundle eviction and by "Forget all results" — all of which
+ * resolve paths through `storageRoots()` (`src/lib/server/storage-containment.ts`),
+ * whose two roots are `data/knowledge` and `data/chat-files`. A safety record
+ * that the cleanup paths can delete is not a safety record, and one filed
+ * under one user's directory would also be deleted with that user.
+ */
+export const BACKFILL_SNAPSHOT_DIR = ["data", "backfill-snapshots"] as const;
+
+export interface SnapshotEntry {
+	userId: string;
+	fileName: string;
+	/** null when the document had no normalized artifact yet — nothing to lose. */
+	normalizedArtifactId: string | null;
+	/** Characters of `content_text`, measured in SQL so nothing is loaded. */
+	contentLength: number | null;
+	chunkCount: number | null;
+}
+
+export interface BackfillSnapshot {
+	version: 1;
+	createdAt: string;
+	tier: string | null;
+	/** source_artifact_id → what that document looked like BEFORE the backfill. */
+	documents: Record<string, SnapshotEntry>;
+}
+
+/** `2026-09-22T15-30-00-123Z` — an ISO instant a filename can hold. */
+function snapshotStamp(now: Date): string {
+	return now.toISOString().replace(/[:.]/g, "-");
+}
+
+/**
+ * What every document in this batch looks like right now.
+ *
+ * Read BEFORE a single job is requeued, and written to disk before the apply
+ * loop starts rather than after it: a run that is interrupted half way is
+ * exactly the run whose "before" values nobody can reconstruct afterwards.
+ * Entries for documents the loop then refuses are harmless — the comparison
+ * only ever looks at documents that went on to succeed.
+ */
+export async function captureBackfillSnapshot(
+	items: PlanItem[],
+	options: { tier?: string | null; now?: Date } = {},
+): Promise<BackfillSnapshot> {
+	const deps = await loadDeps();
+	const documents: Record<string, SnapshotEntry> = {};
+
+	for (const item of items) {
+		const [link] = await deps.db
+			.select({ id: deps.schema.artifacts.id })
+			.from(deps.schema.artifactLinks)
+			.innerJoin(
+				deps.schema.artifacts,
+				eq(deps.schema.artifactLinks.artifactId, deps.schema.artifacts.id),
+			)
+			.where(
+				and(
+					eq(deps.schema.artifactLinks.userId, item.doc.userId),
+					eq(deps.schema.artifactLinks.relatedArtifactId, item.doc.artifactId),
+					eq(deps.schema.artifactLinks.linkType, "derived_from"),
+					eq(deps.schema.artifacts.type, "normalized_document"),
+				),
+			)
+			// The same "oldest link wins" rule `getNormalizedArtifactForSource`
+			// uses, so the snapshot measures the artifact the prompt pipeline
+			// actually reads and the re-extraction actually rewrites.
+			.orderBy(asc(deps.schema.artifactLinks.createdAt))
+			.limit(1);
+
+		if (!link) {
+			documents[item.doc.artifactId] = {
+				userId: item.doc.userId,
+				fileName: item.doc.fileName,
+				normalizedArtifactId: null,
+				contentLength: null,
+				chunkCount: null,
+			};
+			continue;
+		}
+
+		const [sizes] = await deps.db
+			.select({
+				// `length()` in SQL, not `text.length` in JS: a library's worth of
+				// multi-megabyte markdown does not need to travel through this
+				// process to be counted.
+				contentLength: sql<number>`coalesce(length(${deps.schema.artifacts.contentText}), 0)`,
+			})
+			.from(deps.schema.artifacts)
+			.where(eq(deps.schema.artifacts.id, link.id))
+			.limit(1);
+
+		const [chunks] = await deps.db
+			.select({ count: sql<number>`count(*)` })
+			.from(deps.schema.artifactChunks)
+			.where(eq(deps.schema.artifactChunks.artifactId, link.id));
+
+		documents[item.doc.artifactId] = {
+			userId: item.doc.userId,
+			fileName: item.doc.fileName,
+			normalizedArtifactId: link.id,
+			contentLength: sizes?.contentLength ?? 0,
+			chunkCount: chunks?.count ?? 0,
+		};
+	}
+
+	return {
+		version: 1,
+		createdAt: (options.now ?? new Date()).toISOString(),
+		tier: options.tier ?? null,
+		documents,
+	};
+}
+
+/** Writes the snapshot and returns the path it went to. */
+export async function writeBackfillSnapshot(
+	snapshot: BackfillSnapshot,
+	options: { now?: Date } = {},
+): Promise<string> {
+	const { mkdir, writeFile } = await import("node:fs/promises");
+	const { join } = await import("node:path");
+	const dir = join(process.cwd(), ...BACKFILL_SNAPSHOT_DIR);
+	await mkdir(dir, { recursive: true });
+	const path = join(dir, `${snapshotStamp(options.now ?? new Date())}.json`);
+	await writeFile(path, JSON.stringify(snapshot, null, 2), "utf8");
+	return path;
+}
+
+export async function readBackfillSnapshot(
+	path: string,
+): Promise<BackfillSnapshot> {
+	const { readFile } = await import("node:fs/promises");
+	let raw: string;
+	try {
+		raw = await readFile(path, "utf8");
+	} catch {
+		throw new BackfillUsageError(
+			`No snapshot file at ${path}\n` +
+				`       (--apply prints the path of the one it wrote; they live in ${BACKFILL_SNAPSHOT_DIR.join("/")}/)`,
+		);
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		throw new BackfillUsageError(`${path} is not valid JSON`);
+	}
+	const snapshot = parsed as Partial<BackfillSnapshot>;
+	if (
+		!snapshot ||
+		snapshot.version !== 1 ||
+		typeof snapshot.documents !== "object" ||
+		snapshot.documents === null
+	) {
+		throw new BackfillUsageError(
+			`${path} is not a backfill snapshot (expected {"version": 1, "documents": {...}})`,
+		);
+	}
+	return snapshot as BackfillSnapshot;
+}
+
 // ── Apply ───────────────────────────────────────────────────────────────
 
 /**
@@ -758,10 +1041,41 @@ export function selectLimitedBatch(
 
 export async function applyBackfillPlan(
 	items: PlanItem[],
-	options: { limit: number | null },
+	options: {
+		limit: number | null;
+		/** The tier recorded in the snapshot, for the operator's own records. */
+		tier?: string | null;
+		/** Set false only by a caller that has already written its own. */
+		snapshot?: boolean;
+		now?: Date;
+	},
 ): Promise<ApplyResult> {
 	const deps = await loadDeps();
 	const toApply = selectLimitedBatch(items, options.limit);
+
+	// Before anything is requeued: what every document in this batch looks like
+	// now. A re-extraction REPLACES text and chunks, and the pipeline's only
+	// guard is `empty_result` — a parse that comes back with a tenth of the
+	// text succeeds and overwrites. This file is what makes that visible
+	// afterwards, and it has to exist before the first job moves.
+	let snapshotPath: string | null = null;
+	if (options.snapshot !== false && toApply.some((item) => item.include)) {
+		const snapshot = await captureBackfillSnapshot(
+			toApply.filter((item) => item.include),
+			{
+				tier: options.tier ?? null,
+				...(options.now ? { now: options.now } : {}),
+			},
+		);
+		snapshotPath = await writeBackfillSnapshot(
+			snapshot,
+			options.now ? { now: options.now } : {},
+		);
+		console.log(`Pre-backfill snapshot: ${snapshotPath}`);
+		console.log(
+			`  (${Object.keys(snapshot.documents).length} document(s); check them afterwards with --verify ${snapshotPath})`,
+		);
+	}
 
 	const enqueued: ApplyOutcome[] = [];
 	const failed: ApplyOutcome[] = [];
@@ -889,7 +1203,7 @@ export async function applyBackfillPlan(
 	// (`IDLE_TICK_MIN_MS`/`IDLE_TICK_MAX_MS` in worker-runner.ts) and claims
 	// whatever is queued, so the backfill starts draining within a minute.
 
-	return { enqueued, failed };
+	return { enqueued, failed, snapshotPath };
 }
 
 // ── Status ──────────────────────────────────────────────────────────────
@@ -909,6 +1223,18 @@ function chunked<T>(values: readonly T[], size: number): T[][] {
 	return chunks;
 }
 
+export interface ShrunkDocument {
+	artifactId: string;
+	userId: string;
+	fileName: string;
+	beforeLength: number;
+	afterLength: number;
+	beforeChunks: number;
+	afterChunks: number;
+	/** What is LEFT, as a fraction: 0.12 means the new text is 12% of the old. */
+	remainingFraction: number;
+}
+
 export interface StatusReport {
 	byStatus: Record<string, number>;
 	byTier: Record<string, number>;
@@ -918,10 +1244,69 @@ export interface StatusReport {
 		errorCode: string | null;
 		retryable: boolean;
 	}>;
+	/**
+	 * Present only when a snapshot was supplied. `shrunk` is the report the
+	 * whole snapshot exists for; `comparedAgainst` and `compared` are there so
+	 * an empty `shrunk` can be read as "nothing shrank" rather than as "nothing
+	 * was checked", which are very different answers.
+	 */
+	comparedAgainst?: string;
+	compared?: number;
+	shrunk?: ShrunkDocument[];
+}
+
+/**
+ * Every document the snapshot recorded that came back smaller than
+ * `threshold` of its old self.
+ *
+ * Text length and chunk count are both checked, and either one is enough to
+ * flag: a parse can keep most of the characters and collapse the structure
+ * that made them findable, and a chunk table that went from 300 rows to 4 is
+ * a retrieval regression whether or not the markdown survived.
+ *
+ * Nothing is repaired, requeued or deleted here. It is a list to look at.
+ */
+export function findShrunkDocuments(
+	snapshot: BackfillSnapshot,
+	after: Map<string, { contentLength: number; chunkCount: number }>,
+	threshold: number,
+): ShrunkDocument[] {
+	const shrunk: ShrunkDocument[] = [];
+	for (const [artifactId, before] of Object.entries(snapshot.documents)) {
+		const now = after.get(artifactId);
+		if (!now) continue;
+		// No baseline: the document had no normalized artifact before, so the
+		// backfill gave it text rather than replacing any. Nothing can have been
+		// lost, and dividing by zero would flag every one of them.
+		if (!before.normalizedArtifactId) continue;
+		const beforeLength = before.contentLength ?? 0;
+		const beforeChunks = before.chunkCount ?? 0;
+		if (beforeLength <= 0 && beforeChunks <= 0) continue;
+
+		const textFraction =
+			beforeLength > 0 ? now.contentLength / beforeLength : 1;
+		const chunkFraction = beforeChunks > 0 ? now.chunkCount / beforeChunks : 1;
+		const remainingFraction = Math.min(textFraction, chunkFraction);
+		if (remainingFraction >= threshold) continue;
+
+		shrunk.push({
+			artifactId,
+			userId: before.userId,
+			fileName: before.fileName,
+			beforeLength,
+			afterLength: now.contentLength,
+			beforeChunks,
+			afterChunks: now.chunkCount,
+			remainingFraction,
+		});
+	}
+	// Worst first: the operator reads the top of this list and stops.
+	return shrunk.sort((a, b) => a.remainingFraction - b.remainingFraction);
 }
 
 export async function buildStatusReport(
 	since: Date | null,
+	options: { snapshot?: BackfillSnapshot; shrinkThreshold?: number } = {},
 ): Promise<StatusReport> {
 	const deps = await loadDeps();
 	const effectiveSince = since ?? (await resolveDefaultSince(deps));
@@ -991,7 +1376,71 @@ export async function buildStatusReport(
 		}
 	}
 
-	return { byStatus, byTier, failedDocuments };
+	if (!options.snapshot) return { byStatus, byTier, failedDocuments };
+
+	// Measure the documents the snapshot named that have since SUCCEEDED. A
+	// document still queued, or one that failed, has not been rewritten, so
+	// comparing it would report a shrink that has not happened.
+	const succeededSources = new Set(
+		rows
+			.filter((row) => row.status === "succeeded" && row.sourceArtifactId)
+			.map((row) => row.sourceArtifactId as string),
+	);
+	const wanted = Object.keys(options.snapshot.documents).filter((id) =>
+		succeededSources.has(id),
+	);
+
+	const after = new Map<
+		string,
+		{ contentLength: number; chunkCount: number }
+	>();
+	for (const idChunk of chunked(wanted, SQL_VARIABLE_CHUNK)) {
+		const currentRows = await deps.db
+			.select({
+				sourceArtifactId: deps.schema.artifactLinks.relatedArtifactId,
+				contentLength: sql<number>`coalesce(length(${deps.schema.artifacts.contentText}), 0)`,
+				chunkCount: sql<number>`(
+					select count(*) from artifact_chunks
+					where artifact_chunks.artifact_id = ${deps.schema.artifacts.id}
+				)`,
+			})
+			.from(deps.schema.artifactLinks)
+			.innerJoin(
+				deps.schema.artifacts,
+				eq(deps.schema.artifactLinks.artifactId, deps.schema.artifacts.id),
+			)
+			.where(
+				and(
+					inArray(deps.schema.artifactLinks.relatedArtifactId, idChunk),
+					eq(deps.schema.artifactLinks.linkType, "derived_from"),
+					eq(deps.schema.artifacts.type, "normalized_document"),
+				),
+			);
+		for (const row of currentRows) {
+			if (!row.sourceArtifactId) continue;
+			// The rewrite keeps the artifact id, so there is still exactly one
+			// normalized artifact per source; first row wins if a database ever
+			// held two, matching `getNormalizedArtifactForSource`'s oldest-link
+			// rule closely enough for a size report.
+			if (after.has(row.sourceArtifactId)) continue;
+			after.set(row.sourceArtifactId, {
+				contentLength: row.contentLength,
+				chunkCount: row.chunkCount,
+			});
+		}
+	}
+
+	return {
+		byStatus,
+		byTier,
+		failedDocuments,
+		compared: after.size,
+		shrunk: findShrunkDocuments(
+			options.snapshot,
+			after,
+			options.shrinkThreshold ?? DEFAULT_SHRINK_THRESHOLD,
+		),
+	};
 }
 
 // ── Reporting ───────────────────────────────────────────────────────────
@@ -1016,6 +1465,9 @@ function printDryRunReport(plan: BackfillPlan, limit: number | null): void {
 	const excluded = plan.items.filter((item) => !item.include);
 	const toEnqueue = selectLimitedBatch(included, limit);
 
+	// The endpoint, not the key. An operator reading this line can tell at a
+	// glance whether the script resolved the same backend the app runs on.
+	console.log(`MinerU:        ${plan.mineruApiUrl || "(not configured)"}`);
 	console.log(`Tier:          ${plan.tier}`);
 	console.log(`Since default: ${plan.since.toISOString()}`);
 	console.log(`Eligible:      ${included.length} document(s)`);
@@ -1110,13 +1562,25 @@ function printDryRunReport(plan: BackfillPlan, limit: number | null): void {
 	}
 }
 
-function printStatusReport(report: StatusReport): void {
+/** "12% of before", or "n/a" when there was no before to be a fraction of. */
+function percentOf(after: number, before: number): string {
+	if (before <= 0) return "n/a";
+	return `${Math.round((after / before) * 100)}% of before`;
+}
+
+function printStatusReport(report: StatusReport, threshold: number): void {
 	console.log(
 		"Backfill progress (from the ledger, requested_by = 'backfill'):\n",
 	);
 	console.log("By status:");
 	for (const [status, count] of Object.entries(report.byStatus)) {
 		console.log(`  ${status}  ${count}`);
+	}
+	if (report.shrunk) {
+		// In the status summary, next to the ledger's own counts, because "how
+		// many documents came back smaller" belongs with "how many succeeded" —
+		// a run of 900 successes and 40 shrunk is not a clean run.
+		console.log(`  shrunk  ${report.shrunk.length}`);
 	}
 	if (Object.keys(report.byTier).length > 0) {
 		console.log("\nSucceeded, by achieved tier:");
@@ -1137,6 +1601,40 @@ function printStatusReport(report: StatusReport): void {
 			);
 		}
 	}
+
+	if (!report.shrunk) return;
+
+	console.log(
+		`\nShrink check (against ${report.comparedAgainst ?? "the snapshot"}):`,
+	);
+	console.log(
+		`  ${report.compared ?? 0} succeeded document(s) compared; flagged below ${Math.round(threshold * 100)}% of their previous size.`,
+	);
+	if (report.shrunk.length === 0) {
+		console.log("  Nothing shrank past the threshold.");
+		return;
+	}
+	console.log(
+		"\n  These came back much smaller. Nothing was changed — open them and look:",
+	);
+	for (const doc of report.shrunk) {
+		// Each dimension carries its OWN percentage. `remainingFraction` is the
+		// worse of the two, and printing it against the text counts read as a
+		// contradiction whenever it was the chunk table that collapsed: "10000 →
+		// 9900 chars (3% of before)" is the kind of line that makes an operator
+		// distrust the whole report.
+		console.log(
+			`  ${doc.artifactId}  ${doc.fileName}\n` +
+				`    user ${doc.userId}\n` +
+				`    text   ${doc.beforeLength} → ${doc.afterLength} chars (${percentOf(doc.afterLength, doc.beforeLength)})\n` +
+				`    chunks ${doc.beforeChunks} → ${doc.afterChunks} (${percentOf(doc.afterChunks, doc.beforeChunks)})`,
+		);
+	}
+	console.log(
+		"\n  A document here still has the NEW parse; the old text is gone. If the\n" +
+			"  old parse was better, the source file is untouched — re-upload it, or\n" +
+			"  re-extract at a different tier from the Knowledge list.",
+	);
 }
 
 // ── main ────────────────────────────────────────────────────────────────
@@ -1180,9 +1678,22 @@ async function run(argv: string[]): Promise<number> {
 
 	const args = parseArgs(argv);
 
-	if (args.status) {
-		const report = await buildStatusReport(args.since);
-		printStatusReport(report);
+	// `--verify <snapshot>` is the status report plus the shrink check, so it
+	// implies `--status` rather than being a separate mode an operator has to
+	// remember to combine.
+	if (args.status || args.verify) {
+		const snapshot = args.verify
+			? await readBackfillSnapshot(args.verify)
+			: undefined;
+		const report = await buildStatusReport(args.since, {
+			...(snapshot ? { snapshot } : {}),
+			shrinkThreshold: args.shrinkThreshold,
+		});
+		if (args.verify) report.comparedAgainst = args.verify;
+		printStatusReport(report, args.shrinkThreshold);
+		// Always 0. A shrink is something to look at, not a failed command —
+		// exiting non-zero would make a deploy script treat "40 documents worth
+		// checking" as "the backfill broke", which it is not.
 		return 0;
 	}
 
@@ -1230,7 +1741,10 @@ async function run(argv: string[]): Promise<number> {
 			);
 			return 0;
 		}
-		const result = await applyBackfillPlan(items, { limit: args.limit });
+		const result = await applyBackfillPlan(items, {
+			limit: args.limit,
+			tier: plan.tier,
+		});
 		printApplySummary(result);
 		return result.failed.length > 0 ? 1 : 0;
 	}
@@ -1243,12 +1757,21 @@ async function run(argv: string[]): Promise<number> {
 	}
 
 	const toApply = plan.items.filter((item) => item.include);
-	const result = await applyBackfillPlan(toApply, { limit: args.limit });
+	const result = await applyBackfillPlan(toApply, {
+		limit: args.limit,
+		tier: plan.tier,
+	});
 	printApplySummary(result);
 	return result.failed.length > 0 ? 1 : 0;
 }
 
 function printApplySummary(result: ApplyResult): void {
+	if (result.snapshotPath) {
+		console.log(
+			`\nWhen the queue has drained, check what the re-parse did to these:\n` +
+				`  npx tsx scripts/backfill-extractions.ts --verify ${result.snapshotPath}`,
+		);
+	}
 	console.log(`\nEnqueued ${result.enqueued.length} document(s).`);
 	if (result.failed.length > 0) {
 		console.log(

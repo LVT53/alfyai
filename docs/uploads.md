@@ -379,6 +379,11 @@ DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --apply
 
 # Progress, any time.
 DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --status
+
+# Once the queue has drained: what did the re-parse actually do to the text?
+# (--apply prints this path when it writes the snapshot.)
+DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts \
+  --verify data/backfill-snapshots/2026-09-22T14-23-10-299Z.json
 ```
 
 On the box, after the production cutover:
@@ -392,6 +397,21 @@ cd /home/alfydesign/apps/langflow-chat/current && \
 (`DATABASE_PATH` above is illustrative — use whatever path the deployment's own `.env` /
 `DATABASE_PATH` already points at; see [deploy/README.md](../deploy/README.md).)
 
+**It reads the admin config, not just `.env`.** Every MinerU setting is admin-overridable
+(`MINERU_API_URL`, `MINERU_API_KEY`, `MINERU_DEFAULT_TIER`, the timeouts), and an `admin_config`
+row beats the environment. The script overlays them the same way the server does at boot
+(`refreshConfig()`, as `ensureRuntimeConfigReady` in [`hooks.server.ts`](../src/hooks.server.ts)
+calls it) — without that it would be reading `.env` rather than the deployment's own settings, and
+on the dev box that meant probing `127.0.0.1:8001` while the app ran against `127.0.0.1:8002`. The
+endpoint it resolved is the first line of the dry-run report, so a mismatch is visible immediately:
+
+```
+MinerU:        http://127.0.0.1:8002
+Tier:          standard
+```
+
+(The endpoint only. The API key is never printed.)
+
 Flags:
 
 | Flag | Effect |
@@ -404,6 +424,8 @@ Flags:
 | `--user <id\|email>` | Scopes to one account. |
 | `--only-failed` | Re-enqueues only the documents whose most recent backfill attempt ended in a user-retryable error (see `--status`), inside the `--since` window. A failure whose stored file is missing from disk is **not** re-enqueued: the next attempt would reach the same `internal` failure and spend one more of the document's attempts. |
 | `--status` | Prints progress from the ledger: queued/running/succeeded/failed counts, succeeded documents by achieved tier, and every failed document with its error code and whether a manual retry (`--only-failed`) can still help versus a terminal failure that needs a re-upload. |
+| `--verify <snapshot>` | `--status`, plus the shrink check below, against a snapshot an earlier `--apply` wrote. Adds a `shrunk` count to the summary and lists each flagged document. Always exits 0 — a shrink is something to look at, not a failed command. |
+| `--shrink-threshold <0..1>` | How much of a document has to survive before `--verify` leaves it alone. Default `0.5`: flag anything that came back smaller than half its previous size. |
 
 **Idempotent and resumable.** A document already carrying a queued or active job is always skipped.
 A document with a `succeeded` job whose achieved tier already meets the requested tier is skipped.
@@ -425,6 +447,56 @@ an *operator* action, run once, and bypasses it explicitly via
 **Never deletes anything, and never touches a document that fails.** A failed or skipped document's
 old content — its chunks, its outline, its page index — is exactly what it was before the script
 ran. The script prints a final summary and exits non-zero if any document could not be enqueued.
+
+**The shrink check: the one thing the pipeline cannot catch for you.** A re-extraction that returns
+*nothing* is refused — the MinerU result parser raises `empty_result`, which is terminal and never
+reaches `persist.ts`, so the old text survives. A re-extraction that returns *a tenth of the text*
+is not refused: it succeeds, and `rewriteNormalizedArtifact` replaces the old content with it. The
+ledger cannot tell that apart from a good parse, and over a whole library nobody would find it by
+reading.
+
+So `--apply` writes a snapshot **before it enqueues anything** and prints the path:
+
+```
+Pre-backfill snapshot: /…/data/backfill-snapshots/2026-09-22T14-23-10-299Z.json
+  (412 document(s); check them afterwards with --verify /…/2026-09-22T14-23-10-299Z.json)
+```
+
+It is a plain JSON file — every document in the batch, with the `content_text` length and chunk
+count it had at that moment. It lives in `data/backfill-snapshots/`, deliberately a **sibling** of
+`data/knowledge/` rather than inside it: the orphan sweep, bundle eviction and "Forget all results"
+all resolve paths through `storageRoots()`
+([`storage-containment.ts`](../src/lib/server/storage-containment.ts)), whose only roots are
+`data/knowledge` and `data/chat-files`. A safety record those paths could delete would not be one.
+The directory is created on first use, and `data/` is already gitignored.
+
+Once the queue has drained, `--verify <that file>` compares every **succeeded** document against
+it and lists the ones that came back below `--shrink-threshold` (default 0.5) of their old size.
+Text length and chunk count are checked separately and either is enough to flag — a parse that
+keeps the characters but collapses 40 chunks into 1 is a retrieval regression whether or not the
+markdown survived:
+
+```
+By status:
+  succeeded  3
+  shrunk  2
+
+Shrink check (against data/backfill-snapshots/2026-09-22T14-23-10-299Z.json):
+  3 succeeded document(s) compared; flagged below 50% of their previous size.
+
+  These came back much smaller. Nothing was changed — open them and look:
+  d-tables  Tables.pdf
+    user a01a6607-610c-47c6-b396-c4fb2eb07b64
+    text   10000 → 9900 chars (99% of before)
+    chunks 40 → 1 (3% of before)
+```
+
+**Nothing happens automatically on a shrink.** No document is re-queued, repaired or deleted, and
+`--verify` exits 0 either way. It is a list to spot-check: open the flagged documents, and if the
+old parse was better the source file is still untouched on disk — re-upload it, or re-extract it at
+a different tier from the Knowledge list. Documents still queued or failed are not compared at all
+(they have not been rewritten), and a legacy document that had no text before the backfill can
+never be flagged, because it had nothing to lose.
 
 **It enqueues; it does not extract.** The script writes ledger rows and stops. The running server's
 own extraction worker picks the queue up on its next idle tick (5–60 s) and drains it at the
