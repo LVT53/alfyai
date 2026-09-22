@@ -185,17 +185,24 @@ test.describe("Incognito, one-way — desktop", () => {
 		const createStarted = new Promise<void>((resolve) => {
 			held.started = resolve;
 		});
-		await page.route("**/api/conversations", async (route, request) => {
-			if (request.method() !== "POST") {
+		await page.route(
+			"**/api/conversations",
+			async (route, request) => {
+				if (request.method() !== "POST") {
+					await route.continue();
+					return;
+				}
+				held.started();
+				await new Promise<void>((resolve) => {
+					held.release = resolve;
+				});
 				await route.continue();
-				return;
-			}
-			held.started();
-			await new Promise<void>((resolve) => {
-				held.release = resolve;
-			});
-			await route.continue();
-		});
+			},
+			// One-shot rather than unrouted afterwards: unrouting while this
+			// handler is still holding its own route makes the continue below
+			// fail with "Route is already handled".
+			{ times: 1 },
+		);
 
 		await page.getByTestId("message-input").fill("Draft a resignation letter");
 		await createStarted;
@@ -204,16 +211,16 @@ test.describe("Incognito, one-way — desktop", () => {
 		await expect(arm).toBeVisible();
 		await arm.click();
 		held.release();
-		await page.unroute("**/api/conversations");
 
 		await sendMessage(page, "Draft a resignation letter");
 		await page.waitForURL(/\/chat\//, { timeout: 15000 });
 		const conversationId = new URL(page.url()).pathname.split("/").pop();
 		if (!conversationId) throw new Error("conversation id missing from URL");
 
+		// The column, which is what the regression was about — the cues all
+		// looked right while it read 0. The test above covers the cues.
 		expect(await storedIncognito(conversationId)).toBe(true);
 		await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
-		await expect(page.getByTestId("incognito-opening")).toBeVisible();
 	});
 
 	test("sending creates an incognito conversation with the sidebar mark, the opening mark and the face; it survives a reload; the '+' menu has no switch; a direct PATCH false is refused", async ({
