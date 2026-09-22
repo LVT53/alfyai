@@ -425,6 +425,38 @@ describe("conversations store", () => {
 		);
 	});
 
+	it("creates an incognito conversation atomically and mirrors it locally", async () => {
+		vi.mocked(fetch).mockResolvedValueOnce(
+			jsonResponse(
+				{
+					id: "conv-1",
+					title: "New Conversation",
+					updatedAt: 123,
+					projectId: null,
+					memoryIncognito: true,
+				},
+				{ status: 201 },
+			),
+		);
+
+		await expect(
+			createNewConversation({ memoryIncognito: true }),
+		).resolves.toBe("conv-1");
+		expect(fetch).toHaveBeenCalledWith(
+			"/api/conversations",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({ memoryIncognito: true }),
+			}),
+		);
+
+		// The armed choice lands in the sidebar mirror right away, without
+		// waiting for a snapshot refresh — upsertConversationLocal reads it
+		// back out of the same local map.
+		upsertConversationLocal("conv-1", "New Conversation", 123);
+		expect(get(conversations)[0].memoryIncognito).toBe(true);
+	});
+
 	it("renames a conversation and updates the store locally", async () => {
 		conversations.set([conversationItem("conv-1", "Old", 123)]);
 		vi.mocked(fetch).mockResolvedValueOnce(

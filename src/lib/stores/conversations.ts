@@ -391,7 +391,11 @@ export async function loadConversations(
 let isCreating = false;
 
 export async function createNewConversation(
-	options: { projectId?: string | null } = {},
+	options: {
+		projectId?: string | null;
+		/** Incognito, one-way — armed atomically at creation. See conversations.ts client API. */
+		memoryIncognito?: boolean;
+	} = {},
 ): Promise<string> {
 	if (isCreating) {
 		throw new Error("Please wait, a conversation is already being created.");
@@ -400,6 +404,9 @@ export async function createNewConversation(
 	isCreating = true;
 	try {
 		const conversation = await createConversation(undefined, options);
+		if (options.memoryIncognito) {
+			updateConversationMemoryIncognitoLocal(conversation.id, true);
+		}
 		return conversation.id;
 	} catch (error) {
 		console.error("Error in createNewConversation:", error);

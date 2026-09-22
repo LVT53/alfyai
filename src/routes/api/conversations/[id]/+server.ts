@@ -3,6 +3,8 @@ import { requireAuth } from "$lib/server/auth/hooks";
 import { deleteConversationWithCleanup } from "$lib/server/services/cleanup";
 import { getConversationDetail } from "$lib/server/services/conversation-detail/read-model";
 import {
+	conversationHasMessages,
+	getConversation,
 	moveConversationToProject,
 	setConversationMemoryIncognito,
 	setConversationSidebarPinned,
@@ -79,10 +81,37 @@ export const PATCH: RequestHandler = async (event) => {
 				{ status: 400 },
 			);
 		}
+
+		// Incognito, one-way (docs/plans/incognito-one-way-spec.md §1): the flag
+		// can only ever be armed, never disarmed. `false` is refused whatever
+		// the conversation's current state — there is no client path that ever
+		// sends it (the UI dropped the switch), so a request carrying it is
+		// either a stale caller or something worse, and 409 is the honest
+		// answer either way: no state changed.
+		if (body.memoryIncognito === false) {
+			return json({ error: "incognito_is_one_way" }, { status: 409 });
+		}
+
+		// `true` is only legal while the conversation has no messages yet — a
+		// message already sent may have been learned into memory before the
+		// flag could flip, and the UI never offers this path (the composer
+		// arms incognito before the conversation exists, atomically at
+		// creation). This is defence in depth for direct API callers.
+		const existing = await getConversation(user.id, id);
+		if (!existing) {
+			return json({ error: "Conversation not found" }, { status: 404 });
+		}
+		if (await conversationHasMessages(id)) {
+			return json(
+				{ error: "incognito_requires_empty_conversation" },
+				{ status: 409 },
+			);
+		}
+
 		const conversation = await setConversationMemoryIncognito(
 			user.id,
 			id,
-			body.memoryIncognito,
+			true,
 		);
 		if (!conversation) {
 			return json({ error: "Conversation not found" }, { status: 404 });

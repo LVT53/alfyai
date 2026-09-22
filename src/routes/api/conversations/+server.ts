@@ -44,6 +44,17 @@ export const POST: RequestHandler = async (event) => {
 		}
 	}
 
-	const conversation = await createConversation(user.id, title, { projectId });
+	// Incognito, one-way: a landing-page arm-before-creation choice rides in
+	// on this same request so the flag is set atomically with the row — there
+	// is never a window where the conversation exists without it, and never a
+	// follow-up PATCH racing the first send. Only `true` is meaningful here;
+	// `false`/absent both mean "not incognito" (the default), so it is simply
+	// ignored rather than rejected.
+	const memoryIncognito = body?.memoryIncognito === true ? true : undefined;
+
+	const conversation = await createConversation(user.id, title, {
+		projectId,
+		...(memoryIncognito ? { memoryIncognito } : {}),
+	});
 	return json(conversation, { status: 201 });
 };
