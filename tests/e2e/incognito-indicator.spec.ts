@@ -400,6 +400,24 @@ test.describe("Incognito, one-way — phone", () => {
 			page.locator("header").getByLabel("Incognito — not remembered"),
 		).toBeVisible();
 
+		// Adding the mask slot must not have shoved the wordmark off centre:
+		// the slot is reserved whether or not the button is drawn, and the
+		// bar's two side columns are the same width, so the middle one is
+		// centred in the header in every state.
+		const headerBox = await page.locator("header").boundingBox();
+		const wordmarkBox = await page
+			.getByTestId("mobile-header-logo")
+			.locator("xpath=..")
+			.boundingBox();
+		if (!headerBox || !wordmarkBox) throw new Error("header not measurable");
+		expect(
+			Math.abs(
+				wordmarkBox.x +
+					wordmarkBox.width / 2 -
+					(headerBox.x + headerBox.width / 2),
+			),
+		).toBeLessThanOrEqual(1);
+
 		await face.click();
 		const sheet = page.getByTestId("incognito-popover");
 		await expect(sheet).toBeVisible();
