@@ -85,6 +85,7 @@ function seedArtifact(params: {
 	userId?: string;
 	metadata?: Record<string, unknown>;
 	updatedAt?: Date;
+	summary?: string;
 }): string {
 	const id = randomUUID();
 	memory.db
@@ -102,12 +103,23 @@ function seedArtifact(params: {
 			mimeType:
 				params.type === "generated_output" ? "text/markdown" : "text/markdown",
 			contentText: params.contentText,
+			summary: params.summary ?? null,
 			metadataJson: params.metadata ? JSON.stringify(params.metadata) : null,
 			createdAt: NOW,
 			updatedAt: params.updatedAt ?? NOW,
 		})
 		.run();
 	return id;
+}
+
+/**
+ * The summary the writer derives from an artifact's own text
+ * (`guessSummary`): whitespace collapsed, first 240 characters. For a
+ * generated file that text is the memory wrapper, which is how the wrapper's
+ * ids reach the model at all.
+ */
+function storedSummaryOf(contentText: string): string {
+	return contentText.replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 function seedChunks(artifactId: string, texts: string[]) {
@@ -1053,6 +1065,16 @@ describe("readGeneratedFileContent — page mode", () => {
 	beforeEach(async () => {
 		bundleUser = `rgf-page-${randomUUID()}`;
 		seedUser(bundleUser);
+		// This block's user needs to OWN the conversation its documents sit in.
+		// Artifact reach is decided by the ownership scope — the set of the
+		// user's own conversations — and a user with no conversation row holds
+		// nothing through one, which is true of the library and now of this
+		// tool's document tier as well.
+		memory.db
+			.update(schema.conversations)
+			.set({ userId: bundleUser })
+			.where(eq(schema.conversations.id, CONVERSATION))
+			.run();
 		await seedParsedDocument();
 	});
 
@@ -1691,6 +1713,166 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 		expect(payload).not.toContain(CONVERSATION);
 		expect(payload).not.toContain("Assistant response context");
 		expect(payload).not.toContain("No readable text could be extracted");
+	});
+
+	// The `origin` clause is careful to say nothing but "from an earlier
+	// conversation" — no conversation id, no other filename. The SUMMARY went
+	// straight past it: it is `guessSummary` over the wrapper's head, so it
+	// carried the other conversation's id and the chat-file id of a file this
+	// conversation cannot open. The wrapper is model-visible content, and the
+	// returned summary is now rebuilt from a redacted copy of it.
+	it("discloses no other conversation's ids on a cross-conversation read-back", async () => {
+		const otherFileId = await seedChatFile({
+			filename: "budget.md",
+			content: "# Budget\n\nNumbers here.",
+			mimeType: "text/markdown",
+			conversationId: OTHER_CONVERSATION,
+		});
+		const wrapper = [
+			"Generated file: budget.md",
+			"File type: text/markdown",
+			`Chat file id: ${otherFileId}`,
+			`Generated in conversation: ${OTHER_CONVERSATION}`,
+			"Generated file version: v2",
+			"",
+			"Recent prior versions:",
+			`- v1 from 2026-09-01T10:00:00.000Z in conversation ${OTHER_CONVERSATION}: an earlier budget`,
+			"",
+			"Extracted file content:",
+			"# Budget\n\nNumbers here.",
+		].join("\n");
+		seedArtifact({
+			type: "generated_output",
+			name: "budget.md",
+			contentText: wrapper,
+			summary: storedSummaryOf(wrapper),
+			conversationId: OTHER_CONVERSATION,
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: otherFileId,
+				generatedFilename: "budget.md",
+				documentFamilyId: "family-budget",
+				documentLabel: "budget.md",
+				versionNumber: 2,
+			},
+		});
+
+		const result = await read({ filename: "budget.md" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.conversation).toBe("library");
+		const payload = JSON.stringify(buildReadGeneratedFileModelPayload(result));
+		expect(payload).not.toContain(otherFileId);
+		expect(payload).not.toContain(OTHER_CONVERSATION);
+		// No conversation id of any shape, anywhere in the serialised payload.
+		expect(payload).not.toMatch(/conv-[a-z0-9]/i);
+		// The clause that IS allowed to say where it came from still does.
+		expect(payload).toContain("from an earlier conversation");
+	});
+
+	// A version list that outlives the versions it names. The wrapper is
+	// written once and never revised, so it goes on offering "v1 from …" for
+	// a file whose conversation the user deleted — beside a label built from
+	// the versions that survive, which says the opposite.
+	it("lists no prior version the user can no longer open", async () => {
+		const fileId = await seedChatFile({
+			filename: "plan.md",
+			content: "# Plan v2",
+			mimeType: "text/markdown",
+		});
+		const wrapper = [
+			"Generated file: plan.md",
+			"File type: text/markdown",
+			`Chat file id: ${fileId}`,
+			`Generated in conversation: ${CONVERSATION}`,
+			"Generated file version: v2",
+			"",
+			"Recent prior versions:",
+			"- v1 from 2026-09-01T10:00:00.000Z: the first plan",
+			"",
+			"Extracted file content:",
+			"# Plan v2",
+		].join("\n");
+		seedArtifact({
+			type: "generated_output",
+			name: "plan.md",
+			contentText: wrapper,
+			summary: storedSummaryOf(wrapper),
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: fileId,
+				generatedFilename: "plan.md",
+				documentFamilyId: "family-plan",
+				documentLabel: "plan.md",
+				versionNumber: 2,
+			},
+		});
+		// v1's own artifact, orphaned by the deletion of the conversation that
+		// held it — `artifacts.conversation_id` is `ON DELETE SET NULL`.
+		seedArtifact({
+			type: "generated_output",
+			name: "plan.md",
+			contentText: "Generated file: plan.md\n\nExtracted file content:\n# Plan",
+			conversationId: null,
+			metadata: {
+				generatedFile: true,
+				documentFamilyId: "family-plan",
+				documentLabel: "plan.md",
+				versionNumber: 1,
+			},
+		});
+
+		const result = await read({ filename: "plan.md" });
+
+		expect(result.versionNumber).toBe(2);
+		expect(result.versionCount).toBe(1);
+		// The label and the list agree: one version, and it is this one.
+		expect(summarizeReadGeneratedFileResult(result)).toContain(
+			"earlier versions no longer available",
+		);
+		expect(result.summary).not.toContain("v1 from");
+		expect(result.summary).not.toContain("Recent prior versions");
+		expect(result.summary).not.toContain("the first plan");
+	});
+
+	it("leaves the summary byte-identical when nothing had to be taken out", async () => {
+		const fileId = await seedChatFile({
+			filename: "steady.md",
+			content: "# Steady",
+			mimeType: "text/markdown",
+		});
+		const wrapper = [
+			"Generated file: steady.md",
+			"File type: text/markdown",
+			`Chat file id: ${fileId}`,
+			`Generated in conversation: ${CONVERSATION}`,
+			"Generated file version: v1",
+			"",
+			"Extracted file content:",
+			"# Steady",
+		].join("\n");
+		const summary = storedSummaryOf(wrapper);
+		seedArtifact({
+			type: "generated_output",
+			name: "steady.md",
+			contentText: wrapper,
+			summary,
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: fileId,
+				generatedFilename: "steady.md",
+				documentLabel: "steady.md",
+				versionNumber: 1,
+			},
+		});
+
+		const result = await read({ filename: "steady.md" });
+
+		expect(result.conversation).toBe("this");
+		// Its own conversation's id and its own chat file's id are not a
+		// disclosure, and the stored bytes come back untouched.
+		expect(result.summary).toBe(summary);
+		expect(result.summary).toContain(`Chat file id: ${fileId}`);
 	});
 
 	it("still returns a document-source artifact's raw Markdown, which has no wrapper", async () => {

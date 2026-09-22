@@ -35,6 +35,22 @@ export const GENERATED_FILE_EXTRACT_PREVIEW_CHARS = 6000;
 export const GENERATED_FILE_EXTRACTED_CONTENT_MARKER = `\n${GENERATED_FILE_EXTRACTED_CONTENT_LABEL}\n`;
 
 /**
+ * The wrapper's two identifying lines, and the heading of its version list.
+ *
+ * They are named here for the same reason the label above is: `chat-files.ts`
+ * writes them and `read-generated-file.ts` has to be able to take them back
+ * out before the wrapper reaches a model, and two private copies of a prefix
+ * only ever match by luck.
+ */
+const CHAT_FILE_ID_LINE_PREFIX = "Chat file id: ";
+const ORIGIN_CONVERSATION_LINE_PREFIX = "Generated in conversation: ";
+const RECENT_VERSIONS_HEADING = "Recent prior versions:";
+/** `- v3 from <iso>[ in conversation <id>][: excerpt]` */
+const RECENT_VERSION_LINE = /^- v(\d+) from /;
+/** The clause a prior version carries when it lives in a DIFFERENT chat. */
+const RECENT_VERSION_LOCATION = / in conversation [^\s:]+/;
+
+/**
  * True when this text is a memory WRAPPER rather than a file's own text.
  *
  * A document-source artifact stores the rendered Markdown directly, with no
@@ -67,4 +83,89 @@ export function readGeneratedFileExtractedText(
 		return null;
 	}
 	return extracted;
+}
+
+/**
+ * The wrapper with everything a model must not be shown taken out.
+ *
+ * The wrapper is bookkeeping written for the memory pipeline, but the artifact
+ * SUMMARY is derived from its head, and the summary is handed to the model by
+ * `read_generated_file`. Two things in it stopped being harmless the day that
+ * tool learned to reach into another conversation:
+ *
+ *  - the chat-file id and the origin conversation id, which are now ANOTHER
+ *    conversation's ids — the origin clause was written to disclose nothing
+ *    beyond "from an earlier conversation", and the summary was undoing that;
+ *  - the prior-version list, which names versions by number and sometimes by
+ *    the conversation they live in, and kept listing versions whose
+ *    conversation has since been deleted — directly contradicting the
+ *    `earlier versions no longer available` label built from the reachable
+ *    ones.
+ *
+ * `reachableVersions` is that same reachable set, so the list and the label
+ * cannot disagree; `null` means it could not be established, and then no
+ * version line is dropped. `hideOrigin` is set when the file did not come from
+ * the conversation being read.
+ *
+ * Returns the text unchanged when nothing had to go, which is what keeps the
+ * ordinary same-conversation answer byte-for-byte what it always was.
+ */
+export function redactGeneratedFileMemoryWrapper(
+	text: string,
+	options: {
+		hideOrigin: boolean;
+		reachableVersions: ReadonlySet<number> | null;
+	},
+): string {
+	const lines = text.split("\n");
+	const kept: string[] = [];
+	let inVersionList = false;
+	for (const line of lines) {
+		if (
+			options.hideOrigin &&
+			(line.startsWith(CHAT_FILE_ID_LINE_PREFIX) ||
+				line.startsWith(ORIGIN_CONVERSATION_LINE_PREFIX))
+		) {
+			continue;
+		}
+		if (line === RECENT_VERSIONS_HEADING) {
+			inVersionList = true;
+			kept.push(line);
+			continue;
+		}
+		if (inVersionList) {
+			const match = RECENT_VERSION_LINE.exec(line);
+			if (!match) {
+				inVersionList = false;
+			} else {
+				const version = Number.parseInt(match[1], 10);
+				if (
+					options.reachableVersions &&
+					!options.reachableVersions.has(version)
+				)
+					continue;
+				// A surviving line still names the chat the version lives in, which
+				// is another conversation's id by definition — the clause is only
+				// written when it differs from the wrapper's own conversation.
+				kept.push(line.replace(RECENT_VERSION_LOCATION, ""));
+				continue;
+			}
+		}
+		kept.push(line);
+	}
+	return dropEmptyVersionList(kept).join("\n");
+}
+
+/**
+ * A heading with nothing under it says a list exists and then withholds it,
+ * which reads worse than no list. Drops it, and the blank line that separated
+ * it from the section above.
+ */
+function dropEmptyVersionList(lines: string[]): string[] {
+	const heading = lines.indexOf(RECENT_VERSIONS_HEADING);
+	if (heading < 0) return lines;
+	const next = lines[heading + 1];
+	if (next !== undefined && RECENT_VERSION_LINE.test(next)) return lines;
+	const from = heading > 0 && lines[heading - 1] === "" ? heading - 1 : heading;
+	return [...lines.slice(0, from), ...lines.slice(heading + 1)];
 }
