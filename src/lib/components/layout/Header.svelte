@@ -150,7 +150,7 @@ onMount(() => {
 <svelte:window onclick={handleOutsideClick} />
 
 <header
-	class="header-bar z-10 box-border grid h-[52px] w-full max-w-full flex-none grid-cols-[44px_minmax(0,1fr)_44px_44px] items-center border-b border-border bg-surface-page pl-4 pr-4 pt-[max(0.35rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:hidden"
+	class="header-bar z-10 box-border grid h-[52px] w-full max-w-full flex-none grid-cols-[88px_minmax(0,1fr)_88px] items-center border-b border-border bg-surface-page pl-4 pr-4 pt-[max(0.35rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:hidden"
 	class:stage--incognito={conversationIsIncognito}
 >
 	<div class="flex min-w-0 items-center justify-start">
@@ -186,25 +186,29 @@ onMount(() => {
 			{/if}
 		</div>
 
-	<!-- Incognito, one-way (spec §2) — the only other place the flag can be
-	     armed, mirroring the landing page's own desktop button and the same
-	     visibility rule. Reserves its 44px slot whether or not the button is
-	     drawn, so the wordmark stays where it is once a conversation exists. -->
-	<div class="flex min-w-0 items-center justify-center">
-		{#if $landingIncognitoArmVisible}
-			<button
-				class="btn-icon-bare hbtn"
-				data-testid="incognito-arm-phone"
-				onclick={armIncognito}
-				aria-label={$t('chat.incognitoArm')}
-				title={$t('chat.incognitoArm')}
-			>
-				<VenetianMask size={20} strokeWidth={1.8} aria-hidden="true" />
-			</button>
-		{/if}
-	</div>
-
 	<div class="flex min-w-0 items-center justify-end">
+
+		<!-- Incognito, one-way (spec §2) — the only other place the flag can be
+		     armed, mirroring the landing page's own desktop button and the same
+		     visibility rule. Its 44px slot is reserved whether or not the button
+		     is drawn (this column is 88px wide either way), so the wordmark
+		     stays exactly where it is once a conversation exists — and, because
+		     the side columns are the same width, stays centred in the bar. -->
+		<div class="flex items-center justify-center">
+			{#if $landingIncognitoArmVisible}
+				<button
+					class="btn-icon-bare hbtn"
+					data-testid="incognito-arm-phone"
+					onclick={armIncognito}
+					aria-label={$t('chat.incognitoArm')}
+					title={$t('chat.incognitoArm')}
+				>
+					<VenetianMask size={20} strokeWidth={1.8} aria-hidden="true" />
+				</button>
+			{:else}
+				<span class="hbtn" aria-hidden="true"></span>
+			{/if}
+		</div>
 
 		<div class="hide-on-desktop-lg">
 			<button
