@@ -915,7 +915,11 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 	/* ── The incognito arm button (spec §2) ──────────────────────────────
 	   The only place the flag can be armed: a 40px round icon button,
 	   top-right of the stage, gone the instant a conversation exists by any
-	   route (tapped, or an attachment creating one first). */
+	   route (tapped, or an attachment creating one first). Below the same
+	   1024px ("lg") breakpoint Header.svelte's own `lg:hidden` phone bar
+	   uses, the phone header draws its own mask button in that bar instead
+	   — this one steps aside there rather than drawing a second, redundant
+	   control the mockup never shows both of at once. */
 	.incognito-arm-wrap {
 		position: absolute;
 		top: 18px;
@@ -925,6 +929,12 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 		flex-direction: column;
 		align-items: flex-end;
 		gap: 8px;
+	}
+
+	@media (max-width: 1023px) {
+		.incognito-arm-wrap {
+			display: none;
+		}
 	}
 
 	.incognito-arm {

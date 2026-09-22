@@ -272,6 +272,10 @@ test.describe("Incognito, one-way — phone", () => {
 	}) => {
 		const headerButton = page.getByTestId("incognito-arm-phone");
 		await expect(headerButton).toBeVisible();
+		// The desktop-style corner button steps aside below the same 1024px
+		// breakpoint the phone header itself uses — the mockup never shows
+		// both controls at once.
+		await expect(page.getByTestId("incognito-arm")).not.toBeVisible();
 
 		await headerButton.click();
 		await expect(headerButton).toHaveCount(0);
