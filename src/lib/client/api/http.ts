@@ -1,3 +1,9 @@
+import { isSessionExpiredResponse } from "$lib/session-expiry";
+import {
+	markSessionExpired,
+	observeSessionFromResponse,
+} from "$lib/stores/session";
+
 export type FetchLike = (
 	input: RequestInfo | URL,
 	init?: RequestInit,
@@ -78,31 +84,45 @@ const LOGIN_PATH = "/login";
  * The distinction is not academic. `/api/auth/login` answers 401 with "Invalid
  * email or password", and the settings routes that re-ask for the password
  * before a destructive action answer 401 with "Incorrect password" — inside a
- * perfectly good session. Bouncing the user to the login screen because they
- * mistyped their password in a confirmation dialog would be worse than the bug
- * this fixes.
+ * perfectly good session. Raising the "you have been signed out" row because
+ * the user mistyped their password in a confirmation dialog would be worse
+ * than the bug this fixes.
  *
- * Every SESSION gate in the app, by contrast, says exactly "Unauthorized": the
- * hook's own `{"error":"Unauthorized"}`, the routes' `json({error:
- * "Unauthorized"})` / `createJsonErrorResponse("Unauthorized", 401)`, and
- * `requireApiUser`'s `error(401, "Unauthorized")` (which serializes as
- * `{"message":"Unauthorized"}` — `readErrorPayload` reads both keys). Matching
- * on that is deliberately conservative: if a gate ever stops saying it, the
- * caller still gets its `ApiError` and shows it, which is only ever today's
- * behaviour, never a spurious redirect.
+ * Two signals say "session", and either one is enough:
+ *
+ *  - `x-session-expired: 1`, which the request gate in `hooks.server.ts` puts
+ *    on its own refusal. This is the primary discriminator: it is readable
+ *    without consuming the body, so the same check works for a JSON endpoint,
+ *    an SSE stream and the download probe, and a credential 401 can never
+ *    carry it by accident.
+ *  - the message "Unauthorized" — what every session gate INSIDE a route says:
+ *    `json({error: "Unauthorized"})`, `createJsonErrorResponse("Unauthorized",
+ *    401)` and `requireApiUser`'s `error(401, "Unauthorized")` (which
+ *    serializes as `{"message":"Unauthorized"}` — `readErrorPayload` reads both
+ *    keys). Those refusals never reach the hook, so they have no header to
+ *    carry; matching the word keeps them covered.
+ *
+ * Deliberately conservative in both directions: an unrecognised 401 is still
+ * surfaced as an `ApiError` and shown, which is only ever the old behaviour.
  */
-function isSessionExpiry(status: number, message: string): boolean {
-	return status === 401 && message.trim().toLowerCase() === "unauthorized";
+function isSessionExpiry(
+	status: number,
+	message: string,
+	response?: SessionSignal | null,
+): boolean {
+	if (status !== 401) return false;
+	if (isSessionExpiredResponse(response)) return true;
+	return message.trim().toLowerCase() === "unauthorized";
 }
 
 /**
- * The single in-flight navigation. Not a permanent latch: it is cleared when
- * the navigation settles, so signing in again re-arms the handling. Between
- * being set and settling it absorbs every other 401 — a page with a poller
- * running, an evidence fetch and a conversation refresh can produce a handful
- * at once, and they must produce ONE navigation.
+ * Just enough of a `Response` for the header check. Loose on purpose: the
+ * hand-rolled fakes in the client tests may carry no `headers` at all.
  */
-let pendingSessionExpiry: Promise<void> | null = null;
+type SessionSignal = {
+	status: number;
+	headers?: { get(name: string): string | null } | null;
+};
 
 /**
  * The app's one reaction to an expired session.
@@ -114,48 +134,44 @@ let pendingSessionExpiry: Promise<void> | null = null;
  * that existed (the extraction poller's) never fired. Now that the hook answers
  * 401, this is where the client acts on it.
  *
- * The loop defences, in order:
- *  - on the login page this does nothing, so the 401 that a wrong password
- *    produces never navigates;
- *  - `pendingSessionExpiry` collapses a burst into one navigation;
- *  - after it lands, `window.location.pathname` is already /login, so every
- *    later 401 — from a poller whose component has not torn down yet, from an
- *    in-flight request that resolves after the fact — is a no-op.
- * Background pollers therefore cannot cause a redirect storm even though they
- * go through this same path. The extraction poller additionally stops itself
- * for good on 401/403; that behaviour is unchanged and still wanted.
+ * The reaction is to raise the shell's signed-out row, NOT to navigate. Yanking
+ * the tab to /login the moment a background poller is refused would throw away
+ * whatever the user was in the middle of — a half-written message, an open
+ * document — for a condition that another tab signing in can heal on its own.
+ * The row says what happened and offers the way back; `markSessionExpired` is
+ * idempotent for the row and throttles the announcement, so a burst of refused
+ * calls is one row and one toast rather than a storm.
  *
- * `goto` is imported lazily so that merely importing this module does not pull
- * in SvelteKit's navigation runtime on the server or in a unit test.
+ * `observed()` below already reports every response the helpers see, header and
+ * all. This path exists for the second signal — a route's own "Unauthorized",
+ * which has no header — and for the callers that read an error body themselves.
+ *
+ * On /login there is no shell and so no row, and a wrong password there must
+ * not leave a verdict behind for the page the user lands on next.
  */
-function noteSessionExpiry(status: number, message: string): void {
-	if (!isSessionExpiry(status, message)) return;
+function noteSessionExpiry(
+	status: number,
+	message: string,
+	response?: SessionSignal | null,
+): void {
+	if (!isSessionExpiry(status, message, response)) return;
 	if (typeof window === "undefined") return;
-	if (pendingSessionExpiry) return;
 	if (window.location.pathname === LOGIN_PATH) return;
-
-	pendingSessionExpiry = (async () => {
-		const { goto } = await import("$app/navigation");
-		await goto(LOGIN_PATH, { invalidateAll: true });
-	})()
-		.catch(() => {
-			// No SPA router to hand this to (or it refused). A full load reaches
-			// the login screen from anywhere and throws away the stale client
-			// state on the way.
-			window.location.assign(LOGIN_PATH);
-		})
-		.finally(() => {
-			pendingSessionExpiry = null;
-		});
+	markSessionExpired();
 }
 
 /**
  * Report a 401 that did not come through this module's helpers. The streaming
  * client (`$lib/services/streaming.ts`) builds its own `fetch` and reads its
- * own error body, so it calls this to get the same one-navigation behaviour.
+ * own error body, so it calls this to reach the same verdict. Pass the response
+ * when there is one, so the gate's header is read rather than only its message.
  */
-export function reportAuthFailure(status: number, message: string): void {
-	noteSessionExpiry(status, message);
+export function reportAuthFailure(
+	status: number,
+	message: string,
+	response?: SessionSignal | null,
+): void {
+	noteSessionExpiry(status, message, response);
 }
 
 function performRequest(
@@ -164,6 +180,19 @@ function performRequest(
 	init: RequestInit | undefined,
 ): Promise<Response> {
 	return init === undefined ? fetchImpl(input) : fetchImpl(input, init);
+}
+
+/**
+ * Report what the response says about this tab's session, and hand it straight
+ * back. Called by each helper below on a response it has already awaited —
+ * deliberately not folded into `performRequest`, because turning that into an
+ * `async` function (or chaining a `.then` onto it) would put an extra microtask
+ * between `fetch` resolving and the caller seeing it. Component code that
+ * renders after one `await tick()` is sensitive to exactly that.
+ */
+function observed(response: Response): Response {
+	observeSessionFromResponse(response);
+	return response;
 }
 
 async function throwRequestError(
@@ -199,13 +228,19 @@ type ErrorPayload = {
  * `throwRequestError`, and the three `requestResponse` callers that build their
  * own errors call it directly — so noticing an expired session here covers
  * every interactive API call the app makes, without a branch in each helper.
+ * The two raw-`fetch` call sites that bypass the helpers entirely
+ * (`preview-runtime`, `DocumentsList`) call it for the same reason.
+ *
+ * The response goes in alongside the message: the gate's header is the
+ * discriminator, and a caller that reached here with a raw `fetch` has had no
+ * other chance to report it.
  */
 export async function readErrorPayload(
 	response: Response,
 	fallback: string,
 ): Promise<ErrorPayload> {
 	const payload = await parseErrorPayload(response, fallback);
-	noteSessionExpiry(response.status, payload.message);
+	noteSessionExpiry(response.status, payload.message, response);
 	return payload;
 }
 
@@ -286,7 +321,7 @@ export async function requestJson<T>(
 	errorMessage: string,
 	fetchImpl: FetchLike = fetch,
 ): Promise<T> {
-	const response = await performRequest(fetchImpl, input, init);
+	const response = observed(await performRequest(fetchImpl, input, init));
 	if (!response.ok) {
 		await throwRequestError(response, errorMessage);
 	}
@@ -306,7 +341,7 @@ export async function requestVoid(
 	errorMessage: string,
 	fetchImpl: FetchLike = fetch,
 ): Promise<void> {
-	const response = await performRequest(fetchImpl, input, init);
+	const response = observed(await performRequest(fetchImpl, input, init));
 	if (!response.ok) {
 		await throwRequestError(response, errorMessage);
 	}
@@ -317,7 +352,7 @@ export async function requestResponse(
 	init: RequestInit | undefined,
 	fetchImpl: FetchLike = fetch,
 ): Promise<Response> {
-	return performRequest(fetchImpl, input, init);
+	return observed(await performRequest(fetchImpl, input, init));
 }
 
 export async function requestText(
@@ -326,7 +361,7 @@ export async function requestText(
 	errorMessage: string,
 	fetchImpl: FetchLike = fetch,
 ): Promise<string> {
-	const response = await performRequest(fetchImpl, input, init);
+	const response = observed(await performRequest(fetchImpl, input, init));
 	if (!response.ok) {
 		await throwRequestError(response, errorMessage);
 	}

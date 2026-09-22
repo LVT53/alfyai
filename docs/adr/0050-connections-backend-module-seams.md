@@ -142,14 +142,51 @@ Verified live post-deploy: unauth `/api/connections` → 303; authenticated → 
 
 **Follow-up landed:** the hook change named above has been made. `src/hooks.server.ts` now
 answers an unauthenticated request whose path starts with `/api/` with **401 JSON**
-(`{"error":"Unauthorized"}`) instead of the 303; page requests keep the 303 to `/login`,
-and `PUBLIC_PATHS` is unchanged. So an unauth `/api/connections` call is now a **401 from
-the hook**, matching the shape `requireApiUser` produces at the handler level. One
-exception keeps the friendly behaviour for the `/api/` URLs a person actually looks at —
-the OAuth callbacks, and download/preview links opened in a tab: a request the browser
-marks as a top-level navigation (`Sec-Fetch-Mode: navigate`, or `Sec-Fetch-Dest:
-document`/`iframe`; absent those headers, an explicit `text/html` in `Accept` on a GET or
-HEAD) still gets the 303, and page script cannot forge those headers for its own `fetch`.
+instead of the 303; page requests keep the 303 to `/login`, and `PUBLIC_PATHS` is
+unchanged. So an unauth `/api/connections` call is now a **401 from the hook**, matching
+the shape `requireApiUser` produces at the handler level. One exception keeps the friendly
+behaviour for the `/api/` URLs a person actually looks at — the OAuth callbacks, and
+download/preview links opened in a tab: a request the browser marks as a top-level
+navigation (`Sec-Fetch-Mode: navigate`, or `Sec-Fetch-Dest: document`/`iframe`; absent
+those headers, an explicit `text/html` in `Accept` on a GET or HEAD) still gets the 303,
+and page script cannot forge those headers for its own `fetch`.
+
+**The refusal's exact shape** (`src/lib/session-expiry.ts` holds the constants; pinned by
+`src/hooks.server.test.ts` and `tests/e2e/auth.spec.ts`):
+
+- `401` with `{"error": "<a sentence>", "code": "session_expired"}` — the same `{error}`
+  body shape and the same `json()` helper the routes' own 401 branches use, so a caller
+  that only reads `error` handles both identically. The sentence, rather than the bare
+  word `Unauthorized`, is what every error surface in the app shows verbatim when it has
+  nothing better.
+- `x-session-expired: 1` — **the discriminator**. It is readable without consuming the
+  body, so one check covers JSON endpoints, SSE streams and the download probe alike, and
+  it can never be confused with the app's credential 401s (a wrong password on the login
+  form, a wrong current password in Settings), which are about credentials just typed.
+- `Cache-Control: private, no-store` — a refusal is true of one moment and one cookie.
+- No `WWW-Authenticate`: this app has no HTTP auth scheme, and nothing in the repo sends
+  that header.
+
+Page navigations keep their 303, marked `/login?session=expired` when the browser arrived
+holding a cookie the server would not accept, so the login screen can say why it is
+showing.
+
+**The browser's half.** `src/lib/stores/session.ts` holds the verdict. Both transports
+report into it — `client/api/http.ts` for every API module (`observed()` on every
+response, and `readErrorPayload` → `noteSessionExpiry` on every failed one) and
+`services/streaming.ts` for the chat stream, which does not go through the first — as do
+the call sites that bypass the helpers: the download probe in `$lib/client/downloads`, the
+document-workspace preview runtime, and `DocumentsList`'s AI-version expander.
+`isSessionExpiry` accepts **either** signal: the header, or the message `Unauthorized`,
+which is what a session gate *inside a route* says (`requireApiUser`'s `error(401,
+"Unauthorized")` serializes as `{"message":"Unauthorized"}`) and which never reaches the
+hook, so it has no header to carry.
+
+The reaction is the shell's signed-out row (`SessionExpiredNotice`) plus one throttled
+announcement — **not** a navigation. Yanking the tab to `/login` because a background
+poller was refused would throw away whatever the user was in the middle of, for a
+condition another tab signing in can heal: a request that succeeds clears the verdict
+again. The row carries the way back, and its button is what navigates.
 
 **Note:** `mapConnectError` duck-types on `.code` rather than assuming every provider error
 extends `ConnectionHttpError` — `ImapError` extends `Error` (IMAP was out of B1's scope).

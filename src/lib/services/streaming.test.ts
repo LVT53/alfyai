@@ -1168,6 +1168,38 @@ describe("streamChat", () => {
 		expect(cb.onEnd).not.toHaveBeenCalled();
 	});
 
+	it("raises the session row when the gate refuses the send", async () => {
+		const { clearSessionExpiry, isSessionExpired } = await import(
+			"$lib/stores/session"
+		);
+		const { SESSION_EXPIRED_CODE, SESSION_EXPIRED_HEADER } = await import(
+			"$lib/session-expiry"
+		);
+		clearSessionExpiry();
+
+		const { callbacks: cb, done } = runStreamWithMockedResponse({
+			response: new Response(
+				JSON.stringify({ error: "expired", code: SESSION_EXPIRED_CODE }),
+				{
+					status: 401,
+					headers: {
+						"Content-Type": "application/json",
+						[SESSION_EXPIRED_HEADER]: "1",
+					},
+				},
+			),
+			callbacks: makeCallbacks(),
+		});
+		await done;
+
+		// This transport does not go through client/api/http.ts, so it has to
+		// report the refusal itself — otherwise a send on an expired session
+		// would only ever show up as one failed turn.
+		expect(isSessionExpired()).toBe(true);
+		expect(cb.onError).toHaveBeenCalledOnce();
+		clearSessionExpiry();
+	});
+
 	it("calls onError when response is not ok", async () => {
 		const serverTimingHeader = "route_parse;dur=2.0, preflight;dur=4.5";
 		const { callbacks: cb, done } = runStreamWithMockedResponse({

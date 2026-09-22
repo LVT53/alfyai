@@ -167,6 +167,14 @@ const commonDict = {
 			"The server was updated. Refresh when you're ready to load the latest version.",
 		"serverUpdate.refresh": "Refresh",
 		"serverUpdate.title": "Update available",
+		"sessionExpired.action": "Sign in again",
+		"sessionExpired.alert":
+			"Your session has expired. Sign in again to continue.",
+		"sessionExpired.description":
+			"Your session has expired, so your chats, models and files are out of reach until you sign in again.",
+		"sessionExpired.loginNotice":
+			"Your session has expired. Sign in again to pick up where you left off.",
+		"sessionExpired.title": "You have been signed out",
 		settings: "Settings",
 		"settings.systemDefaultModel": "System default",
 		"settings.systemDefaultModelResolved": "System default: {model}",
@@ -455,6 +463,14 @@ const commonDict = {
 			"A szerver frissült. Frissítsd az oldalt, amikor készen állsz a legújabb verzió betöltésére.",
 		"serverUpdate.refresh": "Frissítés",
 		"serverUpdate.title": "Frissítés érhető el",
+		"sessionExpired.action": "Bejelentkezés újra",
+		"sessionExpired.alert":
+			"A munkameneted lejárt. A folytatáshoz jelentkezz be újra.",
+		"sessionExpired.description":
+			"A munkameneted lejárt, ezért a beszélgetéseid, modelljeid és fájljaid nem érhetők el, amíg újra be nem jelentkezel.",
+		"sessionExpired.loginNotice":
+			"A munkameneted lejárt. Jelentkezz be újra, hogy ott folytasd, ahol abbahagytad.",
+		"sessionExpired.title": "Kiléptettünk a fiókodból",
 		settings: "Beállítások",
 		"settings.systemDefaultModel": "Rendszer alapértelmezése",
 		"settings.systemDefaultModelResolved": "Rendszer alapértelmezése: {model}",
