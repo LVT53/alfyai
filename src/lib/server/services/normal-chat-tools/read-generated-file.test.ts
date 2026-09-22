@@ -2534,5 +2534,185 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			expect(result.notFound).toBe(true);
 			expect(result.candidates).toEqual([]);
 		});
+
+		// The redaction used to work by LINE PREFIX, and a wrapper nests. Each
+		// prior version's line carried an excerpt built from that version's own
+		// SUMMARY — which is `guessSummary` over its wrapper, so it opens with
+		// `Chat file id: <uuid>` and `Generated in conversation: <uuid>`
+		// flattened onto one line, where no prefix reaches them. Live, another
+		// conversation's chat-file id reached the model that way, and the
+		// conversation id was one short filename away from fitting into the
+		// 240-character summary too — which is why both filename lengths are
+		// exercised here.
+		//
+		// So the assertion is not "this string is absent" but the whole rule:
+		// serialise EVERYTHING the tool hands back and let no uuid in it belong
+		// to another conversation or to another conversation's file.
+		describe("no id of another conversation survives anywhere in the result", () => {
+			/** Every uuid the serialised result mentions, in any position. */
+			function uuidsIn(text: string): string[] {
+				return (
+					text.match(
+						/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+					) ?? []
+				).map((uuid) => uuid.toLowerCase());
+			}
+
+			/**
+			 * A prior version as the OLD writer left it in the wrapper: its own
+			 * summary, whitespace collapsed and clipped, flattened onto the line.
+			 * The live shape, reproduced so the fix is proved against it rather
+			 * than against a tidied-up version of the bug.
+			 */
+			function flattenedVersionLine(params: {
+				version: number;
+				conversationId: string;
+				summary: string;
+			}): string {
+				const preview = params.summary.replace(/\s+/g, " ").trim().slice(0, 220);
+				return `- v${params.version} from 2026-09-0${params.version}T10:00:00.000Z in conversation ${params.conversationId}: ${preview}`;
+			}
+
+			async function seedFamilyAcrossConversations(filename: string) {
+				// Three conversations with real uuid ids, none of them the one
+				// doing the reading: two holding a prior version, one holding the
+				// version that answers.
+				const older = randomUUID();
+				const previous = randomUUID();
+				const holder = randomUUID();
+				for (const id of [older, previous, holder]) {
+					seedConversation(id, USER);
+				}
+
+				const versionWrapper = (params: {
+					conversationId: string;
+					fileId: string;
+					version: number;
+					body: string;
+					priorVersions?: string[];
+				}) =>
+					[
+						`Generated file: ${filename}`,
+						"File type: text/markdown",
+						`Chat file id: ${params.fileId}`,
+						`Generated in conversation: ${params.conversationId}`,
+						`Generated file version: v${params.version}`,
+						...(params.priorVersions?.length
+							? ["", "Recent prior versions:", ...params.priorVersions]
+							: []),
+						"",
+						"Assistant response context:",
+						"Here is the updated file.",
+						"",
+						"Extracted file content:",
+						params.body,
+					].join("\n");
+
+				const seedVersion = async (params: {
+					conversationId: string;
+					version: number;
+					body: string;
+					priorVersions?: string[];
+				}) => {
+					const fileId = await seedChatFile({
+						filename,
+						content: params.body,
+						mimeType: "text/markdown",
+						conversationId: params.conversationId,
+						createdAt: new Date(`2026-09-0${params.version}T10:00:00.000Z`),
+					});
+					const wrapper = versionWrapper({ ...params, fileId });
+					seedArtifact({
+						type: "generated_output",
+						name: filename,
+						contentText: wrapper,
+						summary: storedSummaryOf(wrapper),
+						conversationId: params.conversationId,
+						updatedAt: new Date(`2026-09-0${params.version}T10:00:00.000Z`),
+						metadata: {
+							generatedFile: true,
+							originalChatFileId: fileId,
+							generatedFilename: filename,
+							documentFamilyId: "family-crossconv",
+							documentLabel: filename,
+							versionNumber: params.version,
+						},
+					});
+					return { fileId, wrapper };
+				};
+
+				const v1 = await seedVersion({
+					conversationId: older,
+					version: 1,
+					body: "# First cut\n\nThe first numbers.",
+				});
+				const v2 = await seedVersion({
+					conversationId: previous,
+					version: 2,
+					body: "# Second cut\n\nBetter numbers.",
+				});
+				const v3 = await seedVersion({
+					conversationId: holder,
+					version: 3,
+					body: "# Third cut\n\nFinal numbers.",
+					priorVersions: [
+						flattenedVersionLine({
+							version: 1,
+							conversationId: older,
+							summary: v1.wrapper,
+						}),
+						flattenedVersionLine({
+							version: 2,
+							conversationId: previous,
+							summary: v2.wrapper,
+						}),
+					],
+				});
+
+				return {
+					foreignIds: [
+						older,
+						previous,
+						holder,
+						v1.fileId,
+						v2.fileId,
+						v3.fileId,
+					].map((id) => id.toLowerCase()),
+				};
+			}
+
+			it.each([
+				["a short filename", "q3.md"],
+				[
+					"a long filename",
+					"quarterly-revenue-and-headcount-review-2026-final.md",
+				],
+			])("%s", async (_label, filename) => {
+				const { foreignIds } = await seedFamilyAcrossConversations(filename);
+
+				const result = await read({ filename });
+
+				expect(result.notFound).toBe(false);
+				expect(result.conversation).toBe("library");
+				// The file's own text still comes back; this is a redaction, not
+				// a refusal.
+				expect(result.contentText).toContain("Final numbers");
+
+				const serialised = JSON.stringify({
+					result,
+					modelPayload: buildReadGeneratedFileModelPayload(result),
+					summaryLine: summarizeReadGeneratedFileResult(result),
+					// The compacted form a later turn carries in its history.
+					digest: deriveToolResultDigest(
+						buildReadGeneratedFileModelPayload(result),
+					),
+				});
+				for (const uuid of uuidsIn(serialised)) {
+					expect(foreignIds).not.toContain(uuid);
+				}
+				// And the clause that IS allowed to place the file still does.
+				expect(serialised).toContain("from an earlier conversation");
+			});
+		});
 	});
 });

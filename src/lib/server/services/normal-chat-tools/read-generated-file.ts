@@ -810,6 +810,33 @@ async function listReachableFamilyVersions(params: {
 }
 
 /**
+ * Every uuid this conversation is allowed to say out loud: its own id, and the
+ * ids of the chat files it produced itself.
+ *
+ * It is the allow-list the wrapper redaction sweeps against, so that an id
+ * belonging to some OTHER conversation is removed wherever it appears rather
+ * than only on the two lines that carry one by convention. Pinned to this
+ * conversation, so it can never widen into a cross-conversation read of its own.
+ */
+async function listConversationDisclosableIds(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<Set<string>> {
+	const rows = await db
+		.select({ id: chatGeneratedFiles.id })
+		.from(chatGeneratedFiles)
+		.where(
+			and(
+				eq(chatGeneratedFiles.userId, params.userId),
+				eq(chatGeneratedFiles.conversationId, params.conversationId),
+			),
+		);
+	const ids = new Set<string>([params.conversationId.toLowerCase()]);
+	for (const row of rows) ids.add(row.id.toLowerCase());
+	return ids;
+}
+
+/**
  * The artifact summary as the MODEL may see it.
  *
  * A generated file's stored summary is `guessSummary` over the memory
@@ -825,6 +852,7 @@ function modelVisibleSummary(params: {
 	row: ArtifactRow | null;
 	hideOrigin: boolean;
 	reachableVersions: ReadonlySet<number> | null;
+	ownIds: ReadonlySet<string> | null;
 }): string | null {
 	const stored = params.row?.summary?.trim() ?? null;
 	const wrapper = params.row?.contentText ?? null;
@@ -834,6 +862,7 @@ function modelVisibleSummary(params: {
 	const redacted = redactGeneratedFileMemoryWrapper(wrapper, {
 		hideOrigin: params.hideOrigin,
 		reachableVersions: params.reachableVersions,
+		ownIds: params.ownIds,
 	});
 	if (redacted === wrapper) return stored;
 	return guessSummary(redacted, redacted).trim() || null;
@@ -2358,6 +2387,10 @@ export async function readGeneratedFileContent(params: {
 	const familyCount = versionNumber
 		? (reachableVersions?.size ?? versionNumber)
 		: null;
+	// Only a wrapper can carry an id, and only then is the sweep worth a query.
+	const ownIds = isGeneratedFileMemoryWrapper(row?.contentText ?? null)
+		? await listConversationDisclosableIds(params)
+		: null;
 
 	const base: ReadGeneratedFileResult = {
 		filename: displayName,
@@ -2370,6 +2403,7 @@ export async function readGeneratedFileContent(params: {
 			row,
 			hideOrigin: conversation === "library",
 			reachableVersions,
+			ownIds,
 		}),
 		mimeType: describedFile?.mimeType ?? row?.mimeType ?? null,
 		contentLength,

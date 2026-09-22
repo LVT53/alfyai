@@ -16,6 +16,10 @@ import {
 	conversations,
 } from "$lib/server/db/schema";
 import {
+	isGeneratedFileMemoryWrapper,
+	readGeneratedFileExtractedText,
+} from "$lib/server/services/extraction/generated-file-memory-format";
+import {
 	buildGeneratedFileExtractedContentSection,
 	ensureGeneratedFileReadbackSinkRegistered,
 } from "$lib/server/services/extraction/readback";
@@ -84,7 +88,11 @@ interface GeneratedFileVersionRecord {
 	artifactId: string;
 	version: number;
 	updatedAt: number;
-	summary: string | null;
+	/**
+	 * The version's stored text. There is deliberately no `summary` beside it:
+	 * a generated file's summary IS its memory wrapper's head, ids and all, and
+	 * a field that exists is a field the next excerpt builder will reach for.
+	 */
 	contentText: string | null;
 	conversationId: string | null;
 	documentFamilyId: string | null;
@@ -97,12 +105,31 @@ function buildGeneratedFileArtifactName(filename: string): string {
 	return filename;
 }
 
+/**
+ * What a prior version's line says about that version, beyond the structured
+ * facts around it (its number, its date, the family's filename).
+ *
+ * The file's own CONTENT, and nothing else. It used to prefer the stored
+ * SUMMARY, which for a generated file is `guessSummary` over that version's
+ * own memory wrapper — so it began with `Chat file id: <uuid>` and
+ * `Generated in conversation: <uuid>`, and flattening it onto this one line
+ * carried both ids into the wrapper being written now. The read-back redaction
+ * strips those two lines BY PREFIX, which a nested copy on a `- v1 from …`
+ * line never matches, and live an incognito conversation's chat-file id
+ * reached the model that way.
+ *
+ * So the ids are removed structurally rather than textually: a version line is
+ * built from fields that cannot contain one. A wrapper's extracted section is
+ * the file's text; anything else stored here is already the text itself.
+ */
 function buildGeneratedFileVersionExcerpt(
 	version: GeneratedFileVersionRecord,
 ): string | null {
-	const summarySnippet = previewText(version.summary, 220);
-	const contentSnippet = previewText(version.contentText, 320);
-	return summarySnippet ?? contentSnippet;
+	const stored = version.contentText;
+	const fileText = isGeneratedFileMemoryWrapper(stored)
+		? readGeneratedFileExtractedText(stored)
+		: stored;
+	return previewText(fileText, 320);
 }
 
 function buildGeneratedFileMemoryContent(params: {
@@ -180,7 +207,6 @@ async function listRecentGeneratedFileVersions(
 			id: artifacts.id,
 			name: artifacts.name,
 			conversationId: artifacts.conversationId,
-			summary: artifacts.summary,
 			contentText: artifacts.contentText,
 			metadataJson: artifacts.metadataJson,
 			updatedAt: artifacts.updatedAt,
@@ -256,7 +282,6 @@ async function listRecentGeneratedFileVersions(
 					? storedVersion
 					: matchingRows.length - index,
 			updatedAt: row.updatedAt.getTime(),
-			summary: row.summary ?? null,
 			contentText: row.contentText ?? null,
 			conversationId: row.conversationId ?? null,
 			documentFamilyId: documentMetadata.documentFamilyId ?? null,
