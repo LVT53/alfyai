@@ -38,7 +38,7 @@ Node 26 breaks `better-sqlite3`. Stage files by explicit path; never `git add -A
 | D9 | **One slice (S0) owns every hot config and schema file for both phases** | `env.ts`, `config-store.ts`, `admin-config-registry.ts`, `i18n/settings.ts`, `schema.ts`, `drizzle/**` and `drizzle/meta/_journal.json` are each touched by Phase 2 *and* Phase 4. One owner, one journal edit, two migrations in that owner's hands. |
 | D10 | MinerU config keys become **dual-registered**: they keep their Integrations page rows *and* gain `AdminConfigKeySpec` entries | Today they are "path B" and skip `validateAdminConfigValue` entirely — `MINERU_TIMEOUT_MS: "abc"` is stored in `admin_config` and silently never applied. `ATLAS_PIPELINE` is the existing precedent for a key that is in `NAMED_PAGE_KEYS` *and* has a spec (`AdvancedPage.svelte:41-43` filters on `pageForKey(spec.key) === "advanced"`, so it renders once). §2.10. |
 | D11 | Page citations are emitted only for `page_count_kind ∈ {physical, slide, sheet, spine}` | DOCX reports `page_count: 1, kind: "declared"` for a four-heading document and CSV/HTML report `logical`. Citing "p. 1" there is a lie. §4.7. |
-| D12 | No automatic backfill of existing library documents | They stay valid and readable; `metadata.extractionProducer` is absent on every legacy row, which is the identifying marker. A user-initiated "Re-extract" is the only path. §4.10. |
+| D12 | No automatic backfill of existing library documents | They stay valid and readable; `metadata.extractionProducer` is absent on every legacy row, which is the identifying marker. A user-initiated "Re-extract" is the only path. §4.10. **Decided (2026-09-22):** an *operator-run* backfill exists after all — `scripts/backfill-extractions.ts`, run once by hand after the production cutover, not automatic and not triggered by anything in the app. It walks every `source_document`, not just the ones a user happens to click "Re-extract" on, through the exact same service path. See [docs/uploads.md](../../uploads.md#backfilling-a-library-after-a-mineru-upgrade). |
 
 ---
 
@@ -2215,7 +2215,7 @@ of the data mechanically.
   therefore no bundle; it keeps consuming `text` only (§4.4).
 - **`middle_json` consumers.** HTML tables and `styles:["bold"]` are downloaded (free, inside the zip) and
   discarded. No feature reads them.
-- **Backfilling existing documents** (D12), and **any change to the small-file chunking bypass**, the
+- **Backfilling existing documents** (D12 — decided, and shipped, after this spec: see the D12 note above), and **any change to the small-file chunking bypass**, the
   embedding substrate, `syncArtifactChunks`'s delete-then-insert contract, or the
   `WORKING_SET_*_TOKEN_BUDGET` values.
 - **A second HTTP protocol.** There is no dual-mode client and no 3.x fallback (D3). If MinerU 4 is

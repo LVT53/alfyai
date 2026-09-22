@@ -969,6 +969,9 @@ describe("schema core tables", () => {
 			});
 			expect(byName.get("remote_handle_json")).toMatchObject({ notnull: 0 });
 			expect(byName.get("hints_json")).toMatchObject({ notnull: 0 });
+			// Nullable, and never cleared on success (unlike `hints_json`) — see
+			// `scripts/backfill-extractions.ts`, the one writer.
+			expect(byName.get("requested_by")).toMatchObject({ notnull: 0 });
 			expect(byName.get("next_attempt_at")).toMatchObject({ notnull: 0 });
 			expect(byName.get("cancel_requested_at")).toMatchObject({ notnull: 0 });
 			expect(byName.get("created_at")).toMatchObject({ notnull: 1 });

@@ -340,6 +340,108 @@ artifact is NEVER swept when it still has a conversation, when an `artifact_link
 to a conversation or message that still exists, when it belongs to a document family with any
 reachable member, or when its chat file row and its bytes both survive.
 
+### Backfilling a library after a MinerU upgrade
+
+Every document parsed before this app spoke MinerU 4 has flat text chunks: no page numbers, no
+outline, no figures — `metadata.extractionProducer` is simply absent on its normalized artifact,
+which is how a "legacy" document is told apart from one MinerU 4 produced (D12,
+[phase2-4-mineru-client-spec.md](plans/mineru4/phase2-4-mineru-client-spec.md)). The app never
+backfills these on its own: the only user-facing path back is "Re-extract" on the Knowledge list,
+one document at a time.
+
+`scripts/backfill-extractions.ts` is the operator-run equivalent for a whole library. It walks
+every `source_document` artifact (knowledge-page uploads AND chat-attachment documents — both live
+in the one `artifacts` table and differ only by whether `conversation_id` is set, and both go
+through the identical extraction ledger, so both are in scope), and for every one whose shared
+file-type registry route is `mineru` and whose stored file still exists on disk, it re-extracts it
+through the **exact same service path** the Knowledge list's "Re-extract" row action uses
+(`materializeLegacyExtractionJob` + `requeueExtractionJobForReextraction` in
+[`src/lib/server/services/extraction/`](../src/lib/server/services/extraction/)) — so the replace
+path, its atomicity, and its embedding refresh are exactly what a user gets from that button, not a
+second implementation of it. A document's id, title and conversation attachments never change; its
+chunks, outline and page index are rebuilt only once the new parse succeeds — a document that is
+skipped, or whose re-extraction fails, keeps its old content exactly as it was.
+
+`--dry-run` is the DEFAULT: with no `--apply`, nothing is enqueued and the script only reports what
+it would do — counts per intake route, per file type, per user, total bytes, and every exclusion
+with its reason (already at the requested tier, already in flight, the file is missing on disk, or
+the type is `reject`-routed and unsupported today).
+
+```
+# ALWAYS first. Reports what would happen; enqueues nothing.
+DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts
+
+# A first careful batch.
+DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --apply --limit 20
+
+# The rest, once the first batch looks right.
+DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --apply
+
+# Progress, any time.
+DATABASE_PATH=./data/chat.db npx tsx scripts/backfill-extractions.ts --status
+```
+
+On the box, after the production cutover:
+
+```bash
+cd /home/alfydesign/apps/langflow-chat/current && \
+  DATABASE_PATH=/home/alfydesign/apps/langflow-chat/shared/data/chat.db \
+  npx tsx scripts/backfill-extractions.ts --apply
+```
+
+(`DATABASE_PATH` above is illustrative — use whatever path the deployment's own `.env` /
+`DATABASE_PATH` already points at; see [deploy/README.md](../deploy/README.md).)
+
+Flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--apply` | Enqueues. Without it, nothing is written. |
+| `--tier <flash\|basic\|standard\|advanced>` | Defaults to the configured `MINERU_DEFAULT_TIER` (resolved to the server's best offered tier when that is `auto`). The owner's stated target for prod is `standard`, so pass it explicitly. Anything that is not one of the four ids is refused before the database is opened, and a tier this MinerU does not serve is refused before `--apply` writes anything (a dry run still works with the backend down — it only warns). A registry `tierHint` of `flash` (every Office, HTML, RTF, EPUB format) still wins per document — those formats are parsed at `flash` regardless, so the script requests `flash` for them outright rather than a tier they can never reach. |
+| `--include-direct-text` | Also re-chunks `direct-text` documents (plain text, Markdown, CSV, …) through the current chunker. Skipped by default: these never went through MinerU at all, so there is nothing MinerU-version-specific to fix; the flag exists for the rarer case where the chunker itself changed. |
+| `--since <iso>` | Scopes `--status` and `--only-failed` to this script's own campaign, measured in the ledger's `updated_at` (the column a requeue and a completion move — **not** `created_at`, which for every document that already had a ledger row is the day it was uploaded). Defaults to the earliest `updated_at` among the rows this script has ever stamped `requested_by = 'backfill'` — i.e. the script's own first run. Does **not** gate the core "already done" check, which is unconditional: a document already parsed at or above the requested tier is skipped regardless of who produced that parse or when. |
+| `--limit N` | Enqueues at most N documents — a first careful batch. Positive integer, refused otherwise. The batch is sampled **round-robin across accounts** rather than taken off the front of the list, so a first batch exercises the library rather than one account's oldest files; the underlying order is `created_at, id`, so a given `--limit` is reproducible. |
+| `--user <id\|email>` | Scopes to one account. |
+| `--only-failed` | Re-enqueues only the documents whose most recent backfill attempt ended in a user-retryable error (see `--status`), inside the `--since` window. A failure whose stored file is missing from disk is **not** re-enqueued: the next attempt would reach the same `internal` failure and spend one more of the document's attempts. |
+| `--status` | Prints progress from the ledger: queued/running/succeeded/failed counts, succeeded documents by achieved tier, and every failed document with its error code and whether a manual retry (`--only-failed`) can still help versus a terminal failure that needs a re-upload. |
+
+**Idempotent and resumable.** A document already carrying a queued or active job is always skipped.
+A document with a `succeeded` job whose achieved tier already meets the requested tier is skipped.
+Running the script again after a partial run (or after `--limit` capped an earlier batch) only
+touches what is left; a full second run against an already-completed library enqueues nothing.
+
+**Fairness.** The script enqueues every eligible document up front rather than throttling in
+rounds: the worker's own claim query
+([`job-ledger.ts`](../src/lib/server/services/extraction/job-ledger.ts), the `headIds` query) already
+claims one row **per user** — that user's oldest claimable job — before it ever looks at priority or
+age, so flooding the queue with one account's whole library cannot starve any other account's claim.
+
+**The per-account cap does not apply.** A user pressing "Re-extract" repeatedly is capped at five
+queued-or-running re-extractions (`MAX_ACTIVE_REEXTRACTIONS_PER_USER`) so they cannot self-inflict
+an outage on a backend that serves one job at a time. That cap exists for a *user*; this script is
+an *operator* action, run once, and bypasses it explicitly via
+`requeueExtractionJobForReextraction`'s own `maxActiveReextractions` override.
+
+**Never deletes anything, and never touches a document that fails.** A failed or skipped document's
+old content — its chunks, its outline, its page index — is exactly what it was before the script
+ran. The script prints a final summary and exits non-zero if any document could not be enqueued.
+
+**It enqueues; it does not extract.** The script writes ledger rows and stops. The running server's
+own extraction worker picks the queue up on its next idle tick (5–60 s) and drains it at the
+concurrency the admin Advanced page sets (`documentExtractionMaxConcurrency` /
+`documentExtractionPerUserConcurrency`) — so the backfill's rate is that setting, not anything the
+script chooses, and stopping it is a matter of turning the worker off, not of killing the script. A
+MinerU restart part-way through cannot fail the queue wholesale either: only the handful of jobs
+actually claimed at that moment spend outage time, and an outage is discounted from a document's
+attempt budget (`retry-policy.ts`) rather than charged to it. The rest just wait, queued.
+
+**Read the dry run's per-file-type line before committing the library.** Every image format
+(`png`, `jpg`, `heic`, …) is `mineru`-routed, so a library with hundreds of pasted screenshots in it
+books hundreds of MinerU parses that the per-route line shows only as one `mineru` count. Unknown
+extensions are `mineru`-routed too, by `getIntakeRoute`'s fallback — those end as failed rows, which
+costs attempts and leaves red rows in the Knowledge list, though never the document's old content.
+`--user` first, or a small `--limit`, is the cheap way to find out which of these a library holds.
+
 ## Verifying a deployment
 
 `scripts/verify-live-extraction-types.ts` uploads the `fixtures/mineru-v1/*/sample.*` inputs
