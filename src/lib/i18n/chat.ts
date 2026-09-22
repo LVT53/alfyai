@@ -1328,7 +1328,7 @@ const chatDict = {
 		"chat.incognitoArm": "Inkognitó beszélgetés indítása",
 		"chat.incognitoArmTitle": "Inkognitó ehhez a beszélgetéshez",
 		"chat.incognitoArmBody":
-			"Itt semmi nem marad meg. Nem vonható vissza — új beszélgetést kell indítani, ha újra megjegyezhető legyen.",
+			"Itt semmi nem marad meg. Nem vonható vissza — indíts új beszélgetést, hogy újra megjegyezhető legyen.",
 		"chat.incognitoOn": "Inkognitó bekapcsolva",
 		"chat.incognitoOpening": "Innentől semmi nem marad meg",
 		"chat.incognitoPlaceholder": "Inkognitó · itt semmi nem marad meg",
@@ -1336,7 +1336,7 @@ const chatDict = {
 		"chat.incognitoPopoverBody":
 			"Ebből a beszélgetésből semmi nem marad meg, és nem is számít bele semmibe. Ez az egész beszélgetésre így marad.",
 		"chat.incognitoNewChat": "Új beszélgetés",
-		"chat.incognitoNewChatHint": "Ha újra megjegyezhető legyen",
+		"chat.incognitoNewChatHint": "Hogy újra megjegyezhető legyen",
 		"chat.thinkingToggleOn": "Gondolkodás bekapcsolva",
 		"chat.thinkingToggleOff": "Gondolkodás kikapcsolva",
 		"chat.jumpRailA11yLabel": "Beszélgetés navigáció",
