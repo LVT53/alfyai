@@ -59,9 +59,50 @@ function mapMemoryBehaviorEventRow(
 	};
 }
 
+/**
+ * Whether these events may be written at all.
+ *
+ * `memory_events` is a memory table: it is what a later turn's ranking counts
+ * when it asks how recently the user worked on a document. An incognito
+ * conversation is promised not to feed the memory pipeline, and its refinements
+ * and supersessions were being logged here like any other chat's — a thin
+ * channel (a count, never text) but a real one, since a document family spans
+ * conversations and the count would nudge a NORMAL chat's ranking. Events with
+ * no conversation at all (the Knowledge library's own opens) are unaffected.
+ */
+async function dropIncognitoEvents(
+	events: MemoryBehaviorEventInput[],
+): Promise<MemoryBehaviorEventInput[]> {
+	const conversationIds = Array.from(
+		new Set(
+			events
+				.map((event) => event.conversationId?.trim())
+				.filter((id): id is string => Boolean(id)),
+		),
+	);
+	if (conversationIds.length === 0) return events;
+	const { isConversationIncognito } = await import(
+		"$lib/server/services/memory-controls"
+	);
+	const incognito = new Set<string>();
+	await Promise.all(
+		conversationIds.map(async (id) => {
+			// Fail open, like every other incognito read in a hot path.
+			if (await isConversationIncognito(id).catch(() => false)) {
+				incognito.add(id);
+			}
+		}),
+	);
+	if (incognito.size === 0) return events;
+	return events.filter(
+		(event) => !incognito.has(event.conversationId?.trim() ?? ""),
+	);
+}
+
 export async function recordMemoryBehaviorEvent(
 	params: MemoryBehaviorEventInput,
 ): Promise<void> {
+	if ((await dropIncognitoEvents([params])).length === 0) return;
 	await db
 		.insert(memoryEvents)
 		.values({
@@ -88,11 +129,15 @@ export async function recordMemoryBehaviorEvents(
 	if (params.length === 0) {
 		return;
 	}
+	const writable = await dropIncognitoEvents(params);
+	if (writable.length === 0) {
+		return;
+	}
 
 	await db
 		.insert(memoryEvents)
 		.values(
-			params.map((event) => ({
+			writable.map((event) => ({
 				id: randomUUID(),
 				eventKey: scopeEventKey(event.userId, event.eventKey),
 				userId: event.userId,

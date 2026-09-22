@@ -4,6 +4,7 @@ import {
 	conversations,
 	messages,
 } from "$lib/server/db/schema";
+import { buildConversationContextScopeCondition } from "$lib/server/services/conversation-scope";
 import { listMessageAttachments } from "$lib/server/services/knowledge/store/attachments";
 import { getArtifactsForUser } from "$lib/server/services/knowledge/store/core";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
@@ -179,6 +180,10 @@ async function listHistoryCandidates(params: {
 				eq(conversations.userId, params.userId),
 				isNull(conversations.projectId),
 				ne(conversations.id, params.conversationId),
+				// Every candidate here is BY DEFINITION another conversation, so
+				// the scope is asked without an exception: an incognito chat's
+				// title and summary are not this conversation's to search.
+				buildConversationContextScopeCondition(),
 				summaryFilter,
 			),
 		)
@@ -200,6 +205,10 @@ async function listHistoryCandidates(params: {
 				eq(conversations.userId, params.userId),
 				isNull(conversations.projectId),
 				ne(conversations.id, params.conversationId),
+				// The raw message text of another chat. This is the query the
+				// live check caught: with no scope term it returned a candidate
+				// quoting a secret typed into an incognito conversation.
+				buildConversationContextScopeCondition(),
 				inArray(messages.role, ["user", "assistant"]),
 				messageFilter,
 			),
@@ -279,6 +288,12 @@ async function loadHistoryConversationDetail(params: {
 				eq(conversations.userId, params.userId),
 				isNull(conversations.projectId),
 				ne(conversations.id, params.currentConversationId),
+				// The id came from the candidate list above, which is scoped —
+				// but this query is the one that reads the conversation's whole
+				// dialogue, so it asks the boundary itself rather than trusting
+				// its caller. A miss raises the same "outside history scope"
+				// error an unknown id does.
+				buildConversationContextScopeCondition(),
 			),
 		)
 		.limit(1);

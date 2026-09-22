@@ -2569,7 +2569,10 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 				conversationId: string;
 				summary: string;
 			}): string {
-				const preview = params.summary.replace(/\s+/g, " ").trim().slice(0, 220);
+				const preview = params.summary
+					.replace(/\s+/g, " ")
+					.trim()
+					.slice(0, 220);
 				return `- v${params.version} from 2026-09-0${params.version}T10:00:00.000Z in conversation ${params.conversationId}: ${preview}`;
 			}
 

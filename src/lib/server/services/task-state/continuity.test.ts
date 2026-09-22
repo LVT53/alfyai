@@ -32,6 +32,7 @@ const {
 
 type MockCondition =
 	| { operator: "eq" | "ne" | "inArray"; field: string; value: unknown }
+	| { operator: "or"; conditions: MockCondition[] }
 	| MockCondition[]
 	| null
 	| undefined;
@@ -54,7 +55,15 @@ function matchesCondition(
 	if (Array.isArray(condition)) {
 		return condition.every((nested) => matchesCondition(row, nested));
 	}
-	const actual = row[condition.field];
+	if (condition.operator === "or") {
+		return condition.conditions.some((nested) => matchesCondition(row, nested));
+	}
+	// `memory_incognito` is NOT NULL DEFAULT false, so a fixture that does not
+	// mention it is an ordinary conversation — the same answer SQLite gives.
+	const actual =
+		condition.field === "memoryIncognito"
+			? (row[condition.field] ?? false)
+			: row[condition.field];
 	if (condition.operator === "eq") return actual === condition.value;
 	if (condition.operator === "ne") return actual !== condition.value;
 	if (condition.operator === "inArray") {
@@ -192,6 +201,9 @@ vi.mock("$lib/server/db/schema", () => ({
 		userId: { name: "userId" },
 		title: { name: "title" },
 		projectId: { name: "projectId" },
+		// The column `buildConversationContextScopeCondition` filters on; the
+		// fake `eq` below reads `.name` off whatever it is handed.
+		memoryIncognito: { name: "memoryIncognito" },
 		updatedAt: { name: "updatedAt" },
 	},
 	conversationSummaries: {
@@ -260,6 +272,10 @@ vi.mock("drizzle-orm", () => ({
 		operator: "inArray",
 		field: field.name,
 		value: values,
+	})),
+	or: vi.fn((...conditions: unknown[]) => ({
+		operator: "or",
+		conditions,
 	})),
 }));
 
