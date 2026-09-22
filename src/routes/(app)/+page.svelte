@@ -14,7 +14,10 @@ import {
 	setLandingDraftConversationId,
 	storePendingConversationMessage,
 } from "$lib/client/conversation-session";
-import { fetchConversationDetail } from "$lib/client/api/conversations";
+import {
+	fetchConversationDetail,
+	setConversationMemoryIncognito,
+} from "$lib/client/api/conversations";
 import {
 	uploadKnowledgeAttachment,
 	uploadRefusalFromError,
@@ -199,6 +202,42 @@ function armIncognito() {
 	landingIncognitoArmed.set(true);
 	incognitoArmTooltipVisible = false;
 }
+
+// Arming reconciles whatever conversation already exists, which the button's
+// own visibility rule cannot rule out on its own: the landing page creates a
+// conversation from the first keystroke (draft persistence) and from the
+// first attachment, and `preparedConversationId` is only assigned when that
+// POST lands. A tap that arrives while the POST is in flight would otherwise
+// leave the stage, the greeting and the composer all claiming incognito over
+// a row the server wrote with `memory_incognito = 0` — the promise broken
+// silently, which is the one failure mode incognito cannot have. The
+// conversation has no messages yet at this point, so the empty-conversation
+// PATCH (spec §1) is a legal write; the server refuses it otherwise and the
+// UI is no worse off than before. Keyed on the store alone (Header's phone
+// button arms the same flag without going through `armIncognito` above), so
+// it snapshots what exists at the instant of the tap and does not re-run when
+// a later, correctly-armed creation assigns `preparedConversationId`.
+let incognitoArmReconciliation: Promise<void> | null = null;
+$effect(() => {
+	if (!$landingIncognitoArmed) return;
+	untrack(() => {
+		if (incognitoArmReconciliation) return;
+		const pending = preparedConversationPromise;
+		const existingId = preparedConversationId;
+		if (!pending && !existingId) return;
+		incognitoArmReconciliation = (pending ?? Promise.resolve(existingId))
+			.then(async (id) => {
+				if (!id) return;
+				await setConversationMemoryIncognito(id);
+				updateConversationMemoryIncognitoLocal(id, true);
+			})
+			.catch(() => {
+				// Best effort. The composer still shows the armed state either
+				// way; what this must not do is let the send below proceed
+				// before the flag has landed, which is why handleSend awaits it.
+			});
+	});
+});
 
 // The first name or nothing — see greetingFirstName. The email is deliberately
 // NOT a fallback: "Good morning, levente.alf." is an address read aloud, and
@@ -559,6 +598,12 @@ async function handleSend(payload: MessageInputSendPayload) {
 
 	try {
 		const id = payload.conversationId ?? (await ensurePreparedConversation());
+		// Incognito, one-way: if the arm landed on a conversation that was
+		// already being created, the PATCH that carries it to the server is
+		// still in flight — and once this send stores a message the server
+		// refuses it (spec §1, `incognito_requires_empty_conversation`). Wait
+		// for it rather than race it.
+		if (incognitoArmReconciliation) await incognitoArmReconciliation;
 		currentConversationId.set(id);
 		upsertConversationLocal(
 			id,
@@ -626,6 +671,20 @@ async function restorePreparedConversation(conversationId: string) {
 			conversationDraft = null;
 			setLandingDraftConversationId(null);
 			return;
+		}
+		// Incognito, one-way: the armed flag itself is page state and does not
+		// survive a reload, but the conversation it was applied to does. A
+		// reload after arming and typing (the draft created the conversation)
+		// would otherwise come back with the tint, the greeting, the dashed
+		// composer and the mask face all gone, over a conversation that is
+		// incognito for the rest of its life — the promise kept, but invisibly,
+		// which is its own kind of wrong. The stored row is the truth here.
+		if (payload.conversation.memoryIncognito) {
+			// Already true on the server, so nothing for the reconciliation
+			// above to carry there — claim it before arming, or arming would
+			// send a PATCH that only repeats what the row already says.
+			incognitoArmReconciliation ??= Promise.resolve();
+			landingIncognitoArmed.set(true);
 		}
 		conversationDraft = payload.draft ?? null;
 	} catch {
