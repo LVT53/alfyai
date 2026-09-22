@@ -2987,6 +2987,44 @@ describe("MessageInput incognito indicator", () => {
 		expect(getByTestId("incognito-face")).toBeInTheDocument();
 	});
 
+	// The other half of the 2026-09-22 "New chat does not leave incognito"
+	// bug. Bound to no conversation, the prop IS the landing page's armed
+	// state, and "New chat" can disarm it — the composer used to have no way
+	// down from true and went on showing the mask face and the incognito
+	// placeholder over a landing page that had already let incognito go.
+	it("follows the landing page back out of incognito while no conversation exists", async () => {
+		const { getByTestId, queryByTestId, getByPlaceholderText, rerender } =
+			render(MessageInput, {
+				props: { conversationId: null, memoryIncognito: true },
+			});
+
+		expect(getByTestId("incognito-face")).toBeInTheDocument();
+
+		await rerender({ conversationId: null, memoryIncognito: false });
+
+		await waitFor(() => {
+			expect(queryByTestId("incognito-face")).toBeNull();
+		});
+		expect(getByPlaceholderText("Type a message...")).toBeInTheDocument();
+		// Nothing was asked of the server: there is no conversation to ask
+		// about, and disarming one is not a thing that exists.
+		expect(setConversationMemoryIncognitoMock).not.toHaveBeenCalled();
+	});
+
+	// One-way is untouched by the above: a conversation that EXISTS cannot be
+	// walked back out of incognito, whatever a prop says.
+	it("keeps an existing conversation incognito even if its own prop goes false", async () => {
+		const { getByTestId, rerender } = render(MessageInput, {
+			props: { conversationId: "conv-1", memoryIncognito: true },
+		});
+
+		expect(getByTestId("incognito-face")).toBeInTheDocument();
+
+		await rerender({ conversationId: "conv-1", memoryIncognito: false });
+
+		expect(getByTestId("incognito-face")).toBeInTheDocument();
+	});
+
 	it("opening the card puts the plus menu away, and the plus menu puts the card away", async () => {
 		const { getByTestId } = renderIncognito();
 

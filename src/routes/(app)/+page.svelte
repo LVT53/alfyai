@@ -34,8 +34,10 @@ import {
 	currentConversationId,
 	landingIncognitoArmed,
 	landingIncognitoArmVisible,
+	landingResetRequested,
 	requestSearchModalOpen,
 } from "$lib/stores/ui";
+import { get } from "svelte/store";
 import {
 	EMPTY_HOME_SUMMARY,
 	type HomeSuggestion,
@@ -214,6 +216,62 @@ function armIncognito() {
 	landingIncognitoArmed.set(true);
 	incognitoArmTooltipVisible = false;
 }
+
+/**
+ * Drain the "New chat" signal (`stores/ui.ts`), once. Returns whether this
+ * call is the one that got it, so the two places that can be standing when
+ * it arrives — an already-mounted landing, and a landing mounting because of
+ * the navigation that raised it — each do their own half and neither does
+ * the other's.
+ */
+function consumeLandingResetRequest(): boolean {
+	if (!get(landingResetRequested)) return false;
+	landingResetRequested.set(false);
+	return true;
+}
+
+/**
+ * "New chat" pressed while this page was already the page on screen: the
+ * navigation went to the URL it is already on and nothing remounted, so the
+ * reset `onMount` would have done has to happen here instead. Without it an
+ * armed-but-unsent landing had no way out of incognito at all — the mask
+ * button was gone (armed), the tint was on, and every New chat button was a
+ * no-op (2026-09-22 bug report).
+ *
+ * Letting go of the prepared conversation is the other half. A draft typed
+ * on an armed landing has already created one, and it is incognito; leaving
+ * it attached would put the next message into an incognito conversation
+ * under a page that now says it is a normal one. What the user typed is
+ * untouched — the composer's text is its own state, and the next keystroke
+ * makes a fresh conversation for it.
+ */
+function resetLandingForNewChat() {
+	landingIncognitoArmed.set(false);
+	incognitoArmReconciliation = null;
+
+	const staleConversationId = preparedConversationId;
+	preparedConversationId = null;
+	preparedConversationPromise = null;
+	setLandingDraftConversationId(null);
+	draftPersistence.clear();
+	conversationDraft = null;
+	if (staleConversationId) {
+		cleanupPreparedConversation({ conversationId: staleConversationId });
+	}
+
+	// A new chat gets a new line, as a fresh landing does.
+	incognitoGreetingIndex = Math.floor(
+		Math.random() * INCOGNITO_GREETINGS.en.length,
+	);
+}
+
+$effect(() => {
+	if (!$landingResetRequested) return;
+	untrack(() => {
+		if (!consumeLandingResetRequest()) return;
+		resetLandingForNewChat();
+	});
+});
 
 // Arming carries the choice to a conversation that already exists — the
 // ordinary case now that the button outlives the draft's own conversation,
@@ -523,6 +581,19 @@ onMount(() => {
 		}, 50);
 	} else {
 		animateIn = true;
+	}
+
+	// Arriving because "New chat" was pressed somewhere else: do not resume
+	// the landing draft's own conversation. It may be the incognito one the
+	// user is walking away from, and "new" is the whole request. Drained
+	// here, before the restore below reads it, so the effect above finds
+	// nothing left to do on this mount.
+	if (consumeLandingResetRequest()) {
+		const staleConversationId = getLandingDraftConversationId();
+		setLandingDraftConversationId(null);
+		if (staleConversationId) {
+			cleanupPreparedConversation({ conversationId: staleConversationId });
+		}
 	}
 
 	const storedConversationId = getLandingDraftConversationId();
