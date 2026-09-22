@@ -40,7 +40,7 @@ import {
 } from "$lib/client/api/conversations";
 import { addMemoryNote } from "$lib/client/api/memory-notes";
 import { saveBlobAsDownload } from "$lib/client/api/settings";
-import { markPreviousConversationId } from "$lib/client/conversation-session";
+import { startNewChat } from "$lib/client/new-chat";
 import { recordComposerCommandUsed } from "$lib/client/composer-command-analytics";
 import { selectedModel } from "$lib/stores/settings";
 import { showToast } from "$lib/stores/toast";
@@ -772,8 +772,20 @@ $effect(() => {
 		incognitoOn = memoryIncognito;
 		return;
 	}
-	// Same binding: a `memoryIncognito` flip to true always wins, whatever it
-	// was before — one-way, so this never has to run in the other direction.
+	// Same binding. Bound to NO conversation — the landing composer before
+	// one exists — the prop is the whole truth and this mirrors it in both
+	// directions: there is no stored flag to protect yet, only the landing
+	// page's own armed state, and "New chat" can disarm that (it is the way
+	// out of an incognito landing that has not sent anything). Without this
+	// the mask face and the incognito placeholder survived the disarm and
+	// the composer went on claiming incognito over a page that had let it
+	// go. One-way is untouched: for a conversation that exists the flip to
+	// true still wins and nothing can bring it back down, because nothing
+	// can — the server refuses to disarm a conversation at all.
+	if (boundId === null) {
+		incognitoOn = memoryIncognito;
+		return;
+	}
 	if (memoryIncognito && !incognitoOn) {
 		incognitoOn = true;
 	}
@@ -839,14 +851,16 @@ $effect.pre(() => {
 
 /**
  * The popover's "New chat" pill — the one-way exit. Not a way to turn THIS
- * chat back to normal (it cannot be), but the same "start fresh" navigation
- * the sidebar's own New chat button runs.
+ * chat back to normal (it cannot be), but literally the same "start fresh"
+ * the sidebar's own New chat button runs: the shared helper, not a fourth
+ * copy of its four lines. This is the one New chat button that can be
+ * pressed while standing on the landing page — the armed landing has a mask
+ * face too — which is exactly where a copy that only navigated did nothing,
+ * because `goto("/")` from "/" is a navigation to nowhere.
  */
 function startNewChatFromIncognito() {
 	showIncognitoPopover = false;
-	markPreviousConversationId(conversationId ?? resolvedConversationId ?? null);
-	currentConversationId.set(null);
-	void goto("/");
+	void startNewChat((href) => goto(href));
 }
 
 let composerPlaceholder = $derived(
@@ -2462,18 +2476,17 @@ function toggleThinking() {
 	onReasoningDepthChange?.(reasoningDepth === "quick" ? "thorough" : "quick");
 }
 
-// Mirrors Header.svelte's handleNewConversation / Sidebar.svelte's
-// handleNewConversation: stash the outgoing conversation id (so a landing
-// draft can find its way back to it) then hand the user a blank composer.
+// The `/new` command is a New chat button like any other, so it runs the
+// same helper Header.svelte and Sidebar.svelte do — including the landing
+// reset, which is what makes "/new" typed into an armed landing composer
+// mean something rather than navigate to the page it is already on.
 async function startNewConversationFromCommand() {
 	// `/new` fired mid-turn used to navigate away with the stream still
 	// running. Interrupt it first through the very same path the Stop button
 	// uses, awaited so the abort has actually settled before the route
 	// changes (the host resolves it once its runtime reports idle).
 	await stop();
-	markPreviousConversationId($currentConversationId);
-	currentConversationId.set(null);
-	await goto("/");
+	await startNewChat((href) => goto(href));
 }
 
 async function submitMemoryNoteCommand(text: string) {

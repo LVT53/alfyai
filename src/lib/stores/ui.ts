@@ -115,6 +115,29 @@ export function requestSearchModalOpen(): void {
 	searchModalOpenRequested.set(true);
 }
 
+/**
+ * One-shot signal that "New chat" was pressed, drained by the landing page.
+ *
+ * Same shape, and the same reason, as `searchModalOpenRequested` above: what
+ * "New chat" has to reset lives inside `(app)/+page.svelte` — the armed
+ * incognito flag, the prepared conversation the landing keeps for a draft —
+ * and the buttons that press it are in the sidebar, the phone header and the
+ * incognito card, none of which can reach that state.
+ *
+ * It cannot be left to navigation alone. Every "New chat" entry point ends in
+ * `goto("/")`, and from the landing page that is a navigation to the URL the
+ * page is already on: nothing remounts, so the landing's own `onMount` reset
+ * never runs. An armed-but-unsent landing therefore stayed armed, with no way
+ * back to a normal chat short of a full reload — the 2026-09-22 bug report.
+ * The signal is what makes the already-mounted case behave like the arriving
+ * case; the landing drains it in whichever of the two it finds itself in.
+ */
+export const landingResetRequested = writable<boolean>(false);
+
+export function requestLandingReset(): void {
+	landingResetRequested.set(true);
+}
+
 // Tracks whether the desktop sidebar is collapsed to icon-only mode
 const initialSidebarCollapsedValue = browser
 	? read("sidebarCollapsed", "true", isValidBool)

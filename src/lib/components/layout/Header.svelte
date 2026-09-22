@@ -13,7 +13,7 @@ import {
 	LogOut,
 	VenetianMask,
 } from "@lucide/svelte";
-import { markPreviousConversationId } from "$lib/client/conversation-session";
+import { startNewChat } from "$lib/client/new-chat";
 import {
 	portal,
 	setMenuBaseBackground,
@@ -70,13 +70,11 @@ function toggleSidebar() {
 
 async function handleNewConversation() {
 	try {
-		markPreviousConversationId($currentConversationId);
-		currentConversationId.set(null);
 		mobileMenuOpen = false;
 		if (viewportStore.tier !== "desktop") {
 			sidebarOpen.set(false);
 		}
-		await goto("/");
+		await startNewChat((href) => goto(href));
 	} catch (error) {
 		console.error("Failed to create new conversation:", error);
 		alert($t("header.failedCreateConversation"));

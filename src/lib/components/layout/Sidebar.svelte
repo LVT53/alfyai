@@ -18,7 +18,7 @@ import { goto, invalidateAll } from "$app/navigation";
 import { navigating } from "$app/stores";
 import { fade } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
-import { markPreviousConversationId } from "$lib/client/conversation-session";
+import { startNewChat } from "$lib/client/new-chat";
 import ConversationList from "../sidebar/ConversationList.svelte";
 import SearchModal from "../search/SearchModal.svelte";
 import AvatarCircle from "../ui/AvatarCircle.svelte";
@@ -91,12 +91,10 @@ const logoButtonLabel = $derived(
 );
 
 async function handleNewConversation() {
-	markPreviousConversationId($currentConversationId);
-	currentConversationId.set(null);
 	if (viewportStore.tier !== "desktop") {
 		sidebarOpen.set(false);
 	}
-	await goto("/");
+	await startNewChat((href) => goto(href));
 }
 
 function openSearchModal() {

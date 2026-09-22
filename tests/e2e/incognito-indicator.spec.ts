@@ -100,6 +100,52 @@ function sidebarMark(page: Page, id: string): Locator {
 		.getByTestId("conversation-incognito-mark");
 }
 
+/**
+ * Every way to press "New chat" from a desktop window. They were four
+ * separate handlers before the 2026-09-22 fix, and the one that was broken
+ * was the one nothing exercised — so each of them gets the same run.
+ */
+const NEW_CHAT_ENTRY_POINTS = [
+	{
+		name: "the incognito card's New chat pill",
+		slug: "popover",
+		async run(page: Page) {
+			await page.getByTestId("incognito-face").click();
+			await expect(page.getByTestId("incognito-popover")).toBeVisible();
+			await page.getByTestId("incognito-popover-new-chat").click();
+		},
+	},
+	{
+		name: "the sidebar's New chat button",
+		slug: "sidebar",
+		async run(page: Page) {
+			await ensureSidebarExpanded(page);
+			await page.getByTestId("new-conversation").click();
+		},
+	},
+	{
+		name: "the /new composer command",
+		slug: "command",
+		async run(page: Page) {
+			await page.getByTestId("message-input").fill("/new");
+			await page.getByTestId("message-input").press("Enter");
+		},
+	},
+];
+
+/** A landing page that is not incognito, in every cue it has. */
+async function expectNormalLanding(page: Page): Promise<void> {
+	await expect(page).toHaveURL("/", { timeout: 10000 });
+	await expect(page.locator(".chat-stage")).not.toHaveClass(/stage--incognito/);
+	await expect(page.getByTestId("incognito-arm")).toBeVisible();
+	await expect(page.getByTestId("incognito-face")).toHaveCount(0);
+	await expect(page.locator(".home-greeting-full")).toHaveCount(1);
+	await expect(page.getByTestId("message-input")).toHaveAttribute(
+		"placeholder",
+		RESTING_PLACEHOLDER,
+	);
+}
+
 test.describe("Incognito, one-way — desktop", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);
@@ -393,6 +439,87 @@ test.describe("Incognito, one-way — desktop", () => {
 		await page.getByTestId("composer-tools-trigger").click();
 		await expect(page.getByTestId("incognito-toggle")).toHaveCount(0);
 	});
+
+	// Owner bug report (2026-09-22): "Clicking new chat in the new incognito
+	// tab does not open a new non-incognito chat." One-way cuts both ways —
+	// an incognito conversation can never become normal, and leaving one must
+	// land somewhere that is. Every entry point is covered because they were
+	// separate handlers, and the one that was broken was the one no test had.
+	for (const entry of NEW_CHAT_ENTRY_POINTS) {
+		test(`leaving an incognito conversation by ${entry.name} lands on a normal landing page`, async ({
+			page,
+		}) => {
+			const conversationId = `e2e-incognito-new-chat-${entry.slug}`;
+			await seedConversation(conversationId, { memoryIncognito: true });
+			await openChat(page, conversationId);
+			await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
+
+			await entry.run(page);
+			await expect(page).toHaveURL("/", { timeout: 10000 });
+			await expectNormalLanding(page);
+
+			// And the chat it starts is remembered, like any other.
+			await sendMessage(page, "What is the deposit deadline?");
+			await page.waitForURL(/\/chat\//, { timeout: 15000 });
+			const newId = new URL(page.url()).pathname.split("/").pop();
+			if (!newId) throw new Error("conversation id missing from URL");
+			expect(newId).not.toBe(conversationId);
+			expect(await storedIncognito(newId)).toBe(false);
+		});
+
+		// The case the bug was actually reported from, and the one every
+		// entry point got wrong: pressed while standing on the landing page
+		// itself, "New chat" navigates to the URL it is already on. Nothing
+		// remounts, so nothing reset — an armed-but-unsent landing had the
+		// mask button gone (armed), the tint on, and no way back short of a
+		// full page reload.
+		test(`${entry.name} disarms a landing page that was armed but never sent`, async ({
+			page,
+		}) => {
+			await page.getByTestId("incognito-arm").click();
+			await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
+
+			await entry.run(page);
+
+			await expect(page).toHaveURL("/", { timeout: 10000 });
+			await expectNormalLanding(page);
+
+			await sendMessage(page, "Book the rehearsal room");
+			await page.waitForURL(/\/chat\//, { timeout: 15000 });
+			const newId = new URL(page.url()).pathname.split("/").pop();
+			if (!newId) throw new Error("conversation id missing from URL");
+			expect(await storedIncognito(newId)).toBe(false);
+		});
+	}
+
+	// The same, with a draft already typed — so the armed landing has made
+	// its conversation, and that conversation is incognito. "New chat" has to
+	// let go of it, or the next message lands in an incognito conversation
+	// under a page that says it is a normal one.
+	test("New chat lets go of the incognito conversation an armed draft already created", async ({
+		page,
+	}) => {
+		await page.getByTestId("incognito-arm").click();
+		const created = page.waitForResponse(
+			(response) =>
+				new URL(response.url()).pathname === "/api/conversations" &&
+				response.request().method() === "POST",
+		);
+		await page.getByTestId("message-input").fill("Draft under the mask");
+		const armedId = (await (await created).json()).id as string;
+		await expect.poll(async () => await storedIncognito(armedId)).toBe(true);
+
+		await ensureSidebarExpanded(page);
+		await page.getByTestId("new-conversation").click();
+		await expectNormalLanding(page);
+
+		await sendMessage(page, "Book the rehearsal room");
+		await page.waitForURL(/\/chat\//, { timeout: 15000 });
+		const newId = new URL(page.url()).pathname.split("/").pop();
+		if (!newId) throw new Error("conversation id missing from URL");
+		expect(newId).not.toBe(armedId);
+		expect(await storedIncognito(newId)).toBe(false);
+	});
 });
 
 test.describe("Incognito, one-way — phone", () => {
@@ -486,5 +613,38 @@ test.describe("Incognito, one-way — phone", () => {
 
 		await page.getByTestId("incognito-popover-grabber").click();
 		await expect(sheet).toBeHidden();
+	});
+
+	// The phone's own New chat lives in the account menu, and is a fourth
+	// copy of the same handler — so it gets the same run as the desktop three
+	// (2026-09-22 bug report).
+	test("the account menu's New chat disarms an armed-but-unsent landing", async ({
+		page,
+	}) => {
+		await page.getByTestId("incognito-arm-phone").click();
+		await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
+
+		await page.getByRole("button", { name: "Open user menu" }).click();
+		await page
+			.locator(".header-menu")
+			.getByRole("button", { name: "New chat" })
+			.click();
+
+		await expect(page).toHaveURL("/", { timeout: 10000 });
+		await expect(page.locator(".chat-stage")).not.toHaveClass(
+			/stage--incognito/,
+		);
+		await expect(page.getByTestId("incognito-arm-phone")).toBeVisible();
+		await expect(page.getByTestId("incognito-face")).toHaveCount(0);
+		await expect(page.getByTestId("message-input")).toHaveAttribute(
+			"placeholder",
+			RESTING_PLACEHOLDER,
+		);
+
+		await sendMessage(page, "Phone new chat after arming");
+		await page.waitForURL(/\/chat\//, { timeout: 15000 });
+		const newId = new URL(page.url()).pathname.split("/").pop();
+		if (!newId) throw new Error("conversation id missing from URL");
+		expect(await storedIncognito(newId)).toBe(false);
 	});
 });
