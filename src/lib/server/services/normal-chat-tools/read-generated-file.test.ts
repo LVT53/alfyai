@@ -1506,7 +1506,16 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 
 		expect(result.notFound).toBe(false);
 		expect(result.contentText).toBe("# Release notes\n\n- First cut.");
-		expect(result.versionNumber).toBe(1);
+		// No artifact link, so no settled version number. It is the newest file
+		// of that name, and that is all the tool may claim: counting this
+		// conversation's same-named files answered v1 for a file whose family
+		// already had a v1 somewhere else.
+		expect(result.versionNumber).toBeNull();
+		expect(result.versionPending).toBe(true);
+		expect(buildReadGeneratedFileModelPayload(result).versionNumber).toBe(
+			"latest",
+		);
+		expect(summarizeReadGeneratedFileResult(result)).toContain("latest");
 		expect(result.mimeType).toBe("text/markdown");
 	});
 
@@ -1588,8 +1597,13 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 		expect(result.contentText).toBe(
 			"# Release notes\n\n- First cut.\n- Second cut.",
 		);
-		expect(result.versionNumber).toBe(2);
-		expect(summarizeReadGeneratedFileResult(result)).toContain("v2");
+		// The RANKING is the point of this test and is unchanged: the newest
+		// file wins over the one that carries a version number. The LABEL is
+		// "latest" until the link lands, because the number the sync will
+		// settle on depends on versions that may live in other conversations.
+		expect(result.versionNumber).toBeNull();
+		expect(result.versionPending).toBe(true);
+		expect(summarizeReadGeneratedFileResult(result)).toContain("latest");
 	});
 
 	it("matches case-insensitively and by stem", async () => {

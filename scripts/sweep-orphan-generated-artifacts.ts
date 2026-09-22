@@ -82,9 +82,13 @@ async function main(): Promise<void> {
 		console.log(`  ${type}  ${count}`);
 	}
 
+	// Id, type and size — never `row.name`, which for a generated output IS the
+	// filename the model chose for the user ("Q3 layoffs.xlsx") and for a work
+	// capsule is the conversation's title. This preview is read off a terminal
+	// and pasted into tickets, and docs/uploads.md promises no filenames.
 	console.log(`\nFirst ${Math.min(PREVIEW_IDS, orphans.length)} ids:`);
 	for (const row of orphans.slice(0, PREVIEW_IDS)) {
-		console.log(`  ${row.id}  ${row.type}  ${row.name}`);
+		console.log(`  ${row.id}  ${row.type}  ${row.sizeBytes ?? 0} bytes`);
 	}
 
 	if (!APPLY) {

@@ -2392,9 +2392,21 @@ export function createProduceFileToolCallEntry(params: {
 	metadata?: Record<string, string | number | boolean | null>;
 }): ToolCallEntry {
 	const { input, serverSourceMode } = splitServerChosenSourceMode(params.input);
+	// The payload says `running` while production is paused on purpose — that
+	// is the vocabulary the frozen tool description gives the model for "not
+	// ready yet", and the message beside it says plainly that nothing is
+	// making the file. This metadata is the other thing: the record of what
+	// actually happened, read by the activity view and by telemetry, and there
+	// `running` was simply untrue. The ledger row is `queued`, because no
+	// worker has claimed it.
+	const jobStatus =
+		params.payload.status === "running" &&
+		params.payload.message === PRODUCTION_PAUSED_MESSAGE
+			? "queued"
+			: params.payload.status;
 	const metadata: ToolCallEntry["metadata"] = {
 		ok: params.payload.ok,
-		jobStatus: params.payload.status,
+		jobStatus,
 		...(serverSourceMode ? { sourceMode: serverSourceMode } : {}),
 		...(params.intakeStatus === undefined
 			? {}

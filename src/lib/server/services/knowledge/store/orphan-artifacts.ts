@@ -51,6 +51,8 @@ export interface OrphanGeneratedArtifact {
 	userId: string;
 	type: OrphanableArtifactType;
 	name: string;
+	/** What the row claims is on disk, for a preview that names no file. */
+	sizeBytes: number | null;
 	storagePath: string | null;
 	createdAt: Date;
 }
@@ -60,6 +62,7 @@ type CandidateRow = {
 	userId: string;
 	type: string;
 	name: string;
+	sizeBytes: number | null;
 	storagePath: string | null;
 	metadataJson: string | null;
 	createdAt: Date;
@@ -82,6 +85,7 @@ export async function listOrphanGeneratedArtifacts(
 			userId: artifacts.userId,
 			type: artifacts.type,
 			name: artifacts.name,
+			sizeBytes: artifacts.sizeBytes,
 			storagePath: artifacts.storagePath,
 			metadataJson: artifacts.metadataJson,
 			createdAt: artifacts.createdAt,
@@ -115,6 +119,7 @@ export async function listOrphanGeneratedArtifacts(
 			userId: row.userId,
 			type: row.type as OrphanableArtifactType,
 			name: row.name,
+			sizeBytes: row.sizeBytes,
 			storagePath: row.storagePath,
 			createdAt: row.createdAt,
 		}));
@@ -124,10 +129,14 @@ export async function listOrphanGeneratedArtifacts(
  * Candidates with an `artifact_links` row pointing at a conversation or a
  * message that still EXISTS.
  *
- * The liveness check is the point. `artifact_links.conversation_id` has no
- * cascade from `conversations`, so a link row pointing at a deleted
- * conversation is itself debris; counting it as reachability would make the
- * sweep a no-op on exactly the rows it exists to find.
+ * The liveness check is the point, and it is NOT about the schema's cascades:
+ * `artifact_links.conversation_id` and `message_id` are both
+ * `ON DELETE CASCADE`, so a link row whose conversation is gone is normally
+ * gone with it. What survives is a link written against a row deleted some
+ * other way, or on a box whose `foreign_keys` pragma was off when the delete
+ * ran — and counting such a row as reachability would make the sweep a no-op
+ * on exactly the rows it exists to find. The check costs one batched query
+ * and does not depend on the database having enforced anything.
  */
 async function candidatesWithLiveLink(
 	candidates: CandidateRow[],

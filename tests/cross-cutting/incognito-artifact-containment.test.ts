@@ -345,7 +345,7 @@ describe("an incognito conversation's output, from a NORMAL conversation", () =>
 	});
 
 	it("is not counted as a version of a family a normal conversation continues", async () => {
-		seedChatFile(NORMAL, SECRET_FILENAME);
+		const normalFileId = seedChatFile(NORMAL, SECRET_FILENAME);
 		seedArtifact({
 			conversationId: NORMAL,
 			type: "generated_output",
@@ -354,6 +354,7 @@ describe("an incognito conversation's output, from a NORMAL conversation", () =>
 				"Generated file: severance-plan.md\n\nExtracted file content:\nA fresh plan.",
 			metadata: {
 				generatedFile: true,
+				originalChatFileId: normalFileId,
 				documentFamilyId: "family-secret",
 				documentLabel: SECRET_FILENAME,
 				versionNumber: 2,

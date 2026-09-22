@@ -710,21 +710,18 @@ async function findChatFileTarget(params: {
 	const link = linkOf(winner.file);
 
 	// A file the memory sync has not reached yet has no version metadata at
-	// all. Its position among the same-named files of this conversation is the
-	// honest answer, and it is the one the next sync will record.
-	const sameName = files.filter(
-		(file) =>
-			normalizeName(file.filename) === normalizeName(winner.file.filename),
-	);
-	const positionalVersion =
-		sameName.filter(
-			(file) => file.createdAt.getTime() <= winner.file.createdAt.getTime(),
-		).length || 1;
-
+	// all, and NO number here is safe to invent. Its position among the
+	// same-named files of this conversation used to stand in, which is a
+	// stale, lower number whenever an earlier version of the same family lives
+	// in another conversation: a file read back in the turn that produced it
+	// was reported as v1 and settled as v2 seconds later, when the artifact
+	// link landed and the sync resolved the family across conversations.
+	// `null` is what the caller turns into "latest" — true whatever the number
+	// turns out to be, because this IS the newest file of that name.
 	return {
 		file: winner.file,
 		row: link?.row ?? null,
-		versionNumber: link?.versionNumber ?? positionalVersion,
+		versionNumber: link?.versionNumber ?? null,
 	};
 }
 
@@ -2065,6 +2062,12 @@ export interface ReadGeneratedFileResult {
 	 * honest label, because the family spans conversations — into `v3 of 3`.
 	 */
 	versionCount: number | null;
+	/**
+	 * The file is the newest of its name but its version NUMBER is not settled
+	 * yet — the artifact link the sync mints arrives after the turn that made
+	 * it. Reported as "latest" rather than as a number that would be wrong.
+	 */
+	versionPending: boolean;
 	/** The requested window of the text (null in passage mode / not found). */
 	contentText: string | null;
 	summary: string | null;
@@ -2119,6 +2122,7 @@ function emptyResult(
 		documentLabel: null,
 		versionNumber: null,
 		versionCount: null,
+		versionPending: false,
 		contentText: null,
 		summary: null,
 		mimeType: null,
@@ -2360,6 +2364,7 @@ export async function readGeneratedFileContent(params: {
 		documentLabel: metadata.documentLabel ?? null,
 		versionNumber,
 		versionCount: familyCount,
+		versionPending: Boolean(chatFile) && versionNumber === null,
 		contentText: null,
 		summary: modelVisibleSummary({
 			row,
@@ -2513,7 +2518,10 @@ export function buildReadGeneratedFileModelPayload(
 		source: result.source,
 		conversation: result.conversation,
 		documentLabel: result.documentLabel,
-		versionNumber: result.versionNumber,
+		// "latest" while the artifact link is still on its way: this is the
+		// newest file of that name, and any number here would be a guess the
+		// sync contradicts a few seconds later.
+		versionNumber: result.versionPending ? "latest" : result.versionNumber,
 		...(result.versionCount !== null
 			? { versionCount: result.versionCount }
 			: {}),
@@ -2604,8 +2612,9 @@ export function summarizeReadGeneratedFileResult(
 	const label = result.documentLabel ?? result.filename ?? "file";
 	// `v3 of 3`, so a v3 in a conversation that has no v1 or v2 explains itself.
 	// A family of one stays plain `v1` rather than saying "of 1".
-	const versionClause =
-		result.versionCount === 1 && result.versionNumber === 1
+	const versionClause = result.versionPending
+		? "latest"
+		: result.versionCount === 1 && result.versionNumber === 1
 			? result.versionNumber
 				? `v${result.versionNumber}`
 				: ""

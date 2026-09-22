@@ -5,6 +5,7 @@ import { validateGeneratedDocumentSource } from "$lib/server/services/file-produ
 import {
 	applyTextPatches,
 	buildNoPatchBaseMessage,
+	buildProduceFileRunningPayload,
 	createProduceFileToolCallEntry,
 	isInlineTextRequest,
 	type NormalizedProduceFileInput,
@@ -1132,6 +1133,34 @@ describe("what the model's own history teaches it about sourceMode", () => {
 		);
 		// It is still recorded, as what it is: a fact about the run.
 		expect(entry.metadata?.sourceMode).toBe("inline_text");
+	});
+
+	it("records a paused job as queued, which is what the ledger row says", () => {
+		const paused = buildProduceFileRunningPayload({
+			jobId: "job-paused",
+			productionPaused: true,
+		});
+		const running = buildProduceFileRunningPayload({ jobId: "job-running" });
+		const entryFor = (payload: typeof paused) =>
+			createProduceFileToolCallEntry({
+				callId: "call-paused",
+				input: sanitizeUnsafeProduceFileInput({
+					requestTitle: "Release notes",
+				}),
+				payload,
+				outputSummary: summarizeProduceFileResult(payload),
+			});
+
+		// The model still hears `running` — the tool description's word for
+		// "not ready yet" — and the message beside it says production is
+		// paused. The RECORD says what the ledger says.
+		expect(paused.status).toBe("running");
+		expect(entryFor(paused).metadata?.jobStatus).toBe("queued");
+		expect(entryFor(running).metadata?.jobStatus).toBe("running");
+		// The human-readable digest is untouched by either.
+		expect(summarizeProduceFileResult(paused)).toBe(
+			"File production job job-paused is still running; no file exists yet.",
+		);
 	});
 
 	it("keeps a mode the model itself may send in the input", () => {
