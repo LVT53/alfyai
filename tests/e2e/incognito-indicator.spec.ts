@@ -78,6 +78,22 @@ async function openChat(page: Page, id: string) {
 	await expect(page.getByTestId("message-input")).toBeEnabled();
 }
 
+/**
+ * What the server actually stored. Every visible cue in this file is drawn
+ * from client state at some remove, and the one failure incognito cannot have
+ * is a stage that says "incognito" over a row that says `memory_incognito = 0`
+ * — so the row itself gets asserted, not only the cues.
+ */
+async function storedIncognito(id: string): Promise<boolean> {
+	const [row] = await db
+		.select({ memoryIncognito: conversations.memoryIncognito })
+		.from(conversations)
+		.where(eq(conversations.id, id))
+		.limit(1);
+	expect(row, `conversation ${id} must exist`).toBeTruthy();
+	return row.memoryIncognito;
+}
+
 function sidebarMark(page: Page, id: string): Locator {
 	return page
 		.locator(`[data-testid="conversation-item"][data-conversation-id="${id}"]`)
@@ -127,6 +143,79 @@ test.describe("Incognito, one-way — desktop", () => {
 		);
 	});
 
+	// Regression. Arming is page state and does not survive a reload, but the
+	// conversation the draft created does — and it is incognito for the rest
+	// of its life. Coming back with the tint, the greeting, the dashed
+	// composer and the mask all gone would keep the promise invisibly, which
+	// is its own kind of wrong.
+	test("a reload after arming and typing comes back armed, from the conversation's own flag", async ({
+		page,
+	}) => {
+		await page.getByTestId("incognito-arm").click();
+		const created = page.waitForResponse(
+			(response) =>
+				new URL(response.url()).pathname === "/api/conversations" &&
+				response.request().method() === "POST",
+		);
+		await page.getByTestId("message-input").fill("A draft I will come back to");
+		const conversationId = (await (await created).json()).id as string;
+		expect(await storedIncognito(conversationId)).toBe(true);
+
+		await page.reload({ waitUntil: "domcontentloaded" });
+
+		await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
+		await expect(page.getByTestId("incognito-arm")).toHaveCount(0);
+		await expect(page.getByTestId("message-input")).toHaveAttribute(
+			"placeholder",
+			PLACEHOLDER,
+		);
+	});
+
+	// Regression. The landing page creates a conversation from the FIRST
+	// KEYSTROKE (draft persistence), and the arm button is drawn until that
+	// POST lands and assigns `preparedConversationId` — so a tap inside that
+	// window used to tint the stage, dash the composer and raise the mask over
+	// a row the server had already written with `memory_incognito = 0`, with
+	// nothing left to carry the arm there. The promise broken silently, which
+	// is the one failure incognito cannot have.
+	test("arming while the first keystroke is still creating the conversation still arms the server's own row", async ({
+		page,
+	}) => {
+		const held = { release: () => {}, started: () => {} };
+		const createStarted = new Promise<void>((resolve) => {
+			held.started = resolve;
+		});
+		await page.route("**/api/conversations", async (route, request) => {
+			if (request.method() !== "POST") {
+				await route.continue();
+				return;
+			}
+			held.started();
+			await new Promise<void>((resolve) => {
+				held.release = resolve;
+			});
+			await route.continue();
+		});
+
+		await page.getByTestId("message-input").fill("Draft a resignation letter");
+		await createStarted;
+
+		const arm = page.getByTestId("incognito-arm");
+		await expect(arm).toBeVisible();
+		await arm.click();
+		held.release();
+		await page.unroute("**/api/conversations");
+
+		await sendMessage(page, "Draft a resignation letter");
+		await page.waitForURL(/\/chat\//, { timeout: 15000 });
+		const conversationId = new URL(page.url()).pathname.split("/").pop();
+		if (!conversationId) throw new Error("conversation id missing from URL");
+
+		expect(await storedIncognito(conversationId)).toBe(true);
+		await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
+		await expect(page.getByTestId("incognito-opening")).toBeVisible();
+	});
+
 	test("sending creates an incognito conversation with the sidebar mark, the opening mark and the face; it survives a reload; the '+' menu has no switch; a direct PATCH false is refused", async ({
 		page,
 	}) => {
@@ -135,6 +224,9 @@ test.describe("Incognito, one-way — desktop", () => {
 		await page.waitForURL(/\/chat\//, { timeout: 15000 });
 		const conversationId = new URL(page.url()).pathname.split("/").pop();
 		if (!conversationId) throw new Error("conversation id missing from URL");
+
+		// The row itself, not only the cues drawn from it.
+		expect(await storedIncognito(conversationId)).toBe(true);
 
 		await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
 

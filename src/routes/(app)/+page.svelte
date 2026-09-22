@@ -774,6 +774,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					class="incognito-arm"
 					data-testid="incognito-arm"
 					aria-label={$t('chat.incognitoArm')}
+					aria-describedby="incognito-arm-tooltip"
 					onclick={armIncognito}
 					onmouseenter={() => (incognitoArmTooltipVisible = true)}
 					onmouseleave={() => (incognitoArmTooltipVisible = false)}
@@ -783,8 +784,14 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					<VenetianMask size={20} strokeWidth={1.8} aria-hidden="true" />
 				</button>
 				{#if incognitoArmTooltipVisible}
+					<!-- The button's accessible name says what tapping it does; the
+					     one-way rule is only in here, so the button points at it
+					     rather than leaving a screen reader with the name alone.
+					     Focus opens the tooltip, so the description is present by
+					     the time it is read. -->
 					<div
 						class="incognito-arm-tooltip"
+						id="incognito-arm-tooltip"
 						role="tooltip"
 						data-testid="incognito-arm-tooltip"
 						transition:statusFade={{ duration: 120 }}
