@@ -97,6 +97,21 @@ function looksLikeTitleCaseHeading(line: string): boolean {
 }
 
 /**
+ * Strips one wrapping `**…**` or `__…__` from an already-trimmed line.
+ * RTF conversions emit every heading as a bold plain-text block (MinerU
+ * never demotes it to a Markdown ATX heading), so the title-case fallback
+ * must see through the bold markers to match `TITLE_CASE_HEADING_RE`
+ * (which requires the line to start with a bare `[A-Z]`).
+ */
+function stripWrappingBoldMarkers(line: string): string {
+	const match = /^(\*\*|__)([\s\S]+)\1$/.exec(line);
+	if (!match) return line;
+	const [, marker, inner] = match;
+	// Only a SINGLE wrapping pair: `**a** and **b**` must stay as it is.
+	return inner.includes(marker) ? line : inner.trim();
+}
+
+/**
  * Extracts a bounded, best-effort section outline from a document's
  * extracted text. Pure and synchronous — safe to call at ingestion time
  * right after extraction, with no external dependencies.
@@ -144,17 +159,28 @@ export function extractDocumentOutline(
 		for (let index = 0; index < lines.length; index++) {
 			const { text: line, offset, bodyStart } = lines[index];
 			const trimmed = line.trim();
-			const nextLine = lines[index + 1]?.text.trim() ?? "";
+			// MinerU always puts a blank line between a heading and its
+			// paragraph, so the "next line" to test against is the next
+			// NON-BLANK line, not necessarily the line right after this one.
+			let nextIndex = index + 1;
+			while (
+				nextIndex < lines.length &&
+				lines[nextIndex].text.trim().length === 0
+			) {
+				nextIndex++;
+			}
+			const nextLine = lines[nextIndex]?.text.trim() ?? "";
+			const strippedTitle = stripWrappingBoldMarkers(trimmed);
 
 			if (
 				trimmed &&
-				looksLikeTitleCaseHeading(trimmed) &&
+				looksLikeTitleCaseHeading(strippedTitle) &&
 				nextLine.length > 0 &&
 				nextLine.length > trimmed.length
 			) {
 				fallbackCandidates.push({
 					level: 1,
-					title: trimmed,
+					title: strippedTitle,
 					offset,
 					bodyStart,
 				});

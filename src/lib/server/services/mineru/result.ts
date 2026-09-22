@@ -818,14 +818,17 @@ function clampHeadingLevel(level: number): number {
 	return Math.min(6, Math.max(1, Math.trunc(level)));
 }
 
-/** Strips one wrapping `**…**`, the form every DOCX heading arrives in. */
+/**
+ * Strips one wrapping `**…**` or `__…__`, the form every DOCX heading
+ * arrives in (Word's bold run around the whole title).
+ */
 function stripWrappingBold(title: string): string {
 	const trimmed = title.trim();
-	const match = /^\*\*([\s\S]+)\*\*$/.exec(trimmed);
+	const match = /^(\*\*|__)([\s\S]+)\1$/.exec(trimmed);
 	if (!match) return trimmed;
-	const inner = match[1];
+	const [, marker, inner] = match;
 	// Only a SINGLE wrapping pair: `**a** and **b**` must stay as it is.
-	return inner.includes("**") ? trimmed : inner.trim();
+	return inner.includes(marker) ? trimmed : inner.trim();
 }
 
 /** `docx` (and `doc`) report Heading1 as level 2. Nothing else shifts. */
@@ -997,9 +1000,16 @@ function renderInternal(
 
 			if (HEADING_TYPES.has(type)) {
 				const rawLevel = clampHeadingLevel(block.level ?? 1);
-				text = `${"#".repeat(rawLevel)} ${content}`;
+				// MinerU's docx heading blocks carry Word's bold run inside
+				// `content` (e.g. `**Title**`). Strip it once and reuse the same
+				// stripped text for the outline title in both modes — but the
+				// FAITHFUL renderer's markdown must stay byte-identical to
+				// MinerU's own `markdown.md` (which keeps the `**`), so only the
+				// PRODUCTION (prompt) renderer's heading text is stripped.
+				const strippedContent = stripWrappingBold(content);
+				text = `${"#".repeat(rawLevel)} ${mode === "prompt" ? strippedContent : content}`;
 				headingLevel = Math.min(6, Math.max(1, rawLevel + levelOffset));
-				headingTitle = stripWrappingBold(content);
+				headingTitle = strippedContent;
 			} else if (type === "table") {
 				text = [
 					...captionTexts(block.captions),

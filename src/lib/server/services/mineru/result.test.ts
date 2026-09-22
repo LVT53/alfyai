@@ -497,6 +497,61 @@ describe("MinerU structured result — unknown block types", () => {
 	});
 });
 
+describe("MinerU structured result — heading bold stripping", () => {
+	function headingResult(content: string) {
+		const structured = parseStructuredContent({
+			pages: [
+				{
+					page_idx: 0,
+					blocks: [{ type: "paragraph_title", level: 1, content }],
+				},
+			],
+			metadata: { document: { page_count: 1, page_count_kind: "physical" } },
+			extensions: { mineru: { tier: "standard", parse_mode: "txt" } },
+		});
+		return buildStructuredExtractionResult({ content: structured });
+	}
+
+	it("strips a `**…**` wrapper from both the rendered heading and the outline title", () => {
+		const result = headingResult("**Title**");
+
+		expect(result.markdown).toBe("# Title");
+		expect(result.blocks[0].headingTitle).toBe("Title");
+		expect(result.outline[0].title).toBe("Title");
+	});
+
+	it("strips a `__…__` wrapper from both the rendered heading and the outline title", () => {
+		const result = headingResult("__Title__");
+
+		expect(result.markdown).toBe("# Title");
+		expect(result.blocks[0].headingTitle).toBe("Title");
+		expect(result.outline[0].title).toBe("Title");
+	});
+
+	it("preserves inner, non-wrapping bold instead of stripping it", () => {
+		const result = headingResult("Report **2024** Summary");
+
+		expect(result.markdown).toBe("# Report **2024** Summary");
+		expect(result.blocks[0].headingTitle).toBe("Report **2024** Summary");
+		expect(result.outline[0].title).toBe("Report **2024** Summary");
+	});
+
+	it("keeps the FAITHFUL renderer byte-identical to the raw bold-wrapped content", () => {
+		const structured = parseStructuredContent({
+			pages: [
+				{
+					page_idx: 0,
+					blocks: [{ type: "paragraph_title", level: 1, content: "**Title**" }],
+				},
+			],
+			metadata: { document: { page_count: 1, page_count_kind: "physical" } },
+			extensions: { mineru: { tier: "standard", parse_mode: "txt" } },
+		});
+
+		expect(renderMineruMarkdown(structured)).toBe("# **Title**");
+	});
+});
+
 describe("MinerU structured result — failure modes", () => {
 	it("rejects a zip with no structured_content.json", async () => {
 		const zip = new JSZip();

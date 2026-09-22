@@ -81,9 +81,12 @@ describe("MinerU outline — per-format heading levels", () => {
 			[2, "CHARLIE Results", 1],
 			[3, "DELTA Limitations", 1],
 		]);
-		// The rendered Markdown is untouched — only the outline is normalised,
-		// because the Markdown must stay byte-identical to MinerU's own.
-		expect(markdown).toContain("## **ALFA Quarterly Overview**");
+		// The production (prompt) renderer strips the same wrapping bold from
+		// the rendered heading text as it does from the outline title — only
+		// the FAITHFUL renderer (asserted separately in result.test.ts) stays
+		// byte-identical to MinerU's own `markdown.md`, which keeps the `**`.
+		expect(markdown).toContain("## ALFA Quarterly Overview");
+		expect(markdown).not.toContain("**");
 	});
 
 	it("docx: leaves the level alone when no filename is supplied", async () => {
