@@ -2,46 +2,31 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import { conversations, messages, users } from "../../src/lib/server/db/schema";
+import { INCOGNITO_GREETINGS } from "../../src/lib/i18n/chat";
 import {
 	ensureSidebarExpanded,
 	login,
-	openConversationComposer,
+	sendMessage,
 } from "./helpers";
 
 /**
- * Incognito redesign — how the state is shown.
+ * Incognito, one-way (docs/plans/incognito-one-way-spec.md).
  *
- * The full-width accent notice above the composer is gone. While incognito is
- * on, the action row grows a fifth face (a mask in accent, like every other
- * active face), the empty textarea
- * says what the mask means, the face opens a small card with the same switch
- * the "+" menu has, and the conversation's sidebar row carries a mask before
- * its title. This covers the three surfaces and the live update between them.
+ * The toggle exists in exactly one place — the landing page's mask button
+ * (and its phone-header twin), before a conversation exists — and disappears
+ * the moment it is tapped or a conversation exists by any other route. Once a
+ * conversation is incognito it stays that way for its whole life: there is no
+ * switch anywhere, on the composer, in the "+" menu or in the face's own
+ * card, that turns it back off. This covers the landing arm, the ambient
+ * tint, the conversation surfaces (sidebar mark, opening mark, face,
+ * popover), persistence across reload, the absence of every removed switch,
+ * and the server's refusal of a direct PATCH false.
  */
 
 const PHONE = { width: 390, height: 844 };
 const PLACEHOLDER = "Incognito · nothing here is remembered";
 const PLACEHOLDER_PHONE = "Incognito · not remembered";
 const RESTING_PLACEHOLDER = "Type a message...";
-
-/**
- * A computed `color` comes back as `rgb(...)`; resolve a token through the
- * browser so the two are comparable in whichever theme the run is in.
- */
-async function tokenRgb(page: Page, token: string): Promise<string> {
-	return page.evaluate((name) => {
-		const raw = getComputedStyle(document.documentElement)
-			.getPropertyValue(name)
-			.trim();
-		if (raw === "") throw new Error(`${name} is not defined`);
-		const probe = document.createElement("span");
-		probe.style.color = raw;
-		document.body.appendChild(probe);
-		const resolved = getComputedStyle(probe).color;
-		probe.remove();
-		return resolved;
-	}, token);
-}
 
 /**
  * A conversation with a couple of messages, so the sidebar lists it. Inserted
@@ -97,166 +82,145 @@ async function openChat(page: Page, id: string) {
 	await expect(page.getByTestId("message-input")).toBeEnabled();
 }
 
-/** Flip incognito from the "+" menu and put the menu away again. */
-async function flipFromMenu(page: Page, expectAfter: "true" | "false") {
-	await page.getByTestId("composer-tools-trigger").click();
-	const toggle = page.getByTestId("incognito-toggle");
-	await expect(toggle).toBeVisible();
-	await toggle.click();
-	await expect(toggle).toHaveAttribute("aria-checked", expectAfter);
-	await page.keyboard.press("Escape");
-	await expect(page.getByTestId("composer-tools-menu")).toBeHidden();
-}
-
 function sidebarMark(page: Page, id: string): Locator {
 	return page
 		.locator(`[data-testid="conversation-item"][data-conversation-id="${id}"]`)
 		.getByTestId("conversation-incognito-mark");
 }
 
-test.describe("Incognito indicator — desktop", () => {
-	const CONVERSATION_ID = "e2e-incognito-indicator";
-
+test.describe("Incognito, one-way — desktop", () => {
 	test.beforeEach(async ({ page }) => {
-		await seedConversation(CONVERSATION_ID);
 		await login(page);
 	});
 
-	test("turning it on raises the mask face and the placeholder, and no notice row", async ({
+	test("arming on the landing page hides the button, tints the stage, dashes the composer and picks a greeting from the pool", async ({
 		page,
 	}) => {
-		await openChat(page, CONVERSATION_ID);
-		const textarea = page.getByTestId("message-input");
-		await expect(page.getByTestId("incognito-face")).toHaveCount(0);
-		await expect(textarea).toHaveAttribute("placeholder", RESTING_PLACEHOLDER);
-
-		await flipFromMenu(page, "true");
-
-		// The fifth face: after thinking, the same size as its neighbours,
-		// drawn in accent like the other active faces.
-		const face = page.getByTestId("incognito-face");
-		await expect(face).toBeVisible();
-		await expect(face).toHaveAttribute("aria-label", "Incognito is on");
-		await expect(face).toHaveAttribute("aria-expanded", "false");
-		const faceBox = await face.boundingBox();
-		const thinkingBox = await page
-			.getByTestId("thinking-bar-toggle")
-			.boundingBox();
-		if (!faceBox || !thinkingBox) throw new Error("faces not measurable");
-		expect(Math.abs(faceBox.width - thinkingBox.width)).toBeLessThanOrEqual(1);
-		expect(Math.abs(faceBox.height - thinkingBox.height)).toBeLessThanOrEqual(
-			1,
+		const arm = page.getByTestId("incognito-arm");
+		await expect(arm).toBeVisible();
+		await expect(page.locator(".chat-stage")).not.toHaveClass(
+			/stage--incognito/,
 		);
-		expect(faceBox.x).toBeGreaterThan(thinkingBox.x);
-		expect(
-			await face.evaluate((element) => getComputedStyle(element).color),
-		).toBe(await tokenRgb(page, "--accent"));
+		// The composer's own hairline is solid until armed.
+		await expect(page.locator(".message-composer")).toHaveCSS(
+			"border-style",
+			"solid",
+		);
 
-		await expect(textarea).toHaveAttribute("placeholder", PLACEHOLDER);
-		await expect(page.locator(".composer-incognito-notice")).toHaveCount(0);
-		await expect(page.getByText(/won't be saved to memory/i)).toHaveCount(0);
+		await arm.click();
 
-		// And the placeholder gives way to what is typed, as any placeholder.
-		await textarea.fill("Draft a note about the storage rules");
-		await expect(face).toBeVisible();
-		await textarea.fill("");
-		await expect(textarea).toHaveAttribute("placeholder", PLACEHOLDER);
+		await expect(arm).toHaveCount(0);
+		await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
+		await expect(page.locator(".message-composer")).toHaveCSS(
+			"border-style",
+			"dashed",
+		);
+		// The weekly bars (drawn inside the normal greeting's own markup) and
+		// the whole board underneath the composer are gone.
+		await expect(page.locator(".home-greeting-full")).toHaveCount(0);
+		await expect(page.getByTestId("home-board")).toHaveCount(0);
+
+		const greeting = (
+			await page.getByTestId("home-greeting").innerText()
+		).trim();
+		expect(INCOGNITO_GREETINGS.en).toContain(greeting);
+
+		await expect(page.getByTestId("message-input")).toHaveAttribute(
+			"placeholder",
+			PLACEHOLDER,
+		);
 	});
 
-	test("the sidebar row grows a mask the moment it is turned on, and loses it when off", async ({
+	test("sending creates an incognito conversation with the sidebar mark, the opening mark and the face; it survives a reload; the '+' menu has no switch; a direct PATCH false is refused", async ({
 		page,
 	}) => {
-		await openChat(page, CONVERSATION_ID);
+		await page.getByTestId("incognito-arm").click();
+		await sendMessage(page, "What's the raise negotiation script?");
+		await page.waitForURL(/\/chat\//, { timeout: 15000 });
+		const conversationId = new URL(page.url()).pathname.split("/").pop();
+		if (!conversationId) throw new Error("conversation id missing from URL");
+
+		await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
+
 		await ensureSidebarExpanded(page);
-		await expect(sidebarMark(page, CONVERSATION_ID)).toHaveCount(0);
+		await expect(sidebarMark(page, conversationId)).toBeVisible();
 
-		await flipFromMenu(page, "true");
-		const mark = sidebarMark(page, CONVERSATION_ID);
-		await expect(mark).toBeVisible();
-		await expect(mark).toHaveAttribute("title", "Incognito — not remembered");
+		const opening = page.getByTestId("incognito-opening");
+		await expect(opening).toBeVisible();
+		await expect(opening).toContainText("Off the record from here");
 
-		// Leading, not trailing: the mark comes before the title, and the
-		// three-dots button is still where it was.
-		const row = page.locator(
-			`[data-testid="conversation-item"][data-conversation-id="${CONVERSATION_ID}"]`,
-		);
-		const menuButton = row.getByRole("button", {
-			name: "Conversation options",
-		});
-		await expect(menuButton).toBeVisible();
-		const markBox = await mark.boundingBox();
-		const menuBox = await menuButton.boundingBox();
-		const rowBox = await row.boundingBox();
-		if (!markBox || !menuBox || !rowBox) throw new Error("row not measurable");
-		expect(markBox.x + markBox.width).toBeLessThan(menuBox.x);
-		expect(rowBox.height).toBeGreaterThanOrEqual(32);
-		expect(rowBox.height).toBeLessThanOrEqual(34);
-
-		// It survives a reload — the list payload carries the flag.
-		await page.reload({ waitUntil: "domcontentloaded" });
-		await expect(page.getByTestId("incognito-face")).toBeVisible();
-		await ensureSidebarExpanded(page);
-		await expect(sidebarMark(page, CONVERSATION_ID)).toBeVisible();
-
-		await flipFromMenu(page, "false");
-		await expect(sidebarMark(page, CONVERSATION_ID)).toHaveCount(0);
-		await expect(page.getByTestId("incognito-face")).toHaveCount(0);
-	});
-
-	test("the face opens a card whose switch turns it off", async ({ page }) => {
-		await seedConversation(CONVERSATION_ID, { memoryIncognito: true });
-		await openChat(page, CONVERSATION_ID);
-		await ensureSidebarExpanded(page);
 		const face = page.getByTestId("incognito-face");
 		await expect(face).toBeVisible();
-		await expect(sidebarMark(page, CONVERSATION_ID)).toBeVisible();
-		await expect(page.getByTestId("incognito-popover")).toHaveCount(0);
+		await expect(page.getByTestId("message-input")).toHaveAttribute(
+			"placeholder",
+			PLACEHOLDER,
+		);
 
 		await face.click();
 		const popover = page.getByTestId("incognito-popover");
 		await expect(popover).toBeVisible();
-		await expect(face).toHaveAttribute("aria-expanded", "true");
 		await expect(popover).toContainText("Incognito is on");
-		await expect(popover).toContainText("Nothing in this chat is remembered.");
-
-		// Above the face, inside the window.
-		const popoverBox = await popover.boundingBox();
-		const faceBox = await face.boundingBox();
-		const viewport = page.viewportSize();
-		if (!popoverBox || !faceBox || !viewport)
-			throw new Error("popover not measurable");
-		expect(popoverBox.y).toBeGreaterThanOrEqual(0);
-		expect(popoverBox.y + popoverBox.height).toBeLessThanOrEqual(faceBox.y);
-		expect(popoverBox.x).toBeGreaterThanOrEqual(0);
-		expect(popoverBox.x + popoverBox.width).toBeLessThanOrEqual(viewport.width);
-		expect(Math.round(popoverBox.width)).toBe(292);
-
-		const toggle = page.getByTestId("incognito-popover-toggle");
-		await expect(toggle).toHaveAttribute("aria-checked", "true");
-		await expect(toggle).toBeFocused();
-
-		await toggle.click();
-		await expect(popover).toBeHidden();
-		await expect(face).toHaveCount(0);
-		await expect(page.getByTestId("message-input")).toHaveAttribute(
-			"placeholder",
-			RESTING_PLACEHOLDER,
+		await expect(popover).toContainText(
+			"Nothing in this chat is remembered or counted.",
 		);
-		await expect(sidebarMark(page, CONVERSATION_ID)).toHaveCount(0);
+		// One-way: no switch anywhere in the card.
+		await expect(page.getByTestId("incognito-popover-toggle")).toHaveCount(0);
+		await expect(popover.locator('[role="switch"]')).toHaveCount(0);
 
-		// The "+" menu agrees.
+		const newChat = page.getByTestId("incognito-popover-new-chat");
+		await expect(newChat).toBeVisible();
+		await expect(newChat).toBeFocused();
+
+		// Reload keeps it — the flag is on the conversation, not a client guess.
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await expect(page.getByTestId("incognito-face")).toBeVisible();
+		await expect(page.getByTestId("incognito-opening")).toBeVisible();
+		await ensureSidebarExpanded(page);
+		await expect(sidebarMark(page, conversationId)).toBeVisible();
+
+		// The "+" menu never draws an incognito row, on or off.
 		await page.getByTestId("composer-tools-trigger").click();
-		await expect(page.getByTestId("incognito-toggle")).toHaveAttribute(
-			"aria-checked",
-			"false",
+		await expect(page.getByTestId("incognito-toggle")).toHaveCount(0);
+		await page.keyboard.press("Escape");
+
+		// Defence in depth: the server refuses a direct false, whatever the
+		// client ever does. There is no UI path that sends this any more.
+		const falseResponse = await page.request.patch(
+			`/api/conversations/${conversationId}`,
+			{ data: { memoryIncognito: false } },
 		);
+		expect(falseResponse.status()).toBe(409);
+		expect((await falseResponse.json()).error).toBe("incognito_is_one_way");
+
+		// "New chat" navigates away rather than turning this chat back to
+		// normal, which cannot be done.
+		await newChat.click();
+		await expect(page).toHaveURL("/", { timeout: 10000 });
+	});
+
+	test("a fresh incognito conversation opened directly shows the sidebar mark and the opening mark", async ({
+		page,
+	}) => {
+		const conversationId = "e2e-incognito-indicator-seeded";
+		await seedConversation(conversationId, { memoryIncognito: true });
+		await openChat(page, conversationId);
+		await ensureSidebarExpanded(page);
+
+		await expect(sidebarMark(page, conversationId)).toBeVisible();
+		await expect(sidebarMark(page, conversationId)).toHaveAttribute(
+			"title",
+			"Incognito — not remembered",
+		);
+		await expect(page.getByTestId("incognito-opening")).toBeVisible();
+		await expect(page.getByTestId("incognito-face")).toBeVisible();
 	});
 
 	test("Escape closes the card and hands focus back to the face; a click outside closes it too", async ({
 		page,
 	}) => {
-		await seedConversation(CONVERSATION_ID, { memoryIncognito: true });
-		await openChat(page, CONVERSATION_ID);
+		const conversationId = "e2e-incognito-indicator-escape";
+		await seedConversation(conversationId, { memoryIncognito: true });
+		await openChat(page, conversationId);
 		const face = page.getByTestId("incognito-face");
 
 		await face.click();
@@ -274,38 +238,26 @@ test.describe("Incognito indicator — desktop", () => {
 		await expect(face).toBeVisible();
 	});
 
-	test("the landing composer shows the face and placeholder before the first message", async ({
+	test("the '+' menu draws no incognito row on a normal conversation either", async ({
 		page,
 	}) => {
-		await openConversationComposer(page);
-		await flipFromMenu(page, "true");
+		const conversationId = "e2e-incognito-indicator-normal";
+		await seedConversation(conversationId, { memoryIncognito: false });
+		await openChat(page, conversationId);
 
-		const face = page.getByTestId("incognito-face");
-		await expect(face).toBeVisible();
+		await expect(page.getByTestId("incognito-face")).toHaveCount(0);
+		await expect(page.getByTestId("incognito-opening")).toHaveCount(0);
 		await expect(page.getByTestId("message-input")).toHaveAttribute(
 			"placeholder",
-			PLACEHOLDER,
+			RESTING_PLACEHOLDER,
 		);
 
-		// The card opens above the landing composer, not clipped by the home
-		// column.
-		await face.click();
-		const popover = page.getByTestId("incognito-popover");
-		await expect(popover).toBeVisible();
-		const popoverBox = await popover.boundingBox();
-		const faceBox = await face.boundingBox();
-		if (!popoverBox || !faceBox) throw new Error("popover not measurable");
-		expect(popoverBox.y).toBeGreaterThanOrEqual(0);
-		expect(popoverBox.y + popoverBox.height).toBeLessThanOrEqual(faceBox.y);
-
-		await page.getByTestId("incognito-popover-toggle").click();
-		await expect(face).toHaveCount(0);
+		await page.getByTestId("composer-tools-trigger").click();
+		await expect(page.getByTestId("incognito-toggle")).toHaveCount(0);
 	});
 });
 
-test.describe("Incognito indicator — phone", () => {
-	const CONVERSATION_ID = "e2e-incognito-indicator-phone";
-
+test.describe("Incognito, one-way — phone", () => {
 	test.use({
 		viewport: PHONE,
 		hasTouch: true,
@@ -313,24 +265,38 @@ test.describe("Incognito indicator — phone", () => {
 	});
 
 	test.beforeEach(async ({ page }) => {
-		await seedConversation(CONVERSATION_ID, { memoryIncognito: true });
 		await login(page);
 	});
 
-	test("the face is a 44px target and its card is a bottom sheet", async ({
+	test("the header mask button arms it; the face is a 44px target and its card is a bottom sheet", async ({
 		page,
 	}) => {
-		await openChat(page, CONVERSATION_ID);
+		const headerButton = page.getByTestId("incognito-arm-phone");
+		await expect(headerButton).toBeVisible();
+
+		await headerButton.click();
+		await expect(headerButton).toHaveCount(0);
+		await expect(page.getByTestId("message-input")).toHaveAttribute(
+			"placeholder",
+			PLACEHOLDER_PHONE,
+		);
+
+		await sendMessage(page, "Phone incognito arm test");
+		await page.waitForURL(/\/chat\//, { timeout: 15000 });
 
 		const face = page.getByTestId("incognito-face");
 		await expect(face).toBeVisible();
 		const faceBox = await face.boundingBox();
 		expect(faceBox?.width).toBeGreaterThanOrEqual(44);
 		expect(faceBox?.height).toBeGreaterThanOrEqual(44);
-		await expect(page.getByTestId("message-input")).toHaveAttribute(
-			"placeholder",
-			PLACEHOLDER_PHONE,
-		);
+		// The header's mask-arm slot is gone now a conversation exists — the
+		// header instead shows a mask mark before the title. Scoped to the
+		// header: the sidebar row's own mark (off-screen behind the closed
+		// drawer) carries the same accessible name.
+		await expect(page.getByTestId("incognito-arm-phone")).toHaveCount(0);
+		await expect(
+			page.locator("header").getByLabel("Incognito — not remembered"),
+		).toBeVisible();
 
 		await face.click();
 		const sheet = page.getByTestId("incognito-popover");
@@ -351,17 +317,14 @@ test.describe("Incognito indicator — phone", () => {
 		expect(sheetBox?.x).toBe(0);
 		expect(sheetBox?.width).toBe(PHONE.width);
 
-		const toggle = page.getByTestId("incognito-popover-toggle");
-		const toggleBox = await toggle.boundingBox();
-		expect(toggleBox?.height).toBeGreaterThanOrEqual(44);
+		// One-way: no switch in the sheet either.
+		await expect(page.getByTestId("incognito-popover-toggle")).toHaveCount(0);
+		const newChat = page.getByTestId("incognito-popover-new-chat");
+		await expect(newChat).toBeVisible();
+		const newChatBox = await newChat.boundingBox();
+		expect(newChatBox?.height).toBeGreaterThanOrEqual(44);
 
-		// The grabber puts it away; the switch turns it off.
 		await page.getByTestId("incognito-popover-grabber").click();
 		await expect(sheet).toBeHidden();
-		await face.click();
-		await expect(sheet).toBeVisible();
-		await toggle.click();
-		await expect(sheet).toBeHidden();
-		await expect(face).toHaveCount(0);
 	});
 });
