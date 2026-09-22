@@ -1451,6 +1451,64 @@ describe("DocumentsList", () => {
 			}
 		});
 
+		// Regression test for the Status column overlap bug: at 1024-1440px an
+		// in-progress badge ("Extracting text", "Retrieving text") is wider than
+		// the Status column, and a `nowrap` badge does not shrink to fit — it
+		// draws past the column's edge and over the Size cell's numbers (see
+		// slide3-desktop.png, the sample.odt row; verified fixed with a real
+		// layout engine via Playwright at 1024/1280/1440px).
+		//
+		// jsdom renders no stylesheet at all (`document.styleSheets` is empty
+		// even after `render()`), so `getComputedStyle` here can only ever
+		// report inline styles or UA defaults — it cannot see this component's
+		// own `<style>` block, and a check against it would pass vacuously
+		// whether the bug is fixed or not. The rule text itself is therefore the
+		// only thing in this environment that can pin the fix down: this reads
+		// the component's source and asserts the `.extraction-badge` rule no
+		// longer forces `nowrap` and carries the wrap/containment properties
+		// that let it grow downward instead of sideways past the column.
+		it("keeps the in-progress badge's CSS wrap-safe instead of nowrap", async () => {
+			const source = await import("./DocumentsList.svelte?raw");
+			const styleMatch = source.default.match(/<style>([\s\S]*)<\/style>/);
+			expect(styleMatch).not.toBeNull();
+			const styleText = styleMatch?.[1] ?? "";
+
+			const badgeRuleMatch = styleText.match(
+				/\.extraction-badge\s*\{([^}]*)\}/,
+			);
+			expect(badgeRuleMatch).not.toBeNull();
+			const badgeRule = badgeRuleMatch?.[1] ?? "";
+			expect(badgeRule).not.toMatch(/white-space:\s*nowrap/);
+			expect(badgeRule).toMatch(/white-space:\s*normal/);
+			expect(badgeRule).toMatch(/overflow-wrap:\s*break-word/);
+			expect(badgeRule).toMatch(/max-width:\s*100%/);
+
+			// Status must not be back in the version/size/date nowrap group —
+			// that grouping is exactly what the bug was.
+			const nowrapGroupMatch = styleText.match(
+				/\.col-version,[\s\S]*?\{\s*white-space:\s*nowrap;\s*\}/,
+			);
+			expect(nowrapGroupMatch).not.toBeNull();
+			expect(nowrapGroupMatch?.[0]).not.toMatch(/\.col-status/);
+		});
+
+		// The rendered structure that makes wrapping and stacking possible in
+		// the first place: Cancel is a normal-flow sibling of the badge, not an
+		// absolutely positioned overlay, so wherever the badge's own box ends,
+		// Cancel begins below it rather than floating over a neighbouring
+		// column regardless of viewport width.
+		it("renders Cancel as a normal-flow sibling of the badge, not an overlay", () => {
+			renderWithJob(makeExtractionJob({ status: "parsing", cancelable: true }));
+
+			const cell = statusCell();
+			const badge = within(cell).getByTestId("extraction-status");
+			const cancel = within(cell).getByTestId("extraction-cancel-status");
+			expect(cancel.getAttribute("style")).toBeNull();
+			expect(badge.compareDocumentPosition(cancel)).toBe(
+				Node.DOCUMENT_POSITION_FOLLOWING,
+			);
+		});
+
 		it("explains a failure by its error code rather than by its enum", () => {
 			renderWithJob(
 				makeExtractionJob({
