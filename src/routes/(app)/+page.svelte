@@ -1,7 +1,9 @@
 <script lang="ts">
 import { goto } from "$app/navigation";
+import { VenetianMask } from "@lucide/svelte";
 import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
+import { INCOGNITO_GREETINGS } from "$lib/i18n/chat";
 import {
 	cleanupPreparedConversation,
 	consumePreviousConversationId,
@@ -157,6 +159,34 @@ let preparedConversationPromise: Promise<string> | null = null;
 let preparedConversationValidationPromise: Promise<void> | null = null;
 let conversationDraft: ConversationDraft | null = $state(null);
 const draftPersistence = createDraftPersistence();
+
+// Incognito, one-way (docs/plans/incognito-one-way-spec.md §2-3). The mask
+// button here is the ONLY place incognito can be armed — it exists only
+// while no conversation exists yet (`!hasStarted && !preparedConversationId`)
+// and disappears the moment it is tapped or a conversation starts by any
+// other route (e.g. an attachment triggering ensurePreparedConversation).
+// Once armed it stays armed for the life of this page; there is no way back.
+let landingIncognitoArmed = $state(false);
+let incognitoArmTooltipVisible = $state(false);
+// Picked once per mount (not at arm time) so it is ready the instant the
+// button is tapped, and stable for the rest of the page's life — no re-roll
+// on reactive updates. Only ever shown after arming, so the SSR render (which
+// never arms) is unaffected by the client-only Math.random() pick.
+let incognitoGreetingIndex = $state(-1);
+const incognitoGreeting = $derived.by(() => {
+	if (incognitoGreetingIndex < 0) return "";
+	const pool = INCOGNITO_GREETINGS[$uiLanguage] ?? INCOGNITO_GREETINGS.en;
+	return pool[incognitoGreetingIndex % pool.length] ?? INCOGNITO_GREETINGS.en[0];
+});
+const showIncognitoArm = $derived(
+	!hasStarted && !preparedConversationId && !landingIncognitoArmed,
+);
+
+function armIncognito() {
+	if (landingIncognitoArmed) return;
+	landingIncognitoArmed = true;
+	incognitoArmTooltipVisible = false;
+}
 
 // The first name or nothing — see greetingFirstName. The email is deliberately
 // NOT a fallback: "Good morning, levente.alf." is an address read aloud, and
@@ -426,6 +456,12 @@ onMount(() => {
 		});
 	}
 
+	// Incognito greeting pick — client-only (see the field's own comment) and
+	// independent of the picked-once-per-day memory below, on purpose: this
+	// line is not trying to avoid repeating itself across visits the way the
+	// normal greeting does, only within a single mount.
+	incognitoGreetingIndex = Math.floor(Math.random() * INCOGNITO_GREETINGS.en.length);
+
 	// The browser's clock and the browser's memory of yesterday's line, neither
 	// of which the server could have supplied.
 	greetingClock = new Date();
@@ -470,7 +506,9 @@ async function ensurePreparedConversation(): Promise<string> {
 		return preparedConversationId;
 	}
 	if (!preparedConversationPromise) {
-		preparedConversationPromise = createNewConversation()
+		preparedConversationPromise = createNewConversation({
+			memoryIncognito: landingIncognitoArmed,
+		})
 			.then((id) => {
 				preparedConversationId = id;
 				setLandingDraftConversationId(id);
@@ -627,7 +665,45 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 	ondrop={handleDrop}
 >
 	<DropZoneOverlay active={fileDragActive} rejected={fileDragRejected} />
-	<div class="chat-stage relative flex min-h-0 flex-1 overflow-hidden rounded-lg">
+	<div
+		class="chat-stage relative flex min-h-0 flex-1 overflow-hidden rounded-lg"
+		class:stage--incognito={landingIncognitoArmed}
+	>
+		<!-- Incognito, one-way (spec §2) — the ONLY place the flag can be
+		     armed, and only while no conversation exists yet. Tapping it arms
+		     incognito locally (MessageInput's own state, fed by the
+		     memoryIncognito prop below) and the button fades out; the
+		     conversation is created with memoryIncognito: true the moment one
+		     is first needed, never before. -->
+		{#if showIncognitoArm}
+			<div class="incognito-arm-wrap" transition:statusFade={{ duration: 150 }}>
+				<button
+					type="button"
+					class="incognito-arm"
+					data-testid="incognito-arm"
+					aria-label={$t('chat.incognitoArm')}
+					onclick={armIncognito}
+					onmouseenter={() => (incognitoArmTooltipVisible = true)}
+					onmouseleave={() => (incognitoArmTooltipVisible = false)}
+					onfocus={() => (incognitoArmTooltipVisible = true)}
+					onblur={() => (incognitoArmTooltipVisible = false)}
+				>
+					<VenetianMask size={20} strokeWidth={1.8} aria-hidden="true" />
+				</button>
+				{#if incognitoArmTooltipVisible}
+					<div
+						class="incognito-arm-tooltip"
+						role="tooltip"
+						data-testid="incognito-arm-tooltip"
+						transition:statusFade={{ duration: 120 }}
+					>
+						<div class="incognito-arm-tooltip__title">{$t('chat.incognitoArmTitle')}</div>
+						<div class="incognito-arm-tooltip__body">{$t('chat.incognitoArmBody')}</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
+
 		<div
 			class="composer-layer"
 			class:composer-layer-animate={isFromChat && animateIn}
@@ -638,13 +714,21 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 				{#if !hasStarted}
 					<!-- The greeting carries the record on its own line: the twelve
 					     weekly bars and the week's count, right-aligned and sitting on
-					     the greeting's baseline. -->
+					     the greeting's baseline. Armed incognito replaces both with a
+					     single italic line — nothing here is counted, so the weekly
+					     bars go with the rest of the board. -->
 					<div class="home-band" in:greetingFade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
-						<h1 class="home-greeting" data-testid="home-greeting">
-							<span class="home-greeting-full">{activeGreeting}</span>
-							<span class="home-greeting-plain">{greetingPlain}</span>
-						</h1>
-						<HomeWeeklyBars weeks={summary.weekly} total={summary.weeklyTotal} />
+						{#if landingIncognitoArmed}
+							<h1 class="home-greeting home-greeting--incognito" data-testid="home-greeting">
+								{incognitoGreeting}
+							</h1>
+						{:else}
+							<h1 class="home-greeting" data-testid="home-greeting">
+								<span class="home-greeting-full">{activeGreeting}</span>
+								<span class="home-greeting-plain">{greetingPlain}</span>
+							</h1>
+							<HomeWeeklyBars weeks={summary.weekly} total={summary.weeklyTotal} />
+						{/if}
 					</div>
 				{/if}
 
@@ -676,6 +760,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					showSlashHintProp={false}
 					composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
 					conversationId={preparedConversationId}
+					memoryIncognito={landingIncognitoArmed}
 					onMemoryIncognitoChange={(value, id) =>
 						updateConversationMemoryIncognitoLocal(id, value)}
 					contextStatus={null}
@@ -701,7 +786,9 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					onUploadFiles={handleUploadFiles}
 				/>
 
-				{#if !hasStarted && summaryLoaded}
+				{#if !hasStarted && !landingIncognitoArmed && summaryLoaded}
+					<!-- Armed incognito hides the whole board: no history, no
+					     counting, just the greeting and the composer (spec §3). -->
 					<!-- The owner's one change to the board: the suggestion chips sit
 					     on their OWN row directly under the composer box rather than
 					     inside the composer's footer, which keeps the composer's own
@@ -782,6 +869,88 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 
 	.home-greeting-plain {
 		display: none;
+	}
+
+	/* Incognito, one-way (spec §3) — the greeting is the cue once armed:
+	   italic, in the serif face, a touch softer than the normal greeting's
+	   accent-mixed colour (which would read as "still counting"). */
+	.home-greeting--incognito {
+		font-style: italic;
+		color: color-mix(in srgb, var(--text-primary) 88%, transparent 12%);
+	}
+
+	/* ── The incognito arm button (spec §2) ──────────────────────────────
+	   The only place the flag can be armed: a 40px round icon button,
+	   top-right of the stage, gone the instant a conversation exists by any
+	   route (tapped, or an attachment creating one first). */
+	.incognito-arm-wrap {
+		position: absolute;
+		top: 18px;
+		right: 22px;
+		z-index: 5;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 8px;
+	}
+
+	.incognito-arm {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		border: 1px solid var(--border-default);
+		border-radius: 9999px;
+		background: var(--surface-elevated);
+		color: var(--text-secondary);
+		box-shadow: var(--shadow-sm);
+		cursor: pointer;
+		transition:
+			color var(--duration-standard) var(--ease-out),
+			border-color var(--duration-standard) var(--ease-out);
+	}
+
+	.incognito-arm:hover,
+	.incognito-arm:focus-visible {
+		color: var(--text-primary);
+		border-color: var(--border-focus);
+	}
+
+	.incognito-arm:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring);
+	}
+
+	/* 44px hit area on a coarse pointer, without growing the 40px glyph the
+	   mockup specifies — the button keeps its visual size and gains padding
+	   that pushes the box (border-box) out to the touch target. */
+	@media (pointer: coarse) {
+		.incognito-arm {
+			width: 44px;
+			height: 44px;
+		}
+	}
+
+	.incognito-arm-tooltip {
+		max-width: 220px;
+		border-radius: 8px;
+		background: var(--text-primary);
+		padding: 8px 10px;
+		box-shadow: var(--shadow-lg);
+		font-family: var(--font-sans);
+		font-size: 12px;
+		line-height: 1.35;
+		color: var(--surface-page);
+	}
+
+	.incognito-arm-tooltip__title {
+		font-weight: 600;
+	}
+
+	.incognito-arm-tooltip__body {
+		margin-top: 2px;
+		color: color-mix(in srgb, var(--surface-page) 82%, var(--text-muted) 18%);
 	}
 
 	/* The column used to be a greeting and a box, which always fitted. Now that
