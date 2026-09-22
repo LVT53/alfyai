@@ -46,21 +46,29 @@ Remove:
 Add — desktop (`src/routes/(app)/+page.svelte`): a 40px round icon button (Lucide `VenetianMask`, 20px
 glyph, `--surface-elevated`/white background, `--border-default` 1px border, subtle shadow) absolutely
 positioned top-right of the chat stage (18px from top, 22px from right), `data-testid="incognito-arm"`,
-`aria-label` = `chat.incognitoArm`. Rendered only while **no conversation exists**: `!hasStarted &&
-!preparedConversationId && !memoryIncognito`. Native tooltip is not enough: on hover/focus show a small
+`aria-label` = `chat.incognitoArm`. Rendered while **no message has been sent yet**: `!hasStarted &&
+!memoryIncognito`. Revised 2026-09-22 from "no conversation exists" — the landing page creates its
+conversation from the first keystroke (draft persistence) and from the first attachment, so keying on
+`preparedConversationId` took the button away the moment the user started typing, which is the moment
+most people reconsider. A message-less conversation has had nothing learned from it, which is the same
+condition §1's PATCH allows, so arming one is honest: the arm applies the empty-conversation PATCH to
+whatever draft conversation already exists (and disarms if the server refuses, rather than showing
+incognito over a row that is not). It goes on `hasStarted` — the first send — and never comes back; a
+conversation that already carries messages has no button anywhere. Native tooltip is not enough: on hover/focus show a small
 dark tooltip (max 220px, `--text-primary` background, 12px text) with `chat.incognitoArmTitle` bold and
 `chat.incognitoArmBody` below; the tooltip is the one place the one-way rule is spelled out before the
 tap. Keyboard reachable, 44px hit area on coarse pointers.
 
 Add — phone (`src/lib/components/layout/Header.svelte`, the 52px `lg:hidden` bar): the same mask button
 (44px `hbtn`) between the wordmark and the account-menu button, same visibility rule (landing route, no
-conversation yet). When a conversation exists the slot is empty (keep a 44px spacer so the wordmark stays
-centred). In an **incognito** conversation the header's centre shows a 16px mask glyph (muted colour,
+message sent yet). Once a message has been sent the slot is empty (keep a 44px spacer, and side columns
+of equal width, so the wordmark stays centred). In an **incognito** conversation the header's centre shows a 16px mask glyph (muted colour,
 `aria-label` = `sidebar.incognitoMark`) before the conversation title.
 
 Tapping the button: arms incognito locally (the `MessageInput` state that exists today), the button fades
-out (`reducedMotionAware`), and the landing enters incognito mode (§3). The conversation is created with
-`memoryIncognito: true` when it is first needed (first send / attach), never before.
+out (`reducedMotionAware`), and the landing enters incognito mode (§3). A conversation that does not
+exist yet is created with `memoryIncognito: true` when it is first needed (first send / attach / draft),
+never before; one that already exists — the draft's own, message-less — is armed with the §1 PATCH.
 
 ## 3. Landing in incognito mode (after the tap, before the first message)
 

@@ -143,6 +143,46 @@ test.describe("Incognito, one-way — desktop", () => {
 		);
 	});
 
+	// The button lasts as long as the decision does: until a message has been
+	// SENT, not until a conversation exists. Typing creates the draft's own
+	// conversation, which is why the two used to be confused — and why the
+	// button used to vanish at the first keystroke, the moment most people
+	// reconsider. A message-less conversation is armed with the §1 PATCH.
+	test("typing a draft keeps the arm button, and arming then sending stores an incognito conversation", async ({
+		page,
+	}) => {
+		const created = page.waitForResponse(
+			(response) =>
+				new URL(response.url()).pathname === "/api/conversations" &&
+				response.request().method() === "POST",
+		);
+		await page.getByTestId("message-input").fill("Rewrite my notice period");
+		const conversationId = (await (await created).json()).id as string;
+		// Created before the decision, so not incognito yet.
+		expect(await storedIncognito(conversationId)).toBe(false);
+
+		const arm = page.getByTestId("incognito-arm");
+		await expect(arm).toBeVisible();
+		await arm.click();
+		await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
+
+		await sendMessage(page, "Rewrite my notice period");
+		await page.waitForURL(/\/chat\//, { timeout: 15000 });
+		expect(new URL(page.url()).pathname).toContain(conversationId);
+
+		// The draft's own conversation, armed in place rather than replaced.
+		expect(await storedIncognito(conversationId)).toBe(true);
+		await expect(page.locator(".chat-stage")).toHaveClass(/stage--incognito/);
+
+		// And the button is gone for good once a message has been sent —
+		// neither the stage's own corner button nor the phone header's twin.
+		await expect(page.getByTestId("incognito-arm")).toHaveCount(0);
+		await expect(page.getByTestId("incognito-arm-phone")).toHaveCount(0);
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await expect(page.getByTestId("incognito-face")).toBeVisible();
+		await expect(page.getByTestId("incognito-arm")).toHaveCount(0);
+	});
+
 	// Regression. Arming is page state and does not survive a reload, but the
 	// conversation the draft created does — and it is incognito for the rest
 	// of its life. Coming back with the tint, the greeting, the dashed

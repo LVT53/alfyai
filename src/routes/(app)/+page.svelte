@@ -4,6 +4,7 @@ import { VenetianMask } from "@lucide/svelte";
 import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { INCOGNITO_GREETINGS } from "$lib/i18n/chat";
+import { shouldShowIncognitoArm } from "./landing-incognito";
 import {
 	cleanupPreparedConversation,
 	consumePreviousConversationId,
@@ -170,10 +171,18 @@ const draftPersistence = createDraftPersistence();
 
 // Incognito, one-way (docs/plans/incognito-one-way-spec.md §2-3). The mask
 // button here — and its phone-header twin, see stores/ui.ts — is the ONLY
-// place incognito can be armed: it exists only while no conversation exists
-// yet (`!hasStarted && !preparedConversationId`) and disappears the moment
-// it is tapped or a conversation starts by any other route (e.g. an
-// attachment triggering ensurePreparedConversation). The armed flag itself
+// place incognito can be armed, and it lasts as long as the decision does:
+// until a message has been SENT, not until a conversation exists. Those are
+// not the same moment. The landing page creates its conversation from the
+// first keystroke (draft persistence) and from the first attachment, so a
+// rule keyed on `preparedConversationId` took the button away the instant
+// the user started typing — which is the instant most people think "wait,
+// not this one". A conversation with no messages in it has had nothing
+// learned from it yet, which is exactly the condition the server's own
+// empty-conversation PATCH allows (spec §1), so arming one is honest.
+// `hasStarted` is the line: it goes true at the top of handleSend and never
+// comes back, and the chat page has its own rule for a conversation that
+// already carries messages (no button there at all). The armed flag itself
 // lives in a shared store (`landingIncognitoArmed`) rather than local state
 // so Header's phone button — mounted in the layout, not this page — arms
 // the same flag instead of a second copy of it.
@@ -191,7 +200,10 @@ const incognitoGreeting = $derived.by(() => {
 	);
 });
 const showIncognitoArm = $derived(
-	!hasStarted && !preparedConversationId && !$landingIncognitoArmed,
+	shouldShowIncognitoArm({
+		messageSendStarted: hasStarted,
+		armed: $landingIncognitoArmed,
+	}),
 );
 
 $effect(() => {
@@ -203,39 +215,45 @@ function armIncognito() {
 	incognitoArmTooltipVisible = false;
 }
 
-// Arming reconciles whatever conversation already exists, which the button's
-// own visibility rule cannot rule out on its own: the landing page creates a
-// conversation from the first keystroke (draft persistence) and from the
-// first attachment, and `preparedConversationId` is only assigned when that
-// POST lands. A tap that arrives while the POST is in flight would otherwise
-// leave the stage, the greeting and the composer all claiming incognito over
-// a row the server wrote with `memory_incognito = 0` — the promise broken
-// silently, which is the one failure mode incognito cannot have. The
-// conversation has no messages yet at this point, so the empty-conversation
-// PATCH (spec §1) is a legal write; the server refuses it otherwise and the
-// UI is no worse off than before. Keyed on the store alone (Header's phone
-// button arms the same flag without going through `armIncognito` above), so
-// it snapshots what exists at the instant of the tap and does not re-run when
-// a later, correctly-armed creation assigns `preparedConversationId`.
+// Arming carries the choice to a conversation that already exists — the
+// ordinary case now that the button outlives the draft's own conversation,
+// and the racy one before that (a tap landing while the creating POST is
+// still in flight, when `preparedConversationId` has not been assigned yet).
+// Either way the conversation has no messages in it, which is exactly what
+// the server's empty-conversation PATCH allows (spec §1).
+//
+// A failure here DISARMS rather than shrugging: the stage, the greeting and
+// the composer would otherwise go on saying "incognito" over a row that says
+// `memory_incognito = 0`, and a promise that is only visually kept is the
+// one failure mode incognito cannot have. Disarming puts the button back, so
+// the tap can simply be made again.
+//
+// Keyed on the store alone (Header's phone button arms the same flag without
+// going through `armIncognito` above), so it snapshots what exists at the
+// instant of the tap and does not re-run when a later, correctly-armed
+// creation assigns `preparedConversationId`.
 let incognitoArmReconciliation: Promise<void> | null = null;
 $effect(() => {
 	if (!$landingIncognitoArmed) return;
 	untrack(() => {
 		if (incognitoArmReconciliation) return;
 		const pending = preparedConversationPromise;
-		const existingId = preparedConversationId;
-		if (!pending && !existingId) return;
-		incognitoArmReconciliation = (pending ?? Promise.resolve(existingId))
-			.then(async (id) => {
-				if (!id) return;
-				await setConversationMemoryIncognito(id);
-				updateConversationMemoryIncognitoLocal(id, true);
-			})
-			.catch(() => {
-				// Best effort. The composer still shows the armed state either
-				// way; what this must not do is let the send below proceed
-				// before the flag has landed, which is why handleSend awaits it.
-			});
+		if (!pending && !preparedConversationId) return;
+		incognitoArmReconciliation = (async () => {
+			// A restored conversation is not settled until its own validation
+			// has run: one that turns out to carry messages is discarded here
+			// (`restorePreparedConversation`), and re-reading the id afterwards
+			// leaves nothing to PATCH — the next creation carries the flag
+			// instead, which is the right answer rather than a doomed write.
+			if (!pending) await preparedConversationValidationPromise;
+			const id = pending ? await pending : preparedConversationId;
+			if (!id) return;
+			await setConversationMemoryIncognito(id);
+			updateConversationMemoryIncognitoLocal(id, true);
+		})().catch(() => {
+			incognitoArmReconciliation = null;
+			landingIncognitoArmed.set(false);
+		});
 	});
 });
 
