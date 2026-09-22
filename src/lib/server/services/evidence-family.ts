@@ -10,6 +10,10 @@ import {
 	parseWorkingDocumentMetadata,
 	resolveGeneratedDocumentFamilyStatus,
 } from "$lib/server/services/knowledge/store";
+import {
+	buildArtifactCanonicalOwnershipCondition,
+	getArtifactOwnershipScope,
+} from "$lib/server/services/knowledge/store/core";
 import type {
 	Artifact,
 	ArtifactRetrievalClass,
@@ -686,6 +690,16 @@ export async function classifyGeneratedOutputArtifact(params: {
 }): Promise<ArtifactRetrievalClass> {
 	await ensureGeneratedOutputRetrievalBackfill(params.userId);
 
+	// Through the ownership scope, so an INCOGNITO conversation's output is
+	// not one of the near-duplicates this decision is made against: a new
+	// artifact must not be demoted to `ephemeral_followup` — and so kept out
+	// of retrieval — because a chat that promised to leave no trace happens to
+	// hold something similar. The artifact's own conversation is in scope, so
+	// a file produced inside an incognito chat is still classified against
+	// that chat's earlier versions.
+	const ownershipScope = await getArtifactOwnershipScope(params.userId, {
+		conversationId: params.artifact.conversationId,
+	});
 	const rows = await db
 		.select()
 		.from(artifacts)
@@ -693,6 +707,10 @@ export async function classifyGeneratedOutputArtifact(params: {
 			and(
 				eq(artifacts.userId, params.userId),
 				eq(artifacts.type, "generated_output"),
+				buildArtifactCanonicalOwnershipCondition({
+					userId: params.userId,
+					ownershipScope,
+				}),
 			),
 		)
 		.orderBy(desc(artifacts.updatedAt));

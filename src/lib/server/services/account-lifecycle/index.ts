@@ -115,7 +115,9 @@ export async function purgeUserData(userId: string): Promise<void> {
 	await deleteAllChatFilesForUser(userId);
 	await deleteAtlasJobsForUser(userId);
 
-	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		includeIncognito: true,
+	});
 	const artifactRows = await db
 		.select({ id: artifacts.id })
 		.from(artifacts)

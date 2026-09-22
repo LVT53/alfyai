@@ -194,7 +194,13 @@ export async function getConversationWorkingSet(
 	userId: string,
 	conversationId: string,
 ): Promise<ArtifactSummary[]> {
-	const ownershipScope = await getArtifactOwnershipScope(userId);
+	// This conversation's own artifacts stay in scope when it is incognito —
+	// the working set is the chat looking at its own work. Another incognito
+	// conversation's artifact, linked in before the boundary was enforced,
+	// drops out here.
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		conversationId,
+	});
 	const rows = await db
 		.select({
 			item: conversationWorkingSetItems,
@@ -236,7 +242,10 @@ export async function selectWorkingSetArtifactsForPrompt(
 	activeDocumentArtifactId?: string,
 ): Promise<Artifact[]> {
 	const exclude = new Set(excludeArtifactIds);
-	const ownershipScope = await getArtifactOwnershipScope(userId);
+	// As above: its own incognito work, never another conversation's.
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		conversationId,
+	});
 	const rows = await db
 		.select({
 			item: conversationWorkingSetItems,

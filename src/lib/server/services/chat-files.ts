@@ -21,7 +21,10 @@ import {
 } from "$lib/server/services/extraction/readback";
 import { decodeTextBuffer } from "$lib/server/services/extraction/text-decode";
 import { GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY } from "$lib/server/services/file-production/source-persistence";
-import { mapArtifact } from "$lib/server/services/knowledge/store/core";
+import {
+	getArtifactOwnershipScope,
+	mapArtifact,
+} from "$lib/server/services/knowledge/store/core";
 import {
 	buildGeneratedOutputDocumentMetadata,
 	parseWorkingDocumentMetadata,
@@ -150,11 +153,28 @@ function buildGeneratedFileMemoryContent(params: {
 	return lines.join("\n");
 }
 
+/**
+ * The earlier versions of this filename, which decide the new file's document
+ * family, its version number and its label.
+ *
+ * A generated file's family is per user and per filename ACROSS
+ * conversations, which is what makes "continue the release notes" work in a
+ * fresh chat — and is why this scan has to go through the ownership scope. An
+ * incognito conversation's output seeding a family here would put its
+ * filename, its label and its excerpt into the next NORMAL conversation's
+ * memory wrapper, and its version into the count that conversation is told.
+ * The scope is asked for the conversation being written into, so a file
+ * produced in an incognito chat still continues that chat's own family.
+ */
 async function listRecentGeneratedFileVersions(
 	userId: string,
+	conversationId: string,
 	filename: string,
 	limit = 4,
 ): Promise<GeneratedFileVersionRecord[]> {
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		conversationId,
+	});
 	const rows = await db
 		.select({
 			id: artifacts.id,
@@ -172,13 +192,23 @@ async function listRecentGeneratedFileVersions(
 		.orderBy(desc(artifacts.updatedAt))
 		.limit(Math.max(limit * 12, 24));
 
-	const parsedRows = rows.map((row) => {
-		const metadata = parseJsonRecord(row.metadataJson ?? null);
-		return {
-			row,
-			metadata,
-		};
-	});
+	const parsedRows = rows
+		// The scope's answer, applied to the rows rather than in the `where`:
+		// this is the one question asked of it here — is that conversation
+		// reachable from this one — and an artifact whose conversation is gone
+		// keeps being considered, exactly as it was before.
+		.filter(
+			(row) =>
+				!row.conversationId ||
+				ownershipScope.conversationIds.has(row.conversationId),
+		)
+		.map((row) => {
+			const metadata = parseJsonRecord(row.metadataJson ?? null);
+			return {
+				row,
+				metadata,
+			};
+		});
 	const familyContext = resolveGeneratedDocumentFamilyContext({
 		filename,
 		candidates: parsedRows.map(({ row, metadata }) => ({
@@ -843,6 +873,7 @@ export async function syncGeneratedFilesToMemory(params: {
 
 			const recentVersions = await listRecentGeneratedFileVersions(
 				params.userId,
+				params.conversationId,
 				file.filename,
 				4,
 			);

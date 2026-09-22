@@ -35,6 +35,7 @@ const {
 	mockRows,
 	mockArtifactRows,
 	mockConversationIds,
+	mockIncognitoConversationIds,
 	mockDeleteWhere,
 	mockUnlink,
 	mockRm,
@@ -50,6 +51,7 @@ const {
 	const mockRows: ChatFileRow[] = [];
 	const mockArtifactRows: ArtifactRow[] = [];
 	const mockConversationIds = new Set<string>();
+	const mockIncognitoConversationIds = new Set<string>();
 
 	const mockDeleteWhere = vi.fn(
 		async (conversationId: string, fileId?: string) => {
@@ -107,6 +109,7 @@ const {
 		mockRows,
 		mockArtifactRows,
 		mockConversationIds,
+		mockIncognitoConversationIds,
 		mockDeleteWhere,
 		mockUnlink,
 		mockRm,
@@ -142,17 +145,24 @@ vi.mock("$lib/server/db", () => ({
 	db: {
 		select: vi.fn(() => ({
 			from: vi.fn((table: { __table?: string }) => ({
-				where: vi.fn((condition: unknown) => ({
-					orderBy: vi.fn(() => {
-						const rows = selectRowsForTable(table, condition);
-						return Object.assign(rows, {
-							limit: vi.fn(async (count: number) => rows.slice(0, count)),
-						});
+				// A real promise carrying the builder methods, rather than a
+				// plain object: `getArtifactOwnershipScope` awaits the `where`
+				// itself — it wants every conversation of one user and neither
+				// orders nor limits them — while everything else here still
+				// chains `.orderBy()` or `.limit()` onto it first.
+				where: vi.fn((condition: unknown) =>
+					Object.assign(Promise.resolve(selectRowsForTable(table, condition)), {
+						orderBy: vi.fn(() => {
+							const rows = selectRowsForTable(table, condition);
+							return Object.assign(rows, {
+								limit: vi.fn(async (count: number) => rows.slice(0, count)),
+							});
+						}),
+						limit: vi.fn(async () => {
+							return selectRowsForTable(table, condition).slice(0, 1);
+						}),
 					}),
-					limit: vi.fn(async () => {
-						return selectRowsForTable(table, condition).slice(0, 1);
-					}),
-				})),
+				),
 			})),
 		})),
 		insert: vi.fn(() => ({
@@ -336,7 +346,20 @@ function selectRowsForTable(
 	condition: unknown,
 ): Array<ChatFileRow | ArtifactRow | { id: string }> {
 	if (table.__table === "conversations") {
-		return Array.from(mockConversationIds).map((id) => ({ id }));
+		// Every conversation a seeded row belongs to exists, as it does in the
+		// database — the orphan-sweep tests are the ones that populate
+		// `mockConversationIds` by hand, to say which ones survived.
+		// `memoryIncognito` rides along because the ownership scope reads it to
+		// decide which conversations an artifact may be held through.
+		const ids = new Set(mockConversationIds);
+		for (const row of mockRows) ids.add(row.conversationId);
+		for (const row of mockArtifactRows) {
+			if (row.conversationId) ids.add(row.conversationId);
+		}
+		return Array.from(ids).map((id) => ({
+			id,
+			memoryIncognito: mockIncognitoConversationIds.has(id),
+		}));
 	}
 
 	if (
@@ -426,7 +449,14 @@ vi.mock("$lib/server/db/schema", () => ({
 		storagePath: { name: "storagePath" },
 		createdAt: { name: "createdAt" },
 	},
-	conversations: { __table: "conversations", id: { name: "id" } },
+	conversations: {
+		__table: "conversations",
+		id: { name: "id" },
+		userId: { name: "userId" },
+		// Read by `getArtifactOwnershipScope`, which decides which
+		// conversations a generated file's document family may span.
+		memoryIncognito: { name: "memoryIncognito" },
+	},
 	users: { id: { name: "id" } },
 }));
 
@@ -486,6 +516,7 @@ describe("chat-files service", () => {
 		mockRows.length = 0;
 		mockArtifactRows.length = 0;
 		mockConversationIds.clear();
+		mockIncognitoConversationIds.clear();
 		vi.clearAllMocks();
 		mockRm.mockResolvedValue(undefined);
 		mockCreateArtifactLink.mockResolvedValue(undefined);
@@ -1656,6 +1687,75 @@ describe("chat-files service", () => {
 					conversationId: "conv-b",
 					linkType: "supersedes",
 				}),
+			);
+		});
+
+		it("does not continue a family seeded in an INCOGNITO conversation", async () => {
+			// The family scan is per user and per filename across conversations,
+			// which is what makes the test above work — and is exactly how an
+			// incognito chat's output would otherwise reach a normal one. The new
+			// file's wrapper would carry the incognito version's label and an
+			// excerpt of its text, and the model would be told it is v3.
+			const { syncGeneratedFilesToMemory } = await import("./chat-files");
+			mockIncognitoConversationIds.add("conv-a");
+			const previousUpdatedAt = new Date("2026-01-01T12:00:00.000Z");
+			mockArtifactRows.push({
+				id: "artifact-prev",
+				userId: "user-1",
+				type: "generated_output",
+				retrievalClass: "durable",
+				name: "report.pdf",
+				mimeType: "text/markdown",
+				sizeBytes: 1200,
+				conversationId: "conv-a",
+				summary: "Previous report summary",
+				metadataJson: JSON.stringify({
+					generatedFile: true,
+					generatedFilename: "report.pdf",
+					generatedFileVersion: 2,
+					documentFamilyId: "family-report",
+					documentFamilyStatus: "active",
+					documentLabel: "report.pdf",
+					versionNumber: 2,
+					sourceChatFileId: "file-prev",
+				}),
+				contentText: "Previous generated report body.",
+				extension: "md",
+				storagePath: null,
+				createdAt: previousUpdatedAt,
+				updatedAt: previousUpdatedAt,
+			});
+			mockRows.push({
+				id: "file-next",
+				conversationId: "conv-b",
+				assistantMessageId: "assistant-next",
+				userId: "user-1",
+				filename: "report.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 5000,
+				storagePath: "conv-b/file-next.pdf",
+				createdAt: new Date("2026-01-02T12:00:00.000Z"),
+			});
+
+			await syncGeneratedFilesToMemory({
+				userId: "user-1",
+				conversationId: "conv-b",
+				assistantMessageId: "assistant-next",
+				fileIds: ["file-next"],
+				assistantResponse: "Here is the revised report.",
+			});
+
+			const call = mockCreateGeneratedOutputArtifact.mock.calls[0][0] as {
+				content: string;
+				metadata: Record<string, unknown>;
+			};
+			expect(call.metadata.versionNumber).toBe(1);
+			expect(call.metadata.documentFamilyId).not.toBe("family-report");
+			expect(call.metadata.supersedesArtifactId).toBeNull();
+			expect(call.content).not.toContain("Recent prior versions");
+			expect(call.content).not.toContain("Previous report summary");
+			expect(mockCreateArtifactLink).not.toHaveBeenCalledWith(
+				expect.objectContaining({ linkType: "supersedes" }),
 			);
 		});
 	});

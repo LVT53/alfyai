@@ -27,7 +27,9 @@ export async function resetKnowledgeBaseState(userId: string): Promise<{
 }> {
 	await advanceMemoryResetGeneration(userId);
 
-	const ownershipScope = await getArtifactOwnershipScope(userId);
+	const ownershipScope = await getArtifactOwnershipScope(userId, {
+		includeIncognito: true,
+	});
 	const artifactRows = await db
 		.select({ id: artifacts.id })
 		.from(artifacts)
