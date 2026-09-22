@@ -101,6 +101,17 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
 // ── CLI args ────────────────────────────────────────────────────────────
 
+/**
+ * A refusal the operator caused and can fix: a bad flag, an unserved tier, an
+ * unreachable backend on an `--apply`. `main` prints it as one line and exits
+ * 1, rather than as a stack — a stack trace out of an operations script reads
+ * as "the script is broken", which sends an operator looking in entirely the
+ * wrong place on the one night they are least able to afford it.
+ */
+export class BackfillUsageError extends Error {
+	override readonly name = "BackfillUsageError";
+}
+
 export interface BackfillArgs {
 	apply: boolean;
 	tier: string | null;
@@ -142,7 +153,9 @@ export function parseArgs(argv: string[]): BackfillArgs {
 	if (sinceRaw) {
 		const parsed = new Date(sinceRaw);
 		if (Number.isNaN(parsed.getTime())) {
-			throw new Error(`--since is not a valid ISO date: "${sinceRaw}"`);
+			throw new BackfillUsageError(
+				`--since is not a valid ISO date: "${sinceRaw}"`,
+			);
 		}
 		since = parsed;
 	}
@@ -159,7 +172,7 @@ export function parseArgs(argv: string[]): BackfillArgs {
 		tier !== null &&
 		!(BACKFILL_TIER_IDS as readonly string[]).includes(tier)
 	) {
-		throw new Error(
+		throw new BackfillUsageError(
 			`--tier must be one of ${BACKFILL_TIER_IDS.join(", ")}; got "${tier}"`,
 		);
 	}
@@ -171,7 +184,9 @@ export function parseArgs(argv: string[]): BackfillArgs {
 	if (limitRaw !== null) {
 		const parsed = Number(limitRaw);
 		if (!Number.isInteger(parsed) || parsed < 1) {
-			throw new Error(`--limit must be a positive integer; got "${limitRaw}"`);
+			throw new BackfillUsageError(
+				`--limit must be a positive integer; got "${limitRaw}"`,
+			);
 		}
 		limit = parsed;
 	}
@@ -288,7 +303,7 @@ async function resolveDefaultTier(deps: Deps): Promise<string> {
 			deps.mineruConfig.mineruTierRank(b) - deps.mineruConfig.mineruTierRank(a),
 	)[0];
 	if (!best) {
-		throw new Error(
+		throw new BackfillUsageError(
 			"MINERU_DEFAULT_TIER=auto and MinerU reports no tiers; pass --tier explicitly.",
 		);
 	}
@@ -323,7 +338,7 @@ async function resolveRequestedTier(
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
 		if (args.apply) {
-			throw new Error(
+			throw new BackfillUsageError(
 				`MinerU is unreachable, so tier "${tier}" could not be verified before enqueueing: ${detail}\n` +
 					"Fix the backend first, or re-run without --apply to plan offline.",
 			);
@@ -335,7 +350,7 @@ async function resolveRequestedTier(
 	}
 
 	if (offered && !offered.includes(tier)) {
-		throw new Error(
+		throw new BackfillUsageError(
 			`MinerU does not serve tier "${tier}". It serves: ${offered.join(", ") || "(none)"}.`,
 		);
 	}
@@ -354,7 +369,7 @@ async function resolveUserFilter(
 		.from(deps.schema.users)
 		.where(eq(deps.schema.users.email, userArg))
 		.limit(1);
-	if (!row) throw new Error(`No user with email ${userArg}`);
+	if (!row) throw new BackfillUsageError(`No user with email ${userArg}`);
 	return row.id;
 }
 
@@ -1127,6 +1142,18 @@ function printStatusReport(report: StatusReport): void {
 // ── main ────────────────────────────────────────────────────────────────
 
 export async function main(argv: string[]): Promise<number> {
+	try {
+		return await run(argv);
+	} catch (error) {
+		if (error instanceof BackfillUsageError) {
+			console.error(`ERROR: ${error.message}`);
+			return 1;
+		}
+		throw error;
+	}
+}
+
+async function run(argv: string[]): Promise<number> {
 	const databasePath = process.env.DATABASE_PATH?.trim();
 	if (!databasePath) {
 		console.error(

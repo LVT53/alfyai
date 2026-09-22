@@ -6,6 +6,7 @@
 // `DATABASE_PATH` at it.
 
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -868,6 +869,36 @@ describe("--only-failed", () => {
 		expect(
 			script.filterOnlyFailed(plan, byId, new Date("2026-09-21T00:00:00.000Z")),
 		).toHaveLength(0);
+	});
+});
+
+describe("main: exit codes and operator-facing errors", () => {
+	it("returns 1 with one readable line for a bad flag, not a stack", async () => {
+		const errors: string[] = [];
+		vi.spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
+			errors.push(parts.map(String).join(" "));
+		});
+
+		await expect(script.main(["--tier", "standrad"])).resolves.toBe(1);
+		expect(errors.join("\n")).toContain(
+			"ERROR: --tier must be one of flash, basic, standard, advanced",
+		);
+		expect(errors.join("\n")).not.toContain("at parseArgs");
+	});
+
+	it("refuses a DATABASE_PATH that does not exist instead of creating one", async () => {
+		const missing = join(cwdDir, "data", "definitely-not-here.db");
+		process.env.DATABASE_PATH = missing;
+		const errors: string[] = [];
+		vi.spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
+			errors.push(parts.map(String).join(" "));
+		});
+
+		await expect(script.main([])).resolves.toBe(1);
+		expect(errors.join("\n")).toContain("DATABASE_PATH does not exist");
+		expect(existsSync(missing)).toBe(false);
+
+		process.env.DATABASE_PATH = fixture.dbPath;
 	});
 });
 
