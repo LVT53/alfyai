@@ -250,7 +250,9 @@ const CASES: ExtractionCase[] = [
 			minTextLength: 100,
 			mustContain: [],
 			mustNotContain: [],
-			figureCount: 0,
+			// Confirmed live on the MinerU 4.0.4 server (2026-09-22): the sample
+			// really does embed one JPEG on slide 2.
+			figureCount: 1,
 			outlineMin: 1,
 		},
 	},
@@ -334,9 +336,13 @@ const CASES: ExtractionCase[] = [
 		expect: {
 			effectiveTier: "flash",
 			pageCount: 1,
-			// UNVERIFIED (§5.1): record which of "logical"/"declared" the live box
-			// actually reports and correct this if it differs.
-			pageCountKind: "logical",
+			// Confirmed live on the MinerU 4.0.4 server (2026-09-22): `rtf` is
+			// `category: "text"` in file-types/table.ts, and
+			// `normalizePageCountKind()` (result.ts) returns "unknown" for that
+			// category when the server sends no `page_count_kind` — it is not
+			// "declared" (the legacy-document default) because `rtf` was never
+			// registered as `category: "document"`.
+			pageCountKind: "unknown",
 			minTextLength: 100,
 			mustContain: ["ALFA Quarterly Overview", "Northland"],
 			mustNotContain: [],
