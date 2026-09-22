@@ -4,7 +4,10 @@ import type {
 	FileProductionInlineTextRequest,
 } from "$lib/server/services/file-production/types";
 import type { Artifact } from "$lib/server/services/knowledge/types";
-import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
+import {
+	executeCode as executeSandboxCode,
+	SANDBOX_TIMEOUT_ERROR,
+} from "$lib/server/services/sandbox-execution";
 import {
 	getSandboxMimeTypeForExtension,
 	normalizeDocumentOutput,
@@ -555,9 +558,19 @@ export async function executePersistedFileProductionRequest(
 				{ signal: input.signal, timeoutMs: limits.sandboxTimeoutMs },
 			);
 			if (execution.error) {
+				// A timeout and a crash are different things to a user: the card
+				// has localized copy for each, and only the code chooses between
+				// them. `sandbox_timeout` was declared in the limit vocabulary and
+				// never emitted, so every timed-out program reached the card as
+				// `program_execution_failed` with the raw English "Execution timed
+				// out" beside it. Both are retryable for the Retry button — another
+				// go on a quieter box is exactly what a deadline miss deserves —
+				// and neither is model-correctable (`produce-file.ts` keeps "timed
+				// out" out of the correctable set by message marker).
+				const timedOut = execution.error === SANDBOX_TIMEOUT_ERROR;
 				return {
 					ok: false,
-					errorCode: "program_execution_failed",
+					errorCode: timedOut ? "sandbox_timeout" : "program_execution_failed",
 					errorMessage: execution.error,
 					retryable: true,
 				};

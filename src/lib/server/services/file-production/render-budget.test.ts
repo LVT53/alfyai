@@ -19,6 +19,7 @@ vi.mock("./source-persistence", () => ({
 	renderGeneratedDocumentSourceText: vi.fn(() => null),
 }));
 
+import { SANDBOX_TIMEOUT_ERROR } from "$lib/server/services/sandbox-execution";
 import { executePersistedFileProductionRequest } from "./execution-adapter";
 import { getFileProductionLimits } from "./limits";
 import {
@@ -341,6 +342,61 @@ describe("the attempt's verdict", () => {
 			// The sandbox deadline rides along with the signal now — the same
 			// options object carries the cancel and the timeout.
 			timeoutMs: getFileProductionLimits().sandboxTimeoutMs,
+		});
+	});
+
+	// A timeout and a crash are different things to a user, and the card can
+	// only tell them apart by the CODE: `sandbox_timeout` has its own localized
+	// line, `program_execution_failed` shows the traceback's own words. The
+	// sandbox reports a deadline miss as one exact sentinel string, so that is
+	// what the verdict turns on.
+	function programJob() {
+		return JSON.stringify({
+			sourceMode: "program",
+			program: {
+				language: "python",
+				sourceCode: "while True: pass",
+				filename: "out.txt",
+			},
+			outputs: [{ type: "txt" }],
+		});
+	}
+
+	it("is sandbox_timeout when the sandbox hit its deadline", async () => {
+		const result = await executePersistedFileProductionRequest({
+			...jobInput,
+			requestJson: programJob(),
+			executeCode: async () => ({
+				files: [],
+				stdout: "",
+				stderr: "",
+				error: SANDBOX_TIMEOUT_ERROR,
+			}),
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			errorCode: "sandbox_timeout",
+			retryable: true,
+		});
+	});
+
+	it("is still program_execution_failed for a program that crashed", async () => {
+		const result = await executePersistedFileProductionRequest({
+			...jobInput,
+			requestJson: programJob(),
+			executeCode: async () => ({
+				files: [],
+				stdout: "",
+				stderr: "Traceback…",
+				error: "ZeroDivisionError: division by zero",
+			}),
+		});
+
+		expect(result).toMatchObject({
+			ok: false,
+			errorCode: "program_execution_failed",
+			retryable: true,
 		});
 	});
 });
