@@ -79,6 +79,58 @@ describe("extractDocumentOutline", () => {
 		);
 	});
 
+	it("falls back to a title-case line followed by a blank line then body text, as MinerU always emits", () => {
+		// MinerU's markdown always puts a blank line between a heading-shaped
+		// line and its paragraph, so the fallback must look PAST the blank
+		// line rather than only ever checking the very next line.
+		const text = [
+			"ALFA Quarterly Overview",
+			"",
+			"Body paragraph with enough length to read as the section content.",
+		].join("\n");
+
+		const outline = extractDocumentOutline(text);
+
+		expect(outline).toHaveLength(1);
+		expect(outline[0]).toMatchObject({
+			level: 1,
+			title: "ALFA Quarterly Overview",
+		});
+	});
+
+	it("does not treat a title-case line at the very end of the document as a heading", () => {
+		const text = [
+			"Intro line that is lowercase and long enough to not match",
+			"",
+			"ALFA Quarterly Overview",
+		].join("\n");
+
+		const outline = extractDocumentOutline(text);
+
+		expect(
+			outline.some((entry) => entry.title === "ALFA Quarterly Overview"),
+		).toBe(false);
+	});
+
+	it("strips a wrapping `**…**` from a bold title-case line before matching it as a heading", () => {
+		// RTF conversions emit every heading as a bold plain-text block, so the
+		// title-case fallback must see through the bold markers: the regex
+		// requires the line to start with a bare [A-Z], which `**A` never does.
+		const text = [
+			"**ALFA Quarterly Overview**",
+			"",
+			"Body paragraph with enough length to read as the section content.",
+		].join("\n");
+
+		const outline = extractDocumentOutline(text);
+
+		expect(outline).toHaveLength(1);
+		expect(outline[0]).toMatchObject({
+			level: 1,
+			title: "ALFA Quarterly Overview",
+		});
+	});
+
 	// Plain .txt/.md uploads skip MinerU and are read straight off disk
 	// (document-extraction.ts's direct-text path), so a Windows-authored file
 	// reaches the extractor with its CRLF line endings intact. Offsets and
