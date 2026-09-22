@@ -237,6 +237,42 @@ describe("conversations store", () => {
 		expect(get(conversations)[0].memoryIncognito).toBe(false);
 	});
 
+	// Regression: the landing page's own creation flow ends in a HARD
+	// navigation (window.location.assign, not a SvelteKit transition) once a
+	// conversation exists — a full page load that wipes every in-memory
+	// client map, including the one updateConversationMemoryIncognitoLocal
+	// writes to. The chat page's first paint on the new page cannot rely on
+	// that map surviving, so upsertConversationLocal's own memoryIncognito
+	// parameter must be able to carry the truth in directly, with an empty
+	// map (simulating the post-reload state) standing in for the wipe.
+	it("carries memoryIncognito through upsertConversationLocal directly, with no local map to fall back on", () => {
+		expect(get(conversations)).toEqual([]);
+
+		upsertConversationLocal(
+			"conv-fresh-page",
+			"New Conversation",
+			500,
+			undefined,
+			true,
+		);
+
+		expect(get(conversations)).toEqual([
+			conversationItem("conv-fresh-page", "New Conversation", 500, {
+				memoryIncognito: true,
+			}),
+		]);
+	});
+
+	it("also carries memoryIncognito through upsertConversationLocal for a row that already exists", () => {
+		reconcileConversationSnapshot([
+			conversationItem("conv-existing", "Existing", 100),
+		]);
+
+		upsertConversationLocal("conv-existing", "Existing", 200, undefined, true);
+
+		expect(get(conversations)[0].memoryIncognito).toBe(true);
+	});
+
 	it("forgets a pre-set incognito flag when the prepared conversation is removed", () => {
 		// The landing page deletes a prepared conversation the user backed out
 		// of; a later conversation reusing the id must not inherit the flag.

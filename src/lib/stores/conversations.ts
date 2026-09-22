@@ -426,11 +426,29 @@ export function upsertConversationLocal(
 	title = "New Conversation",
 	updatedAt = Date.now() / 1000,
 	projectId?: string | null,
+	/**
+	 * Incognito, one-way. Optional and one-way itself: pass `true` when the
+	 * CALLER has authoritative, freshly-loaded server data (a conversation
+	 * detail load, a fork response) saying this conversation is incognito;
+	 * omit it otherwise and the existing local-map lookup below still
+	 * applies. This exists because the landing page's own creation flow
+	 * (`createNewConversation` → `updateConversationMemoryIncognitoLocal`)
+	 * ends in a HARD navigation (`window.location.assign`, not a SvelteKit
+	 * transition) once a conversation exists — a full page load that wipes
+	 * every in-memory client map, including the one this function otherwise
+	 * reads. The freshly-loaded chat page's own `data.conversation` is
+	 * unaffected by that reset, so it is the one place that can still say
+	 * the truth for this row's first paint on the new page.
+	 */
+	memoryIncognito?: boolean,
 ): void {
 	optimisticConversationIds.add(id);
 	deletedConversationIds.delete(id);
 	if (projectId !== undefined) {
 		localConversationProjectIds.set(id, projectId);
+	}
+	if (memoryIncognito) {
+		localConversationMemoryIncognito.set(id, true);
 	}
 	conversations.update((items) => {
 		const existingIndex = items.findIndex((item) => item.id === id);
@@ -456,6 +474,7 @@ export function upsertConversationLocal(
 			...nextItems[existingIndex],
 			updatedAt,
 			...(projectId !== undefined ? { projectId } : {}),
+			...(memoryIncognito ? { memoryIncognito: true } : {}),
 		};
 		return nextItems;
 	});

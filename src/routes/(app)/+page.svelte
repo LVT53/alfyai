@@ -448,11 +448,15 @@ function handleDrop(event: DragEvent) {
 }
 
 onMount(() => {
-	// A fresh landing visit always starts unarmed — these are shared stores
-	// (Header's phone button reads/writes the same ones), so a previous
-	// visit's true must not leak into this one.
+	// A fresh landing visit always starts unarmed — this is a shared store
+	// (Header's phone button reads/writes it too), so a previous visit's
+	// true must not leak into this one. `landingIncognitoArmVisible` is NOT
+	// reset here as well: it is entirely effect-driven from
+	// `showIncognitoArm` below, and setting it here too raced that effect —
+	// whichever ran second won, and onMount running after the effect's
+	// first (correct) pass silently pinned it back to false for the rest of
+	// the visit.
 	landingIncognitoArmed.set(false);
-	landingIncognitoArmVisible.set(false);
 
 	const previousId = consumePreviousConversationId();
 	if (previousId) {
@@ -556,7 +560,13 @@ async function handleSend(payload: MessageInputSendPayload) {
 	try {
 		const id = payload.conversationId ?? (await ensurePreparedConversation());
 		currentConversationId.set(id);
-		upsertConversationLocal(id, "New Conversation", Date.now() / 1000);
+		upsertConversationLocal(
+			id,
+			"New Conversation",
+			Date.now() / 1000,
+			undefined,
+			$landingIncognitoArmed,
+		);
 		setConversationPersonalitySelection(id, selectedPersonalityId);
 		setLandingDraftConversationId(null);
 		conversationDraft = null;

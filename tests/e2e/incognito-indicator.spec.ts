@@ -166,6 +166,7 @@ test.describe("Incognito, one-way — desktop", () => {
 		const newChat = page.getByTestId("incognito-popover-new-chat");
 		await expect(newChat).toBeVisible();
 		await expect(newChat).toBeFocused();
+		await page.keyboard.press("Escape");
 
 		// Reload keeps it — the flag is on the conversation, not a client guess.
 		await page.reload({ waitUntil: "domcontentloaded" });
@@ -189,8 +190,10 @@ test.describe("Incognito, one-way — desktop", () => {
 		expect((await falseResponse.json()).error).toBe("incognito_is_one_way");
 
 		// "New chat" navigates away rather than turning this chat back to
-		// normal, which cannot be done.
-		await newChat.click();
+		// normal, which cannot be done. Reopened fresh — the reload above
+		// closed the earlier card.
+		await page.getByTestId("incognito-face").click();
+		await page.getByTestId("incognito-popover-new-chat").click();
 		await expect(page).toHaveURL("/", { timeout: 10000 });
 	});
 

@@ -277,11 +277,17 @@ const skillDraftLocalizedApiErrorKeys: Record<string, I18nKey> = {
 };
 
 $effect(() => {
+	// Incognito, one-way — pass the freshly-loaded server truth directly
+	// rather than relying on the local map alone: the landing page's
+	// creation flow hard-navigates here (a full page load), which wipes
+	// that map, so on this row's first paint after arming incognito it
+	// would otherwise be empty. See upsertConversationLocal's own comment.
 	upsertConversationLocal(
 		data.conversation.id,
 		data.conversation.title,
 		data.conversation.updatedAt,
 		data.conversation.projectId ?? null,
+		data.conversation.memoryIncognito ?? false,
 	);
 });
 
@@ -2026,6 +2032,7 @@ async function handleFork(payload: { messageId: string }) {
 			result.conversation.title,
 			result.conversation.updatedAt,
 			result.conversation.projectId ?? null,
+			result.conversation.memoryIncognito ?? false,
 		);
 		conversationDraft = null;
 		queuedTurn = null;
