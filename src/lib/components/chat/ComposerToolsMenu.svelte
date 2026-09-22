@@ -9,8 +9,15 @@
 // order it is reached for:
 //
 //   THIS MESSAGE   Attach file · Skills · Atlas report
-//   (switches)     Thinking · Incognito
+//   (switches)     Thinking
 //   (conversation) Model · Style
+//
+// Incognito used to be a third switch here (and a second copy of the same
+// switch in the face's own popover). Neither exists any more: incognito
+// redesign (one-way) moved arming it to a single mask button on the landing
+// page, before a conversation exists, because the flag can never be turned
+// back off once a conversation has it — a switch in this menu would have
+// kept implying it could be.
 //
 // Web search used to be a fourth switch and is not one any more: the owner's
 // word for it was "confusing", and the confusion was structural — a switch
@@ -31,10 +38,9 @@
 // the one you could not see the count on.
 //
 // Two behaviours the old menu did not have, and the board asks for by name:
-// a switch row flips IN PLACE and the menu stays open (turning Thinking on
-// and then Incognito is one visit, not two), and the whole thing is a
-// real menu for the keyboard — arrow keys walk it, Escape closes it, and
-// focus returns to the plus that opened it.
+// a switch row flips IN PLACE and the menu stays open, and the whole thing
+// is a real menu for the keyboard — arrow keys walk it, Escape closes it,
+// and focus returns to the plus that opened it.
 //
 // On a phone it becomes a bottom sheet. An anchored popover pinned to a 19px
 // icon at the bottom of a 390px screen sits under the thumb that opened it,
@@ -47,7 +53,6 @@ import {
 	Orbit,
 	Paperclip,
 	Sparkles,
-	VenetianMask,
 } from "@lucide/svelte";
 import ModelSelector from "./ModelSelector.svelte";
 import {
@@ -112,9 +117,6 @@ let {
 	thinkingAvailable = false,
 	thinkingOn = false,
 	onToggleThinking = undefined,
-	incognitoOn = false,
-	incognitoBusy = false,
-	onToggleIncognito = undefined,
 	// Skills used to be reachable only by typing "$". The row says how many
 	// are active so the menu is also where you find out that you have any.
 	skillCount = null,
@@ -142,9 +144,6 @@ let {
 	thinkingAvailable?: boolean;
 	thinkingOn?: boolean;
 	onToggleThinking?: (() => void) | undefined;
-	incognitoOn?: boolean;
-	incognitoBusy?: boolean;
-	onToggleIncognito?: (() => void) | undefined;
 	skillCount?: number | null;
 	pendingSkillName?: string | null;
 	onOpenSkills?: (() => void) | undefined;
@@ -689,25 +688,6 @@ onMount(() => {
 				<span class="menu-row__icon" aria-hidden="true"><Brain size={16} strokeWidth={2} /></span>
 				<span class="menu-row__label">{$t('composerMenu.thinking')}</span>
 				{@render switchFace(thinkingOn)}
-			</button>
-
-		{:else if row.id === 'incognito'}
-			<button
-				type="button"
-				class="menu-row"
-				role="menuitemcheckbox"
-				aria-checked={incognitoOn}
-				aria-label={$t('chat.incognitoToggle')}
-				tabindex={focusedIndex === index ? 0 : -1}
-				use:registerRow={row.id}
-				data-testid="incognito-toggle"
-				disabled={incognitoBusy}
-				onfocus={() => (focusedIndex = index)}
-				onclick={() => onToggleIncognito?.()}
-			>
-				<span class="menu-row__icon" aria-hidden="true"><VenetianMask size={16} strokeWidth={2} /></span>
-				<span class="menu-row__label">{$t('composerMenu.incognito')}</span>
-				{@render switchFace(incognitoOn)}
 			</button>
 
 		{:else if row.id === 'model'}

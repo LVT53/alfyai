@@ -321,14 +321,26 @@ describe("ComposerToolsMenu web search", () => {
 		expect(screen.queryByText("Web search")).toBeNull();
 	});
 
-	it("leaves the switches section to thinking and incognito", () => {
+	it("leaves the switches section to thinking alone", () => {
 		stubPhone(false);
 		render(ComposerToolsMenu, baseProps({ triggerElement: stubTrigger() }));
 
 		const checkboxes = Array.from(
 			document.querySelectorAll('[role="menuitemcheckbox"]'),
 		).map((node) => node.getAttribute("data-testid"));
-		expect(checkboxes).toEqual(["thinking-toggle", "incognito-toggle"]);
+		expect(checkboxes).toEqual(["thinking-toggle"]);
+	});
+});
+
+// Incognito redesign (one-way): the switch that used to live in this menu's
+// Switches section is gone — arming incognito happens once, on the landing
+// page, before a conversation exists, and the menu never mentions it again.
+describe("ComposerToolsMenu incognito", () => {
+	it("draws no incognito row", () => {
+		stubPhone(false);
+		render(ComposerToolsMenu, baseProps({ triggerElement: stubTrigger() }));
+
+		expect(screen.queryByTestId("incognito-toggle")).toBeNull();
 	});
 });
 
