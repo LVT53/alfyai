@@ -700,6 +700,410 @@ describe("--status", () => {
 	});
 });
 
+describe("admin_config overlay", () => {
+	it("uses the admin_config MINERU_API_URL, not the one in the environment", async () => {
+		// The live symptom this covers: on the dev box `shared/.env` said
+		// `MINERU_API_URL=http://127.0.0.1:8001` and the `admin_config` row the
+		// app actually runs on said `:8002`, so the script probed a backend
+		// nobody uses and called it unreachable. `getConfig()` returns the
+		// env-derived defaults until something calls `refreshConfig()`; the
+		// server does it once in `hooks.server.ts`, and the script has to too.
+		process.env.MINERU_API_URL = "http://127.0.0.1:8001";
+		fixture.db
+			.insert(schema.adminConfig)
+			.values({
+				key: "MINERU_API_URL",
+				value: "http://127.0.0.1:8002",
+				updatedBy: "admin",
+			})
+			.run();
+		await reimport();
+
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-pdf",
+			userId: "user-1",
+			name: "report.pdf",
+			mimeType: "application/pdf",
+			storagePath: await seedFile("user-1", "report.pdf"),
+		});
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		expect(plan.mineruApiUrl).toBe("http://127.0.0.1:8002");
+
+		delete process.env.MINERU_API_URL;
+	});
+
+	it("falls back to the environment when admin_config has no row", async () => {
+		process.env.MINERU_API_URL = "http://127.0.0.1:8001";
+		await reimport();
+
+		fixture.seedUser("user-1");
+		fixture.seedArtifact({
+			id: "doc-pdf",
+			userId: "user-1",
+			name: "report.pdf",
+			mimeType: "application/pdf",
+			storagePath: await seedFile("user-1", "report.pdf"),
+		});
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		expect(plan.mineruApiUrl).toBe("http://127.0.0.1:8001");
+
+		delete process.env.MINERU_API_URL;
+	});
+});
+
+describe("the pre-backfill snapshot and the shrink check", () => {
+	/** A source document with a normalized artifact, its link and N chunks. */
+	async function seedExtractedDocument(params: {
+		userId: string;
+		sourceId: string;
+		fileName: string;
+		text: string;
+		chunks: number;
+	}): Promise<string> {
+		fixture.seedArtifact({
+			id: params.sourceId,
+			userId: params.userId,
+			name: params.fileName,
+			mimeType: "application/pdf",
+			storagePath: await seedFile(params.userId, `${params.sourceId}.pdf`),
+		});
+		const normalizedId = `norm-${params.sourceId}`;
+		fixture.seedArtifact({
+			id: normalizedId,
+			userId: params.userId,
+			type: "normalized_document",
+			name: `${params.fileName} (normalized)`,
+			contentText: params.text,
+		});
+		fixture.seedNormalizedLink({
+			userId: params.userId,
+			normalizedArtifactId: normalizedId,
+			sourceArtifactId: params.sourceId,
+		});
+		for (let i = 0; i < params.chunks; i++) {
+			fixture.db
+				.insert(schema.artifactChunks)
+				.values({
+					id: `${normalizedId}-chunk-${i}`,
+					artifactId: normalizedId,
+					userId: params.userId,
+					chunkIndex: i,
+					contentText: `chunk ${i}`,
+				})
+				.run();
+		}
+		return normalizedId;
+	}
+
+	/** Stands in for the worker: rewrite in place, exactly as persist.ts does. */
+	function rewriteNormalized(
+		normalizedId: string,
+		userId: string,
+		text: string,
+		chunks: number,
+	): void {
+		fixture.db
+			.update(schema.artifacts)
+			.set({ contentText: text })
+			.where(eq(schema.artifacts.id, normalizedId))
+			.run();
+		fixture.db
+			.delete(schema.artifactChunks)
+			.where(eq(schema.artifactChunks.artifactId, normalizedId))
+			.run();
+		for (let i = 0; i < chunks; i++) {
+			fixture.db
+				.insert(schema.artifactChunks)
+				.values({
+					id: `${normalizedId}-new-${i}`,
+					artifactId: normalizedId,
+					userId,
+					chunkIndex: i,
+					contentText: `new chunk ${i}`,
+				})
+				.run();
+		}
+	}
+
+	function markSucceeded(sourceId: string): void {
+		fixture.db
+			.update(schema.documentExtractionJobs)
+			.set({ status: "succeeded" })
+			.where(eq(schema.documentExtractionJobs.sourceArtifactId, sourceId))
+			.run();
+	}
+
+	it("writes a snapshot on --apply, and nothing on a dry run", async () => {
+		fixture.seedUser("user-1");
+		await seedExtractedDocument({
+			userId: "user-1",
+			sourceId: "doc-1",
+			fileName: "report.pdf",
+			text: "x".repeat(10_000),
+			chunks: 12,
+		});
+
+		const snapshotDir = join(cwdDir, "data", "backfill-snapshots");
+
+		// The dry run reads the same rows and must leave no trace.
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		expect(existsSync(snapshotDir)).toBe(false);
+
+		const result = await script.applyBackfillPlan(
+			plan.items.filter((item) => item.include),
+			{ limit: null, tier: "standard" },
+		);
+		expect(result.snapshotPath).toBeTruthy();
+		expect(existsSync(snapshotDir)).toBe(true);
+		// Outside every storage root, so no cleanup path can delete it.
+		expect(result.snapshotPath).not.toContain(join("data", "knowledge"));
+		expect(result.snapshotPath).not.toContain(join("data", "chat-files"));
+
+		const written = JSON.parse(
+			await readFile(result.snapshotPath as string, "utf8"),
+		);
+		expect(written.version).toBe(1);
+		expect(written.tier).toBe("standard");
+		expect(written.documents["doc-1"]).toMatchObject({
+			userId: "user-1",
+			fileName: "report.pdf",
+			normalizedArtifactId: "norm-doc-1",
+			contentLength: 10_000,
+			chunkCount: 12,
+		});
+	});
+
+	it("flags a document that shrank and leaves a grown one alone", async () => {
+		fixture.seedUser("user-1");
+		const shrankId = await seedExtractedDocument({
+			userId: "user-1",
+			sourceId: "doc-shrank",
+			fileName: "big-scan.pdf",
+			text: "x".repeat(80_000),
+			chunks: 60,
+		});
+		const grewId = await seedExtractedDocument({
+			userId: "user-1",
+			sourceId: "doc-grew",
+			fileName: "proper.pdf",
+			text: "x".repeat(10_000),
+			chunks: 8,
+		});
+		const steadyId = await seedExtractedDocument({
+			userId: "user-1",
+			sourceId: "doc-steady",
+			fileName: "steady.pdf",
+			text: "x".repeat(10_000),
+			chunks: 8,
+		});
+
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		const result = await script.applyBackfillPlan(
+			plan.items.filter((item) => item.include),
+			{ limit: null, tier: "standard" },
+		);
+		const snapshotPath = result.snapshotPath as string;
+
+		// The worker runs: one document comes back with a twentieth of its text,
+		// one comes back bigger, one is barely changed.
+		rewriteNormalized(shrankId, "user-1", "x".repeat(4_000), 3);
+		rewriteNormalized(grewId, "user-1", "x".repeat(14_000), 11);
+		rewriteNormalized(steadyId, "user-1", "x".repeat(9_500), 8);
+		for (const id of ["doc-shrank", "doc-grew", "doc-steady"])
+			markSucceeded(id);
+
+		const snapshot = await script.readBackfillSnapshot(snapshotPath);
+		const report = await script.buildStatusReport(null, { snapshot });
+
+		expect(report.compared).toBe(3);
+		expect(report.shrunk?.map((doc) => doc.artifactId)).toEqual(["doc-shrank"]);
+		expect(report.shrunk?.[0]).toMatchObject({
+			userId: "user-1",
+			fileName: "big-scan.pdf",
+			beforeLength: 80_000,
+			afterLength: 4_000,
+			beforeChunks: 60,
+			afterChunks: 3,
+		});
+	});
+
+	it("flags a collapsed chunk table even when the text survived", async () => {
+		fixture.seedUser("user-1");
+		const id = await seedExtractedDocument({
+			userId: "user-1",
+			sourceId: "doc-1",
+			fileName: "tables.pdf",
+			text: "x".repeat(10_000),
+			chunks: 40,
+		});
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		const result = await script.applyBackfillPlan(
+			plan.items.filter((item) => item.include),
+			{ limit: null, tier: "standard" },
+		);
+
+		// Same characters, one chunk: a retrieval regression the text length
+		// alone cannot see.
+		rewriteNormalized(id, "user-1", "x".repeat(9_900), 1);
+		markSucceeded("doc-1");
+
+		const report = await script.buildStatusReport(null, {
+			snapshot: await script.readBackfillSnapshot(
+				result.snapshotPath as string,
+			),
+		});
+		expect(report.shrunk?.map((doc) => doc.artifactId)).toEqual(["doc-1"]);
+	});
+
+	it("honours --shrink-threshold", async () => {
+		fixture.seedUser("user-1");
+		const id = await seedExtractedDocument({
+			userId: "user-1",
+			sourceId: "doc-1",
+			fileName: "report.pdf",
+			text: "x".repeat(10_000),
+			chunks: 10,
+		});
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		const result = await script.applyBackfillPlan(
+			plan.items.filter((item) => item.include),
+			{ limit: null, tier: "standard" },
+		);
+		// 70% of the text left: past a 0.9 threshold, inside the default 0.5.
+		rewriteNormalized(id, "user-1", "x".repeat(7_000), 10);
+		markSucceeded("doc-1");
+
+		const snapshot = await script.readBackfillSnapshot(
+			result.snapshotPath as string,
+		);
+		expect(
+			(await script.buildStatusReport(null, { snapshot })).shrunk,
+		).toHaveLength(0);
+		expect(
+			(await script.buildStatusReport(null, { snapshot, shrinkThreshold: 0.9 }))
+				.shrunk,
+		).toHaveLength(1);
+	});
+
+	it("ignores a document that has not succeeded yet", async () => {
+		fixture.seedUser("user-1");
+		const id = await seedExtractedDocument({
+			userId: "user-1",
+			sourceId: "doc-1",
+			fileName: "report.pdf",
+			text: "x".repeat(10_000),
+			chunks: 10,
+		});
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		const result = await script.applyBackfillPlan(
+			plan.items.filter((item) => item.include),
+			{ limit: null, tier: "standard" },
+		);
+		// Still queued. Its content is the OLD content, which would otherwise
+		// compare as "unchanged" — but a half-written truth is worse than none,
+		// so it must not be counted at all.
+		rewriteNormalized(id, "user-1", "x".repeat(10), 1);
+
+		const report = await script.buildStatusReport(null, {
+			snapshot: await script.readBackfillSnapshot(
+				result.snapshotPath as string,
+			),
+		});
+		expect(report.compared).toBe(0);
+		expect(report.shrunk).toEqual([]);
+	});
+
+	it("never flags a legacy document that had no text to lose", async () => {
+		fixture.seedUser("user-1");
+		// No normalized artifact and no link: the backfill GIVES this one text.
+		fixture.seedArtifact({
+			id: "doc-legacy",
+			userId: "user-1",
+			name: "ancient.pdf",
+			mimeType: "application/pdf",
+			storagePath: await seedFile("user-1", "ancient.pdf"),
+		});
+		const plan = await script.buildBackfillPlan(
+			script.parseArgs(["--tier", "standard"]),
+		);
+		const result = await script.applyBackfillPlan(
+			plan.items.filter((item) => item.include),
+			{ limit: null, tier: "standard" },
+		);
+		const snapshot = await script.readBackfillSnapshot(
+			result.snapshotPath as string,
+		);
+		expect(snapshot.documents["doc-legacy"]).toMatchObject({
+			normalizedArtifactId: null,
+			contentLength: null,
+			chunkCount: null,
+		});
+
+		markSucceeded("doc-legacy");
+		const report = await script.buildStatusReport(null, { snapshot });
+		expect(report.shrunk).toEqual([]);
+	});
+
+	it("gives a clear error for a missing or malformed snapshot", async () => {
+		await expect(
+			script.readBackfillSnapshot(join(cwdDir, "nope.json")),
+		).rejects.toThrow(/No snapshot file at/);
+
+		const bad = join(cwdDir, "bad.json");
+		await writeFile(bad, "{ not json", "utf8");
+		await expect(script.readBackfillSnapshot(bad)).rejects.toThrow(
+			/is not valid JSON/,
+		);
+
+		const wrong = join(cwdDir, "wrong.json");
+		await writeFile(wrong, JSON.stringify({ hello: "world" }), "utf8");
+		await expect(script.readBackfillSnapshot(wrong)).rejects.toThrow(
+			/is not a backfill snapshot/,
+		);
+	});
+
+	it("--verify on a missing snapshot exits 1 with one readable line", async () => {
+		const errors: string[] = [];
+		vi.spyOn(console, "error").mockImplementation((...parts: unknown[]) => {
+			errors.push(parts.map(String).join(" "));
+		});
+		await expect(
+			script.main(["--verify", join(cwdDir, "not-here.json")]),
+		).resolves.toBe(1);
+		expect(errors.join("\n")).toContain("ERROR: No snapshot file at");
+		expect(errors.join("\n")).not.toContain("at readBackfillSnapshot");
+	});
+
+	it("refuses a --shrink-threshold outside (0, 1]", () => {
+		for (const bad of ["0", "-1", "1.5", "abc"]) {
+			expect(() => script.parseArgs(["--shrink-threshold", bad])).toThrow(
+				/--shrink-threshold must be a fraction/,
+			);
+		}
+		expect(
+			script.parseArgs(["--shrink-threshold", "0.25"]).shrinkThreshold,
+		).toBe(0.25);
+		expect(script.parseArgs([]).shrinkThreshold).toBe(0.5);
+	});
+});
+
 describe("--only-failed", () => {
 	it("selects only this campaign's user-retryable failures", async () => {
 		fixture.seedUser("user-1");
