@@ -396,10 +396,22 @@ From the large document (Technical Specification): It covers system architecture
 			await expect(fileInput).toBeHidden();
 			await fileInput.setInputFiles(SMALL_FILE);
 
-			// Should show an error message
-			await expect(
-				page.getByText(/upload|error|failed|unavailable/i),
-			).toBeVisible({ timeout: 10000 });
+			// The composer's own error line, by test id.
+			//
+			// This used to be `getByText(/upload|error|failed|unavailable/i)`,
+			// which matched the two PROGRESS strings ("· Uploading…" and
+			// "Uploading file...") as well as any error — so it was a strict-mode
+			// violation the moment the upload started, and never got as far as
+			// asserting what the test is named for. A 503 from the upload
+			// endpoint is a gateway status, so the composer says the server did
+			// not finish receiving the file rather than echoing the raw status.
+			const attachmentError = page.getByTestId("attachment-error");
+			await expect(attachmentError).toBeVisible({ timeout: 10000 });
+			await expect(attachmentError).toContainText(
+				/did not finish receiving|503/i,
+			);
+			// Gracefully: the composer is still usable, not wedged mid-upload.
+			await expect(page.getByText("Uploading file...")).toBeHidden();
 		});
 	});
 

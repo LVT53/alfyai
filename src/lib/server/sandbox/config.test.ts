@@ -113,6 +113,35 @@ describe("sandbox config", () => {
 			expect(sandbox).toHaveProperty("destroy");
 		});
 
+		// `StopTimeout` is how long docker waits after SIGTERM before it
+		// escalates. It read `getSandboxTimeout()` directly, which stopped being
+		// the run's deadline the moment `FILE_PRODUCTION_SANDBOX_TIMEOUT_MS` was
+		// wired: a job the admin had given ten minutes was created with a
+		// ninety-second grace, so the two halves of "how long may this run"
+		// disagreed. One resolver now feeds both.
+		it("gives the container the same deadline the kill uses", async () => {
+			await createSandbox("python", 600_000);
+
+			expect(mockDocker.createContainer).toHaveBeenCalledWith(
+				expect.objectContaining({ StopTimeout: 600 }),
+			);
+		});
+
+		it("keeps the language default when no deadline is passed", async () => {
+			// `run_python` passes none, and its envelope timeout is derived from
+			// this same constant.
+			await createSandbox("python");
+			expect(mockDocker.createContainer).toHaveBeenCalledWith(
+				expect.objectContaining({ StopTimeout: 90 }),
+			);
+
+			mockDocker.createContainer.mockClear();
+			await createSandbox("javascript");
+			expect(mockDocker.createContainer).toHaveBeenCalledWith(
+				expect.objectContaining({ StopTimeout: 135 }),
+			);
+		});
+
 		it("should enforce resource limits on container", async () => {
 			await createSandbox();
 

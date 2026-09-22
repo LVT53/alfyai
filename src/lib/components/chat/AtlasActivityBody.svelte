@@ -26,6 +26,7 @@ import {
 	Split,
 	Square,
 } from "@lucide/svelte";
+import { handleDownloadAnchorClick } from "$lib/client/downloads";
 import { type I18nKey, t } from "$lib/i18n";
 import type {
 	AtlasAction,
@@ -604,7 +605,10 @@ function handleTabKeydown(event: KeyboardEvent) {
 												role="menuitem"
 												href={option.url}
 												download
-												onclick={() => { downloadMenuOpen = false; }}
+												onclick={(event) => {
+													downloadMenuOpen = false;
+													handleDownloadAnchorClick(event, option.url);
+												}}
 											>
 												{option.label}
 											</a>
@@ -804,7 +808,10 @@ function handleTabKeydown(event: KeyboardEvent) {
 					href={option.url}
 					download
 					data-testid={`atlas-download-sheet-${option.key}`}
-					onclick={() => { downloadMenuOpen = false; }}
+					onclick={(event) => {
+						downloadMenuOpen = false;
+						handleDownloadAnchorClick(event, option.url);
+					}}
 				>
 					<span class="atlas-sheet-row-label">{option.label}</span>
 					<Download size={15} strokeWidth={2} aria-hidden="true" />

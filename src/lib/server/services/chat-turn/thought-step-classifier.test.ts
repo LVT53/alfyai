@@ -64,7 +64,19 @@ function controlModelResult(overrides: {
 	};
 }
 
+// SLOW, not flaky-by-race. `vi.resetModules()` per test means every case
+// re-instantiates this module's server graph, and the FIRST one also pays the
+// cold transform: ~1.2 s of a 5 s budget on an idle machine, which the full
+// suite's contention eats. Nothing here is shared with another file — vitest
+// forks and isolates each one — so the fix is a budget that matches the work,
+// not an isolation change. Raised on this file only; the global default stays
+// at 5 s so a genuinely hung test still fails fast.
+const SLOW_MODULE_GRAPH_TIMEOUT_MS = 30_000;
+vi.setConfig({ testTimeout: SLOW_MODULE_GRAPH_TIMEOUT_MS });
+
 describe("classifyThoughtStepChunk", () => {
+	const ORIGINAL_DATABASE_PATH = process.env.DATABASE_PATH;
+
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-thought-step-classifier-${randomUUID()}.db`;
 		process.env.DATABASE_PATH = dbPath;
@@ -73,6 +85,14 @@ describe("classifyThoughtStepChunk", () => {
 	});
 
 	afterEach(async () => {
+		// Restored rather than left set. It is harmless today only because
+		// vitest throws the worker process away after the file; it would become
+		// a cross-file bug the moment `isolate` were turned off.
+		if (ORIGINAL_DATABASE_PATH === undefined) {
+			delete process.env.DATABASE_PATH;
+		} else {
+			process.env.DATABASE_PATH = ORIGINAL_DATABASE_PATH;
+		}
 		try {
 			const { sqlite } = await import("$lib/server/db");
 			sqlite.close();

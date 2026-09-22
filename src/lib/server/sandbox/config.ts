@@ -301,8 +301,31 @@ export async function executeSandboxCommand(
 	}
 }
 
+/**
+ * The deadline this run is held to: the caller's, or the language default.
+ *
+ * One definition, used by BOTH the `setTimeout` that SIGKILLs the container in
+ * `sandbox-execution.ts` and the `StopTimeout` the container is created with.
+ * They were allowed to disagree once `FILE_PRODUCTION_SANDBOX_TIMEOUT_MS` was
+ * wired: the kill followed the admin's value and `StopTimeout` stayed on the
+ * hard-coded constant, so a docker `stop` on a job the admin had given ten
+ * minutes still escalated to SIGKILL after ninety seconds.
+ */
+export function resolveSandboxTimeout(
+	language: SandboxLanguage,
+	timeoutMs?: number,
+): number {
+	return typeof timeoutMs === "number" &&
+		Number.isFinite(timeoutMs) &&
+		timeoutMs > 0
+		? Math.trunc(timeoutMs)
+		: getSandboxTimeout(language);
+}
+
 export async function createSandbox(
 	language: SandboxLanguage = "python",
+	/** This run's deadline. Omitted by `run_python`, which keeps the default. */
+	timeoutMs?: number,
 ): Promise<Sandbox> {
 	const runtime = getSandboxRuntime(language);
 	await ensureSandboxImage(language);
@@ -315,7 +338,7 @@ export async function createSandbox(
 		Tty: false,
 		OpenStdin: true,
 		StdinOnce: false,
-		StopTimeout: getSandboxTimeout(language) / 1000,
+		StopTimeout: Math.ceil(resolveSandboxTimeout(language, timeoutMs) / 1000),
 		WorkingDir: runtime.workingDir,
 		Env:
 			language === "python"

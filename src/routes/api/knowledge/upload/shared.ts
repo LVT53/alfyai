@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createWriteStream } from "node:fs";
 import { unlink } from "node:fs/promises";
+import { finished } from "node:stream/promises";
 import { json } from "@sveltejs/kit";
 import { getUploadFormatGate } from "$lib/server/services/knowledge/format-availability";
 import {
@@ -83,6 +84,20 @@ async function finishWriter(
 	});
 }
 
+/**
+ * Destroys the writer and waits for it to be fully closed.
+ *
+ * `finished(..., { error: false })` resolves on close whether or not the
+ * stream ended in an error, which is exactly what the abort path needs: it
+ * only has to know that the descriptor is settled before it unlinks.
+ */
+async function closeWriter(
+	writer: ReturnType<typeof createWriteStream>,
+): Promise<void> {
+	writer.destroy();
+	await finished(writer, { error: false }).catch(() => undefined);
+}
+
 async function cleanupWrittenUpload(tempPathAbsolute: string): Promise<void> {
 	await unlink(tempPathAbsolute).catch(() => undefined);
 }
@@ -146,7 +161,21 @@ export async function writeKnowledgeUploadBytes(
 
 		await finishWriter(writer);
 	} catch (error) {
-		writer.destroy();
+		// `destroy()` then unlink is a RACE, and the aborted-before-the-first-byte
+		// case loses it reliably. `createWriteStream` submits its
+		// `open(O_CREAT|O_EXCL)` from `_construct` on a `process.nextTick`; a
+		// source that fails in microtasks — a client that disconnects during the
+		// first read — gets here while that open is still in flight. The unlink
+		// then runs against a name that does not exist yet, fails with ENOENT,
+		// is swallowed, and the open lands afterwards and creates the file. The
+		// stream is closed without flushing, so what is left behind is a 0-byte
+		// `.incoming/<trace>.upload` that only the six-hourly sweep will ever
+		// collect — while this function's contract says the request cleans up
+		// after itself.
+		//
+		// Waiting for the stream to finish closing orders the unlink strictly
+		// after the descriptor exists, so there is nothing left to miss.
+		await closeWriter(writer);
 		await cleanupWrittenUpload(params.tempPathAbsolute);
 		throw error;
 	}

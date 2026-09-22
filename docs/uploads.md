@@ -262,10 +262,11 @@ rows for the acting user. Neither reaches backwards across every account, so
 production cutover.**
 
 ```
-# Report only. --dry-run is the DEFAULT: with no flag nothing is deleted.
+# ALWAYS first. --dry-run is the DEFAULT: with no flag nothing is deleted.
 DATABASE_PATH=./data/chat.db npx tsx scripts/sweep-orphan-generated-artifacts.ts
 
-# Delete.
+# Then, after backing up the database.
+cp data/chat.db data/chat.db.pre-sweep
 DATABASE_PATH=./data/chat.db npx tsx scripts/sweep-orphan-generated-artifacts.ts --apply
 ```
 
@@ -273,10 +274,64 @@ DATABASE_PATH=./data/chat.db npx tsx scripts/sweep-orphan-generated-artifacts.ts
 up the app's `./data/chat.db` default, because a destructive sweep that silently follows a default
 can be pointed at production by a `cd`.
 
-The dry run prints counts per user and per type plus the first 20 ids. `--apply` deletes through
-`hardDeleteArtifactsForUser`, the same service function the app's own delete uses, so chunks,
-links, embeddings, parse bundles, extraction job rows and files on disk all go the way they would
-from the UI.
+**Run the dry run first, every time, and back up the database before `--apply`.** The sweep is the
+only thing in the product that deletes rows nobody asked it to delete, so the dry run is how you
+see what it would take before it takes it.
+
+#### Reading the dry-run counts
+
+The script prints the number of unreachable artifacts, then a breakdown per user and per type, then
+the first 20 ids. That number is the CANDIDATES (a `generated_output` or `work_capsule` with
+`conversation_id IS NULL`) **minus** everything the reachability exclusions saved. To see the
+difference — which is the useful number, because it tells you the exclusions are firing at all —
+compare it against the raw candidate count:
+
+```
+sqlite3 data/chat.db "select count(*) from artifacts
+  where conversation_id is null and type in ('generated_output','work_capsule');"
+```
+
+The gap between the two is how many candidates were spared by an `artifact_links` row, a live
+document-family sibling, or surviving chat-file bytes. A gap of zero on a box with real history is
+worth a second look before applying; so is a candidate count far larger than the users' visible
+document counts.
+
+#### What `--apply` actually does
+
+Deletion goes through `hardDeleteArtifactsForUser`, the same service function the app's own delete
+uses, so chunks, links, embeddings, parse bundles, extraction job rows and files on disk all go the
+way they would from the UI.
+
+- **One transaction per user batch**, not per artifact. Every row for one user goes or none does; a
+  half-applied delete that left links pointing at artifacts that are gone would be worse than
+  either outcome. Ids are batched internally because SQLite binds at most 32 766 parameters per
+  statement, but all batches for a user share the one transaction.
+- **File unlinks happen AFTER the commit**, deliberately: holding a write transaction open across
+  thousands of filesystem calls would block every other writer for the duration. The consequence to
+  plan for is that a crash mid-unlink leaves FILES behind, never rows — the database is already
+  consistent and the sweep is safe to re-run, but it will then report nothing to do while the bytes
+  are still there.
+
+  There is no automatic collector for those. `mineru/temp-sweep.ts` collects only `.parse.tmp-`
+  leftovers, i.e. half-written bundles, not the final files of a delete that did not finish. After
+  a sweep that crashed, find them by comparing the disk against the surviving rows:
+
+  ```
+  # Every stored path the database still references.
+  sqlite3 data/chat.db "select storage_path from artifacts where storage_path is not null;" | sort > /tmp/referenced.txt
+  # Everything actually on disk.
+  find data/knowledge data/chat-files -type f | sed 's|^|./|' | sort > /tmp/on-disk.txt
+  comm -13 /tmp/referenced.txt /tmp/on-disk.txt
+  ```
+
+  Read the result before deleting any of it: `data/knowledge/<user>/<id>.parse/` bundle contents
+  are referenced by directory rather than by row and will show up here legitimately.
+- **A path that does not resolve inside `data/knowledge/` or `data/chat-files/` is refused**, not
+  unlinked, and appears in the script's `file gaps` count. That is a bad row, not a bad sweep;
+  every path the app writes is server-generated and safe, and the guard exists because this script
+  is the first thing that reads those paths box-wide.
+- The counts the script logs are counts. No filenames, no artifact ids beyond the preview list, no
+  document text.
 
 What counts as unreachable is defined once, in
 `src/lib/server/services/knowledge/store/orphan-artifacts.ts`, and shared with the bulk action. An

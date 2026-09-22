@@ -859,7 +859,7 @@ describe("cancel", () => {
 
 describe("restart recovery", () => {
 	it("re-uploads by hash and finishes when the server forgets every id", async () => {
-		await start({ parseDelayMs: 150, restartAfterMs: 40 });
+		await start({ parseDelayMs: 150, restartAfterFirstJob: true });
 		const { request } = await buildRequest();
 
 		const result = await extractorFor().extract(request);
@@ -889,7 +889,7 @@ describe("restart recovery", () => {
 		// that re-uploads must therefore report the phase it already announced,
 		// not the one it is literally performing — otherwise a survivable server
 		// restart cancels the document.
-		await start({ parseDelayMs: 150, restartAfterMs: 40 });
+		await start({ parseDelayMs: 150, restartAfterFirstJob: true });
 		const { request, progress } = await buildRequest();
 
 		await extractorFor().extract(request);

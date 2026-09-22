@@ -103,6 +103,23 @@ export interface FakeMineruServerOptions {
 	failures?: ReadonlyArray<FakeMineruFailure>;
 	/** Bytes persist, ids do not — exactly the recorded restart semantics. */
 	restartAfterMs?: number;
+	/**
+	 * The same restart, fired the instant the FIRST parse job is created.
+	 *
+	 * `restartAfterMs` arms its timer when the server is constructed, so
+	 * everything the extractor has to get through before the restart —
+	 * building the request, the capabilities probe, hashing, `POST /v1/uploads`,
+	 * the `PUT`, `complete`, `POST /v1/parse/jobs` — has to fit inside that
+	 * wall-clock window. It does on an idle machine and it does not under load,
+	 * and the two ways it overruns produce two different wrong answers: fire
+	 * before the upload and nothing is forgotten, fire between the `PUT` and
+	 * `complete` and the content-addressed blob was never registered, so the
+	 * recovery re-uploads bytes it should have deduplicated.
+	 *
+	 * This fires at the one point the restart tests actually mean: the job
+	 * exists, its bytes are on the server, and then the ids go away.
+	 */
+	restartAfterFirstJob?: boolean;
 	/** Which input fixture directory answers downloads. Defaults to the PDF. */
 	fixtureInput?: FakeMineruFixtureInput;
 	/** When set, everything but `/v1/health` demands this bearer token. */
@@ -208,6 +225,14 @@ export async function createFakeMineruServer(
 	let uploads = new Map<string, UploadRecord>();
 	let files = new Map<string, FileRecord>();
 	let jobs = new Map<string, JobRecord>();
+
+	/** Bytes persist, ids do not — exactly the recorded restart semantics. */
+	const restart = () => {
+		uploads = new Map();
+		files = new Map();
+		jobs = new Map();
+	};
+	let restartAfterFirstJobArmed = options.restartAfterFirstJob === true;
 	const failureCounts = new Map<string, number>();
 	let sequence = 0;
 
@@ -928,6 +953,12 @@ export async function createFakeMineruServer(
 		};
 		jobs.set(job.id, job);
 		jsonResponse(res, 202, jobResponse(job, true));
+		// The restart, as an EVENT rather than a wall clock. See
+		// `restartAfterFirstJob`.
+		if (restartAfterFirstJobArmed) {
+			restartAfterFirstJobArmed = false;
+			restart();
+		}
 	}
 
 	function handleJob(res: ServerResponse, method: string, jobId: string): void {
@@ -1012,11 +1043,6 @@ export async function createFakeMineruServer(
 		address && typeof address === "object" ? address.port : Number(address);
 
 	let restartTimer: NodeJS.Timeout | null = null;
-	const restart = () => {
-		uploads = new Map();
-		files = new Map();
-		jobs = new Map();
-	};
 	if (options.restartAfterMs !== undefined) {
 		restartTimer = setTimeout(restart, options.restartAfterMs);
 		restartTimer.unref?.();

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "$lib/server/db";
@@ -9,6 +9,7 @@ import {
 	chatGeneratedFiles,
 	conversations,
 	fileProductionJobFiles,
+	fileProductionJobs,
 } from "$lib/server/db/schema";
 import {
 	GENERATED_FILE_EXTRACTED_CONTENT_MARKER,
@@ -339,6 +340,9 @@ type ChatFileRow = {
 	sizeBytes: number;
 	storagePath: string;
 	createdAt: Date;
+	/** The owning conversation's timestamps, for the fork tie-break. */
+	conversationUpdatedAt?: Date | null;
+	conversationCreatedAt?: Date | null;
 };
 
 /** Every file THIS conversation produced, for THIS user. Ownership is in the
@@ -347,9 +351,15 @@ async function listConversationChatFiles(params: {
 	userId: string;
 	conversationId: string;
 }): Promise<ChatFileRow[]> {
+	// Joined for the same two conversation columns the elsewhere pass reads,
+	// so one comparator serves both lists.
 	return db
 		.select(chatFileSelection)
 		.from(chatGeneratedFiles)
+		.innerJoin(
+			conversations,
+			eq(conversations.id, chatGeneratedFiles.conversationId),
+		)
 		.where(
 			and(
 				eq(chatGeneratedFiles.userId, params.userId),
@@ -418,6 +428,11 @@ const chatFileSelection = {
 	sizeBytes: chatGeneratedFiles.sizeBytes,
 	storagePath: chatGeneratedFiles.storagePath,
 	createdAt: chatGeneratedFiles.createdAt,
+	// The fork tie-break: a forked copy shares its filename and its
+	// `created_at` with the original, so the only durable difference between
+	// them is the conversation each one lives in.
+	conversationUpdatedAt: conversations.updatedAt,
+	conversationCreatedAt: conversations.createdAt,
 } as const;
 
 /** One stored file by id, scoped to its owner. */
@@ -428,6 +443,10 @@ async function loadChatFileById(
 	const [row] = await db
 		.select(chatFileSelection)
 		.from(chatGeneratedFiles)
+		.innerJoin(
+			conversations,
+			eq(conversations.id, chatGeneratedFiles.conversationId),
+		)
 		.where(
 			and(
 				eq(chatGeneratedFiles.id, fileId),
@@ -518,8 +537,16 @@ async function loadGeneratedOutputArtifactLinks(params: {
  * artifact metadata does not already name — a document-source artifact records
  * its rendered files only once the job has attached them, and this closes the
  * window in between.
+ *
+ * `file_production_job_files` has no `user_id` of its own, so this was the one
+ * query in the module whose tenancy rested on the ids its caller happened to
+ * pass rather than on SQL. Safe by construction and nowhere else: a helper is
+ * only as scoped as its next caller remembers to be. It joins
+ * `file_production_jobs` and requires the job to be this user's, so the
+ * invariant is in the `where` here like everywhere else.
  */
 async function loadJobIdsForChatFiles(
+	userId: string,
 	fileIds: string[],
 ): Promise<Map<string, string>> {
 	if (fileIds.length === 0) return new Map();
@@ -529,7 +556,16 @@ async function loadJobIdsForChatFiles(
 			jobId: fileProductionJobFiles.jobId,
 		})
 		.from(fileProductionJobFiles)
-		.where(inArray(fileProductionJobFiles.chatGeneratedFileId, fileIds));
+		.innerJoin(
+			fileProductionJobs,
+			eq(fileProductionJobs.id, fileProductionJobFiles.jobId),
+		)
+		.where(
+			and(
+				inArray(fileProductionJobFiles.chatGeneratedFileId, fileIds),
+				eq(fileProductionJobs.userId, userId),
+			),
+		);
 	return new Map(rows.map((row) => [row.chatGeneratedFileId, row.jobId]));
 }
 
@@ -556,13 +592,34 @@ function chatFileMatchTier(filename: string, needle: string): number {
 }
 
 /**
- * Newest first.
+ * Newest first, and fully ordered — no pair may compare equal.
  *
  * The version metadata decides when BOTH files have one; otherwise creation
  * time does. That order — and not "version first, creation time as a
  * tiebreak" — is what makes the same-turn patch case correct: the v2 file on
  * disk has no artifact and therefore no version number yet, so ranking by
  * version would hand back the stale v1 that does have one.
+ *
+ * The rest of the chain exists because of FORKS. Forking a conversation copies
+ * each chat file with the SAME filename and the SAME `created_at`
+ * (`conversation-forks.ts`), so from a third conversation the original and the
+ * copy tie on step 1, and the copy's artifact is reset to `versionNumber: 1`
+ * while the original may be v3 — so step 2 ties only when neither has an
+ * artifact yet. Below that this used to return 0 and the winner was whatever
+ * order SQLite happened to yield, which for two byte-identical files is
+ * harmless and for two that have since diverged is a coin toss over the user's
+ * content.
+ *
+ *   3. the conversation touched most recently, which is where the user is
+ *      working;
+ *   4. the conversation created FIRST, which is the original rather than the
+ *      fork — the fork's conversation is minted at fork time, so this is the
+ *      one durable difference between two copies that share everything else;
+ *   5. the file id, which is a primary key and therefore never ties.
+ *
+ * Step 4 is why the original wins a true tie. That is deliberate: at fork time
+ * the two files are byte-identical, so the choice cannot be wrong, and the
+ * moment either side is edited its `created_at` moves and step 1 settles it.
  */
 function compareChatFileRecency(
 	left: { file: ChatFileRow; versionNumber: number | null },
@@ -571,9 +628,21 @@ function compareChatFileRecency(
 	const byTime = right.file.createdAt.getTime() - left.file.createdAt.getTime();
 	if (byTime !== 0) return byTime;
 	if (left.versionNumber !== null && right.versionNumber !== null) {
-		return right.versionNumber - left.versionNumber;
+		const byVersion = right.versionNumber - left.versionNumber;
+		if (byVersion !== 0) return byVersion;
 	}
-	return 0;
+	const at = (value: Date | null | undefined): number => value?.getTime() ?? 0;
+	const byActivity =
+		at(right.file.conversationUpdatedAt) - at(left.file.conversationUpdatedAt);
+	if (byActivity !== 0) return byActivity;
+	const byOrigin =
+		at(left.file.conversationCreatedAt) - at(right.file.conversationCreatedAt);
+	if (byOrigin !== 0) return byOrigin;
+	return left.file.id < right.file.id
+		? -1
+		: left.file.id > right.file.id
+			? 1
+			: 0;
 }
 
 /**
@@ -617,7 +686,7 @@ async function findChatFileTarget(params: {
 	const unlinked = matches
 		.filter((file) => !links.byChatFileId.has(file.id))
 		.map((file) => file.id);
-	const jobIdsByFile = await loadJobIdsForChatFiles(unlinked);
+	const jobIdsByFile = await loadJobIdsForChatFiles(params.userId, unlinked);
 	const linkOf = (file: ChatFileRow): GeneratedArtifactLink | null => {
 		const direct = links.byChatFileId.get(file.id);
 		if (direct) return direct;
@@ -663,7 +732,7 @@ async function findChatFileTarget(params: {
 const FAMILY_VERSION_SCAN_LIMIT = 200;
 
 /**
- * How many versions this document family has, across every conversation.
+ * How many versions of this document family the user can still OPEN.
  *
  * A generated file's family and version number are per user and per filename
  * ACROSS conversations — that is what makes "continue the release notes" work
@@ -672,40 +741,87 @@ const FAMILY_VERSION_SCAN_LIMIT = 200;
  * like a bug, so the count that makes it self-explaining is fetched with it:
  * `v3 of 3`.
  *
+ * REACHABLE versions only, which is the whole difference from what this used
+ * to do. It returned the highest `versionNumber` in the family whatever had
+ * become of the artifacts since, and `artifacts.conversation_id` is
+ * `ON DELETE SET NULL` — so a user who deleted the conversations holding v1
+ * and v2 was still told "of 3", about two files nothing can open. A count is a
+ * promise that those versions are there to look at; it has to be derivable
+ * from files the user can still reach. The join does both jobs at once: an
+ * orphaned artifact has no conversation row to join to and drops out, and an
+ * incognito conversation is excluded for the same reason its file is —
+ * counting it would tell the model that chat produced something, which is the
+ * fact incognito hides. THIS conversation is always counted, incognito or not:
+ * the user is in it.
+ *
  * The family id lives in artifact metadata, which SQLite cannot index, so this
- * is a bounded scan of the user's newest generated artifacts rather than a
- * lookup. It runs only on an explicit `read_generated_file` call, never on the
- * prompt-assembly path. Returns null when there is nothing better to say than
- * the version number itself.
+ * is a bounded scan of the user's newest reachable generated artifacts rather
+ * than a lookup. It runs only on an explicit `read_generated_file` call, never
+ * on the prompt-assembly path. Returns null when there is nothing better to
+ * say than the version number itself.
  */
 async function countGeneratedFileFamilyVersions(params: {
 	userId: string;
+	conversationId: string;
 	familyId: string | null;
 }): Promise<number | null> {
 	if (!params.familyId) return null;
 	const rows = await db
 		.select({ metadataJson: artifacts.metadataJson })
 		.from(artifacts)
+		.innerJoin(conversations, eq(conversations.id, artifacts.conversationId))
 		.where(
 			and(
 				eq(artifacts.userId, params.userId),
 				eq(artifacts.type, "generated_output"),
+				or(
+					eq(conversations.memoryIncognito, false),
+					eq(conversations.id, params.conversationId),
+				),
 			),
 		)
 		.orderBy(desc(artifacts.updatedAt))
 		.limit(FAMILY_VERSION_SCAN_LIMIT);
 
-	let highest = 0;
+	// Distinct version NUMBERS, not rows: a family can carry two artifacts for
+	// one version (a document source and its rendered output), and counting
+	// rows would inflate "of N" past anything the user could point at.
+	const versions = new Set<number>();
 	for (const row of rows) {
 		const metadata = parseWorkingDocumentMetadata(
 			parseJsonRecord(row.metadataJson),
 		);
 		if (metadata.documentFamilyId !== params.familyId) continue;
 		if (typeof metadata.versionNumber === "number") {
-			highest = Math.max(highest, Math.trunc(metadata.versionNumber));
+			versions.add(Math.trunc(metadata.versionNumber));
 		}
 	}
-	return highest > 0 ? highest : null;
+	return versions.size > 0 ? versions.size : null;
+}
+
+/**
+ * `v3 of 3`, or what to say instead when they do not line up.
+ *
+ * `versionNumber` is what this file IS and never moves — it is stamped in the
+ * artifact and the user may have it written down. `versionCount` is how many
+ * of the family survive. When every version is still there the two agree and
+ * this reads exactly as it always did. When earlier ones were deleted, "of N"
+ * would be a smaller number next to a larger one, which reads as a bug; the
+ * clause says what is actually available instead of implying a total.
+ */
+export function formatGeneratedFileVersion(
+	versionNumber: number | null,
+	versionCount: number | null,
+): string {
+	if (!versionNumber) return "";
+	if (!versionCount) return `v${versionNumber}`;
+	if (versionCount >= versionNumber) {
+		return `v${versionNumber} of ${versionCount}`;
+	}
+	const earlier = versionCount - 1;
+	if (earlier <= 0)
+		return `v${versionNumber}, earlier versions no longer available`;
+	return `v${versionNumber}, ${earlier} earlier version${earlier === 1 ? "" : "s"} still available`;
 }
 
 /**
@@ -1551,7 +1667,85 @@ async function findPatchBaseByTitle(params: {
 /** At most this many of this conversation's names in a miss. */
 const MAX_OWN_CANDIDATES = 8;
 /** …and at most this many from the user's other conversations. */
-const MAX_ELSEWHERE_CANDIDATES = 4;
+const MAX_ELSEWHERE_CANDIDATES = 3;
+
+/** Stem, lowercased, punctuation flattened to single spaces. */
+function candidateStem(name: string): string {
+	const stem = basename(name, extname(name));
+	return stem
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, " ")
+		.trim();
+}
+
+/** Words worth matching on. Shorter ones ("of", "v2", "the") match everything. */
+const SIGNIFICANT_TOKEN_MIN_LENGTH = 4;
+
+function significantTokens(stem: string): Set<string> {
+	return new Set(
+		stem.split(" ").filter((t) => t.length >= SIGNIFICANT_TOKEN_MIN_LENGTH),
+	);
+}
+
+/** Levenshtein, two rows. The inputs are filename stems, so they are short. */
+function editDistance(left: string, right: string): number {
+	if (left === right) return 0;
+	if (left.length === 0) return right.length;
+	if (right.length === 0) return left.length;
+	let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+	for (let i = 1; i <= left.length; i += 1) {
+		const current = [i];
+		for (let j = 1; j <= right.length; j += 1) {
+			const substitution =
+				previous[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1);
+			current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, substitution);
+		}
+		previous = current;
+	}
+	return previous[right.length];
+}
+
+/**
+ * Is this name plausibly the one that was asked for?
+ *
+ * A miss used to hand the model the user's most recent files from OTHER
+ * conversations, narrowed only by extension. That fires precisely when the
+ * user referred to none of them: ask for a `budget.xlsx` that does not exist
+ * and the model was read the names of four unrelated spreadsheets from
+ * unrelated chats. Names are content.
+ *
+ * The rule has to survive the thing that causes most misses — the model having
+ * the name slightly wrong — without turning into "anything of the same type".
+ * Three ways to qualify, cheapest first:
+ *
+ *   1. the same stem once punctuation and case are flattened, so
+ *      `Release Notes.md` answers a request for `release-notes.pdf`;
+ *   2. a shared word of four characters or more, so `release-notes-v2.md`
+ *      answers `release notes`, and `q3.md` does not answer everything;
+ *   3. a small edit distance on the whole stem — one per five characters, at
+ *      most three — so `relase-notes` and `release-note` still reach it while
+ *      two unrelated names of similar length do not.
+ *
+ * Nothing similar means nothing from elsewhere, which is the honest answer.
+ */
+export function isPlausibleCandidateName(
+	candidateName: string,
+	requestedName: string,
+): boolean {
+	const candidate = candidateStem(candidateName);
+	const needle = candidateStem(requestedName);
+	if (!candidate || !needle) return false;
+	if (candidate === needle) return true;
+
+	const shared = significantTokens(needle);
+	for (const token of significantTokens(candidate)) {
+		if (shared.has(token)) return true;
+	}
+
+	const longest = Math.max(candidate.length, needle.length);
+	const threshold = Math.min(3, Math.max(1, Math.floor(longest / 5)));
+	return editDistance(candidate, needle) <= threshold;
+}
 
 /**
  * What the user actually has, for a miss.
@@ -1600,21 +1794,16 @@ async function listChatFileCandidates(params: {
 		const needle = params.needle?.trim();
 		if (needle) {
 			const elsewhere = await listUserChatFilesElsewhere(params);
-			// The user's most recent files from elsewhere, narrowed to the KIND
-			// asked for when the request named an extension. Narrowing by name
-			// instead would be worse than useless here: a miss usually means the
-			// model had the name slightly wrong, and a name filter applied to a
-			// misspelling drops exactly the file it was reaching for. The
-			// extension survives a typo in the stem, and the cap keeps the list
-			// short enough to read.
-			const wantedExtension = extname(needle).toLowerCase();
+			// Narrowed by NAME, not by extension. Extension alone made a miss
+			// disclose the names of the user's recent files from unrelated
+			// conversations — which fires exactly when the user referred to none
+			// of them. `isPlausibleCandidateName` keeps the case a miss is for (a
+			// name the model had slightly wrong) and drops the rest; nothing
+			// similar means nothing from elsewhere.
 			take(
-				wantedExtension
-					? elsewhere.filter(
-							(file) =>
-								extname(file.filename).toLowerCase() === wantedExtension,
-						)
-					: elsewhere,
+				elsewhere.filter((file) =>
+					isPlausibleCandidateName(file.filename, needle),
+				),
 				"library",
 				MAX_ELSEWHERE_CANDIDATES,
 			);
@@ -2101,6 +2290,7 @@ export async function readGeneratedFileContent(params: {
 	const familyCount = versionNumber
 		? ((await countGeneratedFileFamilyVersions({
 				userId: params.userId,
+				conversationId: params.conversationId,
 				familyId: metadata.documentFamilyId ?? null,
 			})) ?? versionNumber)
 		: null;
@@ -2222,13 +2412,11 @@ function buildOriginClause(
 	result: ReadGeneratedFileResult,
 ): string | undefined {
 	if (result.conversation !== "library") return undefined;
-	const version =
-		result.versionNumber && result.versionCount
-			? `, v${result.versionNumber} of ${result.versionCount}`
-			: result.versionNumber
-				? `, v${result.versionNumber}`
-				: "";
-	return `from an earlier conversation${version}`;
+	const version = formatGeneratedFileVersion(
+		result.versionNumber,
+		result.versionCount,
+	);
+	return `from an earlier conversation${version ? `, ${version}` : ""}`;
 }
 
 export function buildReadGeneratedFileModelPayload(
@@ -2351,11 +2539,14 @@ export function summarizeReadGeneratedFileResult(
 	}
 	const label = result.documentLabel ?? result.filename ?? "file";
 	// `v3 of 3`, so a v3 in a conversation that has no v1 or v2 explains itself.
-	const version = result.versionNumber
-		? result.versionCount && result.versionCount > 1
-			? ` v${result.versionNumber} of ${result.versionCount}`
-			: ` v${result.versionNumber}`
-		: "";
+	// A family of one stays plain `v1` rather than saying "of 1".
+	const versionClause =
+		result.versionCount === 1 && result.versionNumber === 1
+			? result.versionNumber
+				? `v${result.versionNumber}`
+				: ""
+			: formatGeneratedFileVersion(result.versionNumber, result.versionCount);
+	const version = versionClause ? ` ${versionClause}` : "";
 	const origin =
 		result.conversation === "library" ? ", from an earlier conversation" : "";
 	const length = result.contentLength ? ` (${result.contentLength} chars)` : "";

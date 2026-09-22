@@ -1307,13 +1307,15 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 	function seedFileProductionJob(params: {
 		id: string;
 		chatFileIds: string[];
+		userId?: string;
+		conversationId?: string;
 	}) {
 		memory.db
 			.insert(schema.fileProductionJobs)
 			.values({
 				id: params.id,
-				conversationId: CONVERSATION,
-				userId: USER,
+				conversationId: params.conversationId ?? CONVERSATION,
+				userId: params.userId ?? USER,
 				title: "job",
 				status: "succeeded",
 				createdAt: NOW,
@@ -1424,6 +1426,50 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 		expect(result.notFound).toBe(false);
 		expect(result.textPending).toBe(false);
 		expect(result.contentText).toBe(DOCUMENT_MARKDOWN);
+	});
+
+	// `file_production_job_files` has no `user_id` of its own, so the job-id
+	// lookup was scoped only by the ids its caller happened to pass. That was
+	// safe by construction and nowhere else — the one place in this module
+	// where the tenancy invariant rode on an argument instead of on SQL. It now
+	// joins `file_production_jobs` and requires the job to be this user's, so a
+	// job row belonging to somebody else contributes nothing even when a chat
+	// file points at it.
+	it("ignores a job row that belongs to another user", async () => {
+		const fileId = await seedChatFile({
+			filename: "tobacco-cost-breakdown.pdf",
+			content: PDF_BYTES,
+			mimeType: "application/pdf",
+		});
+		seedUser("intruder");
+		seedConversation("conv-intruder", "intruder");
+		seedFileProductionJob({
+			id: "job-foreign",
+			chatFileIds: [fileId],
+			userId: "intruder",
+			conversationId: "conv-intruder",
+		});
+		// This user's own artifact happens to name the same job id. Without the
+		// join it is reached through the foreign job row and its text is served
+		// for a file the job never produced.
+		seedArtifact({
+			type: "generated_output",
+			name: "Tobacco Cost Breakdown - Monthly Spend and Pouch Prices",
+			contentText: DOCUMENT_MARKDOWN,
+			metadata: {
+				generatedDocumentSource: {
+					version: 1,
+					title: "Tobacco Cost Breakdown",
+				},
+				generatedDocumentSourceStatus: "pending",
+				fileProductionJobId: "job-foreign",
+			},
+		});
+
+		const result = await read({ filename: "tobacco-cost-breakdown.pdf" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.contentText).not.toBe(DOCUMENT_MARKDOWN);
 	});
 
 	it("reads an inline_text file produced in this turn straight off disk", async () => {
@@ -1859,6 +1905,12 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			).not.toContain("release-notes.md");
 		});
 
+		// DELIBERATELY RE-PINNED. This fixture seeds a single artifact stamped
+		// v2, with no v1 row anywhere, and used to assert "of 2" — because the
+		// count was the highest version NUMBER in the family rather than a count
+		// of anything. It was extrapolating a v1 that had never existed as a
+		// row. The count now answers the question the clause actually asks, so
+		// one reachable version reads as one.
 		it("says where it came from, and how many versions there are", async () => {
 			await seedEarlierVersion({
 				filename: "release-notes.md",
@@ -1871,10 +1923,12 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			const payload = buildReadGeneratedFileModelPayload(result);
 
 			expect(result.versionNumber).toBe(2);
-			expect(result.versionCount).toBe(2);
-			expect(payload.origin).toBe("from an earlier conversation, v2 of 2");
+			expect(result.versionCount).toBe(1);
+			expect(payload.origin).toBe(
+				"from an earlier conversation, v2, earlier versions no longer available",
+			);
 			expect(summarizeReadGeneratedFileResult(result)).toContain(
-				"v2 of 2, from an earlier conversation",
+				"v2, earlier versions no longer available, from an earlier conversation",
 			);
 
 			// One short clause and nothing else: no conversation id, no other
@@ -1882,6 +1936,96 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			const rendered = JSON.stringify(payload);
 			expect(rendered).not.toContain(OTHER_CONVERSATION);
 			expect(rendered).not.toContain("conv-");
+		});
+
+		// "v3 of 3" is a promise that three versions exist to look at. The count
+		// was the highest `versionNumber` in the family whatever had happened to
+		// the artifacts since, and `artifacts.conversation_id` is SET NULL on
+		// delete — so a user who deleted the conversations holding v1 and v2 was
+		// still told "of 3", about two files nothing can open, and the count
+		// asserted the existence of content they had deleted.
+		it("counts only the versions the user can still open", async () => {
+			// v1 in a conversation that has since been deleted.
+			seedConversation("conv-deleted", USER);
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- First cut.",
+				mimeType: "text/markdown",
+				versionNumber: 1,
+				conversationId: "conv-deleted",
+			});
+			memory.db
+				.delete(schema.conversations)
+				.where(eq(schema.conversations.id, "conv-deleted"))
+				.run();
+			// v3 survives, elsewhere.
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Third cut.",
+				mimeType: "text/markdown",
+				versionNumber: 3,
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(result.versionNumber).toBe(3);
+			expect(result.versionCount).toBe(1);
+			// The stored version number is kept — it is what the file IS — and
+			// the clause says what is actually there instead of claiming "of 3".
+			expect(buildReadGeneratedFileModelPayload(result).origin).toBe(
+				"from an earlier conversation, v3, earlier versions no longer available",
+			);
+		});
+
+		it("does not count a version held only by an incognito conversation", async () => {
+			seedConversation("conv-secret", USER);
+			memory.db
+				.update(schema.conversations)
+				.set({ memoryIncognito: true })
+				.where(eq(schema.conversations.id, "conv-secret"))
+				.run();
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Secret cut.",
+				mimeType: "text/markdown",
+				versionNumber: 2,
+				conversationId: "conv-secret",
+			});
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Third cut.",
+				mimeType: "text/markdown",
+				versionNumber: 3,
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			// A count that included the incognito version would tell the model
+			// that chat produced something, which is the fact incognito hides.
+			expect(result.versionCount).toBe(1);
+		});
+
+		it("still says `of N` when every version is reachable", async () => {
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- First cut.",
+				mimeType: "text/markdown",
+				versionNumber: 1,
+			});
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# Release notes\n\n- Second cut.",
+				mimeType: "text/markdown",
+				versionNumber: 2,
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(result.versionNumber).toBe(2);
+			expect(result.versionCount).toBe(2);
+			expect(buildReadGeneratedFileModelPayload(result).origin).toBe(
+				"from an earlier conversation, v2 of 2",
+			);
 		});
 
 		it("says nothing about origin for a file from this conversation", async () => {
@@ -2035,6 +2179,149 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 			for (const candidate of result.candidates) {
 				expect(JSON.stringify(candidate)).not.toContain("conv-");
 			}
+		});
+
+		// A miss fires precisely when the user referred to none of these files,
+		// so "your four most recent spreadsheets from other chats" was an
+		// unprompted disclosure of names the model then reads aloud. Names are
+		// content. Only names that are plausibly the one asked for qualify.
+		// Forking a conversation copies each chat file with the SAME filename and
+		// the SAME `created_at`, so from a THIRD conversation the original and
+		// the copy tie on recency. The comparator used to return 0 there and the
+		// winner was whatever order SQLite happened to yield — harmless while
+		// the bytes are identical, a coin toss over the user's content once
+		// either side is edited.
+		describe("a fork's copy against its original", () => {
+			const FORK_CONVERSATION = "conv-fork";
+			const SHARED_CREATED_AT = new Date("2026-09-10T10:00:00.000Z");
+
+			async function seedForkPair(params: { forkContent: string }) {
+				// The fork's conversation is minted AFTER the original's.
+				memory.db
+					.insert(schema.conversations)
+					.values({
+						id: FORK_CONVERSATION,
+						userId: USER,
+						title: FORK_CONVERSATION,
+						createdAt: new Date("2026-09-12T10:00:00.000Z"),
+						updatedAt: new Date("2026-09-12T10:00:00.000Z"),
+					})
+					.run();
+				await seedChatFile({
+					filename: "release-notes.md",
+					content: "# Release notes\n\n- Original.",
+					mimeType: "text/markdown",
+					conversationId: OTHER_CONVERSATION,
+					createdAt: SHARED_CREATED_AT,
+				});
+				await seedChatFile({
+					filename: "release-notes.md",
+					content: params.forkContent,
+					mimeType: "text/markdown",
+					conversationId: FORK_CONVERSATION,
+					// `conversation-forks.ts` copies the source file's timestamp.
+					createdAt: SHARED_CREATED_AT,
+				});
+			}
+
+			it("is a harmless tie at fork time, and resolves to the original", async () => {
+				// Byte-identical, which is what makes the tie safe: whichever
+				// side wins, the user gets the same document.
+				await seedForkPair({ forkContent: "# Release notes\n\n- Original." });
+
+				const result = await read({ filename: "release-notes.md" });
+
+				expect(result.contentText).toBe("# Release notes\n\n- Original.");
+			});
+
+			it("is deterministic rather than whatever SQLite yields", async () => {
+				await seedForkPair({ forkContent: "# Release notes\n\n- Original." });
+
+				// Same answer every time, not merely the same answer once.
+				const answers = new Set<string | null | undefined>();
+				for (let attempt = 0; attempt < 5; attempt += 1) {
+					answers.add(
+						(await read({ filename: "release-notes.md" })).contentText,
+					);
+				}
+				expect(answers.size).toBe(1);
+			});
+
+			it("hands back the diverged side once either one is edited", async () => {
+				await seedForkPair({ forkContent: "# Release notes\n\n- Original." });
+				// The fork is worked on: a new version lands with a newer
+				// timestamp, and step 1 of the comparator settles it.
+				await seedChatFile({
+					filename: "release-notes.md",
+					content: "# Release notes\n\n- Diverged in the fork.",
+					mimeType: "text/markdown",
+					conversationId: FORK_CONVERSATION,
+					createdAt: new Date("2026-09-15T10:00:00.000Z"),
+				});
+
+				const result = await read({ filename: "release-notes.md" });
+
+				expect(result.contentText).toBe(
+					"# Release notes\n\n- Diverged in the fork.",
+				);
+			});
+		});
+
+		it("offers nothing from elsewhere when no name is similar", async () => {
+			await seedEarlierVersion({
+				filename: "quarterly-budget.md",
+				content: "# Budget",
+				mimeType: "text/markdown",
+			});
+			await seedChatFile({
+				filename: "holiday-photos-list.md",
+				content: "# Photos",
+				mimeType: "text/markdown",
+				conversationId: OTHER_CONVERSATION,
+				createdAt: new Date("2026-09-11T10:00:00.000Z"),
+			});
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(result.notFound).toBe(true);
+			expect(result.candidates).toEqual([]);
+		});
+
+		it("still offers a near-miss of the same stem from elsewhere", async () => {
+			await seedEarlierVersion({
+				filename: "release-notes.md",
+				content: "# There",
+				mimeType: "text/markdown",
+			});
+
+			// Same stem, different extension — the ruling's first rule.
+			const result = await read({ filename: "release notes.pdf" });
+
+			expect(
+				(result.candidates ?? []).map((candidate) => candidate.filename),
+			).toContain("release-notes.md");
+		});
+
+		it("names at most three from elsewhere", async () => {
+			for (const suffix of ["a", "b", "c", "d", "e"]) {
+				await seedChatFile({
+					filename: `release-notes-${suffix}.md`,
+					content: `# ${suffix}`,
+					mimeType: "text/markdown",
+					conversationId: OTHER_CONVERSATION,
+					createdAt: new Date(
+						`2026-09-1${suffix === "a" ? 1 : 2}T10:00:00.000Z`,
+					),
+				});
+			}
+
+			const result = await read({ filename: "release-notes.md" });
+
+			expect(
+				(result.candidates ?? []).filter(
+					(candidate) => candidate.conversation === "library",
+				),
+			).toHaveLength(3);
 		});
 
 		it("offers no other user's name as a candidate", async () => {

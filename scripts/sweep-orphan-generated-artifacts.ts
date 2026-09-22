@@ -117,7 +117,9 @@ async function main(): Promise<void> {
 	console.log(`\nDeleted ${deleted} artifacts.`);
 	if (failedFiles > 0) {
 		console.log(
-			`${failedFiles} stored files could not be unlinked; they are now in the disk report.`,
+			`${failedFiles} stored files were not unlinked (missing, or refused for ` +
+				"resolving outside the data directories). Their rows are gone; see " +
+				"docs/uploads.md for how to find leftover bytes.",
 		);
 	}
 }
