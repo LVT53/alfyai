@@ -420,6 +420,27 @@ describe("serializeBudgetedRoleTurns", () => {
 });
 
 describe("serializeWorkingSetArtifacts", () => {
+	it("caps each excerpt at the per-artifact character budget, not as tokens", () => {
+		const serialized = serializeWorkingSetArtifacts({
+			artifacts: [
+				makeAttachment({
+					id: "long-1",
+					name: "long.md",
+					contentText: "alpha beta gamma delta ".repeat(2_000),
+				}),
+			],
+			totalTokenBudget: 10_000,
+			documentTokenBudget: 10_000,
+			outputTokenBudget: 10_000,
+			perArtifactCharBudget: 1_000,
+		});
+
+		const excerpt = serialized.replace("Document: long.md\n", "");
+		expect(excerpt).toContain("alpha beta");
+		expect(excerpt).toContain("[truncated]");
+		expect(excerpt.length).toBeLessThanOrEqual(1_000);
+	});
+
 	it("preserves breadth across multiple selected evidence items within budget", () => {
 		const serialized = serializeWorkingSetArtifacts({
 			artifacts: [
@@ -439,9 +460,9 @@ describe("serializeWorkingSetArtifacts", () => {
 					contentText: "Gamma evidence. ".repeat(1_000),
 				}),
 			],
-			totalBudget: 360,
-			documentBudget: 360,
-			outputBudget: 360,
+			totalTokenBudget: 360,
+			documentTokenBudget: 360,
+			outputTokenBudget: 360,
 		});
 
 		expect(serialized).toContain("Document: alpha.md");
@@ -461,9 +482,9 @@ describe("serializeWorkingSetArtifacts", () => {
 		const totalBudget = 120;
 		const serialized = serializeWorkingSetArtifacts({
 			artifacts,
-			totalBudget,
-			documentBudget: 120,
-			outputBudget: 120,
+			totalTokenBudget: totalBudget,
+			documentTokenBudget: 120,
+			outputTokenBudget: 120,
 		});
 
 		const emittedHeaders = artifacts.filter((artifact) =>

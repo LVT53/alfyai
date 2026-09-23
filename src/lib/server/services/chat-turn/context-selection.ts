@@ -1722,7 +1722,7 @@ export async function buildConstructedContext(params: {
 					query: params.message,
 					perArtifactLimit: documentDepthBudget.perArtifactLimit,
 					perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
-					totalCharBudget: documentDepthBudget.totalBudget,
+					totalCharBudget: documentDepthBudget.totalCharBudget,
 					useFullContent: documentDepthBudget.useFullContent,
 				}).catch(() => new Map<string, string>()),
 		buildActiveMemoryProfilePromptSection({
@@ -1870,9 +1870,13 @@ export async function buildConstructedContext(params: {
 			? serializeWorkingSetArtifacts({
 					artifacts: linkedSourceArtifacts,
 					snippets: artifactSnippets,
-					totalBudget: documentDepthBudget.totalBudget,
-					documentBudget: documentDepthBudget.perArtifactCharBudget,
-					outputBudget: documentDepthBudget.perArtifactCharBudget,
+					totalTokenBudget: documentDepthBudget.totalTokenBudget,
+					// No tighter per-item token cap: each linked source gets its fair
+					// share of the section's tokens, and its excerpt size is the
+					// character budget below.
+					documentTokenBudget: documentDepthBudget.totalTokenBudget,
+					outputTokenBudget: documentDepthBudget.totalTokenBudget,
+					perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
 				})
 			: "";
 	if (linkedSourceContext.trim()) {
@@ -1945,22 +1949,19 @@ export async function buildConstructedContext(params: {
 				WORKING_SET_OUTPUT_TOKEN_BUDGET,
 			),
 		});
-		const retrievedEvidenceBudget = Math.min(
+		const retrievedEvidenceTokenBudget = Math.min(
 			evidenceBudget.totalBudget,
-			documentDepthBudget.totalBudget,
-		);
-		const retrievedEvidencePerSourceBudget = Math.min(
-			evidenceBudget.perSourceBudget,
-			documentDepthBudget.perArtifactCharBudget,
+			documentDepthBudget.totalTokenBudget,
 		);
 		sections.push({
 			title: "Retrieved Evidence",
 			body: serializeWorkingSetArtifacts({
 				artifacts: selectedEvidence,
 				snippets: artifactSnippets,
-				totalBudget: retrievedEvidenceBudget,
-				documentBudget: retrievedEvidencePerSourceBudget,
-				outputBudget: retrievedEvidencePerSourceBudget,
+				totalTokenBudget: retrievedEvidenceTokenBudget,
+				documentTokenBudget: evidenceBudget.perSourceBudget,
+				outputTokenBudget: evidenceBudget.perSourceBudget,
+				perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
 			}),
 			layer: "working_set",
 			protected: selectedEvidence.some((artifact) =>
