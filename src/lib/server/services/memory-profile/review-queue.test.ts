@@ -377,6 +377,63 @@ describe("guided memory review queue for judge items", () => {
 		});
 	});
 
+	it("keeps same-statement judge reviews in different scopes as separate cards; accepting one leaves the other", async () => {
+		const { createOrUpdateMemoryReviewItem } = await import("./review");
+		const judgeMetadata = {
+			source: "memory_judge",
+			category: "goals_ongoing_work",
+			proposedStatement: "I am learning Irish.",
+			expiryClass: "durable",
+		};
+		const global = await seedLegacyShapedJudgeReview({
+			statement: "I am learning Irish.",
+			category: "goals_ongoing_work",
+		});
+		const project = await seedLegacyShapedJudgeReview({
+			statement: "I am learning Irish.",
+			category: "goals_ongoing_work",
+			scope: { type: "project", id: "project-1" },
+		});
+		// Give both rows the metadata the judge writes today, so their category
+		// and proposed statement match exactly.
+		for (const seeded of [global, project]) {
+			await createOrUpdateMemoryReviewItem({
+				userId: "user-1",
+				subjectKey: `judge:${seeded.item.itemKey}`,
+				subjectLabel: "I am learning Irish.",
+				question: "Should I keep remembering this?",
+				reason: "Inferred from conversation, not stated directly.",
+				affectedItemIds: [seeded.item.id],
+				metadata: judgeMetadata,
+			});
+		}
+		const { getMemoryProfileReadModel } = await import("./read-model");
+		const { applyMemoryReviewItemWithRevision } = await import("./review");
+
+		const before = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(before.review.openCount).toBe(2);
+		expect(before.review.items.map((item) => item.id).sort()).toEqual(
+			[global.review.id, project.review.id].sort(),
+		);
+
+		await expect(
+			applyMemoryReviewItemWithRevision({
+				userId: "user-1",
+				reviewItemId: global.review.id,
+				expectedProjectionRevision: before.projectionRevision,
+				action: "accept",
+			}),
+		).resolves.toMatchObject({ status: "updated", itemId: global.item.id });
+
+		expect((await readItem(global.item.id))?.status).toBe("active");
+		expect((await readItem(project.item.id))?.status).toBe("review_needed");
+		const after = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(after.review.openCount).toBe(1);
+		expect(after.review.items.map((item) => item.id)).toEqual([
+			project.review.id,
+		]);
+	});
+
 	it("does not offer Accept for a generic review subject with no proposal and no judge item", async () => {
 		const { createOrUpdateMemoryReviewItem } = await import("./review");
 		const { getMemoryProfileReadModel } = await import("./read-model");

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { memoryProfileItems, memoryReviewItems } from "$lib/server/db/schema";
 import {
@@ -133,8 +133,69 @@ function acceptedExpiresAt(sources: JsonRecord[], now: Date): Date | null {
 	return null;
 }
 
+type ReviewRow = typeof memoryReviewItems.$inferSelect;
+
+type ReviewAffectedItem = Pick<
+	typeof memoryProfileItems.$inferSelect,
+	"id" | "status" | "scopeType" | "scopeId"
+>;
+
+function readReviewAffectedItemIds(row: ReviewRow): string[] {
+	return parseJsonArray(row.affectedItemIdsJson).filter(
+		(value): value is string => typeof value === "string",
+	);
+}
+
+/** The current state of every item the given review rows point at. */
+async function loadReviewAffectedItems(params: {
+	userId: string;
+	resetGeneration: number;
+	rows: ReviewRow[];
+}): Promise<Map<string, ReviewAffectedItem>> {
+	const ids = [...new Set(params.rows.flatMap(readReviewAffectedItemIds))];
+	if (ids.length === 0) return new Map();
+	const items = await db
+		.select({
+			id: memoryProfileItems.id,
+			status: memoryProfileItems.status,
+			scopeType: memoryProfileItems.scopeType,
+			scopeId: memoryProfileItems.scopeId,
+		})
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+				inArray(memoryProfileItems.id, ids),
+			),
+		);
+	return new Map(items.map((item) => [item.id, item]));
+}
+
+/**
+ * The scope of the fact a review row asks about: the scope of its first
+ * affected item that still exists (the judge decided it at intake). Rows with
+ * no affected item are global, which is where legacy curation proposals lived.
+ */
+function reviewScopeKey(
+	row: ReviewRow,
+	affectedItems: Map<string, ReviewAffectedItem>,
+): string {
+	for (const id of readReviewAffectedItemIds(row)) {
+		const item = affectedItems.get(id);
+		if (item) return `${item.scopeType}:${item.scopeId}`;
+	}
+	return "global:";
+}
+
+/**
+ * Two open rows are one card only when they propose the same fact: same
+ * category, same statement, and same scope. The same statement in a different
+ * scope is a different fact, so accepting one must not resolve the other.
+ */
 function reviewDeduplicationKey(
-	row: typeof memoryReviewItems.$inferSelect,
+	row: ReviewRow,
+	affectedItems: Map<string, ReviewAffectedItem>,
 ): string {
 	const metadata = parseJsonRecord(row.metadataJson);
 	const proposedStatement = readReviewProposedStatement(metadata);
@@ -145,20 +206,50 @@ function reviewDeduplicationKey(
 		proposedStatement
 			? normalizeReviewDeduplicationText(proposedStatement)
 			: `subject-key:${row.subjectKey}`,
+		reviewScopeKey(row, affectedItems),
 	].join("\u001f");
 }
 
-export function dedupeReviewRows(
-	rows: Array<typeof memoryReviewItems.$inferSelect>,
-): Array<typeof memoryReviewItems.$inferSelect> {
-	const deduped = new Map<string, typeof memoryReviewItems.$inferSelect>();
+function dedupeReviewRows(
+	rows: ReviewRow[],
+	affectedItems: Map<string, ReviewAffectedItem>,
+): ReviewRow[] {
+	const deduped = new Map<string, ReviewRow>();
 	for (const row of rows) {
-		const key = reviewDeduplicationKey(row);
+		const key = reviewDeduplicationKey(row, affectedItems);
 		if (!deduped.has(key)) {
 			deduped.set(key, row);
 		}
 	}
 	return [...deduped.values()];
+}
+
+/**
+ * The Guided Memory Review queue: the user's open review rows, oldest update
+ * first, with rows that propose the same fact collapsed into one card. The
+ * read model's `review.openCount` is the length of this list.
+ */
+export async function listOpenReviewQueueRows(params: {
+	userId: string;
+	resetGeneration: number;
+}): Promise<ReviewRow[]> {
+	const rows = await db
+		.select()
+		.from(memoryReviewItems)
+		.where(
+			and(
+				eq(memoryReviewItems.userId, params.userId),
+				eq(memoryReviewItems.resetGeneration, params.resetGeneration),
+				eq(memoryReviewItems.status, "open"),
+			),
+		)
+		.orderBy(asc(memoryReviewItems.updatedAt));
+	const affectedItems = await loadReviewAffectedItems({
+		userId: params.userId,
+		resetGeneration: params.resetGeneration,
+		rows,
+	});
+	return dedupeReviewRows(rows, affectedItems);
 }
 
 export async function createOrUpdateMemoryReviewItem(params: {
@@ -351,27 +442,31 @@ export async function applyMemoryReviewItemWithRevision(params: {
 	if (!review) return { status: "not_found" };
 
 	const metadata = parseJsonRecord(review.metadataJson);
-	const duplicateReviewKey = reviewDeduplicationKey(review);
-	const duplicateReviewRows = (
-		await db
-			.select()
-			.from(memoryReviewItems)
-			.where(
-				and(
-					eq(memoryReviewItems.userId, params.userId),
-					eq(memoryReviewItems.resetGeneration, resetGeneration),
-					eq(memoryReviewItems.status, "open"),
-				),
-			)
-	).filter((row) => reviewDeduplicationKey(row) === duplicateReviewKey);
-	const affectedItemIds = Array.from(
-		new Set(
-			duplicateReviewRows.flatMap((row) =>
-				parseJsonArray(row.affectedItemIdsJson).filter(
-					(value): value is string => typeof value === "string",
-				),
+	const openReviewRows = await db
+		.select()
+		.from(memoryReviewItems)
+		.where(
+			and(
+				eq(memoryReviewItems.userId, params.userId),
+				eq(memoryReviewItems.resetGeneration, resetGeneration),
+				eq(memoryReviewItems.status, "open"),
 			),
-		),
+		);
+	const openRowAffectedItems = await loadReviewAffectedItems({
+		userId: params.userId,
+		resetGeneration,
+		rows: openReviewRows,
+	});
+	const duplicateReviewKey = reviewDeduplicationKey(
+		review,
+		openRowAffectedItems,
+	);
+	const duplicateReviewRows = openReviewRows.filter(
+		(row) =>
+			reviewDeduplicationKey(row, openRowAffectedItems) === duplicateReviewKey,
+	);
+	const affectedItemIds = Array.from(
+		new Set(duplicateReviewRows.flatMap(readReviewAffectedItemIds)),
 	);
 	// The review_needed items this review is about. The first one is the
 	// "primary" item: its category and scope are authoritative for accept and

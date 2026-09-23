@@ -3,7 +3,7 @@ import { db } from "$lib/server/db";
 import {
 	memoryProfileItemProvenance,
 	memoryProfileItems,
-	memoryReviewItems,
+	type memoryReviewItems,
 } from "$lib/server/db/schema";
 import {
 	createIdentityTextSanitizer,
@@ -21,7 +21,7 @@ import {
 	expireOverdueActiveMemoryProfileItems,
 } from "./projection-store";
 import { getCurrentMemoryResetGeneration } from "./reset-generation";
-import { dedupeReviewRows, toPublicReviewItem } from "./review";
+import { listOpenReviewQueueRows, toPublicReviewItem } from "./review";
 import { fromScopeColumns } from "./scope";
 import {
 	assertMemoryProfileCategory,
@@ -149,18 +149,10 @@ export async function getMemoryProfileReadModel(params: {
 		)
 		.orderBy(desc(memoryProfileItems.updatedAt));
 	const cards = rows.map((row) => toCardItem(row, sanitizer));
-	const reviewRows = await db
-		.select()
-		.from(memoryReviewItems)
-		.where(
-			and(
-				eq(memoryReviewItems.userId, params.userId),
-				eq(memoryReviewItems.resetGeneration, resetGeneration),
-				eq(memoryReviewItems.status, "open"),
-			),
-		)
-		.orderBy(asc(memoryReviewItems.updatedAt));
-	const dedupedReviewRows = dedupeReviewRows(reviewRows);
+	const dedupedReviewRows = await listOpenReviewQueueRows({
+		userId: params.userId,
+		resetGeneration,
+	});
 	const reviewExpiryByRowId = await getReviewExpiryByRowId({
 		userId: params.userId,
 		resetGeneration,
