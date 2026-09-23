@@ -109,6 +109,56 @@ export async function listAtlasRoundCheckpoints(
 	return rows.map(mapAtlasRoundCheckpointRow);
 }
 
+/**
+ * The parent row a lifecycle child may seed from (Phase D), or null when no
+ * such job exists for this user. Status and conversation are returned, not
+ * filtered: the caller decides, and the seed requires a SUCCEEDED parent in
+ * the SAME conversation (an incognito parent must not seed a report in
+ * another chat).
+ */
+export interface AtlasParentJob {
+	id: string;
+	status: string;
+	conversationId: string;
+	pipelineVersion: 1 | 2 | 3;
+	completedAt: Date | null;
+	fileProductionJobId: string | null;
+	assistantMessageId: string | null;
+}
+
+export async function loadAtlasParentJob(input: {
+	userId: string;
+	parentAtlasJobId: string;
+}): Promise<AtlasParentJob | null> {
+	const [row] = await db
+		.select({
+			id: atlasJobs.id,
+			userId: atlasJobs.userId,
+			status: atlasJobs.status,
+			conversationId: atlasJobs.conversationId,
+			pipelineVersion: atlasJobs.pipelineVersion,
+			completedAt: atlasJobs.completedAt,
+			fileProductionJobId: atlasJobs.fileProductionJobId,
+			assistantMessageId: atlasJobs.assistantMessageId,
+		})
+		.from(atlasJobs)
+		.where(eq(atlasJobs.id, input.parentAtlasJobId))
+		.limit(1);
+	if (!row || row.userId !== input.userId) return null;
+	return {
+		id: row.id,
+		status: row.status,
+		conversationId: row.conversationId,
+		pipelineVersion:
+			row.pipelineVersion === 2 || row.pipelineVersion === 3
+				? row.pipelineVersion
+				: 1,
+		completedAt: row.completedAt ?? null,
+		fileProductionJobId: row.fileProductionJobId ?? null,
+		assistantMessageId: row.assistantMessageId ?? null,
+	};
+}
+
 export async function getLatestAtlasRoundCheckpoint(
 	jobId: string,
 ): Promise<AtlasRoundCheckpoint | null> {

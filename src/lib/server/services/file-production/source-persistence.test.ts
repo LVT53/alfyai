@@ -202,3 +202,69 @@ describe("persistGeneratedDocumentSourceArtifact", () => {
 		);
 	});
 });
+
+describe("getGeneratedDocumentSourceForFileProductionJob", () => {
+	beforeEach(() => {
+		fixture = createFileProductionLedgerFixture("source-persistence-read");
+		fixture.seedUser("user-1");
+		fixture.seedUser("user-2");
+		fixture.seedConversation("conv-1", "user-1");
+		fixture.seedConversation("conv-2", "user-1");
+		fixture.seedAssistantMessage("assistant-1", "conv-1");
+		process.env.DATABASE_PATH = fixture.dbPath;
+		vi.resetModules();
+	});
+
+	afterEach(async () => {
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// The DB singleton may never have been imported.
+		}
+		fixture.cleanup();
+		vi.restoreAllMocks();
+	});
+
+	it("returns the validated report a job persisted, through the facade", async () => {
+		await persist();
+		const { getGeneratedDocumentSourceForFileProductionJob } = await import(
+			"./index"
+		);
+		const source = await getGeneratedDocumentSourceForFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			fileProductionJobId: "job-1",
+		});
+		expect(source?.title).toBe("Quarterly report");
+		expect(source).toEqual(validated(SOURCE));
+	});
+
+	it("returns null for another conversation, another user or an unknown job", async () => {
+		await persist();
+		const { getGeneratedDocumentSourceForFileProductionJob } = await import(
+			"./source-persistence"
+		);
+		for (const scope of [
+			{
+				userId: "user-1",
+				conversationId: "conv-2",
+				fileProductionJobId: "job-1",
+			},
+			{
+				userId: "user-2",
+				conversationId: "conv-1",
+				fileProductionJobId: "job-1",
+			},
+			{
+				userId: "user-1",
+				conversationId: "conv-1",
+				fileProductionJobId: "job-9",
+			},
+		]) {
+			expect(
+				await getGeneratedDocumentSourceForFileProductionJob(scope),
+			).toBeNull();
+		}
+	});
+});

@@ -4,6 +4,7 @@ import type {
 } from "./intake";
 
 type JobLedgerModule = typeof import("./job-ledger");
+type SourcePersistenceModule = typeof import("./source-persistence");
 type ReadModelModule = typeof import("./read-model");
 type WorkerRunnerModule = typeof import("./worker-runner");
 
@@ -56,6 +57,23 @@ async function loadReadModel(): Promise<ReadModelModule> {
 
 async function loadWorkerRunner(): Promise<WorkerRunnerModule> {
 	return import("./worker-runner");
+}
+
+/**
+ * A job's persisted report source, user- and conversation-scoped. Lazy, so a
+ * caller that only reads a report never loads the worker or renderer graph.
+ */
+export async function getGeneratedDocumentSourceForFileProductionJob(
+	...args: Parameters<
+		SourcePersistenceModule["getGeneratedDocumentSourceForFileProductionJob"]
+	>
+): ReturnType<
+	SourcePersistenceModule["getGeneratedDocumentSourceForFileProductionJob"]
+> {
+	const { getGeneratedDocumentSourceForFileProductionJob } = await import(
+		"./source-persistence"
+	);
+	return getGeneratedDocumentSourceForFileProductionJob(...args);
 }
 
 export async function createFileProductionJob(

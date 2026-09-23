@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, lt, sql } from "drizzle-orm";
 import type { ModelId } from "$lib/model-types";
 import { getConfig, isModelEnabled } from "$lib/server/config-store";
-import { db } from "$lib/server/db";
-import { messages } from "$lib/server/db/schema";
 import { recordAtlasJobAnalytics } from "$lib/server/services/analytics";
 import { notifyAtlasCompletion } from "$lib/server/services/browser-push";
 import { AtlasV3PipelineError } from "../atlas-v3/types";
@@ -23,6 +20,7 @@ import {
 	heartbeatAtlasJob,
 	recoverStaleAtlasJobs,
 } from "./job-ledger";
+import { resolveAtlasKickoffMessage } from "./kickoff-message";
 
 export interface ExecuteNextAtlasJobInput {
 	workerId: string;
@@ -92,9 +90,9 @@ export async function executeNextAtlasJob(
 
 	try {
 		const config = getConfig();
-		const resolved = await (input.resolveJobQuery ?? resolveAtlasJobQuery)(
-			claimed.job,
-		);
+		const resolved = await (
+			input.resolveJobQuery ?? resolveAtlasKickoffMessage
+		)(claimed.job);
 		const query = resolved.query?.trim() ?? "";
 		if (!query) {
 			throw new Error("Atlas kickoff message query could not be resolved.");
@@ -251,40 +249,6 @@ async function executeAtlasV3Job(input: {
 		diagnostics: result.diagnostics,
 	});
 	return true;
-}
-
-async function resolveAtlasJobQuery(job: {
-	conversationId: string;
-	assistantMessageId: string | null;
-}): Promise<{ query: string | null; userMessageId: string | null }> {
-	if (!job.assistantMessageId) return { query: null, userMessageId: null };
-	const [assistantMessage] = await db
-		.select()
-		.from(messages)
-		.where(eq(messages.id, job.assistantMessageId))
-		.limit(1);
-	if (!assistantMessage) return { query: null, userMessageId: null };
-
-	const sequence = assistantMessage.messageSequence;
-	const [userMessage] = await db
-		.select()
-		.from(messages)
-		.where(
-			and(
-				eq(messages.conversationId, job.conversationId),
-				eq(messages.role, "user"),
-				sequence === null
-					? sql`${messages.createdAt} <= ${assistantMessage.createdAt}`
-					: lt(messages.messageSequence, sequence),
-			),
-		)
-		.orderBy(desc(messages.messageSequence), desc(messages.createdAt))
-		.limit(1);
-
-	return {
-		query: userMessage?.content ?? null,
-		userMessageId: userMessage?.id ?? null,
-	};
 }
 
 export async function drainAtlasWorker(
