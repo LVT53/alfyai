@@ -1,5 +1,102 @@
 import { describe, expect, it } from "vitest";
-import { parseJsonFromText } from "./json-extract";
+import { parseJsonFromText, salvageTruncatedJson } from "./json-extract";
+
+// Ported from atlas-v2/writer.test.ts's "salvageTruncatedWriterJson" cases
+// (the function was copied here as `salvageTruncatedJson`). The v2 tests
+// checked the repaired JSON through v2's own section parser
+// (`parseAtlasV2WrittenSection`); this module has no such parser, so these
+// cases read the repaired text back with plain `JSON.parse` instead.
+describe("salvageTruncatedJson", () => {
+	interface WriterSentence {
+		text: string;
+		citations?: number[];
+		inferred?: boolean;
+	}
+	interface WriterBody {
+		paragraphs: Array<{ sentences: WriterSentence[] }>;
+		calculations?: Array<{ id: string; expression: string; inputs: number[] }>;
+	}
+
+	function sentenceTexts(body: WriterBody): string[] {
+		return body.paragraphs.flatMap((paragraph) =>
+			paragraph.sentences.map((sentence) => sentence.text),
+		);
+	}
+
+	// The shape the local model produced when it ran to its output cap: valid
+	// JSON up to the cut, rubble after. Cut at every point, so the repair is not
+	// shown to work only where the cap happened to land once.
+	const FULL = JSON.stringify({
+		paragraphs: [
+			{
+				sentences: [
+					{ text: "Capacity reached 8 GW.", citations: [1], inferred: false },
+					{ text: "Additions doubled in 2025.", citations: [2, 3] },
+					{ text: "The queue is 40 GW.", citations: [2] },
+				],
+			},
+			{ sentences: [{ text: "Grid costs rose.", citations: [3] }] },
+		],
+		calculations: [{ id: "c1", expression: "8/12*100", inputs: [1] }],
+	});
+
+	it("returns a complete body unchanged", () => {
+		expect(salvageTruncatedJson(FULL)).toBe(FULL);
+	});
+
+	it("closes the object at the last clean cut, wherever the cut fell", () => {
+		const salvagedCounts = new Set<number>();
+		for (let cut = 1; cut < FULL.length; cut += 1) {
+			const repaired = salvageTruncatedJson(FULL.slice(0, cut));
+			if (!repaired) continue;
+			expect(() => JSON.parse(repaired)).not.toThrow();
+			const body = JSON.parse(repaired) as WriterBody;
+			salvagedCounts.add(sentenceTexts(body).length);
+		}
+		// 1, 2, 3 and all 4 sentences, as the cut moves right through the body.
+		expect([...salvagedCounts].sort()).toEqual([1, 2, 3, 4]);
+	});
+
+	it("never publishes the half sentence the cut left behind", () => {
+		const cut = FULL.indexOf("The queue is 40") + 8;
+		const repaired = salvageTruncatedJson(FULL.slice(0, cut));
+		expect(repaired).not.toBeNull();
+		const body = JSON.parse(repaired as string) as WriterBody;
+		expect(sentenceTexts(body)).toEqual([
+			"Capacity reached 8 GW.",
+			"Additions doubled in 2025.",
+		]);
+	});
+
+	it("gives back nothing when the cut fell before the first sentence closed", () => {
+		expect(
+			salvageTruncatedJson('{"paragraphs":[{"sentences":[{"text":"Cap'),
+		).toBeNull();
+		expect(salvageTruncatedJson("Thinking about the section...")).toBeNull();
+	});
+
+	it("survives a brace or bracket inside a sentence's own text", () => {
+		const withBraces = JSON.stringify({
+			paragraphs: [
+				{
+					sentences: [
+						{ text: 'The rule is "{ a } [b]" in the annex.', citations: [1] },
+						{ text: "A second sentence.", citations: [2] },
+					],
+				},
+			],
+		});
+		const repaired = salvageTruncatedJson(
+			withBraces.slice(0, withBraces.length - 12),
+		);
+		expect(repaired).not.toBeNull();
+		expect(() => JSON.parse(repaired as string)).not.toThrow();
+		const body = JSON.parse(repaired as string) as WriterBody;
+		expect(body.paragraphs[0].sentences[0].text).toBe(
+			'The rule is "{ a } [b]" in the annex.',
+		);
+	});
+});
 
 describe("parseJsonFromText", () => {
 	// ── Existing valid JSON ──────────────────────────────────────

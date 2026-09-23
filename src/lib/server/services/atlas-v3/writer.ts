@@ -17,8 +17,7 @@
 // its braces.
 
 import type { SupportedLanguage } from "$lib/server/services/language";
-import { parseJsonFromText } from "../atlas/json-extract";
-import { salvageTruncatedWriterJson } from "../atlas-v2/writer";
+import { parseJsonFromText, salvageTruncatedJson } from "../atlas/json-extract";
 import {
 	ATLAS_V3_MAX_EVIDENCE_PER_SENTENCE,
 	ATLAS_V3_MAX_OUTPUT_TOKENS,
@@ -360,7 +359,7 @@ export function salvageAtlasV3Section(
 	text: string,
 	options: ParseAtlasV3SectionOptions,
 ): ParsedAtlasV3Section | null {
-	const repaired = salvageTruncatedWriterJson(text);
+	const repaired = salvageTruncatedJson(text);
 	return repaired ? parseAtlasV3Section(repaired, options) : null;
 }
 
@@ -797,7 +796,7 @@ export async function writeAtlasV3Verdict(
 			// Same repair the sections get: a verdict cut off at the cap is still a
 			// verdict up to the cut, and losing it costs the report its opening.
 			if (call.finishReason === "length") {
-				const repaired = salvageTruncatedWriterJson(call.text);
+				const repaired = salvageTruncatedJson(call.text);
 				const salvaged = repaired
 					? parseAtlasV3Verdict(repaired, options)
 					: null;
