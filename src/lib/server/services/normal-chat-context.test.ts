@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
 	buildConstructedContext: vi.fn(),
 	buildProactiveConnectorContext: vi.fn(),
 	getLatestValidContextCompressionSnapshot: vi.fn(),
+	listContextCompressionSnapshots: vi.fn(),
 	getConfig: vi.fn(),
 	getSystemPrompt: vi.fn(),
 	listContextCompressionSourceMessages: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("./attachment-trace", () => ({
 vi.mock("./context-compression", () => ({
 	getLatestValidContextCompressionSnapshot:
 		mocks.getLatestValidContextCompressionSnapshot,
+	listContextCompressionSnapshots: mocks.listContextCompressionSnapshots,
 	listContextCompressionSourceMessages:
 		mocks.listContextCompressionSourceMessages,
 	runContextCompression: mocks.runContextCompression,
@@ -99,6 +101,8 @@ function createControlledPromise<T>() {
 
 type ConstructedContextTestResult = {
 	inputValue: string;
+	historyMessages: unknown[];
+	historyWindow: { includedTurnCount: number; omittedTurnCount: number };
 	contextStatus: unknown;
 	taskState: unknown;
 	contextDebug: unknown;
@@ -112,6 +116,8 @@ function createConstructedContextResult(
 ): ConstructedContextTestResult {
 	return {
 		inputValue,
+		historyMessages: [],
+		historyWindow: { includedTurnCount: 0, omittedTurnCount: 0 },
 		contextStatus: undefined,
 		taskState: null,
 		contextDebug: null,
@@ -381,12 +387,19 @@ describe("normal chat context preparation stages", () => {
 describe("prepareOutboundChatContext", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// clearAllMocks keeps queued *Once values; a test whose stage exits
+		// before consuming one must not leak it into the next test.
+		mocks.buildConstructedContext.mockReset();
+		mocks.listContextCompressionSourceMessages.mockReset();
+		mocks.runContextCompression.mockReset();
+		mocks.listContextCompressionSnapshots.mockReset();
 		mocks.getConfig.mockReturnValue({
 			contextDiagnosticsDebug: false,
 			parallelApiKey: "parallel-key",
 		});
 		mocks.getSystemPrompt.mockReturnValue("Base system prompt");
 		mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue(null);
+		mocks.listContextCompressionSnapshots.mockResolvedValue([]);
 		mocks.listContextCompressionSourceMessages.mockResolvedValue([]);
 		mocks.runContextCompression.mockResolvedValue({
 			id: "snapshot-1",
@@ -1319,7 +1332,7 @@ describe("prepareOutboundChatContext", () => {
 		}
 	});
 
-	it("does not run automatic compression when the prompt and raw source fit", async () => {
+	it("does not run automatic compression when the prompt and history fit", async () => {
 		mocks.buildConstructedContext.mockResolvedValueOnce(
 			createConstructedContextResult(
 				"## Current User Message\nKeep this small.",
@@ -1353,9 +1366,7 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared.inputValue).toBe(
 			"## Current User Message\nKeep this small.",
 		);
-		expect(mocks.listContextCompressionSourceMessages).toHaveBeenCalledWith(
-			"conv-1",
-		);
+		expect(mocks.listContextCompressionSourceMessages).not.toHaveBeenCalled();
 		expect(mocks.runContextCompression).not.toHaveBeenCalled();
 		expect(mocks.buildConstructedContext).toHaveBeenCalledTimes(1);
 	});
@@ -1437,7 +1448,10 @@ describe("prepareOutboundChatContext", () => {
 			.mockResolvedValueOnce(
 				createConstructedContextResult(
 					"## Current User Message\nSummarize this context.",
-					{ _reuseData: reuseData },
+					{
+						_reuseData: reuseData,
+						historyWindow: { includedTurnCount: 4, omittedTurnCount: 6 },
+					},
 				),
 			)
 			.mockResolvedValueOnce(
@@ -1498,16 +1512,20 @@ describe("prepareOutboundChatContext", () => {
 			.mockResolvedValueOnce(
 				createConstructedContextResult(
 					"## Current User Message\nSummarize this context.",
-					{ _reuseData: reuseData },
+					{
+						_reuseData: reuseData,
+						historyWindow: { includedTurnCount: 4, omittedTurnCount: 6 },
+					},
 				),
 			)
 			.mockResolvedValueOnce(
 				createConstructedContextResult(
-					"## Compressed Context\nshort\n\n## Current User Message\nSummarize this context.",
+					"## Context Compression Snapshot\nCompressed.\n\n## Current User Message\nSummarize this context.",
 				),
 			);
 		mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
 			{
+				id: "m1",
 				messageSequence: 1,
 				role: "user",
 				content: "Earlier conversation context. ".repeat(20_000),
@@ -1535,11 +1553,431 @@ describe("prepareOutboundChatContext", () => {
 			logLabel: "provider request",
 		});
 
+		expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
 		expect(mocks.buildConstructedContext).toHaveBeenCalledTimes(2);
+		// A provider that cannot take native tool messages must not get them
+		// just because this turn's context was rebuilt after compression, and
+		// no other turn input may drift between the two builds either.
 		const [[firstArgs], [rebuildArgs]] =
 			mocks.buildConstructedContext.mock.calls;
 		expect(firstArgs).toMatchObject({ historyToolMessages: "flatten" });
 		expect(rebuildArgs).toEqual({ ...firstArgs, reuseFrom: reuseData });
+	});
+
+	describe("automatic compression measures the payload the model is sent", () => {
+		const limits = {
+			maxModelContext: 50_000,
+			compactionUiThreshold: 40_000,
+			targetConstructedContext: 20_000,
+		};
+		const sourceMessage = (
+			sequence: number,
+			role: "user" | "assistant",
+			content: string,
+		) => ({
+			id: `m${sequence}`,
+			messageSequence: sequence,
+			role,
+			content,
+			thinking: null,
+			toolCalls: null,
+		});
+		// Three short turns: the oldest is compressible, the newest two are
+		// the raw tail automatic compression leaves out of the snapshot.
+		const smallSource = [
+			sourceMessage(1, "user", "Earlier question."),
+			sourceMessage(2, "assistant", "Earlier answer."),
+			sourceMessage(3, "user", "Second question."),
+			sourceMessage(4, "assistant", "Second answer."),
+			sourceMessage(5, "user", "Latest question."),
+			sourceMessage(6, "assistant", "Latest answer."),
+		];
+		const historyTurn = (label: string, words: number) => [
+			{ role: "user", content: `${label} question` },
+			{ role: "assistant", content: `${label} `.repeat(words) },
+		];
+
+		it("compresses when native history pushes the real payload over budget although the packet alone fits", async () => {
+			mocks.getConfig.mockReturnValue({ contextDiagnosticsDebug: true });
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?", {
+					// ~24k estimated tokens of prior turns, all of them kept.
+					historyMessages: historyTurn("history", 24_000),
+					historyWindow: { includedTurnCount: 1, omittedTurnCount: 0 },
+				}),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			const warn = vi
+				.spyOn(console, "warn")
+				.mockImplementation(() => undefined);
+			const info = vi
+				.spyOn(console, "info")
+				.mockImplementation(() => undefined);
+
+			try {
+				await prepareOutboundChatContext({
+					message: "What next?",
+					sessionId: "conv-1",
+					modelConfig,
+					user: { id: "user-1" },
+					modelId: "model1",
+					contextLimits: limits,
+					compressionControlMessageSender: vi.fn() as never,
+					logLabel: "provider request",
+				});
+
+				expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+				expect(info).toHaveBeenCalledWith(
+					"[NORMAL_CHAT_CONTEXT] Running automatic context compression before model call",
+					expect.objectContaining({
+						trigger: "prompt_over_budget",
+						historyTokensWithSafety: expect.any(Number),
+					}),
+				);
+			} finally {
+				warn.mockRestore();
+				info.mockRestore();
+			}
+		});
+
+		it("compresses when older turns were dropped from the native history window", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?", {
+					historyMessages: historyTurn("recent", 200),
+					historyWindow: { includedTurnCount: 3, omittedTurnCount: 5 },
+				}),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			const info = vi
+				.spyOn(console, "info")
+				.mockImplementation(() => undefined);
+
+			try {
+				await prepareOutboundChatContext({
+					message: "What next?",
+					sessionId: "conv-1",
+					modelConfig,
+					user: { id: "user-1" },
+					modelId: "model1",
+					contextLimits: limits,
+					compressionControlMessageSender: vi.fn() as never,
+					logLabel: "provider request",
+				});
+
+				expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+				expect(info).toHaveBeenCalledWith(
+					"[NORMAL_CHAT_CONTEXT] Running automatic context compression before model call",
+					expect.objectContaining({
+						trigger: "history_window_trimmed",
+						omittedHistoryTurnCount: 5,
+					}),
+				);
+			} finally {
+				info.mockRestore();
+			}
+		});
+
+		it("counts the per-turn guidance appended after the packet", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nUse it."),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+
+			await prepareOutboundChatContext({
+				message: "Use it.",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: limits,
+				pendingSkillInstructions: "skill instruction ".repeat(12_000),
+				compressionControlMessageSender: vi.fn() as never,
+				logLabel: "provider request",
+			});
+
+			expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+		});
+
+		it("keeps the newest turns out of the snapshot so the next reply still sees them verbatim", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?", {
+					historyWindow: { includedTurnCount: 2, omittedTurnCount: 1 },
+				}),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+
+			await prepareOutboundChatContext({
+				message: "What next?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: limits,
+				compressionControlMessageSender: vi.fn() as never,
+				logLabel: "provider request",
+			});
+
+			expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+			expect(
+				mocks.runContextCompression.mock.lastCall?.[0].sourceMessages.map(
+					(message: { id: string }) => message.id,
+				),
+			).toEqual(["m1", "m2"]);
+		});
+
+		it("compresses a newest turn too large to keep raw", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?", {
+					historyWindow: { includedTurnCount: 1, omittedTurnCount: 2 },
+				}),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+				...smallSource.slice(0, 5),
+				// ~12k tokens: over the raw-tail allowance (a quarter of the
+				// 13,000-token session history budget for a 20,000 target).
+				sourceMessage(6, "assistant", "answer ".repeat(6_000)),
+			]);
+
+			await prepareOutboundChatContext({
+				message: "What next?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: limits,
+				compressionControlMessageSender: vi.fn() as never,
+				logLabel: "provider request",
+			});
+
+			expect(
+				mocks.runContextCompression.mock.lastCall?.[0].sourceMessages.map(
+					(message: { id: string }) => message.id,
+				),
+			).toEqual(["m1", "m2", "m3", "m4", "m5", "m6"]);
+		});
+
+		it("does not compress when only the raw tail is pending", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult(
+					`${createLongPromptText("huge attachment")}\n\n## Current User Message\nRead it.`,
+				),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource.slice(2),
+			);
+
+			await prepareOutboundChatContext({
+				message: "Read it.",
+				sessionId: "conv-1",
+				modelConfig: budgetConstrainedModelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: compactContextLimits,
+				compressionControlMessageSender: vi.fn() as never,
+				logLabel: "provider request",
+			});
+
+			// The packet is what is over budget; summarizing the two recent
+			// turns would cost a control call and save nothing.
+			expect(mocks.runContextCompression).not.toHaveBeenCalled();
+		});
+
+		const automaticAttempt = (
+			status: "failed" | "running",
+			sourceEndMessageSequence: number,
+			updatedAt = new Date(),
+		) => ({
+			id: `attempt-${status}-${sourceEndMessageSequence}`,
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic",
+			status,
+			sourceEndMessageSequence,
+			createdAt: updatedAt,
+			updatedAt,
+		});
+		const prepareTrimmedHistoryTurn = (
+			options: { signal?: AbortSignal } = {},
+		) => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?", {
+					historyWindow: { includedTurnCount: 2, omittedTurnCount: 1 },
+				}),
+			);
+			return prepareOutboundChatContext({
+				message: "What next?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: limits,
+				compressionControlMessageSender: vi.fn() as never,
+				signal: options.signal,
+				logLabel: "provider request",
+			});
+		};
+
+		it("does not retry right after a failed automatic attempt over the same turns", async () => {
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			// The last attempt already tried to cover m1..m2 and failed.
+			mocks.listContextCompressionSnapshots.mockResolvedValueOnce([
+				automaticAttempt("failed", 2),
+			]);
+
+			await prepareTrimmedHistoryTurn();
+
+			expect(mocks.runContextCompression).not.toHaveBeenCalled();
+		});
+
+		it("retries a failed automatic attempt once two more turns are compressible", async () => {
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+				...smallSource,
+				sourceMessage(7, "user", "Fourth question."),
+				sourceMessage(8, "assistant", "Fourth answer."),
+				sourceMessage(9, "user", "Fifth question."),
+				sourceMessage(10, "assistant", "Fifth answer."),
+			]);
+			mocks.listContextCompressionSnapshots.mockResolvedValueOnce([
+				automaticAttempt("failed", 2),
+			]);
+
+			await prepareTrimmedHistoryTurn();
+
+			expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+		});
+
+		it("does not start a second automatic compression while one is running", async () => {
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			mocks.listContextCompressionSnapshots.mockResolvedValueOnce([
+				automaticAttempt("running", 2),
+			]);
+
+			await prepareTrimmedHistoryTurn();
+
+			expect(mocks.runContextCompression).not.toHaveBeenCalled();
+		});
+
+		it("ignores a running attempt abandoned long ago", async () => {
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			mocks.listContextCompressionSnapshots.mockResolvedValueOnce([
+				automaticAttempt("running", 2, new Date(Date.now() - 60 * 60_000)),
+			]);
+
+			await prepareTrimmedHistoryTurn();
+
+			expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+		});
+
+		it("bounds the control calls by the turn's abort signal", async () => {
+			const sender = vi.fn(
+				async (_message: string, _modelId: string, _options: unknown) => ({
+					text: "{}",
+				}),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			const turn = new AbortController();
+			const seenSignals: AbortSignal[] = [];
+			mocks.runContextCompression.mockImplementationOnce(
+				async (input: {
+					controlMessageSender: (
+						message: string,
+						modelId: string,
+						options: { systemPrompt: string; signal?: AbortSignal },
+					) => Promise<unknown>;
+				}) => {
+					await input.controlMessageSender("first", "model1", {
+						systemPrompt: "s",
+					});
+					turn.abort(new Error("user stopped the turn"));
+					await expect(
+						input.controlMessageSender("second", "model1", {
+							systemPrompt: "s",
+						}),
+					).rejects.toThrow("user stopped the turn");
+					return { id: "snapshot-failed", status: "failed" };
+				},
+			);
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?", {
+					historyWindow: { includedTurnCount: 2, omittedTurnCount: 1 },
+				}),
+			);
+
+			await prepareOutboundChatContext({
+				message: "What next?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: limits,
+				compressionControlMessageSender: (async (
+					message: string,
+					modelId: string,
+					options: { signal?: AbortSignal },
+				) => {
+					if (options.signal) seenSignals.push(options.signal);
+					return sender(message, modelId, options);
+				}) as never,
+				signal: turn.signal,
+				logLabel: "provider request",
+			});
+
+			// The first call carried a signal that the turn's stop aborted; the
+			// second never reached the model.
+			expect(sender).toHaveBeenCalledTimes(1);
+			expect(seenSignals).toHaveLength(1);
+			expect(seenSignals[0]?.aborted).toBe(true);
+		});
+
+		it("does not compress on stored reasoning and tool traces the model is never sent", async () => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nThanks.", {
+					historyMessages: historyTurn("short", 50),
+					historyWindow: { includedTurnCount: 1, omittedTurnCount: 0 },
+				}),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValue([
+				smallSource[0],
+				{
+					...smallSource[1],
+					thinking: "private reasoning ".repeat(40_000),
+					toolCalls: JSON.stringify([
+						{ type: "text", content: "more reasoning ".repeat(40_000) },
+					]),
+				},
+			]);
+
+			const prepared = await prepareOutboundChatContext({
+				message: "Thanks.",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: limits,
+				compressionControlMessageSender: vi.fn() as never,
+				logLabel: "provider request",
+			});
+
+			expect(mocks.runContextCompression).not.toHaveBeenCalled();
+			expect(mocks.buildConstructedContext).toHaveBeenCalledTimes(1);
+			expect(prepared.historyMessages).toHaveLength(2);
+		});
 	});
 
 	it("no longer exposes a guidance-pack plan on the prepared context (G1 removes pack selection)", async () => {

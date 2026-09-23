@@ -276,6 +276,17 @@ export type ConstructedContextReuseData = {
 	artifactSnippets: Map<string, string>;
 };
 
+// How much of the conversation history (after the latest valid compression
+// snapshot) made it into this turn. `omittedTurnCount > 0` means older turns
+// did not fit the session history budget and were dropped from the prompt —
+// the signal automatic context compression uses to summarize them instead
+// (normal-chat-context.ts). Counts only; the history itself travels as
+// `historyMessages` (native) or inside the packet (flattened).
+export type ConstructedContextHistoryWindow = {
+	includedTurnCount: number;
+	omittedTurnCount: number;
+};
+
 type ContextLatencyTier = "shallow" | "deep";
 
 type ContextLatencyTierResolution = {
@@ -1189,6 +1200,7 @@ async function buildShallowConstructedContext(params: {
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
+	historyWindow: ConstructedContextHistoryWindow;
 	contextStatus: ConversationContextStatus;
 	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
@@ -1357,6 +1369,10 @@ async function buildShallowConstructedContext(params: {
 	return {
 		inputValue: selectedPromptContext.inputValue,
 		historyMessages: nativeHistory.messages,
+		historyWindow: {
+			includedTurnCount: sessionTurnContext.includedTurnCount,
+			omittedTurnCount: sessionTurnContext.omittedTurnCount,
+		},
 		contextStatus: status,
 		taskState: null,
 		contextDebug: buildMinimalContextDebugState({
@@ -1385,6 +1401,7 @@ export async function buildConstructedContext(params: {
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
+	historyWindow: ConstructedContextHistoryWindow;
 	contextStatus: ConversationContextStatus;
 	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
@@ -2106,6 +2123,10 @@ export async function buildConstructedContext(params: {
 	return {
 		inputValue: selectedPromptContext.inputValue,
 		historyMessages: nativeHistory.messages,
+		historyWindow: {
+			includedTurnCount: sessionTurnContext.includedTurnCount,
+			omittedTurnCount: sessionTurnContext.omittedTurnCount,
+		},
 		contextStatus: status,
 		taskState,
 		contextDebug: await getContextDebugState(

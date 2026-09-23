@@ -383,6 +383,82 @@ describe("context compression snapshots", () => {
 		);
 	});
 
+	it("sends the control model tool-call digests, not stored reasoning or raw tool payloads", async () => {
+		seedConversationWithMessages();
+		mocks.sendJsonControlMessage.mockResolvedValue(
+			createCompressionControlResponse({
+				goal: "Keep answering the user's original question.",
+				currentState: "The assistant answered using one web search.",
+				sourceCoverage: { messageIds: ["message-1", "message-2"] },
+			}),
+		);
+		const { runContextCompression } = await import("./context-compression");
+		const [question, answer] = createDefaultSourceMessages();
+
+		await runContextCompression({
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic",
+			selectedModelId: "model1",
+			controlMessageSender: mocks.sendJsonControlMessage,
+			sourceMessages: [
+				question,
+				{
+					...answer,
+					thinking: "PRIVATE_REASONING_TEXT",
+					toolCalls: JSON.stringify([
+						{ type: "text", content: "PRIVATE_REASONING_SEGMENT" },
+						{
+							type: "status",
+							id: "s1",
+							label: "Searching",
+							status: "done",
+						},
+						{
+							type: "tool_call",
+							callId: "call-1",
+							name: "research_web",
+							input: { query: "launch date" },
+							status: "done",
+							outputSummary: "Found 1 source",
+							resultDigest: "The launch is on 12 May.",
+							candidates: [
+								{
+									id: "c1",
+									title: "Launch notice",
+									url: "https://example.com/launch",
+									snippet: "RAW_CANDIDATE_SNIPPET",
+								},
+							],
+							map: { RAW_MAP_PAYLOAD: true },
+						},
+					]),
+				},
+			],
+		});
+
+		const prompt = String(mocks.sendJsonControlMessage.mock.calls[0]?.[0]);
+		const payload = JSON.parse(prompt.slice(prompt.indexOf("{")));
+		expect(payload.sourceMessages[1].toolCalls).toEqual([
+			{
+				name: "research_web",
+				input: { query: "launch date" },
+				result: {
+					ok: true,
+					summary: "Found 1 source",
+					detail: "The launch is on 12 May.",
+					sources: [
+						{ title: "Launch notice", url: "https://example.com/launch" },
+					],
+				},
+			},
+		]);
+		expect(payload.sourceMessages[0].toolCalls).toBeNull();
+		expect(prompt).not.toContain("PRIVATE_REASONING");
+		expect(prompt).not.toContain("RAW_CANDIDATE_SNIPPET");
+		expect(prompt).not.toContain("RAW_MAP_PAYLOAD");
+	});
+
 	it("accepts a meaningful compression snapshot when the model omits app-owned empty fields and source coverage", async () => {
 		seedConversationWithMessages();
 		mocks.sendJsonControlMessage.mockResolvedValue(

@@ -129,7 +129,7 @@ const TELEMETRY_ONLY_FILE_PRODUCTION_INPUT_KEYS = [
 	"text",
 ];
 
-function historyToolCallInput(
+export function historyToolCallInput(
 	segment: ToolCallSegment,
 ): Record<string, unknown> {
 	const input = segment.input ?? {};
