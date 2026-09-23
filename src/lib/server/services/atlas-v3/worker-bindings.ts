@@ -12,7 +12,7 @@ import {
 	writeAtlasRoundCheckpoint,
 } from "../atlas/checkpoints";
 import { runAtlasModelStage } from "../atlas/model-stage";
-import { renderAtlasOutputs } from "../atlas/renderer-output";
+import { renderAtlasOutputs } from "../atlas/output-files";
 import type { AtlasPipelineJobContext } from "../atlas/types";
 import {
 	ATLAS_V3_MODEL_TASKS,
@@ -41,11 +41,12 @@ export interface RunAtlasV3PipelineForClaimedJobInput {
 }
 
 /**
- * v3's model stages reuse v1's model boundary (`runAtlasModelStage`), exactly as
- * v2 does, so pricing, usage normalisation and provider resolution are
- * identical across all three pipelines. ADR 0063's per-task model keys resolve
- * to a `ModelId` and then go through that same boundary — nothing about the
- * selection path is v3-specific.
+ * v3's model stages run through the shared `runAtlasModelStage` boundary
+ * (kept from the deleted v1/v2 pipelines in Phase B of the v3-only
+ * consolidation), so pricing, usage normalisation and provider resolution
+ * stay in one place. ADR 0063's per-task model keys resolve to a `ModelId`
+ * and then go through that same boundary — nothing about the selection path
+ * is v3-specific.
  */
 function makeModelCall(input: {
 	modelSelection: ModelId;
@@ -53,15 +54,13 @@ function makeModelCall(input: {
 }): AtlasV3ModelCall {
 	return async ({ stage, system, prompt, thinkingMode, maxOutputTokens }) => {
 		const result = await runAtlasModelStage({
-			// v1's stage union does not include v3's stage names; the value only
-			// ever reaches the system-prompt suffix, so it is passed as-is.
-			stage: stage as never,
+			stage,
 			profile: input.profile,
 			modelSelection: input.modelSelection,
 			system,
 			prompt,
+			maxOutputTokens,
 			...(thinkingMode ? { thinkingMode } : {}),
-			...(maxOutputTokens ? { maxOutputTokens } : {}),
 		});
 		return {
 			text: result.text,

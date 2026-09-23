@@ -27,6 +27,7 @@ const JOB: AtlasPipelineJobContext = {
 		depth: 0,
 		seed: null,
 	} as unknown as AtlasPipelineJobContext["lifecycle"],
+	kickoffUserMessageId: "user-msg-1",
 };
 
 const QUOTES: Record<string, string[]> = {

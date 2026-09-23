@@ -20,7 +20,8 @@ export type AtlasV3ModelCall = (input: {
 	 * breaks the parse outright.
 	 */
 	thinkingMode?: ThinkingMode;
-	maxOutputTokens?: number;
+	/** Every v3 stage passes an explicit cap; there is no profile-wide default. */
+	maxOutputTokens: number;
 }) => Promise<{
 	text: string;
 	finishReason?: string | null;

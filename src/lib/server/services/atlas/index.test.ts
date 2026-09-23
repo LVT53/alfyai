@@ -420,143 +420,6 @@ describe("Atlas persistence foundation", () => {
 		});
 	});
 
-	it("uses same-family parent curated local sources as worker auto sources", async () => {
-		const { resolveAtlasSourcesForJob } = await import("./sources");
-
-		const result = await resolveAtlasSourcesForJob({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: null,
-			lifecycleSeed: {
-				parentAtlasJobId: "atlas-parent-1",
-				compressedFindings: { synthesize: "Prior findings" },
-				curatedSourcePool: {
-					local: [
-						{
-							id: "local-1",
-							title: "Parent local source",
-							text: "Parent source text",
-						},
-					],
-					web: [{ id: "web-1", title: "Parent web source" }],
-				},
-				checkpoint: {},
-				documentSourceSummary: {},
-			},
-		});
-
-		expect(result.localSources).toEqual([
-			{
-				id: "parent:atlas-parent-1:local-1",
-				title: "Parent local source",
-				authority: "auto",
-				text: "Parent source text",
-			},
-		]);
-	});
-
-	it("excludes generated outputs from automatic Atlas working-document sources", async () => {
-		const { db } = await import("$lib/server/db");
-		const now = new Date("2026-06-19T12:10:00.000Z");
-		await db.insert(schema.messages).values([
-			{
-				id: "atlas-source-user",
-				conversationId: "conv-1",
-				messageSequence: 1,
-				role: "user",
-				content:
-					"Use the baseline result and evidence memo for this Atlas run.",
-				createdAt: now,
-			},
-			{
-				id: "atlas-source-assistant",
-				conversationId: "conv-1",
-				messageSequence: 2,
-				role: "assistant",
-				content: "Starting Atlas.",
-				createdAt: new Date("2026-06-19T12:10:01.000Z"),
-			},
-		]);
-		await db.insert(schema.artifacts).values([
-			{
-				id: "generated-atlas-result",
-				userId: "user-1",
-				conversationId: "conv-1",
-				type: "generated_output",
-				retrievalClass: "durable",
-				name: "Baseline result",
-				contentText:
-					"Prior generated Atlas output that should not be auto-treated as evidence.",
-				summary: "Baseline result",
-				metadataJson: JSON.stringify({ generatedFile: true }),
-				createdAt: now,
-				updatedAt: now,
-			},
-			{
-				id: "evidence-memo",
-				userId: "user-1",
-				conversationId: "conv-1",
-				type: "source_document",
-				retrievalClass: "durable",
-				name: "Evidence memo",
-				contentText: "Human-provided evidence memo for Atlas grounding.",
-				summary: "Evidence memo",
-				createdAt: now,
-				updatedAt: now,
-			},
-		]);
-		await db.insert(schema.conversationWorkingSetItems).values([
-			{
-				id: "working-generated-atlas-result",
-				userId: "user-1",
-				conversationId: "conv-1",
-				artifactId: "generated-atlas-result",
-				artifactType: "generated_output",
-				score: 100,
-				state: "active",
-				reasonCodesJson: JSON.stringify(["matched_current_turn"]),
-				lastActivatedAt: now,
-				lastUsedAt: now,
-				createdAt: now,
-				updatedAt: now,
-			},
-			{
-				id: "working-evidence-memo",
-				userId: "user-1",
-				conversationId: "conv-1",
-				artifactId: "evidence-memo",
-				artifactType: "source_document",
-				score: 100,
-				state: "active",
-				reasonCodesJson: JSON.stringify(["matched_current_turn"]),
-				lastActivatedAt: now,
-				lastUsedAt: now,
-				createdAt: now,
-				updatedAt: now,
-			},
-		]);
-
-		const { resolveAtlasSourcesForJob } = await import("./sources");
-		const result = await resolveAtlasSourcesForJob({
-			userId: "user-1",
-			conversationId: "conv-1",
-			assistantMessageId: "atlas-source-assistant",
-			lifecycleSeed: null,
-		});
-
-		expect(result.localSources).toEqual([
-			expect.objectContaining({
-				id: "evidence-memo",
-				title: "Evidence memo",
-				authority: "working_document",
-			}),
-		]);
-		expect(result.localSources).not.toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ id: "generated-atlas-result" }),
-			]),
-		);
-	});
 
 	it("returns polling-safe Atlas job cards without raw internal metadata", async () => {
 		const { db } = await import("$lib/server/db");
@@ -864,8 +727,9 @@ describe("Atlas persistence foundation", () => {
 		expect(firstClaim?.job).toMatchObject({
 			id: first.job.id,
 			status: "running",
-			stage: "decompose",
-			progress: { percent: 5, stage: "decompose", details: { queries: [] } },
+			pipelineVersion: 3,
+			stage: "ask",
+			progress: { percent: 0, stage: "ask", details: { queries: [] } },
 		});
 		expect(blockedByPerUserLimit).toBeNull();
 
@@ -1022,7 +886,7 @@ describe("Atlas persistence foundation", () => {
 
 		expect(completed).toMatchObject({
 			status: "succeeded",
-			stage: "audit",
+			stage: "render",
 			progress: { percent: 100 },
 			usage: {
 				inputTokens: 0,

@@ -8,7 +8,7 @@
 
 import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
 import { detectLanguage } from "$lib/server/services/language";
-import type { AtlasOutputIds } from "../atlas/renderer-output";
+import type { AtlasOutputIds } from "../atlas/output-files";
 import type { AtlasPipelineJobContext } from "../atlas/types";
 import {
 	type AtlasV3AbstentionReport,

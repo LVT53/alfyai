@@ -67,7 +67,7 @@ const PERMANENT_ALLOWLIST = new Map<string, string>([
 		"natural-language intent regexes over user messages, not file classification (spec row 61)",
 	],
 	[
-		"src/lib/server/services/atlas/renderer-output.ts",
+		"src/lib/server/services/atlas/output-files.ts",
 		"separate Atlas pipeline with its own PR queue (spec row 70)",
 	],
 	[
