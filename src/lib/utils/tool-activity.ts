@@ -967,9 +967,12 @@ export type AtlasPlanEntry = {
 export type AtlasEvidenceSource = {
 	n: number;
 	title: string;
+	/** Empty for a `local` source. */
 	host: string;
 	date: string | null;
 	cited: boolean;
+	/** `local` is one of the user's own documents: no host, no favicon. */
+	kind: "web" | "local";
 };
 
 export type AtlasEvidenceSummary = {
@@ -1089,12 +1092,14 @@ function parseAtlasEvidence(value: unknown): AtlasEvidenceSummary | null {
 					const source = entry as Record<string, unknown>;
 					const title = atlasText(source.title);
 					if (!title) return null;
+					const local = source.kind === "local";
 					return {
 						n: atlasCount(source.n) ?? index + 1,
 						title,
-						host: atlasText(source.host) ?? "",
+						host: local ? "" : (atlasText(source.host) ?? ""),
 						date: atlasText(source.date),
 						cited: source.cited === true,
+						kind: local ? "local" : "web",
 					};
 				})
 				.filter((entry): entry is AtlasEvidenceSource => entry !== null)

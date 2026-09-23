@@ -395,6 +395,42 @@ describe("AtlasActivityRow", () => {
 			expect(sources[0].querySelector("svg")).not.toBeNull();
 		});
 
+		it("draws a user document with a library glyph and 'Your library', never a favicon", async () => {
+			render(AtlasActivityRow, {
+				job: doneJob({
+					evidence: {
+						...EVIDENCE,
+						sources: [
+							{
+								...EVIDENCE.sources[0],
+								title: "Electricity bill 2025.pdf",
+								host: "",
+								date: null,
+								kind: "local",
+							},
+							EVIDENCE.sources[1],
+						],
+					},
+				}),
+			});
+
+			await fireEvent.click(screen.getByRole("tab", { name: "Evidence" }));
+			const evidence = screen.getByTestId("atlas-evidence-tab");
+			const sources = within(evidence).getAllByTestId("atlas-evidence-source");
+			expect(sources[0]).toHaveTextContent("Electricity bill 2025.pdf");
+			expect(sources[0]).toHaveTextContent("Your library");
+			expect(
+				within(sources[0]).getByTestId("atlas-evidence-library"),
+			).toBeInTheDocument();
+			expect(
+				within(sources[0]).queryAllByTestId("atlas-evidence-favicon"),
+			).toHaveLength(0);
+			// The web source beside it keeps its favicon.
+			expect(
+				within(sources[1]).getAllByTestId("atlas-evidence-favicon"),
+			).toHaveLength(1);
+		});
+
 		it("shows the final source counts on the Plan tab", async () => {
 			render(AtlasActivityRow, { job: doneJob() });
 

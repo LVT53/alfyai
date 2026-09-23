@@ -390,6 +390,9 @@ const chatDict = {
 			"… {count} more · duplicates and redirect stubs removed ({filtered})",
 		"atlasActivity.filteredOnly":
 			"Duplicates and redirect stubs removed ({filtered})",
+		// Where a web source shows its host, one of the user's own documents
+		// shows this.
+		"atlasActivity.yourLibrary": "Your library",
 		// Short labels for the mini buttons in the row's body — the full
 		// "Revise Atlas" strings stay as their accessible names.
 		"atlasActivity.revise": "Revise",
@@ -1544,6 +1547,7 @@ const chatDict = {
 			"… még {count} · duplikátumok és átirányítási csonkok eltávolítva ({filtered})",
 		"atlasActivity.filteredOnly":
 			"Duplikátumok és átirányítási csonkok eltávolítva ({filtered})",
+		"atlasActivity.yourLibrary": "Saját könyvtár",
 		"atlasActivity.revise": "Átdolgozás",
 		"atlasActivity.continue": "Folytatás",
 		"atlasActivity.fork": "Elágaztatás",
