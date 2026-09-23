@@ -324,6 +324,56 @@ describe("memory v2 actions service", () => {
 		expect(context.items.some((i) => i.id === itemId)).toBe(false);
 	});
 
+	it("a fact the user accepted in review stays editable and removable by the user", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const acceptedMetadata = {
+			origin: "judge_v1",
+			reviewResolution: "accepted",
+			endorsement: "user_accepted",
+		};
+		const editedId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I like tea.",
+			metadata: acceptedMetadata,
+			createdAt: now,
+			updatedAt: now,
+		});
+		const removedId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I live in Budapest.",
+			metadata: acceptedMetadata,
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const { applyKnowledgeMemoryAction } = await import("./memory");
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "profile_item",
+			action: "correct",
+			itemId: editedId,
+			statement: "I like green tea.",
+			expectedProjectionRevision: readProjectionRevision(db, userId),
+		});
+		await applyKnowledgeMemoryAction(userId, "Tester", {
+			kind: "profile_item",
+			action: "retire",
+			itemId: removedId,
+			expectedProjectionRevision: readProjectionRevision(db, userId),
+		});
+
+		expect(readItem(db, editedId).statement).toBe("I like green tea.");
+		expect(JSON.parse(readItem(db, editedId).metadataJson).origin).toBe(
+			"user_authored",
+		);
+		expect(readItem(db, removedId).status).toBe("retired");
+	});
+
 	it("retire: stale expectedProjectionRevision yields stale_projection error", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();

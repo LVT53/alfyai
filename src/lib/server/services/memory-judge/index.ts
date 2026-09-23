@@ -19,7 +19,10 @@ import {
 	JUDGE_REVIEW_SUBJECT_PREFIX,
 } from "../memory-profile/review";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
-import { isUserAuthoredMemoryMetadata } from "../memory-profile/types";
+import {
+	type MemoryItemUserProtection,
+	readMemoryItemUserProtection,
+} from "../memory-profile/types";
 import { getConversationProjectId } from "../projects";
 import { REVIEW_EXPIRY_DAYS, REVIEW_OPEN_CAP } from "./config";
 import {
@@ -308,10 +311,20 @@ export async function runMemoryJudgeOnSegment(params: {
 				await dropCandidate("target_not_active");
 				continue;
 			}
-			// Never touch user-authored items. Read the item metadata directly
-			// rather than relying on read-model detail (which does not expose it).
-			if (await isUserAuthoredItem(params.userId, targetItemId)) {
-				await dropCandidate("target_user_authored");
+			// Never touch user-protected items (user_authored, or accepted in
+			// review). Read the item metadata directly rather than relying on
+			// read-model detail (which does not expose it). The user_authored
+			// reason name is kept stable; accepted facts get their own.
+			const protection = await readItemUserProtection(
+				params.userId,
+				targetItemId,
+			);
+			if (protection) {
+				await dropCandidate(
+					protection === "user_authored"
+						? "target_user_authored"
+						: "target_user_protected",
+				);
 				continue;
 			}
 			const patch = d.action === "update" ? { statement: d.statement } : {};
@@ -355,9 +368,10 @@ export async function runMemoryJudgeOnSegment(params: {
 			});
 			projectionRevision = item.projectionRevision;
 			// The itemKey was taken: createMemoryProfileItem handed back an
-			// EXISTING row (possibly user_authored, suppressed, or retired). It is
+			// EXISTING row (possibly user-protected, suppressed, or retired). It is
 			// not ours to overwrite — writing the judge's metadata would drop a
-			// user_authored origin or silently re-label a removed fact.
+			// user_authored origin or endorsement, or silently re-label a removed
+			// fact.
 			if (!item.created) {
 				await dropCandidate("duplicate_existing");
 				continue;
@@ -456,10 +470,10 @@ async function currentProjectionRevision(userId: string): Promise<number> {
 	return projection.revision;
 }
 
-async function isUserAuthoredItem(
+async function readItemUserProtection(
 	userId: string,
 	itemId: string,
-): Promise<boolean> {
+): Promise<MemoryItemUserProtection | null> {
 	const [row] = await db
 		.select({ metadataJson: memoryProfileItems.metadataJson })
 		.from(memoryProfileItems)
@@ -470,8 +484,8 @@ async function isUserAuthoredItem(
 			),
 		)
 		.limit(1);
-	if (!row) return false;
-	return isUserAuthoredMemoryMetadata(row.metadataJson);
+	if (!row) return null;
+	return readMemoryItemUserProtection(row.metadataJson);
 }
 
 async function applyItemMetadata(

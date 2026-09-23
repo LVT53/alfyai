@@ -25,7 +25,7 @@ import { getCurrentMemoryResetGeneration } from "./memory-profile/reset-generati
 import { resolveMemoryReviewItem } from "./memory-profile/review";
 import { recordMemoryReworkTelemetry } from "./memory-profile/telemetry";
 import {
-	isUserAuthoredMemoryMetadata,
+	isUserProtectedMemoryMetadata,
 	MEMORY_PROFILE_CATEGORIES,
 	type MemoryProfileCategory,
 } from "./memory-profile/types";
@@ -468,7 +468,7 @@ export async function runMemoryRecuration(userId: string): Promise<{
 
 	for (const batch of batches) {
 		const eligible = batch.filter(
-			(row) => !isUserAuthoredMemoryMetadata(row.metadataJson),
+			(row) => !isUserProtectedMemoryMetadata(row.metadataJson),
 		);
 		await processEligibleSet(eligible, 0);
 	}

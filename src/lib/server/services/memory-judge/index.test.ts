@@ -1453,6 +1453,67 @@ describe("Memory judge service", () => {
 			).toEqual([expect.objectContaining({ reason: "target_user_authored" })]);
 		});
 
+		it("skips an update or strengthen aimed at a fact the user accepted in review, with target_user_protected telemetry", async () => {
+			await setup([]);
+			const { createMemoryProfileItem } = await import(
+				"../memory-profile/projection-store"
+			);
+			const {
+				applyMemoryReviewItemWithRevision,
+				createOrUpdateMemoryReviewItem,
+			} = await import("../memory-profile/review");
+			const { getMemoryProfileReadModel } = await import(
+				"../memory-profile/read-model"
+			);
+			const pending = await createMemoryProfileItem({
+				userId: "u1",
+				category: "about_you",
+				scope: { type: "global" },
+				statement: "I live in Budapest.",
+				status: "review_needed",
+			});
+			const reviewRow = await createOrUpdateMemoryReviewItem({
+				userId: "u1",
+				subjectKey: `judge:${pending.itemKey}`,
+				subjectLabel: "I live in Budapest.",
+				question: "Should I keep remembering this?",
+				reason: "Inferred from conversation, not stated directly.",
+				affectedItemIds: [pending.id],
+				metadata: {
+					source: "memory_judge",
+					category: "about_you",
+					proposedStatement: "I live in Budapest.",
+				},
+			});
+			const profile = await getMemoryProfileReadModel({ userId: "u1" });
+			await expect(
+				applyMemoryReviewItemWithRevision({
+					userId: "u1",
+					reviewItemId: reviewRow.id,
+					expectedProjectionRevision: profile.projectionRevision,
+					action: "accept",
+				}),
+			).resolves.toMatchObject({ status: "updated", itemId: pending.id });
+
+			mockControlModel({
+				decisions: [
+					decision({ targetItemId: pending.id }),
+					decision({
+						action: "strengthen",
+						statement: "I live in Budapest.",
+						targetItemId: pending.id,
+					}),
+				],
+			});
+			await expect(run()).resolves.toMatchObject({ updated: 0 });
+			expect(await activeStatements()).toEqual(["I live in Budapest."]);
+			expect(
+				(await telemetry())
+					.filter((r) => r.eventName === "judge_candidate_rejected")
+					.map((r) => r.reason),
+			).toEqual(["target_user_protected", "target_user_protected"]);
+		});
+
 		it("shows project-scoped facts to the judge so they can be targeted", async () => {
 			const { db } = await setup([]);
 			db.insert(schema.projects)

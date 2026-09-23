@@ -18,7 +18,7 @@ import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generat
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
 import {
 	assertMemoryProfileCategory,
-	isUserAuthoredMemoryMetadata,
+	isUserProtectedMemoryMetadata,
 	parseMemoryItemMetadata,
 } from "../memory-profile/types";
 import { NIGHT_SHIFT_EVENT_FAMILY } from "./event-family";
@@ -145,7 +145,7 @@ export async function runExpireAndRenew(params: {
 	for (const item of renewCandidates) {
 		if (parseMemoryItemMetadata(item.metadataJson).expiryClass !== "time_bound")
 			continue;
-		if (isUserAuthoredMemoryMetadata(item.metadataJson)) continue;
+		if (isUserProtectedMemoryMetadata(item.metadataJson)) continue;
 		if (!item.expiresAt) continue;
 		const prevExpiresAt = item.expiresAt;
 		const nextExpiresAt = new Date(
@@ -264,8 +264,8 @@ type ConsolidationLlmAction = {
 
 /**
  * Step: reconcile contradictions (supersede) and merge duplicates via a single
- * LLM call over the user's active facts. user_authored items are excluded from
- * candidacy and every referenced id is validated before any write.
+ * LLM call over the user's active facts. User-protected items (user_authored
+ * or accepted in review) are excluded from candidacy and every referenced id is validated before any write.
  */
 export async function runReconcileAndMerge(params: {
 	userId: string;
@@ -285,14 +285,15 @@ export async function runReconcileAndMerge(params: {
 			),
 		);
 
-	// Candidates presented to the model exclude user_authored items so they are
-	// never proposed as losers/merge members.
+	// Candidates presented to the model exclude user-protected items
+	// (user_authored or accepted in review) so they are never proposed as
+	// losers/merge members.
 	const candidates = activeItems.filter(
-		(i) => !isUserAuthoredMemoryMetadata(i.metadataJson),
+		(i) => !isUserProtectedMemoryMetadata(i.metadataJson),
 	);
 	if (candidates.length === 0) return [];
 
-	// Fast lookup of the current, active, non-user-authored candidate set.
+	// Fast lookup of the current, active, non-protected candidate set.
 	const candidateById = new Map(candidates.map((i) => [i.id, i]));
 
 	const userMessage = JSON.stringify({
@@ -349,8 +350,8 @@ export async function runReconcileAndMerge(params: {
 		if (action.type === "supersede") {
 			const winnerId = action.winnerId;
 			const loserId = action.loserId;
-			// Winner must exist+active (may be user_authored — allowed as a winner);
-			// loser must be a valid, non-user-authored candidate.
+			// Winner must exist+active (may be user-protected — allowed as a winner);
+			// loser must be a valid, non-protected candidate.
 			if (!isValidCandidate(loserId)) continue;
 			if (
 				typeof winnerId !== "string" ||

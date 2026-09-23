@@ -509,6 +509,116 @@ describe("memory consolidation steps", () => {
 		expect(actions.length).toBe(0);
 	});
 
+	it("never supersedes, merges, or offers a user-accepted judge fact to the model", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+
+		// Accepted through Guided Memory Review: the judge origin is kept for
+		// provenance, the endorsement marker makes it user-protected.
+		const acceptedId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am learning Irish.",
+			metadata: {
+				origin: "judge_v1",
+				confidence: "inferred",
+				reviewResolution: "accepted",
+				endorsement: "user_accepted",
+				userConfirmedAt: now.toISOString(),
+			},
+			createdAt: now,
+			updatedAt: now,
+		});
+		// Accepted before the explicit endorsement marker existed.
+		const legacyAcceptedId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I study at night.",
+			metadata: { origin: "judge_v1", reviewResolution: "accepted" },
+			createdAt: now,
+			updatedAt: now,
+		});
+		const otherId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am learning Irish slowly.",
+			metadata: { origin: "judge_v1" },
+			createdAt: now,
+			updatedAt: now,
+		});
+		const otherTwoId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I study late.",
+			metadata: { origin: "judge_v1" },
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		setControlResponse(
+			JSON.stringify({
+				actions: [
+					{ type: "supersede", winnerId: otherId, loserId: acceptedId },
+					{
+						type: "merge",
+						itemIds: [legacyAcceptedId, otherTwoId],
+						mergedStatement: "I study late at night.",
+						category: "about_you",
+					},
+				],
+			}),
+		);
+
+		const { runReconcileAndMerge } = await import("./steps");
+		const actions = await runReconcileAndMerge({ userId });
+
+		expect(actions).toEqual([]);
+		for (const id of [acceptedId, legacyAcceptedId, otherTwoId]) {
+			expect(readItem(db, id).status).toBe("active");
+			expect(metaOf(readItem(db, id)).supersededBy).toBeUndefined();
+			expect(metaOf(readItem(db, id)).mergedInto).toBeUndefined();
+		}
+		expect(readItem(db, acceptedId).statement).toBe("I am learning Irish.");
+		const sent = JSON.stringify(
+			controlModelMock.sendJsonControlMessage.mock.calls,
+		);
+		expect(sent).not.toContain(acceptedId);
+		expect(sent).not.toContain(legacyAcceptedId);
+	});
+
+	it("does not renew a user-accepted time_bound fact", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const expiresAt = new Date(now.getTime() + 3 * DAY_MS);
+		const acceptedId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I have a conference in three days.",
+			metadata: {
+				origin: "judge_v1",
+				expiryClass: "time_bound",
+				endorsement: "user_accepted",
+			},
+			expiresAt,
+			createdAt: new Date(now.getTime() - 5 * DAY_MS),
+			updatedAt: new Date(now.getTime() - 2 * DAY_MS),
+		});
+
+		const { runExpireAndRenew } = await import("./steps");
+		const actions = await runExpireAndRenew({ userId });
+
+		expect(actions.some((x) => x.type === "renewed")).toBe(false);
+		expect(readItem(db, acceptedId).expiresAt?.getTime()).toBe(
+			Math.floor(expiresAt.getTime() / 1000) * 1000,
+		);
+	});
+
 	it("applies reconcile actions when the model wraps the JSON envelope in reasoning prose", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();

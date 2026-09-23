@@ -238,6 +238,25 @@ describe("runMemoryRecuration", () => {
 			metadata: { origin: "user_authored" },
 			now,
 		});
+		// 5b. facts the user accepted in review -> untouched even if model proposes rewrite/retire
+		const acceptedId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "The user is learning Irish.",
+			metadata: {
+				origin: "judge_v1",
+				reviewResolution: "accepted",
+				endorsement: "user_accepted",
+			},
+			now,
+		});
+		const legacyAcceptedId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "The user might study at night.",
+			metadata: { origin: "judge_v1", reviewResolution: "accepted" },
+			now,
+		});
 		// 6. rewrite verdict that still trips THIRD_PERSON_RE post-filter -> treated as retire
 		const badRewriteId = seedItem(db, {
 			userId,
@@ -267,6 +286,12 @@ describe("runMemoryRecuration", () => {
 									{ itemId: hedgeId, verdict: "retire" },
 									{ itemId: reviewItemId, verdict: "retire" },
 									{ itemId: userAuthoredId, verdict: "retire" },
+									{
+										itemId: acceptedId,
+										verdict: "rewrite",
+										statement: "I am learning Irish slowly.",
+									},
+									{ itemId: legacyAcceptedId, verdict: "retire" },
 									{
 										itemId: badRewriteId,
 										verdict: "rewrite",
@@ -327,6 +352,17 @@ describe("runMemoryRecuration", () => {
 		const userAuthored = readItem(db, userAuthoredId);
 		expect(userAuthored?.status).toBe("active");
 		expect(userAuthored?.statement).toBe("I always want responses in English.");
+		for (const [id, statement] of [
+			[acceptedId, "The user is learning Irish."],
+			[legacyAcceptedId, "The user might study at night."],
+		] as const) {
+			const accepted = readItem(db, id);
+			expect(accepted?.status).toBe("active");
+			expect(accepted?.statement).toBe(statement);
+			expect(JSON.parse(accepted?.metadataJson ?? "{}").origin).toBe(
+				"judge_v1",
+			);
+		}
 
 		const [reviewRow] = db
 			.select()

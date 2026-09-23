@@ -32,6 +32,7 @@ import {
 	type MemoryProfileScope,
 	type MemoryReviewResolutionType,
 	readMemoryProfileCategory,
+	USER_ACCEPTED_MEMORY_ENDORSEMENT,
 } from "./types";
 
 function inferReviewCategory(params: {
@@ -491,7 +492,13 @@ export async function applyMemoryReviewItemWithRevision(params: {
 						metadataPatch:
 							params.action === "edit"
 								? { origin: "user_authored", reviewResolution: "edited" }
-								: { reviewResolution: "accepted" },
+								: {
+										reviewResolution: "accepted",
+										// Accepting endorses the fact: it keeps its true origin but
+										// becomes user-protected (isUserProtectedMemoryMetadata).
+										endorsement: USER_ACCEPTED_MEMORY_ENDORSEMENT,
+										userConfirmedAt: now.toISOString(),
+									},
 					}
 				: null,
 		suppressItemIds: params.action === "dismiss" ? affectedItemIds : [],

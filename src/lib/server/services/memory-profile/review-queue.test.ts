@@ -178,10 +178,19 @@ describe("guided memory review queue for judge items", () => {
 		expect(row?.scopeId).toBe("project-1");
 		// A durable fact leaves the 30-day review window once accepted.
 		expect(row?.expiresAt).toBeNull();
+		// Provenance stays honest (judge_v1) while the explicit endorsement
+		// marker makes the accepted fact user-protected.
 		expect(JSON.parse(row?.metadataJson ?? "{}")).toMatchObject({
 			origin: "judge_v1",
 			confidence: "inferred",
+			reviewResolution: "accepted",
+			endorsement: "user_accepted",
+			userConfirmedAt: expect.any(String),
 		});
+		const { isUserAuthoredMemoryMetadata, isUserProtectedMemoryMetadata } =
+			await import("./types");
+		expect(isUserAuthoredMemoryMetadata(row?.metadataJson)).toBe(false);
+		expect(isUserProtectedMemoryMetadata(row?.metadataJson)).toBe(true);
 		expect(await countProvenance(item.id)).toBe(1);
 		expect(await listItems()).toHaveLength(1);
 
@@ -358,6 +367,9 @@ describe("guided memory review queue for judge items", () => {
 				category: "preferences",
 			}),
 		]);
+		expect(
+			JSON.parse((await readItem(acceptedId as string))?.metadataJson ?? "{}"),
+		).toMatchObject({ endorsement: "user_accepted" });
 		const stale = await readItem(original.id);
 		expect(stale?.status).toBe("retired");
 		expect(JSON.parse(stale?.metadataJson ?? "{}")).toMatchObject({
