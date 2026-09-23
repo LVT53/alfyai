@@ -75,6 +75,10 @@ let memoryProcessing = $state<
 >(null);
 let lastMemoryProfileTabState = $state<KnowledgeTab | null>(null);
 let openMemoryReviewCount = $derived(memoryProfile?.review.openCount ?? 0);
+// Guards the one-time scroll-to-review-section handoff from the home
+// "memories need review" notice link (?tab=memory#memory-review) so it does
+// not re-fire on every reactive update once it has run.
+let scrolledToMemoryReviewHash = $state(false);
 // True while a server-side documents search/sort/page round-trip is in flight.
 let documentsNavigating = $state(false);
 
@@ -828,6 +832,28 @@ $effect(() => {
 	if (lastMemoryProfileTabState === "memory") return;
 	lastMemoryProfileTabState = "memory";
 	void loadMemoryProfile(true);
+});
+
+// The home notice's "Review them →" link lands here as
+// /knowledge?tab=memory#memory-review. The section only exists once the
+// profile has loaded AND has open review items (KnowledgeMemoryView renders
+// it conditionally), so this waits for both rather than trusting the browser's
+// own hash-scroll, which only ever gets one chance at the initial (pre-data)
+// DOM.
+$effect(() => {
+	if (scrolledToMemoryReviewHash) return;
+	if (!browser) return;
+	if (activeTab !== "memory") return;
+	if (kitPage.url.hash !== "#memory-review") return;
+	if (!memoryProfile || memoryProfile.review.openCount <= 0) return;
+
+	scrolledToMemoryReviewHash = true;
+	requestAnimationFrame(() => {
+		const section = document.getElementById("memory-review");
+		if (!section) return;
+		section.scrollIntoView({ behavior: "smooth", block: "start" });
+		section.focus({ preventScroll: true });
+	});
 });
 
 $effect(() => {
