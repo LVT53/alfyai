@@ -286,6 +286,20 @@ function toolTimeoutError(toolName: string, timeoutMs: number): Error {
 	return new Error(`${toolName} timed out after ${timeoutMs}ms`);
 }
 
+// Stamps the envelope's own start→settle wall-clock time onto an entry's
+// metadata, feeding activity-events.ts's toolCallDurationMs (which already
+// reads metadata.durationMs defensively) without a second timer anywhere
+// else. A tool that already measured a more precise duration for itself
+// (metadata.durationMs already set by `run`/`onError`) is left alone — this
+// is a fallback, not an override.
+function withMeasuredDuration(
+	metadata: Record<string, string | number | boolean | null> | undefined,
+	startedAt: number,
+): Record<string, string | number | boolean | null> {
+	if (typeof metadata?.durationMs === "number") return metadata;
+	return { ...metadata, durationMs: Math.max(0, Date.now() - startedAt) };
+}
+
 export function modelSafeToolError(error: unknown, fallback: string): string {
 	const message =
 		error instanceof Error
@@ -314,6 +328,7 @@ export async function executeToolWithEnvelope<
 		entry: ToolCallEntry;
 	};
 }): Promise<TModelPayload | TErrorPayload> {
+	const startedAt = Date.now();
 	try {
 		if (params.options.abortSignal?.aborted) {
 			throw toolAbortError(params.toolName, params.options.abortSignal.reason);
@@ -361,10 +376,18 @@ export async function executeToolWithEnvelope<
 		if (result.entry.resultDigest == null) {
 			result.entry.resultDigest = deriveToolResultDigest(modelPayload);
 		}
+		result.entry.metadata = withMeasuredDuration(
+			result.entry.metadata,
+			startedAt,
+		);
 		params.recorder.record(result.entry);
 		return modelPayload;
 	} catch (error) {
 		const failure = params.onError(error);
+		failure.entry.metadata = withMeasuredDuration(
+			failure.entry.metadata,
+			startedAt,
+		);
 		params.recorder.record(failure.entry);
 		return failure.modelPayload;
 	}
