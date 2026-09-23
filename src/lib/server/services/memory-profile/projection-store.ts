@@ -254,6 +254,12 @@ export async function createMemoryProfileItem(params: {
 	revision: number;
 	resetGeneration: number;
 	projectionRevision: number;
+	/**
+	 * False when the itemKey was already taken and the EXISTING row was returned
+	 * unchanged (any status, any origin). Callers that go on to write metadata
+	 * or open a review must not treat that row as their own new item.
+	 */
+	created: boolean;
 }> {
 	const resetGeneration = await assertExpectedMemoryResetGeneration({
 		userId: params.userId,
@@ -307,6 +313,7 @@ export async function createMemoryProfileItem(params: {
 			return {
 				row: item,
 				projectionRevision: projection.revision + 1,
+				created: true,
 			};
 		}
 
@@ -330,6 +337,7 @@ export async function createMemoryProfileItem(params: {
 		return {
 			row: existing,
 			projectionRevision: projection.revision,
+			created: false,
 		};
 	});
 
@@ -340,6 +348,7 @@ export async function createMemoryProfileItem(params: {
 		revision: result.row.revision,
 		resetGeneration,
 		projectionRevision: result.projectionRevision,
+		created: result.created,
 	};
 }
 

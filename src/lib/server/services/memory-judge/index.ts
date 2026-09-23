@@ -284,33 +284,34 @@ export async function runMemoryJudgeOnSegment(params: {
 			}).catch(() => {});
 		}
 
+		// Every way a parsed decision can fail to land is recorded with the same
+		// `judge_candidate_rejected` vocabulary as the parse-time gates, so the
+		// write path is measurable instead of silently dropped.
+		const dropCandidate = (reason: string) =>
+			recordMemoryReworkTelemetry({
+				userId: params.userId,
+				eventFamily: "intake",
+				eventName: "judge_candidate_rejected",
+				reason,
+				category: d.category,
+				metadata: { statement: d.statement.slice(0, 200), action: d.action },
+			}).catch(() => {});
+
 		if (d.action === "update" || d.action === "strengthen") {
-			// Every way an update/strengthen can fail to land is recorded with the
-			// same `judge_candidate_rejected` vocabulary as the parse-time gates,
-			// so the update path is measurable instead of silently dropped.
-			const dropUpdate = (reason: string) =>
-				recordMemoryReworkTelemetry({
-					userId: params.userId,
-					eventFamily: "intake",
-					eventName: "judge_candidate_rejected",
-					reason,
-					category: d.category,
-					metadata: { statement: d.statement.slice(0, 200), action: d.action },
-				}).catch(() => {});
 			const targetItemId = d.targetItemId;
 			if (!targetItemId) {
-				await dropUpdate("missing_target");
+				await dropCandidate("missing_target");
 				continue;
 			}
 			const target = activeContext.items.find((i) => i.id === targetItemId);
 			if (!target) {
-				await dropUpdate("target_not_active");
+				await dropCandidate("target_not_active");
 				continue;
 			}
 			// Never touch user-authored items. Read the item metadata directly
 			// rather than relying on read-model detail (which does not expose it).
 			if (await isUserAuthoredItem(params.userId, targetItemId)) {
-				await dropUpdate("target_user_authored");
+				await dropCandidate("target_user_authored");
 				continue;
 			}
 			const patch = d.action === "update" ? { statement: d.statement } : {};
@@ -339,7 +340,7 @@ export async function runMemoryJudgeOnSegment(params: {
 				await addProvenanceForItem(params, targetItemId, d);
 				await refreshFactEmbedding(params.userId, targetItemId, d.statement);
 			} else {
-				await dropUpdate(`target_update_${patched.status}`);
+				await dropCandidate(`target_update_${patched.status}`);
 			}
 			continue;
 		}
@@ -353,6 +354,14 @@ export async function runMemoryJudgeOnSegment(params: {
 				status: "active",
 			});
 			projectionRevision = item.projectionRevision;
+			// The itemKey was taken: createMemoryProfileItem handed back an
+			// EXISTING row (possibly user_authored, suppressed, or retired). It is
+			// not ours to overwrite — writing the judge's metadata would drop a
+			// user_authored origin or silently re-label a removed fact.
+			if (!item.created) {
+				await dropCandidate("duplicate_existing");
+				continue;
+			}
 			await applyItemMetadata(params.userId, item.id, metadata, d);
 			await addProvenanceForItem(params, item.id, d);
 			await refreshFactEmbedding(params.userId, item.id, d.statement);
@@ -375,6 +384,12 @@ export async function runMemoryJudgeOnSegment(params: {
 				status: "review_needed",
 			});
 			projectionRevision = item.projectionRevision;
+			// Same guard as the stated path; here it also stops the review row
+			// from flipping an existing active fact to review_needed.
+			if (!item.created) {
+				await dropCandidate("duplicate_existing");
+				continue;
+			}
 			await applyItemMetadata(
 				params.userId,
 				item.id,

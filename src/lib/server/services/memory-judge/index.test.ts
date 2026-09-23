@@ -559,6 +559,88 @@ describe("Memory judge service", () => {
 		expect(row.statement).toBe("I live in Budapest.");
 	});
 
+	// createMemoryProfileItem returns the EXISTING row when the itemKey is
+	// taken; the judge then overwrote that row's metadata (dropping
+	// origin=user_authored) and, for an inferred add, opened a review row that
+	// flipped the active user_authored fact to review_needed with a 30-day
+	// auto-expiry. Accept on that row would now promote it as a judge fact.
+	it.each([
+		["stated", "active"],
+		["inferred", "active"],
+	] as const)("never rewrites an existing user_authored fact when a %s add repeats it", async (confidence, expectedStatus) => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "I prefer plain language." },
+				{ role: "assistant", content: "Noted." },
+			],
+		});
+		const { createMemoryProfileItem } = await import(
+			"../memory-profile/projection-store"
+		);
+		const existing = await createMemoryProfileItem({
+			userId: "u1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "I prefer plain language.",
+		});
+		const { db: svcDb } = await import("$lib/server/db");
+		svcDb
+			.update(schema.memoryProfileItems)
+			.set({ metadataJson: JSON.stringify({ origin: "user_authored" }) })
+			.where(eq(schema.memoryProfileItems.id, existing.id))
+			.run();
+
+		mockControlModel({
+			decisions: [
+				{
+					action: "add",
+					statement: "I prefer plain language.",
+					category: "preferences",
+					scope: "global",
+					confidence,
+					expiryClass: "durable",
+					sourceQuote: "I prefer plain language",
+				},
+			],
+		});
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		const result = await runMemoryJudgeOnSegment({
+			userId: "u1",
+			conversationId: "c1",
+			trigger: "idle",
+		});
+		expect(result).toMatchObject({ status: "ran", admitted: 0, review: 0 });
+
+		const row = svcDb
+			.select()
+			.from(schema.memoryProfileItems)
+			.where(eq(schema.memoryProfileItems.id, existing.id))
+			.all()[0];
+		expect(JSON.parse(row.metadataJson)).toEqual({ origin: "user_authored" });
+		expect(row.status).toBe(expectedStatus);
+		expect(row.expiresAt).toBeNull();
+		expect(
+			svcDb
+				.select()
+				.from(schema.memoryReviewItems)
+				.where(eq(schema.memoryReviewItems.userId, "u1"))
+				.all(),
+		).toEqual([]);
+		const { listMemoryReworkTelemetry } = await import(
+			"../memory-profile/telemetry"
+		);
+		expect(
+			(await listMemoryReworkTelemetry({ userId: "u1" })).filter(
+				(r) => r.eventName === "judge_candidate_rejected",
+			),
+		).toEqual([expect.objectContaining({ reason: "duplicate_existing" })]);
+	});
+
 	it("applies a strengthen decision by bumping revision and adding provenance without changing the statement", async () => {
 		const { db } = openSeedDatabase();
 		seedUserAndConversation({ db });
