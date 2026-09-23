@@ -1,3 +1,23 @@
+// Side-effect imports: every provider module registers its ConnectionAdapter
+// when it is evaluated, and getConnectionAdapter below only sees adapters whose
+// module has already loaded. SvelteKit loads route modules lazily, so
+// POST /api/connections/[id]/recheck — which reaches the registry only through
+// this file — can be the first code a fresh server process runs; without these
+// imports it found an empty registry and persisted "No adapter registered"
+// onto a working connection. Same pattern as pending-writes.ts for write
+// executors; health.registration.test.ts pins that every connectable provider
+// resolves from this module alone. Providers never import health.ts, so this
+// adds no cycle.
+import "./providers/apple-caldav";
+import "./providers/caldav-tasks";
+import "./providers/github";
+import "./providers/google";
+import "./providers/imap";
+import "./providers/immich";
+import "./providers/nextcloud-files";
+import "./providers/onedrive";
+import "./providers/owntracks";
+import "./providers/plex";
 import { getConnectionAdapter } from "./adapters";
 import { getConnection, getConnectionSecret, updateConnection } from "./store";
 
