@@ -332,10 +332,13 @@ export interface AtlasV3ProgressPlanEntry {
 export interface AtlasV3ProgressEvidenceSource {
 	n: number;
 	title: string;
+	/** Empty for a `local` source: a user document has no host. */
 	host: string;
 	date: string | null;
 	cited: boolean;
 	snippet: string;
+	/** Absent on rows written before local sources existed; read as `web`. */
+	kind?: "web" | "local";
 }
 
 export interface AtlasV3ProgressEvidence {
@@ -379,6 +382,17 @@ export interface AtlasV3QualityDiagnostics {
 		retried: number;
 		fallback: number;
 	};
+	/**
+	 * The user's own documents: how many resolved, how many a read produced
+	 * quotes from, the quotes filed, and how many could not be used. Absent on a
+	 * job that had none.
+	 */
+	localSources?: {
+		resolved: number;
+		read: number;
+		quotes: number;
+		unavailable: number;
+	};
 }
 
 export interface AtlasV3ProgressDetails {
@@ -416,6 +430,7 @@ export const ATLAS_V3_MAX_EVIDENCE_SNIPPET_CHARS = 4000;
 
 export const ATLAS_V3_PHASE_DURATION_KEYS = [
 	"ask",
+	"local",
 	"research",
 	"memo",
 	"outline",
@@ -518,6 +533,10 @@ function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 	if (!value || typeof value !== "object") return null;
 	const record = value as Record<string, unknown>;
 	const runaways = (record.writerRunaways ?? {}) as Record<string, unknown>;
+	const local =
+		record.localSources && typeof record.localSources === "object"
+			? (record.localSources as Record<string, unknown>)
+			: null;
 	return {
 		abstained: record.abstained === true,
 		verdictPresent: record.verdictPresent === true,
@@ -545,6 +564,16 @@ function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 			retried: nonNegativeInteger(runaways.retried),
 			fallback: nonNegativeInteger(runaways.fallback),
 		},
+		...(local
+			? {
+					localSources: {
+						resolved: nonNegativeInteger(local.resolved),
+						read: nonNegativeInteger(local.read),
+						quotes: nonNegativeInteger(local.quotes),
+						unavailable: nonNegativeInteger(local.unavailable),
+					},
+				}
+			: {}),
 	};
 }
 
@@ -558,12 +587,16 @@ function sanitizeV3Evidence(value: unknown): AtlasV3ProgressEvidence | null {
 			const sourceRecord = entry as Record<string, unknown>;
 			const n = nonNegativeInteger(sourceRecord.n);
 			if (n < 1) return null;
-			const host = cleanText(sourceRecord.host, 120);
-			if (!host) return null;
+			const local = sourceRecord.kind === "local";
+			// A user document has no host; a web source without one is not a
+			// source at all.
+			const host = local ? "" : cleanText(sourceRecord.host, 120);
+			const title = cleanText(sourceRecord.title, ATLAS_V3_MAX_TITLE_CHARS);
+			if (local ? !title : !host) return null;
 			const date = cleanText(sourceRecord.date, 32);
-			return {
+			const source: AtlasV3ProgressEvidenceSource = {
 				n,
-				title: cleanText(sourceRecord.title, ATLAS_V3_MAX_TITLE_CHARS) || host,
+				title: title || host,
 				host,
 				date: date || null,
 				cited: sourceRecord.cited === true,
@@ -572,6 +605,10 @@ function sanitizeV3Evidence(value: unknown): AtlasV3ProgressEvidence | null {
 					ATLAS_V3_MAX_EVIDENCE_SNIPPET_CHARS,
 				),
 			};
+			if (sourceRecord.kind === "web" || local) {
+				source.kind = local ? "local" : "web";
+			}
+			return source;
 		})
 		.filter((entry): entry is AtlasV3ProgressEvidenceSource => Boolean(entry))
 		.slice(0, ATLAS_V3_MAX_EVIDENCE_SOURCES);

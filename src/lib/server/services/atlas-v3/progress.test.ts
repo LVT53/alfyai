@@ -146,10 +146,12 @@ describe("buildAtlasV3ProgressEvidence", () => {
 				"cited",
 				"date",
 				"host",
+				"kind",
 				"n",
 				"snippet",
 				"title",
 			]);
+			expect(source.kind).toBe("web");
 		}
 		const serialized = JSON.stringify(evidence);
 		expect(serialized).not.toContain("data:image");

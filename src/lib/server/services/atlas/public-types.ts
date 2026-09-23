@@ -80,8 +80,22 @@ export interface AtlasV2ProgressDetailsView extends AtlasV1ProgressDetailsView {
  * `queries`, always empty here — instead of crashing on a v3 card.
  */
 export interface AtlasV3ProgressDetailsView
-	extends Omit<AtlasV2ProgressDetailsView, "pipelineVersion" | "phase"> {
+	extends Omit<
+		AtlasV2ProgressDetailsView,
+		"pipelineVersion" | "phase" | "evidence"
+	> {
 	pipelineVersion: 3;
+	evidence?: Omit<
+		NonNullable<AtlasV2ProgressDetailsView["evidence"]>,
+		"sources"
+	> & {
+		sources: Array<
+			NonNullable<AtlasV2ProgressDetailsView["evidence"]>["sources"][number] & {
+				/** `local` is a user document: empty `host`, no favicon. */
+				kind?: "web" | "local";
+			}
+		>;
+	};
 	phase:
 		| "ask"
 		| "research"

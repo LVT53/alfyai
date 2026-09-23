@@ -219,7 +219,9 @@ export function buildAtlasV3ProgressEvidence(input: {
 			return {
 				n: index + 1,
 				title: source.title,
-				host: source.host,
+				// A user document has no host; the card draws a library glyph for it.
+				host: source.kind === "local" ? "" : source.host,
+				kind: source.kind === "local" ? "local" : "web",
 				date: source.date,
 				cited: citedSourceIds.has(source.id),
 				snippet: ordered

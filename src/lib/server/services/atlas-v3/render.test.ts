@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { validateGeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
 import { buildAtlasV3AbstentionReport } from "./abstain";
 import {
+	addAtlasV3LocalSource,
 	addAtlasV3Quote,
 	addAtlasV3Source,
 	assignAtlasV3CitationNumbers,
@@ -293,5 +295,79 @@ describe("buildAtlasV3DocumentSource", () => {
 		expect(JSON.stringify(result.documentSource)).toContain(
 			"nothing material was left unestablished",
 		);
+	});
+
+	it("renders a user document as a library chip in the same block, and validates", () => {
+		const state = createAtlasV3Bank();
+		const web = addAtlasV3Source(state, {
+			url: "https://iea.org/reports/household",
+			title: "Household electricity",
+			publishedAt: "2025-12-01",
+		});
+		const local = addAtlasV3LocalSource(state, {
+			displayArtifactId: "art-bill",
+			promptArtifactId: "art-bill-normalized",
+			title: "Electricity bill 2025.pdf",
+			origin: "attachment",
+		});
+		const localQuote = addAtlasV3Quote(state, {
+			sourceId: local.id,
+			text: "Our household used 1,234 kWh of electricity in 2025.",
+			goal: "g",
+		});
+		const webQuote = addAtlasV3Quote(state, {
+			sourceId: web?.id ?? "",
+			text: "The average household used 1,234 kWh of electricity in 2025.",
+			goal: "g",
+		});
+		const result = buildAtlasV3DocumentSource({
+			...base,
+			bank: freezeAtlasV3Bank(state),
+			// The web source is cited first, so the library chip is [2].
+			verdict: [
+				sentence("Households used 1,234 kWh in 2025.", [
+					webQuote?.id ?? "",
+					localQuote?.id ?? "",
+				]),
+			],
+			sections: [],
+		});
+		const chips = result.documentSource.blocks.filter(
+			(block) => block.type === "sourceChips",
+		);
+		expect(chips).toHaveLength(1);
+		if (chips[0]?.type !== "sourceChips") throw new Error("expected chips");
+		expect(chips[0].sources).toEqual([
+			{
+				title: "Household electricity — iea.org, 2025-12-01",
+				url: "https://iea.org/reports/household",
+				kind: "web",
+				provided: false,
+			},
+			{
+				title: "Electricity bill 2025.pdf",
+				url: null,
+				kind: "library",
+				provided: true,
+			},
+		]);
+		expect(result.verdictMarkdown).toContain(
+			"[2] Electricity bill 2025.pdf — your library",
+		);
+		expect(result.verdictMarkdown).not.toContain("atlas-local:");
+		const validated = validateGeneratedDocumentSource(result.documentSource);
+		expect(validated.ok).toBe(true);
+		if (!validated.ok) return;
+		const validatedChips = validated.source.blocks.find(
+			(block) => block.type === "sourceChips",
+		);
+		if (validatedChips?.type !== "sourceChips") {
+			throw new Error("expected validated chips");
+		}
+		expect(validatedChips.sources.map((chip) => chip.kind)).toEqual([
+			"web",
+			"library",
+		]);
+		expect(validatedChips.sources[1]?.url ?? null).toBeNull();
 	});
 });

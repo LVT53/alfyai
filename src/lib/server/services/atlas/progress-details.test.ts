@@ -438,6 +438,59 @@ describe("sanitizeAtlasV3ProgressDetails", () => {
 		});
 		expect(details.plan).toHaveLength(ATLAS_V3_MAX_PLAN_ENTRIES);
 	});
+
+	it("keeps a local evidence source with no host, and still drops a hostless web one", () => {
+		const details = sanitizeAtlasV3ProgressDetails({
+			pipelineVersion: 3,
+			phase: "render",
+			phaseDurationsMs: { local: 12, ask: 3 },
+			evidence: {
+				corroborated: 1,
+				sources: [
+					{
+						n: 1,
+						title: "Electricity bill 2025.pdf",
+						host: "",
+						date: null,
+						cited: true,
+						snippet: "Our household used 1,234 kWh.",
+						kind: "local",
+					},
+					{ n: 2, title: "No host", host: "", kind: "web" },
+					{ n: 3, title: "Legacy row", host: "iea.org" },
+				],
+			},
+			qualityDiagnostics: {
+				localSources: { resolved: 2, read: 1, quotes: 3, unavailable: -1 },
+			},
+		});
+		expect(details.evidence?.sources).toEqual([
+			{
+				n: 1,
+				title: "Electricity bill 2025.pdf",
+				host: "",
+				date: null,
+				cited: true,
+				snippet: "Our household used 1,234 kWh.",
+				kind: "local",
+			},
+			{
+				n: 3,
+				title: "Legacy row",
+				host: "iea.org",
+				date: null,
+				cited: false,
+				snippet: "",
+			},
+		]);
+		expect(details.phaseDurationsMs).toEqual({ local: 12, ask: 3 });
+		expect(details.qualityDiagnostics?.localSources).toEqual({
+			resolved: 2,
+			read: 1,
+			quotes: 3,
+			unavailable: 0,
+		});
+	});
 });
 
 // ---------------------------------------------------------------------------

@@ -75,20 +75,26 @@ export interface AtlasV3Ask {
  *  - `press`       major newsrooms and trade press with their own reporting.
  *  - `aggregator`  syndicators, mirrors, press-release wires, comparison sites.
  *  - `weak`        forums, marketplaces, menus, vendor marketing, blogspam.
+ *  - `user_document` the user's own attached or linked documents (Atlas Local
+ *                  Sources). Every one of them shares ONE publisher id,
+ *                  `ATLAS_V3_LOCAL_PUBLISHER`, so however many the user
+ *                  provided they are one independent voice, never two.
  */
 export const ATLAS_V3_SOURCE_TIERS = [
 	"primary",
 	"press",
 	"aggregator",
 	"weak",
+	"user_document",
 ] as const;
 export type AtlasV3SourceTier = (typeof ATLAS_V3_SOURCE_TIERS)[number];
 
-export interface AtlasV3Source {
+/** The one publisher every Atlas Local Source collapses onto. */
+export const ATLAS_V3_LOCAL_PUBLISHER = "user-documents";
+
+interface AtlasV3SourceBase {
 	/** `s1`. Stable for the life of the job. */
 	id: string;
-	canonicalUrl: string;
-	host: string;
 	/** Publisher organisation id (./publishers.ts). Independence key. */
 	publisher: string;
 	title: string;
@@ -96,6 +102,40 @@ export interface AtlasV3Source {
 	tier: AtlasV3SourceTier;
 	/** True once a page read produced text for this source. */
 	read: boolean;
+}
+
+/** A page found through `research_web`. Old checkpoints carry no `kind`. */
+export interface AtlasV3WebSource extends AtlasV3SourceBase {
+	kind?: "web";
+	canonicalUrl: string;
+	host: string;
+}
+
+/**
+ * A document the user attached to, or linked into, the kickoff message (or,
+ * from Phase D, one its parent job read). Evidence exactly like a web page —
+ * its quotes are verified the same way — but never stale-listed (`date` is
+ * null), and its chip is a library chip with no URL.
+ */
+export interface AtlasV3LocalSource extends AtlasV3SourceBase {
+	kind: "local";
+	tier: "user_document";
+	publisher: typeof ATLAS_V3_LOCAL_PUBLISHER;
+	/** `atlas-local:<displayArtifactId>` — a dedupe key only, never rendered. */
+	canonicalUrl: string;
+	host: "";
+	displayArtifactId: string;
+	promptArtifactId: string;
+	origin: "attachment" | "linked" | "inherited";
+}
+
+/** A checkpointed source with no `kind` is a web source. */
+export type AtlasV3Source = AtlasV3WebSource | AtlasV3LocalSource;
+
+export function isAtlasV3LocalSource(
+	source: AtlasV3Source,
+): source is AtlasV3LocalSource {
+	return source.kind === "local";
 }
 
 /** One verbatim span the writer may cite. Nothing else leaves the bank. */

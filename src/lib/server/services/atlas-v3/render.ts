@@ -201,9 +201,21 @@ export function renderAtlasV3TableBlock(input: {
 	return blocks;
 }
 
-function sourceChip(source: AtlasV3Source): GeneratedDocumentSourceChip {
+/**
+ * One chip per published source, in citation order. A user document is a
+ * LIBRARY chip — no URL, `provided` — in the SAME block as the web chips, so
+ * the `[n]` the prose carries still points at the n-th chip; the renderers
+ * split the block into "Web" and "Your Library" groups without renumbering.
+ */
+function sourceChip(
+	source: AtlasV3Source,
+	language: SupportedLanguage,
+): GeneratedDocumentSourceChip {
+	if (source.kind === "local") {
+		return { title: source.title, url: null, kind: "library", provided: true };
+	}
 	return {
-		title: formatAtlasV3SourceLine(source),
+		title: formatAtlasV3SourceLine(source, language),
 		url: source.canonicalUrl,
 		kind: "web",
 		provided: false,
@@ -313,7 +325,9 @@ export function buildAtlasV3DocumentSource(
 		blocks.push({
 			type: "sourceChips",
 			title: chrome.sources,
-			sources: citations.sources.map(sourceChip),
+			sources: citations.sources.map((source) =>
+				sourceChip(source, input.language),
+			),
 		});
 	}
 
@@ -353,7 +367,8 @@ export function buildAtlasV3VerdictMarkdown(input: {
 		)
 		.join(" ");
 	const sourceLines = input.citations.sources.map(
-		(source, index) => `[${index + 1}] ${formatAtlasV3SourceLine(source)}`,
+		(source, index) =>
+			`[${index + 1}] ${formatAtlasV3SourceLine(source, input.language)}`,
 	);
 	return [
 		`## ${input.title}`,
