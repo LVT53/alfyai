@@ -805,9 +805,7 @@ describe("Atlas report row grammar", () => {
 			}).sectionCount,
 		).toBe(5);
 		// A blob carrying the older flat key still reads.
-		expect(parseAtlasActivityDetails({ sectionCount: 4 }).sectionCount).toBe(
-			4,
-		);
+		expect(parseAtlasActivityDetails({ sectionCount: 4 }).sectionCount).toBe(4);
 		expect(parseAtlasActivityDetails({ plan }).sectionCount).toBeNull();
 	});
 
