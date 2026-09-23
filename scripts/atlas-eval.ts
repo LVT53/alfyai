@@ -30,6 +30,13 @@
  *   --judge                 Also run the rubric judge (ADR 0063). Each score
  *                           must come back with a verbatim quote from the
  *                           report; a score with no quote is discarded.
+ *   --lifecycle <action>    continue | revise | fork. Runs each query as a
+ *                           `create` job, then — in the same conversation, once
+ *                           it succeeds — a child job with that action, and
+ *                           grades the CHILD. The child's instruction is the
+ *                           query's `lifecycleInstruction`, or a default per
+ *                           action. The report lists what the child reused
+ *                           from its parent (`qualityDiagnostics.seed`, Phase D).
  *
  * NOTE on --judge: the judge runs through the deployment's own chat API, which
  * takes no model parameter — it uses the eval account's selected model. Set
@@ -71,6 +78,27 @@ interface EvalQuery {
 	 * Exercises Atlas Local Sources (ADR 0063, Phase C).
 	 */
 	localFixture?: { file: string; mimeType?: string };
+	/**
+	 * What a `--lifecycle` child is asked to do. Defaults to a generic
+	 * instruction per action (`lifecycleInstruction`).
+	 */
+	lifecycleInstruction?: string;
+}
+
+type EvalLifecycleAction = "continue" | "revise" | "fork";
+
+/** What a lifecycle child reported reusing from its parent (Phase D). */
+interface EvalSeedDiagnostics {
+	action: EvalLifecycleAction;
+	parentPipelineVersion: number;
+	sourcesSeeded: number;
+	quotesSeeded: number;
+	trusted: number;
+	rechecked: number;
+	confirmed: number;
+	changed: number;
+	dropped: number;
+	seedPagesRead: number;
 }
 
 /**
@@ -128,6 +156,8 @@ interface AtlasJobCardLike {
 				criticFindings?: number;
 				needsEvidenceResolved?: number;
 				roundsRun?: number;
+				pagesRead?: number;
+				seed?: EvalSeedDiagnostics;
 				sectionsPlanned?: number;
 				sectionsWritten?: number;
 				writerRunaways?: {
@@ -190,6 +220,18 @@ interface QueryResult {
 	metrics: Metrics;
 	/** Per-phase wall time the job reported, when it reported any. */
 	phaseDurationsMs: Record<string, number> | null;
+	/**
+	 * Present on a `--lifecycle` run: the parent the graded child grew from,
+	 * and what the child said it reused. The metrics above are the CHILD's.
+	 */
+	lifecycle?: {
+		action: EvalLifecycleAction;
+		parentJobId: string | null;
+		parentStatus: string;
+		parentPagesRead: number | null;
+		childPagesRead: number | null;
+		seed: EvalSeedDiagnostics | null;
+	};
 }
 
 interface Metrics {
@@ -294,6 +336,44 @@ interface JudgeResult {
 // ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
+
+/** `--lifecycle`'s value, or null when absent; anything else is an error. */
+function parseLifecycleAction(
+	value: string | undefined,
+): EvalLifecycleAction | null {
+	if (value === undefined) return null;
+	if (value === "continue" || value === "revise" || value === "fork") {
+		return value;
+	}
+	throw new Error(
+		`--lifecycle must be continue, revise or fork (got "${value}").`,
+	);
+}
+
+/** The child's message: the query's own, or a default for the action. */
+function lifecycleInstruction(
+	action: EvalLifecycleAction,
+	query: Pick<EvalQuery, "lifecycleInstruction" | "language">,
+): string {
+	if (query.lifecycleInstruction?.trim()) {
+		return query.lifecycleInstruction.trim();
+	}
+	const hu = query.language === "hu";
+	switch (action) {
+		case "continue":
+			return hu
+				? "Folytasd a jelentést: vizsgáld meg, amit még nem állapított meg."
+				: "Continue this report: go further on what it did not yet establish.";
+		case "revise":
+			return hu
+				? "Dolgozd át a jelentést a legfrissebb elérhető adatokkal."
+				: "Revise this report with the latest available figures.";
+		case "fork":
+			return hu
+				? "Ágaztasd el a jelentést: közelítsd meg ugyanezt a témát más szemszögből."
+				: "Fork this report: approach the same subject from a different angle.";
+	}
+}
 
 function parseArgs(argv: string[]): Record<string, string> {
 	const args: Record<string, string> = {};
@@ -1457,12 +1537,104 @@ async function judgeReport(input: {
 // Running one query
 // ---------------------------------------------------------------------------
 
+/**
+ * Sends one Atlas turn and polls the conversation until the job it created
+ * ends (or the deadline passes). Retries the kickoff while an attachment is
+ * still extracting, as a user would wait for the upload chip.
+ */
+async function runAtlasJob(input: {
+	session: Session;
+	conversationId: string;
+	label: string;
+	message: string;
+	profile: EvalQuery["profile"];
+	action: "create" | EvalLifecycleAction;
+	parentAtlasJobId: string | null;
+	attachmentIds: string[];
+	timeoutMs: number;
+}): Promise<{ jobId: string; card: AtlasJobCardLike | null }> {
+	const { session, label } = input;
+	const clientAtlasTurnId = randomUUID();
+	const sendOnce = () =>
+		session.json<{ atlasJob?: AtlasJobCardLike }>("/api/chat/send", {
+			method: "POST",
+			body: JSON.stringify({
+				conversationId: input.conversationId,
+				message: input.message,
+				atlasMode: true,
+				atlasProfile: input.profile,
+				atlasAction: input.action,
+				clientAtlasTurnId,
+				...(input.parentAtlasJobId
+					? { parentAtlasId: input.parentAtlasJobId }
+					: {}),
+				...(input.attachmentIds.length > 0
+					? { attachmentIds: input.attachmentIds }
+					: {}),
+			}),
+		});
+	let send: { atlasJob?: AtlasJobCardLike } | null = null;
+	for (let attempt = 0; attempt < 24 && !send; attempt += 1) {
+		try {
+			send = await sendOnce();
+		} catch (error) {
+			const notReady =
+				input.attachmentIds.length > 0 &&
+				error instanceof Error &&
+				error.message.includes(" -> 409 ");
+			if (!notReady || attempt === 23) throw error;
+			await sleep(5000);
+		}
+	}
+	const jobId = send?.atlasJob?.id;
+	if (!jobId) throw new Error(`No Atlas job created for ${label}.`);
+	process.stdout.write(`  ${label}: job ${jobId} queued\n`);
+
+	let card: AtlasJobCardLike | null = null;
+	let lastPhase = "";
+	const deadline = Date.now() + input.timeoutMs;
+	while (Date.now() < deadline) {
+		await sleep(5000);
+		const detail = await session.json<{ atlasJobs?: AtlasJobCardLike[] }>(
+			`/api/conversations/${input.conversationId}`,
+		);
+		card = detail.atlasJobs?.find((job) => job.id === jobId) ?? null;
+		if (!card) continue;
+		const phase = card.progress?.details?.phase ?? card.stage ?? card.status;
+		if (phase !== lastPhase) {
+			lastPhase = phase;
+			process.stdout.write(
+				`  ${label}: ${card.status} · ${phase} · ${card.progress?.details?.sourcesRead ?? 0} sources read\n`,
+			);
+		}
+		if (
+			card.status === "succeeded" ||
+			card.status === "failed" ||
+			card.status === "cancelled"
+		) {
+			// A failure printed nothing while the run continued, so a two-hour
+			// evaluation only revealed its dead jobs in the final table.
+			if (card.status !== "succeeded") {
+				process.stdout.write(
+					`  ${label}: ${card.status} · ${card.error?.code ?? "no_error_code"} · ${
+						card.error?.message ?? "no error message"
+					}\n`,
+				);
+			}
+			break;
+		}
+	}
+	return { jobId, card };
+}
+
 async function runQuery(input: {
 	session: Session;
 	query: EvalQuery;
 	pipeline: EvalPipeline;
 	profileOverride: EvalQuery["profile"] | null;
 	timeoutMs: number;
+	/** Grade a Continue / Revise / Fork child of the query's report instead. */
+	lifecycle?: EvalLifecycleAction | null;
 }): Promise<QueryResult> {
 	// A --profile override changes the profile the job actually ran on, so the
 	// budget the report is graded against has to follow it.
@@ -1470,7 +1642,7 @@ async function runQuery(input: {
 		? { ...input.query, profile: input.profileOverride }
 		: input.query;
 	const { session } = input;
-	const startedAt = Date.now();
+	let startedAt = Date.now();
 	const conversation = await session.json<{ id: string }>(
 		"/api/conversations",
 		{
@@ -1501,73 +1673,58 @@ async function runQuery(input: {
 		);
 	}
 
-	// An attachment still extracting is refused with a 409; the kickoff is
-	// retried until it is ready, as a user would wait for the upload chip.
-	const clientAtlasTurnId = randomUUID();
-	const sendOnce = () =>
-		session.json<{ atlasJob?: AtlasJobCardLike }>("/api/chat/send", {
-			method: "POST",
-			body: JSON.stringify({
-				conversationId: conversation.id,
-				message: query.query,
-				atlasMode: true,
-				atlasProfile: query.profile,
-				atlasAction: "create",
-				clientAtlasTurnId,
-				...(attachmentIds.length > 0 ? { attachmentIds } : {}),
-			}),
-		});
-	let send: { atlasJob?: AtlasJobCardLike } | null = null;
-	for (let attempt = 0; attempt < 24 && !send; attempt += 1) {
-		try {
-			send = await sendOnce();
-		} catch (error) {
-			const notReady =
-				attachmentIds.length > 0 &&
-				error instanceof Error &&
-				error.message.includes(" -> 409 ");
-			if (!notReady || attempt === 23) throw error;
-			await sleep(5000);
-		}
-	}
-	if (!send) throw new Error(`No Atlas job created for ${query.id}.`);
-	const jobId = send.atlasJob?.id;
-	if (!jobId) throw new Error(`No Atlas job created for ${query.id}.`);
-	process.stdout.write(`  ${query.id}: job ${jobId} queued\n`);
-
-	let card: AtlasJobCardLike | null = null;
-	let lastPhase = "";
-	const deadline = Date.now() + input.timeoutMs;
-	while (Date.now() < deadline) {
-		await sleep(5000);
-		const detail = await session.json<{ atlasJobs?: AtlasJobCardLike[] }>(
-			`/api/conversations/${conversation.id}`,
-		);
-		card = detail.atlasJobs?.find((job) => job.id === jobId) ?? null;
-		if (!card) continue;
-		const phase = card.progress?.details?.phase ?? card.stage ?? card.status;
-		if (phase !== lastPhase) {
-			lastPhase = phase;
-			process.stdout.write(
-				`  ${query.id}: ${card.status} · ${phase} · ${card.progress?.details?.sourcesRead ?? 0} sources read\n`,
+	const created = await runAtlasJob({
+		session,
+		conversationId: conversation.id,
+		label: query.id,
+		message: query.query,
+		profile: query.profile,
+		action: "create",
+		parentAtlasJobId: null,
+		attachmentIds,
+		timeoutMs: input.timeoutMs,
+	});
+	let card = created.card;
+	let lifecycle: QueryResult["lifecycle"];
+	if (input.lifecycle) {
+		// The child is graded; the parent only has to have succeeded, in the same
+		// conversation, exactly as the chat card's Continue/Revise/Fork buttons
+		// require. Lifecycle children carry no attachments of their own.
+		const parentCard = created.card;
+		lifecycle = {
+			action: input.lifecycle,
+			parentJobId: created.jobId,
+			parentStatus: parentCard?.status ?? "timeout",
+			parentPagesRead:
+				parentCard?.progress?.details?.qualityDiagnostics?.pagesRead ??
+				parentCard?.progress?.details?.sourcesRead ??
+				null,
+			childPagesRead: null,
+			seed: null,
+		};
+		if (parentCard?.status !== "succeeded") {
+			throw new Error(
+				`${query.id}: the parent job ${created.jobId} did not succeed (${parentCard?.status ?? "timeout"}); no ${input.lifecycle} child was run.`,
 			);
 		}
-		if (
-			card.status === "succeeded" ||
-			card.status === "failed" ||
-			card.status === "cancelled"
-		) {
-			// A failure printed nothing while the run continued, so a two-hour
-			// evaluation only revealed its dead jobs in the final table.
-			if (card.status !== "succeeded") {
-				process.stdout.write(
-					`  ${query.id}: ${card.status} · ${card.error?.code ?? "no_error_code"} · ${
-						card.error?.message ?? "no error message"
-					}\n`,
-				);
-			}
-			break;
-		}
+		// The wall time graded is the child's own.
+		startedAt = Date.now();
+		const child = await runAtlasJob({
+			session,
+			conversationId: conversation.id,
+			label: `${query.id}/${input.lifecycle}`,
+			message: lifecycleInstruction(input.lifecycle, query),
+			profile: query.profile,
+			action: input.lifecycle,
+			parentAtlasJobId: created.jobId,
+			attachmentIds: [],
+			timeoutMs: input.timeoutMs,
+		});
+		card = child.card;
+		const details = card?.progress?.details;
+		lifecycle.childPagesRead =
+			details?.qualityDiagnostics?.pagesRead ?? details?.sourcesRead ?? null;
+		lifecycle.seed = details?.qualityDiagnostics?.seed ?? null;
 	}
 
 	const wallMs = Date.now() - startedAt;
@@ -1583,6 +1740,7 @@ async function runQuery(input: {
 			markdown: null,
 			phaseDurationsMs: null,
 			metrics: computeMetrics({ markdown: null, evidence: undefined }),
+			...(lifecycle ? { lifecycle } : {}),
 		};
 	}
 
@@ -1623,6 +1781,7 @@ async function runQuery(input: {
 				null,
 			diagnostics: card.progress?.details?.qualityDiagnostics ?? null,
 		}),
+		...(lifecycle ? { lifecycle } : {}),
 	};
 }
 
@@ -1667,6 +1826,34 @@ function percent(value: number | null): string {
 
 function minutes(ms: number): string {
 	return `${(ms / 60000).toFixed(1)}m`;
+}
+
+/**
+ * The `--lifecycle` table: what each graded child reused from its parent. A
+ * Continue should read fewer pages than its parent; a Revise rechecks every
+ * time-sensitive source; a Fork reuses nothing.
+ */
+function lifecycleReportLines(results: readonly QueryResult[]): string[] {
+	const runs = results.filter((result) => result.lifecycle);
+	if (runs.length === 0) return [];
+	const lines = [
+		"",
+		"## Lifecycle (seeded from the parent)",
+		"",
+		"| Query | Action | Parent | Parent pages | Child pages | Seeded sources/quotes | Trusted | Rechecked | Confirmed | Changed | Dropped | Seed pages |",
+		"| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+	];
+	for (const result of runs) {
+		const lifecycle = result.lifecycle;
+		if (!lifecycle) continue;
+		const seed = lifecycle.seed;
+		const cell = (value: number | null | undefined) =>
+			value === null || value === undefined ? "n/a" : String(value);
+		lines.push(
+			`| ${result.query.id} | ${lifecycle.action} | ${lifecycle.parentStatus} | ${cell(lifecycle.parentPagesRead)} | ${cell(lifecycle.childPagesRead)} | ${seed ? `${seed.sourcesSeeded}/${seed.quotesSeeded}` : "**none**"} | ${cell(seed?.trusted)} | ${cell(seed?.rechecked)} | ${cell(seed?.confirmed)} | ${cell(seed?.changed)} | ${cell(seed?.dropped)} | ${cell(seed?.seedPagesRead)} |`,
+		);
+	}
+	return lines;
 }
 
 function buildMarkdownReport(results: QueryResult[]): string {
@@ -1787,6 +1974,8 @@ function buildMarkdownReport(results: QueryResult[]): string {
 				: "  - answered the core question: not checked (no `coreAnswerRegex` in the query file)",
 		);
 	}
+
+	lines.push(...lifecycleReportLines(results));
 
 	lines.push(
 		"",
@@ -1913,6 +2102,7 @@ async function main(): Promise<void> {
 	const timeoutMs = Number.parseInt(args.timeout ?? "45", 10) * 60_000;
 	const concurrency = Math.max(1, Number.parseInt(args.concurrency ?? "1", 10));
 	const outDir = resolve(root, args.out ?? "atlas-eval");
+	const lifecycle = parseLifecycleAction(args.lifecycle);
 	const profileOverride =
 		args.profile === "overview" ||
 		args.profile === "in-depth" ||
@@ -1942,6 +2132,7 @@ async function main(): Promise<void> {
 								pipeline,
 								profileOverride,
 								timeoutMs,
+								lifecycle,
 							}),
 						);
 					} catch (error) {
@@ -1994,8 +2185,9 @@ async function main(): Promise<void> {
 	mkdirSync(outDir, { recursive: true });
 	for (const result of results) {
 		if (!result.markdown) continue;
+		const suffix = result.lifecycle ? `-${result.lifecycle.action}` : "";
 		writeFileSync(
-			resolve(outDir, `${result.pipeline}-${result.query.id}.md`),
+			resolve(outDir, `${result.pipeline}-${result.query.id}${suffix}.md`),
 			result.markdown,
 			"utf8",
 		);
@@ -2035,9 +2227,12 @@ export {
 	executiveSummarySection,
 	expectedPipelineVersion,
 	junkSourceNotes,
+	lifecycleInstruction,
+	lifecycleReportLines,
 	numberAppearsIn,
 	numbersIn,
 	parseJudgeAnswer,
+	parseLifecycleAction,
 	repeatedFactCount,
 	reportBody,
 	sectionsCell,

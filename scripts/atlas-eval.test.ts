@@ -11,9 +11,12 @@ import {
 	executiveSummarySection,
 	expectedPipelineVersion,
 	junkSourceNotes,
+	lifecycleInstruction,
+	lifecycleReportLines,
 	numberAppearsIn,
 	numbersIn,
 	parseJudgeAnswer,
+	parseLifecycleAction,
 	repeatedFactCount,
 	reportBody,
 	sectionsCell,
@@ -977,5 +980,77 @@ describe("parseJudgeAnswer", () => {
 		expect(
 			parseJudgeAnswer({ text: "I refuse.", markdown }).error,
 		).toBeTruthy();
+	});
+});
+
+describe("--lifecycle", () => {
+	it("accepts continue, revise and fork, and refuses anything else", () => {
+		expect(parseLifecycleAction(undefined)).toBeNull();
+		expect(parseLifecycleAction("continue")).toBe("continue");
+		expect(parseLifecycleAction("revise")).toBe("revise");
+		expect(parseLifecycleAction("fork")).toBe("fork");
+		expect(() => parseLifecycleAction("create")).toThrow(/--lifecycle/);
+	});
+
+	it("uses the query's own instruction, or a default per action and language", () => {
+		expect(
+			lifecycleInstruction("revise", {
+				language: "en",
+				lifecycleInstruction: "  Recheck the 2026 figures.  ",
+			}),
+		).toBe("Recheck the 2026 figures.");
+		expect(lifecycleInstruction("continue", { language: "en" })).toContain(
+			"Continue this report",
+		);
+		expect(lifecycleInstruction("fork", { language: "hu" })).toContain(
+			"más szemszögből",
+		);
+	});
+
+	it("tabulates what each child reused from its parent", () => {
+		const lines = lifecycleReportLines([
+			{
+				query: {
+					id: "fast-moving-tech",
+					kind: "k",
+					profile: "overview",
+					language: "en",
+					query: "q",
+					expectations: [],
+				},
+				pipeline: "v3",
+				reportedPipelineVersion: 3,
+				status: "succeeded",
+				error: null,
+				wallMs: 0,
+				usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+				markdown: null,
+				metrics: computeMetrics({ markdown: null, evidence: undefined }),
+				phaseDurationsMs: null,
+				lifecycle: {
+					action: "continue",
+					parentJobId: "job-1",
+					parentStatus: "succeeded",
+					parentPagesRead: 8,
+					childPagesRead: 3,
+					seed: {
+						action: "continue",
+						parentPipelineVersion: 3,
+						sourcesSeeded: 12,
+						quotesSeeded: 30,
+						trusted: 9,
+						rechecked: 3,
+						confirmed: 2,
+						changed: 1,
+						dropped: 0,
+						seedPagesRead: 0,
+					},
+				},
+			},
+		]);
+		expect(lines).toContain(
+			"| fast-moving-tech | continue | succeeded | 8 | 3 | 12/30 | 9 | 3 | 2 | 1 | 0 | 0 |",
+		);
+		expect(lifecycleReportLines([])).toEqual([]);
 	});
 });
