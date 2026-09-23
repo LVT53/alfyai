@@ -17,6 +17,7 @@ import {
 	buildAtlasV3ReadPrompt,
 	capAtlasV3Bank,
 	createAtlasV3Bank,
+	dropAtlasV3SourceEvidence,
 	fileAtlasV3Read,
 	formatAtlasV3SourceLine,
 	freezeAtlasV3Bank,
@@ -1574,5 +1575,188 @@ describe("buildAtlasV3LocalReadPrompt", () => {
 			"never join text across a separator",
 		);
 		expect(ATLAS_V3_READ_DOCUMENT_SYSTEM.hu).toContain("`---`");
+	});
+});
+
+describe("retrieval time", () => {
+	it("stamps a read source with the retrieval time it is given", () => {
+		const state = createAtlasV3Bank();
+		const source = addAtlasV3Source(state, {
+			url: "https://iea.org/a",
+			title: "A",
+			publishedAt: null,
+			read: true,
+			retrievedAt: "2026-09-10T00:00:00.000Z",
+		});
+		expect(source?.retrievedAt).toBe("2026-09-10T00:00:00.000Z");
+	});
+
+	it("leaves an unread source unstamped, and restamps a source read again", () => {
+		const state = createAtlasV3Bank();
+		const unread = addAtlasV3Source(state, {
+			url: "https://iea.org/a",
+			title: "A",
+			publishedAt: null,
+		});
+		expect(unread?.retrievedAt).toBeUndefined();
+		const reread = addAtlasV3Source(state, {
+			url: "https://iea.org/a",
+			title: "A",
+			publishedAt: null,
+			read: true,
+			retrievedAt: "2026-09-12T00:00:00.000Z",
+		});
+		expect(reread?.id).toBe(unread?.id);
+		expect(reread?.read).toBe(true);
+		expect(reread?.retrievedAt).toBe("2026-09-12T00:00:00.000Z");
+	});
+
+	it("stamps a user document's source when it is read", () => {
+		const state = createAtlasV3Bank();
+		const source = addAtlasV3LocalSource(state, {
+			displayArtifactId: "art-1",
+			promptArtifactId: "art-1-n",
+			title: "Bill.pdf",
+			origin: "attachment",
+			retrievedAt: "2026-09-10T00:00:00.000Z",
+		});
+		expect(source.retrievedAt).toBe("2026-09-10T00:00:00.000Z");
+	});
+});
+
+describe("dropAtlasV3SourceEvidence", () => {
+	function twoPublisherBank() {
+		const state = createAtlasV3Bank();
+		const iea = addAtlasV3Source(state, {
+			url: "https://iea.org/a",
+			title: "IEA",
+			publishedAt: null,
+			read: true,
+		});
+		const bbc = addAtlasV3Source(state, {
+			url: "https://bbc.com/b",
+			title: "BBC",
+			publishedAt: null,
+			read: true,
+		});
+		const first = addAtlasV3Quote(state, {
+			sourceId: iea?.id ?? "",
+			text: "The EU added 65.1 GW of solar in 2025, the IEA said.",
+			goal: "g",
+		});
+		const second = addAtlasV3Quote(state, {
+			sourceId: iea?.id ?? "",
+			text: "Rooftop installations fell sharply over the year.",
+			goal: "g",
+		});
+		const third = addAtlasV3Quote(state, {
+			sourceId: bbc?.id ?? "",
+			text: "Europe installed 65.1 GW of solar last year, the BBC said.",
+			goal: "g",
+		});
+		const claim = addAtlasV3Claim(state, {
+			entity: "EU",
+			metric: "solar additions",
+			value: "65.1",
+			unit: "GW",
+			period: "2025",
+			asOf: null,
+			series: null,
+			evidenceIds: [first?.id ?? "", third?.id ?? ""],
+		});
+		return { state, iea, bbc, first, second, third, claim };
+	}
+
+	it("drops every quote of the source, prunes its claims and removes it", () => {
+		const { state, iea, bbc, claim } = twoPublisherBank();
+		expect(claim?.status).toBe("verified");
+		const result = dropAtlasV3SourceEvidence(state, iea?.id ?? "");
+		expect(result).toEqual({
+			quotesDropped: 2,
+			claimsDropped: 0,
+			sourceRemoved: true,
+		});
+		expect(state.sources.map((source) => source.id)).toEqual([bbc?.id]);
+		// The claim lost its second publisher.
+		expect(state.claims[0]?.status).toBe("single");
+		expect(state.claims[0]?.evidenceIds).toHaveLength(1);
+	});
+
+	it("keeps the quotes it is told to keep, and the source with them", () => {
+		const { state, iea, first, second } = twoPublisherBank();
+		const result = dropAtlasV3SourceEvidence(state, iea?.id ?? "", {
+			keepQuoteIds: [first?.id ?? ""],
+		});
+		expect(result.sourceRemoved).toBe(false);
+		expect(state.quotes.map((quote) => quote.id)).not.toContain(second?.id);
+		expect(state.quotes.map((quote) => quote.id)).toContain(first?.id);
+		expect(state.claims[0]?.status).toBe("verified");
+	});
+
+	it("removes a claim left with no quote, and un-contests the claim it disagreed with", () => {
+		const { state, bbc } = twoPublisherBank();
+		const other = addAtlasV3Source(state, {
+			url: "https://reuters.com/c",
+			title: "Reuters",
+			publishedAt: null,
+			read: true,
+		});
+		const disagreeing = addAtlasV3Quote(state, {
+			sourceId: other?.id ?? "",
+			text: "The EU added 70 GW of solar in 2025, Reuters reported.",
+			goal: "g",
+		});
+		addAtlasV3Claim(state, {
+			entity: "EU",
+			metric: "solar additions",
+			value: "70",
+			unit: "GW",
+			period: "2025",
+			asOf: null,
+			series: null,
+			evidenceIds: [disagreeing?.id ?? ""],
+		});
+		expect(state.claims.every((claim) => claim.status === "contested")).toBe(
+			true,
+		);
+		const result = dropAtlasV3SourceEvidence(state, other?.id ?? "");
+		expect(result.claimsDropped).toBe(1);
+		expect(state.claims).toHaveLength(1);
+		expect(state.claims[0]?.status).toBe("verified");
+		expect(state.sources.map((source) => source.id)).toContain(bbc?.id);
+	});
+});
+
+describe("capAtlasV3Bank tie-break", () => {
+	it("prefers a source this job read over a seeded one, then the newer read", () => {
+		const state = createAtlasV3Bank();
+		const seeded = addAtlasV3Source(state, {
+			url: "https://iea.org/old",
+			title: "Old",
+			publishedAt: null,
+			read: true,
+			retrievedAt: "2026-09-12T00:00:00.000Z",
+		});
+		if (seeded) seeded.seededFrom = "parent-job";
+		addAtlasV3Source(state, {
+			url: "https://iea.org/older",
+			title: "Older",
+			publishedAt: null,
+			read: true,
+			retrievedAt: "2026-09-02T00:00:00.000Z",
+		});
+		const newer = addAtlasV3Source(state, {
+			url: "https://bbc.com/newer",
+			title: "Newer",
+			publishedAt: null,
+			read: true,
+			retrievedAt: "2026-09-10T00:00:00.000Z",
+		});
+		const { dropped } = capAtlasV3Bank({ state, maxSources: 1 });
+		expect(dropped).toBe(2);
+		// No claim load anywhere: the seeded page goes first whatever its date,
+		// then the press page read most recently beats a primary page read
+		// earlier.
+		expect(state.sources.map((source) => source.id)).toEqual([newer?.id]);
 	});
 });

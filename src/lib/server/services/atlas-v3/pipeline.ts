@@ -394,6 +394,8 @@ async function readAtlasV3LocalDocuments(input: {
 	ask: AtlasV3Ask;
 	language: SupportedLanguage;
 	currentDate: string;
+	/** Stamped on each document's source as its retrieval time. */
+	retrievedAt: string;
 	state: AtlasV3BankState;
 	runModel: AtlasV3ModelCall;
 	concurrency: number;
@@ -405,6 +407,7 @@ async function readAtlasV3LocalDocuments(input: {
 			promptArtifactId: document.promptArtifactId,
 			title: document.title,
 			origin: document.origin,
+			retrievedAt: input.retrievedAt,
 		}),
 	);
 	const goals = [
@@ -755,6 +758,7 @@ export async function runAtlasV3Pipeline(
 				preferredSources,
 				alreadyTried: asked,
 				localNotes,
+				retrievedAt: now.toISOString(),
 				onUsage,
 				onQuestionDone: ({ subQuestion }) => {
 					runningQuestions.delete(subQuestion);
@@ -783,6 +787,7 @@ export async function runAtlasV3Pipeline(
 					ask: resolvedAsk,
 					language,
 					currentDate: isoDate(now),
+					retrievedAt: now.toISOString(),
 					state,
 					runModel: deps.models.researcher,
 					concurrency,

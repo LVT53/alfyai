@@ -81,6 +81,8 @@ export interface RunAtlasV3RoundInput {
 	 * what the user supplied. Their quotes and claims are in the bank already.
 	 */
 	localNotes?: readonly AtlasV3FindingsNote[];
+	/** Retrieval time stamped on every page the round reads (ISO 8601). */
+	retrievedAt?: string;
 	onUsage?: (usage: AtlasV3Usage) => void;
 	onQuestionStart?: (subQuestion: string) => void | Promise<void>;
 	onQuestionDone?: (input: {
@@ -136,6 +138,7 @@ export async function runAtlasV3Round(
 					manufacturerHosts: input.manufacturerHosts,
 					alreadyTried: input.alreadyTried,
 					deadEnds: input.previousMemo?.deadEnds,
+					retrievedAt: input.retrievedAt,
 					onUsage: input.onUsage,
 					onPageRead: input.onPageRead,
 				});

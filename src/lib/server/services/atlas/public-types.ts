@@ -129,6 +129,19 @@ export interface AtlasV3ProgressDetailsView
 			retried: number;
 			fallback: number;
 		};
+		/** A lifecycle child's reuse of its parent's evidence (Phase D). */
+		seed?: {
+			action: "continue" | "revise" | "fork";
+			parentPipelineVersion: 1 | 2 | 3;
+			sourcesSeeded: number;
+			quotesSeeded: number;
+			trusted: number;
+			rechecked: number;
+			confirmed: number;
+			changed: number;
+			dropped: number;
+			seedPagesRead: number;
+		};
 	};
 }
 

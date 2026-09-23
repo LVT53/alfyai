@@ -138,6 +138,11 @@ export interface AddAtlasV3SourceInput {
 	read?: boolean;
 	nativeSources?: readonly AtlasV3NativeSourceSet[];
 	manufacturerHosts?: readonly string[];
+	/**
+	 * When the page was read (ISO 8601); the job's start time in the pipeline.
+	 * Defaults to the wall clock. Only stamped on a read source.
+	 */
+	retrievedAt?: string | null;
 }
 
 /**
@@ -169,9 +174,13 @@ export function addAtlasV3Source(
 		return null;
 	}
 
+	const retrievedAt =
+		input.read === true
+			? (input.retrievedAt ?? new Date().toISOString())
+			: null;
 	const existingByUrl = state.sourceIdByUrl[canonicalUrl];
 	if (existingByUrl) {
-		return markRead(state, existingByUrl, input.read === true);
+		return markRead(state, existingByUrl, retrievedAt);
 	}
 	const articleKey = articleIdentityKey({ title, canonicalUrl, host });
 	const existingByArticle = articleKey
@@ -180,7 +189,7 @@ export function addAtlasV3Source(
 	if (existingByArticle) {
 		state.filteredCount += 1;
 		state.sourceIdByUrl[canonicalUrl] = existingByArticle;
-		return markRead(state, existingByArticle, input.read === true);
+		return markRead(state, existingByArticle, retrievedAt);
 	}
 
 	state.counters.source += 1;
@@ -199,6 +208,7 @@ export function addAtlasV3Source(
 			manufacturerHosts: input.manufacturerHosts,
 		}),
 		read: input.read === true,
+		...(retrievedAt ? { retrievedAt } : {}),
 	};
 	state.sources.push(source);
 	state.sourceIdByUrl[canonicalUrl] = source.id;
@@ -226,6 +236,8 @@ export function addAtlasV3LocalSource(
 		promptArtifactId: string;
 		title: string;
 		origin: AtlasV3LocalSource["origin"];
+		/** When the document was read; defaults to the wall clock. */
+		retrievedAt?: string;
 	},
 ): AtlasV3LocalSource {
 	const canonicalUrl = atlasV3LocalSourceKey(input.displayArtifactId);
@@ -250,6 +262,7 @@ export function addAtlasV3LocalSource(
 		displayArtifactId: input.displayArtifactId,
 		promptArtifactId: input.promptArtifactId,
 		origin: input.origin,
+		retrievedAt: input.retrievedAt ?? new Date().toISOString(),
 	};
 	state.sources.push(source);
 	state.sourceIdByUrl[canonicalUrl] = source.id;
@@ -275,15 +288,84 @@ export function removeAtlasV3SourceWithoutQuotes(
 	return true;
 }
 
+/**
+ * Marks a known source read. A read stamps its retrieval time too: a seeded
+ * source the child's own research reaches again is, from then on, as fresh as
+ * that read.
+ */
 function markRead(
 	state: AtlasV3BankState,
 	sourceId: string,
-	read: boolean,
+	retrievedAt: string | null,
 ): AtlasV3Source | null {
 	const source = state.sources.find((entry) => entry.id === sourceId);
 	if (!source) return null;
-	if (read) source.read = true;
+	if (retrievedAt) {
+		source.read = true;
+		source.retrievedAt = retrievedAt;
+	}
 	return source;
+}
+
+/**
+ * Takes a source's evidence out of the bank: its quotes (all of them, or all
+ * but `keepQuoteIds`), the claims' references to those quotes, and every claim
+ * left with no quote. A source left with no quote is removed as well — it
+ * cannot be cited. Claim statuses are recomputed from scratch, because a
+ * dropped quote can take away a claim's second publisher or the other side of
+ * a disagreement.
+ *
+ * Used by the seed recheck: a parent's quote the live page no longer states
+ * must never reach the writer.
+ */
+export function dropAtlasV3SourceEvidence(
+	state: AtlasV3BankState,
+	sourceId: string,
+	options?: { keepQuoteIds?: readonly string[] },
+): { quotesDropped: number; claimsDropped: number; sourceRemoved: boolean } {
+	const keep = new Set(options?.keepQuoteIds ?? []);
+	const dropped = new Set(
+		state.quotes
+			.filter((quote) => quote.sourceId === sourceId && !keep.has(quote.id))
+			.map((quote) => quote.id),
+	);
+	state.quotes = state.quotes.filter((quote) => !dropped.has(quote.id));
+	const claimsBefore = state.claims.length;
+	state.claims = state.claims
+		.map((claim) => ({
+			...claim,
+			evidenceIds: claim.evidenceIds.filter((id) => !dropped.has(id)),
+		}))
+		.filter((claim) => claim.evidenceIds.length > 0);
+	restatusAtlasV3Claims(state);
+	const sourceRemoved = removeAtlasV3SourceWithoutQuotes(state, sourceId);
+	return {
+		quotesDropped: dropped.size,
+		claimsDropped: claimsBefore - state.claims.length,
+		sourceRemoved,
+	};
+}
+
+/**
+ * Every claim's status recomputed from the bank as it now stands, INCLUDING
+ * `contested`: a claim is contested only while a claim with the same strict
+ * identity and a different value is still in the bank. `rescoreAtlasV3Claims`
+ * keeps `contested` sticky, which is right while evidence only ever grows and
+ * wrong once it has been taken away.
+ */
+function restatusAtlasV3Claims(state: AtlasV3BankState): void {
+	for (const claim of state.claims) {
+		const key = atlasV3ClaimKey(claim);
+		const conflicted = state.claims.some(
+			(other) =>
+				other.id !== claim.id &&
+				atlasV3ClaimKey(other) === key &&
+				!sameValue(other.value, claim.value),
+		);
+		claim.status = conflicted
+			? "contested"
+			: atlasV3ClaimStatus(state, { ...claim, status: "open" });
+	}
 }
 
 function normalizeDate(value: string | null): string | null {
@@ -1222,6 +1304,10 @@ export function fileAtlasV3Read(input: {
  * The user's own documents are exempt: they are not counted against the budget
  * and never dropped. The user chose them for this question, and their number is
  * already bounded by `ATLAS_V3_MAX_LOCAL_SOURCES`.
+ *
+ * At equal claim load a source this job found itself outranks one seeded from
+ * a parent, and a newer read outranks an older one, before tier decides: a
+ * Continue chain would otherwise keep its oldest pages forever.
  */
 export function capAtlasV3Bank(input: {
 	state: AtlasV3BankState;
@@ -1241,6 +1327,15 @@ export function capAtlasV3Bank(input: {
 	const ranked = [...web].sort((left, right) => {
 		const claimDelta = (load.get(right.id) ?? 0) - (load.get(left.id) ?? 0);
 		if (claimDelta !== 0) return claimDelta;
+		const seededDelta =
+			Number(Boolean(left.seededFrom)) - Number(Boolean(right.seededFrom));
+		if (seededDelta !== 0) return seededDelta;
+		// By DAY: two pages one job read a second apart are equally fresh, and
+		// the tier should still decide between them.
+		const retrievedDelta = (right.retrievedAt ?? "")
+			.slice(0, 10)
+			.localeCompare((left.retrievedAt ?? "").slice(0, 10));
+		if (retrievedDelta !== 0) return retrievedDelta;
 		const tierDelta =
 			ATLAS_V3_TIER_ORDER[left.tier] - ATLAS_V3_TIER_ORDER[right.tier];
 		if (tierDelta !== 0) return tierDelta;

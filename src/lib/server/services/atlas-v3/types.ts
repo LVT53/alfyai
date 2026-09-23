@@ -20,6 +20,7 @@ import type {
 	AtlasV3ProgressEvidenceSource as SharedAtlasV3ProgressEvidenceSource,
 	AtlasV3ProgressPlanEntry as SharedAtlasV3ProgressPlanEntry,
 	AtlasV3QualityDiagnostics as SharedAtlasV3QualityDiagnostics,
+	AtlasV3SeedDiagnostics as SharedAtlasV3SeedDiagnostics,
 } from "../atlas/progress-details";
 
 export { ATLAS_V3_PHASES } from "../atlas/progress-details";
@@ -28,6 +29,7 @@ export type AtlasV3ProgressPlanEntry = SharedAtlasV3ProgressPlanEntry;
 export type AtlasV3ProgressEvidenceSource = SharedAtlasV3ProgressEvidenceSource;
 export type AtlasV3ProgressEvidence = SharedAtlasV3ProgressEvidence;
 export type AtlasV3QualityDiagnostics = SharedAtlasV3QualityDiagnostics;
+export type AtlasV3SeedDiagnostics = SharedAtlasV3SeedDiagnostics;
 export type AtlasV3ProgressDetails = SharedAtlasV3ProgressDetails;
 
 export const ATLAS_V3_CHECKPOINT_SCHEMA_VERSION = "atlas.v3.checkpoint.v1";
@@ -102,6 +104,15 @@ interface AtlasV3SourceBase {
 	tier: AtlasV3SourceTier;
 	/** True once a page read produced text for this source. */
 	read: boolean;
+	/**
+	 * When the page (or the user's document) was last read, ISO 8601. What the
+	 * seed freshness rule measures age from (freshness.ts). Absent on sources
+	 * from checkpoints written before Phase D; the parent job's completion time
+	 * stands in for it.
+	 */
+	retrievedAt?: string | null;
+	/** The parent Atlas job this source was carried over from, if it was. */
+	seededFrom?: string | null;
 }
 
 /** A page found through `research_web`. Old checkpoints carry no `kind`. */
@@ -458,6 +469,63 @@ export interface AtlasV3Limitation {
 	/** Why: no published series, conflicting definitions, paywalled, stale. */
 	reason: string;
 }
+
+// ---------------------------------------------------------------------------
+// 11. Lifecycle seeding (Phase D): Continue, Revise and Fork
+// ---------------------------------------------------------------------------
+
+/**
+ * What a lifecycle child may take from its parent. Loaded once, before the
+ * ask, by `loadAtlasV3ParentSeed` (seed.ts); `null` when the parent is not a
+ * succeeded job of the same user in the same conversation.
+ *
+ *  - `report` is read from the parent's persisted report, for every pipeline
+ *    version: the ask sees its title, headings and verdict for orientation,
+ *    and a v1/v2 parent's web source URLs become seed pages.
+ *  - `v3` is a v3 parent's checkpointed working state. `bank` is the capped
+ *    bank from the verify checkpoint when it exists, else the latest research
+ *    round's; Fork never uses it.
+ *  - `localDisplayArtifactIds` are the user documents the child inherits.
+ */
+export interface AtlasV3ParentSeed {
+	parentJobId: string;
+	action: "continue" | "revise" | "fork";
+	parentPipelineVersion: 1 | 2 | 3;
+	parentCompletedAt: string | null;
+	report: {
+		title: string;
+		headings: string[];
+		/** The executive summary or verdict, citation tokens stripped. */
+		verdict: string;
+		webSources: Array<{ url: string; title: string }>;
+	} | null;
+	v3: {
+		ask: AtlasV3Ask | null;
+		bank: AtlasV3EvidenceBank | null;
+		memo: AtlasV3Memo | null;
+		asked: string[];
+		outline: AtlasV3Outline | null;
+		citedSourceIds: string[];
+	} | null;
+	localDisplayArtifactIds: string[];
+}
+
+/**
+ * What happened to one seeded source.
+ *  - `trusted`     used as-is: not time-sensitive, or read inside the window.
+ *  - `confirmed`   re-read live and every seeded quote is still stated.
+ *  - `changed`     re-read live; quotes no longer stated were dropped and the
+ *                  fresh page was read for the goal again.
+ *  - `unreachable` the live page could not be read; its evidence was dropped.
+ *  - `over_budget` time-sensitive but past the recheck budget; dropped, never
+ *                  trusted unread (ADR 0037 edge case 5).
+ */
+export type AtlasV3RecheckOutcome =
+	| "trusted"
+	| "confirmed"
+	| "changed"
+	| "unreachable"
+	| "over_budget";
 
 // UI contract (progress details on the job row): `AtlasV3ProgressPlanEntry`,
 // `AtlasV3ProgressEvidenceSource`, `AtlasV3ProgressEvidence`,

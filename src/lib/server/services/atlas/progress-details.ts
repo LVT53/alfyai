@@ -349,6 +349,30 @@ export interface AtlasV3ProgressEvidence {
 	sources: AtlasV3ProgressEvidenceSource[];
 }
 
+/**
+ * How a lifecycle child (Continue, Revise, Fork) was seeded from its parent
+ * (Phase D, ADR 0063): what the parent's evidence bank held, how much of it
+ * was trusted as-is, rechecked against the live page, or dropped, and how many
+ * of an old (v1/v2) parent's report URLs were read as seed pages.
+ */
+export interface AtlasV3SeedDiagnostics {
+	action: "continue" | "revise" | "fork";
+	parentPipelineVersion: 1 | 2 | 3;
+	/** Sources in the parent's bank (0 for a Fork, which reuses none). */
+	sourcesSeeded: number;
+	quotesSeeded: number;
+	/** Sources kept without a recheck: not time-sensitive, or inside the window. */
+	trusted: number;
+	/** Sources re-read live; `confirmed + changed` of them kept evidence. */
+	rechecked: number;
+	confirmed: number;
+	changed: number;
+	/** Sources taken out: unreachable, over the recheck budget, or unavailable. */
+	dropped: number;
+	/** v1/v2 report URLs (or a bankless v3 parent's) read as fresh sources. */
+	seedPagesRead: number;
+}
+
 export interface AtlasV3QualityDiagnostics {
 	/** True when the goal test failed and the report says so. */
 	abstained: boolean;
@@ -392,6 +416,8 @@ export interface AtlasV3QualityDiagnostics {
 		quotes: number;
 		unavailable: number;
 	};
+	/** Present on a lifecycle child that had a parent to seed from. */
+	seed?: AtlasV3SeedDiagnostics;
 }
 
 export interface AtlasV3ProgressDetails {
@@ -429,6 +455,7 @@ export const ATLAS_V3_MAX_EVIDENCE_SNIPPET_CHARS = 4000;
 
 export const ATLAS_V3_PHASE_DURATION_KEYS = [
 	"ask",
+	"seed",
 	"local",
 	"research",
 	"memo",
@@ -536,6 +563,7 @@ function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 		record.localSources && typeof record.localSources === "object"
 			? (record.localSources as Record<string, unknown>)
 			: null;
+	const seed = sanitizeSeedDiagnostics(record.seed);
 	return {
 		abstained: record.abstained === true,
 		verdictPresent: record.verdictPresent === true,
@@ -573,6 +601,39 @@ function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
 					},
 				}
 			: {}),
+		...(seed ? { seed } : {}),
+	};
+}
+
+function sanitizeSeedDiagnostics(
+	value: unknown,
+): AtlasV3SeedDiagnostics | null {
+	if (!value || typeof value !== "object") return null;
+	const record = value as Record<string, unknown>;
+	const action =
+		record.action === "continue" ||
+		record.action === "revise" ||
+		record.action === "fork"
+			? record.action
+			: null;
+	const version =
+		record.parentPipelineVersion === 1 ||
+		record.parentPipelineVersion === 2 ||
+		record.parentPipelineVersion === 3
+			? record.parentPipelineVersion
+			: null;
+	if (!action || !version) return null;
+	return {
+		action,
+		parentPipelineVersion: version,
+		sourcesSeeded: nonNegativeInteger(record.sourcesSeeded),
+		quotesSeeded: nonNegativeInteger(record.quotesSeeded),
+		trusted: nonNegativeInteger(record.trusted),
+		rechecked: nonNegativeInteger(record.rechecked),
+		confirmed: nonNegativeInteger(record.confirmed),
+		changed: nonNegativeInteger(record.changed),
+		dropped: nonNegativeInteger(record.dropped),
+		seedPagesRead: nonNegativeInteger(record.seedPagesRead),
 	};
 }
 

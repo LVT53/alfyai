@@ -491,6 +491,62 @@ describe("sanitizeAtlasV3ProgressDetails", () => {
 			unavailable: 0,
 		});
 	});
+
+	it("keeps a lifecycle child's seed diagnostics and a seed phase duration", () => {
+		const details = sanitizeAtlasV3ProgressDetails({
+			pipelineVersion: 3,
+			phase: "verify",
+			plan: [],
+			round: { current: 1, total: 2 },
+			sourcesRead: 4,
+			next: "verify",
+			phaseDurationsMs: { seed: 40, research: 9 },
+			qualityDiagnostics: {
+				seed: {
+					action: "continue",
+					parentPipelineVersion: 3,
+					sourcesSeeded: 6,
+					quotesSeeded: 12,
+					trusted: 3,
+					rechecked: 2,
+					confirmed: 1,
+					changed: 1,
+					dropped: -2,
+					seedPagesRead: 0,
+					parentVerdict: "never stored",
+				},
+			},
+		});
+		expect(details.phaseDurationsMs).toEqual({ seed: 40, research: 9 });
+		expect(details.qualityDiagnostics?.seed).toEqual({
+			action: "continue",
+			parentPipelineVersion: 3,
+			sourcesSeeded: 6,
+			quotesSeeded: 12,
+			trusted: 3,
+			rechecked: 2,
+			confirmed: 1,
+			changed: 1,
+			dropped: 0,
+			seedPagesRead: 0,
+		});
+	});
+
+	it("drops seed diagnostics with no known action or parent version", () => {
+		const details = sanitizeAtlasV3ProgressDetails({
+			pipelineVersion: 3,
+			phase: "verify",
+			plan: [],
+			round: { current: 1, total: 1 },
+			sourcesRead: 0,
+			next: "",
+			qualityDiagnostics: {
+				seed: { action: "create", parentPipelineVersion: 3 },
+			},
+		});
+		expect(details.qualityDiagnostics).toBeDefined();
+		expect(details.qualityDiagnostics?.seed).toBeUndefined();
+	});
 });
 
 // ---------------------------------------------------------------------------
