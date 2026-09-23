@@ -149,6 +149,7 @@ const compressionSnapshotSchema = z.strictObject({
 
 const SCHEMA_TEMPLATE_PLACEHOLDERS = new Set([
 	"all covered source message ids",
+	"every sourcemessages id",
 	"id",
 	"message-id",
 	"message id",
@@ -346,8 +347,9 @@ The JSON shape must be:
   "openTasks": ["string"],
   "openQuestions": ["string"],
   "toolUseAndEvidenceRefs": [{"kind":"tool|evidence|source","label":"string","messageIds":["message-id"],"detail":"string"}],
-  "sourceCoverage": {"messageIds":["all covered source message ids"],"ranges":[{"startMessageId":"id","endMessageId":"id"}]}
+  "sourceCoverage": {"messageIds":["every sourceMessages id"],"ranges":[{"startMessageId":"id","endMessageId":"id"}]}
 }
+sourceCoverage.messageIds lists the id of every message in sourceMessages. The priorSnapshot's coverage is carried over by the app; do not repeat it.
 Compress semantics, decisions, facts, open work, tool outputs, and useful evidence references. Preserve enough detail for future prompt assembly, but do not copy raw chat transcript.`;
 
 function parseObjectJson(value: string): ContextCompressionSnapshotJson {
@@ -1039,7 +1041,6 @@ function buildCompressionPrompt(params: {
 						params.input.priorSnapshot.sourceStartMessageSequence,
 					sourceEndMessageSequence:
 						params.input.priorSnapshot.sourceEndMessageSequence,
-					sourceCoverage: params.input.priorSnapshot.sourceCoverage,
 					snapshot: params.input.priorSnapshot.snapshot,
 					formatted: formatContextCompressionSnapshotForPrompt(
 						params.input.priorSnapshot,
@@ -1065,9 +1066,15 @@ function buildCompressionPrompt(params: {
 	return `Compress this conversation source into the required context compression JSON shape.${repair}\n\n${JSON.stringify(payload)}`;
 }
 
+// `requiredMessageIds` are this pass's source messages, which the model must
+// list as covered. `allowedMessageIds` adds what the prior snapshot already
+// covers: the model may name those (ranges start at the prior snapshot's
+// first message) but need not echo them — the app carries that coverage
+// over itself, so the model's output does not grow with the conversation.
 function validateCompressionSnapshot(
 	output: string,
 	requiredMessageIds: string[],
+	allowedMessageIds: string[],
 	sourceRanges: ContextCompressionSourceRange[],
 ):
 	| { ok: true; snapshot: ContextCompressionStructuredSnapshot }
@@ -1106,7 +1113,7 @@ function validateCompressionSnapshot(
 		};
 	}
 
-	const expectedMessageIds = new Set(requiredMessageIds);
+	const expectedMessageIds = new Set(allowedMessageIds);
 	const unexpectedMessageIds = result.data.sourceCoverage.messageIds.filter(
 		(id) => !expectedMessageIds.has(id),
 	);
@@ -1254,6 +1261,7 @@ export async function runContextCompression(
 
 		const validation = validateCompressionSnapshot(
 			response.text,
+			sourceMessages.map((message) => message.id),
 			coveredMessageIds,
 			sourceRanges,
 		);
@@ -1261,17 +1269,24 @@ export async function runContextCompression(
 			rejectionReason = validation.reason;
 			continue;
 		}
+		const snapshot: ContextCompressionStructuredSnapshot = {
+			...validation.snapshot,
+			sourceCoverage: {
+				...validation.snapshot.sourceCoverage,
+				messageIds: coveredMessageIds,
+			},
+		};
 
 		const updated = await updateContextCompressionSnapshotStatus({
 			id: running.id,
 			status: "valid",
-			snapshot: validation.snapshot,
-			sourceCoverage: validation.snapshot.sourceCoverage,
+			snapshot,
+			sourceCoverage: snapshot.sourceCoverage,
 			sourceRefs: buildSourceRefs({
 				sourceRanges,
-				snapshot: validation.snapshot,
+				snapshot,
 			}),
-			estimatedTokens: estimateTokenCount(JSON.stringify(validation.snapshot)),
+			estimatedTokens: estimateTokenCount(JSON.stringify(snapshot)),
 			sourceTokenEstimate:
 				input.sourceTokenEstimate ??
 				sourceTextEstimate({
