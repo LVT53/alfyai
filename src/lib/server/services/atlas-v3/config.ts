@@ -237,6 +237,30 @@ export const ATLAS_V3_LOCAL_CORE_PASSAGES = 3;
 export const ATLAS_V3_LOCAL_SUB_QUESTION_PASSAGES = 2;
 export const ATLAS_V3_LOCAL_PASSAGE_CHAR_BUDGET = 3_000;
 
+// Lifecycle seeding (Continue / Revise reuse the parent's evidence bank). Fixed
+// constants until an evaluation says what they should be; see freshness.ts.
+
+/**
+ * How old a time-sensitive web source a Continue may reuse without re-reading
+ * it. Revise uses 0: every time-sensitive source is rechecked, because Revise
+ * exists to catch what changed.
+ */
+export const ATLAS_V3_SEED_FRESHNESS_DAYS = 14;
+
+/**
+ * Live re-reads one seeding may spend: the page budget of one research round
+ * (`pagesPerQuestion × subQuestionsPerRound` — 8, 15 and 24 by profile). An
+ * old parent's report URLs read as seed pages spend from the same budget.
+ */
+export function atlasV3SeedRecheckBudget(
+	config: Pick<
+		AtlasV3ProfileConfig,
+		"pagesPerQuestion" | "subQuestionsPerRound"
+	>,
+): number {
+	return config.pagesPerQuestion * config.subQuestionsPerRound;
+}
+
 export function clamp(value: number, minimum: number, maximum: number): number {
 	return Math.min(maximum, Math.max(minimum, value));
 }
