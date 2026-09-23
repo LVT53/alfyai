@@ -21,6 +21,7 @@ import {
 	resolvePromptContextLimits,
 } from "$lib/server/services/normal-chat-context";
 import { createNormalChatContextPreparationActivityHandler } from "$lib/server/services/normal-chat-context-preparation";
+import { sendJsonControlMessage } from "$lib/server/services/normal-chat-control-model";
 import {
 	type NormalChatModelRunProvider,
 	resolveNormalChatModelRunProvider,
@@ -333,6 +334,11 @@ export async function prepareOutboundContext(
 			}),
 		modelId: runtime.modelId,
 		contextLimits: runtime.baseContextLimits,
+		// Automatic context compression (normal-chat-context.ts) summarizes the
+		// conversation through the same JSON control call the manual
+		// compression route uses. Without it the stage reports
+		// `missing_control_message_sender` and never compresses.
+		compressionControlMessageSender: sendJsonControlMessage,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
 		activeConnectionCapabilities: enabledConnectionCapabilities,
 		historyToolMessages: resolveHistoryToolMessagesMode(runtime.provider),
