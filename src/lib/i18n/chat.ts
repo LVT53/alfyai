@@ -1117,6 +1117,17 @@ const chatDict = {
 		"home.suggest.source.memory": "Memory · ongoing work",
 		"home.suggest.source.conversation": "A recent conversation",
 		"home.suggest.source.atlas": "Atlas · unfinished",
+		"home.memoryReview.notice":
+			"{count} {count, plural, one {memory} other {memories}} from recent chats {count, plural, one {needs} other {need}} a quick look.",
+		// Two plain keys rather than one ICU-plural key: the link's own text
+		// does not carry the number in Hungarian (see the .hu block below), so
+		// an ICU `{count, plural, ...}` here would need a `{count}` on the
+		// Hungarian side purely to satisfy the interpolation-parity guard in
+		// i18n.test.ts, which would mean showing a numeral the design never
+		// asked for.
+		"home.memoryReview.reviewLinkOne": "Review it →",
+		"home.memoryReview.reviewLinkOther": "Review them →",
+		"home.memoryReview.dismiss": "Dismiss",
 		// --- END chat home redesign keys ---
 
 		// ── Everyday redesign · composer ────────────────────────────
@@ -2267,6 +2278,13 @@ const chatDict = {
 		"home.suggest.source.memory": "Memória · folyamatban lévő munka",
 		"home.suggest.source.conversation": "Egy korábbi beszélgetés",
 		"home.suggest.source.atlas": "Atlas · befejezetlen",
+		// HU nouns after a numeral do not take a plural suffix, so there is no
+		// singular/plural split here (unlike the English key above).
+		"home.memoryReview.notice":
+			"{count} emlék a legutóbbi beszélgetésekből gyors átnézésre vár.",
+		"home.memoryReview.reviewLinkOne": "Áttekintés →",
+		"home.memoryReview.reviewLinkOther": "Áttekintés →",
+		"home.memoryReview.dismiss": "Elrejtés",
 		// --- END chat home redesign keys ---
 
 		// ── Mindennapi újratervezés · szerkesztő ────────────────────
