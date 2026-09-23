@@ -42,9 +42,11 @@ import {
 	EMPTY_HOME_SUMMARY,
 	type HomeSuggestion,
 	type HomeSummary,
+	dismissMemoryReviewNotice,
 	fetchHomeSummary,
 	recordHomeSuggestionEvent,
 } from "$lib/client/api/home";
+import HomeMemoryReviewNotice from "$lib/components/home/HomeMemoryReviewNotice.svelte";
 import HomeRecent from "$lib/components/home/HomeRecent.svelte";
 import HomeSuggestionRail from "$lib/components/home/HomeSuggestionRail.svelte";
 import HomeWeeklyBars from "$lib/components/home/HomeWeeklyBars.svelte";
@@ -402,6 +404,13 @@ let composeIntoComposer: ((text: string) => void) | null = null;
 
 function handleComposeReady(compose: (text: string) => void) {
 	composeIntoComposer = compose;
+}
+
+function handleMemoryReviewDismiss() {
+	// Fire and forget, same shape as the suggestion-rail events below: the row
+	// already hid itself locally (HomeMemoryReviewNotice's own optimistic
+	// state), and a failed write only means it may show again next load.
+	void dismissMemoryReviewNotice().catch(() => undefined);
 }
 
 function handleSuggestionPick(suggestion: HomeSuggestion) {
@@ -923,6 +932,22 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 							<HomeWeeklyBars weeks={summary.weekly} total={summary.weeklyTotal} />
 						{/if}
 					</div>
+
+					{#if !$landingIncognitoArmed && summaryLoaded}
+						<!-- Directly under the greeting band, above the composer. Keyed
+						     by the server's own dismissed flag: when a NEW review item
+						     makes it flip from dismissed back to not-dismissed, the key
+						     changes and Svelte remounts the row, clearing its local
+						     optimistic-hide state rather than leaving it stuck hidden
+						     from an earlier dismissal (see HomeMemoryReviewNotice). -->
+						{#key summary.memoryReviewNoticeDismissed}
+							<HomeMemoryReviewNotice
+								count={summary.memoryReviewNoticeDismissed ? 0 : summary.memoryReviewCount}
+								href="/knowledge?tab=memory#memory-review"
+								onDismiss={handleMemoryReviewDismiss}
+							/>
+						{/key}
+					{/if}
 				{/if}
 
 				{#if creating && pendingMessagePreview}
