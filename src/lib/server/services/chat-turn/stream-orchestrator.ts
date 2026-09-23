@@ -317,6 +317,7 @@ export function runChatStreamOrchestrator(
 	const modelDisplayName = turn.modelDisplayName;
 	const providerDisplayName = turn.providerDisplayName;
 	const skipPersistUserMessage = turn.skipPersistUserMessage;
+	const isEditResend = turn.isEditResend;
 	const safeAttachmentIds = turn.attachmentIds;
 	const activeDocumentArtifactId = turn.activeDocumentArtifactId;
 	const attachmentTraceId = turn.attachmentTraceId;
@@ -835,6 +836,7 @@ export function runChatStreamOrchestrator(
 					normalizedMessage,
 					upstreamMessage,
 					skipPersistUserMessage,
+					isEditResend,
 					isReconnect,
 					thinkingContent: chunkRuntime.thinkingContent,
 					fullResponse: chunkRuntime.fullResponse,

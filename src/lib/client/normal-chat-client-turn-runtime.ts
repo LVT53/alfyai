@@ -59,6 +59,10 @@ export type NormalChatSendPayload = {
 	atlasAction?: AtlasAction;
 	parentAtlasJobId?: string | null;
 	clientAtlasTurnId?: string | null;
+	// Gap 2 — set by handleEdit's edit-and-resend flow (chat/[conversationId]/
+	// +page.svelte) so the server can record an activity_events "edit_resend"
+	// row at turn completion. Never set by a plain composer send.
+	isEditResend?: boolean;
 };
 
 export type NormalChatRuntimeSnapshot = {
@@ -1267,6 +1271,7 @@ export function createNormalChatClientTurnRuntime(
 				retryUserMessage: options.retryAssistantMessageId ? text : undefined,
 				confirmForkedSourceHistoryMutation:
 					options.confirmForkedSourceHistoryMutation,
+				isEditResend: payload.isEditResend === true,
 			},
 		});
 	}

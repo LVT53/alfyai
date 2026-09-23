@@ -491,6 +491,43 @@ describe("Normal Chat Client Turn Runtime", () => {
 		});
 	});
 
+	// Gap 2 — the server can only record an activity_events "edit_resend" row
+	// if the edit-and-resend flow's isEditResend flag actually reaches the
+	// request; this pins the client-side leg of that plumbing.
+	it("threads payload.isEditResend into the stream request options", () => {
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		runtime.send({
+			message: "Edited message",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+			isEditResend: true,
+		});
+
+		expect(streamInvocations[0]).toMatchObject({
+			message: "Edited message",
+			options: { isEditResend: true },
+		});
+	});
+
+	it("omits isEditResend (false) for an ordinary send", () => {
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		runtime.send({
+			message: "Hello",
+			attachmentIds: [],
+			attachments: [],
+			pendingAttachments: [],
+		});
+
+		expect(streamInvocations[0]).toMatchObject({
+			options: { isEditResend: false },
+		});
+	});
+
 	it("clears sending before receipt-only completion metadata starts eventual hydration", () => {
 		const { adapters, streamInvocations } = makeAdapters();
 		const runtime = createNormalChatClientTurnRuntime(adapters);
