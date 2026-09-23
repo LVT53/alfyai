@@ -22,9 +22,7 @@ const settingsDict = {
 			"Long-running Atlas research turns, source search, quality gates, and completion worker settings.",
 		"admin.atlasGlobalActiveLimit": "Global Active Atlas Limit",
 		"admin.atlasLimitsDescription":
-			"Global active limit caps concurrent Atlas jobs across the server. Search concurrency and batch delay control web-search pressure during each Atlas run.",
-		"admin.atlasSearchBatchDelayMs": "Search Batch Delay (ms)",
-		"admin.atlasSearchConcurrency": "Search Concurrency",
+			"Global active limit caps concurrent Atlas jobs across the server.",
 		"admin.atlasParallelDependency":
 			"Atlas also requires a Parallel API Key in Web Research. Without Parallel, the chat composer shows Atlas as unavailable.",
 		"admin.atlasSynthesisModel": "Atlas Synthesis Model",
@@ -1222,12 +1220,11 @@ const settingsDict = {
 		"admin.system.newAccounts.meaning":
 			"Existing accounts keep the model they chose.",
 		"admin.system.atlas.title": "Atlas research reports",
-		"admin.system.atlas.description": "Six stages, six model choices.",
+		"admin.system.atlas.description": "Five stages, five model choices.",
 		"admin.system.atlas.workerEnabled": "Worker enabled",
 		"admin.system.atlas.tabs.models": "Models per task",
 		"admin.system.atlas.tabs.worker": "Worker & limits",
 		"admin.system.atlas.tabs.depth": "Research depth",
-		"admin.system.atlas.tabs.prompts": "Pipeline",
 		"admin.system.atlas.taskColumn": "Task",
 		"admin.system.atlas.modelColumn": "Model",
 		"admin.system.atlas.inherit": "Inherit — {model}",
@@ -1249,18 +1246,6 @@ const settingsDict = {
 		"admin.system.atlas.tasks.critic.label": "Critic",
 		"admin.system.atlas.tasks.critic.meaning":
 			"Reviews coverage and asks for the rounds that are still missing.",
-		"admin.system.atlas.tasks.verifier.label": "Verifier",
-		"admin.system.atlas.tasks.verifier.meaning":
-			"Checks every cited figure against the source that is cited for it.",
-		"admin.system.atlas.pipeline.label": "Report pipeline",
-		"admin.system.atlas.pipeline.meaning":
-			"Stamped when a report starts, so reports already queued keep the pipeline they began with.",
-		"admin.system.atlas.searchMath": "Questions × rounds = web searches",
-		"admin.system.atlas.searchMathRow":
-			"{profile} {questions} × {rounds} = {total}",
-		"admin.system.atlas.profile.overview": "Overview",
-		"admin.system.atlas.profile.inDepth": "In depth",
-		"admin.system.atlas.profile.exhaustive": "Exhaustive",
 		"admin.system.memory.title": "Memory",
 		"admin.system.memory.description":
 			"Decides what is worth remembering, and merges duplicates overnight.",
@@ -1542,81 +1527,6 @@ const settingsDict = {
 			"Plain-text upload limit",
 		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES.meaning":
 			"Largest text file read straight in without a parser.",
-		"admin.system.keys.ATLAS_PIPELINE.label": "Report pipeline",
-		"admin.system.keys.ATLAS_PIPELINE.meaning":
-			"Which pipeline a new report is stamped with.",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_OVERVIEW.label":
-			"Research questions · overview",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_OVERVIEW.meaning":
-			"Questions the plan stage writes for an overview report.",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_IN_DEPTH.label":
-			"Research questions · in depth",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_IN_DEPTH.meaning":
-			"Questions the plan stage writes for an in-depth report.",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_EXHAUSTIVE.label":
-			"Research questions · exhaustive",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_EXHAUSTIVE.meaning":
-			"Questions the plan stage writes for an exhaustive report.",
-		"admin.system.keys.ATLAS_V2_ROUNDS_OVERVIEW.label":
-			"Research rounds · overview",
-		"admin.system.keys.ATLAS_V2_ROUNDS_OVERVIEW.meaning":
-			"How many times an overview report goes back for more sources.",
-		"admin.system.keys.ATLAS_V2_ROUNDS_IN_DEPTH.label":
-			"Research rounds · in depth",
-		"admin.system.keys.ATLAS_V2_ROUNDS_IN_DEPTH.meaning":
-			"How many times an in-depth report goes back for more sources.",
-		"admin.system.keys.ATLAS_V2_ROUNDS_EXHAUSTIVE.label":
-			"Research rounds · exhaustive",
-		"admin.system.keys.ATLAS_V2_ROUNDS_EXHAUSTIVE.meaning":
-			"How many times an exhaustive report goes back for more sources.",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_OVERVIEW.label":
-			"Length ceiling · overview",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_OVERVIEW.meaning":
-			"Hard word ceiling for an overview report.",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_IN_DEPTH.label":
-			"Length ceiling · in depth",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_IN_DEPTH.meaning":
-			"Hard word ceiling for an in-depth report.",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_EXHAUSTIVE.label":
-			"Length ceiling · exhaustive",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_EXHAUSTIVE.meaning":
-			"Hard word ceiling for an exhaustive report.",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_OVERVIEW.label":
-			"Indexed sources · overview",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_OVERVIEW.meaning":
-			"Sources carried into the write phase of an overview report.",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_IN_DEPTH.label":
-			"Indexed sources · in depth",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_IN_DEPTH.meaning":
-			"Sources carried into the write phase of an in-depth report.",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_EXHAUSTIVE.label":
-			"Indexed sources · exhaustive",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_EXHAUSTIVE.meaning":
-			"Sources carried into the write phase of an exhaustive report.",
-		"admin.system.keys.ATLAS_V2_ENTAILMENT_BATCH.label":
-			"Claims per entailment call",
-		"admin.system.keys.ATLAS_V2_ENTAILMENT_BATCH.meaning":
-			"How many claims are checked in one call. 1 disables batching.",
-		"admin.system.keys.ATLAS_V2_WRITER_CONCURRENCY.label":
-			"Sections written at once",
-		"admin.system.keys.ATLAS_V2_WRITER_CONCURRENCY.meaning":
-			"Sections the writer produces in parallel.",
-		"admin.system.keys.ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS.label":
-			"Answer length ceiling · overview",
-		"admin.system.keys.ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS.meaning":
-			"Output tokens the writer may spend on an overview report.",
-		"admin.system.keys.ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS.label":
-			"Answer length ceiling · in depth",
-		"admin.system.keys.ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS.meaning":
-			"Output tokens the writer may spend on an in-depth report.",
-		"admin.system.keys.ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS.label":
-			"Answer length ceiling · exhaustive",
-		"admin.system.keys.ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS.meaning":
-			"Output tokens the writer may spend on an exhaustive report.",
-		"admin.system.keys.ATLAS_MAX_WRITER_PROMPT_CHARS.label":
-			"Writer prompt cap",
-		"admin.system.keys.ATLAS_MAX_WRITER_PROMPT_CHARS.meaning":
-			"Characters of research handed to the writer at once.",
 		"admin.system.keys.ATLAS_STALE_MONTHS.label":
 			"Call a statistic stale after",
 		"admin.system.keys.ATLAS_STALE_MONTHS.meaning":
@@ -2012,9 +1922,7 @@ const settingsDict = {
 			"Hosszú futású Atlas kutatási körök, forráskeresés, minőségi kapuk és befejező worker beállításai.",
 		"admin.atlasGlobalActiveLimit": "Globális aktív Atlas korlát",
 		"admin.atlasLimitsDescription":
-			"A globális aktív korlát a szerveren egyszerre futó Atlas feladatokat szabályozza. A keresési párhuzamosság és a kötegkésleltetés az egyes Atlas futások webkeresési terhelését állítja.",
-		"admin.atlasSearchBatchDelayMs": "Keresési kötegkésleltetés (ms)",
-		"admin.atlasSearchConcurrency": "Keresési párhuzamosság",
+			"A globális aktív korlát a szerveren egyszerre futó Atlas feladatokat szabályozza.",
 		"admin.atlasParallelDependency":
 			"Az Atlashoz a Webes kutatás Parallel API-kulcsa is szükséges. Parallel nélkül a chat beviteli eszköztára az Atlast nem elérhetőként mutatja.",
 		"admin.atlasSynthesisModel": "Atlas szintézis modell",
@@ -3242,12 +3150,11 @@ const settingsDict = {
 		"admin.system.newAccounts.meaning":
 			"A meglévő fiókok megtartják a választott modelljüket.",
 		"admin.system.atlas.title": "Atlas kutatási jelentések",
-		"admin.system.atlas.description": "Hat szakasz, hat modellválasztás.",
+		"admin.system.atlas.description": "Öt szakasz, öt modellválasztás.",
 		"admin.system.atlas.workerEnabled": "Feldolgozó bekapcsolva",
 		"admin.system.atlas.tabs.models": "Modellek feladatonként",
 		"admin.system.atlas.tabs.worker": "Feldolgozó és korlátok",
 		"admin.system.atlas.tabs.depth": "Kutatási mélység",
-		"admin.system.atlas.tabs.prompts": "Folyamat",
 		"admin.system.atlas.taskColumn": "Feladat",
 		"admin.system.atlas.modelColumn": "Modell",
 		"admin.system.atlas.inherit": "Öröklés — {model}",
@@ -3269,18 +3176,6 @@ const settingsDict = {
 		"admin.system.atlas.tasks.critic.label": "Bíráló",
 		"admin.system.atlas.tasks.critic.meaning":
 			"Átnézi a lefedettséget, és bekéri a még hiányzó köröket.",
-		"admin.system.atlas.tasks.verifier.label": "Ellenőr",
-		"admin.system.atlas.tasks.verifier.meaning":
-			"Minden hivatkozott adatot összevet a hozzá megadott forrással.",
-		"admin.system.atlas.pipeline.label": "Jelentésfolyamat",
-		"admin.system.atlas.pipeline.meaning":
-			"A jelentés indulásakor rögzül, így a már sorban álló jelentések a saját folyamatukkal futnak végig.",
-		"admin.system.atlas.searchMath": "Kérdések × körök = webes keresések",
-		"admin.system.atlas.searchMathRow":
-			"{profile} {questions} × {rounds} = {total}",
-		"admin.system.atlas.profile.overview": "Áttekintés",
-		"admin.system.atlas.profile.inDepth": "Részletes",
-		"admin.system.atlas.profile.exhaustive": "Kimerítő",
 		"admin.system.memory.title": "Memória",
 		"admin.system.memory.description":
 			"Eldönti, mit érdemes megjegyezni, és éjszaka összevonja a duplikátumokat.",
@@ -3565,81 +3460,6 @@ const settingsDict = {
 			"Szövegfájl felső mérete",
 		"admin.system.keys.DOCUMENT_EXTRACTION_MAX_DIRECT_TEXT_BYTES.meaning":
 			"Ekkora szövegfájlt olvasunk be közvetlenül, feldolgozó nélkül.",
-		"admin.system.keys.ATLAS_PIPELINE.label": "Jelentésfolyamat",
-		"admin.system.keys.ATLAS_PIPELINE.meaning":
-			"Melyik folyamattal indul egy új jelentés.",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_OVERVIEW.label":
-			"Kutatási kérdések · áttekintés",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_OVERVIEW.meaning":
-			"Ennyi kérdést ír a tervezési szakasz áttekintő jelentéshez.",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_IN_DEPTH.label":
-			"Kutatási kérdések · részletes",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_IN_DEPTH.meaning":
-			"Ennyi kérdést ír a tervezési szakasz részletes jelentéshez.",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_EXHAUSTIVE.label":
-			"Kutatási kérdések · kimerítő",
-		"admin.system.keys.ATLAS_V2_QUESTIONS_EXHAUSTIVE.meaning":
-			"Ennyi kérdést ír a tervezési szakasz kimerítő jelentéshez.",
-		"admin.system.keys.ATLAS_V2_ROUNDS_OVERVIEW.label":
-			"Kutatási körök · áttekintés",
-		"admin.system.keys.ATLAS_V2_ROUNDS_OVERVIEW.meaning":
-			"Hányszor tér vissza az áttekintő jelentés újabb forrásokért.",
-		"admin.system.keys.ATLAS_V2_ROUNDS_IN_DEPTH.label":
-			"Kutatási körök · részletes",
-		"admin.system.keys.ATLAS_V2_ROUNDS_IN_DEPTH.meaning":
-			"Hányszor tér vissza a részletes jelentés újabb forrásokért.",
-		"admin.system.keys.ATLAS_V2_ROUNDS_EXHAUSTIVE.label":
-			"Kutatási körök · kimerítő",
-		"admin.system.keys.ATLAS_V2_ROUNDS_EXHAUSTIVE.meaning":
-			"Hányszor tér vissza a kimerítő jelentés újabb forrásokért.",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_OVERVIEW.label":
-			"Hosszkorlát · áttekintés",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_OVERVIEW.meaning":
-			"Kemény szókorlát az áttekintő jelentésre.",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_IN_DEPTH.label":
-			"Hosszkorlát · részletes",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_IN_DEPTH.meaning":
-			"Kemény szókorlát a részletes jelentésre.",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_EXHAUSTIVE.label":
-			"Hosszkorlát · kimerítő",
-		"admin.system.keys.ATLAS_V2_MAX_WORDS_EXHAUSTIVE.meaning":
-			"Kemény szókorlát a kimerítő jelentésre.",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_OVERVIEW.label":
-			"Indexelt források · áttekintés",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_OVERVIEW.meaning":
-			"Ennyi forrás jut el az áttekintő jelentés írási szakaszába.",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_IN_DEPTH.label":
-			"Indexelt források · részletes",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_IN_DEPTH.meaning":
-			"Ennyi forrás jut el a részletes jelentés írási szakaszába.",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_EXHAUSTIVE.label":
-			"Indexelt források · kimerítő",
-		"admin.system.keys.ATLAS_V2_MAX_SOURCES_EXHAUSTIVE.meaning":
-			"Ennyi forrás jut el a kimerítő jelentés írási szakaszába.",
-		"admin.system.keys.ATLAS_V2_ENTAILMENT_BATCH.label":
-			"Állítás következtetési hívásonként",
-		"admin.system.keys.ATLAS_V2_ENTAILMENT_BATCH.meaning":
-			"Hány állítást ellenőriz egy hívás. Az 1 kikapcsolja a kötegelést.",
-		"admin.system.keys.ATLAS_V2_WRITER_CONCURRENCY.label":
-			"Egyszerre írt fejezetek",
-		"admin.system.keys.ATLAS_V2_WRITER_CONCURRENCY.meaning":
-			"Hány fejezetet ír az író párhuzamosan.",
-		"admin.system.keys.ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS.label":
-			"Válaszhossz-korlát · áttekintés",
-		"admin.system.keys.ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS.meaning":
-			"Ennyi kimeneti tokent költhet az író áttekintő jelentésre.",
-		"admin.system.keys.ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS.label":
-			"Válaszhossz-korlát · részletes",
-		"admin.system.keys.ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS.meaning":
-			"Ennyi kimeneti tokent költhet az író részletes jelentésre.",
-		"admin.system.keys.ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS.label":
-			"Válaszhossz-korlát · kimerítő",
-		"admin.system.keys.ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS.meaning":
-			"Ennyi kimeneti tokent költhet az író kimerítő jelentésre.",
-		"admin.system.keys.ATLAS_MAX_WRITER_PROMPT_CHARS.label":
-			"Írói prompt korlátja",
-		"admin.system.keys.ATLAS_MAX_WRITER_PROMPT_CHARS.meaning":
-			"Ennyi karakternyi kutatás kerül egyszerre az íróhoz.",
 		"admin.system.keys.ATLAS_STALE_MONTHS.label":
 			"Ennyi idő után elavult egy adat",
 		"admin.system.keys.ATLAS_STALE_MONTHS.meaning":
