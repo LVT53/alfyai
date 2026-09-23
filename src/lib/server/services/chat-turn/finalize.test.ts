@@ -28,6 +28,7 @@ const {
 	mockUpdateMessageRailSummary,
 	mockRecordToolCallActivityEvents,
 	mockRecordSkillUseActivityEvent,
+	mockRecordTurnOriginActivityEvent,
 } = vi.hoisted(() => ({
 	mockJudgeFinishedTurn: vi.fn(
 		async (): Promise<{
@@ -80,6 +81,7 @@ const {
 	mockUpdateMessageRailSummary: vi.fn(async () => undefined),
 	mockRecordToolCallActivityEvents: vi.fn(async () => undefined),
 	mockRecordSkillUseActivityEvent: vi.fn(async () => undefined),
+	mockRecordTurnOriginActivityEvent: vi.fn(async () => undefined),
 }));
 
 // finalizeChatTurn fans post-turn work out to ./finalize-steps in one ordered
@@ -106,6 +108,7 @@ vi.mock("$lib/server/services/analytics", () => ({
 vi.mock("$lib/server/services/activity-events", () => ({
 	recordToolCallActivityEvents: mockRecordToolCallActivityEvents,
 	recordSkillUseActivityEvent: mockRecordSkillUseActivityEvent,
+	recordTurnOriginActivityEvent: mockRecordTurnOriginActivityEvent,
 }));
 
 vi.mock("$lib/server/services/memory-controls", () => ({
@@ -636,6 +639,8 @@ describe("finalizeChatTurn", () => {
 		mockRecordToolCallActivityEvents.mockResolvedValue(undefined);
 		mockRecordSkillUseActivityEvent.mockReset();
 		mockRecordSkillUseActivityEvent.mockResolvedValue(undefined);
+		mockRecordTurnOriginActivityEvent.mockReset();
+		mockRecordTurnOriginActivityEvent.mockResolvedValue(undefined);
 	});
 
 	it("invokes onDurableReceiptReady with message ids before the deferred projection resolves, then keeps running it in the background — no promise or task-starting function comes back to the caller", async () => {
@@ -2049,6 +2054,103 @@ describe("finalizeChatTurn", () => {
 					toolCalls: [{ name: "research_web", input: {}, status: "done" }],
 				}),
 			);
+		});
+
+		// Gap 2 — regenerate and edit-resend are the best proxy for "the answer
+		// was wrong". Neither the browser nor a route body directly asserts
+		// "this is a regenerate": chat-turn/retry.ts is the sole caller that
+		// ever sets persistUserMessage: false (it reuses the existing user
+		// message instead of persisting a new one — see retry.ts's
+		// skipPersistUserMessage: true), so that already-existing fact is the
+		// regenerate signal here. isEditResend is a plain request flag set by
+		// the edit-and-resend client flow, threaded through unchanged.
+		it("records a regenerate activity event when the turn reused the existing user message (chat-turn/retry.ts)", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				turnKind: "stream",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: false,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: {},
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: { model: "model-1" },
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_stream",
+			});
+
+			expect(mockRecordTurnOriginActivityEvent).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				messageId: "assistant-message",
+				kind: "regenerate",
+			});
+		});
+
+		it("records an edit_resend activity event when the turn is flagged as an edit-and-resend", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				turnKind: "stream",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: {},
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: { model: "model-1" },
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_stream",
+				isEditResend: true,
+			});
+
+			expect(mockRecordTurnOriginActivityEvent).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				messageId: "assistant-message",
+				kind: "edit_resend",
+			});
+		});
+
+		it("does not record a regenerate or edit_resend event for an ordinary send", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				turnKind: "send",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: {},
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: { model: "model-1" },
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_send",
+			});
+
+			expect(mockRecordTurnOriginActivityEvent).not.toHaveBeenCalled();
 		});
 	});
 });

@@ -16,7 +16,9 @@ export type ActivityEventKind =
 	| "skill_use"
 	| "composer_command"
 	| "follow_up_click"
-	| "answer_now";
+	| "answer_now"
+	| "regenerate"
+	| "edit_resend";
 
 export type ActivityEventStatus = "done" | "failed" | "cached";
 
@@ -162,6 +164,45 @@ export async function recordSkillUseActivityEvent(params: {
 		name: params.displayName,
 		status: "done",
 		modelId: params.modelId ?? null,
+	});
+}
+
+export type TurnOriginActivityKind = "regenerate" | "edit_resend";
+
+// Gap 2 — regenerate (chat-turn/retry.ts, every request that reaches it) and
+// edit-resend (the ordinary send/stream path with the isEditResend request
+// flag set — see chat-turn/finalize.ts) are server-observed like tool_call
+// and skill_use: recorded from turn state the server itself established,
+// never accepted from the client's own POST /api/analytics/activity. `name`
+// mirrors `kind` (there is no more specific label, same as answer_now's
+// client-observed row).
+//
+// Dropped for an incognito conversation instead of written — mirrors
+// memory-behavior-log.ts's dropIncognitoEvents: activity_events is a
+// per-conversation behavior log an incognito conversation is promised not to
+// leave a trace in, even though (unlike memory_events) nothing here feeds
+// the memory/ranking pipeline. The incognito lookup fails open (a read
+// error never blocks a real write), matching every other incognito read on
+// a hot path.
+export async function recordTurnOriginActivityEvent(params: {
+	userId: string;
+	conversationId: string;
+	messageId?: string | null;
+	kind: TurnOriginActivityKind;
+}): Promise<void> {
+	const { isConversationIncognito } = await import("./memory-controls");
+	const incognito = await isConversationIncognito(params.conversationId).catch(
+		() => false,
+	);
+	if (incognito) return;
+
+	await recordActivityEvent({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		messageId: params.messageId ?? null,
+		kind: params.kind,
+		name: params.kind,
+		status: "done",
 	});
 }
 

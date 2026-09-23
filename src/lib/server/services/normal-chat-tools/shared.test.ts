@@ -2,7 +2,13 @@ import { asSchema } from "@ai-sdk/provider-utils";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { compactModelPayload, compactToolInputSchema } from "./shared";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import {
+	compactModelPayload,
+	compactToolInputSchema,
+	createToolCallRecorder,
+	executeToolWithEnvelope,
+} from "./shared";
 
 describe("compactModelPayload", () => {
 	it("drops undefined, null, empty string, empty array and empty object values", () => {
@@ -183,5 +189,142 @@ describe("compactToolInputSchema", () => {
 		expect(validate?.({ query: "x", readPages: 9 })).toMatchObject({
 			success: false,
 		});
+	});
+});
+
+// Gap 1: activity_events.duration_ms is always NULL in production because
+// nothing threads the envelope's own start→settle timing into the
+// ToolCallEntry it records. executeToolWithEnvelope already wraps every call
+// in a single Promise.race for timeout/abort; it should stamp
+// entry.metadata.durationMs from that same wrapper instead of a second,
+// independent timer living elsewhere.
+describe("executeToolWithEnvelope duration recording", () => {
+	function baseEntry(status: ToolCallEntry["status"]): ToolCallEntry {
+		return { name: "test_tool", input: {}, status };
+	}
+
+	it("records elapsed wall-clock time on success", async () => {
+		const recorder = createToolCallRecorder();
+		const DELAY_MS = 40;
+
+		await executeToolWithEnvelope({
+			toolName: "test_tool",
+			timeoutMs: 5_000,
+			options: { toolCallId: "1", abortSignal: undefined },
+			recorder,
+			run: async () => {
+				await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
+				return {
+					modelPayload: { success: true },
+					entry: baseEntry("done"),
+				};
+			},
+			onError: () => ({
+				modelPayload: { success: false },
+				entry: baseEntry("failed"),
+			}),
+		});
+
+		const [entry] = recorder.getEntries();
+		expect(typeof entry.metadata?.durationMs).toBe("number");
+		// Real wall-clock timing under test-runner load can run a little fast
+		// or slow; assert it's in the right ballpark rather than exact.
+		expect(entry.metadata?.durationMs as number).toBeGreaterThanOrEqual(
+			DELAY_MS - 15,
+		);
+	});
+
+	it("records a duration for a failing tool call", async () => {
+		const recorder = createToolCallRecorder();
+
+		await executeToolWithEnvelope({
+			toolName: "test_tool",
+			timeoutMs: 5_000,
+			options: { toolCallId: "1", abortSignal: undefined },
+			recorder,
+			run: async () => {
+				throw new Error("boom");
+			},
+			onError: () => ({
+				modelPayload: { success: false, message: "boom" },
+				entry: baseEntry("failed"),
+			}),
+		});
+
+		const [entry] = recorder.getEntries();
+		expect(typeof entry.metadata?.durationMs).toBe("number");
+		expect(entry.metadata?.durationMs as number).toBeGreaterThanOrEqual(0);
+	});
+
+	it("records a duration for a timed-out tool call", async () => {
+		const recorder = createToolCallRecorder();
+
+		await executeToolWithEnvelope({
+			toolName: "test_tool",
+			timeoutMs: 20,
+			options: { toolCallId: "1", abortSignal: undefined },
+			recorder,
+			run: async () => {
+				await new Promise((resolve) => setTimeout(resolve, 5_000));
+				return { modelPayload: { success: true }, entry: baseEntry("done") };
+			},
+			onError: () => ({
+				modelPayload: { success: false, message: "timed out" },
+				entry: baseEntry("failed"),
+			}),
+		});
+
+		const [entry] = recorder.getEntries();
+		expect(typeof entry.metadata?.durationMs).toBe("number");
+		expect(entry.metadata?.durationMs as number).toBeGreaterThanOrEqual(0);
+		expect(entry.metadata?.durationMs as number).toBeLessThan(1_000);
+	});
+
+	it("records a small (not skipped) duration for a cache-hit result that resolves instantly", async () => {
+		const recorder = createToolCallRecorder();
+
+		await executeToolWithEnvelope({
+			toolName: "test_tool",
+			timeoutMs: 5_000,
+			options: { toolCallId: "1", abortSignal: undefined },
+			recorder,
+			run: async () => {
+				const entry = baseEntry("done");
+				entry.metadata = { cached: true };
+				return { modelPayload: { success: true }, entry };
+			},
+			onError: () => ({
+				modelPayload: { success: false },
+				entry: baseEntry("failed"),
+			}),
+		});
+
+		const [entry] = recorder.getEntries();
+		expect(entry.metadata?.cached).toBe(true);
+		expect(typeof entry.metadata?.durationMs).toBe("number");
+		expect(entry.metadata?.durationMs as number).toBeGreaterThanOrEqual(0);
+	});
+
+	it("does not overwrite a duration the tool already measured itself", async () => {
+		const recorder = createToolCallRecorder();
+
+		await executeToolWithEnvelope({
+			toolName: "test_tool",
+			timeoutMs: 5_000,
+			options: { toolCallId: "1", abortSignal: undefined },
+			recorder,
+			run: async () => {
+				const entry = baseEntry("done");
+				entry.metadata = { durationMs: 999 };
+				return { modelPayload: { success: true }, entry };
+			},
+			onError: () => ({
+				modelPayload: { success: false },
+				entry: baseEntry("failed"),
+			}),
+		});
+
+		const [entry] = recorder.getEntries();
+		expect(entry.metadata?.durationMs).toBe(999);
 	});
 });

@@ -2323,6 +2323,9 @@ async function handleEdit(
 		attachmentIds: editAttachmentIds,
 		attachments: editAttachments,
 		pendingAttachments: [],
+		// Gap 2 — server-side telemetry signal only (activity_events
+		// "edit_resend"); does not change how this turn is otherwise sent.
+		isEditResend: true,
 	});
 }
 

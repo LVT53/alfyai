@@ -36,6 +36,7 @@ type RequestBody = {
 	reconnectToStreamId?: unknown;
 	model?: unknown;
 	skipPersistUserMessage?: unknown;
+	isEditResend?: unknown;
 	attachmentIds?: unknown;
 	linkedSources?: unknown;
 	pendingSkill?: unknown;
@@ -163,6 +164,7 @@ export async function parseChatTurnRequest(
 						body.enabledConnectionCapabilities,
 					),
 			skipPersistUserMessage: body.skipPersistUserMessage === true,
+			isEditResend: body.isEditResend === true,
 			attachmentTraceId:
 				safeAttachmentIds.length > 0
 					? createAttachmentTraceId(route)

@@ -67,6 +67,7 @@ function makeRequest(
 		thinkingMode: "auto",
 		forceWebSearch: false,
 		skipPersistUserMessage: false,
+		isEditResend: false,
 		atlasMode: false,
 		atlasProfile: null,
 		atlasAction: "create",

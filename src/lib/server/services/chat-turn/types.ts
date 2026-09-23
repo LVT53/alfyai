@@ -98,6 +98,12 @@ export type ParsedChatTurnRequest = {
 	// resolveActiveCapabilities in connections/resolve.ts.
 	enabledConnectionCapabilities?: string[];
 	skipPersistUserMessage: boolean;
+	// Gap 2 — set by the client's edit-and-resend flow (handleEdit in
+	// chat/[conversationId]/+page.svelte) so chat-turn/finalize.ts can record
+	// an activity_events "edit_resend" row at turn completion. Otherwise
+	// unused by turn processing itself — an edit-resend is, and remains, an
+	// ordinary send.
+	isEditResend: boolean;
 	attachmentTraceId?: string;
 	atlasMode: boolean;
 	atlasProfile: AtlasProfile | null;
