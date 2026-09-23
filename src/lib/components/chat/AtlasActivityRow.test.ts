@@ -212,7 +212,7 @@ describe("AtlasActivityRow", () => {
 		it.each([
 			["ask", "Scoping the question"],
 			["outline", "Outlining"],
-			["answer", "Writing"],
+			["answer", "Building the answer table"],
 			["critic", "Reviewing coverage"],
 		] as const)("renders a real label for the v3 %s phase (ADR 0063)", (phase, expectedLabel) => {
 			render(AtlasActivityRow, {

@@ -356,7 +356,7 @@ const chatDict = {
 		// v3 phases (ADR 0063).
 		"atlasActivity.phase.ask": "Scoping the question",
 		"atlasActivity.phase.outline": "Outlining",
-		"atlasActivity.phase.answer": "Writing",
+		"atlasActivity.phase.answer": "Building the answer table",
 		"atlasActivity.phase.critic": "Reviewing coverage",
 		"atlasActivity.sourcesRead": "{count} sources read so far",
 		"atlasActivity.sections": "{count} sections",
@@ -1513,7 +1513,7 @@ const chatDict = {
 		// v3 fázisok (ADR 0063).
 		"atlasActivity.phase.ask": "Kérdés pontosítása",
 		"atlasActivity.phase.outline": "Vázlat készítése",
-		"atlasActivity.phase.answer": "Írás",
+		"atlasActivity.phase.answer": "Választáblázat összeállítása",
 		"atlasActivity.phase.critic": "Lefedettség ellenőrzése",
 		"atlasActivity.sourcesRead": "eddig {count} forrás beolvasva",
 		"atlasActivity.sections": "{count} szakasz",
