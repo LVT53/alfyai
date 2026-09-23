@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
+import { invalidateHomeSummary } from "$lib/server/services/home-summary";
 import {
 	applyKnowledgeMemoryAction,
 	MemoryProfileActionError,
@@ -120,5 +121,11 @@ export const POST: RequestHandler = async (event) => {
 		}
 		console.error("[KNOWLEDGE_MEMORY] Failed to apply memory action:", error);
 		return json({ error: "Failed to update memory profile" }, { status: 500 });
+	} finally {
+		// The home screen's "memories need review" notice is served from a
+		// 30-second per-user cache. A memory action can change that count (or,
+		// on not_found, close an obsolete review row), and the user typically
+		// lands back on home right after reviewing, so drop the cached copy.
+		invalidateHomeSummary(user.id);
 	}
 };
