@@ -39,7 +39,7 @@
 
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Types mirroring the HTTP surface (kept local: this script runs standalone)
@@ -64,6 +64,13 @@ interface EvalQuery {
 	coreAnswerRegex?: string;
 	/** Alternative to the regex: every keyword must appear. */
 	coreAnswerKeywords?: string[];
+	/**
+	 * A document to attach to the kickoff message, as a user would: uploaded
+	 * into the query's conversation through the knowledge upload API, then sent
+	 * as `attachmentIds`. `file` is relative to `scripts/atlas-eval-fixtures/`.
+	 * Exercises Atlas Local Sources (ADR 0063, Phase C).
+	 */
+	localFixture?: { file: string; mimeType?: string };
 }
 
 /**
@@ -351,6 +358,39 @@ class Session {
 			);
 		}
 		return text ? (JSON.parse(text) as T) : ({} as T);
+	}
+
+	/** The browser's raw upload path; returns the uploaded artifact id. */
+	async upload(input: {
+		conversationId: string;
+		fileName: string;
+		bytes: Buffer;
+		mimeType: string;
+	}): Promise<{ artifactId: string; promptReady: boolean }> {
+		const response = await fetch(`${this.base}/api/knowledge/upload/raw`, {
+			method: "POST",
+			headers: {
+				cookie: this.cookie,
+				"content-type": input.mimeType,
+				"x-alfyai-upload-name": encodeURIComponent(input.fileName),
+				"x-alfyai-upload-size": String(input.bytes.byteLength),
+				"x-alfyai-conversation-id": input.conversationId,
+			},
+			body: new Uint8Array(input.bytes),
+		});
+		const text = await response.text();
+		if (!response.ok) {
+			throw new Error(
+				`POST /api/knowledge/upload/raw -> ${response.status} ${text.slice(0, 400)}`,
+			);
+		}
+		const parsed = JSON.parse(text) as {
+			artifact?: { id?: string };
+			promptReady?: boolean;
+		};
+		const artifactId = parsed.artifact?.id;
+		if (!artifactId) throw new Error("The upload returned no artifact id.");
+		return { artifactId, promptReady: parsed.promptReady === true };
 	}
 
 	async text(path: string): Promise<string> {
@@ -1442,9 +1482,30 @@ async function runQuery(input: {
 		},
 	);
 
-	const send = await session.json<{ atlasJob?: AtlasJobCardLike }>(
-		"/api/chat/send",
-		{
+	const attachmentIds: string[] = [];
+	if (query.localFixture) {
+		const file = resolve(
+			dirname(new URL(import.meta.url).pathname),
+			"atlas-eval-fixtures",
+			query.localFixture.file,
+		);
+		const uploaded = await session.upload({
+			conversationId: conversation.id,
+			fileName: basename(file),
+			bytes: readFileSync(file),
+			mimeType: query.localFixture.mimeType ?? "text/markdown",
+		});
+		attachmentIds.push(uploaded.artifactId);
+		process.stdout.write(
+			`  ${query.id}: attached ${basename(file)} (${uploaded.promptReady ? "ready" : "extracting"})\n`,
+		);
+	}
+
+	// An attachment still extracting is refused with a 409; the kickoff is
+	// retried until it is ready, as a user would wait for the upload chip.
+	const clientAtlasTurnId = randomUUID();
+	const sendOnce = () =>
+		session.json<{ atlasJob?: AtlasJobCardLike }>("/api/chat/send", {
 			method: "POST",
 			body: JSON.stringify({
 				conversationId: conversation.id,
@@ -1452,10 +1513,24 @@ async function runQuery(input: {
 				atlasMode: true,
 				atlasProfile: query.profile,
 				atlasAction: "create",
-				clientAtlasTurnId: randomUUID(),
+				clientAtlasTurnId,
+				...(attachmentIds.length > 0 ? { attachmentIds } : {}),
 			}),
-		},
-	);
+		});
+	let send: { atlasJob?: AtlasJobCardLike } | null = null;
+	for (let attempt = 0; attempt < 24 && !send; attempt += 1) {
+		try {
+			send = await sendOnce();
+		} catch (error) {
+			const notReady =
+				attachmentIds.length > 0 &&
+				error instanceof Error &&
+				error.message.includes(" -> 409 ");
+			if (!notReady || attempt === 23) throw error;
+			await sleep(5000);
+		}
+	}
+	if (!send) throw new Error(`No Atlas job created for ${query.id}.`);
 	const jobId = send.atlasJob?.id;
 	if (!jobId) throw new Error(`No Atlas job created for ${query.id}.`);
 	process.stdout.write(`  ${query.id}: job ${jobId} queued\n`);

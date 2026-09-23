@@ -41,12 +41,13 @@ const QUERIES = JSON.parse(
 		expectations: string[];
 		coreAnswerRegex?: string;
 		coreAnswerKeywords?: string[];
+		localFixture?: { file: string; mimeType?: string };
 	}>;
 };
 
 describe("atlas-eval-queries.json", () => {
-	it("covers the ten required query kinds", () => {
-		expect(QUERIES.queries).toHaveLength(10);
+	it("covers the ten required query kinds, plus one with a local document", () => {
+		expect(QUERIES.queries).toHaveLength(11);
 		expect(QUERIES.queries.map((query) => query.kind)).toEqual([
 			"energy statistics",
 			"product comparison",
@@ -58,6 +59,7 @@ describe("atlas-eval-queries.json", () => {
 			"historical timeline",
 			"fast-moving tech topic",
 			"niche topic with thin evidence",
+			"local source plus web",
 		]);
 	});
 
@@ -65,7 +67,23 @@ describe("atlas-eval-queries.json", () => {
 		for (const query of QUERIES.queries) {
 			expect(["overview", "in-depth", "exhaustive"]).toContain(query.profile);
 			expect(query.expectations.length).toBeGreaterThanOrEqual(3);
-			expect(new Set(QUERIES.queries.map((entry) => entry.id)).size).toBe(10);
+			expect(new Set(QUERIES.queries.map((entry) => entry.id)).size).toBe(11);
+		}
+	});
+
+	it("points every local fixture at a file that exists", () => {
+		const withFixture = QUERIES.queries.filter((query) => query.localFixture);
+		expect(withFixture.length).toBeGreaterThan(0);
+		for (const query of withFixture) {
+			expect(() =>
+				readFileSync(
+					resolve(
+						process.cwd(),
+						"scripts/atlas-eval-fixtures",
+						query.localFixture?.file ?? "",
+					),
+				),
+			).not.toThrow();
 		}
 	});
 

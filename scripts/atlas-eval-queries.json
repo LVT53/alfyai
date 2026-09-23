@@ -146,6 +146,25 @@
 				"A short report here is the correct outcome."
 			],
 			"coreAnswerRegex": "Geomalacus|Kerry slug"
+		},
+		{
+			"id": "local-household-energy",
+			"kind": "local source plus web",
+			"profile": "overview",
+			"language": "en",
+			"query": "Using my attached household energy statement, how does our 2025 electricity use compare with the average household in Hungary and in the EU?",
+			"localFixture": {
+				"file": "household-energy-statement-2025.md",
+				"mimeType": "text/markdown"
+			},
+			"expectations": [
+				"States the household's own 3,120 kWh for 2025 and cites the attached statement under Your Library.",
+				"Attributes 3,120 kWh to the user's document, never to a published statistic.",
+				"Gives a published average-household figure for Hungary or the EU with a web citation, dated.",
+				"The library chip has no URL and its [n] matches the number used in the prose."
+			],
+			"coreAnswerRegex": "3[,.\\s]?120\\s?kWh",
+			"coreAnswerKeywords": ["2025"]
 		}
 	]
 }
