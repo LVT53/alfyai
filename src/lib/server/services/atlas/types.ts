@@ -1,5 +1,9 @@
-import type { AtlasV2ProgressDetails } from "../atlas-v2/types";
-import type { AtlasV3ProgressDetails } from "../atlas-v3/types";
+import type {
+	AtlasJobProgressDetails,
+	AtlasV1JobProgressDetails,
+} from "./progress-details";
+
+export type { AtlasJobProgressDetails, AtlasV1JobProgressDetails };
 
 export const ATLAS_PROFILES = ["overview", "in-depth", "exhaustive"] as const;
 export const ATLAS_ACTIONS = ["create", "continue", "fork", "revise"] as const;
@@ -264,21 +268,9 @@ export interface AtlasJobProgress {
 	details: AtlasJobProgressDetails;
 }
 
-/**
- * v1's progress details. Unchanged; ADR 0062 added the v2 shape alongside it
- * rather than merging the two, and `read-model.ts` dispatches on
- * `pipelineVersion`.
- */
-export interface AtlasV1JobProgressDetails {
-	queries: string[];
-	roundKind?: "initial" | "gap-fill";
-	focus?: string[];
-}
-
-export type AtlasJobProgressDetails =
-	| AtlasV1JobProgressDetails
-	| AtlasV2ProgressDetails
-	| AtlasV3ProgressDetails;
+// `AtlasV1JobProgressDetails` and `AtlasJobProgressDetails` (v1/v2/v3 union)
+// live in `./progress-details`, imported and re-exported above, so the read
+// model and job ledger can keep importing them from either module.
 
 export interface AtlasJobSourceCounts {
 	local: number;

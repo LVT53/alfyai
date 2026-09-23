@@ -6,18 +6,29 @@
 // and a citation is an evidence id, not a source number. Numbers are minted
 // mechanically at render time (see render.ts), which is why nothing below
 // carries one.
+//
+// The progress-details (UI contract) types and phase constants below are
+// re-exported from `../atlas/progress-details`, which owns the stored
+// `progress_details_json` contract for all three Atlas pipelines. They stay
+// re-exported here, under their original names, so nothing importing them
+// from this module has to change.
 
-export const ATLAS_V3_PHASES = [
-	"ask",
-	"research",
-	"outline",
-	"answer",
-	"write",
-	"critic",
-	"verify",
-	"render",
-] as const;
-export type AtlasV3Phase = (typeof ATLAS_V3_PHASES)[number];
+import type {
+	AtlasV3Phase as SharedAtlasV3Phase,
+	AtlasV3ProgressDetails as SharedAtlasV3ProgressDetails,
+	AtlasV3ProgressEvidence as SharedAtlasV3ProgressEvidence,
+	AtlasV3ProgressEvidenceSource as SharedAtlasV3ProgressEvidenceSource,
+	AtlasV3ProgressPlanEntry as SharedAtlasV3ProgressPlanEntry,
+	AtlasV3QualityDiagnostics as SharedAtlasV3QualityDiagnostics,
+} from "../atlas/progress-details";
+
+export { ATLAS_V3_PHASES } from "../atlas/progress-details";
+export type AtlasV3Phase = SharedAtlasV3Phase;
+export type AtlasV3ProgressPlanEntry = SharedAtlasV3ProgressPlanEntry;
+export type AtlasV3ProgressEvidenceSource = SharedAtlasV3ProgressEvidenceSource;
+export type AtlasV3ProgressEvidence = SharedAtlasV3ProgressEvidence;
+export type AtlasV3QualityDiagnostics = SharedAtlasV3QualityDiagnostics;
+export type AtlasV3ProgressDetails = SharedAtlasV3ProgressDetails;
 
 export const ATLAS_V3_CHECKPOINT_SCHEMA_VERSION = "atlas.v3.checkpoint.v1";
 
@@ -414,85 +425,10 @@ export interface AtlasV3Limitation {
 	reason: string;
 }
 
-// ---------------------------------------------------------------------------
-// UI contract (progress details on the job row)
-// ---------------------------------------------------------------------------
-
-export interface AtlasV3ProgressPlanEntry {
-	id: string;
-	question: string;
-	status: "queued" | "running" | "done";
-	sourceCount: number;
-	confidence?: "corroborated" | "single" | "mixed" | "thin";
-}
-
-export interface AtlasV3ProgressEvidenceSource {
-	n: number;
-	title: string;
-	host: string;
-	date: string | null;
-	cited: boolean;
-	snippet: string;
-}
-
-export interface AtlasV3ProgressEvidence {
-	corroborated: number;
-	single: number;
-	inferred: number;
-	cut: number;
-	filteredCount: number;
-	sources: AtlasV3ProgressEvidenceSource[];
-}
-
-export interface AtlasV3QualityDiagnostics {
-	/** True when the goal test failed and the report says so. */
-	abstained: boolean;
-	verdictPresent: boolean;
-	/** True when the verdict was assembled from the sections, not written. */
-	verdictFallback: boolean;
-	/** Sentences the final pass cut as restatement or over-quota inference. */
-	repeatedSentences: number;
-	claimCount: number;
-	verifiedClaimCount: number;
-	contestedClaimCount: number;
-	/** Readings joined by the loose identity match, not by the strict key. */
-	claimsMerged: number;
-	answerTableCells: number;
-	derivedFigures: number;
-	criticRounds: number;
-	criticFindings: number;
-	needsEvidenceResolved: number;
-	roundsRun: number;
-	searches: number;
-	pagesRead: number;
-	sectionsPlanned: number;
-	sectionsWritten: number;
-	/** Sections appended because the outline model fell below `minSections`. */
-	sectionsSupplemented: number;
-	wordCount: number;
-	writerRunaways: {
-		length: number;
-		salvaged: number;
-		retried: number;
-		fallback: number;
-	};
-}
-
-export interface AtlasV3ProgressDetails {
-	pipelineVersion: 3;
-	/** Always empty; kept so a v1-shaped client degrades instead of crashing. */
-	queries: string[];
-	phase: AtlasV3Phase;
-	/** Outline nodes, projected as the questions the v2 card already renders. */
-	plan: AtlasV3ProgressPlanEntry[];
-	round: { current: number; total: number };
-	sourcesRead: number;
-	next: string;
-	evidence?: AtlasV3ProgressEvidence;
-	phaseDurationsMs?: Record<string, number>;
-	sections?: { written: number; planned: number };
-	qualityDiagnostics?: AtlasV3QualityDiagnostics;
-}
+// UI contract (progress details on the job row): `AtlasV3ProgressPlanEntry`,
+// `AtlasV3ProgressEvidenceSource`, `AtlasV3ProgressEvidence`,
+// `AtlasV3QualityDiagnostics` and `AtlasV3ProgressDetails` live in
+// `../atlas/progress-details` now, imported and re-exported above.
 
 // ---------------------------------------------------------------------------
 // Pipeline result
