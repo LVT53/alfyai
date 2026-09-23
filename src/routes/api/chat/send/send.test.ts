@@ -528,11 +528,14 @@ describe("POST /api/chat/send", () => {
 				email: `${userId}@example.com`,
 				passwordHash: "hash",
 			});
-			await db.insert(conversations).values({
-				id: parentConversationId,
-				userId,
-				title: "Parent Atlas conversation",
-			});
+			await db
+				.insert(conversations)
+				.values({
+					id: parentConversationId,
+					userId,
+					title: "Parent Atlas conversation",
+				})
+				.onConflictDoNothing();
 			await db.insert(atlasJobs).values({
 				id: jobId,
 				userId,
@@ -597,6 +600,68 @@ describe("POST /api/chat/send", () => {
 
 			expect(response.status).toBe(409);
 			expect(mockSubmitAtlasJobIntake).not.toHaveBeenCalled();
+		});
+
+		it("rejects a Continue whose parent job belongs to another user with 409", async () => {
+			const { jobId } = await seedAtlasParentJob({
+				status: "succeeded",
+				conversationId: "conv-1",
+			});
+			seedConversation(mockGetConversation);
+
+			const response = await POST(
+				makeEvent({
+					message: "Continue researching",
+					conversationId: "conv-1",
+					atlasMode: true,
+					atlasProfile: "overview",
+					atlasAction: "continue",
+					parentAtlasId: jobId,
+					clientAtlasTurnId: "client-atlas-continue-3",
+				}),
+			);
+
+			expect(response.status).toBe(409);
+			expect(mockSubmitAtlasJobIntake).not.toHaveBeenCalled();
+		});
+
+		it("admits a Continue on a succeeded same-user, same-conversation parent without passing a pipeline", async () => {
+			const { userId, jobId } = await seedAtlasParentJob({
+				status: "succeeded",
+				conversationId: "conv-1",
+			});
+			seedConversation(mockGetConversation);
+			mockSubmitAtlasJobIntake.mockRejectedValueOnce(
+				new Error("intake reached"),
+			);
+
+			await POST(
+				makeEvent(
+					{
+						message: "Continue researching",
+						conversationId: "conv-1",
+						atlasMode: true,
+						atlasProfile: "overview",
+						atlasAction: "continue",
+						parentAtlasId: jobId,
+						clientAtlasTurnId: "client-atlas-continue-4",
+					},
+					{ id: userId, email: "test@example.com" },
+				),
+			);
+
+			expect(mockSubmitAtlasJobIntake).toHaveBeenCalledOnce();
+			const intake = mockSubmitAtlasJobIntake.mock.calls[0]?.[0] as Record<
+				string,
+				unknown
+			>;
+			expect(intake).toMatchObject({
+				userId,
+				conversationId: "conv-1",
+				action: "continue",
+				parentAtlasJobId: jobId,
+			});
+			expect(intake).not.toHaveProperty("pipelineVersion");
 		});
 	});
 
