@@ -393,6 +393,39 @@ describe("writeAtlasV3Report", () => {
 		expect(prompt.evidence[1].alsoStatedBy).toEqual(["e1"]);
 	});
 
+	it("keeps a citation of an alsoStatedBy id the writer was told to cite", async () => {
+		// n1 is bound to e1 alone; the bank says e2 (another publisher) states
+		// the same figure, so the prompt shows e2 as `alsoStatedBy` — and the
+		// parser must not throw that citation away. e3 was never shown to n1.
+		const model = fakeModel({
+			"v3:write": sectionAnswer("The EU added 65.1 GW in 2025.", [
+				"e1",
+				"e2",
+				"e3",
+			]),
+		});
+		const result = await writeAtlasV3Report({
+			...base(model),
+			bank: corroboratedBank(),
+			outline: {
+				nodes: [{ ...OUTLINE.nodes[0], evidenceIds: ["e1"] }],
+				cut: [],
+			},
+		});
+		const prompt = JSON.parse(
+			model.prompts.find((entry) => entry.stage === "v3:write:n1")?.prompt ??
+				"{}",
+		);
+		expect(prompt.evidence.map((entry: { id: string }) => entry.id)).toEqual([
+			"e1",
+		]);
+		expect(prompt.evidence[0].alsoStatedBy).toEqual(["e2"]);
+		expect(result.sections[0].paragraphs[0][0].evidenceIds).toEqual([
+			"e1",
+			"e2",
+		]);
+	});
+
 	it("shows a section what the previous sections already said", async () => {
 		const model = fakeModel({
 			"v3:write": sectionAnswer("The EU added 65.1 GW in 2025.", ["e1"]),
@@ -614,6 +647,35 @@ describe("parseAtlasV3Verdict / writeAtlasV3Verdict", () => {
 			(entry) => entry.stage === "v3:verdict:retry",
 		);
 		expect(retry?.system).toContain("was not valid JSON");
+	});
+
+	it("accepts only ids the verdict prompt showed, not any id in the bank", async () => {
+		// e3 is in the bank but neither in the evidence list nor in the answer
+		// table the prompt carried; e2 is shown as e1's `alsoStatedBy`.
+		const model = fakeModel({
+			"v3:verdict": JSON.stringify({
+				sentences: [
+					{
+						text: "The EU added 65.1 GW in 2025.",
+						evidenceIds: ["e1", "e2", "e3"],
+					},
+				],
+			}),
+		});
+		const verdict = await writeAtlasV3Verdict({
+			...verdictInput,
+			answerTable: null,
+			evidence: [
+				{
+					id: "e1",
+					text: "The EU added 65.1 GW of solar capacity in 2025.",
+					publisher: "iea",
+					alsoStatedBy: ["e2"],
+				},
+			],
+			runModel: model.call,
+		});
+		expect(verdict?.[0].evidenceIds).toEqual(["e1", "e2"]);
 	});
 
 	it("carries doNotState into the prompt", () => {

@@ -18,6 +18,7 @@
 
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { parseJsonFromText, salvageTruncatedJson } from "../atlas/json-extract";
+import { atlasV3AnswerTableEvidenceIds } from "./answer-table";
 import {
 	ATLAS_V3_MAX_EVIDENCE_PER_SENTENCE,
 	ATLAS_V3_MAX_OUTPUT_TOKENS,
@@ -430,6 +431,25 @@ export function parseAtlasV3PlainTextSection(
 // Writing the report
 // ---------------------------------------------------------------------------
 
+/**
+ * Every evidence id a prompt SHOWED the model: the quotes themselves and the
+ * `alsoStatedBy` ids beside them. The writer is told to cite the latter, so a
+ * parser that accepted only the former silently dropped exactly the citations
+ * that make a figure corroborated. Ids the prompt never showed stay rejected —
+ * those are the hallucinated ones.
+ */
+export function atlasV3CitableEvidenceIds(
+	evidence: ReadonlyArray<{ id: string; alsoStatedBy?: readonly string[] }>,
+): string[] {
+	const ids: string[] = [];
+	for (const entry of evidence) {
+		for (const id of [entry.id, ...(entry.alsoStatedBy ?? [])]) {
+			if (!ids.includes(id)) ids.push(id);
+		}
+	}
+	return ids;
+}
+
 export interface WriteAtlasV3ReportInput {
 	ask: AtlasV3Ask;
 	outline: AtlasV3Outline;
@@ -513,7 +533,7 @@ export async function writeAtlasV3Report(
 		const options: ParseAtlasV3SectionOptions = {
 			nodeId: node.id,
 			title: node.title,
-			knownEvidenceIds: evidence.map((entry) => entry.id),
+			knownEvidenceIds: atlasV3CitableEvidenceIds(evidence),
 			knownCalcIds: calcIds,
 			maxSentences: nodeBudget.maxSentences,
 			maxParagraphs: nodeBudget.maxParagraphs,
@@ -775,8 +795,19 @@ export interface WriteAtlasV3VerdictInput
 export async function writeAtlasV3Verdict(
 	input: WriteAtlasV3VerdictInput,
 ): Promise<AtlasV3Sentence[] | null> {
+	// Only what the prompt SHOWED may be cited: the capped evidence list, its
+	// `alsoStatedBy` ids, and the ids in the answer table's cells. Accepting any
+	// id in the bank let the verdict cite a quote it never read — a real id, so
+	// it rendered, but not a citation of anything the verdict saw. Verification
+	// still checks each against the bank.
+	const shown = new Set([
+		...atlasV3CitableEvidenceIds(input.evidence),
+		...atlasV3AnswerTableEvidenceIds(input.answerTable),
+	]);
 	const options = {
-		knownEvidenceIds: input.bank.quotes.map((quote) => quote.id),
+		knownEvidenceIds: input.bank.quotes
+			.map((quote) => quote.id)
+			.filter((id) => shown.has(id)),
 		knownCalcIds: (input.answerTable?.derived ?? []).map((entry) => entry.id),
 	};
 	const attempt = async (retry: boolean): Promise<AtlasV3Sentence[] | null> => {
