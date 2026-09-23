@@ -257,8 +257,7 @@ async function runAtlasSendTurn({
 			if (parentJob.conversationId !== turn.conversationId) {
 				return json(
 					{
-						error:
-							"The parent Atlas report must belong to this conversation.",
+						error: "The parent Atlas report must belong to this conversation.",
 					},
 					{ status: 409 },
 				);

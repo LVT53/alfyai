@@ -71,8 +71,7 @@ vi.mock("../atlas-v3/worker-bindings", () => ({
 }));
 
 vi.mock("../atlas-v3/types", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("../atlas-v3/types")>();
+	const actual = await importOriginal<typeof import("../atlas-v3/types")>();
 	return actual;
 });
 
@@ -191,67 +190,66 @@ describe("Atlas worker runner", () => {
 		);
 	});
 
-	it.each([1, 2, 3] as const)(
-		"runs a job stamped pipelineVersion %d on v3 and completes it through the ledger",
-		async (stampedPipelineVersion) => {
-			mocks.claimNextAtlasJob.mockResolvedValueOnce({
-				job: atlasJob(stampedPipelineVersion),
-				userId: "user-1",
-				workerId: "atlas-worker-1",
-			});
-			mocks.runAtlasV3PipelineForClaimedJob.mockResolvedValueOnce(
-				v3PipelineResult(),
-			);
-			const { executeNextAtlasJob } = await import("./worker-runner");
+	it.each([
+		1, 2, 3,
+	] as const)("runs a job stamped pipelineVersion %d on v3 and completes it through the ledger", async (stampedPipelineVersion) => {
+		mocks.claimNextAtlasJob.mockResolvedValueOnce({
+			job: atlasJob(stampedPipelineVersion),
+			userId: "user-1",
+			workerId: "atlas-worker-1",
+		});
+		mocks.runAtlasV3PipelineForClaimedJob.mockResolvedValueOnce(
+			v3PipelineResult(),
+		);
+		const { executeNextAtlasJob } = await import("./worker-runner");
 
-			const processed = await executeNextAtlasJob({
-				workerId: "atlas-worker-1",
-				now: new Date("2026-06-19T14:00:00.000Z"),
-				resolveJobQuery: vi.fn(async () => ({
+		const processed = await executeNextAtlasJob({
+			workerId: "atlas-worker-1",
+			now: new Date("2026-06-19T14:00:00.000Z"),
+			resolveJobQuery: vi.fn(async () => ({
+				query: "Research SvelteKit routing docs",
+				userMessageId: "user-msg-1",
+			})),
+		});
+
+		expect(processed).toBe(true);
+		expect(mocks.runAtlasV3PipelineForClaimedJob).toHaveBeenCalledWith(
+			expect.objectContaining({
+				job: expect.objectContaining({
+					id: "atlas-job-1",
+					userId: "user-1",
+					conversationId: "conv-1",
 					query: "Research SvelteKit routing docs",
-					userMessageId: "user-msg-1",
-				})),
-			});
-
-			expect(processed).toBe(true);
-			expect(mocks.runAtlasV3PipelineForClaimedJob).toHaveBeenCalledWith(
-				expect.objectContaining({
-					job: expect.objectContaining({
-						id: "atlas-job-1",
-						userId: "user-1",
-						conversationId: "conv-1",
-						query: "Research SvelteKit routing docs",
-						kickoffUserMessageId: "user-msg-1",
-						lifecycle: expect.objectContaining({
-							family: expect.objectContaining({
-								familyId: "atlas-job-1",
-								mode: "new_family",
-							}),
+					kickoffUserMessageId: "user-msg-1",
+					lifecycle: expect.objectContaining({
+						family: expect.objectContaining({
+							familyId: "atlas-job-1",
+							mode: "new_family",
 						}),
 					}),
 				}),
-			);
-			expect(mocks.buildAtlasLifecycleContext).toHaveBeenCalledWith({
+			}),
+		);
+		expect(mocks.buildAtlasLifecycleContext).toHaveBeenCalledWith({
+			jobId: "atlas-job-1",
+			userId: "user-1",
+			action: "create",
+			parentAtlasJobId: null,
+		});
+		expect(mocks.completeAtlasJob).toHaveBeenCalledWith(
+			expect.objectContaining({
 				jobId: "atlas-job-1",
-				userId: "user-1",
-				action: "create",
-				parentAtlasJobId: null,
-			});
-			expect(mocks.completeAtlasJob).toHaveBeenCalledWith(
-				expect.objectContaining({
-					jobId: "atlas-job-1",
-					workerId: "atlas-worker-1",
-					stage: "render",
-					progressPercent: 100,
-					fileProductionJobId: "fp-job-1",
-					htmlChatGeneratedFileId: "file-html",
-					pdfChatGeneratedFileId: "file-pdf",
-					markdownChatGeneratedFileId: "file-md",
-				}),
-			);
-			expect(mocks.failAtlasJob).not.toHaveBeenCalled();
-		},
-	);
+				workerId: "atlas-worker-1",
+				stage: "render",
+				progressPercent: 100,
+				fileProductionJobId: "fp-job-1",
+				htmlChatGeneratedFileId: "file-html",
+				pdfChatGeneratedFileId: "file-pdf",
+				markdownChatGeneratedFileId: "file-md",
+			}),
+		);
+		expect(mocks.failAtlasJob).not.toHaveBeenCalled();
+	});
 
 	it("passes null kickoffUserMessageId through when the query cannot be traced to a user message", async () => {
 		mocks.claimNextAtlasJob.mockResolvedValueOnce({

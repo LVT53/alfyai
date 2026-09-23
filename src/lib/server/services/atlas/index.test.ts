@@ -420,7 +420,6 @@ describe("Atlas persistence foundation", () => {
 		});
 	});
 
-
 	it("returns polling-safe Atlas job cards without raw internal metadata", async () => {
 		const { db } = await import("$lib/server/db");
 		const now = new Date("2026-06-19T12:03:00.000Z");

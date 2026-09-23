@@ -8,10 +8,7 @@ import { recordAtlasJobAnalytics } from "$lib/server/services/analytics";
 import { notifyAtlasCompletion } from "$lib/server/services/browser-push";
 import { AtlasV3PipelineError } from "../atlas-v3/types";
 import { runAtlasV3PipelineForClaimedJob } from "../atlas-v3/worker-bindings";
-import {
-	buildAtlasLifecycleContext,
-	writeAtlasRoundCheckpoint,
-} from "./checkpoints";
+import { buildAtlasLifecycleContext } from "./checkpoints";
 import {
 	DEFAULT_ATLAS_GLOBAL_ACTIVE_LIMIT,
 	DEFAULT_ATLAS_PER_USER_ACTIVE_LIMIT,
@@ -95,9 +92,9 @@ export async function executeNextAtlasJob(
 
 	try {
 		const config = getConfig();
-		const resolved = await (
-			input.resolveJobQuery ?? resolveAtlasJobQuery
-		)(claimed.job);
+		const resolved = await (input.resolveJobQuery ?? resolveAtlasJobQuery)(
+			claimed.job,
+		);
 		const query = resolved.query?.trim() ?? "";
 		if (!query) {
 			throw new Error("Atlas kickoff message query could not be resolved.");
