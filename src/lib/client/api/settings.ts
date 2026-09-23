@@ -62,7 +62,9 @@ export type CommandOrSkillActivityKind =
 	| "skill_use"
 	| "composer_command"
 	| "follow_up_click"
-	| "answer_now";
+	| "answer_now"
+	| "regenerate"
+	| "edit_resend";
 
 export interface CommandOrSkillActivitySummary {
 	kind: CommandOrSkillActivityKind;
