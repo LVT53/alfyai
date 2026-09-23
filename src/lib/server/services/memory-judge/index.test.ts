@@ -975,4 +975,100 @@ describe("Memory judge service", () => {
 		).toBe(0);
 		expect(readWatermark()).toBe(TOTAL);
 	});
+
+	it("opens an acceptable review row for an inferred fact, and Accept promotes it to active with provenance", async () => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "Mentoring Anna again this week." },
+				{ role: "assistant", content: "Nice." },
+			],
+		});
+		mockControlModel({
+			decisions: [
+				{
+					action: "add",
+					statement: "I am mentoring a colleague this quarter.",
+					category: "goals_ongoing_work",
+					scope: "global",
+					confidence: "inferred",
+					expiryClass: "time_bound",
+					expiresInDays: 90,
+					sourceQuote: "Mentoring Anna again",
+				},
+			],
+		});
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		await expect(
+			runMemoryJudgeOnSegment({
+				userId: "u1",
+				conversationId: "c1",
+				trigger: "idle",
+			}),
+		).resolves.toMatchObject({ status: "ran", review: 1 });
+
+		const { getMemoryProfileReadModel } = await import(
+			"../memory-profile/read-model"
+		);
+		const before = await getMemoryProfileReadModel({ userId: "u1" });
+		expect(before.review.visibleItems).toEqual([
+			expect.objectContaining({
+				subject: "I am mentoring a colleague this quarter.",
+				canAccept: true,
+			}),
+		]);
+		const { db: svcDb } = await import("$lib/server/db");
+		const reviewRow = svcDb.select().from(schema.memoryReviewItems).all()[0];
+		expect(JSON.parse(reviewRow.metadataJson)).toMatchObject({
+			category: "goals_ongoing_work",
+			proposedStatement: "I am mentoring a colleague this quarter.",
+		});
+
+		const { applyMemoryReviewItemWithRevision } = await import(
+			"../memory-profile/review"
+		);
+		const accepted = await applyMemoryReviewItemWithRevision({
+			userId: "u1",
+			reviewItemId: before.review.visibleItems[0]?.id ?? "",
+			expectedProjectionRevision: before.projectionRevision,
+			action: "accept",
+		});
+		expect(accepted).toMatchObject({
+			status: "updated",
+			category: "goals_ongoing_work",
+		});
+		const itemId = accepted.status === "updated" ? accepted.itemId : "";
+		const item = svcDb
+			.select()
+			.from(schema.memoryProfileItems)
+			.where(eq(schema.memoryProfileItems.id, itemId as string))
+			.all()[0];
+		expect(item.status).toBe("active");
+		const expiresMs = (item.expiresAt as Date).getTime();
+		expect(Math.abs(expiresMs - (Date.now() + 90 * 86_400_000))).toBeLessThan(
+			86_400_000,
+		);
+		const provenance = svcDb
+			.select()
+			.from(schema.memoryProfileItemProvenance)
+			.where(eq(schema.memoryProfileItemProvenance.itemId, item.id))
+			.all();
+		expect(provenance).toEqual([
+			expect.objectContaining({
+				sourceType: "conversation",
+				sourceId: "c1",
+			}),
+		]);
+		expect(
+			svcDb
+				.select()
+				.from(schema.memoryProfileItems)
+				.where(eq(schema.memoryProfileItems.status, "review_needed"))
+				.all(),
+		).toEqual([]);
+	});
 });

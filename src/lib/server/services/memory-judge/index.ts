@@ -12,7 +12,10 @@ import {
 	updateMemoryProfileItemWithRevision,
 } from "../memory-profile/projection-store";
 import { getMemoryProfileReadModel } from "../memory-profile/read-model";
-import { createOrUpdateMemoryReviewItem } from "../memory-profile/review";
+import {
+	createOrUpdateMemoryReviewItem,
+	JUDGE_REVIEW_SUBJECT_PREFIX,
+} from "../memory-profile/review";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
 import { isUserAuthoredMemoryMetadata } from "../memory-profile/types";
 import { getConversationProjectId } from "../projects";
@@ -314,13 +317,25 @@ export async function runMemoryJudgeOnSegment(params: {
 				new Date(Date.now() + REVIEW_EXPIRY_DAYS * DAY_MS),
 			);
 			await addProvenanceForItem(params, item.id, d);
+			// The row carries the proposed statement and intake category so the
+			// review queue can offer Accept (review.ts promotes the affected item
+			// in place, keeping this category, scope, and provenance).
 			await createOrUpdateMemoryReviewItem({
 				userId: params.userId,
-				subjectKey: `judge:${item.itemKey}`,
+				subjectKey: `${JUDGE_REVIEW_SUBJECT_PREFIX}${item.itemKey}`,
 				subjectLabel: d.statement,
 				question: "Should I keep remembering this?",
 				reason: "Inferred from conversation, not stated directly.",
 				affectedItemIds: [item.id],
+				metadata: {
+					source: "memory_judge",
+					category: d.category,
+					proposedStatement: d.statement,
+					expiryClass: d.expiryClass,
+					...(d.expiryClass === "time_bound" && d.expiresInDays
+						? { expiresInDays: d.expiresInDays }
+						: {}),
+				},
 			});
 			openReview++;
 			review++;
