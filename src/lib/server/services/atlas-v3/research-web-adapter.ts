@@ -8,6 +8,7 @@
 //
 //   search(question, queries) -> hits with excerpts, nothing read
 //   read(url)                 -> page text for ONE chosen URL
+//   read(url, { fresh: true }) -> the same, as the page is NOW (a seed recheck)
 //
 // Everything else is v2's: the same cache key shape as the chat tool, so a
 // question Atlas researches and a question the user then asks in chat cost
@@ -19,7 +20,10 @@ import {
 	getCachedToolResult,
 	setCachedToolResult,
 } from "$lib/server/services/normal-chat-tools/tool-result-cache";
-import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
+import {
+	fetchUrlViaParallel,
+	PARALLEL_MIN_MAX_AGE_SECONDS,
+} from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import { buildGroundedWebPageFromFetch } from "$lib/server/services/web-grounding";
 
@@ -53,9 +57,24 @@ export interface AtlasV3ReadResult {
 	cached: boolean;
 }
 
+export interface AtlasV3ReadOptions {
+	/**
+	 * Read the page as it is NOW. Skips the per-conversation tool-result cache
+	 * (a Revise minutes after its parent would otherwise re-read the parent's
+	 * copy) and asks Parallel for content at most ten minutes old with no
+	 * fallback to an older cached copy, so a recheck that cannot reach the live
+	 * page reports it unreachable instead of confirming stale text. The fresh
+	 * result is still written to the cache.
+	 */
+	fresh?: boolean;
+}
+
 export interface AtlasV3ResearchWeb {
 	search: (request: AtlasV3SearchRequest) => Promise<AtlasV3SearchResult>;
-	read: (url: string) => Promise<AtlasV3ReadResult>;
+	read: (
+		url: string,
+		options?: AtlasV3ReadOptions,
+	) => Promise<AtlasV3ReadResult>;
 }
 
 export interface CreateAtlasV3ResearchWebInput {
@@ -118,18 +137,26 @@ export function createAtlasV3ResearchWeb(
 			return adapted;
 		},
 
-		read: async (url) => {
+		read: async (url, options) => {
 			const cacheKey = buildToolResultCacheKey({
 				conversationId: input.conversationId,
 				toolName: "fetch_url",
 				input: { urls: [url] },
 			});
-			const cached = getCachedToolResult<AtlasV3ReadResult>(cacheKey);
-			if (cached) return { ...cached, cached: true };
+			if (!options?.fresh) {
+				const cached = getCachedToolResult<AtlasV3ReadResult>(cacheKey);
+				if (cached) return { ...cached, cached: true };
+			}
 			try {
 				const fetched = await fetchUrlViaParallel({ urls: [url] }, deps(), {
 					sessionId: input.sessionId,
 					maxCharsTotal: ATLAS_V3_PAGE_CHAR_CAP,
+					...(options?.fresh
+						? {
+								maxAgeSeconds: PARALLEL_MIN_MAX_AGE_SECONDS,
+								disableCacheFallback: true,
+							}
+						: {}),
 				});
 				input.recordUsage?.("fetch_url");
 				const page = buildGroundedWebPageFromFetch(fetched);

@@ -37,6 +37,14 @@ const DEFAULT_ANSWER_BRIEF_CHARS_TOTAL = 60_000;
 // needs sub-day freshness.
 const DEFAULT_MAX_AGE_SECONDS = 86_400;
 
+/**
+ * The smallest `fetch_policy.max_age_seconds` the Extract API accepts. A caller
+ * that must see the page as it is NOW (an Atlas seed recheck) asks for this
+ * and disables the stale-cache fallback, so a failed live fetch is reported as
+ * a failure instead of silently answered from an older cached copy.
+ */
+export const PARALLEL_MIN_MAX_AGE_SECONDS = 600;
+
 export interface FetchUrlRequest {
 	urls: string[];
 	objective?: string;
@@ -52,6 +60,10 @@ export interface FetchUrlOptions {
 	sessionId?: string;
 	maxCharsTotal?: number;
 	searchQueries?: string[];
+	/** Overrides the 24-hour cached-content default; see the constant above. */
+	maxAgeSeconds?: number;
+	/** Error instead of falling back to content older than `maxAgeSeconds`. */
+	disableCacheFallback?: boolean;
 }
 
 // Truncate a page body to a per-page character budget, appending an ellipsis
@@ -168,7 +180,8 @@ export async function fetchUrlViaParallel(
 			// the brief below — this field is passed through but is not the cap that
 			// governs what the model sees.
 			fullContent: true,
-			maxAgeSeconds: DEFAULT_MAX_AGE_SECONDS,
+			maxAgeSeconds: opts?.maxAgeSeconds ?? DEFAULT_MAX_AGE_SECONDS,
+			...(opts?.disableCacheFallback ? { disableCacheFallback: true } : {}),
 			...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
 			...(opts?.maxCharsTotal ? { maxCharsTotal: opts.maxCharsTotal } : {}),
 			...(opts?.searchQueries?.length

@@ -574,4 +574,39 @@ describe("fetchUrlViaParallel", () => {
 
 		expect(capturedInit?.signal).toBe(controller.signal);
 	});
+	it("passes a caller's fetch policy through to Parallel", async () => {
+		let body: { advanced_settings?: Record<string, unknown> } | undefined;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				body = JSON.parse(init?.body as string);
+				return extractResponse();
+			},
+		);
+		await fetchUrlViaParallel(
+			{ urls: ["https://example.com/a"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+			{ maxAgeSeconds: 600, disableCacheFallback: true },
+		);
+		expect(body?.advanced_settings?.fetch_policy).toEqual({
+			max_age_seconds: 600,
+			disable_cache_fallback: true,
+		});
+	});
+
+	it("defaults to a 24-hour cached copy with the stale fallback allowed", async () => {
+		let body: { advanced_settings?: Record<string, unknown> } | undefined;
+		const fetchMock = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				body = JSON.parse(init?.body as string);
+				return extractResponse();
+			},
+		);
+		await fetchUrlViaParallel(
+			{ urls: ["https://example.com/a"] },
+			{ fetch: fetchMock as unknown as typeof fetch, config },
+		);
+		expect(body?.advanced_settings?.fetch_policy).toEqual({
+			max_age_seconds: 86_400,
+		});
+	});
 });
