@@ -904,4 +904,63 @@ describe("conversations store", () => {
 			}),
 		);
 	});
+
+	it("removes a conversation whose delete response was lost but the server deleted it", async () => {
+		conversations.set([conversationItem("conv-1", "Chat", 123)]);
+		vi.mocked(fetch)
+			.mockRejectedValueOnce(new TypeError("Load failed"))
+			.mockResolvedValueOnce(
+				jsonResponse({ error: "Conversation not found" }, { status: 404 }),
+			);
+
+		await deleteConversationById("conv-1");
+
+		expect(fetch).toHaveBeenLastCalledWith("/api/conversations/conv-1");
+		expect(get(conversations)).toEqual([]);
+	});
+
+	it("treats a 404 delete as already deleted", async () => {
+		conversations.set([conversationItem("conv-1", "Chat", 123)]);
+		vi.mocked(fetch).mockResolvedValueOnce(
+			jsonResponse({ error: "Conversation not found" }, { status: 404 }),
+		);
+
+		await deleteConversationById("conv-1");
+
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(get(conversations)).toEqual([]);
+	});
+
+	it("keeps a conversation and rethrows when the failed delete left it on the server", async () => {
+		conversations.set([conversationItem("conv-1", "Chat", 123)]);
+		vi.mocked(fetch)
+			.mockResolvedValueOnce(
+				jsonResponse(
+					{ error: "Failed to fully delete conversation" },
+					{ status: 500 },
+				),
+			)
+			.mockResolvedValueOnce(jsonResponse({ conversation: { id: "conv-1" } }));
+
+		await expect(deleteConversationById("conv-1")).rejects.toThrow(
+			"Failed to fully delete conversation",
+		);
+		expect(get(conversations)).toEqual([
+			conversationItem("conv-1", "Chat", 123),
+		]);
+	});
+
+	it("removes the conversation from the sidebar even when workspace cleanup throws", async () => {
+		conversations.set([conversationItem("conv-1", "Chat", 123)]);
+		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ success: true }));
+		vi.mocked(window.sessionStorage.getItem).mockImplementationOnce(() => {
+			throw new DOMException("denied", "SecurityError");
+		});
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await deleteConversationById("conv-1");
+
+		expect(get(conversations)).toEqual([]);
+		expect(vi.mocked(window.dispatchEvent)).toHaveBeenCalled();
+	});
 });

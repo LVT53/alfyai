@@ -1,5 +1,6 @@
 import { writable } from "svelte/store";
 import {
+	conversationExists,
 	createConversation,
 	deleteConversation,
 	fetchConversations,
@@ -8,6 +9,7 @@ import {
 	savePinnedConversationSidebarOrder,
 	setConversationSidebarPinned,
 } from "$lib/client/api/conversations";
+import { ApiError } from "$lib/client/api/http";
 import {
 	dispatchWorkspaceConversationDeleted,
 	removeConversationFromPersistedWorkspaceDocumentState,
@@ -492,22 +494,43 @@ export function removeConversationLocal(id: string): void {
 }
 
 export async function deleteConversationById(id: string): Promise<void> {
-	await deleteConversation(id);
+	try {
+		await deleteConversation(id);
+	} catch (error) {
+		// A failed request does not prove the conversation survived: the
+		// connection can drop after the server finished the delete, and a
+		// repeated tap answers 404 for a row the first one already removed.
+		// Ask the server before reporting failure, so the sidebar never keeps
+		// a conversation that is gone until the next full page load.
+		if (!(await wasConversationDeleted(id, error))) throw error;
+	}
+
+	// The server row is gone; the sidebar must follow before anything else
+	// can throw. Workspace cleanup below is best effort.
+	removeConversationLocal(id);
+
 	if (typeof window !== "undefined") {
-		removeConversationFromPersistedWorkspaceDocumentState(
-			window.sessionStorage,
-			id,
-		);
+		try {
+			removeConversationFromPersistedWorkspaceDocumentState(
+				window.sessionStorage,
+				id,
+			);
+		} catch (error) {
+			console.warn("Workspace cleanup after conversation delete failed", error);
+		}
 		dispatchWorkspaceConversationDeleted(id);
 	}
-	optimisticConversationIds.delete(id);
-	deletedConversationIds.add(id);
-	localConversationProjectIds.delete(id);
-	localConversationSidebarStates.delete(id);
-	localConversationMemoryIncognito.delete(id);
-	conversations.update((items) =>
-		items.filter((conversation) => conversation.id !== id),
-	);
+}
+
+async function wasConversationDeleted(
+	id: string,
+	error: unknown,
+): Promise<boolean> {
+	if (error instanceof ApiError) {
+		if (error.status === 404) return true;
+		if (error.status === 401) return false;
+	}
+	return (await conversationExists(id)) === false;
 }
 
 export async function renameConversation(
