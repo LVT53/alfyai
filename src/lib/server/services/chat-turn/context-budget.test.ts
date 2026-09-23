@@ -261,12 +261,65 @@ describe("deriveModelContextBudget", () => {
 		});
 		expect(broadTaskDepth.depth).toBe("task");
 		expect(broadTaskDepth.perArtifactLimit).toBe(8);
-		expect(broadTaskDepth.totalBudget).toBeGreaterThan(
+		expect(broadTaskDepth.totalCharBudget).toBeGreaterThan(
 			taskDepth.perArtifactCharBudget,
 		);
 		expect(broadTaskDepth.perArtifactCharBudget).toBeLessThan(
 			taskDepth.perArtifactCharBudget,
 		);
 		expect(broadTaskDepth.perArtifactCharBudget).toBeGreaterThan(1_400);
+	});
+
+	it("sizes document text for the default context window in characters, with a separate token cap", () => {
+		const defaultContext = deriveModelContextBudget({
+			maxModelContext: 262_144,
+			targetConstructedContext: 157_286,
+			compactionUiThreshold: 209_715,
+		});
+		const sizes = (["reference", "answer", "task", "direct"] as const).map(
+			(intent) => {
+				const budget = deriveDocumentContextDepthBudget({
+					contextBudget: defaultContext,
+					documentCount: 1,
+					intent,
+				});
+				return {
+					intent,
+					perArtifactCharBudget: budget.perArtifactCharBudget,
+					totalCharBudget: budget.totalCharBudget,
+					totalTokenBudget: budget.totalTokenBudget,
+				};
+			},
+		);
+
+		// Pinned: these are the per-document excerpt sizes that reach the model
+		// on a default 262k-context model. Changing them changes how much
+		// document text every document-grounded turn carries.
+		expect(sizes).toEqual([
+			{
+				intent: "reference",
+				perArtifactCharBudget: 1_400,
+				totalCharBudget: 8_918,
+				totalTokenBudget: 8_918,
+			},
+			{
+				intent: "answer",
+				perArtifactCharBudget: 18_000,
+				totalCharBudget: 22_295,
+				totalTokenBudget: 22_295,
+			},
+			{
+				intent: "task",
+				perArtifactCharBudget: 42_113,
+				totalCharBudget: 42_113,
+				totalTokenBudget: 42_113,
+			},
+			{
+				intent: "direct",
+				perArtifactCharBudget: 46_006,
+				totalCharBudget: 46_006,
+				totalTokenBudget: 46_006,
+			},
+		]);
 	});
 });

@@ -786,6 +786,80 @@ describe("buildConstructedContext", () => {
 		expect(mocks.selectWorkingSetArtifactsForPrompt).not.toHaveBeenCalled();
 	});
 
+	it("reports the native history window after the compression boundary, counting dropped turns", async () => {
+		resetConstructedContextMocks();
+		mocks.getConfig.mockReturnValue({
+			contextDiagnosticsDebug: false,
+			nativeHistoryEnabled: true,
+		});
+		const long = "detail ".repeat(3_000);
+		mocks.listMessages.mockResolvedValue([
+			{ id: "u1", role: "user", content: "COVERED_BY_SNAPSHOT", timestamp: 1 },
+			{ id: "a1", role: "assistant", content: "Covered answer.", timestamp: 2 },
+			{ id: "u2", role: "user", content: "OLDEST_KEPT_QUESTION", timestamp: 3 },
+			{ id: "a2", role: "assistant", content: long, timestamp: 4 },
+			{ id: "u3", role: "user", content: "MIDDLE_QUESTION", timestamp: 5 },
+			{ id: "a3", role: "assistant", content: long, timestamp: 6 },
+			{ id: "u4", role: "user", content: "NEWEST_QUESTION", timestamp: 7 },
+			{ id: "a4", role: "assistant", content: long, timestamp: 8 },
+		]);
+		mocks.listContextCompressionSourceMessages.mockResolvedValue(
+			["u1", "a1", "u2", "a2", "u3", "a3", "u4", "a4"].map((id, index) => ({
+				id,
+				messageSequence: index + 1,
+			})),
+		);
+		mocks.getConversationSummary.mockResolvedValue(null);
+		mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue({
+			id: "snapshot-1",
+			conversationId: "conversation-1",
+			userId: "user-1",
+			trigger: "automatic",
+			status: "valid",
+			modelId: "model1",
+			sourceStartMessageId: "u1",
+			sourceEndMessageId: "a1",
+			sourceStartMessageSequence: 1,
+			sourceEndMessageSequence: 2,
+			snapshot: {
+				goal: "Keep compressed continuity.",
+				currentState: "The first exchange is summarized.",
+				importantFacts: ["SNAPSHOT_FACT"],
+			},
+			sourceCoverage: {},
+			sourceRefs: [],
+			estimatedTokens: 32,
+			sourceTokenEstimate: 64,
+			failureReason: null,
+			createdAt: new Date("2026-05-15T10:00:00.000Z"),
+			updatedAt: new Date("2026-05-15T10:00:00.000Z"),
+		});
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Thanks.",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 16_000,
+				compactionUiThreshold: 12_000,
+				// History budget = 65% of 8,000 = 5,200 tokens: room for one
+				// ~3,000-token assistant answer beyond the newest turn, not two.
+				targetConstructedContext: 8_000,
+			},
+		});
+
+		const history = JSON.stringify(constructed.historyMessages);
+		expect(constructed.inputValue).toContain("SNAPSHOT_FACT");
+		expect(history).not.toContain("COVERED_BY_SNAPSHOT");
+		expect(history).toContain("NEWEST_QUESTION");
+		expect(history).not.toContain("OLDEST_KEPT_QUESTION");
+		expect(constructed.historyWindow).toEqual({
+			includedTurnCount: 1,
+			omittedTurnCount: 2,
+		});
+	});
+
 	it("preserves shallow fork provenance when compression filters inherited fork copies from the prompt", async () => {
 		resetConstructedContextMocks();
 		mocks.listMessages.mockResolvedValue([
@@ -1113,6 +1187,73 @@ describe("buildConstructedContext", () => {
 		);
 		expect(mocks.getActiveMemoryProfileContext).toHaveBeenCalled();
 		expect(mocks.selectWorkingSetArtifactsForPrompt).toHaveBeenCalled();
+	});
+
+	it("caps each retrieved document at the per-artifact character budget even without a prepared snippet", async () => {
+		resetConstructedContextMocks();
+		const evidence = artifact({
+			id: "long-evidence",
+			name: "long-evidence.md",
+			// Word-shaped text: the repo estimator counts ~2-3 chars per token,
+			// so a character budget misread as tokens lets several times more
+			// text through than the budget allows.
+			contentText: "alpha beta gamma delta ".repeat(20_000),
+		});
+		mocks.resolvePromptAttachmentArtifacts.mockResolvedValue({
+			displayArtifacts: [],
+			promptArtifacts: [],
+			items: [],
+			unresolvedItems: [],
+		});
+		mocks.selectWorkingSetArtifactsForPrompt.mockResolvedValue([evidence]);
+		mocks.prepareTaskContext.mockResolvedValue({
+			taskState: null,
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "verified",
+			selectedArtifacts: [evidence],
+			pinnedArtifactIds: [],
+			excludedArtifactIds: [],
+		});
+		// Snippet preparation failing leaves the serializer to excerpt the raw
+		// document text itself.
+		mocks.getPromptArtifactSnippets.mockRejectedValue(
+			new Error("chunk store unavailable"),
+		);
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Compare the retrieved evidence and summarize the differences.",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 262_144,
+				compactionUiThreshold: 209_715,
+				targetConstructedContext: 157_286,
+			},
+		});
+
+		const perArtifactChars = Number(
+			constructed.contextTraceSections
+				.flatMap((section) => section.signalReasons ?? [])
+				.find((reason) =>
+					reason.startsWith("document_context_per_artifact_chars:"),
+				)
+				?.split(":")[1],
+		);
+		expect(perArtifactChars).toBeGreaterThan(0);
+		const retrievedEvidence =
+			constructed.inputValue
+				.split("## Retrieved Evidence\n")
+				.at(1)
+				?.split("\n\n## ")
+				.at(0) ?? "";
+		const excerpt = retrievedEvidence.replace(
+			"Document: long-evidence.md\n",
+			"",
+		);
+		expect(excerpt).toContain("alpha beta");
+		expect(excerpt.length).toBeLessThanOrEqual(perArtifactChars);
 	});
 
 	it("does not clamp retrieved evidence to legacy working-set floors on large-context models", async () => {

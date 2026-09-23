@@ -10,6 +10,7 @@ import {
 } from "$lib/server/services/chat-turn/normal-chat-tool-gating";
 import { resolveReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
+import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
 import { detectLanguage } from "$lib/server/services/language";
 import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
@@ -299,6 +300,21 @@ async function ensureBuiltInSystemSkillsSeeded(userId: string): Promise<void> {
 	await builtInSystemSkillSeed;
 }
 
+// Automatic context compression (normal-chat-context.ts) summarizes the
+// conversation through the same JSON control call the manual compression
+// route uses. Loaded lazily: it only runs on the rare turn whose context no
+// longer fits, so ordinary turns never load the control-model module for it.
+const sendCompressionControlMessage: ContextCompressionControlSender = async (
+	message,
+	modelId,
+	options,
+) => {
+	const { sendJsonControlMessage } = await import(
+		"$lib/server/services/normal-chat-control-model"
+	);
+	return sendJsonControlMessage(message, modelId, options);
+};
+
 export async function prepareOutboundContext(
 	params: NormalChatSendModelBaseParams,
 	runtime: ProviderRuntime,
@@ -333,6 +349,10 @@ export async function prepareOutboundContext(
 			}),
 		modelId: runtime.modelId,
 		contextLimits: runtime.baseContextLimits,
+		// Without a sender the automatic compression stage reports
+		// `missing_control_message_sender` and never compresses.
+		compressionControlMessageSender: sendCompressionControlMessage,
+		signal: params.signal,
 		reasoningDepthEffort: activeDepthEffort ?? undefined,
 		activeConnectionCapabilities: enabledConnectionCapabilities,
 		historyToolMessages: resolveHistoryToolMessagesMode(runtime.provider),

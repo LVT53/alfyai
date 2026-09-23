@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 	prepareOutboundChatContext: vi.fn(),
 	listSkillCatalogueEntries: vi.fn(),
 	seedBuiltInSystemSkillDefinitions: vi.fn(),
+	sendJsonControlMessage: vi.fn(),
 }));
 
 vi.mock("$lib/server/services/skills/prompt-context", () => ({
@@ -23,6 +24,10 @@ vi.mock("$lib/server/services/skills/prompt-context", () => ({
 
 vi.mock("$lib/server/services/skills/user-skills", () => ({
 	seedBuiltInSystemSkillDefinitions: mocks.seedBuiltInSystemSkillDefinitions,
+}));
+
+vi.mock("$lib/server/services/normal-chat-control-model", () => ({
+	sendJsonControlMessage: mocks.sendJsonControlMessage,
 }));
 
 vi.mock("$lib/server/services/normal-chat-context", async (importOriginal) => {
@@ -287,5 +292,61 @@ describe("depth profiles keep per-model context and output budgets fixed", () =>
 		expect(
 			mocks.prepareOutboundChatContext.mock.lastCall?.[0].skillCatalogueBlock,
 		).toContain("## Skills available");
+	});
+});
+
+describe("prepareOutboundContext automatic context compression wiring", () => {
+	beforeEach(() => {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+	});
+
+	// Automatic compression returns `missing_control_message_sender` without
+	// ever measuring the prompt when no sender is injected. The chat turn is
+	// its only production caller, so the turn must hand context preparation
+	// the same JSON control sender the manual compression route uses.
+	it("hands context preparation the JSON control sender and the turn's abort signal", async () => {
+		const params = {
+			userId: "user-1",
+			runtimeConfig,
+			message: "Continue where we left off.",
+			conversationId: "conv-1",
+			modelId: "model1" as const,
+			user: { id: "user-1" },
+			signal: new AbortController().signal,
+		};
+		const runtime = await resolveProviderRuntime({
+			...params,
+			overrideProvider: {
+				id: "provider-1",
+				name: "local",
+				displayName: "Local",
+				baseUrl: "http://local-model/v1",
+				modelName: "local-model",
+				apiKey: "local-key",
+			} as NormalChatModelRunProvider,
+		});
+		mocks.sendJsonControlMessage.mockResolvedValue({ text: "{}" });
+
+		await prepareOutboundContext(params, runtime, null, new Set());
+
+		const call = mocks.prepareOutboundChatContext.mock.lastCall?.[0];
+		expect(call.signal).toBe(params.signal);
+		const options = { systemPrompt: "compress" };
+		await expect(
+			call.compressionControlMessageSender("payload", "model1", options),
+		).resolves.toEqual({ text: "{}" });
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledWith(
+			"payload",
+			"model1",
+			options,
+		);
 	});
 });

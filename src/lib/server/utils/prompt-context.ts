@@ -60,6 +60,25 @@ export function truncateToTokenBudget(text: string, maxTokens: number): string {
 	return best ? `${best}${suffix}` : "[truncated]";
 }
 
+/**
+ * Clip `text` to at most `maxChars` characters, keeping its line structure and
+ * marking the cut the same way `truncateToTokenBudget` does. The character
+ * counterpart of `truncateToTokenBudget` for budgets that are denominated in
+ * characters (document excerpt sizes), so a character count is never fed to a
+ * token truncator.
+ */
+export function truncateToCharBudget(text: string, maxChars: number): string {
+	if (text.length <= maxChars) return text;
+	if (maxChars <= 0) return "";
+
+	const suffix = "\n...[truncated]";
+	const contentBudget = maxChars - suffix.length;
+	if (contentBudget <= 0) return text.slice(0, maxChars).trim();
+
+	const clipped = text.slice(0, contentBudget).trim();
+	return clipped ? `${clipped}${suffix}` : "";
+}
+
 export function buildContextSection(title: string, body: string): string {
 	const trimmed = body.trim();
 	return trimmed ? `## ${title}\n${trimmed}` : "";
@@ -363,9 +382,17 @@ export function extractSerializedAttachmentBody(serialized: string): string {
 export function serializeWorkingSetArtifacts(params: {
 	artifacts: Artifact[];
 	snippets?: Map<string, string>;
-	totalBudget: number;
-	documentBudget: number;
-	outputBudget: number;
+	/** Token budget for the whole serialized section, headers included. */
+	totalTokenBudget: number;
+	/** Per-item token cap for source documents. */
+	documentTokenBudget: number;
+	/** Per-item token cap for generated outputs. */
+	outputTokenBudget: number;
+	/**
+	 * Per-item character cap, applied before token budgeting. Document depth
+	 * budgets are sized in characters; pass them here, never as a token budget.
+	 */
+	perArtifactCharBudget?: number;
 }): string {
 	const snippets = params.snippets ?? new Map<string, string>();
 	const parts: string[] = [];
@@ -377,20 +404,26 @@ export function serializeWorkingSetArtifacts(params: {
 	}> = [];
 
 	for (const artifact of params.artifacts) {
-		const excerptSource =
+		const rawExcerptSource =
 			snippets.get(artifact.id) ??
 			artifact.contentText ??
 			artifact.summary ??
 			artifact.name;
+		const excerptSource =
+			params.perArtifactCharBudget === undefined
+				? rawExcerptSource
+				: truncateToCharBudget(rawExcerptSource, params.perArtifactCharBudget);
 		const perArtifactBudget =
 			artifact.type === "generated_output"
-				? params.outputBudget
-				: params.documentBudget;
+				? params.outputTokenBudget
+				: params.documentTokenBudget;
 		const kind = artifact.type === "generated_output" ? "Result" : "Document";
 		const header = `${kind}: ${artifact.name}`;
 		const candidateParts = [...parts, header];
 
-		if (estimateTokenCount(candidateParts.join("\n\n")) > params.totalBudget) {
+		if (
+			estimateTokenCount(candidateParts.join("\n\n")) > params.totalTokenBudget
+		) {
 			continue;
 		}
 
@@ -406,7 +439,7 @@ export function serializeWorkingSetArtifacts(params: {
 	if (selected.length === 0) return "";
 
 	const headerTokens = estimateTokenCount(parts.join("\n\n"));
-	const contentBudget = Math.max(0, params.totalBudget - headerTokens);
+	const contentBudget = Math.max(0, params.totalTokenBudget - headerTokens);
 	const fairShareBudget = Math.floor(contentBudget / selected.length);
 	let remainderBudget = contentBudget % selected.length;
 

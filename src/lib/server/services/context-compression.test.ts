@@ -383,6 +383,82 @@ describe("context compression snapshots", () => {
 		);
 	});
 
+	it("sends the control model tool-call digests, not stored reasoning or raw tool payloads", async () => {
+		seedConversationWithMessages();
+		mocks.sendJsonControlMessage.mockResolvedValue(
+			createCompressionControlResponse({
+				goal: "Keep answering the user's original question.",
+				currentState: "The assistant answered using one web search.",
+				sourceCoverage: { messageIds: ["message-1", "message-2"] },
+			}),
+		);
+		const { runContextCompression } = await import("./context-compression");
+		const [question, answer] = createDefaultSourceMessages();
+
+		await runContextCompression({
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic",
+			selectedModelId: "model1",
+			controlMessageSender: mocks.sendJsonControlMessage,
+			sourceMessages: [
+				question,
+				{
+					...answer,
+					thinking: "PRIVATE_REASONING_TEXT",
+					toolCalls: JSON.stringify([
+						{ type: "text", content: "PRIVATE_REASONING_SEGMENT" },
+						{
+							type: "status",
+							id: "s1",
+							label: "Searching",
+							status: "done",
+						},
+						{
+							type: "tool_call",
+							callId: "call-1",
+							name: "research_web",
+							input: { query: "launch date" },
+							status: "done",
+							outputSummary: "Found 1 source",
+							resultDigest: "The launch is on 12 May.",
+							candidates: [
+								{
+									id: "c1",
+									title: "Launch notice",
+									url: "https://example.com/launch",
+									snippet: "RAW_CANDIDATE_SNIPPET",
+								},
+							],
+							map: { RAW_MAP_PAYLOAD: true },
+						},
+					]),
+				},
+			],
+		});
+
+		const prompt = String(mocks.sendJsonControlMessage.mock.calls[0]?.[0]);
+		const payload = JSON.parse(prompt.slice(prompt.indexOf("{")));
+		expect(payload.sourceMessages[1].toolCalls).toEqual([
+			{
+				name: "research_web",
+				input: { query: "launch date" },
+				result: {
+					ok: true,
+					summary: "Found 1 source",
+					detail: "The launch is on 12 May.",
+					sources: [
+						{ title: "Launch notice", url: "https://example.com/launch" },
+					],
+				},
+			},
+		]);
+		expect(payload.sourceMessages[0].toolCalls).toBeNull();
+		expect(prompt).not.toContain("PRIVATE_REASONING");
+		expect(prompt).not.toContain("RAW_CANDIDATE_SNIPPET");
+		expect(prompt).not.toContain("RAW_MAP_PAYLOAD");
+	});
+
 	it("accepts a meaningful compression snapshot when the model omits app-owned empty fields and source coverage", async () => {
 		seedConversationWithMessages();
 		mocks.sendJsonControlMessage.mockResolvedValue(
@@ -870,6 +946,77 @@ describe("context compression snapshots", () => {
 				failureReason: expect.stringContaining("<thinking>"),
 			}),
 		);
+	});
+
+	it("asks the model to cover only this pass's messages and carries the prior snapshot's coverage itself", async () => {
+		seedConversationWithLegacyUnsequencedMessages();
+		// A long, repeatedly compressed conversation: echoing every id the
+		// chain ever covered (~20 output tokens each) would not fit the 8,192
+		// output tokens the control call gets, so compression would fail on
+		// every attempt once a chat is long enough to need it most.
+		const earlierIds = Array.from(
+			{ length: 400 },
+			(_, index) => `earlier-${index + 1}`,
+		);
+		const now = new Date();
+		const priorSnapshot = {
+			id: "snapshot-prior",
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic" as const,
+			status: "valid" as const,
+			modelId: "model1",
+			sourceStartMessageId: "message-1",
+			sourceEndMessageId: "message-2",
+			sourceStartMessageSequence: 1,
+			sourceEndMessageSequence: 2,
+			snapshot: {
+				goal: "Plan the launch.",
+				currentState: "The earlier turns settled the launch plan.",
+			},
+			sourceCoverage: {
+				messageIds: [...earlierIds, "message-1", "message-2"],
+			},
+			sourceRefs: [],
+			estimatedTokens: 20,
+			sourceTokenEstimate: 20_000,
+			failureReason: null,
+			createdAt: now,
+			updatedAt: now,
+		};
+		mocks.sendJsonControlMessage.mockResolvedValue(
+			createCompressionControlResponse({
+				goal: "Plan the launch and answer the first follow-up.",
+				currentState: "The first follow-up was answered on top of the plan.",
+				importantDecisions: ["Keep the launch plan from the earlier turns."],
+				importantFacts: ["The first question was answered."],
+				openTasks: ["Continue the launch plan."],
+				sourceCoverage: { messageIds: ["message-3", "message-4"] },
+			}),
+		);
+		const { runContextCompression } = await import("./context-compression");
+
+		const result = await runContextCompression({
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic",
+			selectedModelId: "model1",
+			controlMessageSender: mocks.sendJsonControlMessage,
+			sourceMessages: createLegacySourceMessages().slice(2),
+			priorSnapshot,
+		});
+
+		expect(result.status).toBe("valid");
+		expect(result.sourceCoverage.messageIds).toEqual([
+			...earlierIds,
+			"message-1",
+			"message-2",
+			"message-3",
+			"message-4",
+		]);
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledTimes(1);
+		const prompt = String(mocks.sendJsonControlMessage.mock.calls[0]?.[0]);
+		expect(prompt).not.toContain("earlier-200");
 	});
 
 	it("marks the running snapshot failed when the compression model call throws", async () => {

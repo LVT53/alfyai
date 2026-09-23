@@ -276,6 +276,17 @@ export type ConstructedContextReuseData = {
 	artifactSnippets: Map<string, string>;
 };
 
+// How much of the conversation history (after the latest valid compression
+// snapshot) made it into this turn. `omittedTurnCount > 0` means older turns
+// did not fit the session history budget and were dropped from the prompt —
+// the signal automatic context compression uses to summarize them instead
+// (normal-chat-context.ts). Counts only; the history itself travels as
+// `historyMessages` (native) or inside the packet (flattened).
+export type ConstructedContextHistoryWindow = {
+	includedTurnCount: number;
+	omittedTurnCount: number;
+};
+
 type ContextLatencyTier = "shallow" | "deep";
 
 type ContextLatencyTierResolution = {
@@ -1189,6 +1200,7 @@ async function buildShallowConstructedContext(params: {
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
+	historyWindow: ConstructedContextHistoryWindow;
 	contextStatus: ConversationContextStatus;
 	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
@@ -1357,6 +1369,10 @@ async function buildShallowConstructedContext(params: {
 	return {
 		inputValue: selectedPromptContext.inputValue,
 		historyMessages: nativeHistory.messages,
+		historyWindow: {
+			includedTurnCount: sessionTurnContext.includedTurnCount,
+			omittedTurnCount: sessionTurnContext.omittedTurnCount,
+		},
 		contextStatus: status,
 		taskState: null,
 		contextDebug: buildMinimalContextDebugState({
@@ -1385,6 +1401,7 @@ export async function buildConstructedContext(params: {
 }): Promise<{
 	inputValue: string;
 	historyMessages: ModelMessage[];
+	historyWindow: ConstructedContextHistoryWindow;
 	contextStatus: ConversationContextStatus;
 	taskState: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug: ContextDebugState | null;
@@ -1722,7 +1739,7 @@ export async function buildConstructedContext(params: {
 					query: params.message,
 					perArtifactLimit: documentDepthBudget.perArtifactLimit,
 					perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
-					totalCharBudget: documentDepthBudget.totalBudget,
+					totalCharBudget: documentDepthBudget.totalCharBudget,
 					useFullContent: documentDepthBudget.useFullContent,
 				}).catch(() => new Map<string, string>()),
 		buildActiveMemoryProfilePromptSection({
@@ -1870,9 +1887,13 @@ export async function buildConstructedContext(params: {
 			? serializeWorkingSetArtifacts({
 					artifacts: linkedSourceArtifacts,
 					snippets: artifactSnippets,
-					totalBudget: documentDepthBudget.totalBudget,
-					documentBudget: documentDepthBudget.perArtifactCharBudget,
-					outputBudget: documentDepthBudget.perArtifactCharBudget,
+					totalTokenBudget: documentDepthBudget.totalTokenBudget,
+					// No tighter per-item token cap: each linked source gets its fair
+					// share of the section's tokens, and its excerpt size is the
+					// character budget below.
+					documentTokenBudget: documentDepthBudget.totalTokenBudget,
+					outputTokenBudget: documentDepthBudget.totalTokenBudget,
+					perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
 				})
 			: "";
 	if (linkedSourceContext.trim()) {
@@ -1945,22 +1966,19 @@ export async function buildConstructedContext(params: {
 				WORKING_SET_OUTPUT_TOKEN_BUDGET,
 			),
 		});
-		const retrievedEvidenceBudget = Math.min(
+		const retrievedEvidenceTokenBudget = Math.min(
 			evidenceBudget.totalBudget,
-			documentDepthBudget.totalBudget,
-		);
-		const retrievedEvidencePerSourceBudget = Math.min(
-			evidenceBudget.perSourceBudget,
-			documentDepthBudget.perArtifactCharBudget,
+			documentDepthBudget.totalTokenBudget,
 		);
 		sections.push({
 			title: "Retrieved Evidence",
 			body: serializeWorkingSetArtifacts({
 				artifacts: selectedEvidence,
 				snippets: artifactSnippets,
-				totalBudget: retrievedEvidenceBudget,
-				documentBudget: retrievedEvidencePerSourceBudget,
-				outputBudget: retrievedEvidencePerSourceBudget,
+				totalTokenBudget: retrievedEvidenceTokenBudget,
+				documentTokenBudget: evidenceBudget.perSourceBudget,
+				outputTokenBudget: evidenceBudget.perSourceBudget,
+				perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
 			}),
 			layer: "working_set",
 			protected: selectedEvidence.some((artifact) =>
@@ -2105,6 +2123,10 @@ export async function buildConstructedContext(params: {
 	return {
 		inputValue: selectedPromptContext.inputValue,
 		historyMessages: nativeHistory.messages,
+		historyWindow: {
+			includedTurnCount: sessionTurnContext.includedTurnCount,
+			omittedTurnCount: sessionTurnContext.omittedTurnCount,
+		},
 		contextStatus: status,
 		taskState,
 		contextDebug: await getContextDebugState(

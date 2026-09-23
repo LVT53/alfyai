@@ -77,10 +77,17 @@ export type DocumentContextDepthBudgetInput = {
 	minPerDocumentBudget?: number;
 };
 
+// Units are in the field names on purpose: the character budgets size the
+// document text pulled into snippets and must never be handed to a token
+// truncator, and the token budget is what the prompt serializer enforces.
 export type DocumentContextDepthBudget = {
 	depth: DocumentContextDepth;
-	totalBudget: number;
+	/** Tokens: cap for a whole serialized document section. */
+	totalTokenBudget: number;
+	/** Characters: cap for all document snippet text across artifacts. */
+	totalCharBudget: number;
 	perArtifactLimit: number;
+	/** Characters: cap for one artifact's snippet / excerpt text. */
 	perArtifactCharBudget: number;
 	useFullContent: boolean;
 	partial: boolean;
@@ -136,6 +143,12 @@ const DOCUMENT_EXCERPT_MAX_PER_ARTIFACT_CHARS = 18_000;
 const DOCUMENT_TASK_MIN_PER_ARTIFACT_CHARS = 12_000;
 const DOCUMENT_TASK_MAX_PER_ARTIFACT_CHARS = 100_000;
 const DOCUMENT_FULL_CONTENT_MIN_CHARS = 20_000;
+// Document text is sized at one character per token of the (token-denominated)
+// document budget. That is deliberately conservative — the repo estimator
+// counts roughly 2.5-3 characters per token on real documents — and it is the
+// sizing every document excerpt has shipped with, so it is named here rather
+// than hidden in an unconverted reuse of the token number.
+const DOCUMENT_CHARS_PER_BUDGET_TOKEN = 1;
 const SESSION_HISTORY_TARGET_CONTEXT_RATIO = 0.65;
 const SESSION_HISTORY_TURN_TOKEN_TARGET = 4_000;
 const SESSION_HISTORY_MAX_RECENT_TURNS = 32;
@@ -256,7 +269,7 @@ export function deriveDocumentContextDepthBudget(
 		input.intent === "direct"
 			? Math.floor(input.contextBudget.coreBudget * DOCUMENT_DIRECT_CORE_RATIO)
 			: 0;
-	const totalBudget = Math.min(
+	const totalTokenBudget = Math.min(
 		input.contextBudget.targetConstructedContext,
 		Math.max(
 			minPerDocumentBudget * documentCount,
@@ -264,29 +277,34 @@ export function deriveDocumentContextDepthBudget(
 			directCoreBudget,
 		),
 	);
-	const fairShareBudget = Math.max(
+	const totalCharBudget = totalTokenBudget * DOCUMENT_CHARS_PER_BUDGET_TOKEN;
+	const fairShareCharBudget = Math.max(
 		minPerDocumentBudget,
-		Math.floor(totalBudget / documentCount),
+		Math.floor(totalCharBudget / documentCount),
 	);
 	const perArtifactCharBudget =
 		depth === "reference"
 			? Math.min(
 					DOCUMENT_REFERENCE_MAX_PER_ARTIFACT_CHARS,
-					Math.max(minPerDocumentBudget, fairShareBudget),
+					Math.max(minPerDocumentBudget, fairShareCharBudget),
 				)
 			: depth === "excerpt"
 				? Math.min(
 						DOCUMENT_EXCERPT_MAX_PER_ARTIFACT_CHARS,
-						Math.max(DOCUMENT_EXCERPT_MIN_PER_ARTIFACT_CHARS, fairShareBudget),
+						Math.max(
+							DOCUMENT_EXCERPT_MIN_PER_ARTIFACT_CHARS,
+							fairShareCharBudget,
+						),
 					)
 				: Math.min(
 						DOCUMENT_TASK_MAX_PER_ARTIFACT_CHARS,
-						Math.max(DOCUMENT_TASK_MIN_PER_ARTIFACT_CHARS, fairShareBudget),
+						Math.max(DOCUMENT_TASK_MIN_PER_ARTIFACT_CHARS, fairShareCharBudget),
 					);
 
 	return {
 		depth,
-		totalBudget,
+		totalTokenBudget,
+		totalCharBudget,
 		perArtifactLimit: depth === "reference" ? 2 : depth === "excerpt" ? 4 : 8,
 		perArtifactCharBudget,
 		useFullContent:
