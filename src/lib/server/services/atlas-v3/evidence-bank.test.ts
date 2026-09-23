@@ -1760,3 +1760,31 @@ describe("capAtlasV3Bank tie-break", () => {
 		expect(state.sources.map((source) => source.id)).toEqual([newer?.id]);
 	});
 });
+
+describe("a source taken out of the bank", () => {
+	it("can be added back as a fresh source by its URL", () => {
+		const state = createAtlasV3Bank();
+		const first = addAtlasV3Source(state, {
+			url: "https://bbc.com/news/eu-solar",
+			title: "EU solar additions slow",
+			publishedAt: null,
+			read: true,
+		});
+		addAtlasV3Quote(state, {
+			sourceId: first?.id ?? "",
+			text: "Europe installed 65.1 GW of solar last year, the BBC said.",
+			goal: "g",
+		});
+		dropAtlasV3SourceEvidence(state, first?.id ?? "");
+		expect(state.sources).toHaveLength(0);
+		const again = addAtlasV3Source(state, {
+			url: "https://bbc.com/news/eu-solar",
+			title: "EU solar additions slow",
+			publishedAt: null,
+			read: true,
+		});
+		expect(again).not.toBeNull();
+		expect(again?.id).not.toBe(first?.id);
+		expect(state.sources).toHaveLength(1);
+	});
+});

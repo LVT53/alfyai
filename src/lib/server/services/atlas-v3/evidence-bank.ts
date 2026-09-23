@@ -282,8 +282,14 @@ export function removeAtlasV3SourceWithoutQuotes(
 	const source = state.sources.find((entry) => entry.id === sourceId);
 	if (!source) return false;
 	state.sources = state.sources.filter((entry) => entry.id !== sourceId);
-	if (state.sourceIdByUrl[source.canonicalUrl] === sourceId) {
-		delete state.sourceIdByUrl[source.canonicalUrl];
+	// Every index entry that still points at it goes too: a URL or article key
+	// left pointing at a removed id would make the page impossible to add back
+	// (a seed recheck re-adds a page whose every old quote it dropped).
+	for (const [url, id] of Object.entries(state.sourceIdByUrl)) {
+		if (id === sourceId) delete state.sourceIdByUrl[url];
+	}
+	for (const [key, id] of Object.entries(state.sourceIdByArticle)) {
+		if (id === sourceId) delete state.sourceIdByArticle[key];
 	}
 	return true;
 }
