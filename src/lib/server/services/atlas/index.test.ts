@@ -779,6 +779,70 @@ describe("Atlas persistence foundation", () => {
 		});
 	});
 
+	it.each([
+		1, 2,
+	] as const)("restamps a queued v%d row onto pipeline v3 when it is claimed (D1 routing)", async (storedPipelineVersion) => {
+		// A Continue child queued before the v3-only deploy, or a job requeued by
+		// startup recovery, still carries its old stamp and the old pipeline's
+		// stage and details. The claim must hand it to v3 with a clean slate.
+		const { db } = await import("$lib/server/db");
+		const { claimNextAtlasJob } = await import("./index");
+		const now = new Date("2026-06-19T12:03:00.000Z");
+		await db.insert(schema.messages).values({
+			id: "atlas-old-assistant",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Atlas is queued.",
+			messageSequence: 1,
+			createdAt: now,
+		});
+		await db.insert(schema.atlasJobs).values({
+			id: "atlas-old-queued",
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "atlas-old-assistant",
+			action: "continue",
+			parentAtlasJobId: null,
+			profile: "overview",
+			pipelineVersion: storedPipelineVersion,
+			normalizedQueryHash: "hash-old",
+			clientAtlasTurnId: "client-turn-old",
+			idempotencyKey: "atlas:v1:old-queued",
+			title: "Atlas research",
+			status: "queued",
+			stage: storedPipelineVersion === 1 ? "decompose" : "plan",
+			progressPercent: 5,
+			progressDetailsJson: JSON.stringify(
+				storedPipelineVersion === 1
+					? { queries: ["old v1 query"], roundKind: "initial" }
+					: { pipelineVersion: 2, phase: "plan", plan: [] },
+			),
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		const claimed = await claimNextAtlasJob({
+			workerId: "atlas-worker-1",
+			now: new Date("2026-06-19T12:04:00.000Z"),
+			globalActiveLimit: 2,
+			perUserActiveLimit: 1,
+		});
+
+		expect(claimed?.job).toMatchObject({
+			id: "atlas-old-queued",
+			status: "running",
+			pipelineVersion: 3,
+			stage: "ask",
+			progress: { percent: 0, stage: "ask", details: { queries: [] } },
+		});
+		const [row] = await db
+			.select()
+			.from(schema.atlasJobs)
+			.where(eq(schema.atlasJobs.id, "atlas-old-queued"));
+		expect(row?.pipelineVersion).toBe(3);
+		expect(row?.progressDetailsJson).toBe("{}");
+	});
+
 	it("preserves heartbeat stage and percent when omitted while storing sanitized progress details", async () => {
 		const { db } = await import("$lib/server/db");
 		const now = new Date("2026-06-19T12:20:00.000Z");
