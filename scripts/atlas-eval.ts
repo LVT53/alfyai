@@ -1,11 +1,16 @@
 #!/usr/bin/env tsx
 
 /**
- * Atlas evaluation harness (ADR 0062).
+ * Atlas evaluation harness (ADR 0063).
  *
  * Runs the queries in `scripts/atlas-eval-queries.json` against a LIVE
- * deployment, for one or both pipeline versions, and writes a Markdown
- * comparison table plus per-query notes for the manual false-claim pass.
+ * deployment and writes a Markdown comparison table plus per-query notes for
+ * the manual false-claim pass. Atlas runs pipeline v3 exclusively (Phase B
+ * of the v3-only consolidation), so every job this harness creates is
+ * expected to report `pipelineVersion: 3`; a run that reports anything else
+ * is flagged mislabelled rather than silently averaged in. The `--pipeline`
+ * flag this script used to accept (to switch `ATLAS_PIPELINE` on the
+ * deployment and re-run) is gone along with that switch.
  *
  * It drives the same HTTP surface a browser does — login, create a
  * conversation, POST /api/chat/send with atlasMode, poll
@@ -14,10 +19,9 @@
  *
  * Usage:
  *   BASE=https://staging.example EMAIL=... PASSWORD=... \
- *     npx tsx scripts/atlas-eval.ts --pipeline v2 --out /tmp/atlas-eval
+ *     npx tsx scripts/atlas-eval.ts --out /tmp/atlas-eval
  *
  * Options:
- *   --pipeline v1|v2|v3|all Which pipeline to measure (default: v1 and v2).
  *   --queries <ids>         Comma-separated query ids to run (default: all).
  *   --profile <p>           Override every query's profile.
  *   --timeout <minutes>     Per-job timeout (default: 45).
@@ -31,13 +35,6 @@
  * takes no model parameter — it uses the eval account's selected model. Set
  * that account to the model ATLAS_AUDIT_MODEL names before judging, or the
  * scores are not comparable across runs.
- *
- * IMPORTANT: switching pipelines is an ADMIN CONFIG change on the deployment
- * (ATLAS_PIPELINE=v1|v2|v3) and this script does NOT make it. Set the flag, run
- * the script with the matching --pipeline value so the output is labelled
- * correctly, then flip and run again. The script verifies the pipeline each
- * job actually ran on (from the job card's `pipelineVersion`) and refuses to
- * mislabel a run.
  */
 
 import { randomUUID } from "node:crypto";
@@ -70,10 +67,9 @@ interface EvalQuery {
 }
 
 /**
- * The word budget per profile. Duplicated from
- * `src/lib/server/services/atlas-v2/budget.ts` ON PURPOSE: this harness checks
- * the server's claim with a second pair of eyes and must not import the
- * server's own constants to do it.
+ * The word budget per profile, kept independent of the server ON PURPOSE:
+ * this harness checks the report's length with a second pair of eyes and
+ * must not import the server's own constants to do it.
  */
 const WORD_BUDGETS: Record<EvalQuery["profile"], { min: number; max: number }> =
 	{
@@ -1738,7 +1734,7 @@ function buildMarkdownReport(results: QueryResult[]): string {
 			const expected = expectedPipelineVersion(result.pipeline);
 			if (result.reportedPipelineVersion !== expected) {
 				lines.push(
-					`> **MISLABELLED RUN.** The job reported \`pipelineVersion: ${result.reportedPipelineVersion}\` but this run is labelled \`${result.pipeline}\`. Check ATLAS_PIPELINE on the deployment.`,
+					`> **MISLABELLED RUN.** The job reported \`pipelineVersion: ${result.reportedPipelineVersion}\`, not \`${expected}\` (Atlas runs pipeline v3 exclusively; check the deployment is on the expected build).`,
 					"",
 				);
 			}
@@ -1835,16 +1831,10 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	const pipelines: EvalPipeline[] =
-		args.pipeline === "v1"
-			? ["v1"]
-			: args.pipeline === "v2"
-				? ["v2"]
-				: args.pipeline === "v3"
-					? ["v3"]
-					: args.pipeline === "all"
-						? ["v1", "v2", "v3"]
-						: ["v1", "v2"];
+	// Atlas runs pipeline v3 exclusively (Phase B of the v3-only
+	// consolidation); the --pipeline flag that used to select among v1/v2/v3
+	// is gone along with the ATLAS_PIPELINE switch it drove.
+	const pipelines: readonly EvalPipeline[] = ["v3"];
 	const timeoutMs = Number.parseInt(args.timeout ?? "45", 10) * 60_000;
 	const concurrency = Math.max(1, Number.parseInt(args.concurrency ?? "1", 10));
 	const outDir = resolve(root, args.out ?? "atlas-eval");
@@ -1861,12 +1851,6 @@ async function main(): Promise<void> {
 
 	const results: QueryResult[] = [];
 	for (const pipeline of pipelines) {
-		if (pipelines.length > 1) {
-			console.log(
-				`\n=== ${pipeline} ===\nSet ATLAS_PIPELINE=${pipeline} on the deployment before this batch, then press Enter.`,
-			);
-			await waitForEnter();
-		}
 		console.log(`Running ${queries.length} queries on ${pipeline}.`);
 		const queue = [...queries];
 		const workers = Array.from(
@@ -1961,17 +1945,6 @@ async function main(): Promise<void> {
 		);
 		process.exitCode = 1;
 	}
-}
-
-function waitForEnter(): Promise<void> {
-	if (!process.stdin.isTTY) return Promise.resolve();
-	return new Promise((done) => {
-		process.stdin.resume();
-		process.stdin.once("data", () => {
-			process.stdin.pause();
-			done();
-		});
-	});
 }
 
 // Exported for the unit test; the script body only runs when invoked directly.
