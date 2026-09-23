@@ -5,6 +5,8 @@
 > **Amended (Phase B of the v3-only consolidation, see below).** "v1 and v2 stay runnable, unchanged" no longer holds: both were deleted and Atlas now runs v3 exclusively for every job, old and new. `ATLAS_PIPELINE` is gone; rollback is the `atlas-v1-v2-final` tag, not a config value.
 >
 > **Amended (Phase C, see below).** Stage 2's bank also holds the user's own documents as `user_document` sources on one collapsed publisher, with a local verbatim guard and library chips; the identity functions it reuses now live in v3 itself (`atlas-v3/source-filters.ts`, `publishers.ts`), not in v2.
+>
+> **Amended (Phase D, see below).** Continue and Revise children reuse the parent's evidence bank after a deterministic freshness recheck; a Fork re-researches; a v1/v2 parent seeds its child from its published report's source URLs, read afresh.
 
 ## Context
 
@@ -255,6 +257,58 @@ Atlas Local Sources — the documents the user chose — are now evidence in the
 - **Writer citations (fixed alongside).** The writer was told to cite `alsoStatedBy` ids but its parser
   accepted only the section's own ids and dropped the rest; it now accepts every id the prompt showed.
   The verdict now accepts only the ids its prompt showed (not any id in the bank).
+
+## Amendments (2026-09-24) — Phase D: lifecycle children reuse the parent's evidence bank
+
+Until Phase D a Continue, Revise or Fork child ran v3 from nothing (Phase B routed old families onto v3
+unseeded). Now `atlas-v3/seed.ts` seeds it, and `atlas-v3/freshness.ts` decides what of the parent it
+may trust:
+
+- **What each action takes.** Continue: the parent's bank (rechecked with a 14-day window), its memo
+  (claim ids filtered to claims that survived; its prose answer is not carried) and asked queries, and
+  its outline as the first revision's `previous`. Revise: the bank (window 0) and the outline, NOT the
+  memo — the parent's answer would anchor the rewrite. Fork: no bank, memo or outline; quotes are
+  extracted for a goal, and reusing the parent's would bend the new direction back toward it and blur
+  where the new family's citations came from. All three inherit the user's documents the parent read or
+  was given (a Fork re-reads them for its own questions), re-resolved under the CHILD's strict scope.
+- **Which parent.** Only a succeeded job of the same user in the same conversation seeds; anything else
+  runs the child unseeded (the send route already refuses the kickoff; this is the worker-time check).
+- **Persistence, no migration.** The verify checkpoint (round 24) now snapshots the capped bank the
+  report was written from and the render checkpoint (25) the cited source ids; parents from before
+  Phase D fall back to their latest research row and to the report's source chips. Every source records
+  `retrievedAt`; a parent's source without one is dated by the parent's completion time.
+- **The recheck.** A web source is time-sensitive when it carries a claim with no period and no date or
+  one whose latest year is this year or last, or quotes with no claims from an aggregator or weak tier.
+  Time-sensitive sources older than the window are re-read with `read(url, { fresh: true })`, which
+  skips the 30-minute tool-result cache and asks Parallel Extract for `max_age_seconds: 600` (its
+  minimum) with `disable_cache_fallback`, so a failed live fetch is reported rather than answered from
+  an older cached copy. **Confirmed** (every quote still stated and every checkable figure still on the
+  page): kept, restamped. **Changed**: unstated quotes and their claims dropped, the fresh page read once
+  for the child's core question. **Unreachable**: dropped; its `entity metric period` hints join round
+  one's questions (at most two). The budget is one research round's page reads
+  (`pagesPerQuestion × subQuestionsPerRound`: 8, 15, 24), the parent's cited sources first, then by
+  claim load; what it cannot reach is **dropped, never trusted** (ADR 0037 edge case 5, as amended).
+  A user document that no longer resolves loses its quotes; one edited since it was read is re-read.
+- **Old parents (D1).** A v1 or v2 parent — or a v3 one with no bank — seeds from its persisted
+  `GeneratedDocumentSource`: title, level-2 headings, the verdict or executive summary with citation
+  tokens stripped (at most 1,200 characters), and its web source-chip URLs (falling back to the
+  checkpoint pool when no report persisted). The URLs are read now, within the same budget, for the
+  child's core question; none of the parent's text is trusted unread. Its documents come from its
+  kickoff message's links.
+- **Resume.** The seeded bank is written as research round 0 (`{round: 0, bank, memo, asked, seed}`),
+  so a retried child resumes it with round one still to run and never rechecks twice. Seeding runs only
+  when the job has no research checkpoint of its own.
+- **Prompts.** The ask prompt gains a `parent` block (action, title, core question, verdict, headings,
+  date — a Fork sees only title and verdict) and an `instruction` that replaces the Revise-only
+  `reviseInstruction`. Three ask-system lines, in English and Hungarian: the parent's verdict is
+  orientation only, never evidence; a Continue extends the parent; a Revise replaces it and re-verifies
+  its key figures and anything newer than its date. Nothing else changed: seeded quotes, claims and the
+  outline reach the model through the fields that already carried them.
+- **Cap.** At equal claim load, `capAtlasV3Bank` now keeps a source this job read over a seeded one, then
+  the newer read (by day), before tier, so a Continue chain does not keep its oldest pages forever.
+- **Diagnostics.** `qualityDiagnostics.seed` records the action, the parent's pipeline version, the
+  sources and quotes seeded, and how many were trusted, rechecked, confirmed, changed, dropped and read
+  as seed pages. `scripts/atlas-eval.ts --lifecycle continue|revise|fork` grades a child against it.
 
 ## Consequences
 

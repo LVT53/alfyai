@@ -15,6 +15,14 @@ with the whole report in view, and a critic that may order targeted re-search. E
 Continue/Revise/Fork child of an older family, is stamped and runs on this pipeline; there is no
 runtime switch to select a different one.
 
+Lifecycle children start from their parent (ADR 0063, Phase D amendment). A **Continue** reuses the
+parent's evidence bank, memo and outline; a **Revise** reuses the bank and outline but not the memo;
+a **Fork** reuses no evidence and re-researches. Before a parent's quote may be cited, the
+**seed recheck** re-reads live every time-sensitive source older than the freshness window (14 days
+for Continue, 0 for Revise) within one research round's page budget; what it cannot reach is dropped,
+never trusted. A v1/v2 parent seeds its child from its published report's source URLs, read afresh.
+The job's `qualityDiagnostics.seed` says what was trusted, rechecked, confirmed, changed and dropped.
+
 Two earlier pipelines existed and were deleted once v3 became the only one:
 
 - **v1** — the original pipeline. It has no `[n]` inline citation markers.
@@ -76,6 +84,10 @@ BASE=https://staging.example EMAIL=admin@example.com PASSWORD=... \
 - `--profile overview|in-depth|exhaustive` — override every query's profile.
 - `--timeout <minutes>` — per-job timeout (default 45).
 - `--concurrency <n>` — jobs in flight (default 1; the Atlas worker's own global limit still applies).
+- `--lifecycle continue|revise|fork` — run each query as a create job, then (in the same
+  conversation, once it succeeds) a child with that action, and grade the child. The child's message
+  is the query's `lifecycleInstruction` or a default per action; `report.md` gains a Lifecycle table
+  with the parent's and child's page reads beside the child's `qualityDiagnostics.seed`.
 - `--judge` — also score each report against ADR 0063's rubric. Every score must come back with a
   verbatim quote from the report; a score whose quote is not in the report is discarded rather than
   averaged in. The judge runs through the deployment's own chat API, which takes no model parameter,
