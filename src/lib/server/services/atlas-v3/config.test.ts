@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getAtlasV3TaskModels } from "$lib/server/config-store";
 import {
 	ATLAS_V3_MODEL_TASKS,
 	atlasV3BudgetForNode,
@@ -28,7 +29,7 @@ describe("resolveAtlasV3TaskModel", () => {
 	});
 
 	it("inherits the audit model for the control-shaped tasks", () => {
-		for (const task of ["ask", "outline", "critic", "verifier"] as const) {
+		for (const task of ["ask", "outline", "critic"] as const) {
 			const selection = resolveAtlasV3TaskModel({
 				task,
 				...base,
@@ -47,6 +48,15 @@ describe("resolveAtlasV3TaskModel", () => {
 		});
 		expect(selection.model).toBe("provider:openrouter:some-model");
 		expect(selection.explicit).toBe(true);
+	});
+
+	it("has a model task only for a stage an admin can configure", () => {
+		// Phase B removed ATLAS_V3_VERIFIER_MODEL because no stage ever called
+		// the verifier model. A task left in this list without a config key is
+		// a model binding nothing can set and nothing calls.
+		expect([...ATLAS_V3_MODEL_TASKS].sort()).toEqual(
+			Object.keys(getAtlasV3TaskModels()).sort(),
+		);
 	});
 
 	it("covers every task in the list", () => {

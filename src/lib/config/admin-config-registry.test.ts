@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import settingsDict from "$lib/i18n/settings";
 import { ADMIN_CONFIG_KEYS } from "$lib/server/config-store";
@@ -73,6 +75,33 @@ describe("advanced key registry", () => {
 		// entailment batch, writer concurrency, the three per-profile
 		// max-output-token caps and the writer prompt char cap) = 92.
 		expect(ADVANCED_KEY_SPECS.length).toBeGreaterThanOrEqual(92);
+	});
+});
+
+describe("retired Atlas admin_config cleanup migration", () => {
+	// Phase B of the v3-only consolidation deletes admin_config rows for the
+	// keys it removed. The migration's number may change at merge time, so it
+	// is found by its tag, not its filename prefix.
+	const drizzleDir = join(process.cwd(), "drizzle");
+	const file = readdirSync(drizzleDir).find((name) =>
+		name.endsWith("_atlas_retired_admin_config.sql"),
+	);
+	const sql = file ? readFileSync(join(drizzleDir, file), "utf8") : "";
+	const deletedKeys = [
+		...sql.replace(/--.*$/gm, "").matchAll(/'([A-Z0-9_]+)'/g),
+	].map((match) => match[1]);
+
+	it("deletes only retired Atlas keys, never a live admin_config key", () => {
+		expect(file).toBeDefined();
+		expect(deletedKeys.length).toBeGreaterThan(0);
+		for (const key of deletedKeys) {
+			expect(key.startsWith("ATLAS_"), key).toBe(true);
+			expect(
+				(ADMIN_CONFIG_KEYS as readonly string[]).includes(key),
+				`${key} is still a live admin_config key`,
+			).toBe(false);
+		}
+		expect(sql).toContain("DELETE FROM `admin_config` WHERE `key` IN (");
 	});
 });
 
