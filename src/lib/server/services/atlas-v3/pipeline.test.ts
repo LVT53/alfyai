@@ -739,7 +739,7 @@ function buildDepthFakes() {
 			outline: control.call,
 			writer: writer.call,
 			critic: fakeModel({}).call,
-			} as AtlasV3ModelCalls,
+		} as AtlasV3ModelCalls,
 		writeCheckpoint: async () => {},
 		renderOutputs: async () => ({
 			fileProductionJobId: "fp-1",
