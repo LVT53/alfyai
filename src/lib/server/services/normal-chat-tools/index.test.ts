@@ -302,12 +302,23 @@ function emptyGroundedFetchResult(query: string) {
 }
 
 // The tool envelope derives a compact `resultDigest` from every successful
-// payload (for native history replay); these contracts pin the rest of the
-// recorded entry, so strip the derived field before comparing.
-function withoutResultDigest<T extends { resultDigest?: string | null }>(
-	entries: T[],
-): Omit<T, "resultDigest">[] {
-	return entries.map(({ resultDigest: _digest, ...rest }) => rest);
+// payload (for native history replay) and a wall-clock `metadata.durationMs`
+// from its own start→settle timing (Gap 1); these contracts pin the rest of
+// the recorded entry, so strip both non-deterministic derived fields before
+// comparing.
+function withoutResultDigest<
+	T extends {
+		resultDigest?: string | null;
+		metadata?: Record<string, string | number | boolean | null>;
+	},
+>(entries: T[]): Omit<T, "resultDigest">[] {
+	return entries.map(({ resultDigest: _digest, metadata, ...rest }) => {
+		if (!metadata || !("durationMs" in metadata)) {
+			return { ...rest, metadata } as Omit<T, "resultDigest">;
+		}
+		const { durationMs: _durationMs, ...restMetadata } = metadata;
+		return { ...rest, metadata: restMetadata } as Omit<T, "resultDigest">;
+	});
 }
 
 describe("createNormalChatTools", () => {

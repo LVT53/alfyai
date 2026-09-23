@@ -1419,6 +1419,15 @@ export const activityEvents = sqliteTable(
 				"composer_command",
 				"follow_up_click",
 				"answer_now",
+				// Gap 2 — server-observed like tool_call/skill_use (never accepted
+				// from the client's own POST /api/analytics/activity): one row per
+				// completed Regenerate-button turn (chat-turn/retry.ts; not
+				// "Answer now", not a Retry after a failure) and per
+				// edit-and-resend, from the turn's turnOrigin — see
+				// $lib/chat-turn-origin.ts. The best proxy this table has for
+				// "the answer was wrong".
+				"regenerate",
+				"edit_resend",
 			],
 		}).notNull(),
 		// Tool/skill/command name. Client-submitted kinds cap this at 64 chars

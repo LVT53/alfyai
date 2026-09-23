@@ -28,6 +28,7 @@ const {
 	mockUpdateMessageRailSummary,
 	mockRecordToolCallActivityEvents,
 	mockRecordSkillUseActivityEvent,
+	mockRecordTurnOriginActivityEvent,
 } = vi.hoisted(() => ({
 	mockJudgeFinishedTurn: vi.fn(
 		async (): Promise<{
@@ -80,6 +81,7 @@ const {
 	mockUpdateMessageRailSummary: vi.fn(async () => undefined),
 	mockRecordToolCallActivityEvents: vi.fn(async () => undefined),
 	mockRecordSkillUseActivityEvent: vi.fn(async () => undefined),
+	mockRecordTurnOriginActivityEvent: vi.fn(async () => undefined),
 }));
 
 // finalizeChatTurn fans post-turn work out to ./finalize-steps in one ordered
@@ -106,6 +108,7 @@ vi.mock("$lib/server/services/analytics", () => ({
 vi.mock("$lib/server/services/activity-events", () => ({
 	recordToolCallActivityEvents: mockRecordToolCallActivityEvents,
 	recordSkillUseActivityEvent: mockRecordSkillUseActivityEvent,
+	recordTurnOriginActivityEvent: mockRecordTurnOriginActivityEvent,
 }));
 
 vi.mock("$lib/server/services/memory-controls", () => ({
@@ -636,6 +639,8 @@ describe("finalizeChatTurn", () => {
 		mockRecordToolCallActivityEvents.mockResolvedValue(undefined);
 		mockRecordSkillUseActivityEvent.mockReset();
 		mockRecordSkillUseActivityEvent.mockResolvedValue(undefined);
+		mockRecordTurnOriginActivityEvent.mockReset();
+		mockRecordTurnOriginActivityEvent.mockResolvedValue(undefined);
 	});
 
 	it("invokes onDurableReceiptReady with message ids before the deferred projection resolves, then keeps running it in the background — no promise or task-starting function comes back to the caller", async () => {
@@ -2049,6 +2054,112 @@ describe("finalizeChatTurn", () => {
 					toolCalls: [{ name: "research_web", input: {}, status: "done" }],
 				}),
 			);
+		});
+
+		// Gap 2 — regenerate and edit-resend are the best proxy for "the answer
+		// was wrong". The turn's own `turnOrigin` decides it: request.ts only
+		// ever yields "send" / "edit_resend" from a client body, and
+		// chat-turn/retry.ts stamps "regenerate" / "answer_now" / "error_retry"
+		// itself. Only a user-chosen regenerate and an edit-and-resend are
+		// recorded — "Answer now" is already its own client-observed answer_now
+		// row, and a Retry after a failed turn judges the failure, not the answer.
+		const turnOriginBaseParams = {
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "user message",
+			normalizedMessage: "user message",
+			upstreamMessage: "upstream message",
+			assistantResponse: "assistant response",
+			assistantMetadata: {},
+			attachmentIds: [] as string[],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: { model: "model-1" },
+			assistantMirrorContent: "assistant response",
+			maintenanceReason: "chat_stream",
+		} as const;
+
+		it("records a regenerate activity event, attributed to the turn's model, for a regenerate turn", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				...turnOriginBaseParams,
+				turnKind: "stream",
+				persistUserMessage: false,
+				turnOrigin: "regenerate",
+			});
+
+			expect(mockRecordTurnOriginActivityEvent).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				messageId: "assistant-message",
+				modelId: "model-1",
+				kind: "regenerate",
+			});
+		});
+
+		it("records an edit_resend activity event, attributed to the turn's model, for an edit-and-resend turn", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				...turnOriginBaseParams,
+				turnKind: "stream",
+				persistUserMessage: true,
+				turnOrigin: "edit_resend",
+			});
+
+			expect(mockRecordTurnOriginActivityEvent).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conv-1",
+				messageId: "assistant-message",
+				modelId: "model-1",
+				kind: "edit_resend",
+			});
+		});
+
+		it("does not count an Answer-now or an error Retry as a regenerate", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			for (const turnOrigin of ["answer_now", "error_retry"] as const) {
+				await finalizeChatTurn({
+					...turnOriginBaseParams,
+					turnKind: "stream",
+					persistUserMessage: false,
+					turnOrigin,
+				});
+			}
+
+			expect(mockRecordTurnOriginActivityEvent).not.toHaveBeenCalled();
+		});
+
+		it("does not infer a regenerate from persistUserMessage: false alone", async () => {
+			// /api/chat/stream accepts skipPersistUserMessage straight from the
+			// client body, so it is not a server-owned regenerate signal.
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				...turnOriginBaseParams,
+				turnKind: "stream",
+				persistUserMessage: false,
+				turnOrigin: "send",
+			});
+
+			expect(mockRecordTurnOriginActivityEvent).not.toHaveBeenCalled();
+		});
+
+		it("does not record a regenerate or edit_resend event for an ordinary send", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				...turnOriginBaseParams,
+				turnKind: "send",
+				persistUserMessage: true,
+				maintenanceReason: "chat_send",
+			});
+
+			expect(mockRecordTurnOriginActivityEvent).not.toHaveBeenCalled();
 		});
 	});
 });

@@ -598,6 +598,8 @@ const toolsShowAllLabel = $derived(
 function kindLabel(kind: unknown): string {
 	if (kind === "composer_command") return $t("analytics.kindCommand");
 	if (kind === "skill_use") return $t("analytics.kindSkill");
+	if (kind === "regenerate") return $t("analytics.kindRegenerate");
+	if (kind === "edit_resend") return $t("analytics.kindEditResend");
 	return $t("analytics.kindClick");
 }
 

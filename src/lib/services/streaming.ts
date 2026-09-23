@@ -511,6 +511,15 @@ export type StreamChatOptions = {
 	confirmForkedSourceHistoryMutation?: boolean;
 	reconnectToStreamId?: string;
 	reconnectUserMessage?: string;
+	// Gap 2 — an edit-and-resend turn, carried to the server so
+	// chat-turn/finalize.ts can record an activity_events "edit_resend" row.
+	// Only ever true for the plain (non-retry) request below; regenerate
+	// turns go through the retryAssistantMessageId branch instead.
+	isEditResend?: boolean;
+	// Gap 2 — which retry-route caller this is (retry requests only; see
+	// $lib/chat-turn-origin.ts), so the server counts only a plain Regenerate
+	// as the "answer was wrong" signal.
+	retryOrigin?: import("$lib/chat-turn-origin").RetryOrigin;
 };
 
 export function streamChat(
@@ -536,6 +545,8 @@ export function streamChat(
 		confirmForkedSourceHistoryMutation,
 		reconnectToStreamId,
 		reconnectUserMessage,
+		isEditResend,
+		retryOrigin,
 	} = options ?? {};
 	const controller = new AbortController();
 	const streamId = reconnectToStreamId ?? crypto.randomUUID();
@@ -737,6 +748,7 @@ export function streamChat(
 						personalityProfileId,
 						confirmForkedSourceHistoryMutation:
 							confirmForkedSourceHistoryMutation === true ? true : undefined,
+						retryOrigin,
 					})
 				: JSON.stringify({
 						message,
@@ -754,6 +766,7 @@ export function streamChat(
 						personalityProfileId,
 						reconnectToStreamId,
 						userMessage: reconnectUserMessage,
+						isEditResend: isEditResend === true ? true : undefined,
 					});
 			const res = await fetch(url, {
 				method: "POST",

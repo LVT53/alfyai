@@ -82,6 +82,7 @@ const parsedRequest = {
 	thinkingMode: "auto",
 	forceWebSearch: false,
 	skipPersistUserMessage: false,
+	turnOrigin: "send",
 	attachmentTraceId: undefined,
 	atlasMode: false,
 	atlasProfile: null,

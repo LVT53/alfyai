@@ -16,7 +16,9 @@ export type ActivityEventKind =
 	| "skill_use"
 	| "composer_command"
 	| "follow_up_click"
-	| "answer_now";
+	| "answer_now"
+	| "regenerate"
+	| "edit_resend";
 
 export type ActivityEventStatus = "done" | "failed" | "cached";
 
@@ -44,7 +46,30 @@ export interface RecordActivityEventParams {
 	modelId?: string | null;
 }
 
+// Incognito conversations are "saved-but-untracked": the privacy notice
+// promises nothing from one is recorded in usage analytics, and usage_events
+// already skips them (recordAssistantTurnAnalytics in
+// chat-turn/finalize-steps.ts). activity_events follows the same rule for
+// every kind — server-observed and client-reported alike — so each public
+// writer below checks once per call. Fails open (a lookup error records the
+// event), matching every other incognito read on a hot path.
+async function isIncognitoConversation(
+	conversationId: string,
+): Promise<boolean> {
+	const { isConversationIncognito } = await import("./memory-controls");
+	return isConversationIncognito(conversationId).catch(() => false);
+}
+
 export async function recordActivityEvent(
+	params: RecordActivityEventParams,
+): Promise<void> {
+	if (await isIncognitoConversation(params.conversationId)) return;
+	await insertActivityEvent(params);
+}
+
+// The raw best-effort insert, behind the incognito check of whichever public
+// writer calls it.
+async function insertActivityEvent(
 	params: RecordActivityEventParams,
 ): Promise<void> {
 	try {
@@ -74,8 +99,8 @@ export async function recordActivityEvent(
 }
 
 // A tool call is "cached" when the tool itself flagged it in metadata.cached
-// (no current tool sets this yet, but the shape is reserved for it — see
-// ToolCallEntry in messages-types.ts); otherwise a "failed" ToolCallEntry
+// (research_web and fetch_url do on a tool-result-cache hit — see
+// normal-chat-tools/index.ts); otherwise a "failed" ToolCallEntry
 // status maps straight across, and everything else (including "running",
 // which finalize's toolCalls list never contains at turn completion) is
 // "done".
@@ -85,9 +110,10 @@ function toolCallStatus(entry: ToolCallEntry): ActivityEventStatus {
 	return "done";
 }
 
-// Duration isn't tracked on ToolCallEntry today; this reads
-// metadata.durationMs defensively so a tool that starts reporting it is
-// picked up with no further changes here.
+// metadata.durationMs is stamped by the tool envelope
+// (executeToolWithEnvelope in normal-chat-tools/shared.ts) with its own
+// start→settle time; read defensively, since an entry recorded outside the
+// envelope (produce_file's instant refusals) carries none.
 function toolCallDurationMs(entry: ToolCallEntry): number | null {
 	const raw = entry.metadata?.durationMs;
 	return typeof raw === "number" && Number.isFinite(raw) && raw >= 0
@@ -125,11 +151,13 @@ export async function recordToolCallActivityEvents(params: {
 		(entry) => entry.status !== "running",
 	);
 	if (entries.length === 0) return;
+	// One incognito lookup for the whole turn, not one per tool call.
+	if (await isIncognitoConversation(params.conversationId)) return;
 
 	await Promise.all(
 		entries.map((entry) => {
 			const skillUseName = useSkillEventName(entry);
-			return recordActivityEvent({
+			return insertActivityEvent({
 				userId: params.userId,
 				conversationId: params.conversationId,
 				messageId: params.messageId,
@@ -160,6 +188,36 @@ export async function recordSkillUseActivityEvent(params: {
 		messageId: params.messageId,
 		kind: "skill_use",
 		name: params.displayName,
+		status: "done",
+		modelId: params.modelId ?? null,
+	});
+}
+
+export type TurnOriginActivityKind = "regenerate" | "edit_resend";
+
+// Gap 2 — regenerate (a chat-turn/retry.ts turn whose origin is a plain
+// Regenerate, not "Answer now" or a Retry after a failure) and edit-resend
+// (the ordinary stream path with the isEditResend request flag set) are
+// recorded by chat-turn/finalize.ts from the turn's `turnOrigin` — see
+// $lib/chat-turn-origin.ts — never accepted from the client's own
+// POST /api/analytics/activity. `name` mirrors `kind` (there is no more
+// specific label, same as answer_now's client-observed row). `modelId` is the
+// model that answered the redo turn.
+//
+// Dropped for an incognito conversation, like every kind (recordActivityEvent).
+export async function recordTurnOriginActivityEvent(params: {
+	userId: string;
+	conversationId: string;
+	messageId?: string | null;
+	modelId?: string | null;
+	kind: TurnOriginActivityKind;
+}): Promise<void> {
+	await recordActivityEvent({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		messageId: params.messageId ?? null,
+		kind: params.kind,
+		name: params.kind,
 		status: "done",
 		modelId: params.modelId ?? null,
 	});

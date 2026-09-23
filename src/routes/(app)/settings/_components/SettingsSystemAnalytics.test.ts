@@ -938,6 +938,49 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 
 			expect(queryByText("tool_10")).not.toBeInTheDocument();
 		});
+
+		// The server-observed redo kinds (the "answer was wrong" proxy) get
+		// their own labels in both languages instead of falling through to the
+		// generic "Click" a UI action gets.
+		it("labels regenerate and edit_resend rows by kind, in English and Hungarian", async () => {
+			const fixture = systemWithToolsAndLatencyFixture();
+			const { getByRole, container } = render(SettingsSystemAnalytics, {
+				analyticsData: {
+					...fixture,
+					commandsAndSkills: [
+						{ kind: "regenerate", name: "regenerate", count: 7 },
+						{ kind: "edit_resend", name: "edit_resend", count: 5 },
+						{ kind: "follow_up_click", name: "Tell me more", count: 3 },
+					],
+				},
+				modelNames: {},
+				onRetry: vi.fn(),
+				selectedSystemMonth: null,
+				onSystemMonthChange: vi.fn(),
+				allUsers: [],
+				excludedUserIds: [],
+				onExcludedUsersChange: vi.fn(),
+			});
+
+			await fireEvent.click(getByRole("tab", { name: "Tools & latency" }));
+
+			const pills = () =>
+				[...container.querySelectorAll(".kind-pill")].map(
+					(node) => node.textContent?.trim() ?? "",
+				);
+			expect(pills()).toEqual(["Regenerate", "Edit & resend", "Click"]);
+
+			const { uiLanguage } = await import("$lib/stores/settings");
+			uiLanguage.set("hu");
+			await tick();
+			const huPills = pills();
+			uiLanguage.set("en");
+			expect(huPills).toEqual([
+				"Újragenerálás",
+				"Szerkesztés és újraküldés",
+				"Kattintás",
+			]);
+		});
 	});
 
 	// The stat row and the table's pinned Total row sit inside the SAME card,

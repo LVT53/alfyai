@@ -1,7 +1,9 @@
+import type { ChatTurnOrigin } from "$lib/chat-turn-origin";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import {
 	recordSkillUseActivityEvent,
 	recordToolCallActivityEvents,
+	recordTurnOriginActivityEvent,
 } from "$lib/server/services/activity-events";
 import {
 	getChatFilesForAssistantMessage,
@@ -160,6 +162,11 @@ export type FinalizeChatTurnParams = {
 	// (an on-demand `use_skill` tool call is recorded separately, from
 	// params.toolCalls, by recordToolCallActivityEvents itself).
 	skillUse?: { displayName: string } | null;
+	// Gap 2 — the turn's own origin (ParsedChatTurnRequest.turnOrigin, see
+	// $lib/chat-turn-origin.ts). A user-chosen "regenerate" and an
+	// "edit_resend" are recorded as activity_events rows alongside this turn's
+	// tool calls; omitted (the /api/chat/send path) means an ordinary send.
+	turnOrigin?: ChatTurnOrigin;
 	persistTurnState?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
 	skipAssistantProseMemoryIntake?: boolean;
@@ -637,6 +644,30 @@ export async function finalizeChatTurn(
 					messageId: assistantMessage.id,
 					modelId: params.analytics?.model ?? null,
 					displayName: params.skillUse.displayName,
+				}).catch(() => undefined);
+			}
+			// Gap 2 — regenerate and edit-resend are the best proxy this table
+			// has for "the answer was wrong". Decided by the turn's own origin,
+			// never by persistUserMessage (/api/chat/stream takes
+			// skipPersistUserMessage straight from the client body). Recorded
+			// here, at completion, so a counted redo always has the assistant
+			// message it produced: a regenerate that fails before any answer is
+			// persisted is not counted (the user's next Regenerate click is).
+			// The row carries the model that answered the redo turn, so the
+			// admin model/provider filters attribute it instead of treating it
+			// like a model-less client click.
+			const turnOriginKind =
+				params.turnOrigin === "regenerate" ||
+				params.turnOrigin === "edit_resend"
+					? params.turnOrigin
+					: null;
+			if (turnOriginKind) {
+				void recordTurnOriginActivityEvent({
+					userId: params.userId,
+					conversationId: params.conversationId,
+					messageId: assistantMessage.id,
+					modelId: params.analytics?.model ?? null,
+					kind: turnOriginKind,
 				}).catch(() => undefined);
 			}
 		}

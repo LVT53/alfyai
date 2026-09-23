@@ -268,6 +268,7 @@ function createTurn(
 		modelId: "model1",
 		modelDisplayName: "Model One",
 		skipPersistUserMessage: false,
+		turnOrigin: "send",
 		attachmentIds: [],
 		linkedSources: [],
 		pendingSkill: null,

@@ -2075,7 +2075,93 @@ describe("analytics dashboard read model", () => {
 				calls: 1,
 				failed: 0,
 				cached: 1,
-				p50DurationMs: 10,
+				// A cache hit short-circuits the tool: its duration is a lookup,
+				// not the tool's latency, so it never feeds the percentile.
+				p50DurationMs: null,
+			});
+		});
+
+		// The write side now drops activity for incognito chats; rows recorded
+		// before that (tool_call/skill_use were written for them) must not
+		// surface either — the same read-side rule the message counts follow.
+		it("leaves activity recorded in an incognito conversation out of the tools and commands sections", async () => {
+			seedOverhaulFixtures();
+			const { db } = await import("$lib/server/db");
+			const createdAt = new Date("2026-05-10T12:00:00.000Z");
+			await db.insert(schema.conversations).values({
+				id: "conv-incognito-activity",
+				userId: "user-1",
+				title: "Incognito",
+				memoryIncognito: true,
+				createdAt,
+				updatedAt: createdAt,
+			});
+			await db.insert(schema.activityEvents).values([
+				{
+					id: "activity-incognito-tool",
+					userId: "user-1",
+					conversationId: "conv-incognito-activity",
+					kind: "tool_call",
+					name: "research_web",
+					status: "done",
+					durationMs: 5000,
+					modelId: "model1",
+					createdAt,
+				},
+				{
+					id: "activity-incognito-skill",
+					userId: "user-1",
+					conversationId: "conv-incognito-activity",
+					kind: "skill_use",
+					name: "incognito-only-skill",
+					status: "done",
+					modelId: "model1",
+					createdAt,
+				},
+			]);
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			const tools = new Map(result.tools?.map((row) => [row.name, row]));
+			expect(tools.get("research_web")).toMatchObject({ calls: 2 });
+			expect(
+				result.commandsAndSkills?.some(
+					(row) => row.name === "incognito-only-skill",
+				),
+			).toBe(false);
+		});
+
+		it("keeps cache hits out of a tool's p50 duration while still counting them as calls", async () => {
+			seedOverhaulFixtures();
+			const { db } = await import("$lib/server/db");
+			await db.insert(schema.activityEvents).values({
+				id: "activity-tool-fetch-live",
+				userId: "user-1",
+				conversationId: "conv-1",
+				messageId: "msg-a",
+				kind: "tool_call",
+				name: "fetch_url",
+				status: "done",
+				durationMs: 400,
+				modelId: "model1",
+				createdAt: new Date("2026-05-10T12:00:00.000Z"),
+			});
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				systemMonth: "2026-05",
+			});
+
+			const tools = new Map(result.tools?.map((row) => [row.name, row]));
+			expect(tools.get("fetch_url")).toMatchObject({
+				calls: 2,
+				cached: 1,
+				p50DurationMs: 400,
 			});
 		});
 

@@ -62,6 +62,10 @@ export type SendPayload = {
 	atlasAction?: AtlasAction;
 	parentAtlasJobId?: string | null;
 	clientAtlasTurnId?: string | null;
+	// Gap 2 — set by handleEdit's edit-and-resend flow so the server can
+	// record an activity_events "edit_resend" row. See
+	// normal-chat-client-turn-runtime.ts's NormalChatSendPayload.
+	isEditResend?: boolean;
 };
 
 export type MessageEditPayload = {

@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { parseRetryOrigin } from "$lib/chat-turn-origin";
 import {
 	type MessageUserIntent,
 	parseMessageUserIntent,
@@ -37,6 +38,9 @@ type RetryRequestBody = {
 	reasoningDepth?: unknown;
 	personalityProfileId?: unknown;
 	confirmForkedSourceHistoryMutation?: unknown;
+	// Which retry-route caller this is (see $lib/chat-turn-origin.ts);
+	// anything unrecognized is a plain regenerate.
+	retryOrigin?: unknown;
 };
 
 export type RetryPreparationError = ChatTurnRequestError & {
@@ -91,6 +95,7 @@ export async function prepareRetryChatTurn(params: {
 		reasoningDepth,
 		personalityProfileId,
 		confirmForkedSourceHistoryMutation,
+		retryOrigin,
 	} = body;
 
 	if (typeof conversationId !== "string" || !conversationId.trim()) {
@@ -279,7 +284,13 @@ export async function prepareRetryChatTurn(params: {
 		return streamError(preflight.error);
 	}
 
-	const turn = preflight.value;
+	// Stamped here, after parsing, rather than carried in the synthetic body:
+	// this route is what makes a turn a regenerate, so no client body on
+	// /api/chat/stream can claim one.
+	const turn = {
+		...preflight.value,
+		turnOrigin: parseRetryOrigin(retryOrigin),
+	};
 	const upstreamMessage = turn.normalizedMessage;
 
 	return {

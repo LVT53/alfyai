@@ -47,6 +47,27 @@ function seedDatabase() {
 			createdAt: now,
 		})
 		.run();
+	database
+		.insert(schema.conversations)
+		.values({
+			id: "conv-incognito",
+			userId: "user-1",
+			title: "Incognito conversation",
+			memoryIncognito: true,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.run();
+	database
+		.insert(schema.messages)
+		.values({
+			id: "message-incognito-1",
+			conversationId: "conv-incognito",
+			role: "assistant",
+			content: "Hello",
+			createdAt: now,
+		})
+		.run();
 
 	sqlite.close();
 }
@@ -273,6 +294,155 @@ describe("activity-events recording", () => {
 		expect(isClientActivityEventKind("skill_use")).toBe(false);
 		expect(isClientActivityEventKind("something_else")).toBe(false);
 		expect(isClientActivityEventKind(42)).toBe(false);
+	});
+
+	// Gap 2 — regenerate and edit-resend are the best proxy for "the answer
+	// was wrong", but nothing recorded them. Both are server-observed kinds
+	// (recorded server-side, never through the client's own
+	// POST /api/analytics/activity), so they get their own recorder here
+	// rather than going through recordClientActivityEvent.
+	it("records a regenerate activity event", async () => {
+		const { recordTurnOriginActivityEvent } = await import("./activity-events");
+
+		await recordTurnOriginActivityEvent({
+			userId: "user-1",
+			conversationId: "conv-1",
+			messageId: "message-1",
+			modelId: "model1",
+			kind: "regenerate",
+		});
+
+		const { db } = await import("$lib/server/db");
+		const rows = await db.select().from(schema.activityEvents);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			userId: "user-1",
+			conversationId: "conv-1",
+			messageId: "message-1",
+			kind: "regenerate",
+			name: "regenerate",
+			status: "done",
+			modelId: "model1",
+		});
+	});
+
+	it("records an edit_resend activity event", async () => {
+		const { recordTurnOriginActivityEvent } = await import("./activity-events");
+
+		await recordTurnOriginActivityEvent({
+			userId: "user-1",
+			conversationId: "conv-1",
+			messageId: "message-1",
+			kind: "edit_resend",
+		});
+
+		const { db } = await import("$lib/server/db");
+		const rows = await db.select().from(schema.activityEvents);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			kind: "edit_resend",
+			name: "edit_resend",
+			status: "done",
+		});
+	});
+
+	it("drops a regenerate/edit_resend event for an incognito conversation instead of writing it", async () => {
+		const { recordTurnOriginActivityEvent } = await import("./activity-events");
+
+		await recordTurnOriginActivityEvent({
+			userId: "user-1",
+			conversationId: "conv-incognito",
+			messageId: "message-incognito-1",
+			kind: "regenerate",
+		});
+		await recordTurnOriginActivityEvent({
+			userId: "user-1",
+			conversationId: "conv-incognito",
+			messageId: "message-incognito-1",
+			kind: "edit_resend",
+		});
+
+		const { db } = await import("$lib/server/db");
+		const rows = await db.select().from(schema.activityEvents);
+		expect(rows).toHaveLength(0);
+	});
+
+	// Incognito is "saved-but-untracked": the privacy notice (i18n/legal.ts)
+	// promises nothing from an incognito chat is "recorded in usage
+	// analytics", and usage_events already skips it (finalize-steps.ts). So
+	// every activity_events kind is dropped, not just the redo rows.
+	it("drops every activity kind for an incognito conversation instead of writing it", async () => {
+		const {
+			recordActivityEvent,
+			recordClientActivityEvent,
+			recordSkillUseActivityEvent,
+			recordToolCallActivityEvents,
+		} = await import("./activity-events");
+
+		await recordToolCallActivityEvents({
+			userId: "user-1",
+			conversationId: "conv-incognito",
+			messageId: "message-incognito-1",
+			modelId: "model1",
+			toolCalls: [
+				{
+					name: "research_web",
+					input: {},
+					status: "done",
+					metadata: { durationMs: 42 },
+				},
+				{
+					name: "use_skill",
+					input: {},
+					status: "done",
+					metadata: { found: true, skillDisplayName: "Outline" },
+				},
+			],
+		});
+		await recordSkillUseActivityEvent({
+			userId: "user-1",
+			conversationId: "conv-incognito",
+			messageId: "message-incognito-1",
+			displayName: "Outline",
+		});
+		await recordClientActivityEvent({
+			userId: "user-1",
+			conversationId: "conv-incognito",
+			messageId: "message-incognito-1",
+			kind: "answer_now",
+			name: "answer_now",
+		});
+		await recordActivityEvent({
+			userId: "user-1",
+			conversationId: "conv-incognito",
+			kind: "composer_command",
+			name: "model",
+		});
+
+		const { db } = await import("$lib/server/db");
+		const rows = await db.select().from(schema.activityEvents);
+		expect(rows).toHaveLength(0);
+	});
+
+	it("still records tool calls for an ordinary conversation after the incognito check", async () => {
+		const { recordToolCallActivityEvents } = await import("./activity-events");
+
+		await recordToolCallActivityEvents({
+			userId: "user-1",
+			conversationId: "conv-1",
+			messageId: "message-1",
+			toolCalls: [
+				{ name: "research_web", input: {}, status: "done" },
+				{ name: "fetch_url", input: {}, status: "failed" },
+			],
+		});
+
+		const { db } = await import("$lib/server/db");
+		const rows = await db.select().from(schema.activityEvents);
+		expect(rows.map((row) => row.name).sort()).toEqual([
+			"fetch_url",
+			"research_web",
+		]);
 	});
 
 	it("never throws when the insert fails", async () => {
