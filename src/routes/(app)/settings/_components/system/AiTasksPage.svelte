@@ -1,7 +1,7 @@
 <script lang="ts">
 // Every model choice in the product, on one page and in one control idiom.
-// Atlas gets a real per-task table — ask, researcher, outline, writer, critic,
-// verifier — instead of two selects named after pipeline internals.
+// Atlas gets a real per-task table — ask, researcher, outline, writer, critic
+// — instead of two selects named after pipeline internals.
 import { Info } from "@lucide/svelte";
 import { t, type I18nKey } from "$lib/i18n";
 import ModelSelect from "./ModelSelect.svelte";
@@ -49,7 +49,6 @@ const ATLAS_TASKS = [
 	{ task: "outline", key: "ATLAS_V3_OUTLINE_MODEL", inherits: "audit" },
 	{ task: "writer", key: "ATLAS_V3_WRITER_MODEL", inherits: "synthesis" },
 	{ task: "critic", key: "ATLAS_V3_CRITIC_MODEL", inherits: "audit" },
-	{ task: "verifier", key: "ATLAS_V3_VERIFIER_MODEL", inherits: "audit" },
 ] as const;
 
 const DEPTH_ROWS = [
@@ -67,19 +66,7 @@ const WORKER_ROWS = [
 		label: "admin.atlasGlobalActiveLimit",
 		min: 1,
 	},
-	{
-		key: "ATLAS_SEARCH_CONCURRENCY",
-		label: "admin.atlasSearchConcurrency",
-		min: 1,
-	},
-	{
-		key: "ATLAS_SEARCH_BATCH_DELAY_MS",
-		label: "admin.atlasSearchBatchDelayMs",
-		min: 0,
-	},
 ] as const;
-
-const PIPELINES = ["v1", "v2", "v3"] as const;
 
 let titleLang = $state<"en" | "hu">("en");
 
@@ -145,7 +132,6 @@ function canResetKey(key: string): boolean {
 				{ id: 'models', label: $t('admin.system.atlas.tabs.models') },
 				{ id: 'worker', label: $t('admin.system.atlas.tabs.worker') },
 				{ id: 'depth', label: $t('admin.system.atlas.tabs.depth') },
-				{ id: 'pipeline', label: $t('admin.system.atlas.tabs.prompts') },
 			]}
 		/>
 
@@ -318,38 +304,6 @@ function canResetKey(key: string): boolean {
 							onchange={(next) =>
 								setValue('ATLAS_V3_LANGUAGE_STANDARD_HU', next ? 'true' : 'false')}
 						/>
-					{/snippet}
-				</SettingRow>
-			</div>
-		{:else}
-			<div id="sys-tabpanel-pipeline" role="tabpanel" aria-labelledby="sys-tab-pipeline" class="sys-rows">
-				<SettingRow
-					label={$t('admin.system.atlas.pipeline.label')}
-					meaning={$t('admin.system.atlas.pipeline.meaning')}
-					configKey="ATLAS_PIPELINE"
-					dirty={isDirty('ATLAS_PIPELINE')}
-					highlighted={highlightKey === 'ATLAS_PIPELINE'}
-					onReset={() => resetValue('ATLAS_PIPELINE')}
-					canReset={canResetKey('ATLAS_PIPELINE')}
-				>
-					{#snippet control()}
-						<span class="sys-row-control" role="radiogroup" aria-label={$t('admin.system.atlas.pipeline.label')}>
-							{#each PIPELINES as pipeline (pipeline)}
-								{@const current =
-									(adminConfig.ATLAS_PIPELINE || envDefaults.ATLAS_PIPELINE || 'v1') === pipeline}
-								<button
-									type="button"
-									role="radio"
-									aria-checked={current}
-									class="sys-mini"
-									class:sys-mini-on={current}
-									data-testid={`atlas-pipeline-${pipeline}`}
-									onclick={() => setValue('ATLAS_PIPELINE', pipeline)}
-								>
-									{pipeline}
-								</button>
-							{/each}
-						</span>
 					{/snippet}
 				</SettingRow>
 			</div>

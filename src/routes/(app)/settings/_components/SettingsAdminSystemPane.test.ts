@@ -299,12 +299,12 @@ describe("SettingsAdminSystemPane", () => {
 		const adminConfig = {
 			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
 			MODEL_2_ENABLED: "true",
-			ATLAS_V2_ENTAILMENT_BATCH: "10",
+			DOCUMENT_EXTRACTION_MAX_ATTEMPTS: "5",
 		};
 
 		const { getByLabelText, getByTestId } = render(SettingsAdminSystemPane, {
 			adminConfig,
-			envDefaults: { ATLAS_V2_ENTAILMENT_BATCH: "10" },
+			envDefaults: { DOCUMENT_EXTRACTION_MAX_ATTEMPTS: "5" },
 			availableModels: [{ id: "model1", displayName: "Model 1" }],
 			onSaveAdminConfig,
 		});
@@ -312,11 +312,11 @@ describe("SettingsAdminSystemPane", () => {
 		await fireEvent.click(getByTestId("system-nav-advanced"));
 		await waitFor(() => {
 			expect(
-				getByTestId("advanced-row-ATLAS_V2_ENTAILMENT_BATCH"),
+				getByTestId("advanced-row-DOCUMENT_EXTRACTION_MAX_ATTEMPTS"),
 			).toBeInTheDocument();
 		});
 
-		await fireEvent.input(getByLabelText("Claims per entailment call"), {
+		await fireEvent.input(getByLabelText("Extraction attempts"), {
 			target: { value: "900" },
 		});
 
@@ -330,8 +330,6 @@ describe("SettingsAdminSystemPane", () => {
 		const adminConfig = {
 			ATLAS_WORKER_ENABLED: "true",
 			ATLAS_GLOBAL_ACTIVE_LIMIT: "2",
-			ATLAS_SEARCH_CONCURRENCY: "3",
-			ATLAS_SEARCH_BATCH_DELAY_MS: "500",
 			ATLAS_SYNTHESIS_MODEL: "model1",
 			ATLAS_AUDIT_MODEL: "model2",
 			WEB_PUSH_VAPID_PUBLIC_KEY: "public-key",
@@ -348,8 +346,6 @@ describe("SettingsAdminSystemPane", () => {
 				envDefaults: {
 					ATLAS_WORKER_ENABLED: "true",
 					ATLAS_GLOBAL_ACTIVE_LIMIT: "2",
-					ATLAS_SEARCH_CONCURRENCY: "3",
-					ATLAS_SEARCH_BATCH_DELAY_MS: "500",
 					ATLAS_SYNTHESIS_MODEL: "model1",
 					ATLAS_AUDIT_MODEL: "model2",
 					WEB_PUSH_VAPID_PUBLIC_KEY: "",
@@ -396,12 +392,6 @@ describe("SettingsAdminSystemPane", () => {
 		await fireEvent.input(getByLabelText("Global Active Atlas Limit"), {
 			target: { value: "4" },
 		});
-		await fireEvent.input(getByLabelText("Search Concurrency"), {
-			target: { value: "5" },
-		});
-		await fireEvent.input(getByLabelText("Search Batch Delay (ms)"), {
-			target: { value: "250" },
-		});
 
 		expect(adminConfig.ATLAS_WORKER_ENABLED).toBe("false");
 		expect(adminConfig.ATLAS_SYNTHESIS_MODEL).toBe(
@@ -411,8 +401,6 @@ describe("SettingsAdminSystemPane", () => {
 			"provider:provider-1:atlas-audit",
 		);
 		expect(adminConfig.ATLAS_GLOBAL_ACTIVE_LIMIT).toBe("4");
-		expect(adminConfig.ATLAS_SEARCH_CONCURRENCY).toBe("5");
-		expect(adminConfig.ATLAS_SEARCH_BATCH_DELAY_MS).toBe("250");
 
 		// The Web-Push keys are no longer on the Atlas card: they are secrets, so
 		// they live with the other secrets on Integrations & keys.
@@ -439,20 +427,19 @@ describe("SettingsAdminSystemPane", () => {
 		expect(adminConfig.WEB_PUSH_VAPID_PRIVATE_KEY).toBe("new-private-key");
 	});
 
-	it("binds every Atlas v3 per-task model, and the pipeline selector", async () => {
+	it("binds every Atlas v3 per-task model", async () => {
 		const adminConfig: Record<string, string> = {
 			COMPOSER_COMMAND_REGISTRY_ENABLED: "true",
 			MODEL_2_ENABLED: "true",
 			ATLAS_SYNTHESIS_MODEL: "model1",
 			ATLAS_AUDIT_MODEL: "model2",
-			ATLAS_PIPELINE: "v2",
 		};
 
 		const { getByLabelText, getByRole, getByTestId } = render(
 			SettingsAdminSystemPane,
 			{
 				adminConfig,
-				envDefaults: { ATLAS_PIPELINE: "v1" },
+				envDefaults: {},
 				availableModels: [
 					{ id: "model1", displayName: "Model 1" },
 					{ id: "model2", displayName: "Model 2" },
@@ -472,7 +459,6 @@ describe("SettingsAdminSystemPane", () => {
 			["Outline", "ATLAS_V3_OUTLINE_MODEL"],
 			["Writer", "ATLAS_V3_WRITER_MODEL"],
 			["Critic", "ATLAS_V3_CRITIC_MODEL"],
-			["Verifier", "ATLAS_V3_VERIFIER_MODEL"],
 		] as const) {
 			const select = getByLabelText(label) as HTMLSelectElement;
 			// Left alone, a task inherits the Atlas model its shape belongs to.
@@ -492,15 +478,6 @@ describe("SettingsAdminSystemPane", () => {
 		});
 		expect(adminConfig.ATLAS_V3_CRITIC_ROUNDS).toBe("3");
 		expect(adminConfig.ATLAS_V3_SEARCHES_PER_STEP).toBe("5");
-
-		// All three pipelines are real, and v3 is selectable.
-		await fireEvent.click(getByRole("tab", { name: "Pipeline" }));
-		expect(getByTestId("atlas-pipeline-v2")).toHaveAttribute(
-			"aria-checked",
-			"true",
-		);
-		await fireEvent.click(getByTestId("atlas-pipeline-v3"));
-		expect(adminConfig.ATLAS_PIPELINE).toBe("v3");
 	});
 
 	it("renders the Parallel and Brave search keys without legacy search controls", async () => {

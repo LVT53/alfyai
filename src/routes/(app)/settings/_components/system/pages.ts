@@ -45,21 +45,15 @@ const NAMED_PAGE_KEYS: Partial<Record<SystemPageId, string[]>> = {
 		// hit or a dirty badge routed to a page with no matching row.
 	],
 	aiTasks: [
-		// The pipeline selector lives next to the tasks it chooses between, so
-		// the Advanced page's Atlas group leaves it out (see SYSTEM_PAGE_BY_KEY).
-		"ATLAS_PIPELINE",
 		"ATLAS_WORKER_ENABLED",
 		"ATLAS_SYNTHESIS_MODEL",
 		"ATLAS_AUDIT_MODEL",
 		"ATLAS_GLOBAL_ACTIVE_LIMIT",
-		"ATLAS_SEARCH_CONCURRENCY",
-		"ATLAS_SEARCH_BATCH_DELAY_MS",
 		"ATLAS_V3_ASK_MODEL",
 		"ATLAS_V3_RESEARCHER_MODEL",
 		"ATLAS_V3_OUTLINE_MODEL",
 		"ATLAS_V3_WRITER_MODEL",
 		"ATLAS_V3_CRITIC_MODEL",
-		"ATLAS_V3_VERIFIER_MODEL",
 		"ATLAS_V3_CRITIC_ROUNDS",
 		"ATLAS_V3_RESEARCHER_CONCURRENCY",
 		"ATLAS_V3_SEARCHES_PER_STEP",
