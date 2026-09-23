@@ -14,7 +14,10 @@ import {
 	logAttachmentTrace,
 	summarizeAttachmentSectionInInput,
 } from "./attachment-trace";
-import { deriveModelContextBudget } from "./chat-turn/context-budget";
+import {
+	deriveModelContextBudget,
+	deriveSessionHistoryBudget,
+} from "./chat-turn/context-budget";
 import {
 	buildConstructedContext,
 	type ConstructedContextReuseData,
@@ -1154,6 +1157,60 @@ function automaticCompressionResult(
 	};
 }
 
+// Automatic compression leaves the newest turns raw so the reply that
+// follows a compression still sees the exchange it most likely refers to
+// verbatim (context selection replays every message after the snapshot
+// boundary as native history). At most this many turns, and only while they
+// fit a quarter of the session history budget: a tail that alone would crowd
+// the history window is compressed with the rest.
+const AUTOMATIC_COMPRESSION_RAW_TAIL_MAX_TURNS = 2;
+const AUTOMATIC_COMPRESSION_RAW_TAIL_HISTORY_RATIO = 0.25;
+
+type AutomaticCompressionSourceMessage = {
+	role: string;
+	content: string;
+};
+
+function splitAutomaticCompressionSource<
+	T extends AutomaticCompressionSourceMessage,
+>(
+	messages: T[],
+	contextLimits: PromptContextLimits,
+): { compress: T[]; rawTail: T[] } {
+	const tailTokenBudget = Math.floor(
+		deriveSessionHistoryBudget({
+			contextBudget: {
+				targetConstructedContext: contextLimits.targetConstructedContext,
+			},
+		}).totalBudget * AUTOMATIC_COMPRESSION_RAW_TAIL_HISTORY_RATIO,
+	);
+	let tailStart = messages.length;
+	let tailTokens = 0;
+	let tailTurns = 0;
+	while (
+		tailStart > 0 &&
+		tailTurns < AUTOMATIC_COMPRESSION_RAW_TAIL_MAX_TURNS
+	) {
+		// A turn starts at a user message; walk back to the start of the
+		// newest turn not yet in the tail.
+		let turnStart = tailStart - 1;
+		while (turnStart > 0 && messages[turnStart]?.role !== "user") {
+			turnStart -= 1;
+		}
+		const turnTokens = messages
+			.slice(turnStart, tailStart)
+			.reduce((sum, message) => sum + estimateTokenCount(message.content), 0);
+		if (tailTokens + turnTokens > tailTokenBudget) break;
+		tailTokens += turnTokens;
+		tailTurns += 1;
+		tailStart = turnStart;
+	}
+	return {
+		compress: messages.slice(0, tailStart),
+		rawTail: messages.slice(tailStart),
+	};
+}
+
 async function maybeRunAutomaticContextCompression(params: {
 	user: AuthenticatedPromptUser | undefined;
 	sessionId: string;
@@ -1246,6 +1303,21 @@ async function maybeRunAutomaticContextCompression(params: {
 			sourceMessageCount: 0,
 		});
 	}
+	const { compress: compressibleSourceMessages, rawTail } =
+		splitAutomaticCompressionSource(
+			pendingSourceMessages,
+			params.contextLimits,
+		);
+	if (compressibleSourceMessages.length === 0) {
+		return automaticCompressionResult({
+			outcome: "not_possible",
+			reason: "only_recent_turns_pending",
+			attempted: false,
+			trigger,
+			...measurement,
+			sourceMessageCount: 0,
+		});
+	}
 
 	console.info(
 		`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Running automatic context compression before model call`,
@@ -1255,7 +1327,8 @@ async function maybeRunAutomaticContextCompression(params: {
 			trigger,
 			...measurement,
 			inputTokenBudget: fit.inputTokenBudget,
-			sourceMessageCount: pendingSourceMessages.length,
+			sourceMessageCount: compressibleSourceMessages.length,
+			rawTailMessageCount: rawTail.length,
 			priorSnapshotId: priorSnapshot?.id ?? null,
 		},
 	);
@@ -1266,7 +1339,7 @@ async function maybeRunAutomaticContextCompression(params: {
 		trigger: "automatic",
 		selectedModelId: params.modelId,
 		controlMessageSender: params.controlMessageSender,
-		sourceMessages: pendingSourceMessages,
+		sourceMessages: compressibleSourceMessages,
 		priorSnapshot,
 		targetTokenEstimate: params.contextLimits.targetConstructedContext,
 		budget: {
@@ -1290,7 +1363,7 @@ async function maybeRunAutomaticContextCompression(params: {
 			attempted: true,
 			trigger,
 			...measurement,
-			sourceMessageCount: pendingSourceMessages.length,
+			sourceMessageCount: compressibleSourceMessages.length,
 			snapshotId: snapshot.id,
 		});
 	}
@@ -1314,7 +1387,7 @@ async function maybeRunAutomaticContextCompression(params: {
 		attempted: true,
 		trigger,
 		...measurement,
-		sourceMessageCount: pendingSourceMessages.length,
+		sourceMessageCount: compressibleSourceMessages.length,
 		snapshotId: snapshot.id,
 	});
 }
