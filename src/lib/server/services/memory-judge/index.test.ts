@@ -1071,4 +1071,124 @@ describe("Memory judge service", () => {
 				.all(),
 		).toEqual([]);
 	});
+
+	it("retiring the legacy review backlog frees the review cap so inferred facts reach review again", async () => {
+		const { db, sqlite } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "Mentoring Anna again this week." },
+				{ role: "assistant", content: "Nice." },
+			],
+		});
+		const inferred = {
+			decisions: [
+				{
+					action: "add",
+					statement: "I am mentoring a colleague this quarter.",
+					category: "goals_ongoing_work",
+					scope: "global",
+					confidence: "inferred",
+					expiryClass: "durable",
+					sourceQuote: "Mentoring Anna again",
+				},
+			],
+		};
+		mockControlModel(inferred);
+
+		// Ten prod-shaped legacy backlog items, each with its open legacy row.
+		const { createMemoryProfileItem, setMemoryProfileItemMetadataAndExpiry } =
+			await import("../memory-profile/projection-store");
+		const { createOrUpdateMemoryReviewItem, legacyReviewSubjectKey } =
+			await import("../memory-profile/review");
+		for (let i = 0; i < 10; i++) {
+			const statement = `Legacy candidate number ${i}.`;
+			const item = await createMemoryProfileItem({
+				userId: "u1",
+				category: "preferences",
+				scope: { type: "global" },
+				statement,
+				status: "review_needed",
+			});
+			await setMemoryProfileItemMetadataAndExpiry({
+				userId: "u1",
+				itemId: item.id,
+				metadataJson: JSON.stringify({
+					source: "legacy_memory_curation",
+					legacyCurationDecision: "review",
+				}),
+			});
+			await createOrUpdateMemoryReviewItem({
+				userId: "u1",
+				subjectKey: legacyReviewSubjectKey({
+					category: "preferences",
+					statement,
+				}),
+				subjectLabel: statement,
+				question: "Should AlfyAI remember this?",
+				reason: "Legacy memory needs confirmation before becoming active.",
+				affectedItemIds: [item.id],
+				metadata: {
+					source: "legacy_memory_curation",
+					category: "preferences",
+					proposedStatement: statement,
+				},
+			});
+		}
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		await expect(
+			runMemoryJudgeOnSegment({
+				userId: "u1",
+				conversationId: "c1",
+				trigger: "idle",
+			}),
+		).resolves.toMatchObject({ status: "ran", review: 0 });
+
+		const { readFileSync } = await import("node:fs");
+		const migration = readFileSync(
+			"./drizzle/1777140000101_retire_legacy_review_backlog.sql",
+			"utf8",
+		);
+		for (const statement of migration.split("--> statement-breakpoint")) {
+			if (statement.trim()) sqlite.exec(statement);
+		}
+
+		const { getMemoryProfileReadModel } = await import(
+			"../memory-profile/read-model"
+		);
+		expect(
+			(await getMemoryProfileReadModel({ userId: "u1" })).review.openCount,
+		).toBe(0);
+
+		db.insert(schema.messages)
+			.values([
+				{
+					id: "msg-late-1",
+					conversationId: "c1",
+					messageSequence: 3,
+					role: "user",
+					content: "Anna and I meet every Friday now.",
+					createdAt: new Date(NOW.getTime() + 10 * 60_000),
+				},
+				{
+					id: "msg-late-2",
+					conversationId: "c1",
+					messageSequence: 4,
+					role: "assistant",
+					content: "Great.",
+					createdAt: new Date(NOW.getTime() + 11 * 60_000),
+				},
+			])
+			.run();
+		await expect(
+			runMemoryJudgeOnSegment({
+				userId: "u1",
+				conversationId: "c1",
+				trigger: "idle",
+			}),
+		).resolves.toMatchObject({ status: "ran", review: 1 });
+	});
 });
