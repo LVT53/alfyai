@@ -12,11 +12,13 @@ vi.mock("$lib/server/services/home-suggestions", async (importOriginal) => ({
 vi.mock("$lib/server/services/home-summary", () => ({
 	getHomeSummary: vi.fn(),
 	invalidateHomeSummary: vi.fn(),
+	dismissMemoryReviewNotice: vi.fn(),
 }));
 
 import { _resetHomeSuggestionEventRateLimitForTests } from "$lib/server/services/home-suggestion-rate-limit";
 import { recordHomeSuggestionEvent } from "$lib/server/services/home-suggestions";
 import {
+	dismissMemoryReviewNotice,
 	getHomeSummary,
 	invalidateHomeSummary,
 } from "$lib/server/services/home-summary";
@@ -25,6 +27,7 @@ import { GET, POST } from "./+server";
 const mockRecord = vi.mocked(recordHomeSuggestionEvent);
 const mockGet = vi.mocked(getHomeSummary);
 const mockInvalidate = vi.mocked(invalidateHomeSummary);
+const mockDismissMemoryReview = vi.mocked(dismissMemoryReviewNotice);
 
 function makeEvent(
 	body: unknown,
@@ -59,6 +62,8 @@ const EMPTY = {
 	recent: [],
 	running: null,
 	suggestions: [],
+	memoryReviewCount: 0,
+	memoryReviewNoticeDismissed: false,
 	generatedAt: 0,
 };
 
@@ -87,6 +92,21 @@ describe("POST /api/home/summary", () => {
 		vi.clearAllMocks();
 		_resetHomeSuggestionEventRateLimitForTests();
 		mockRecord.mockResolvedValue(undefined);
+		mockDismissMemoryReview.mockResolvedValue(undefined);
+	});
+
+	it("dismisses the memory review notice for the SESSION user, never a body field", async () => {
+		const response = await POST(
+			makeEvent(
+				{ action: "dismissMemoryReviewNotice", userId: "someone-else" },
+				{ id: "user-1" },
+			),
+		);
+		expect(response.status).toBe(200);
+		expect(mockDismissMemoryReview).toHaveBeenCalledWith("user-1");
+		// The dismiss action has no candidate key, so it must never fall through
+		// to the suggestion-event path.
+		expect(mockRecord).not.toHaveBeenCalled();
 	});
 
 	it("records the event against the SESSION user, never a body field", async () => {

@@ -13,6 +13,7 @@ import {
 	atlasJobs,
 	conversations,
 	fileProductionJobs,
+	memoryReviewItems,
 	messages,
 	users,
 } from "$lib/server/db/schema";
@@ -22,6 +23,8 @@ import {
 	type HomeSuggestionLocale,
 	recordHomeSuggestionsShown,
 } from "$lib/server/services/home-suggestions";
+import { isUserMemoryEnabled } from "$lib/server/services/memory-controls";
+import { getMemoryProfileReadModel } from "$lib/server/services/memory-profile/read-model";
 
 export const HOME_SUMMARY_DEFAULT_CACHE_TTL_MS = 30_000;
 
@@ -80,6 +83,21 @@ export interface HomeSummary {
 	recent: HomeRecentConversation[];
 	running: HomeRunningJob | null;
 	suggestions: HomeSuggestion[];
+	/**
+	 * How many open Memory Profile review items this user has, straight from
+	 * the same read model the Knowledge → Memory tab's badge uses
+	 * (`getMemoryProfileReadModel(...).review.openCount`) — never a second
+	 * definition of "needs review". Forced to 0 when the user's memory master
+	 * toggle is off, even though the read model itself does not zero it.
+	 */
+	memoryReviewCount: number;
+	/**
+	 * True when the user dismissed the home notice at or after the newest open
+	 * review item's creation time — i.e. nothing NEW has shown up since they
+	 * dismissed it. False (never dismissed, or a newer item has since arrived)
+	 * means the notice should show again.
+	 */
+	memoryReviewNoticeDismissed: boolean;
 	generatedAt: number;
 }
 
@@ -574,6 +592,78 @@ async function readRunning(
 	};
 }
 
+/**
+ * The home-screen "memories need review" notice: the same open-review count
+ * the Knowledge → Memory tab badge shows, plus whether the user's own
+ * dismissal still covers everything currently open.
+ *
+ * The count comes straight from `getMemoryProfileReadModel(...)` — the exact
+ * read model the Memory tab badge uses — so this can never define "needs
+ * review" a second, different way. The one thing added here is the master
+ * memory toggle: the Memory tab does not zero its badge when memory is
+ * disabled (existing rows just sit there), but a home-screen notice pointing
+ * the user at a feature they turned off would be wrong, so this path forces
+ * the count to 0 in that case.
+ *
+ * Dismissal is per user, not per item: `users.homeMemoryReviewDismissedAt`
+ * records when the user last dismissed the notice, and it stays dismissed
+ * until an open review item NEWER than that timestamp exists. A dismissal
+ * does not expire on its own — unlike the 7-day suggestion-rail event log,
+ * there is no natural "come back after a week" for this notice, only "come
+ * back when there is something new to look at".
+ *
+ * The "newest" lookup is scoped to the exact row ids
+ * `getMemoryProfileReadModel(...)` returned — not a second, independent
+ * `status = 'open'` query — so a future change to what that read model
+ * considers open (e.g. excluding a review row whose affected item is no
+ * longer `review_needed`) is inherited here automatically instead of having
+ * to be re-applied in two places.
+ */
+async function readMemoryReviewNotice(
+	userId: string,
+	homeMemoryReviewDismissedAt: Date | null,
+): Promise<{ count: number; dismissed: boolean }> {
+	const enabled = await isUserMemoryEnabled(userId).catch(() => true);
+	if (!enabled) return { count: 0, dismissed: true };
+
+	const profile = await getMemoryProfileReadModel({ userId });
+	const count = profile.review.openCount;
+	if (count === 0) return { count: 0, dismissed: true };
+	if (!homeMemoryReviewDismissedAt) return { count, dismissed: false };
+
+	const openIds = profile.review.items.map((item) => item.id);
+	const [newest] = openIds.length
+		? await db
+				.select({ createdAt: memoryReviewItems.createdAt })
+				.from(memoryReviewItems)
+				.where(inArray(memoryReviewItems.id, openIds))
+				.orderBy(desc(memoryReviewItems.createdAt))
+				.limit(1)
+		: [];
+
+	const dismissed =
+		!newest?.createdAt ||
+		homeMemoryReviewDismissedAt.getTime() >= newest.createdAt.getTime();
+	return { count, dismissed };
+}
+
+/**
+ * Records that the user dismissed the home "memories need review" notice
+ * right now. Read back by `readMemoryReviewNotice` above, which compares this
+ * against the newest open review item's creation time — so the notice stays
+ * hidden until a review item newer than this dismissal appears.
+ */
+export async function dismissMemoryReviewNotice(
+	userId: string,
+	now: Date = new Date(),
+): Promise<void> {
+	await db
+		.update(users)
+		.set({ homeMemoryReviewDismissedAt: now })
+		.where(eq(users.id, userId));
+	invalidateHomeSummary(userId);
+}
+
 // ---------------------------------------------------------------------------
 // Assembly + the 30-second per-user cache
 // ---------------------------------------------------------------------------
@@ -635,7 +725,10 @@ async function computeHomeSummary(
 	now: Date,
 ): Promise<HomeSummary> {
 	const [userRow] = await db
-		.select({ uiLanguage: users.uiLanguage })
+		.select({
+			uiLanguage: users.uiLanguage,
+			homeMemoryReviewDismissedAt: users.homeMemoryReviewDismissedAt,
+		})
 		.from(users)
 		.where(eq(users.id, userId))
 		.limit(1);
@@ -643,12 +736,17 @@ async function computeHomeSummary(
 		userRow?.uiLanguage === "hu" ? "hu" : "en";
 	const timeZone = reportingTimeZone();
 
-	const [weekly, recent, running, suggestions] = await Promise.all([
-		readWeekly(userId, now, timeZone),
-		readRecent(userId),
-		readRunning(userId, locale),
-		getHomeSuggestions({ userId, locale, now }),
-	]);
+	const [weekly, recent, running, suggestions, memoryReviewNotice] =
+		await Promise.all([
+			readWeekly(userId, now, timeZone),
+			readRecent(userId),
+			readRunning(userId, locale),
+			getHomeSuggestions({ userId, locale, now }),
+			readMemoryReviewNotice(
+				userId,
+				userRow?.homeMemoryReviewDismissedAt ?? null,
+			),
+		]);
 
 	return {
 		weekly,
@@ -656,6 +754,8 @@ async function computeHomeSummary(
 		recent,
 		running,
 		suggestions,
+		memoryReviewCount: memoryReviewNotice.count,
+		memoryReviewNoticeDismissed: memoryReviewNotice.dismissed,
 		generatedAt: Math.floor(now.getTime() / 1000),
 	};
 }
