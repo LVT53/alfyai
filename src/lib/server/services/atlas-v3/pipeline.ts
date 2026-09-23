@@ -88,6 +88,10 @@ import {
 	buildAtlasV3ProgressDetails,
 	buildAtlasV3ProgressEvidence,
 } from "./progress";
+import {
+	ATLAS_V3_CHECKPOINT_ROUND,
+	readAtlasV3ResumeState,
+} from "./checkpoint-state";
 import { buildAtlasV3DocumentSource } from "./render";
 import type { AtlasV3ResearchWeb } from "./research-web-adapter";
 import {
@@ -132,18 +136,6 @@ import {
 	writeAtlasV3Report,
 	writeAtlasV3Verdict,
 } from "./writer";
-
-/** Checkpoint `roundNumber` per phase, so a resume can find the latest. */
-const CHECKPOINT_ROUND = {
-	ask: 1,
-	research: 10,
-	outline: 20,
-	answer: 21,
-	write: 22,
-	critic: 23,
-	verify: 24,
-	render: 25,
-} as const;
 
 export interface RunAtlasV3PipelineInput {
 	job: AtlasPipelineJobContext;
@@ -193,75 +185,6 @@ export interface RunAtlasV3PipelineInput {
 		 */
 		localSources?: AtlasV3LocalSources;
 	};
-}
-
-interface ResumeState {
-	ask?: AtlasV3Ask;
-	bank?: AtlasV3EvidenceBank;
-	memo?: AtlasV3Memo;
-	completedRounds?: number;
-	askedQuestions?: string[];
-	outline?: AtlasV3Outline;
-	answerTable?: AtlasV3AnswerTable | null;
-	sections?: AtlasV3WrittenSection[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-/**
- * Rebuilds what earlier phases produced from the durable checkpoints. Anything
- * that does not parse is simply not resumed — the phase runs again, which is
- * always correct and only ever costs time.
- */
-export function readAtlasV3ResumeState(
-	checkpoints: Array<{ roundNumber: number; checkpoint: unknown }>,
-): ResumeState {
-	const state: ResumeState = {};
-	for (const entry of [...checkpoints].sort(
-		(left, right) => left.roundNumber - right.roundNumber,
-	)) {
-		if (!isRecord(entry.checkpoint)) continue;
-		if (entry.checkpoint.schema !== ATLAS_V3_CHECKPOINT_SCHEMA_VERSION)
-			continue;
-		const data = isRecord(entry.checkpoint.data) ? entry.checkpoint.data : {};
-		switch (entry.checkpoint.phase) {
-			case "ask":
-				if (isRecord(data.ask)) state.ask = data.ask as unknown as AtlasV3Ask;
-				break;
-			case "research":
-				if (isRecord(data.bank)) {
-					state.bank = data.bank as unknown as AtlasV3EvidenceBank;
-				}
-				if (isRecord(data.memo)) {
-					state.memo = data.memo as unknown as AtlasV3Memo;
-				}
-				if (typeof data.round === "number") state.completedRounds = data.round;
-				if (Array.isArray(data.asked)) {
-					state.askedQuestions = data.asked as string[];
-				}
-				break;
-			case "outline":
-				if (isRecord(data.outline)) {
-					state.outline = data.outline as unknown as AtlasV3Outline;
-				}
-				break;
-			case "answer":
-				state.answerTable = isRecord(data.answerTable)
-					? (data.answerTable as unknown as AtlasV3AnswerTable)
-					: null;
-				break;
-			case "write":
-				if (Array.isArray(data.sections)) {
-					state.sections = data.sections as AtlasV3WrittenSection[];
-				}
-				break;
-			default:
-				break;
-		}
-	}
-	return state;
 }
 
 function isoDate(now: Date): string {
@@ -713,7 +636,7 @@ export async function runAtlasV3Pipeline(
 				return fallbackAtlasV3Ask({ query: job.query, language });
 			}
 		});
-		await checkpoint("ask", CHECKPOINT_ROUND.ask, { ask });
+		await checkpoint("ask", ATLAS_V3_CHECKPOINT_ROUND.ask, { ask });
 	}
 	const resolvedAsk: AtlasV3Ask = ask;
 
@@ -810,7 +733,7 @@ export async function runAtlasV3Pipeline(
 		}
 		memo = mergeAtlasV3Memos(passes);
 		roundsRun = 1;
-		await checkpoint("research", CHECKPOINT_ROUND.research + 1, {
+		await checkpoint("research", ATLAS_V3_CHECKPOINT_ROUND.research + 1, {
 			round: roundsRun,
 			bank: freezeAtlasV3Bank(state),
 			memo,
@@ -862,7 +785,7 @@ export async function runAtlasV3Pipeline(
 		const result = await researchRound(roundsRun, next, currentMemo);
 		asked.push(...result.queries);
 		memo = result.memo;
-		await checkpoint("research", CHECKPOINT_ROUND.research + roundsRun, {
+		await checkpoint("research", ATLAS_V3_CHECKPOINT_ROUND.research + roundsRun, {
 			round: roundsRun,
 			bank: freezeAtlasV3Bank(state),
 			memo,
@@ -935,7 +858,7 @@ export async function runAtlasV3Pipeline(
 		);
 	}
 	const bankUsable = !atlasV3BankIsUnusable(bank);
-	await checkpoint("outline", CHECKPOINT_ROUND.outline, {
+	await checkpoint("outline", ATLAS_V3_CHECKPOINT_ROUND.outline, {
 		outline: resolvedOutline,
 	});
 
@@ -957,7 +880,7 @@ export async function runAtlasV3Pipeline(
 						onUsage,
 					}),
 				);
-	await checkpoint("answer", CHECKPOINT_ROUND.answer, { answerTable });
+	await checkpoint("answer", ATLAS_V3_CHECKPOINT_ROUND.answer, { answerTable });
 
 	// -- 6. Write ------------------------------------------------------------
 	await heartbeat("write");
@@ -1031,7 +954,7 @@ export async function runAtlasV3Pipeline(
 			claims: bank.claims.length,
 		});
 	}
-	await checkpoint("write", CHECKPOINT_ROUND.write, {
+	await checkpoint("write", ATLAS_V3_CHECKPOINT_ROUND.write, {
 		sections: written.sections,
 	});
 
@@ -1157,7 +1080,7 @@ export async function runAtlasV3Pipeline(
 			// quotes it fetched are invisible to a post-mortem, and a resume would
 			// pay for them twice. The memo stays the pipeline's own — the critic's
 			// research answers a finding, it does not rewrite the answer so far.
-			await checkpoint("research", CHECKPOINT_ROUND.research + roundsRun, {
+			await checkpoint("research", ATLAS_V3_CHECKPOINT_ROUND.research + roundsRun, {
 				round: roundsRun,
 				bank: freezeAtlasV3Bank(state),
 				memo: resolvedMemo,
@@ -1275,7 +1198,7 @@ export async function runAtlasV3Pipeline(
 			}
 		}
 	}
-	await checkpoint("critic", CHECKPOINT_ROUND.critic, {
+	await checkpoint("critic", ATLAS_V3_CHECKPOINT_ROUND.critic, {
 		rounds: criticRoundsRun,
 		findings: criticFindingCount,
 	});
@@ -1513,7 +1436,7 @@ export async function runAtlasV3Pipeline(
 			: {}),
 	};
 	await heartbeat("verify", { evidence });
-	await checkpoint("verify", CHECKPOINT_ROUND.verify, {
+	await checkpoint("verify", ATLAS_V3_CHECKPOINT_ROUND.verify, {
 		totals: verification.totals,
 		staleSourceIds: verification.staleSourceIds,
 	});
@@ -1551,7 +1474,7 @@ export async function runAtlasV3Pipeline(
 
 	await checkpoint(
 		"render",
-		CHECKPOINT_ROUND.render,
+		ATLAS_V3_CHECKPOINT_ROUND.render,
 		{ outputs },
 		{
 			curatedSourcePool: finalBank.sources.map((source) =>
