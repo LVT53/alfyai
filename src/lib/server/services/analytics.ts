@@ -1338,7 +1338,11 @@ function buildToolsSummary(rows: ActivityEventRow[]): ToolActivitySummary[] {
 		current.calls += 1;
 		if (row.status === "failed") current.failed += 1;
 		if (row.status === "cached") current.cached += 1;
-		if (typeof row.durationMs === "number")
+		// A cache hit short-circuits the tool, so its (envelope-measured)
+		// duration is a lookup, not the tool's latency: kept out of the p50,
+		// which would otherwise fall as the cache hit rate rises. It still
+		// counts as a call; `cached` reports it separately.
+		else if (typeof row.durationMs === "number")
 			current.durations.push(row.durationMs);
 		grouped.set(row.name, current);
 	}
