@@ -1,5 +1,5 @@
 import * as crypto from "node:crypto";
-import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
 import { getProviderIdFromModelId, isProviderModelId } from "$lib/model-types";
 import type { SessionUser } from "$lib/server/services/auth-types";
 import { getConfig } from "../config-store";
@@ -849,8 +849,23 @@ async function loadActivityEventRows(params: {
 	if (params.userId) {
 		conditions.push(eq(activityEvents.userId, params.userId));
 	}
-	const query = db.select().from(activityEvents);
-	return conditions.length > 0 ? query.where(and(...conditions)) : query;
+	// Incognito conversations are saved-but-untracked. The writers in
+	// activity-events.ts drop their rows, but tool_call/skill_use rows were
+	// written for them before that rule existed — excluded here too, the same
+	// read-side rule the user-message counts above follow.
+	conditions.push(
+		notInArray(
+			activityEvents.conversationId,
+			db
+				.select({ id: conversations.id })
+				.from(conversations)
+				.where(eq(conversations.memoryIncognito, true)),
+		),
+	);
+	return db
+		.select()
+		.from(activityEvents)
+		.where(and(...conditions));
 }
 
 // The built-in "model1"/"model2" aliases are config-driven rather than rows in
