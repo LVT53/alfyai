@@ -26,6 +26,7 @@ import {
 	emitContextTrace,
 	type LegacyContextTraceSectionInput,
 } from "./chat-turn/context-trace";
+import { estimateHistoryMessagesTokens } from "./chat-turn/conversation-history";
 import { buildProactiveConnectorContext } from "./chat-turn/proactive-connector-context";
 import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
 import type { Capability } from "./connections/registry";
@@ -157,13 +158,26 @@ type AutomaticContextCompressionOutcome =
 	| "failed"
 	| "succeeded";
 
+// Why automatic compression judged this turn's context too big:
+// - prompt_over_budget: system prompt + packet + turn guidance + native
+//   history (everything the provider is sent that is known before the model
+//   call) no longer fits the prompt budget.
+// - history_window_trimmed: older post-snapshot turns did not fit the session
+//   history budget and were dropped from the prompt; compression summarizes
+//   them instead of losing them.
+type AutomaticContextCompressionTrigger =
+	| "prompt_over_budget"
+	| "history_window_trimmed";
+
 type AutomaticContextCompressionResult = {
 	context: ConstructedContextResult | null;
 	outcome: AutomaticContextCompressionOutcome;
 	reason: string;
 	attempted: boolean;
+	trigger?: AutomaticContextCompressionTrigger;
 	beforeInputTokensWithSafety?: number;
-	rawSourceTokensWithSafety?: number;
+	historyTokensWithSafety?: number;
+	omittedHistoryTurnCount?: number;
 	sourceMessageCount?: number;
 	snapshotId?: string | null;
 };
@@ -171,6 +185,7 @@ type AutomaticContextCompressionResult = {
 type OutboundChatContextPreparationState = {
 	inputValue: string;
 	historyMessages?: ModelMessage[];
+	historyWindow?: ConstructedContextResult["historyWindow"];
 	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
 	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug?:
@@ -1068,6 +1083,11 @@ function estimateOutboundPromptFit(params: {
 	systemPrompt: string;
 	contextLimits: PromptContextLimits;
 	maxTokens?: number | null;
+	// Sent alongside the packet: prior turns as native messages before it and
+	// the per-turn guidance appended to it (appendTurnGuidance). Both count
+	// against the same prompt budget as the packet itself.
+	historyMessages?: ModelMessage[];
+	turnGuidance?: string;
 }) {
 	const { currentMessageSection } = extractCurrentMessageSection(
 		params.inputValue,
@@ -1093,11 +1113,21 @@ function estimateOutboundPromptFit(params: {
 	);
 	const systemTokens = estimateOutboundPromptTokens(params.systemPrompt);
 	const inputTokenBudget = configuredPromptBudget - systemTokens;
-	const safeInputTokens = estimateOutboundPromptTokens(params.inputValue);
+	const historyTokens = Math.ceil(
+		estimateHistoryMessagesTokens(
+			params.historyMessages ?? [],
+			estimateTokenCount,
+		) * NORMAL_CHAT_PROMPT_TOKEN_SAFETY_FACTOR,
+	);
+	const safeInputTokens =
+		estimateOutboundPromptTokens(params.inputValue) +
+		estimateOutboundPromptTokens(params.turnGuidance ?? "") +
+		historyTokens;
 	return {
 		overBudget: inputTokenBudget <= 0 || safeInputTokens > inputTokenBudget,
 		inputTokenBudget,
 		safeInputTokens,
+		historyTokens,
 		configuredPromptBudget,
 		systemTokens,
 		outputReserve: outputTokenBudget.outputReserve,
@@ -1115,54 +1145,13 @@ function automaticCompressionResult(
 		outcome: input.outcome,
 		reason: input.reason,
 		attempted: input.attempted,
+		trigger: input.trigger,
 		beforeInputTokensWithSafety: input.beforeInputTokensWithSafety,
-		rawSourceTokensWithSafety: input.rawSourceTokensWithSafety,
+		historyTokensWithSafety: input.historyTokensWithSafety,
+		omittedHistoryTurnCount: input.omittedHistoryTurnCount,
 		sourceMessageCount: input.sourceMessageCount,
 		snapshotId: input.snapshotId,
 	};
-}
-
-function serializeRawSourceMessageForFit(message: {
-	role: string;
-	content: string;
-	thinking?: string | null;
-	toolCalls?: unknown;
-}): string {
-	const parts = [
-		`${message.role.toUpperCase()}:`,
-		message.content?.trim() ?? "",
-	];
-	if (message.thinking?.trim()) {
-		parts.push(`Thinking:\n${message.thinking.trim()}`);
-	}
-	if (message.toolCalls != null) {
-		parts.push(
-			`Tool calls:\n${
-				typeof message.toolCalls === "string"
-					? message.toolCalls
-					: JSON.stringify(message.toolCalls)
-			}`,
-		);
-	}
-	return parts.filter((part) => part.trim()).join("\n");
-}
-
-function buildRawPendingSourceFitInput(params: {
-	sourceMessages: Array<{
-		role: string;
-		content: string;
-		thinking?: string | null;
-		toolCalls?: unknown;
-	}>;
-	message: string;
-}): string {
-	return [
-		"Context from your conversation history:",
-		...params.sourceMessages.map(serializeRawSourceMessageForFit),
-		`${CURRENT_USER_MESSAGE_MARKER}${params.message.trim()}`,
-	]
-		.filter((part) => part.trim())
-		.join("\n\n");
 }
 
 async function maybeRunAutomaticContextCompression(params: {
@@ -1173,6 +1162,9 @@ async function maybeRunAutomaticContextCompression(params: {
 	modelConfig: NormalChatContextModelConfig;
 	contextLimits: PromptContextLimits;
 	inputValue: string;
+	historyMessages?: ModelMessage[];
+	historyWindow?: ConstructedContextResult["historyWindow"];
+	turnGuidance?: string;
 	systemPrompt: string;
 	attachmentIds?: string[];
 	activeDocumentArtifactId?: string;
@@ -1203,7 +1195,28 @@ async function maybeRunAutomaticContextCompression(params: {
 		systemPrompt: params.systemPrompt,
 		contextLimits: params.contextLimits,
 		maxTokens: params.modelConfig.maxTokens,
+		historyMessages: params.historyMessages,
+		turnGuidance: params.turnGuidance,
 	});
+	const omittedHistoryTurnCount = params.historyWindow?.omittedTurnCount ?? 0;
+	const trigger: AutomaticContextCompressionTrigger | null = fit.overBudget
+		? "prompt_over_budget"
+		: omittedHistoryTurnCount > 0
+			? "history_window_trimmed"
+			: null;
+	const measurement = {
+		beforeInputTokensWithSafety: fit.safeInputTokens,
+		historyTokensWithSafety: fit.historyTokens,
+		omittedHistoryTurnCount,
+	};
+	if (!trigger) {
+		return automaticCompressionResult({
+			outcome: "not_needed",
+			reason: "prompt_and_history_within_budget",
+			attempted: false,
+			...measurement,
+		});
+	}
 
 	const {
 		getLatestValidContextCompressionSnapshot,
@@ -1225,35 +1238,12 @@ async function maybeRunAutomaticContextCompression(params: {
 		: sourceMessages;
 	if (pendingSourceMessages.length === 0) {
 		return automaticCompressionResult({
-			outcome: fit.overBudget ? "not_possible" : "not_needed",
-			reason: fit.overBudget
-				? "no_pending_source_messages"
-				: "prompt_within_budget",
+			outcome: "not_possible",
+			reason: "no_pending_source_messages",
 			attempted: false,
-			beforeInputTokensWithSafety: fit.safeInputTokens,
+			trigger,
+			...measurement,
 			sourceMessageCount: 0,
-		});
-	}
-
-	const rawSourceInputValue = buildRawPendingSourceFitInput({
-		sourceMessages: pendingSourceMessages,
-		message: params.message,
-	});
-	const rawSourceFit = estimateOutboundPromptFit({
-		inputValue: rawSourceInputValue,
-		message: params.message,
-		systemPrompt: params.systemPrompt,
-		contextLimits: params.contextLimits,
-		maxTokens: params.modelConfig.maxTokens,
-	});
-	if (!fit.overBudget && !rawSourceFit.overBudget) {
-		return automaticCompressionResult({
-			outcome: "not_needed",
-			reason: "prompt_and_raw_source_within_budget",
-			attempted: false,
-			beforeInputTokensWithSafety: fit.safeInputTokens,
-			rawSourceTokensWithSafety: rawSourceFit.safeInputTokens,
-			sourceMessageCount: pendingSourceMessages.length,
 		});
 	}
 
@@ -1262,8 +1252,8 @@ async function maybeRunAutomaticContextCompression(params: {
 		{
 			sessionId: params.sessionId,
 			modelId: params.modelId,
-			beforeInputTokensWithSafety: fit.safeInputTokens,
-			rawSourceTokensWithSafety: rawSourceFit.safeInputTokens,
+			trigger,
+			...measurement,
 			inputTokenBudget: fit.inputTokenBudget,
 			sourceMessageCount: pendingSourceMessages.length,
 			priorSnapshotId: priorSnapshot?.id ?? null,
@@ -1278,10 +1268,6 @@ async function maybeRunAutomaticContextCompression(params: {
 		controlMessageSender: params.controlMessageSender,
 		sourceMessages: pendingSourceMessages,
 		priorSnapshot,
-		sourceTokenEstimate: Math.max(
-			fit.safeInputTokens,
-			rawSourceFit.safeInputTokens,
-		),
 		targetTokenEstimate: params.contextLimits.targetConstructedContext,
 		budget: {
 			maxModelContext: params.contextLimits.maxModelContext,
@@ -1302,8 +1288,8 @@ async function maybeRunAutomaticContextCompression(params: {
 			outcome: "failed",
 			reason: snapshot.failureReason ?? "snapshot_validation_failed",
 			attempted: true,
-			beforeInputTokensWithSafety: fit.safeInputTokens,
-			rawSourceTokensWithSafety: rawSourceFit.safeInputTokens,
+			trigger,
+			...measurement,
 			sourceMessageCount: pendingSourceMessages.length,
 			snapshotId: snapshot.id,
 		});
@@ -1326,8 +1312,8 @@ async function maybeRunAutomaticContextCompression(params: {
 		outcome: "succeeded",
 		reason: "snapshot_valid",
 		attempted: true,
-		beforeInputTokensWithSafety: fit.safeInputTokens,
-		rawSourceTokensWithSafety: rawSourceFit.safeInputTokens,
+		trigger,
+		...measurement,
 		sourceMessageCount: pendingSourceMessages.length,
 		snapshotId: snapshot.id,
 	});
@@ -1502,6 +1488,7 @@ function applyConstructedContextToPreparationState(
 		...state,
 		inputValue: constructed.inputValue,
 		historyMessages: constructed.historyMessages,
+		historyWindow: constructed.historyWindow,
 		contextStatus: constructed.contextStatus,
 		taskState: constructed.taskState,
 		contextDebug: constructed.contextDebug,
@@ -1570,6 +1557,9 @@ type AutomaticContextCompressionStageResult = {
 async function runAutomaticContextCompressionStage(input: {
 	params: PrepareOutboundChatContextParams;
 	inputValue: string;
+	historyMessages?: ModelMessage[];
+	historyWindow?: ConstructedContextResult["historyWindow"];
+	turnGuidance: string;
 	systemPrompt: string;
 	contextLimits: PromptContextLimits;
 	reuseData?: ConstructedContextReuseData;
@@ -1582,6 +1572,9 @@ async function runAutomaticContextCompressionStage(input: {
 		modelConfig: input.params.modelConfig,
 		contextLimits: input.contextLimits,
 		inputValue: input.inputValue,
+		historyMessages: input.historyMessages,
+		historyWindow: input.historyWindow,
+		turnGuidance: input.turnGuidance,
 		systemPrompt: input.systemPrompt,
 		attachmentIds: input.params.attachmentIds,
 		activeDocumentArtifactId: input.params.activeDocumentArtifactId,
@@ -1746,6 +1739,17 @@ export async function prepareOutboundChatContext(
 			contextLimits: params.modelConfig.contextLimits,
 			runtimeConfig: getPreparationConfig(),
 		});
+	// Built once: automatic compression measures it (it rides the user turn,
+	// see appendTurnGuidance) and the prepared context returns the same text.
+	const turnGuidance = buildTurnGuidance({
+		message: params.message,
+		responseLanguage: detectLanguage(params.message),
+		reasoningDepthEffort: params.reasoningDepthEffort,
+		skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
+		forceWebSearch: params.forceWebSearch,
+		skillCatalogueBlock: params.skillCatalogueBlock,
+		pendingSkillInstructions: params.pendingSkillInstructions,
+	});
 	const { state, timings } =
 		await runNormalChatContextPreparationStages<OutboundChatContextPreparationState>(
 			{
@@ -1836,6 +1840,9 @@ export async function prepareOutboundChatContext(
 						const compressionStage = await runAutomaticContextCompressionStage({
 							params,
 							inputValue: currentState.inputValue,
+							historyMessages: currentState.historyMessages,
+							historyWindow: currentState.historyWindow,
+							turnGuidance,
 							systemPrompt,
 							contextLimits,
 							reuseData: currentState.reuseData,
@@ -1883,15 +1890,7 @@ export async function prepareOutboundChatContext(
 
 	return {
 		inputValue: state.inputValue,
-		turnGuidance: buildTurnGuidance({
-			message: params.message,
-			responseLanguage: detectLanguage(params.message),
-			reasoningDepthEffort: params.reasoningDepthEffort,
-			skipDefaultRuntimeGuidance: params.skipDefaultRuntimeGuidance,
-			forceWebSearch: params.forceWebSearch,
-			skillCatalogueBlock: params.skillCatalogueBlock,
-			pendingSkillInstructions: params.pendingSkillInstructions,
-		}),
+		turnGuidance,
 		historyMessages: state.historyMessages ?? [],
 		systemPrompt: requirePreparationValue(state.systemPrompt, "systemPrompt"),
 		contextStatus: state.contextStatus,
