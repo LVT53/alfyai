@@ -91,6 +91,7 @@ export const ATLAS_V3_OUTLINE_SYSTEM: Record<SupportedLanguage, string> = {
 		"`claimIds` are the claims from the memo this section rests on. Two sections may NOT rest on the same set — if they would, merge them.",
 		"Rewrite the outline you are shown: keep what still holds, expand what the new evidence justifies, MERGE sections that now say the same thing, and list in `cut` anything the evidence no longer supports, with the reason.",
 		"Never plan a section the evidence cannot fill. A report with four defended sections beats one with eight, three of which admit they found nothing.",
+		"A claim with `fromUserDocument: true` rests only on the user's own documents. It may anchor a section about the user's own situation; a section stating a published fact still needs a published source.",
 	].join("\n"),
 	hu: [
 		"Egy kutatási jelentés szakaszait tervezed. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -101,6 +102,7 @@ export const ATLAS_V3_OUTLINE_SYSTEM: Record<SupportedLanguage, string> = {
 		"A `claimIds` a feljegyzés azon állításai, amelyeken a szakasz nyugszik. Két szakasz NEM nyugodhat ugyanazon a halmazon — ilyenkor vond össze őket.",
 		"A kapott vázlatot írd újra: tartsd meg, ami áll, bővítsd, amit az új bizonyíték indokol, VOND ÖSSZE, ami ugyanazt mondja, és a `cut` alá sorold, amit a bizonyíték már nem támaszt alá, az okkal.",
 		"Ne tervezz olyan szakaszt, amit a bizonyíték nem tud kitölteni. A négy megvédett szakaszos jelentés jobb, mint a nyolc szakaszos, amelyből három bevallja, hogy nem talált semmit.",
+		"A `fromUserDocument: true` jelölésű állítás kizárólag a felhasználó saját dokumentumain nyugszik. Lehet egy, a felhasználó saját helyzetéről szóló szakasz alapja; egy közzétett tényt kimondó szakaszhoz továbbra is közzétett forrás kell.",
 	].join("\n"),
 };
 
@@ -143,6 +145,23 @@ export function buildAtlasV3OutlinePrompt(
 	const claimsById = new Map(
 		input.bank.claims.map((claim) => [claim.id, claim]),
 	);
+	const quotesById = new Map(
+		input.bank.quotes.map((quote) => [quote.id, quote]),
+	);
+	const localSourceIds = new Set(
+		input.bank.sources
+			.filter((source) => source.kind === "local")
+			.map((source) => source.id),
+	);
+	// A claim resting ONLY on the user's own documents is the user's figure, not
+	// a published one; the outline is told so it can place it accordingly.
+	const fromUserDocument = (claim: AtlasV3Claim): boolean =>
+		localSourceIds.size > 0 &&
+		claim.evidenceIds.length > 0 &&
+		claim.evidenceIds.every((id) => {
+			const quote = quotesById.get(id);
+			return quote !== undefined && localSourceIds.has(quote.sourceId);
+		});
 	return JSON.stringify({
 		task: "revise_outline",
 		coreQuestion: input.ask.coreQuestion,
@@ -170,6 +189,7 @@ export function buildAtlasV3OutlinePrompt(
 				period: claim.period,
 				series: claim.series,
 				status: claim.status,
+				...(fromUserDocument(claim) ? { fromUserDocument: true } : {}),
 			})),
 		previousOutline:
 			input.previous?.nodes.map((node) => ({

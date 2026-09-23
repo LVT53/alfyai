@@ -30,6 +30,7 @@ export const ATLAS_V3_ASK_SYSTEM: Record<SupportedLanguage, string> = {
 		"`implicitRequirements` are things the user expects but did not say — a currency, a jurisdiction, a date range, a budget, an availability constraint. 2 to 5 items. Never restate the question.",
 		"`perspectives` are the stakeholders whose view of the answer differs — buyer and manufacturer, regulator and operator, patient and payer. 2 to 4 items.",
 		"`subQuestions` are 3 to 6 research questions that, answered, answer the core question. Each must be answerable from a published source. No question about opinion or preference.",
+		"`localSources` lists documents the user provided. Sub-questions may be answered from them; do not ask the web for what they state, but keep at least one sub-question that checks their key figures against published sources when the request needs current or external facts.",
 	].join("\n"),
 	hu: [
 		"Egy kutatási kérést fogalmazol újra döntésként. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -41,8 +42,12 @@ export const ATLAS_V3_ASK_SYSTEM: Record<SupportedLanguage, string> = {
 		"Az `implicitRequirements` olyan elvárások, amelyeket a felhasználó nem mondott ki — pénznem, joghatóság, időszak, keret, elérhetőség. 2-5 elem. Ne ismételd meg a kérdést.",
 		"A `perspectives` azok az érintettek, akiknek más a nézőpontja — vevő és gyártó, szabályozó és üzemeltető, beteg és finanszírozó. 2-4 elem.",
 		"A `subQuestions` 3-6 kutatási kérdés, amelyek megválaszolva megválaszolják a fő kérdést. Mindegyik publikált forrásból megválaszolható legyen. Vélemény vagy ízlés nem kérdés.",
+		"A `localSources` a felhasználó által megadott dokumentumokat sorolja fel. A kutatási kérdések megválaszolhatók belőlük; ne kérdezd a webet arról, amit ezek kimondanak, de ha a kérés aktuális vagy külső tényeket igényel, maradjon legalább egy kutatási kérdés, amely a fő számaikat közzétett forrásokkal veti össze.",
 	].join("\n"),
 };
+
+/** Characters of a user document's summary the ask may see. */
+const MAX_LOCAL_SUMMARY_CHARS = 300;
 
 export interface BuildAtlasV3AskPromptInput {
 	query: string;
@@ -53,6 +58,15 @@ export interface BuildAtlasV3AskPromptInput {
 	reviseInstruction?: string | null;
 	/** Native primary sources for the jurisdictions the request mentions. */
 	preferredSources?: readonly string[];
+	/**
+	 * The user's own documents the job will read, so the plan knows what is
+	 * already in hand. Their text is NOT here; the local read files it later.
+	 */
+	localSources?: ReadonlyArray<{
+		title: string;
+		origin: string;
+		summary: string | null;
+	}>;
 }
 
 export function buildAtlasV3AskPrompt(
@@ -69,6 +83,19 @@ export function buildAtlasV3AskPrompt(
 			: {}),
 		...(input.preferredSources && input.preferredSources.length > 0
 			? { preferredPrimarySources: [...input.preferredSources] }
+			: {}),
+		...(input.localSources && input.localSources.length > 0
+			? {
+					localSources: input.localSources.map((source) => ({
+						title: source.title,
+						origin: source.origin,
+						summary:
+							source.summary
+								?.replace(/\s+/g, " ")
+								.trim()
+								.slice(0, MAX_LOCAL_SUMMARY_CHARS) || null,
+					})),
+				}
 			: {}),
 	});
 }

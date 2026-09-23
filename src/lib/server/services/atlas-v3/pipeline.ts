@@ -7,7 +7,10 @@
 // production — is v1's, unchanged, and shared with v2.
 
 import type { GeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
-import { detectLanguage } from "$lib/server/services/language";
+import {
+	detectLanguage,
+	type SupportedLanguage,
+} from "$lib/server/services/language";
 import type { AtlasOutputIds } from "../atlas/output-files";
 import type { AtlasPipelineJobContext } from "../atlas/types";
 import {
@@ -28,6 +31,8 @@ import {
 	parseAtlasV3Ask,
 } from "./ask";
 import {
+	ATLAS_V3_LOCAL_MAX_CHARS_PER_DOCUMENT,
+	ATLAS_V3_MAX_LOCAL_SOURCES,
 	ATLAS_V3_MAX_OUTPUT_TOKENS,
 	type AtlasV3ProfileConfig,
 	atlasV3BodyWordBudget,
@@ -45,17 +50,30 @@ import {
 	runAtlasV3Critic,
 } from "./critic";
 import {
+	ATLAS_V3_LOCAL_PASSAGE_SEPARATOR,
+	ATLAS_V3_READ_DOCUMENT_SYSTEM,
 	type AtlasV3BankState,
+	addAtlasV3LocalSource,
 	atlasV3AlsoStatedBy,
+	buildAtlasV3LocalReadPrompt,
 	capAtlasV3Bank,
 	createAtlasV3Bank,
+	fileAtlasV3Read,
 	freezeAtlasV3Bank,
+	parseAtlasV3Read,
+	removeAtlasV3SourceWithoutQuotes,
 	thawAtlasV3Bank,
 } from "./evidence-bank";
 import { atlasV3GoalLimitations, runAtlasV3GoalTest } from "./goal";
 import { atlasV3NativeSourcesForRequest } from "./language-standard";
+import type {
+	AtlasV3LocalDocument,
+	AtlasV3LocalSources,
+	AtlasV3LocalUnavailable,
+} from "./local-sources";
 import {
 	ATLAS_V3_ZERO_USAGE,
+	type AtlasV3ModelCall,
 	type AtlasV3ModelCalls,
 	addAtlasV3Usage,
 } from "./model-call";
@@ -72,12 +90,17 @@ import {
 } from "./progress";
 import { buildAtlasV3DocumentSource } from "./render";
 import type { AtlasV3ResearchWeb } from "./research-web-adapter";
-import { nextAtlasV3SubQuestions, runAtlasV3Round } from "./rounds";
+import {
+	mapWithConcurrency,
+	nextAtlasV3SubQuestions,
+	runAtlasV3Round,
+} from "./rounds";
 import {
 	ATLAS_V3_CHECKPOINT_SCHEMA_VERSION,
 	type AtlasV3AnswerTable,
 	type AtlasV3Ask,
 	type AtlasV3EvidenceBank,
+	type AtlasV3FindingsNote,
 	type AtlasV3Limitation,
 	type AtlasV3Memo,
 	type AtlasV3Outline,
@@ -164,6 +187,11 @@ export interface RunAtlasV3PipelineInput {
 		hungarianStandardEnabled?: boolean;
 		/** Test and eval overrides for the profile knobs. */
 		profileOverrides?: Partial<AtlasV3ProfileConfig>;
+		/**
+		 * The user's own documents (Atlas Local Sources). Absent means none:
+		 * a job with no resolver reads the web only.
+		 */
+		localSources?: AtlasV3LocalSources;
 	};
 }
 
@@ -289,15 +317,219 @@ function verdictEvidence(input: {
 		.filter((quote): quote is NonNullable<typeof quote> => Boolean(quote))
 		.map((quote) => {
 			const alsoStatedBy = atlasV3AlsoStatedBy(input.bank, quote.id);
+			const source = input.bank.sources.find(
+				(entry) => entry.id === quote.sourceId,
+			);
 			return {
 				id: quote.id,
 				text: quote.text,
-				publisher:
-					input.bank.sources.find((source) => source.id === quote.sourceId)
-						?.publisher ?? "",
+				// `user-documents` / `user_document` for the user's own material, so
+				// the verdict attributes it as theirs rather than as published.
+				publisher: source?.publisher ?? "",
+				tier: source?.tier ?? "press",
 				...(alsoStatedBy.length > 0 ? { alsoStatedBy } : {}),
 			};
 		});
+}
+
+// ---------------------------------------------------------------------------
+// Atlas Local Sources: the user's own documents
+// ---------------------------------------------------------------------------
+
+interface LocalChrome {
+	nothingBearing: string;
+	overCap: (count: number) => string;
+	overCapReason: (titles: string) => string;
+	unavailable: Record<AtlasV3LocalUnavailable["reason"], string>;
+	priorDocument: string;
+	noteLabel: (title: string) => string;
+}
+
+const LOCAL_CHROME: Record<SupportedLanguage, LocalChrome> = {
+	en: {
+		nothingBearing: "contained nothing bearing on the question",
+		overCap: (count) =>
+			`${count} more document${count === 1 ? "" : "s"} you provided`,
+		overCapReason: (titles) =>
+			`not read — a report reads at most ${ATLAS_V3_MAX_LOCAL_SOURCES} of your documents: ${titles}`,
+		unavailable: {
+			not_found: "is no longer available, so it was not read again",
+			out_of_scope:
+				"now belongs to an incognito conversation, so it was not read",
+			no_text: "has no readable text, so it was not read",
+		},
+		priorDocument: "a document the earlier report read",
+		noteLabel: (title) => `User document: ${title}`,
+	},
+	hu: {
+		nothingBearing: "semmi olyat nem tartalmazott, ami a kérdéshez kapcsolódna",
+		overCap: (count) => `további ${count} általad megadott dokumentum`,
+		overCapReason: (titles) =>
+			`nem került elolvasásra — egy jelentés legfeljebb ${ATLAS_V3_MAX_LOCAL_SOURCES} dokumentumodat olvassa el: ${titles}`,
+		unavailable: {
+			not_found: "már nem érhető el, ezért nem került újra elolvasásra",
+			out_of_scope:
+				"azóta egy inkognitó beszélgetéshez tartozik, ezért nem került elolvasásra",
+			no_text: "nincs olvasható szövege, ezért nem került elolvasásra",
+		},
+		priorDocument: "egy dokumentum, amelyet a korábbi jelentés olvasott",
+		noteLabel: (title) => `Felhasználói dokumentum: ${title}`,
+	},
+};
+
+/**
+ * Reads each of the user's documents ONCE, for all the job's questions: its
+ * best passages go to one read call, and what the read quotes is filed into
+ * the bank exactly like a web page's quotes — except that a quote must occur
+ * verbatim in the passages sent (the local verbatim guard).
+ *
+ * Sources are minted up front, in document order, so their ids do not depend
+ * on which read finishes first. A document that yields no quote is taken back
+ * out of the bank: it cannot be cited, and the Limitations line says why.
+ */
+async function readAtlasV3LocalDocuments(input: {
+	documents: readonly AtlasV3LocalDocument[];
+	localSources: AtlasV3LocalSources;
+	userId: string;
+	ask: AtlasV3Ask;
+	language: SupportedLanguage;
+	currentDate: string;
+	state: AtlasV3BankState;
+	runModel: AtlasV3ModelCall;
+	concurrency: number;
+	onUsage: (usage: AtlasV3Usage) => void;
+}): Promise<AtlasV3FindingsNote[]> {
+	const sources = input.documents.map((document) =>
+		addAtlasV3LocalSource(input.state, {
+			displayArtifactId: document.displayArtifactId,
+			promptArtifactId: document.promptArtifactId,
+			title: document.title,
+			origin: document.origin,
+		}),
+	);
+	const goals = [
+		input.ask.coreQuestion,
+		...input.ask.subQuestions.filter(
+			(question) => question !== input.ask.coreQuestion,
+		),
+	];
+	const notes = await mapWithConcurrency(
+		input.documents,
+		Math.max(1, input.concurrency),
+		async (document, index): Promise<AtlasV3FindingsNote | null> => {
+			const source = sources[index];
+			try {
+				const passages = await input.localSources.passages({
+					userId: input.userId,
+					document,
+					goals,
+					maxChars: ATLAS_V3_LOCAL_MAX_CHARS_PER_DOCUMENT,
+				});
+				const texts = passages
+					.map((passage) => passage.text.replace(/\s+/g, " ").trim())
+					.filter(Boolean);
+				if (texts.length === 0) return null;
+				const call = await input.runModel({
+					stage: `v3:read:local:${source.id}`,
+					thinkingMode: "off",
+					maxOutputTokens: ATLAS_V3_MAX_OUTPUT_TOKENS.researchNote,
+					system: ATLAS_V3_READ_DOCUMENT_SYSTEM[input.language],
+					prompt: buildAtlasV3LocalReadPrompt({
+						goals,
+						language: input.language,
+						title: source.title,
+						passages: texts,
+						currentDate: input.currentDate,
+					}),
+				});
+				input.onUsage(call.usage);
+				const read = parseAtlasV3Read(call.text);
+				if (!read || read.useless) return null;
+				const filed = fileAtlasV3Read({
+					state: input.state,
+					sourceId: source.id,
+					goal: input.ask.coreQuestion,
+					read,
+					sourceText: texts.join(ATLAS_V3_LOCAL_PASSAGE_SEPARATOR),
+				});
+				if (filed.quotes.length === 0) return null;
+				source.read = true;
+				// Deterministic: no note call. The quotes and claims are the note.
+				return {
+					subQuestion: LOCAL_CHROME[input.language].noteLabel(source.title),
+					summary: "",
+					quotes: filed.quotes,
+					claims: filed.claims,
+					openQuestions: [],
+					deadEnds: [],
+					searches: 0,
+					pagesRead: 1,
+					error: null,
+				};
+			} catch (error) {
+				console.warn("[ATLAS v3] Local document read failed", {
+					sourceId: source.id,
+					error: error instanceof Error ? error.message : String(error),
+				});
+				return null;
+			}
+		},
+	);
+	for (const source of sources) {
+		removeAtlasV3SourceWithoutQuotes(input.state, source.id);
+	}
+	return notes.filter((note): note is AtlasV3FindingsNote => note !== null);
+}
+
+/**
+ * Limitations for the user's documents: the ones over the cap, the inherited
+ * ones that could not be read again, and the ones whose read left nothing in
+ * the bank. Derived from the FINAL bank, so a resumed job states them too.
+ */
+function atlasV3LocalLimitations(input: {
+	language: SupportedLanguage;
+	documents: readonly AtlasV3LocalDocument[];
+	overCap: readonly AtlasV3LocalDocument[];
+	unavailable: readonly AtlasV3LocalUnavailable[];
+	bank: AtlasV3EvidenceBank;
+}): AtlasV3Limitation[] {
+	const chrome = LOCAL_CHROME[input.language];
+	const limitations: AtlasV3Limitation[] = [];
+	// One line per KIND of problem, naming every document it applies to: the
+	// render keeps only the first eight lines, and twelve unread documents must
+	// not push everything else — or each other — off the list.
+	const line = (titles: string[], reason: string) => {
+		if (titles.length === 0) return;
+		limitations.push({ subject: titles.join(", ").slice(0, 400), reason });
+	};
+	if (input.overCap.length > 0) {
+		limitations.push({
+			subject: chrome.overCap(input.overCap.length),
+			reason: chrome.overCapReason(
+				input.overCap.map((document) => document.title).join(", "),
+			),
+		});
+	}
+	for (const reason of ["not_found", "out_of_scope", "no_text"] as const) {
+		line(
+			input.unavailable
+				.filter((entry) => entry.reason === reason)
+				.map((entry) => entry.title ?? chrome.priorDocument),
+			chrome.unavailable[reason],
+		);
+	}
+	const inBank = new Set(
+		input.bank.sources.flatMap((source) =>
+			source.kind === "local" ? [source.displayArtifactId] : [],
+		),
+	);
+	line(
+		input.documents
+			.filter((document) => !inBank.has(document.displayArtifactId))
+			.map((document) => document.title),
+		chrome.nothingBearing,
+	);
+	return limitations;
 }
 
 export async function runAtlasV3Pipeline(
@@ -407,6 +639,43 @@ export async function runAtlasV3Pipeline(
 		});
 	};
 
+	// -- 0. The user's own documents ----------------------------------------
+	//
+	// Resolved at worker time, through the knowledge boundary, under the job
+	// conversation's strict incognito scope. An EXPLICIT source (attached to, or
+	// linked into, the kickoff message) that cannot be read fails the job: the
+	// user asked for a report on it, and a report without it would answer a
+	// different question (ADR 0036 edge case 5). An inherited one degrades.
+	const resolvedLocal = deps.localSources
+		? await deps.localSources.resolve({
+				userId: job.userId,
+				conversationId: job.conversationId,
+				kickoffUserMessageId: job.kickoffUserMessageId,
+			})
+		: { documents: [], unavailable: [] };
+	const explicitUnavailable = resolvedLocal.unavailable.filter(
+		(entry) => entry.origin !== "inherited",
+	);
+	if (explicitUnavailable.length > 0) {
+		throw new AtlasV3PipelineError(
+			"atlas_v3_local_source_unavailable",
+			`Atlas could not read ${explicitUnavailable
+				.map(
+					(entry) =>
+						`${entry.title ? `"${entry.title}"` : "a document you provided"} (${entry.reason.replace(/_/g, " ")})`,
+				)
+				.join(", ")}; the report was not started without it.`,
+		);
+	}
+	const localDocuments = resolvedLocal.documents.slice(
+		0,
+		ATLAS_V3_MAX_LOCAL_SOURCES,
+	);
+	const localOverCap = resolvedLocal.documents.slice(
+		ATLAS_V3_MAX_LOCAL_SOURCES,
+	);
+	const localUnavailable = resolvedLocal.unavailable;
+
 	// -- 1. Understand the ask ----------------------------------------------
 	await heartbeat("ask");
 	let ask = resume.ask ?? null;
@@ -425,6 +694,11 @@ export async function runAtlasV3Pipeline(
 						currentDate: isoDate(now),
 						reviseInstruction: job.action === "revise" ? job.query : null,
 						preferredSources,
+						localSources: localDocuments.map((document) => ({
+							title: document.title,
+							origin: document.origin,
+							summary: document.summary,
+						})),
 					}),
 				});
 				onUsage(call.usage);
@@ -453,6 +727,7 @@ export async function runAtlasV3Pipeline(
 		round: number,
 		subQuestions: string[],
 		previousMemo: AtlasV3Memo | null,
+		localNotes: readonly AtlasV3FindingsNote[] = [],
 	) => {
 		subQuestionsInFlight = subQuestions;
 		runningQuestions.clear();
@@ -479,6 +754,7 @@ export async function runAtlasV3Pipeline(
 				nativeSources,
 				preferredSources,
 				alreadyTried: asked,
+				localNotes,
 				onUsage,
 				onQuestionDone: ({ subQuestion }) => {
 					runningQuestions.delete(subQuestion);
@@ -492,6 +768,28 @@ export async function runAtlasV3Pipeline(
 	};
 
 	if (roundsRun === 0) {
+		// The user's documents are read before round one, so the first memo
+		// already knows what the user supplied. Once, not per pass and not per
+		// round: the gap and critic rounds research the web.
+		let localNotes: AtlasV3FindingsNote[] = [];
+		if (deps.localSources && localDocuments.length > 0) {
+			await heartbeat("research");
+			const localSources = deps.localSources;
+			localNotes = await timePhase("local", () =>
+				readAtlasV3LocalDocuments({
+					documents: localDocuments,
+					localSources,
+					userId: job.userId,
+					ask: resolvedAsk,
+					language,
+					currentDate: isoDate(now),
+					state,
+					runModel: deps.models.researcher,
+					concurrency,
+					onUsage,
+				}),
+			);
+		}
 		// Exhaustive runs INDEPENDENT passes over the same bank and merges their
 		// memos before anything is outlined. Cheapest quality lever we have that
 		// needs no training; gated by profile because it multiplies the cost.
@@ -501,7 +799,7 @@ export async function runAtlasV3Pipeline(
 				0,
 				config.subQuestionsPerRound,
 			);
-			const result = await researchRound(1, questions, null);
+			const result = await researchRound(1, questions, null, localNotes);
 			asked.push(...result.queries);
 			passes.push(result.memo);
 		}
@@ -733,13 +1031,25 @@ export async function runAtlasV3Pipeline(
 	});
 
 	// -- 7. Verdict ----------------------------------------------------------
-	const limitations: AtlasV3Limitation[] = atlasV3GoalLimitations({
-		verdict: resolvedGoal,
-		outline: resolvedOutline,
-		memo: resolvedMemo,
-		bank,
-		language,
-	});
+	// The user's documents come first: the render keeps only the first eight
+	// Limitations lines, and a document the user chose that went unread must
+	// never be the line that silently falls off.
+	const limitations: AtlasV3Limitation[] = [
+		...atlasV3LocalLimitations({
+			language,
+			documents: localDocuments,
+			overCap: localOverCap,
+			unavailable: localUnavailable,
+			bank,
+		}),
+		...atlasV3GoalLimitations({
+			verdict: resolvedGoal,
+			outline: resolvedOutline,
+			memo: resolvedMemo,
+			bank,
+			language,
+		}),
+	];
 	let sections = written.sections;
 	let verdictFallback = false;
 	let verdict: AtlasV3Sentence[] = [];
@@ -968,6 +1278,11 @@ export async function runAtlasV3Pipeline(
 	// -- 9. Verify -----------------------------------------------------------
 	await heartbeat("verify");
 	const finalBank = freezeAtlasV3Bank(state);
+	const localSourceIds = new Set(
+		finalBank.sources
+			.filter((source) => source.kind === "local")
+			.map((source) => source.id),
+	);
 	const verification = abstention
 		? {
 				sections: abstention.sections,
@@ -1178,6 +1493,19 @@ export async function runAtlasV3Pipeline(
 		sectionsSupplemented: resolvedOutline.supplemented ?? 0,
 		wordCount: atlasV3WordCount(verifiedSections, verifiedVerdict),
 		writerRunaways: { ...written.runaways },
+		...(localDocuments.length + localOverCap.length + localUnavailable.length >
+		0
+			? {
+					localSources: {
+						resolved: localDocuments.length,
+						read: localSourceIds.size,
+						quotes: finalBank.quotes.filter((quote) =>
+							localSourceIds.has(quote.sourceId),
+						).length,
+						unavailable: localUnavailable.length,
+					},
+				}
+			: {}),
 	};
 	await heartbeat("verify", { evidence });
 	await checkpoint("verify", CHECKPOINT_ROUND.verify, {
@@ -1221,13 +1549,26 @@ export async function runAtlasV3Pipeline(
 		CHECKPOINT_ROUND.render,
 		{ outputs },
 		{
-			curatedSourcePool: finalBank.sources.map((source) => ({
-				url: source.canonicalUrl,
-				title: source.title,
-				host: source.host,
-				date: source.date,
-				tier: source.tier,
-			})),
+			curatedSourcePool: finalBank.sources.map((source) =>
+				source.kind === "local"
+					? {
+							kind: "local",
+							url: null,
+							title: source.title,
+							host: "",
+							date: null,
+							tier: source.tier,
+							displayArtifactId: source.displayArtifactId,
+						}
+					: {
+							kind: "web",
+							url: source.canonicalUrl,
+							title: source.title,
+							host: source.host,
+							date: source.date,
+							tier: source.tier,
+						},
+			),
 			compressedFindings: {
 				coreQuestion: resolvedAsk.coreQuestion,
 				answerSoFar: resolvedMemo.answerSoFar,
@@ -1260,8 +1601,8 @@ export async function runAtlasV3Pipeline(
 		outputs,
 		usage,
 		sourceCounts: {
-			local: 0,
-			web: finalBank.sources.length,
+			local: localDocuments.length,
+			web: finalBank.sources.length - localSourceIds.size,
 			accepted: rendered.citations.sources.length,
 			rejected: finalBank.filteredCount,
 		},

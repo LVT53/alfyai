@@ -9,7 +9,12 @@ import type { AtlasPipelineJobContext } from "../atlas/types";
 import { getAtlasV3ProfileConfig } from "./config";
 import type { AtlasV3ModelCall, AtlasV3ModelCalls } from "./model-call";
 import { runAtlasV3Pipeline } from "./pipeline";
-import { fakeModel, fakeResearchWeb, readAnswer } from "./test-support";
+import {
+	fakeLocalSources,
+	fakeModel,
+	fakeResearchWeb,
+	readAnswer,
+} from "./test-support";
 import type { AtlasV3ProgressDetails } from "./types";
 
 const JOB: AtlasPipelineJobContext = {
@@ -774,5 +779,399 @@ describe("runAtlasV3Pipeline, in-depth depth floor", () => {
 			minSections,
 		);
 		expect(result.abstained).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Atlas Local Sources: the user's own documents as evidence
+// ---------------------------------------------------------------------------
+
+const LOCAL_JOB: AtlasPipelineJobContext = {
+	...JOB,
+	query: "How does our household electricity use in 2025 compare?",
+};
+
+const LOCAL_QUOTE =
+	"Our household used 1,234 kWh of electricity in 2025 according to the meter log.";
+/** Passage text that is NOT quoted: it must never reach the writer. */
+const PASSAGE_ONLY = "The meter was replaced in March by the network operator.";
+const WEB_QUOTE =
+	"The average household used 1,234 kWh of electricity in 2025, the IEA estimates.";
+
+const LOCAL_CLAIM = {
+	entity: "household",
+	metric: "electricity use",
+	value: "1,234",
+	unit: "kWh",
+	period: "2025",
+	quoteIndexes: [0],
+};
+
+function buildLocalFakes(options?: {
+	/** No web hit at all: the user's document is the only evidence. */
+	noWeb?: boolean;
+	/** The writer states a figure its cited quote does not. */
+	inventFigure?: boolean;
+	documents?: Parameters<typeof fakeLocalSources>[0]["documents"];
+	unavailable?: Parameters<typeof fakeLocalSources>[0]["unavailable"];
+	passages?: Record<string, string[]>;
+}) {
+	const question = "household electricity use 2025";
+	const webUrl = "https://iea.org/reports/household-electricity";
+	const web = fakeResearchWeb({
+		hits: options?.noWeb
+			? []
+			: [
+					{
+						url: webUrl,
+						title: "IEA household electricity",
+						snippets: [],
+						publishedAt: "2025-12-01",
+					},
+				],
+		pages: { [webUrl]: "page body" },
+	});
+	const local = fakeLocalSources({
+		documents: options?.documents ?? [
+			{ displayArtifactId: "art-bill", title: "Electricity bill 2025.pdf" },
+		],
+		unavailable: options?.unavailable,
+		passages: options?.passages ?? {
+			"art-bill": [`${LOCAL_QUOTE} ${PASSAGE_ONLY}`],
+		},
+	});
+	const researcher = fakeModel({
+		"v3:searchplan": JSON.stringify({ queries: ["q"] }),
+		"v3:note": JSON.stringify({ summary: "Found the figure." }),
+		"v3:read:local:": readAnswer({
+			quotes: [LOCAL_QUOTE],
+			claims: [LOCAL_CLAIM],
+		}),
+		"v3:read:s": readAnswer({ quotes: [WEB_QUOTE], claims: [LOCAL_CLAIM] }),
+	});
+	const control = fakeModel({
+		"v3:memo": JSON.stringify({
+			answerSoFar: "The household used 1,234 kWh in 2025.",
+			claimIds: ["c1"],
+		}),
+		"v3:outline": JSON.stringify({
+			nodes: [
+				{
+					id: "n1",
+					title: "The household used 1,234 kWh in 2025",
+					claim: "The household used 1,234 kWh of electricity in 2025.",
+					claimIds: ["c1"],
+				},
+			],
+		}),
+	});
+	// Writes back every quote it was handed, one sentence each, citing it.
+	const writer = fakeModel({
+		"v3:write:": (prompt: string) =>
+			JSON.stringify({
+				paragraphs: [
+					{
+						sentences: [
+							...prompt.matchAll(/\{"id":"(e\d+)","text":"([^"]+)"/g),
+						].map((match) => ({
+							text: options?.inventFigure
+								? "The household used 9,999 kWh of electricity in 2025."
+								: match[2],
+							evidenceIds: [match[1]],
+							kind: "claim",
+							calcId: null,
+						})),
+					},
+				],
+				showAnswerTable: false,
+			}),
+		"v3:verdict": (prompt: string) => {
+			const evidence = JSON.parse(prompt).evidence as Array<{
+				id: string;
+				text: string;
+			}>;
+			return JSON.stringify({
+				sentences: evidence.slice(0, 1).map((entry) => ({
+					text: entry.text,
+					evidenceIds: [entry.id],
+					kind: "claim",
+					calcId: null,
+				})),
+			});
+		},
+	});
+	const ask = fakeModel({
+		"v3:ask": JSON.stringify({
+			decision: "Whether our electricity use is typical",
+			coreQuestion: "How much electricity did the household use in 2025?",
+			title: "Household electricity use, 2025",
+			shape: "explanation",
+			implicitRequirements: [],
+			perspectives: [],
+			subQuestions: [question],
+		}),
+	});
+	let rendered: GeneratedDocumentSource | null = null;
+	const heartbeats: AtlasV3ProgressDetails[] = [];
+	const dependencies = {
+		researchWeb: web,
+		localSources: local,
+		models: {
+			ask: ask.call,
+			researcher: researcher.call,
+			outline: control.call,
+			writer: writer.call,
+			critic: fakeModel({}).call,
+			verifier: control.call,
+		} as AtlasV3ModelCalls,
+		heartbeat: async ({ progressDetails }: { progressDetails?: unknown }) => {
+			heartbeats.push(progressDetails as AtlasV3ProgressDetails);
+		},
+		writeCheckpoint: async () => {},
+		renderOutputs: async (source: GeneratedDocumentSource) => {
+			rendered = source;
+			return {
+				fileProductionJobId: "fp-1",
+				htmlChatGeneratedFileId: "html-1",
+				pdfChatGeneratedFileId: "pdf-1",
+				markdownChatGeneratedFileId: "md-1",
+			};
+		},
+		researcherConcurrency: 1,
+		criticRounds: 0,
+		// One quote per claim here, so a node is not thin at one bound quote.
+		profileOverrides: { rounds: 1, minSections: 1, minEvidencePerNode: 1 },
+	};
+	return {
+		dependencies,
+		local,
+		models: { ask, researcher, control, writer },
+		heartbeats,
+		document: () => rendered as GeneratedDocumentSource | null,
+	};
+}
+
+async function runLocal(options?: Parameters<typeof buildLocalFakes>[0]) {
+	const fakes = buildLocalFakes(options);
+	const result = await runAtlasV3Pipeline({
+		job: LOCAL_JOB,
+		now: new Date("2026-09-10T00:00:00Z"),
+		dependencies: fakes.dependencies as unknown as Parameters<
+			typeof runAtlasV3Pipeline
+		>[0]["dependencies"],
+	});
+	return { ...fakes, result };
+}
+
+function limitationItems(document: GeneratedDocumentSource | null): string[] {
+	const blocks = document?.blocks ?? [];
+	const index = blocks.findIndex(
+		(block) =>
+			block.type === "heading" &&
+			block.text === "What this report could not establish",
+	);
+	const list = blocks[index + 1];
+	return list?.type === "list" ? list.items : [];
+}
+
+describe("runAtlasV3Pipeline, local sources", () => {
+	it("cites a user document as a library chip, numbered like the card", async () => {
+		const { result, document, heartbeats } = await runLocal();
+		const blocks = document()?.blocks ?? [];
+		const chips = blocks.find((block) => block.type === "sourceChips");
+		if (chips?.type !== "sourceChips") throw new Error("expected chips");
+		const library = chips.sources.filter((chip) => chip.kind === "library");
+		expect(library).toEqual([
+			{
+				title: "Electricity bill 2025.pdf",
+				url: null,
+				kind: "library",
+				provided: true,
+			},
+		]);
+		expect(chips.sources.some((chip) => chip.kind === "web")).toBe(true);
+		// The card numbers the user's document exactly where the report does.
+		const card = heartbeats.at(-1)?.evidence?.sources ?? [];
+		chips.sources.forEach((chip, index) => {
+			expect(card[index]?.n).toBe(index + 1);
+			expect(chip.title.startsWith(card[index]?.title ?? "")).toBe(true);
+			expect(card[index]?.kind).toBe(chip.kind === "library" ? "local" : "web");
+		});
+		const localCard = card.find((entry) => entry.kind === "local");
+		expect(localCard?.host).toBe("");
+		expect(localCard?.cited).toBe(true);
+		// The prose cites the user's document by a number the chips resolve.
+		const libraryNumber =
+			chips.sources.findIndex((chip) => chip.kind === "library") + 1;
+		expect(JSON.stringify(blocks)).toMatch(
+			new RegExp(`\\[\\[cite:${libraryNumber}:|\\[${libraryNumber}\\]`),
+		);
+		expect(result.sourceCounts.local).toBe(1);
+		expect(result.sourceCounts.web).toBe(1);
+		expect(result.diagnostics.localSources).toEqual({
+			resolved: 1,
+			read: 1,
+			quotes: 1,
+			unavailable: 0,
+		});
+	});
+
+	it("verifies a figure the user's document and one publisher both state", async () => {
+		const { result } = await runLocal();
+		expect(result.diagnostics.verifiedClaimCount).toBe(1);
+		expect(result.abstained).toBe(false);
+	});
+
+	it("keeps a local-only core claim single rather than abstaining", async () => {
+		const { result, document } = await runLocal({ noWeb: true });
+		expect(result.abstained).toBe(false);
+		expect(result.diagnostics.claimCount).toBe(1);
+		expect(result.diagnostics.verifiedClaimCount).toBe(0);
+		expect(result.sourceCounts.local).toBe(1);
+		expect(result.sourceCounts.web).toBe(0);
+		const chips = (document()?.blocks ?? []).find(
+			(block) => block.type === "sourceChips",
+		);
+		if (chips?.type !== "sourceChips") throw new Error("expected chips");
+		expect(chips.sources.map((chip) => chip.kind)).toEqual(["library"]);
+	});
+
+	it("tells the ask which documents exist and labels them for the writer", async () => {
+		const { models } = await runLocal();
+		const askPrompt = JSON.parse(models.ask.prompts[0]?.prompt ?? "{}");
+		expect(askPrompt.localSources).toEqual([
+			{
+				title: "Electricity bill 2025.pdf",
+				origin: "attachment",
+				summary: null,
+			},
+		]);
+		expect(models.ask.prompts[0]?.system).toContain("`localSources`");
+		const write = models.writer.prompts.find((entry) =>
+			entry.stage.startsWith("v3:write:"),
+		);
+		const evidence = JSON.parse(write?.prompt ?? "{}").evidence as Array<{
+			text: string;
+			publisher: string;
+			tier: string;
+		}>;
+		const local = evidence.find((entry) => entry.text === LOCAL_QUOTE);
+		expect(local?.publisher).toBe("user-documents");
+		expect(local?.tier).toBe("user_document");
+		expect(write?.system).toContain("tier `user_document`");
+		const verdict = models.writer.prompts.find(
+			(entry) => entry.stage === "v3:verdict",
+		);
+		expect(verdict?.system).toContain("tier `user_document`");
+	});
+
+	it("reads the document once, for the core question and every sub-question", async () => {
+		const { local, models } = await runLocal();
+		expect(local.passageCalls).toHaveLength(1);
+		expect(local.passageCalls[0]?.goals).toEqual([
+			"How much electricity did the household use in 2025?",
+			"household electricity use 2025",
+		]);
+		expect(local.passageCalls[0]?.maxChars).toBe(12_000);
+		const reads = models.researcher.prompts.filter((entry) =>
+			entry.stage.startsWith("v3:read:local:"),
+		);
+		expect(reads).toHaveLength(1);
+		expect(reads[0]?.system).toContain("ONE document the user provided");
+		expect(JSON.parse(reads[0]?.prompt ?? "{}").source).toEqual({
+			title: "Electricity bill 2025.pdf",
+			kind: "user_document",
+			date: null,
+		});
+	});
+
+	it("never lets a document's passage text reach the writer", async () => {
+		const { models } = await runLocal();
+		const writerPrompts = models.writer.prompts.map((entry) => entry.prompt);
+		expect(writerPrompts.length).toBeGreaterThan(0);
+		for (const prompt of writerPrompts) {
+			expect(prompt).not.toContain(PASSAGE_ONLY);
+			expect(prompt).not.toContain("page body");
+		}
+	});
+
+	it("cuts a figure the cited local quote does not state", async () => {
+		const { document } = await runLocal({ inventFigure: true });
+		const prose = (document()?.blocks ?? [])
+			.filter((block) => block.type === "paragraph")
+			.map((block) => (block.type === "paragraph" ? block.text : ""))
+			.join(" ");
+		expect(prose).not.toContain("9,999");
+	});
+
+	it("files no local quote the passages sent do not contain", async () => {
+		// The read quotes a sentence that is not in the one passage sent: the
+		// verbatim guard refuses it, the document leaves the bank, and with no
+		// web evidence either there is nothing to report.
+		await expect(
+			runLocal({ passages: { "art-bill": [PASSAGE_ONLY] }, noWeb: true }),
+		).rejects.toMatchObject({ code: "atlas_v3_no_evidence" });
+	});
+
+	it("fails the job when an explicit source is unavailable", async () => {
+		await expect(
+			runLocal({
+				unavailable: [
+					{
+						displayArtifactId: "art-gone",
+						title: "Contract.pdf",
+						origin: "linked",
+						reason: "out_of_scope",
+					},
+				],
+			}),
+		).rejects.toMatchObject({ code: "atlas_v3_local_source_unavailable" });
+	});
+
+	it("degrades an unavailable inherited source to a Limitations line", async () => {
+		const { result, document } = await runLocal({
+			unavailable: [
+				{
+					displayArtifactId: "art-old",
+					title: "Old survey.pdf",
+					origin: "inherited",
+					reason: "not_found",
+				},
+			],
+		});
+		expect(result.status).toBe("succeeded");
+		expect(result.diagnostics.localSources?.unavailable).toBe(1);
+		expect(
+			limitationItems(document()).some(
+				(item) =>
+					item.startsWith("Old survey.pdf") &&
+					item.includes("no longer available"),
+			),
+		).toBe(true);
+	});
+
+	it("names the documents over the cap in a Limitations line", async () => {
+		const documents = Array.from({ length: 13 }, (_unused, index) => ({
+			displayArtifactId: `art-${index + 1}`,
+			title: `Document ${index + 1}.pdf`,
+		}));
+		const { result, document, local } = await runLocal({
+			documents,
+			passages: { "art-1": [`${LOCAL_QUOTE} ${PASSAGE_ONLY}`] },
+		});
+		expect(result.sourceCounts.local).toBe(12);
+		expect(local.passageCalls).toHaveLength(12);
+		const items = limitationItems(document());
+		expect(
+			items.some(
+				(item) =>
+					item.includes("1 more document you provided") &&
+					item.includes("Document 13.pdf"),
+			),
+		).toBe(true);
+		// The eleven with no passage are named on ONE line, not eleven.
+		expect(
+			items.filter((item) => item.includes("contained nothing bearing")),
+		).toHaveLength(1);
 	});
 });

@@ -19,6 +19,7 @@ import {
 	type AtlasV3ModelTask,
 	resolveAtlasV3TaskModel,
 } from "./config";
+import { createAtlasV3LocalSources } from "./local-sources";
 import type { AtlasV3ModelCall, AtlasV3ModelCalls } from "./model-call";
 import { runAtlasV3Pipeline } from "./pipeline";
 import { createAtlasV3ResearchWeb } from "./research-web-adapter";
@@ -190,6 +191,7 @@ export async function runAtlasV3PipelineForClaimedJob(
 					.set({ content })
 					.where(eq(messages.id, messageId));
 			},
+			localSources: createAtlasV3LocalSources(),
 			researcherConcurrency: config.atlasV3ResearcherConcurrency,
 			criticRounds: config.atlasV3CriticRounds,
 			hungarianStandardEnabled: config.atlasV3LanguageStandardHu,

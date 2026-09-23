@@ -35,6 +35,7 @@ export const ATLAS_V3_MEMO_SYSTEM: Record<SupportedLanguage, string> = {
 		"`claimIds` are the claims the answer rests on, best-supported first, at most 40. Only ids that appear in the input.",
 		"`openQuestions` are what is still needed, as searchable questions, at most 8. Drop anything this round answered.",
 		"`deadEnds` are what has been established as unanswerable, with the reason, at most 6. Never drop a dead end that is still true — re-searching it is wasted budget.",
+		"`user-documents` in `publishers` is the user's own material: it answers questions about the user's situation; for published facts it is one voice, not corroboration.",
 	].join("\n"),
 	hu: [
 		"ÚJRAÍROD a kutatási feljegyzést a kör jegyzeteiből. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -45,6 +46,7 @@ export const ATLAS_V3_MEMO_SYSTEM: Record<SupportedLanguage, string> = {
 		"A `claimIds` azok az állítások, amelyeken a válasz nyugszik, a legjobban alátámasztottal kezdve, legfeljebb 40. Csak a bemenetben szereplő azonosítók.",
 		"Az `openQuestions` az, ami még hiányzik, kereshető kérdésként, legfeljebb 8. Hagyd el, amit ez a kör megválaszolt.",
 		"A `deadEnds` az, amiről kiderült, hogy nem válaszolható meg, az okkal, legfeljebb 6. Ne hagyj el olyan zsákutcát, ami még igaz — az újrakeresése elpazarolt keret.",
+		"A `publishers` listában szereplő `user-documents` a felhasználó saját anyaga: a felhasználó helyzetére vonatkozó kérdésekre válaszol; közzétett tényeknél egyetlen hang, nem megerősítés.",
 	].join("\n"),
 };
 

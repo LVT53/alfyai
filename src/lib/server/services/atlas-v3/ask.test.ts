@@ -174,5 +174,33 @@ describe("buildAtlasV3AskPrompt", () => {
 		);
 		expect(parsed.reviseInstruction).toBeUndefined();
 		expect(parsed.preferredPrimarySources).toBeUndefined();
+		expect(parsed.localSources).toBeUndefined();
+	});
+
+	it("lists the user's documents with a summary capped at 300 characters", () => {
+		const parsed = JSON.parse(
+			buildAtlasV3AskPrompt({
+				query: "q",
+				profile: "overview",
+				language: "en",
+				currentDate: "2026-09-10",
+				localSources: [
+					{
+						title: "Electricity bill 2025.pdf",
+						origin: "attachment",
+						summary: `  ${"x".repeat(500)}  `,
+					},
+					{ title: "Contract.docx", origin: "linked", summary: null },
+				],
+			}),
+		);
+		expect(parsed.localSources).toHaveLength(2);
+		expect(parsed.localSources[0].title).toBe("Electricity bill 2025.pdf");
+		expect(parsed.localSources[0].summary).toHaveLength(300);
+		expect(parsed.localSources[1]).toEqual({
+			title: "Contract.docx",
+			origin: "linked",
+			summary: null,
+		});
 	});
 });

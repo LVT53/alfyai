@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	addAtlasV3Claim,
+	addAtlasV3LocalSource,
 	addAtlasV3Quote,
 	addAtlasV3Source,
 	createAtlasV3Bank,
@@ -1073,5 +1074,74 @@ describe("buildAtlasV3OutlinePrompt", () => {
 		expect(parsed.previousOutline).toHaveLength(1);
 		expect(parsed.claims).toHaveLength(2);
 		expect(parsed.shape).toBe("comparison");
+		// No user documents in this bank: no claim carries the flag.
+		expect(
+			parsed.claims.some(
+				(claim: { fromUserDocument?: boolean }) => claim.fromUserDocument,
+			),
+		).toBe(false);
+	});
+
+	it("flags a claim that rests only on the user's own documents", () => {
+		const state = createAtlasV3Bank();
+		const local = addAtlasV3LocalSource(state, {
+			displayArtifactId: "art-bill",
+			promptArtifactId: "art-bill-normalized",
+			title: "Electricity bill 2025.pdf",
+			origin: "attachment",
+		});
+		const web = addAtlasV3Source(state, {
+			url: "https://iea.org/reports/household",
+			title: "IEA",
+			publishedAt: "2025-12-01",
+		});
+		const own = addAtlasV3Quote(state, {
+			sourceId: local.id,
+			text: "Our household paid 412 euros for electricity in 2025.",
+			goal: "g",
+		});
+		const published = addAtlasV3Quote(state, {
+			sourceId: web?.id ?? "",
+			text: "The average household used 3,400 kWh of electricity in 2025.",
+			goal: "g",
+		});
+		const ownClaim = addAtlasV3Claim(state, {
+			entity: "household",
+			metric: "electricity bill",
+			value: "412",
+			unit: "EUR",
+			period: "2025",
+			asOf: null,
+			series: null,
+			evidenceIds: [own?.id ?? ""],
+		});
+		const publishedClaim = addAtlasV3Claim(state, {
+			entity: "average household",
+			metric: "electricity use",
+			value: "3,400",
+			unit: "kWh",
+			period: "2025",
+			asOf: null,
+			series: null,
+			evidenceIds: [published?.id ?? ""],
+		});
+		const parsed = JSON.parse(
+			buildAtlasV3OutlinePrompt({
+				ask: ASK,
+				memo: {
+					...MEMO,
+					claimIds: [ownClaim?.id ?? "", publishedClaim?.id ?? ""],
+				},
+				bank: freezeAtlasV3Bank(state),
+				language: "en",
+				currentDate: "2026-09-10",
+				round: 1,
+				minSections: 1,
+				maxSections: 4,
+				previous: null,
+			}),
+		);
+		expect(parsed.claims[0].fromUserDocument).toBe(true);
+		expect(parsed.claims[1].fromUserDocument).toBeUndefined();
 	});
 });

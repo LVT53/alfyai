@@ -3,6 +3,11 @@
 // Not a test file: it exports no `describe`, so vitest's `src/**/*.test.ts`
 // include pattern never picks it up as a suite.
 
+import type {
+	AtlasV3LocalDocument,
+	AtlasV3LocalSources,
+	AtlasV3LocalUnavailable,
+} from "./local-sources";
 import type { AtlasV3ModelCall } from "./model-call";
 import type {
 	AtlasV3ReadResult,
@@ -100,6 +105,57 @@ export function fakeResearchWeb(input: {
 		read: async (url): Promise<AtlasV3ReadResult> => {
 			readCalls.push(url);
 			return { url, text: input.pages?.[url] ?? null, cached: false };
+		},
+	};
+}
+
+export interface FakeLocalSources extends AtlasV3LocalSources {
+	resolveCalls: Array<Parameters<AtlasV3LocalSources["resolve"]>[0]>;
+	passageCalls: Array<Parameters<AtlasV3LocalSources["passages"]>[0]>;
+}
+
+/**
+ * The user's documents, without a database: `resolve` answers with the
+ * documents and unavailable entries given, and `passages` with the passages
+ * given per display artifact id (none when a document has no entry).
+ */
+export function fakeLocalSources(input: {
+	documents?: Array<
+		Partial<AtlasV3LocalDocument> & {
+			displayArtifactId: string;
+			title: string;
+		}
+	>;
+	unavailable?: AtlasV3LocalUnavailable[];
+	passages?: Record<string, string[]>;
+}): FakeLocalSources {
+	const resolveCalls: FakeLocalSources["resolveCalls"] = [];
+	const passageCalls: FakeLocalSources["passageCalls"] = [];
+	const documents: AtlasV3LocalDocument[] = (input.documents ?? []).map(
+		(document) => ({
+			promptArtifactId: `${document.displayArtifactId}-normalized`,
+			origin: "attachment",
+			summary: null,
+			...document,
+		}),
+	);
+	return {
+		resolveCalls,
+		passageCalls,
+		resolve: async (request) => {
+			resolveCalls.push(request);
+			return { documents, unavailable: input.unavailable ?? [] };
+		},
+		passages: async (request) => {
+			passageCalls.push(request);
+			return (input.passages?.[request.document.displayArtifactId] ?? []).map(
+				(text, index) => ({
+					text,
+					chunkIndex: index,
+					pageStart: null,
+					pageEnd: null,
+				}),
+			);
 		},
 	};
 }

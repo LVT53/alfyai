@@ -75,6 +75,12 @@ export interface RunAtlasV3RoundInput {
 	manufacturerHosts?: readonly string[];
 	/** Queries earlier rounds already spent, so a round does not repeat them. */
 	alreadyTried?: readonly string[];
+	/**
+	 * Notes from the local read of the user's own documents, handed to round
+	 * one's memo beside the researchers' notes so the first memo already knows
+	 * what the user supplied. Their quotes and claims are in the bank already.
+	 */
+	localNotes?: readonly AtlasV3FindingsNote[];
 	onUsage?: (usage: AtlasV3Usage) => void;
 	onQuestionStart?: (subQuestion: string) => void | Promise<void>;
 	onQuestionDone?: (input: {
@@ -180,7 +186,7 @@ export async function runAtlasV3Round(
 		round: input.round,
 		roundsLeft,
 		previous: input.previousMemo,
-		notes,
+		notes: [...(input.localNotes ?? []), ...notes],
 		claims: bank.claims.map((claim) => ({
 			id: claim.id,
 			entity: claim.entity,
