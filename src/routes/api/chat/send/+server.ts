@@ -11,7 +11,6 @@ import {
 	submitAtlasJobIntake,
 	wakeAtlasWorker,
 } from "$lib/server/services/atlas";
-import { atlasPipelineVersionForNewJob } from "$lib/server/services/atlas-v2/config";
 import { logAttachmentTrace } from "$lib/server/services/attachment-trace";
 import {
 	checkStreamCapacity,
@@ -226,16 +225,18 @@ async function runAtlasSendTurn({
 				{ status: atlasPreflight.error.status },
 			);
 		}
-		// ADR 0062: stamp the pipeline on the row now. A lifecycle child inherits
-		// its parent's pipeline so a family never splits across pipelines.
-		let parentPipelineVersion: number | null = null;
+		// D1 routing: every new job runs on pipeline v3 (ADR 0062 amendment). The
+		// parent lookup stays only for validation — a lifecycle child no longer
+		// inherits the parent's pipeline, and an old v1/v2 family's next action
+		// simply moves it onto v3. The parent must belong to THIS conversation:
+		// an incognito parent must never seed a report into another chat.
 		if (turn.atlasAction !== "create" && turn.parentAtlasId) {
 			const [parentJob] = await db
 				.select({
 					id: atlasJobs.id,
 					userId: atlasJobs.userId,
+					conversationId: atlasJobs.conversationId,
 					status: atlasJobs.status,
-					pipelineVersion: atlasJobs.pipelineVersion,
 				})
 				.from(atlasJobs)
 				.where(eq(atlasJobs.id, turn.parentAtlasId))
@@ -253,7 +254,15 @@ async function runAtlasSendTurn({
 					{ status: 409 },
 				);
 			}
-			parentPipelineVersion = parentJob.pipelineVersion;
+			if (parentJob.conversationId !== turn.conversationId) {
+				return json(
+					{
+						error:
+							"The parent Atlas report must belong to this conversation.",
+					},
+					{ status: 409 },
+				);
+			}
 		}
 		const intake = await submitAtlasJobIntake({
 			userId: user.id,
@@ -263,10 +272,6 @@ async function runAtlasSendTurn({
 			action: turn.atlasAction,
 			parentAtlasJobId: turn.parentAtlasId,
 			clientAtlasTurnId: turn.clientAtlasTurnId,
-			pipelineVersion: atlasPipelineVersionForNewJob({
-				flag: config.atlasPipeline,
-				parentPipelineVersion,
-			}),
 		});
 		const assistantResponse = buildAtlasKickoffAssistantMessage({
 			profile: intake.job.profile,
