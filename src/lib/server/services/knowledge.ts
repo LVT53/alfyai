@@ -56,6 +56,7 @@ export {
 	getSourceArtifactIdForNormalizedArtifact,
 	getTargetConstructedContext,
 	hardDeleteArtifactsForUser,
+	isArtifactCanonicallyOwned,
 	isAttachmentReadinessError,
 	listArtifactLinksForUser,
 	listConversationArtifacts,

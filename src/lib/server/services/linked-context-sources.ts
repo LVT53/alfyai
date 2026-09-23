@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactLinks } from "$lib/server/db/schema";
 import { getConversation } from "$lib/server/services/conversations";
@@ -183,6 +183,71 @@ export async function listConversationLinkedContextSources(params: {
 	}
 
 	return Array.from(byDisplayId.values());
+}
+
+/**
+ * The documents ONE message carried, as its links recorded them: the files
+ * attached to it (`attached_to_conversation`) and the linked sources snapshotted
+ * onto it (`linked_context_source`, `messageId` set — the conversation-level
+ * rows have none). Ids only, in creation order; the caller resolves them
+ * through the knowledge boundary, which is where ownership and incognito are
+ * decided. An Atlas job reads its kickoff message's sources through this.
+ */
+export async function listMessageArtifactLinks(params: {
+	userId: string;
+	conversationId: string;
+	messageId: string;
+}): Promise<{
+	attachmentArtifactIds: string[];
+	linkedSources: Array<{
+		displayArtifactId: string;
+		promptArtifactId: string | null;
+	}>;
+}> {
+	const rows = await db
+		.select({
+			artifactId: artifactLinks.artifactId,
+			relatedArtifactId: artifactLinks.relatedArtifactId,
+			linkType: artifactLinks.linkType,
+		})
+		.from(artifactLinks)
+		.where(
+			and(
+				eq(artifactLinks.userId, params.userId),
+				eq(artifactLinks.conversationId, params.conversationId),
+				eq(artifactLinks.messageId, params.messageId),
+				inArray(artifactLinks.linkType, [
+					"attached_to_conversation",
+					"linked_context_source",
+				]),
+			),
+		)
+		.orderBy(asc(artifactLinks.createdAt));
+	const attachmentArtifactIds: string[] = [];
+	const linkedSources: Array<{
+		displayArtifactId: string;
+		promptArtifactId: string | null;
+	}> = [];
+	for (const row of rows) {
+		if (row.linkType === "attached_to_conversation") {
+			if (!attachmentArtifactIds.includes(row.artifactId)) {
+				attachmentArtifactIds.push(row.artifactId);
+			}
+			continue;
+		}
+		if (
+			linkedSources.some(
+				(source) => source.displayArtifactId === row.artifactId,
+			)
+		) {
+			continue;
+		}
+		linkedSources.push({
+			displayArtifactId: row.artifactId,
+			promptArtifactId: row.relatedArtifactId ?? null,
+		});
+	}
+	return { attachmentArtifactIds, linkedSources };
 }
 
 export function isLinkedContextSourceError(

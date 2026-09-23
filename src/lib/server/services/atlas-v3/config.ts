@@ -222,6 +222,23 @@ export const ATLAS_V3_VERDICT_WINDOW_WORDS = 150;
 /** Independent publishers a core figure needs before the goal test passes. */
 export const ATLAS_V3_INDEPENDENT_PUBLISHERS = 2;
 
+// Atlas Local Sources (the user's own attached and linked documents). Fixed,
+// not configurable: each one costs exactly one read call and no web call, so
+// the ceiling is the cost bound.
+
+/** Documents one job may read. Any beyond it get a Limitations line. */
+export const ATLAS_V3_MAX_LOCAL_SOURCES = 12;
+/**
+ * Passage characters one document's read may see — under the web page budget
+ * (`ATLAS_V3_MAX_PAGE_CHARS`, 18,000), because passages are already the parts
+ * of the document that match the question.
+ */
+export const ATLAS_V3_LOCAL_MAX_CHARS_PER_DOCUMENT = 12_000;
+/** `selectDocumentPassages` limits: the core question, then each sub-question. */
+export const ATLAS_V3_LOCAL_CORE_PASSAGES = 3;
+export const ATLAS_V3_LOCAL_SUB_QUESTION_PASSAGES = 2;
+export const ATLAS_V3_LOCAL_PASSAGE_CHAR_BUDGET = 3_000;
+
 export function clamp(value: number, minimum: number, maximum: number): number {
 	return Math.min(maximum, Math.max(minimum, value));
 }
