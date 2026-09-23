@@ -49,8 +49,15 @@ export function buildAtlasV3NextLine(input: {
 	sectionCount: number;
 	questionCount: number;
 	round: { current: number; total: number };
+	/** Sources from the parent report being re-read live (seeding, Phase D). */
+	seedRecheck?: number;
 }): string {
 	const hu = input.language === "hu";
+	if (input.phase === "research" && input.seedRecheck) {
+		return hu
+			? `${input.seedRecheck} forrás újraellenőrzése az előző jelentésből`
+			: `Re-checking ${input.seedRecheck} source${input.seedRecheck === 1 ? "" : "s"} from the previous report`;
+	}
 	switch (input.phase) {
 		case "ask":
 			return hu
@@ -102,6 +109,8 @@ export interface BuildAtlasV3ProgressDetailsInput {
 	phaseDurationsMs?: Record<string, number>;
 	sections?: { written: number; planned: number };
 	qualityDiagnostics?: AtlasV3QualityDiagnostics;
+	/** Sources from the parent report being re-read live right now. */
+	seedRecheck?: number;
 }
 
 export function buildAtlasV3ProgressDetails(
@@ -155,6 +164,7 @@ export function buildAtlasV3ProgressDetails(
 				? input.outline.nodes.length
 				: (input.subQuestions?.length ?? 0),
 			round: input.round,
+			...(input.seedRecheck ? { seedRecheck: input.seedRecheck } : {}),
 		}),
 		...(input.evidence ? { evidence: input.evidence } : {}),
 		...(input.phaseDurationsMs && Object.keys(input.phaseDurationsMs).length > 0

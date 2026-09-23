@@ -7,10 +7,14 @@ import type { ModelId } from "$lib/model-types";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
+import { getGeneratedDocumentSourceForFileProductionJob } from "$lib/server/services/file-production";
+import { listMessageArtifactLinks } from "$lib/server/services/linked-context-sources";
 import {
 	listAtlasRoundCheckpoints,
+	loadAtlasParentJob,
 	writeAtlasRoundCheckpoint,
 } from "../atlas/checkpoints";
+import { resolveAtlasKickoffMessage } from "../atlas/kickoff-message";
 import { runAtlasModelStage } from "../atlas/model-stage";
 import { renderAtlasOutputs } from "../atlas/output-files";
 import type { AtlasPipelineJobContext } from "../atlas/types";
@@ -23,6 +27,7 @@ import { createAtlasV3LocalSources } from "./local-sources";
 import type { AtlasV3ModelCall, AtlasV3ModelCalls } from "./model-call";
 import { runAtlasV3Pipeline } from "./pipeline";
 import { createAtlasV3ResearchWeb } from "./research-web-adapter";
+import { type AtlasV3SeedReads, loadAtlasV3ParentSeed } from "./seed";
 import type { AtlasV3PipelineResult } from "./types";
 
 export interface RunAtlasV3PipelineForClaimedJobInput {
@@ -133,6 +138,36 @@ async function runAtlasV3Calculation(input: {
 	}
 }
 
+/** The database reads a lifecycle child's seed needs (seed.ts). */
+const ATLAS_V3_SEED_READS: AtlasV3SeedReads = {
+	loadParentJob: loadAtlasParentJob,
+	loadCheckpoints: async (jobId) => {
+		const checkpoints = await listAtlasRoundCheckpoints(jobId);
+		return checkpoints.map((entry) => ({
+			roundNumber: entry.roundNumber,
+			checkpoint: entry.checkpoint,
+			curatedSourcePool: entry.curatedSourcePool,
+		}));
+	},
+	loadReportSource: getGeneratedDocumentSourceForFileProductionJob,
+	listKickoffDocumentIds: async (input) => {
+		const kickoff = await resolveAtlasKickoffMessage({
+			conversationId: input.conversationId,
+			assistantMessageId: input.assistantMessageId,
+		});
+		if (!kickoff.userMessageId) return [];
+		const links = await listMessageArtifactLinks({
+			userId: input.userId,
+			conversationId: input.conversationId,
+			messageId: kickoff.userMessageId,
+		});
+		return [
+			...links.attachmentArtifactIds,
+			...links.linkedSources.map((link) => link.displayArtifactId),
+		];
+	},
+};
+
 export async function runAtlasV3PipelineForClaimedJob(
 	input: RunAtlasV3PipelineForClaimedJobInput,
 ): Promise<AtlasV3PipelineResult> {
@@ -192,6 +227,8 @@ export async function runAtlasV3PipelineForClaimedJob(
 					.where(eq(messages.id, messageId));
 			},
 			localSources: createAtlasV3LocalSources(),
+			loadParentSeed: (job) =>
+				loadAtlasV3ParentSeed({ job, reads: ATLAS_V3_SEED_READS }),
 			researcherConcurrency: config.atlasV3ResearcherConcurrency,
 			criticRounds: config.atlasV3CriticRounds,
 			hungarianStandardEnabled: config.atlasV3LanguageStandardHu,
