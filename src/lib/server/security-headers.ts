@@ -23,7 +23,7 @@ export type CspMode = "off" | "report-only" | "enforce";
 /**
  * Anything other than an explicit "off" or "enforce" leaves the deployment in
  * report-only, so a typo can never flip production onto an enforcing policy
- * nobody has watched a console for. Same shape as `parseAtlasPipelineEnv`.
+ * nobody has watched a console for.
  */
 export function parseCspModeEnv(value: string | undefined): CspMode {
 	const normalized = value?.trim().toLowerCase();

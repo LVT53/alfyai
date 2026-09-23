@@ -12,11 +12,10 @@
 // This module is the shared home for the contract: `atlas/read-model.ts` (the
 // read path) and `atlas/job-ledger.ts` (through `read-model.ts`, the write
 // path) both go through it instead of importing v2 or v3 internals directly.
-// The v2 types and sanitiser here are a copy of v2's own
-// (`atlas-v2/progress.ts`, `atlas-v2/types.ts`), which keeps its copy so v2
-// stays runnable unchanged until it is deleted; v3's copy here is the one v3
-// now imports (`atlas-v3/types.ts` re-exports these names so v3's own
-// importers do not change).
+// v1 and v2 no longer run (Phase B of the v3-only consolidation), but their
+// rows stay in users' conversations, so their shapes and sanitisers live on
+// here as the only copy; v3 imports its own from here too (`atlas-v3/types.ts`
+// re-exports these names so v3's own importers do not change).
 
 // ---------------------------------------------------------------------------
 // v1

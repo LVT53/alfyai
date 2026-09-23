@@ -582,9 +582,9 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 	// page (NAMED_PAGE_KEYS) and also have a spec here, which is what routes
 	// them through validateAdminConfigValue. Before this, MINERU_TIMEOUT_MS was
 	// "path B" only — `MINERU_TIMEOUT_MS: "abc"` was stored in admin_config and
-	// then silently never applied. ATLAS_STALE_MONTHS is the existing
-	// precedent; AdvancedPage filters on `pageForKey(spec.key) === "advanced"`,
-	// so a named-page key with a spec renders exactly once.
+	// then silently never applied. AdvancedPage filters on
+	// `pageForKey(spec.key) === "advanced"`, so a named-page key with a spec
+	// renders exactly once.
 	{
 		key: "MINERU_API_URL",
 		group: "integrations",
