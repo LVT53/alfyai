@@ -51,6 +51,12 @@ export const users = sqliteTable("users", {
 	})
 		.notNull()
 		.default(false),
+	// When set, the home-screen "memories need review" notice is hidden until a
+	// newer open review item appears (created after this timestamp). Null means
+	// never dismissed. See home-summary.ts.
+	homeMemoryReviewDismissedAt: integer("home_memory_review_dismissed_at", {
+		mode: "timestamp",
+	}),
 	lastSeenAt: integer("last_seen_at", { mode: "timestamp" }),
 	createdAt: integer("created_at", { mode: "timestamp" })
 		.notNull()
