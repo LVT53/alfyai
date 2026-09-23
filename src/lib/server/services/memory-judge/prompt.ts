@@ -34,7 +34,7 @@ export function buildJudgeSystemPrompt(): string {
 		'  - "expiryClass": "durable" or "time_bound"',
 		'  - "expiresInDays": a number of days — REQUIRED whenever expiryClass is "time_bound", and ONLY present when expiryClass is "time_bound"',
 		'  - "sourceQuote": a short verbatim quote copied from the segment',
-		'  - "targetItemId": REQUIRED only when action is "update" or "strengthen" (the id of the existing fact); omit otherwise',
+		'  - "targetItemId": REQUIRED only when action is "update" or "strengthen" (the id of the existing fact, copied exactly as shown between the [brackets] in the existing facts list, without the brackets); omit otherwise',
 		"Unknown or extra fields, unknown enum values, and any action not in add/update/strengthen are all invalid.",
 		"Example of one fully valid decision (field names and enum values are always English; the statement and sourceQuote stay in the user's own language):",
 		'{"decisions":[{"action":"add","statement":"I prefer plain, jargon-free explanations.","category":"preferences","scope":"global","confidence":"stated","expiryClass":"durable","sourceQuote":"explain things in simple everyday language"}]}',

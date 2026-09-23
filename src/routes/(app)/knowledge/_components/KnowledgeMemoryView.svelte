@@ -573,7 +573,15 @@ $effect(() => {
 
 			<aside class="memory-profile-rail" aria-label={$t("memoryProfile.eyebrow")}>
 				{#if profile && profile.review.openCount > 0}
-					<section class="memory-review-section" aria-labelledby="memory-review-title">
+					<!-- id + tabindex give the home "memories need review" notice a
+					     deep-link target (/knowledge?tab=memory#memory-review) to
+					     scroll to and focus; see the scroll effect in +page.svelte. -->
+					<section
+						id="memory-review"
+						class="memory-review-section"
+						aria-labelledby="memory-review-title"
+						tabindex="-1"
+					>
 						<div class="memory-review-head">
 							<HelpCircle size={14} strokeWidth={2.1} class="text-accent shrink-0" aria-hidden="true" />
 							<h3 id="memory-review-title" class="memory-review-title">{$t("memoryProfile.needsReview")}</h3>
@@ -1039,6 +1047,11 @@ $effect(() => {
 		background: var(--surface-elevated);
 		overflow: hidden;
 		box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
+		/* Deep-linked from the home notice (#memory-review): keeps the card
+		   clear of the scroll container's own top padding when scrolled into
+		   view, and the programmatic focus below draws no visible ring. */
+		scroll-margin-top: 1.5rem;
+		outline: none;
 	}
 
 	.memory-review-head {

@@ -39,6 +39,23 @@ describe("judge prompts", () => {
 		expect(p).toContain("own words");
 	});
 
+	it("tells the model where the targetItemId for update/strengthen comes from", () => {
+		const p = buildJudgeSystemPrompt();
+		// The user message lists facts as `- [<id>] (...)`; the contract must say
+		// that bracketed value is the targetItemId, without the brackets.
+		expect(p).toContain("between the [brackets]");
+		expect(p).toContain("without the brackets");
+		const m = buildJudgeUserMessage({
+			segment: [],
+			conversationSummary: null,
+			existingFacts: [
+				{ id: "f1", statement: "I like tea.", category: "preferences" },
+			],
+			projectId: null,
+		});
+		expect(m).toContain("- [f1] (preferences) I like tea.");
+	});
+
 	it("user message includes segment, summary, existing facts and project marker", () => {
 		const m = buildJudgeUserMessage({
 			segment: [

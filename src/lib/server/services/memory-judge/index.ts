@@ -8,13 +8,21 @@ import { getActiveMemoryProfileContext } from "../memory-profile/active-context"
 import {
 	addMemoryProfileItemProvenance,
 	createMemoryProfileItem,
+	ensureProjectionState,
 	setMemoryProfileItemMetadataAndExpiry,
 	updateMemoryProfileItemWithRevision,
 } from "../memory-profile/projection-store";
 import { getMemoryProfileReadModel } from "../memory-profile/read-model";
-import { createOrUpdateMemoryReviewItem } from "../memory-profile/review";
+import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
+import {
+	createOrUpdateMemoryReviewItem,
+	JUDGE_REVIEW_SUBJECT_PREFIX,
+} from "../memory-profile/review";
 import { recordMemoryReworkTelemetry } from "../memory-profile/telemetry";
-import { isUserAuthoredMemoryMetadata } from "../memory-profile/types";
+import {
+	type MemoryItemUserProtection,
+	readMemoryItemUserProtection,
+} from "../memory-profile/types";
 import { getConversationProjectId } from "../projects";
 import { REVIEW_EXPIRY_DAYS, REVIEW_OPEN_CAP } from "./config";
 import {
@@ -130,16 +138,28 @@ export async function runMemoryJudgeOnSegment(params: {
 		backlogRemaining = segment.remaining > 0;
 	}
 
-	const [summary, projectId, activeContext] = await Promise.all([
+	const projectId = await getConversationProjectId(
+		params.userId,
+		params.conversationId,
+	).catch(() => null);
+	const [summary, activeContext] = await Promise.all([
 		getConversationSummary({
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => null),
-		getConversationProjectId(params.userId, params.conversationId).catch(
-			() => null,
-		),
-		getActiveMemoryProfileContext({ userId: params.userId }),
+		// Gate 5 needs every fact the judge may update, including this project's
+		// scoped facts (the judge writes them); otherwise they are never shown and
+		// can never be targeted by update/strengthen.
+		getActiveMemoryProfileContext({
+			userId: params.userId,
+			applicableScopes: projectId ? [{ type: "project", id: projectId }] : [],
+		}),
 	]);
+	const existingFacts = activeContext.items.map((i) => ({
+		id: i.id,
+		statement: i.statement,
+		category: i.category,
+	}));
 
 	let decisions: JudgeDecision[];
 	let rejected: RejectedJudgeCandidate[] = [];
@@ -159,18 +179,18 @@ export async function runMemoryJudgeOnSegment(params: {
 			userMessage: buildJudgeUserMessage({
 				segment: segmentMessages,
 				conversationSummary: summary?.summary ?? null,
-				existingFacts: activeContext.items.map((i) => ({
-					id: i.id,
-					statement: i.statement,
-					category: i.category,
-				})),
+				existingFacts,
 				projectId,
 			}),
 			modelId: config.memoryJudgeModel,
 			inputSizeHint: segmentMessages.length,
 			jsonSchema: JUDGE_JSON_SCHEMA,
 		});
-		({ decisions, rejected } = parseJudgeDecisionsDetailed(res.text));
+		// The facts the model saw let the missing-target gate resolve an
+		// update/strengthen that arrived without a targetItemId.
+		({ decisions, rejected } = parseJudgeDecisionsDetailed(res.text, {
+			existingFacts,
+		}));
 	} catch (error) {
 		await recordMemoryReworkTelemetry({
 			userId: params.userId,
@@ -194,6 +214,9 @@ export async function runMemoryJudgeOnSegment(params: {
 					statement: d.statement,
 					action: d.action,
 					trigger: params.trigger,
+					...(d.targetResolution
+						? { targetResolution: d.targetResolution }
+						: {}),
 				},
 			}).catch(() => {});
 		}
@@ -253,24 +276,84 @@ export async function runMemoryJudgeOnSegment(params: {
 				: {}),
 		};
 
-		if (d.action === "update" || d.action === "strengthen") {
-			if (!d.targetItemId) continue;
-			const target = activeContext.items.find((i) => i.id === d.targetItemId);
-			if (!target) continue;
-			// Never touch user-authored items. Read the item metadata directly
-			// rather than relying on read-model detail (which does not expose it).
-			if (await isUserAuthoredItem(params.userId, d.targetItemId)) continue;
-			const patched = await updateMemoryProfileItemWithRevision({
+		if (d.targetResolution) {
+			await recordMemoryReworkTelemetry({
 				userId: params.userId,
-				itemId: d.targetItemId,
+				eventFamily: "intake",
+				eventName: "judge_target_resolved",
+				reason: d.targetResolution,
+				category: d.category,
+				metadata: { action: d.action },
+			}).catch(() => {});
+		}
+
+		// Every way a parsed decision can fail to land is recorded with the same
+		// `judge_candidate_rejected` vocabulary as the parse-time gates, so the
+		// write path is measurable instead of silently dropped.
+		const dropCandidate = (reason: string) =>
+			recordMemoryReworkTelemetry({
+				userId: params.userId,
+				eventFamily: "intake",
+				eventName: "judge_candidate_rejected",
+				reason,
+				category: d.category,
+				metadata: { statement: d.statement.slice(0, 200), action: d.action },
+			}).catch(() => {});
+
+		if (d.action === "update" || d.action === "strengthen") {
+			const targetItemId = d.targetItemId;
+			if (!targetItemId) {
+				await dropCandidate("missing_target");
+				continue;
+			}
+			const target = activeContext.items.find((i) => i.id === targetItemId);
+			if (!target) {
+				await dropCandidate("target_not_active");
+				continue;
+			}
+			// Never touch user-protected items (user_authored, or accepted in
+			// review). Read the item metadata directly rather than relying on
+			// read-model detail (which does not expose it). The user_authored
+			// reason name is kept stable; accepted facts get their own.
+			const protection = await readItemUserProtection(
+				params.userId,
+				targetItemId,
+			);
+			if (protection) {
+				await dropCandidate(
+					protection === "user_authored"
+						? "target_user_authored"
+						: "target_user_protected",
+				);
+				continue;
+			}
+			const patch = d.action === "update" ? { statement: d.statement } : {};
+			let patched = await updateMemoryProfileItemWithRevision({
+				userId: params.userId,
+				itemId: targetItemId,
 				expectedProjectionRevision: projectionRevision,
-				patch: d.action === "update" ? { statement: d.statement } : {},
+				patch,
 			});
+			if (patched.status === "stale_projection") {
+				// The revision read before the model call can go stale: chat turns,
+				// review actions, or the read-model expiry sweep above may have
+				// advanced it meanwhile. The judge is not replaying a user's stale
+				// view, so re-read the current revision and try once more.
+				projectionRevision = await currentProjectionRevision(params.userId);
+				patched = await updateMemoryProfileItemWithRevision({
+					userId: params.userId,
+					itemId: targetItemId,
+					expectedProjectionRevision: projectionRevision,
+					patch,
+				});
+			}
 			if (patched.status === "updated") {
 				projectionRevision = patched.projectionRevision;
 				updated++;
-				await addProvenanceForItem(params, d.targetItemId, d);
-				await refreshFactEmbedding(params.userId, d.targetItemId, d.statement);
+				await addProvenanceForItem(params, targetItemId, d);
+				await refreshFactEmbedding(params.userId, targetItemId, d.statement);
+			} else {
+				await dropCandidate(`target_update_${patched.status}`);
 			}
 			continue;
 		}
@@ -284,6 +367,15 @@ export async function runMemoryJudgeOnSegment(params: {
 				status: "active",
 			});
 			projectionRevision = item.projectionRevision;
+			// The itemKey was taken: createMemoryProfileItem handed back an
+			// EXISTING row (possibly user-protected, suppressed, or retired). It is
+			// not ours to overwrite — writing the judge's metadata would drop a
+			// user_authored origin or endorsement, or silently re-label a removed
+			// fact.
+			if (!item.created) {
+				await dropCandidate("duplicate_existing");
+				continue;
+			}
 			await applyItemMetadata(params.userId, item.id, metadata, d);
 			await addProvenanceForItem(params, item.id, d);
 			await refreshFactEmbedding(params.userId, item.id, d.statement);
@@ -306,6 +398,12 @@ export async function runMemoryJudgeOnSegment(params: {
 				status: "review_needed",
 			});
 			projectionRevision = item.projectionRevision;
+			// Same guard as the stated path; here it also stops the review row
+			// from flipping an existing active fact to review_needed.
+			if (!item.created) {
+				await dropCandidate("duplicate_existing");
+				continue;
+			}
 			await applyItemMetadata(
 				params.userId,
 				item.id,
@@ -314,13 +412,25 @@ export async function runMemoryJudgeOnSegment(params: {
 				new Date(Date.now() + REVIEW_EXPIRY_DAYS * DAY_MS),
 			);
 			await addProvenanceForItem(params, item.id, d);
+			// The row carries the proposed statement and intake category so the
+			// review queue can offer Accept (review.ts promotes the affected item
+			// in place, keeping this category, scope, and provenance).
 			await createOrUpdateMemoryReviewItem({
 				userId: params.userId,
-				subjectKey: `judge:${item.itemKey}`,
+				subjectKey: `${JUDGE_REVIEW_SUBJECT_PREFIX}${item.itemKey}`,
 				subjectLabel: d.statement,
 				question: "Should I keep remembering this?",
 				reason: "Inferred from conversation, not stated directly.",
 				affectedItemIds: [item.id],
+				metadata: {
+					source: "memory_judge",
+					category: d.category,
+					proposedStatement: d.statement,
+					expiryClass: d.expiryClass,
+					...(d.expiryClass === "time_bound" && d.expiresInDays
+						? { expiresInDays: d.expiresInDays }
+						: {}),
+				},
 			});
 			openReview++;
 			review++;
@@ -354,10 +464,16 @@ export async function runMemoryJudgeOnSegment(params: {
 	};
 }
 
-async function isUserAuthoredItem(
+async function currentProjectionRevision(userId: string): Promise<number> {
+	const resetGeneration = await getCurrentMemoryResetGeneration(userId);
+	const projection = await ensureProjectionState({ userId, resetGeneration });
+	return projection.revision;
+}
+
+async function readItemUserProtection(
 	userId: string,
 	itemId: string,
-): Promise<boolean> {
+): Promise<MemoryItemUserProtection | null> {
 	const [row] = await db
 		.select({ metadataJson: memoryProfileItems.metadataJson })
 		.from(memoryProfileItems)
@@ -368,8 +484,8 @@ async function isUserAuthoredItem(
 			),
 		)
 		.limit(1);
-	if (!row) return false;
-	return isUserAuthoredMemoryMetadata(row.metadataJson);
+	if (!row) return null;
+	return readMemoryItemUserProtection(row.metadataJson);
 }
 
 async function applyItemMetadata(

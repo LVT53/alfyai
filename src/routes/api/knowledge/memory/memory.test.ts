@@ -22,7 +22,12 @@ vi.mock("$lib/server/services/memory", () => ({
 	getKnowledgeMemoryOverview: vi.fn(),
 }));
 
+vi.mock("$lib/server/services/home-summary", () => ({
+	invalidateHomeSummary: vi.fn(),
+}));
+
 import { requireAuth } from "$lib/server/auth/hooks";
+import { invalidateHomeSummary } from "$lib/server/services/home-summary";
 import {
 	applyKnowledgeMemoryAction,
 	getKnowledgeMemory,
@@ -417,5 +422,46 @@ describe("knowledge memory routes", () => {
 
 		expect(response.status).toBe(409);
 		expect(data.code).toBe("stale_projection");
+	});
+
+	it("drops the cached home summary after a review action so the home notice count is fresh", async () => {
+		mockApplyKnowledgeMemoryAction.mockResolvedValue({
+			...memoryPayload,
+			review: { visibleItems: [], openCount: 0, overflowCount: 0 },
+		});
+
+		const response = await POST_MEMORY_ACTION(
+			makePostEvent({
+				target: "review_item",
+				action: "accept",
+				itemId: "review-1",
+				expectedProjectionRevision: 7,
+			}),
+		);
+
+		expect(response.status).toBe(200);
+		expect(invalidateHomeSummary).toHaveBeenCalledWith("user-1");
+	});
+
+	it("drops the cached home summary when a review item turned out to be gone", async () => {
+		mockApplyKnowledgeMemoryAction.mockRejectedValue(
+			new MemoryProfileActionError(
+				"not_found",
+				"Memory review item was not found.",
+				404,
+			),
+		);
+
+		const response = await POST_MEMORY_ACTION(
+			makePostEvent({
+				target: "review_item",
+				action: "accept",
+				itemId: "review-1",
+				expectedProjectionRevision: 7,
+			}),
+		);
+
+		expect(response.status).toBe(404);
+		expect(invalidateHomeSummary).toHaveBeenCalledWith("user-1");
 	});
 });

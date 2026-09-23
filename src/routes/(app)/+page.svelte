@@ -42,9 +42,11 @@ import {
 	EMPTY_HOME_SUMMARY,
 	type HomeSuggestion,
 	type HomeSummary,
+	dismissMemoryReviewNotice,
 	fetchHomeSummary,
 	recordHomeSuggestionEvent,
 } from "$lib/client/api/home";
+import HomeMemoryReviewNotice from "$lib/components/home/HomeMemoryReviewNotice.svelte";
 import HomeRecent from "$lib/components/home/HomeRecent.svelte";
 import HomeSuggestionRail from "$lib/components/home/HomeSuggestionRail.svelte";
 import HomeWeeklyBars from "$lib/components/home/HomeWeeklyBars.svelte";
@@ -74,7 +76,7 @@ import type { ModelId } from "$lib/model-types";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type { AtlasProfile } from "$lib/server/services/atlas/public-types";
 import type { ConversationDetail } from "$lib/server/services/conversation-detail/types";
-import { onDestroy, onMount, untrack } from "svelte";
+import { onDestroy, onMount, tick, untrack } from "svelte";
 import type { ConversationDraft } from "$lib/server/services/conversations";
 import type {
 	ArtifactSummary,
@@ -321,6 +323,7 @@ $effect(() => {
 const greetingName = $derived(greetingFirstName(data.user?.displayName));
 let summary = $state<HomeSummary>(EMPTY_HOME_SUMMARY);
 let summaryLoaded = $state(false);
+let homeComposerLayer = $state<HTMLDivElement | null>(null);
 let nowSeconds = $state(Math.floor(Date.now() / 1000));
 
 // The greeting. The pool, the weights and the rule live in
@@ -402,6 +405,24 @@ let composeIntoComposer: ((text: string) => void) | null = null;
 
 function handleComposeReady(compose: (text: string) => void) {
 	composeIntoComposer = compose;
+}
+
+function handleMemoryReviewDismiss({
+	restoreFocus,
+}: {
+	restoreFocus: boolean;
+}) {
+	// Fire and forget, same shape as the suggestion-rail events below: the row
+	// already hid itself locally (HomeMemoryReviewNotice's own optimistic
+	// state), and a failed write only means it may show again next load.
+	void dismissMemoryReviewNotice().catch(() => undefined);
+	// A keyboard dismissal removes the focused button; hand focus to the
+	// composer, the next thing on this screen, instead of dropping it on body.
+	if (restoreFocus) {
+		void tick().then(() =>
+			homeComposerLayer?.querySelector("textarea")?.focus(),
+		);
+	}
 }
 
 function handleSuggestionPick(suggestion: HomeSuggestion) {
@@ -898,6 +919,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 		{/if}
 
 		<div
+			bind:this={homeComposerLayer}
 			class="composer-layer"
 			class:composer-layer-animate={isFromChat && animateIn}
 			class:composer-layer-no-animate={!isFromChat}
@@ -923,6 +945,22 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 							<HomeWeeklyBars weeks={summary.weekly} total={summary.weeklyTotal} />
 						{/if}
 					</div>
+
+					{#if !$landingIncognitoArmed && summaryLoaded}
+						<!-- Directly under the greeting band, above the composer. Keyed
+						     by the server's own dismissed flag: when a NEW review item
+						     makes it flip from dismissed back to not-dismissed, the key
+						     changes and Svelte remounts the row, clearing its local
+						     optimistic-hide state rather than leaving it stuck hidden
+						     from an earlier dismissal (see HomeMemoryReviewNotice). -->
+						{#key summary.memoryReviewNoticeDismissed}
+							<HomeMemoryReviewNotice
+								count={summary.memoryReviewNoticeDismissed ? 0 : summary.memoryReviewCount}
+								href="/knowledge?tab=memory#memory-review"
+								onDismiss={handleMemoryReviewDismiss}
+							/>
+						{/key}
+					{/if}
 				{/if}
 
 				{#if creating && pendingMessagePreview}

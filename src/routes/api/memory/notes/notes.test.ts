@@ -46,6 +46,7 @@ describe("POST /api/memory/notes", () => {
 			revision: 0,
 			resetGeneration: 0,
 			projectionRevision: 1,
+			created: true,
 		});
 		mockMergeMetadata.mockResolvedValue(undefined);
 		mockAddProvenance.mockResolvedValue({

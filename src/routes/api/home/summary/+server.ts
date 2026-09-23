@@ -15,12 +15,16 @@ import {
 	recordHomeSuggestionEvent,
 } from "$lib/server/services/home-suggestions";
 import {
+	dismissMemoryReviewNotice,
 	getHomeSummary,
 	invalidateHomeSummary,
 } from "$lib/server/services/home-summary";
 import type { RequestHandler } from "./$types";
 
 const EVENT_KINDS: HomeSuggestionEventKind[] = ["shown", "dismissed", "used"];
+
+/** The one non-suggestion action this endpoint also accepts. */
+const DISMISS_MEMORY_REVIEW_ACTION = "dismissMemoryReviewNotice";
 
 export const GET: RequestHandler = async (event) => {
 	requireAuth(event);
@@ -42,6 +46,19 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: "Too many requests" }, { status: 429 });
 	}
 	const body = await event.request.json().catch(() => null);
+
+	// The memory-review notice has no candidate key of its own — it is a single
+	// per-user notice, not a ranked/rotating chip — so it is dispatched by
+	// `action` instead of reusing the `candidateKey` shape below.
+	if (
+		body &&
+		typeof body.action === "string" &&
+		body.action === DISMISS_MEMORY_REVIEW_ACTION
+	) {
+		await dismissMemoryReviewNotice(event.locals.user.id);
+		return json({ ok: true });
+	}
+
 	const candidateKey =
 		body && typeof body.candidateKey === "string"
 			? body.candidateKey.trim()

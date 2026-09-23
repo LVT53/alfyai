@@ -293,6 +293,47 @@ describe("Knowledge page memory loading", () => {
 		).toBeInTheDocument();
 	});
 
+	it("refreshes the review queue when an accepted review item is already gone", async () => {
+		vi.mocked(submitKnowledgeMemoryAction).mockRejectedValueOnce(
+			new ApiError("Memory review item was not found.", {
+				code: "not_found",
+				status: 404,
+			}),
+		);
+		vi.mocked(fetchMemoryProfile)
+			.mockResolvedValueOnce(memoryProfilePayload)
+			.mockResolvedValueOnce({
+				...memoryProfilePayload,
+				projectionRevision: 8,
+				review: { visibleItems: [], items: [], openCount: 0, overflowCount: 0 },
+			});
+		render(KnowledgePage, { data: pageData() });
+
+		await waitFor(() => {
+			expect(
+				screen.getByText("Remember Hungarian labels."),
+			).toBeInTheDocument();
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+
+		await waitFor(() => {
+			expect(fetchMemoryProfile).toHaveBeenCalledTimes(2);
+		});
+		await waitFor(() => {
+			expect(
+				screen.queryByText("Remember Hungarian labels."),
+			).not.toBeInTheDocument();
+		});
+		expect(
+			screen.getByText(
+				"That review item was already resolved, so the list has been refreshed.",
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByText("Memory review item was not found."),
+		).not.toBeInTheDocument();
+	});
+
 	it("shows stale projection feedback inside an open memory item dialog", async () => {
 		vi.mocked(submitKnowledgeMemoryAction).mockRejectedValueOnce(
 			new ApiError("stale projection", {

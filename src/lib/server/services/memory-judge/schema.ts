@@ -106,6 +106,21 @@ export type JudgeDecision = {
 	expiryClass: "durable" | "time_bound";
 	expiresInDays?: number;
 	sourceQuote: string;
+	/**
+	 * Set when the model proposed update/strengthen WITHOUT a targetItemId and
+	 * the parser resolved it deterministically against the existing facts:
+	 * `statement_match` filled in the unique exact match's id.
+	 */
+	targetResolution?: JudgeTargetResolution;
+};
+
+export type JudgeTargetResolution = "statement_match";
+
+/** An existing fact as shown to the judge for gate 5 (non-redundancy). */
+export type JudgeExistingFact = {
+	id: string;
+	statement: string;
+	category: string;
 };
 
 export const JUDGE_JSON_SCHEMA = {
@@ -215,13 +230,59 @@ function rawStatement(raw: unknown): string {
 	return "";
 }
 
+// The prompt lists existing facts as `- [<id>] (...)`; models sometimes echo
+// the brackets back in targetItemId.
+function normalizeTargetItemId(value: string | undefined): string | undefined {
+	if (value === undefined) return undefined;
+	const trimmed = value
+		.trim()
+		.replace(/^\[\s*/, "")
+		.replace(/\s*\]$/, "");
+	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+// Exact-match normalization for target resolution: case, whitespace, and
+// trailing sentence punctuation do not make a different fact.
+function normalizeFactStatementForMatch(statement: string): string {
+	return statement
+		.toLowerCase()
+		.replace(/\s+/g, " ")
+		.trim()
+		.replace(/[.!?…]+$/u, "")
+		.trim();
+}
+
+/** The id of the unique same-category exact match, or null (none/ambiguous). */
+function resolveMissingTarget(
+	decision: { statement: string; category: string },
+	existingFacts: JudgeExistingFact[],
+): string | null {
+	const wanted = normalizeFactStatementForMatch(decision.statement);
+	const matches = existingFacts.filter(
+		(fact) =>
+			fact.category === decision.category &&
+			normalizeFactStatementForMatch(fact.statement) === wanted,
+	);
+	return matches.length === 1 ? matches[0].id : null;
+}
+
 /**
  * Parse the judge JSON envelope into accepted decisions plus a diagnostic list
  * of post-filter rejects. `parseJudgeDecisions` wraps this and returns only the
  * accepted decisions. A malformed envelope yields empty lists (no rejects) —
  * there are no candidates to attribute a rejection to.
+ *
+ * When `existingFacts` (the facts shown to the model for gate 5) is supplied,
+ * an update/strengthen that arrives without a targetItemId is resolved
+ * deterministically at the missing-target gate: a unique exact normalized
+ * statement match in the same category supplies the target; no match or an
+ * ambiguous match is still rejected as `missing_target`. Without
+ * `existingFacts` the gate rejects exactly as before.
  */
-export function parseJudgeDecisionsDetailed(rawText: string): {
+export function parseJudgeDecisionsDetailed(
+	rawText: string,
+	options: { existingFacts?: JudgeExistingFact[] } = {},
+): {
 	decisions: JudgeDecision[];
 	rejected: RejectedJudgeCandidate[];
 } {
@@ -244,6 +305,7 @@ export function parseJudgeDecisionsDetailed(rawText: string): {
 			continue;
 		}
 		const statement = firstSentence(d.data.statement);
+		const targetItemId = normalizeTargetItemId(d.data.targetItemId);
 		if (HEDGE_RE.test(statement)) {
 			rejected.push({ statement, reason: "hedge" });
 			continue;
@@ -262,12 +324,36 @@ export function parseJudgeDecisionsDetailed(rawText: string): {
 		}
 		if (
 			(d.data.action === "update" || d.data.action === "strengthen") &&
-			!d.data.targetItemId
+			!targetItemId
 		) {
-			rejected.push({ statement, reason: "missing_target" });
+			const resolvedTargetId = options.existingFacts
+				? resolveMissingTarget(
+						{ statement, category: d.data.category },
+						options.existingFacts,
+					)
+				: null;
+			if (resolvedTargetId) {
+				decisions.push({
+					...d.data,
+					statement,
+					targetItemId: resolvedTargetId,
+					targetResolution: "statement_match",
+				});
+			} else {
+				// No unique exact match: the candidate is still rejected. An update's
+				// statement is the NEW content, so it never matches the fact it
+				// replaces — turning it into an add would leave the old and new
+				// facts active side by side (and a paraphrased strengthen would
+				// duplicate its fact).
+				rejected.push({ statement, reason: "missing_target" });
+			}
 			continue;
 		}
-		decisions.push({ ...d.data, statement });
+		decisions.push({
+			...d.data,
+			statement,
+			...(targetItemId !== undefined ? { targetItemId } : {}),
+		});
 	}
 	return { decisions, rejected };
 }

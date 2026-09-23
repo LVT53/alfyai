@@ -176,13 +176,55 @@ export function parseMemoryItemMetadata(
 }
 
 /**
- * True when an item's metadata marks it as user-authored. User-authored items
- * are protected from judge/consolidation/recuration rewrites and deletion.
+ * True when an item's metadata marks it as user-authored (the user wrote or
+ * edited the statement). This is provenance only; automated writers decide
+ * whether they may touch an item with `isUserProtectedMemoryMetadata`.
  */
 export function isUserAuthoredMemoryMetadata(
 	metadataJson: string | null | undefined,
 ): boolean {
 	return parseMemoryItemMetadata(metadataJson).origin === "user_authored";
+}
+
+/**
+ * The endorsement marker Guided Memory Review writes when the user accepts an
+ * inferred fact. The item keeps its true `origin` (e.g. `judge_v1`) so
+ * provenance stays honest; this marker records that the user confirmed it.
+ */
+export const USER_ACCEPTED_MEMORY_ENDORSEMENT = "user_accepted";
+
+export type MemoryItemUserProtection = "user_authored" | "user_accepted";
+
+/**
+ * Why an item is protected from automated rewrites, or null when it is not.
+ * `user_authored` wins when both apply. Items accepted before the explicit
+ * endorsement marker existed carry only `reviewResolution: "accepted"`; they
+ * are user-endorsed too.
+ */
+export function readMemoryItemUserProtection(
+	metadataJson: string | null | undefined,
+): MemoryItemUserProtection | null {
+	const metadata = parseMemoryItemMetadata(metadataJson);
+	if (metadata.origin === "user_authored") return "user_authored";
+	if (
+		metadata.endorsement === USER_ACCEPTED_MEMORY_ENDORSEMENT ||
+		metadata.reviewResolution === "accepted"
+	) {
+		return "user_accepted";
+	}
+	return null;
+}
+
+/**
+ * The single protection predicate for automated memory writers. True for
+ * user-authored items and for facts the user accepted in review: the judge,
+ * consolidation, and recuration must never rewrite, retire, merge, renew, or
+ * delete them. The user can still edit or remove them through profile actions.
+ */
+export function isUserProtectedMemoryMetadata(
+	metadataJson: string | null | undefined,
+): boolean {
+	return readMemoryItemUserProtection(metadataJson) !== null;
 }
 
 export function assertMemoryProfileCategory(

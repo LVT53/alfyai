@@ -254,6 +254,12 @@ export async function createMemoryProfileItem(params: {
 	revision: number;
 	resetGeneration: number;
 	projectionRevision: number;
+	/**
+	 * False when the itemKey was already taken and the EXISTING row was returned
+	 * unchanged (any status, any origin). Callers that go on to write metadata
+	 * or open a review must not treat that row as their own new item.
+	 */
+	created: boolean;
 }> {
 	const resetGeneration = await assertExpectedMemoryResetGeneration({
 		userId: params.userId,
@@ -307,6 +313,7 @@ export async function createMemoryProfileItem(params: {
 			return {
 				row: item,
 				projectionRevision: projection.revision + 1,
+				created: true,
 			};
 		}
 
@@ -330,6 +337,7 @@ export async function createMemoryProfileItem(params: {
 		return {
 			row: existing,
 			projectionRevision: projection.revision,
+			created: false,
 		};
 	});
 
@@ -340,6 +348,7 @@ export async function createMemoryProfileItem(params: {
 		revision: result.row.revision,
 		resetGeneration,
 		projectionRevision: result.projectionRevision,
+		created: result.created,
 	};
 }
 
@@ -772,12 +781,122 @@ export async function markActiveMemoryProfileItemsForReview(params: {
 }
 
 /**
+ * Read an item's metadata inside a transaction, merge `patch` over it, and
+ * write it back — the in-transaction twin of `mergeMemoryProfileItemMetadata`.
+ */
+function mergeItemMetadataTx(
+	tx: TransactionClient,
+	params: { userId: string; itemId: string; patch: Record<string, unknown> },
+): void {
+	const [row] = tx
+		.select({ metadataJson: memoryProfileItems.metadataJson })
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.id, params.itemId),
+			),
+		)
+		.limit(1)
+		.all();
+	if (!row) return;
+	tx.update(memoryProfileItems)
+		.set({
+			metadataJson: JSON.stringify({
+				...parseJsonRecord(row.metadataJson),
+				...params.patch,
+			}),
+		})
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.id, params.itemId),
+			),
+		)
+		.run();
+}
+
+/**
+ * Retire review_needed items that a review decision replaced with another item:
+ * carry their provenance onto the replacement, then mark them `retired` with a
+ * `supersededBy` pointer so the lineage stays auditable. Items in any other
+ * status are left alone.
+ */
+function retireReplacedReviewItemsTx(
+	tx: TransactionClient,
+	params: {
+		userId: string;
+		resetGeneration: number;
+		replacedItemIds: string[];
+		replacementItemId: string;
+		retiredReason: string;
+		now: Date;
+	},
+): void {
+	const candidates = params.replacedItemIds.filter(
+		(id) => id !== params.replacementItemId,
+	);
+	if (candidates.length === 0) return;
+	const rows = tx
+		.select({ id: memoryProfileItems.id })
+		.from(memoryProfileItems)
+		.where(
+			and(
+				eq(memoryProfileItems.userId, params.userId),
+				eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+				eq(memoryProfileItems.status, "review_needed"),
+				inArray(memoryProfileItems.id, candidates),
+			),
+		)
+		.all();
+	for (const { id } of rows) {
+		const provenance = tx
+			.select()
+			.from(memoryProfileItemProvenance)
+			.where(eq(memoryProfileItemProvenance.itemId, id))
+			.all();
+		for (const prov of provenance) {
+			tx.insert(memoryProfileItemProvenance)
+				.values({
+					...prov,
+					id: randomUUID(),
+					itemId: params.replacementItemId,
+				})
+				.run();
+		}
+		tx.update(memoryProfileItems)
+			.set({
+				status: "retired",
+				revision: sql`${memoryProfileItems.revision} + 1`,
+				updatedAt: params.now,
+			})
+			.where(eq(memoryProfileItems.id, id))
+			.run();
+		mergeItemMetadataTx(tx, {
+			userId: params.userId,
+			itemId: id,
+			patch: {
+				supersededBy: params.replacementItemId,
+				retiredReason: params.retiredReason,
+			},
+		});
+	}
+}
+
+/**
  * The projection-side of resolving a memory review (accept / edit / dismiss),
  * run as ONE optimistic-concurrency transaction. The caller (review.ts) does the
- * review-specific reasoning — category inference, statement selection, expiry
- * recompute, duplicate-row discovery — and hands the door a plain decision:
- *   - `upsert`: create-or-reactivate the accepted/edited item (null on dismiss)
- *   - `suppressItemIds`: active items to suppress (dismiss only)
+ * review-specific reasoning — category/scope selection, statement selection,
+ * expiry recompute, duplicate-row discovery — and hands the door a plain
+ * decision:
+ *   - `upsert`: create-or-reactivate the accepted/edited item (null on dismiss).
+ *     `promoteItemId` promotes that exact review_needed item in place (accept
+ *     of the item's own statement); otherwise the item is found by key or
+ *     inserted. `replaceItemIds` are the review_needed items the result
+ *     replaces — they are retired with a `supersededBy` pointer and their
+ *     provenance is carried onto the result. `metadataPatch` is merged into
+ *     the result item's metadata.
+ *   - `suppressItemIds`: active or review_needed items to suppress (dismiss)
  *   - `resolveRows`: the review rows to close, via the shared resolution primitive
  * All item writes, the revision claim, and the review-row resolution happen here
  * so review.ts issues no raw `db.insert/update(memoryProfileItems)` of its own.
@@ -794,6 +913,10 @@ export async function applyReviewItemProjectionMutation(params: {
 		statement: string;
 		/** `undefined` leaves expiry untouched on reactivation; `null` clears it. */
 		acceptExpiresAt: Date | null | undefined;
+		promoteItemId?: string;
+		replaceItemIds?: string[];
+		retiredReason?: string;
+		metadataPatch?: Record<string, unknown>;
 	};
 	suppressItemIds: string[];
 	resolveRows: ReviewRowResolution[];
@@ -819,18 +942,34 @@ export async function applyReviewItemProjectionMutation(params: {
 			const { itemKey, category, scope, statement, acceptExpiresAt } =
 				params.upsert;
 			const scopeColumns = toScopeColumns(scope);
-			const [existing] = tx
-				.select()
-				.from(memoryProfileItems)
-				.where(
-					and(
-						eq(memoryProfileItems.userId, params.userId),
-						eq(memoryProfileItems.resetGeneration, params.resetGeneration),
-						eq(memoryProfileItems.itemKey, itemKey),
-					),
-				)
-				.limit(1)
-				.all();
+			const [promoted] = params.upsert.promoteItemId
+				? tx
+						.select()
+						.from(memoryProfileItems)
+						.where(
+							and(
+								eq(memoryProfileItems.userId, params.userId),
+								eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+								eq(memoryProfileItems.id, params.upsert.promoteItemId),
+							),
+						)
+						.limit(1)
+						.all()
+				: [];
+			const [existing] = promoted
+				? [promoted]
+				: tx
+						.select()
+						.from(memoryProfileItems)
+						.where(
+							and(
+								eq(memoryProfileItems.userId, params.userId),
+								eq(memoryProfileItems.resetGeneration, params.resetGeneration),
+								eq(memoryProfileItems.itemKey, itemKey),
+							),
+						)
+						.limit(1)
+						.all();
 
 			if (existing) {
 				itemId = existing.id;
@@ -875,9 +1014,28 @@ export async function applyReviewItemProjectionMutation(params: {
 					})
 					.run();
 			}
+
+			if (params.upsert.metadataPatch) {
+				mergeItemMetadataTx(tx, {
+					userId: params.userId,
+					itemId,
+					patch: params.upsert.metadataPatch,
+				});
+			}
+			retireReplacedReviewItemsTx(tx, {
+				userId: params.userId,
+				resetGeneration: params.resetGeneration,
+				replacedItemIds: params.upsert.replaceItemIds ?? [],
+				replacementItemId: itemId,
+				retiredReason: params.upsert.retiredReason ?? "review_replaced",
+				now: params.now,
+			});
 		}
 
 		if (params.suppressItemIds.length > 0) {
+			// Dismissing a review ("Remove") must take the item out of
+			// review_needed as well as out of active use; suppressing only
+			// `active` rows left judge-opened review_needed items orphaned.
 			tx.update(memoryProfileItems)
 				.set({
 					status: "suppressed",
@@ -889,7 +1047,7 @@ export async function applyReviewItemProjectionMutation(params: {
 					and(
 						eq(memoryProfileItems.userId, params.userId),
 						eq(memoryProfileItems.resetGeneration, params.resetGeneration),
-						eq(memoryProfileItems.status, "active"),
+						inArray(memoryProfileItems.status, ["active", "review_needed"]),
 						inArray(memoryProfileItems.id, params.suppressItemIds),
 					),
 				)
