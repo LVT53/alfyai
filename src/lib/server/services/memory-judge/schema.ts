@@ -106,6 +106,24 @@ export type JudgeDecision = {
 	expiryClass: "durable" | "time_bound";
 	expiresInDays?: number;
 	sourceQuote: string;
+	/**
+	 * Set when the model proposed update/strengthen WITHOUT a targetItemId and
+	 * the parser resolved it deterministically against the existing facts:
+	 * `statement_match` filled in the unique exact match's id;
+	 * `no_match_admitted_as_new` turned the candidate into a plain add.
+	 */
+	targetResolution?: JudgeTargetResolution;
+};
+
+export type JudgeTargetResolution =
+	| "statement_match"
+	| "no_match_admitted_as_new";
+
+/** An existing fact as shown to the judge for gate 5 (non-redundancy). */
+export type JudgeExistingFact = {
+	id: string;
+	statement: string;
+	category: string;
 };
 
 export const JUDGE_JSON_SCHEMA = {
@@ -215,13 +233,67 @@ function rawStatement(raw: unknown): string {
 	return "";
 }
 
+// The prompt lists existing facts as `- [<id>] (...)`; models sometimes echo
+// the brackets back in targetItemId.
+function normalizeTargetItemId(value: string | undefined): string | undefined {
+	if (value === undefined) return undefined;
+	const trimmed = value
+		.trim()
+		.replace(/^\[\s*/, "")
+		.replace(/\s*\]$/, "");
+	return trimmed.length > 0 ? trimmed : undefined;
+}
+
+// Exact-match normalization for target resolution: case, whitespace, and
+// trailing sentence punctuation do not make a different fact.
+function normalizeFactStatementForMatch(statement: string): string {
+	return statement
+		.toLowerCase()
+		.replace(/\s+/g, " ")
+		.trim()
+		.replace(/[.!?…]+$/u, "")
+		.trim();
+}
+
+type TargetResolutionOutcome =
+	| { kind: "matched"; targetItemId: string }
+	| { kind: "none" }
+	| { kind: "ambiguous" };
+
+function resolveMissingTarget(
+	decision: { statement: string; category: string },
+	existingFacts: JudgeExistingFact[],
+): TargetResolutionOutcome {
+	const wanted = normalizeFactStatementForMatch(decision.statement);
+	const matches = existingFacts.filter(
+		(fact) =>
+			fact.category === decision.category &&
+			normalizeFactStatementForMatch(fact.statement) === wanted,
+	);
+	if (matches.length === 1) {
+		return { kind: "matched", targetItemId: matches[0].id };
+	}
+	return matches.length === 0 ? { kind: "none" } : { kind: "ambiguous" };
+}
+
 /**
  * Parse the judge JSON envelope into accepted decisions plus a diagnostic list
  * of post-filter rejects. `parseJudgeDecisions` wraps this and returns only the
  * accepted decisions. A malformed envelope yields empty lists (no rejects) —
  * there are no candidates to attribute a rejection to.
+ *
+ * When `existingFacts` (the facts shown to the model for gate 5) is supplied,
+ * an update/strengthen that arrives without a targetItemId is resolved
+ * deterministically at the missing-target gate instead of being discarded: a
+ * unique exact normalized statement match in the same category supplies the
+ * target; no match admits the candidate as a new fact (it has already passed
+ * the other gates); an ambiguous match is still rejected as `missing_target`.
+ * Without `existingFacts` the gate rejects exactly as before.
  */
-export function parseJudgeDecisionsDetailed(rawText: string): {
+export function parseJudgeDecisionsDetailed(
+	rawText: string,
+	options: { existingFacts?: JudgeExistingFact[] } = {},
+): {
 	decisions: JudgeDecision[];
 	rejected: RejectedJudgeCandidate[];
 } {
@@ -244,6 +316,7 @@ export function parseJudgeDecisionsDetailed(rawText: string): {
 			continue;
 		}
 		const statement = firstSentence(d.data.statement);
+		const targetItemId = normalizeTargetItemId(d.data.targetItemId);
 		if (HEDGE_RE.test(statement)) {
 			rejected.push({ statement, reason: "hedge" });
 			continue;
@@ -262,12 +335,39 @@ export function parseJudgeDecisionsDetailed(rawText: string): {
 		}
 		if (
 			(d.data.action === "update" || d.data.action === "strengthen") &&
-			!d.data.targetItemId
+			!targetItemId
 		) {
-			rejected.push({ statement, reason: "missing_target" });
+			const resolution: TargetResolutionOutcome = options.existingFacts
+				? resolveMissingTarget(
+						{ statement, category: d.data.category },
+						options.existingFacts,
+					)
+				: { kind: "ambiguous" };
+			if (resolution.kind === "matched") {
+				decisions.push({
+					...d.data,
+					statement,
+					targetItemId: resolution.targetItemId,
+					targetResolution: "statement_match",
+				});
+			} else if (resolution.kind === "none") {
+				const { targetItemId: _unused, ...candidate } = d.data;
+				decisions.push({
+					...candidate,
+					action: "add",
+					statement,
+					targetResolution: "no_match_admitted_as_new",
+				});
+			} else {
+				rejected.push({ statement, reason: "missing_target" });
+			}
 			continue;
 		}
-		decisions.push({ ...d.data, statement });
+		decisions.push({
+			...d.data,
+			statement,
+			...(targetItemId !== undefined ? { targetItemId } : {}),
+		});
 	}
 	return { decisions, rejected };
 }

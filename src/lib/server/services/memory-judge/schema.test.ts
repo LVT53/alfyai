@@ -155,6 +155,107 @@ describe("parseJudgeDecisionsDetailed", () => {
 	});
 });
 
+describe("missing-target resolution against existing facts", () => {
+	const facts = [
+		{
+			id: "f-tea",
+			statement: "I prefer plain language.",
+			category: "preferences",
+		},
+		{ id: "f-home", statement: "I live in Budapest.", category: "about_you" },
+	];
+	const parse = (
+		over: Record<string, unknown>,
+		existingFacts: Array<{
+			id: string;
+			statement: string;
+			category: string;
+		}> = facts,
+	) =>
+		parseJudgeDecisionsDetailed(JSON.stringify({ decisions: [valid(over)] }), {
+			existingFacts,
+		});
+
+	it("resolves a unique exact normalized statement match in the same category", () => {
+		const { decisions, rejected } = parse({
+			action: "strengthen",
+			statement: "  I prefer PLAIN language!  ",
+		});
+		expect(rejected).toEqual([]);
+		expect(decisions).toEqual([
+			expect.objectContaining({
+				action: "strengthen",
+				targetItemId: "f-tea",
+				targetResolution: "statement_match",
+			}),
+		]);
+	});
+
+	it("does not match a fact in a different category", () => {
+		const { decisions } = parse({
+			action: "update",
+			statement: "I live in Budapest.",
+			category: "preferences",
+		});
+		expect(decisions).toEqual([
+			expect.objectContaining({
+				action: "add",
+				targetResolution: "no_match_admitted_as_new",
+			}),
+		]);
+		expect(decisions[0].targetItemId).toBeUndefined();
+	});
+
+	it("admits an update with no matching fact as a new fact", () => {
+		const { decisions, rejected } = parse({
+			action: "update",
+			statement: "I live in Amsterdam.",
+			category: "about_you",
+		});
+		expect(rejected).toEqual([]);
+		expect(decisions).toEqual([
+			expect.objectContaining({
+				action: "add",
+				statement: "I live in Amsterdam.",
+				targetResolution: "no_match_admitted_as_new",
+			}),
+		]);
+	});
+
+	it("keeps rejecting as missing_target when the match is ambiguous", () => {
+		const { decisions, rejected } = parse({ action: "update" }, [
+			...facts,
+			{
+				id: "f-tea-2",
+				statement: "I prefer plain language",
+				category: "preferences",
+			},
+		]);
+		expect(decisions).toEqual([]);
+		expect(rejected).toEqual([
+			{ statement: "I prefer plain language.", reason: "missing_target" },
+		]);
+	});
+
+	it("still runs gates 1-4 before target resolution", () => {
+		const { decisions, rejected } = parse({
+			action: "update",
+			statement: "I might live in Amsterdam.",
+			category: "about_you",
+		});
+		expect(decisions).toEqual([]);
+		expect(rejected[0]?.reason).toBe("hedge");
+	});
+
+	it("strips the prompt's [brackets] from a supplied targetItemId", () => {
+		const { decisions } = parse({
+			action: "update",
+			targetItemId: " [f-home] ",
+		});
+		expect(decisions[0]?.targetItemId).toBe("f-home");
+	});
+});
+
 describe("parseJsonWithEnvelopeExtraction", () => {
 	it("returns null (without spinning) when the key sits at index 0 with no enclosing object", () => {
 		// `lastIndexOf(needle, -1)` still matches at index 0, so the scan-back

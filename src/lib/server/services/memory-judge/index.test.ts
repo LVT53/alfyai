@@ -1191,4 +1191,249 @@ describe("Memory judge service", () => {
 			}),
 		).resolves.toMatchObject({ status: "ran", review: 1 });
 	});
+
+	describe("update/strengthen target handling", () => {
+		const decision = (over: Record<string, unknown>) => ({
+			action: "update",
+			statement: "I live in Amsterdam.",
+			category: "about_you",
+			scope: "global",
+			confidence: "stated",
+			expiryClass: "durable",
+			sourceQuote: "moved to Amsterdam",
+			...over,
+		});
+
+		async function setup(decisions: Array<Record<string, unknown>>) {
+			const { db, sqlite } = openSeedDatabase();
+			seedUserAndConversation({ db });
+			seedMessages({
+				db,
+				conversationId: "c1",
+				entries: [
+					{ role: "user", content: "I moved to Amsterdam." },
+					{ role: "assistant", content: "Noted." },
+				],
+			});
+			mockControlModel({ decisions });
+			return { db, sqlite };
+		}
+
+		async function createFact(params: {
+			statement: string;
+			category?: "about_you" | "preferences";
+			slotKey?: string;
+			scope?: { type: "global" } | { type: "project"; id: string };
+		}) {
+			const { createMemoryProfileItem } = await import(
+				"../memory-profile/projection-store"
+			);
+			return createMemoryProfileItem({
+				userId: "u1",
+				category: params.category ?? "about_you",
+				scope: params.scope ?? { type: "global" },
+				statement: params.statement,
+				...(params.slotKey ? { slotKey: params.slotKey } : {}),
+			});
+		}
+
+		async function run() {
+			const { runMemoryJudgeOnSegment } = await import("./index");
+			return runMemoryJudgeOnSegment({
+				userId: "u1",
+				conversationId: "c1",
+				trigger: "idle",
+			});
+		}
+
+		async function telemetry() {
+			const { listMemoryReworkTelemetry } = await import(
+				"../memory-profile/telemetry"
+			);
+			return listMemoryReworkTelemetry({ userId: "u1" });
+		}
+
+		async function activeStatements() {
+			const { getActiveMemoryProfileContext } = await import(
+				"../memory-profile/active-context"
+			);
+			return (await getActiveMemoryProfileContext({ userId: "u1" })).items.map(
+				(i) => i.statement,
+			);
+		}
+
+		it("applies an update whose targetItemId echoes the prompt's [brackets]", async () => {
+			await setup([]);
+			const existing = await createFact({ statement: "I live in Budapest." });
+			mockControlModel({
+				decisions: [decision({ targetItemId: `[${existing.id}]` })],
+			});
+			await expect(run()).resolves.toMatchObject({ updated: 1, admitted: 0 });
+			expect(await activeStatements()).toEqual(["I live in Amsterdam."]);
+		});
+
+		it("resolves an update without targetItemId to the unique exact match and applies it", async () => {
+			await setup([]);
+			const existing = await createFact({ statement: "I live in Budapest." });
+			mockControlModel({
+				decisions: [
+					decision({ action: "strengthen", statement: "I live in budapest!" }),
+				],
+			});
+			await expect(run()).resolves.toMatchObject({ updated: 1, admitted: 0 });
+			const { db: svcDb } = await import("$lib/server/db");
+			const provenance = svcDb
+				.select()
+				.from(schema.memoryProfileItemProvenance)
+				.where(eq(schema.memoryProfileItemProvenance.itemId, existing.id))
+				.all();
+			expect(provenance).toHaveLength(1);
+			expect(
+				(await telemetry()).filter(
+					(r) => r.eventName === "judge_target_resolved",
+				),
+			).toEqual([expect.objectContaining({ reason: "statement_match" })]);
+		});
+
+		it("admits an update without targetItemId and without a match as a new fact", async () => {
+			await setup([decision({})]);
+			await createFact({ statement: "I live in Budapest." });
+			await expect(run()).resolves.toMatchObject({ updated: 0, admitted: 1 });
+			expect((await activeStatements()).sort()).toEqual([
+				"I live in Amsterdam.",
+				"I live in Budapest.",
+			]);
+			expect(
+				(await telemetry()).filter(
+					(r) => r.eventName === "judge_target_resolved",
+				),
+			).toEqual([
+				expect.objectContaining({ reason: "no_match_admitted_as_new" }),
+			]);
+		});
+
+		it("keeps rejecting an ambiguous missing target, with missing_target telemetry", async () => {
+			await setup([decision({ statement: "I live in Budapest." })]);
+			await createFact({
+				statement: "I live in Budapest.",
+				slotKey: "memory-slot:test:home-a",
+			});
+			await createFact({
+				statement: "I live in Budapest",
+				slotKey: "memory-slot:test:home-b",
+			});
+			await expect(run()).resolves.toMatchObject({ updated: 0, admitted: 0 });
+			expect(
+				(await telemetry()).filter(
+					(r) => r.eventName === "judge_candidate_rejected",
+				),
+			).toEqual([expect.objectContaining({ reason: "missing_target" })]);
+		});
+
+		it("records telemetry instead of silently dropping an update whose target is not an active fact", async () => {
+			await setup([]);
+			const { createMemoryProfileItem } = await import(
+				"../memory-profile/projection-store"
+			);
+			const pending = await createMemoryProfileItem({
+				userId: "u1",
+				category: "about_you",
+				scope: { type: "global" },
+				statement: "I live in Budapest.",
+				status: "review_needed",
+			});
+			mockControlModel({ decisions: [decision({ targetItemId: pending.id })] });
+			await expect(run()).resolves.toMatchObject({ updated: 0, admitted: 0 });
+			expect(
+				(await telemetry()).filter(
+					(r) => r.eventName === "judge_candidate_rejected",
+				),
+			).toEqual([expect.objectContaining({ reason: "target_not_active" })]);
+		});
+
+		it("records telemetry instead of silently dropping an update aimed at a user_authored fact", async () => {
+			await setup([]);
+			const existing = await createFact({ statement: "I live in Budapest." });
+			const { mergeMemoryProfileItemMetadata } = await import(
+				"../memory-profile/projection-store"
+			);
+			await mergeMemoryProfileItemMetadata({
+				userId: "u1",
+				itemId: existing.id,
+				patch: { origin: "user_authored" },
+			});
+			mockControlModel({
+				decisions: [decision({ targetItemId: existing.id })],
+			});
+			await expect(run()).resolves.toMatchObject({ updated: 0 });
+			expect(await activeStatements()).toEqual(["I live in Budapest."]);
+			expect(
+				(await telemetry()).filter(
+					(r) => r.eventName === "judge_candidate_rejected",
+				),
+			).toEqual([expect.objectContaining({ reason: "target_user_authored" })]);
+		});
+
+		it("shows project-scoped facts to the judge so they can be targeted", async () => {
+			const { db } = await setup([]);
+			db.insert(schema.projects)
+				.values({ id: "p1", userId: "u1", name: "Thesis" })
+				.run();
+			db.update(schema.conversations)
+				.set({ projectId: "p1" })
+				.where(eq(schema.conversations.id, "c1"))
+				.run();
+			const existing = await createFact({
+				statement: "I write my thesis in LaTeX.",
+				category: "preferences",
+				scope: { type: "project", id: "p1" },
+			});
+			mockControlModel({
+				decisions: [
+					decision({
+						action: "strengthen",
+						targetItemId: existing.id,
+						statement: "I write my thesis in LaTeX.",
+						category: "preferences",
+						scope: "project",
+					}),
+				],
+			});
+			await expect(run()).resolves.toMatchObject({ updated: 1 });
+			const userMessage = String(
+				sendJsonControlMessageMock.mock.calls.at(-1)?.[0] ?? "",
+			);
+			expect(userMessage).toContain(`[${existing.id}]`);
+		});
+
+		it("dry-run resolves targets but writes nothing", async () => {
+			process.env.MEMORY_JUDGE_DRY_RUN = "true";
+			await setup([]);
+			const existing = await createFact({ statement: "I live in Budapest." });
+			mockControlModel({
+				decisions: [
+					decision({ action: "update", statement: "I live in Budapest!" }),
+					decision({}),
+				],
+			});
+			await expect(run()).resolves.toMatchObject({
+				dryRun: true,
+				updated: 0,
+				admitted: 0,
+			});
+			expect(await activeStatements()).toEqual(["I live in Budapest."]);
+			const { db: svcDb } = await import("$lib/server/db");
+			const row = svcDb
+				.select()
+				.from(schema.memoryProfileItems)
+				.where(eq(schema.memoryProfileItems.id, existing.id))
+				.all()[0];
+			expect(row.revision).toBe(existing.revision);
+			expect(
+				(await telemetry())
+					.filter((r) => r.eventName === "judge_dry_run_decision")
+					.map((r) => r.metadata.targetResolution),
+			).toEqual(["statement_match", "no_match_admitted_as_new"]);
+		});
+	});
 });

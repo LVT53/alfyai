@@ -8,10 +8,12 @@ import { getActiveMemoryProfileContext } from "../memory-profile/active-context"
 import {
 	addMemoryProfileItemProvenance,
 	createMemoryProfileItem,
+	ensureProjectionState,
 	setMemoryProfileItemMetadataAndExpiry,
 	updateMemoryProfileItemWithRevision,
 } from "../memory-profile/projection-store";
 import { getMemoryProfileReadModel } from "../memory-profile/read-model";
+import { getCurrentMemoryResetGeneration } from "../memory-profile/reset-generation";
 import {
 	createOrUpdateMemoryReviewItem,
 	JUDGE_REVIEW_SUBJECT_PREFIX,
@@ -133,16 +135,28 @@ export async function runMemoryJudgeOnSegment(params: {
 		backlogRemaining = segment.remaining > 0;
 	}
 
-	const [summary, projectId, activeContext] = await Promise.all([
+	const projectId = await getConversationProjectId(
+		params.userId,
+		params.conversationId,
+	).catch(() => null);
+	const [summary, activeContext] = await Promise.all([
 		getConversationSummary({
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => null),
-		getConversationProjectId(params.userId, params.conversationId).catch(
-			() => null,
-		),
-		getActiveMemoryProfileContext({ userId: params.userId }),
+		// Gate 5 needs every fact the judge may update, including this project's
+		// scoped facts (the judge writes them); otherwise they are never shown and
+		// can never be targeted by update/strengthen.
+		getActiveMemoryProfileContext({
+			userId: params.userId,
+			applicableScopes: projectId ? [{ type: "project", id: projectId }] : [],
+		}),
 	]);
+	const existingFacts = activeContext.items.map((i) => ({
+		id: i.id,
+		statement: i.statement,
+		category: i.category,
+	}));
 
 	let decisions: JudgeDecision[];
 	let rejected: RejectedJudgeCandidate[] = [];
@@ -162,18 +176,18 @@ export async function runMemoryJudgeOnSegment(params: {
 			userMessage: buildJudgeUserMessage({
 				segment: segmentMessages,
 				conversationSummary: summary?.summary ?? null,
-				existingFacts: activeContext.items.map((i) => ({
-					id: i.id,
-					statement: i.statement,
-					category: i.category,
-				})),
+				existingFacts,
 				projectId,
 			}),
 			modelId: config.memoryJudgeModel,
 			inputSizeHint: segmentMessages.length,
 			jsonSchema: JUDGE_JSON_SCHEMA,
 		});
-		({ decisions, rejected } = parseJudgeDecisionsDetailed(res.text));
+		// The facts the model saw let the missing-target gate resolve an
+		// update/strengthen that arrived without a targetItemId.
+		({ decisions, rejected } = parseJudgeDecisionsDetailed(res.text, {
+			existingFacts,
+		}));
 	} catch (error) {
 		await recordMemoryReworkTelemetry({
 			userId: params.userId,
@@ -197,6 +211,9 @@ export async function runMemoryJudgeOnSegment(params: {
 					statement: d.statement,
 					action: d.action,
 					trigger: params.trigger,
+					...(d.targetResolution
+						? { targetResolution: d.targetResolution }
+						: {}),
 				},
 			}).catch(() => {});
 		}
@@ -256,24 +273,73 @@ export async function runMemoryJudgeOnSegment(params: {
 				: {}),
 		};
 
+		if (d.targetResolution) {
+			await recordMemoryReworkTelemetry({
+				userId: params.userId,
+				eventFamily: "intake",
+				eventName: "judge_target_resolved",
+				reason: d.targetResolution,
+				category: d.category,
+				metadata: { action: d.action },
+			}).catch(() => {});
+		}
+
 		if (d.action === "update" || d.action === "strengthen") {
-			if (!d.targetItemId) continue;
-			const target = activeContext.items.find((i) => i.id === d.targetItemId);
-			if (!target) continue;
+			// Every way an update/strengthen can fail to land is recorded with the
+			// same `judge_candidate_rejected` vocabulary as the parse-time gates,
+			// so the update path is measurable instead of silently dropped.
+			const dropUpdate = (reason: string) =>
+				recordMemoryReworkTelemetry({
+					userId: params.userId,
+					eventFamily: "intake",
+					eventName: "judge_candidate_rejected",
+					reason,
+					category: d.category,
+					metadata: { statement: d.statement.slice(0, 200), action: d.action },
+				}).catch(() => {});
+			const targetItemId = d.targetItemId;
+			if (!targetItemId) {
+				await dropUpdate("missing_target");
+				continue;
+			}
+			const target = activeContext.items.find((i) => i.id === targetItemId);
+			if (!target) {
+				await dropUpdate("target_not_active");
+				continue;
+			}
 			// Never touch user-authored items. Read the item metadata directly
 			// rather than relying on read-model detail (which does not expose it).
-			if (await isUserAuthoredItem(params.userId, d.targetItemId)) continue;
-			const patched = await updateMemoryProfileItemWithRevision({
+			if (await isUserAuthoredItem(params.userId, targetItemId)) {
+				await dropUpdate("target_user_authored");
+				continue;
+			}
+			const patch = d.action === "update" ? { statement: d.statement } : {};
+			let patched = await updateMemoryProfileItemWithRevision({
 				userId: params.userId,
-				itemId: d.targetItemId,
+				itemId: targetItemId,
 				expectedProjectionRevision: projectionRevision,
-				patch: d.action === "update" ? { statement: d.statement } : {},
+				patch,
 			});
+			if (patched.status === "stale_projection") {
+				// The revision read before the model call can go stale: chat turns,
+				// review actions, or the read-model expiry sweep above may have
+				// advanced it meanwhile. The judge is not replaying a user's stale
+				// view, so re-read the current revision and try once more.
+				projectionRevision = await currentProjectionRevision(params.userId);
+				patched = await updateMemoryProfileItemWithRevision({
+					userId: params.userId,
+					itemId: targetItemId,
+					expectedProjectionRevision: projectionRevision,
+					patch,
+				});
+			}
 			if (patched.status === "updated") {
 				projectionRevision = patched.projectionRevision;
 				updated++;
-				await addProvenanceForItem(params, d.targetItemId, d);
-				await refreshFactEmbedding(params.userId, d.targetItemId, d.statement);
+				await addProvenanceForItem(params, targetItemId, d);
+				await refreshFactEmbedding(params.userId, targetItemId, d.statement);
+			} else {
+				await dropUpdate(`target_update_${patched.status}`);
 			}
 			continue;
 		}
@@ -367,6 +433,12 @@ export async function runMemoryJudgeOnSegment(params: {
 		dryRun: false,
 		backlogRemaining,
 	};
+}
+
+async function currentProjectionRevision(userId: string): Promise<number> {
+	const resetGeneration = await getCurrentMemoryResetGeneration(userId);
+	const projection = await ensureProjectionState({ userId, resetGeneration });
+	return projection.revision;
 }
 
 async function isUserAuthoredItem(
