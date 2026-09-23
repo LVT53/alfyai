@@ -1179,6 +1179,7 @@ async function maybeRunAutomaticContextCompression(params: {
 	attachmentTraceId?: string;
 	controlMessageSender?: ContextCompressionControlSender;
 	reuseFromContext?: ConstructedContextReuseData;
+	historyToolMessages?: "native" | "flatten";
 }): Promise<AutomaticContextCompressionResult> {
 	if (!params.user?.id) {
 		return automaticCompressionResult({
@@ -1318,6 +1319,7 @@ async function maybeRunAutomaticContextCompression(params: {
 		modelId: params.modelId,
 		contextLimits: params.contextLimits,
 		reuseFrom: params.reuseFromContext,
+		historyToolMessages: params.historyToolMessages,
 	});
 	return automaticCompressionResult({
 		context,
@@ -1586,6 +1588,7 @@ async function runAutomaticContextCompressionStage(input: {
 		attachmentTraceId: input.params.attachmentTraceId,
 		controlMessageSender: input.params.compressionControlMessageSender,
 		reuseFromContext: input.reuseData,
+		historyToolMessages: input.params.historyToolMessages,
 	}).catch((error) => {
 		console.warn(
 			`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Automatic context compression skipped`,

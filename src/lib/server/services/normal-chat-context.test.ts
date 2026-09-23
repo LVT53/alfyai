@@ -1488,6 +1488,54 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared.systemPrompt).toContain("Base system prompt");
 	});
 
+	it("rebuilds the compressed context with the provider's history tool-message mode", async () => {
+		mocks.buildConstructedContext
+			.mockResolvedValueOnce(
+				createConstructedContextResult(
+					"## Current User Message\nSummarize this context.",
+				),
+			)
+			.mockResolvedValueOnce(
+				createConstructedContextResult(
+					"## Context Compression Snapshot\nCompressed.\n\n## Current User Message\nSummarize this context.",
+				),
+			);
+		mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+			{
+				id: "m1",
+				messageSequence: 1,
+				role: "user",
+				content: "Earlier conversation context. ".repeat(20_000),
+				thinking: null,
+				toolCalls: null,
+			},
+		]);
+
+		await prepareOutboundChatContext({
+			message: "Summarize this context.",
+			sessionId: "conv-1",
+			modelConfig,
+			user: { id: "user-1" },
+			modelId: "model1",
+			contextLimits: {
+				maxModelContext: 50_000,
+				compactionUiThreshold: 40_000,
+				targetConstructedContext: 20_000,
+			},
+			historyToolMessages: "flatten",
+			compressionControlMessageSender: vi.fn() as never,
+			logLabel: "provider request",
+		});
+
+		expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+		expect(mocks.buildConstructedContext).toHaveBeenCalledTimes(2);
+		// A provider that cannot take native tool messages must not get them
+		// just because this turn's context was rebuilt after compression.
+		expect(mocks.buildConstructedContext).toHaveBeenLastCalledWith(
+			expect.objectContaining({ historyToolMessages: "flatten" }),
+		);
+	});
+
 	it("no longer exposes a guidance-pack plan on the prepared context (G1 removes pack selection)", async () => {
 		const prepared = await prepareOutboundChatContext({
 			message: "Ping!",
