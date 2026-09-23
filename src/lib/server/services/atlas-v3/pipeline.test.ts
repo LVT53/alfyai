@@ -278,7 +278,6 @@ function buildFakes(options?: {
 		outline: control.call,
 		writer: writer.call,
 		critic: critic.call,
-		verifier: control.call,
 	};
 
 	const checkpoints: Array<{ phase: string; roundNumber: number }> = [];
@@ -740,8 +739,7 @@ function buildDepthFakes() {
 			outline: control.call,
 			writer: writer.call,
 			critic: fakeModel({}).call,
-			verifier: control.call,
-		} as AtlasV3ModelCalls,
+			} as AtlasV3ModelCalls,
 		writeCheckpoint: async () => {},
 		renderOutputs: async () => ({
 			fileProductionJobId: "fp-1",

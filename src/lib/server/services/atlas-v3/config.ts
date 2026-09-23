@@ -16,7 +16,7 @@ import type { AtlasProfile } from "../atlas/types";
 export const ATLAS_V3_DEFAULT_STALE_MONTHS = 18;
 
 /**
- * Which model runs which stage. `ask`, `outline`, `critic` and `verifier` are
+ * Which model runs which stage. `ask`, `outline` and `critic` are
  * control-shaped (small, structured, deterministic); `researcher` and `writer`
  * are synthesis-shaped. The fallback column says which of the two existing
  * Atlas model keys a task inherits when its own key is unset.
@@ -27,7 +27,6 @@ export const ATLAS_V3_MODEL_TASKS = [
 	"outline",
 	"writer",
 	"critic",
-	"verifier",
 ] as const;
 export type AtlasV3ModelTask = (typeof ATLAS_V3_MODEL_TASKS)[number];
 
@@ -38,7 +37,6 @@ const ATLAS_V3_TASK_FALLBACK: Record<AtlasV3ModelTask, "synthesis" | "audit"> =
 		outline: "audit",
 		writer: "synthesis",
 		critic: "audit",
-		verifier: "audit",
 	};
 
 export interface AtlasV3ModelSelection {

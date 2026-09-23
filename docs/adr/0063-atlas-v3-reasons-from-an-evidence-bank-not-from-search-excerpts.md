@@ -200,7 +200,8 @@ and no v1/v2 family remained worth keeping on its original pipeline:
 - **`ATLAS_V3_VERIFIER_MODEL` is removed**, not merely left dead. It resolved but nothing called it (see
   the per-task models note above); rather than invent a verifier/entailment stage to use it, the owner's
   call was to remove the key everywhere (env, config-store, admin registry, settings UI, i18n, docs,
-  `.env.example`) until such a stage is actually planned.
+  `.env.example`) and the `verifier` slot from `ATLAS_V3_MODEL_TASKS` with it, until such a stage is
+  actually planned.
 - **What still reads old rows.** Stored HTML/PDF/Markdown files, persisted `GeneratedDocumentSource`
   artifacts (including v1's `basisMarkers`/`confidenceMarker`), the job row's `1`/`2`/`3`
   `pipelineVersion` projection, the v1/v2 progress-detail sanitizers and client parsing, and the v1/v2
