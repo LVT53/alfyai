@@ -920,7 +920,6 @@ function buildLocalFakes(options?: {
 			outline: control.call,
 			writer: writer.call,
 			critic: fakeModel({}).call,
-			verifier: control.call,
 		} as AtlasV3ModelCalls,
 		heartbeat: async ({ progressDetails }: { progressDetails?: unknown }) => {
 			heartbeats.push(progressDetails as AtlasV3ProgressDetails);

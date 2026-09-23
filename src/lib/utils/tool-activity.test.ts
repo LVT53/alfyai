@@ -794,6 +794,23 @@ describe("Atlas report row grammar", () => {
 		expect(item.body).toEqual({ kind: "atlas" });
 	});
 
+	it("reads the section count from the shape the server stores", () => {
+		// v2 and v3 store `sections: {written, planned}`; nothing ever stored
+		// `sectionCount`, so the card never showed a section count.
+		expect(
+			parseAtlasActivityDetails({
+				pipelineVersion: 3,
+				phase: "render",
+				sections: { written: 5, planned: 6 },
+			}).sectionCount,
+		).toBe(5);
+		// A blob carrying the older flat key still reads.
+		expect(parseAtlasActivityDetails({ sectionCount: 4 }).sectionCount).toBe(
+			4,
+		);
+		expect(parseAtlasActivityDetails({ plan }).sectionCount).toBeNull();
+	});
+
 	it("reads a finished report as sources plus the time it took", () => {
 		const item = buildAtlasActivityItem(
 			atlasJob({ status: "succeeded", completedAt: START + 540_000 }),

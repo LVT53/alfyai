@@ -266,6 +266,21 @@ describe("AtlasActivityRow", () => {
 	});
 
 	describe("done", () => {
+		it("shows the section count the server actually stores", () => {
+			// v2/v3 store `sections: {written, planned}`; the card used to read a
+			// `sectionCount` no server ever wrote, so the count never appeared.
+			render(AtlasActivityRow, {
+				job: doneJob({
+					pipelineVersion: 3,
+					sectionCount: undefined,
+					sections: { written: 5, planned: 6 },
+				}),
+			});
+			expect(screen.getByTestId("atlas-report-tab")).toHaveTextContent(
+				"5 sections · 28 sources",
+			);
+		});
+
 		it("folds to a tick, opens on the Report tab and exposes Open and one Download menu", async () => {
 			const onOpenDocument = vi.fn();
 			render(AtlasActivityRow, { job: doneJob(), onOpenDocument });
