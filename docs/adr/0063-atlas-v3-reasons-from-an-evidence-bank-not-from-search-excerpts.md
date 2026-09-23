@@ -3,6 +3,8 @@
 > Keeps [ADR-0036](0036-atlas-is-normal-chat-turn-not-parallel-subsystem.md) (Atlas is a Normal Chat Turn plus one in-process worker), [ADR-0052](0052-replace-searxng-web-research-with-parallel-search.md) (Parallel backend) and every piece of job infrastructure [ADR-0062](0062-atlas-content-pipeline-is-rebuilt-on-the-harness-tools.md) kept. It **replaces** ADR-0062's content pipeline for jobs stamped `pipeline_version: 3`.
 >
 > **Amended (Phase B of the v3-only consolidation, see below).** "v1 and v2 stay runnable, unchanged" no longer holds: both were deleted and Atlas now runs v3 exclusively for every job, old and new. `ATLAS_PIPELINE` is gone; rollback is the `atlas-v1-v2-final` tag, not a config value.
+>
+> **Amended (Phase C, see below).** Stage 2's bank also holds the user's own documents as `user_document` sources on one collapsed publisher, with a local verbatim guard and library chips; the identity functions it reuses now live in v3 itself (`atlas-v3/source-filters.ts`, `publishers.ts`), not in v2.
 
 ## Context
 
@@ -206,6 +208,52 @@ and no v1/v2 family remained worth keeping on its original pipeline:
   `pipelineVersion` projection, the v1/v2 progress-detail sanitizers and client parsing, and the v1/v2
   checkpoint rows all keep working — this amendment deletes the CONTENT PIPELINES, not the read paths
   an already-published report depends on.
+
+## Amendments (2026-09-24) — Phase C: the user's own documents as evidence
+
+Stage 2's source definition ("url, title, host, publisher, date and tier") described web pages only.
+Atlas Local Sources — the documents the user chose — are now evidence in the same bank:
+
+- **Which documents.** The kickoff user message's explicit attachments and its snapshotted linked
+  sources (and, from Phase D, the parent job's own local sources on Continue/Revise). Automatic
+  working-set documents are deliberately NOT included: a citable evidence bank holds only material the
+  user chose (ADR 0036 branch 6, as amended). Resolution runs at worker time through the knowledge
+  boundary (`resolvePromptAttachmentArtifacts`, `getArtifactsForUser`), and every document must be
+  canonically owned under the job conversation's STRICT ownership scope, so a linked source whose
+  original chat has since gone incognito is refused.
+- **Source shape.** `AtlasV3Source` is a union: a web source (`kind` absent or `web`) as before, or a
+  local source `{kind: "local", tier: "user_document", publisher: "user-documents", host: "", date: null,
+  displayArtifactId, promptArtifactId, origin}` whose `canonicalUrl` (`atlas-local:<id>`) is a dedupe key
+  only and is never rendered.
+- **One voice.** `user_document` is a tier that can corroborate, and every local source shares ONE
+  publisher id. A figure from a user document plus one independent published source is `verified`; two
+  user documents are one voice, so they are `single`. A local-only core claim is `single`, not `open`,
+  so the report does not abstain because the only evidence is the user's.
+- **Same verification.** Number-match, `verifyAtlasV3Report`, the critic's `unsupported_figure` check
+  and the answer-table cell checks work on quotes and apply unchanged. A local `date` is null, so a user
+  document is never stale-listed. `capAtlasV3Bank` never drops a local source and does not count it
+  against `maxSources`.
+- **The local read.** After the ask (which is told which documents exist) and before round one, each
+  document is read ONCE: up to three passages for the core question and two per sub-question
+  (`selectDocumentPassages`, 3,000 characters per call), deduped by chunk, at most 12,000 characters,
+  joined by `---`, in one researcher-model call under `ATLAS_V3_READ_DOCUMENT_SYSTEM`. A **verbatim
+  guard** (local reads only) files a quote only when it occurs inside one passage sent. The findings
+  note is deterministic (no note call) and goes to round one's memo. At most 12 documents per job
+  (`ATLAS_V3_MAX_LOCAL_SOURCES`); any beyond get a Limitations line, never silence.
+- **Failure.** An explicit source that is unavailable at worker time (gone, out of scope, no text) fails
+  the job with `atlas_v3_local_source_unavailable` (ADR 0036 edge case 5). An inherited one degrades to
+  a Limitations line and a diagnostics count; so does a document whose read quoted nothing.
+- **Prompts.** The ask, writer, verdict, memo and outline prompts each gained one line naming how the
+  user's material is treated (answers questions about the user's situation; attributed as the user's
+  document, never as a published statistic; one voice, not corroboration; a `fromUserDocument` claim may
+  anchor a section about the user's own situation). The web read prompt is unchanged.
+- **Render.** A cited local source is a library chip (`kind: "library"`, `url: null`, `provided: true`)
+  in the SAME `sourceChips` block as the web chips, so `[n]` still points at the n-th chip; the renderers
+  group it under "Your Library" without renumbering. The progress card carries `kind: "local"` with an
+  empty host and draws a library glyph with "Your library".
+- **Writer citations (fixed alongside).** The writer was told to cite `alsoStatedBy` ids but its parser
+  accepted only the section's own ids and dropped the rest; it now accepts every id the prompt showed.
+  The verdict now accepts only the ids its prompt showed (not any id in the bank).
 
 ## Consequences
 
