@@ -207,7 +207,7 @@ export function addAtlasV3Source(
 }
 
 /** The dedupe key of a local source. Never rendered and never fetched. */
-export function atlasV3LocalSourceKey(displayArtifactId: string): string {
+function atlasV3LocalSourceKey(displayArtifactId: string): string {
 	return `atlas-local:${displayArtifactId}`;
 }
 

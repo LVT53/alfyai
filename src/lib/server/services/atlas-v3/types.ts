@@ -132,12 +132,6 @@ export interface AtlasV3LocalSource extends AtlasV3SourceBase {
 /** A checkpointed source with no `kind` is a web source. */
 export type AtlasV3Source = AtlasV3WebSource | AtlasV3LocalSource;
 
-export function isAtlasV3LocalSource(
-	source: AtlasV3Source,
-): source is AtlasV3LocalSource {
-	return source.kind === "local";
-}
-
 /** One verbatim span the writer may cite. Nothing else leaves the bank. */
 export interface AtlasV3Quote {
 	/** `e12`. */
