@@ -29,7 +29,10 @@ import {
 	emitContextTrace,
 	type LegacyContextTraceSectionInput,
 } from "./chat-turn/context-trace";
-import { estimateHistoryMessagesTokens } from "./chat-turn/conversation-history";
+import {
+	estimateHistoryMessagesTokens,
+	storedToolCallDigests,
+} from "./chat-turn/conversation-history";
 import { buildProactiveConnectorContext } from "./chat-turn/proactive-connector-context";
 import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
 import type { Capability } from "./connections/registry";
@@ -1326,6 +1329,87 @@ function splitAutomaticCompressionSource<
 	};
 }
 
+// One automatic compression call summarizes at most one constructed
+// context's worth of source (a prefill the model already handles on an
+// ordinary turn), and never more than fits the model window (the same model
+// runs it) next to the prior snapshot and instructions (the window
+// headroom) and the control call's 8,192 output tokens including reasoning
+// (context-compression.ts). A backlog larger than that — a long conversation
+// compressed for the first time, or a history that grew past several
+// windows — is compressed oldest-first in turn-aligned chunks, one per
+// turn, each chained onto the previous snapshot.
+const AUTOMATIC_COMPRESSION_CHUNK_WINDOW_HEADROOM_RATIO = 0.9;
+const AUTOMATIC_COMPRESSION_CHUNK_OUTPUT_RESERVE_TOKENS = 8_192;
+// The control model echoes every summarized message id back as source
+// coverage; ~20 tokens per id keeps a full chunk's echo well inside the
+// output budget.
+const AUTOMATIC_COMPRESSION_CHUNK_MAX_MESSAGES = 120;
+
+function estimateAutomaticCompressionSourceTokens(
+	message: AutomaticCompressionSourceMessage & { toolCalls?: unknown },
+): number {
+	const digests = storedToolCallDigests(message.toolCalls);
+	return (
+		estimateTokenCount(message.content) +
+		(digests ? estimateTokenCount(JSON.stringify(digests)) : 0)
+	);
+}
+
+function boundAutomaticCompressionChunk<
+	T extends AutomaticCompressionSourceMessage & { toolCalls?: unknown },
+>(messages: T[], contextLimits: PromptContextLimits): T[] {
+	const windowTokens = Math.floor(
+		(contextLimits.maxModelContext *
+			AUTOMATIC_COMPRESSION_CHUNK_WINDOW_HEADROOM_RATIO -
+			AUTOMATIC_COMPRESSION_CHUNK_OUTPUT_RESERVE_TOKENS) /
+			NORMAL_CHAT_PROMPT_TOKEN_SAFETY_FACTOR,
+	);
+	const maxTokens = Math.max(
+		1,
+		Math.min(contextLimits.targetConstructedContext, windowTokens),
+	);
+	let end = 0;
+	let tokens = 0;
+	while (end < messages.length) {
+		// A turn runs from a user message up to (not including) the next one.
+		let turnEnd = end + 1;
+		while (turnEnd < messages.length && messages[turnEnd]?.role !== "user") {
+			turnEnd += 1;
+		}
+		const turnTokens = messages
+			.slice(end, turnEnd)
+			.reduce(
+				(sum, message) =>
+					sum + estimateAutomaticCompressionSourceTokens(message),
+				0,
+			);
+		if (
+			end > 0 &&
+			(tokens + turnTokens > maxTokens ||
+				turnEnd > AUTOMATIC_COMPRESSION_CHUNK_MAX_MESSAGES)
+		) {
+			break;
+		}
+		tokens += turnTokens;
+		end = turnEnd;
+		if (tokens > maxTokens) break;
+	}
+	const chunk = messages.slice(0, end);
+	if (tokens <= maxTokens) return chunk;
+	// The oldest turn alone is larger than a chunk (a pasted log, a huge
+	// answer). Its messages are still covered by the snapshot; the summary is
+	// written from their clipped text rather than failing on every attempt.
+	const perMessageTokens = Math.max(1, Math.floor(maxTokens / chunk.length));
+	return chunk.map((message) =>
+		estimateAutomaticCompressionSourceTokens(message) > perMessageTokens
+			? {
+					...message,
+					content: truncateToTokenBudget(message.content, perMessageTokens),
+				}
+			: message,
+	);
+}
+
 async function maybeRunAutomaticContextCompression(params: {
 	user: AuthenticatedPromptUser | undefined;
 	sessionId: string;
@@ -1438,11 +1522,14 @@ async function maybeRunAutomaticContextCompression(params: {
 			sourceMessageCount: 0,
 		});
 	}
-	const { compress: compressibleSourceMessages, rawTail } =
-		splitAutomaticCompressionSource(
-			pendingSourceMessages,
-			params.contextLimits,
-		);
+	const { compress, rawTail } = splitAutomaticCompressionSource(
+		pendingSourceMessages,
+		params.contextLimits,
+	);
+	const compressibleSourceMessages = boundAutomaticCompressionChunk(
+		compress,
+		params.contextLimits,
+	);
 	if (compressibleSourceMessages.length === 0) {
 		return automaticCompressionResult({
 			outcome: "not_possible",

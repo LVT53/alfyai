@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { estimateTokenCount } from "$lib/utils/tokens";
 
 const mocks = vi.hoisted(() => ({
 	buildConstructedContext: vi.fn(),
@@ -1762,6 +1763,77 @@ describe("prepareOutboundChatContext", () => {
 					(message: { id: string }) => message.id,
 				),
 			).toEqual(["m1", "m2", "m3", "m4", "m5", "m6"]);
+		});
+
+		const prepareTrimmedTurnOver = async (
+			source: ReturnType<typeof sourceMessage>[],
+		) => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?", {
+					historyWindow: { includedTurnCount: 2, omittedTurnCount: 20 },
+				}),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(source);
+			await prepareOutboundChatContext({
+				message: "What next?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: limits,
+				compressionControlMessageSender: vi.fn() as never,
+				logLabel: "provider request",
+			});
+			return mocks.runContextCompression.mock.lastCall?.[0].sourceMessages as
+				| ReturnType<typeof sourceMessage>[]
+				| undefined;
+		};
+		const estimatedSourceTokens = (
+			messages: ReturnType<typeof sourceMessage>[],
+		) =>
+			messages.reduce(
+				(sum, message) => sum + estimateTokenCount(message.content),
+				0,
+			);
+
+		it("compresses a backlog larger than the model window in bounded oldest-first chunks", async () => {
+			// 30 turns of ~4k tokens: far more than one 20k-token chunk (the
+			// constructed-context target) or the 50k-token model window.
+			const backlog = Array.from({ length: 30 }, (_, index) => [
+				sourceMessage(index * 2 + 1, "user", `Question ${index}.`),
+				sourceMessage(index * 2 + 2, "assistant", "answer ".repeat(4_000)),
+			]).flat();
+
+			const sent = await prepareTrimmedTurnOver(backlog);
+
+			expect(sent).toBeDefined();
+			expect(sent?.[0]?.id).toBe("m1");
+			// A turn-aligned oldest prefix: nothing skipped, nothing split.
+			expect(sent?.map((message) => message.id)).toEqual(
+				backlog.slice(0, sent?.length).map((message) => message.id),
+			);
+			expect(sent?.at(-1)?.role).toBe("assistant");
+			expect(sent?.length).toBeLessThan(backlog.length - 4);
+			expect(estimatedSourceTokens(sent ?? [])).toBeLessThanOrEqual(
+				limits.targetConstructedContext,
+			);
+		});
+
+		it("clips a single turn larger than the model window instead of sending it whole", async () => {
+			const sent = await prepareTrimmedTurnOver([
+				sourceMessage(1, "user", "pasted log ".repeat(60_000)),
+				sourceMessage(2, "assistant", "Summary of the log."),
+				...smallSource.slice(2).map((message) => ({
+					...message,
+					id: `m${message.messageSequence + 10}`,
+					messageSequence: message.messageSequence + 10,
+				})),
+			]);
+
+			expect(sent?.map((message) => message.id)).toEqual(["m1", "m2"]);
+			expect(estimatedSourceTokens(sent ?? [])).toBeLessThanOrEqual(
+				limits.targetConstructedContext,
+			);
 		});
 
 		it("does not compress when only the raw tail is pending", async () => {

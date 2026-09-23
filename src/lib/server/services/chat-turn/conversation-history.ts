@@ -129,7 +129,7 @@ const TELEMETRY_ONLY_FILE_PRODUCTION_INPUT_KEYS = [
 	"text",
 ];
 
-export function historyToolCallInput(
+function historyToolCallInput(
 	segment: ToolCallSegment,
 ): Record<string, unknown> {
 	const input = segment.input ?? {};
@@ -139,6 +139,46 @@ export function historyToolCallInput(
 			([key]) => !TELEMETRY_ONLY_FILE_PRODUCTION_INPUT_KEYS.includes(key),
 		),
 	);
+}
+
+export type StoredToolCallDigest = {
+	name: string;
+	input: Record<string, unknown>;
+	result: HistoryToolDigest;
+};
+
+// A stored assistant message's `toolCalls` column holds its whole thinking
+// timeline: reasoning text, status rows and tool calls with raw candidates
+// and map payloads. Consumers that summarize stored rows (context
+// compression) get what the chat model itself sees of those calls on later
+// turns: name, input and the compact result digest — never the reasoning.
+export function storedToolCallDigests(
+	toolCalls: unknown,
+): StoredToolCallDigest[] | null {
+	let segments: unknown = toolCalls;
+	if (typeof toolCalls === "string") {
+		try {
+			segments = JSON.parse(toolCalls);
+		} catch {
+			return null;
+		}
+	}
+	if (!Array.isArray(segments)) return null;
+	const digests = segments
+		.filter(
+			(segment): segment is ToolCallSegment =>
+				typeof segment === "object" &&
+				segment !== null &&
+				!Array.isArray(segment) &&
+				(segment as { type?: unknown }).type === "tool_call" &&
+				typeof (segment as { name?: unknown }).name === "string",
+		)
+		.map((segment) => ({
+			name: segment.name,
+			input: historyToolCallInput(segment),
+			result: buildHistoryToolDigest(segment),
+		}));
+	return digests.length > 0 ? digests : null;
 }
 
 function userText(message: HistoryMessage): string {

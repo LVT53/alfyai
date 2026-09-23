@@ -6,12 +6,8 @@ import type { ThinkingMode } from "$lib/reasoning-depth-types";
 import { db } from "$lib/server/db";
 import { contextCompressionSnapshots, messages } from "$lib/server/db/schema";
 import { estimateTokenCount } from "$lib/utils/tokens";
-import {
-	buildHistoryToolDigest,
-	historyToolCallInput,
-} from "./chat-turn/conversation-history";
+import { storedToolCallDigests } from "./chat-turn/conversation-history";
 import { messageOrderAsc } from "./message-ordering";
-import type { ThinkingSegment } from "./messages-types";
 import { parseModelJsonObject } from "./model-json";
 
 export type ContextCompressionSnapshotTrigger = "manual" | "automatic";
@@ -1019,41 +1015,6 @@ function normalizeCompressionSnapshotInput(params: {
 	};
 }
 
-// A stored assistant message's `toolCalls` column holds its whole thinking
-// timeline: reasoning text, status rows and tool calls with raw candidates
-// and map payloads. The control model gets what the chat model itself sees
-// of those calls on later turns (conversation-history.ts): name, input and
-// the compact result digest. Reasoning never leaves the message, and a long
-// conversation's compression prompt is not multiplied by its reasoning mass.
-function compressionToolCallDigests(toolCalls: unknown): Array<{
-	name: string;
-	input: Record<string, unknown>;
-	result: ReturnType<typeof buildHistoryToolDigest>;
-}> | null {
-	let segments: unknown = toolCalls;
-	if (typeof toolCalls === "string") {
-		try {
-			segments = JSON.parse(toolCalls);
-		} catch {
-			return null;
-		}
-	}
-	if (!Array.isArray(segments)) return null;
-	const digests = segments
-		.filter(
-			(segment): segment is Extract<ThinkingSegment, { type: "tool_call" }> =>
-				isRecord(segment) &&
-				segment.type === "tool_call" &&
-				typeof segment.name === "string",
-		)
-		.map((segment) => ({
-			name: segment.name,
-			input: historyToolCallInput(segment),
-			result: buildHistoryToolDigest(segment),
-		}));
-	return digests.length > 0 ? digests : null;
-}
-
 function buildCompressionPrompt(params: {
 	input: RunContextCompressionInput;
 	sourceRanges: ContextCompressionSourceRange[];
@@ -1090,7 +1051,10 @@ function buildCompressionPrompt(params: {
 			sequence: message.messageSequence,
 			role: message.role,
 			content: message.content,
-			toolCalls: compressionToolCallDigests(message.toolCalls),
+			// Tool-call digests, not the stored thinking timeline: the
+			// reasoning never leaves the message, and a long conversation's
+			// compression prompt is not multiplied by its reasoning mass.
+			toolCalls: storedToolCallDigests(message.toolCalls),
 		})),
 	};
 
