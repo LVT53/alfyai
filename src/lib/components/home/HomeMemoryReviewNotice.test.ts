@@ -93,6 +93,34 @@ describe("HomeMemoryReviewNotice", () => {
 		expect(screen.queryByTestId("home-memory-review-notice")).toBeNull();
 	});
 
+	it("asks the caller to restore focus only for a keyboard dismissal", async () => {
+		const onDismiss = vi.fn();
+		const { unmount } = render(HomeMemoryReviewNotice, {
+			count: 2,
+			href: "/knowledge?tab=memory#memory-review",
+			onDismiss,
+		});
+		// Enter/Space on a button fires a click with detail 0: the focused
+		// button is about to disappear, so focus must land somewhere useful.
+		await fireEvent.click(screen.getByTestId("home-memory-review-dismiss"), {
+			detail: 0,
+		});
+		expect(onDismiss).toHaveBeenLastCalledWith({ restoreFocus: true });
+		unmount();
+
+		render(HomeMemoryReviewNotice, {
+			count: 2,
+			href: "/knowledge?tab=memory#memory-review",
+			onDismiss,
+		});
+		// A pointer tap must not pull focus into the composer (that would pop
+		// the on-screen keyboard on a phone).
+		await fireEvent.click(screen.getByTestId("home-memory-review-dismiss"), {
+			detail: 1,
+		});
+		expect(onDismiss).toHaveBeenLastCalledWith({ restoreFocus: false });
+	});
+
 	it("labels the Hungarian dismiss button in Hungarian", () => {
 		uiLanguage.set("hu");
 		render(HomeMemoryReviewNotice, {

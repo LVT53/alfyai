@@ -21,14 +21,20 @@ let {
 }: {
 	count: number;
 	href: string;
-	onDismiss?: () => void;
+	/**
+	 * `restoreFocus` is true when the dismiss button was activated from the
+	 * keyboard (a click with `detail === 0`): the focused button is about to
+	 * disappear, so the caller should move focus somewhere useful. A pointer
+	 * tap leaves focus alone so a phone does not pop its keyboard.
+	 */
+	onDismiss?: (options: { restoreFocus: boolean }) => void;
 } = $props();
 
 let locallyDismissed = $state(false);
 
-function handleDismiss() {
+function handleDismiss(event: MouseEvent) {
 	locallyDismissed = true;
-	onDismiss?.();
+	onDismiss?.({ restoreFocus: event.detail === 0 });
 }
 </script>
 
