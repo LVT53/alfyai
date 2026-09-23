@@ -78,7 +78,7 @@ export interface AtlasV3Source {
 	id: string;
 	canonicalUrl: string;
 	host: string;
-	/** Publisher organisation id (atlas-v2/publishers.ts). Independence key. */
+	/** Publisher organisation id (./publishers.ts). Independence key. */
 	publisher: string;
 	title: string;
 	date: string | null;

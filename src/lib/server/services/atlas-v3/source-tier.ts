@@ -10,19 +10,20 @@
 // sources is never `verified`), and it names the sources the researcher should
 // reach for in its own prompt.
 //
-// The organisation identity itself is v2's (`atlas-v2/publishers.ts`), reused
-// unchanged: two hosts corroborate each other only when their organisations
-// differ, and every aggregator collapses onto one organisation.
+// The organisation identity itself lives in `./publishers.ts` (originally
+// v2's, copied here unchanged): two hosts corroborate each other only when
+// their organisations differ, and every aggregator collapses onto one
+// organisation.
 
-import {
-	isSyndicationHost,
-	organisationForHost,
-	registrableDomain,
-} from "../atlas-v2/publishers";
 import {
 	type AtlasV3NativeSourceSet,
 	isAtlasV3NativePrimaryHost,
 } from "./language-standard";
+import {
+	isSyndicationHost,
+	organisationForHost,
+	registrableDomain,
+} from "./publishers";
 import type { AtlasV3SourceTier } from "./types";
 
 /** Host suffixes that are primary sources wherever the question is about. */

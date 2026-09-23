@@ -16,12 +16,12 @@
 // figure check over that span is a stronger test than an entailment judgement
 // over a 12,000-character page excerpt.
 
+import { atlasV3CorroboratingPublishersFor } from "./evidence-bank";
 import {
 	extractFigures,
 	figureAppearsInText,
 	isCheckableFigure,
-} from "../atlas-v2/number-match";
-import { atlasV3CorroboratingPublishersFor } from "./evidence-bank";
+} from "./number-match";
 import type {
 	AtlasV3AnswerTable,
 	AtlasV3EvidenceBank,

@@ -14,20 +14,20 @@
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { canonicalizeGroundedWebUrl } from "$lib/server/services/web-grounding";
 import { parseJsonFromText } from "../atlas/json-extract";
+import type { AtlasV3NativeSourceSet } from "./language-standard";
+import {
+	extractFigures,
+	figureAppearsInText,
+	isCheckableFigure,
+} from "./number-match";
+import { organisationForHost } from "./publishers";
 import {
 	articleIdentityKey,
 	isBoilerplateOnly,
 	isRedirectStubText,
 	isSocialProfileHost,
 	isStatusStubText,
-} from "../atlas-v2/evidence-index";
-import {
-	extractFigures,
-	figureAppearsInText,
-	isCheckableFigure,
-} from "../atlas-v2/number-match";
-import { organisationForHost } from "../atlas-v2/publishers";
-import type { AtlasV3NativeSourceSet } from "./language-standard";
+} from "./source-filters";
 import { atlasV3SourceTier, tierCanCorroborate } from "./source-tier";
 import type {
 	AtlasV3Claim,

@@ -20,13 +20,13 @@
 
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { parseJsonFromText } from "../atlas/json-extract";
-import { extractFigures, isCheckableFigure } from "../atlas-v2/number-match";
 import { ATLAS_V3_MAX_OUTPUT_TOKENS } from "./config";
 import {
 	atlasV3LanguageStandard,
 	probeAtlasV3Register,
 } from "./language-standard";
 import type { AtlasV3ModelCall } from "./model-call";
+import { extractFigures, isCheckableFigure } from "./number-match";
 import {
 	ATLAS_V3_FAILURE_CODES,
 	ATLAS_V3_INSTRUCTION_KINDS,
