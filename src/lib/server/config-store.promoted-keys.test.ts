@@ -21,14 +21,6 @@ vi.mock("./services/available-models", () => ({
 const PROMOTED = [
 	"TEI_TIMEOUT_MS",
 	"MEMORY_MAINTENANCE_INTERVAL_MINUTES",
-	"ATLAS_V2_MAX_WORDS_OVERVIEW",
-	"ATLAS_V2_MAX_WORDS_IN_DEPTH",
-	"ATLAS_V2_MAX_WORDS_EXHAUSTIVE",
-	"ATLAS_V2_MAX_SOURCES_OVERVIEW",
-	"ATLAS_V2_MAX_SOURCES_IN_DEPTH",
-	"ATLAS_V2_MAX_SOURCES_EXHAUSTIVE",
-	"ATLAS_V2_ENTAILMENT_BATCH",
-	"ATLAS_V2_WRITER_CONCURRENCY",
 	"ATTACHMENT_TRACE_DEBUG",
 	"NORMAL_CHAT_DEBUG_OUTBOUND",
 	"CONCURRENT_STREAM_LIMIT",
@@ -65,10 +57,6 @@ describe("promoted admin config keys", () => {
 		rows.push(
 			{ key: "TEI_TIMEOUT_MS", value: "12000" },
 			{ key: "MEMORY_MAINTENANCE_INTERVAL_MINUTES", value: "15" },
-			{ key: "ATLAS_V2_MAX_WORDS_IN_DEPTH", value: "3000" },
-			{ key: "ATLAS_V2_MAX_SOURCES_EXHAUSTIVE", value: "60" },
-			{ key: "ATLAS_V2_ENTAILMENT_BATCH", value: "4" },
-			{ key: "ATLAS_V2_WRITER_CONCURRENCY", value: "6" },
 			{ key: "ATTACHMENT_TRACE_DEBUG", value: "true" },
 			{ key: "NORMAL_CHAT_DEBUG_OUTBOUND", value: "true" },
 			{ key: "CONCURRENT_STREAM_LIMIT", value: "9" },
@@ -81,10 +69,6 @@ describe("promoted admin config keys", () => {
 
 		expect(config.teiTimeoutMs).toBe(12000);
 		expect(config.memoryMaintenanceIntervalMinutes).toBe(15);
-		expect(config.atlasV2MaxWordsInDepth).toBe(3000);
-		expect(config.atlasV2MaxSourcesExhaustive).toBe(60);
-		expect(config.atlasV2EntailmentBatch).toBe(4);
-		expect(config.atlasV2WriterConcurrency).toBe(6);
 		expect(config.attachmentTraceDebug).toBe(true);
 		expect(config.normalChatDebugOutbound).toBe(true);
 		expect(config.concurrentStreamLimit).toBe(9);
@@ -94,8 +78,6 @@ describe("promoted admin config keys", () => {
 	it("clamps a value the server would otherwise be hurt by", async () => {
 		rows.push(
 			{ key: "TEI_TIMEOUT_MS", value: "1" },
-			{ key: "ATLAS_V2_ENTAILMENT_BATCH", value: "900" },
-			{ key: "ATLAS_V2_WRITER_CONCURRENCY", value: "0" },
 			{ key: "CONCURRENT_STREAM_LIMIT", value: "0" },
 			{ key: "MEMORY_MAINTENANCE_INTERVAL_MINUTES", value: "-5" },
 		);
@@ -105,8 +87,6 @@ describe("promoted admin config keys", () => {
 		const config = getConfig();
 
 		expect(config.teiTimeoutMs).toBe(100);
-		expect(config.atlasV2EntailmentBatch).toBe(25);
-		expect(config.atlasV2WriterConcurrency).toBe(1);
 		expect(config.concurrentStreamLimit).toBe(1);
 		expect(config.memoryMaintenanceIntervalMinutes).toBe(0);
 	});
@@ -118,21 +98,6 @@ describe("promoted admin config keys", () => {
 		await refreshConfig();
 
 		expect(getConfig().normalChatDebugOutbound).toBe(true);
-	});
-
-	it("hands the Atlas v2 budget knobs to the pipeline resolver", async () => {
-		rows.push(
-			{ key: "ATLAS_V2_MAX_WORDS_OVERVIEW", value: "900" },
-			{ key: "ATLAS_V2_MAX_SOURCES_OVERVIEW", value: "12" },
-		);
-
-		const { refreshConfig } = await import("./config-store");
-		await refreshConfig();
-		const { resolveAtlasV2Budget } = await import("./services/atlas-v2/config");
-		const budget = resolveAtlasV2Budget("overview");
-
-		expect(budget.maxWords).toBe(900);
-		expect(budget.maxIndexedSources).toBe(12);
 	});
 
 	it("removing the row reverts to the env default", async () => {

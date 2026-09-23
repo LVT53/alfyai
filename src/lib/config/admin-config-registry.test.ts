@@ -67,8 +67,12 @@ describe("advanced key registry", () => {
 		// The redesign's premise: the settings that used to be env-only are all
 		// reachable here. A drop in this number means a key silently lost its UI.
 		// 84 before the document-extraction ledger, + its 11 keys = 95,
-		// + the 12 MinerU 4 keys = 107, + FILE_PRODUCTION_WORKER_ENABLED = 108.
-		expect(ADVANCED_KEY_SPECS.length).toBeGreaterThanOrEqual(108);
+		// + the 12 MinerU 4 keys = 107, + FILE_PRODUCTION_WORKER_ENABLED = 108,
+		// - 19 removed v1/v2 Atlas keys (Phase B of the v3-only consolidation:
+		// ATLAS_PIPELINE, the questions/rounds/max-words/max-sources triples,
+		// entailment batch, writer concurrency, the three per-profile
+		// max-output-token caps and the writer prompt char cap) = 92.
+		expect(ADVANCED_KEY_SPECS.length).toBeGreaterThanOrEqual(92);
 	});
 });
 
@@ -102,7 +106,7 @@ describe("restart-vs-live map", () => {
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.TEI_TIMEOUT_MS).toBe("live");
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.CONCURRENT_STREAM_LIMIT).toBe("live");
 		expect(ADMIN_CONFIG_EFFECT_BY_KEY.FILE_PRODUCTION_MAX_OUTPUTS).toBe("live");
-		expect(ADMIN_CONFIG_EFFECT_BY_KEY.ATLAS_V2_WRITER_CONCURRENCY).toBe("live");
+		expect(ADMIN_CONFIG_EFFECT_BY_KEY.ATLAS_STALE_MONTHS).toBe("live");
 	});
 
 	it("keeps the restart badge to the keys that genuinely need one", () => {
@@ -134,24 +138,11 @@ describe("validateAdminConfigValue", () => {
 
 	it("reports the bound it broke", () => {
 		expect(
-			validateAdminConfigValue(spec("ATLAS_V2_ENTAILMENT_BATCH"), "0"),
+			validateAdminConfigValue(spec("DOCUMENT_EXTRACTION_MAX_ATTEMPTS"), "0"),
 		).toEqual({ ok: false, reason: "below-min", limit: 1 });
 		expect(
-			validateAdminConfigValue(spec("ATLAS_V2_ENTAILMENT_BATCH"), "26"),
-		).toEqual({ ok: false, reason: "above-max", limit: 25 });
-	});
-
-	it("accepts every pipeline the server accepts, and nothing else", () => {
-		for (const value of ["v1", "v2", "v3"]) {
-			expect(validateAdminConfigValue(spec("ATLAS_PIPELINE"), value)).toEqual({
-				ok: true,
-				value,
-			});
-		}
-		expect(validateAdminConfigValue(spec("ATLAS_PIPELINE"), "v4")).toEqual({
-			ok: false,
-			reason: "invalid-option",
-		});
+			validateAdminConfigValue(spec("DOCUMENT_EXTRACTION_MAX_ATTEMPTS"), "11"),
+		).toEqual({ ok: false, reason: "above-max", limit: 10 });
 	});
 
 	it("normalises a boolean to the two strings the applier reads", () => {

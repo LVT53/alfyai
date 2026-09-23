@@ -43,10 +43,6 @@ vi.mock("$lib/server/config-store", async () => {
 		refreshConfig: vi.fn(async () => {}),
 		getEnvDefaults: () => ({}),
 		getResolvedAdminConfigValues: () => ({}),
-		getAtlasOverviewMaxOutputTokens: () => 0,
-		getAtlasInDepthMaxOutputTokens: () => 0,
-		getAtlasExhaustiveMaxOutputTokens: () => 0,
-		getAtlasMaxWriterPromptChars: () => 0,
 	};
 });
 
