@@ -1,6 +1,8 @@
 # Atlas v3 reasons from an evidence bank, not from search excerpts
 
-> Keeps [ADR-0036](0036-atlas-is-normal-chat-turn-not-parallel-subsystem.md) (Atlas is a Normal Chat Turn plus one in-process worker), [ADR-0052](0052-replace-searxng-web-research-with-parallel-search.md) (Parallel backend) and every piece of job infrastructure [ADR-0062](0062-atlas-content-pipeline-is-rebuilt-on-the-harness-tools.md) kept. It **replaces** ADR-0062's content pipeline for jobs stamped `pipeline_version: 3`. v1 and v2 stay runnable, unchanged.
+> Keeps [ADR-0036](0036-atlas-is-normal-chat-turn-not-parallel-subsystem.md) (Atlas is a Normal Chat Turn plus one in-process worker), [ADR-0052](0052-replace-searxng-web-research-with-parallel-search.md) (Parallel backend) and every piece of job infrastructure [ADR-0062](0062-atlas-content-pipeline-is-rebuilt-on-the-harness-tools.md) kept. It **replaces** ADR-0062's content pipeline for jobs stamped `pipeline_version: 3`.
+>
+> **Amended (Phase B of the v3-only consolidation, see below).** "v1 and v2 stay runnable, unchanged" no longer holds: both were deleted and Atlas now runs v3 exclusively for every job, old and new. `ATLAS_PIPELINE` is gone; rollback is the `atlas-v1-v2-final` tag, not a config value.
 
 ## Context
 
@@ -34,7 +36,8 @@ The 2025–2026 literature converges on five scaffolding lessons that are implem
 
 ### Per-task models
 
-Each stage resolves its own model: `ATLAS_V3_ASK_MODEL`, `ATLAS_V3_RESEARCHER_MODEL`, `ATLAS_V3_OUTLINE_MODEL`, `ATLAS_V3_WRITER_MODEL`, `ATLAS_V3_CRITIC_MODEL`, `ATLAS_V3_VERIFIER_MODEL`. Each accepts a model id or alias (`model1`, `model2`, `provider:<id>:<model>`) and falls back to `ATLAS_SYNTHESIS_MODEL` (writer-shaped tasks) or `ATLAS_AUDIT_MODEL` (control-shaped tasks). Resolution goes through the same `runAtlasModelStage` boundary v2 uses, so pricing and provider failover are identical.
+Each stage resolves its own model: `ATLAS_V3_ASK_MODEL`, `ATLAS_V3_RESEARCHER_MODEL`, `ATLAS_V3_OUTLINE_MODEL`, `ATLAS_V3_WRITER_MODEL`, `ATLAS_V3_CRITIC_MODEL`. Each accepts a model id or alias (`model1`, `model2`, `provider:<id>:<model>`) and falls back to `ATLAS_SYNTHESIS_MODEL` (writer-shaped tasks) or `ATLAS_AUDIT_MODEL` (control-shaped tasks). Resolution goes through the same `runAtlasModelStage` boundary, so pricing and provider failover are identical across stages.
+<!-- ATLAS_V3_VERIFIER_MODEL was listed here but never used — no stage called deps.models.verifier — and was removed in Phase B of the v3-only consolidation (env, config-store, admin registry, settings UI, i18n, docs, .env.example) rather than wired up, since no entailment/verifier stage exists. -->
 
 ### Language standard
 
@@ -175,11 +178,42 @@ statutory decision timeline … [1]" answers the question and cites what it rest
 on; the digit-only rule scored it NO. A first-150-words sentence carrying a
 citation and a number, spelled or written, now passes too.
 
+## Amendments (2026-09-23) — Phase B of the v3-only consolidation
+
+v1 and v2 stopped being frozen-but-runnable and were deleted outright, once evaluation showed v3 ahead
+and no v1/v2 family remained worth keeping on its original pipeline:
+
+- **`ATLAS_PIPELINE` is removed**, not just defaulted to `v3`. A switch with one legal value misleads an
+  admin into thinking it still selects something; rollback is the `atlas-v1-v2-final` tag. `env.ts` logs
+  one deprecation warning if the variable is still set in an operator's `.env`.
+- **Every job runs v3**, including a Continue/Revise/Fork child of a v1/v2 family (D1 routing). The
+  parent lookup on the send route still validates the parent succeeded and belongs to the same
+  conversation, but no longer inherits or checks the parent's pipeline. `claimNextAtlasJob` restamps
+  `pipelineVersion: 3` on every claim, so even a v1/v2 row already queued at deploy time runs fresh on
+  v3 (it costs time, not correctness — `readAtlasV3ResumeState` ignores a foreign checkpoint schema).
+  Until a later phase adds seeding, such a child runs unseeded rather than inheriting the parent's
+  evidence.
+- **v1/v2-only knobs are removed** alongside the pipelines that read them: the v2 profile
+  questions/rounds, word and source ceilings, entailment batch, writer concurrency, and the v1 per-profile
+  max-output-token caps and writer-prompt-char cap. `ATLAS_STALE_MONTHS` stays — it was miscategorized
+  as v2-only in some docs, but the v3 pipeline reads it.
+- **`ATLAS_V3_VERIFIER_MODEL` is removed**, not merely left dead. It resolved but nothing called it (see
+  the per-task models note above); rather than invent a verifier/entailment stage to use it, the owner's
+  call was to remove the key everywhere (env, config-store, admin registry, settings UI, i18n, docs,
+  `.env.example`) until such a stage is actually planned.
+- **What still reads old rows.** Stored HTML/PDF/Markdown files, persisted `GeneratedDocumentSource`
+  artifacts (including v1's `basisMarkers`/`confidenceMarker`), the job row's `1`/`2`/`3`
+  `pipelineVersion` projection, the v1/v2 progress-detail sanitizers and client parsing, and the v1/v2
+  checkpoint rows all keep working — this amendment deletes the CONTENT PIPELINES, not the read paths
+  an already-published report depends on.
+
 ## Consequences
 
-- Token cost per report rises against v2 (the critic and the answer table spend tokens on reasoning) and stays far below v1. Page reads remain the marginal cost and are capped by tier.
+- Token cost per report is higher than v1 ever was (the critic and the answer table spend tokens on
+  reasoning), since v1 no longer exists to compare against on a live deployment. Page reads remain the
+  marginal cost and are capped by tier.
 - Abstention becomes a **successful** job outcome. Anything that treats "succeeded" as "a full report" must read `abstained` in the diagnostics.
-- Three content pipelines now exist. v1 and v2 are frozen; only v3 receives quality work.
+- Atlas runs one content pipeline. v1 and v2 were deleted in Phase B of the v3-only consolidation (see the amendment above); only v3 receives quality work, and only v3 exists to receive it.
 - No model training, no long-context reliance, no parallel section writing, and no judge-based self-evaluation as a stopping rule on the local model — structural checks stop it instead.
 
 ## Alternatives rejected

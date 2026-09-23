@@ -1,6 +1,8 @@
 # Atlas's content pipeline is rebuilt on the harness's research tools, behind a pipeline flag
 
 > Keeps [ADR-0036](0036-atlas-is-normal-chat-turn-not-parallel-subsystem.md) (Atlas is a Normal Chat Turn + one in-process worker), [ADR-0037](0037-atlas-uses-bounded-adaptive-rounds-not-autonomous-research-loops.md) (bounded rounds), and [ADR-0052](0052-replace-searxng-web-research-with-parallel-search.md) (Parallel backend). It **replaces** the content pipeline that [ADR-0038](0038-atlas-publishes-writer-centered-reports-not-source-dumps.md) and [ADR-0040](0040-atlas-quality-gate-analytics-and-rendering-improvements.md) describe (writer-centered assembly, claim-basis markers, model-graded honesty markers) for jobs that run on pipeline v2. [ADR-0053](0053-atlas-post-migration-deepening.md)'s module seams stay as they are for v1.
+>
+> **Amended by [ADR-0063](0063-atlas-v3-reasons-from-an-evidence-bank-not-from-search-excerpts.md) (Phase B of the v3-only consolidation, 2026-09-23).** v1 and v2 are **deleted**, not kept frozen-but-runnable — the tag `atlas-v1-v2-final` is the last commit either still ran on. The `ATLAS_PIPELINE` flag described below is removed entirely; `pipeline_version` on `atlas_jobs` stays, but only as a historical record of which pipeline produced a row, never as a live routing switch. The next Continue/Revise/Fork on an old v1/v2 family moves it onto v3 (seeded from its published report, in a later phase of the same consolidation) instead of continuing on its original pipeline. Everything below this point describes v2 as it existed before deletion; it is kept for that history, not as a guide to current behavior.
 
 ## Context
 

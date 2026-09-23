@@ -1,6 +1,8 @@
 # Atlas quality gate, analytics, and rendering improvements
 
 > **Updated by [ADR-0052](0052-replace-searxng-web-research-with-parallel-search.md) (2026-07-13).** The image-search `time_range` discussion below describes the SearXNG backend, which has been removed. Atlas text/web search now runs on the **Parallel Search API**; image search remains on **Brave**. Read the SearXNG mentions as historical; the freshness/`time_range` intent carries over to the current image backend.
+>
+> **Historical (v1) — superseded by [ADR-0063](0063-atlas-v3-reasons-from-an-evidence-bank-not-from-search-excerpts.md)'s v3-only consolidation (Phase B, 2026-09-23).** The quality-gate and honesty-marker mechanics this ADR improves are v1's; the module (`quality-gates.ts`) and the Honesty Marker rendering it drove were deleted along with the rest of the v1 pipeline. v3 has its own verify stage and deliberate abstention instead of an audit-driven revision pass with downgradeable critical markers (ADR 0063). Read this ADR as a historical record of v1-era production fixes, not current behavior.
 
 A series of production issues and UX improvements to Atlas after the writer-centered report migration (ADR 0038) and bounded adaptive rounds (ADR 0037) were deployed. Each change is small and independently revertable.
 
