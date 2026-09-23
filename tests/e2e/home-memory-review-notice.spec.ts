@@ -146,4 +146,23 @@ test.describe("home memory review notice", () => {
 		await expect(page).toHaveURL(/\/knowledge\?tab=memory#memory-review/);
 		await expect(page.locator("#memory-review")).toBeVisible();
 	});
+
+	test("the link lands on the Needs Review section at phone width", async ({
+		page,
+	}) => {
+		const userId = await testUserId();
+		await clearReviewFixtures(userId);
+		await seedReviewItem(userId, "review-jump-target-phone");
+		await page.setViewportSize({ width: 375, height: 812 });
+
+		await gotoHome(page);
+		const link = page.getByTestId("home-memory-review-link");
+		await expect(link).toBeVisible();
+		await link.click();
+
+		await expect(page).toHaveURL(/\/knowledge\?tab=memory#memory-review/);
+		// On a phone the review rail stacks under the profile, so the jump has
+		// to scroll it into view rather than merely render it.
+		await expect(page.locator("#memory-review")).toBeInViewport();
+	});
 });
