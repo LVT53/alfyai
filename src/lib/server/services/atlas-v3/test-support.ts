@@ -74,20 +74,30 @@ export function fakeModel(
 
 export interface FakeResearchWeb extends AtlasV3ResearchWeb {
 	searchCalls: Array<{ question: string; queries: string[] }>;
+	/** Every URL read, fresh or not, in order. */
 	readCalls: string[];
+	/** The URLs read with `{ fresh: true }` (a seed recheck), in order. */
+	freshReadCalls: string[];
 }
 
-/** A search index and a page store, addressed by URL. */
+/**
+ * A search index and a page store, addressed by URL. `freshPages` answers a
+ * `{ fresh: true }` read — the page as it is NOW — and falls back to `pages`;
+ * a `null` there is a page the live fetch cannot reach.
+ */
 export function fakeResearchWeb(input: {
 	hits: AtlasV3SearchHit[] | ((question: string) => AtlasV3SearchHit[]);
 	pages?: Record<string, string>;
+	freshPages?: Record<string, string | null>;
 	failSearch?: boolean;
 }): FakeResearchWeb {
 	const searchCalls: FakeResearchWeb["searchCalls"] = [];
 	const readCalls: string[] = [];
+	const freshReadCalls: string[] = [];
 	return {
 		searchCalls,
 		readCalls,
+		freshReadCalls,
 		search: async (request): Promise<AtlasV3SearchResult> => {
 			searchCalls.push({
 				question: request.question,
@@ -102,8 +112,14 @@ export function fakeResearchWeb(input: {
 				cached: false,
 			};
 		},
-		read: async (url): Promise<AtlasV3ReadResult> => {
+		read: async (url, options): Promise<AtlasV3ReadResult> => {
 			readCalls.push(url);
+			if (options?.fresh) {
+				freshReadCalls.push(url);
+				if (input.freshPages && url in input.freshPages) {
+					return { url, text: input.freshPages[url] ?? null, cached: false };
+				}
+			}
 			return { url, text: input.pages?.[url] ?? null, cached: false };
 		},
 	};

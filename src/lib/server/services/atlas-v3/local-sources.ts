@@ -41,6 +41,11 @@ export interface AtlasV3LocalDocument {
 	title: string;
 	origin: AtlasV3LocalSource["origin"];
 	summary: string | null;
+	/**
+	 * When the document (or its text) last changed, ISO 8601. A seeded child
+	 * re-reads an inherited document that changed after its parent read it.
+	 */
+	updatedAt?: string | null;
 }
 
 export interface AtlasV3LocalPassage {
@@ -84,6 +89,12 @@ type OwnershipScope = Awaited<ReturnType<typeof getArtifactOwnershipScope>>;
 
 function hasText(artifact: Artifact): boolean {
 	return Boolean(artifact.contentText?.trim());
+}
+
+/** The later of the two artifacts' change times, as ISO 8601. */
+function lastChanged(display: Artifact, prompt: Artifact): string | null {
+	const latest = Math.max(display.updatedAt ?? 0, prompt.updatedAt ?? 0);
+	return latest > 0 ? new Date(latest).toISOString() : null;
 }
 
 /**
@@ -150,6 +161,7 @@ async function resolveThroughAttachments(input: {
 			title: display.name,
 			origin: input.origin,
 			summary: prompt.summary ?? display.summary ?? null,
+			updatedAt: lastChanged(display, prompt),
 		});
 	}
 	return { documents, unavailable };
@@ -224,6 +236,7 @@ async function resolveLinkedSources(input: {
 			title: display.name,
 			origin: "linked",
 			summary: prompt.summary ?? display.summary ?? null,
+			updatedAt: lastChanged(display, prompt),
 		});
 	}
 	return { documents, unavailable };
