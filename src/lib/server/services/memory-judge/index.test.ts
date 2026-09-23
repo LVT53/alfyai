@@ -559,6 +559,88 @@ describe("Memory judge service", () => {
 		expect(row.statement).toBe("I live in Budapest.");
 	});
 
+	// createMemoryProfileItem returns the EXISTING row when the itemKey is
+	// taken; the judge then overwrote that row's metadata (dropping
+	// origin=user_authored) and, for an inferred add, opened a review row that
+	// flipped the active user_authored fact to review_needed with a 30-day
+	// auto-expiry. Accept on that row would now promote it as a judge fact.
+	it.each([
+		["stated", "active"],
+		["inferred", "active"],
+	] as const)("never rewrites an existing user_authored fact when a %s add repeats it", async (confidence, expectedStatus) => {
+		const { db } = openSeedDatabase();
+		seedUserAndConversation({ db });
+		seedMessages({
+			db,
+			conversationId: "c1",
+			entries: [
+				{ role: "user", content: "I prefer plain language." },
+				{ role: "assistant", content: "Noted." },
+			],
+		});
+		const { createMemoryProfileItem } = await import(
+			"../memory-profile/projection-store"
+		);
+		const existing = await createMemoryProfileItem({
+			userId: "u1",
+			category: "preferences",
+			scope: { type: "global" },
+			statement: "I prefer plain language.",
+		});
+		const { db: svcDb } = await import("$lib/server/db");
+		svcDb
+			.update(schema.memoryProfileItems)
+			.set({ metadataJson: JSON.stringify({ origin: "user_authored" }) })
+			.where(eq(schema.memoryProfileItems.id, existing.id))
+			.run();
+
+		mockControlModel({
+			decisions: [
+				{
+					action: "add",
+					statement: "I prefer plain language.",
+					category: "preferences",
+					scope: "global",
+					confidence,
+					expiryClass: "durable",
+					sourceQuote: "I prefer plain language",
+				},
+			],
+		});
+
+		const { runMemoryJudgeOnSegment } = await import("./index");
+		const result = await runMemoryJudgeOnSegment({
+			userId: "u1",
+			conversationId: "c1",
+			trigger: "idle",
+		});
+		expect(result).toMatchObject({ status: "ran", admitted: 0, review: 0 });
+
+		const row = svcDb
+			.select()
+			.from(schema.memoryProfileItems)
+			.where(eq(schema.memoryProfileItems.id, existing.id))
+			.all()[0];
+		expect(JSON.parse(row.metadataJson)).toEqual({ origin: "user_authored" });
+		expect(row.status).toBe(expectedStatus);
+		expect(row.expiresAt).toBeNull();
+		expect(
+			svcDb
+				.select()
+				.from(schema.memoryReviewItems)
+				.where(eq(schema.memoryReviewItems.userId, "u1"))
+				.all(),
+		).toEqual([]);
+		const { listMemoryReworkTelemetry } = await import(
+			"../memory-profile/telemetry"
+		);
+		expect(
+			(await listMemoryReworkTelemetry({ userId: "u1" })).filter(
+				(r) => r.eventName === "judge_candidate_rejected",
+			),
+		).toEqual([expect.objectContaining({ reason: "duplicate_existing" })]);
+	});
+
 	it("applies a strengthen decision by bumping revision and adding provenance without changing the statement", async () => {
 		const { db } = openSeedDatabase();
 		seedUserAndConversation({ db });
@@ -1295,21 +1377,18 @@ describe("Memory judge service", () => {
 			).toEqual([expect.objectContaining({ reason: "statement_match" })]);
 		});
 
-		it("admits an update without targetItemId and without a match as a new fact", async () => {
+		it("rejects an update without targetItemId and without a match instead of adding a contradicting fact", async () => {
 			await setup([decision({})]);
 			await createFact({ statement: "I live in Budapest." });
-			await expect(run()).resolves.toMatchObject({ updated: 0, admitted: 1 });
-			expect((await activeStatements()).sort()).toEqual([
-				"I live in Amsterdam.",
-				"I live in Budapest.",
-			]);
+			await expect(run()).resolves.toMatchObject({ updated: 0, admitted: 0 });
+			expect(await activeStatements()).toEqual(["I live in Budapest."]);
+			const rows = await telemetry();
 			expect(
-				(await telemetry()).filter(
-					(r) => r.eventName === "judge_target_resolved",
-				),
-			).toEqual([
-				expect.objectContaining({ reason: "no_match_admitted_as_new" }),
-			]);
+				rows.filter((r) => r.eventName === "judge_target_resolved"),
+			).toEqual([]);
+			expect(
+				rows.filter((r) => r.eventName === "judge_candidate_rejected"),
+			).toEqual([expect.objectContaining({ reason: "missing_target" })]);
 		});
 
 		it("keeps rejecting an ambiguous missing target, with missing_target telemetry", async () => {
@@ -1374,6 +1453,67 @@ describe("Memory judge service", () => {
 			).toEqual([expect.objectContaining({ reason: "target_user_authored" })]);
 		});
 
+		it("skips an update or strengthen aimed at a fact the user accepted in review, with target_user_protected telemetry", async () => {
+			await setup([]);
+			const { createMemoryProfileItem } = await import(
+				"../memory-profile/projection-store"
+			);
+			const {
+				applyMemoryReviewItemWithRevision,
+				createOrUpdateMemoryReviewItem,
+			} = await import("../memory-profile/review");
+			const { getMemoryProfileReadModel } = await import(
+				"../memory-profile/read-model"
+			);
+			const pending = await createMemoryProfileItem({
+				userId: "u1",
+				category: "about_you",
+				scope: { type: "global" },
+				statement: "I live in Budapest.",
+				status: "review_needed",
+			});
+			const reviewRow = await createOrUpdateMemoryReviewItem({
+				userId: "u1",
+				subjectKey: `judge:${pending.itemKey}`,
+				subjectLabel: "I live in Budapest.",
+				question: "Should I keep remembering this?",
+				reason: "Inferred from conversation, not stated directly.",
+				affectedItemIds: [pending.id],
+				metadata: {
+					source: "memory_judge",
+					category: "about_you",
+					proposedStatement: "I live in Budapest.",
+				},
+			});
+			const profile = await getMemoryProfileReadModel({ userId: "u1" });
+			await expect(
+				applyMemoryReviewItemWithRevision({
+					userId: "u1",
+					reviewItemId: reviewRow.id,
+					expectedProjectionRevision: profile.projectionRevision,
+					action: "accept",
+				}),
+			).resolves.toMatchObject({ status: "updated", itemId: pending.id });
+
+			mockControlModel({
+				decisions: [
+					decision({ targetItemId: pending.id }),
+					decision({
+						action: "strengthen",
+						statement: "I live in Budapest.",
+						targetItemId: pending.id,
+					}),
+				],
+			});
+			await expect(run()).resolves.toMatchObject({ updated: 0 });
+			expect(await activeStatements()).toEqual(["I live in Budapest."]);
+			expect(
+				(await telemetry())
+					.filter((r) => r.eventName === "judge_candidate_rejected")
+					.map((r) => r.reason),
+			).toEqual(["target_user_protected", "target_user_protected"]);
+		});
+
 		it("shows project-scoped facts to the judge so they can be targeted", async () => {
 			const { db } = await setup([]);
 			db.insert(schema.projects)
@@ -1433,7 +1573,7 @@ describe("Memory judge service", () => {
 				(await telemetry())
 					.filter((r) => r.eventName === "judge_dry_run_decision")
 					.map((r) => r.metadata.targetResolution),
-			).toEqual(["statement_match", "no_match_admitted_as_new"]);
+			).toEqual(["statement_match"]);
 		});
 	});
 });

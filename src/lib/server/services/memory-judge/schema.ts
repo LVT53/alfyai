@@ -109,15 +109,12 @@ export type JudgeDecision = {
 	/**
 	 * Set when the model proposed update/strengthen WITHOUT a targetItemId and
 	 * the parser resolved it deterministically against the existing facts:
-	 * `statement_match` filled in the unique exact match's id;
-	 * `no_match_admitted_as_new` turned the candidate into a plain add.
+	 * `statement_match` filled in the unique exact match's id.
 	 */
 	targetResolution?: JudgeTargetResolution;
 };
 
-export type JudgeTargetResolution =
-	| "statement_match"
-	| "no_match_admitted_as_new";
+export type JudgeTargetResolution = "statement_match";
 
 /** An existing fact as shown to the judge for gate 5 (non-redundancy). */
 export type JudgeExistingFact = {
@@ -255,25 +252,18 @@ function normalizeFactStatementForMatch(statement: string): string {
 		.trim();
 }
 
-type TargetResolutionOutcome =
-	| { kind: "matched"; targetItemId: string }
-	| { kind: "none" }
-	| { kind: "ambiguous" };
-
+/** The id of the unique same-category exact match, or null (none/ambiguous). */
 function resolveMissingTarget(
 	decision: { statement: string; category: string },
 	existingFacts: JudgeExistingFact[],
-): TargetResolutionOutcome {
+): string | null {
 	const wanted = normalizeFactStatementForMatch(decision.statement);
 	const matches = existingFacts.filter(
 		(fact) =>
 			fact.category === decision.category &&
 			normalizeFactStatementForMatch(fact.statement) === wanted,
 	);
-	if (matches.length === 1) {
-		return { kind: "matched", targetItemId: matches[0].id };
-	}
-	return matches.length === 0 ? { kind: "none" } : { kind: "ambiguous" };
+	return matches.length === 1 ? matches[0].id : null;
 }
 
 /**
@@ -284,11 +274,10 @@ function resolveMissingTarget(
  *
  * When `existingFacts` (the facts shown to the model for gate 5) is supplied,
  * an update/strengthen that arrives without a targetItemId is resolved
- * deterministically at the missing-target gate instead of being discarded: a
- * unique exact normalized statement match in the same category supplies the
- * target; no match admits the candidate as a new fact (it has already passed
- * the other gates); an ambiguous match is still rejected as `missing_target`.
- * Without `existingFacts` the gate rejects exactly as before.
+ * deterministically at the missing-target gate: a unique exact normalized
+ * statement match in the same category supplies the target; no match or an
+ * ambiguous match is still rejected as `missing_target`. Without
+ * `existingFacts` the gate rejects exactly as before.
  */
 export function parseJudgeDecisionsDetailed(
 	rawText: string,
@@ -337,28 +326,25 @@ export function parseJudgeDecisionsDetailed(
 			(d.data.action === "update" || d.data.action === "strengthen") &&
 			!targetItemId
 		) {
-			const resolution: TargetResolutionOutcome = options.existingFacts
+			const resolvedTargetId = options.existingFacts
 				? resolveMissingTarget(
 						{ statement, category: d.data.category },
 						options.existingFacts,
 					)
-				: { kind: "ambiguous" };
-			if (resolution.kind === "matched") {
+				: null;
+			if (resolvedTargetId) {
 				decisions.push({
 					...d.data,
 					statement,
-					targetItemId: resolution.targetItemId,
+					targetItemId: resolvedTargetId,
 					targetResolution: "statement_match",
 				});
-			} else if (resolution.kind === "none") {
-				const { targetItemId: _unused, ...candidate } = d.data;
-				decisions.push({
-					...candidate,
-					action: "add",
-					statement,
-					targetResolution: "no_match_admitted_as_new",
-				});
 			} else {
+				// No unique exact match: the candidate is still rejected. An update's
+				// statement is the NEW content, so it never matches the fact it
+				// replaces — turning it into an add would leave the old and new
+				// facts active side by side (and a paraphrased strengthen would
+				// duplicate its fact).
 				rejected.push({ statement, reason: "missing_target" });
 			}
 			continue;

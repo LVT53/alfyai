@@ -178,10 +178,19 @@ describe("guided memory review queue for judge items", () => {
 		expect(row?.scopeId).toBe("project-1");
 		// A durable fact leaves the 30-day review window once accepted.
 		expect(row?.expiresAt).toBeNull();
+		// Provenance stays honest (judge_v1) while the explicit endorsement
+		// marker makes the accepted fact user-protected.
 		expect(JSON.parse(row?.metadataJson ?? "{}")).toMatchObject({
 			origin: "judge_v1",
 			confidence: "inferred",
+			reviewResolution: "accepted",
+			endorsement: "user_accepted",
+			userConfirmedAt: expect.any(String),
 		});
+		const { isUserAuthoredMemoryMetadata, isUserProtectedMemoryMetadata } =
+			await import("./types");
+		expect(isUserAuthoredMemoryMetadata(row?.metadataJson)).toBe(false);
+		expect(isUserProtectedMemoryMetadata(row?.metadataJson)).toBe(true);
 		expect(await countProvenance(item.id)).toBe(1);
 		expect(await listItems()).toHaveLength(1);
 
@@ -358,11 +367,178 @@ describe("guided memory review queue for judge items", () => {
 				category: "preferences",
 			}),
 		]);
+		expect(
+			JSON.parse((await readItem(acceptedId as string))?.metadataJson ?? "{}"),
+		).toMatchObject({ endorsement: "user_accepted" });
 		const stale = await readItem(original.id);
 		expect(stale?.status).toBe("retired");
 		expect(JSON.parse(stale?.metadataJson ?? "{}")).toMatchObject({
 			supersededBy: acceptedId,
 		});
+	});
+
+	it("keeps same-statement judge reviews in different scopes as separate cards; accepting one leaves the other", async () => {
+		const { createOrUpdateMemoryReviewItem } = await import("./review");
+		const judgeMetadata = {
+			source: "memory_judge",
+			category: "goals_ongoing_work",
+			proposedStatement: "I am learning Irish.",
+			expiryClass: "durable",
+		};
+		const global = await seedLegacyShapedJudgeReview({
+			statement: "I am learning Irish.",
+			category: "goals_ongoing_work",
+		});
+		const project = await seedLegacyShapedJudgeReview({
+			statement: "I am learning Irish.",
+			category: "goals_ongoing_work",
+			scope: { type: "project", id: "project-1" },
+		});
+		// Give both rows the metadata the judge writes today, so their category
+		// and proposed statement match exactly.
+		for (const seeded of [global, project]) {
+			await createOrUpdateMemoryReviewItem({
+				userId: "user-1",
+				subjectKey: `judge:${seeded.item.itemKey}`,
+				subjectLabel: "I am learning Irish.",
+				question: "Should I keep remembering this?",
+				reason: "Inferred from conversation, not stated directly.",
+				affectedItemIds: [seeded.item.id],
+				metadata: judgeMetadata,
+			});
+		}
+		const { getMemoryProfileReadModel } = await import("./read-model");
+		const { applyMemoryReviewItemWithRevision } = await import("./review");
+
+		const before = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(before.review.openCount).toBe(2);
+		expect(before.review.items.map((item) => item.id).sort()).toEqual(
+			[global.review.id, project.review.id].sort(),
+		);
+
+		await expect(
+			applyMemoryReviewItemWithRevision({
+				userId: "user-1",
+				reviewItemId: global.review.id,
+				expectedProjectionRevision: before.projectionRevision,
+				action: "accept",
+			}),
+		).resolves.toMatchObject({ status: "updated", itemId: global.item.id });
+
+		expect((await readItem(global.item.id))?.status).toBe("active");
+		expect((await readItem(project.item.id))?.status).toBe("review_needed");
+		const after = await getMemoryProfileReadModel({ userId: "user-1" });
+		expect(after.review.openCount).toBe(1);
+		expect(after.review.items.map((item) => item.id)).toEqual([
+			project.review.id,
+		]);
+	});
+
+	async function setItemStatus(itemId: string, status: string) {
+		const { db } = await import("$lib/server/db");
+		await db
+			.update(schema.memoryProfileItems)
+			.set({ status })
+			.where(eq(schema.memoryProfileItems.id, itemId));
+	}
+
+	async function readReviewRow(reviewId: string) {
+		const { db } = await import("$lib/server/db");
+		const [row] = await db
+			.select()
+			.from(schema.memoryReviewItems)
+			.where(eq(schema.memoryReviewItems.id, reviewId));
+		return row;
+	}
+
+	async function readResolution(reviewId: string) {
+		const { db } = await import("$lib/server/db");
+		const [row] = await db
+			.select()
+			.from(schema.memoryReviewResolutions)
+			.where(eq(schema.memoryReviewResolutions.reviewItemId, reviewId));
+		return row;
+	}
+
+	it("does not list, and closes, a judge review whose item is no longer review_needed", async () => {
+		const stale = await seedLegacyShapedJudgeReview({
+			statement: "I am tired of meetings.",
+			category: "about_you",
+		});
+		const live = await seedLegacyShapedJudgeReview({
+			statement: "I am learning Irish.",
+			category: "goals_ongoing_work",
+		});
+		const { createOrUpdateMemoryReviewItem } = await import("./review");
+		await createOrUpdateMemoryReviewItem({
+			userId: "user-1",
+			subjectKey: "post-turn-intake:document-related:x",
+			subjectLabel: "Document-related memory request",
+			question: "Should this be remembered?",
+			reason: "No affected item; must stay listed.",
+		});
+		await setItemStatus(stale.item.id, "expired");
+
+		const { getMemoryProfileReadModel } = await import("./read-model");
+		const profile = await getMemoryProfileReadModel({ userId: "user-1" });
+
+		expect(profile.review.openCount).toBe(2);
+		expect(profile.review.items.map((item) => item.id)).not.toContain(
+			stale.review.id,
+		);
+		expect(profile.review.items.map((item) => item.id)).toContain(
+			live.review.id,
+		);
+		expect((await readReviewRow(stale.review.id))?.status).toBe("resolved");
+		expect(
+			JSON.parse((await readResolution(stale.review.id))?.metadataJson ?? "{}"),
+		).toMatchObject({ reason: "review_item_no_longer_pending" });
+		// Closing the row never touches the item itself.
+		expect((await readItem(stale.item.id))?.status).toBe("expired");
+	});
+
+	it("Accept on a judge review whose item left review_needed returns not_found, closes the row, and does not revive the item", async () => {
+		const { item, review } = await seedLegacyShapedJudgeReview({
+			statement: "I am tired of meetings.",
+			category: "about_you",
+		});
+		const {
+			createOrUpdateMemoryReviewItem,
+			applyMemoryReviewItemWithRevision,
+		} = await import("./review");
+		// The judge's current row shape carries the proposed statement, which
+		// would otherwise let Accept re-create the fact from the row alone.
+		await createOrUpdateMemoryReviewItem({
+			userId: "user-1",
+			subjectKey: `judge:${item.itemKey}`,
+			subjectLabel: "I am tired of meetings.",
+			question: "Should I keep remembering this?",
+			reason: "Inferred from conversation, not stated directly.",
+			affectedItemIds: [item.id],
+			metadata: {
+				source: "memory_judge",
+				category: "about_you",
+				proposedStatement: "I am tired of meetings.",
+			},
+		});
+		const { ensureProjectionState } = await import("./projection-store");
+		const projection = await ensureProjectionState({
+			userId: "user-1",
+			resetGeneration: 0,
+		});
+		await setItemStatus(item.id, "expired");
+
+		await expect(
+			applyMemoryReviewItemWithRevision({
+				userId: "user-1",
+				reviewItemId: review.id,
+				expectedProjectionRevision: projection.revision,
+				action: "accept",
+			}),
+		).resolves.toEqual({ status: "not_found" });
+		expect((await readItem(item.id))?.status).toBe("expired");
+		expect(await listItems()).toHaveLength(1);
+		expect((await readReviewRow(review.id))?.status).toBe("resolved");
 	});
 
 	it("does not offer Accept for a generic review subject with no proposal and no judge item", async () => {

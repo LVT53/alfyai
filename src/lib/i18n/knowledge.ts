@@ -391,6 +391,8 @@ const knowledgeDict = {
 		"memoryProfile.removeThisMemory": "Remove this memory",
 		"memoryProfile.removeTitle": "Remove this memory?",
 		"memoryProfile.retire": "Retire",
+		"memoryProfile.reviewItemGone":
+			"That review item was already resolved, so the list has been refreshed.",
 		"memoryProfile.retireDescription":
 			"Marks this memory as no longer current. It stops shaping answers but stays in the activity log.",
 		"memoryProfile.save": "Save",
@@ -844,6 +846,8 @@ const knowledgeDict = {
 		"memoryProfile.removeThisMemory": "Emlék eltávolítása",
 		"memoryProfile.removeTitle": "Eltávolítod ezt az emléket?",
 		"memoryProfile.retire": "Archiválás",
+		"memoryProfile.reviewItemGone":
+			"Ezt a felülvizsgálati elemet már lezártuk, ezért frissítettük a listát.",
 		"memoryProfile.retireDescription":
 			"Már nem aktuálisként jelöli meg ezt az emléket. Nem alakítja többé a válaszokat, de megmarad a tevékenységnaplóban.",
 		"memoryProfile.save": "Mentés",
