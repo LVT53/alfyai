@@ -229,3 +229,27 @@ describe("memoryReviewNoticeDismissed", () => {
 		}
 	});
 });
+
+describe("memory review notice failure isolation", () => {
+	it("keeps the rest of the home summary when the memory read model throws", async () => {
+		const userId = randomUUID();
+		seedUser(userId);
+		seedReviewItem({ userId, subjectKey: "a", createdAt: NOW });
+		vi.doMock("./memory-profile/read-model", () => ({
+			getMemoryProfileReadModel: vi.fn(async () => {
+				throw new Error("memory tables unavailable");
+			}),
+		}));
+		try {
+			const summary = await summaryFor(userId, NOW);
+			// The notice is an auxiliary line: a memory failure hides it rather
+			// than failing the whole home screen (weekly bars, recent, rail).
+			expect(summary.memoryReviewCount).toBe(0);
+			expect(summary.memoryReviewNoticeDismissed).toBe(true);
+			expect(Array.isArray(summary.recent)).toBe(true);
+			expect(Array.isArray(summary.weekly)).toBe(true);
+		} finally {
+			vi.doUnmock("./memory-profile/read-model");
+		}
+	});
+});

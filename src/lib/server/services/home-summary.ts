@@ -742,10 +742,15 @@ async function computeHomeSummary(
 			readRecent(userId),
 			readRunning(userId, locale),
 			getHomeSuggestions({ userId, locale, now }),
+			// Auxiliary: a memory read failure hides the notice instead of
+			// failing the whole home screen.
 			readMemoryReviewNotice(
 				userId,
 				userRow?.homeMemoryReviewDismissedAt ?? null,
-			),
+			).catch((error) => {
+				console.error("[HOME_SUMMARY] Memory review notice failed:", error);
+				return { count: 0, dismissed: true };
+			}),
 		]);
 
 	return {
