@@ -1790,6 +1790,42 @@ describe("prepareOutboundChatContext", () => {
 			expect(mocks.runContextCompression).not.toHaveBeenCalled();
 		});
 
+		it("does not compress on every turn when the packet, not the history, is over budget", async () => {
+			// A large attached document keeps the packet over budget on every
+			// turn. Right after a compression the native history is just the raw
+			// tail plus the newest turn, so one small turn is compressible each
+			// turn — compressing it would add a control call to every turn while
+			// saving almost nothing.
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult(
+					`${"document ".repeat(25_000)}\n\n## Current User Message\nWhat next?`,
+					{
+						historyMessages: [
+							...historyTurn("second", 40),
+							...historyTurn("latest", 40),
+						],
+						historyWindow: { includedTurnCount: 2, omittedTurnCount: 0 },
+					},
+				),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+
+			await prepareOutboundChatContext({
+				message: "What next?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: limits,
+				compressionControlMessageSender: vi.fn() as never,
+				logLabel: "provider request",
+			});
+
+			expect(mocks.runContextCompression).not.toHaveBeenCalled();
+		});
+
 		const automaticAttempt = (
 			status: "failed" | "running",
 			sourceEndMessageSequence: number,

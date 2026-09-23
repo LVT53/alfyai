@@ -1174,6 +1174,31 @@ function automaticCompressionResult(
 // the history window is compressed with the rest.
 const AUTOMATIC_COMPRESSION_RAW_TAIL_MAX_TURNS = 2;
 const AUTOMATIC_COMPRESSION_RAW_TAIL_HISTORY_RATIO = 0.25;
+// An over-budget prompt is compressed only once the native history is at
+// least twice the raw-tail allowance, so every compression removes at least
+// as much history as it keeps raw, and a prompt whose packet alone is over
+// budget does not re-compress one small turn on every turn.
+const AUTOMATIC_COMPRESSION_MIN_HISTORY_RATIO =
+	AUTOMATIC_COMPRESSION_RAW_TAIL_HISTORY_RATIO * 2;
+
+function automaticCompressionSessionHistoryBudget(
+	contextLimits: PromptContextLimits,
+): number {
+	return deriveSessionHistoryBudget({
+		contextBudget: {
+			targetConstructedContext: contextLimits.targetConstructedContext,
+		},
+	}).totalBudget;
+}
+
+function automaticCompressionMinHistoryTokens(
+	contextLimits: PromptContextLimits,
+): number {
+	return Math.floor(
+		automaticCompressionSessionHistoryBudget(contextLimits) *
+			AUTOMATIC_COMPRESSION_MIN_HISTORY_RATIO,
+	);
+}
 
 // The compression call runs before the model call of the turn that
 // triggered it, so it is bounded: past this deadline (or when the user stops
@@ -1271,11 +1296,8 @@ function splitAutomaticCompressionSource<
 	contextLimits: PromptContextLimits,
 ): { compress: T[]; rawTail: T[] } {
 	const tailTokenBudget = Math.floor(
-		deriveSessionHistoryBudget({
-			contextBudget: {
-				targetConstructedContext: contextLimits.targetConstructedContext,
-			},
-		}).totalBudget * AUTOMATIC_COMPRESSION_RAW_TAIL_HISTORY_RATIO,
+		automaticCompressionSessionHistoryBudget(contextLimits) *
+			AUTOMATIC_COMPRESSION_RAW_TAIL_HISTORY_RATIO,
 	);
 	let tailStart = messages.length;
 	let tailTokens = 0;
@@ -1347,11 +1369,12 @@ async function maybeRunAutomaticContextCompression(params: {
 		turnGuidance: params.turnGuidance,
 	});
 	const omittedHistoryTurnCount = params.historyWindow?.omittedTurnCount ?? 0;
-	const trigger: AutomaticContextCompressionTrigger | null = fit.overBudget
-		? "prompt_over_budget"
-		: omittedHistoryTurnCount > 0
+	const trigger: AutomaticContextCompressionTrigger | null =
+		omittedHistoryTurnCount > 0
 			? "history_window_trimmed"
-			: null;
+			: fit.overBudget
+				? "prompt_over_budget"
+				: null;
 	const measurement = {
 		beforeInputTokensWithSafety: fit.safeInputTokens,
 		historyTokensWithSafety: fit.historyTokens,
@@ -1361,6 +1384,26 @@ async function maybeRunAutomaticContextCompression(params: {
 		return automaticCompressionResult({
 			outcome: "not_needed",
 			reason: "prompt_and_history_within_budget",
+			attempted: false,
+			...measurement,
+		});
+	}
+	// Compression can only shrink the history. When the prompt is over budget
+	// but the native history is already small (typically the raw tail right
+	// after a compression, with a large document keeping the packet over
+	// budget), summarizing it would save next to nothing and put a control
+	// call in front of every turn. Without native history (legacy flattened
+	// session context) the history size is not measurable here, so the
+	// trigger stands.
+	if (
+		trigger === "prompt_over_budget" &&
+		(params.historyMessages?.length ?? 0) > 0 &&
+		fit.historyTokens <
+			automaticCompressionMinHistoryTokens(params.contextLimits)
+	) {
+		return automaticCompressionResult({
+			outcome: "not_needed",
+			reason: "history_too_small_to_relieve_budget",
 			attempted: false,
 			...measurement,
 		});
