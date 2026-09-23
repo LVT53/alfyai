@@ -1115,6 +1115,73 @@ describe("buildConstructedContext", () => {
 		expect(mocks.selectWorkingSetArtifactsForPrompt).toHaveBeenCalled();
 	});
 
+	it("caps each retrieved document at the per-artifact character budget even without a prepared snippet", async () => {
+		resetConstructedContextMocks();
+		const evidence = artifact({
+			id: "long-evidence",
+			name: "long-evidence.md",
+			// Word-shaped text: the repo estimator counts ~2-3 chars per token,
+			// so a character budget misread as tokens lets several times more
+			// text through than the budget allows.
+			contentText: "alpha beta gamma delta ".repeat(20_000),
+		});
+		mocks.resolvePromptAttachmentArtifacts.mockResolvedValue({
+			displayArtifacts: [],
+			promptArtifacts: [],
+			items: [],
+			unresolvedItems: [],
+		});
+		mocks.selectWorkingSetArtifactsForPrompt.mockResolvedValue([evidence]);
+		mocks.prepareTaskContext.mockResolvedValue({
+			taskState: null,
+			routingStage: "deterministic",
+			routingConfidence: 1,
+			verificationStatus: "verified",
+			selectedArtifacts: [evidence],
+			pinnedArtifactIds: [],
+			excludedArtifactIds: [],
+		});
+		// Snippet preparation failing leaves the serializer to excerpt the raw
+		// document text itself.
+		mocks.getPromptArtifactSnippets.mockRejectedValue(
+			new Error("chunk store unavailable"),
+		);
+
+		const constructed = await buildConstructedContext({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			message: "Compare the retrieved evidence and summarize the differences.",
+			modelId: "local-model",
+			contextLimits: {
+				maxModelContext: 262_144,
+				compactionUiThreshold: 209_715,
+				targetConstructedContext: 157_286,
+			},
+		});
+
+		const perArtifactChars = Number(
+			constructed.contextTraceSections
+				.flatMap((section) => section.signalReasons ?? [])
+				.find((reason) =>
+					reason.startsWith("document_context_per_artifact_chars:"),
+				)
+				?.split(":")[1],
+		);
+		expect(perArtifactChars).toBeGreaterThan(0);
+		const retrievedEvidence =
+			constructed.inputValue
+				.split("## Retrieved Evidence\n")
+				.at(1)
+				?.split("\n\n## ")
+				.at(0) ?? "";
+		const excerpt = retrievedEvidence.replace(
+			"Document: long-evidence.md\n",
+			"",
+		);
+		expect(excerpt).toContain("alpha beta");
+		expect(excerpt.length).toBeLessThanOrEqual(perArtifactChars);
+	});
+
 	it("does not clamp retrieved evidence to legacy working-set floors on large-context models", async () => {
 		resetConstructedContextMocks();
 		const evidenceArtifacts = Array.from({ length: 12 }, (_, index) =>

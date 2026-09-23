@@ -151,6 +151,15 @@ type ConstructedContextResult = Awaited<
 	ReturnType<typeof buildConstructedContext>
 >;
 
+// The turn-derived inputs to `buildConstructedContext`. Built once per turn so
+// the initial build and the post-compression rebuild cannot drift apart (a
+// rebuild that silently dropped `historyToolMessages` switched flattened-history
+// providers back to native history after compression).
+type ConstructedContextTurnParams = Omit<
+	Parameters<typeof buildConstructedContext>[0],
+	"reuseFrom"
+>;
+
 type AutomaticContextCompressionOutcome =
 	| "not_needed"
 	| "not_possible"
@@ -1174,13 +1183,11 @@ async function maybeRunAutomaticContextCompression(params: {
 	contextLimits: PromptContextLimits;
 	inputValue: string;
 	systemPrompt: string;
-	attachmentIds?: string[];
-	activeDocumentArtifactId?: string;
-	attachmentTraceId?: string;
+	constructedContextParams: ConstructedContextTurnParams | null;
 	controlMessageSender?: ContextCompressionControlSender;
 	reuseFromContext?: ConstructedContextReuseData;
 }): Promise<AutomaticContextCompressionResult> {
-	if (!params.user?.id) {
+	if (!params.user?.id || !params.constructedContextParams) {
 		return automaticCompressionResult({
 			outcome: "not_possible",
 			reason: "missing_user",
@@ -1309,14 +1316,7 @@ async function maybeRunAutomaticContextCompression(params: {
 	}
 
 	const context = await buildConstructedContext({
-		userId: params.user.id,
-		conversationId: params.sessionId,
-		message: params.message,
-		attachmentIds: params.attachmentIds,
-		activeDocumentArtifactId: params.activeDocumentArtifactId,
-		attachmentTraceId: params.attachmentTraceId,
-		modelId: params.modelId,
-		contextLimits: params.contextLimits,
+		...params.constructedContextParams,
 		reuseFrom: params.reuseFromContext,
 	});
 	return automaticCompressionResult({
@@ -1570,6 +1570,7 @@ async function runAutomaticContextCompressionStage(input: {
 	inputValue: string;
 	systemPrompt: string;
 	contextLimits: PromptContextLimits;
+	constructedContextParams: ConstructedContextTurnParams | null;
 	reuseData?: ConstructedContextReuseData;
 }): Promise<AutomaticContextCompressionStageResult> {
 	const decision = await maybeRunAutomaticContextCompression({
@@ -1581,9 +1582,7 @@ async function runAutomaticContextCompressionStage(input: {
 		contextLimits: input.contextLimits,
 		inputValue: input.inputValue,
 		systemPrompt: input.systemPrompt,
-		attachmentIds: input.params.attachmentIds,
-		activeDocumentArtifactId: input.params.activeDocumentArtifactId,
-		attachmentTraceId: input.params.attachmentTraceId,
+		constructedContextParams: input.constructedContextParams,
 		controlMessageSender: input.params.compressionControlMessageSender,
 		reuseFromContext: input.reuseData,
 	}).catch((error) => {
@@ -1743,6 +1742,20 @@ export async function prepareOutboundChatContext(
 			contextLimits: params.modelConfig.contextLimits,
 			runtimeConfig: getPreparationConfig(),
 		});
+	const constructedContextParams: ConstructedContextTurnParams | null = params
+		.user?.id
+		? {
+				userId: params.user.id,
+				conversationId: params.sessionId,
+				message: params.message,
+				attachmentIds: params.attachmentIds,
+				activeDocumentArtifactId: params.activeDocumentArtifactId,
+				attachmentTraceId: params.attachmentTraceId,
+				modelId: params.modelId,
+				contextLimits,
+				historyToolMessages: params.historyToolMessages,
+			}
+		: null;
 	const { state, timings } =
 		await runNormalChatContextPreparationStages<OutboundChatContextPreparationState>(
 			{
@@ -1756,21 +1769,13 @@ export async function prepareOutboundChatContext(
 				handlers: {
 					plan: (currentState) => currentState,
 					constructed_context: async (currentState) => {
-						if (!params.user?.id) {
+						if (!constructedContextParams) {
 							return currentState;
 						}
 
-						const constructed = await buildConstructedContext({
-							userId: params.user.id,
-							conversationId: params.sessionId,
-							message: params.message,
-							attachmentIds: params.attachmentIds,
-							activeDocumentArtifactId: params.activeDocumentArtifactId,
-							attachmentTraceId: params.attachmentTraceId,
-							modelId: params.modelId,
-							contextLimits,
-							historyToolMessages: params.historyToolMessages,
-						});
+						const constructed = await buildConstructedContext(
+							constructedContextParams,
+						);
 						return applyConstructedContextToPreparationState(
 							currentState,
 							constructed,
@@ -1835,6 +1840,7 @@ export async function prepareOutboundChatContext(
 							inputValue: currentState.inputValue,
 							systemPrompt,
 							contextLimits,
+							constructedContextParams,
 							reuseData: currentState.reuseData,
 						});
 						let nextState: OutboundChatContextPreparationState = {

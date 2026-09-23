@@ -374,9 +374,9 @@ describe("the citation budget", () => {
 		const body = serializeWorkingSetArtifacts({
 			artifacts: [artifact],
 			snippets,
-			totalBudget,
-			documentBudget: totalBudget,
-			outputBudget: totalBudget,
+			totalTokenBudget: totalBudget,
+			documentTokenBudget: totalBudget,
+			outputTokenBudget: totalBudget,
 		});
 
 		expect(body).toContain("[p.");

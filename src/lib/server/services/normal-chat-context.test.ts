@@ -1488,6 +1488,60 @@ describe("prepareOutboundChatContext", () => {
 		expect(prepared.systemPrompt).toContain("Base system prompt");
 	});
 
+	it("rebuilds the compressed context from the same turn inputs, keeping flattened history mode", async () => {
+		const reuseData = {
+			relevantArtifacts: [],
+			preparedContext: null,
+			artifactSnippets: new Map(),
+		};
+		mocks.buildConstructedContext
+			.mockResolvedValueOnce(
+				createConstructedContextResult(
+					"## Current User Message\nSummarize this context.",
+					{ _reuseData: reuseData },
+				),
+			)
+			.mockResolvedValueOnce(
+				createConstructedContextResult(
+					"## Compressed Context\nshort\n\n## Current User Message\nSummarize this context.",
+				),
+			);
+		mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+			{
+				messageSequence: 1,
+				role: "user",
+				content: "Earlier conversation context. ".repeat(20_000),
+				thinking: null,
+				toolCalls: null,
+			},
+		]);
+
+		await prepareOutboundChatContext({
+			message: "Summarize this context.",
+			sessionId: "conv-1",
+			modelConfig,
+			user: { id: "user-1" },
+			modelId: "model2",
+			attachmentIds: ["att-1"],
+			activeDocumentArtifactId: "doc-1",
+			attachmentTraceId: "trace-1",
+			historyToolMessages: "flatten",
+			contextLimits: {
+				maxModelContext: 50_000,
+				compactionUiThreshold: 40_000,
+				targetConstructedContext: 20_000,
+			},
+			compressionControlMessageSender: vi.fn() as never,
+			logLabel: "provider request",
+		});
+
+		expect(mocks.buildConstructedContext).toHaveBeenCalledTimes(2);
+		const [[firstArgs], [rebuildArgs]] =
+			mocks.buildConstructedContext.mock.calls;
+		expect(firstArgs).toMatchObject({ historyToolMessages: "flatten" });
+		expect(rebuildArgs).toEqual({ ...firstArgs, reuseFrom: reuseData });
+	});
+
 	it("no longer exposes a guidance-pack plan on the prepared context (G1 removes pack selection)", async () => {
 		const prepared = await prepareOutboundChatContext({
 			message: "Ping!",
