@@ -1,6 +1,6 @@
 // Atlas v3 content-pipeline types (ADR 0063).
 //
-// Deliberately separate from `atlas-v2/types.ts`. v3 shares the job ledger,
+// Deliberately separate from v2's own types module. v3 shares the job ledger,
 // checkpoints, lifecycle, rendering and the `research_web` adapter with v2, and
 // shares no content types with it: the unit of work is a CLAIM, not a section,
 // and a citation is an evidence id, not a source number. Numbers are minted

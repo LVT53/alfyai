@@ -1,8 +1,8 @@
 // Evidence source filters for Atlas v3 (ADR 0062, ADR 0063).
 //
-// Copied out of v2's evidence index (`atlas-v2/evidence-index.ts`), which
-// still owns them for v2. Every rule here exists because a real staging
-// report shipped the defect it removes:
+// Copied out of v2's evidence-index module, which still owns them for v2.
+// Every rule here exists because a real staging report shipped the defect it
+// removes:
 //
 //   * a "301 Moved Permanently" entry in the source list  -> redirect stubs
 //   * a LinkedIn company page                             -> social profiles

@@ -1,4 +1,4 @@
-// Ported from atlas-v2/evidence-index.test.ts: the identity and stub cases
+// Ported from v2's evidence-index test suite: the identity and stub cases
 // for the filters copied into source-filters.ts.
 import { describe, expect, it } from "vitest";
 import {
