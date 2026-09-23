@@ -278,20 +278,19 @@ export function bucketWeeklyCounts(params: {
 type PhraseKey = keyof (typeof chatDict)["en"];
 
 /**
- * v2 and v3 pipeline phases mapped onto the i18n labels that already exist.
- * v3 named four phases v2 never had (`ask`, `outline`, `answer`, `critic`); each
- * takes the existing label closest to what it does rather than inventing a
- * string the rest of the app does not use.
+ * v2 and v3 pipeline phases mapped onto their i18n labels. v3 named four
+ * phases v2 never had (`ask`, `outline`, `answer`, `critic`); each has its
+ * own label now (ADR 0063), the same ones AtlasActivityBody.svelte uses.
  */
 const PHASE_LABEL_KEYS: Record<string, PhraseKey> = {
 	plan: "atlasActivity.phase.plan",
-	ask: "atlasActivity.phase.plan",
-	outline: "atlasActivity.phase.plan",
+	ask: "atlasActivity.phase.ask",
+	outline: "atlasActivity.phase.outline",
 	research: "atlasActivity.phase.research",
 	index: "atlasActivity.phase.index",
-	answer: "atlasActivity.phase.write",
+	answer: "atlasActivity.phase.answer",
 	write: "atlasActivity.phase.write",
-	critic: "atlasActivity.phase.verify",
+	critic: "atlasActivity.phase.critic",
 	verify: "atlasActivity.phase.verify",
 	render: "atlasActivity.phase.render",
 };

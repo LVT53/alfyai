@@ -266,12 +266,12 @@ describe("resolveRunningJobPhase", () => {
 		}
 	});
 
-	it("maps the v3-only phases onto the nearest existing label", () => {
+	it("maps every v3-only phase to its own label (ADR 0063)", () => {
 		const cases: Array<[string, string]> = [
-			["ask", "Planning"],
-			["outline", "Planning"],
+			["ask", "Scoping the question"],
+			["outline", "Outlining"],
 			["answer", "Writing"],
-			["critic", "Verifying"],
+			["critic", "Reviewing coverage"],
 		];
 		for (const [phase, expected] of cases) {
 			expect(

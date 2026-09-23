@@ -118,6 +118,11 @@ const PHASE_LABEL_KEYS: Record<string, I18nKey> = {
 	write: "atlasActivity.phase.write",
 	verify: "atlasActivity.phase.verify",
 	render: "atlasActivity.phase.render",
+	// v3 phases (ADR 0063).
+	ask: "atlasActivity.phase.ask",
+	outline: "atlasActivity.phase.outline",
+	answer: "atlasActivity.phase.answer",
+	critic: "atlasActivity.phase.critic",
 };
 
 const CONFIDENCE_LABEL_KEYS: Record<AtlasPlanConfidence, I18nKey> = {

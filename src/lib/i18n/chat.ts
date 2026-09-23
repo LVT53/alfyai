@@ -353,6 +353,11 @@ const chatDict = {
 		"atlasActivity.phase.write": "Writing",
 		"atlasActivity.phase.verify": "Verifying",
 		"atlasActivity.phase.render": "Rendering",
+		// v3 phases (ADR 0063).
+		"atlasActivity.phase.ask": "Scoping the question",
+		"atlasActivity.phase.outline": "Outlining",
+		"atlasActivity.phase.answer": "Writing",
+		"atlasActivity.phase.critic": "Reviewing coverage",
 		"atlasActivity.sourcesRead": "{count} sources read so far",
 		"atlasActivity.sections": "{count} sections",
 		"atlasActivity.then": "Then: {next}",
@@ -1502,6 +1507,11 @@ const chatDict = {
 		"atlasActivity.phase.write": "Írás",
 		"atlasActivity.phase.verify": "Ellenőrzés",
 		"atlasActivity.phase.render": "Fájlok készítése",
+		// v3 fázisok (ADR 0063).
+		"atlasActivity.phase.ask": "Kérdés pontosítása",
+		"atlasActivity.phase.outline": "Vázlat készítése",
+		"atlasActivity.phase.answer": "Írás",
+		"atlasActivity.phase.critic": "Lefedettség ellenőrzése",
 		"atlasActivity.sourcesRead": "eddig {count} forrás beolvasva",
 		"atlasActivity.sections": "{count} szakasz",
 		"atlasActivity.then": "Utána: {next}",

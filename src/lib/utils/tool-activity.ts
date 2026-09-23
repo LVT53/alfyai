@@ -944,7 +944,13 @@ export type AtlasActivityPhase =
 	| "index"
 	| "write"
 	| "verify"
-	| "render";
+	| "render"
+	// v3 phases (ADR 0063). "research" is shared with v2 above; the rest are
+	// v3-only, so a v2 card never sees them and a v3 card never sees "index".
+	| "ask"
+	| "outline"
+	| "answer"
+	| "critic";
 
 export type AtlasPlanEntryStatus = "queued" | "running" | "done";
 
@@ -1004,6 +1010,10 @@ const ATLAS_PHASES: readonly AtlasActivityPhase[] = [
 	"write",
 	"verify",
 	"render",
+	"ask",
+	"outline",
+	"answer",
+	"critic",
 ];
 
 const ATLAS_PLAN_STATUSES: readonly AtlasPlanEntryStatus[] = [

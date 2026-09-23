@@ -901,6 +901,16 @@ describe("Atlas report row grammar", () => {
 		expect(atlasPlanProgress(details.plan)).toEqual({ done: 1, total: 2 });
 	});
 
+	it("recognizes every v3 phase (ADR 0063) instead of nulling it out", () => {
+		for (const phase of ["ask", "outline", "answer", "critic"] as const) {
+			const details = parseAtlasActivityDetails({
+				pipelineVersion: 3,
+				phase,
+			});
+			expect(details.phase).toBe(phase);
+		}
+	});
+
 	it("treats a missing, malformed or empty details payload as no details", () => {
 		for (const value of [undefined, null, "text", 42, {}]) {
 			const details = parseAtlasActivityDetails(value);
