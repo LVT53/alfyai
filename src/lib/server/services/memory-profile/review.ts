@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import { memoryReviewItems } from "$lib/server/db/schema";
+import { memoryProfileItems, memoryReviewItems } from "$lib/server/db/schema";
 import {
 	type MemoryProfileTextSanitizer,
 	sanitizePublicMemoryText,
@@ -18,6 +18,8 @@ import {
 } from "./reset-generation";
 import { resolveReviewRowsTx } from "./review-resolution";
 import {
+	fromScopeColumns,
+	normalizeRememberedStatement,
 	resolveMemoryProfileItemKey,
 	stableMemoryMaintenanceDigest,
 } from "./scope";
@@ -81,6 +83,18 @@ export function legacyReviewSubjectKey(params: {
 	)}`;
 }
 
+/**
+ * Review rows the Memory Judge opens for an inferred fact. Their subject label
+ * IS the remembered statement and their affected item carries it, so they are
+ * acceptable even without `proposedStatement` metadata (rows opened before the
+ * judge started writing it).
+ */
+export const JUDGE_REVIEW_SUBJECT_PREFIX = "judge:";
+
+function isJudgeReviewRow(row: typeof memoryReviewItems.$inferSelect): boolean {
+	return row.subjectKey.startsWith(JUDGE_REVIEW_SUBJECT_PREFIX);
+}
+
 export function toPublicReviewItem(
 	row: typeof memoryReviewItems.$inferSelect,
 	sanitizer: MemoryProfileTextSanitizer,
@@ -95,8 +109,27 @@ export function toPublicReviewItem(
 		),
 		question: sanitizePublicMemoryText(row.question, sanitizer),
 		reason: sanitizePublicMemoryText(row.reason, sanitizer),
-		canAccept: proposedStatement !== null,
+		canAccept: proposedStatement !== null || isJudgeReviewRow(row),
 	};
+}
+
+/**
+ * The expiry an item should carry once a review promotes it to active: a
+ * time_bound fact gets its factual horizon from now; anything else has the
+ * review auto-expiry cleared. Review-row metadata wins over item metadata.
+ */
+function acceptedExpiresAt(sources: JsonRecord[], now: Date): Date | null {
+	for (const source of sources) {
+		if (
+			source.expiryClass === "time_bound" &&
+			typeof source.expiresInDays === "number" &&
+			source.expiresInDays > 0
+		) {
+			return new Date(now.getTime() + source.expiresInDays * 86_400_000);
+		}
+		if (source.expiryClass === "durable") return null;
+	}
+	return null;
 }
 
 function reviewDeduplicationKey(
@@ -339,17 +372,47 @@ export async function applyMemoryReviewItemWithRevision(params: {
 			),
 		),
 	);
+	// The review_needed items this review is about. The first one is the
+	// "primary" item: its category and scope are authoritative for accept and
+	// edit (they were decided at intake), and its statement is the accept
+	// fallback when the row carries no proposed statement (judge rows).
+	const affectedItems =
+		affectedItemIds.length > 0
+			? await db
+					.select()
+					.from(memoryProfileItems)
+					.where(
+						and(
+							eq(memoryProfileItems.userId, params.userId),
+							eq(memoryProfileItems.resetGeneration, resetGeneration),
+							inArray(memoryProfileItems.id, affectedItemIds),
+						),
+					)
+			: [];
+	const reviewNeededItems = affectedItemIds
+		.map((id) => affectedItems.find((item) => item.id === id))
+		.filter(
+			(item): item is (typeof affectedItems)[number] =>
+				item?.status === "review_needed",
+		);
+	const primaryItem = reviewNeededItems[0] ?? null;
+	const primaryCategory = primaryItem
+		? readMemoryProfileCategory(primaryItem.category)
+		: null;
+
 	const proposedStatement = readReviewProposedStatement(metadata);
-	const candidateStatement = params.statement ?? proposedStatement ?? "";
+	const candidateStatement =
+		params.statement ?? proposedStatement ?? primaryItem?.statement ?? "";
 	const category =
 		params.action === "dismiss"
 			? null
-			: inferReviewCategory({
+			: (primaryCategory ??
+				inferReviewCategory({
 					subject: candidateStatement || review.subjectLabel,
 					question: review.question,
 					reason: review.reason,
 					metadata,
-				});
+				}));
 	const statement =
 		params.action === "dismiss" ? null : candidateStatement.trim();
 	if (params.action !== "dismiss" && !statement) {
@@ -358,21 +421,20 @@ export async function applyMemoryReviewItemWithRevision(params: {
 
 	const now = new Date();
 
-	// On accept, recompute expiresAt from the review item's own metadata: a
-	// time_bound item gets its factual horizon applied now (it no longer needs
-	// the review auto-expiry window); a durable item has its expiry cleared.
-	const acceptExpiresInDays =
-		params.action === "accept" &&
-		metadata.expiryClass === "time_bound" &&
-		typeof metadata.expiresInDays === "number"
-			? metadata.expiresInDays
-			: null;
+	// On accept or edit, recompute expiresAt: a time_bound fact gets its factual
+	// horizon applied now (it no longer needs the review auto-expiry window); a
+	// durable one has its expiry cleared. The review row's metadata wins, then
+	// the primary item's own intake metadata (the judge stores it there).
 	const acceptExpiresAt =
-		params.action === "accept"
-			? acceptExpiresInDays !== null
-				? new Date(now.getTime() + acceptExpiresInDays * 86_400_000)
-				: null
-			: undefined;
+		params.action === "dismiss"
+			? undefined
+			: acceptedExpiresAt(
+					[
+						metadata,
+						primaryItem ? parseJsonRecord(primaryItem.metadataJson) : {},
+					],
+					now,
+				);
 
 	const resolutionType: MemoryReviewResolutionType =
 		params.action === "accept"
@@ -381,10 +443,27 @@ export async function applyMemoryReviewItemWithRevision(params: {
 				? "edit_fact"
 				: "do_not_remember";
 
+	// Accepting the primary item's own statement promotes that item in place,
+	// keeping its identity, metadata, and provenance. Any other outcome (an
+	// edit, or a curated proposed statement) writes the result under the
+	// primary's category/scope and retires the replaced review_needed items
+	// with a pointer to it.
+	const promoteItemId =
+		params.action === "accept" &&
+		primaryItem &&
+		statement &&
+		normalizeRememberedStatement(primaryItem.statement) ===
+			normalizeRememberedStatement(statement)
+			? primaryItem.id
+			: undefined;
+
 	// Hand the projection store a plain decision; it runs the revision claim, the
-	// create/reactivate + suppress item writes, and the review-row resolution as
-	// one atomic transaction. review.ts owns only the review-specific reasoning.
-	const scope: MemoryProfileScope = { type: "global" };
+	// create/reactivate/retire + suppress item writes, and the review-row
+	// resolution as one atomic transaction. review.ts owns only the
+	// review-specific reasoning.
+	const scope: MemoryProfileScope = primaryItem
+		? fromScopeColumns(primaryItem.scopeType, primaryItem.scopeId)
+		: { type: "global" };
 	const mutation = await applyReviewItemProjectionMutation({
 		userId: params.userId,
 		resetGeneration,
@@ -403,6 +482,16 @@ export async function applyMemoryReviewItemWithRevision(params: {
 						scope,
 						statement,
 						acceptExpiresAt,
+						promoteItemId,
+						replaceItemIds: reviewNeededItems.map((item) => item.id),
+						retiredReason:
+							params.action === "edit"
+								? "review_edited"
+								: "review_accepted_replacement",
+						metadataPatch:
+							params.action === "edit"
+								? { origin: "user_authored", reviewResolution: "edited" }
+								: { reviewResolution: "accepted" },
 					}
 				: null,
 		suppressItemIds: params.action === "dismiss" ? affectedItemIds : [],
