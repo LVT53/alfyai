@@ -31,6 +31,9 @@ export const ATLAS_V3_ASK_SYSTEM: Record<SupportedLanguage, string> = {
 		"`perspectives` are the stakeholders whose view of the answer differs — buyer and manufacturer, regulator and operator, patient and payer. 2 to 4 items.",
 		"`subQuestions` are 3 to 6 research questions that, answered, answer the core question. Each must be answerable from a published source. No question about opinion or preference.",
 		"`localSources` lists documents the user provided. Sub-questions may be answered from them; do not ask the web for what they state, but keep at least one sub-question that checks their key figures against published sources when the request needs current or external facts.",
+		"`parent.verdict` is the previous report's conclusion, for orientation only — it is not evidence and must not be restated as fact.",
+		"Continue (`parent.action` is continue): extend the parent: keep its core question unless the instruction changes it; subQuestions cover what the parent did not establish or what the instruction asks, never what it already answered.",
+		"Revise (`parent.action` is revise): replace the parent: keep its core question and structure unless the instruction changes them; subQuestions re-verify its key figures and look for anything newer than its date.",
 	].join("\n"),
 	hu: [
 		"Egy kutatási kérést fogalmazol újra döntésként. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -43,19 +46,45 @@ export const ATLAS_V3_ASK_SYSTEM: Record<SupportedLanguage, string> = {
 		"A `perspectives` azok az érintettek, akiknek más a nézőpontja — vevő és gyártó, szabályozó és üzemeltető, beteg és finanszírozó. 2-4 elem.",
 		"A `subQuestions` 3-6 kutatási kérdés, amelyek megválaszolva megválaszolják a fő kérdést. Mindegyik publikált forrásból megválaszolható legyen. Vélemény vagy ízlés nem kérdés.",
 		"A `localSources` a felhasználó által megadott dokumentumokat sorolja fel. A kutatási kérdések megválaszolhatók belőlük; ne kérdezd a webet arról, amit ezek kimondanak, de ha a kérés aktuális vagy külső tényeket igényel, maradjon legalább egy kutatási kérdés, amely a fő számaikat közzétett forrásokkal veti össze.",
+		"A `parent.verdict` az előző jelentés következtetése, csak tájékozódásra szolgál — nem bizonyíték, és nem szabad tényként megismételni.",
+		"Folytatás (a `parent.action` értéke continue): bővítsd a szülőt: tartsd meg a fő kérdését, hacsak az utasítás nem változtat rajta; a subQuestions azt fedjék le, amit a szülő nem állapított meg, vagy amit az utasítás kér, soha ne azt, amit már megválaszolt.",
+		"Átdolgozás (a `parent.action` értéke revise): váltsd fel a szülőt: tartsd meg a fő kérdését és a szerkezetét, hacsak az utasítás nem változtat rajtuk; a subQuestions ellenőrizzék újra a fő számait, és keressenek bármit, ami a dátumánál újabb.",
 	].join("\n"),
 };
 
 /** Characters of a user document's summary the ask may see. */
 const MAX_LOCAL_SUMMARY_CHARS = 300;
 
+/**
+ * The parent report a lifecycle child extends, replaces or forks from. The
+ * verdict is orientation, never evidence: the system prompt says so, and none
+ * of it reaches the bank.
+ */
+export interface AtlasV3AskParent {
+	action: "continue" | "revise" | "fork";
+	title: string;
+	/** The parent's own core question (v3 parents only; never on a Fork). */
+	coreQuestion?: string | null;
+	/** The parent's verdict or executive summary, citation tokens stripped. */
+	verdict: string;
+	/** The parent's section headings (never on a Fork). */
+	headings: readonly string[];
+	/** The day the parent finished, so a Revise can look for anything newer. */
+	date?: string | null;
+}
+
 export interface BuildAtlasV3AskPromptInput {
 	query: string;
 	profile: string;
 	language: SupportedLanguage;
 	currentDate: string;
-	/** A Revise action's instruction, carried so the ask reflects it. */
-	reviseInstruction?: string | null;
+	/**
+	 * What the user asked a lifecycle child to do (the Continue, Revise or Fork
+	 * message), carried beside `parent` so the ask reflects it.
+	 */
+	instruction?: string | null;
+	/** The parent report, for a Continue, Revise or Fork. */
+	parent?: AtlasV3AskParent | null;
 	/** Native primary sources for the jurisdictions the request mentions. */
 	preferredSources?: readonly string[];
 	/**
@@ -78,9 +107,21 @@ export function buildAtlasV3AskPrompt(
 		profile: input.profile,
 		language: input.language,
 		currentDate: input.currentDate,
-		...(input.reviseInstruction
-			? { reviseInstruction: input.reviseInstruction }
+		...(input.parent
+			? {
+					parent: {
+						action: input.parent.action,
+						title: input.parent.title,
+						...(input.parent.coreQuestion
+							? { coreQuestion: input.parent.coreQuestion }
+							: {}),
+						verdict: input.parent.verdict,
+						headings: [...input.parent.headings],
+						...(input.parent.date ? { date: input.parent.date } : {}),
+					},
+				}
 			: {}),
+		...(input.instruction ? { instruction: input.instruction } : {}),
 		...(input.preferredSources && input.preferredSources.length > 0
 			? { preferredPrimarySources: [...input.preferredSources] }
 			: {}),

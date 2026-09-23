@@ -695,7 +695,7 @@ export async function runAtlasV3Pipeline(
 						profile: job.profile,
 						language,
 						currentDate: isoDate(now),
-						reviseInstruction: job.action === "revise" ? job.query : null,
+						instruction: job.action === "create" ? null : job.query,
 						preferredSources,
 						localSources: localDocuments.map((document) => ({
 							title: document.title,
