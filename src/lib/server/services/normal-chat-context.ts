@@ -1166,6 +1166,90 @@ function automaticCompressionResult(
 const AUTOMATIC_COMPRESSION_RAW_TAIL_MAX_TURNS = 2;
 const AUTOMATIC_COMPRESSION_RAW_TAIL_HISTORY_RATIO = 0.25;
 
+// The compression call runs before the model call of the turn that
+// triggered it, so it is bounded: past this deadline (or when the user stops
+// the turn) the in-flight control call is aborted, remaining validation
+// retries fail fast, the attempt is recorded as failed and the turn goes on
+// with its budgeted context. One full attempt (prefill plus up to 8,192
+// output tokens on the local model) fits.
+const AUTOMATIC_COMPRESSION_DEADLINE_MS = 90_000;
+// A failed automatic attempt is not retried until at least this many new
+// messages (two turns) have become compressible, so a conversation the
+// control model cannot summarize does not pay a failing control call on
+// every turn.
+const AUTOMATIC_COMPRESSION_RETRY_AFTER_MESSAGES = 4;
+// A "running" automatic attempt younger than this is treated as in flight
+// (a concurrent turn of the same conversation); an older one was abandoned
+// by a crashed process and is ignored.
+const AUTOMATIC_COMPRESSION_IN_FLIGHT_WINDOW_MS =
+	2 * AUTOMATIC_COMPRESSION_DEADLINE_MS;
+
+function withAutomaticCompressionDeadline(
+	sender: ContextCompressionControlSender,
+	signal: AbortSignal,
+): ContextCompressionControlSender {
+	return (message, modelId, options) => {
+		if (signal.aborted) {
+			return Promise.reject(
+				signal.reason instanceof Error
+					? signal.reason
+					: new Error("Automatic context compression was aborted."),
+			);
+		}
+		return sender(message, modelId, {
+			...options,
+			signal: options.signal
+				? AbortSignal.any([options.signal, signal])
+				: signal,
+		});
+	};
+}
+
+type AutomaticCompressionAttempt = {
+	trigger: string;
+	status: string;
+	sourceEndMessageSequence: number;
+	updatedAt: Date;
+};
+
+// Why an automatic attempt must not start now, or null when it may.
+function automaticCompressionBackoffReason(params: {
+	attempts: AutomaticCompressionAttempt[];
+	priorSnapshotEndSequence: number;
+	compressEndSequence: number;
+	now: number;
+}): string | null {
+	const sinceSnapshot = params.attempts.filter(
+		(attempt) =>
+			attempt.trigger === "automatic" &&
+			attempt.sourceEndMessageSequence > params.priorSnapshotEndSequence,
+	);
+	if (
+		sinceSnapshot.some(
+			(attempt) =>
+				attempt.status === "running" &&
+				params.now - attempt.updatedAt.getTime() <
+					AUTOMATIC_COMPRESSION_IN_FLIGHT_WINDOW_MS,
+		)
+	) {
+		return "automatic_compression_in_progress";
+	}
+	const lastFailedEnd = Math.max(
+		0,
+		...sinceSnapshot
+			.filter((attempt) => attempt.status === "failed")
+			.map((attempt) => attempt.sourceEndMessageSequence),
+	);
+	if (
+		lastFailedEnd > 0 &&
+		params.compressEndSequence - lastFailedEnd <
+			AUTOMATIC_COMPRESSION_RETRY_AFTER_MESSAGES
+	) {
+		return "recent_automatic_compression_failed";
+	}
+	return null;
+}
+
 type AutomaticCompressionSourceMessage = {
 	role: string;
 	content: string;
@@ -1229,6 +1313,7 @@ async function maybeRunAutomaticContextCompression(params: {
 	controlMessageSender?: ContextCompressionControlSender;
 	reuseFromContext?: ConstructedContextReuseData;
 	historyToolMessages?: "native" | "flatten";
+	signal?: AbortSignal;
 }): Promise<AutomaticContextCompressionResult> {
 	if (!params.user?.id) {
 		return automaticCompressionResult({
@@ -1277,6 +1362,7 @@ async function maybeRunAutomaticContextCompression(params: {
 
 	const {
 		getLatestValidContextCompressionSnapshot,
+		listContextCompressionSnapshots,
 		listContextCompressionSourceMessages,
 		runContextCompression,
 	} = await import("./context-compression");
@@ -1318,6 +1404,26 @@ async function maybeRunAutomaticContextCompression(params: {
 			sourceMessageCount: 0,
 		});
 	}
+	const backoffReason = automaticCompressionBackoffReason({
+		attempts: (await listContextCompressionSnapshots(params.sessionId)).filter(
+			(attempt) => attempt.userId === params.user?.id,
+		),
+		priorSnapshotEndSequence: priorSnapshot?.sourceEndMessageSequence ?? 0,
+		compressEndSequence:
+			compressibleSourceMessages[compressibleSourceMessages.length - 1]
+				?.messageSequence ?? 0,
+		now: Date.now(),
+	});
+	if (backoffReason) {
+		return automaticCompressionResult({
+			outcome: "not_possible",
+			reason: backoffReason,
+			attempted: false,
+			trigger,
+			...measurement,
+			sourceMessageCount: compressibleSourceMessages.length,
+		});
+	}
 
 	console.info(
 		`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Running automatic context compression before model call`,
@@ -1338,7 +1444,15 @@ async function maybeRunAutomaticContextCompression(params: {
 		userId: params.user.id,
 		trigger: "automatic",
 		selectedModelId: params.modelId,
-		controlMessageSender: params.controlMessageSender,
+		controlMessageSender: withAutomaticCompressionDeadline(
+			params.controlMessageSender,
+			params.signal
+				? AbortSignal.any([
+						params.signal,
+						AbortSignal.timeout(AUTOMATIC_COMPRESSION_DEADLINE_MS),
+					])
+				: AbortSignal.timeout(AUTOMATIC_COMPRESSION_DEADLINE_MS),
+		),
 		sourceMessages: compressibleSourceMessages,
 		priorSnapshot,
 		targetTokenEstimate: params.contextLimits.targetConstructedContext,
@@ -1528,6 +1642,9 @@ type PrepareOutboundChatContextParams = {
 	modelId?: ModelId | string;
 	contextLimits?: PromptContextLimits;
 	compressionControlMessageSender?: ContextCompressionControlSender;
+	// The turn's abort signal (user stop / request timeout). Today only the
+	// automatic compression control calls listen to it.
+	signal?: AbortSignal;
 	reasoningDepthEffort?: ReasoningDepthEffort;
 	onContextPreparationActivity?: NormalChatContextPreparationActivityCallback;
 	// Issue 8.1 — the turn's resolved active capability set (calendar/email/
@@ -1655,6 +1772,7 @@ async function runAutomaticContextCompressionStage(input: {
 		controlMessageSender: input.params.compressionControlMessageSender,
 		reuseFromContext: input.reuseData,
 		historyToolMessages: input.params.historyToolMessages,
+		signal: input.params.signal,
 	}).catch((error) => {
 		console.warn(
 			`${NORMAL_CHAT_CONTEXT_LOG_PREFIX} Automatic context compression skipped`,

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
 	buildConstructedContext: vi.fn(),
 	buildProactiveConnectorContext: vi.fn(),
 	getLatestValidContextCompressionSnapshot: vi.fn(),
+	listContextCompressionSnapshots: vi.fn(),
 	getConfig: vi.fn(),
 	getSystemPrompt: vi.fn(),
 	listContextCompressionSourceMessages: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("./attachment-trace", () => ({
 vi.mock("./context-compression", () => ({
 	getLatestValidContextCompressionSnapshot:
 		mocks.getLatestValidContextCompressionSnapshot,
+	listContextCompressionSnapshots: mocks.listContextCompressionSnapshots,
 	listContextCompressionSourceMessages:
 		mocks.listContextCompressionSourceMessages,
 	runContextCompression: mocks.runContextCompression,
@@ -390,12 +392,14 @@ describe("prepareOutboundChatContext", () => {
 		mocks.buildConstructedContext.mockReset();
 		mocks.listContextCompressionSourceMessages.mockReset();
 		mocks.runContextCompression.mockReset();
+		mocks.listContextCompressionSnapshots.mockReset();
 		mocks.getConfig.mockReturnValue({
 			contextDiagnosticsDebug: false,
 			parallelApiKey: "parallel-key",
 		});
 		mocks.getSystemPrompt.mockReturnValue("Base system prompt");
 		mocks.getLatestValidContextCompressionSnapshot.mockResolvedValue(null);
+		mocks.listContextCompressionSnapshots.mockResolvedValue([]);
 		mocks.listContextCompressionSourceMessages.mockResolvedValue([]);
 		mocks.runContextCompression.mockResolvedValue({
 			id: "snapshot-1",
@@ -1773,6 +1777,161 @@ describe("prepareOutboundChatContext", () => {
 			// The packet is what is over budget; summarizing the two recent
 			// turns would cost a control call and save nothing.
 			expect(mocks.runContextCompression).not.toHaveBeenCalled();
+		});
+
+		const automaticAttempt = (
+			status: "failed" | "running",
+			sourceEndMessageSequence: number,
+			updatedAt = new Date(),
+		) => ({
+			id: `attempt-${status}-${sourceEndMessageSequence}`,
+			conversationId: "conv-1",
+			userId: "user-1",
+			trigger: "automatic",
+			status,
+			sourceEndMessageSequence,
+			createdAt: updatedAt,
+			updatedAt,
+		});
+		const prepareTrimmedHistoryTurn = (
+			options: { signal?: AbortSignal } = {},
+		) => {
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?", {
+					historyWindow: { includedTurnCount: 2, omittedTurnCount: 1 },
+				}),
+			);
+			return prepareOutboundChatContext({
+				message: "What next?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: limits,
+				compressionControlMessageSender: vi.fn() as never,
+				signal: options.signal,
+				logLabel: "provider request",
+			});
+		};
+
+		it("does not retry right after a failed automatic attempt over the same turns", async () => {
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			// The last attempt already tried to cover m1..m2 and failed.
+			mocks.listContextCompressionSnapshots.mockResolvedValueOnce([
+				automaticAttempt("failed", 2),
+			]);
+
+			await prepareTrimmedHistoryTurn();
+
+			expect(mocks.runContextCompression).not.toHaveBeenCalled();
+		});
+
+		it("retries a failed automatic attempt once two more turns are compressible", async () => {
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce([
+				...smallSource,
+				sourceMessage(7, "user", "Fourth question."),
+				sourceMessage(8, "assistant", "Fourth answer."),
+				sourceMessage(9, "user", "Fifth question."),
+				sourceMessage(10, "assistant", "Fifth answer."),
+			]);
+			mocks.listContextCompressionSnapshots.mockResolvedValueOnce([
+				automaticAttempt("failed", 2),
+			]);
+
+			await prepareTrimmedHistoryTurn();
+
+			expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+		});
+
+		it("does not start a second automatic compression while one is running", async () => {
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			mocks.listContextCompressionSnapshots.mockResolvedValueOnce([
+				automaticAttempt("running", 2),
+			]);
+
+			await prepareTrimmedHistoryTurn();
+
+			expect(mocks.runContextCompression).not.toHaveBeenCalled();
+		});
+
+		it("ignores a running attempt abandoned long ago", async () => {
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			mocks.listContextCompressionSnapshots.mockResolvedValueOnce([
+				automaticAttempt("running", 2, new Date(Date.now() - 60 * 60_000)),
+			]);
+
+			await prepareTrimmedHistoryTurn();
+
+			expect(mocks.runContextCompression).toHaveBeenCalledTimes(1);
+		});
+
+		it("bounds the control calls by the turn's abort signal", async () => {
+			const sender = vi.fn(
+				async (_message: string, _modelId: string, _options: unknown) => ({
+					text: "{}",
+				}),
+			);
+			mocks.listContextCompressionSourceMessages.mockResolvedValueOnce(
+				smallSource,
+			);
+			const turn = new AbortController();
+			const seenSignals: AbortSignal[] = [];
+			mocks.runContextCompression.mockImplementationOnce(
+				async (input: {
+					controlMessageSender: (
+						message: string,
+						modelId: string,
+						options: { systemPrompt: string; signal?: AbortSignal },
+					) => Promise<unknown>;
+				}) => {
+					await input.controlMessageSender("first", "model1", {
+						systemPrompt: "s",
+					});
+					turn.abort(new Error("user stopped the turn"));
+					await expect(
+						input.controlMessageSender("second", "model1", {
+							systemPrompt: "s",
+						}),
+					).rejects.toThrow("user stopped the turn");
+					return { id: "snapshot-failed", status: "failed" };
+				},
+			);
+			mocks.buildConstructedContext.mockResolvedValueOnce(
+				createConstructedContextResult("## Current User Message\nWhat next?", {
+					historyWindow: { includedTurnCount: 2, omittedTurnCount: 1 },
+				}),
+			);
+
+			await prepareOutboundChatContext({
+				message: "What next?",
+				sessionId: "conv-1",
+				modelConfig,
+				user: { id: "user-1" },
+				modelId: "model1",
+				contextLimits: limits,
+				compressionControlMessageSender: (async (
+					message: string,
+					modelId: string,
+					options: { signal?: AbortSignal },
+				) => {
+					if (options.signal) seenSignals.push(options.signal);
+					return sender(message, modelId, options);
+				}) as never,
+				signal: turn.signal,
+				logLabel: "provider request",
+			});
+
+			// The first call carried a signal that the turn's stop aborted; the
+			// second never reached the model.
+			expect(sender).toHaveBeenCalledTimes(1);
+			expect(seenSignals).toHaveLength(1);
+			expect(seenSignals[0]?.aborted).toBe(true);
 		});
 
 		it("does not compress on stored reasoning and tool traces the model is never sent", async () => {

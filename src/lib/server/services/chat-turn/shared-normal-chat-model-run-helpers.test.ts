@@ -312,7 +312,7 @@ describe("prepareOutboundContext automatic context compression wiring", () => {
 	// ever measuring the prompt when no sender is injected. The chat turn is
 	// its only production caller, so the turn must hand context preparation
 	// the same JSON control sender the manual compression route uses.
-	it("hands context preparation the JSON control sender", async () => {
+	it("hands context preparation the JSON control sender and the turn's abort signal", async () => {
 		const params = {
 			userId: "user-1",
 			runtimeConfig,
@@ -320,6 +320,7 @@ describe("prepareOutboundContext automatic context compression wiring", () => {
 			conversationId: "conv-1",
 			modelId: "model1" as const,
 			user: { id: "user-1" },
+			signal: new AbortController().signal,
 		};
 		const runtime = await resolveProviderRuntime({
 			...params,
@@ -332,12 +333,20 @@ describe("prepareOutboundContext automatic context compression wiring", () => {
 				apiKey: "local-key",
 			} as NormalChatModelRunProvider,
 		});
+		mocks.sendJsonControlMessage.mockResolvedValue({ text: "{}" });
 
 		await prepareOutboundContext(params, runtime, null, new Set());
 
 		const call = mocks.prepareOutboundChatContext.mock.lastCall?.[0];
-		expect(call.compressionControlMessageSender).toBe(
-			mocks.sendJsonControlMessage,
+		expect(call.signal).toBe(params.signal);
+		const options = { systemPrompt: "compress" };
+		await expect(
+			call.compressionControlMessageSender("payload", "model1", options),
+		).resolves.toEqual({ text: "{}" });
+		expect(mocks.sendJsonControlMessage).toHaveBeenCalledWith(
+			"payload",
+			"model1",
+			options,
 		);
 	});
 });
