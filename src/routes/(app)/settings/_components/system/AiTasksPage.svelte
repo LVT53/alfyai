@@ -186,7 +186,6 @@ function canResetKey(key: string): boolean {
 					</span>
 					<span>
 						{$t('admin.system.atlas.inheritNote')}
-						{$t('admin.system.atlas.v3Only')}
 					</span>
 				</div>
 			</div>

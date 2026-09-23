@@ -1230,7 +1230,6 @@ const settingsDict = {
 		"admin.system.atlas.inherit": "Inherit — {model}",
 		"admin.system.atlas.inheritNote":
 			"A task left on Inherit follows the Atlas synthesis or audit model it belongs to. Those two are on the Worker & limits tab.",
-		"admin.system.atlas.v3Only": "Used by the v3 pipeline only.",
 		"admin.system.atlas.tasks.ask.label": "Ask",
 		"admin.system.atlas.tasks.ask.meaning":
 			"Turns the request into a research brief and asks the clarifying question.",
@@ -3160,7 +3159,6 @@ const settingsDict = {
 		"admin.system.atlas.inherit": "Öröklés — {model}",
 		"admin.system.atlas.inheritNote":
 			"Az Öröklésen hagyott feladat az Atlas szintézis- vagy ellenőrző modelljét követi. Ez a kettő a Feldolgozó és korlátok fülön van.",
-		"admin.system.atlas.v3Only": "Csak a v3 folyamat használja.",
 		"admin.system.atlas.tasks.ask.label": "Kérdés",
 		"admin.system.atlas.tasks.ask.meaning":
 			"Kutatási feladatleírássá alakítja a kérést, és felteszi a tisztázó kérdést.",
