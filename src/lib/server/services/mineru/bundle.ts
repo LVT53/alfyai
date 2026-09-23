@@ -858,6 +858,19 @@ export async function removeMineruParseBundle(
 		return;
 	}
 
+	// Every deleted artifact passes through here, most of which never had a
+	// bundle (generated output, work capsules, non-MinerU sources), and a user
+	// who never uploaded has no `data/knowledge/<userId>/` at all. Nothing on
+	// disk is nothing to delete. Checked first because `resolveDeletablePath`
+	// answers a missing parent with the same `null` as a containment refusal,
+	// which made every such delete log a false "outside the data roots".
+	// `lstat`, not `stat`: a dangling symlink is still something to judge.
+	try {
+		await lstat(bundleDir);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+	}
+
 	// `mineruBundleDir` already refuses an unsafe SEGMENT; this refuses an
 	// unsafe RESOLVED path, which is the part a symlinked user directory could
 	// still have moved outside `data/knowledge/`.

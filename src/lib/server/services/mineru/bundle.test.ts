@@ -9,12 +9,15 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
 	chmod,
+	mkdir,
+	mkdtemp,
 	readdir,
 	readFile,
 	rm,
 	symlink,
 	writeFile,
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -536,10 +539,55 @@ describe("removeMineruParseBundle", () => {
 		expect(existsSync(mineruBundleDir(userId, sourceArtifactId))).toBe(false);
 	});
 
-	it("is a no-op when there is nothing to remove", async () => {
+	it("is a silent no-op when there is nothing to remove", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
 		await expect(
 			removeMineruParseBundle(userId, sourceArtifactId),
 		).resolves.toBeUndefined();
+		// No `data/knowledge/<userId>/` at all: the case prod hit for a user
+		// who only ever had generated output. Not a containment refusal.
+		expect(existsSync(join(process.cwd(), "data", "knowledge", userId))).toBe(
+			false,
+		);
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it("is a silent no-op when the user directory exists but the bundle does not", async () => {
+		await writePdfBundle();
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		await removeMineruParseBundle(userId, randomUUID());
+
+		expect(warn).not.toHaveBeenCalled();
+		expect(existsSync(mineruBundleDir(userId, sourceArtifactId))).toBe(true);
+	});
+
+	it("still refuses and warns when the user directory is a symlink out of the roots", async () => {
+		const outside = await mkdtemp(join(tmpdir(), "bundle-outside-"));
+		try {
+			const victim = join(
+				outside,
+				`${sourceArtifactId}${MINERU_BUNDLE_DIR_SUFFIX}`,
+			);
+			await mkdir(victim);
+			await writeFile(join(victim, "keep.txt"), "not yours");
+			await mkdir(join(process.cwd(), "data", "knowledge"), {
+				recursive: true,
+			});
+			await symlink(outside, join(process.cwd(), "data", "knowledge", userId));
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			await removeMineruParseBundle(userId, sourceArtifactId);
+
+			expect(warn).toHaveBeenCalledWith(
+				"[KNOWLEDGE_DELETE] Parse bundle path outside the data roots",
+				expect.anything(),
+			);
+			expect(existsSync(join(victim, "keep.txt"))).toBe(true);
+		} finally {
+			await rm(outside, { recursive: true, force: true });
+		}
 	});
 
 	it("never throws, not even on an unsafe id", async () => {
