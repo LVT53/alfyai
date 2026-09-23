@@ -25,6 +25,8 @@ export const EMPTY_HOME_SUMMARY: HomeSummary = {
 	recent: [],
 	running: null,
 	suggestions: [],
+	memoryReviewCount: 0,
+	memoryReviewNoticeDismissed: false,
 	generatedAt: 0,
 };
 
@@ -46,9 +48,36 @@ export async function fetchHomeSummary(
 		suggestions: Array.isArray(response.suggestions)
 			? response.suggestions
 			: [],
+		memoryReviewCount:
+			typeof response.memoryReviewCount === "number"
+				? response.memoryReviewCount
+				: 0,
+		memoryReviewNoticeDismissed: response.memoryReviewNoticeDismissed === true,
 		generatedAt:
 			typeof response.generatedAt === "number" ? response.generatedAt : 0,
 	};
+}
+
+/**
+ * Dismisses the home "memories need review" notice for the signed-in user.
+ * Fire-and-forget-ish: callers should also hide the notice locally right away
+ * rather than waiting on this to resolve, since the point of the click is an
+ * immediate response.
+ */
+export async function dismissMemoryReviewNotice(
+	fetchImpl: FetchLike = fetch,
+): Promise<void> {
+	await requestJson(
+		"/api/home/summary",
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ action: "dismissMemoryReviewNotice" }),
+			keepalive: true,
+		},
+		"Failed to dismiss memory review notice",
+		fetchImpl,
+	);
 }
 
 /**
