@@ -249,7 +249,63 @@ export async function listOpenReviewQueueRows(params: {
 		resetGeneration: params.resetGeneration,
 		rows,
 	});
-	return dedupeReviewRows(rows, affectedItems);
+	const obsoleteRows = rows.filter((row) =>
+		isObsoleteJudgeReviewRow(row, affectedItems),
+	);
+	if (obsoleteRows.length > 0) {
+		closeObsoleteReviewRows({
+			userId: params.userId,
+			resetGeneration: params.resetGeneration,
+			rows: obsoleteRows,
+		});
+	}
+	const obsoleteIds = new Set(obsoleteRows.map((row) => row.id));
+	return dedupeReviewRows(
+		rows.filter((row) => !obsoleteIds.has(row.id)),
+		affectedItems,
+	);
+}
+
+/**
+ * A judge review row asks about exactly the review_needed items it points at.
+ * Once none of them is review_needed any more (expired, retired, suppressed,
+ * or accepted through another row) there is nothing left to decide, and an
+ * Accept could only revive a fact that already left the queue.
+ */
+function isObsoleteJudgeReviewRow(
+	row: ReviewRow,
+	affectedItems: Map<string, ReviewAffectedItem>,
+): boolean {
+	if (!isJudgeReviewRow(row)) return false;
+	const ids = readReviewAffectedItemIds(row);
+	return (
+		ids.length > 0 &&
+		!ids.some((id) => affectedItems.get(id)?.status === "review_needed")
+	);
+}
+
+/**
+ * Close obsolete rows with the same resolved transition an expiry uses, so the
+ * queue (and its open count) never offers a card whose item is gone.
+ */
+function closeObsoleteReviewRows(params: {
+	userId: string;
+	resetGeneration: number;
+	rows: ReviewRow[];
+}): void {
+	const now = new Date();
+	db.transaction((tx) => {
+		resolveReviewRowsTx(tx, {
+			userId: params.userId,
+			resetGeneration: params.resetGeneration,
+			now,
+			rows: params.rows.map((row) => ({
+				reviewItemId: row.id,
+				resolutionType: "do_not_remember",
+				metadata: { reason: "review_item_no_longer_pending" },
+			})),
+		});
+	});
 }
 
 export async function createOrUpdateMemoryReviewItem(params: {
@@ -457,6 +513,14 @@ export async function applyMemoryReviewItemWithRevision(params: {
 		resetGeneration,
 		rows: openReviewRows,
 	});
+	if (isObsoleteJudgeReviewRow(review, openRowAffectedItems)) {
+		closeObsoleteReviewRows({
+			userId: params.userId,
+			resetGeneration,
+			rows: [review],
+		});
+		return { status: "not_found" };
+	}
 	const duplicateReviewKey = reviewDeduplicationKey(
 		review,
 		openRowAffectedItems,

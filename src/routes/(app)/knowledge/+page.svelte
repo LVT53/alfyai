@@ -778,6 +778,17 @@ async function handleMemoryAction(
 				"Memory profile was updated. Review the latest profile and try again.";
 			return false;
 		}
+		// The review item left the queue meanwhile (expired, retired, or resolved
+		// through a sibling card): refresh so its dead buttons disappear.
+		if (
+			payload.target === "review_item" &&
+			error instanceof ApiError &&
+			(error.status === 404 || error.code === "not_found")
+		) {
+			await loadMemoryProfile(true);
+			manageError = $t("memoryProfile.reviewItemGone");
+			return false;
+		}
 		manageError =
 			error instanceof Error ? error.message : MEMORY_UPDATE_ERROR_MESSAGE;
 		return false;
