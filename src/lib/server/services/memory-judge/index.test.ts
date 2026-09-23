@@ -1295,21 +1295,18 @@ describe("Memory judge service", () => {
 			).toEqual([expect.objectContaining({ reason: "statement_match" })]);
 		});
 
-		it("admits an update without targetItemId and without a match as a new fact", async () => {
+		it("rejects an update without targetItemId and without a match instead of adding a contradicting fact", async () => {
 			await setup([decision({})]);
 			await createFact({ statement: "I live in Budapest." });
-			await expect(run()).resolves.toMatchObject({ updated: 0, admitted: 1 });
-			expect((await activeStatements()).sort()).toEqual([
-				"I live in Amsterdam.",
-				"I live in Budapest.",
-			]);
+			await expect(run()).resolves.toMatchObject({ updated: 0, admitted: 0 });
+			expect(await activeStatements()).toEqual(["I live in Budapest."]);
+			const rows = await telemetry();
 			expect(
-				(await telemetry()).filter(
-					(r) => r.eventName === "judge_target_resolved",
-				),
-			).toEqual([
-				expect.objectContaining({ reason: "no_match_admitted_as_new" }),
-			]);
+				rows.filter((r) => r.eventName === "judge_target_resolved"),
+			).toEqual([]);
+			expect(
+				rows.filter((r) => r.eventName === "judge_candidate_rejected"),
+			).toEqual([expect.objectContaining({ reason: "missing_target" })]);
 		});
 
 		it("keeps rejecting an ambiguous missing target, with missing_target telemetry", async () => {
@@ -1433,7 +1430,7 @@ describe("Memory judge service", () => {
 				(await telemetry())
 					.filter((r) => r.eventName === "judge_dry_run_decision")
 					.map((r) => r.metadata.targetResolution),
-			).toEqual(["statement_match", "no_match_admitted_as_new"]);
+			).toEqual(["statement_match"]);
 		});
 	});
 });

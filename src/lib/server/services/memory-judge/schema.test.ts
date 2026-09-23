@@ -192,33 +192,46 @@ describe("missing-target resolution against existing facts", () => {
 	});
 
 	it("does not match a fact in a different category", () => {
-		const { decisions } = parse({
+		const { decisions, rejected } = parse({
 			action: "update",
 			statement: "I live in Budapest.",
 			category: "preferences",
 		});
-		expect(decisions).toEqual([
-			expect.objectContaining({
-				action: "add",
-				targetResolution: "no_match_admitted_as_new",
-			}),
+		expect(decisions).toEqual([]);
+		expect(rejected).toEqual([
+			{ statement: "I live in Budapest.", reason: "missing_target" },
 		]);
-		expect(decisions[0].targetItemId).toBeUndefined();
 	});
 
-	it("admits an update with no matching fact as a new fact", () => {
+	// An update's statement is the NEW content ("if it changed, use update"), so
+	// it never matches the fact it replaces. Admitting it as a plain add would
+	// leave the old and the new fact active side by side, and a paraphrased
+	// strengthen would duplicate its fact. With no resolvable target the gate
+	// must keep rejecting.
+	it("rejects an update with no matching fact instead of adding a contradicting fact", () => {
 		const { decisions, rejected } = parse({
 			action: "update",
 			statement: "I live in Amsterdam.",
 			category: "about_you",
 		});
-		expect(rejected).toEqual([]);
-		expect(decisions).toEqual([
-			expect.objectContaining({
-				action: "add",
-				statement: "I live in Amsterdam.",
-				targetResolution: "no_match_admitted_as_new",
-			}),
+		expect(decisions).toEqual([]);
+		expect(rejected).toEqual([
+			{ statement: "I live in Amsterdam.", reason: "missing_target" },
+		]);
+	});
+
+	it("rejects a paraphrased strengthen with no exact match instead of duplicating the fact", () => {
+		const { decisions, rejected } = parse({
+			action: "strengthen",
+			statement: "I really prefer plain language.",
+			category: "preferences",
+		});
+		expect(decisions).toEqual([]);
+		expect(rejected).toEqual([
+			{
+				statement: "I really prefer plain language.",
+				reason: "missing_target",
+			},
 		]);
 	});
 
