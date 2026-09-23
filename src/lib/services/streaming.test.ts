@@ -1019,6 +1019,23 @@ describe("streamChat", () => {
 		expect(parsedBody.activeDocumentArtifactId).toBe("artifact-focused-2");
 	});
 
+	it("threads the retry origin into retry requests", async () => {
+		const { mockFetch, done } = runStreamWithMockedResponse({
+			message: "ignored",
+			responseChunks: [endEvent()],
+			options: {
+				retryAssistantMessageId: "assistant-msg-1",
+				retryUserMessageId: "user-msg-1",
+				retryUserMessage: "historical user text",
+				retryOrigin: "answer_now",
+			},
+		});
+		await done;
+
+		const parsedBody = parseLastStreamRequestBody(mockFetch);
+		expect(parsedBody.retryOrigin).toBe("answer_now");
+	});
+
 	it("threads Reasoning depth into retry requests", async () => {
 		const { mockFetch, done } = runStreamWithMockedResponse({
 			message: "ignored",

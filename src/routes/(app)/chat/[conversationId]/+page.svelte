@@ -2059,6 +2059,9 @@ async function handleSend(
 	// onto the optimistic placeholder so its provenance chip does not blink off
 	// and back on. See SendRuntimeOptions.retryUserIntent.
 	retryUserIntent?: MessageUserIntent,
+	// Regenerate only — "answer_now" when "Answer now" drives it, so the server
+	// does not count it as a regenerate. See SendRuntimeOptions.retryOrigin.
+	retryOrigin?: "regenerate" | "answer_now",
 ) {
 	const text = payload.message;
 	const modelIdForTurn = payload.modelId ?? $selectedModel;
@@ -2078,6 +2081,7 @@ async function handleSend(
 		retryAssistantMessageId,
 		retryUserMessageId,
 		retryUserIntent,
+		retryOrigin,
 		confirmForkedSourceHistoryMutation,
 		onForkedSourceHistoryConfirmationRequired,
 	});
@@ -2241,6 +2245,9 @@ async function handleRegenerate(
 			}
 		},
 		assistantUserIntent,
+		// Only "Answer now" sets reasoningDepthOverride (see the isSending
+		// guard above); it is already recorded as its own answer_now event.
+		reasoningDepthOverride ? "answer_now" : "regenerate",
 	);
 }
 

@@ -169,13 +169,14 @@ export async function recordSkillUseActivityEvent(params: {
 
 export type TurnOriginActivityKind = "regenerate" | "edit_resend";
 
-// Gap 2 — regenerate (chat-turn/retry.ts, every request that reaches it) and
-// edit-resend (the ordinary send/stream path with the isEditResend request
-// flag set — see chat-turn/finalize.ts) are server-observed like tool_call
-// and skill_use: recorded from turn state the server itself established,
-// never accepted from the client's own POST /api/analytics/activity. `name`
-// mirrors `kind` (there is no more specific label, same as answer_now's
-// client-observed row).
+// Gap 2 — regenerate (a chat-turn/retry.ts turn whose origin is a plain
+// Regenerate, not "Answer now" or a Retry after a failure) and edit-resend
+// (the ordinary stream path with the isEditResend request flag set) are
+// recorded by chat-turn/finalize.ts from the turn's `turnOrigin` — see
+// $lib/chat-turn-origin.ts — never accepted from the client's own
+// POST /api/analytics/activity. `name` mirrors `kind` (there is no more
+// specific label, same as answer_now's client-observed row). `modelId` is the
+// model that answered the redo turn.
 //
 // Dropped for an incognito conversation instead of written — mirrors
 // memory-behavior-log.ts's dropIncognitoEvents: activity_events is a
@@ -188,6 +189,7 @@ export async function recordTurnOriginActivityEvent(params: {
 	userId: string;
 	conversationId: string;
 	messageId?: string | null;
+	modelId?: string | null;
 	kind: TurnOriginActivityKind;
 }): Promise<void> {
 	const { isConversationIncognito } = await import("./memory-controls");
@@ -203,6 +205,7 @@ export async function recordTurnOriginActivityEvent(params: {
 		kind: params.kind,
 		name: params.kind,
 		status: "done",
+		modelId: params.modelId ?? null,
 	});
 }
 

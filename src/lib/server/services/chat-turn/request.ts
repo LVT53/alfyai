@@ -164,7 +164,9 @@ export async function parseChatTurnRequest(
 						body.enabledConnectionCapabilities,
 					),
 			skipPersistUserMessage: body.skipPersistUserMessage === true,
-			isEditResend: body.isEditResend === true,
+			// A body can claim an edit-and-resend and nothing else; the
+			// regenerate family is stamped by chat-turn/retry.ts.
+			turnOrigin: body.isEditResend === true ? "edit_resend" : "send",
 			attachmentTraceId:
 				safeAttachmentIds.length > 0
 					? createAttachmentTraceId(route)

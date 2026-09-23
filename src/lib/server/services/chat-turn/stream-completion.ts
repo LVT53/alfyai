@@ -1,4 +1,5 @@
 import type { FinishReason } from "ai";
+import type { ChatTurnOrigin } from "$lib/chat-turn-origin";
 import type { MessageUserIntent } from "$lib/message-user-intent";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import type { InterimThoughtStep } from "$lib/response-activity-types";
@@ -104,9 +105,9 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	normalizedMessage: string;
 	upstreamMessage: string;
 	skipPersistUserMessage: boolean;
-	// Gap 2 — threaded straight into finalizeChatTurn's isEditResend param;
+	// Gap 2 — threaded straight into finalizeChatTurn's turnOrigin param;
 	// see its doc comment.
-	isEditResend?: boolean;
+	turnOrigin?: ChatTurnOrigin;
 	isReconnect: boolean | undefined;
 	thinkingContent: string;
 	fullResponse: string;
@@ -193,7 +194,7 @@ export async function completeStreamTurn(
 		normalizedMessage,
 		upstreamMessage,
 		skipPersistUserMessage,
-		isEditResend,
+		turnOrigin,
 		isReconnect,
 		thinkingContent,
 		fullResponse,
@@ -632,7 +633,7 @@ export async function completeStreamTurn(
 			startedResetGeneration,
 			toolCalls: toolCallRecords,
 			skillUse,
-			isEditResend,
+			turnOrigin,
 			contextTraceSections: preparedContext.contextTraceSections,
 			webCitationAudit: citationGate?.audit,
 			linkedSources,

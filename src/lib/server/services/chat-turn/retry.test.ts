@@ -236,6 +236,36 @@ describe("prepareRetryChatTurn", () => {
 		);
 	});
 
+	// Gap 2 — the retry route is where a "regenerate" is established, so it
+	// stamps the turn's origin itself: the plain Regenerate button by default,
+	// or the two retry-route callers that are NOT a verdict on the answer
+	// ("Answer now" interrupting a turn, the Retry button after a failure).
+	it.each([
+		[undefined, "regenerate"],
+		["regenerate", "regenerate"],
+		["answer_now", "answer_now"],
+		["error_retry", "error_retry"],
+		["edit_resend", "regenerate"],
+		["bogus", "regenerate"],
+		[true, "regenerate"],
+	])("stamps retryOrigin %j onto the turn as turnOrigin %s", async (retryOrigin, expected) => {
+		const result = await prepareRetryChatTurn({
+			userId: "user-1",
+			runtimeConfig: makeRuntimeConfig(),
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-3",
+				userMessageId: "user-3",
+				userMessage: "latest prompt",
+				retryOrigin,
+			},
+		});
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.value.orchestratorInput.turn.turnOrigin).toBe(expected);
+	});
+
 	it("prepares the latest assistant retry without selecting an older user message", async () => {
 		const result = await prepareRetryChatTurn({
 			userId: "user-1",

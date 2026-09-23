@@ -368,3 +368,27 @@ describe("parseChatTurnRequest enabledConnectionCapabilities", () => {
 		);
 	});
 });
+
+describe("parseChatTurnRequest turnOrigin", () => {
+	// A client body can only ever mark a turn as an edit-and-resend; the
+	// regenerate family (regenerate / answer_now / error_retry) is stamped by
+	// chat-turn/retry.ts itself and never parsed from a body.
+	it.each([
+		[{ isEditResend: true }, "edit_resend"],
+		[{}, "send"],
+		[{ isEditResend: "true" }, "send"],
+		[{ isEditResend: 1 }, "send"],
+		[{ turnOrigin: "regenerate" }, "send"],
+		[{ skipPersistUserMessage: true }, "send"],
+	])("maps %j to turnOrigin %s", async (body, expected) => {
+		const result = await parseChatTurnRequest(
+			makeRequest(body),
+			makeRuntimeConfig(),
+			"stream",
+		);
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.value.turnOrigin).toBe(expected);
+	});
+});

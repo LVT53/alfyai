@@ -1,3 +1,4 @@
+import type { ChatTurnOrigin } from "$lib/chat-turn-origin";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
 import {
 	recordSkillUseActivityEvent,
@@ -161,12 +162,11 @@ export type FinalizeChatTurnParams = {
 	// (an on-demand `use_skill` tool call is recorded separately, from
 	// params.toolCalls, by recordToolCallActivityEvents itself).
 	skillUse?: { displayName: string } | null;
-	// Gap 2 — set by the request's own isEditResend flag when the turn is an
-	// edit-and-resend (see request.ts / chat-turn/types.ts). Recorded as an
-	// activity_events "edit_resend" row alongside this turn's tool calls; the
-	// sibling "regenerate" row needs no separate flag here — every turn with
-	// persistUserMessage: false already came through chat-turn/retry.ts.
-	isEditResend?: boolean;
+	// Gap 2 — the turn's own origin (ParsedChatTurnRequest.turnOrigin, see
+	// $lib/chat-turn-origin.ts). A user-chosen "regenerate" and an
+	// "edit_resend" are recorded as activity_events rows alongside this turn's
+	// tool calls; omitted (the /api/chat/send path) means an ordinary send.
+	turnOrigin?: ChatTurnOrigin;
 	persistTurnState?: boolean;
 	generatedOutputReconciliation?: GeneratedOutputReconciliationParams;
 	skipAssistantProseMemoryIntake?: boolean;
@@ -647,27 +647,26 @@ export async function finalizeChatTurn(
 				}).catch(() => undefined);
 			}
 			// Gap 2 — regenerate and edit-resend are the best proxy this table
-			// has for "the answer was wrong". `persistUserMessage: false` is
-			// already an existing, exclusive fact about this turn: the ONLY
-			// caller that ever sets it is chat-turn/retry.ts (it reuses the
-			// preceding user message instead of persisting a new one — see
-			// retry.ts's skipPersistUserMessage: true), so no separate
-			// "isRegenerate" flag is threaded through the pipeline just for
-			// this. Edit-resend has no such existing signal (it is otherwise
-			// indistinguishable from a plain send), so it carries its own
-			// request-level isEditResend flag instead. The two are mutually
-			// exclusive by construction: retry.ts's synthetic body never sets
-			// isEditResend.
-			const turnOriginKind = !params.persistUserMessage
-				? "regenerate"
-				: params.isEditResend
-					? "edit_resend"
+			// has for "the answer was wrong". Decided by the turn's own origin,
+			// never by persistUserMessage (/api/chat/stream takes
+			// skipPersistUserMessage straight from the client body). Recorded
+			// here, at completion, so a counted redo always has the assistant
+			// message it produced: a regenerate that fails before any answer is
+			// persisted is not counted (the user's next Regenerate click is).
+			// The row carries the model that answered the redo turn, so the
+			// admin model/provider filters attribute it instead of treating it
+			// like a model-less client click.
+			const turnOriginKind =
+				params.turnOrigin === "regenerate" ||
+				params.turnOrigin === "edit_resend"
+					? params.turnOrigin
 					: null;
 			if (turnOriginKind) {
 				void recordTurnOriginActivityEvent({
 					userId: params.userId,
 					conversationId: params.conversationId,
 					messageId: assistantMessage.id,
+					modelId: params.analytics?.model ?? null,
 					kind: turnOriginKind,
 				}).catch(() => undefined);
 			}

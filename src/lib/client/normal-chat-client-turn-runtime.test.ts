@@ -526,6 +526,34 @@ describe("Normal Chat Client Turn Runtime", () => {
 		expect(streamInvocations[0]).toMatchObject({
 			options: { isEditResend: false },
 		});
+		expect(streamInvocations[0].options?.retryOrigin).toBeUndefined();
+	});
+
+	it("marks an Answer-now regenerate so the server does not count it as a regenerate", async () => {
+		const { adapters, streamInvocations } = makeAdapters();
+		const runtime = createNormalChatClientTurnRuntime(adapters);
+
+		await runtime.send(
+			{
+				message: "Review this plan",
+				attachmentIds: [],
+				attachments: [],
+				pendingAttachments: [],
+				reasoningDepth: "quick",
+			},
+			{
+				skipUserMessage: true,
+				skipPersistUserMessage: true,
+				retryAssistantMessageId: "assistant-1",
+				retryUserMessageId: "user-1",
+				retryOrigin: "answer_now",
+			},
+		);
+
+		expect(streamInvocations[0].options).toMatchObject({
+			retryAssistantMessageId: "assistant-1",
+			retryOrigin: "answer_now",
+		});
 	});
 
 	it("clears sending before receipt-only completion metadata starts eventual hydration", () => {
@@ -908,6 +936,7 @@ describe("Normal Chat Client Turn Runtime", () => {
 		// server reads them off the message being replaced.
 		expect(streamInvocations[0].options).toMatchObject({
 			retryAssistantMessageId: "assistant-1",
+			retryOrigin: "regenerate",
 		});
 		expect(streamInvocations[0].options?.pendingSkill ?? null).toBeNull();
 		expect(streamInvocations[0].options?.forceWebSearch).toBe(false);
@@ -1595,6 +1624,9 @@ describe("Normal Chat Client Turn Runtime", () => {
 				retryAssistantMessageId: "assistant-old",
 				retryUserMessageId: "id-1",
 				retryUserMessage: "Regenerate this",
+				// The Retry button after a failed turn is not a verdict on the
+				// answer — the server must not count it as a regenerate.
+				retryOrigin: "error_retry",
 			},
 		});
 		expect(adapters.setSendError).toHaveBeenCalledWith(null);

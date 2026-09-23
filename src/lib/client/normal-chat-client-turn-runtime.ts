@@ -1,3 +1,4 @@
+import type { RetryOrigin } from "$lib/chat-turn-origin";
 import { submitAtlasTurn } from "$lib/client/api/atlas";
 import { PENDING_FILE_PRODUCTION_JOB_ID_PREFIX } from "$lib/components/chat/file-production-helpers";
 import {
@@ -241,6 +242,10 @@ type SendRuntimeOptions = {
 	// record wins, including when the recorded skill no longer resolves and the
 	// server regenerates without it.
 	retryUserIntent?: MessageUserIntent;
+	// Which regenerate this is when retryAssistantMessageId is set: the plain
+	// Regenerate button (the default) or "Answer now". See
+	// $lib/chat-turn-origin.ts. retry() below sends "error_retry" itself.
+	retryOrigin?: Exclude<RetryOrigin, "error_retry">;
 	confirmForkedSourceHistoryMutation?: boolean;
 	onForkedSourceHistoryConfirmationRequired?: () => void;
 };
@@ -1272,6 +1277,9 @@ export function createNormalChatClientTurnRuntime(
 				confirmForkedSourceHistoryMutation:
 					options.confirmForkedSourceHistoryMutation,
 				isEditResend: payload.isEditResend === true,
+				retryOrigin: options.retryAssistantMessageId
+					? (options.retryOrigin ?? "regenerate")
+					: undefined,
 			},
 		});
 	}
@@ -1333,6 +1341,9 @@ export function createNormalChatClientTurnRuntime(
 				retryAssistantMessageId: retryAssistantMessageId ?? undefined,
 				retryUserMessageId,
 				retryUserMessage: retryAssistantMessageId ? lastUserMessage : undefined,
+				// The Retry button only appears after a failed turn: a verdict on
+				// the failure, not on the answer, so not a counted regenerate.
+				retryOrigin: "error_retry",
 			},
 		});
 	}

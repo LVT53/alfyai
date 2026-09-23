@@ -2057,96 +2057,105 @@ describe("finalizeChatTurn", () => {
 		});
 
 		// Gap 2 — regenerate and edit-resend are the best proxy for "the answer
-		// was wrong". Neither the browser nor a route body directly asserts
-		// "this is a regenerate": chat-turn/retry.ts is the sole caller that
-		// ever sets persistUserMessage: false (it reuses the existing user
-		// message instead of persisting a new one — see retry.ts's
-		// skipPersistUserMessage: true), so that already-existing fact is the
-		// regenerate signal here. isEditResend is a plain request flag set by
-		// the edit-and-resend client flow, threaded through unchanged.
-		it("records a regenerate activity event when the turn reused the existing user message (chat-turn/retry.ts)", async () => {
+		// was wrong". The turn's own `turnOrigin` decides it: request.ts only
+		// ever yields "send" / "edit_resend" from a client body, and
+		// chat-turn/retry.ts stamps "regenerate" / "answer_now" / "error_retry"
+		// itself. Only a user-chosen regenerate and an edit-and-resend are
+		// recorded — "Answer now" is already its own client-observed answer_now
+		// row, and a Retry after a failed turn judges the failure, not the answer.
+		const turnOriginBaseParams = {
+			userId: "user-1",
+			conversationId: "conv-1",
+			userMessageContent: "user message",
+			normalizedMessage: "user message",
+			upstreamMessage: "upstream message",
+			assistantResponse: "assistant response",
+			assistantMetadata: {},
+			attachmentIds: [] as string[],
+			activeDocumentArtifactId: null,
+			contextStatus: null,
+			initialTaskState: null,
+			initialContextDebug: null,
+			analytics: { model: "model-1" },
+			assistantMirrorContent: "assistant response",
+			maintenanceReason: "chat_stream",
+		} as const;
+
+		it("records a regenerate activity event, attributed to the turn's model, for a regenerate turn", async () => {
 			const { finalizeChatTurn } = await import("./finalize");
 
 			await finalizeChatTurn({
+				...turnOriginBaseParams,
 				turnKind: "stream",
-				userId: "user-1",
-				conversationId: "conv-1",
-				userMessageContent: "user message",
 				persistUserMessage: false,
-				normalizedMessage: "user message",
-				upstreamMessage: "upstream message",
-				assistantResponse: "assistant response",
-				assistantMetadata: {},
-				attachmentIds: [],
-				activeDocumentArtifactId: null,
-				contextStatus: null,
-				initialTaskState: null,
-				initialContextDebug: null,
-				analytics: { model: "model-1" },
-				assistantMirrorContent: "assistant response",
-				maintenanceReason: "chat_stream",
+				turnOrigin: "regenerate",
 			});
 
 			expect(mockRecordTurnOriginActivityEvent).toHaveBeenCalledWith({
 				userId: "user-1",
 				conversationId: "conv-1",
 				messageId: "assistant-message",
+				modelId: "model-1",
 				kind: "regenerate",
 			});
 		});
 
-		it("records an edit_resend activity event when the turn is flagged as an edit-and-resend", async () => {
+		it("records an edit_resend activity event, attributed to the turn's model, for an edit-and-resend turn", async () => {
 			const { finalizeChatTurn } = await import("./finalize");
 
 			await finalizeChatTurn({
+				...turnOriginBaseParams,
 				turnKind: "stream",
-				userId: "user-1",
-				conversationId: "conv-1",
-				userMessageContent: "user message",
 				persistUserMessage: true,
-				normalizedMessage: "user message",
-				upstreamMessage: "upstream message",
-				assistantResponse: "assistant response",
-				assistantMetadata: {},
-				attachmentIds: [],
-				activeDocumentArtifactId: null,
-				contextStatus: null,
-				initialTaskState: null,
-				initialContextDebug: null,
-				analytics: { model: "model-1" },
-				assistantMirrorContent: "assistant response",
-				maintenanceReason: "chat_stream",
-				isEditResend: true,
+				turnOrigin: "edit_resend",
 			});
 
 			expect(mockRecordTurnOriginActivityEvent).toHaveBeenCalledWith({
 				userId: "user-1",
 				conversationId: "conv-1",
 				messageId: "assistant-message",
+				modelId: "model-1",
 				kind: "edit_resend",
 			});
+		});
+
+		it("does not count an Answer-now or an error Retry as a regenerate", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			for (const turnOrigin of ["answer_now", "error_retry"] as const) {
+				await finalizeChatTurn({
+					...turnOriginBaseParams,
+					turnKind: "stream",
+					persistUserMessage: false,
+					turnOrigin,
+				});
+			}
+
+			expect(mockRecordTurnOriginActivityEvent).not.toHaveBeenCalled();
+		});
+
+		it("does not infer a regenerate from persistUserMessage: false alone", async () => {
+			// /api/chat/stream accepts skipPersistUserMessage straight from the
+			// client body, so it is not a server-owned regenerate signal.
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				...turnOriginBaseParams,
+				turnKind: "stream",
+				persistUserMessage: false,
+				turnOrigin: "send",
+			});
+
+			expect(mockRecordTurnOriginActivityEvent).not.toHaveBeenCalled();
 		});
 
 		it("does not record a regenerate or edit_resend event for an ordinary send", async () => {
 			const { finalizeChatTurn } = await import("./finalize");
 
 			await finalizeChatTurn({
+				...turnOriginBaseParams,
 				turnKind: "send",
-				userId: "user-1",
-				conversationId: "conv-1",
-				userMessageContent: "user message",
 				persistUserMessage: true,
-				normalizedMessage: "user message",
-				upstreamMessage: "upstream message",
-				assistantResponse: "assistant response",
-				assistantMetadata: {},
-				attachmentIds: [],
-				activeDocumentArtifactId: null,
-				contextStatus: null,
-				initialTaskState: null,
-				initialContextDebug: null,
-				analytics: { model: "model-1" },
-				assistantMirrorContent: "assistant response",
 				maintenanceReason: "chat_send",
 			});
 

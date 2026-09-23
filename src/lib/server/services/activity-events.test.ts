@@ -308,6 +308,7 @@ describe("activity-events recording", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			messageId: "message-1",
+			modelId: "model1",
 			kind: "regenerate",
 		});
 
@@ -321,6 +322,7 @@ describe("activity-events recording", () => {
 			kind: "regenerate",
 			name: "regenerate",
 			status: "done",
+			modelId: "model1",
 		});
 	});
 
