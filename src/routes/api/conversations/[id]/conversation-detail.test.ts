@@ -168,7 +168,6 @@ describe("GET /api/conversations/[id]", () => {
 			attachedArtifacts: [],
 			activeWorkingSet: [],
 			contextStatus: null,
-			contextSources: null,
 			taskState: null,
 			contextDebug: null,
 			draft: null,

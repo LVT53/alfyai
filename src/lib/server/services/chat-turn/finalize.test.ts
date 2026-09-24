@@ -655,11 +655,6 @@ describe("finalizeChatTurn", () => {
 		mockPersistAssistantTurnState.mockReturnValueOnce(
 			deferredTurnState.promise,
 		);
-		// buildChatTurnCompletionContextSources (kept real in finalize.ts) calls
-		// getProjectReferenceContext, so that mock is the honest proxy for "the
-		// deferred context-source projection ran".
-		const mockGetProjectReferenceContext =
-			getProjectReferenceContext as ReturnType<typeof vi.fn>;
 		const { finalizeChatTurn } = await import("./finalize");
 
 		let receipt:
@@ -698,14 +693,12 @@ describe("finalizeChatTurn", () => {
 		expect(completion.userMessage?.id).toBe("user-message");
 		expect(completion.assistantMessage?.id).toBe("assistant-message");
 		expect(completion.turnState).toBeNull();
-		expect(completion.contextSources.groups).toEqual([]);
 		expect(mockPersistAssistantTurnState).toHaveBeenCalledWith(
 			expect.objectContaining({
 				userMessageId: "user-message",
 				assistantMessageId: "assistant-message",
 			}),
 		);
-		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
 		expect(mockRunPostTurnTasks).not.toHaveBeenCalled();
 
 		deferredTurnState.resolve({
@@ -716,12 +709,6 @@ describe("finalizeChatTurn", () => {
 		});
 		await flushMicrotasks();
 
-		expect(mockGetProjectReferenceContext).toHaveBeenCalledWith(
-			expect.objectContaining({
-				userId: "user-1",
-				conversationId: "conv-1",
-			}),
-		);
 		expect(mockRunPostTurnTasks).toHaveBeenCalledWith(
 			expect.objectContaining({
 				userId: "user-1",
@@ -1402,23 +1389,9 @@ describe("finalizeChatTurn", () => {
 		);
 	});
 
-	it("returns context sources assembled by the completion boundary", async () => {
+	it("returns no context-source projection from the completion boundary", async () => {
 		const mockGetProjectReferenceContext =
 			getProjectReferenceContext as ReturnType<typeof vi.fn>;
-		mockGetProjectReferenceContext.mockResolvedValueOnce({
-			source: "project_folder",
-			projectId: "folder-1",
-			projectName: "Launch folder",
-			entries: [
-				{
-					conversationId: "conv-sibling-1",
-					title: "Pricing notes",
-					objective: null,
-					summary: "Stable pricing brief.",
-				},
-			],
-			omittedSiblingCount: 0,
-		});
 		mockPersistAssistantTurnState.mockResolvedValue({
 			activeWorkingSet: [
 				{
@@ -1479,36 +1452,14 @@ describe("finalizeChatTurn", () => {
 			],
 		});
 
-		expect(completion.contextSources.groups).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					kind: "linked_source",
-					items: [
-						expect.objectContaining({
-							artifactId: "display-1",
-							title: "Linked source.pdf",
-						}),
-					],
-				}),
-				expect.objectContaining({
-					kind: "working_set",
-					items: [
-						expect.objectContaining({
-							artifactId: "working-1",
-							title: "Working output",
-						}),
-					],
-				}),
-				expect.objectContaining({
-					kind: "project_folder",
-					items: [
-						expect.objectContaining({
-							title: "Launch folder",
-						}),
-					],
-				}),
-			]),
-		);
+		// The send path used to assemble a Context Sources projection here and
+		// put it in the response body; both halves are gone.
+		expect(completion).not.toHaveProperty("contextSources");
+		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
+		// The turn-state projection the completion still carries is untouched.
+		expect(completion.turnState?.activeWorkingSet).toEqual([
+			expect.objectContaining({ id: "working-1" }),
+		]);
 	});
 
 	it("records document refinement correction from Working Document Selection", async () => {

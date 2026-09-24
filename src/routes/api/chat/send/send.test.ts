@@ -1050,7 +1050,7 @@ describe("POST /api/chat/send", () => {
 		);
 	});
 
-	it("returns project folder awareness in send metadata and degrades lookup failures", async () => {
+	it("does not ship a contextSources projection in the send response", async () => {
 		seedConversationTurn(mockGetConversation, mockCreateMessage, {
 			userMessage: { content: "Hello" },
 			assistantMessage: { content: "Hello from AI!" },
@@ -1060,6 +1060,8 @@ describe("POST /api/chat/send", () => {
 			rawResponse: {},
 			contextStatus: undefined,
 		});
+		// A project reference is deliberately available: the response must stay
+		// projection-free even when the folder lookup succeeds.
 		mockGetProjectReferenceContext.mockResolvedValueOnce({
 			source: "project_folder",
 			projectId: "folder-1",
@@ -1081,42 +1083,7 @@ describe("POST /api/chat/send", () => {
 		const data = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(data.contextSources.groups).toEqual([
-			expect.objectContaining({
-				kind: "project_folder",
-				state: "inferred",
-				items: [
-					expect.objectContaining({
-						title: "Launch folder",
-						sourceType: "conversation",
-					}),
-				],
-			}),
-		]);
-
-		mockCreateMessage.mockClear();
-		seedConversationTurn(mockGetConversation, mockCreateMessage, {
-			userMessageId: "user-msg-2",
-			assistantMessageId: "assistant-msg-2",
-			userMessage: { content: "Hello again" },
-			assistantMessage: { content: "Still works" },
-		});
-		mockRunPlainNormalChatSendModel.mockResolvedValueOnce({
-			text: "Still works",
-			rawResponse: {},
-			contextStatus: undefined,
-		});
-		mockGetProjectReferenceContext.mockRejectedValueOnce(
-			new Error("folder lookup failed"),
-		);
-
-		const fallbackResponse = await POST(
-			makeEvent({ message: "Hello again", conversationId: "conv-1" }),
-		);
-		const fallbackData = await fallbackResponse.json();
-
-		expect(fallbackResponse.status).toBe(200);
-		expect(fallbackData.contextSources.groups).toEqual([]);
+		expect(data).not.toHaveProperty("contextSources");
 	});
 
 	it("applies linked context sources to normal chat send turns", async () => {
@@ -1149,21 +1116,7 @@ describe("POST /api/chat/send", () => {
 			linkedSources,
 			attachmentIds: [],
 		});
-		expect(data.contextSources.groups).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					kind: "linked_source",
-					state: "active",
-					items: [
-						expect.objectContaining({
-							artifactId: "display-1",
-							title: "Linked source.pdf",
-							reason: "linked_context_source",
-						}),
-					],
-				}),
-			]),
-		);
+		expect(data).not.toHaveProperty("contextSources");
 		expect(mockRunPlainNormalChatSendModel).toHaveBeenCalled();
 	});
 
