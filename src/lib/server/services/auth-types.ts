@@ -26,6 +26,12 @@ export interface UserPreferences {
 	sidebarProjectsExpanded: boolean;
 	sidebarChatsExpanded: boolean;
 	memoryEnabled: boolean;
+	/**
+	 * Standing guidance the user typed, followed in every chat. `null` when
+	 * unset or cleared — the API stores both as NULL (see
+	 * src/lib/shared/instructions.ts).
+	 */
+	personalInstructions: string | null;
 }
 
 export interface UserSettings {

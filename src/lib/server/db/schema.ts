@@ -51,6 +51,13 @@ export const users = sqliteTable("users", {
 	})
 		.notNull()
 		.default(false),
+	// Free-text standing guidance the user typed, followed in every chat
+	// (hence the system message, not the turn packet). NULL and '' are the
+	// same stored state: the settings API normalises whitespace-only input to
+	// NULL. Capped at INSTRUCTIONS_MAX_CHARS code points by
+	// src/lib/shared/instructions.ts, checked in the dialog and on the server
+	// through the same function.
+	personalInstructions: text("personal_instructions"),
 	// When set, the home-screen "memories need review" notice is hidden until a
 	// newer open review item appears (created after this timestamp). Null means
 	// never dismissed. See home-summary.ts.
