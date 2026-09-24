@@ -4,6 +4,7 @@ import type { PendingWrite } from "$lib/server/services/connections/pending-writ
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { SkillDraftProposal } from "$lib/server/services/skills/types";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import {
 	appendTokenChunkToMessageList,
 	applyResponseActivityEntryToMessageList,
@@ -22,6 +23,7 @@ import {
 	isPendingSkillUnavailableError,
 	markPendingSkillUnavailable,
 	mergeFileProductionJob,
+	patchInstructionSuggestionInMessageList,
 	patchSkillDraftInMessageList,
 	shouldHydrateFileProductionJobsOnToolCall,
 	toFriendlySendError,
@@ -1378,5 +1380,66 @@ describe("file production chat helpers", () => {
 				assistantMessageId: "assistant-1",
 			}),
 		]);
+	});
+});
+
+function makeSuggestion(
+	overrides: Partial<InstructionSuggestion> = {},
+): InstructionSuggestion {
+	return {
+		id: "suggestion-1",
+		status: "pending",
+		text: "Only suggest trains, no flights.",
+		scope: { kind: "personal" },
+		createdAt: 1_770_000_000_000,
+		...overrides,
+	};
+}
+
+describe("patchInstructionSuggestionInMessageList", () => {
+	it("swaps one suggestion's status and keeps the offered text as it was", () => {
+		const userMessage: ChatMessage = {
+			id: "user-1",
+			role: "user",
+			content: "From now on, only suggest trains.",
+			timestamp: 1,
+		};
+		const assistantMessage: ChatMessage = {
+			id: "assistant-1",
+			role: "assistant",
+			content: "Understood.",
+			timestamp: 2,
+			instructionSuggestions: [makeSuggestion()],
+		};
+
+		expect(
+			patchInstructionSuggestionInMessageList([userMessage, assistantMessage], {
+				messageId: "assistant-1",
+				suggestion: makeSuggestion({ status: "dismissed" }),
+			}),
+		).toEqual([
+			userMessage,
+			{
+				...assistantMessage,
+				instructionSuggestions: [makeSuggestion({ status: "dismissed" })],
+			},
+		]);
+	});
+
+	it("leaves a message whose suggestions do not hold that id untouched", () => {
+		const assistantMessage: ChatMessage = {
+			id: "assistant-1",
+			role: "assistant",
+			content: "Understood.",
+			timestamp: 2,
+			instructionSuggestions: [makeSuggestion({ id: "suggestion-other" })],
+		};
+
+		expect(
+			patchInstructionSuggestionInMessageList([assistantMessage], {
+				messageId: "assistant-1",
+				suggestion: makeSuggestion({ status: "reviewed" }),
+			}),
+		).toEqual([assistantMessage]);
 	});
 });

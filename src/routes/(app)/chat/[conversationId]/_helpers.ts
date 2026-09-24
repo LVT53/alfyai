@@ -29,6 +29,7 @@ import type {
 	PendingSkillSelection,
 	SkillDraftProposal,
 } from "$lib/server/services/skills/types";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import type { StreamMetadata } from "$lib/services/streaming";
 import {
 	attachmentReadinessReasonKey,
@@ -542,6 +543,32 @@ export function patchSkillDraftInMessageList(
 			...message,
 			skillDrafts: skillDrafts.map((draft) =>
 				draft.id === params.draft.id ? params.draft : draft,
+			),
+		};
+	});
+}
+
+/**
+ * Swaps one suggestion's status in place after the write route answered.
+ *
+ * The offered text is carried through untouched: the row is the model's own
+ * words, and a client that re-rendered them from its own copy could show the
+ * user something they never reviewed.
+ */
+export function patchInstructionSuggestionInMessageList(
+	list: ChatMessage[],
+	params: { messageId: string; suggestion: InstructionSuggestion },
+): ChatMessage[] {
+	return list.map((message) => {
+		if (message.id !== params.messageId) return message;
+		const suggestions = message.instructionSuggestions ?? [];
+		if (!suggestions.some((entry) => entry.id === params.suggestion.id)) {
+			return message;
+		}
+		return {
+			...message,
+			instructionSuggestions: suggestions.map((entry) =>
+				entry.id === params.suggestion.id ? params.suggestion : entry,
 			),
 		};
 	});

@@ -11,7 +11,10 @@
  * happens after it saves.
  */
 import { ApiError } from "$lib/client/api/http";
-import { fetchProject, saveProjectInstructions } from "$lib/client/api/projects";
+import {
+	fetchProject,
+	saveProjectInstructions,
+} from "$lib/client/api/projects";
 import {
 	fetchUserSettings,
 	updateUserPreferences,
@@ -29,6 +32,24 @@ export interface InstructionDialogSeed {
 	/** Saved text per scope, keyed "personal" or `project:<id>`. */
 	initialText: Record<string, string>;
 }
+
+/**
+ * Opens the dialog on a line to append. The scope is a request, not a
+ * command: a surface clamps it to the scopes it can actually offer, which is
+ * what keeps a suggestion aimed at a since-deleted project from opening an
+ * editor over the wrong text.
+ *
+ * `onSaved` runs only after the write succeeded — that is where the caller
+ * records that the user answered an offer, and it must not happen for a save
+ * that failed.
+ */
+export type OpenInstructionDialog = (
+	text: string,
+	options?: {
+		scope?: InstructionScope;
+		onSaved?: () => void | Promise<void>;
+	},
+) => void;
 
 const PERSONAL_SCOPE: InstructionScope = { kind: "personal" };
 

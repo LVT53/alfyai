@@ -20,6 +20,12 @@ const instructionsDict = {
 		"instructions.scopeA11y": "Instructions for {scope}",
 		"instructions.scopePersonal": "Personal",
 		"instructions.scopeYou": "You",
+		"instructions.suggestionA11y": "Add to instructions for {scope}: {text}",
+		"instructions.suggestionDismiss": "Dismiss",
+		"instructions.suggestionDismissFailed": "Could not dismiss the suggestion.",
+		"instructions.suggestionPrefix": "Add to instructions for",
+		"instructions.suggestionReview": "Review",
+		"instructions.suggestionReviewFailed": "Could not save the instructions.",
 		"instructions.title": "Instructions",
 		"instructions.tooLong": "Instructions can be at most {max} characters.",
 		"instructions.tokenA11y": "Project {name}",
@@ -38,6 +44,15 @@ const instructionsDict = {
 		"instructions.scopeA11y": "Utasítások ehhez: {scope}",
 		"instructions.scopePersonal": "Személyes",
 		"instructions.scopeYou": "Te",
+		"instructions.suggestionA11y":
+			"Hozzáadás az utasításokhoz ({scope}): {text}",
+		"instructions.suggestionDismiss": "Elvetés",
+		"instructions.suggestionDismissFailed":
+			"Nem sikerült elvetni a javaslatot.",
+		"instructions.suggestionPrefix": "Hozzáadás az utasításokhoz:",
+		"instructions.suggestionReview": "Áttekintés",
+		"instructions.suggestionReviewFailed":
+			"Nem sikerült menteni az utasításokat.",
 		"instructions.title": "Utasítások",
 		"instructions.tooLong": "Az utasítás legfeljebb {max} karakter lehet.",
 		"instructions.tokenA11y": "{name} projekt",

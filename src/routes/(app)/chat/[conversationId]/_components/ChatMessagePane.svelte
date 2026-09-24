@@ -11,6 +11,7 @@ import type { ConversationForkOrigin } from "$lib/server/services/conversation-f
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import type { MessageEditPayload, MessageRegeneratePayload } from "../_helpers";
 
 let {
@@ -35,6 +36,9 @@ let {
 	skillDraftActionState = {},
 	onSaveSkillDraft,
 	onDismissSkillDraft,
+	instructionSuggestionActionState = {},
+	onReviewInstructionSuggestion,
+	onDismissInstructionSuggestion,
 	onRetryFileProductionJob,
 	onCancelFileProductionJob,
 	onDismissFileProductionJob,
@@ -74,6 +78,18 @@ let {
 	onDismissSkillDraft?: (payload: {
 		messageId: string;
 		draftId: string;
+	}) => void | Promise<void>;
+	instructionSuggestionActionState?: Record<
+		string,
+		{ busy?: boolean; error?: string | null }
+	>;
+	onReviewInstructionSuggestion?: (payload: {
+		messageId: string;
+		suggestion: InstructionSuggestion;
+	}) => void | Promise<void>;
+	onDismissInstructionSuggestion?: (payload: {
+		messageId: string;
+		suggestion: InstructionSuggestion;
 	}) => void | Promise<void>;
 	onRetryFileProductionJob?: (jobId: string) => void | Promise<void>;
 	onCancelFileProductionJob?: (jobId: string) => void | Promise<void>;
@@ -118,6 +134,9 @@ let {
 		{skillDraftActionState}
 		{onSaveSkillDraft}
 		{onDismissSkillDraft}
+		{instructionSuggestionActionState}
+		{onReviewInstructionSuggestion}
+		{onDismissInstructionSuggestion}
 		{onRetryFileProductionJob}
 		{onCancelFileProductionJob}
 		{onDismissFileProductionJob}
