@@ -491,6 +491,97 @@ describe("deleting an incognito conversation", () => {
 	});
 });
 
+// The instruction offer is a learning-shaped surface (Slice F): it exists to
+// turn something the user said into an instruction AlfyAI keeps. Incognito's
+// promise is that nothing is learned from the conversation, so the offer is
+// withheld there — while the instructions themselves keep applying and
+// `/instruction` keeps working, because a standing instruction is not a memory
+// OF the conversation. The gate is the tool catalogue, resolved once per
+// conversation from this same flag, which is also what keeps the prompt
+// prefix (and its cache) stable across a conversation's turns.
+describe("the instruction offer", () => {
+	it("never registers the instruction-suggestion tool in an incognito conversation", async () => {
+		const normal = await buildTurnToolPack(NORMAL);
+		const incognito = await buildTurnToolPack(INCOGNITO);
+
+		// The control matters: the same call does carry the tool for an
+		// ordinary conversation, so its absence below is this flag and not a
+		// tool that is never registered for anyone.
+		expect(normal.tools?.suggest_instruction).toBeDefined();
+		expect(incognito.tools?.suggest_instruction).toBeUndefined();
+	});
+
+	it("never writes an instruction suggestion into an incognito conversation", async () => {
+		// The tool call is the only writer, and what it writes is the recorded
+		// offer `finalizeChatTurn` lifts onto the assistant message. So the
+		// assertion is on that one route: in an ordinary conversation the same
+		// call records a pending offer (the control), and in an incognito
+		// conversation there is no tool to call at all.
+		const normalEntries = await callSuggestInstruction(NORMAL);
+		expect(normalEntries).toHaveLength(1);
+		expect(normalEntries?.[0]?.instructionSuggestion).toMatchObject({
+			status: "pending",
+			text: OFFER_TEXT,
+		});
+
+		seedDialogue(
+			INCOGNITO,
+			`From now on, ${USER_CANARY} only. Do not remember this.`,
+			"Understood.",
+		);
+		const incognitoEntries = await callSuggestInstruction(INCOGNITO);
+		// `null` is "there was no tool to call", not "the call was refused": a
+		// refusal records an explicit `null` suggestion on a recorded call.
+		expect(incognitoEntries).toBeNull();
+
+		// And the conversation's own rows carry no offer: nothing but that
+		// recorded entry ever reaches a message's metadata.
+		const messages = await listMessages(INCOGNITO);
+		expect(JSON.stringify(messages)).not.toContain(OFFER_TEXT);
+	});
+});
+
+const OFFER_TEXT = "Only suggest trains, never flights.";
+
+/** The pack a turn is handed, built the way a turn builds it. */
+async function buildTurnToolPack(conversationId: string) {
+	const { createToolPack } = await import(
+		"$lib/server/services/chat-turn/shared-normal-chat-model-run-helpers"
+	);
+	const { getConfig } = await import("$lib/server/config-store");
+	return createToolPack(
+		{
+			userId: USER,
+			conversationId,
+			message: OFFER_TEXT,
+			modelId: "model1",
+			runtimeConfig: getConfig(),
+		},
+		"turn-instruction-offer",
+		null,
+		"model1",
+		new Set(),
+	);
+}
+
+/**
+ * Runs the conversation's real `suggest_instruction` tool once, and answers
+ * with the turn's recorded tool calls — the whole of what finalize can turn
+ * into an offer — or `null` when this conversation's pack has no such tool.
+ */
+async function callSuggestInstruction(conversationId: string) {
+	const pack = await buildTurnToolPack(conversationId);
+	const tool = pack.tools?.suggest_instruction as
+		| { execute?: (input: unknown, options: unknown) => Promise<unknown> }
+		| undefined;
+	if (!tool?.execute) return null;
+	await tool.execute(
+		{ text: OFFER_TEXT, scope: "personal" },
+		{ toolCallId: `call-${conversationId}`, messages: [] },
+	);
+	return pack.getToolCalls();
+}
+
 // ── PART B: the guard ──────────────────────────────────────────
 //
 // `buildConversationContextScopeCondition` is the boundary. A query that reads

@@ -491,6 +491,72 @@ function addChatsSection(
 	);
 }
 
+/** The words the archive uses for the answer a user gave an offer. */
+const INSTRUCTION_OFFER_STATUS_LABELS: Record<string, string> = {
+	pending: "Pending",
+	reviewed: "Reviewed",
+	dismissed: "Dismissed",
+};
+
+/**
+ * The instruction offers one message carries, read out of its metadata bag.
+ *
+ * Only this one field is read, never the bag itself: the metadata also holds
+ * diagnostics and raw tool bookkeeping that the archive is deliberately
+ * without (the transcript test asserts as much). Degrades to "no offers" on
+ * anything malformed — an export must not fail over a field it can skip — and
+ * keeps only what the page needs to show, escaped at render time.
+ */
+function readInstructionOffers(
+	metadataJson: string | null,
+): Array<{ status: string; scope: string; text: string }> {
+	if (!metadataJson) return [];
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(metadataJson);
+	} catch {
+		return [];
+	}
+	const suggestions = (parsed as { instructionSuggestions?: unknown })
+		?.instructionSuggestions;
+	if (!Array.isArray(suggestions)) return [];
+	return suggestions.flatMap((entry) => {
+		const suggestion = entry as {
+			status?: unknown;
+			text?: unknown;
+			scope?: { kind?: unknown; name?: unknown };
+		};
+		if (typeof suggestion?.text !== "string" || !suggestion.text) return [];
+		const isProject = suggestion.scope?.kind === "project";
+		const projectName =
+			isProject && typeof suggestion.scope?.name === "string"
+				? suggestion.scope.name
+				: null;
+		return [
+			{
+				status:
+					typeof suggestion.status === "string"
+						? (INSTRUCTION_OFFER_STATUS_LABELS[suggestion.status] ??
+							suggestion.status)
+						: "Pending",
+				scope: projectName ?? (isProject ? "Project" : "Personal"),
+				text: suggestion.text,
+			},
+		];
+	});
+}
+
+function renderInstructionOffers(metadataJson: string | null): string {
+	const offers = readInstructionOffers(metadataJson);
+	if (offers.length === 0) return "";
+	return `<section><h3>Instruction offers</h3><ul>${offers
+		.map(
+			(offer) =>
+				`<li><p class="meta">${escapeHtml(offer.status)} · ${escapeHtml(offer.scope)}</p><pre>${escapeHtml(offer.text)}</pre></li>`,
+		)
+		.join("")}</ul></section>`;
+}
+
 function renderChatPage(params: {
 	conversation: typeof conversations.$inferSelect;
 	messages: Array<
@@ -532,7 +598,7 @@ function renderChatPage(params: {
 				? visibleMessages
 						.map(
 							(message) =>
-								`<article class="message ${message.role}"><h3>${escapeHtml(capitalize(message.role))}</h3><p class="meta">${escapeHtml(formatDateTime(message.createdAt))}</p><pre>${escapeHtml(message.content)}</pre></article>`,
+								`<article class="message ${message.role}"><h3>${escapeHtml(capitalize(message.role))}</h3><p class="meta">${escapeHtml(formatDateTime(message.createdAt))}</p><pre>${escapeHtml(message.content)}</pre>${renderInstructionOffers(message.metadataJson)}</article>`,
 						)
 						.join("")
 				: `<p class="empty">No user or assistant messages were found in this conversation.</p>`
