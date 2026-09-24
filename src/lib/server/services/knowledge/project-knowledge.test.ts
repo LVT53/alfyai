@@ -182,6 +182,40 @@ function readLinkRows(): Array<{
 	return rows;
 }
 
+/**
+ * The chat's own incognito flag, flipped the way the composer flips it. It is a
+ * setting on the conversation and not a property of any artifact, so tests about
+ * it have to move the conversation, not the file.
+ */
+function setConversationIncognito(
+	conversationId: string,
+	incognito: boolean,
+): void {
+	const sqlite = new Database(dbPath);
+	sqlite
+		.prepare("UPDATE conversations SET memory_incognito = ? WHERE id = ?")
+		.run(incognito ? 1 : 0, conversationId);
+	sqlite.close();
+}
+
+/**
+ * Put a seeded document inside a chat, the way an upload or a produced file
+ * does. The seeded fixtures mostly carry no conversation at all — they are
+ * library documents — and an artifact with no conversation is outside the
+ * incognito question entirely, so a test about the flag has to place the file
+ * in the chat first.
+ */
+function setArtifactConversation(
+	artifactId: string,
+	conversationId: string | null,
+): void {
+	const sqlite = new Database(dbPath);
+	sqlite
+		.prepare("UPDATE artifacts SET conversation_id = ? WHERE id = ?")
+		.run(conversationId, artifactId);
+	sqlite.close();
+}
+
 function readArtifact(artifactId: string) {
 	const sqlite = new Database(dbPath);
 	const row = sqlite
@@ -556,6 +590,86 @@ describe("project knowledge links", () => {
 		// file an incognito chat produced must never enter through it.
 		expect(isProjectKnowledgeError(error)).toBe(true);
 		expect(readLinkRows()).toEqual([]);
+	});
+
+	it("hides a document whose own chat is made incognito, and shows it again if not", async () => {
+		seedProjectKnowledgeScenario();
+		const {
+			linkProjectKnowledge,
+			listProjectKnowledge,
+			listProjectKnowledgeArtifactIds,
+			listProjectKnowledgeContentTargets,
+			resolveProjectFileMentions,
+		} = await import("./project-knowledge");
+		const namesOf = (
+			files: Awaited<ReturnType<typeof listProjectKnowledge>>,
+		): string[] => files.map((file) => file.name);
+
+		// The document came out of the chat, so it carries the chat's id; a
+		// library file with no conversation is outside the incognito question
+		// altogether and would never hide, flag or no flag.
+		setArtifactConversation("artifact-railjet", "conv-plain");
+
+		// Linked while the chat it came from was an ordinary one, which is the
+		// only way it could have been linked at all.
+		await linkProjectKnowledge({
+			userId: "owner-user",
+			projectId: "trip-project",
+			artifactIds: ["artifact-railjet"],
+		});
+		expect(
+			namesOf(
+				await listProjectKnowledge({
+					userId: "owner-user",
+					projectId: "trip-project",
+				}),
+			),
+		).toContain("Railjet tickets.pdf");
+
+		// The flag lives on the chat, not on the file, so the user can move it
+		// either way — and the project's list is not a way around it. Every
+		// surface a turn reads has to drop the document, or a project becomes a
+		// standing grant to something the user has since made private.
+		setConversationIncognito("conv-plain", true);
+
+		await expect(
+			listProjectKnowledge({ userId: "owner-user", projectId: "trip-project" }),
+		).resolves.toEqual([]);
+		await expect(
+			listProjectKnowledgeArtifactIds({
+				userId: "owner-user",
+				projectId: "trip-project",
+			}),
+		).resolves.toEqual([]);
+		await expect(
+			listProjectKnowledgeContentTargets({
+				userId: "owner-user",
+				projectId: "trip-project",
+			}),
+		).resolves.toEqual([]);
+		await expect(
+			resolveProjectFileMentions({
+				userId: "owner-user",
+				projectId: "trip-project",
+				message: "what time is the Railjet?",
+			}),
+		).resolves.toEqual([]);
+
+		// Hidden, not unlinked: the link row is still there, so turning incognito
+		// back off hands the file back rather than losing the user's work.
+		expect(readLinkRows().map((row) => row.artifact_id)).toEqual([
+			"artifact-railjet",
+		]);
+
+		setConversationIncognito("conv-plain", false);
+		expect(
+			namesOf(
+				await listProjectKnowledge({
+					userId: "owner-user",
+					projectId: "trip-project",
+				}),
+			),
+		).toContain("Railjet tickets.pdf");
 	});
 
 	it("does not list another user's project's files", async () => {
