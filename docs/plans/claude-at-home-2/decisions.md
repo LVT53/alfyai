@@ -285,6 +285,43 @@ The parent spec's §6 listed slices 0–5 and never mentioned tours, so slice 6 
 above it. A **Slice 6 — first-open tours** paragraph is added, and the mockup is cited as section 7 (an
 earlier draft said section 6).
 
+## 35. The Document's engine lives in `src/lib/shared/artifact-document/`
+
+Confirmed: the Document's pure engine (block model, patch engine, canonical hasher, anchor resolver, tracker
+chips, sidecar) lives under `src/lib/shared/artifact-document/`, its editor components under
+`src/lib/components/artifacts/document/`, and slice 0's `types.ts` **re-exports the shared `Anchor` type**
+(one line, type-only) instead of declaring a second union. Two unions for one concept is how they drift.
+
+## 36. An exported checklist shows ticks, not `[x]`
+
+Slice 1 found that the document-source `list` items are plain strings, so a checklist exports as
+`[x] Book tickets` — in a PDF, which is exactly the artefact people print. The agent recommended accepting
+it for v1; **overruled.** Add an **optional** `checked?: boolean` to the document-source list item and teach
+all four renderers (PDF, DOCX, HTML, Markdown) to draw a real checkbox or tick, with a test per renderer.
+The envelope stays version 1 because the field is optional, and the same improvement reaches today's
+`produce_file` output.
+
+## 37. Four defects slice 0 must lose in the consistency pass
+
+Slice 0's deepened file contradicts rulings in four places, each found by a sibling slice:
+
+1. It declares its own anchor union (`slice-0.md:429-433`) — remove it in favour of the shared type
+   (ruling 35).
+2. `ArtifactMetadata.idIndex` has no writer — either write it or drop it; dead state is not allowed to ride
+   along.
+3. Its `artifact_kv` Drizzle block still declares a composite `primaryKey` (`slice-0.md:264`) — ruling 17
+   says a surrogate `id` plus a unique index.
+4. `slice-0.md:870` contradicts ruling 24 (App key-value rows are archived, not excluded).
+
+These are the consistency pass's first four fixes, and it must check every other slice file for the same
+class of drift.
+
+## 38. The "29%" figure in the spec is the unfixed prototype's
+
+The parent spec's §5 says the prototype's mobile toolbar "took 29% of a 390 px viewport" — measured at 780 px
+of height, which is the *unfixed* number. Slice 1 carries the budget that matters: 226 px before, **137 px
+after** at 844 px, with the type's own toolbar layout. No decision changes; the spec's sentence is clarified.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
