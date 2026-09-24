@@ -295,7 +295,7 @@ const spreadsheetPromptResources = [
 			"Use formula-driven derived values, readable labels, number/date formats, sensible widths, freeze panes, filters, validation lists, light borders, and restrained fills.",
 			"Keep source facts and assumptions separate. Put source references in workbook cells or compact source/audit sheets.",
 			"For visuals, use chart-ready helper tables, KPI blocks, conditional formats, heatmaps, timelines, and static worksheet layouts.",
-			"Verify with bounded sandbox-local checks: output file count, workbook reload, expected sheets, representative formulas, and obvious formula-error scans.",
+			"Write the workbook to /output and stop; the server validates the file, so do not add in-program checks that can crash after it is written.",
 		].join(" "),
 		keywords: [],
 	},
@@ -595,7 +595,7 @@ const builtInSystemSkills = [
 				'Use this skill whenever the user wants an XLSX/CSV/TSV workbook created, edited, or analyzed. Route the work through produce_file with sourceMode: "program", program: { language: "javascript", sourceCode, filename }, requestedOutputs: [{ "type": "xlsx" }].',
 				'The sourceCode must use exceljs and write the final workbook via workbook.xlsx.writeFile("/output/<name>.xlsx") — write exactly one final file, no scratch output.',
 				"Output structure: separate sheets for raw/source data, assumptions, calculations, and results; derive every value with real formulas referencing labeled assumption cells, never magic numbers.",
-				"When formulas are used, set workbook.calcProperties.fullCalcOnLoad = true and verify with sandbox-local checks before finishing.",
+				"When formulas are used, set workbook.calcProperties.fullCalcOnLoad = true. Write the file to /output and stop; the server validates it.",
 				"Use tables, frozen panes, number formats, and column widths so the workbook is usable without follow-up cleanup.",
 				"Include domain-specific conventions (finance, marketing, etc.) only when the user's request clearly calls for them.",
 			].join("\n"),
@@ -608,7 +608,7 @@ const builtInSystemSkills = [
 				'Használd ezt a skillt, amikor a felhasználó XLSX/CSV/TSV munkafüzet létrehozását, szerkesztését vagy elemzését kéri. A munkát a produce_file eszközön keresztül indítsd: sourceMode: "program", program: { language: "javascript", sourceCode, filename }, requestedOutputs: [{ "type": "xlsx" }].',
 				'A sourceCode exceljs-t használjon, és a végleges munkafüzetet a workbook.xlsx.writeFile("/output/<name>.xlsx") hívással írja ki — pontosan egy végleges fájlt készíts, segédkimenet nélkül.',
 				"Kimeneti szerkezet: külön lapok a nyers/forrásadatoknak, feltételezéseknek, számításoknak és eredményeknek; minden értéket valódi képlettel származtass, amely címkézett feltételezés-cellákra hivatkozik, soha ne rejts mágikus számokat.",
-				"Ha képleteket használsz, állítsd be a workbook.calcProperties.fullCalcOnLoad = true értéket, és ellenőrizz sandboxon belüli tesztekkel, mielőtt befejeznéd.",
+				"Ha képleteket használsz, állítsd be a workbook.calcProperties.fullCalcOnLoad = true értéket. Írd a fájlt az /output mappába, és állj meg; a szerver ellenőrzi.",
 				"Használj táblákat, rögzített paneleket, számformátumokat és oszlopszélességeket, hogy a munkafüzet utómunka nélkül használható legyen.",
 				"Domain-specifikus konvenciókat (pénzügy, marketing stb.) csak akkor alkalmazz, ha a felhasználó kérése ezt egyértelműen indokolja.",
 			].join("\n"),
@@ -907,6 +907,29 @@ const previousBuiltInSystemSkillDefaults = {
 			"build an appointment checklist",
 		],
 	},
+	// Pre-edit text of the current version: it asked for in-program
+	// verification, and a self-check that crashed after writing a valid
+	// workbook failed the whole job.
+	"system:spreadsheet-builder:v2": {
+		displayName: "Spreadsheet Builder",
+		description:
+			"Builds polished XLSX workbooks with real formulas, formatted tables, and dashboards, delivered as a downloadable file.",
+		instructions: [
+			'Use this skill whenever the user wants an XLSX/CSV/TSV workbook created, edited, or analyzed. Route the work through produce_file with sourceMode: "program", program: { language: "javascript", sourceCode, filename }, requestedOutputs: [{ "type": "xlsx" }].',
+			'The sourceCode must use exceljs and write the final workbook via workbook.xlsx.writeFile("/output/<name>.xlsx") — write exactly one final file, no scratch output.',
+			"Output structure: separate sheets for raw/source data, assumptions, calculations, and results; derive every value with real formulas referencing labeled assumption cells, never magic numbers.",
+			"When formulas are used, set workbook.calcProperties.fullCalcOnLoad = true and verify with sandbox-local checks before finishing.",
+			"Use tables, frozen panes, number formats, and column widths so the workbook is usable without follow-up cleanup.",
+			"Include domain-specific conventions (finance, marketing, etc.) only when the user's request clearly calls for them.",
+		].join("\n"),
+		activationExamples: [
+			"build a spreadsheet",
+			"create an xlsx workbook",
+			"make a KPI dashboard",
+			"turn this into a financial model",
+			"format this CSV as a workbook",
+		],
+	},
 	"system:spreadsheet-builder": {
 		displayName: "Spreadsheet Builder",
 		description:
@@ -970,6 +993,16 @@ export function listBuiltInSystemSkillInstructions(): Array<{
 			instructions: skill.hu.instructions,
 		},
 	]);
+}
+
+export function getSpreadsheetStyleQualityResourceContent(): string {
+	const resource = spreadsheetPromptResources.find(
+		(resource) => resource.id === "spreadsheet-style-quality",
+	);
+	if (!resource) {
+		throw new Error("Missing spreadsheet-style-quality resource.");
+	}
+	return resource.content;
 }
 
 export function getSpreadsheetFinanceModelsResourceContent(): string {

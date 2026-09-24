@@ -509,6 +509,7 @@ async function resolveProduceFileVerdict(params: {
 		return buildProduceFileSucceededPayload({
 			jobId: verdict.job.id,
 			files: verdict.job.files,
+			warnings: verdict.job.warnings,
 			reused: params.reused,
 		});
 	}

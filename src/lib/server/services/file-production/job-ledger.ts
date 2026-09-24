@@ -7,7 +7,10 @@ import {
 	fileProductionJobFiles,
 	fileProductionJobs,
 } from "$lib/server/db/schema";
-import type { FileProductionJob } from "$lib/server/services/file-production/types";
+import {
+	FILE_PRODUCTION_ATTEMPT_WARNINGS_KEY,
+	type FileProductionJob,
+} from "$lib/server/services/file-production/types";
 import {
 	isProcessAlive,
 	type ParsedWorkerId,
@@ -1211,8 +1214,14 @@ export async function completeFileProductionJobAttempt(input: {
 		chatGeneratedFileId: string;
 		sortOrder: number;
 	}>;
+	/** Kept on the attempt's diagnostics; the read model surfaces them as the
+	 * job's `warnings` (see `FILE_PRODUCTION_ATTEMPT_WARNINGS_KEY`). */
+	warnings?: string[];
 	now: Date;
 }): Promise<boolean> {
+	const warnings = (input.warnings ?? []).filter(
+		(warning) => warning.trim().length > 0,
+	);
 	return db.transaction((tx) => {
 		const [job] = tx
 			.select({
@@ -1241,6 +1250,13 @@ export async function completeFileProductionJobAttempt(input: {
 				status: "succeeded",
 				finishedAt: input.now,
 				updatedAt: input.now,
+				...(warnings.length > 0
+					? {
+							diagnosticsJson: JSON.stringify({
+								[FILE_PRODUCTION_ATTEMPT_WARNINGS_KEY]: warnings,
+							}),
+						}
+					: {}),
 			})
 			.where(
 				and(

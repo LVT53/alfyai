@@ -3,12 +3,14 @@ import { db } from "$lib/server/db";
 import {
 	artifacts,
 	chatGeneratedFiles,
+	fileProductionJobAttempts,
 	fileProductionJobFiles,
 	fileProductionJobs,
 } from "$lib/server/db/schema";
-import type {
-	ChatGeneratedFile,
-	FileProductionJob,
+import {
+	type ChatGeneratedFile,
+	type FileProductionJob,
+	parseFileProductionAttemptWarnings,
 } from "$lib/server/services/file-production/types";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 import { parseJsonRecord } from "$lib/server/utils/json";
@@ -427,9 +429,46 @@ function mapError(
 	};
 }
 
+/**
+ * Warnings of each succeeded job's current attempt, by job id. Only a
+ * SUCCEEDED job carries warnings — a failed job's diagnostics describe the
+ * failure, which `error` already reports.
+ */
+async function loadSucceededJobWarnings(
+	jobs: Array<typeof fileProductionJobs.$inferSelect>,
+): Promise<Map<string, string[]>> {
+	const attemptIdsByJobId = new Map<string, string>();
+	for (const job of jobs) {
+		if (job.status === "succeeded" && job.currentAttemptId) {
+			attemptIdsByJobId.set(job.id, job.currentAttemptId);
+		}
+	}
+	const warningsByJobId = new Map<string, string[]>();
+	if (attemptIdsByJobId.size === 0) return warningsByJobId;
+	const attempts = await db
+		.select({
+			id: fileProductionJobAttempts.id,
+			jobId: fileProductionJobAttempts.jobId,
+			diagnosticsJson: fileProductionJobAttempts.diagnosticsJson,
+		})
+		.from(fileProductionJobAttempts)
+		.where(
+			inArray(fileProductionJobAttempts.id, [...attemptIdsByJobId.values()]),
+		);
+	for (const attempt of attempts) {
+		if (attemptIdsByJobId.get(attempt.jobId) !== attempt.id) continue;
+		const warnings = parseFileProductionAttemptWarnings(
+			attempt.diagnosticsJson,
+		);
+		if (warnings.length > 0) warningsByJobId.set(attempt.jobId, warnings);
+	}
+	return warningsByJobId;
+}
+
 function mapJobRow(
 	job: typeof fileProductionJobs.$inferSelect,
 	files: FileProductionJob["files"],
+	warnings: string[] = [],
 ): FileProductionJob {
 	return {
 		id: job.id,
@@ -441,7 +480,7 @@ function mapJobRow(
 		createdAt: job.createdAt.getTime(),
 		updatedAt: job.updatedAt.getTime(),
 		files,
-		warnings: [],
+		warnings,
 		dismissed: Boolean(job.dismissed),
 		error: mapError(job),
 		sourceMode: job.sourceMode,
@@ -501,6 +540,7 @@ export async function listConversationFileProductionJobs(
 	const fileById = new Map(
 		[...userFiles, ...linkedFiles].map((file) => [file.id, file]),
 	);
+	const warningsByJobId = await loadSucceededJobWarnings(jobs);
 
 	return jobs
 		.map((job) => {
@@ -513,6 +553,7 @@ export async function listConversationFileProductionJobs(
 					.map((link) => fileById.get(link.chatGeneratedFileId))
 					.filter((file): file is ReadModelChatFile => Boolean(file))
 					.map(mapChatFileToProducedFile),
+				warningsByJobId.get(job.id),
 			);
 		})
 		.filter((job) => job.files.length > 0 || job.status !== "succeeded");
@@ -560,6 +601,7 @@ export async function getConversationFileProductionJob(input: {
 		)
 	).filter((file) => file.userId === input.userId);
 	const fileById = new Map(files.map((file) => [file.id, file]));
+	const warningsByJobId = await loadSucceededJobWarnings([job]);
 
 	return mapJobRow(
 		job,
@@ -568,6 +610,7 @@ export async function getConversationFileProductionJob(input: {
 			.map((link) => fileById.get(link.chatGeneratedFileId))
 			.filter((file): file is ReadModelChatFile => Boolean(file))
 			.map(mapChatFileToProducedFile),
+		warningsByJobId.get(job.id),
 	);
 }
 

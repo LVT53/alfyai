@@ -13,11 +13,13 @@ import {
 	normalizeDocumentOutput,
 } from "$lib/shared/file-types/production";
 import type { DocumentRenderKind } from "$lib/shared/file-types/types";
+import { redactHostPathsFromFileProductionMessage } from "./error-message";
 import { createDefaultGeneratedDocumentImageLoader } from "./image-loader";
 import { type FileProductionLimits, getFileProductionLimits } from "./limits";
 import {
 	validateGeneratedOutputFile,
 	validateProducedFileSignature,
+	validateProgramOutputContract,
 } from "./output-validation";
 import {
 	FileProductionRenderAbortedError,
@@ -51,6 +53,8 @@ export interface ProgramExecutionResult {
 	files: ProgramExecutionFile[];
 	stdout: string;
 	stderr: string;
+	/** The program's own exit code, when the sandbox reported one. */
+	exitCode?: number;
 	error?: string | null;
 }
 
@@ -100,6 +104,10 @@ export type ExecutePersistedFileProductionRequestResult =
 			request: ParsedFileProductionJobRequest;
 			execution: ProgramExecutionResult;
 			sourceArtifact: Artifact | null;
+			/** Things the user and the model should know about a SUCCESSFUL
+			 * attempt — today only a program that crashed after writing a valid
+			 * file. Persisted on the attempt by the worker. */
+			warnings?: string[];
 	  }
 	| {
 			ok: false;
@@ -475,6 +483,60 @@ async function renderDocumentSource(
 	};
 }
 
+/** Sandbox exits that say the RUN was cut short (runtime error, OOM kill),
+ * not that the program's own code raised: whatever sits in /output then is
+ * not something the program finished writing. */
+const INTERRUPTED_EXIT_CODES = new Set([125, 126, 137]);
+
+/** Enough of a traceback to see what went wrong, not a whole log. */
+const EXIT_WARNING_STDERR_MAX_CHARS = 300;
+
+function shortProgramErrorText(execution: ProgramExecutionResult): string {
+	const source = execution.stderr.trim() || (execution.error ?? "").trim();
+	const lines = redactHostPathsFromFileProductionMessage(source)
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean);
+	// The exception line is usually the first line of a JS error and the last
+	// of a Python traceback; keep the first line plus the tail.
+	const joined =
+		lines.length <= 2
+			? lines.join(" | ")
+			: `${lines[0]} | ${lines[lines.length - 1]}`;
+	return joined.length <= EXIT_WARNING_STDERR_MAX_CHARS
+		? joined
+		: `${joined.slice(0, EXIT_WARNING_STDERR_MAX_CHARS - 1)}…`;
+}
+
+/**
+ * A program that wrote a complete, valid file for every requested output and
+ * THEN exited non-zero — typically a self-check or a cleanup step raising
+ * after `writeFile` — has done the user's work. Failing the job threw that
+ * file away and burnt one of the model's two attempts on a problem the
+ * delivered file does not have. The file is kept only when the SAME output
+ * contract the storage adapter enforces passes for every requested output;
+ * anything less (missing output, wrong type, truncated bytes) still fails
+ * exactly as before. The exit error travels on as a warning.
+ */
+async function acceptOutputWrittenBeforeFailedExit(
+	execution: ProgramExecutionResult,
+	request: Extract<ParsedFileProductionJobRequest, { sourceMode: "program" }>,
+): Promise<string | null> {
+	if (execution.error === SANDBOX_TIMEOUT_ERROR) return null;
+	if (typeof execution.exitCode !== "number" || execution.exitCode === 0) {
+		return null;
+	}
+	if (INTERRUPTED_EXIT_CODES.has(execution.exitCode)) return null;
+	if (execution.files.length === 0) return null;
+	const contract = await validateProgramOutputContract({
+		files: execution.files,
+		programFilename: request.filename,
+		requestedOutputTypes: request.outputs,
+	});
+	if (!contract.ok) return null;
+	return `File produced; the program exited with an error after writing it: ${shortProgramErrorText(execution)}`;
+}
+
 export async function executePersistedFileProductionRequest(
 	input: ExecutePersistedFileProductionRequestInput,
 ): Promise<ExecutePersistedFileProductionRequestResult> {
@@ -558,6 +620,19 @@ export async function executePersistedFileProductionRequest(
 				{ signal: input.signal, timeoutMs: limits.sandboxTimeoutMs },
 			);
 			if (execution.error) {
+				const producedBeforeExit = await acceptOutputWrittenBeforeFailedExit(
+					execution,
+					request.value,
+				);
+				if (producedBeforeExit) {
+					return {
+						ok: true,
+						request: request.value,
+						execution: { ...execution, error: null },
+						sourceArtifact: null,
+						warnings: [producedBeforeExit],
+					};
+				}
 				// A timeout and a crash are different things to a user: the card
 				// has localized copy for each, and only the code chooses between
 				// them. `sandbox_timeout` was declared in the limit vocabulary and

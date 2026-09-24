@@ -651,6 +651,46 @@ describe("user skill definitions", () => {
 		}
 	});
 
+	// A self-check that raises after `writeFile` used to fail a job whose
+	// workbook was fine, and cost the model one of its two attempts. The server
+	// validates the output, so the skill must not ask for in-program checks.
+	it("tells the spreadsheet builder to write to /output and stop instead of verifying in-program", async () => {
+		const {
+			getSpreadsheetStyleQualityResourceContent,
+			listBuiltInSystemSkillInstructions,
+			previousDefaultsForBuiltInSkill,
+		} = await import("./user-skills");
+		const spreadsheet = listBuiltInSystemSkillInstructions().filter(
+			(skill) => skill.id === "system:spreadsheet-builder",
+		);
+		expect(spreadsheet.map((skill) => skill.language).sort()).toEqual([
+			"en",
+			"hu",
+		]);
+		const en = spreadsheet.find((skill) => skill.language === "en");
+		const hu = spreadsheet.find((skill) => skill.language === "hu");
+		expect(en?.instructions).toContain(
+			"Write the file to /output and stop; the server validates it.",
+		);
+		expect(en?.instructions).not.toMatch(/sandbox-local|verify with/i);
+		expect(hu?.instructions).toContain(
+			"Írd a fájlt az /output mappába, és állj meg; a szerver ellenőrzi.",
+		);
+		expect(hu?.instructions).not.toMatch(/sandboxon belüli/i);
+		expect(getSpreadsheetStyleQualityResourceContent()).not.toMatch(
+			/sandbox-local/i,
+		);
+		// Rows seeded with the pre-edit text are upgraded, not left behind.
+		expect(
+			previousDefaultsForBuiltInSkill("system:spreadsheet-builder").some(
+				(defaults) =>
+					defaults.instructions.includes(
+						"verify with sandbox-local checks before finishing",
+					),
+			),
+		).toBe(true);
+	});
+
 	it("discovers available skills with user skills outranking equal system matches", async () => {
 		seedUsers();
 		const {

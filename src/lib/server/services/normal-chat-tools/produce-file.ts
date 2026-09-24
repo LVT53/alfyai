@@ -2257,6 +2257,9 @@ export type ProduceFileModelPayload =
 				mimeType: string | null;
 				sizeBytes: number;
 			}>;
+			/** The file exists, but something about it the model should relay
+			 * (e.g. the program crashed after writing it). */
+			warnings?: string[];
 			reused?: boolean;
 	  }
 	| {
@@ -2300,8 +2303,12 @@ export function buildProduceFileSucceededPayload(params: {
 		mimeType: string | null;
 		sizeBytes: number;
 	}>;
+	warnings?: readonly string[];
 	reused?: boolean;
 }): ProduceFileModelPayload {
+	const warnings = (params.warnings ?? [])
+		.map((warning) => clipFileProductionErrorMessage(warning))
+		.filter(Boolean);
 	return {
 		ok: true,
 		status: "succeeded",
@@ -2311,6 +2318,7 @@ export function buildProduceFileSucceededPayload(params: {
 			mimeType: file.mimeType,
 			sizeBytes: file.sizeBytes,
 		})),
+		...(warnings.length > 0 ? { warnings } : {}),
 		...(params.reused ? { reused: true } : {}),
 	};
 }
@@ -2370,9 +2378,12 @@ export function summarizeProduceFileResult(
 ): string {
 	if (payload.status === "succeeded") {
 		const names = payload.files.map((file) => file.filename).join(", ");
-		return names
+		const summary = names
 			? `File production job ${payload.jobId} succeeded: ${names}.`
 			: `File production job ${payload.jobId} succeeded.`;
+		return payload.warnings?.length
+			? `${summary} Warning: ${payload.warnings.join(" ")}`
+			: summary;
 	}
 	if (payload.status === "running") {
 		return `File production job ${payload.jobId} is still running; no file exists yet.`;

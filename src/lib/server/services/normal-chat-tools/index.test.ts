@@ -663,6 +663,52 @@ describe("createNormalChatTools", () => {
 		expect(JSON.stringify(result)).not.toContain("requestJson");
 	});
 
+	it("reports a file kept after a failed program exit as produced, with the exit error as a warning", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({ id: "job-warned", status: "queued" }),
+		});
+		const warning =
+			"File produced; the program exited with an error after writing it: Error: self-check failed";
+		getConversationFileProductionJobMock.mockImplementation(
+			async ({ jobId }: { jobId: string }) =>
+				makeFileProductionJob({
+					id: jobId,
+					status: "succeeded",
+					files: [makeFileProductionJobFile({ filename: "budget.xlsx" })],
+					warnings: [warning],
+				}),
+		);
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.produce_file.execute(
+			{
+				requestTitle: "Budget",
+				outputType: "xlsx",
+				program: {
+					language: "javascript",
+					sourceCode: "/* writes budget.xlsx then self-checks */",
+					filename: "budget.xlsx",
+				},
+			},
+			{ toolCallId: "call-warned", messages: [] },
+		);
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: "succeeded",
+			jobId: "job-warned",
+			warnings: [warning],
+		});
+		expect(getToolCalls()[0]?.outputSummary).toContain(warning);
+	});
+
 	it("submits a same-turn corrected resend whose content differs instead of replaying the earlier success", async () => {
 		submitFileProductionIntakeMock
 			.mockResolvedValueOnce({
