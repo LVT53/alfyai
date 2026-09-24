@@ -23,6 +23,7 @@ type ConversationSummary = Pick<
 	"id" | "title" | "updatedAt" | "projectId"
 >;
 type MessageEvidenceSummary = ChatMessage["evidenceSummary"];
+type MessageCitationAudit = NonNullable<ChatMessage["citationAudit"]>;
 
 export interface ConversationForkResponse {
 	conversation: Conversation;
@@ -40,7 +41,34 @@ export type MessageEvidenceResult =
 			// row prints, written with the evidence summary and delivered with
 			// it on the same answer; see `getMessageEvidenceState`.
 			projectFilesRead?: number;
+			// The citation auto-repair summary the popover's "Citation audit"
+			// row prints. Unlike the two fields above it is NOT evidence: it is
+			// persisted when the turn's message is created, so it can arrive on
+			// an answer that has no summary at all.
+			citationAudit?: MessageCitationAudit;
 	  };
+
+/**
+ * The audit's four counts, or nothing. It is persisted JSON read back by the
+ * endpoint (which validates it too — see `readCitationAuditFromMetadata`), but
+ * the row prints counts, so a response missing one of them is no response.
+ */
+function readCitationAuditPayload(
+	value: unknown,
+): MessageCitationAudit | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const audit = value as Record<string, unknown>;
+	const counts = ["cited", "verified", "repaired", "stripped"] as const;
+	for (const key of counts) {
+		if (typeof audit[key] !== "number") return undefined;
+	}
+	return {
+		cited: audit.cited as number,
+		verified: audit.verified as number,
+		repaired: audit.repaired as number,
+		stripped: audit.stripped as number,
+	};
+}
 
 interface TitleGenerationResponse {
 	title: string | null;
@@ -381,7 +409,9 @@ export async function fetchMessageEvidence(
 	const payload = (await response.json()) as {
 		evidenceSummary?: MessageEvidenceSummary;
 		projectFilesRead?: number;
+		citationAudit?: unknown;
 	};
+	const citationAudit = readCitationAuditPayload(payload.citationAudit);
 
 	return {
 		status: "ready",
@@ -389,6 +419,7 @@ export async function fetchMessageEvidence(
 		...(typeof payload.projectFilesRead === "number"
 			? { projectFilesRead: payload.projectFilesRead }
 			: {}),
+		...(citationAudit ? { citationAudit } : {}),
 	};
 }
 

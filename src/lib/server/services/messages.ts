@@ -163,6 +163,38 @@ function readProjectFilesReadFromMetadata(
 		: undefined;
 }
 
+/**
+ * The citation auto-repair summary, or nothing. It is a set of four counts and
+ * the Info popover prints two of them, so a half-shaped object would print a
+ * number that was never persisted — malformed means absent.
+ *
+ * One definition, read by both the message projection and the evidence read
+ * (see `getMessageEvidenceState`): a turn persists it when its message is
+ * created, which is earlier than the terminal stream frame, so the popover's
+ * "Citation audit" row can only reach the live page through the evidence
+ * endpoint.
+ */
+function readCitationAuditFromMetadata(
+	metadata: PersistedMessageMetadata | null,
+): WebCitationRepairSummary | undefined {
+	const audit = metadata?.citationAudit;
+	if (!audit || typeof audit !== "object") return undefined;
+	if (
+		typeof audit.cited !== "number" ||
+		typeof audit.verified !== "number" ||
+		typeof audit.repaired !== "number" ||
+		typeof audit.stripped !== "number"
+	) {
+		return undefined;
+	}
+	return {
+		cited: audit.cited,
+		verified: audit.verified,
+		repaired: audit.repaired,
+		stripped: audit.stripped,
+	};
+}
+
 function isDepthMetadata(value: unknown): value is DepthMetadata {
 	if (!value || typeof value !== "object") return false;
 	const candidate = value as Partial<DepthMetadata>;
@@ -300,7 +332,7 @@ function projectMessageMetadata(
 	return {
 		evidenceSummary,
 		webCitationAudit: metadata?.webCitationAudit ?? undefined,
-		citationAudit: metadata?.citationAudit ?? undefined,
+		citationAudit: readCitationAuditFromMetadata(metadata),
 		evidencePending,
 		wasStopped: metadata?.wasStopped === true ? true : undefined,
 		completionWarningCodes: Array.isArray(metadata?.completionWarningCodes)
@@ -675,6 +707,12 @@ export async function getMessageEvidenceState(
 	// evidence poll is the only channel that carries a finished turn's evidence
 	// to the browser, and a row about the evidence has to ride it.
 	projectFilesRead: number | undefined;
+	// The Info popover's "Citation audit" row reads this. Unlike the summary it
+	// is NOT part of the evidence: a turn persists it when its message is
+	// created (see chat-turn/stream-completion.ts) and the evidence step never
+	// touches it, so the two can and do arrive separately — an audit with no
+	// summary is a settled turn that found no evidence, not a missing answer.
+	citationAudit: WebCitationRepairSummary | undefined;
 	forkEvidenceSnapshot?: ForkEvidenceSnapshot;
 } | null> {
 	const [row] = await db
@@ -697,6 +735,7 @@ export async function getMessageEvidenceState(
 		status: metadata?.evidenceStatus ?? (evidenceSummary ? "ready" : "none"),
 		evidenceSummary,
 		projectFilesRead: readProjectFilesReadFromMetadata(metadata),
+		citationAudit: readCitationAuditFromMetadata(metadata),
 		forkEvidenceSnapshot: metadata?.forkEvidenceSnapshot,
 	};
 }

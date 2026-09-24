@@ -35,7 +35,26 @@ export const GET: RequestHandler = async (event) => {
 			...(state.projectFilesRead !== undefined
 				? { projectFilesRead: state.projectFilesRead }
 				: {}),
+			// The citation audit rides the same answer for the same reason, but
+			// it is NOT part of the evidence: the turn persists it when its
+			// message is created, so it is already there while the evidence may
+			// still be pending, and it stays there when the evidence step finds
+			// nothing at all.
+			...(state.citationAudit !== undefined
+				? { citationAudit: state.citationAudit }
+				: {}),
 		});
+	}
+
+	// A settled turn with a citation audit but no evidence summary: the audit is
+	// written before the evidence is composed, so this is a real answer — the
+	// web research ran and its citations were checked, and there was simply no
+	// evidence group to show. Reporting it as "ready" is what lets the live page
+	// apply the popover's "Citation audit" row; answering 204 here instead would
+	// lose that row until a reload, which is the bug this endpoint exists to
+	// close. The pending case is handled above, so this only sees settled turns.
+	if (state.citationAudit !== undefined) {
+		return json({ status: "ready", citationAudit: state.citationAudit });
 	}
 
 	return new Response(null, { status: 204 });

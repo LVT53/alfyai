@@ -954,6 +954,59 @@ describe("messages metadata", () => {
 		expect(message.projectFilesRead).toBeUndefined();
 	});
 
+	// The Info popover's "Citation audit" row reads `citationAudit`, written
+	// once when the turn's message is created. It never rides the terminal
+	// stream frame, so the live page can only learn it from the evidence
+	// answer — which means the evidence read model has to hand it out.
+	it("reads the citation audit back with the evidence state", async () => {
+		mockRows.push({
+			id: "assistant-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				evidenceStatus: "none",
+				citationAudit: { cited: 2, verified: 1, repaired: 1, stripped: 0 },
+			}),
+		});
+
+		const { getMessageEvidenceState } = await import("./messages");
+		const state = await getMessageEvidenceState("conv-1", "assistant-1");
+
+		expect(state?.citationAudit).toEqual({
+			cited: 2,
+			verified: 1,
+			repaired: 1,
+			stripped: 0,
+		});
+	});
+
+	it("drops a malformed citation audit instead of projecting it", async () => {
+		mockRows.push({
+			id: "assistant-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				evidenceStatus: "none",
+				citationAudit: { cited: "2", verified: 1 },
+			}),
+		});
+
+		const { getMessageEvidenceState } = await import("./messages");
+		const state = await getMessageEvidenceState("conv-1", "assistant-1");
+
+		// The row prints counted sources; a half-shaped audit would print a
+		// number that was never persisted, so it is no row at all.
+		expect(state?.citationAudit).toBeUndefined();
+	});
+
 	it("preserves existing metadata when web citation audit is updated", async () => {
 		mockRows.push({
 			id: "assistant-1",
