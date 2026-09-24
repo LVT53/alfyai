@@ -209,6 +209,25 @@ interface PersonalAnalytics {
 	monthly: MonthlyAnalyticsRow[];
 }
 
+export interface ParallelAllowanceView {
+	/** Admin-configured allowance in micros. */
+	allowanceMicros: number;
+	/** List-price micros for the current calendar month. */
+	monthListMicros: number;
+	/** Billed (counted-as-cost) micros for the current calendar month. */
+	monthBilledMicros: number;
+	/** Billing month the meter describes, "YYYY-MM". */
+	month: string;
+}
+
+export interface ParallelMonthRow {
+	month: string; // "YYYY-MM"
+	calls: number;
+	listMicros: number;
+	freeMicros: number; // listMicros - billedMicros
+	billedMicros: number;
+}
+
 export interface ParallelUsageBreakdown {
 	monthly: Array<{
 		month: string;
@@ -219,6 +238,13 @@ export interface ParallelUsageBreakdown {
 	totalTurboCalls: number;
 	totalExtractCalls: number;
 	totalCostUsd: number;
+	// The whole server's free monthly allowance, and where the current calendar
+	// month stands under it. The list price is never stored (only the billed
+	// cost is), so the meter's "used" figure is derived from the call count.
+	allowance: ParallelAllowanceView;
+	// One row per month that holds Parallel calls: at list price, free, and
+	// counted as cost.
+	monthRows: ParallelMonthRow[];
 }
 
 interface SystemAnalytics {
@@ -1229,11 +1255,43 @@ export function parallelBreakdown(events: UsageRow[]): ParallelUsageBreakdown {
 		.map(({ costMicros, ...rest }) => ({ ...rest, costUsd: usd(costMicros) }))
 		.sort((left, right) => left.month.localeCompare(right.month));
 
+	// The allowance rows come out of the same walk, so a month's list price is
+	// always `calls × price` and its free part is whatever the billed cost did
+	// not consume. No second query and no stored list price.
+	const monthRows: ParallelMonthRow[] = [...grouped.values()]
+		.map(({ month, turboCalls, extractCalls, costMicros }) => {
+			const calls = turboCalls + extractCalls;
+			const listMicros = parallelListMicrosForCalls(calls);
+			return {
+				month,
+				calls,
+				listMicros,
+				freeMicros: listMicros - costMicros,
+				billedMicros: costMicros,
+			};
+		})
+		.sort((left, right) => left.month.localeCompare(right.month));
+
+	// The meter describes the current calendar month — the one the record path
+	// is booking into right now. An admin who narrowed the query to an older
+	// month leaves the current one out of the rows, and it reads as an
+	// untouched allowance rather than borrowing the older month's numbers.
+	const month = toBillingMonth(new Date());
+	const currentMonth = monthRows.find((row) => row.month === month);
+	const allowance: ParallelAllowanceView = {
+		allowanceMicros: Math.round(getParallelFreeMonthlyUsd() * 1_000_000),
+		monthListMicros: currentMonth?.listMicros ?? 0,
+		monthBilledMicros: currentMonth?.billedMicros ?? 0,
+		month,
+	};
+
 	return {
 		monthly,
 		totalTurboCalls,
 		totalExtractCalls,
 		totalCostUsd: usd(totalCostMicros),
+		allowance,
+		monthRows,
 	};
 }
 

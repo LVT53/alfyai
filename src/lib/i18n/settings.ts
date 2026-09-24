@@ -697,6 +697,13 @@ const settingsDict = {
 		"analytics.parallelCost": "Parallel cost",
 		"analytics.totalCalls": "Total calls",
 		"analytics.parallelUsage": "Turbo vs Extract usage",
+		"analytics.parallelAllowanceOf": "of {allowance} free allowance used",
+		"analytics.parallelAllowanceResets":
+			"Resets 1 {month} · users are charged {charged}",
+		"analytics.parallelCountedAsCost": "Counted as cost",
+		"analytics.parallelFreeUsage": "Free usage",
+		"analytics.parallelCountedCost": "Counted cost",
+		"analytics.parallelMonthlyBreakdownCalls": "Calls",
 		"analytics.monthlyBreakdown": "Monthly breakdown",
 		"analytics.monthlyCost": "Monthly cost",
 		"analytics.filterModels": "Filter models\u2026",
@@ -2622,6 +2629,14 @@ const settingsDict = {
 		"analytics.parallelCost": "Parallel költség",
 		"analytics.totalCalls": "Összes hívás",
 		"analytics.parallelUsage": "Turbo vs Extract használat",
+		"analytics.parallelAllowanceOf":
+			"felhasználva a {allowance} ingyenes keretből",
+		"analytics.parallelAllowanceResets":
+			"Visszaáll: {month} 1. · a felhasználóknak felszámított összeg: {charged}",
+		"analytics.parallelCountedAsCost": "Költségként elszámolva",
+		"analytics.parallelFreeUsage": "Ingyenes használat",
+		"analytics.parallelCountedCost": "Elszámolt költség",
+		"analytics.parallelMonthlyBreakdownCalls": "Hívások",
 		"analytics.monthlyBreakdown": "Havi bontás",
 		"analytics.monthlyCost": "Havi költség",
 		"analytics.filterModels": "Modellek szűrése…",

@@ -352,6 +352,30 @@ function systemWithParallelFixture(): AnalyticsResponse {
 				totalTurboCalls: 8,
 				totalExtractCalls: 6,
 				totalCostUsd: 1.3,
+				// The current month is 2026-06: $0.01 of the $5.00 allowance
+				// used, all of it charged (the allowance was already spent).
+				allowance: {
+					allowanceMicros: 5_000_000,
+					monthListMicros: 9_000,
+					monthBilledMicros: 9_000,
+					month: "2026-06",
+				},
+				monthRows: [
+					{
+						month: "2026-05",
+						calls: 5,
+						listMicros: 5_000,
+						freeMicros: 1_000,
+						billedMicros: 4_000,
+					},
+					{
+						month: "2026-06",
+						calls: 9,
+						listMicros: 9_000,
+						freeMicros: 0,
+						billedMicros: 9_000,
+					},
+				],
 			},
 		},
 	};
@@ -669,6 +693,72 @@ describe("SettingsSystemAnalytics (Phase B wave B3)", () => {
 		expect(getByText("Extract fetches")).toBeInTheDocument();
 		expect(getByText("Parallel cost")).toBeInTheDocument();
 		expect(getByText("Total calls")).toBeInTheDocument();
+	});
+
+	it("shows the allowance meter, the counted-cost tile and the month columns", async () => {
+		const { getByRole, getByTestId, getByText } = render(
+			SettingsSystemAnalytics,
+			{
+				analyticsData: systemWithParallelFixture(),
+				modelNames: {},
+				onRetry: vi.fn(),
+				selectedSystemMonth: null,
+				onSystemMonthChange: vi.fn(),
+				allUsers: [],
+				excludedUserIds: [],
+				onExcludedUsersChange: vi.fn(),
+			},
+		);
+
+		await fireEvent.click(getByRole("tab", { name: "Parallel API" }));
+
+		// The used figure is the month's list price against the allowance, and
+		// the reset line's figure is what users were charged — the same month,
+		// two different numbers, which is the whole point of the meter.
+		const meter = getByTestId("parallel-allowance-meter");
+		expect(meter.textContent).toContain("$0.01");
+		expect(meter.textContent).toContain("of $5.00 free allowance used");
+		expect(meter.textContent).toContain("users are charged $0.01");
+		expect(meter.textContent).toContain("July");
+
+		// $0.009 of $5.00 — the bar tracks the allowance consumed, not the
+		// money charged.
+		const fill = getByTestId("parallel-allowance-fill");
+		expect(Number.parseFloat(fill.style.width)).toBeCloseTo(0.18, 2);
+
+		expect(getByText("Counted as cost")).toBeInTheDocument();
+		expect(getByText("Free usage")).toBeInTheDocument();
+		expect(getByText("Counted cost")).toBeInTheDocument();
+		expect(getByText("Calls")).toBeInTheDocument();
+	});
+
+	it("fills the allowance bar when there is no allowance to absorb anything", async () => {
+		const fixture = systemWithParallelFixture();
+		const parallel = fixture.system?.parallel;
+		if (!parallel) throw new Error("the fixture must carry parallel data");
+		// An allowance of zero charges everything, so the bar has no headroom
+		// left to show — it must not read as an untouched allowance.
+		parallel.allowance = {
+			allowanceMicros: 0,
+			monthListMicros: 9_000,
+			monthBilledMicros: 9_000,
+			month: "2026-06",
+		};
+
+		const { getByRole, getByTestId } = render(SettingsSystemAnalytics, {
+			analyticsData: fixture,
+			modelNames: {},
+			onRetry: vi.fn(),
+			selectedSystemMonth: null,
+			onSystemMonthChange: vi.fn(),
+			allUsers: [],
+			excludedUserIds: [],
+			onExcludedUsersChange: vi.fn(),
+		});
+
+		await fireEvent.click(getByRole("tab", { name: "Parallel API" }));
+
+		expect(getByTestId("parallel-allowance-fill").style.width).toBe("100%");
 	});
 
 	it("omits the Parallel API tab when there is no parallel data", () => {

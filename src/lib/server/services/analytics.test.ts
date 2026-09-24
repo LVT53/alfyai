@@ -43,6 +43,10 @@ async function closeServiceDatabase() {
 	}
 }
 
+function currentBillingMonth(): string {
+	return new Date().toISOString().slice(0, 7);
+}
+
 function seedAnalyticsRows() {
 	const { sqlite, database } = openSeedDatabase();
 
@@ -1406,6 +1410,24 @@ describe("analytics dashboard read model", () => {
 			totalTurboCalls: 1,
 			totalExtractCalls: 1,
 			totalCostUsd: 0.002,
+			// The meter describes the CURRENT calendar month, which this query
+			// (narrowed to 2026-05) carries no rows for — so it reads as an
+			// untouched allowance rather than borrowing May's numbers.
+			allowance: {
+				allowanceMicros: 5_000_000,
+				monthListMicros: 0,
+				monthBilledMicros: 0,
+				month: currentBillingMonth(),
+			},
+			monthRows: [
+				{
+					month: "2026-05",
+					calls: 2,
+					listMicros: 2_000,
+					freeMicros: 0,
+					billedMicros: 2_000,
+				},
+			],
 		});
 		// The parallel rows also fold into the existing model breakdown with a
 		// readable display name.
@@ -1426,6 +1448,106 @@ describe("analytics dashboard read model", () => {
 			user: user({ id: "user-1", role: "user" }),
 		});
 		expect(userResult.system).toBeUndefined();
+	});
+
+	// Slice B — the admin-facing view of the free allowance: the meter's three
+	// numbers and the by-month rows the table reads. Both come out of
+	// `parallelBreakdown`'s existing walk over the usage rows, so these tests
+	// seed usage_events and read the payload back through the read model.
+	describe("parallel allowance view", () => {
+		/** The admin payload's Parallel block, for the month the meter names. */
+		async function breakdownForAdmin(month?: string) {
+			const { getAnalyticsDashboardReadModel } = await import("./analytics");
+			const result = await getAnalyticsDashboardReadModel({
+				user: user({ id: "admin-1", role: "admin" }),
+				...(month ? { systemMonth: month } : {}),
+			});
+			return result.system?.parallel;
+		}
+
+		/** Writes the override the way the admin screen does, then reloads. */
+		async function setAllowanceUsd(usd: number): Promise<void> {
+			const sqlite = new Database(dbPath);
+			sqlite
+				.prepare(
+					"INSERT INTO admin_config (key, value, updated_at, updated_by) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+				)
+				.run("PARALLEL_FREE_MONTHLY_USD", String(usd), Date.now(), "test");
+			sqlite.close();
+
+			const { refreshConfig } = await import("$lib/server/config-store");
+			await refreshConfig();
+		}
+
+		/** Books a month's calls at whatever cost the record path would give them. */
+		function seedParallelMonth(month: string, costsUsdMicros: number[]): void {
+			const { sqlite, database } = openSeedDatabase();
+			database
+				.insert(schema.usageEvents)
+				.values(
+					costsUsdMicros.map((costUsdMicros, index) => ({
+						id: `${month}-${index}`,
+						userId: "user-1",
+						conversationId: "conversation-1",
+						messageId: `parallel:${month}:${index}`,
+						modelId: "parallel:turbo",
+						billingMonth: month,
+						costUsdMicros,
+					})),
+				)
+				.run();
+			sqlite.close();
+		}
+
+		it("reports the allowance, the month's list price and the month's billed total", async () => {
+			// Three calls this month, two of them free under a 0.002 allowance,
+			// booked the way the record path books them.
+			seedParallelMonth(currentBillingMonth(), [0, 0, 1_000]);
+			await setAllowanceUsd(0.002);
+
+			const parallel = await breakdownForAdmin();
+
+			expect(parallel?.allowance.allowanceMicros).toBe(2_000);
+			expect(parallel?.allowance.monthListMicros).toBe(3_000);
+			expect(parallel?.allowance.monthBilledMicros).toBe(1_000);
+			expect(parallel?.allowance.month).toBe(currentBillingMonth());
+		});
+
+		it("returns one month row per month with Parallel calls, with free usage derived", async () => {
+			seedParallelMonth("2026-08", [0, 0, 1_000]);
+			seedParallelMonth("2026-07", [1_000]);
+			await setAllowanceUsd(5);
+
+			const parallel = await breakdownForAdmin();
+			const august = parallel?.monthRows.find(
+				(entry) => entry.month === "2026-08",
+			);
+
+			expect(august).toEqual({
+				month: "2026-08",
+				calls: 3,
+				listMicros: 3_000,
+				freeMicros: 2_000,
+				billedMicros: 1_000,
+			});
+			if (!august) throw new Error("expected a 2026-08 month row");
+			expect(august.freeMicros).toBe(august.listMicros - august.billedMicros);
+			// A month with nothing to absorb reports no free usage, not a
+			// negative one.
+			expect(
+				parallel?.monthRows.find((entry) => entry.month === "2026-07"),
+			).toEqual({
+				month: "2026-07",
+				calls: 1,
+				listMicros: 1_000,
+				freeMicros: 0,
+				billedMicros: 1_000,
+			});
+			expect(parallel?.monthRows.map((entry) => entry.month)).toEqual([
+				"2026-07",
+				"2026-08",
+			]);
+		});
 	});
 
 	// M1 — server stream-timeline marks persisted to messageAnalytics.
