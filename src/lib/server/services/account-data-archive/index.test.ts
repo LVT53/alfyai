@@ -502,6 +502,121 @@ describe("createAccountDataArchive", () => {
 		expect(combinedText).not.toContain("Other user's folder");
 	});
 
+	// A project's file list is a statement the user made about their own work —
+	// "this document belongs to this project" — so the names travel with the
+	// export. The documents themselves are already archived under `Files/`; what
+	// this page adds is which project knows which one.
+	it("lists each project's linked files by name in the archive", async () => {
+		await seedArchiveUser();
+		await db.insert(schema.projects).values([
+			{
+				id: "project-linked",
+				userId: "user-1",
+				name: "Vienna trip",
+				instructions: "Only suggest trains, never flights.",
+				createdAt: new Date("2026-02-01T10:00:00Z"),
+				updatedAt: new Date("2026-02-02T10:00:00Z"),
+			},
+			{
+				id: "project-empty",
+				userId: "user-1",
+				name: "House tasks",
+				createdAt: new Date("2026-02-03T10:00:00Z"),
+				updatedAt: new Date("2026-02-04T10:00:00Z"),
+			},
+			{
+				id: "project-other",
+				userId: "user-2",
+				name: "Other user's folder",
+				createdAt: new Date("2026-02-05T10:00:00Z"),
+				updatedAt: new Date("2026-02-06T10:00:00Z"),
+			},
+		]);
+		await db.insert(schema.artifacts).values([
+			{
+				id: "artifact-project-file",
+				userId: "user-1",
+				type: "normalized_document",
+				name: "Wien itinerary.md",
+				contentText: "Museum opens at 10:00.",
+				summary: "Trip itinerary",
+				createdAt: new Date("2026-02-01T11:00:00Z"),
+				updatedAt: new Date("2026-02-01T11:00:00Z"),
+			},
+			{
+				// In the library, in the archive, and in NO project: it must not be
+				// listed under either of the user's projects.
+				id: "artifact-unlinked",
+				userId: "user-1",
+				type: "normalized_document",
+				name: "Unlinked notes.md",
+				contentText: "Nothing links this to a project.",
+				createdAt: new Date("2026-02-01T11:30:00Z"),
+				updatedAt: new Date("2026-02-01T11:30:00Z"),
+			},
+			{
+				id: "artifact-other-file",
+				userId: "user-2",
+				type: "normalized_document",
+				name: "DO_NOT_EXPORT_OTHER_PROJECT_FILE.md",
+				contentText: "Another user's document.",
+				createdAt: new Date("2026-02-01T12:00:00Z"),
+				updatedAt: new Date("2026-02-01T12:00:00Z"),
+			},
+		]);
+		await db.insert(schema.projectKnowledgeLinks).values([
+			{
+				id: "link-1",
+				userId: "user-1",
+				projectId: "project-linked",
+				artifactId: "artifact-project-file",
+				createdAt: new Date("2026-02-02T10:00:00Z"),
+			},
+			{
+				id: "link-other",
+				userId: "user-2",
+				projectId: "project-other",
+				artifactId: "artifact-other-file",
+				createdAt: new Date("2026-02-06T10:00:00Z"),
+			},
+		]);
+
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+			now: new Date("2026-06-15T08:00:00Z"),
+		});
+
+		expect(result.status).toBe("ok");
+		if (result.status !== "ok") return;
+
+		const zip = await JSZip.loadAsync(
+			Buffer.from(await new Response(result.zipStream).arrayBuffer()),
+		);
+		const projects = (await zip
+			.file("Projects/Projects.html")
+			?.async("string")) as string;
+		const linkedSection = projects.slice(projects.indexOf("Vienna trip"));
+		expect(linkedSection).toContain("Wien itinerary.md");
+		// The project with nothing linked to it is still a project, and the page
+		// says so rather than leaving the reader to guess whether files are
+		// missing or the export simply does not carry them.
+		expect(projects).toContain("House tasks");
+		expect(projects).toContain("No files linked to this project.");
+		expect(projects).not.toContain("Unlinked notes.md");
+
+		const combinedText = await Promise.all(
+			Object.keys(zip.files).map(async (name) => {
+				const file = zip.file(name);
+				if (!file || file.dir) return "";
+				return file.async("string").catch(() => "");
+			}),
+		).then((parts) => parts.join("\n"));
+		expect(combinedText).not.toContain("DO_NOT_EXPORT_OTHER_PROJECT_FILE");
+		expect(combinedText).not.toContain("Other user's folder");
+	});
+
 	it("exports produced Atlas files as generated files without raw checkpoints", async () => {
 		await seedArchiveUser();
 		await seedAtlasArchiveOutput();

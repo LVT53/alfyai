@@ -254,6 +254,7 @@ Do not:
   - [`src/lib/server/services/knowledge/upload-intake.ts`](./src/lib/server/services/knowledge/upload-intake.ts)
   - [`src/lib/server/services/knowledge/context.ts`](./src/lib/server/services/knowledge/context.ts)
   - [`src/lib/server/services/knowledge/capsules.ts`](./src/lib/server/services/knowledge/capsules.ts)
+  - [`src/lib/server/services/knowledge/project-knowledge.ts`](./src/lib/server/services/knowledge/project-knowledge.ts) — owns project-file links and the project-scoped artifact query
 - Related services:
   - [`src/lib/server/services/working-set.ts`](./src/lib/server/services/working-set.ts)
   - [`src/lib/server/services/workspace-search.ts`](./src/lib/server/services/workspace-search.ts)
