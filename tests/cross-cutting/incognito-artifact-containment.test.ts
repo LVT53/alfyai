@@ -511,29 +511,30 @@ const SCOPE_MARKERS = [
  * Files that read these tables and go through none of the above, each with
  * the reason it is allowed to. Every entry is either an id-scoped read whose
  * id came from a query that IS scoped, or an administrative sweep that must
- * see every row the user owns — a deletion, an export, an erasure, a disk
- * reconciliation. Adding a line here is a decision about the incognito
- * promise; make it deliberately.
+ * see every row the user owns — a deletion, an export, an erasure. Adding a
+ * line here is a decision about the incognito promise; make it deliberately.
+ *
+ * A line here is only allowed to be a line the guard can REACH, which the
+ * second test below enforces: the file must read one of the guarded tables,
+ * select by user, and carry no scope marker. An entry for a file that is
+ * already scoped, or that never reads these tables in the first place, is an
+ * exemption nobody consults — until somebody writes the unscoped query that
+ * makes it live, and then it silences that query without a decision having been
+ * made. Two files whose reasoning is real but whose exemption is not: the
+ * orphan sweep (`knowledge/store/orphan-artifacts.ts`, about rows no
+ * conversation holds at all) and `evidence-family.ts` (family-key resolution
+ * over ids already chosen). Both take the scope themselves, so the marker check
+ * passes them before this list is ever read.
  */
 const ALLOWED_WITHOUT_SCOPE: Record<string, string> = {
 	"services/account-data-archive/index.ts":
 		"the user's own data export — incognito conversations are saved to the account and are exported with it",
-	"services/account-lifecycle/user-scoped-tables.ts":
-		"the erasure registry: every user-scoped table, by user column, on purpose",
-	"services/disk-reconciliation.ts":
-		"admin disk sweep over every stored file, not a per-user read",
 	"services/memory-maintenance.ts":
 		"maintenance over the user's own rows (chunk GC, retrieval-class repair); nothing it reads reaches a prompt",
 	"services/semantic-embedding-refresh.ts":
 		"embedding backfill; what the embeddings are then USED for is scoped at selection time",
-	"services/knowledge/store/orphan-artifacts.ts":
-		"the orphan sweep, which is about rows no conversation holds at all",
-	"services/task-state.ts":
-		"evidence links, scoped to one task; it never chooses an artifact, it hydrates ids the scoped pool chose",
 	"services/task-state/artifacts.ts":
 		"chunk and full-content reads BY ARTIFACT ID; the ids come from the scoped candidate pool, which is why this module needs no incognito term of its own",
-	"services/evidence-family.ts":
-		"family-key resolution over ids already chosen; the one query that scans the user's outputs (`classifyGeneratedOutputArtifact`) does take the scope",
 	"services/extraction/job-ledger.ts": "legacy job hydration, by artifact id",
 	"services/extraction/read-model.ts": "legacy DTO synthesis, by artifact id",
 	"services/extraction/worker-runner.ts":
@@ -557,35 +558,48 @@ function listSourceFiles(dir: string): string[] {
 	return found;
 }
 
+function readsGuardedTables(source: string): boolean {
+	return (
+		source.includes(".from(artifacts)") ||
+		source.includes(".from(artifactChunks)") ||
+		source.includes(".from(chatGeneratedFiles)") ||
+		source.includes(".from(projectKnowledgeLinks)")
+	);
+}
+
+/**
+ * Only a query that selects by USER can cross a conversation boundary; one
+ * that does not is already narrower than this rule. The canonical-condition
+ * helpers count as selecting by user — they ARE the boundary, and taking one is
+ * the thing this guard asks for — so a file that scopes artifacts that way is
+ * checked here rather than skipped for spelling its filter as a helper call
+ * (`buildArtifactCanonicalOwnershipCondition({ userId, ownershipScope })`)
+ * instead of a literal column comparison.
+ */
+function selectsByUser(source: string): boolean {
+	return (
+		source.includes("artifacts.userId") ||
+		source.includes("artifactChunks.userId") ||
+		source.includes("chatGeneratedFiles.userId") ||
+		source.includes("projectKnowledgeLinks.userId") ||
+		source.includes("buildArtifactCanonicalOwnershipCondition") ||
+		source.includes("isArtifactCanonicallyOwned") ||
+		source.includes("buildArtifactVisibilityCondition")
+	);
+}
+
+function carriesScopeMarker(source: string): boolean {
+	return SCOPE_MARKERS.some((marker) => source.includes(marker));
+}
+
 describe("every user-scoped artifact query goes through the ownership scope", () => {
 	it("has no unscoped reader of artifacts or chat_generated_files", () => {
 		const offenders: string[] = [];
 		for (const relative of listSourceFiles(SERVER_ROOT).sort()) {
 			const source = readFileSync(join(SERVER_ROOT, relative), "utf8");
-			const readsTables =
-				source.includes(".from(artifacts)") ||
-				source.includes(".from(artifactChunks)") ||
-				source.includes(".from(chatGeneratedFiles)") ||
-				source.includes(".from(projectKnowledgeLinks)");
-			if (!readsTables) continue;
-			// Only a query that selects by USER can cross a conversation
-			// boundary; one that does not is already narrower than this rule.
-			// The canonical-condition helpers count as selecting by user — they
-			// ARE the boundary, and taking one is the thing this guard asks for —
-			// so a file that scopes artifacts that way is checked here rather
-			// than skipped for spelling its filter as a helper call
-			// (`buildArtifactCanonicalOwnershipCondition({ userId, ownershipScope })`)
-			// instead of a literal column comparison.
-			const isUserScoped =
-				source.includes("artifacts.userId") ||
-				source.includes("artifactChunks.userId") ||
-				source.includes("chatGeneratedFiles.userId") ||
-				source.includes("projectKnowledgeLinks.userId") ||
-				source.includes("buildArtifactCanonicalOwnershipCondition") ||
-				source.includes("isArtifactCanonicallyOwned") ||
-				source.includes("buildArtifactVisibilityCondition");
-			if (!isUserScoped) continue;
-			if (SCOPE_MARKERS.some((marker) => source.includes(marker))) continue;
+			if (!readsGuardedTables(source)) continue;
+			if (!selectsByUser(source)) continue;
+			if (carriesScopeMarker(source)) continue;
 			const key = relative.replace(/\\/g, "/");
 			if (key in ALLOWED_WITHOUT_SCOPE) continue;
 			offenders.push(key);
@@ -607,10 +621,49 @@ describe("every user-scoped artifact query goes through the ownership scope", ()
 	it("keeps the allow-list honest", () => {
 		// An entry that no longer matches a real file is a stale exemption, and
 		// a stale exemption is how the next unscoped query gets in unnoticed.
+		// The same goes for an entry the guard can never consult: it is a
+		// decision that was never made, waiting to silence the query that makes
+		// it live.
+		const stale: string[] = [];
 		for (const relative of Object.keys(ALLOWED_WITHOUT_SCOPE)) {
-			expect(() =>
-				readFileSync(join(SERVER_ROOT, relative), "utf8"),
-			).not.toThrow();
+			let text: string | null = null;
+			try {
+				text = readFileSync(join(SERVER_ROOT, relative), "utf8");
+			} catch {
+				text = null;
+			}
+			if (text === null) {
+				stale.push(`${relative} — exempt, but the file does not exist`);
+				continue;
+			}
+			if (!readsGuardedTables(text)) {
+				stale.push(
+					`${relative} — exempt, but reads none of the guarded tables, so the entry is never consulted`,
+				);
+				continue;
+			}
+			if (!selectsByUser(text)) {
+				stale.push(
+					`${relative} — exempt, but does not select by user, so the entry is never consulted`,
+				);
+				continue;
+			}
+			if (carriesScopeMarker(text)) {
+				stale.push(
+					`${relative} — exempt, but already carries a scope marker, so the marker check passes it first and the entry is dead weight`,
+				);
+			}
 		}
+
+		expect(
+			stale,
+			[
+				"Every ALLOWED_WITHOUT_SCOPE entry must be one this guard can reach: a",
+				"file that reads a guarded table, selects by user, and carries no scope",
+				"marker. Scope the file, or delete the entry so the next unscoped query",
+				"has to be decided rather than inherited:",
+				stale.join("\n  "),
+			].join("\n"),
+		).toEqual([]);
 	});
 });
