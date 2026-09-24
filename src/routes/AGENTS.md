@@ -26,7 +26,7 @@ api/                   # API endpoints
   auth/                # Login, logout
   avatar/              # User avatar
   chat/                # Send, stream, retry, stop, file production
-  conversations/       # CRUD, title, draft, messages, evidence, context-status, task-steering
+  conversations/       # CRUD, title, draft, messages, evidence, context-status
   knowledge/           # Upload, search, documents, memory, actions
   admin/               # Config, users, sessions
   models/              # Available model list
@@ -59,7 +59,6 @@ logout/                # Logout page
 | `api/chat/files/[id]/download/+server.ts` | Generated file download |
 | `api/conversations/[id]/+server.ts` | Conversation detail CRUD adapter; GET delegates to `conversation-detail/read-model` |
 | `api/conversations/[id]/context-status/+server.ts` | Conversation context status |
-| `api/conversations/[id]/task-steering/+server.ts` | Task steering |
 | `api/knowledge/upload/+server.ts` | File upload handler |
 | `api/knowledge/[id]/+server.ts` | Artifact CRUD |
 | `api/knowledge/[id]/attach/+server.ts` | Attachment linking |
@@ -97,7 +96,7 @@ logout/                # Logout page
 
 - Duplicating turn logic between `send` and `stream` routes
 - Adding business logic directly in `+server.ts` files instead of services
-- Rebuilding conversation detail hydration, Context Sources projection, or active Skill Session serialization inside `api/conversations/[id]/+server.ts`
+- Rebuilding conversation detail hydration or active Skill Session serialization inside `api/conversations/[id]/+server.ts`
 - Fetching layout data again in child pages
 - Creating new `sessionStorage` keys outside `conversation-session.ts`
 - Adding route-local AI SDK UI stream part shapes without updating the browser parser

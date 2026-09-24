@@ -1,10 +1,6 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
-import {
-	artifactLinks,
-	artifacts,
-	taskStateEvidenceLinks,
-} from "$lib/server/db/schema";
+import { artifactLinks, artifacts } from "$lib/server/db/schema";
 import {
 	getGeneratedOutputFamilyKey,
 	parseWorkingDocumentMetadata,
@@ -421,13 +417,11 @@ export async function collapseArtifactsByFamily(params: {
 	conversationId: string;
 	query: string;
 	artifacts: Artifact[];
-	pinnedIds?: Set<string>;
 	currentAttachmentIds?: Set<string>;
 	protectedIds?: Set<string>;
 }): Promise<Artifact[]> {
 	if (params.artifacts.length <= 1) return params.artifacts;
 
-	const pinnedIds = params.pinnedIds ?? new Set<string>();
 	const currentAttachmentIds = params.currentAttachmentIds ?? new Set<string>();
 	const protectedIds = params.protectedIds ?? new Set<string>();
 	const familyKeys = await resolveArtifactFamilyKeys(
@@ -439,7 +433,6 @@ export async function collapseArtifactsByFamily(params: {
 
 	for (const artifact of params.artifacts) {
 		if (
-			pinnedIds.has(artifact.id) ||
 			currentAttachmentIds.has(artifact.id) ||
 			protectedIds.has(artifact.id)
 		) {
@@ -524,17 +517,6 @@ async function backfillGeneratedOutputRetrievalClasses(
 		mapGeneratedOutputArtifactRow(row),
 	);
 
-	const pinnedRows = await db
-		.select({ artifactId: taskStateEvidenceLinks.artifactId })
-		.from(taskStateEvidenceLinks)
-		.where(
-			and(
-				eq(taskStateEvidenceLinks.userId, userId),
-				eq(taskStateEvidenceLinks.role, "pinned"),
-				eq(taskStateEvidenceLinks.origin, "user"),
-			),
-		);
-	const pinnedIds = new Set(pinnedRows.map((row) => row.artifactId));
 	const familyKeys = await resolveArtifactFamilyKeys(userId, artifactObjects);
 	const byFamily = new Map<string, Artifact[]>();
 
@@ -551,16 +533,14 @@ async function backfillGeneratedOutputRetrievalClasses(
 			(left, right) => right.updatedAt - left.updatedAt,
 		)) {
 			let nextClass: ArtifactRetrievalClass = "durable";
-			if (!pinnedIds.has(artifact.id)) {
-				const duplicateOfKept = kept.some((existing) =>
-					areNearDuplicateArtifactTexts(
-						artifact.contentText ?? artifact.summary ?? "",
-						existing.contentText ?? existing.summary ?? "",
-					),
-				);
-				if (duplicateOfKept) {
-					nextClass = "archived_duplicate";
-				}
+			const duplicateOfKept = kept.some((existing) =>
+				areNearDuplicateArtifactTexts(
+					artifact.contentText ?? artifact.summary ?? "",
+					existing.contentText ?? existing.summary ?? "",
+				),
+			);
+			if (duplicateOfKept) {
+				nextClass = "archived_duplicate";
 			}
 
 			if (nextClass === "durable") {

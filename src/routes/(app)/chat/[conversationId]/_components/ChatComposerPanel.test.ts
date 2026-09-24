@@ -44,7 +44,6 @@ function renderComposerPanel(props: Record<string, unknown> = {}) {
 			draftText: "",
 			draftAttachments: [],
 			draftVersion: 0,
-			onManageEvidence: vi.fn(),
 			totalCostUsd: 0,
 			totalTokens: 0,
 			composerCommandRegistryEnabled: false,
@@ -99,46 +98,6 @@ describe("ChatComposerPanel", () => {
 
 	// Everyday redesign: the ring is a measurement, so it appears only once
 	// there is context to measure — this hands it some.
-	it("forwards the context source management action into the composer ring", async () => {
-		const onManageEvidence = vi.fn();
-		const { getByLabelText, getByRole } = renderComposerPanel({
-			onManageEvidence,
-			contextStatus: {
-				conversationId: "conv-1",
-				userId: "user-1",
-				estimatedTokens: 4200,
-				promptTokens: 4200,
-				promptTokensSource: "estimated",
-				maxContextTokens: 128000,
-				thresholdTokens: 96000,
-				targetTokens: 64000,
-				compactionApplied: false,
-				compactionMode: "none",
-				routingStage: "deterministic",
-				routingConfidence: 1,
-				verificationStatus: "skipped",
-				layersUsed: [],
-				workingSetCount: 0,
-				workingSetArtifactIds: [],
-				workingSetApplied: false,
-				taskStateApplied: false,
-				promptArtifactCount: 0,
-				recentTurnCount: 3,
-				summary: null,
-				updatedAt: Date.now(),
-			},
-		});
-
-		await fireEvent.click(
-			getByLabelText("Context window usage 3% (4,200 of 128,000 tokens)"),
-		);
-		await fireEvent.click(
-			getByRole("button", { name: "Manage context sources" }),
-		);
-
-		expect(onManageEvidence).toHaveBeenCalledTimes(1);
-	});
-
 	it("forwards restored linked sources and pending skill into the composer", () => {
 		const { getByText, getByRole } = renderComposerPanel({
 			composerCommandRegistryEnabled: true,

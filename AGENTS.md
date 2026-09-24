@@ -141,7 +141,7 @@ Do not:
 - Conversation detail hydration:
   - [`src/lib/server/services/conversation-detail/read-model.ts`](./src/lib/server/services/conversation-detail/read-model.ts)
     - Owns refreshable `/api/conversations/[id]` GET payload assembly for chat page load and browser hydration.
-    - Assembles bootstrap and full detail payloads, including defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft/generated-file/File Production/context-compression/cost fields, and active Skill Session public serialization.
+    - Assembles bootstrap and full detail payloads, including defaults, child-fork message decoration, task-state continuity attachment, draft/generated-file/File Production/context-compression/cost fields, and active Skill Session public serialization.
     - The route GET handler stays an auth/HTTP adapter that delegates to `getConversationDetail(...)`.
 - Shared pipeline:
   - [`src/lib/server/services/chat-turn/index.ts`](./src/lib/server/services/chat-turn/index.ts)
@@ -351,7 +351,7 @@ Do not:
 Task/document continuity and profile memory are separate subsystems. Continuity lives on `task-state.ts`; durable profile memory (facts about the user) is owned by the local Memory Profile Projection plus the LLM intake judge and nightly consolidation. There is no external memory service.
 
 - Continuity boundary:
-  - [`src/lib/server/services/task-state.ts`](./src/lib/server/services/task-state.ts) plus its internal modules under `task-state/` (control-model, continuity, artifacts, chunk-sync, document-preferences, mappers)
+  - [`src/lib/server/services/task-state.ts`](./src/lib/server/services/task-state.ts) plus its internal modules under `task-state/` (control-model, continuity, artifacts, chunk-sync, mappers)
 - Profile memory judge (intake):
   - [`src/lib/server/services/memory-judge/`](./src/lib/server/services/memory-judge/) — `index.ts` (per-segment run), `runner.ts` (idle/dirty sweep), `segment.ts` (watermarks), `prompt.ts`, `schema.ts`
 - Consolidation (nightly rework):
@@ -513,7 +513,7 @@ Rules:
 
 - `client/api/` owns reusable request/response parsing and shared HTTP behavior.
 - `src/lib/client/api/auth.ts` owns reusable browser auth calls such as login and logout.
-- `src/lib/client/api/conversations.ts` owns reusable browser conversation-detail, evidence, title, and steering calls.
+- `src/lib/client/api/conversations.ts` owns reusable browser conversation-detail, evidence, and title calls.
 - `src/lib/client/api/conversations.ts` also owns browser-side draft persistence and prepared-conversation deletion transport used by `conversation-session.ts`.
 - `src/lib/client/api/knowledge.ts` owns reusable knowledge upload, library, and memory browser calls.
 - `src/lib/client/api/workspace-search.ts` owns reusable browser calls for server-backed Workspace Search.
@@ -526,7 +526,7 @@ Rules:
 Do not:
 
 - put raw `fetch` + `res.ok` + JSON parsing boilerplate into stores
-- open-code reusable browser auth, model, conversation-detail, evidence, title, steering, or knowledge fetches in pages/components when they can live in `src/lib/client/api/`
+- open-code reusable browser auth, model, conversation-detail, evidence, title, or knowledge fetches in pages/components when they can live in `src/lib/client/api/`
 - open-code settings/admin/analytics browser fetches in `settings/+page.svelte` when they can live in `src/lib/client/api/settings.ts`
 - invent new `sessionStorage` keys in components or pages when the conversation-session helper should own them
 - make stores mutate unrelated domains because it feels convenient

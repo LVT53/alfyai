@@ -226,7 +226,6 @@ describe("chat conversation page load", () => {
 			attachedArtifacts: [],
 			activeWorkingSet: [],
 			contextStatus: null,
-			contextSources: null,
 			taskState: null,
 			contextDebug: null,
 			draft: null,

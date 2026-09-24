@@ -25,10 +25,8 @@ import type { PendingWrite } from "$lib/server/services/connections/pending-writ
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
 import type { ConversationForkOrigin } from "$lib/server/services/conversation-forks";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
-import type { ContextDebugState } from "$lib/server/services/knowledge/context-types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
-import type { TaskSteeringPayload } from "$lib/server/services/task-state/types";
 import MessageBubble from "./MessageBubble.svelte";
 import LogoMark from "./LogoMark.svelte";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";
@@ -39,7 +37,6 @@ let {
 	conversationId = null,
 	isIncognito = false,
 	isThinkingActive = false,
-	contextDebug = null,
 	modelIcons = {},
 	fileProductionJobs = [],
 	atlasJobs = [],
@@ -52,7 +49,6 @@ let {
 	onSendFollowUp = undefined,
 	onEdit = undefined,
 	onFork = undefined,
-	onSteer = undefined,
 	onOpenDocument = undefined,
 	skillDraftActionState = {},
 	onSaveSkillDraft = undefined,
@@ -77,7 +73,6 @@ let {
 	 */
 	isIncognito?: boolean;
 	isThinkingActive?: boolean;
-	contextDebug?: ContextDebugState | null;
 	modelIcons?: Record<string, string | null | undefined>;
 	fileProductionJobs?: FileProductionJob[];
 	atlasJobs?: AtlasJobCard[];
@@ -94,7 +89,6 @@ let {
 	onFork?:
 		| ((payload: { messageId: string }) => void | Promise<void>)
 		| undefined;
-	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
 	onOpenDocument?:
 		| ((
 				document: DocumentWorkspaceItem,
@@ -419,13 +413,6 @@ $effect(() => {
 	if (!browser || !scrollContainer) return;
 	void tick().then(() => queueActiveJumpRailTurnUpdate());
 });
-
-let pinnedArtifactIds = $derived(
-	contextDebug?.pinnedEvidence.map((evidence) => evidence.artifactId) ?? [],
-);
-let excludedArtifactIds = $derived(
-	contextDebug?.excludedEvidence.map((evidence) => evidence.artifactId) ?? [],
-);
 
 let dedupedMessages = $derived(
 	messages.reduce(
@@ -755,8 +742,6 @@ async function scrollToMessage(messageId: string) {
 				<MessageBubble
 					{message}
 					isLast={i === dedupedMessages.length - 1}
-					{pinnedArtifactIds}
-					{excludedArtifactIds}
 					{modelIcons}
 					fileProductionJobs={getFileProductionJobsForMessage(message)}
 					atlasJobs={getAtlasJobsForMessage(message)}
@@ -768,7 +753,6 @@ async function scrollToMessage(messageId: string) {
 					{onEdit}
 					{onFork}
 					forkBusy={forkingMessageId === message.id}
-					{onSteer}
 					{onOpenDocument}
 					{skillDraftActionState}
 					{onSaveSkillDraft}

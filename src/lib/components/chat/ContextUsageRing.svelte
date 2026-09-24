@@ -4,7 +4,6 @@ import { t } from "$lib/i18n";
 import { isTouchDevice } from "$lib/utils/viewport.svelte";
 import type {
 	ContextDebugState,
-	ContextSourcesState,
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
 import type {
@@ -16,20 +15,16 @@ let {
 	contextStatus = null,
 	attachedArtifacts = [],
 	contextDebug = null,
-	contextSources = null,
 	totalCostUsd = 0,
 	lastTurnCostUsd = 0,
 	totalTokens = 0,
-	onManageEvidence = undefined,
 }: {
 	contextStatus?: ConversationContextStatus | null;
 	attachedArtifacts?: ArtifactSummary[];
 	contextDebug?: ContextDebugState | null;
-	contextSources?: ContextSourcesState | null;
 	totalCostUsd?: number;
 	lastTurnCostUsd?: number;
 	totalTokens?: number;
-	onManageEvidence?: (() => void) | undefined;
 } = $props();
 
 let root = $state<HTMLDivElement | null>(null);
@@ -77,11 +72,6 @@ function handleClick() {
 	isOpen = !isOpen;
 }
 
-function handleManageEvidence() {
-	onManageEvidence?.();
-	isOpen = false;
-}
-
 function formatLayer(layer: MemoryLayer): string {
 	switch (layer) {
 		case "session":
@@ -110,12 +100,6 @@ function formatCompactionMode(
 		default:
 			return $t("contextUsageRing.compaction.notNeeded");
 	}
-}
-
-function formatSourceState(): string {
-	if (contextSources?.compacted) return $t("contextSources.compacted");
-	if (contextSources?.reduced) return $t("contextSources.reduced");
-	return $t("contextSources.full");
 }
 
 function formatCostUsd(costUsd: number): string {
@@ -159,23 +143,12 @@ let promptTokensSourceText = $derived(
 );
 let dashOffset = $derived(circumference * (1 - ratio));
 let percent = $derived(Math.round(ratio * 100));
-let selectedSourceCount = $derived(
-	contextSources?.selectedCount ?? contextDebug?.selectedEvidence.length ?? 0,
-);
-let pinnedSourceCount = $derived(
-	contextSources?.pinnedCount ?? contextDebug?.pinnedEvidence.length ?? 0,
-);
-let excludedSourceCount = $derived(
-	contextSources?.excludedCount ?? contextDebug?.excludedEvidence.length ?? 0,
-);
 let toneClass = $derived(
 	!contextStatus
 		? "ring-button--idle"
-		: contextSources?.compacted ||
-				contextStatus.compactionMode === "llm_fallback"
+		: contextStatus.compactionMode === "llm_fallback"
 			? "ring-button--compact"
-			: contextSources?.reduced ||
-					contextStatus.compactionMode === "deterministic"
+			: contextStatus.compactionMode === "deterministic"
 				? "ring-button--high"
 				: ratio >= 0.9
 					? "ring-button--high"
@@ -190,8 +163,6 @@ let toneClass = $derived(
 let isNearTrigger = $derived(
 	contextStatus !== null &&
 		ratio >= 0.75 &&
-		!contextSources?.compacted &&
-		!contextSources?.reduced &&
 		contextStatus.compactionMode === "none",
 );
 </script>
@@ -288,30 +259,7 @@ let isNearTrigger = $derived(
 						{formatCompactionMode(contextStatus.compactionMode)}
 					</span>
 				</div>
-				{#if contextSources}
-					<div class="popover-stat">
-						<span>{$t('contextUsageRing.sourcesIncluded')}</span>
-						<span>{selectedSourceCount}</span>
-					</div>
-					<div class="popover-stat">
-						<span>{$t('contextSources.state')}</span>
-						<span class:compaction-active={contextSources.reduced || contextSources.compacted}>
-							{formatSourceState()}
-						</span>
-					</div>
-					{#if pinnedSourceCount > 0}
-						<div class="popover-stat">
-							<span>{$t('contextSources.pinned')}</span>
-							<span>{pinnedSourceCount}</span>
-						</div>
-					{/if}
-					{#if excludedSourceCount > 0}
-						<div class="popover-stat">
-							<span>{$t('contextSources.excluded')}</span>
-							<span>{excludedSourceCount}</span>
-						</div>
-					{/if}
-				{:else if contextDebug}
+				{#if contextDebug}
 					<div class="popover-stat">
 						<span>{$t('contextUsageRing.sourcesIncluded')}</span>
 						<span>{contextDebug.selectedEvidence.length}</span>
@@ -348,11 +296,6 @@ let isNearTrigger = $derived(
 				{/if}
 			{:else}
 				<div class="popover-empty">{$t('contextUsageRing.noContext')}</div>
-			{/if}
-			{#if onManageEvidence}
-				<button type="button" class="popover-action" onclick={handleManageEvidence}>
-					{$t('contextUsageRing.manageEvidence')}
-				</button>
 			{/if}
 		</div>
 	</div>
@@ -676,31 +619,5 @@ let isNearTrigger = $derived(
 		margin-top: 0.5rem;
 		font-size: var(--text-sm);
 		color: var(--text-muted);
-	}
-
-	.popover-action {
-		margin-top: 0.75rem;
-		width: 100%;
-		border: 1px solid color-mix(in srgb, var(--border-default) 78%, transparent 22%);
-		border-radius: 0.65rem;
-		background: color-mix(in srgb, var(--surface-page) 72%, var(--surface-elevated) 28%);
-		padding: 0.5rem 0.65rem;
-		font-size: var(--text-xs);
-		font-weight: 600;
-		color: var(--text-primary);
-		text-align: center;
-		cursor: pointer;
-		transition:
-			background-color var(--duration-standard) var(--ease-out),
-			border-color var(--duration-standard) var(--ease-out),
-			color var(--duration-standard) var(--ease-out);
-	}
-
-	.popover-action:hover,
-	.popover-action:focus-visible {
-		border-color: color-mix(in srgb, var(--accent) 48%, var(--border-default) 52%);
-		background: color-mix(in srgb, var(--accent) 12%, var(--surface-elevated) 88%);
-		color: var(--accent);
-		outline: none;
 	}
 </style>

@@ -20,7 +20,6 @@ import type {
 } from "$lib/server/services/file-production/types";
 import type {
 	ContextDebugState,
-	ContextSourcesState,
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
 import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
@@ -41,7 +40,6 @@ export interface ConversationDetail {
 	attachedArtifacts?: ArtifactSummary[];
 	activeWorkingSet?: ArtifactSummary[];
 	contextStatus?: ConversationContextStatus | null;
-	contextSources?: ContextSourcesState | null;
 	taskState?: TaskState | null;
 	contextDebug?: ContextDebugState | null;
 	draft?: ConversationDraft | null;

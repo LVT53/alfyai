@@ -1,7 +1,6 @@
 import { getConversationCostSummary } from "$lib/server/services/analytics";
 import { getAtlasAvailability } from "$lib/server/services/atlas/availability";
 import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
-import { buildContextSourcesState } from "$lib/server/services/chat-turn/context-sources";
 import {
 	listContextCompressionSnapshots,
 	serializeContextCompressionSnapshot,
@@ -23,7 +22,6 @@ import {
 	getConversationWorkingSet,
 	listConversationArtifacts,
 } from "$lib/server/services/knowledge";
-import { listConversationLinkedContextSources } from "$lib/server/services/linked-context-sources";
 import {
 	CONVERSATION_MESSAGE_WINDOW_DEFAULT_LIMIT,
 	listMessageWindow,
@@ -33,7 +31,6 @@ import {
 	attachContinuityToTaskState,
 	getContextDebugState,
 	getConversationTaskState,
-	getProjectReferenceContext,
 } from "$lib/server/services/task-state";
 
 // O1 (ADR-0022 amendment) — "full" is the only assembled view left; the
@@ -103,7 +100,6 @@ export async function getConversationDetail({
 			attachedArtifacts: [],
 			activeWorkingSet: [],
 			contextStatus: null,
-			contextSources: null,
 			taskState: null,
 			contextDebug: null,
 			draft,
@@ -121,7 +117,6 @@ export async function getConversationDetail({
 		messageWindow,
 		forkOrigin,
 		attachedArtifacts,
-		linkedSources,
 		activeWorkingSet,
 		contextStatus,
 		taskState,
@@ -132,14 +127,10 @@ export async function getConversationDetail({
 		atlasJobs,
 		contextCompressionSnapshots,
 		costSummary,
-		projectReference,
 	] = await Promise.all([
 		listMessageWindow(conversationId, { limit: messageWindowLimit }),
 		getConversationForkOrigin(conversationId),
 		listConversationArtifacts(userId, conversationId),
-		listConversationLinkedContextSources({ userId, conversationId }).catch(
-			() => [],
-		),
 		getConversationWorkingSet(userId, conversationId),
 		getConversationContextStatus(userId, conversationId),
 		getConversationTaskState(userId, conversationId),
@@ -152,7 +143,6 @@ export async function getConversationDetail({
 		listConversationAtlasJobs(userId, conversationId),
 		listContextCompressionSnapshots(conversationId),
 		getConversationCostSummary(conversationId),
-		getProjectReferenceContext({ userId, conversationId }).catch(() => null),
 	]);
 	const taskStateWithContinuity = await attachContinuityToTaskState(
 		userId,
@@ -162,16 +152,6 @@ export async function getConversationDetail({
 		userId,
 		messageWindow.messages,
 	);
-	const contextSources = buildContextSourcesState({
-		userId,
-		conversationId,
-		contextStatus,
-		contextDebug,
-		attachedArtifacts,
-		linkedSources,
-		activeWorkingSet,
-		projectReference,
-	});
 	return {
 		conversation,
 		messages: messagesWithSourceForks,
@@ -179,7 +159,6 @@ export async function getConversationDetail({
 		attachedArtifacts,
 		activeWorkingSet,
 		contextStatus,
-		contextSources,
 		taskState: taskStateWithContinuity,
 		contextDebug,
 		draft,
@@ -203,8 +182,8 @@ export async function getConversationDetail({
 // on-demand path for scrolling further back: it re-runs only the
 // message-window query plus the same child-fork decoration `full` view
 // messages get (so the assembled `ChatMessage[]` shape matches exactly),
-// and does NOT re-run the rest of the ~16-way assembly (context sources,
-// task state, atlas jobs, cost, …) — that state does not change by paging
+// and does NOT re-run the rest of the ~14-way assembly (task state, atlas
+// jobs, cost, …) — that state does not change by paging
 // older messages into view, so re-fetching it would be pure waste.
 export interface GetOlderConversationMessagesInput {
 	userId: string;

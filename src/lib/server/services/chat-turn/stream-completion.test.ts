@@ -1322,7 +1322,6 @@ describe("completeStreamTurn", () => {
 			}),
 		);
 		expect(data).not.toHaveProperty("generatedFiles");
-		expect(data).not.toHaveProperty("contextSources");
 		expect(data).not.toHaveProperty("contextCompressionSnapshots");
 		const partTypes = mockEnqueueChunk.mock.calls
 			.flatMap((call: string[]) => decodeUiMessageStreamParts(call[0] ?? ""))
@@ -1364,7 +1363,6 @@ describe("completeStreamTurn", () => {
 					generationDurationMs: expect.any(Number),
 				}),
 			);
-			expect(data).not.toHaveProperty("contextSources");
 			expect(data).not.toHaveProperty("generatedFiles");
 			expect(data).not.toHaveProperty("fileProductionJobs");
 			expect(data).not.toHaveProperty("contextCompressionSnapshots");
@@ -1467,7 +1465,7 @@ describe("completeStreamTurn", () => {
 		expect(getLatestEndPayload()).not.toHaveProperty("totalTokens");
 	});
 
-	it("defers contextSources and turn-state projection outside fast receipt metadata", async () => {
+	it("defers turn-state projection outside fast receipt metadata", async () => {
 		const persistedWorkingSet = [
 			artifact("artifact-persisted-working", "Persisted working"),
 		];
@@ -1497,63 +1495,10 @@ describe("completeStreamTurn", () => {
 				assistantMessageId: "asst-msg-1",
 			}),
 		);
-		expect(mockGetProjectReferenceContext).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-		});
+		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
 		expect(data).not.toHaveProperty("activeWorkingSet");
 		expect(data).not.toHaveProperty("taskState");
 		expect(data).not.toHaveProperty("contextDebug");
-		expect(data).not.toHaveProperty("contextSources");
-	});
-
-	it("includes project folder awareness in end metadata and degrades lookup failures", async () => {
-		mockGetProjectReferenceContext.mockResolvedValueOnce({
-			source: "project_folder",
-			projectId: "folder-1",
-			projectName: "Launch folder",
-			entries: [
-				{
-					conversationId: "conv-sibling-1",
-					title: "Pricing notes",
-					objective: null,
-					summary: "Stable pricing brief.",
-				},
-			],
-			omittedSiblingCount: 0,
-		});
-
-		await completeStreamTurn(defaultParams);
-
-		const data = getLatestEndPayload();
-
-		expect(mockGetProjectReferenceContext).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-		});
-		expect(data).not.toHaveProperty("contextSources");
-
-		vi.clearAllMocks();
-		mockCreateMessage
-			.mockResolvedValueOnce(defaultUserMsg)
-			.mockResolvedValueOnce(defaultAssistantMsg);
-		mockPersistUserTurnAttachments.mockResolvedValue(undefined);
-		mockPersistAssistantTurnState.mockResolvedValue(defaultTurnState);
-		mockTouchConversation.mockResolvedValue(undefined);
-		mockGetStreamBuffer.mockReturnValue(null);
-		mockGetChatFilesForMsg.mockResolvedValue([]);
-		mockGetFileProductionJobs.mockResolvedValue([]);
-		mockAssignFileProductionJobs.mockResolvedValue(undefined);
-		mockEnqueueChunk.mockReturnValue(true);
-		mockEstimateTokenCount.mockReturnValue(100);
-		mockGetProjectReferenceContext.mockRejectedValueOnce(
-			new Error("folder lookup failed"),
-		);
-
-		await completeStreamTurn(defaultParams);
-
-		const fallbackData = getLatestEndPayload();
-		expect(fallbackData).not.toHaveProperty("contextSources");
 	});
 
 	it("sets wasStopped to true in the end event when requested", async () => {

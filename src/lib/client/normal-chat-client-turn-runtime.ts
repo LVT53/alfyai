@@ -557,7 +557,6 @@ export function createNormalChatClientTurnRuntime(
 		if (!metadata?.assistantMessageId) return false;
 		const projectionFields = [
 			metadata.contextStatus,
-			metadata.contextSources,
 			metadata.activeWorkingSet,
 			metadata.taskState,
 			metadata.contextDebug,

@@ -29,7 +29,6 @@ chat/
           ├── chat/FileAttachment.svelte      ← inline attachment display
           └── chat/MessageEvidenceDetails.svelte  ← evidence summary panel
   ModelSelector.svelte              ← model dropdown
-  EvidenceManager.svelte            ← evidence management sidebar
   ErrorMessage.svelte               ← error display
   LogoMark.svelte                   ← animated brand logo (used by MessageBubble)
 
@@ -70,7 +69,6 @@ ui/
 - `document-workspace/DocumentWorkspace.svelte` — route-driven working-document workspace shell
 - `chat/MessageInput.svelte` — composer with queued follow-up
 - `chat/ModelSelector.svelte` — model picker
-- `chat/EvidenceManager.svelte` — evidence panel
 - `chat/ContextUsageRing.svelte` — context indicator
 - `chat/DropZoneOverlay.svelte` — drag-and-drop file upload overlay
 - Route-local `_components/` — `ChatComposerPanel`, `ChatMessagePane` (page scaffolding)

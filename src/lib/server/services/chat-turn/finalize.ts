@@ -19,21 +19,9 @@ import {
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
 import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
-import type {
-	ContextDebugState,
-	ContextSourcesState,
-	ConversationContextStatus,
-} from "$lib/server/services/knowledge/context-types";
-import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import { createMessage } from "$lib/server/services/messages";
-import type {
-	ThinkingSegment,
-	ToolCallEntry,
-} from "$lib/server/services/messages-types";
-import { getProjectReferenceContext } from "$lib/server/services/task-state";
-import { buildContextSourcesState } from "./context-sources";
-import type { LegacyContextTraceSectionInput } from "./context-trace";
+import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import {
 	buildBaselineDepthMetadata,
 	withDepthMetadataModelInfo,
@@ -187,74 +175,9 @@ export type FinalizeChatTurnResult = {
 	userMessage: { id: string } | undefined;
 	assistantMessage: { id: string } | undefined;
 	turnState: PersistAssistantTurnStateResult | null;
-	contextSources: ContextSourcesState;
 	attachedArtifacts?: WorkingSetItem[];
 	generatedFiles: ChatGeneratedFile[];
 };
-
-export type BuildChatTurnCompletionContextSourcesParams = {
-	userId: string;
-	conversationId: string;
-	contextStatus?: ConversationContextStatus | null;
-	contextDebug?: ContextDebugState | null;
-	attachedArtifacts?: unknown;
-	linkedSources?: LinkedContextSource[];
-	activeWorkingSet?: unknown;
-	contextTraceSections?: LegacyContextTraceSectionInput[];
-	toolCalls?: ToolCallEntry[];
-};
-
-function buildEmptyCompletionContextSources(params: {
-	userId: string;
-	conversationId: string;
-}): ContextSourcesState {
-	return buildContextSourcesState({
-		userId: params.userId,
-		conversationId: params.conversationId,
-	});
-}
-
-export async function buildChatTurnCompletionContextSources(
-	params: BuildChatTurnCompletionContextSourcesParams,
-): Promise<ContextSourcesState> {
-	const projectReference = await getProjectReferenceContext({
-		userId: params.userId,
-		conversationId: params.conversationId,
-	}).catch(() => null);
-
-	return buildContextSourcesState({
-		userId: params.userId,
-		conversationId: params.conversationId,
-		contextStatus: params.contextStatus ?? null,
-		contextDebug: params.contextDebug ?? null,
-		attachedArtifacts: toArtifactSummaries(params.attachedArtifacts),
-		linkedSources: params.linkedSources ?? [],
-		activeWorkingSet: toArtifactSummaries(params.activeWorkingSet),
-		projectReference,
-		contextTraceSections: params.contextTraceSections ?? [],
-		toolCalls: (params.toolCalls ?? []).filter(
-			(tool) => tool.status === "done",
-		),
-	});
-}
-
-function toArtifactSummaries(value: unknown): ArtifactSummary[] {
-	if (!Array.isArray(value)) return [];
-	return value.filter(isArtifactSummaryLike) as ArtifactSummary[];
-}
-
-function isArtifactSummaryLike(value: unknown): value is ArtifactSummary {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"id" in value &&
-		typeof value.id === "string" &&
-		"name" in value &&
-		typeof value.name === "string" &&
-		"type" in value &&
-		typeof value.type === "string"
-	);
-}
 
 async function createTurnMessage(
 	params: {
@@ -580,12 +503,11 @@ export async function finalizeChatTurn(
 
 	// The single ordered post-turn projection, shared by both callers. Each
 	// side effect runs exactly once in a fixed order — assistant turn-state →
-	// evidence → completion context sources → generated-output reconciliation
+	// evidence → generated-output reconciliation
 	// — so a new post-turn side effect is added in exactly one place.
 	const runPostTurnProjection = async (): Promise<{
 		turnState: PersistAssistantTurnStateResult | null;
 		evidenceTask: Promise<void>;
-		contextSources: ContextSourcesState;
 		resolvedAttachedArtifacts: WorkingSetItem[] | undefined;
 		generatedFiles: ChatGeneratedFile[];
 	}> => {
@@ -695,40 +617,6 @@ export async function finalizeChatTurn(
 
 		const resolvedAttachedArtifacts =
 			attachedArtifacts ?? (await attachmentTask);
-		const contextSourcesParams = {
-			userId: params.userId,
-			conversationId: params.conversationId,
-			contextStatus: params.contextStatus ?? null,
-			contextDebug:
-				turnState?.contextDebug ?? params.initialContextDebug ?? null,
-			attachedArtifacts: resolvedAttachedArtifacts,
-			linkedSources: params.linkedSources ?? [],
-			activeWorkingSet: turnState?.activeWorkingSet,
-			contextTraceSections: params.contextTraceSections,
-			toolCalls: params.toolCalls,
-		};
-		// The deferred (stream) caller has already flushed its terminal receipt
-		// by the time this projection runs in the background, so a
-		// context-source failure there is logged and swallowed. The eager (send)
-		// caller needs the real value in its response body, so it lets it throw.
-		const contextSources = isStream
-			? await buildChatTurnCompletionContextSources(contextSourcesParams).catch(
-					(error) => {
-						console.error(
-							`${logPrefix} Deferred context-source projection failed`,
-							{
-								conversationId: params.conversationId,
-								assistantMessageId: assistantMessage?.id ?? null,
-								error,
-							},
-						);
-						return buildEmptyCompletionContextSources({
-							userId: params.userId,
-							conversationId: params.conversationId,
-						});
-					},
-				)
-			: await buildChatTurnCompletionContextSources(contextSourcesParams);
 
 		const generatedFiles =
 			assistantMessage && params.generatedOutputReconciliation
@@ -745,7 +633,6 @@ export async function finalizeChatTurn(
 		return {
 			turnState,
 			evidenceTask,
-			contextSources,
 			resolvedAttachedArtifacts,
 			generatedFiles,
 		};
@@ -828,17 +715,13 @@ export async function finalizeChatTurn(
 			userMessage,
 			assistantMessage,
 			turnState: null,
-			contextSources: buildEmptyCompletionContextSources({
-				userId: params.userId,
-				conversationId: params.conversationId,
-			}),
 			attachedArtifacts,
 			generatedFiles: [],
 		};
 	}
 
 	// Send path: run the projection eagerly so the durable completion result
-	// (turn state, context sources, generated files, evidence) is available in
+	// (turn state, generated files, evidence) is available in
 	// the response, then let the tail (memory/summary/maintenance) continue in
 	// the background — finalize starts it itself rather than handing the
 	// caller anything to schedule.
@@ -857,7 +740,6 @@ export async function finalizeChatTurn(
 		userMessage,
 		assistantMessage,
 		turnState: projection.turnState,
-		contextSources: projection.contextSources,
 		attachedArtifacts: projection.resolvedAttachedArtifacts,
 		generatedFiles: projection.generatedFiles,
 	};

@@ -83,9 +83,6 @@ export interface StreamMetadata {
 	providerIconUrl?: string;
 	depthMetadata?: import("$lib/server/services/chat-turn/depth-metadata-types").DepthMetadata;
 	contextStatus?: import("$lib/server/services/knowledge/context-types").ConversationContextStatus;
-	contextSources?:
-		| import("$lib/server/services/knowledge/context-types").ContextSourcesState
-		| null;
 	activeWorkingSet?: import("$lib/server/services/knowledge/types").ArtifactSummary[];
 	taskState?: import("$lib/server/services/task-state/types").TaskState | null;
 	contextDebug?:
@@ -307,9 +304,6 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 			| undefined,
 		contextStatus: parsed.contextStatus as
 			| StreamMetadata["contextStatus"]
-			| undefined,
-		contextSources: parsed.contextSources as
-			| StreamMetadata["contextSources"]
 			| undefined,
 		activeWorkingSet: parsed.activeWorkingSet as
 			| StreamMetadata["activeWorkingSet"]

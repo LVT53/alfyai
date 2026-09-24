@@ -17,7 +17,6 @@ import {
 	setConversationPersonalitySelection,
 } from "$lib/client/conversation-session";
 import {
-	applyTaskSteering,
 	deleteConversation,
 	deleteConversationDraft,
 	deleteConversationMessages,
@@ -68,7 +67,6 @@ import {
 	setSelectedReasoningDepth,
 } from "$lib/stores/settings";
 import { isPendingFileProductionJobId } from "$lib/components/chat/file-production-helpers";
-import EvidenceManager from "$lib/components/chat/EvidenceManager.svelte";
 import CloudConnectorWarningModal from "$lib/components/chat/CloudConnectorWarningModal.svelte";
 import { isProviderModelId } from "$lib/model-types";
 import type { ModelId } from "$lib/model-types";
@@ -87,7 +85,6 @@ import type { ConversationDraft } from "$lib/server/services/conversations";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type {
 	ContextDebugState,
-	ContextSourcesState,
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
 import type {
@@ -98,10 +95,7 @@ import type {
 	ChatMessage,
 	NormalChatRuntimePhase,
 } from "$lib/server/services/messages-types";
-import type {
-	TaskState,
-	TaskSteeringPayload,
-} from "$lib/server/services/task-state/types";
+import type { TaskState } from "$lib/server/services/task-state/types";
 import type { I18nKey } from "$lib/i18n";
 import type { PageProps } from "./$types";
 import {
@@ -223,7 +217,6 @@ const initialTotalTokens = getData().totalTokens ?? 0;
 const initialAttachedArtifacts = getData().attachedArtifacts ?? [];
 const initialTaskState = getData().taskState ?? null;
 const initialContextDebug = getData().contextDebug ?? null;
-const initialContextSources = getData().contextSources ?? null;
 const initialConversationDraft = getData().draft ?? null;
 const initialForkOrigin = getData().forkOrigin ?? null;
 const initialBootstrapMode = getData().bootstrap ?? false;
@@ -503,7 +496,6 @@ let lastTurnCostUsd = $derived.by(() => {
 let attachedArtifacts = $state<ArtifactSummary[]>(initialAttachedArtifacts);
 let taskState = $state<TaskState | null>(initialTaskState);
 let contextDebug = $state<ContextDebugState | null>(initialContextDebug);
-let contextSources = $state<ContextSourcesState | null>(initialContextSources);
 let conversationDraft = $state<ConversationDraft | null>(
 	initialConversationDraft,
 );
@@ -550,7 +542,6 @@ let returnToDockedOnExpandedClose = $derived.by(() => {
 		(job) => job.outputs.htmlChatGeneratedFileId === activeDocument.id,
 	);
 });
-let evidenceManagerOpen = $state(false);
 let personalityProfiles = $state<
 	Array<{ id: string; name: string; description: string }>
 >([]);
@@ -715,7 +706,6 @@ const normalChatRuntime = createBrowserNormalChatClientTurnRuntime({
 			markDetailMetadataFreshnessBoundary();
 		}
 		contextStatus = metadata?.contextStatus ?? contextStatus;
-		contextSources = metadata?.contextSources ?? contextSources;
 		taskState = metadata?.taskState ?? taskState;
 		contextDebug = metadata?.contextDebug ?? contextDebug;
 		totalCostUsdMicros = metadata?.totalCostUsdMicros ?? totalCostUsdMicros;
@@ -1100,7 +1090,6 @@ function resetState() {
 	attachedArtifacts = data.attachedArtifacts ?? [];
 	taskState = data.taskState ?? null;
 	contextDebug = data.contextDebug ?? null;
-	contextSources = data.contextSources ?? null;
 	conversationDraft = data.draft ?? null;
 	forkOrigin = data.forkOrigin ?? null;
 	triggerForkOpeningTransition();
@@ -1118,7 +1107,6 @@ function resetState() {
 	sidecarPending = data.sidecarPending ?? false;
 	hydratingConversation = false;
 	suppressHydration = false;
-	evidenceManagerOpen = false;
 	forkingMessageId = null;
 	draftPersistence.clear();
 	currentConversationId.set(data.conversation.id);
@@ -1199,7 +1187,6 @@ function applyConversationDetailMetadata(
 ) {
 	markDetailMetadataFreshnessBoundary();
 	contextStatus = detail.contextStatus ?? contextStatus;
-	contextSources = detail.contextSources ?? contextSources;
 	taskState = detail.taskState ?? taskState;
 	contextDebug = detail.contextDebug ?? contextDebug;
 	if (detail.generatedFiles) {
@@ -1455,7 +1442,6 @@ async function hydrateConversationDetail(conversationId: string) {
 		const metadataIsFresh = requestMetadataEpoch === detailMetadataEpoch;
 		if (metadataIsFresh) {
 			contextStatus = payload.contextStatus ?? contextStatus;
-			contextSources = payload.contextSources ?? contextSources;
 			taskState = payload.taskState ?? taskState;
 			contextDebug = payload.contextDebug ?? contextDebug;
 			generatedFiles = payload.generatedFiles ?? generatedFiles;
@@ -2477,29 +2463,6 @@ function handleSendFollowUp(payload: { text: string }) {
 	void handleSend(minimalPayload);
 }
 
-async function handleSteering(payload: TaskSteeringPayload) {
-	if (isConversationReadOnlyForChat) return;
-	try {
-		const result = await applyTaskSteering(data.conversation.id, payload);
-		taskState = result.taskState ?? taskState;
-		contextDebug = result.contextDebug ?? contextDebug;
-		const detail = await fetchConversationDetail(data.conversation.id).catch(
-			() => null,
-		);
-		contextSources = detail?.contextSources ?? contextSources;
-	} catch {
-		return;
-	}
-}
-
-function openEvidenceManager() {
-	evidenceManagerOpen = true;
-}
-
-function closeEvidenceManager() {
-	evidenceManagerOpen = false;
-}
-
 function handleErrorClose() {
 	sendError = null;
 }
@@ -2711,7 +2674,6 @@ function handleDrop(event: DragEvent) {
 						conversationId={data.conversation.id}
 						isIncognito={data.conversation.memoryIncognito ?? false}
 						{isThinkingActive}
-						{contextDebug}
 						{modelIcons}
 						{fileProductionJobs}
 						{atlasJobs}
@@ -2726,7 +2688,6 @@ function handleDrop(event: DragEvent) {
 						onSendFollowUp={handleSendFollowUp}
 						onEdit={handleEdit}
 						onFork={handleFork}
-						onSteer={handleSteering}
 						{skillDraftActionState}
 						onSaveSkillDraft={handleSaveSkillDraft}
 						onDismissSkillDraft={handleDismissSkillDraft}
@@ -2754,7 +2715,6 @@ function handleDrop(event: DragEvent) {
 				onDraftChange={handleDraftChange}
 				onEditQueuedMessage={editQueuedTurn}
 				onDeleteQueuedMessage={clearQueuedTurn}
-				onManageEvidence={openEvidenceManager}
 				disabled={isConversationReadOnlyForChat || isEditResendPending}
 				isGenerating={!isConversationReadOnlyForChat && (isSending || isEditResendPending)}
 				canStopStreaming={!isConversationReadOnlyForChat && normalChatRuntimeCanStop}
@@ -2765,7 +2725,6 @@ function handleDrop(event: DragEvent) {
 				{contextStatus}
 				{attachedArtifacts}
 				{contextDebug}
-				{contextSources}
 				{totalCostUsd}
 				{lastTurnCostUsd}
 				{totalTokens}
@@ -2815,14 +2774,6 @@ function handleDrop(event: DragEvent) {
 			}}
 		/>
 	</div>
-
-	<EvidenceManager
-		open={evidenceManagerOpen}
-		{contextDebug}
-		{contextSources}
-		onClose={closeEvidenceManager}
-		onSteer={handleSteering}
-	/>
 
 	{#if cloudWarningOpen}
 		<CloudConnectorWarningModal

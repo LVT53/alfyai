@@ -216,7 +216,6 @@ describe("Conversation Detail Read Model", () => {
 			attachedArtifacts: [],
 			activeWorkingSet: [],
 			contextStatus: null,
-			contextSources: null,
 			taskState: null,
 			contextDebug: null,
 			fileProductionJobs: [],
@@ -499,203 +498,20 @@ describe("Conversation Detail Read Model", () => {
 		]);
 	});
 
-	it("keeps detail available with empty Context Sources when project reference lookup fails", async () => {
-		mockGetProjectReferenceContext.mockRejectedValue(
-			new Error("folder lookup failed"),
-		);
-
+	it("does not expose contextSources and no longer fetches its projection-only sources", async () => {
 		const detail = await getConversationDetail({
 			userId: "user-1",
 			conversationId: "conv-1",
 		});
 
-		expect(mockGetProjectReferenceContext).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-		});
-		expect(detail?.contextSources).toMatchObject({
-			conversationId: "conv-1",
-			userId: "user-1",
-			groups: [],
-		});
-	});
-
-	it("returns project folder and selected source groups through Context Sources", async () => {
-		mockGetConversationContextStatus.mockResolvedValue({
-			conversationId: "conv-1",
-			userId: "user-1",
-			estimatedTokens: 70_000,
-			promptTokens: 70_000,
-			promptTokensSource: "estimated",
-			maxContextTokens: 100_000,
-			thresholdTokens: 80_000,
-			targetTokens: 90_000,
-			compactionApplied: true,
-			compactionMode: "deterministic",
-			routingStage: "semantic",
-			routingConfidence: 0.82,
-			verificationStatus: "passed",
-			layersUsed: ["working_set"],
-			workingSetCount: 1,
-			workingSetArtifactIds: ["artifact-working-1"],
-			workingSetApplied: true,
-			taskStateApplied: false,
-			promptArtifactCount: 1,
-			recentTurnCount: 2,
-			summary: null,
-			updatedAt: 1_777_140_000,
-		});
-		mockListConversationArtifacts.mockResolvedValue([
-			{
-				id: "artifact-attached-1",
-				type: "source_document",
-				retrievalClass: "durable",
-				name: "Attached source",
-				mimeType: "text/plain",
-				sizeBytes: 1024,
-				conversationId: "conv-1",
-				summary: null,
-				createdAt: 1_777_140_000,
-				updatedAt: 1_777_140_001,
-			},
-		]);
-		mockGetConversationWorkingSet.mockResolvedValue([
-			{
-				id: "artifact-working-1",
-				type: "source_document",
-				retrievalClass: "durable",
-				name: "Working source",
-				mimeType: "text/plain",
-				sizeBytes: 2048,
-				conversationId: "conv-1",
-				summary: null,
-				createdAt: 1_777_140_000,
-				updatedAt: 1_777_140_001,
-			},
-		]);
-		mockGetContextDebugState.mockResolvedValue({
-			activeTaskId: null,
-			activeTaskObjective: null,
-			taskLocked: false,
-			routingStage: "semantic",
-			routingConfidence: 0.82,
-			verificationStatus: "passed",
-			selectedEvidence: [],
-			selectedEvidenceBySource: [],
-			pinnedEvidence: [
-				{
-					artifactId: "artifact-pinned-1",
-					name: "Pinned source",
-					artifactType: "source_document",
-					sourceType: "document",
-					role: "pinned",
-					origin: "user",
-					confidence: 1,
-					reason: "Pinned by user",
-				},
-			],
-			excludedEvidence: [],
-		});
-		mockGetProjectReferenceContext.mockResolvedValue({
-			source: "project_folder",
-			projectId: "folder-1",
-			projectName: "Launch folder",
-			entries: [
-				{
-					conversationId: "conv-sibling-1",
-					title: "Pricing notes",
-					objective: "Compare pricing options",
-					summary: "Stable pricing brief.",
-				},
-				{
-					conversationId: "conv-sibling-2",
-					title: "Rollout plan",
-					objective: null,
-					summary: null,
-				},
-			],
-			omittedSiblingCount: 1,
-		});
-
-		const detail = await getConversationDetail({
-			userId: "user-1",
-			conversationId: "conv-1",
-		});
-
-		expect(detail?.contextSources).toMatchObject({
-			conversationId: "conv-1",
-			userId: "user-1",
-			activeCount: 3,
-			pinnedCount: 1,
-			excludedCount: 0,
-			reduced: true,
-			compacted: true,
-		});
-		expect(
-			detail?.contextSources?.groups.map(
-				(group: { kind: string }) => group.kind,
-			),
-		).toEqual(["attachments", "working_set", "pinned", "project_folder"]);
-		expect(detail?.contextSources?.groups.at(-1)).toMatchObject({
-			kind: "project_folder",
-			state: "inferred",
-			totalCount: 3,
-			items: [
-				expect.objectContaining({
-					title: "Launch folder",
-					sourceType: "conversation",
-					reason: "2 sibling conversations summarized, 1 more omitted",
-					metadata: expect.objectContaining({
-						siblingCount: 3,
-						includedSiblingCount: 2,
-						omittedSiblingCount: 1,
-					}),
-				}),
-			],
-		});
-	});
-
-	it("returns durable linked source groups through Context Sources after refresh", async () => {
-		mockListConversationLinkedContextSources.mockResolvedValue([
-			{
-				displayArtifactId: "display-1",
-				promptArtifactId: "prompt-1",
-				familyArtifactIds: ["display-1", "prompt-1"],
-				name: "Discovery notes.pdf",
-				type: "document",
-				mimeType: "application/pdf",
-				documentOrigin: "uploaded",
-			},
-		]);
-
-		const detail = await getConversationDetail({
-			userId: "user-1",
-			conversationId: "conv-1",
-		});
-
-		expect(mockListConversationLinkedContextSources).toHaveBeenCalledWith({
-			userId: "user-1",
-			conversationId: "conv-1",
-		});
-		expect(detail?.contextSources?.groups).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					kind: "linked_source",
-					state: "active",
-					items: [
-						expect.objectContaining({
-							id: "linked_source:display-1",
-							artifactId: "display-1",
-							title: "Discovery notes.pdf",
-							reason: "linked_context_source",
-							metadata: expect.objectContaining({
-								promptArtifactId: "prompt-1",
-								documentOrigin: "uploaded",
-							}),
-						}),
-					],
-				}),
-			]),
-		);
+		expect(detail).not.toBeNull();
+		// The retired Context Sources panel was the only consumer of the
+		// projection, so the detail payload must stop assembling one.
+		expect(detail).not.toHaveProperty("contextSources");
+		// Linked sources and the project reference still feed chat-turn
+		// selection, but the detail read model must no longer pay for the two
+		// extra queries that existed only to feed the projection.
+		expect(mockListConversationLinkedContextSources).not.toHaveBeenCalled();
+		expect(mockGetProjectReferenceContext).not.toHaveBeenCalled();
 	});
 });

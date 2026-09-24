@@ -226,7 +226,6 @@ function conversationDetailFixture(
 		attachedArtifacts: [],
 		activeWorkingSet: [],
 		contextStatus: null,
-		contextSources: null,
 		taskState: null,
 		contextDebug: null,
 		draft: null,
@@ -269,7 +268,6 @@ vi.mock("$lib/client/api/admin", () => ({
 }));
 
 vi.mock("$lib/client/api/conversations", () => ({
-	applyTaskSteering: vi.fn(),
 	createConversationFork: vi.fn(),
 	deleteConversation: vi.fn(),
 	deletePreparedConversation: vi.fn(async () => undefined),
@@ -390,7 +388,6 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		activeWorkingSet: [],
 		taskState: null,
 		contextDebug: null,
-		contextSources: null,
 		draft: null,
 		forkOrigin: null,
 		bootstrap: false,
@@ -978,7 +975,6 @@ describe("chat page runtime integration", () => {
 				},
 			],
 			contextStatus: null,
-			contextSources: null,
 			activeWorkingSet: [],
 			taskState: null,
 			generatedFiles: [],

@@ -1,9 +1,8 @@
-// Conversation context status, Context Sources UI state, and the Context
-// Debug panel contract — owned by knowledge/context.ts (relevant-artifact
-// lookup, working-set/context status operations, context-related reads and
-// writes used during chat). Relocated out of the former src/lib/types.ts
-// god-module (architecture-deepening T1); this file carries no behavior
-// change, only a new home.
+// Conversation context status and the Context Debug panel contract — owned by
+// knowledge/context.ts (relevant-artifact lookup, working-set/context status
+// operations, context-related reads and writes used during chat). Relocated
+// out of the former src/lib/types.ts god-module (architecture-deepening T1);
+// this file carries no behavior change, only a new home.
 
 import type { ForkContextProvenanceSummary } from "$lib/server/services/conversation-forks";
 import type {
@@ -48,57 +47,6 @@ export interface ConversationContextStatus {
 	promptArtifactCount: number;
 	recentTurnCount: number;
 	summary: string | null;
-	updatedAt: number;
-}
-
-export type ContextSourceGroupKind =
-	| "attachments"
-	| "linked_source"
-	| "working_set"
-	| "task_evidence"
-	| "pinned"
-	| "excluded"
-	| "memory"
-	| "project_folder"
-	| "conversation";
-
-export type ContextSourceItemState =
-	| "active"
-	| "inferred"
-	| "pinned"
-	| "excluded";
-
-export interface ContextSourceItem {
-	id: string;
-	title: string;
-	state: ContextSourceItemState;
-	sourceType: EvidenceSourceType | "attachment" | "conversation";
-	artifactId?: string | null;
-	artifactType?: ArtifactType | null;
-	reason?: string | null;
-	metadata?: Record<string, string | number | boolean | null>;
-	reduced?: boolean;
-	compacted?: boolean;
-}
-
-export interface ContextSourceGroup {
-	kind: ContextSourceGroupKind;
-	state: ContextSourceItemState;
-	totalCount: number;
-	items: ContextSourceItem[];
-}
-
-export interface ContextSourcesState {
-	conversationId: string;
-	userId: string;
-	activeCount: number;
-	inferredCount: number;
-	selectedCount: number;
-	pinnedCount: number;
-	excludedCount: number;
-	reduced: boolean;
-	compacted: boolean;
-	groups: ContextSourceGroup[];
 	updatedAt: number;
 }
 

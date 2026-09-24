@@ -778,19 +778,6 @@ describe("streamChat", () => {
 				modelId: "model1",
 				modelDisplayName: "Model 1",
 			},
-			contextSources: {
-				conversationId: "conv-1",
-				userId: "user-1",
-				activeCount: 1,
-				inferredCount: 0,
-				selectedCount: 1,
-				pinnedCount: 0,
-				excludedCount: 0,
-				reduced: false,
-				compacted: false,
-				groups: [],
-				updatedAt: 1777140000000,
-			},
 			contextCompressionSnapshots: [
 				{
 					id: "snapshot-1",
