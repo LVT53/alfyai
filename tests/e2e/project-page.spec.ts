@@ -636,3 +636,81 @@ test.describe("Project page", () => {
 		expect(row.memoryIncognito).toBe(true);
 	});
 });
+
+/**
+ * The mockup's own phone requirement (§M1, via slice-D.md's real-app visual
+ * check at 390×844): "the project name replaces the greeting ... in the same
+ * serif and colour", the composer and the quiet line stay usable, and the
+ * cards/rows behave as described rather than sliding sideways.
+ */
+test.describe("Project page — phone", () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("keeps the home page's greeting type, target sizes and width at 390×844", async ({
+		page,
+	}) => {
+		// The type to match against, measured on the page this one is the home
+		// page of: the mockup says the project greeting IS the home greeting with
+		// one word swapped.
+		await page.goto("/", { waitUntil: "domcontentloaded" });
+		const homeGreeting = page.getByTestId("home-greeting").first();
+		await expect(homeGreeting).toBeVisible({ timeout: 15000 });
+		const homeType = await homeGreeting.evaluate((element) => {
+			const style = getComputedStyle(element);
+			return { fontFamily: style.fontFamily, color: style.color };
+		});
+
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+		await openProjectPage(page, projectId);
+
+		const greeting = page.getByTestId("project-greeting");
+		await expect(greeting).toHaveText(projectName);
+		const projectType = await greeting.evaluate((element) => {
+			const style = getComputedStyle(element);
+			return { fontFamily: style.fontFamily, color: style.color };
+		});
+		expect(projectType).toEqual(homeType);
+
+		// Nothing slides sideways at phone width — the mockup's rows reflow, the
+		// page does not.
+		const widths = await page.evaluate(() => ({
+			scroll: document.documentElement.scrollWidth,
+			client: document.documentElement.clientWidth,
+		}));
+		expect(widths.scroll).toBeLessThanOrEqual(widths.client + 1);
+
+		// The composer at the bottom of the phone screen, with the sizes the app
+		// asks of every phone composer (mobile-design.spec.ts holds the same bar).
+		const input = page.getByTestId("message-input");
+		await expect(input).toBeInViewport();
+		const inputBox = await input.boundingBox();
+		expect(inputBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+		const sendBox = await page.getByTestId("send-button").boundingBox();
+		expect(sendBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+		expect(sendBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+		// The quiet line is one line of text under the composer and it is the way
+		// into the instructions on this page.
+		await expect(page.getByTestId("project-quiet-line")).toBeVisible();
+		await expect(page.getByTestId("project-instructions-button")).toContainText(
+			"Add instructions",
+		);
+		await page.getByTestId("project-instructions-button").click();
+		const dialog = page.getByRole("dialog");
+		await expect(dialog).toBeVisible({ timeout: 10000 });
+		const dialogBox = await dialog.boundingBox();
+		expect(dialogBox?.width ?? 0).toBeLessThanOrEqual(390);
+		await expect(
+			dialog.getByRole("textbox", { name: `Instructions for ${projectName}` }),
+		).toBeVisible();
+	});
+});
