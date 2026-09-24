@@ -641,6 +641,139 @@ export const FILE_PRODUCTION_UNDELIVERED_JOB_STATUSES = [
  * genuinely in flight is ever hidden by this. */
 export const FILE_PRODUCTION_JOB_STATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+/** How many rows past `limit` the job-state projection reads, so dropping
+ * superseded failures does not starve the section. */
+const SUPERSEDED_FAILURE_LOOKAHEAD = 20;
+
+/** "Q3 Budget", "q3  budget!" and "Q3-budget" are one request. */
+function jobTitleKey(title: string): string {
+	return title
+		.normalize("NFKD")
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function filenameKey(filename: string): string {
+	return (filename.split(/[\\/]/).pop() ?? "").trim().toLowerCase();
+}
+
+/** The filenames a persisted request asked to write — `program.filename` and
+ * every `inlineText.files[].filename`. A document-source request names none;
+ * its title is what identifies it. */
+function requestTargetFilenames(requestJson: string | null): string[] {
+	const request = parseJsonRecord(requestJson);
+	if (!request) return [];
+	const names: string[] = [];
+	const program = request.program;
+	if (program && typeof program === "object" && !Array.isArray(program)) {
+		const filename = (program as Record<string, unknown>).filename;
+		if (typeof filename === "string") names.push(filename);
+	}
+	const inlineText = request.inlineText;
+	if (
+		inlineText &&
+		typeof inlineText === "object" &&
+		!Array.isArray(inlineText)
+	) {
+		const files = (inlineText as Record<string, unknown>).files;
+		if (Array.isArray(files)) {
+			for (const file of files) {
+				if (file && typeof file === "object" && !Array.isArray(file)) {
+					const filename = (file as Record<string, unknown>).filename;
+					if (typeof filename === "string") names.push(filename);
+				}
+			}
+		}
+	}
+	return names.map(filenameKey).filter(Boolean);
+}
+
+/**
+ * Failed jobs a LATER succeeded job of the same conversation already
+ * delivered: same normalized title, or the same target filename (asked for by
+ * the later request, or actually produced by it). Listing those under "File
+ * Jobs" told the next turn a file the user already has did not exist.
+ */
+async function findSupersededFailedJobIds(input: {
+	userId: string;
+	conversationId: string;
+	failed: Array<{
+		id: string;
+		title: string;
+		createdAt: Date;
+		requestJson: string | null;
+	}>;
+}): Promise<Set<string>> {
+	const superseded = new Set<string>();
+	if (input.failed.length === 0) return superseded;
+	const earliest = new Date(
+		Math.min(...input.failed.map((job) => job.createdAt.getTime())),
+	);
+	const succeeded = await db
+		.select({
+			id: fileProductionJobs.id,
+			title: fileProductionJobs.title,
+			createdAt: fileProductionJobs.createdAt,
+			requestJson: fileProductionJobs.requestJson,
+		})
+		.from(fileProductionJobs)
+		.where(
+			and(
+				eq(fileProductionJobs.userId, input.userId),
+				eq(fileProductionJobs.conversationId, input.conversationId),
+				eq(fileProductionJobs.status, "succeeded"),
+				gte(fileProductionJobs.createdAt, earliest),
+			),
+		);
+	if (succeeded.length === 0) return superseded;
+
+	const producedNames = await db
+		.select({
+			jobId: fileProductionJobFiles.jobId,
+			filename: chatGeneratedFiles.filename,
+		})
+		.from(fileProductionJobFiles)
+		.innerJoin(
+			chatGeneratedFiles,
+			eq(chatGeneratedFiles.id, fileProductionJobFiles.chatGeneratedFileId),
+		)
+		.where(
+			and(
+				inArray(
+					fileProductionJobFiles.jobId,
+					succeeded.map((job) => job.id),
+				),
+				eq(chatGeneratedFiles.userId, input.userId),
+			),
+		);
+	const namesByJobId = new Map<string, Set<string>>();
+	for (const job of succeeded) {
+		namesByJobId.set(job.id, new Set(requestTargetFilenames(job.requestJson)));
+	}
+	for (const row of producedNames) {
+		const key = filenameKey(row.filename);
+		if (key) namesByJobId.get(row.jobId)?.add(key);
+	}
+
+	for (const failed of input.failed) {
+		const titleKey = jobTitleKey(failed.title);
+		const targets = requestTargetFilenames(failed.requestJson);
+		const replaced = succeeded.some((success) => {
+			if (success.id === failed.id) return false;
+			// Timestamps are whole seconds, so a correction sent right after
+			// the failure can share its second; `>=` keeps that case.
+			if (success.createdAt.getTime() < failed.createdAt.getTime()) {
+				return false;
+			}
+			if (titleKey && jobTitleKey(success.title) === titleKey) return true;
+			const names = namesByJobId.get(success.id);
+			return Boolean(names && targets.some((target) => names.has(target)));
+		});
+		if (replaced) superseded.add(failed.id);
+	}
+	return superseded;
+}
+
 // Status-only projection for prompt context: no chat-file join, no legacy
 // backfill, no file hydration — just enough to tell a later turn that a file it
 // already claimed to have made is still running or has failed. Succeeded jobs
@@ -658,6 +791,7 @@ export async function listConversationFileProductionJobStates(input: {
 		now.getTime() -
 			Math.max(0, input.maxAgeMs ?? FILE_PRODUCTION_JOB_STATE_MAX_AGE_MS),
 	);
+	const limit = Math.max(1, input.limit ?? 5);
 	const rows = await db
 		.select({
 			id: fileProductionJobs.id,
@@ -667,6 +801,8 @@ export async function listConversationFileProductionJobStates(input: {
 			errorMessage: fileProductionJobs.errorMessage,
 			retryable: fileProductionJobs.retryable,
 			updatedAt: fileProductionJobs.updatedAt,
+			createdAt: fileProductionJobs.createdAt,
+			requestJson: fileProductionJobs.requestJson,
 		})
 		.from(fileProductionJobs)
 		.where(
@@ -685,15 +821,26 @@ export async function listConversationFileProductionJobStates(input: {
 			),
 		)
 		.orderBy(desc(fileProductionJobs.createdAt))
-		.limit(Math.max(1, input.limit ?? 5));
+		// Read past the limit: superseded failures are dropped below, and the
+		// section should still show up to `limit` jobs that are really open.
+		.limit(limit + SUPERSEDED_FAILURE_LOOKAHEAD);
 
-	return rows.map((row) => ({
-		id: row.id,
-		title: row.title,
-		status: row.status as FileProductionJob["status"],
-		errorCode: row.errorCode ?? null,
-		errorMessage: row.errorMessage ?? null,
-		retryable: Boolean(row.retryable),
-		updatedAt: row.updatedAt.getTime(),
-	}));
+	const superseded = await findSupersededFailedJobIds({
+		userId: input.userId,
+		conversationId: input.conversationId,
+		failed: rows.filter((row) => row.status === "failed"),
+	});
+
+	return rows
+		.filter((row) => !superseded.has(row.id))
+		.slice(0, limit)
+		.map((row) => ({
+			id: row.id,
+			title: row.title,
+			status: row.status as FileProductionJob["status"],
+			errorCode: row.errorCode ?? null,
+			errorMessage: row.errorMessage ?? null,
+			retryable: Boolean(row.retryable),
+			updatedAt: row.updatedAt.getTime(),
+		}));
 }

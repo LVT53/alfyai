@@ -58,9 +58,14 @@ async function seedJob(input: {
 	retryable?: boolean;
 	dismissed?: boolean;
 	createdAt?: Date;
+	requestJson?: unknown;
 }) {
 	const { db } = await import("$lib/server/db");
 	await db.insert(schema.fileProductionJobs).values({
+		requestJson:
+			input.requestJson === undefined
+				? null
+				: JSON.stringify(input.requestJson),
 		id: input.id,
 		conversationId: "conv-1",
 		assistantMessageId: "assistant-1",
@@ -310,6 +315,152 @@ describe("file-production read model job state", () => {
 			});
 
 			expect(states.map((state) => state.id)).toEqual(["job-fresh"]);
+		});
+
+		// A failure the model already fixed in a later job is not news: listing
+		// it under "File Jobs" told the next turn the file did not exist and
+		// had it apologise for — or re-make — a file the user already has.
+		describe("failures a later success superseded", () => {
+			const at = (minutes: number) =>
+				new Date(NOW.getTime() - 60 * 60_000 + minutes * 60_000);
+			const programRequest = (filename: string) => ({
+				sourceMode: "program",
+				outputs: [{ type: "xlsx" }],
+				program: { language: "python", sourceCode: "pass", filename },
+			});
+
+			async function states() {
+				const { listConversationFileProductionJobStates } = await import(
+					"./read-model"
+				);
+				return (
+					await listConversationFileProductionJobStates({
+						userId: "user-1",
+						conversationId: "conv-1",
+						now: NOW,
+					})
+				).map((state) => state.id);
+			}
+
+			it("drops a failed job when a later job with the same normalized title succeeded", async () => {
+				await seedJob({
+					id: "job-broken",
+					status: "failed",
+					title: "Q3 Budget",
+					errorCode: "program_execution_failed",
+					createdAt: at(1),
+				});
+				await seedJob({
+					id: "job-fixed",
+					status: "succeeded",
+					title: "q3  budget!",
+					createdAt: at(2),
+				});
+				expect(await states()).toEqual([]);
+			});
+
+			it("drops a failed job when a later success wrote the same target filename", async () => {
+				await seedJob({
+					id: "job-broken",
+					status: "failed",
+					title: "Quarterly numbers",
+					requestJson: programRequest("q3.xlsx"),
+					createdAt: at(1),
+				});
+				await seedJob({
+					id: "job-fixed",
+					status: "succeeded",
+					title: "Q3 workbook",
+					requestJson: programRequest("Q3.xlsx"),
+					createdAt: at(2),
+				});
+				expect(await states()).toEqual([]);
+			});
+
+			it("drops a failed job when a later success produced a file under its target filename", async () => {
+				await seedJob({
+					id: "job-broken",
+					status: "failed",
+					title: "Quarterly numbers",
+					requestJson: programRequest("q3.xlsx"),
+					createdAt: at(1),
+				});
+				await seedJob({
+					id: "job-fixed",
+					status: "succeeded",
+					title: "Something else entirely",
+					createdAt: at(2),
+				});
+				await seedGeneratedFile({
+					id: "file-q3",
+					jobId: "job-fixed",
+					filename: "q3.xlsx",
+					mimeType: "application/octet-stream",
+					sizeBytes: 10,
+				});
+				expect(await states()).toEqual([]);
+			});
+
+			it("keeps a failure that a success did not come AFTER, or that no success matches", async () => {
+				await seedJob({
+					id: "job-earlier-success",
+					status: "succeeded",
+					title: "Q3 Budget",
+					createdAt: at(1),
+				});
+				await seedJob({
+					id: "job-later-failure",
+					status: "failed",
+					title: "Q3 Budget",
+					createdAt: at(2),
+				});
+				await seedJob({
+					id: "job-unrelated-failure",
+					status: "failed",
+					title: "Travel plan",
+					createdAt: at(3),
+				});
+				await seedJob({
+					id: "job-unrelated-success",
+					status: "succeeded",
+					title: "Packing list",
+					createdAt: at(4),
+				});
+				expect(await states()).toEqual([
+					"job-unrelated-failure",
+					"job-later-failure",
+				]);
+			});
+
+			it("still honours the limit after dropping superseded failures", async () => {
+				for (let index = 0; index < 5; index++) {
+					await seedJob({
+						id: `job-other-${index}`,
+						status: "failed",
+						title: `Other ${index}`,
+						createdAt: at(index + 1),
+					});
+				}
+				await seedJob({
+					id: "job-broken",
+					status: "failed",
+					title: "Q3 Budget",
+					createdAt: at(10),
+				});
+				await seedJob({
+					id: "job-fixed",
+					status: "succeeded",
+					title: "Q3 Budget",
+					createdAt: at(11),
+				});
+				expect(await states()).toEqual([
+					"job-other-4",
+					"job-other-3",
+					"job-other-2",
+					"job-other-1",
+					"job-other-0",
+				]);
+			});
 		});
 	});
 });
