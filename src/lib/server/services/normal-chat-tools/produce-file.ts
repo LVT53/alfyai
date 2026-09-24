@@ -1917,7 +1917,41 @@ export function buildScopedIdempotencyKey(params: {
 	return parts.join(":").slice(0, 160);
 }
 
+/**
+ * The key a same-turn REPLAY is allowed on: the artifact plus a hash of what
+ * it would contain. Only a byte-identical resend may be answered with the
+ * earlier verdict. Keyed on the artifact alone, a corrected resend — same
+ * title, same outputs, fixed content — was dropped and reported as the
+ * earlier success, so the user got the broken file while the model was told
+ * its fix had landed.
+ */
 export function buildSameTurnProduceFileDedupeKey(
+	input: NormalizedProduceFileInput,
+): string {
+	return stableStringify({
+		artifact: buildSameTurnProduceFileArtifactKey(input),
+		contentHash: shortHash({
+			documentSource: input.documentSource ?? null,
+			program: input.program
+				? {
+						language: input.program.language,
+						filename: input.program.filename ?? null,
+						sourceCode: input.program.sourceCode,
+					}
+				: null,
+			inlineText: input.inlineText ?? null,
+			patches: input.patches ?? null,
+		}),
+	});
+}
+
+/**
+ * Which requested artifact a call is about — title, outputs, mode and
+ * filename, deliberately NOT its content. The per-artifact submission cap
+ * counts on this key, so a model that keeps "correcting" one file cannot
+ * reset the cap by changing the content each time.
+ */
+export function buildSameTurnProduceFileArtifactKey(
 	input: NormalizedProduceFileInput,
 ): string {
 	const requestedOutputs = input.requestedOutputs

@@ -6,6 +6,9 @@ import {
 	applyTextPatches,
 	buildNoPatchBaseMessage,
 	buildProduceFileRunningPayload,
+	buildSameTurnProduceFileArtifactKey,
+	buildSameTurnProduceFileDedupeKey,
+	buildScopedIdempotencyKey,
 	createProduceFileToolCallEntry,
 	isInlineTextRequest,
 	type NormalizedProduceFileInput,
@@ -1277,5 +1280,56 @@ describe("the refusal for a patch with no base", () => {
 		expect(buildNoPatchBaseMessage([])).toBe(
 			"No previous version of this file could be found. Use content, markdown, or text to create the initial version instead of patches.",
 		);
+	});
+});
+
+describe("same-turn dedupe and intake idempotency keys", () => {
+	const base = (text: string): NormalizedProduceFileInput => ({
+		requestTitle: "Quarterly report",
+		requestedOutputs: [{ type: "pdf" }],
+		sourceMode: "document_source",
+		documentSource: {
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Quarterly report",
+			blocks: [{ type: "paragraph", text }],
+		},
+	});
+	const program = (sourceCode: string): NormalizedProduceFileInput => ({
+		requestTitle: "Budget",
+		requestedOutputs: [{ type: "xlsx" }],
+		sourceMode: "program",
+		program: { language: "python", sourceCode, filename: "budget.xlsx" },
+	});
+
+	it("replays only a byte-identical resend of the same artifact", () => {
+		expect(buildSameTurnProduceFileDedupeKey(base("a"))).toBe(
+			buildSameTurnProduceFileDedupeKey(base("a")),
+		);
+		expect(buildSameTurnProduceFileDedupeKey(base("a"))).not.toBe(
+			buildSameTurnProduceFileDedupeKey(base("b")),
+		);
+		expect(buildSameTurnProduceFileDedupeKey(program("x = 1"))).not.toBe(
+			buildSameTurnProduceFileDedupeKey(program("x = 2")),
+		);
+	});
+
+	it("keeps one artifact key across content corrections, so the resubmission cap still holds", () => {
+		expect(buildSameTurnProduceFileArtifactKey(base("a"))).toBe(
+			buildSameTurnProduceFileArtifactKey(base("b")),
+		);
+		expect(buildSameTurnProduceFileArtifactKey(program("x = 1"))).toBe(
+			buildSameTurnProduceFileArtifactKey(program("x = 2")),
+		);
+	});
+
+	it("gives intake a different idempotency key when only the content changes", () => {
+		// Intake reuses an existing job on a key match, so a key blind to
+		// content would hand a corrected resend the broken job back.
+		const key = (input: NormalizedProduceFileInput) =>
+			buildScopedIdempotencyKey({ turnId: "turn-1", input });
+		expect(key(base("a"))).not.toBe(key(base("b")));
+		expect(key(program("x = 1"))).not.toBe(key(program("x = 2")));
+		expect(key(base("a"))).toBe(key(base("a")));
 	});
 });

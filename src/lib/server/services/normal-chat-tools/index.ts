@@ -100,6 +100,7 @@ import {
 	buildProduceFileIntakeFailurePayload,
 	buildProduceFileRunningPayload,
 	buildProduceFileSucceededPayload,
+	buildSameTurnProduceFileArtifactKey,
 	buildSameTurnProduceFileDedupeKey,
 	buildScopedIdempotencyKey,
 	createProduceFileToolCallEntry,
@@ -533,7 +534,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	const lang = ctx.language ?? "en";
 	const i18n = TOOL_I18N[lang];
 	// Verdict (not intake receipt) of every produce_file call this turn, keyed
-	// by the requested artifact. A repeated identical call replays the verdict
+	// by the requested artifact AND its content. A repeated identical call replays the verdict
 	// instead of queueing a second job — but a FAILED verdict is deliberately
 	// not cached, because the model is expected to resubmit a corrected one.
 	const sameTurnProduceFileVerdicts = new Map<
@@ -1318,11 +1319,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					};
 					const sameTurnDedupeKey =
 						buildSameTurnProduceFileDedupeKey(normalizedInput);
-					// Replay a non-failed verdict for the same artifact instead of
-					// queueing a second job. A FAILED verdict is not replayed: the
-					// whole point of reporting the failure was to let the model send
-					// a corrected request, which this key cannot tell apart from the
-					// broken one (it hashes title/outputs/mode/filename, not content).
+					const sameTurnArtifactKey =
+						buildSameTurnProduceFileArtifactKey(normalizedInput);
+					// Replay a non-failed verdict only for a byte-identical resend of
+					// the same artifact: the dedupe key carries a content hash, so a
+					// corrected resend (same title, fixed content) is a new job, not a
+					// replay of the earlier success. A FAILED verdict is never
+					// replayed either — reporting it is what invites the correction.
 					const sameTurnVerdict =
 						sameTurnProduceFileVerdicts.get(sameTurnDedupeKey);
 					if (sameTurnVerdict) {
@@ -1342,8 +1345,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						return payload;
 					}
 
+					// Counted per ARTIFACT, not per content: a correction changes the
+					// content, and keying the cap on it would let a model that cannot
+					// fix its program resubmit forever.
 					const submissionCount =
-						sameTurnProduceFileSubmissions.get(sameTurnDedupeKey) ?? 0;
+						sameTurnProduceFileSubmissions.get(sameTurnArtifactKey) ?? 0;
 					if (submissionCount >= MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS) {
 						return refuse({
 							input: safeInput,
@@ -1364,7 +1370,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						});
 					}
 					sameTurnProduceFileSubmissions.set(
-						sameTurnDedupeKey,
+						sameTurnArtifactKey,
 						submissionCount + 1,
 					);
 					totalProduceFileSubmissions += 1;
