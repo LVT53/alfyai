@@ -151,6 +151,18 @@ function displayAllowance(value: string): string {
 	if (!Number.isFinite(parsed)) return value;
 	return Number(parsed.toFixed(2)) === parsed ? parsed.toFixed(2) : value;
 }
+
+// The formatting above belongs to a SETTLED value. Applied to a live draft it
+// rewrites the field on every keystroke — typing "2.5" ran "2" → "2.00" → the
+// "." is swallowed (a bare trailing "." is not a valid number, so the input
+// reports "" and the digit lands after the zeros) → "2.005" — so the number
+// stored was not the number typed. While the row is dirty the field shows the
+// draft verbatim; a saved allowance is clean again and reads as money.
+function allowanceFieldValue(): string {
+	const draft = adminConfig.PARALLEL_FREE_MONTHLY_USD ?? "";
+	if (isDirty("PARALLEL_FREE_MONTHLY_USD")) return draft;
+	return displayAllowance(toDisplayNumber(ALLOWANCE_SPEC, draft));
+}
 </script>
 
 <SystemCard
@@ -197,9 +209,7 @@ function displayAllowance(value: string): string {
 					type="number"
 					size="sm"
 					prefix="$"
-					value={displayAllowance(
-						toDisplayNumber(ALLOWANCE_SPEC, adminConfig.PARALLEL_FREE_MONTHLY_USD ?? '')
-					)}
+					value={allowanceFieldValue()}
 					placeholder={displayAllowance(
 						toDisplayNumber(ALLOWANCE_SPEC, envDefaults.PARALLEL_FREE_MONTHLY_USD ?? '')
 					)}

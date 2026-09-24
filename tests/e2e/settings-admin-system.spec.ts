@@ -227,6 +227,47 @@ test.describe("Admin System screen", () => {
 			original,
 		);
 	});
+
+	// A saved whole-dollar allowance reads as "$ 5.00", but the field is still
+	// one an admin types a number into, and the number typed has to be the
+	// number stored. Real keystrokes, not `fill`: what this pins is the field's
+	// treatment of each character as it arrives.
+	test("types a fractional allowance without rewriting the digits", async ({
+		page,
+	}) => {
+		await page.getByTestId("system-nav-integrations").click();
+		const field = page.locator("#PARALLEL_FREE_MONTHLY_USD");
+		await expect(field).toHaveValue(/\d/);
+
+		await field.selectText();
+		await page.keyboard.type("2.5");
+		await expect(field).toHaveValue("2.5");
+
+		// The typed number is the one the server ends up applying, and once it
+		// is saved (not a draft) the money formatter takes over again.
+		await page.getByTestId("system-save").click();
+		await expect(page.getByTestId("system-save-bar")).toHaveAttribute(
+			"data-pending",
+			"0",
+		);
+		await page.reload();
+		await openSystemScreen(page);
+		await page.getByTestId("system-nav-integrations").click();
+		await expect(page.locator("#PARALLEL_FREE_MONTHLY_USD")).toHaveValue(
+			"2.50",
+		);
+
+		// Put the default back, so the run leaves no billing override behind.
+		await page
+			.locator('[data-config-key="PARALLEL_FREE_MONTHLY_USD"]')
+			.getByRole("button", { name: /reset/i })
+			.click();
+		await page.getByTestId("system-save").click();
+		await expect(page.getByTestId("system-save-bar")).toHaveAttribute(
+			"data-pending",
+			"0",
+		);
+	});
 });
 
 // The allowance meter on the System analytics Parallel API tab. The dev server
