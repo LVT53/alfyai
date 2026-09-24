@@ -1419,3 +1419,164 @@ describe("documentSource without blocks", () => {
 		expect(result.ok).toBe(false);
 	});
 });
+
+// Model-written block shapes the validator used to refuse outright. Each one
+// is repaired into the schema's own field names, and the repaired document
+// must then pass the real validator.
+describe("document block field aliases", () => {
+	function repaired(blocks: unknown[]) {
+		const result = normalizeProduceFileInput({
+			requestTitle: "Field report",
+			sourceMode: "document_source",
+			documentSource: { blocks },
+		});
+		if (!result.ok) throw new Error(`expected ok, got: ${result.error}`);
+		const source = result.input.documentSource as Record<string, unknown>;
+		const validation = validateGeneratedDocumentSource(source);
+		if (!validation.ok) {
+			throw new Error(`repaired source still invalid: ${validation.message}`);
+		}
+		return {
+			blocks: source.blocks as Array<Record<string, unknown>>,
+			warnings: result.warnings ?? [],
+		};
+	}
+
+	it("reads a code block's `code` as its text", () => {
+		expect(
+			repaired([{ type: "code", language: "python", code: "print(1)" }]).blocks,
+		).toEqual([
+			expect.objectContaining({
+				type: "code",
+				language: "python",
+				text: "print(1)",
+			}),
+		]);
+	});
+
+	it("reads a paragraph's `content` as its text", () => {
+		expect(
+			repaired([{ type: "paragraph", content: "The pump failed." }]).blocks,
+		).toEqual([
+			expect.objectContaining({ type: "paragraph", text: "The pump failed." }),
+		]);
+	});
+
+	it("turns a string heading level into a number", () => {
+		expect(
+			repaired([{ type: "heading", level: "2", text: "Findings" }]).blocks,
+		).toEqual([{ type: "heading", level: 2, text: "Findings" }]);
+	});
+
+	it("maps heading levels 4-6 onto the deepest supported level", () => {
+		expect(
+			repaired([
+				{ type: "heading", level: 5, text: "Deep" },
+				{ type: "h6", text: "Deeper" },
+				{ type: "heading", level: "h4", text: "Tagged" },
+			]).blocks,
+		).toEqual([
+			expect.objectContaining({ level: 3, text: "Deep" }),
+			expect.objectContaining({ level: 3, text: "Deeper" }),
+			expect.objectContaining({ level: 3, text: "Tagged" }),
+		]);
+	});
+
+	it("flattens list items given as {text} objects", () => {
+		expect(
+			repaired([
+				{ type: "list", items: [{ text: "Seal worn" }, { text: "Filter" }] },
+			]).blocks,
+		).toEqual([expect.objectContaining({ items: ["Seal worn", "Filter"] })]);
+	});
+
+	it("reads `ordered: true` as a numbered list", () => {
+		expect(
+			repaired([{ type: "list", ordered: true, items: ["One", "Two"] }]).blocks,
+		).toEqual([
+			expect.objectContaining({ style: "numbered", items: ["One", "Two"] }),
+		]);
+	});
+
+	it("drops empty paragraphs", () => {
+		expect(
+			repaired([
+				{ type: "paragraph", text: "   " },
+				{ type: "paragraph", text: "Kept." },
+				{ type: "paragraph" },
+			]).blocks,
+		).toEqual([{ type: "paragraph", text: "Kept." }]);
+	});
+
+	it("turns object table cells into scalars", () => {
+		const { blocks } = repaired([
+			{
+				type: "table",
+				columns: ["Item", "Count"],
+				rows: [[{ text: "Seals" }, { value: 4 }]],
+			},
+		]);
+		expect(blocks[0]?.rows).toEqual([["Seals", 4]]);
+	});
+
+	it("truncates rows longer than the columns, with a warning, and pads short rows", () => {
+		const { blocks, warnings } = repaired([
+			{
+				type: "table",
+				columns: ["Item", "Count"],
+				rows: [["Seals", 4, "extra", "more"], ["Filters"]],
+			},
+		]);
+		expect(blocks[0]?.rows).toEqual([
+			["Seals", 4],
+			["Filters", null],
+		]);
+		expect(warnings).toEqual([
+			expect.stringMatching(/Block 1 \(table\).*1 row.*2 columns/),
+		]);
+	});
+
+	it("reads an image's `url` or `src` as its https source", () => {
+		const { blocks } = repaired([
+			{ type: "image", url: "https://example.com/a.png", altText: "A" },
+			{ type: "image", src: "https://example.com/b.png", alt: "B" },
+		]);
+		expect(blocks).toEqual([
+			expect.objectContaining({
+				type: "image",
+				source: { kind: "https", url: "https://example.com/a.png" },
+				altText: "A",
+			}),
+			expect.objectContaining({
+				type: "image",
+				source: { kind: "https", url: "https://example.com/b.png" },
+				altText: "B",
+			}),
+		]);
+	});
+
+	it("keeps a mermaid block or fence as a mermaid code block, not a paragraph", () => {
+		const { blocks } = repaired([
+			{ type: "mermaid", code: "graph TD; A-->B" },
+			{ type: "diagram", text: "graph LR; C-->D" },
+			{ type: "paragraph", text: "```mermaid\ngraph TD; E-->F\n```" },
+		]);
+		expect(blocks).toEqual([
+			expect.objectContaining({
+				type: "code",
+				language: "mermaid",
+				text: "graph TD; A-->B",
+			}),
+			expect.objectContaining({
+				type: "code",
+				language: "mermaid",
+				text: "graph LR; C-->D",
+			}),
+			expect.objectContaining({
+				type: "code",
+				language: "mermaid",
+				text: "graph TD; E-->F",
+			}),
+		]);
+	});
+});

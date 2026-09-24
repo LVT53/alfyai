@@ -709,6 +709,45 @@ describe("createNormalChatTools", () => {
 		expect(getToolCalls()[0]?.outputSummary).toContain(warning);
 	});
 
+	it("tells the model when repairing its document dropped table cells", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({ id: "job-table", status: "queued" }),
+		});
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.produce_file.execute(
+			{
+				requestTitle: "Parts report",
+				outputType: "pdf",
+				documentSource: {
+					blocks: [
+						{
+							type: "table",
+							columns: ["Part", "Count"],
+							rows: [["Seal", 4, "stray"]],
+						},
+					],
+				},
+			},
+			{ toolCallId: "call-table", messages: [] },
+		);
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: "succeeded",
+			warnings: [
+				"Block 1 (table): 1 row(s) had more cells than the 2 columns; the extra cells were dropped.",
+			],
+		});
+	});
+
 	it("submits a same-turn corrected resend whose content differs instead of replaying the earlier success", async () => {
 		submitFileProductionIntakeMock
 			.mockResolvedValueOnce({

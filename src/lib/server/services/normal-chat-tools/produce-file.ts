@@ -237,10 +237,13 @@ export function applyTextPatches(
 export const PATCHES_WITH_OWN_CONTENT_ERROR =
 	"Send either the full content or patches, not both: patches change the previous version of the file, while content, markdown, text, documentSource and program replace it entirely. Resend this call with only one of them.";
 
-export function normalizeProduceFileInput(
-	input: ProduceFileInput,
-):
-	| { ok: true; input: NormalizedProduceFileInput }
+export function normalizeProduceFileInput(input: ProduceFileInput):
+	| {
+			ok: true;
+			input: NormalizedProduceFileInput;
+			/** Content-changing repairs the model should hear about. */
+			warnings?: string[];
+	  }
 	| { ok: false; error: string } {
 	const requestTitle =
 		input.requestTitle?.trim() ||
@@ -358,6 +361,7 @@ export function normalizeProduceFileInput(
 			};
 		}
 		let documentSource: Record<string, unknown>;
+		let warnings: string[] = [];
 		if (input.documentSource) {
 			const envelope = normalizeDocumentSourceEnvelope(
 				input.documentSource,
@@ -365,6 +369,7 @@ export function normalizeProduceFileInput(
 			);
 			if (!envelope.ok) return envelope;
 			documentSource = envelope.documentSource;
+			warnings = envelope.warnings;
 		} else {
 			documentSource = buildDocumentSourceFromText({
 				title: requestTitle,
@@ -389,6 +394,7 @@ export function normalizeProduceFileInput(
 				templateHint: input.templateHint,
 				documentSource,
 			},
+			...(warnings.length > 0 ? { warnings } : {}),
 		};
 	}
 
@@ -633,7 +639,12 @@ function normalizeDocumentSourceEnvelope(
 	documentSource: Record<string, unknown>,
 	requestTitle: string,
 ):
-	| { ok: true; documentSource: Record<string, unknown> }
+	| {
+			ok: true;
+			documentSource: Record<string, unknown>;
+			/** Repairs that changed content, e.g. dropped table cells. */
+			warnings: string[];
+	  }
 	| { ok: false; error: string } {
 	const blocksSource = resolveDocumentSourceBlocks(documentSource);
 	if (!blocksSource) {
@@ -648,11 +659,12 @@ function normalizeDocumentSourceEnvelope(
 		documentSource.title.trim().length > 0
 			? documentSource.title.trim()
 			: null;
+	const warnings: string[] = [];
 	let repaired: Record<string, unknown>[];
 	try {
 		repaired = dedupeAdjacentCharts(
 			blocksSource.flatMap((block, index) =>
-				repairDocumentSourceBlock(block, index),
+				repairDocumentSourceBlock(block, { index, warnings }),
 			),
 		);
 	} catch (error) {
@@ -695,6 +707,7 @@ function normalizeDocumentSourceEnvelope(
 			title,
 			blocks,
 		},
+		warnings,
 	};
 }
 
@@ -784,13 +797,20 @@ function titleKey(value: string): string {
 // — reconstructing the structure the model clearly intended instead of letting
 // it render as a run-on paragraph. Non-paragraph blocks (and paragraphs with
 // nothing to repair) pass through untouched.
+/** Where a block sits in what the model sent, and where repairs that change
+ * its content (rather than only its shape) report it. */
+type BlockRepairContext = { index: number; warnings: string[] };
+
 function repairDocumentSourceBlock(
 	raw: unknown,
-	_index = 0,
+	ctx: BlockRepairContext,
 ): Record<string, unknown>[] {
 	if (!isRecord(raw)) return [raw as Record<string, unknown>];
 	const block = coerceDocumentBlockShape(raw);
-	if (block.type === "table") return repairTableBlock(block);
+	if (!block) return [];
+	if (block.type === "table") {
+		return repairTableBlock(repairTableCells(block, ctx));
+	}
 	if (block.type === "chart") return [fillChartBlockDefaults(block)];
 	if (block.type === "code") return repairCodeBlock(block);
 	if (block.type !== "paragraph" || typeof block.text !== "string")
@@ -1592,10 +1612,18 @@ const NESTED_BLOCK_KEYS = [
 	"paragraph",
 ] as const;
 
-// Models drop `type`, invent aliases ("h2", "bullets", "bar_chart"), or nest
-// the block under its own name ({ "chart": { ... } }). Recover the intended
+// Models drop `type`, invent aliases ("h2", "bullets", "bar_chart"), nest
+// the block under its own name ({ "chart": { ... } }), or name its fields the
+// way another format does (`content`, `ordered`, `src`). Recover the intended
 // block instead of failing the whole document with unsupported_document_block.
+// Null means the block carries nothing and is dropped (an empty paragraph).
 function coerceDocumentBlockShape(
+	block: Record<string, unknown>,
+): Record<string, unknown> | null {
+	return normalizeDocumentBlockFields(coerceDocumentBlockType(block));
+}
+
+function coerceDocumentBlockType(
 	block: Record<string, unknown>,
 ): Record<string, unknown> {
 	if (typeof block.type === "string" && KNOWN_BLOCK_TYPES.has(block.type)) {
@@ -1604,7 +1632,7 @@ function coerceDocumentBlockShape(
 	const keys = Object.keys(block).filter((key) => key !== "type");
 	for (const key of NESTED_BLOCK_KEYS) {
 		if (keys.length === 1 && keys[0] === key && isRecord(block[key])) {
-			return coerceDocumentBlockShape({
+			return coerceDocumentBlockType({
 				type: key,
 				...(block[key] as Record<string, unknown>),
 			});
@@ -1669,6 +1697,14 @@ function coerceDocumentBlockShape(
 		case "code_block":
 		case "pre":
 			return { ...block, type: "code" };
+		// There is no diagram block: the source survives as a mermaid code
+		// block, which a reader can still paste into a Mermaid viewer — a
+		// paragraph would run the graph together into one line of prose.
+		case "mermaid":
+		case "diagram":
+		case "flowchart":
+		case "mermaid_diagram":
+			return { ...block, type: "code", language: "mermaid" };
 		case "blockquote":
 			return { ...block, type: "quote" };
 		default:
@@ -1693,7 +1729,208 @@ function coerceDocumentBlockShape(
 		if (typeof block.tone === "string") return { ...block, type: "callout" };
 		return { ...block, type: "paragraph" };
 	}
+	if (typeof block.code === "string") return { ...block, type: "code" };
+	if (typeof block.content === "string") {
+		return { ...block, type: "paragraph" };
+	}
 	return block;
+}
+
+/** Blocks whose body is `text`, and the names models use for it instead. */
+const TEXT_BEARING_BLOCK_TYPES = new Set([
+	"heading",
+	"paragraph",
+	"code",
+	"quote",
+	"callout",
+]);
+const TEXT_ALIAS_KEYS = ["content", "code", "body"] as const;
+
+const NUMBERED_LIST_STYLES = new Set([
+	"numbered",
+	"ordered",
+	"number",
+	"decimal",
+	"ol",
+]);
+const BULLET_LIST_STYLES = new Set([
+	"bullet",
+	"bullets",
+	"unordered",
+	"disc",
+	"ul",
+]);
+
+function headingLevelFrom(value: unknown): number | null {
+	if (typeof value === "number" && Number.isFinite(value)) return value;
+	if (typeof value === "string") {
+		const match = /^h?\s*(\d)$/i.exec(value.trim());
+		if (match) return Number(match[1]);
+	}
+	return null;
+}
+
+function listItemText(item: unknown): string | null {
+	if (typeof item === "string") return item;
+	if (typeof item === "number" || typeof item === "boolean") {
+		return String(item);
+	}
+	if (!isRecord(item)) return null;
+	for (const key of ["text", "content", "label", "title", "value"]) {
+		const value = item[key];
+		if (typeof value === "string" && value.trim()) return value;
+	}
+	return null;
+}
+
+function normalizeDocumentBlockFields(
+	block: Record<string, unknown>,
+): Record<string, unknown> | null {
+	const type = typeof block.type === "string" ? block.type : "";
+	let next = block;
+	if (TEXT_BEARING_BLOCK_TYPES.has(type) && typeof block.text !== "string") {
+		const alias = TEXT_ALIAS_KEYS.map((key) => block[key]).find(
+			(value): value is string => typeof value === "string",
+		);
+		if (alias !== undefined) next = { ...next, text: alias };
+	}
+	switch (type) {
+		case "paragraph":
+			return typeof next.text === "string" && next.text.trim() ? next : null;
+		case "heading": {
+			const level = headingLevelFrom(next.level);
+			return level === null
+				? next
+				: { ...next, level: clampHeadingLevel(level) };
+		}
+		case "list": {
+			const style =
+				typeof next.style === "string" ? next.style.trim().toLowerCase() : "";
+			const numbered =
+				next.ordered === true ||
+				NUMBERED_LIST_STYLES.has(style) ||
+				next.listType === "numbered" ||
+				next.listType === "ordered";
+			const items = Array.isArray(next.items)
+				? next.items
+						.map(listItemText)
+						.filter((item): item is string => item !== null)
+				: next.items;
+			return {
+				...next,
+				...(numbered
+					? { style: "numbered" }
+					: BULLET_LIST_STYLES.has(style)
+						? { style: "bullet" }
+						: {}),
+				items,
+			};
+		}
+		case "image": {
+			if (isRecord(next.source)) return withImageAltText(next);
+			const url =
+				cleanString(next.url) ??
+				cleanString(next.src) ??
+				cleanString(next.imageUrl) ??
+				cleanString(next.source);
+			return withImageAltText(
+				url ? { ...next, source: { kind: "https", url } } : next,
+			);
+		}
+		default:
+			return next;
+	}
+}
+
+function withImageAltText(
+	block: Record<string, unknown>,
+): Record<string, unknown> {
+	if (cleanString(block.altText)) return block;
+	const altText =
+		cleanString(block.alt) ??
+		cleanString(block.caption) ??
+		cleanString(block.title);
+	return altText ? { ...block, altText } : block;
+}
+
+/** A table cell the schema accepts: text, number, boolean or null. */
+function tableCellScalar(value: unknown): string | number | boolean | null {
+	if (
+		value === null ||
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	) {
+		return value;
+	}
+	if (value === undefined) return null;
+	if (Array.isArray(value)) {
+		return value
+			.map(tableCellScalar)
+			.filter((cell) => cell !== null)
+			.join(", ");
+	}
+	if (isRecord(value)) {
+		for (const key of ["text", "value", "content", "label", "title"]) {
+			const cell = value[key];
+			if (
+				typeof cell === "string" ||
+				typeof cell === "number" ||
+				typeof cell === "boolean"
+			) {
+				return cell;
+			}
+		}
+	}
+	return JSON.stringify(value);
+}
+
+/**
+ * Cells a model wrote as objects ({text}, {value}) become scalars; array rows
+ * are fitted to the column count — a short row is padded, and a long one is
+ * cut to the columns with a warning, because those cells had no column to be
+ * shown under and dropping them silently would lose data unannounced.
+ */
+function repairTableCells(
+	block: Record<string, unknown>,
+	ctx: BlockRepairContext,
+): Record<string, unknown> {
+	if (!Array.isArray(block.rows)) return block;
+	const columns = Array.isArray(block.columns)
+		? block.columns
+		: Array.isArray(block.headers)
+			? block.headers
+			: null;
+	const columnCount = columns?.length ?? 0;
+	let truncatedRows = 0;
+	const rows = block.rows.map((row) => {
+		if (Array.isArray(row)) {
+			const cells = row.map(tableCellScalar);
+			if (columnCount === 0) return cells;
+			if (cells.length > columnCount) {
+				truncatedRows += 1;
+				return cells.slice(0, columnCount);
+			}
+			return cells.length < columnCount
+				? [...cells, ...Array(columnCount - cells.length).fill(null)]
+				: cells;
+		}
+		if (isRecord(row)) {
+			return Object.fromEntries(
+				Object.entries(row).map(([key, value]) => [
+					key,
+					tableCellScalar(value),
+				]),
+			);
+		}
+		return row;
+	});
+	if (truncatedRows > 0) {
+		ctx.warnings.push(
+			`Block ${ctx.index + 1} (table): ${truncatedRows} row(s) had more cells than the ${columnCount} columns; the extra cells were dropped.`,
+		);
+	}
+	return { ...block, rows };
 }
 
 const CHART_TYPE_ALIASES: Record<string, string> = {
@@ -2454,6 +2691,24 @@ export function buildProduceFileSucceededPayload(params: {
 		...(warnings.length > 0 ? { warnings } : {}),
 		...(params.reused ? { reused: true } : {}),
 	};
+}
+
+/**
+ * Adds warnings raised before the job ran (input repairs, intake fallbacks)
+ * to a SUCCEEDED verdict, after any the job itself reported. A running or
+ * failed verdict is left alone: its message is what the model must act on.
+ */
+export function withProduceFileWarnings(
+	payload: ProduceFileModelPayload,
+	warnings: readonly string[],
+): ProduceFileModelPayload {
+	if (payload.status !== "succeeded" || warnings.length === 0) return payload;
+	const merged = [...(payload.warnings ?? [])];
+	for (const warning of warnings) {
+		const clipped = clipFileProductionErrorMessage(warning);
+		if (clipped && !merged.includes(clipped)) merged.push(clipped);
+	}
+	return merged.length > 0 ? { ...payload, warnings: merged } : payload;
 }
 
 export function buildProduceFileRunningPayload(params: {

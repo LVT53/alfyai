@@ -713,3 +713,72 @@ describe("generated document source schema", () => {
 		expect(markdown).not.toContain("[[cite");
 	});
 });
+
+// The model resends a corrected document only as well as the refusal tells it
+// what was wrong. "Contains an unsupported block" named neither the block nor
+// the field, so it rewrote the whole document and often broke another block.
+describe("generated document source refusals name the failing block", () => {
+	function refusal(blocks: unknown[]) {
+		const result = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Report",
+			blocks,
+		});
+		if (result.ok) throw new Error("expected a refusal");
+		return result;
+	}
+
+	it("names index, type and field for a heading with an unsupported level", () => {
+		const result = refusal([
+			{ type: "paragraph", text: "Fine." },
+			{ type: "heading", level: 7, text: "Too deep" },
+		]);
+		expect(result.code).toBe("unsupported_document_block");
+		expect(result.message).toMatch(/^Block 2 \(heading\): /);
+		expect(result.message).toContain('"level"');
+	});
+
+	it("names an unknown block type and the supported ones", () => {
+		const result = refusal([{ type: "rawHtml", html: "<b>x</b>" }]);
+		expect(result.code).toBe("unsupported_document_block");
+		expect(result.message).toMatch(/^Block 1 \(rawHtml\): /);
+		expect(result.message).toContain("paragraph");
+		expect(result.message).toContain("table");
+	});
+
+	it("names a block with no type at all", () => {
+		const result = refusal([{ text: "no type" }]);
+		expect(result.message).toMatch(/^Block 1: /);
+		expect(result.message).toContain('"type"');
+	});
+
+	it("names the missing text of a paragraph and the items of a list", () => {
+		expect(refusal([{ type: "paragraph", text: "" }]).message).toMatch(
+			/^Block 1 \(paragraph\): .*"text"/,
+		);
+		expect(refusal([{ type: "list", items: [] }]).message).toMatch(
+			/^Block 1 \(list\): .*"items"/,
+		);
+	});
+
+	it("names the table and what is wrong with its rows", () => {
+		const result = refusal([
+			{ type: "paragraph", text: "Intro." },
+			{
+				type: "table",
+				columns: [{ key: "a", label: "A" }],
+				rows: [["1", "2", "3"]],
+			},
+		]);
+		expect(result.code).toBe("unsupported_table_structure");
+		expect(result.message).toMatch(/^Block 2 \(table\): /);
+		expect(result.message).toContain('"rows"');
+	});
+
+	it("prefixes chart refusals with the block too", () => {
+		const result = refusal([{ type: "chart", chartType: "bar", data: [] }]);
+		expect(result.code).toBe("unsupported_chart_data");
+		expect(result.message).toMatch(/^Block 1 \(chart\): /);
+	});
+});

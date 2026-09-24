@@ -119,6 +119,7 @@ import {
 	sanitizeProduceFileInput,
 	sanitizeUnsafeProduceFileInput,
 	summarizeProduceFileResult,
+	withProduceFileWarnings,
 } from "./produce-file";
 import {
 	buildReadGeneratedFileModelPayload,
@@ -1157,6 +1158,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						});
 					}
 					let normalizedInput = normalized.input;
+					// Repairs that changed what the model sent (e.g. table cells cut
+					// to the column count), reported with the verdict.
+					const inputWarnings = normalized.warnings ?? [];
 
 					// Resolve patches: if the model provided surgical edits instead of full content,
 					// fetch the previous version and apply patches to reconstruct the full file.
@@ -1396,17 +1400,20 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							if (result.ok) {
 								submittedJob = result.job;
 							}
-							const modelPayload = result.ok
-								? await resolveProduceFileVerdict({
-										userId: ctx.userId,
-										conversationId: ctx.conversationId,
-										job: result.job,
-										reused: result.reused,
-										signal: abortSignal,
-										waitMs: ctx.fileProductionVerdictWaitMs,
-										pollIntervalMs: ctx.fileProductionVerdictPollIntervalMs,
-									})
-								: buildProduceFileIntakeFailurePayload(result);
+							const modelPayload = withProduceFileWarnings(
+								result.ok
+									? await resolveProduceFileVerdict({
+											userId: ctx.userId,
+											conversationId: ctx.conversationId,
+											job: result.job,
+											reused: result.reused,
+											signal: abortSignal,
+											waitMs: ctx.fileProductionVerdictWaitMs,
+											pollIntervalMs: ctx.fileProductionVerdictPollIntervalMs,
+										})
+									: buildProduceFileIntakeFailurePayload(result),
+								inputWarnings,
+							);
 							if (modelPayload.ok) {
 								sameTurnProduceFileVerdicts.set(
 									sameTurnDedupeKey,

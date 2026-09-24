@@ -784,14 +784,18 @@ describe("file production service", () => {
 			ok: false,
 			status: 422,
 			code: "unsupported_document_block",
-			error: "Generated document source contains an unsupported block.",
+			// Names the block and what to send instead, so the model can fix
+			// just that block.
+			error: expect.stringMatching(
+				/^Block 1 \(rawHtml\): unsupported block type\. Use one of: heading, paragraph,/,
+			),
 			job: {
 				conversationId: "conv-1",
 				title: "Unsafe report",
 				status: "failed",
 				error: {
 					code: "unsupported_document_block",
-					message: "Generated document source contains an unsupported block.",
+					message: expect.stringMatching(/^Block 1 \(rawHtml\): /),
 					retryable: false,
 				},
 			},

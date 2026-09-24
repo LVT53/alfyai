@@ -551,26 +551,45 @@ function normalizeTableObjectRow(
 	return row;
 }
 
+type TableRowsResult =
+	| { ok: true; rows: Record<string, GeneratedDocumentScalar>[] }
+	| { ok: false; detail: string };
+
 function normalizeTableRows(
 	rowsSource: unknown,
 	columns: TableColumnDraft[],
-): Record<string, GeneratedDocumentScalar>[] {
-	if (!Array.isArray(rowsSource)) return [];
+): TableRowsResult {
+	if (!Array.isArray(rowsSource) || rowsSource.length === 0) {
+		return { ok: false, detail: 'table needs a non-empty "rows" array.' };
+	}
 
 	const rows: Record<string, GeneratedDocumentScalar>[] = [];
-	for (const rowSource of rowsSource) {
+	for (const [index, rowSource] of rowsSource.entries()) {
 		if (Array.isArray(rowSource)) {
 			const row = normalizeTableArrayRow(rowSource, columns);
-			if (!row) return [];
+			if (!row) {
+				return {
+					ok: false,
+					detail:
+						rowSource.length > columns.length
+							? `"rows" must match "columns": row ${index + 1} has ${rowSource.length} cells for ${columns.length} columns.`
+							: `"rows" cells must be text, numbers, booleans or null: row ${index + 1} has a cell that is not.`,
+				};
+			}
 			rows.push(row);
 			continue;
 		}
 
 		const row = normalizeTableObjectRow(rowSource, columns);
-		if (!row) return [];
+		if (!row) {
+			return {
+				ok: false,
+				detail: `"rows" must match "columns": row ${index + 1} is not an array of cells or an object keyed by the column keys, with text, number, boolean or null values.`,
+			};
+		}
 		rows.push(row);
 	}
-	return rows;
+	return { ok: true, rows };
 }
 
 function cleanChartLabel(value: unknown, fallback: string): string {
@@ -736,11 +755,22 @@ function unsupportedChartDataResult(message: string): BlockNormalizationResult {
 	};
 }
 
-function unsupportedDocumentBlockResult(): BlockNormalizationResult {
+const SUPPORTED_BLOCK_TYPES_TEXT =
+	"heading, paragraph, list, callout, code, quote, divider, table, chart, image, pageBreak, sourceChips";
+
+/**
+ * `detail` names the field that failed, in the words the model has to fix it
+ * with; `validateGeneratedDocumentSource` prefixes the block's position and
+ * type. "Contains an unsupported block" alone left the model to guess, and it
+ * guessed by rewriting — and often breaking — the whole document.
+ */
+function unsupportedDocumentBlockResult(
+	detail = "Generated document source contains an unsupported block.",
+): BlockNormalizationResult {
 	return {
 		ok: false,
 		code: "unsupported_document_block",
-		message: "Generated document source contains an unsupported block.",
+		message: detail,
 	};
 }
 
@@ -803,20 +833,31 @@ function normalizeHeadingBlock(
 		: block.level === 1 || block.level === 2 || block.level === 3
 			? block.level
 			: null;
-	return text && level
+	if (!text) {
+		return unsupportedDocumentBlockResult('heading needs a non-empty "text".');
+	}
+	return level
 		? { ok: true, block: { type: "heading", level, text } }
-		: unsupportedDocumentBlockResult();
+		: unsupportedDocumentBlockResult(
+				`"level" must be 1, 2 or 3 (got ${JSON.stringify(block.level)}).`,
+			);
 }
 
 function normalizeParagraphBlock(
 	block: Record<string, unknown>,
 ): BlockNormalizationResult {
 	const text = cleanText(block.text);
-	if (!text) return unsupportedDocumentBlockResult();
+	if (!text) {
+		return unsupportedDocumentBlockResult(
+			'paragraph needs a non-empty "text".',
+		);
+	}
 	// A half-written annotation would otherwise print as literal `[[cite…` in
 	// the reader's report, so the block is rejected instead.
 	if (generatedDocumentTextHasMalformedCitationToken(text)) {
-		return unsupportedDocumentBlockResult();
+		return unsupportedDocumentBlockResult(
+			'"text" contains a malformed [[cite…]] token; write [[cite:N:c]], [[cite:N:s]], [[cite:N:i]] or [[cite:i]].',
+		);
 	}
 	const sources = normalizeSourceChipArray(block.sources);
 	const basisMarkers = normalizeParagraphBasisMarkers(block.basisMarkers);
@@ -886,7 +927,9 @@ function normalizeBasisMarkerBlock(
 	const marker = normalizeBasisMarkerBase(block);
 	return marker
 		? { ok: true, block: marker }
-		: unsupportedDocumentBlockResult();
+		: unsupportedDocumentBlockResult(
+				'basisMarker needs "id", "support" (supported, partial or unsupported) and "rationale".',
+			);
 }
 
 function normalizeParagraphBasisMarkers(
@@ -897,7 +940,8 @@ function normalizeParagraphBasisMarkers(
 	const unsupported = (): { ok: false; code: string; message: string } => ({
 		ok: false,
 		code: "unsupported_document_block",
-		message: "Generated document source contains an unsupported block.",
+		message:
+			'"basisMarkers" entries need "id", "support" (supported, partial or unsupported), "rationale" and "anchorText".',
 	});
 	if (value === undefined) return { ok: true, markers: [] };
 	if (!Array.isArray(value)) return unsupported();
@@ -934,7 +978,9 @@ function normalizeListBlock(
 		: [];
 	return items.length > 0
 		? { ok: true, block: { type: "list", style, items } }
-		: unsupportedDocumentBlockResult();
+		: unsupportedDocumentBlockResult(
+				'list needs "items": a non-empty array of strings.',
+			);
 }
 
 function normalizeSourceAttribution(
@@ -960,7 +1006,7 @@ function normalizeCalloutBlock(
 			: "note";
 	return text
 		? { ok: true, block: { type: "callout", tone, title, text } }
-		: unsupportedDocumentBlockResult();
+		: unsupportedDocumentBlockResult('callout needs a non-empty "text".');
 }
 
 function normalizeConfidenceMarkerBlock(
@@ -968,7 +1014,11 @@ function normalizeConfidenceMarkerBlock(
 ): BlockNormalizationResult {
 	const code = cleanKey(block.code) ?? "atlas_audit_marker";
 	const message = cleanText(block.message);
-	if (!message) return unsupportedDocumentBlockResult();
+	if (!message) {
+		return unsupportedDocumentBlockResult(
+			'confidenceMarker needs a non-empty "message".',
+		);
+	}
 	const severity =
 		block.severity === "critical" ||
 		block.severity === "warning" ||
@@ -995,7 +1045,9 @@ function normalizeSourceChipsBlock(
 	const sources = normalizeSourceChipArray(block.sources);
 	return title && sources.length > 0
 		? { ok: true, block: { type: "sourceChips", title, sources } }
-		: unsupportedDocumentBlockResult();
+		: unsupportedDocumentBlockResult(
+				'sourceChips needs a "title" and a non-empty "sources" array of {"title","url"}.',
+			);
 }
 
 function normalizeSourceChip(
@@ -1042,7 +1094,7 @@ function normalizeCodeBlock(
 	const language = cleanText(block.language);
 	return text
 		? { ok: true, block: { type: "code", language, text } }
-		: unsupportedDocumentBlockResult();
+		: unsupportedDocumentBlockResult('code needs a non-empty "text".');
 }
 
 function normalizeQuoteBlock(
@@ -1052,7 +1104,7 @@ function normalizeQuoteBlock(
 	const citation = cleanText(block.citation);
 	return text
 		? { ok: true, block: { type: "quote", text, citation } }
-		: unsupportedDocumentBlockResult();
+		: unsupportedDocumentBlockResult('quote needs a non-empty "text".');
 }
 
 type BlockNormalizationResult =
@@ -1070,21 +1122,23 @@ function normalizeTableBlock(
 				.filter((column): column is TableColumnDraft => Boolean(column))
 		: [];
 	const rowsSource = getTableRowsSource(block);
-	const rows = normalizeTableRows(rowsSource, columns);
+	const rowsResult =
+		columns.length === 0
+			? ({
+					ok: false,
+					detail:
+						'table needs "columns": e.g. ["Item","Count"] or [{"key":"item","label":"Item"}].',
+				} as const)
+			: normalizeTableRows(rowsSource, columns);
 
-	if (
-		columns.length === 0 ||
-		rows.length === 0 ||
-		!Array.isArray(rowsSource) ||
-		rows.length !== rowsSource.length
-	) {
+	if (!rowsResult.ok) {
 		return {
 			ok: false,
 			code: "unsupported_table_structure",
-			message:
-				"Generated document source contains an unsupported table structure.",
+			message: rowsResult.detail,
 		};
 	}
+	const rows = rowsResult.rows;
 
 	return {
 		ok: true,
@@ -1182,7 +1236,8 @@ function normalizeImageBlock(
 		return {
 			ok: false,
 			code: "image_limit_exceeded",
-			message: "Generated document image source is invalid.",
+			message:
+				'Generated document image source is invalid: "source" must be {"kind":"https","url":"https://..."}.',
 		};
 	}
 
@@ -1215,7 +1270,9 @@ function normalizeImageBlock(
 		return {
 			ok: false,
 			code: "image_limit_exceeded",
-			message: "Generated document image source is invalid.",
+			message: !source
+				? 'Generated document image source is invalid: "source" must be {"kind":"https","url":"https://..."}.'
+				: 'Generated document image source is invalid: "altText" is required.',
 		};
 	}
 
@@ -1234,7 +1291,9 @@ function normalizeImageBlock(
 
 function normalizeBlock(block: unknown): BlockNormalizationResult {
 	if (!isRecord(block) || typeof block.type !== "string") {
-		return unsupportedDocumentBlockResult();
+		return unsupportedDocumentBlockResult(
+			`every block needs a "type" (one of: ${SUPPORTED_BLOCK_TYPES_TEXT}).`,
+		);
 	}
 
 	switch (block.type) {
@@ -1267,8 +1326,19 @@ function normalizeBlock(block: unknown): BlockNormalizationResult {
 		case "pageBreak":
 			return { ok: true, block: { type: "pageBreak" } };
 		default:
-			return unsupportedDocumentBlockResult();
+			return unsupportedDocumentBlockResult(
+				`unsupported block type. Use one of: ${SUPPORTED_BLOCK_TYPES_TEXT}.`,
+			);
 	}
+}
+
+/** "Block 3 (table)" — 1-based, as a model counts its own blocks. */
+function describeBlockPosition(block: unknown, index: number): string {
+	const type =
+		isRecord(block) && typeof block.type === "string" && block.type.trim()
+			? block.type.trim().slice(0, 40)
+			: null;
+	return type ? `Block ${index + 1} (${type})` : `Block ${index + 1}`;
 }
 
 export function validateGeneratedDocumentSource(
@@ -1317,7 +1387,7 @@ export function validateGeneratedDocumentSource(
 	}
 
 	const blocks: GeneratedDocumentBlock[] = [];
-	for (const block of value.blocks) {
+	for (const [index, block] of value.blocks.entries()) {
 		let normalized: BlockNormalizationResult;
 		try {
 			normalized = normalizeBlock(block);
@@ -1329,7 +1399,7 @@ export function validateGeneratedDocumentSource(
 			return {
 				ok: false,
 				code: "unsupported_document_block",
-				message: `Generated document source contains a link with an unsupported URL scheme. Only ${GENERATED_DOCUMENT_ALLOWED_URL_SCHEMES.map(
+				message: `${describeBlockPosition(block, index)}: Generated document source contains a link with an unsupported URL scheme. Only ${GENERATED_DOCUMENT_ALLOWED_URL_SCHEMES.map(
 					(scheme) => `${scheme}:`,
 				).join(" and ")} links are allowed.`,
 			};
@@ -1338,7 +1408,7 @@ export function validateGeneratedDocumentSource(
 			return {
 				ok: false,
 				code: normalized.code,
-				message: normalized.message,
+				message: `${describeBlockPosition(block, index)}: ${normalized.message}`,
 			};
 		}
 		blocks.push(normalized.block);
