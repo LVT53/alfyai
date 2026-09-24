@@ -100,6 +100,23 @@ describe("atlasV3SourceIsTimeSensitive", () => {
 			expected: false,
 		},
 		{
+			// A split year covers its SECOND year too: 2024/25 runs into 2025,
+			// which is last year.
+			name: "a fiscal year ending last year, written 2024/25",
+			claims: [{ period: "FY 2024/25" }],
+			expected: true,
+		},
+		{
+			name: "a season ending last year, written 2024–25",
+			claims: [{ period: "2024–25 season" }],
+			expected: true,
+		},
+		{
+			name: "a split year that ended long ago, written 2019/20",
+			claims: [{ period: "2019/20" }],
+			expected: false,
+		},
+		{
 			name: "a period written without a year",
 			claims: [{ period: "monthly" }],
 			expected: true,

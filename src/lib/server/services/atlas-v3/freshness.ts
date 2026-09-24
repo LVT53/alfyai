@@ -25,11 +25,26 @@ import type {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Every year a claim's period or publication date names. A split year written
+ * with a two-digit end — a fiscal year `2024/25`, a season `2024–25` — names
+ * its second year too: it runs into 2025, and reading it as 2024 alone would
+ * call a figure covering last year an old one and trust it unread.
+ */
 function claimYears(claim: Pick<AtlasV3Claim, "period" | "asOf">): number[] {
 	const years: number[] = [];
 	for (const field of [claim.period, claim.asOf]) {
-		for (const match of (field ?? "").matchAll(/\b(?:19|20)\d{2}\b/gu)) {
-			years.push(Number(match[0]));
+		for (const match of (field ?? "").matchAll(
+			/\b((?:19|20)\d{2})(?:\s*[/‐‑‒–—-]\s*(\d{2})(?!\d))?\b/gu,
+		)) {
+			const start = Number(match[1]);
+			years.push(start);
+			if (match[2]) {
+				const end = Math.floor(start / 100) * 100 + Number(match[2]);
+				// `2099/00` wraps into the next century; `2025-12` is a month.
+				const wrapped = end < start ? end + 100 : end;
+				if (wrapped === start + 1) years.push(wrapped);
+			}
 		}
 	}
 	return years;
