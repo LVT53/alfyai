@@ -11,9 +11,18 @@ vi.mock("$lib/client/api/projects", () => ({
 }));
 
 import { ApiError } from "$lib/client/api/http";
-import { fetchProject, saveProjectInstructions } from "$lib/client/api/projects";
-import { fetchUserSettings, updateUserPreferences } from "$lib/client/api/settings";
-import { loadInstructionDialogSeed, saveInstructionScope } from "./instruction-command";
+import {
+	fetchProject,
+	saveProjectInstructions,
+} from "$lib/client/api/projects";
+import {
+	fetchUserSettings,
+	updateUserPreferences,
+} from "$lib/client/api/settings";
+import {
+	loadInstructionDialogSeed,
+	saveInstructionScope,
+} from "./instruction-command";
 
 const mockFetchUserSettings = fetchUserSettings as ReturnType<typeof vi.fn>;
 const mockFetchProject = fetchProject as ReturnType<typeof vi.fn>;
@@ -100,7 +109,10 @@ describe("loadInstructionDialogSeed", () => {
 
 describe("saveInstructionScope", () => {
 	it("writes the personal scope through the preferences route", async () => {
-		const result = await saveInstructionScope({ kind: "personal" }, "Be brief.");
+		const result = await saveInstructionScope(
+			{ kind: "personal" },
+			"Be brief.",
+		);
 
 		expect(result).toEqual({ ok: true });
 		expect(mockUpdateUserPreferences).toHaveBeenCalledWith({

@@ -33,7 +33,9 @@ describe("InstructionSuggestionRow", () => {
 		expect(screen.getByTestId("scope-token")).toHaveTextContent("Vienna trip");
 		// The offered text is quoted, so the row reads as the model's words
 		// rather than as something the app has already decided.
-		expect(screen.getByText(/“Only suggest trains, no flights\.”/)).toBeInTheDocument();
+		expect(
+			screen.getByText(/“Only suggest trains, no flights\.”/),
+		).toBeInTheDocument();
 		// The row names the scope and the offer for a screen reader: the
 		// visible line is three separate spans and a token.
 		expect(

@@ -1,6 +1,5 @@
 import type { ChatTurnOrigin } from "$lib/chat-turn-origin";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
-import type { InstructionSuggestion } from "$lib/shared/instructions";
 import {
 	recordSkillUseActivityEvent,
 	recordToolCallActivityEvents,
@@ -22,6 +21,7 @@ import {
 import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
 import { createMessage } from "$lib/server/services/messages";
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import {
 	buildBaselineDepthMetadata,
 	withDepthMetadataModelInfo,
@@ -482,7 +482,9 @@ export async function finalizeChatTurn(
 	// send, stream and retry paths from having to remember to. A turn that
 	// offered nothing gets no key at all — `[]` would be a record saying an
 	// offer was made and it was nothing.
-	const instructionSuggestions = collectInstructionSuggestions(params.toolCalls);
+	const instructionSuggestions = collectInstructionSuggestions(
+		params.toolCalls,
+	);
 	const assistantMetadata = {
 		...params.assistantMetadata,
 		depthMetadata,

@@ -36,7 +36,8 @@ export const POST: RequestHandler = async (event) => {
 
 	const body = await event.request.json().catch(() => null);
 	const messageId = (body as { messageId?: unknown } | null)?.messageId;
-	const suggestionId = (body as { suggestionId?: unknown } | null)?.suggestionId;
+	const suggestionId = (body as { suggestionId?: unknown } | null)
+		?.suggestionId;
 	const status = (body as { status?: unknown } | null)?.status;
 
 	if (typeof messageId !== "string" || typeof suggestionId !== "string") {

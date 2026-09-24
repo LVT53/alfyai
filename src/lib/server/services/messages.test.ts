@@ -1227,10 +1227,8 @@ describe("messages metadata", () => {
 	});
 
 	it("persists an Instruction Suggestion and moves its status on the assistant message", async () => {
-		const {
-			createMessage,
-			updateAssistantMessageInstructionSuggestionStatus,
-		} = await import("./messages");
+		const { createMessage, updateAssistantMessageInstructionSuggestionStatus } =
+			await import("./messages");
 
 		const message = await createMessage(
 			"conv-1",
@@ -1281,10 +1279,8 @@ describe("messages metadata", () => {
 	});
 
 	it("treats a repeated review as idempotent, allows a later dismiss, and refuses to un-dismiss", async () => {
-		const {
-			createMessage,
-			updateAssistantMessageInstructionSuggestionStatus,
-		} = await import("./messages");
+		const { createMessage, updateAssistantMessageInstructionSuggestionStatus } =
+			await import("./messages");
 
 		const message = await createMessage(
 			"conv-1",
@@ -1305,9 +1301,7 @@ describe("messages metadata", () => {
 			},
 		);
 
-		const update = (
-			status: "reviewed" | "dismissed",
-		): Promise<unknown> =>
+		const update = (status: "reviewed" | "dismissed"): Promise<unknown> =>
 			updateAssistantMessageInstructionSuggestionStatus({
 				userId: "user-1",
 				conversationId: "conv-1",
@@ -1334,10 +1328,8 @@ describe("messages metadata", () => {
 	});
 
 	it("returns null for an instruction suggestion the message does not carry", async () => {
-		const {
-			createMessage,
-			updateAssistantMessageInstructionSuggestionStatus,
-		} = await import("./messages");
+		const { createMessage, updateAssistantMessageInstructionSuggestionStatus } =
+			await import("./messages");
 
 		const message = await createMessage(
 			"conv-1",

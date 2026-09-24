@@ -144,9 +144,7 @@ test.describe("AI instruction suggestions", () => {
 		await expect(dialog).toBeVisible({ timeout: 10000 });
 		await expect(
 			page.getByRole("textbox", { name: "Instructions for Personal" }),
-		).toHaveValue(
-			`Always answer in Hungarian.\n${SUGGESTION_TEXT}`,
-		);
+		).toHaveValue(`Always answer in Hungarian.\n${SUGGESTION_TEXT}`);
 		await expect(dialog.locator("mark")).toHaveText(SUGGESTION_TEXT);
 		await dialog.getByRole("button", { name: "Cancel" }).click();
 		await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -155,9 +153,7 @@ test.describe("AI instruction suggestions", () => {
 			"Always answer in Hungarian.",
 		);
 
-		await suggestionRow(page)
-			.getByRole("button", { name: "Review" })
-			.click();
+		await suggestionRow(page).getByRole("button", { name: "Review" }).click();
 		await expect(page.getByRole("dialog")).toBeVisible({ timeout: 10000 });
 		await page
 			.getByRole("dialog")

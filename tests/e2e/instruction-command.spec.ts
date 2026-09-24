@@ -162,9 +162,7 @@ test.describe("instructions from the composer", () => {
 			page.getByText("Write the instruction after /instruction."),
 		).toBeVisible({ timeout: 10000 });
 		// Not consumed: the token is still there to be typed into.
-		await expect(page.getByTestId("message-input")).toHaveValue(
-			"/instruction",
-		);
+		await expect(page.getByTestId("message-input")).toHaveValue("/instruction");
 		await expect(page.getByRole("dialog")).toHaveCount(0);
 	});
 
@@ -180,7 +178,9 @@ test.describe("instructions from the composer", () => {
 			"Only suggest trains.",
 		);
 
-		await page.goto(`/projects/${projectId}`, { waitUntil: "domcontentloaded" });
+		await page.goto(`/projects/${projectId}`, {
+			waitUntil: "domcontentloaded",
+		});
 		await waitForHydration(page);
 		await expect(page.getByTestId("message-input")).toBeEnabled({
 			timeout: 15000,

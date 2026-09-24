@@ -23,8 +23,10 @@ vi.mock("$lib/server/services/messages", () => ({
 
 import { requireAuth } from "$lib/server/auth/hooks";
 import { getConversation } from "$lib/server/services/conversations";
-import { InstructionSuggestionTransitionError } from "$lib/server/services/messages";
-import { updateAssistantMessageInstructionSuggestionStatus } from "$lib/server/services/messages";
+import {
+	InstructionSuggestionTransitionError,
+	updateAssistantMessageInstructionSuggestionStatus,
+} from "$lib/server/services/messages";
 import { POST } from "./+server";
 
 const mockRequireAuth = requireAuth as ReturnType<typeof vi.fn>;
@@ -32,19 +34,21 @@ const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
 const mockUpdateStatus =
 	updateAssistantMessageInstructionSuggestionStatus as ReturnType<typeof vi.fn>;
 
-const URL_BASE =
-	"http://localhost/api/conversations/conv-1/instruction-suggestions";
-
 function makeEvent(body: unknown, id = "conv-1") {
 	return {
-		request: new Request(`http://localhost/api/conversations/${id}/instruction-suggestions`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(body),
-		}),
+		request: new Request(
+			`http://localhost/api/conversations/${id}/instruction-suggestions`,
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			},
+		),
 		locals: { user: { id: "owner-user", role: "user" } },
 		params: { id },
-		url: new URL(`http://localhost/api/conversations/${id}/instruction-suggestions`),
+		url: new URL(
+			`http://localhost/api/conversations/${id}/instruction-suggestions`,
+		),
 		route: { id: "/api/conversations/[id]/instruction-suggestions" },
 	} as unknown as Parameters<typeof POST>[0];
 }
@@ -136,9 +140,9 @@ describe("POST /api/conversations/[id]/instruction-suggestions", () => {
 
 		expect(first.status).toBe(200);
 		expect(second.status).toBe(200);
-		expect(
-			(await second.json()).suggestion,
-		).toMatchObject({ status: "dismissed" });
+		expect((await second.json()).suggestion).toMatchObject({
+			status: "dismissed",
+		});
 	});
 
 	it("409s a dismissed suggestion being set back to reviewed", async () => {

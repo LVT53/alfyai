@@ -380,7 +380,8 @@ describe("updateInstructionSuggestionStatus", () => {
 			async () =>
 				new Response(
 					JSON.stringify({
-						error: "Instruction suggestion was dismissed and cannot be reviewed.",
+						error:
+							"Instruction suggestion was dismissed and cannot be reviewed.",
 						errorKey: "instruction_suggestion_transition_conflict",
 					}),
 					{ status: 409, headers: { "Content-Type": "application/json" } },

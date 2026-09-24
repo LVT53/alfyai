@@ -30,12 +30,12 @@ import {
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
+import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
+import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import {
 	getConversationProjectId,
 	getProjectInstructions,
 } from "$lib/server/services/projects";
-import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
-import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
 import {
 	resolveSkillInstructionsForUse,
@@ -5178,9 +5178,9 @@ describe("suggest_instruction tool", () => {
 			metadata: { offered: false },
 		});
 		expect(entries[1]?.instructionSuggestion ?? null).toBeNull();
-		expect(
-			entries.filter((entry) => entry.instructionSuggestion),
-		).toHaveLength(1);
+		expect(entries.filter((entry) => entry.instructionSuggestion)).toHaveLength(
+			1,
+		);
 	});
 
 	it("rejects text over the instruction limit without storing it", async () => {

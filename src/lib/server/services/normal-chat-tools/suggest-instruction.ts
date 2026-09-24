@@ -31,12 +31,9 @@ export const suggestInstructionInputSchema = z.object({
 		// and the settings route already share): zod's own `.max()` counts
 		// UTF-16 units, so 1,001 emoji would be a "2,001 character" text to the
 		// schema and a 1,001-character text to the user.
-		.refine(
-			(value) => countInstructionChars(value) <= INSTRUCTIONS_MAX_CHARS,
-			{
-				message: `Instruction text must be at most ${INSTRUCTIONS_MAX_CHARS} characters.`,
-			},
-		),
+		.refine((value) => countInstructionChars(value) <= INSTRUCTIONS_MAX_CHARS, {
+			message: `Instruction text must be at most ${INSTRUCTIONS_MAX_CHARS} characters.`,
+		}),
 	// The scope the model thinks the rule belongs to. It names no ids: a
 	// project scope is only honoured when the conversation is actually in a
 	// project, which the server decides.
@@ -151,7 +148,9 @@ export function buildInstructionSuggestion(params: {
  */
 export function normalizeSuggestedInstruction(
 	raw: string,
-): { ok: true; text: string } | { ok: false; reason: "empty_text" | "text_too_long" } {
+):
+	| { ok: true; text: string }
+	| { ok: false; reason: "empty_text" | "text_too_long" } {
 	const validated = validateInstructionInput(raw);
 	if (!validated.ok) return { ok: false, reason: "text_too_long" };
 	if (validated.value === null) return { ok: false, reason: "empty_text" };

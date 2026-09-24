@@ -29,12 +29,12 @@ import type {
 	PendingSkillSelection,
 	SkillDraftProposal,
 } from "$lib/server/services/skills/types";
-import type { InstructionSuggestion } from "$lib/shared/instructions";
 import type { StreamMetadata } from "$lib/services/streaming";
 import {
 	attachmentReadinessReasonKey,
 	isAttachmentReadinessReason,
 } from "$lib/shared/attachment-readiness";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import { isOsFileDropEvent } from "$lib/utils/file-drag";
 import {
 	isConnectionWriteToolName,
