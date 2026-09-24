@@ -327,11 +327,18 @@ let hasVisibleContent = $derived(message.content.trim().length > 0);
 // E2 — surfaced even when hasVisibleContent is false: a truncated/
 // content-filtered turn (E1) can finalize with an empty body, and this is
 // the only thing telling the user why.
+// `file_production_failed` is deliberately excluded from this notice: the
+// individual FileProductionCard row already shows that job's failed state
+// (with retry/dismiss), and the assistant's own visible text explains it in
+// words, so a third, duplicate warning row would be pure noise. The server
+// still writes the code (stream-completion.ts) and it still persists on the
+// message (messages.ts) for anything else that may read it later; only the
+// render-time derivation here drops it.
 let completionWarningCodes = $derived(
 	!isUser && !message.isStreaming && !message.isThinkingStreaming
-		? (message.completionWarningCodes ?? []).filter(
-				isKnownCompletionWarningCode,
-			)
+		? (message.completionWarningCodes ?? [])
+				.filter(isKnownCompletionWarningCode)
+				.filter((code) => code !== "file_production_failed")
 		: [],
 );
 let hasAtlasCards = $derived(atlasJobs.length > 0);

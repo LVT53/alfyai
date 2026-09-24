@@ -1979,24 +1979,75 @@ describe("MessageBubble", () => {
 				timestamp: Date.now(),
 				isStreaming: false,
 				isThinkingStreaming: false,
-				completionWarningCodes: [
-					"file_production_failed",
-					"non_standard_finish",
-				],
+				completionWarningCodes: ["provider_error", "non_standard_finish"],
 			};
 
 			render(MessageBubble, { message });
 
 			expect(
-				screen.getByText(
-					chatDict.en["chat.completionWarning.fileProductionFailed"],
-				),
+				screen.getByText(chatDict.en["chat.completionWarning.providerError"]),
 			).toBeInTheDocument();
 			expect(
 				screen.getByText(
 					chatDict.en["chat.completionWarning.nonStandardFinish"],
 				),
 			).toBeInTheDocument();
+		});
+
+		// The FileProductionCard row already shows that job's failed state (with
+		// retry/dismiss), and the assistant's own visible text explains it in
+		// words, so this notice would be a third, duplicate warning — suppress
+		// it here for this code only; other completion warnings are unaffected
+		// (see the two tests above/below).
+		it("shows no warning notice for a message with only a file-production failure", () => {
+			const message: ChatMessage = {
+				id: "assistant-file-production-failed-only",
+				renderKey: "assistant-file-production-failed-only",
+				role: "assistant",
+				content: "I couldn't finish generating that file.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				completionWarningCodes: ["file_production_failed"],
+			};
+
+			const { container } = render(MessageBubble, { message });
+
+			expect(
+				container.querySelector(".completion-warning-notice"),
+			).not.toBeInTheDocument();
+		});
+
+		it("shows only the other warning when file_production_failed is combined with another code", () => {
+			const message: ChatMessage = {
+				id: "assistant-file-production-failed-plus-other",
+				renderKey: "assistant-file-production-failed-plus-other",
+				role: "assistant",
+				content: "I couldn't finish generating that file.",
+				timestamp: Date.now(),
+				isStreaming: false,
+				isThinkingStreaming: false,
+				completionWarningCodes: [
+					"file_production_failed",
+					"non_standard_finish",
+				],
+			};
+
+			const { container } = render(MessageBubble, { message });
+
+			expect(
+				screen.getByText(
+					chatDict.en["chat.completionWarning.nonStandardFinish"],
+				),
+			).toBeInTheDocument();
+			expect(
+				screen.queryByText(
+					chatDict.en["chat.completionWarning.fileProductionFailed"],
+				),
+			).not.toBeInTheDocument();
+			expect(
+				container.querySelectorAll(".completion-warning-row"),
+			).toHaveLength(1);
 		});
 
 		it("does not show the warning notice while the message is still streaming", () => {
