@@ -1,8 +1,5 @@
 import type {
-	HomeSuggestion,
-	HomeSuggestionEventKind,
-} from "$lib/server/services/home-suggestions";
-import type {
+	HomeProjectCard,
 	HomeRecentConversation,
 	HomeRunningJob,
 	HomeSummary,
@@ -11,9 +8,9 @@ import type {
 import { type FetchLike, requestJson } from "./http";
 
 export type {
+	HomeProjectCard,
 	HomeRecentConversation,
 	HomeRunningJob,
-	HomeSuggestion,
 	HomeSummary,
 	HomeWeeklyBucket,
 };
@@ -24,7 +21,7 @@ export const EMPTY_HOME_SUMMARY: HomeSummary = {
 	weeklyTotal: 0,
 	recent: [],
 	running: null,
-	suggestions: [],
+	projects: [],
 	memoryReviewCount: 0,
 	memoryReviewNoticeDismissed: false,
 	generatedAt: 0,
@@ -45,9 +42,9 @@ export async function fetchHomeSummary(
 			typeof response.weeklyTotal === "number" ? response.weeklyTotal : 0,
 		recent: Array.isArray(response.recent) ? response.recent : [],
 		running: response.running ?? null,
-		suggestions: Array.isArray(response.suggestions)
-			? response.suggestions
-			: [],
+		// An older server that does not send `projects` yet, or a truncated body,
+		// leaves the row empty rather than undefined — the surface indexes into it.
+		projects: Array.isArray(response.projects) ? response.projects : [],
 		memoryReviewCount:
 			typeof response.memoryReviewCount === "number"
 				? response.memoryReviewCount
@@ -63,6 +60,12 @@ export async function fetchHomeSummary(
  * Fire-and-forget-ish: callers should also hide the notice locally right away
  * rather than waiting on this to resolve, since the point of the click is an
  * immediate response.
+ *
+ * `keepalive` is what lets that write survive the click that usually follows a
+ * dismissal — a browser cancels a document's in-flight fetches when it
+ * navigates, and the dismissal is worth nothing if it dies with the page. The
+ * body is one short action name, far inside the 64 KB a keepalive request is
+ * allowed.
  */
 export async function dismissMemoryReviewNotice(
 	fetchImpl: FetchLike = fetch,
@@ -76,37 +79,6 @@ export async function dismissMemoryReviewNotice(
 			keepalive: true,
 		},
 		"Failed to dismiss memory review notice",
-		fetchImpl,
-	);
-}
-
-/**
- * Records that a suggestion was used or dismissed, which drops it out of the
- * rail for seven days. Fire-and-forget: the home screen has already navigated
- * by the time this resolves, and a failed write only means a chip the user
- * already acted on may come back.
- *
- * `keepalive` is the whole reason the "used" half of that ever lands. Picking a
- * chip sends a message and hands the landing page to `window.location.assign`
- * one tick later, and a browser cancels the document's in-flight fetches when
- * it navigates — so without this the event that the ranking's demotion is built
- * on would be dropped exactly when it is earned. The body is two short strings,
- * far inside the 64 KB a keepalive request is allowed.
- */
-export async function recordHomeSuggestionEvent(
-	candidateKey: string,
-	event: HomeSuggestionEventKind,
-	fetchImpl: FetchLike = fetch,
-): Promise<void> {
-	await requestJson(
-		"/api/home/summary",
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ candidateKey, event }),
-			keepalive: true,
-		},
-		"Failed to record suggestion event",
 		fetchImpl,
 	);
 }

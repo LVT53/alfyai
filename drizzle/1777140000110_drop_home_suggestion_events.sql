@@ -1,0 +1,11 @@
+-- The chat home's suggestion chips are retired, and with them the only thing
+-- that read `home_suggestion_events`. The table held nothing but demotion
+-- state for a ranking that no longer runs — which suggestion a user had
+-- already been shown, and which they acted on, kept for seven days. Nothing
+-- else joined it: it was never billed, never exported, never fed to a model.
+--
+-- The owner's decision was a real removal rather than a hiding: "Delete the
+-- table with a migration and remove the code that writes and reads it, rather
+-- than leaving dead wiring." So the table goes, and not merely the UI that
+-- displayed what it ranked.
+DROP TABLE IF EXISTS `home_suggestion_events`;
