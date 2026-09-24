@@ -36,6 +36,7 @@ import {
 	Eye,
 	File as FileIcon,
 	FileText,
+	Folder,
 	Image,
 	Monitor,
 	Table,
@@ -108,6 +109,14 @@ interface DocumentsListProps {
 	 * every row, so a library nobody re-extracts pays nothing for it.
 	 */
 	onLoadReextractTiers?: (artifactId: string) => Promise<string[]>;
+	/**
+	 * The projects that know each document, by `displayArtifactId` — the id a
+	 * link is stored against. Absent means "not asked"; a document no project
+	 * knows is simply not a key, which is how a row draws no token at all.
+	 * The page resolves the whole page of rows in one call, so this list never
+	 * becomes a request per row.
+	 */
+	linkedProjectsByArtifactId?: Record<string, string[]>;
 }
 
 let {
@@ -135,7 +144,17 @@ let {
 	onCancelExtraction,
 	onReextract,
 	onLoadReextractTiers,
+	linkedProjectsByArtifactId = {},
 }: DocumentsListProps = $props();
+
+/**
+ * The projects that know one document. Names rather than a count, because the
+ * count is the visible words and the names are the only thing that can say
+ * *which* projects without the row growing a menu.
+ */
+function linkedProjectNames(displayArtifactId: string): string[] {
+	return linkedProjectsByArtifactId[displayArtifactId] ?? [];
+}
 
 // Artifact ids with a Retry/Cancel round trip in flight. Local to the row so
 // a slow endpoint disables exactly the button that was pressed, and so a
@@ -1432,6 +1451,21 @@ async function handleBulkDelete(): Promise<boolean> {
 									<div class="document-card-main">
 										<div class="document-name">
 											<span class="document-title">{document.name}</span>
+											{#if linkedProjectNames(document.displayArtifactId).length > 0}
+												<!-- A document a project knows says so where it is named:
+												     the token is the only place the library admits that
+												     something outside it holds this file. -->
+												<span
+													class="project-link-token"
+													data-testid="project-link-token"
+													title={linkedProjectNames(document.displayArtifactId).join(', ')}
+												>
+													<Folder size={11} strokeWidth={1.9} aria-hidden="true" />
+													{linkedProjectNames(document.displayArtifactId).length === 1
+														? $t('projects.linkedInLibraryOne')
+														: $t('projects.linkedInLibrary', { count: linkedProjectNames(document.displayArtifactId).length })}
+												</span>
+											{/if}
 										</div>
 										<div class="mobile-document-meta">
 											{#if versionBadge.kind === 'original'}
@@ -2409,6 +2443,25 @@ async function handleBulkDelete(): Promise<boolean> {
 		font-weight: 500;
 		color: var(--text-primary);
 		min-width: 0;
+	}
+
+	/* The linked-project token. Deliberately quieter than the row's own name
+	   and the same height as the badges beside it: it is a fact about the
+	   document, not a second title. */
+	.project-link-token {
+		display: inline-flex;
+		flex: none;
+		align-items: center;
+		gap: 3px;
+		padding: 0.1rem 0.4rem;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		background: var(--surface-elevated);
+		color: var(--text-muted);
+		font-size: 0.68rem;
+		font-weight: 500;
+		line-height: 1.2;
+		white-space: nowrap;
 	}
 
 	.document-card-main {

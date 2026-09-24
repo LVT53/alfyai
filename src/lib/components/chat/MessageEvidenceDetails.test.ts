@@ -847,4 +847,106 @@ describe("MessageEvidenceDetails", () => {
 		// removal instead of the line vanishing the instant Sources collapses.
 		expect(document.querySelector(".evidence-summary-line")).toBeTruthy();
 	});
+
+	// Workspaces Slice E — a document that came from the project wears the
+	// project's token on its row. The name is what the reader sees in Sources;
+	// the token is what says which project's file it is, without repeating the
+	// project's name in the file list.
+	it("shows the project token on an evidence row that came from the project", async () => {
+		render(MessageEvidenceDetails, {
+			evidenceSummary: buildSummary({
+				groups: [
+					{
+						sourceType: "document",
+						label: "Documents",
+						reranked: false,
+						items: [
+							{
+								id: "evidence-project",
+								title: "Wien itinerary.md",
+								sourceType: "document",
+								status: "selected",
+								artifactId: "artifact-project",
+								metadata: {
+									projectId: "project-1",
+									projectName: "Vienna trip",
+								},
+							},
+							{
+								id: "evidence-library",
+								title: "Packing list.md",
+								sourceType: "document",
+								status: "selected",
+								artifactId: "artifact-library",
+							},
+						],
+					},
+				],
+			}),
+			onOpenDocument: () => undefined,
+		});
+
+		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
+
+		const projectRow = screen
+			.getByText("Wien itinerary.md")
+			.closest(".evidence-row") as HTMLElement | null;
+		expect(projectRow).not.toBeNull();
+		const tokens = within(projectRow as HTMLElement).getAllByTestId(
+			"scope-token",
+		);
+		expect(tokens).toHaveLength(1);
+		expect(tokens[0]).toHaveAttribute("data-kind", "project");
+		expect(tokens[0]).toHaveTextContent("Vienna trip");
+
+		// The same panel, the same turn: a document the project does not know
+		// carries no token at all.
+		const libraryRow = screen
+			.getByText("Packing list.md")
+			.closest(".evidence-row") as HTMLElement | null;
+		expect(libraryRow).not.toBeNull();
+		expect(
+			within(libraryRow as HTMLElement).queryAllByTestId("scope-token"),
+		).toHaveLength(0);
+	});
+
+	it("still toggles Sources from its own button after an external expand", async () => {
+		const evidenceSummary = buildSummary({
+			groups: [
+				{
+					sourceType: "document",
+					label: "Documents",
+					reranked: false,
+					items: [
+						{
+							id: "evidence-1",
+							title: "Quarterly report",
+							sourceType: "document",
+							status: "selected",
+						},
+					],
+				},
+			],
+		});
+
+		const { rerender } = render(MessageEvidenceDetails, {
+			evidenceSummary,
+			expandRequest: 0,
+		});
+
+		const toggle = () => screen.getByRole("button", { name: /Sources/i });
+		expect(toggle()).toHaveAttribute("aria-expanded", "false");
+
+		// The Info popover's row asks for the panel to open — a request, not a
+		// takeover: the button's own toggle still owns the state afterwards.
+		await rerender({ evidenceSummary, expandRequest: 1 });
+		expect(toggle()).toHaveAttribute("aria-expanded", "true");
+
+		await fireEvent.click(toggle());
+		expect(toggle()).toHaveAttribute("aria-expanded", "false");
+
+		// And the next request opens it again (each increment is one open).
+		await rerender({ evidenceSummary, expandRequest: 2 });
+		expect(toggle()).toHaveAttribute("aria-expanded", "true");
+	});
 });

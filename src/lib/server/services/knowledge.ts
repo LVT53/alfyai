@@ -38,6 +38,22 @@ export {
 	selectWorkingSetArtifactsForPrompt,
 	updateConversationContextStatus,
 } from "./knowledge/context";
+export type {
+	ProjectKnowledgeContentTarget,
+	ProjectKnowledgeItem,
+} from "./knowledge/project-knowledge";
+export {
+	isProjectKnowledgeError,
+	linkProjectKnowledge,
+	listProjectKnowledge,
+	listProjectKnowledgeArtifactIds,
+	listProjectKnowledgeContentTargets,
+	listProjectLinksForArtifacts,
+	ProjectKnowledgeError,
+	resolveConversationProjectFiles,
+	resolveProjectFileMentions,
+	unlinkProjectKnowledge,
+} from "./knowledge/project-knowledge";
 export type { KnowledgeBulkAction } from "./knowledge/store";
 export {
 	AttachmentReadinessError,

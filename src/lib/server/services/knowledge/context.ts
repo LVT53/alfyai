@@ -33,6 +33,7 @@ import {
 	resolveRelevantGeneratedDocumentSelection,
 } from "../document-resolution";
 import { countRecentMemoryBehaviorEventsBySubject } from "../memory-behavior-log";
+import { getConversationProjectId } from "../projects";
 import { canUseTeiEmbedder, embedText } from "../tei-embedder";
 import {
 	resolveWorkingDocumentSelection,
@@ -45,6 +46,7 @@ import {
 	WORKING_SET_PROMPT_LIMIT,
 	type WorkingSetCandidate,
 } from "../working-set";
+import { listProjectKnowledgeArtifactIds } from "./project-knowledge";
 import {
 	findRelevantArtifactsByTypesDetailed,
 	getArtifactOwnershipScope,
@@ -131,6 +133,12 @@ function logWorkingDocumentSelection(params: {
 		score?: number;
 		reasonCodes?: WorkingSetReasonCode[];
 	}>;
+	/**
+	 * How much of the project's file list the turn was told about. `null` when
+	 * this phase has nothing to report (no project, no files, or a phase that
+	 * does not build the prompt section).
+	 */
+	projectFiles?: { listed: number; more: number } | null;
 }): void {
 	const {
 		activeDocumentArtifactId,
@@ -166,6 +174,8 @@ function logWorkingDocumentSelection(params: {
 		suppressGeneratedCarryover: selection.retrieval.suppressGeneratedCarryover,
 		hasRecentUserCorrection: selection.correction.hasSignal,
 		hasContextResetSignal: selection.reset.hasSignal,
+		projectFilesListed: params.projectFiles?.listed ?? null,
+		projectFilesMore: params.projectFiles?.more ?? null,
 		selectedArtifacts: selectedArtifacts.slice(0, 4),
 	});
 }
@@ -240,6 +250,10 @@ export async function selectWorkingSetArtifactsForPrompt(
 	message: string,
 	excludeArtifactIds: string[] = [],
 	activeDocumentArtifactId?: string,
+	// Reported through the one working-document log line this call already
+	// emits, so the operator can see what the turn was told about the project's
+	// files without a second log line telling half the story.
+	projectFiles?: { listed: number; more: number } | null,
 ): Promise<Artifact[]> {
 	const exclude = new Set(excludeArtifactIds);
 	// As above: its own incognito work, never another conversation's.
@@ -338,6 +352,7 @@ export async function selectWorkingSetArtifactsForPrompt(
 		conversationId,
 		activeDocumentArtifactId,
 		selection,
+		projectFiles,
 		selectedArtifacts: selectedArtifacts.map((entry) => ({
 			artifactId: entry.artifact.id,
 			score: entry.score,
@@ -724,6 +739,23 @@ export async function findRelevantKnowledgeArtifacts(params: {
 	const recentBehaviorWindowStart = Date.now() - 14 * DAY_MS;
 	const currentConversationId = params.currentConversationId ?? "";
 
+	// The turn's project, if it is in one: its files are preferred in the
+	// ranking below. Resolved once here rather than per artifact-type query, and
+	// a failure is not the turn's problem — a boost is a preference, and no
+	// preference is worth losing an answer over.
+	const scopeBoostArtifactIds = currentConversationId
+		? await getConversationProjectId(params.userId, currentConversationId)
+				.catch(() => null)
+				.then((projectId) =>
+					projectId
+						? listProjectKnowledgeArtifactIds({
+								userId: params.userId,
+								projectId,
+							}).catch(() => [] as string[])
+						: ([] as string[]),
+				)
+		: [];
+
 	// Pre-compute query embedding once and share across parallel artifact-type queries.
 	// This saves one TEI embed call per turn.
 	let queryEmbedding: number[] | undefined;
@@ -751,6 +783,7 @@ export async function findRelevantKnowledgeArtifacts(params: {
 				limit: limit * 3,
 				excludeConversationId: params.excludeConversationId,
 				queryEmbedding,
+				scopeBoostArtifactIds,
 			}),
 			findRelevantArtifactsByTypesDetailed({
 				userId: params.userId,
@@ -759,6 +792,7 @@ export async function findRelevantKnowledgeArtifacts(params: {
 				limit: Math.max(limit * 5, 20),
 				excludeConversationId: params.excludeConversationId,
 				queryEmbedding,
+				scopeBoostArtifactIds,
 			}),
 			params.preferredArtifactId
 				? getArtifactsForUser(params.userId, [params.preferredArtifactId])

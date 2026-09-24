@@ -62,6 +62,9 @@ import {
 	getTargetConstructedContext,
 	listConversationSourceArtifactIds,
 	listConversationSourceArtifactNames,
+	listProjectKnowledge,
+	type ProjectKnowledgeItem,
+	resolveProjectFileMentions,
 	resolvePromptAttachmentArtifacts,
 	selectWorkingSetArtifactsForPrompt,
 	updateConversationContextStatus,
@@ -69,7 +72,10 @@ import {
 	WORKING_SET_OUTPUT_TOKEN_BUDGET,
 	WORKING_SET_PROMPT_TOKEN_BUDGET,
 } from "../knowledge";
-import { listConversationLinkedContextSources } from "../linked-context-sources";
+import {
+	listConversationLinkedContextSources,
+	resolveLinkedContextSourcesForConversation,
+} from "../linked-context-sources";
 import { retrievePersonaMemory } from "../memory-context/persona";
 import {
 	recordMemoryPromptTelemetry,
@@ -536,7 +542,8 @@ function buildContextSelectionCandidates(params: {
 		const isAttachmentSection = section.title === "Current Attachments";
 		const isCarriedForwardAttachmentSection =
 			section.title === "Attached Sources";
-		const isLinkedSourceSection = section.title === "Linked Sources";
+		const isLinkedSourceSection =
+			section.title === LINKED_SOURCES_SECTION_TITLE;
 		const isEvidenceSection = section.title === "Retrieved Evidence";
 		const isProjectFolderSiblingSection =
 			section.title === "Project Folder Sibling Context";
@@ -664,6 +671,108 @@ async function resolveLinkedSourcePromptArtifacts(params: {
 	return resolved;
 }
 
+// One name for one section: the serializer, the candidate builder that reads
+// its item ids, and both latency tiers all key on this title.
+const LINKED_SOURCES_SECTION_TITLE = "Linked Sources";
+
+/**
+ * The turn's linked sources: the conversation's stored links, plus the project
+ * files this message names.
+ *
+ * Naming a file does not invent a second resolver. The mention candidates go
+ * through `resolveLinkedContextSourcesForConversation` — the same ownership
+ * check, prompt-readiness check and attachment dedupe a stored link already
+ * goes through — so a named file the library cannot serve fails the turn
+ * exactly the way an attached one does, instead of quietly contributing
+ * nothing. Nothing is written: the project's link table is the durable half of
+ * this feature and a mention is a request for one turn, not a link.
+ *
+ * The stored links are passed through untouched (they were read as links in
+ * their own right); only the mentions are validated here, because a mention is
+ * the part that arrives from the message rather than from the database.
+ */
+async function mergeProjectFileMentions(params: {
+	userId: string;
+	conversationId: string;
+	message: string;
+	projectId: string | null;
+	projectFiles: ProjectKnowledgeItem[];
+	attachmentIds: string[];
+	storedSources: LinkedContextSource[];
+}): Promise<LinkedContextSource[]> {
+	if (!params.projectId) return params.storedSources;
+
+	// Matched against the list this turn already read for the packet section,
+	// never against a fresh read: the section and the mention cannot disagree
+	// about what the project holds, and the read stays one per turn.
+	const mentions = await resolveProjectFileMentions({
+		userId: params.userId,
+		projectId: params.projectId,
+		message: params.message,
+		files: params.projectFiles,
+	}).catch(() => [] as LinkedContextSource[]);
+	if (mentions.length === 0) return params.storedSources;
+
+	const stored = new Set(
+		params.storedSources.map((source) => source.displayArtifactId),
+	);
+	const fresh = mentions.filter(
+		(mention) => !stored.has(mention.displayArtifactId),
+	);
+	if (fresh.length === 0) return params.storedSources;
+
+	const validated = await resolveLinkedContextSourcesForConversation({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		linkedSources: fresh,
+		attachmentIds: params.attachmentIds,
+	});
+
+	return [...params.storedSources, ...validated];
+}
+
+/**
+ * The body of the Linked Sources section.
+ *
+ * Both tiers read the content through the same ranked, character-budgeted
+ * snippet call and the same serializer, so a linked source reads the same on a
+ * one-line turn as on a long one. The deep tier hands in the snippets it
+ * already fetched beside the evidence; the shallow tier lets this fetch them
+ * with its own depth budget, rather than carrying a second content loader.
+ */
+async function buildLinkedSourcePromptBody(params: {
+	userId: string;
+	message: string;
+	artifacts: Artifact[];
+	documentDepthBudget: DocumentContextDepthBudget;
+	snippets?: Map<string, string>;
+}): Promise<string> {
+	if (params.artifacts.length === 0) return "";
+
+	const snippets =
+		params.snippets ??
+		(await getPromptArtifactSnippets({
+			userId: params.userId,
+			artifacts: params.artifacts,
+			query: params.message,
+			perArtifactLimit: params.documentDepthBudget.perArtifactLimit,
+			perArtifactCharBudget: params.documentDepthBudget.perArtifactCharBudget,
+			totalCharBudget: params.documentDepthBudget.totalCharBudget,
+			useFullContent: params.documentDepthBudget.useFullContent,
+		}).catch(() => new Map<string, string>()));
+
+	return serializeWorkingSetArtifacts({
+		artifacts: params.artifacts,
+		snippets,
+		totalTokenBudget: params.documentDepthBudget.totalTokenBudget,
+		// No tighter per-item token cap: each linked source gets its fair share of
+		// the section's tokens, and its excerpt size is the character budget above.
+		documentTokenBudget: params.documentDepthBudget.totalTokenBudget,
+		outputTokenBudget: params.documentDepthBudget.totalTokenBudget,
+		perArtifactCharBudget: params.documentDepthBudget.perArtifactCharBudget,
+	});
+}
+
 function buildProjectFolderPromptSection(
 	label: string | null,
 ): PromptContextSection | null {
@@ -680,6 +789,96 @@ function buildProjectFolderPromptSection(
 		body: `Project Folder label: ${JSON.stringify(boundedLabel)}`,
 		layer: "session",
 		protected: true,
+	};
+}
+
+// A project's files, as every turn in that project sees them. The list is a
+// catalogue, not content: the turn is told which files the project knows so it
+// can name one when it needs it, and the bytes are read only when the turn
+// actually asks for them. Both caps below are this section's own job, because
+// `protected: true` means the packet compactor will never trim it — an uncapped
+// list would push the answer itself out of the prompt.
+const PROJECT_FILES_SECTION_TITLE = "Project Files";
+const PROJECT_FILES_MAX_ENTRIES = 30;
+const PROJECT_FILES_MAX_CHARS = 1_500;
+// The same words the UI uses for `projects.filesMore`. The packet is not
+// localized per turn, so the label is materialized here.
+const PROJECT_FILES_MORE_LABEL = "+{n} more";
+
+function formatProjectFileLine(file: ProjectKnowledgeItem): string {
+	const summary = file.summary?.trim();
+	// The em dash only when something follows it: "- name —" reads as a clipped
+	// line rather than as a file nobody has summarized yet.
+	return summary ? `- ${file.name} — ${summary}` : `- ${file.name}`;
+}
+
+function formatProjectFilesMoreLabel(droppedCount: number): string {
+	return PROJECT_FILES_MORE_LABEL.replace("{n}", String(droppedCount));
+}
+
+/**
+ * The project's file list for one turn.
+ *
+ * The project id resolves first, and a failed read degrades to "nothing to
+ * list" rather than failing the turn: the list is context, and no context
+ * section is worth losing an answer over.
+ */
+function readProjectFiles(
+	projectIdPromise: Promise<string | null>,
+	userId: string,
+): Promise<ProjectKnowledgeItem[]> {
+	return projectIdPromise.then((projectId) =>
+		projectId
+			? listProjectKnowledge({ userId, projectId }).catch(
+					() => [] as ProjectKnowledgeItem[],
+				)
+			: ([] as ProjectKnowledgeItem[]),
+	);
+}
+
+/**
+ * The section, plus how much of the list survived the caps.
+ *
+ * One walk produces both the body and the counts, so the working-document log
+ * line cannot report something the prompt did not say.
+ */
+export function buildProjectFilesPromptSection(
+	files: ProjectKnowledgeItem[],
+): { section: PromptContextSection; listed: number; more: number } | null {
+	// No files, no section: an empty heading would be a claim about the project
+	// rather than a fact about it.
+	if (files.length === 0) return null;
+
+	const lines = files
+		.slice(0, PROJECT_FILES_MAX_ENTRIES)
+		.map(formatProjectFileLine);
+
+	function buildBody(listedCount: number): string {
+		const dropped = files.length - listedCount;
+		const parts = lines.slice(0, listedCount);
+		if (dropped > 0) parts.push(formatProjectFilesMoreLabel(dropped));
+		return parts.join("\n");
+	}
+
+	let listed = lines.length;
+	// Whole entries only, and the character cap wins: a file that does not fit
+	// is dropped and counted, never clipped, because half a name in the prompt
+	// reads exactly like a real one. Shrinking a prefix (rather than skipping
+	// ahead to whatever still fits) keeps the list a prefix plus an honest
+	// remainder.
+	while (listed > 0 && buildBody(listed).length > PROJECT_FILES_MAX_CHARS) {
+		listed -= 1;
+	}
+
+	return {
+		section: {
+			title: PROJECT_FILES_SECTION_TITLE,
+			body: buildBody(listed),
+			layer: "documents",
+			protected: true,
+		},
+		listed,
+		more: files.length - listed,
 	};
 }
 
@@ -1182,6 +1381,7 @@ async function buildShallowConstructedContext(params: {
 	userId: string;
 	conversationId: string;
 	message: string;
+	attachmentIds: string[];
 	modelContextBudget: ReturnType<typeof deriveModelContextBudget>;
 	sessionHistoryBudget: ReturnType<typeof deriveSessionHistoryBudget>;
 	targetBudget: number;
@@ -1202,11 +1402,70 @@ async function buildShallowConstructedContext(params: {
 		params.userId,
 		params.conversationId,
 	).catch(() => null);
+	// One read per turn, never cached across turns: unlinking a file has to take
+	// effect on the very next turn, and a cache is exactly the thing that would
+	// let a stale list outlive the link.
+	const projectFilesPromise = readProjectFiles(projectIdPromise, params.userId);
+	// A project file the user names has to reach the prompt on a short turn too:
+	// the message may be one line long and the file may be its whole point, and
+	// "short" is exactly what this tier is. Resolved like the deep tier resolves
+	// it, and read eagerly for the same reason a not-ready attachment fails the
+	// turn: the user asked for a file, so silence is not an answer.
+	const projectMentionSectionPromise = Promise.all([
+		projectIdPromise,
+		projectFilesPromise,
+	]).then(async ([projectId, projectFiles]) => {
+		const sources = await mergeProjectFileMentions({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			message: params.message,
+			projectId,
+			projectFiles,
+			attachmentIds: params.attachmentIds,
+			// This tier has no linked-source section of its own, so a mention is
+			// the whole set rather than an addition to one.
+			storedSources: [],
+		});
+		if (sources.length === 0) return null;
+
+		const artifacts = await resolveLinkedSourcePromptArtifacts({
+			userId: params.userId,
+			linkedSources: sources,
+		});
+		if (artifacts.length === 0) return null;
+
+		const depthBudget = deriveDocumentContextDepthBudget({
+			contextBudget: params.modelContextBudget,
+			documentCount: artifacts.length,
+			// The same intent the deep tier derives for linked sources: somebody
+			// asked for this file, so its content is the task, not a reference.
+			intent: "direct",
+		});
+		const body = await buildLinkedSourcePromptBody({
+			userId: params.userId,
+			message: params.message,
+			artifacts,
+			documentDepthBudget: depthBudget,
+		});
+		if (!body.trim()) return null;
+
+		return {
+			artifacts,
+			section: {
+				title: LINKED_SOURCES_SECTION_TITLE,
+				body,
+				layer: "documents",
+				protected: true,
+			} satisfies PromptContextSection,
+		};
+	});
 	const [
 		sessionContext,
 		contextCompressionPromptSnapshot,
 		activeMemoryProfileSection,
+		projectFiles,
 		fileProductionJobSection,
+		projectMentionSection,
 	] = await Promise.all([
 		loadSessionPromptContext({
 			userId: params.userId,
@@ -1227,12 +1486,14 @@ async function buildShallowConstructedContext(params: {
 				modelContextBudget: params.modelContextBudget,
 			}),
 		),
+		projectFilesPromise,
 		// Cheap status-only query (no file hydration), so even the shallow
 		// latency tier can afford to stay truthful about a file it promised.
 		loadFileProductionJobStatusSection({
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}),
+		projectMentionSectionPromise,
 	]);
 	const {
 		sessionMessages,
@@ -1282,6 +1543,14 @@ async function buildShallowConstructedContext(params: {
 				maxTokens: params.sessionHistoryBudget.totalBudget,
 			});
 	const sections: PromptContextSection[] = [];
+	// "Short question" is exactly the turn where naming a file still has to
+	// work, so the project's file list is not deep-tier-only.
+	const projectFilesSection =
+		buildProjectFilesPromptSection(projectFiles)?.section ?? null;
+	// A named file's content is a prompt artifact on this tier too, and the
+	// context status is read by the UI: reporting zero while its content sits in
+	// the prompt would be the ring lying about the turn.
+	const promptArtifactCount = projectMentionSection?.artifacts.length ?? 0;
 
 	if (contextCompressionPromptSnapshot) {
 		sections.push({
@@ -1313,6 +1582,14 @@ async function buildShallowConstructedContext(params: {
 	if (activeMemoryProfileSection) {
 		sections.push(activeMemoryProfileSection.section);
 	}
+	if (projectFilesSection) {
+		sections.push(projectFilesSection);
+	}
+	// After the list, never before it: "Project Files" says what exists, this
+	// says what was asked for — the same order the deep tier uses.
+	if (projectMentionSection) {
+		sections.push(projectMentionSection.section);
+	}
 	if (fileProductionJobSection) {
 		sections.push(fileProductionJobSection);
 	}
@@ -1323,6 +1600,9 @@ async function buildShallowConstructedContext(params: {
 		candidates: buildContextSelectionCandidates({
 			sections,
 			personaMemoryProfile: activeMemoryProfileSection,
+			linkedSourceItems: (projectMentionSection?.artifacts ?? []).map(
+				(artifact) => ({ id: artifact.id, title: artifact.name }),
+			),
 		}),
 		targetTokens: params.targetBudget,
 		initialCompactionMode: "none",
@@ -1352,7 +1632,7 @@ async function buildShallowConstructedContext(params: {
 		workingSetArtifactIds: [],
 		workingSetApplied: false,
 		taskStateApplied: false,
-		promptArtifactCount: 0,
+		promptArtifactCount: promptArtifactCount,
 		recentTurnCount: sessionTurnContext.includedTurnCount,
 		summary: sessionSummary || null,
 	});
@@ -1430,6 +1710,7 @@ export async function buildConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 			message: params.message,
+			attachmentIds,
 			modelContextBudget,
 			sessionHistoryBudget,
 			targetBudget,
@@ -1438,6 +1719,14 @@ export async function buildConstructedContext(params: {
 			historyToolMessages,
 		});
 	}
+	const projectIdPromise = getConversationProjectId(
+		params.userId,
+		params.conversationId,
+	).catch(() => null);
+	const projectFilesPromise = readProjectFiles(projectIdPromise, params.userId);
+	const projectFilesSectionPromise = projectFilesPromise.then((projectFiles) =>
+		buildProjectFilesPromptSection(projectFiles),
+	);
 	const [
 		sessionContext,
 		resolvedAttachments,
@@ -1451,6 +1740,8 @@ export async function buildConstructedContext(params: {
 		forkOrigin,
 		contextCompressionPromptSnapshot,
 		projectId,
+		projectFiles,
+		projectFilesSection,
 		fileProductionJobSection,
 	] = await Promise.all([
 		loadSessionPromptContext({
@@ -1470,13 +1761,21 @@ export async function buildConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => []),
-		selectWorkingSetArtifactsForPrompt(
-			params.userId,
-			params.conversationId,
-			params.message,
-			attachmentIds,
-			params.activeDocumentArtifactId,
-		).catch(() => []),
+		// Chained off the project's file list rather than started beside it: the
+		// working-document log line reports what the turn was told about those
+		// files, and it fires from inside this call (one emission, not two).
+		projectFilesSectionPromise.then((projectFiles) =>
+			selectWorkingSetArtifactsForPrompt(
+				params.userId,
+				params.conversationId,
+				params.message,
+				attachmentIds,
+				params.activeDocumentArtifactId,
+				projectFiles
+					? { listed: projectFiles.listed, more: projectFiles.more }
+					: null,
+			).catch(() => []),
+		),
 		getConversationProjectLabel(params.userId, params.conversationId).catch(
 			() => null,
 		),
@@ -1494,9 +1793,9 @@ export async function buildConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => null),
-		getConversationProjectId(params.userId, params.conversationId).catch(
-			() => null,
-		),
+		projectIdPromise,
+		projectFilesPromise,
+		projectFilesSectionPromise,
 		loadFileProductionJobStatusSection({
 			userId: params.userId,
 			conversationId: params.conversationId,
@@ -1530,11 +1829,24 @@ export async function buildConstructedContext(params: {
 			!currentAttachmentIds.has(artifactId),
 	);
 
+	// The conversation's stored links, plus the project files this message
+	// names. A mention is a linked source for this turn and nothing more — it
+	// is validated with the stored links but never written to the link table.
+	const turnLinkedSources = await mergeProjectFileMentions({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		message: params.message,
+		projectId,
+		projectFiles,
+		attachmentIds,
+		storedSources: linkedContextSources,
+	});
+
 	// Parallel: resolve linked sources and carried-forward attachments concurrently
 	const [linkedSourceArtifacts, carriedForwardResolution] = await Promise.all([
 		resolveLinkedSourcePromptArtifacts({
 			userId: params.userId,
-			linkedSources: linkedContextSources,
+			linkedSources: turnLinkedSources,
 		}).catch(() => [] as Artifact[]),
 		carriedForwardSourceIds.length > 0
 			? resolvePromptAttachmentArtifacts(
@@ -1790,6 +2102,9 @@ export async function buildConstructedContext(params: {
 	if (projectFolderSiblingSection) {
 		sections.push(projectFolderSiblingSection);
 	}
+	if (projectFilesSection) {
+		sections.push(projectFilesSection.section);
+	}
 
 	if (taskState) {
 		sections.push({
@@ -1870,23 +2185,16 @@ export async function buildConstructedContext(params: {
 		}
 	}
 
-	const linkedSourceContext =
-		linkedSourceArtifacts.length > 0
-			? serializeWorkingSetArtifacts({
-					artifacts: linkedSourceArtifacts,
-					snippets: artifactSnippets,
-					totalTokenBudget: documentDepthBudget.totalTokenBudget,
-					// No tighter per-item token cap: each linked source gets its fair
-					// share of the section's tokens, and its excerpt size is the
-					// character budget below.
-					documentTokenBudget: documentDepthBudget.totalTokenBudget,
-					outputTokenBudget: documentDepthBudget.totalTokenBudget,
-					perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
-				})
-			: "";
+	const linkedSourceContext = await buildLinkedSourcePromptBody({
+		userId: params.userId,
+		message: params.message,
+		artifacts: linkedSourceArtifacts,
+		documentDepthBudget,
+		snippets: artifactSnippets,
+	});
 	if (linkedSourceContext.trim()) {
 		sections.push({
-			title: "Linked Sources",
+			title: LINKED_SOURCES_SECTION_TITLE,
 			body: linkedSourceContext,
 			layer: "documents",
 			protected: true,

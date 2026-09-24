@@ -999,12 +999,27 @@ async function selectArtifactSearchCandidates(params: {
 		.map(mapArtifact);
 }
 
+/**
+ * What a project link is worth at retrieval time: a nudge, not a pass.
+ *
+ * Small on purpose. One unit of `lexicalScore` is worth 10, so this breaks
+ * ties in favour of the documents the user's own project holds without ever
+ * rescuing one that does not match the query — the relevance gate below is
+ * what decides whether a candidate is in the running at all.
+ */
+const PROJECT_SCOPE_SCORE_BOOST = 5;
+
 async function rankArtifactMatches(params: {
 	userId: string;
 	query: string;
 	candidates: Artifact[];
 	limit: number;
 	queryEmbedding?: number[];
+	/**
+	 * Artifacts linked to the current project. Both ids of a document travel
+	 * here, because retrieval returns the normalized artifact for an upload.
+	 */
+	scopeBoostArtifactIds?: string[];
 }): Promise<RankedArtifactMatch[]> {
 	if (params.candidates.length === 0) {
 		return [];
@@ -1090,11 +1105,15 @@ async function rankArtifactMatches(params: {
 					?.lexicalScore ?? 0;
 			const semanticScore = semanticScoreById.get(artifact.id) ?? 0;
 			const rerankScore = rerankScoreById.get(artifact.id) ?? 0;
+			const scopeBoost = params.scopeBoostArtifactIds?.includes(artifact.id)
+				? PROJECT_SCOPE_SCORE_BOOST
+				: 0;
 			const baseScore =
 				lexicalScore * 10 +
 				semanticScore * 18 +
 				rerankScore * 24 +
-				artifact.updatedAt / 1_000_000_000_000;
+				artifact.updatedAt / 1_000_000_000_000 +
+				scopeBoost;
 			const ageSeconds = Math.max(0, (Date.now() - artifact.updatedAt) / 1000);
 
 			const finalScore = computeDecayScore({
@@ -1159,6 +1178,14 @@ export async function findRelevantArtifactsByTypesDetailed(params: {
 	limit: number;
 	excludeConversationId?: string;
 	queryEmbedding?: number[];
+	/**
+	 * Artifacts linked to the current project: preferred, never required.
+	 *
+	 * The list IS the scope. `artifacts` has no project column and a linked
+	 * library document has `conversationId = NULL`, so there is no join that
+	 * could express this — the link table's ids are what "in the project" means.
+	 */
+	scopeBoostArtifactIds?: string[];
 }): Promise<RankedArtifactMatch[]> {
 	const semanticBreadth = params.query.trim().length > 0;
 	const candidates = await selectArtifactSearchCandidates({
@@ -1188,6 +1215,7 @@ export async function findRelevantArtifactsByTypesDetailed(params: {
 		candidates,
 		limit: params.limit,
 		queryEmbedding: params.queryEmbedding,
+		scopeBoostArtifactIds: params.scopeBoostArtifactIds,
 	});
 }
 
@@ -1197,6 +1225,8 @@ export async function findRelevantArtifactsByTypes(params: {
 	types: ArtifactType[];
 	limit: number;
 	excludeConversationId?: string;
+	/** See {@link findRelevantArtifactsByTypesDetailed}. */
+	scopeBoostArtifactIds?: string[];
 }): Promise<Artifact[]> {
 	const matches = await findRelevantArtifactsByTypesDetailed(params);
 	return matches.map((entry) => entry.artifact);

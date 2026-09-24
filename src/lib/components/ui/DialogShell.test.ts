@@ -213,6 +213,45 @@ describe("DialogShell topmost mount-order stack", () => {
 	});
 });
 
+describe("DialogShell accessible name", () => {
+	it("names each dialog after its own title, not the first title on the page", async () => {
+		// The nested case is the one that breaks a constant id: a dialog opened
+		// from a dialog must introduce itself with its own title, or the picker
+		// announces itself as the modal underneath it.
+		render(DialogShell, {
+			props: {
+				title: "Parent dialog",
+				onClose: vi.fn(),
+				children: inertChildren,
+			},
+		});
+		render(DialogShell, {
+			props: {
+				title: "Nested dialog",
+				onClose: vi.fn(),
+				children: inertChildren,
+			},
+		});
+		await tick();
+
+		const dialogs = Array.from(
+			document.querySelectorAll<HTMLElement>('[role="dialog"]'),
+		);
+		expect(dialogs).toHaveLength(2);
+
+		const names = dialogs.map((dialog) => {
+			const labelledBy = dialog.getAttribute("aria-labelledby");
+			expect(
+				labelledBy,
+				"every dialog must point aria-labelledby at a title element",
+			).toBeTruthy();
+			return document.getElementById(labelledBy as string)?.textContent?.trim();
+		});
+
+		expect(names).toEqual(["Parent dialog", "Nested dialog"]);
+	});
+});
+
 describe("DialogShell body-scroll lock", () => {
 	afterEach(() => {
 		// Safety net: never leak a lock into a sibling test if an assertion throws.

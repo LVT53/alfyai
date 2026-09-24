@@ -336,6 +336,13 @@ export interface ChatMessage {
 	// `undefined` — never `{ personal: false }` — when nothing applied, and on
 	// every message persisted before the record existed. Assistant turns only.
 	instructionsApplied?: InstructionScopeApplication;
+	// Workspaces Slice E — how many of the conversation's project files this
+	// turn actually read, projected from `messages.metadataJson.projectFilesRead`
+	// (same paved road as `followUps`; no migration). A count, never a list: the
+	// Info popover is a glance and file names belong in Sources, where the user
+	// can open them. `undefined` — never 0 — when the turn read none, and on
+	// every message persisted before the record existed. Assistant turns only.
+	projectFilesRead?: number;
 	skillDrafts?: SkillControlMessageMetadata["skillDrafts"];
 	skillControl?: SkillControlMessageMetadata["skillControl"];
 	forkCopy?: ForkCopyMetadata;

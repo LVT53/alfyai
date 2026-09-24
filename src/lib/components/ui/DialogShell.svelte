@@ -131,6 +131,14 @@ let {
 
 const dialogId = Symbol("dialog-shell");
 
+// `aria-labelledby` has to point at THIS dialog's title. A constant id is
+// correct while one dialog is open and wrong the moment one dialog opens
+// another: both point at the same element, so the nested dialog resolves to
+// whichever title came first in the document and announces itself by the name
+// of the dialog underneath it. `$props.id()` is unique per instance and stable
+// across SSR and hydration, which a module-level counter is not.
+const titleId = $props.id();
+
 let dialogRef: HTMLDivElement | null = $state(null);
 let previousFocus: HTMLElement | null = null;
 let focusTimer: ReturnType<typeof setTimeout> | null = null;
@@ -317,7 +325,7 @@ onDestroy(() => {
     bind:this={dialogRef}
     role="dialog"
     aria-modal="true"
-    aria-labelledby="dialog-shell-title"
+    aria-labelledby={titleId}
     aria-describedby={description ? 'dialog-shell-description' : undefined}
     tabindex="-1"
     class={`relative w-full ${dialogSizeClass} border-border bg-surface-page shadow-lg ${isSheet ? '' : 'p-lg'}`}
@@ -338,7 +346,7 @@ onDestroy(() => {
     {/if}
     <div class={isSheet ? 'dialog-sheet__body' : ''}>
       <h2
-        id="dialog-shell-title"
+        id={titleId}
         class={titleVisuallyHidden ? 'sr-only' : 'mb-sm text-xl font-semibold text-text-primary'}
       >{title}</h2>
       {#if description}

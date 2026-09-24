@@ -7,7 +7,9 @@ import { json } from "@sveltejs/kit";
 import { getUploadFormatGate } from "$lib/server/services/knowledge/format-availability";
 import {
 	isKnowledgeUploadConversationError,
+	isKnowledgeUploadProjectError,
 	validateKnowledgeUploadConversation,
+	validateKnowledgeUploadProject,
 } from "$lib/server/services/knowledge/upload-intake";
 import {
 	formatUploadRejectMessageEn,
@@ -24,12 +26,15 @@ const UPLOAD_NAME_HEADER = "x-alfyai-upload-name";
 const UPLOAD_SIZE_HEADER = "x-alfyai-upload-size";
 const UPLOAD_TRACE_HEADER = "x-alfyai-upload-trace-id";
 const UPLOAD_CONVERSATION_HEADER = "x-alfyai-conversation-id";
+const UPLOAD_PROJECT_HEADER = "x-alfyai-project-id";
 
 export type KnowledgeUploadRequestMetadata = {
 	traceId: string;
 	fileName: string | null;
 	declaredFileSize: number | null;
 	conversationId: string | null;
+	/** Set when the upload was started from inside a project's Files modal. */
+	projectId: string | null;
 	mimeType: string | null;
 };
 
@@ -136,6 +141,7 @@ export function readKnowledgeUploadRequestMetadata(
 		conversationId: sanitizeHeaderValue(
 			request.headers.get(UPLOAD_CONVERSATION_HEADER),
 		),
+		projectId: sanitizeHeaderValue(request.headers.get(UPLOAD_PROJECT_HEADER)),
 		mimeType:
 			request.headers.get("content-type")?.split(";")[0]?.trim() || null,
 	};
@@ -308,6 +314,47 @@ export async function resolveKnowledgeUploadConversation(params: {
 					{
 						error: "Conversation not found or access denied",
 						code: "conversation_not_found",
+						traceId: params.traceId,
+					},
+					{ status: 400 },
+				),
+			};
+		}
+		throw error;
+	}
+}
+
+/**
+ * The project half of the same handshake.
+ *
+ * Resolved before the body is written, for the same reason as the conversation:
+ * a client posting megabytes at somebody else's project id should be answered
+ * with a 400, not with a full temporary copy of the file. Intake repeats the
+ * check immediately before the store — the route's answer is a courtesy, the
+ * service's is the guarantee.
+ */
+export async function resolveKnowledgeUploadProject(params: {
+	userId: string;
+	projectId: string | null;
+	traceId: string;
+}): Promise<
+	| { projectId: string | null; response: null }
+	| { projectId: null; response: Response }
+> {
+	try {
+		const projectId = await validateKnowledgeUploadProject({
+			userId: params.userId,
+			projectId: params.projectId,
+		});
+		return { projectId, response: null };
+	} catch (error) {
+		if (isKnowledgeUploadProjectError(error)) {
+			return {
+				projectId: null,
+				response: json(
+					{
+						error: "Project not found or access denied",
+						code: "invalid_project",
 						traceId: params.traceId,
 					},
 					{ status: 400 },

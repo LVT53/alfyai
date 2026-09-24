@@ -221,6 +221,8 @@ const UPLOAD_NAME_HEADER = "X-AlfyAI-Upload-Name";
 const UPLOAD_SIZE_HEADER = "X-AlfyAI-Upload-Size";
 const UPLOAD_TRACE_HEADER = "X-AlfyAI-Upload-Trace-Id";
 const UPLOAD_CONVERSATION_HEADER = "X-AlfyAI-Conversation-Id";
+/** Set when the upload was started from inside a project's Files modal. */
+const UPLOAD_PROJECT_HEADER = "X-AlfyAI-Project-Id";
 const UPLOAD_CHUNK_INDEX_HEADER = "X-AlfyAI-Chunk-Index";
 const UPLOAD_CHUNK_TOTAL_HEADER = "X-AlfyAI-Chunk-Total";
 const UPLOAD_CHUNK_START_HEADER = "X-AlfyAI-Chunk-Start";
@@ -289,6 +291,7 @@ function buildUploadHeaders(
 	file: File,
 	traceId: string,
 	conversationId?: string | null,
+	projectId?: string | null,
 ): Record<string, string> {
 	const headers: Record<string, string> = {
 		[UPLOAD_NAME_HEADER]: encodeUploadHeaderValue(file.name),
@@ -298,6 +301,9 @@ function buildUploadHeaders(
 	};
 	if (conversationId) {
 		headers[UPLOAD_CONVERSATION_HEADER] = conversationId;
+	}
+	if (projectId) {
+		headers[UPLOAD_PROJECT_HEADER] = projectId;
 	}
 	return headers;
 }
@@ -365,6 +371,36 @@ export async function fetchKnowledgeLibrary(): Promise<KnowledgeLibrary> {
 		results: _unwrapList<ArtifactSummary>(payload, "results"),
 		workflows: _unwrapList<WorkCapsule>(payload, "workflows"),
 	};
+}
+
+/**
+ * Which of the user's projects know each of these documents — the library's
+ * per-row token ("In 1 project"), asked once for a whole page of rows.
+ *
+ * Keyed by the document's own display artifact id, which is exactly the id the
+ * library table holds and the id a link is stored against. A document no
+ * project knows is simply absent from the answer, and a failure to answer is
+ * the caller's to swallow: a missing token is a cosmetic loss, and the library
+ * table is not a place to raise an error about a badge.
+ *
+ * The server caps one request at 200 ids, four times the library's own page
+ * cap, so a page of rows never has to be split.
+ */
+export async function fetchProjectKnowledgeLinks(
+	artifactIds: string[],
+): Promise<Record<string, string[]>> {
+	const ids = [
+		...new Set(artifactIds.map((id) => id.trim()).filter((id) => id !== "")),
+	];
+	if (ids.length === 0) return {};
+
+	const query = ids.map((id) => encodeURIComponent(id)).join(",");
+	const payload = await requestJson<{ links?: Record<string, string[]> }>(
+		`/api/projects/knowledge-links?artifactIds=${query}`,
+		undefined,
+		"Failed to load the projects these documents belong to",
+	);
+	return payload.links ?? {};
 }
 
 export async function fetchMemoryProfile(): Promise<MemoryProfilePublicPayload> {
@@ -501,10 +537,21 @@ export async function deleteKnowledgeArtifact(
 	);
 }
 
+/**
+ * Uploads one file into the library.
+ *
+ * `projectId` (the fourth parameter, beside the custom-fetch escape hatch every
+ * caller on the server-tested paths already ignores) is set only by the Files
+ * modal's own Upload button: the file is stored as an ordinary library document
+ * and linked to the project in the same request, in that order — a failed store
+ * must never leave a link pointing at a document that does not exist. It
+ * travels on both the raw and the chunked path.
+ */
 export async function uploadKnowledgeAttachment(
 	file: File,
 	conversationId?: string | null,
 	fetchImpl: FetchLike = fetch,
+	projectId?: string | null,
 ): Promise<KnowledgeUploadResponse> {
 	let intent: KnowledgeUploadIntentResponse;
 	try {
@@ -552,13 +599,19 @@ export async function uploadKnowledgeAttachment(
 				conversationId,
 				fetchImpl,
 				resolveChunkSize(intent),
+				projectId,
 			);
 		}
 		return await requestJson<KnowledgeUploadResponse>(
 			"/api/knowledge/upload/raw",
 			{
 				method: "POST",
-				headers: buildUploadHeaders(file, intent.traceId, conversationId),
+				headers: buildUploadHeaders(
+					file,
+					intent.traceId,
+					conversationId,
+					projectId,
+				),
 				body: file,
 			},
 			"Failed to upload attachment.",
@@ -584,6 +637,7 @@ async function uploadChunkedKnowledgeAttachment(
 	conversationId: string | null | undefined,
 	fetchImpl: FetchLike,
 	chunkSize: number,
+	projectId?: string | null,
 ): Promise<KnowledgeUploadResponse> {
 	const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
 	let finalResponse: KnowledgeUploadResponse | null = null;
@@ -602,7 +656,7 @@ async function uploadChunkedKnowledgeAttachment(
 			{
 				method: "POST",
 				headers: {
-					...buildUploadHeaders(file, traceId, conversationId),
+					...buildUploadHeaders(file, traceId, conversationId, projectId),
 					[UPLOAD_CHUNK_INDEX_HEADER]: String(chunkIndex),
 					[UPLOAD_CHUNK_TOTAL_HEADER]: String(totalChunks),
 					[UPLOAD_CHUNK_START_HEADER]: String(start),

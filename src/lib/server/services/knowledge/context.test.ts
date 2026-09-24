@@ -355,6 +355,92 @@ describe("knowledge context retrieval", () => {
 		);
 	});
 
+	it("reports the project's file counts on the working-document log line it already emits", async () => {
+		// What the turn was told about the project's files travels on the
+		// selection summary that already fires for this phase: an operator
+		// debugging a turn should not have to correlate two log lines to see
+		// which files the model was actually offered.
+		function queueCorrectionSelection() {
+			const generated = artifact({
+				id: "brief-v1",
+				name: "project-brief.pdf",
+			});
+			mockDbSelectQueue.push({
+				final: "where",
+				rows: [
+					{
+						item: workingSetItem({ artifactId: "brief-v1" }),
+						artifact: generated,
+					},
+				],
+			});
+			mockResolveWorkingDocumentSelection.mockReturnValueOnce(
+				workingDocumentSelection({
+					correction: { hasSignal: true, targetArtifactIds: ["brief-v1"] },
+					prompt: {
+						reasonCodesByArtifactId: new Map([
+							["brief-v1", ["recent_user_correction"]],
+						]),
+					},
+					taskEvidence: {
+						protectedArtifactIds: ["brief-v1"],
+						workingDocumentProtectedArtifactIds: ["brief-v1"],
+					},
+				}),
+			);
+			mockIsGeneratedDocumentPromptEligible.mockImplementation(
+				({ reasonCodes }: { reasonCodes: string[] }) =>
+					reasonCodes.includes("recent_user_correction"),
+			);
+		}
+
+		const infoSpy = vi
+			.spyOn(console, "info")
+			.mockImplementation(() => undefined);
+		try {
+			const { selectWorkingSetArtifactsForPrompt } = await import("./context");
+			queueCorrectionSelection();
+			await selectWorkingSetArtifactsForPrompt(
+				"user-1",
+				"conv-1",
+				"Please refine it.",
+				[],
+				undefined,
+				{ listed: 30, more: 5 },
+			);
+
+			expect(infoSpy).toHaveBeenCalledWith(
+				"[CONTEXT] Working document selection",
+				expect.objectContaining({
+					phase: "prompt",
+					projectFilesListed: 30,
+					projectFilesMore: 5,
+				}),
+			);
+
+			// A turn with no project (or no files) reports nulls rather than
+			// silently omitting the fields, so the absence is visible too.
+			infoSpy.mockClear();
+			queueCorrectionSelection();
+			await selectWorkingSetArtifactsForPrompt(
+				"user-1",
+				"conv-1",
+				"Please refine it.",
+			);
+
+			expect(infoSpy).toHaveBeenCalledWith(
+				"[CONTEXT] Working document selection",
+				expect.objectContaining({
+					phase: "prompt",
+					projectFilesListed: null,
+					projectFilesMore: null,
+				}),
+			);
+		} finally {
+			infoSpy.mockRestore();
+		}
+	});
+
 	it("suppresses stale generated working-set prompt evidence for new file creation requests", async () => {
 		const staleGenerated = artifact({
 			id: "brief-v1",

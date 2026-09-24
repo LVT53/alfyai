@@ -1296,6 +1296,47 @@ export const projects = sqliteTable(
 	}),
 );
 
+/**
+ * A library document a project knows about (Workspaces feature 1, Slice E).
+ *
+ * Deliberately NOT `artifact_links`: that table's `conversation_id` and
+ * `message_id` are the whole point of its shape and every read of it filters on
+ * them, and a project link has neither. A `project_id` column on `artifacts`
+ * was rejected too — one document may be linked to several projects, and
+ * `artifacts` stays project-agnostic.
+ *
+ * A link is a link: inserting one copies nothing, and deleting one deletes
+ * nothing but the row. Both foreign keys cascade, so deleting either the
+ * project or the document takes the row with it and no dangling link survives.
+ */
+export const projectKnowledgeLinks = sqliteTable(
+	"project_knowledge_links",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		projectId: text("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		artifactId: text("artifact_id")
+			.notNull()
+			.references(() => artifacts.id, { onDelete: "cascade" }),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => ({
+		projectArtifactUnique: uniqueIndex(
+			"project_knowledge_links_project_artifact_unique",
+		).on(table.projectId, table.artifactId),
+		userProjectIdx: index("project_knowledge_links_user_project_idx").on(
+			table.userId,
+			table.projectId,
+		),
+	}),
+);
+
 export const messageAnalytics = sqliteTable(
 	"message_analytics",
 	{

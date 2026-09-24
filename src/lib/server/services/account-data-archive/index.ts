@@ -13,6 +13,7 @@ import {
 	importJobs,
 	memoryEvents,
 	messages,
+	projectKnowledgeLinks,
 	projects,
 	usageEvents,
 	userSkillDefinitions,
@@ -112,6 +113,7 @@ export async function createAccountDataArchive(
 		usageRows,
 		analyticsConversationRows,
 		projectRows,
+		projectFileRows,
 	] = await Promise.all([
 		listConversations(database, userId),
 		listMessages(database, userId),
@@ -124,6 +126,7 @@ export async function createAccountDataArchive(
 		listUsageEvents(database, userId),
 		listAnalyticsConversations(database, userId),
 		listProjects(database, userId),
+		listProjectFiles(database, userId),
 	]);
 
 	const uploadedArtifacts = artifactRows.filter(
@@ -141,7 +144,10 @@ export async function createAccountDataArchive(
 	);
 
 	await addProfileSection(archive, { user, rootDir });
-	addProjectsSection(archive, { projectRows });
+	addProjectsSection(archive, {
+		projectRows,
+		filesByProjectId: groupProjectFileNames(projectFileRows),
+	});
 	await addFilesSection(archive, {
 		rootDir,
 		uploadedArtifacts,
@@ -278,17 +284,26 @@ async function addProfileSection(
 }
 
 /**
- * Every project the user made, with the standing guidance they wrote for it.
+ * Every project the user made, with the standing guidance they wrote for it and
+ * the library files the project knows.
  *
  * A project is a home for chats, and its instructions are the user's own text
  * about their own work — the same kind of thing as the personal instructions
- * on the profile page, one level down. A project with none is still listed:
- * the page is the archive's only record that the project exists at all, and a
- * folder silently missing from an export would read as data loss.
+ * on the profile page, one level down. Its file list is the same kind of
+ * statement again: "this document belongs to this project". Names only — the
+ * documents themselves are archived whole under `Files/`, and a name is what
+ * makes the list readable.
+ *
+ * A project with neither is still listed: the page is the archive's only record
+ * that the project exists at all, and a folder silently missing from an export
+ * would read as data loss.
  */
 function addProjectsSection(
 	archive: ArchiveBuilder,
-	params: { projectRows: Array<typeof projects.$inferSelect> },
+	params: {
+		projectRows: Array<typeof projects.$inferSelect>;
+		filesByProjectId: Map<string, string[]>;
+	},
 ) {
 	// Oldest first, the order the query already returns: a project's position
 	// on the page is a fact about the account, not a preference.
@@ -298,10 +313,17 @@ function addProjectsSection(
 					const instructionBlock = project.instructions
 						? `<pre>${escapeHtml(project.instructions)}</pre>`
 						: `<p class="empty">No instructions.</p>`;
+					const fileNames = params.filesByProjectId.get(project.id) ?? [];
+					const filesBlock = fileNames.length
+						? `<h3>Files</h3><ul>${fileNames
+								.map((name) => `<li>${escapeHtml(name)}</li>`)
+								.join("")}</ul>`
+						: `<h3>Files</h3><p class="empty">No files linked to this project.</p>`;
 					return `<section>
 						<h2>${escapeHtml(project.name)}</h2>
 						<p class="meta">Created ${escapeHtml(formatDateTime(project.createdAt))} · Updated ${escapeHtml(formatDateTime(project.updatedAt))}</p>
 						${instructionBlock}
+						${filesBlock}
 					</section>`;
 				})
 				.join("")
@@ -311,10 +333,54 @@ function addProjectsSection(
 		"Projects/Projects.html",
 		renderArchivePage({
 			title: "Projects",
-			subtitle: "Your projects and the standing instructions set for each one.",
+			subtitle:
+				"Your projects, the standing instructions set for each one, and the files each one knows.",
 			body,
 		}),
 	);
+}
+
+/**
+ * Group the user's project-file links by project, as names.
+ *
+ * Read here rather than through `project-knowledge.ts` on purpose: this is the
+ * export path, and the export deliberately does not go through the ownership
+ * scope for the same reason the artifact reads above it do not — everything
+ * keyed to this user is the point of the archive. The `user_id` filter is what
+ * keeps another user's links out, and it is the only thing that has to.
+ *
+ * Names come from the artifact row, joined on the link: the link says "which
+ * id", and the file the user recognises is the one with the name on it. A link
+ * whose artifact is gone cannot exist — the FK cascades — so there is no
+ * dangling-name case to render.
+ */
+async function listProjectFiles(database: ArchiveDb, userId: string) {
+	return database
+		.select({
+			projectId: projectKnowledgeLinks.projectId,
+			name: artifacts.name,
+			createdAt: projectKnowledgeLinks.createdAt,
+		})
+		.from(projectKnowledgeLinks)
+		.innerJoin(artifacts, eq(projectKnowledgeLinks.artifactId, artifacts.id))
+		.where(eq(projectKnowledgeLinks.userId, userId))
+		.orderBy(
+			asc(projectKnowledgeLinks.projectId),
+			asc(projectKnowledgeLinks.createdAt),
+			asc(artifacts.name),
+		);
+}
+
+function groupProjectFileNames(
+	rows: Array<{ projectId: string; name: string }>,
+): Map<string, string[]> {
+	const byProject = new Map<string, string[]>();
+	for (const row of rows) {
+		const names = byProject.get(row.projectId) ?? [];
+		names.push(row.name);
+		byProject.set(row.projectId, names);
+	}
+	return byProject;
 }
 
 async function addFilesSection(
@@ -698,12 +764,13 @@ function addEntryPage(
 		{
 			id: "projects",
 			title: "Projects",
-			subtitle: "Your projects and the standing instructions set for each one.",
+			subtitle:
+				"Your projects, the standing instructions set for each one, and the files each one knows.",
 			body: `<div class="chat-list">
 				<a class="chat-row" href="Projects/Projects.html">
 					<div>
-						<p class="chat-title">Projects and their instructions</p>
-						<p class="chat-preview">Open the page listing every project you made, with the guidance you set for it.</p>
+						<p class="chat-title">Projects, their instructions, and their files</p>
+						<p class="chat-preview">Open the page listing every project you made, with the guidance you set for it and the names of the library files it knows.</p>
 					</div>
 					<div class="chat-meta">${escapeHtml(params.projectCount)} projects</div>
 				</a>

@@ -1,6 +1,7 @@
+import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import type { Project } from "$lib/server/services/projects";
 import { _unwrapList } from "./_utils";
-import { requestJson } from "./http";
+import { requestJson, requestVoid } from "./http";
 
 export async function fetchProjects(): Promise<Project[]> {
 	const payload = await requestJson<{ projects?: Project[] }>(
@@ -83,5 +84,51 @@ export async function deleteProject(id: string): Promise<void> {
 			method: "DELETE",
 		},
 		"Failed to delete project",
+	);
+}
+
+/**
+ * The library documents a project knows about.
+ *
+ * Every one of these is an ordinary library document: linking copies nothing,
+ * and both mutating calls answer with the project's full list so the caller
+ * renders what the server has rather than what it hoped it sent.
+ */
+export async function fetchProjectFiles(
+	projectId: string,
+): Promise<ProjectKnowledgeItem[]> {
+	const payload = await requestJson<{ files?: ProjectKnowledgeItem[] }>(
+		`/api/projects/${projectId}/knowledge`,
+		undefined,
+		"Failed to load project files",
+	);
+	return _unwrapList<ProjectKnowledgeItem>(payload, "files");
+}
+
+export async function linkProjectFiles(
+	projectId: string,
+	artifactIds: string[],
+): Promise<ProjectKnowledgeItem[]> {
+	const payload = await requestJson<{ files?: ProjectKnowledgeItem[] }>(
+		`/api/projects/${projectId}/knowledge`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ artifactIds }),
+		},
+		"Failed to add files to the project",
+	);
+	return _unwrapList<ProjectKnowledgeItem>(payload, "files");
+}
+
+/** Removes the link, never the file. The document stays in the library. */
+export async function unlinkProjectFile(
+	projectId: string,
+	artifactId: string,
+): Promise<void> {
+	await requestVoid(
+		`/api/projects/${projectId}/knowledge/${encodeURIComponent(artifactId)}`,
+		{ method: "DELETE" },
+		"Failed to remove the file from the project",
 	);
 }
