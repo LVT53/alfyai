@@ -555,6 +555,36 @@ describe("project knowledge links", () => {
 		).rejects.toMatchObject({ code: "project_not_found", status: 404 });
 	});
 
+	it("cannot unlink another user's link, not even through a project of its own", async () => {
+		seedProjectKnowledgeScenario();
+		const { linkProjectKnowledge, unlinkProjectKnowledge } = await import(
+			"./project-knowledge"
+		);
+
+		await linkProjectKnowledge({
+			userId: "owner-user",
+			projectId: "trip-project",
+			artifactIds: ["artifact-railjet"],
+		});
+
+		// Knowing the artifact id is not enough. The second user's own project is
+		// a real project of theirs, so the project check passes and the delete
+		// runs — and deletes nothing, because the row it would have to match
+		// carries the owner's user id. The answer is `false`, the same answer an
+		// unlink of something that was never linked gets.
+		await expect(
+			unlinkProjectKnowledge({
+				userId: "other-user",
+				projectId: "other-project",
+				artifactId: "artifact-railjet",
+			}),
+		).resolves.toBe(false);
+
+		expect(readLinkRows().map((row) => row.artifact_id)).toEqual([
+			"artifact-railjet",
+		]);
+	});
+
 	it("404s and writes nothing when the artifact does not exist", async () => {
 		seedProjectKnowledgeScenario();
 		const { linkProjectKnowledge, isProjectKnowledgeError } = await import(
