@@ -10,9 +10,9 @@ Last updated: 2026-09-24 (implementation session 2 — Phase 0 done, Wave 1 in f
 |---|---|
 | Phase 0 — branch and environment | **complete** |
 | Phase 1 — plan | **complete and approved** |
-| Phase 2 — implementation | **Waves 1–3 merged** (A, B, C, D); **Wave 4 (Slice E) in flight** |
-| Phase 3 — adversarial review | Waves 1–2 reviewed and fixed; **Slice D under review** |
-| Phase 4 — verify for real | Waves 1–3 **deployed to dev** and verified in a browser with a real model |
+| Phase 2 — implementation | **Waves 1–4 merged** (A–E); **Wave 5 (F ∥ G) in flight** |
+| Phase 3 — adversarial review | Waves 1–3 reviewed and fixed; **Slice E under review** |
+| Phase 4 — verify for real | Waves 1–4 deployed to dev; E built; real-model checks pending |
 
 ### Wave 3 (Slice D, Project Instructions + the project page) — merged and deployed `6d59195d`
 
@@ -50,7 +50,64 @@ everything else (failing test first, mutation check, gates):
 **Owner also resolved the production row count** (recorded in `review-wave-1.md`): the migration may run without a
 count first — "is fine, no one used it" — matching dev's measured zero.
 
-### Wave 4 (Slice E, Folder Knowledge) — in flight
+### Wave 4 (Slice E, Folder Knowledge) — merged `fecb790a`, under review
+
+Thirteen commits, 64 files, migration `1777140000109` (journal idx 122). Adds the `project_knowledge_links`
+table, the two Files dialogs, the protected `## Project Files` section, on-demand file reading, the read-count
+row, and archive/erasure coverage. The `home_suggestion_events` removal is Wave 5's (Slice G).
+
+**The cap (plan Review Focus 3) is proven at the character level:** 35 files → 30 entries + `+5 more` with the
+31st name *absent* from the constructed prompt (dropped whole, never clipped); 40 wide entries → 28 lines +
+`+12 more` where the character cap bites before the entry cap; and a 1 600-character filename → the body is
+exactly `+2 more` with the name's first 120 characters absent everywhere.
+
+**Ownership and non-destruction** are covered by tests on both sides of the boundary — cross-user link, list,
+name-resolution and unlink all refused, with "writes nothing" asserted; unlink leaves the artifact and its bytes,
+a second unlink is a no-op, project deletion keeps the library files, and deleting a library file leaves no
+dangling link.
+
+**Slice E found two of its own defects** during the mockup check and fixed both (`34888d93`, `c282c212`).
+
+**Verified on dev with a real model** (deployed `5eab8541`), the checks the implementer could not run:
+
+| Check | Result |
+|---|---|
+| Upload a file directly into a project (the upload-link path) | pass |
+| It becomes linked to that project | pass |
+| **A real turn answers from the file's content** — asked for a booking reference held only in the uploaded file, and the reply contained it | pass |
+| Unlink succeeds | pass |
+| **The library file still exists after unlinking** | pass |
+| The project no longer lists it | pass |
+
+That third row is the heart of the feature: the file's *content* reached the model on demand, not just its name.
+Probe `/tmp/ws-visual/probe-folder-knowledge.mjs` (uploads, verifies, unlinks, and leaves the project as it found
+it — the uploaded file stays in the library, which is the correct end state).
+
+**Three findings the orchestrator should carry, none of them Slice E's:**
+
+- **(a) Pre-existing and broader than this slice:** on a *live* chat page the Info popover shows **no evidence
+  rows at all** until the conversation detail is reloaded — the streamed message object does not carry the
+  persisted `metadataJson`. It affects every evidence row, not just project files. Needs its own ticket.
+- **(b)** the mention path fails open for `resolveProjectFileMentions` (`context-selection.ts:708-730`) — flagged
+  to the reviewer rather than fixed unilaterally.
+- **(c)** an E2E normalisation lag: a turn started before the background normaliser lands sees a source document
+  with no text. App behaviour, not a test workaround.
+
+**One order-sensitive constraint the reviewer must check:** in `MessageBubble.svelte`,
+`.info-container .info-popover.info-popover-forced-closed` must stay **after** the `@media (hover: hover)` hover
+rule — order, not specificity, is what makes the press win, and the unit test pins the behaviour but not the
+sheet order.
+
+### Wave 5 (Slice F ∥ Slice G) — in flight, started before Slice E's review landed
+
+Both are cut from the merged `feat/workspaces` at `fecb790a`, in parallel. The plan's rule is kept in the briefs:
+**G owns the deletions in `src/lib/i18n/chat.ts`** (the `home.suggest.*` block) and F adds its own keys in its own
+region, so the two merge cleanly instead of colliding in that file. F must not build G's home row and G must not
+build F's `/instruction`; both are told so explicitly, plus the standing rule about not editing Slice C's dialog.
+
+The judgement is the same as the C∥D and D∥E overlaps: the shared surfaces are distinct regions of the same
+files, and a conflict would be small and local. Recorded so it can be undone if the merge turns out dirty.
+
 
 Started **before** Slice D's review finished, deliberately: E's only file overlap with D is
 `src/lib/components/home/HomeSurface.svelte`, where E adds the files half of the quiet line in a distinct region,

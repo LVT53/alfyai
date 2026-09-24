@@ -1,10 +1,11 @@
 // Everything the chat home (HomeV4A "Compact") reads, in one per-user payload:
 // the twelve weekly bars and the week's count, the three most recent
-// conversations, the one job in flight, and the Try suggestion pool.
+// conversations, the cards for the projects that have been active, and the one
+// job in flight.
 //
-// All four strips are read-only, per user, and small. The whole thing is cached
-// for 30 seconds per user, which is the point of assembling it here rather than
-// letting the home screen fan out to four endpoints.
+// All of it is read-only, per user, and small. The whole thing is cached for 30
+// seconds per user, which is the point of assembling it here rather than letting
+// the home screen fan out to several endpoints.
 
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import chatDict from "$lib/i18n/chat";
@@ -17,14 +18,20 @@ import {
 	messages,
 	users,
 } from "$lib/server/db/schema";
-import {
-	getHomeSuggestions,
-	type HomeSuggestion,
-	type HomeSuggestionLocale,
-	recordHomeSuggestionsShown,
-} from "$lib/server/services/home-suggestions";
+import { listProjectKnowledge } from "$lib/server/services/knowledge/project-knowledge";
 import { isUserMemoryEnabled } from "$lib/server/services/memory-controls";
 import { getMemoryProfileReadModel } from "$lib/server/services/memory-profile/read-model";
+import { listRecentlyActiveProjects } from "$lib/server/services/projects";
+
+/**
+ * The two languages the home figures are rendered into.
+ *
+ * It used to be re-exported from the suggestion engine, which owned the same
+ * pair because it rendered suggestion templates server-side. The engine is
+ * gone; the need to pick a label language is not, so the type lives here now,
+ * next to the only code that uses it.
+ */
+export type HomeSummaryLocale = "en" | "hu";
 
 export const HOME_SUMMARY_DEFAULT_CACHE_TTL_MS = 30_000;
 
@@ -48,6 +55,8 @@ export function homeSummaryCacheTtlMs(): number {
 
 export const HOME_WEEKLY_BAR_COUNT = 12;
 export const HOME_RECENT_LIMIT = 3;
+/** The projects row's three columns, and its three cards. */
+export const HOME_PROJECTS_LIMIT = 3;
 
 export interface HomeWeeklyBucket {
 	/** ISO week label, e.g. "2026-W37". */
@@ -77,12 +86,39 @@ export interface HomeRunningJob {
 	startedAt: number;
 }
 
+/**
+ * One card in the home projects row.
+ *
+ * Every field is already stored: `listRecentlyActiveProjects` supplies the name,
+ * colour, chat count, last activity and whether the project has instructions,
+ * and `listProjectKnowledge` supplies the file count. Nothing here is derived
+ * for the card's sake — in particular it does NOT carry the instruction text,
+ * only whether there is any.
+ */
+export interface HomeProjectCard {
+	id: string;
+	name: string;
+	color: string | null;
+	chatCount: number;
+	/** Unix seconds. */
+	lastActivityAt: number;
+	hasInstructions: boolean;
+	fileCount: number;
+}
+
 export interface HomeSummary {
 	weekly: HomeWeeklyBucket[];
 	weeklyTotal: number;
 	recent: HomeRecentConversation[];
 	running: HomeRunningJob | null;
-	suggestions: HomeSuggestion[];
+	/**
+	 * The projects worth showing, newest activity first, at most
+	 * `HOME_PROJECTS_LIMIT` of them. The eligibility rule — at least one chat
+	 * that has carried a message — belongs to `listRecentlyActiveProjects` and
+	 * is not re-applied anywhere: an empty project is not "recently active", and
+	 * a second copy of that predicate is a second thing to keep true.
+	 */
+	projects: HomeProjectCard[];
 	/**
 	 * How many open Memory Profile review items this user has, straight from
 	 * the same read model the Knowledge → Memory tab's badge uses
@@ -327,7 +363,7 @@ const STAGE_LABEL_KEYS: Record<string, PhraseKey> = {
 	render: "atlas.stage.render",
 };
 
-function label(locale: HomeSuggestionLocale, key: PhraseKey): string {
+function label(locale: HomeSummaryLocale, key: PhraseKey): string {
 	const table = chatDict[locale] ?? chatDict.en;
 	return (
 		(table as Record<string, string>)[key] ??
@@ -349,7 +385,7 @@ export function resolveRunningJobPhase(params: {
 	status: string;
 	stage: string | null;
 	progressDetailsJson: string | null;
-	locale: HomeSuggestionLocale;
+	locale: HomeSummaryLocale;
 }): string {
 	const { locale } = params;
 	if (params.status === "queued") return label(locale, "atlas.stage.queued");
@@ -384,7 +420,7 @@ export function resolveRunningJobPhase(params: {
  */
 export function resolveFileJobPhase(params: {
 	status: string;
-	locale: HomeSuggestionLocale;
+	locale: HomeSummaryLocale;
 }): string {
 	if (params.status === "queued") {
 		return label(params.locale, "atlas.stage.queued");
@@ -516,7 +552,7 @@ async function readRecent(userId: string): Promise<HomeRecentConversation[]> {
  */
 async function readRunning(
 	userId: string,
-	locale: HomeSuggestionLocale,
+	locale: HomeSummaryLocale,
 ): Promise<HomeRunningJob | null> {
 	const [atlasRow] = await db
 		.select({
@@ -592,6 +628,40 @@ async function readRunning(
 }
 
 /**
+ * The cards for the home projects row.
+ *
+ * Eligibility is entirely `listRecentlyActiveProjects`'s answer — this function
+ * asks it for three projects and draws those three. That is the point: "a
+ * project with no chats gets no card" is one rule in one place, and a home
+ * screen that re-checked it would be the second place it could go wrong.
+ *
+ * The file counts come from `listProjectKnowledge` per project, in parallel with
+ * each other and read-only on both sides (the Files modal's own list is the same
+ * read), so a card can never claim a count the modal would disagree with. Only
+ * the length is used; the items themselves are the modal's business.
+ */
+async function readProjects(userId: string): Promise<HomeProjectCard[]> {
+	const projects = await listRecentlyActiveProjects({
+		userId,
+		limit: HOME_PROJECTS_LIMIT,
+	});
+	if (projects.length === 0) return [];
+
+	return Promise.all(
+		projects.map(async (project) => ({
+			id: project.id,
+			name: project.name,
+			color: project.color,
+			chatCount: project.chatCount,
+			lastActivityAt: project.lastActivityAt,
+			hasInstructions: project.hasInstructions,
+			fileCount: (await listProjectKnowledge({ userId, projectId: project.id }))
+				.length,
+		})),
+	);
+}
+
+/**
  * The home-screen "memories need review" notice: the same open-review count
  * the Knowledge → Memory tab badge shows, plus whether the user's own
  * dismissal still covers everything currently open.
@@ -607,9 +677,8 @@ async function readRunning(
  * Dismissal is per user, not per item: `users.homeMemoryReviewDismissedAt`
  * records when the user last dismissed the notice, and it stays dismissed
  * until an open review item NEWER than that timestamp exists. A dismissal
- * does not expire on its own — unlike the 7-day suggestion-rail event log,
- * there is no natural "come back after a week" for this notice, only "come
- * back when there is something new to look at".
+ * does not expire on its own: there is no natural "come back after a week" for
+ * this notice, only "come back when there is something new to look at".
  *
  * The "newest" lookup is scoped to the exact row ids
  * `getMemoryProfileReadModel(...)` returned — not a second, independent
@@ -673,8 +742,8 @@ const cache = new Map<string, { expiresAt: number; value: HomeSummary }>();
  * How many users' summaries may sit in the cache at once.
  *
  * An entry going stale is not an entry going away: without this the map keeps
- * one payload — twelve buckets, three conversations and nine rendered
- * suggestions — per user who has ever opened the home screen since the process
+ * one payload — twelve buckets and three conversations — per user who has ever
+ * opened the home screen since the process
  * started, for the life of the process. A thousand seats is a few megabytes of
  * summaries nobody is going to read again, and on a self-hosted box that is
  * memory the model needs. Insertion order is eviction order (Map preserves it),
@@ -731,16 +800,15 @@ async function computeHomeSummary(
 		.from(users)
 		.where(eq(users.id, userId))
 		.limit(1);
-	const locale: HomeSuggestionLocale =
-		userRow?.uiLanguage === "hu" ? "hu" : "en";
+	const locale: HomeSummaryLocale = userRow?.uiLanguage === "hu" ? "hu" : "en";
 	const timeZone = reportingTimeZone();
 
-	const [weekly, recent, running, suggestions, memoryReviewNotice] =
+	const [weekly, recent, running, projects, memoryReviewNotice] =
 		await Promise.all([
 			readWeekly(userId, now, timeZone),
 			readRecent(userId),
 			readRunning(userId, locale),
-			getHomeSuggestions({ userId, locale, now }),
+			readProjects(userId),
 			// Auxiliary: a memory read failure hides the notice instead of
 			// failing the whole home screen.
 			readMemoryReviewNotice(
@@ -757,7 +825,7 @@ async function computeHomeSummary(
 		weeklyTotal: weekly.at(-1)?.count ?? 0,
 		recent,
 		running,
-		suggestions,
+		projects,
 		memoryReviewCount: memoryReviewNotice.count,
 		memoryReviewNoticeDismissed: memoryReviewNotice.dismissed,
 		generatedAt: Math.floor(now.getTime() / 1000),
@@ -780,19 +848,10 @@ export async function getHomeSummary(params: {
 		now.getTime(),
 	);
 
-	// Only on a miss: a client polling the summary must not be able to turn the
-	// rail into a write endpoint. Best effort — the home screen must render
-	// even if this fails.
-	void recordHomeSuggestionsShown({
-		userId: params.userId,
-		candidateKeys: value.suggestions.slice(0, 3).map((s) => s.key),
-		now,
-	}).catch(() => undefined);
-
 	return value;
 }
 
-/** Drops one user's cached summary, e.g. after they act on a suggestion. */
+/** Drops one user's cached summary, e.g. after they dismiss the memory notice. */
 export function invalidateHomeSummary(userId: string): void {
 	cache.delete(userId);
 }

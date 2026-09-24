@@ -1,29 +1,22 @@
 // The chat home's one read: everything HomeV4A "Compact" draws, per user,
 // cached 30 seconds (see home-summary.ts).
 //
-// The POST is the one write the screen needs and the only reason the
-// `home_suggestion_events` table exists: without a record that a chip was used
-// or dismissed, the ranking's second field cannot be computed at all and
-// "another" would be the only way a chip ever changed.
+// The POST is the one write the screen needs: dismissing the "memories need
+// review" notice. It used to carry a second payload — the suggestion rail's
+// shown/dismissed/used events — and that half is gone along with the rail and
+// its event table. What is left writes a single timestamp onto the caller's own
+// `users` row, so it needs no rate limit: the row cannot grow, and repeating
+// the write is the same write.
 
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
-import { checkHomeSuggestionEventRateLimit } from "$lib/server/services/home-suggestion-rate-limit";
-import {
-	type HomeSuggestionEventKind,
-	isHomeSuggestionCandidateKey,
-	recordHomeSuggestionEvent,
-} from "$lib/server/services/home-suggestions";
 import {
 	dismissMemoryReviewNotice,
 	getHomeSummary,
-	invalidateHomeSummary,
 } from "$lib/server/services/home-summary";
 import type { RequestHandler } from "./$types";
 
-const EVENT_KINDS: HomeSuggestionEventKind[] = ["shown", "dismissed", "used"];
-
-/** The one non-suggestion action this endpoint also accepts. */
+/** The one action this endpoint accepts. */
 const DISMISS_MEMORY_REVIEW_ACTION = "dismissMemoryReviewNotice";
 
 export const GET: RequestHandler = async (event) => {
@@ -38,64 +31,18 @@ export const GET: RequestHandler = async (event) => {
 
 export const POST: RequestHandler = async (event) => {
 	requireAuth(event);
-	// Every accepted call inserts a row that lives seven days, and the key is
-	// the client's to choose. Nothing downstream caps how many DIFFERENT keys
-	// one account can write, so the cap goes here — before the body is even
-	// read, so a flood costs nothing but the window check.
-	if (!checkHomeSuggestionEventRateLimit(event.locals.user.id)) {
-		return json({ error: "Too many requests" }, { status: 429 });
-	}
 	const body = await event.request.json().catch(() => null);
 
-	// The memory-review notice has no candidate key of its own — it is a single
-	// per-user notice, not a ranked/rotating chip — so it is dispatched by
-	// `action` instead of reusing the `candidateKey` shape below.
 	if (
-		body &&
-		typeof body.action === "string" &&
-		body.action === DISMISS_MEMORY_REVIEW_ACTION
+		!body ||
+		typeof body.action !== "string" ||
+		body.action !== DISMISS_MEMORY_REVIEW_ACTION
 	) {
-		await dismissMemoryReviewNotice(event.locals.user.id);
-		return json({ ok: true });
+		return json({ error: "Unknown action" }, { status: 400 });
 	}
 
-	const candidateKey =
-		body && typeof body.candidateKey === "string"
-			? body.candidateKey.trim()
-			: "";
-	const kind = body && typeof body.event === "string" ? body.event : "";
-
-	if (!candidateKey) {
-		return json({ error: "candidateKey is required" }, { status: 400 });
-	}
-	// The engine's own keys are `<kind>:<id>`, and only those are stored. This
-	// is deliberately NOT a check that the object still exists — a key whose
-	// conversation or job was deleted must still be storable, since the
-	// demotion outlives what it points at — it is a check that the row about to
-	// be written for seven days is one of this engine's keys rather than
-	// whatever text a client felt like keeping there.
-	if (!isHomeSuggestionCandidateKey(candidateKey)) {
-		return json(
-			{ error: "candidateKey is not a suggestion key" },
-			{
-				status: 400,
-			},
-		);
-	}
-	if (!EVENT_KINDS.includes(kind as HomeSuggestionEventKind)) {
-		return json(
-			{ error: `event must be one of ${EVENT_KINDS.join(", ")}` },
-			{ status: 400 },
-		);
-	}
-
-	await recordHomeSuggestionEvent({
-		userId: event.locals.user.id,
-		candidateKey,
-		event: kind as HomeSuggestionEventKind,
-	});
-	// An acted-on candidate must be gone from the rail on the next render, not
-	// up to 30 seconds later.
-	invalidateHomeSummary(event.locals.user.id);
+	// The notice belongs to the session user and to nobody else: the body may
+	// name a user, but a body field is never what decides whose row is written.
+	await dismissMemoryReviewNotice(event.locals.user.id);
 	return json({ ok: true });
 };

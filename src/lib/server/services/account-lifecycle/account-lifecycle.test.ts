@@ -632,16 +632,6 @@ function seedEveryUserScopedTable(userId: string) {
 			updatedAt: now,
 		})
 		.run();
-	db.insert(schema.homeSuggestionEvents)
-		.values({
-			id: p("home-suggestion"),
-			userId,
-			candidateKey: "connection:calendar",
-			event: "shown",
-			createdAt: now,
-			expiresAt: now,
-		})
-		.run();
 	db.insert(schema.usageEvents)
 		.values({
 			id: p("usage"),
@@ -729,7 +719,6 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"task_checkpoints",
 				"task_state_evidence_links",
 				"usage_events",
-				"home_suggestion_events",
 				"user_connections",
 				"user_skill_definitions",
 			].sort(),

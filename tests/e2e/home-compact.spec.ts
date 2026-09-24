@@ -6,7 +6,6 @@ import { db } from "../../src/lib/server/db";
 import {
 	atlasJobs,
 	conversations,
-	homeSuggestionEvents,
 	usageEvents,
 	users,
 } from "../../src/lib/server/db/schema";
@@ -15,9 +14,7 @@ import { createMessage } from "../../src/lib/server/services/messages";
 import { login, TEST_EMAIL } from "./helpers";
 
 /**
- * The chat home rebuilt to HomeV4A "Compact", with the owner's one change: the
- * suggestion chips sit on their own row under the composer rather than inside
- * its footer.
+ * The chat home rebuilt to HomeV4A "Compact".
  *
  * Every strip here is seeded directly into the database rather than produced by
  * a real turn — the point of these tests is what the home screen draws from the
@@ -43,9 +40,6 @@ async function adminUserId(): Promise<string> {
 async function clearHomeFixtures(userId: string) {
 	await db.delete(atlasJobs).where(eq(atlasJobs.userId, userId));
 	await db.delete(usageEvents).where(eq(usageEvents.userId, userId));
-	await db
-		.delete(homeSuggestionEvents)
-		.where(eq(homeSuggestionEvents.userId, userId));
 	await db.delete(conversations).where(eq(conversations.userId, userId));
 }
 
@@ -315,219 +309,6 @@ test.describe("chat home — Compact", () => {
 			(node) => getComputedStyle(node).backgroundColor,
 		);
 		expect(hovered).not.toBe(idle.background);
-
-		// The chips answer the pointer the same way.
-		const chip = page.getByTestId("home-suggestion-chip").first();
-		const chipTransition = await chip.evaluate((node) => {
-			const style = getComputedStyle(node);
-			return {
-				property: style.transitionProperty,
-				duration: style.transitionDuration,
-			};
-		});
-		expect(chipTransition.property).toContain("background-color");
-		expect(Number.parseFloat(chipTransition.duration)).toBeGreaterThan(0);
-	});
-
-	test("puts the chip row under the composer, not inside it", async ({
-		page,
-	}) => {
-		const userId = await adminUserId();
-		await clearHomeFixtures(userId);
-		await seedRecent(userId);
-		await gotoHome(page);
-
-		const rail = page.getByTestId("home-suggestion-rail");
-		await expect(rail).toBeVisible();
-
-		// The owner's change: the rail is a sibling BELOW the composer, and no
-		// chip lives inside the composer's own box.
-		const composerBox = await page.getByTestId("message-input").boundingBox();
-		const railBox = await rail.boundingBox();
-		expect(composerBox).not.toBeNull();
-		expect(railBox).not.toBeNull();
-		expect(railBox?.y ?? 0).toBeGreaterThan(composerBox?.y ?? 0);
-		expect(
-			await page
-				.getByTestId("message-input")
-				.locator('[data-testid="home-suggestion-chip"]')
-				.count(),
-		).toBe(0);
-	});
-
-	test("clicking a chip sends its text as the first message", async ({
-		page,
-	}) => {
-		const userId = await adminUserId();
-		await clearHomeFixtures(userId);
-		await seedRecent(userId);
-		await gotoHome(page);
-
-		const chip = page.getByTestId("home-suggestion-chip").first();
-		await expect(chip).toBeVisible();
-		const candidateKey = await chip.getAttribute("data-candidate-key");
-		expect(candidateKey).toBeTruthy();
-
-		// The source is the ranking field, and it lives on hover, not on the row.
-		await expect(chip).toHaveAttribute("title", /^Source: .+/);
-
-		const eventPosted = page.waitForRequest(
-			(request) =>
-				request.url().includes("/api/home/summary") &&
-				request.method() === "POST",
-		);
-		await chip.click();
-		await eventPosted;
-
-		// The chip's text becomes the conversation's first message.
-		await page.waitForURL(/\/chat\/[0-9a-f-]+/, { timeout: 20000 });
-		await expect(page.getByTestId("message-input")).toBeVisible({
-			timeout: 15000,
-		});
-	});
-
-	test('"another" rotates the rail without reloading', async ({ page }) => {
-		const userId = await adminUserId();
-		await clearHomeFixtures(userId);
-		await seedRecent(userId);
-		// Enough distinct conversations that the pool exceeds the three shown.
-		for (const title of ["Invoice questions", "Trip planning", "Tax notes"]) {
-			const conversation = await createServerConversation(userId, title);
-			await createMessage(conversation.id, "user", "hi");
-		}
-		await gotoHome(page);
-
-		const another = page.getByTestId("home-suggestion-another");
-		await expect(another).toBeVisible();
-
-		const before = await page
-			.getByTestId("home-suggestion-chip")
-			.evaluateAll((nodes) =>
-				nodes.map((node) => node.getAttribute("data-candidate-key")),
-			);
-		await another.click();
-		await expect
-			.poll(async () =>
-				page
-					.getByTestId("home-suggestion-chip")
-					.evaluateAll((nodes) =>
-						nodes.map((node) => node.getAttribute("data-candidate-key")),
-					),
-			)
-			.not.toEqual(before);
-	});
-
-	test("lets the chips use the whole row on a desktop", async ({ page }) => {
-		// The rail used to cap every label at 22ch around chips that could not
-		// shrink: on a 780px row the third chip was cut short beside a long
-		// stretch of empty track. The track owns everything left of "another",
-		// and a chip is only truncated when the texts together do not fit.
-		await page.setViewportSize({ width: 1440, height: 900 });
-		const userId = await adminUserId();
-		await clearHomeFixtures(userId);
-		// Short titles first and long ones last: the rail leads with the most
-		// recent, so the three chips drawn are the three long ones, and the
-		// short ones are only there to make the pool deep enough for "another".
-		for (const title of [
-			"Invoice questions",
-			"Trip planning",
-			"Quarterly board meeting notes",
-			"Summer holiday packing list",
-			"Kitchen renovation budget",
-		]) {
-			const conversation = await createServerConversation(userId, title);
-			await createMessage(conversation.id, "user", "hi");
-		}
-		await gotoHome(page);
-
-		const another = page.getByTestId("home-suggestion-another");
-		await expect(another).toBeVisible();
-
-		const geometry = await page
-			.getByTestId("home-suggestion-rail")
-			.evaluate((rail) => {
-				const track = rail.querySelector(".home-rail-track");
-				const ghost = rail.querySelector(
-					'[data-testid="home-suggestion-another"]',
-				);
-				if (!track || !ghost) throw new Error("rail is missing a part");
-				const trackRect = track.getBoundingClientRect();
-				return {
-					railGap: Number.parseFloat(window.getComputedStyle(rail).columnGap),
-					trackRight: trackRect.right,
-					trackOverflow: track.scrollWidth - track.clientWidth,
-					anotherLeft: ghost.getBoundingClientRect().left,
-					labels: Array.from(
-						rail.querySelectorAll(
-							'[data-testid="home-suggestion-chip"] .home-chip-label',
-						),
-					).map((label) => ({
-						text: label.textContent ?? "",
-						scrollWidth: label.scrollWidth,
-						clientWidth: label.clientWidth,
-					})),
-				};
-			});
-
-		// The track's right edge meets "another", one rail gap short of it.
-		expect(geometry.railGap).toBeGreaterThan(0);
-		expect(
-			Math.abs(geometry.anotherLeft - geometry.trackRight - geometry.railGap),
-		).toBeLessThanOrEqual(1);
-
-		// Three seeded titles fit a 780px row with room to spare, so none of
-		// them is cut — including the ones longer than the old 22ch cap.
-		expect(geometry.labels).toHaveLength(3);
-		expect(geometry.trackOverflow).toBeLessThanOrEqual(0);
-		for (const label of geometry.labels) {
-			expect(
-				label.scrollWidth,
-				`"${label.text}" is truncated`,
-			).toBeLessThanOrEqual(label.clientWidth);
-		}
-		expect(geometry.labels.some((label) => label.text.length > 22)).toBe(true);
-
-		// And when the three texts together do NOT fit, the chips share the row:
-		// they shrink with an ellipsis until the last one ends exactly where the
-		// track does, rather than scrolling the row or leaving part of it empty.
-		// The first five go an hour into the past so the new three lead the rail.
-		await db
-			.update(conversations)
-			.set({ updatedAt: new Date(Date.now() - 3_600_000) })
-			.where(eq(conversations.userId, userId));
-		for (const title of [
-			"Reconciling the quarterly revenue figures again",
-			"Rewriting the onboarding email sequence draft",
-			"Comparing heat pump quotes for the old house",
-		]) {
-			const conversation = await createServerConversation(userId, title);
-			await createMessage(conversation.id, "user", "hi");
-		}
-		await gotoHome(page);
-		const crowded = await page
-			.getByTestId("home-suggestion-rail")
-			.evaluate((rail) => {
-				const track = rail.querySelector(".home-rail-track");
-				const chips = Array.from(
-					rail.querySelectorAll('[data-testid="home-suggestion-chip"]'),
-				);
-				const last = chips[chips.length - 1];
-				if (!track || !last) throw new Error("rail is missing a part");
-				return {
-					trackRight: track.getBoundingClientRect().right,
-					lastChipRight: last.getBoundingClientRect().right,
-					trackOverflow: track.scrollWidth - track.clientWidth,
-					truncated: chips.filter((chip) => {
-						const label = chip.querySelector(".home-chip-label");
-						return label ? label.scrollWidth > label.clientWidth : false;
-					}).length,
-				};
-			});
-		expect(crowded.truncated).toBeGreaterThan(0);
-		expect(crowded.trackOverflow).toBeLessThanOrEqual(0);
-		expect(
-			Math.abs(crowded.trackRight - crowded.lastChipRight),
-		).toBeLessThanOrEqual(1);
 	});
 
 	test("lists three recent lines with one mark each", async ({ page }) => {
@@ -673,64 +454,5 @@ test.describe("chat home — Compact", () => {
 				.getByTestId("home-board")
 				.evaluate((node) => getComputedStyle(node).overflowY),
 		).toBe("auto");
-	});
-
-	test("a chip sends through the composer, carrying what it holds", async ({
-		page,
-	}) => {
-		const userId = await adminUserId();
-		await clearHomeFixtures(userId);
-		await seedRecent(userId);
-		await gotoHome(page);
-
-		// Pick a state that only the composer knows about: an AI style from
-		// the plus menu. A chip that built its own payload would send without
-		// it. (The Web search switch this test used to flip left the menu
-		// on 2026-09-11; `/web` is the only way to force a search now.)
-		await page.getByTestId("composer-tools-trigger").click();
-		await page.getByTestId("composer-menu-style").click();
-		// "Default" is the selected option on a fresh account; any unselected
-		// one is a real profile with an id.
-		const styleOption = page.getByRole("option", { selected: false }).first();
-		await expect(styleOption).toBeVisible();
-		await styleOption.click();
-		await expect(page.getByTestId("composer-tools-menu")).toBeHidden();
-
-		const chip = page.getByTestId("home-suggestion-chip").first();
-		const chipText = await chip.getAttribute("title");
-		expect(chipText).toBeTruthy();
-
-		const turnRequest = page.waitForRequest(
-			(request) =>
-				request.url().includes("/api/chat/stream") &&
-				request.method() === "POST",
-			{ timeout: 25000 },
-		);
-		await chip.click();
-		const body = (await turnRequest).postDataJSON() as {
-			personalityProfileId?: string | null;
-			message?: string;
-		};
-		expect(typeof body.personalityProfileId).toBe("string");
-		expect(body.personalityProfileId?.length ?? 0).toBeGreaterThan(0);
-		expect((body.message ?? "").length).toBeGreaterThan(0);
-	});
-
-	test("gives every chip a 44px hit area on a phone", async ({ page }) => {
-		await page.setViewportSize({ width: 390, height: 844 });
-		const userId = await adminUserId();
-		await clearHomeFixtures(userId);
-		await seedRecent(userId);
-		await gotoHome(page);
-
-		const chip = page.getByTestId("home-suggestion-chip").first();
-		await expect(chip).toBeVisible();
-		const hit = await chip.evaluate((node) => {
-			const after = window.getComputedStyle(node, "::after");
-			const rect = node.getBoundingClientRect();
-			const inset = Math.abs(Number.parseFloat(after.top || "0"));
-			return { height: rect.height + inset * 2 };
-		});
-		expect(hit.height).toBeGreaterThanOrEqual(44);
 	});
 });

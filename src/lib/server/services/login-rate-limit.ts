@@ -1,11 +1,10 @@
 // Throttle for credential endpoints — POST /api/auth/login and the
 // current-password check in PATCH /api/settings/password.
 //
-// Modelled on `checkHomeSuggestionEventRateLimit` in
-// $lib/server/services/home-suggestion-rate-limit: a sliding window of
-// timestamps per key in a process-local Map, with LRU eviction so the map
-// cannot outgrow what it protects. Nothing here is persisted or shared between
-// processes; a single node is the whole deployment.
+// A sliding window of timestamps per key in a process-local Map, with LRU
+// eviction so the map cannot outgrow what it protects. Nothing here is
+// persisted or shared between processes; a single node is the whole
+// deployment.
 //
 // Two differences from the other limiters in this codebase, both deliberate:
 //

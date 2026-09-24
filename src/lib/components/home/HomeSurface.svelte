@@ -57,15 +57,14 @@ import {
 import { get } from "svelte/store";
 import {
 	dismissMemoryReviewNotice,
+	type HomeProjectCard,
 	type HomeRecentConversation,
 	type HomeRunningJob,
-	type HomeSuggestion,
 	type HomeWeeklyBucket,
-	recordHomeSuggestionEvent,
 } from "$lib/client/api/home";
 import HomeMemoryReviewNotice from "$lib/components/home/HomeMemoryReviewNotice.svelte";
+import HomeProjects from "$lib/components/home/HomeProjects.svelte";
 import HomeRecent from "$lib/components/home/HomeRecent.svelte";
-import HomeSuggestionRail from "$lib/components/home/HomeSuggestionRail.svelte";
 import HomeWeeklyBars from "$lib/components/home/HomeWeeklyBars.svelte";
 import {
 	dayKeyFor,
@@ -137,8 +136,6 @@ interface Props {
 	 * the chat page — the flag itself belongs to the surface that sends.
 	 */
 	sendStarted?: boolean;
-	/** Slice G passes its cards here. */
-	projectsRow?: never;
 	/**
 	 * The project half of the quiet line under the composer: the chip reads
 	 * "Instructions" once the project has some, "Add instructions" until then.
@@ -164,7 +161,12 @@ interface Props {
 	 * hides itself when it is missing.
 	 */
 	running?: HomeRunningJob | null;
-	suggestions?: HomeSuggestion[];
+	/**
+	 * The projects row's cards (Workspaces Slice G). Empty on the project page,
+	 * which is a project rather than a list of them, and empty for a user with
+	 * none — the row draws nothing at all in both cases.
+	 */
+	projects?: HomeProjectCard[];
 	memoryReviewCount?: number;
 	memoryReviewNoticeDismissed?: boolean;
 	summaryLoaded?: boolean;
@@ -185,7 +187,7 @@ let {
 	weeklyTotal = 0,
 	sendStarted = $bindable(false),
 	running = null,
-	suggestions = [],
+	projects = [],
 	memoryReviewCount = 0,
 	memoryReviewNoticeDismissed = false,
 	summaryLoaded = false,
@@ -202,8 +204,6 @@ let {
 	onOpenFiles,
 }: Props = $props();
 
-// `projectsRow` completes the caller-facing interface but is not read yet:
-// it arrives in Slice G.
 const isProjectMode = $derived(mode.kind === "project");
 const projectId = $derived(mode.kind === "project" ? mode.project.id : null);
 const projectName = $derived(mode.kind === "project" ? mode.project.name : "");
@@ -621,20 +621,14 @@ $effect(() => {
 	});
 });
 
-let composeIntoComposer: ((text: string) => void) | null = null;
-
-function handleComposeReady(compose: (text: string) => void) {
-	composeIntoComposer = compose;
-}
-
 function handleMemoryReviewDismiss({
 	restoreFocus,
 }: {
 	restoreFocus: boolean;
 }) {
-	// Fire and forget, same shape as the suggestion-rail events below: the row
-	// already hid itself locally (HomeMemoryReviewNotice's own optimistic
-	// state), and a failed write only means it may show again next load.
+	// Fire and forget: the row already hid itself locally
+	// (HomeMemoryReviewNotice's own optimistic state), and a failed write only
+	// means it may show again next load.
 	void dismissMemoryReviewNotice().catch(() => undefined);
 	// A keyboard dismissal removes the focused button; hand focus to the
 	// composer, the next thing on this screen, instead of dropping it on body.
@@ -643,33 +637,6 @@ function handleMemoryReviewDismiss({
 			homeComposerLayer?.querySelector("textarea")?.focus(),
 		);
 	}
-}
-
-function handleSuggestionPick(suggestion: HomeSuggestion) {
-	if (creating) return;
-	// Fire and forget: the page has navigated by the time this resolves, and a
-	// failed write only means a chip the user already used may come back. The
-	// request is `keepalive` so the navigation cannot cancel it.
-	void recordHomeSuggestionEvent(suggestion.key, "used").catch(() => undefined);
-	// A chip is a message typed for you, so it goes in the box and presses the
-	// composer's own Send. Building a payload here instead would drop whatever
-	// the composer is holding — an attachment, a linked source, an Atlas
-	// profile, the connection capabilities for this turn — and would send
-	// straight past the "wait for the upload to finish" queue.
-	if (composeIntoComposer) {
-		composeIntoComposer(suggestion.text);
-		return;
-	}
-	// The composer has not mounted yet (no chips are drawn before it does, so
-	// this is a belt-and-braces path, not a normal one).
-	void handleSend({
-		message: suggestion.text,
-		attachmentIds: [],
-		attachments: [],
-		conversationId: preparedConversationId,
-		linkedSources: [],
-		pendingSkill: null,
-	});
 }
 let fileDragActive = $state(false);
 let fileDragRejected = $state(false);
@@ -1270,7 +1237,6 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					attachmentsEnabled={true}
 					ensureConversation={ensurePreparedConversation}
 					onUploadReady={handleUploadReady}
-					onComposeReady={handleComposeReady}
 					{personalityProfiles}
 					{selectedPersonalityId}
 					onPersonalityChange={(id) => selectedPersonalityId = id}
@@ -1321,21 +1287,20 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					<!-- Armed incognito hides the whole board: no history, no
 					     counting, just the greeting and the composer (spec §3). The
 					     project page's board is its chats, which is history, so it goes
-					     with the rest. -->
-					<!-- The owner's one change to the board: the suggestion chips sit
-					     on their OWN row directly under the composer box rather than
-					     inside the composer's footer, which keeps the composer's own
-					     controls to themselves. Then Recent, then the tool-health
-					     strip as the last and quietest line. -->
+					     with the rest.
+					     What is left is the projects row, then Recent, then the
+					     tool-health strip as the last and quietest line. -->
 					<div
 						class="home-board"
 						in:boardFly={{ y: 6, duration: 220, delay: 40 }}
 						data-testid="home-board"
 					>
-						<HomeSuggestionRail
-							suggestions={suggestions}
-							disabled={creating}
-							onPick={handleSuggestionPick}
+						<!-- The same Intl pair the recent lines and the project page's own
+						     stats line read, so the two "3 hours ago"s on this screen can
+						     never disagree. -->
+						<HomeProjects
+							{projects}
+							formatRelative={(seconds) => formatters.relative(seconds)}
 						/>
 
 						<HomeRecent
