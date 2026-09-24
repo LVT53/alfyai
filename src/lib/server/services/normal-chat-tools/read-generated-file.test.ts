@@ -910,9 +910,15 @@ describe("sanitizeReadGeneratedFileInput", () => {
  * release, together with every other model-facing change of this migration. A
  * failure here is not a test to update: it means another eviction is about to
  * ship.
+ *
+ * Re-frozen once more for `part` (owner-approved produce_file fixes, item 7):
+ * a program-built XLSX/PPTX can only be edited through the program that built
+ * it, and the model has no other way to ask for that program. Appended last,
+ * so the blocks up to `page` are unchanged; the cost is the one block that
+ * holds the tail of this schema.
  */
 const FROZEN_READ_GENERATED_FILE_JSON_SCHEMA =
-	'{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"filename":{"type":"string","minLength":1},"requestTitle":{"type":"string","minLength":1},"from":{"description":"Character offset to continue from. Pass the previous result\'s nextFrom to read the next window.","type":"integer","minimum":0,"maximum":9007199254740991},"query":{"description":"Instead of the text window, return up to 3 passages of this one file about the query.","type":"string","minLength":1,"maxLength":300},"page":{"description":"1-based page to start at, for a paged document. `query` and `from` take precedence.","type":"integer","minimum":1,"maximum":9007199254740991}},"additionalProperties":false}';
+	'{"$schema":"http://json-schema.org/draft-07/schema#","type":"object","properties":{"filename":{"type":"string","minLength":1},"requestTitle":{"type":"string","minLength":1},"from":{"description":"Character offset to continue from. Pass the previous result\'s nextFrom to read the next window.","type":"integer","minimum":0,"maximum":9007199254740991},"query":{"description":"Instead of the text window, return up to 3 passages of this one file about the query.","type":"string","minLength":1,"maxLength":300},"page":{"description":"1-based page to start at, for a paged document. `query` and `from` take precedence.","type":"integer","minimum":1,"maximum":9007199254740991},"part":{"description":"\\"source\\": the program that built this file instead of its text, to edit and resend.","type":"string","enum":["text","source"]}},"additionalProperties":false}';
 
 describe("the tool schema the model is sent", () => {
 	it("is byte-identical to the frozen P6-D serialisation", () => {
@@ -921,9 +927,9 @@ describe("the tool schema the model is sent", () => {
 		).toBe(FROZEN_READ_GENERATED_FILE_JSON_SCHEMA);
 	});
 
-	it("advertises `page` last, after the four older fields", () => {
+	it("advertises `page` after the four older fields, and `part` last", () => {
 		// Order matters for the prefix: appending keeps every cache block
-		// before `page` intact, inserting would not.
+		// before the new field intact, inserting would not.
 		const properties = (
 			asSchema(readGeneratedFileInputSchema).jsonSchema as {
 				properties: Record<string, unknown>;
@@ -935,7 +941,17 @@ describe("the tool schema the model is sent", () => {
 			"from",
 			"query",
 			"page",
+			"part",
 		]);
+	});
+
+	it("drops an unknown `part` instead of failing the call", () => {
+		expect(readGeneratedFileInputSchema.parse({ part: "source" })).toEqual({
+			part: "source",
+		});
+		expect(
+			readGeneratedFileInputSchema.parse({ part: "binary" }).part,
+		).toBeUndefined();
 	});
 
 	it("lets a well-formed `page` through both schemas", () => {
@@ -2717,5 +2733,205 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 				expect(serialised).toContain("from an earlier conversation");
 			});
 		});
+	});
+});
+
+/**
+ * A program-built XLSX/PPTX cannot be edited through its extracted text: the
+ * text is not what produced the file. `part: "source"` hands the model the
+ * program that did, under the same target resolution — and so the same
+ * ownership and incognito rules — as any other read.
+ */
+describe("readGeneratedFileContent — the program behind a file", () => {
+	const CHAT_FILES_DIR = join(process.cwd(), "data", "chat-files");
+	const writtenFiles: string[] = [];
+	const XLSX_MIME =
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+	const PROGRAM =
+		"from openpyxl import Workbook\nwb = Workbook()\nws = wb.active\nws['A1'] = 'Revenue'\nwb.save('/output/budget.xlsx')\n";
+
+	afterEach(async () => {
+		await Promise.all(
+			writtenFiles.splice(0).map((file) => rm(file, { force: true })),
+		);
+	});
+
+	async function seedProducedFile(params: {
+		filename: string;
+		mimeType: string;
+		content: Buffer;
+		userId?: string;
+		conversationId?: string;
+		request: Record<string, unknown> | null;
+		sourceMode: string | null;
+	}): Promise<string> {
+		const id = randomUUID();
+		const conversationId = params.conversationId ?? CONVERSATION;
+		const userId = params.userId ?? USER;
+		const extension = params.filename.split(".").pop() ?? "bin";
+		const storagePath = join(conversationId, `${id}.${extension}`);
+		const absolute = join(CHAT_FILES_DIR, storagePath);
+		const { mkdir, writeFile } = await import("node:fs/promises");
+		const { dirname } = await import("node:path");
+		await mkdir(dirname(absolute), { recursive: true });
+		await writeFile(absolute, params.content);
+		writtenFiles.push(absolute);
+		memory.db
+			.insert(schema.chatGeneratedFiles)
+			.values({
+				id,
+				conversationId,
+				userId,
+				filename: params.filename,
+				mimeType: params.mimeType,
+				sizeBytes: params.content.length,
+				storagePath,
+				createdAt: NOW,
+			})
+			.run();
+		const jobId = randomUUID();
+		memory.db
+			.insert(schema.fileProductionJobs)
+			.values({
+				id: jobId,
+				conversationId,
+				userId,
+				title: "job",
+				status: "succeeded",
+				sourceMode: params.sourceMode,
+				requestJson: params.request ? JSON.stringify(params.request) : null,
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+		memory.db
+			.insert(schema.fileProductionJobFiles)
+			.values({
+				id: randomUUID(),
+				jobId,
+				chatGeneratedFileId: id,
+				sortOrder: 0,
+				createdAt: NOW,
+			})
+			.run();
+		return id;
+	}
+
+	const programRequest = {
+		sourceMode: "program",
+		outputs: [{ type: "xlsx" }],
+		program: {
+			language: "python",
+			sourceCode: PROGRAM,
+			filename: "budget.xlsx",
+		},
+	};
+
+	it("returns the program that built a file when asked for its source", async () => {
+		await seedProducedFile({
+			filename: "budget.xlsx",
+			mimeType: XLSX_MIME,
+			content: Buffer.from("PK\u0003\u0004workbook"),
+			request: programRequest,
+			sourceMode: "program",
+		});
+
+		const result = await readGeneratedFileContent({
+			userId: USER,
+			conversationId: CONVERSATION,
+			filename: "budget.xlsx",
+			part: "source",
+		});
+
+		expect(result.programSource).toEqual({
+			language: "python",
+			filename: "budget.xlsx",
+			sourceCode: PROGRAM,
+			truncated: false,
+		});
+		const payload = buildReadGeneratedFileModelPayload(result);
+		expect(payload).toMatchObject({
+			found: true,
+			filename: "budget.xlsx",
+			programSource: {
+				language: "python",
+				filename: "budget.xlsx",
+				sourceCode: PROGRAM,
+			},
+		});
+		expect(String(payload.note)).toContain("patches");
+		expect(summarizeReadGeneratedFileResult(result)).toContain("program");
+	});
+
+	it("says plainly when a file was not built by a program", async () => {
+		await seedProducedFile({
+			filename: "notes.md",
+			mimeType: "text/markdown",
+			content: Buffer.from("# Notes\n\nPlain text written inline."),
+			request: {
+				sourceMode: "inline_text",
+				inlineText: {
+					content: "# Notes",
+					files: [{ filename: "notes.md", outputType: "md" }],
+				},
+			},
+			sourceMode: "inline_text",
+		});
+
+		const result = await readGeneratedFileContent({
+			userId: USER,
+			conversationId: CONVERSATION,
+			filename: "notes.md",
+			part: "source",
+		});
+
+		expect(result.programSource).toBeNull();
+		const payload = buildReadGeneratedFileModelPayload(result);
+		expect(payload).toMatchObject({ found: true, programSource: null });
+		expect(String(payload.note)).toContain("not built by a program");
+	});
+
+	it("never returns another user's program", async () => {
+		seedConversation("conv-foreign", OTHER_USER);
+		await seedProducedFile({
+			filename: "budget.xlsx",
+			mimeType: XLSX_MIME,
+			content: Buffer.from("PK\u0003\u0004workbook"),
+			request: programRequest,
+			sourceMode: "program",
+			userId: OTHER_USER,
+			conversationId: "conv-foreign",
+		});
+
+		const result = await readGeneratedFileContent({
+			userId: USER,
+			conversationId: CONVERSATION,
+			filename: "budget.xlsx",
+			part: "source",
+		});
+
+		expect(result.notFound).toBe(true);
+		expect(result.programSource).toBeNull();
+	});
+
+	it("points a plain read of a program-built binary at its source", async () => {
+		await seedProducedFile({
+			filename: "budget.xlsx",
+			mimeType: XLSX_MIME,
+			content: Buffer.from("PK\u0003\u0004workbook"),
+			request: programRequest,
+			sourceMode: "program",
+		});
+
+		const result = await readGeneratedFileContent({
+			userId: USER,
+			conversationId: CONVERSATION,
+			filename: "budget.xlsx",
+		});
+
+		expect(result.programSourceAvailable).toBe(true);
+		expect(buildReadGeneratedFileModelPayload(result)).toHaveProperty(
+			"sourceHint",
+		);
 	});
 });

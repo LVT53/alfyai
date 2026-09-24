@@ -1159,3 +1159,127 @@ describe("patching a file made in an earlier conversation", () => {
 		expect(result.errorCode).toBe("no_previous_version_for_patches");
 	});
 });
+
+/**
+ * A program-built workbook is bytes a program wrote, not text. Its patch base
+ * is therefore the PROGRAM (what `read_generated_file` returns with
+ * `part: "source"`), and the patched program is what runs. Patching the
+ * extracted sheet text used to write that text into a file named `.xlsx`.
+ */
+describe("a patch of a program-built binary file", () => {
+	const PROGRAM = [
+		"from openpyxl import Workbook",
+		"wb = Workbook()",
+		"ws = wb.active",
+		"ws['A1'] = 'Revenue by region'",
+		"wb.save('/output/budget.xlsx')",
+		"",
+	].join("\n");
+
+	function seedProgramJob(chatFileId: string): void {
+		const jobId = randomUUID();
+		memory.db
+			.insert(schema.fileProductionJobs)
+			.values({
+				id: jobId,
+				conversationId: CONVERSATION,
+				userId: USER,
+				title: "Budget",
+				status: "succeeded",
+				sourceMode: "program",
+				requestJson: JSON.stringify({
+					sourceMode: "program",
+					outputs: [{ type: "xlsx" }],
+					program: {
+						language: "python",
+						sourceCode: PROGRAM,
+						filename: "budget.xlsx",
+					},
+				}),
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+		memory.db
+			.insert(schema.fileProductionJobFiles)
+			.values({
+				id: randomUUID(),
+				jobId,
+				chatGeneratedFileId: chatFileId,
+				sortOrder: 0,
+				createdAt: NOW,
+			})
+			.run();
+	}
+
+	it("applies the patch to the program that built the file and reruns it", async () => {
+		const chatFileId = await seedChatFileOnDisk({
+			filename: "budget.xlsx",
+			content: "PK\u0003\u0004 workbook bytes",
+		});
+		seedProgramJob(chatFileId);
+
+		const body = await callProduceFile({
+			requestTitle: "Budget",
+			filename: "budget.xlsx",
+			patches: [
+				{
+					oldText: "ws['A1'] = 'Revenue by region'",
+					newText: "ws['A1'] = 'Net revenue by region'",
+				},
+			],
+		});
+
+		expect(body.sourceMode).toBe("program");
+		expect(body.requestedOutputs).toEqual([{ type: "xlsx" }]);
+		expect(body.program).toEqual({
+			language: "python",
+			filename: "budget.xlsx",
+			sourceCode: PROGRAM.replace(
+				"ws['A1'] = 'Revenue by region'",
+				"ws['A1'] = 'Net revenue by region'",
+			),
+		});
+		expect(
+			String((body.program as { sourceCode: string }).sourceCode),
+		).not.toContain("write_text");
+	});
+
+	it("tells the model to copy oldText from the program when a patch misses it", async () => {
+		const chatFileId = await seedChatFileOnDisk({
+			filename: "budget.xlsx",
+			content: "PK\u0003\u0004 workbook bytes",
+		});
+		seedProgramJob(chatFileId);
+
+		const result = await refuseProduceFile({
+			requestTitle: "Budget",
+			filename: "budget.xlsx",
+			patches: [{ oldText: "Revenue | 24.25", newText: "Revenue | 25.75" }],
+		});
+
+		expect(result.errorCode).toBe("patch_failed");
+		expect(result.message).toContain('part: "source"');
+	});
+
+	it("refuses to write patched text into a binary file that has no program to patch", async () => {
+		// The previous version is only known by its extracted text (the
+		// artifact scan), and the requested output is a workbook.
+		seedPreviousVersion(PREVIOUS_MARKDOWN);
+
+		const result = await refuseProduceFile({
+			requestTitle: TITLE,
+			outputType: "xlsx",
+			patches: [
+				{
+					oldText: "Revenue grew 12% quarter over quarter",
+					newText: "Revenue grew 15% quarter over quarter",
+				},
+			],
+		});
+
+		expect(result.status).toBe("failed");
+		expect(result.errorCode).toBe("patch_not_applicable");
+		expect(result.message).toContain("xlsx");
+	});
+});
