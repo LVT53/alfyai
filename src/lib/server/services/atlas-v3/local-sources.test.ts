@@ -363,6 +363,63 @@ describe("resolveAtlasV3LocalSources", () => {
 		);
 	});
 
+	// A lifecycle child inherits its parent's documents by display id alone.
+	// Those ids are re-resolved under THIS job's strict scope: a document whose
+	// chat went incognito since the parent read it, one deleted since, and one
+	// that was never this user's all stay out.
+	it("re-resolves inherited documents under the job's scope, refusing incognito, deleted and foreign ones", async () => {
+		const kept = seedUpload({
+			conversationId: EARLIER_CONVERSATION,
+			name: "kept.pdf",
+			chunks: BILL,
+		});
+		seedConversation("conv-private", USER);
+		const privateNow = seedUpload({
+			conversationId: "conv-private",
+			name: "private.pdf",
+			chunks: BILL,
+		});
+		seedConversation("conv-other-user", OTHER_USER);
+		const foreign = seedUpload({
+			userId: OTHER_USER,
+			conversationId: "conv-other-user",
+			name: "theirs.pdf",
+			chunks: BILL,
+		});
+		memory.db
+			.update(schema.conversations)
+			.set({ memoryIncognito: true })
+			.where(eq(schema.conversations.id, "conv-private"))
+			.run();
+
+		const resolved = await resolveAtlasV3LocalSources({
+			userId: USER,
+			conversationId: JOB_CONVERSATION,
+			kickoffUserMessageId: KICKOFF,
+			inheritedDisplayArtifactIds: [
+				kept.sourceId,
+				privateNow.sourceId,
+				"artifact-deleted-since",
+				foreign.sourceId,
+			],
+		});
+		expect(resolved.documents.map((document) => document.title)).toEqual([
+			"kept.pdf",
+		]);
+		expect(resolved.documents[0]?.origin).toBe("inherited");
+		expect(
+			resolved.unavailable.map((entry) => [
+				entry.displayArtifactId,
+				entry.origin,
+				entry.reason,
+			]),
+		).toEqual([
+			[privateNow.sourceId, "inherited", "out_of_scope"],
+			["artifact-deleted-since", "inherited", "not_found"],
+			[foreign.sourceId, "inherited", "not_found"],
+		]);
+	});
+
 	it("returns nothing, without querying further, when the kickoff carried no document", async () => {
 		const resolved = await resolveAtlasV3LocalSources({
 			userId: USER,
