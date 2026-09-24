@@ -7,6 +7,7 @@ const project = {
 	id: "project-1",
 	name: "House tasks",
 	sortOrder: 0,
+	hasInstructions: false,
 	createdAt: 1,
 	updatedAt: 1,
 };
@@ -153,48 +154,53 @@ describe("ProjectItem", () => {
 		).toBeInTheDocument();
 	});
 
-	it("offers creating a new chat inside the project menu", async () => {
-		const onCreateConversation = vi.fn();
+	it("opens the project from the menu's New chat item, with the composer meant to take focus", async () => {
+		const onOpenProject = vi.fn();
 		render(ProjectItem, {
 			project,
 			menuOpen: true,
-			onCreateConversation,
+			onOpenProject,
 		});
 
 		await fireEvent.click(
 			screen.getByRole("menuitem", { name: "Create chat in House tasks" }),
 		);
 
-		expect(onCreateConversation).toHaveBeenCalledWith({ id: "project-1" });
+		expect(onOpenProject).toHaveBeenCalledWith({
+			id: "project-1",
+			focusComposer: true,
+		});
 	});
 
-	it("shows the project-row new chat action outside the overflow menu", () => {
+	it("opens the project from the row's hover button without asking for focus", async () => {
+		const onOpenProject = vi.fn();
 		render(ProjectItem, {
 			project,
-			onCreateConversation: vi.fn(),
+			onOpenProject,
 		});
 
-		expect(
-			screen.getByRole("button", { name: "Create chat in House tasks" }),
-		).toBeInTheDocument();
+		await fireEvent.click(
+			screen.getByRole("button", { name: "Open House tasks" }),
+		);
+
+		expect(onOpenProject).toHaveBeenCalledWith({ id: "project-1" });
 	});
 
-	it("shows immediate busy state while a project chat is being created", async () => {
-		const onCreateConversation = vi.fn();
+	it("leaves the row's own click to expanding and collapsing", async () => {
+		// The project's name is the folder, not a door: Slice D's whole point is
+		// that a name click cannot start a chat somewhere the user did not mean.
+		const onToggle = vi.fn();
+		const onOpenProject = vi.fn();
 		render(ProjectItem, {
 			project,
-			creatingConversation: true,
-			onCreateConversation,
+			expanded: false,
+			onToggle,
+			onOpenProject,
 		});
 
-		const action = screen.getByRole("button", {
-			name: "Create chat in House tasks",
-		});
-		expect(action).toBeDisabled();
-		expect(action).toHaveAttribute("aria-busy", "true");
+		await fireEvent.click(screen.getByTestId("project-drop-target"));
 
-		await fireEvent.click(action);
-
-		expect(onCreateConversation).not.toHaveBeenCalled();
+		expect(onToggle).toHaveBeenCalledWith({ id: "project-1", expanded: true });
+		expect(onOpenProject).not.toHaveBeenCalled();
 	});
 });

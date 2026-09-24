@@ -9,6 +9,7 @@ const I18N_MODULES = [
 	"common",
 	"instructions",
 	"knowledge",
+	"projects",
 	"settings",
 	"skills",
 ] as const;
@@ -62,6 +63,13 @@ const AUDITED_PREFIXES = [
 	// drift this phase does not touch), so the prefix is deliberately narrow.
 	"knowledge.upload",
 	"modelPicker.",
+	// The project surface (Workspaces feature 1, Slice D): the project page's
+	// greeting, stats, list and quiet line, plus the sidebar's "open the
+	// project" button. Its own namespace, so the whole page is covered rather
+	// than a slice of it — every one of these strings is the only thing
+	// naming a project to the user, and a key that landed in EN and not in HU
+	// would show a Hungarian reader the raw key.
+	"projects.",
 	"skillsPicker.",
 	"writeConfirm.",
 	"linkedSources.",

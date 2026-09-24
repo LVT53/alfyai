@@ -38,6 +38,27 @@ export async function renameProject(
 	);
 }
 
+/**
+ * Save a project's standing instructions. Returns the updated project, so the
+ * caller can take `hasInstructions` from the server's own reading of the text
+ * rather than guessing from what it sent (a whitespace-only save means "no
+ * instructions", and that decision is the server's).
+ */
+export async function saveProjectInstructions(
+	id: string,
+	instructions: string,
+): Promise<Project> {
+	return requestJson<Project>(
+		`/api/projects/${id}`,
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ instructions }),
+		},
+		"Failed to save project instructions",
+	);
+}
+
 export async function saveProjectSidebarOrder(
 	payload: { ids: string[] },
 	fetchImpl: typeof fetch = fetch,

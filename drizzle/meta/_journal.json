@@ -848,6 +848,13 @@
       "when": 1777140000107,
       "tag": "1777140000107_users_personal_instructions",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1777140000108,
+      "tag": "1777140000108_projects_instructions",
+      "breakpoints": true
     }
   ]
 }

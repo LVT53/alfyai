@@ -12,7 +12,12 @@
  * At 390px it wraps rather than truncates, and the 74px progress track comes
  * off because the stage and the elapsed time are the same information for free.
  */
-import { Atom, LoaderCircle, MessageSquare } from "@lucide/svelte";
+import {
+	Atom,
+	ChevronRight,
+	LoaderCircle,
+	MessageSquare,
+} from "@lucide/svelte";
 import { t } from "$lib/i18n";
 import type {
 	HomeRecentConversation,
@@ -25,11 +30,26 @@ let {
 	recent = [],
 	running = null,
 	nowSeconds = Math.floor(Date.now() / 1000),
+	heading = null,
+	emptyLine = null,
 	onAllConversations,
 }: {
 	recent?: HomeRecentConversation[];
 	running?: HomeRunningJob | null;
 	nowSeconds?: number;
+	/**
+	 * The head's own line. Unset draws the landing page's "All conversations"
+	 * link; the project page passes a counted heading instead, because the
+	 * list below it is already everything and there is nowhere to go.
+	 */
+	heading?: string | null;
+	/**
+	 * What to say when there is nothing to list. The landing page draws
+	 * nothing at all in that case (an empty Recent is not worth a sentence);
+	 * a project with no chats has to say so, because the page is otherwise
+	 * just a composer with no explanation.
+	 */
+	emptyLine?: string | null;
 	onAllConversations?: () => void;
 } = $props();
 
@@ -54,26 +74,34 @@ function elapsed(startedAt: number): string {
 }
 </script>
 
-{#if recent.length > 0 || running}
+{#if recent.length > 0 || running || emptyLine}
 	<section
 		class="home-recent"
-		aria-label={$t('home.recentLabel')}
+		aria-label={heading ?? $t('home.recentLabel')}
 		data-testid="home-recent"
 	>
-		<div class="home-head">
-			<span class="home-head-rule"></span>
-			<button
-				type="button"
-				class="home-head-link"
-				onclick={() => onAllConversations?.()}
-				data-testid="home-all-conversations"
-			>
-				{$t('home.allConversations')}
-				<svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-					<path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
-				</svg>
-			</button>
-		</div>
+		{#if recent.length > 0 || running}
+			<div class="home-head">
+				<span class="home-head-rule"></span>
+				{#if heading}
+					<span class="home-head-title" data-testid="home-list-heading">{heading}</span>
+				{:else}
+					<button
+						type="button"
+						class="home-head-link"
+						onclick={() => onAllConversations?.()}
+						data-testid="home-all-conversations"
+					>
+						{$t('home.allConversations')}
+						<ChevronRight size={10} strokeWidth={2.4} aria-hidden="true" />
+					</button>
+				{/if}
+			</div>
+		{/if}
+
+		{#if emptyLine && recent.length === 0 && !running}
+			<p class="home-empty-line" data-testid="home-empty-line">{emptyLine}</p>
+		{/if}
 
 		<div class="home-lines">
 			{#each recent as conversation (conversation.id)}
@@ -172,6 +200,28 @@ function elapsed(startedAt: number): string {
 	.home-head-link:focus-visible {
 		opacity: 1;
 		color: var(--accent);
+	}
+
+	/* The project page's head is a label rather than a link — the list under it
+	   is already everything the project has, so there is nowhere to go. Same
+	   quiet ink as the landing page's link, without the affordances. */
+	.home-head-title {
+		flex-shrink: 0;
+		font-size: 0.72rem;
+		color: var(--text-muted);
+		opacity: 0.6;
+		white-space: nowrap;
+	}
+
+	/* A project with no chats has to say so: the page is otherwise a composer
+	   with no explanation of what it belongs to. Same quiet ink again, and it
+	   stands in for the lines rather than beside them. */
+	.home-empty-line {
+		margin: 0;
+		padding: 6px 6px;
+		font-size: 0.8rem;
+		color: var(--text-muted);
+		opacity: 0.7;
 	}
 
 	/* The quiet link is 0.72rem of ink; on a phone it still gets a 44px target. */

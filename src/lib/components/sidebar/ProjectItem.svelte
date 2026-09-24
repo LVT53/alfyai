@@ -17,17 +17,15 @@ import {
 	setupMenuSync,
 } from "$lib/utils/popup-menu";
 import ConfirmDialog from "../ui/ConfirmDialog.svelte";
-import Spinner from "../ui/Spinner.svelte";
 
 let {
 	project,
 	expanded = true,
 	menuOpen = false,
 	dropActive = false,
-	creatingConversation = false,
 	chatCount = 0,
 	onToggle,
-	onCreateConversation,
+	onOpenProject,
 	onRename,
 	onDelete,
 	onMenuToggle,
@@ -37,10 +35,15 @@ let {
 	expanded?: boolean;
 	menuOpen?: boolean;
 	dropActive?: boolean;
-	creatingConversation?: boolean;
 	chatCount?: number;
 	onToggle?: (payload: { id: string; expanded: boolean }) => void;
-	onCreateConversation?: (payload: { id: string }) => void;
+	/**
+	 * Both doors into the project — its own page, where the composer is already
+	 * inside the folder. `focusComposer` is the "New chat" menu item's extra:
+	 * that item says "start typing here", so the box it opens takes the caret.
+	 * The row's own name still only expands or collapses the folder.
+	 */
+	onOpenProject?: (payload: { id: string; focusComposer?: boolean }) => void;
 	onRename?: (payload: { id: string; name: string }) => void;
 	onDelete?: (payload: { id: string }) => void;
 	onMenuToggle?: (payload: { id: string; open: boolean }) => void;
@@ -220,11 +223,18 @@ onMount(() => {
 	return setupMenuSync(() => menuOpen, doUpdatePosition);
 });
 
-function createConversation(e: MouseEvent) {
+function openProject(e: MouseEvent) {
+	// The row's click belongs to the folder's expand/collapse, so opening the
+	// project has to stop here or the folder would toggle on the way out.
 	e.stopPropagation();
-	if (creatingConversation) return;
 	onMenuClose?.({ id: project.id });
-	onCreateConversation?.({ id: project.id });
+	onOpenProject?.({ id: project.id });
+}
+
+function startChatInProject(e: MouseEvent) {
+	e.stopPropagation();
+	onMenuClose?.({ id: project.id });
+	onOpenProject?.({ id: project.id, focusComposer: true });
 }
 </script>
 
@@ -278,18 +288,12 @@ function createConversation(e: MouseEvent) {
 	<div class="project-row-actions flex shrink-0 items-center justify-end gap-px">
 		<button
 			class="project-row-action-button project-inline-action btn-icon-bare flex shrink-0 cursor-pointer items-center justify-center rounded-md text-icon-muted opacity-100 transition-colors duration-150 hover:bg-surface-page hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent md:opacity-0 md:group-hover:opacity-100"
-			class:md:opacity-100={menuOpen || creatingConversation}
-			onclick={createConversation}
-			disabled={creatingConversation}
-			aria-busy={creatingConversation}
-			aria-label={$t('sidebar.createChatInProject', { name: project.name })}
-			title={$t('sidebar.newChatInProject')}
+			class:md:opacity-100={menuOpen}
+			onclick={openProject}
+			aria-label={$t('projects.openA11y', { name: project.name })}
+			title={$t('projects.openA11y', { name: project.name })}
 		>
-			{#if creatingConversation}
-			<Spinner size={16} />
-			{:else}
 			<MessageSquarePlus size={16} strokeWidth={2.1} aria-hidden="true" />
-			{/if}
 		</button>
 
 		<!-- Count badge + context menu share one slot: the count shows at rest,
@@ -331,19 +335,11 @@ function createConversation(e: MouseEvent) {
 				role="menuitem"
 				class="project-option flex min-h-[32px] w-full items-center text-left font-sans text-[12px] text-text-primary transition-colors duration-150 focus-visible:outline-none cursor-pointer"
 				aria-label={$t('sidebar.createChatInProject', { name: project.name })}
-				onclick={createConversation}
-				disabled={creatingConversation}
-				aria-busy={creatingConversation}
+				onclick={startChatInProject}
 			>
-				{#if creatingConversation}
-				<span class="project-option-icon">
-					<Spinner size={15} />
-				</span>
-				{:else}
 				<span class="project-option-icon">
 					<MessageSquarePlus size={15} strokeWidth={2.1} aria-hidden="true" />
 				</span>
-				{/if}
 				<span>{$t('sidebar.newChatInProject')}</span>
 			</button>
 			<button

@@ -11,10 +11,13 @@
  * had nothing learned from it, which is exactly the condition the server's
  * empty-conversation PATCH allows (spec §1), so arming one in place is honest.
  *
- * This lives here, next to `layout-title.ts`, because it is the gate on the
- * only control that can arm incognito, and a gate worth being able to state
- * and test on its own. Note what is NOT a parameter: the prepared
- * conversation's id. Its absence is the rule.
+ * This lives beside the greeting rules under `$lib/client/home/`, because it
+ * is the gate on the only control that can arm incognito, and a gate worth
+ * being able to state and test on its own. It moved here from the landing
+ * route when that surface became `HomeSurface.svelte` (Workspaces Slice D):
+ * a component under `$lib` does not reach into a route folder for a rule.
+ * Note what is NOT a parameter: the prepared conversation's id. Its absence
+ * is the rule.
  */
 export function shouldShowIncognitoArm(params: {
 	/**

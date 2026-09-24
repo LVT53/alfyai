@@ -54,7 +54,11 @@ const CASES: Case[] = [
 		bannedDirectives: [/transition:fade=/],
 	},
 	{
-		file: "src/routes/(app)/+page.svelte",
+		// Workspaces Slice D moved the landing surface — and with it these
+		// three transitions — out of the route and into `HomeSurface.svelte`,
+		// which now also draws the project page. The file moved; the rule did
+		// not.
+		file: "src/lib/components/home/HomeSurface.svelte",
 		wrappedNames: ["statusFade", "greetingFade", "boardFly"],
 		// The status-message fade, the greeting fade and the home board's
 		// entrance (chips, Recent and the tool-health strip arriving together

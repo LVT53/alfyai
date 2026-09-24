@@ -554,6 +554,7 @@ These services are actively imported but not documented in the feature sections 
 
 - Active project service:
   - [`src/lib/server/services/projects.ts`](./src/lib/server/services/projects.ts) — project CRUD using `db` + `schema.ts` directly. Not a legacy DB wrapper; active service.
+  - [`projects.ts`](./src/lib/server/services/projects.ts) also owns the project-page reads (`getProjectPageData`, `getProjectInstructions`) and `listRecentlyActiveProjects`, the single definition of "a project with recent activity"; lists carry `hasInstructions` and never the instruction text, and `home-summary.ts` consumes `listRecentlyActiveProjects` rather than re-deriving project activity.
 
 - Chat rendering components live under [`src/lib/components/chat/`](./src/lib/components/chat/).
 - Layout/navigation components live under [`src/lib/components/layout/`](./src/lib/components/layout/).

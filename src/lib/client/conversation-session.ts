@@ -18,6 +18,7 @@ import type { PendingSkillSelection } from "$lib/server/services/skills/types";
 
 const PREVIOUS_CONVERSATION_KEY = "previous-conversation-id";
 const LANDING_DRAFT_CONVERSATION_KEY = "landing-draft-conversation-id";
+const PROJECT_COMPOSER_FOCUS_PREFIX = "project-composer-focus:";
 const PENDING_MESSAGE_PREFIX = "pending-chat-message:";
 const CONVERSATION_PERSONALITY_PREFIX = "conversation-personality:";
 const CONVERSATION_MODEL_PREFIX = "conversation-model:";
@@ -26,6 +27,13 @@ export type PendingConversationMessage = {
 	message: string;
 	attachmentIds: string[];
 	attachments: ArtifactSummary[];
+	/**
+	 * The project the first message was typed in — set when the send started
+	 * from a project page, null on the landing page. Carried with the rest of
+	 * the message so the conversation's home survives the hand-off, and so a
+	 * retry of the very first turn cannot put it somewhere else.
+	 */
+	projectId?: string | null;
 	linkedSources?: LinkedContextSource[];
 	pendingSkill?: PendingSkillSelection | null;
 	modelId?: ModelId;
@@ -163,6 +171,28 @@ export function setLandingDraftConversationId(
 	storage.removeItem(LANDING_DRAFT_CONVERSATION_KEY);
 }
 
+/**
+ * "Start typing here", carried across one navigation. The sidebar's project
+ * "New chat" item sets it; the project page consumes it and lands the caret in
+ * the composer. It lives in the session rather than in the address so the page
+ * keeps the project's own URL, and it is *consumed*, not read: a reload of the
+ * project page must not steal focus a second time.
+ */
+export function markProjectComposerFocus(projectId: string): void {
+	getSessionStorage()?.setItem(
+		`${PROJECT_COMPOSER_FOCUS_PREFIX}${projectId}`,
+		"1",
+	);
+}
+
+export function consumeProjectComposerFocus(projectId: string): boolean {
+	const storage = getSessionStorage();
+	const key = `${PROJECT_COMPOSER_FOCUS_PREFIX}${projectId}`;
+	if (!storage?.getItem(key)) return false;
+	storage.removeItem(key);
+	return true;
+}
+
 export function getConversationPersonalitySelection(
 	conversationId: string,
 	profileDefault: string | null,
@@ -229,6 +259,7 @@ export function storePendingConversationMessage(
 			message: payload.message.trim(),
 			attachmentIds: payload.attachmentIds,
 			attachments: payload.attachments,
+			projectId: payload.projectId ?? null,
 			linkedSources: payload.linkedSources ?? [],
 			pendingSkill: payload.pendingSkill ?? null,
 			modelId: payload.modelId,
@@ -272,6 +303,7 @@ export function consumePendingConversationMessage(
 					)
 				: [],
 			attachments: toArtifactSummaryList(parsed.attachments),
+			projectId: typeof parsed.projectId === "string" ? parsed.projectId : null,
 			linkedSources: toLinkedContextSourceList(parsed.linkedSources),
 			pendingSkill: toPendingSkillSelection(parsed.pendingSkill),
 			modelId: isModelId(parsed.modelId) ? parsed.modelId : undefined,
@@ -299,6 +331,7 @@ export function consumePendingConversationMessage(
 			message: rawValue,
 			attachmentIds: [],
 			attachments: [],
+			projectId: null,
 			linkedSources: [],
 			pendingSkill: null,
 			reasoningDepth: "thorough",
