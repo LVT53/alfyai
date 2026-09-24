@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
 import {
 	artifacts,
@@ -61,10 +61,7 @@ async function uploadLibraryDocument(
 		},
 		data: body,
 	});
-	expect(
-		response.ok(),
-		`uploading ${options.name} must succeed`,
-	).toBe(true);
+	expect(response.ok(), `uploading ${options.name} must succeed`).toBe(true);
 	const payload = (await response.json()) as { artifact: { id: string } };
 	return payload.artifact.id;
 }
@@ -242,9 +239,7 @@ test.describe("Project files", () => {
 		).toBe(true);
 
 		await dialog.getByRole("button", { name: "Done" }).click();
-		await expect(page.getByTestId("project-files-button")).toHaveText(
-			"1 file",
-		);
+		await expect(page.getByTestId("project-files-button")).toHaveText("1 file");
 	});
 
 	test("adds from the library, with already-added documents greyed out", async ({
@@ -308,9 +303,7 @@ test.describe("Project files", () => {
 
 		await linkArtifacts(page, projectId, [first]);
 		await page.reload({ waitUntil: "domcontentloaded" });
-		await expect(page.getByTestId("project-files-button")).toHaveText(
-			"1 file",
-		);
+		await expect(page.getByTestId("project-files-button")).toHaveText("1 file");
 
 		const second = await uploadLibraryDocument(page, {
 			name: `Second ${randomUUID().slice(0, 6)}.txt`,
@@ -350,9 +343,7 @@ test.describe("Project files", () => {
 		await expect(page.getByTestId("project-instructions-button")).toHaveText(
 			"Instructions",
 		);
-		await expect(page.getByTestId("project-files-button")).toHaveText(
-			"1 file",
-		);
+		await expect(page.getByTestId("project-files-button")).toHaveText("1 file");
 		await expect(page.getByTestId("project-quiet-separator")).toHaveCount(1);
 	});
 

@@ -295,7 +295,7 @@ async function runMemoryAction(
 // row.
 function itemDetail(item: MessageEvidenceItem): string | undefined {
 	const detail = item.description ?? item.reason;
-	return detail && detail.trim() ? detail.trim() : undefined;
+	return detail?.trim() ? detail.trim() : undefined;
 }
 
 function isDocument(item: MessageEvidenceItem): boolean {

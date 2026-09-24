@@ -114,7 +114,8 @@ const projectsDict = {
 		"projects.filesAddCountOne": "1 dokumentum hozzáadása",
 		"projects.filesUnlinkFailed":
 			"Nem sikerült eltávolítani a fájlt a projektből.",
-		"projects.filesLinkFailed": "Nem sikerült hozzáadni a fájlokat a projekthez.",
+		"projects.filesLinkFailed":
+			"Nem sikerült hozzáadni a fájlokat a projekthez.",
 		"projects.filesUploadFailed": "Nem sikerült feltölteni a fájlt.",
 		"projects.filesLoadFailed": "Nem sikerült betölteni a könyvtárat.",
 		"projects.filesMore": "+{count} további",

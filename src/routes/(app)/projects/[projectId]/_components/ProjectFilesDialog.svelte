@@ -18,10 +18,7 @@ import { Eye, Library, Search, Unlink, Upload } from "@lucide/svelte";
 import FileTypeIcon from "$lib/components/ui/FileTypeIcon.svelte";
 import DialogShell from "$lib/components/ui/DialogShell.svelte";
 import ScopeToken from "$lib/components/instructions/ScopeToken.svelte";
-import {
-	linkProjectFiles,
-	unlinkProjectFile,
-} from "$lib/client/api/projects";
+import { linkProjectFiles, unlinkProjectFile } from "$lib/client/api/projects";
 import {
 	recordDocumentWorkspaceOpen,
 	uploadKnowledgeAttachment,
@@ -118,7 +115,9 @@ function formatSize(sizeBytes: number | null): string {
 		: formatByteSize(sizeBytes, { trimWholeUnits: true });
 }
 
-function toWorkspaceDocument(file: ProjectKnowledgeItem): DocumentWorkspaceItem {
+function toWorkspaceDocument(
+	file: ProjectKnowledgeItem,
+): DocumentWorkspaceItem {
 	return {
 		// The same id shape the knowledge page uses for a library artifact, so
 		// the shared workspace treats a project file as what it is.
