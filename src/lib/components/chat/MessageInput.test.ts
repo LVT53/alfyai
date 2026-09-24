@@ -1601,12 +1601,10 @@ describe("MessageInput", () => {
 		expect(mockSend).not.toHaveBeenCalled();
 	});
 
-	it("does not expose task steering controls in the context ring popup", async () => {
-		const steerSpy = vi.fn();
+	it("does not expose task controls in the context ring popup", async () => {
 		const { getByLabelText, queryByRole, queryByText } = render(
 			MessageInputWrapper,
 			{
-				onSteer: steerSpy,
 				contextStatus: {
 					conversationId: "conv-1",
 					userId: "user-1",
@@ -1651,57 +1649,6 @@ describe("MessageInput", () => {
 		expect(queryByText("Current task")).toBeNull();
 		expect(queryByRole("button", { name: "Lock task" })).toBeNull();
 		expect(queryByRole("button", { name: "Start new task" })).toBeNull();
-		expect(steerSpy).not.toHaveBeenCalled();
-	});
-
-	it("opens context source management from the context ring popup", async () => {
-		const manageEvidenceSpy = vi.fn();
-		const { getByLabelText, getByRole } = render(MessageInputWrapper, {
-			onManageEvidence: manageEvidenceSpy,
-			contextStatus: {
-				conversationId: "conv-1",
-				userId: "user-1",
-				estimatedTokens: 1200,
-				promptTokens: 1200,
-				promptTokensSource: "estimated",
-				maxContextTokens: 262144,
-				thresholdTokens: 209715,
-				targetTokens: 157286,
-				compactionApplied: false,
-				compactionMode: "none",
-				routingStage: "deterministic",
-				routingConfidence: 0,
-				verificationStatus: "skipped",
-				layersUsed: [],
-				workingSetCount: 0,
-				workingSetArtifactIds: [],
-				workingSetApplied: false,
-				taskStateApplied: false,
-				promptArtifactCount: 0,
-				recentTurnCount: 0,
-				summary: null,
-				updatedAt: Date.now(),
-			},
-			contextDebug: {
-				activeTaskId: null,
-				activeTaskObjective: "Current task",
-				taskLocked: false,
-				routingStage: "deterministic",
-				routingConfidence: 0,
-				verificationStatus: "skipped",
-				selectedEvidence: [],
-				selectedEvidenceBySource: [],
-				pinnedEvidence: [],
-				excludedEvidence: [],
-			},
-		});
-
-		await fireEvent.click(getByLabelText(/context window usage/i));
-		await fireEvent.click(
-			getByRole("button", { name: "Manage context sources" }),
-		);
-
-		expect(manageEvidenceSpy).toHaveBeenCalledTimes(1);
 	});
 
 	it("disables send while an attachment upload is still in progress", async () => {

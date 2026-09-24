@@ -149,7 +149,6 @@ describe("MessageArea", () => {
 			messages: [initialMessage],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 		});
 
 		await fireEvent.click(getByRole("button", { name: /Thought for 0s?/ }));
@@ -166,7 +165,6 @@ describe("MessageArea", () => {
 			],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 		});
 
 		expect(getByText(/step one\s+step two/)).toBeTruthy();
@@ -177,7 +175,6 @@ describe("MessageArea", () => {
 			messages: [],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 		});
 
 		// LogoMark stays as the centerpiece (placed by Slice 13).
@@ -222,7 +219,6 @@ describe("MessageArea", () => {
 			messages: [message],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			onSaveSkillDraft,
 			onDismissSkillDraft,
 		});
@@ -276,7 +272,6 @@ describe("MessageArea", () => {
 				messages,
 				conversationId: "conv-1",
 				isThinkingActive: false,
-				contextDebug: null,
 			},
 		);
 
@@ -307,7 +302,6 @@ describe("MessageArea", () => {
 			messages,
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 		});
 
 		expect(queryByTestId("import-boundary-marker")).not.toBeInTheDocument();
@@ -335,7 +329,6 @@ describe("MessageArea", () => {
 				messages,
 				conversationId: "fork-conv",
 				isThinkingActive: false,
-				contextDebug: null,
 				forkOrigin: {
 					forkConversationId: "fork-conv",
 					sourceConversationId: "source-conv",
@@ -697,7 +690,6 @@ describe("MessageArea", () => {
 			messages,
 			conversationId: "fork-conv",
 			isThinkingActive: false,
-			contextDebug: null,
 			forkOrigin: {
 				forkConversationId: "fork-conv",
 				sourceConversationId: "source-conv",
@@ -731,7 +723,6 @@ describe("MessageArea", () => {
 			messages,
 			conversationId: "fork-conv",
 			isThinkingActive: false,
-			contextDebug: null,
 			forkOrigin: {
 				forkConversationId: "fork-conv",
 				sourceConversationId: "source-conv",
@@ -777,7 +768,6 @@ describe("MessageArea", () => {
 			messages,
 			conversationId: "fork-conv",
 			isThinkingActive: false,
-			contextDebug: null,
 			forkOrigin: {
 				forkConversationId: "fork-conv",
 				sourceConversationId: "source-conv",
@@ -1069,7 +1059,6 @@ describe("MessageArea", () => {
 			messages: [initialMessage],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			fileProductionJobs: [],
 		});
 
@@ -1096,7 +1085,6 @@ describe("MessageArea", () => {
 			messages: [initialMessage],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			fileProductionJobs: [job],
 		});
 
@@ -1132,7 +1120,6 @@ describe("MessageArea", () => {
 			],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			fileProductionJobs: [runningJob],
 		});
 
@@ -1185,7 +1172,6 @@ describe("MessageArea", () => {
 			],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			fileProductionJobs: [runningJob],
 		});
 
@@ -1253,7 +1239,6 @@ describe("MessageArea", () => {
 			],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			fileProductionJobs: [job],
 		});
 
@@ -1306,7 +1291,6 @@ describe("MessageArea", () => {
 			],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			fileProductionJobs: [job],
 		});
 
@@ -1340,7 +1324,6 @@ describe("MessageArea", () => {
 			],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			fileProductionJobs: [job],
 		});
 
@@ -1398,7 +1381,6 @@ describe("MessageArea", () => {
 			],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			fileProductionJobs: [fileProductionJob],
 		});
 
@@ -1447,7 +1429,6 @@ describe("MessageArea", () => {
 			],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			atlasJobs: [atlasJob],
 			onAtlasLifecycleAction,
 		});
@@ -1518,7 +1499,6 @@ describe("MessageArea", () => {
 			],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			fileProductionJobs: [fileProductionJob],
 			atlasJobs: [atlasJob],
 		});
@@ -1575,7 +1555,6 @@ describe("MessageArea", () => {
 			],
 			conversationId: "conv-1",
 			isThinkingActive: false,
-			contextDebug: null,
 			fileProductionJobs: [failedJob, runningJob],
 			onRetryFileProductionJob,
 			onCancelFileProductionJob,
@@ -1641,7 +1620,6 @@ describe("MessageArea", () => {
 				],
 				conversationId: "conv-1",
 				isThinkingActive: false,
-				contextDebug: null,
 				pendingWrites: [write],
 			});
 
@@ -1672,7 +1650,6 @@ describe("MessageArea", () => {
 				],
 				conversationId: "conv-1",
 				isThinkingActive: false,
-				contextDebug: null,
 				pendingWrites: [write],
 			});
 
@@ -1702,7 +1679,6 @@ describe("MessageArea", () => {
 				],
 				conversationId: "conv-1",
 				isThinkingActive: false,
-				contextDebug: null,
 				pendingWrites: [write],
 			});
 
@@ -1730,7 +1706,6 @@ describe("MessageArea", () => {
 				],
 				conversationId: "conv-1",
 				isThinkingActive: false,
-				contextDebug: null,
 				pendingWrites: [write],
 				onConfirmWrite,
 				onCancelWrite,

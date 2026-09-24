@@ -5,7 +5,6 @@ import type {
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
-import type { TaskSteeringPayload } from "$lib/server/services/task-state/types";
 
 let {
 	maxLength = 10000,
@@ -21,8 +20,6 @@ let {
 	ensureConversation = null,
 	onSend = () => {},
 	onQueue = () => {},
-	onSteer = () => {},
-	onManageEvidence = () => {},
 	onEditQueuedMessage = () => {},
 	onDeleteQueuedMessage = () => {},
 	onCompact = () => {},
@@ -41,8 +38,6 @@ let {
 	ensureConversation?: (() => Promise<string>) | null;
 	onSend?: (message: string) => void;
 	onQueue?: (message: string) => void;
-	onSteer?: (payload: TaskSteeringPayload) => void;
-	onManageEvidence?: () => void;
 	onEditQueuedMessage?: () => void;
 	onDeleteQueuedMessage?: () => void;
 	onCompact?: () => void;
@@ -89,6 +84,5 @@ function handleDraftChange(payload: {
 	{onEditQueuedMessage}
 	{onDeleteQueuedMessage}
 	{onCompact}
-	{onManageEvidence}
 	onDraftChange={handleDraftChange}
 />

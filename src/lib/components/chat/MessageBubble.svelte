@@ -70,13 +70,10 @@ import {
 	X,
 } from "@lucide/svelte";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
-import type { TaskSteeringPayload } from "$lib/server/services/task-state/types";
 
 let {
 	message,
 	isLast = false,
-	pinnedArtifactIds = [],
-	excludedArtifactIds = [],
 	fileProductionJobs = [],
 	atlasJobs = [],
 	pendingWrites = [],
@@ -88,7 +85,6 @@ let {
 	onEdit = undefined,
 	onFork = undefined,
 	forkBusy = false,
-	onSteer = undefined,
 	onOpenDocument = undefined,
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
@@ -104,8 +100,6 @@ let {
 }: {
 	message: ChatMessage;
 	isLast?: boolean;
-	pinnedArtifactIds?: string[];
-	excludedArtifactIds?: string[];
 	fileProductionJobs?: FileProductionJob[];
 	atlasJobs?: AtlasJobCard[];
 	pendingWrites?: PendingWrite[];
@@ -129,7 +123,6 @@ let {
 		| ((payload: { messageId: string }) => void | Promise<void>)
 		| undefined;
 	forkBusy?: boolean;
-	onSteer?: ((payload: TaskSteeringPayload) => void) | undefined;
 	onOpenDocument?:
 		| ((
 				document: DocumentWorkspaceItem,

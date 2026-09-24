@@ -10,7 +10,6 @@ import type {
 } from "$lib/server/services/atlas/public-types";
 import type {
 	ContextDebugState,
-	ContextSourcesState,
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
 import type {
@@ -33,7 +32,6 @@ let {
 	onEditQueuedMessage,
 	onDeleteQueuedMessage,
 	onCompact,
-	onManageEvidence,
 	disabled,
 	isGenerating,
 	canStopStreaming,
@@ -44,7 +42,6 @@ let {
 	contextStatus,
 	attachedArtifacts,
 	contextDebug,
-	contextSources = null,
 	draftText,
 	draftAttachments,
 	draftLinkedSources = [],
@@ -88,7 +85,6 @@ let {
 	onEditQueuedMessage: () => void;
 	onDeleteQueuedMessage: () => void;
 	onCompact: () => void;
-	onManageEvidence?: (() => void) | undefined;
 	disabled: boolean;
 	isGenerating: boolean;
 	canStopStreaming?: boolean | undefined;
@@ -99,7 +95,6 @@ let {
 	contextStatus: ConversationContextStatus | null;
 	attachedArtifacts: ArtifactSummary[];
 	contextDebug: ContextDebugState | null;
-	contextSources?: ContextSourcesState | null;
 	draftText: string;
 	draftAttachments: PendingAttachment[];
 	draftLinkedSources?: LinkedContextSource[];
@@ -186,7 +181,6 @@ let {
 			{onEditQueuedMessage}
 			{onDeleteQueuedMessage}
 			{onCompact}
-			{onManageEvidence}
 			{disabled}
 			{isGenerating}
 			{canStopStreaming}
@@ -197,7 +191,6 @@ let {
 			{contextStatus}
 			{attachedArtifacts}
 			{contextDebug}
-			{contextSources}
 			{draftText}
 			{draftAttachments}
 			{draftLinkedSources}

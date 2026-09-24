@@ -6,14 +6,9 @@ import type {
 	Conversation,
 	ConversationListItem,
 } from "$lib/server/services/conversations";
-import type { ContextDebugState } from "$lib/server/services/knowledge/context-types";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
-import type {
-	TaskState,
-	TaskSteeringPayload,
-} from "$lib/server/services/task-state/types";
 import { _unwrapList } from "./_utils";
 import {
 	type FetchLike,
@@ -42,11 +37,6 @@ export type MessageEvidenceResult =
 
 interface TitleGenerationResponse {
 	title: string | null;
-}
-
-interface TaskSteeringResponse {
-	taskState?: TaskState | null;
-	contextDebug?: ContextDebugState | null;
 }
 
 interface ContextCompressionResponse {
@@ -438,23 +428,6 @@ export async function deleteConversationMessages(
 	);
 
 	return typeof payload.deleted === "number" ? payload.deleted : 0;
-}
-
-export async function applyTaskSteering(
-	conversationId: string,
-	payload: TaskSteeringPayload,
-): Promise<TaskSteeringResponse> {
-	return requestJson<TaskSteeringResponse>(
-		`/api/conversations/${conversationId}/task-steering`,
-		{
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify(payload),
-		},
-		"Failed to update task steering",
-	);
 }
 
 export async function runConversationContextCompression(

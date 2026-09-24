@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { render, screen } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationContextStatus } from "$lib/server/services/knowledge/context-types";
 import ContextUsageRing from "./ContextUsageRing.svelte";
@@ -18,7 +18,6 @@ function renderRing(props: Record<string, unknown> = {}) {
 		props: {
 			contextStatus: null,
 			attachedArtifacts: [],
-			onManageEvidence: undefined,
 			...props,
 		},
 	});
@@ -50,20 +49,6 @@ describe("ContextUsageRing cost display", () => {
 		expect(screen.queryByText("contextUsageRing.unlockTask")).toBeNull();
 		expect(screen.queryByText("contextUsageRing.startNewTask")).toBeNull();
 		expect(screen.queryByText("contextUsageRing.manageEvidence")).toBeNull();
-	});
-
-	it("opens context source management without restoring task controls", async () => {
-		const manageEvidence = vi.fn();
-		renderRing({ onManageEvidence: manageEvidence });
-
-		await fireEvent.click(screen.getByLabelText("contextUsageRing.noContext"));
-		await fireEvent.click(
-			screen.getByRole("button", { name: "contextUsageRing.manageEvidence" }),
-		);
-
-		expect(manageEvidence).toHaveBeenCalledTimes(1);
-		expect(screen.queryByText("contextUsageRing.unlockTask")).toBeNull();
-		expect(screen.queryByText("contextUsageRing.startNewTask")).toBeNull();
 	});
 
 	it("removes across chats section even when continuity exists", () => {
@@ -121,59 +106,6 @@ describe("ContextUsageRing cost display", () => {
 		expect(screen.queryByText(/pressure threshold/i)).toBeNull();
 		expect(screen.queryByText(/routing/i)).toBeNull();
 		expect(screen.queryByText(/verification/i)).toBeNull();
-	});
-
-	it("uses contextSources for source counts and reduced state when available", () => {
-		renderRing({
-			contextStatus: {
-				estimatedTokens: 5000,
-				promptTokens: 5000,
-				promptTokensSource: "estimated",
-				maxContextTokens: 262144,
-				targetTokens: 235929,
-				thresholdTokens: 209715,
-				compactionMode: "none",
-				routingStage: "deterministic",
-				routingConfidence: 100,
-				verificationStatus: "skipped",
-				layersUsed: [],
-				recentTurnCount: 5,
-				workingSetCount: 3,
-				workingSetArtifactIds: [],
-				workingSetApplied: true,
-				taskStateApplied: true,
-				promptArtifactCount: 1,
-				summary: null,
-				updatedAt: Date.now(),
-			},
-			contextDebug: {
-				routingStage: "deterministic",
-				routingConfidence: 100,
-				verificationStatus: "skipped",
-				selectedEvidence: [],
-				pinnedEvidence: [],
-				excludedEvidence: [],
-			},
-			contextSources: {
-				conversationId: "conversation-1",
-				userId: "user-1",
-				activeCount: 2,
-				inferredCount: 0,
-				selectedCount: 2,
-				pinnedCount: 1,
-				excludedCount: 1,
-				reduced: true,
-				compacted: false,
-				groups: [],
-				updatedAt: Date.now(),
-			},
-		});
-
-		expect(screen.getByText("contextUsageRing.sourcesIncluded")).toBeTruthy();
-		expect(screen.getByText("contextSources.state")).toBeTruthy();
-		expect(screen.getByText("contextSources.reduced")).toBeTruthy();
-		expect(screen.getByText("contextSources.pinned")).toBeTruthy();
-		expect(screen.getByText("contextSources.excluded")).toBeTruthy();
 	});
 
 	it("formats sub-dollar cost with 4 decimal places", () => {
@@ -375,26 +307,5 @@ describe("ContextUsageRing humanized stat labels", () => {
 		});
 
 		expect(screen.getByText("contextUsageRing.whatAlfyRemembers")).toBeTruthy();
-	});
-
-	it("uses the humanized label for the sources stat row", () => {
-		renderRing({
-			contextStatus: contextStatusAtRatio(0.4),
-			contextSources: {
-				conversationId: "conversation-1",
-				userId: "user-1",
-				activeCount: 2,
-				inferredCount: 0,
-				selectedCount: 2,
-				pinnedCount: 0,
-				excludedCount: 0,
-				reduced: false,
-				compacted: false,
-				groups: [],
-				updatedAt: Date.now(),
-			},
-		});
-
-		expect(screen.getByText("contextUsageRing.sourcesIncluded")).toBeTruthy();
 	});
 });
