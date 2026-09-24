@@ -68,6 +68,21 @@ dangling link.
 
 **Slice E found two of its own defects** during the mockup check and fixed both (`34888d93`, `c282c212`).
 
+**Verified on dev with a real model** (deployed `5eab8541`), the checks the implementer could not run:
+
+| Check | Result |
+|---|---|
+| Upload a file directly into a project (the upload-link path) | pass |
+| It becomes linked to that project | pass |
+| **A real turn answers from the file's content** — asked for a booking reference held only in the uploaded file, and the reply contained it | pass |
+| Unlink succeeds | pass |
+| **The library file still exists after unlinking** | pass |
+| The project no longer lists it | pass |
+
+That third row is the heart of the feature: the file's *content* reached the model on demand, not just its name.
+Probe `/tmp/ws-visual/probe-folder-knowledge.mjs` (uploads, verifies, unlinks, and leaves the project as it found
+it — the uploaded file stays in the library, which is the correct end state).
+
 **Three findings the orchestrator should carry, none of them Slice E's:**
 
 - **(a) Pre-existing and broader than this slice:** on a *live* chat page the Info popover shows **no evidence
