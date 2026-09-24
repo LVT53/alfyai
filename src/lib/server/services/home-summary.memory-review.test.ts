@@ -171,7 +171,7 @@ describe("memoryReviewNoticeDismissed", () => {
 		expect(summary.memoryReviewNoticeDismissed).toBe(true);
 	});
 
-	it("does not expire on its own after a week, unlike the suggestion-rail event log", async () => {
+	it("does not expire on its own: a month later it is still dismissed", async () => {
 		const userId = randomUUID();
 		seedUser(userId);
 		seedReviewItem({ userId, subjectKey: "a", createdAt: NOW });
