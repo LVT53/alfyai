@@ -1916,6 +1916,44 @@ describe("MessageBubble", () => {
 		expect(popover.className).toContain("info-popover-forced-closed");
 	});
 
+	it("holds the Info popover closed until the pointer asks for it again", async () => {
+		const { container } = render(MessageBubble, {
+			message: buildProjectFilesMessage(),
+		});
+
+		Object.defineProperty(window, "matchMedia", {
+			writable: true,
+			value: vi.fn().mockImplementation((query: string) => ({
+				matches: query.includes("pointer: coarse"),
+				media: query,
+				onchange: null,
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn(),
+				dispatchEvent: vi.fn(),
+			})),
+		});
+
+		const infoContainer = container.querySelector(
+			".info-container",
+		) as HTMLElement;
+		const popover = container.querySelector(".info-popover") as HTMLElement;
+		await fireEvent.click(screen.getByRole("button", { name: "Info" }));
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Project files/ }),
+		);
+		expect(popover.className).toContain("info-popover-forced-closed");
+
+		// Hiding the popover takes it out from under the pointer that pressed
+		// the row, so a leave arrives on the same gesture — releasing on leave
+		// put the popover straight back over the panel it had just opened.
+		await fireEvent.pointerLeave(infoContainer);
+		expect(popover.className).toContain("info-popover-forced-closed");
+
+		// Coming back to the container is the deliberate re-open.
+		await fireEvent.pointerEnter(infoContainer);
+		expect(popover.className).not.toContain("info-popover-forced-closed");
+	});
+
 	it("renders styled hover tooltip labels for message action icons", () => {
 		const assistantMessage: ChatMessage = {
 			id: "assistant-tooltip-actions",

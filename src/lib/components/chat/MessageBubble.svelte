@@ -691,29 +691,41 @@ function toggleInfoPopoverOnTouch() {
  * the Sources panel below the message. Clicking it opens that panel and closes
  * the popover: it is a way to get there, not a report to read while the panel
  * opens underneath.
+ *
+ * The tap state is cleared too: on touch the popover was open by tap, and a
+ * pre-armed tap would make the reader's next tap on Info close what it looks
+ * like it is opening.
  */
 function openSourcesFromInfo() {
 	infoForcedClosed = true;
+	infoPopoverTouched = false;
 	sourcesExpandRequest += 1;
 }
 
 /**
- * Leaving the info container ends a forced close, so the next hover or tap is
+ * Entering the info container ends a forced close, so the next hover or tap is
  * a fresh request to see the popover.
  *
- * An action rather than an `onpointerleave` attribute: the container is a
+ * Enter, not leave: hiding the popover takes it out from under the pointer
+ * that just pressed the row, and a leave-based release therefore fired on the
+ * same gesture that closed it — the class came off again and the popover
+ * reappeared over the panel it had just opened. Nothing about the pointer has
+ * to move for this to happen, so no amount of CSS specificity can save a
+ * leave-based reset.
+ *
+ * An action rather than an `onpointerenter` attribute: the container is a
  * plain layout wrapper with no role, and a pointer handler on a static <div>
  * is an a11y diagnostic — the handler is about pointer geometry, not about the
  * element being interactive.
  */
 function releaseInfoForcedClose(node: HTMLElement) {
-	const handleLeave = () => {
+	const handleEnter = () => {
 		infoForcedClosed = false;
 	};
-	node.addEventListener("pointerleave", handleLeave);
+	node.addEventListener("pointerenter", handleEnter);
 	return {
 		destroy() {
-			node.removeEventListener("pointerleave", handleLeave);
+			node.removeEventListener("pointerenter", handleEnter);
 		},
 	};
 }
@@ -1879,14 +1891,17 @@ function sendFollowUp(question: string) {
 	}
 
 	/* Workspaces Slice E — the "Project files" row points at the Sources panel
-	 * BELOW this popover, so clicking it closes Info. Declared after the hover
-	 * and tap-toggle rules (same specificity, later wins) because the pointer
-	 * is still inside the container — and on touch the tap-toggle class is
-	 * still set — when the row is pressed; a rule that only beat one of them
-	 * would leave the popover covering the panel it just opened. Cleared on
-	 * pointer-leave and on the Info button's own tap, so it is a state, not a
-	 * one-shot: the next deliberate open works. */
-	.info-popover.info-popover-forced-closed {
+	 * BELOW this popover, so clicking it closes Info. Scoped through
+	 * `.info-container` to reach the hover rule's specificity
+	 * (`.info-container:hover .info-popover`, three class-level selectors):
+	 * matching it and sitting later in the sheet is what makes the press win
+	 * while the pointer is still inside the container — and on touch the
+	 * tap-toggle class is still set too. The unscoped two-class rule this
+	 * replaced lost to the hover rule, so the popover stayed up and covered
+	 * the panel it had just opened. Cleared on pointer-enter and on the Info
+	 * button's own tap, so it is a state, not a one-shot: the next deliberate
+	 * open works. */
+	.info-container .info-popover.info-popover-forced-closed {
 		opacity: 0;
 		visibility: hidden;
 		transform: translateY(4px);
