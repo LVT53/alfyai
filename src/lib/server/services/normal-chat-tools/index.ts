@@ -173,6 +173,7 @@ import {
 	type SuggestInstructionFailurePayload,
 	type SuggestInstructionModelPayload,
 	type SuggestInstructionRefusalReason,
+	type SuggestInstructionRefusedPayload,
 	suggestInstructionInputSchema,
 } from "./suggest-instruction";
 import {
