@@ -1,5 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
+import { eq } from "drizzle-orm";
 
+import { db } from "../../src/lib/server/db";
+import { providerModels, providers } from "../../src/lib/server/db/schema";
 import { normalizeSystemPromptReference } from "../../src/lib/server/prompts";
 import { login } from "./helpers";
 
@@ -232,6 +236,98 @@ test.describe("Admin model routing settings", () => {
 		await expect(
 			page.locator("#MODEL_TIMEOUT_FAILOVER_TIMEOUT_MS"),
 		).toHaveValue("4500");
+	});
+});
+
+// Regression guard for a redesigned-System-screen defect: `.sys-grow` (the
+// flex-grow utility the provider row's label span leans on to push the
+// model-count/toggle/menu controls to the row's right edge) was scoped as
+// `.sys-card-head .sys-grow` — a selector the provider/model list rows never
+// match, since they are not inside a `.sys-card-head`. The label span never
+// grew, so the row's trailing controls packed against the label instead of
+// reaching the row's own right edge, leaving a wide dead gap on wide
+// viewports. Creating a provider through the real admin API would dial out to
+// validate the connection, so this seeds the row directly, the same way other
+// specs seed conversations/messages straight into SQLite.
+test.describe("Admin provider table layout", () => {
+	const providerId = randomUUID();
+
+	test.beforeEach(async ({ page }) => {
+		const now = new Date();
+		await db.insert(providers).values({
+			id: providerId,
+			name: `layout_probe_${providerId.slice(0, 8)}`,
+			displayName: "Layout Probe Provider",
+			baseUrl: "https://layout-probe.example.com/v1",
+			apiKeyEncrypted: "probe-encrypted",
+			apiKeyIv: "probe-iv",
+			sortOrder: 999,
+			enabled: 1,
+			createdAt: now,
+			updatedAt: now,
+		});
+		await db.insert(providerModels).values([
+			{
+				id: randomUUID(),
+				providerId,
+				name: "layout-probe-1",
+				displayName: "Layout Probe Model 1",
+				enabled: 1,
+				sortOrder: 0,
+				createdAt: now,
+				updatedAt: now,
+			},
+			{
+				id: randomUUID(),
+				providerId,
+				name: "layout-probe-2",
+				displayName: "Layout Probe Model 2",
+				enabled: 1,
+				sortOrder: 1,
+				createdAt: now,
+				updatedAt: now,
+			},
+		]);
+
+		await login(page);
+		await openAdministrationTab(page, "models");
+	});
+
+	test.afterEach(async () => {
+		await db.delete(providers).where(eq(providers.id, providerId));
+	});
+
+	test("provider row controls reach the row's own right edge", async ({
+		page,
+	}) => {
+		// Wide enough that the old bug's dead gap (hundreds of px) is
+		// unmistakable next to the tolerance below.
+		await page.setViewportSize({ width: 1440, height: 1000 });
+
+		const row = page.getByTestId(`provider-row-${providerId}`);
+		await expect(row).toBeVisible();
+		const menuButton = page.getByTestId(`provider-menu-${providerId}`);
+
+		const rowBox = await row.boundingBox();
+		const menuBox = await menuButton.boundingBox();
+		if (!rowBox || !menuBox) throw new Error("Row or menu button not laid out");
+
+		const rowInsets = await row.evaluate((el) => {
+			const style = getComputedStyle(el);
+			return {
+				paddingRight: Number.parseFloat(style.paddingRight) || 0,
+				borderRight: Number.parseFloat(style.borderRightWidth) || 0,
+			};
+		});
+
+		// The row's own content-box right edge: where the last control should
+		// land regardless of viewport width, since the label span (not the
+		// controls) absorbs the extra space.
+		const rowContentRight =
+			rowBox.x + rowBox.width - rowInsets.paddingRight - rowInsets.borderRight;
+		const menuRight = menuBox.x + menuBox.width;
+
+		expect(Math.abs(menuRight - rowContentRight)).toBeLessThanOrEqual(1);
 	});
 });
 

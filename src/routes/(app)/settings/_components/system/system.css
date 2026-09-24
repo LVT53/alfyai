@@ -180,7 +180,12 @@
 	margin-bottom: 14px;
 }
 
-.sys-card-head .sys-grow {
+/* Generic flex-grow utility: used inside `.sys-card-head`, `.sys-list-row`,
+   and other flex rows so the row's trailing controls stay pinned to the far
+   right edge instead of collapsing against the label. Keep this unscoped —
+   it used to be `.sys-card-head .sys-grow` only, which silently no-opped
+   everywhere else it was used and left rows short of the row's full width. */
+.sys-grow {
 	flex: 1 1 auto;
 	min-width: 0;
 }
