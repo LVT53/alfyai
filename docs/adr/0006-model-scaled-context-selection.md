@@ -1,5 +1,7 @@
 # Model-scaled context selection replaces small fixed caps
 
+> **Superseded in part (2026-09-24).** The manual per-source steering this ADR weighs as a considered option — and the "pinning" signal listed below — no longer exists: the chat-surface pin/exclude panel and the stored user preference rows behind it were removed with the "Manage context sources" removal, and nothing replaces them. The model-scaled budget decision is unchanged.
+
 Normal Chat context selection will use the active model/provider's usable context capacity as the primary sizing policy instead of small fixed document, attachment, evidence, and rerank caps. Max Model Context should be derived from provider/model metadata when available. Third-party API connections must have Max Model Context configured in admin settings before they are considered fully configured, with 150k tokens as the safety fallback for unknown capacity. Target Constructed Context and Compaction Threshold remain admin-facing controls, and unset values should be derived per model/provider, with fixed item-count limits treated as performance safeguards rather than product inclusion rules.
 
 We choose this because AlfyAI's primary models have large context windows, and conservative small-context caps make multi-turn document work unreliable while still charging for powerful model calls. This increases possible prompt usage and cost, but that trade-off should be explicit in model/provider context settings rather than hidden behavior caused by arbitrary constants.

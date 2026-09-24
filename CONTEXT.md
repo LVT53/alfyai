@@ -263,7 +263,7 @@ Retired historical term for the old outbound execution boundary for a Normal Cha
 _Avoid_: prompt assembly, Context Selection, AI SDK UI Stream Contract, Normal Chat Turn Completion
 
 **Normal Chat Turn Completion**:
-The point where an assistant response becomes durable conversation state, including persisted messages, response-facing **Context Sources**, message evidence, skill state changes, and continuity side effects for that turn.
+The point where an assistant response becomes durable conversation state, including persisted messages, message evidence, skill state changes, and continuity side effects for that turn.
 _Avoid_: route response assembly, stream end event, post-send cleanup
 
 **Normal Chat Completion Boundary**:
@@ -276,7 +276,7 @@ _Avoid_: Langflow stream, Normal Chat Turn Completion, route-local stream part, 
 
 **Normal Chat Client Turn Runtime**:
 The browser-side plain TypeScript boundary at `src/lib/client/normal-chat-client-turn-runtime.ts` that owns Normal Chat send, retry, reconnect, waiting, stop, queued follow-up, and recovery runtime semantics above `streamChat`. It consumes decoded stream callbacks and server-returned metadata through page adapters while the chat page keeps visible Svelte state, route lifecycle, document workspace state, and UI commands.
-_Avoid_: AI SDK UI stream parser, Context Sources builder, chat page state, durable completion
+_Avoid_: AI SDK UI stream parser, chat page state, durable completion
 
 **Token Display Buffer**:
 A `requestAnimationFrame`-aligned batching layer inside the **Normal Chat Client Turn Runtime** that coalesces streamed text deltas — both visible text and thinking text — before they reach the page adapter's `appendTokenChunk` and `appendThinkingChunk`. It is a display cadence buffer, not a content buffer — it changes when accumulated text reaches reactive state, not what text arrives. It flushes once per animation frame and synchronously on stream end, user-requested stop, and error, ensuring no buffered text is lost during termination. It does not buffer tool-call updates or metadata.
@@ -291,7 +291,7 @@ The CSS animation applied to newly arrived words during streaming, owned by `Mar
 _Avoid_: typewriter effect, per-letter animation, staggered cascade, blur-in, word shimmer
 
 **Conversation Detail Read Model**:
-The server read-model boundary at `src/lib/server/services/conversation-detail/read-model.ts` that assembles the refreshable `ConversationDetail` payload for chat page load and browser hydration. It owns bootstrap/full detail selection, payload defaults, child-fork message decoration, Context Sources projection, task-state continuity attachment, draft, generated-file, File Production, context-compression, cost fields, and active Skill Session public serialization.
+The server read-model boundary at `src/lib/server/services/conversation-detail/read-model.ts` that assembles the refreshable `ConversationDetail` payload for chat page load and browser hydration. It owns bootstrap/full detail selection, payload defaults, child-fork message decoration, task-state continuity attachment, draft, generated-file, File Production, context-compression, cost fields, and active Skill Session public serialization.
 _Avoid_: route-local hydration recipe, durable Normal Chat Turn Completion, AI SDK UI stream terminal payload, page-owned payload assembly
 
 **Memory Access**:
@@ -643,7 +643,7 @@ Exact personal or security-sensitive values such as phone numbers, email address
 _Avoid_: raw phone number, exact credential, exposed token, overzealous memory filtering
 
 **Context Sources**:
-The concept of the carried-forward pool of documents, attachments, memory, prior turns, generated work, and other sources AlfyAI is considering for a conversation. On the chat surface it is shown read-only as the **Sources** disclosure; steering it (pin or exclude) lives in the Knowledge library and working-document workspace, not on the chat surface.
+The concept of the carried-forward pool of documents, attachments, memory, prior turns, generated work, and other sources AlfyAI is considering for a conversation. On the chat surface it is shown read-only as the **Sources** disclosure. There is no per-source user steering: the Auto/Pinned/Excluded surface was removed on 2026-09-24 because it never reached selection or the model (see [ADR-0043](docs/adr/0043-ui-refresh-identity-clarity-and-jump-rail.md)), and nothing replaces it — retrieval, decay and **Context Budget** decide what the pool carries.
 _Avoid_: evidence manager, manual retrieval setup, budget manager, chat-surface steering panel
 
 **Sources**:
@@ -1131,13 +1131,13 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Normal Chat Model Run** happens after **Context Selection** and before **Normal Chat Turn Completion**.
 - **Normal Chat Model Run** owns model/provider attempts, tool-call lifecycle, configured failover, provider usage extraction, and run diagnostics; it does not select **Prompt Context** or define durable completion.
 - **Langflow Model Run** was the Langflow-specific form of **Normal Chat Model Run** and has been retired without changing the surrounding Normal Chat domain boundaries.
-- **Normal Chat Turn Completion** ends a **Normal Chat Turn** by turning assistant output into durable conversation state and response-facing **Context Sources**.
+- **Normal Chat Turn Completion** ends a **Normal Chat Turn** by turning assistant output into durable conversation state.
 - Transport surfaces may expose the result of **Normal Chat Turn Completion**, but they should not redefine what completion means.
 - The **AI SDK UI Stream Contract** exposes streaming, replay, waiting, completion, and error transport parts for **Normal Chat**, but it does not own durable turn completion.
 - The **AI SDK UI Stream Contract** does not own upstream model attempts or failover; it only exposes browser-facing parts after server-side stream orchestration.
 - **AI SDK UI Stream Contract** part names and payload shapes should change only at the shared stream/framing boundary with protocol tests.
 - The **Normal Chat Client Turn Runtime** sits above `streamChat`: it reacts to decoded stream callbacks, but it does not parse raw AI SDK UI stream lines or define protocol grammar.
-- The **Normal Chat Client Turn Runtime** applies server-returned metadata through chat-page adapters; it does not build **Context Sources** or decide **Normal Chat Turn Completion**.
+- The **Normal Chat Client Turn Runtime** applies server-returned metadata through chat-page adapters; it does not decide **Normal Chat Turn Completion**.
 - The chat page owns visible Svelte state, route lifecycle, document workspace state, and UI commands; the **Normal Chat Client Turn Runtime** owns browser-side turn transitions and queue recovery rules.
 - The **Token Display Buffer** sits inside the **Normal Chat Client Turn Runtime** between `onToken`/`onThinking` callbacks and page-adapter `appendTokenChunk`/`appendThinkingChunk` calls; it batches text to reduce reactive pressure, not to change content.
 - The **Render Coalescing Cadence** sits inside `MarkdownRenderer.svelte`, downstream of the **Token Display Buffer**; the buffer controls when text reaches reactive state, the cadence controls when that state is re-parsed and painted.
@@ -1377,9 +1377,8 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Stopping a skill-guided response should leave the **Skill Session** active in a conservative state unless a complete idempotent operation already committed.
 - If a **Skill Control Envelope** is missing or invalid, AlfyAI should keep the **Skill Session** in a conservative active state rather than guessing from prose.
 - This **Composer Command Registry** v1 is scoped to **Normal Chat** and does not change the retired research job lifecycle.
-- **Context Sources** is the carried-forward pool; the chat-surface **Sources** disclosure shows it read-only (what informed an answer), while steering it (pin or exclude) happens in the Knowledge library and working-document workspace, not on the chat surface.
-- Pinning or excluding a **Context Source** is scoped to the current conversation or task by default and is managed where the user works with documents, not inline in chat.
-- Global source preference is a separate future concept and should not be implied by ordinary pinning.
+- **Context Sources** is the carried-forward pool; the chat-surface **Sources** disclosure shows it read-only (what informed an answer). No surface offers per-source user steering — pinning and excluding sources was removed with the chat-surface panel on 2026-09-24 and is not replaced.
+- Global source preference is a separate future concept and should not be implied by ordinary retrieval or **Working Document Selection**.
 - **Context Sources** may summarize or group sources for a cleaner UI, but it should preserve enough detail for users to understand which important sources are being carried forward.
 - **Context Sources** is conversation-level and compact.
 - **Context Sources** should subtly indicate when active sources were compacted, reduced, or omitted because of budget pressure.
@@ -1390,10 +1389,10 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - **Context Sources** should show the broader carried-forward pool, while **Message Evidence** shows what supported a specific answer.
 - **Context Sources** should avoid unbounded lists by grouping, summarizing, or collapsing lower-priority sources.
 - **Context Sources** should separate active sources from inferred available sources.
-- Active **Context Sources** include current attachments, pinned sources (managed in the working-document workspace), open or current documents, current generated documents, and strong task sources.
+- Active **Context Sources** include current attachments, open or current documents, current generated documents, and strong task sources.
 - In a new chat, the **Knowledge Library** is **Available Context**, not active **Context Sources**, unless the user explicitly asks for library material or retrieval finds a strong relevant hit.
 - A strong Knowledge Library retrieval hit may support the current answer as **Message Evidence** without automatically becoming an active **Context Source**.
-- A retrieved Library Document should become an active **Context Source** only when the user follows up on it as the working subject, opens it, pins it, or otherwise gives a strong source-continuity signal.
+- A retrieved Library Document should become an active **Context Source** only when the user follows up on it as the working subject, opens it, or otherwise gives a strong source-continuity signal.
 - **Context Source** lifecycle is: **Available Context** may become a candidate, a candidate may become **Message Evidence**, and **Message Evidence** becomes an active **Context Source** only after a strong continuity signal.
 - Existing Knowledge Library material starts as **Available Context**, not active **Context Sources**.
 - Memory may appear in **Context Sources** as a compact separate group.
@@ -1412,7 +1411,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Deterministic overflow handling should enforce hard safety boundaries, but it should not be the primary production behavior for silently dropping or slicing useful selected context.
 - **Context Compression** should use the user's selected response model in v1; a separate admin-configured compressor model would weaken the user's model preference without enough product value.
 - **Context Compression Snapshots** change prompt assembly defaults only; they must not rewrite, delete, or replace raw chat messages, files, tool outputs, Message Evidence, or source records.
-- In v1, **Context Compression Snapshots** may be consumed only by Normal Chat prompt assembly, Context Sources status/markers, and operational metadata that records compression occurred.
+- In v1, **Context Compression Snapshots** may be consumed only by Normal Chat prompt assembly and operational metadata that records compression occurred.
 - In v1, **Context Compression Snapshots** must not feed durable memory extraction, Message Evidence, source audit, file-production source material, tool-call replay, exact retry/regenerate reconstruction, search indexing, or conversation export.
 - **Context Compression Snapshots** are conversation-owned records and must be linked to the raw messages, source ranges, and source groups they summarize.
 - Deleting a conversation must delete its **Context Compression Snapshots**.
@@ -1718,7 +1717,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - A semantically strong one-turn Library Document match does not become an active carried-forward **Context Source** unless the user follows up, opens it, pins it, explicitly selects it, or gives another strong source-continuity signal.
 - Cross-conversation Library Document eligibility should consider semantic and rerank confidence, not only lexical token overlap.
 - Opening a Library Document creates a **Weak Context Signal** by default.
-- Opening a Library Document becomes a **Strong Context Signal** only when paired with document-directed user wording, explicit selection, pinning, or another source-continuity action.
+- Opening a Library Document becomes a **Strong Context Signal** only when paired with document-directed user wording, explicit selection, or another source-continuity action.
 - Passive workspace state alone should not promote a document into **Prompt Context**.
 - Uncertainty should usually reduce the **Context Inclusion Level** rather than block the user.
 - A **Context Clarification** is reserved for cases where the answer would materially depend on choosing between ambiguous context items.
@@ -1737,7 +1736,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - Pinned or preferred evidence is strongly preferred but still budgeted.
 - Pinned or preferred evidence may become **Protected Context** when relevant to the turn.
 - Pinned or preferred evidence still has a **Context Inclusion Level**.
-- Irrelevant pinned evidence should not receive full body content.
+- Irrelevant selected evidence should not receive full body content.
 - When multiple items are relevant, AlfyAI should preserve breadth before depth.
 - Breadth means using **Reference Context** for plausible relevant items before spending large budget on any one item.
 - Depth means using **Excerpt Context** or **Task Context** for the strongest item or explicitly requested comparison set.
@@ -1770,7 +1769,7 @@ _Avoid_: uploaded attachment, file copy, hidden retrieval hint
 - A recent or visible generated output alone should usually receive no more than **Reference Context**.
 - A semantically relevant generated output may receive **Excerpt Context**.
 - A directly targeted generated output may receive **Task Context**.
-- Old generated outputs should decay unless pinned, selected, or part of an active document family.
+- Old generated outputs should decay unless selected or part of an active document family.
 - When context exceeds budget, AlfyAI should downgrade **Context Inclusion Level** before dropping useful items.
 - When useful items must be dropped, lower-priority **Context Signals** drop before stronger ones.
 - A **Context Trace** records promoted context and the **Context Signals** that caused promotion.
@@ -2299,7 +2298,7 @@ _Avoid_: source message button, primary document action, source viewer
 - Preview prewarm may warm the same preview URL bytes, but **Preview Runtime** remains the authoritative browser path for opening and rendering the preview.
 - **Linked Context Sources** use **Working Document Identity** canonical display, prompt, and family identity for dedupe, stale-selection matching, and prompt readiness.
 - **Context Selection** may consume prompt identity supplied by **Working Document Identity** and signals supplied by **Working Document Selection**, but **Context Selection** still decides whether an artifact becomes **Prompt Context** and how much budget it receives.
-- Knowledge retrieval and **Context Sources** may use **Working Document Selection** to preserve the user's current document intent across follow-up turns, but they should not become a second live-signal authority.
+- Knowledge retrieval may use **Working Document Selection** to preserve the user's current document intent across follow-up turns, but it should not become a second live-signal authority.
 - **Task Context** may protect **Working Document Selection** evidence ids during reranking and persistence, but task continuity remains owned by task-state.
 - **File Production** and **Generated Document Source Persistence** create and link generated-document source/rendered-file metadata; **Working Document Identity** consumes that metadata for workspace and preview behavior rather than owning file-production jobs.
 - A **Library Document** preview in the **Document Workspace** should resolve to the original display file when that file exists.
