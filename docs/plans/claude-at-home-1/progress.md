@@ -143,6 +143,29 @@ has no `[Unreleased] Removed` entry for the chips; the removal guard scans only 
 harmless today); and the slice's checklist item "Fallow **fewer** findings" is met as *equal*, not fewer — the
 reviewer said so rather than letting it pass.
 
+### The live-evidence bug, root-caused (fix `4db32382`, deployed `408b70d5`)
+
+The agent was told to establish which of **two** candidate causes was real before changing anything. It measured, and the answer was neither — a third variant:
+
+- The evidence poll **succeeds** live (200 in every RED run) and the message's Sources panel, which is driven by
+  `evidenceSummary`, **does** appear without a reload.
+- The missing row reads a **different persisted field** (`projectFilesRead`), and no live path delivered it: the
+  terminal stream frame is flushed before the server composes the evidence, and on a normal turn that frame
+  already carries its own projection fields — so `isReceiptOnlyCompletionMetadata` is false and the client skips
+  `hydrateConversationDetail()`.
+
+The fix delivers the field on the response the poll already makes — **zero extra requests, zero extra DB reads** —
+and defines the count once (`readProjectFilesReadFromMetadata`) so the two paths cannot drift. The alternative
+(hydrate conversation detail every turn) was rejected on measurement: a detail fetch costs up to 1.4 s here.
+Existing semantics were left alone: no change to `isReceiptOnlyCompletionMetadata`, the receipt-only hydration
+path, or the stop/detach distinction.
+
+**The same class has a second instance**, which the agent found and deliberately did not fix: `citationAudit` (the
+popover's "Verified sources" row) is likewise persisted-only and never rides the terminal frame. A follow-up fix
+is in flight, told to **reproduce it first** and to check a subtlety the first fix could rely on but this one
+cannot: `projectFilesRead > 0` always implies a non-empty summary section, and `citationAudit` has no equivalent
+guarantee — so a citation-only turn may need a different branch.
+
 ### Two more fixes in flight, from review findings
 
 - `fix/live-chat-evidence-metadata` — the owner's request: the Info popover loses every evidence row after a turn
