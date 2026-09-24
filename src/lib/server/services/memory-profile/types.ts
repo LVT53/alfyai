@@ -218,8 +218,13 @@ export function readMemoryItemUserProtection(
 /**
  * The single protection predicate for automated memory writers. True for
  * user-authored items and for facts the user accepted in review: the judge,
- * consolidation, and recuration must never rewrite, retire, merge, renew, or
- * delete them. The user can still edit or remove them through profile actions.
+ * consolidation, and recuration must never rewrite, retire, merge, or delete
+ * them. The user can still edit or remove them through profile actions.
+ *
+ * One exception: consolidation's renew step still extends the expiry of an
+ * accepted (not user_authored) time-bound fact on its usual evidence rules,
+ * because that expiry was inferred, not chosen by the user. It gates on
+ * `readMemoryItemUserProtection(...) === "user_authored"` instead.
  */
 export function isUserProtectedMemoryMetadata(
 	metadataJson: string | null | undefined,

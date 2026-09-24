@@ -589,20 +589,213 @@ describe("memory consolidation steps", () => {
 		expect(sent).not.toContain(legacyAcceptedId);
 	});
 
-	it("does not renew a user-accepted time_bound fact", async () => {
+	it("renews a user-accepted time_bound fact on the normal criteria, touching only its expiry", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();
 		const userId = "u1";
 		seedUser(db, userId, now);
 		const projectionStateId = seedProjectionState(db, userId, now);
 		const expiresAt = new Date(now.getTime() + 3 * DAY_MS);
+		const acceptedMetadata = {
+			origin: "judge_v1",
+			confidence: "inferred",
+			expiryClass: "time_bound",
+			expiresInDays: 30,
+			reviewResolution: "accepted",
+			endorsement: "user_accepted",
+			userConfirmedAt: new Date(now.getTime() - 3 * DAY_MS).toISOString(),
+		};
 		const acceptedId = seedItem(db, {
 			userId,
 			projectionStateId,
-			statement: "I have a conference in three days.",
+			category: "goals_ongoing_work",
+			statement: "I am looking for an apartment in Limerick.",
+			metadata: acceptedMetadata,
+			expiresAt,
+			createdAt: new Date(now.getTime() - 27 * DAY_MS),
+			updatedAt: new Date(now.getTime() - 3 * DAY_MS),
+		});
+		// Accepted before the explicit endorsement marker existed.
+		const legacyExpiresAt = new Date(now.getTime() + 5 * DAY_MS);
+		const legacyAcceptedId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am preparing for a driving test.",
 			metadata: {
 				origin: "judge_v1",
 				expiryClass: "time_bound",
+				reviewResolution: "accepted",
+			},
+			expiresAt: legacyExpiresAt,
+			createdAt: new Date(now.getTime() - 25 * DAY_MS),
+			updatedAt: new Date(now.getTime() - 1 * DAY_MS),
+		});
+		db.insert(schema.memoryProfileItemProvenance)
+			.values({
+				id: randomUUID(),
+				itemId: acceptedId,
+				userId,
+				resetGeneration: 0,
+				sourceType: "conversation",
+				sourceId: "c1",
+				label: "Conversation",
+				createdAt: now,
+			})
+			.run();
+		const before = readItem(db, acceptedId);
+
+		const { runExpireAndRenew } = await import("./steps");
+		const actions = await runExpireAndRenew({ userId });
+
+		const renewed = actions.filter((x) => x.type === "renewed");
+		expect(renewed.flatMap((x) => x.itemIds).sort()).toEqual(
+			[acceptedId, legacyAcceptedId].sort(),
+		);
+
+		const after = readItem(db, acceptedId);
+		// Expiry pushed +30 days from the previous expiry (second granularity).
+		expect(Math.floor((after.expiresAt?.getTime() ?? 0) / 1000)).toBe(
+			Math.floor((expiresAt.getTime() + 30 * DAY_MS) / 1000),
+		);
+		expect(
+			Math.floor(
+				(readItem(db, legacyAcceptedId).expiresAt?.getTime() ?? 0) / 1000,
+			),
+		).toBe(Math.floor((legacyExpiresAt.getTime() + 30 * DAY_MS) / 1000));
+		// Nothing but expiry + renewal bookkeeping (updatedAt) changes.
+		expect(after.status).toBe("active");
+		expect(after.statement).toBe(before.statement);
+		expect(after.category).toBe(before.category);
+		expect(after.scopeType).toBe(before.scopeType);
+		expect(after.scopeId).toBe(before.scopeId);
+		expect(after.itemKey).toBe(before.itemKey);
+		expect(after.revision).toBe(before.revision);
+		expect(metaOf(after)).toEqual(acceptedMetadata);
+		expect(
+			db
+				.select()
+				.from(schema.memoryProfileItemProvenance)
+				.where(eq(schema.memoryProfileItemProvenance.itemId, acceptedId))
+				.all(),
+		).toHaveLength(1);
+
+		// Still protected from reconcile/merge after the renewal.
+		const otherId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I found an apartment in Cork.",
+			metadata: { origin: "judge_v1" },
+			createdAt: now,
+			updatedAt: now,
+		});
+		setControlResponse(
+			JSON.stringify({
+				actions: [
+					{ type: "supersede", winnerId: otherId, loserId: acceptedId },
+					{
+						type: "merge",
+						itemIds: [legacyAcceptedId, otherId],
+						mergedStatement: "I am busy with moving and driving.",
+						category: "about_you",
+					},
+				],
+			}),
+		);
+		const { runReconcileAndMerge } = await import("./steps");
+		expect(await runReconcileAndMerge({ userId })).toEqual([]);
+		for (const id of [acceptedId, legacyAcceptedId]) {
+			const row = readItem(db, id);
+			expect(row.status).toBe("active");
+			expect(metaOf(row).supersededBy).toBeUndefined();
+			expect(metaOf(row).mergedInto).toBeUndefined();
+		}
+		expect(readItem(db, acceptedId).statement).toBe(before.statement);
+	});
+
+	it("does not renew a user-accepted time_bound fact when the renewal criteria are not met", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const accepted = {
+			origin: "judge_v1",
+			expiryClass: "time_bound",
+			reviewResolution: "accepted",
+			endorsement: "user_accepted",
+		};
+		// Expires soon, but untouched for 20 days → no evidence it is current.
+		const staleExpiresAt = new Date(now.getTime() + 4 * DAY_MS);
+		const staleId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am renovating my kitchen.",
+			metadata: accepted,
+			expiresAt: staleExpiresAt,
+			createdAt: new Date(now.getTime() - 40 * DAY_MS),
+			updatedAt: new Date(now.getTime() - 20 * DAY_MS),
+		});
+		// Touched recently, but not expiring within the renewal window.
+		const farExpiresAt = new Date(now.getTime() + 20 * DAY_MS);
+		const farId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am training for a half marathon.",
+			metadata: accepted,
+			expiresAt: farExpiresAt,
+			createdAt: new Date(now.getTime() - 10 * DAY_MS),
+			updatedAt: new Date(now.getTime() - 1 * DAY_MS),
+		});
+		// Accepted but durable: never renewed (nothing to renew).
+		const durableId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I have a trip in a few days.",
+			metadata: { ...accepted, expiryClass: "durable" },
+			expiresAt: new Date(now.getTime() + 3 * DAY_MS),
+			createdAt: new Date(now.getTime() - 10 * DAY_MS),
+			updatedAt: new Date(now.getTime() - 1 * DAY_MS),
+		});
+
+		const { runExpireAndRenew } = await import("./steps");
+		const actions = await runExpireAndRenew({ userId });
+
+		expect(actions.some((x) => x.type === "renewed")).toBe(false);
+		expect(
+			Math.floor((readItem(db, staleId).expiresAt?.getTime() ?? 0) / 1000),
+		).toBe(Math.floor(staleExpiresAt.getTime() / 1000));
+		expect(
+			Math.floor((readItem(db, farId).expiresAt?.getTime() ?? 0) / 1000),
+		).toBe(Math.floor(farExpiresAt.getTime() / 1000));
+		expect(readItem(db, durableId).status).toBe("active");
+	});
+
+	it("does not auto-extend a user_authored time_bound fact's end date", async () => {
+		const { db } = openSeedDatabase();
+		const now = new Date();
+		const userId = "u1";
+		seedUser(db, userId, now);
+		const projectionStateId = seedProjectionState(db, userId, now);
+		const expiresAt = new Date(now.getTime() + 3 * DAY_MS);
+		// Written by the user: the end date is theirs, not an inference.
+		const authoredId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am in Dublin until the end of the week.",
+			metadata: { origin: "user_authored", expiryClass: "time_bound" },
+			expiresAt,
+			createdAt: new Date(now.getTime() - 5 * DAY_MS),
+			updatedAt: new Date(now.getTime() - 2 * DAY_MS),
+		});
+		// Accepted, then edited by the user: user_authored wins.
+		const editedId = seedItem(db, {
+			userId,
+			projectionStateId,
+			statement: "I am in Galway until Friday.",
+			metadata: {
+				origin: "user_authored",
+				expiryClass: "time_bound",
+				reviewResolution: "edited",
 				endorsement: "user_accepted",
 			},
 			expiresAt,
@@ -614,9 +807,13 @@ describe("memory consolidation steps", () => {
 		const actions = await runExpireAndRenew({ userId });
 
 		expect(actions.some((x) => x.type === "renewed")).toBe(false);
-		expect(readItem(db, acceptedId).expiresAt?.getTime()).toBe(
-			Math.floor(expiresAt.getTime() / 1000) * 1000,
-		);
+		for (const id of [authoredId, editedId]) {
+			const row = readItem(db, id);
+			expect(row.status).toBe("active");
+			expect(Math.floor((row.expiresAt?.getTime() ?? 0) / 1000)).toBe(
+				Math.floor(expiresAt.getTime() / 1000),
+			);
+		}
 	});
 
 	it("applies reconcile actions when the model wraps the JSON envelope in reasoning prose", async () => {

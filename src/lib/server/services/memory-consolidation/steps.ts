@@ -20,6 +20,7 @@ import {
 	assertMemoryProfileCategory,
 	isUserProtectedMemoryMetadata,
 	parseMemoryItemMetadata,
+	readMemoryItemUserProtection,
 } from "../memory-profile/types";
 import { NIGHT_SHIFT_EVENT_FAMILY } from "./event-family";
 
@@ -145,7 +146,12 @@ export async function runExpireAndRenew(params: {
 	for (const item of renewCandidates) {
 		if (parseMemoryItemMetadata(item.metadataJson).expiryClass !== "time_bound")
 			continue;
-		if (isUserProtectedMemoryMetadata(item.metadataJson)) continue;
+		// Renewal is the one automated write a user-accepted fact still gets: its
+		// expiry was inferred by the judge, so the same recent-evidence rule keeps
+		// it alive, and only expiresAt/updatedAt change. A user_authored fact's
+		// end date is the user's own, so it is never auto-extended.
+		if (readMemoryItemUserProtection(item.metadataJson) === "user_authored")
+			continue;
 		if (!item.expiresAt) continue;
 		const prevExpiresAt = item.expiresAt;
 		const nextExpiresAt = new Date(
