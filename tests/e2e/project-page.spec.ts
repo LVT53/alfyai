@@ -307,6 +307,125 @@ test.describe("Project page", () => {
 		).toBeNull();
 	});
 
+	test("keeps a prepared draft out of the project the composer moved away from", async ({
+		page,
+	}) => {
+		// `/projects/[projectId]` is one route, so the sidebar's door to another
+		// project is a client-side navigation that reuses the page component:
+		// everything the first page's surface held in `$state` is still there on
+		// the second. The draft it prepared belongs to the project the user just
+		// left, and the composer on this page says it starts a chat in the one now
+		// on screen — so the first message must land in the second project, not in
+		// the folder the user walked away from.
+		const first = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const second = `Lisbon trip ${randomUUID().slice(0, 8)}`;
+		const firstId = await createProject(page, first);
+		const secondId = await createProject(page, second);
+
+		await openProjectPage(page, firstId);
+		await page.getByTestId("message-input").fill("Trains to Vienna.");
+		await expect.poll(() => draftConversationId(page)).not.toBeNull();
+		const firstDraftId = (await draftConversationId(page)) as string;
+		const [draftRow] = await db
+			.select({ projectId: conversations.projectId })
+			.from(conversations)
+			.where(eq(conversations.id, firstDraftId))
+			.limit(1);
+		expect(
+			draftRow?.projectId,
+			"typing on a project page prepares that project's own draft",
+		).toBe(firstId);
+
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, second);
+		await row.hover();
+		await row.getByRole("button", { name: `Open ${second}` }).click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${secondId}$`));
+		await expect(page.getByTestId("project-greeting")).toHaveText(second);
+		await waitForHydration(page);
+
+		await sendMessage(page, "Flights to Lisbon.");
+		await page.waitForURL(/\/chat\//, { timeout: 20000 });
+
+		const chatId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? "";
+		const [chatRow] = await db
+			.select({ projectId: conversations.projectId })
+			.from(conversations)
+			.where(eq(conversations.id, chatId))
+			.limit(1);
+		expect(chatRow, `conversation ${chatId} must exist`).toBeTruthy();
+		expect(
+			chatRow.projectId,
+			`the chat ${chatId} must belong to ${secondId}, not to the project left behind (${firstId}, whose draft was ${firstDraftId})`,
+		).toBe(secondId);
+	});
+
+	test("does not adopt a draft whose creation was still in flight when the page moved", async ({
+		page,
+	}) => {
+		// The same move, with the window left open: the first keystroke asks the
+		// server for a conversation and the user opens another project before the
+		// answer arrives. The reply was asked for by the project the keystroke was
+		// typed in, so it must not become this page's draft — the send that
+		// follows has to land in the project on screen.
+		const first = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const second = `Lisbon trip ${randomUUID().slice(0, 8)}`;
+		const firstId = await createProject(page, first);
+		const secondId = await createProject(page, second);
+
+		let heldOnce = false;
+		await page.route("**/api/conversations", async (route) => {
+			if (route.request().method() === "POST" && !heldOnce) {
+				heldOnce = true;
+				await new Promise((resolve) => setTimeout(resolve, 1500));
+			}
+			await route.continue();
+		});
+
+		await openProjectPage(page, firstId);
+		await page.getByTestId("message-input").fill("Trains to Vienna.");
+		await expect.poll(() => heldOnce).toBe(true);
+
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, second);
+		await row.hover();
+		await row.getByRole("button", { name: `Open ${second}` }).click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${secondId}$`));
+		await expect(page.getByTestId("project-greeting")).toHaveText(second);
+		// Let the held creation land before the send, so the test exercises the
+		// adoption rather than the ordinary "no draft at all" path.
+		await page.waitForTimeout(2000);
+		await waitForHydration(page);
+
+		await sendMessage(page, "Flights to Lisbon.");
+		await page.waitForURL(/\/chat\//, { timeout: 20000 });
+
+		const chatId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? "";
+		const [chatRow] = await db
+			.select({ projectId: conversations.projectId })
+			.from(conversations)
+			.where(eq(conversations.id, chatId))
+			.limit(1);
+		expect(chatRow, `conversation ${chatId} must exist`).toBeTruthy();
+		expect(
+			chatRow.projectId,
+			`the chat ${chatId} must belong to ${secondId}, not to the project whose in-flight creation answered late (${firstId})`,
+		).toBe(secondId);
+
+		// And the conversation that late answer carried is not left behind as a
+		// draft row in the project the user walked away from: nothing will ever
+		// be written into it from this page.
+		await expect
+			.poll(async () => {
+				const leftBehind = await db
+					.select({ id: conversations.id })
+					.from(conversations)
+					.where(eq(conversations.projectId, firstId));
+				return leftBehind.length;
+			})
+			.toBe(0);
+	});
+
 	test("opens the instructions dialog with only the project scope from the quiet line", async ({
 		page,
 	}) => {
