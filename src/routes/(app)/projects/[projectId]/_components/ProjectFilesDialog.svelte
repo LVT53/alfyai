@@ -299,7 +299,9 @@ $effect(() => {
 					{#if files.length === 0}
 						{$t("projects.filesEmpty")}
 					{:else}
-						{$t("projects.filesSearch")}
+						<!-- The project has files; the query hid all of them. The search
+						     field's own label is not an answer to it. -->
+						{$t("projects.filesNoMatch")}
 					{/if}
 				</p>
 			{:else}
