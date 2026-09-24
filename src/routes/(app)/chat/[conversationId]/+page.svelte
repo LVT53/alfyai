@@ -1796,6 +1796,17 @@ async function pollMessageEvidence(messageId: string) {
 					updateMessageById(list, messageId, (message) => ({
 						...message,
 						evidenceSummary: result.evidenceSummary,
+						// Workspaces Slice E — the Info popover's "Project files"
+						// row reads this count, and the poll is the only live
+						// channel that carries it: the terminal stream frame is
+						// sent before the server composes the evidence, and a
+						// conversation-detail hydration is skipped on a normal
+						// turn because that frame already carries its own
+						// projection fields. The count is written with the
+						// evidence and read back with it, so it arrives here.
+						...(result.projectFilesRead !== undefined
+							? { projectFilesRead: result.projectFilesRead }
+							: {}),
 						evidencePending: false,
 					})),
 				);

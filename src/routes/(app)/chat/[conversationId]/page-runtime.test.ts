@@ -1630,6 +1630,56 @@ describe("chat page runtime integration", () => {
 		}
 	});
 
+	// Workspaces Slice E — the evidence answer carries two fields written
+	// together by the server: the summary and the count of project files the
+	// turn read. The summary drives the message's Sources panel and the count
+	// drives the Info popover's "Project files" row; a poll that applied only
+	// one of them left the row missing until a reload.
+	it("applies the project-files count the evidence answer carries", async () => {
+		vi.mocked(fetchMessageEvidence).mockResolvedValue({
+			status: "ready",
+			evidenceSummary: {
+				structuredWebSearch: false,
+				groups: [
+					{
+						sourceType: "document",
+						label: "Documents",
+						reranked: false,
+						items: [
+							{
+								id: "evidence-1",
+								title: "Hotel Motto booking",
+								sourceType: "document",
+								status: "selected",
+							},
+						],
+					},
+				],
+			},
+			projectFilesRead: 2,
+		});
+
+		renderPage(
+			pageData({
+				messages: [
+					{
+						id: "assistant-project-evidence",
+						role: "assistant",
+						content: "Completed answer.",
+						timestamp: 1,
+						evidencePending: true,
+					},
+				],
+			}),
+		);
+
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: /Project files/ }),
+			).toBeInTheDocument();
+		});
+	});
+
 	it("recovers a backgrounded stream on mobile pageshow without requiring reload", async () => {
 		vi.mocked(fetchConversationDetail).mockResolvedValue({
 			...conversationDetailFixture(),
