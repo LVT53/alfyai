@@ -322,6 +322,39 @@ The parent spec's §5 says the prototype's mobile toolbar "took 29% of a 390 px 
 of height, which is the *unfixed* number. Slice 1 carries the budget that matters: 226 px before, **137 px
 after** at 844 px, with the type's own toolbar layout. No decision changes; the spec's sentence is clarified.
 
+## 39. Our artifact routes return 401, like `campaign-assets` does
+
+`requireAuth` performs a 302 redirect (`src/lib/server/auth/hooks.ts:12-18`), which is wrong for a JSON
+caller. The established pattern is to **catch it and return 401** — `campaign-assets`' content route does
+exactly that (`[id]/content/+server.ts:6-11`). The artifact routes follow that precedent, and the auth tests
+assert **401 at the HTTP layer**. (This refines ruling 19: name the layer — and for API routes the layer's
+answer is 401.)
+
+## 40. `create_artifact` gets 120 s, in one place
+
+Slice 1 said 10 s, slice 5 said 30 s — and a **missing row means no timeout at all**
+(`normal-chat-tools/shared.ts:343-350`), which is worse than either. App generation costs roughly 113 s
+(generation plus the verification pass), so the canonical `TOOL_TIMEOUTS_MS` row is **120 000**, owned by
+slice 5's registry; slices 1 and 2 reference it rather than restating it. Closing the "missing row means no
+timeout" hazard is worth a look while that table is open.
+
+## 41. `normal-chat-tools/index.ts` lands in one order
+
+Three slices touch it. **Slice 5 first** (the tool registry, the catalogue and the timeout table), **then
+slice 2** (the App generation path — the first real user of `create_artifact`), **then slice 1** (the
+Document's `read_artifact` / `edit_artifact`). Each appends its own tool and its own timeout row; nobody
+restructures what an earlier slice landed.
+
+## 42. The App's `.html` export is a download, and Clear Memory still deletes Apps
+
+- **Download-only.** The shared preview path renders HTML through a weaker profile
+  (`preview-runtime/index.ts:303`, `DocumentPreviewRenderer.svelte:205-209`), so the export is served with
+  `Content-Disposition: attachment` and never previewed. The *panel* remains the place to see an App, in its
+  sandboxed frame with the strict CSP.
+- **Clear Memory keeps deleting App artifacts** (`account-lifecycle/index.ts:93-97`) — Apps are
+  `type: "artifact"`, so they are user workspace content. A previously downloaded `.html` is the user's own
+  file and stays, exactly like any other download; the archive covers the artifact itself (ruling 24).
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
