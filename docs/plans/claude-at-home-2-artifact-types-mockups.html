@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Artifacts · Canvas, Document, Slides</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital@0;1&display=swap">
+<!-- Draft mockup for Feature 2 (Artifacts), 2026-09-24. Companion to claude-at-home-2-artifacts-mockups.html (App, File). -->
+<style>
+:root{--pg:#fafaf8;--rail:#f3f2ee;--el:#f4f3ee;--tx:#1a1a1a;--mu:#6b6b6b;--fa:#9a978f;--bd:rgba(0,0,0,.08);--bs:rgba(0,0,0,.05);--ac:#c15f3c;--body:#2b2f36;--ok:#3f7a4a;--okbg:#e4efe4;--wait:#8a6212;--waitbg:#f5ebd3;--av:#8a8a5c;--grid:rgba(0,0,0,.09);--sticky:#f5e7b3;--map:#e9e6dc;--road:#fffdf8;--p1:#c9b39a;--p2:#9fb3c0;--p3:#b8c4a2;--slide:#ffffff}
+@media (prefers-color-scheme:dark){:root{--pg:#1a1a1a;--rail:#1f1f1f;--el:#242424;--tx:#ececec;--mu:#a0a0a0;--fa:#7d7a74;--bd:rgba(255,255,255,.08);--bs:rgba(255,255,255,.05);--ac:#d4836b;--body:#dcdcdc;--ok:#8cc49a;--okbg:#22321f;--wait:#e6c77a;--waitbg:#3a3019;--av:#8a8a5c;--grid:rgba(255,255,255,.09);--sticky:#4a4226;--map:#2c2b28;--road:#3a3934;--p1:#6d5a47;--p2:#4b5d69;--p3:#56613f;--slide:#232323}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--pg);color:var(--tx);font:14px/1.5 "Nimbus Sans L","Helvetica Neue",Helvetica,Arial,sans-serif;padding:28px 16px 64px}
+main{max-width:1180px;margin:0 auto;display:grid;gap:30px}
+h1{font:400 24px 'Libre Baskerville',Georgia,serif;margin:0}
+.lead{color:var(--mu);margin:4px 0 0;font-size:13.5px}
+.cap{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--mu);font-weight:bold;margin:0 0 8px}
+.serif{font-family:'Libre Baskerville',Georgia,serif}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px;flex:none}
+.types{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.types div{border:1px solid var(--bd);border-radius:10px;padding:10px 12px;background:var(--el);font-size:12.5px;color:var(--mu)}
+.types b{display:flex;gap:7px;align-items:center;color:var(--tx);font-size:13.5px;margin-bottom:2px}
+.types .new b{color:var(--ac)}
+@media (max-width:700px){.types{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.scroll{overflow-x:auto;border-radius:12px}
+.app{min-width:1060px;display:grid;grid-template-columns:48px 300px minmax(0,1fr);background:var(--pg);border:1px solid var(--bd);border-radius:12px;overflow:hidden}
+.rail{background:var(--rail);border-right:1px solid var(--bd);display:flex;flex-direction:column;align-items:center;gap:18px;padding:14px 0;color:var(--mu)}
+.rail .sp{flex:1}
+.av{width:22px;height:22px;border-radius:50%;background:var(--av);color:#fff;font-size:11px;font-weight:bold;display:flex;align-items:center;justify-content:center}
+.chat{display:flex;flex-direction:column;border-right:1px solid var(--bd);min-width:0}
+.crumb{height:40px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--mu);white-space:nowrap;overflow:hidden;padding:0 10px}
+.crumb b{font-weight:normal;color:var(--tx)}
+.thread{flex:1;padding:16px 16px 0;overflow:hidden}
+.ub{margin-left:auto;max-width:92%;background:var(--el);border-radius:10px;padding:10px 13px;font:13.5px/1.6 'Libre Baskerville',Georgia,serif;color:var(--body)}
+.ab{font:13.5px/1.7 'Libre Baskerville',Georgia,serif;color:var(--body);margin:14px 0 10px}
+.card{border:1.5px solid var(--ac);border-radius:12px;background:color-mix(in srgb,var(--ac) 5%,var(--pg))}
+.ch{display:flex;align-items:center;gap:10px;padding:9px 11px}
+.ch .t{font-size:13.5px;font-weight:bold}.ch .s{font-size:11.5px;color:var(--mu)}
+.ico{width:30px;height:30px;border-radius:8px;background:var(--el);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--ac);flex:none}
+.composer{margin:12px;border:1px solid var(--bd);border-radius:16px;background:var(--el);box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.composer .ph{padding:12px 15px 24px;color:var(--mu);font-size:13px}
+.composer .bar{border-top:1px solid var(--bd);margin:0 9px;display:flex;align-items:center;gap:14px;padding:8px 5px;color:var(--mu)}
+.send{margin-left:auto;width:30px;height:30px;border:1px solid var(--bd);border-radius:9px;display:flex;align-items:center;justify-content:center}
+.panel{display:flex;flex-direction:column;min-width:0;position:relative}
+.ph1{padding:12px 18px 10px;border-bottom:1px solid var(--bd)}
+.eyebrow{font-size:10.5px;font-weight:bold;letter-spacing:.08em;color:var(--mu)}
+.ptitle{display:flex;align-items:center;gap:10px;margin-top:3px}
+.ptitle .n{font:17px 'Libre Baskerville',Georgia,serif;flex:1;min-width:0}
+.pacts{display:flex;gap:16px;color:var(--mu);align-items:center}
+.pmeta{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;font-size:11.5px;color:var(--fa)}
+.ver{font-size:11px;font-weight:bold;padding:2px 8px;border-radius:999px;color:var(--ac);border:1px solid color-mix(in srgb,var(--ac) 40%,transparent);background:color-mix(in srgb,var(--ac) 10%,transparent)}
+.pbtn{font-size:12px;padding:4px 10px;border-radius:7px;border:1px solid color-mix(in srgb,var(--ac) 38%,transparent);background:color-mix(in srgb,var(--ac) 12%,transparent);color:var(--ac);display:inline-flex;gap:6px;align-items:center}
+.dot{display:inline-flex;vertical-align:middle;width:19px;height:19px;border-radius:50%;background:var(--ac);color:#fff;font:bold 11px "Helvetica Neue",Helvetica,Arial,sans-serif;align-items:center;justify-content:center;margin:0 6px;flex:none}
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 22px;margin-top:12px}
+.legend div{display:flex;gap:10px;align-items:flex-start;font-size:13px}
+.legend .k{width:20px;height:20px;border-radius:50%;background:var(--ac);color:#fff;font-size:11px;font-weight:bold;display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px}
+.legend .m{color:var(--mu)}
+/* canvas */
+.board{position:relative;flex:1;min-height:520px;overflow:hidden;background-color:var(--pg);background-image:radial-gradient(var(--grid) 1px,transparent 1px);background-size:18px 18px;touch-action:none}
+.board svg.links{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.it{position:absolute;background:var(--pg);border:1px solid var(--bd);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);cursor:grab;user-select:none}
+.it:active{cursor:grabbing}
+.it .bh{display:flex;align-items:center;gap:6px;padding:6px 9px;border-bottom:1px solid var(--bs);font-size:11.5px;color:var(--mu);background:var(--el);border-radius:10px 10px 0 0}
+.it .bh b{color:var(--tx)}
+.it .src{margin-left:auto;font-size:10.5px;color:var(--fa);display:inline-flex;gap:3px;align-items:center}
+.frame{background:transparent;border:1.5px dashed color-mix(in srgb,var(--tx) 22%,transparent);box-shadow:none}
+.frame .fl{position:absolute;top:-10px;left:10px;background:var(--pg);padding:0 6px;font-size:12px;font-weight:bold}
+.sticky{background:var(--sticky);border:none;padding:9px 10px;font:12.5px/1.45 'Libre Baskerville',Georgia,serif;color:var(--tx);border-radius:3px}
+.sel{outline:1.5px solid var(--ac);outline-offset:3px}
+.hdl{position:absolute;width:7px;height:7px;background:var(--pg);border:1.5px solid var(--ac);border-radius:2px}
+.ctx{position:absolute;display:flex;gap:2px;background:var(--pg);border:1px solid var(--bd);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.12);padding:3px;font-size:12px;white-space:nowrap;z-index:5}
+.ctx span{padding:4px 8px;border-radius:5px;display:inline-flex;gap:5px;align-items:center}
+.ctx .a{color:var(--ac)}
+.pres{position:absolute;left:12px;top:10px;font-size:11.5px;color:var(--mu);background:var(--pg);border:1px solid var(--bd);border-radius:999px;padding:3px 10px 3px 8px;display:inline-flex;gap:6px;align-items:center;z-index:5}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--ac);animation:p 1.4s ease-in-out infinite}
+@keyframes p{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.pulse,.shim{animation:none}}
+.tool{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;align-items:center;gap:2px;background:var(--pg);border:1px solid var(--bd);border-radius:12px;box-shadow:0 8px 22px rgba(0,0,0,.13);padding:4px;z-index:6}
+.tool button{all:unset;cursor:pointer;padding:7px 8px;border-radius:8px;color:var(--mu);display:inline-flex;gap:6px;align-items:center;font-size:12.5px}
+.tool button.on{background:var(--el);color:var(--tx)}
+.tool button:focus-visible{outline:2px solid var(--ac)}
+.tool .sep{width:1px;height:20px;background:var(--bd);margin:0 3px}
+.tool .ask{color:var(--ac)}
+.ins{position:absolute;left:50%;bottom:62px;transform:translateX(-50%);width:300px;background:var(--pg);border:1px solid var(--bd);border-radius:10px;box-shadow:0 10px 26px rgba(0,0,0,.14);padding:6px;display:grid;grid-template-columns:1fr 1fr;gap:2px;z-index:7}
+.ins div{display:flex;gap:8px;align-items:center;font-size:12.5px;padding:7px 8px;border-radius:6px}
+.ins div:hover{background:var(--el)}
+.ins .m{font-size:10.5px;color:var(--fa);margin-left:auto}
+.zoom{position:absolute;right:12px;bottom:14px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mu);background:var(--pg);border:1px solid var(--bd);border-radius:8px;padding:4px 8px;z-index:6}
+.ck{display:flex;gap:7px;align-items:center;font-size:12px;padding:2px 0}
+.bx{width:13px;height:13px;border:1.5px solid var(--fa);border-radius:3px;flex:none}
+.bx.on{background:var(--ac);border-color:var(--ac)}
+.dn{color:var(--fa);text-decoration:line-through}
+/* document */
+.docwrap{display:grid;grid-template-columns:minmax(0,1fr) 196px;flex:1;min-height:560px}
+.doc{padding:14px 26px 24px;border-right:1px solid var(--bs)}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--bd);margin:0 -26px 14px;padding:0 20px}
+.tab{font-size:12.5px;padding:8px 12px;color:var(--mu);border-bottom:2px solid transparent}
+.tab.on{color:var(--tx);border-color:var(--ac);font-weight:bold}
+.doc h2{font-size:17px;margin:16px 0 6px}
+.doc p{font:13.5px/1.75 'Libre Baskerville',Georgia,serif;color:var(--body);margin:0 0 8px}
+.chip{display:inline-flex;gap:4px;align-items:center;font:11.5px "Helvetica Neue",Helvetica,Arial,sans-serif;padding:1px 7px;border-radius:6px;background:var(--el);border:1px solid var(--bd);color:var(--tx);vertical-align:1px;white-space:nowrap}
+.st{display:inline-flex;gap:4px;align-items:center;font-size:11.5px;font-weight:bold;padding:1px 8px;border-radius:999px}
+.st.ok{background:var(--okbg);color:var(--ok)}.st.w{background:var(--waitbg);color:var(--wait)}
+.ins-t{background:color-mix(in srgb,var(--ac) 14%,transparent);border-bottom:1.5px solid var(--ac);padding:0 1px}
+.chg{display:inline-flex;gap:8px;align-items:center;font:11.5px "Helvetica Neue",Helvetica,Arial,sans-serif;background:var(--pg);border:1px solid var(--bd);border-radius:7px;padding:2px 8px;box-shadow:0 2px 8px rgba(0,0,0,.08);vertical-align:2px;margin-left:4px}
+.chg .k{color:var(--ac);font-weight:bold}
+.pend{border:1.5px dashed color-mix(in srgb,var(--ac) 50%,transparent);border-radius:10px;padding:10px 12px;margin:6px 0 8px;background:color-mix(in srgb,var(--ac) 4%,transparent)}
+.pend .l{font-size:12px;color:var(--ac);display:flex;gap:6px;align-items:center;margin-bottom:8px}
+.shim{height:8px;border-radius:4px;background:var(--el);margin:6px 0;animation:p 1.6s ease-in-out infinite}
+.tt{border:1px solid var(--bd);border-radius:10px;overflow:hidden;font-size:12.5px}
+.tr{display:grid;grid-template-columns:minmax(0,1.4fr) 100px 96px 64px;gap:8px;align-items:center;padding:7px 10px;border-top:1px solid var(--bs)}
+.tr:first-child{border-top:none}
+.tr.h{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mu);font-weight:bold;background:var(--el)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.selx{background:color-mix(in srgb,#3b82f6 22%,transparent);border-radius:2px}
+.bub{position:absolute;display:flex;gap:2px;background:var(--pg);border:1px solid var(--bd);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.12);padding:3px;font:12px "Helvetica Neue",Helvetica,Arial,sans-serif;z-index:4}
+.bub span{padding:4px 8px;border-radius:5px;display:inline-flex;gap:5px;align-items:center}
+.margin{padding:14px 12px;background:color-mix(in srgb,var(--el) 50%,var(--pg))}
+.thr{border:1px solid var(--bd);border-radius:10px;background:var(--pg);padding:9px 10px;font-size:12px;margin-bottom:10px}
+.thr .who{display:flex;gap:6px;align-items:center;font-weight:bold;font-size:11.5px;margin-bottom:2px}
+.thr .who .av{width:18px;height:18px;font-size:9.5px}
+.thr .al{width:18px;height:18px;border-radius:50%;background:color-mix(in srgb,var(--ac) 16%,var(--pg));color:var(--ac);font:bold 10px 'Libre Baskerville',serif;display:inline-flex;align-items:center;justify-content:center}
+.thr .msg{color:var(--body);line-height:1.45}
+.thr .ft{display:flex;gap:10px;margin-top:6px;font-size:11px;color:var(--mu)}
+/* slides */
+.deck{display:grid;grid-template-columns:118px minmax(0,1fr);flex:1;min-height:520px}
+.thumbs{border-right:1px solid var(--bd);padding:12px 10px;display:flex;flex-direction:column;gap:9px;background:color-mix(in srgb,var(--el) 50%,var(--pg));overflow:hidden}
+.th{display:flex;gap:6px;align-items:flex-start;font-size:10.5px;color:var(--fa)}
+.th .s{flex:1;aspect-ratio:16/9;border:1px solid var(--bd);border-radius:4px;background:var(--slide);padding:5px;display:flex;flex-direction:column;gap:3px;overflow:hidden}
+.th .s i{display:block;height:3px;border-radius:2px;background:var(--el)}
+.th .s b{display:block;height:5px;width:70%;border-radius:2px;background:color-mix(in srgb,var(--tx) 45%,transparent)}
+.th.on .s{outline:2px solid var(--ac);outline-offset:1px}
+.stage{padding:18px 22px;display:flex;flex-direction:column;gap:12px;align-items:center;background:color-mix(in srgb,var(--el) 35%,var(--pg))}
+.sl{width:100%;max-width:560px;aspect-ratio:16/9;background:var(--slide);border:1px solid var(--bd);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.10);position:relative;padding:26px 30px;display:grid;grid-template-columns:1.25fr 1fr;gap:14px;overflow:hidden}
+.sl .eb{font-size:10px;letter-spacing:.12em;color:var(--ac);font-weight:bold}
+.sl h3{font:22px/1.25 'Libre Baskerville',Georgia,serif;margin:6px 0 12px;color:var(--tx)}
+.sl li{font-size:13px;margin:5px 0;color:var(--body)}
+.sl ul{padding-left:18px;margin:0}
+.caret{display:inline-block;width:1.5px;height:22px;background:var(--tx);vertical-align:-3px;margin-left:1px}
+.edbox{outline:1.5px solid color-mix(in srgb,var(--ac) 60%,transparent);outline-offset:4px;border-radius:2px}
+.notes{width:100%;max-width:560px;border:1px solid var(--bd);border-radius:8px;background:var(--pg);padding:8px 11px;font-size:12px;color:var(--mu)}
+.notes b{color:var(--tx);font-size:10.5px;letter-spacing:.07em}
+.askslide{position:absolute;right:10px;bottom:10px;font-size:11.5px;color:var(--ac);background:var(--pg);border:1px solid color-mix(in srgb,var(--ac) 40%,transparent);border-radius:999px;padding:3px 10px;display:inline-flex;gap:5px;align-items:center}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <h1>Artifacts · Canvas, Document, Slides</h1>
+ <p class="lead">Draft for Feature 2, the other new types. Same card in the chat, same panel next to it. App and File are in <a href="claude-at-home-2-artifacts-mockups.html" style="color:var(--ac)">the first page</a>.</p>
+</header>
+
+<div class="types">
+ <div class="new"><b><svg class="i" data-i="shapes"></svg>Canvas</b>A free board for anything</div>
+ <div class="new"><b><svg class="i" data-i="app"></svg>App</b>A tool you use</div>
+ <div class="new"><b><svg class="i" data-i="file"></svg>Document</b>Text you write together</div>
+ <div class="new"><b><svg class="i" data-i="slides"></svg>Slides</b>A deck you present</div>
+ <div><b><svg class="i" data-i="download"></svg>File</b>A finished download</div>
+</div>
+
+<!-- ============ CANVAS ============ -->
+<section>
+ <p class="cap">1 · Canvas: a free board for anything</p>
+ <div class="scroll"><div class="app" style="height:640px">
+  <div class="rail"><span style="font:15px 'Libre Baskerville',serif;color:var(--ac);opacity:.6">A</span><span style="color:var(--ac)"><svg class="i" data-i="pen"></svg></span><svg class="i" data-i="search"></svg><svg class="i" data-i="book"></svg><span class="sp"></span><span class="av">L</span><svg class="i" data-i="logout"></svg></div>
+  <div class="chat">
+   <div class="crumb">Vienna trip&nbsp;/&nbsp;<b>Trip board</b></div>
+   <div class="thread">
+    <div class="ub">Put everything for the Vienna trip on one board.</div>
+    <div class="ab">Done: the days, the route, trains, budget and the checklist. I'm adding Saturday now.</div>
+    <div class="card"><div class="ch"><span class="ico"><svg class="i" data-i="shapes"></svg></span><div style="flex:1;min-width:0"><div class="t">Vienna trip board</div><div class="s">Canvas · 9 blocks</div></div></div></div>
+   </div>
+   <div class="composer"><div class="ph">Type a message...</div><div class="bar"><svg class="i" data-i="plus"></svg><svg class="i" data-i="clip"></svg><svg class="i" data-i="plug" style="opacity:.5"></svg><span style="color:var(--ac)"><svg class="i" data-i="brain"></svg></span><span class="send"><svg class="i" data-i="send"></svg></span></div></div>
+  </div>
+  <div class="panel">
+   <div class="ph1">
+    <div class="eyebrow">CANVAS</div>
+    <div class="ptitle"><span class="n">Vienna trip board</span><span class="pacts"><svg class="i" data-i="msg"></svg><svg class="i" data-i="history"></svg><svg class="i" data-i="download"></svg><svg class="i" data-i="max"></svg><svg class="i" data-i="x"></svg></span></div>
+    <div class="pmeta"><span class="ver">v7</span>You and Alfy · saved just now</div>
+   </div>
+   <div class="board" id="board">
+    <svg class="links" id="links"></svg>
+    <div class="pres"><span class="pulse"></span>Alfy is arranging Saturday…<span class="dot" style="margin:0 0 0 2px;width:17px;height:17px;font-size:10px">5</span></div>
+
+    <div class="it frame" id="fri" style="left:18px;top:48px;width:262px;height:196px"><span class="fl">Friday</span>
+     <div class="it sticky" style="left:12px;top:22px;width:118px;cursor:inherit;position:absolute">Naschmarkt, then the Secession</div>
+     <div style="position:absolute;left:142px;top:26px;width:108px;font-size:12px;color:var(--body)">Drop bags at Hotel Motto, 10:30</div>
+     <div class="it sticky" style="left:12px;top:106px;width:236px;cursor:inherit;position:absolute;background:color-mix(in srgb,var(--sticky) 55%,var(--pg))">Dinner: Figlmüller, booked 19:30</div>
+    </div>
+
+    <div class="it sel" id="map" style="left:304px;top:52px;width:214px">
+     <div class="bh"><svg class="i" data-i="map" style="width:13px;height:13px"></svg><b>Route</b> Hbf → hotel<span class="src">U1 · 14 min</span></div>
+     <div style="height:104px;background:var(--map);position:relative;border-radius:0 0 10px 10px;overflow:hidden"><svg viewBox="0 0 100 50" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect x="0" y="30" width="100" height="4" fill="var(--road)" transform="rotate(-12 50 32)"/><rect x="34" y="0" width="4" height="50" fill="var(--road)"/><polyline points="16,40 34,33 54,24 80,12" fill="none" stroke="var(--ac)" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="40" r="2.6" fill="var(--ac)"/><circle cx="80" cy="12" r="2.6" fill="var(--tx)"/></svg></div>
+     <span class="hdl" style="left:-7px;top:-7px"></span><span class="hdl" style="right:-7px;top:-7px"></span><span class="hdl" style="left:-7px;bottom:-7px"></span><span class="hdl" style="right:-7px;bottom:-7px"></span>
+    </div>
+    <div class="ctx" id="ctx" style="left:304px;top:12px"><span class="a"><svg class="i" data-i="sparkles" style="width:13px;height:13px"></svg>Ask Alfy</span><span><svg class="i" data-i="refresh" style="width:13px;height:13px"></svg>Refresh</span><span><svg class="i" data-i="msg" style="width:13px;height:13px"></svg>Comment</span><span class="dot" style="margin:0 2px;width:17px;height:17px;font-size:10px">4</span></div>
+
+    <div class="it" id="train" style="left:18px;top:268px;width:262px">
+     <div class="bh"><svg class="i" data-i="clock" style="width:13px;height:13px"></svg><b>Trains</b> Keleti → Wien, Fri<span class="src"><svg class="i" data-i="globe" style="width:11px;height:11px"></svg>ÖBB · 10 min ago</span></div>
+     <div style="display:grid;grid-template-columns:repeat(3,1fr);font-size:11.5px"><div style="padding:6px 8px;border-right:1px solid var(--bs)"><b>RJX 60</b><div style="color:var(--mu)">06:40</div><div style="color:var(--ok);font-size:10.5px">On time</div></div><div style="padding:6px 8px;border-right:1px solid var(--bs)"><b>RJX 62</b><div style="color:var(--mu)">07:40</div><div style="color:var(--ok);font-size:10.5px">On time</div></div><div style="padding:6px 8px"><b>RJX 64</b><div style="color:var(--mu)">08:40</div><div style="color:var(--ac);font-size:10.5px">+5 min</div></div></div>
+    </div>
+
+    <div class="it" id="chart" style="left:304px;top:208px;width:170px">
+     <div class="bh"><svg class="i" data-i="chart" style="width:13px;height:13px"></svg><b>Budget</b><span class="src">€534 / 600</span></div>
+     <div style="display:flex;align-items:flex-end;gap:7px;height:74px;padding:8px 10px"><div style="flex:1;height:56px;background:var(--ac);border-radius:3px 3px 0 0"></div><div style="flex:1;height:28px;background:var(--ac);opacity:.55;border-radius:3px 3px 0 0"></div><div style="flex:1;height:19px;background:var(--ac);opacity:.55;border-radius:3px 3px 0 0"></div><div style="flex:1;height:22px;background:var(--ac);opacity:.55;border-radius:3px 3px 0 0"></div></div>
+    </div>
+
+    <div class="it" id="chk" style="left:494px;top:208px;width:150px">
+     <div class="bh"><svg class="i" data-i="checks" style="width:13px;height:13px"></svg><b>Before we go</b></div>
+     <div style="padding:6px 9px"><div class="ck"><span class="bx on"></span><span class="dn">Museum tickets</span></div><div class="ck"><span class="bx on"></span><span class="dn">Print tickets</span></div><div class="ck"><span class="bx"></span><span>Tell the neighbour</span></div></div>
+    </div>
+
+    <div class="it" id="photos" style="left:304px;top:344px;width:170px">
+     <div class="bh"><svg class="i" data-i="image" style="width:13px;height:13px"></svg><b>Vienna 2023</b><span class="src">Immich</span></div>
+     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:6px"><div style="aspect-ratio:1;background:var(--p1);border-radius:4px"></div><div style="aspect-ratio:1;background:var(--p2);border-radius:4px"></div><div style="aspect-ratio:1;background:var(--p3);border-radius:4px"></div></div>
+    </div>
+
+    <div class="it" id="appb" style="left:494px;top:344px;width:150px">
+     <div class="bh"><svg class="i" data-i="app" style="width:13px;height:13px"></svg><b>Cost splitter</b></div>
+     <div style="padding:8px 9px;font-size:12px">Peti pays Levente <b>€96</b><div style="color:var(--ac);font-size:11.5px;margin-top:3px">Open app ↗</div></div>
+    </div>
+
+    <div id="cmt" style="position:absolute;left:18px;top:376px;width:262px;display:flex;gap:7px;align-items:flex-start;cursor:default">
+     <span class="av" style="flex:none;margin-top:2px">L</span>
+     <div style="background:var(--pg);border:1px solid var(--bd);border-radius:10px;padding:7px 9px;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.06)"><b>@Alfy</b> can we fit the Albertina on Saturday?<div style="margin-top:5px;padding-top:5px;border-top:1px solid var(--bs);color:var(--body)"><b style="color:var(--ac)">Alfy</b> · Yes, 10:00. I'm adding it to the Saturday frame.</div></div>
+     <span class="dot" style="margin:2px 0 0">6</span>
+    </div>
+
+    <div class="ins" id="ins" hidden>
+     <div><svg class="i" data-i="map"></svg>Map route</div><div><svg class="i" data-i="calendar"></svg>Calendar<span class="m">iCloud</span></div>
+     <div><svg class="i" data-i="chart"></svg>Chart</div><div><svg class="i" data-i="checks"></svg>Checklist</div>
+     <div><svg class="i" data-i="image"></svg>Photos<span class="m">Immich</span></div><div><svg class="i" data-i="file"></svg>File</div>
+     <div><svg class="i" data-i="app"></svg>App</div><div><svg class="i" data-i="globe"></svg>Live web</div>
+    </div>
+    <div class="tool" role="toolbar" aria-label="Canvas tools">
+     <button class="on" aria-label="Select"><svg class="i" data-i="pointer"></svg></button><button aria-label="Pan"><svg class="i" data-i="hand"></svg></button>
+     <span class="sep"></span>
+     <button aria-label="Sticky note"><svg class="i" data-i="sticky"></svg></button><button aria-label="Text"><svg class="i" data-i="type"></svg></button><button aria-label="Shape"><svg class="i" data-i="square"></svg></button><button aria-label="Arrow"><svg class="i" data-i="arrow"></svg></button><button aria-label="Frame"><svg class="i" data-i="frame"></svg></button>
+     <span class="sep"></span>
+     <button id="insBtn" aria-expanded="false"><svg class="i" data-i="plussq"></svg>Insert</button>
+     <button class="ask"><svg class="i" data-i="sparkles"></svg>Ask Alfy</button>
+     <span class="dot" style="margin:0 4px">1</span><span class="dot" style="margin:0 6px 0 0">2</span>
+    </div>
+    <div class="zoom"><svg class="i" data-i="minus" style="width:13px;height:13px"></svg>80%<svg class="i" data-i="plus" style="width:13px;height:13px"></svg></div>
+    <span class="dot" style="position:absolute;left:522px;top:58px;margin:0">3</span>
+   </div>
+  </div>
+ </div></div>
+ <div class="legend">
+  <div><span class="k">1</span><span><b>Draw freely.</b> <span class="m">Notes, text, shapes, arrows and frames, like a small Figma or FigJam.</span></span></div>
+  <div><span class="k">2</span><span><b>Insert any AlfyAI block:</b> <span class="m">map, calendar, chart, checklist, Immich photos, files, apps or live web.</span></span></div>
+  <div><span class="k">3</span><span><b>Blocks are live.</b> <span class="m">The route is the real map card, trains refresh, and ticks save.</span></span></div>
+  <div><span class="k">4</span><span><b>Select anything, then Ask Alfy</b> <span class="m">to explain, update, move or expand it.</span></span></div>
+  <div><span class="k">5</span><span><b>Alfy arranges the board too,</b> <span class="m">and you watch it happen.</span></span></div>
+  <div><span class="k">6</span><span><b>Comments pinned on the board</b> <span class="m">with @Alfy.</span></span></div>
+ </div>
+ <p class="lead" style="margin-top:6px">Try it: drag the blocks around, and open Insert.</p>
+</section>
+
+<!-- ============ DOCUMENT ============ -->
+<section>
+ <p class="cap">2 · Document: text you write together</p>
+ <div class="scroll"><div class="app" style="height:680px">
+  <div class="rail"><span style="font:15px 'Libre Baskerville',serif;color:var(--ac);opacity:.6">A</span><span style="color:var(--ac)"><svg class="i" data-i="pen"></svg></span><svg class="i" data-i="search"></svg><svg class="i" data-i="book"></svg><span class="sp"></span><span class="av">L</span><svg class="i" data-i="logout"></svg></div>
+  <div class="chat">
+   <div class="crumb">Vienna trip&nbsp;/&nbsp;<b>Trip plan</b></div>
+   <div class="thread">
+    <div class="ub">Write up the trip plan as a document we can both edit.</div>
+    <div class="ab">I've started it. Friday is done, Saturday is being written, and the bookings are a table you can update.</div>
+    <div class="card"><div class="ch"><span class="ico"><svg class="i" data-i="file"></svg></span><div style="flex:1;min-width:0"><div class="t">Vienna, 10–12 October</div><div class="s">Document · 3 tabs</div></div></div></div>
+   </div>
+   <div class="composer"><div class="ph">Type a message...</div><div class="bar"><svg class="i" data-i="plus"></svg><svg class="i" data-i="clip"></svg><svg class="i" data-i="plug" style="opacity:.5"></svg><span style="color:var(--ac)"><svg class="i" data-i="brain"></svg></span><span class="send"><svg class="i" data-i="send"></svg></span></div></div>
+  </div>
+  <div class="panel">
+   <div class="ph1">
+    <div class="eyebrow">DOCUMENT</div>
+    <div class="ptitle"><span class="n">Vienna, 10–12 October</span><span class="pacts"><svg class="i" data-i="msg"></svg><svg class="i" data-i="history"></svg><svg class="i" data-i="download"></svg><svg class="i" data-i="max"></svg><svg class="i" data-i="x"></svg></span></div>
+    <div class="pmeta"><span class="ver">v5</span>You and Alfy · edited 1 min ago</div>
+   </div>
+   <div class="docwrap">
+    <div class="doc" style="position:relative">
+     <div class="tabs"><span class="tab on">Plan</span><span class="tab">Budget</span><span class="tab">Packing</span><span class="tab">+</span><span class="dot" style="margin:8px 0 0 4px">1</span></div>
+     <div style="font-size:12px;color:var(--mu)"><span class="chip"><svg class="i" data-i="calendar" style="width:12px;height:12px"></svg>24 Sep 2026</span> · Levente and Alfy</div>
+     <h2>Friday</h2>
+     <p>Morning Railjet from Keleti, then drop the bags at Hotel Motto. We <span class="selx">stay near Westbahnhof</span> so both U-Bahn lines are close. <span class="ins-t">The Naschmarkt is busiest at noon, so go there first and the Secession after.</span><span class="chg"><span class="k">Alfy</span>Keep · Undo<span class="dot" style="margin:0;width:16px;height:16px;font-size:9.5px">3</span></span></p>
+     <div class="bub" style="left:48px;top:116px"><span style="color:var(--ac)"><svg class="i" data-i="sparkles" style="width:13px;height:13px"></svg>Ask Alfy</span><span><svg class="i" data-i="msg" style="width:13px;height:13px"></svg>Comment</span><span class="dot" style="margin:0 2px;width:16px;height:16px;font-size:9.5px">5</span></div>
+     <h2>Saturday</h2>
+     <div class="pend"><div class="l"><span class="pulse"></span>Alfy is writing: museums in the morning, cafés after<span class="dot" style="margin:0 0 0 4px;width:16px;height:16px;font-size:9.5px">2</span></div><div class="shim" style="width:92%"></div><div class="shim" style="width:78%"></div><div class="shim" style="width:85%"></div></div>
+     <h2>Bookings<span class="dot">4</span></h2>
+     <div class="tt">
+      <div class="tr h"><span>Item</span><span>Status</span><span>Date</span><span class="num">Cost</span></div>
+      <div class="tr"><span>Hotel Motto, 2 nights</span><span><span class="st ok">Booked <svg class="i" data-i="chev" style="width:11px;height:11px"></svg></span></span><span><span class="chip">10 Oct</span></span><span class="num">€238</span></div>
+      <div class="tr"><span>Railjet tickets</span><span><span class="st ok">Booked <svg class="i" data-i="chev" style="width:11px;height:11px"></svg></span></span><span><span class="chip">10 Oct</span></span><span class="num">€118</span></div>
+      <div class="tr"><span>Albertina</span><span><span class="st w">To book <svg class="i" data-i="chev" style="width:11px;height:11px"></svg></span></span><span><span class="chip">11 Oct</span></span><span class="num">€19.90</span></div>
+     </div>
+    </div>
+    <div class="margin">
+     <div class="thr">
+      <div class="who"><span class="av">L</span>You<span class="dot" style="margin:0 0 0 auto;width:16px;height:16px;font-size:9.5px">6</span></div>
+      <div class="msg">@Alfy is Westbahnhof a good base with a 9-year-old?</div>
+      <div style="border-top:1px solid var(--bs);margin-top:7px;padding-top:7px">
+       <div class="who"><span class="al">A</span>Alfy</div>
+       <div class="msg">Yes. It's quieter, with U3 and U6 right there. I added a line about it to Friday.</div>
+      </div>
+      <div class="ft"><span style="color:var(--ac)">See change</span><span>Resolve</span></div>
+     </div>
+     <div class="thr" style="opacity:.8">
+      <div class="who"><span class="al">A</span>Alfy</div>
+      <div class="msg">I guessed Figlmüller for dinner. Swap it if you'd rather try somewhere new.</div>
+      <div class="ft"><span>Reply</span><span>Resolve</span></div>
+     </div>
+    </div>
+   </div>
+  </div>
+ </div></div>
+ <div class="legend">
+  <div><span class="k">1</span><span><b>Tabs</b> <span class="m">split one plan into Plan, Budget and Packing.</span></span></div>
+  <div><span class="k">2</span><span><b>Alfy drafts where you can see it.</b> <span class="m">Planned sections fill in one by one.</span></span></div>
+  <div><span class="k">3</span><span><b>Alfy's changes are marked:</b> <span class="m">Keep or Undo. It never overwrites text you just changed.</span></span></div>
+  <div><span class="k">4</span><span><b>Tables work as trackers,</b> <span class="m">with status dropdowns and date chips.</span></span></div>
+  <div><span class="k">5</span><span><b>Select text, then Ask Alfy</b> <span class="m">to reword, shorten or translate just that part.</span></span></div>
+  <div><span class="k">6</span><span><b>Comments with @Alfy,</b> <span class="m">and Alfy leaves notes on its guesses.</span></span></div>
+ </div>
+</section>
+
+<!-- ============ SLIDES ============ -->
+<section>
+ <p class="cap">3 · Slides: a deck you present</p>
+ <div class="scroll"><div class="app" style="height:600px">
+  <div class="rail"><span style="font:15px 'Libre Baskerville',serif;color:var(--ac);opacity:.6">A</span><span style="color:var(--ac)"><svg class="i" data-i="pen"></svg></span><svg class="i" data-i="search"></svg><svg class="i" data-i="book"></svg><span class="sp"></span><span class="av">L</span><svg class="i" data-i="logout"></svg></div>
+  <div class="chat">
+   <div class="crumb">Iskola&nbsp;/&nbsp;<b>Duna kiselőadás</b></div>
+   <div class="thread">
+    <div class="ub">Csinálj egy 6 diás kiselőadást a Dunáról Annának, 9 éves.</div>
+    <div class="ab">Itt a vázlat, egyszerű mondatokkal és sok képpel. A jegyzetekben benne van, mit mondjon.</div>
+    <div class="card"><div class="ch"><span class="ico"><svg class="i" data-i="slides"></svg></span><div style="flex:1;min-width:0"><div class="t">A Duna</div><div class="s">Slides · 6 slides</div></div></div></div>
+   </div>
+   <div class="composer"><div class="ph">Type a message...</div><div class="bar"><svg class="i" data-i="plus"></svg><svg class="i" data-i="clip"></svg><svg class="i" data-i="plug" style="opacity:.5"></svg><span style="color:var(--ac)"><svg class="i" data-i="brain"></svg></span><span class="send"><svg class="i" data-i="send"></svg></span></div></div>
+  </div>
+  <div class="panel">
+   <div class="ph1">
+    <div class="eyebrow">SLIDES</div>
+    <div class="ptitle"><span class="n">A Duna</span><span class="pacts"><span class="pbtn"><svg class="i" data-i="play" style="width:12px;height:12px"></svg>Present</span><span class="dot" style="margin:0 -6px 0 -8px">5</span><svg class="i" data-i="history"></svg><svg class="i" data-i="download"></svg><svg class="i" data-i="max"></svg><svg class="i" data-i="x"></svg></span></div>
+    <div class="pmeta"><span class="ver">v2</span>6 slides · Alfy, 3 min ago</div>
+   </div>
+   <div class="deck">
+    <div class="thumbs">
+     <div class="th"><span>1</span><div class="s"><b></b><i style="width:50%"></i></div></div>
+     <div class="th on"><span>2</span><div class="s"><b></b><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>
+     <div class="th"><span>3</span><div class="s"><b></b><i></i><i style="width:70%"></i></div></div>
+     <div class="th"><span>4</span><div class="s"><b></b><i style="width:90%"></i><i style="width:50%"></i></div></div>
+     <div class="th"><span>5</span><div class="s"><b></b><i></i><i style="width:75%"></i></div></div>
+     <div class="th"><span>6</span><div class="s"><b style="width:40%"></b></div></div>
+     <span class="dot" style="margin:2px auto 0">1</span>
+    </div>
+    <div class="stage">
+     <div class="sl">
+      <div>
+       <div class="eb">2 · HONNAN ERED?</div>
+       <h3 class="edbox">Honnan ered a Duna?<span class="caret"></span><span class="dot" style="margin:0 0 0 6px">2</span></h3>
+       <ul><li>A Fekete-erdőben, Németországban</li><li>2 850 km hosszú</li><li>10 országon folyik át</li></ul>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 120 90" style="width:100%;max-width:170px" aria-hidden="true"><path d="M6 60 C 26 30, 40 70, 60 45 S 92 30, 114 52" fill="none" stroke="var(--ac)" stroke-width="4" stroke-linecap="round"/><circle cx="8" cy="59" r="5" fill="var(--tx)"/><text x="4" y="80" font-size="9" fill="var(--mu)" font-family="Helvetica">Forrás</text><text x="86" y="72" font-size="9" fill="var(--mu)" font-family="Helvetica">Fekete-tenger</text></svg></div>
+      <span class="askslide"><svg class="i" data-i="sparkles" style="width:12px;height:12px"></svg>Ask Alfy about this slide<span class="dot" style="margin:0 0 0 4px;width:16px;height:16px;font-size:9.5px">3</span></span>
+     </div>
+     <div class="notes"><b>SPEAKER NOTES</b><span class="dot" style="width:16px;height:16px;font-size:9.5px">4</span><br>Mutasd meg a térképen a forrást. Mondd el: „A Duna tíz országon folyik át, többen, mint bármelyik más folyó.”</div>
+    </div>
+   </div>
+  </div>
+ </div></div>
+ <div class="legend">
+  <div><span class="k">1</span><span><b>Slide list:</b> <span class="m">drag to reorder, add or duplicate.</span></span></div>
+  <div><span class="k">2</span><span><b>Click any text to edit it.</b> <span class="m">AlfyAI's look by default.</span></span></div>
+  <div><span class="k">3</span><span><b>Ask Alfy about one slide:</b> <span class="m">“simpler for a 9-year-old”, “add a picture”.</span></span></div>
+  <div><span class="k">4</span><span><b>Speaker notes,</b> <span class="m">which you can read from your phone while presenting.</span></span></div>
+  <div><span class="k">5</span><span><b>Present full screen,</b> <span class="m">or export to PPTX or PDF through produce_file.</span></span></div>
+ </div>
+</section>
+</main>
+<script>
+const P={
+search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+book:'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+pen:'<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.4 2.6a1 1 0 0 1 3 3l-9 9a2 2 0 0 1-.85.5l-2.87.84a.5.5 0 0 1-.62-.62l.84-2.87a2 2 0 0 1 .5-.85z"/>',
+logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',minus:'<path d="M5 12h14"/>',
+clip:'<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+plug:'<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
+brain:'<path d="M12 5a3 3 0 1 0-6 .13 4 4 0 0 0-2.52 5.77 4 4 0 0 0 .55 6.59A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 6 .13 4 4 0 0 1 2.52 5.77 4 4 0 0 1-.55 6.59A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>',
+send:'<path d="M14.5 21.7a.5.5 0 0 0 .94-.02l6.5-19a.5.5 0 0 0-.64-.64l-19 6.5a.5.5 0 0 0-.02.94l7.93 3.18a2 2 0 0 1 1.11 1.11z"/><path d="m21.85 2.15-10.94 10.94"/>',
+download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+max:'<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>',
+x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+history:'<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+app:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/>',
+file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+sparkles:'<path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0l1.58 6.14a2 2 0 0 0 1.44 1.44l6.14 1.58a.5.5 0 0 1 0 .96l-6.14 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"/>',
+refresh:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+msg:'<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+shapes:'<path d="M8.3 10a.7.7 0 0 1-.63-1.02l3.7-6.63a.7.7 0 0 1 1.26 0l3.7 6.63A.7.7 0 0 1 15.7 10z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/>',
+slides:'<path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/>',
+pointer:'<path d="M4.04 4.69a.5.5 0 0 1 .65-.65l16 6.5a.5.5 0 0 1-.06.95l-6.12 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.12a.5.5 0 0 1-.95.06z"/>',
+hand:'<path d="M18 11V6a2 2 0 0 0-4 0"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
+sticky:'<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/>',
+type:'<path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>',
+square:'<rect width="18" height="18" x="3" y="3" rx="2"/>',
+arrow:'<path d="M7 17 17 7"/><path d="M7 7h10v10"/>',
+frame:'<path d="M22 6H2"/><path d="M22 18H2"/><path d="M6 2v20"/><path d="M18 2v20"/>',
+plussq:'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 12h8"/><path d="M12 8v8"/>',
+map:'<path d="M14.1 4.9 9.9 3.1a2 2 0 0 0-1.8 0L3.6 5.3a1 1 0 0 0-.6.9v13.2a1 1 0 0 0 1.4.9l4.1-2a2 2 0 0 1 1.8 0l4.2 1.9a2 2 0 0 0 1.8 0l4.5-2.2a1 1 0 0 0 .6-.9V4.8a1 1 0 0 0-1.4-.9l-4.1 2a2 2 0 0 1-1.8 0Z"/><path d="M15 5.8v15"/><path d="M9 3.2v15"/>',
+calendar:'<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
+chart:'<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+checks:'<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>',
+image:'<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/>',
+globe:'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+play:'<polygon points="6 3 20 12 6 21 6 3"/>',
+chev:'<path d="m6 9 6 6 6-6"/>'
+};
+function paint(r){(r||document).querySelectorAll('svg.i[data-i]').forEach(s=>{s.setAttribute('viewBox','0 0 24 24');s.setAttribute('aria-hidden','true');s.innerHTML=P[s.dataset.i]||'';});}
+paint();
+/* canvas: drag top-level blocks, keep connector lines attached */
+const board=document.getElementById('board'),links=document.getElementById('links');
+const pairs=[['fri','map'],['fri','train'],['chk','appb'],['chart','map']];
+function center(el){const b=board.getBoundingClientRect(),r=el.getBoundingClientRect();return[r.left-b.left+r.width/2,r.top-b.top+r.height/2];}
+function draw(){links.innerHTML=pairs.map(([a,b])=>{const A=center(document.getElementById(a)),B=center(document.getElementById(b));return `<line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" stroke="var(--fa)" stroke-width="1.5" stroke-dasharray="4 4"/>`;}).join('');}
+[...board.children].filter(el=>el.classList.contains('it')).forEach(el=>{
+ el.addEventListener('pointerdown',e=>{if(e.button!==0)return;const sx=e.clientX,sy=e.clientY,ox=el.offsetLeft,oy=el.offsetTop;el.setPointerCapture(e.pointerId);el.style.zIndex=4;
+  const mv=ev=>{el.style.left=(ox+ev.clientX-sx)+'px';el.style.top=(oy+ev.clientY-sy)+'px';if(el.id==='map'){const c=document.getElementById('ctx');c.style.left=el.style.left;c.style.top=(oy+ev.clientY-sy-40)+'px';}draw();};
+  const up=()=>{el.removeEventListener('pointermove',mv);el.removeEventListener('pointerup',up);el.style.zIndex='';};
+  el.addEventListener('pointermove',mv);el.addEventListener('pointerup',up);});
+});
+const insBtn=document.getElementById('insBtn'),ins=document.getElementById('ins');
+insBtn.addEventListener('click',()=>{ins.hidden=!ins.hidden;insBtn.setAttribute('aria-expanded',String(!ins.hidden));insBtn.classList.toggle('on',!ins.hidden);});
+window.addEventListener('resize',draw);requestAnimationFrame(draw);
+</script>
+</body>
+</html>
