@@ -119,6 +119,39 @@ and friends); the real ones are `projects.stats` etc. from Slice D. The agent us
 instruction said to reuse Slice D's keys rather than add a second vocabulary — which is why the stats line reads
 "active 28 minutes ago" rather than §M6's "28 minutes ago".
 
+### Wave 4 review outcome (Slice E) — merged `e0275a04`, deployed `6a5b8fe8`
+
+See `review-wave-4.md`. Eleven commits; the consequential ones were a **race that could resurrect a removed
+file row** (the list was assigned from whichever read resolved last), a **Files modal with no phone layout**, an
+**order-sensitive CSS rule** nothing else would have caught, and **five dead incognito allow-list exemptions**
+that could never be consulted — now removed, with the honesty test requiring every entry to be reachable so a
+stale exemption fails the suite. Ownership, non-destruction (checked against the bytes on disk, not just rows),
+the "+N more" cap and the failing-open mention path were all attacked and cleared.
+
+### Wave 5, Slice G review — merged `69df01c4`
+
+Four commits. Two real defects and one coverage gap: a test name that still referenced the deleted feature, a
+stale incognito allow-list reason (the service now reads the projects row too), and — the useful one — **nothing
+proved the DROP migration reaches an already-deployed database**. That test now exists and was proved to have
+teeth by lowering the journal `when` and watching the table survive. Decision 12 (total removal) and decision 9
+(rule placement in the query, not a client filter) were both cleared, and the F/G overlap hunks were verified to
+have removed only dead wiring with no composer regression.
+
+Reported and not fixed, for the record: `home-summary.ts:48` reads `process.env.HOME_SUMMARY_CACHE_TTL_MS`
+directly instead of through `env.ts` (an `AGENTS.md` violation, pre-existing at the slice's base); `CHANGELOG.md`
+has no `[Unreleased] Removed` entry for the chips; the removal guard scans only `src`/`tests`/`scripts` (verified
+harmless today); and the slice's checklist item "Fallow **fewer** findings" is met as *equal*, not fewer — the
+reviewer said so rather than letting it pass.
+
+### Two more fixes in flight, from review findings
+
+- `fix/live-chat-evidence-metadata` — the owner's request: the Info popover loses every evidence row after a turn
+  until a detail reload. The agent must establish which of two causes is real before changing anything.
+- `fix/upload-link-failure` — an unexpected failure while linking a project upload can 500 a request whose bytes
+  are already saved and skip extraction registration, leaving the file permanently unusable. The reviewer reasoned
+  this without reproducing it, so the agent must **reproduce it or prove it impossible** first. Also carries a
+  one-line empty-state fix in the Files modal.
+
 ### Wave 5, Slice F — in flight
 
 ### Wave 5 (Slice F ∥ Slice G) — the parallel decision, recorded
