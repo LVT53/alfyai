@@ -98,7 +98,29 @@ it — the uploaded file stays in the library, which is the correct end state).
 rule — order, not specificity, is what makes the press win, and the unit test pins the behaviour but not the
 sheet order.
 
-### Wave 5 (Slice F ∥ Slice G) — in flight, started before Slice E's review landed
+### Wave 5, Slice G — merged `bc910efc`, deployed `3aeea01f`, verified
+
+Two commits. The removal is total and guarded: the rail component, the service, its test, the rate limiter and
+its test are deleted; `home_suggestion_events` is gone from `schema.ts`, `prepare-db.ts` and
+`user-scoped-tables.ts`; the incognito allow-list no longer exempts the deleted file; `HomeSummary` carries no
+`suggestions`; the summary endpoint accepts only the one remaining action. A guard test
+(`home-sources-removal.test.ts`) pins the removal, and it deliberately exempts `drizzle/` because migrations are
+immutable — the historical CREATE stays, the DROP (`…110`, journal idx 123) is the fix.
+
+**Verified on dev** at 1440×900 and 390×844, light and dark, with the theme asserted before each dark capture:
+the "Projects" heading and card render with an accessible name, the first card fits inside the viewport at both
+widths, there is no horizontal page scroll, **no suggestion/chip elements remain on the home surface**, and there
+were zero page errors in all four variants. The screenshot confirms it visually: folder icon + "Q3 Review
+mock-seed" + "5 chats · active 28 minutes ago", between the composer and the conversations list.
+
+**A deviation worth keeping:** the slice document named i18n keys that do not exist (`instructions.projectStats`
+and friends); the real ones are `projects.stats` etc. from Slice D. The agent used the real keys — the slice's own
+instruction said to reuse Slice D's keys rather than add a second vocabulary — which is why the stats line reads
+"active 28 minutes ago" rather than §M6's "28 minutes ago".
+
+### Wave 5, Slice F — in flight
+
+### Wave 5 (Slice F ∥ Slice G) — the parallel decision, recorded
 
 Both are cut from the merged `feat/workspaces` at `fecb790a`, in parallel. The plan's rule is kept in the briefs:
 **G owns the deletions in `src/lib/i18n/chat.ts`** (the `home.suggest.*` block) and F adds its own keys in its own
