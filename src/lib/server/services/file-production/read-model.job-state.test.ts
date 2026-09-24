@@ -401,6 +401,53 @@ describe("file-production read model job state", () => {
 				expect(await states()).toEqual([]);
 			});
 
+			// A generic title ("Report") is shared by unrelated requests; a
+			// title match alone must not hide a failure of a DIFFERENT file type.
+			it("keeps a failed job whose later same-title success made a different file type", async () => {
+				await seedJob({
+					id: "job-pdf-failed",
+					status: "failed",
+					title: "Report",
+					requestJson: {
+						sourceMode: "document_source",
+						outputs: [{ type: "pdf" }],
+					},
+					createdAt: at(1),
+				});
+				await seedJob({
+					id: "job-xlsx-succeeded",
+					status: "succeeded",
+					title: "Report",
+					requestJson: programRequest("numbers.xlsx"),
+					createdAt: at(2),
+				});
+				expect(await states()).toEqual(["job-pdf-failed"]);
+			});
+
+			it("drops a failed job whose later same-title success made the same file type", async () => {
+				await seedJob({
+					id: "job-pdf-failed",
+					status: "failed",
+					title: "Report",
+					requestJson: {
+						sourceMode: "document_source",
+						outputs: [{ type: "pdf" }],
+					},
+					createdAt: at(1),
+				});
+				await seedJob({
+					id: "job-pdf-succeeded",
+					status: "succeeded",
+					title: "report",
+					requestJson: {
+						sourceMode: "document_source",
+						outputs: [{ type: "PDF" }],
+					},
+					createdAt: at(2),
+				});
+				expect(await states()).toEqual([]);
+			});
+
 			it("keeps a failure that a success did not come AFTER, or that no success matches", async () => {
 				await seedJob({
 					id: "job-earlier-success",

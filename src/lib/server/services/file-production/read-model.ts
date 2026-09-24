@@ -14,6 +14,7 @@ import {
 } from "$lib/server/services/file-production/types";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store/document-metadata";
 import { parseJsonRecord } from "$lib/server/utils/json";
+import { getExpectedExtensionForOutputType } from "$lib/shared/file-types/production";
 
 const GENERATED_DOCUMENT_RENDERED_CHAT_FILE_IDS_KEY =
 	"generatedDocumentRenderedChatFileIds";
@@ -688,6 +689,41 @@ function requestTargetFilenames(requestJson: string | null): string[] {
 	return names.map(filenameKey).filter(Boolean);
 }
 
+/** The file types a persisted request asked for (`outputs[].type`), as
+ * extensions without the dot, plus those its target filenames carry. Empty when the
+ * request names none — a legacy row or an intake failure draft. */
+function requestOutputTypes(requestJson: string | null): Set<string> {
+	const types = new Set<string>();
+	const request = parseJsonRecord(requestJson);
+	if (request && Array.isArray(request.outputs)) {
+		for (const output of request.outputs) {
+			if (output && typeof output === "object" && !Array.isArray(output)) {
+				const type = (output as Record<string, unknown>).type;
+				if (typeof type === "string" && type.trim()) {
+					// Compared as extensions, so "markdown" and a produced ".md"
+					// name one type.
+					const extension = getExpectedExtensionForOutputType(type);
+					types.add(
+						extension
+							? extension.replace(/^\./, "")
+							: type.trim().toLowerCase(),
+					);
+				}
+			}
+		}
+	}
+	for (const filename of requestTargetFilenames(requestJson)) {
+		const extension = filenameExtension(filename);
+		if (extension) types.add(extension);
+	}
+	return types;
+}
+
+function filenameExtension(filename: string): string | null {
+	const dot = filename.lastIndexOf(".");
+	return dot > 0 ? filename.slice(dot + 1).toLowerCase() || null : null;
+}
+
 /**
  * Failed jobs a LATER succeeded job of the same conversation already
  * delivered: same normalized title, or the same target filename (asked for by
@@ -747,17 +783,22 @@ async function findSupersededFailedJobIds(input: {
 			),
 		);
 	const namesByJobId = new Map<string, Set<string>>();
+	const typesByJobId = new Map<string, Set<string>>();
 	for (const job of succeeded) {
 		namesByJobId.set(job.id, new Set(requestTargetFilenames(job.requestJson)));
+		typesByJobId.set(job.id, requestOutputTypes(job.requestJson));
 	}
 	for (const row of producedNames) {
 		const key = filenameKey(row.filename);
 		if (key) namesByJobId.get(row.jobId)?.add(key);
+		const extension = key ? filenameExtension(key) : null;
+		if (extension) typesByJobId.get(row.jobId)?.add(extension);
 	}
 
 	for (const failed of input.failed) {
 		const titleKey = jobTitleKey(failed.title);
 		const targets = requestTargetFilenames(failed.requestJson);
+		const failedTypes = requestOutputTypes(failed.requestJson);
 		const replaced = succeeded.some((success) => {
 			if (success.id === failed.id) return false;
 			// Timestamps are whole seconds, so a correction sent right after
@@ -765,7 +806,17 @@ async function findSupersededFailedJobIds(input: {
 			if (success.createdAt.getTime() < failed.createdAt.getTime()) {
 				return false;
 			}
-			if (titleKey && jobTitleKey(success.title) === titleKey) return true;
+			// A title alone is weak: "Report" is every other request's title.
+			// When both sides say which file types they are about, the success
+			// must cover every type the failure asked for — a later "Report"
+			// workbook did not deliver the "Report" PDF that failed.
+			if (titleKey && jobTitleKey(success.title) === titleKey) {
+				const successTypes = typesByJobId.get(success.id) ?? new Set();
+				if (failedTypes.size === 0 || successTypes.size === 0) return true;
+				if ([...failedTypes].every((type) => successTypes.has(type))) {
+					return true;
+				}
+			}
 			const names = namesByJobId.get(success.id);
 			return Boolean(names && targets.some((target) => names.has(target)));
 		});
