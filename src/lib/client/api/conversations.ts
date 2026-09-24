@@ -9,6 +9,7 @@ import type {
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { PendingSkillSelection } from "$lib/server/services/skills/types";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import { _unwrapList } from "./_utils";
 import {
 	type FetchLike,
@@ -451,6 +452,48 @@ export async function runConversationContextCompression(
 		throw new Error("The server returned unexpected context compression data.");
 	}
 	return result.snapshot;
+}
+
+export type InstructionSuggestionAnswer = "reviewed" | "dismissed";
+
+interface InstructionSuggestionResponse {
+	suggestion: InstructionSuggestion;
+}
+
+/**
+ * Answers one instruction suggestion the model offered in a conversation.
+ *
+ * Reviewing is not an accept: the dialog's own Save writes the instruction
+ * text, and this only records that the user answered the offer — which is why
+ * the page calls it after a save succeeded rather than before.
+ */
+export async function updateInstructionSuggestionStatus(
+	conversationId: string,
+	payload: {
+		messageId: string;
+		suggestionId: string;
+		status: InstructionSuggestionAnswer;
+	},
+	fetchImpl: FetchLike = fetch,
+): Promise<InstructionSuggestion> {
+	const result = await requestJson<InstructionSuggestionResponse>(
+		`/api/conversations/${encodeURIComponent(conversationId)}/instruction-suggestions`,
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(payload),
+		},
+		"Failed to answer the instruction suggestion",
+		fetchImpl,
+	);
+	if (!result.suggestion) {
+		throw new Error(
+			"The server returned unexpected instruction suggestion data.",
+		);
+	}
+	return result.suggestion;
 }
 
 export interface ConversationMarkdownExport {

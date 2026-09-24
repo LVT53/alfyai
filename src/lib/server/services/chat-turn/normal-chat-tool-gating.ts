@@ -33,6 +33,15 @@ export function selectNormalChatToolsForRequest(
 		// keeps a live path into skill instructions for a feature the operator
 		// switched off. Omitted/true keeps today's behaviour (fail open).
 		skillsEnabled?: boolean;
+		// Whether this conversation is incognito (isConversationIncognito).
+		// Deliberately NOT folded into `memoryActive`: instructions apply in
+		// incognito, so the two flags answer different questions. What incognito
+		// withholds is the offer to *write* a standing instruction — an AI
+		// suggestion is a learning-shaped surface, and incognito's promise is
+		// that nothing is learned from the conversation. Incognito is one-way
+		// for a conversation's whole life, so this gate never changes inside
+		// one, which is what keeps the cached prefix stable.
+		incognito?: boolean;
 	},
 ): Partial<NormalChatToolSet> {
 	const selected: Partial<NormalChatToolSet> = { ...tools };
@@ -41,6 +50,9 @@ export function selectNormalChatToolsForRequest(
 	}
 	if (params.skillsEnabled === false) {
 		delete selected.use_skill;
+	}
+	if (params.incognito === true) {
+		delete selected.suggest_instruction;
 	}
 	return selected;
 }

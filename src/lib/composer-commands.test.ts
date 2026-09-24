@@ -19,17 +19,31 @@ describe("STATIC_COMPOSER_COMMANDS", () => {
 		}
 	});
 
-	it("declares an argument only for /document and /remember, /remember required", () => {
+	it("declares an argument only for /document, /instruction and /remember, the two text-carrying ones required", () => {
 		const withArguments = commands
 			.filter((command) => command.argument)
 			.map((command) => command.id);
-		expect(withArguments.sort()).toEqual(["document", "remember"]);
+		expect(withArguments.sort()).toEqual([
+			"document",
+			"instruction",
+			"remember",
+		]);
 
 		const remember = commands.find((command) => command.id === "remember");
 		expect(remember?.argument?.required).toBe(true);
 
 		const doc = commands.find((command) => command.id === "document");
 		expect(doc?.argument?.required).toBeFalsy();
+	});
+
+	// The guard in the composer's execute switch fires on `required`, so a
+	// command that carries the user's own sentence must say so: an
+	// `/instruction` that did not would run on an empty argument.
+	it("registers /instruction as an argument-bearing command available everywhere", () => {
+		const command = commands.find((entry) => entry.id === "instruction");
+		expect(command?.token).toBe("/instruction");
+		expect(command?.argument?.required).toBe(true);
+		expect(command?.availability).toBe("available");
 	});
 
 	it("declares argument hints as i18n keys, never literal text", () => {

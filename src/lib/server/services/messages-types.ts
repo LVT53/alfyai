@@ -33,7 +33,10 @@ import type {
 	WebCitationAudit,
 	WebCitationRepairSummary,
 } from "$lib/server/services/web-citation-audit";
-import type { InstructionScopeApplication } from "$lib/shared/instructions";
+import type {
+	InstructionScopeApplication,
+	InstructionSuggestion,
+} from "$lib/shared/instructions";
 import type { PageCountKind } from "$lib/shared/page-count";
 import type {
 	EvidenceSourceType,
@@ -197,6 +200,13 @@ export interface ToolCallEntry {
 	metadata?: Record<string, string | number | boolean | null>;
 	// Inline map card data (map_route only, today). See ToolCallMapData.
 	map?: ToolCallMapData | null;
+	// The instruction the model offered to write this turn (suggest_instruction
+	// only). The assistant message does not exist while the tool runs, so the
+	// offer rides the tool call and is projected onto the turn's
+	// `instructionSuggestions` metadata at finalize; `null` records a refusal
+	// that offered nothing. Like `map`, this is turn-local state — it is not
+	// rendered from the thinking segment.
+	instructionSuggestion?: InstructionSuggestion | null;
 }
 
 export type ThinkingSegment =
@@ -336,6 +346,14 @@ export interface ChatMessage {
 	// `undefined` — never `{ personal: false }` — when nothing applied, and on
 	// every message persisted before the record existed. Assistant turns only.
 	instructionsApplied?: InstructionScopeApplication;
+	// Slice F — the standing instructions the model offered to write this
+	// turn, each with the text it offered and the scope it would go into,
+	// projected from `messages.metadataJson.instructionSuggestions` (same
+	// paved road as `skillDrafts`; no migration). `pending` entries are what
+	// the suggestion row renders; `reviewed`/`dismissed` ones are kept in the
+	// record so the row stays gone after a reload. `undefined` — never `[]` —
+	// when the turn offered nothing. Assistant turns only.
+	instructionSuggestions?: InstructionSuggestion[];
 	// Workspaces Slice E — how many of the conversation's project files this
 	// turn actually read, projected from `messages.metadataJson.projectFilesRead`
 	// (same paved road as `followUps`; no migration). A count, never a list: the

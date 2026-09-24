@@ -474,6 +474,12 @@ const chatDict = {
 		"composerCommands.export.label": "Export",
 		"composerCommands.export.noConversation":
 			"Start a conversation before exporting it.",
+		"composerCommands.instruction.argumentPlaceholder":
+			"What should always apply?",
+		"composerCommands.instruction.description": "Write a standing instruction",
+		"composerCommands.instruction.label": "Instruction",
+		"composerCommands.instruction.missingArgument":
+			"Write the instruction after /instruction.",
 		"composerCommands.model.description": "Open the model picker.",
 		"composerCommands.model.label": "Model",
 		"composerCommands.new.description": "Start a new conversation.",
@@ -1576,6 +1582,11 @@ const chatDict = {
 		"composerCommands.export.label": "Exportálás",
 		"composerCommands.export.noConversation":
 			"Exportálás előtt indíts el egy beszélgetést.",
+		"composerCommands.instruction.argumentPlaceholder": "Mi érvényes mindig?",
+		"composerCommands.instruction.description": "Állandó utasítás írása",
+		"composerCommands.instruction.label": "Utasítás",
+		"composerCommands.instruction.missingArgument":
+			"Írd le az utasítást az /instruction után.",
 		"composerCommands.model.description": "Megnyitja a modellválasztót.",
 		"composerCommands.model.label": "Modell",
 		"composerCommands.new.description": "Új beszélgetés indítása.",

@@ -2,11 +2,39 @@ import { json } from "@sveltejs/kit";
 import { requireAuth } from "$lib/server/auth/hooks";
 import {
 	deleteProject,
+	getProjectInstructions,
 	type UpdateProjectInput,
 	updateProject,
 } from "$lib/server/services/projects";
 import { validateInstructionInput } from "$lib/shared/instructions";
 import type { RequestHandler } from "./$types";
+
+/**
+ * The project's own instruction text, read back by the one browser surface that
+ * has to show it: the instructions dialog `/instruction` opens, where the text
+ * already saved and the text being added must be visible together before
+ * anything is written. `Project` deliberately never carries the text, so this
+ * is its own read rather than a wider list payload — and the ownership check is
+ * the read's own.
+ */
+export const GET: RequestHandler = async (event) => {
+	requireAuth(event);
+	const user = event.locals.user;
+	if (!user) {
+		return json({ error: "Unauthorized" }, { status: 401 });
+	}
+	const project = await getProjectInstructions(user.id, event.params.id);
+	if (!project) {
+		return json({ error: "Project not found" }, { status: 404 });
+	}
+	return json({
+		project: {
+			id: project.id,
+			name: project.name,
+			instructions: project.text,
+		},
+	});
+};
 
 export const PATCH: RequestHandler = async (event) => {
 	requireAuth(event);

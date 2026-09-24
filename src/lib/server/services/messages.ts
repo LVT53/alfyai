@@ -35,7 +35,11 @@ import type {
 	WebCitationAudit,
 	WebCitationRepairSummary,
 } from "$lib/server/services/web-citation-audit";
-import type { InstructionScopeApplication } from "$lib/shared/instructions";
+import type {
+	InstructionScopeApplication,
+	InstructionSuggestion,
+	InstructionSuggestionStatus,
+} from "$lib/shared/instructions";
 import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
@@ -89,6 +93,13 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// value context preparation resolved, and projected out below. Scopes only:
 	// the instruction text itself never reaches a message record.
 	instructionsApplied?: InstructionScopeApplication;
+	// Slice F — the standing instructions the model offered to write this turn,
+	// as `InstructionSuggestion[]`. Written into assistantMetadata by
+	// `finalizeChatTurn`, which lifts them off the turn's tool calls (the
+	// assistant message does not exist while `suggest_instruction` runs, so the
+	// offer cannot be persisted from inside the tool), and moved on in place by
+	// `updateAssistantMessageInstructionSuggestionStatus` below.
+	instructionSuggestions?: InstructionSuggestion[];
 	wasStopped?: boolean;
 	// E2 — persisted mirror of E1's completionWarningCodes (written alongside
 	// wasStopped by finalize's assistantMetadata; see stream-completion.ts).
@@ -108,6 +119,22 @@ export class SkillDraftTransitionError extends Error {
 	) {
 		super(message);
 		this.name = "SkillDraftTransitionError";
+	}
+}
+
+/**
+ * A status the suggestion cannot move to from where it is. `status` is the
+ * HTTP status the route answers with (409 for a conflict), matching
+ * SkillDraftTransitionError's shape so the two routes read the same way.
+ */
+export class InstructionSuggestionTransitionError extends Error {
+	constructor(
+		public code: string,
+		message: string,
+		public status = 409,
+	) {
+		super(message);
+		this.name = "InstructionSuggestionTransitionError";
 	}
 }
 
@@ -264,6 +291,7 @@ function projectMessageMetadata(
 	| "followUps"
 	| "userIntent"
 	| "instructionsApplied"
+	| "instructionSuggestions"
 	| "projectFilesRead"
 > {
 	const evidenceSummary =
@@ -330,6 +358,13 @@ function projectMessageMetadata(
 			typeof metadata.instructionsApplied === "object"
 				? metadata.instructionsApplied
 				: undefined,
+		// Slice F — the offers this turn made. Array-guarded like `skillDrafts`
+		// rather than validated field by field: the record is written by the
+		// server from its own tool call, and a malformed one degrades to "no
+		// offers" instead of reaching the row.
+		instructionSuggestions: Array.isArray(metadata?.instructionSuggestions)
+			? metadata.instructionSuggestions
+			: undefined,
 	};
 }
 
@@ -928,6 +963,111 @@ export async function updateAssistantMessageSkillDraftStatus(params: {
 		);
 
 	return nextDraft;
+}
+
+/**
+ * Moves one instruction offer to its final state on the assistant message that
+ * made it.
+ *
+ * The suggestion is addressed by id inside the message's own metadata, so the
+ * caller cannot name a suggestion the user was never shown. Ownership is
+ * checked here as well as in the route (`getConversation`), because a message
+ * id on its own must never be enough to write into somebody else's
+ * conversation.
+ *
+ * Returns `null` — not an error — when the conversation is not the caller's,
+ * the message is not an assistant message, or the suggestion is not on it:
+ * "nothing to move" is one answer, and the route maps it to a 404. A refused
+ * transition is the one case that is a conflict, because the row is there and
+ * the user's earlier answer is what stands.
+ */
+export async function updateAssistantMessageInstructionSuggestionStatus(params: {
+	userId: string;
+	conversationId: string;
+	messageId: string;
+	suggestionId: string;
+	status: InstructionSuggestionStatus;
+}): Promise<InstructionSuggestion | null> {
+	const [conversation] = await db
+		.select({ id: conversations.id })
+		.from(conversations)
+		.where(
+			and(
+				eq(conversations.id, params.conversationId),
+				eq(conversations.userId, params.userId),
+			),
+		)
+		.limit(1);
+	if (!conversation) return null;
+
+	const [row] = await db
+		.select({ metadataJson: messages.metadataJson, role: messages.role })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.id, params.messageId),
+				eq(messages.conversationId, params.conversationId),
+				eq(messages.role, "assistant"),
+			),
+		)
+		.limit(1);
+
+	if (row?.role !== "assistant") return null;
+
+	const metadata = parseMetadata(row.metadataJson) ?? {};
+	const suggestions = Array.isArray(metadata.instructionSuggestions)
+		? metadata.instructionSuggestions
+		: [];
+	const suggestionIndex = suggestions.findIndex(
+		(suggestion) => suggestion.id === params.suggestionId,
+	);
+	if (suggestionIndex === -1) return null;
+	const currentSuggestion = suggestions[suggestionIndex];
+
+	// The state the caller asked for is already the state: a double press, or
+	// a retried request, is not a conflict.
+	if (currentSuggestion.status === params.status) return currentSuggestion;
+
+	// Dismissal is the user's final answer to this offer, so an offer that has
+	// been dismissed cannot come back as reviewed. The other direction is
+	// allowed: reviewing something and then dismissing it is the user changing
+	// their mind.
+	if (
+		currentSuggestion.status === "dismissed" &&
+		params.status === "reviewed"
+	) {
+		throw new InstructionSuggestionTransitionError(
+			"instruction_suggestion_transition_conflict",
+			"Instruction suggestion was dismissed and cannot be reviewed.",
+			409,
+		);
+	}
+
+	const nextSuggestion: InstructionSuggestion = {
+		...currentSuggestion,
+		status: params.status,
+	};
+	const nextSuggestions = suggestions.slice();
+	nextSuggestions[suggestionIndex] = nextSuggestion;
+	const next: PersistedMessageMetadata = {
+		...metadata,
+		instructionSuggestions: nextSuggestions,
+	};
+
+	await db
+		.update(messages)
+		.set({
+			metadataJson: JSON.stringify(next),
+		})
+		.where(
+			and(
+				eq(messages.id, params.messageId),
+				eq(messages.conversationId, params.conversationId),
+				eq(messages.role, "assistant"),
+			),
+		);
+
+	return nextSuggestion;
 }
 
 export async function clearMessageEvidenceForUser(

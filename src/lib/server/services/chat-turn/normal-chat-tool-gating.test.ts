@@ -13,6 +13,7 @@ function fakeToolSet(): ToolSetParam {
 		produce_file: {},
 		read_generated_file: {},
 		use_skill: {},
+		suggest_instruction: {},
 		done: {},
 	} as unknown as ToolSetParam;
 }
@@ -86,6 +87,31 @@ describe("selectNormalChatToolsForRequest", () => {
 			skillsEnabled: true,
 		});
 		expect(selected).toHaveProperty("use_skill");
+	});
+
+	it("exposes the instruction-suggestion tool for an ordinary conversation", () => {
+		const selected = selectNormalChatToolsForRequest(fakeToolSet(), {
+			message: "From now on, always suggest trains.",
+			incognito: false,
+		});
+		expect(selected).toHaveProperty("suggest_instruction");
+	});
+
+	it("withholds the instruction-suggestion tool in an incognito conversation", () => {
+		// Incognito's promise is that nothing is learned from the chat. An
+		// offer to write a standing instruction is a learning-shaped surface,
+		// so it is absent there — while the instructions themselves, which are
+		// the user's own text and not something the app learned, keep working
+		// (that is `/instruction`'s half of the rule).
+		const selected = selectNormalChatToolsForRequest(fakeToolSet(), {
+			message: "From now on, always suggest trains.",
+			incognito: true,
+		});
+		expect(selected).not.toHaveProperty("suggest_instruction");
+		// And the read-side tools are untouched by this gate: incognito is not
+		// a general tool switch.
+		expect(selected).toHaveProperty("memory_context");
+		expect(selected).toHaveProperty("produce_file");
 	});
 
 	it("withholds memory even when file-production tools are exposed and memory is inactive", () => {

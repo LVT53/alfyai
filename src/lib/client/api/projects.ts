@@ -24,6 +24,34 @@ export async function createProject(name: string): Promise<Project> {
 	);
 }
 
+/**
+ * One project with the text `Project` deliberately leaves out.
+ *
+ * The instructions dialog has to draw the text already saved before the user
+ * adds to it, and the sidebar's project records never carry it — so this is the
+ * read that pairs the name with the text, and the ownership check is the
+ * server's own.
+ */
+export interface ProjectInstructions {
+	id: string;
+	name: string;
+	/** Trimmed text, or null when the project carries none. */
+	instructions: string | null;
+}
+
+export async function fetchProject(id: string): Promise<ProjectInstructions> {
+	const payload = await requestJson<{ project?: ProjectInstructions }>(
+		`/api/projects/${id}`,
+		undefined,
+		"Failed to load the project",
+	);
+	const project = payload.project;
+	if (!project) {
+		throw new Error("Failed to load the project");
+	}
+	return project;
+}
+
 export async function renameProject(
 	id: string,
 	name: string,
