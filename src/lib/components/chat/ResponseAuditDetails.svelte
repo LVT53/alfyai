@@ -344,20 +344,29 @@ function buildPrimaryRows(): AuditRow[] {
 
 	/* A row that goes somewhere: same line, same type, but it reads as
 	 * something you can press — and it is a real <button>, so keyboard focus
-	 * and Enter work without a second handler. */
+	 * and Enter work without a second handler.
+	 *
+	 * The type is set out in full rather than with `font: inherit`: a button
+	 * does not inherit `.audit-row`'s size, so `font: inherit` handed the row
+	 * the panel's inherited size instead of the row's own and the pressable
+	 * line came out larger than every line around it. */
 	.audit-row--action {
 		width: 100%;
 		margin: 0;
 		padding: 0;
 		border: 0;
 		background: none;
-		font: inherit;
+		font-family: inherit;
+		font-weight: inherit;
+		font-size: var(--text-2xs);
+		line-height: 1.4;
 		text-align: left;
 		cursor: pointer;
 	}
 
-	.audit-row--action:hover .audit-action-value,
-	.audit-row--action:focus-visible .audit-action-value {
+	/* The value carries the accent, as the agreed mockup draws it: it is the
+	 * half of the row that says where the press leads. */
+	.audit-action-value {
 		color: var(--accent);
 	}
 
