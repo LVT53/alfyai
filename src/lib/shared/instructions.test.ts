@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-	INSTRUCTIONS_MAX_CHARS,
 	countInstructionChars,
+	INSTRUCTIONS_MAX_CHARS,
 	normalizeInstructionText,
 	validateInstructionInput,
 } from "./instructions";
@@ -23,12 +23,12 @@ describe("countInstructionChars", () => {
 
 describe("validateInstructionInput", () => {
 	it("accepts text at exactly the limit", () => {
-		expect(validateInstructionInput("a".repeat(INSTRUCTIONS_MAX_CHARS))).toEqual(
-			{
-				ok: true,
-				value: "a".repeat(INSTRUCTIONS_MAX_CHARS),
-			},
-		);
+		expect(
+			validateInstructionInput("a".repeat(INSTRUCTIONS_MAX_CHARS)),
+		).toEqual({
+			ok: true,
+			value: "a".repeat(INSTRUCTIONS_MAX_CHARS),
+		});
 	});
 	it("rejects text one character over the limit", () => {
 		expect(
@@ -81,7 +81,10 @@ describe("validateInstructionInput", () => {
 		});
 	});
 	it("turns empty and whitespace-only text into an explicit clear", () => {
-		expect(validateInstructionInput("   \n ")).toEqual({ ok: true, value: null });
+		expect(validateInstructionInput("   \n ")).toEqual({
+			ok: true,
+			value: null,
+		});
 	});
 	it("accepts null as a clear", () => {
 		expect(validateInstructionInput(null)).toEqual({ ok: true, value: null });
@@ -94,9 +97,7 @@ describe("validateInstructionInput", () => {
 	});
 	it("measures the limit after trimming, so surrounding whitespace never pushes text over", () => {
 		expect(
-			validateInstructionInput(
-				`   ${"a".repeat(INSTRUCTIONS_MAX_CHARS)}   `,
-			),
+			validateInstructionInput(`   ${"a".repeat(INSTRUCTIONS_MAX_CHARS)}   `),
 		).toEqual({ ok: true, value: "a".repeat(INSTRUCTIONS_MAX_CHARS) });
 	});
 });

@@ -1,8 +1,9 @@
 import { render, screen } from "@testing-library/svelte";
 import { describe, expect, it } from "vitest";
+import type { InstructionScope } from "$lib/shared/instructions";
 import ScopeToken from "./ScopeToken.svelte";
 
-function token(scope: Parameters<typeof ScopeToken>[0]["scope"]) {
+function token(scope: InstructionScope) {
 	return render(ScopeToken, { props: { scope } });
 }
 

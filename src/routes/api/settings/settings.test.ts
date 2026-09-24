@@ -124,7 +124,9 @@ describe("PATCH /api/settings/preferences personalInstructions", () => {
 
 	it("persists exactly 2,000 characters", async () => {
 		const text = "a".repeat(INSTRUCTIONS_MAX_CHARS);
-		const response = await PATCH(makePatchEvent({ personalInstructions: text }));
+		const response = await PATCH(
+			makePatchEvent({ personalInstructions: text }),
+		);
 
 		expect(response.status).toBe(200);
 		expect(updateSet).toHaveBeenCalledWith(
@@ -134,7 +136,9 @@ describe("PATCH /api/settings/preferences personalInstructions", () => {
 
 	it("persists exactly 2,000 Hungarian accented characters", async () => {
 		const text = "ő".repeat(INSTRUCTIONS_MAX_CHARS);
-		const response = await PATCH(makePatchEvent({ personalInstructions: text }));
+		const response = await PATCH(
+			makePatchEvent({ personalInstructions: text }),
+		);
 
 		expect(response.status).toBe(200);
 		expect(updateSet).toHaveBeenCalledWith(
