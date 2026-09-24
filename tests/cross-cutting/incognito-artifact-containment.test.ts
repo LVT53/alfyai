@@ -20,9 +20,13 @@
 //   And the two directions that must keep working: inside the incognito
 //   conversation itself, and a normal conversation's own files.
 //
-//   PART B, a guard: every file in `src/lib/server` that queries `artifacts`
-//   or `chat_generated_files` by user goes through that scope, or is named
-//   here with the reason it does not.
+//   PART B, a guard: every file in `src/lib/server` that queries `artifacts`,
+//   `artifact_chunks` or `chat_generated_files` by user goes through that
+//   scope, or is named here with the reason it does not. `project_knowledge_links`
+//   is covered by the same rule since Workspaces Slice E added it: a link row
+//   names an artifact, so an unscoped user-level read of links is a second way
+//   to enumerate files a user's chats hold — whose names then reach a prompt
+//   through the project file list.
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative as relativePath } from "node:path";
 import { eq } from "drizzle-orm";
@@ -561,14 +565,25 @@ describe("every user-scoped artifact query goes through the ownership scope", ()
 			const readsTables =
 				source.includes(".from(artifacts)") ||
 				source.includes(".from(artifactChunks)") ||
-				source.includes(".from(chatGeneratedFiles)");
+				source.includes(".from(chatGeneratedFiles)") ||
+				source.includes(".from(projectKnowledgeLinks)");
 			if (!readsTables) continue;
 			// Only a query that selects by USER can cross a conversation
 			// boundary; one that does not is already narrower than this rule.
+			// The canonical-condition helpers count as selecting by user — they
+			// ARE the boundary, and taking one is the thing this guard asks for —
+			// so a file that scopes artifacts that way is checked here rather
+			// than skipped for spelling its filter as a helper call
+			// (`buildArtifactCanonicalOwnershipCondition({ userId, ownershipScope })`)
+			// instead of a literal column comparison.
 			const isUserScoped =
 				source.includes("artifacts.userId") ||
 				source.includes("artifactChunks.userId") ||
-				source.includes("chatGeneratedFiles.userId");
+				source.includes("chatGeneratedFiles.userId") ||
+				source.includes("projectKnowledgeLinks.userId") ||
+				source.includes("buildArtifactCanonicalOwnershipCondition") ||
+				source.includes("isArtifactCanonicallyOwned") ||
+				source.includes("buildArtifactVisibilityCondition");
 			if (!isUserScoped) continue;
 			if (SCOPE_MARKERS.some((marker) => source.includes(marker))) continue;
 			const key = relative.replace(/\\/g, "/");
@@ -579,10 +594,11 @@ describe("every user-scoped artifact query goes through the ownership scope", ()
 		expect(
 			offenders,
 			[
-				"These files read artifacts / artifact_chunks / chat_generated_files by user",
-				"without going through getArtifactOwnershipScope (or pinning the query to",
-				"one conversation). Either scope the query, or add the file to",
-				"ALLOWED_WITHOUT_SCOPE with the reason it is safe:",
+				"These files read artifacts / artifact_chunks / chat_generated_files /",
+				"project_knowledge_links by user without going through",
+				"getArtifactOwnershipScope (or pinning the query to one conversation).",
+				"Either scope the query, or add the file to ALLOWED_WITHOUT_SCOPE with",
+				"the reason it is safe:",
 				offenders.join("\n  "),
 			].join("\n"),
 		).toEqual([]);

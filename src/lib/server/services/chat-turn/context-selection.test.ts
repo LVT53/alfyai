@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	buildConstructedContext,
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 	listConversationSourceArtifactIds: vi.fn(),
 	listConversationSourceArtifactNames: vi.fn(async () => []),
 	listConversationLinkedContextSources: vi.fn(),
+	resolveLinkedContextSourcesForConversation: vi.fn(),
 	selectWorkingSetArtifactsForPrompt: vi.fn(),
 	findRelevantKnowledgeArtifacts: vi.fn(),
 	getArtifactsForUser: vi.fn(),
@@ -27,6 +29,8 @@ const mocks = vi.hoisted(() => ({
 	getMaxModelContext: vi.fn(),
 	getTargetConstructedContext: vi.fn(),
 	updateConversationContextStatus: vi.fn(),
+	listProjectKnowledge: vi.fn(),
+	resolveProjectFileMentions: vi.fn(),
 	getConversationProjectId: vi.fn(),
 	getConversationProjectLabel: vi.fn(),
 	getConversationForkOrigin: vi.fn(),
@@ -71,6 +75,8 @@ vi.mock("../knowledge", () => ({
 	getCompactionUiThreshold: mocks.getCompactionUiThreshold,
 	getMaxModelContext: mocks.getMaxModelContext,
 	getTargetConstructedContext: mocks.getTargetConstructedContext,
+	listProjectKnowledge: mocks.listProjectKnowledge,
+	resolveProjectFileMentions: mocks.resolveProjectFileMentions,
 	listConversationSourceArtifactIds: mocks.listConversationSourceArtifactIds,
 	listConversationSourceArtifactNames:
 		mocks.listConversationSourceArtifactNames,
@@ -85,6 +91,8 @@ vi.mock("../knowledge", () => ({
 vi.mock("../linked-context-sources", () => ({
 	listConversationLinkedContextSources:
 		mocks.listConversationLinkedContextSources,
+	resolveLinkedContextSourcesForConversation:
+		mocks.resolveLinkedContextSourcesForConversation,
 }));
 
 vi.mock("../messages", () => ({
@@ -287,6 +295,15 @@ function resetConstructedContextMocks() {
 		}),
 	]);
 	mocks.findRelevantKnowledgeArtifacts.mockResolvedValue([]);
+	mocks.listProjectKnowledge.mockResolvedValue([]);
+	// Default: the turn names no project file, which is the ordinary turn.
+	mocks.resolveProjectFileMentions.mockResolvedValue([]);
+	// Validation returns the canonicals it was handed. The real one is tested
+	// against a real database in project-knowledge.test.ts; here it is the seam
+	// that lets a mention reach the prompt.
+	mocks.resolveLinkedContextSourcesForConversation.mockImplementation(
+		async ({ linkedSources }: { linkedSources: unknown[] }) => linkedSources,
+	);
 	mocks.getConversationProjectId.mockResolvedValue(null);
 	mocks.getConversationProjectLabel.mockResolvedValue(null);
 	mocks.getProjectReferenceContext.mockResolvedValue(null);
@@ -1437,6 +1454,549 @@ describe("buildConstructedContext", () => {
 
 			expect(constructed.inputValue).not.toContain("## File Jobs");
 			expect(constructed.inputValue).toContain("## Session Context");
+		});
+	});
+
+	// Every turn in a project is told which files the project knows: names and
+	// one-line summaries, nothing more. The section is `protected`, so the
+	// packet compactor will never trim it — which is exactly why the caps have
+	// to be the section's own job, or a big project would crowd out the answer.
+	describe("Project Files section", () => {
+		const DEEP_MESSAGE =
+			"Please summarise the whole launch plan document in detail, including every risk and open question we have discussed so far in this conversation.";
+		const SHALLOW_MESSAGE = "Thanks, that helps.";
+
+		function projectFile(params: {
+			name: string;
+			summary?: string | null;
+		}): ProjectKnowledgeItem {
+			return {
+				artifactId: `artifact-${params.name}`,
+				name: params.name,
+				mimeType: "text/markdown",
+				type: "source_document",
+				sizeBytes: 1_024,
+				linkedAt: 1,
+				summary:
+					params.summary === undefined ? "A line about it." : params.summary,
+			};
+		}
+
+		function filesSection(
+			constructed: Awaited<ReturnType<typeof buildConstructedContext>>,
+		) {
+			const section = constructed.contextTraceSections.find(
+				(candidate) => candidate.name === "Project Files",
+			);
+			return {
+				section,
+				lines: section?.body.split("\n") ?? [],
+			};
+		}
+
+		it("lists a project's files on a deep turn", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue([
+				projectFile({
+					name: "launch-brief.md",
+					summary: "Positioning and the 2.0 date.",
+				}),
+				projectFile({ name: "risk-register.md", summary: null }),
+			]);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: DEEP_MESSAGE,
+				modelId: "local-model",
+			});
+
+			// Guards the fixture: a "deep" case that quietly fell back to the
+			// shallow builder would assert nothing about the deep tier.
+			expect(mocks.resolvePromptAttachmentArtifacts).toHaveBeenCalledTimes(1);
+			expect(constructed.inputValue).toContain("## Project Files");
+			expect(constructed.inputValue).toContain(
+				"- launch-brief.md — Positioning and the 2.0 date.",
+			);
+			// A file with no summary gets no dash: an em dash with nothing after
+			// it reads as a clipped line rather than a file the library could not
+			// summarize.
+			expect(constructed.inputValue).toContain("- risk-register.md");
+			expect(constructed.inputValue).not.toContain("- risk-register.md —");
+			// One read per turn, scoped to the caller's project — never a
+			// project id on its own.
+			expect(mocks.listProjectKnowledge).toHaveBeenCalledTimes(1);
+			expect(mocks.listProjectKnowledge).toHaveBeenCalledWith({
+				userId: "user-1",
+				projectId: "project-1",
+			});
+			expect(constructed.contextTraceSections).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: "Project Files",
+						source: "document",
+						protected: true,
+						trimmed: false,
+						inclusionLevel: "legacy_full",
+					}),
+				]),
+			);
+		});
+
+		it("lists a project's files on a shallow turn", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue([
+				projectFile({
+					name: "launch-brief.md",
+					summary: "Positioning and the 2.0 date.",
+				}),
+			]);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MESSAGE,
+				modelId: "local-model",
+			});
+
+			expect(mocks.resolvePromptAttachmentArtifacts).not.toHaveBeenCalled();
+			// "Short question" is exactly when naming a file still has to work.
+			expect(constructed.inputValue).toContain("## Project Files");
+			expect(constructed.inputValue).toContain(
+				"- launch-brief.md — Positioning and the 2.0 date.",
+			);
+			expect(mocks.listProjectKnowledge).toHaveBeenCalledWith({
+				userId: "user-1",
+				projectId: "project-1",
+			});
+		});
+
+		it("omits the section entirely when the project has no files", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue([]);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MESSAGE,
+				modelId: "local-model",
+			});
+
+			// Looked, found nothing: an empty heading would be a lie about the
+			// project rather than a fact about it.
+			expect(mocks.listProjectKnowledge).toHaveBeenCalledTimes(1);
+			expect(constructed.inputValue).not.toContain("## Project Files");
+		});
+
+		it("does not read any files when the conversation has no project", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue(null);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MESSAGE,
+				modelId: "local-model",
+			});
+
+			expect(mocks.listProjectKnowledge).not.toHaveBeenCalled();
+			expect(constructed.inputValue).not.toContain("## Project Files");
+		});
+
+		it("lists a project's files in an incognito conversation in that project", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.isMemoryActiveForConversation.mockResolvedValue(false);
+			mocks.listProjectKnowledge.mockResolvedValue([
+				projectFile({ name: "launch-brief.md" }),
+			]);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MESSAGE,
+				modelId: "local-model",
+			});
+
+			// Incognito means "this conversation teaches the user nothing", not
+			// "the project forgets which files it holds".
+			expect(constructed.inputValue).not.toContain(
+				"## Baseline Memory Profile",
+			);
+			expect(constructed.inputValue).toContain("## Project Files");
+			expect(constructed.inputValue).toContain("- launch-brief.md");
+		});
+
+		it("keeps the turn alive when the project files lookup fails", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockRejectedValue(new Error("SQLITE_BUSY"));
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MESSAGE,
+				modelId: "local-model",
+			});
+
+			expect(constructed.inputValue).not.toContain("## Project Files");
+			expect(constructed.inputValue).toContain("## Session Context");
+		});
+
+		it("stops at 30 entries and appends +N more", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue(
+				Array.from({ length: 35 }, (_, index) =>
+					projectFile({
+						name: `doc-${String(index + 1).padStart(2, "0")}.md`,
+						summary: null,
+					}),
+				),
+			);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MESSAGE,
+				modelId: "local-model",
+			});
+
+			const { section, lines } = filesSection(constructed);
+			expect(section).toBeDefined();
+			expect(lines.filter((line) => line.startsWith("- "))).toHaveLength(30);
+			expect(lines.at(-1)).toBe("+5 more");
+			expect(section?.body.length).toBeLessThanOrEqual(1_500);
+			// The 31st file is dropped rather than clipped: its name is nowhere in
+			// the prompt, so the model cannot half-recognize it.
+			expect(constructed.inputValue).not.toContain("doc-31.md");
+			expect(constructed.inputValue).toContain("- doc-30.md");
+		});
+
+		it("stops at the character budget before the entry count and appends +N more", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			// Fixed-width lines: "- doc-01.md — " is 14 characters and the summary
+			// is 38, so every entry is exactly 52 characters and the arithmetic
+			// below is exact rather than approximate.
+			const summary = "s".repeat(38);
+			mocks.listProjectKnowledge.mockResolvedValue(
+				Array.from({ length: 40 }, (_, index) =>
+					projectFile({
+						name: `doc-${String(index + 1).padStart(2, "0")}.md`,
+						summary,
+					}),
+				),
+			);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MESSAGE,
+				modelId: "local-model",
+			});
+
+			const { section, lines } = filesSection(constructed);
+			// 28 entries + the +12 more tail is 1,492 characters; a 29th entry
+			// would be 1,545. The character cap bites first, well under 30 entries.
+			expect(lines.filter((line) => line.startsWith("- "))).toHaveLength(28);
+			expect(lines.at(-1)).toBe("+12 more");
+			expect(section?.body).toBe(
+				[
+					...Array.from(
+						{ length: 28 },
+						(_, index) =>
+							`- doc-${String(index + 1).padStart(2, "0")}.md — ${summary}`,
+					),
+					"+12 more",
+				].join("\n"),
+			);
+			expect(section?.body.length).toBeLessThanOrEqual(1_500);
+		});
+
+		it("never emits a partially truncated name", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			const enormousName = `${"n".repeat(1_600)}.md`;
+			mocks.listProjectKnowledge.mockResolvedValue([
+				projectFile({ name: enormousName, summary: null }),
+				projectFile({ name: "after-it.md", summary: null }),
+			]);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MESSAGE,
+				modelId: "local-model",
+			});
+
+			const { section } = filesSection(constructed);
+			// A file that does not fit whole is dropped and counted — the walk
+			// stops at it rather than skipping ahead to whatever fits after it,
+			// so the list is always a prefix plus an honest remainder.
+			expect(section?.body).toBe("+2 more");
+			expect(section?.body.length).toBeLessThanOrEqual(1_500);
+			expect(section?.body).not.toContain(enormousName.slice(0, 120));
+			expect(constructed.inputValue).not.toContain(enormousName.slice(0, 120));
+		});
+
+		it("keeps the section whole when the packet is trimmed", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			// Nothing else in this packet is big enough to be squeezed, so the
+			// session summary is the section the compactor has to cut.
+			mocks.selectWorkingSetArtifactsForPrompt.mockResolvedValue([]);
+			mocks.prepareTaskContext.mockResolvedValue({
+				taskState: null,
+				routingStage: "deterministic",
+				routingConfidence: 1,
+				verificationStatus: "verified",
+				selectedArtifacts: [],
+			});
+			mocks.getConversationSummary.mockResolvedValue({
+				summary: "SESSION_SUMMARY_FILLER ".repeat(8_000),
+			});
+			mocks.listProjectKnowledge.mockResolvedValue(
+				Array.from({ length: 10 }, (_, index) =>
+					projectFile({
+						name: `doc-${String(index + 1).padStart(2, "0")}.md`,
+						summary: "One line about this document.",
+					}),
+				),
+			);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: DEEP_MESSAGE,
+				modelId: "local-model",
+				contextLimits: {
+					maxModelContext: 16_000,
+					compactionUiThreshold: 12_000,
+					targetConstructedContext: 600,
+				},
+			});
+
+			const { section } = filesSection(constructed);
+			expect(section).toEqual(
+				expect.objectContaining({
+					protected: true,
+					trimmed: false,
+					inclusionLevel: "legacy_full",
+				}),
+			);
+			// Every name and summary made it, including the last one — a trim
+			// would have left the body short without saying so.
+			expect(section?.body.split("\n")).toHaveLength(10);
+			expect(constructed.inputValue).toContain(
+				"- doc-10.md — One line about this document.",
+			);
+			// The packet really was under pressure, or this proves nothing.
+			const sessionSummary = constructed.contextTraceSections.find(
+				(candidate) => candidate.name === "Session Summary",
+			);
+			expect(sessionSummary).toBeDefined();
+			expect(sessionSummary?.inclusionLevel).not.toBe("legacy_full");
+		});
+
+		it("reflects an unlink on the next turn", async () => {
+			resetConstructedContextMocks();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue([
+				projectFile({ name: "kept.md" }),
+				projectFile({ name: "unlinked.md" }),
+			]);
+
+			const before = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MESSAGE,
+				modelId: "local-model",
+			});
+			expect(before.inputValue).toContain("- unlinked.md");
+
+			// The unlink lands between turns. Nothing may carry the old list
+			// forward: the prompt is the truth about the project as of now.
+			mocks.listProjectKnowledge.mockResolvedValue([
+				projectFile({ name: "kept.md" }),
+			]);
+			const after = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MESSAGE,
+				modelId: "local-model",
+			});
+
+			expect(after.inputValue).not.toContain("unlinked.md");
+			expect(after.inputValue).toContain("- kept.md");
+			// One read per turn: no cross-turn cache to go stale.
+			expect(mocks.listProjectKnowledge).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	describe("Project file mentions", () => {
+		// Names the file, and long enough to match the deep-tier intent rules.
+		const DEEP_MENTION_MESSAGE =
+			"Please summarise wien-itinerary.md in detail, including every risk and open question we have discussed so far in this conversation.";
+		// Short, and free of every word that would promote the turn to the deep
+		// tier — this is the shallow case the review cares about.
+		const SHALLOW_MENTION_MESSAGE = "What about wien-itinerary.md?";
+
+		function mentionedFile(): {
+			file: ProjectKnowledgeItem;
+			source: import("$lib/server/services/linked-context-sources").LinkedContextSource;
+		} {
+			const artifactId = "artifact-wien";
+			return {
+				file: {
+					artifactId,
+					name: "wien-itinerary.md",
+					mimeType: "text/markdown",
+					type: "source_document",
+					sizeBytes: 1_024,
+					linkedAt: 1,
+					summary: "Trains and hotels for October.",
+				},
+				source: {
+					displayArtifactId: artifactId,
+					promptArtifactId: artifactId,
+					familyArtifactIds: [artifactId],
+					name: "wien-itinerary.md",
+					type: "document",
+				},
+			};
+		}
+
+		it("resolves a project file named in the message into the turn's linked sources", async () => {
+			resetConstructedContextMocks();
+			const { file, source } = mentionedFile();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue([file]);
+			mocks.resolveProjectFileMentions.mockResolvedValue([source]);
+			mocks.getArtifactsForUser.mockResolvedValue([
+				artifact({
+					id: source.displayArtifactId,
+					name: source.name,
+					contentText: "Wien, 10 October: Railjet 07:40, Hotel Motto.",
+				}),
+			]);
+			mocks.getPromptArtifactSnippets.mockResolvedValue(
+				new Map([
+					[source.displayArtifactId, "Wien, 10 October: Railjet 07:40."],
+				]),
+			);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: DEEP_MENTION_MESSAGE,
+				modelId: "local-model",
+			});
+
+			// The name was matched against the list this turn already read — the
+			// section and the mention can never disagree about what the project
+			// holds, and the read stays one per turn.
+			expect(mocks.resolveProjectFileMentions).toHaveBeenCalledWith({
+				userId: "user-1",
+				projectId: "project-1",
+				message: DEEP_MENTION_MESSAGE,
+				files: [file],
+			});
+			expect(mocks.listProjectKnowledge).toHaveBeenCalledTimes(1);
+			// Naming a file is not a way around the linked-source rules: the
+			// candidate goes through the same validation every linked source does.
+			expect(
+				mocks.resolveLinkedContextSourcesForConversation,
+			).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				linkedSources: [source],
+				attachmentIds: [],
+			});
+			expect(constructed.inputValue).toContain("## Linked Sources");
+			expect(constructed.inputValue).toContain("Wien, 10 October");
+			expect(constructed.contextTraceSections).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: "Linked Sources",
+						itemIds: [source.displayArtifactId],
+						itemTitles: ["wien-itinerary.md"],
+					}),
+				]),
+			);
+		});
+
+		it("gets the file's content into the prompt on a shallow turn when it is named", async () => {
+			resetConstructedContextMocks();
+			const { file, source } = mentionedFile();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue([file]);
+			mocks.resolveProjectFileMentions.mockResolvedValue([source]);
+			mocks.getArtifactsForUser.mockResolvedValue([
+				artifact({
+					id: source.displayArtifactId,
+					name: source.name,
+					contentText: "Wien, 10 October: Railjet 07:40, Hotel Motto.",
+				}),
+			]);
+			mocks.getPromptArtifactSnippets.mockResolvedValue(
+				new Map([
+					[source.displayArtifactId, "Wien, 10 October: Railjet 07:40."],
+				]),
+			);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MENTION_MESSAGE,
+				modelId: "local-model",
+			});
+
+			// Guards the fixture: a "shallow" case that quietly ran the deep
+			// builder would prove nothing about the shallow tier.
+			expect(mocks.resolvePromptAttachmentArtifacts).not.toHaveBeenCalled();
+			expect(constructed.inputValue).toContain("## Project Files");
+			expect(constructed.inputValue).toContain("- wien-itinerary.md");
+			// The list alone is not enough: the file the user named has to have
+			// its content in the prompt, or naming it changed nothing.
+			expect(constructed.inputValue).toContain("## Linked Sources");
+			expect(constructed.inputValue).toContain("Wien, 10 October");
+			expect(mocks.getPromptArtifactSnippets).toHaveBeenCalled();
+		});
+
+		it("fails the turn the way the linked-source path does when the named file is not prompt ready", async () => {
+			resetConstructedContextMocks();
+			const { file, source } = mentionedFile();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue([file]);
+			mocks.resolveProjectFileMentions.mockResolvedValue([source]);
+			mocks.resolveLinkedContextSourcesForConversation.mockRejectedValue(
+				Object.assign(
+					new Error("Linked source is not ready for prompt context"),
+					{
+						name: "LinkedContextSourceError",
+						status: 409,
+						code: "linked_source_not_prompt_ready",
+					},
+				),
+			);
+
+			// Not swallowed into a silent empty section: the user asked for a file
+			// the library cannot serve, and that is the answer they get.
+			await expect(
+				buildConstructedContext({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					message: SHALLOW_MENTION_MESSAGE,
+					modelId: "local-model",
+				}),
+			).rejects.toMatchObject({
+				name: "LinkedContextSourceError",
+				status: 409,
+			});
 		});
 	});
 });

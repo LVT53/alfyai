@@ -179,3 +179,7 @@ SELECT role, origin, COUNT(*) FROM task_state_evidence_links GROUP BY role, orig
 
 If that returns `pinned|user` or `excluded|user` rows, the cutover will delete them — which is the intended
 one-way behaviour, but the owner should see the number first.
+
+> **Resolved 2026-09-24 by the owner: "is fine, no one used it."** The migration may run on production without a
+> count first. Recorded because a later reader would otherwise re-open a question that has been answered — and
+> because it means the one-way `DELETE` is expected to be a no-op on production, matching dev's measured zero.

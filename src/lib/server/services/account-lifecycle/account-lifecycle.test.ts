@@ -254,6 +254,15 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	db.insert(schema.projectKnowledgeLinks)
+		.values({
+			id: p("project-file"),
+			userId,
+			projectId: p("proj"),
+			artifactId: p("art"),
+			createdAt: now,
+		})
+		.run();
 	db.insert(schema.conversationContextStatus)
 		.values({ conversationId: p("conv"), userId, updatedAt: now })
 		.run();
@@ -713,6 +722,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"memory_review_resolutions",
 				"memory_rework_telemetry",
 				"message_analytics",
+				"project_knowledge_links",
 				"projects",
 				"semantic_embeddings",
 				"sessions",
@@ -793,6 +803,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"browser_push_subscriptions",
 				"chat_generated_files",
 				"conversation_drafts",
+				"project_knowledge_links",
 				"projects",
 				"conversations",
 			],
@@ -930,6 +941,36 @@ describe("full account erasure leaves no person-linked survivor", () => {
 		);
 	});
 
+	// The link table is the only place a project's file list lives, and it is a
+	// child of BOTH sides of that list: the project and the document. Erasure
+	// has to leave no row behind keyed to the person, and no row that still
+	// points at the deleted project or document — a stale row would either
+	// resurrect a file list for a project that no longer exists or, worse, show
+	// up under a re-created id.
+	it("leaves no project_knowledge_links row behind after erasure", async () => {
+		seedEveryUserScopedTable("erase-me");
+		seedEveryUserScopedTable("keep-me");
+
+		const { eraseUserAccountData } = await import("./index");
+		await eraseUserAccountData("erase-me");
+
+		const { db } = await import("$lib/server/db");
+		const rows = await db
+			.select({
+				id: schema.projectKnowledgeLinks.id,
+				userId: schema.projectKnowledgeLinks.userId,
+				projectId: schema.projectKnowledgeLinks.projectId,
+				artifactId: schema.projectKnowledgeLinks.artifactId,
+			})
+			.from(schema.projectKnowledgeLinks);
+
+		expect(rows.filter((row) => row.userId === "erase-me")).toEqual([]);
+		expect(rows.filter((row) => row.projectId === "erase-me-proj")).toEqual([]);
+		expect(rows.filter((row) => row.artifactId === "erase-me-art")).toEqual([]);
+		// And no collateral damage: the other user's project keeps its file.
+		expect(rows.filter((row) => row.userId === "keep-me")).toHaveLength(1);
+	});
+
 	// F17. The quiesce stopped Atlas and file production but not extraction, so
 	// a document being parsed when erasure started kept running and wrote a
 	// normalized artifact and its chunk rows into an account that had asked to
@@ -1055,5 +1096,116 @@ describe("clear memory and knowledge keeps the account and chats", () => {
 			"clear-me",
 		);
 		expect(usage).toBeGreaterThan(0);
+	});
+});
+
+describe("clear workspace data keeps the account and its personal instructions", () => {
+	beforeEach(() => {
+		dbPath = `/tmp/alfyai-account-lifecycle-workspace-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
+		vi.clearAllMocks();
+		mockQuiesceUserMemoryMaintenance.mockResolvedValue(undefined);
+		mockRequestActiveChatStreamsStopForUser.mockReturnValue({ stopped: 0 });
+	});
+
+	afterEach(async () => {
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// noop
+		}
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// noop
+		}
+	});
+
+	it("leaves no project_knowledge_links row behind after clearing workspace data", async () => {
+		seedEveryUserScopedTable("purge-me");
+		seedEveryUserScopedTable("keep-me");
+
+		const { purgeUserData } = await import("./index");
+		await purgeUserData("purge-me");
+
+		const { db } = await import("$lib/server/db");
+		const rows = await db
+			.select({
+				id: schema.projectKnowledgeLinks.id,
+				userId: schema.projectKnowledgeLinks.userId,
+				projectId: schema.projectKnowledgeLinks.projectId,
+			})
+			.from(schema.projectKnowledgeLinks);
+
+		// The user row survives this operation, so the FK cascade never fires:
+		// these deletes are the reset scope's own job.
+		expect(rows.filter((row) => row.userId === "purge-me")).toEqual([]);
+		expect(rows.filter((row) => row.projectId === "purge-me-proj")).toEqual([]);
+		expect(rows.filter((row) => row.userId === "keep-me")).toHaveLength(1);
+	});
+
+	// A project is a folder the user made and its instructions are text they
+	// wrote about their own work, so both belong to the workspace. Personal
+	// instructions are the same kind of text one level UP — about the assistant
+	// itself, not about a folder of chats — and they live on the account, which
+	// this operation keeps. Dropping them here would silently rewrite how the
+	// assistant behaves for every future chat, which is not what "clear my
+	// workspace" asks for.
+	it("keeps personal instructions but drops project knowledge on clear workspace data", async () => {
+		seedEveryUserScopedTable("purge-me");
+		const { sqlite } = openMigratedDb();
+		sqlite
+			.prepare("UPDATE users SET personal_instructions = ? WHERE id = ?")
+			.run("Always answer in Hungarian.", "purge-me");
+		sqlite.close();
+
+		const { purgeUserData } = await import("./index");
+		await purgeUserData("purge-me");
+
+		const { db } = await import("$lib/server/db");
+		const [user] = await db
+			.select({
+				id: schema.users.id,
+				personalInstructions: schema.users.personalInstructions,
+			})
+			.from(schema.users)
+			.where(sql`${schema.users.id} = 'purge-me'`);
+		expect(user?.personalInstructions).toBe("Always answer in Hungarian.");
+
+		// The project and its instructions are workspace data, and so is the file
+		// list it held. (A *project delete* is a different operation and keeps the
+		// library documents — this one wipes the knowledge base by design.)
+		expect(
+			await countRowsForUser(
+				schema.projects.userId,
+				schema.projects,
+				"purge-me",
+			),
+		).toBe(0);
+		expect(
+			await countRowsForUser(
+				schema.projectKnowledgeLinks.userId,
+				schema.projectKnowledgeLinks,
+				"purge-me",
+			),
+		).toBe(0);
+
+		// Chats go with the workspace; historical analytics stay with the account.
+		expect(
+			await countRowsForUser(
+				schema.conversations.userId,
+				schema.conversations,
+				"purge-me",
+			),
+		).toBe(0);
+		expect(
+			await countRowsForUser(
+				schema.usageEvents.userId,
+				schema.usageEvents,
+				"purge-me",
+			),
+		).toBeGreaterThan(0);
 	});
 });

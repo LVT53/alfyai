@@ -31,6 +31,24 @@ vi.mock("$lib/server/services/conversations", () => ({
 	getConversation: vi.fn(),
 }));
 
+vi.mock("$lib/server/services/projects", () => ({
+	getProject: vi.fn(),
+}));
+
+// The link itself is Task E1's contract and has its own suite; what matters
+// here is WHEN intake links (after a successful store, never before) and that
+// a vanished project cannot turn a stored document into a failed upload.
+vi.mock("./project-knowledge", () => ({
+	linkProjectKnowledge: vi.fn(),
+	isProjectKnowledgeError: vi.fn(
+		(error: unknown) =>
+			typeof error === "object" &&
+			error !== null &&
+			"name" in error &&
+			(error as { name?: unknown }).name === "ProjectKnowledgeError",
+	),
+}));
+
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({ maxFileUploadSize: 50 * 1024 * 1024 })),
 }));
@@ -49,6 +67,8 @@ import {
 	startUploadExtraction,
 	waitForExtractionJobVerdict,
 } from "$lib/server/services/extraction";
+import { getProject } from "$lib/server/services/projects";
+import { linkProjectKnowledge } from "./project-knowledge";
 import {
 	getArtifactForUser,
 	resolvePromptAttachmentArtifacts,
@@ -79,6 +99,10 @@ const mockAssertUploadSignatureForStoredFile =
 	assertUploadSignatureForStoredFile as ReturnType<typeof vi.fn>;
 const mockLogAttachmentTrace = logAttachmentTrace as ReturnType<typeof vi.fn>;
 const mockGetConversation = getConversation as ReturnType<typeof vi.fn>;
+const mockGetProject = getProject as ReturnType<typeof vi.fn>;
+const mockLinkProjectKnowledge = linkProjectKnowledge as ReturnType<
+	typeof vi.fn
+>;
 const mockGetConfig = getConfig as ReturnType<typeof vi.fn>;
 const mockGetAdapterBodySizeLimitBytes =
 	getAdapterBodySizeLimitBytes as ReturnType<typeof vi.fn>;
@@ -93,6 +117,7 @@ const mockGetExtractionConfig = getExtractionConfig as ReturnType<typeof vi.fn>;
 
 const now = Date.parse("2026-05-31T10:00:00Z");
 let consoleInfoSpy: ReturnType<typeof vi.spyOn> | null = null;
+let consoleWarnSpy: ReturnType<typeof vi.spyOn> | null = null;
 
 function artifact(overrides: Record<string, unknown> = {}) {
 	return {
@@ -170,7 +195,15 @@ describe("Knowledge Upload Intake", () => {
 		consoleInfoSpy = vi
 			.spyOn(console, "info")
 			.mockImplementation(() => undefined);
+		consoleWarnSpy = vi
+			.spyOn(console, "warn")
+			.mockImplementation(() => undefined);
 		mockGetConversation.mockResolvedValue({ id: "conv-1" });
+		mockGetProject.mockResolvedValue({
+			id: "trip-project",
+			name: "Vienna trip",
+		});
+		mockLinkProjectKnowledge.mockResolvedValue([]);
 		mockAssertUploadSignatureForFile.mockResolvedValue(undefined);
 		mockAssertUploadSignatureForStoredFile.mockResolvedValue(undefined);
 		mockGetConfig.mockReturnValue({ maxFileUploadSize: 50 * 1024 * 1024 });
@@ -203,6 +236,8 @@ describe("Knowledge Upload Intake", () => {
 	afterEach(() => {
 		consoleInfoSpy?.mockRestore();
 		consoleInfoSpy = null;
+		consoleWarnSpy?.mockRestore();
+		consoleWarnSpy = null;
 	});
 
 	it("completes a browser File upload with prompt-ready metadata", async () => {
@@ -711,5 +746,194 @@ describe("Knowledge Upload Intake", () => {
 
 		expect(mockAssertUploadSignatureForFile).toHaveBeenCalledWith(file);
 		expect(mockSaveUploadedArtifact).not.toHaveBeenCalled();
+	});
+
+	describe("uploading straight into a project", () => {
+		it("stores a library upload and links it to the given project", async () => {
+			const sourceArtifact = artifact();
+			const file = new File(["recipe"], "recipe.pdf", {
+				type: "application/pdf",
+			});
+			mockSaveUploadedArtifact.mockResolvedValue({
+				artifact: sourceArtifact,
+				normalizedArtifact: null,
+				reusedExistingArtifact: false,
+			});
+
+			const response = await completeKnowledgeUploadFromFile({
+				userId: "user-1",
+				conversationId: "conv-1",
+				projectId: "trip-project",
+				file,
+				traceId: "trace-project-file",
+				startedAt: now,
+			});
+
+			expect(response.artifact).toBe(sourceArtifact);
+			expect(mockGetProject).toHaveBeenCalledWith("user-1", "trip-project");
+			expect(mockLinkProjectKnowledge).toHaveBeenCalledWith({
+				userId: "user-1",
+				projectId: "trip-project",
+				artifactIds: ["artifact-1"],
+			});
+		});
+
+		// The raw and chunked routes both land here; the link cannot be a
+		// property of the browser-File path only.
+		it("links a stored upload to the project on the raw/chunked path", async () => {
+			const sourceArtifact = artifact({ id: "artifact-stored" });
+			mockSaveUploadedArtifactFromStoredFile.mockResolvedValue({
+				artifact: sourceArtifact,
+				normalizedArtifact: null,
+				reusedExistingArtifact: false,
+			});
+
+			await completeKnowledgeUploadFromStoredFile({
+				userId: "user-1",
+				conversationId: "conv-1",
+				projectId: "trip-project",
+				fileName: "report.pdf",
+				mimeType: "application/pdf",
+				sizeBytes: 2048,
+				binaryHash: "stored-binary-hash",
+				tempPathAbsolute: "/tmp/report-upload",
+				traceId: "trace-project-stored",
+				startedAt: now,
+				logPrefix: "Raw",
+			});
+
+			expect(mockLinkProjectKnowledge).toHaveBeenCalledWith({
+				userId: "user-1",
+				projectId: "trip-project",
+				artifactIds: ["artifact-stored"],
+			});
+		});
+
+		it("rejects an upload naming another user's project with 400 and stores nothing", async () => {
+			mockGetProject.mockResolvedValue(null);
+			const file = new File(["recipe"], "recipe.pdf", {
+				type: "application/pdf",
+			});
+
+			await expect(
+				completeKnowledgeUploadFromFile({
+					userId: "user-1",
+					conversationId: "conv-1",
+					projectId: "other-project",
+					file,
+					traceId: "trace-foreign-project",
+					startedAt: now,
+				}),
+			).rejects.toMatchObject({
+				name: "KnowledgeUploadProjectError",
+				code: "invalid_project",
+				status: 400,
+				message: "Project not found or access denied",
+			});
+
+			// The rejection lands before the bytes are stored, so there is
+			// nothing to roll back and no half-added file to explain.
+			expect(mockSaveUploadedArtifact).not.toHaveBeenCalled();
+			expect(mockStartUploadExtraction).not.toHaveBeenCalled();
+			expect(mockLinkProjectKnowledge).not.toHaveBeenCalled();
+		});
+
+		it("links nothing when the project id is absent", async () => {
+			const sourceArtifact = artifact();
+			mockSaveUploadedArtifact.mockResolvedValue({
+				artifact: sourceArtifact,
+				normalizedArtifact: null,
+				reusedExistingArtifact: false,
+			});
+			const file = new File(["recipe"], "recipe.pdf", {
+				type: "application/pdf",
+			});
+
+			await completeKnowledgeUploadFromFile({
+				userId: "user-1",
+				conversationId: "conv-1",
+				file,
+				traceId: "trace-no-project",
+				startedAt: now,
+			});
+			// A blank header is the same as none — the browser sets the header
+			// from a prop, and "no project" must not become a lookup for "".
+			await completeKnowledgeUploadFromFile({
+				userId: "user-1",
+				conversationId: "conv-1",
+				projectId: "   ",
+				file,
+				traceId: "trace-blank-project",
+				startedAt: now,
+			});
+
+			expect(mockGetProject).not.toHaveBeenCalled();
+			expect(mockLinkProjectKnowledge).not.toHaveBeenCalled();
+		});
+
+		it("does not link when the store step fails", async () => {
+			mockSaveUploadedArtifact.mockRejectedValueOnce(new Error("disk is full"));
+			const file = new File(["recipe"], "recipe.pdf", {
+				type: "application/pdf",
+			});
+
+			await expect(
+				completeKnowledgeUploadFromFile({
+					userId: "user-1",
+					conversationId: "conv-1",
+					projectId: "trip-project",
+					file,
+					traceId: "trace-store-failed",
+					startedAt: now,
+				}),
+			).rejects.toThrow("disk is full");
+
+			// The project was validated and the store was attempted — so this is
+			// the failure ORDER under test, not an upload that never got that far.
+			expect(mockGetProject).toHaveBeenCalledWith("user-1", "trip-project");
+			expect(mockSaveUploadedArtifact).toHaveBeenCalled();
+			expect(mockLinkProjectKnowledge).not.toHaveBeenCalled();
+		});
+
+		// A link cannot be a precondition for keeping the bytes: the document is
+		// the user's and it is already in the library by the time the link runs.
+		it("keeps a stored upload a success when the project vanishes before the link lands", async () => {
+			const sourceArtifact = artifact();
+			mockSaveUploadedArtifact.mockResolvedValue({
+				artifact: sourceArtifact,
+				normalizedArtifact: null,
+				reusedExistingArtifact: false,
+			});
+			mockLinkProjectKnowledge.mockRejectedValueOnce(
+				Object.assign(new Error("Project not found or access denied"), {
+					name: "ProjectKnowledgeError",
+					code: "project_not_found",
+					status: 404,
+				}),
+			);
+			const file = new File(["recipe"], "recipe.pdf", {
+				type: "application/pdf",
+			});
+
+			const response = await completeKnowledgeUploadFromFile({
+				userId: "user-1",
+				conversationId: "conv-1",
+				projectId: "trip-project",
+				file,
+				traceId: "trace-project-race",
+				startedAt: now,
+			});
+
+			expect(response.artifact).toBe(sourceArtifact);
+			expect(consoleWarnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("project link skipped"),
+				expect.objectContaining({
+					traceId: "trace-project-race",
+					artifactId: "artifact-1",
+					projectId: "trip-project",
+					code: "project_not_found",
+				}),
+			);
+		});
 	});
 });

@@ -7,6 +7,7 @@ import { createAttachmentTraceId } from "$lib/server/services/attachment-trace";
 import {
 	completeKnowledgeUploadFromStoredFile,
 	isKnowledgeUploadConversationError,
+	isKnowledgeUploadProjectError,
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
 import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
@@ -17,6 +18,7 @@ import {
 	readKnowledgeUploadRequestMetadata,
 	refuseUnsupportedUploadType,
 	resolveKnowledgeUploadConversation,
+	resolveKnowledgeUploadProject,
 	writeKnowledgeUploadBytes,
 } from "../shared";
 import type { RequestHandler } from "./$types";
@@ -108,6 +110,7 @@ export const POST: RequestHandler = async (event) => {
 	);
 	const isFinalChunk = event.request.headers.get(CHUNK_FINAL_HEADER) === "true";
 	const conversationId = metadata.conversationId;
+	const projectId = metadata.projectId;
 	const mimeType = metadata.mimeType;
 	const fileLimit = limits.chunkFileLimit;
 	const chunkBodyLimit = limits.chunkBodyLimit;
@@ -225,6 +228,16 @@ export const POST: RequestHandler = async (event) => {
 	}
 	const validatedConversationId = conversation.conversationId;
 
+	const project = await resolveKnowledgeUploadProject({
+		userId: user.id,
+		projectId,
+		traceId,
+	});
+	if (project.response) {
+		return project.response;
+	}
+	const validatedProjectId = project.projectId;
+
 	const chunkBuffer = Buffer.from(await event.request.arrayBuffer());
 	if (chunkBuffer.length !== declaredChunkSize) {
 		return json(
@@ -322,6 +335,7 @@ export const POST: RequestHandler = async (event) => {
 		response = await completeKnowledgeUploadFromStoredFile({
 			userId: user.id,
 			conversationId: validatedConversationId,
+			projectId: validatedProjectId,
 			fileName,
 			mimeType,
 			sizeBytes: assembled.receivedBytes,
@@ -340,6 +354,21 @@ export const POST: RequestHandler = async (event) => {
 				{
 					error: "Conversation not found or access denied",
 					code: "conversation_not_found",
+					traceId,
+				},
+				{ status: 400 },
+			);
+		}
+		if (isKnowledgeUploadProjectError(error)) {
+			// Checked before the first part was written; reaching here means the
+			// project was deleted while the upload was still in flight.
+			await rm(uploadDir, { force: true, recursive: true }).catch(
+				() => undefined,
+			);
+			return json(
+				{
+					error: "Project not found or access denied",
+					code: "invalid_project",
 					traceId,
 				},
 				{ status: 400 },

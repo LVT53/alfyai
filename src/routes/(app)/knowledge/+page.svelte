@@ -9,6 +9,7 @@ import {
 	fetchMemoryProfile,
 	fetchMemorySummary,
 	fetchMemoryTimeline,
+	fetchProjectKnowledgeLinks,
 	fetchReextractTiers,
 	reextractDocument,
 	retryExtraction,
@@ -61,6 +62,36 @@ let activeTab = $state<KnowledgeTab>(getKnowledgeTabFromUrl(kitPage.url));
 let documents = $state<KnowledgeDocumentItem[]>(initialDocuments);
 let deletingArtifactIds = $state(new Set<string>());
 let manageError = $state("");
+
+/**
+ * Which projects know each visible document (Slice E), asked once for the
+ * whole page of rows through the browser API rather than once per row. Keyed
+ * by `displayArtifactId`, the id a link is stored against.
+ *
+ * A cosmetic badge on a table is not a reason to interrupt the reader: a
+ * failed read keeps the last answer, and a document no project knows has no
+ * key, so its row simply draws no token.
+ */
+let linkedProjectsByArtifactId = $state<Record<string, string[]>>({});
+
+async function loadLinkedProjects(artifactIds: string[]): Promise<void> {
+	if (artifactIds.length === 0) {
+		linkedProjectsByArtifactId = {};
+		return;
+	}
+	try {
+		linkedProjectsByArtifactId = await fetchProjectKnowledgeLinks(artifactIds);
+	} catch {
+		// Left as it was.
+	}
+}
+
+// Re-asked whenever the rows change — a page, a search, a finished extraction
+// that reloaded the library — because the answer is about *these* documents.
+$effect(() => {
+	const artifactIds = documents.map((document) => document.displayArtifactId);
+	void loadLinkedProjects(artifactIds);
+});
 
 let memoryProfile = $state<MemoryProfilePublicPayload | null>(null);
 let memoryLoaded = $state(false);
@@ -967,6 +998,7 @@ $effect(() => {
 						onCancelExtraction={handleExtractionCancel}
 						onReextract={handleReextract}
 						onLoadReextractTiers={fetchReextractTiers}
+						{linkedProjectsByArtifactId}
 					/>
 				</div>
 			{/if}

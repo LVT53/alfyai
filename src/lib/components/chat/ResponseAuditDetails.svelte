@@ -14,21 +14,29 @@ let {
 	message,
 	modelIconUrl = null,
 	atlasCostUsdMicros = null,
+	onOpenSources = undefined,
 }: {
 	message: ChatMessage;
 	modelIconUrl?: string | null;
 	atlasCostUsdMicros?: number | null;
+	// Workspaces Slice E — what the "Project files" row does when it is clicked:
+	// opens the Sources panel and gets this popover out of the way. The row is
+	// the popover's own way of pointing at a surface it does not contain.
+	onOpenSources?: (() => void) | undefined;
 } = $props();
 
 type AuditRow = {
 	label: string;
 	value: string;
-	kind?: "model";
+	kind?: "model" | "sources";
 	iconUrl?: string | null;
 	// Rendered as tokens instead of the string value. Used where the value is
 	// a set of things — scopes, not text — because a token is unmistakable
 	// where a joined string reads like prose (see ScopeToken).
 	scopeTokens?: InstructionScope[];
+	// Present on a row that goes somewhere when clicked, which is what makes it
+	// a button rather than a line of text.
+	onSelect?: (() => void) | undefined;
 };
 
 let hasThinkingText = $derived(Boolean(message.thinking?.trim()));
@@ -143,6 +151,24 @@ function buildPrimaryRows(): AuditRow[] {
 			scopeTokens: instructionScopes,
 		});
 	}
+	// Workspaces Slice E — how many of the project's files this turn read, and
+	// where to see them. A count and a direction, never a list: names belong in
+	// the Sources panel, where the user can open the file itself. The row is
+	// absent (not "0") when the turn read none, because a row about nothing is
+	// still a claim that something happened.
+	if (message.projectFilesRead && message.projectFilesRead > 0) {
+		rows.push({
+			label: $t("projects.infoProjectFiles"),
+			value:
+				message.projectFilesRead === 1
+					? $t("projects.infoProjectFilesValueOne")
+					: $t("projects.infoProjectFilesValue", {
+							count: message.projectFilesRead,
+						}),
+			kind: "sources",
+			onSelect: onOpenSources,
+		});
+	}
 	const depthLabel = formatDepthMetadata(message.depthMetadata);
 	if (depthLabel) {
 		rows.push({ label: $t("messageBubble.reasoningDepth"), value: depthLabel });
@@ -211,6 +237,14 @@ function buildPrimaryRows(): AuditRow[] {
 	{#if primaryRows.length > 0}
 		<div class="audit-section">
 			{#each primaryRows as row (`primary-${row.label}`)}
+				{#if row.onSelect}
+					<button type="button" class="audit-row audit-row--action" onclick={row.onSelect}>
+						<span class="audit-label">{row.label}</span>
+						<span class="audit-value audit-action-value">
+							<span>{row.value}</span>
+						</span>
+					</button>
+				{:else}
 				<div class="audit-row">
 					<span class="audit-label">{row.label}</span>
 					<span
@@ -234,6 +268,7 @@ function buildPrimaryRows(): AuditRow[] {
 					{/if}
 					</span>
 				</div>
+				{/if}
 			{/each}
 		</div>
 	{/if}
@@ -305,6 +340,40 @@ function buildPrimaryRows(): AuditRow[] {
 		align-items: center;
 		flex-wrap: wrap;
 		gap: var(--space-xs);
+	}
+
+	/* A row that goes somewhere: same line, same type, but it reads as
+	 * something you can press — and it is a real <button>, so keyboard focus
+	 * and Enter work without a second handler.
+	 *
+	 * The type is set out in full rather than with `font: inherit`: a button
+	 * does not inherit `.audit-row`'s size, so `font: inherit` handed the row
+	 * the panel's inherited size instead of the row's own and the pressable
+	 * line came out larger than every line around it. */
+	.audit-row--action {
+		width: 100%;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		background: none;
+		font-family: inherit;
+		font-weight: inherit;
+		font-size: var(--text-2xs);
+		line-height: 1.4;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	/* The value carries the accent, as the agreed mockup draws it: it is the
+	 * half of the row that says where the press leads. */
+	.audit-action-value {
+		color: var(--accent);
+	}
+
+	.audit-row--action:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+		border-radius: var(--radius-sm);
 	}
 
 	@media (max-width: 640px) {

@@ -36,6 +36,7 @@ import {
 	memoryReviewResolutions,
 	memoryReworkTelemetry,
 	messageAnalytics,
+	projectKnowledgeLinks,
 	projects,
 	semanticEmbeddings,
 	sessions,
@@ -221,6 +222,16 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "conversation_drafts",
 		table: conversationDrafts,
 		userColumn: conversationDrafts.userId,
+		erasure: "cascade",
+		resets: ["workspace"],
+	},
+	{
+		// Which library documents a project knows about. A link row is a child of
+		// BOTH the project and the document, so it goes before `projects` in the
+		// workspace-scope delete order and cannot outlive either side.
+		name: "project_knowledge_links",
+		table: projectKnowledgeLinks,
+		userColumn: projectKnowledgeLinks.userId,
 		erasure: "cascade",
 		resets: ["workspace"],
 	},

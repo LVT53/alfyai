@@ -12,8 +12,13 @@ import type {
 	Artifact,
 	KnowledgeUploadResponse,
 } from "$lib/server/services/knowledge/types";
+import { getProject } from "$lib/server/services/projects";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import { isTerminalExtractionStatus } from "$lib/shared/extraction-status";
+import {
+	isProjectKnowledgeError,
+	linkProjectKnowledge,
+} from "./project-knowledge";
 import {
 	getArtifactForUser,
 	resolvePromptAttachmentArtifacts,
@@ -49,6 +54,35 @@ export function isKnowledgeUploadConversationError(
 			error !== null &&
 			"name" in error &&
 			(error as { name?: unknown }).name === "KnowledgeUploadConversationError")
+	);
+}
+
+/**
+ * An upload that names a project the caller cannot upload into.
+ *
+ * Same shape as the conversation sibling, for the same reason: the project id
+ * arrives from the client, so it is resolved against the caller's own projects
+ * before a single byte is stored. The route turns this into a 400.
+ */
+export class KnowledgeUploadProjectError extends Error {
+	code = "invalid_project" as const;
+	status = 400 as const;
+
+	constructor() {
+		super("Project not found or access denied");
+		this.name = "KnowledgeUploadProjectError";
+	}
+}
+
+export function isKnowledgeUploadProjectError(
+	error: unknown,
+): error is KnowledgeUploadProjectError {
+	return (
+		error instanceof KnowledgeUploadProjectError ||
+		(typeof error === "object" &&
+			error !== null &&
+			"name" in error &&
+			(error as { name?: unknown }).name === "KnowledgeUploadProjectError")
 	);
 }
 
@@ -103,11 +137,9 @@ type UploadRenameInfo = {
 	wasRenamed: boolean;
 };
 
-function normalizeConversationId(
-	conversationId: string | null | undefined,
-): string | null {
-	if (typeof conversationId !== "string") return null;
-	const trimmed = conversationId.trim();
+function normalizeOptionalId(value: string | null | undefined): string | null {
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
 	return trimmed ? trimmed : null;
 }
 
@@ -124,7 +156,7 @@ export async function validateKnowledgeUploadConversation(params: {
 	userId: string;
 	conversationId: string | null | undefined;
 }): Promise<string | null> {
-	const conversationId = normalizeConversationId(params.conversationId);
+	const conversationId = normalizeOptionalId(params.conversationId);
 	if (!conversationId) return null;
 
 	const conversation = await getConversation(params.userId, conversationId);
@@ -132,6 +164,27 @@ export async function validateKnowledgeUploadConversation(params: {
 		throw new KnowledgeUploadConversationError();
 	}
 	return conversationId;
+}
+
+/**
+ * The same check for the project an upload was started from.
+ *
+ * It runs before anything is stored, so an upload aimed at somebody else's
+ * project is refused rather than stored-and-then-unlinked, and an upload with
+ * no project at all never reaches the projects table.
+ */
+export async function validateKnowledgeUploadProject(params: {
+	userId: string;
+	projectId: string | null | undefined;
+}): Promise<string | null> {
+	const projectId = normalizeOptionalId(params.projectId);
+	if (!projectId) return null;
+
+	const project = await getProject(params.userId, projectId);
+	if (!project) {
+		throw new KnowledgeUploadProjectError();
+	}
+	return projectId;
 }
 
 const EXTRACTION_WAIT_POLL_INTERVAL_MS = 100;
@@ -272,9 +325,49 @@ async function buildKnowledgeUploadResponse(params: {
 	};
 }
 
+/**
+ * Adds the freshly stored document to the project the upload came from.
+ *
+ * Deliberately best-effort. By the time this runs the bytes are the user's and
+ * they are in the library, so a project that was deleted while a large upload
+ * was in flight — or a document that has just stopped being canonically
+ * linkable — must not turn a saved file into a failed upload. The failure is
+ * logged rather than swallowed silently; the file simply is not in the project.
+ */
+async function linkUploadedArtifactToProject(params: {
+	userId: string;
+	projectId: string;
+	artifactId: string;
+	traceId: string;
+	startedAt: number;
+	logPrefix?: UploadLogPrefix;
+}): Promise<void> {
+	try {
+		await linkProjectKnowledge({
+			userId: params.userId,
+			projectId: params.projectId,
+			artifactIds: [params.artifactId],
+		});
+	} catch (error) {
+		if (!isProjectKnowledgeError(error)) throw error;
+		console.warn(
+			knowledgeLogMessage(params.logPrefix, "project link skipped"),
+			{
+				traceId: params.traceId,
+				userId: params.userId,
+				projectId: params.projectId,
+				artifactId: params.artifactId,
+				code: error.code,
+				durationMs: Date.now() - params.startedAt,
+			},
+		);
+	}
+}
+
 async function finishKnowledgeUpload(params: {
 	userId: string;
 	conversationId: string | null;
+	projectId: string | null;
 	artifact: Artifact;
 	normalizedArtifact: Artifact | null;
 	reusedExistingArtifact: boolean;
@@ -303,6 +396,19 @@ async function finishKnowledgeUpload(params: {
 		fileSize: params.artifact.sizeBytes,
 		durationMs: Date.now() - params.startedAt,
 	});
+
+	// Only after the store, never before: an upload that failed to store must
+	// not leave a link pointing at a document that does not exist.
+	if (params.projectId) {
+		await linkUploadedArtifactToProject({
+			userId: params.userId,
+			projectId: params.projectId,
+			artifactId: params.artifact.id,
+			traceId: params.traceId,
+			startedAt: params.startedAt,
+			logPrefix: params.logPrefix,
+		});
+	}
 
 	const enqueued = await registerUploadExtraction({
 		userId: params.userId,
@@ -352,6 +458,8 @@ async function finishKnowledgeUpload(params: {
 export async function completeKnowledgeUploadFromFile(params: {
 	userId: string;
 	conversationId: string | null;
+	/** The project the upload was started from, when it was started from one. */
+	projectId?: string | null;
 	file: File;
 	traceId: string;
 	startedAt: number;
@@ -368,6 +476,10 @@ export async function completeKnowledgeUploadFromFile(params: {
 		userId: params.userId,
 		conversationId: params.conversationId,
 	});
+	const projectId = await validateKnowledgeUploadProject({
+		userId: params.userId,
+		projectId: params.projectId,
+	});
 	// Content check before anything is stored (spec section 4.2).
 	await assertUploadSignatureForFile(params.file);
 	const uploadResult = await saveUploadedArtifact({
@@ -379,6 +491,7 @@ export async function completeKnowledgeUploadFromFile(params: {
 	return await finishKnowledgeUpload({
 		userId: params.userId,
 		conversationId,
+		projectId,
 		artifact: uploadResult.artifact,
 		normalizedArtifact: uploadResult.normalizedArtifact,
 		reusedExistingArtifact: uploadResult.reusedExistingArtifact,
@@ -397,6 +510,8 @@ export async function completeKnowledgeUploadFromFile(params: {
 export async function completeKnowledgeUploadFromStoredFile(params: {
 	userId: string;
 	conversationId: string | null;
+	/** The project the upload was started from, when it was started from one. */
+	projectId?: string | null;
 	fileName: string;
 	mimeType: string | null;
 	sizeBytes: number;
@@ -409,6 +524,10 @@ export async function completeKnowledgeUploadFromStoredFile(params: {
 	const conversationId = await validateKnowledgeUploadConversation({
 		userId: params.userId,
 		conversationId: params.conversationId,
+	});
+	const projectId = await validateKnowledgeUploadProject({
+		userId: params.userId,
+		projectId: params.projectId,
 	});
 	// Content check before the bytes become an artifact. On a mismatch this
 	// unlinks the temp file and throws (spec section 4.2).
@@ -430,6 +549,7 @@ export async function completeKnowledgeUploadFromStoredFile(params: {
 	return await finishKnowledgeUpload({
 		userId: params.userId,
 		conversationId,
+		projectId,
 		artifact: uploadResult.artifact,
 		normalizedArtifact: uploadResult.normalizedArtifact,
 		reusedExistingArtifact: uploadResult.reusedExistingArtifact,

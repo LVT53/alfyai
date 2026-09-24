@@ -44,6 +44,14 @@ import { repairConversationMessageSequencesWithExecutor } from "./message-sequen
 type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	evidenceSummary?: MessageEvidenceSummary | null;
 	evidenceStatus?: MessageEvidenceStatusState;
+	// Workspaces Slice E — how many of the conversation's project files this
+	// turn actually read (a count, never a list; see `projectFilesRead` on
+	// ChatMessage). Written by the evidence step in the same metadata write
+	// that records evidenceStatus, because the count is defined by the evidence
+	// the turn selected and the project's links, and only that step has both.
+	// Absent — never 0 — when the turn read none, so a stale count from an
+	// earlier turn cannot leave a row that names nothing that happened.
+	projectFilesRead?: number;
 	modelDisplayName?: string | null;
 	providerDisplayName?: string | null;
 	providerIconUrl?: string | null;
@@ -256,6 +264,7 @@ function projectMessageMetadata(
 	| "followUps"
 	| "userIntent"
 	| "instructionsApplied"
+	| "projectFilesRead"
 > {
 	const evidenceSummary =
 		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
@@ -304,6 +313,15 @@ function projectMessageMetadata(
 		// Validated, not passed through: absent (every message from before the
 		// record existed) and malformed both read as `undefined`.
 		userIntent: parseMessageUserIntent(metadata?.userIntent),
+		// Workspaces Slice E — a positive whole count, or nothing. Zero is not a
+		// value here: the Info popover's row exists only when the turn read
+		// something, so a 0 that leaked through would be a row about nothing.
+		projectFilesRead:
+			typeof metadata?.projectFilesRead === "number" &&
+			Number.isFinite(metadata.projectFilesRead) &&
+			metadata.projectFilesRead > 0
+				? Math.trunc(metadata.projectFilesRead)
+				: undefined,
 		// Scopes applied to the turn, or `undefined` when the record is missing
 		// or is not an object at all — never a partially-shaped value the Info
 		// popover would have to defend against.
@@ -664,6 +682,13 @@ export async function updateMessageEvidence(
 	params: {
 		evidenceSummary?: MessageEvidenceSummary | null;
 		evidenceStatus: MessageEvidenceStatusState;
+		// Workspaces Slice E — how many of the project's files the turn read.
+		// Optional on the call: the evidence step is the only writer that knows
+		// it, and every other caller (a fork copy, a repair pass) leaves the
+		// field exactly as the turn that produced it recorded it. Zero and
+		// negative counts clear the field rather than persist a row about
+		// nothing.
+		projectFilesRead?: number;
 	},
 ): Promise<void> {
 	const [row] = await db
@@ -685,6 +710,12 @@ export async function updateMessageEvidence(
 		next.evidenceStatus = "ready";
 	} else if (params.evidenceStatus !== "ready") {
 		delete next.evidenceSummary;
+	}
+
+	if (params.projectFilesRead != null && params.projectFilesRead > 0) {
+		next.projectFilesRead = Math.trunc(params.projectFilesRead);
+	} else if (params.projectFilesRead != null) {
+		delete next.projectFilesRead;
 	}
 
 	await db

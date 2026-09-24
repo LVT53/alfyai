@@ -55,6 +55,8 @@ const USER = "user-1";
 const OTHER_USER = "user-2";
 const CONVERSATION = "conv-this";
 const OTHER_CONVERSATION = "conv-other";
+const PROJECT = "project-vienna";
+const OTHER_PROJECT = "project-theirs";
 const NOW = new Date("2026-09-15T10:00:00.000Z");
 
 function seedUser(id: string) {
@@ -70,15 +72,47 @@ function seedUser(id: string) {
 		.run();
 }
 
-function seedConversation(id: string, userId: string) {
+function seedConversation(id: string, userId: string, projectId?: string) {
 	memory.db
 		.insert(schema.conversations)
-		.values({ id, userId, title: id, createdAt: NOW, updatedAt: NOW })
+		.values({
+			id,
+			userId,
+			title: id,
+			projectId: projectId ?? null,
+			createdAt: NOW,
+			updatedAt: NOW,
+		})
+		.run();
+}
+
+function seedProject(id: string, userId: string, name: string) {
+	memory.db
+		.insert(schema.projects)
+		.values({ id, userId, name, createdAt: NOW, updatedAt: NOW })
+		.run();
+}
+
+/** The link itself: no copy, no artifact write — a row in the join table. */
+function linkProjectFile(
+	projectId: string,
+	artifactId: string,
+	userId: string,
+) {
+	memory.db
+		.insert(schema.projectKnowledgeLinks)
+		.values({
+			id: `link-${projectId}-${artifactId}`,
+			userId,
+			projectId,
+			artifactId,
+			createdAt: NOW,
+		})
 		.run();
 }
 
 function seedArtifact(params: {
-	type: "generated_output" | "normalized_document";
+	type: "generated_output" | "normalized_document" | "source_document";
 	name: string;
 	contentText: string;
 	conversationId?: string | null;
@@ -494,6 +528,113 @@ describe("readGeneratedFileContent — documents", () => {
 			.run(id);
 
 		const result = await read({ filename: "draft.md" });
+
+		expect(result.notFound).toBe(true);
+	});
+});
+
+describe("readGeneratedFileContent — a project's files", () => {
+	beforeEach(() => {
+		seedProject(PROJECT, USER, "Vienna trip");
+		// The turn's conversation is in the project. Written as a second step
+		// because the shared harness seeds it before any project exists.
+		memory.db
+			.update(schema.conversations)
+			.set({ projectId: PROJECT })
+			.where(eq(schema.conversations.id, CONVERSATION))
+			.run();
+	});
+
+	it("resolves a project file by exact name through read_generated_file", async () => {
+		// A named PDF with no normalized sibling: invisible to the library pass,
+		// which only ever sees extracted documents, so before the project tier
+		// existed this lookup could not answer at all.
+		const itinerary = seedArtifact({
+			type: "source_document",
+			name: "Wien itinerary.pdf",
+			contentText: "Budapest 07:40, Wien 10:04, coach 24.",
+			conversationId: null,
+		});
+		linkProjectFile(PROJECT, itinerary, USER);
+
+		const result = await read({ filename: "Wien itinerary.pdf" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.ambiguous).toBe(false);
+		expect(result.source).toBe("document");
+		// Not this conversation's upload: it is a library document the project
+		// happens to know, and the label the model reads has to say so.
+		expect(result.conversation).toBe("library");
+		expect(result.filename).toBe("Wien itinerary.pdf");
+		expect(result.contentText).toBe("Budapest 07:40, Wien 10:04, coach 24.");
+	});
+
+	it("prefers a project file over a same-named library file elsewhere", async () => {
+		const projectCopy = seedArtifact({
+			type: "source_document",
+			name: "Wien itinerary.pdf",
+			contentText: "the project's copy",
+			conversationId: null,
+		});
+		linkProjectFile(PROJECT, projectCopy, USER);
+		// The library's copy of the same document, attached to another
+		// conversation. Asked for by stem — no extension, the way somebody
+		// would say it — the library pass answers with this one, and the
+		// project's own copy is what the tier has to put in front of it.
+		seedArtifact({
+			type: "normalized_document",
+			name: "wien-itinerary.md",
+			contentText: "the library's copy",
+			conversationId: OTHER_CONVERSATION,
+			metadata: { normalizedFrom: "Wien itinerary.pdf" },
+		});
+
+		const result = await read({ filename: "Wien itinerary" });
+
+		expect(result.ambiguous).toBe(false);
+		expect(result.conversation).toBe("library");
+		expect(result.contentText).toBe("the project's copy");
+	});
+
+	it("refuses to pick between two project files that match equally", async () => {
+		const first = seedArtifact({
+			type: "source_document",
+			name: "Wien itinerary.pdf",
+			contentText: "first copy",
+			conversationId: null,
+		});
+		const second = seedArtifact({
+			type: "normalized_document",
+			name: "Wien itinerary.pdf",
+			contentText: "second copy",
+			conversationId: null,
+		});
+		linkProjectFile(PROJECT, first, USER);
+		linkProjectFile(PROJECT, second, USER);
+
+		const result = await read({ filename: "Wien itinerary" });
+
+		expect(result.notFound).toBe(false);
+		expect(result.ambiguous).toBe(true);
+		expect(result.contentText).toBeNull();
+		expect(result.candidates.map((candidate) => candidate.filename)).toEqual([
+			"Wien itinerary.pdf",
+			"Wien itinerary.pdf",
+		]);
+	});
+
+	it("does not resolve another user's project file by name", async () => {
+		seedProject(OTHER_PROJECT, OTHER_USER, "Their trip");
+		const theirs = seedArtifact({
+			type: "normalized_document",
+			name: "Wien itinerary.pdf",
+			contentText: "not yours",
+			userId: OTHER_USER,
+			conversationId: null,
+		});
+		linkProjectFile(OTHER_PROJECT, theirs, OTHER_USER);
+
+		const result = await read({ filename: "Wien itinerary.pdf" });
 
 		expect(result.notFound).toBe(true);
 	});

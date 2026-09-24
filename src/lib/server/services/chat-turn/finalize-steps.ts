@@ -8,12 +8,16 @@ import {
 	getConversationWorkingSet,
 	listConversationSourceArtifactIds,
 	refreshConversationWorkingSet,
+	resolveConversationProjectFiles,
 	upsertWorkCapsule,
 } from "$lib/server/services/knowledge";
 import { parseWorkingDocumentMetadata } from "$lib/server/services/knowledge/store";
 import { recordMemoryBehaviorEvent } from "$lib/server/services/memory-behavior-log";
 import { runUserMemoryMaintenance } from "$lib/server/services/memory-maintenance";
-import { buildAssistantEvidenceSummary } from "$lib/server/services/message-evidence";
+import {
+	buildAssistantEvidenceSummary,
+	countProjectFilesRead,
+} from "$lib/server/services/message-evidence";
 import {
 	updateMessageEvidence,
 	updateMessageWebCitationAudit,
@@ -255,16 +259,27 @@ export async function persistAssistantEvidence(
 		const citedCanonicalWebUrls = extractCitedCanonicalWebUrls(
 			params.assistantResponse,
 		);
+		// Workspaces Slice E — the conversation's project and the files it
+		// knows, read here because this is the only step that holds both the
+		// turn's selected evidence and the project's links. A conversation
+		// outside a project resolves to null and the evidence is unchanged.
+		const contextDebug =
+			params.contextDebug ?? params.initialContextDebug ?? null;
+		const projectFiles = await resolveConversationProjectFiles({
+			userId: params.userId,
+			conversationId: params.conversationId,
+		}).catch(() => null);
 		const messageEvidence = await buildAssistantEvidenceSummary({
 			userId: params.userId,
 			message: params.normalizedMessage,
 			taskState: params.taskState ?? params.initialTaskState ?? null,
 			contextStatus: params.contextStatus ?? null,
-			contextDebug: params.contextDebug ?? params.initialContextDebug ?? null,
+			contextDebug,
 			contextTraceSections: params.contextTraceSections,
 			toolCalls: doneToolCalls,
 			currentAttachments,
 			citedCanonicalWebUrls,
+			projectFiles,
 		});
 		const webCitationAudit =
 			params.webCitationAudit === undefined
@@ -276,6 +291,10 @@ export async function persistAssistantEvidence(
 		await updateMessageEvidence(params.assistantMessageId, {
 			evidenceSummary: messageEvidence,
 			evidenceStatus: messageEvidence ? "ready" : "none",
+			// How many of the project's files this turn actually read, for the
+			// Info popover's row. Written in the same metadata write as the
+			// evidence itself, since the number is a statement about it.
+			projectFilesRead: countProjectFilesRead({ contextDebug, projectFiles }),
 		});
 		await updateMessageWebCitationAudit(
 			params.assistantMessageId,

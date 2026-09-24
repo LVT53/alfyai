@@ -786,4 +786,141 @@ describe("knowledge documents store", () => {
 			"artifact-owned",
 		]);
 	});
+
+	/**
+	 * Two documents the query matches equally well, the project's one a second
+	 * older: without a tie-break the newer one wins, which is the setup the
+	 * project boost has to move — and, on an unrelated query, must not move.
+	 *
+	 * Both are injected as just-written, because the fusion score below the
+	 * boost is decayed by age: the boost sits on the same line as the lexical
+	 * and semantic terms, so it decides between documents retrieval considers
+	 * current, and an old fixture would test the decay instead of the boost.
+	 */
+	function pushProjectBoostRows() {
+		mockRows.push(
+			makeArtifactRow({
+				id: "artifact-other",
+				userId: "user-1",
+				type: "normalized_document",
+				retrievalClass: "durable",
+				name: "Launch plan notes.md",
+				mimeType: "text/markdown",
+				sizeBytes: 512,
+				conversationId: null,
+				summary: "Launch plan notes",
+				contentText: "Launch plan notes for the release.",
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				extension: "md",
+			}),
+			makeArtifactRow({
+				id: "artifact-project",
+				userId: "user-1",
+				type: "normalized_document",
+				retrievalClass: "durable",
+				name: "Launch plan notes.md",
+				mimeType: "text/markdown",
+				sizeBytes: 512,
+				conversationId: null,
+				summary: "Launch plan notes",
+				contentText: "Launch plan notes for the release.",
+				createdAt: new Date(Date.now() - 1_000),
+				updatedAt: new Date(Date.now() - 1_000),
+				extension: "md",
+			}),
+		);
+
+		// Two selects run per call — the incognito scope reads `conversations`,
+		// the candidate pass reads `artifacts` — so the tables are told apart by
+		// shape rather than by call order: these tests call retrieval more than
+		// once, and the scope query repeats on every one of them.
+		mockSelect.mockImplementation(() => ({
+			from: vi.fn((table: unknown) => {
+				const columns = (table ?? {}) as Record<string, unknown>;
+				if (!("contentText" in columns)) {
+					return { where: vi.fn(async () => []) };
+				}
+				return {
+					where: vi.fn(() => ({
+						orderBy: vi.fn(() => ({
+							limit: vi.fn(async () => mockRows),
+						})),
+					})),
+				};
+			}),
+		}));
+	}
+
+	it("boosts a project-linked document in the ranking without letting it match an unrelated query", async () => {
+		pushProjectBoostRows();
+		const { findRelevantArtifactsByTypesDetailed } = await import(
+			"./documents"
+		);
+
+		// The same query, the same lexical score: the older project file loses to
+		// the newer one until the project's id list is handed in.
+		const withoutProject = await findRelevantArtifactsByTypesDetailed({
+			userId: "user-1",
+			query: "launch plan",
+			types: ["normalized_document"],
+			limit: 4,
+		});
+		expect(withoutProject.map((entry) => entry.artifact.id)).toEqual([
+			"artifact-other",
+			"artifact-project",
+		]);
+
+		const withProject = await findRelevantArtifactsByTypesDetailed({
+			userId: "user-1",
+			query: "launch plan",
+			types: ["normalized_document"],
+			limit: 4,
+			scopeBoostArtifactIds: ["artifact-project"],
+		});
+		expect(withProject.map((entry) => entry.artifact.id)).toEqual([
+			"artifact-project",
+			"artifact-other",
+		]);
+
+		// A boost, not a filter: an id that matches nothing still cannot appear,
+		// because the relevance gate below the fusion line is untouched.
+		const unrelated = await findRelevantArtifactsByTypesDetailed({
+			userId: "user-1",
+			query: "quarterly revenue",
+			types: ["normalized_document"],
+			limit: 4,
+			scopeBoostArtifactIds: ["artifact-project"],
+		});
+		expect(unrelated).toEqual([]);
+	});
+
+	it("leaves ranking unchanged when the turn has no project", async () => {
+		pushProjectBoostRows();
+		const { findRelevantArtifactsByTypesDetailed } = await import(
+			"./documents"
+		);
+
+		const withoutScope = await findRelevantArtifactsByTypesDetailed({
+			userId: "user-1",
+			query: "launch plan",
+			types: ["normalized_document"],
+			limit: 4,
+		});
+		const emptyScope = await findRelevantArtifactsByTypesDetailed({
+			userId: "user-1",
+			query: "launch plan",
+			types: ["normalized_document"],
+			limit: 4,
+			scopeBoostArtifactIds: [],
+		});
+
+		expect(withoutScope.map((entry) => entry.artifact.id)).toEqual([
+			"artifact-other",
+			"artifact-project",
+		]);
+		expect(emptyScope.map((entry) => entry.artifact.id)).toEqual(
+			withoutScope.map((entry) => entry.artifact.id),
+		);
+	});
 });

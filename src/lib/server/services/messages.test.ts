@@ -889,6 +889,71 @@ describe("messages metadata", () => {
 		expect(metadata.railSummary).toBeUndefined();
 	});
 
+	// How many of the project's files the turn actually read (Workspaces Slice
+	// E). A count, never a list: the Info popover is a glance, and the file
+	// names belong in Sources, where the user can open them. Written by the
+	// evidence step (updateMessageEvidence) on the turn that read them, since
+	// that is the only place that knows both the turn's evidence and the
+	// project's links.
+	it("persists projectFilesRead when project files were read", async () => {
+		mockRows.push({
+			id: "assistant-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ evidenceStatus: "pending" }),
+		});
+
+		const { listMessages, updateMessageEvidence } = await import("./messages");
+
+		await updateMessageEvidence("assistant-1", {
+			evidenceStatus: "none",
+			projectFilesRead: 2,
+		});
+
+		const metadata = JSON.parse(String(mockRows[0]?.metadataJson));
+		expect(metadata.evidenceStatus).toBe("none");
+		expect(metadata.projectFilesRead).toBe(2);
+
+		const [message] = await listMessages("conv-1");
+		expect(message.projectFilesRead).toBe(2);
+	});
+
+	it("omits projectFilesRead when none were read", async () => {
+		mockRows.push({
+			id: "assistant-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Stored answer",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				evidenceStatus: "ready",
+				projectFilesRead: 3,
+			}),
+		});
+
+		const { listMessages, updateMessageEvidence } = await import("./messages");
+
+		// A turn that read nothing must not leave the previous turn's number
+		// behind: the field is about *this* turn's evidence, and a stale count
+		// would put a row in the popover that names nothing that happened.
+		await updateMessageEvidence("assistant-1", {
+			evidenceStatus: "none",
+			projectFilesRead: 0,
+		});
+
+		const metadata = JSON.parse(String(mockRows[0]?.metadataJson));
+		expect(metadata.projectFilesRead).toBeUndefined();
+
+		const [message] = await listMessages("conv-1");
+		expect(message.projectFilesRead).toBeUndefined();
+	});
+
 	it("preserves existing metadata when web citation audit is updated", async () => {
 		mockRows.push({
 			id: "assistant-1",

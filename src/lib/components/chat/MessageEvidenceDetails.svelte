@@ -28,13 +28,21 @@ import type {
 	MessageEvidenceItem,
 	MessageEvidenceSummary,
 } from "$lib/server/services/message-evidence";
+import type { InstructionScope } from "$lib/shared/instructions";
+import ScopeToken from "$lib/components/instructions/ScopeToken.svelte";
 
 let {
 	evidenceSummary,
 	onOpenDocument = undefined,
+	expandRequest = 0,
 }: {
 	evidenceSummary: MessageEvidenceSummary;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
+	// Workspaces Slice E — an external request to open the panel, from the Info
+	// popover's "Project files" row. A counter rather than a boolean so two
+	// requests in a row are two opens, and so a request can never pin the panel
+	// open: it asks, the toggle below still owns the state.
+	expandRequest?: number;
 } = $props();
 
 /**
@@ -159,6 +167,17 @@ async function toggle() {
 		expanded = !expanded;
 	});
 }
+
+// Opens on each request from outside (the Info popover's "Project files" row).
+// Deliberately not routed through toggle(): an external open must not scroll
+// the page under the reader — the row is a link to the panel, and the panel is
+// already where they are looking — and it must not close a panel the reader
+// opened themselves by arriving twice.
+$effect(() => {
+	if (expandRequest > 0) {
+		expanded = true;
+	}
+});
 
 // Map each EvidenceSourceType to its Lucide type icon.
 function typeIconFor(sourceType: EvidenceSourceType): typeof FileText {
@@ -295,7 +314,7 @@ async function runMemoryAction(
 // row.
 function itemDetail(item: MessageEvidenceItem): string | undefined {
 	const detail = item.description ?? item.reason;
-	return detail && detail.trim() ? detail.trim() : undefined;
+	return detail?.trim() ? detail.trim() : undefined;
 }
 
 function isDocument(item: MessageEvidenceItem): boolean {
@@ -304,6 +323,26 @@ function isDocument(item: MessageEvidenceItem): boolean {
 		Boolean(item.artifactId) &&
 		Boolean(onOpenDocument)
 	);
+}
+
+/**
+ * Workspaces Slice E — the project a row's document came from, when the turn
+ * recorded one. Read off the item's own metadata (stamped where the evidence
+ * was built), never resolved here: a row states what happened, and a project
+ * the user has since deleted or renamed must not rewrite that statement. The
+ * name is what the token says; a stamp with no name has nothing to draw.
+ */
+function projectScopeOf(item: MessageEvidenceItem): InstructionScope | null {
+	const projectName = item.metadata?.projectName;
+	if (typeof projectName !== "string" || projectName.trim().length === 0) {
+		return null;
+	}
+	const projectId = item.metadata?.projectId;
+	return {
+		kind: "project",
+		projectId: typeof projectId === "string" ? projectId : undefined,
+		name: projectName,
+	};
 }
 
 function openDocument(item: MessageEvidenceItem) {
@@ -412,6 +451,7 @@ function openDocument(item: MessageEvidenceItem) {
 {#snippet renderItem(item: MessageEvidenceItem, slot: number)}
 	{@const TypeIcon = typeIconFor(item.sourceType)}
 	{@const clickableDoc = isDocument(item)}
+	{@const projectScope = projectScopeOf(item)}
 	<div
 		class={`evidence-row${clickableDoc ? ' evidence-row--clickable' : ''}${item.status === 'rejected' ? ' evidence-row--aside' : ''}`}
 		style={`animation-delay: ${slotDelay(slot)}`}
@@ -425,6 +465,7 @@ function openDocument(item: MessageEvidenceItem) {
 			>
 				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
 				<span class="evidence-title">{item.title}</span>
+				{#if projectScope}<ScopeToken scope={projectScope} />{/if}
 				<ExternalLink size={12} strokeWidth={1.8} class="evidence-open-icon" aria-hidden="true" />
 			</button>
 		{:else if item.url}
@@ -534,6 +575,7 @@ function openDocument(item: MessageEvidenceItem) {
 			<div class="evidence-row-plain">
 				<TypeIcon size={13} strokeWidth={1.8} class="evidence-type-icon" aria-hidden="true" />
 				<span class="evidence-title">{item.title}</span>
+				{#if projectScope}<ScopeToken scope={projectScope} />{/if}
 			</div>
 		{/if}
 		{#if itemDetail(item)}
