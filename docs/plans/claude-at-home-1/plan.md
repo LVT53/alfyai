@@ -124,16 +124,25 @@ adds its keys and rebases that one file.
 
 ## Model assignment (handoff §Phase 2)
 
-| Work | Model | Why |
-|---|---|---|
-| Slice A (migration + data deletion + wide removal) | **Opus-class** | a wrong `DELETE` or an over-deletion is expensive |
-| Slice B (billing transaction, config plumbing) | **Opus-class** | money math and a transaction |
-| Slice C, D, F (prompt/model-facing text, tool interface) | **Opus-class** | prefix-cache and precedence mistakes are subtle |
-| Slice E (knowledge retrieval, ownership checks) | **Opus-class** | auth/ownership and retrieval authority |
-| Slice G, and the UI/i18n/test halves of A, C, D | Sonnet-class is fine | mechanical against a frozen contract |
-| **All adversarial reviewers** | **Opus-class**, never the implementer | the whole point of Phase 3 |
+**Owner instruction, 2026-09-24: never dispatch a Claude model to a sub-agent — always the supplied DeepSeek
+model.** In practice that means: **omit the `model` parameter on every `Agent` call** so the sub-agent inherits
+the session model (the session runs on DeepSeek). The tool's `model` enum offers only Claude names, so passing
+any of them is wrong now. This applies to implementers **and** to every adversarial reviewer. If a slice seems
+to need a stronger model, ask the owner rather than silently reaching for a Claude one.
 
-Never let a sub-agent inherit the session model for reviews (owner standing preference).
+The table below is therefore kept only as a record of *which work is riskiest* — it is no longer a model
+instruction. The risk column still tells the orchestrator where to spend review attention and where to check an
+agent's report most carefully.
+
+| Work | Why it is risky |
+|---|---|
+| Slice A (migration + data deletion + wide removal) | a wrong `DELETE` or an over-deletion is expensive |
+| Slice B (billing transaction, config plumbing) | money math and a transaction |
+| Slice C, D, F (prompt/model-facing text, tool interface) | prefix-cache and precedence mistakes are subtle |
+| Slice E (knowledge retrieval, ownership checks) | auth/ownership and retrieval authority |
+| Slice G, and the UI/i18n/test halves of A, C, D | mechanical against a frozen contract |
+
+The reviewer must never be the implementer of the code under review — that rule survives the model change.
 
 ---
 
@@ -183,7 +192,8 @@ mkdir -p data
 
 ## Phase 3 — adversarial review (per wave, mandatory)
 
-After each wave, one reviewer per disjoint area, on an Opus-class model, in its own worktree, never the
+After each wave, one reviewer per disjoint area, on the session's DeepSeek model (never a Claude model — owner
+instruction 2026-09-24), in its own worktree, never the
 implementer. Every reviewer hunts, in this order:
 
 1. auth and ownership gaps (can user A read or link user B's project, file or instruction?)

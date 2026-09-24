@@ -22,7 +22,11 @@ Last updated: 2026-09-24 (implementation session 2 — Phase 0 done, Wave 1 in f
 - Worktrees: `.claude/worktrees/ws-a` (`feat/workspaces-a`) and `.claude/worktrees/ws-b`
   (`feat/workspaces-b`), both off `feat/workspaces`, each with a **cloned** `node_modules`
   (APFS `cp -Rc`, 9s, so parallel Vite caches cannot race) and a `data/` directory.
-- Wave 1 dispatched: Slice A and Slice B, one agent each, both Opus.
+- Wave 1 dispatched: Slice A and Slice B, one agent each. **All sub-agents run on the supplied DeepSeek model**
+  (owner instruction 2026-09-24: never dispatch a Claude model) — omit the `model` parameter on every `Agent`
+  call so the sub-agent inherits the session model. The first dispatch used `model: "opus"`; those two agents
+  were stopped early, their uncommitted work saved to `/tmp/ws-claude-attempts/` and the worktrees reset, then
+  both slices were re-dispatched on DeepSeek.
 
 ### Deploy facts for the dev environment (verified 2026-09-24)
 
@@ -107,6 +111,6 @@ All ratified by the owner on 2026-09-24. Full texts and reasoning in `decisions.
 ## Next action
 
 Wave 1 is running. When both agents report: merge `feat/workspaces-a` and `feat/workspaces-b` into
-`feat/workspaces`, dispatch the **Phase 3 adversarial reviewers** for the wave (Opus, never the implementers),
+`feat/workspaces`, dispatch the **Phase 3 adversarial reviewers** for the wave (DeepSeek, never the implementers),
 write `review-wave-1.md`, then merge `feat/workspaces` into `dev`, push `dev`, and run the dev deploy above for
 the first end-to-end check. Then Wave 2 = Slice C off the merged `feat/workspaces`.
