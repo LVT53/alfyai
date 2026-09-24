@@ -1138,32 +1138,63 @@ export function buildAtlasV3LocalReadPrompt(
 	});
 }
 
-/** Lowercased, whitespace-collapsed, quote-and-dash-folded. For the guard only. */
-function normalizeForVerbatimGuard(value: string): string {
-	return value
-		.normalize("NFKC")
-		.replace(/[‘’‚‛]/gu, "'")
-		.replace(/[“”„‟]/gu, '"')
-		.replace(/[‐‑‒–—]/gu, "-")
-		.replace(/\s+/g, " ")
-		.trim()
-		.toLowerCase();
+/**
+ * Text folded for a verbatim comparison: markup gone (markdown emphasis, code
+ * ticks, headings, table pipes and rules, link targets, HTML tags), typographic
+ * quotes and dashes folded, whitespace collapsed, lowercased. The WORDS and
+ * figures are untouched, so a quote that survives the fold is still the
+ * source's own words.
+ *
+ * One fold for both verbatim checks: the local read's guard (a document's text
+ * is the knowledge store's normalized markdown) and the seed recheck's
+ * `atlasV3QuoteStillStated` (a page re-read as markdown). A quote copied
+ * without the markup must compare equal to the text it was copied from.
+ */
+export function foldAtlasV3VerbatimText(value: string): string {
+	return (
+		value
+			.normalize("NFKC")
+			.replace(/<\/?[a-z][^>]*>/giu, " ")
+			.replace(/!?\[([^\]]*)\]\([^)]*\)/gu, "$1")
+			// Emphasis hugs the words it marks (`**412 Ft**.`): dropped, not spaced,
+			// or the sentence would gain a space before its full stop.
+			.replace(/[*_`]+/gu, "")
+			.replace(/[#>|]+/gu, " ")
+			.replace(/(?:^|\s)-{3,}(?=\s|$)/gu, " ")
+			.replace(/[‘’‚‛]/gu, "'")
+			.replace(/[“”„‟]/gu, '"')
+			.replace(/[‐‑‒–—]/gu, "-")
+			.replace(/\s+/gu, " ")
+			.trim()
+			.toLowerCase()
+	);
 }
 
 /**
- * True when `quote` occurs, verbatim up to whitespace, case and typographic
- * quotes, inside ONE passage of `sourceText`. A span that only exists across a
- * separator is not something the document said.
+ * A quote folded for a containment check, without the ellipsis a model puts
+ * at either end of a sentence it cut short.
+ */
+export function foldAtlasV3QuoteNeedle(quote: string): string {
+	return foldAtlasV3VerbatimText(quote)
+		.replace(/^(?:\.\.\.|…)\s*/u, "")
+		.replace(/\s*(?:\.\.\.|…)$/u, "")
+		.trim();
+}
+
+/**
+ * True when `quote` occurs, verbatim up to markup, whitespace, case and
+ * typographic quotes, inside ONE passage of `sourceText`. A span that only
+ * exists across a separator is not something the document said.
  */
 export function atlasV3QuoteOccursIn(
 	quote: string,
 	sourceText: string,
 ): boolean {
-	const needle = normalizeForVerbatimGuard(quote);
+	const needle = foldAtlasV3QuoteNeedle(quote);
 	if (!needle) return false;
 	return sourceText
 		.split(ATLAS_V3_LOCAL_PASSAGE_SEPARATOR)
-		.some((passage) => normalizeForVerbatimGuard(passage).includes(needle));
+		.some((passage) => foldAtlasV3VerbatimText(passage).includes(needle));
 }
 
 export interface AtlasV3ReadResult {

@@ -1548,6 +1548,45 @@ describe("the local verbatim guard", () => {
 			atlasV3QuoteOccursIn("costs rose 5% in 2025", "Costs rose 4% in 2025."),
 		).toBe(false);
 	});
+
+	// A user document's text is the normalized MARKDOWN the knowledge store
+	// holds: emphasis, table pipes and HTML table cells. A read model copying
+	// the sentence drops that markup, and the words are still the document's
+	// words — refusing them turned a document the user chose into "contained
+	// nothing bearing on the question".
+	it("sees through the markdown and table markup a normalized document carries", () => {
+		expect(
+			atlasV3QuoteOccursIn(
+				"The annual heating cost was 412 000 Ft in 2025.",
+				"The annual heating cost was **412 000 Ft** in _2025_.",
+			),
+		).toBe(true);
+		expect(
+			atlasV3QuoteOccursIn(
+				"Heating 412 000 Ft",
+				"| Item | Cost |\n| --- | --- |\n| Heating | 412 000 Ft |",
+			),
+		).toBe(true);
+		expect(
+			atlasV3QuoteOccursIn(
+				"Fűtés 412 000 Ft",
+				"<table><tr><td>Fűtés</td><td>412 000 Ft</td></tr></table>",
+			),
+		).toBe(true);
+		expect(
+			atlasV3QuoteOccursIn(
+				"Az éves fűtési költség 412 000 Ft volt…",
+				"Az éves fűtési költség 412 000 Ft volt 2025-ben.",
+			),
+		).toBe(true);
+		// Still no paraphrase and no changed figure.
+		expect(
+			atlasV3QuoteOccursIn(
+				"The annual heating cost was 421 000 Ft in 2025.",
+				"The annual heating cost was **412 000 Ft** in 2025.",
+			),
+		).toBe(false);
+	});
 });
 
 describe("buildAtlasV3LocalReadPrompt", () => {

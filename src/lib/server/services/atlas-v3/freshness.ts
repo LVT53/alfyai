@@ -12,6 +12,10 @@
 // trusted unread.
 
 import {
+	foldAtlasV3QuoteNeedle,
+	foldAtlasV3VerbatimText,
+} from "./evidence-bank";
+import {
 	extractFigures,
 	figureAppearsInText,
 	isCheckableFigure,
@@ -195,37 +199,19 @@ export function planAtlasV3SeedRechecks(input: {
 }
 
 /**
- * Text folded for containment: markdown emphasis, code ticks and link targets
- * gone, typographic quotes and dashes folded, whitespace collapsed, lowercased.
- * A page re-read as markdown and a quote copied from it once must compare equal
- * when the words are the same words.
- */
-function foldForContainment(value: string): string {
-	return value
-		.normalize("NFKC")
-		.replace(/!?\[([^\]]*)\]\([^)]*\)/gu, "$1")
-		.replace(/[*_`#>|]+/gu, " ")
-		.replace(/[‘’‚‛]/gu, "'")
-		.replace(/[“”„‟]/gu, '"')
-		.replace(/[‐‑‒–—]/gu, "-")
-		.replace(/\s+/gu, " ")
-		.trim()
-		.toLowerCase();
-}
-
-/**
  * Whether the live page still states a seeded quote: the quote occurs in the
- * page (folded as above), and every checkable figure the quote carries still
- * appears in the page. A page that rephrased the sentence, or revised the
- * figure, no longer states it.
+ * page (both folded by `foldAtlasV3VerbatimText`, the same fold the local
+ * read's verbatim guard uses), and every checkable figure the quote carries
+ * still appears in the page. A page that rephrased the sentence, or revised
+ * the figure, no longer states it.
  */
 export function atlasV3QuoteStillStated(
 	quote: AtlasV3Quote,
 	pageText: string,
 ): boolean {
-	const needle = foldForContainment(quote.text).replace(/(?:\.\.\.|…)$/u, "");
+	const needle = foldAtlasV3QuoteNeedle(quote.text);
 	if (!needle) return false;
-	if (!foldForContainment(pageText).includes(needle.trim())) return false;
+	if (!foldAtlasV3VerbatimText(pageText).includes(needle)) return false;
 	return extractFigures(quote.text)
 		.filter(isCheckableFigure)
 		.every((figure) => figureAppearsInText(figure, pageText));
