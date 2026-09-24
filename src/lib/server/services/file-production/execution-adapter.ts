@@ -17,6 +17,7 @@ import { redactHostPathsFromFileProductionMessage } from "./error-message";
 import { createDefaultGeneratedDocumentImageLoader } from "./image-loader";
 import { type FileProductionLimits, getFileProductionLimits } from "./limits";
 import {
+	hasCompleteOutputStructure,
 	validateGeneratedOutputFile,
 	validateProducedFileSignature,
 	validateProgramOutputContract,
@@ -483,10 +484,17 @@ async function renderDocumentSource(
 	};
 }
 
-/** Sandbox exits that say the RUN was cut short (runtime error, OOM kill),
- * not that the program's own code raised: whatever sits in /output then is
- * not something the program finished writing. */
-const INTERRUPTED_EXIT_CODES = new Set([125, 126, 137]);
+/** The highest exit code a program's OWN error produces. 124 is a
+ * `timeout` kill, 125-127 are runtime/launch failures, and 128+N is death by
+ * signal N (137 SIGKILL/OOM, 139 SIGSEGV, 134 SIGABRT): in every one of those
+ * the RUN was cut short, and whatever sits in /output is not something the
+ * program finished writing. */
+const MAX_PROGRAM_RAISED_EXIT_CODE = 123;
+
+/** A run that ran out of memory or disk may have been cut off mid-write even
+ * though the interpreter exited normally with its own error code. */
+const RESOURCE_EXHAUSTION_RE =
+	/MemoryError|OutOfMemoryError|heap out of memory|ENOMEM|ENOSPC|No space left on device|memory limit exceeded|storage exhausted/i;
 
 /** Enough of a traceback to see what went wrong, not a whole log. */
 const EXIT_WARNING_STDERR_MAX_CHARS = 300;
@@ -514,9 +522,11 @@ function shortProgramErrorText(execution: ProgramExecutionResult): string {
  * after `writeFile` — has done the user's work. Failing the job threw that
  * file away and burnt one of the model's two attempts on a problem the
  * delivered file does not have. The file is kept only when the SAME output
- * contract the storage adapter enforces passes for every requested output;
- * anything less (missing output, wrong type, truncated bytes) still fails
- * exactly as before. The exit error travels on as a warning.
+ * contract the storage adapter enforces passes for every requested output
+ * AND every file's own structure proves it was finished (`hasCompleteOutput
+ * Structure`: OOXML packages and PDFs only); anything less (missing output,
+ * wrong type, truncated bytes, a text/CSV file, a signal or resource kill)
+ * still fails exactly as before. The exit error travels on as a warning.
  */
 async function acceptOutputWrittenBeforeFailedExit(
 	execution: ProgramExecutionResult,
@@ -526,7 +536,18 @@ async function acceptOutputWrittenBeforeFailedExit(
 	if (typeof execution.exitCode !== "number" || execution.exitCode === 0) {
 		return null;
 	}
-	if (INTERRUPTED_EXIT_CODES.has(execution.exitCode)) return null;
+	if (
+		execution.exitCode < 1 ||
+		execution.exitCode > MAX_PROGRAM_RAISED_EXIT_CODE
+	) {
+		return null;
+	}
+	if (
+		RESOURCE_EXHAUSTION_RE.test(execution.stderr) ||
+		RESOURCE_EXHAUSTION_RE.test(execution.error ?? "")
+	) {
+		return null;
+	}
 	if (execution.files.length === 0) return null;
 	const contract = await validateProgramOutputContract({
 		files: execution.files,
@@ -534,6 +555,12 @@ async function acceptOutputWrittenBeforeFailedExit(
 		requestedOutputTypes: request.outputs,
 	});
 	if (!contract.ok) return null;
+	// The contract checks signatures and encodings, which a file cut off
+	// mid-write still passes; only a type whose bytes prove it was finished
+	// may be kept after a crash.
+	for (const file of execution.files) {
+		if (!(await hasCompleteOutputStructure(file))) return null;
+	}
 	return `File produced; the program exited with an error after writing it: ${shortProgramErrorText(execution)}`;
 }
 

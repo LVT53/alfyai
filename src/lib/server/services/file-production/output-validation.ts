@@ -6,6 +6,7 @@ import {
 } from "$lib/server/services/knowledge/upload-signature";
 import {
 	getCanonicalMimeForExtension,
+	getEntryByFilename,
 	isGenericMimeType,
 } from "$lib/shared/file-types";
 import {
@@ -15,6 +16,7 @@ import {
 	isTextLikeExtension,
 	normalizeRequestedOutputType,
 } from "$lib/shared/file-types/production";
+import type { FileTypeEntry } from "$lib/shared/file-types/types";
 
 export {
 	FILE_PRODUCTION_OUTPUT_TYPE_EXAMPLES,
@@ -387,4 +389,64 @@ export async function validateProgramOutputContract(params: {
 	}
 
 	return { ok: true };
+}
+
+/** How far from the end a PDF's `%%EOF` marker may sit (trailing whitespace,
+ * a final newline). */
+const PDF_TRAILER_WINDOW_BYTES = 1024;
+
+/** A ZIP container type in the registry: its signatures start with "PK". */
+function isZipContainerEntry(entry: FileTypeEntry | null): boolean {
+	return Boolean(
+		entry?.signatures?.some(
+			(signature) =>
+				signature.offset === 0 &&
+				signature.bytes[0] === 0x50 &&
+				signature.bytes[1] === 0x4b,
+		),
+	);
+}
+
+/**
+ * Whether a produced file's BYTES prove it was finished — the question a
+ * non-zero exit raises and the ordinary output contract cannot answer. That
+ * contract checks the leading signature and, for text, UTF-8: a CSV or a PDF
+ * the program was still writing when it raised passes both. So a file kept
+ * after a failed exit must carry its own proof of completeness:
+ *
+ * - ZIP containers (xlsx/docx/pptx/odt/zip…): a ZIP is written front to back
+ *   and its central directory comes LAST, so an archive that loads and whose
+ *   every entry passes its CRC was closed by its writer;
+ * - PDF: the `%%EOF` trailer is the last thing a writer emits.
+ *
+ * Every other type — text, CSV, JSON, images — has no marker this module
+ * checks, and returns false: after a crash the job stays failed.
+ */
+export async function hasCompleteOutputStructure(file: {
+	filename: string;
+	content: Buffer | Uint8Array;
+}): Promise<boolean> {
+	const entry = getEntryByFilename(file.filename);
+	const bytes = Buffer.isBuffer(file.content)
+		? file.content
+		: Buffer.from(file.content);
+	if (entry?.id === "pdf") {
+		const tail = bytes
+			.subarray(Math.max(0, bytes.length - PDF_TRAILER_WINDOW_BYTES))
+			.toString("latin1");
+		return /%%EOF\s*$/.test(tail);
+	}
+	if (!isZipContainerEntry(entry)) return false;
+	if (bytes.byteLength > DEFAULT_XLSX_VALIDATION_MAX_BYTES) return false;
+	try {
+		const zip = await JSZip.loadAsync(bytes, { checkCRC32: true });
+		const entries = Object.values(zip.files).filter((item) => !item.dir);
+		if (entries.length === 0) return false;
+		if (entries.length > DEFAULT_XLSX_VALIDATION_MAX_ZIP_ENTRIES) return false;
+		// `checkCRC32` verifies each entry as it is decompressed.
+		for (const item of entries) await item.async("uint8array");
+		return true;
+	} catch {
+		return false;
+	}
 }

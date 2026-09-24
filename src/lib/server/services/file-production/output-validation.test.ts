@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
 import {
+	hasCompleteOutputStructure,
 	validateGeneratedOutputFile,
 	validateProgramOutputContract,
 	validateXlsxBytes,
@@ -311,5 +312,49 @@ describe("file-production output validation", () => {
 			ok: false,
 			code: "invalid_text_output",
 		});
+	});
+});
+
+describe("hasCompleteOutputStructure", () => {
+	it("accepts a whole OOXML package and a PDF that ends in its trailer", async () => {
+		const xlsx = await buildMinimalXlsxZip();
+		await expect(
+			hasCompleteOutputStructure({ filename: "book.xlsx", content: xlsx }),
+		).resolves.toBe(true);
+		await expect(
+			hasCompleteOutputStructure({
+				filename: "report.pdf",
+				content: Buffer.from("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n"),
+			}),
+		).resolves.toBe(true);
+	});
+
+	it("refuses a truncated package, a PDF without its trailer, and every type with no completeness marker", async () => {
+		const xlsx = await buildMinimalXlsxZip();
+		await expect(
+			hasCompleteOutputStructure({
+				filename: "book.xlsx",
+				content: xlsx.subarray(0, xlsx.length - 30),
+			}),
+		).resolves.toBe(false);
+		await expect(
+			hasCompleteOutputStructure({
+				filename: "report.pdf",
+				content: Buffer.from("%PDF-1.7\n1 0 obj\n<<>>\n"),
+			}),
+		).resolves.toBe(false);
+		for (const filename of [
+			"data.csv",
+			"notes.txt",
+			"chart.png",
+			"data.json",
+		]) {
+			await expect(
+				hasCompleteOutputStructure({
+					filename,
+					content: Buffer.from("complete-looking content"),
+				}),
+			).resolves.toBe(false);
+		}
 	});
 });

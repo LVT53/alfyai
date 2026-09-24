@@ -2834,6 +2834,121 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		});
 	});
 
+	// A non-zero exit keeps the output ONLY when the bytes themselves prove the
+	// file was finished. A CSV, text or PDF cut off mid-write still passes the
+	// ordinary output contract (UTF-8 / leading signature), and a run killed by
+	// a signal or out of memory/disk never finished what it was writing.
+	it.each([
+		{
+			name: "a CSV cut off mid-write (no integrity check exists for text)",
+			filename: "export.csv",
+			mimeType: "text/csv",
+			outputType: "csv",
+			content: async () => Buffer.from("region,q1,q2\nNorth,140,1"),
+			exitCode: 1,
+			stderr: "Traceback: KeyError: 'South'",
+		},
+		{
+			name: "a PDF with a header but no end-of-file trailer",
+			filename: "report.pdf",
+			mimeType: "application/pdf",
+			outputType: "pdf",
+			content: async () =>
+				Buffer.from("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"),
+			exitCode: 1,
+			stderr: "Traceback: RuntimeError: font missing",
+		},
+		{
+			name: "a DOCX whose ZIP stops before its central directory",
+			filename: "memo.docx",
+			mimeType:
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			outputType: "docx",
+			content: async () => Buffer.from("PK\u0003\u0004 half a document"),
+			exitCode: 1,
+			stderr: "Error: write stream closed",
+		},
+		{
+			name: "a complete workbook from a run killed by a signal (SIGSEGV)",
+			filename: "workbook.xlsx",
+			mimeType: XLSX_MIME_TYPE,
+			outputType: "xlsx",
+			content: buildExcelJsSmokeWorkbook,
+			exitCode: 139,
+			stderr: "Segmentation fault",
+		},
+		{
+			name: "a complete workbook from a run that ran out of memory",
+			filename: "workbook.xlsx",
+			mimeType: XLSX_MIME_TYPE,
+			outputType: "xlsx",
+			content: buildExcelJsSmokeWorkbook,
+			exitCode: 1,
+			stderr: "Traceback (most recent call last):\nMemoryError",
+		},
+	])("does not keep output after a non-zero exit for $name", async (testCase) => {
+		const {
+			createOrReuseFileProductionJob,
+			drainFileProductionWorker,
+			getConversationFileProductionJob,
+		} = await import("./index");
+		const created = await createOrReuseFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: `Crashed ${testCase.filename}`,
+			origin: "unified_produce",
+			idempotencyKey: `turn-1:crashed-${testCase.filename}-${testCase.exitCode}-${testCase.stderr.length}`,
+			sourceMode: "program",
+			requestJson: {
+				sourceMode: "program",
+				program: {
+					language: "python",
+					sourceCode: "# writes part of the file, then raises",
+					filename: testCase.filename,
+				},
+				outputs: [{ type: testCase.outputType }],
+			},
+			now: new Date("2026-05-03T20:07:50.000Z"),
+		});
+		const content = await testCase.content();
+		const executeCode = vi.fn(async () => ({
+			files: [
+				{
+					filename: testCase.filename,
+					mimeType: testCase.mimeType,
+					content,
+					sizeBytes: content.length,
+				},
+			],
+			stdout: "",
+			stderr: testCase.stderr,
+			exitCode: testCase.exitCode,
+			error: `Execution failed with exit code ${testCase.exitCode}: ${testCase.stderr}`,
+		}));
+		const storeGeneratedFile = vi.fn();
+
+		await drainFileProductionWorker({
+			workerId: "worker-crashed-output",
+			executeCode,
+			storeGeneratedFile,
+			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
+			now: new Date("2026-05-03T20:08:00.000Z"),
+		});
+
+		const job = await getConversationFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			jobId: created.job.id,
+		});
+		expect(storeGeneratedFile).not.toHaveBeenCalled();
+		expect(job).toMatchObject({
+			status: "failed",
+			error: { code: "program_execution_failed" },
+			warnings: [],
+		});
+	});
+
 	it("fails single-file program contracts that produce extra scratch outputs", async () => {
 		const { db } = await import("$lib/server/db");
 		const {
