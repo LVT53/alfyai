@@ -7,7 +7,13 @@ import {
 	projectKnowledgeLinks,
 	projects,
 } from "$lib/server/db/schema";
+import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import { getProject } from "$lib/server/services/projects";
+import {
+	getLogicalDocumentForArtifact,
+	safeStem,
+	toCanonicalLinkedContextSource,
+} from "./store";
 import {
 	buildArtifactCanonicalOwnershipCondition,
 	getArtifactOwnershipScope,
@@ -81,6 +87,8 @@ interface OwnedArtifactRow {
 	mimeType: string | null;
 	sizeBytes: number | null;
 	summary: string | null;
+	conversationId: string | null;
+	updatedAt: Date;
 }
 
 /**
@@ -202,6 +210,8 @@ async function readOwnedArtifactRows(
 			mimeType: artifacts.mimeType,
 			sizeBytes: artifacts.sizeBytes,
 			summary: artifacts.summary,
+			conversationId: artifacts.conversationId,
+			updatedAt: artifacts.updatedAt,
 		})
 		.from(artifacts)
 		.where(
@@ -275,10 +285,14 @@ async function resolveProjectDocuments(
 /**
  * Name order, case-insensitively, with the link as the tie-break.
  *
- * One order, shared by the Files modal and the prompt section, so the section's
- * text is stable turn over turn and the model's prefix cache keeps matching.
+ * One order, shared by the Files modal, the prompt section and the read
+ * targets, so the list is stable turn over turn and the model's prefix cache
+ * keeps matching. Generic over the three fields it reads: the read targets are
+ * the same list in a different shape.
  */
-function sortItems(items: ProjectKnowledgeItem[]): ProjectKnowledgeItem[] {
+function sortItems<
+	T extends { name: string; linkedAt: number; artifactId: string },
+>(items: T[]): T[] {
 	return items.sort(
 		(left, right) =>
 			left.name.localeCompare(right.name, "en", { sensitivity: "base" }) ||
@@ -334,6 +348,138 @@ export async function listProjectKnowledgeArtifactIds(params: {
 	return [...ids].sort();
 }
 
+export interface ProjectKnowledgeContentTarget {
+	/** The name the user sees, and the one a turn may ask for. */
+	name: string;
+	displayArtifactId: string;
+	/**
+	 * Where the text lives: the normalized artifact when the upload pipeline
+	 * made one, because that is the row an extraction wrote, and the display
+	 * row itself when the document was never normalized.
+	 */
+	contentArtifactId: string;
+	conversationId: string | null;
+	updatedAt: Date;
+}
+
+/**
+ * The project's files as read targets, for `read_generated_file`.
+ *
+ * A name list in the same order as everything else the project shows, with the
+ * id whose text answers for each name. Same ownership and incognito scope as
+ * `listProjectKnowledge`: a link row is not a grant, and a document that has
+ * since become unreachable simply stops being a target.
+ */
+export async function listProjectKnowledgeContentTargets(params: {
+	userId: string;
+	projectId: string;
+}): Promise<ProjectKnowledgeContentTarget[]> {
+	const resolved = await resolveProjectDocuments(
+		params.userId,
+		params.projectId,
+	);
+
+	// The order keys ride along through the sort and are not part of the
+	// target: the Files modal and the prompt section must list the project in
+	// the same order a turn reads it.
+	const targets: (ProjectKnowledgeContentTarget & {
+		artifactId: string;
+		linkedAt: number;
+	})[] = resolved.map((document) => ({
+		artifactId: document.displayId,
+		linkedAt: document.linkedAt,
+		name: document.display.name,
+		displayArtifactId: document.displayId,
+		contentArtifactId: document.normalizedId ?? document.displayId,
+		conversationId: document.display.conversationId,
+		updatedAt: document.display.updatedAt,
+	}));
+
+	return sortItems(targets);
+}
+
+/**
+ * The shortest stem a mention may match on. The same floor the read tool puts
+ * on a "contains" needle, for the same reason: `re` matching half the words in
+ * a sentence is not somebody naming a file.
+ */
+const MIN_MENTION_STEM_LENGTH = 3;
+
+/**
+ * Is this file's name something the message says?
+ *
+ * The whole name, or its stem — a library document's name usually carries the
+ * extension the user would not type ("the Wien itinerary.pdf" is asked for as
+ * "the Wien itinerary"). Deliberately NOT a word-overlap score: a loose matcher
+ * would make an ordinary turn look like a request for a file, and a mentioned
+ * file that is not prompt-ready fails the turn with the same 409 an attached
+ * one does. A mention has to be something the user actually said.
+ */
+function isFileMentionedInMessage(message: string, fileName: string): boolean {
+	const haystack = message.trim().toLowerCase();
+	const name = fileName.trim().toLowerCase();
+	if (!haystack || !name) return false;
+	if (haystack.includes(name)) return true;
+
+	const stem = safeStem(fileName).trim().toLowerCase();
+	return (
+		stem.length >= MIN_MENTION_STEM_LENGTH &&
+		stem !== name &&
+		haystack.includes(stem)
+	);
+}
+
+/**
+ * The project files whose name the message says, as linked-context-source
+ * candidates.
+ *
+ * Candidates only: this resolves names and shapes, and the caller hands the
+ * result to `resolveLinkedContextSourcesForConversation`, which owns the
+ * ownership check, the prompt-readiness check and the attachment dedupe. A
+ * second resolver here would be a second set of rules for the same question.
+ *
+ * `files` is the list the caller already read for this turn, when it has one —
+ * the prompt section and the mention then speak about exactly the same list,
+ * and a turn that names nothing costs no extra read at all.
+ */
+export async function resolveProjectFileMentions(params: {
+	userId: string;
+	projectId: string;
+	message: string;
+	files?: ProjectKnowledgeItem[];
+}): Promise<LinkedContextSource[]> {
+	const message = params.message.trim();
+	if (!message) return [];
+
+	const files =
+		params.files ??
+		(await listProjectKnowledge({
+			userId: params.userId,
+			projectId: params.projectId,
+		}));
+
+	const mentioned = files.filter((file) =>
+		isFileMentionedInMessage(message, file.name),
+	);
+	if (mentioned.length === 0) return [];
+
+	const sources: LinkedContextSource[] = [];
+	for (const file of mentioned) {
+		// The document the library would show, through the same canonical
+		// ownership scope every other read goes through — a link row is not a
+		// grant, so a document that has since become unreachable is simply not a
+		// candidate.
+		const document = await getLogicalDocumentForArtifact(
+			params.userId,
+			file.artifactId,
+		);
+		if (!document) continue;
+		sources.push(toCanonicalLinkedContextSource(document));
+	}
+
+	return sources;
+}
+
 /**
  * One document's membership, from the document's side: the projects the caller
  * owns that know it.
@@ -351,9 +497,7 @@ export async function listProjectKnowledgeArtifactIds(params: {
 export async function listProjectLinksForArtifacts(params: {
 	userId: string;
 	artifactIds: string[];
-}): Promise<
-	{ artifactId: string; projectId: string; projectName: string }[]
-> {
+}): Promise<{ artifactId: string; projectId: string; projectName: string }[]> {
 	const requestedIds = [
 		...new Set(
 			params.artifactIds.map((id) => id.trim()).filter((id) => id.length > 0),

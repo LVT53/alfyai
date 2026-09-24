@@ -33,6 +33,7 @@ import {
 	resolveRelevantGeneratedDocumentSelection,
 } from "../document-resolution";
 import { countRecentMemoryBehaviorEventsBySubject } from "../memory-behavior-log";
+import { getConversationProjectId } from "../projects";
 import { canUseTeiEmbedder, embedText } from "../tei-embedder";
 import {
 	resolveWorkingDocumentSelection,
@@ -45,6 +46,7 @@ import {
 	WORKING_SET_PROMPT_LIMIT,
 	type WorkingSetCandidate,
 } from "../working-set";
+import { listProjectKnowledgeArtifactIds } from "./project-knowledge";
 import {
 	findRelevantArtifactsByTypesDetailed,
 	getArtifactOwnershipScope,
@@ -737,6 +739,23 @@ export async function findRelevantKnowledgeArtifacts(params: {
 	const recentBehaviorWindowStart = Date.now() - 14 * DAY_MS;
 	const currentConversationId = params.currentConversationId ?? "";
 
+	// The turn's project, if it is in one: its files are preferred in the
+	// ranking below. Resolved once here rather than per artifact-type query, and
+	// a failure is not the turn's problem — a boost is a preference, and no
+	// preference is worth losing an answer over.
+	const scopeBoostArtifactIds = currentConversationId
+		? await getConversationProjectId(params.userId, currentConversationId)
+				.catch(() => null)
+				.then((projectId) =>
+					projectId
+						? listProjectKnowledgeArtifactIds({
+								userId: params.userId,
+								projectId,
+							}).catch(() => [] as string[])
+						: ([] as string[]),
+				)
+		: [];
+
 	// Pre-compute query embedding once and share across parallel artifact-type queries.
 	// This saves one TEI embed call per turn.
 	let queryEmbedding: number[] | undefined;
@@ -764,6 +783,7 @@ export async function findRelevantKnowledgeArtifacts(params: {
 				limit: limit * 3,
 				excludeConversationId: params.excludeConversationId,
 				queryEmbedding,
+				scopeBoostArtifactIds,
 			}),
 			findRelevantArtifactsByTypesDetailed({
 				userId: params.userId,
@@ -772,6 +792,7 @@ export async function findRelevantKnowledgeArtifacts(params: {
 				limit: Math.max(limit * 5, 20),
 				excludeConversationId: params.excludeConversationId,
 				queryEmbedding,
+				scopeBoostArtifactIds,
 			}),
 			params.preferredArtifactId
 				? getArtifactsForUser(params.userId, [params.preferredArtifactId])

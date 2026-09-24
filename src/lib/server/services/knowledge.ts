@@ -30,16 +30,6 @@ export {
 	upsertWorkCapsule,
 } from "./knowledge/capsules";
 export {
-	isProjectKnowledgeError,
-	linkProjectKnowledge,
-	listProjectKnowledge,
-	listProjectKnowledgeArtifactIds,
-	listProjectLinksForArtifacts,
-	ProjectKnowledgeError,
-	unlinkProjectKnowledge,
-} from "./knowledge/project-knowledge";
-export type { ProjectKnowledgeItem } from "./knowledge/project-knowledge";
-export {
 	findRelevantKnowledgeArtifacts,
 	getConversationContextStatus,
 	getConversationWorkingSet,
@@ -48,6 +38,21 @@ export {
 	selectWorkingSetArtifactsForPrompt,
 	updateConversationContextStatus,
 } from "./knowledge/context";
+export type {
+	ProjectKnowledgeContentTarget,
+	ProjectKnowledgeItem,
+} from "./knowledge/project-knowledge";
+export {
+	isProjectKnowledgeError,
+	linkProjectKnowledge,
+	listProjectKnowledge,
+	listProjectKnowledgeArtifactIds,
+	listProjectKnowledgeContentTargets,
+	listProjectLinksForArtifacts,
+	ProjectKnowledgeError,
+	resolveProjectFileMentions,
+	unlinkProjectKnowledge,
+} from "./knowledge/project-knowledge";
 export type { KnowledgeBulkAction } from "./knowledge/store";
 export {
 	AttachmentReadinessError,

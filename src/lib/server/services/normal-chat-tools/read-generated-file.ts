@@ -23,6 +23,10 @@ import {
 	readStoredPageCountKind,
 } from "$lib/server/services/knowledge/outline";
 import {
+	listProjectKnowledgeContentTargets,
+	type ProjectKnowledgeContentTarget,
+} from "$lib/server/services/knowledge/project-knowledge";
+import {
 	buildArtifactCanonicalOwnershipCondition,
 	getArtifactOwnershipScope,
 	getSourceArtifactIdForNormalizedArtifact,
@@ -36,6 +40,7 @@ import type {
 	DocumentOutlineEntry,
 } from "$lib/server/services/knowledge/types";
 import { readMineruPageIndex } from "$lib/server/services/mineru/bundle";
+import { getConversationProjectId } from "$lib/server/services/projects";
 import { selectDocumentPassages } from "$lib/server/services/task-state/artifacts";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { getEntryByMimeType } from "$lib/shared/file-types";
@@ -1295,6 +1300,91 @@ async function findNormalizedDocument(params: {
 	};
 }
 
+/**
+ * The project tier's weakest accepted tier: exact, then case-insensitive, then
+ * stem — the names the user sees under "Project Files". A "contains" match is
+ * what the library pass below is for; the project does not widen the rules.
+ */
+const PROJECT_FILE_NAME_TIER = 2;
+
+/**
+ * The files the conversation's project knows, by name.
+ *
+ * A project's files are ordinary library documents, so this pass is a name
+ * list like the library one — except that being in the project is what makes
+ * the name worth trying first, which is the whole point of linking a file to a
+ * project. The row it answers with is the one whose text holds the content: the
+ * normalized extraction when the upload pipeline produced one, which is also
+ * why the library pass can never see a document that was not normalized.
+ *
+ * One read per call, scoped to the caller's project and the caller's artifacts;
+ * a conversation outside any project costs one lookup and no more.
+ */
+async function findProjectKnowledgeTarget(params: {
+	userId: string;
+	conversationId: string;
+	needle: string;
+}): Promise<TargetLookup> {
+	const projectId = await getConversationProjectId(
+		params.userId,
+		params.conversationId,
+	).catch(() => null);
+	if (!projectId) return { status: "none" };
+
+	const targets = await listProjectKnowledgeContentTargets({
+		userId: params.userId,
+		projectId,
+	}).catch(() => [] as ProjectKnowledgeContentTarget[]);
+	if (targets.length === 0) return { status: "none" };
+
+	const rows: DocumentNameRow[] = targets.map((target) => ({
+		id: target.displayArtifactId,
+		name: target.name,
+		metadataJson: null,
+		updatedAt: target.updatedAt,
+		conversationId: target.conversationId,
+	}));
+	const pick = pickDocumentRows(
+		rows,
+		params.needle,
+		"library",
+		PROJECT_FILE_NAME_TIER,
+	);
+	if (pick.status !== "match") return pick;
+
+	const target = targets.find(
+		(candidate) => candidate.displayArtifactId === pick.row.id,
+	);
+	if (!target) return { status: "none" };
+
+	const [row] = await db
+		.select()
+		.from(artifacts)
+		.where(
+			and(
+				eq(artifacts.id, target.contentArtifactId),
+				eq(artifacts.userId, params.userId),
+			),
+		)
+		.limit(1);
+	if (!row) return { status: "none" };
+
+	return {
+		status: "match",
+		target: {
+			row,
+			chatFile: null,
+			source: "document",
+			// The label follows the row that matched, not the content row: a
+			// document uploaded in this very conversation is still this
+			// conversation's, and saying "library" would send the model looking
+			// for it in the wrong place.
+			conversation:
+				target.conversationId === params.conversationId ? "this" : "library",
+		},
+	};
+}
+
 async function resolveReadTarget(params: {
 	userId: string;
 	conversationId: string;
@@ -1400,6 +1490,20 @@ async function resolveReadTarget(params: {
 			});
 			if (chatFile) return asChatFile(chatFile, "library");
 		}
+	}
+
+	// (3c) The conversation's project. A linked file is one the user told the
+	// project it cares about, so its name outranks the rest of the library —
+	// and it is the only pass that can reach a document the extraction
+	// pipeline never normalized, because the library pass below sees only
+	// normalized rows.
+	if (needle) {
+		const projectFile = await findProjectKnowledgeTarget({
+			userId: params.userId,
+			conversationId: params.conversationId,
+			needle,
+		});
+		if (projectFile.status !== "none") return projectFile;
 	}
 
 	if (needle) {

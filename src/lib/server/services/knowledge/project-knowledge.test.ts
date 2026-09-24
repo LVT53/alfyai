@@ -355,8 +355,9 @@ describe("project knowledge links", () => {
 
 	it("answers which of the caller's projects know a document", async () => {
 		seedProjectKnowledgeScenario();
-		const { linkProjectKnowledge, listProjectLinksForArtifacts } =
-			await import("./project-knowledge");
+		const { linkProjectKnowledge, listProjectLinksForArtifacts } = await import(
+			"./project-knowledge"
+		);
 		const { createProject } = await import("$lib/server/services/projects");
 
 		const secondProject = await createProject("owner-user", "Flat renovation");
@@ -405,8 +406,9 @@ describe("project knowledge links", () => {
 
 	it("answers a document asked about through either of its ids", async () => {
 		seedProjectKnowledgeScenario();
-		const { linkProjectKnowledge, listProjectLinksForArtifacts } =
-			await import("./project-knowledge");
+		const { linkProjectKnowledge, listProjectLinksForArtifacts } = await import(
+			"./project-knowledge"
+		);
 
 		await linkProjectKnowledge({
 			userId: "owner-user",
@@ -433,8 +435,9 @@ describe("project knowledge links", () => {
 
 	it("never answers with another user's project for the same document id", async () => {
 		seedProjectKnowledgeScenario();
-		const { linkProjectKnowledge, listProjectLinksForArtifacts } =
-			await import("./project-knowledge");
+		const { linkProjectKnowledge, listProjectLinksForArtifacts } = await import(
+			"./project-knowledge"
+		);
 
 		// The other user linked their own file into their own project. Nothing
 		// about that row is the owner's to see, and nothing here is a lookup by
@@ -735,5 +738,136 @@ describe("project knowledge links", () => {
 		await expect(
 			listProjectKnowledge({ userId: "owner-user", projectId: "trip-project" }),
 		).resolves.toHaveLength(1);
+	});
+
+	it("resolves the project files a message names into linked-source candidates", async () => {
+		seedProjectKnowledgeScenario();
+		const { linkProjectKnowledge, resolveProjectFileMentions } = await import(
+			"./project-knowledge"
+		);
+
+		await linkProjectKnowledge({
+			userId: "owner-user",
+			projectId: "trip-project",
+			artifactIds: [
+				"artifact-railjet",
+				"artifact-hotel",
+				"artifact-native-summary",
+			],
+		});
+
+		const mentions = await resolveProjectFileMentions({
+			userId: "owner-user",
+			projectId: "trip-project",
+			message: "Compare the Railjet tickets.pdf with the Hotel Motto booking.",
+		});
+
+		// The two the message names, in the project's own name order. The third
+		// linked file — the notes nobody named — is not in the turn: naming a
+		// file is the whole signal, and "it happens to be linked" is not one.
+		expect(mentions.map((source) => source.name)).toEqual([
+			"Hotel Motto booking.pdf",
+			"Railjet tickets.pdf",
+		]);
+		// Every candidate is the canonical shape the linked-source path already
+		// persists and validates — the uploaded document keeps its normalized
+		// artifact as the prompt id, and the one that was never normalized
+		// carries no prompt id at all.
+		expect(mentions[1]).toMatchObject({
+			displayArtifactId: "artifact-railjet",
+			promptArtifactId: "artifact-railjet-normalized",
+			type: "document",
+		});
+		expect(mentions[1].familyArtifactIds).toEqual(
+			expect.arrayContaining([
+				"artifact-railjet",
+				"artifact-railjet-normalized",
+			]),
+		);
+		expect(mentions[0]).toMatchObject({
+			displayArtifactId: "artifact-hotel",
+			promptArtifactId: null,
+		});
+	});
+
+	it("does not resolve another user's project file by name", async () => {
+		seedProjectKnowledgeScenario();
+		const { linkProjectKnowledge, resolveProjectFileMentions } = await import(
+			"./project-knowledge"
+		);
+		await linkProjectKnowledge({
+			userId: "owner-user",
+			projectId: "trip-project",
+			artifactIds: ["artifact-hotel"],
+		});
+		await linkProjectKnowledge({
+			userId: "other-user",
+			projectId: "other-project",
+			artifactIds: ["artifact-other-user"],
+		});
+
+		// Somebody else's project id reads as a project with nothing in it,
+		// whoever is asking.
+		expect(
+			await resolveProjectFileMentions({
+				userId: "owner-user",
+				projectId: "other-project",
+				message: "Read me Their file.pdf",
+			}),
+		).toEqual([]);
+		// And naming a file is not a way around ownership: the caller's own
+		// project does not hold somebody else's document.
+		expect(
+			await resolveProjectFileMentions({
+				userId: "other-user",
+				projectId: "trip-project",
+				message: "Read me Hotel Motto booking.pdf",
+			}),
+		).toEqual([]);
+		expect(
+			await resolveProjectFileMentions({
+				userId: "owner-user",
+				projectId: "trip-project",
+				message: "Read me Their file.pdf",
+			}),
+		).toEqual([]);
+	});
+
+	it("fails a named file the same way the linked-source path does when it is not prompt ready", async () => {
+		seedProjectKnowledgeScenario();
+		const { linkProjectKnowledge, resolveProjectFileMentions } = await import(
+			"./project-knowledge"
+		);
+		const { resolveLinkedContextSourcesForConversation } = await import(
+			"$lib/server/services/linked-context-sources"
+		);
+
+		// A plain text upload the pipeline never normalized: it links, it lists,
+		// and its content is what cannot be served.
+		await linkProjectKnowledge({
+			userId: "owner-user",
+			projectId: "trip-project",
+			artifactIds: ["artifact-native-summary"],
+		});
+
+		const mentions = await resolveProjectFileMentions({
+			userId: "owner-user",
+			projectId: "trip-project",
+			message: "What does Notes about the trip.txt say?",
+		});
+		expect(mentions).toHaveLength(1);
+
+		await expect(
+			resolveLinkedContextSourcesForConversation({
+				userId: "owner-user",
+				conversationId: "conv-plain",
+				linkedSources: mentions,
+				attachmentIds: [],
+			}),
+		).rejects.toMatchObject({
+			name: "LinkedContextSourceError",
+			status: 409,
+			code: "linked_source_not_prompt_ready",
+		});
 	});
 });

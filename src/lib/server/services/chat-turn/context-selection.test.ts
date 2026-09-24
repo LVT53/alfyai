@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 	listConversationSourceArtifactIds: vi.fn(),
 	listConversationSourceArtifactNames: vi.fn(async () => []),
 	listConversationLinkedContextSources: vi.fn(),
+	resolveLinkedContextSourcesForConversation: vi.fn(),
 	selectWorkingSetArtifactsForPrompt: vi.fn(),
 	findRelevantKnowledgeArtifacts: vi.fn(),
 	getArtifactsForUser: vi.fn(),
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => ({
 	getTargetConstructedContext: vi.fn(),
 	updateConversationContextStatus: vi.fn(),
 	listProjectKnowledge: vi.fn(),
+	resolveProjectFileMentions: vi.fn(),
 	getConversationProjectId: vi.fn(),
 	getConversationProjectLabel: vi.fn(),
 	getConversationForkOrigin: vi.fn(),
@@ -74,6 +76,7 @@ vi.mock("../knowledge", () => ({
 	getMaxModelContext: mocks.getMaxModelContext,
 	getTargetConstructedContext: mocks.getTargetConstructedContext,
 	listProjectKnowledge: mocks.listProjectKnowledge,
+	resolveProjectFileMentions: mocks.resolveProjectFileMentions,
 	listConversationSourceArtifactIds: mocks.listConversationSourceArtifactIds,
 	listConversationSourceArtifactNames:
 		mocks.listConversationSourceArtifactNames,
@@ -88,6 +91,8 @@ vi.mock("../knowledge", () => ({
 vi.mock("../linked-context-sources", () => ({
 	listConversationLinkedContextSources:
 		mocks.listConversationLinkedContextSources,
+	resolveLinkedContextSourcesForConversation:
+		mocks.resolveLinkedContextSourcesForConversation,
 }));
 
 vi.mock("../messages", () => ({
@@ -291,6 +296,14 @@ function resetConstructedContextMocks() {
 	]);
 	mocks.findRelevantKnowledgeArtifacts.mockResolvedValue([]);
 	mocks.listProjectKnowledge.mockResolvedValue([]);
+	// Default: the turn names no project file, which is the ordinary turn.
+	mocks.resolveProjectFileMentions.mockResolvedValue([]);
+	// Validation returns the canonicals it was handed. The real one is tested
+	// against a real database in project-knowledge.test.ts; here it is the seam
+	// that lets a mention reach the prompt.
+	mocks.resolveLinkedContextSourcesForConversation.mockImplementation(
+		async ({ linkedSources }: { linkedSources: unknown[] }) => linkedSources,
+	);
 	mocks.getConversationProjectId.mockResolvedValue(null);
 	mocks.getConversationProjectLabel.mockResolvedValue(null);
 	mocks.getProjectReferenceContext.mockResolvedValue(null);
@@ -1821,6 +1834,169 @@ describe("buildConstructedContext", () => {
 			expect(after.inputValue).toContain("- kept.md");
 			// One read per turn: no cross-turn cache to go stale.
 			expect(mocks.listProjectKnowledge).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	describe("Project file mentions", () => {
+		// Names the file, and long enough to match the deep-tier intent rules.
+		const DEEP_MENTION_MESSAGE =
+			"Please summarise wien-itinerary.md in detail, including every risk and open question we have discussed so far in this conversation.";
+		// Short, and free of every word that would promote the turn to the deep
+		// tier — this is the shallow case the review cares about.
+		const SHALLOW_MENTION_MESSAGE = "What about wien-itinerary.md?";
+
+		function mentionedFile(): {
+			file: ProjectKnowledgeItem;
+			source: import("$lib/server/services/linked-context-sources").LinkedContextSource;
+		} {
+			const artifactId = "artifact-wien";
+			return {
+				file: {
+					artifactId,
+					name: "wien-itinerary.md",
+					mimeType: "text/markdown",
+					type: "source_document",
+					sizeBytes: 1_024,
+					linkedAt: 1,
+					summary: "Trains and hotels for October.",
+				},
+				source: {
+					displayArtifactId: artifactId,
+					promptArtifactId: artifactId,
+					familyArtifactIds: [artifactId],
+					name: "wien-itinerary.md",
+					type: "document",
+				},
+			};
+		}
+
+		it("resolves a project file named in the message into the turn's linked sources", async () => {
+			resetConstructedContextMocks();
+			const { file, source } = mentionedFile();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue([file]);
+			mocks.resolveProjectFileMentions.mockResolvedValue([source]);
+			mocks.getArtifactsForUser.mockResolvedValue([
+				artifact({
+					id: source.displayArtifactId,
+					name: source.name,
+					contentText: "Wien, 10 October: Railjet 07:40, Hotel Motto.",
+				}),
+			]);
+			mocks.getPromptArtifactSnippets.mockResolvedValue(
+				new Map([
+					[source.displayArtifactId, "Wien, 10 October: Railjet 07:40."],
+				]),
+			);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: DEEP_MENTION_MESSAGE,
+				modelId: "local-model",
+			});
+
+			// The name was matched against the list this turn already read — the
+			// section and the mention can never disagree about what the project
+			// holds, and the read stays one per turn.
+			expect(mocks.resolveProjectFileMentions).toHaveBeenCalledWith({
+				userId: "user-1",
+				projectId: "project-1",
+				message: DEEP_MENTION_MESSAGE,
+				files: [file],
+			});
+			expect(mocks.listProjectKnowledge).toHaveBeenCalledTimes(1);
+			// Naming a file is not a way around the linked-source rules: the
+			// candidate goes through the same validation every linked source does.
+			expect(
+				mocks.resolveLinkedContextSourcesForConversation,
+			).toHaveBeenCalledWith({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				linkedSources: [source],
+				attachmentIds: [],
+			});
+			expect(constructed.inputValue).toContain("## Linked Sources");
+			expect(constructed.inputValue).toContain("Wien, 10 October");
+			expect(constructed.contextTraceSections).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: "Linked Sources",
+						itemIds: [source.displayArtifactId],
+						itemTitles: ["wien-itinerary.md"],
+					}),
+				]),
+			);
+		});
+
+		it("gets the file's content into the prompt on a shallow turn when it is named", async () => {
+			resetConstructedContextMocks();
+			const { file, source } = mentionedFile();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue([file]);
+			mocks.resolveProjectFileMentions.mockResolvedValue([source]);
+			mocks.getArtifactsForUser.mockResolvedValue([
+				artifact({
+					id: source.displayArtifactId,
+					name: source.name,
+					contentText: "Wien, 10 October: Railjet 07:40, Hotel Motto.",
+				}),
+			]);
+			mocks.getPromptArtifactSnippets.mockResolvedValue(
+				new Map([
+					[source.displayArtifactId, "Wien, 10 October: Railjet 07:40."],
+				]),
+			);
+
+			const constructed = await buildConstructedContext({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				message: SHALLOW_MENTION_MESSAGE,
+				modelId: "local-model",
+			});
+
+			// Guards the fixture: a "shallow" case that quietly ran the deep
+			// builder would prove nothing about the shallow tier.
+			expect(mocks.resolvePromptAttachmentArtifacts).not.toHaveBeenCalled();
+			expect(constructed.inputValue).toContain("## Project Files");
+			expect(constructed.inputValue).toContain("- wien-itinerary.md");
+			// The list alone is not enough: the file the user named has to have
+			// its content in the prompt, or naming it changed nothing.
+			expect(constructed.inputValue).toContain("## Linked Sources");
+			expect(constructed.inputValue).toContain("Wien, 10 October");
+			expect(mocks.getPromptArtifactSnippets).toHaveBeenCalled();
+		});
+
+		it("fails the turn the way the linked-source path does when the named file is not prompt ready", async () => {
+			resetConstructedContextMocks();
+			const { file, source } = mentionedFile();
+			mocks.getConversationProjectId.mockResolvedValue("project-1");
+			mocks.listProjectKnowledge.mockResolvedValue([file]);
+			mocks.resolveProjectFileMentions.mockResolvedValue([source]);
+			mocks.resolveLinkedContextSourcesForConversation.mockRejectedValue(
+				Object.assign(
+					new Error("Linked source is not ready for prompt context"),
+					{
+						name: "LinkedContextSourceError",
+						status: 409,
+						code: "linked_source_not_prompt_ready",
+					},
+				),
+			);
+
+			// Not swallowed into a silent empty section: the user asked for a file
+			// the library cannot serve, and that is the answer they get.
+			await expect(
+				buildConstructedContext({
+					userId: "user-1",
+					conversationId: "conversation-1",
+					message: SHALLOW_MENTION_MESSAGE,
+					modelId: "local-model",
+				}),
+			).rejects.toMatchObject({
+				name: "LinkedContextSourceError",
+				status: 409,
+			});
 		});
 	});
 });

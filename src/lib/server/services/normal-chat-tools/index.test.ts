@@ -4810,8 +4810,15 @@ describe("tool description hygiene", () => {
 	// unrelated tool to fund a file-tool clause would be the drift this file
 	// guards against. Re-measured after the release: 4,154 en / 6,607 hu.
 	//
-	// NOTE for whoever edits a description next: en is 6 tokens under its
-	// ceiling, where hu has 243 to spare. That is a tripwire, not a budget.
+	// Slice E (Workspaces: Folder Knowledge) added read_generated_file's
+	// project clause — a project's files are read by naming them, because the
+	// Project Files list is a catalogue and not content — and paid for it in
+	// the same description, as the note below requires: the file/name phrasing,
+	// the patch rule, the `hasMore` window, the `query` passages and the return
+	// sentence were all cut back. Re-measured after that: 4,153 en / 6,672 hu.
+	//
+	// NOTE for whoever edits a description next: en is 7 tokens under its
+	// ceiling, where hu has 178 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent, twice.
 	const PER_TOOL_TOKEN_CEILING = 750;
