@@ -770,6 +770,61 @@ describe("memory consolidation steps", () => {
 		expect(readItem(db, durableId).status).toBe("active");
 	});
 
+	it("does not treat its own renewal as fresh evidence: an untouched fact renews once, then expires", async () => {
+		const { db } = openSeedDatabase();
+		const start = new Date();
+		const userId = "u1";
+		seedUser(db, userId, start);
+		const projectionStateId = seedProjectionState(db, userId, start);
+		// Renewal bumps updatedAt, and "touched within 14 days" is the renewal
+		// evidence. The +30 day extension must push the next renewal window past
+		// that 14-day horizon, or every fact would renew itself forever.
+		const ids = [
+			{
+				origin: "judge_v1",
+				expiryClass: "time_bound",
+				reviewResolution: "accepted",
+				endorsement: "user_accepted",
+			},
+			{ origin: "judge_v1", expiryClass: "time_bound" },
+		].map((metadata) =>
+			seedItem(db, {
+				userId,
+				projectionStateId,
+				statement: `I am busy with a short project (${metadata.origin}).`,
+				metadata,
+				// Latest possible expiry inside the renewal window.
+				expiresAt: new Date(start.getTime() + 7 * DAY_MS - 60_000),
+				createdAt: new Date(start.getTime() - 20 * DAY_MS),
+				updatedAt: new Date(start.getTime() - 1 * DAY_MS),
+			}),
+		);
+
+		const { runExpireAndRenew } = await import("./steps");
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(start);
+			const first = await runExpireAndRenew({ userId });
+			expect(first.flatMap((x) => x.itemIds).sort()).toEqual([...ids].sort());
+
+			// Walk the nightly schedule to past the renewed expiry with no new
+			// evidence: nothing renews again, and both facts expire on time.
+			const renewedExpiry = readItem(db, ids[0]).expiresAt?.getTime() ?? 0;
+			for (
+				let t = start.getTime() + DAY_MS;
+				t <= renewedExpiry + DAY_MS;
+				t += DAY_MS
+			) {
+				vi.setSystemTime(new Date(t));
+				const actions = await runExpireAndRenew({ userId });
+				expect(actions.some((x) => x.type === "renewed")).toBe(false);
+			}
+			for (const id of ids) expect(readItem(db, id).status).toBe("expired");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("does not auto-extend a user_authored time_bound fact's end date", async () => {
 		const { db } = openSeedDatabase();
 		const now = new Date();
