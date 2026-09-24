@@ -116,7 +116,41 @@ normalised list markers, no trailing blank lines), document it next to the hashe
 That test is a gate on slice 1, and the canvas body's `body_hash` (slice 0's version rows) uses the same
 canonicalisation rule for JSON (stable key order).
 
-## Consequences for the slice specs
+## 13. The write route takes `body`, not `markdown`
+
+Slice 1's body route carried `{markdown, expectVersion}`, but Canvas and Slides write JSON bodies — so the
+field name would lie for three of five types. **Every type's write route takes `body`** (plus
+`expectVersion`); a Document's body happens to be Markdown. No alias, no per-type field name.
+
+## 14. One ops module, per-type vocabularies
+
+Slices 3 and 4 both wanted to create `ops.ts` (the id-addressed change application). **One shared module**
+owns the generic mechanism — `src/lib/shared/artifacts/ops.ts`: parse an ops envelope, validate it against a
+supplied op vocabulary, apply it to a document in order, and return per-op results (`applied` / `refused`
+with a reason). Each type owns its **vocabulary** in its own file: `board-ops.ts` (Canvas),
+`deck-ops.ts` (Slides), with the Document's block patches staying in slice 1's patch engine. Slice 3 creates
+the shared module; slice 4 extends nothing in it.
+
+## 15. The component directory is `src/lib/components/artifacts/` (plural)
+
+Slice 3 uses the plural, slices 4 and 6 the singular. **Plural wins** — consistent with the existing
+`campaigns/` and `instructions/`. Slices 4 and 6 are corrected in the review pass.
+
+## 16. Undo semantics, the perf gate, and two blocks that need review attention
+
+- **Undo has two meanings and both are kept.** The canvas's in-session undo/redo (Ctrl/Cmd+Z) reverses your
+  own recent steps and strokes and is transient by design, exactly as the prototype had it. Undoing an
+  Alfy change, or any change from an earlier session, is **version restore** through History. The two are
+  labelled differently in the UI so they cannot be confused, and the spec says which is which.
+- **Ruling 9 is amended.** CI asserts the structural budgets and a **loose** timing ceiling only (average
+  frame under 33 ms across the scripted pan sweep — roughly four times the measured 8.3 ms, so it catches a
+  catastrophic regression without failing on a slow runner). The real fps figure is produced by the probe
+  script and recorded in the pull request body, not asserted.
+- **Photos and live web are explicit review focus** in slice 3. They have the least reuse from the chat
+  (no reusable photo or live-result component exists), so they are new work and reviewers must look at them
+  first.
+
+## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
 - Slice 4: PPTX only; layouts fixed; the mockup's export line corrected.
