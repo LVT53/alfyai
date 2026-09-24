@@ -14,7 +14,6 @@ import type {
 	ContextDebugState,
 	ConversationContextStatus,
 } from "$lib/server/services/knowledge/context-types";
-import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import { listMessageWindow } from "$lib/server/services/messages";
 import type {
 	ChatTurnCompletionWarningCode,
@@ -122,7 +121,6 @@ export interface CompleteStreamTurnParams extends StreamCompletionFacts {
 	skillControlEnabled?: boolean;
 	serverSegments: ThinkingSegment[];
 	attachmentIds: string[];
-	linkedSources: LinkedContextSource[];
 	// Analytics overhaul (backend half) — threaded straight into
 	// finalizeChatTurn's skillUse param; see its doc comment.
 	skillUse?: { displayName: string } | null;
@@ -204,7 +202,6 @@ export async function completeStreamTurn(
 		skillControlEnabled = true,
 		serverSegments,
 		attachmentIds,
-		linkedSources,
 		skillUse,
 		userIntent,
 		activeDocumentArtifactId,
@@ -636,7 +633,6 @@ export async function completeStreamTurn(
 			turnOrigin,
 			contextTraceSections: preparedContext.contextTraceSections,
 			webCitationAudit: citationGate?.audit,
-			linkedSources,
 			persistTurnState: !wasStopped,
 			generatedOutputReconciliation:
 				hadFileProductionToolCall || hadConnectionWriteToolCall

@@ -115,4 +115,28 @@ describe("dead wiring the context-sources removal left behind", () => {
 		expect(i18n).not.toContain('"contextUsageRing.pinned"');
 		expect(i18n).not.toContain('"contextUsageRing.excluded"');
 	});
+
+	it("drops the linkedSources parameter finalizeChatTurn never read", () => {
+		// The parameter survived the Context Sources removal: finalizeChatTurn
+		// accepted it but no step ever read it, and the stream path threaded it
+		// through `CompleteStreamTurnParams` for that one dead argument.
+		for (const file of [
+			"src/lib/server/services/chat-turn/finalize.ts",
+			"src/lib/server/services/chat-turn/stream-completion.ts",
+		]) {
+			expect(
+				readFileSync(file, "utf8"),
+				`${file} still threads linkedSources`,
+			).not.toContain("linkedSources");
+		}
+		// The atlas artifact-link snapshot keeps its own linkedSources argument —
+		// that one is read. The send route may therefore pass it exactly once;
+		// the two finalizeChatTurn arguments it used to fill are gone (and would
+		// no longer typecheck, since the parameter itself is removed).
+		const send = readFileSync("src/routes/api/chat/send/+server.ts", "utf8");
+		expect(send).not.toContain("linkedSources: turn.linkedSources,");
+		expect(
+			send.match(/linkedSources: atlasPreflight\.value\.linkedSources,/g),
+		).toHaveLength(1);
+	});
 });
