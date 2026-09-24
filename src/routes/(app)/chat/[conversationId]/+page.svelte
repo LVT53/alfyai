@@ -124,6 +124,7 @@ import {
 	WORKSPACE_CONVERSATION_DELETED_EVENT,
 } from "$lib/client/document-workspace-state";
 import {
+	conversations,
 	removeConversationLocal,
 	updateConversationMemoryIncognitoLocal,
 	updateConversationTitleLocal,
@@ -276,6 +277,8 @@ const skillDraftLocalizedApiErrorKeys: Record<string, I18nKey> = {
 	"skills.notFound": "skills.notFound",
 };
 
+let titleSyncedConversationId: string | null = null;
+
 $effect(() => {
 	// Incognito, one-way — pass the freshly-loaded server truth directly
 	// rather than relying on the local map alone: the landing page's
@@ -289,15 +292,26 @@ $effect(() => {
 		data.conversation.projectId ?? null,
 		data.conversation.memoryIncognito ?? false,
 	);
+	// Arriving on a conversation, its freshly-loaded detail is the newest
+	// word on its title, so it replaces whatever the sidebar snapshot held.
+	// Only on arrival: a later reload of the same conversation (a
+	// visibility-restore invalidate) could have left before a generated
+	// title was saved, and must not put "New Conversation" back.
+	if (titleSyncedConversationId !== data.conversation.id) {
+		titleSyncedConversationId = data.conversation.id;
+		updateConversationTitleLocal(data.conversation.id, data.conversation.title);
+	}
 });
 
-// Track conversation title reactively - use $derived to keep in sync with page data
-let conversationTitle = $derived(data.conversation?.title ?? "");
-
-// For manual updates (title generation), track separately
-let generatedTitleOverride = $state<string | null>(null);
+// The conversations store is the one live source for a conversation's title:
+// a generated title and a sidebar rename both land there, and the sidebar,
+// the phone header (+layout.svelte) and this page's title bar and <title>
+// all read it. The page's own data only covers the moment before the row
+// exists.
 let effectiveConversationTitle = $derived(
-	generatedTitleOverride ?? conversationTitle,
+	$conversations.find((item) => item.id === data.conversation.id)?.title ??
+		data.conversation?.title ??
+		"",
 );
 
 // Project breadcrumb for the desktop title bar (see the chat-title-bar
@@ -1750,7 +1764,6 @@ function maybeTriggerTitleGeneration(
 		.then((title) => {
 			if (title) {
 				updateConversationTitleLocal(conversationIdForTitle, title);
-				generatedTitleOverride = title;
 			}
 		})
 		.catch(() => {

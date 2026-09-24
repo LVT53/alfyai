@@ -2433,132 +2433,147 @@ describe("chat page regenerate — later-turns confirm integration (B1)", () => 
 			"Regenerating this response will replace source history that already has forks. Existing forks stay unchanged. Continue?",
 		);
 	});
-});
 
-describe("chat page conversation title", () => {
-	const titleBar = () =>
-		document.querySelector(".chat-title-bar .chat-title-main");
+	describe("conversation title", () => {
+		const titleBar = () =>
+			document.querySelector(".chat-title-bar .chat-title-main");
 
-	beforeEach(() => {
-		conversationsStore.set([]);
-		runtimeHarness.streamInvocations.length = 0;
-		vi.mocked(fetchConversationDetail).mockResolvedValue(
-			conversationDetailFixture(),
-		);
-		vi.mocked(generateConversationTitle).mockReset();
-		fetchActiveCapabilitiesMock.mockReset().mockResolvedValue({
-			served: [],
-			defaultOn: [],
-			accounts: [],
+		beforeEach(() => {
+			conversationsStore.set([]);
+			vi.mocked(generateConversationTitle).mockReset();
 		});
-		window.sessionStorage.clear();
-		Object.defineProperty(window, "matchMedia", {
-			writable: true,
-			value: vi.fn().mockImplementation((query: string) => ({
-				matches: false,
-				media: query,
-				onchange: null,
-				addListener: vi.fn(),
-				removeListener: vi.fn(),
-				addEventListener: vi.fn(),
-				removeEventListener: vi.fn(),
-				dispatchEvent: vi.fn(),
-			})),
-		});
-		installAnimationFrameMock();
-	});
 
-	afterEach(() => {
-		clearAnimationFrameMockTimers();
-		vi.restoreAllMocks();
-	});
+		async function finishFirstTurn() {
+			await fireEvent.input(screen.getByTestId("message-input"), {
+				target: { value: "How does tidal energy work?" },
+			});
+			await fireEvent.click(
+				screen.getByRole("button", { name: "Send message" }),
+			);
+			expect(runtimeHarness.streamInvocations).toHaveLength(1);
+			runtimeHarness.streamInvocations[0].callbacks.onToken("Tides turn.");
+			runtimeHarness.streamInvocations[0].callbacks.onEnd("Tides turn.", {
+				assistantMessageId: "assistant-1",
+			});
+			await waitFor(() => {
+				expect(generateConversationTitle).toHaveBeenCalledTimes(1);
+			});
+		}
 
-	async function finishFirstTurn() {
-		await fireEvent.input(screen.getByTestId("message-input"), {
-			target: { value: "How does tidal energy work?" },
-		});
-		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-		expect(runtimeHarness.streamInvocations).toHaveLength(1);
-		runtimeHarness.streamInvocations[0].callbacks.onToken("Tides turn.");
-		runtimeHarness.streamInvocations[0].callbacks.onEnd("Tides turn.", {
-			assistantMessageId: "assistant-1",
-		});
-		await waitFor(() => {
-			expect(generateConversationTitle).toHaveBeenCalledTimes(1);
-		});
-	}
-
-	it("shows a generated title in the title bar and document title", async () => {
-		vi.mocked(generateConversationTitle).mockResolvedValue(
-			"Tidal Energy Basics",
-		);
-		renderPage(
-			pageData({
-				conversation: conversationFixture("conv-1", {
-					title: "New Conversation",
+		it("shows a generated title in the title bar and document title", async () => {
+			vi.mocked(generateConversationTitle).mockResolvedValue(
+				"Tidal Energy Basics",
+			);
+			renderPage(
+				pageData({
+					conversation: conversationFixture("conv-1", {
+						title: "New Conversation",
+					}),
 				}),
-			}),
-		);
+			);
 
-		await finishFirstTurn();
+			await finishFirstTurn();
 
-		await waitFor(() => {
-			expect(titleBar()).toHaveTextContent("Tidal Energy Basics");
-		});
-		expect(document.title).toBe("Tidal Energy Basics");
-	});
-
-	it("shows a sidebar rename of the open conversation", async () => {
-		renderPage(
-			pageData({
-				conversation: conversationFixture("conv-1", { title: "Chat" }),
-			}),
-		);
-		await waitFor(() => {
-			expect(titleBar()).toHaveTextContent("Chat");
+			await waitFor(() => {
+				expect(titleBar()).toHaveTextContent("Tidal Energy Basics");
+			});
+			expect(document.title).toBe("Tidal Energy Basics");
 		});
 
-		await renameConversation("conv-1", "Renamed chat");
-
-		await waitFor(() => {
-			expect(titleBar()).toHaveTextContent("Renamed chat");
-		});
-		expect(document.title).toBe("Renamed chat");
-	});
-
-	it("keeps a late generated title on its own conversation after navigating to another", async () => {
-		let resolveTitle: (title: string | null) => void = () => {};
-		vi.mocked(generateConversationTitle).mockReturnValue(
-			new Promise((resolve) => {
-				resolveTitle = resolve;
-			}),
-		);
-		const view = renderPage(
-			pageData({
-				conversation: conversationFixture("conv-1", {
-					title: "New Conversation",
+		it("replaces a stale sidebar title with the loaded detail on arrival, but not on a same-conversation reload", async () => {
+			conversationsStore.set([
+				{
+					...conversationFixture("conv-1", { title: "Old sidebar title" }),
+				},
+			]);
+			const view = renderPage(
+				pageData({
+					conversation: conversationFixture("conv-1", {
+						title: "New Conversation",
+					}),
 				}),
-			}),
-		);
-		await finishFirstTurn();
+			);
+			await waitFor(() => {
+				expect(titleBar()).toHaveTextContent("New Conversation");
+			});
 
-		await view.rerender({
-			data: pageData({
-				conversation: conversationFixture("conv-2", {
-					title: "Second chat",
-					createdAt: 2,
-					updatedAt: 2,
+			// A generated title lands, then a reload of the same conversation
+			// that left before the title was saved arrives.
+			await renameConversation("conv-1", "Tidal Energy Basics");
+			await view.rerender({
+				data: pageData({
+					conversation: conversationFixture("conv-1", {
+						title: "New Conversation",
+						updatedAt: 5,
+					}),
 				}),
-			}),
-			params: { conversationId: "conv-2" },
-		});
-		resolveTitle("Tidal Energy Basics");
-		await new Promise((resolve) => setTimeout(resolve, 0));
+				params: { conversationId: "conv-1" },
+			});
+			await new Promise((resolve) => setTimeout(resolve, 0));
 
-		expect(titleBar()).toHaveTextContent("Second chat");
-		expect(document.title).toBe("Second chat");
-		expect(
-			get(conversationsStore).find((item) => item.id === "conv-1")?.title,
-		).toBe("Tidal Energy Basics");
+			// The title types itself in (ConversationTitleText), so wait it out.
+			await waitFor(() => {
+				expect(titleBar()).toHaveTextContent("Tidal Energy Basics");
+			});
+			expect(
+				get(conversationsStore).find((item) => item.id === "conv-1")?.title,
+			).toBe("Tidal Energy Basics");
+		});
+
+		it("shows a sidebar rename of the open conversation", async () => {
+			renderPage(
+				pageData({
+					conversation: conversationFixture("conv-1", { title: "Chat" }),
+				}),
+			);
+			await waitFor(() => {
+				expect(titleBar()).toHaveTextContent("Chat");
+			});
+
+			await renameConversation("conv-1", "Renamed chat");
+
+			await waitFor(() => {
+				expect(titleBar()).toHaveTextContent("Renamed chat");
+			});
+			expect(document.title).toBe("Renamed chat");
+		});
+
+		it("keeps a late generated title on its own conversation after navigating to another", async () => {
+			let resolveTitle: (title: string | null) => void = () => {};
+			vi.mocked(generateConversationTitle).mockReturnValue(
+				new Promise((resolve) => {
+					resolveTitle = resolve;
+				}),
+			);
+			const view = renderPage(
+				pageData({
+					conversation: conversationFixture("conv-1", {
+						title: "New Conversation",
+					}),
+				}),
+			);
+			await finishFirstTurn();
+
+			await view.rerender({
+				data: pageData({
+					conversation: conversationFixture("conv-2", {
+						title: "Second chat",
+						createdAt: 2,
+						updatedAt: 2,
+					}),
+				}),
+				params: { conversationId: "conv-2" },
+			});
+			resolveTitle("Tidal Energy Basics");
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			await waitFor(() => {
+				expect(titleBar()).toHaveTextContent("Second chat");
+			});
+			expect(document.title).toBe("Second chat");
+			expect(
+				get(conversationsStore).find((item) => item.id === "conv-1")?.title,
+			).toBe("Tidal Energy Basics");
+		});
 	});
 });

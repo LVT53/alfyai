@@ -22,25 +22,9 @@ function sidebarConversation(
 }
 
 describe("resolveActiveConversationTitle", () => {
-	it("uses the active page conversation title before stale sidebar snapshots", () => {
-		const title = resolveActiveConversationTitle({
-			routeConversationId: "conv-2",
-			conversationStore: [
-				sidebarConversation("conv-1", "First chat"),
-				sidebarConversation("conv-2", "Old sidebar title"),
-			],
-			shellConversations: [sidebarConversation("conv-2", "Old shell title")],
-			pageData: {
-				conversation: {
-					id: "conv-2",
-					title: "Fresh page detail title",
-				},
-			},
-		});
-
-		expect(title).toBe("Fresh page detail title");
-	});
-
+	// A stale store row on arrival is no longer the resolver's problem: the
+	// chat page writes its freshly-loaded title into the store when it lands
+	// on a conversation (page-runtime.test.ts pins that).
 	it("shows a title that landed in the conversations store after the page loaded", () => {
 		// A generated title (or a sidebar rename) updates the shared
 		// conversations store, never the already-loaded page data, which
