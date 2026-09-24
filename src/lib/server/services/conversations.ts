@@ -233,14 +233,17 @@ export async function messageBelongsToConversation(
 	return message !== undefined;
 }
 
-export async function updateConversationTitle(
+// Shared by every owned-conversation field update below (rename, touch) so
+// the auth-scoped update/where/returning shape lives once instead of being
+// copy-pasted per field.
+async function updateOwnedConversationFields(
 	userId: string,
 	conversationId: string,
-	title: string,
+	patch: Partial<typeof conversations.$inferInsert>,
 ): Promise<Conversation | null> {
 	const [conversation] = await db
 		.update(conversations)
-		.set({ title, updatedAt: new Date() })
+		.set(patch)
 		.where(
 			and(
 				eq(conversations.id, conversationId),
@@ -252,6 +255,23 @@ export async function updateConversationTitle(
 		return null;
 	}
 	return toConversation(conversation);
+}
+
+// Renaming a conversation (manual rename, or the automatic post-turn title
+// generation call in api/conversations/[id]/title) is a label change, not
+// conversation activity — it must not bump `updatedAt`, for the same reason
+// a project-folder move must not (see moveConversationToProject below).
+// Automatic title generation always runs after the turn that produced it has
+// already called `touchConversation` (send/stream call it at real turn
+// completion, before the browser's post-stream title request lands), so
+// skipping the bump here does not hide a brand-new chat from the sidebar or
+// the home "recent" rail — the turn's own touch already surfaced it.
+export async function updateConversationTitle(
+	userId: string,
+	conversationId: string,
+	title: string,
+): Promise<Conversation | null> {
+	return updateOwnedConversationFields(userId, conversationId, { title });
 }
 
 export async function deleteConversation(
@@ -274,20 +294,9 @@ export async function touchConversation(
 	userId: string,
 	conversationId: string,
 ): Promise<Conversation | null> {
-	const [conversation] = await db
-		.update(conversations)
-		.set({ updatedAt: new Date() })
-		.where(
-			and(
-				eq(conversations.id, conversationId),
-				eq(conversations.userId, userId),
-			),
-		)
-		.returning();
-	if (!conversation) {
-		return null;
-	}
-	return toConversation(conversation);
+	return updateOwnedConversationFields(userId, conversationId, {
+		updatedAt: new Date(),
+	});
 }
 
 export async function setConversationSidebarPinned(

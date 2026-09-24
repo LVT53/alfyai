@@ -576,3 +576,162 @@ describe("conversation recency ordering is unaffected by folder moves", () => {
 		]);
 	});
 });
+
+// Owner-reported bug: a manual rename (and the automatic post-turn title
+// generation call, which reuses the same `updateConversationTitle`) bumped
+// `updatedAt`, so renaming an old chat jumped it to the top of the sidebar
+// and the home page's "recent" rail even though nothing was actually said in
+// it. `touchConversation` (called at real turn completion in send/stream) is
+// the sole intentional activity bump; a rename must not duplicate it.
+describe("conversation recency ordering is unaffected by renames", () => {
+	beforeEach(() => {
+		dbPath = `/tmp/alfyai-conversation-rename-recency-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
+	});
+
+	afterEach(async () => {
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// The DB module may not have been imported if a test failed early.
+		}
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// Temporary DB cleanup is best-effort.
+		}
+	});
+
+	function seedRenameRecencyScenario() {
+		const { sqlite, db } = openSeedDatabase();
+		const monthAgo = new Date("2026-04-14T09:00:00.000Z");
+		const today = new Date("2026-05-14T09:00:00.000Z");
+
+		db.insert(schema.users)
+			.values({
+				id: "rename-user",
+				email: "rename@example.com",
+				passwordHash: "hash",
+			})
+			.run();
+		db.insert(schema.conversations)
+			.values([
+				{
+					id: "genuinely-recent",
+					userId: "rename-user",
+					title: "Sent today",
+					createdAt: today,
+					updatedAt: today,
+				},
+				{
+					id: "month-old",
+					userId: "rename-user",
+					title: "Sent a month ago",
+					createdAt: monthAgo,
+					updatedAt: monthAgo,
+				},
+			])
+			.run();
+		db.insert(schema.messages)
+			.values([
+				{
+					id: "genuinely-recent-message",
+					conversationId: "genuinely-recent",
+					role: "user",
+					content: "visible",
+					createdAt: today,
+				},
+				{
+					id: "month-old-message",
+					conversationId: "month-old",
+					role: "user",
+					content: "visible",
+					createdAt: monthAgo,
+				},
+			])
+			.run();
+
+		sqlite.close();
+		return { monthAgo, today };
+	}
+
+	it("does not bump updatedAt when a conversation is manually renamed", async () => {
+		const { monthAgo } = seedRenameRecencyScenario();
+		const { updateConversationTitle } = await import("./conversations");
+
+		const renamed = await updateConversationTitle(
+			"rename-user",
+			"month-old",
+			"Renamed chat",
+		);
+
+		expect(renamed?.title).toBe("Renamed chat");
+		expect(renamed?.updatedAt).toBe(monthAgo.getTime() / 1000);
+	});
+
+	it("keeps a month-old conversation below a genuinely recent one after it is renamed", async () => {
+		const { monthAgo } = seedRenameRecencyScenario();
+		const { listConversations, updateConversationTitle } = await import(
+			"./conversations"
+		);
+
+		const renamed = await updateConversationTitle(
+			"rename-user",
+			"month-old",
+			"Renamed chat",
+		);
+		const listed = await listConversations("rename-user");
+
+		expect(renamed?.updatedAt).toBe(monthAgo.getTime() / 1000);
+		expect(listed.map((conversation) => conversation.id)).toEqual([
+			"genuinely-recent",
+			"month-old",
+		]);
+	});
+
+	// Automatic title generation (api/conversations/[id]/title) runs after the
+	// turn that produced it already called `touchConversation` at completion,
+	// so a brand-new chat is already the most recent conversation by the time
+	// its generated title lands. Confirms the shared no-bump code path does not
+	// accidentally hide that new chat from the top of the list.
+	it("still surfaces a brand-new chat at the top after its title is auto-generated", async () => {
+		const { today } = seedRenameRecencyScenario();
+		const { listConversations, touchConversation, updateConversationTitle } =
+			await import("./conversations");
+		const { sqlite, db } = openSeedDatabase();
+		db.insert(schema.conversations)
+			.values({
+				id: "brand-new",
+				userId: "rename-user",
+				title: "New conversation",
+				createdAt: today,
+				updatedAt: today,
+			})
+			.run();
+		db.insert(schema.messages)
+			.values({
+				id: "brand-new-message",
+				conversationId: "brand-new",
+				role: "user",
+				content: "visible",
+				createdAt: today,
+			})
+			.run();
+		sqlite.close();
+
+		// The turn's own completion touch fires before the browser's
+		// post-stream title request lands.
+		await touchConversation("rename-user", "brand-new");
+		const generated = await updateConversationTitle(
+			"rename-user",
+			"brand-new",
+			"Generated title",
+		);
+		const listed = await listConversations("rename-user");
+
+		expect(generated?.title).toBe("Generated title");
+		expect(listed[0]?.id).toBe("brand-new");
+	});
+});
