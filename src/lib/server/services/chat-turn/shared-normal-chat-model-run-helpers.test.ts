@@ -12,6 +12,11 @@ const mocks = vi.hoisted(() => ({
 	listSkillCatalogueEntries: vi.fn(),
 	seedBuiltInSystemSkillDefinitions: vi.fn(),
 	sendJsonControlMessage: vi.fn(),
+	resolveTurnInstructions: vi.fn(),
+}));
+
+vi.mock("$lib/server/services/instructions", () => ({
+	resolveTurnInstructions: mocks.resolveTurnInstructions,
 }));
 
 vi.mock("$lib/server/services/skills/prompt-context", () => ({
@@ -348,5 +353,65 @@ describe("prepareOutboundContext automatic context compression wiring", () => {
 			"model1",
 			options,
 		);
+	});
+});
+
+describe("prepareOutboundContext standing instructions wiring", () => {
+	beforeEach(() => {
+		mocks.prepareOutboundChatContext.mockReset();
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "prepared",
+			systemPrompt: "system",
+			contextStatus: undefined,
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+		});
+		mocks.resolveTurnInstructions.mockReset();
+		mocks.resolveTurnInstructions.mockResolvedValue({
+			personal: null,
+			project: null,
+		});
+	});
+
+	// Prompt assembly renders instructions and never reads for them, so the one
+	// resolution per turn has to happen here and travel as data. If this wiring
+	// is dropped the feature goes quiet without a single test failing in the
+	// context suite, which only ever passes instructions in by hand.
+	it("resolves the turn's standing instructions once and hands them to context preparation", async () => {
+		mocks.resolveTurnInstructions.mockResolvedValue({
+			personal: "Use metric units.",
+			project: null,
+		});
+		const params = {
+			userId: "user-1",
+			runtimeConfig,
+			message: "Continue where we left off.",
+			conversationId: "conv-1",
+			modelId: "model1" as const,
+			user: { id: "user-1" },
+		};
+		const runtime = await resolveProviderRuntime({
+			...params,
+			overrideProvider: {
+				id: "provider-1",
+				name: "local",
+				displayName: "Local",
+				baseUrl: "http://local-model/v1",
+				modelName: "local-model",
+				apiKey: "local-key",
+			} as NormalChatModelRunProvider,
+		});
+
+		await prepareOutboundContext(params, runtime, null, new Set());
+
+		expect(mocks.resolveTurnInstructions).toHaveBeenCalledTimes(1);
+		expect(mocks.resolveTurnInstructions).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
+		});
+		expect(
+			mocks.prepareOutboundChatContext.mock.lastCall?.[0].instructions,
+		).toEqual({ personal: "Use metric units.", project: null });
 	});
 });

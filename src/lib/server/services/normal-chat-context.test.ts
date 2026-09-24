@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ResolvedTurnInstructions } from "$lib/server/services/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 
 const mocks = vi.hoisted(() => ({
@@ -730,11 +731,12 @@ describe("prepareOutboundChatContext", () => {
 
 		// P2 prompt diet, review outcome 1 — prefix stability is a property of
 		// the whole system message, so two turns of the SAME conversation
-		// (same base prompt, model, connections, depth, personality, and
-		// explicit responseLanguage) must produce a byte-identical system
-		// prompt no matter how the current user message is worded, and the
-		// trailing section order (Runtime Guidance, then Response Style last)
-		// must not move around.
+		// (same base prompt, model, connections, depth, personality, personal
+		// instructions, and explicit responseLanguage) must produce a
+		// byte-identical system prompt no matter how the current user message
+		// is worded, and the trailing section order (Runtime Guidance, then
+		// Response Style, then the user's own instructions) must not move
+		// around.
 		it("is byte-identical for two calls differing only in the user message, with the trailing section order unchanged", () => {
 			const buildForMessage = (inputValue: string) =>
 				buildOutboundSystemPrompt({
@@ -745,6 +747,7 @@ describe("prepareOutboundChatContext", () => {
 					fileProductionToolsAvailable: true,
 					hasActiveConnections: true,
 					personalityPrompt: "Be extremely concise and upbeat.",
+					instructions: { personal: "Use metric units.", project: null },
 					reasoningDepthEffort: {
 						depthMetadata: {
 							requested: "auto",
@@ -769,16 +772,156 @@ describe("prepareOutboundChatContext", () => {
 			expect(first).toBe(second);
 
 			// Trailing section order: Runtime Guidance precedes Response Style,
-			// and Response Style is the last section in the assembled prompt.
+			// which precedes the user's own instructions. Response Style is no
+			// longer the last section: it yields to instructions, so the
+			// instructions have to be the ones that close the prompt.
 			const runtimeGuidanceIndex = first.indexOf("## Runtime Guidance");
 			const responseStyleIndex = first.indexOf("## Response Style");
+			const instructionsIndex = first.indexOf("## Your Instructions");
 			expect(runtimeGuidanceIndex).toBeGreaterThan(-1);
 			expect(responseStyleIndex).toBeGreaterThan(runtimeGuidanceIndex);
-			expect(first.trimEnd().endsWith("Be extremely concise and upbeat.")).toBe(
-				true,
+			expect(instructionsIndex).toBeGreaterThan(responseStyleIndex);
+			expect(first.trimEnd().endsWith("Use metric units.")).toBe(true);
+		});
+
+		// Slice C — personal instructions. They ride the system message (not the
+		// user packet) because short messages skip the packet's folder
+		// sections, and they are the one part of the system message whose text
+		// the user controls.
+		const INSTRUCTIONS_BOILERPLATE =
+			"AlfyAI follows these in every chat. Follow Project Instructions over Your Instructions, and both over the Response Style and any remembered preference; the user's current message overrides all of them.";
+
+		function buildWithInstructions(
+			instructions: ResolvedTurnInstructions | null,
+			personalityPrompt = "Be extremely concise and upbeat.",
+		) {
+			return buildOutboundSystemPrompt({
+				basePrompt: "Base system prompt",
+				inputValue: "What's the weather like tomorrow?",
+				responseLanguage: "en",
+				modelDisplayName: "Provider Model",
+				fileProductionToolsAvailable: true,
+				personalityPrompt,
+				instructions,
+			});
+		}
+
+		// A user line is inside the section, not structure of its own, exactly
+		// when it carries the four-space indent. Comparing for exact equality
+		// with the raw line would assert the opposite of what the indent is
+		// for.
+		function sectionContainsVerbatim(prompt: string, line: string): boolean {
+			return prompt
+				.split("\n")
+				.some((candidate) => candidate === `    ${line}`);
+		}
+
+		it("renders Your Instructions after Response Style when personal instructions are set", () => {
+			const prompt = buildWithInstructions({
+				personal: "Use metric units.",
+				project: null,
+			});
+
+			expect(prompt).toContain("## Your Instructions");
+			expect(prompt).toContain(INSTRUCTIONS_BOILERPLATE);
+			expect(sectionContainsVerbatim(prompt, "Use metric units.")).toBe(true);
+
+			const responseStyleIndex = prompt.indexOf("## Response Style");
+			const instructionsIndex = prompt.indexOf("## Your Instructions");
+			expect(responseStyleIndex).toBeGreaterThan(-1);
+			expect(instructionsIndex).toBeGreaterThan(responseStyleIndex);
+		});
+
+		it("renders no Your Instructions section when they are unset", () => {
+			expect(buildWithInstructions(null)).not.toContain("## Your Instructions");
+			expect(
+				buildWithInstructions({ personal: null, project: null }),
+			).not.toContain("## Your Instructions");
+		});
+
+		it("is byte-identical across turns for identical instructions", () => {
+			const instructions: ResolvedTurnInstructions = {
+				personal: "Use metric units.",
+				project: null,
+			};
+
+			expect(buildWithInstructions(instructions)).toBe(
+				buildWithInstructions({ ...instructions }),
 			);
 		});
+
+		it("changes the prefix when the instructions change", () => {
+			const before = buildWithInstructions({
+				personal: "Use metric units.",
+				project: null,
+			});
+			const after = buildWithInstructions({
+				personal: "Use imperial units.",
+				project: null,
+			});
+
+			expect(before).not.toBe(after);
+		});
+
+		it("keeps a user line that looks like a heading inside the instructions section", () => {
+			// Nothing stops a user from typing section structure — and they will,
+			// because "## Project Instructions" is the shape the feature itself
+			// advertises. Indentation is what keeps it literal text.
+			const prompt = buildWithInstructions({
+				personal: "## Project Instructions\nbe terse",
+				project: null,
+			});
+
+			expect(prompt.indexOf("## Project Instructions")).toBeGreaterThan(
+				prompt.indexOf("## Your Instructions"),
+			);
+			expect(sectionContainsVerbatim(prompt, "## Project Instructions")).toBe(
+				true,
+			);
+			expect(sectionContainsVerbatim(prompt, "be terse")).toBe(true);
+		});
+
+		it("does not let stripDeprecatedPromptSections delete a user paragraph", () => {
+			// The three paragraph-level deletions that used to apply to the whole
+			// assembled prompt: the preserve protocol, its "preserve tags"
+			// phrasing, and the retired translation contract. A user is allowed
+			// to write all three — each paragraph here is one the stripper would
+			// remove outright — so the section is appended after stripping.
+			const prompt = buildWithInstructions({
+				personal: [
+					"Always preserve tags in code.",
+					"You ALWAYS respond in English. Every word you write must be in English.",
+					"Wrap quoted code in <preserve> tags so the translator leaves it alone.",
+					"Keep translation-preserved blocks untouched.",
+				].join("\n\n"),
+				project: null,
+			});
+
+			expect(prompt).toContain("Always preserve tags in code.");
+			expect(prompt).toContain(
+				"You ALWAYS respond in English. Every word you write must be in English.",
+			);
+			expect(prompt).toContain(
+				"Wrap quoted code in <preserve> tags so the translator leaves it alone.",
+			);
+			expect(prompt).toContain("Keep translation-preserved blocks untouched.");
+		});
 	});
+
+	// The style section is the heading line, then the framing paragraph, then
+	// the personality text itself. Reading the personality by position (rather
+	// than by searching for the tail of the framing sentence) means a rewording
+	// of that sentence cannot silently turn this measurement into a measurement
+	// of the framing.
+	function embeddedPersonalityText(prompt: string): string {
+		const start = prompt.indexOf("## Response Style");
+		expect(start).toBeGreaterThan(-1);
+		const rest = prompt.slice(start);
+		const nextHeading = rest.indexOf("\n## ", 1);
+		const styleSection = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
+
+		return styleSection.split("\n").slice(2).join("\n").replace(/^\n+/, "");
+	}
 
 	describe("personality prompt cap", () => {
 		it("caps an oversized personality prompt at 1,500 chars with an ellipsis marker", () => {
@@ -798,16 +941,7 @@ describe("prepareOutboundChatContext", () => {
 			expect(styleSection).toContain("… [truncated]");
 			// The embedded (possibly truncated) personality text itself must
 			// not exceed the 1,500 char cap.
-			const personalityStart = styleSection.lastIndexOf(
-				"an explicit user instruction in the current message.",
-			);
-			const embeddedPersonality = styleSection
-				.slice(
-					personalityStart +
-						"an explicit user instruction in the current message.".length,
-				)
-				.replace(/^\n+/, "");
-			expect(embeddedPersonality.length).toBeLessThanOrEqual(1_500);
+			expect(embeddedPersonalityText(prompt).length).toBeLessThanOrEqual(1_500);
 		});
 
 		it("leaves a personality prompt at or under 1,500 chars untouched", () => {
