@@ -479,7 +479,8 @@ describe("MessageEvidenceDetails", () => {
 
 		await fireEvent.click(screen.getByRole("button", { name: /Sources/i }));
 
-		// EvidencePreferenceControl renders a <select> with that aria-label.
+		// The disclosure stays informational: no per-source steering control
+		// (the removed control rendered the only <select> here) may come back.
 		expect(screen.queryByRole("combobox")).toBeNull();
 	});
 
