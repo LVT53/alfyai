@@ -47,6 +47,7 @@ const EMPTY = {
 	weeklyTotal: 0,
 	recent: [],
 	running: null,
+	projects: [],
 	memoryReviewCount: 0,
 	memoryReviewNoticeDismissed: false,
 	generatedAt: 0,

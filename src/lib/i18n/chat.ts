@@ -1057,6 +1057,9 @@ const chatDict = {
 		"home.runningElapsed": "{minutes} min",
 		"home.runningElapsedSeconds": "{seconds} s",
 		"home.runningProgress": "{percent}% done",
+		// The projects row's heading rule, above the cards and below the
+		// composer. The cards' own strings are all in the `projects.` namespace.
+		"home.projectsHeading": "Projects",
 		"home.memoryReview.notice":
 			"{count} {count, plural, one {memory} other {memories}} from recent chats {count, plural, one {needs} other {need}} a quick look.",
 		// Two plain keys rather than one ICU-plural key: the link's own text
@@ -2160,6 +2163,7 @@ const chatDict = {
 		"home.runningElapsed": "{minutes} perc",
 		"home.runningElapsedSeconds": "{seconds} mp",
 		"home.runningProgress": "{percent}% kész",
+		"home.projectsHeading": "Projektek",
 		// HU nouns after a numeral do not take a plural suffix, so there is no
 		// singular/plural split here (unlike the English key above).
 		"home.memoryReview.notice":

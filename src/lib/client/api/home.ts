@@ -1,4 +1,5 @@
 import type {
+	HomeProjectCard,
 	HomeRecentConversation,
 	HomeRunningJob,
 	HomeSummary,
@@ -7,6 +8,7 @@ import type {
 import { type FetchLike, requestJson } from "./http";
 
 export type {
+	HomeProjectCard,
 	HomeRecentConversation,
 	HomeRunningJob,
 	HomeSummary,
@@ -19,6 +21,7 @@ export const EMPTY_HOME_SUMMARY: HomeSummary = {
 	weeklyTotal: 0,
 	recent: [],
 	running: null,
+	projects: [],
 	memoryReviewCount: 0,
 	memoryReviewNoticeDismissed: false,
 	generatedAt: 0,
@@ -39,6 +42,9 @@ export async function fetchHomeSummary(
 			typeof response.weeklyTotal === "number" ? response.weeklyTotal : 0,
 		recent: Array.isArray(response.recent) ? response.recent : [],
 		running: response.running ?? null,
+		// An older server that does not send `projects` yet, or a truncated body,
+		// leaves the row empty rather than undefined — the surface indexes into it.
+		projects: Array.isArray(response.projects) ? response.projects : [],
 		memoryReviewCount:
 			typeof response.memoryReviewCount === "number"
 				? response.memoryReviewCount

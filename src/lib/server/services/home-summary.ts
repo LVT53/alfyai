@@ -1,6 +1,7 @@
 // Everything the chat home (HomeV4A "Compact") reads, in one per-user payload:
 // the twelve weekly bars and the week's count, the three most recent
-// conversations, and the one job in flight.
+// conversations, the cards for the projects that have been active, and the one
+// job in flight.
 //
 // All of it is read-only, per user, and small. The whole thing is cached for 30
 // seconds per user, which is the point of assembling it here rather than letting
@@ -17,8 +18,10 @@ import {
 	messages,
 	users,
 } from "$lib/server/db/schema";
+import { listProjectKnowledge } from "$lib/server/services/knowledge/project-knowledge";
 import { isUserMemoryEnabled } from "$lib/server/services/memory-controls";
 import { getMemoryProfileReadModel } from "$lib/server/services/memory-profile/read-model";
+import { listRecentlyActiveProjects } from "$lib/server/services/projects";
 
 /**
  * The two languages the home figures are rendered into.
@@ -52,6 +55,8 @@ export function homeSummaryCacheTtlMs(): number {
 
 export const HOME_WEEKLY_BAR_COUNT = 12;
 export const HOME_RECENT_LIMIT = 3;
+/** The projects row's three columns, and its three cards. */
+export const HOME_PROJECTS_LIMIT = 3;
 
 export interface HomeWeeklyBucket {
 	/** ISO week label, e.g. "2026-W37". */
@@ -81,11 +86,39 @@ export interface HomeRunningJob {
 	startedAt: number;
 }
 
+/**
+ * One card in the home projects row.
+ *
+ * Every field is already stored: `listRecentlyActiveProjects` supplies the name,
+ * colour, chat count, last activity and whether the project has instructions,
+ * and `listProjectKnowledge` supplies the file count. Nothing here is derived
+ * for the card's sake — in particular it does NOT carry the instruction text,
+ * only whether there is any.
+ */
+export interface HomeProjectCard {
+	id: string;
+	name: string;
+	color: string | null;
+	chatCount: number;
+	/** Unix seconds. */
+	lastActivityAt: number;
+	hasInstructions: boolean;
+	fileCount: number;
+}
+
 export interface HomeSummary {
 	weekly: HomeWeeklyBucket[];
 	weeklyTotal: number;
 	recent: HomeRecentConversation[];
 	running: HomeRunningJob | null;
+	/**
+	 * The projects worth showing, newest activity first, at most
+	 * `HOME_PROJECTS_LIMIT` of them. The eligibility rule — at least one chat
+	 * that has carried a message — belongs to `listRecentlyActiveProjects` and
+	 * is not re-applied anywhere: an empty project is not "recently active", and
+	 * a second copy of that predicate is a second thing to keep true.
+	 */
+	projects: HomeProjectCard[];
 	/**
 	 * How many open Memory Profile review items this user has, straight from
 	 * the same read model the Knowledge → Memory tab's badge uses
@@ -595,6 +628,40 @@ async function readRunning(
 }
 
 /**
+ * The cards for the home projects row.
+ *
+ * Eligibility is entirely `listRecentlyActiveProjects`'s answer — this function
+ * asks it for three projects and draws those three. That is the point: "a
+ * project with no chats gets no card" is one rule in one place, and a home
+ * screen that re-checked it would be the second place it could go wrong.
+ *
+ * The file counts come from `listProjectKnowledge` per project, in parallel with
+ * each other and read-only on both sides (the Files modal's own list is the same
+ * read), so a card can never claim a count the modal would disagree with. Only
+ * the length is used; the items themselves are the modal's business.
+ */
+async function readProjects(userId: string): Promise<HomeProjectCard[]> {
+	const projects = await listRecentlyActiveProjects({
+		userId,
+		limit: HOME_PROJECTS_LIMIT,
+	});
+	if (projects.length === 0) return [];
+
+	return Promise.all(
+		projects.map(async (project) => ({
+			id: project.id,
+			name: project.name,
+			color: project.color,
+			chatCount: project.chatCount,
+			lastActivityAt: project.lastActivityAt,
+			hasInstructions: project.hasInstructions,
+			fileCount: (await listProjectKnowledge({ userId, projectId: project.id }))
+				.length,
+		})),
+	);
+}
+
+/**
  * The home-screen "memories need review" notice: the same open-review count
  * the Knowledge → Memory tab badge shows, plus whether the user's own
  * dismissal still covers everything currently open.
@@ -736,26 +803,29 @@ async function computeHomeSummary(
 	const locale: HomeSummaryLocale = userRow?.uiLanguage === "hu" ? "hu" : "en";
 	const timeZone = reportingTimeZone();
 
-	const [weekly, recent, running, memoryReviewNotice] = await Promise.all([
-		readWeekly(userId, now, timeZone),
-		readRecent(userId),
-		readRunning(userId, locale),
-		// Auxiliary: a memory read failure hides the notice instead of
-		// failing the whole home screen.
-		readMemoryReviewNotice(
-			userId,
-			userRow?.homeMemoryReviewDismissedAt ?? null,
-		).catch((error) => {
-			console.error("[HOME_SUMMARY] Memory review notice failed:", error);
-			return { count: 0, dismissed: true };
-		}),
-	]);
+	const [weekly, recent, running, projects, memoryReviewNotice] =
+		await Promise.all([
+			readWeekly(userId, now, timeZone),
+			readRecent(userId),
+			readRunning(userId, locale),
+			readProjects(userId),
+			// Auxiliary: a memory read failure hides the notice instead of
+			// failing the whole home screen.
+			readMemoryReviewNotice(
+				userId,
+				userRow?.homeMemoryReviewDismissedAt ?? null,
+			).catch((error) => {
+				console.error("[HOME_SUMMARY] Memory review notice failed:", error);
+				return { count: 0, dismissed: true };
+			}),
+		]);
 
 	return {
 		weekly,
 		weeklyTotal: weekly.at(-1)?.count ?? 0,
 		recent,
 		running,
+		projects,
 		memoryReviewCount: memoryReviewNotice.count,
 		memoryReviewNoticeDismissed: memoryReviewNotice.dismissed,
 		generatedAt: Math.floor(now.getTime() / 1000),

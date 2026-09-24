@@ -62,6 +62,7 @@ onMount(() => {
 	weeklyTotal={summary.weeklyTotal}
 	bind:sendStarted
 	running={summary.running}
+	projects={summary.projects}
 	memoryReviewCount={summary.memoryReviewCount}
 	memoryReviewNoticeDismissed={summary.memoryReviewNoticeDismissed}
 	{summaryLoaded}

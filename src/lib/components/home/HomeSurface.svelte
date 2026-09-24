@@ -57,11 +57,13 @@ import {
 import { get } from "svelte/store";
 import {
 	dismissMemoryReviewNotice,
+	type HomeProjectCard,
 	type HomeRecentConversation,
 	type HomeRunningJob,
 	type HomeWeeklyBucket,
 } from "$lib/client/api/home";
 import HomeMemoryReviewNotice from "$lib/components/home/HomeMemoryReviewNotice.svelte";
+import HomeProjects from "$lib/components/home/HomeProjects.svelte";
 import HomeRecent from "$lib/components/home/HomeRecent.svelte";
 import HomeWeeklyBars from "$lib/components/home/HomeWeeklyBars.svelte";
 import {
@@ -134,8 +136,6 @@ interface Props {
 	 * the chat page — the flag itself belongs to the surface that sends.
 	 */
 	sendStarted?: boolean;
-	/** Slice G passes its cards here. */
-	projectsRow?: never;
 	/**
 	 * The project half of the quiet line under the composer: the chip reads
 	 * "Instructions" once the project has some, "Add instructions" until then.
@@ -161,6 +161,12 @@ interface Props {
 	 * hides itself when it is missing.
 	 */
 	running?: HomeRunningJob | null;
+	/**
+	 * The projects row's cards (Workspaces Slice G). Empty on the project page,
+	 * which is a project rather than a list of them, and empty for a user with
+	 * none — the row draws nothing at all in both cases.
+	 */
+	projects?: HomeProjectCard[];
 	memoryReviewCount?: number;
 	memoryReviewNoticeDismissed?: boolean;
 	summaryLoaded?: boolean;
@@ -181,6 +187,7 @@ let {
 	weeklyTotal = 0,
 	sendStarted = $bindable(false),
 	running = null,
+	projects = [],
 	memoryReviewCount = 0,
 	memoryReviewNoticeDismissed = false,
 	summaryLoaded = false,
@@ -197,8 +204,6 @@ let {
 	onOpenFiles,
 }: Props = $props();
 
-// `projectsRow` completes the caller-facing interface but is not read yet:
-// it arrives in Slice G.
 const isProjectMode = $derived(mode.kind === "project");
 const projectId = $derived(mode.kind === "project" ? mode.project.id : null);
 const projectName = $derived(mode.kind === "project" ? mode.project.name : "");
@@ -1283,13 +1288,21 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					     counting, just the greeting and the composer (spec §3). The
 					     project page's board is its chats, which is history, so it goes
 					     with the rest.
-					     What is left is Recent, then the tool-health strip as the last
-					     and quietest line. -->
+					     What is left is the projects row, then Recent, then the
+					     tool-health strip as the last and quietest line. -->
 					<div
 						class="home-board"
 						in:boardFly={{ y: 6, duration: 220, delay: 40 }}
 						data-testid="home-board"
 					>
+						<!-- The same Intl pair the recent lines and the project page's own
+						     stats line read, so the two "3 hours ago"s on this screen can
+						     never disagree. -->
+						<HomeProjects
+							{projects}
+							formatRelative={(seconds) => formatters.relative(seconds)}
+						/>
+
 						<HomeRecent
 							recent={recent}
 							running={running}
