@@ -10,9 +10,10 @@
 //
 // The fence cannot be closed from inside: the nonce is unknown to the page, and
 // anything marker-shaped in the fenced text is removed before wrapping, so a
-// forged `</source-…>` never reaches the model either. The same strip runs over
-// the model's replies, so a marker the model echoes never lands in a filed
-// quote or a published sentence.
+// forged `</source-…>` never reaches the model either. The model-call seam
+// drops echoed fence markers from the raw reply, and the parsers run the full
+// strip per field, so a marker the model echoes never lands in a filed quote or
+// a published sentence.
 
 import { randomBytes } from "node:crypto";
 import type { SupportedLanguage } from "$lib/server/services/language";
@@ -29,9 +30,33 @@ export const ATLAS_V3_SOURCE_FENCE_RULE: Record<SupportedLanguage, string> = {
  */
 const SOURCE_MARKER = /<\/?source(?:-[^\s<>]*)?(?:\s[^<>]{0,120})?>/giu;
 
-/** Removes every source marker, real or forged, from `text`. */
+/** Exactly the marker a fence writes: what a model can echo back from one. */
+const FENCE_MARKER = /<\/?source-[0-9a-f]{8}>/giu;
+
+/**
+ * Removes every source marker, real or forged, from `text`. Repeats until
+ * nothing changes: removing `<source>` from `<sou<source>rce-…>` would
+ * otherwise leave a whole marker behind.
+ */
 export function stripAtlasV3SourceMarkers(text: string): string {
-	return text.replace(SOURCE_MARKER, "");
+	let current = text;
+	for (;;) {
+		const next = current.replace(SOURCE_MARKER, "");
+		if (next === current) return next;
+		current = next;
+	}
+}
+
+/**
+ * Removes only fence-shaped markers (`<source-` + 8 hex + `>`) from a raw
+ * model reply. The reply is still unparsed JSON, where the broad
+ * `stripAtlasV3SourceMarkers` pattern can run from a `<source` in one string
+ * to a `>` in the next and splice two fields together; a fence marker has no
+ * quote or whitespace in it, so it never crosses a field. The parsers strip
+ * the broad pattern again per field.
+ */
+export function stripAtlasV3FenceEchoes(text: string): string {
+	return text.replace(FENCE_MARKER, "");
 }
 
 export interface AtlasV3SourceFence {
