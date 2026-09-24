@@ -448,9 +448,15 @@ export async function moveConversationToProject(
 		if (!project) return null;
 	}
 
+	// Moving a conversation into (or out of) a folder is an organizational
+	// change, not conversation activity — it must not bump `updatedAt`.
+	// `listConversations`'s sidebar sort and the home page's "recent" rail
+	// (home-summary.ts readRecent) both order by this column, and
+	// `touchConversation` (called at real turn completion in send/stream) is
+	// the sole intentional activity bump; a move must not duplicate it.
 	const [conversation] = await db
 		.update(conversations)
-		.set({ projectId, updatedAt: new Date() })
+		.set({ projectId })
 		.where(
 			and(
 				eq(conversations.id, conversationId),

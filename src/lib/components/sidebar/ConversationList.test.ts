@@ -14,6 +14,7 @@ import { clearProjectStore, projects } from "$lib/stores/projects";
 import {
 	clearProjectFolderExpanded,
 	currentConversationId,
+	projectFolderExpanded,
 	setProjectFolderExpanded,
 	sidebarChatsExpanded,
 	sidebarPinnedExpanded,
@@ -397,6 +398,175 @@ describe("ConversationList sidebar pinning", () => {
 				body: JSON.stringify({ sidebarPinned: false }),
 			}),
 		);
+	});
+});
+
+// Owner-reported bug: moving a chat into a (sub-)folder must never change
+// that folder's own expanded/collapsed state. A collapsed folder receiving a
+// drop must stay collapsed (the user has to open it themselves to see the
+// chat land inside), and an already-expanded folder must stay expanded. This
+// covers both move paths — drag-and-drop onto the folder's drop zone and the
+// "Move to project" context-menu action — since only the drag path used to
+// call `setProjectFolderExpanded(...)` after a successful move.
+describe("ConversationList does not auto-expand folders on conversation move", () => {
+	beforeEach(() => {
+		if (!vi.isMockFunction(window.alert)) {
+			vi.spyOn(window, "alert").mockImplementation(() => {});
+		}
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ conversations: [], projects: [] }), {
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					}),
+			),
+		);
+		conversations.set([]);
+		currentConversationId.set(null);
+		clearProjectStore();
+		sidebarProjectsExpanded.set(true);
+		sidebarChatsExpanded.set(true);
+		sidebarPinnedExpanded.set(true);
+		clearProjectFolderExpanded("project-1");
+	});
+
+	// A move's fetch call resolves on a microtask chain (mock Response ->
+	// .json() -> store update -> the component's post-await line). `waitFor`
+	// on "fetch was called" can return before that whole chain has drained, so
+	// tests that assert a side effect did NOT happen need a real flush point
+	// afterwards, not just the fetch-called signal.
+	async function flushMicrotasks() {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+
+	function seedOneProjectAndOneUnorganizedChat(): Project[] {
+		const initialProjects: Project[] = [
+			{
+				id: "project-1",
+				name: "House tasks",
+				sortOrder: 0,
+				createdAt: 1,
+				updatedAt: 1,
+			},
+		];
+		projects.set(initialProjects);
+		conversations.set([
+			{
+				id: "unorganized-chat",
+				title: "Unorganized chat",
+				updatedAt: 100,
+				sidebarPinned: false,
+				sidebarSortOrder: null,
+			},
+		]);
+		return initialProjects;
+	}
+
+	it("leaves a collapsed project folder collapsed after a conversation is dropped into it", async () => {
+		const initialProjects = seedOneProjectAndOneUnorganizedChat();
+		// Folder starts collapsed: no setProjectFolderExpanded call for it.
+
+		render(ConversationList, { initialProjects });
+
+		const conversationRow = screen
+			.getAllByTestId("conversation-item")
+			.find(
+				(row) => row.dataset.conversationId === "unorganized-chat",
+			) as HTMLElement;
+		const folderDropZone = screen
+			.getAllByTestId("project-folder-drop-zone")
+			.find((zone) => zone.dataset.projectId === "project-1") as HTMLElement;
+
+		await fireEvent.dragStart(conversationRow);
+		await fireEvent.dragOver(folderDropZone);
+		await fireEvent.drop(folderDropZone);
+
+		await waitFor(() =>
+			expect(fetch).toHaveBeenCalledWith(
+				"/api/conversations/unorganized-chat",
+				expect.objectContaining({
+					method: "PATCH",
+					body: JSON.stringify({ projectId: "project-1" }),
+				}),
+			),
+		);
+		await flushMicrotasks();
+		expect(get(projectFolderExpanded)["project-1"]).not.toBe(true);
+		expect(
+			screen.queryByTestId("project-conversations-project-1"),
+		).not.toBeInTheDocument();
+	});
+
+	it("leaves an already-expanded project folder expanded after a conversation is dropped into it", async () => {
+		const initialProjects = seedOneProjectAndOneUnorganizedChat();
+		setProjectFolderExpanded("project-1", true);
+
+		render(ConversationList, { initialProjects });
+
+		const conversationRow = screen
+			.getAllByTestId("conversation-item")
+			.find(
+				(row) => row.dataset.conversationId === "unorganized-chat",
+			) as HTMLElement;
+		const folderDropZone = screen
+			.getAllByTestId("project-folder-drop-zone")
+			.find((zone) => zone.dataset.projectId === "project-1") as HTMLElement;
+
+		await fireEvent.dragStart(conversationRow);
+		await fireEvent.dragOver(folderDropZone);
+		await fireEvent.drop(folderDropZone);
+
+		await waitFor(() =>
+			expect(fetch).toHaveBeenCalledWith(
+				"/api/conversations/unorganized-chat",
+				expect.objectContaining({ method: "PATCH" }),
+			),
+		);
+		await flushMicrotasks();
+		expect(get(projectFolderExpanded)["project-1"]).toBe(true);
+		expect(
+			screen.getByTestId("project-conversations-project-1"),
+		).toBeInTheDocument();
+	});
+
+	it("leaves a collapsed project folder collapsed after moving a conversation via the Move to project menu", async () => {
+		const initialProjects = seedOneProjectAndOneUnorganizedChat();
+
+		render(ConversationList, { initialProjects });
+
+		const conversationRow = screen
+			.getAllByTestId("conversation-item")
+			.find(
+				(row) => row.dataset.conversationId === "unorganized-chat",
+			) as HTMLElement;
+
+		await fireEvent.click(
+			within(conversationRow).getByRole("button", {
+				name: "Conversation options",
+			}),
+		);
+		await fireEvent.click(screen.getByText("Move to project"));
+		const submenus = document.querySelectorAll(".conversation-menu");
+		const submenu = submenus[submenus.length - 1] as HTMLElement;
+		await fireEvent.click(within(submenu).getByText("House tasks"));
+
+		await waitFor(() =>
+			expect(fetch).toHaveBeenCalledWith(
+				"/api/conversations/unorganized-chat",
+				expect.objectContaining({
+					method: "PATCH",
+					body: JSON.stringify({ projectId: "project-1" }),
+				}),
+			),
+		);
+		await flushMicrotasks();
+		expect(get(projectFolderExpanded)["project-1"]).not.toBe(true);
+		expect(
+			screen.queryByTestId("project-conversations-project-1"),
+		).not.toBeInTheDocument();
 	});
 });
 

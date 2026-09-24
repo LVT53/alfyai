@@ -155,6 +155,41 @@ describe("conversation project folder moves", () => {
 		expect(readProjectFolder()).toMatchObject({ id: "folder-1" });
 	});
 
+	// Owner-reported bug: moving a chat into (or out of) a folder is an
+	// organizational change, not conversation activity. Bumping `updatedAt`
+	// here made a month-old chat look brand new on the home page's "recent"
+	// rail and in the sidebar's recency sort, both of which order by this same
+	// column. `touchConversation` (called at real turn completion in
+	// send/stream) is the sole intentional "activity" bump; a move must not
+	// duplicate that.
+	it("does not bump updatedAt when a conversation is moved into a folder", async () => {
+		seedUserFolderConversation();
+		const { moveConversationToProject } = await import("./conversations");
+
+		const moved = await moveConversationToProject(
+			"user-1",
+			"conv-1",
+			"folder-1",
+		);
+
+		expect(moved?.projectId).toBe("folder-1");
+		expect(moved?.updatedAt).toBe(
+			new Date("2026-05-14T09:00:00.000Z").getTime() / 1000,
+		);
+	});
+
+	it("does not bump updatedAt when a conversation is moved out of a folder", async () => {
+		seedUserFolderConversation({ projectId: "folder-1" });
+		const { moveConversationToProject } = await import("./conversations");
+
+		const moved = await moveConversationToProject("user-1", "conv-1", null);
+
+		expect(moved?.projectId).toBeNull();
+		expect(moved?.updatedAt).toBe(
+			new Date("2026-05-14T09:00:00.000Z").getTime() / 1000,
+		);
+	});
+
 	it("rejects moving a conversation into another user's folder without changing assignment", async () => {
 		seedUserFolderConversation({ projectId: "folder-1" });
 		seedOtherUserFolder();
@@ -429,5 +464,115 @@ describe("conversation sidebar pinning", () => {
 			updatedAt: (base.getTime() + 8_000) / 1000,
 		});
 		expect(older?.atlasBadge).toBeUndefined();
+	});
+});
+
+// Owner-reported bug: `listConversations` (the sidebar's own recency sort)
+// and the home page's "recent" rail (`home-summary.ts` readRecent) both order
+// by `conversations.updatedAt`. A move must not let an organizational action
+// jump a month-old chat ahead of one with genuinely more recent message
+// activity.
+describe("conversation recency ordering is unaffected by folder moves", () => {
+	beforeEach(() => {
+		dbPath = `/tmp/alfyai-conversation-recency-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
+	});
+
+	afterEach(async () => {
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// The DB module may not have been imported if a test failed early.
+		}
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// Temporary DB cleanup is best-effort.
+		}
+	});
+
+	function seedRecencyScenario() {
+		const { sqlite, db } = openSeedDatabase();
+		const monthAgo = new Date("2026-04-14T09:00:00.000Z");
+		const today = new Date("2026-05-14T09:00:00.000Z");
+
+		db.insert(schema.users)
+			.values({
+				id: "recency-user",
+				email: "recency@example.com",
+				passwordHash: "hash",
+			})
+			.run();
+		db.insert(schema.projects)
+			.values({
+				id: "recency-folder",
+				userId: "recency-user",
+				name: "Archive",
+				createdAt: today,
+				updatedAt: today,
+			})
+			.run();
+		db.insert(schema.conversations)
+			.values([
+				{
+					id: "genuinely-recent",
+					userId: "recency-user",
+					title: "Sent today",
+					createdAt: today,
+					updatedAt: today,
+				},
+				{
+					id: "month-old",
+					userId: "recency-user",
+					title: "Sent a month ago",
+					createdAt: monthAgo,
+					updatedAt: monthAgo,
+				},
+			])
+			.run();
+		db.insert(schema.messages)
+			.values([
+				{
+					id: "genuinely-recent-message",
+					conversationId: "genuinely-recent",
+					role: "user",
+					content: "visible",
+					createdAt: today,
+				},
+				{
+					id: "month-old-message",
+					conversationId: "month-old",
+					role: "user",
+					content: "visible",
+					createdAt: monthAgo,
+				},
+			])
+			.run();
+
+		sqlite.close();
+		return { monthAgo, today };
+	}
+
+	it("keeps a month-old conversation below a genuinely recent one after it is moved into a folder", async () => {
+		const { monthAgo } = seedRecencyScenario();
+		const { listConversations, moveConversationToProject } = await import(
+			"./conversations"
+		);
+
+		const moved = await moveConversationToProject(
+			"recency-user",
+			"month-old",
+			"recency-folder",
+		);
+		const listed = await listConversations("recency-user");
+
+		expect(moved?.projectId).toBe("recency-folder");
+		expect(moved?.updatedAt).toBe(monthAgo.getTime() / 1000);
+		expect(listed.map((conversation) => conversation.id)).toEqual([
+			"genuinely-recent",
+			"month-old",
+		]);
 	});
 });
