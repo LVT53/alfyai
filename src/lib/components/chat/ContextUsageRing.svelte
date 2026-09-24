@@ -415,6 +415,27 @@ let isNearTrigger = $derived(
 		transform: translateY(0);
 	}
 
+	/* A narrow window is the same problem as a phone: the panel hangs off the
+	   ring's left edge and grows right, and there is no longer 25rem of room
+	   to the right of the ring to grow into — at 390px its right edge landed
+	   at 587px, so most of the panel, the layer chips included, sat off
+	   screen. Below this width it anchors to the viewport instead, with the
+	   phone sheet's own margins so both narrow paths land on the same
+	   geometry. The width decides here rather than the pointer, because a
+	   narrow window on a mouse never reports the coarse pointer
+	   `isTouchDevice()` looks for and so never gets the sheet. */
+	@media (max-width: 767px) {
+		.ring-popover {
+			position: fixed;
+			left: 0.25rem;
+			right: 0.25rem;
+			bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
+			width: auto;
+			max-height: min(70vh, 30rem);
+			overflow-y: auto;
+		}
+	}
+
 	.popover-section + .popover-section {
 		margin-top: 0.85rem;
 		padding-top: 0.85rem;
