@@ -223,6 +223,12 @@ message evidence rows so an artifact's sources are visible through the existing 
 (`decisions.md` ruling 6 — no new popover row); the project bundle (Feature 1) listing a project's
 artifacts.
 
+**Slice 6 — first-open tours.** The three-slide tour per new type (Document, App, Canvas, Slides — File gets
+none), seeded as system content, its text editable through the campaign machinery with a new `summary`
+layout, triggered on the first open of that type, once per user per type, replayable from the panel, with the
+tour's one-line summary reused as that type's empty state. See `decisions.md` rulings 4, 8, 32 and 33 for the
+override, the count, the replay host and the incognito rule.
+
 Cross-cutting in every slice: EN + HU strings, account data archive and erasure coverage (ADR-0029–0032),
 migrations, telemetry that never carries artifact content, and `npm run check` / `npm test` / `npm run build`
 / lint / Fallow gates.

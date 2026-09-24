@@ -8,15 +8,16 @@
 
 **Goal:** The first time a user opens an artifact of a kind, show a three-slide tour that says what it is,
 what you can do with it, and how to ask Alfy for something — once per user per kind, replayable from the
-artifact's version badge, with the text living as **content** a deployment can edit in admin Settings (the
+panel's version affordance or its empty state, with the text living as **content** a deployment can edit in admin Settings (the
 Announcement Campaign machinery of [ADR-0012](../../adr/0012-announcement-campaigns-and-first-run-onboarding.md))
 rather than as strings frozen in a component.
 
 **Architecture:** One panel-local component, `ArtifactTour.svelte`, shown inside the artifact panel — not the
 app-level campaign modal. Its content is resolved through one new server service,
 `src/lib/server/services/artifact-tours.ts`, which prefers a **published** tour campaign snapshot for the
-kind and falls back to a **code-owned default** when no campaign has been published. The five kinds' copy is
-therefore shippable out of the box (the defaults, in code, the `prompts.ts` `SYSTEM_PROMPTS` precedent) and
+kind and falls back to a **code-owned default** when no campaign has been published. **Four** kinds get a
+tour — Document, App, Canvas, Slides; File does not (`decisions.md` ruling 8) — so the copy is
+shippable out of the box (the defaults, in code, the `prompts.ts` `SYSTEM_PROMPTS` precedent) and
 editable without a deploy (a published campaign, the campaign machinery). Seen-tracking is a small new
 per-user table keyed `(user_id, artifact_type, content_key)` — **not** the campaign's user-state table,
 because a code-owned default has no snapshot to key on, and because
@@ -25,15 +26,16 @@ auto-published. The tour's one-line summary is the canonical copy for the kind's
 i18n key as the fallback.
 
 **Tech Stack:** the existing campaign service (`announcement-campaigns.ts`), the campaign admin pane and its
-`SlideEditor.svelte`, a new `artifact_tour` campaign type, Svelte 5 runes, one new table plus a migration,
-Vitest and Playwright.
+`SlideEditor.svelte` + `SlideOptionsDialog.svelte` + `campaign-checklist.ts`, a new `artifact_tour` campaign
+type, Svelte 5 runes, one new table plus a migration, Vitest and Playwright.
 
 **Spec:** `docs/plans/claude-at-home-2-artifacts-spec.md` §2 (decision 2: one panel), §5 (the panel),
 §6 (cross-cutting: EN + HU, archive and erasure, migrations, telemetry without content).
 ADRs: [ADR-0012](../../adr/0012-announcement-campaigns-and-first-run-onboarding.md) (campaigns, versioned and
 localized, published snapshots immutable, seeded templates not auto-published, the version badge replays
 without resetting completion state), [ADR-0066](../../adr/0066-artifacts-are-a-family-of-five-types.md) (each
-type shows a three-slide tour the first time it is opened; "Artifact" is never shown in the UI),
+type shows a three-slide tour the first time it is opened — read with `decisions.md` ruling 8: the four new
+types, not File; "Artifact" is never shown in the UI),
 [ADR-0029–0032](../../adr/) (account data archive and erasure).
 Mockup: `claude-at-home-2-artifact-surfaces-mockups.html` §7 — the dots (3), `.tourart` illustration, the
 `h3` `A board for anything`, the body paragraph, the `.tourfoot` line
@@ -62,7 +64,10 @@ Same as `plan.md` §Global Constraints. In addition, for this slice:
 - **One user, permanently.** The seen state is per user; there is no sharing, no team-level "we have all seen
   it", and no admin view of who has seen it beyond the campaign analytics that already exist.
 - **The seen state is server-side.** Not `localStorage`, not a cookie. It follows the user across devices and
-  survives a cleared browser. (The App prototype used `localStorage`; that is not a pattern to carry here.)
+  survives a cleared browser. (The only `localStorage` in the design set is the App artifact's own row storage in
+  the App mockup — `claude-at-home-2-artifacts-mockups.html:216,230` — and the prototype findings
+  (`-prototype-findings.md`) contain no tour at all. There is no prototype seen-state pattern to copy or reject;
+  the table below is the design.)
 - **The tour is shown once per user per kind, and replaying never resets the state** — the same rule the app
   version badge already follows (`shouldPersistCampaignCompletion(mode) => mode === "auto"` in
   `src/lib/client/campaign-replay.ts`).
@@ -80,15 +85,25 @@ npm run check:migrations
 npm run check && npx biome check src scripts tests && npm test && npm run build
 npx fallow --no-cache --format json --quiet --score --output-file /tmp/alfyai-fallow.json
 npx playwright test tests/e2e/artifact-tours.spec.ts tests/e2e/settings-admin.spec.ts \
-  tests/e2e/artifacts-panel.spec.ts tests/e2e/incognito-indicator.spec.ts
+  tests/e2e/artifact-panel.spec.ts tests/e2e/incognito-indicator.spec.ts
 ```
+
+`npm run lint` is the repo's script but it dies on the nested biome roots under `.claude/worktrees`; in a
+worktree run `npx biome check src scripts tests` instead (this is the same substitution the other slices use).
+`npm run check:migrations` **fails** a `sqliteTable` with no `CREATE TABLE` anywhere in `drizzle/`, but it
+only **warns** — `console.warn`, exit 0, success line still printed — when the table is missing from
+`prepare-db`'s `requiredExistingTables` (`scripts/verify-migrations.ts:67-85`). A clean exit carrying a
+warning line is a fail for this slice, so read the output, not just the status:
 
 ## Review Focus
 
-1. **The tour is not the campaign modal (Task T3).** It is a card inside the artifact panel, for the kind
-   that is open, and it must not join `getEligibleCampaignForUser`'s one-at-a-time auto-show queue or appear
-   from the sidebar App Version Badge. A tour that hijacks the app-level modal on load would fight the
-   first-run onboarding and the release announcements that already own it.
+1. **The tour is not the campaign modal (Task T3, step T3.0).** It is a card inside the artifact panel, for
+   the kind that is open. `getEligibleCampaignForUser` cannot reach it (`announcement-campaigns.ts:1115-1135`
+   filters by type), but the **sidebar App Version Badge can**, because `getLatestPublishedCampaign`
+   (`:1137-1151`) does not — so publishing a tour would put a kind tour behind the version badge and record
+   `replay_opened` against it. T3.0 narrows that function to an explicit `campaignType` and passes
+   `"release_update"` at the route. A reviewer who finds the badge still opening a tour has found the one
+   defect this slice exists to prevent twice.
 2. **A code-owned default exists, so the feature works before anyone publishes anything (Tasks T2, T5).**
    ADR-0012 says seeded templates are not auto-published; a design that needs an admin to press publish
    before a single tour appears would ship a feature that looks broken.
@@ -107,31 +122,106 @@ npx playwright test tests/e2e/artifact-tours.spec.ts tests/e2e/settings-admin.sp
 
 ## Contracts
 
+### The machinery this slice extends — verified, with line numbers
+
+Read these before writing anything. Every claim in this slice about the campaign code was checked against the
+tree; the ones that turned out **wrong** are called out here and corrected in place below, because they are the
+things a dev agent would otherwise build on.
+
+**What is true, and load-bearing for this slice.**
+
+| Fact | Where |
+|---|---|
+| The type set is a `Set` plus a hand-written union, not an array | `announcement-campaigns.ts:17-19` (union), `:87-90` (`CAMPAIGN_TYPES`), `:188-198` (`assertType`) |
+| `assertType`'s field error names the two types in prose and must be updated | `announcement-campaigns.ts:195-197` |
+| Layout types are the same shape — a `Set` and a prose error | `announcement-campaigns.ts:91-94`, error text at `:734` |
+| `layout_type` is a plain `text` column on both the draft and the snapshot table | `schema.ts:2127` (draft), `schema.ts:2213` (snapshot) |
+| **The `summary` layout needs no migration and no schema change.** Only `artifact_tour_states` needs the migration | cited above; the migration in Task T1 is the table's |
+| A published snapshot's slides are read back with `layoutType`, `title: {en,hu}`, `body: {en,hu}` already mapped | `announcement-campaigns.ts:223-241` (`mapSnapshotSlide`), `:1058-1074` (`getPublishedCampaignFromRow`) |
+| Published snapshots are immutable: editing the draft touches `announcement_campaign_slides`, never the snapshot rows | `announcement-campaigns.ts:819-936` (`publishCampaign` copies draft rows into `announcement_campaign_snapshot_slides`) |
+| A completion row is insert-if-absent, and a second write returns the existing row | `announcement-campaigns.ts:1159-1232` (`completeCampaignForUser`) — the pattern `markArtifactTourSeen` mirrors |
+| **`getEligibleCampaignForUser` already filters by type**, so a tour can never enter the auto-show queue | `announcement-campaigns.ts:1115-1135` (calls `latestPublishedByType("first_run_onboarding")` then `"release_update"`, `:1065-1084`) |
+| The campaign event ledger cannot carry tour copy: `sanitizeMetadata` stores metadata **only** for `setup_preference_changed` | `announcement-campaigns.ts:1234-1248` |
+| Campaign user state and campaign events are registered `erasure: "cascade"`, `resets: []` — they survive Clear Memory and Clear Workspace | `account-lifecycle/user-scoped-tables.ts:389-404` |
+| The Admin pane's publish button is gated by a **client-side** checklist, which is where a `summary` slide and an `artifact_tour` type must first become legal | `SettingsAdminCampaignsPane.svelte:183-206` (`clientValidationErrors`, `canPublish`), `campaign-checklist.ts:175-186` (type gate), `:225-234` (slide-kind gate) |
+| Both the campaign type and the slide layout are enumerated **in prose** in two more places besides the `Set`s: the service's thrown field errors and the i18n validation messages | `announcement-campaigns.ts:195-197` (type) and `:730-737` (layout); `src/lib/i18n/settings.ts:170-171`, `:164-165` (EN) and `:2094-2095`, `:2089-2090` (HU) |
+| The slide-kind picker is a hard-coded pair | `SlideOptionsDialog.svelte:81` (`['standard','setup']`), `:33` (`onChangeKind: (kind: "setup" \| "standard") => void`) |
+| `SlideEditor.svelte` has **no** layout/kind field at all — it edits one locale's text and assets | `SlideEditor.svelte:2-17` (`EditorSlide`), `:37` (`BODY_GUIDE_LENGTH = 600`) |
+| The seed route convention is a sibling under the campaigns admin root, and the service returns `{ campaign, created }` | `src/routes/api/admin/campaigns/seed-first-run/+server.ts:1-20`, `announcement-campaigns.ts:1404`, `:1496` |
+| Campaign admin strings live in the **settings** dictionary, not in the new artifacts module, and the `admin.campaigns.*` rows are sorted alphabetically inside it | `src/lib/i18n/settings.ts` — EN block `:43-1085`, HU `:1967-3032` (`messages.*` `:88-95`, `slideKind.*` `:120-121`, `validation.typeInvalid` `:170-171`) |
+| `t()` interpolates `{name}` and supports ICU plurals | `src/lib/i18n/index.ts:75-87` |
+| The migration convention is `<when>_<slug>.sql` + a journal entry with a monotonically increasing `idx`; slice 0 takes `idx 124 / when 1777140000111` | `drizzle/1777140000109_project_knowledge_links.sql`, `drizzle/meta/_journal.json` (`idx 123 / when 1777140000110` is the last), `slice-0.md:135` |
+| `check:migrations` errors (exit 1) on a `sqliteTable` with no `CREATE TABLE` anywhere in `drizzle/`, and **only warns** when the table is missing from `prepare-db`'s `requiredExistingTables` | `scripts/verify-migrations.ts:58-85` (error path `:67-74`, `:83-85`; warning `:76-81`) |
+| The containment guard's PART B fires only on files that read `artifacts` / `artifactChunks` / `chatGeneratedFiles` / `projectKnowledgeLinks` — a table named `artifact_tour_states` never trips it, and an exemption for it would fail the guard's second test | `tests/cross-cutting/incognito-artifact-containment.test.ts:561-568`, `:498-508`, `:628-661` |
+| The existing seen-once precedent is a single user column, not a table — and it is not enough for four kinds × N content keys | `schema.ts:64` (`users.home_memory_review_dismissed_at`) |
+| The panel's version affordance today is a **chip strip**, rendered only when the family has more than one document, and it exists **twice** (docked and expanded headers) | `document-workspace/DocumentWorkspace.svelte:960-988` and `:1210+`, testids `document-version-control` / `document-version-badge` |
+
+**What the slice previously got wrong.**
+
+1. **`CAMPAIGN_TYPES` is not an `as const` array** and `CampaignType` on the client is **not** a closed union —
+   it is already open (`"first_run_onboarding" | "release_update" | (string & {})`,
+   `src/lib/client/api/campaigns.ts:9-12`, same for `CampaignSlideKind` at `:13`). Only the server asserts.
+2. **The sidebar App Version Badge will open a published tour.** `getLatestPublishedCampaign`
+   (`announcement-campaigns.ts:1137-1151`) filters on `status = "published"` **and nothing else**, and
+   `/api/campaigns/latest/+server.ts:5-8` → `fetchLatestCampaign` → `(app)/+layout.svelte:524-535`
+   (`handleAppVersionClick` → `openCampaign(campaign, "replay")`) shows whatever it returns in the app-level
+   modal. With a Canvas tour published after the last release note, clicking `v…` opens **the tour**. This is a
+   real defect this slice must fix, not assert away (see Task T3, step T3.0).
+3. **There is no panel version *menu* anywhere in the slice set.** `slice-0.md` contracts a version *pill* on the
+   card (`slice-0.md:375,495`) and `slice-1.md` a per-type `VersionsSheet.svelte` (`slice-1.md:793-795`); no
+   slice defines a header badge that opens a menu. Task T3 must therefore be written against the host it finds.
+4. `seedFirstRunOnboardingTemplate` returns `{ campaign, created: boolean }`, not counts (see below).
+5. The migration is not named `drizzle/0NNN_<slug>.sql`.
+
 ### The new campaign type
 
-The campaign type union is closed and asserted: `CAMPAIGN_TYPES` in
-`src/lib/server/services/announcement-campaigns.ts`, `assertType`, and `CampaignType` in
-`src/lib/client/api/campaigns.ts`. Adding one is a service-plus-client change:
+The server-side type surface is a union, a `Set` and `assertType`; adding a value touches all three, plus the
+prose error a person reads in the admin form. This is the exact shape to end up with:
 
 ```ts
 // announcement-campaigns.ts
-export const CAMPAIGN_TYPES = ["first_run_onboarding", "release_update", "artifact_tour"] as const;
-export type AnnouncementCampaignType = (typeof CAMPAIGN_TYPES)[number];
+export type AnnouncementCampaignType =
+	| "first_run_onboarding"
+	| "release_update"
+	| "artifact_tour";
+
+const CAMPAIGN_TYPES = new Set<AnnouncementCampaignType>([
+	"first_run_onboarding",
+	"release_update",
+	"artifact_tour",
+]);
 ```
 
-Slide layout values gain one:
+and `assertType`'s field error becomes
+`"Campaign type must be first_run_onboarding, release_update or artifact_tour."` (`:196`), with a test asserting
+that string for an unknown type.
+
+Slide layout values gain one, in the same three places:
 
 ```ts
 export type AnnouncementCampaignSlideLayout = "setup" | "standard" | "summary";
+
+const LAYOUT_TYPES = new Set<AnnouncementCampaignSlideLayout>(["setup", "standard", "summary"]);
 ```
 
-`layout_type` is a text column, so this is a union value and a publish rule, not a schema change.
+and the layout error at `:734` becomes `"Slide layout must be setup, standard or summary."` — it is the message
+the admin sees when a `summary` slide is rejected by an older build, so it must not lie.
+
+`layout_type` is a `text` column on both tables (`schema.ts:2127`, `:2213`), so **the `summary` layout is a union
+value plus a publish rule and needs no migration and no schema change.** The only schema work in this slice is the
+new `artifact_tour_states` table (Task T1). The client unions
+(`src/lib/client/api/campaigns.ts:9-13`) are open already; widening them is a readability change, not a
+requirement — but do it, so the editor's own label lookups are type-checked.
 
 **Type-specific publish rules** (`validatePublishInput`, which already enforces
 `first_run_onboarding` = exactly one `setup` slide + at least one `data_disclosure` slide):
 
 - `artifact_tour` requires **exactly one `summary` slide** and **exactly three `standard` slides**, in that
-  `sortOrder` order (summary first).
+  `sortOrder` order (summary first). Concretely: four slides with `sortOrder` **1 (summary), 2, 3, 4**, because
+  `announcement_campaign_slides` carries a unique index on `(campaign_id, sort_order)`
+  (`schema.ts:2163-2165`) and negative or duplicate orders are rejected at `:746-757`. The publish rule reads the
+  slides ordered by `sortOrder` (`announcement-campaigns.ts:846-851`) and must assert `slides[0].layoutType ===
+  "summary"` and `slides.slice(1).every(s => s.layoutType === "standard")`, not merely the counts.
 - EN + HU `title` and `body` remain required on every slide (the existing rule) — the summary slide's `title`
   is the empty state's one-line text and its `body` is the smaller second line, so no rule is relaxed.
 - **No crop assets are required.** The existing rule requires EN + HU alt text only when a crop is attached,
@@ -140,16 +230,52 @@ export type AnnouncementCampaignSlideLayout = "setup" | "standard" | "summary";
 - `semanticRole` is not constrained for this type (the `data_disclosure` requirement stays
   `first_run_onboarding`'s).
 
+**The four-value type is derived, not re-declared.** `ArtifactKind` already is
+`"document" | "app" | "canvas" | "slides" | "file"` in the shared module Slice 0 creates
+(`slice-0.md:296-297`), so the tour union is `Exclude<ArtifactKind, "file">` — ruling 8 expressed as a type
+rather than as four string literals that can drift. The shared, client-safe types go in a new file in that
+same directory (no runtime imports, like `kinds.ts`):
+
+```ts
+// src/lib/shared/artifacts/tours.ts — client-safe, type-only, no runtime imports
+import type { ArtifactKind } from "./kinds";
+
+/** Ruling 8: File gets no tour, because produce_file is not a new kind. */
+export type ArtifactTourType = Exclude<ArtifactKind, "file">;
+
+export type LocalizedText = { en: string; hu: string };
+export type ArtifactTourSlideContent = { title: LocalizedText; body: LocalizedText };
+
+export type ResolvedArtifactTour = {
+	artifactType: ArtifactTourType;
+	/** `snapshot:<id>` for a published campaign, `default:<version>` for the code copy. */
+	contentKey: string;
+	source: "published" | "default";
+	/** Always three, in order. A published tour with any other count is not publishable. */
+	slides: ArtifactTourSlideContent[];
+	/** The kind's empty-state line, from the summary slide (or the code default). */
+	summary: LocalizedText;
+};
+
+export type ArtifactTourState = { seen: boolean; lastSlide: number };
+```
+
+`Exclude` plus an exhaustive `Record` is what makes a sixth kind safe: adding one to `ArtifactKind` widens
+`ArtifactTourType`, and `ARTIFACT_TOUR_DEFAULTS` below then fails to compile until the new kind has copy —
+which is the desired direction of failure (a missing tour is loud, a silently-untoured kind is not). A test
+asserts `ARTIFACT_TOUR_DEFAULTS` has exactly the four keys and that `"file"` is not among them.
+
 **The default tour content** is code-owned, one entry per kind, in
 `src/lib/server/artifact-tour-defaults.ts` — the same shape as `prompts.ts`'s `SYSTEM_PROMPTS` registry:
 
 ```ts
-export type ArtifactTourType = "document" | "app" | "canvas" | "slides";
+// src/lib/server/artifact-tour-defaults.ts
+import type { ArtifactTourContent, ArtifactTourType } from "$lib/shared/artifacts/tours";
 
 export type ArtifactTourContent = {
 	artifactType: ArtifactTourType;
-	summary: { en: string; hu: string };
-	slides: Array<{ title: { en: string; hu: string }; body: { en: string; hu: string } }>;
+	summary: LocalizedText;
+	slides: ArtifactTourSlideContent[]; // exactly three, checked in the test
 };
 
 /** Bumping this re-shows every default tour once, deliberately. It is a
@@ -158,27 +284,29 @@ export type ArtifactTourContent = {
 export const ARTIFACT_TOUR_CONTENT_VERSION = 1;
 
 export const ARTIFACT_TOUR_DEFAULTS: Record<ArtifactTourType, ArtifactTourContent>;
+
+/** Narrowing helper shared by the routes; the only place the four strings
+ *  are enumerated at runtime. */
+export function isArtifactTourType(value: string): value is ArtifactTourType;
 ```
 
-**The resolved tour** is what the panel sees, whether it came from code or from a snapshot:
+**The service** — `src/lib/server/services/artifact-tours.ts`, two public reads/writes plus the seed:
 
 ```ts
 // src/lib/server/services/artifact-tours.ts
-export type ResolvedArtifactTour = {
-	artifactType: ArtifactTourType;
-	/** `snapshot:<id>` for a published campaign, `default:<version>` for the code copy. */
-	contentKey: string;
-	source: "published" | "default";
-	/** Always three, in order. A published tour with any other count is not publishable. */
-	slides: Array<{ title: { en: string; hu: string }; body: { en: string; hu: string } }>;
-	/** The kind's empty-state line, from the summary slide (or the code default). */
-	summary: { en: string; hu: string };
+import type { ArtifactTourType, ResolvedArtifactTour } from "$lib/shared/artifacts/tours";
+
+export type ArtifactTourLookup = {
+	tour: ResolvedArtifactTour;
+	seen: boolean;
+	lastSlide: number;
 };
 
 export async function getArtifactTour(params: {
 	userId: string;
 	artifactType: ArtifactTourType;
-}): Promise<{ tour: ResolvedArtifactTour; seen: boolean; lastSlide: number } | null>;
+	options?: CampaignServiceOptions; // the existing { db?, ids? } seam, for tests
+}): Promise<ArtifactTourLookup | null>;
 
 export async function markArtifactTourSeen(params: {
 	userId: string;
@@ -186,10 +314,34 @@ export async function markArtifactTourSeen(params: {
 	contentKey: string;
 	status: "completed" | "dismissed";
 	lastSlide: number;
-}): Promise<void>;
+	options?: CampaignServiceOptions;
+}): Promise<{ ok: true; alreadyRecorded: boolean }>;
 
-export async function seedArtifactTourDrafts(createdByUserId: string): Promise<{ created: number; existing: number }>;
+export async function seedArtifactTourDrafts(
+	createdByUserId: string,
+	options?: CampaignServiceOptions,
+): Promise<{ created: number; existing: number }>;
 ```
+
+`markArtifactTourSeen` returns a value rather than `void` so the route can answer `alreadyRecorded` without a
+second read, and so the idempotence is a returned fact the test can assert.
+
+**The identity rule for four drafts** — the trap the seed walks into if this is left implicit.
+`identityFor(type, version, revision)` is `` `${type}:${version}:r${revision}` ``
+(`announcement-campaigns.ts:170-176`), it is `UNIQUE` (`schema.ts:2082`), and
+`announcement_campaigns_version_revision_unique_idx` is unique on `(type, campaign_version, revision)`
+(`schema.ts:2111-2112`). `defaultVersionFor` returns `"v1"` for every type that is not `release_update`
+(`:178-186`), and `nextRevision` counts rows by `(type, campaignVersion)` (`:349-368`). So four
+`createCampaignDraft({ type: "artifact_tour" })` calls would produce `artifact_tour:v1:r1 … r4` — four distinct
+keys, but four *revisions of one version string*, which makes the admin rail read as one campaign's history and
+makes "publish the Canvas tour without touching the Document tour" indistinguishable in the UI. **Set
+`releaseVersion` to the kind** (`"document" | "app" | "canvas" | "slides"`), which `defaultVersionFor` uses as the
+campaign version for that type, giving `artifact_tour:document:r1`, `artifact_tour:app:r1`,
+`artifact_tour:canvas:r1`, `artifact_tour:slides:r1` — unique, per-kind, and stable across re-seeds. A test
+asserts the four keys are distinct **and** that the second call creates nothing (the same do-nothing-on-second-call
+behaviour as `seedFirstRunOnboardingTemplate`, `:1389-1405`). Note the seed must not depend on the first-run
+service's return shape: that one returns `{ campaign, created }` (`:1496`), which cannot describe four campaigns;
+this seed returns counts, and the route maps `created > 0` to 201.
 
 `getArtifactTour` returns `null` only when the kind has neither a published campaign nor a code default —
 which cannot happen for the four kinds, and is a `null` rather than a throw so a broken campaign table cannot
@@ -199,26 +351,247 @@ default does **not** silently reappear; the kind simply has no tour). That last 
 comment in the module, because "fall back to the default" is the tempting thing to do and it would make
 archiving meaningless.
 
+### The routes, literally
+
+Three routes, all `RequestHandler`s. Two rules apply to all of them: the user id is **only** ever
+`event.locals.user.id`, never a query parameter, body field or path segment; and they use
+`requireApiUser` (`src/lib/server/api/auth.ts:10-21`), **not** `requireAuth` — the latter 302-redirects a
+`fetch` to the HTML login page (`src/lib/server/auth/hooks.ts:16-20`), and the panel would then parse a login
+page as JSON. The campaign routes made the other choice (`src/routes/api/campaigns/eligible/+server.ts:6`);
+these are fetched by the panel, so they follow the API seam and answer `401 {"message":"Unauthorized"}`
+(SvelteKit renders a thrown `error()` from a `+server` endpoint as JSON). This is a deliberate deviation from
+the sibling route — say so in the review.
+
+**1. `src/routes/api/artifact-tours/[type]/+server.ts` — GET, session auth**
+
+```ts
+// GET /api/artifact-tours/document
+import { json } from "@sveltejs/kit";
+import { requireApiUser } from "$lib/server/api/auth";
+import { createJsonErrorResponse } from "$lib/server/api/responses";
+import { getArtifactTour, isArtifactTourType } from "$lib/server/services/artifact-tours";
+import type { RequestHandler } from "./$types";
+
+export const GET: RequestHandler = async (event) => {
+	const user = requireApiUser(event);
+	if (!isArtifactTourType(event.params.type)) {
+		return createJsonErrorResponse("Unknown artifact type.", 404);
+	}
+	const result = await getArtifactTour({
+		userId: user.id,
+		artifactType: event.params.type,
+	});
+	if (!result) return json({ tour: null, seen: false, lastSlide: 0 });
+	return json(result); // { tour, seen, lastSlide }
+};
+```
+
+- **200** `{ tour: ResolvedArtifactTour | null, seen: boolean, lastSlide: number }`. A missing tour is a
+  200 with `tour: null`, never a 404 — the panel renders the type's i18n fallback line and must not treat a
+  missing tour as a failed request (that would paint an error over a working panel).
+- **404** `{ error: "Unknown artifact type." }` for a `[type]` that is not one of the four. The path is a
+  resource address, so 404 is right and 400 would be wrong. `file` is **not** a tour type (ruling 8), so
+  `/api/artifact-tours/file` is a 404 like any other unknown segment.
+- **401** `{ message: "Unauthorized" }` — no session.
+- The route never throws for a campaign-table problem: `getArtifactTour` catches its own read failure and
+  returns the default (see failure modes).
+
+**2. `src/routes/api/artifact-tours/[type]/seen/+server.ts` — POST, session auth**
+
+Request body (Zod-free, hand-validated like the rest of these routes):
+
+```ts
+{ contentKey: string;          // "snapshot:<id>" | "default:<version>"
+  status: "completed" | "dismissed";
+  lastSlide: number }          // 0-based, 0..2
+```
+
+Responses:
+
+- **200** `{ ok: true, alreadyRecorded: boolean }`. Idempotent: a second identical POST returns
+  `alreadyRecorded: true` and writes nothing, exactly as `completeCampaignForUser` is insert-if-absent
+  (`announcement-campaigns.ts:1159-1232`). The panel may fire and forget; a retry after a dropped connection
+  must not create a second row (the unique index would refuse it —
+  `artifact_tour_states_user_type_content_unique_idx` in T1's DDL — and the route would 500 where it should
+  say `ok`).
+- **400** `{ error: "Invalid tour state.", fieldErrors: { <field>: "invalid" } }` — a `status` outside the two
+  values, a `lastSlide` that is not an integer in range, or a missing `contentKey`.
+- **401** as above; **404** unknown `[type]`.
+- **409** `{ error: "The introduction changed.", contentKey: <the current key> }` when `contentKey` names
+  something other than the tour that currently resolves for that kind. This is the real race: an admin
+  publishes a new snapshot while a user is mid-tour. Losing that race silently would record "seen" against
+  the old copy while the user is looking at the new one; the panel answers a 409 by re-fetching the tour and
+  rendering the new copy from slide 0. The key is *not* trusted for anything but this comparison.
+
+**3. `src/routes/api/admin/campaigns/seed-artifact-tours/+server.ts` — POST, admin**
+
+A literal sibling of `seed-first-run/+server.ts`, with one deliberate difference in the return shape:
+
+```ts
+export const POST: RequestHandler = async (event) => {
+	requireAdmin(event); // 302 to /login, then error(403, "Forbidden") — auth/hooks.ts:149-160
+	try {
+		const result = await seedArtifactTourDrafts(event.locals.user.id);
+		return json(result, { status: result.created > 0 ? 201 : 200 });
+	} catch (error) {
+		return campaignErrorResponse(error, "Failed to seed artifact tour drafts.");
+	}
+};
+```
+
+- **200/201** `{ created: number; existing: number }` — counts, not a single campaign: the first-run seed
+  returns `{ campaign, created }` (`announcement-campaigns.ts:1496`) because it seeds one campaign, and this
+  one seeds four.
+- **403** empty body with SvelteKit's `Forbidden` for a non-admin, **302** to `/login` unauthenticated —
+  `requireAdmin` is outside the `try` on purpose, so a thrown redirect or `error()` is not swallowed by
+  `campaignErrorResponse`.
+- **400** `{ error, fieldErrors }` if a draft fails validation, via the campaign error mapper
+  (`src/routes/api/admin/campaigns/_shared.ts:4-15`); **500** `{ error: "Failed to seed artifact tour drafts." }`
+  otherwise. Because each draft is created in its own insert, a partial failure leaves the created drafts in
+  place and reports the count — the endpoint is re-runnable and does not need a transaction.
+
+**Client API** (`src/lib/client/api/artifact-tours.ts`, the only browser entry point; the panel and the admin
+pane never call `fetch` themselves — AGENTS.md's rule):
+
+```ts
+import { type FetchLike, requestJson } from "./http"; // requestJson: http.ts:318-323
+import type {
+	ArtifactTourState,
+	ArtifactTourType,
+	ResolvedArtifactTour,
+} from "$lib/shared/artifacts/tours";
+
+/** The wire shape, defined once in the shared module so the browser and the
+ *  server cannot drift (client code may not import $lib/server). */
+export type ArtifactTourResponse = ArtifactTourState & {
+	tour: ResolvedArtifactTour | null;
+};
+
+export async function fetchArtifactTour(
+	artifactType: ArtifactTourType,
+	fetchImpl: FetchLike = fetch,
+): Promise<ArtifactTourResponse>   // { tour, seen, lastSlide }
+
+export async function markArtifactTourSeen(
+	artifactType: ArtifactTourType,
+	payload: { contentKey: string; status: "completed" | "dismissed"; lastSlide: number },
+	fetchImpl: FetchLike = fetch,
+): Promise<{ ok: true; alreadyRecorded: boolean }>
+
+export async function seedArtifactTours(
+	fetchImpl: FetchLike = fetch,
+): Promise<{ created: number; existing: number }>  // "/api/admin/campaigns/seed-artifact-tours"
+```
+
+They follow `seedFirstRunCampaign` (`src/lib/client/api/campaigns.ts:262-271`) exactly: `requestJson` with a
+fallback message (`"Failed to load the introduction"`, `"Failed to record the introduction"`,
+`"Failed to seed artifact tours"`), and the 409 is surfaced as an `ApiError` with `status: 409` rather than
+being special-cased in the client module — the panel's own catch reads `.status`.
+
+### The shipped copy — twelve slides, four summaries
+
+This is the default that ships, written out so the implementer is not inventing product voice. Each kind's
+three slides answer the same three questions in the same order: **what it is**, **what you can do with it**,
+**how to ask Alfy for it**. The third slide is the one that earns the tour its keep — a user who finishes it
+knows the sentence that gets them a Document instead of a paragraph of prose. Ruling 8's File has no entry.
+No string says "artifact" (ADR-0066: the word is never user-visible), and the Hungarian reads as Hungarian,
+not as a gloss.
+
+**`document` — Document / Dokumentum**
+
+| # | EN | HU |
+|---|---|---|
+| summary | `Empty document. Start writing, or ask Alfy to draft it.` | `Üres dokumentum. Kezdj el írni, vagy kérd meg Alfyt, hogy megírja.` |
+| 1 title | `A page you both write on` | `Egy lap, amit ketten írtok` |
+| 1 body | `A document is a real file you keep, not a message that scrolls away. Alfy edits it with you, and every version is kept.` | `A dokumentum igazi fájl, ami megmarad — nem üzenet, ami elgörög. Alfy együtt szerkeszti veled, és minden verzió megmarad.` |
+| 2 title | `What you can do in it` | `Mit tudsz benne csinálni` |
+| 2 body | `Type directly, tick off checklists, and add tables or tabs. Alfy's changes arrive highlighted, with Keep and Undo beside them.` | `Írhatsz közvetlenül, kipipálhatod a listákat, és táblázatokat vagy füleket adhatsz hozzá. Alfy módosításai kiemelve érkeznek, mellettük a Megtartás és a Visszavonás.` |
+| 3 title | `How to ask for one` | `Hogyan kérj ilyet` |
+| 3 body | `Say what you need — "write up the meeting notes", "draft the letter" — and Alfy opens it here. Any answer can also be opened as a document.` | `Mondd el, mire van szükséged — „írd meg a megbeszélés jegyzőkönyvét”, „fogalmazd meg a levelet” —, és Alfy itt nyitja meg. Bármelyik válasz megnyitható dokumentumként is.` |
+
+**`app` — App / Alkalmazás**
+
+| # | EN | HU |
+|---|---|---|
+| summary | `Nothing here yet. Ask Alfy to build a small tool.` | `Itt még nincs semmi. Kérd meg Alfyt, hogy építsen egy kis eszközt.` |
+| 1 title | `A small tool that runs here` | `Egy kis eszköz, ami itt fut` |
+| 1 body | `A self-contained program built for one job: a calculator, a quiz, a tracker. It runs here, in this panel, beside the chat that made it.` | `Önálló program, egyetlen feladatra: egy kalkulátor, egy kvíz, egy nyilvántartó. Itt fut, ebben a panelben, a chat mellett, amiben készült.` |
+| 2 title | `It remembers what you put in it` | `Megjegyzi, amit beírtál` |
+| 2 body | `Your answers are stored with the app, so they are still there tomorrow. They stay in your account, and nothing is shared.` | `A válaszaid az alkalmazásnál maradnak, így holnap is ott lesznek. A fiókodban maradnak, és semmi nem kerül megosztásra.` |
+| 3 title | `How to ask for one` | `Hogyan kérj ilyet` |
+| 3 body | `Describe the tool and the job: "a tip calculator", "a quiz on the French Revolution". Alfy builds it, checks the numbers, then shows it.` | `Írd le az eszközt és a feladatát: „borravaló-kalkulátor”, „kvíz a francia forradalomról”. Alfy megépíti, ellenőrzi a számokat, aztán megmutatja.` |
+
+**`canvas` — Canvas / Tábla**
+
+| # | EN | HU |
+|---|---|---|
+| summary | `Empty board. Insert a block or draw on it.` | `Üres tábla. Szúrj be egy blokkot, vagy rajzolj rá.` |
+| 1 title | `A board for anything` | `Egy tábla, bármire` |
+| 1 body | `A free surface: sticky notes, frames, arrows and live blocks, arranged however you think. It is for arranging, not for writing.` | `Szabad felület: cetlik, keretek, nyilak és élő blokkok, úgy elrendezve, ahogy gondolkodsz. Rendezésre való, nem írásra.` |
+| 2 title | `Draw on it, and place things` | `Rajzolj rá, és helyezz el dolgokat` |
+| 2 body | `Sketch with pen and highlighter, drop in a chart, a checklist, a map or a file, then pan and zoom without losing the thread.` | `Firkálhatsz tollal és kiemelővel, behúzhatsz diagramot, listát, térképet vagy fájlt, aztán görgethetsz és nagyíthatsz anélkül, hogy elveszítenéd a fonalat.` |
+| 3 title | `How to ask for one` | `Hogyan kérj ilyet` |
+| 3 body | `Ask for a board when the shape of the problem matters: "put the trip options on a board". Alfy can also rearrange a board you already have.` | `Akkor kérj táblát, amikor a probléma elrendezése számít: „tedd a táblára az útiterveket”. Egy meglévő táblát is át tud rendezni.` |
+
+**`slides` — Slides / Diasor**
+
+| # | EN | HU |
+|---|---|---|
+| summary | `Empty deck. Add a slide to start.` | `Üres diasor. Adj hozzá egy diát a kezdéshez.` |
+| 1 title | `A deck you can present` | `Egy diasor, amit bemutathatsz` |
+| 1 body | `A real deck: a fixed set of layouts, speaker notes, and a present mode that fills the screen.` | `Igazi diasor: rögzített elrendezések, előadói jegyzetek, és egy vetítő mód, ami kitölti a képernyőt.` |
+| 2 title | `Built for export` | `Exportra készült` |
+| 2 body | `Because the layouts are fixed, the deck exports to PowerPoint cleanly. The file is a real .pptx, not a picture of one.` | `Mivel az elrendezések rögzítettek, a diasor tisztán exportálható PowerPointba. A fájl igazi .pptx, nem annak a képe.` |
+| 3 title | `How to ask for one` | `Hogyan kérj ilyet` |
+| 3 body | `Ask for a deck and say who it is for: "a six-slide intro to the project for Monday". You can also ask about one slide at a time.` | `Kérj diasort, és mondd meg, kinek szól: „hat diás bemutató a projektről hétfőre”. Egyetlen diáról is kérdezhetsz.` |
+
+Two mechanical consequences of this table. First, **the four summaries are the empty-state fallbacks' twins** —
+the `summary` row here must equal the corresponding `artifacts.*.emptyState` / `artifacts.{canvas,slides}.*`
+value in the i18n table above, character for character, and T6's test is what keeps them equal. Second,
+**the copy lives in one place per kind**: a published campaign's slides replace the whole three-slide set and
+the summary together (the snapshot is atomic), so an admin editing one doesn't leave the other half stale.
+
 ### The seen table
 
+**Migration: generate it, do not hand-name it.** The convention in this tree is
+`drizzle/<when>_<slug>.sql` plus one `_journal.json` entry (`drizzle/1777140000109_project_knowledge_links.sql`
+with `{"idx": 122, "version": "7", "when": 1777140000109, "tag": "1777140000109_project_knowledge_links",
+"breakpoints": true}`; the last entry today is `idx 123 / when 1777140000110`). Slice 0 claims `idx 124 /
+when 1777140000111` (`slice-0.md:135`). **Take the next free number from the tree at the moment you branch** —
+if slice 0 has landed, that is `idx 125 / when ~1777140000112`, and the file is
+`drizzle/1777140000112_artifact_tour_states.sql`. Never reuse a number printed in a document, and never rename an
+existing file. Run `npx drizzle-kit generate` after adding the `sqliteTable` and commit what it writes; the shape
+below is what it should produce, in the repo's own DDL style (`--> statement-breakpoint` between statements,
+backticked identifiers — compare `drizzle/1777140000109_project_knowledge_links.sql`):
+
 ```sql
-CREATE TABLE artifact_tour_states (
-  id            TEXT PRIMARY KEY,
-  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  artifact_type TEXT NOT NULL,            -- 'document' | 'app' | 'canvas' | 'slides'
-  content_key   TEXT NOT NULL,            -- 'snapshot:<id>' | 'default:<version>'
-  status        TEXT NOT NULL,            -- 'completed' | 'dismissed'
-  slide_count   INTEGER NOT NULL,         -- what the tour had when it was seen
-  last_slide    INTEGER NOT NULL DEFAULT 0,
-  completed_at  INTEGER,
-  dismissed_at  INTEGER,
-  created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL
+CREATE TABLE `artifact_tour_states` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`artifact_type` text NOT NULL,
+	`content_key` text NOT NULL,
+	`status` text NOT NULL,
+	`slide_count` integer NOT NULL,
+	`last_slide` integer DEFAULT 0 NOT NULL,
+	`completed_at` integer,
+	`dismissed_at` integer,
+	`created_at` integer DEFAULT (unixepoch()) NOT NULL,
+	`updated_at` integer DEFAULT (unixepoch()) NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
-CREATE UNIQUE INDEX artifact_tour_states_user_type_content_unique_idx
-  ON artifact_tour_states(user_id, artifact_type, content_key);
-CREATE INDEX artifact_tour_states_user_type_idx ON artifact_tour_states(user_id, artifact_type);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `artifact_tour_states_user_type_content_unique_idx` ON `artifact_tour_states` (`user_id`,`artifact_type`,`content_key`);
+--> statement-breakpoint
+CREATE INDEX `artifact_tour_states_user_type_idx` ON `artifact_tour_states` (`user_id`,`artifact_type`);
 ```
+
+Column meanings are fixed: `artifact_type` is the four-value tour union, `content_key` is
+`'snapshot:<id>' | 'default:<version>'`, `status` is `'completed' | 'dismissed'`, `slide_count` is what the tour
+had when it was seen (so a later three-slide rule change cannot make an old row read as short), `last_slide` is
+0-based. `completed_at`/`dismissed_at` are set on the write that sets `status` and never both.
+`scripts/prepare-db.ts` gains `"artifact_tour_states"` in `requiredExistingTables` (`scripts/prepare-db.ts:32-…`;
+`check:migrations` only warns about a missing entry — `scripts/verify-migrations.ts:76-81` — so the warning is
+the only thing that catches an omission, and it must not be left in the output).
 
 Deliberate properties, each of which a test asserts:
 
@@ -262,24 +635,77 @@ both persist through `markArtifactTourSeen` with `status` `completed` / `dismiss
 |---|---|---|
 | Opening any artifact of a kind, first time for this user | **yes** | the whole feature |
 | Opening the same kind again | no | a state row exists for this `content_key` |
-| The artifact's version badge menu → `How this kind works` | **yes, replay** | ADR-0012's replay path; no state written |
-| The sidebar App Version Badge | **no** | that badge opens `getLatestPublishedCampaign`, which filters by type and never sees `artifact_tour` — assert this rather than assume it |
-| `getEligibleCampaignForUser`'s auto-show | **no** | same reason; the tour is not in the queue |
+| The panel's version affordance → `How this kind works` | **yes, replay** | ADR-0012's replay path; no state written |
+| The sidebar App Version Badge | **no, and it must be made not to** | `/api/campaigns/latest` has no type filter today, so publishing a tour would hijack the app-level modal — see below |
+| `getEligibleCampaignForUser`'s auto-show | **no** | already type-filtered — `announcement-campaigns.ts:1115-1135` |
 | The Knowledge library | no | a tour is not an artifact |
 | A brand-new empty artifact the user just created | **yes** | "created or reopened" — the first open of the kind is the first open, however it came to exist |
 
-### The version badge menu
+**The sidebar badge is a defect this slice must fix, not a property it can rely on.** The App Version Badge
+harness in the app shell calls `getLatestPublishedCampaign` through `/api/campaigns/latest`
+(`src/routes/api/campaigns/latest/+server.ts`) and opens whatever comes back with mode `"replay"`
+(`src/routes/(app)/+layout.svelte:524-535`, `:481-491`). `getLatestPublishedCampaign`
+(`src/lib/server/services/announcement-campaigns.ts:1137-1151`) selects the newest published campaign with
+**no `campaignType` predicate at all** — unlike `getEligibleCampaignForUser`, which filters on
+`campaignType` before returning (`:1115-1135`). So the moment a tour is published, the badge would open a
+three-slide kind tour instead of the release note it exists for, and `replay_opened` telemetry would be
+recorded against the tour. `getEligibleCampaignForUser` tolerates this only because tours are never in its
+queue; the badge path has no such protection.
 
-Slice 0 owns the panel header's version badge (`v7 · You and Alfy · saved just now`, opening the version
-list). This slice adds one row to that menu, below the version list:
+The fix reuses the filter that already exists. `latestPublishedByType(type, db)`
+(`announcement-campaigns.ts:1076-1094`) is exactly the query with the type predicate; the exported function
+just does not use it:
 
+```ts
+// src/lib/server/services/announcement-campaigns.ts — replaces :1137-1151
+export async function getLatestPublishedCampaign(
+	campaignType: AnnouncementCampaignType,
+	options: CampaignServiceOptions = {},
+) {
+	return latestPublishedByType(campaignType, database(options));
+}
 ```
-How this kind works        ← opens the tour in replay mode, no state written
+
+and the route passes the badge's type (`src/routes/api/campaigns/latest/+server.ts:8`):
+
+```ts
+return json({ campaign: await getLatestPublishedCampaign("release_update") });
 ```
 
-and one **enabled** affordance in the panel's own empty state: the empty state shows the kind's summary line
-and a quiet `How this kind works` link that opens the same replay. If Slice 0 or the relevant type slice has
-not landed a badge menu, this slice adds the row to whatever menu exists and does not build a second one.
+The parameter is **required** — an optional one leaves the next caller free to reintroduce the bug, and the
+compiler then finds every call site for us. There are exactly four: the route above, and three tests that
+need the argument (`src/lib/server/services/announcement-campaigns.test.ts:17,183`,
+`src/routes/api/campaigns/campaigns.test.ts:21,30,42`). New test: a published `artifact_tour` newer than a
+published `release_update` must not be returned by `getLatestPublishedCampaign("release_update")` while
+`getEligibleCampaignForUser` still ignores it — this is T3, step T3.0, and it is the only edit this slice
+makes outside its own new files.
+
+This is not a workaround for the tour; it closes a hole Feature 1's campaigns already had (an
+`artifact_tour` is the first third campaign type, so nothing could previously collide with the badge).
+
+### The version affordance, which is not a menu
+
+There is **no version badge menu in any slice**, including this one: no slice defines one, and the panel's
+version control today is a **chip strip**, rendered in two places — docked and expanded — at
+`src/lib/components/document-workspace/DocumentWorkspace.svelte:960-988` (`document-version-control`) and
+`:1210`+ (`document-version-badge`), and only when `familyDocuments.length > 1`. `VersionsSheet.svelte` is
+Slice 1's (`slice-1.md:793-800`). So this slice does **not** add a menu row; it adds the replay entry point
+to the version affordance **wherever it already exists**, and to the empty state, which is the one host it
+can own outright:
+
+1. **Preferred host — the existing version affordance.** If it is a chip strip, add a trailing
+   `How this kind works` chip styled as the quiet row (tokens below); if a later slice turns the strip into a
+   sheet or a menu, add one row at its bottom. Same action in both: open the tour in replay mode, write no
+   state.
+2. **Always present — the panel's empty state.** The empty state renders the kind's summary line and, beneath
+   it, a quiet `artifacts.tour.replay` link to the same replay. This host exists in every slice, so the
+   replay entry point is reachable even before Slice 1 lands `VersionsSheet.svelte`.
+3. **Never a second control.** If the affordance exists, do not add a second badge, button, or chip beside it.
+
+This is deliberately host-agnostic because the host is not settled. Slice 0 owns the panel header and may
+replace the chip strip; Slice 1 lands the sheet. **Owner question 3** below asks for the ruling; the
+recommendation is to accept the empty-state link as the guarantee and treat the version-affordance chip as
+best-effort until the header is settled, so this slice never blocks on another slice's rewrite.
 
 ### The empty state
 
@@ -293,40 +719,110 @@ the fallback:
 export function emptyStateLine(tour: ResolvedArtifactTour | null, t: (key: string) => string, kind: ArtifactTourType): string;
 ```
 
-Fallbacks and the shipped defaults that must match them:
+Fallbacks and the shipped defaults that must match them. **The Canvas and Slides values below are copied
+verbatim from the type slices and must not be re-typed** — `slice-3.md:860` has no comma in the Canvas line
+and `slice-4.md:329` says `Add a slide to start`; an earlier draft of this file had a comma, which is exactly
+the drift the test in T6 exists to catch:
 
-| Kind | Fallback key | Default summary (EN) |
-|---|---|---|
-| Document | `artifacts.document.emptyState` | `Empty document. Start writing, or ask Alfy to draft it.` |
-| App | `artifacts.app.emptyState` | `Nothing here yet. Ask Alfy to build a small tool.` |
-| Canvas | `artifacts.canvas.emptyBoard` | `Empty board. Insert a block, or draw on it.` |
-| Slides | `artifacts.slides.emptyDeck` | `Empty deck. Add a slide to start.` |
+| Kind | Fallback key | Default summary (EN) | Default summary (HU) |
+|---|---|---|---|
+| Document | `artifacts.document.emptyState` | `Empty document. Start writing, or ask Alfy to draft it.` | `Üres dokumentum. Kezdj el írni, vagy kérd meg Alfyt, hogy megírja.` |
+| App | `artifacts.app.emptyState` | `Nothing here yet. Ask Alfy to build a small tool.` | `Itt még nincs semmi. Kérd meg Alfyt, hogy építsen egy kis eszközt.` |
+| Canvas | `artifacts.canvas.emptyBoard` | `Empty board. Insert a block or draw on it.` | `Üres tábla. Szúrj be egy blokkot, vagy rajzolj rá.` |
+| Slides | `artifacts.slides.emptyDeck` | `Empty deck. Add a slide to start.` | `Üres diasor. Adj hozzá egy diát a kezdéshez.` |
+
+`artifacts.document.emptyState` and `artifacts.app.emptyState` are **new in this slice** — no slice defines
+them (grep across `docs/plans/claude-at-home-2/` finds zero occurrences; slices 1 and 2 do not list an
+empty-state key in their i18n tables). They are added to `src/lib/i18n/artifacts.ts` in T6, both locales, or
+`t()` will fall through to echoing the key (`src/lib/i18n/index.ts:74-77` returns `lang[key] ?? en[key] ??
+key`), and `I18nKey` is `keyof typeof dictionary.en` (`:71`), so a missing row is a type error at the call
+site rather than a silent blank.
 
 The Canvas and Slides keys are the ones slices 3 and 4 already ship. This slice makes the tour the source of
 truth and those keys the fallback, and its test makes disagreement a failure rather than a copy-edit
-accident.
+accident. `emptyStateLine` never renders a bare key: when the tour does not resolve *and* the fallback key is
+absent it returns the kind's `artifacts.type.*` name, which slice 3 ships and every type has
+(`slice-3.md:771-779`) — this is what the `artifacts.tour.emptyStateFallback` row in the old draft was
+gesturing at, and it is deleted (see the i18n table).
 
 ### i18n (chrome only)
+
+All keys are appended to `src/lib/i18n/artifacts.ts` (created by Slice 0, `slice-0.md:484-505`) and the
+`artifacts.` prefix is already in `AUDITED_PREFIXES` (`src/lib/i18n.test-helpers.ts:16`) by then, so the
+parity test picks these up with no registration work:
 
 | Key | EN | HU |
 |---|---|---|
 | `artifacts.tour.region` | `How this kind works` | `Így működik ez a típus` |
 | `artifacts.tour.stepOf` | `Step {n} of {m}` | `{n}. lépés, összesen {m}` |
-| `artifacts.tour.dots` | `{count} steps` | `{count} lépés` |
+| `artifacts.tour.dots` | `{count} step{count, plural, one {} other {s}}` | `{count} lépés` |
 | `artifacts.tour.next` | `Next` | `Tovább` |
 | `artifacts.tour.back` | `Back` | `Vissza` |
 | `artifacts.tour.done` | `Got it` | `Értem` |
 | `artifacts.tour.skip` | `Skip` | `Kihagyás` |
 | `artifacts.tour.close` | `Close` | `Bezárás` |
-| `artifacts.tour.replayHint` | `You'll see this once. Replay it any time from the version badge.` | `Egyszer látod. A verziójelvényről bármikor újranézheted.` |
-| `artifacts.tour.replay` | `Show it again` | `Újra megmutatja` |
+| `artifacts.tour.replayHint` | `You'll see this once. You can replay it any time.` | `Egyszer látod. Bármikor újranézheted.` |
+| `artifacts.tour.replay` | `Show it again` | `Újra megnézem` |
 | `artifacts.tour.replayOpened` | `Replaying` | `Újranézés` |
 | `artifacts.tour.illustrationAlt` | `An illustration of a {kind}` | `Egy {kind} illusztrációja` |
 | `artifacts.tour.loadFailed` | `Could not load the introduction.` | `Nem sikerült betölteni a bemutatót.` |
-| `artifacts.tour.emptyStateFallback` | (used only if a kind has no tour at all) | — |
+| `artifacts.document.emptyState` | see the empty-state table above | `Üres dokumentum. Kezdj el írni, vagy kérd meg Alfyt, hogy megírja.` |
+| `artifacts.app.emptyState` | see the empty-state table above | `Itt még nincs semmi. Kérd meg Alfyt, hogy építsen egy kis eszközt.` |
 
-`{kind}` resolves through the existing `artifacts.type.*` rows (`artifacts.type.canvas` = `Canvas` / `Tábla`),
-so the alt text cannot drift from the type name.
+Three deliberate details:
+
+- **`artifacts.tour.dots` uses the house plural suffix form**, `{count} step{count, plural, one {} other {s}}`,
+  copied from `src/lib/i18n/chat.ts:931` — not `{count, plural, one {1 step} other {{count} steps}}`, which
+  the `t()` helper's regex cannot parse because its branch bodies may not contain braces
+  (`src/lib/i18n/index.ts:75-87`). The Hungarian line takes no suffix at all because Hungarian does not
+  pluralise after a numeral; `{count} lépés` is correct for 1 and for 3.
+- **`artifacts.tour.replay` is `Újra megnézem`**, not `Újra megmutatja` — as a link the subject is the reader
+  ("I'll watch it again"), and the old value was a bare third-person verb phrase that reads as a machine
+  translation.
+- **`artifacts.tour.replayHint` names no host.** The mockup's own string is `You'll see this once. Replay it
+  any time from the version badge.` (`claude-at-home-2-artifact-surfaces-mockups.html:310`) — and the shipped
+  hint deliberately drops the last clause, because the replay entry point lives on the version affordance
+  *or* the empty state (see above) and no slice defines a version badge *menu* for it to promise. If the
+  header settles into a menu (owner question 1), restoring the mockup's wording is a one-string change.
+- **The old `artifacts.tour.emptyStateFallback` row is deleted**, not implemented: it was never defined and
+  its job is done by the `artifacts.type.*` name fallback described under the empty state.
+
+`{kind}` resolves through the existing `artifacts.type.*` rows (slice 3 owns them, `slice-3.md:771-779`:
+`Canvas` / `Tábla`, `Document` / `Dokumentum`, `App` / `Alkalmazás`, `Slides` / `Diasor`), so the alt text
+cannot drift from the type name.
+
+The **admin** keys the seed menu and the `summary` layout need go in the **settings** dictionary instead —
+`src/lib/i18n/settings.ts` is a two-locale object literal (`en` `:20-1927`, `hu` `:1928-3897`) whose
+`admin.campaigns.*` rows are **alphabetically sorted** (EN `:43`–`:1085`, HU `:1967`–`:3032`), so they are
+inserted in sorted position, not appended. Four new rows, each in both locales, using the existing groups the
+names mirror:
+
+| Key | EN | HU | Sorted position |
+|---|---|---|---|
+| `admin.campaigns.slideKind.summary` | `Summary` | `Összegzés` | after `slideKind.standard` (EN `:121`, HU `:2046`) |
+| `admin.campaigns.addSummarySlide` | `Add summary slide` | `Összegző dia hozzáadása` | after `addStandardSlide` (EN `:47`, HU `:1971`), before `altEn` |
+| `admin.campaigns.seedArtifactTours` | `Seed artifact tours` | `Bemutatók létrehozása` | after `saveDraft`, before `seedFirstRun` |
+| `admin.campaigns.messages.artifactToursSeeded` | `Seeded {created} tour drafts, {skipped} already existed.` | `{created} bemutató piszkozat létrejött, {skipped} már létezett.` | first in the `messages.*` group, before `messages.archived` (EN `:88`, HU `:2013`) |
+
+The layout label belongs to `slideKind.*` because that is the group `SlideOptionsDialog.svelte` already reads
+(`:89-91`: `admin.campaigns.slideKind.setup` / `.standard`), and the seed message belongs to `messages.*`
+because `seedFirstRun`'s handler shows `messages.seeded` / `messages.seedExists`
+(`SettingsAdminCampaignsPane.svelte:552-558`). Sorting is enforced by eye only (no dictionary-order test), so
+**the reviewer checks placement**, and these keys are not `artifacts.*` — they must not go in the artifacts
+dictionary.
+
+**Two existing keys enumerate the legal values in prose and become wrong the moment the unions widen.** They
+are edited in place (same keys, both locales, new text) in T5, and a reviewer who finds either still naming
+two values has found a shipped contradiction between the picker and its own error message:
+
+| Existing key | Now | Becomes |
+|---|---|---|
+| `admin.campaigns.validation.typeInvalid` (EN `:170-171`, HU `:2094-2095`) | `Campaign type must be first-run onboarding or release update.` / `A kampány típusa csak első indítási vagy kiadási kampány lehet.` | EN: `Campaign type must be first-run onboarding, release update or artifact tour.` HU: `A kampány típusa első indítási, kiadási vagy bemutató kampány lehet.` |
+| `admin.campaigns.validation.slideLayoutInvalid` (EN `:164-165`, HU `:2089-2090`) | `Slide layout must be setup or standard.` / `A dia elrendezése csak beállítás vagy általános lehet.` | EN: `Slide layout must be setup, standard or summary.` HU: `A dia elrendezése beállítás, általános vagy összegzés lehet.` |
+
+The server mirrors both messages in its own thrown prose — `assertType`'s field error
+(`announcement-campaigns.ts:195-197`) and the layout error at `:734` — so those two strings change in the same
+commit, and the service test asserts the new wording rather than a substring.
 
 ### The illustrations
 
@@ -344,36 +840,128 @@ requirement — which is exactly the friction this design avoids.
 
 ## File ownership
 
-| File | Change |
-|---|---|
-| `src/lib/server/db/schema.ts` | extend — `artifactTourStates` |
-| `drizzle/<when>_artifact_tour_states.sql` + `drizzle/meta/_journal.json` | create — the table and its indexes |
-| `scripts/prepare-db.ts` | extend — `requiredExistingTables` |
-| `src/lib/server/services/artifact-tours.ts` + test | create — resolve, mark seen, seed |
-| `src/lib/server/artifact-tour-defaults.ts` + test | create — the code-owned copy and its version |
-| `src/lib/server/services/announcement-campaigns.ts` + test | extend — the `artifact_tour` type, the `summary` layout, the publish rules |
-| `src/lib/client/api/campaigns.ts` | extend — the `CampaignType` and layout unions |
-| `src/routes/api/artifact-tours/[type]/+server.ts` + test | create — GET the resolved tour and the seen state |
-| `src/routes/api/artifact-tours/[type]/seen/+server.ts` + test | create — POST the state |
-| `src/routes/api/admin/artifact-tours/seed/+server.ts` + test | create — seed the four drafts |
-| `src/lib/client/api/artifact-tours.ts` + test | create — the browser calls |
-| `src/lib/components/artifact/tour/ArtifactTour.svelte` + test | create — the panel card |
-| `src/lib/components/artifact/tour/illustrations/*.svelte` | create — four illustrations |
-| `src/lib/components/artifact/empty-state.ts` + test | create |
-| `src/lib/components/document-workspace/DocumentWorkspace.svelte` | extend — the first-open trigger, the badge-menu row, the empty-state line |
-| `src/routes/(app)/settings/_components/SettingsAdminCampaignsPane.svelte` | extend — the seed item for the four tour drafts |
-| `src/routes/(app)/settings/_components/campaigns/SlideEditor.svelte` | extend — the `summary` layout's fields and the tour's publish checklist |
-| `src/lib/i18n/artifacts.ts` + test | extend — `artifacts.tour.*` |
-| `src/lib/server/services/account-lifecycle/user-scoped-tables.ts` | extend — `artifact_tour_states` |
-| `src/lib/server/services/account-data-archive/*` + test | extend — the states in the archive and erasure |
-| `tests/e2e/artifact-tours.spec.ts` | create |
-| `tests/cross-cutting/incognito-artifact-containment.test.ts` | extend — the tour-state invariant |
-| `src/lib/components/artifact/{document,app,canvas,slides}/…` | extend — the empty-state line reads through `emptyStateLine` |
+`shared` means another slice also edits the file; the order column says who lands first. Everything not
+marked shared is this slice's alone.
 
-**Serialisation.** `document-workspace/DocumentWorkspace.svelte` is Slice 0's file and the four type slices each touch it; land this
-slice **after** them (the assignment's plan.md orders it last for this reason), and append rather than
-restructure. `announcement-campaigns.ts` is shared with nothing else in Feature 2 — its changes are additive
-to a closed union plus two new publish rules.
+| File | Change | Shared with | Order |
+|---|---|---|---|
+| `src/lib/server/db/schema.ts` | extend — `artifactTourStates` | 0 (every table) | 0 first |
+| `drizzle/<next-free-when>_artifact_tour_states.sql` + `drizzle/meta/_journal.json` | create — the table and its two indexes | 0 (takes `idx 124`) | 0 first |
+| `scripts/prepare-db.ts` | extend — `requiredExistingTables` | 0 | 0 first |
+| `src/lib/shared/artifacts/tours.ts` | create — `ArtifactTourType = Exclude<ArtifactKind, "file">`, `LocalizedText`, `ResolvedArtifactTour`, `ArtifactTourState`; type-only, no runtime imports | 0 creates `kinds.ts` in the same directory | 0 first |
+| `src/lib/server/services/artifact-tours.ts` + `artifact-tours.test.ts` | create — resolve (default vs published campaign), mark seen, seed | — | — |
+| `src/lib/server/artifact-tour-defaults.ts` + `artifact-tour-defaults.test.ts` | create — the code-owned copy, its `version`, the four default summaries. Sits beside `env.ts`/`prompts.ts` as a leaf data module, **not** under `services/`: AGENTS.md forbids a new top-level service boundary for what is one file of content | — | — |
+| `src/lib/server/services/announcement-campaigns.ts` + `.test.ts` | extend — the `artifact_tour` type, the `summary` layout, the ordered-slides publish rule, and the `getLatestPublishedCampaign(campaignType, options)` narrowing | — | — |
+| `src/routes/api/campaigns/latest/+server.ts` | extend — pass `"release_update"` (the badge must never resolve a tour) | — | — |
+| `src/routes/api/campaigns/campaigns.test.ts` | extend — the new argument in the existing mock | — | — |
+| `src/lib/client/api/campaigns.ts` + `.test.ts` | extend — the two open unions (types at `:9-13`, layouts nearby); `seedFirstRunCampaign` gains a sibling | — | — |
+| `src/lib/client/api/artifact-tours.ts` + test | create — the browser calls (`getArtifactTour`, `markArtifactTourSeen`, `seedArtifactTours`) | — | — |
+| `src/routes/api/artifact-tours/[type]/+server.ts` + test | create — GET the resolved tour + seen state | — | — |
+| `src/routes/api/artifact-tours/[type]/seen/+server.ts` + test | create — POST the state | — | — |
+| `src/routes/api/admin/campaigns/seed-artifact-tours/+server.ts` + test | create — seed the four drafts, sibling of `seed-first-run/+server.ts` | — | — |
+| `src/lib/components/artifact/tour/ArtifactTour.svelte` + test | create — the panel card | — | — |
+| `src/lib/components/artifact/tour/illustrations/TourArt{Document,App,Canvas,Slides}.svelte` | create — four illustrations | — | — |
+| `src/lib/components/artifact/empty-state.ts` + test | create — `emptyStateLine` | — | — |
+| `src/lib/components/document-workspace/DocumentWorkspace.svelte` | extend — the first-open trigger, the replay entry on the version affordance, the empty-state line | 0, 1, 3, 4 (all render the panel) | **after all four** |
+| `src/routes/(app)/settings/_components/SettingsAdminCampaignsPane.svelte` | extend — the `Seed artifact tours` item in **both** seed affordances (`:792-795` and `:1131-1139`) with its handler modelled on `:549-563` | — | — |
+| `src/routes/(app)/settings/_components/campaigns/SlideOptionsDialog.svelte` | extend — the layout picker offers `Summary` (the prop type at `:33` and the array at `:81`) | — | — |
+| `src/routes/(app)/settings/_components/campaigns/SlideEditor.svelte` | likely **no change** — it already edits title/body per locale from `EditorSlide` (`:2-17`) and has no layout branch. Only touch it for an optional hint; never for a per-layout special case | — | — |
+| `src/routes/(app)/settings/_components/campaigns/campaign-checklist.ts` + `.test.ts` | extend — the type gate (`:175-186`) accepts `artifact_tour`, the layout gate (`:225-234`) accepts `summary`, and the new per-type slide rules | — | — |
+| `src/lib/i18n/artifacts.ts` + `artifacts.test.ts` | extend — `artifacts.tour.*`, `artifacts.{document,app}.emptyState` | 0 (creates it) | 0 first |
+| `src/lib/i18n/settings.ts` | extend — the four `admin.campaigns.*` rows | — | — |
+| `src/lib/server/services/account-lifecycle/user-scoped-tables.ts` | extend — `artifact_tour_states` as `cascade`, `resets: []` | — | — |
+| `src/lib/server/services/account-data-archive/` (+ its test) | extend — the states in the archive and in erasure | — | — |
+| `tests/e2e/artifact-tours.spec.ts` | create | — | — |
+| `tests/cross-cutting/incognito-artifact-containment.test.ts` | extend — **only if** the tour path touches an artifact table; the guard fires on four tables (`:561-568`) and `artifact_tour_states` is not one, so the expected answer is *no edit* (see Risks) | 0 owns the suite (`plan.md:174`) | coordinate |
+| `src/lib/components/artifact/{document,app,canvas,slides}/…` | extend — the type editors render their empty state through `emptyStateLine` | 1, 2, 3, 4 | after those |
+
+**Serialisation.** `document-workspace/DocumentWorkspace.svelte`, `src/lib/i18n/artifacts.ts`, `schema.ts` and
+`drizzle/` are hot files for every slice in the feature; this slice lands **after** slices 0–5 (the tree is
+built last for this reason) and appends rather than restructures. Inside this slice the order is
+T1 → T2 → T3 → T4 → T5 → T6 → T7, and the only cross-slice ordering constraint beyond "after 0–5" is that
+T1's migration takes the next free journal `idx` **at branch time**, not the number written here.
+`announcement-campaigns.ts`, the campaign admin pane and the client API are touched by this slice only.
+
+---
+
+## UI states
+
+The tour is one component in one host, so the states are few. Measured at **1440 px** and **390 px** with the
+panel open; the panel itself is the host and is not restyled here.
+
+| State | At 1440 px | At 390 px | Tokens |
+|---|---|---|---|
+| **Loading** | Nothing. The tour is not a skeleton: the panel renders the artifact normally and the card appears when the GET resolves. A spinner over the artifact for a request that usually loses the race to the artifact's own load is worse than a late card | same | — |
+| **Empty (tour has no slides)** | Cannot happen for the shipped four (the test in T2 fails first), but if a published snapshot somehow resolved with zero slides the card is not rendered at all and `seen` is not written; the type's empty state shows its fallback line | same | `--text-secondary` |
+| **Default (three slides)** | Card sits in the panel's content area **above** the artifact, full content width, illustration on the left at 96 px, text column to its right; `Next` / `Skip` in a footer row right-aligned; `Step 1 of 3` above the title | Illustration moves **above** the text at 64 px and the text wraps under it; footer buttons become full-width side by side (`Back` hidden on slide 1, so `Next` alone spans the row); the card never exceeds the panel's own scroll area and is not fixed or sticky | `--surface-raised`, `--border-subtle`, `--radius-lg`, `--shadow-sm`, `--text-primary`/`--text-secondary` |
+| **Long content** | Slide bodies are 1–2 sentences by design; a published slide with a 400-character body wraps and the card scrolls internally (`max-height: 40vh; overflow-y: auto`) rather than pushing the artifact off screen | same, `max-height: 30vh` | as above |
+| **Error (GET failed, including a 409-on-write)** | No card, no error toast: the tour is decoration and its absence must not read as breakage. One `console.warn` with the status; the panel is untouched | same | — |
+| **Replay (from the version affordance)** | Identical card, plus a quiet `Replaying` label in the header and **no** footer write path: `Got it` and `Skip` both just close | same | `--text-tertiary` for the label |
+
+**Focus and keyboard order.** The card is a `<section aria-label={t("artifacts.tour.region")}>` placed **after**
+the artifact's own content in DOM order only if the panel scrolls the artifact to it; otherwise the card is
+first in the content area and receives focus on show. Inside it, one tab stop per control, in visual order:
+`Skip` (left in RTL-agnostic layout: it is the *first* focusable so a keyboard user can leave immediately),
+then the illustration (not focusable), then `Next`/`Back`. Arrow keys are **not** bound — the mockup's dots are
+decoration, and binding arrows would fight a panel that already owns arrow keys for other things. `Escape`
+closes (same as `Skip`). The card does not trap focus and does not use `inert` on the artifact: a user may keep
+working beside it. Focus returns to the panel's previously focused element on close, and the card is a single
+`role="region"` so a screen reader announces "How this kind works, region, Step 2 of 3".
+
+**Reduced motion.** If `prefers-reduced-motion: reduce`, slide changes are instant (`--duration-0`) — the
+motion is a slide transition and nothing else.
+
+## Failure modes
+
+Every message here is EN + HU and every one is read through `t()` — the tour's *content* is campaign data, but
+its *failures* are chrome, so they live in `src/lib/i18n/artifacts.ts` with the keys above.
+
+| Failure | Server | User sees (EN) | User sees (HU) | Where it is handled |
+|---|---|---|---|---|
+| Session expired while the panel is open | `401 {"message":"Unauthorized"}` | nothing — the panel's existing session-expiry handling takes over and the tour card is not rendered | ugyanaz | `src/lib/client/api/http.ts` (`isSessionExpiredResponse`) — the tour adds no new path |
+| The tour GET fails (500, offline, aborted) | any non-2xx | nothing; no card. One `console.warn` | ugyanaz | panel catch; the artifact still renders |
+| The GET returns `tour: null` | 200 | the kind's empty-state fallback line, no card | ugyanaz | `emptyStateLine` |
+| The seen POST fails after the user finished | 500/offline | the card closes anyway; the tour shows again next open. **Never** a blocking error dialog | ugyanaz | panel catch; the write is fire-and-forget by design |
+| The seen POST races a publish | `409` | the panel re-fetches and shows the new copy from slide 1 | ugyanaz | client reads `ApiError.status === 409`, re-runs the GET |
+| An unknown `[type]` is requested | `404 {"error":"Unknown artifact type."}` | nothing (only reachable from a hand-typed URL) | ugyanaz | route; there is no UI that can produce it |
+| The seed finds all four drafts present | `200 {created: 0, existing: 4}` | the admin pane says `Seeded 0 tour drafts, 4 already existed.` | `0 bemutató piszkozat létrejött, 4 már létezett.` | `admin.campaigns.messages.artifactToursSeeded` |
+| A published tour is archived mid-session | next GET returns the default tour | the tour the user was reading is replaced by the default on their next open. No message: an archive is an admin action, not an error | ugyanaz | resolver rule in T2 |
+| `ARTIFACT_TOUR_DEFAULTS` is missing a kind | build error | n/a | n/a | the exhaustive `Record<ArtifactTourType, …>` |
+
+## Limits and configuration
+
+| Value | Where | Default | Why |
+|---|---|---|---|
+| Slides per tour | **code**, `validatePublishInput` | exactly 3 `standard` + 1 `summary` | §6 / this slice; a tour is three questions |
+| Summary slide's `sortOrder` | **code** | `1`, then `2, 3, 4` | the unique `(campaign_id, sort_order)` index |
+| Slide body length | **not enforced** | — | the campaign editor has no length cap today; adding one is out of scope and the UI caps it visually (see long content) |
+| `ARTIFACT_TOUR_CONTENT_VERSION` | **code** | `1` | bumping it re-shows every default tour once; it is the one deliberate re-show switch |
+| Resumption | **code** | `lastSlide` is stored, and a `dismissed` row never auto-shows again | the user asked not to see it |
+| Tour fetch timeout | **none added** | the browser's own | the request is small and same-origin; a timeout here would need a config knob nobody asked for |
+| Retention | **the account lifecycle** | erased with the user (`cascade`), archived with the account export | ADR-0029–0032 |
+| Telemetry | **none new** | — | the slice records no analytics of its own; `replay_opened`/`auto_shown` stay the campaign events, and a tour never emits them (that is the point of T3.0) |
+
+**No new environment variable and no new `config-store.ts` entry.** There is nothing an admin should tune at
+runtime: the copy is the campaign, the structure is code, and the seen state is per user. A slice that adds a
+`TOUR_ENABLED` flag would be adding a switch with no consumer.
+
+## Prototype pointers
+
+**There is no prototype for the tour, and this is the slice where that matters least.** Stated plainly so
+nobody goes looking:
+
+- `claude-at-home-2-prototype-findings.md` contains **no** tour, no first-open card and no seen-state
+  mechanism (grep: zero hits for "tour"). The three throwaway branches (`proto/artifact-apps-quality`,
+  `proto/artifact-document-editor-r2`, `proto/artifact-canvas-agent`) are about the artifact types.
+- The design reference is **section 7 of `docs/plans/claude-at-home-2-artifact-surfaces-mockups.html`**
+  (`<!-- 7 -->` at `:296`, caption at `:298`), not section 6 — the assignment's "section 6" is the App/File
+  section; the tour mockup is the `.tour` block with `.dots`, `.tourart`, `.tourfoot`, the `A board for
+  anything` heading, `.bs` = Skip and `.bp` = Next. Read that markup for the proportions and the dot count.
+- The **working reference for the machinery** is the shipped campaign stack, not a prototype: read
+  `src/routes/(app)/settings/_components/campaigns/campaign-checklist.ts` for what a publish gate looks like,
+  `announcement-campaigns.ts:819-936` for the immutable publish and `:1159-1232` for insert-if-absent
+  completion, and `src/routes/(app)/+layout.svelte:481-535` for how a campaign is opened and how
+  `auto`/`replay` differ. Those four readings are the whole implementation vocabulary of this slice.
 
 ## Tasks
 
@@ -428,25 +1016,34 @@ an incognito chat too, and the promise there is that the chat leaves nothing
 behind, not that the product cannot remember it taught you something."
 ```
 
-### Task T2: The code-owned defaults and the resolver
+### Task T2: The shared types, the code-owned defaults, and the resolver
 
-**Files:** `artifact-tour-defaults.ts` + test, `artifact-tours.ts` + test
+**Files:** `src/lib/shared/artifacts/tours.ts` (**shared**: Slice 0 creates `kinds.ts` in this directory first
+— this file is additive and imports `ArtifactKind` from it), `src/lib/server/artifact-tour-defaults.ts` +
+`artifact-tour-defaults.test.ts`, `src/lib/server/services/artifact-tours.ts` + `artifact-tours.test.ts`
 **Test:** unit
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-it("has a default for every tour type", ...);
+// src/lib/server/artifact-tour-defaults.test.ts
+it("has a default for every tour type, and file is not one of them", ...);
+it("keeps the derived union honest: ArtifactTourType has exactly four members", ...);
 it("gives every default exactly three slides", ...);
 it("gives every default both en and hu for every title, body and summary", ...);
 it("keeps en and hu at paragraph parity for every slide", ...);
 it("never says the word artifact in any default string", ...);
-it("names the type the way the UI does, per language", ...);
+it("uses the shipped copy verbatim, per kind and language", ...);   // the Contracts table, asserted
+it("names the type the way the UI does, per language", ...);        // artifacts.type.* parity
+it("narrows only the four kinds at runtime", ...);                  // isArtifactTourType
+
+// src/lib/server/services/artifact-tours.test.ts
 it("prefers a published campaign snapshot over the default", ...);
 it("ignores a draft campaign", ...);
 it("ignores an archived campaign and does not fall back to the default", ...);
 it("keys a published tour as snapshot:<id> and a default as default:<version>", ...);
 it("returns null for a kind with neither, without throwing", ...);
+it("returns the default when the campaign read throws", ...);
 it("reports the seen state and the last slide for this user", ...);
 it("reports seen: false for a different user", ...);
 it("is unaffected by another kind's seen state", ...);
@@ -456,9 +1053,9 @@ it("is unaffected by another kind's seen state", ...);
 
 - [ ] **Step 3: Implement**
 
-Write the four defaults' copy — this is the task's real content. Each kind's three slides answer, in order:
-**what it is**, **what you can do with it**, **how to ask Alfy for it**. Then the resolver, with the
-archived-is-a-retirement rule commented.
+Write the four defaults' copy **from the Contracts table verbatim** — every string is specified there, so
+this task is transcription plus the resolver. Then the resolver, with the archived-is-a-retirement rule
+commented, and `isArtifactTourType` as the single runtime enumeration of the four values.
 
 - [ ] **Step 4: Run them to verify they pass.** Expected: PASS.
 
@@ -473,49 +1070,92 @@ not a tour. The code copy is the shipped default and a published campaign is the
 override, which is the same shape the admin system prompts already use."
 ```
 
-### Task T3: The panel card, its trigger, and the badge replay
+### Task T3: The panel card, its trigger, and the replay affordance
 
-**Files:** `ArtifactTour.svelte` + test, `illustrations/*.svelte`, `document-workspace/DocumentWorkspace.svelte`,
-`src/lib/client/api/artifact-tours.ts` + test
+**Files:** `src/lib/components/artifact/tour/ArtifactTour.svelte` +
+`src/lib/components/artifact/tour/ArtifactTour.test.ts`, `illustrations/*.svelte`,
+`src/lib/components/document-workspace/DocumentWorkspace.svelte`,
+`src/lib/client/api/artifact-tours.ts` + `.test.ts`, and — step T3.0 only —
+`src/lib/server/services/announcement-campaigns.ts` + `.test.ts`,
+`src/routes/api/campaigns/latest/+server.ts`, `src/routes/api/campaigns/campaigns.test.ts`
 **Test:** component + e2e
+
+- [ ] **Step 0 (T3.0): Close the sidebar badge first, on its own commit**
+
+```ts
+// src/lib/server/services/announcement-campaigns.test.ts
+it("never returns an artifact_tour as the latest published campaign", ...);
+it("still returns the newest published release_update", ...);
+it("keeps returning first_run_onboarding for the eligible path", ...);  // unchanged behaviour, pinned
+```
+
+Implement the narrow signature from the contracts, pass `"release_update"` in the route, fix the three test
+call sites, then commit **before** any tour file exists:
+
+```
+git add src/lib/server/services/announcement-campaigns.ts src/lib/server/services/announcement-campaigns.test.ts \
+  src/routes/api/campaigns/latest/+server.ts src/routes/api/campaigns/campaigns.test.ts
+git commit -m "A version badge has one job, and a kind tour is not it
+
+The badge asks for the newest published campaign with no type predicate, so the
+first published tour would replace the release note behind it — and the tour
+would be counted as a replay that a user opened. The filter already existed as
+latestPublishedByType; the exported function just did not use it. The parameter
+is required so the next caller cannot drop it again."
+```
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
+// ArtifactTour.test.ts
 it("renders the first of three slides with its dots, and advances on Next", ...);
 it("goes back, and never past the first or last slide", ...);
 it("calls onSeen once, with the last slide index, when the user finishes", ...);
 it("calls onDismiss with the current index when the user skips", ...);
 it("shows the replay hint on the last slide", ...);
 it("announces the step to assistive tech", ...);
-it("is one region and traps no focus", ...);
+it("is one region, traps no focus, and puts Skip first in tab order", ...);
+it("closes on Escape, as Skip does", ...);
 it("calls neither callback when replaying", ...);
 it("renders the current language's copy and switches languages live", ...);
 it("survives a tour whose copy is missing a language by falling back to en", ...);
+it("stays instant under prefers-reduced-motion", ...);
 
-// e2e (artifact-tours.spec.ts)
+// src/lib/client/api/artifact-tours.test.ts — URL and error mapping, following campaigns.test.ts:249
+it("requests /api/artifact-tours/:type", ...);
+it("posts the state to /api/artifact-tours/:type/seen and surfaces a 409 as ApiError.status", ...);
+it("posts to /api/admin/campaigns/seed-artifact-tours", ...);
+
+// e2e (tests/e2e/artifact-tours.spec.ts)
 it("shows the tour on the first open of a kind", ...);
 it("does not show it on the second open", ...);
 it("shows it again for a different kind", ...);
-it("does not appear from the sidebar version badge", ...);
-it("replays from the version badge menu and writes no new state", ...);
+it("does not show for the file kind", ...);
+it("is never opened by the sidebar version badge, even with a published tour", ...);
+it("replays from the panel's version affordance and writes no new state", ...);
+it("replays from the empty state when the panel has no version affordance", ...);
 it("does not show it when the tour request fails, and does not break the panel", ...);
 it("shows the same tour to a second user", ...);
+it("renders at 390 px without overflowing the panel", ...);
 ```
 
 - [ ] **Step 2: Run them to verify they fail.** Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-Write the illustrations, then the card, then the trigger in `document-workspace/DocumentWorkspace.svelte`: on open, one request for
-the kind; if it resolves and is unseen, render the card **in the panel's content area** above the artifact.
-Fire the seen write on finish or skip, not on render — a user who closes the panel mid-tour has not seen it
-and should meet it again next time (`lastSlide` is what makes that resumption sane).
+Write the illustrations, then the card, then the trigger in `document-workspace/DocumentWorkspace.svelte`: on
+open, one request for the kind; if it resolves and is unseen, render the card **in the panel's content area**
+above the artifact. Fire the seen write on finish or skip, not on render — a user who closes the panel
+mid-tour has not seen it and should meet it again next time (`lastSlide` is what makes that resumption sane).
+Add the replay entry point per the version-affordance rule: **a trailing chip on the existing chip strip if
+that is what the header still has** (`DocumentWorkspace.svelte:960-988`), otherwise one row at the bottom of
+whatever the header has become, plus the empty-state link, which is the host this slice guarantees. Append to
+the two existing render paths; do not restructure them and do not add a second control.
 
 - [ ] **Step 4: Run them to verify they pass**
 
 ```bash
-npx vitest run src/lib/components/artifact
+npx vitest run src/lib/components/artifact src/lib/client/api/artifact-tours.test.ts
 npx playwright test tests/e2e/artifact-tours.spec.ts
 ```
 Expected: PASS.
@@ -523,7 +1163,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```
-git add src/lib/components/artifact src/lib/client/api/artifact-tours.ts
+git add src/lib/components/artifact src/lib/client/api/artifact-tours.ts src/lib/client/api/artifact-tours.test.ts \
+  src/lib/components/document-workspace/DocumentWorkspace.svelte
 git commit -m "Explain a kind of thing the first time it is opened, inside the panel it opened in
 
 It is a card in the panel rather than the app-level campaign modal, because the
@@ -558,10 +1199,21 @@ it("does not carry the seen state into telemetry with any content", ...);
 
 - [ ] **Step 3: Implement**
 
-The route validates the type against the tour union, then insert-if-absent. In the containment suite, add the
-incognito case as an **explicitly allowed** behaviour with its reason in the test name and a comment, plus the
-invariant that the row's columns cannot identify a conversation. A future reviewer will otherwise read the
-allowed case as a leak.
+The route validates the type against the tour union, compares `contentKey` against the currently resolved
+tour (409 on a mismatch), then insert-if-absent.
+
+**On the containment suite: the expected edit is none, and adding an exemption would be a bug.** The suite's
+PART B reads only the tables in `readsGuardedTables` (`tests/cross-cutting/incognito-artifact-containment.test.ts:561-568`),
+four artifact tables; `artifact_tour_states` is not one and never will be — it has no `conversation_id` and no
+`artifact_id` to guard. The suite also fails an `ALLOWED_WITHOUT_SCOPE` entry that the guard can never consult
+(`:529-546`, checked by `keeps the allow-list honest` at `:621-668`), so an exemption added "to be safe" turns
+the suite red and teaches the next reader that the guard is decorative. The cross-cutting coverage this slice
+wants is a **new,
+separate case in the existing suite file** (or a small sibling test) that asserts the invariant directly:
+marking a tour seen inside an incognito conversation writes a row whose columns are only
+`(user_id, artifact_type, content_key, status, slide_count, last_slide, timestamps)`, and that no tour code
+path reads an artifact row. Slice 0 owns the suite file (`plan.md:174` reserves it to Slice 0), so append
+after slice 0 and keep the diff to one new `describe`.
 
 - [ ] **Step 4: Run them to verify they pass**
 
@@ -584,27 +1236,44 @@ was an oversight."
 
 ### Task T5: The admin side — seeding, editing, publishing
 
-**Files:** `announcement-campaigns.ts` + test, `src/lib/client/api/campaigns.ts`, the seed route + test,
-`SettingsAdminCampaignsPane.svelte`, `SlideEditor.svelte`
+**Files:** `announcement-campaigns.ts` + `announcement-campaigns.test.ts`, `src/lib/client/api/campaigns.ts` +
+`campaigns.test.ts`, `src/routes/api/admin/campaigns/seed-artifact-tours/+server.ts` + test,
+`SettingsAdminCampaignsPane.svelte`, `campaigns/campaign-checklist.ts`, `campaigns/SlideEditor.svelte`,
+`campaigns/SlideOptionsDialog.svelte`, `src/lib/i18n/settings.ts`
 **Test:** unit + integration + e2e
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
+// announcement-campaigns.test.ts
 it("accepts artifact_tour as a campaign type and refuses an unknown one", ...);
 it("publishes a tour with exactly one summary and three standard slides", ...);
 it("refuses a tour with two summary slides", ...);
 it("refuses a tour with two standard slides", ...);
+it("refuses a tour whose first slide is not the summary", ...);        // ordered, not just counted
 it("requires en and hu title and body on every slide", ...);
 it("does not require a crop or alt text", ...);
 it("accepts a crop on a tour slide and then requires its alt text", ...);
 it("keeps a published tour immutable when the draft is edited", ...);
 it("seeds four drafts, one per kind, and seeds nothing on a second call", ...);
-it("gives each seeded draft a distinct identity key", ...);
+it("gives each seeded draft a distinct identity key", ...);            // artifact_tour:<kind>:r1
 it("leaves a seeded draft unpublished", ...);
 it("records the tour's events in the campaign event ledger", ...);
+it("still refuses a summary slide on a first_run_onboarding campaign", ...);  // the rule is per type
+it("names all three types in the thrown type error", ...);                    // announcement-campaigns.ts:195-197
+it("names all three layouts in the thrown layout error", ...);                // :730-737
+it("keeps both validation messages in step with the unions, both locales", ...); // settings.ts:170,164,2094,2089
 
-// e2e (settings-admin.spec.ts)
+// campaigns/campaign-checklist.test.ts (the admin pane's own gate — :175-186, :225-234)
+it("lets the client check a tour with one summary and three standard slides", ...);
+it("blocks publishing a tour whose summary slide is missing", ...);
+it("offers Summary in the slide layout picker", ...);                   // SlideOptionsDialog.svelte:33,81
+
+// SettingsAdminCampaignsPane / seed route
+it("seeds the four tour drafts and reports the counts", ...);
+it("is a no-op with 200 on a second run", ...);
+
+// e2e (tests/e2e/settings-admin.spec.ts)
 it("seeds the four tour drafts from the Campaigns pane and shows them in the rail", ...);
 it("edits the summary slide's text and publishes, and the panel shows the new copy", ...);
 ```
@@ -613,10 +1282,26 @@ it("edits the summary slide's text and publishes, and the panel shows the new co
 
 - [ ] **Step 3: Implement**
 
-Extend the unions, add the publish rules, write `seedArtifactTourDrafts` (mirroring
-`seedFirstRunOnboardingTemplate`'s return shape and its do-nothing-on-second-call behaviour), expose it
-through the existing seed affordance in the Campaigns pane, and make `SlideEditor.svelte` render the
-`summary` layout's fields with a hint that this slide is the kind's empty-state line.
+Extend the type set and the layout set in `announcement-campaigns.ts`, add the two publish rules (the counts
+and the order), write `seedArtifactTourDrafts` with the per-kind `releaseVersion` identity rule from the
+contracts, and register the route as a sibling of `seed-first-run/+server.ts`.
+
+In the admin UI the layout picker, not the field editor, is where the work is: `SlideOptionsDialog.svelte`
+hard-codes the two layouts twice — the prop type at `:33` (`onChangeKind: (kind: "setup" | "standard") => void`)
+and the rendered array at `:81` (`{#each ['standard', 'setup'] as const as option}`) — so both are widened to
+include `"summary"` and the new label key renders there. `SlideEditor.svelte` already renders a title and a
+body per locale from `EditorSlide` (`:2-17`) and has **no layout-specific branch**, so it needs no change
+beyond an optional hint line under the body on a summary slide; do not add one if it makes the editor's
+layout conditional, because that is how a slide editor grows a per-kind special case nobody maintains.
+
+The seed affordance appears twice in the pane — the overflow menu item at
+`SettingsAdminCampaignsPane.svelte:792-795` and the note-plus-button pair at `:1131-1139` — and the handler
+to model is `seedFirstRun` at `:549-563` (records success through `admin.campaigns.messages.*`, then reloads
+the rail). Add the new item to both affordances or neither; a seed reachable from one of the two is a bug the
+e2e will not see.
+
+The publish gate in the pane (`SettingsAdminCampaignsPane.svelte:183-206`) reads `clientValidationErrors`
+from the checklist, so a tour that fails the new rules must not reach `publish`.
 
 - [ ] **Step 4: Run them to verify they pass**
 
@@ -685,16 +1370,19 @@ fails when they disagree, so the next copy edit has one place to go."
 
 ### Task T7: i18n, lanes and the archive
 
-**Files:** `src/lib/i18n/artifacts.ts` + test, `account-data-archive/*` + test
+**Files:** `src/lib/i18n/artifacts.ts` + `src/lib/i18n/artifacts.test.ts`, `src/lib/i18n/settings.ts`,
+`src/lib/server/services/account-data-archive/` + its test
 **Test:** unit + cross-cutting
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
 it("has both en and hu for every artifacts.tour key", ...);
+it("has artifacts.document.emptyState and artifacts.app.emptyState in both locales", ...);
 it("never shows the word artifact in either locale, in chrome or in default content", ...);
 it("uses the ratified Hungarian type names in every default string that names a kind", ...);
 it("keeps the illustration alt text built from artifacts.type.* in both languages", ...);
+it("keeps the admin.campaigns.* additions sorted into their groups", ...);
 it("includes the tour states in the account archive", ...);
 it("erases the tour states on account deletion", ...);
 ```
@@ -703,7 +1391,11 @@ it("erases the tour states on account deletion", ...);
 
 - [ ] **Step 3: Implement**
 
-Fill both dictionaries and finish the archive and erasure coverage T1 opened.
+Fill both dictionaries (the two new empty-state keys, the thirteen `artifacts.tour.*` rows, the four
+`admin.campaigns.*` rows, and the two reworded validation messages) and finish the archive and erasure
+coverage T1 opened. The i18n parity helper already covers anything prefixed `artifacts.`
+(`src/lib/i18n.test-helpers.ts:16` `AUDITED_PREFIXES`), so the artifacts half is automatic once the module
+is registered by Slice 0; the settings half is checked by the test above.
 
 - [ ] **Step 4: Run them to verify they pass.** Expected: PASS.
 
@@ -727,8 +1419,11 @@ the same thing."
 - **No screenshots, no crops, no per-locale images.** The illustrations are drawn.
 - **No video, no animation walkthrough, no spotlight/callout overlay** on the panel's controls.
 - **No first-run onboarding changes.** That campaign type and its modal are untouched.
-- **No change to `getEligibleCampaignForUser`, `getLatestPublishedCampaign` or the sidebar App Version
-  Badge.**
+- **No change to `getEligibleCampaignForUser`'s behaviour, and no change to the sidebar App Version Badge's
+  UI.** The one service change this slice makes is narrowing `getLatestPublishedCampaign` to an explicit
+  campaign type (T3.0) so the badge keeps showing a release note instead of a kind tour; the badge's markup,
+  position, and click behaviour are untouched. (An earlier draft of this file listed that function as
+  untouchable, which would have shipped the bug.)
 - **No "don't show tours again" master switch.** A user who wants no more tours has already seen the four.
   (If a setting is wanted later, it is one preference row and this slice does not invent it.)
 - **No admin view of who has seen a tour** beyond the campaign analytics that already exist.
@@ -740,49 +1435,103 @@ the same thing."
 
 | Risk | Why it bites | Mitigation |
 |---|---|---|
-| The tour joins the auto-show campaign queue | It fights the first-run onboarding and the release announcements for the one app-level modal | The `artifact_tour` type is filtered out of `getEligibleCampaignForUser` and `getLatestPublishedCampaign`, with an e2e asserting the sidebar badge never opens one |
+| The tour joins the auto-show campaign queue | It fights the first-run onboarding and the release announcements for the one app-level modal | `getEligibleCampaignForUser` cannot return one (type-filtered at `announcement-campaigns.ts:1115-1135`); the **badge** path can, so T3.0 narrows `getLatestPublishedCampaign`, with a service test and an e2e asserting the badge never opens a tour |
 | Nothing shows until an admin publishes | The feature looks broken out of the box | Code-owned defaults with a published campaign as the override |
 | Archiving a tour resurrects the default | An admin's deliberate retirement is silently undone | The resolver does not fall back when an archived campaign exists for the kind; a test names that rule |
-| The seen row becomes a trace of an incognito chat | The containment promise is broken by a row nobody thought of as content | No conversation id, no artifact id, and an explicitly-allowed case in the containment suite |
+| The seen row becomes a trace of an incognito chat | The containment promise is broken by a row nobody thought of as content | No conversation id, no artifact id; a new case inside the existing containment suite asserts the row's columns, and **no** exemption is added to a guard that cannot reach this table |
 | A new snapshot re-shows every tour | Users who already know the type see it again | That is ADR-0012's intended behaviour for a genuinely new revision; the copy is edited deliberately and `ARTIFACT_TOUR_CONTENT_VERSION` exists for the code path, with a comment saying raising it is a product decision |
 | The empty state and the tour disagree | The product describes one thing two ways | One source with a fallback and a drift test |
 | The tour's copy is fetched on every panel open | A request per open for something shown once | The seen state is read in the same request; the client caches the kind's result for the session and the panel does not re-request on an artifact switch within the same kind |
 | The illustration collides with the Lucide-only icon rule | A reviewer reads a bespoke SVG as a violation | Declared as an illustration, one per kind, with the AGENTS.md exception named in a comment; no control ever uses a bespoke SVG |
-| The `summary` layout breaks the existing admin editor | A layout value the editor does not know about renders as a blank slide | The editor gains the `summary` case in the same commit, and the publish rule refuses a tour that does not have exactly one |
+| A `summary` slide reaches the editor and renders blank | The client layout gate and the picker are two more places the new value must be known, not just the DB's text column | `campaign-checklist.ts:225-234` and `SlideOptionsDialog.svelte:33,81` are widened in T5 with their own tests; the server publish rule refuses a tour without exactly one summary, so the editor can never *save* one it does not understand |
+| The migration number collides with a slice that lands first | Two `_journal.json` entries with one `idx` fails every later `db:prepare` | T1 takes the next free number at branch time and `npm run check:migrations` (whose warning-only output must be read, not just its exit code) is part of the gate |
 
 ## Verification checklist
 
-- [ ] Every task's tests were seen failing first, then green.
-- [ ] `npm run check:migrations` — clean, with the new table in both the migration and the journal.
-- [ ] `npm run check` — 0 errors, 0 warnings.
-- [ ] `npx biome check src scripts tests` — clean.
-- [ ] `npm test` — green, including the i18n key parity test, the drift test and the containment suite.
-- [ ] `npm run build` — 0 warnings.
-- [ ] `npx fallow --no-cache --format json --quiet --score` — no new findings, no new ignores.
-- [ ] `npx playwright test tests/e2e/artifact-tours.spec.ts tests/e2e/settings-admin.spec.ts tests/e2e/artifacts-panel.spec.ts tests/e2e/incognito-indicator.spec.ts` — green.
-- [ ] **Real-app visual check** against `claude-at-home-2-artifact-surfaces-mockups.html` §7 at **1440×900 and 390×844, light and dark**: three dots, the illustration, the `h3`, the body paragraph, the `.tourfoot` line and `Skip` / `Next` are all present and legible; the card sits inside the panel without pushing the artifact off screen; nothing overflows on the phone.
-- [ ] **Staging, real model:** open a Canvas artifact for the first time → the tour appears; close the panel mid-tour → it appears again next open, on the slide it was left on; finish it → it does not appear again; open a Document → its own tour appears.
-- [ ] **Staging:** the version badge menu's replay row shows the tour again and does **not** change the seen state (a reload after a replay does not re-show it automatically).
-- [ ] **Staging:** make an empty Canvas → the empty state shows the same sentence the tour showed.
-- [ ] **Staging, admin:** seed the four drafts, edit the Canvas summary, publish, reload the panel → the empty state and the tour show the new copy; re-publish again → the tour appears once more.
-- [ ] **Staging:** the sidebar App Version Badge does not open a tour; the first-run onboarding campaign still shows exactly as before.
-- [ ] **Staging:** open an artifact in an **incognito** chat → the tour appears, and the only row written names the kind.
-- [ ] Read the staging service journal for new warnings.
+Reviewer's gate list, in order. Every command runs with `export PATH=/opt/homebrew/opt/node@22/bin:$PATH`,
+from the slice's worktree.
+
+- [ ] **1. Tests were seen failing first.** Per task: `npx vitest run <the task's files>` red before the
+  implementation, green after. Spot-check the two traps by name — a `default:<version>` key vs a
+  `snapshot:<id>` key, and the second `markArtifactTourSeen` returning `alreadyRecorded: true`.
+- [ ] **2. `npm run check:migrations`** — exits 0 **with no warning line**, and the new table name appears in
+  both `drizzle/<when>_artifact_tour_states.sql` and `_journal.json`. The warning is the only thing that
+  catches a missing `prepare-db` entry, so an exit-status-only pass is not a pass.
+- [ ] **3. `npm run check`** — **0 errors, 0 warnings**. A new `svelte-check` diagnostic is a regression in
+  this patch, not a follow-up.
+- [ ] **4. `npx biome check src scripts tests`** — clean. (`npm run lint` is broken by nested worktree roots;
+  do not "fix" it in this slice.)
+- [ ] **5. `npm test`** — green. Specifically green: the i18n key parity test, the new
+  `artifacts.tour.*` / `artifacts.{document,app}.emptyState` rows, the summary-vs-fallback drift test, the
+  four-tour default-record test, the campaign service tests including `getLatestPublishedCampaign`, and the
+  containment suite with its new incognito-tour case.
+- [ ] **6. `npm run build`** — **0 warnings** from Vite, Svelte, TypeScript or any plugin. Watch for a
+  `state_referenced_locally` warning in the tour card (the counter example: a prop read inside `$state()`
+  needs `untrack`).
+- [ ] **7. `npx fallow --no-cache --format json --quiet --score --output-file /tmp/alfyai-fallow.json`** — no
+  new findings and **no new ignores**. The four `TourArt*.svelte` files are exported components (public
+  boundary), so an "unused export" finding on them is a false positive to explain in the report, not to
+  suppress.
+- [ ] **8. Lazy chunks.** `scripts/check-artifact-chunks.mjs` does **not exist yet** — Slice 3 creates it,
+  parameterised for reuse (`slice-3.md:1352`, `:2113`). Run it if Slice 3 has landed and quote the numbers;
+  if it has not, say so in the report rather than skipping in silence. Either way, the rule this slice must
+  not break: the tour card is rendered by `DocumentWorkspace.svelte`, which is itself behind the panel's lazy
+  import, so nothing here may pull the tour, its illustrations, or the campaign client into the idle chat
+  shell. `TourArt*.svelte` are imported only by `ArtifactTour.svelte`, and the client API only by the panel.
+- [ ] **9. `npx playwright test tests/e2e/artifact-tours.spec.ts tests/e2e/settings-admin.spec.ts
+  tests/e2e/artifact-panel.spec.ts tests/e2e/incognito-indicator.spec.ts`** — green. `artifact-panel.spec.ts`
+  is Slice 0's file; if it does not exist yet, this slice lands after Slice 0 and the command must not be
+  quietly trimmed.
+- [ ] **10. Visual check** against `claude-at-home-2-artifact-surfaces-mockups.html` §7 (the `.tour` block
+  `:298-311`, legend `:313-315`) at **1440×900 and 390×844, light and dark**: the illustration, the title, the
+  body paragraph, three dots, `Step n of 3` and the `Skip` / `Next` pair all present and legible; the card
+  sits inside the panel without pushing the artifact off screen; nothing overflows at 390 px. Keyboard: Tab
+  reaches Skip first, Escape closes, focus returns to where it was.
+- [ ] **11. Staging, real model:** first open of a Canvas → the tour appears; close the panel mid-tour → it
+  appears again on the next open, on the slide it was left on; finish it → it does not appear again; open a
+  Document → its own tour appears.
+- [ ] **12. Staging:** the panel's replay affordance (version chip or empty-state link) shows the tour again
+  and does **not** change the seen state — reloading afterwards does not auto-show it.
+- [ ] **13. Staging:** a brand-new empty Canvas shows the same sentence the tour showed.
+- [ ] **14. Staging, admin:** seed the four drafts; all four appear in the rail with distinct versions
+  (`document`, `app`, `canvas`, `slides`), none published; edit the Canvas summary, publish, reload the panel
+  → empty state and tour show the new copy; publish another revision → the tour appears once more.
+- [ ] **15. Staging:** the sidebar App Version Badge still opens the release note it opened before this
+  slice, **with a tour published** (this is T3.0's whole point); the first-run onboarding campaign is
+  unchanged.
+- [ ] **16. Staging:** open an artifact in an incognito chat → the tour appears, and the only row written
+  names the kind (`sqlite3` the row and paste it in the report).
+- [ ] **17. Read the staging service journal** for new warnings; `[ANNOUNCEMENT_CAMPAIGNS]` errors from the
+  seed route and any 409s from the seen route are the two to look for.
 
 ## Open questions for the owner
 
-1. **Four tours or five?** The mockup's legend says "three slides per kind", and the family has five types.
-   This slice ships four (Document, App, Canvas, Slides) and leaves File out, because File is what
-   `produce_file` already makes and its card explains itself. Say so if File should have one.
-2. **The `summary` layout.** The tour's one-line summary is carried as a fourth slide with
-   `layout_type: "summary"`, so the admin edits it in the same editor as the rest of the tour's copy and no
-   schema changes. The alternative is a per-kind summary column on the campaign, which is a real migration
-   for one string. This slice takes the layout value; say so if the column is preferred.
-3. **Slices 3 and 4 already ship empty-state strings** (`artifacts.canvas.emptyBoard`,
-   `artifacts.slides.emptyDeck`). This slice makes the tour's summary the source of truth for that line and
-   those keys the fallback. If the tour is meant to be *only* an explainer and never the empty state's
-   source, that inverts, and the drift test becomes a duplicate-text test instead.
-4. **Whether a tour should appear inside an incognito chat at all.** This slice says yes (it is product
-   content, not the user's content) and proves the row it writes cannot identify the chat. The stricter
-   reading — incognito shows nothing the app would otherwise "remember" — is defensible and would be a
-   three-line gate; it is asked rather than assumed.
+Two of the four questions an earlier draft raised are already ruled and are recorded here as settled, so
+nobody re-opens them: **four tours, not five** (`decisions.md` ruling 8) and **the `summary` layout, not a
+column** (ruling 4). The live ones:
+
+1. **Where does the replay entry point live, and does it need to survive a header rewrite?** There is no
+   version *menu* in any slice: the panel's version control today is a chip strip rendered in two paths
+   (`DocumentWorkspace.svelte:960-988`, `:1210`+), Slice 0 owns the panel header and Slice 1 lands
+   `VersionsSheet.svelte`. This slice therefore puts the replay link in the **empty state** (a host it owns
+   outright) and adds a chip to the version affordance as best-effort. *Recommendation:* accept that. The
+   alternative — this slice defining the header's version menu — makes a tours slice the owner of a control
+   four other slices also touch, which is the serialisation problem `decisions.md` ruling 10 was written to
+   avoid.
+2. **Should the seen state go into the account data archive?** This slice says **yes** — it is a row about
+   the user, it is small, and the archive's exclusion list (`account-data-archive/index.ts:74-79`) excludes
+   secrets, logs and derived internals, not state like this. The asymmetry to be aware of: the archive
+   gathers conversations, messages, projects, artifacts, generated files, task states, memory events,
+   skills, import jobs, usage and analytics rows (`:866-976`) — **no campaign table is included**, so
+   `artifact_tour_states` would be the first campaign-family row in the archive, and `announcement_campaign_user_states`
+   would still be absent. *Recommendation:* include the tour states (it is this slice's table and it is
+   honest), and leave campaign states out — they are Feature 1's rows, not this slice's, and the erasure path
+   (cascade) already removes them. Say so if you would rather the whole campaign family opt in at once.
+3. **Does an incognito chat show the tour at all?** This slice says yes: the tour is product content, and the
+   row it writes cannot identify the conversation. The stricter reading — incognito shows nothing the app
+   would otherwise remember — is defensible and is a three-line gate. *Recommendation:* keep yes, and keep
+   the new containment case that proves the row's columns, because the promise incognito makes is about the
+   chat, not about the product being unable to remember that it explained a Canvas.
+4. **Is a user-facing "don't show these again" needed in v1?** This slice ships none; the fourth tour is the
+   last one, and a user who wants out has already finished four. *Recommendation:* ship without it, and if
+   the owner wants one later it is a preference row in the Profile tab, not a new mechanism.

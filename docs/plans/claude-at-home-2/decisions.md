@@ -234,6 +234,57 @@ fixed in the consistency pass.
   ADR-0066 rules out.
 - **PDF export of a deck stays deferred** (ruling 3, confirmed) — PPTX only.
 
+## 29. The migration story, precisely — and a list nobody remembered
+
+Two slices described this differently; both are half right, and the verified picture is:
+
+1. **`verify-migrations.ts` errors** (exit 1) when a table in `schema.ts` has no migration file — this runs
+   as `npm run check:migrations`, and `npm start` runs it before serving.
+2. **`prepare-db.ts` throws** after migrating if the runtime database is missing required schema pieces
+   (`scripts/prepare-db.ts:804-808`, pinned by its test).
+3. **`verify-migrations.ts` only warns** about a table that is absent from prepare-db's
+   `requiredExistingTables` list.
+
+So every new table needs three things, not two: the migration with its `_journal.json` entry, **and** an
+entry in `requiredExistingTables` (`scripts/prepare-db.ts:74-82`). Slice 0 adds all three tables there in the
+same commit.
+
+## 30. Tours are Slice 6's, all four together
+
+`plan.md` assigns tours to slice 5 in three places and `slice-0.md` gives each type's tour to that type's
+slice. **Ruling 8 and slice 6 win:** all four tours are Slice 6's, landed last, because they depend on the
+four types existing and on the campaign machinery being adapted once. `plan.md` and `slice-0.md` are
+corrected in the consistency pass.
+
+## 31. Shared test suites: created once, appended to
+
+The containment suite (and the panel e2e spec) are **created by slice 0** and later slices **append a case**
+in serialisation order — append-only, never restructure. `plan.md:174` reserving the containment suite to
+slice 0 is corrected to say "created by 0, appended by 5 and 6".
+
+## 32. Tour replay lives in the panel, and a real defect must be fixed first
+
+The version badge stays **announcement campaigns only**. Tour replay is offered **in the panel** (the
+artifact list's menu and the type's empty state), which avoids rewriting the header. This is not cosmetic: a
+published tour would otherwise be picked up by `getLatestPublishedCampaign`
+(`announcement-campaigns.ts:1137-1151`), which has **no type predicate** — it would hijack the sidebar badge
+and record a spurious replay. The predicate fix is part of slice 6, with a test that a published tour never
+becomes the badge's campaign.
+
+## 33. Tour state follows the user, and incognito sees nothing
+
+- The per-user "seen" state is **user-scoped data**: it joins the account data archive and is removed on
+  erasure (unlike campaign state, which is app-owned).
+- **An incognito chat never shows a tour.** A tour is a write, and incognito promises none.
+- **No "don't show again" switch** in v1: a tour already shows once per type per user, so a switch would add
+  a settings row for nothing.
+
+## 34. The spec gains its Slice 6
+
+The parent spec's §6 listed slices 0–5 and never mentioned tours, so slice 6 had no hook in the document
+above it. A **Slice 6 — first-open tours** paragraph is added, and the mockup is cited as section 7 (an
+earlier draft said section 6).
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
