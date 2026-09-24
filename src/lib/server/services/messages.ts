@@ -143,6 +143,26 @@ function readEvidenceSummaryFromMetadata(
 	return null;
 }
 
+/**
+ * Workspaces Slice E — a positive whole count, or nothing. Zero is not a value
+ * here: the Info popover's row exists only when the turn read something, so a
+ * 0 that leaked through would be a row about nothing.
+ *
+ * One definition, read by both the message projection and the evidence read
+ * (see `getMessageEvidenceState`): the count is written in the same metadata
+ * write as the evidence summary, and the evidence endpoint hands both to the
+ * live page so the popover's row can appear without a reload.
+ */
+function readProjectFilesReadFromMetadata(
+	metadata: PersistedMessageMetadata | null,
+): number | undefined {
+	return typeof metadata?.projectFilesRead === "number" &&
+		Number.isFinite(metadata.projectFilesRead) &&
+		metadata.projectFilesRead > 0
+		? Math.trunc(metadata.projectFilesRead)
+		: undefined;
+}
+
 function isDepthMetadata(value: unknown): value is DepthMetadata {
 	if (!value || typeof value !== "object") return false;
 	const candidate = value as Partial<DepthMetadata>;
@@ -313,15 +333,9 @@ function projectMessageMetadata(
 		// Validated, not passed through: absent (every message from before the
 		// record existed) and malformed both read as `undefined`.
 		userIntent: parseMessageUserIntent(metadata?.userIntent),
-		// Workspaces Slice E — a positive whole count, or nothing. Zero is not a
-		// value here: the Info popover's row exists only when the turn read
-		// something, so a 0 that leaked through would be a row about nothing.
-		projectFilesRead:
-			typeof metadata?.projectFilesRead === "number" &&
-			Number.isFinite(metadata.projectFilesRead) &&
-			metadata.projectFilesRead > 0
-				? Math.trunc(metadata.projectFilesRead)
-				: undefined,
+		// Workspaces Slice E — the same count the evidence read projects, from
+		// the same rule; see `readProjectFilesReadFromMetadata`.
+		projectFilesRead: readProjectFilesReadFromMetadata(metadata),
 		// Scopes applied to the turn, or `undefined` when the record is missing
 		// or is not an object at all — never a partially-shaped value the Info
 		// popover would have to defend against.
@@ -652,6 +666,15 @@ export async function getMessageEvidenceState(
 ): Promise<{
 	status: MessageEvidenceStatusState;
 	evidenceSummary: MessageEvidenceSummary | null;
+	// Workspaces Slice E — how many of the conversation's project files this
+	// turn read, the count the Info popover's "Project files" row prints. It is
+	// written by `updateMessageEvidence` in the SAME metadata write as the
+	// evidence summary, and it is defined by that same evidence (the selected
+	// evidence intersecting the project's links — see `countProjectFilesRead`),
+	// so it is read back here rather than fetched separately: the live page's
+	// evidence poll is the only channel that carries a finished turn's evidence
+	// to the browser, and a row about the evidence has to ride it.
+	projectFilesRead: number | undefined;
 	forkEvidenceSnapshot?: ForkEvidenceSnapshot;
 } | null> {
 	const [row] = await db
@@ -673,6 +696,7 @@ export async function getMessageEvidenceState(
 	return {
 		status: metadata?.evidenceStatus ?? (evidenceSummary ? "ready" : "none"),
 		evidenceSummary,
+		projectFilesRead: readProjectFilesReadFromMetadata(metadata),
 		forkEvidenceSnapshot: metadata?.forkEvidenceSnapshot,
 	};
 }

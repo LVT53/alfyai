@@ -27,6 +27,14 @@ export const GET: RequestHandler = async (event) => {
 		return json({
 			status: "ready",
 			evidenceSummary: state.evidenceSummary,
+			// The evidence's own project-files count rides the same answer: it
+			// was written in the same metadata write as this summary, and the
+			// live page has no other way to learn it (the terminal stream frame
+			// cannot carry a number that is only known once the evidence has
+			// been composed, after the frame was sent).
+			...(state.projectFilesRead !== undefined
+				? { projectFilesRead: state.projectFilesRead }
+				: {}),
 		});
 	}
 

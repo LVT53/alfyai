@@ -33,7 +33,14 @@ export type MessageEvidenceResult =
 	| { status: "pending" }
 	| { status: "none" }
 	| { status: "missing" }
-	| { status: "ready"; evidenceSummary?: MessageEvidenceSummary };
+	| {
+			status: "ready";
+			evidenceSummary?: MessageEvidenceSummary;
+			// Workspaces Slice E — the count the Info popover's "Project files"
+			// row prints, written with the evidence summary and delivered with
+			// it on the same answer; see `getMessageEvidenceState`.
+			projectFilesRead?: number;
+	  };
 
 interface TitleGenerationResponse {
 	title: string | null;
@@ -373,11 +380,15 @@ export async function fetchMessageEvidence(
 
 	const payload = (await response.json()) as {
 		evidenceSummary?: MessageEvidenceSummary;
+		projectFilesRead?: number;
 	};
 
 	return {
 		status: "ready",
 		evidenceSummary: payload.evidenceSummary,
+		...(typeof payload.projectFilesRead === "number"
+			? { projectFilesRead: payload.projectFilesRead }
+			: {}),
 	};
 }
 
