@@ -626,6 +626,9 @@ export function runChatStreamOrchestrator(
 					map?:
 						| import("$lib/server/services/messages-types").ToolCallMapData
 						| null;
+					instructionSuggestion?:
+						| import("$lib/shared/instructions").InstructionSuggestion
+						| null;
 				},
 			) => {
 				chunkRuntime.emitToolCallEvent(name, input, status, details);
@@ -684,6 +687,7 @@ export function runChatStreamOrchestrator(
 							candidates: record.candidates,
 							metadata: record.metadata,
 							map: record.map,
+							instructionSuggestion: record.instructionSuggestion,
 						},
 					);
 				}
@@ -1360,6 +1364,11 @@ export function runChatStreamOrchestrator(
 										candidates: matchingToolCall?.candidates ?? [],
 										metadata: matchingToolCall?.metadata ?? {},
 										map: matchingToolCall?.map ?? null,
+										// Slice F — the recorded entry is the only place a
+										// `suggest_instruction` offer exists at this point;
+										// finalize persists it off the runtime's records.
+										instructionSuggestion:
+											matchingToolCall?.instructionSuggestion ?? null,
 									},
 								);
 								break;

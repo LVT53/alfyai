@@ -8,6 +8,7 @@ import type {
 	ToolCallEntry,
 	ToolCallMapData,
 } from "$lib/server/services/messages-types";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import {
 	decodeAiSdkUiStreamPayloads,
 	encodeAiSdkUiStreamDoneFrame,
@@ -118,6 +119,12 @@ type StreamToolCallDetails = {
 	candidates?: ToolEvidenceCandidate[];
 	metadata?: Record<string, string | number | boolean | null>;
 	map?: ToolCallMapData | null;
+	// Slice F — the instruction offer a `suggest_instruction` call made, carried
+	// from the tool's own recorded entry. It has to reach the runtime's records
+	// because finalize persists the offer from them (the assistant message does
+	// not exist while the tool runs), so an omission here loses the offer before
+	// anything the user can see is written.
+	instructionSuggestion?: InstructionSuggestion | null;
 };
 
 export function createStreamJsonErrorResponse(
@@ -797,6 +804,7 @@ export function createServerChunkRuntime({
 				candidates: details?.candidates,
 				metadata: details?.metadata,
 				map: details?.map ?? null,
+				instructionSuggestion: details?.instructionSuggestion ?? null,
 			};
 			toolCallRecords.push(terminalRecord);
 			serverSegments.push({
@@ -827,6 +835,7 @@ export function createServerChunkRuntime({
 					candidates: details?.candidates,
 					metadata: details?.metadata,
 					map: details?.map ?? null,
+					instructionSuggestion: details?.instructionSuggestion ?? null,
 				};
 				break;
 			}
