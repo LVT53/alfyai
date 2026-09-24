@@ -131,6 +131,12 @@ function logWorkingDocumentSelection(params: {
 		score?: number;
 		reasonCodes?: WorkingSetReasonCode[];
 	}>;
+	/**
+	 * How much of the project's file list the turn was told about. `null` when
+	 * this phase has nothing to report (no project, no files, or a phase that
+	 * does not build the prompt section).
+	 */
+	projectFiles?: { listed: number; more: number } | null;
 }): void {
 	const {
 		activeDocumentArtifactId,
@@ -166,6 +172,8 @@ function logWorkingDocumentSelection(params: {
 		suppressGeneratedCarryover: selection.retrieval.suppressGeneratedCarryover,
 		hasRecentUserCorrection: selection.correction.hasSignal,
 		hasContextResetSignal: selection.reset.hasSignal,
+		projectFilesListed: params.projectFiles?.listed ?? null,
+		projectFilesMore: params.projectFiles?.more ?? null,
 		selectedArtifacts: selectedArtifacts.slice(0, 4),
 	});
 }
@@ -240,6 +248,10 @@ export async function selectWorkingSetArtifactsForPrompt(
 	message: string,
 	excludeArtifactIds: string[] = [],
 	activeDocumentArtifactId?: string,
+	// Reported through the one working-document log line this call already
+	// emits, so the operator can see what the turn was told about the project's
+	// files without a second log line telling half the story.
+	projectFiles?: { listed: number; more: number } | null,
 ): Promise<Artifact[]> {
 	const exclude = new Set(excludeArtifactIds);
 	// As above: its own incognito work, never another conversation's.
@@ -338,6 +350,7 @@ export async function selectWorkingSetArtifactsForPrompt(
 		conversationId,
 		activeDocumentArtifactId,
 		selection,
+		projectFiles,
 		selectedArtifacts: selectedArtifacts.map((entry) => ({
 			artifactId: entry.artifact.id,
 			score: entry.score,

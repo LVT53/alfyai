@@ -62,6 +62,8 @@ import {
 	getTargetConstructedContext,
 	listConversationSourceArtifactIds,
 	listConversationSourceArtifactNames,
+	listProjectKnowledge,
+	type ProjectKnowledgeItem,
 	resolvePromptAttachmentArtifacts,
 	selectWorkingSetArtifactsForPrompt,
 	updateConversationContextStatus,
@@ -683,6 +685,96 @@ function buildProjectFolderPromptSection(
 	};
 }
 
+// A project's files, as every turn in that project sees them. The list is a
+// catalogue, not content: the turn is told which files the project knows so it
+// can name one when it needs it, and the bytes are read only when the turn
+// actually asks for them. Both caps below are this section's own job, because
+// `protected: true` means the packet compactor will never trim it — an uncapped
+// list would push the answer itself out of the prompt.
+const PROJECT_FILES_SECTION_TITLE = "Project Files";
+const PROJECT_FILES_MAX_ENTRIES = 30;
+const PROJECT_FILES_MAX_CHARS = 1_500;
+// The same words the UI uses for `projects.filesMore`. The packet is not
+// localized per turn, so the label is materialized here.
+const PROJECT_FILES_MORE_LABEL = "+{n} more";
+
+function formatProjectFileLine(file: ProjectKnowledgeItem): string {
+	const summary = file.summary?.trim();
+	// The em dash only when something follows it: "- name —" reads as a clipped
+	// line rather than as a file nobody has summarized yet.
+	return summary ? `- ${file.name} — ${summary}` : `- ${file.name}`;
+}
+
+function formatProjectFilesMoreLabel(droppedCount: number): string {
+	return PROJECT_FILES_MORE_LABEL.replace("{n}", String(droppedCount));
+}
+
+/**
+ * The project's file list for one turn.
+ *
+ * The project id resolves first, and a failed read degrades to "nothing to
+ * list" rather than failing the turn: the list is context, and no context
+ * section is worth losing an answer over.
+ */
+function readProjectFiles(
+	projectIdPromise: Promise<string | null>,
+	userId: string,
+): Promise<ProjectKnowledgeItem[]> {
+	return projectIdPromise.then((projectId) =>
+		projectId
+			? listProjectKnowledge({ userId, projectId }).catch(
+					() => [] as ProjectKnowledgeItem[],
+				)
+			: ([] as ProjectKnowledgeItem[]),
+	);
+}
+
+/**
+ * The section, plus how much of the list survived the caps.
+ *
+ * One walk produces both the body and the counts, so the working-document log
+ * line cannot report something the prompt did not say.
+ */
+export function buildProjectFilesPromptSection(
+	files: ProjectKnowledgeItem[],
+): { section: PromptContextSection; listed: number; more: number } | null {
+	// No files, no section: an empty heading would be a claim about the project
+	// rather than a fact about it.
+	if (files.length === 0) return null;
+
+	const lines = files
+		.slice(0, PROJECT_FILES_MAX_ENTRIES)
+		.map(formatProjectFileLine);
+
+	function buildBody(listedCount: number): string {
+		const dropped = files.length - listedCount;
+		const parts = lines.slice(0, listedCount);
+		if (dropped > 0) parts.push(formatProjectFilesMoreLabel(dropped));
+		return parts.join("\n");
+	}
+
+	let listed = lines.length;
+	// Whole entries only, and the character cap wins: a file that does not fit
+	// is dropped and counted, never clipped, because half a name in the prompt
+	// reads exactly like a real one. Shrinking a prefix (rather than skipping
+	// ahead to whatever still fits) keeps the list a prefix plus an honest
+	// remainder.
+	while (listed > 0 && buildBody(listed).length > PROJECT_FILES_MAX_CHARS) {
+		listed -= 1;
+	}
+
+	return {
+		section: {
+			title: PROJECT_FILES_SECTION_TITLE,
+			body: buildBody(listed),
+			layer: "documents",
+			protected: true,
+		},
+		listed,
+		more: files.length - listed,
+	};
+}
+
 export function inferDocumentContextIntent(params: {
 	message: string;
 	documentFocused: boolean;
@@ -1202,10 +1294,15 @@ async function buildShallowConstructedContext(params: {
 		params.userId,
 		params.conversationId,
 	).catch(() => null);
+	// One read per turn, never cached across turns: unlinking a file has to take
+	// effect on the very next turn, and a cache is exactly the thing that would
+	// let a stale list outlive the link.
+	const projectFilesPromise = readProjectFiles(projectIdPromise, params.userId);
 	const [
 		sessionContext,
 		contextCompressionPromptSnapshot,
 		activeMemoryProfileSection,
+		projectFiles,
 		fileProductionJobSection,
 	] = await Promise.all([
 		loadSessionPromptContext({
@@ -1227,6 +1324,7 @@ async function buildShallowConstructedContext(params: {
 				modelContextBudget: params.modelContextBudget,
 			}),
 		),
+		projectFilesPromise,
 		// Cheap status-only query (no file hydration), so even the shallow
 		// latency tier can afford to stay truthful about a file it promised.
 		loadFileProductionJobStatusSection({
@@ -1282,6 +1380,10 @@ async function buildShallowConstructedContext(params: {
 				maxTokens: params.sessionHistoryBudget.totalBudget,
 			});
 	const sections: PromptContextSection[] = [];
+	// "Short question" is exactly the turn where naming a file still has to
+	// work, so the project's file list is not deep-tier-only.
+	const projectFilesSection =
+		buildProjectFilesPromptSection(projectFiles)?.section ?? null;
 
 	if (contextCompressionPromptSnapshot) {
 		sections.push({
@@ -1312,6 +1414,9 @@ async function buildShallowConstructedContext(params: {
 	}
 	if (activeMemoryProfileSection) {
 		sections.push(activeMemoryProfileSection.section);
+	}
+	if (projectFilesSection) {
+		sections.push(projectFilesSection);
 	}
 	if (fileProductionJobSection) {
 		sections.push(fileProductionJobSection);
@@ -1438,6 +1543,14 @@ export async function buildConstructedContext(params: {
 			historyToolMessages,
 		});
 	}
+	const projectIdPromise = getConversationProjectId(
+		params.userId,
+		params.conversationId,
+	).catch(() => null);
+	const projectFilesSectionPromise = readProjectFiles(
+		projectIdPromise,
+		params.userId,
+	).then((projectFiles) => buildProjectFilesPromptSection(projectFiles));
 	const [
 		sessionContext,
 		resolvedAttachments,
@@ -1451,6 +1564,7 @@ export async function buildConstructedContext(params: {
 		forkOrigin,
 		contextCompressionPromptSnapshot,
 		projectId,
+		projectFilesSection,
 		fileProductionJobSection,
 	] = await Promise.all([
 		loadSessionPromptContext({
@@ -1470,13 +1584,21 @@ export async function buildConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => []),
-		selectWorkingSetArtifactsForPrompt(
-			params.userId,
-			params.conversationId,
-			params.message,
-			attachmentIds,
-			params.activeDocumentArtifactId,
-		).catch(() => []),
+		// Chained off the project's file list rather than started beside it: the
+		// working-document log line reports what the turn was told about those
+		// files, and it fires from inside this call (one emission, not two).
+		projectFilesSectionPromise.then((projectFiles) =>
+			selectWorkingSetArtifactsForPrompt(
+				params.userId,
+				params.conversationId,
+				params.message,
+				attachmentIds,
+				params.activeDocumentArtifactId,
+				projectFiles
+					? { listed: projectFiles.listed, more: projectFiles.more }
+					: null,
+			).catch(() => []),
+		),
 		getConversationProjectLabel(params.userId, params.conversationId).catch(
 			() => null,
 		),
@@ -1494,9 +1616,8 @@ export async function buildConstructedContext(params: {
 			userId: params.userId,
 			conversationId: params.conversationId,
 		}).catch(() => null),
-		getConversationProjectId(params.userId, params.conversationId).catch(
-			() => null,
-		),
+		projectIdPromise,
+		projectFilesSectionPromise,
 		loadFileProductionJobStatusSection({
 			userId: params.userId,
 			conversationId: params.conversationId,
@@ -1789,6 +1910,9 @@ export async function buildConstructedContext(params: {
 	}
 	if (projectFolderSiblingSection) {
 		sections.push(projectFolderSiblingSection);
+	}
+	if (projectFilesSection) {
+		sections.push(projectFilesSection.section);
 	}
 
 	if (taskState) {
