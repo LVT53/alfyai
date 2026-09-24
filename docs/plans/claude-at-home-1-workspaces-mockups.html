@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feature 1 · Workspaces mockups</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Baskerville&display=swap">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<!--
+  Agreed mockups for docs/plans/claude-at-home-1-workspaces-spec.md (owner review, 2026-09-24).
+  Colours, radii and type are AlfyAI's own tokens (src/app.css). Nimbus Sans L falls back to Helvetica.
+  Icons are Lucide (the app's icon set). This file is a visual reference, not production markup.
+-->
+<style>
+:root{--pg:#fafaf8;--el:#f4f3ee;--card:#f5f4f0;--tx:#1a1a1a;--mu:#6b6b6b;--fa:#9a978f;--bd:rgba(0,0,0,.08);--bs:rgba(0,0,0,.05);--ac:#c15f3c;--gr:#5c2f23;--body:#2b2f36;--wash:rgba(250,250,248,.72);--sb:#f3f2ee}
+@media (prefers-color-scheme:dark){:root{--pg:#1a1a1a;--el:#242424;--card:#212121;--tx:#ececec;--mu:#a0a0a0;--fa:#7d7a74;--bd:rgba(255,255,255,.08);--bs:rgba(255,255,255,.05);--ac:#d4836b;--gr:#e3b5a5;--body:#dcdcdc;--wash:rgba(26,26,26,.74);--sb:#202020}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--pg);color:var(--tx);font:14px/1.5 "Nimbus Sans L","Helvetica Neue",Helvetica,Arial,sans-serif;padding:32px 16px 80px}
+main{max-width:860px;margin:0 auto;display:grid;gap:40px}
+h1{font:400 26px 'Libre Baskerville',Georgia,serif;color:var(--gr);margin:0}
+h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--mu);margin:0 0 4px}
+.note{font-size:12.5px;color:var(--mu);margin:0 0 12px;max-width:70ch}
+.fr{background:var(--pg);border:1px solid var(--bd);border-radius:12px;position:relative;overflow:hidden}
+svg.lucide{width:14px;height:14px;stroke-width:1.75;vertical-align:-2px}
+.i16 svg.lucide{width:17px;height:17px}
+.greet{font:400 29px/1.1 'Libre Baskerville',Georgia,serif;color:var(--gr)}
+.serif{font-family:'Libre Baskerville',Georgia,serif}
+.composer{background:var(--el);border:1px solid var(--bd);border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.composer .ph{padding:18px 20px 34px;color:var(--mu)}
+.composer .bar{border-top:1px solid var(--bd);margin:0 10px;display:flex;align-items:center;gap:18px;padding:9px 6px;color:var(--mu)}
+.send{margin-left:auto;width:34px;height:34px;border:1px solid var(--bd);border-radius:9px;display:flex;align-items:center;justify-content:center}
+.lk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mu);padding:3px 6px;border-radius:6px}
+.rule{display:flex;align-items:center;gap:12px;margin:22px 0 4px}.rule span:first-child{flex:1;height:1px;background:var(--bd)}.rule span:last-child{font-size:11.5px;color:var(--fa)}
+.line{display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:1px solid var(--bs);font-size:13.5px}.line .w{font-size:12px;color:var(--fa)}.line .c{margin-left:auto;font-size:12px;color:var(--fa);display:flex;gap:4px;align-items:center}
+.tok{display:inline-flex;align-items:center;gap:4px;padding:1px 7px 1px 5px;border-radius:6px;background:var(--el);border:1px solid var(--bd);font-size:.92em;white-space:nowrap}.tok svg{color:var(--ac)}
+.bs{font-size:13px;padding:5px 12px;border-radius:7px;border:1px solid color-mix(in srgb,var(--tx) 50%,transparent);display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.bp{font-size:13px;padding:5px 12px;border-radius:7px;border:1px solid color-mix(in srgb,var(--ac) 38%,transparent);background:color-mix(in srgb,var(--ac) 12%,transparent);color:var(--ac);display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.pill{font-size:10.5px;letter-spacing:.04em;padding:2px 7px;border-radius:999px;border:1px solid color-mix(in srgb,var(--ac) 45%,transparent);background:color-mix(in srgb,var(--ac) 12%,transparent);color:var(--ac)}
+.th{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mu);font-weight:bold}
+.modal-wrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:14px}
+.wash{position:absolute;inset:0;background:var(--wash)}
+.modal{width:100%;background:var(--pg);border:1px solid var(--bd);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.14);padding:22px}
+.modal .t{display:flex;align-items:center;gap:8px;margin-bottom:6px}.modal .t b{font-size:20px}
+.modal .d{font-size:14px;color:var(--mu);margin-bottom:12px}
+.area{background:var(--el);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;min-height:150px;font-size:14px;line-height:1.6}
+.foot{display:flex;align-items:center;justify-content:space-between;margin-top:16px;gap:10px}.foot .n{font-size:12px;color:var(--fa)}
+.seg{display:inline-flex;border:1px solid var(--bd);border-radius:8px;padding:2px;background:var(--el)}.seg span{font-size:12.5px;padding:4px 11px;border-radius:6px;color:var(--mu);display:inline-flex;align-items:center;gap:5px}.seg .s{background:var(--pg);color:var(--tx);font-weight:bold;box-shadow:0 0 0 1px var(--bs)}
+.card{border:1px solid var(--bd);border-radius:10px;padding:11px 12px 10px;background:var(--pg);display:flex;flex-direction:column;gap:6px;min-width:0}
+.meta{display:flex;gap:10px;font-size:11.5px;color:var(--fa)}
+.row{display:flex;gap:16px;align-items:flex-start;padding:13px 6px;border-top:1px solid var(--bs)}.row .x{flex:1;min-width:0}.row .tt{font-size:13.5px;margin-bottom:3px}.row .dd{font-size:12.5px;color:var(--mu);line-height:1.45}
+.btn{font-size:12.5px;padding:5px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--pg);display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.04em;color:var(--fa)}
+.r{display:flex;justify-content:space-between;align-items:center;gap:14px;font-size:12px;color:var(--mu);padding:3px 0}.r b{font-weight:normal;color:var(--tx)}
+mark{background:color-mix(in srgb,var(--ac) 16%,transparent);color:inherit;border-radius:3px;padding:0 2px}
+</style>
+</head>
+<body>
+<main>
+<header><h1>Feature 1 · Workspaces</h1><p class="note">Agreed screens for Personal Instructions, Project Instructions, Folder Knowledge, the home projects row, the Info popover and the Parallel allowance. Spec: <code>docs/plans/claude-at-home-1-workspaces-spec.md</code>.</p></header>
+
+<section><h2>1 · Project page (home in project mode)</h2>
+<p class="note">Same layout as the home page. The project name replaces the greeting. Instructions and files are one quiet line under the composer, and each opens a modal. The list below shows only this project's chats.</p>
+<div class="fr" style="padding:34px 30px 24px">
+ <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:14px"><div class="greet">Vienna trip</div><div style="font-size:11.5px;color:var(--mu)">3 chats · active 3 hours ago</div></div>
+ <div class="composer"><div class="ph">Start a chat in Vienna trip…</div><div class="bar i16"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><i data-lucide="plug" style="opacity:.5"></i><i data-lucide="brain" style="color:var(--ac)"></i><span class="send"><i data-lucide="send"></i></span></div></div>
+ <div style="display:flex;align-items:center;gap:4px;margin-top:8px"><span class="lk"><i data-lucide="pencil"></i>Instructions</span><span style="color:var(--fa)">·</span><span class="lk"><i data-lucide="paperclip"></i>2 files</span></div>
+ <div class="rule"><span></span><span>3 chats in this project</span></div>
+ <div class="line">Train options Budapest to Vienna<span class="w">· 3 hours ago</span><span class="c"><i data-lucide="message-square"></i>2</span></div>
+ <div class="line">Museums open on Sunday<span class="w">· 1 day ago</span><span class="c"><i data-lucide="message-square"></i>2</span></div>
+ <div class="line">Packing list for 3 days<span class="w">· 2 days ago</span><span class="c"><i data-lucide="message-square"></i>2</span></div>
+</div>
+<p class="note" style="margin-top:10px">Empty project: “Add instructions · Add files”, and the list reads “No chats yet. The first message you send here starts one.” Entry points: the project row's existing hover button in the sidebar (clicking the name still only expands it), the “New chat” menu item, the home projects row, and the project name in the chat-header breadcrumb, which becomes a link.</p>
+</section>
+
+<section><h2>2 · Instructions modal (project scope)</h2>
+<p class="note">Same frame as the logout confirmation (DialogShell), wider, with a large textarea. The project always appears as a folder token, never in running text.</p>
+<div class="fr" style="min-height:400px"><div class="wash"></div><div class="modal-wrap"><div class="modal" style="max-width:560px">
+ <div class="t"><b>Instructions</b><span class="tok"><i data-lucide="folder"></i>Vienna trip</span></div>
+ <div class="d">AlfyAI follows these in every chat in this project. They take priority over your memory and style.</div>
+ <div class="area">Trip is 10–12 October, two adults. We travel by train, stay near Westbahnhof and prefer museums and cafés over shopping.<br>Budget about €600 in total.<br>Answer in Hungarian unless I write in English.</div>
+ <div class="foot"><span class="n">203 / 2000</span><span style="display:flex;gap:12px"><span class="bs">Cancel</span><span class="bp">Save</span></span></div>
+</div></div></div>
+</section>
+
+<section><h2>3 · /instruction and “Review” from a suggestion</h2>
+<p class="note">The same modal. The new line is added at the end and highlighted. The scope switch appears only in a project chat and defaults to the project. Outside a project there is no switch and the scope is Personal.</p>
+<div class="fr" style="min-height:420px"><div class="wash"></div><div class="modal-wrap"><div class="modal" style="max-width:560px">
+ <div class="t"><b>Instructions</b><span class="tok"><i data-lucide="folder"></i>Vienna trip</span></div>
+ <div class="d">Added to the end. Edit the whole text if something no longer fits.</div>
+ <div class="seg" style="margin-bottom:12px"><span><i data-lucide="user"></i>Personal</span><span class="s"><i data-lucide="folder"></i>Vienna trip</span></div>
+ <div class="area">Trip is 10–12 October, two adults. We travel by train, stay near Westbahnhof and prefer museums and cafés over shopping.<br>Budget about €600 in total.<br><mark>Only suggest trains, no flights.</mark></div>
+ <div class="foot"><span class="n">198 / 2000</span><span style="display:flex;gap:12px"><span class="bs">Cancel</span><span class="bp">Save</span></span></div>
+</div></div></div>
+</section>
+
+<section><h2>4 · AI suggestion row</h2>
+<p class="note">Shown only when the user states a standing preference explicitly (“from now on…”, “always…”, “never…”). Never shown in incognito. <b>Review</b> opens the modal above, so nothing is saved without the user seeing it.</p>
+<div class="fr" style="padding:26px 30px 24px">
+ <div style="display:flex;justify-content:flex-end"><div class="serif" style="background:var(--el);border-radius:10px;padding:12px 16px;font-size:14px;max-width:70%;color:var(--body)">From now on, only suggest trains. We don't fly.</div></div>
+ <div class="serif" style="font-size:14px;line-height:1.7;margin:22px 0 14px;color:var(--body)">Understood, trains only. For Friday, RJX 60 leaves Keleti at 06:40 and reaches Wien Hbf at 09:19.</div>
+ <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--bd);border-radius:10px;font-size:12.5px;flex-wrap:wrap"><span style="color:var(--ac)"><i data-lucide="pencil"></i></span><span style="flex:1;min-width:220px"><span style="color:var(--mu)">Add to instructions for</span> <span class="tok"><i data-lucide="folder"></i>Vienna trip</span> <span style="color:var(--mu)">·</span> “Only suggest trains, no flights.”</span><span class="bp" style="font-size:12px;padding:3px 10px">Review</span><span style="color:var(--mu);font-size:12px;padding:3px 6px">Dismiss</span></div>
+ <div style="margin-top:10px;display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--bd);border-radius:10px;font-size:12.5px;flex-wrap:wrap"><span style="color:var(--ac)"><i data-lucide="pencil"></i></span><span style="flex:1;min-width:220px"><span style="color:var(--mu)">Add to instructions for</span> <span class="tok"><i data-lucide="user"></i>You</span> <span style="color:var(--mu)">·</span> “Keep answers short unless I ask for detail.”</span><span class="bp" style="font-size:12px;padding:3px 10px">Review</span><span style="color:var(--mu);font-size:12px;padding:3px 6px">Dismiss</span></div>
+</div>
+</section>
+
+<section><h2>5 · Files modal and Add from library</h2>
+<p class="note">Built on the Knowledge library's table look. The row action is <b>unlink</b> (remove from the project), not delete, and the file stays in the library. Upload here adds the file to the library and links it to the project.</p>
+<div class="fr" style="min-height:470px"><div class="wash"></div><div class="modal-wrap"><div class="modal" style="max-width:700px">
+ <div class="t"><b>Files</b><span class="tok"><i data-lucide="folder"></i>Vienna trip</span></div>
+ <div class="d">Every chat in this project knows these exist and reads them when they're needed.</div>
+ <div style="display:flex;gap:8px;align-items:center;background:var(--el);border:1px solid var(--bd);border-radius:14px;padding:10px;margin-bottom:12px;flex-wrap:wrap"><div style="flex:1;min-width:160px;background:var(--pg);border:1px solid var(--bd);border-radius:8px;padding:7px 11px;font-size:13px;color:var(--fa)">Search files in this project</div><span class="bs"><i data-lucide="library"></i>Add from library</span><span class="bp"><i data-lucide="upload"></i>Upload</span></div>
+ <div style="background:var(--el);border:1px solid var(--bd);border-radius:14px;padding-top:10px">
+  <div style="display:grid;grid-template-columns:22px minmax(0,1fr) 54px 64px 78px 58px;gap:10px;padding:0 12px 8px"><span></span><span class="th">Name</span><span class="th">Type</span><span class="th" style="text-align:right">Size</span><span class="th">Added</span><span></span></div>
+  <div style="display:grid;grid-template-columns:22px minmax(0,1fr) 54px 64px 78px 58px;align-items:center;gap:10px;padding:11px 12px;border-top:1px solid var(--bs);font-size:13.5px"><i data-lucide="file-text" style="color:var(--mu)"></i><span>Hotel Motto booking.pdf</span><span><span class="pill">PDF</span></span><span style="text-align:right;color:var(--mu);font-size:12.5px">412 KB</span><span style="color:var(--mu);font-size:12.5px">2 days ago</span><span style="display:flex;gap:10px;justify-content:flex-end;color:var(--mu)"><i data-lucide="eye"></i><i data-lucide="unlink"></i></span></div>
+  <div style="display:grid;grid-template-columns:22px minmax(0,1fr) 54px 64px 78px 58px;align-items:center;gap:10px;padding:11px 12px;border-top:1px solid var(--bs);font-size:13.5px"><i data-lucide="file-text" style="color:var(--mu)"></i><span>Railjet tickets.pdf</span><span><span class="pill">PDF</span></span><span style="text-align:right;color:var(--mu);font-size:12.5px">96 KB</span><span style="color:var(--mu);font-size:12.5px">2 days ago</span><span style="display:flex;gap:10px;justify-content:flex-end;color:var(--mu)"><i data-lucide="eye"></i><i data-lucide="unlink"></i></span></div>
+ </div>
+ <div class="foot"><span class="n">2 files · removing one here keeps it in your library</span><span class="bs">Done</span></div>
+</div></div></div>
+<p class="note" style="margin-top:10px">Add from library: the same frame with a search field and a checkbox list of library documents. Documents already in the project are greyed out and marked “already added”, and the confirm button reads “Add N documents”.</p>
+</section>
+
+<section><h2>6 · Home page projects row (replaces the chips)</h2>
+<p class="note">Up to 3 cards for the most recently active projects, between the composer and the recent-chats list. Hidden when the user has no projects. The conversation suggestion chips and their backend are removed.</p>
+<div class="fr" style="padding:34px 30px 24px">
+ <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:14px"><div class="greet">Ask me anything, Levente.</div><div style="font-size:11.5px;color:var(--mu)">9 messages this week</div></div>
+ <div class="composer"><div class="ph">Type a message...</div><div class="bar i16"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><i data-lucide="plug" style="opacity:.5"></i><i data-lucide="brain" style="color:var(--ac)"></i><span class="send"><i data-lucide="send"></i></span></div></div>
+ <div class="rule"><span></span><span>Projects</span></div>
+ <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+  <div class="card"><div style="display:flex;gap:7px;font-size:13.5px;align-items:center"><i data-lucide="folder" style="color:var(--ac)"></i>Vienna trip</div><div style="font-size:11.5px;color:var(--mu)">3 chats · 3 hours ago</div><div class="meta"><span><i data-lucide="pencil"></i> Instructions</span><span><i data-lucide="paperclip"></i> 2 files</span></div></div>
+  <div class="card"><div style="display:flex;gap:7px;font-size:13.5px;align-items:center"><i data-lucide="folder" style="color:var(--ac)"></i>AlfyAI</div><div style="font-size:11.5px;color:var(--mu)">1 chat · 8 hours ago</div><div class="meta"><span><i data-lucide="pencil"></i> Instructions</span></div></div>
+  <div class="card"><div style="display:flex;gap:7px;font-size:13.5px;align-items:center"><i data-lucide="folder" style="color:var(--ac)"></i>Flat renovation</div><div style="font-size:11.5px;color:var(--mu)">2 chats · 1 day ago</div><div class="meta"><span><i data-lucide="paperclip"></i> 3 files</span></div></div>
+ </div>
+ <div class="rule"><span></span><span>All conversations ›</span></div>
+ <div class="line">Weekend weather in Szentendre<span class="w">· 1 hour ago</span><span class="c"><i data-lucide="message-square"></i>2</span></div>
+</div>
+<p class="note" style="margin-top:10px">Phone: the same cards, 150px wide, in a row that scrolls sideways.</p>
+</section>
+
+<section><h2>7 · Settings → Profile → Assistant behaviour</h2>
+<p class="note">A new first row. <b>Edit</b> opens the instructions modal scoped to <span class="tok"><i data-lucide="user"></i>You</span>, without the scope switch. When no instructions are set, the row shows an “Add instructions” button.</p>
+<div class="fr" style="padding:18px"><div style="background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:18px 18px 8px">
+ <div style="font-size:15.5px;font-weight:bold">Assistant behaviour</div><div style="font-size:13px;color:var(--mu);margin:3px 0 12px">What AlfyAI is allowed to learn and follow.</div>
+ <div class="row" style="border-top:none"><div class="x"><div class="tt">Personal instructions</div><div class="dd">Followed in every chat. Project instructions take priority inside a project.</div><div style="margin-top:7px;font-size:12.5px;background:var(--pg);border:1px solid var(--bs);border-radius:7px;padding:6px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Answer briefly unless I ask for detail. Metric units and 24-hour time. No emoji.</div></div><span class="btn"><i data-lucide="pencil"></i>Edit</span></div>
+ <div class="row"><div class="x"><div class="tt">Memory</div><div class="dd">When on, AlfyAI learns and remembers facts about you across chats to personalize replies.</div></div><span style="font-size:12.5px;color:var(--mu)">On</span></div>
+ <div class="row"><div class="x"><div class="tt">Skills</div><div class="dd">Short instructions AlfyAI follows for a kind of task. Opens the full manager.</div></div><span class="btn">Manage skills</span></div>
+</div></div>
+</section>
+
+<section><h2>8 · Info popover and Sources (option A)</h2>
+<p class="note">Two new rows in the per-message Info popover, each shown only when it has content. File names are never listed in Info. The “Project files” row shows a count and opens the reply's Sources panel, where project files carry the folder token.</p>
+<div class="fr" style="padding:22px 28px 26px">
+ <div class="serif" style="font-size:14px;line-height:1.7;color:var(--body)">A Railjet a leggyorsabb: az RJX 60 06:40-kor indul a Keletiből és 09:19-kor ér a Wien Hbf-re.</div>
+ <div style="width:320px;max-width:100%;background:var(--pg);border:1px solid var(--bd);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.10);padding:10px 14px;margin:12px 0">
+  <div style="font-size:11px;font-weight:bold;letter-spacing:.06em;color:var(--mu);margin-bottom:4px">INFO</div>
+  <div class="r">Model<b>Qwen3.8 Flash-Next</b></div><div class="r">Cost<b>$0.0004</b></div>
+  <div style="border-top:1px solid var(--bs);margin:6px 0 4px"></div>
+  <div class="r">Instructions<span style="display:flex;gap:4px"><span class="tok"><i data-lucide="user"></i>You</span><span class="tok"><i data-lucide="folder"></i>Vienna trip</span></span></div>
+  <div class="r">Project files<span style="color:var(--ac)">1 read · see Sources ↓</span></div>
+ </div>
+ <div style="border-top:1px solid var(--bs);padding-top:8px;font-size:12.5px">
+  <div><i data-lucide="book-open" style="color:var(--ac)"></i> <b>Sources</b> <span style="color:var(--mu)">· 3 considered, 2 used</span></div>
+  <div class="th" style="margin:10px 0 4px">Cited by the answer (2)</div>
+  <div style="display:flex;gap:7px;align-items:center;padding:3px 0"><i data-lucide="file-text" style="color:var(--mu)"></i>Railjet tickets.pdf <span class="tok"><i data-lucide="folder"></i>Vienna trip</span></div>
+  <div style="display:flex;gap:7px;align-items:center;padding:3px 0"><i data-lucide="globe" style="color:var(--mu)"></i>ÖBB · Railjet timetable Budapest–Wien</div>
+ </div>
+</div>
+</section>
+
+<section><h2>9 · Parallel free monthly allowance (admin)</h2>
+<p class="note">A setting in Integrations &amp; keys → Web research (default $5.00), and an allowance meter on the System analytics Parallel API tab. Users see no change: their Parallel cost is $0 until the allowance is used up.</p>
+<div class="fr" style="padding:18px;display:grid;gap:14px">
+ <div style="background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 18px"><div style="display:flex;gap:16px;align-items:flex-start"><div style="flex:1"><div style="font-size:13.5px">Parallel free monthly allowance</div><div style="font-size:12.5px;color:var(--mu);margin:3px 0">Parallel calls cost nothing to users until the whole server's usage passes this amount in a calendar month. After that they count as normal. Set to 0 to always count them.</div><div class="mono">PARALLEL_FREE_MONTHLY_USD</div></div><span style="border:1px solid var(--bd);border-radius:6px;background:var(--pg);padding:6px 12px">$ 5.00</span></div></div>
+ <div style="background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 18px"><div style="border:1px solid color-mix(in srgb,var(--ac) 35%,transparent);background:color-mix(in srgb,var(--ac) 6%,transparent);border-radius:8px;padding:12px 14px"><b style="font-size:21px;color:var(--ac)">$0.12</b> <span style="color:var(--mu);font-size:13px">of $5.00 free allowance used</span><span style="float:right;font-size:12px;color:var(--mu)">Resets 1 October · users are charged $0.00</span><div style="height:6px;border-radius:999px;background:var(--bs);margin-top:10px"><div style="width:2.4%;height:100%;background:var(--ac);border-radius:999px"></div></div></div></div>
+</div>
+</section>
+</main>
+<script>try{lucide.createIcons();}catch(e){}</script>
+</body>
+</html>
