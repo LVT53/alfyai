@@ -331,6 +331,45 @@ test.describe("Admin provider table layout", () => {
 	});
 });
 
+// Phone-width guard for the same `.sys-grow` fix. With `.sys-grow` a real
+// utility, the save bar's detail span pushes Discard/Save to the bar's right
+// edge. Below 900px the System shell stacks, and if the main column is sized
+// to its content rather than to the screen, pages with wide card headers
+// (Models, Diagnostics) make that column — and the save bar in it — wider
+// than the phone. The pinned-right buttons then sit past the clipped edge
+// where nobody can reach them.
+test.describe("Admin system screen at phone width", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await login(page);
+		await openAdministrationTab(page);
+	});
+
+	for (const section of ["models", "diagnostics"]) {
+		test(`keeps the save bar and its buttons on screen on ${section}`, async ({
+			page,
+		}) => {
+			await page.getByTestId(`system-nav-${section}`).click();
+			const bar = page.getByTestId("system-save-bar");
+			await expect(bar).toBeVisible();
+			const viewportWidth = page.viewportSize()?.width ?? 390;
+
+			const barBox = await bar.boundingBox();
+			if (!barBox) throw new Error("Save bar not laid out");
+			expect(barBox.x + barBox.width).toBeLessThanOrEqual(viewportWidth);
+
+			// Discard and Save — the bar's only buttons.
+			const buttons = bar.getByRole("button");
+			await expect(buttons).toHaveCount(2);
+			for (const button of await buttons.all()) {
+				const box = await button.boundingBox();
+				if (!box) throw new Error("Save bar button not laid out");
+				expect(box.x + box.width).toBeLessThanOrEqual(viewportWidth);
+			}
+		});
+	}
+});
+
 test.describe("Admin app version settings", () => {
 	test.beforeEach(async ({ page }) => {
 		await login(page);

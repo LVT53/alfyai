@@ -34,8 +34,14 @@
 }
 
 @media (max-width: 900px) {
+	/* Stacked, the main column must be exactly as wide as the screen. With the
+	   desktop `align-items: flex-start` it would size to its own content, so a
+	   wide card header made it (and the sticky save bar in it) wider than a
+	   phone — and `.sys-grow` pins the save bar's buttons to that off-screen
+	   right edge. */
 	.sys-shell {
 		flex-direction: column;
+		align-items: stretch;
 	}
 }
 
@@ -209,6 +215,29 @@
 	align-items: center;
 	gap: 6px;
 	flex-shrink: 0;
+}
+
+/* Phone width: a `.sys-grow` label that may shrink to zero would be crushed
+   to a one-word (or one-letter) column by its row's non-shrinking trailing
+   controls. Let those rows wrap instead: the label keeps a readable width and
+   the controls drop to their own line. */
+@media (max-width: 720px) {
+	.sys-card-head,
+	.sys-list-row {
+		flex-wrap: wrap;
+	}
+
+	.sys-card-head > .sys-grow {
+		flex-basis: 100%;
+	}
+
+	.sys-list-row > .sys-grow {
+		flex-basis: 10rem;
+	}
+
+	.sys-card-actions {
+		flex-wrap: wrap;
+	}
 }
 
 .sys-page-head {
