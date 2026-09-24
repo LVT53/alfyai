@@ -8,7 +8,9 @@ import {
 	makeKnowledgeUploadHeaders,
 	mockCompleteKnowledgeUploadFromStoredFile,
 	mockIsKnowledgeUploadConversationError,
+	mockIsKnowledgeUploadProjectError,
 	mockValidateKnowledgeUploadConversation,
+	mockValidateKnowledgeUploadProject,
 } from "../test-helpers";
 import { POST } from "./+server";
 
@@ -220,6 +222,96 @@ describe("POST /api/knowledge/upload/raw", () => {
 			traceId: "upload-missing-conv",
 		});
 	});
+	// Uploading from inside a project is the same request with one extra header:
+	// the file is a library document that happens to be linked to that project.
+	describe("uploading into a project", () => {
+		it("resolves the project header and hands it to intake", async () => {
+			const bytes = Buffer.from("hello");
+			const response = await POST(
+				makeKnowledgeUploadEvent({
+					body: bytes,
+					headers: makeKnowledgeUploadHeaders({
+						"x-alfyai-upload-trace-id": "upload-rawproject",
+						"x-alfyai-upload-name": encodeURIComponent("scan.pdf"),
+						"x-alfyai-upload-size": String(bytes.length),
+						"x-alfyai-project-id": "trip-project",
+					}),
+					requestUrl: "http://localhost/api/knowledge/upload/raw",
+					routeId: "/api/knowledge/upload/raw",
+					userId: harness.userId,
+				}),
+			);
+
+			expect(response.status).toBe(200);
+			expect(mockValidateKnowledgeUploadProject).toHaveBeenCalledWith({
+				userId: harness.userId,
+				projectId: "trip-project",
+			});
+			expect(mockCompleteKnowledgeUploadFromStoredFile).toHaveBeenCalledWith(
+				expect.objectContaining({ projectId: "trip-project" }),
+			);
+		});
+
+		it("passes a null project id for an ordinary library upload", async () => {
+			const bytes = Buffer.from("hello");
+			const response = await POST(
+				makeKnowledgeUploadEvent({
+					body: bytes,
+					headers: makeKnowledgeUploadHeaders({
+						"x-alfyai-upload-trace-id": "upload-rawplain",
+						"x-alfyai-upload-name": encodeURIComponent("scan.pdf"),
+						"x-alfyai-upload-size": String(bytes.length),
+					}),
+					requestUrl: "http://localhost/api/knowledge/upload/raw",
+					routeId: "/api/knowledge/upload/raw",
+					userId: harness.userId,
+				}),
+			);
+
+			expect(response.status).toBe(200);
+			expect(mockCompleteKnowledgeUploadFromStoredFile).toHaveBeenCalledWith(
+				expect.objectContaining({ projectId: null }),
+			);
+		});
+
+		it("rejects a project that is not the caller's before writing a raw temporary file", async () => {
+			mockValidateKnowledgeUploadProject.mockRejectedValueOnce(
+				Object.assign(new Error("Project not found or access denied"), {
+					name: "KnowledgeUploadProjectError",
+				}),
+			);
+			mockIsKnowledgeUploadProjectError.mockReturnValueOnce(true);
+
+			const response = await POST(
+				makeKnowledgeUploadEvent({
+					body: Buffer.from("hello"),
+					headers: makeKnowledgeUploadHeaders({
+						"x-alfyai-upload-trace-id": "upload-foreign-project",
+						"x-alfyai-project-id": "other-project",
+						"x-alfyai-upload-name": "scan.pdf",
+						"x-alfyai-upload-size": "5",
+					}),
+					requestUrl: "http://localhost/api/knowledge/upload/raw",
+					routeId: "/api/knowledge/upload/raw",
+					userId: harness.userId,
+				}),
+			);
+			const data = await response.json();
+			const incomingDir = await stat(
+				join(process.cwd(), "data", "knowledge", harness.userId, ".incoming"),
+			).catch(() => null);
+
+			expect(response.status).toBe(400);
+			expect(data).toMatchObject({
+				error: "Project not found or access denied",
+				code: "invalid_project",
+				traceId: "upload-foreign-project",
+			});
+			expect(incomingDir).toBeNull();
+			expect(mockCompleteKnowledgeUploadFromStoredFile).not.toHaveBeenCalled();
+		});
+	});
+
 	// Bug B2: a failed receive must not leave its partial bytes behind. Nothing
 	// ever swept `.incoming/`, so every abandoned attempt was permanent.
 	describe("temporary file hygiene (B2)", () => {

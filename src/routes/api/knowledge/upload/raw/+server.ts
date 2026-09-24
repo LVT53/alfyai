@@ -6,6 +6,7 @@ import { createAttachmentTraceId } from "$lib/server/services/attachment-trace";
 import {
 	completeKnowledgeUploadFromStoredFile,
 	isKnowledgeUploadConversationError,
+	isKnowledgeUploadProjectError,
 	resolveKnowledgeUploadLimits,
 } from "$lib/server/services/knowledge/upload-intake";
 import { isKnowledgeUploadContentMismatchError } from "$lib/server/services/knowledge/upload-signature";
@@ -16,6 +17,7 @@ import {
 	readKnowledgeUploadRequestMetadata,
 	refuseUnsupportedUploadType,
 	resolveKnowledgeUploadConversation,
+	resolveKnowledgeUploadProject,
 	writeKnowledgeUploadBytes,
 } from "../shared";
 import type { RequestHandler } from "./$types";
@@ -175,6 +177,7 @@ export const POST: RequestHandler = async (event) => {
 	const declaredFileName = metadata.fileName;
 	const declaredFileSize = metadata.declaredFileSize;
 	const conversationId = metadata.conversationId;
+	const projectId = metadata.projectId;
 	const mimeType = metadata.mimeType;
 	const requestBodyLimit = limits.storedFileLimit;
 
@@ -186,6 +189,7 @@ export const POST: RequestHandler = async (event) => {
 		contentLength,
 		mimeType,
 		conversationId,
+		projectId,
 		maxFileUploadSize: limits.maxFileUploadSize,
 		adapterBodySizeLimit: limits.adapterBodySizeLimit,
 		requestBodyLimit,
@@ -262,6 +266,16 @@ export const POST: RequestHandler = async (event) => {
 	}
 	const validatedConversationId = conversation.conversationId;
 
+	const project = await resolveKnowledgeUploadProject({
+		userId: user.id,
+		projectId,
+		traceId,
+	});
+	if (project.response) {
+		return project.response;
+	}
+	const validatedProjectId = project.projectId;
+
 	const tempDir = join(
 		process.cwd(),
 		"data",
@@ -336,6 +350,7 @@ export const POST: RequestHandler = async (event) => {
 		const response = await completeKnowledgeUploadFromStoredFile({
 			userId: user.id,
 			conversationId: validatedConversationId,
+			projectId: validatedProjectId,
 			fileName: declaredFileName,
 			mimeType,
 			sizeBytes: received.receivedBytes,
@@ -353,6 +368,19 @@ export const POST: RequestHandler = async (event) => {
 				{
 					error: "Conversation not found or access denied",
 					code: "conversation_not_found",
+					traceId,
+				},
+				{ status: 400 },
+			);
+		}
+		if (isKnowledgeUploadProjectError(error)) {
+			// The project was checked before the body arrived; reaching here
+			// means it was deleted while a large upload was in flight.
+			await unlink(tempPathAbsolute).catch(() => undefined);
+			return json(
+				{
+					error: "Project not found or access denied",
+					code: "invalid_project",
 					traceId,
 				},
 				{ status: 400 },

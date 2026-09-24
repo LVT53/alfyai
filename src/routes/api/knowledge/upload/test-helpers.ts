@@ -59,6 +59,11 @@ vi.mock("$lib/server/services/knowledge/upload-intake", () => ({
 		async (params: { conversationId?: string | null }) =>
 			params.conversationId?.trim() || null,
 	),
+	isKnowledgeUploadProjectError: vi.fn(() => false),
+	validateKnowledgeUploadProject: vi.fn(
+		async (params: { projectId?: string | null }) =>
+			params.projectId?.trim() || null,
+	),
 }));
 
 /**
@@ -89,7 +94,9 @@ import { getUploadFormatGate } from "$lib/server/services/knowledge/format-avail
 import {
 	completeKnowledgeUploadFromStoredFile,
 	isKnowledgeUploadConversationError,
+	isKnowledgeUploadProjectError,
 	validateKnowledgeUploadConversation,
+	validateKnowledgeUploadProject,
 } from "$lib/server/services/knowledge/upload-intake";
 
 const defaultCompleteKnowledgeUploadResponse = {
@@ -120,6 +127,12 @@ export const mockIsKnowledgeUploadConversationError = vi.mocked(
 );
 export const mockValidateKnowledgeUploadConversation = vi.mocked(
 	validateKnowledgeUploadConversation,
+);
+export const mockIsKnowledgeUploadProjectError = vi.mocked(
+	isKnowledgeUploadProjectError,
+);
+export const mockValidateKnowledgeUploadProject = vi.mocked(
+	validateKnowledgeUploadProject,
 );
 export const mockGetUploadFormatGate = vi.mocked(getUploadFormatGate);
 const OPEN_UPLOAD_FORMAT_GATE = {
@@ -288,9 +301,14 @@ export function createKnowledgeUploadRouteHarness(params: {
 			.mockImplementation(() => undefined);
 		mockRequireAuth.mockReturnValue(undefined);
 		mockIsKnowledgeUploadConversationError.mockReturnValue(false);
+		mockIsKnowledgeUploadProjectError.mockReturnValue(false);
 		mockValidateKnowledgeUploadConversation.mockImplementation(
 			async (candidate: { conversationId?: string | null }) =>
 				candidate.conversationId?.trim() || null,
+		);
+		mockValidateKnowledgeUploadProject.mockImplementation(
+			async (candidate: { projectId?: string | null }) =>
+				candidate.projectId?.trim() || null,
 		);
 		mockGetUploadFormatGate.mockResolvedValue(OPEN_UPLOAD_FORMAT_GATE);
 		mockCompleteKnowledgeUploadFromStoredFile.mockResolvedValue(
