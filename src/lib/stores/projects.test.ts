@@ -49,6 +49,7 @@ describe("projects store", () => {
 						id: "proj-1",
 						name: "Alpha",
 						sortOrder: 0,
+						hasInstructions: false,
 						createdAt: 1,
 						updatedAt: 1,
 					},
@@ -59,7 +60,14 @@ describe("projects store", () => {
 		await loadProjects();
 
 		expect(get(projects)).toEqual([
-			{ id: "proj-1", name: "Alpha", sortOrder: 0, createdAt: 1, updatedAt: 1 },
+			{
+				id: "proj-1",
+				name: "Alpha",
+				sortOrder: 0,
+				hasInstructions: false,
+				createdAt: 1,
+				updatedAt: 1,
+			},
 		]);
 	});
 
@@ -70,6 +78,7 @@ describe("projects store", () => {
 					id: "proj-1",
 					name: "Alpha",
 					sortOrder: 0,
+					hasInstructions: false,
 					createdAt: 1,
 					updatedAt: 1,
 				},
@@ -81,11 +90,19 @@ describe("projects store", () => {
 			id: "proj-1",
 			name: "Alpha",
 			sortOrder: 0,
+			hasInstructions: false,
 			createdAt: 1,
 			updatedAt: 1,
 		});
 		expect(get(projects)).toEqual([
-			{ id: "proj-1", name: "Alpha", sortOrder: 0, createdAt: 1, updatedAt: 1 },
+			{
+				id: "proj-1",
+				name: "Alpha",
+				sortOrder: 0,
+				hasInstructions: false,
+				createdAt: 1,
+				updatedAt: 1,
+			},
 		]);
 	});
 
@@ -96,6 +113,7 @@ describe("projects store", () => {
 					id: "proj-local",
 					name: "Local",
 					sortOrder: 0,
+					hasInstructions: false,
 					createdAt: 1,
 					updatedAt: 1,
 				},
@@ -111,6 +129,7 @@ describe("projects store", () => {
 				id: "proj-local",
 				name: "Local",
 				sortOrder: 0,
+				hasInstructions: false,
 				createdAt: 1,
 				updatedAt: 1,
 			},
@@ -119,13 +138,21 @@ describe("projects store", () => {
 
 	it("renames a project and updates the store locally", async () => {
 		projects.set([
-			{ id: "proj-1", name: "Alpha", sortOrder: 0, createdAt: 1, updatedAt: 1 },
+			{
+				id: "proj-1",
+				name: "Alpha",
+				sortOrder: 0,
+				hasInstructions: false,
+				createdAt: 1,
+				updatedAt: 1,
+			},
 		]);
 		vi.mocked(fetch).mockResolvedValueOnce(
 			jsonResponse({
 				id: "proj-1",
 				name: "Beta",
 				sortOrder: 0,
+				hasInstructions: false,
 				createdAt: 1,
 				updatedAt: 2,
 			}),
@@ -134,13 +161,27 @@ describe("projects store", () => {
 		await renameProject("proj-1", "Beta");
 
 		expect(get(projects)).toEqual([
-			{ id: "proj-1", name: "Beta", sortOrder: 0, createdAt: 1, updatedAt: 1 },
+			{
+				id: "proj-1",
+				name: "Beta",
+				sortOrder: 0,
+				hasInstructions: false,
+				createdAt: 1,
+				updatedAt: 1,
+			},
 		]);
 	});
 
 	it("deletes a project and removes it from the store", async () => {
 		projects.set([
-			{ id: "proj-1", name: "Alpha", sortOrder: 0, createdAt: 1, updatedAt: 1 },
+			{
+				id: "proj-1",
+				name: "Alpha",
+				sortOrder: 0,
+				hasInstructions: false,
+				createdAt: 1,
+				updatedAt: 1,
+			},
 		]);
 		vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ success: true }));
 
@@ -155,6 +196,7 @@ describe("projects store", () => {
 				id: "proj-second",
 				name: "Second",
 				sortOrder: 1,
+				hasInstructions: false,
 				createdAt: 1,
 				updatedAt: 1,
 			},
@@ -162,6 +204,7 @@ describe("projects store", () => {
 				id: "proj-first",
 				name: "First",
 				sortOrder: 0,
+				hasInstructions: false,
 				createdAt: 2,
 				updatedAt: 2,
 			},
@@ -179,6 +222,7 @@ describe("projects store", () => {
 				id: "proj-a",
 				name: "A",
 				sortOrder: 0,
+				hasInstructions: false,
 				createdAt: 1,
 				updatedAt: 1,
 			},
@@ -186,6 +230,7 @@ describe("projects store", () => {
 				id: "proj-b",
 				name: "B",
 				sortOrder: 1,
+				hasInstructions: false,
 				createdAt: 2,
 				updatedAt: 2,
 			},
@@ -196,6 +241,7 @@ describe("projects store", () => {
 						id: string;
 						name: string;
 						sortOrder: number;
+						hasInstructions: boolean;
 						createdAt: number;
 						updatedAt: number;
 					}>,
@@ -213,6 +259,7 @@ describe("projects store", () => {
 				id: "proj-a",
 				name: "A",
 				sortOrder: 0,
+				hasInstructions: false,
 				createdAt: 1,
 				updatedAt: 3,
 			},
@@ -220,6 +267,7 @@ describe("projects store", () => {
 				id: "proj-b",
 				name: "B",
 				sortOrder: 1,
+				hasInstructions: false,
 				createdAt: 2,
 				updatedAt: 4,
 			},
@@ -234,8 +282,22 @@ describe("projects store", () => {
 		if (!resolveSave)
 			throw new Error("Expected project order request resolver");
 		resolveSave([
-			{ id: "proj-b", name: "B", sortOrder: 0, createdAt: 2, updatedAt: 4 },
-			{ id: "proj-a", name: "A", sortOrder: 1, createdAt: 1, updatedAt: 3 },
+			{
+				id: "proj-b",
+				name: "B",
+				sortOrder: 0,
+				hasInstructions: false,
+				createdAt: 2,
+				updatedAt: 4,
+			},
+			{
+				id: "proj-a",
+				name: "A",
+				sortOrder: 1,
+				hasInstructions: false,
+				createdAt: 1,
+				updatedAt: 3,
+			},
 		]);
 		await save;
 	});
@@ -246,6 +308,7 @@ describe("projects store", () => {
 				id: "proj-a",
 				name: "A",
 				sortOrder: 0,
+				hasInstructions: false,
 				createdAt: 1,
 				updatedAt: 1,
 			},
@@ -253,6 +316,7 @@ describe("projects store", () => {
 				id: "proj-b",
 				name: "B",
 				sortOrder: 1,
+				hasInstructions: false,
 				createdAt: 2,
 				updatedAt: 2,
 			},

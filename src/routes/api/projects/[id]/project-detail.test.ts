@@ -59,7 +59,10 @@ describe("PATCH /api/projects/[id]", () => {
 		const data = await response.json();
 
 		expect(response.status).toBe(400);
-		expect(data.error).toBe("Name is required");
+		// The message widened with the contract (Slice D): PATCH now accepts
+		// `instructions`, so a payload with neither field is "nothing to
+		// update" rather than "a name is missing".
+		expect(data.error).toBe("Nothing to update");
 		expect(mockUpdateProject).not.toHaveBeenCalled();
 	});
 });

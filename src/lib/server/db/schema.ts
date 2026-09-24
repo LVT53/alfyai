@@ -1271,6 +1271,11 @@ export const projects = sqliteTable(
 			.references(() => users.id, { onDelete: "cascade" }),
 		name: text("name").notNull(),
 		color: text("color"),
+		// Standing guidance for every chat in the project (Workspaces feature 1,
+		// Slice D). It lives on the project row rather than in a side table so
+		// deleting the project takes it with it, and it is never listed: the
+		// sidebar/shell payloads carry only the derived `hasInstructions` flag.
+		instructions: text("instructions"),
 		sidebarPinned: integer("sidebar_pinned", { mode: "boolean" })
 			.notNull()
 			.default(false),

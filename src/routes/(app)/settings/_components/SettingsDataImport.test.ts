@@ -50,6 +50,7 @@ describe("SettingsDataImport", () => {
 				id: "proj-1",
 				name: "My Project",
 				sortOrder: 0,
+				hasInstructions: false,
 				createdAt: 1,
 				updatedAt: 2,
 			},

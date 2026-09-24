@@ -109,6 +109,7 @@ describe("SearchModal", () => {
 				id: "project-1",
 				name: "Launch",
 				sortOrder: 0,
+				hasInstructions: false,
 				createdAt: Date.now(),
 				updatedAt: Date.now(),
 			},

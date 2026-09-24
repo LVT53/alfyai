@@ -1,0 +1,16 @@
+-- Project Instructions (Workspaces feature 1, Slice D): one free-text box of
+-- standing guidance per project, rendered into the system message after
+-- Your Instructions. It rides the system message rather than the turn packet
+-- so a short "shallow" message skips nothing and an incognito chat inside the
+-- project still follows it.
+--
+-- NULL and '' are the same stored state on purpose: the API normalises
+-- whitespace-only input to NULL through the shared instruction rules, so
+-- "never set" and "cleared" cannot drift apart, and `hasInstructions` is a
+-- single boolean derived from this one column. Existing rows are NULL, i.e.
+-- projects without instructions.
+--
+-- Additive and nullable: no backfill, no default, safe to apply to a live DB.
+-- Deleting the project row takes the instructions with it (same row, no
+-- separate table), and the library files the project links are untouched.
+ALTER TABLE `projects` ADD `instructions` text;

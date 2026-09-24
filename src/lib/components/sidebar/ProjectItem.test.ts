@@ -7,6 +7,7 @@ const project = {
 	id: "project-1",
 	name: "House tasks",
 	sortOrder: 0,
+	hasInstructions: false,
 	createdAt: 1,
 	updatedAt: 1,
 };
