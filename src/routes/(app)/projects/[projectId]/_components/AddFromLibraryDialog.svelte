@@ -54,6 +54,14 @@ const visibleDocuments = $derived.by(() => {
 	return all.filter((document) => document.name.toLowerCase().includes(query));
 });
 
+/**
+ * Whether the library itself holds nothing. The list the picker renders is the
+ * *filtered* one, so `visibleDocuments` being empty cannot answer this: an
+ * empty library and a query that matched nothing are two different sentences,
+ * and only the library can say which one applies.
+ */
+const libraryIsEmpty = $derived((documents?.length ?? 0) === 0);
+
 const selectedCount = $derived(selectedIds.length);
 const confirmLabel = $derived(
 	selectedCount === 1
@@ -149,7 +157,16 @@ $effect(() => {
 					{$t("projects.filesLoadFailed")}
 				</p>
 			{:else if visibleDocuments.length === 0}
-				<p class="picker-empty">{$t("projects.filesEmpty")}</p>
+				<p class="picker-empty">
+					{#if libraryIsEmpty}
+						{$t("projects.filesEmpty")}
+					{:else}
+						<!-- The library holds documents; the query hid every one of them.
+						     An empty query cannot filter a non-empty list down to
+						     nothing, so this branch is reached only with a search. -->
+						{$t("projects.filesNoMatch")}
+					{/if}
+				</p>
 			{:else}
 				{#each visibleDocuments as document (document.id)}
 					{@const alreadyLinked = linkedIds.has(document.displayArtifactId)}
