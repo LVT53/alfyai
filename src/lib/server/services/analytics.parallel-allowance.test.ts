@@ -227,3 +227,152 @@ describe("recordParallelUsage against the free allowance", () => {
 		transaction.mockRestore();
 	});
 });
+
+describe("recomputeParallelBillingForMonth", () => {
+	beforeEach(() => {
+		dbPath = `/tmp/alfyai-parallel-allowance-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
+	});
+
+	afterEach(async () => {
+		await closeServiceDatabase();
+		vi.unstubAllEnvs();
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// Temporary DB cleanup is best-effort.
+		}
+	});
+
+	/**
+	 * Charges a month's Parallel rows by hand, so a replay can be asked to
+	 * rewrite a month that is not the current one. `id` and `created_at` are
+	 * deliberately in opposite orders, so a replay that sorted by row id would
+	 * bill a different row than one that sorted by call time.
+	 */
+	function seedChargedMonth(month: string, calls: number) {
+		const sqlite = new Database(dbPath);
+		const insert = sqlite.prepare(
+			`INSERT INTO usage_events
+				(id, user_id, conversation_id, message_id, model_id, model_display_name,
+				 provider_display_name, usage_source, billing_month, cost_usd_micros, created_at)
+			 VALUES (?, 'u1', '', ?, 'parallel:turbo', 'Parallel Turbo',
+				 'Parallel', 'provider', ?, 1000, ?)`,
+		);
+		for (let index = 0; index < calls; index++) {
+			insert.run(
+				`row-${month}-${calls - index}`,
+				`parallel:${month}:${calls - index}`,
+				month,
+				1_756_000_000 + index,
+			);
+		}
+		sqlite.close();
+	}
+
+	function costOfRow(id: string): number {
+		const sqlite = new Database(dbPath);
+		const row = sqlite
+			.prepare(
+				"SELECT cost_usd_micros AS micros FROM usage_events WHERE id = ?",
+			)
+			.get(id) as { micros: number } | undefined;
+		sqlite.close();
+		return row?.micros ?? -1;
+	}
+
+	it("recomputes only the requested month", async () => {
+		openSeedDatabase().sqlite.close();
+		seedChargedMonth("2026-08", 1);
+		seedChargedMonth("2026-09", 2);
+		const { recomputeParallelBillingForMonth } = await import("./analytics");
+
+		const result = await recomputeParallelBillingForMonth("2026-09", 5, {
+			apply: true,
+		});
+
+		expect(result.month).toBe("2026-09");
+		// A month nobody asked about keeps the cost it was booked at.
+		expect(billedMicrosFor({ month: "2026-08" })).toBe(1000);
+		expect(billedMicrosFor({ month: "2026-09" })).toBe(0);
+	});
+
+	it("writes nothing in a dry run", async () => {
+		openSeedDatabase().sqlite.close();
+		seedChargedMonth("2026-09", 2);
+		const { recomputeParallelBillingForMonth } = await import("./analytics");
+
+		const before = billedMicrosFor({ month: "2026-09" });
+		const result = await recomputeParallelBillingForMonth("2026-09", 0, {
+			apply: false,
+		});
+
+		expect(result.changed).toBe(0);
+		expect(billedMicrosFor({ month: "2026-09" })).toBe(before);
+	});
+
+	it("reports what a dry run would rewrite without touching a row", async () => {
+		openSeedDatabase().sqlite.close();
+		seedChargedMonth("2026-09", 2);
+		const { recomputeParallelBillingForMonth } = await import("./analytics");
+
+		const result = await recomputeParallelBillingForMonth("2026-09", 5, {
+			apply: false,
+		});
+
+		expect(result.applied).toBe(false);
+		expect(result.changed).toBe(2);
+		expect(result.billedMicros).toBe(0);
+		expect(result.previousMicros).toBe(2000);
+		expect(billedMicrosFor({ month: "2026-09" })).toBe(2000);
+	});
+
+	it("bills the crossing call's remainder, in call order", async () => {
+		openSeedDatabase().sqlite.close();
+		seedChargedMonth("2026-09", 2);
+		const { recomputeParallelBillingForMonth } = await import("./analytics");
+
+		// 0.001 USD = exactly one call, so the earlier call is free and the
+		// later one pays. Sorting by row id instead of call time would swap
+		// those two rows around.
+		const result = await recomputeParallelBillingForMonth("2026-09", 0.001, {
+			apply: true,
+		});
+
+		// Only the earlier row moves: the later one was already booked at the
+		// price the replay gives it, so it is not rewritten.
+		expect(result.changed).toBe(1);
+		expect(costOfRow("row-2026-09-2")).toBe(0);
+		expect(costOfRow("row-2026-09-1")).toBe(1000);
+		expect(billedMicrosFor({ month: "2026-09" })).toBe(1000);
+	});
+
+	it("is idempotent: a second run finds nothing left to change", async () => {
+		openSeedDatabase().sqlite.close();
+		seedChargedMonth("2026-09", 3);
+		const { recomputeParallelBillingForMonth } = await import("./analytics");
+
+		await recomputeParallelBillingForMonth("2026-09", 0.0025, { apply: true });
+		const second = await recomputeParallelBillingForMonth("2026-09", 0.0025, {
+			apply: true,
+		});
+
+		expect(second.changed).toBe(0);
+		expect(billedMicrosFor({ month: "2026-09" })).toBe(500);
+	});
+
+	it("leaves the months it was not asked about out of the write", async () => {
+		openSeedDatabase().sqlite.close();
+		seedChargedMonth("2026-08", 2);
+		const { recomputeParallelBillingForMonth } = await import("./analytics");
+
+		const result = await recomputeParallelBillingForMonth("2026-09", 5, {
+			apply: true,
+		});
+
+		expect(result.calls).toBe(0);
+		expect(result.changed).toBe(0);
+		expect(billedMicrosFor({ month: "2026-08" })).toBe(2000);
+	});
+});

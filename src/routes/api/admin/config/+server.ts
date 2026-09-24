@@ -10,6 +10,7 @@ import {
 	ADMIN_CONFIG_KEYS,
 	type AdminConfigKey,
 	getEnvDefaults,
+	getParallelFreeMonthlyUsd,
 	getResolvedAdminConfigValues,
 	refreshConfig,
 } from "$lib/server/config-store";
@@ -20,6 +21,10 @@ import {
 	isSecretConfigKey,
 	SECRET_MASK,
 } from "$lib/server/services/admin-effective-config";
+import {
+	recomputeParallelBillingForMonth,
+	toBillingMonth,
+} from "$lib/server/services/analytics";
 import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async (event) => {
@@ -145,6 +150,14 @@ export const PUT: RequestHandler = async (event) => {
 		);
 	}
 
+	// The Parallel free allowance is a running-total rule, so the month already
+	// booked under the old value has to be replayed when it moves, or the meter
+	// and the charged total would disagree for the rest of the month. Read it
+	// before the write so the comparison is against what the server was
+	// actually applying, and let any other key in the same patch go through
+	// without touching billing rows.
+	const allowanceBefore = getParallelFreeMonthlyUsd();
+
 	for (const { key, value } of pending) {
 		if (value.trim() === "") {
 			// Empty value = revert to env default (delete DB override)
@@ -166,6 +179,18 @@ export const PUT: RequestHandler = async (event) => {
 	}
 
 	await refreshConfig();
+
+	const allowanceAfter = getParallelFreeMonthlyUsd();
+	if (
+		pending.some(({ key }) => key === "PARALLEL_FREE_MONTHLY_USD") &&
+		allowanceAfter !== allowanceBefore
+	) {
+		await recomputeParallelBillingForMonth(
+			toBillingMonth(new Date()),
+			allowanceAfter,
+			{ apply: true },
+		);
+	}
 
 	// `success: true` is honest: every key that could be stored was stored.
 	// `ignored` is what keeps it from being a half-truth — it names, per key,

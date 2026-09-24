@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import {
 	and,
+	asc,
 	count,
 	eq,
 	gte,
@@ -1787,7 +1788,10 @@ export async function getAnalyticsDashboardReadModel({
 	};
 }
 
-function toBillingMonth(date = new Date()): string {
+// Exported so callers that need to name a month for a replay (the admin config
+// write) use the same calendar as the rows it replays, rather than slicing an
+// ISO string a second time.
+export function toBillingMonth(date = new Date()): string {
 	return date.toISOString().slice(0, 7);
 }
 
@@ -2391,6 +2395,82 @@ export function parallelBilledSeries(
 		);
 	}
 	return series;
+}
+
+export interface ParallelBillingRecompute {
+	/** The month the run looked at, "YYYY-MM". */
+	month: string;
+	/** How many `parallel:*` calls that month holds. */
+	calls: number;
+	/**
+	 * How many rows hold a different cost than the allowance says they should.
+	 * A dry run reports this without writing: it is what the run WOULD rewrite.
+	 */
+	changed: number;
+	/** The month's billed total before the run. */
+	previousMicros: number;
+	/** The month's billed total the run computes (and writes, when applying). */
+	billedMicros: number;
+	/** False for a dry run — nothing was written. */
+	applied: boolean;
+}
+
+// Replay one month's Parallel billing under an allowance. Used by the admin
+// config write (the running month, when the allowance moves) and by the
+// one-off `scripts/recompute-parallel-billing.ts`, which both need the same
+// arithmetic the record path uses. Rows are replayed in call order, because
+// which row pays the crossing remainder follows from that order.
+export async function recomputeParallelBillingForMonth(
+	billingMonth: string,
+	allowanceUsd: number,
+	options: { apply: boolean },
+): Promise<ParallelBillingRecompute> {
+	const allowanceMicros = Math.round(
+		Math.max(0, Number.isFinite(allowanceUsd) ? allowanceUsd : 0) * 1_000_000,
+	);
+	const rows = db
+		.select({
+			id: usageEvents.id,
+			costUsdMicros: usageEvents.costUsdMicros,
+		})
+		.from(usageEvents)
+		.where(
+			and(
+				eq(usageEvents.billingMonth, billingMonth),
+				like(usageEvents.modelId, "parallel:%"),
+			),
+		)
+		.orderBy(asc(usageEvents.createdAt), asc(usageEvents.id))
+		.all();
+
+	const series = parallelBilledSeries(rows.length, allowanceMicros);
+	const writes = rows
+		.map((row, index) => ({
+			id: row.id,
+			costUsdMicros: series[index] ?? 0,
+			previousMicros: row.costUsdMicros,
+		}))
+		.filter((write) => write.costUsdMicros !== write.previousMicros);
+
+	if (options.apply && writes.length > 0) {
+		db.transaction((tx) => {
+			for (const write of writes) {
+				tx.update(usageEvents)
+					.set({ costUsdMicros: write.costUsdMicros })
+					.where(eq(usageEvents.id, write.id))
+					.run();
+			}
+		});
+	}
+
+	return {
+		month: billingMonth,
+		calls: rows.length,
+		changed: writes.length,
+		previousMicros: rows.reduce((sum, row) => sum + row.costUsdMicros, 0),
+		billedMicros: series.reduce((sum, value) => sum + value, 0),
+		applied: options.apply,
+	};
 }
 
 // Record a single Parallel API call (Turbo search or Extract fetch) as a
