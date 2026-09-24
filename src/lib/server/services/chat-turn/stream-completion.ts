@@ -8,7 +8,10 @@ import type { ProviderUsageSnapshot } from "$lib/server/services/analytics";
 import type { getChatFilesForAssistantMessage } from "$lib/server/services/chat-files";
 import { recordCompletedTurnContextUsage } from "$lib/server/services/chat-turn/context-usage";
 import type { DepthMetadata } from "$lib/server/services/chat-turn/depth-metadata-types";
-import { finalizeChatTurn } from "$lib/server/services/chat-turn/finalize";
+import {
+	collectInstructionSuggestions,
+	finalizeChatTurn,
+} from "$lib/server/services/chat-turn/finalize";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type {
 	ContextDebugState,
@@ -365,6 +368,11 @@ export async function completeStreamTurn(
 		userMsgId: string | undefined,
 		assistantMsgId: string,
 	) => {
+		// Read at terminal time, not at setup time: `toolCallRecords` is the
+		// runtime's live array and only holds this turn's records once the turn
+		// has run.
+		const instructionSuggestions =
+			collectInstructionSuggestions(toolCallRecords);
 		const streamDepthMetadata = withDepthMetadataModelInfo(
 			depthMetadata ??
 				buildBaselineDepthMetadata({
@@ -414,6 +422,14 @@ export async function completeStreamTurn(
 				// built; omitted entirely when there is nothing to show, mirroring
 				// thoughtSteps/completionWarningCodes just above.
 				...(followUps && followUps.length > 0 ? { followUps } : {}),
+				// Slice F — the instruction offers this turn made. They are read off
+				// the same records finalize writes them to the assistant message
+				// from, so the Review/Dismiss row is on screen in the session that
+				// produced it rather than only after a reload (the row is a
+				// decision to make now: the model has just told the user it exists).
+				...(instructionSuggestions.length > 0
+					? { instructionSuggestions }
+					: {}),
 				// The user's own choices for this turn — the same record written
 				// to assistantMetadata.userIntent below, so the live provenance
 				// line is server-authoritative rather than the client's guess.

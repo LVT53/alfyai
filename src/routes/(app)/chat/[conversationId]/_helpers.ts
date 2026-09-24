@@ -901,6 +901,16 @@ export function finalizeStreamingMessageList(
 				// so the row is there in the same session, not only after a reload.
 				instructionsApplied:
 					params.metadata?.instructionsApplied ?? message.instructionsApplied,
+				// Slice F — the instruction offers this turn made, so the
+				// Review/Dismiss row is on screen in the session that produced it,
+				// not only after a reload. Same shape as followUps just above; the
+				// terminal frame omits the field when the turn offered nothing
+				// (stream-completion.ts), and a regenerated placeholder carries no
+				// offers of its own (the replaced message leaves the list), so the
+				// fallback cannot show a suggestion the server did not persist.
+				instructionSuggestions:
+					params.metadata?.instructionSuggestions ??
+					message.instructionSuggestions,
 				// The user's own choices for this turn. A terminal frame that names
 				// the persisted assistant message is the server's COMPLETE
 				// statement about them (the frame omits the record entirely when

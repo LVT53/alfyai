@@ -1085,6 +1085,39 @@ describe("file production chat helpers", () => {
 		});
 	});
 
+	// Slice F — the model tells the user in prose that it offered a standing
+	// instruction, so the Review/Dismiss row has to be there in the session that
+	// produced it. The frame is built from the same tool-call records finalize
+	// persists the row from (stream-completion.ts), so the live row and the
+	// reloaded one cannot disagree.
+	it("carries instructionSuggestions onto the finalized message at completion, without a reload", () => {
+		const suggestion = makeSuggestion();
+		const list = [createAssistantPlaceholder("assistant-1")];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				instructionSuggestions: [suggestion],
+			},
+		});
+
+		expect(finalized[0].instructionSuggestions).toEqual([suggestion]);
+	});
+
+	it("leaves the finalized message with no instructionSuggestions when the turn offered none", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: { assistantMessageId: "server-assistant-1" },
+		});
+
+		expect(finalized[0].instructionSuggestions).toBeUndefined();
+	});
+
 	it("falls back to the message's prior followUps when the terminal frame carries none", () => {
 		const priorFollowUps = ["What about the sequel?"];
 		const list = [

@@ -394,8 +394,12 @@ function waitOneTick(): Promise<void> {
  * The instruction offers this turn made, lifted off the tool calls that made
  * them (Slice F). Refusals record `null`, which is why this tests the value
  * rather than the tool's name: only an offer carries one.
+ *
+ * Exported because the stream's terminal frame has to carry the same offers
+ * the message is persisted with (stream-completion.ts), and two collectors
+ * would be two chances to disagree about what this turn offered.
  */
-function collectInstructionSuggestions(
+export function collectInstructionSuggestions(
 	toolCalls: FinalizeChatTurnParams["toolCalls"],
 ): InstructionSuggestion[] {
 	return (toolCalls ?? []).flatMap((toolCall) =>

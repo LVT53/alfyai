@@ -9,6 +9,7 @@ import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
 import {
 	SERVER_STREAM_TIMELINE_MARKS,
@@ -720,6 +721,43 @@ describe("completeStreamTurn", () => {
 		await completeStreamTurn({ ...defaultParams, thoughtSteps: [] });
 
 		expect(getLatestEndPayload()).not.toHaveProperty("thoughtSteps");
+	});
+
+	// Slice F — the row is a decision to make now (the model has just said in
+	// prose that it offered a standing instruction), so the offers ride the
+	// terminal payload too, read off the same records finalize persists them
+	// from. Without this the user reads "Offered as a standing instruction" and
+	// finds no row until a reload.
+	it("carries instructionSuggestions onto the terminal data-stream-metadata payload", async () => {
+		const suggestion: InstructionSuggestion = {
+			id: "suggestion-1",
+			status: "pending",
+			text: "Start every summary with the heading Next Steps.",
+			scope: { kind: "personal" },
+			createdAt: 1_770_000_000_000,
+		};
+
+		await completeStreamTurn({
+			...defaultParams,
+			toolCallRecords: [
+				{
+					name: "suggest_instruction",
+					input: {},
+					status: "done",
+					instructionSuggestion: suggestion,
+				},
+			],
+		});
+
+		expect(getLatestEndPayload()).toMatchObject({
+			instructionSuggestions: [suggestion],
+		});
+	});
+
+	it("omits instructionSuggestions entirely from the terminal payload when the turn offered none", async () => {
+		await completeStreamTurn(defaultParams);
+
+		expect(getLatestEndPayload()).not.toHaveProperty("instructionSuggestions");
 	});
 
 	it("leaves the message body untouched and reports a stable code when the stream closed without finish", async () => {
