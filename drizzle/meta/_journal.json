@@ -827,6 +827,13 @@
       "when": 1777140000104,
       "tag": "1777140000104_reset_legacy_admin_prompt_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1777140000105,
+      "tag": "1777140000105_recency_backfill_last_message_time",
+      "breakpoints": true
     }
   ]
 }
