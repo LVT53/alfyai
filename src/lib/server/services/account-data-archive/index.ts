@@ -245,6 +245,10 @@ async function addProfileSection(
 		["Role", params.user.role],
 		["Preferred model", params.user.preferredModel],
 		["Model preference mode", params.user.modelPreferenceMode ?? "Default"],
+		// The user's own words about how the assistant should behave. Included
+		// whole and unedited: it is their text, it is why answers come out the
+		// way they do, and no other part of this archive can reconstruct it.
+		["Personal instructions", params.user.personalInstructions ?? ""],
 		["Theme", params.user.theme],
 		["Title language", params.user.titleLanguage],
 		["UI language", params.user.uiLanguage],

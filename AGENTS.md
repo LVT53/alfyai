@@ -405,6 +405,7 @@ Do not:
 - Settings loaders:
   - [`src/routes/(app)/settings/+page.server.ts`](<./src/routes/(app)/settings/+page.server.ts>)
   - [`src/routes/api/settings/+server.ts`](./src/routes/api/settings/+server.ts)
+- Two-scope instruction resolution: [`src/lib/server/services/instructions.ts`](./src/lib/server/services/instructions.ts)
 
 Notes:
 

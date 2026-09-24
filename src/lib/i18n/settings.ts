@@ -816,7 +816,7 @@ const settingsDict = {
 		settings_archiveDownloaded: "Your data archive download has started.",
 		settings_clearMemoryAndKnowledge: "Clear memory and knowledge",
 		settings_clearMemoryDescription:
-			"This clears remembered context, Knowledge Base documents, document-derived context, continuity state, embeddings, working-set/context status, and stored evidence traces. Your chats stay available and you stay signed in.",
+			"Deletes everything AlfyAI has learned about you and every document you have uploaded or that AlfyAI created. Your personal instructions, your chats and your account stay.",
 		settings_clearMemorySuccess:
 			"Memory and knowledge have been cleared. Your chats are still available.",
 		settings_clearWorkspaceData: "Clear workspace data",
@@ -2761,7 +2761,7 @@ const settingsDict = {
 		settings_archiveDownloaded: "Elindult az adatarchívum letöltése.",
 		settings_clearMemoryAndKnowledge: "Memória és tudás törlése",
 		settings_clearMemoryDescription:
-			"Ez törli a megjegyzett kontextust, a Tudásbázis dokumentumait, a dokumentumokból származó kontextust, a folytonossági állapotot, a beágyazásokat, a munkakészlet- és kontextusállapotot, valamint a tárolt bizonyítéknyomokat. A beszélgetéseid megmaradnak, és bejelentkezve maradsz.",
+			"Törli mindazt, amit az AlfyAI megtanult rólad, és minden feltöltött vagy általa létrehozott dokumentumot. A személyes utasításaid, a csevegéseid és a fiókod megmaradnak.",
 		settings_clearMemorySuccess:
 			"A memória és a tudás törölve. A beszélgetéseid továbbra is elérhetők.",
 		settings_clearWorkspaceData: "Munkaterületi adatok törlése",

@@ -55,6 +55,10 @@ function seedPrivacyUser() {
 			name: "Privacy User",
 			passwordHash: bcrypt.hashSync("correct-password", 4),
 			role: "admin",
+			// Personal instructions are neither learned memory nor workspace
+			// content: the user typed them and nothing else can reconstruct them,
+			// so both clear actions below have to leave them standing.
+			personalInstructions: "Always answer in Hungarian.",
 			createdAt: now,
 			updatedAt: now,
 		})
@@ -631,6 +635,7 @@ async function getPrivacySnapshot() {
 			name: schema.users.name,
 			role: schema.users.role,
 			passwordHash: schema.users.passwordHash,
+			personalInstructions: schema.users.personalInstructions,
 		})
 		.from(schema.users);
 	const usageEvents = await db
@@ -797,6 +802,30 @@ describe("privacy controls service", () => {
 		});
 	});
 
+	it("leaves Personal Instructions in place when memory and knowledge are cleared", async () => {
+		seedPrivacyUser();
+		const { clearMemoryAndKnowledge } = await import("./index");
+
+		await clearMemoryAndKnowledge("user-1", "correct-password");
+
+		const snapshot = await getPrivacySnapshot();
+		expect(snapshot.users[0]?.personalInstructions).toBe(
+			"Always answer in Hungarian.",
+		);
+	});
+
+	it("leaves Personal Instructions in place when workspace data is cleared", async () => {
+		seedPrivacyUser();
+		const { clearWorkspaceData } = await import("./index");
+
+		await clearWorkspaceData("user-1", "correct-password");
+
+		const snapshot = await getPrivacySnapshot();
+		expect(snapshot.users[0]?.personalInstructions).toBe(
+			"Always answer in Hungarian.",
+		);
+	});
+
 	it("clears workspace data while preserving the account and historical analytics", async () => {
 		seedPrivacyUser();
 		seedAtlasLifecycleData("running");
@@ -896,6 +925,7 @@ describe("privacy controls service", () => {
 			name: "Detached shared content owner",
 			role: "user",
 			passwordHash: "",
+			personalInstructions: null,
 		});
 		expect(snapshot.campaignAssets).not.toContainEqual(
 			expect.objectContaining({ uploadedByUserId: "user-2" }),

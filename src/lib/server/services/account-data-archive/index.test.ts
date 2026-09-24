@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import bcrypt from "bcryptjs";
 import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import JSZip from "jszip";
@@ -388,6 +389,35 @@ describe("createAccountDataArchive", () => {
 		});
 
 		expect(result).toEqual({ status: "incorrect_password" });
+	});
+
+	// Personal instructions are the user's own words about how the assistant
+	// should behave, so they are part of the data the user is entitled to take
+	// with them — and the archive is the surface that has to prove it, because
+	// nothing else shows a user what leaves with them.
+	it("includes Personal Instructions in the human-readable archive", async () => {
+		await seedArchiveUser();
+		db.update(schema.users)
+			.set({ personalInstructions: "Always answer in Hungarian." })
+			.where(eq(schema.users.id, "user-1"))
+			.run();
+
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+			now: new Date("2026-06-15T08:00:00Z"),
+		});
+
+		expect(result.status).toBe("ok");
+		if (result.status !== "ok") return;
+
+		const zip = await JSZip.loadAsync(
+			Buffer.from(await new Response(result.zipStream).arrayBuffer()),
+		);
+		const profile = await zip.file("Profile/Profile.html")?.async("string");
+		expect(profile).toContain("Personal instructions");
+		expect(profile).toContain("Always answer in Hungarian.");
 	});
 
 	it("exports produced Atlas files as generated files without raw checkpoints", async () => {
