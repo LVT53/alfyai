@@ -16,11 +16,12 @@
  * own chats and has no weekly bars at all.
  */
 import { goto } from "$app/navigation";
-import { VenetianMask } from "@lucide/svelte";
+import { Pencil, VenetianMask } from "@lucide/svelte";
 import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { INCOGNITO_GREETINGS } from "$lib/i18n/chat";
 import { shouldShowIncognitoArm } from "$lib/client/home/landing-incognito";
+import { makeGrammarFormatters } from "$lib/client/connections/status-grammar";
 import {
 	cleanupPreparedConversation,
 	consumePreviousConversationId,
@@ -133,6 +134,21 @@ interface Props {
 	sendStarted?: boolean;
 	/** Slice G passes its cards here. */
 	projectsRow?: never;
+	/**
+	 * The project half of the quiet line under the composer: the chip reads
+	 * "Instructions" once the project has some, "Add instructions" until then.
+	 * It comes from the project's own read (where a whitespace-only save is a
+	 * clear), never from what the page last sent. Slice E's files chip will sit
+	 * beside it. Meaningless outside `project` mode, where nothing renders it.
+	 */
+	projectHasInstructions?: boolean;
+	/**
+	 * Land the caret in the composer on mount — set when the page was opened by
+	 * the sidebar's "New chat" item, whose whole point is "start typing here".
+	 * Unset for every other way in, because focusing a phone's box raises the
+	 * keyboard over a page the user may have opened to read.
+	 */
+	focusComposer?: boolean;
 	onOpenInstructions?: () => void;
 	onOpenFiles?: () => void;
 	/**
@@ -157,6 +173,7 @@ interface Props {
 }
 
 let {
+	mode,
 	recent = [],
 	weekly = [],
 	weeklyTotal = 0,
@@ -173,11 +190,63 @@ let {
 	composerCommandRegistryEnabled = false,
 	atlasAvailability = null,
 	initialPersonalityId = null,
+	projectHasInstructions = false,
+	focusComposer = false,
+	onOpenInstructions,
 }: Props = $props();
 
-// `mode`, `projectsRow`, `onOpenInstructions` and `onOpenFiles` complete the
-// caller-facing interface but are not read yet: `mode`'s branches and the
-// project page's two callbacks arrive in Task D3, and `projectsRow` in Slice G.
+// `projectsRow` and `onOpenFiles` complete the caller-facing interface but are
+// not read yet: `projectsRow` arrives in Slice G and the files chip — the
+// other half of the quiet line — in Slice E.
+const isProjectMode = $derived(mode.kind === "project");
+const projectId = $derived(mode.kind === "project" ? mode.project.id : null);
+const projectName = $derived(mode.kind === "project" ? mode.project.name : "");
+
+// The same clock HomeRecent reads its "3 hours ago" against, so the project's
+// stats line and the lines under it cannot disagree about how long ago
+// something was.
+const formatters = $derived(
+	makeGrammarFormatters($uiLanguage, () => nowSeconds * 1000),
+);
+
+// "3 chats · active 3 hours ago". The count is the project's total (not the
+// capped list's length) and the time is its newest *chat* activity — the same
+// column the sidebar's ordering uses, so the two surfaces cannot disagree.
+// A project with no chats has no last activity; it says "active now", which is
+// true of the page the user just opened onto it.
+const projectStats = $derived.by(() => {
+	if (mode.kind !== "project") return "";
+	const relative = formatters.relative(mode.lastActivityAt ?? nowSeconds);
+	return $t(mode.chatCount === 1 ? "projects.statsOne" : "projects.stats", {
+		count: mode.chatCount,
+		relative,
+	});
+});
+
+// The list's own head: "3 chats in this project" rather than the landing
+// page's "All conversations", because this list is already everything.
+const projectListHeading = $derived.by(() => {
+	if (mode.kind !== "project") return null;
+	return $t(
+		mode.chatCount === 1 ? "projects.listHeadingOne" : "projects.listHeading",
+		{ count: mode.chatCount },
+	);
+});
+
+// The composer's empty box names the project it will start a chat in — the one
+// place the box can belong to something before the chat exists. Home mode
+// passes nothing, which leaves MessageInput on the ordinary placeholder.
+const composerPlaceholder = $derived(
+	isProjectMode
+		? $t("projects.startChatPlaceholder", { name: projectName })
+		: null,
+);
+
+const quietLineInstructionsLabel = $derived(
+	projectHasInstructions
+		? $t("projects.instructionsLabel")
+		: $t("projects.addInstructions"),
+);
 
 // prefers-reduced-motion: the CSS reset in app.css cannot reach this
 // JS-driven transition (see motion.ts), so wrap it explicitly.
@@ -759,6 +828,7 @@ async function ensurePreparedConversation(): Promise<string> {
 	if (!preparedConversationPromise) {
 		preparedConversationPromise = createNewConversation({
 			memoryIncognito: $landingIncognitoArmed,
+			projectId,
 		})
 			.then((id) => {
 				preparedConversationId = id;
@@ -818,6 +888,10 @@ async function handleSend(payload: MessageInputSendPayload) {
 			message: text,
 			attachmentIds: payload.attachmentIds,
 			attachments: payload.attachments,
+			// The project rides with the pending message as well as being set on
+			// the creation above, so the first turn's home survives the hand-off
+			// even when the conversation was already prepared.
+			projectId,
 			linkedSources: payload.linkedSources ?? [],
 			pendingSkill: payload.pendingSkill ?? null,
 			modelId: payload.modelId ?? $selectedModel,
@@ -993,13 +1067,27 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 		>
 			<div class="home-column mx-auto flex w-full max-w-[780px] flex-col px-1">
 				{#if !sendStarted}
-					<!-- The greeting carries the record on its own line: the twelve
-					     weekly bars and the week's count, right-aligned and sitting on
-					     the greeting's baseline. Armed incognito replaces both with a
-					     single italic line — nothing here is counted, so the weekly
-					     bars go with the rest of the board. -->
+					<!-- The greeting carries the record on its own line: on the landing
+					     page the twelve weekly bars and the week's count, on a project's
+					     page the count of its chats and when the newest one moved,
+					     right-aligned and sitting on the greeting's baseline. Armed
+					     incognito replaces both with a single italic line — nothing here
+					     is counted, so the record goes with the rest of the board. -->
 					<div class="home-band" in:greetingFade={{ duration: isFromChat ? 400 : 0, delay: isFromChat ? 100 : 0 }}>
-						{#if $landingIncognitoArmed}
+						{#if isProjectMode}
+							<!-- The project's name is the page's anchor, armed or not: the
+							     tint and the italic face are what say "this chat is not
+							     remembered", and swapping the name for a greeting would
+							     take away the one thing telling the user where they are. -->
+							<h1
+								class="home-greeting"
+								class:home-greeting--incognito={$landingIncognitoArmed}
+								data-testid="project-greeting"
+							>{projectName}</h1>
+							{#if !$landingIncognitoArmed}
+								<span class="project-stats" data-testid="project-stats">{projectStats}</span>
+							{/if}
+						{:else if $landingIncognitoArmed}
 							<h1 class="home-greeting home-greeting--incognito" data-testid="home-greeting">
 								{incognitoGreeting}
 							</h1>
@@ -1012,7 +1100,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 						{/if}
 					</div>
 
-					{#if !$landingIncognitoArmed && summaryLoaded}
+					{#if !isProjectMode && !$landingIncognitoArmed && summaryLoaded}
 						<!-- Directly under the greeting band, above the composer. Keyed
 						     by the server's own dismissed flag: when a NEW review item
 						     makes it flip from dismissed back to not-dismissed, the key
@@ -1081,11 +1169,34 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					onReasoningDepthChange={setSelectedReasoningDepth}
 					atlasAvailability={atlasAvailability}
 					onUploadFiles={handleUploadFiles}
+					placeholder={composerPlaceholder}
+					autofocus={focusComposer}
 				/>
 
-				{#if !sendStarted && !$landingIncognitoArmed && summaryLoaded}
+				{#if isProjectMode && !sendStarted}
+					<!-- The quiet line under the composer: what this project carries
+					     into every chat in it. Instructions only for now — Slice E adds
+					     the paperclip and the files chip beside it, in this same row.
+					     It stays while incognito is armed, because an incognito chat in
+					     a project still follows the project's instructions. -->
+					<div class="project-quiet-line" data-testid="project-quiet-line">
+						<button
+							type="button"
+							class="project-quiet-chip"
+							data-testid="project-instructions-button"
+							onclick={() => onOpenInstructions?.()}
+						>
+							<Pencil size={13} strokeWidth={1.9} aria-hidden="true" />
+							{quietLineInstructionsLabel}
+						</button>
+					</div>
+				{/if}
+
+				{#if !sendStarted && !$landingIncognitoArmed && (summaryLoaded || isProjectMode)}
 					<!-- Armed incognito hides the whole board: no history, no
-					     counting, just the greeting and the composer (spec §3). -->
+					     counting, just the greeting and the composer (spec §3). The
+					     project page's board is its chats, which is history, so it goes
+					     with the rest. -->
 					<!-- The owner's one change to the board: the suggestion chips sit
 					     on their OWN row directly under the composer box rather than
 					     inside the composer's footer, which keeps the composer's own
@@ -1106,6 +1217,8 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 							recent={recent}
 							running={running}
 							{nowSeconds}
+							heading={projectListHeading}
+							emptyLine={isProjectMode ? $t('projects.emptyList') : null}
 							onAllConversations={requestSearchModalOpen}
 						/>
 
@@ -1166,6 +1279,72 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 
 	.home-greeting-plain {
 		display: none;
+	}
+
+	/* The project page's record, where the landing page puts its weekly bars:
+	   right end of the greeting's line, quiet enough not to compete with the
+	   project's name, and it never wraps under it. */
+	.project-stats {
+		flex-shrink: 0;
+		font-size: 0.72rem;
+		color: var(--text-muted);
+		white-space: nowrap;
+		font-variant-numeric: tabular-nums;
+		padding-bottom: 6px;
+	}
+
+	@media (max-width: 767px) {
+		.project-stats {
+			font-size: 0.7rem;
+		}
+	}
+
+	/* The quiet line under the composer: a row of small chips, each opening the
+	   modal for what it names. Instructions today; Slice E's files chip joins
+	   the row on the same terms. */
+	.project-quiet-line {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 4px;
+		margin-top: 8px;
+		padding: 0 2px;
+	}
+
+	.project-quiet-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 3px 6px;
+		border: none;
+		border-radius: var(--radius-sm);
+		background: none;
+		font-size: 0.78rem;
+		color: var(--text-muted);
+		cursor: pointer;
+		transition: color var(--duration-standard) var(--ease-out);
+	}
+
+	.project-quiet-chip:hover,
+	.project-quiet-chip:focus-visible {
+		color: var(--accent);
+	}
+
+	/* A chip is still a control on a phone: the 30px face keeps a 44px hit area
+	   around it, the same rule the board's own chips follow. The target grows
+	   vertically only — Slice E's files chip lands beside this one, and a
+	   horizontal overhang would make the two boundaries overlap. */
+	@media (max-width: 767px) {
+		.project-quiet-chip {
+			position: relative;
+			min-height: 30px;
+		}
+
+		.project-quiet-chip::after {
+			content: '';
+			position: absolute;
+			inset: -7px 0;
+		}
 	}
 
 	/* Incognito, one-way (spec §3) — the greeting is the cue once armed:

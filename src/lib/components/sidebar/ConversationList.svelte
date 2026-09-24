@@ -6,12 +6,10 @@ import { goto } from "$app/navigation";
 import { page } from "$app/stores";
 import {
 	conversations,
-	createNewConversation,
 	deleteConversationById,
 	renameConversation,
 	moveConversationToProject,
 	clearProjectFromConversations,
-	upsertConversationLocal,
 	markConversationAtlasBadgeSeen,
 	toggleConversationSidebarPin,
 	savePinnedConversationOrder,
@@ -50,6 +48,7 @@ import {
 import { countProjectConversations } from "./project-count";
 import type { ConversationListItem } from "$lib/server/services/conversations";
 import type { Project } from "$lib/server/services/projects";
+import { markProjectComposerFocus } from "$lib/client/conversation-session";
 import ConversationItem from "./ConversationItem.svelte";
 import ProjectItem from "./ProjectItem.svelte";
 import SidebarReorderRow from "./SidebarReorderRow.svelte";
@@ -111,7 +110,6 @@ const pinnedSectionExpanded = $derived($sidebarPinnedExpanded);
 let isCreatingProject = $state(false);
 let newProjectName = $state("");
 let newProjectInputRef = $state<HTMLInputElement | undefined>(undefined);
-let creatingProjectConversationId = $state<string | null>(null);
 
 const visibleConversations: SidebarConversationListItem[] = $derived(
 	(conversationsStoreReady
@@ -556,30 +554,24 @@ async function handleProjectDelete(payload: { id: string }) {
 	}
 }
 
-async function handleCreateConversationInProject(payload: { id: string }) {
-	const { id: projectId } = payload;
-	if (creatingProjectConversationId) return;
-
+/**
+ * Both of the project row's doors land on the project's own page, where the
+ * composer already belongs to the folder — no conversation is created here
+ * any more, so the first message cannot land outside it. The menu item adds
+ * the composer-focus hand-off: it is the "start typing here" door, and the
+ * project page consumes the marker to put the caret in the box.
+ */
+async function handleOpenProject(payload: {
+	id: string;
+	focusComposer?: boolean;
+}) {
 	closeAllMenus();
 	clearDragState();
-	creatingProjectConversationId = projectId;
-	setProjectFolderExpanded(projectId, true);
-	try {
-		const conversationId = await createNewConversation({ projectId });
-		upsertConversationLocal(
-			conversationId,
-			"New Conversation",
-			Date.now() / 1000,
-			projectId,
-		);
-		currentConversationId.set(conversationId);
-		await goto(`/chat/${conversationId}?view=bootstrap`);
-	} catch (e) {
-		console.error("Create project conversation failed", e);
-		alert($t("sidebar.failedCreateProjectConversation"));
-	} finally {
-		creatingProjectConversationId = null;
+	setProjectFolderExpanded(payload.id, true);
+	if (payload.focusComposer) {
+		markProjectComposerFocus(payload.id);
 	}
+	await goto(`/projects/${payload.id}`);
 }
 
 function handleProjectReorderStart(payload: { id: string }) {
@@ -904,10 +896,9 @@ function handleNewProjectKeydown(e: KeyboardEvent) {
 								expanded={expandedProjects[project.id] ?? false}
 								menuOpen={isProjectMenuOpen(project.id)}
 								dropActive={dropTarget?.kind === 'project' && dropTarget.projectId === project.id}
-								creatingConversation={creatingProjectConversationId === project.id}
 								chatCount={countProjectConversations(visibleConversations, project.id)}
 								onToggle={handleProjectToggle}
-								onCreateConversation={handleCreateConversationInProject}
+								onOpenProject={handleOpenProject}
 								onRename={handleProjectRename}
 								onDelete={handleProjectDelete}
 								onMenuToggle={handleProjectMenuToggle}

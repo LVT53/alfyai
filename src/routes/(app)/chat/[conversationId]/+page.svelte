@@ -2649,7 +2649,16 @@ function handleDrop(event: DragEvent) {
 					aria-live="polite"
 				>
 					{#if activeProjectName}
-						<span class="chat-title-project truncate">{activeProjectName}</span>
+						<!-- The project segment is the way back to the project's own
+						     page, where its instructions and its chat list live. The
+						     name is the visible text; the accessible name says it is a
+						     door, for the same reason the sidebar's button does. -->
+						<a
+							class="chat-title-project truncate"
+							href={`/projects/${activeProjectId}`}
+							data-testid="chat-title-project-link"
+							aria-label={$t('projects.openA11y', { name: activeProjectName })}
+						>{activeProjectName}</a>
 						<span class="chat-title-sep" aria-hidden="true">/</span>
 					{/if}
 					<span class="chat-title-main truncate">
@@ -2808,6 +2817,15 @@ function handleDrop(event: DragEvent) {
 		min-width: 0;
 		max-width: 9rem;
 		color: var(--text-muted);
+		text-decoration: none;
+		transition: color var(--duration-standard) var(--ease-out);
+	}
+
+	.chat-title-project:hover,
+	.chat-title-project:focus-visible {
+		color: var(--text-primary);
+		text-decoration: underline;
+		text-underline-offset: 2px;
 	}
 
 	.chat-title-sep {

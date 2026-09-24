@@ -206,8 +206,6 @@ const commonDict = {
 		"sidebar.expandSidebar": "Expand sidebar",
 		"sidebar.failedCreateProject":
 			"Failed to create project. Please try again.",
-		"sidebar.failedCreateProjectConversation":
-			"Failed to create chat in this project. Please try again.",
 		"sidebar.failedDeleteConversation":
 			"Failed to delete conversation. Please try again.",
 		"sidebar.failedDeleteProject":
@@ -502,8 +500,6 @@ const commonDict = {
 		"sidebar.expandSidebar": "Oldalsáv kibontása",
 		"sidebar.failedCreateProject":
 			"Nem sikerült létrehozni a projektet. Próbáld újra.",
-		"sidebar.failedCreateProjectConversation":
-			"Nem sikerült beszélgetést létrehozni ebben a projektben. Próbáld újra.",
 		"sidebar.failedDeleteConversation":
 			"Nem sikerült törölni a beszélgetést. Próbáld újra.",
 		"sidebar.failedDeleteProject":

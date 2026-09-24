@@ -99,6 +99,7 @@ describe("conversation-session", () => {
 			message: "Hello there",
 			attachmentIds: ["artifact-1"],
 			attachments: [attachment],
+			projectId: null,
 			linkedSources: [],
 			pendingSkill: null,
 			modelId: undefined,
@@ -162,6 +163,36 @@ describe("conversation-session", () => {
 			expect.objectContaining({
 				enabledConnectionCapabilities: undefined,
 			}),
+		);
+	});
+
+	it("carries the project of a first message sent from a project page", () => {
+		storePendingConversationMessage("conv-123", {
+			message: "Which train should I take?",
+			attachmentIds: [],
+			attachments: [],
+			projectId: "project-vienna",
+		});
+
+		expect(consumePendingConversationMessage("conv-123")).toEqual(
+			expect.objectContaining({ projectId: "project-vienna" }),
+		);
+	});
+
+	it("reads a pending message stored before projects existed as no project", () => {
+		// A message written by an older build has no `projectId` key at all;
+		// it must read as "no project" rather than as undefined leaking out.
+		window.sessionStorage.setItem(
+			"pending-chat-message:conv-legacy",
+			JSON.stringify({
+				message: "Legacy pending message",
+				attachmentIds: [],
+				attachments: [],
+			}),
+		);
+
+		expect(consumePendingConversationMessage("conv-legacy")).toEqual(
+			expect.objectContaining({ projectId: null }),
 		);
 	});
 

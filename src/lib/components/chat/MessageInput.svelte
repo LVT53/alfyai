@@ -200,6 +200,8 @@ let {
 	disabled = false,
 	maxLength = 10000,
 	showSlashHintProp = true,
+	placeholder = null,
+	autofocus = false,
 	isGenerating = false,
 	canStopStreaming = undefined,
 	conversationId = null,
@@ -253,6 +255,22 @@ let {
 	 * The landing hero composer hides it.
 	 */
 	showSlashHintProp?: boolean;
+	/**
+	 * The empty box's text. Unset means the ordinary chat placeholder; the
+	 * project page names the project it will start a chat in, which is the
+	 * only place the box can belong to something before the chat exists.
+	 * Incognito always wins over it: that state is about the conversation,
+	 * not about where it is being started.
+	 */
+	placeholder?: string | null;
+	/**
+	 * Whether this mount should land the caret in the box. Unset everywhere the
+	 * composer is one part of a page the user is reading; the project page sets
+	 * it when it was opened by the sidebar's "New chat" item, whose whole point
+	 * is "start typing here" — and only then, because focusing on the phone
+	 * would raise the keyboard over a page the user may have opened to read.
+	 */
+	autofocus?: boolean;
 	isGenerating?: boolean;
 	canStopStreaming?: boolean | undefined;
 	conversationId?: string | null;
@@ -865,7 +883,7 @@ let composerPlaceholder = $derived(
 					? "chat.incognitoPlaceholderShort"
 					: "chat.incognitoPlaceholder",
 			)
-		: $t("chat.messagePlaceholder"),
+		: (placeholder ?? $t("chat.messagePlaceholder")),
 );
 
 // ADR 0044 Decision 1 — loads the user's served/defaultOn connection
@@ -1113,6 +1131,17 @@ let hasContextToShow = $derived(
 		totalTokens > 0 ||
 		totalCostUsd > 0,
 );
+
+// The `autofocus` prop's one job: put the caret in the box after the textarea
+// exists. It reads `textarea` so the effect waits for `bind:this` rather than
+// firing into a null ref on the first pass, and it never re-fires afterwards
+// because neither value changes again on a page the user is already typing in.
+$effect(() => {
+	if (!autofocus || !textarea) return;
+	const field = textarea;
+	const frame = requestAnimationFrame(() => field.focus());
+	return () => cancelAnimationFrame(frame);
+});
 
 $effect(() => {
 	if (commandTrayCanOpen) {
