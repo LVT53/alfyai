@@ -12,14 +12,23 @@ import {
 	AI_SMOKE_REASONING_TEXT,
 	AI_SMOKE_SCENARIOS,
 	AI_SMOKE_SLOW_CHUNK_DELAY_MS,
+	AI_SMOKE_STANDING_INSTRUCTION_MARKER,
+	AI_SMOKE_STANDING_INSTRUCTION_TEXT,
 	AI_SMOKE_STREAM_REASONING_TEXT,
 	AI_SMOKE_STREAM_TEXT,
+	AI_SMOKE_SUGGEST_INSTRUCTION_FINAL_TEXT,
+	AI_SMOKE_SUGGEST_INSTRUCTION_TOOL_NAME,
 	AI_SMOKE_TOOL_FINAL_TEXT,
 	AI_SMOKE_TOOL_NAME,
 } from "../../fixtures/ai/openai-compatible-scenarios";
 
 const TOOL_CALL_ID = "call_fake_report_1";
 const TOOL_CALL_INPUT = { title: "Deterministic fake report" };
+const SUGGEST_INSTRUCTION_CALL_ID = "call_fake_suggest_instruction_1";
+const SUGGEST_INSTRUCTION_CALL_INPUT = {
+	text: AI_SMOKE_STANDING_INSTRUCTION_TEXT,
+	scope: "personal",
+};
 
 export interface CapturedOpenAICompatibleRequest {
 	id: number;
@@ -444,6 +453,105 @@ function buildToolCallWithoutIdStreamResponse(): Response {
 	]);
 }
 
+/**
+ * The standing-instruction scenario: the model calls the app's real
+ * `suggest_instruction` tool, the app executes it against the real registry
+ * (and so records the offer on the turn), and the follow-up request — the one
+ * carrying the tool result — answers in text.
+ *
+ * Requested by the message text rather than a header, because the app path has
+ * no way to send one (see the marker's comment in the fixtures).
+ */
+function bodyAsksForStandingInstruction(body: unknown): boolean {
+	return JSON.stringify(body).includes(AI_SMOKE_STANDING_INSTRUCTION_MARKER);
+}
+
+function buildSuggestInstructionToolCallStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_suggest_instruction_call_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_006,
+		model: AI_SMOKE_MODEL_ID,
+	};
+
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {
+						tool_calls: [
+							{
+								index: 0,
+								id: SUGGEST_INSTRUCTION_CALL_ID,
+								type: "function",
+								function: {
+									name: AI_SMOKE_SUGGEST_INSTRUCTION_TOOL_NAME,
+									arguments: JSON.stringify(SUGGEST_INSTRUCTION_CALL_INPUT),
+								},
+							},
+						],
+					},
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {},
+					finish_reason: "tool_calls",
+				},
+			],
+			usage: {
+				prompt_tokens: 11,
+				completion_tokens: 7,
+				total_tokens: 18,
+			},
+		},
+	]);
+}
+
+function buildSuggestInstructionFinalStreamResponse(): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_suggest_instruction_final_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_007,
+		model: AI_SMOKE_MODEL_ID,
+	};
+
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: { content: AI_SMOKE_SUGGEST_INSTRUCTION_FINAL_TEXT },
+					finish_reason: null,
+				},
+			],
+		},
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {},
+					finish_reason: "stop",
+				},
+			],
+			usage: {
+				prompt_tokens: 21,
+				completion_tokens: 9,
+				total_tokens: 30,
+			},
+		},
+	]);
+}
+
 function buildToolFinalStreamResponse(): Response {
 	const chunkBase = {
 		id: "chatcmpl_fake_tool_final_stream",
@@ -624,6 +732,12 @@ export function createOpenAICompatibleProviderHarness(
 			}
 
 			if (isJsonObject(body) && body.stream === true) {
+				if (bodyAsksForStandingInstruction(body)) {
+					if (hasToolResultMessage(body)) {
+						return buildSuggestInstructionFinalStreamResponse();
+					}
+					return buildSuggestInstructionToolCallStreamResponse();
+				}
 				if (scenario === AI_SMOKE_SCENARIOS.reasoning) {
 					return buildReasoningStreamResponse();
 				}
