@@ -14,6 +14,7 @@ export type ComposerCommandId =
 	| "thorough"
 	| "new"
 	| "remember"
+	| "instruction"
 	| "export";
 
 export type ComposerCommandAvailability =
@@ -151,6 +152,17 @@ export const STATIC_COMPOSER_COMMANDS: readonly ComposerCommandDefinition[] = [
 		availability: "available",
 		argument: {
 			placeholderKey: "composerCommands.remember.argumentPlaceholder",
+			required: true,
+		},
+	},
+	{
+		id: "instruction",
+		token: "/instruction",
+		labelKey: "composerCommands.instruction.label",
+		descriptionKey: "composerCommands.instruction.description",
+		availability: "available",
+		argument: {
+			placeholderKey: "composerCommands.instruction.argumentPlaceholder",
 			required: true,
 		},
 	},

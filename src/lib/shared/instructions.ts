@@ -126,3 +126,32 @@ export function instructionScopeKey(scope: InstructionScope): string {
 		? `project:${scope.projectId}`
 		: "personal";
 }
+
+/**
+ * Where one offered instruction is in the user's hands.
+ *
+ * `pending` is an offer nobody has answered. `reviewed` means the user opened
+ * the dialog on it and saved something through it; `dismissed` means they said
+ * no. Both are final answers to that offer — the row is gone either way, and
+ * the record stays behind so the state survives a reload (and so the model is
+ * not asked about the same offer again in this turn).
+ */
+export type InstructionSuggestionStatus = "pending" | "reviewed" | "dismissed";
+
+/**
+ * One instruction the model offered to write, exactly as it wrote it.
+ *
+ * The offer is shown to the user before anything is saved, so this is the
+ * whole of what the row draws: the text, and which scope it would go into.
+ * `scope` carries the project's name for the same reason the dialog's scope
+ * does — a scope token with no name is an icon with no text.
+ */
+export interface InstructionSuggestion {
+	id: string;
+	status: InstructionSuggestionStatus;
+	/** The offered text, exactly as the model wrote it. */
+	text: string;
+	/** The scope the offer targets. */
+	scope: InstructionScope;
+	createdAt: number;
+}

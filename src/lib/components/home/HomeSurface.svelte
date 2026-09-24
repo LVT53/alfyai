@@ -85,6 +85,7 @@ import {
 import { t } from "$lib/i18n";
 import DegradedCapabilitiesBanner from "$lib/components/chat/DegradedCapabilitiesBanner.svelte";
 import MessageInput from "$lib/components/chat/MessageInput.svelte";
+import InstructionCommandDialog from "$lib/components/instructions/InstructionCommandDialog.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import { isOsFileDropEvent } from "$lib/utils/file-drag";
@@ -364,6 +365,11 @@ let isFromChat = $state(false);
 let animateIn = $state(false);
 let pendingMessagePreview = $state("");
 let preparedConversationId: string | null = $state(null);
+
+// Handed up by the dialog host the moment it mounts. Null until then, so a
+// command selected before hydration is a no-op rather than a crash — the tray
+// cannot be opened before then either.
+let openInstructionDialog: ((text: string) => void) | null = $state(null);
 let preparedConversationPromise: Promise<string> | null = null;
 let preparedConversationValidationPromise: Promise<void> | null = null;
 // Moves every time this surface lets go of the conversation it was preparing —
@@ -1220,6 +1226,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 					maxLength={maxMessageLength}
 					showSlashHintProp={false}
 					composerCommandRegistryEnabled={composerCommandRegistryEnabled}
+					onInstructionCommand={(text) => openInstructionDialog?.(text)}
 					conversationId={preparedConversationId}
 					memoryIncognito={$landingIncognitoArmed}
 					onMemoryIncognitoChange={(value, id) =>
@@ -1323,6 +1330,14 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 			</div>
 		</div>
 	</div>
+
+	<!-- The composer's `/instruction` handler, and nothing else: which scopes
+	     it may offer is the project the composer is standing in — the same
+	     `mode` the placeholder and the quiet line read. -->
+	<InstructionCommandDialog
+		projectId={projectId}
+		onOpenReady={(openWith) => (openInstructionDialog = openWith)}
+	/>
 </div>
 
 <style>

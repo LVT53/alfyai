@@ -119,6 +119,96 @@ and friends); the real ones are `projects.stats` etc. from Slice D. The agent us
 instruction said to reuse Slice D's keys rather than add a second vocabulary — which is why the stats line reads
 "active 28 minutes ago" rather than §M6's "28 minutes ago".
 
+### Wave 4 review outcome (Slice E) — merged `e0275a04`, deployed `6a5b8fe8`
+
+See `review-wave-4.md`. Eleven commits; the consequential ones were a **race that could resurrect a removed
+file row** (the list was assigned from whichever read resolved last), a **Files modal with no phone layout**, an
+**order-sensitive CSS rule** nothing else would have caught, and **five dead incognito allow-list exemptions**
+that could never be consulted — now removed, with the honesty test requiring every entry to be reachable so a
+stale exemption fails the suite. Ownership, non-destruction (checked against the bytes on disk, not just rows),
+the "+N more" cap and the failing-open mention path were all attacked and cleared.
+
+### Wave 5, Slice G review — merged `69df01c4`
+
+Four commits. Two real defects and one coverage gap: a test name that still referenced the deleted feature, a
+stale incognito allow-list reason (the service now reads the projects row too), and — the useful one — **nothing
+proved the DROP migration reaches an already-deployed database**. That test now exists and was proved to have
+teeth by lowering the journal `when` and watching the table survive. Decision 12 (total removal) and decision 9
+(rule placement in the query, not a client filter) were both cleared, and the F/G overlap hunks were verified to
+have removed only dead wiring with no composer regression.
+
+Reported and not fixed, for the record: `home-summary.ts:48` reads `process.env.HOME_SUMMARY_CACHE_TTL_MS`
+directly instead of through `env.ts` (an `AGENTS.md` violation, pre-existing at the slice's base); `CHANGELOG.md`
+has no `[Unreleased] Removed` entry for the chips; the removal guard scans only `src`/`tests`/`scripts` (verified
+harmless today); and the slice's checklist item "Fallow **fewer** findings" is met as *equal*, not fewer — the
+reviewer said so rather than letting it pass.
+
+### The live-evidence bug, root-caused (fix `4db32382`, deployed `408b70d5`)
+
+The agent was told to establish which of **two** candidate causes was real before changing anything. It measured, and the answer was neither — a third variant:
+
+- The evidence poll **succeeds** live (200 in every RED run) and the message's Sources panel, which is driven by
+  `evidenceSummary`, **does** appear without a reload.
+- The missing row reads a **different persisted field** (`projectFilesRead`), and no live path delivered it: the
+  terminal stream frame is flushed before the server composes the evidence, and on a normal turn that frame
+  already carries its own projection fields — so `isReceiptOnlyCompletionMetadata` is false and the client skips
+  `hydrateConversationDetail()`.
+
+The fix delivers the field on the response the poll already makes — **zero extra requests, zero extra DB reads** —
+and defines the count once (`readProjectFilesReadFromMetadata`) so the two paths cannot drift. The alternative
+(hydrate conversation detail every turn) was rejected on measurement: a detail fetch costs up to 1.4 s here.
+Existing semantics were left alone: no change to `isReceiptOnlyCompletionMetadata`, the receipt-only hydration
+path, or the stop/detach distinction.
+
+**The same class has a second instance**, which the agent found and deliberately did not fix: `citationAudit` (the
+popover's "Verified sources" row) is likewise persisted-only and never rides the terminal frame. A follow-up fix
+is in flight, told to **reproduce it first** and to check a subtlety the first fix could rely on but this one
+cannot: `projectFilesRead > 0` always implies a non-empty summary section, and `citationAudit` has no equivalent
+guarantee — so a citation-only turn may need a different branch.
+
+### Is the "project files read" row dead in practice? No — but its wording overpromises
+
+Scanning twelve recent dev conversations showed `projectFilesRead` absent on **every** assistant message, including a
+turn where the model answered from a project file's content. That looked like a feature that never fires. A
+deliberate investigation settled it in favour of "not a bug", with the deciding evidence coming from the deployed
+environment and the real model:
+
+- A turn that **names** a project file and asks about it sets `projectFilesRead = 1`, with the evidence carrying
+  the artifact id of the file's normalised sibling.
+- A turn that reaches the file through `read_generated_file` does **not** count — and cannot: tool evidence rows are
+  synthesized with no artifact id, so the intersection that produces the count is structurally empty for them.
+  That second turn reproduced the observed absence exactly.
+
+The mechanism, now documented: the count intersects `contextDebug.selectedEvidence` (read back from
+`task_state_evidence_links`, role `selected`, origin `system`, written per turn by
+`replaceSystemSelectedEvidenceLinks` only when a task state exists) with `listProjectKnowledgeArtifactIds` (which
+returns both the display and the normalised sibling id — load-bearing for the intersection). Triggers: a
+project-scoped conversation, an active task state, the file linked, and the turn's selection picking it; not an
+attachment. Nothing there is reachable by a tool-only read.
+
+**The real gap is wording, not code, and it is an owner decision.** The row reads as "how many of the project's
+files this turn read" while the number means "how many project files were selected as turn evidence". A turn that
+names a file from the `## Project Files` catalogue and reads it via the tool **under-reports** — it shows nothing
+while the model did consult a project file. Options: leave it (narrow but honest), reword it, or extend the
+definition to count tool reads (real design work — matching read-tool arguments back to project links at finalize).
+
+**No code was changed** for this. The investigation worktree `fix-pfr` is left in place with no commits.
+
+### Fixes landed from review findings (all merged and deployed)
+
+| Branch | Finding | Outcome |
+|---|---|---|
+| `fix/upload-link-failure` | An unexpected failure while linking a project upload 500s a request whose bytes are already saved and skips extraction registration — the file never becomes usable. | **Reproduced**: `escaped: "FOREIGN KEY constraint failed"`, `storedArtifacts: 1`, `extractionRegistrations: 0`. Reachable in the real path (FK on, check-then-insert window). Fixed non-fatally, with the two failure kinds logged distinctly. Also fixed the Files modal's search-label-as-empty-state, correcting the reviewer's file location (`ProjectFilesDialog.svelte`, not `DocumentsList.svelte`). |
+| `fix/picker-empty-state` | The library picker told you "No files yet." when a search matched nothing but your library had documents. | Fixed by reusing `projects.filesNoMatch`, with the empty-vs-filtered cases distinguished from existing state. |
+| `fix/live-chat-evidence-metadata` | The owner's request. Root cause was neither candidate I offered: the poll succeeds and its own row shows live; a *different* persisted field never arrived because the terminal frame is flushed before the server composes the evidence, so a normal turn skips the detail hydration. | Fixed on the poll that already runs — zero extra requests, zero extra reads. |
+
+**Reported and deliberately not fixed, all cosmetic or product decisions:**
+
+- The picker's search box is labelled "Search files in this project" but searches the **library** (wrong scope).
+- `projects/[projectId]/+page.svelte:203` collapses "not read yet" (`null`) into "no files" (`[]`), so opening the
+  Files modal inside the mount-time fetch window briefly says "No files yet." for a project that has files.
+- The "project files read" row's wording overpromises relative to what the number means (see above).
+
 ### Wave 5, Slice F — in flight
 
 ### Wave 5 (Slice F ∥ Slice G) — the parallel decision, recorded

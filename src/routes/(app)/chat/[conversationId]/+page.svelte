@@ -39,6 +39,7 @@ import {
 	dismissSkillDraft as dismissSkillDraftRequest,
 	saveSkillDraft as saveSkillDraftRequest,
 } from "$lib/client/api/skills";
+import { updateInstructionSuggestionStatus } from "$lib/client/api/conversations";
 import { ApiError } from "$lib/client/api/http";
 import {
 	recordDocumentWorkspaceOpen,
@@ -46,7 +47,9 @@ import {
 	uploadRefusalFromError,
 } from "$lib/client/api/knowledge";
 import { extractionFromUploadResponse } from "$lib/client/extraction-poll";
+import type { OpenInstructionDialog } from "$lib/client/instruction-command";
 import { isAttachmentReadinessReason } from "$lib/shared/attachment-readiness";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import { fetchPublicPersonalityProfiles } from "$lib/client/api/admin";
 import {
 	ackCloudConnector,
@@ -137,6 +140,7 @@ import ChatMessagePane from "./_components/ChatMessagePane.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
 import DocumentWorkspace from "$lib/components/document-workspace/DocumentWorkspace.svelte";
+import InstructionCommandDialog from "$lib/components/instructions/InstructionCommandDialog.svelte";
 import {
 	appendAssistantPlaceholder,
 	appendThinkingChunkToMessageList,
@@ -154,6 +158,7 @@ import {
 	hasActiveFileProductionJobs,
 	mergeFileProductionJob,
 	removeMessageById,
+	patchInstructionSuggestionInMessageList,
 	patchSkillDraftInMessageList,
 	toFriendlySendError,
 	updateMessageById,
@@ -317,6 +322,10 @@ let activeProjectName = $derived(
 				null)
 		: null,
 );
+
+// Handed up by the `/instruction` dialog host on mount; null until then, and
+// the command tray cannot be opened before hydration either.
+let openInstructionDialog: OpenInstructionDialog | null = $state(null);
 
 const messages = writable<ChatMessage[]>(initialMessages);
 const draftPersistence = createDraftPersistence();
@@ -508,6 +517,9 @@ let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
 	initialContextCompressionSnapshots,
 );
 let skillDraftActionState = $state<
+	Record<string, { busy?: boolean; error?: string | null }>
+>({});
+let instructionSuggestionActionState = $state<
 	Record<string, { busy?: boolean; error?: string | null }>
 >({});
 let writeActionState = $state<
@@ -1983,6 +1995,91 @@ async function handleDismissSkillDraft(payload: {
 	}
 }
 
+// Instruction suggestions (Workspace Slice F). Dismiss records the answer
+// straight away; Review opens the shared dialog on the offered scope and
+// records it only after the save went through — an offer the user answered
+// with a save that failed stays pending, and never claims to have been
+// accepted. The offered text is passed through untouched: the row is what the
+// model wrote, not a paraphrase of it.
+function setInstructionSuggestionActionState(
+	suggestionId: string,
+	state: { busy?: boolean; error?: string | null },
+) {
+	instructionSuggestionActionState = {
+		...instructionSuggestionActionState,
+		[suggestionId]: state,
+	};
+}
+
+async function answerInstructionSuggestion(params: {
+	messageId: string;
+	suggestionId: string;
+	status: "reviewed" | "dismissed";
+	failureKey: I18nKey;
+}) {
+	setInstructionSuggestionActionState(params.suggestionId, {
+		busy: true,
+		error: null,
+	});
+	try {
+		const suggestion = await updateInstructionSuggestionStatus(
+			data.conversation.id,
+			{
+				messageId: params.messageId,
+				suggestionId: params.suggestionId,
+				status: params.status,
+			},
+		);
+		messages.update((list) =>
+			patchInstructionSuggestionInMessageList(list, {
+				messageId: params.messageId,
+				suggestion,
+			}),
+		);
+		setInstructionSuggestionActionState(params.suggestionId, {
+			busy: false,
+			error: null,
+		});
+	} catch {
+		// The row keeps the offer on screen with the failure under it: the
+		// answer may still be given, and losing the text would lose the only
+		// copy of what the model suggested.
+		setInstructionSuggestionActionState(params.suggestionId, {
+			busy: false,
+			error: get(t)(params.failureKey),
+		});
+	}
+}
+
+function handleDismissInstructionSuggestion(payload: {
+	messageId: string;
+	suggestion: InstructionSuggestion;
+}) {
+	return answerInstructionSuggestion({
+		messageId: payload.messageId,
+		suggestionId: payload.suggestion.id,
+		status: "dismissed",
+		failureKey: "instructions.suggestionDismissFailed",
+	});
+}
+
+function handleReviewInstructionSuggestion(payload: {
+	messageId: string;
+	suggestion: InstructionSuggestion;
+}) {
+	const { messageId, suggestion } = payload;
+	openInstructionDialog?.(suggestion.text, {
+		scope: suggestion.scope,
+		onSaved: () =>
+			answerInstructionSuggestion({
+				messageId,
+				suggestionId: suggestion.id,
+				status: "reviewed",
+				failureKey: "instructions.suggestionReviewFailed",
+			}),
+	});
+}
+
 // Issue 7.5 — write-confirm card actions. Mirrors the skill-draft handlers
 // above: {busy,error} is owned here (keyed by write id — write ids are
 // globally unique, so no message-id compound key is needed the way skill
@@ -2725,6 +2822,9 @@ function handleDrop(event: DragEvent) {
 						{skillDraftActionState}
 						onSaveSkillDraft={handleSaveSkillDraft}
 						onDismissSkillDraft={handleDismissSkillDraft}
+						{instructionSuggestionActionState}
+						onReviewInstructionSuggestion={handleReviewInstructionSuggestion}
+						onDismissInstructionSuggestion={handleDismissInstructionSuggestion}
 						onRetryFileProductionJob={handleRetryFileProductionJob}
 						onCancelFileProductionJob={handleCancelFileProductionJob}
 						onDismissFileProductionJob={handleDismissFileProductionJob}
@@ -2763,6 +2863,7 @@ function handleDrop(event: DragEvent) {
 				{lastTurnCostUsd}
 				{totalTokens}
 				composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
+				onInstructionCommand={(text) => openInstructionDialog?.(text)}
 				{atlasAvailability}
 				{personalityProfiles}
 				{selectedPersonalityId}
@@ -2808,6 +2909,14 @@ function handleDrop(event: DragEvent) {
 			}}
 		/>
 	</div>
+
+	<!-- `/instruction` from this chat's composer: the shared dialog, scoped to
+	     the project this conversation sits in (null for a loose chat, which
+	     leaves the personal scope alone). -->
+	<InstructionCommandDialog
+		projectId={activeProjectId}
+		onOpenReady={(openWith) => (openInstructionDialog = openWith)}
+	/>
 
 	{#if cloudWarningOpen}
 		<CloudConnectorWarningModal

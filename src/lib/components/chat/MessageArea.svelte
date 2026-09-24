@@ -27,6 +27,8 @@ import type { ConversationForkOrigin } from "$lib/server/services/conversation-f
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
+import InstructionSuggestionRow from "./InstructionSuggestionRow.svelte";
 import MessageBubble from "./MessageBubble.svelte";
 import LogoMark from "./LogoMark.svelte";
 import ConversationJumpRail from "./ConversationJumpRail.svelte";
@@ -53,6 +55,9 @@ let {
 	skillDraftActionState = {},
 	onSaveSkillDraft = undefined,
 	onDismissSkillDraft = undefined,
+	instructionSuggestionActionState = {},
+	onReviewInstructionSuggestion = undefined,
+	onDismissInstructionSuggestion = undefined,
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
 	onDismissFileProductionJob = undefined,
@@ -112,6 +117,22 @@ let {
 		| ((payload: {
 				messageId: string;
 				draftId: string;
+		  }) => void | Promise<void>)
+		| undefined;
+	instructionSuggestionActionState?: Record<
+		string,
+		{ busy?: boolean; error?: string | null }
+	>;
+	onReviewInstructionSuggestion?:
+		| ((payload: {
+				messageId: string;
+				suggestion: InstructionSuggestion;
+		  }) => void | Promise<void>)
+		| undefined;
+	onDismissInstructionSuggestion?:
+		| ((payload: {
+				messageId: string;
+				suggestion: InstructionSuggestion;
 		  }) => void | Promise<void>)
 		| undefined;
 	onRetryFileProductionJob?: ((jobId: string) => void) | undefined;
@@ -539,6 +560,19 @@ function forkSourceHref(origin: ConversationForkOrigin): string | null {
 	return `/chat/${origin.sourceConversationId}${messageAnchor}`;
 }
 
+/**
+ * The offers still waiting for an answer. `reviewed` and `dismissed` are kept
+ * in the message's metadata — the state has to survive a reload — but a row
+ * the user has already answered is not drawn again.
+ */
+function pendingInstructionSuggestions(
+	message: ChatMessage,
+): InstructionSuggestion[] {
+	return (message.instructionSuggestions ?? []).filter(
+		(entry) => entry.status === "pending",
+	);
+}
+
 function shouldShowImportBoundary(
 	messages: ChatMessage[],
 	index: number,
@@ -766,6 +800,30 @@ async function scrollToMessage(messageId: string) {
 					{onConfirmWrite}
 					{onCancelWrite}
 				/>
+				{#if message.role === "assistant" && !isIncognito}
+					<!-- The rows sit under the reply that prompted them, outside the
+					     bubble: they are not part of what the assistant said. Never in
+					     incognito — the conversation that learns nothing is not offered
+					     a way to remember something. -->
+					{#each pendingInstructionSuggestions(message) as suggestion (suggestion.id)}
+						{@const actionState = instructionSuggestionActionState[suggestion.id]}
+						<InstructionSuggestionRow
+							{suggestion}
+							dismissing={Boolean(actionState?.busy)}
+							error={actionState?.error ?? null}
+							onReview={(entry) =>
+								onReviewInstructionSuggestion?.({
+									messageId: message.id,
+									suggestion: entry,
+								})}
+							onDismiss={(entry) =>
+								onDismissInstructionSuggestion?.({
+									messageId: message.id,
+									suggestion: entry,
+								})}
+						/>
+					{/each}
+				{/if}
 				{#if forkOrigin?.copiedForkPointMessageId === message.id}
 					<div
 						bind:this={forkBoundaryMarker}

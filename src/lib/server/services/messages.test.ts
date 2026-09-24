@@ -1278,4 +1278,126 @@ describe("messages metadata", () => {
 			status: 409,
 		});
 	});
+
+	it("persists an Instruction Suggestion and moves its status on the assistant message", async () => {
+		const { createMessage, updateAssistantMessageInstructionSuggestionStatus } =
+			await import("./messages");
+
+		const message = await createMessage(
+			"conv-1",
+			"assistant",
+			"Should I make that a standing rule?",
+			undefined,
+			undefined,
+			{
+				instructionSuggestions: [
+					{
+						id: "suggestion-1",
+						status: "pending",
+						text: "Only suggest trains.",
+						scope: { kind: "personal" },
+						createdAt: 1_700_000_000_000,
+					},
+				],
+			},
+		);
+
+		expect(message.instructionSuggestions).toEqual([
+			expect.objectContaining({
+				id: "suggestion-1",
+				status: "pending",
+				text: "Only suggest trains.",
+			}),
+		]);
+
+		const reviewed = await updateAssistantMessageInstructionSuggestionStatus({
+			userId: "user-1",
+			conversationId: "conv-1",
+			messageId: message.id,
+			suggestionId: "suggestion-1",
+			status: "reviewed",
+		});
+
+		expect(reviewed).toMatchObject({
+			id: "suggestion-1",
+			status: "reviewed",
+		});
+		const stored = JSON.parse(mockRows.at(-1)?.metadataJson ?? "{}");
+		expect(stored).toMatchObject({
+			instructionSuggestions: [{ id: "suggestion-1", status: "reviewed" }],
+		});
+		// The transition moves the status and nothing else: the text the user
+		// was shown is the text that was offered.
+		expect(stored.instructionSuggestions[0].text).toBe("Only suggest trains.");
+	});
+
+	it("treats a repeated review as idempotent, allows a later dismiss, and refuses to un-dismiss", async () => {
+		const { createMessage, updateAssistantMessageInstructionSuggestionStatus } =
+			await import("./messages");
+
+		const message = await createMessage(
+			"conv-1",
+			"assistant",
+			"Should I make that a standing rule?",
+			undefined,
+			undefined,
+			{
+				instructionSuggestions: [
+					{
+						id: "suggestion-1",
+						status: "pending",
+						text: "Only suggest trains.",
+						scope: { kind: "personal" },
+						createdAt: 1_700_000_000_000,
+					},
+				],
+			},
+		);
+
+		const update = (status: "reviewed" | "dismissed"): Promise<unknown> =>
+			updateAssistantMessageInstructionSuggestionStatus({
+				userId: "user-1",
+				conversationId: "conv-1",
+				messageId: message.id,
+				suggestionId: "suggestion-1",
+				status,
+			});
+
+		await update("reviewed");
+		// A second Review (a double press, a retried request) is the state the
+		// caller asked for, so it succeeds without rewriting anything.
+		await expect(update("reviewed")).resolves.toMatchObject({
+			status: "reviewed",
+		});
+		// Reviewing then dismissing is allowed: the user changed their mind.
+		await expect(update("dismissed")).resolves.toMatchObject({
+			status: "dismissed",
+		});
+		// Dismissal is final — a dismissed offer cannot come back as reviewed.
+		await expect(update("reviewed")).rejects.toMatchObject({
+			code: "instruction_suggestion_transition_conflict",
+			status: 409,
+		});
+	});
+
+	it("returns null for an instruction suggestion the message does not carry", async () => {
+		const { createMessage, updateAssistantMessageInstructionSuggestionStatus } =
+			await import("./messages");
+
+		const message = await createMessage(
+			"conv-1",
+			"assistant",
+			"No offer here.",
+		);
+
+		await expect(
+			updateAssistantMessageInstructionSuggestionStatus({
+				userId: "user-1",
+				conversationId: "conv-1",
+				messageId: message.id,
+				suggestionId: "suggestion-missing",
+				status: "reviewed",
+			}),
+		).resolves.toBeNull();
+	});
 });

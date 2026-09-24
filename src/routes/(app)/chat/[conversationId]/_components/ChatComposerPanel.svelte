@@ -56,6 +56,7 @@ let {
 	lastTurnCostUsd = 0,
 	totalTokens,
 	composerCommandRegistryEnabled = false,
+	onInstructionCommand,
 	atlasAvailability = null,
 	personalityProfiles,
 	selectedPersonalityId,
@@ -121,6 +122,10 @@ let {
 	lastTurnCostUsd?: number;
 	totalTokens?: number;
 	composerCommandRegistryEnabled?: boolean;
+	// `/instruction <text>` — the chat page owns the dialog, so it owns the
+	// scopes it can offer (project scope only exists when the conversation has
+	// a project). Pure pass-through, same shape as `onCompact`.
+	onInstructionCommand?: ((text: string) => void) | undefined;
 	atlasAvailability?: AtlasAvailability | null;
 	personalityProfiles?: Array<{
 		id: string;
@@ -206,6 +211,7 @@ let {
 			{lastTurnCostUsd}
 			{totalTokens}
 			{composerCommandRegistryEnabled}
+			{onInstructionCommand}
 			{atlasAvailability}
 			{personalityProfiles}
 			{selectedPersonalityId}

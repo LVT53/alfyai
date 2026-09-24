@@ -8,6 +8,7 @@ import {
 	persistConversationLinkedSources,
 	savePinnedConversationSidebarOrder,
 	setConversationSidebarPinned,
+	updateInstructionSuggestionStatus,
 } from "./conversations";
 import type { ApiError } from "./http";
 
@@ -329,5 +330,74 @@ describe("fetchConversationMarkdownExport", () => {
 		await expect(
 			fetchConversationMarkdownExport("conv-1", fetchMock),
 		).resolves.toMatchObject({ filename: "Notes.md" });
+	});
+});
+
+describe("updateInstructionSuggestionStatus", () => {
+	it("answers one suggestion on the conversation's own route", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						suggestion: {
+							id: "suggestion-1",
+							status: "dismissed",
+							text: "Only suggest trains, no flights.",
+							scope: { kind: "personal" },
+							createdAt: 1_770_000_000_000,
+						},
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				),
+		);
+
+		await expect(
+			updateInstructionSuggestionStatus(
+				"conv-1",
+				{
+					messageId: "msg-1",
+					suggestionId: "suggestion-1",
+					status: "dismissed",
+				},
+				fetchMock,
+			),
+		).resolves.toMatchObject({ id: "suggestion-1", status: "dismissed" });
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/instruction-suggestions",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({
+					messageId: "msg-1",
+					suggestionId: "suggestion-1",
+					status: "dismissed",
+				}),
+			}),
+		);
+	});
+
+	it("throws the server's message when the answer is refused", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						error:
+							"Instruction suggestion was dismissed and cannot be reviewed.",
+						errorKey: "instruction_suggestion_transition_conflict",
+					}),
+					{ status: 409, headers: { "Content-Type": "application/json" } },
+				),
+		);
+
+		await expect(
+			updateInstructionSuggestionStatus(
+				"conv-1",
+				{
+					messageId: "msg-1",
+					suggestionId: "suggestion-1",
+					status: "reviewed",
+				},
+				fetchMock,
+			),
+		).rejects.toThrow(/cannot be reviewed/);
 	});
 });

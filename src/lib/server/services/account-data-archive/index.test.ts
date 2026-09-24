@@ -502,6 +502,65 @@ describe("createAccountDataArchive", () => {
 		expect(combinedText).not.toContain("Other user's folder");
 	});
 
+	// An instruction the model OFFERED is the one part of the instruction story
+	// that lives nowhere else: an offer the user accepted became instruction
+	// text (archived above) and a dismissed one became nothing at all — the
+	// offer itself is only ever on the assistant message's metadata. So it
+	// travels with the reply it was made under, not in an appendix.
+	it("carries suggestion rows into the archive with the messages they belong to", async () => {
+		await seedArchiveUser();
+		db.update(schema.messages)
+			.set({
+				metadataJson: JSON.stringify({
+					diagnostic: true,
+					instructionSuggestions: [
+						{
+							id: "suggestion-1",
+							status: "pending",
+							text: "Only suggest trains, never flights.",
+							scope: { kind: "personal" },
+							createdAt: Date.parse("2026-02-01T10:02:00Z"),
+						},
+					],
+				}),
+			})
+			.where(eq(schema.messages.id, "msg-assistant"))
+			.run();
+
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+			now: new Date("2026-06-15T08:00:00Z"),
+		});
+
+		expect(result.status).toBe("ok");
+		if (result.status !== "ok") return;
+
+		const zip = await JSZip.loadAsync(
+			Buffer.from(await new Response(result.zipStream).arrayBuffer()),
+		);
+		const chatPath = Object.keys(zip.files).find(
+			(name) => name.startsWith("Chats/") && name.endsWith(".html"),
+		);
+		const chatHtml = await zip.file(chatPath ?? "")?.async("string");
+
+		// Under the reply it was made about, and with the answer the user gave
+		// it (or left open): "there was an offer" is not the record, "and it
+		// was never answered" is.
+		const replyIndex = chatHtml?.indexOf("Use a staged rollout") ?? -1;
+		const offerIndex =
+			chatHtml?.indexOf("Only suggest trains, never flights.") ?? -1;
+		expect(replyIndex).toBeGreaterThan(-1);
+		expect(offerIndex).toBeGreaterThan(replyIndex);
+		expect(chatHtml).toContain("Pending");
+		expect(chatHtml).toContain("Personal");
+
+		// The one field, not the bag it came in: the metadata holds diagnostics
+		// and raw tool bookkeeping the archive is deliberately without.
+		expect(chatHtml).not.toContain("diagnostic");
+	});
+
 	// A project's file list is a statement the user made about their own work —
 	// "this document belongs to this project" — so the names travel with the
 	// export. The documents themselves are already archived under `Files/`; what
