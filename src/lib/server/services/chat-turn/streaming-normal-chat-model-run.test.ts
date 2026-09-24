@@ -187,6 +187,32 @@ describe("runStreamingNormalChatSendModel", () => {
 		);
 	});
 
+	// The stream's completion step reads the applied instruction scopes off
+	// this snapshotted context, so the slice the streaming run hands back has
+	// to carry them. Re-deriving them at completion would risk recording a
+	// scope whose section the prompt did not contain.
+	it("carries the applied instruction scopes on the streamed prepared context", async () => {
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			inputValue: "Prepared user prompt",
+			systemPrompt: "Prepared system prompt",
+			contextStatus: { status: "ready" },
+			taskState: null,
+			contextDebug: null,
+			contextTraceSections: [],
+			instructionsApplied: { personal: true },
+		});
+
+		const result = await runStreamingNormalChatSendModel({
+			userId: "user-1",
+			runtimeConfig,
+			message: "How long is the flight?",
+			conversationId: "conv-1",
+			modelId: "provider:provider-1",
+		});
+
+		expect(result.prepared.instructionsApplied).toEqual({ personal: true });
+	});
+
 	it("appends prefetchedToolMessages AFTER the current user message in the outbound messages", async () => {
 		const prefetchedToolMessages = [
 			{

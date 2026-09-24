@@ -95,6 +95,7 @@ import {
 	SERVER_STREAM_TIMELINE_MARKS,
 	type ServerStreamTimelineMark,
 } from "$lib/services/stream-timeline";
+import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { isFileProductionToolName } from "$lib/utils/tool-calls";
 import {
@@ -791,6 +792,7 @@ export function runChatStreamOrchestrator(
 				| LegacyContextTraceSectionInput[]
 				| undefined;
 			let latestEstimatedPromptTokens: number | undefined;
+			let latestInstructionsApplied: InstructionScopeApplication | undefined;
 			let latestProviderUsage: ProviderUsageSnapshot | null = null;
 			let latestModelId = modelId ?? "model1";
 			let latestModelDisplayName = modelDisplayName;
@@ -878,6 +880,7 @@ export function runChatStreamOrchestrator(
 						contextDebug: latestContextDebug,
 						contextTraceSections: latestContextTraceSections,
 						estimatedPromptTokens: latestEstimatedPromptTokens,
+						instructionsApplied: latestInstructionsApplied,
 					},
 					latestProviderUsage,
 					upstreamFinishReason: latestUpstreamFinishReason,
@@ -1233,6 +1236,7 @@ export function runChatStreamOrchestrator(
 				emitPrefetchedToolCalls(modelRun.prefetchedToolCalls);
 				latestContextStatus = prepared.contextStatus;
 				latestEstimatedPromptTokens = prepared.estimatedPromptTokens;
+				latestInstructionsApplied = prepared.instructionsApplied;
 				latestTaskState =
 					prepared.taskState ??
 					(await getConversationTaskState(user.id, conversationId).catch(

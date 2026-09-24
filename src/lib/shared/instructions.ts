@@ -41,6 +41,37 @@ export interface InstructionScopeApplication {
 	projectId?: string;
 }
 
+/**
+ * The instruction blocks that actually made it into one turn's prompt, as the
+ * turn's own resolved instructions describe them.
+ *
+ * A pure mapping from the resolved value to the record that gets persisted,
+ * so the reported scope cannot drift from the sections the model got. Both
+ * sides test the same thing — "is there text?" — which is why an empty string
+ * counts as nothing applied: prompt assembly renders no section for one, and
+ * a record saying otherwise would be a lie about a section that is not there.
+ * Returns `undefined` — never a falsy record — when no block applied, so an
+ * absent record and an empty one cannot both exist.
+ */
+export function resolveInstructionScopeApplication(
+	instructions:
+		| {
+				personal: string | null;
+				project: { id: string } | null;
+		  }
+		| null
+		| undefined,
+): InstructionScopeApplication | undefined {
+	if (!instructions) return undefined;
+	const personal = Boolean(instructions.personal);
+	const projectId = instructions.project?.id;
+	if (!personal && projectId === undefined) return undefined;
+	return {
+		personal,
+		...(projectId === undefined ? {} : { projectId }),
+	};
+}
+
 /** Counts code points, so "👍" is 1 and "é" is 1. */
 export function countInstructionChars(text: string): number {
 	return [...text].length;

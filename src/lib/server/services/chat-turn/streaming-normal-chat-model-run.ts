@@ -35,6 +35,7 @@ import {
 	type StreamingNormalChatModelRunEvent,
 } from "$lib/server/services/normal-chat-model";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { logOutboundMessageShape } from "./outbound-debug";
 
 export type StreamingNormalChatSendModelParams = {
@@ -74,6 +75,11 @@ export type StreamingNormalChatPreparedContext = {
 	// Full-prompt estimate (system prompt + final packet + tool schemas) for
 	// the context usage ring when the provider reports no input tokens.
 	estimatedPromptTokens?: number;
+	// Which instruction scopes the prepared system prompt carried. It rides
+	// this snapshot rather than being re-derived at completion: the record has
+	// to describe the prompt the model got, and the orchestrator's completion
+	// step runs long after context preparation.
+	instructionsApplied?: InstructionScopeApplication;
 };
 
 export type StreamingNormalChatSendModelResult = {
@@ -195,6 +201,7 @@ export async function runStreamingNormalChatSendModel(
 				inputValue: finalInputValue,
 				tools: toolPack.tools,
 			}),
+			instructionsApplied: prepared.instructionsApplied,
 		},
 		modelId: runtime.modelId,
 		modelDisplayName: runtime.provider.displayName,

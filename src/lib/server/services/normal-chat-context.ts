@@ -2,6 +2,8 @@ import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import { isProviderModelId } from "$lib/model-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import type { InstructionScopeApplication } from "$lib/shared/instructions";
+import { resolveInstructionScopeApplication } from "$lib/shared/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	getConfig,
@@ -122,6 +124,12 @@ export type PreparedOutboundChatContext = {
 	outputTokenBudget?: OutputTokenBudget;
 	contextLimits: PromptContextLimits;
 	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
+	// Which instruction sections this turn's system prompt actually received,
+	// derived here (where the sections are decided) rather than re-read at
+	// completion: the persisted record has to describe the prompt the model
+	// got, not the settings row as it stands when the turn finishes. Absent
+	// when no scope applied.
+	instructionsApplied?: InstructionScopeApplication;
 };
 
 export type OutputTokenBudget = {
@@ -2280,5 +2288,11 @@ export async function prepareOutboundChatContext(
 			"contextLimits",
 		),
 		contextPreparationTimings: timings.map((timing) => ({ ...timing })),
+		// Read off the same resolved value buildOutboundSystemPrompt just
+		// rendered sections from, so the record and the prompt agree by
+		// construction. No storage access happens here.
+		instructionsApplied: resolveInstructionScopeApplication(
+			params.instructions,
+		),
 	};
 }

@@ -181,6 +181,24 @@ describe("runPlainNormalChatSendModel", () => {
 		);
 	});
 
+	// Context preparation is where the applied instruction scopes are known
+	// (it built the sections). The plain run has to hand that record back out,
+	// because the send route persists it from the run result — re-reading the
+	// database at completion could record a scope the prompt never contained.
+	it("carries the applied instruction scopes back out of the run", async () => {
+		mocks.prepareOutboundChatContext.mockResolvedValue({
+			...createPlainNormalChatPreparedContext(),
+			instructionsApplied: { personal: true, projectId: "project-1" },
+		});
+
+		const result = await runSubject({ message: "How long is the flight?" });
+
+		expect(result.instructionsApplied).toEqual({
+			personal: true,
+			projectId: "project-1",
+		});
+	});
+
 	it("forwards typed context preparation activity without exposing stage labels as response activity text", async () => {
 		const contextPreparationActivity = vi.fn();
 		const responseActivity = vi.fn();

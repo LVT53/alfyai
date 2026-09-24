@@ -3,6 +3,7 @@ import {
 	countInstructionChars,
 	INSTRUCTIONS_MAX_CHARS,
 	normalizeInstructionText,
+	resolveInstructionScopeApplication,
 	validateInstructionInput,
 } from "./instructions";
 
@@ -108,5 +109,56 @@ describe("normalizeInstructionText", () => {
 	});
 	it("returns the trimmed text otherwise", () => {
 		expect(normalizeInstructionText("  be terse  ")).toBe("be terse");
+	});
+});
+
+// The record the Info popover reads. It says which scopes applied and never
+// what they said, so the mapping has to be a pure function of the resolved
+// turn instructions — that is what keeps the persisted record in step with the
+// prompt the model actually got.
+describe("resolveInstructionScopeApplication", () => {
+	it("marks personal instructions as applied", () => {
+		expect(
+			resolveInstructionScopeApplication({
+				personal: "Use metric units.",
+				project: null,
+			}),
+		).toEqual({ personal: true });
+	});
+
+	it("carries the project id when the project block applied", () => {
+		expect(
+			resolveInstructionScopeApplication({
+				personal: null,
+				project: { id: "project-1" },
+			}),
+		).toEqual({ personal: false, projectId: "project-1" });
+	});
+
+	it("carries both scopes when both applied", () => {
+		expect(
+			resolveInstructionScopeApplication({
+				personal: "Use metric units.",
+				project: { id: "project-1" },
+			}),
+		).toEqual({ personal: true, projectId: "project-1" });
+	});
+
+	it("returns nothing to show when neither scope applied", () => {
+		expect(
+			resolveInstructionScopeApplication({ personal: null, project: null }),
+		).toBeUndefined();
+		expect(resolveInstructionScopeApplication(null)).toBeUndefined();
+		expect(resolveInstructionScopeApplication(undefined)).toBeUndefined();
+	});
+
+	it("treats an empty string as nothing applied, matching the prompt's own test", () => {
+		// Prompt assembly renders no section for text that is empty, so a record
+		// saying the scope applied would point at a section that is not there.
+		// (Storage normalizes whitespace-only text to null before this point, so
+		// "   " never arrives here.)
+		expect(
+			resolveInstructionScopeApplication({ personal: "", project: null }),
+		).toBeUndefined();
 	});
 });

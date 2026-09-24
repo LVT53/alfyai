@@ -35,6 +35,7 @@ import type {
 	WebCitationAudit,
 	WebCitationRepairSummary,
 } from "$lib/server/services/web-citation-audit";
+import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { parseThoughtSteps } from "./chat-turn/thought-steps";
 import { listMessageAttachments } from "./knowledge";
 import { messageOrderAsc, messageOrderDesc } from "./message-ordering";
@@ -74,6 +75,12 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// `parseMessageUserIntent` in projectMessageMetadata below, so a malformed
 	// record degrades to "chose nothing" rather than reaching the client.
 	userIntent?: MessageUserIntent;
+	// Which instruction scopes shaped this turn — see `instructionsApplied` on
+	// ChatMessage and $lib/shared/instructions.ts. Written into
+	// assistantMetadata by the send route and stream-completion.ts from the
+	// value context preparation resolved, and projected out below. Scopes only:
+	// the instruction text itself never reaches a message record.
+	instructionsApplied?: InstructionScopeApplication;
 	wasStopped?: boolean;
 	// E2 — persisted mirror of E1's completionWarningCodes (written alongside
 	// wasStopped by finalize's assistantMetadata; see stream-completion.ts).
@@ -248,6 +255,7 @@ function projectMessageMetadata(
 	| "railSummary"
 	| "followUps"
 	| "userIntent"
+	| "instructionsApplied"
 > {
 	const evidenceSummary =
 		readEvidenceSummaryFromMetadata(metadata) ?? undefined;
@@ -296,6 +304,14 @@ function projectMessageMetadata(
 		// Validated, not passed through: absent (every message from before the
 		// record existed) and malformed both read as `undefined`.
 		userIntent: parseMessageUserIntent(metadata?.userIntent),
+		// Scopes applied to the turn, or `undefined` when the record is missing
+		// or is not an object at all — never a partially-shaped value the Info
+		// popover would have to defend against.
+		instructionsApplied:
+			metadata?.instructionsApplied &&
+			typeof metadata.instructionsApplied === "object"
+				? metadata.instructionsApplied
+				: undefined,
 	};
 }
 

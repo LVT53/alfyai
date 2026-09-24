@@ -176,6 +176,11 @@ describe("personal instructions in the assembled prompt", () => {
 		// folder sections are skipped on short messages, so instructions put
 		// there would silently not apply.
 		expect(prepared.inputValue).not.toContain("Use metric units");
+
+		// What the Info popover will report is derived from this same prepared
+		// context, so the section the prompt contains and the scope the reader
+		// is shown cannot drift apart.
+		expect(prepared.instructionsApplied).toEqual({ personal: true });
 	});
 
 	it("renders no section at all when the user has stored nothing", async () => {
@@ -184,5 +189,6 @@ describe("personal instructions in the assembled prompt", () => {
 		const prepared = await buildPromptForStoredInstructions();
 
 		expect(prepared.systemPrompt).not.toContain("## Your Instructions");
+		expect(prepared.instructionsApplied).toBeUndefined();
 	});
 });

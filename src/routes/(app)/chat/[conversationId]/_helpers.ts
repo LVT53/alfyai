@@ -869,6 +869,11 @@ export function finalizeStreamingMessageList(
 				// suggestions the same way thoughtSteps does, so the action row's
 				// chips populate in the same session without a reload.
 				followUps: params.metadata?.followUps ?? message.followUps,
+				// Which instruction scopes shaped the turn, for the Info popover's
+				// instruction row — riding the terminal frame like followUps above
+				// so the row is there in the same session, not only after a reload.
+				instructionsApplied:
+					params.metadata?.instructionsApplied ?? message.instructionsApplied,
 				// The user's own choices for this turn. A terminal frame that names
 				// the persisted assistant message is the server's COMPLETE
 				// statement about them (the frame omits the record entirely when

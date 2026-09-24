@@ -35,6 +35,7 @@ import {
 	runPlainNormalChatModelRun,
 } from "$lib/server/services/normal-chat-model";
 import type { TaskState } from "$lib/server/services/task-state/types";
+import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import { logOutboundMessageShape } from "./outbound-debug";
 
 export type PlainNormalChatSendModelParams = NormalChatSendModelBaseParams & {
@@ -61,6 +62,10 @@ export type PlainNormalChatSendModelResult = {
 	modelDisplayName: string;
 	resolvedProviderId: string;
 	depthMetadata?: DepthMetadata;
+	// Which instruction scopes the prepared system prompt carried, so the send
+	// route persists what the model actually got instead of re-reading the
+	// user's settings after the turn.
+	instructionsApplied?: InstructionScopeApplication;
 };
 
 type ModelRunParams = {
@@ -227,5 +232,6 @@ function buildRunResult(
 		modelDisplayName: result.model.displayName,
 		resolvedProviderId: result.model.providerId,
 		depthMetadata: activeDepthEffort?.depthMetadata,
+		instructionsApplied: prepared.instructionsApplied,
 	};
 }
