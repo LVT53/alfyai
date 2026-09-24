@@ -36,6 +36,9 @@ const GONE = [
 	"tests/e2e/zzz-capture-home.spec.ts",
 ];
 
+/** The dropped table, named once so the exemption below cannot drift from it. */
+const TABLE_NAME = "home_suggestion_events";
+
 /**
  * Names that may not survive anywhere in hand-written code. `drizzle/` is
  * exempt: a migration folder is a record of what the schema has been, not of
@@ -53,10 +56,31 @@ const FORBIDDEN = [
 	"isHomeSuggestionCandidateKey",
 	"checkHomeSuggestionEventRateLimit",
 	"homeSuggestionEvents",
-	"home_suggestion_events",
+	TABLE_NAME,
 	"home.suggest",
 	"composeIntoComposer",
 ];
+
+/**
+ * The one place inside the scanned tree that is allowed to name the TABLE.
+ *
+ * A drop is only worth testing against a database that already created the
+ * table, so the test that proves the drop reaches a deployed instance has to
+ * write `home_suggestion_events` — in an `sqlite_master` lookup, in an INSERT
+ * of a leftover row, and in the migration tag it reads off the journal. That is
+ * the same reason `drizzle/` is exempt above: a file whose subject is what the
+ * schema *was* is not live wiring. It is scoped to this one token on purpose —
+ * `recordHomeSuggestionEvent`, `home.suggest` and the rest are still forbidden
+ * here, so the exemption cannot cover a stray call.
+ *
+ * Keep it honest: the test below fails if this entry stops naming a real file
+ * that still asserts the drop, and a stale exemption is how the next leftover
+ * gets in unnoticed.
+ */
+const ALLOWED_TO_NAME_THE_TABLE: Record<string, string> = {
+	"src/lib/server/db/home-suggestion-events-drop-migration.test.ts":
+		"proves a database that already created the table loses it, so it must name the table; it asserts the removal, it does not use the feature",
+};
 
 const SCANNED_DIRS = ["src", "tests", "scripts"];
 const SKIPPED_DIRS = new Set([
@@ -98,13 +122,29 @@ describe("home suggestion removal", () => {
 		const hits: string[] = [];
 		for (const file of sources()) {
 			const text = readFileSync(file, "utf8");
+			const key = relative(repoRoot, file).replace(/\\/g, "/");
 			for (const needle of FORBIDDEN) {
+				if (needle === TABLE_NAME && key in ALLOWED_TO_NAME_THE_TABLE) {
+					continue;
+				}
 				if (text.includes(needle)) {
-					hits.push(`${relative(repoRoot, file)}: ${needle}`);
+					hits.push(`${key}: ${needle}`);
 				}
 			}
 		}
 		expect(hits).toEqual([]);
+	});
+
+	it("keeps the table-name exemption honest", () => {
+		for (const [key, reason] of Object.entries(ALLOWED_TO_NAME_THE_TABLE)) {
+			expect(reason.length, `${key} needs a reason`).toBeGreaterThan(20);
+			const text = readFileSync(join(repoRoot, key), "utf8");
+			// The exemption is only for a file that still asserts the drop. If
+			// the test were ever deleted or hollowed out, this entry would be
+			// covering nothing — and then it is covering something else.
+			expect(text, `${key} no longer names the table`).toContain(TABLE_NAME);
+			expect(text, `${key} no longer asserts the drop`).toContain("DROP");
+		}
 	});
 
 	it("drops the event table from the schema and from the table registries", () => {
