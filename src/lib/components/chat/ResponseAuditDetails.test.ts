@@ -1,6 +1,7 @@
 import { cleanup, render, screen, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ChatMessage } from "$lib/server/services/messages-types";
+import { projects } from "$lib/stores/projects";
 import { uiLanguage } from "$lib/stores/settings";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
 
@@ -29,6 +30,7 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	uiLanguage.set("en");
+	projects.set([]);
 });
 
 describe("ResponseAuditDetails instruction provenance row", () => {
@@ -54,8 +56,10 @@ describe("ResponseAuditDetails instruction provenance row", () => {
 		expect(tokens).toHaveLength(2);
 		expect(tokens[0]).toHaveAttribute("data-kind", "personal");
 		expect(tokens[0]).toHaveTextContent("You");
-		// The project token renders what the record gives it: a projectId, no
-		// name (Slice D supplies one). It must not invent a label.
+		// The project token renders what the record and the shell give it: a
+		// projectId, and — when the shell's project list knows that id — the
+		// project's name. Here the list is empty, so it has nothing to draw
+		// and must not invent a label.
 		expect(tokens[1]).toHaveAttribute("data-kind", "project");
 		expect(tokens[1]).toHaveTextContent("");
 	});
@@ -70,6 +74,39 @@ describe("ResponseAuditDetails instruction provenance row", () => {
 		const tokens = within(row as HTMLElement).getAllByTestId("scope-token");
 		expect(tokens).toHaveLength(1);
 		expect(tokens[0]).toHaveAttribute("data-kind", "personal");
+	});
+
+	it("names the project the turn applied when the shell knows it", () => {
+		projects.set([
+			{
+				id: "project-1",
+				name: "Vienna trip",
+				color: null,
+				sortOrder: 0,
+				createdAt: 0,
+				updatedAt: 0,
+				hasInstructions: true,
+			},
+		]);
+
+		render(ResponseAuditDetails, {
+			message: buildMessage({
+				instructionsApplied: { personal: true, projectId: "project-1" },
+			}),
+		});
+
+		// The row is read on a screen that may be shared, so the *scope* is
+		// what it shows and never the text the user wrote. The project's name
+		// is not that text: it is already on the sidebar and in the chat's own
+		// breadcrumb, and a token with no label at all tells the reader
+		// nothing — which is what this row did while it waited for the project
+		// surface to exist.
+		const row = instructionRow();
+		expect(row).not.toBeNull();
+		const tokens = within(row as HTMLElement).getAllByTestId("scope-token");
+		expect(tokens).toHaveLength(2);
+		expect(tokens[1]).toHaveTextContent("Vienna trip");
+		expect(tokens[1]).toHaveAttribute("aria-label", "Project Vienna trip");
 	});
 
 	it("shows only the project token when only the project block applied", () => {

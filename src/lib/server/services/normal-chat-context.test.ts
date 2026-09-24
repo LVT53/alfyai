@@ -59,6 +59,10 @@ vi.mock("./chat-turn/proactive-connector-context", () => ({
 	buildProactiveConnectorContext: mocks.buildProactiveConnectorContext,
 }));
 
+// The real stripper, not the mocked `getSystemPrompt`: the control below has
+// to observe what the stripper actually does to this text, and only the
+// module's own implementation can say that.
+import { stripDeprecatedPromptSections } from "../prompts";
 import {
 	appendTurnGuidance,
 	buildOutboundSystemPrompt,
@@ -952,6 +956,48 @@ describe("prepareOutboundChatContext", () => {
 			expect(prompt).toContain(
 				'Budget: 600 € & "two adults" <br> — keep this literal',
 			);
+		});
+
+		it("proves the stripper would really delete those paragraphs (control for the two tests above)", () => {
+			// The two tests above assert that text a user typed survives. That
+			// assertion only means something while the stripper really deletes
+			// this text — otherwise "it survived" is true because nothing was
+			// ever at risk, and the protection could be removed with the tests
+			// still green. The evidence for that used to live in a commit
+			// message; pin it here so a future change to the trigger list that
+			// made the protection vacuous fails the suite instead.
+			//
+			// The four paragraphs are exactly the four the two tests use.
+			const hazards = [
+				"Always preserve tags in code.",
+				"You ALWAYS respond in English. Every word you write must be in English.",
+				"Wrap quoted code in <preserve> tags so the translator leaves it alone.",
+				"Keep translation-preserved blocks untouched.",
+			];
+			expect(hazards).toHaveLength(4);
+
+			for (const hazard of hazards) {
+				expect(stripDeprecatedPromptSections(hazard)).toBe("");
+			}
+
+			// And in the shape the hazard would actually take: the instruction
+			// section appended *before* the strip, i.e. each paragraph one
+			// paragraph among many in a real prompt. The stripper is
+			// paragraph-scoped, so the neighbours survive and only the user's
+			// text is lost — which is why the loss would read as a partial
+			// prompt rather than an obviously broken one.
+			const assembled = [
+				"Base system prompt",
+				...hazards,
+				"## Response Style\nKeep it short.",
+			].join("\n\n");
+			const stripped = stripDeprecatedPromptSections(assembled);
+
+			expect(stripped).toContain("Base system prompt");
+			expect(stripped).toContain("## Response Style");
+			for (const hazard of hazards) {
+				expect(stripped).not.toContain(hazard);
+			}
 		});
 
 		// Slice D — project instructions. Same system message as the personal

@@ -4,6 +4,7 @@ import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-m
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import type { InstructionScope } from "$lib/shared/instructions";
 import { instructionScopeKey } from "$lib/shared/instructions";
+import { projects } from "$lib/stores/projects";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import LogoMark from "$lib/components/chat/LogoMark.svelte";
@@ -79,16 +80,23 @@ function formatDepthMetadata(metadata: ChatMessage["depthMetadata"]): string {
 // screen, so it says "You" and not what the user wrote. An empty list means no
 // row at all — a row with no tokens would claim something happened.
 //
-// The project token is given a projectId and no name (the record carries no
-// name; Slice D is what will make the project's own name available), and the
-// token renders exactly what it is handed rather than inventing a label.
+// The project token is given a projectId and, when the shell knows it, the
+// project's name. The name is not the protected half of this row — the
+// instruction text is, and it is never here: the project's name is already on
+// the sidebar and in the chat's own breadcrumb, and a token with no label at
+// all tells the reader nothing. A project the user has since deleted resolves
+// to no name and renders the way it did before: the token invents nothing.
 function instructionScopeTokens(): InstructionScope[] {
 	const applied = message.instructionsApplied;
 	if (!applied) return [];
 	const scopes: InstructionScope[] = [];
 	if (applied.personal) scopes.push({ kind: "personal" });
 	if (applied.projectId) {
-		scopes.push({ kind: "project", projectId: applied.projectId });
+		scopes.push({
+			kind: "project",
+			projectId: applied.projectId,
+			name: $projects.find((project) => project.id === applied.projectId)?.name,
+		});
 	}
 	return scopes;
 }
