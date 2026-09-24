@@ -1,4 +1,4 @@
-# Slice 3 — Canvas: the artzfact board inside the panel
+# Slice 3 — Canvas: the artifact board inside the panel
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or
 > superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for

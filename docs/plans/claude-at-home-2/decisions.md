@@ -75,6 +75,47 @@ A strict "≥ 60 fps" assertion cannot be honest on a shared CI runner. Ruling:
   163 nodes + 202 annotations at 8.3 ms average frame). Slice 3's spec must say which of the two a failing
   check means, so nobody "fixes" a slow CI runner by weakening the product.
 
+## 10. The panel keeps its path and name: no rename in this feature
+
+`slice-6.md` calls the panel `ArtifactPanel.svelte`; slices 0 and 3–5 keep
+`document-workspace/DocumentWorkspace.svelte`. **Keep the existing path and name.** Three live callers render
+it, two source-scan test suites pin the path (`no-ad-hoc-maps.test.ts`, `DocumentsList.test.ts`), and the
+same shell serves surfaces that are not artifacts at all (generated files, chat attachments, library opens,
+search-result opens). Renaming it is a separate, reviewed change with the callers and the pinning tests
+updated together — not part of Feature 2. `slice-6.md`'s four references are corrected to the real path.
+The glossary's **Artifact Panel** names the surface, not the filename.
+
+## 11. One comment layer: shared interface, per-type anchor resolvers
+
+`slice-3.md` proposes `src/lib/shared/artifacts/comments.ts`; `slice-1.md` keeps its own anchor modules. Per
+§2.7 there is **one** comment feature, split like this:
+
+- **Threads, status, replies and the `@Alfy` hook** — `src/lib/server/services/artifacts/comments.ts`
+  (Slice 0), over the single `artifact_comments` table. No slice opens its own columns or its own thread
+  logic.
+- **The anchor interface** — one small shared type (`Anchor`, `AnchorResolution` with `exact | moved |
+  orphaned`) in `src/lib/shared/artifacts/`, implemented **per type**: the Document resolves `text` anchors
+  against its block index (`slice-1`'s `anchor.ts`), the Canvas resolves `node` and `point` anchors against
+  its board (`slice-3`). Slice 3's `comments.ts` becomes that interface plus the canvas resolver, and it
+  must not reimplement resolution the Document already owns, or vice versa.
+- Both resolvers are pure and unit-tested against the same three outcomes, including the orphan.
+
+## 12. The hash substrate needs a canonical form, pinned by a test
+
+`slice-1` hashes **canonical block Markdown** rather than ProseMirror JSON (which is unreachable
+server-side). That is right, but the prototypes measured that the Markdown round trip is **not
+byte-identical** — reopening the document rewrote six table lines' padding and blank lines. Hashing the raw
+serialiser output would make a hash change on a mere open, and every patch would be refused as "you changed
+this block".
+
+Ruling: define one **canonical block form** used for hashing (trimmed lines, collapsed table padding,
+normalised list markers, no trailing blank lines), document it next to the hasher, and pin it with a test:
+
+> open → serialise → reload → serialise, with **no user edit**, produces identical hashes for every block.
+
+That test is a gate on slice 1, and the canvas body's `body_hash` (slice 0's version rows) uses the same
+canonicalisation rule for JSON (stable key order).
+
 ## Consequences for the slice specs
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.

@@ -360,7 +360,7 @@ requirement — which is exactly the friction this design avoids.
 | `src/lib/components/artifact/tour/ArtifactTour.svelte` + test | create — the panel card |
 | `src/lib/components/artifact/tour/illustrations/*.svelte` | create — four illustrations |
 | `src/lib/components/artifact/empty-state.ts` + test | create |
-| `src/lib/components/artifact/ArtifactPanel.svelte` | extend — the first-open trigger, the badge-menu row, the empty-state line |
+| `src/lib/components/document-workspace/DocumentWorkspace.svelte` | extend — the first-open trigger, the badge-menu row, the empty-state line |
 | `src/routes/(app)/settings/_components/SettingsAdminCampaignsPane.svelte` | extend — the seed item for the four tour drafts |
 | `src/routes/(app)/settings/_components/campaigns/SlideEditor.svelte` | extend — the `summary` layout's fields and the tour's publish checklist |
 | `src/lib/i18n/artifacts.ts` + test | extend — `artifacts.tour.*` |
@@ -370,7 +370,7 @@ requirement — which is exactly the friction this design avoids.
 | `tests/cross-cutting/incognito-artifact-containment.test.ts` | extend — the tour-state invariant |
 | `src/lib/components/artifact/{document,app,canvas,slides}/…` | extend — the empty-state line reads through `emptyStateLine` |
 
-**Serialisation.** `ArtifactPanel.svelte` is Slice 0's file and the four type slices each touch it; land this
+**Serialisation.** `document-workspace/DocumentWorkspace.svelte` is Slice 0's file and the four type slices each touch it; land this
 slice **after** them (the assignment's plan.md orders it last for this reason), and append rather than
 restructure. `announcement-campaigns.ts` is shared with nothing else in Feature 2 — its changes are additive
 to a closed union plus two new publish rules.
@@ -475,7 +475,7 @@ override, which is the same shape the admin system prompts already use."
 
 ### Task T3: The panel card, its trigger, and the badge replay
 
-**Files:** `ArtifactTour.svelte` + test, `illustrations/*.svelte`, `ArtifactPanel.svelte`,
+**Files:** `ArtifactTour.svelte` + test, `illustrations/*.svelte`, `document-workspace/DocumentWorkspace.svelte`,
 `src/lib/client/api/artifact-tours.ts` + test
 **Test:** component + e2e
 
@@ -507,7 +507,7 @@ it("shows the same tour to a second user", ...);
 
 - [ ] **Step 3: Implement**
 
-Write the illustrations, then the card, then the trigger in `ArtifactPanel.svelte`: on open, one request for
+Write the illustrations, then the card, then the trigger in `document-workspace/DocumentWorkspace.svelte`: on open, one request for
 the kind; if it resolves and is unseen, render the card **in the panel's content area** above the artifact.
 Fire the seen write on finish or skip, not on render — a user who closes the panel mid-tour has not seen it
 and should meet it again next time (`lastSlide` is what makes that resumption sane).
