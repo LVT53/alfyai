@@ -78,15 +78,17 @@ async function setStoredInstructions(text: string | null): Promise<void> {
 		.where(eq(users.id, testUserId));
 }
 
-async function buildPromptForStoredInstructions() {
+async function buildPromptForStoredInstructions(
+	conversationId = testConversationId,
+) {
 	const instructions = await resolveTurnInstructions({
 		userId: testUserId,
-		conversationId: testConversationId,
+		conversationId,
 	});
 
 	return prepareOutboundChatContext({
 		message: "How long is the flight?",
-		sessionId: testConversationId,
+		sessionId: conversationId,
 		modelConfig: MODEL_CONFIG,
 		user: { id: testUserId },
 		modelId: "model1",
@@ -191,4 +193,65 @@ describe("personal instructions in the assembled prompt", () => {
 		expect(prepared.systemPrompt).not.toContain("## Your Instructions");
 		expect(prepared.instructionsApplied).toBeUndefined();
 	});
+
+	it("stops applying on the next turn once the user clears them", async () => {
+		await setStoredInstructions(USER_TEXT);
+		const withText = await buildPromptForStoredInstructions();
+		expect(withText.instructionsApplied).toEqual({ personal: true });
+
+		// The dialog sends "" for a cleared box, which is what the route stores
+		// as NULL — the same state as never having set it.
+		await setStoredInstructions("");
+		const cleared = await buildPromptForStoredInstructions();
+
+		expect(cleared.systemPrompt).not.toContain("## Your Instructions");
+		expect(cleared.systemPrompt).not.toContain("Use metric units");
+		// And the audit row must not claim a scope that shaped this reply when no
+		// section was sent.
+		expect(cleared.instructionsApplied).toBeUndefined();
+	});
+
+	// The provider's prefix cache is keyed on exact bytes, so a turn that
+	// changed nothing must send the identical system message — no date, no turn
+	// counter, no fresh id smuggled in by the new sections.
+	it("sends a byte-identical system prompt for the same state twice in a row", async () => {
+		await setStoredInstructions(USER_TEXT);
+
+		const first = await buildPromptForStoredInstructions();
+		const second = await buildPromptForStoredInstructions();
+
+		expect(second.systemPrompt).toBe(first.systemPrompt);
+		expect(second.instructionsApplied).toEqual(first.instructionsApplied);
+	});
+
+	it("gives a different conversation by the same user the same instruction section", async () => {
+		await setStoredInstructions(USER_TEXT);
+
+		const other = await createConversation(
+			testUserId,
+			"Another Instructions Conversation",
+		);
+		try {
+			const here = await buildPromptForStoredInstructions();
+			const there = await buildPromptForStoredInstructions(other.id);
+
+			// Standing guidance is a property of the user, not of where they are
+			// typing, so the section is the same bytes in both conversations.
+			expect(sectionOf(there.systemPrompt)).toBe(sectionOf(here.systemPrompt));
+			// Stronger, and what the provider actually caches: with nothing else
+			// different about the two conversations, the whole system message —
+			// instructions included — is the same bytes.
+			expect(there.systemPrompt).toBe(here.systemPrompt);
+			expect(there.instructionsApplied).toEqual({ personal: true });
+		} finally {
+			await db.delete(conversations).where(eq(conversations.id, other.id));
+		}
+	});
 });
+
+/** The instruction section, from its heading to the end of the prompt. */
+function sectionOf(systemPrompt: string): string {
+	const start = systemPrompt.indexOf("## Your Instructions");
+	expect(start).toBeGreaterThan(-1);
+	return systemPrompt.slice(start);
+}
