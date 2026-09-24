@@ -811,7 +811,7 @@ function repairDocumentSourceBlock(
 	if (block.type === "table") {
 		return repairTableBlock(repairTableCells(block, ctx));
 	}
-	if (block.type === "chart") return [fillChartBlockDefaults(block)];
+	if (block.type === "chart") return [fillChartBlockDefaults(block, ctx)];
 	if (block.type === "code") return repairCodeBlock(block);
 	if (block.type !== "paragraph" || typeof block.text !== "string")
 		return [block];
@@ -1508,8 +1508,17 @@ function chartJsFenceToBlock(body: string): Record<string, unknown> | null {
 		typeof config.type === "string" ? config.type.toLowerCase() : "";
 	const title = chartConfigTitle(config);
 	const mapped = CHART_JS_TYPE_MAP[chartJsType];
+	// None of the mapped types draws more than one series, and the schema
+	// refuses a chart that carries several. A fence is prose the model wrote
+	// inside Markdown, so rather than fail the whole document the data is kept
+	// whole as a table — every dataset becomes a column.
+	const datasetCount = Array.isArray(config.data.datasets)
+		? config.data.datasets.filter(
+				(dataset) => isRecord(dataset) && Array.isArray(dataset.data),
+			).length
+		: 0;
 
-	if (mapped) {
+	if (mapped && datasetCount <= 1) {
 		const resolvedTitle = title ?? "Chart";
 		return {
 			type: "chart",
@@ -1958,11 +1967,41 @@ function clampHeadingLevel(level: number): number {
 	return Math.min(MAX_DOCUMENT_HEADING_LEVEL, Math.max(1, Math.round(level)));
 }
 
+/**
+ * `{labels, values}` (under `data` or on the block itself) and
+ * `[[label, value], ...]` pairs, as label/value rows. Null for any other
+ * shape, which the caller handles as before.
+ */
+function chartRowsFromShorthand(
+	block: Record<string, unknown>,
+): Array<{ label: string; value: unknown }> | null {
+	const source = isRecord(block.data) ? block.data : block;
+	if (Array.isArray(source.labels) && Array.isArray(source.values)) {
+		const values = source.values;
+		return source.labels.map((label, index) => ({
+			label: String(label ?? ""),
+			value: values[index] ?? null,
+		}));
+	}
+	if (
+		Array.isArray(block.data) &&
+		block.data.length > 0 &&
+		block.data.every((row) => Array.isArray(row) && row.length === 2)
+	) {
+		return (block.data as unknown[][]).map(([label, value]) => ({
+			label: String(label ?? ""),
+			value: value ?? null,
+		}));
+	}
+	return null;
+}
+
 // The schema insists on title, caption, altText, units and the axis keys.
 // A model that just wrote {chartType, title, data:[{label,value}]} clearly
 // meant a chart; fill the boilerplate instead of rejecting the document.
 function fillChartBlockDefaults(
 	block: Record<string, unknown>,
+	ctx: BlockRepairContext,
 ): Record<string, unknown> {
 	const rawType =
 		typeof block.chartType === "string"
@@ -1975,12 +2014,22 @@ function fillChartBlockDefaults(
 	const isPie = chartType === "pie" || chartType === "donut";
 	const chartJsForm =
 		isRecord(block.data) && Array.isArray(block.data.datasets);
-	const rows = Array.isArray(block.data) ? block.data.filter(isRecord) : [];
+	const shorthandRows = chartJsForm ? null : chartRowsFromShorthand(block);
+	const rows: Record<string, unknown>[] = shorthandRows
+		? shorthandRows
+		: Array.isArray(block.data)
+			? block.data.filter(isRecord)
+			: [];
 
-	let labelKey = cleanString(block.labelKey) ?? cleanString(block.xKey);
-	let valueKey = cleanString(block.valueKey) ?? cleanString(block.yKey);
+	let labelKey = shorthandRows
+		? "label"
+		: (cleanString(block.labelKey) ?? cleanString(block.xKey));
+	let valueKey = shorthandRows
+		? "value"
+		: (cleanString(block.valueKey) ?? cleanString(block.yKey));
+	const seriesKey = cleanString(block.seriesKey);
 	let units = cleanString(block.units);
-	let data: unknown = block.data;
+	let data: unknown = shorthandRows ?? block.data;
 
 	if (!chartJsForm && rows.length > 0) {
 		const keys = Object.keys(rows[0]);
@@ -1989,7 +2038,52 @@ function fillChartBlockDefaults(
 		);
 		const textKeys = keys.filter((key) => !numericKeys.includes(key));
 		if (!labelKey || !keys.includes(labelKey)) labelKey = textKeys[0] ?? null;
-		if (!valueKey || !keys.includes(valueKey)) {
+		const valueKeyNamed = Boolean(valueKey && keys.includes(valueKey));
+		// Wide rows — {region, q2, q3} — are several series. Picking the first
+		// numeric column, as this used to, dropped every other series without a
+		// word. Only stackedBar draws more than one, so it gets the long form
+		// the renderer reads; any other type is refused with the fix spelled
+		// out. A model that named its `yKey` chose one series on purpose.
+		const seriesColumns = numericKeys.filter((key) => key !== labelKey);
+		if (
+			!valueKeyNamed &&
+			!seriesKey &&
+			labelKey &&
+			chartType !== "scatter" &&
+			seriesColumns.length > 1
+		) {
+			if (chartType !== "stackedBar") {
+				throw new DocumentSourceInputError(
+					`Block ${ctx.index + 1} (chart): the data has ${seriesColumns.length} series (${seriesColumns.join(", ")}) but a ${chartType} chart draws only one. Use chartType "stackedBar" to show them together, send one chart per series, or name the one to plot in "yKey".`,
+				);
+			}
+			const resolvedLabelKey = labelKey;
+			const longRows = rows.flatMap((row) =>
+				seriesColumns.map((key) => {
+					const parsed = parseNumericCell(row[key]);
+					if (!units && parsed?.units) units = parsed.units;
+					return {
+						label: String(row[resolvedLabelKey] ?? ""),
+						series: key,
+						value: parsed?.value ?? null,
+					};
+				}),
+			);
+			return {
+				...block,
+				type: "chart",
+				chartType,
+				title,
+				caption: cleanString(block.caption) ?? title,
+				altText: cleanString(block.altText) ?? `${title} (${chartType} chart).`,
+				units: units ?? "value",
+				xKey: "label",
+				yKey: "value",
+				seriesKey: "series",
+				data: longRows,
+			};
+		}
+		if (!valueKeyNamed) {
 			valueKey = numericKeys.find((key) => key !== labelKey) ?? null;
 		}
 		if (valueKey) {

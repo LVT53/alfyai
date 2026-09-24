@@ -782,3 +782,77 @@ describe("generated document source refusals name the failing block", () => {
 		expect(result.message).toMatch(/^Block 1 \(chart\): /);
 	});
 });
+
+// Only stackedBar draws more than one series. A bar or line chart handed
+// several used to render the first and silently drop the rest.
+describe("generated document charts with several series", () => {
+	const chart = (fields: Record<string, unknown>) =>
+		validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Report",
+			blocks: [
+				{
+					type: "chart",
+					title: "Revenue",
+					caption: "Revenue by region.",
+					altText: "Revenue by region.",
+					units: "EUR",
+					...fields,
+				},
+			],
+		});
+
+	it("refuses a Chart.js bar chart with two datasets instead of keeping only the first", () => {
+		const result = chart({
+			chartType: "bar",
+			data: {
+				labels: ["North", "South"],
+				datasets: [
+					{ label: "Q2", data: [10, 20] },
+					{ label: "Q3", data: [12, 18] },
+				],
+			},
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.code).toBe("unsupported_chart_data");
+		expect(result.message).toMatch(/^Block 1 \(chart\): /);
+		expect(result.message).toContain("Q2, Q3");
+		expect(result.message).toContain('"stackedBar"');
+	});
+
+	it("refuses a line chart whose seriesKey names more than one series", () => {
+		const result = chart({
+			chartType: "line",
+			xKey: "quarter",
+			yKey: "value",
+			seriesKey: "region",
+			data: [
+				{ quarter: "Q2", region: "North", value: 10 },
+				{ quarter: "Q2", region: "South", value: 20 },
+			],
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.message).toContain("North, South");
+	});
+
+	it("keeps every Chart.js dataset of a stacked bar chart", () => {
+		const result = chart({
+			chartType: "stackedBar",
+			data: {
+				labels: ["North", "South"],
+				datasets: [
+					{ label: "Q2", data: [10, 20] },
+					{ label: "Q3", data: [12, 18] },
+				],
+			},
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const block = result.source.blocks[0];
+		expect(block).toMatchObject({ seriesKey: "series" });
+		expect(block.type === "chart" && block.data).toHaveLength(4);
+	});
+});

@@ -814,6 +814,68 @@ function getNormalizedChartFields(
 	};
 }
 
+/** Series names shown in a refusal, at most this many. */
+const MAX_NAMED_SERIES = 6;
+
+/**
+ * The series a chart carries when there is more than one and its type can
+ * draw only one — every type but stackedBar. Null otherwise.
+ *
+ * The renderers draw one series for every other type: a bar chart keeps the
+ * first value per label and a line chart would zig-zag through all of them,
+ * and the Chart.js path kept only the first dataset. Refusing is the only
+ * outcome that does not lose data without saying so.
+ */
+function multipleSeriesNames(
+	block: Record<string, unknown>,
+	chartType: GeneratedDocumentChartType,
+): string[] | null {
+	if (chartType === "stackedBar") return null;
+	if (isRecord(block.data) && Array.isArray(block.data.datasets)) {
+		const names = block.data.datasets
+			.filter(isRecord)
+			.filter(
+				(dataset) =>
+					Array.isArray(dataset.data) &&
+					dataset.data.some((value) => numericChartValue(value) !== null),
+			)
+			.map(
+				(dataset, index) => cleanText(dataset.label) ?? `Series ${index + 1}`,
+			);
+		return names.length > 1 ? names : null;
+	}
+	const seriesKey = cleanKey(block.seriesKey);
+	if (seriesKey && Array.isArray(block.data)) {
+		const names = Array.from(
+			new Set(
+				block.data
+					.filter(isRecord)
+					.map((row) => row[seriesKey])
+					.filter(
+						(value): value is string | number | boolean =>
+							typeof value === "string" ||
+							typeof value === "number" ||
+							typeof value === "boolean",
+					)
+					.map((value) => String(value)),
+			),
+		);
+		return names.length > 1 ? names : null;
+	}
+	return null;
+}
+
+function multipleSeriesMessage(
+	chartType: GeneratedDocumentChartType,
+	names: string[],
+): string {
+	const shown =
+		names.length > MAX_NAMED_SERIES
+			? `${names.slice(0, MAX_NAMED_SERIES).join(", ")}, …`
+			: names.join(", ");
+	return `this ${chartType} chart has ${names.length} data series (${shown}) but only "stackedBar" draws more than one. Use chartType "stackedBar", or send one chart per series.`;
+}
+
 function isPieStyleChart(chartType: GeneratedDocumentChartType): boolean {
 	return chartType === "pie" || chartType === "donut";
 }
@@ -1163,6 +1225,13 @@ function normalizeChartBlock(
 			code: "unsupported_chart_type",
 			message: "Generated document source contains an unsupported chart type.",
 		};
+	}
+
+	const extraSeries = multipleSeriesNames(block, chartType);
+	if (extraSeries) {
+		return unsupportedChartDataResult(
+			multipleSeriesMessage(chartType, extraSeries),
+		);
 	}
 
 	const chartJsData = normalizeChartJsData(block, chartType);

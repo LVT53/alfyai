@@ -1580,3 +1580,145 @@ describe("document block field aliases", () => {
 		]);
 	});
 });
+
+describe("chart data shapes and multiple series", () => {
+	function chartResult(block: Record<string, unknown>) {
+		return normalizeProduceFileInput({
+			requestTitle: "Sales report",
+			sourceMode: "document_source",
+			documentSource: {
+				blocks: [{ type: "paragraph", text: "Intro." }, block],
+			},
+		});
+	}
+	function chartBlock(block: Record<string, unknown>) {
+		const result = chartResult(block);
+		if (!result.ok) throw new Error(`expected ok, got: ${result.error}`);
+		const source = result.input.documentSource as Record<string, unknown>;
+		const validation = validateGeneratedDocumentSource(source);
+		if (!validation.ok) {
+			throw new Error(`repaired source still invalid: ${validation.message}`);
+		}
+		return (source.blocks as Array<Record<string, unknown>>)[1];
+	}
+
+	it("turns wide rows into long form with a series key for a stacked bar chart", () => {
+		const block = chartBlock({
+			type: "chart",
+			chartType: "stackedBar",
+			title: "Revenue",
+			data: [
+				{ region: "North", q2: 10, q3: 12 },
+				{ region: "South", q2: 20, q3: 18 },
+			],
+		});
+		expect(block).toMatchObject({
+			xKey: "label",
+			yKey: "value",
+			seriesKey: "series",
+			data: [
+				{ label: "North", series: "q2", value: 10 },
+				{ label: "North", series: "q3", value: 12 },
+				{ label: "South", series: "q2", value: 20 },
+				{ label: "South", series: "q3", value: 18 },
+			],
+		});
+	});
+
+	it("refuses wide rows on a chart type that draws one series, naming the series", () => {
+		const result = chartResult({
+			type: "chart",
+			chartType: "bar",
+			title: "Revenue",
+			data: [
+				{ region: "North", q2: 10, q3: 12 },
+				{ region: "South", q2: 20, q3: 18 },
+			],
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toMatch(/^Block 2 \(chart\): /);
+		expect(result.error).toContain("q2, q3");
+		expect(result.error).toContain('"stackedBar"');
+		expect(result.error).toContain('"yKey"');
+	});
+
+	it("plots the one series the model named even when other numeric columns exist", () => {
+		const block = chartBlock({
+			type: "chart",
+			chartType: "bar",
+			title: "Revenue",
+			yKey: "q3",
+			data: [
+				{ region: "North", q2: 10, q3: 12 },
+				{ region: "South", q2: 20, q3: 18 },
+			],
+		});
+		expect(block).toMatchObject({ xKey: "region", yKey: "q3" });
+	});
+
+	it("turns {labels, values} into rows", () => {
+		const block = chartBlock({
+			type: "chart",
+			chartType: "bar",
+			title: "Revenue",
+			data: { labels: ["North", "South"], values: [10, 20] },
+		});
+		expect(block).toMatchObject({
+			xKey: "label",
+			yKey: "value",
+			data: [
+				{ label: "North", value: 10 },
+				{ label: "South", value: 20 },
+			],
+		});
+	});
+
+	it("keeps every dataset of a multi-series ```chart fence in Markdown, as a table", () => {
+		const blocks = documentBlocks({
+			content: [
+				"```chart",
+				JSON.stringify({
+					type: "bar",
+					data: {
+						labels: ["North", "South"],
+						datasets: [
+							{ label: "Q2", data: [10, 20] },
+							{ label: "Q3", data: [12, 18] },
+						],
+					},
+				}),
+				"```",
+			].join("\n"),
+		});
+		expect(blocks).toEqual([
+			expect.objectContaining({
+				type: "table",
+				rows: [
+					{ label: "North", q2: 10, q3: 12 },
+					{ label: "South", q2: 20, q3: 18 },
+				],
+			}),
+		]);
+	});
+
+	it("turns [[label, value]] pairs into rows", () => {
+		const block = chartBlock({
+			type: "chart",
+			chartType: "pie",
+			title: "Share",
+			data: [
+				["North", 60],
+				["South", 40],
+			],
+		});
+		expect(block).toMatchObject({
+			labelKey: "label",
+			valueKey: "value",
+			data: [
+				{ label: "North", value: 60 },
+				{ label: "South", value: 40 },
+			],
+		});
+	});
+});
