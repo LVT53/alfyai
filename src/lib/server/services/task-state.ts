@@ -20,17 +20,14 @@ import type {
 	TaskCheckpoint,
 	TaskEvidenceLink,
 	TaskState,
-	TaskSteeringAction,
 	VerificationStatus,
 } from "$lib/server/services/task-state/types";
 import { RERANK_CONFIDENCE_MIN } from "$lib/server/utils/constants";
-import { parseJsonRecord } from "$lib/server/utils/json";
 import { dedupeById } from "$lib/server/utils/prompt-context";
 import { clipText, normalizeWhitespace } from "$lib/server/utils/text";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import { computeCrossConversationDecay } from "../utils/artifact-decay";
 import { collapseArtifactsByFamily } from "./evidence-family";
-import { parseWorkingDocumentMetadata } from "./knowledge/store";
 import { queueTaskStateSemanticEmbeddingRefresh } from "./semantic-embedding-refresh";
 import { shortlistSemanticMatchesBySubject } from "./semantic-ranking";
 import { formatTaskStateForPrompt } from "./task-state/artifacts";
@@ -39,7 +36,6 @@ import {
 	parseJsonFromModel,
 	requestContextSummarizer,
 } from "./task-state/control-model";
-import { findConflictingDocumentPreferenceArtifactIds } from "./task-state/document-preferences";
 import {
 	mapTaskCheckpoint,
 	mapTaskEvidenceLink,
@@ -993,8 +989,6 @@ function computeEvidenceScore(params: {
 	artifact: Artifact;
 	message: string;
 	taskState: TaskState | null;
-	pinnedIds: Set<string>;
-	excludedIds: Set<string>;
 	activeDocumentIds: Set<string>;
 	correctionTargetIds: Set<string>;
 	recentlyRefinedArtifactIds: Set<string>;
@@ -1004,8 +998,6 @@ function computeEvidenceScore(params: {
 	currentGeneratedOutputIds: Set<string>;
 	hasCorrectionSignal?: boolean;
 }): number {
-	if (params.excludedIds.has(params.artifact.id)) return -1000;
-
 	let score =
 		scoreMatch(params.message, getArtifactSearchBody(params.artifact)) * 10;
 	if (params.taskState) {
@@ -1029,7 +1021,6 @@ function computeEvidenceScore(params: {
 	if (params.currentAttachmentIds.has(params.artifact.id)) score += 100;
 	if (params.workingSetIds.has(params.artifact.id)) score += 10;
 	if (params.relevantArtifactIds.has(params.artifact.id)) score += 80;
-	if (params.pinnedIds.has(params.artifact.id)) score += 120;
 	if (params.artifact.conversationId === params.taskState?.conversationId)
 		score += 4;
 	if (params.currentGeneratedOutputIds.has(params.artifact.id)) score += 8;
@@ -1054,7 +1045,6 @@ function shouldPersistSystemSelectedEvidenceLink(params: {
 	artifact: Artifact;
 	conversationId: string;
 	taskState: TaskState | null;
-	pinnedIds: Set<string>;
 	activeDocumentIds: Set<string>;
 	correctionTargetIds: Set<string>;
 	recentlyRefinedArtifactIds: Set<string>;
@@ -1062,7 +1052,6 @@ function shouldPersistSystemSelectedEvidenceLink(params: {
 	workingSetIds: Set<string>;
 	relevantArtifactIds: Set<string>;
 }): boolean {
-	if (params.pinnedIds.has(params.artifact.id)) return true;
 	if (params.activeDocumentIds.has(params.artifact.id)) return true;
 	if (params.correctionTargetIds.has(params.artifact.id)) return true;
 	if (params.recentlyRefinedArtifactIds.has(params.artifact.id)) return true;
@@ -1085,8 +1074,6 @@ async function maybeRerankEvidence(params: {
 	taskState: TaskState | null;
 	message: string;
 	candidates: Artifact[];
-	pinnedIds: Set<string>;
-	excludedIds: Set<string>;
 	protectedIds?: Set<string>;
 	selectedLimit: number;
 	candidateLimit: number;
@@ -1128,9 +1115,7 @@ async function maybeRerankEvidence(params: {
 			);
 			const artifacts = dedupeById([
 				...params.candidates.filter(
-					(artifact) =>
-						params.pinnedIds.has(artifact.id) ||
-						(params.protectedIds?.has(artifact.id) ?? false),
+					(artifact) => params.protectedIds?.has(artifact.id) ?? false,
 				),
 				...params.candidates.filter((artifact) => selectedIds.has(artifact.id)),
 			]);
@@ -1165,8 +1150,6 @@ export async function prepareTaskContext(params: {
 	routingConfidence: number;
 	verificationStatus: VerificationStatus;
 	selectedArtifacts: Artifact[];
-	pinnedArtifactIds: string[];
-	excludedArtifactIds: string[];
 }> {
 	const attachmentIds = params.attachmentIds ?? [];
 	const allowTaskStateCreation = shouldTrackTaskContinuityFromTurn({
@@ -1181,22 +1164,6 @@ export async function prepareTaskContext(params: {
 		createIfMissing: allowTaskStateCreation,
 	});
 	const taskState = routed.taskState;
-	const links = taskState
-		? await listTaskEvidenceLinks({
-				userId: params.userId,
-				taskId: taskState.taskId,
-			})
-		: [];
-	const pinnedIds = new Set(
-		links
-			.filter((link) => link.role === "pinned")
-			.map((link) => link.artifactId),
-	);
-	const excludedIds = new Set(
-		links
-			.filter((link) => link.role === "excluded")
-			.map((link) => link.artifactId),
-	);
 	const currentAttachmentIds = new Set(
 		params.currentAttachments.map((artifact) => artifact.id),
 	);
@@ -1204,10 +1171,7 @@ export async function prepareTaskContext(params: {
 		...params.currentAttachments,
 		...params.workingSetArtifacts,
 		...params.relevantArtifacts,
-	]).filter(
-		(artifact) =>
-			!excludedIds.has(artifact.id) || attachmentIds.includes(artifact.id),
-	);
+	]);
 	const workingDocumentSelection = resolveWorkingDocumentSelection({
 		artifacts: candidateArtifacts,
 		message: params.message,
@@ -1244,7 +1208,6 @@ export async function prepareTaskContext(params: {
 		conversationId: params.conversationId,
 		query: params.message,
 		artifacts: candidateArtifacts,
-		pinnedIds,
 		currentAttachmentIds,
 		protectedIds: taskEvidenceProtectedIds,
 	});
@@ -1263,8 +1226,6 @@ export async function prepareTaskContext(params: {
 				artifact,
 				message: params.message,
 				taskState,
-				pinnedIds,
-				excludedIds,
 				activeDocumentIds,
 				correctionTargetIds,
 				recentlyRefinedArtifactIds,
@@ -1289,7 +1250,6 @@ export async function prepareTaskContext(params: {
 		...rankedCandidates
 			.filter(
 				(entry) =>
-					pinnedIds.has(entry.artifact.id) ||
 					taskEvidenceProtectedIds.has(entry.artifact.id) ||
 					currentAttachmentIds.has(entry.artifact.id),
 			)
@@ -1310,8 +1270,6 @@ export async function prepareTaskContext(params: {
 				.slice(0, rerankCandidateLimit)
 				.map((entry) => entry.artifact),
 		]),
-		pinnedIds,
-		excludedIds,
 		selectedLimit: selectedEvidenceLimit,
 		candidateLimit: rerankCandidateLimit,
 		protectedIds: new Set([
@@ -1337,7 +1295,6 @@ export async function prepareTaskContext(params: {
 						artifact,
 						conversationId: params.conversationId,
 						taskState,
-						pinnedIds,
 						activeDocumentIds,
 						correctionTargetIds,
 						recentlyRefinedArtifactIds,
@@ -1363,8 +1320,6 @@ export async function prepareTaskContext(params: {
 		routingConfidence,
 		verificationStatus: "skipped" as const,
 		selectedArtifacts,
-		pinnedArtifactIds: Array.from(pinnedIds),
-		excludedArtifactIds: Array.from(excludedIds),
 	};
 }
 
@@ -1441,197 +1396,6 @@ export async function getContextDebugState(
 		selectedEvidenceBySource,
 		pinnedEvidence: toDebugItems("pinned"),
 		excludedEvidence: toDebugItems("excluded"),
-	};
-}
-
-async function upsertEvidenceRole(params: {
-	taskId: string;
-	userId: string;
-	conversationId: string;
-	artifactId: string;
-	role: "pinned" | "excluded";
-	enabled: boolean;
-}): Promise<void> {
-	const oppositeRole = params.role === "pinned" ? "excluded" : "pinned";
-	await db
-		.delete(taskStateEvidenceLinks)
-		.where(
-			and(
-				eq(taskStateEvidenceLinks.userId, params.userId),
-				eq(taskStateEvidenceLinks.taskId, params.taskId),
-				eq(taskStateEvidenceLinks.artifactId, params.artifactId),
-				eq(taskStateEvidenceLinks.origin, "user"),
-				inArray(taskStateEvidenceLinks.role, [params.role, oppositeRole]),
-			),
-		);
-
-	if (!params.enabled) return;
-
-	const targetArtifacts = await db
-		.select({ artifact: artifacts })
-		.from(artifacts)
-		.where(
-			and(
-				eq(artifacts.userId, params.userId),
-				eq(artifacts.id, params.artifactId),
-			),
-		)
-		.limit(1);
-	const targetArtifact = targetArtifacts[0]?.artifact ?? null;
-	const targetFamilyId = targetArtifact
-		? parseWorkingDocumentMetadata(
-				parseJsonRecord(targetArtifact.metadataJson ?? null),
-			).documentFamilyId
-		: null;
-
-	if (targetFamilyId) {
-		const existingPreferenceRows = await db
-			.select({ link: taskStateEvidenceLinks, artifact: artifacts })
-			.from(taskStateEvidenceLinks)
-			.innerJoin(artifacts, eq(taskStateEvidenceLinks.artifactId, artifacts.id))
-			.where(
-				and(
-					eq(taskStateEvidenceLinks.userId, params.userId),
-					eq(taskStateEvidenceLinks.taskId, params.taskId),
-					eq(taskStateEvidenceLinks.origin, "user"),
-					inArray(taskStateEvidenceLinks.role, ["pinned", "excluded"]),
-				),
-			);
-
-		const conflictingArtifactIds = findConflictingDocumentPreferenceArtifactIds(
-			{
-				entries: existingPreferenceRows.map((row) => ({
-					artifactId: row.link.artifactId,
-					metadata: parseJsonRecord(row.artifact.metadataJson ?? null),
-				})),
-				targetArtifactId: params.artifactId,
-				targetFamilyId,
-			},
-		);
-
-		if (conflictingArtifactIds.length > 0) {
-			await db
-				.delete(taskStateEvidenceLinks)
-				.where(
-					and(
-						eq(taskStateEvidenceLinks.userId, params.userId),
-						eq(taskStateEvidenceLinks.taskId, params.taskId),
-						eq(taskStateEvidenceLinks.origin, "user"),
-						inArray(taskStateEvidenceLinks.role, ["pinned", "excluded"]),
-						inArray(
-							taskStateEvidenceLinks.artifactId,
-							Array.from(new Set(conflictingArtifactIds)),
-						),
-					),
-				);
-		}
-	}
-
-	await db.insert(taskStateEvidenceLinks).values({
-		id: randomUUID(),
-		taskId: params.taskId,
-		userId: params.userId,
-		conversationId: params.conversationId,
-		artifactId: params.artifactId,
-		role: params.role,
-		origin: "user",
-		confidence: 100,
-		reason: params.role === "pinned" ? "Pinned by user" : "Excluded by user",
-		updatedAt: new Date(),
-	});
-}
-
-export async function applyTaskSteeringAction(params: {
-	userId: string;
-	conversationId: string;
-	action: TaskSteeringAction;
-	artifactId?: string | null;
-	objective?: string | null;
-	preference?: "auto" | "pinned" | "excluded" | null;
-}): Promise<{
-	taskState: TaskState | null;
-	contextDebug: ContextDebugState | null;
-}> {
-	let taskState = await getConversationTaskState(
-		params.userId,
-		params.conversationId,
-	);
-
-	switch (params.action) {
-		case "lock_task":
-		case "unlock_task":
-			if (taskState) {
-				await db
-					.update(conversationTaskStates)
-					.set({
-						locked: params.action === "lock_task" ? 1 : 0,
-						updatedAt: new Date(),
-					})
-					.where(
-						and(
-							eq(conversationTaskStates.userId, params.userId),
-							eq(conversationTaskStates.taskId, taskState.taskId),
-						),
-					);
-			}
-			break;
-		case "start_new_task": {
-			const nextObjective = params.objective?.trim()
-				? clipText(params.objective.trim(), 220)
-				: "New task";
-			const created = await createTaskState({
-				userId: params.userId,
-				conversationId: params.conversationId,
-				objective: nextObjective,
-				status: "candidate",
-				confidence: 100,
-				locked: true,
-			});
-			await setCurrentTask(
-				created.taskId,
-				params.userId,
-				params.conversationId,
-				"candidate",
-			);
-			taskState = created;
-			break;
-		}
-		case "pin_artifact":
-		case "exclude_artifact":
-		case "unpin_artifact":
-		case "include_artifact":
-		case "set_artifact_preference":
-			if (taskState && params.artifactId) {
-				const nextPreference =
-					params.action === "set_artifact_preference"
-						? (params.preference ?? "auto")
-						: params.action === "pin_artifact"
-							? "pinned"
-							: params.action === "exclude_artifact"
-								? "excluded"
-								: "auto";
-				await upsertEvidenceRole({
-					taskId: taskState.taskId,
-					userId: params.userId,
-					conversationId: params.conversationId,
-					artifactId: params.artifactId,
-					role: nextPreference === "pinned" ? "pinned" : "excluded",
-					enabled: nextPreference !== "auto",
-				});
-			}
-			break;
-	}
-
-	taskState = await getConversationTaskState(
-		params.userId,
-		params.conversationId,
-	);
-	return {
-		taskState,
-		contextDebug: await getContextDebugState(
-			params.userId,
-			params.conversationId,
-		),
 	};
 }
 

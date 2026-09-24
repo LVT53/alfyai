@@ -834,6 +834,13 @@
       "when": 1777140000105,
       "tag": "1777140000105_recency_backfill_last_message_time",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1777140000106,
+      "tag": "1777140000106_retire_user_evidence_preferences",
+      "breakpoints": true
     }
   ]
 }

@@ -20,7 +20,6 @@ export type TaskEvidenceRole =
 	| "checkpoint_source";
 export type TaskEvidenceOrigin = "system" | "user";
 export type TaskCheckpointType = "micro" | "stable";
-export type EvidencePreference = "auto" | "pinned" | "excluded";
 
 export interface TaskEvidenceLink {
 	id: string;
@@ -69,21 +68,4 @@ export interface TaskState {
 	lastCheckpointAt: number | null;
 	createdAt: number;
 	updatedAt: number;
-}
-
-export type TaskSteeringAction =
-	| "lock_task"
-	| "unlock_task"
-	| "start_new_task"
-	| "set_artifact_preference"
-	| "pin_artifact"
-	| "unpin_artifact"
-	| "exclude_artifact"
-	| "include_artifact";
-
-export interface TaskSteeringPayload {
-	action: TaskSteeringAction;
-	artifactId?: string;
-	objective?: string;
-	preference?: EvidencePreference;
 }

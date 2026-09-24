@@ -1,0 +1,33 @@
+-- Owner-approved one-off data migration (2026-09). The "Manage context
+-- sources" panel was the only writer of user-origin evidence preferences:
+-- its steering endpoint
+-- (src/routes/api/conversations/[id]/task-steering/+server.ts) called
+-- `applyTaskSteeringAction` → `upsertEvidenceRole` in
+-- src/lib/server/services/task-state.ts, which stored one
+-- `task_state_evidence_links` row per pinned/excluded artifact with
+-- `origin = 'user'`.
+--
+-- That surface is retired in the same change, together with the read side
+-- that consumed those rows (`prepareTaskContext` in task-state.ts and its
+-- consumers in chat-turn/context-selection.ts, plus the duplicate-repair
+-- exemption in evidence-family.ts). Deleting only the writer would leave
+-- rows that nothing can create, update, delete or read — so the stored
+-- preferences themselves are retired here, at the same commit, rather than
+-- left behind as dead data.
+--
+-- Scope is deliberately narrow:
+--   * only `role IN ('pinned','excluded')`, the two roles this panel wrote;
+--   * only `origin = 'user'`, so system-side links are untouched;
+--   * `role = 'selected'` rows are NOT touched, because the system-side
+--     selected-evidence links (`replaceSystemSelectedEvidenceLinks`) remain
+--     the live substrate of this table and are still read by
+--     `getContextDebugState` and retry cleanup.
+-- The table itself stays: it is still used, still listed in
+-- scripts/prepare-db.ts and in
+-- src/lib/server/services/account-lifecycle/user-scoped-tables.ts, and no
+-- schema change accompanies this migration.
+--
+-- Idempotent: a second run matches no rows.
+DELETE FROM `task_state_evidence_links`
+WHERE `role` IN ('pinned', 'excluded')
+	AND `origin` = 'user';

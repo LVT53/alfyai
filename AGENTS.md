@@ -351,7 +351,7 @@ Do not:
 Task/document continuity and profile memory are separate subsystems. Continuity lives on `task-state.ts`; durable profile memory (facts about the user) is owned by the local Memory Profile Projection plus the LLM intake judge and nightly consolidation. There is no external memory service.
 
 - Continuity boundary:
-  - [`src/lib/server/services/task-state.ts`](./src/lib/server/services/task-state.ts) plus its internal modules under `task-state/` (control-model, continuity, artifacts, chunk-sync, document-preferences, mappers)
+  - [`src/lib/server/services/task-state.ts`](./src/lib/server/services/task-state.ts) plus its internal modules under `task-state/` (control-model, continuity, artifacts, chunk-sync, mappers)
 - Profile memory judge (intake):
   - [`src/lib/server/services/memory-judge/`](./src/lib/server/services/memory-judge/) — `index.ts` (per-segment run), `runner.ts` (idle/dirty sweep), `segment.ts` (watermarks), `prompt.ts`, `schema.ts`
 - Consolidation (nightly rework):

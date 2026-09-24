@@ -10,6 +10,7 @@ const {
 	mockRerankItems,
 	mockCanUseTeiReranker,
 	insertedEvidenceRows,
+	evidenceLinkRows,
 	taskStateRows,
 	conversationRows,
 	checkpointRows,
@@ -29,6 +30,7 @@ const {
 		),
 		mockCanUseTeiReranker: vi.fn(() => false),
 		insertedEvidenceRows: [] as Array<Record<string, unknown>>,
+		evidenceLinkRows: [] as Array<Record<string, unknown>>,
 		taskStateRows: [] as Array<Record<string, unknown>>,
 		conversationRows: [] as Array<Record<string, unknown>>,
 		checkpointRows: [] as Array<Record<string, unknown>>,
@@ -105,6 +107,9 @@ vi.mock("$lib/server/db", () => ({
 				}
 				if (table?.__name === "artifact_links") {
 					return createSelectChain([]);
+				}
+				if (table?.__name === "task_state_evidence_links") {
+					return createSelectChain(evidenceLinkRows);
 				}
 				if (table?.__name === "conversations") {
 					return createSelectChain(conversationRows);
@@ -294,6 +299,7 @@ describe("task-state learning - task continuity gate", () => {
 		vi.clearAllMocks();
 		vi.resetModules();
 		insertedEvidenceRows.splice(0, insertedEvidenceRows.length);
+		evidenceLinkRows.splice(0, evidenceLinkRows.length);
 		mockRecordMemoryEvent.mockReset();
 		mockRecordMemoryEvent.mockResolvedValue(undefined);
 		mockListLatestMemoryEventsBySubject.mockResolvedValue(new Map());
@@ -402,8 +408,103 @@ describe("task-state selected evidence policy", () => {
 		vi.resetModules();
 		taskStateRows.splice(0, taskStateRows.length);
 		insertedEvidenceRows.splice(0, insertedEvidenceRows.length);
+		evidenceLinkRows.splice(0, evidenceLinkRows.length);
 		mockCanUseTeiReranker.mockReturnValue(false);
 		mockRerankItems.mockResolvedValue(null);
+	});
+
+	it("no longer resolves user-pinned or user-excluded evidence", async () => {
+		// The "Manage context sources" panel was the only writer of user-origin
+		// pinned/excluded rows, and the migration in this change deletes the
+		// ones already stored. A read side that still filtered on them would be
+		// permanently empty — invisible, but wrong — so the selection must not
+		// consult them at all, even when a row is present.
+		const now = Date.now();
+		taskStateRows.push({
+			taskId: "task-1",
+			userId: "user-1",
+			conversationId: "conv-1",
+			status: "active",
+			objective: "Answer the current question",
+			confidence: 80,
+			locked: 1,
+			constraintsJson: "[]",
+			factsToPreserveJson: "[]",
+			decisionsJson: "[]",
+			openQuestionsJson: "[]",
+			activeArtifactIdsJson: "[]",
+			nextStepsJson: "[]",
+			lastCheckpointAt: null,
+			createdAt: new Date(now),
+			updatedAt: new Date(now),
+		});
+		evidenceLinkRows.push({
+			id: "link-pinned",
+			taskId: "task-1",
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "doc-pinned",
+			chunkIndex: null,
+			role: "pinned",
+			origin: "user",
+			confidence: 100,
+			reason: "Pinned by user",
+			createdAt: new Date(now),
+			updatedAt: new Date(now),
+		});
+		evidenceLinkRows.push({
+			id: "link-excluded",
+			taskId: "task-1",
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "doc-excluded",
+			chunkIndex: null,
+			role: "excluded",
+			origin: "user",
+			confidence: 100,
+			reason: "Excluded by user",
+			createdAt: new Date(now),
+			updatedAt: new Date(now),
+		});
+		const pinnedDocument = makeArtifact({
+			id: "doc-pinned",
+			type: "normalized_document",
+			conversationId: "conv-1",
+			name: "Pinned handbook",
+			summary: "Internal support procedures",
+			contentText: "Escalation policy and support team operating procedures",
+			updatedAt: now,
+		});
+		// The excluded row used to drop its artifact from the candidate list
+		// before scoring; it is an ordinary relevant document again.
+		const excludedDocument = makeArtifact({
+			id: "doc-excluded",
+			type: "normalized_document",
+			conversationId: "conv-1",
+			name: "Excluded handbook",
+			summary: "Internal support procedures",
+			contentText: "Escalation policy and support team operating procedures",
+			updatedAt: now,
+		});
+
+		const { prepareTaskContext } = await import("./task-state");
+		const selection = await prepareTaskContext({
+			userId: "user-1",
+			conversationId: "conv-1",
+			message: "escalation policy for refunds",
+			currentAttachments: [],
+			workingSetArtifacts: [],
+			relevantArtifacts: [pinnedDocument, excludedDocument],
+		});
+
+		expect(selection).not.toHaveProperty("pinnedArtifactIds");
+		expect(selection).not.toHaveProperty("excludedArtifactIds");
+		// Seeded rows exist and are readable, so this is not passing because
+		// the harness never supplied them.
+		expect(evidenceLinkRows).toHaveLength(2);
+		expect(
+			selection.selectedArtifacts.map((artifact) => artifact.id).sort(),
+		).toEqual(["doc-excluded", "doc-pinned"]);
 	});
 
 	it("scales selected evidence from budget instead of the old small fixed caps", async () => {

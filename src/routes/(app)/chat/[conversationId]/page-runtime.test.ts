@@ -269,7 +269,6 @@ vi.mock("$lib/client/api/admin", () => ({
 }));
 
 vi.mock("$lib/client/api/conversations", () => ({
-	applyTaskSteering: vi.fn(),
 	createConversationFork: vi.fn(),
 	deleteConversation: vi.fn(),
 	deletePreparedConversation: vi.fn(async () => undefined),

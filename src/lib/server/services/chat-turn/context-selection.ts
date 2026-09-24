@@ -523,7 +523,6 @@ function buildContextSelectionCandidates(params: {
 	evidenceItems?: Array<{
 		id: string;
 		title: string;
-		pinned: boolean;
 	}>;
 }): ContextSelectionCandidate[] {
 	const documentContextSignalReasons =
@@ -600,26 +599,20 @@ function buildContextSelectionCandidates(params: {
 									"linked_context_source:direct",
 									...documentContextSignalReasons,
 								]
-							: isEvidenceSection && evidenceItems.some((item) => item.pinned)
-								? [
-										"pinned_evidence",
-										"working_set_context:budgeted",
-										...documentContextSignalReasons,
-									]
-								: isEvidenceSection
-									? documentContextSignalReasons
-									: section.title === "Session Context"
-										? ["recent_turn_context:budgeted"]
-										: section.title === "Context Compression Snapshot"
-											? ["context_compression_snapshot:valid"]
-											: section.title === "Baseline Memory Profile"
-												? ["active_memory_profile:projection"]
-												: promotedSibling
-													? [
-															"project_folder_sibling:query_match",
-															`project_folder_sibling_score:${promotedSibling.score}`,
-														]
-													: [],
+							: isEvidenceSection
+								? documentContextSignalReasons
+								: section.title === "Session Context"
+									? ["recent_turn_context:budgeted"]
+									: section.title === "Context Compression Snapshot"
+										? ["context_compression_snapshot:valid"]
+										: section.title === "Baseline Memory Profile"
+											? ["active_memory_profile:projection"]
+											: promotedSibling
+												? [
+														"project_folder_sibling:query_match",
+														`project_folder_sibling_score:${promotedSibling.score}`,
+													]
+												: [],
 		};
 	});
 }
@@ -1698,14 +1691,11 @@ export async function buildConstructedContext(params: {
 					...currentAttachments,
 					...workingSetArtifacts,
 				]),
-				pinnedArtifactIds: [] as string[],
-				excludedArtifactIds: [] as string[],
 			}));
 	const taskState = preparedContext.taskState;
 	const selectedEvidence = preparedContext.selectedArtifacts.filter(
 		(artifact) => !allAttachmentContextIds.has(artifact.id),
 	);
-	const pinnedArtifactIds = new Set(preparedContext.pinnedArtifactIds);
 
 	const promptArtifacts = new Map<string, Artifact>();
 	for (const artifact of [
@@ -1981,9 +1971,7 @@ export async function buildConstructedContext(params: {
 				perArtifactCharBudget: documentDepthBudget.perArtifactCharBudget,
 			}),
 			layer: "working_set",
-			protected: selectedEvidence.some((artifact) =>
-				pinnedArtifactIds.has(artifact.id),
-			),
+			protected: false,
 		});
 	}
 
@@ -2081,7 +2069,6 @@ export async function buildConstructedContext(params: {
 			evidenceItems: selectedEvidence.map((artifact) => ({
 				id: artifact.id,
 				title: artifact.name,
-				pinned: pinnedArtifactIds.has(artifact.id),
 			})),
 		}),
 		targetTokens: targetBudget,

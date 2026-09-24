@@ -307,8 +307,6 @@ function resetConstructedContextMocks() {
 				contentText: "Evidence body with release risk notes.",
 			}),
 		],
-		pinnedArtifactIds: ["evidence-1"],
-		excludedArtifactIds: [],
 	});
 	mocks.formatTaskStateForPrompt.mockReturnValue(
 		"Task objective: Ship the launch plan",
@@ -1020,7 +1018,6 @@ describe("buildConstructedContext", () => {
 					name: "Retrieved Evidence",
 					source: "working_set",
 					itemIds: ["evidence-1"],
-					signalReasons: expect.arrayContaining(["pinned_evidence"]),
 				}),
 				expect.objectContaining({
 					name: "Session Context",
@@ -1212,8 +1209,6 @@ describe("buildConstructedContext", () => {
 			routingConfidence: 1,
 			verificationStatus: "verified",
 			selectedArtifacts: [evidence],
-			pinnedArtifactIds: [],
-			excludedArtifactIds: [],
 		});
 		// Snippet preparation failing leaves the serializer to excerpt the raw
 		// document text itself.
@@ -1283,8 +1278,6 @@ describe("buildConstructedContext", () => {
 			routingConfidence: 1,
 			verificationStatus: "verified",
 			selectedArtifacts: evidenceArtifacts,
-			pinnedArtifactIds: [],
-			excludedArtifactIds: [],
 		});
 		mocks.getPromptArtifactSnippets.mockResolvedValue(
 			new Map(
