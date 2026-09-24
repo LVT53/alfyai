@@ -1,8 +1,8 @@
 import { cleanup, render, screen, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ChatMessage } from "$lib/server/services/messages-types";
-import { uiLanguage } from "$lib/stores/settings";
 import { projects } from "$lib/stores/projects";
+import { uiLanguage } from "$lib/stores/settings";
 import ResponseAuditDetails from "./ResponseAuditDetails.svelte";
 
 function buildMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
