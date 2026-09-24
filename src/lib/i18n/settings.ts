@@ -1855,6 +1855,15 @@ const settingsDict = {
 		// Assistant behaviour.
 		"profileTab.assistantTitle": "Assistant behaviour",
 		"profileTab.assistantDesc": "What AlfyAI is allowed to learn and follow.",
+		// Personal instructions: the first row of the card, and the only place
+		// the text itself is ever shown (the row prints a truncated preview and
+		// the dialog holds the whole thing).
+		"profileTab.personalInstructions": "Personal instructions",
+		"profileTab.personalInstructionsHelp":
+			"Followed in every chat. Project instructions take priority inside a project.",
+		"profileTab.personalInstructionsAdd": "Add instructions",
+		"profileTab.personalInstructionsEdit": "Edit",
+		"profileTab.personalInstructionsEmpty": "Not set",
 		"profileTab.memoryOn": "On",
 		"profileTab.memoryOff": "Off",
 		"profileTab.skillsHelp":
@@ -3813,6 +3822,12 @@ const settingsDict = {
 		// Az asszisztens viselkedése.
 		"profileTab.assistantTitle": "Az asszisztens viselkedése",
 		"profileTab.assistantDesc": "Mit tanulhat meg és mit követhet az AlfyAI.",
+		"profileTab.personalInstructions": "Személyes utasítások",
+		"profileTab.personalInstructionsHelp":
+			"Minden csevegésben érvényes. Egy projekten belül a projekt utasításai élveznek elsőbbséget.",
+		"profileTab.personalInstructionsAdd": "Utasítások hozzáadása",
+		"profileTab.personalInstructionsEdit": "Szerkesztés",
+		"profileTab.personalInstructionsEmpty": "Nincs beállítva",
 		"profileTab.memoryOn": "Be",
 		"profileTab.memoryOff": "Ki",
 		"profileTab.skillsHelp":

@@ -4,6 +4,11 @@ import { get } from "svelte/store";
 import { goto, invalidate } from "$app/navigation";
 import PageSwitcher from "$lib/components/ui/PageSwitcher.svelte";
 import ProfilePictureEditor from "$lib/components/ui/ProfilePictureEditor.svelte";
+import InstructionsDialog from "$lib/components/instructions/InstructionsDialog.svelte";
+import {
+	type InstructionScope,
+	normalizeInstructionText,
+} from "$lib/shared/instructions";
 import { clearConversationSessionState } from "$lib/client/conversation-session";
 import {
 	clearMemoryAndKnowledge,
@@ -214,6 +219,18 @@ let selectedMemoryEnabled = $state<boolean>(
 	initialPreferences.memoryEnabled ?? true,
 );
 let memorySaving = $state(false);
+
+// Personal instructions (Workspaces feature 1, slice C). The page owns the
+// write; the shared dialog owns the editing, so Slice D's project scope and
+// Slice F's /instruction can open the same component with a different scope.
+const PERSONAL_INSTRUCTION_SCOPE: InstructionScope = { kind: "personal" };
+const PERSONAL_INSTRUCTION_SCOPES: InstructionScope[] = [
+	PERSONAL_INSTRUCTION_SCOPE,
+];
+let personalInstructions = $state<string | null>(
+	initialPreferences.personalInstructions ?? null,
+);
+let instructionsDialogOpen = $state(false);
 let personalityProfiles = $state<
 	Array<{ id: string; name: string; description: string }>
 >([]);
@@ -651,6 +668,32 @@ async function changeMemoryEnabled(enabled: boolean) {
 		selectedMemoryEnabled = previous;
 	} finally {
 		memorySaving = false;
+	}
+}
+
+// Optimistic like changeMemoryEnabled, but it answers the dialog instead of
+// swallowing: the dialog stays open with the text intact when the write fails,
+// because closing would throw away what the user just wrote.
+//
+// The failure message is the dialog's own localized one rather than the
+// thrown text: server prose is English, and "Instructions are too long" is a
+// sentence a Hungarian reader would get in the wrong language. The too-long
+// case is refused locally anyway — the counter and the disabled Save are the
+// same rule the API enforces.
+async function savePersonalInstructions(payload: {
+	scope: InstructionScope;
+	text: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+	const previous = personalInstructions;
+	personalInstructions = normalizeInstructionText(payload.text);
+	try {
+		await updateUserPreferences({ personalInstructions: payload.text });
+		instructionsDialogOpen = false;
+		return { ok: true };
+	} catch {
+		// Revert the optimistic row so it keeps showing what is stored.
+		personalInstructions = previous;
+		return { ok: false, error: "" };
 	}
 }
 
@@ -1124,6 +1167,8 @@ $effect(() => {
 				memoryEnabled={selectedMemoryEnabled}
 				{memorySaving}
 				onChangeMemoryEnabled={changeMemoryEnabled}
+				{personalInstructions}
+				onOpenPersonalInstructions={() => (instructionsDialogOpen = true)}
 				{personalityProfiles}
 				{selectedPersonalityId}
 				onChangePersonality={changePersonality}
@@ -1147,6 +1192,15 @@ $effect(() => {
 				selectedPersonalMonth={analyticsMonth}
 				onPersonalMonthChange={handleMonthChange}
 				onPersonalTimelineChange={handleTimelineChange}
+			/>
+
+			<InstructionsDialog
+				open={instructionsDialogOpen}
+				scope={PERSONAL_INSTRUCTION_SCOPE}
+				scopes={PERSONAL_INSTRUCTION_SCOPES}
+				initialText={{ personal: personalInstructions ?? "" }}
+				onSave={savePersonalInstructions}
+				onClose={() => (instructionsDialogOpen = false)}
 			/>
 		{/if}
 

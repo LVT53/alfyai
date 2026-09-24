@@ -33,6 +33,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	ExternalLink,
+	Pencil,
 	Trash2,
 	Upload,
 } from "@lucide/svelte";
@@ -107,6 +108,8 @@ let {
 	memoryEnabled = true,
 	memorySaving = false,
 	onChangeMemoryEnabled = undefined,
+	personalInstructions = null,
+	onOpenPersonalInstructions = undefined,
 	personalityProfiles = [],
 	selectedPersonalityId = null,
 	onChangePersonality = undefined,
@@ -171,6 +174,10 @@ let {
 	onChangeMemoryEnabled?:
 		| ((enabled: boolean) => void | Promise<void>)
 		| undefined;
+	/** The saved text, or null when nothing has been set. */
+	personalInstructions?: string | null;
+	/** Opens the shared instructions dialog; the page owns the write. */
+	onOpenPersonalInstructions?: (() => void) | undefined;
 	personalityProfiles?: Array<{
 		id: string;
 		name: string;
@@ -646,6 +653,43 @@ function handlePersonalitySelect(event: Event) {
 				</div>
 			</div>
 			<div class="settings-rows">
+				<!-- First row: instructions change every answer, Memory only
+				     changes what AlfyAI may learn. The preview prints the saved
+				     text truncated to one line — the whole text is in the dialog,
+				     and a row that wrapped would push the rest of the card off
+				     the screen. -->
+				<div class="settings-row">
+					<div class="settings-row-text">
+						<p class="settings-row-label">
+							{$t('profileTab.personalInstructions')}
+						</p>
+						<p class="settings-row-help">
+							{$t('profileTab.personalInstructionsHelp')}
+						</p>
+						<p
+							class="instructions-preview"
+							class:instructions-preview--empty={!personalInstructions}
+							data-testid="personal-instructions-preview"
+						>
+							{personalInstructions ||
+								$t('profileTab.personalInstructionsEmpty')}
+						</p>
+					</div>
+					<div class="settings-row-control">
+						<button
+							type="button"
+							class="settings-row-link instructions-open"
+							data-testid="personal-instructions-open"
+							onclick={() => onOpenPersonalInstructions?.()}
+						>
+							<Pencil size={13} strokeWidth={2} aria-hidden="true" />
+							{personalInstructions
+								? $t('profileTab.personalInstructionsEdit')
+								: $t('profileTab.personalInstructionsAdd')}
+						</button>
+					</div>
+				</div>
+
 				<!-- /settings?section=memory (the Knowledge memory empty state links
 				     here) scrolls this id into view and rings it. It names the one
 				     row the link is about: the rebuild had moved it onto the row
@@ -1128,6 +1172,26 @@ function handlePersonalitySelect(event: Event) {
 		cursor: not-allowed;
 	}
 
+	/* ── Personal instructions ─────────────────────────────────────────── */
+	/* One line, truncated. The full text lives in the dialog: this is a
+	   reminder that something is set, not a place to read it. */
+	.instructions-preview {
+		margin: 0.4375rem 0 0 0;
+		padding: 0.375rem 0.5625rem;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		background: var(--surface-page);
+		font-size: var(--text-xs);
+		color: var(--text-primary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.instructions-preview--empty {
+		color: var(--text-muted);
+	}
+
 	/* ── Row furniture ─────────────────────────────────────────────────── */
 	.settings-row-hint {
 		font-size: 0.75rem;
@@ -1328,6 +1392,11 @@ function handlePersonalitySelect(event: Event) {
 
 		.settings-row {
 			align-items: flex-start;
+		}
+
+		/* Same 44px floor the rest of the tab's single-button controls get. */
+		.settings-row-link.instructions-open {
+			min-height: 44px;
 		}
 
 		.settings-row :global(.btn-sm) {
