@@ -12,6 +12,7 @@ import type { AtlasPipelineJobContext } from "../atlas/types";
 import type { AtlasV3ProfileConfig } from "./config";
 import type { AtlasV3ModelCalls } from "./model-call";
 import { runAtlasV3Pipeline } from "./pipeline";
+import { stripAtlasV3SourceMarkers } from "./prompt-fence";
 import { extractAtlasV3ParentReport } from "./seed";
 import {
 	fakeLocalSources,
@@ -273,7 +274,8 @@ function buildFakes(options: {
 				showAnswerTable: false,
 			}),
 		"v3:verdict": (prompt: string) => {
-			const evidence = JSON.parse(prompt).evidence as Array<{
+			const evidence = JSON.parse(stripAtlasV3SourceMarkers(prompt))
+				.evidence as Array<{
 				id: string;
 				text: string;
 			}>;
@@ -375,7 +377,7 @@ function roundOneMemo(fakes: Awaited<ReturnType<typeof run>>) {
 	const entry = fakes.models.control.prompts.find(
 		(prompt) => prompt.stage === "v3:memo:1",
 	);
-	return JSON.parse(entry?.prompt ?? "{}");
+	return JSON.parse(stripAtlasV3SourceMarkers(entry?.prompt ?? "{}"));
 }
 
 describe("runAtlasV3Pipeline, lifecycle seeding", () => {
@@ -427,7 +429,9 @@ describe("runAtlasV3Pipeline, lifecycle seeding", () => {
 		const fakes = await run("continue", {
 			seed: parentSeed({ action: "continue" }),
 		});
-		const askPrompt = JSON.parse(fakes.models.ask.prompts[0]?.prompt ?? "{}");
+		const askPrompt = JSON.parse(
+			stripAtlasV3SourceMarkers(fakes.models.ask.prompts[0]?.prompt ?? "{}"),
+		);
 		expect(askPrompt.instruction).toBe("Now look at heat pumps too");
 		expect(askPrompt.parent).toEqual({
 			action: "continue",
@@ -485,9 +489,9 @@ describe("runAtlasV3Pipeline, lifecycle seeding", () => {
 			(entry) =>
 				entry.stage.startsWith("v3:read:s") && entry.prompt.includes("70.2 GW"),
 		);
-		expect(JSON.parse(readStage?.prompt ?? "{}").goal).toBe(
-			"How did EU solar and heat pumps change in 2025?",
-		);
+		expect(
+			JSON.parse(stripAtlasV3SourceMarkers(readStage?.prompt ?? "{}")).goal,
+		).toBe("How did EU solar and heat pumps change in 2025?");
 		expect(fakes.web.searchCalls.map((call) => call.question)).toContain(
 			"EU heat pump sales change 2026",
 		);
@@ -524,7 +528,9 @@ describe("runAtlasV3Pipeline, lifecycle seeding", () => {
 			entry.stage.startsWith("v3:outline:"),
 		);
 		expect(outlinePrompt?.prompt).toContain("Additions held at 65.1 GW");
-		const askPrompt = JSON.parse(fakes.models.ask.prompts[0]?.prompt ?? "{}");
+		const askPrompt = JSON.parse(
+			stripAtlasV3SourceMarkers(fakes.models.ask.prompts[0]?.prompt ?? "{}"),
+		);
 		expect(askPrompt.parent.action).toBe("revise");
 		expect(askPrompt.instruction).toBe("Now look at heat pumps too");
 	});
@@ -590,7 +596,9 @@ describe("runAtlasV3Pipeline, lifecycle seeding", () => {
 			sourcesSeeded: 0,
 			quotesSeeded: 0,
 		});
-		const askPrompt = JSON.parse(fakes.models.ask.prompts[0]?.prompt ?? "{}");
+		const askPrompt = JSON.parse(
+			stripAtlasV3SourceMarkers(fakes.models.ask.prompts[0]?.prompt ?? "{}"),
+		);
 		expect(askPrompt.parent).toEqual({
 			action: "fork",
 			title: "EU solar additions, 2025",
@@ -632,7 +640,9 @@ describe("runAtlasV3Pipeline, lifecycle seeding", () => {
 			seedPagesRead: 2,
 			sourcesSeeded: 0,
 		});
-		const askPrompt = JSON.parse(fakes.models.ask.prompts[0]?.prompt ?? "{}");
+		const askPrompt = JSON.parse(
+			stripAtlasV3SourceMarkers(fakes.models.ask.prompts[0]?.prompt ?? "{}"),
+		);
 		expect(askPrompt.parent.headings).toEqual(["Risks"]);
 		expect(askPrompt.parent.title).toBe("Enterprise Search Atlas");
 		expect(fakes.prose).toContain(QUOTE_FRESH);
@@ -699,7 +709,9 @@ describe("runAtlasV3Pipeline, lifecycle seeding", () => {
 		expect(fakes.checkpoints.some((entry) => entry.roundNumber === 10)).toBe(
 			false,
 		);
-		const askPrompt = JSON.parse(fakes.models.ask.prompts[0]?.prompt ?? "{}");
+		const askPrompt = JSON.parse(
+			stripAtlasV3SourceMarkers(fakes.models.ask.prompts[0]?.prompt ?? "{}"),
+		);
 		expect(askPrompt.parent).toBeUndefined();
 		expect(askPrompt.instruction).toBe("Now look at heat pumps too");
 	});

@@ -25,6 +25,7 @@ import {
 	removeAtlasV3SourceWithoutQuotes,
 	thawAtlasV3Bank,
 } from "./evidence-bank";
+import { stripAtlasV3SourceMarkers } from "./prompt-fence";
 
 function bankWithSource(url = "https://iea.org/reports/solar-2025") {
 	const state = createAtlasV3Bank();
@@ -1344,7 +1345,7 @@ describe("buildAtlasV3ReadPrompt", () => {
 			maxPageChars: 100,
 			currentDate: "2026-09-10",
 		});
-		const parsed = JSON.parse(prompt);
+		const parsed = JSON.parse(stripAtlasV3SourceMarkers(prompt));
 		expect(parsed.goal).toBe("EU solar additions 2025");
 		expect(parsed.source.tier).toBe("primary");
 		expect(parsed.page).toHaveLength(100);
@@ -1592,13 +1593,15 @@ describe("the local verbatim guard", () => {
 describe("buildAtlasV3LocalReadPrompt", () => {
 	it("keeps the passage separators and names the source as the user's document", () => {
 		const parsed = JSON.parse(
-			buildAtlasV3LocalReadPrompt({
-				goals: ["core", "sub"],
-				language: "en",
-				title: "Budget.xlsx",
-				passages: ["first\n\npassage", "second passage"],
-				currentDate: "2026-09-10",
-			}),
+			stripAtlasV3SourceMarkers(
+				buildAtlasV3LocalReadPrompt({
+					goals: ["core", "sub"],
+					language: "en",
+					title: "Budget.xlsx",
+					passages: ["first\n\npassage", "second passage"],
+					currentDate: "2026-09-10",
+				}),
+			),
 		);
 		expect(parsed.goals).toEqual(["core", "sub"]);
 		expect(parsed.source).toEqual({

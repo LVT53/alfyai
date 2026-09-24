@@ -32,6 +32,11 @@ import { atlasV3AlsoStatedBy } from "./evidence-bank";
 import { atlasV3LanguageStandard } from "./language-standard";
 import type { AtlasV3ModelCall } from "./model-call";
 import {
+	ATLAS_V3_SOURCE_FENCE_RULE,
+	createAtlasV3SourceFence,
+	stripAtlasV3SourceMarkers,
+} from "./prompt-fence";
+import {
 	ATLAS_V3_SENTENCE_KINDS,
 	type AtlasV3AnswerTable,
 	type AtlasV3Ask,
@@ -93,6 +98,7 @@ const WRITER_BASE: Record<SupportedLanguage, string[]> = {
 		"NO HOLLOW SENTENCES. Every sentence carries a fact, a number, a comparison or a judgement. Never open with what the section is about.",
 		"FEWER SENTENCES THAT EACH CARRY A NEW FIGURE BEAT THE SENTENCE TARGET. Never restate a figure already stated in this section. `budget.minSentences` is a floor, not a quota to fill.",
 		'Set "showAnswerTable" to true in AT MOST ONE section — the one whose argument the table IS. Leave it false everywhere else.',
+		ATLAS_V3_SOURCE_FENCE_RULE.en,
 	],
 	hu: [
 		"EGY szakaszt írsz egy kutatási jelentésből. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -110,6 +116,7 @@ const WRITER_BASE: Record<SupportedLanguage, string[]> = {
 		"SEMMILYEN ÜRES MONDAT. Minden mondat tényt, számot, összevetést vagy ítéletet hordoz. Soha ne kezdd azzal, miről szól a szakasz.",
 		"KEVESEBB MONDAT, AMELYEK MINDEGYIKE ÚJ SZÁMOT HOZ, TÖBBET ÉR A MONDATSZÁMNÁL. Soha ne mondj ki újra olyan számot, amely ebben a szakaszban már elhangzott. A `budget.minSentences` alsó határ, nem kitöltendő keret.",
 		'A "showAnswerTable" LEGFELJEBB EGY szakaszban legyen true — abban, amelynek az érvelése maga a táblázat. Máshol false.',
+		ATLAS_V3_SOURCE_FENCE_RULE.hu,
 	],
 };
 
@@ -142,12 +149,14 @@ export const ATLAS_V3_PLAIN_TEXT_WRITER_SYSTEM: Record<
 		"One sentence per line. End each line with the evidence ids it rests on, in braces: {e3} or {e3,e7}.",
 		"A sentence stating a figure, a date, a name or a quantity MUST end with at least one id. A sentence with no id must state a judgement, never a fact.",
 		"Never write a bracketed number and never write a URL.",
+		ATLAS_V3_SOURCE_FENCE_RULE.en,
 	].join("\n"),
 	hu: [
 		"EGY szakaszt írsz egy kutatási jelentésből, SIMA SZÖVEGKÉNT. Se JSON, se cím, se felsorolás, se kódkerítés.",
 		"Soronként egy mondat. Minden sor végén kapcsos zárójelben a bizonyítékazonosítók: {e3} vagy {e3,e7}.",
 		"Számot, dátumot, nevet vagy mennyiséget állító mondat végén KÖTELEZŐ legalább egy azonosító. Azonosító nélküli mondat csak ítéletet mondhat ki, tényt soha.",
 		"Soha ne írj szögletes zárójeles számot, és soha ne írj URL-t.",
+		ATLAS_V3_SOURCE_FENCE_RULE.hu,
 	].join("\n"),
 };
 
@@ -182,6 +191,7 @@ export interface BuildAtlasV3SectionPromptInput {
 export function buildAtlasV3SectionPrompt(
 	input: BuildAtlasV3SectionPromptInput,
 ): string {
+	const fence = createAtlasV3SourceFence();
 	return JSON.stringify({
 		task: "write_section",
 		coreQuestion: input.ask.coreQuestion,
@@ -223,7 +233,10 @@ export function buildAtlasV3SectionPrompt(
 			title: section.title,
 			sentences: section.sentences.slice(0, PREVIOUS_SECTION_SENTENCES),
 		})),
-		evidence: input.evidence,
+		evidence: input.evidence.map((entry) => ({
+			...entry,
+			text: fence.wrap(entry.text),
+		})),
 		budget: {
 			targetWords: input.budget.targetWords,
 			minSentences: input.budget.minSentences,
@@ -351,7 +364,7 @@ function parseKind(value: unknown, evidenceCount: number): AtlasV3SentenceKind {
  */
 export function cleanSentenceText(value: unknown): string {
 	if (typeof value !== "string") return "";
-	return value
+	return stripAtlasV3SourceMarkers(value)
 		.replace(/\[\s*\d+(?:\s*[,;]\s*\d+)*\s*\]/g, "")
 		.replace(/\bhttps?:\/\/\S+/gi, "")
 		.replace(/\{\s*e\d+(?:\s*,\s*e\d+)*\s*\}/gi, "")
@@ -674,6 +687,7 @@ export const ATLAS_V3_VERDICT_SYSTEM: Record<SupportedLanguage, string> = {
 		"If the report could NOT answer the question, say so in the first sentence and say what is missing. Do not pad.",
 		"`doNotState`, when present, lists sentences a previous draft made whose figures no quote supports. Do not state them again, and do not refer back to them with `these`, `this` or `they`. Every sentence must stand on its own.",
 		ATLAS_V3_USER_DOCUMENT_ATTRIBUTION.en,
+		ATLAS_V3_SOURCE_FENCE_RULE.en,
 	].join("\n"),
 	hu: [
 		"A kutatási jelentést nyitó ÍTÉLETET írod. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -685,6 +699,7 @@ export const ATLAS_V3_VERDICT_SYSTEM: Record<SupportedLanguage, string> = {
 		"Ha a jelentés NEM tudta megválaszolni a kérdést, az első mondat mondja ki ezt, és mondja meg, mi hiányzik. Ne tölts ki helyet.",
 		"A `doNotState`, ha szerepel, egy korábbi változat olyan mondatait sorolja fel, amelyek számait egyetlen idézet sem támasztja alá. Ne mondd ki őket újra, és ne utalj vissza rájuk („ezek”, „ez”, „azok”). Minden mondat álljon meg önmagában.",
 		ATLAS_V3_USER_DOCUMENT_ATTRIBUTION.hu,
+		ATLAS_V3_SOURCE_FENCE_RULE.hu,
 	].join("\n"),
 };
 
@@ -717,6 +732,7 @@ export interface BuildAtlasV3VerdictPromptInput {
 export function buildAtlasV3VerdictPrompt(
 	input: BuildAtlasV3VerdictPromptInput,
 ): string {
+	const fence = createAtlasV3SourceFence();
 	return JSON.stringify({
 		task: "write_verdict",
 		coreQuestion: input.ask.coreQuestion,
@@ -740,7 +756,10 @@ export function buildAtlasV3VerdictPrompt(
 				.map((sentence) => sentence.text),
 		})),
 		limitations: input.limitations,
-		evidence: input.evidence,
+		evidence: input.evidence.map((entry) => ({
+			...entry,
+			text: fence.wrap(entry.text),
+		})),
 		...(input.doNotState && input.doNotState.length > 0
 			? { doNotState: input.doNotState }
 			: {}),

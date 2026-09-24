@@ -9,6 +9,7 @@ import type { AtlasPipelineJobContext } from "../atlas/types";
 import { getAtlasV3ProfileConfig } from "./config";
 import type { AtlasV3ModelCall, AtlasV3ModelCalls } from "./model-call";
 import { runAtlasV3Pipeline } from "./pipeline";
+import { stripAtlasV3SourceMarkers } from "./prompt-fence";
 import {
 	fakeLocalSources,
 	fakeModel,
@@ -884,7 +885,8 @@ function buildLocalFakes(options?: {
 				showAnswerTable: false,
 			}),
 		"v3:verdict": (prompt: string) => {
-			const evidence = JSON.parse(prompt).evidence as Array<{
+			const evidence = JSON.parse(stripAtlasV3SourceMarkers(prompt))
+				.evidence as Array<{
 				id: string;
 				text: string;
 			}>;
@@ -1035,7 +1037,9 @@ describe("runAtlasV3Pipeline, local sources", () => {
 
 	it("tells the ask which documents exist and labels them for the writer", async () => {
 		const { models } = await runLocal();
-		const askPrompt = JSON.parse(models.ask.prompts[0]?.prompt ?? "{}");
+		const askPrompt = JSON.parse(
+			stripAtlasV3SourceMarkers(models.ask.prompts[0]?.prompt ?? "{}"),
+		);
 		expect(askPrompt.localSources).toEqual([
 			{
 				title: "Electricity bill 2025.pdf",
@@ -1047,7 +1051,9 @@ describe("runAtlasV3Pipeline, local sources", () => {
 		const write = models.writer.prompts.find((entry) =>
 			entry.stage.startsWith("v3:write:"),
 		);
-		const evidence = JSON.parse(write?.prompt ?? "{}").evidence as Array<{
+		const evidence = JSON.parse(
+			stripAtlasV3SourceMarkers(write?.prompt ?? "{}"),
+		).evidence as Array<{
 			text: string;
 			publisher: string;
 			tier: string;
@@ -1075,7 +1081,9 @@ describe("runAtlasV3Pipeline, local sources", () => {
 		);
 		expect(reads).toHaveLength(1);
 		expect(reads[0]?.system).toContain("ONE document the user provided");
-		expect(JSON.parse(reads[0]?.prompt ?? "{}").source).toEqual({
+		expect(
+			JSON.parse(stripAtlasV3SourceMarkers(reads[0]?.prompt ?? "{}")).source,
+		).toEqual({
 			title: "Electricity bill 2025.pdf",
 			kind: "user_document",
 			date: null,

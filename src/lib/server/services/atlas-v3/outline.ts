@@ -19,6 +19,10 @@ import { ATLAS_V3_MAX_OUTPUT_TOKENS } from "./config";
 import { atlasV3NormalizeField, atlasV3NormalizeWords } from "./evidence-bank";
 import { isLabelShapedTitle } from "./language-standard";
 import type { AtlasV3ModelCall } from "./model-call";
+import {
+	ATLAS_V3_SOURCE_FENCE_RULE,
+	createAtlasV3SourceFence,
+} from "./prompt-fence";
 import type {
 	AtlasV3Ask,
 	AtlasV3Claim,
@@ -733,6 +737,7 @@ export const ATLAS_V3_TRIAL_SYSTEM: Record<SupportedLanguage, string> = {
 		"`lead` is the ONE sentence this section would open with, written only from the quotes. It must contain a figure, a date or a named position.",
 		'Set "supportable" to false when the quotes cannot carry that sentence — when the lead would have to hedge, generalise, or say that the sources do not address the topic.',
 		"Do not write the section. One sentence, then the verdict.",
+		ATLAS_V3_SOURCE_FENCE_RULE.en,
 	].join("\n"),
 	hu: [
 		"Azt vizsgálod, megírható-e egy szakasz a bemutatott idézetekből. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -740,8 +745,29 @@ export const ATLAS_V3_TRIAL_SYSTEM: Record<SupportedLanguage, string> = {
 		"A `lead` az az EGY mondat, amellyel a szakasz kezdődne, kizárólag az idézetekből. Legyen benne szám, dátum vagy megnevezett álláspont.",
 		'A "supportable" akkor false, ha az idézetek nem bírják el ezt a mondatot — ha a nyitómondatnak mentegetőznie, általánosítania kellene, vagy azt kellene mondania, hogy a források nem foglalkoznak a témával.',
 		"Ne írd meg a szakaszt. Egy mondat, aztán az ítélet.",
+		ATLAS_V3_SOURCE_FENCE_RULE.hu,
 	].join("\n"),
 };
+
+/** The trial-write prompt: the node, and ONLY its quotes, fenced. */
+export function buildAtlasV3TrialPrompt(input: {
+	title: string;
+	claim: string;
+	language: SupportedLanguage;
+	quotes: ReadonlyArray<{ id: string; text: string }>;
+}): string {
+	const fence = createAtlasV3SourceFence();
+	return JSON.stringify({
+		task: "trial_write",
+		title: input.title,
+		claim: input.claim,
+		language: input.language,
+		quotes: input.quotes.map((quote) => ({
+			id: quote.id,
+			text: fence.wrap(quote.text),
+		})),
+	});
+}
 
 export interface AtlasV3TrialResult {
 	nodeId: string;
@@ -804,12 +830,11 @@ export async function trialWriteAtlasV3Nodes(
 				thinkingMode: "off",
 				maxOutputTokens: ATLAS_V3_MAX_OUTPUT_TOKENS.trialWrite,
 				system: ATLAS_V3_TRIAL_SYSTEM[input.language],
-				prompt: JSON.stringify({
-					task: "trial_write",
+				prompt: buildAtlasV3TrialPrompt({
 					title: node.title,
 					claim: node.claim,
 					language: input.language,
-					quotes: quotes.map((quote) => ({ id: quote.id, text: quote.text })),
+					quotes,
 				}),
 			});
 			input.onUsage?.(call.usage);

@@ -26,6 +26,7 @@ import {
 import { createAtlasV3LocalSources } from "./local-sources";
 import type { AtlasV3ModelCall, AtlasV3ModelCalls } from "./model-call";
 import { runAtlasV3Pipeline } from "./pipeline";
+import { stripAtlasV3SourceMarkers } from "./prompt-fence";
 import { createAtlasV3ResearchWeb } from "./research-web-adapter";
 import { type AtlasV3SeedReads, loadAtlasV3ParentSeed } from "./seed";
 import type { AtlasV3PipelineResult } from "./types";
@@ -69,7 +70,9 @@ function makeModelCall(input: {
 			...(thinkingMode ? { thinkingMode } : {}),
 		});
 		return {
-			text: result.text,
+			// A source marker the model echoed from a fenced prompt is never part
+			// of an answer: dropped here, once, for every stage.
+			text: stripAtlasV3SourceMarkers(result.text),
 			finishReason: result.finishReason,
 			usage: result.usage,
 		};

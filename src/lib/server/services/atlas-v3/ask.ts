@@ -12,6 +12,10 @@
 
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { parseJsonFromText } from "../atlas/json-extract";
+import {
+	ATLAS_V3_SOURCE_FENCE_RULE,
+	createAtlasV3SourceFence,
+} from "./prompt-fence";
 import { ATLAS_V3_SHAPES, type AtlasV3Ask, type AtlasV3Shape } from "./types";
 
 export const ATLAS_V3_MAX_TITLE_CHARS = 70;
@@ -34,6 +38,7 @@ export const ATLAS_V3_ASK_SYSTEM: Record<SupportedLanguage, string> = {
 		"`parent.verdict` is the previous report's conclusion, for orientation only — it is not evidence and must not be restated as fact.",
 		"Continue (`parent.action` is continue): extend the parent: keep its core question unless the instruction changes it; subQuestions cover what the parent did not establish or what the instruction asks, never what it already answered.",
 		"Revise (`parent.action` is revise): replace the parent: keep its core question and structure unless the instruction changes them; subQuestions re-verify its key figures and look for anything newer than its date.",
+		ATLAS_V3_SOURCE_FENCE_RULE.en,
 	].join("\n"),
 	hu: [
 		"Egy kutatási kérést fogalmazol újra döntésként. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -49,6 +54,7 @@ export const ATLAS_V3_ASK_SYSTEM: Record<SupportedLanguage, string> = {
 		"A `parent.verdict` az előző jelentés következtetése, csak tájékozódásra szolgál — nem bizonyíték, és nem szabad tényként megismételni.",
 		"Folytatás (a `parent.action` értéke continue): bővítsd a szülőt: tartsd meg a fő kérdését, hacsak az utasítás nem változtat rajta; a subQuestions azt fedjék le, amit a szülő nem állapított meg, vagy amit az utasítás kér, soha ne azt, amit már megválaszolt.",
 		"Átdolgozás (a `parent.action` értéke revise): váltsd fel a szülőt: tartsd meg a fő kérdését és a szerkezetét, hacsak az utasítás nem változtat rajtuk; a subQuestions ellenőrizzék újra a fő számait, és keressenek bármit, ami a dátumánál újabb.",
+		ATLAS_V3_SOURCE_FENCE_RULE.hu,
 	].join("\n"),
 };
 
@@ -101,6 +107,9 @@ export interface BuildAtlasV3AskPromptInput {
 export function buildAtlasV3AskPrompt(
 	input: BuildAtlasV3AskPromptInput,
 ): string {
+	// The parent's text and the user's document titles and summaries are not
+	// the user's request: they are fenced as quoted material.
+	const fence = createAtlasV3SourceFence();
 	return JSON.stringify({
 		task: "understand_the_ask",
 		request: input.query,
@@ -111,12 +120,14 @@ export function buildAtlasV3AskPrompt(
 			? {
 					parent: {
 						action: input.parent.action,
-						title: input.parent.title,
+						title: fence.wrap(input.parent.title),
 						...(input.parent.coreQuestion
-							? { coreQuestion: input.parent.coreQuestion }
+							? { coreQuestion: fence.wrap(input.parent.coreQuestion) }
 							: {}),
-						verdict: input.parent.verdict,
-						headings: [...input.parent.headings],
+						verdict: fence.wrap(input.parent.verdict),
+						headings: input.parent.headings.map((heading) =>
+							fence.wrap(heading),
+						),
 						...(input.parent.date ? { date: input.parent.date } : {}),
 					},
 				}
@@ -128,13 +139,14 @@ export function buildAtlasV3AskPrompt(
 		...(input.localSources && input.localSources.length > 0
 			? {
 					localSources: input.localSources.map((source) => ({
-						title: source.title,
+						title: fence.wrap(source.title),
 						origin: source.origin,
-						summary:
+						summary: fence.wrapNullable(
 							source.summary
 								?.replace(/\s+/g, " ")
 								.trim()
-								.slice(0, MAX_LOCAL_SUMMARY_CHARS) || null,
+								.slice(0, MAX_LOCAL_SUMMARY_CHARS),
+						),
 					})),
 				}
 			: {}),
