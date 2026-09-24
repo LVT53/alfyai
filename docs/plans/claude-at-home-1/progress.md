@@ -32,6 +32,19 @@ breadcrumb is now a link), and `listRecentlyActiveProjects` for Slice G to consu
 
 Probe: `/tmp/ws-visual/probe-project-instructions.mjs` (cleans up after itself).
 
+### Two out-of-plan fixes the owner asked for (2026-09-24)
+
+Both branch from `dev`, neither touches the feature's files, and both are being verified the same way as
+everything else (failing test first, mutation check, gates):
+
+| Branch | Bug | Owner's call |
+|---|---|---|
+| `fix/context-ring-popover-mobile` | The context-ring popover is anchored at the ring's left edge, so at 390×844 it runs **197px** off screen (measured). Pre-existing — the component had no `@media` rules at `98a34dfd` either. | "Fix it please." |
+| `fix/admin-config-number-canonicalisation` | `admin-config-registry.ts` canonicalises an accepted number with `String(parsed)`, which emits exponent notation below ~`1e-6` (`0.0000001` → `1e-7`); the same validator's text check rejects `e`, so the stored value 400s on the next save and the admin page can no longer save that field. Affects **any** `number`-controlled admin setting. | Chose the minimal fix: never emit exponent notation, rather than teaching the validator to accept it or adding a new rejection reason with EN/HU strings. |
+
+**Owner also resolved the production row count** (recorded in `review-wave-1.md`): the migration may run without a
+count first — "is fine, no one used it" — matching dev's measured zero.
+
 ### Wave 4 (Slice E, Folder Knowledge) — in flight
 
 Started **before** Slice D's review finished, deliberately: E's only file overlap with D is
