@@ -474,8 +474,11 @@ async function handleProjectDropConversation(payload: {
 	}
 
 	try {
+		// A move must never change the folder's own expanded/collapsed state
+		// (owner-reported bug): a collapsed folder receiving a drop stays
+		// collapsed, and an already-expanded one stays expanded. Do not
+		// reintroduce a `setProjectFolderExpanded(...)` call here.
 		await moveConversationToProject(conversationId, payload.projectId);
-		setProjectFolderExpanded(payload.projectId, true);
 	} catch (e) {
 		console.error("Drag to project failed", e);
 		alert($t("sidebar.failedMoveConversation"));
