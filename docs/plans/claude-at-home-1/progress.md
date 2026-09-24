@@ -41,6 +41,7 @@ everything else (failing test first, mutation check, gates):
 |---|---|---|
 | `fix/context-ring-popover-mobile` | The context-ring popover is anchored at the ring's left edge, so at 390×844 it runs **197px** off screen (measured). Pre-existing — the component had no `@media` rules at `98a34dfd` either. | "Fix it please." |
 | `fix/admin-config-number-canonicalisation` | `admin-config-registry.ts` canonicalises an accepted number with `String(parsed)`, which emits exponent notation below ~`1e-6` (`0.0000001` → `1e-7`); the same validator's text check rejects `e`, so the stored value 400s on the next save and the admin page can no longer save that field. Affects **any** `number`-controlled admin setting. | Chose the minimal fix: never emit exponent notation, rather than teaching the validator to accept it or adding a new rejection reason with EN/HU strings. |
+| `fix/live-chat-evidence-metadata` | On a **live** chat page the Info popover shows **no evidence rows at all** until the conversation detail is reloaded, so the Sources area — not just the new project-files row — is missing right after a turn. Recorded evidence: `/tmp/slice-e-run-dd.log` (`no Project files row (attempt 1, stage live)` … `Project files row found (stage reloaded)`). Pre-existing; found by Slice E while building its capture harness. | Owner: "Fix the pre-existing bug too." |
 
 **Both landed and are deployed** as `fb7b46c7`. Each was proved by a failing test first plus a revert-and-reproduce mutation check, and each was then verified by the orchestrator independently of its author:
 
@@ -98,7 +99,29 @@ it — the uploaded file stays in the library, which is the correct end state).
 rule — order, not specificity, is what makes the press win, and the unit test pins the behaviour but not the
 sheet order.
 
-### Wave 5 (Slice F ∥ Slice G) — in flight, started before Slice E's review landed
+### Wave 5, Slice G — merged `bc910efc`, deployed `3aeea01f`, verified
+
+Two commits. The removal is total and guarded: the rail component, the service, its test, the rate limiter and
+its test are deleted; `home_suggestion_events` is gone from `schema.ts`, `prepare-db.ts` and
+`user-scoped-tables.ts`; the incognito allow-list no longer exempts the deleted file; `HomeSummary` carries no
+`suggestions`; the summary endpoint accepts only the one remaining action. A guard test
+(`home-sources-removal.test.ts`) pins the removal, and it deliberately exempts `drizzle/` because migrations are
+immutable — the historical CREATE stays, the DROP (`…110`, journal idx 123) is the fix.
+
+**Verified on dev** at 1440×900 and 390×844, light and dark, with the theme asserted before each dark capture:
+the "Projects" heading and card render with an accessible name, the first card fits inside the viewport at both
+widths, there is no horizontal page scroll, **no suggestion/chip elements remain on the home surface**, and there
+were zero page errors in all four variants. The screenshot confirms it visually: folder icon + "Q3 Review
+mock-seed" + "5 chats · active 28 minutes ago", between the composer and the conversations list.
+
+**A deviation worth keeping:** the slice document named i18n keys that do not exist (`instructions.projectStats`
+and friends); the real ones are `projects.stats` etc. from Slice D. The agent used the real keys — the slice's own
+instruction said to reuse Slice D's keys rather than add a second vocabulary — which is why the stats line reads
+"active 28 minutes ago" rather than §M6's "28 minutes ago".
+
+### Wave 5, Slice F — in flight
+
+### Wave 5 (Slice F ∥ Slice G) — the parallel decision, recorded
 
 Both are cut from the merged `feat/workspaces` at `fecb790a`, in parallel. The plan's rule is kept in the briefs:
 **G owns the deletions in `src/lib/i18n/chat.ts`** (the `home.suggest.*` block) and F adds its own keys in its own

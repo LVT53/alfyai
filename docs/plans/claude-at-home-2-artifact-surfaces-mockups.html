@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Artifacts · where they live</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital@0;1&display=swap">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<!-- Feature 2 surfaces mockup, 2026-09-24. AlfyAI tokens from src/app.css; icons are Lucide. -->
+<style>
+:root{--pg:#fafaf8;--rail:#f3f2ee;--el:#f4f3ee;--tx:#1a1a1a;--mu:#6b6b6b;--fa:#9a978f;--bd:rgba(0,0,0,.08);--bs:rgba(0,0,0,.05);--ac:#c15f3c;--body:#2b2f36;--ok:#3f7a4a;--okbg:#e7f0e6;--grid:rgba(0,0,0,.09);--av:#8a8a5c}
+@media (prefers-color-scheme:dark){:root{--pg:#1a1a1a;--rail:#1f1f1f;--el:#242424;--tx:#ececec;--mu:#a0a0a0;--fa:#7d7a74;--bd:rgba(255,255,255,.08);--bs:rgba(255,255,255,.05);--body:#dcdcdc;--ok:#8cc49a;--okbg:#22321f;--grid:rgba(255,255,255,.09)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--pg);color:var(--tx);font:14px/1.5 "Nimbus Sans L","Helvetica Neue",Helvetica,Arial,sans-serif;padding:28px 16px 72px}
+main{max-width:1180px;margin:0 auto;display:grid;gap:34px}
+h1{font:400 24px 'Libre Baskerville',Georgia,serif;margin:0}
+.lead{color:var(--mu);margin:4px 0 0;font-size:13.5px;max-width:74ch}
+.cap{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--mu);font-weight:bold;margin:0 0 8px}
+.n{display:inline-flex;vertical-align:middle;width:19px;height:19px;border-radius:50%;background:var(--ac);color:#fff;font:bold 11px "Helvetica Neue",Helvetica,Arial,sans-serif;align-items:center;justify-content:center;margin:0 6px;flex:none}
+.serif{font-family:'Libre Baskerville',Georgia,serif;color:var(--body)}
+svg.i{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px;flex:none}
+.frame{border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:var(--pg)}
+.scroll{overflow-x:auto}
+.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px 22px;margin-top:12px}
+.legend div{display:flex;gap:10px;align-items:flex-start;font-size:13px}
+.legend .m{color:var(--mu)}
+/* --- chat + panel scaffold (mirrors the real chat page) --- */
+.app{min-width:1020px;display:grid;grid-template-columns:46px minmax(300px,.72fr) minmax(0,1fr);background:var(--pg);min-height:430px}
+.rail{background:var(--rail);border-right:1px solid var(--bd);display:flex;flex-direction:column;align-items:center;gap:16px;padding:12px 0;color:var(--mu)}
+.rail .sp{flex:1}.av{width:21px;height:21px;border-radius:50%;background:var(--av);color:#fff;font-size:10.5px;font-weight:bold;display:flex;align-items:center;justify-content:center}
+.chat{display:flex;flex-direction:column;border-right:1px solid var(--bd);min-width:0}
+.crumb{height:38px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:12.5px;color:var(--mu);white-space:nowrap;gap:4px}
+.crumb b{font-weight:normal;color:var(--tx)}
+.hd{height:38px;border-bottom:1px solid var(--bd);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:0 9px}
+.hd .r{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.abtn{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mu);border:1px solid var(--bd);border-radius:999px;padding:4px 10px 4px 8px;background:var(--pg)}
+.abtn b{font-weight:bold;color:var(--tx)}
+.abtn.on{background:var(--el);color:var(--tx);box-shadow:0 0 0 1px var(--bs)}
+.thread{flex:1;padding:16px 16px 0}
+.ub{margin-left:auto;max-width:88%;background:var(--el);border-radius:10px;padding:10px 13px;font:13.5px/1.6 'Libre Baskerville',Georgia,serif;color:var(--body)}
+.ab{font:13.5px/1.7 'Libre Baskerville',Georgia,serif;color:var(--body);margin:14px 0 10px}
+.card{border:1.5px solid var(--ac);border-radius:12px;background:color-mix(in srgb,var(--ac) 5%,var(--pg))}
+.ch{display:flex;align-items:center;gap:10px;padding:9px 11px}
+.ico{width:29px;height:29px;border-radius:8px;background:var(--el);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;color:var(--ac);flex:none}
+.ch .t{font-size:13.5px;font-weight:bold}.ch .s{font-size:11.5px;color:var(--mu)}
+.composer{margin:12px;border:1px solid var(--bd);border-radius:16px;background:var(--el)}
+.composer .ph{padding:12px 15px 22px;color:var(--mu);font-size:13px}
+.composer .bar{border-top:1px solid var(--bd);margin:0 9px;display:flex;align-items:center;gap:14px;padding:8px 5px;color:var(--mu)}
+.panel{display:flex;flex-direction:column;min-width:0}
+.ph1{padding:11px 16px 9px;border-bottom:1px solid var(--bd)}
+.eyebrow{font-size:10.5px;font-weight:bold;letter-spacing:.08em;color:var(--mu)}
+.ptitle{display:flex;align-items:center;gap:10px;margin-top:3px}
+.ptitle .tt{font:16.5px 'Libre Baskerville',Georgia,serif;flex:1;min-width:0}
+.pacts{display:flex;gap:13px;color:var(--mu);align-items:center}
+.pacts .on{background:var(--el);border-radius:7px;padding:2px 5px;color:var(--tx);box-shadow:0 0 0 1px var(--bs)}
+.pbody{flex:1;overflow:hidden}
+/* panel list view */
+.plist{padding:6px 10px 10px}
+.prow{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:8px;font-size:13px}
+.prow:hover{background:var(--el)}
+.prow .pv{color:var(--mu)}.prow .pt{color:var(--fa);font-size:11.5px;margin-left:auto;white-space:nowrap}
+.prow.cur{background:color-mix(in srgb,var(--ac) 7%,var(--pg));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ac) 30%,transparent)}
+.phead{font-size:10.5px;font-weight:bold;letter-spacing:.08em;color:var(--mu);padding:10px 8px 4px}
+/* board thumbnail */
+.board{height:238px;background-color:var(--pg);background-image:radial-gradient(var(--grid) 1px,transparent 1px);background-size:16px 16px;position:relative}
+.bblock{position:absolute;background:var(--pg);border:1px solid var(--bd);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.05);font-size:11px}
+.bblock .bb{display:flex;gap:5px;align-items:center;padding:5px 7px;border-bottom:1px solid var(--bs);color:var(--mu)}
+.bblock .bb b{color:var(--tx)}
+.sticky{position:absolute;background:#f5e7b3;color:#3a3019;border-radius:3px;padding:7px 8px;font:11.5px/1.4 'Libre Baskerville',Georgia,serif}
+@media (prefers-color-scheme:dark){.sticky{background:#4a4226;color:#efe6c4}}
+/* --- knowledge table --- */
+.page{padding:18px 20px 22px}
+.khead{font:22px 'Libre Baskerville',Georgia,serif;margin:0 0 12px}
+.tabs{display:flex;border:1px solid var(--bd);border-radius:9px;overflow:hidden;margin-bottom:14px}
+.tabs span{flex:1;text-align:center;padding:8px 10px;font-size:13px;color:var(--mu)}
+.tabs .on{background:var(--el);color:var(--tx);font-weight:bold;box-shadow:inset 0 -2px 0 var(--ac)}
+.krow{font-size:10.5px;font-weight:bold;letter-spacing:.07em;color:var(--mu);display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.krow .pill{font-weight:normal;letter-spacing:0;background:var(--el);border:1px solid var(--bd);border-radius:999px;padding:1px 8px;color:var(--mu)}
+.toolbar{display:flex;gap:8px;align-items:center;background:var(--el);border:1px solid var(--bd);border-radius:12px;padding:9px;margin-bottom:10px;flex-wrap:wrap}
+.toolbar .srch{flex:1;min-width:170px;background:var(--pg);border:1px solid var(--bd);border-radius:7px;padding:6px 10px;color:var(--fa);font-size:12.5px}
+.fchips{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
+.fchip{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--bd);color:var(--mu);background:var(--pg)}
+.fchip.on{background:var(--el);color:var(--tx);font-weight:bold;border-color:var(--bs)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mu);padding:9px 10px;border-bottom:1px solid var(--bd);font-weight:bold}
+td{padding:10px;border-bottom:1px solid var(--bs);vertical-align:middle}
+.tname{display:flex;align-items:center;gap:8px}
+.tpill{font-size:10px;font-weight:bold;letter-spacing:.03em;padding:2px 7px;border-radius:999px;background:var(--el);border:1px solid var(--bd);color:var(--mu);white-space:nowrap}
+.tpill.canvas{color:var(--ac);border-color:color-mix(in srgb,var(--ac) 40%,transparent);background:color-mix(in srgb,var(--ac) 10%,transparent)}
+.tpill.doc{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent);background:var(--okbg)}
+.acts{display:flex;gap:9px;color:var(--mu);justify-content:flex-end}
+/* project page line */
+.proj{padding:22px 24px 20px}
+.proj .greet{font:25px 'Libre Baskerville',Georgia,serif;color:#5c2f23}
+@media (prefers-color-scheme:dark){.proj .greet{color:#e3b5a5}}
+.sline{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mu);margin:10px 0 4px}
+.sline b{color:var(--tx);font-weight:normal}
+.bundle{margin-top:12px;border:1px solid var(--bd);border-radius:12px;padding:6px 8px}
+/* search */
+.smodal{max-width:560px;margin:0 auto;border:1px solid var(--bd);border-radius:12px;overflow:hidden}
+.sm-h{padding:12px;border-bottom:1px solid var(--bd)}
+.sm-in{background:var(--pg);border:1px solid var(--bd);border-radius:9px;padding:9px 12px;font-size:14px;color:var(--tx);display:flex;gap:9px;align-items:center}
+.scopes{display:flex;gap:4px;padding:8px 12px;border-bottom:1px solid var(--bd);font-size:12px;color:var(--mu)}
+.scopes span{padding:3px 9px;border-radius:999px}
+.scopes .on{background:var(--el);color:var(--tx);font-weight:bold}
+.srow{display:flex;gap:10px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--bs);font-size:13px}
+.srow .m{color:var(--mu);font-size:11.5px}
+.srow mark{background:color-mix(in srgb,var(--ac) 18%,transparent);color:inherit;border-radius:2px}
+/* tour modal */
+.modalwrap{display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--el) 45%,var(--pg));padding:26px}
+.tour{width:100%;max-width:520px;background:var(--pg);border:1px solid var(--bd);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.14);padding:22px}
+.dots{display:flex;gap:5px;margin-bottom:12px}
+.dots i{width:7px;height:7px;border-radius:50%;background:var(--bs);box-shadow:inset 0 0 0 1px var(--bd)}
+.dots i.on{background:var(--ac)}
+.tourart{height:150px;border-radius:10px;background-color:var(--pg);background-image:radial-gradient(var(--grid) 1px,transparent 1px);background-size:14px 14px;border:1px solid var(--bs);position:relative;margin-bottom:14px;overflow:hidden}
+.tour h3{font:17px 'Libre Baskerville',Georgia,serif;margin:0 0 6px}
+.tour p{margin:0;color:var(--mu);font-size:13.5px;line-height:1.6}
+.tourfoot{display:flex;align-items:center;justify-content:space-between;margin-top:16px}
+.bs{font-size:12.5px;padding:5px 12px;border-radius:7px;border:1px solid color-mix(in srgb,var(--tx) 50%,transparent)}
+.bp{font-size:12.5px;padding:5px 12px;border-radius:7px;border:1px solid color-mix(in srgb,var(--ac) 38%,transparent);background:color-mix(in srgb,var(--ac) 12%,transparent);color:var(--ac)}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <h1>Artifacts · where they live</h1>
+ <p class="lead">The Q2 design: one list component, three scopes — inside the chat, in the Knowledge Base, and in a project. Plus how you get to the panel, Workspace Search, and the first-open tour.</p>
+</header>
+
+<!-- 1 -->
+<section>
+ <p class="cap">1 · Getting there — the chat with the panel closed</p>
+ <div class="scroll"><div class="frame"><div class="app" style="grid-template-columns:46px minmax(0,1fr);min-height:330px">
+  <div class="rail"><span style="font:14px 'Libre Baskerville',serif;color:var(--ac);opacity:.6">A</span><span style="color:var(--ac)"><i data-lucide="square-pen"></i></span><i data-lucide="search"></i><i data-lucide="book-open"></i><span class="sp"></span><span class="av">L</span><i data-lucide="log-out"></i></div>
+  <div class="chat" style="border-right:none">
+   <div class="hd">
+    <span></span>
+    <span class="crumb" style="height:auto;border:none;padding:0">Vienna trip&nbsp;/&nbsp;<b>Saturday plan</b></span>
+    <span class="r"><span class="abtn"><i data-lucide="layout-grid"></i><b>6</b><span class="n" style="margin:0 0 0 3px">1</span></span></span>
+   </div>
+   <div class="thread">
+    <div class="ub">Put everything for the Vienna trip on one board.</div>
+    <div class="ab">Done — the days, the route, trains, budget and the checklist.</div>
+    <div class="card"><div class="ch"><span class="ico"><i data-lucide="layout-dashboard"></i></span><div style="flex:1;min-width:0"><div class="t">Vienna trip board</div><div class="s">Canvas · 11 blocks · edited by Alfy 4 min ago</div></div><span style="font-size:11.5px;color:var(--ac);border:1px solid color-mix(in srgb,var(--ac) 35%,transparent);border-radius:6px;padding:3px 8px">Open</span></div></div>
+    <div style="display:flex;gap:9px;align-items:flex-start;margin-top:14px;font-size:12px;color:var(--mu)"><i data-lucide="info" style="margin-top:2px"></i><span>In a chat that has made nothing yet, this button is not drawn at all — no empty chrome.<span class="n" style="margin-left:6px">2</span></span></div>
+   </div>
+   <div class="composer"><div class="ph">Type a message...</div><div class="bar"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><i data-lucide="plug" style="opacity:.5"></i><span style="color:var(--ac)"><i data-lucide="brain"></i></span><span style="margin-left:auto;border:1px solid var(--bd);border-radius:8px;padding:4px 6px"><i data-lucide="send"></i></span></div></div>
+  </div>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n" style="margin-left:0">1</span><span><b>The way in is one quiet button in the chat header</b> <span class="m">— a grid icon with a count of what this chat has made. It is the only always-visible sign that anything lives here, and it is what opens the panel when nothing is open yet.</span></span></div>
+  <div><span class="n" style="margin-left:0">2</span><span><b>Nothing created yet, nothing shown</b> <span class="m">— the button appears with the first thing the chat makes, not before. On a phone it sits beside the header menu.</span></span></div>
+ </div>
+</section>
+
+<!-- 2 -->
+<section>
+ <p class="cap">2 · Clicking it — the panel opens on the list</p>
+ <div class="scroll"><div class="frame"><div class="app" style="grid-template-columns:46px minmax(300px,.72fr) minmax(0,1fr)">
+  <div class="rail"><span style="font:14px 'Libre Baskerville',serif;color:var(--ac);opacity:.6">A</span><span style="color:var(--ac)"><i data-lucide="square-pen"></i></span><i data-lucide="search"></i><i data-lucide="book-open"></i><span class="sp"></span><span class="av">L</span><i data-lucide="log-out"></i></div>
+  <div class="chat">
+   <div class="hd">
+    <span></span>
+    <span class="crumb" style="height:auto;border:none;padding:0">Vienna trip&nbsp;/&nbsp;<b>Saturday plan</b></span>
+    <span class="r"><span class="abtn on"><i data-lucide="layout-grid"></i><b>6</b><span class="n" style="margin:0 0 0 3px">2</span></span></span>
+   </div>
+   <div class="thread">
+    <div class="ub">Put everything for the Vienna trip on one board.</div>
+    <div class="ab">Done — the days, the route, trains, budget and the checklist.</div>
+    <div class="card" style="border-color:var(--bd);background:var(--pg)"><div class="ch"><span class="ico"><i data-lucide="layout-dashboard"></i></span><div style="flex:1;min-width:0"><div class="t">Vienna trip board</div><div class="s">Canvas · 11 blocks · open in panel</div></div></div></div>
+   </div>
+   <div class="composer"><div class="ph">Type a message...</div><div class="bar"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><i data-lucide="plug" style="opacity:.5"></i><span style="color:var(--ac)"><i data-lucide="brain"></i></span><span style="margin-left:auto;border:1px solid var(--bd);border-radius:8px;padding:4px 6px"><i data-lucide="send"></i></span></div></div>
+  </div>
+  <div class="panel">
+   <div class="ph1">
+    <div class="eyebrow">THIS CHAT</div>
+    <div class="ptitle"><span class="tt">What this chat made</span><span class="pacts"><i data-lucide="layout-grid" class="on"></i><i data-lucide="list"></i><i data-lucide="x"></i></span></div>
+    <div style="font-size:11.5px;color:var(--fa);margin-top:7px">6 items · newest first<span class="n" style="margin-left:6px">1</span></div>
+   </div>
+   <div class="pbody"><div class="plist">
+    <div class="prow cur"><i data-lucide="layout-dashboard" style="color:var(--ac)"></i><span>Vienna trip board</span><span class="pv">Canvas</span><span class="pt">just now</span></div>
+    <div class="prow"><i data-lucide="square-pen" style="color:var(--ac)"></i><span>Saturday plan</span><span class="pv">Document</span><span class="pt">12 min ago</span></div>
+    <div class="prow"><i data-lucide="app-window" style="color:var(--ac)"></i><span>Trip cost splitter</span><span class="pv">App</span><span class="pt">3 hours ago</span></div>
+    <div class="prow"><i data-lucide="presentation" style="color:var(--ac)"></i><span>Trip recap</span><span class="pv">Slides</span><span class="pt">yesterday</span></div>
+    <div class="prow"><i data-lucide="file-text" style="color:var(--mu)"></i><span>Vienna trip summary.pdf</span><span class="pv">File</span><span class="pt">yesterday</span></div>
+    <div class="prow"><i data-lucide="paperclip" style="color:var(--mu)"></i><span>Hotel Motto booking.pdf</span><span class="pv">Uploaded</span><span class="pt">3 days ago</span></div>
+    <div class="phead">NOTHING ELSE HIDES HERE — the same kinds the library shows</div>
+   </div></div>
+  </div>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n" style="margin-left:0">1</span><span><b>Clicking a row opens it</b> <span class="m">— the panel switches from the list to that item, and the header toolbar toggles back to the list.</span></span></div>
+  <div><span class="n" style="margin-left:0">2</span><span><b>The header button reads as active while the panel is open</b> <span class="m">— click it again, press Esc, or use the panel's × to close and return the chat to full width.</span></span></div>
+ </div>
+</section>
+
+<!-- 3 -->
+<section>
+ <p class="cap">3 · In the chat — the panel, one artifact open</p>
+ <div class="scroll"><div class="frame"><div class="app">
+  <div class="rail"><span style="font:14px 'Libre Baskerville',serif;color:var(--ac);opacity:.6">A</span><span style="color:var(--ac)"><i data-lucide="square-pen"></i></span><i data-lucide="search"></i><i data-lucide="book-open"></i><span class="sp"></span><span class="av">L</span><i data-lucide="log-out"></i></div>
+  <div class="chat">
+   <div class="crumb">Vienna trip&nbsp;/&nbsp;<b>Saturday plan</b></div>
+   <div class="thread">
+    <div class="ub">Put everything for the Vienna trip on one board.</div>
+    <div class="ab">Done — the days, the route, trains, budget and the checklist.</div>
+    <div class="card"><div class="ch"><span class="ico"><i data-lucide="layout-dashboard"></i></span><div style="flex:1;min-width:0"><div class="t">Vienna trip board</div><div class="s">Canvas · 11 blocks · edited by Alfy 4 min ago</div></div><span style="font-size:11.5px;color:var(--ac);border:1px solid color-mix(in srgb,var(--ac) 35%,transparent);border-radius:6px;padding:3px 8px">Open</span></div></div>
+   </div>
+   <div class="composer"><div class="ph">Ask Alfy to change the board…</div><div class="bar"><i data-lucide="plus"></i><i data-lucide="paperclip"></i><i data-lucide="plug" style="opacity:.5"></i><span style="color:var(--ac)"><i data-lucide="brain"></i></span><span style="margin-left:auto;border:1px solid var(--bd);border-radius:8px;padding:4px 6px"><i data-lucide="send"></i></span></div></div>
+  </div>
+  <div class="panel">
+   <div class="ph1">
+    <div class="eyebrow">CANVAS</div>
+    <div class="ptitle"><span class="tt">Vienna trip board</span><span class="pacts"><i data-lucide="list"></i><i data-lucide="history"></i><i data-lucide="download"></i><i data-lucide="maximize-2"></i><i data-lucide="x"></i></span></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:7px;font-size:11.5px;color:var(--fa)"><span style="color:var(--ac);border:1px solid color-mix(in srgb,var(--ac) 40%,transparent);background:color-mix(in srgb,var(--ac) 10%,transparent);border-radius:999px;padding:1px 8px;font-weight:bold">v7</span>You and Alfy · saved just now<span class="n" style="margin-left:auto">1</span></div>
+   </div>
+   <div class="pbody"><div class="board">
+    <div class="bblock" style="left:16px;top:18px;width:170px"><div class="bb"><i data-lucide="clock" style="width:12px;height:12px"></i><b>Trains</b> Keleti → Wien</div><div style="padding:6px 7px;color:var(--mu)">RJX 60 · 06:40 → 09:19</div></div>
+    <div class="bblock" style="left:206px;top:18px;width:150px"><div class="bb"><i data-lucide="bar-chart-3" style="width:12px;height:12px"></i><b>Budget</b></div><div style="display:flex;align-items:flex-end;gap:6px;height:52px;padding:7px"><span style="flex:1;height:38px;background:var(--ac);border-radius:2px 2px 0 0;display:block"></span><span style="flex:1;height:22px;background:var(--ac);opacity:.55;border-radius:2px 2px 0 0;display:block"></span><span style="flex:1;height:17px;background:var(--ac);opacity:.55;border-radius:2px 2px 0 0;display:block"></span></div></div>
+    <div class="sticky" style="left:16px;top:118px;width:132px">Naschmarkt, then the Secession</div>
+    <div class="bblock" style="left:166px;top:118px;width:190px"><div class="bb"><i data-lucide="check-square" style="width:12px;height:12px"></i><b>Before we go</b><span style="margin-left:auto">2 of 4</span></div><div style="padding:6px 8px;color:var(--mu)"><div>✓ Book museum tickets</div><div style="color:var(--tx)">☐ Tell the neighbour</div></div></div>
+    <span class="n" style="position:absolute;left:378px;top:8px">2</span>
+   </div></div>
+  </div>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n" style="margin-left:0">1</span><span><b>The list toggle is here</b> <span class="m">— in the panel header, beside versions and export. Nothing new appears in the chat toolbar.</span></span></div>
+  <div><span class="n" style="margin-left:0">2</span><span><b>The panel is unchanged otherwise</b> <span class="m">— it is still the surface where documents, files and previews open.</span></span></div>
+ </div>
+</section>
+
+<!-- 4 -->
+<section>
+ <p class="cap">4 · Knowledge Base — the Documents tab, all five kinds in one list</p>
+ <div class="scroll"><div class="frame"><div class="page">
+  <h2 class="khead">Knowledge Base</h2>
+  <div class="tabs"><span>Memory Profile</span><span class="on">Documents</span></div>
+  <div class="krow">DOCUMENTS <span class="pill">24 items</span><span style="font-weight:normal;letter-spacing:0">12 uploaded · 6 documents · 3 canvas · 2 apps · 1 slides<span class="n" style="margin-left:6px">1</span></span></div>
+  <div class="toolbar"><div class="srch">Search by name, title or content</div><span style="font-size:12.5px;color:var(--mu)">Sort by</span><span style="border:1px solid var(--bd);border-radius:7px;padding:6px 9px;font-size:12.5px;background:var(--pg)">Date ▾</span><span style="border:1px solid color-mix(in srgb,var(--ac) 38%,transparent);background:color-mix(in srgb,var(--ac) 12%,transparent);color:var(--ac);border-radius:7px;padding:6px 11px;font-size:12.5px"><i data-lucide="upload"></i> Upload</span></div>
+  <div class="fchips"><span class="fchip on">All 24</span><span class="fchip">Documents 6</span><span class="fchip">Canvas 3</span><span class="fchip">Apps 2</span><span class="fchip">Slides 1</span><span class="fchip">Uploaded 12</span><span class="n" style="margin:0 0 0 4px">2</span></div>
+  <table>
+   <thead><tr><th>Name</th><th>Version</th><th>Type</th><th>Status</th><th>Size</th><th>Date</th><th style="text-align:right">Actions</th></tr></thead>
+   <tbody>
+    <tr><td><div class="tname"><i data-lucide="layout-dashboard" style="color:var(--ac)"></i>Vienna trip board</div></td><td>v7</td><td><span class="tpill canvas">CANVAS</span></td><td>—</td><td>54 kB</td><td>Today, 2:14 PM</td><td><div class="acts"><i data-lucide="eye"></i><i data-lucide="download"></i><i data-lucide="trash-2"></i></div></td></tr>
+    <tr><td><div class="tname"><i data-lucide="square-pen" style="color:var(--ac)"></i>Saturday plan</div></td><td>v5</td><td><span class="tpill doc">DOCUMENT</span></td><td>—</td><td>4 kB</td><td>Today, 1:02 PM</td><td><div class="acts"><i data-lucide="eye"></i><i data-lucide="download"></i><i data-lucide="trash-2"></i></div></td></tr>
+    <tr><td><div class="tname"><i data-lucide="app-window" style="color:var(--ac)"></i>Trip cost splitter</div></td><td>v3</td><td><span class="tpill canvas">APP</span></td><td>—</td><td>12 kB</td><td>Today, 11:20 AM</td><td><div class="acts"><i data-lucide="eye"></i><i data-lucide="download"></i><i data-lucide="trash-2"></i></div></td></tr>
+    <tr><td><div class="tname"><i data-lucide="presentation" style="color:var(--ac)"></i>Trip recap</div></td><td>v2</td><td><span class="tpill canvas">SLIDES</span></td><td>—</td><td>9 kB</td><td>Yesterday</td><td><div class="acts"><i data-lucide="eye"></i><i data-lucide="download"></i><i data-lucide="trash-2"></i></div></td></tr>
+    <tr><td><div class="tname"><i data-lucide="file-text" style="color:var(--mu)"></i>Vienna trip summary.pdf</div></td><td>v2</td><td><span class="tpill">PDF</span></td><td>—</td><td>212 kB</td><td>Yesterday</td><td><div class="acts"><i data-lucide="eye"></i><i data-lucide="download"></i><i data-lucide="trash-2"></i></div></td></tr>
+    <tr><td><div class="tname"><i data-lucide="file-text" style="color:var(--mu)"></i>Lease agreement 2026.txt</div></td><td>—</td><td><span class="tpill">TXT</span></td><td>—</td><td>95 B</td><td>Sep 24</td><td><div class="acts"><i data-lucide="eye"></i><i data-lucide="download"></i><i data-lucide="trash-2"></i></div></td></tr>
+   </tbody>
+  </table>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n" style="margin-left:0">1</span><span><b>The tab stays "Documents"</b> <span class="m">— it already holds uploads and generated files, so artifacts join the same list. No rename.</span></span></div>
+  <div><span class="n" style="margin-left:0">2</span><span><b>Type chips filter the list</b> <span class="m">— and each row carries a type pill and its version, so you can tell a canvas from a PDF at a glance.</span></span></div>
+ </div>
+</section>
+
+<!-- 5 -->
+<section>
+ <p class="cap">5 · A project — the same list, scoped to the folder (Feature 1)</p>
+ <div class="scroll"><div class="frame"><div class="proj">
+  <div class="greet">Vienna trip</div>
+  <div style="font-size:11.5px;color:var(--mu);margin-top:3px">3 chats · active 3 hours ago</div>
+  <div class="sline"><i data-lucide="square-pen" style="color:var(--ac)"></i>Instructions<span style="color:var(--fa)">·</span><i data-lucide="paperclip" style="color:var(--ac)"></i><b>7 items</b><span class="n" style="margin-left:6px">1</span></div>
+  <div class="bundle">
+   <div class="prow cur"><i data-lucide="layout-dashboard" style="color:var(--ac)"></i><span>Vienna trip board</span><span class="pv">Canvas</span><span class="pt">from “Saturday plan” · today</span></div>
+   <div class="prow"><i data-lucide="square-pen" style="color:var(--ac)"></i><span>Saturday plan</span><span class="pv">Document</span><span class="pt">from “Saturday plan” · today</span></div>
+   <div class="prow"><i data-lucide="app-window" style="color:var(--ac)"></i><span>Trip cost splitter</span><span class="pv">App</span><span class="pt">from “Saturday plan” · today</span></div>
+   <div class="prow"><i data-lucide="file-text" style="color:var(--mu)"></i><span>Hotel Motto booking.pdf</span><span class="pv">Uploaded</span><span class="pt">project file</span></div>
+   <div class="prow" style="color:var(--mu)"><i data-lucide="paperclip"></i><span>Railjet tickets.pdf</span><span class="pv">Uploaded</span><span class="pt">project file</span></div>
+   <div class="prow" style="color:var(--fa);font-size:12px"><i data-lucide="plus"></i><span>Add a file to this project</span><span class="n" style="margin-left:auto">2</span></div>
+  </div>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n" style="margin-left:0">1</span><span><b>Project page already has this line</b> <span class="m">— it grows a count and opens the bundle.</span></span></div>
+  <div><span class="n" style="margin-left:0">2</span><span><b>Same rows, plus its origin</b> <span class="m">— which chat it came from, or that it was uploaded to the project.</span></span></div>
+ </div>
+</section>
+
+<!-- 6 -->
+<section>
+ <p class="cap">6 · Workspace Search — every kind is findable</p>
+ <div class="frame"><div class="smodal">
+  <div class="sm-h"><div class="sm-in"><i data-lucide="search" style="color:var(--fa)"></i>vienna<span style="margin-left:auto;font-size:11.5px;color:var(--fa)">Esc</span></div></div>
+  <div class="scopes"><span class="on">All</span><span>Conversations</span><span>Documents</span><span>Reports</span></div>
+  <div class="srow"><i data-lucide="layout-dashboard" style="color:var(--ac)"></i><div style="flex:1;min-width:0"><div><mark>Vienna</mark> trip board</div><div class="m">Canvas · Vienna trip · edited today</div></div></div>
+  <div class="srow"><i data-lucide="square-pen" style="color:var(--ac)"></i><div style="flex:1;min-width:0"><div>Saturday plan</div><div class="m">Document · <mark>Vienna</mark> trip · today</div></div></div>
+  <div class="srow"><i data-lucide="app-window" style="color:var(--ac)"></i><div style="flex:1;min-width:0"><div>Trip cost splitter</div><div class="m">App · <mark>Vienna</mark> trip · today</div></div></div>
+  <div class="srow"><i data-lucide="message-square" style="color:var(--mu)"></i><div style="flex:1;min-width:0"><div>Train options Budapest to <mark>Vienna</mark></div><div class="m">Conversation · 3 hours ago</div></div></div>
+  <div class="srow"><i data-lucide="file-text" style="color:var(--mu)"></i><div style="flex:1;min-width:0"><div><mark>Vienna</mark> day plan.md</div><div class="m">Uploaded · edited Sep 24</div></div></div>
+ </div></div>
+ <div class="legend"><div><span class="m">One flat result list, each row labelled with its kind — no new search scope needed.</span></div></div>
+</section>
+
+<!-- 7 -->
+<section>
+ <p class="cap">7 · First time you open a new kind — the tour</p>
+ <div class="frame"><div class="modalwrap"><div class="tour">
+  <div class="dots"><i class="on"></i><i></i><i></i></div>
+  <div class="tourart">
+   <div class="sticky" style="left:22px;top:24px;width:118px">Friday: Naschmarkt, Secession</div>
+   <div class="bblock" style="position:absolute;left:158px;top:34px;width:150px"><div class="bb"><i data-lucide="clock" style="width:12px;height:12px"></i><b>Trains</b></div><div style="padding:6px 7px;color:var(--mu)">06:40 → 09:19</div></div>
+   <span style="position:absolute;left:96px;top:96px;color:var(--ac)"><i data-lucide="pen-line"></i></span>
+   <div style="position:absolute;left:120px;top:100px;width:70px;height:2px;background:var(--ac);transform:rotate(-8deg);border-radius:2px"></div>
+   <span class="n" style="position:absolute;left:34px;top:58px">1</span>
+  </div>
+  <h3>A board for anything</h3>
+  <p>Drop notes, photos and live pieces — your train times, budget, a map — anywhere on the board. Draw on it, move things around, and ask Alfy to rearrange or add to it.</p>
+  <div class="tourfoot"><span style="font-size:12px;color:var(--fa)">You'll see this once. Replay it any time from the version badge.</span><span style="display:flex;gap:10px"><span class="bs">Skip</span><span class="bp">Next</span></span></div>
+ </div></div></div>
+ <div class="legend">
+  <div><span class="n" style="margin-left:0">1</span><span><b>Three slides per kind</b> <span class="m">— what it is, what you can do with it, how to ask Alfy. Shown on the first open of that kind, once per user.</span></span></div>
+ </div>
+</section>
+</main>
+<script>try{lucide.createIcons();}catch(e){}</script>
+</body>
+</html>

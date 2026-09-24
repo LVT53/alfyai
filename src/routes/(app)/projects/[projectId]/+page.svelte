@@ -55,6 +55,9 @@ let instructionsDialogOpen = $state(false);
 // has not finished.
 let projectFiles = $state<ProjectKnowledgeItem[] | null>(null);
 let filesDialogOpen = $state(false);
+// Not state: nothing renders it. It orders the reads by the moment they were
+// STARTED, which is the only order the list can trust (see below).
+let fileReadSequence = 0;
 
 // Taken once per project the page actually shows: the sidebar's "New chat"
 // item is the only thing that sets the marker (see conversation-session.ts),
@@ -122,12 +125,25 @@ async function save(payload: {
  * Re-read the project's files. A failed read leaves the last answer standing
  * rather than emptying the chip: the previous list was true a moment ago, and
  * "no files" is the one lie that loses the user their way into the modal.
+ *
+ * The list is ordered by when a read was STARTED, not by when it answered. A
+ * read that began before a removal carries the list from before that removal
+ * whatever its latency, and the connection that answers last is not the one
+ * carrying the newest truth — a slow first read landing after the removal's own
+ * refresh would put the file back on screen, and with it a Remove button for a
+ * link that is already gone. So an older answer is dropped, failure included;
+ * the same guard covers a navigation to another project, whose reads are newer
+ * by the same rule.
  */
 async function refreshProjectFiles(projectId: string): Promise<void> {
+	const sequence = ++fileReadSequence;
 	try {
-		projectFiles = await fetchProjectFiles(projectId);
+		const files = await fetchProjectFiles(projectId);
+		if (sequence !== fileReadSequence) return;
+		projectFiles = files;
 	} catch {
-		// Left as it was.
+		// Left as it was: an answer no newer than the list on screen has nothing
+		// to say about it, whether it succeeded or failed.
 	}
 }
 
