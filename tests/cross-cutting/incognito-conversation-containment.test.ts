@@ -539,8 +539,6 @@ const ALLOWED_WITHOUT_SCOPE: Record<string, string> = {
 		"the user's own search over their own chats; its ARTIFACT halves are scoped, its conversation halves are a listing",
 	"services/home-summary.ts":
 		"the home screen's weekly bars and recent list, rendered for the user, never fed to a model",
-	"services/home-suggestions.ts":
-		"home-screen chips built deterministically from recent titles; no model call anywhere in that module",
 	// Administration: deletion, export, erasure and orphan sweeps must see
 	// every row the user owns, or an incognito conversation would become
 	// undeletable — the same exception the artifact scope makes.

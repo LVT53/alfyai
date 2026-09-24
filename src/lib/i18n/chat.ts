@@ -1043,11 +1043,7 @@ const chatDict = {
 		// ---------------------------------------------------------------
 		// --- BEGIN chat home redesign (HomeV4A "Compact") keys ---
 		// Appended as one block so the parallel redesign branches do not
-		// collide in the middle of the file. Two groups: the home screen's
-		// own chrome, and the Try suggestion templates — the latter are
-		// rendered SERVER-side (home-suggestions.ts reads this dictionary
-		// directly) because the filled sentence is what gets sent as the
-		// first message, not just what is drawn on the chip.
+		// collide in the middle of the file.
 		// ---------------------------------------------------------------
 		"home.weeklyCount": "{count} messages this week",
 		"home.weeklyBarsLabel": "Messages per week, last 12 weeks",
@@ -1061,38 +1057,6 @@ const chatDict = {
 		"home.runningElapsed": "{minutes} min",
 		"home.runningElapsedSeconds": "{seconds} s",
 		"home.runningProgress": "{percent}% done",
-		"home.suggestionsLabel": "Suggested openers",
-		"home.another": "another",
-		"home.anotherLabel": "Show three other suggestions",
-		"home.suggestionSource": "Source: {source}",
-		"home.suggest.calendar": "Ask about this week's calendar",
-		"home.suggest.calendar.short": "This week's calendar",
-		"home.suggest.files": "Summarise the last {provider} upload",
-		"home.suggest.files.short": "{provider} upload",
-		"home.suggest.fileNamed": "Summarise the {provider} file “{file}”",
-		"home.suggest.fileNamed.short": "{file}",
-		"home.suggest.emailPerson": "Draft the reply you owe {name}",
-		"home.suggest.emailPerson.short": "Reply to {name}",
-		"home.suggest.emailGeneric": "Check what needs a reply",
-		"home.suggest.emailGeneric.short": "Needs a reply",
-		"home.suggest.photos": "Find the photos from last weekend",
-		"home.suggest.photos.short": "Last weekend's photos",
-		"home.suggest.location": "How far am I from home right now?",
-		"home.suggest.location.short": "Distance from home",
-		"home.suggest.repoNamed": "What changed in {repo} this week",
-		"home.suggest.repoNamed.short": "{repo} this week",
-		"home.suggest.repos":
-			"What changed in my {provider} repositories this week",
-		"home.suggest.repos.short": "{provider} this week",
-		"home.suggest.memory": "Finish {goal}",
-		"home.suggest.memory.short": "{goalShort}",
-		"home.suggest.conversation": "Ask about {topic}",
-		"home.suggest.conversation.short": "{topicShort}",
-		"home.suggest.atlas": "Pick up “{title}” again",
-		"home.suggest.atlas.short": "Pick up {titleShort}",
-		"home.suggest.source.memory": "Memory · ongoing work",
-		"home.suggest.source.conversation": "A recent conversation",
-		"home.suggest.source.atlas": "Atlas · unfinished",
 		"home.memoryReview.notice":
 			"{count} {count, plural, one {memory} other {memories}} from recent chats {count, plural, one {needs} other {need}} a quick look.",
 		// Two plain keys rather than one ICU-plural key: the link's own text
@@ -2196,38 +2160,6 @@ const chatDict = {
 		"home.runningElapsed": "{minutes} perc",
 		"home.runningElapsedSeconds": "{seconds} mp",
 		"home.runningProgress": "{percent}% kész",
-		"home.suggestionsLabel": "Javasolt kezdések",
-		"home.another": "másikat",
-		"home.anotherLabel": "Másik három javaslat mutatása",
-		"home.suggestionSource": "Forrás: {source}",
-		"home.suggest.calendar": "Mi van a naptáramban ezen a héten?",
-		"home.suggest.calendar.short": "E heti naptár",
-		"home.suggest.files": "Foglald össze a legutóbbi {provider} feltöltést",
-		"home.suggest.files.short": "{provider} feltöltés",
-		"home.suggest.fileNamed": "Foglald össze a(z) „{file}” {provider} fájlt",
-		"home.suggest.fileNamed.short": "{file}",
-		"home.suggest.emailPerson":
-			"Fogalmazd meg a választ, amivel {name} felé tartozom",
-		"home.suggest.emailPerson.short": "Válasz neki: {name}",
-		"home.suggest.emailGeneric": "Nézzük meg, mire kell válaszolni",
-		"home.suggest.emailGeneric.short": "Válaszra vár",
-		"home.suggest.photos": "Keresd meg a múlt hétvégi fotókat",
-		"home.suggest.photos.short": "Múlt hétvégi fotók",
-		"home.suggest.location": "Milyen messze vagyok most otthonról?",
-		"home.suggest.location.short": "Távolság otthonról",
-		"home.suggest.repoNamed": "Mi változott a(z) {repo} repóban ezen a héten?",
-		"home.suggest.repoNamed.short": "{repo} ezen a héten",
-		"home.suggest.repos": "Mi változott a {provider} repóimban ezen a héten?",
-		"home.suggest.repos.short": "{provider} ezen a héten",
-		"home.suggest.memory": "Fejezzük be: {goal}",
-		"home.suggest.memory.short": "{goalShort}",
-		"home.suggest.conversation": "Kérdeznék erről: {topic}",
-		"home.suggest.conversation.short": "{topicShort}",
-		"home.suggest.atlas": "Folytassuk ezt: „{title}”",
-		"home.suggest.atlas.short": "Folytatás: {titleShort}",
-		"home.suggest.source.memory": "Memória · folyamatban lévő munka",
-		"home.suggest.source.conversation": "Egy korábbi beszélgetés",
-		"home.suggest.source.atlas": "Atlas · befejezetlen",
 		// HU nouns after a numeral do not take a plural suffix, so there is no
 		// singular/plural split here (unlike the English key above).
 		"home.memoryReview.notice":

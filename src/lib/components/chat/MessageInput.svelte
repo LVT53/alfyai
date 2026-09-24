@@ -246,7 +246,6 @@ let {
 	beforeSend = undefined,
 	checkingCloudWarning = false,
 	onCapabilitiesReady = undefined,
-	onComposeReady = undefined,
 }: {
 	disabled?: boolean;
 	maxLength?: number;
@@ -381,17 +380,6 @@ let {
 	onCapabilitiesReady?:
 		| ((ensureLoaded: () => Promise<void>) => void)
 		| undefined;
-	// Called once on mount (the same `onUploadReady` pattern as above) with a
-	// function that puts text in this composer and presses its own Send.
-	//
-	// The chat home's suggestion chips are the caller. A chip that built its
-	// own payload and handed it straight to the page's send handler would be a
-	// second send path: it would miss the attachments, linked sources, Atlas
-	// profile and connection capabilities this composer is holding, ignore the
-	// "wait for the upload to finish" queue, and skip the page-owned gate in
-	// `beforeSend`. Going through `send()` means a chip is exactly a typed
-	// message that was typed for you.
-	onComposeReady?: ((compose: (text: string) => void) => void) | undefined;
 } = $props();
 
 let textarea = $state<HTMLTextAreaElement | null>(null);
@@ -1730,21 +1718,6 @@ function send(nextMessage: string = message) {
 	void attemptDispatch(nextMessage);
 }
 
-/**
- * Fill this composer with `text` and send it as if the user had typed it.
- *
- * The text goes into `message` BEFORE `send()` rather than only into its
- * argument, because a send that has to wait for an attachment upload is
- * re-dispatched from `message` by the queued-send effect — set only the
- * argument and that retry would send whatever draft was in the box instead.
- */
-function composeAndSend(text: string) {
-	if (isComposerDisabled) return;
-	message = text;
-	adjustHeight();
-	send(text);
-}
-
 function queue(nextMessage: string = message) {
 	if (isComposerDisabled) return;
 	if (!isGenerating || hasQueuedMessage || !canSubmitMessageText(nextMessage)) {
@@ -1801,7 +1774,6 @@ onMount(() => {
 	window.addEventListener("resize", adjustHeight);
 	onUploadReady?.(uploadFiles);
 	onCapabilitiesReady?.(ensureCapabilitiesLoaded);
-	onComposeReady?.(composeAndSend);
 	// One poller for the composer's whole attachment list, armed by the
 	// effect below only while something it holds is unfinished. Created here
 	// rather than in that effect so there is exactly one for the component's

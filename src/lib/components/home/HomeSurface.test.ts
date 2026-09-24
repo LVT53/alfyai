@@ -71,7 +71,6 @@ vi.mock("$lib/client/api/system", async (importOriginal) => ({
 vi.mock("$lib/client/api/home", async (importOriginal) => ({
 	...(await importOriginal<typeof import("$lib/client/api/home")>()),
 	dismissMemoryReviewNotice: vi.fn(async () => undefined),
-	recordHomeSuggestionEvent: vi.fn(async () => undefined),
 }));
 
 function renderHome() {

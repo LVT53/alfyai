@@ -862,6 +862,13 @@
       "when": 1777140000109,
       "tag": "1777140000109_project_knowledge_links",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1777140000110,
+      "tag": "1777140000110_drop_home_suggestion_events",
+      "breakpoints": true
     }
   ]
 }
