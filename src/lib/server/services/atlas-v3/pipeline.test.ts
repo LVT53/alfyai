@@ -1147,6 +1147,29 @@ describe("runAtlasV3Pipeline, local sources", () => {
 		).toBe(true);
 	});
 
+	// `out_of_scope` means the canonical-ownership check refused it: the other
+	// chat went incognito, OR a generated output lost its conversation when that
+	// chat was deleted. The report cannot tell which, and must not tell this
+	// chat about another chat's incognito setting in either case.
+	it("says an out-of-scope inherited source is no longer available, never why", async () => {
+		const { result, document } = await runLocal({
+			unavailable: [
+				{
+					displayArtifactId: "art-private",
+					title: "Salary review.pdf",
+					origin: "inherited",
+					reason: "out_of_scope",
+				},
+			],
+		});
+		expect(result.status).toBe("succeeded");
+		const line = limitationItems(document()).find((item) =>
+			item.startsWith("Salary review.pdf"),
+		);
+		expect(line).toContain("no longer available");
+		expect(line?.toLowerCase()).not.toContain("incognito");
+	});
+
 	it("names the documents over the cap in a Limitations line", async () => {
 		const documents = Array.from({ length: 13 }, (_unused, index) => ({
 			displayArtifactId: `art-${index + 1}`,

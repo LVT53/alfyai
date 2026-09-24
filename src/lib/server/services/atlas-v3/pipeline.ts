@@ -290,8 +290,11 @@ const LOCAL_CHROME: Record<SupportedLanguage, LocalChrome> = {
 			`not read — a report reads at most ${ATLAS_V3_MAX_LOCAL_SOURCES} of your documents: ${titles}`,
 		unavailable: {
 			not_found: "is no longer available, so it was not read again",
+			// Refused by canonical ownership: another chat went incognito, or a
+			// generated output lost its deleted chat. Never say which — the report
+			// must not disclose another conversation's incognito setting.
 			out_of_scope:
-				"now belongs to an incognito conversation, so it was not read",
+				"is no longer available to this conversation, so it was not read",
 			no_text: "has no readable text, so it was not read",
 		},
 		priorDocument: "a document the earlier report read",
@@ -305,7 +308,7 @@ const LOCAL_CHROME: Record<SupportedLanguage, LocalChrome> = {
 		unavailable: {
 			not_found: "már nem érhető el, ezért nem került újra elolvasásra",
 			out_of_scope:
-				"azóta egy inkognitó beszélgetéshez tartozik, ezért nem került elolvasásra",
+				"ebből a beszélgetésből már nem érhető el, ezért nem került elolvasásra",
 			no_text: "nincs olvasható szövege, ezért nem került elolvasásra",
 		},
 		priorDocument: "egy dokumentum, amelyet a korábbi jelentés olvasott",
