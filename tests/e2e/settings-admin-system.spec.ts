@@ -164,4 +164,62 @@ test.describe("Admin System screen", () => {
 		await expect(page.getByTestId("system-page-ai-tasks")).toBeVisible();
 		await expect(page.locator("#CONTEXT_SUMMARIZER_MODEL")).toBeVisible();
 	});
+
+	test("edits the Parallel free allowance under the Parallel API key", async ({
+		page,
+	}) => {
+		await page.getByTestId("system-nav-integrations").click();
+
+		// It is a billing setting for the same integration, so it reads in the
+		// Web research group, directly under the key that enables Parallel.
+		const keys = await page
+			.locator("[data-config-key]")
+			.evaluateAll((elements) =>
+				elements.map((element) => element.getAttribute("data-config-key")),
+			);
+		expect(keys[keys.indexOf("PARALLEL_FREE_MONTHLY_USD") - 1]).toBe(
+			"PARALLEL_API_KEY",
+		);
+
+		const row = page.locator('[data-config-key="PARALLEL_FREE_MONTHLY_USD"]');
+		const field = page.locator("#PARALLEL_FREE_MONTHLY_USD");
+		await expect(row.locator(".sys-unit")).toHaveText("$");
+		const original = await field.inputValue();
+		expect(original).toBe("5.00");
+
+		await field.fill("0");
+		await page.getByTestId("system-save").click();
+		await expect(page.getByTestId("system-save-bar")).toHaveAttribute(
+			"data-pending",
+			"0",
+		);
+
+		// The allowance is a stored override, so it has to survive a reload.
+		await page.reload();
+		await openSystemScreen(page);
+		await page.getByTestId("system-nav-integrations").click();
+		await expect(page.locator("#PARALLEL_FREE_MONTHLY_USD")).toHaveValue(
+			"0.00",
+		);
+
+		// Put the default back, so the run leaves no billing override behind.
+		// A reset writes an empty override, which shows as an empty field until
+		// the reload reads the environment default back in.
+		await page
+			.locator('[data-config-key="PARALLEL_FREE_MONTHLY_USD"]')
+			.getByRole("button", { name: /reset/i })
+			.click();
+		await page.getByTestId("system-save").click();
+		await expect(page.getByTestId("system-save-bar")).toHaveAttribute(
+			"data-pending",
+			"0",
+		);
+
+		await page.reload();
+		await openSystemScreen(page);
+		await page.getByTestId("system-nav-integrations").click();
+		await expect(page.locator("#PARALLEL_FREE_MONTHLY_USD")).toHaveValue(
+			original,
+		);
+	});
 });

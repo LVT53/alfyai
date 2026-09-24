@@ -1,7 +1,7 @@
 <script lang="ts">
-// A plain text/number/url/textarea field with an optional unit suffix. It
-// never writes an empty string by accident: the caller decides what an empty
-// field means, and the value is reported exactly as typed.
+// A plain text/number/url/textarea field with an optional prefix or unit
+// suffix. It never writes an empty string by accident: the caller decides what
+// an empty field means, and the value is reported exactly as typed.
 import "./system.css";
 
 let {
@@ -10,6 +10,7 @@ let {
 	value,
 	type = "text",
 	placeholder = "",
+	prefix = "",
 	unit = "",
 	size = "md",
 	mono = false,
@@ -27,6 +28,9 @@ let {
 	value: string;
 	type?: "text" | "number" | "url" | "textarea";
 	placeholder?: string;
+	/** A leading mark. Money reads "$ 5.00", so an amount takes this rather
+	 *  than the trailing `unit` every other numeric field uses. */
+	prefix?: string;
 	unit?: string;
 	size?: "sm" | "md" | "lg" | "wide";
 	mono?: boolean;
@@ -68,6 +72,9 @@ const sizeClass = $derived(
 	></textarea>
 {:else}
 	<span class="sys-field">
+		{#if prefix}
+			<span class="sys-unit">{prefix}</span>
+		{/if}
 		<input
 			{id}
 			class={`sys-input ${sizeClass} ${invalid ? 'sys-input-invalid' : ''}`}

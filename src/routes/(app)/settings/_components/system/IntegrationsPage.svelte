@@ -137,6 +137,20 @@ function unitKeyFor(spec: AdminConfigKeySpec): I18nKey | null {
 		? (`admin.system.unit.${spec.control.unit}` as I18nKey)
 		: null;
 }
+
+// The allowance is the one money field on this page, so it is the one that
+// takes the `$` prefix.
+const ALLOWANCE_SPEC = specFor("PARALLEL_FREE_MONTHLY_USD");
+
+// Money reads as money: a whole-dollar allowance shows as `5.00`, the same two
+// decimals every other money surface in the app uses. A fraction the admin
+// actually typed (0.001) is left exactly as it is — rounding it to `0.00` would
+// display a different allowance than the server applies.
+function displayAllowance(value: string): string {
+	const parsed = Number.parseFloat(value);
+	if (!Number.isFinite(parsed)) return value;
+	return Number(parsed.toFixed(2)) === parsed ? parsed.toFixed(2) : value;
+}
 </script>
 
 <SystemCard
@@ -163,6 +177,37 @@ function unitKeyFor(spec: AdminConfigKeySpec): I18nKey | null {
 					lastChanged={secretChangedAt.PARALLEL_API_KEY ?? ''}
 					onchange={(next) => setValue('PARALLEL_API_KEY', next)}
 					onCancelReplace={() => revertValue('PARALLEL_API_KEY')}
+				/>
+			{/snippet}
+		</SettingRow>
+
+		<SettingRow
+			label={$t('admin.parallelFreeMonthlyUsd')}
+			meaning={$t('admin.parallelFreeMonthlyUsdDescription')}
+			configKey="PARALLEL_FREE_MONTHLY_USD"
+			controlId="PARALLEL_FREE_MONTHLY_USD"
+			dirty={isDirty('PARALLEL_FREE_MONTHLY_USD')}
+			highlighted={highlightKey === 'PARALLEL_FREE_MONTHLY_USD'}
+			onReset={() => resetValue('PARALLEL_FREE_MONTHLY_USD')}
+			canReset={canResetKey('PARALLEL_FREE_MONTHLY_USD')}
+		>
+			{#snippet control()}
+				<ValueField
+					id="PARALLEL_FREE_MONTHLY_USD"
+					type="number"
+					size="sm"
+					prefix="$"
+					value={displayAllowance(
+						toDisplayNumber(ALLOWANCE_SPEC, adminConfig.PARALLEL_FREE_MONTHLY_USD ?? '')
+					)}
+					placeholder={displayAllowance(
+						toDisplayNumber(ALLOWANCE_SPEC, envDefaults.PARALLEL_FREE_MONTHLY_USD ?? '')
+					)}
+					onchange={(next) =>
+						setValue(
+							'PARALLEL_FREE_MONTHLY_USD',
+							fromDisplayNumber(ALLOWANCE_SPEC, next)
+						)}
 				/>
 			{/snippet}
 		</SettingRow>

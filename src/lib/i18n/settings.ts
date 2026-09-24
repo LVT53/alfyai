@@ -436,6 +436,9 @@ const settingsDict = {
 		"admin.parallelApiKey": "Parallel API Key",
 		"admin.parallelApiKeyDescription":
 			"API key for the Parallel web search and research service. Leave empty to disable Parallel-backed web research.",
+		"admin.parallelFreeMonthlyUsd": "Parallel free monthly allowance",
+		"admin.parallelFreeMonthlyUsdDescription":
+			"Parallel calls cost nothing to users until the whole server's usage passes this amount in a calendar month. After that they count as normal. Set to 0 to always count them.",
 		"admin.password": "Password",
 		"admin.passwordPlaceholder": "At least 8 characters",
 		"admin.profileTabNote": `Use the Profile tab for your own account changes. Admin role, session revocation, and deletion are disabled here for the current user.`,
@@ -2348,6 +2351,9 @@ const settingsDict = {
 		"admin.parallelApiKey": "Parallel API-kulcs",
 		"admin.parallelApiKeyDescription":
 			"A Parallel webes keresési és kutatási szolgáltatás API-kulcsa. Hagyd üresen a Parallel-alapú webes kutatás letiltásához.",
+		"admin.parallelFreeMonthlyUsd": "Parallel ingyenes havi keret",
+		"admin.parallelFreeMonthlyUsdDescription":
+			"A Parallel hívások addig nem jelentenek költséget a felhasználóknak, amíg a szerver teljes havi használata egy naptári hónapban meg nem haladja ezt az összeget. Utána a szokásos módon számoljuk el. 0 esetén mindig elszámoljuk őket.",
 		"admin.password": "Jelszó",
 		"admin.passwordPlaceholder": "Legalább 8 karakter",
 		"admin.profileTabNote": `A saját fiókod módosításait a Profil lapon végezheted el. Az adminisztrátori szerepkör, a munkamenet-visszavonás és a törlés itt le van tiltva az aktuális felhasználónál.`,
