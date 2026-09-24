@@ -3,6 +3,10 @@
 // up in the resolved values the settings page renders, or the Advanced page
 // would offer a control that quietly does nothing.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	ADVANCED_KEY_SPEC_BY_KEY,
+	validateAdminConfigValue,
+} from "$lib/config/admin-config-registry";
 
 const rows: Array<{ key: string; value: string }> = [];
 
@@ -136,5 +140,33 @@ describe("promoted admin config keys", () => {
 		await refreshConfig();
 
 		expect(getParallelFreeMonthlyUsd()).toBe(0);
+	});
+
+	it("projects the allowance in a form the admin endpoint accepts back", async () => {
+		// The System screen seeds the row's draft from the RESOLVED value (this
+		// projection) and sends that draft back on the next save, so a resolved
+		// string the write endpoint refuses is a field that cannot be saved:
+		// `String(0.0000001)` is "1e-7", and the allowance's `number` control
+		// has no "e" in its accepted spelling. The projection has to be the same
+		// plain decimal the registry stores.
+		rows.push({ key: "PARALLEL_FREE_MONTHLY_USD", value: "0.0000001" });
+
+		const { getResolvedAdminConfigValues, refreshConfig } = await import(
+			"./config-store"
+		);
+		await refreshConfig();
+
+		const allowanceSpec = ADVANCED_KEY_SPEC_BY_KEY.get(
+			"PARALLEL_FREE_MONTHLY_USD",
+		);
+		if (!allowanceSpec)
+			throw new Error("no spec for PARALLEL_FREE_MONTHLY_USD");
+		const resolved = getResolvedAdminConfigValues().PARALLEL_FREE_MONTHLY_USD;
+
+		expect(resolved).toBe("0.0000001");
+		expect(validateAdminConfigValue(allowanceSpec, resolved)).toEqual({
+			ok: true,
+			value: "0.0000001",
+		});
 	});
 });

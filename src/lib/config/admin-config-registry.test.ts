@@ -240,6 +240,119 @@ describe("validateAdminConfigValue", () => {
 			reason: "not-a-number",
 		});
 	});
+
+	// What the validator RETURNS is stored verbatim, and it is also what the
+	// admin field shows — so it has to be a spelling the validator itself
+	// accepts. `String(0.0000001)` is "1e-7", and the number pattern above has
+	// no letter "e" in it, so the second save of that field was a 400 ("Invalid
+	// value for PARALLEL_FREE_MONTHLY_USD") and the admin could no longer write
+	// it at all. Every case here echoes the canonical value back through the
+	// same validator, which is the property that was missing.
+	describe("the canonical form can be saved again", () => {
+		const allowance = spec("PARALLEL_FREE_MONTHLY_USD");
+
+		function canonicalise(raw: string): string {
+			const checked = validateAdminConfigValue(allowance, raw);
+			if (!checked.ok) throw new Error(`rejected ${raw}: ${checked.reason}`);
+			return checked.value;
+		}
+
+		function expectRoundTrip(raw: string): string {
+			const stored = canonicalise(raw);
+			expect(stored, raw).toMatch(/^-?\d*\.?\d+$/);
+			expect(validateAdminConfigValue(allowance, stored), stored).toEqual({
+				ok: true,
+				value: stored,
+			});
+			// Idempotent: canonicalising an already-canonical string is a no-op,
+			// so nothing drifts on the second save.
+			expect(canonicalise(stored), stored).toBe(stored);
+			return stored;
+		}
+
+		it("leaves the ordinary forms it already canonicalised alone", () => {
+			expect(expectRoundTrip("2.50")).toBe("2.5");
+			expect(expectRoundTrip(".5")).toBe("0.5");
+			expect(expectRoundTrip("5.00")).toBe("5");
+			expect(expectRoundTrip("0")).toBe("0");
+			expect(expectRoundTrip("-0")).toBe("0");
+			expect(expectRoundTrip("2.5")).toBe("2.5");
+		});
+
+		it("writes a tiny value as a plain decimal, never exponent notation", () => {
+			// Below 1e-6 JavaScript switches String() to exponent notation.
+			expect(expectRoundTrip("0.0000001")).toBe("0.0000001");
+			expect(expectRoundTrip("0.00000015")).toBe("0.00000015");
+			expect(expectRoundTrip(".0000001")).toBe("0.0000001");
+		});
+
+		it("writes a huge value as a plain decimal too", () => {
+			// 1e21 is where the other end switches. No registry key is both
+			// fractional and unbounded, so this uses an inline spec of the same
+			// control kind: the property belongs to the `number` control, and it
+			// must hold for a value a `max` bound has not already refused.
+			const unbounded: AdminConfigKeySpec = {
+				key: "TEST_UNBOUNDED_NUMBER",
+				group: "debug",
+				control: { kind: "number" },
+				effect: "live",
+			};
+			const checked = validateAdminConfigValue(
+				unbounded,
+				"99999999999999999999999",
+			);
+
+			expect(checked.ok).toBe(true);
+			if (!checked.ok) return;
+			// 23 nines parse above 1e21, where String() starts writing "1e+23".
+			expect(checked.value).toMatch(/^-?\d*\.?\d+$/);
+			expect(checked.value).toBe("100000000000000000000000");
+			expect(validateAdminConfigValue(unbounded, checked.value)).toEqual({
+				ok: true,
+				value: checked.value,
+			});
+		});
+
+		it("still refuses exponent notation as input, only the output form changed", () => {
+			for (const raw of [
+				"1e3",
+				"1E3",
+				"1e-7",
+				"1e+21",
+				"2.5.5",
+				"1,5",
+				"+2.5",
+				"0x10",
+				"5.",
+				"NaN",
+				"Infinity",
+				"-Infinity",
+				"lots",
+			]) {
+				expect(validateAdminConfigValue(allowance, raw), raw).toEqual({
+					ok: false,
+					reason: "not-a-number",
+				});
+			}
+		});
+
+		it("keeps a bounded number control's bounds, min and max unchanged", () => {
+			expect(validateAdminConfigValue(allowance, "1000001")).toEqual({
+				ok: false,
+				reason: "above-max",
+				limit: 1000000,
+			});
+			expect(validateAdminConfigValue(allowance, "-1")).toEqual({
+				ok: false,
+				reason: "below-min",
+				limit: 0,
+			});
+			expect(validateAdminConfigValue(allowance, "   ")).toEqual({
+				ok: true,
+				value: "",
+			});
+		});
+	});
 });
 
 describe("scaled units", () => {

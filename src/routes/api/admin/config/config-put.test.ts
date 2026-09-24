@@ -11,13 +11,28 @@ vi.mock("$lib/server/auth/hooks", () => ({
 
 const deleted: string[] = [];
 const upserted: Array<{ key: string; value: string }> = [];
+// What the (mocked) admin_config table holds, so a GET after a PUT reports the
+// row the PUT wrote — the read half of the save-read-save round trip.
+const stored = new Map<string, string>();
 
 vi.mock("$lib/server/db", () => ({
 	db: {
-		select: () => ({ from: () => Promise.resolve([]) }),
+		select: () => ({
+			from: () =>
+				Promise.resolve(
+					[...stored].map(([key, value]) => ({
+						key,
+						value,
+						updatedAt: new Date(0),
+						updatedBy: "admin-1",
+					})),
+				),
+		}),
 		delete: () => ({
 			where: (clause: { key?: string }) => {
-				deleted.push(clause?.key ?? "?");
+				const key = clause?.key ?? "?";
+				deleted.push(key);
+				stored.delete(key);
 				return Promise.resolve();
 			},
 		}),
@@ -25,6 +40,7 @@ vi.mock("$lib/server/db", () => ({
 			values: (row: { key: string; value: string }) => ({
 				onConflictDoUpdate: () => {
 					upserted.push({ key: row.key, value: row.value });
+					stored.set(row.key, row.value);
 					return Promise.resolve();
 				},
 			}),
@@ -56,7 +72,7 @@ vi.mock("$lib/server/config-store", async () => {
 	};
 });
 
-import { PUT } from "./+server";
+import { GET, PUT } from "./+server";
 
 type RouteEvent = Parameters<typeof PUT>[0];
 
@@ -305,5 +321,72 @@ describe("PUT /api/admin/config validation", () => {
 		expect(upserted).toEqual([
 			{ key: "MODEL_TIMEOUT_FAILOVER_TARGET_MODEL", value: "provider:p1:m1" },
 		]);
+	});
+
+	// Save → read → save again, the way the admin page does it: the field is
+	// seeded from the stored value, so a canonical form this endpoint refuses
+	// makes the NEXT save of that key a 400 — and, because a rejection fails the
+	// whole patch, every other key in the same body with it. The value below is
+	// the reported repro: `String(0.0000001)` is "1e-7", which has no place in
+	// this endpoint's own `/^-?\d*\.?\d+$/` pattern for a `number` control.
+	describe("a stored number can be saved again", () => {
+		beforeEach(() => {
+			stored.clear();
+		});
+
+		it("stores a tiny value in a form the endpoint accepts back", async () => {
+			const first = await PUT(
+				makeEvent({ PARALLEL_FREE_MONTHLY_USD: "0.0000001" }),
+			);
+
+			expect(first.status).toBe(200);
+			expect(upserted).toEqual([
+				{ key: "PARALLEL_FREE_MONTHLY_USD", value: "0.0000001" },
+			]);
+		});
+
+		it("accepts a PATCH echoing the value the GET reports as stored", async () => {
+			const first = await PUT(
+				makeEvent({ PARALLEL_FREE_MONTHLY_USD: "0.0000001" }),
+			);
+			expect(first.status).toBe(200);
+
+			const read = (await (await GET(makeEvent({}))).json()) as {
+				overrides: Record<string, string>;
+			};
+			const storedValue = read.overrides.PARALLEL_FREE_MONTHLY_USD;
+
+			// The whole patch fails when this key does, so the stored form
+			// being un-saveable took every other key in the body down with it.
+			upserted.length = 0;
+			const second = await PUT(
+				makeEvent({ PARALLEL_FREE_MONTHLY_USD: storedValue }),
+			);
+
+			expect(second.status).toBe(200);
+			expect(await second.json()).toEqual({ success: true });
+			expect(upserted).toEqual([
+				{ key: "PARALLEL_FREE_MONTHLY_USD", value: "0.0000001" },
+			]);
+			expect(storedValue).toBe("0.0000001");
+		});
+
+		it("still refuses an exponent spelling typed by hand", async () => {
+			// The fix changes the form this endpoint WRITES, not the forms it
+			// reads: "1e-7" and "1e3" stay not-a-number, as the registry's own
+			// tests and the hostile-input expectations both require.
+			for (const raw of ["1e-7", "1e3", "0.0000001e0"]) {
+				upserted.length = 0;
+				const response = await PUT(
+					makeEvent({ PARALLEL_FREE_MONTHLY_USD: raw }),
+				);
+				expect(response.status, raw).toBe(400);
+				expect(
+					(await response.json()).invalid.PARALLEL_FREE_MONTHLY_USD,
+					raw,
+				).toEqual({ reason: "not-a-number" });
+				expect(upserted, raw).toEqual([]);
+			}
+		});
 	});
 });

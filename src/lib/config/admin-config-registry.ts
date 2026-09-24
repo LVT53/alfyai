@@ -879,6 +879,39 @@ export const SURFACED_ADMIN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"ANALYTICS_EXCLUDED_USER_IDS",
 ]);
 
+/**
+ * A number as plain decimal text — never exponent notation.
+ *
+ * The `number` control is written in `^-?\d*\.?\d+$`, and JavaScript switches
+ * `String()` to exponent notation below 1e-6 and at 1e21 — so a value
+ * canonicalised with plain `String(parsed)` can come out in a spelling this
+ * module itself refuses. That is not cosmetic: the canonical string is what
+ * gets stored and what the admin field shows, so a stored "1e-7" turned the
+ * next save of that key into a 400 and the field could not be written again.
+ *
+ * The exponent form `String()` writes is already the shortest text that
+ * round-trips to the same double, so nothing has to be recomputed — the
+ * decimal point only has to move: "1e-7" → "0.0000001", "1.5e-7" →
+ * "0.00000015", "1e+21" → "1000000000000000000000". Every number whose
+ * `String()` form is already plain is returned exactly as it was, so "2.5"
+ * stays "2.5" and "5" stays "5".
+ */
+export function toPlainDecimal(value: number): string {
+	const text = String(value);
+	// "NaN" and "Infinity" have no "e" either, and no point to move.
+	if (!/[eE]/.test(text)) return text;
+	const match = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(text);
+	if (!match) return text;
+	const [, sign, whole, fraction = "", exponentText] = match;
+	const digits = whole + fraction;
+	const point = whole.length + Number(exponentText);
+	if (point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`;
+	if (point >= digits.length) {
+		return `${sign}${digits}${"0".repeat(point - digits.length)}`;
+	}
+	return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
 export type AdminConfigValidation =
 	| { ok: true; value: string }
 	| {
@@ -936,8 +969,11 @@ export function validateAdminConfigValue(
 				return { ok: false, reason: "above-max", limit: spec.control.max };
 			}
 			// Canonical form: "2.50" and ".5" are stored as "2.5" and "0.5", the
-			// same number the applier will parse.
-			return { ok: true, value: String(parsed) };
+			// same number the applier will parse — and always in the plain
+			// decimal spelling the check above accepts, never the exponent
+			// notation `String(0.0000001)` would produce. A stored value the
+			// validator refuses is an admin field that cannot be saved again.
+			return { ok: true, value: toPlainDecimal(parsed) };
 		}
 		case "select": {
 			return spec.control.options.includes(value)

@@ -1,6 +1,7 @@
 // Runtime config store: merges env vars with admin_config DB overrides.
 // All services should call getConfig() instead of importing from env.ts directly.
 
+import { toPlainDecimal } from "$lib/config/admin-config-registry";
 import {
 	deriveDefaultCompactionUiThreshold as deriveCompactionUiThreshold,
 	deriveDefaultTargetConstructedContext as deriveTargetConstructedContext,
@@ -1654,7 +1655,11 @@ export function getResolvedAdminConfigValues(
 		OWNTRACKS_RECORDER_PASS: config.owntracksRecorderPass ? "[set]" : "",
 		PARALLEL_API_KEY: config.parallelApiKey,
 		PARALLEL_BASE_URL: config.parallelBaseUrl,
-		PARALLEL_FREE_MONTHLY_USD: String(config.parallelFreeMonthlyUsd),
+		// Same plain-decimal rule as the registry's canonicaliser: this is the
+		// value the System screen seeds the row's draft from and sends back on
+		// the next save, so a `String(0.0000001)` "1e-7" here would be a field
+		// the write endpoint refuses.
+		PARALLEL_FREE_MONTHLY_USD: toPlainDecimal(config.parallelFreeMonthlyUsd),
 		ORS_BASE_URL: config.orsBaseUrl,
 		GEOCODER_BASE_URL: config.geocoderBaseUrl,
 		ORS_COVERAGE_LABEL: config.orsCoverageLabel,
