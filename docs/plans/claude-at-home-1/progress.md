@@ -166,14 +166,48 @@ is in flight, told to **reproduce it first** and to check a subtlety the first f
 cannot: `projectFilesRead > 0` always implies a non-empty summary section, and `citationAudit` has no equivalent
 guarantee — so a citation-only turn may need a different branch.
 
-### Two more fixes in flight, from review findings
+### Is the "project files read" row dead in practice? No — but its wording overpromises
 
-- `fix/live-chat-evidence-metadata` — the owner's request: the Info popover loses every evidence row after a turn
-  until a detail reload. The agent must establish which of two causes is real before changing anything.
-- `fix/upload-link-failure` — an unexpected failure while linking a project upload can 500 a request whose bytes
-  are already saved and skip extraction registration, leaving the file permanently unusable. The reviewer reasoned
-  this without reproducing it, so the agent must **reproduce it or prove it impossible** first. Also carries a
-  one-line empty-state fix in the Files modal.
+Scanning twelve recent dev conversations showed `projectFilesRead` absent on **every** assistant message, including a
+turn where the model answered from a project file's content. That looked like a feature that never fires. A
+deliberate investigation settled it in favour of "not a bug", with the deciding evidence coming from the deployed
+environment and the real model:
+
+- A turn that **names** a project file and asks about it sets `projectFilesRead = 1`, with the evidence carrying
+  the artifact id of the file's normalised sibling.
+- A turn that reaches the file through `read_generated_file` does **not** count — and cannot: tool evidence rows are
+  synthesized with no artifact id, so the intersection that produces the count is structurally empty for them.
+  That second turn reproduced the observed absence exactly.
+
+The mechanism, now documented: the count intersects `contextDebug.selectedEvidence` (read back from
+`task_state_evidence_links`, role `selected`, origin `system`, written per turn by
+`replaceSystemSelectedEvidenceLinks` only when a task state exists) with `listProjectKnowledgeArtifactIds` (which
+returns both the display and the normalised sibling id — load-bearing for the intersection). Triggers: a
+project-scoped conversation, an active task state, the file linked, and the turn's selection picking it; not an
+attachment. Nothing there is reachable by a tool-only read.
+
+**The real gap is wording, not code, and it is an owner decision.** The row reads as "how many of the project's
+files this turn read" while the number means "how many project files were selected as turn evidence". A turn that
+names a file from the `## Project Files` catalogue and reads it via the tool **under-reports** — it shows nothing
+while the model did consult a project file. Options: leave it (narrow but honest), reword it, or extend the
+definition to count tool reads (real design work — matching read-tool arguments back to project links at finalize).
+
+**No code was changed** for this. The investigation worktree `fix-pfr` is left in place with no commits.
+
+### Fixes landed from review findings (all merged and deployed)
+
+| Branch | Finding | Outcome |
+|---|---|---|
+| `fix/upload-link-failure` | An unexpected failure while linking a project upload 500s a request whose bytes are already saved and skips extraction registration — the file never becomes usable. | **Reproduced**: `escaped: "FOREIGN KEY constraint failed"`, `storedArtifacts: 1`, `extractionRegistrations: 0`. Reachable in the real path (FK on, check-then-insert window). Fixed non-fatally, with the two failure kinds logged distinctly. Also fixed the Files modal's search-label-as-empty-state, correcting the reviewer's file location (`ProjectFilesDialog.svelte`, not `DocumentsList.svelte`). |
+| `fix/picker-empty-state` | The library picker told you "No files yet." when a search matched nothing but your library had documents. | Fixed by reusing `projects.filesNoMatch`, with the empty-vs-filtered cases distinguished from existing state. |
+| `fix/live-chat-evidence-metadata` | The owner's request. Root cause was neither candidate I offered: the poll succeeds and its own row shows live; a *different* persisted field never arrived because the terminal frame is flushed before the server composes the evidence, so a normal turn skips the detail hydration. | Fixed on the poll that already runs — zero extra requests, zero extra reads. |
+
+**Reported and deliberately not fixed, all cosmetic or product decisions:**
+
+- The picker's search box is labelled "Search files in this project" but searches the **library** (wrong scope).
+- `projects/[projectId]/+page.svelte:203` collapses "not read yet" (`null`) into "no files" (`[]`), so opening the
+  Files modal inside the mount-time fetch window briefly says "No files yet." for a project that has files.
+- The "project files read" row's wording overpromises relative to what the number means (see above).
 
 ### Wave 5, Slice F — in flight
 
