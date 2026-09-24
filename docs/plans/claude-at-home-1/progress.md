@@ -29,10 +29,11 @@ Last updated: 2026-09-24 (implementation session 2 — Phase 0 done, Wave 1 in f
 
 | Gate | Result |
 |---|---|
-| `npm run check` | 0 errors, **17 warnings**, all pre-existing: `RouteItinerary.svelte` ×1, `ToolActivityRow.svelte` ×9, `ThinkingBlock.svelte` ×7. None of the three is touched by this wave (`git diff --name-only 98a34dfd..HEAD`), so they are inherited, not introduced. **The plan's "0 warnings" gate is unmeetable on this repo as it stands** — the honest gate is "no new diagnostics", per `AGENTS.md`. |
-| `npm run build` | exit 0, **0 warnings**. Slice A's report of 17 build warnings was wrong — those are `svelte-check` diagnostics and do not reappear in the Vite build. |
+| `npm run check` | 0 errors, **17 warnings**, all pre-existing: `RouteItinerary.svelte` ×1, `ToolActivityRow.svelte` ×10, `ThinkingBlock.svelte` ×6. None of the three is touched by this wave (`git diff --name-only 98a34dfd..HEAD` lists none of them), and an unchanged file cannot emit a changed warning, so they are inherited, not introduced. **Both the "0 warnings" gates in the plan are unmeetable on this repo as it stands** — the honest gate is "no new diagnostics", per `AGENTS.md`. |
+| `npm run build` | exit 0, but it **does** emit the same 17 warnings — 34 log lines, because each warning is printed once in the SSR pass and once in the client pass. Slice A was right and Slice B was wrong. **Do not grep the build log for the word "warn":** `vite-plugin-svelte` prints them as `… [vite-plugin-svelte] <file>:<line> Unused CSS selector "…"` with no "warning" anywhere, which is why Slice B counted zero. Count `Unused CSS selector` + `must have an ARIA role` instead. |
 | `npx biome check src scripts tests` | 1836 files, **1 warning**, pre-existing (`MessageEvidenceDetails.svelte:298`). |
 | `npm run check:migrations` | passes. |
+| `npm test` | **774 files passed, 1 skipped (775); 11685 tests passed, 2 skipped (11687)**, exit 0, 104 s. |
 
 Known pre-existing quirks, confirmed on a pristine baseline by both agents: `npx drizzle-kit generate` fails
 with "Interactive prompts require a TTY"; Fallow reports **4** circular-dependency findings where `AGENTS.md`
