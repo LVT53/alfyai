@@ -4817,8 +4817,23 @@ describe("tool description hygiene", () => {
 	// the patch rule, the `hasMore` window, the `query` passages and the return
 	// sentence were all cut back. Re-measured after that: 4,153 en / 6,672 hu.
 	//
-	// NOTE for whoever edits a description next: en is 7 tokens under its
-	// ceiling, where hu has 178 to spare. That is a tripwire, not a budget.
+	// Slice F (Workspaces: `/instruction` and instruction suggestions) needed
+	// room for a new tool's description, and paid for it out of the catalogue
+	// rather than by moving the ceiling, as the note below requires. What was
+	// cut, in both locales: the repeated account tails lost the tool name they
+	// sat in the description of ("with several Files accounts connected" is
+	// the files description), three tails that restated the sentence before
+	// them went (repos' "returns the matching records", location's "always the
+	// user's own self-selected device", contacts' "results combine every
+	// connected source"), the write-gate clause says "requires writes enabled"
+	// instead of "requires the user to have enabled writes", and a handful of
+	// clauses were said in fewer words ("so it finishes here rather than in a
+	// separate fetch_url step", "a bare filename is lost"). No trigger phrase,
+	// guard or returned field was dropped. Re-measured after the cut:
+	// 4,035 en / 6,580 hu.
+	//
+	// NOTE for whoever edits a description next: en is 125 tokens under its
+	// ceiling, where hu has 270 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent, twice.
 	const PER_TOOL_TOKEN_CEILING = 750;
