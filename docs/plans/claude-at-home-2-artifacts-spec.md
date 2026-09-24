@@ -218,9 +218,10 @@ PNG export, and the perf budget (the panel must stay responsive at 150+ nodes; m
 **Slice 4 — Slides.** Layouts, present mode, speaker notes, PPTX export through `produce_file`, the
 "ask about this slide" action.
 
-**Slice 5 — Alfy's side.** Prompt guidance for choosing a type, when to offer an artifact, and the Info
-popover rows; evidence integration so an artifact's sources are visible; the project bundle (Feature 1)
-listing a project's artifacts.
+**Slice 5 — Alfy's side.** Prompt guidance for choosing a type and when to offer an artifact, and the
+message evidence rows so an artifact's sources are visible through the existing Sources surface
+(`decisions.md` ruling 6 — no new popover row); the project bundle (Feature 1) listing a project's
+artifacts.
 
 Cross-cutting in every slice: EN + HU strings, account data archive and erasure coverage (ADR-0029–0032),
 migrations, telemetry that never carries artifact content, and `npm run check` / `npm test` / `npm run build`

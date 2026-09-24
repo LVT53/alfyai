@@ -55,7 +55,8 @@ row labelled with its type. No new popover row is invented.
 ## 7. Widening `EvidenceSourceType` is approved
 
 Showing a made artifact as evidence means adding a case to `EvidenceSourceType`
-(`messages-types.ts`), which is an exhaustive union consumed by `GROUP_LABELS` and `GROUP_ORDER` in
+(defined in `message-evidence.ts:770` — *corrected; an earlier draft named `messages-types.ts`, which only
+re-exports it*), which is an exhaustive union consumed by `GROUP_LABELS` and `GROUP_ORDER` in
 `message-evidence.ts` — so the compiler enforces that the new case is handled everywhere. Do it in the
 slice that first surfaces artifacts as evidence (slice 5), with a test per group label.
 
@@ -79,7 +80,8 @@ A strict "≥ 60 fps" assertion cannot be honest on a shared CI runner. Ruling:
 
 `slice-6.md` calls the panel `ArtifactPanel.svelte`; slices 0 and 3–5 keep
 `document-workspace/DocumentWorkspace.svelte`. **Keep the existing path and name.** Three live callers render
-it, two source-scan test suites pin the path (`no-ad-hoc-maps.test.ts`, `DocumentsList.test.ts`), and the
+it, and one source-scan suite pins the path (`src/lib/shared/file-types/no-ad-hoc-maps.test.ts:164`;
+*corrected — an earlier draft of this ruling also cited `DocumentsList.test.ts`, which does not pin it*), and the
 same shell serves surfaces that are not artifacts at all (generated files, chat attachments, library opens,
 search-result opens). Renaming it is a separate, reviewed change with the callers and the pinning tests
 updated together — not part of Feature 2. `slice-6.md`'s four references are corrected to the real path.
@@ -149,6 +151,67 @@ Slice 3 uses the plural, slices 4 and 6 the singular. **Plural wins** — consis
 - **Photos and live web are explicit review focus** in slice 3. They have the least reuse from the chat
   (no reusable photo or live-result component exists), so they are new work and reviewers must look at them
   first.
+
+## 17. `artifact_kv` uses a surrogate key, not a composite primary key
+
+The repo has **no** composite primary keys (`schema.ts` never imports `primaryKey`; every table uses
+`id: text("id").primaryKey()`). So `artifact_kv` gets a surrogate `id` plus a **unique index** on
+(`artifact_id`, `key`) — matching the house idiom instead of introducing a first-of-its-kind pattern.
+
+## 18. File stays `generated_output`; the File type is presentation
+
+Produced files must keep `type = "generated_output"`: `knowledge/store/core.ts:218` excludes that type from
+canonical ownership and `account-lifecycle/index.ts:94` keys "Clear memory and knowledge" on it. The File
+type is therefore a **presentation** of existing rows in the new card and panel, never a reclassification.
+The spec's "one new artifact type value" applies to the four **new** types only.
+
+## 19. An auth test names its layer
+
+`requireAuth` **redirects** (302), so a route-handler-level test must assert the redirect; an HTTP-level test
+asserts **401**, which is what `hooks.server.ts` returns for an unauthenticated API request (it distinguishes
+API calls from browser navigations). Both behaviours are correct in their own layer — a slice that asserts
+the wrong one is testing nothing. Every slice that covers authentication says which layer it is testing.
+
+## 20. Naming that avoids a collision, and the UI labels
+
+- Our card summary type is **`ArtifactCardSummary`**. `ArtifactSummary` already exists in
+  `knowledge/types.ts:60`, and importing it in `conversation-detail` under an alias hides which type is in
+  play — rename ours instead.
+- UI labels are confirmed per ADR-0066: Document / Dokumentum, App / Alkalmazás, Canvas / **Tábla**,
+  Slides / Diasor, File / Fájl.
+
+## 21. Shared files have one owner
+
+- **`AGENTS.md` and `src/lib/server/services/AGENTS.md` belong to slice 5** (three factually wrong sites:
+  `AGENTS.md:69`, `AGENTS.md:224`, `services/AGENTS.md:139`). No other slice edits them.
+- **E2E fixtures for produced files are seeded directly through `db`**, as other specs already do — there is
+  no stream-body fixture for a produced file, and building one is not this feature's work.
+
+## 22. One i18n family for types
+
+Slices 0 and 3 both shipped type labels (`artifacts.kind.*` and `artifacts.type.*`) with identical values.
+**`artifacts.type.*` wins** — the domain term is Artifact Type (`CONTEXT.md`) — and it is owned by slice 0;
+slice 3's keys collapse into it.
+
+## 23. Raising the tool-catalogue budget is allowed, once and measured
+
+The EN tool catalogue has roughly **7 tokens** of headroom (`normal-chat-tools/index.test.ts:4820`), and this
+feature adds three tool schemas. Raise the ceiling **once**, in the commit that adds them, with the measured
+token counts in the commit message and the test updated in the same change. Keep the same discipline
+afterwards: byte-identical prefixes, short descriptions, compact schemas.
+
+## 24. App key-value rows are archived, and erased
+
+An App's stored data can be real user content — a cost splitter's expenses, a tracker's ticks — so
+`artifact_kv` rows are **included in the account data archive** as readable JSON per artifact, and deleted on
+erasure. (An earlier recommendation was to exclude them as machine state; user content wins.)
+
+## 25. The evaluation harness's scoring rules
+
+Confirmed from slice 5's proposals: a **human verdict is recorded but not scored** (suite 3); suite 1's bar
+is an **absolute count plus a ratio**, not a bare percentage; every suite runs **known-bad fixtures that must
+fail** before its scores count, so the harness can be seen to fail; and `client.ts` is the only module that
+reads the API key.
 
 ## Consequences for the slice specs (cumulative)
 
