@@ -335,6 +335,103 @@ export async function listProjectKnowledgeArtifactIds(params: {
 }
 
 /**
+ * One document's membership, from the document's side: the projects the caller
+ * owns that know it.
+ *
+ * This is the reverse of `listProjectKnowledge`, and it exists for exactly one
+ * caller — the library's token on a row ("In 1 project"). The join carries the
+ * caller's user id, so the answer can only ever name the caller's own
+ * projects, and a document asked about through either of its ids (the source
+ * row the library shows, or the normalized artifact retrieval returns) answers
+ * the same way.
+ *
+ * Ordered by the caller's own id list and then by project name, so a row's
+ * token does not reshuffle between two reads of the same page.
+ */
+export async function listProjectLinksForArtifacts(params: {
+	userId: string;
+	artifactIds: string[];
+}): Promise<
+	{ artifactId: string; projectId: string; projectName: string }[]
+> {
+	const requestedIds = [
+		...new Set(
+			params.artifactIds.map((id) => id.trim()).filter((id) => id.length > 0),
+		),
+	];
+	if (requestedIds.length === 0) return [];
+
+	const { normalizedToSource, sourceToNormalized } = await readDerivedSiblings(
+		params.userId,
+		requestedIds,
+	);
+	const candidateIds = new Set<string>();
+	for (const id of requestedIds) {
+		candidateIds.add(id);
+		const sourceId = normalizedToSource.get(id);
+		if (sourceId) candidateIds.add(sourceId);
+		const normalizedId = sourceToNormalized.get(id);
+		if (normalizedId) candidateIds.add(normalizedId);
+	}
+
+	const rows = await db
+		.select({
+			artifactId: projectKnowledgeLinks.artifactId,
+			projectId: projects.id,
+			projectName: projects.name,
+		})
+		.from(projectKnowledgeLinks)
+		.innerJoin(
+			projects,
+			and(
+				eq(projects.id, projectKnowledgeLinks.projectId),
+				eq(projects.userId, params.userId),
+			),
+		)
+		.where(
+			and(
+				eq(projectKnowledgeLinks.userId, params.userId),
+				inArray(projectKnowledgeLinks.artifactId, [...candidateIds]),
+			),
+		);
+
+	const links: {
+		artifactId: string;
+		projectId: string;
+		projectName: string;
+	}[] = [];
+	const seen = new Set<string>();
+	for (const requestedId of requestedIds) {
+		const aliases = new Set(
+			[
+				requestedId,
+				normalizedToSource.get(requestedId),
+				sourceToNormalized.get(requestedId),
+			].filter((id): id is string => Boolean(id)),
+		);
+		for (const row of rows) {
+			if (!aliases.has(row.artifactId)) continue;
+			const key = `${requestedId}\u0000${row.projectId}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			links.push({
+				artifactId: requestedId,
+				projectId: row.projectId,
+				projectName: row.projectName,
+			});
+		}
+	}
+
+	return links.sort(
+		(left, right) =>
+			left.artifactId.localeCompare(right.artifactId) ||
+			left.projectName.localeCompare(right.projectName, "en", {
+				sensitivity: "base",
+			}),
+	);
+}
+
+/**
  * Link documents to a project.
  *
  * Both ids are attacker-controlled, so both are checked before anything is

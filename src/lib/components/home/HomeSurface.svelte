@@ -16,7 +16,7 @@
  * own chats and has no weekly bars at all.
  */
 import { goto } from "$app/navigation";
-import { Pencil, VenetianMask } from "@lucide/svelte";
+import { Paperclip, Pencil, VenetianMask } from "@lucide/svelte";
 import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { INCOGNITO_GREETINGS } from "$lib/i18n/chat";
@@ -114,7 +114,12 @@ export type HomeMode =
 	| {
 			kind: "project";
 			project: { id: string; name: string };
-			/** Slice E fills these two; Slice D renders the instructions half only. */
+			/**
+			 * How many library documents the project knows. `undefined` means the
+			 * count has not been read yet — the project page loads it in the
+			 * browser — and reads as zero: an unread count must never hide the
+			 * Files chip, which is the only door to the project's files.
+			 */
 			fileCount?: number;
 			chatCount: number;
 			lastActivityAt: number | null;
@@ -138,8 +143,9 @@ interface Props {
 	 * The project half of the quiet line under the composer: the chip reads
 	 * "Instructions" once the project has some, "Add instructions" until then.
 	 * It comes from the project's own read (where a whitespace-only save is a
-	 * clear), never from what the page last sent. Slice E's files chip will sit
-	 * beside it. Meaningless outside `project` mode, where nothing renders it.
+	 * clear), never from what the page last sent. The files chip sits beside it,
+	 * and reads the same way from the same kind of source. Meaningless outside
+	 * `project` mode, where nothing renders either half.
 	 */
 	projectHasInstructions?: boolean;
 	/**
@@ -193,11 +199,11 @@ let {
 	projectHasInstructions = false,
 	focusComposer = false,
 	onOpenInstructions,
+	onOpenFiles,
 }: Props = $props();
 
-// `projectsRow` and `onOpenFiles` complete the caller-facing interface but are
-// not read yet: `projectsRow` arrives in Slice G and the files chip — the
-// other half of the quiet line — in Slice E.
+// `projectsRow` completes the caller-facing interface but is not read yet:
+// it arrives in Slice G.
 const isProjectMode = $derived(mode.kind === "project");
 const projectId = $derived(mode.kind === "project" ? mode.project.id : null);
 const projectName = $derived(mode.kind === "project" ? mode.project.name : "");
@@ -246,6 +252,30 @@ const quietLineInstructionsLabel = $derived(
 	projectHasInstructions
 		? $t("projects.instructionsLabel")
 		: $t("projects.addInstructions"),
+);
+
+// The files half of the quiet line. Counted, so it has its own singular — and
+// counted from the project's own read, exactly like the instructions chip, so
+// the two halves of the line cannot disagree about what the project carries.
+const quietLineFilesCount = $derived(
+	mode.kind === "project" ? (mode.fileCount ?? 0) : 0,
+);
+const quietLineFilesLabel = $derived(
+	quietLineFilesCount > 0
+		? $t(
+				quietLineFilesCount === 1
+					? "projects.filesLabelOne"
+					: "projects.filesLabel",
+				{ count: quietLineFilesCount },
+			)
+		: $t("projects.addFiles"),
+);
+
+// The middot only separates two halves that both have something to say. Two
+// calls to action with a separator between them read as one sentence, and a
+// chip alone with a trailing middot reads as a list that lost its second item.
+const showQuietLineSeparator = $derived(
+	projectHasInstructions && quietLineFilesCount > 0,
 );
 
 // prefers-reduced-motion: the CSS reset in app.css cannot reach this
@@ -1175,10 +1205,10 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 
 				{#if isProjectMode && !sendStarted}
 					<!-- The quiet line under the composer: what this project carries
-					     into every chat in it. Instructions only for now — Slice E adds
-					     the paperclip and the files chip beside it, in this same row.
-					     It stays while incognito is armed, because an incognito chat in
-					     a project still follows the project's instructions. -->
+					     into every chat in it — its instructions and its files, each
+					     chip opening the modal for what it names. It stays while
+					     incognito is armed, because an incognito chat in a project
+					     still follows both. -->
 					<div class="project-quiet-line" data-testid="project-quiet-line">
 						<button
 							type="button"
@@ -1188,6 +1218,22 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 						>
 							<Pencil size={13} strokeWidth={1.9} aria-hidden="true" />
 							{quietLineInstructionsLabel}
+						</button>
+						{#if showQuietLineSeparator}
+							<span
+								class="project-quiet-separator"
+								data-testid="project-quiet-separator"
+								aria-hidden="true">·</span
+							>
+						{/if}
+						<button
+							type="button"
+							class="project-quiet-chip"
+							data-testid="project-files-button"
+							onclick={() => onOpenFiles?.()}
+						>
+							<Paperclip size={13} strokeWidth={1.9} aria-hidden="true" />
+							{quietLineFilesLabel}
 						</button>
 					</div>
 				{/if}
@@ -1300,8 +1346,7 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 	}
 
 	/* The quiet line under the composer: a row of small chips, each opening the
-	   modal for what it names. Instructions today; Slice E's files chip joins
-	   the row on the same terms. */
+	   modal for what it names — instructions and files, on the same terms. */
 	.project-quiet-line {
 		display: flex;
 		align-items: center;
@@ -1309,6 +1354,15 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 		gap: 4px;
 		margin-top: 8px;
 		padding: 0 2px;
+	}
+
+	/* The middot between two halves that both have something to say. Not a
+	   chip: it is punctuation, and it is not a target. */
+	.project-quiet-separator {
+		color: var(--text-muted);
+		font-size: 0.78rem;
+		line-height: 1;
+		user-select: none;
 	}
 
 	.project-quiet-chip {
@@ -1332,8 +1386,8 @@ function handleDraftChange(payload: MessageInputDraftPayload) {
 
 	/* A chip is still a control on a phone: the 30px face keeps a 44px hit area
 	   around it, the same rule the board's own chips follow. The target grows
-	   vertically only — Slice E's files chip lands beside this one, and a
-	   horizontal overhang would make the two boundaries overlap. */
+	   vertically only — two chips sit side by side on this line even on a
+	   phone, and a horizontal overhang would make their boundaries overlap. */
 	@media (max-width: 767px) {
 		.project-quiet-chip {
 			position: relative;

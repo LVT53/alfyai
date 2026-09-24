@@ -1,23 +1,34 @@
 <script lang="ts">
 /**
- * The project page: the landing surface in project mode, plus the one thing
- * the surface cannot own for itself — the Instructions dialog, whose open
- * state, seeded text and save call belong to the route. Everything else (the
- * greeting band, the incognito arm, the composer and its send/draft plumbing)
- * is `HomeSurface`, because forking the home page to add a project would have
- * meant two send paths, two draft flows and two incognito arms.
+ * The project page: the landing surface in project mode, plus the two things
+ * the surface cannot own for itself — the Instructions dialog and the Files
+ * modal, whose open states, seeds and calls belong to the route. Everything
+ * else (the greeting band, the incognito arm, the composer and its
+ * send/draft plumbing) is `HomeSurface`, because forking the home page to add a
+ * project would have meant two send paths, two draft flows and two incognito
+ * arms.
+ *
+ * The project's files are read here and nowhere else in this route: the modal
+ * renders what this state holds, and every mutation it makes ends in
+ * `refreshProjectFiles`, so the quiet line's count and the modal's list are
+ * always the same list — the server's last word on it.
  */
 import { ApiError } from "$lib/client/api/http";
-import { saveProjectInstructions } from "$lib/client/api/projects";
+import {
+	fetchProjectFiles,
+	saveProjectInstructions,
+} from "$lib/client/api/projects";
 import { consumeProjectComposerFocus } from "$lib/client/conversation-session";
 import HomeSurface from "$lib/components/home/HomeSurface.svelte";
 import InstructionsDialog from "$lib/components/instructions/InstructionsDialog.svelte";
+import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import { t } from "$lib/i18n";
 import { untrack } from "svelte";
 import {
 	type InstructionScope,
 	instructionScopeKey,
 } from "$lib/shared/instructions";
+import ProjectFilesDialog from "./_components/ProjectFilesDialog.svelte";
 import type { PageProps } from "./$types";
 
 let { data }: PageProps = $props();
@@ -31,6 +42,12 @@ let { data }: PageProps = $props();
 let instructionsText = $state(untrack(() => data.project.instructions ?? ""));
 let hasInstructions = $state(untrack(() => data.project.hasInstructions));
 let instructionsDialogOpen = $state(false);
+
+// `null` until the first read lands, which is what tells `HomeSurface` apart
+// "no files" from "not read yet" — the chip must never hide behind a read that
+// has not finished.
+let projectFiles = $state<ProjectKnowledgeItem[] | null>(null);
+let filesDialogOpen = $state(false);
 
 // Consumed once, at the first render of this route: the sidebar's "New chat"
 // item is the only thing that sets it (see conversation-session.ts), and it is
@@ -82,6 +99,32 @@ async function save(payload: {
 		};
 	}
 }
+
+/**
+ * Re-read the project's files. A failed read leaves the last answer standing
+ * rather than emptying the chip: the previous list was true a moment ago, and
+ * "no files" is the one lie that loses the user their way into the modal.
+ */
+async function refreshProjectFiles(projectId: string): Promise<void> {
+	try {
+		projectFiles = await fetchProjectFiles(projectId);
+	} catch {
+		// Left as it was.
+	}
+}
+
+function openFilesDialog(): void {
+	filesDialogOpen = true;
+	void refreshProjectFiles(data.project.id);
+}
+
+// Browser-only (an effect never runs during SSR), and re-run if the route's
+// project changes under this component — the count belongs to the project in
+// the URL, not to the page instance.
+$effect(() => {
+	const projectId = data.project.id;
+	void refreshProjectFiles(projectId);
+});
 </script>
 
 <svelte:head>
@@ -92,6 +135,7 @@ async function save(payload: {
 	mode={{
 		kind: "project",
 		project: { id: data.project.id, name: data.project.name },
+		fileCount: projectFiles?.length,
 		chatCount: data.chatCount,
 		lastActivityAt: data.lastActivityAt,
 	}}
@@ -99,6 +143,7 @@ async function save(payload: {
 	projectHasInstructions={hasInstructions}
 	{focusComposer}
 	onOpenInstructions={() => (instructionsDialogOpen = true)}
+	onOpenFiles={openFilesDialog}
 	displayName={data.user?.displayName ?? null}
 	userId={data.user?.id ?? null}
 	isAdmin={data.user?.role === "admin"}
@@ -115,4 +160,13 @@ async function save(payload: {
 	initialText={{ [instructionTextKey]: instructionsText }}
 	onSave={save}
 	onClose={() => (instructionsDialogOpen = false)}
+/>
+
+<ProjectFilesDialog
+	open={filesDialogOpen}
+	projectId={data.project.id}
+	projectName={data.project.name}
+	files={projectFiles ?? []}
+	onRefresh={() => refreshProjectFiles(data.project.id)}
+	onClose={() => (filesDialogOpen = false)}
 />

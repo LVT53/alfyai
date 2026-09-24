@@ -34,6 +34,7 @@ export {
 	linkProjectKnowledge,
 	listProjectKnowledge,
 	listProjectKnowledgeArtifactIds,
+	listProjectLinksForArtifacts,
 	ProjectKnowledgeError,
 	unlinkProjectKnowledge,
 } from "./knowledge/project-knowledge";

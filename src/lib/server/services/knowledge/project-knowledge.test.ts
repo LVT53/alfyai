@@ -353,6 +353,118 @@ describe("project knowledge links", () => {
 		]);
 	});
 
+	it("answers which of the caller's projects know a document", async () => {
+		seedProjectKnowledgeScenario();
+		const { linkProjectKnowledge, listProjectLinksForArtifacts } =
+			await import("./project-knowledge");
+		const { createProject } = await import("$lib/server/services/projects");
+
+		const secondProject = await createProject("owner-user", "Flat renovation");
+		await linkProjectKnowledge({
+			userId: "owner-user",
+			projectId: "trip-project",
+			artifactIds: ["artifact-hotel"],
+		});
+		await linkProjectKnowledge({
+			userId: "owner-user",
+			projectId: secondProject.id,
+			artifactIds: ["artifact-hotel"],
+		});
+
+		// The library's token is keyed by the document's own id, and the answer
+		// counts projects — the same document in two projects is "In 2 projects".
+		const links = await listProjectLinksForArtifacts({
+			userId: "owner-user",
+			artifactIds: ["artifact-hotel", "artifact-native-summary"],
+		});
+		expect(links).toEqual([
+			{
+				artifactId: "artifact-hotel",
+				projectId: secondProject.id,
+				projectName: "Flat renovation",
+			},
+			{
+				artifactId: "artifact-hotel",
+				projectId: "trip-project",
+				projectName: "Vienna trip",
+			},
+		]);
+
+		// A document no project knows has no links, and asking about nothing
+		// costs nothing.
+		await expect(
+			listProjectLinksForArtifacts({
+				userId: "owner-user",
+				artifactIds: ["artifact-native-summary"],
+			}),
+		).resolves.toEqual([]);
+		await expect(
+			listProjectLinksForArtifacts({ userId: "owner-user", artifactIds: [] }),
+		).resolves.toEqual([]);
+	});
+
+	it("answers a document asked about through either of its ids", async () => {
+		seedProjectKnowledgeScenario();
+		const { linkProjectKnowledge, listProjectLinksForArtifacts } =
+			await import("./project-knowledge");
+
+		await linkProjectKnowledge({
+			userId: "owner-user",
+			projectId: "trip-project",
+			artifactIds: ["artifact-railjet"],
+		});
+
+		// The library lists the source row; retrieval returns the normalized one.
+		// Both ids name the same document, and both have to answer, or the token
+		// would depend on which id the page happened to hold.
+		await expect(
+			listProjectLinksForArtifacts({
+				userId: "owner-user",
+				artifactIds: ["artifact-railjet-normalized"],
+			}),
+		).resolves.toEqual([
+			{
+				artifactId: "artifact-railjet-normalized",
+				projectId: "trip-project",
+				projectName: "Vienna trip",
+			},
+		]);
+	});
+
+	it("never answers with another user's project for the same document id", async () => {
+		seedProjectKnowledgeScenario();
+		const { linkProjectKnowledge, listProjectLinksForArtifacts } =
+			await import("./project-knowledge");
+
+		// The other user linked their own file into their own project. Nothing
+		// about that row is the owner's to see, and nothing here is a lookup by
+		// artifact id alone: the join carries the caller's user id.
+		await linkProjectKnowledge({
+			userId: "other-user",
+			projectId: "other-project",
+			artifactIds: ["artifact-other-user"],
+		});
+
+		await expect(
+			listProjectLinksForArtifacts({
+				userId: "owner-user",
+				artifactIds: ["artifact-other-user", "artifact-hotel"],
+			}),
+		).resolves.toEqual([]);
+		await expect(
+			listProjectLinksForArtifacts({
+				userId: "other-user",
+				artifactIds: ["artifact-other-user"],
+			}),
+		).resolves.toEqual([
+			{
+				artifactId: "artifact-other-user",
+				projectId: "other-project",
+				projectName: "Someone else's project",
+			},
+		]);
+	});
+
 	it("rejects linking another user's artifact without writing a row", async () => {
 		seedProjectKnowledgeScenario();
 		const { linkProjectKnowledge, isProjectKnowledgeError } = await import(
