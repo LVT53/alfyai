@@ -239,6 +239,7 @@ let {
 	reasoningDepth = "thorough",
 	onReasoningDepthChange = undefined,
 	composerCommandRegistryEnabled = false,
+	onInstructionCommand = undefined,
 	atlasAvailability = null,
 	memoryIncognito = false,
 	onMemoryIncognitoChange = undefined,
@@ -332,6 +333,13 @@ let {
 	reasoningDepth?: ReasoningDepth;
 	onReasoningDepthChange?: ((depth: ReasoningDepth) => void) | undefined;
 	composerCommandRegistryEnabled?: boolean;
+	/**
+	 * `/instruction <text>` hands the text to the host surface, which owns the
+	 * instructions dialog. The composer never opens it itself: which scopes can
+	 * be offered depends on the conversation's project, and only the page knows
+	 * that — the same reason `/skill` and `/document` delegate upward.
+	 */
+	onInstructionCommand?: ((text: string) => void) | undefined;
 	atlasAvailability?: AtlasAvailability | null;
 	/**
 	 * Whether the current conversation is excluded from the memory pipeline —
@@ -2609,6 +2617,14 @@ function selectCommand(command: CommandTrayRow) {
 		return;
 	}
 
+	// Same guard, before the token is consumed: a bare /instruction must say
+	// what it is missing instead of swallowing the token and leaving the user
+	// with an empty box and no dialog.
+	if (command.id === "instruction" && !commandArgument) {
+		commandTrayMessage = $t("composerCommands.instruction.missingArgument");
+		return;
+	}
+
 	const consumed = consumeActiveCommandToken();
 	finishCommandTrayClose();
 	if (!consumed) return;
@@ -2653,6 +2669,9 @@ function selectCommand(command: CommandTrayRow) {
 			break;
 		case "remember":
 			void submitMemoryNoteCommand(commandArgument as string);
+			break;
+		case "instruction":
+			onInstructionCommand?.(commandArgument as string);
 			break;
 		case "export":
 			void exportConversationCommand();

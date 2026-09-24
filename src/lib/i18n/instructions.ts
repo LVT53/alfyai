@@ -14,6 +14,7 @@ const instructionsDict = {
 		"instructions.descriptionPersonal": "These apply in every chat.",
 		"instructions.descriptionProject":
 			"AlfyAI follows these in every chat in this project. They take priority over your memory and style.",
+		"instructions.loadFailed": "Could not open the instructions.",
 		"instructions.save": "Save",
 		"instructions.saveFailed": "Could not save the instructions.",
 		"instructions.scopeA11y": "Instructions for {scope}",
@@ -31,6 +32,7 @@ const instructionsDict = {
 		"instructions.descriptionPersonal": "Minden csevegésben érvényesek.",
 		"instructions.descriptionProject":
 			"Az AlfyAI minden csevegésben követi ezeket a projektben. Elsőbbséget élveznek a memóriáddal és a stílussal szemben.",
+		"instructions.loadFailed": "Nem sikerült megnyitni az utasításokat.",
 		"instructions.save": "Mentés",
 		"instructions.saveFailed": "Nem sikerült menteni az utasításokat.",
 		"instructions.scopeA11y": "Utasítások ehhez: {scope}",

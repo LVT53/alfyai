@@ -137,6 +137,7 @@ import ChatMessagePane from "./_components/ChatMessagePane.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
 import DocumentWorkspace from "$lib/components/document-workspace/DocumentWorkspace.svelte";
+import InstructionCommandDialog from "$lib/components/instructions/InstructionCommandDialog.svelte";
 import {
 	appendAssistantPlaceholder,
 	appendThinkingChunkToMessageList,
@@ -317,6 +318,10 @@ let activeProjectName = $derived(
 				null)
 		: null,
 );
+
+// Handed up by the `/instruction` dialog host on mount; null until then, and
+// the command tray cannot be opened before hydration either.
+let openInstructionDialog: ((text: string) => void) | null = $state(null);
 
 const messages = writable<ChatMessage[]>(initialMessages);
 const draftPersistence = createDraftPersistence();
@@ -2738,6 +2743,7 @@ function handleDrop(event: DragEvent) {
 				{lastTurnCostUsd}
 				{totalTokens}
 				composerCommandRegistryEnabled={data.composerCommandRegistryEnabled}
+				onInstructionCommand={(text) => openInstructionDialog?.(text)}
 				{atlasAvailability}
 				{personalityProfiles}
 				{selectedPersonalityId}
@@ -2783,6 +2789,14 @@ function handleDrop(event: DragEvent) {
 			}}
 		/>
 	</div>
+
+	<!-- `/instruction` from this chat's composer: the shared dialog, scoped to
+	     the project this conversation sits in (null for a loose chat, which
+	     leaves the personal scope alone). -->
+	<InstructionCommandDialog
+		projectId={activeProjectId}
+		onOpenReady={(openWith) => (openInstructionDialog = openWith)}
+	/>
 
 	{#if cloudWarningOpen}
 		<CloudConnectorWarningModal
