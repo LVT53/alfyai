@@ -9,7 +9,7 @@ AlfyAI's goal is "to have Claude at home". It is a private, self-hosted assistan
 We close the gap in this order, ranked with the owner:
 
 1. **Folders become workspaces.** Add **Personal Instructions** (one account-wide box) and, on each **Project Folder**, **Folder Instructions** plus **Folder Knowledge** (uploads linked straight to the folder). This matches Claude, which has both account-wide and per-project instructions. It comes first because it is small and every conversation feels it, and because #2's **Document Bundle** needs folders that carry meaning.
-2. **Living Documents** (see [ADR-0065](0065-living-documents-are-edited-in-place.md)). These are drafts, plans and interactive checklists that the user and AlfyAI both edit in place. It ships in phases:
+2. **Living Documents** (see [ADR-0065](0065-living-documents-are-edited-in-place.md)). These are drafts, plans and interactive checklists that the user and AlfyAI both edit in place. **Widened by [ADR-0066](0066-artifacts-are-a-family-of-five-types.md):** this is the Document type of a five-type artifact family, and the work below becomes that family's first type. It ships in phases:
    - **2a:** documents AlfyAI creates, tickable checklists, and targeted AI edits with visible changes.
    - **2b:** the user's own rich-text editing, plus **Selection Edit**.
    - **2c:** the folder **Document Bundle**.

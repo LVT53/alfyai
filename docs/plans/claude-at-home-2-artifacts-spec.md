@@ -1,8 +1,9 @@
 # Feature 2 · Artifacts — implementation spec
 
-Owner decisions 2026-09-24. Supersedes the "living documents only" framing of
-[ADR-0065](../adr/0065-living-documents-are-edited-in-place.md); that ADR's rule reversal (editing in place)
-still stands, and this spec widens it to a family of artifacts. Feature 2 is the second item of
+Owner decisions 2026-09-24, recorded in [ADR-0066](../adr/0066-artifacts-are-a-family-of-five-types.md),
+which **amends** [ADR-0065](../adr/0065-living-documents-are-edited-in-place.md): that ADR's rule reversal
+(editing in place) still stands, and Living Documents become the **Document** type of a five-type family.
+Feature 2 is the second item of
 [ADR-0064](../adr/0064-claude-at-home-means-workspaces-documents-and-richer-inputs.md).
 
 Feasibility evidence (all three prototypes found the work doable):

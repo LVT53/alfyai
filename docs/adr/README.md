@@ -68,3 +68,4 @@ files in this directory (numbers `0007` and `0014` are intentionally absent).
 | [0063](0063-atlas-v3-reasons-from-an-evidence-bank-not-from-search-excerpts.md) | Atlas v3 reasons from an evidence bank, not from search excerpts |
 | [0064](0064-claude-at-home-means-workspaces-documents-and-richer-inputs.md) | "Claude at home" means workspaces, living documents and richer inputs, not platform integrations |
 | [0065](0065-living-documents-are-edited-in-place.md) | Living Documents are edited in place, reversing the "AI generates new files only" rule |
+| [0066](0066-artifacts-are-a-family-of-five-types.md) | Artifacts are a family of five types behind one card and one panel |

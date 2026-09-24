@@ -341,8 +341,8 @@ Rules:
 Do not:
 
 - add file versioning/history
-- add in-app file editing for uploaded or generated files (Living Documents are the one in-place-edited kind; see [ADR-0065](docs/adr/0065-living-documents-are-edited-in-place.md))
-- allow AI to edit existing uploaded library files (AI generates NEW files only; Living Documents are the ADR-0065 exception)
+- add in-app file editing for uploaded or generated files (Artifacts are the one in-place-edited kind; see [ADR-0065](docs/adr/0065-living-documents-are-edited-in-place.md) and [ADR-0066](docs/adr/0066-artifacts-are-a-family-of-five-types.md))
+- allow AI to edit existing uploaded library files (AI generates NEW files only; Artifacts are the ADR-0065/0066 exception)
 - add batch operations in v1
 - add file deduplication (allow duplicates with auto-rename)
 - use external hosted services for file preview

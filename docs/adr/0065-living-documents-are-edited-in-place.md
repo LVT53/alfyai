@@ -2,6 +2,12 @@
 
 Accepted (2026-09-24). Not yet implemented; see the phases in [ADR-0064](0064-claude-at-home-means-workspaces-documents-and-richer-inputs.md).
 
+> **Amended 2026-09-24 by [ADR-0066](0066-artifacts-are-a-family-of-five-types.md).** Living Documents are the
+> **Document** type of the artifact family. Everything below about editing in place, ownership inside a
+> conversation, and the reversal of the "AI generates new files only" rule applies to artifacts generally;
+> where ADR-0066 narrows or adds something (block-addressed patches, the shared comment layer, the types
+> that are not documents), ADR-0066 wins.
+
 Until now AlfyAI had two rules for its document surfaces:
 - the Knowledge Library has "no in-app file editing"
 - "AI generates NEW files only"

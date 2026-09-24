@@ -936,7 +936,7 @@ _Avoid_: project prompt, folder note, About-this-folder document
 _Avoid_: project files, folder attachments, folder library
 
 **Document Bundle**:
-The **Project Folder** view that gathers the **Living Documents** from all conversations in the folder, together with its **Folder Knowledge**, so the user sees the project's documents in one place. It is a view: each Living Document still belongs to its own conversation.
+The **Project Folder** view that gathers the **Artifacts** from all conversations in the folder, together with its **Folder Knowledge**, so the user sees the project's material in one place. It is a view: each Artifact still belongs to the conversation that made it.
 _Avoid_: folder document store, project drive, shared folder
 
 **Sidebar Pin**:
@@ -2194,8 +2194,8 @@ A **Library Document** or **Generated Document** that the user has opened, selec
 _Avoid_: active file, current artifact
 
 **Living Document**:
-An editable document, such as a draft, a plan or an interactive checklist, that belongs to one conversation and that both the user and AlfyAI change in place over time. Other conversations in the same **Project Folder** may read and update it. Unlike a **Generated Document**, it is not a rendered file; DOCX or PDF copies are exports of it.
-_Avoid_: artifact, canvas, note, generated document, editable file
+The **Document** type of an **Artifact**: an editable draft, plan or interactive checklist that belongs to one conversation and that both the user and AlfyAI change in place over time. Other conversations in the same **Project Folder** may read and update it. Unlike a **Generated Document**, it is not a rendered file; DOCX or PDF copies are exports of it. The UI calls it a Document.
+_Avoid_: artifact (as the umbrella), canvas, note, generated document, editable file
 
 **Selection Edit**:
 A user request for AlfyAI to change only a highlighted part of a **Living Document** ("make this more formal"). The result is shown as a visible change to that part, not as a rewritten document.
@@ -2424,6 +2424,57 @@ _Avoid_: source message button, primary document action, source viewer
 >
 > **Dev:** "Does better image zoom mean adding image editing?"
 > **Domain expert:** "No. Image zoom, fit, and pan are inspection controls inside the **Document Workspace**."
+
+## Artifacts
+
+### Language
+
+**Artifact**:
+Something AlfyAI makes that lives beside the conversation, keeps its own state, and that the user and AlfyAI both change over time. It is neither a message nor a rendered file. The UI never shows this word (see Flagged ambiguities).
+_Avoid_: message, generated file, attachment, widget, mini-app
+
+**Artifact Type**:
+One of the five kinds of **Artifact**: **Document**, **App**, **Canvas**, **Slides**, or **File**. The type decides the card's preview, the panel's editor, and how the artifact is edited and exported.
+_Avoid_: artifact kind, template, variant
+
+**Artifact Card**:
+The card in a conversation that stands for an **Artifact**, carrying its type, title, a type-specific preview (a checklist's ticks, the first lines, a board or slide thumbnail) and Open. A **Checklist**-style card is tickable in place.
+_Avoid_: file card, widget tile, attachment chip
+
+**Artifact Panel**:
+The side panel where an **Artifact** is opened, edited, versioned, commented on and exported. It is the rebuilt **Document Workspace**: generated files, attachments, library opens and search-result opens keep using the same shell.
+_Avoid_: document sidebar, preview modal, artifact viewer
+
+**Artifact Version**:
+One saved state of an **Artifact**, listed in its history, created by every AlfyAI change and every explicit save. Distinct from a **Generated Document Version**, which belongs to a rendered file.
+_Avoid_: revision, snapshot, checkpoint
+
+**Artifact Block**:
+A live piece placed inside a **Canvas** or **Document**: a chart, checklist, map route, file, embedded App, photo, or live web result. Blocks are the chat's existing rich content given a home in an artifact.
+_Avoid_: embed, widget, element, component
+
+**Artifact Comment**:
+A thread anchored to part of an **Artifact** — text in a **Document**, a node or a point on a **Canvas** — and the way the user talks to AlfyAI inside it. Mentioning AlfyAI in a comment produces an edit plus a reply in the thread.
+_Avoid_: annotation, note, review comment, sticky
+
+**Artifact Patch**:
+One block-addressed change to an **Artifact**, carrying the hash of the block as AlfyAI last read it. A patch to a block the user changed since that read is refused rather than applied.
+_Avoid_: diff, edit operation, rewrite
+
+**Artifact Tour**:
+The three-slide introduction shown the first time a user opens an **Artifact Type**, in the style of an **Announcement Campaign**: what it is, what you can do with it, how to ask AlfyAI to change it.
+_Avoid_: onboarding flow, walkthrough, tutorial, help page
+
+**Poster Frame**:
+The stored picture an App or map **Artifact Block** uses when live rendering is impossible — in an export, or offline.
+_Avoid_: thumbnail, screenshot, static fallback
+
+### Relationships
+
+- An **Artifact** belongs to the conversation it was made in; a sibling conversation in the same **Project Folder** may read and update it, and deleting the conversation does not delete it.
+- Every **Artifact** has exactly one **Artifact Type**; **File** is the type `produce_file` already makes.
+- An **Artifact Comment**, **Artifact Patch** and **Artifact Version** all belong to one **Artifact**; comments and versions survive the artifact being edited by either party.
+- A **Document**'s body carries its own block ids, so an **Artifact Patch** can address a block across sessions.
 
 ## Atlas Research Reports
 
@@ -2732,4 +2783,5 @@ _Avoid_: resolver, connection picker, router, provider dispatcher
 - "Sources section" in Atlas means the deterministic **Atlas Source Projection**, not a model-authored Markdown section.
 - "report title" in Atlas means the **Atlas Generated Title** rendered once by **Atlas Report Opening**, not a query-derived fallback label or a model-authored duplicate body heading.
 - Claude's "project instructions" and "project knowledge" correspond to **Folder Instructions** and **Folder Knowledge** on a **Project Folder**. Claude's "Instructions for Claude" corresponds to **Personal Instructions**. Claude's "artifact" does not map to one term. An editable draft or checklist is a **Living Document**; a downloadable DOCX/PDF/XLSX is a **Generated Document**.
+- "artifact" is AlfyAI's engineering term for the five-type family; **the UI never shows the word**. The interface says Document, App, Canvas, Slides (Hungarian: Dokumentum, Alkalmazás, Tábla, Diasor). Claude's artifacts also cover publishing, sharing and multi-user editing; AlfyAI's never do — see [ADR-0066](docs/adr/0066-artifacts-are-a-family-of-five-types.md).
 - "duplicate title cleanup" should mean removing title-like body blocks from the opening region after the generated title has been projected into app-owned chrome, not evaluating competing title quality.
