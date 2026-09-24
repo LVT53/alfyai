@@ -1099,6 +1099,14 @@ describe("analytics dashboard read model", () => {
 	});
 
 	describe("recordParallelUsage", () => {
+		// These tests pin the recorded row's shape, not the free allowance —
+		// that has its own suite (analytics.parallel-allowance.test.ts). An
+		// allowance of 0 keeps every call charged, so the flat price asserted
+		// below stays the row's list price.
+		beforeEach(() => {
+			vi.stubEnv("PARALLEL_FREE_MONTHLY_USD", "0");
+		});
+
 		it("records a flat-cost Parallel usage event with a unique synthetic message id per call", async () => {
 			openSeedDatabase().sqlite.close();
 			const { recordParallelUsage } = await import("./analytics");

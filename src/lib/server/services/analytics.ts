@@ -1,8 +1,18 @@
 import * as crypto from "node:crypto";
-import { and, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
+import {
+	and,
+	count,
+	eq,
+	gte,
+	inArray,
+	like,
+	lt,
+	notInArray,
+	sql,
+} from "drizzle-orm";
 import { getProviderIdFromModelId, isProviderModelId } from "$lib/model-types";
 import type { SessionUser } from "$lib/server/services/auth-types";
-import { getConfig } from "../config-store";
+import { getConfig, getParallelFreeMonthlyUsd } from "../config-store";
 import { db } from "../db";
 import {
 	activityEvents,
@@ -2336,12 +2346,64 @@ const PARALLEL_TOOL_MODEL = {
 	},
 } as const;
 
+// The list price of a month's Parallel calls before any free allowance. The
+// list cost is always derivable from the call count, which is why the allowance
+// needs no column of its own: `cost_usd_micros` stays the only billed figure
+// every total in the app already sums.
+export function parallelListMicrosForCalls(calls: number): number {
+	return Math.max(0, Math.floor(calls)) * PARALLEL_COST_USD_MICROS;
+}
+
+// What one Parallel call is charged, given the month's list-price spend before
+// and after it (spec rule: max(0, after − allowance) − max(0, before −
+// allowance), clamped to [0, 1000]). Only the part of a call above the line is
+// billed, so at an allowance worth two and a half calls the third call costs
+// 500 micros — not 1,000, and not 0.
+//
+// Integer-only on purpose: the USD → micros conversion happens once, at the
+// call site, so no float rounding can make two consecutive calls book a total
+// that differs from the sum of the two.
+export function parallelBilledMicros(
+	listBeforeMicros: number,
+	listAfterMicros: number,
+	allowanceMicros: number,
+): number {
+	const before = Math.max(0, listBeforeMicros - allowanceMicros);
+	const after = Math.max(0, listAfterMicros - allowanceMicros);
+	return Math.min(PARALLEL_COST_USD_MICROS, Math.max(0, after - before));
+}
+
+// The billed micros of each call in a month of `calls` calls, in call order.
+// Used by the replay script and the admin by-month projection, which both need
+// the whole series rather than one call's step.
+export function parallelBilledSeries(
+	calls: number,
+	allowanceMicros: number,
+): number[] {
+	const series: number[] = [];
+	for (let index = 0; index < Math.max(0, Math.floor(calls)); index++) {
+		series.push(
+			parallelBilledMicros(
+				parallelListMicrosForCalls(index),
+				parallelListMicrosForCalls(index + 1),
+				allowanceMicros,
+			),
+		);
+	}
+	return series;
+}
+
 // Record a single Parallel API call (Turbo search or Extract fetch) as a
 // usage_events row so its cost folds into the model breakdown automatically and
 // the admin dashboard can chart Parallel usage. Best-effort: like the other
 // analytics writers it never throws into the caller. The synthetic messageId is
 // unique per call so it never collides with a real message row or another
 // Parallel call under the messageId unique index.
+//
+// The free allowance is applied here, at record time, because the month's
+// running total is server-wide: it counts every user's `parallel:*` rows, not
+// this user's. The count and the insert share one transaction so two calls
+// landing together cannot both read "under the allowance" and both book $0.
 export async function recordParallelUsage(input: {
 	userId: string;
 	conversationId?: string | null;
@@ -2350,34 +2412,54 @@ export async function recordParallelUsage(input: {
 	if (!input.userId) return;
 	try {
 		const model = PARALLEL_TOOL_MODEL[input.tool];
-		await db
-			.insert(usageEvents)
-			.values({
-				id: crypto.randomUUID(),
-				userId: input.userId,
-				conversationId: input.conversationId ?? "",
-				conversationTitle: null,
-				messageId: `parallel:${crypto.randomUUID()}`,
-				modelId: model.modelId,
-				modelDisplayName: model.modelDisplayName,
-				providerId: null,
-				providerDisplayName: "Parallel",
-				providerBaseUrl: null,
-				providerModelName: null,
-				promptTokens: 0,
-				cachedInputTokens: 0,
-				cacheHitTokens: 0,
-				cacheMissTokens: 0,
-				completionTokens: 0,
-				reasoningTokens: 0,
-				totalTokens: 0,
-				usageSource: "provider",
-				generationTimeMs: null,
-				billingMonth: toBillingMonth(new Date()),
-				costUsdMicros: PARALLEL_COST_USD_MICROS,
-				priceRuleId: null,
-			})
-			.onConflictDoNothing();
+		const billingMonth = toBillingMonth(new Date());
+		// Converted once, here: the rule and everything it feeds stay integers.
+		const allowanceMicros = Math.round(getParallelFreeMonthlyUsd() * 1_000_000);
+		db.transaction((tx) => {
+			const [row] = tx
+				.select({ calls: count() })
+				.from(usageEvents)
+				.where(
+					and(
+						eq(usageEvents.billingMonth, billingMonth),
+						like(usageEvents.modelId, "parallel:%"),
+					),
+				)
+				.all();
+			const calls = row?.calls ?? 0;
+			tx.insert(usageEvents)
+				.values({
+					id: crypto.randomUUID(),
+					userId: input.userId,
+					conversationId: input.conversationId ?? "",
+					conversationTitle: null,
+					messageId: `parallel:${crypto.randomUUID()}`,
+					modelId: model.modelId,
+					modelDisplayName: model.modelDisplayName,
+					providerId: null,
+					providerDisplayName: "Parallel",
+					providerBaseUrl: null,
+					providerModelName: null,
+					promptTokens: 0,
+					cachedInputTokens: 0,
+					cacheHitTokens: 0,
+					cacheMissTokens: 0,
+					completionTokens: 0,
+					reasoningTokens: 0,
+					totalTokens: 0,
+					usageSource: "provider",
+					generationTimeMs: null,
+					billingMonth,
+					costUsdMicros: parallelBilledMicros(
+						parallelListMicrosForCalls(calls),
+						parallelListMicrosForCalls(calls + 1),
+						allowanceMicros,
+					),
+					priceRuleId: null,
+				})
+				.onConflictDoNothing()
+				.run();
+		});
 	} catch (error) {
 		console.error("[ANALYTICS] Failed to record Parallel usage", error);
 	}
