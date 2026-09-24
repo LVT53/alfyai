@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { normalizeSystemPromptReference } from "../prompts";
 import * as schema from "./schema";
 
 // Data migration that rewrites admin_config rows holding a legacy full-text
@@ -121,6 +122,42 @@ describe("reset legacy admin prompt snapshots migration", () => {
 		expect(configValue("MODEL_1_SYSTEM_PROMPT")).toBe(
 			"You are Bartholomew, a pirate who answers only in rhyme.",
 		);
+	});
+
+	// The runtime check (isLegacyAlfyAiPromptSnapshot) is a case-sensitive,
+	// word-bounded regex on the literal tool identifiers. A custom prompt that
+	// merely talks about generating files or fetching content in prose is not
+	// a snapshot there and is sent verbatim — so the migration must not
+	// overwrite it either, or an admin's own prompt is silently destroyed.
+	it.each([
+		"You are AlfyAI's helper. When asked, generate files and export documents.",
+		"You are AlfyAI. Fetch content from the web only when needed.",
+		"You are AlfyAI. Evaluate expressions carefully; never guess.",
+		"You are AlfyAI. Call Generate_File only for spreadsheets.",
+		"You are AlfyAI. Our in-house my_generate_file_v2 hook is not a tool.",
+	])("leaves a custom prompt that only resembles a retired tool name untouched: %s", (custom) => {
+		// The runtime agrees this is not a snapshot.
+		expect(normalizeSystemPromptReference(custom)).toBe(custom);
+		sqlite
+			.prepare("UPDATE admin_config SET value = ? WHERE key = ?")
+			.run(custom, "MODEL_1_SYSTEM_PROMPT");
+
+		applyMigrationSql(sqlite);
+
+		expect(configValue("MODEL_1_SYSTEM_PROMPT")).toBe(custom);
+	});
+
+	it("resolves a snapshot whose retired tool name is its first or last token", () => {
+		expect(
+			normalizeSystemPromptReference("You are AlfyAI.\nfetch_content"),
+		).toBe(RESOLVED_KEY);
+		sqlite
+			.prepare("UPDATE admin_config SET value = ? WHERE key = ?")
+			.run("You are AlfyAI.\nfetch_content", "MODEL_1_SYSTEM_PROMPT");
+
+		applyMigrationSql(sqlite);
+
+		expect(configValue("MODEL_1_SYSTEM_PROMPT")).toBe(RESOLVED_KEY);
 	});
 
 	it("is a no-op when re-run", () => {
