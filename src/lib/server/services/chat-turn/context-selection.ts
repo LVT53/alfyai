@@ -801,8 +801,11 @@ function buildProjectFolderPromptSection(
 const PROJECT_FILES_SECTION_TITLE = "Project Files";
 const PROJECT_FILES_MAX_ENTRIES = 30;
 const PROJECT_FILES_MAX_CHARS = 1_500;
-// The same words the UI uses for `projects.filesMore`. The packet is not
-// localized per turn, so the label is materialized here.
+// The packet is not localized per turn, so the label is materialized here in
+// English. `projects.filesMore` holds the same words — and the Hungarian
+// wording, which lives nowhere else — for whichever surface eventually renders
+// an overflow count; nothing reads that key yet, because the Files modal
+// scrolls the whole list rather than capping it.
 const PROJECT_FILES_MORE_LABEL = "+{n} more";
 
 /**
