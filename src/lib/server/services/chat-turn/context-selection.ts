@@ -1174,8 +1174,6 @@ function buildMinimalContextDebugState(params: {
 		verificationStatus: "skipped",
 		selectedEvidence: [],
 		selectedEvidenceBySource: [],
-		pinnedEvidence: [],
-		excludedEvidence: [],
 		forkProvenance: params.forkProvenance ?? null,
 	};
 }
@@ -2135,8 +2133,6 @@ export async function buildConstructedContext(params: {
 							verificationStatus: preparedContext.verificationStatus,
 							selectedEvidence: [],
 							selectedEvidenceBySource: [],
-							pinnedEvidence: [],
-							excludedEvidence: [],
 							forkProvenance,
 						} satisfies ContextDebugState),
 			)
@@ -2151,8 +2147,6 @@ export async function buildConstructedContext(params: {
 							verificationStatus: preparedContext.verificationStatus,
 							selectedEvidence: [],
 							selectedEvidenceBySource: [],
-							pinnedEvidence: [],
-							excludedEvidence: [],
 							forkProvenance,
 						} satisfies ContextDebugState)
 					: null,

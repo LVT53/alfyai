@@ -88,3 +88,70 @@ describe("Manage context sources removal", () => {
 		expect(linked).toContain("linked_context_source");
 	});
 });
+
+/**
+ * Dead wiring left standing after the removal.
+ *
+ * The pinned/excluded read side outlived its writers: no row with
+ * `origin = 'user'` and a pin/exclude role can be created any more, so the
+ * two debug fields (and the two ring rows that gated on them) could never
+ * render. They must not come back through a merge.
+ */
+describe("dead wiring the context-sources removal left behind", () => {
+	it.each([
+		"src/lib/server/services/knowledge/context-types.ts",
+		"src/lib/server/services/task-state.ts",
+		"src/lib/server/services/chat-turn/context-selection.ts",
+		"src/lib/components/chat/ContextUsageRing.svelte",
+	])("keeps %s free of the retired pin/exclude debug fields", (file) => {
+		const source = readFileSync(file, "utf8");
+		for (const field of ["pinnedEvidence", "excludedEvidence"]) {
+			expect(source, `${file} still mentions ${field}`).not.toContain(field);
+		}
+	});
+
+	it("drops the pinned/excluded ring labels with the rows they labelled", () => {
+		const i18n = readFileSync("src/lib/i18n/chat.ts", "utf8");
+		expect(i18n).not.toContain('"contextUsageRing.pinned"');
+		expect(i18n).not.toContain('"contextUsageRing.excluded"');
+	});
+
+	it("drops the linkedSources parameter finalizeChatTurn never read", () => {
+		// The parameter survived the Context Sources removal: finalizeChatTurn
+		// accepted it but no step ever read it, and the stream path threaded it
+		// through `CompleteStreamTurnParams` for that one dead argument.
+		for (const file of [
+			"src/lib/server/services/chat-turn/finalize.ts",
+			"src/lib/server/services/chat-turn/stream-completion.ts",
+		]) {
+			expect(
+				readFileSync(file, "utf8"),
+				`${file} still threads linkedSources`,
+			).not.toContain("linkedSources");
+		}
+		// The atlas artifact-link snapshot keeps its own linkedSources argument —
+		// that one is read. The send route may therefore pass it exactly once;
+		// the two finalizeChatTurn arguments it used to fill are gone (and would
+		// no longer typecheck, since the parameter itself is removed).
+		const send = readFileSync("src/routes/api/chat/send/+server.ts", "utf8");
+		expect(send).not.toContain("linkedSources: turn.linkedSources,");
+		expect(
+			send.match(/linkedSources: atlasPreflight\.value\.linkedSources,/g),
+		).toHaveLength(1);
+	});
+
+	it("drops the evidence-link lister and its mapper", () => {
+		// `prepareTaskContext` was the only caller: it read the rows to build the
+		// pin/exclude sets the removal retired. Nothing else in the repo called
+		// the lister or its row mapper, so both go with the read side.
+		const taskState = readFileSync(
+			"src/lib/server/services/task-state.ts",
+			"utf8",
+		);
+		expect(taskState).not.toContain("listTaskEvidenceLinks");
+		expect(taskState).not.toContain("mapTaskEvidenceLink");
+		expect(
+			readFileSync("src/lib/server/services/task-state/mappers.ts", "utf8"),
+		).not.toContain("mapTaskEvidenceLink");
+	});
+});

@@ -364,7 +364,6 @@ describe("completeStreamTurn", () => {
 		skillControlEnvelopePayloads: [],
 		serverSegments: [],
 		attachmentIds: ["att-1"],
-		linkedSources: [],
 		activeDocumentArtifactId: "doc-1",
 		requestStartTime: Date.now() - 5000,
 		fileProductionJobIdsAtStart: new Set<string>(),
@@ -437,8 +436,6 @@ describe("completeStreamTurn", () => {
 			},
 		],
 		selectedEvidenceBySource: [{ sourceType: "document", count: 1 }],
-		pinnedEvidence: [],
-		excludedEvidence: [],
 	});
 
 	const taskState = (taskId: string): TaskState => ({

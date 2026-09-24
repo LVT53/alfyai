@@ -1440,16 +1440,6 @@ describe("finalizeChatTurn", () => {
 			},
 			assistantMirrorContent: "assistant mirror text",
 			maintenanceReason: "chat_send",
-			linkedSources: [
-				{
-					displayArtifactId: "display-1",
-					promptArtifactId: "prompt-1",
-					familyArtifactIds: [],
-					name: "Linked source.pdf",
-					type: "document",
-					documentOrigin: "uploaded",
-				},
-			],
 		});
 
 		// The send path used to assemble a Context Sources projection here and

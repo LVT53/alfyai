@@ -345,7 +345,6 @@ async function runAtlasSendTurn({
 			},
 			assistantMirrorContent: assistantResponse,
 			maintenanceReason: "chat_send",
-			linkedSources: atlasPreflight.value.linkedSources,
 			toolCalls: [],
 			contextTraceSections: [],
 		});
@@ -589,7 +588,6 @@ async function runStandardSendTurn({
 		assistantMirrorContent: modelRunResult.text ?? "",
 		maintenanceReason: "chat_send",
 		startedResetGeneration,
-		linkedSources: turn.linkedSources,
 		toolCalls: modelRunArtifacts.finalToolCalls,
 		skillUse: turn.appliedSkill
 			? { displayName: turn.appliedSkill.skillDisplayName }

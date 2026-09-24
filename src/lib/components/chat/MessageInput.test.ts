@@ -1638,8 +1638,6 @@ describe("MessageInput", () => {
 					verificationStatus: "skipped",
 					selectedEvidence: [],
 					selectedEvidenceBySource: [],
-					pinnedEvidence: [],
-					excludedEvidence: [],
 				},
 			},
 		);

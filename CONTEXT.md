@@ -643,7 +643,7 @@ Exact personal or security-sensitive values such as phone numbers, email address
 _Avoid_: raw phone number, exact credential, exposed token, overzealous memory filtering
 
 **Context Sources**:
-The concept of the carried-forward pool of documents, attachments, memory, prior turns, generated work, and other sources AlfyAI is considering for a conversation. On the chat surface it is shown read-only as the **Sources** disclosure. There is no per-source user steering: the Auto/Pinned/Excluded surface was removed on 2026-09-24 because it never reached selection or the model (see [ADR-0043](docs/adr/0043-ui-refresh-identity-clarity-and-jump-rail.md)), and nothing replaces it — retrieval, decay and **Context Budget** decide what the pool carries.
+The concept of the carried-forward pool of documents, attachments, memory, prior turns, generated work, and other sources AlfyAI is considering for a conversation. On the chat surface it is shown read-only as the **Sources** disclosure. There is no per-source user steering: the Auto/Pinned/Excluded surface and the stored user preference rows it wrote were removed on 2026-09-24 (see [ADR-0043](docs/adr/0043-ui-refresh-identity-clarity-and-jump-rail.md)), and nothing replaces it — retrieval, decay and **Context Budget** decide what the pool carries.
 _Avoid_: evidence manager, manual retrieval setup, budget manager, chat-surface steering panel
 
 **Sources**:

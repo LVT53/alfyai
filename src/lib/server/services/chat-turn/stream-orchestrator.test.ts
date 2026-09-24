@@ -1946,8 +1946,6 @@ describe("stream-orchestrator SSE contract", () => {
 				verificationStatus: "passed",
 				selectedEvidence: [],
 				selectedEvidenceBySource: [],
-				pinnedEvidence: [],
-				excludedEvidence: [],
 			},
 			contextTraceSections: [{ title: "Trace", items: [] }],
 		};

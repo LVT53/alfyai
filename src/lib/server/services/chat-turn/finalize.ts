@@ -19,7 +19,6 @@ import {
 	listConversationFileProductionJobs,
 } from "$lib/server/services/file-production";
 import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
-import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import { createMessage } from "$lib/server/services/messages";
 import type { ThinkingSegment } from "$lib/server/services/messages-types";
 import {
@@ -138,7 +137,6 @@ export type FinalizeChatTurnParams = {
 	assistantMirrorContent: string;
 	maintenanceReason: RunPostTurnTasksParams["maintenanceReason"];
 	startedResetGeneration?: number;
-	linkedSources?: LinkedContextSource[];
 	toolCalls?: PersistAssistantEvidenceParams["toolCalls"];
 	contextTraceSections?: PersistAssistantEvidenceParams["contextTraceSections"];
 	webCitationAudit?: PersistAssistantEvidenceParams["webCitationAudit"];

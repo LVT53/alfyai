@@ -36,11 +36,7 @@ import {
 	parseJsonFromModel,
 	requestContextSummarizer,
 } from "./task-state/control-model";
-import {
-	mapTaskCheckpoint,
-	mapTaskEvidenceLink,
-	mapTaskState,
-} from "./task-state/mappers";
+import { mapTaskCheckpoint, mapTaskState } from "./task-state/mappers";
 import {
 	determineTeiWinningMode,
 	logTeiRetrievalSummary,
@@ -636,28 +632,6 @@ export async function getTaskStateById(
 		.limit(1);
 
 	return row ? mapTaskState(row) : null;
-}
-
-export async function listTaskEvidenceLinks(params: {
-	userId: string;
-	taskId: string;
-	roles?: TaskEvidenceLink["role"][];
-}): Promise<TaskEvidenceLink[]> {
-	const filters = [
-		eq(taskStateEvidenceLinks.userId, params.userId),
-		eq(taskStateEvidenceLinks.taskId, params.taskId),
-	];
-	if (params.roles?.length) {
-		filters.push(inArray(taskStateEvidenceLinks.role, params.roles));
-	}
-
-	const rows = await db
-		.select()
-		.from(taskStateEvidenceLinks)
-		.where(and(...filters))
-		.orderBy(desc(taskStateEvidenceLinks.updatedAt));
-
-	return rows.map(mapTaskEvidenceLink);
 }
 
 export async function listTaskCheckpoints(params: {
@@ -1394,8 +1368,6 @@ export async function getContextDebugState(
 			"skipped") as VerificationStatus,
 		selectedEvidence,
 		selectedEvidenceBySource,
-		pinnedEvidence: toDebugItems("pinned"),
-		excludedEvidence: toDebugItems("excluded"),
 	};
 }
 
