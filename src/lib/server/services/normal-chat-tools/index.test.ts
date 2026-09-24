@@ -4855,11 +4855,18 @@ describe("tool description hygiene", () => {
 	// instead of "requires the user to have enabled writes", and a handful of
 	// clauses were said in fewer words ("so it finishes here rather than in a
 	// separate fetch_url step", "a bare filename is lost"). No trigger phrase,
-	// guard or returned field was dropped. Re-measured after the cut:
+	// guard or returned field was dropped. That cut alone measured
 	// 4,035 en / 6,580 hu.
 	//
-	// NOTE for whoever edits a description next: en is 125 tokens under its
-	// ceiling, where hu has 270 to spare. That is a tripwire, not a budget.
+	// The new tool then spent most of the room it had made: `suggest_instruction`
+	// carries its whole usage rule (when to offer, when not to, that the user
+	// reviews before anything is saved, that it may be called once per turn,
+	// that a project scope needs a project) in its own description, per
+	// ADR-0055, in both locales. Re-measured with it in the catalogue:
+	// 4,128 en / 6,721 hu.
+	//
+	// NOTE for whoever edits a description next: en is 32 tokens under its
+	// ceiling, where hu has 129 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
 	// catalogue — moving this number up is how the headroom got spent, twice.
 	const PER_TOOL_TOKEN_CEILING = 750;
