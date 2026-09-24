@@ -577,17 +577,60 @@ function blocksFromDocumentBody(
 	return null;
 }
 
+/** A body value that holds something to render. */
+function hasDocumentBody(value: unknown): boolean {
+	if (typeof value === "string") return value.trim().length > 0;
+	return Array.isArray(value) && value.length > 0;
+}
+
+/** Keys a section may carry its heading under. */
+const SECTION_HEADING_KEYS = ["heading", "title", "name"] as const;
+/** Keys a section may carry its body under — exactly one is rendered. */
+const SECTION_BODY_KEYS = [
+	"blocks",
+	"content",
+	"markdown",
+	"text",
+	"body",
+] as const;
+/** Section keys that describe it rather than hold content. */
+const SECTION_META_KEYS = new Set(["level", "id", "type"]);
+
 function blocksFromSections(
 	value: unknown,
 ): Array<Record<string, unknown>> | null {
 	if (!Array.isArray(value)) return null;
 	const blocks: Array<Record<string, unknown>> = [];
-	for (const section of value) {
+	for (const [index, section] of value.entries()) {
 		if (typeof section === "string") {
 			blocks.push(...markdownishTextToBlocks(section));
 			continue;
 		}
 		if (!isRecord(section)) continue;
+		const path = `documentSource.sections[${index}]`;
+		// Only one body is rendered, and a key this reader does not know is
+		// never rendered at all: either would ship a section with part of its
+		// content silently missing, so both are refused with the fix named.
+		const bodyKeys = SECTION_BODY_KEYS.filter((key) =>
+			hasDocumentBody(section[key]),
+		);
+		if (bodyKeys.length > 1) {
+			throw new DocumentSourceInputError(
+				`${path} has more than one body (${bodyKeys.map((key) => `"${key}"`).join(", ")}) and only one is rendered. Put the whole section in one of them.`,
+			);
+		}
+		const unreadKeys = Object.keys(section).filter(
+			(key) =>
+				!SECTION_META_KEYS.has(key) &&
+				!(SECTION_HEADING_KEYS as readonly string[]).includes(key) &&
+				!(SECTION_BODY_KEYS as readonly string[]).includes(key) &&
+				hasSubstantiveDocumentValue(section[key]),
+		);
+		if (unreadKeys.length > 0) {
+			throw new DocumentSourceInputError(
+				`${path} has content under ${unreadKeys.map((key) => `"${key}"`).join(", ")}, which is not read. Put the section's body in "content" (Markdown text) or "blocks" (an array of blocks), and nested sections as their own entries in "sections".`,
+			);
+		}
 		const heading =
 			cleanString(section.heading) ??
 			cleanString(section.title) ??
@@ -600,12 +643,9 @@ function blocksFromSections(
 				text: heading,
 			});
 		}
-		const body =
-			blocksFromDocumentBody(section.blocks) ??
-			blocksFromDocumentBody(section.content) ??
-			blocksFromDocumentBody(section.markdown) ??
-			blocksFromDocumentBody(section.text) ??
-			blocksFromDocumentBody(section.body);
+		const body = bodyKeys[0]
+			? blocksFromDocumentBody(section[bodyKeys[0]])
+			: null;
 		if (body) blocks.push(...body);
 	}
 	return blocks.length > 0 ? blocks : null;
@@ -617,22 +657,24 @@ function blocksFromSections(
  * is blocks), `text` or `sections`. Null when there is nothing to build a
  * document from: the caller refuses rather than render a placeholder, which
  * used to ship a one-line "Generated file request: <title>" PDF as a success.
+ * A body sent under two of those keys is refused: only one would render.
  */
 function resolveDocumentSourceBlocks(
 	documentSource: Record<string, unknown>,
 ): Array<Record<string, unknown>> | null {
-	if (
-		Array.isArray(documentSource.blocks) &&
-		documentSource.blocks.length > 0
-	) {
-		return documentSource.blocks as Array<Record<string, unknown>>;
-	}
-	return (
-		blocksFromDocumentBody(documentSource.markdown) ??
-		blocksFromDocumentBody(documentSource.content) ??
-		blocksFromDocumentBody(documentSource.text) ??
-		blocksFromSections(documentSource.sections)
+	const bodyKeys = (["blocks", ...DOCUMENT_BODY_ALIAS_KEYS] as const).filter(
+		(key) => hasDocumentBody(documentSource[key]),
 	);
+	if (bodyKeys.length > 1) {
+		throw new DocumentSourceInputError(
+			`documentSource sends its body more than once (${bodyKeys.map((key) => `"${key}"`).join(", ")}) and only one is rendered. Put the whole document in "blocks", or send it all as "markdown".`,
+		);
+	}
+	const [bodyKey] = bodyKeys;
+	if (!bodyKey) return null;
+	return bodyKey === "sections"
+		? blocksFromSections(documentSource.sections)
+		: blocksFromDocumentBody(documentSource[bodyKey]);
 }
 
 function normalizeDocumentSourceEnvelope(
@@ -646,7 +688,15 @@ function normalizeDocumentSourceEnvelope(
 			warnings: string[];
 	  }
 	| { ok: false; error: string } {
-	const blocksSource = resolveDocumentSourceBlocks(documentSource);
+	let blocksSource: Array<Record<string, unknown>> | null;
+	try {
+		blocksSource = resolveDocumentSourceBlocks(documentSource);
+	} catch (error) {
+		if (error instanceof DocumentSourceInputError) {
+			return { ok: false, error: error.message };
+		}
+		throw error;
+	}
 	if (!blocksSource) {
 		const keys = Object.keys(documentSource);
 		return {
@@ -806,7 +856,21 @@ function repairDocumentSourceBlock(
 	ctx: BlockRepairContext,
 ): Record<string, unknown>[] {
 	if (!isRecord(raw)) return [raw as Record<string, unknown>];
-	const block = coerceDocumentBlockShape(raw);
+	let block: Record<string, unknown> | null;
+	try {
+		block = coerceDocumentBlockShape(raw);
+	} catch (error) {
+		if (error instanceof DocumentSourceInputError) {
+			const type =
+				typeof raw.type === "string" && raw.type.trim()
+					? ` (${raw.type.trim().slice(0, 40)})`
+					: "";
+			throw new DocumentSourceInputError(
+				`Block ${ctx.index + 1}${type}: ${error.message}`,
+			);
+		}
+		throw error;
+	}
 	if (!block) return [];
 	if (block.type === "table") {
 		return repairTableBlock(repairTableCells(block, ctx));
@@ -1779,17 +1843,63 @@ function headingLevelFrom(value: unknown): number | null {
 	return null;
 }
 
-function listItemText(item: unknown): string | null {
-	if (typeof item === "string") return item;
+/** Object list-item keys that hold the item's main text, most likely first. */
+const LIST_ITEM_PRIMARY_KEYS = [
+	"text",
+	"content",
+	"label",
+	"title",
+	"name",
+	"value",
+];
+
+/**
+ * The list items one entry stands for. A string is one item; an array is a
+ * nested list whose items follow in order; an object keeps its main text AND
+ * every other text/number field ({title, description} → "title: description"),
+ * with any nested list after it. Null when the entry holds no text at all —
+ * the caller refuses rather than drop it.
+ */
+function listItemTexts(item: unknown): string[] | null {
+	if (typeof item === "string") return [item];
 	if (typeof item === "number" || typeof item === "boolean") {
-		return String(item);
+		return [String(item)];
+	}
+	if (Array.isArray(item)) {
+		const nested: string[] = [];
+		for (const entry of item) {
+			const texts = listItemTexts(entry);
+			if (texts === null) return null;
+			nested.push(...texts);
+		}
+		return nested;
 	}
 	if (!isRecord(item)) return null;
-	for (const key of ["text", "content", "label", "title", "value"]) {
+	const primaryKey = LIST_ITEM_PRIMARY_KEYS.find((key) => {
 		const value = item[key];
-		if (typeof value === "string" && value.trim()) return value;
+		return typeof value === "string" && value.trim().length > 0;
+	});
+	const extras: string[] = [];
+	const nested: string[] = [];
+	for (const [key, value] of Object.entries(item)) {
+		if (key === primaryKey) continue;
+		if (typeof value === "string" && value.trim()) extras.push(value.trim());
+		else if (typeof value === "number" && Number.isFinite(value)) {
+			extras.push(String(value));
+		} else if (Array.isArray(value) && value.length > 0) {
+			const texts = listItemTexts(value);
+			if (texts === null) return null;
+			nested.push(...texts);
+		}
 	}
-	return null;
+	const primary = primaryKey ? (item[primaryKey] as string).trim() : null;
+	const text = primary
+		? extras.length > 0
+			? `${primary}: ${extras.join("; ")}`
+			: primary
+		: extras.join("; ");
+	if (!text && nested.length === 0) return null;
+	return text ? [text, ...nested] : nested;
 }
 
 function normalizeDocumentBlockFields(
@@ -1821,9 +1931,15 @@ function normalizeDocumentBlockFields(
 				next.listType === "numbered" ||
 				next.listType === "ordered";
 			const items = Array.isArray(next.items)
-				? next.items
-						.map(listItemText)
-						.filter((item): item is string => item !== null)
+				? next.items.flatMap((item, index) => {
+						const texts = listItemTexts(item);
+						if (texts === null) {
+							throw new DocumentSourceInputError(
+								`"items" entry ${index + 1} has no text. List items are strings, e.g. ["First point", "Second point"].`,
+							);
+						}
+						return texts;
+					})
 				: next.items;
 			return {
 				...next,
@@ -1880,16 +1996,24 @@ function tableCellScalar(value: unknown): string | number | boolean | null {
 			.join(", ");
 	}
 	if (isRecord(value)) {
-		for (const key of ["text", "value", "content", "label", "title"]) {
-			const cell = value[key];
-			if (
-				typeof cell === "string" ||
-				typeof cell === "number" ||
-				typeof cell === "boolean"
-			) {
-				return cell;
-			}
-		}
+		// Every scalar field, the likeliest main one first: {value: 12, unit:
+		// "kg"} is "12 kg", not 12 with the unit silently gone. A lone field
+		// keeps its type, so a numeric cell stays a number.
+		const preferred = ["text", "value", "content", "label", "title"];
+		const keys = [
+			...preferred.filter((key) => key in value),
+			...Object.keys(value).filter((key) => !preferred.includes(key)),
+		];
+		const scalars = keys
+			.map((key) => value[key])
+			.filter(
+				(cell): cell is string | number | boolean =>
+					(typeof cell === "string" && cell.trim().length > 0) ||
+					typeof cell === "number" ||
+					typeof cell === "boolean",
+			);
+		if (scalars.length === 1) return scalars[0];
+		if (scalars.length > 1) return scalars.map(String).join(" ");
 	}
 	return JSON.stringify(value);
 }
@@ -2036,7 +2160,21 @@ function fillChartBlockDefaults(
 		const numericKeys = keys.filter((key) =>
 			rows.every((row) => parseNumericCell(row[key]) !== null),
 		);
-		const textKeys = keys.filter((key) => !numericKeys.includes(key));
+		// A column with a missing value ({q3: null} in one row) is still a
+		// series: counting it as text dropped it from the series check, and a
+		// bar chart then plotted the other column alone without a word.
+		const isBlankCell = (cell: unknown) =>
+			cell === null ||
+			cell === undefined ||
+			(typeof cell === "string" && cell.trim() === "");
+		const seriesKeys = keys.filter(
+			(key) =>
+				rows.some((row) => parseNumericCell(row[key]) !== null) &&
+				rows.every(
+					(row) => isBlankCell(row[key]) || parseNumericCell(row[key]) !== null,
+				),
+		);
+		const textKeys = keys.filter((key) => !seriesKeys.includes(key));
 		if (!labelKey || !keys.includes(labelKey)) labelKey = textKeys[0] ?? null;
 		const valueKeyNamed = Boolean(valueKey && keys.includes(valueKey));
 		// Wide rows — {region, q2, q3} — are several series. Picking the first
@@ -2044,7 +2182,7 @@ function fillChartBlockDefaults(
 		// word. Only stackedBar draws more than one, so it gets the long form
 		// the renderer reads; any other type is refused with the fix spelled
 		// out. A model that named its `yKey` chose one series on purpose.
-		const seriesColumns = numericKeys.filter((key) => key !== labelKey);
+		const seriesColumns = seriesKeys.filter((key) => key !== labelKey);
 		if (
 			!valueKeyNamed &&
 			!seriesKey &&

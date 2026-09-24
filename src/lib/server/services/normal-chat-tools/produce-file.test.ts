@@ -1722,3 +1722,120 @@ describe("chart data shapes and multiple series", () => {
 		});
 	});
 });
+
+// The envelope, alias and chart repairs exist so a model's content is never
+// lost on the way to the renderer. Each case below used to render a document
+// with part of what the model sent silently missing.
+describe("documentSource repairs never drop content silently", () => {
+	function normalize(documentSource: Record<string, unknown>) {
+		return normalizeProduceFileInput({
+			requestTitle: "Field report",
+			sourceMode: "document_source",
+			documentSource,
+		});
+	}
+
+	it("refuses a section whose body sits under a key it does not read, naming the section and key", () => {
+		const result = normalize({
+			sections: [
+				{ heading: "Findings", paragraphs: ["Seal worn.", "Filter clogged."] },
+			],
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toContain("sections[0]");
+		expect(result.error).toContain('"paragraphs"');
+	});
+
+	it("refuses a section that carries two bodies instead of rendering only the first", () => {
+		const result = normalize({
+			sections: [
+				{
+					heading: "Findings",
+					content: "The pump failed twice.",
+					blocks: [{ type: "paragraph", text: "Replace the seal." }],
+				},
+			],
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toContain("sections[0]");
+	});
+
+	it("refuses a documentSource that sends its body twice (blocks plus markdown)", () => {
+		const result = normalize({
+			blocks: [{ type: "paragraph", text: "Intro only." }],
+			markdown: "## Findings\n\nThe pump failed twice in March.",
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toContain('"blocks"');
+		expect(result.error).toContain('"markdown"');
+	});
+
+	it("keeps every field of an object list item, and every item of a nested list", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				blocks: [
+					{
+						type: "list",
+						items: [
+							{ title: "Step 1", description: "Drain the tank" },
+							["Close valve A", "Close valve B"],
+							"Refill",
+						],
+					},
+				],
+			},
+		});
+		const items = blocks[0].items as string[];
+		expect(items.join(" | ")).toContain("Step 1");
+		expect(items.join(" | ")).toContain("Drain the tank");
+		expect(items.join(" | ")).toContain("Close valve A");
+		expect(items.join(" | ")).toContain("Close valve B");
+		expect(items).toContain("Refill");
+	});
+
+	it("refuses an object list item with no text in it rather than dropping it", () => {
+		const result = normalize({
+			blocks: [{ type: "list", items: ["Keep", { done: true }] }],
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toMatch(/^Block 1 \(list\): /);
+	});
+
+	it("keeps every field of an object table cell", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				blocks: [
+					{
+						type: "table",
+						columns: ["Item", "Weight"],
+						rows: [["Pump", { value: 12, unit: "kg" }]],
+					},
+				],
+			},
+		});
+		expect(JSON.stringify(blocks[0])).toContain("12 kg");
+	});
+
+	it("still sees a series with a missing value as a series (bar chart refuses, not drops it)", () => {
+		const result = normalize({
+			blocks: [
+				{
+					type: "chart",
+					chartType: "bar",
+					title: "Revenue",
+					data: [
+						{ region: "North", q2: 10, q3: 12 },
+						{ region: "South", q2: 20, q3: null },
+					],
+				},
+			],
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toContain("q2, q3");
+	});
+});
