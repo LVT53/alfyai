@@ -222,6 +222,91 @@ test.describe("Project page", () => {
 		);
 	});
 
+	/** The landing draft's conversation id, as the session carries it. */
+	async function draftConversationId(page: Page): Promise<string | null> {
+		return page.evaluate(() =>
+			window.sessionStorage.getItem("landing-draft-conversation-id"),
+		);
+	}
+
+	async function seedDraftOnLanding(page: Page, text: string) {
+		await page.goto("/", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await page.getByTestId("message-input").fill(text);
+		// Typing is what prepares the conversation, so the test cannot go on
+		// until the session carries one: without it the rest of the test would
+		// silently exercise the ordinary "no draft at all" path instead.
+		await expect.poll(() => draftConversationId(page)).not.toBeNull();
+		return (await draftConversationId(page)) as string;
+	}
+
+	test("sends the first message into the project even when the home page had already prepared a draft", async ({
+		page,
+	}) => {
+		// A draft typed on the home page belongs to no project. Reusing that
+		// conversation from the project page would put the first message in a
+		// chat the project does not own — the folder's instructions would not
+		// reach the turn, and the commit that built this page promised the
+		// opposite.
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+		const landingDraftId = await seedDraftOnLanding(page, "Hotel ideas?");
+
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, projectName);
+		await row.hover();
+		await row.getByRole("button", { name: `Open ${projectName}` }).click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`));
+		await waitForHydration(page);
+
+		await sendMessage(page, "Which train should I take?");
+		await page.waitForURL(/\/chat\//, { timeout: 20000 });
+
+		const chatId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? "";
+		const [row2] = await db
+			.select({ projectId: conversations.projectId })
+			.from(conversations)
+			.where(eq(conversations.id, chatId))
+			.limit(1);
+		expect(row2, `conversation ${chatId} must exist`).toBeTruthy();
+		expect(
+			row2.projectId,
+			`the chat ${chatId} must belong to the project (home-page draft was ${landingDraftId})`,
+		).toBe(projectId);
+	});
+
+	test("sends the first message outside the project when a project page had prepared the draft", async ({
+		page,
+	}) => {
+		// The mirror: a draft prepared on a project's page belongs to that
+		// project, so the home page must not adopt it — a chat started from the
+		// home page would otherwise land inside somebody's folder.
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+
+		await openProjectPage(page, projectId);
+		await page.getByTestId("message-input").fill("Trains only, please.");
+		await expect.poll(() => draftConversationId(page)).not.toBeNull();
+		const projectDraftId = (await draftConversationId(page)) as string;
+
+		await page.goto("/", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await sendMessage(page, "Something else entirely.");
+		await page.waitForURL(/\/chat\//, { timeout: 20000 });
+
+		const chatId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? "";
+		const [row] = await db
+			.select({ projectId: conversations.projectId })
+			.from(conversations)
+			.where(eq(conversations.id, chatId))
+			.limit(1);
+		expect(row, `conversation ${chatId} must exist`).toBeTruthy();
+		expect(
+			row.projectId,
+			`the chat ${chatId} must not be inside the project (project-page draft was ${projectDraftId})`,
+		).toBeNull();
+	});
+
 	test("opens the instructions dialog with only the project scope from the quiet line", async ({
 		page,
 	}) => {

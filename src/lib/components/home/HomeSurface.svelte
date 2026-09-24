@@ -265,7 +265,13 @@ function canReuseLandingPreparedConversation(
 	return (
 		detail.conversation.title === "New Conversation" &&
 		(detail.messages?.length ?? 0) === 0 &&
-		(detail.generatedFiles?.length ?? 0) === 0
+		(detail.generatedFiles?.length ?? 0) === 0 &&
+		// The draft must already belong where this surface would send it. A
+		// draft prepared on the landing page has no project and a draft
+		// prepared on a project's page has that project: adopting the other
+		// one would send the first message into a folder the composer never
+		// named, or out of the one it did.
+		(detail.conversation.projectId ?? null) === projectId
 	);
 }
 
