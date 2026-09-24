@@ -87,6 +87,30 @@ says five (the "five" is stale).
   were stopped early, their uncommitted work saved to `/tmp/ws-claude-attempts/` and the worktrees reset, then
   both slices were re-dispatched on DeepSeek.
 
+### Dev verification of Wave 2 — Personal Instructions (2026-09-24)
+
+Deployed as `57bec090`. Migrations 121/121 applied, `users.personal_instructions` exists, and the bundle carries
+the instructions namespace (6 files) and `personalInstructions` (18).
+
+Verified in a browser **against the deployed environment**, light and dark:
+
+- Settings → Profile → Assistant behaviour → **Personal instructions** row present; the shared dialog opens; the
+  counter reads `n / 2000`.
+- **Boundary, measured on dev:** exactly **2 000 accented code points** (`árvíztűrőtükörfúrógép` repeated) are
+  accepted with Save **enabled**; **2 001** (2 000 `a` + one emoji) keeps every code point in the field, never
+  truncates, and disables Save. The dark pass's counter read `2000 / 2000`, which independently proves the light
+  pass's save persisted.
+- **Real-model proof:** with the instruction *"Always end every reply with the exact token PURPLEHIPPO…"* set, a
+  real turn on dev returned a reply containing the token; after clearing it, the next real turn did not.
+  Zero page errors throughout. Scripts: `/tmp/ws-visual/probe-instructions.mjs`, `probe-live-turn.mjs`.
+
+**Two probe bugs I hit and fixed — neither was an app defect, and the first run's "failure" was meaningless:**
+1. The first live-turn run reported `instructions applied = false`, but the URL had stayed on `/` — the message
+   was never sent, so it measured the home page. **Enter does not submit the landing composer**; click the send
+   control instead.
+2. The first "at-limit" case only reached 440 code points (the repeat count was too small), so it proved nothing
+   about the boundary. Fixed to build exactly 2 000.
+
 ### Dev verification of Wave 1 (2026-09-24)
 
 The owner said the dev environment is a playhouse and that the prod cutover happens only after **all** waves, so
