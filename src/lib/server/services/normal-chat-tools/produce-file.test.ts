@@ -1333,3 +1333,89 @@ describe("same-turn dedupe and intake idempotency keys", () => {
 		expect(key(base("a"))).toBe(key(base("a")));
 	});
 });
+
+describe("documentSource without blocks", () => {
+	function envelope(documentSource: Record<string, unknown>) {
+		return normalizeProduceFileInput({
+			requestTitle: "Field report",
+			sourceMode: "document_source",
+			documentSource,
+		});
+	}
+
+	it("builds blocks from documentSource.markdown", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				markdown:
+					"## Findings\n\nThe pump failed twice in March.\n\n- Seal worn\n- Filter clogged",
+			},
+		});
+		expect(blocks).toEqual([
+			{ type: "heading", level: 2, text: "Findings" },
+			{ type: "paragraph", text: "The pump failed twice in March." },
+			{ type: "list", style: "bullet", items: ["Seal worn", "Filter clogged"] },
+		]);
+	});
+
+	it("builds blocks from a documentSource.content string as markdown", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				content: "## Findings\n\nThe pump failed twice in March.",
+			},
+		});
+		expect(blocks).toEqual([
+			{ type: "heading", level: 2, text: "Findings" },
+			{ type: "paragraph", text: "The pump failed twice in March." },
+		]);
+	});
+
+	it("takes a documentSource.content array as the blocks", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				content: [
+					{ type: "heading", level: 2, text: "Findings" },
+					{ type: "paragraph", text: "The pump failed twice in March." },
+				],
+			},
+		});
+		expect(blocks).toEqual([
+			{ type: "heading", level: 2, text: "Findings" },
+			{ type: "paragraph", text: "The pump failed twice in March." },
+		]);
+	});
+
+	it("turns documentSource.sections into a heading plus that section's blocks", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				sections: [
+					{ heading: "Findings", content: "The pump failed twice in March." },
+					{
+						title: "Actions",
+						blocks: [{ type: "list", items: ["Replace seal", "Clean filter"] }],
+					},
+				],
+			},
+		});
+		expect(blocks).toEqual([
+			{ type: "heading", level: 2, text: "Findings" },
+			{ type: "paragraph", text: "The pump failed twice in March." },
+			{ type: "heading", level: 2, text: "Actions" },
+			{ type: "list", items: ["Replace seal", "Clean filter"] },
+		]);
+	});
+
+	it("refuses a documentSource with no usable content instead of inventing a placeholder", () => {
+		const result = envelope({ title: "Field report", summary: "Pump notes" });
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toContain('"blocks"');
+		expect(result.error).toContain("markdown");
+		expect(result.error).toContain("summary");
+		expect(result.error).not.toContain("Generated file request");
+	});
+
+	it("refuses an empty blocks array the same way", () => {
+		const result = envelope({ blocks: [], summary: "Pump notes" });
+		expect(result.ok).toBe(false);
+	});
+});

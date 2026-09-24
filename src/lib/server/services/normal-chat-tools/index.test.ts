@@ -1086,7 +1086,9 @@ describe("createNormalChatTools", () => {
 			sourceMode: "document_source",
 			documentSource: {
 				contentHash: expect.stringMatching(/^[a-f0-9]{12}$/),
-				topLevelKeyCount: 6,
+				// secret, version, template, title, blocks — `sections` became the
+				// blocks and is not carried twice.
+				topLevelKeyCount: 5,
 			},
 		});
 		expect(getToolCalls()[1]?.metadata).toMatchObject({

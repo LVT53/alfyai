@@ -357,12 +357,20 @@ export function normalizeProduceFileInput(
 					"documentSource must contain substantive content when sourceMode is document_source",
 			};
 		}
-		const documentSource = input.documentSource
-			? normalizeDocumentSourceEnvelope(input.documentSource, requestTitle)
-			: buildDocumentSourceFromText({
-					title: requestTitle,
-					text: content ?? "",
-				});
+		let documentSource: Record<string, unknown>;
+		if (input.documentSource) {
+			const envelope = normalizeDocumentSourceEnvelope(
+				input.documentSource,
+				requestTitle,
+			);
+			if (!envelope.ok) return envelope;
+			documentSource = envelope.documentSource;
+		} else {
+			documentSource = buildDocumentSourceFromText({
+				title: requestTitle,
+				text: content ?? "",
+			});
+		}
 		if (!hasSubstantiveDocumentSource(documentSource)) {
 			return {
 				ok: false,
@@ -527,27 +535,135 @@ function normalizePatches(
 	return result.length > 0 ? result : undefined;
 }
 
+/**
+ * A model-facing refusal raised while repairing one documentSource block. The
+ * envelope turns it into `{ ok: false, error }`, which the tool reports as
+ * `invalid_tool_input` — so the message must say which block and what to send
+ * instead.
+ */
+class DocumentSourceInputError extends Error {}
+
+/** Keys a model uses for the document body when it does not send `blocks`. */
+const DOCUMENT_BODY_ALIAS_KEYS = [
+	"markdown",
+	"content",
+	"text",
+	"sections",
+] as const;
+
+const MISSING_BLOCKS_HINT =
+	'documentSource needs "blocks": an array such as [{"type":"heading","level":2,"text":"Findings"},{"type":"paragraph","text":"..."}]. Alternatively send the whole document as "markdown".';
+
+function blocksFromDocumentBody(
+	value: unknown,
+): Array<Record<string, unknown>> | null {
+	if (typeof value === "string") {
+		const blocks = markdownishTextToBlocks(value);
+		return blocks.length > 0 ? blocks : null;
+	}
+	if (Array.isArray(value)) {
+		const blocks = value.flatMap((item): Array<Record<string, unknown>> => {
+			if (typeof item === "string") return markdownishTextToBlocks(item);
+			return isRecord(item) ? [item] : [];
+		});
+		return blocks.length > 0 ? blocks : null;
+	}
+	return null;
+}
+
+function blocksFromSections(
+	value: unknown,
+): Array<Record<string, unknown>> | null {
+	if (!Array.isArray(value)) return null;
+	const blocks: Array<Record<string, unknown>> = [];
+	for (const section of value) {
+		if (typeof section === "string") {
+			blocks.push(...markdownishTextToBlocks(section));
+			continue;
+		}
+		if (!isRecord(section)) continue;
+		const heading =
+			cleanString(section.heading) ??
+			cleanString(section.title) ??
+			cleanString(section.name);
+		if (heading) {
+			const level = Number(section.level);
+			blocks.push({
+				type: "heading",
+				level: Number.isFinite(level) ? clampHeadingLevel(level) : 2,
+				text: heading,
+			});
+		}
+		const body =
+			blocksFromDocumentBody(section.blocks) ??
+			blocksFromDocumentBody(section.content) ??
+			blocksFromDocumentBody(section.markdown) ??
+			blocksFromDocumentBody(section.text) ??
+			blocksFromDocumentBody(section.body);
+		if (body) blocks.push(...body);
+	}
+	return blocks.length > 0 ? blocks : null;
+}
+
+/**
+ * The blocks the model meant, from `blocks` or — when it sent the body under
+ * another name — from `markdown`, `content` (a string is Markdown, an array
+ * is blocks), `text` or `sections`. Null when there is nothing to build a
+ * document from: the caller refuses rather than render a placeholder, which
+ * used to ship a one-line "Generated file request: <title>" PDF as a success.
+ */
+function resolveDocumentSourceBlocks(
+	documentSource: Record<string, unknown>,
+): Array<Record<string, unknown>> | null {
+	if (
+		Array.isArray(documentSource.blocks) &&
+		documentSource.blocks.length > 0
+	) {
+		return documentSource.blocks as Array<Record<string, unknown>>;
+	}
+	return (
+		blocksFromDocumentBody(documentSource.markdown) ??
+		blocksFromDocumentBody(documentSource.content) ??
+		blocksFromDocumentBody(documentSource.text) ??
+		blocksFromSections(documentSource.sections)
+	);
+}
+
 function normalizeDocumentSourceEnvelope(
 	documentSource: Record<string, unknown>,
 	requestTitle: string,
-): Record<string, unknown> {
-	const blocksSource =
-		Array.isArray(documentSource.blocks) && documentSource.blocks.length > 0
-			? documentSource.blocks
-			: [
-					{
-						type: "paragraph",
-						text: `Generated file request: ${requestTitle}`,
-					},
-				];
+):
+	| { ok: true; documentSource: Record<string, unknown> }
+	| { ok: false; error: string } {
+	const blocksSource = resolveDocumentSourceBlocks(documentSource);
+	if (!blocksSource) {
+		const keys = Object.keys(documentSource);
+		return {
+			ok: false,
+			error: `${MISSING_BLOCKS_HINT} Received keys: ${keys.length > 0 ? keys.join(", ") : "(none)"}.`,
+		};
+	}
 	const explicitTitle =
 		typeof documentSource.title === "string" &&
 		documentSource.title.trim().length > 0
 			? documentSource.title.trim()
 			: null;
-	const repaired = dedupeAdjacentCharts(
-		blocksSource.flatMap(repairDocumentSourceBlock),
-	);
+	let repaired: Record<string, unknown>[];
+	try {
+		repaired = dedupeAdjacentCharts(
+			blocksSource.flatMap((block, index) =>
+				repairDocumentSourceBlock(block, index),
+			),
+		);
+	} catch (error) {
+		if (error instanceof DocumentSourceInputError) {
+			return { ok: false, error: error.message };
+		}
+		throw error;
+	}
+	if (repaired.length === 0) {
+		return { ok: false, error: MISSING_BLOCKS_HINT };
+	}
 	// The report template already prints the document title; a leading H1 that
 	// repeats it (or the request title) would render the title twice. When the
 	// model gave no title at all, the leading H1 IS the title.
@@ -566,12 +682,19 @@ function normalizeDocumentSourceEnvelope(
 		(titleKey(leadingH1) === titleKey(title) ||
 			titleKey(leadingH1) === titleKey(requestTitle));
 	const blocks = dropLeadingH1 ? repaired.slice(1) : repaired;
+	// The body aliases were turned into `blocks`; carrying them on as well
+	// would store the document twice in the persisted request.
+	const envelope = { ...documentSource };
+	for (const key of DOCUMENT_BODY_ALIAS_KEYS) delete envelope[key];
 	return {
-		...documentSource,
-		version: 1,
-		template: "alfyai_standard_report",
-		title,
-		blocks,
+		ok: true,
+		documentSource: {
+			...envelope,
+			version: 1,
+			template: "alfyai_standard_report",
+			title,
+			blocks,
+		},
 	};
 }
 
@@ -661,7 +784,10 @@ function titleKey(value: string): string {
 // — reconstructing the structure the model clearly intended instead of letting
 // it render as a run-on paragraph. Non-paragraph blocks (and paragraphs with
 // nothing to repair) pass through untouched.
-function repairDocumentSourceBlock(raw: unknown): Record<string, unknown>[] {
+function repairDocumentSourceBlock(
+	raw: unknown,
+	_index = 0,
+): Record<string, unknown>[] {
 	if (!isRecord(raw)) return [raw as Record<string, unknown>];
 	const block = coerceDocumentBlockShape(raw);
 	if (block.type === "table") return repairTableBlock(block);
@@ -1586,6 +1712,13 @@ const CHART_TYPE_ALIASES: Record<string, string> = {
 
 function cleanString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** The deepest heading the renderers draw. */
+const MAX_DOCUMENT_HEADING_LEVEL = 3;
+
+function clampHeadingLevel(level: number): number {
+	return Math.min(MAX_DOCUMENT_HEADING_LEVEL, Math.max(1, Math.round(level)));
 }
 
 // The schema insists on title, caption, altText, units and the axis keys.
