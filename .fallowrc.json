@@ -9,6 +9,7 @@
 		"scripts/verify-live-file-production-types.ts",
 		"scripts/evaluate-tool-guidance-ab.ts",
 		"scripts/audit-thought-step-honesty.ts",
+		"scripts/recompute-parallel-billing.ts",
 		"static/sw.js"
 	],
 	"ignoreDependencies": ["pptxgenjs"],
