@@ -13,7 +13,10 @@ import type { Capability } from "$lib/server/services/connections/registry";
 import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
 import { resolveTurnInstructions } from "$lib/server/services/instructions";
 import { detectLanguage } from "$lib/server/services/language";
-import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
+import {
+	isConversationIncognito,
+	isMemoryActiveForConversation,
+} from "$lib/server/services/memory-controls";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	type AuthenticatedPromptUser,
@@ -450,6 +453,16 @@ export async function createToolPack(
 				userId: params.userId,
 				conversationId: params.conversationId,
 			}).catch(() => true);
+	// Incognito is resolved on its own, never through `memoryActive`: the
+	// instruction *offer* is what incognito withholds, while the instructions
+	// themselves keep applying there. Fails to "not incognito" on a lookup
+	// error, matching isConversationIncognito's own default — and because a
+	// conversation is incognito for its whole life, this gate cannot vary
+	// mid-conversation anyway. Skipped entirely for a turn with no tools at
+	// all, where there is no catalogue to gate.
+	const incognito = params.disableTools
+		? false
+		: await isConversationIncognito(params.conversationId).catch(() => false);
 
 	return {
 		tools: params.disableTools
@@ -459,6 +472,7 @@ export async function createToolPack(
 					forceProduceFileTool: params.forceProduceFileTool,
 					memoryActive,
 					skillsEnabled: getConfig().composerCommandRegistryEnabled,
+					incognito,
 				}),
 		recorder: normalChatTools.recorder ?? createToolCallRecorder(),
 		getToolCalls: normalChatTools.getToolCalls,

@@ -19,6 +19,10 @@ import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidenc
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
+import {
+	getConversationProjectId,
+	getProjectInstructions,
+} from "$lib/server/services/projects";
 import { transitCoverageLabelFor } from "$lib/server/services/routing/gtfs-catalogue";
 import { createOrsProvider } from "$lib/server/services/routing/ors-provider";
 import { loadedGtfsFeedIds } from "$lib/server/services/routing/region-manager";
@@ -160,6 +164,17 @@ import {
 	TOOL_TIMEOUTS_MS,
 	type ToolCallRecorder,
 } from "./shared";
+import {
+	buildInstructionSuggestion,
+	buildSuggestInstructionOffered,
+	buildSuggestInstructionRefusal,
+	normalizeSuggestedInstruction,
+	resolveOfferedScope,
+	type SuggestInstructionFailurePayload,
+	type SuggestInstructionModelPayload,
+	type SuggestInstructionRefusalReason,
+	suggestInstructionInputSchema,
+} from "./suggest-instruction";
 import {
 	runTasksTool,
 	sanitizeTasksToolInput,
@@ -350,6 +365,11 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Load a skill's full instructions, by exact `name` from \"## Skills available\". Call it once, before answering, when the user's request matches a listed skill, then follow the returned instructions for the rest of this turn instead of improvising. Do not use it for a skill absent from that list, do not guess or translate a name, and do not call it twice for the same skill. Returns the skill's instruction text.",
 			errorPrefix: "Loading the skill failed",
 		},
+		suggest_instruction: {
+			description:
+				'Offer to add a standing instruction when the user just stated a rule for the future ("from now on…", "always…", "never…"), in their own words: {"text": "Only suggest trains, no flights.", "scope": "project"}. The user sees a row with Review and Dismiss; nothing is saved until they review it. Do not use it for a one-off request, or to restate an offer you already made.',
+			errorPrefix: "Recording the instruction suggestion failed",
+		},
 	},
 	hu: {
 		research_web: {
@@ -442,8 +462,42 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				'Egy skill teljes utasításainak betöltése, pontos `name` alapján a "## Skills available" listából. Ha a felhasználó kérése megfelel egy listázott skillnek, hívd meg egyszer, mielőtt válaszolnál, és a kör hátralévő részében kövesd a visszakapott utasításokat ahelyett, hogy magadtól rögtönöznél. Ne használd olyan skillre, amely nincs a listában, ne találgasd és ne fordítsd le a nevet, és ne hívd meg kétszer ugyanarra a skillre. A skill utasításszövegét adja vissza.',
 			errorPrefix: "A skill betöltése sikertelen",
 		},
+		suggest_instruction: {
+			description:
+				'Állandó utasítás felajánlása, ha a felhasználó épp szabályként mondta ki a jövőre nézve („mostantól…”, „mindig…”, „soha…”): a szabályt a saját szavaival add meg, így: {"text": "Csak vonatot javasolj, repülőt ne.", "scope": "project"}. A felhasználó egy sort lát Áttekintés és Elvetés gombokkal; semmi sem mentődik, amíg át nem tekinti. Ne használd egyszeri kérésre, és ne ismételd meg a felajánlást prózában.',
+			errorPrefix: "Az utasításjavaslat rögzítése sikertelen",
+		},
 	},
 };
+
+// ── suggest_instruction scope ──────────────────────────────────
+
+/**
+ * The project this conversation is in, when the offer asked for one.
+ *
+ * Two reads, both only for a `scope: "project"` request: the offer carries the
+ * project's name (a scope token without one is an icon with no text) and never
+ * its id, so the model cannot name a project and the row can still say which
+ * one it means. A project the user has no instructions in yet is still a
+ * project — that case is what an offer is for — so this does not look at the
+ * instruction text.
+ */
+async function resolveConversationProject(params: {
+	userId: string;
+	conversationId: string;
+	wanted: boolean;
+}): Promise<{ id: string; name: string } | null> {
+	if (!params.wanted) return null;
+
+	const projectId = await getConversationProjectId(
+		params.userId,
+		params.conversationId,
+	);
+	if (!projectId) return null;
+
+	const project = await getProjectInstructions(params.userId, projectId);
+	return project ? { id: project.id, name: project.name } : null;
+}
 
 // ── produce_file in-turn verdict ───────────────────────────────
 
@@ -550,6 +604,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	// Same, but for the whole turn regardless of what each request was called —
 	// see MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN.
 	let totalProduceFileSubmissions = 0;
+	// At most one instruction offer per turn (Slice F). The offer is a row the
+	// user has to answer; a second row about the same sentence is a second
+	// decision, so a repeated call is refused rather than recorded.
+	let sameTurnInstructionSuggestionMade = false;
 	// Parallel-backed web tools (research_web, fetch_url) are registered only
 	// when a Parallel API key is configured. Mirrors the stability snapshot's
 	// `parallelConfigured = Boolean(config.parallelApiKey.trim())`. The execute
@@ -2665,6 +2723,145 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										skillOwnership: null,
 										skillDisplayName: null,
 									},
+								},
+							};
+						},
+					});
+				},
+			}),
+		),
+		// The offer is registered for the whole conversation, never gated per
+		// turn: it renders inside the cached prompt prefix, and a turn-varying
+		// tool set is the failure shouldExposeFileProductionTools() exists to
+		// prevent (see normal-chat-tool-gating.ts). What *is* gated is the
+		// offer itself — absent in incognito (the catalogue gate), once per
+		// turn (a closure counter below), and with the project scope only when
+		// the conversation is really in a project.
+		suggest_instruction: asExecutableTool(
+			tool({
+				description: i18n.suggest_instruction.description,
+				inputSchema: suggestInstructionInputSchema,
+				execute: async (
+					input: z.infer<typeof suggestInstructionInputSchema>,
+					options: ToolExecutionOptions,
+				) => {
+					// What the tool call records as its input. Bounded, because
+					// the refused case is exactly the one where the text is a
+					// blob the 2,000-character limit is meant to keep out, and
+					// the call is persisted with the turn.
+					const recordedInput = {
+						text:
+							typeof input.text === "string" ? input.text.slice(0, 200) : "",
+						scope: input.scope ?? "personal",
+					};
+					// The `refuse(...)` shape produce_file uses for the same
+					// reason: a refusal is a recorded call the model can act on,
+					// not an envelope failure.
+					const refuseSuggestion = (
+						reason: SuggestInstructionRefusalReason,
+					): SuggestInstructionRefusedPayload => {
+						const payload = buildSuggestInstructionRefusal(reason);
+						recorder.record({
+							callId: options.toolCallId,
+							name: "suggest_instruction",
+							input: recordedInput,
+							status: "done",
+							outputSummary: payload.message,
+							sourceType: "tool",
+							metadata: {
+								ok: false,
+								evidenceReady: false,
+								offered: false,
+								reason,
+							},
+							instructionSuggestion: null,
+						});
+						return payload;
+					};
+
+					// One offer per turn: the row under this reply is the offer,
+					// and a second one would be a second decision to make about
+					// the same sentence.
+					if (sameTurnInstructionSuggestionMade) {
+						return refuseSuggestion("already_offered");
+					}
+					// The shared validator, not a second copy of the limit —
+					// blank text reads as "clear the instructions" there, which
+					// is not an offer anything could be shown for.
+					const normalized = normalizeSuggestedInstruction(
+						typeof input.text === "string" ? input.text : "",
+					);
+					if (!normalized.ok) return refuseSuggestion(normalized.reason);
+
+					return executeToolWithEnvelope<
+						SuggestInstructionModelPayload,
+						SuggestInstructionFailurePayload
+					>({
+						toolName: "suggest_instruction",
+						timeoutMs: TOOL_TIMEOUTS_MS.suggest_instruction,
+						options,
+						recorder,
+						run: async () => {
+							const scope = resolveOfferedScope({
+								requestedScope: input.scope,
+								project: await resolveConversationProject({
+									userId: ctx.userId,
+									conversationId: ctx.conversationId,
+									wanted: input.scope === "project",
+								}),
+							});
+							const suggestion = buildInstructionSuggestion({
+								text: normalized.text,
+								scope,
+							});
+							sameTurnInstructionSuggestionMade = true;
+							return {
+								modelPayload: buildSuggestInstructionOffered({ scope }),
+								entry: {
+									callId: options.toolCallId,
+									name: "suggest_instruction",
+									input: { text: suggestion.text, scope: scope.kind },
+									status: "done",
+									outputSummary: `Instruction suggestion offered for ${
+										scope.kind === "project"
+											? (scope.name ?? "the project")
+											: "personal instructions"
+									}`,
+									sourceType: "tool",
+									// No `ok`/`evidenceReady` flags: this entry is
+									// not evidence, but the offer it carries has
+									// to reach finalize, and those two keys are
+									// what the run results filter on.
+									metadata: { offered: true, scope: scope.kind },
+									instructionSuggestion: suggestion,
+								},
+							};
+						},
+						onError: (error) => {
+							const message = modelSafeToolError(
+								error,
+								i18n.suggest_instruction.errorPrefix,
+							);
+							return {
+								modelPayload: {
+									ok: false as const,
+									offered: false as const,
+									errorCode: "suggest_instruction_failed" as const,
+									message,
+								},
+								entry: {
+									callId: options.toolCallId,
+									name: "suggest_instruction",
+									input: recordedInput,
+									status: "failed",
+									outputSummary: message,
+									sourceType: "tool",
+									metadata: {
+										ok: false,
+										evidenceReady: false,
+										offered: false,
+									},
+									instructionSuggestion: null,
 								},
 							};
 						},

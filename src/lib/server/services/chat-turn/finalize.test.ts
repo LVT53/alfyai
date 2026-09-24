@@ -954,6 +954,105 @@ describe("finalizeChatTurn", () => {
 		);
 	});
 
+	// Slice F — the offer the model made this turn. The assistant message does
+	// not exist while the tool runs, so the offer rides the turn's tool-call
+	// records and becomes message metadata here, where every turn kind
+	// persists its assistant message.
+	describe("instruction suggestions", () => {
+		const suggestion = {
+			id: "suggestion-1",
+			status: "pending" as const,
+			text: "Only suggest trains.",
+			scope: { kind: "personal" as const },
+			createdAt: 1_700_000_000_000,
+		};
+
+		it("writes this turn's offer onto the assistant message", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				turnKind: "send",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: {},
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: { model: "model-1", modelDisplayName: "Model One" },
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_send",
+				toolCalls: [
+					{ name: "research_web", input: {}, status: "done" },
+					{
+						name: "suggest_instruction",
+						input: { text: "Only suggest trains." },
+						status: "done",
+						instructionSuggestion: suggestion,
+					},
+				],
+			});
+
+			expect(mockCreateMessage).toHaveBeenCalledWith(
+				"conv-1",
+				"assistant",
+				"assistant response",
+				undefined,
+				undefined,
+				expect.objectContaining({
+					instructionSuggestions: [suggestion],
+				}),
+			);
+		});
+
+		it("omits the field entirely when the turn offered nothing", async () => {
+			const { finalizeChatTurn } = await import("./finalize");
+
+			await finalizeChatTurn({
+				turnKind: "send",
+				userId: "user-1",
+				conversationId: "conv-1",
+				userMessageContent: "user message",
+				persistUserMessage: true,
+				normalizedMessage: "user message",
+				upstreamMessage: "upstream message",
+				assistantResponse: "assistant response",
+				assistantMetadata: {},
+				attachmentIds: [],
+				activeDocumentArtifactId: null,
+				contextStatus: null,
+				initialTaskState: null,
+				initialContextDebug: null,
+				analytics: { model: "model-1", modelDisplayName: "Model One" },
+				assistantMirrorContent: "assistant response",
+				maintenanceReason: "chat_send",
+				toolCalls: [
+					{
+						name: "suggest_instruction",
+						input: { text: "Only suggest trains." },
+						status: "done",
+						// A refusal, not an offer.
+						instructionSuggestion: null,
+					},
+				],
+			});
+
+			// `[]` would be a record that says "this turn offered something,
+			// and it was nothing" — absence is the honest shape.
+			const metadata = mockCreateMessage.mock.calls.at(-1)?.[5] as Record<
+				string,
+				unknown
+			>;
+			expect(metadata).not.toHaveProperty("instructionSuggestions");
+		});
+	});
+
 	it("creates the assistant message before attachment persistence in stream mode", async () => {
 		const callOrder: string[] = [];
 		mockCreateMessage.mockImplementation(

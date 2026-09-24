@@ -1,5 +1,6 @@
 import type { ChatTurnOrigin } from "$lib/chat-turn-origin";
 import type { ReasoningDepth } from "$lib/reasoning-depth-types";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import {
 	recordSkillUseActivityEvent,
 	recordToolCallActivityEvents,
@@ -389,6 +390,19 @@ function waitOneTick(): Promise<void> {
 	});
 }
 
+/**
+ * The instruction offers this turn made, lifted off the tool calls that made
+ * them (Slice F). Refusals record `null`, which is why this tests the value
+ * rather than the tool's name: only an offer carries one.
+ */
+function collectInstructionSuggestions(
+	toolCalls: FinalizeChatTurnParams["toolCalls"],
+): InstructionSuggestion[] {
+	return (toolCalls ?? []).flatMap((toolCall) =>
+		toolCall.instructionSuggestion ? [toolCall.instructionSuggestion] : [],
+	);
+}
+
 export async function finalizeChatTurn(
 	params: FinalizeChatTurnParams,
 ): Promise<FinalizeChatTurnResult> {
@@ -461,9 +475,18 @@ export async function finalizeChatTurn(
 					: null,
 		},
 	);
+	// Slice F — the instruction offers this turn made. They ride the turn's
+	// tool calls because the assistant message does not exist while
+	// `suggest_instruction` runs, so this is the first place that can persist
+	// them; deriving them here (rather than in each caller) is what keeps the
+	// send, stream and retry paths from having to remember to. A turn that
+	// offered nothing gets no key at all — `[]` would be a record saying an
+	// offer was made and it was nothing.
+	const instructionSuggestions = collectInstructionSuggestions(params.toolCalls);
 	const assistantMetadata = {
 		...params.assistantMetadata,
 		depthMetadata,
+		...(instructionSuggestions.length > 0 ? { instructionSuggestions } : {}),
 	};
 	// The assistant message is always persisted — no turn kind or caller ever
 	// legitimately skips it, so this is no longer a param to thread.

@@ -30,6 +30,10 @@ import {
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
+import {
+	getConversationProjectId,
+	getProjectInstructions,
+} from "$lib/server/services/projects";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import { executeCode as executeSandboxCode } from "$lib/server/services/sandbox-execution";
@@ -37,6 +41,7 @@ import {
 	resolveSkillInstructionsForUse,
 	SKILLS_AVAILABLE_HEADING,
 } from "$lib/server/services/skills/prompt-context";
+import { INSTRUCTIONS_MAX_CHARS } from "$lib/shared/instructions";
 import {
 	createNormalChatTools,
 	isProduceFileRequest,
@@ -151,6 +156,19 @@ vi.mock("$lib/server/services/skills/prompt-context", () => ({
 	SKILLS_AVAILABLE_HEADING: "## Skills available",
 	resolveSkillInstructionsForUse: vi.fn(),
 }));
+// Which project a conversation is in (and that project's name) is a DB read;
+// suggest_instruction only needs it to decide whether the offered scope is
+// real, so both halves are mocked here.
+vi.mock("$lib/server/services/projects", async () => {
+	const actual = await vi.importActual<
+		typeof import("$lib/server/services/projects")
+	>("$lib/server/services/projects");
+	return {
+		...actual,
+		getConversationProjectId: vi.fn(),
+		getProjectInstructions: vi.fn(),
+	};
+});
 vi.mock("$lib/server/services/connections/providers/immich", async () => {
 	const actual = await vi.importActual<
 		typeof import("$lib/server/services/connections/providers/immich")
@@ -182,6 +200,8 @@ const researchWebViaParallelMock = vi.mocked(researchWebViaParallel);
 const fetchUrlViaParallelMock = vi.mocked(fetchUrlViaParallel);
 const executeSandboxCodeMock = vi.mocked(executeSandboxCode);
 const getMemoryContextMock = vi.mocked(getMemoryContext);
+const getConversationProjectIdMock = vi.mocked(getConversationProjectId);
+const getProjectInstructionsMock = vi.mocked(getProjectInstructions);
 const searchImagesMock = vi.mocked(searchImages);
 const resolveConnectionsForCapabilityMock = vi.mocked(
 	resolveConnectionsForCapability,
@@ -351,6 +371,12 @@ describe("createNormalChatTools", () => {
 		researchWebViaParallelMock.mockReset();
 		fetchUrlViaParallelMock.mockReset();
 		getMemoryContextMock.mockReset();
+		// Default: the conversation is not in a project, which is what most
+		// of the tests below describe.
+		getConversationProjectIdMock.mockReset();
+		getConversationProjectIdMock.mockResolvedValue(null);
+		getProjectInstructionsMock.mockReset();
+		getProjectInstructionsMock.mockResolvedValue(null);
 		searchImagesMock.mockReset();
 		resolveConnectionsForCapabilityMock.mockReset();
 		needsDisambiguationMock.mockReset();
@@ -4898,6 +4924,7 @@ describe("tool description hygiene", () => {
 				"repos",
 				"research_web",
 				"run_python",
+				"suggest_instruction",
 				"tasks",
 				"use_skill",
 			].sort(),
@@ -5035,6 +5062,216 @@ describe("use_skill tool", () => {
 			found: false,
 			skillId: null,
 		});
+	});
+});
+
+describe("suggest_instruction tool", () => {
+	function buildTools() {
+		return createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+	}
+
+	it("offers a suggestion and records it as pending on the tool call", async () => {
+		const { tools, getToolCalls } = buildTools();
+
+		const result = await tools.suggest_instruction.execute(
+			{ text: "Only suggest trains, no flights." },
+			{ toolCallId: "tool-call-suggest-1", messages: [] },
+		);
+
+		// What the model is told: the offer was taken, and nothing is saved
+		// yet. The scope comes back clamped, never as a project id.
+		expect(result).toMatchObject({
+			ok: true,
+			offered: true,
+			scope: "personal",
+		});
+		const [entry] = getToolCalls();
+		expect(entry).toMatchObject({
+			callId: "tool-call-suggest-1",
+			name: "suggest_instruction",
+			status: "done",
+			metadata: { offered: true, scope: "personal" },
+		});
+		// The offer itself is what the row will render, so it carries the text
+		// and the scope the dialog opens on — pending until the user reviews it.
+		expect(entry.instructionSuggestion).toMatchObject({
+			status: "pending",
+			text: "Only suggest trains, no flights.",
+			scope: { kind: "personal" },
+		});
+		expect(entry.instructionSuggestion?.id).toEqual(expect.any(String));
+		expect(typeof entry.instructionSuggestion?.createdAt).toBe("number");
+	});
+
+	it("clamps a project scope to personal when the chat has no project", async () => {
+		getConversationProjectIdMock.mockResolvedValue(null);
+		const { tools, getToolCalls } = buildTools();
+
+		const result = await tools.suggest_instruction.execute(
+			{ text: "Never mention prices.", scope: "project" },
+			{ toolCallId: "tool-call-suggest-2", messages: [] },
+		);
+
+		// A scope the conversation cannot support is corrected, not refused:
+		// the rule is still worth offering, just personally.
+		expect(result).toMatchObject({
+			ok: true,
+			offered: true,
+			scope: "personal",
+		});
+		expect(getToolCalls()[0]?.instructionSuggestion).toMatchObject({
+			scope: { kind: "personal" },
+		});
+	});
+
+	it("keeps the project scope when the chat has one, and names it for the row", async () => {
+		getConversationProjectIdMock.mockResolvedValue("project-1");
+		getProjectInstructionsMock.mockResolvedValue({
+			id: "project-1",
+			name: "Trains",
+			// A project with no instructions yet is exactly the case an offer
+			// is for, so the clamp must not depend on existing text.
+			text: null,
+		});
+		const { tools, getToolCalls } = buildTools();
+
+		const result = await tools.suggest_instruction.execute(
+			{ text: "Only suggest trains.", scope: "project" },
+			{ toolCallId: "tool-call-suggest-3", messages: [] },
+		);
+
+		expect(result).toMatchObject({ ok: true, offered: true, scope: "project" });
+		// The name rides along because a `ScopeToken` without one renders an
+		// icon and no text — the row could not say where the rule would go.
+		expect(getToolCalls()[0]?.instructionSuggestion).toMatchObject({
+			scope: { kind: "project", projectId: "project-1", name: "Trains" },
+		});
+	});
+
+	it("refuses a second suggestion in the same turn", async () => {
+		const { tools, getToolCalls } = buildTools();
+
+		await tools.suggest_instruction.execute(
+			{ text: "Always cite sources." },
+			{ toolCallId: "tool-call-suggest-4", messages: [] },
+		);
+		const second = await tools.suggest_instruction.execute(
+			{ text: "Never use bullet points." },
+			{ toolCallId: "tool-call-suggest-5", messages: [] },
+		);
+
+		expect(second).toMatchObject({
+			ok: false,
+			offered: false,
+			reason: "already_offered",
+		});
+		// The refusal is recorded (the model was told no), but it is not an
+		// offer: exactly one suggestion survives the turn.
+		const entries = getToolCalls();
+		expect(entries).toHaveLength(2);
+		expect(entries[1]).toMatchObject({
+			name: "suggest_instruction",
+			metadata: { offered: false },
+		});
+		expect(entries[1]?.instructionSuggestion ?? null).toBeNull();
+		expect(
+			entries.filter((entry) => entry.instructionSuggestion),
+		).toHaveLength(1);
+	});
+
+	it("rejects text over the instruction limit without storing it", async () => {
+		const { tools, getToolCalls } = buildTools();
+		const overLimit = "a".repeat(INSTRUCTIONS_MAX_CHARS + 1);
+
+		const refused = await tools.suggest_instruction.execute(
+			{ text: overLimit },
+			{ toolCallId: "tool-call-suggest-6", messages: [] },
+		);
+
+		expect(refused).toMatchObject({
+			ok: false,
+			offered: false,
+			reason: "text_too_long",
+		});
+		expect(getToolCalls()[0]?.instructionSuggestion ?? null).toBeNull();
+
+		// A refused call is not an offer: the turn's one suggestion is still
+		// there to be made, in words that fit.
+		const offered = await tools.suggest_instruction.execute(
+			{ text: "Be brief." },
+			{ toolCallId: "tool-call-suggest-7", messages: [] },
+		);
+		expect(offered).toMatchObject({ ok: true, offered: true });
+	});
+
+	it("refuses whitespace-only text instead of offering a rule that says nothing", async () => {
+		const { tools, getToolCalls } = buildTools();
+
+		const refused = await tools.suggest_instruction.execute(
+			{ text: "   " },
+			{ toolCallId: "tool-call-suggest-8", messages: [] },
+		);
+
+		// `validateInstructionInput` reads blank text as "clear the
+		// instructions", which is not a suggestion — an empty offer would put a
+		// row with nothing to quote in front of the user.
+		expect(refused).toMatchObject({
+			ok: false,
+			offered: false,
+			reason: "empty_text",
+		});
+		expect(getToolCalls()[0]?.instructionSuggestion ?? null).toBeNull();
+	});
+
+	it("offers the text the user would read, trimmed", async () => {
+		const { tools, getToolCalls } = buildTools();
+
+		await tools.suggest_instruction.execute(
+			{ text: "  Always answer in Hungarian.  " },
+			{ toolCallId: "tool-call-suggest-9", messages: [] },
+		);
+
+		expect(getToolCalls()[0]?.instructionSuggestion).toMatchObject({
+			text: "Always answer in Hungarian.",
+		});
+	});
+
+	it("describes the offer in the user's own language", () => {
+		const en = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			language: "en",
+		});
+		const hu = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+			language: "hu",
+		});
+
+		// The row the user sees, and the fact that nothing is saved until they
+		// look at it, are the two things the model has to expect.
+		expect(en.tools.suggest_instruction.description).toContain(
+			"Review and Dismiss",
+		);
+		expect(en.tools.suggest_instruction.description).toContain(
+			"nothing is saved until they review it",
+		);
+		expect(hu.tools.suggest_instruction.description).toContain(
+			"Áttekintés és Elvetés",
+		);
+		expect(hu.tools.suggest_instruction.description).toContain(
+			"semmi sem mentődik, amíg át nem tekinti",
+		);
+		// A localized description is not an English one with a marker glued on.
+		expect(hu.tools.suggest_instruction.description).not.toContain(
+			"standing instruction",
+		);
 	});
 });
 
