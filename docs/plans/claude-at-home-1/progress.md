@@ -10,9 +10,28 @@ Last updated: 2026-09-24 (implementation session 2 — Phase 0 done, Wave 1 in f
 |---|---|
 | Phase 0 — branch and environment | **complete** |
 | Phase 1 — plan | **complete and approved** |
-| Phase 2 — implementation | **Wave 1 complete and merged** (Slice A ∥ Slice B); Wave 2 next |
-| Phase 3 — adversarial review | **Wave 1 reviews in flight** (one reviewer per slice) |
-| Phase 4 — verify for real | not started |
+| Phase 2 — implementation | **Wave 1 complete and merged**; **Wave 2 (Slice C) in flight** |
+| Phase 3 — adversarial review | **Wave 1 reviewed and fixed** — see `review-wave-1.md` |
+| Phase 4 — verify for real | **deployed to dev** as `66a37cbc`; live verification pending |
+
+### Wave 1 review outcome (2026-09-24) — `review-wave-1.md`
+
+Both reviews found real defects, all fixed test-first and merged:
+
+- **Slice A:** three dead remnants removed (plus a fourth, `mapTaskEvidenceLink`, found by a hand sweep because
+  Fallow is blind under `src/lib/server/services/**`), and **the "inert" premise retracted** — the pin/exclude
+  surface's effect chain was live; only its display chain was dead. See the correction under `decisions.md`
+  decision 6.
+- **Slice B:** the admin allowance field **rewrote the digits as they were typed** — typing `2.5` into a field
+  showing `5.00` produced `2.005` — fixed with an e2e test; and a false `docs/configuration.md` caveat about
+  what saving the allowance does to the month already booked.
+- **Open for the owner:** `admin-config-registry.ts:938-941` canonicalises a sub-micro allowance to `1e-7`, which
+  its own regex then rejects on the next save (400). Pre-existing validator behaviour, needs a design call.
+
+Integrated gates at `66a37cbc`: check 0 errors/17 pre-existing warnings; biome 1 pre-existing; **11 692 tests
+passed**; build exit 0 with the same 17 pre-existing warnings (34 lines); migrations pass; Fallow 124 issues,
+4 cycles, no new suppressions.
+
 
 ### Wave 1 result (2026-09-24)
 
@@ -135,15 +154,16 @@ All ratified by the owner on 2026-09-24. Full texts and reasoning in `decisions.
 
 ## Next action
 
-Wave 1's two reviewers are running in `ws-review-a` (`feat/workspaces-a-review`) and `ws-review-b`
-(`feat/workspaces-b-review`). When they report: merge their branches into `feat/workspaces`, write
-`review-wave-1.md`, then merge to `dev`, push `dev`, and run the dev deploy (see "Deploy facts" above).
-Then Wave 2 = Slice C off the merged `feat/workspaces`.
+Wave 1 is deployed to dev. **Slice C (Personal Instructions) is in flight** in `ws-c` (`feat/workspaces-c`), cut
+from the merged `feat/workspaces`. When it lands: review it adversarially (a fresh agent, never the implementer),
+fix, merge, deploy to dev again, then Wave 3 = Slice D.
 
 **Standing rule learned in Wave 1: partition Playwright ports.** Every worktree defaults `E2E_PORT` to 5175, and
 Slice A's agent killed Slice B's dev server to free the port. Give every agent a distinct `E2E_PORT`.
 
-**Old next-action text (superseded):** Wave 1 is running. When both agents report: merge `feat/workspaces-a` and `feat/workspaces-b` into
+**Standing rule: never grep the build log for the word "warn".** `vite-plugin-svelte` prints warnings as
+`[vite-plugin-svelte] <file> Unused CSS selector "…"` with no such word, so that count reports zero. Count
+`Unused CSS selector` + `must have an ARIA role`; each warning appears twice (SSR pass + client pass).
 `feat/workspaces`, dispatch the **Phase 3 adversarial reviewers** for the wave (DeepSeek, never the implementers),
 write `review-wave-1.md`, then merge `feat/workspaces` into `dev`, push `dev`, and run the dev deploy above for
 the first end-to-end check. Then Wave 2 = Slice C off the merged `feat/workspaces`.
