@@ -569,6 +569,10 @@ Both questions raised here were answered. `decisions.md` is the master record.
 
 1. **No standalone write-up of when the feature went inert.** One line in the commit message and one line in
    `review-<batch>.md`; a future `git log -S` lands there.
+   **— The premise is retracted: the surface had not gone inert.** Only its display chain was dead; its effect
+   chain was live (the panel's writes filtered and boosted artifacts in `task-state.ts` → `context-selection.ts`).
+   The removal stands on the owner's "I never used it", not on the feature being dead. See the correction note
+   under decision 6 in `decisions.md` for the file:line evidence.
 2. **Correct ADR-0043 in place, with the correction dated**, rather than adding a superseded note — AGENTS.md
    points future agents at that ADR, so a false claim about where a capability lives keeps misleading them. If
    the verification in Task A4 step 1 shows the claim was true, leave it alone and say so in the report.

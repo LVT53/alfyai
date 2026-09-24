@@ -22,7 +22,21 @@ raised because the spec was silent or its literal reading contradicted the code.
 
 | # | Question | Decision |
 |---|---|---|
-| 6 | Should the finding that the feature had been inert for some time be written up? | **No standalone document.** One line in the commit message, one line in `review-<batch>.md`. A future `git log -S` lands there. |
+| 6 | Should the finding that the feature had been inert for some time be written up? | **No standalone document.** One line in the commit message, one line in `review-<batch>.md`. A future `git log -S` lands there. **— PREMISE RETRACTED 2026-09-24, see below.** |
+
+> **Correction to decision 6 (2026-09-24, found by the Wave 1 reviewer and verified by the orchestrator).**
+> The premise was **false**: the surface had *not* gone inert. Only its *display* chain was dead — the pinned/
+> excluded props handed to the message bubbles were never read. Its *effect* chain was live end to end: the
+> panel's writes reached `prepareTaskContext`, which filtered excluded artifacts out of the candidate set
+> (`1aeea62e:src/lib/server/services/task-state.ts:1180-1207`) and passed `pinnedIds` on to
+> `context-selection.ts`, which force-included and boosted them (`:1708`, `:1985`, `:2084`). A user who pinned
+> a source had it prioritised; a user who excluded one had it dropped from candidates.
+>
+> So the removal **did** take a working capability away, and the removal rests on the owner's decision — "I
+> never used it" — not on the feature being dead. The commit message of `f83e9e82` and the CONTEXT.md line it
+> carried said otherwise and are wrong; CONTEXT.md was corrected by `898d2227`, the commit history was left
+> alone. A live-path capability that nobody uses is still a capability, and a future reader must not be told it
+> was inert.
 | 7 | ADR-0043 asserts pinning "lives in the Knowledge library / working-document workspace" | **Correct it in place, with the correction dated.** AGENTS.md points future agents at ADR-0043, so a false claim about where a capability lives keeps misleading them. A superseded note would leave the wrong statement standing. If the inventory's verification shows the claim was true, leave it alone and say so. |
 
 ## Slice B
