@@ -251,3 +251,52 @@ describe("PATCH /api/projects/[id]", () => {
 		expect(readProject("route-other-project")?.instructions).toBeNull();
 	});
 });
+
+// The list route is the shared shell payload: the sidebar, the layout preload
+// and the projects store all read it on every page a signed-in user opens. The
+// project page's own load and the data archive are the only callers that may
+// hold the text, so the list must carry the derived flag and nothing else.
+describe("GET /api/projects", () => {
+	beforeEach(() => {
+		dbPath = `/tmp/alfyai-project-route-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// Temporary DB cleanup is best-effort.
+		}
+	});
+
+	it("does not expose project instructions through the shared shell payload", async () => {
+		seedProjects();
+		const { updateProject } = await import("$lib/server/services/projects");
+		await updateProject("route-owner", "route-project", {
+			instructions: "DO_NOT_LEAK_PROJECT_INSTRUCTIONS",
+		});
+
+		const { GET } = await import("./+server");
+		const response = await GET({
+			locals: { user: { id: "route-owner" } },
+		} as unknown as Parameters<typeof GET>[0]);
+		const payload = await response.json();
+
+		expect(response.status).toBe(200);
+		expect(payload.projects).toEqual([
+			expect.objectContaining({
+				id: "route-project",
+				hasInstructions: true,
+			}),
+		]);
+		expect(payload.projects[0]).not.toHaveProperty("instructions");
+		expect(JSON.stringify(payload)).not.toContain(
+			"DO_NOT_LEAK_PROJECT_INSTRUCTIONS",
+		);
+		// Another user's project is not in this payload at all, instructions or
+		// not — the list is the caller's own.
+		expect(JSON.stringify(payload)).not.toContain("route-other-project");
+	});
+});

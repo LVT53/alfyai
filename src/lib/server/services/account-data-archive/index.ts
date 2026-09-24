@@ -13,6 +13,7 @@ import {
 	importJobs,
 	memoryEvents,
 	messages,
+	projects,
 	usageEvents,
 	userSkillDefinitions,
 	users,
@@ -110,6 +111,7 @@ export async function createAccountDataArchive(
 		importJobRows,
 		usageRows,
 		analyticsConversationRows,
+		projectRows,
 	] = await Promise.all([
 		listConversations(database, userId),
 		listMessages(database, userId),
@@ -121,6 +123,7 @@ export async function createAccountDataArchive(
 		listImportJobs(database, userId),
 		listUsageEvents(database, userId),
 		listAnalyticsConversations(database, userId),
+		listProjects(database, userId),
 	]);
 
 	const uploadedArtifacts = artifactRows.filter(
@@ -138,6 +141,7 @@ export async function createAccountDataArchive(
 	);
 
 	await addProfileSection(archive, { user, rootDir });
+	addProjectsSection(archive, { projectRows });
 	await addFilesSection(archive, {
 		rootDir,
 		uploadedArtifacts,
@@ -167,6 +171,7 @@ export async function createAccountDataArchive(
 		now,
 		userDisplayName: user.name ?? user.email,
 		conversationCount: conversationRows.length,
+		projectCount: projectRows.length,
 		uploadedFileCount: uploadedArtifacts.length,
 		generatedFileCount: generatedFileRows.length,
 		memoryCount: taskStateRows.length + memoryEventRows.length,
@@ -268,6 +273,46 @@ async function addProfileSection(
 			title: "Profile",
 			subtitle: "Account facts and preferences included in this archive.",
 			body: `${avatarMarkup}${renderTable(profileRows)}`,
+		}),
+	);
+}
+
+/**
+ * Every project the user made, with the standing guidance they wrote for it.
+ *
+ * A project is a home for chats, and its instructions are the user's own text
+ * about their own work — the same kind of thing as the personal instructions
+ * on the profile page, one level down. A project with none is still listed:
+ * the page is the archive's only record that the project exists at all, and a
+ * folder silently missing from an export would read as data loss.
+ */
+function addProjectsSection(
+	archive: ArchiveBuilder,
+	params: { projectRows: Array<typeof projects.$inferSelect> },
+) {
+	// Oldest first, the order the query already returns: a project's position
+	// on the page is a fact about the account, not a preference.
+	const body = params.projectRows.length
+		? params.projectRows
+				.map((project) => {
+					const instructionBlock = project.instructions
+						? `<pre>${escapeHtml(project.instructions)}</pre>`
+						: `<p class="empty">No instructions.</p>`;
+					return `<section>
+						<h2>${escapeHtml(project.name)}</h2>
+						<p class="meta">Created ${escapeHtml(formatDateTime(project.createdAt))} · Updated ${escapeHtml(formatDateTime(project.updatedAt))}</p>
+						${instructionBlock}
+					</section>`;
+				})
+				.join("")
+		: `<p class="empty">No projects were found.</p>`;
+
+	archive.addHtml(
+		"Projects/Projects.html",
+		renderArchivePage({
+			title: "Projects",
+			subtitle: "Your projects and the standing instructions set for each one.",
+			body,
 		}),
 	);
 }
@@ -605,6 +650,7 @@ function addEntryPage(
 		now: Date;
 		userDisplayName: string;
 		conversationCount: number;
+		projectCount: number;
 		uploadedFileCount: number;
 		generatedFileCount: number;
 		memoryCount: number;
@@ -646,6 +692,20 @@ function addEntryPage(
 						<p class="chat-preview">Open the chat index and individual conversation pages.</p>
 					</div>
 					<div class="chat-meta">${escapeHtml(params.conversationCount)} conversations</div>
+				</a>
+			</div>`,
+		},
+		{
+			id: "projects",
+			title: "Projects",
+			subtitle: "Your projects and the standing instructions set for each one.",
+			body: `<div class="chat-list">
+				<a class="chat-row" href="Projects/Projects.html">
+					<div>
+						<p class="chat-title">Projects and their instructions</p>
+						<p class="chat-preview">Open the page listing every project you made, with the guidance you set for it.</p>
+					</div>
+					<div class="chat-meta">${escapeHtml(params.projectCount)} projects</div>
 				</a>
 			</div>`,
 		},
@@ -764,6 +824,21 @@ async function listMessages(database: ArchiveDb, userId: string) {
 			asc(messages.messageSequence),
 			asc(messages.createdAt),
 		);
+}
+
+/**
+ * The user's own projects, with their instructions.
+ *
+ * Deliberately its own read rather than `projects.ts`'s `listProjects`: that
+ * one is the shell payload's service and strips the text on purpose, which is
+ * exactly what this export must not do.
+ */
+async function listProjects(database: ArchiveDb, userId: string) {
+	return database
+		.select()
+		.from(projects)
+		.where(eq(projects.userId, userId))
+		.orderBy(asc(projects.createdAt));
 }
 
 async function listArtifacts(database: ArchiveDb, userId: string) {

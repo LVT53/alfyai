@@ -420,6 +420,88 @@ describe("createAccountDataArchive", () => {
 		expect(profile).toContain("Always answer in Hungarian.");
 	});
 
+	// Project instructions are the same kind of thing one level down: text the
+	// user typed about their own work, which no other part of this archive can
+	// reconstruct. Leaving them out would make the export a partial answer to
+	// "what of mine does AlfyAI hold?".
+	it("includes each project's Instructions in the human-readable archive", async () => {
+		await seedArchiveUser();
+		await db.insert(schema.projects).values([
+			{
+				id: "project-1",
+				userId: "user-1",
+				name: "House tasks",
+				instructions: "Always ask before booking anything.",
+				createdAt: new Date("2026-02-01T10:00:00Z"),
+				updatedAt: new Date("2026-02-02T10:00:00Z"),
+			},
+			{
+				id: "project-2",
+				userId: "user-1",
+				name: "Vienna trip",
+				instructions: "Only suggest trains, never flights.",
+				createdAt: new Date("2026-02-03T10:00:00Z"),
+				updatedAt: new Date("2026-02-04T10:00:00Z"),
+			},
+			{
+				// A folder with no instructions is still a project the user made,
+				// and the page has to say so rather than drop it.
+				id: "project-3",
+				userId: "user-1",
+				name: "Empty folder",
+				createdAt: new Date("2026-02-05T10:00:00Z"),
+				updatedAt: new Date("2026-02-05T10:00:00Z"),
+			},
+			{
+				id: "project-other",
+				userId: "user-2",
+				name: "Other user's folder",
+				instructions: "DO_NOT_EXPORT_OTHER_PROJECT_INSTRUCTIONS",
+				createdAt: new Date("2026-02-06T10:00:00Z"),
+				updatedAt: new Date("2026-02-06T10:00:00Z"),
+			},
+		]);
+
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+			now: new Date("2026-06-15T08:00:00Z"),
+		});
+
+		expect(result.status).toBe("ok");
+		if (result.status !== "ok") return;
+
+		const zip = await JSZip.loadAsync(
+			Buffer.from(await new Response(result.zipStream).arrayBuffer()),
+		);
+		const projects = await zip.file("Projects/Projects.html")?.async("string");
+		expect(projects).toContain("House tasks");
+		expect(projects).toContain("Always ask before booking anything.");
+		expect(projects).toContain("Vienna trip");
+		expect(projects).toContain("Only suggest trains, never flights.");
+		expect(projects).toContain("Empty folder");
+
+		// Reachable from the entry page, or it is a file nobody finds.
+		const entry = await zip
+			.file("Open AlfyAI Data Archive.html")
+			?.async("string");
+		expect(entry).toContain('href="Projects/Projects.html"');
+		expect(entry).toContain("3 projects");
+
+		const combinedText = await Promise.all(
+			Object.keys(zip.files).map(async (name) => {
+				const file = zip.file(name);
+				if (!file || file.dir) return "";
+				return file.async("string").catch(() => "");
+			}),
+		).then((parts) => parts.join("\n"));
+		expect(combinedText).not.toContain(
+			"DO_NOT_EXPORT_OTHER_PROJECT_INSTRUCTIONS",
+		);
+		expect(combinedText).not.toContain("Other user's folder");
+	});
+
 	it("exports produced Atlas files as generated files without raw checkpoints", async () => {
 		await seedArchiveUser();
 		await seedAtlasArchiveOutput();
