@@ -427,3 +427,99 @@ test.describe("Project files", () => {
 		await expect(looseRow.getByTestId("project-link-token")).toHaveCount(0);
 	});
 });
+
+/**
+ * §M5 at 390×844 (slice-E.md's own visual check runs §M5 and §M8 at both
+ * widths). The mockup draws six columns; a phone has room for the file and its
+ * facts, so the row reflows rather than the page sliding sideways, and the
+ * modal arrives as the app's sheet.
+ */
+test.describe("Project files — phone", () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("reflows the file rows into the sheet instead of sliding sideways", async ({
+		page,
+	}) => {
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+		const documentName = `Hotel Motto booking ${randomUUID().slice(0, 6)}.txt`;
+		await linkArtifacts(page, projectId, [
+			await uploadLibraryDocument(page, { name: documentName }),
+		]);
+
+		const dialog = await openFilesDialog(page, projectId);
+		await expect(dialog).toHaveClass(/dialog-sheet/);
+		await expect(page.getByTestId("dialog-sheet-grabber")).toBeVisible();
+
+		const sheet = await dialog.boundingBox();
+		expect(sheet?.width ?? 0).toBeLessThanOrEqual(390);
+		// A sheet sits at the bottom of the screen it is a sheet of.
+		expect(
+			Math.round((sheet?.y ?? 0) + (sheet?.height ?? 0)),
+			"the sheet must reach the bottom of the viewport",
+		).toBeGreaterThanOrEqual(840);
+
+		// The page itself does not slide: the row reflows inside the sheet.
+		const widths = await page.evaluate(() => ({
+			scroll: document.documentElement.scrollWidth,
+			client: document.documentElement.clientWidth,
+		}));
+		expect(widths.scroll).toBeLessThanOrEqual(widths.client + 1);
+
+		// Every fact of the file, and both row actions, are inside the sheet —
+		// the six-column grid is what would push them out of it.
+		const row = fileRow(dialog, documentName);
+		await expect(row).toBeVisible();
+		for (const cell of [
+			row.getByTestId("project-file-name"),
+			row.getByRole("button", { name: `Preview ${documentName}` }),
+			row.getByRole("button", {
+				name: `Remove ${documentName} from this project`,
+			}),
+		]) {
+			const box = await cell.boundingBox();
+			expect(box?.width ?? 0).toBeGreaterThan(0);
+			expect(
+				Math.round((box?.x ?? 0) + (box?.width ?? 0)),
+				"nothing may sit past the right edge of a 390px screen",
+			).toBeLessThanOrEqual(390);
+		}
+
+		// The footer keeps saying what unlinking does, and Done stays reachable.
+		await expect(dialog.getByTestId("project-files-footer")).toContainText(
+			"removing it here keeps it in your library",
+		);
+		await expect(dialog.getByRole("button", { name: "Done" })).toBeInViewport();
+
+		// And the reflow is the reflow, not just "it fits": the column headings
+		// are gone (they name a grid that no longer exists at this width) and the
+		// file's three facts stack UNDER its name, in the name's own column. The
+		// desktop grid puts them in cells of their own on the same line, which is
+		// what a lost media query would restore.
+		await expect(dialog.locator(".files-row--head")).toBeHidden();
+		const nameBox = await row.getByTestId("project-file-name").boundingBox();
+		for (const fact of [
+			row.locator(".files-type"),
+			row.locator(".files-size"),
+			row.locator(".files-added"),
+		]) {
+			const box = await fact.boundingBox();
+			expect(
+				Math.round(box?.x ?? 0),
+				"a fact belongs in the file-name column, under it",
+			).toBe(Math.round(nameBox?.x ?? 0));
+			expect(
+				box?.y ?? 0,
+				"a fact belongs below the file's name",
+			).toBeGreaterThanOrEqual((nameBox?.y ?? 0) + (nameBox?.height ?? 0));
+		}
+	});
+});
