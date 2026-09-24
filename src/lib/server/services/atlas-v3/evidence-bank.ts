@@ -20,6 +20,11 @@ import {
 	figureAppearsInText,
 	isCheckableFigure,
 } from "./number-match";
+import {
+	ATLAS_V3_SOURCE_FENCE_RULE,
+	createAtlasV3SourceFence,
+	stripAtlasV3SourceMarkers,
+} from "./prompt-fence";
 import { organisationForHost } from "./publishers";
 import {
 	articleIdentityKey,
@@ -1026,6 +1031,7 @@ export const ATLAS_V3_READ_SYSTEM: Record<SupportedLanguage, string> = {
 		"`quoteIndexes` are 0-based positions in your own `quotes` array that state the value. A claim with no quote is not a claim; drop it.",
 		'Set "useless" to true and return empty arrays when the page is a navigation menu, a product listing, a search-results page, a cookie notice or a login wall. A list of links is NOT data.',
 		"Do not answer the goal yourself. Extract only.",
+		ATLAS_V3_SOURCE_FENCE_RULE.en,
 	].join("\n"),
 	hu: [
 		"EGY weboldalt olvasol EGY megadott célra, és csak azt adod vissza, amit az oldal állít. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -1035,6 +1041,7 @@ export const ATLAS_V3_READ_SYSTEM: Record<SupportedLanguage, string> = {
 		"A `quoteIndexes` a saját `quotes` tömböd 0-alapú pozíciói, amelyek az értéket kimondják. Idézet nélküli állítást hagyj el.",
 		'A "useless" akkor true (és mindkét tömb üres), ha az oldal navigációs menü, terméklista, találati oldal, süti-értesítés vagy bejelentkező fal. A linkek listája NEM adat.',
 		"Ne válaszold meg te a célt. Csak kivonatolj.",
+		ATLAS_V3_SOURCE_FENCE_RULE.hu,
 	].join("\n"),
 };
 
@@ -1055,21 +1062,21 @@ export interface BuildAtlasV3ReadPromptInput {
 export function buildAtlasV3ReadPrompt(
 	input: BuildAtlasV3ReadPromptInput,
 ): string {
+	const fence = createAtlasV3SourceFence();
 	return JSON.stringify({
 		task: "read_for_goal",
 		goal: input.goal,
 		language: input.language,
 		currentDate: input.currentDate,
 		source: {
-			title: input.sourceTitle,
+			title: fence.wrap(input.sourceTitle),
 			host: input.sourceHost,
 			date: input.sourceDate,
 			tier: input.tier,
 		},
-		page: input.pageText
-			.replace(/\s+/g, " ")
-			.trim()
-			.slice(0, input.maxPageChars),
+		page: fence.wrap(
+			input.pageText.replace(/\s+/g, " ").trim().slice(0, input.maxPageChars),
+		),
 	});
 }
 
@@ -1090,6 +1097,7 @@ export const ATLAS_V3_READ_DOCUMENT_SYSTEM: Record<SupportedLanguage, string> =
 			"`quoteIndexes` are 0-based positions in your own `quotes` array that state the value. A claim with no quote is not a claim; drop it.",
 			'Set "useless" to true and return empty arrays only when no passage bears on any goal.',
 			"Do not answer the goals yourself. Extract only.",
+			ATLAS_V3_SOURCE_FENCE_RULE.en,
 		].join("\n"),
 		hu: [
 			"EGY, a felhasználó által megadott dokumentum részleteit olvasod a felsorolt célokra, és csak azt adod vissza, amit a részletek állítanak. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -1100,6 +1108,7 @@ export const ATLAS_V3_READ_DOCUMENT_SYSTEM: Record<SupportedLanguage, string> =
 			"A `quoteIndexes` a saját `quotes` tömböd 0-alapú pozíciói, amelyek az értéket kimondják. Idézet nélküli állítást hagyj el.",
 			'A "useless" csak akkor true (és mindkét tömb üres), ha egyetlen részlet sem kapcsolódik egyik célhoz sem.',
 			"Ne válaszold meg te a célokat. Csak kivonatolj.",
+			ATLAS_V3_SOURCE_FENCE_RULE.hu,
 		].join("\n"),
 	};
 
@@ -1125,16 +1134,23 @@ export interface BuildAtlasV3LocalReadPromptInput {
 export function buildAtlasV3LocalReadPrompt(
 	input: BuildAtlasV3LocalReadPromptInput,
 ): string {
+	const fence = createAtlasV3SourceFence();
 	return JSON.stringify({
 		task: "read_for_goal",
 		goals: [...input.goals],
 		language: input.language,
 		currentDate: input.currentDate,
-		source: { title: input.title, kind: "user_document", date: null },
-		page: input.passages
-			.map((passage) => passage.replace(/\s+/g, " ").trim())
-			.filter(Boolean)
-			.join(ATLAS_V3_LOCAL_PASSAGE_SEPARATOR),
+		source: {
+			title: fence.wrap(input.title),
+			kind: "user_document",
+			date: null,
+		},
+		page: fence.wrap(
+			input.passages
+				.map((passage) => passage.replace(/\s+/g, " ").trim())
+				.filter(Boolean)
+				.join(ATLAS_V3_LOCAL_PASSAGE_SEPARATOR),
+		),
 	});
 }
 
@@ -1230,7 +1246,10 @@ export function parseAtlasV3Read(text: string): AtlasV3ReadResult | null {
 					: entry && typeof entry === "object"
 						? String((entry as { text?: unknown }).text ?? "")
 						: "";
-			const cleaned = quoteText.replace(/\s+/g, " ").trim();
+			// A marker the model copied from the fence is not the source's text.
+			const cleaned = stripAtlasV3SourceMarkers(quoteText)
+				.replace(/\s+/g, " ")
+				.trim();
 			if (cleaned.length < ATLAS_V3_MIN_QUOTE_CHARS) continue;
 			quotes.push(cleaned.slice(0, ATLAS_V3_MAX_QUOTE_CHARS));
 			if (quotes.length >= ATLAS_V3_MAX_QUOTES_PER_READ) break;
@@ -1279,7 +1298,7 @@ function optionalString(value: unknown, maxChars: number): string {
 		return String(value).slice(0, maxChars);
 	}
 	if (typeof value !== "string") return "";
-	const cleaned = value.replace(/\s+/g, " ").trim();
+	const cleaned = stripAtlasV3SourceMarkers(value).replace(/\s+/g, " ").trim();
 	return cleaned.toLowerCase() === "null" ? "" : cleaned.slice(0, maxChars);
 }
 

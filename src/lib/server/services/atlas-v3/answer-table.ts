@@ -17,6 +17,10 @@ import { parseJsonFromText } from "../atlas/json-extract";
 import { ATLAS_V3_MAX_OUTPUT_TOKENS } from "./config";
 import type { AtlasV3ModelCall } from "./model-call";
 import { extractFigures, isCheckableFigure } from "./number-match";
+import {
+	ATLAS_V3_SOURCE_FENCE_RULE,
+	createAtlasV3SourceFence,
+} from "./prompt-fence";
 import type {
 	AtlasV3AnswerCell,
 	AtlasV3AnswerTable,
@@ -57,6 +61,7 @@ export const ATLAS_V3_ANSWER_TABLE_SYSTEM: Record<SupportedLanguage, string> = {
 		'Never invent a cell. If a criterion is unknown for one row, write "not published" with an empty evidence list rather than guessing.',
 		"`derived` are the deltas, ratios, per-unit costs and growth rates the answer needs. `expression` is ONE arithmetic expression over NUMBERS ONLY — no names, no functions, no units. `inputs` are the quote ids the numbers came from. At most 6.",
 		"Include a `series` or `asOf` column whenever two rows measure different things or come from different vintages.",
+		ATLAS_V3_SOURCE_FENCE_RULE.en,
 	].join("\n"),
 	hu: [
 		"Egy kutatási kérdés strukturált válaszát állítod össze már ellenőrzött állításokból. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -66,6 +71,7 @@ export const ATLAS_V3_ANSWER_TABLE_SYSTEM: Record<SupportedLanguage, string> = {
 		"Ne találj ki cellát. Ha egy szempont egy sorra ismeretlen, írd azt, hogy „nincs közzétéve”, üres bizonyítéklistával.",
 		"A `derived` a szükséges különbségek, arányok, egységárak és növekedési ütemek. Az `expression` EGYETLEN aritmetikai kifejezés CSAK SZÁMOKKAL — név, függvény és mértékegység nélkül. Az `inputs` azok az idézetazonosítók, ahonnan a számok jönnek. Legfeljebb 6.",
 		"Tegyél `series` vagy `asOf` oszlopot, ha két sor mást mér vagy más évjáratú.",
+		ATLAS_V3_SOURCE_FENCE_RULE.hu,
 	].join("\n"),
 };
 
@@ -87,6 +93,7 @@ export function buildAtlasV3AnswerTablePrompt(
 		.map((id) => claimsById.get(id))
 		.filter((claim): claim is NonNullable<typeof claim> => Boolean(claim));
 	const evidenceIds = new Set(claims.flatMap((claim) => claim.evidenceIds));
+	const fence = createAtlasV3SourceFence();
 	return JSON.stringify({
 		task: "assemble_answer_table",
 		coreQuestion: input.ask.coreQuestion,
@@ -112,7 +119,7 @@ export function buildAtlasV3AnswerTablePrompt(
 		})),
 		quotes: input.bank.quotes
 			.filter((quote) => evidenceIds.has(quote.id))
-			.map((quote) => ({ id: quote.id, text: quote.text })),
+			.map((quote) => ({ id: quote.id, text: fence.wrap(quote.text) })),
 	});
 }
 

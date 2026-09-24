@@ -31,6 +31,10 @@ import {
 	type AtlasV3ModelCall,
 	renderAtlasV3Budget,
 } from "./model-call";
+import {
+	ATLAS_V3_SOURCE_FENCE_RULE,
+	createAtlasV3SourceFence,
+} from "./prompt-fence";
 import type { AtlasV3ResearchWeb } from "./research-web-adapter";
 import { selectAtlasV3PagesToRead } from "./source-tier";
 import type { AtlasV3Claim, AtlasV3FindingsNote, AtlasV3Quote } from "./types";
@@ -173,6 +177,7 @@ export const ATLAS_V3_NOTE_SYSTEM: Record<SupportedLanguage, string> = {
 		"If the evidence does not answer the question, say exactly that in `summary`. Never guess, never fill the gap from your own knowledge.",
 		"`openQuestions` are what is still missing to answer the question, as searchable questions. 0 to 3 items.",
 		"`deadEnds` are things this question CANNOT be answered from, with the reason — no published series, paywalled, only vendor marketing. 0 to 2 items. Never list something you did not try.",
+		ATLAS_V3_SOURCE_FENCE_RULE.en,
 	].join("\n"),
 	hu: [
 		"Rövid kutatási jegyzetet írsz MÁR KIVONATOLT bizonyítékból. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -181,6 +186,7 @@ export const ATLAS_V3_NOTE_SYSTEM: Record<SupportedLanguage, string> = {
 		"Ha a bizonyíték nem válaszolja meg a kérdést, pontosan ezt írd a `summary`-be. Ne találgass, és ne pótold saját tudásból.",
 		"Az `openQuestions` az, ami még hiányzik, kereshető kérdés formájában. 0-3 elem.",
 		"A `deadEnds` az, amiből ez a kérdés NEM válaszolható meg, az okkal — nincs közzétett adatsor, fizetőfal, csak gyártói marketing. 0-2 elem. Ne sorolj olyat, amit nem próbáltál.",
+		ATLAS_V3_SOURCE_FENCE_RULE.hu,
 	].join("\n"),
 };
 
@@ -213,6 +219,7 @@ export interface BuildAtlasV3NotePromptInput {
 export function buildAtlasV3NotePrompt(
 	input: BuildAtlasV3NotePromptInput,
 ): string {
+	const fence = createAtlasV3SourceFence();
 	return JSON.stringify({
 		task: "write_findings_note",
 		question: input.subQuestion,
@@ -220,7 +227,9 @@ export function buildAtlasV3NotePrompt(
 		language: input.language,
 		currentDate: input.currentDate,
 		spent: { searches: input.searchesSpent, pagesRead: input.pagesRead },
-		quotes: input.quotes.slice(0, MAX_NOTE_QUOTES),
+		quotes: input.quotes
+			.slice(0, MAX_NOTE_QUOTES)
+			.map((quote) => ({ ...quote, text: fence.wrap(quote.text) })),
 		claims: input.claims.slice(0, MAX_NOTE_QUOTES),
 	});
 }
