@@ -213,6 +213,27 @@ is an **absolute count plus a ratio**, not a bare percentage; every suite runs *
 fail** before its scores count, so the harness can be seen to fail; and `client.ts` is the only module that
 reads the API key.
 
+## 26. The panel end-to-end spec is `tests/e2e/artifacts-panel.spec.ts`
+
+Slices 0 and 3 disagree (`artifact-panel` vs `artifacts-panel`). **Plural wins**, matching
+`src/lib/components/artifacts/`. Slice 0 is corrected in the review pass.
+
+## 27. Slices reference each other by section, never by line number
+
+Slice 3 cites slice 4 by line numbers, which a rewrite invalidates (it already has). Cross-slice references
+name the **heading** (`slice-4.md §The deck contract`), not a line. The stale citations in `slice-3.md` are
+fixed in the consistency pass.
+
+## 28. Deck exports are not remembered; notes are same-device; PDF stays deferred
+
+- **A deck does not track its exports** in v1: the read model drops `idempotencyKey`
+  (`file-production/read-model.ts:491`), so there is nothing to match an export against. Deferred, not
+  designed around.
+- **Presenter notes are same-device** (a presenter view on the screen you are presenting from). The mockup's
+  "read them from your phone" would need a second device seeing the same artifact, which needs the sharing
+  ADR-0066 rules out.
+- **PDF export of a deck stays deferred** (ruling 3, confirmed) — PPTX only.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
