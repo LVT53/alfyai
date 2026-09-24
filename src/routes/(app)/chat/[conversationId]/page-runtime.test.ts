@@ -129,8 +129,6 @@ function contextDebugFixture(
 		verificationStatus: "skipped",
 		selectedEvidence: [contextDebugEvidenceFixture()],
 		selectedEvidenceBySource: [],
-		pinnedEvidence: [],
-		excludedEvidence: [],
 		...overrides,
 	};
 }

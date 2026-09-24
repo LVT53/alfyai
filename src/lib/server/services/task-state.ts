@@ -1394,8 +1394,6 @@ export async function getContextDebugState(
 			"skipped") as VerificationStatus,
 		selectedEvidence,
 		selectedEvidenceBySource,
-		pinnedEvidence: toDebugItems("pinned"),
-		excludedEvidence: toDebugItems("excluded"),
 	};
 }
 

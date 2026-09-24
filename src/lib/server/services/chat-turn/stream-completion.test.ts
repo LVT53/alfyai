@@ -437,8 +437,6 @@ describe("completeStreamTurn", () => {
 			},
 		],
 		selectedEvidenceBySource: [{ sourceType: "document", count: 1 }],
-		pinnedEvidence: [],
-		excludedEvidence: [],
 	});
 
 	const taskState = (taskId: string): TaskState => ({

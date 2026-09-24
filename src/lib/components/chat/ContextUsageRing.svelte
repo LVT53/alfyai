@@ -264,18 +264,6 @@ let isNearTrigger = $derived(
 						<span>{$t('contextUsageRing.sourcesIncluded')}</span>
 						<span>{contextDebug.selectedEvidence.length}</span>
 					</div>
-					{#if contextDebug.pinnedEvidence.length > 0}
-						<div class="popover-stat">
-							<span>{$t('contextUsageRing.pinned')}</span>
-							<span>{contextDebug.pinnedEvidence.length}</span>
-						</div>
-					{/if}
-					{#if contextDebug.excludedEvidence.length > 0}
-						<div class="popover-stat">
-							<span>{$t('contextUsageRing.excluded')}</span>
-							<span>{contextDebug.excludedEvidence.length}</span>
-						</div>
-					{/if}
 				{/if}
 				{#if attachedArtifacts.length > 0}
 					<div class="popover-stat">

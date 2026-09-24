@@ -88,3 +88,31 @@ describe("Manage context sources removal", () => {
 		expect(linked).toContain("linked_context_source");
 	});
 });
+
+/**
+ * Dead wiring left standing after the removal.
+ *
+ * The pinned/excluded read side outlived its writers: no row with
+ * `origin = 'user'` and a pin/exclude role can be created any more, so the
+ * two debug fields (and the two ring rows that gated on them) could never
+ * render. They must not come back through a merge.
+ */
+describe("dead wiring the context-sources removal left behind", () => {
+	it.each([
+		"src/lib/server/services/knowledge/context-types.ts",
+		"src/lib/server/services/task-state.ts",
+		"src/lib/server/services/chat-turn/context-selection.ts",
+		"src/lib/components/chat/ContextUsageRing.svelte",
+	])("keeps %s free of the retired pin/exclude debug fields", (file) => {
+		const source = readFileSync(file, "utf8");
+		for (const field of ["pinnedEvidence", "excludedEvidence"]) {
+			expect(source, `${file} still mentions ${field}`).not.toContain(field);
+		}
+	});
+
+	it("drops the pinned/excluded ring labels with the rows they labelled", () => {
+		const i18n = readFileSync("src/lib/i18n/chat.ts", "utf8");
+		expect(i18n).not.toContain('"contextUsageRing.pinned"');
+		expect(i18n).not.toContain('"contextUsageRing.excluded"');
+	});
+});

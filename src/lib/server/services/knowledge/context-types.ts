@@ -75,7 +75,5 @@ export interface ContextDebugState {
 	verificationStatus: VerificationStatus;
 	selectedEvidence: ContextDebugEvidenceItem[];
 	selectedEvidenceBySource: ContextDebugEvidenceSummaryItem[];
-	pinnedEvidence: ContextDebugEvidenceItem[];
-	excludedEvidence: ContextDebugEvidenceItem[];
 	forkProvenance?: ForkContextProvenanceSummary | null;
 }

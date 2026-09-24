@@ -96,8 +96,6 @@ describe("ContextUsageRing cost display", () => {
 				routingConfidence: 100,
 				verificationStatus: "skipped",
 				selectedEvidence: [],
-				pinnedEvidence: [],
-				excludedEvidence: [],
 			},
 			totalCostUsd: 0.42,
 			totalTokens: 12400,

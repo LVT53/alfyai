@@ -563,7 +563,6 @@ const chatDict = {
 		"contextUsageRing.contextRoom": "Context room",
 		"contextUsageRing.conversationCost": "Conversation cost",
 		"contextUsageRing.cost": "Cost",
-		"contextUsageRing.excluded": "Excluded",
 		"contextUsageRing.focus": "Focus",
 		"contextUsageRing.focusPanel": "Context focus panel",
 		"contextUsageRing.layer.capsule": "Capsule",
@@ -581,7 +580,6 @@ const chatDict = {
 		"contextUsageRing.noActiveTask": "No active task yet.",
 		"contextUsageRing.noContext": "No context yet",
 		"contextUsageRing.optionalTaskName": "Optional task name",
-		"contextUsageRing.pinned": "Pinned",
 		"contextUsageRing.placeholder":
 			"Leave empty to infer from your next message",
 		"contextUsageRing.contextWindow": "Context window",
@@ -1707,7 +1705,6 @@ const chatDict = {
 		"contextUsageRing.contextRoom": "Kontextusterület",
 		"contextUsageRing.conversationCost": "Beszélgetés költsége",
 		"contextUsageRing.cost": "Költség",
-		"contextUsageRing.excluded": "Kizárt",
 		"contextUsageRing.focus": "Fókusz",
 		"contextUsageRing.focusPanel": "Kontextusfókusz panel",
 		"contextUsageRing.layer.capsule": "Kapszula",
@@ -1725,7 +1722,6 @@ const chatDict = {
 		"contextUsageRing.noActiveTask": "Még nincs aktív feladat.",
 		"contextUsageRing.noContext": "Még nincs kontextus",
 		"contextUsageRing.optionalTaskName": "Opcionális feladatnév",
-		"contextUsageRing.pinned": "Rögzített",
 		"contextUsageRing.placeholder":
 			"Hagyd üresen, ha a következő üzenetből kell következtetni",
 		"contextUsageRing.contextWindow": "Kontextusablak",
