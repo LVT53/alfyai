@@ -709,6 +709,42 @@ describe("createNormalChatTools", () => {
 		expect(getToolCalls()[0]?.outputSummary).toContain(warning);
 	});
 
+	it("relays intake's output-type substitution with the succeeded verdict", async () => {
+		const warning =
+			'Output type "spreadsheet" is not supported, so the xlsx type of program.filename "budget.xlsx" was used instead.';
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({ id: "job-fallback", status: "queued" }),
+			warnings: [warning],
+		});
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.produce_file.execute(
+			{
+				requestTitle: "Budget",
+				requestedOutputs: [{ type: "spreadsheet" }],
+				program: {
+					language: "python",
+					sourceCode: "wb.save('/output/budget.xlsx')",
+					filename: "budget.xlsx",
+				},
+			},
+			{ toolCallId: "call-fallback", messages: [] },
+		);
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: "succeeded",
+			warnings: [warning],
+		});
+	});
+
 	it("tells the model when repairing its document dropped table cells", async () => {
 		submitFileProductionIntakeMock.mockResolvedValue({
 			ok: true,

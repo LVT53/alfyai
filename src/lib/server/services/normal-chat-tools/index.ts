@@ -1461,7 +1461,12 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 											pollIntervalMs: ctx.fileProductionVerdictPollIntervalMs,
 										})
 									: buildProduceFileIntakeFailurePayload(result),
-								inputWarnings,
+								// Intake's own substitutions (e.g. an output type taken
+								// from program.filename) come after the input repairs.
+								[
+									...inputWarnings,
+									...(result.ok ? (result.warnings ?? []) : []),
+								],
 							);
 							if (modelPayload.ok) {
 								sameTurnProduceFileVerdicts.set(

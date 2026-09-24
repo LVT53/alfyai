@@ -660,6 +660,76 @@ describe("file production service", () => {
 		expect(wakeWorker).not.toHaveBeenCalled();
 	});
 
+	it("falls back to program.filename's type when the named type is unsupported, with a warning", async () => {
+		const { db } = await import("$lib/server/db");
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-fallback-output-type",
+				requestTitle: "Budget workbook",
+				sourceMode: "program",
+				requestedOutputs: [{ type: "spreadsheet" }],
+				program: {
+					language: "python",
+					sourceCode:
+						"from openpyxl import Workbook\nWorkbook().save('/output/budget.xlsx')",
+					filename: "budget.xlsx",
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:26.700Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: 202,
+			warnings: [
+				'Output type "spreadsheet" is not supported, so the xlsx type of program.filename "budget.xlsx" was used instead.',
+			],
+		});
+		if (!result.ok) return;
+		const [row] = await db
+			.select({ requestJson: schema.fileProductionJobs.requestJson })
+			.from(schema.fileProductionJobs)
+			.where(eq(schema.fileProductionJobs.id, result.job.id));
+		expect(JSON.parse(row?.requestJson ?? "{}").outputs).toEqual([
+			{ type: "xlsx" },
+		]);
+		expect(wakeWorker).toHaveBeenCalled();
+	});
+
+	it("still refuses an unsupported type when program.filename names no supported type either", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-no-fallback-output-type",
+				requestTitle: "Chart image",
+				sourceMode: "program",
+				requestedOutputs: [{ type: "image" }],
+				program: {
+					language: "python",
+					sourceCode: "open('/output/chart.png','wb').write(b'')",
+					filename: "chart.png",
+				},
+			},
+			wakeWorker: vi.fn(),
+			now: new Date("2026-05-03T19:31:26.800Z"),
+		});
+		expect(result).toMatchObject({
+			ok: false,
+			status: 422,
+			code: "unsupported_program_output_type",
+		});
+	});
+
 	it("derives the program output type from program.filename when none is named", async () => {
 		const { db } = await import("$lib/server/db");
 		const { submitFileProductionIntake } = await import("./index");
