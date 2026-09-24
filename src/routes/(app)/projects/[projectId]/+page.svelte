@@ -25,19 +25,37 @@ let { data }: PageProps = $props();
 // The chip under the composer mirrors what is stored, seeded from the load and
 // updated from each save's own response: the server decides what "has
 // instructions" means (a whitespace-only save is a clear), so the page takes
-// its answer rather than guessing from what it sent. Both reads are wrapped in
+// its answer rather than guessing from what it sent. The seed is wrapped in
 // `untrack` because seeding a rune from a load value is deliberately a
 // snapshot: the page's own state is what changes afterwards, not the load.
+//
+// `/projects/[projectId]` is one route, so opening another project from the
+// sidebar is a client-side navigation that reuses this component and changes
+// only `data`. A seed captured once would show the previous project's text —
+// and Save would write it into the project now on screen — so the effect below
+// re-seeds whenever the load hands over a different project.
+let seededProjectId = $state(untrack(() => data.project.id));
 let instructionsText = $state(untrack(() => data.project.instructions ?? ""));
 let hasInstructions = $state(untrack(() => data.project.hasInstructions));
 let instructionsDialogOpen = $state(false);
 
-// Consumed once, at the first render of this route: the sidebar's "New chat"
-// item is the only thing that sets it (see conversation-session.ts), and it is
-// spent by the open rather than read, so a reload does not steal the caret.
-const focusComposer = untrack(() =>
-	consumeProjectComposerFocus(data.project.id),
+// Taken once per project the page actually shows: the sidebar's "New chat"
+// item is the only thing that sets the marker (see conversation-session.ts),
+// and it is spent by the open rather than read, so a reload does not steal the
+// caret. The same re-seed pass picks it up for the project a navigation
+// switched to, which is the only way a reused component can hear a request
+// made for the page it is not yet showing.
+let focusComposer = $state(
+	untrack(() => consumeProjectComposerFocus(data.project.id)),
 );
+
+$effect(() => {
+	if (seededProjectId === data.project.id) return;
+	seededProjectId = data.project.id;
+	instructionsText = data.project.instructions ?? "";
+	hasInstructions = data.project.hasInstructions;
+	focusComposer = consumeProjectComposerFocus(data.project.id);
+});
 
 const projectScope = $derived<InstructionScope>({
 	kind: "project",

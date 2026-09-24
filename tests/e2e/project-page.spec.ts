@@ -353,6 +353,87 @@ test.describe("Project page", () => {
 		).toHaveValue("Only suggest trains, never flights.");
 	});
 
+	test("carries none of one project's instructions onto another project's page", async ({
+		page,
+	}) => {
+		// `/projects/[projectId]` is one route, so the sidebar's "open another
+		// project" is a client-side navigation: the page component is reused and
+		// only its `data` changes. Anything the page seeds from the load into
+		// `$state` has to notice that, or the second project's page shows the
+		// first one's instruction text and — if the reader presses Save without
+		// touching the box — writes it into the second project.
+		const firstName = `Alpha trip ${randomUUID().slice(0, 8)}`;
+		const secondName = `Beta trip ${randomUUID().slice(0, 8)}`;
+		const firstProjectId = await createProject(page, firstName);
+		const secondProjectId = await createProject(page, secondName);
+
+		await openProjectPage(page, firstProjectId);
+		await page.getByTestId("project-instructions-button").click();
+		const firstDialog = page.getByRole("dialog");
+		await firstDialog
+			.getByRole("textbox", { name: `Instructions for ${firstName}` })
+			.fill("Only suggest trains, never flights.");
+		await firstDialog.getByRole("button", { name: "Save" }).click();
+		await expect(page.getByTestId("project-instructions-button")).toHaveText(
+			"Instructions",
+		);
+
+		// The second project has no instructions of its own, opened the way the
+		// sidebar opens it.
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, secondName);
+		await row.getByRole("button", { name: "Project options" }).click();
+		await page
+			.getByRole("menuitem", { name: `Create chat in ${secondName}` })
+			.click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${secondProjectId}$`));
+		await expect(page.getByTestId("project-greeting")).toHaveText(secondName);
+
+		// Nothing was written to the second project by that navigation.
+		await expect(page.getByTestId("project-instructions-button")).toHaveText(
+			"Add instructions",
+		);
+		await page.getByTestId("project-instructions-button").click();
+		await expect(
+			page.getByRole("dialog").getByRole("textbox", {
+				name: `Instructions for ${secondName}`,
+			}),
+		).toHaveValue("");
+		const [row2] = await db
+			.select({ instructions: projects.instructions })
+			.from(projects)
+			.where(eq(projects.id, secondProjectId))
+			.limit(1);
+		expect(row2?.instructions ?? null).toBeNull();
+	});
+
+	test("moves the caret into the composer when the menu item opens another project", async ({
+		page,
+	}) => {
+		// The menu item's whole point is "start typing here", so it must land the
+		// caret even when the surface it opens is the one already on screen —
+		// the same route, reached from a different project's page.
+		const firstName = `Alpha trip ${randomUUID().slice(0, 8)}`;
+		const secondName = `Beta trip ${randomUUID().slice(0, 8)}`;
+		const firstProjectId = await createProject(page, firstName);
+		const secondProjectId = await createProject(page, secondName);
+
+		await openProjectPage(page, firstProjectId);
+		// A plain load does not steal the caret: it is the menu item that asks
+		// for it.
+		await expect(page.getByTestId("message-input")).not.toBeFocused();
+
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, secondName);
+		await row.getByRole("button", { name: "Project options" }).click();
+		await page
+			.getByRole("menuitem", { name: `Create chat in ${secondName}` })
+			.click();
+
+		await expect(page).toHaveURL(new RegExp(`/projects/${secondProjectId}$`));
+		await expect(page.getByTestId("message-input")).toBeFocused();
+	});
+
 	test("links the breadcrumb project segment back to the project page", async ({
 		page,
 	}) => {
