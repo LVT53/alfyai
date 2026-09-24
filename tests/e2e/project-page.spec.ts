@@ -222,6 +222,210 @@ test.describe("Project page", () => {
 		);
 	});
 
+	/** The landing draft's conversation id, as the session carries it. */
+	async function draftConversationId(page: Page): Promise<string | null> {
+		return page.evaluate(() =>
+			window.sessionStorage.getItem("landing-draft-conversation-id"),
+		);
+	}
+
+	async function seedDraftOnLanding(page: Page, text: string) {
+		await page.goto("/", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await page.getByTestId("message-input").fill(text);
+		// Typing is what prepares the conversation, so the test cannot go on
+		// until the session carries one: without it the rest of the test would
+		// silently exercise the ordinary "no draft at all" path instead.
+		await expect.poll(() => draftConversationId(page)).not.toBeNull();
+		return (await draftConversationId(page)) as string;
+	}
+
+	test("sends the first message into the project even when the home page had already prepared a draft", async ({
+		page,
+	}) => {
+		// A draft typed on the home page belongs to no project. Reusing that
+		// conversation from the project page would put the first message in a
+		// chat the project does not own — the folder's instructions would not
+		// reach the turn, and the commit that built this page promised the
+		// opposite.
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+		const landingDraftId = await seedDraftOnLanding(page, "Hotel ideas?");
+
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, projectName);
+		await row.hover();
+		await row.getByRole("button", { name: `Open ${projectName}` }).click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`));
+		await waitForHydration(page);
+
+		await sendMessage(page, "Which train should I take?");
+		await page.waitForURL(/\/chat\//, { timeout: 20000 });
+
+		const chatId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? "";
+		const [row2] = await db
+			.select({ projectId: conversations.projectId })
+			.from(conversations)
+			.where(eq(conversations.id, chatId))
+			.limit(1);
+		expect(row2, `conversation ${chatId} must exist`).toBeTruthy();
+		expect(
+			row2.projectId,
+			`the chat ${chatId} must belong to the project (home-page draft was ${landingDraftId})`,
+		).toBe(projectId);
+	});
+
+	test("sends the first message outside the project when a project page had prepared the draft", async ({
+		page,
+	}) => {
+		// The mirror: a draft prepared on a project's page belongs to that
+		// project, so the home page must not adopt it — a chat started from the
+		// home page would otherwise land inside somebody's folder.
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+
+		await openProjectPage(page, projectId);
+		await page.getByTestId("message-input").fill("Trains only, please.");
+		await expect.poll(() => draftConversationId(page)).not.toBeNull();
+		const projectDraftId = (await draftConversationId(page)) as string;
+
+		await page.goto("/", { waitUntil: "domcontentloaded" });
+		await waitForHydration(page);
+		await sendMessage(page, "Something else entirely.");
+		await page.waitForURL(/\/chat\//, { timeout: 20000 });
+
+		const chatId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? "";
+		const [row] = await db
+			.select({ projectId: conversations.projectId })
+			.from(conversations)
+			.where(eq(conversations.id, chatId))
+			.limit(1);
+		expect(row, `conversation ${chatId} must exist`).toBeTruthy();
+		expect(
+			row.projectId,
+			`the chat ${chatId} must not be inside the project (project-page draft was ${projectDraftId})`,
+		).toBeNull();
+	});
+
+	test("keeps a prepared draft out of the project the composer moved away from", async ({
+		page,
+	}) => {
+		// `/projects/[projectId]` is one route, so the sidebar's door to another
+		// project is a client-side navigation that reuses the page component:
+		// everything the first page's surface held in `$state` is still there on
+		// the second. The draft it prepared belongs to the project the user just
+		// left, and the composer on this page says it starts a chat in the one now
+		// on screen — so the first message must land in the second project, not in
+		// the folder the user walked away from.
+		const first = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const second = `Lisbon trip ${randomUUID().slice(0, 8)}`;
+		const firstId = await createProject(page, first);
+		const secondId = await createProject(page, second);
+
+		await openProjectPage(page, firstId);
+		await page.getByTestId("message-input").fill("Trains to Vienna.");
+		await expect.poll(() => draftConversationId(page)).not.toBeNull();
+		const firstDraftId = (await draftConversationId(page)) as string;
+		const [draftRow] = await db
+			.select({ projectId: conversations.projectId })
+			.from(conversations)
+			.where(eq(conversations.id, firstDraftId))
+			.limit(1);
+		expect(
+			draftRow?.projectId,
+			"typing on a project page prepares that project's own draft",
+		).toBe(firstId);
+
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, second);
+		await row.hover();
+		await row.getByRole("button", { name: `Open ${second}` }).click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${secondId}$`));
+		await expect(page.getByTestId("project-greeting")).toHaveText(second);
+		await waitForHydration(page);
+
+		await sendMessage(page, "Flights to Lisbon.");
+		await page.waitForURL(/\/chat\//, { timeout: 20000 });
+
+		const chatId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? "";
+		const [chatRow] = await db
+			.select({ projectId: conversations.projectId })
+			.from(conversations)
+			.where(eq(conversations.id, chatId))
+			.limit(1);
+		expect(chatRow, `conversation ${chatId} must exist`).toBeTruthy();
+		expect(
+			chatRow.projectId,
+			`the chat ${chatId} must belong to ${secondId}, not to the project left behind (${firstId}, whose draft was ${firstDraftId})`,
+		).toBe(secondId);
+	});
+
+	test("does not adopt a draft whose creation was still in flight when the page moved", async ({
+		page,
+	}) => {
+		// The same move, with the window left open: the first keystroke asks the
+		// server for a conversation and the user opens another project before the
+		// answer arrives. The reply was asked for by the project the keystroke was
+		// typed in, so it must not become this page's draft — the send that
+		// follows has to land in the project on screen.
+		const first = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const second = `Lisbon trip ${randomUUID().slice(0, 8)}`;
+		const firstId = await createProject(page, first);
+		const secondId = await createProject(page, second);
+
+		let heldOnce = false;
+		await page.route("**/api/conversations", async (route) => {
+			if (route.request().method() === "POST" && !heldOnce) {
+				heldOnce = true;
+				await new Promise((resolve) => setTimeout(resolve, 1500));
+			}
+			await route.continue();
+		});
+
+		await openProjectPage(page, firstId);
+		await page.getByTestId("message-input").fill("Trains to Vienna.");
+		await expect.poll(() => heldOnce).toBe(true);
+
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, second);
+		await row.hover();
+		await row.getByRole("button", { name: `Open ${second}` }).click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${secondId}$`));
+		await expect(page.getByTestId("project-greeting")).toHaveText(second);
+		// Let the held creation land before the send, so the test exercises the
+		// adoption rather than the ordinary "no draft at all" path.
+		await page.waitForTimeout(2000);
+		await waitForHydration(page);
+
+		await sendMessage(page, "Flights to Lisbon.");
+		await page.waitForURL(/\/chat\//, { timeout: 20000 });
+
+		const chatId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? "";
+		const [chatRow] = await db
+			.select({ projectId: conversations.projectId })
+			.from(conversations)
+			.where(eq(conversations.id, chatId))
+			.limit(1);
+		expect(chatRow, `conversation ${chatId} must exist`).toBeTruthy();
+		expect(
+			chatRow.projectId,
+			`the chat ${chatId} must belong to ${secondId}, not to the project whose in-flight creation answered late (${firstId})`,
+		).toBe(secondId);
+
+		// And the conversation that late answer carried is not left behind as a
+		// draft row in the project the user walked away from: nothing will ever
+		// be written into it from this page.
+		await expect
+			.poll(async () => {
+				const leftBehind = await db
+					.select({ id: conversations.id })
+					.from(conversations)
+					.where(eq(conversations.projectId, firstId));
+				return leftBehind.length;
+			})
+			.toBe(0);
+	});
+
 	test("opens the instructions dialog with only the project scope from the quiet line", async ({
 		page,
 	}) => {
@@ -266,6 +470,87 @@ test.describe("Project page", () => {
 				name: `Instructions for ${projectName}`,
 			}),
 		).toHaveValue("Only suggest trains, never flights.");
+	});
+
+	test("carries none of one project's instructions onto another project's page", async ({
+		page,
+	}) => {
+		// `/projects/[projectId]` is one route, so the sidebar's "open another
+		// project" is a client-side navigation: the page component is reused and
+		// only its `data` changes. Anything the page seeds from the load into
+		// `$state` has to notice that, or the second project's page shows the
+		// first one's instruction text and — if the reader presses Save without
+		// touching the box — writes it into the second project.
+		const firstName = `Alpha trip ${randomUUID().slice(0, 8)}`;
+		const secondName = `Beta trip ${randomUUID().slice(0, 8)}`;
+		const firstProjectId = await createProject(page, firstName);
+		const secondProjectId = await createProject(page, secondName);
+
+		await openProjectPage(page, firstProjectId);
+		await page.getByTestId("project-instructions-button").click();
+		const firstDialog = page.getByRole("dialog");
+		await firstDialog
+			.getByRole("textbox", { name: `Instructions for ${firstName}` })
+			.fill("Only suggest trains, never flights.");
+		await firstDialog.getByRole("button", { name: "Save" }).click();
+		await expect(page.getByTestId("project-instructions-button")).toHaveText(
+			"Instructions",
+		);
+
+		// The second project has no instructions of its own, opened the way the
+		// sidebar opens it.
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, secondName);
+		await row.getByRole("button", { name: "Project options" }).click();
+		await page
+			.getByRole("menuitem", { name: `Create chat in ${secondName}` })
+			.click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${secondProjectId}$`));
+		await expect(page.getByTestId("project-greeting")).toHaveText(secondName);
+
+		// Nothing was written to the second project by that navigation.
+		await expect(page.getByTestId("project-instructions-button")).toHaveText(
+			"Add instructions",
+		);
+		await page.getByTestId("project-instructions-button").click();
+		await expect(
+			page.getByRole("dialog").getByRole("textbox", {
+				name: `Instructions for ${secondName}`,
+			}),
+		).toHaveValue("");
+		const [row2] = await db
+			.select({ instructions: projects.instructions })
+			.from(projects)
+			.where(eq(projects.id, secondProjectId))
+			.limit(1);
+		expect(row2?.instructions ?? null).toBeNull();
+	});
+
+	test("moves the caret into the composer when the menu item opens another project", async ({
+		page,
+	}) => {
+		// The menu item's whole point is "start typing here", so it must land the
+		// caret even when the surface it opens is the one already on screen —
+		// the same route, reached from a different project's page.
+		const firstName = `Alpha trip ${randomUUID().slice(0, 8)}`;
+		const secondName = `Beta trip ${randomUUID().slice(0, 8)}`;
+		const firstProjectId = await createProject(page, firstName);
+		const secondProjectId = await createProject(page, secondName);
+
+		await openProjectPage(page, firstProjectId);
+		// A plain load does not steal the caret: it is the menu item that asks
+		// for it.
+		await expect(page.getByTestId("message-input")).not.toBeFocused();
+
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, secondName);
+		await row.getByRole("button", { name: "Project options" }).click();
+		await page
+			.getByRole("menuitem", { name: `Create chat in ${secondName}` })
+			.click();
+
+		await expect(page).toHaveURL(new RegExp(`/projects/${secondProjectId}$`));
+		await expect(page.getByTestId("message-input")).toBeFocused();
 	});
 
 	test("links the breadcrumb project segment back to the project page", async ({
@@ -349,5 +634,83 @@ test.describe("Project page", () => {
 		expect(row, `conversation ${chatId} must exist`).toBeTruthy();
 		expect(row.projectId).toBe(projectId);
 		expect(row.memoryIncognito).toBe(true);
+	});
+});
+
+/**
+ * The mockup's own phone requirement (§M1, via slice-D.md's real-app visual
+ * check at 390×844): "the project name replaces the greeting ... in the same
+ * serif and colour", the composer and the quiet line stay usable, and the
+ * cards/rows behave as described rather than sliding sideways.
+ */
+test.describe("Project page — phone", () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("keeps the home page's greeting type, target sizes and width at 390×844", async ({
+		page,
+	}) => {
+		// The type to match against, measured on the page this one is the home
+		// page of: the mockup says the project greeting IS the home greeting with
+		// one word swapped.
+		await page.goto("/", { waitUntil: "domcontentloaded" });
+		const homeGreeting = page.getByTestId("home-greeting").first();
+		await expect(homeGreeting).toBeVisible({ timeout: 15000 });
+		const homeType = await homeGreeting.evaluate((element) => {
+			const style = getComputedStyle(element);
+			return { fontFamily: style.fontFamily, color: style.color };
+		});
+
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+		await openProjectPage(page, projectId);
+
+		const greeting = page.getByTestId("project-greeting");
+		await expect(greeting).toHaveText(projectName);
+		const projectType = await greeting.evaluate((element) => {
+			const style = getComputedStyle(element);
+			return { fontFamily: style.fontFamily, color: style.color };
+		});
+		expect(projectType).toEqual(homeType);
+
+		// Nothing slides sideways at phone width — the mockup's rows reflow, the
+		// page does not.
+		const widths = await page.evaluate(() => ({
+			scroll: document.documentElement.scrollWidth,
+			client: document.documentElement.clientWidth,
+		}));
+		expect(widths.scroll).toBeLessThanOrEqual(widths.client + 1);
+
+		// The composer at the bottom of the phone screen, with the sizes the app
+		// asks of every phone composer (mobile-design.spec.ts holds the same bar).
+		const input = page.getByTestId("message-input");
+		await expect(input).toBeInViewport();
+		const inputBox = await input.boundingBox();
+		expect(inputBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+		const sendBox = await page.getByTestId("send-button").boundingBox();
+		expect(sendBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+		expect(sendBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+		// The quiet line is one line of text under the composer and it is the way
+		// into the instructions on this page.
+		await expect(page.getByTestId("project-quiet-line")).toBeVisible();
+		await expect(page.getByTestId("project-instructions-button")).toContainText(
+			"Add instructions",
+		);
+		await page.getByTestId("project-instructions-button").click();
+		const dialog = page.getByRole("dialog");
+		await expect(dialog).toBeVisible({ timeout: 10000 });
+		const dialogBox = await dialog.boundingBox();
+		expect(dialogBox?.width ?? 0).toBeLessThanOrEqual(390);
+		await expect(
+			dialog.getByRole("textbox", { name: `Instructions for ${projectName}` }),
+		).toBeVisible();
 	});
 });

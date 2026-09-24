@@ -295,7 +295,13 @@ function canReuseLandingPreparedConversation(
 	return (
 		detail.conversation.title === "New Conversation" &&
 		(detail.messages?.length ?? 0) === 0 &&
-		(detail.generatedFiles?.length ?? 0) === 0
+		(detail.generatedFiles?.length ?? 0) === 0 &&
+		// The draft must already belong where this surface would send it. A
+		// draft prepared on the landing page has no project and a draft
+		// prepared on a project's page has that project: adopting the other
+		// one would send the first message into a folder the composer never
+		// named, or out of the one it did.
+		(detail.conversation.projectId ?? null) === projectId
 	);
 }
 
@@ -360,6 +366,11 @@ let pendingMessagePreview = $state("");
 let preparedConversationId: string | null = $state(null);
 let preparedConversationPromise: Promise<string> | null = null;
 let preparedConversationValidationPromise: Promise<void> | null = null;
+// Moves every time this surface lets go of the conversation it was preparing —
+// a scope change, "New chat". A creation still in flight when that happens is
+// an answer for a composer that no longer exists, and must not be adopted
+// afterwards (see `createPreparedConversationForScope`).
+let preparedConversationEpoch = 0;
 let conversationDraft: ConversationDraft | null = $state(null);
 const draftPersistence = createDraftPersistence();
 
@@ -444,6 +455,7 @@ function resetLandingForNewChat() {
 	const staleConversationId = preparedConversationId;
 	preparedConversationId = null;
 	preparedConversationPromise = null;
+	preparedConversationEpoch += 1;
 	setLandingDraftConversationId(null);
 	draftPersistence.clear();
 	conversationDraft = null;
@@ -462,6 +474,38 @@ $effect(() => {
 	untrack(() => {
 		if (!consumeLandingResetRequest()) return;
 		resetLandingForNewChat();
+	});
+});
+
+// `/projects/[projectId]` is one route, so the sidebar's door to another
+// project is a client-side navigation that reuses this component and changes
+// only `mode`. Everything this surface holds in `$state` survives that, and one
+// of those — the prepared conversation — belongs to the project the user just
+// left. Adopting it here would put the first message into that folder while the
+// composer says it starts a chat in the project now on screen (2026-09-24
+// review: a draft typed on the Vienna page, then the Lisbon page's Send, wrote
+// the chat into Vienna). So a scope change forgets the draft the way "New chat"
+// forgets one — including deleting the empty conversation it had already made,
+// since it can never be filled from here. The composer's text is its own state
+// and stays where it is; the next keystroke, or the send itself, prepares a
+// conversation for the project on screen.
+let scopedProjectId = $state(untrack(() => projectId));
+
+$effect(() => {
+	const scope = projectId;
+	if (scopedProjectId === scope) return;
+	scopedProjectId = scope;
+	untrack(() => {
+		const staleConversationId = preparedConversationId;
+		preparedConversationId = null;
+		preparedConversationPromise = null;
+		preparedConversationEpoch += 1;
+		setLandingDraftConversationId(null);
+		draftPersistence.clear();
+		conversationDraft = null;
+		if (staleConversationId) {
+			cleanupPreparedConversation({ conversationId: staleConversationId });
+		}
 	});
 });
 
@@ -856,20 +900,55 @@ async function ensurePreparedConversation(): Promise<string> {
 		return preparedConversationId;
 	}
 	if (!preparedConversationPromise) {
-		preparedConversationPromise = createNewConversation({
-			memoryIncognito: $landingIncognitoArmed,
-			projectId,
-		})
-			.then((id) => {
-				preparedConversationId = id;
-				setLandingDraftConversationId(id);
-				return id;
-			})
-			.finally(() => {
+		const creation = createPreparedConversationForScope();
+		// Identity, not just "clear it": a scope change leaves a creation in
+		// flight and lets the next one start (see the scope effect above), so a
+		// late settle must not take the field away from the newer promise.
+		const pending = creation.finally(() => {
+			if (preparedConversationPromise === pending) {
 				preparedConversationPromise = null;
-			});
+			}
+		});
+		preparedConversationPromise = pending;
 	}
 	return preparedConversationPromise;
+}
+
+/**
+ * Create the landing draft's conversation for the scope the composer is on
+ * RIGHT NOW, and adopt it only if that is still where the answer lands.
+ *
+ * The creating POST can outlive the page's attention: the sidebar's project
+ * door is a client-side navigation that reuses this component, so a keystroke
+ * can have a creation in flight when the user walks to another project. That
+ * answer belongs to the project the user has left — the composer on screen can
+ * never fill it — so it is deleted, and the caller is answered with a
+ * conversation for the scope on screen instead. Returning the stale id is what
+ * let the bug survive its first fix: `ensureConversation` is a promise about
+ * the composer as it is NOW, MessageInput adopts whatever it resolves with
+ * into its own binding, and the draft it then emitted from that binding
+ * re-attached the abandoned conversation and put the next message back into
+ * the project the user had walked away from (2026-09-24 review, the in-flight
+ * half of the draft-adoption bug).
+ *
+ * A send that was already waiting on the abandoned promise gets the same
+ * answer as everyone else, and writes where the composer is looking when the
+ * answer comes back — which is what the page under the user's eyes claims.
+ */
+async function createPreparedConversationForScope(): Promise<string> {
+	const epoch = preparedConversationEpoch;
+	const scope = projectId;
+	const id = await createNewConversation({
+		memoryIncognito: $landingIncognitoArmed,
+		projectId: scope,
+	});
+	if (epoch !== preparedConversationEpoch || scope !== projectId) {
+		cleanupPreparedConversation({ conversationId: id });
+		return ensurePreparedConversation();
+	}
+	preparedConversationId = id;
+	setLandingDraftConversationId(id);
+	return id;
 }
 
 async function handleSend(payload: MessageInputSendPayload) {

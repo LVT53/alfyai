@@ -10,9 +10,39 @@ Last updated: 2026-09-24 (implementation session 2 — Phase 0 done, Wave 1 in f
 |---|---|
 | Phase 0 — branch and environment | **complete** |
 | Phase 1 — plan | **complete and approved** |
-| Phase 2 — implementation | **Waves 1–2 merged** (A, B, C); **Wave 3 (Slice D) in flight** |
-| Phase 3 — adversarial review | Wave 1 reviewed and fixed (`review-wave-1.md`); **Slice C under review** |
-| Phase 4 — verify for real | Wave 1 **deployed to dev** (`66a37cbc`) and verified in a browser |
+| Phase 2 — implementation | **Waves 1–3 merged** (A, B, C, D); **Wave 4 (Slice E) in flight** |
+| Phase 3 — adversarial review | Waves 1–2 reviewed and fixed; **Slice D under review** |
+| Phase 4 — verify for real | Waves 1–3 **deployed to dev** and verified in a browser with a real model |
+
+### Wave 3 (Slice D, Project Instructions + the project page) — merged and deployed `6d59195d`
+
+Seven commits, 49 files (+4 554 / −1 909). Adds `projects.instructions` (migration `1777140000108`, journal idx
+121), the `/projects/[projectId]` page built on the extracted `HomeSurface`, the third entry point (the chat-header
+breadcrumb is now a link), and `listRecentlyActiveProjects` for Slice G to consume.
+
+**Verified on dev with a real model** (the checks the implementer explicitly left to the orchestrator):
+
+| Check | Result |
+|---|---|
+| A project instruction changes the answer | **pass** — a real reply carried the token |
+| It still applies on a **one-word** message | **pass** — proof it lives on the system message, not the turn packet |
+| **Project instructions outrank personal instructions** | **pass** — with contradictory tokens set, only the project's appeared |
+| Project page renders (name + Instructions quiet line) | **pass** |
+| The project list payload carries `hasInstructions` and **never the text** | **pass** — independently confirmed |
+
+Probe: `/tmp/ws-visual/probe-project-instructions.mjs` (cleans up after itself).
+
+### Wave 4 (Slice E, Folder Knowledge) — in flight
+
+Started **before** Slice D's review finished, deliberately: E's only file overlap with D is
+`src/lib/components/home/HomeSurface.svelte`, where E adds the files half of the quiet line in a distinct region,
+so a conflict would be small and local. Everything else in E is new files or its own territory. E branches from
+the merged `feat/workspaces` at `6d59195d`.
+
+**The tunnel to dev dies with the shell that starts it.** `nohup … &` does not survive the tool's process
+cleanup; a backgrounded `ssh -N` is reaped as soon as the command returns. Start the tunnel and the browser
+script **in the same command** (`ssh -N -L 3010:127.0.0.1:3002 alfyroot & … ; kill $!`). Verified twice.
+
 
 ### Wave 2 (Slice C, Personal Instructions) — merged as `94d00b89`
 
