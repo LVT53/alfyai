@@ -7,6 +7,7 @@ type I18nLanguage = "en" | "hu";
 const I18N_MODULES = [
 	"chat",
 	"common",
+	"instructions",
 	"knowledge",
 	"settings",
 	"skills",
@@ -30,6 +31,12 @@ const AUDITED_PREFIXES = [
 	// is NOT audited (pre-existing drift), so this narrow prefix is what
 	// would have caught the three worker-reclaim codes landing in EN only.
 	"fileProduction.error.",
+	// The instructions surface (Workspaces feature 1, Slice C): the shared
+	// InstructionsDialog, its scope token and the Settings row. Its own
+	// namespace, so the whole surface is covered rather than a slice of it —
+	// the switch label, the token and the counter all render on a phone and
+	// none of them may fall back to a raw key.
+	"instructions.",
 	// The document-extraction ledger's two client surfaces. Both namespaces
 	// are otherwise unaudited (`chat.` and `knowledge.` carry pre-existing
 	// drift), so these narrow prefixes are the only thing that notices a

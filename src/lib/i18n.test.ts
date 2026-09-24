@@ -4,6 +4,7 @@ import { t } from "./i18n";
 import chatDict from "./i18n/chat";
 import commonDict from "./i18n/common";
 import connectionsDict from "./i18n/connections";
+import instructionsDict from "./i18n/instructions";
 import knowledgeDict from "./i18n/knowledge";
 import legalDict from "./i18n/legal";
 import settingsDict from "./i18n/settings";
@@ -169,6 +170,7 @@ describe("i18n composer and skills namespaces", () => {
 			chatDict,
 			commonDict,
 			connectionsDict,
+			instructionsDict,
 			knowledgeDict,
 			legalDict,
 			settingsDict,
