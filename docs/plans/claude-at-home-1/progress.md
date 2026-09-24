@@ -11,8 +11,8 @@ Last updated: 2026-09-24 (implementation session 2 — Phase 0 done, Wave 1 in f
 | Phase 0 — branch and environment | **complete** |
 | Phase 1 — plan | **complete and approved** |
 | Phase 2 — implementation | **Waves 1–4 merged** (A–E); **Wave 5 (F ∥ G) in flight** |
-| Phase 3 — adversarial review | Waves 1–2 reviewed and fixed; **Slice D under review** |
-| Phase 4 — verify for real | Waves 1–3 **deployed to dev** and verified in a browser with a real model |
+| Phase 3 — adversarial review | Waves 1–3 reviewed and fixed; **Slice E under review** |
+| Phase 4 — verify for real | Waves 1–4 deployed to dev; E built; real-model checks pending |
 
 ### Wave 3 (Slice D, Project Instructions + the project page) — merged and deployed `6d59195d`
 
