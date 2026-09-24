@@ -254,6 +254,15 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	db.insert(schema.projectKnowledgeLinks)
+		.values({
+			id: p("project-file"),
+			userId,
+			projectId: p("proj"),
+			artifactId: p("art"),
+			createdAt: now,
+		})
+		.run();
 	db.insert(schema.conversationContextStatus)
 		.values({ conversationId: p("conv"), userId, updatedAt: now })
 		.run();
@@ -713,6 +722,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"memory_review_resolutions",
 				"memory_rework_telemetry",
 				"message_analytics",
+				"project_knowledge_links",
 				"projects",
 				"semantic_embeddings",
 				"sessions",
@@ -793,6 +803,7 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"browser_push_subscriptions",
 				"chat_generated_files",
 				"conversation_drafts",
+				"project_knowledge_links",
 				"projects",
 				"conversations",
 			],

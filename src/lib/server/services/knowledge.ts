@@ -30,6 +30,15 @@ export {
 	upsertWorkCapsule,
 } from "./knowledge/capsules";
 export {
+	isProjectKnowledgeError,
+	linkProjectKnowledge,
+	listProjectKnowledge,
+	listProjectKnowledgeArtifactIds,
+	ProjectKnowledgeError,
+	unlinkProjectKnowledge,
+} from "./knowledge/project-knowledge";
+export type { ProjectKnowledgeItem } from "./knowledge/project-knowledge";
+export {
 	findRelevantKnowledgeArtifacts,
 	getConversationContextStatus,
 	getConversationWorkingSet,

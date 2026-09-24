@@ -39,6 +39,7 @@ const requiredExistingTables = [
 	"artifacts",
 	"artifact_links",
 	"artifact_chunks",
+	"project_knowledge_links",
 	"conversation_context_status",
 	"conversation_working_set_items",
 	"context_compression_snapshots",
