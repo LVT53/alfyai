@@ -538,13 +538,27 @@ export function buildOutboundSystemPrompt(params: {
 	// deprecated-protocol token, and the instructions are the one part of this
 	// prompt the user typed. Indentation keeps a user's own `## …` line from
 	// becoming section structure; only the ordering keeps their text.
-	// Slice D appends its project section in this same place.
+	// The project block follows the personal one, so the precedence the two
+	// framings describe is also the order the model reads them in. Both are
+	// rendered from the turn's resolved instructions alone — nothing about the
+	// user packet, the latency tier or the conversation's memory state takes
+	// part — which is what keeps them present on shallow and incognito turns.
 	const instructionSections: string[] = [];
 	if (params.instructions?.personal) {
 		instructionSections.push(
 			buildInstructionSection(
 				"Your Instructions",
+				INSTRUCTIONS_FRAMING,
 				params.instructions.personal,
+			),
+		);
+	}
+	if (params.instructions?.project) {
+		instructionSections.push(
+			buildInstructionSection(
+				"Project Instructions",
+				PROJECT_INSTRUCTIONS_FRAMING,
+				params.instructions.project.text,
 			),
 		);
 	}
@@ -557,18 +571,30 @@ export function buildOutboundSystemPrompt(params: {
 const INSTRUCTIONS_FRAMING =
 	"AlfyAI follows these in every chat. Follow Project Instructions over Your Instructions, and both over the Response Style and any remembered preference; the user's current message overrides all of them.";
 
+// The project block's own framing, for the same reason the personal one has
+// one: the model has to be told which standing guidance wins when the project
+// and the account disagree. It names the scopes it outranks rather than
+// saying "these" alone, because a project block can arrive with no personal
+// block above it.
+const PROJECT_INSTRUCTIONS_FRAMING =
+	"AlfyAI follows these in every chat in this project. They take priority over your personal instructions, your memory and the Response Style; the user's current message overrides all of them.";
+
 // Local to prompt assembly: it exists to put the user's text into the system
 // message without letting its shape become part of the prompt's own structure.
 // The user's text is never rewritten, escaped or sanitised — the four-space
 // indent is the whole transformation, and it protects against the section
 // *shape* only (the ordering above protects the text itself).
-function buildInstructionSection(heading: string, text: string): string {
+function buildInstructionSection(
+	heading: string,
+	framing: string,
+	text: string,
+): string {
 	const indented = text
 		.split("\n")
 		.map((line) => (line.trim().length > 0 ? `    ${line}` : ""))
 		.join("\n");
 
-	return [`## ${heading}`, INSTRUCTIONS_FRAMING, indented].join("\n\n");
+	return [`## ${heading}`, framing, indented].join("\n\n");
 }
 
 const TURN_GUIDANCE_HEADING = "## Turn Guidance";

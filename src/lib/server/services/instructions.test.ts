@@ -23,6 +23,27 @@ vi.mock("drizzle-orm", () => ({
 	eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
 }));
 
+// The project half is read through the project service, so this file tests the
+// *resolution* (which project, in what order, with which owner) and leaves the
+// ownership check itself to projects.test.ts, where it runs against a real
+// database. Both mocks resolve "nothing" by default, which is what keeps every
+// personal-only test below true.
+const projectMocks = vi.hoisted(() => ({
+	getConversationProjectId: vi.fn(async () => null as string | null),
+	getProjectInstructions: vi.fn(
+		async (): Promise<{
+			id: string;
+			name: string;
+			text: string | null;
+		} | null> => null,
+	),
+}));
+
+vi.mock("./projects", () => ({
+	getConversationProjectId: projectMocks.getConversationProjectId,
+	getProjectInstructions: projectMocks.getProjectInstructions,
+}));
+
 import { eq } from "drizzle-orm";
 import { users } from "$lib/server/db/schema";
 import { getInstructionText, resolveTurnInstructions } from "./instructions";
@@ -34,6 +55,10 @@ beforeEach(() => {
 	selectWhere.mockClear();
 	selectFrom.mockClear();
 	vi.mocked(eq).mockClear();
+	projectMocks.getConversationProjectId.mockReset();
+	projectMocks.getConversationProjectId.mockResolvedValue(null);
+	projectMocks.getProjectInstructions.mockReset();
+	projectMocks.getProjectInstructions.mockResolvedValue(null);
 });
 
 describe("resolveTurnInstructions", () => {
@@ -85,18 +110,112 @@ describe("resolveTurnInstructions", () => {
 		});
 	});
 
-	it("returns project null while the project half is not landed", async () => {
-		// Slice D fills this in from the conversation's project. Until then the
-		// field is part of the signature so that no caller has to change when
-		// it starts returning a value.
+	it("returns project null while the conversation has no project", async () => {
 		selectedRows.value = [{ personalInstructions: "Use metric units." }];
 
-		const resolved = await resolveTurnInstructions(PARAMS);
+		expect(await resolveTurnInstructions(PARAMS)).toEqual({
+			personal: "Use metric units.",
+			project: null,
+		});
+		// No project id means no second read: the project's row is only ever
+		// opened for a conversation that is actually in one.
+		expect(projectMocks.getProjectInstructions).not.toHaveBeenCalled();
+	});
 
-		expect(resolved.project).toBeNull();
-		// One read of the user row, and nothing else: there is no project
-		// instructions column to read yet.
-		expect(selectFrom).toHaveBeenCalledTimes(1);
+	it("resolves the conversation's project instructions for the turn", async () => {
+		selectedRows.value = [{ personalInstructions: "Use metric units." }];
+		projectMocks.getConversationProjectId.mockResolvedValue("project-vienna");
+		projectMocks.getProjectInstructions.mockResolvedValue({
+			id: "project-vienna",
+			name: "Vienna trip",
+			text: "Only suggest trains, never flights.",
+		});
+
+		expect(await resolveTurnInstructions(PARAMS)).toEqual({
+			personal: "Use metric units.",
+			project: {
+				id: "project-vienna",
+				name: "Vienna trip",
+				text: "Only suggest trains, never flights.",
+			},
+		});
+		expect(projectMocks.getConversationProjectId).toHaveBeenCalledWith(
+			"user-1",
+			"conv-1",
+		);
+		expect(projectMocks.getProjectInstructions).toHaveBeenCalledWith(
+			"user-1",
+			"project-vienna",
+		);
+	});
+
+	it("returns project null when the project has no instructions", async () => {
+		// A project is a folder first: most of them carry no instructions, and
+		// an empty block would be a heading and a paragraph of framing about
+		// nothing.
+		selectedRows.value = [{ personalInstructions: null }];
+		projectMocks.getConversationProjectId.mockResolvedValue("project-vienna");
+		projectMocks.getProjectInstructions.mockResolvedValue({
+			id: "project-vienna",
+			name: "Vienna trip",
+			text: null,
+		});
+
+		expect(await resolveTurnInstructions(PARAMS)).toEqual({
+			personal: null,
+			project: null,
+		});
+	});
+
+	it("does not resolve another user's project", async () => {
+		// The ownership check is the lookup's own: a conversation in somebody
+		// else's project resolves to no project at all, not to their text. The
+		// real check runs against a database in projects.test.ts; what this pins
+		// is that no instruction reaches the prompt when the lookup says no.
+		selectedRows.value = [{ personalInstructions: null }];
+		projectMocks.getConversationProjectId.mockResolvedValue(null);
+
+		expect(await resolveTurnInstructions(PARAMS)).toEqual({
+			personal: null,
+			project: null,
+		});
+		expect(projectMocks.getProjectInstructions).not.toHaveBeenCalled();
+	});
+
+	it("re-resolves the conversation's project on every turn", async () => {
+		// The move in and the move out, at the resolution layer: nothing is
+		// cached between turns, so the block that reaches the model is always
+		// the project the conversation is in *now*.
+		selectedRows.value = [{ personalInstructions: null }];
+		projectMocks.getConversationProjectId.mockResolvedValue("project-vienna");
+		projectMocks.getProjectInstructions.mockResolvedValue({
+			id: "project-vienna",
+			name: "Vienna trip",
+			text: "Only suggest trains, never flights.",
+		});
+
+		const insideProject = await resolveTurnInstructions(PARAMS);
+		expect(insideProject.project?.id).toBe("project-vienna");
+
+		// Moved back out of the project before the next turn.
+		projectMocks.getConversationProjectId.mockResolvedValue(null);
+		const movedOut = await resolveTurnInstructions(PARAMS);
+		expect(movedOut.project).toBeNull();
+
+		// And moved into a different one.
+		projectMocks.getConversationProjectId.mockResolvedValue("project-prague");
+		projectMocks.getProjectInstructions.mockResolvedValue({
+			id: "project-prague",
+			name: "Prague trip",
+			text: "Ask about the train from Vienna.",
+		});
+
+		const movedIn = await resolveTurnInstructions(PARAMS);
+		expect(movedIn.project).toEqual({
+			id: "project-prague",
+			name: "Prague trip",
+			text: "Ask about the train from Vienna.",
+		});
 	});
 });
 
@@ -116,19 +235,49 @@ describe("getInstructionText", () => {
 		expect(await getInstructionText("user-1", { kind: "personal" })).toBeNull();
 	});
 
-	it("returns null for a project scope until projects carry instructions", async () => {
-		// Slice C ships no project instructions. Returning null (rather than
-		// reading something unrelated and calling it project instructions) is
-		// what keeps the Settings and archive callers honest: "nothing is set"
-		// is the true answer today.
-		selectedRows.value = [{ personalInstructions: "Be brief." }];
+	it("reads the project scope through the project service, for the given owner", async () => {
+		projectMocks.getProjectInstructions.mockResolvedValue({
+			id: "project-1",
+			name: "House tasks",
+			text: "Always ask before booking anything.",
+		});
 
 		expect(
 			await getInstructionText("user-1", {
 				kind: "project",
 				projectId: "project-1",
 			}),
-		).toBeNull();
+		).toBe("Always ask before booking anything.");
+		expect(projectMocks.getProjectInstructions).toHaveBeenCalledWith(
+			"user-1",
+			"project-1",
+		);
+		// The personal column is not read for a project scope: two rows, two
+		// questions, and a caller that asked the second must not be answered
+		// with the first.
 		expect(selectFrom).not.toHaveBeenCalled();
+	});
+
+	it("returns null for a project scope that is unset, or not the user's", async () => {
+		projectMocks.getProjectInstructions.mockResolvedValue({
+			id: "project-1",
+			name: "House tasks",
+			text: null,
+		});
+		expect(
+			await getInstructionText("user-1", {
+				kind: "project",
+				projectId: "project-1",
+			}),
+		).toBeNull();
+
+		// Another user's project reads as missing, not as theirs.
+		projectMocks.getProjectInstructions.mockResolvedValue(null);
+		expect(
+			await getInstructionText("user-1", {
+				kind: "project",
+				projectId: "project-somebody-else",
+			}),
+		).toBeNull();
 	});
 });

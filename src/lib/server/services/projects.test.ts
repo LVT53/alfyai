@@ -391,6 +391,111 @@ describe("project instructions", () => {
 	});
 });
 
+// The read that prompt assembly and the archive depend on. The resolution
+// around it (which project, in what order, per turn) is covered by
+// instructions.test.ts with the project service mocked; the ownership check is
+// the lookup's own, so it is asserted here against a real database.
+describe("getProjectInstructions", () => {
+	beforeEach(() => {
+		dbPath = `/tmp/alfyai-project-instructions-read-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
+	});
+
+	afterEach(async () => {
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// The DB module may not have been imported if a test failed early.
+		}
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// Temporary DB cleanup is best-effort.
+		}
+	});
+
+	it("returns the project's instructions with the name that labels them", async () => {
+		seedProjectDeletionScenario();
+		const { getProjectInstructions, updateProject } = await import(
+			"./projects"
+		);
+
+		await updateProject("owner-user", "folder-1", {
+			instructions: "  Always answer in Hungarian.\n",
+		});
+
+		await expect(
+			getProjectInstructions("owner-user", "folder-1"),
+		).resolves.toEqual({
+			id: "folder-1",
+			name: "Launch folder",
+			text: "Always answer in Hungarian.",
+		});
+	});
+
+	it("returns null text for a project that carries none, and for whitespace only", async () => {
+		seedProjectDeletionScenario();
+		const { getProjectInstructions, updateProject } = await import(
+			"./projects"
+		);
+
+		const unset = await getProjectInstructions("owner-user", "folder-1");
+		expect(unset).toMatchObject({ text: null });
+
+		await updateProject("owner-user", "folder-1", { instructions: "   \n " });
+		const blank = await getProjectInstructions("owner-user", "folder-1");
+		expect(blank?.text).toBeNull();
+	});
+
+	it("returns null for another user's project, and for a missing one", async () => {
+		seedProjectDeletionScenario();
+		const { getProjectInstructions, updateProject } = await import(
+			"./projects"
+		);
+
+		await updateProject("owner-user", "folder-1", {
+			instructions: "Only the owner reads this.",
+		});
+
+		// Somebody else's project is indistinguishable from a missing one: a
+		// caller that guessed an id learns nothing about whether it exists.
+		await expect(
+			getProjectInstructions("other-user", "folder-1"),
+		).resolves.toBeNull();
+		await expect(
+			getProjectInstructions("owner-user", "no-such-project"),
+		).resolves.toBeNull();
+	});
+
+	it("reads what the last update wrote, for every turn that asks", async () => {
+		seedProjectDeletionScenario();
+		const { getProjectInstructions, updateProject } = await import(
+			"./projects"
+		);
+
+		await updateProject("owner-user", "folder-1", {
+			instructions: "First version.",
+		});
+		expect((await getProjectInstructions("owner-user", "folder-1"))?.text).toBe(
+			"First version.",
+		);
+
+		await updateProject("owner-user", "folder-1", {
+			instructions: "Second version.",
+		});
+		expect((await getProjectInstructions("owner-user", "folder-1"))?.text).toBe(
+			"Second version.",
+		);
+
+		await updateProject("owner-user", "folder-1", { instructions: null });
+		expect((await getProjectInstructions("owner-user", "folder-1"))?.text).toBe(
+			null,
+		);
+	});
+});
+
 describe("getProjectPageData", () => {
 	beforeEach(() => {
 		dbPath = `/tmp/alfyai-project-page-${randomUUID()}.db`;

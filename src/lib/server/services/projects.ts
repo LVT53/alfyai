@@ -120,6 +120,46 @@ export async function getProject(
 	return row ? toProject(row) : null;
 }
 
+/** One project's instructions, with the name that labels them. */
+export interface ProjectInstructions {
+	id: string;
+	name: string;
+	/** Trimmed text, or null when the project carries none. */
+	text: string | null;
+}
+
+/**
+ * The project's own instructions, read by the one caller that may legitimately
+ * hold them: prompt assembly and the data archive.
+ *
+ * `Project` deliberately never carries the text — the sidebar, the shell and
+ * the home row all hand that record to the browser — so a caller that needs it
+ * comes here, and the ownership check is this read's own rather than the
+ * caller's memory of having made one. Returns null for a project that is not
+ * the user's, which makes "somebody else's" indistinguishable from "missing".
+ */
+export async function getProjectInstructions(
+	userId: string,
+	projectId: string,
+): Promise<ProjectInstructions | null> {
+	const row = await db
+		.select({
+			id: projects.id,
+			name: projects.name,
+			instructions: projects.instructions,
+		})
+		.from(projects)
+		.where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+		.get();
+	if (!row) return null;
+
+	return {
+		id: row.id,
+		name: row.name,
+		text: normalizeInstructionText(row.instructions ?? ""),
+	};
+}
+
 export interface UpdateProjectInput {
 	name?: string;
 	/**

@@ -5,6 +5,7 @@ import {
 	type InstructionScope,
 	normalizeInstructionText,
 } from "$lib/shared/instructions";
+import { getConversationProjectId, getProjectInstructions } from "./projects";
 
 /**
  * The standing guidance that applies to one turn, resolved once and consumed
@@ -24,25 +25,47 @@ export interface ResolvedTurnInstructions {
 }
 
 /**
- * One read of the user row plus (Slice D) one read of the conversation's
- * project. Returns nulls rather than throwing when nothing is set: "no
- * instructions" is the ordinary case, not a failure.
+ * One read of the user row plus one read of the conversation's project.
+ * Returns nulls rather than throwing when nothing is set: "no instructions" is
+ * the ordinary case, not a failure.
+ *
+ * Nothing is cached between turns. The conversation's project is read from the
+ * conversation's own row each time, so moving a conversation into a project —
+ * or out of one, or into a different one — changes the next turn's block
+ * without anything having to notice the move and invalidate a copy.
  */
 export async function resolveTurnInstructions(params: {
 	userId: string;
 	conversationId: string;
 }): Promise<ResolvedTurnInstructions> {
-	const personal = await getInstructionText(params.userId, {
-		kind: "personal",
-	});
+	// The two reads are independent: which project the conversation is in does
+	// not depend on the personal text, and neither of them writes.
+	const [personal, projectId] = await Promise.all([
+		getInstructionText(params.userId, { kind: "personal" }),
+		getConversationProjectId(params.userId, params.conversationId),
+	]);
 
 	return {
 		personal,
-		// Slice D resolves this from the conversation's project. The field is
-		// part of the contract now so that prompt assembly, the audit metadata,
-		// and the archive do not change shape when it starts returning a value.
-		project: null,
+		project: projectId
+			? await resolveProjectInstructions(params.userId, projectId)
+			: null,
 	};
+}
+
+/**
+ * The project block itself: present only when the project has text. A project
+ * with none is a folder, and a heading with framing about nothing is worse
+ * than no section at all.
+ */
+async function resolveProjectInstructions(
+	userId: string,
+	projectId: string,
+): Promise<ResolvedTurnInstructions["project"]> {
+	const project = await getProjectInstructions(userId, projectId);
+	if (!project?.text) return null;
+
+	return { id: project.id, name: project.name, text: project.text };
 }
 
 /** For Settings, the project page and the data archive. */
@@ -51,10 +74,10 @@ export async function getInstructionText(
 	scope: InstructionScope,
 ): Promise<string | null> {
 	if (scope.kind === "project") {
-		// Projects do not carry instructions yet (Slice D). Returning null is the
-		// true answer; reading the user's personal text and labelling it as the
-		// project's would be a wrong answer that looks like a right one.
-		return null;
+		if (!scope.projectId) return null;
+
+		const project = await getProjectInstructions(userId, scope.projectId);
+		return project?.text ?? null;
 	}
 
 	const rows = await db

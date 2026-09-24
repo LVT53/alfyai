@@ -386,6 +386,18 @@ describe("normal chat context preparation stages", () => {
 	});
 });
 
+// Slice D — the project block's framing, asserted verbatim because it is the
+// sentence that tells the model which of the two instruction blocks wins, and
+// the resolved value the ordering tests and the system-prompt tests both use.
+const PROJECT_INSTRUCTIONS_BOILERPLATE =
+	"AlfyAI follows these in every chat in this project. They take priority over your personal instructions, your memory and the Response Style; the user's current message overrides all of them.";
+
+const PROJECT_BLOCK = {
+	id: "project-vienna",
+	name: "Vienna trip",
+	text: "Only suggest trains, never flights.",
+};
+
 describe("prepareOutboundChatContext", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -905,6 +917,221 @@ describe("prepareOutboundChatContext", () => {
 				"Wrap quoted code in <preserve> tags so the translator leaves it alone.",
 			);
 			expect(prompt).toContain("Keep translation-preserved blocks untouched.");
+		});
+
+		// Slice D — project instructions. Same system message as the personal
+		// block and appended after it: the two framings describe the precedence
+		// (project over personal), and the order the sections arrive in is what
+		// says which one the model read last.
+		it("renders Project Instructions after Your Instructions", () => {
+			const prompt = buildWithInstructions({
+				personal: "Use metric units.",
+				project: PROJECT_BLOCK,
+			});
+
+			expect(prompt).toContain("## Project Instructions");
+			expect(prompt).toContain(PROJECT_INSTRUCTIONS_BOILERPLATE);
+			expect(sectionContainsVerbatim(prompt, PROJECT_BLOCK.text)).toBe(true);
+
+			const personalIndex = prompt.indexOf("## Your Instructions");
+			const projectIndex = prompt.indexOf("## Project Instructions");
+			expect(personalIndex).toBeGreaterThan(-1);
+			expect(projectIndex).toBeGreaterThan(personalIndex);
+			// The project block closes the prompt: it is the last thing the model
+			// reads before the current message, which is what "outranks the
+			// account's" means in a prompt that is read top to bottom.
+			expect(prompt.trimEnd().endsWith(PROJECT_BLOCK.text)).toBe(true);
+		});
+
+		it("is byte-identical across turns for identical project instructions", () => {
+			const instructions: ResolvedTurnInstructions = {
+				personal: "Use metric units.",
+				project: PROJECT_BLOCK,
+			};
+
+			expect(buildWithInstructions(instructions)).toBe(
+				buildWithInstructions({
+					...instructions,
+					project: { ...PROJECT_BLOCK },
+				}),
+			);
+		});
+
+		it("changes the prefix when the project's instructions change", () => {
+			const before = buildWithInstructions({
+				personal: "Use metric units.",
+				project: PROJECT_BLOCK,
+			});
+			const after = buildWithInstructions({
+				personal: "Use metric units.",
+				project: { ...PROJECT_BLOCK, text: "Include the flight time anyway." },
+			});
+
+			expect(before).not.toBe(after);
+			expect(after).toContain("Include the flight time anyway.");
+			expect(after).not.toContain(PROJECT_BLOCK.text);
+		});
+
+		it("applies to the next turn after a conversation is moved into a project", () => {
+			// Moved in: the previous turn (no project) had no project block, and
+			// the next turn has it without anything else about the turn changing.
+			const before = buildWithInstructions({
+				personal: "Use metric units.",
+				project: null,
+			});
+			const after = buildWithInstructions({
+				personal: "Use metric units.",
+				project: PROJECT_BLOCK,
+			});
+
+			expect(before).not.toContain("## Project Instructions");
+			expect(after).toContain("## Project Instructions");
+			expect(sectionContainsVerbatim(after, PROJECT_BLOCK.text)).toBe(true);
+		});
+
+		it("applies to the next turn after a conversation is moved out of that project", () => {
+			// Moved out: the project's text is gone from the prefix entirely —
+			// not merely de-emphasised — because the next turn resolves no
+			// project at all.
+			const before = buildWithInstructions({
+				personal: "Use metric units.",
+				project: PROJECT_BLOCK,
+			});
+			const after = buildWithInstructions({
+				personal: "Use metric units.",
+				project: null,
+			});
+
+			expect(before).toContain(PROJECT_BLOCK.text);
+			expect(after).not.toContain(PROJECT_BLOCK.text);
+			expect(after).not.toContain("## Project Instructions");
+			// The personal block is untouched by the move: the two scopes are
+			// independent reads, and leaving a project does not clear the account's
+			// own standing guidance.
+			expect(after).toContain("## Your Instructions");
+		});
+	});
+
+	// Slice D — the two turns that must not lose the project block, driven
+	// through the real assembly seam rather than asserted on the section
+	// renderer a second time.
+	//
+	// Both of them change what the *user packet* carries, and nothing else:
+	// the shallow latency tier builds no folder sections, and an incognito
+	// conversation omits the memory baseline (see context-selection.ts's
+	// `resolveContextLatencyTier` and the memory-activity gate around its
+	// baseline section). The project block survives both because it is not in
+	// the packet at all — it is in the system message, built from the turn's
+	// resolved instructions. A future change that moved it into the packet
+	// would fail the `inputValue` assertions below, which is what those
+	// assertions are for.
+	describe("project instructions ride the system prompt (Slice D)", () => {
+		const VIENNA_INSTRUCTIONS: ResolvedTurnInstructions = {
+			personal: "Use metric units.",
+			project: PROJECT_BLOCK,
+		};
+
+		// A shallow turn's packet: the turn's own message, no remembered
+		// context, no folder sections.
+		async function prepareShallowTurn(input: {
+			instructions: ResolvedTurnInstructions | null;
+			packet?: string;
+		}) {
+			mocks.buildConstructedContext.mockResolvedValue(
+				createConstructedContextResult(
+					input.packet ?? "What's the weather like tomorrow?",
+				),
+			);
+
+			return prepareOutboundChatContext({
+				message: "What's the weather like tomorrow?",
+				sessionId: "conv-1",
+				modelConfig,
+				modelId: "model1",
+				// A signed-in user is what makes the constructed context the real
+				// packet (and what engages the compression stage), so the packets
+				// below are the ones the model would actually be sent.
+				user: { id: "user-1" },
+				contextLimits: {
+					maxModelContext: 262_144,
+					compactionUiThreshold: 209_715,
+					targetConstructedContext: 157_286,
+				},
+				instructions: input.instructions,
+				logLabel: "provider request",
+			});
+		}
+
+		it("renders Project Instructions on a shallow turn", async () => {
+			const prepared = await prepareShallowTurn({
+				instructions: VIENNA_INSTRUCTIONS,
+			});
+
+			expect(prepared.systemPrompt).toContain("## Project Instructions");
+			expect(prepared.systemPrompt).toContain(PROJECT_INSTRUCTIONS_BOILERPLATE);
+			expect(
+				prepared.systemPrompt
+					.split("\n")
+					.some((line) => line === `    ${PROJECT_BLOCK.text}`),
+			).toBe(true);
+			// The packet a shallow turn builds is where folder context would have
+			// gone, and the block is deliberately not there.
+			expect(prepared.inputValue).not.toContain("## Project Instructions");
+			expect(prepared.inputValue).not.toContain(PROJECT_BLOCK.text);
+		});
+
+		it("renders Project Instructions in an incognito conversation", async () => {
+			// Incognito's only reach into this pipeline is the active memory
+			// section it leaves out of the packet (context-selection.ts's memory
+			// gate), so the first packet below is the incognito shape and the
+			// second is the shape a remembered conversation builds. The project
+			// block must be identical either way: incognito governs what is
+			// remembered, not which standing guidance the project has set for its
+			// own chats. The containment proof itself lives in
+			// context-selection.test.ts's incognito cases.
+			const incognito = await prepareShallowTurn({
+				instructions: VIENNA_INSTRUCTIONS,
+			});
+			const remembered = await prepareShallowTurn({
+				instructions: VIENNA_INSTRUCTIONS,
+				packet: `Context from your recent conversation:
+
+### Baseline Memory Profile
+
+- Lives in Vienna.`,
+			});
+
+			expect(incognito.inputValue).not.toContain("Baseline Memory Profile");
+			expect(remembered.inputValue).toContain("Baseline Memory Profile");
+			// The same prompt with and without the memory baseline: the block is
+			// not downstream of anything incognito gates, and the text never rides
+			// the packet that carries the memory.
+			expect(incognito.systemPrompt).toBe(remembered.systemPrompt);
+			expect(incognito.systemPrompt).toContain("## Project Instructions");
+			expect(
+				incognito.systemPrompt
+					.split("\n")
+					.some((line) => line === `    ${PROJECT_BLOCK.text}`),
+			).toBe(true);
+			expect(incognito.inputValue).not.toContain(PROJECT_BLOCK.text);
+			// The audit record names the scope that applied, so the turn's own
+			// metadata can never disagree with the sections the model received.
+			expect(incognito.instructionsApplied).toEqual({
+				personal: true,
+				projectId: PROJECT_BLOCK.id,
+			});
+		});
+
+		it("records no project scope when the project carries no instructions", async () => {
+			const prepared = await prepareShallowTurn({
+				instructions: {
+					personal: "Use metric units.",
+					project: null,
+				},
+			});
+
+			expect(prepared.systemPrompt).not.toContain("## Project Instructions");
+			expect(prepared.instructionsApplied).toEqual({ personal: true });
 		});
 	});
 
