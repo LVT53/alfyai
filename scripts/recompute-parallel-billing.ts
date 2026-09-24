@@ -24,8 +24,8 @@
  * cost nobody is charged.
  */
 
-import { fileURLToPath } from "node:url";
 import { resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface ReplayRow {
 	month: string;
@@ -142,7 +142,9 @@ export async function main(argv: string[]): Promise<number> {
 
 	console.log(`Database:  ${databasePath}`);
 	console.log(`Mode:      ${apply ? "APPLY (writes)" : "dry run (default)"}`);
-	console.log(`Allowance: ${usd(Math.round(getParallelFreeMonthlyUsd() * 1_000_000))}`);
+	console.log(
+		`Allowance: ${usd(Math.round(getParallelFreeMonthlyUsd() * 1_000_000))}`,
+	);
 
 	const summary = await replayAllMonths({ apply });
 
