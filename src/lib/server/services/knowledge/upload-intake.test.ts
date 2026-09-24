@@ -935,5 +935,75 @@ describe("Knowledge Upload Intake", () => {
 				}),
 			);
 		});
+
+		// The same rule as the test above, for the failures the policy guard
+		// does not own. A `ProjectKnowledgeError` is one way a link can fail; a
+		// `FOREIGN KEY constraint failed` from the project row being deleted
+		// between the link's own ownership read and its insert (foreign keys are
+		// ON, and the link cascades from `projects`), a locked database, or a
+		// disk error are others. None of them is a reason for the file the user
+		// just uploaded to never become readable — and before this test existed,
+		// that is exactly what happened: the error escaped the intake call after
+		// the bytes were committed but before `registerUploadExtraction` ran, so
+		// the library kept a document with no extraction job behind it.
+		it("registers extraction when the project link fails for an infrastructure reason", async () => {
+			const sourceArtifact = artifact();
+			mockSaveUploadedArtifact.mockResolvedValue({
+				artifact: sourceArtifact,
+				normalizedArtifact: null,
+				reusedExistingArtifact: false,
+			});
+			mockLinkProjectKnowledge.mockRejectedValueOnce(
+				new Error("FOREIGN KEY constraint failed"),
+			);
+			const file = new File(["recipe"], "recipe.pdf", {
+				type: "application/pdf",
+			});
+
+			let escaped: unknown = null;
+			let response: Awaited<
+				ReturnType<typeof completeKnowledgeUploadFromFile>
+			> | null = null;
+			try {
+				response = await completeKnowledgeUploadFromFile({
+					userId: "user-1",
+					conversationId: "conv-1",
+					projectId: "trip-project",
+					file,
+					traceId: "trace-project-link-broken",
+					startedAt: now,
+				});
+			} catch (error) {
+				escaped = error;
+			}
+
+			// One assertion, so a failure names the whole consequence rather than
+			// only its first symptom: the store happened (the artifact exists),
+			// the extraction did not (nothing will ever read the file), and what
+			// the caller got back was an error instead of an upload.
+			expect({
+				escaped: escaped instanceof Error ? escaped.message : null,
+				storedArtifacts: mockSaveUploadedArtifact.mock.calls.length,
+				extractionRegistrations: mockStartUploadExtraction.mock.calls.length,
+			}).toEqual({
+				escaped: null,
+				storedArtifacts: 1,
+				extractionRegistrations: 1,
+			});
+			expect(response?.artifact).toBe(sourceArtifact);
+			// Not swallowed: the link failure is still on the record, under the
+			// same fields the policy skip logs.
+			expect(consoleWarnSpy).toHaveBeenCalledWith(
+				expect.stringContaining("project link failed"),
+				expect.objectContaining({
+					traceId: "trace-project-link-broken",
+					userId: "user-1",
+					projectId: "trip-project",
+					artifactId: "artifact-1",
+					code: "project_link_failed",
+					message: "FOREIGN KEY constraint failed",
+				}),
+			);
+		});
 	});
 });
