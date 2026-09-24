@@ -56,6 +56,10 @@ const projectsDict = {
 		"projects.filesFooterOne":
 			"1 file · removing it here keeps it in your library",
 		"projects.filesEmpty": "No files yet.",
+		// The other reason the list can be empty. Sibling of
+		// `linkedSources.picker.noMatches`, and deliberately not the search
+		// field's own label, which the empty slot used to print.
+		"projects.filesNoMatch": "No files match your search.",
 		"projects.filesDone": "Done",
 		"projects.filesAlreadyAdded": "already added",
 		"projects.filesAddCount": "Add {count} documents",
@@ -108,6 +112,7 @@ const projectsDict = {
 		"projects.filesFooterOne":
 			"1 fájl · az eltávolítás nem törli a könyvtárból",
 		"projects.filesEmpty": "Még nincs fájl.",
+		"projects.filesNoMatch": "Nincs a keresésnek megfelelő fájl.",
 		"projects.filesDone": "Kész",
 		"projects.filesAlreadyAdded": "már hozzáadva",
 		"projects.filesAddCount": "{count} dokumentum hozzáadása",

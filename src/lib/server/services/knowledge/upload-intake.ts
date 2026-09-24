@@ -333,6 +333,11 @@ async function buildKnowledgeUploadResponse(params: {
  * was in flight — or a document that has just stopped being canonically
  * linkable — must not turn a saved file into a failed upload. The failure is
  * logged rather than swallowed silently; the file simply is not in the project.
+ *
+ * That holds for every failure, not only the policy ones. Letting an
+ * unrecognised error out of here would answer a stored upload with a 500 and,
+ * because the link is awaited before `registerUploadExtraction`, leave a
+ * document in the library that no extraction ever reads.
  */
 async function linkUploadedArtifactToProject(params: {
 	userId: string;
@@ -349,15 +354,26 @@ async function linkUploadedArtifactToProject(params: {
 			artifactIds: [params.artifactId],
 		});
 	} catch (error) {
-		if (!isProjectKnowledgeError(error)) throw error;
+		// Two kinds of failure, one outcome. A `ProjectKnowledgeError` is the
+		// policy answer — the project or the document stopped being the caller's.
+		// Anything else is infrastructure: the project row deleted between this
+		// link's own ownership read and its insert (foreign keys are ON and the
+		// link cascades from `projects`), a locked database, a disk error. Both
+		// arrive after the store committed, so both are logged and neither is
+		// rethrown; the distinction survives in the log line.
+		const refusedByPolicy = isProjectKnowledgeError(error);
 		console.warn(
-			knowledgeLogMessage(params.logPrefix, "project link skipped"),
+			knowledgeLogMessage(
+				params.logPrefix,
+				refusedByPolicy ? "project link skipped" : "project link failed",
+			),
 			{
 				traceId: params.traceId,
 				userId: params.userId,
 				projectId: params.projectId,
 				artifactId: params.artifactId,
-				code: error.code,
+				code: refusedByPolicy ? error.code : "project_link_failed",
+				message: error instanceof Error ? error.message : String(error),
 				durationMs: Date.now() - params.startedAt,
 			},
 		);
