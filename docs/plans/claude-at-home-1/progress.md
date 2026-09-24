@@ -72,6 +72,41 @@ says five (the "five" is stale).
   were stopped early, their uncommitted work saved to `/tmp/ws-claude-attempts/` and the worktrees reset, then
   both slices were re-dispatched on DeepSeek.
 
+### Dev verification of Wave 1 (2026-09-24)
+
+The owner said the dev environment is a playhouse and that the prod cutover happens only after **all** waves, so
+the pre-cutover prod row count is a deferred item, not an open risk.
+
+- **What is deployed:** `current -> releases/66a37cbc`, service healthy, journal clean since the restart (no
+  errors or warnings), migration applied (dev went 119 → 120 applied migrations), the 33 existing
+  `selected|system` evidence links untouched, and the migration matched **0 rows** on dev.
+- **Bundle proof with a control.** Comparing the previous release against the new one:
+  `Manage context sources` 3 files → **0**, `task-steering` 7 → **0**, `parallelFreeMonthlyUsd` 0 → **9**. The
+  old release's non-zero counts are what make the zeros evidence. (Note: these strings live in `build/server`,
+  not `build/client/assets` — searching only the client bundle proves nothing either way.)
+- **Rendered check on the deployed instance.** `visual-test@local` was created on dev
+  (`scripts/ensure-visual-test-user.ts`, the repo's own browser-verification account) and
+  `scripts/seed-mock-conversation.ts` seeded a conversation. Driving the *deployed* environment through an SSH
+  tunnel (dev is not reachable from the Mac) at 1440×900 and 390×844, light and dark: the ring popover renders
+  CONTEXT ROOM, Compaction "LLM fallback", "Sources included", "What AlfyAI remembers" and the three layer chips,
+  with **no** manage control and no Pinned/Excluded rows. Zero page errors in all four variants.
+  Harness: `/tmp/ws-visual/verify.mjs` (outside the repo; symlinks the repo's `node_modules`).
+- **Two traps that made an earlier pass prove nothing**, recorded so nobody repeats them:
+  1. The first run reported "16 screenshots, light and dark" while the light and dark files were **byte-identical
+     (same md5)**. `initTheme` prefers the **server-side** preference over `localStorage`, so seeding
+     `localStorage.theme` is silently overridden. The harness now PATCHes `/api/settings/preferences` and asserts
+     `document.documentElement.classList` actually contains `dark` before it claims a dark pass.
+  2. Dev shows a release-campaign modal that swallows clicks; the harness dismisses it before interacting.
+- **Ring shows 0% on the seeded conversation** — not a regression. The ring derives `promptTokens` from
+  `contextStatus.promptTokens`, which the mock seed stores as `0` (`estimatedTokens` is 98000). That derivation
+  is untouched by this wave (`git diff 98a34dfd..HEAD -- ContextUsageRing.svelte` changes only `contextSources`
+  code), and `contextStatus` is intact in the conversation-detail API payload.
+- **Pre-existing mobile defect noticed, NOT caused by this wave and deliberately not fixed:** on a 390px
+  viewport the ring popover is anchored at the ring's left edge and overflows the right edge by **197px**
+  (measured: panel x=229 width=358 in a 390px viewport). There were **no `@media` rules in this component at the
+  base commit either**, and the wave's diff touches no positioning CSS — only the removed manage button's
+  `.popover-action` rules. Reported for the owner; fixing it is outside the approved plan.
+
 ### Deploy facts for the dev environment (verified 2026-09-24)
 
 - Dev = `langflow-chat-dev.service` on `:3002`, app dir `/home/alfydesign/apps/langflow-chat-dev`,
