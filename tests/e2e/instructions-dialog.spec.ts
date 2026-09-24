@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 import { login, waitForHydration } from "./helpers";
 
@@ -110,5 +110,73 @@ test.describe("Instructions dialog", () => {
 		const reopened = await openDialogFromSettings(page);
 		await expect(box(page)).not.toHaveValue("This must not be saved.");
 		await expect(reopened.getByRole("button", { name: "Save" })).toBeVisible();
+	});
+});
+
+// §M2 is a phone screen. At 390×844 the shell renders the sheet presentation,
+// and the sheet has to keep the counter and both buttons on screen: the editor
+// grows to 40vh, so a sheet taller than the remaining space would put Save and
+// Cancel past the bottom edge with no way to scroll them back.
+test.describe("Instructions dialog — 390px", () => {
+	test.use({
+		viewport: { width: 390, height: 844 },
+		hasTouch: true,
+		isMobile: true,
+	});
+
+	test.beforeEach(async ({ page }) => {
+		await login(page);
+	});
+
+	test("opens as a bottom sheet with the counter and both buttons on screen", async ({
+		page,
+	}) => {
+		await page.goto("/settings", { waitUntil: "domcontentloaded" });
+		const dialog = await openDialog(page);
+
+		// The phone presentation, not the centred desktop panel.
+		await expect(dialog).toHaveClass(/dialog-sheet/);
+
+		// The sheet slides up over 250ms and is "visible" the whole way, so the
+		// geometry is only meaningful once it has settled: bottom inside the
+		// viewport. The poll keeps re-measuring until it is — a sheet that never
+		// got there fails on the last reading instead of a lucky early one.
+		const settledInViewport = (locator: Locator) =>
+			expect
+				.poll(
+					async () => {
+						const rect = await locator.boundingBox();
+						return rect
+							? Math.round(rect.y + rect.height)
+							: Number.POSITIVE_INFINITY;
+					},
+					{ message: "to settle inside the phone viewport" },
+				)
+				.toBeLessThanOrEqual(844);
+
+		await settledInViewport(dialog);
+		await settledInViewport(dialog.getByRole("button", { name: "Save" }));
+		await settledInViewport(dialog.getByRole("button", { name: "Cancel" }));
+
+		const panel = await dialog.boundingBox();
+		if (!panel) throw new Error("Instructions sheet did not lay out");
+		expect(panel.x).toBeGreaterThanOrEqual(0);
+		expect(panel.x + panel.width).toBeLessThanOrEqual(390);
+		expect(panel.y).toBeGreaterThan(0);
+		// Flush to the bottom edge, and no taller than the screen: past 88dvh the
+		// editor scrolls rather than pushing the counter and buttons under it.
+		expect(panel.y + panel.height).toBeGreaterThanOrEqual(840);
+		expect(panel.height).toBeLessThanOrEqual(844);
+
+		await expect(page.getByTestId("instructions-counter")).toBeVisible();
+		await expect(page.getByTestId("instructions-textarea")).toBeVisible();
+
+		// The counter still counts code points here, and Cancel is still a
+		// leave-without-writing. (The save path at this width is covered by the
+		// row's own 390px case in settings-profile-redesign.spec.ts.)
+		await box(page).fill("árvíztűrő 👍");
+		await expect(dialog.getByText("11 / 2000")).toBeVisible();
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(page.getByRole("dialog")).toHaveCount(0);
 	});
 });

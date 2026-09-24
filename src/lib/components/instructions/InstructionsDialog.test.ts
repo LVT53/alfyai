@@ -25,7 +25,7 @@ function open(options: OpenOptions = {}) {
 	const onSave = vi.fn(async (): Promise<SaveResult> => ({ ok: true }));
 	const onClose = vi.fn();
 
-	render(InstructionsDialog, {
+	const rendered = render(InstructionsDialog, {
 		props: {
 			open: options.open ?? true,
 			scope: options.scope ?? personal,
@@ -38,7 +38,7 @@ function open(options: OpenOptions = {}) {
 		},
 	});
 
-	return { onSave, onClose };
+	return { rendered, onSave, onClose };
 }
 
 const textbox = (name = "Instructions for Personal") =>
@@ -235,5 +235,53 @@ describe("InstructionsDialog", () => {
 		await waitFor(() =>
 			expect(onSave).toHaveBeenCalledWith({ scope: personal, text: "" }),
 		);
+	});
+
+	// The parent keeps this component mounted and drives it with `open`, so
+	// Cancel is a close, not an unmount. The abandoned edit must not come back
+	// with the sheet: the seed is the stored text, built again on every open.
+	it("drops an abandoned edit when the dialog is closed and reopened in place", async () => {
+		const { rendered } = open({
+			initialText: { personal: "Answer briefly." },
+		});
+		const box = await textbox();
+
+		await fireEvent.input(box, { target: { value: "Half-written idea." } });
+
+		await rendered.rerender({ open: false });
+		await rendered.rerender({ open: true });
+
+		expect(await textbox()).toHaveValue("Answer briefly.");
+	});
+
+	// Reopening after a save reads the parent's *current* text, not the copy
+	// that was on screen when the component first mounted. The settings page
+	// stores what it will show through `normalizeInstructionText`, so the text
+	// it hands back is the trimmed one — and that is what the box must show.
+	it("re-seeds from the parent's current text when reopened after a save", async () => {
+		const { rendered } = open({
+			initialText: { personal: "Answer briefly." },
+		});
+		const box = await textbox();
+
+		await fireEvent.input(box, {
+			target: { value: "Answer briefly. No emoji.   " },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(
+				screen.queryByTestId("instructions-error"),
+			).not.toBeInTheDocument(),
+		);
+
+		// What the settings page does on success: close the sheet, then hold the
+		// text the server just accepted.
+		await rendered.rerender({
+			open: false,
+			initialText: { personal: "Answer briefly. No emoji." },
+		});
+		await rendered.rerender({ open: true });
+
+		expect(await textbox()).toHaveValue("Answer briefly. No emoji.");
 	});
 });
