@@ -883,11 +883,15 @@ describe("project knowledge links", () => {
 		});
 
 		/** A real upload, through the real store: row, hash and file on disk. */
-		async function uploadRealDocument(bytes: Buffer, name: string) {
+		async function uploadRealDocument(bytes: Uint8Array, name: string) {
 			const { saveUploadedArtifact } = await import("./store");
 			const saved = await saveUploadedArtifact({
 				userId: "owner-user",
-				file: new File([bytes], name, { type: "application/pdf" }),
+				// A fresh copy over a plain `ArrayBuffer`: `new File` does not take a
+				// Node `Buffer`, whose backing type is `ArrayBufferLike`.
+				file: new File([new Uint8Array(bytes)], name, {
+					type: "application/pdf",
+				}),
 			});
 			const storagePath = saved.artifact.storagePath;
 			expect(storagePath).toBeTruthy();
