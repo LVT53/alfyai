@@ -734,4 +734,34 @@ describe("conversation recency ordering is unaffected by renames", () => {
 		expect(generated?.title).toBe("Generated title");
 		expect(listed[0]?.id).toBe("brand-new");
 	});
+
+	// Both callers share one owned-update helper; pin that the touch still
+	// bumps updatedAt to now and that neither caller can reach another
+	// user's conversation.
+	it("keeps touchConversation bumping updatedAt and both callers owner-scoped", async () => {
+		const { today } = seedRenameRecencyScenario();
+		const { listConversations, touchConversation, updateConversationTitle } =
+			await import("./conversations");
+
+		const beforeTouch = Math.floor(Date.now() / 1000);
+		const touched = await touchConversation("rename-user", "month-old");
+		expect(touched?.id).toBe("month-old");
+		expect(touched?.title).toBe("Sent a month ago");
+		expect(touched?.updatedAt).toBeGreaterThanOrEqual(beforeTouch);
+
+		await expect(
+			touchConversation("someone-else", "genuinely-recent"),
+		).resolves.toBeNull();
+		await expect(
+			updateConversationTitle("someone-else", "genuinely-recent", "Hijacked"),
+		).resolves.toBeNull();
+		await expect(
+			touchConversation("rename-user", "missing"),
+		).resolves.toBeNull();
+
+		const listed = await listConversations("rename-user");
+		const untouched = listed.find((c) => c.id === "genuinely-recent");
+		expect(untouched?.title).toBe("Sent today");
+		expect(untouched?.updatedAt).toBe(today.getTime() / 1000);
+	});
 });
