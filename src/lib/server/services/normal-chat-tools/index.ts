@@ -1408,7 +1408,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						return refuse({
 							input: safeInput,
 							errorCode: PRODUCE_FILE_RETRY_LIMIT_ERROR_CODE,
-							message: `This file was already attempted ${submissionCount} times in this turn and failed. Do not call produce_file for it again now: tell the user plainly that the file could not be produced and what went wrong.`,
+							message: `This file was already submitted ${submissionCount} times in this turn, the limit for one file. Do not call produce_file for it again now: if the last attempt produced the file, the user has that version; if it did not, tell the user plainly that the file could not be produced and what went wrong.`,
 						});
 					}
 					// The per-artifact guard above is keyed by title, so a model that

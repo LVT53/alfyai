@@ -1516,6 +1516,46 @@ describe("createNormalChatTools", () => {
 			]);
 		});
 
+		// Two content changes of a file that SUCCEEDED both times also reach the
+		// cap; the refusal must not tell the model those attempts failed.
+		it("does not call two successful submissions failed when refusing a third", async () => {
+			getConversationFileProductionJobMock.mockImplementation(
+				async ({ jobId }: { jobId: string }) =>
+					makeFileProductionJob({ id: jobId, status: "succeeded" }),
+			);
+			submitFileProductionIntakeMock.mockImplementation(async () => ({
+				ok: true as const,
+				status: 202 as const,
+				reused: false,
+				job: makeFileProductionJob({ id: "job-edits", status: "queued" }),
+			}));
+
+			const { tools } = createNormalChatTools({
+				userId: "user-1",
+				conversationId: "conversation-1",
+				turnId: "turn-1",
+				fileProductionVerdictPollIntervalMs: 1,
+			});
+			for (const [index, sourceCode] of ["v1()", "v2()"].entries()) {
+				await tools.produce_file.execute(
+					programCall({ program: { language: "python", sourceCode } }),
+					{ toolCallId: `call-edit-${index}`, messages: [] },
+				);
+			}
+			const third = await tools.produce_file.execute(
+				programCall({ program: { language: "python", sourceCode: "v3()" } }),
+				{ toolCallId: "call-edit-3", messages: [] },
+			);
+
+			expect(third).toMatchObject({
+				ok: false,
+				errorCode: "produce_file_turn_retry_limit",
+			});
+			const message = (third as { message: string }).message;
+			expect(message).not.toMatch(/\bfailed\b/);
+			expect(message).toContain("the user has that version");
+		});
+
 		it("keeps the per-turn budget separate for a different requested artifact", async () => {
 			getConversationFileProductionJobMock.mockImplementation(
 				async ({ jobId }: { jobId: string }) =>
