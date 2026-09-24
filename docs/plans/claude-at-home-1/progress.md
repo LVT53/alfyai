@@ -41,6 +41,7 @@ everything else (failing test first, mutation check, gates):
 |---|---|---|
 | `fix/context-ring-popover-mobile` | The context-ring popover is anchored at the ring's left edge, so at 390×844 it runs **197px** off screen (measured). Pre-existing — the component had no `@media` rules at `98a34dfd` either. | "Fix it please." |
 | `fix/admin-config-number-canonicalisation` | `admin-config-registry.ts` canonicalises an accepted number with `String(parsed)`, which emits exponent notation below ~`1e-6` (`0.0000001` → `1e-7`); the same validator's text check rejects `e`, so the stored value 400s on the next save and the admin page can no longer save that field. Affects **any** `number`-controlled admin setting. | Chose the minimal fix: never emit exponent notation, rather than teaching the validator to accept it or adding a new rejection reason with EN/HU strings. |
+| `fix/live-chat-evidence-metadata` | On a **live** chat page the Info popover shows **no evidence rows at all** until the conversation detail is reloaded, so the Sources area — not just the new project-files row — is missing right after a turn. Recorded evidence: `/tmp/slice-e-run-dd.log` (`no Project files row (attempt 1, stage live)` … `Project files row found (stage reloaded)`). Pre-existing; found by Slice E while building its capture harness. | Owner: "Fix the pre-existing bug too." |
 
 **Both landed and are deployed** as `fb7b46c7`. Each was proved by a failing test first plus a revert-and-reproduce mutation check, and each was then verified by the orchestrator independently of its author:
 
