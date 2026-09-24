@@ -344,6 +344,7 @@ function isLegacyAlfyAiPromptSnapshot(value: string): boolean {
 
 export function normalizeSystemPromptReference(
 	value: string | undefined,
+	label?: string,
 ): string | undefined {
 	if (!value) return undefined;
 
@@ -354,11 +355,11 @@ export function normalizeSystemPromptReference(
 	const known = SYSTEM_PROMPT_TEXT_TO_KEY.get(normalizePromptText(trimmed));
 	if (known) return known;
 	if (isLegacyAlfyAiPromptSnapshot(trimmed)) {
-		const marker = `${trimmed.length}:${trimmed.slice(0, 64)}`;
+		const marker = `${label ?? ""}:${trimmed.length}:${trimmed.slice(0, 64)}`;
 		if (!warnedLegacyPromptMarkers.has(marker)) {
 			warnedLegacyPromptMarkers.add(marker);
 			console.warn(
-				"[PROMPTS] Stored system prompt is a legacy AlfyAI snapshot that references retired tools; using the built-in alfyai-nemotron prompt instead. Reset the admin system prompt to clear this warning.",
+				`[PROMPTS] ${label ?? "Stored system prompt"} holds a legacy AlfyAI prompt snapshot that references retired tools; using the built-in alfyai-nemotron prompt instead.`,
 				{
 					chars: trimmed.length,
 					retired: trimmed.match(RETIRED_TOOL_NAME_RE)?.[0],

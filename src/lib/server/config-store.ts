@@ -690,7 +690,8 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		config.model1IconAssetId = value.trim() || null;
 	},
 	MODEL_1_SYSTEM_PROMPT: (config, value) => {
-		config.model1.systemPrompt = normalizeSystemPromptReference(value) ?? "";
+		config.model1.systemPrompt =
+			normalizeSystemPromptReference(value, "MODEL_1_SYSTEM_PROMPT") ?? "";
 	},
 	MODEL_1_MAX_TOKENS: (config, value) => {
 		const parsed = parseIntOverride(value);
@@ -718,7 +719,8 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		config.model2IconAssetId = value.trim() || null;
 	},
 	MODEL_2_SYSTEM_PROMPT: (config, value) => {
-		config.model2.systemPrompt = normalizeSystemPromptReference(value) ?? "";
+		config.model2.systemPrompt =
+			normalizeSystemPromptReference(value, "MODEL_2_SYSTEM_PROMPT") ?? "";
 	},
 	MODEL_2_MAX_TOKENS: (config, value) => {
 		const parsed = parseIntOverride(value);
@@ -963,7 +965,8 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		config.appVersionOverride = value.trim() || null;
 	},
 	SYSTEM_PROMPT: (config, value) => {
-		config.systemPrompt = normalizeSystemPromptReference(value) ?? "";
+		config.systemPrompt =
+			normalizeSystemPromptReference(value, "SYSTEM_PROMPT") ?? "";
 	},
 	MAX_FILE_UPLOAD_SIZE: (config, value) => {
 		const parsed = parseIntOverride(value);

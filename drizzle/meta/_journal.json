@@ -820,6 +820,13 @@
       "when": 1777140000103,
       "tag": "1777140000103_atlas_retired_admin_config",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1777140000104,
+      "tag": "1777140000104_reset_legacy_admin_prompt_snapshots",
+      "breakpoints": true
     }
   ]
 }

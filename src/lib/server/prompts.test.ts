@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	ALFYAI_NEMOTRON_PROMPT,
@@ -258,5 +258,56 @@ describe("legacy admin prompt snapshots", () => {
 		const custom = "You are Bartholomew, a pirate who answers only in rhyme.";
 		expect(normalizeSystemPromptReference(custom)).toBe(custom);
 		expect(getSystemPrompt(custom)).toBe(custom);
+	});
+
+	it("names the calling admin config key in the legacy-snapshot warning", () => {
+		const snapshot = [
+			"You are **AlfyAI**, the user's personal assistant.",
+			"",
+			"### Available Tools",
+			"| get_current_date | Get current date and time | Time-sensitive questions |",
+		].join("\n");
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		expect(
+			normalizeSystemPromptReference(snapshot, "MODEL_1_SYSTEM_PROMPT"),
+		).toBe("alfyai-nemotron");
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			expect.stringContaining("MODEL_1_SYSTEM_PROMPT"),
+			expect.objectContaining({ retired: "get_current_date" }),
+		);
+		expect(warnSpy.mock.calls[0]?.[0]).not.toContain(
+			"Stored system prompt is a legacy AlfyAI snapshot",
+		);
+		expect(warnSpy.mock.calls[0]?.[0]).toContain(
+			"holds a legacy AlfyAI prompt snapshot",
+		);
+
+		warnSpy.mockRestore();
+	});
+
+	it("falls back to a generic label when no key is given", () => {
+		const snapshot = [
+			"You are **AlfyAI**, the user's personal assistant.",
+			"",
+			"Uses run_python_repl for arithmetic.",
+		].join("\n");
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		expect(normalizeSystemPromptReference(snapshot)).toBe("alfyai-nemotron");
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			expect.stringContaining(
+				"Stored system prompt holds a legacy AlfyAI prompt snapshot",
+			),
+			expect.anything(),
+		);
+
+		warnSpy.mockRestore();
+	});
+
+	it("resolves the built-in alfyai-nemotron key to the current live prompt text", () => {
+		expect(getSystemPrompt("alfyai-nemotron")).toBe(ALFYAI_NEMOTRON_PROMPT);
 	});
 });
