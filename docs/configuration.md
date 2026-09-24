@@ -160,6 +160,7 @@ AlfyAI runs a local, judge-gated long-term memory pipeline (ADRs
 |---|---|---:|---|---|---|
 | `PARALLEL_API_KEY` | No | empty | API key for Parallel, which powers web search and page extraction for `research_web`, `fetch_url`, and Atlas | Set it when web search and Atlas should be enabled | Empty omits `research_web`/`fetch_url` from the tool surface and reports Atlas as unavailable |
 | `PARALLEL_BASE_URL` | No | `https://api.parallel.ai` | Overrides the Parallel API host | Mainly for tests / self-hosted proxies | Leave empty in production |
+| `PARALLEL_FREE_MONTHLY_USD` | No | `5` | Server-wide Parallel spend each calendar month that no user is charged for | Raise it to absorb more Parallel usage before anyone pays | Applies inside the usage write, so it can be changed in admin config and takes effect on the next call; calls past the allowance are billed to the user who made them |
 | `WEB_RESEARCH_BRIEF_MAX_CHARS` | No | `12000` | Max chars of `research_web`'s answer-brief markdown sent to the model | Tune the brief size sent back to the model | `fetch_url` sizes its own brief to the model's context window and ignores this knob |
 | `BRAVE_SEARCH_API_KEY` | No | empty | API key for Brave Search, which powers the `image_search` tool | Set it when image search should be enabled | Empty disables Brave-backed image search |
 

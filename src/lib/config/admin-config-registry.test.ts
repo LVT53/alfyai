@@ -196,6 +196,50 @@ describe("validateAdminConfigValue", () => {
 			validateAdminConfigValue(spec("MEMORY_JUDGE_DRY_RUN"), "anything"),
 		).toEqual({ ok: false, reason: "invalid-option" });
 	});
+
+	it("accepts a fraction, and zero, for the Parallel free allowance", () => {
+		// The allowance is a dollar amount: 2.5 is a real setting, and 0 means
+		// "charge everything". Both must survive validation, because a value the
+		// applier would clamp is a value the stored row and the running config
+		// would disagree about.
+		const allowance = spec("PARALLEL_FREE_MONTHLY_USD");
+		expect(validateAdminConfigValue(allowance, "2.5")).toEqual({
+			ok: true,
+			value: "2.5",
+		});
+		expect(validateAdminConfigValue(allowance, "0")).toEqual({
+			ok: true,
+			value: "0",
+		});
+		expect(validateAdminConfigValue(allowance, " 0.001 ")).toEqual({
+			ok: true,
+			value: "0.001",
+		});
+		// Canonical, so a stored row reads the same however it was typed.
+		expect(validateAdminConfigValue(allowance, ".5")).toEqual({
+			ok: true,
+			value: "0.5",
+		});
+	});
+
+	it("rejects a negative or unparseable allowance rather than clamping it", () => {
+		// Decision: clamp in the environment, reject in the admin UI. Clamping
+		// here would store a number the admin never chose.
+		const allowance = spec("PARALLEL_FREE_MONTHLY_USD");
+		expect(validateAdminConfigValue(allowance, "-1")).toEqual({
+			ok: false,
+			reason: "below-min",
+			limit: 0,
+		});
+		expect(validateAdminConfigValue(allowance, "lots")).toEqual({
+			ok: false,
+			reason: "not-a-number",
+		});
+		expect(validateAdminConfigValue(allowance, "1e3")).toEqual({
+			ok: false,
+			reason: "not-a-number",
+		});
+	});
 });
 
 describe("scaled units", () => {

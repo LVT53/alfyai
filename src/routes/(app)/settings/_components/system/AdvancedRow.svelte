@@ -44,7 +44,8 @@ const meaning = $derived(
 );
 
 const unitLabel = $derived(
-	spec.control.kind === "int" && spec.control.unit
+	(spec.control.kind === "int" || spec.control.kind === "number") &&
+		spec.control.unit
 		? $t(`admin.system.unit.${spec.control.unit}` as I18nKey)
 		: "",
 );
@@ -182,7 +183,7 @@ const localError = $derived.by(() => {
 						</option>
 					{/each}
 				</select>
-			{:else if spec.control.kind === 'int'}
+			{:else if spec.control.kind === 'int' || spec.control.kind === 'number'}
 				<ValueField
 					id={`adv-${spec.key}`}
 					type="number"

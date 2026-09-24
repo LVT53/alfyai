@@ -46,6 +46,17 @@ export type AdminConfigControl =
 			/** Divisor between the stored value and the number the field shows. */
 			scale?: number;
 	  }
+	// The same numeric field as "int", except a fraction is a legal value. Only
+	// use it where the fraction is meaningful; `int` remains the default so a
+	// typo like "1.5" in a count cannot quietly round.
+	| {
+			kind: "number";
+			min?: number;
+			max?: number;
+			unit?: AdminConfigUnit;
+			/** Divisor between the stored value and the number the field shows. */
+			scale?: number;
+	  }
 	| { kind: "text" }
 	| { kind: "url" }
 	| { kind: "bool" }
@@ -80,6 +91,15 @@ function int(
 	scale?: number,
 ): AdminConfigControl {
 	return { kind: "int", min, max, unit, scale };
+}
+
+function number(
+	min?: number,
+	max?: number,
+	unit?: AdminConfigUnit,
+	scale?: number,
+): AdminConfigControl {
+	return { kind: "number", min, max, unit, scale };
 }
 
 /**
@@ -576,6 +596,19 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 		control: { kind: "url" },
 		effect: "live",
 	},
+	{
+		// A billing setting for the same integration as PARALLEL_API_KEY, so it
+		// sits in the same group and on the same named page. It needs a spec
+		// rather than being stored raw: the value changes what users are
+		// charged, so "abc" or "-1" must be a 400 here instead of a number the
+		// applier silently ignores or the env parser quietly rewrites to 5.
+		// `number`, not `int`: the allowance is a dollar amount and 2.5 is a
+		// legal setting.
+		key: "PARALLEL_FREE_MONTHLY_USD",
+		group: "integrations",
+		control: number(0, 1000000),
+		effect: "live",
+	},
 
 	// --- MinerU document extraction ------------------------------------------
 	// Dual-registered on purpose: these keys keep their rows on the Integrations
@@ -885,6 +918,27 @@ export function validateAdminConfigValue(
 			}
 			return { ok: true, value: String(parsed) };
 		}
+		case "number": {
+			// A plain decimal, so "2.5" and ".5" are accepted while exponent
+			// notation and stray words are not: this string is stored verbatim
+			// and handed to Number.parseFloat by the override applier, where an
+			// "e" would silently become a different number, or NaN.
+			if (!/^-?\d*\.?\d+$/.test(value)) {
+				return { ok: false, reason: "not-a-number" };
+			}
+			const parsed = Number.parseFloat(value);
+			if (!Number.isFinite(parsed))
+				return { ok: false, reason: "not-a-number" };
+			if (spec.control.min !== undefined && parsed < spec.control.min) {
+				return { ok: false, reason: "below-min", limit: spec.control.min };
+			}
+			if (spec.control.max !== undefined && parsed > spec.control.max) {
+				return { ok: false, reason: "above-max", limit: spec.control.max };
+			}
+			// Canonical form: "2.50" and ".5" are stored as "2.5" and "0.5", the
+			// same number the applier will parse.
+			return { ok: true, value: String(parsed) };
+		}
 		case "select": {
 			return spec.control.options.includes(value)
 				? { ok: true, value }
@@ -928,12 +982,18 @@ export function toDisplayNumber(
 	spec: AdminConfigKeySpec,
 	stored: string,
 ): string {
-	if (spec.control.kind !== "int") return stored;
+	const kind = spec.control.kind;
+	if (kind !== "int" && kind !== "number") return stored;
 	const scale = spec.control.scale;
 	if (!scale || stored.trim() === "") return stored;
-	const parsed = Number.parseInt(stored, 10);
+	const parsed =
+		kind === "int" ? Number.parseInt(stored, 10) : Number.parseFloat(stored);
 	if (!Number.isFinite(parsed)) return stored;
-	return String(Math.round(parsed / scale));
+	const scaled = parsed / scale;
+	// An integer control cannot show a fraction, so its scaled value rounds
+	// (a 250 ms timeout is "0 s" on a seconds-scaled field). A fractional
+	// control must not round — that is the whole point of the kind.
+	return String(kind === "int" ? Math.round(scaled) : scaled);
 }
 
 /** The number the field shows → the storage value. */
@@ -941,10 +1001,12 @@ export function fromDisplayNumber(
 	spec: AdminConfigKeySpec,
 	shown: string,
 ): string {
-	if (spec.control.kind !== "int") return shown;
+	const kind = spec.control.kind;
+	if (kind !== "int" && kind !== "number") return shown;
 	const scale = spec.control.scale;
 	if (!scale || shown.trim() === "") return shown.trim();
-	const parsed = Number.parseInt(shown, 10);
+	const parsed =
+		kind === "int" ? Number.parseInt(shown, 10) : Number.parseFloat(shown);
 	if (!Number.isFinite(parsed)) return shown.trim();
 	return String(parsed * scale);
 }

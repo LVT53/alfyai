@@ -436,6 +436,9 @@ const settingsDict = {
 		"admin.parallelApiKey": "Parallel API Key",
 		"admin.parallelApiKeyDescription":
 			"API key for the Parallel web search and research service. Leave empty to disable Parallel-backed web research.",
+		"admin.parallelFreeMonthlyUsd": "Parallel free monthly allowance",
+		"admin.parallelFreeMonthlyUsdDescription":
+			"Parallel calls cost nothing to users until the whole server's usage passes this amount in a calendar month. After that they count as normal. Set to 0 to always count them.",
 		"admin.password": "Password",
 		"admin.passwordPlaceholder": "At least 8 characters",
 		"admin.profileTabNote": `Use the Profile tab for your own account changes. Admin role, session revocation, and deletion are disabled here for the current user.`,
@@ -694,6 +697,13 @@ const settingsDict = {
 		"analytics.parallelCost": "Parallel cost",
 		"analytics.totalCalls": "Total calls",
 		"analytics.parallelUsage": "Turbo vs Extract usage",
+		"analytics.parallelAllowanceOf": "of {allowance} free allowance used",
+		"analytics.parallelAllowanceResets":
+			"Resets 1 {month} · users are charged {charged}",
+		"analytics.parallelCountedAsCost": "Counted as cost",
+		"analytics.parallelFreeUsage": "Free usage",
+		"analytics.parallelCountedCost": "Counted cost",
+		"analytics.parallelMonthlyBreakdownCalls": "Calls",
 		"analytics.monthlyBreakdown": "Monthly breakdown",
 		"analytics.monthlyCost": "Monthly cost",
 		"analytics.filterModels": "Filter models\u2026",
@@ -1673,6 +1683,10 @@ const settingsDict = {
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.label": "Summarizer endpoint",
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.meaning":
 			"Where long context is compacted. Falls back to the title endpoint.",
+		"admin.system.keys.PARALLEL_FREE_MONTHLY_USD.label":
+			"Parallel free monthly allowance",
+		"admin.system.keys.PARALLEL_FREE_MONTHLY_USD.meaning":
+			"Parallel calls are free to users until the whole server passes this amount in a calendar month.",
 		"admin.system.keys.MINERU_API_URL.label": "MinerU endpoint",
 		"admin.system.keys.MINERU_API_URL.meaning":
 			"Where uploaded documents are parsed. Must be reachable from this server.",
@@ -2344,6 +2358,9 @@ const settingsDict = {
 		"admin.parallelApiKey": "Parallel API-kulcs",
 		"admin.parallelApiKeyDescription":
 			"A Parallel webes keresési és kutatási szolgáltatás API-kulcsa. Hagyd üresen a Parallel-alapú webes kutatás letiltásához.",
+		"admin.parallelFreeMonthlyUsd": "Parallel ingyenes havi keret",
+		"admin.parallelFreeMonthlyUsdDescription":
+			"A Parallel hívások addig nem jelentenek költséget a felhasználóknak, amíg a szerver teljes havi használata egy naptári hónapban meg nem haladja ezt az összeget. Utána a szokásos módon számoljuk el. 0 esetén mindig elszámoljuk őket.",
 		"admin.password": "Jelszó",
 		"admin.passwordPlaceholder": "Legalább 8 karakter",
 		"admin.profileTabNote": `A saját fiókod módosításait a Profil lapon végezheted el. Az adminisztrátori szerepkör, a munkamenet-visszavonás és a törlés itt le van tiltva az aktuális felhasználónál.`,
@@ -2612,6 +2629,14 @@ const settingsDict = {
 		"analytics.parallelCost": "Parallel költség",
 		"analytics.totalCalls": "Összes hívás",
 		"analytics.parallelUsage": "Turbo vs Extract használat",
+		"analytics.parallelAllowanceOf":
+			"felhasználva a {allowance} ingyenes keretből",
+		"analytics.parallelAllowanceResets":
+			"Visszaáll: {month} 1. · a felhasználóknak felszámított összeg: {charged}",
+		"analytics.parallelCountedAsCost": "Költségként elszámolva",
+		"analytics.parallelFreeUsage": "Ingyenes használat",
+		"analytics.parallelCountedCost": "Elszámolt költség",
+		"analytics.parallelMonthlyBreakdownCalls": "Hívások",
 		"analytics.monthlyBreakdown": "Havi bontás",
 		"analytics.monthlyCost": "Havi költség",
 		"analytics.filterModels": "Modellek szűrése…",
@@ -3621,6 +3646,10 @@ const settingsDict = {
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.label": "Összefoglaló végpont",
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.meaning":
 			"Itt tömörödik a hosszú kontextus. Alapból a címgeneráló végpontra esik vissza.",
+		"admin.system.keys.PARALLEL_FREE_MONTHLY_USD.label":
+			"Parallel ingyenes havi keret",
+		"admin.system.keys.PARALLEL_FREE_MONTHLY_USD.meaning":
+			"A Parallel hívások addig ingyenesek a felhasználóknak, amíg a szerver egésze egy naptári hónapban meg nem haladja ezt az összeget.",
 		"admin.system.keys.MINERU_API_URL.label": "MinerU végpont",
 		"admin.system.keys.MINERU_API_URL.meaning":
 			"Itt elemződnek a feltöltött dokumentumok. Elérhetőnek kell lennie erről a szerverről.",

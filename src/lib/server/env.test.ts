@@ -77,6 +77,7 @@ describe("Environment Configuration", () => {
 		delete process.env.TEI_TIMEOUT_MS;
 		delete process.env.PARALLEL_API_KEY;
 		delete process.env.PARALLEL_BASE_URL;
+		delete process.env.PARALLEL_FREE_MONTHLY_USD;
 		delete process.env.BRAVE_SEARCH_API_KEY;
 		delete process.env.WEBHOOK_PORT;
 		delete process.env.REQUEST_TIMEOUT_MS;
@@ -105,6 +106,7 @@ describe("Environment Configuration", () => {
 		expect(config.teiTimeoutMs).toBe(300000);
 		expect(config.parallelApiKey).toBe("");
 		expect(config.parallelBaseUrl).toBe("https://api.parallel.ai");
+		expect(config.parallelFreeMonthlyUsd).toBe(5);
 		expect(config.braveSearchApiKey).toBe("");
 		expect(config.requestTimeoutMs).toBe(300000);
 		expect(config.modelTimeoutFailoverEnabled).toBe(false);
@@ -126,6 +128,50 @@ describe("Environment Configuration", () => {
 		const { config } = await import("./env");
 
 		expect(config.composerCommandRegistryEnabled).toBe(false);
+	});
+
+	it("defaults the Parallel free allowance to 5 USD", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		delete process.env.PARALLEL_FREE_MONTHLY_USD;
+
+		const { config } = await import("./env");
+
+		expect(config.parallelFreeMonthlyUsd).toBe(5);
+	});
+
+	it("accepts a zero Parallel free allowance", async () => {
+		// Zero is meaningful — "charge every Parallel call" — so the parser
+		// must not treat it as a missing value.
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.PARALLEL_FREE_MONTHLY_USD = "0";
+
+		const { config } = await import("./env");
+
+		expect(config.parallelFreeMonthlyUsd).toBe(0);
+	});
+
+	it("accepts a fractional Parallel free allowance", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.PARALLEL_FREE_MONTHLY_USD = "2.5";
+
+		const { config } = await import("./env");
+
+		expect(config.parallelFreeMonthlyUsd).toBe(2.5);
+	});
+
+	it("falls back to the default on a negative or garbage allowance", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+
+		process.env.PARALLEL_FREE_MONTHLY_USD = "-1";
+		expect((await import("./env")).config.parallelFreeMonthlyUsd).toBe(5);
+
+		vi.resetModules();
+		process.env.PARALLEL_FREE_MONTHLY_USD = "lots";
+		expect((await import("./env")).config.parallelFreeMonthlyUsd).toBe(5);
 	});
 
 	it("should derive unset context budget defaults from the configured model window", async () => {

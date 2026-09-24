@@ -158,6 +158,21 @@ interface SystemAnalytics {
 		totalTurboCalls: number;
 		totalExtractCalls: number;
 		totalCostUsd: number;
+		/** The server-wide free monthly allowance, and where this month stands. */
+		allowance: {
+			allowanceMicros: number;
+			monthListMicros: number;
+			monthBilledMicros: number;
+			month: string;
+		};
+		/** One row per month with Parallel calls, free usage included. */
+		monthRows: {
+			month: string;
+			calls: number;
+			listMicros: number;
+			freeMicros: number;
+			billedMicros: number;
+		}[];
 	};
 }
 

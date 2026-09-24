@@ -661,6 +661,45 @@ const parallelTotalCalls = $derived(
 	(parallel?.totalTurboCalls ?? 0) + (parallel?.totalExtractCalls ?? 0),
 );
 
+// The free monthly allowance (Slice B). "$X of $Y used" counts the month's
+// LIST price against the allowance — that is what the allowance absorbs —
+// while the reset line's "$Z" is what users were actually charged.
+const parallelAllowance = $derived(parallel?.allowance);
+const parallelAllowanceUsedUsd = $derived(
+	(parallelAllowance?.monthListMicros ?? 0) / 1_000_000,
+);
+const parallelAllowanceUsd = $derived(
+	(parallelAllowance?.allowanceMicros ?? 0) / 1_000_000,
+);
+const parallelMonthChargedUsd = $derived(
+	(parallelAllowance?.monthBilledMicros ?? 0) / 1_000_000,
+);
+// An allowance of zero absorbs nothing, so the bar reads full rather than
+// empty — a bar at 0% next to "of $0.00 free allowance used" would look like
+// headroom that does not exist. A very large allowance clamps the other way.
+const parallelAllowancePercent = $derived.by(() => {
+	const allowanceMicros = parallelAllowance?.allowanceMicros ?? 0;
+	if (allowanceMicros <= 0) return 100;
+	const used = (parallelAllowance?.monthListMicros ?? 0) / allowanceMicros;
+	return Math.min(100, Math.max(0, used * 100));
+});
+// "1 <Month>" is the month AFTER the one being metered: the allowance resets
+// on the 1st of the next calendar month.
+const parallelAllowanceResetMonth = $derived.by(() => {
+	const month = parallelAllowance?.month;
+	if (!month) return "";
+	const [year, monthNumber] = month.split("-").map(Number);
+	if (!year || !monthNumber) return "";
+	return new Date(year, monthNumber, 1).toLocaleDateString(
+		intlLocale($uiLanguage),
+		{ month: "long" },
+	);
+});
+const parallelFreeUsd = $derived(
+	(parallel?.monthRows ?? []).reduce((sum, row) => sum + row.freeMicros, 0) /
+		1_000_000,
+);
+
 const parallelChartData = $derived({
 	labels: (parallel?.monthly ?? []).map((m) => formatMonthShort(m.month)),
 	datasets: [
@@ -683,17 +722,29 @@ const parallelColumns: TableColumn[] = [
 	{ key: "month", label: $t("analytics.month"), type: "text" },
 	{ key: "turbo", label: $t("analytics.turbo"), type: "number" },
 	{ key: "extract", label: $t("analytics.extract"), type: "number" },
-	{ key: "total", label: $t("analytics.total"), type: "number" },
-	{ key: "cost", label: $t("analytics.cost"), type: "usd" },
+	{
+		key: "calls",
+		label: $t("analytics.parallelMonthlyBreakdownCalls"),
+		type: "number",
+	},
+	{ key: "free", label: $t("analytics.parallelFreeUsage"), type: "usd" },
+	{ key: "counted", label: $t("analytics.parallelCountedCost"), type: "usd" },
 ];
 
+// The turbo/extract split and the allowance arithmetic are both derived from
+// the same walk over the month's rows, so the two lists share a month key.
+const parallelMonthlyByMonth = $derived(
+	new Map((parallel?.monthly ?? []).map((entry) => [entry.month, entry])),
+);
+
 const parallelRows = $derived<TableRow[]>(
-	(parallel?.monthly ?? []).map((m) => ({
-		month: formatMonthShort(m.month),
-		turbo: m.turboCalls,
-		extract: m.extractCalls,
-		total: m.turboCalls + m.extractCalls,
-		cost: m.costUsd,
+	(parallel?.monthRows ?? []).map((row) => ({
+		month: formatMonthShort(row.month),
+		turbo: parallelMonthlyByMonth.get(row.month)?.turboCalls ?? 0,
+		extract: parallelMonthlyByMonth.get(row.month)?.extractCalls ?? 0,
+		calls: row.calls,
+		free: row.freeMicros / 1_000_000,
+		counted: row.billedMicros / 1_000_000,
 	})),
 );
 
@@ -701,8 +752,9 @@ const parallelTotalRow = $derived<TableRow>({
 	month: $t("analytics.total"),
 	turbo: parallel?.totalTurboCalls ?? 0,
 	extract: parallel?.totalExtractCalls ?? 0,
-	total: parallelTotalCalls,
-	cost: parallelCostUsd,
+	calls: parallelTotalCalls,
+	free: parallelFreeUsd,
+	counted: parallelCostUsd,
 });
 
 // ---- By user -----------------------------------------------------------
@@ -1099,11 +1151,40 @@ async function toggleExcludedUser(userId: string) {
 	{:else if activeTab === 'parallel' && parallel}
 		<div role="tabpanel" id="system-analytics-parallel-panel" aria-labelledby="system-analytics-parallel-tab">
 			<AnalyticsCard title={$t('analytics.parallelApi')}>
+				{#if parallelAllowance}
+					<div class="parallel-meter" data-testid="parallel-allowance-meter">
+						<div class="parallel-meter-line">
+							<b class="parallel-meter-used">{formatUsd(parallelAllowanceUsedUsd)}</b>
+							<span class="parallel-meter-caption">
+								{$t('analytics.parallelAllowanceOf', {
+									allowance: formatUsd(parallelAllowanceUsd),
+								})}
+							</span>
+							<span class="parallel-meter-reset">
+								{$t('analytics.parallelAllowanceResets', {
+									month: parallelAllowanceResetMonth,
+									charged: formatUsd(parallelMonthChargedUsd),
+								})}
+							</span>
+						</div>
+						<div class="parallel-meter-track">
+							<div
+								class="parallel-meter-fill"
+								style:width={`${parallelAllowancePercent}%`}
+								data-testid="parallel-allowance-fill"
+							></div>
+						</div>
+					</div>
+				{/if}
 				<StatGrid>
 					<StatCard value={formatNum(parallel.totalTurboCalls)} label={$t('analytics.turboSearches')} />
 					<StatCard value={formatNum(parallel.totalExtractCalls)} label={$t('analytics.extractFetches')} />
 					<StatCard hero value={formatUsd(parallelCostUsd)} label={$t('analytics.parallelCost')} />
 					<StatCard value={formatNum(parallelTotalCalls)} label={$t('analytics.totalCalls')} />
+					<StatCard
+						value={formatUsd(parallelMonthChargedUsd)}
+						label={$t('analytics.parallelCountedAsCost')}
+					/>
 				</StatGrid>
 				{#if (parallel.monthly ?? []).length > 0}
 					<div class="mt-5">
@@ -1213,4 +1294,50 @@ async function toggleExcludedUser(userId: string) {
 		outline: none;
 		border-color: var(--accent);
 	}
-</style>
+
+	/* The allowance meter. Same 6px bar geometry as the latency bars, in the
+	   accent colour, on a tinted card so the number reads as the tab's own. */
+	.parallel-meter {
+		border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+		background: color-mix(in srgb, var(--accent) 6%, transparent);
+		border-radius: var(--radius-lg);
+		padding: 0.75rem 0.875rem;
+		margin-bottom: 1rem;
+	}
+
+	.parallel-meter-line {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.parallel-meter-used {
+		color: var(--accent);
+		font-size: 1.3125rem;
+	}
+
+	.parallel-meter-caption {
+		color: var(--text-muted);
+		font-size: 0.8125rem;
+	}
+
+	.parallel-meter-reset {
+		margin-left: auto;
+		color: var(--text-muted);
+		font-size: 0.75rem;
+	}
+
+	.parallel-meter-track {
+		height: 6px;
+		border-radius: 999px;
+		background: var(--border-default);
+		overflow: hidden;
+		margin-top: 0.625rem;
+	}
+
+	.parallel-meter-fill {
+		height: 100%;
+		border-radius: 999px;
+		background: var(--accent);
+	}</style>
