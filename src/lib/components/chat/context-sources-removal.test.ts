@@ -139,4 +139,19 @@ describe("dead wiring the context-sources removal left behind", () => {
 			send.match(/linkedSources: atlasPreflight\.value\.linkedSources,/g),
 		).toHaveLength(1);
 	});
+
+	it("drops the evidence-link lister and its mapper", () => {
+		// `prepareTaskContext` was the only caller: it read the rows to build the
+		// pin/exclude sets the removal retired. Nothing else in the repo called
+		// the lister or its row mapper, so both go with the read side.
+		const taskState = readFileSync(
+			"src/lib/server/services/task-state.ts",
+			"utf8",
+		);
+		expect(taskState).not.toContain("listTaskEvidenceLinks");
+		expect(taskState).not.toContain("mapTaskEvidenceLink");
+		expect(
+			readFileSync("src/lib/server/services/task-state/mappers.ts", "utf8"),
+		).not.toContain("mapTaskEvidenceLink");
+	});
 });

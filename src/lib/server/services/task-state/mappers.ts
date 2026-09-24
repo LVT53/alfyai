@@ -2,12 +2,10 @@ import type {
 	artifactChunks,
 	conversationTaskStates,
 	taskCheckpoints,
-	taskStateEvidenceLinks,
 } from "$lib/server/db/schema";
 import type { ArtifactChunk } from "$lib/server/services/knowledge/types";
 import type {
 	TaskCheckpoint,
-	TaskEvidenceLink,
 	TaskState,
 	VerificationStatus,
 } from "$lib/server/services/task-state/types";
@@ -34,25 +32,6 @@ export function mapTaskState(
 		lastCheckpointAt: row.lastCheckpointAt
 			? row.lastCheckpointAt.getTime()
 			: null,
-		createdAt: row.createdAt.getTime(),
-		updatedAt: row.updatedAt.getTime(),
-	};
-}
-
-export function mapTaskEvidenceLink(
-	row: typeof taskStateEvidenceLinks.$inferSelect,
-): TaskEvidenceLink {
-	return {
-		id: row.id,
-		taskId: row.taskId,
-		userId: row.userId,
-		conversationId: row.conversationId,
-		artifactId: row.artifactId,
-		chunkIndex: row.chunkIndex ?? null,
-		role: row.role as TaskEvidenceLink["role"],
-		origin: row.origin as TaskEvidenceLink["origin"],
-		confidence: row.confidence ?? 0,
-		reason: row.reason ?? null,
 		createdAt: row.createdAt.getTime(),
 		updatedAt: row.updatedAt.getTime(),
 	};

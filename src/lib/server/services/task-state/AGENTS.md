@@ -14,7 +14,7 @@ Internal helpers for `task-state.ts`: folder-anchored project continuity, artifa
 | `artifacts.ts` | ~250 | Task-state prompt formatting, prompt snippet selection, historical context summarization |
 | `chunk-sync.ts` | ~90 | Artifact chunk splitting and persistence |
 | `control-model.ts` | ~230 | Context summarizer API client for routing/verification/JSON tasks |
-| `mappers.ts` | ~95 | Row-to-type mappers for task states, checkpoints, evidence links, chunks |
+| `mappers.ts` | ~70 | Row-to-type mappers for task states, checkpoints, chunks |
 
 ## Where to Look
 
