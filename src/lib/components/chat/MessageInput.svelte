@@ -468,6 +468,10 @@ let commandTrayClosing = $state(false);
 let dismissedCommandTokenKey = $state<string | null>(null);
 let highlightedCommandIndex = $state(0);
 let commandTrayMessage = $state("");
+// The token the current message was written for. A message is about one
+// command in one position ("you typed /instruction with nothing after it"),
+// so it is retired when that token changes rather than on every re-sync.
+let commandTraySyncedTokenKey: string | null = null;
 let skillDiscoveryQuery = $state("");
 let skillDiscoveryResults = $state<SkillDiscoverySummary[]>([]);
 let skillDiscoveryLoading = $state(false);
@@ -2290,7 +2294,16 @@ function updateCommandTrayFromText(text: string, cursor: number) {
 			cursor,
 			COMMAND_IDS_WITH_ARGUMENT,
 		) ?? findActiveComposerCommandToken(text, cursor);
-	commandTrayMessage = "";
+	// Retire the message only when the token under the cursor has actually
+	// changed. Every keystroke ends with a re-sync, including the keyup that
+	// closes the very keystroke which set the message — clearing there made
+	// every "missing argument" hint (and the skill-discovery error) blink out
+	// of existence in the same press that produced it.
+	const nextTokenKey = getCommandTokenKey(nextToken);
+	if (nextTokenKey !== commandTraySyncedTokenKey) {
+		commandTrayMessage = "";
+		commandTraySyncedTokenKey = nextTokenKey;
+	}
 	if (!nextToken) {
 		highlightedCommandIndex = 0;
 		closeCommandTray();
