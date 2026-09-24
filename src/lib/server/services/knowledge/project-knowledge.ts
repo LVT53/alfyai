@@ -8,7 +8,10 @@ import {
 	projects,
 } from "$lib/server/db/schema";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
-import { getProject } from "$lib/server/services/projects";
+import {
+	getConversationProjectId,
+	getProject,
+} from "$lib/server/services/projects";
 import {
 	getLogicalDocumentForArtifact,
 	safeStem,
@@ -346,6 +349,45 @@ export async function listProjectKnowledgeArtifactIds(params: {
 	}
 
 	return [...ids].sort();
+}
+
+/**
+ * The conversation's project, its name and the ids of the files it knows — the
+ * shape the evidence step stamps and counts project evidence with. `null` when
+ * the conversation is in no project at all, so a turn outside a project stops
+ * at one lookup.
+ *
+ * Ownership rides the same joins everything else in this module uses: the
+ * project is read through `projects.userId` for the caller, so a project that is
+ * not theirs reads as no project rather than as a project with no files.
+ */
+export async function resolveConversationProjectFiles(params: {
+	userId: string;
+	conversationId: string;
+}): Promise<{
+	projectId: string;
+	projectName: string;
+	artifactIds: Set<string>;
+} | null> {
+	const projectId = await getConversationProjectId(
+		params.userId,
+		params.conversationId,
+	);
+	if (!projectId) return null;
+
+	const project = await getProject(params.userId, projectId);
+	if (!project) return null;
+
+	const artifactIds = await listProjectKnowledgeArtifactIds({
+		userId: params.userId,
+		projectId,
+	});
+
+	return {
+		projectId,
+		projectName: project.name,
+		artifactIds: new Set(artifactIds),
+	};
 }
 
 export interface ProjectKnowledgeContentTarget {

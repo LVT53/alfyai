@@ -1823,6 +1823,99 @@ describe("MessageBubble", () => {
 		expect(popover?.getAttribute("data-open")).toBe("false");
 	});
 
+	// Workspaces Slice E — the Info popover's "Project files" row is a way to
+	// get to the Sources panel, not a report about it: clicking it opens
+	// Sources and gets the popover out from under the cursor, since the row
+	// says where to look next ("see Sources ↓") and leaving the popover open
+	// would cover the panel it just opened.
+	function buildProjectFilesMessage(): ChatMessage {
+		return {
+			id: "assistant-project-files",
+			role: "assistant",
+			content: "A bécsi útiterv szerint 10:00-kor nyit.",
+			timestamp: Date.now(),
+			modelDisplayName: "Model 1",
+			projectFilesRead: 1,
+			evidenceSummary: {
+				structuredWebSearch: false,
+				groups: [
+					{
+						sourceType: "document",
+						label: "Documents",
+						reranked: false,
+						items: [
+							{
+								id: "evidence-project",
+								title: "Wien itinerary.md",
+								sourceType: "document",
+								status: "selected",
+								artifactId: "artifact-project",
+								metadata: {
+									projectId: "project-1",
+									projectName: "Vienna trip",
+								},
+							},
+						],
+					},
+				],
+			},
+		};
+	}
+
+	// Anchored at the start: the Info popover's own "Project files" row says
+	// "see Sources ↓" in its value, so a loose /Sources/i match finds two
+	// buttons here. The toggle's own name starts with "Sources" and carries a
+	// count after it ("Sources · 1 considered, 1 used").
+	function sourcesToggle() {
+		return screen.getByRole("button", { name: /^Sources\b/ });
+	}
+
+	it("expands the Sources panel when the Info row is clicked", async () => {
+		render(MessageBubble, { message: buildProjectFilesMessage() });
+
+		// Closed until asked for.
+		expect(sourcesToggle()).toHaveAttribute("aria-expanded", "false");
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Project files/ }),
+		);
+
+		expect(sourcesToggle()).toHaveAttribute("aria-expanded", "true");
+	});
+
+	it("closes the Info popover when the Sources row is clicked", async () => {
+		const { container } = render(MessageBubble, {
+			message: buildProjectFilesMessage(),
+		});
+
+		// The popover opens on hover (desktop CSS) and on tap (touch), neither
+		// of which exists in a test — so the tap path is what opens it here.
+		Object.defineProperty(window, "matchMedia", {
+			writable: true,
+			value: vi.fn().mockImplementation((query: string) => ({
+				matches: query.includes("pointer: coarse"),
+				media: query,
+				onchange: null,
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn(),
+				dispatchEvent: vi.fn(),
+			})),
+		});
+
+		const popover = container.querySelector(".info-popover") as HTMLElement;
+		expect(popover).not.toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: "Info" }));
+		expect(popover.className).not.toContain("info-popover-forced-closed");
+
+		await fireEvent.click(
+			screen.getByRole("button", { name: /Project files/ }),
+		);
+
+		// Forced closed: the popover must not sit over the panel it opened, and
+		// the CSS hover rule must not be able to reopen it under the cursor.
+		expect(popover.className).toContain("info-popover-forced-closed");
+	});
+
 	it("renders styled hover tooltip labels for message action icons", () => {
 		const assistantMessage: ChatMessage = {
 			id: "assistant-tooltip-actions",

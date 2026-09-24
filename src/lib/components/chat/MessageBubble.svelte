@@ -175,6 +175,16 @@ let showForkDetails = $state(false);
 // ADR-0043: the audit-info popover is hover-driven on desktop; on touch
 // devices (no hover) a tap on the info button toggles it open.
 let infoPopoverTouched = $state(false);
+// Workspaces Slice E — the Info popover's "Project files" row opens the
+// Sources panel, which lives under the message rather than inside the popover.
+// Holding the popover open would put it over the panel it just revealed, and on
+// desktop the reveal is CSS hover, so a one-off close would be undone by the
+// pointer still resting on this container: the close has to be a state that
+// outlives the click, and it is released on pointer leave or the next tap.
+let infoForcedClosed = $state(false);
+// The external-open request handed to MessageEvidenceDetails: a counter, so
+// each click on the row is one open rather than a level the panel re-applies.
+let sourcesExpandRequest = $state(0);
 let dedupedFileProductionJobs = $derived(
 	fileProductionJobs.reduce(
 		(acc, job) => {
@@ -669,8 +679,43 @@ function toggleTimestampTooltip(e: MouseEvent) {
 // audit-info popover. On desktop the hover/focus-within CSS still drives the
 // popover; this handler is a no-op there.
 function toggleInfoPopoverOnTouch() {
+	// Any deliberate interaction with the info button releases a forced close:
+	// the row's job is done, and the reader is asking for the popover again.
+	infoForcedClosed = false;
 	if (!isTouchDevice()) return;
 	infoPopoverTouched = !infoPopoverTouched;
+}
+
+/**
+ * Workspaces Slice E — the "Project files" row in the Info popover points at
+ * the Sources panel below the message. Clicking it opens that panel and closes
+ * the popover: it is a way to get there, not a report to read while the panel
+ * opens underneath.
+ */
+function openSourcesFromInfo() {
+	infoForcedClosed = true;
+	sourcesExpandRequest += 1;
+}
+
+/**
+ * Leaving the info container ends a forced close, so the next hover or tap is
+ * a fresh request to see the popover.
+ *
+ * An action rather than an `onpointerleave` attribute: the container is a
+ * plain layout wrapper with no role, and a pointer handler on a static <div>
+ * is an a11y diagnostic — the handler is about pointer geometry, not about the
+ * element being interactive.
+ */
+function releaseInfoForcedClose(node: HTMLElement) {
+	const handleLeave = () => {
+		infoForcedClosed = false;
+	};
+	node.addEventListener("pointerleave", handleLeave);
+	return {
+		destroy() {
+			node.removeEventListener("pointerleave", handleLeave);
+		},
+	};
 }
 
 function getVisibleReasoningDepthProfile(
@@ -1087,6 +1132,7 @@ function sendFollowUp(question: string) {
 				<MessageEvidenceDetails
 					evidenceSummary={message.evidenceSummary}
 					onOpenDocument={onOpenDocument}
+					expandRequest={sourcesExpandRequest}
 				/>
 			{:else if showEvidencePending}
 				<div class="evidence-pending">{$t('messageBubble.evidenceLoading')}</div>
@@ -1158,7 +1204,7 @@ function sendFollowUp(question: string) {
 			class:justify-start={!isUser}
 		>
 			{#if !isUser && hasResponseAuditInfo}
-				<div class="info-container">
+				<div class="info-container" use:releaseInfoForcedClose>
 					<button
 						type="button"
 						class="btn-icon-bare action-icon-btn info-button"
@@ -1174,11 +1220,13 @@ function sendFollowUp(question: string) {
 						class="info-popover"
 						data-open={infoPopoverTouched ? "true" : "false"}
 						class:info-popover-open={infoPopoverTouched}
+						class:info-popover-forced-closed={infoForcedClosed}
 					>
 					<ResponseAuditDetails
 						{message}
 						modelIconUrl={messageModelIconUrl}
 						atlasCostUsdMicros={atlasJobCostUsdMicros}
+						onOpenSources={openSourcesFromInfo}
 					/>
 					</div>
 				</div>
@@ -1828,6 +1876,21 @@ function sendFollowUp(question: string) {
 		visibility: visible;
 		transform: translateY(0);
 		pointer-events: auto;
+	}
+
+	/* Workspaces Slice E — the "Project files" row points at the Sources panel
+	 * BELOW this popover, so clicking it closes Info. Declared after the hover
+	 * and tap-toggle rules (same specificity, later wins) because the pointer
+	 * is still inside the container — and on touch the tap-toggle class is
+	 * still set — when the row is pressed; a rule that only beat one of them
+	 * would leave the popover covering the panel it just opened. Cleared on
+	 * pointer-leave and on the Info button's own tap, so it is a state, not a
+	 * one-shot: the next deliberate open works. */
+	.info-popover.info-popover-forced-closed {
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY(4px);
+		pointer-events: none;
 	}
 
 	.tooltip-content {

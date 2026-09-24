@@ -123,3 +123,88 @@ describe("ResponseAuditDetails instruction provenance row", () => {
 		expect(tokens[0]).toHaveAttribute("data-kind", "project");
 	});
 });
+
+describe("ResponseAuditDetails project files row", () => {
+	function projectFilesRow() {
+		// Pinned as a literal, not read back out of the dictionary: the label the
+		// owner approved is "Project files", and a test that recomputes it from
+		// the same dictionary it is checking would agree with any rewording.
+		return screen.queryByText("Project files")?.closest(".audit-row") ?? null;
+	}
+
+	function renderWithFiles(count: number | undefined) {
+		render(ResponseAuditDetails, {
+			message: buildMessage({ projectFilesRead: count }),
+			onOpenSources: () => undefined,
+		});
+	}
+
+	it("shows no Project files row in the Info popover when the count is zero", () => {
+		renderWithFiles(undefined);
+
+		// A row that says "0 read" would be a row about nothing, and the popover
+		// is a glance. Nothing to say means no row.
+		expect(projectFilesRow()).toBeNull();
+
+		cleanup();
+		renderWithFiles(0);
+		expect(projectFilesRow()).toBeNull();
+	});
+
+	it("shows the count and the Sources hint when files were read", () => {
+		renderWithFiles(2);
+
+		const row = projectFilesRow();
+		expect(row).not.toBeNull();
+		expect(row).toHaveTextContent("2 read · see Sources ↓");
+
+		// One file is not "1 read(s)": the singular is its own string, because
+		// the row is read at a glance and a bracketed plural is not one.
+		cleanup();
+		renderWithFiles(1);
+		expect(projectFilesRow()).toHaveTextContent("1 read · see Sources ↓");
+
+		cleanup();
+		renderWithFiles(5);
+		expect(projectFilesRow()).toHaveTextContent("5 read · see Sources ↓");
+	});
+
+	it("never puts a file name in the Info row", () => {
+		render(ResponseAuditDetails, {
+			message: buildMessage({
+				projectFilesRead: 1,
+				evidenceSummary: {
+					structuredWebSearch: false,
+					groups: [
+						{
+							sourceType: "document",
+							label: "Documents",
+							reranked: false,
+							items: [
+								{
+									id: "evidence-1",
+									title: "Wien itinerary.md",
+									sourceType: "document",
+									status: "selected",
+									artifactId: "artifact-project",
+									metadata: {
+										projectId: "project-1",
+										projectName: "Vienna trip",
+									},
+								},
+							],
+						},
+					],
+				},
+			}),
+			onOpenSources: () => undefined,
+		});
+
+		// The panel is a glance and can be on a shared screen: the file names
+		// live in Sources, where the user can open them. The row says how many,
+		// and the hint says where to look — never the names themselves.
+		expect(screen.queryByText(/Wien itinerary/)).toBeNull();
+		expect(screen.queryByText(/\.md/)).toBeNull();
+		expect(projectFilesRow()).toHaveTextContent("1 read · see Sources ↓");
+	});
+});

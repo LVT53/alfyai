@@ -474,4 +474,72 @@ describe("buildAssistantEvidenceSummary", () => {
 			memoryGroup?.items.some((item) => item.id.startsWith("memory-fact:")),
 		).toBe(false);
 	});
+
+	// Workspaces Slice E — a document that reached the turn *because the
+	// project knows it* says so, as a token on its own evidence row. The
+	// Sources panel is where a file's name may be read; the token is what ties
+	// that row back to the project whose file it is. A document the project
+	// does not know stays untouched — the same turn, the same panel, no token.
+	it("stamps the project token on evidence items that came from the project", async () => {
+		const summary = await buildAssistantEvidenceSummary({
+			userId: "user-1",
+			message: "what time does the museum open?",
+			taskState: null,
+			contextDebug: {
+				activeTaskId: null,
+				activeTaskObjective: null,
+				taskLocked: false,
+				routingStage: "deterministic",
+				routingConfidence: 0,
+				verificationStatus: "skipped",
+				selectedEvidence: [
+					{
+						artifactId: "artifact-project",
+						name: "Wien itinerary.md",
+						artifactType: "normalized_document",
+						sourceType: "document",
+						role: "selected",
+						origin: "system",
+						confidence: 0.8,
+						reason: "deterministic selection",
+					},
+					{
+						artifactId: "artifact-library",
+						name: "Packing list.md",
+						artifactType: "normalized_document",
+						sourceType: "document",
+						role: "selected",
+						origin: "system",
+						confidence: 0.7,
+						reason: "control-model selection",
+					},
+				],
+				selectedEvidenceBySource: [{ sourceType: "document", count: 2 }],
+			},
+			projectFiles: {
+				projectId: "project-1",
+				projectName: "Vienna trip",
+				artifactIds: new Set(["artifact-project"]),
+			},
+		});
+
+		const documentGroup = summary?.groups.find(
+			(group) => group.sourceType === "document",
+		);
+		const projectItem = documentGroup?.items.find(
+			(item) => item.artifactId === "artifact-project",
+		);
+		expect(projectItem?.metadata).toEqual({
+			projectId: "project-1",
+			projectName: "Vienna trip",
+		});
+		// The reason/description the row already carried survives the stamp —
+		// the token is added, never a replacement for what explains the row.
+		expect(projectItem?.description).toBe("deterministic selection");
+
+		const libraryItem = documentGroup?.items.find(
+			(item) => item.artifactId === "artifact-library",
+		);
+		expect(libraryItem?.metadata).toBeUndefined();
+	});
 });

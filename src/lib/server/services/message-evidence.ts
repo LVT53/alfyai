@@ -319,6 +319,7 @@ async function buildArtifactGroups(params: {
 	userId?: string;
 	contextDebug: ContextDebugState | null | undefined;
 	currentAttachments: ArtifactSummary[] | undefined;
+	projectFiles?: ProjectFilesEvidenceContext | null;
 }): Promise<MessageEvidenceGroup[]> {
 	const selectedEvidence = params.contextDebug?.selectedEvidence ?? [];
 	const currentAttachments = params.currentAttachments ?? [];
@@ -349,6 +350,21 @@ async function buildArtifactGroups(params: {
 		EvidenceSourceType,
 		Map<string, MessageEvidenceItem>
 	>();
+
+	// The project's links, as a set: an item whose artifact is one of them is a
+	// project file, and says so. `message-evidence` never reads the link table
+	// itself — the caller resolved the ids through the knowledge boundary — so
+	// this stays a comparison against ids the turn was handed.
+	const projectFileIds = params.projectFiles?.artifactIds;
+	const projectStampFor = (
+		artifactId: string | null | undefined,
+	): MessageEvidenceItem["metadata"] | undefined => {
+		if (!artifactId || !projectFileIds?.has(artifactId)) return undefined;
+		return {
+			projectId: params.projectFiles?.projectId ?? "",
+			projectName: params.projectFiles?.projectName ?? "",
+		};
+	};
 
 	const upsertItem = (item: MessageEvidenceItem) => {
 		const byCanonical =
@@ -383,6 +399,13 @@ async function buildArtifactGroups(params: {
 				existing.currentTurnAttachment && item.currentTurnAttachment,
 			),
 			channels: mergeChannels(existing.channels, item.channels),
+			// Merged, not replaced: the memory rows already carry their own
+			// metadata (a `memoryItemId` for tap-to-correct), and the project
+			// token must survive a row being folded into another.
+			metadata:
+				existing.metadata || item.metadata
+					? { ...(existing.metadata ?? {}), ...(item.metadata ?? {}) }
+					: undefined,
 		});
 	};
 
@@ -403,6 +426,7 @@ async function buildArtifactGroups(params: {
 				: "Included automatically for this turn.",
 			currentTurnAttachment: true,
 			channels,
+			metadata: projectStampFor(attachment.id),
 		});
 		if (artifact && !familyKeys.has(artifact.id)) {
 			familyKeys.set(artifact.id, canonicalId);
@@ -436,6 +460,7 @@ async function buildArtifactGroups(params: {
 			description: evidence.reason,
 			currentTurnAttachment: false,
 			channels: baseChannels,
+			metadata: projectStampFor(evidence.artifactId),
 		});
 	}
 
@@ -685,6 +710,12 @@ export async function buildAssistantEvidenceSummary(params: {
 	// sources count as "used" vs "also found"). Empty/omitted => reranker
 	// fallback classification.
 	citedCanonicalWebUrls?: Set<string>;
+	// Workspaces Slice E — the conversation's project and the ids of the files
+	// it knows, when the conversation is in a project. Only used to mark the
+	// documents that reached this turn *because the project knows them* (the
+	// Sources token) and to count them (the Info popover's row); a turn outside
+	// a project is unchanged.
+	projectFiles?: ProjectFilesEvidenceContext | null;
 }): Promise<MessageEvidenceSummary | null> {
 	const toolCalls = params.toolCalls ?? [];
 	const completedToolCalls = toolCalls.filter((tool) => tool.status === "done");
@@ -693,6 +724,7 @@ export async function buildAssistantEvidenceSummary(params: {
 			userId: params.userId,
 			contextDebug: params.contextDebug,
 			currentAttachments: params.currentAttachments,
+			projectFiles: params.projectFiles,
 		})),
 		buildMemoryGroup({
 			contextStatus: params.contextStatus,
@@ -736,6 +768,42 @@ export async function buildAssistantEvidenceSummary(params: {
 // a new home next to the message-evidence service that owns them.
 
 export type EvidenceSourceType = "web" | "document" | "memory" | "tool";
+
+/**
+ * Workspaces Slice E — the conversation's project, for evidence purposes: the
+ * project's identity (what the Sources token is drawn from) and the ids of the
+ * files it knows. `artifactIds` is the project's link table read through the
+ * knowledge boundary; the evidence service never queries it itself.
+ */
+export interface ProjectFilesEvidenceContext {
+	projectId: string;
+	projectName: string;
+	artifactIds: Set<string>;
+}
+
+/**
+ * How many of the project's files actually reached this turn: the size of the
+ * intersection of the turn's selected evidence with the project's links — the
+ * same two sets `buildArtifactGroups` builds its document rows from, so the
+ * Info popover's number and the Sources rows tell one story. Attachments are
+ * not counted: those were handed to the turn by the user, not read because the
+ * project knows them.
+ */
+export function countProjectFilesRead(params: {
+	contextDebug: ContextDebugState | null | undefined;
+	projectFiles?: ProjectFilesEvidenceContext | null;
+}): number {
+	const projectFileIds = params.projectFiles?.artifactIds;
+	if (!projectFileIds || projectFileIds.size === 0) return 0;
+	const selected = params.contextDebug?.selectedEvidence ?? [];
+	const read = new Set<string>();
+	for (const evidence of selected) {
+		if (projectFileIds.has(evidence.artifactId)) {
+			read.add(evidence.artifactId);
+		}
+	}
+	return read.size;
+}
 
 export type MessageEvidenceStatus = "selected" | "rejected" | "reference";
 
