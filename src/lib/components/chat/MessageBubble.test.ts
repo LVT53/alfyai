@@ -1954,6 +1954,67 @@ describe("MessageBubble", () => {
 		expect(popover.className).not.toContain("info-popover-forced-closed");
 	});
 
+	it("keeps the forced-close rule after the hover reveal in the stylesheet", () => {
+		// The press that closes Info has to beat the hover that would otherwise
+		// reopen it under the pointer, and the two selectors weigh the same:
+		// `.info-container:hover .info-popover` and
+		// `.info-container .info-popover.info-popover-forced-closed` are three
+		// class-level items each, so the LATER rule is the one that wins. Moving
+		// the forced-close block above the `@media (hover: hover)` block would
+		// silently restore the bug its comment describes — the popover staying up
+		// over the Sources panel it had just opened — and nothing else in this
+		// suite would notice, because the class is still on the element either
+		// way. This test is what notices.
+		const source = readFileSync(
+			`${process.cwd()}/src/lib/components/chat/MessageBubble.svelte`,
+			"utf-8",
+		);
+
+		// Located as RULES (a selector opening a block at the start of its own
+		// line), not as text: the forced-close comment quotes the hover selector
+		// on the way past, and a plain `indexOf` finds the quote — which would
+		// let the rules be swapped in either direction with the test none the
+		// wiser.
+		const hoverSelector = ".info-container:hover .info-popover";
+		const forcedClosedSelector =
+			".info-container .info-popover.info-popover-forced-closed";
+		const hoverAt = source.search(
+			/\n\t+\.info-container:hover \.info-popover,/,
+		);
+		const forcedClosedAt = source.search(
+			/\n\t+\.info-container \.info-popover\.info-popover-forced-closed \{/,
+		);
+		expect(hoverAt, "the hover reveal rule must exist").toBeGreaterThan(-1);
+		expect(forcedClosedAt, "the forced-close rule must exist").toBeGreaterThan(
+			-1,
+		);
+		expect(
+			forcedClosedAt,
+			"the forced-close rule must come after the hover rule, or hover wins",
+		).toBeGreaterThan(hoverAt);
+
+		// Class-level weight (classes and pseudo-classes both count). The
+		// forced-close rule may be made stronger, but never weaker: weaker would
+		// lose to `info-popover-open` on touch as well as to hover.
+		const weight = (selector: string) => (selector.match(/[.:]/g) ?? []).length;
+		expect(weight(forcedClosedSelector)).toBeGreaterThanOrEqual(
+			weight(hoverSelector),
+		);
+
+		// And it has to still be a close. `!important` anywhere would be a
+		// second, hidden order: a reorder could then pass this test while
+		// quietly changing which rule is in charge.
+		expect(source).not.toContain("!important");
+		const forcedClosedRule =
+			source.match(
+				/\n\t+\.info-container \.info-popover\.info-popover-forced-closed \{([\s\S]*?)\n\t+\}/,
+			)?.[1] ?? "";
+		expect(forcedClosedRule).not.toBe("");
+		expect(forcedClosedRule).toMatch(/opacity:\s*0/);
+		expect(forcedClosedRule).toMatch(/visibility:\s*hidden/);
+		expect(forcedClosedRule).toMatch(/pointer-events:\s*none/);
+	});
+
 	it("renders styled hover tooltip labels for message action icons", () => {
 		const assistantMessage: ChatMessage = {
 			id: "assistant-tooltip-actions",
