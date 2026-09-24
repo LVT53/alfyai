@@ -40,7 +40,7 @@ describe("home suggestion events drop migration", () => {
 	let workDir: string;
 
 	beforeAll(() => {
-		workDir = mkdtempSync(join(tmpdir(), "alfyai-drop-home-suggestions-"));
+		workDir = mkdtempSync(join(tmpdir(), "alfyai-drop-events-"));
 	});
 
 	afterAll(() => {
