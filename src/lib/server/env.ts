@@ -132,6 +132,11 @@ interface Config {
 	owntracksRecorderPass: string;
 	parallelApiKey: string;
 	parallelBaseUrl: string;
+	// Parallel's list price is free to users while the whole server's spend for
+	// the current calendar month is at or below this many US dollars. Zero is a
+	// real value — "charge everything, never free" — and a fraction is allowed,
+	// because the allowance is a dollar amount rather than a call count.
+	parallelFreeMonthlyUsd: number;
 	// On-box OpenRouteService (ORS) v2 API base URL for the map_route tool
 	// (e.g. http://127.0.0.1:8080/ors). Admin config only — the user never
 	// supplies this. Empty => the routing tool degrades to "unavailable" and is
@@ -357,6 +362,19 @@ function parsePositiveIntegerEnv(
 		minimum,
 		Number.isNaN(parsed) || parsed <= 0 ? fallback : parsed,
 	);
+}
+
+// For settings where 0 is a real value and a fraction is meaningful. A
+// negative or unparseable value falls back to the default rather than being
+// clamped to 0, which would silently turn "misconfigured" into "charge
+// everything". The admin-config registry is the real gate for stored
+// overrides; this only guards a hand-edited environment.
+function parseNonNegativeNumberEnv(
+	value: string | undefined,
+	fallback: number,
+): number {
+	const parsed = Number.parseFloat(value ?? "");
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 /**
@@ -812,6 +830,10 @@ function readConfig(): Config {
 		owntracksRecorderPass: process.env.OWNTRACKS_RECORDER_PASS || "",
 		parallelApiKey: process.env.PARALLEL_API_KEY || "",
 		parallelBaseUrl: process.env.PARALLEL_BASE_URL || "https://api.parallel.ai",
+		parallelFreeMonthlyUsd: parseNonNegativeNumberEnv(
+			process.env.PARALLEL_FREE_MONTHLY_USD,
+			5,
+		),
 		orsBaseUrl: process.env.ORS_BASE_URL || "",
 		geocoderBaseUrl: process.env.GEOCODER_BASE_URL || "",
 		orsCoverageLabel: process.env.ORS_COVERAGE_LABEL || "",

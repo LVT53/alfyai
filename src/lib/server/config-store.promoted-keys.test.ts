@@ -25,6 +25,9 @@ const PROMOTED = [
 	"NORMAL_CHAT_DEBUG_OUTBOUND",
 	"CONCURRENT_STREAM_LIMIT",
 	"PER_USER_STREAM_LIMIT",
+	// Changes billing behaviour, so an admin has to be able to move it without
+	// a redeploy and a restart.
+	"PARALLEL_FREE_MONTHLY_USD",
 ] as const;
 
 describe("promoted admin config keys", () => {
@@ -109,5 +112,29 @@ describe("promoted admin config keys", () => {
 		rows.length = 0;
 		await refreshConfig();
 		expect(getConfig().concurrentStreamLimit).toBe(3);
+	});
+
+	it("reads a fractional Parallel free allowance as written", async () => {
+		rows.push({ key: "PARALLEL_FREE_MONTHLY_USD", value: "2.5" });
+
+		const { getParallelFreeMonthlyUsd, refreshConfig } = await import(
+			"./config-store"
+		);
+		await refreshConfig();
+
+		expect(getParallelFreeMonthlyUsd()).toBe(2.5);
+	});
+
+	it("reads an override of 0 as zero, not as unset", async () => {
+		// The override appliers treat `undefined` as "no override"; 0 must
+		// survive that check or an admin could not switch the allowance off.
+		rows.push({ key: "PARALLEL_FREE_MONTHLY_USD", value: "0" });
+
+		const { getParallelFreeMonthlyUsd, refreshConfig } = await import(
+			"./config-store"
+		);
+		await refreshConfig();
+
+		expect(getParallelFreeMonthlyUsd()).toBe(0);
 	});
 });

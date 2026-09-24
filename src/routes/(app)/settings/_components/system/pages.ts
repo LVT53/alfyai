@@ -73,6 +73,7 @@ const NAMED_PAGE_KEYS: Partial<Record<SystemPageId, string[]>> = {
 	],
 	integrations: [
 		"PARALLEL_API_KEY",
+		"PARALLEL_FREE_MONTHLY_USD",
 		"BRAVE_SEARCH_API_KEY",
 		"MINERU_API_URL",
 		"MINERU_API_KEY",

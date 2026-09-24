@@ -132,7 +132,8 @@ function specFor(key: string): AdminConfigKeySpec {
 }
 
 function unitKeyFor(spec: AdminConfigKeySpec): I18nKey | null {
-	return spec.control.kind === "int" && spec.control.unit
+	const kind = spec.control.kind;
+	return (kind === "int" || kind === "number") && spec.control.unit
 		? (`admin.system.unit.${spec.control.unit}` as I18nKey)
 		: null;
 }
@@ -236,7 +237,7 @@ function unitKeyFor(spec: AdminConfigKeySpec): I18nKey | null {
 								<option value={option}>{option}</option>
 							{/each}
 						</select>
-					{:else if spec.control.kind === 'int'}
+					{:else if spec.control.kind === 'int' || spec.control.kind === 'number'}
 						<ValueField
 							id={row.key}
 							type="number"

@@ -1673,6 +1673,10 @@ const settingsDict = {
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.label": "Summarizer endpoint",
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.meaning":
 			"Where long context is compacted. Falls back to the title endpoint.",
+		"admin.system.keys.PARALLEL_FREE_MONTHLY_USD.label":
+			"Parallel free monthly allowance",
+		"admin.system.keys.PARALLEL_FREE_MONTHLY_USD.meaning":
+			"Parallel calls are free to users until the whole server passes this amount in a calendar month.",
 		"admin.system.keys.MINERU_API_URL.label": "MinerU endpoint",
 		"admin.system.keys.MINERU_API_URL.meaning":
 			"Where uploaded documents are parsed. Must be reachable from this server.",
@@ -3621,6 +3625,10 @@ const settingsDict = {
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.label": "Összefoglaló végpont",
 		"admin.system.keys.CONTEXT_SUMMARIZER_URL.meaning":
 			"Itt tömörödik a hosszú kontextus. Alapból a címgeneráló végpontra esik vissza.",
+		"admin.system.keys.PARALLEL_FREE_MONTHLY_USD.label":
+			"Parallel ingyenes havi keret",
+		"admin.system.keys.PARALLEL_FREE_MONTHLY_USD.meaning":
+			"A Parallel hívások addig ingyenesek a felhasználóknak, amíg a szerver egésze egy naptári hónapban meg nem haladja ezt az összeget.",
 		"admin.system.keys.MINERU_API_URL.label": "MinerU végpont",
 		"admin.system.keys.MINERU_API_URL.meaning":
 			"Itt elemződnek a feltöltött dokumentumok. Elérhetőnek kell lennie erről a szerverről.",

@@ -92,6 +92,7 @@ export const ADMIN_CONFIG_KEYS = [
 	"OWNTRACKS_RECORDER_PASS",
 	"PARALLEL_API_KEY",
 	"PARALLEL_BASE_URL",
+	"PARALLEL_FREE_MONTHLY_USD",
 	"ORS_BASE_URL",
 	"GEOCODER_BASE_URL",
 	"ORS_COVERAGE_LABEL",
@@ -286,6 +287,7 @@ export interface RuntimeConfig {
 	owntracksRecorderPass: string;
 	parallelApiKey: string;
 	parallelBaseUrl: string;
+	parallelFreeMonthlyUsd: number;
 	orsBaseUrl: string;
 	geocoderBaseUrl: string;
 	orsCoverageLabel: string;
@@ -376,6 +378,15 @@ type OverrideApplier = (config: RuntimeConfig, value: string) => void;
 function parseIntOverride(value: string): number | undefined {
 	const parsed = parseInt(value, 10);
 	return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+// Unlike parseIntOverride, "0" is a real value here and a fraction is allowed,
+// so the only rejected inputs are the ones no allowance can mean: NaN and
+// negatives. Anything else is returned as the admin typed it.
+function parseFloatOverride(value: string | undefined): number | undefined {
+	if (value === undefined) return undefined;
+	const parsed = Number.parseFloat(value);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function normalizeReasoningEffortOverride(
@@ -871,6 +882,10 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	PARALLEL_BASE_URL: (config, value) => {
 		config.parallelBaseUrl = value.trim() || "https://api.parallel.ai";
+	},
+	PARALLEL_FREE_MONTHLY_USD: (config, value) => {
+		const parsed = parseFloatOverride(value);
+		if (parsed !== undefined) config.parallelFreeMonthlyUsd = parsed;
 	},
 	ORS_BASE_URL: (config, value) => {
 		config.orsBaseUrl = value.trim();
@@ -1405,6 +1420,17 @@ export function getAtlasStaleMonths(): number {
 }
 
 /**
+ * Admin-configurable. Non-secret. Zero means "charge every Parallel call" and
+ * a fraction is allowed: the allowance is a dollar amount, so 2.5 is a real
+ * setting and must not be rounded into a different allowance than the admin
+ * entered. The USD → micros conversion happens once, at the call site that
+ * books a call, so the billing rule itself stays integer-only.
+ */
+export function getParallelFreeMonthlyUsd(): number {
+	return runtimeConfig.parallelFreeMonthlyUsd;
+}
+
+/**
  * ADR 0063: the model configured for each Atlas v3 task. A `null` entry means
  * the task inherits ATLAS_SYNTHESIS_MODEL or ATLAS_AUDIT_MODEL; the inheritance
  * itself lives in `atlas-v3/config.ts` so the choice of which key a task falls
@@ -1628,6 +1654,7 @@ export function getResolvedAdminConfigValues(
 		OWNTRACKS_RECORDER_PASS: config.owntracksRecorderPass ? "[set]" : "",
 		PARALLEL_API_KEY: config.parallelApiKey,
 		PARALLEL_BASE_URL: config.parallelBaseUrl,
+		PARALLEL_FREE_MONTHLY_USD: String(config.parallelFreeMonthlyUsd),
 		ORS_BASE_URL: config.orsBaseUrl,
 		GEOCODER_BASE_URL: config.geocoderBaseUrl,
 		ORS_COVERAGE_LABEL: config.orsCoverageLabel,
