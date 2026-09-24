@@ -237,10 +237,13 @@ export function applyTextPatches(
 export const PATCHES_WITH_OWN_CONTENT_ERROR =
 	"Send either the full content or patches, not both: patches change the previous version of the file, while content, markdown, text, documentSource and program replace it entirely. Resend this call with only one of them.";
 
-export function normalizeProduceFileInput(
-	input: ProduceFileInput,
-):
-	| { ok: true; input: NormalizedProduceFileInput }
+export function normalizeProduceFileInput(input: ProduceFileInput):
+	| {
+			ok: true;
+			input: NormalizedProduceFileInput;
+			/** Content-changing repairs the model should hear about. */
+			warnings?: string[];
+	  }
 	| { ok: false; error: string } {
 	const requestTitle =
 		input.requestTitle?.trim() ||
@@ -357,12 +360,22 @@ export function normalizeProduceFileInput(
 					"documentSource must contain substantive content when sourceMode is document_source",
 			};
 		}
-		const documentSource = input.documentSource
-			? normalizeDocumentSourceEnvelope(input.documentSource, requestTitle)
-			: buildDocumentSourceFromText({
-					title: requestTitle,
-					text: content ?? "",
-				});
+		let documentSource: Record<string, unknown>;
+		let warnings: string[] = [];
+		if (input.documentSource) {
+			const envelope = normalizeDocumentSourceEnvelope(
+				input.documentSource,
+				requestTitle,
+			);
+			if (!envelope.ok) return envelope;
+			documentSource = envelope.documentSource;
+			warnings = envelope.warnings;
+		} else {
+			documentSource = buildDocumentSourceFromText({
+				title: requestTitle,
+				text: content ?? "",
+			});
+		}
 		if (!hasSubstantiveDocumentSource(documentSource)) {
 			return {
 				ok: false,
@@ -381,6 +394,7 @@ export function normalizeProduceFileInput(
 				templateHint: input.templateHint,
 				documentSource,
 			},
+			...(warnings.length > 0 ? { warnings } : {}),
 		};
 	}
 
@@ -527,27 +541,141 @@ function normalizePatches(
 	return result.length > 0 ? result : undefined;
 }
 
+/**
+ * A model-facing refusal raised while repairing one documentSource block. The
+ * envelope turns it into `{ ok: false, error }`, which the tool reports as
+ * `invalid_tool_input` — so the message must say which block and what to send
+ * instead.
+ */
+class DocumentSourceInputError extends Error {}
+
+/** Keys a model uses for the document body when it does not send `blocks`. */
+const DOCUMENT_BODY_ALIAS_KEYS = [
+	"markdown",
+	"content",
+	"text",
+	"sections",
+] as const;
+
+const MISSING_BLOCKS_HINT =
+	'documentSource needs "blocks": an array such as [{"type":"heading","level":2,"text":"Findings"},{"type":"paragraph","text":"..."}]. Alternatively send the whole document as "markdown".';
+
+function blocksFromDocumentBody(
+	value: unknown,
+): Array<Record<string, unknown>> | null {
+	if (typeof value === "string") {
+		const blocks = markdownishTextToBlocks(value);
+		return blocks.length > 0 ? blocks : null;
+	}
+	if (Array.isArray(value)) {
+		const blocks = value.flatMap((item): Array<Record<string, unknown>> => {
+			if (typeof item === "string") return markdownishTextToBlocks(item);
+			return isRecord(item) ? [item] : [];
+		});
+		return blocks.length > 0 ? blocks : null;
+	}
+	return null;
+}
+
+function blocksFromSections(
+	value: unknown,
+): Array<Record<string, unknown>> | null {
+	if (!Array.isArray(value)) return null;
+	const blocks: Array<Record<string, unknown>> = [];
+	for (const section of value) {
+		if (typeof section === "string") {
+			blocks.push(...markdownishTextToBlocks(section));
+			continue;
+		}
+		if (!isRecord(section)) continue;
+		const heading =
+			cleanString(section.heading) ??
+			cleanString(section.title) ??
+			cleanString(section.name);
+		if (heading) {
+			const level = Number(section.level);
+			blocks.push({
+				type: "heading",
+				level: Number.isFinite(level) ? clampHeadingLevel(level) : 2,
+				text: heading,
+			});
+		}
+		const body =
+			blocksFromDocumentBody(section.blocks) ??
+			blocksFromDocumentBody(section.content) ??
+			blocksFromDocumentBody(section.markdown) ??
+			blocksFromDocumentBody(section.text) ??
+			blocksFromDocumentBody(section.body);
+		if (body) blocks.push(...body);
+	}
+	return blocks.length > 0 ? blocks : null;
+}
+
+/**
+ * The blocks the model meant, from `blocks` or — when it sent the body under
+ * another name — from `markdown`, `content` (a string is Markdown, an array
+ * is blocks), `text` or `sections`. Null when there is nothing to build a
+ * document from: the caller refuses rather than render a placeholder, which
+ * used to ship a one-line "Generated file request: <title>" PDF as a success.
+ */
+function resolveDocumentSourceBlocks(
+	documentSource: Record<string, unknown>,
+): Array<Record<string, unknown>> | null {
+	if (
+		Array.isArray(documentSource.blocks) &&
+		documentSource.blocks.length > 0
+	) {
+		return documentSource.blocks as Array<Record<string, unknown>>;
+	}
+	return (
+		blocksFromDocumentBody(documentSource.markdown) ??
+		blocksFromDocumentBody(documentSource.content) ??
+		blocksFromDocumentBody(documentSource.text) ??
+		blocksFromSections(documentSource.sections)
+	);
+}
+
 function normalizeDocumentSourceEnvelope(
 	documentSource: Record<string, unknown>,
 	requestTitle: string,
-): Record<string, unknown> {
-	const blocksSource =
-		Array.isArray(documentSource.blocks) && documentSource.blocks.length > 0
-			? documentSource.blocks
-			: [
-					{
-						type: "paragraph",
-						text: `Generated file request: ${requestTitle}`,
-					},
-				];
+):
+	| {
+			ok: true;
+			documentSource: Record<string, unknown>;
+			/** Repairs that changed content, e.g. dropped table cells. */
+			warnings: string[];
+	  }
+	| { ok: false; error: string } {
+	const blocksSource = resolveDocumentSourceBlocks(documentSource);
+	if (!blocksSource) {
+		const keys = Object.keys(documentSource);
+		return {
+			ok: false,
+			error: `${MISSING_BLOCKS_HINT} Received keys: ${keys.length > 0 ? keys.join(", ") : "(none)"}.`,
+		};
+	}
 	const explicitTitle =
 		typeof documentSource.title === "string" &&
 		documentSource.title.trim().length > 0
 			? documentSource.title.trim()
 			: null;
-	const repaired = dedupeAdjacentCharts(
-		blocksSource.flatMap(repairDocumentSourceBlock),
-	);
+	const warnings: string[] = [];
+	let repaired: Record<string, unknown>[];
+	try {
+		repaired = dedupeAdjacentCharts(
+			blocksSource.flatMap((block, index) =>
+				repairDocumentSourceBlock(block, { index, warnings }),
+			),
+		);
+	} catch (error) {
+		if (error instanceof DocumentSourceInputError) {
+			return { ok: false, error: error.message };
+		}
+		throw error;
+	}
+	if (repaired.length === 0) {
+		return { ok: false, error: MISSING_BLOCKS_HINT };
+	}
 	// The report template already prints the document title; a leading H1 that
 	// repeats it (or the request title) would render the title twice. When the
 	// model gave no title at all, the leading H1 IS the title.
@@ -566,12 +694,20 @@ function normalizeDocumentSourceEnvelope(
 		(titleKey(leadingH1) === titleKey(title) ||
 			titleKey(leadingH1) === titleKey(requestTitle));
 	const blocks = dropLeadingH1 ? repaired.slice(1) : repaired;
+	// The body aliases were turned into `blocks`; carrying them on as well
+	// would store the document twice in the persisted request.
+	const envelope = { ...documentSource };
+	for (const key of DOCUMENT_BODY_ALIAS_KEYS) delete envelope[key];
 	return {
-		...documentSource,
-		version: 1,
-		template: "alfyai_standard_report",
-		title,
-		blocks,
+		ok: true,
+		documentSource: {
+			...envelope,
+			version: 1,
+			template: "alfyai_standard_report",
+			title,
+			blocks,
+		},
+		warnings,
 	};
 }
 
@@ -661,11 +797,21 @@ function titleKey(value: string): string {
 // — reconstructing the structure the model clearly intended instead of letting
 // it render as a run-on paragraph. Non-paragraph blocks (and paragraphs with
 // nothing to repair) pass through untouched.
-function repairDocumentSourceBlock(raw: unknown): Record<string, unknown>[] {
+/** Where a block sits in what the model sent, and where repairs that change
+ * its content (rather than only its shape) report it. */
+type BlockRepairContext = { index: number; warnings: string[] };
+
+function repairDocumentSourceBlock(
+	raw: unknown,
+	ctx: BlockRepairContext,
+): Record<string, unknown>[] {
 	if (!isRecord(raw)) return [raw as Record<string, unknown>];
 	const block = coerceDocumentBlockShape(raw);
-	if (block.type === "table") return repairTableBlock(block);
-	if (block.type === "chart") return [fillChartBlockDefaults(block)];
+	if (!block) return [];
+	if (block.type === "table") {
+		return repairTableBlock(repairTableCells(block, ctx));
+	}
+	if (block.type === "chart") return [fillChartBlockDefaults(block, ctx)];
 	if (block.type === "code") return repairCodeBlock(block);
 	if (block.type !== "paragraph" || typeof block.text !== "string")
 		return [block];
@@ -1362,8 +1508,17 @@ function chartJsFenceToBlock(body: string): Record<string, unknown> | null {
 		typeof config.type === "string" ? config.type.toLowerCase() : "";
 	const title = chartConfigTitle(config);
 	const mapped = CHART_JS_TYPE_MAP[chartJsType];
+	// None of the mapped types draws more than one series, and the schema
+	// refuses a chart that carries several. A fence is prose the model wrote
+	// inside Markdown, so rather than fail the whole document the data is kept
+	// whole as a table — every dataset becomes a column.
+	const datasetCount = Array.isArray(config.data.datasets)
+		? config.data.datasets.filter(
+				(dataset) => isRecord(dataset) && Array.isArray(dataset.data),
+			).length
+		: 0;
 
-	if (mapped) {
+	if (mapped && datasetCount <= 1) {
 		const resolvedTitle = title ?? "Chart";
 		return {
 			type: "chart",
@@ -1466,10 +1621,18 @@ const NESTED_BLOCK_KEYS = [
 	"paragraph",
 ] as const;
 
-// Models drop `type`, invent aliases ("h2", "bullets", "bar_chart"), or nest
-// the block under its own name ({ "chart": { ... } }). Recover the intended
+// Models drop `type`, invent aliases ("h2", "bullets", "bar_chart"), nest
+// the block under its own name ({ "chart": { ... } }), or name its fields the
+// way another format does (`content`, `ordered`, `src`). Recover the intended
 // block instead of failing the whole document with unsupported_document_block.
+// Null means the block carries nothing and is dropped (an empty paragraph).
 function coerceDocumentBlockShape(
+	block: Record<string, unknown>,
+): Record<string, unknown> | null {
+	return normalizeDocumentBlockFields(coerceDocumentBlockType(block));
+}
+
+function coerceDocumentBlockType(
 	block: Record<string, unknown>,
 ): Record<string, unknown> {
 	if (typeof block.type === "string" && KNOWN_BLOCK_TYPES.has(block.type)) {
@@ -1478,7 +1641,7 @@ function coerceDocumentBlockShape(
 	const keys = Object.keys(block).filter((key) => key !== "type");
 	for (const key of NESTED_BLOCK_KEYS) {
 		if (keys.length === 1 && keys[0] === key && isRecord(block[key])) {
-			return coerceDocumentBlockShape({
+			return coerceDocumentBlockType({
 				type: key,
 				...(block[key] as Record<string, unknown>),
 			});
@@ -1543,6 +1706,14 @@ function coerceDocumentBlockShape(
 		case "code_block":
 		case "pre":
 			return { ...block, type: "code" };
+		// There is no diagram block: the source survives as a mermaid code
+		// block, which a reader can still paste into a Mermaid viewer — a
+		// paragraph would run the graph together into one line of prose.
+		case "mermaid":
+		case "diagram":
+		case "flowchart":
+		case "mermaid_diagram":
+			return { ...block, type: "code", language: "mermaid" };
 		case "blockquote":
 			return { ...block, type: "quote" };
 		default:
@@ -1567,7 +1738,208 @@ function coerceDocumentBlockShape(
 		if (typeof block.tone === "string") return { ...block, type: "callout" };
 		return { ...block, type: "paragraph" };
 	}
+	if (typeof block.code === "string") return { ...block, type: "code" };
+	if (typeof block.content === "string") {
+		return { ...block, type: "paragraph" };
+	}
 	return block;
+}
+
+/** Blocks whose body is `text`, and the names models use for it instead. */
+const TEXT_BEARING_BLOCK_TYPES = new Set([
+	"heading",
+	"paragraph",
+	"code",
+	"quote",
+	"callout",
+]);
+const TEXT_ALIAS_KEYS = ["content", "code", "body"] as const;
+
+const NUMBERED_LIST_STYLES = new Set([
+	"numbered",
+	"ordered",
+	"number",
+	"decimal",
+	"ol",
+]);
+const BULLET_LIST_STYLES = new Set([
+	"bullet",
+	"bullets",
+	"unordered",
+	"disc",
+	"ul",
+]);
+
+function headingLevelFrom(value: unknown): number | null {
+	if (typeof value === "number" && Number.isFinite(value)) return value;
+	if (typeof value === "string") {
+		const match = /^h?\s*(\d)$/i.exec(value.trim());
+		if (match) return Number(match[1]);
+	}
+	return null;
+}
+
+function listItemText(item: unknown): string | null {
+	if (typeof item === "string") return item;
+	if (typeof item === "number" || typeof item === "boolean") {
+		return String(item);
+	}
+	if (!isRecord(item)) return null;
+	for (const key of ["text", "content", "label", "title", "value"]) {
+		const value = item[key];
+		if (typeof value === "string" && value.trim()) return value;
+	}
+	return null;
+}
+
+function normalizeDocumentBlockFields(
+	block: Record<string, unknown>,
+): Record<string, unknown> | null {
+	const type = typeof block.type === "string" ? block.type : "";
+	let next = block;
+	if (TEXT_BEARING_BLOCK_TYPES.has(type) && typeof block.text !== "string") {
+		const alias = TEXT_ALIAS_KEYS.map((key) => block[key]).find(
+			(value): value is string => typeof value === "string",
+		);
+		if (alias !== undefined) next = { ...next, text: alias };
+	}
+	switch (type) {
+		case "paragraph":
+			return typeof next.text === "string" && next.text.trim() ? next : null;
+		case "heading": {
+			const level = headingLevelFrom(next.level);
+			return level === null
+				? next
+				: { ...next, level: clampHeadingLevel(level) };
+		}
+		case "list": {
+			const style =
+				typeof next.style === "string" ? next.style.trim().toLowerCase() : "";
+			const numbered =
+				next.ordered === true ||
+				NUMBERED_LIST_STYLES.has(style) ||
+				next.listType === "numbered" ||
+				next.listType === "ordered";
+			const items = Array.isArray(next.items)
+				? next.items
+						.map(listItemText)
+						.filter((item): item is string => item !== null)
+				: next.items;
+			return {
+				...next,
+				...(numbered
+					? { style: "numbered" }
+					: BULLET_LIST_STYLES.has(style)
+						? { style: "bullet" }
+						: {}),
+				items,
+			};
+		}
+		case "image": {
+			if (isRecord(next.source)) return withImageAltText(next);
+			const url =
+				cleanString(next.url) ??
+				cleanString(next.src) ??
+				cleanString(next.imageUrl) ??
+				cleanString(next.source);
+			return withImageAltText(
+				url ? { ...next, source: { kind: "https", url } } : next,
+			);
+		}
+		default:
+			return next;
+	}
+}
+
+function withImageAltText(
+	block: Record<string, unknown>,
+): Record<string, unknown> {
+	if (cleanString(block.altText)) return block;
+	const altText =
+		cleanString(block.alt) ??
+		cleanString(block.caption) ??
+		cleanString(block.title);
+	return altText ? { ...block, altText } : block;
+}
+
+/** A table cell the schema accepts: text, number, boolean or null. */
+function tableCellScalar(value: unknown): string | number | boolean | null {
+	if (
+		value === null ||
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	) {
+		return value;
+	}
+	if (value === undefined) return null;
+	if (Array.isArray(value)) {
+		return value
+			.map(tableCellScalar)
+			.filter((cell) => cell !== null)
+			.join(", ");
+	}
+	if (isRecord(value)) {
+		for (const key of ["text", "value", "content", "label", "title"]) {
+			const cell = value[key];
+			if (
+				typeof cell === "string" ||
+				typeof cell === "number" ||
+				typeof cell === "boolean"
+			) {
+				return cell;
+			}
+		}
+	}
+	return JSON.stringify(value);
+}
+
+/**
+ * Cells a model wrote as objects ({text}, {value}) become scalars; array rows
+ * are fitted to the column count — a short row is padded, and a long one is
+ * cut to the columns with a warning, because those cells had no column to be
+ * shown under and dropping them silently would lose data unannounced.
+ */
+function repairTableCells(
+	block: Record<string, unknown>,
+	ctx: BlockRepairContext,
+): Record<string, unknown> {
+	if (!Array.isArray(block.rows)) return block;
+	const columns = Array.isArray(block.columns)
+		? block.columns
+		: Array.isArray(block.headers)
+			? block.headers
+			: null;
+	const columnCount = columns?.length ?? 0;
+	let truncatedRows = 0;
+	const rows = block.rows.map((row) => {
+		if (Array.isArray(row)) {
+			const cells = row.map(tableCellScalar);
+			if (columnCount === 0) return cells;
+			if (cells.length > columnCount) {
+				truncatedRows += 1;
+				return cells.slice(0, columnCount);
+			}
+			return cells.length < columnCount
+				? [...cells, ...Array(columnCount - cells.length).fill(null)]
+				: cells;
+		}
+		if (isRecord(row)) {
+			return Object.fromEntries(
+				Object.entries(row).map(([key, value]) => [
+					key,
+					tableCellScalar(value),
+				]),
+			);
+		}
+		return row;
+	});
+	if (truncatedRows > 0) {
+		ctx.warnings.push(
+			`Block ${ctx.index + 1} (table): ${truncatedRows} row(s) had more cells than the ${columnCount} columns; the extra cells were dropped.`,
+		);
+	}
+	return { ...block, rows };
 }
 
 const CHART_TYPE_ALIASES: Record<string, string> = {
@@ -1588,11 +1960,48 @@ function cleanString(value: unknown): string | null {
 	return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/** The deepest heading the renderers draw. */
+const MAX_DOCUMENT_HEADING_LEVEL = 3;
+
+function clampHeadingLevel(level: number): number {
+	return Math.min(MAX_DOCUMENT_HEADING_LEVEL, Math.max(1, Math.round(level)));
+}
+
+/**
+ * `{labels, values}` (under `data` or on the block itself) and
+ * `[[label, value], ...]` pairs, as label/value rows. Null for any other
+ * shape, which the caller handles as before.
+ */
+function chartRowsFromShorthand(
+	block: Record<string, unknown>,
+): Array<{ label: string; value: unknown }> | null {
+	const source = isRecord(block.data) ? block.data : block;
+	if (Array.isArray(source.labels) && Array.isArray(source.values)) {
+		const values = source.values;
+		return source.labels.map((label, index) => ({
+			label: String(label ?? ""),
+			value: values[index] ?? null,
+		}));
+	}
+	if (
+		Array.isArray(block.data) &&
+		block.data.length > 0 &&
+		block.data.every((row) => Array.isArray(row) && row.length === 2)
+	) {
+		return (block.data as unknown[][]).map(([label, value]) => ({
+			label: String(label ?? ""),
+			value: value ?? null,
+		}));
+	}
+	return null;
+}
+
 // The schema insists on title, caption, altText, units and the axis keys.
 // A model that just wrote {chartType, title, data:[{label,value}]} clearly
 // meant a chart; fill the boilerplate instead of rejecting the document.
 function fillChartBlockDefaults(
 	block: Record<string, unknown>,
+	ctx: BlockRepairContext,
 ): Record<string, unknown> {
 	const rawType =
 		typeof block.chartType === "string"
@@ -1605,12 +2014,22 @@ function fillChartBlockDefaults(
 	const isPie = chartType === "pie" || chartType === "donut";
 	const chartJsForm =
 		isRecord(block.data) && Array.isArray(block.data.datasets);
-	const rows = Array.isArray(block.data) ? block.data.filter(isRecord) : [];
+	const shorthandRows = chartJsForm ? null : chartRowsFromShorthand(block);
+	const rows: Record<string, unknown>[] = shorthandRows
+		? shorthandRows
+		: Array.isArray(block.data)
+			? block.data.filter(isRecord)
+			: [];
 
-	let labelKey = cleanString(block.labelKey) ?? cleanString(block.xKey);
-	let valueKey = cleanString(block.valueKey) ?? cleanString(block.yKey);
+	let labelKey = shorthandRows
+		? "label"
+		: (cleanString(block.labelKey) ?? cleanString(block.xKey));
+	let valueKey = shorthandRows
+		? "value"
+		: (cleanString(block.valueKey) ?? cleanString(block.yKey));
+	const seriesKey = cleanString(block.seriesKey);
 	let units = cleanString(block.units);
-	let data: unknown = block.data;
+	let data: unknown = shorthandRows ?? block.data;
 
 	if (!chartJsForm && rows.length > 0) {
 		const keys = Object.keys(rows[0]);
@@ -1619,7 +2038,52 @@ function fillChartBlockDefaults(
 		);
 		const textKeys = keys.filter((key) => !numericKeys.includes(key));
 		if (!labelKey || !keys.includes(labelKey)) labelKey = textKeys[0] ?? null;
-		if (!valueKey || !keys.includes(valueKey)) {
+		const valueKeyNamed = Boolean(valueKey && keys.includes(valueKey));
+		// Wide rows — {region, q2, q3} — are several series. Picking the first
+		// numeric column, as this used to, dropped every other series without a
+		// word. Only stackedBar draws more than one, so it gets the long form
+		// the renderer reads; any other type is refused with the fix spelled
+		// out. A model that named its `yKey` chose one series on purpose.
+		const seriesColumns = numericKeys.filter((key) => key !== labelKey);
+		if (
+			!valueKeyNamed &&
+			!seriesKey &&
+			labelKey &&
+			chartType !== "scatter" &&
+			seriesColumns.length > 1
+		) {
+			if (chartType !== "stackedBar") {
+				throw new DocumentSourceInputError(
+					`Block ${ctx.index + 1} (chart): the data has ${seriesColumns.length} series (${seriesColumns.join(", ")}) but a ${chartType} chart draws only one. Use chartType "stackedBar" to show them together, send one chart per series, or name the one to plot in "yKey".`,
+				);
+			}
+			const resolvedLabelKey = labelKey;
+			const longRows = rows.flatMap((row) =>
+				seriesColumns.map((key) => {
+					const parsed = parseNumericCell(row[key]);
+					if (!units && parsed?.units) units = parsed.units;
+					return {
+						label: String(row[resolvedLabelKey] ?? ""),
+						series: key,
+						value: parsed?.value ?? null,
+					};
+				}),
+			);
+			return {
+				...block,
+				type: "chart",
+				chartType,
+				title,
+				caption: cleanString(block.caption) ?? title,
+				altText: cleanString(block.altText) ?? `${title} (${chartType} chart).`,
+				units: units ?? "value",
+				xKey: "label",
+				yKey: "value",
+				seriesKey: "series",
+				data: longRows,
+			};
+		}
+		if (!valueKeyNamed) {
 			valueKey = numericKeys.find((key) => key !== labelKey) ?? null;
 		}
 		if (valueKey) {
@@ -1917,7 +2381,41 @@ export function buildScopedIdempotencyKey(params: {
 	return parts.join(":").slice(0, 160);
 }
 
+/**
+ * The key a same-turn REPLAY is allowed on: the artifact plus a hash of what
+ * it would contain. Only a byte-identical resend may be answered with the
+ * earlier verdict. Keyed on the artifact alone, a corrected resend — same
+ * title, same outputs, fixed content — was dropped and reported as the
+ * earlier success, so the user got the broken file while the model was told
+ * its fix had landed.
+ */
 export function buildSameTurnProduceFileDedupeKey(
+	input: NormalizedProduceFileInput,
+): string {
+	return stableStringify({
+		artifact: buildSameTurnProduceFileArtifactKey(input),
+		contentHash: shortHash({
+			documentSource: input.documentSource ?? null,
+			program: input.program
+				? {
+						language: input.program.language,
+						filename: input.program.filename ?? null,
+						sourceCode: input.program.sourceCode,
+					}
+				: null,
+			inlineText: input.inlineText ?? null,
+			patches: input.patches ?? null,
+		}),
+	});
+}
+
+/**
+ * Which requested artifact a call is about — title, outputs, mode and
+ * filename, deliberately NOT its content. The per-artifact submission cap
+ * counts on this key, so a model that keeps "correcting" one file cannot
+ * reset the cap by changing the content each time.
+ */
+export function buildSameTurnProduceFileArtifactKey(
 	input: NormalizedProduceFileInput,
 ): string {
 	const requestedOutputs = input.requestedOutputs
@@ -2223,6 +2721,9 @@ export type ProduceFileModelPayload =
 				mimeType: string | null;
 				sizeBytes: number;
 			}>;
+			/** The file exists, but something about it the model should relay
+			 * (e.g. the program crashed after writing it). */
+			warnings?: string[];
 			reused?: boolean;
 	  }
 	| {
@@ -2266,8 +2767,12 @@ export function buildProduceFileSucceededPayload(params: {
 		mimeType: string | null;
 		sizeBytes: number;
 	}>;
+	warnings?: readonly string[];
 	reused?: boolean;
 }): ProduceFileModelPayload {
+	const warnings = (params.warnings ?? [])
+		.map((warning) => clipFileProductionErrorMessage(warning))
+		.filter(Boolean);
 	return {
 		ok: true,
 		status: "succeeded",
@@ -2277,8 +2782,27 @@ export function buildProduceFileSucceededPayload(params: {
 			mimeType: file.mimeType,
 			sizeBytes: file.sizeBytes,
 		})),
+		...(warnings.length > 0 ? { warnings } : {}),
 		...(params.reused ? { reused: true } : {}),
 	};
+}
+
+/**
+ * Adds warnings raised before the job ran (input repairs, intake fallbacks)
+ * to a SUCCEEDED verdict, after any the job itself reported. A running or
+ * failed verdict is left alone: its message is what the model must act on.
+ */
+export function withProduceFileWarnings(
+	payload: ProduceFileModelPayload,
+	warnings: readonly string[],
+): ProduceFileModelPayload {
+	if (payload.status !== "succeeded" || warnings.length === 0) return payload;
+	const merged = [...(payload.warnings ?? [])];
+	for (const warning of warnings) {
+		const clipped = clipFileProductionErrorMessage(warning);
+		if (clipped && !merged.includes(clipped)) merged.push(clipped);
+	}
+	return merged.length > 0 ? { ...payload, warnings: merged } : payload;
 }
 
 export function buildProduceFileRunningPayload(params: {
@@ -2336,9 +2860,12 @@ export function summarizeProduceFileResult(
 ): string {
 	if (payload.status === "succeeded") {
 		const names = payload.files.map((file) => file.filename).join(", ");
-		return names
+		const summary = names
 			? `File production job ${payload.jobId} succeeded: ${names}.`
 			: `File production job ${payload.jobId} succeeded.`;
+		return payload.warnings?.length
+			? `${summary} Warning: ${payload.warnings.join(" ")}`
+			: summary;
 	}
 	if (payload.status === "running") {
 		return `File production job ${payload.jobId} is still running; no file exists yet.`;

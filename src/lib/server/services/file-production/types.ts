@@ -9,6 +9,38 @@
 // chat-files.ts imports this pure, dependency-light type back from here.
 import type { WorkingDocumentFamilyStatus } from "$lib/server/services/knowledge/types";
 
+/**
+ * Where a SUCCEEDED attempt keeps its warnings: a key in
+ * `file_production_job_attempts.diagnostics_json`, written by the ledger when
+ * the attempt completes and read back by the read model as the job's
+ * `warnings`. Kept here, in the dependency-free contract module, so the
+ * writer and the reader cannot drift apart.
+ */
+export const FILE_PRODUCTION_ATTEMPT_WARNINGS_KEY = "warnings";
+
+export function parseFileProductionAttemptWarnings(
+	diagnosticsJson: string | null | undefined,
+): string[] {
+	if (!diagnosticsJson) return [];
+	try {
+		const parsed = JSON.parse(diagnosticsJson) as unknown;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return [];
+		}
+		const warnings = (parsed as Record<string, unknown>)[
+			FILE_PRODUCTION_ATTEMPT_WARNINGS_KEY
+		];
+		return Array.isArray(warnings)
+			? warnings.filter(
+					(warning): warning is string =>
+						typeof warning === "string" && warning.trim().length > 0,
+				)
+			: [];
+	} catch {
+		return [];
+	}
+}
+
 // Generated file from chat (AI-generated files)
 export interface ChatGeneratedFile {
 	id: string;

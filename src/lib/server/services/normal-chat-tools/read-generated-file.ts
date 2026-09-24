@@ -39,7 +39,10 @@ import { readMineruPageIndex } from "$lib/server/services/mineru/bundle";
 import { selectDocumentPassages } from "$lib/server/services/task-state/artifacts";
 import { parseJsonRecord } from "$lib/server/utils/json";
 import { getEntryByMimeType } from "$lib/shared/file-types";
-import { getExpectedExtensionForOutputType } from "$lib/shared/file-types/production";
+import {
+	getExpectedExtensionForOutputType,
+	isTextLikeExtension,
+} from "$lib/shared/file-types/production";
 import { type PageCountUnit, pageCountUnit } from "$lib/shared/page-count";
 import {
 	buildToolResultCacheKey,
@@ -237,6 +240,14 @@ const readGeneratedFileAdvertisedFields = {
 		.catch(undefined)
 		.describe(
 			"1-based page to start at, for a paged document. `query` and `from` take precedence.",
+		),
+	// Appended LAST so every cached prefix block before it stays intact.
+	part: z
+		.enum(["text", "source"])
+		.optional()
+		.catch(undefined)
+		.describe(
+			'"source": the program that built this file instead of its text, to edit and resend.',
 		),
 };
 
@@ -1440,6 +1451,14 @@ export interface GeneratedFilePatchBase {
 	 * filename it was produced under.
 	 */
 	filename: string | null;
+	/**
+	 * Set when the previous version is a BINARY file a program built (XLSX,
+	 * PPTX, ZIP, …). `text` is then that program — what
+	 * `read_generated_file` returns with `part: "source"` — because the
+	 * extracted sheet or slide text is not what produced the file, and a patch
+	 * of it could only ever write text into a binary container.
+	 */
+	programSource: GeneratedFileProgramSource | null;
 }
 
 /**
@@ -1592,6 +1611,20 @@ async function patchBaseFromFilename(params: {
 				minTier,
 			});
 			if (!chatFile) continue;
+			const programSource = isBinaryProducedFilename(chatFile.file.filename)
+				? await loadGeneratedFileProgramSource({
+						userId: params.userId,
+						chatFileId: chatFile.file.id,
+					})
+				: null;
+			if (programSource) {
+				return {
+					text: programSource.sourceCode,
+					documentSource: null,
+					filename: chatFile.file.filename,
+					programSource,
+				};
+			}
 			const { text } = await resolveChatFileText({
 				userId: params.userId,
 				file: chatFile.file,
@@ -1607,6 +1640,7 @@ async function patchBaseFromFilename(params: {
 					parseJsonRecord(chatFile.row?.metadataJson ?? null)
 						?.generatedDocumentSource ?? null,
 				filename: chatFile.file.filename,
+				programSource: null,
 			};
 		}
 	}
@@ -1741,7 +1775,12 @@ async function findPatchBaseByTitle(params: {
 		// The artifact of a document-source job is named after the DOCUMENT, not
 		// after the file that was produced, so this path names no filename and the
 		// caller keeps the name the request resolves to.
-		return { text, documentSource: documentSource ?? null, filename: null };
+		return {
+			text,
+			documentSource: documentSource ?? null,
+			filename: null,
+			programSource: null,
+		};
 	}
 
 	return null;
@@ -2131,6 +2170,13 @@ export interface ReadGeneratedFileResult {
 	/** Facts about the stored file, so a `textPending` answer is still useful. */
 	sizeBytes: number | null;
 	createdAt: string | null;
+	/** Set when the read asked for `part: "source"`. */
+	part: "source" | null;
+	/** The program behind the file, for a `part: "source"` read. */
+	programSource: (GeneratedFileProgramSource & { truncated: boolean }) | null;
+	/** A text read of a program-built binary: the program is the way to edit
+	 * it, and the model is told so. */
+	programSourceAvailable: boolean;
 }
 
 /** The word for each unit in the one-line tool summary. */
@@ -2173,6 +2219,9 @@ function emptyResult(
 		textPending: false,
 		sizeBytes: null,
 		createdAt: null,
+		part: null,
+		programSource: null,
+		programSourceAvailable: false,
 		...overrides,
 	};
 }
@@ -2278,6 +2327,8 @@ export async function readGeneratedFileContent(params: {
 	page?: number | null;
 	/** Scopes the per-turn cache; omit to bypass caching. */
 	turnId?: string | null;
+	/** `"source"` returns the program that built the file instead of its text. */
+	part?: "text" | "source" | null;
 }): Promise<ReadGeneratedFileResult> {
 	const from = normalizeFrom(params.from);
 	const query = normalizeQuery(params.query);
@@ -2325,6 +2376,7 @@ export async function readGeneratedFileContent(params: {
 					from,
 					query,
 					page: pageRequested ? requestedPage : null,
+					part: params.part === "source" ? "source" : null,
 					turnId: params.turnId,
 				},
 			})
@@ -2368,6 +2420,22 @@ export async function readGeneratedFileContent(params: {
 		displayName = toCandidate(row, conversation).filename;
 	}
 	const contentLength = resolvedContent?.length ?? 0;
+
+	// The program behind the file, read through the SAME target the text came
+	// from — so whatever ownership and incognito rules chose that target also
+	// decide whether its program can be shown.
+	const producedFileId = chatFile?.file.id ?? describedFile?.id ?? null;
+	const wantsSource = params.part === "source";
+	const producedFilename =
+		chatFile?.file.filename ?? describedFile?.filename ?? null;
+	const programSource =
+		producedFileId &&
+		(wantsSource || isBinaryProducedFilename(producedFilename))
+			? await loadGeneratedFileProgramSource({
+					userId: params.userId,
+					chatFileId: producedFileId,
+				})
+			: null;
 
 	const versionNumber = chatFile
 		? (metadata.versionNumber ?? chatFile.versionNumber)
@@ -2426,7 +2494,32 @@ export async function readGeneratedFileContent(params: {
 		sizeBytes: describedFile?.sizeBytes ?? row?.sizeBytes ?? null,
 		createdAt:
 			(describedFile?.createdAt ?? row?.createdAt)?.toISOString() ?? null,
+		part: null,
+		programSource: null,
+		programSourceAvailable: Boolean(programSource),
 	};
+
+	if (wantsSource) {
+		const sourceResult: ReadGeneratedFileResult = {
+			...base,
+			part: "source",
+			textPending: false,
+			programSourceAvailable: false,
+			programSource: programSource
+				? {
+						...programSource,
+						sourceCode: programSource.sourceCode.slice(
+							0,
+							MAX_PROGRAM_SOURCE_LENGTH,
+						),
+						truncated:
+							programSource.sourceCode.length > MAX_PROGRAM_SOURCE_LENGTH,
+					}
+				: null,
+		};
+		if (cacheKey) setCachedToolResult(cacheKey, sourceResult);
+		return sourceResult;
+	}
 
 	// The file exists; only its text does not, yet. Short-circuit before the
 	// window arithmetic so nothing has to invent an empty document.
@@ -2497,6 +2590,87 @@ export async function readGeneratedFileContent(params: {
 	return result;
 }
 
+// ── Program source ─────────────────────────────────────────────
+
+/** How much of a program a read hands back; a longer one is cut, and says so. */
+const MAX_PROGRAM_SOURCE_LENGTH = MAX_CONTENT_LENGTH;
+
+export interface GeneratedFileProgramSource {
+	language: "python" | "javascript";
+	filename: string | null;
+	sourceCode: string;
+}
+
+/**
+ * The program a program-mode File Production Job ran to produce this chat
+ * file, from the job's persisted request. Null for any other production mode
+ * (document source, inline text) and for a legacy file with no job.
+ *
+ * Scoped by `userId` in the WHERE, on top of the target resolution the caller
+ * has already done — never a filter applied after the row comes back.
+ */
+export async function loadGeneratedFileProgramSource(params: {
+	userId: string;
+	chatFileId: string;
+}): Promise<GeneratedFileProgramSource | null> {
+	const [row] = await db
+		.select({
+			sourceMode: fileProductionJobs.sourceMode,
+			requestJson: fileProductionJobs.requestJson,
+		})
+		.from(fileProductionJobFiles)
+		.innerJoin(
+			fileProductionJobs,
+			eq(fileProductionJobs.id, fileProductionJobFiles.jobId),
+		)
+		.where(
+			and(
+				eq(fileProductionJobFiles.chatGeneratedFileId, params.chatFileId),
+				eq(fileProductionJobs.userId, params.userId),
+			),
+		)
+		.limit(1);
+	if (!row) return null;
+	const request = parseJsonRecord(row.requestJson ?? null);
+	const mode = row.sourceMode ?? request?.sourceMode;
+	if (mode !== "program") return null;
+	const program = request?.program;
+	if (!program || typeof program !== "object" || Array.isArray(program)) {
+		return null;
+	}
+	const record = program as Record<string, unknown>;
+	const language =
+		record.language === "python" || record.language === "javascript"
+			? record.language
+			: null;
+	const sourceCode =
+		typeof record.sourceCode === "string" && record.sourceCode.trim()
+			? record.sourceCode
+			: null;
+	if (!language || !sourceCode) return null;
+	return {
+		language,
+		filename: typeof record.filename === "string" ? record.filename : null,
+		sourceCode,
+	};
+}
+
+/** A binary file (XLSX, PPTX, ZIP, …): its extracted text is not what built
+ * it, so an edit has to go through the program. */
+function isBinaryProducedFilename(
+	filename: string | null | undefined,
+): boolean {
+	const extension = extname(filename ?? "").toLowerCase();
+	return Boolean(extension) && !isTextLikeExtension(extension);
+}
+
+const PROGRAM_SOURCE_NOTE =
+	"This is the program that built the file. To change the file, edit this program and resend it with produce_file (program, same filename), or send patches whose oldText is copied from this program.";
+const NO_PROGRAM_SOURCE_NOTE =
+	"This file was not built by a program, so there is no source to return. Read it without part, and edit it by resending its content or with patches on its text.";
+const PROGRAM_SOURCE_HINT =
+	'Built by a program: to edit it, call read_generated_file with part: "source" and change that program.';
+
 // ── Model payload ──────────────────────────────────────────────
 
 /**
@@ -2563,7 +2737,28 @@ export function buildReadGeneratedFileModelPayload(
 		summary: result.summary,
 		mimeType: result.mimeType,
 		contentLength: result.contentLength,
+		...(result.programSourceAvailable
+			? { sourceHint: PROGRAM_SOURCE_HINT }
+			: {}),
 	};
+
+	if (result.part === "source") {
+		const { contentLength: _textLength, ...sourceBase } = base;
+		if (!result.programSource) {
+			return {
+				...sourceBase,
+				programSource: null,
+				note: NO_PROGRAM_SOURCE_NOTE,
+			};
+		}
+		const { truncated, ...programSource } = result.programSource;
+		return {
+			...sourceBase,
+			programSource,
+			...(truncated ? { truncated: true } : {}),
+			note: PROGRAM_SOURCE_NOTE,
+		};
+	}
 
 	// The file is real, the text is not there yet. Saying "no matching file
 	// found" here is what made a model retract a true statement and produce the
@@ -2657,6 +2852,11 @@ export function summarizeReadGeneratedFileResult(
 	const origin =
 		result.conversation === "library" ? ", from an earlier conversation" : "";
 	const length = result.contentLength ? ` (${result.contentLength} chars)` : "";
+	if (result.part === "source") {
+		return result.programSource
+			? `Found "${label}"${version}${origin}: its ${result.programSource.language} program (${result.programSource.sourceCode.length} chars).`
+			: `Found "${label}"${version}${origin}; it was not built by a program.`;
+	}
 	if (result.textPending) {
 		const size = result.sizeBytes !== null ? `, ${result.sizeBytes} bytes` : "";
 		return `Found "${label}"${version}${origin}${size}; its text is still being extracted.`;
@@ -2700,6 +2900,9 @@ export function sanitizeReadGeneratedFileInput(
 	const page = normalizePage(input.page);
 	if (page !== null) {
 		safe.page = page;
+	}
+	if (input.part === "source") {
+		safe.part = "source";
 	}
 	return safe;
 }

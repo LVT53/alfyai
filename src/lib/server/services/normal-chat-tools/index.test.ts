@@ -663,6 +663,214 @@ describe("createNormalChatTools", () => {
 		expect(JSON.stringify(result)).not.toContain("requestJson");
 	});
 
+	it("reports a file kept after a failed program exit as produced, with the exit error as a warning", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({ id: "job-warned", status: "queued" }),
+		});
+		const warning =
+			"File produced; the program exited with an error after writing it: Error: self-check failed";
+		getConversationFileProductionJobMock.mockImplementation(
+			async ({ jobId }: { jobId: string }) =>
+				makeFileProductionJob({
+					id: jobId,
+					status: "succeeded",
+					files: [makeFileProductionJobFile({ filename: "budget.xlsx" })],
+					warnings: [warning],
+				}),
+		);
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.produce_file.execute(
+			{
+				requestTitle: "Budget",
+				outputType: "xlsx",
+				program: {
+					language: "javascript",
+					sourceCode: "/* writes budget.xlsx then self-checks */",
+					filename: "budget.xlsx",
+				},
+			},
+			{ toolCallId: "call-warned", messages: [] },
+		);
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: "succeeded",
+			jobId: "job-warned",
+			warnings: [warning],
+		});
+		expect(getToolCalls()[0]?.outputSummary).toContain(warning);
+	});
+
+	it("relays intake's output-type substitution with the succeeded verdict", async () => {
+		const warning =
+			'Output type "spreadsheet" is not supported, so the xlsx type of program.filename "budget.xlsx" was used instead.';
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({ id: "job-fallback", status: "queued" }),
+			warnings: [warning],
+		});
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.produce_file.execute(
+			{
+				requestTitle: "Budget",
+				requestedOutputs: [{ type: "spreadsheet" }],
+				program: {
+					language: "python",
+					sourceCode: "wb.save('/output/budget.xlsx')",
+					filename: "budget.xlsx",
+				},
+			},
+			{ toolCallId: "call-fallback", messages: [] },
+		);
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: "succeeded",
+			warnings: [warning],
+		});
+	});
+
+	it("tells the model when repairing its document dropped table cells", async () => {
+		submitFileProductionIntakeMock.mockResolvedValue({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({ id: "job-table", status: "queued" }),
+		});
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+
+		const result = await tools.produce_file.execute(
+			{
+				requestTitle: "Parts report",
+				outputType: "pdf",
+				documentSource: {
+					blocks: [
+						{
+							type: "table",
+							columns: ["Part", "Count"],
+							rows: [["Seal", 4, "stray"]],
+						},
+					],
+				},
+			},
+			{ toolCallId: "call-table", messages: [] },
+		);
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: "succeeded",
+			warnings: [
+				"Block 1 (table): 1 row(s) had more cells than the 2 columns; the extra cells were dropped.",
+			],
+		});
+	});
+
+	it("submits a same-turn corrected resend whose content differs instead of replaying the earlier success", async () => {
+		submitFileProductionIntakeMock
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 202,
+				reused: false,
+				job: makeFileProductionJob({
+					id: "job-first",
+					title: "Forced Tool Smoke",
+					status: "queued",
+				}),
+			})
+			.mockResolvedValueOnce({
+				ok: true,
+				status: 202,
+				reused: false,
+				job: makeFileProductionJob({
+					id: "job-corrected",
+					title: "Forced Tool Smoke",
+					status: "queued",
+				}),
+			});
+
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		const request = (text: string) => ({
+			requestTitle: "Forced Tool Smoke",
+			requestedOutputs: [{ type: "pdf" }],
+			sourceMode: "document_source" as const,
+			documentIntent: "report",
+			documentSource: { blocks: [{ type: "paragraph", text }] },
+		});
+		const first = await tools.produce_file.execute(request("First draft."), {
+			toolCallId: "call-first",
+			messages: [],
+		});
+		const second = await tools.produce_file.execute(
+			request("Corrected second draft."),
+			{ toolCallId: "call-second", messages: [] },
+		);
+
+		// The correction is a different file: it must reach intake, and its
+		// verdict is its own job's, never a replay of the first success.
+		expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(2);
+		expect(first).toMatchObject({ ok: true, jobId: "job-first" });
+		expect(second).toMatchObject({ ok: true, jobId: "job-corrected" });
+		expect(second).not.toHaveProperty("reused");
+		const secondBody = submitFileProductionIntakeMock.mock.calls[1]?.[0]
+			?.body as { documentSource?: { blocks?: Array<{ text?: string }> } };
+		expect(secondBody.documentSource?.blocks?.[0]?.text).toBe(
+			"Corrected second draft.",
+		);
+	});
+
+	it("still refuses a third same-turn submission of one artifact even when each resend changes the content", async () => {
+		submitFileProductionIntakeMock.mockImplementation(async () => ({
+			ok: true,
+			status: 202,
+			reused: false,
+			job: makeFileProductionJob({
+				id: `job-${submitFileProductionIntakeMock.mock.calls.length}`,
+				title: "Forced Tool Smoke",
+				status: "queued",
+			}),
+		}));
+		const { tools } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		for (const text of ["One.", "Two.", "Three."]) {
+			await tools.produce_file.execute(
+				{
+					requestTitle: "Forced Tool Smoke",
+					requestedOutputs: [{ type: "pdf" }],
+					sourceMode: "document_source",
+					documentSource: { blocks: [{ type: "paragraph", text }] },
+				},
+				{ toolCallId: `call-${text}`, messages: [] },
+			);
+		}
+		expect(submitFileProductionIntakeMock).toHaveBeenCalledTimes(2);
+	});
+
 	it("deduplicates repeated same-turn produce_file calls for the same requested artifact", async () => {
 		submitFileProductionIntakeMock.mockResolvedValue({
 			ok: true,
@@ -701,8 +909,9 @@ describe("createNormalChatTools", () => {
 				requestedOutputs: [{ type: "pdf" }],
 				sourceMode: "document_source",
 				documentIntent: "report",
+				// Byte-identical content: the only resend that may be replayed.
 				documentSource: {
-					blocks: [{ type: "paragraph", text: "Second duplicate draft." }],
+					blocks: [{ type: "paragraph", text: "First draft." }],
 				},
 			},
 			{
@@ -952,7 +1161,9 @@ describe("createNormalChatTools", () => {
 			sourceMode: "document_source",
 			documentSource: {
 				contentHash: expect.stringMatching(/^[a-f0-9]{12}$/),
-				topLevelKeyCount: 6,
+				// secret, version, template, title, blocks — `sections` became the
+				// blocks and is not carried twice.
+				topLevelKeyCount: 5,
 			},
 		});
 		expect(getToolCalls()[1]?.metadata).toMatchObject({

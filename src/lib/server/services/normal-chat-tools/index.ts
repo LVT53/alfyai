@@ -37,6 +37,7 @@ import {
 	selectTopDistinctSourceUrls,
 	summarizeGroundedWebResult,
 } from "$lib/server/services/web-grounding";
+import { isTextLikeExtension } from "$lib/shared/file-types/production";
 import {
 	calendarToolInputSchema,
 	runCalendarTool,
@@ -100,6 +101,7 @@ import {
 	buildProduceFileIntakeFailurePayload,
 	buildProduceFileRunningPayload,
 	buildProduceFileSucceededPayload,
+	buildSameTurnProduceFileArtifactKey,
 	buildSameTurnProduceFileDedupeKey,
 	buildScopedIdempotencyKey,
 	createProduceFileToolCallEntry,
@@ -118,6 +120,7 @@ import {
 	sanitizeProduceFileInput,
 	sanitizeUnsafeProduceFileInput,
 	summarizeProduceFileResult,
+	withProduceFileWarnings,
 } from "./produce-file";
 import {
 	buildReadGeneratedFileModelPayload,
@@ -508,6 +511,7 @@ async function resolveProduceFileVerdict(params: {
 		return buildProduceFileSucceededPayload({
 			jobId: verdict.job.id,
 			files: verdict.job.files,
+			warnings: verdict.job.warnings,
 			reused: params.reused,
 		});
 	}
@@ -533,7 +537,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	const lang = ctx.language ?? "en";
 	const i18n = TOOL_I18N[lang];
 	// Verdict (not intake receipt) of every produce_file call this turn, keyed
-	// by the requested artifact. A repeated identical call replays the verdict
+	// by the requested artifact AND its content. A repeated identical call replays the verdict
 	// instead of queueing a second job — but a FAILED verdict is deliberately
 	// not cached, because the model is expected to resubmit a corrected one.
 	const sameTurnProduceFileVerdicts = new Map<
@@ -1155,6 +1159,9 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						});
 					}
 					let normalizedInput = normalized.input;
+					// Repairs that changed what the model sent (e.g. table cells cut
+					// to the column count), reported with the verdict.
+					const inputWarnings = normalized.warnings ?? [];
 
 					// Resolve patches: if the model provided surgical edits instead of full content,
 					// fetch the previous version and apply patches to reconstruct the full file.
@@ -1201,107 +1208,155 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							return refuse({
 								input: sanitizeProduceFileInput(normalizedInput),
 								errorCode: "patch_failed",
-								message: patchResult.error,
+								message: previousContent.programSource
+									? `${patchResult.error} ${PROGRAM_PATCH_BASE_HINT}`
+									: patchResult.error,
 								intakeStatus: 422,
 							});
 						}
-						// Phase 6 D8, now for every mode. The patched bytes exist only
-						// here, after the previous version has been fetched, so the
-						// request is re-normalised as if the model had sent that text
-						// as `content`: the plain-text outputs become `inline_text`
-						// (same bytes, same types, no renderer and no sandbox — a
-						// patched `.md` used to start a Docker container to run a
-						// generated `write_text` one-liner), and the document outputs
-						// become a `document_source` built from the PATCHED Markdown.
-						//
-						// Re-normalising rather than hand-building the request is
-						// deliberate: filename resolution, the mixed-group refusal and
-						// the mode decision stay in ONE place, so a patched file can
-						// never be named — or produced — differently from the same
-						// file sent whole.
-						//
-						// The patched file is the NEXT VERSION of the file the base came
-						// from, so it keeps that file's name — never a fresh one derived
-						// from this turn's title, which would fork the artifact and leave
-						// the next patch resolving against a file nobody can see. When the
-						// request named no output type either, the base's own extension is
-						// the honest answer: a patch-only call defaults to `txt`, and
-						// writing `release-notes.txt` beside `release-notes.md` is the
-						// same fork.
-						const baseFilename = previousContent.filename;
-						const patched = normalizeProduceFileInput({
-							...parsedInput.data,
-							requestTitle: normalizedInput.requestTitle,
-							requestedOutputs:
-								!namedOutputType && baseFilename
-									? [
-											{
-												type:
-													outputTypeFromFilename(baseFilename) ??
-													normalizedInput.requestedOutputs[0].type,
-											},
-										]
-									: normalizedInput.requestedOutputs,
-							filename: baseFilename ?? parsedInput.data.filename,
-							content: patchResult.resolvedText,
-							markdown: undefined,
-							text: undefined,
-							patches: undefined,
-							sourceMode: undefined,
-							program: undefined,
-							documentSource: undefined,
-						});
-						// The text a patch is applied to is the text
-						// `read_generated_file` showed the model — for a
-						// document-source file, the rendered Markdown that its
-						// `oldText` was copied from. Producing a document from the
-						// result therefore means rebuilding the source from that
-						// Markdown, which a chart or an image does not survive: it
-						// would ship a report with the chart silently gone. Better a
-						// refusal the model can act on than a success that lost data.
-						const unpatchableBlock =
-							patched.ok && patched.input.sourceMode === "document_source"
-								? unpatchableDocumentBlockType(previousContent.documentSource)
-								: null;
-						if (unpatchableBlock) {
-							return refuse({
-								input: sanitizeProduceFileInput(normalizedInput),
-								errorCode: "patch_not_applicable",
-								message: `This document contains a ${unpatchableBlock} block, which cannot be rebuilt from the text you patched. Resend the full content (or documentSource) for this file instead of patches.`,
-								intakeStatus: 422,
-							});
-						}
-						if (
-							patched.ok &&
-							(patched.input.sourceMode === "inline_text" ||
-								patched.input.sourceMode === "document_source")
-						) {
-							normalizedInput = patched.input;
-						} else if (
-							normalizedInput.sourceMode === "program" &&
-							normalizedInput.program
-						) {
-							// A program is what runs, so the patched bytes go into the
-							// program that writes them — unchanged, including the
-							// fallback for a patch whose result the normaliser will not
-							// take as `content` (too short to look substantive).
-							normalizedInput.program.sourceCode = buildResolvedProgramSource(
-								normalizedInput.program.filename ?? "generated-file.txt",
-								patchResult.resolvedText,
-							);
+						if (previousContent.programSource) {
+							// The previous version is a binary a program built, and the
+							// patch base was that PROGRAM: the patched program is what
+							// runs, under the base file's name and type.
+							const baseFilename =
+								previousContent.programSource.filename ??
+								previousContent.filename ??
+								undefined;
+							normalizedInput = {
+								idempotencyKey: normalizedInput.idempotencyKey,
+								requestTitle: normalizedInput.requestTitle,
+								requestedOutputs: [
+									{
+										type:
+											outputTypeFromFilename(baseFilename) ??
+											normalizedInput.requestedOutputs[0].type,
+									},
+								],
+								sourceMode: "program",
+								documentIntent: normalizedInput.documentIntent,
+								templateHint: normalizedInput.templateHint,
+								program: {
+									language: previousContent.programSource.language,
+									sourceCode: patchResult.resolvedText,
+									...(baseFilename ? { filename: baseFilename } : {}),
+								},
+							};
 						} else {
-							// No mode can carry the patched text: refusing is the only
-							// honest answer, because shipping `normalizedInput` here
-							// would produce the file WITHOUT the patch and report
-							// success.
-							return refuse({
-								input: sanitizeProduceFileInput(normalizedInput),
-								errorCode: "patch_not_applicable",
-								message: `The patched file could not be produced as requested${
-									patched.ok ? "" : `: ${patched.error}`
-								}. Resend the full content for this file instead of patches.`,
-								intakeStatus: 422,
+							// Phase 6 D8, now for every mode. The patched bytes exist only
+							// here, after the previous version has been fetched, so the
+							// request is re-normalised as if the model had sent that text
+							// as `content`: the plain-text outputs become `inline_text`
+							// (same bytes, same types, no renderer and no sandbox — a
+							// patched `.md` used to start a Docker container to run a
+							// generated `write_text` one-liner), and the document outputs
+							// become a `document_source` built from the PATCHED Markdown.
+							//
+							// Re-normalising rather than hand-building the request is
+							// deliberate: filename resolution, the mixed-group refusal and
+							// the mode decision stay in ONE place, so a patched file can
+							// never be named — or produced — differently from the same
+							// file sent whole.
+							//
+							// The patched file is the NEXT VERSION of the file the base came
+							// from, so it keeps that file's name — never a fresh one derived
+							// from this turn's title, which would fork the artifact and leave
+							// the next patch resolving against a file nobody can see. When the
+							// request named no output type either, the base's own extension is
+							// the honest answer: a patch-only call defaults to `txt`, and
+							// writing `release-notes.txt` beside `release-notes.md` is the
+							// same fork.
+							const baseFilename = previousContent.filename;
+							const patched = normalizeProduceFileInput({
+								...parsedInput.data,
+								requestTitle: normalizedInput.requestTitle,
+								requestedOutputs:
+									!namedOutputType && baseFilename
+										? [
+												{
+													type:
+														outputTypeFromFilename(baseFilename) ??
+														normalizedInput.requestedOutputs[0].type,
+												},
+											]
+										: normalizedInput.requestedOutputs,
+								filename: baseFilename ?? parsedInput.data.filename,
+								content: patchResult.resolvedText,
+								markdown: undefined,
+								text: undefined,
+								patches: undefined,
+								sourceMode: undefined,
+								program: undefined,
+								documentSource: undefined,
 							});
+							// The text a patch is applied to is the text
+							// `read_generated_file` showed the model — for a
+							// document-source file, the rendered Markdown that its
+							// `oldText` was copied from. Producing a document from the
+							// result therefore means rebuilding the source from that
+							// Markdown, which a chart or an image does not survive: it
+							// would ship a report with the chart silently gone. Better a
+							// refusal the model can act on than a success that lost data.
+							const unpatchableBlock =
+								patched.ok && patched.input.sourceMode === "document_source"
+									? unpatchableDocumentBlockType(previousContent.documentSource)
+									: null;
+							if (unpatchableBlock) {
+								return refuse({
+									input: sanitizeProduceFileInput(normalizedInput),
+									errorCode: "patch_not_applicable",
+									message: `This document contains a ${unpatchableBlock} block, which cannot be rebuilt from the text you patched. Resend the full content (or documentSource) for this file instead of patches.`,
+									intakeStatus: 422,
+								});
+							}
+							if (
+								patched.ok &&
+								(patched.input.sourceMode === "inline_text" ||
+									patched.input.sourceMode === "document_source")
+							) {
+								normalizedInput = patched.input;
+							} else if (
+								normalizedInput.sourceMode === "program" &&
+								normalizedInput.program &&
+								isBinaryOutputFilename(normalizedInput.program.filename)
+							) {
+								// A workbook, deck or archive is not text: writing the
+								// patched text into it would ship a corrupt file (or fail
+								// output validation) under a success-shaped request. Only a
+								// stored program could carry the patch, and there is none.
+								const filename =
+									normalizedInput.program.filename ?? "the previous version";
+								return refuse({
+									input: sanitizeProduceFileInput(normalizedInput),
+									errorCode: "patch_not_applicable",
+									message: `"${filename}" is a binary ${outputTypeFromFilename(filename) ?? ""} file with no stored program to patch, so patched text cannot be written into it. Resend the whole file instead: for this type, a program that writes it into /output.`,
+									intakeStatus: 422,
+								});
+							} else if (
+								normalizedInput.sourceMode === "program" &&
+								normalizedInput.program
+							) {
+								// A program is what runs, so the patched bytes go into the
+								// program that writes them — unchanged, including the
+								// fallback for a patch whose result the normaliser will not
+								// take as `content` (too short to look substantive).
+								normalizedInput.program.sourceCode = buildResolvedProgramSource(
+									normalizedInput.program.filename ?? "generated-file.txt",
+									patchResult.resolvedText,
+								);
+							} else {
+								// No mode can carry the patched text: refusing is the only
+								// honest answer, because shipping `normalizedInput` here
+								// would produce the file WITHOUT the patch and report
+								// success.
+								return refuse({
+									input: sanitizeProduceFileInput(normalizedInput),
+									errorCode: "patch_not_applicable",
+									message: `The patched file could not be produced as requested${
+										patched.ok ? "" : `: ${patched.error}`
+									}. Resend the full content for this file instead of patches.`,
+									intakeStatus: 422,
+								});
+							}
 						}
 					}
 					const { patches: _patches, ...intakeNormalizedInput } =
@@ -1318,11 +1373,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 					};
 					const sameTurnDedupeKey =
 						buildSameTurnProduceFileDedupeKey(normalizedInput);
-					// Replay a non-failed verdict for the same artifact instead of
-					// queueing a second job. A FAILED verdict is not replayed: the
-					// whole point of reporting the failure was to let the model send
-					// a corrected request, which this key cannot tell apart from the
-					// broken one (it hashes title/outputs/mode/filename, not content).
+					const sameTurnArtifactKey =
+						buildSameTurnProduceFileArtifactKey(normalizedInput);
+					// Replay a non-failed verdict only for a byte-identical resend of
+					// the same artifact: the dedupe key carries a content hash, so a
+					// corrected resend (same title, fixed content) is a new job, not a
+					// replay of the earlier success. A FAILED verdict is never
+					// replayed either — reporting it is what invites the correction.
 					const sameTurnVerdict =
 						sameTurnProduceFileVerdicts.get(sameTurnDedupeKey);
 					if (sameTurnVerdict) {
@@ -1342,8 +1399,11 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						return payload;
 					}
 
+					// Counted per ARTIFACT, not per content: a correction changes the
+					// content, and keying the cap on it would let a model that cannot
+					// fix its program resubmit forever.
 					const submissionCount =
-						sameTurnProduceFileSubmissions.get(sameTurnDedupeKey) ?? 0;
+						sameTurnProduceFileSubmissions.get(sameTurnArtifactKey) ?? 0;
 					if (submissionCount >= MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS) {
 						return refuse({
 							input: safeInput,
@@ -1364,7 +1424,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						});
 					}
 					sameTurnProduceFileSubmissions.set(
-						sameTurnDedupeKey,
+						sameTurnArtifactKey,
 						submissionCount + 1,
 					);
 					totalProduceFileSubmissions += 1;
@@ -1389,17 +1449,25 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 							if (result.ok) {
 								submittedJob = result.job;
 							}
-							const modelPayload = result.ok
-								? await resolveProduceFileVerdict({
-										userId: ctx.userId,
-										conversationId: ctx.conversationId,
-										job: result.job,
-										reused: result.reused,
-										signal: abortSignal,
-										waitMs: ctx.fileProductionVerdictWaitMs,
-										pollIntervalMs: ctx.fileProductionVerdictPollIntervalMs,
-									})
-								: buildProduceFileIntakeFailurePayload(result);
+							const modelPayload = withProduceFileWarnings(
+								result.ok
+									? await resolveProduceFileVerdict({
+											userId: ctx.userId,
+											conversationId: ctx.conversationId,
+											job: result.job,
+											reused: result.reused,
+											signal: abortSignal,
+											waitMs: ctx.fileProductionVerdictWaitMs,
+											pollIntervalMs: ctx.fileProductionVerdictPollIntervalMs,
+										})
+									: buildProduceFileIntakeFailurePayload(result),
+								// Intake's own substitutions (e.g. an output type taken
+								// from program.filename) come after the input repairs.
+								[
+									...inputWarnings,
+									...(result.ok ? (result.warnings ?? []) : []),
+								],
+							);
 							if (modelPayload.ok) {
 								sameTurnProduceFileVerdicts.set(
 									sameTurnDedupeKey,
@@ -1571,6 +1639,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								from: parsedInput.data.from ?? null,
 								query: parsedInput.data.query ?? null,
 								page: parsedInput.data.page ?? null,
+								part: parsedInput.data.part ?? null,
 								turnId: ctx.turnId,
 							});
 							const modelPayload = buildReadGeneratedFileModelPayload(result);
@@ -2685,6 +2754,17 @@ function unpatchableDocumentBlockType(documentSource: unknown): string | null {
 		}
 	}
 	return null;
+}
+
+/** Added to a failed patch of a program-built file: the oldText has to come
+ * from the program, which the model may not have read yet. */
+const PROGRAM_PATCH_BASE_HINT =
+	'This file was built by a program, so patches apply to that program: call read_generated_file with part: "source" and copy oldText from it.';
+
+/** True for a filename whose type is not text (XLSX, PPTX, ZIP, …). */
+function isBinaryOutputFilename(filename: string | undefined): boolean {
+	const extension = outputTypeFromFilename(filename);
+	return Boolean(extension) && !isTextLikeExtension(`.${extension}`);
 }
 
 function buildResolvedProgramSource(filename: string, content: string): string {

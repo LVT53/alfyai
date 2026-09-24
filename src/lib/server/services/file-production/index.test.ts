@@ -660,6 +660,76 @@ describe("file production service", () => {
 		expect(wakeWorker).not.toHaveBeenCalled();
 	});
 
+	it("falls back to program.filename's type when the named type is unsupported, with a warning", async () => {
+		const { db } = await import("$lib/server/db");
+		const { submitFileProductionIntake } = await import("./index");
+		const wakeWorker = vi.fn();
+
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-fallback-output-type",
+				requestTitle: "Budget workbook",
+				sourceMode: "program",
+				requestedOutputs: [{ type: "spreadsheet" }],
+				program: {
+					language: "python",
+					sourceCode:
+						"from openpyxl import Workbook\nWorkbook().save('/output/budget.xlsx')",
+					filename: "budget.xlsx",
+				},
+			},
+			wakeWorker,
+			now: new Date("2026-05-03T19:31:26.700Z"),
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			status: 202,
+			warnings: [
+				'Output type "spreadsheet" is not supported, so the xlsx type of program.filename "budget.xlsx" was used instead.',
+			],
+		});
+		if (!result.ok) return;
+		const [row] = await db
+			.select({ requestJson: schema.fileProductionJobs.requestJson })
+			.from(schema.fileProductionJobs)
+			.where(eq(schema.fileProductionJobs.id, result.job.id));
+		expect(JSON.parse(row?.requestJson ?? "{}").outputs).toEqual([
+			{ type: "xlsx" },
+		]);
+		expect(wakeWorker).toHaveBeenCalled();
+	});
+
+	it("still refuses an unsupported type when program.filename names no supported type either", async () => {
+		const { submitFileProductionIntake } = await import("./index");
+		const result = await submitFileProductionIntake({
+			userId: "user-1",
+			body: {
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				idempotencyKey: "turn-1:intake-no-fallback-output-type",
+				requestTitle: "Chart image",
+				sourceMode: "program",
+				requestedOutputs: [{ type: "image" }],
+				program: {
+					language: "python",
+					sourceCode: "open('/output/chart.png','wb').write(b'')",
+					filename: "chart.png",
+				},
+			},
+			wakeWorker: vi.fn(),
+			now: new Date("2026-05-03T19:31:26.800Z"),
+		});
+		expect(result).toMatchObject({
+			ok: false,
+			status: 422,
+			code: "unsupported_program_output_type",
+		});
+	});
+
 	it("derives the program output type from program.filename when none is named", async () => {
 		const { db } = await import("$lib/server/db");
 		const { submitFileProductionIntake } = await import("./index");
@@ -784,14 +854,18 @@ describe("file production service", () => {
 			ok: false,
 			status: 422,
 			code: "unsupported_document_block",
-			error: "Generated document source contains an unsupported block.",
+			// Names the block and what to send instead, so the model can fix
+			// just that block.
+			error: expect.stringMatching(
+				/^Block 1 \(rawHtml\): unsupported block type\. Use one of: heading, paragraph,/,
+			),
 			job: {
 				conversationId: "conv-1",
 				title: "Unsafe report",
 				status: "failed",
 				error: {
 					code: "unsupported_document_block",
-					message: "Generated document source contains an unsupported block.",
+					message: expect.stringMatching(/^Block 1 \(rawHtml\): /),
 					retryable: false,
 				},
 			},
@@ -2592,6 +2666,171 @@ await workbook.xlsx.writeFile('/output/workbook.xlsx');
 		expect(links[0]).toMatchObject({
 			chatGeneratedFileId: "file-exceljs-workbook",
 			sortOrder: 0,
+		});
+	});
+
+	it("keeps a valid workbook written before the program exited non-zero, with the error as a warning", async () => {
+		const { db } = await import("$lib/server/db");
+		const {
+			createOrReuseFileProductionJob,
+			drainFileProductionWorker,
+			getConversationFileProductionJob,
+		} = await import("./index");
+		const workbookBuffer = await buildExcelJsSmokeWorkbook();
+		const created = await createOrReuseFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Self-checked workbook",
+			origin: "unified_produce",
+			idempotencyKey: "turn-1:self-checked-workbook",
+			sourceMode: "program",
+			documentIntent: "spreadsheet",
+			requestJson: {
+				sourceMode: "program",
+				program: {
+					language: "javascript",
+					sourceCode: "/* writes the workbook, then a self-check throws */",
+					filename: "workbook.xlsx",
+				},
+				outputs: [{ type: "xlsx" }],
+			},
+			now: new Date("2026-05-03T20:07:50.000Z"),
+		});
+		// The workbook is complete; the program's own verification step crashed
+		// AFTER writing it.
+		const executeCode = vi.fn(async () => ({
+			files: [
+				{
+					filename: "workbook.xlsx",
+					mimeType: XLSX_MIME_TYPE,
+					content: workbookBuffer,
+					sizeBytes: workbookBuffer.length,
+				},
+			],
+			stdout: "",
+			stderr:
+				"Error: self-check failed: expected 3 sheets, found 2\n    at verify (/tmp/program.js:40:9)",
+			exitCode: 1,
+			error:
+				"Execution failed with exit code 1: Error: self-check failed: expected 3 sheets, found 2",
+		}));
+		const storeGeneratedFile = vi.fn(async (_conversationId, _userId, file) => {
+			const now = new Date("2026-05-03T20:08:10.000Z");
+			await db.insert(schema.chatGeneratedFiles).values({
+				id: "file-self-checked",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				userId: "user-1",
+				filename: file.filename,
+				mimeType: file.mimeType,
+				sizeBytes: file.content.length,
+				storagePath: "conv-1/file-self-checked.xlsx",
+				createdAt: now,
+			});
+			return {
+				id: "file-self-checked",
+				conversationId: "conv-1",
+				assistantMessageId: "assistant-1",
+				artifactId: null,
+				userId: "user-1",
+				filename: file.filename,
+				mimeType: file.mimeType,
+				sizeBytes: file.content.length,
+				storagePath: "conv-1/file-self-checked.xlsx",
+				createdAt: now.getTime(),
+			};
+		});
+
+		await drainFileProductionWorker({
+			workerId: "worker-self-check",
+			executeCode,
+			storeGeneratedFile,
+			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
+			now: new Date("2026-05-03T20:08:00.000Z"),
+		});
+
+		const job = await getConversationFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			jobId: created.job.id,
+		});
+		expect(job).toMatchObject({
+			status: "succeeded",
+			error: null,
+			files: [expect.objectContaining({ filename: "workbook.xlsx" })],
+		});
+		expect(job?.warnings).toEqual([
+			expect.stringMatching(
+				/^File produced; the program exited with an error after writing it: .*self-check failed: expected 3 sheets, found 2/,
+			),
+		]);
+	});
+
+	it("still fails a non-zero program exit whose output does not satisfy the request", async () => {
+		const {
+			createOrReuseFileProductionJob,
+			drainFileProductionWorker,
+			getConversationFileProductionJob,
+		} = await import("./index");
+		const created = await createOrReuseFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			assistantMessageId: "assistant-1",
+			title: "Half-written workbook",
+			origin: "unified_produce",
+			idempotencyKey: "turn-1:half-written-workbook",
+			sourceMode: "program",
+			documentIntent: "spreadsheet",
+			requestJson: {
+				sourceMode: "program",
+				program: {
+					language: "python",
+					sourceCode: "raise SystemExit(1)",
+					filename: "workbook.xlsx",
+				},
+				outputs: [{ type: "xlsx" }],
+			},
+			now: new Date("2026-05-03T20:07:50.000Z"),
+		});
+		const truncated = Buffer.from("PK\u0003\u0004 not a whole workbook");
+		const executeCode = vi.fn(async () => ({
+			files: [
+				{
+					filename: "workbook.xlsx",
+					mimeType: XLSX_MIME_TYPE,
+					content: truncated,
+					sizeBytes: truncated.length,
+				},
+			],
+			stdout: "",
+			stderr: "Traceback: ValueError: bad row",
+			exitCode: 1,
+			error: "Execution failed with exit code 1: ValueError: bad row",
+		}));
+		const storeGeneratedFile = vi.fn();
+
+		await drainFileProductionWorker({
+			workerId: "worker-half-written",
+			executeCode,
+			storeGeneratedFile,
+			syncGeneratedFilesToMemory: vi.fn(async () => undefined),
+			now: new Date("2026-05-03T20:08:00.000Z"),
+		});
+
+		const job = await getConversationFileProductionJob({
+			userId: "user-1",
+			conversationId: "conv-1",
+			jobId: created.job.id,
+		});
+		expect(storeGeneratedFile).not.toHaveBeenCalled();
+		expect(job).toMatchObject({
+			status: "failed",
+			error: {
+				code: "program_execution_failed",
+				message: expect.stringContaining("ValueError: bad row"),
+			},
+			warnings: [],
 		});
 	});
 

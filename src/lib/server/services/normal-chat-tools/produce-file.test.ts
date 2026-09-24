@@ -6,6 +6,9 @@ import {
 	applyTextPatches,
 	buildNoPatchBaseMessage,
 	buildProduceFileRunningPayload,
+	buildSameTurnProduceFileArtifactKey,
+	buildSameTurnProduceFileDedupeKey,
+	buildScopedIdempotencyKey,
 	createProduceFileToolCallEntry,
 	isInlineTextRequest,
 	type NormalizedProduceFileInput,
@@ -1277,5 +1280,445 @@ describe("the refusal for a patch with no base", () => {
 		expect(buildNoPatchBaseMessage([])).toBe(
 			"No previous version of this file could be found. Use content, markdown, or text to create the initial version instead of patches.",
 		);
+	});
+});
+
+describe("same-turn dedupe and intake idempotency keys", () => {
+	const base = (text: string): NormalizedProduceFileInput => ({
+		requestTitle: "Quarterly report",
+		requestedOutputs: [{ type: "pdf" }],
+		sourceMode: "document_source",
+		documentSource: {
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Quarterly report",
+			blocks: [{ type: "paragraph", text }],
+		},
+	});
+	const program = (sourceCode: string): NormalizedProduceFileInput => ({
+		requestTitle: "Budget",
+		requestedOutputs: [{ type: "xlsx" }],
+		sourceMode: "program",
+		program: { language: "python", sourceCode, filename: "budget.xlsx" },
+	});
+
+	it("replays only a byte-identical resend of the same artifact", () => {
+		expect(buildSameTurnProduceFileDedupeKey(base("a"))).toBe(
+			buildSameTurnProduceFileDedupeKey(base("a")),
+		);
+		expect(buildSameTurnProduceFileDedupeKey(base("a"))).not.toBe(
+			buildSameTurnProduceFileDedupeKey(base("b")),
+		);
+		expect(buildSameTurnProduceFileDedupeKey(program("x = 1"))).not.toBe(
+			buildSameTurnProduceFileDedupeKey(program("x = 2")),
+		);
+	});
+
+	it("keeps one artifact key across content corrections, so the resubmission cap still holds", () => {
+		expect(buildSameTurnProduceFileArtifactKey(base("a"))).toBe(
+			buildSameTurnProduceFileArtifactKey(base("b")),
+		);
+		expect(buildSameTurnProduceFileArtifactKey(program("x = 1"))).toBe(
+			buildSameTurnProduceFileArtifactKey(program("x = 2")),
+		);
+	});
+
+	it("gives intake a different idempotency key when only the content changes", () => {
+		// Intake reuses an existing job on a key match, so a key blind to
+		// content would hand a corrected resend the broken job back.
+		const key = (input: NormalizedProduceFileInput) =>
+			buildScopedIdempotencyKey({ turnId: "turn-1", input });
+		expect(key(base("a"))).not.toBe(key(base("b")));
+		expect(key(program("x = 1"))).not.toBe(key(program("x = 2")));
+		expect(key(base("a"))).toBe(key(base("a")));
+	});
+});
+
+describe("documentSource without blocks", () => {
+	function envelope(documentSource: Record<string, unknown>) {
+		return normalizeProduceFileInput({
+			requestTitle: "Field report",
+			sourceMode: "document_source",
+			documentSource,
+		});
+	}
+
+	it("builds blocks from documentSource.markdown", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				markdown:
+					"## Findings\n\nThe pump failed twice in March.\n\n- Seal worn\n- Filter clogged",
+			},
+		});
+		expect(blocks).toEqual([
+			{ type: "heading", level: 2, text: "Findings" },
+			{ type: "paragraph", text: "The pump failed twice in March." },
+			{ type: "list", style: "bullet", items: ["Seal worn", "Filter clogged"] },
+		]);
+	});
+
+	it("builds blocks from a documentSource.content string as markdown", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				content: "## Findings\n\nThe pump failed twice in March.",
+			},
+		});
+		expect(blocks).toEqual([
+			{ type: "heading", level: 2, text: "Findings" },
+			{ type: "paragraph", text: "The pump failed twice in March." },
+		]);
+	});
+
+	it("takes a documentSource.content array as the blocks", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				content: [
+					{ type: "heading", level: 2, text: "Findings" },
+					{ type: "paragraph", text: "The pump failed twice in March." },
+				],
+			},
+		});
+		expect(blocks).toEqual([
+			{ type: "heading", level: 2, text: "Findings" },
+			{ type: "paragraph", text: "The pump failed twice in March." },
+		]);
+	});
+
+	it("turns documentSource.sections into a heading plus that section's blocks", () => {
+		const blocks = documentBlocks({
+			documentSource: {
+				sections: [
+					{ heading: "Findings", content: "The pump failed twice in March." },
+					{
+						title: "Actions",
+						blocks: [{ type: "list", items: ["Replace seal", "Clean filter"] }],
+					},
+				],
+			},
+		});
+		expect(blocks).toEqual([
+			{ type: "heading", level: 2, text: "Findings" },
+			{ type: "paragraph", text: "The pump failed twice in March." },
+			{ type: "heading", level: 2, text: "Actions" },
+			{ type: "list", items: ["Replace seal", "Clean filter"] },
+		]);
+	});
+
+	it("refuses a documentSource with no usable content instead of inventing a placeholder", () => {
+		const result = envelope({ title: "Field report", summary: "Pump notes" });
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toContain('"blocks"');
+		expect(result.error).toContain("markdown");
+		expect(result.error).toContain("summary");
+		expect(result.error).not.toContain("Generated file request");
+	});
+
+	it("refuses an empty blocks array the same way", () => {
+		const result = envelope({ blocks: [], summary: "Pump notes" });
+		expect(result.ok).toBe(false);
+	});
+});
+
+// Model-written block shapes the validator used to refuse outright. Each one
+// is repaired into the schema's own field names, and the repaired document
+// must then pass the real validator.
+describe("document block field aliases", () => {
+	function repaired(blocks: unknown[]) {
+		const result = normalizeProduceFileInput({
+			requestTitle: "Field report",
+			sourceMode: "document_source",
+			documentSource: { blocks },
+		});
+		if (!result.ok) throw new Error(`expected ok, got: ${result.error}`);
+		const source = result.input.documentSource as Record<string, unknown>;
+		const validation = validateGeneratedDocumentSource(source);
+		if (!validation.ok) {
+			throw new Error(`repaired source still invalid: ${validation.message}`);
+		}
+		return {
+			blocks: source.blocks as Array<Record<string, unknown>>,
+			warnings: result.warnings ?? [],
+		};
+	}
+
+	it("reads a code block's `code` as its text", () => {
+		expect(
+			repaired([{ type: "code", language: "python", code: "print(1)" }]).blocks,
+		).toEqual([
+			expect.objectContaining({
+				type: "code",
+				language: "python",
+				text: "print(1)",
+			}),
+		]);
+	});
+
+	it("reads a paragraph's `content` as its text", () => {
+		expect(
+			repaired([{ type: "paragraph", content: "The pump failed." }]).blocks,
+		).toEqual([
+			expect.objectContaining({ type: "paragraph", text: "The pump failed." }),
+		]);
+	});
+
+	it("turns a string heading level into a number", () => {
+		expect(
+			repaired([{ type: "heading", level: "2", text: "Findings" }]).blocks,
+		).toEqual([{ type: "heading", level: 2, text: "Findings" }]);
+	});
+
+	it("maps heading levels 4-6 onto the deepest supported level", () => {
+		expect(
+			repaired([
+				{ type: "heading", level: 5, text: "Deep" },
+				{ type: "h6", text: "Deeper" },
+				{ type: "heading", level: "h4", text: "Tagged" },
+			]).blocks,
+		).toEqual([
+			expect.objectContaining({ level: 3, text: "Deep" }),
+			expect.objectContaining({ level: 3, text: "Deeper" }),
+			expect.objectContaining({ level: 3, text: "Tagged" }),
+		]);
+	});
+
+	it("flattens list items given as {text} objects", () => {
+		expect(
+			repaired([
+				{ type: "list", items: [{ text: "Seal worn" }, { text: "Filter" }] },
+			]).blocks,
+		).toEqual([expect.objectContaining({ items: ["Seal worn", "Filter"] })]);
+	});
+
+	it("reads `ordered: true` as a numbered list", () => {
+		expect(
+			repaired([{ type: "list", ordered: true, items: ["One", "Two"] }]).blocks,
+		).toEqual([
+			expect.objectContaining({ style: "numbered", items: ["One", "Two"] }),
+		]);
+	});
+
+	it("drops empty paragraphs", () => {
+		expect(
+			repaired([
+				{ type: "paragraph", text: "   " },
+				{ type: "paragraph", text: "Kept." },
+				{ type: "paragraph" },
+			]).blocks,
+		).toEqual([{ type: "paragraph", text: "Kept." }]);
+	});
+
+	it("turns object table cells into scalars", () => {
+		const { blocks } = repaired([
+			{
+				type: "table",
+				columns: ["Item", "Count"],
+				rows: [[{ text: "Seals" }, { value: 4 }]],
+			},
+		]);
+		expect(blocks[0]?.rows).toEqual([["Seals", 4]]);
+	});
+
+	it("truncates rows longer than the columns, with a warning, and pads short rows", () => {
+		const { blocks, warnings } = repaired([
+			{
+				type: "table",
+				columns: ["Item", "Count"],
+				rows: [["Seals", 4, "extra", "more"], ["Filters"]],
+			},
+		]);
+		expect(blocks[0]?.rows).toEqual([
+			["Seals", 4],
+			["Filters", null],
+		]);
+		expect(warnings).toEqual([
+			expect.stringMatching(/Block 1 \(table\).*1 row.*2 columns/),
+		]);
+	});
+
+	it("reads an image's `url` or `src` as its https source", () => {
+		const { blocks } = repaired([
+			{ type: "image", url: "https://example.com/a.png", altText: "A" },
+			{ type: "image", src: "https://example.com/b.png", alt: "B" },
+		]);
+		expect(blocks).toEqual([
+			expect.objectContaining({
+				type: "image",
+				source: { kind: "https", url: "https://example.com/a.png" },
+				altText: "A",
+			}),
+			expect.objectContaining({
+				type: "image",
+				source: { kind: "https", url: "https://example.com/b.png" },
+				altText: "B",
+			}),
+		]);
+	});
+
+	it("keeps a mermaid block or fence as a mermaid code block, not a paragraph", () => {
+		const { blocks } = repaired([
+			{ type: "mermaid", code: "graph TD; A-->B" },
+			{ type: "diagram", text: "graph LR; C-->D" },
+			{ type: "paragraph", text: "```mermaid\ngraph TD; E-->F\n```" },
+		]);
+		expect(blocks).toEqual([
+			expect.objectContaining({
+				type: "code",
+				language: "mermaid",
+				text: "graph TD; A-->B",
+			}),
+			expect.objectContaining({
+				type: "code",
+				language: "mermaid",
+				text: "graph LR; C-->D",
+			}),
+			expect.objectContaining({
+				type: "code",
+				language: "mermaid",
+				text: "graph TD; E-->F",
+			}),
+		]);
+	});
+});
+
+describe("chart data shapes and multiple series", () => {
+	function chartResult(block: Record<string, unknown>) {
+		return normalizeProduceFileInput({
+			requestTitle: "Sales report",
+			sourceMode: "document_source",
+			documentSource: {
+				blocks: [{ type: "paragraph", text: "Intro." }, block],
+			},
+		});
+	}
+	function chartBlock(block: Record<string, unknown>) {
+		const result = chartResult(block);
+		if (!result.ok) throw new Error(`expected ok, got: ${result.error}`);
+		const source = result.input.documentSource as Record<string, unknown>;
+		const validation = validateGeneratedDocumentSource(source);
+		if (!validation.ok) {
+			throw new Error(`repaired source still invalid: ${validation.message}`);
+		}
+		return (source.blocks as Array<Record<string, unknown>>)[1];
+	}
+
+	it("turns wide rows into long form with a series key for a stacked bar chart", () => {
+		const block = chartBlock({
+			type: "chart",
+			chartType: "stackedBar",
+			title: "Revenue",
+			data: [
+				{ region: "North", q2: 10, q3: 12 },
+				{ region: "South", q2: 20, q3: 18 },
+			],
+		});
+		expect(block).toMatchObject({
+			xKey: "label",
+			yKey: "value",
+			seriesKey: "series",
+			data: [
+				{ label: "North", series: "q2", value: 10 },
+				{ label: "North", series: "q3", value: 12 },
+				{ label: "South", series: "q2", value: 20 },
+				{ label: "South", series: "q3", value: 18 },
+			],
+		});
+	});
+
+	it("refuses wide rows on a chart type that draws one series, naming the series", () => {
+		const result = chartResult({
+			type: "chart",
+			chartType: "bar",
+			title: "Revenue",
+			data: [
+				{ region: "North", q2: 10, q3: 12 },
+				{ region: "South", q2: 20, q3: 18 },
+			],
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toMatch(/^Block 2 \(chart\): /);
+		expect(result.error).toContain("q2, q3");
+		expect(result.error).toContain('"stackedBar"');
+		expect(result.error).toContain('"yKey"');
+	});
+
+	it("plots the one series the model named even when other numeric columns exist", () => {
+		const block = chartBlock({
+			type: "chart",
+			chartType: "bar",
+			title: "Revenue",
+			yKey: "q3",
+			data: [
+				{ region: "North", q2: 10, q3: 12 },
+				{ region: "South", q2: 20, q3: 18 },
+			],
+		});
+		expect(block).toMatchObject({ xKey: "region", yKey: "q3" });
+	});
+
+	it("turns {labels, values} into rows", () => {
+		const block = chartBlock({
+			type: "chart",
+			chartType: "bar",
+			title: "Revenue",
+			data: { labels: ["North", "South"], values: [10, 20] },
+		});
+		expect(block).toMatchObject({
+			xKey: "label",
+			yKey: "value",
+			data: [
+				{ label: "North", value: 10 },
+				{ label: "South", value: 20 },
+			],
+		});
+	});
+
+	it("keeps every dataset of a multi-series ```chart fence in Markdown, as a table", () => {
+		const blocks = documentBlocks({
+			content: [
+				"```chart",
+				JSON.stringify({
+					type: "bar",
+					data: {
+						labels: ["North", "South"],
+						datasets: [
+							{ label: "Q2", data: [10, 20] },
+							{ label: "Q3", data: [12, 18] },
+						],
+					},
+				}),
+				"```",
+			].join("\n"),
+		});
+		expect(blocks).toEqual([
+			expect.objectContaining({
+				type: "table",
+				rows: [
+					{ label: "North", q2: 10, q3: 12 },
+					{ label: "South", q2: 20, q3: 18 },
+				],
+			}),
+		]);
+	});
+
+	it("turns [[label, value]] pairs into rows", () => {
+		const block = chartBlock({
+			type: "chart",
+			chartType: "pie",
+			title: "Share",
+			data: [
+				["North", 60],
+				["South", 40],
+			],
+		});
+		expect(block).toMatchObject({
+			labelKey: "label",
+			valueKey: "value",
+			data: [
+				{ label: "North", value: 60 },
+				{ label: "South", value: 40 },
+			],
+		});
 	});
 });

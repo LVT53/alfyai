@@ -266,6 +266,7 @@ async function executeNextFileProductionJobStep(
 				chatGeneratedFileId: file.id,
 				sortOrder: index,
 			})),
+			warnings: execution.warnings,
 			now: new Date(),
 		});
 

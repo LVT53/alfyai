@@ -37,6 +37,9 @@ interface NormalizedProgramIntake extends NormalizedIntakeBase {
 		sourceCode: string;
 		filename?: string;
 	};
+	/** Decisions intake made on the caller's behalf, e.g. an output type
+	 * taken from program.filename. Reported with the accepted result. */
+	warnings: string[];
 }
 
 interface NormalizedDocumentSourceIntake extends NormalizedIntakeBase {
@@ -115,6 +118,8 @@ export type FileProductionIntakeResult =
 			status: 202;
 			job: FileProductionJob;
 			reused: boolean;
+			/** Present only when intake changed something the caller sent. */
+			warnings?: string[];
 	  }
 	| {
 			ok: false;
@@ -227,6 +232,46 @@ function normalizeProgramOutputs(
 		outputTypeFromFilename(body.filename) ??
 		outputTypeFromFilename(program?.filename);
 	return derived ? [{ type: derived }] : [];
+}
+
+/**
+ * An explicit output type the registry cannot produce ("spreadsheet",
+ * "excel file") used to refuse the whole request — after which the model
+ * usually gave up — even when `program.filename` already said `budget.xlsx`.
+ * When the filename's extension IS a producible type, that type is used
+ * instead and the substitution is reported, so the model and the user can see
+ * what was made. With no usable filename the unsupported type stays, and the
+ * caller refuses it exactly as before.
+ */
+function fallBackToProgramFilenameType(
+	outputs: Array<{ type: string }>,
+	program: Record<string, unknown> | null,
+): { outputs: Array<{ type: string }>; warnings: string[] } {
+	const unsupported = outputs.filter(
+		(output) => !isSupportedFileProductionOutputType(output.type),
+	);
+	if (unsupported.length === 0) return { outputs, warnings: [] };
+	const filename = trimString(program?.filename);
+	const filenameType = outputTypeFromFilename(filename);
+	if (!filenameType || !isSupportedFileProductionOutputType(filenameType)) {
+		return { outputs, warnings: [] };
+	}
+	const resolved: Array<{ type: string }> = [];
+	for (const output of outputs) {
+		const type = isSupportedFileProductionOutputType(output.type)
+			? output.type
+			: filenameType;
+		if (!resolved.some((existing) => existing.type === type)) {
+			resolved.push({ type });
+		}
+	}
+	return {
+		outputs: resolved,
+		warnings: unsupported.map(
+			(output) =>
+				`Output type "${output.type}" is not supported, so the ${filenameType} type of program.filename "${filename}" was used instead.`,
+		),
+	};
 }
 
 /**
@@ -580,7 +625,11 @@ function normalizeFileProductionIntake(
 		});
 	}
 
-	const programOutputs = normalizeProgramOutputs(body, program);
+	const requestedProgramOutputs = normalizeProgramOutputs(body, program);
+	const { outputs: programOutputs, warnings } = fallBackToProgramFilenameType(
+		requestedProgramOutputs,
+		program,
+	);
 	if (programOutputs.length === 0) {
 		return validationFailure({
 			body,
@@ -617,6 +666,7 @@ function normalizeFileProductionIntake(
 				sourceCode,
 				filename: optionalTrimmedString(program?.filename) ?? undefined,
 			},
+			warnings,
 		},
 	};
 }
@@ -724,10 +774,13 @@ export async function submitFileProductionIntakeWithDependencies(
 	}
 
 	throwIfAborted(input.signal);
+	const warnings =
+		request.sourceMode === "program" ? request.warnings : ([] as string[]);
 	return {
 		ok: true,
 		status: 202,
 		job: result.job,
+		...(warnings.length > 0 ? { warnings } : {}),
 		reused: result.reused,
 	};
 }

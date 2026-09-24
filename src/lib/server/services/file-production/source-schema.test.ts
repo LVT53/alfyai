@@ -713,3 +713,146 @@ describe("generated document source schema", () => {
 		expect(markdown).not.toContain("[[cite");
 	});
 });
+
+// The model resends a corrected document only as well as the refusal tells it
+// what was wrong. "Contains an unsupported block" named neither the block nor
+// the field, so it rewrote the whole document and often broke another block.
+describe("generated document source refusals name the failing block", () => {
+	function refusal(blocks: unknown[]) {
+		const result = validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Report",
+			blocks,
+		});
+		if (result.ok) throw new Error("expected a refusal");
+		return result;
+	}
+
+	it("names index, type and field for a heading with an unsupported level", () => {
+		const result = refusal([
+			{ type: "paragraph", text: "Fine." },
+			{ type: "heading", level: 7, text: "Too deep" },
+		]);
+		expect(result.code).toBe("unsupported_document_block");
+		expect(result.message).toMatch(/^Block 2 \(heading\): /);
+		expect(result.message).toContain('"level"');
+	});
+
+	it("names an unknown block type and the supported ones", () => {
+		const result = refusal([{ type: "rawHtml", html: "<b>x</b>" }]);
+		expect(result.code).toBe("unsupported_document_block");
+		expect(result.message).toMatch(/^Block 1 \(rawHtml\): /);
+		expect(result.message).toContain("paragraph");
+		expect(result.message).toContain("table");
+	});
+
+	it("names a block with no type at all", () => {
+		const result = refusal([{ text: "no type" }]);
+		expect(result.message).toMatch(/^Block 1: /);
+		expect(result.message).toContain('"type"');
+	});
+
+	it("names the missing text of a paragraph and the items of a list", () => {
+		expect(refusal([{ type: "paragraph", text: "" }]).message).toMatch(
+			/^Block 1 \(paragraph\): .*"text"/,
+		);
+		expect(refusal([{ type: "list", items: [] }]).message).toMatch(
+			/^Block 1 \(list\): .*"items"/,
+		);
+	});
+
+	it("names the table and what is wrong with its rows", () => {
+		const result = refusal([
+			{ type: "paragraph", text: "Intro." },
+			{
+				type: "table",
+				columns: [{ key: "a", label: "A" }],
+				rows: [["1", "2", "3"]],
+			},
+		]);
+		expect(result.code).toBe("unsupported_table_structure");
+		expect(result.message).toMatch(/^Block 2 \(table\): /);
+		expect(result.message).toContain('"rows"');
+	});
+
+	it("prefixes chart refusals with the block too", () => {
+		const result = refusal([{ type: "chart", chartType: "bar", data: [] }]);
+		expect(result.code).toBe("unsupported_chart_data");
+		expect(result.message).toMatch(/^Block 1 \(chart\): /);
+	});
+});
+
+// Only stackedBar draws more than one series. A bar or line chart handed
+// several used to render the first and silently drop the rest.
+describe("generated document charts with several series", () => {
+	const chart = (fields: Record<string, unknown>) =>
+		validateGeneratedDocumentSource({
+			version: 1,
+			template: "alfyai_standard_report",
+			title: "Report",
+			blocks: [
+				{
+					type: "chart",
+					title: "Revenue",
+					caption: "Revenue by region.",
+					altText: "Revenue by region.",
+					units: "EUR",
+					...fields,
+				},
+			],
+		});
+
+	it("refuses a Chart.js bar chart with two datasets instead of keeping only the first", () => {
+		const result = chart({
+			chartType: "bar",
+			data: {
+				labels: ["North", "South"],
+				datasets: [
+					{ label: "Q2", data: [10, 20] },
+					{ label: "Q3", data: [12, 18] },
+				],
+			},
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.code).toBe("unsupported_chart_data");
+		expect(result.message).toMatch(/^Block 1 \(chart\): /);
+		expect(result.message).toContain("Q2, Q3");
+		expect(result.message).toContain('"stackedBar"');
+	});
+
+	it("refuses a line chart whose seriesKey names more than one series", () => {
+		const result = chart({
+			chartType: "line",
+			xKey: "quarter",
+			yKey: "value",
+			seriesKey: "region",
+			data: [
+				{ quarter: "Q2", region: "North", value: 10 },
+				{ quarter: "Q2", region: "South", value: 20 },
+			],
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.message).toContain("North, South");
+	});
+
+	it("keeps every Chart.js dataset of a stacked bar chart", () => {
+		const result = chart({
+			chartType: "stackedBar",
+			data: {
+				labels: ["North", "South"],
+				datasets: [
+					{ label: "Q2", data: [10, 20] },
+					{ label: "Q3", data: [12, 18] },
+				],
+			},
+		});
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		const block = result.source.blocks[0];
+		expect(block).toMatchObject({ seriesKey: "series" });
+		expect(block.type === "chart" && block.data).toHaveLength(4);
+	});
+});
