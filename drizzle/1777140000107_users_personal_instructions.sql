@@ -1,0 +1,11 @@
+-- Personal Instructions (Workspaces feature 1, Slice C): one free-text box
+-- of standing guidance per account, rendered into the system message after
+-- Response Style so it applies on every turn — including the shallow path
+-- and incognito, which never receive the folder sections of the packet.
+--
+-- NULL and '' are the same stored state on purpose: the API normalises
+-- whitespace-only input to NULL, so "never set" and "cleared" cannot drift
+-- apart. Existing rows are NULL, i.e. no instructions.
+--
+-- Additive and nullable: no backfill, no default, safe to apply to a live DB.
+ALTER TABLE `users` ADD `personal_instructions` text;

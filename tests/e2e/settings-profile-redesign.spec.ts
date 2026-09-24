@@ -30,6 +30,17 @@ function cardBox(page: Page, title: string) {
 		.boundingBox();
 }
 
+function assistantCard(page: Page) {
+	return page
+		.getByRole("heading", { name: "Assistant behaviour", exact: true })
+		.locator("xpath=ancestor::section[1]");
+}
+
+// Longer than the row is wide at either viewport, so "the preview truncates"
+// is a real measurement rather than a string that happened to fit.
+const LONG_INSTRUCTIONS =
+	"Answer briefly unless I ask for detail. Metric units and 24-hour time. No emoji, no exclamation marks.";
+
 test.describe("Profile tab — desktop", () => {
 	test.beforeEach(async ({ page }) => {
 		await page.setViewportSize({ width: 1440, height: 1000 });
@@ -180,10 +191,117 @@ test.describe("Profile tab — desktop", () => {
 	});
 });
 
+test.describe("Assistant behaviour — personal instructions", () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 1000 });
+		await login(page);
+	});
+
+	test("is the first row above Memory, and one dialog is the only way to change it", async ({
+		page,
+	}) => {
+		await openSettings(page);
+
+		const card = assistantCard(page);
+		const rows = card.locator("div.settings-row");
+		await expect(rows.first()).toContainText("Personal instructions");
+		await expect(rows.nth(1)).toContainText("Memory");
+
+		// Whatever a previous run left behind is cleared first, so "nothing is
+		// set" is a state this test makes rather than one it hopes for.
+		const open = card.getByTestId("personal-instructions-open");
+		await open.click();
+
+		const dialog = page.getByRole("dialog");
+		await expect(dialog).toBeVisible();
+		await expect(
+			dialog.getByRole("heading", { name: "Instructions" }),
+		).toHaveCount(1);
+		await expect(dialog.getByText("You", { exact: true })).toBeVisible();
+		await expect(dialog.getByText("/ 2000")).toBeVisible();
+
+		const box = page.getByRole("textbox", {
+			name: "Instructions for Personal",
+		});
+		await box.fill("");
+		await page
+			.getByRole("dialog")
+			.getByRole("button", { name: "Save" })
+			.click();
+		await expect(page.getByRole("dialog")).toHaveCount(0);
+
+		await expect(card.getByTestId("personal-instructions-preview")).toHaveText(
+			"Not set",
+		);
+		await expect(card.getByTestId("personal-instructions-open")).toContainText(
+			"Add instructions",
+		);
+
+		// Now set one, in the same dialog the /instruction entry point opens.
+		await card.getByTestId("personal-instructions-open").click();
+		await page
+			.getByRole("textbox", { name: "Instructions for Personal" })
+			.fill(LONG_INSTRUCTIONS);
+		await page
+			.getByRole("dialog")
+			.getByRole("button", { name: "Save" })
+			.click();
+		await expect(page.getByRole("dialog")).toHaveCount(0);
+
+		await expect(card.getByTestId("personal-instructions-preview")).toHaveText(
+			LONG_INSTRUCTIONS,
+		);
+		await expect(card.getByTestId("personal-instructions-open")).toContainText(
+			"Edit",
+		);
+
+		// Persisted, not just held in the page.
+		await page.reload({ waitUntil: "domcontentloaded" });
+		await expect(
+			assistantCard(page).getByTestId("personal-instructions-preview"),
+		).toHaveText(LONG_INSTRUCTIONS, { timeout: 15000 });
+	});
+});
+
 test.describe("Profile tab — 390px", () => {
 	test.beforeEach(async ({ page }) => {
 		await page.setViewportSize({ width: 390, height: 844 });
 		await login(page);
+	});
+
+	test("the instructions row's button is a 44px target and the preview never wraps", async ({
+		page,
+	}) => {
+		await openSettings(page);
+
+		await assistantCard(page).getByTestId("personal-instructions-open").click();
+		const box = page.getByRole("textbox", {
+			name: "Instructions for Personal",
+		});
+		await box.fill(LONG_INSTRUCTIONS);
+		await page
+			.getByRole("dialog")
+			.getByRole("button", { name: "Save" })
+			.click();
+		await expect(page.getByRole("dialog")).toHaveCount(0);
+
+		const button = assistantCard(page).getByTestId(
+			"personal-instructions-open",
+		);
+		const box2 = await button.boundingBox();
+		if (!box2) throw new Error("Instructions button did not lay out");
+		expect(box2.height).toBeGreaterThanOrEqual(44);
+
+		// The preview is one line that truncates: the full text is in the
+		// dialog, and a row that grows to five lines pushes Memory off the card.
+		const preview = assistantCard(page).getByTestId(
+			"personal-instructions-preview",
+		);
+		await expect(preview).toHaveCSS("white-space", "nowrap");
+		const truncated = await preview.evaluate(
+			(el) => el.scrollWidth > el.clientWidth + 1,
+		);
+		expect(truncated).toBe(true);
 	});
 
 	test("stacks the cards, ends on the danger card, and never scrolls sideways", async ({

@@ -1062,6 +1062,27 @@ describe("file production chat helpers", () => {
 		]);
 	});
 
+	// The Info popover's instruction row reads this same record, so it also
+	// rides the terminal frame — otherwise the row would only appear after a
+	// reload, which is exactly when the reader is no longer asking why.
+	it("carries instructionsApplied onto the finalized message at completion, without a reload", () => {
+		const list = [createAssistantPlaceholder("assistant-1")];
+
+		const finalized = finalizeStreamingMessageList(list, {
+			placeholderId: "assistant-1",
+			clientUserMessageId: null,
+			metadata: {
+				assistantMessageId: "server-assistant-1",
+				instructionsApplied: { personal: true, projectId: "project-1" },
+			},
+		});
+
+		expect(finalized[0].instructionsApplied).toEqual({
+			personal: true,
+			projectId: "project-1",
+		});
+	});
+
 	it("falls back to the message's prior followUps when the terminal frame carries none", () => {
 		const priorFollowUps = ["What about the sequel?"];
 		const list = [

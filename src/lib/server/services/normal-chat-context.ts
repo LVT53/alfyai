@@ -2,6 +2,8 @@ import type { ModelMessage } from "ai";
 import type { ModelId } from "$lib/model-types";
 import { isProviderModelId } from "$lib/model-types";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import type { InstructionScopeApplication } from "$lib/shared/instructions";
+import { resolveInstructionScopeApplication } from "$lib/shared/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import {
 	getConfig,
@@ -37,6 +39,7 @@ import { buildProactiveConnectorContext } from "./chat-turn/proactive-connector-
 import type { ReasoningDepthEffort } from "./chat-turn/reasoning-depth-effort";
 import type { Capability } from "./connections/registry";
 import type { ContextCompressionControlSender } from "./context-compression";
+import type { ResolvedTurnInstructions } from "./instructions";
 import { detectLanguage, type SupportedLanguage } from "./language";
 import { inferModelContextWindow } from "./model-context";
 import {
@@ -121,6 +124,12 @@ export type PreparedOutboundChatContext = {
 	outputTokenBudget?: OutputTokenBudget;
 	contextLimits: PromptContextLimits;
 	contextPreparationTimings?: NormalChatContextPreparationStageTiming[];
+	// Which instruction sections this turn's system prompt actually received,
+	// derived here (where the sections are decided) rather than re-read at
+	// completion: the persisted record has to describe the prompt the model
+	// got, not the settings row as it stands when the turn finishes. Absent
+	// when no scope applied.
+	instructionsApplied?: InstructionScopeApplication;
 };
 
 export type OutputTokenBudget = {
@@ -424,6 +433,10 @@ export function buildOutboundSystemPrompt(params: {
 	modelName?: string;
 	systemPromptAppendix?: string;
 	personalityPrompt?: string;
+	// The turn's standing guidance, already resolved by the caller
+	// (resolveTurnInstructions). Optional so every existing caller — including
+	// the control-model path — keeps compiling and rendering nothing.
+	instructions?: ResolvedTurnInstructions | null;
 	forceWebSearch?: boolean;
 	fileProductionToolsAvailable?: boolean;
 	reasoningDepthEffort?: ReasoningDepthEffort;
@@ -512,13 +525,50 @@ export function buildOutboundSystemPrompt(params: {
 		sections.push(
 			[
 				"## Response Style",
-				"Apply this style strictly to every visible response. It overrides your default structure, length, formatting, and voice. Treat it as a hard rule, not a soft preference. Before finalizing, revise the answer to match the selected style's length, format, and prose constraints. Only deviate if it directly conflicts with safety, tool, source-citation requirements, or an explicit user instruction in the current message.",
+				"Apply this style strictly to every visible response. It overrides your default structure, length, formatting, and voice. Treat it as a hard rule, not a soft preference. Before finalizing, revise the answer to match the selected style's length, format, and prose constraints. Deviate whenever it conflicts with safety, tool or source-citation requirements, with the user's instructions (project instructions first, then personal instructions), or with the current message.",
 				capPersonalityPrompt(params.personalityPrompt.trim()),
 			].join("\n"),
 		);
 	}
 
-	return stripDeprecatedPromptSections(sections.join("\n\n"));
+	const stripped = stripDeprecatedPromptSections(sections.join("\n\n"));
+
+	// Instruction sections are appended AFTER stripping, never pushed into
+	// `sections`: stripDeprecatedPromptSections deletes any paragraph holding a
+	// deprecated-protocol token, and the instructions are the one part of this
+	// prompt the user typed. Indentation keeps a user's own `## …` line from
+	// becoming section structure; only the ordering keeps their text.
+	// Slice D appends its project section in this same place.
+	const instructionSections: string[] = [];
+	if (params.instructions?.personal) {
+		instructionSections.push(
+			buildInstructionSection(
+				"Your Instructions",
+				params.instructions.personal,
+			),
+		);
+	}
+
+	return instructionSections.length > 0
+		? `${stripped}\n\n${instructionSections.join("\n\n")}`
+		: stripped;
+}
+
+const INSTRUCTIONS_FRAMING =
+	"AlfyAI follows these in every chat. Follow Project Instructions over Your Instructions, and both over the Response Style and any remembered preference; the user's current message overrides all of them.";
+
+// Local to prompt assembly: it exists to put the user's text into the system
+// message without letting its shape become part of the prompt's own structure.
+// The user's text is never rewritten, escaped or sanitised — the four-space
+// indent is the whole transformation, and it protects against the section
+// *shape* only (the ordering above protects the text itself).
+function buildInstructionSection(heading: string, text: string): string {
+	const indented = text
+		.split("\n")
+		.map((line) => (line.trim().length > 0 ? `    ${line}` : ""))
+		.join("\n");
+
+	return [`## ${heading}`, INSTRUCTIONS_FRAMING, indented].join("\n\n");
 }
 
 const TURN_GUIDANCE_HEADING = "## Turn Guidance";
@@ -1763,6 +1813,11 @@ type PrepareOutboundChatContextParams = {
 	attachmentTraceId?: string;
 	systemPromptAppendix?: string;
 	personalityPrompt?: string;
+	// The turn's standing guidance (personal, and from Slice D on the project
+	// scope), resolved by the caller. This boundary does not resolve it: the
+	// read belongs to services/instructions.ts, and keeping it out of here
+	// keeps prompt assembly free of DB reads.
+	instructions?: ResolvedTurnInstructions | null;
 	forceWebSearch?: boolean;
 	fileProductionToolsAvailable?: boolean;
 	skipDefaultRuntimeGuidance?: boolean;
@@ -1846,6 +1901,7 @@ function buildPreparationSystemPrompt(
 			modelName: params.modelConfig.modelName,
 			systemPromptAppendix: params.systemPromptAppendix,
 			personalityPrompt: params.personalityPrompt,
+			instructions: params.instructions,
 			forceWebSearch: params.forceWebSearch,
 			fileProductionToolsAvailable: params.fileProductionToolsAvailable,
 			reasoningDepthEffort: params.reasoningDepthEffort,
@@ -2232,5 +2288,11 @@ export async function prepareOutboundChatContext(
 			"contextLimits",
 		),
 		contextPreparationTimings: timings.map((timing) => ({ ...timing })),
+		// Read off the same resolved value buildOutboundSystemPrompt just
+		// rendered sections from, so the record and the prompt agree by
+		// construction. No storage access happens here.
+		instructionsApplied: resolveInstructionScopeApplication(
+			params.instructions,
+		),
 	};
 }

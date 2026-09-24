@@ -568,6 +568,13 @@ async function runStandardSendTurn({
 			// — the provenance line reads this, never the tool calls. Omitted
 			// entirely when they chose nothing.
 			...(userIntent ? { userIntent } : {}),
+			// Which instruction scopes the prompt carried, for the Info popover.
+			// Read off the run result — the model run is where the prepared
+			// system prompt's sections were decided — so it is never re-read from
+			// the user's settings here. Omitted entirely when nothing applied.
+			...(modelRunResult.instructionsApplied
+				? { instructionsApplied: modelRunResult.instructionsApplied }
+				: {}),
 			...modelRunArtifacts.normalizedAssistantOutput.metadata,
 		},
 		reasoningDepth: turn.reasoningDepth,

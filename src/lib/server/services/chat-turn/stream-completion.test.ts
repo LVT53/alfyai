@@ -663,6 +663,35 @@ describe("completeStreamTurn", () => {
 		expect(assistantCall?.[5]).not.toHaveProperty("thoughtSteps");
 	});
 
+	// Which instruction scopes shaped the turn comes from the prepared-context
+	// snapshot the orchestrator carried across — the record has to match the
+	// sections the model actually got, so it is never re-read here.
+	it("persists the applied instruction scopes into the assistant message's metadata", async () => {
+		await completeStreamTurn({
+			...defaultParams,
+			preparedContext: {
+				...defaultParams.preparedContext,
+				instructionsApplied: { personal: true, projectId: "project-1" },
+			},
+		});
+
+		const assistantCall = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "assistant",
+		);
+		expect(assistantCall?.[5]).toMatchObject({
+			instructionsApplied: { personal: true, projectId: "project-1" },
+		});
+	});
+
+	it("omits instructionsApplied from persisted metadata when no scope applied", async () => {
+		await completeStreamTurn(defaultParams);
+
+		const assistantCall = mockCreateMessage.mock.calls.find(
+			(call) => call[1] === "assistant",
+		);
+		expect(assistantCall?.[5]).not.toHaveProperty("instructionsApplied");
+	});
+
 	// P3d (ADR-0056) — thoughtSteps must also ride the terminal
 	// data-stream-metadata payload (not just persisted assistantMetadata),
 	// mirroring completionWarningCodes just above, so a client that just

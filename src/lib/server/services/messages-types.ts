@@ -33,6 +33,7 @@ import type {
 	WebCitationAudit,
 	WebCitationRepairSummary,
 } from "$lib/server/services/web-citation-audit";
+import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import type { PageCountKind } from "$lib/shared/page-count";
 import type {
 	EvidenceSourceType,
@@ -325,6 +326,16 @@ export interface ChatMessage {
 	// user chose nothing, and on every message persisted before the record
 	// existed. Assistant turns only; read by the provenance line.
 	userIntent?: MessageUserIntent;
+	// Which instruction scopes shaped this assistant turn — personal, and
+	// (once Slice D lands) the project whose project instructions applied.
+	// Scopes only, never the text: the Info popover says *which* instructions
+	// were in play, and the instruction text itself must not reach a surface
+	// that can be shown on a shared screen. Persisted additively into
+	// `messages.metadataJson.instructionsApplied` (same paved road as
+	// `followUps`, no migration), projected here by the ADR-0022 read model.
+	// `undefined` — never `{ personal: false }` — when nothing applied, and on
+	// every message persisted before the record existed. Assistant turns only.
+	instructionsApplied?: InstructionScopeApplication;
 	skillDrafts?: SkillControlMessageMetadata["skillDrafts"];
 	skillControl?: SkillControlMessageMetadata["skillControl"];
 	forkCopy?: ForkCopyMetadata;

@@ -12,6 +12,7 @@ import {
 	modelPreferenceStorageForExplicitChoice,
 	modelPreferenceStorageForSystemDefault,
 } from "$lib/server/services/model-preferences";
+import { validateInstructionInput } from "$lib/shared/instructions";
 import type { RequestHandler } from "./$types";
 
 const VALID_THEMES = ["system", "light", "dark"];
@@ -31,6 +32,7 @@ export const PATCH: RequestHandler = async (event) => {
 		sidebarProjectsExpanded?: unknown;
 		sidebarChatsExpanded?: unknown;
 		memoryEnabled?: unknown;
+		personalInstructions?: unknown;
 	};
 	try {
 		body = await event.request.json();
@@ -101,6 +103,24 @@ export const PATCH: RequestHandler = async (event) => {
 
 	if (body.memoryEnabled !== undefined) {
 		updates.memoryEnabled = Boolean(body.memoryEnabled);
+	}
+
+	if (body.personalInstructions !== undefined) {
+		const result = validateInstructionInput(body.personalInstructions);
+		if (!result.ok) {
+			return json(
+				{
+					error:
+						result.error === "too_long"
+							? "Instructions are too long"
+							: "Invalid personalInstructions",
+				},
+				{ status: 400 },
+			);
+		}
+		// Never truncate: over the limit is the 400 above, so what lands here
+		// is text the dialog's own counter already accepted.
+		updates.personalInstructions = result.value;
 	}
 
 	await db.update(users).set(updates).where(eq(users.id, userId));

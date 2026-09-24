@@ -682,6 +682,91 @@ describe("messages metadata", () => {
 		expect(message.followUps).toBeUndefined();
 	});
 
+	// Which instruction scopes shaped a turn rides
+	// `metadataJson.instructionsApplied` additively (see
+	// $lib/shared/instructions.ts), written by the send route and
+	// stream-completion.ts from the value context preparation resolved. It
+	// carries scopes only — never the instruction text — so the Info popover
+	// can say "You" without spilling what the user wrote onto a shared screen.
+	it("persists instructionsApplied when personal instructions applied", async () => {
+		mockRows.push({
+			id: "assistant-instructions-personal-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				instructionsApplied: { personal: true },
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.instructionsApplied).toEqual({ personal: true });
+	});
+
+	it("persists instructionsApplied with projectId when the project block applied", async () => {
+		mockRows.push({
+			id: "assistant-instructions-project-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({
+				instructionsApplied: { personal: true, projectId: "project-1" },
+			}),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.instructionsApplied).toEqual({
+			personal: true,
+			projectId: "project-1",
+		});
+	});
+
+	it("omits instructionsApplied when nothing applied", async () => {
+		mockRows.push({
+			id: "assistant-no-instructions-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ evidenceStatus: "none" }),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.instructionsApplied).toBeUndefined();
+	});
+
+	it("drops a malformed instructionsApplied rather than projecting it", async () => {
+		mockRows.push({
+			id: "assistant-bad-instructions-1",
+			conversationId: "conv-1",
+			role: "assistant",
+			content: "Here is the answer.",
+			thinking: null,
+			toolCalls: null,
+			createdAt: new Date("2026-03-29T12:00:00.000Z"),
+			metadataJson: JSON.stringify({ instructionsApplied: "personal" }),
+		});
+
+		const { listMessages } = await import("./messages");
+
+		const [message] = await listMessages("conv-1");
+		expect(message.instructionsApplied).toBeUndefined();
+	});
+
 	// What the USER chose for a turn rides `metadataJson.userIntent` additively
 	// (see $lib/message-user-intent.ts), written by the send route and
 	// stream-completion.ts. The provenance line reads this projection, so it

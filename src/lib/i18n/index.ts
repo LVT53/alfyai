@@ -3,6 +3,7 @@ import { uiLanguage } from "$lib/stores/settings";
 import chatDict from "./chat";
 import commonDict from "./common";
 import connectionsDict from "./connections";
+import instructionsDict from "./instructions";
 import knowledgeDict from "./knowledge";
 import legalDict from "./legal";
 import settingsDict from "./settings";
@@ -44,6 +45,7 @@ const dictionary = {
 		...commonDict.en,
 		...chatDict.en,
 		...connectionsDict.en,
+		...instructionsDict.en,
 		...knowledgeDict.en,
 		...legalDict.en,
 		...settingsDict.en,
@@ -53,6 +55,7 @@ const dictionary = {
 		...commonDict.hu,
 		...chatDict.hu,
 		...connectionsDict.hu,
+		...instructionsDict.hu,
 		...knowledgeDict.hu,
 		...legalDict.hu,
 		...settingsDict.hu,

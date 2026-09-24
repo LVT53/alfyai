@@ -11,6 +11,7 @@ import {
 import { resolveReasoningDepthEffort } from "$lib/server/services/chat-turn/reasoning-depth-effort";
 import type { Capability } from "$lib/server/services/connections/registry";
 import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
+import { resolveTurnInstructions } from "$lib/server/services/instructions";
 import { detectLanguage } from "$lib/server/services/language";
 import { isMemoryActiveForConversation } from "$lib/server/services/memory-controls";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
@@ -326,6 +327,15 @@ export async function prepareOutboundContext(
 		params.userId,
 		params.message,
 	);
+	// Standing guidance is resolved here, once per turn, and passed in as
+	// data: prompt assembly renders it and never reads for it. Unlike the
+	// catalogue block these do NOT ride the user packet — short messages skip
+	// the packet's folder sections, so instructions put there would silently
+	// not apply on exactly the turns people type fastest.
+	const instructions = await resolveTurnInstructions({
+		userId: params.userId,
+		conversationId: params.conversationId,
+	});
 	// The model's configured max output tokens and context limits are passed
 	// through untouched: reasoning depth never shrinks the output reserve or
 	// the constructed-context target (those are fixed per model). Depth only
@@ -340,6 +350,7 @@ export async function prepareOutboundContext(
 		attachmentTraceId: params.attachmentTraceId,
 		systemPromptAppendix: params.systemPromptAppendix,
 		personalityPrompt: params.personalityPrompt,
+		instructions,
 		forceWebSearch: params.forceWebSearch,
 		fileProductionToolsAvailable:
 			!params.disableTools &&

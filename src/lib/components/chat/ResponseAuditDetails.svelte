@@ -2,9 +2,12 @@
 import { t } from "$lib/i18n";
 import type { DepthAppliedProfile } from "$lib/server/services/chat-turn/depth-metadata-types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
+import type { InstructionScope } from "$lib/shared/instructions";
+import { instructionScopeKey } from "$lib/shared/instructions";
 import { estimateTokenCount } from "$lib/utils/tokens";
 import ModelIcon from "$lib/components/ui/ModelIcon.svelte";
 import LogoMark from "$lib/components/chat/LogoMark.svelte";
+import ScopeToken from "$lib/components/instructions/ScopeToken.svelte";
 
 let {
 	message,
@@ -21,6 +24,10 @@ type AuditRow = {
 	value: string;
 	kind?: "model";
 	iconUrl?: string | null;
+	// Rendered as tokens instead of the string value. Used where the value is
+	// a set of things — scopes, not text — because a token is unmistakable
+	// where a joined string reads like prose (see ScopeToken).
+	scopeTokens?: InstructionScope[];
 };
 
 let hasThinkingText = $derived(Boolean(message.thinking?.trim()));
@@ -67,6 +74,25 @@ function formatDepthMetadata(metadata: ChatMessage["depthMetadata"]): string {
 		: label;
 }
 
+// Which instruction scopes shaped this reply, derived only from what the turn
+// recorded. Scopes and never text: the Info surface can be shown on a shared
+// screen, so it says "You" and not what the user wrote. An empty list means no
+// row at all — a row with no tokens would claim something happened.
+//
+// The project token is given a projectId and no name (the record carries no
+// name; Slice D is what will make the project's own name available), and the
+// token renders exactly what it is handed rather than inventing a label.
+function instructionScopeTokens(): InstructionScope[] {
+	const applied = message.instructionsApplied;
+	if (!applied) return [];
+	const scopes: InstructionScope[] = [];
+	if (applied.personal) scopes.push({ kind: "personal" });
+	if (applied.projectId) {
+		scopes.push({ kind: "project", projectId: applied.projectId });
+	}
+	return scopes;
+}
+
 function formatDuration(ms: number): string {
 	if (ms < 1000) {
 		return `${ms}ms`;
@@ -99,6 +125,14 @@ function buildPrimaryRows(): AuditRow[] {
 			value: message.modelDisplayName,
 			kind: "model",
 			iconUrl: isAtlasModel ? "__atlas_logo__" : modelIconUrl,
+		});
+	}
+	const instructionScopes = instructionScopeTokens();
+	if (instructionScopes.length > 0) {
+		rows.push({
+			label: $t("messageBubble.auditInstructions"),
+			value: "",
+			scopeTokens: instructionScopes,
 		});
 	}
 	const depthLabel = formatDepthMetadata(message.depthMetadata);
@@ -171,7 +205,11 @@ function buildPrimaryRows(): AuditRow[] {
 			{#each primaryRows as row (`primary-${row.label}`)}
 				<div class="audit-row">
 					<span class="audit-label">{row.label}</span>
-					<span class="audit-value" class:audit-model-value={row.kind === 'model'}>
+					<span
+						class="audit-value"
+						class:audit-model-value={row.kind === 'model'}
+						class:audit-token-value={row.scopeTokens}
+					>
 					{#if row.kind === 'model'}
 						{#if row.iconUrl === '__atlas_logo__'}
 							<LogoMark size={18} />
@@ -179,7 +217,13 @@ function buildPrimaryRows(): AuditRow[] {
 							<ModelIcon iconUrl={row.iconUrl ?? null} displayName={row.value} size={18} />
 						{/if}
 					{/if}
+					{#if row.scopeTokens}
+						{#each row.scopeTokens as scope (instructionScopeKey(scope))}
+							<ScopeToken {scope} />
+						{/each}
+					{:else}
 						<span>{row.value}</span>
+					{/if}
 					</span>
 				</div>
 			{/each}
@@ -246,6 +290,12 @@ function buildPrimaryRows(): AuditRow[] {
 
 	.audit-model-value {
 		align-items: center;
+		gap: var(--space-xs);
+	}
+
+	.audit-token-value {
+		align-items: center;
+		flex-wrap: wrap;
 		gap: var(--space-xs);
 	}
 

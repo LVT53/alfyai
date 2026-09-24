@@ -65,6 +65,11 @@ export interface StreamMetadata {
 	// the provenance line is server-authoritative live, not only on reload.
 	// Validated on the way in; absent when the user chose nothing.
 	userIntent?: MessageUserIntent;
+	// Which instruction scopes shaped this turn (scopes only, never the text —
+	// see $lib/shared/instructions.ts), riding the terminal payload like
+	// userIntent above so the Info popover's instruction row is there in the
+	// same session, not only after a reload. Absent when nothing applied.
+	instructionsApplied?: import("$lib/shared/instructions").InstructionScopeApplication;
 	// Finding 4 (web-citation auto-repair) — the final PERSISTED assistant
 	// text, present only when the server's citation repair rewrote what was
 	// already streamed as text-delta frames. The client replaces the
@@ -271,6 +276,9 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 			| undefined,
 		followUps: parsed.followUps as StreamMetadata["followUps"] | undefined,
 		userIntent: parseMessageUserIntent(parsed.userIntent),
+		instructionsApplied: parsed.instructionsApplied as
+			| StreamMetadata["instructionsApplied"]
+			| undefined,
 		finalContent: parsed.finalContent as
 			| StreamMetadata["finalContent"]
 			| undefined,

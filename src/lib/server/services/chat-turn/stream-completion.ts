@@ -27,6 +27,7 @@ import {
 	type ServerStreamTimelineMark,
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
+import type { InstructionScopeApplication } from "$lib/shared/instructions";
 import {
 	isConnectionWriteToolName,
 	isFileProductionToolName,
@@ -65,6 +66,10 @@ export type PreparedContextSnapshot = {
 	// the model-run wrapper. Fallback for the context usage ring when the
 	// provider reported no input tokens.
 	estimatedPromptTokens?: number;
+	// Which instruction scopes the prepared system prompt carried. Persisted so
+	// a reloaded page's Info popover reports the same scopes the live turn did,
+	// and never re-read from storage here (see PreparedOutboundChatContext).
+	instructionsApplied?: InstructionScopeApplication;
 };
 
 export type FileProductionStartSnapshot =
@@ -413,6 +418,13 @@ export async function completeStreamTurn(
 				// to assistantMetadata.userIntent below, so the live provenance
 				// line is server-authoritative rather than the client's guess.
 				...(userIntent ? { userIntent } : {}),
+				// Which instruction scopes the prompt carried — the same record
+				// written to assistantMetadata.instructionsApplied below, so the
+				// Info popover's row is there in the same session, not only after
+				// a reload.
+				...(preparedContext.instructionsApplied
+					? { instructionsApplied: preparedContext.instructionsApplied }
+					: {}),
 				// Finding 4 — see repairedFinalContent above. Omitted entirely
 				// when the citation repair changed nothing, mirroring
 				// thoughtSteps/followUps just above.
@@ -589,6 +601,12 @@ export async function completeStreamTurn(
 				// instead of the tool calls. Omitted entirely when they chose
 				// nothing, mirroring followUps just above.
 				...(userIntent ? { userIntent } : {}),
+				// Which instruction scopes the prompt carried, for the Info
+				// popover. Omitted entirely when no scope applied, mirroring
+				// followUps just above.
+				...(preparedContext.instructionsApplied
+					? { instructionsApplied: preparedContext.instructionsApplied }
+					: {}),
 				...skillControl.metadata,
 			},
 			reasoningDepth,
