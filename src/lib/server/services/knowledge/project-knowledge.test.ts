@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { unlinkSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
@@ -179,6 +180,40 @@ function readLinkRows(): Array<{
 	}>;
 	sqlite.close();
 	return rows;
+}
+
+/**
+ * The chat's own incognito flag, flipped the way the composer flips it. It is a
+ * setting on the conversation and not a property of any artifact, so tests about
+ * it have to move the conversation, not the file.
+ */
+function setConversationIncognito(
+	conversationId: string,
+	incognito: boolean,
+): void {
+	const sqlite = new Database(dbPath);
+	sqlite
+		.prepare("UPDATE conversations SET memory_incognito = ? WHERE id = ?")
+		.run(incognito ? 1 : 0, conversationId);
+	sqlite.close();
+}
+
+/**
+ * Put a seeded document inside a chat, the way an upload or a produced file
+ * does. The seeded fixtures mostly carry no conversation at all — they are
+ * library documents — and an artifact with no conversation is outside the
+ * incognito question entirely, so a test about the flag has to place the file
+ * in the chat first.
+ */
+function setArtifactConversation(
+	artifactId: string,
+	conversationId: string | null,
+): void {
+	const sqlite = new Database(dbPath);
+	sqlite
+		.prepare("UPDATE artifacts SET conversation_id = ? WHERE id = ?")
+		.run(conversationId, artifactId);
+	sqlite.close();
 }
 
 function readArtifact(artifactId: string) {
@@ -520,6 +555,36 @@ describe("project knowledge links", () => {
 		).rejects.toMatchObject({ code: "project_not_found", status: 404 });
 	});
 
+	it("cannot unlink another user's link, not even through a project of its own", async () => {
+		seedProjectKnowledgeScenario();
+		const { linkProjectKnowledge, unlinkProjectKnowledge } = await import(
+			"./project-knowledge"
+		);
+
+		await linkProjectKnowledge({
+			userId: "owner-user",
+			projectId: "trip-project",
+			artifactIds: ["artifact-railjet"],
+		});
+
+		// Knowing the artifact id is not enough. The second user's own project is
+		// a real project of theirs, so the project check passes and the delete
+		// runs — and deletes nothing, because the row it would have to match
+		// carries the owner's user id. The answer is `false`, the same answer an
+		// unlink of something that was never linked gets.
+		await expect(
+			unlinkProjectKnowledge({
+				userId: "other-user",
+				projectId: "other-project",
+				artifactId: "artifact-railjet",
+			}),
+		).resolves.toBe(false);
+
+		expect(readLinkRows().map((row) => row.artifact_id)).toEqual([
+			"artifact-railjet",
+		]);
+	});
+
 	it("404s and writes nothing when the artifact does not exist", async () => {
 		seedProjectKnowledgeScenario();
 		const { linkProjectKnowledge, isProjectKnowledgeError } = await import(
@@ -555,6 +620,86 @@ describe("project knowledge links", () => {
 		// file an incognito chat produced must never enter through it.
 		expect(isProjectKnowledgeError(error)).toBe(true);
 		expect(readLinkRows()).toEqual([]);
+	});
+
+	it("hides a document whose own chat is made incognito, and shows it again if not", async () => {
+		seedProjectKnowledgeScenario();
+		const {
+			linkProjectKnowledge,
+			listProjectKnowledge,
+			listProjectKnowledgeArtifactIds,
+			listProjectKnowledgeContentTargets,
+			resolveProjectFileMentions,
+		} = await import("./project-knowledge");
+		const namesOf = (
+			files: Awaited<ReturnType<typeof listProjectKnowledge>>,
+		): string[] => files.map((file) => file.name);
+
+		// The document came out of the chat, so it carries the chat's id; a
+		// library file with no conversation is outside the incognito question
+		// altogether and would never hide, flag or no flag.
+		setArtifactConversation("artifact-railjet", "conv-plain");
+
+		// Linked while the chat it came from was an ordinary one, which is the
+		// only way it could have been linked at all.
+		await linkProjectKnowledge({
+			userId: "owner-user",
+			projectId: "trip-project",
+			artifactIds: ["artifact-railjet"],
+		});
+		expect(
+			namesOf(
+				await listProjectKnowledge({
+					userId: "owner-user",
+					projectId: "trip-project",
+				}),
+			),
+		).toContain("Railjet tickets.pdf");
+
+		// The flag lives on the chat, not on the file, so the user can move it
+		// either way — and the project's list is not a way around it. Every
+		// surface a turn reads has to drop the document, or a project becomes a
+		// standing grant to something the user has since made private.
+		setConversationIncognito("conv-plain", true);
+
+		await expect(
+			listProjectKnowledge({ userId: "owner-user", projectId: "trip-project" }),
+		).resolves.toEqual([]);
+		await expect(
+			listProjectKnowledgeArtifactIds({
+				userId: "owner-user",
+				projectId: "trip-project",
+			}),
+		).resolves.toEqual([]);
+		await expect(
+			listProjectKnowledgeContentTargets({
+				userId: "owner-user",
+				projectId: "trip-project",
+			}),
+		).resolves.toEqual([]);
+		await expect(
+			resolveProjectFileMentions({
+				userId: "owner-user",
+				projectId: "trip-project",
+				message: "what time is the Railjet?",
+			}),
+		).resolves.toEqual([]);
+
+		// Hidden, not unlinked: the link row is still there, so turning incognito
+		// back off hands the file back rather than losing the user's work.
+		expect(readLinkRows().map((row) => row.artifact_id)).toEqual([
+			"artifact-railjet",
+		]);
+
+		setConversationIncognito("conv-plain", false);
+		expect(
+			namesOf(
+				await listProjectKnowledge({
+					userId: "owner-user",
+					projectId: "trip-project",
+				}),
+			),
+		).toContain("Railjet tickets.pdf");
 	});
 
 	it("does not list another user's project's files", async () => {
@@ -868,6 +1013,187 @@ describe("project knowledge links", () => {
 			name: "LinkedContextSourceError",
 			status: 409,
 			code: "linked_source_not_prompt_ready",
+		});
+	});
+
+	// Unlink is not delete, and a library document's bytes are a real file under
+	// `data/knowledge/<user>/` — so "the row is still there" is not the whole
+	// guarantee. These tests read the file.
+	describe("a document's bytes", () => {
+		const OWNER_DIR = join(process.cwd(), "data", "knowledge", "owner-user");
+
+		afterEach(() => {
+			rmSync(OWNER_DIR, { recursive: true, force: true });
+		});
+
+		/** A real upload, through the real store: row, hash and file on disk. */
+		async function uploadRealDocument(bytes: Uint8Array, name: string) {
+			const { saveUploadedArtifact } = await import("./store");
+			const saved = await saveUploadedArtifact({
+				userId: "owner-user",
+				// A fresh copy over a plain `ArrayBuffer`: `new File` does not take a
+				// Node `Buffer`, whose backing type is `ArrayBufferLike`.
+				file: new File([new Uint8Array(bytes)], name, {
+					type: "application/pdf",
+				}),
+			});
+			const storagePath = saved.artifact.storagePath;
+			expect(storagePath).toBeTruthy();
+			return {
+				artifactId: saved.artifact.id,
+				absolutePath: join(process.cwd(), storagePath as string),
+			};
+		}
+
+		it("survive an unlink untouched", async () => {
+			seedProjectKnowledgeScenario();
+			const { linkProjectKnowledge, unlinkProjectKnowledge } = await import(
+				"./project-knowledge"
+			);
+			const bytes = Buffer.from("PK\u0003\u0004 unlink must not touch this");
+			const { artifactId, absolutePath } = await uploadRealDocument(
+				bytes,
+				"Bytes to keep.pdf",
+			);
+			expect(existsSync(absolutePath)).toBe(true);
+
+			await linkProjectKnowledge({
+				userId: "owner-user",
+				projectId: "trip-project",
+				artifactIds: [artifactId],
+			});
+			await unlinkProjectKnowledge({
+				userId: "owner-user",
+				projectId: "trip-project",
+				artifactId,
+			});
+
+			expect(readLinkRows()).toEqual([]);
+			// The file itself, byte for byte.
+			expect(existsSync(absolutePath)).toBe(true);
+			expect(readFileSync(absolutePath).equals(bytes)).toBe(true);
+			expect(readArtifact(artifactId)?.size_bytes).toBe(bytes.length);
+		});
+
+		it("survive the project being deleted untouched", async () => {
+			seedProjectKnowledgeScenario();
+			const { linkProjectKnowledge } = await import("./project-knowledge");
+			const { deleteProject } = await import("$lib/server/services/projects");
+			const bytes = Buffer.from("PK\u0003\u0004 project deletion keeps this");
+			const { artifactId, absolutePath } = await uploadRealDocument(
+				bytes,
+				"Bytes to keep too.pdf",
+			);
+
+			await linkProjectKnowledge({
+				userId: "owner-user",
+				projectId: "trip-project",
+				artifactIds: [artifactId],
+			});
+			await expect(deleteProject("owner-user", "trip-project")).resolves.toBe(
+				true,
+			);
+
+			expect(readLinkRows()).toEqual([]);
+			expect(existsSync(absolutePath)).toBe(true);
+			expect(readFileSync(absolutePath).equals(bytes)).toBe(true);
+			expect(readArtifact(artifactId)?.name).toBe("Bytes to keep too.pdf");
+		});
+	});
+
+	// The non-destruction promise is a property of the module, not of one test:
+	// this is the guard that fires if a later edit teaches an unlink to tidy up
+	// after itself.
+	it("never reaches for the filesystem or for an artifact row", async () => {
+		const source = readFileSync(
+			join(
+				process.cwd(),
+				"src",
+				"lib",
+				"server",
+				"services",
+				"knowledge",
+				"project-knowledge.ts",
+			),
+			"utf8",
+		);
+
+		for (const forbidden of [
+			"unlinkSync",
+			"rmSync",
+			"rm(",
+			"writeFile",
+			"mkdir",
+			"deleteArtifactForUser",
+			"db.delete(artifacts)",
+		]) {
+			expect(
+				source.includes(forbidden),
+				`project-knowledge.ts must not contain ${forbidden}: a link is not a file`,
+			).toBe(false);
+		}
+		// And the one delete it does issue is the link row's.
+		expect(source).toContain("db\n\t\t.delete(projectKnowledgeLinks)");
+	});
+
+	// Every other test of the upload path's project check mocks `getProject`, so
+	// none of them can tell a real cross-user project from a missing one. This
+	// is the one place it runs against the database.
+	describe("the upload path's project check", () => {
+		it("refuses a project that exists but belongs to another user", async () => {
+			seedProjectKnowledgeScenario();
+			const { validateKnowledgeUploadProject, isKnowledgeUploadProjectError } =
+				await import("./upload-intake");
+
+			const error = await validateKnowledgeUploadProject({
+				userId: "owner-user",
+				projectId: "other-project",
+			}).catch((thrown: unknown) => thrown);
+
+			expect(isKnowledgeUploadProjectError(error)).toBe(true);
+			expect(error).toMatchObject({
+				code: "invalid_project",
+				status: 400,
+			});
+		});
+
+		it("refuses a project that does not exist", async () => {
+			seedProjectKnowledgeScenario();
+			const { validateKnowledgeUploadProject, isKnowledgeUploadProjectError } =
+				await import("./upload-intake");
+
+			const error = await validateKnowledgeUploadProject({
+				userId: "owner-user",
+				projectId: "no-such-project",
+			}).catch((thrown: unknown) => thrown);
+
+			expect(isKnowledgeUploadProjectError(error)).toBe(true);
+		});
+
+		it("accepts the caller's own project, and reads a blank id as none", async () => {
+			seedProjectKnowledgeScenario();
+			const { validateKnowledgeUploadProject } = await import(
+				"./upload-intake"
+			);
+
+			await expect(
+				validateKnowledgeUploadProject({
+					userId: "owner-user",
+					projectId: "trip-project",
+				}),
+			).resolves.toBe("trip-project");
+			await expect(
+				validateKnowledgeUploadProject({
+					userId: "owner-user",
+					projectId: "   ",
+				}),
+			).resolves.toBeNull();
+			await expect(
+				validateKnowledgeUploadProject({
+					userId: "owner-user",
+					projectId: null,
+				}),
+			).resolves.toBeNull();
 		});
 	});
 });

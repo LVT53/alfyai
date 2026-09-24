@@ -523,6 +523,22 @@ export async function resolveProjectFileMentions(params: {
 }
 
 /**
+ * The ids a caller named, as ids: trimmed, blanks dropped, duplicates collapsed.
+ *
+ * Both of the module's id-list entry points take their list from a request, and
+ * the two have to agree about what "the same id twice" and "an id that is only
+ * spaces" mean before either of them looks anything up — one shared reading, so
+ * a link request and a token request can never disagree about the same input.
+ */
+function normalizeArtifactIds(artifactIds: string[]): string[] {
+	return [
+		...new Set(
+			artifactIds.map((id) => id.trim()).filter((id) => id.length > 0),
+		),
+	];
+}
+
+/**
  * One document's membership, from the document's side: the projects the caller
  * owns that know it.
  *
@@ -540,11 +556,7 @@ export async function listProjectLinksForArtifacts(params: {
 	userId: string;
 	artifactIds: string[];
 }): Promise<{ artifactId: string; projectId: string; projectName: string }[]> {
-	const requestedIds = [
-		...new Set(
-			params.artifactIds.map((id) => id.trim()).filter((id) => id.length > 0),
-		),
-	];
+	const requestedIds = normalizeArtifactIds(params.artifactIds);
 	if (requestedIds.length === 0) return [];
 
 	const { normalizedToSource, sourceToNormalized } = await readDerivedSiblings(
@@ -645,11 +657,7 @@ export async function linkProjectKnowledge(params: {
 		);
 	}
 
-	const requestedIds = [
-		...new Set(
-			params.artifactIds.map((id) => id.trim()).filter((id) => id.length > 0),
-		),
-	];
+	const requestedIds = normalizeArtifactIds(params.artifactIds);
 	if (requestedIds.length === 0) {
 		return listProjectKnowledge({ userId, projectId });
 	}

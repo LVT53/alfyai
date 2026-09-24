@@ -801,15 +801,34 @@ function buildProjectFolderPromptSection(
 const PROJECT_FILES_SECTION_TITLE = "Project Files";
 const PROJECT_FILES_MAX_ENTRIES = 30;
 const PROJECT_FILES_MAX_CHARS = 1_500;
-// The same words the UI uses for `projects.filesMore`. The packet is not
-// localized per turn, so the label is materialized here.
+// The packet is not localized per turn, so the label is materialized here in
+// English. `projects.filesMore` holds the same words — and the Hungarian
+// wording, which lives nowhere else — for whichever surface eventually renders
+// an overflow count; nothing reads that key yet, because the Files modal
+// scrolls the whole list rather than capping it.
 const PROJECT_FILES_MORE_LABEL = "+{n} more";
 
+/**
+ * One file is one line, whoever wrote the name.
+ *
+ * A line break can arrive inside a file name — an uploaded file's name is
+ * whatever the OS and the browser handed over, including a newline — and in a
+ * summary read from document text. Left alone it ends the entry early and gives
+ * the rest of it to the model as a line of its own, at worst a `## ...` heading
+ * that reads exactly like a packet section nobody built. The break becomes the
+ * space it stood for: nothing is clipped, so the entry stays whole and the
+ * character cap keeps counting what the model actually reads.
+ */
+function toSingleLine(value: string): string {
+	return value.replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ").trim();
+}
+
 function formatProjectFileLine(file: ProjectKnowledgeItem): string {
-	const summary = file.summary?.trim();
+	const name = toSingleLine(file.name);
+	const summary = toSingleLine(file.summary ?? "");
 	// The em dash only when something follows it: "- name —" reads as a clipped
 	// line rather than as a file nobody has summarized yet.
-	return summary ? `- ${file.name} — ${summary}` : `- ${file.name}`;
+	return summary ? `- ${name} — ${summary}` : `- ${name}`;
 }
 
 function formatProjectFilesMoreLabel(droppedCount: number): string {
