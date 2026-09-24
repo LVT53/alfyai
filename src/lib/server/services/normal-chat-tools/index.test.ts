@@ -4851,8 +4851,9 @@ describe("tool description hygiene", () => {
 	// the files description), three tails that restated the sentence before
 	// them went (repos' "returns the matching records", location's "always the
 	// user's own self-selected device", contacts' "results combine every
-	// connected source"), the write-gate clause says "requires writes enabled"
-	// instead of "requires the user to have enabled writes", and a handful of
+	// connected source"), the write-gate clause says "must confirm" instead of
+	// "must explicitly confirm" ("requires the user to have enabled writes"
+	// stays as it is — the R8 write-guidance test pins it), and a handful of
 	// clauses were said in fewer words ("so it finishes here rather than in a
 	// separate fetch_url step", "a bare filename is lost"). No trigger phrase,
 	// guard or returned field was dropped. That cut alone measured
