@@ -207,6 +207,27 @@ export function renderAtlasV3TableBlock(input: {
  * the `[n]` the prose carries still points at the n-th chip; the renderers
  * split the block into "Web" and "Your Library" groups without renumbering.
  */
+/**
+ * The report renderers identify a chip by url + title and drop repeats, and a
+ * library chip has no url: two of the user's documents with one name would
+ * collapse into one chip and shift every later `[n]`. A repeated library
+ * title gets a ` (2)`, ` (3)` suffix, so each document keeps its number.
+ */
+function distinctLibraryChipTitles(
+	chips: GeneratedDocumentSourceChip[],
+): GeneratedDocumentSourceChip[] {
+	const used = new Set<string>();
+	return chips.map((chip) => {
+		if (chip.url) return chip;
+		let title = chip.title;
+		for (let copy = 2; used.has(title); copy += 1) {
+			title = `${chip.title} (${copy})`;
+		}
+		used.add(title);
+		return title === chip.title ? chip : { ...chip, title };
+	});
+}
+
 function sourceChip(
 	source: AtlasV3Source,
 	language: SupportedLanguage,
@@ -325,8 +346,8 @@ export function buildAtlasV3DocumentSource(
 		blocks.push({
 			type: "sourceChips",
 			title: chrome.sources,
-			sources: citations.sources.map((source) =>
-				sourceChip(source, input.language),
+			sources: distinctLibraryChipTitles(
+				citations.sources.map((source) => sourceChip(source, input.language)),
 			),
 		});
 	}

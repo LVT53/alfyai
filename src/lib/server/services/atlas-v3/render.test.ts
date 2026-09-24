@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { renderStandardReportHtml } from "$lib/server/services/file-production/renderers/standard-report-html";
 import { validateGeneratedDocumentSource } from "$lib/server/services/file-production/source-schema";
 import { buildAtlasV3AbstentionReport } from "./abstain";
 import {
@@ -369,5 +370,58 @@ describe("buildAtlasV3DocumentSource", () => {
 			"library",
 		]);
 		expect(validatedChips.sources[1]?.url ?? null).toBeNull();
+	});
+
+	// The report renderers key a chip by url + title and drop repeats. Two of
+	// the user's documents that share a name (two generated "Report.pdf"s, or
+	// titles alike in their first 200 characters) both have a null url, so the
+	// second collapsed into the first and every later chip took the number
+	// before its own: the prose's [3] then pointed at chip 2.
+	it("keeps two same-named user documents as two numbered chips", () => {
+		const state = createAtlasV3Bank();
+		const first = addAtlasV3LocalSource(state, {
+			displayArtifactId: "art-a",
+			promptArtifactId: "art-a-n",
+			title: "Report.pdf",
+			origin: "linked",
+		});
+		const second = addAtlasV3LocalSource(state, {
+			displayArtifactId: "art-b",
+			promptArtifactId: "art-b-n",
+			title: "Report.pdf",
+			origin: "linked",
+		});
+		const web = addAtlasV3Source(state, {
+			url: "https://iea.org/reports/household",
+			title: "Household electricity",
+			publishedAt: "2025-12-01",
+		});
+		const quotes = [first, second, web].map((source, index) =>
+			addAtlasV3Quote(state, {
+				sourceId: source?.id ?? "",
+				text: `Household number ${index + 1} used 1,234 kWh of electricity in 2025.`,
+				goal: "g",
+			}),
+		);
+		const result = buildAtlasV3DocumentSource({
+			...base,
+			bank: freezeAtlasV3Bank(state),
+			verdict: [
+				sentence(
+					"Households used 1,234 kWh in 2025.",
+					quotes.map((quote) => quote?.id ?? ""),
+				),
+			],
+			sections: [],
+		});
+		const html = renderStandardReportHtml(
+			result.documentSource,
+		).content.toString("utf8");
+		const numbers = new Set(
+			[...html.matchAll(/data-source-number="(\d+)"/g)].map((match) =>
+				Number(match[1]),
+			),
+		);
+		expect([...numbers].sort()).toEqual([1, 2, 3]);
 	});
 });
