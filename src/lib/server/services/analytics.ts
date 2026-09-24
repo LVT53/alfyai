@@ -2397,6 +2397,19 @@ export function parallelBilledSeries(
 	return series;
 }
 
+// Every billing month that holds at least one Parallel call, oldest first. The
+// replay script walks these in order, so a month is never replayed out of
+// sequence with the running total it belongs to.
+export function listParallelBillingMonths(): string[] {
+	return db
+		.selectDistinct({ billingMonth: usageEvents.billingMonth })
+		.from(usageEvents)
+		.where(like(usageEvents.modelId, "parallel:%"))
+		.orderBy(asc(usageEvents.billingMonth))
+		.all()
+		.map((row) => row.billingMonth);
+}
+
 export interface ParallelBillingRecompute {
 	/** The month the run looked at, "YYYY-MM". */
 	month: string;
