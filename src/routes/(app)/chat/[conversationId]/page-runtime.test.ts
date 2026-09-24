@@ -1680,6 +1680,96 @@ describe("chat page runtime integration", () => {
 		});
 	});
 
+	// The Info popover's "Citation audit" row reads `citationAudit`, which a turn
+	// persists when its message is created — before the terminal stream frame
+	// (that frame carries no citation audit) and long before the evidence is
+	// composed. The evidence poll is the live page's only channel for it, the
+	// same way it is for the project-files count above.
+	it("applies the citation audit the evidence answer carries", async () => {
+		vi.mocked(fetchMessageEvidence).mockResolvedValue({
+			status: "ready",
+			evidenceSummary: {
+				structuredWebSearch: false,
+				groups: [
+					{
+						sourceType: "web",
+						label: "Web Search",
+						reranked: false,
+						items: [
+							{
+								id: "evidence-1",
+								title: "Hotel Motto stay details",
+								sourceType: "web",
+								status: "selected",
+							},
+						],
+					},
+				],
+			},
+			citationAudit: { cited: 2, verified: 1, repaired: 1, stripped: 0 },
+		});
+
+		renderPage(
+			pageData({
+				messages: [
+					{
+						id: "assistant-citation-evidence",
+						role: "assistant",
+						content: "Completed answer.",
+						timestamp: 1,
+						evidencePending: true,
+					},
+				],
+			}),
+		);
+
+		await waitFor(() => {
+			expect(screen.getByText("Citation audit")).toBeInTheDocument();
+		});
+		// A rewritten citation still counts as verified: after the repair pass
+		// every surviving link is an exact source match or was rewritten to one.
+		expect(screen.getByText("2 verified sources")).toBeInTheDocument();
+	});
+
+	// The branch question: a citation audit is NOT written with the evidence
+	// summary — the turn persists it when its message is created, and the
+	// summary is composed afterwards — so a turn whose evidence step finds
+	// nothing (or fails) settles with an audit and no summary at all. The
+	// answer then arrives with a citation audit and no summary field, which is
+	// why the endpoint answers "ready" for it at all (a 204 would lose the row
+	// until a reload) and why the page applies each field only when the answer
+	// carries it: a citation-only answer must not invent a summary.
+	it("applies a citation-only evidence answer without inventing a summary", async () => {
+		vi.mocked(fetchMessageEvidence).mockResolvedValue({
+			status: "ready",
+			citationAudit: { cited: 1, verified: 1, repaired: 0, stripped: 0 },
+		});
+
+		renderPage(
+			pageData({
+				messages: [
+					{
+						id: "assistant-citation-only",
+						role: "assistant",
+						content: "Completed answer.",
+						timestamp: 1,
+						evidencePending: true,
+					},
+				],
+			}),
+		);
+
+		await waitFor(() => {
+			expect(screen.getByText("Citation audit")).toBeInTheDocument();
+		});
+		expect(screen.getByText("1 verified source")).toBeInTheDocument();
+		// No summary on the message and none in the answer: the row is the
+		// whole popover, and no "Sources" (evidence) direction appears.
+		expect(
+			screen.queryByRole("button", { name: /^Sources$/i }),
+		).not.toBeInTheDocument();
+	});
+
 	it("recovers a backgrounded stream on mobile pageshow without requiring reload", async () => {
 		vi.mocked(fetchConversationDetail).mockResolvedValue({
 			...conversationDetailFixture(),

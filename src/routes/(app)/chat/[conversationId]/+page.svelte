@@ -1795,7 +1795,14 @@ async function pollMessageEvidence(messageId: string) {
 				messages.update((list) =>
 					updateMessageById(list, messageId, (message) => ({
 						...message,
-						evidenceSummary: result.evidenceSummary,
+						// Only fields the answer actually carries: an answer can
+						// hold a citation audit with no evidence summary (the
+						// audit is persisted when the message is created, the
+						// summary is composed afterwards), and applying that must
+						// not clear a summary the message already shows.
+						...(result.evidenceSummary !== undefined
+							? { evidenceSummary: result.evidenceSummary }
+							: {}),
 						// Workspaces Slice E — the Info popover's "Project files"
 						// row reads this count, and the poll is the only live
 						// channel that carries it: the terminal stream frame is
@@ -1806,6 +1813,13 @@ async function pollMessageEvidence(messageId: string) {
 						// evidence and read back with it, so it arrives here.
 						...(result.projectFilesRead !== undefined
 							? { projectFilesRead: result.projectFilesRead }
+							: {}),
+						// The Info popover's "Citation audit" row: also
+						// persisted-only, and older than the evidence — the turn
+						// writes it when the message is created, so it arrives on
+						// this answer whatever the evidence step found.
+						...(result.citationAudit !== undefined
+							? { citationAudit: result.citationAudit }
 							: {}),
 						evidencePending: false,
 					})),
