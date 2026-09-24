@@ -238,4 +238,27 @@ describe("Environment Configuration", () => {
 		expect(config).not.toHaveProperty("webhookPort");
 		expect(config.requestTimeoutMs).toBe(300000);
 	});
+
+	it("warns once, and only once, about a leftover ATLAS_PIPELINE", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.ATLAS_PIPELINE = "v1";
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const { config } = await import("./env");
+			void config.atlasStaleMonths;
+			void config.atlasWorkerEnabled;
+			const pipelineWarnings = warn.mock.calls.filter((call) =>
+				String(call[0]).includes("ATLAS_PIPELINE"),
+			);
+			expect(pipelineWarnings).toEqual([
+				[
+					"[CONFIG] ATLAS_PIPELINE is no longer read; Atlas always runs pipeline v3.",
+				],
+			]);
+			expect(config).not.toHaveProperty("atlasPipeline");
+		} finally {
+			warn.mockRestore();
+		}
+	});
 });

@@ -279,120 +279,12 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 	},
 
 	// --- Atlas internals ----------------------------------------------------
-	{
-		key: "ATLAS_PIPELINE",
-		group: "atlas",
-		control: { kind: "select", options: ["v1", "v2", "v3"] },
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_QUESTIONS_OVERVIEW",
-		group: "atlas",
-		control: int(1, 20),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_QUESTIONS_IN_DEPTH",
-		group: "atlas",
-		control: int(1, 20),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_QUESTIONS_EXHAUSTIVE",
-		group: "atlas",
-		control: int(1, 20),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_ROUNDS_OVERVIEW",
-		group: "atlas",
-		control: int(1, 4),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_ROUNDS_IN_DEPTH",
-		group: "atlas",
-		control: int(1, 4),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_ROUNDS_EXHAUSTIVE",
-		group: "atlas",
-		control: int(1, 4),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_MAX_WORDS_OVERVIEW",
-		group: "atlas",
-		control: int(200, undefined, "words"),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_MAX_WORDS_IN_DEPTH",
-		group: "atlas",
-		control: int(200, undefined, "words"),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_MAX_WORDS_EXHAUSTIVE",
-		group: "atlas",
-		control: int(200, undefined, "words"),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_MAX_SOURCES_OVERVIEW",
-		group: "atlas",
-		control: int(1),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_MAX_SOURCES_IN_DEPTH",
-		group: "atlas",
-		control: int(1),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_MAX_SOURCES_EXHAUSTIVE",
-		group: "atlas",
-		control: int(1),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_ENTAILMENT_BATCH",
-		group: "atlas",
-		control: int(1, 25),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_V2_WRITER_CONCURRENCY",
-		group: "atlas",
-		control: int(1, 8),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS",
-		group: "atlas",
-		control: int(1, undefined, "tokens"),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS",
-		group: "atlas",
-		control: int(1, undefined, "tokens"),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS",
-		group: "atlas",
-		control: int(1, undefined, "tokens"),
-		effect: "live",
-	},
-	{
-		key: "ATLAS_MAX_WRITER_PROMPT_CHARS",
-		group: "atlas",
-		control: int(100, undefined, "chars"),
-		effect: "live",
-	},
+	// Atlas runs pipeline v3 exclusively (Phase B of the v3-only
+	// consolidation); the ATLAS_PIPELINE switch and the v1/v2-only knobs
+	// (questions/rounds/word-and-source caps per profile, entailment batch,
+	// writer concurrency, per-profile output-token caps, writer prompt chars)
+	// were removed with the v1/v2 pipelines. Atlas v3's own knobs
+	// (ATLAS_V3_*) are surfaced on the AI tasks page instead of here.
 	{
 		key: "ATLAS_STALE_MONTHS",
 		group: "atlas",
@@ -690,9 +582,9 @@ export const ADVANCED_KEY_SPECS: readonly AdminConfigKeySpec[] = [
 	// page (NAMED_PAGE_KEYS) and also have a spec here, which is what routes
 	// them through validateAdminConfigValue. Before this, MINERU_TIMEOUT_MS was
 	// "path B" only — `MINERU_TIMEOUT_MS: "abc"` was stored in admin_config and
-	// then silently never applied. ATLAS_PIPELINE is the existing precedent;
-	// AdvancedPage filters on `pageForKey(spec.key) === "advanced"`, so a
-	// named-page key with a spec renders exactly once.
+	// then silently never applied. AdvancedPage filters on
+	// `pageForKey(spec.key) === "advanced"`, so a named-page key with a spec
+	// renders exactly once.
 	{
 		key: "MINERU_API_URL",
 		group: "integrations",
@@ -915,8 +807,6 @@ export const SURFACED_ADMIN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	// AI tasks
 	"ATLAS_WORKER_ENABLED",
 	"ATLAS_GLOBAL_ACTIVE_LIMIT",
-	"ATLAS_SEARCH_CONCURRENCY",
-	"ATLAS_SEARCH_BATCH_DELAY_MS",
 	"ATLAS_SYNTHESIS_MODEL",
 	"ATLAS_AUDIT_MODEL",
 	"ATLAS_V3_ASK_MODEL",
@@ -924,7 +814,6 @@ export const SURFACED_ADMIN_CONFIG_KEYS: ReadonlySet<string> = new Set([
 	"ATLAS_V3_OUTLINE_MODEL",
 	"ATLAS_V3_WRITER_MODEL",
 	"ATLAS_V3_CRITIC_MODEL",
-	"ATLAS_V3_VERIFIER_MODEL",
 	"ATLAS_V3_CRITIC_ROUNDS",
 	"ATLAS_V3_RESEARCHER_CONCURRENCY",
 	"ATLAS_V3_SEARCHES_PER_STEP",

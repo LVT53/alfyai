@@ -14,9 +14,9 @@
 
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { parseJsonFromText } from "../atlas/json-extract";
-import { extractFigures, isCheckableFigure } from "../atlas-v2/number-match";
 import { ATLAS_V3_MAX_OUTPUT_TOKENS } from "./config";
 import type { AtlasV3ModelCall } from "./model-call";
+import { extractFigures, isCheckableFigure } from "./number-match";
 import type {
 	AtlasV3AnswerCell,
 	AtlasV3AnswerTable,

@@ -16,7 +16,7 @@ import type { AtlasProfile } from "../atlas/types";
 export const ATLAS_V3_DEFAULT_STALE_MONTHS = 18;
 
 /**
- * Which model runs which stage. `ask`, `outline`, `critic` and `verifier` are
+ * Which model runs which stage. `ask`, `outline` and `critic` are
  * control-shaped (small, structured, deterministic); `researcher` and `writer`
  * are synthesis-shaped. The fallback column says which of the two existing
  * Atlas model keys a task inherits when its own key is unset.
@@ -27,7 +27,6 @@ export const ATLAS_V3_MODEL_TASKS = [
 	"outline",
 	"writer",
 	"critic",
-	"verifier",
 ] as const;
 export type AtlasV3ModelTask = (typeof ATLAS_V3_MODEL_TASKS)[number];
 
@@ -38,7 +37,6 @@ const ATLAS_V3_TASK_FALLBACK: Record<AtlasV3ModelTask, "synthesis" | "audit"> =
 		outline: "audit",
 		writer: "synthesis",
 		critic: "audit",
-		verifier: "audit",
 	};
 
 export interface AtlasV3ModelSelection {
@@ -221,6 +219,47 @@ export const ATLAS_V3_MAX_EVIDENCE_PER_SENTENCE = 3;
 export const ATLAS_V3_VERDICT_WINDOW_WORDS = 150;
 /** Independent publishers a core figure needs before the goal test passes. */
 export const ATLAS_V3_INDEPENDENT_PUBLISHERS = 2;
+
+// Atlas Local Sources (the user's own attached and linked documents). Fixed,
+// not configurable: each one costs exactly one read call and no web call, so
+// the ceiling is the cost bound.
+
+/** Documents one job may read. Any beyond it get a Limitations line. */
+export const ATLAS_V3_MAX_LOCAL_SOURCES = 12;
+/**
+ * Passage characters one document's read may see — under the web page budget
+ * (`ATLAS_V3_MAX_PAGE_CHARS`, 18,000), because passages are already the parts
+ * of the document that match the question.
+ */
+export const ATLAS_V3_LOCAL_MAX_CHARS_PER_DOCUMENT = 12_000;
+/** `selectDocumentPassages` limits: the core question, then each sub-question. */
+export const ATLAS_V3_LOCAL_CORE_PASSAGES = 3;
+export const ATLAS_V3_LOCAL_SUB_QUESTION_PASSAGES = 2;
+export const ATLAS_V3_LOCAL_PASSAGE_CHAR_BUDGET = 3_000;
+
+// Lifecycle seeding (Continue / Revise reuse the parent's evidence bank). Fixed
+// constants until an evaluation says what they should be; see freshness.ts.
+
+/**
+ * How old a time-sensitive web source a Continue may reuse without re-reading
+ * it. Revise uses 0: every time-sensitive source is rechecked, because Revise
+ * exists to catch what changed.
+ */
+export const ATLAS_V3_SEED_FRESHNESS_DAYS = 14;
+
+/**
+ * Live re-reads one seeding may spend: the page budget of one research round
+ * (`pagesPerQuestion × subQuestionsPerRound` — 8, 15 and 24 by profile). An
+ * old parent's report URLs read as seed pages spend from the same budget.
+ */
+export function atlasV3SeedRecheckBudget(
+	config: Pick<
+		AtlasV3ProfileConfig,
+		"pagesPerQuestion" | "subQuestionsPerRound"
+	>,
+): number {
+	return config.pagesPerQuestion * config.subQuestionsPerRound;
+}
 
 export function clamp(value: number, minimum: number, maximum: number): number {
 	return Math.min(maximum, Math.max(minimum, value));

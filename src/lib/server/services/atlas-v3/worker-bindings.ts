@@ -7,21 +7,27 @@ import type { ModelId } from "$lib/model-types";
 import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { messages } from "$lib/server/db/schema";
+import { getGeneratedDocumentSourceForFileProductionJob } from "$lib/server/services/file-production";
+import { listMessageArtifactLinks } from "$lib/server/services/linked-context-sources";
 import {
 	listAtlasRoundCheckpoints,
+	loadAtlasParentJob,
 	writeAtlasRoundCheckpoint,
 } from "../atlas/checkpoints";
+import { resolveAtlasKickoffMessage } from "../atlas/kickoff-message";
 import { runAtlasModelStage } from "../atlas/model-stage";
-import { renderAtlasOutputs } from "../atlas/renderer-output";
+import { renderAtlasOutputs } from "../atlas/output-files";
 import type { AtlasPipelineJobContext } from "../atlas/types";
 import {
 	ATLAS_V3_MODEL_TASKS,
 	type AtlasV3ModelTask,
 	resolveAtlasV3TaskModel,
 } from "./config";
+import { createAtlasV3LocalSources } from "./local-sources";
 import type { AtlasV3ModelCall, AtlasV3ModelCalls } from "./model-call";
 import { runAtlasV3Pipeline } from "./pipeline";
 import { createAtlasV3ResearchWeb } from "./research-web-adapter";
+import { type AtlasV3SeedReads, loadAtlasV3ParentSeed } from "./seed";
 import type { AtlasV3PipelineResult } from "./types";
 
 export interface RunAtlasV3PipelineForClaimedJobInput {
@@ -41,11 +47,12 @@ export interface RunAtlasV3PipelineForClaimedJobInput {
 }
 
 /**
- * v3's model stages reuse v1's model boundary (`runAtlasModelStage`), exactly as
- * v2 does, so pricing, usage normalisation and provider resolution are
- * identical across all three pipelines. ADR 0063's per-task model keys resolve
- * to a `ModelId` and then go through that same boundary — nothing about the
- * selection path is v3-specific.
+ * v3's model stages run through the shared `runAtlasModelStage` boundary
+ * (kept from the deleted v1/v2 pipelines in Phase B of the v3-only
+ * consolidation), so pricing, usage normalisation and provider resolution
+ * stay in one place. ADR 0063's per-task model keys resolve to a `ModelId`
+ * and then go through that same boundary — nothing about the selection path
+ * is v3-specific.
  */
 function makeModelCall(input: {
 	modelSelection: ModelId;
@@ -53,15 +60,13 @@ function makeModelCall(input: {
 }): AtlasV3ModelCall {
 	return async ({ stage, system, prompt, thinkingMode, maxOutputTokens }) => {
 		const result = await runAtlasModelStage({
-			// v1's stage union does not include v3's stage names; the value only
-			// ever reaches the system-prompt suffix, so it is passed as-is.
-			stage: stage as never,
+			stage,
 			profile: input.profile,
 			modelSelection: input.modelSelection,
 			system,
 			prompt,
+			maxOutputTokens,
 			...(thinkingMode ? { thinkingMode } : {}),
-			...(maxOutputTokens ? { maxOutputTokens } : {}),
 		});
 		return {
 			text: result.text,
@@ -133,6 +138,36 @@ async function runAtlasV3Calculation(input: {
 	}
 }
 
+/** The database reads a lifecycle child's seed needs (seed.ts). */
+const ATLAS_V3_SEED_READS: AtlasV3SeedReads = {
+	loadParentJob: loadAtlasParentJob,
+	loadCheckpoints: async (jobId) => {
+		const checkpoints = await listAtlasRoundCheckpoints(jobId);
+		return checkpoints.map((entry) => ({
+			roundNumber: entry.roundNumber,
+			checkpoint: entry.checkpoint,
+			curatedSourcePool: entry.curatedSourcePool,
+		}));
+	},
+	loadReportSource: getGeneratedDocumentSourceForFileProductionJob,
+	listKickoffDocumentIds: async (input) => {
+		const kickoff = await resolveAtlasKickoffMessage({
+			conversationId: input.conversationId,
+			assistantMessageId: input.assistantMessageId,
+		});
+		if (!kickoff.userMessageId) return [];
+		const links = await listMessageArtifactLinks({
+			userId: input.userId,
+			conversationId: input.conversationId,
+			messageId: kickoff.userMessageId,
+		});
+		return [
+			...links.attachmentArtifactIds,
+			...links.linkedSources.map((link) => link.displayArtifactId),
+		];
+	},
+};
+
 export async function runAtlasV3PipelineForClaimedJob(
 	input: RunAtlasV3PipelineForClaimedJobInput,
 ): Promise<AtlasV3PipelineResult> {
@@ -191,6 +226,9 @@ export async function runAtlasV3PipelineForClaimedJob(
 					.set({ content })
 					.where(eq(messages.id, messageId));
 			},
+			localSources: createAtlasV3LocalSources(),
+			loadParentSeed: (job) =>
+				loadAtlasV3ParentSeed({ job, reads: ATLAS_V3_SEED_READS }),
 			researcherConcurrency: config.atlasV3ResearcherConcurrency,
 			criticRounds: config.atlasV3CriticRounds,
 			hungarianStandardEnabled: config.atlasV3LanguageStandardHu,

@@ -266,12 +266,12 @@ describe("resolveRunningJobPhase", () => {
 		}
 	});
 
-	it("maps the v3-only phases onto the nearest existing label", () => {
+	it("maps every v3-only phase to its own label (ADR 0063)", () => {
 		const cases: Array<[string, string]> = [
-			["ask", "Planning"],
-			["outline", "Planning"],
-			["answer", "Writing"],
-			["critic", "Verifying"],
+			["ask", "Scoping the question"],
+			["outline", "Outlining"],
+			["answer", "Building the answer table"],
+			["critic", "Reviewing coverage"],
 		];
 		for (const [phase, expected] of cases) {
 			expect(
@@ -283,6 +283,30 @@ describe("resolveRunningJobPhase", () => {
 				}),
 			).toBe(expected);
 		}
+	});
+
+	it("labels the answer phase apart from writing, in both languages", () => {
+		for (const locale of ["en", "hu"] as const) {
+			const label = (phase: string) =>
+				resolveRunningJobPhase({
+					status: "running",
+					stage: null,
+					progressDetailsJson: JSON.stringify({ pipelineVersion: 3, phase }),
+					locale,
+				});
+			expect(label("answer")).not.toBe(label("write"));
+		}
+		expect(
+			resolveRunningJobPhase({
+				status: "running",
+				stage: null,
+				progressDetailsJson: JSON.stringify({
+					pipelineVersion: 3,
+					phase: "answer",
+				}),
+				locale: "hu",
+			}),
+		).toBe("Választáblázat összeállítása");
 	});
 
 	it("falls back to the v1 stage column when details carry no phase", () => {

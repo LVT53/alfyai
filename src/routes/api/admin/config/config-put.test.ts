@@ -53,10 +53,6 @@ vi.mock("$lib/server/config-store", async () => {
 		refreshConfig: vi.fn(async () => {}),
 		getEnvDefaults: () => ({}),
 		getResolvedAdminConfigValues: () => ({}),
-		getAtlasOverviewMaxOutputTokens: () => 0,
-		getAtlasInDepthMaxOutputTokens: () => 0,
-		getAtlasExhaustiveMaxOutputTokens: () => 0,
-		getAtlasMaxWriterPromptChars: () => 0,
 	};
 });
 
@@ -86,24 +82,28 @@ describe("PUT /api/admin/config validation", () => {
 	});
 
 	it("writes a value that is inside the registry's range", async () => {
-		const response = await PUT(makeEvent({ ATLAS_V2_ENTAILMENT_BATCH: "12" }));
+		const response = await PUT(
+			makeEvent({ DOCUMENT_EXTRACTION_MAX_ATTEMPTS: "5" }),
+		);
 
 		expect(response.status).toBe(200);
 		expect(upserted).toEqual([
-			{ key: "ATLAS_V2_ENTAILMENT_BATCH", value: "12" },
+			{ key: "DOCUMENT_EXTRACTION_MAX_ATTEMPTS", value: "5" },
 		]);
 	});
 
 	it("refuses a value above the key's maximum and names the bound", async () => {
-		const response = await PUT(makeEvent({ ATLAS_V2_ENTAILMENT_BATCH: "900" }));
+		const response = await PUT(
+			makeEvent({ DOCUMENT_EXTRACTION_MAX_ATTEMPTS: "900" }),
+		);
 
 		expect(response.status).toBe(400);
 		const body = await response.json();
-		expect(body.invalid.ATLAS_V2_ENTAILMENT_BATCH).toEqual({
+		expect(body.invalid.DOCUMENT_EXTRACTION_MAX_ATTEMPTS).toEqual({
 			reason: "above-max",
-			limit: 25,
+			limit: 10,
 		});
-		expect(body.error).toContain("ATLAS_V2_ENTAILMENT_BATCH");
+		expect(body.error).toContain("DOCUMENT_EXTRACTION_MAX_ATTEMPTS");
 	});
 
 	it("refuses a non-integer for an integer key", async () => {
@@ -115,11 +115,11 @@ describe("PUT /api/admin/config validation", () => {
 		});
 	});
 
-	it("refuses a pipeline value that is not one of v1, v2 or v3", async () => {
-		const response = await PUT(makeEvent({ ATLAS_PIPELINE: "v9" }));
+	it("refuses a select value that is not one of the registry's options", async () => {
+		const response = await PUT(makeEvent({ MINERU_OCR_MODE: "v9" }));
 
 		expect(response.status).toBe(400);
-		expect((await response.json()).invalid.ATLAS_PIPELINE).toEqual({
+		expect((await response.json()).invalid.MINERU_OCR_MODE).toEqual({
 			reason: "invalid-option",
 		});
 	});

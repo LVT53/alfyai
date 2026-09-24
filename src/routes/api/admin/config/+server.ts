@@ -9,10 +9,6 @@ import { requireAdmin } from "$lib/server/auth/hooks";
 import {
 	ADMIN_CONFIG_KEYS,
 	type AdminConfigKey,
-	getAtlasExhaustiveMaxOutputTokens,
-	getAtlasInDepthMaxOutputTokens,
-	getAtlasMaxWriterPromptChars,
-	getAtlasOverviewMaxOutputTokens,
 	getEnvDefaults,
 	getResolvedAdminConfigValues,
 	refreshConfig,
@@ -70,12 +66,6 @@ export const GET: RequestHandler = async (event) => {
 		overrides,
 		overrideMeta,
 		envDefaults,
-		atlas: {
-			overviewMaxOutputTokens: getAtlasOverviewMaxOutputTokens(),
-			inDepthMaxOutputTokens: getAtlasInDepthMaxOutputTokens(),
-			exhaustiveMaxOutputTokens: getAtlasExhaustiveMaxOutputTokens(),
-			maxWriterPromptChars: getAtlasMaxWriterPromptChars(),
-		},
 	});
 };
 

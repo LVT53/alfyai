@@ -21,6 +21,7 @@ import {
 	Download,
 	FileText,
 	Globe,
+	Library,
 	LoaderCircle,
 	RotateCw,
 	Split,
@@ -118,6 +119,11 @@ const PHASE_LABEL_KEYS: Record<string, I18nKey> = {
 	write: "atlasActivity.phase.write",
 	verify: "atlasActivity.phase.verify",
 	render: "atlasActivity.phase.render",
+	// v3 phases (ADR 0063).
+	ask: "atlasActivity.phase.ask",
+	outline: "atlasActivity.phase.outline",
+	answer: "atlasActivity.phase.answer",
+	critic: "atlasActivity.phase.critic",
 };
 
 const CONFIDENCE_LABEL_KEYS: Record<AtlasPlanConfidence, I18nKey> = {
@@ -687,10 +693,19 @@ function handleTabKeydown(event: KeyboardEvent) {
 				{#if evidence.sources.length > 0}
 					<div class="atlas-eyebrow">{$t('toolActivity.sourcesEyebrow')}</div>
 					{#each evidence.sources as source (source.n)}
-						{@const faviconUrl = atlasFaviconUrl(source.host)}
+						{@const local = source.kind === 'local'}
+						{@const faviconUrl = local ? null : atlasFaviconUrl(source.host)}
+						{@const origin = local ? $t('atlasActivity.yourLibrary') : source.host}
 						<div class="atlas-src" data-testid="atlas-evidence-source">
 							<span class="atlas-favicon" aria-hidden="true">
-								{#if faviconUrl}
+								{#if local}
+									<Library
+										size={9}
+										strokeWidth={2.2}
+										aria-hidden="true"
+										data-testid="atlas-evidence-library"
+									/>
+								{:else if faviconUrl}
 									<img
 										class="atlas-favicon-img"
 										src={faviconUrl}
@@ -704,11 +719,13 @@ function handleTabKeydown(event: KeyboardEvent) {
 										}}
 									/>
 								{/if}
-								<Globe size={9} strokeWidth={2.2} aria-hidden="true" />
+								{#if !local}
+									<Globe size={9} strokeWidth={2.2} aria-hidden="true" />
+								{/if}
 							</span>
 							<span class="atlas-src-title" title={source.title}>{source.title}</span>
 							<span class="atlas-src-host">
-								{source.date ? `${source.host} · ${source.date}` : source.host}
+								{source.date ? `${origin} · ${source.date}` : origin}
 							</span>
 							{#if source.cited}
 								<Check class="atlas-src-cited" size={12} strokeWidth={2.2} aria-hidden="true" />

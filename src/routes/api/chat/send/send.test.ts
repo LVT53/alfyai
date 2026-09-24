@@ -175,6 +175,8 @@ vi.mock("$lib/server/config-store", () => ({
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
+import { db } from "$lib/server/db";
+import { atlasJobs, conversations, users } from "$lib/server/db/schema";
 import {
 	linkAtlasJobAssistantMessage,
 	submitAtlasJobIntake,
@@ -428,8 +430,8 @@ describe("POST /api/chat/send", () => {
 			action: "create",
 			parentAtlasJobId: null,
 			clientAtlasTurnId: "client-atlas-1",
-			// ADR 0062: the pipeline is stamped on the row at kickoff.
-			pipelineVersion: 1,
+			// D1 routing: every new job is stamped pipeline v3 internally by the
+			// ledger (Phase B); the send route no longer resolves or passes it.
 		});
 		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
 		expect(mockWakeAtlasWorker).toHaveBeenCalledOnce();
@@ -506,6 +508,161 @@ describe("POST /api/chat/send", () => {
 		expect(mockCheckStreamCapacity).not.toHaveBeenCalled();
 		expect(mockCreateMessage).not.toHaveBeenCalled();
 		expect(mockRunPlainNormalChatSendModel).not.toHaveBeenCalled();
+	});
+
+	// D1 routing (Phase B of the v3-only consolidation): the parent lookup for
+	// Continue/Revise/Fork stays only for validation — every new job (including
+	// the child) is stamped pipeline v3 by the ledger regardless of what the
+	// parent ran on, so these two checks are the only gate left in the route.
+	describe("D1 routing: Atlas lifecycle parent validation", () => {
+		async function seedAtlasParentJob(overrides: {
+			status?: string;
+			conversationId?: string;
+		}) {
+			const userId = `atlas-parent-user-${crypto.randomUUID()}`;
+			const parentConversationId =
+				overrides.conversationId ?? `atlas-parent-conv-${crypto.randomUUID()}`;
+			const jobId = `atlas-parent-job-${crypto.randomUUID()}`;
+			await db.insert(users).values({
+				id: userId,
+				email: `${userId}@example.com`,
+				passwordHash: "hash",
+			});
+			await db
+				.insert(conversations)
+				.values({
+					id: parentConversationId,
+					userId,
+					title: "Parent Atlas conversation",
+				})
+				.onConflictDoNothing();
+			await db.insert(atlasJobs).values({
+				id: jobId,
+				userId,
+				conversationId: parentConversationId,
+				action: "create",
+				profile: "overview",
+				normalizedQueryHash: `hash-${jobId}`,
+				clientAtlasTurnId: `turn-${jobId}`,
+				idempotencyKey: `atlas:v1:${jobId}`,
+				title: "Parent Atlas report",
+				status: overrides.status ?? "succeeded",
+			});
+			return { userId, parentConversationId, jobId };
+		}
+
+		it("rejects a Continue whose parent job has not succeeded with 409", async () => {
+			const { userId, jobId } = await seedAtlasParentJob({
+				status: "running",
+				conversationId: "conv-1",
+			});
+			seedConversation(mockGetConversation);
+
+			const response = await POST(
+				makeEvent(
+					{
+						message: "Continue researching",
+						conversationId: "conv-1",
+						atlasMode: true,
+						atlasProfile: "overview",
+						atlasAction: "continue",
+						parentAtlasId: jobId,
+						clientAtlasTurnId: "client-atlas-continue",
+					},
+					{ id: userId, email: "test@example.com" },
+				),
+			);
+
+			expect(response.status).toBe(409);
+			expect(mockSubmitAtlasJobIntake).not.toHaveBeenCalled();
+		});
+
+		it("rejects a Continue whose parent job belongs to another conversation with 409", async () => {
+			const { userId, jobId } = await seedAtlasParentJob({
+				status: "succeeded",
+			});
+			seedConversation(mockGetConversation);
+
+			const response = await POST(
+				makeEvent(
+					{
+						message: "Continue researching",
+						conversationId: "conv-1",
+						atlasMode: true,
+						atlasProfile: "overview",
+						atlasAction: "continue",
+						parentAtlasId: jobId,
+						clientAtlasTurnId: "client-atlas-continue-2",
+					},
+					{ id: userId, email: "test@example.com" },
+				),
+			);
+
+			expect(response.status).toBe(409);
+			expect(mockSubmitAtlasJobIntake).not.toHaveBeenCalled();
+		});
+
+		it("rejects a Continue whose parent job belongs to another user with 409", async () => {
+			const { jobId } = await seedAtlasParentJob({
+				status: "succeeded",
+				conversationId: "conv-1",
+			});
+			seedConversation(mockGetConversation);
+
+			const response = await POST(
+				makeEvent({
+					message: "Continue researching",
+					conversationId: "conv-1",
+					atlasMode: true,
+					atlasProfile: "overview",
+					atlasAction: "continue",
+					parentAtlasId: jobId,
+					clientAtlasTurnId: "client-atlas-continue-3",
+				}),
+			);
+
+			expect(response.status).toBe(409);
+			expect(mockSubmitAtlasJobIntake).not.toHaveBeenCalled();
+		});
+
+		it("admits a Continue on a succeeded same-user, same-conversation parent without passing a pipeline", async () => {
+			const { userId, jobId } = await seedAtlasParentJob({
+				status: "succeeded",
+				conversationId: "conv-1",
+			});
+			seedConversation(mockGetConversation);
+			mockSubmitAtlasJobIntake.mockRejectedValueOnce(
+				new Error("intake reached"),
+			);
+
+			await POST(
+				makeEvent(
+					{
+						message: "Continue researching",
+						conversationId: "conv-1",
+						atlasMode: true,
+						atlasProfile: "overview",
+						atlasAction: "continue",
+						parentAtlasId: jobId,
+						clientAtlasTurnId: "client-atlas-continue-4",
+					},
+					{ id: userId, email: "test@example.com" },
+				),
+			);
+
+			expect(mockSubmitAtlasJobIntake).toHaveBeenCalledOnce();
+			const intake = mockSubmitAtlasJobIntake.mock.calls[0]?.[0] as Record<
+				string,
+				unknown
+			>;
+			expect(intake).toMatchObject({
+				userId,
+				conversationId: "conv-1",
+				action: "continue",
+				parentAtlasJobId: jobId,
+			});
+			expect(intake).not.toHaveProperty("pipelineVersion");
+		});
 	});
 
 	it("persists requested Reasoning Depth metadata for non-stream sends, migrating the legacy 'max' wire value", async () => {

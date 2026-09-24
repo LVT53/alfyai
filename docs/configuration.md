@@ -275,19 +275,22 @@ client secret; the rest authenticate per-provider inside the app. ADRs
 
 ## Atlas (Deep-Research Reports)
 
-The top-level Atlas selector and its two inherit-target models live here. The full v2/v3 tuning
-tables are in [docs/atlas.md](atlas.md). ADRs
-[0062](adr/0062-atlas-content-pipeline-is-rebuilt-on-the-harness-tools.md),
+Atlas runs pipeline v3 exclusively (Phase B of the v3-only consolidation); there is no runtime
+selector between content pipelines any more. The two inherit-target models live here. The full v3
+tuning table is in [docs/atlas.md](atlas.md). ADRs
+[0062](adr/0062-atlas-content-pipeline-is-rebuilt-on-the-harness-tools.md) (superseded — v1/v2
+deleted, tag `atlas-v1-v2-final`),
 [0063](adr/0063-atlas-v3-reasons-from-an-evidence-bank-not-from-search-excerpts.md).
 
 | Variable | Required? | Default | What it does | When to set it | Caveats |
 |---|---|---:|---|---|---|
-| `ATLAS_PIPELINE` | No | `v1` | Which Atlas content pipeline a NEW job runs on: `v1`, `v2`, or `v3` | Set it to `v3` once `scripts/atlas-eval.ts` shows v3 ahead of v2 on your deployment | Only the exact value `v2` or `v3` selects one. The version is stamped on the job row at kickoff, so a flip never re-routes a queued job. Can also be overridden in admin config |
 | `ATLAS_SYNTHESIS_MODEL` | No | unset | Default model for v3 researcher and writer tasks (the inherit target for `ATLAS_V3_RESEARCHER_MODEL` / `_WRITER_MODEL`) | Point it at a capable synthesis model | `model1`, `model2`, or `provider:<providerId>:<modelId>`. Can also be overridden in admin config |
-| `ATLAS_AUDIT_MODEL` | No | unset | Default model for v3 ask, outline, critic, and verifier tasks (the inherit target for those roles) | Point it at a stronger audit/critique model when available | `model1`, `model2`, or `provider:<providerId>:<modelId>`. Also used by the `atlas-eval.ts --judge` pass. Can also be overridden in admin config |
-| `ATLAS_STALE_MONTHS` | No | `18` | Age past which a cited statistic is listed in the report's Limitations section | Lower it for fast-moving subjects | v2 only. Can also be overridden in admin config |
+| `ATLAS_AUDIT_MODEL` | No | unset | Default model for v3 ask, outline, and critic tasks (the inherit target for those roles) | Point it at a stronger audit/critique model when available | `model1`, `model2`, or `provider:<providerId>:<modelId>`. Also used by the `atlas-eval.ts --judge` pass. Can also be overridden in admin config |
+| `ATLAS_STALE_MONTHS` | No | `18` | Age past which a cited statistic is listed in the report's Limitations section | Lower it for fast-moving subjects | Read by the v3 pipeline. Can also be overridden in admin config |
 
-See [docs/atlas.md](atlas.md) for `ATLAS_V2_*` and `ATLAS_V3_*` tuning knobs.
+See [docs/atlas.md](atlas.md) for the `ATLAS_V3_*` tuning knobs. `ATLAS_PIPELINE` and the
+`ATLAS_V2_*` knobs were removed with the v1/v2 pipelines; a leftover `ATLAS_PIPELINE` in an
+operator's `.env` is ignored, and the server logs one deprecation warning if it is still set.
 
 ## Sentry (Optional Error Monitoring)
 

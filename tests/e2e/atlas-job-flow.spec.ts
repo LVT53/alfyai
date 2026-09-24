@@ -9,21 +9,24 @@ import type { AddressInfo } from "node:net";
 import {
 	type APIRequestContext,
 	expect,
-	type Locator,
 	type Page,
 	test,
 } from "@playwright/test";
 import { TEST_EMAIL, TEST_PASSWORD } from "./helpers";
 
+// Atlas runs pipeline v3 exclusively (ADR 0063, Phase B of the v3-only
+// consolidation). This flow drives a real v3 job end to end against a fake
+// OpenAI-compatible model server and a fake Parallel API: kickoff through
+// /api/chat/send, the worker's ask → research → outline → answer → write →
+// critic → verify → render phases, the activity row's live stage line across
+// a reload, and the rendered HTML report in the document workspace.
+
 const GENERATED_TITLE = "Generated Enterprise RAG Strategy";
 const ATLAS_E2E_MODEL = "alfyai-atlas-e2e-model";
 const ATLAS_E2E_API_KEY = "fake-atlas-e2e-key";
-const BASIS_RATIONALE = "Accepted source states revenue increased by 12%.";
 const ATLAS_ADMIN_CONFIG_KEYS = [
 	"ATLAS_WORKER_ENABLED",
 	"ATLAS_GLOBAL_ACTIVE_LIMIT",
-	"ATLAS_SEARCH_CONCURRENCY",
-	"ATLAS_SEARCH_BATCH_DELAY_MS",
 	"ATLAS_SYNTHESIS_MODEL",
 	"ATLAS_AUDIT_MODEL",
 	"PARALLEL_API_KEY",
@@ -58,8 +61,7 @@ test.describe("Atlas job app flow", () => {
 	}) => {
 		const searchServer = await startFakeAtlasSearchServer();
 		const modelServer = await startFakeAtlasModelServer({
-			searchOrigin: searchServer.origin,
-			coverageDelayMs: 10_000,
+			outlineDelayMs: 10_000,
 		});
 		let providerModel: TemporaryProviderModel | null = null;
 		let configSnapshot: AdminConfigSnapshot | null = null;
@@ -76,8 +78,6 @@ test.describe("Atlas job app flow", () => {
 			await updateAdminConfig(request, {
 				ATLAS_WORKER_ENABLED: "true",
 				ATLAS_GLOBAL_ACTIVE_LIMIT: "1",
-				ATLAS_SEARCH_CONCURRENCY: "1",
-				ATLAS_SEARCH_BATCH_DELAY_MS: "0",
 				ATLAS_SYNTHESIS_MODEL: providerModel.selectedModel,
 				ATLAS_AUDIT_MODEL: providerModel.selectedModel,
 				// Point the Parallel client at the local fake so the Atlas worker
@@ -96,18 +96,19 @@ test.describe("Atlas job app flow", () => {
 				waitUntil: "domcontentloaded",
 			});
 			// The Atlas job renders as a unified activity row: while it runs the row
-			// is pinned open and its body carries the stage line ("Reviewing
-			// coverage" for this v1 pipeline stage).
+			// is pinned open and its body carries the stage line. The fake model
+			// holds the first outline call, so the v3 "outline" phase is on screen
+			// long enough to survive a reload.
 			const row = page.getByTestId("atlas-activity-row");
 			await expect(row.getByTestId("atlas-stage-line")).toContainText(
-				"Reviewing coverage",
+				"Outlining",
 				{ timeout: 30_000 },
 			);
 
 			await page.reload({ waitUntil: "domcontentloaded" });
 			await expect(
 				page.getByTestId("atlas-activity-row").getByTestId("atlas-stage-line"),
-			).toContainText("Reviewing coverage", { timeout: 15_000 });
+			).toContainText("Outlining", { timeout: 15_000 });
 
 			const restoredRow = page.getByTestId("atlas-activity-row");
 			// Settled: the row's own status flips to done and the body opens on the
@@ -131,56 +132,35 @@ test.describe("Atlas job app flow", () => {
 			await expect(
 				report.getByRole("heading", { name: GENERATED_TITLE }),
 			).toHaveCount(1);
+			// v3 opens on the verdict: the answer before any section.
 			await expect(
-				report.getByRole("heading", { name: "Executive Summary" }),
+				report.getByRole("heading", { name: "Verdict" }),
 			).toBeVisible();
-
 			await expect(
 				report.getByRole("heading", { name: "Sources" }),
 			).toHaveCount(1);
 			await expect(
-				report.getByRole("link", { name: "Vendor docs", exact: true }),
-			).toHaveAttribute("href", `${searchServer.origin}/source/vendor`);
+				report.getByRole("link", { name: /Vendor docs/ }).first(),
+			).toHaveAttribute("href", VENDOR_URL);
 			await expect(
-				report.getByRole("link", { name: "Benchmark report", exact: true }),
+				report.getByRole("link", { name: /Benchmark report/ }).first(),
 			).toBeVisible();
 
 			const bodyText = await report.locator("body").innerText();
 			expect(countOccurrences(bodyText, GENERATED_TITLE)).toBe(1);
+			// A written section and a real verdict, not an abstention report.
+			expect(bodyText).toContain("retrieval review");
+			expect(bodyText).not.toContain("does not answer the question");
+			// Citation tokens are rendered, never leaked as raw markup.
+			expect(bodyText).not.toContain("[[cite:");
 			expect(
-				await report.locator("body").evaluate((body, generatedTitle) => {
-					const contentNodes = Array.from(
-						body.querySelectorAll("h1, h2, h3, h4, p, li"),
-					);
-					let pastCanonicalTitle = false;
-					for (const node of contentNodes) {
-						const text = node.textContent?.replace(/\s+/g, " ").trim() ?? "";
-						if (!pastCanonicalTitle) {
-							if (node.tagName === "H1" && text === generatedTitle) {
-								pastCanonicalTitle = true;
-							}
-							continue;
-						}
-						if (/^Executive Summary$/i.test(text)) return false;
-						if (text.includes(generatedTitle)) return true;
-					}
-					return false;
-				}, GENERATED_TITLE),
-			).toBe(false);
-			expect(bodyText).not.toMatch(/Honesty Markers/i);
-
-			const marker = report.getByRole("button", {
-				name: `Supported claim: ${BASIS_RATIONALE}`,
-			});
-			await expect(marker).toBeVisible();
-
-			await marker.hover();
-			await expectBasisPanel(marker);
-			await marker.focus();
-			await expect(marker).toBeFocused();
-			await expectBasisPanel(marker);
-			await marker.tap();
-			await expectBasisPanel(marker);
+				modelServer
+					.requests()
+					.some((entry) =>
+						JSON.stringify(entry.body).includes("Atlas stage: v3:ask."),
+					),
+				"the worker never ran the v3 ask stage",
+			).toBe(true);
 		} finally {
 			if (configSnapshot) {
 				await restoreAdminConfig(request, configSnapshot);
@@ -192,13 +172,6 @@ test.describe("Atlas job app flow", () => {
 		}
 	});
 });
-
-async function expectBasisPanel(marker: Locator): Promise<void> {
-	const tooltip = marker.getByRole("tooltip");
-	await expect(tooltip).toBeVisible();
-	await expect(tooltip.locator("strong").first()).toHaveText("Supported claim");
-	await expect(tooltip).toContainText(BASIS_RATIONALE);
-}
 
 function countOccurrences(text: string, needle: string): number {
 	return text.split(needle).length - 1;
@@ -367,8 +340,14 @@ async function deleteTemporaryProvider(
 }
 
 // Canned Parallel-shaped results, keyed by the page URL the Atlas worker will
-// discover via /v1/search and then enrich via /v1/extract.
-function fakeParallelPages(origin: string): Array<{
+// discover via /v1/search and then enrich via /v1/extract. The two pages sit on
+// two different publishers and state the same figure, so v3's corroboration
+// rule (two independent publishers) is met and the report answers rather than
+// abstains. Their URLs are never fetched: /v1/extract serves them by URL.
+const VENDOR_URL = "https://vendor.example/docs/rag-adoption";
+const BENCHMARK_URL = "https://benchmark.example/reports/enterprise-rag";
+
+function fakeParallelPages(): Array<{
 	url: string;
 	title: string;
 	publish_date: string | null;
@@ -377,7 +356,7 @@ function fakeParallelPages(origin: string): Array<{
 }> {
 	return [
 		{
-			url: `${origin}/source/vendor`,
+			url: VENDOR_URL,
 			title: "Vendor docs",
 			publish_date: null,
 			excerpts: [
@@ -387,14 +366,14 @@ function fakeParallelPages(origin: string): Array<{
 				"Revenue increased by 12% after enterprise teams adopted retrieval review, source governance, and rollout controls. The vendor evidence is useful but representative rather than exhaustive across every business unit.",
 		},
 		{
-			url: `${origin}/source/benchmark`,
+			url: BENCHMARK_URL,
 			title: "Benchmark report",
 			publish_date: null,
 			excerpts: [
-				"Benchmark report compares enterprise RAG adoption patterns and highlights retrieval quality controls.",
+				"Benchmark report finds revenue increased by 12% where enterprise teams adopted retrieval review.",
 			],
 			full_content:
-				"Enterprise RAG adoption patterns differ by retrieval quality, reviewer workflow, and governance maturity. The benchmark report supports comparing adoption patterns without claiming universal rollout success.",
+				"Across the benchmark cohort, revenue increased by 12% where enterprise teams adopted retrieval review and reviewer workflows. Adoption patterns otherwise differ by governance maturity.",
 		},
 	];
 }
@@ -411,7 +390,7 @@ async function startFakeAtlasSearchServer(): Promise<{
 		async (request: IncomingMessage, response: ServerResponse) => {
 			const origin = serverOrigin(server);
 			const url = new URL(request.url ?? "/", origin);
-			const pages = fakeParallelPages(origin);
+			const pages = fakeParallelPages();
 
 			if (request.method === "POST" && url.pathname === "/v1/search") {
 				// Drain the request body (objective/search_queries) though the fake
@@ -466,15 +445,14 @@ async function startFakeAtlasSearchServer(): Promise<{
 }
 
 async function startFakeAtlasModelServer(input: {
-	searchOrigin: string;
-	coverageDelayMs: number;
+	outlineDelayMs: number;
 }): Promise<{
 	baseURL: string;
 	requests: () => CapturedModelRequest[];
 	stop: () => Promise<void>;
 }> {
 	const requests: CapturedModelRequest[] = [];
-	let coverageReviewCalls = 0;
+	let outlineCalls = 0;
 	const server = createServer(
 		async (request: IncomingMessage, response: ServerResponse) => {
 			const url = new URL(request.url ?? "/", serverOrigin(server));
@@ -495,14 +473,12 @@ async function startFakeAtlasModelServer(input: {
 			) {
 				const body = parseJson(await readRequestBody(request));
 				requests.push({ path: url.pathname, body });
-				const stage = detectAtlasStage(body);
-				if (stage === "coverage-review") {
-					coverageReviewCalls += 1;
-					if (coverageReviewCalls === 1) {
-						await delay(input.coverageDelayMs);
-					}
+				const { stage, prompt } = readAtlasV3Call(body);
+				if (stage === "v3:outline") {
+					outlineCalls += 1;
+					if (outlineCalls === 1) await delay(input.outlineDelayMs);
 				}
-				const content = modelTextForStage(stage, input);
+				const content = modelTextForV3Stage(stage, prompt);
 				if (isStreamingChatCompletion(body)) {
 					await writeChatCompletionStream(response, content);
 				} else {
@@ -521,125 +497,187 @@ async function startFakeAtlasModelServer(input: {
 	};
 }
 
-type AtlasFakeStage =
-	| "decompose"
-	| "curate"
-	| "coverage-review"
-	| "synthesize"
-	| "integrate"
-	| "assemble"
-	| "audit"
-	| "unknown";
-
-function detectAtlasStage(body: unknown): AtlasFakeStage {
-	const serialized = JSON.stringify(body);
-	for (const stage of [
-		"decompose",
-		"curate",
-		"coverage-review",
-		"synthesize",
-		"integrate",
-		"assemble",
-	] as const) {
-		if (serialized.includes(`Atlas stage: ${stage}.`)) return stage;
+function messageText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (Array.isArray(content)) {
+		return content
+			.map((part) =>
+				part && typeof part === "object" && "text" in part
+					? String((part as { text: unknown }).text)
+					: "",
+			)
+			.join("");
 	}
-	if (serialized.includes("Audit the Atlas report")) return "audit";
-	if (serialized.includes("Generate Atlas Claim Basis audit data"))
-		return "audit";
-	return "unknown";
+	return "";
 }
 
-function modelTextForStage(
-	stage: AtlasFakeStage,
-	input: { searchOrigin: string },
+/**
+ * Every v3 model call ends its system prompt with `Atlas stage: v3:<name>…`
+ * (atlas/model-stage.ts) and sends a JSON user prompt. The stage is reduced
+ * to its family (`v3:read:s2` → `v3:read`); the prompt is parsed so the fake
+ * can answer with ids the pipeline actually minted.
+ */
+function readAtlasV3Call(body: unknown): {
+	stage: string;
+	prompt: Record<string, unknown>;
+} {
+	const messages =
+		body && typeof body === "object" && "messages" in body
+			? ((body as { messages?: unknown }).messages as Array<{
+					role?: string;
+					content?: unknown;
+				}>)
+			: [];
+	const system = messages
+		.filter((message) => message.role === "system")
+		.map((message) => messageText(message.content))
+		.join("\n");
+	const user = messages
+		.filter((message) => message.role === "user")
+		.map((message) => messageText(message.content))
+		.join("\n");
+	const match = system.match(/Atlas stage: (v3:[a-z]+)/);
+	const parsed = parseJson(user);
+	return {
+		stage: match?.[1] ?? "unknown",
+		prompt:
+			parsed && typeof parsed === "object"
+				? (parsed as Record<string, unknown>)
+				: {},
+	};
+}
+
+function idsIn(value: unknown, pattern: RegExp): string[] {
+	return [...new Set(JSON.stringify(value ?? null).match(pattern) ?? [])].map(
+		(id) => id.replaceAll('"', ""),
+	);
+}
+
+function evidenceIds(prompt: Record<string, unknown>): string[] {
+	const evidence = Array.isArray(prompt.evidence) ? prompt.evidence : [];
+	return evidence
+		.map((entry) =>
+			entry && typeof entry === "object"
+				? String((entry as { id?: unknown }).id ?? "")
+				: "",
+		)
+		.filter(Boolean);
+}
+
+function modelTextForV3Stage(
+	stage: string,
+	prompt: Record<string, unknown>,
 ): string {
 	switch (stage) {
-		case "decompose":
-			return [
-				"- enterprise RAG adoption revenue source governance",
-				"- enterprise RAG benchmark retrieval quality controls",
-			].join("\n");
-		case "curate":
-			return [
-				"Curated fact: Vendor docs report revenue increased by 12% after retrieval review and source governance.",
-				"Curated fact: Benchmark report compares adoption patterns across retrieval quality controls.",
-			].join("\n");
-		case "coverage-review":
-			return JSON.stringify({ sufficient: true, proposals: [] });
-		case "synthesize":
-			return "Enterprise RAG programs benefit from retrieval review, source governance, and staged rollout because accepted web evidence shows adoption varies by team maturity.";
-		case "integrate":
-			return "Executive Summary; Findings on adoption and retrieval quality; Limitations for representative evidence.";
-		case "assemble":
+		case "v3:ask":
 			return JSON.stringify({
-				generatedTitle: GENERATED_TITLE,
-				bodyMarkdown: [
-					"## Executive Summary",
-					"Revenue increased by 12% while adoption evidence remains directional because the accepted sources show uneven rollout across teams.",
-					"",
-					"## Findings",
-					"Enterprise RAG programs benefit from a retrieval layer, citation review, and controlled rollout when source quality varies by business unit.",
-					"",
-					"## Limitations",
-					"Accepted web evidence is representative rather than exhaustive, so the report should avoid universal rollout claims.",
-					"",
-					"## Sources",
-					"- Model-authored duplicate source appendix that should be replaced by deterministic source chips.",
-				].join("\n"),
-				sectionBriefs: [
-					{
-						sectionTitle: "Executive Summary",
-						brief: "Revenue and adoption claim grounded in Vendor docs.",
-						evidencePackIds: [],
-						sourceAssociations: [
+				decision: "How to roll out enterprise RAG safely",
+				coreQuestion:
+					"How do enterprise RAG adoption patterns compare, and what drives them?",
+				title: GENERATED_TITLE,
+				shape: "explanation",
+				implicitRequirements: [],
+				perspectives: ["platform teams"],
+				subQuestions: [
+					"Enterprise RAG adoption revenue outcomes",
+					"Enterprise RAG retrieval quality controls",
+				],
+			});
+		case "v3:searchplan":
+			return JSON.stringify({ queries: ["enterprise RAG adoption"] });
+		case "v3:read": {
+			// Quote the page verbatim, as a real reader would: the sentence that
+			// carries the figure.
+			const page = typeof prompt.page === "string" ? prompt.page : "";
+			const sentences = page.split(/(?<=\.)\s+/);
+			const quote = (
+				sentences.find((sentence) => /12%/.test(sentence)) ??
+				sentences[0] ??
+				""
+			).trim();
+			return JSON.stringify({
+				quotes: [{ text: quote }],
+				claims: /12%/.test(quote)
+					? [
 							{
-								sourceId: "vendor-docs",
-								sourceKind: "web",
-								sourceTitle: "Vendor docs",
-								url: `${input.searchOrigin}/source/vendor`,
-								evidencePackId: null,
-								relevance: "Supports the revenue claim.",
+								entity: "Enterprise teams",
+								metric: "revenue increase after retrieval review",
+								value: "12",
+								unit: "%",
+								quoteIndexes: [0],
+							},
+						]
+					: [],
+				useless: false,
+			});
+		}
+		case "v3:note":
+			return JSON.stringify({ summary: "Found the adoption evidence." });
+		case "v3:memo":
+			return JSON.stringify({
+				answerSoFar:
+					"Adoption depends on retrieval review and governance maturity.",
+				claimIds: idsIn(prompt.claims, /"c\d+"/g),
+			});
+		case "v3:outline": {
+			const claims = idsIn(prompt.claims, /"c\d+"/g);
+			return JSON.stringify({
+				nodes: claims.map((claimId, index) => ({
+					id: `n${index + 1}`,
+					title:
+						index === 0
+							? "Retrieval review pays off"
+							: "Governance maturity shapes adoption",
+					claim:
+						index === 0
+							? "Teams that adopt retrieval review see gains."
+							: "Adoption patterns follow governance maturity.",
+					needs: [],
+					claimIds: [claimId],
+				})),
+				cut: [],
+			});
+		}
+		case "v3:trial":
+			return JSON.stringify({
+				lead: "Revenue rose 12% where teams adopted retrieval review.",
+				supportable: true,
+			});
+		case "v3:write": {
+			const ids = evidenceIds(prompt);
+			return JSON.stringify({
+				paragraphs: [
+					{
+						sentences: [
+							{
+								text: "Enterprise teams that adopted retrieval review and source governance saw revenue increase by 12%.",
+								evidenceIds: ids.slice(0, 1),
+								kind: "claim",
+								calcId: null,
 							},
 						],
-						limitations: [],
 					},
 				],
-				limitations: [],
+				showAnswerTable: false,
 			});
-		case "audit":
+		}
+		case "v3:verdict":
 			return JSON.stringify({
-				retryRequested: false,
-				claimBasis: [
+				sentences: [
 					{
-						locator: {
-							sectionTitle: "Findings",
-							paragraphIndex: 0,
-							claimIndex: 0,
-							claimText: "controlled rollout",
-							quote: "controlled rollout",
-							startOffset: null,
-							endOffset: null,
-						},
-						supportLevel: "supported",
-						evidencePackIds: [],
-						sourceRefs: [
-							{
-								id: "vendor-docs",
-								kind: "web",
-								title: "Vendor docs",
-								url: `${input.searchOrigin}/source/vendor`,
-								authority: "accepted_web",
-							},
-						],
-						supportRationale: BASIS_RATIONALE,
-						auditConcernCode: null,
+						text: "Enterprise RAG adoption lifted revenue by 12% where teams paired it with retrieval review.",
+						evidenceIds: evidenceIds(prompt).slice(0, 2),
+						kind: "synthesis",
+						calcId: null,
 					},
 				],
-				limitations: [],
-				diagnostics: [],
 			});
+		case "v3:critic":
+			return JSON.stringify({ findings: [] });
 		default:
-			return "Atlas deterministic fake model fallback.";
+			// Unscripted stages (the answer table) answer `{}`, which every v3
+			// parser treats as unusable and falls back from.
+			return "{}";
 	}
 }
 

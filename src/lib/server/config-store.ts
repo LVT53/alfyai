@@ -9,7 +9,7 @@ import { deriveMaxMessageLengthFromContextTokens } from "$lib/model-limit-preset
 import type { ModelId } from "$lib/model-types";
 import { db } from "./db";
 import { adminConfig } from "./db/schema";
-import type { AtlasPipelineSelection, ModelConfig } from "./env";
+import type { ModelConfig } from "./env";
 import { config as envConfig } from "./env";
 import { getSystemPrompt, normalizeSystemPromptReference } from "./prompts";
 import {
@@ -18,7 +18,7 @@ import {
 	modelIconUrl as projectedModelIconUrl,
 } from "./services/available-models";
 
-export type { AtlasPipelineSelection, ModelConfig } from "./env";
+export type { ModelConfig } from "./env";
 
 export const ADMIN_CONFIG_KEYS = [
 	"MAX_MESSAGE_LENGTH",
@@ -128,28 +128,14 @@ export const ADMIN_CONFIG_KEYS = [
 	"MEMORY_JUDGE_DRY_RUN",
 	"ATLAS_WORKER_ENABLED",
 	"ATLAS_GLOBAL_ACTIVE_LIMIT",
-	"ATLAS_SEARCH_CONCURRENCY",
-	"ATLAS_SEARCH_BATCH_DELAY_MS",
 	"ATLAS_SYNTHESIS_MODEL",
 	"ATLAS_AUDIT_MODEL",
-	"ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS",
-	"ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS",
-	"ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS",
-	"ATLAS_MAX_WRITER_PROMPT_CHARS",
-	"ATLAS_PIPELINE",
 	"ATLAS_STALE_MONTHS",
-	"ATLAS_V2_QUESTIONS_OVERVIEW",
-	"ATLAS_V2_QUESTIONS_IN_DEPTH",
-	"ATLAS_V2_QUESTIONS_EXHAUSTIVE",
-	"ATLAS_V2_ROUNDS_OVERVIEW",
-	"ATLAS_V2_ROUNDS_IN_DEPTH",
-	"ATLAS_V2_ROUNDS_EXHAUSTIVE",
 	"ATLAS_V3_ASK_MODEL",
 	"ATLAS_V3_RESEARCHER_MODEL",
 	"ATLAS_V3_OUTLINE_MODEL",
 	"ATLAS_V3_WRITER_MODEL",
 	"ATLAS_V3_CRITIC_MODEL",
-	"ATLAS_V3_VERIFIER_MODEL",
 	"ATLAS_V3_CRITIC_ROUNDS",
 	"ATLAS_V3_RESEARCHER_CONCURRENCY",
 	"ATLAS_V3_SEARCHES_PER_STEP",
@@ -196,14 +182,6 @@ export const ADMIN_CONFIG_KEYS = [
 	// Each one is surfaced on the System → Advanced page.
 	"TEI_TIMEOUT_MS",
 	"MEMORY_MAINTENANCE_INTERVAL_MINUTES",
-	"ATLAS_V2_MAX_WORDS_OVERVIEW",
-	"ATLAS_V2_MAX_WORDS_IN_DEPTH",
-	"ATLAS_V2_MAX_WORDS_EXHAUSTIVE",
-	"ATLAS_V2_MAX_SOURCES_OVERVIEW",
-	"ATLAS_V2_MAX_SOURCES_IN_DEPTH",
-	"ATLAS_V2_MAX_SOURCES_EXHAUSTIVE",
-	"ATLAS_V2_ENTAILMENT_BATCH",
-	"ATLAS_V2_WRITER_CONCURRENCY",
 	"ATTACHMENT_TRACE_DEBUG",
 	"NORMAL_CHAT_DEBUG_OUTBOUND",
 	"CONCURRENT_STREAM_LIMIT",
@@ -248,40 +226,15 @@ export interface RuntimeConfig {
 	memoryJudgeDryRun: boolean;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
-	atlasSearchConcurrency: number;
-	atlasSearchBatchDelayMs: number;
 	atlasSynthesisModel: ModelId;
 	atlasAuditModel: ModelId;
-	atlasOverviewMaxOutputTokens: number;
-	atlasInDepthMaxOutputTokens: number;
-	atlasExhaustiveMaxOutputTokens: number;
-	atlasMaxWriterPromptChars: number;
-	atlasPipeline: AtlasPipelineSelection;
 	atlasStaleMonths: number;
-	atlasV2QuestionsOverview: number;
-	atlasV2QuestionsInDepth: number;
-	atlasV2QuestionsExhaustive: number;
-	atlasV2RoundsOverview: number;
-	atlasV2RoundsInDepth: number;
-	atlasV2RoundsExhaustive: number;
-	// Word ceilings, indexed-source caps and the two concurrency knobs the v2
-	// budget resolver reads. Promoted out of env-only so they can be retuned
-	// from System → Advanced; every consumer reads them through getConfig().
-	atlasV2MaxWordsOverview: number;
-	atlasV2MaxWordsInDepth: number;
-	atlasV2MaxWordsExhaustive: number;
-	atlasV2MaxSourcesOverview: number;
-	atlasV2MaxSourcesInDepth: number;
-	atlasV2MaxSourcesExhaustive: number;
-	atlasV2EntailmentBatch: number;
-	atlasV2WriterConcurrency: number;
 	// ADR 0063: Atlas v3's per-task models and knobs. A null model inherits.
 	atlasV3AskModel: ModelId | null;
 	atlasV3ResearcherModel: ModelId | null;
 	atlasV3OutlineModel: ModelId | null;
 	atlasV3WriterModel: ModelId | null;
 	atlasV3CriticModel: ModelId | null;
-	atlasV3VerifierModel: ModelId | null;
 	atlasV3CriticRounds: number;
 	atlasV3ResearcherConcurrency: number;
 	atlasV3SearchesPerStep: number;
@@ -1062,82 +1015,15 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 		if (parsed !== undefined)
 			config.atlasGlobalActiveLimit = Math.max(1, parsed);
 	},
-	ATLAS_SEARCH_CONCURRENCY: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasSearchConcurrency = Math.max(1, parsed);
-	},
-	ATLAS_SEARCH_BATCH_DELAY_MS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasSearchBatchDelayMs = Math.max(0, parsed);
-	},
 	ATLAS_SYNTHESIS_MODEL: (config, value) => {
 		config.atlasSynthesisModel = normalizeConfiguredModelId(value);
 	},
 	ATLAS_AUDIT_MODEL: (config, value) => {
 		config.atlasAuditModel = normalizeConfiguredModelId(value);
 	},
-	ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasOverviewMaxOutputTokens = Math.max(1, parsed);
-	},
-	ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasInDepthMaxOutputTokens = Math.max(1, parsed);
-	},
-	ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasExhaustiveMaxOutputTokens = Math.max(1, parsed);
-	},
-	ATLAS_MAX_WRITER_PROMPT_CHARS: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasMaxWriterPromptChars = Math.max(100, parsed);
-	},
-	// ADR 0062, extended by ADR 0063. Only an explicit "v2" or "v3" selects a
-	// rebuilt content pipeline; every other value (including a typo) leaves the
-	// deployment on v1.
-	ATLAS_PIPELINE: (config, value) => {
-		const normalized = value.trim().toLowerCase();
-		config.atlasPipeline =
-			normalized === "v3" ? "v3" : normalized === "v2" ? "v2" : "v1";
-	},
 	ATLAS_STALE_MONTHS: (config, value) => {
 		const parsed = parseIntOverride(value);
 		if (parsed !== undefined) config.atlasStaleMonths = Math.max(1, parsed);
-	},
-	ATLAS_V2_QUESTIONS_OVERVIEW: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2QuestionsOverview = Math.max(1, parsed);
-	},
-	ATLAS_V2_QUESTIONS_IN_DEPTH: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2QuestionsInDepth = Math.max(1, parsed);
-	},
-	ATLAS_V2_QUESTIONS_EXHAUSTIVE: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2QuestionsExhaustive = Math.max(1, parsed);
-	},
-	ATLAS_V2_ROUNDS_OVERVIEW: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2RoundsOverview = Math.max(1, parsed);
-	},
-	ATLAS_V2_ROUNDS_IN_DEPTH: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined) config.atlasV2RoundsInDepth = Math.max(1, parsed);
-	},
-	ATLAS_V2_ROUNDS_EXHAUSTIVE: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2RoundsExhaustive = Math.max(1, parsed);
 	},
 	// ADR 0063: per-task models. An EMPTY override clears the key back to
 	// "inherit" rather than silently pinning model1, so an admin can undo a
@@ -1156,9 +1042,6 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 	},
 	ATLAS_V3_CRITIC_MODEL: (config, value) => {
 		config.atlasV3CriticModel = normalizeOptionalConfiguredModelId(value);
-	},
-	ATLAS_V3_VERIFIER_MODEL: (config, value) => {
-		config.atlasV3VerifierModel = normalizeOptionalConfiguredModelId(value);
 	},
 	ATLAS_V3_CRITIC_ROUNDS: (config, value) => {
 		const parsed = parseIntOverride(value);
@@ -1414,46 +1297,6 @@ const overrideAppliers: Record<AdminConfigKey, OverrideApplier> = {
 			config.memoryMaintenanceIntervalMinutes = Math.max(0, parsed);
 		}
 	},
-	ATLAS_V2_MAX_WORDS_OVERVIEW: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2MaxWordsOverview = Math.max(200, parsed);
-	},
-	ATLAS_V2_MAX_WORDS_IN_DEPTH: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2MaxWordsInDepth = Math.max(200, parsed);
-	},
-	ATLAS_V2_MAX_WORDS_EXHAUSTIVE: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2MaxWordsExhaustive = Math.max(200, parsed);
-	},
-	ATLAS_V2_MAX_SOURCES_OVERVIEW: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2MaxSourcesOverview = Math.max(1, parsed);
-	},
-	ATLAS_V2_MAX_SOURCES_IN_DEPTH: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2MaxSourcesInDepth = Math.max(1, parsed);
-	},
-	ATLAS_V2_MAX_SOURCES_EXHAUSTIVE: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2MaxSourcesExhaustive = Math.max(1, parsed);
-	},
-	ATLAS_V2_ENTAILMENT_BATCH: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2EntailmentBatch = Math.min(25, Math.max(1, parsed));
-	},
-	ATLAS_V2_WRITER_CONCURRENCY: (config, value) => {
-		const parsed = parseIntOverride(value);
-		if (parsed !== undefined)
-			config.atlasV2WriterConcurrency = Math.min(8, Math.max(1, parsed));
-	},
 	ATTACHMENT_TRACE_DEBUG: (config, value) => {
 		config.attachmentTraceDebug = value === "true";
 	},
@@ -1554,74 +1397,8 @@ export function getMaxMessageLength(modelId?: string): number {
 	return runtimeConfig.maxMessageLength;
 }
 
-export function getAtlasOverviewMaxOutputTokens(): number {
-	return runtimeConfig.atlasOverviewMaxOutputTokens;
-}
-
-export function getAtlasInDepthMaxOutputTokens(): number {
-	return runtimeConfig.atlasInDepthMaxOutputTokens;
-}
-
-export function getAtlasExhaustiveMaxOutputTokens(): number {
-	return runtimeConfig.atlasExhaustiveMaxOutputTokens;
-}
-
-export function getAtlasMaxWriterPromptChars(): number {
-	return runtimeConfig.atlasMaxWriterPromptChars;
-}
-
-/** ADR 0062: which Atlas content pipeline a NEW job is stamped with. */
-export function getAtlasPipelineSelection(): AtlasPipelineSelection {
-	return runtimeConfig.atlasPipeline;
-}
-
 export function getAtlasStaleMonths(): number {
 	return runtimeConfig.atlasStaleMonths;
-}
-
-export function getAtlasV2ProfileKnobs(): {
-	questions: { overview: number; inDepth: number; exhaustive: number };
-	rounds: { overview: number; inDepth: number; exhaustive: number };
-} {
-	return {
-		questions: {
-			overview: runtimeConfig.atlasV2QuestionsOverview,
-			inDepth: runtimeConfig.atlasV2QuestionsInDepth,
-			exhaustive: runtimeConfig.atlasV2QuestionsExhaustive,
-		},
-		rounds: {
-			overview: runtimeConfig.atlasV2RoundsOverview,
-			inDepth: runtimeConfig.atlasV2RoundsInDepth,
-			exhaustive: runtimeConfig.atlasV2RoundsExhaustive,
-		},
-	};
-}
-
-/**
- * The v2 budget knobs — word ceiling and indexed-source cap per profile, plus
- * the entailment batch and writer concurrency. Read live so an admin change on
- * System → Advanced applies to the next report without a restart.
- */
-export function getAtlasV2BudgetKnobs(): {
-	maxWords: { overview: number; inDepth: number; exhaustive: number };
-	maxSources: { overview: number; inDepth: number; exhaustive: number };
-	entailmentBatch: number;
-	writerConcurrency: number;
-} {
-	return {
-		maxWords: {
-			overview: runtimeConfig.atlasV2MaxWordsOverview,
-			inDepth: runtimeConfig.atlasV2MaxWordsInDepth,
-			exhaustive: runtimeConfig.atlasV2MaxWordsExhaustive,
-		},
-		maxSources: {
-			overview: runtimeConfig.atlasV2MaxSourcesOverview,
-			inDepth: runtimeConfig.atlasV2MaxSourcesInDepth,
-			exhaustive: runtimeConfig.atlasV2MaxSourcesExhaustive,
-		},
-		entailmentBatch: runtimeConfig.atlasV2EntailmentBatch,
-		writerConcurrency: runtimeConfig.atlasV2WriterConcurrency,
-	};
 }
 
 /**
@@ -1636,7 +1413,6 @@ export function getAtlasV3TaskModels(): {
 	outline: ModelId | null;
 	writer: ModelId | null;
 	critic: ModelId | null;
-	verifier: ModelId | null;
 } {
 	return {
 		ask: runtimeConfig.atlasV3AskModel,
@@ -1644,7 +1420,6 @@ export function getAtlasV3TaskModels(): {
 		outline: runtimeConfig.atlasV3OutlineModel,
 		writer: runtimeConfig.atlasV3WriterModel,
 		critic: runtimeConfig.atlasV3CriticModel,
-		verifier: runtimeConfig.atlasV3VerifierModel,
 	};
 }
 
@@ -1894,28 +1669,9 @@ export function getResolvedAdminConfigValues(
 		MEMORY_JUDGE_DRY_RUN: String(config.memoryJudgeDryRun),
 		ATLAS_WORKER_ENABLED: String(config.atlasWorkerEnabled),
 		ATLAS_GLOBAL_ACTIVE_LIMIT: String(config.atlasGlobalActiveLimit),
-		ATLAS_SEARCH_CONCURRENCY: String(config.atlasSearchConcurrency),
-		ATLAS_SEARCH_BATCH_DELAY_MS: String(config.atlasSearchBatchDelayMs),
 		ATLAS_SYNTHESIS_MODEL: config.atlasSynthesisModel,
 		ATLAS_AUDIT_MODEL: config.atlasAuditModel,
-		ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS: String(
-			config.atlasOverviewMaxOutputTokens,
-		),
-		ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS: String(
-			config.atlasInDepthMaxOutputTokens,
-		),
-		ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS: String(
-			config.atlasExhaustiveMaxOutputTokens,
-		),
-		ATLAS_MAX_WRITER_PROMPT_CHARS: String(config.atlasMaxWriterPromptChars),
-		ATLAS_PIPELINE: config.atlasPipeline,
 		ATLAS_STALE_MONTHS: String(config.atlasStaleMonths),
-		ATLAS_V2_QUESTIONS_OVERVIEW: String(config.atlasV2QuestionsOverview),
-		ATLAS_V2_QUESTIONS_IN_DEPTH: String(config.atlasV2QuestionsInDepth),
-		ATLAS_V2_QUESTIONS_EXHAUSTIVE: String(config.atlasV2QuestionsExhaustive),
-		ATLAS_V2_ROUNDS_OVERVIEW: String(config.atlasV2RoundsOverview),
-		ATLAS_V2_ROUNDS_IN_DEPTH: String(config.atlasV2RoundsInDepth),
-		ATLAS_V2_ROUNDS_EXHAUSTIVE: String(config.atlasV2RoundsExhaustive),
 		// An unset per-task model shows as "" — the effective-config view has to
 		// distinguish "inherits ATLAS_SYNTHESIS_MODEL" from "pinned to model1".
 		ATLAS_V3_ASK_MODEL: config.atlasV3AskModel ?? "",
@@ -1923,7 +1679,6 @@ export function getResolvedAdminConfigValues(
 		ATLAS_V3_OUTLINE_MODEL: config.atlasV3OutlineModel ?? "",
 		ATLAS_V3_WRITER_MODEL: config.atlasV3WriterModel ?? "",
 		ATLAS_V3_CRITIC_MODEL: config.atlasV3CriticModel ?? "",
-		ATLAS_V3_VERIFIER_MODEL: config.atlasV3VerifierModel ?? "",
 		ATLAS_V3_CRITIC_ROUNDS: String(config.atlasV3CriticRounds),
 		ATLAS_V3_RESEARCHER_CONCURRENCY: String(
 			config.atlasV3ResearcherConcurrency,
@@ -2025,14 +1780,6 @@ export function getResolvedAdminConfigValues(
 		MEMORY_MAINTENANCE_INTERVAL_MINUTES: String(
 			config.memoryMaintenanceIntervalMinutes,
 		),
-		ATLAS_V2_MAX_WORDS_OVERVIEW: String(config.atlasV2MaxWordsOverview),
-		ATLAS_V2_MAX_WORDS_IN_DEPTH: String(config.atlasV2MaxWordsInDepth),
-		ATLAS_V2_MAX_WORDS_EXHAUSTIVE: String(config.atlasV2MaxWordsExhaustive),
-		ATLAS_V2_MAX_SOURCES_OVERVIEW: String(config.atlasV2MaxSourcesOverview),
-		ATLAS_V2_MAX_SOURCES_IN_DEPTH: String(config.atlasV2MaxSourcesInDepth),
-		ATLAS_V2_MAX_SOURCES_EXHAUSTIVE: String(config.atlasV2MaxSourcesExhaustive),
-		ATLAS_V2_ENTAILMENT_BATCH: String(config.atlasV2EntailmentBatch),
-		ATLAS_V2_WRITER_CONCURRENCY: String(config.atlasV2WriterConcurrency),
 		ATTACHMENT_TRACE_DEBUG: String(config.attachmentTraceDebug),
 		NORMAL_CHAT_DEBUG_OUTBOUND: String(config.normalChatDebugOutbound),
 		CONCURRENT_STREAM_LIMIT: String(config.concurrentStreamLimit),

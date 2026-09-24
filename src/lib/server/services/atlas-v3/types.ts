@@ -1,23 +1,36 @@
 // Atlas v3 content-pipeline types (ADR 0063).
 //
-// Deliberately separate from `atlas-v2/types.ts`. v3 shares the job ledger,
+// Deliberately separate from v2's own types module. v3 shares the job ledger,
 // checkpoints, lifecycle, rendering and the `research_web` adapter with v2, and
 // shares no content types with it: the unit of work is a CLAIM, not a section,
 // and a citation is an evidence id, not a source number. Numbers are minted
 // mechanically at render time (see render.ts), which is why nothing below
 // carries one.
+//
+// The progress-details (UI contract) types and phase constants below are
+// re-exported from `../atlas/progress-details`, which owns the stored
+// `progress_details_json` contract for all three Atlas pipelines. They stay
+// re-exported here, under their original names, so nothing importing them
+// from this module has to change.
 
-export const ATLAS_V3_PHASES = [
-	"ask",
-	"research",
-	"outline",
-	"answer",
-	"write",
-	"critic",
-	"verify",
-	"render",
-] as const;
-export type AtlasV3Phase = (typeof ATLAS_V3_PHASES)[number];
+import type {
+	AtlasV3Phase as SharedAtlasV3Phase,
+	AtlasV3ProgressDetails as SharedAtlasV3ProgressDetails,
+	AtlasV3ProgressEvidence as SharedAtlasV3ProgressEvidence,
+	AtlasV3ProgressEvidenceSource as SharedAtlasV3ProgressEvidenceSource,
+	AtlasV3ProgressPlanEntry as SharedAtlasV3ProgressPlanEntry,
+	AtlasV3QualityDiagnostics as SharedAtlasV3QualityDiagnostics,
+	AtlasV3SeedDiagnostics as SharedAtlasV3SeedDiagnostics,
+} from "../atlas/progress-details";
+
+export { ATLAS_V3_PHASES } from "../atlas/progress-details";
+export type AtlasV3Phase = SharedAtlasV3Phase;
+export type AtlasV3ProgressPlanEntry = SharedAtlasV3ProgressPlanEntry;
+export type AtlasV3ProgressEvidenceSource = SharedAtlasV3ProgressEvidenceSource;
+export type AtlasV3ProgressEvidence = SharedAtlasV3ProgressEvidence;
+export type AtlasV3QualityDiagnostics = SharedAtlasV3QualityDiagnostics;
+export type AtlasV3SeedDiagnostics = SharedAtlasV3SeedDiagnostics;
+export type AtlasV3ProgressDetails = SharedAtlasV3ProgressDetails;
 
 export const ATLAS_V3_CHECKPOINT_SCHEMA_VERSION = "atlas.v3.checkpoint.v1";
 
@@ -64,28 +77,71 @@ export interface AtlasV3Ask {
  *  - `press`       major newsrooms and trade press with their own reporting.
  *  - `aggregator`  syndicators, mirrors, press-release wires, comparison sites.
  *  - `weak`        forums, marketplaces, menus, vendor marketing, blogspam.
+ *  - `user_document` the user's own attached or linked documents (Atlas Local
+ *                  Sources). Every one of them shares ONE publisher id,
+ *                  `ATLAS_V3_LOCAL_PUBLISHER`, so however many the user
+ *                  provided they are one independent voice, never two.
  */
 export const ATLAS_V3_SOURCE_TIERS = [
 	"primary",
 	"press",
 	"aggregator",
 	"weak",
+	"user_document",
 ] as const;
 export type AtlasV3SourceTier = (typeof ATLAS_V3_SOURCE_TIERS)[number];
 
-export interface AtlasV3Source {
+/** The one publisher every Atlas Local Source collapses onto. */
+export const ATLAS_V3_LOCAL_PUBLISHER = "user-documents";
+
+interface AtlasV3SourceBase {
 	/** `s1`. Stable for the life of the job. */
 	id: string;
-	canonicalUrl: string;
-	host: string;
-	/** Publisher organisation id (atlas-v2/publishers.ts). Independence key. */
+	/** Publisher organisation id (./publishers.ts). Independence key. */
 	publisher: string;
 	title: string;
 	date: string | null;
 	tier: AtlasV3SourceTier;
 	/** True once a page read produced text for this source. */
 	read: boolean;
+	/**
+	 * When the page (or the user's document) was last read, ISO 8601. What the
+	 * seed freshness rule measures age from (freshness.ts). Absent on sources
+	 * from checkpoints written before Phase D; the parent job's completion time
+	 * stands in for it.
+	 */
+	retrievedAt?: string | null;
+	/** The parent Atlas job this source was carried over from, if it was. */
+	seededFrom?: string | null;
 }
+
+/** A page found through `research_web`. Old checkpoints carry no `kind`. */
+export interface AtlasV3WebSource extends AtlasV3SourceBase {
+	kind?: "web";
+	canonicalUrl: string;
+	host: string;
+}
+
+/**
+ * A document the user attached to, or linked into, the kickoff message (or,
+ * from Phase D, one its parent job read). Evidence exactly like a web page —
+ * its quotes are verified the same way — but never stale-listed (`date` is
+ * null), and its chip is a library chip with no URL.
+ */
+export interface AtlasV3LocalSource extends AtlasV3SourceBase {
+	kind: "local";
+	tier: "user_document";
+	publisher: typeof ATLAS_V3_LOCAL_PUBLISHER;
+	/** `atlas-local:<displayArtifactId>` — a dedupe key only, never rendered. */
+	canonicalUrl: string;
+	host: "";
+	displayArtifactId: string;
+	promptArtifactId: string;
+	origin: "attachment" | "linked" | "inherited";
+}
+
+/** A checkpointed source with no `kind` is a web source. */
+export type AtlasV3Source = AtlasV3WebSource | AtlasV3LocalSource;
 
 /** One verbatim span the writer may cite. Nothing else leaves the bank. */
 export interface AtlasV3Quote {
@@ -415,84 +471,66 @@ export interface AtlasV3Limitation {
 }
 
 // ---------------------------------------------------------------------------
-// UI contract (progress details on the job row)
+// 11. Lifecycle seeding (Phase D): Continue, Revise and Fork
 // ---------------------------------------------------------------------------
 
-export interface AtlasV3ProgressPlanEntry {
-	id: string;
-	question: string;
-	status: "queued" | "running" | "done";
-	sourceCount: number;
-	confidence?: "corroborated" | "single" | "mixed" | "thin";
+/**
+ * What a lifecycle child may take from its parent. Loaded once, before the
+ * ask, by `loadAtlasV3ParentSeed` (seed.ts); `null` when the parent is not a
+ * succeeded job of the same user in the same conversation.
+ *
+ *  - `report` is read from the parent's persisted report, for every pipeline
+ *    version: the ask sees its title, headings and verdict for orientation,
+ *    and a v1/v2 parent's web source URLs become seed pages.
+ *  - `v3` is a v3 parent's checkpointed working state. `bank` is the capped
+ *    bank from the verify checkpoint when it exists, else the latest research
+ *    round's; Fork never uses it.
+ *  - `localDisplayArtifactIds` are the user documents the child inherits.
+ */
+export interface AtlasV3ParentSeed {
+	parentJobId: string;
+	action: "continue" | "revise" | "fork";
+	parentPipelineVersion: 1 | 2 | 3;
+	parentCompletedAt: string | null;
+	report: {
+		title: string;
+		headings: string[];
+		/** The executive summary or verdict, citation tokens stripped. */
+		verdict: string;
+		webSources: Array<{ url: string; title: string }>;
+	} | null;
+	v3: {
+		ask: AtlasV3Ask | null;
+		bank: AtlasV3EvidenceBank | null;
+		memo: AtlasV3Memo | null;
+		asked: string[];
+		outline: AtlasV3Outline | null;
+		citedSourceIds: string[];
+	} | null;
+	localDisplayArtifactIds: string[];
 }
 
-export interface AtlasV3ProgressEvidenceSource {
-	n: number;
-	title: string;
-	host: string;
-	date: string | null;
-	cited: boolean;
-	snippet: string;
-}
+/**
+ * What happened to one seeded source.
+ *  - `trusted`     used as-is: not time-sensitive, or read inside the window.
+ *  - `confirmed`   re-read live and every seeded quote is still stated.
+ *  - `changed`     re-read live; quotes no longer stated were dropped and the
+ *                  fresh page was read for the goal again.
+ *  - `unreachable` the live page could not be read; its evidence was dropped.
+ *  - `over_budget` time-sensitive but past the recheck budget; dropped, never
+ *                  trusted unread (ADR 0037 edge case 5).
+ */
+export type AtlasV3RecheckOutcome =
+	| "trusted"
+	| "confirmed"
+	| "changed"
+	| "unreachable"
+	| "over_budget";
 
-export interface AtlasV3ProgressEvidence {
-	corroborated: number;
-	single: number;
-	inferred: number;
-	cut: number;
-	filteredCount: number;
-	sources: AtlasV3ProgressEvidenceSource[];
-}
-
-export interface AtlasV3QualityDiagnostics {
-	/** True when the goal test failed and the report says so. */
-	abstained: boolean;
-	verdictPresent: boolean;
-	/** True when the verdict was assembled from the sections, not written. */
-	verdictFallback: boolean;
-	/** Sentences the final pass cut as restatement or over-quota inference. */
-	repeatedSentences: number;
-	claimCount: number;
-	verifiedClaimCount: number;
-	contestedClaimCount: number;
-	/** Readings joined by the loose identity match, not by the strict key. */
-	claimsMerged: number;
-	answerTableCells: number;
-	derivedFigures: number;
-	criticRounds: number;
-	criticFindings: number;
-	needsEvidenceResolved: number;
-	roundsRun: number;
-	searches: number;
-	pagesRead: number;
-	sectionsPlanned: number;
-	sectionsWritten: number;
-	/** Sections appended because the outline model fell below `minSections`. */
-	sectionsSupplemented: number;
-	wordCount: number;
-	writerRunaways: {
-		length: number;
-		salvaged: number;
-		retried: number;
-		fallback: number;
-	};
-}
-
-export interface AtlasV3ProgressDetails {
-	pipelineVersion: 3;
-	/** Always empty; kept so a v1-shaped client degrades instead of crashing. */
-	queries: string[];
-	phase: AtlasV3Phase;
-	/** Outline nodes, projected as the questions the v2 card already renders. */
-	plan: AtlasV3ProgressPlanEntry[];
-	round: { current: number; total: number };
-	sourcesRead: number;
-	next: string;
-	evidence?: AtlasV3ProgressEvidence;
-	phaseDurationsMs?: Record<string, number>;
-	sections?: { written: number; planned: number };
-	qualityDiagnostics?: AtlasV3QualityDiagnostics;
-}
+// UI contract (progress details on the job row): `AtlasV3ProgressPlanEntry`,
+// `AtlasV3ProgressEvidenceSource`, `AtlasV3ProgressEvidence`,
+// `AtlasV3QualityDiagnostics` and `AtlasV3ProgressDetails` live in
+// `../atlas/progress-details` now, imported and re-exported above.
 
 // ---------------------------------------------------------------------------
 // Pipeline result

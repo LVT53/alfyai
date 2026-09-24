@@ -38,8 +38,9 @@ let {
 
 let filter = $state("");
 
-// Keys a named page already owns (the Atlas pipeline selector) are not
-// repeated here — one home per key, or the badges would double-count.
+// Keys a named page already owns (the Atlas per-task model table on AI
+// Tasks) are not repeated here — one home per key, or the badges would
+// double-count.
 const OWNED = ADVANCED_KEY_SPECS.filter(
 	(spec) => pageForKey(spec.key) === "advanced",
 );
@@ -113,30 +114,6 @@ function specsIn(group: AdvancedGroupId): AdminConfigKeySpec[] {
 	return matching.filter((spec) => spec.group === group);
 }
 
-const searchMath = $derived.by(() => {
-	const read = (key: string, fallback: number) => {
-		const parsed = Number.parseInt(adminConfig[key] ?? "", 10);
-		return Number.isFinite(parsed) ? parsed : fallback;
-	};
-	return [
-		{
-			profile: $t("admin.system.atlas.profile.overview"),
-			questions: read("ATLAS_V2_QUESTIONS_OVERVIEW", 6),
-			rounds: read("ATLAS_V2_ROUNDS_OVERVIEW", 1),
-		},
-		{
-			profile: $t("admin.system.atlas.profile.inDepth"),
-			questions: read("ATLAS_V2_QUESTIONS_IN_DEPTH", 10),
-			rounds: read("ATLAS_V2_ROUNDS_IN_DEPTH", 2),
-		},
-		{
-			profile: $t("admin.system.atlas.profile.exhaustive"),
-			questions: read("ATLAS_V2_QUESTIONS_EXHAUSTIVE", 16),
-			rounds: read("ATLAS_V2_ROUNDS_EXHAUSTIVE", 3),
-		},
-	];
-});
-
 // The headline used to count every row, inert ones included, under a
 // sentence promising "saving here is enough — no restart, no deploy". For a
 // key nothing reads, saving here is not enough and never will be. The count
@@ -206,25 +183,6 @@ const unwiredCount = unwiredKeys.length;
 							<Info size={14} strokeWidth={2} aria-hidden="true" />
 						</span>
 						<span>{$t('admin.system.advanced.contextRule')}</span>
-					</div>
-				{:else if group === 'atlas'}
-					<div class="sys-banner" style="margin-bottom: 12px">
-						<span class="sys-banner-icon">
-							<Info size={14} strokeWidth={2} aria-hidden="true" />
-						</span>
-						<span>
-							<b>{$t('admin.system.atlas.searchMath')}</b>
-							{#each searchMath as row (row.profile)}
-								<span class="sys-pill sys-pill-outline" style="margin-left: 6px">
-									{$t('admin.system.atlas.searchMathRow', {
-										profile: row.profile,
-										questions: String(row.questions),
-										rounds: String(row.rounds),
-										total: String(row.questions * row.rounds),
-									})}
-								</span>
-							{/each}
-						</span>
 					</div>
 				{/if}
 

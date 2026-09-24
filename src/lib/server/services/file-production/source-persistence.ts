@@ -154,6 +154,25 @@ async function findGeneratedDocumentSourceArtifactForJob(input: {
 	return existing ? mapArtifact(existing) : null;
 }
 
+/**
+ * The report a File Production job rendered, as its validated
+ * `GeneratedDocumentSource`, or null when the job persisted none (or what it
+ * persisted no longer validates). Scoped to the user AND the conversation:
+ * an Atlas lifecycle child reads its parent's report through this, and a
+ * report from another chat must never seed one here.
+ */
+export async function getGeneratedDocumentSourceForFileProductionJob(input: {
+	userId: string;
+	conversationId: string;
+	fileProductionJobId: string;
+}): Promise<GeneratedDocumentSource | null> {
+	const artifact = await findGeneratedDocumentSourceArtifactForJob(input);
+	const stored = artifact?.metadata?.generatedDocumentSource;
+	if (!stored) return null;
+	const validation = validateGeneratedDocumentSource(stored);
+	return validation.ok ? validation.source : null;
+}
+
 async function updateGeneratedDocumentSourceArtifactStatus(input: {
 	artifactId: string;
 	status: GeneratedDocumentSourceStatus;

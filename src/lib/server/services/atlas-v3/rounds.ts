@@ -7,7 +7,6 @@
 // stopping when a counter runs out.
 
 import type { SupportedLanguage } from "$lib/server/services/language";
-import { mapWithConcurrency } from "../atlas-v2/research";
 import type { AtlasV3BankState } from "./evidence-bank";
 import {
 	atlasV3PublishersFor,
@@ -25,6 +24,34 @@ import type {
 	AtlasV3Usage,
 } from "./types";
 import { rewriteAtlasV3Memo } from "./workspace";
+
+/**
+ * Runs `tasks` with at most `limit` in flight, preserving input order.
+ *
+ * Copied from v2's `mapWithConcurrency` (its own research module), which
+ * keeps its own copy; this is v3's, so the round runner does not reach into
+ * v2 for it.
+ */
+export async function mapWithConcurrency<TInput, TOutput>(
+	items: readonly TInput[],
+	limit: number,
+	run: (item: TInput, index: number) => Promise<TOutput>,
+): Promise<TOutput[]> {
+	const results = new Array<TOutput>(items.length);
+	let cursor = 0;
+	const workerCount = Math.max(1, Math.min(limit, items.length));
+	await Promise.all(
+		Array.from({ length: workerCount }, async () => {
+			for (;;) {
+				const index = cursor;
+				cursor += 1;
+				if (index >= items.length) return;
+				results[index] = await run(items[index], index);
+			}
+		}),
+	);
+	return results;
+}
 
 export interface RunAtlasV3RoundInput {
 	round: number;
@@ -48,6 +75,14 @@ export interface RunAtlasV3RoundInput {
 	manufacturerHosts?: readonly string[];
 	/** Queries earlier rounds already spent, so a round does not repeat them. */
 	alreadyTried?: readonly string[];
+	/**
+	 * Notes from the local read of the user's own documents, handed to round
+	 * one's memo beside the researchers' notes so the first memo already knows
+	 * what the user supplied. Their quotes and claims are in the bank already.
+	 */
+	localNotes?: readonly AtlasV3FindingsNote[];
+	/** Retrieval time stamped on every page the round reads (ISO 8601). */
+	retrievedAt?: string;
 	onUsage?: (usage: AtlasV3Usage) => void;
 	onQuestionStart?: (subQuestion: string) => void | Promise<void>;
 	onQuestionDone?: (input: {
@@ -103,6 +138,7 @@ export async function runAtlasV3Round(
 					manufacturerHosts: input.manufacturerHosts,
 					alreadyTried: input.alreadyTried,
 					deadEnds: input.previousMemo?.deadEnds,
+					retrievedAt: input.retrievedAt,
 					onUsage: input.onUsage,
 					onPageRead: input.onPageRead,
 				});
@@ -153,7 +189,7 @@ export async function runAtlasV3Round(
 		round: input.round,
 		roundsLeft,
 		previous: input.previousMemo,
-		notes,
+		notes: [...(input.localNotes ?? []), ...notes],
 		claims: bank.claims.map((claim) => ({
 			id: claim.id,
 			entity: claim.entity,

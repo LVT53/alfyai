@@ -101,8 +101,13 @@ export interface ParallelExtractRequest {
 	// Prefer Parallel's cached page content up to this age (seconds) instead of a
 	// live fetch. Cached retrieval is faster and far less variable than a live
 	// fetch, which occasionally spikes to 25-42s; page content rarely needs
-	// sub-day freshness. Omit for a live fetch.
+	// sub-day freshness. Omitted, Parallel applies its own dynamic age policy
+	// (per the Extract API reference); the API minimum is 600 seconds.
 	maxAgeSeconds?: number;
+	// When true, a live fetch that fails or times out returns an error for that
+	// url instead of falling back to cached content older than maxAgeSeconds.
+	// Only meaningful together with maxAgeSeconds.
+	disableCacheFallback?: boolean;
 	sessionId?: string;
 	// Upper bound on total returned characters. Does NOT constrain full_content
 	// per the API; used to size returned content to the consuming model.
@@ -243,7 +248,10 @@ export async function parallelExtractWithErrors(
 	const advancedSettings: Record<string, unknown> = {};
 	if (req.fullContent) advancedSettings.full_content = true;
 	if (req.maxAgeSeconds !== undefined) {
-		advancedSettings.fetch_policy = { max_age_seconds: req.maxAgeSeconds };
+		advancedSettings.fetch_policy = {
+			max_age_seconds: req.maxAgeSeconds,
+			...(req.disableCacheFallback ? { disable_cache_fallback: true } : {}),
+		};
 	}
 	if (req.excerptMaxChars !== undefined) {
 		advancedSettings.excerpt_settings = {

@@ -65,41 +65,19 @@ interface Config {
 	memoryJudgeDryRun: boolean;
 	atlasWorkerEnabled: boolean;
 	atlasGlobalActiveLimit: number;
-	atlasSearchConcurrency: number;
-	atlasSearchBatchDelayMs: number;
 	atlasSynthesisModel: ModelId;
 	atlasAuditModel: ModelId;
-	atlasOverviewMaxOutputTokens: number;
-	atlasInDepthMaxOutputTokens: number;
-	atlasExhaustiveMaxOutputTokens: number;
-	atlasMaxWriterPromptChars: number;
-	atlasPipeline: AtlasPipelineSelection;
 	atlasStaleMonths: number;
-	atlasV2QuestionsOverview: number;
-	atlasV2QuestionsInDepth: number;
-	atlasV2QuestionsExhaustive: number;
-	atlasV2RoundsOverview: number;
-	atlasV2RoundsInDepth: number;
-	atlasV2RoundsExhaustive: number;
-	atlasV2MaxWordsOverview: number;
-	atlasV2MaxWordsInDepth: number;
-	atlasV2MaxWordsExhaustive: number;
-	atlasV2MaxSourcesOverview: number;
-	atlasV2MaxSourcesInDepth: number;
-	atlasV2MaxSourcesExhaustive: number;
-	atlasV2EntailmentBatch: number;
-	atlasV2WriterConcurrency: number;
 	/**
 	 * ADR 0063: one model per Atlas v3 task. `null` means "inherit" —
 	 * ATLAS_SYNTHESIS_MODEL for the researcher and writer, ATLAS_AUDIT_MODEL for
-	 * the ask, outline, critic and verifier.
+	 * the ask, outline and critic.
 	 */
 	atlasV3AskModel: ModelId | null;
 	atlasV3ResearcherModel: ModelId | null;
 	atlasV3OutlineModel: ModelId | null;
 	atlasV3WriterModel: ModelId | null;
 	atlasV3CriticModel: ModelId | null;
-	atlasV3VerifierModel: ModelId | null;
 	atlasV3CriticRounds: number;
 	atlasV3ResearcherConcurrency: number;
 	atlasV3SearchesPerStep: number;
@@ -347,24 +325,10 @@ function parseIntegerEnv(value: string | undefined, fallback: number): number {
 }
 
 /**
- * Which Atlas content pipeline a new job runs on (ADR 0062, extended by ADR
- * 0063). Anything other than an explicit "v2" or "v3" keeps the deployment on
- * v1, so a typo can never flip production onto an unevaluated pipeline.
- */
-export type AtlasPipelineSelection = "v1" | "v2" | "v3";
-
-export function parseAtlasPipelineEnv(
-	value: string | undefined,
-): AtlasPipelineSelection {
-	const normalized = value?.trim().toLowerCase();
-	if (normalized === "v3") return "v3";
-	return normalized === "v2" ? "v2" : "v1";
-}
-
-/**
  * An OPTIONAL model key. Unset (or unreadable) means "inherit", which is not
  * the same as "model1": ADR 0063's per-task model keys must be absent by
- * default so a deployment that sets none keeps v2's model split exactly.
+ * default so a deployment that sets none keeps the synthesis/audit model
+ * split.
  */
 export function parseOptionalConfiguredModelIdEnv(
 	value: string | undefined,
@@ -454,6 +418,14 @@ function readConfig(): Config {
 	const sessionSecret = resolveSessionSecret();
 
 	const databasePath = getDatabasePath();
+	// Atlas runs pipeline v3 exclusively (Phase B of the v3-only
+	// consolidation); the v1/v2 pipelines and this switch are gone. Rollback
+	// is the `atlas-v1-v2-final` tag, not a config value.
+	if (process.env.ATLAS_PIPELINE) {
+		console.warn(
+			"[CONFIG] ATLAS_PIPELINE is no longer read; Atlas always runs pipeline v3.",
+		);
+	}
 	const model2Enabled = process.env.MODEL_2_ENABLED !== "false";
 	// MINERU_JOB_TIMEOUT_MS replaces MINERU_TIMEOUT_MS. The old variable is kept
 	// in the chain for one release so an unchanged `.env` on a deployed box does
@@ -644,14 +616,6 @@ function readConfig(): Config {
 			1,
 			parseIntegerEnv(process.env.ATLAS_GLOBAL_ACTIVE_LIMIT, 2),
 		),
-		atlasSearchConcurrency: Math.max(
-			1,
-			parseIntegerEnv(process.env.ATLAS_SEARCH_CONCURRENCY, 3),
-		),
-		atlasSearchBatchDelayMs: Math.max(
-			0,
-			parseIntegerEnv(process.env.ATLAS_SEARCH_BATCH_DELAY_MS, 500),
-		),
 		atlasSynthesisModel: validateConfiguredModelIdEnv(
 			process.env.ATLAS_SYNTHESIS_MODEL,
 			"ATLAS_SYNTHESIS_MODEL",
@@ -662,100 +626,9 @@ function readConfig(): Config {
 			"ATLAS_AUDIT_MODEL",
 			"model2",
 		),
-		atlasOverviewMaxOutputTokens: parsePositiveIntegerEnv(
-			process.env.ATLAS_OVERVIEW_MAX_OUTPUT_TOKENS,
-			16000,
-			1,
-		),
-		atlasInDepthMaxOutputTokens: parsePositiveIntegerEnv(
-			process.env.ATLAS_IN_DEPTH_MAX_OUTPUT_TOKENS,
-			24000,
-			1,
-		),
-		atlasExhaustiveMaxOutputTokens: parsePositiveIntegerEnv(
-			process.env.ATLAS_EXHAUSTIVE_MAX_OUTPUT_TOKENS,
-			32000,
-			1,
-		),
-		atlasMaxWriterPromptChars: parsePositiveIntegerEnv(
-			process.env.ATLAS_MAX_WRITER_PROMPT_CHARS,
-			80000,
-			100,
-		),
-		atlasPipeline: parseAtlasPipelineEnv(process.env.ATLAS_PIPELINE),
 		atlasStaleMonths: parsePositiveIntegerEnv(
 			process.env.ATLAS_STALE_MONTHS,
 			18,
-			1,
-		),
-		atlasV2QuestionsOverview: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_QUESTIONS_OVERVIEW,
-			6,
-			1,
-		),
-		atlasV2QuestionsInDepth: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_QUESTIONS_IN_DEPTH,
-			10,
-			1,
-		),
-		atlasV2QuestionsExhaustive: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_QUESTIONS_EXHAUSTIVE,
-			16,
-			1,
-		),
-		atlasV2RoundsOverview: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_ROUNDS_OVERVIEW,
-			1,
-			1,
-		),
-		atlasV2RoundsInDepth: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_ROUNDS_IN_DEPTH,
-			2,
-			1,
-		),
-		atlasV2RoundsExhaustive: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_ROUNDS_EXHAUSTIVE,
-			3,
-			1,
-		),
-		atlasV2MaxWordsOverview: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_MAX_WORDS_OVERVIEW,
-			1100,
-			200,
-		),
-		atlasV2MaxWordsInDepth: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_MAX_WORDS_IN_DEPTH,
-			2800,
-			200,
-		),
-		atlasV2MaxWordsExhaustive: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_MAX_WORDS_EXHAUSTIVE,
-			5500,
-			200,
-		),
-		atlasV2MaxSourcesOverview: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_MAX_SOURCES_OVERVIEW,
-			20,
-			1,
-		),
-		atlasV2MaxSourcesInDepth: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_MAX_SOURCES_IN_DEPTH,
-			40,
-			1,
-		),
-		atlasV2MaxSourcesExhaustive: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_MAX_SOURCES_EXHAUSTIVE,
-			80,
-			1,
-		),
-		atlasV2EntailmentBatch: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_ENTAILMENT_BATCH,
-			10,
-			1,
-		),
-		atlasV2WriterConcurrency: parsePositiveIntegerEnv(
-			process.env.ATLAS_V2_WRITER_CONCURRENCY,
-			5,
 			1,
 		),
 		atlasV3AskModel: parseOptionalConfiguredModelIdEnv(
@@ -777,10 +650,6 @@ function readConfig(): Config {
 		atlasV3CriticModel: parseOptionalConfiguredModelIdEnv(
 			process.env.ATLAS_V3_CRITIC_MODEL,
 			"ATLAS_V3_CRITIC_MODEL",
-		),
-		atlasV3VerifierModel: parseOptionalConfiguredModelIdEnv(
-			process.env.ATLAS_V3_VERIFIER_MODEL,
-			"ATLAS_V3_VERIFIER_MODEL",
 		),
 		atlasV3CriticRounds: Math.min(
 			3,

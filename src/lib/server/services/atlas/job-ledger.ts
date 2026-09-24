@@ -11,11 +11,12 @@ import {
 	mapAtlasJobRowToCard,
 	sanitizeAtlasJobProgressDetails,
 } from "./read-model";
-import type {
-	AtlasAction,
-	AtlasJobCard,
-	AtlasJobProgressDetails,
-	AtlasProfile,
+import {
+	ATLAS_CURRENT_PIPELINE_VERSION,
+	type AtlasAction,
+	type AtlasJobCard,
+	type AtlasJobProgressDetails,
+	type AtlasProfile,
 } from "./types";
 
 export interface CreateOrReuseAtlasJobInput {
@@ -28,12 +29,6 @@ export interface CreateOrReuseAtlasJobInput {
 	clientAtlasTurnId: string;
 	assistantMessageId?: string | null;
 	title?: string | null;
-	/**
-	 * ADR 0062: the content pipeline this job runs on, stamped at kickoff from
-	 * ATLAS_PIPELINE. Defaults to 1 so a caller that does not care keeps the
-	 * original pipeline.
-	 */
-	pipelineVersion?: 1 | 2 | 3;
 	now?: Date;
 }
 
@@ -228,9 +223,10 @@ export async function createOrReuseAtlasJob(
 			action: input.action,
 			parentAtlasJobId: input.parentAtlasJobId ?? null,
 			profile: input.profile,
-			// Not part of the idempotency key: a flag flip between the client's
-			// retries must reuse the job it already created, not fork a second one.
-			pipelineVersion: input.pipelineVersion ?? 1,
+			// Atlas runs pipeline v3 exclusively (Phase B of the v3-only
+			// consolidation); every new job is stamped it, whatever the caller
+			// asks for and whatever its lifecycle parent ran on.
+			pipelineVersion: ATLAS_CURRENT_PIPELINE_VERSION,
 			normalizedQueryHash,
 			clientAtlasTurnId: input.clientAtlasTurnId,
 			idempotencyKey,
@@ -360,8 +356,12 @@ export async function claimNextAtlasJob(
 				.update(atlasJobs)
 				.set({
 					status: "running",
-					stage: "decompose",
-					progressPercent: 5,
+					// D1 routing: every claim restamps the row onto pipeline v3, even
+					// a queued row stamped 1 or 2 at kickoff (a lifecycle child queued
+					// before the v3-only deploy, or one requeued by stale recovery).
+					pipelineVersion: ATLAS_CURRENT_PIPELINE_VERSION,
+					stage: "ask",
+					progressPercent: 0,
 					progressDetailsJson: "{}",
 					workerId: input.workerId,
 					heartbeatAt: now,
@@ -623,7 +623,7 @@ export async function completeAtlasJob(
 		.update(atlasJobs)
 		.set({
 			status: "succeeded",
-			stage: input.stage ?? "audit",
+			stage: input.stage ?? "render",
 			progressPercent: input.progressPercent ?? 100,
 			workerId: null,
 			heartbeatAt: now,

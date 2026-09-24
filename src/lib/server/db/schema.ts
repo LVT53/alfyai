@@ -1847,9 +1847,10 @@ export const atlasJobs = sqliteTable(
 			},
 		),
 		profile: text("profile").notNull(),
-		// ADR 0062: which Atlas content pipeline this job runs on. Stamped at
-		// kickoff from ATLAS_PIPELINE so a later flag flip never changes the
-		// pipeline of a queued job or splits a Continue/Revise/Fork family.
+		// ADR 0062/0063: which Atlas content pipeline produced this job. Every
+		// job is stamped 3 at kickoff and restamped 3 at claim (v1/v2 were
+		// deleted in the v3-only consolidation); 1 and 2 survive only on old
+		// rows. The DEFAULT stays 1 because rebuilding the table is not worth it.
 		pipelineVersion: integer("pipeline_version").notNull().default(1),
 		normalizedQueryHash: text("normalized_query_hash").notNull(),
 		clientAtlasTurnId: text("client_atlas_turn_id").notNull(),

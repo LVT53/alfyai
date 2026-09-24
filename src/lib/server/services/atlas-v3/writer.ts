@@ -17,8 +17,8 @@
 // its braces.
 
 import type { SupportedLanguage } from "$lib/server/services/language";
-import { parseJsonFromText } from "../atlas/json-extract";
-import { salvageTruncatedWriterJson } from "../atlas-v2/writer";
+import { parseJsonFromText, salvageTruncatedJson } from "../atlas/json-extract";
+import { atlasV3AnswerTableEvidenceIds } from "./answer-table";
 import {
 	ATLAS_V3_MAX_EVIDENCE_PER_SENTENCE,
 	ATLAS_V3_MAX_OUTPUT_TOKENS,
@@ -62,6 +62,20 @@ export interface AtlasV3WriterRunawayCounters {
 // System prompts
 // ---------------------------------------------------------------------------
 
+/**
+ * How the user's own documents are cited. Shared by the section writer and
+ * the verdict, whose evidence both carry `tier: "user_document"` for a quote
+ * from one of them: a figure the user supplied is the user's figure, and a
+ * report that restated it as a published statistic would launder it.
+ */
+export const ATLAS_V3_USER_DOCUMENT_ATTRIBUTION: Record<
+	SupportedLanguage,
+	string
+> = {
+	en: "Quotes with tier `user_document` come from the user's own documents. Cite them like any quote; attribute them as the user's document, never as a published statistic; when a user document and a published source disagree, name both.",
+	hu: "A `user_document` szintű idézetek a felhasználó saját dokumentumaiból származnak. Hivatkozd őket, mint bármely idézetet; a felhasználó dokumentumaként említsd őket, soha ne közzétett statisztikaként; ha egy felhasználói dokumentum és egy közzétett forrás eltér, nevezd meg mindkettőt.",
+};
+
 const WRITER_BASE: Record<SupportedLanguage, string[]> = {
 	en: [
 		"You write ONE section of a research report. Return STRICT JSON only, no prose and no code fence.",
@@ -72,6 +86,7 @@ const WRITER_BASE: Record<SupportedLanguage, string[]> = {
 		"Every sentence that states a figure, a date, a name or a quantity carries at least one evidence id. At most 3 ids per sentence.",
 		'WRITE ACROSS SOURCES. "Three trackers put the figure between X and Y; the outlier uses a different denominator" beats one paragraph per source.',
 		"`alsoStatedBy` on a quote lists OTHER publishers' quotes stating the same figure. Cite them alongside it: a figure two independent publishers state should say so and carry both ids.",
+		ATLAS_V3_USER_DOCUMENT_ATTRIBUTION.en,
 		"ADJUDICATE, DO NOT AVERAGE. When two quotes disagree, name the series or definition that differs and say which to believe, and why: methodology, recency, or proximity to the primary data. Two different measurements are not a disagreement.",
 		'DATE VOLATILE FIGURES INLINE, in one clause: "65.1 GW (as of December 2025)".',
 		"DO NOT REPEAT what the sections already written have said. You are shown them. A fact stated once is stated.",
@@ -88,6 +103,7 @@ const WRITER_BASE: Record<SupportedLanguage, string[]> = {
 		"Minden mondat, amely számot, dátumot, nevet vagy mennyiséget állít, legalább egy bizonyítékazonosítót visel. Mondatonként legfeljebb 3.",
 		"FORRÁSOKON ÁTÍVELVE ÍRJ. „Három adatszolgáltató X és Y közé teszi; a kilógó más nevezőt használ” jobb, mint forrásonként egy bekezdés.",
 		"Az idézeten szereplő `alsoStatedBy` MÁS közzétevők ugyanazt a számot állító idézeteit sorolja fel. Hivatkozd őket együtt: ha két független közzétevő is kimondja a számot, mondd ki ezt, és vidd mindkét azonosítót.",
+		ATLAS_V3_USER_DOCUMENT_ATTRIBUTION.hu,
 		"DÖNTS, NE ÁTLAGOLJ. Ha két idézet eltér, nevezd meg az eltérő adatsort vagy definíciót, és mondd meg, melyiket kell elhinni és miért: módszertan, frissesség, vagy az elsődleges adathoz való közelség. Két különböző mérés nem ellentmondás.",
 		"A VÁLTOZÉKONY SZÁMOKAT DÁTUMOZD egyetlen tagmondatban: „65,1 GW (2025. decemberi adat)”.",
 		"NE ISMÉTELD, amit a már megírt szakaszok kimondtak. Látod őket. Ami egyszer elhangzott, elhangzott.",
@@ -360,7 +376,7 @@ export function salvageAtlasV3Section(
 	text: string,
 	options: ParseAtlasV3SectionOptions,
 ): ParsedAtlasV3Section | null {
-	const repaired = salvageTruncatedWriterJson(text);
+	const repaired = salvageTruncatedJson(text);
 	return repaired ? parseAtlasV3Section(repaired, options) : null;
 }
 
@@ -430,6 +446,25 @@ export function parseAtlasV3PlainTextSection(
 // ---------------------------------------------------------------------------
 // Writing the report
 // ---------------------------------------------------------------------------
+
+/**
+ * Every evidence id a prompt SHOWED the model: the quotes themselves and the
+ * `alsoStatedBy` ids beside them. The writer is told to cite the latter, so a
+ * parser that accepted only the former silently dropped exactly the citations
+ * that make a figure corroborated. Ids the prompt never showed stay rejected —
+ * those are the hallucinated ones.
+ */
+export function atlasV3CitableEvidenceIds(
+	evidence: ReadonlyArray<{ id: string; alsoStatedBy?: readonly string[] }>,
+): string[] {
+	const ids: string[] = [];
+	for (const entry of evidence) {
+		for (const id of [entry.id, ...(entry.alsoStatedBy ?? [])]) {
+			if (!ids.includes(id)) ids.push(id);
+		}
+	}
+	return ids;
+}
 
 export interface WriteAtlasV3ReportInput {
 	ask: AtlasV3Ask;
@@ -514,7 +549,7 @@ export async function writeAtlasV3Report(
 		const options: ParseAtlasV3SectionOptions = {
 			nodeId: node.id,
 			title: node.title,
-			knownEvidenceIds: evidence.map((entry) => entry.id),
+			knownEvidenceIds: atlasV3CitableEvidenceIds(evidence),
 			knownCalcIds: calcIds,
 			maxSentences: nodeBudget.maxSentences,
 			maxParagraphs: nodeBudget.maxParagraphs,
@@ -638,6 +673,7 @@ export const ATLAS_V3_VERDICT_SYSTEM: Record<SupportedLanguage, string> = {
 		"You may use a value from `answerTable.derived` by naming its id in `calcId`. Never compute a number yourself.",
 		"If the report could NOT answer the question, say so in the first sentence and say what is missing. Do not pad.",
 		"`doNotState`, when present, lists sentences a previous draft made whose figures no quote supports. Do not state them again, and do not refer back to them with `these`, `this` or `they`. Every sentence must stand on its own.",
+		ATLAS_V3_USER_DOCUMENT_ATTRIBUTION.en,
 	].join("\n"),
 	hu: [
 		"A kutatási jelentést nyitó ÍTÉLETET írod. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
@@ -648,6 +684,7 @@ export const ATLAS_V3_VERDICT_SYSTEM: Record<SupportedLanguage, string> = {
 		"Az `answerTable.derived` egy értékét a `calcId` megnevezésével használhatod. Te magad ne számolj.",
 		"Ha a jelentés NEM tudta megválaszolni a kérdést, az első mondat mondja ki ezt, és mondja meg, mi hiányzik. Ne tölts ki helyet.",
 		"A `doNotState`, ha szerepel, egy korábbi változat olyan mondatait sorolja fel, amelyek számait egyetlen idézet sem támasztja alá. Ne mondd ki őket újra, és ne utalj vissza rájuk („ezek”, „ez”, „azok”). Minden mondat álljon meg önmagában.",
+		ATLAS_V3_USER_DOCUMENT_ATTRIBUTION.hu,
 	].join("\n"),
 };
 
@@ -660,6 +697,8 @@ export interface BuildAtlasV3VerdictPromptInput {
 		id: string;
 		text: string;
 		publisher: string;
+		/** Present so a `user_document` quote can be attributed as the user's. */
+		tier?: string;
 		alsoStatedBy?: string[];
 	}>;
 	language: SupportedLanguage;
@@ -776,8 +815,19 @@ export interface WriteAtlasV3VerdictInput
 export async function writeAtlasV3Verdict(
 	input: WriteAtlasV3VerdictInput,
 ): Promise<AtlasV3Sentence[] | null> {
+	// Only what the prompt SHOWED may be cited: the capped evidence list, its
+	// `alsoStatedBy` ids, and the ids in the answer table's cells. Accepting any
+	// id in the bank let the verdict cite a quote it never read — a real id, so
+	// it rendered, but not a citation of anything the verdict saw. Verification
+	// still checks each against the bank.
+	const shown = new Set([
+		...atlasV3CitableEvidenceIds(input.evidence),
+		...atlasV3AnswerTableEvidenceIds(input.answerTable),
+	]);
 	const options = {
-		knownEvidenceIds: input.bank.quotes.map((quote) => quote.id),
+		knownEvidenceIds: input.bank.quotes
+			.map((quote) => quote.id)
+			.filter((id) => shown.has(id)),
 		knownCalcIds: (input.answerTable?.derived ?? []).map((entry) => entry.id),
 	};
 	const attempt = async (retry: boolean): Promise<AtlasV3Sentence[] | null> => {
@@ -797,7 +847,7 @@ export async function writeAtlasV3Verdict(
 			// Same repair the sections get: a verdict cut off at the cap is still a
 			// verdict up to the cut, and losing it costs the report its opening.
 			if (call.finishReason === "length") {
-				const repaired = salvageTruncatedWriterJson(call.text);
+				const repaired = salvageTruncatedJson(call.text);
 				const salvaged = repaired
 					? parseAtlasV3Verdict(repaired, options)
 					: null;

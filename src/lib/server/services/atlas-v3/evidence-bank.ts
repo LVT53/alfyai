@@ -14,28 +14,30 @@
 import type { SupportedLanguage } from "$lib/server/services/language";
 import { canonicalizeGroundedWebUrl } from "$lib/server/services/web-grounding";
 import { parseJsonFromText } from "../atlas/json-extract";
+import type { AtlasV3NativeSourceSet } from "./language-standard";
+import {
+	extractFigures,
+	figureAppearsInText,
+	isCheckableFigure,
+} from "./number-match";
+import { organisationForHost } from "./publishers";
 import {
 	articleIdentityKey,
 	isBoilerplateOnly,
 	isRedirectStubText,
 	isSocialProfileHost,
 	isStatusStubText,
-} from "../atlas-v2/evidence-index";
-import {
-	extractFigures,
-	figureAppearsInText,
-	isCheckableFigure,
-} from "../atlas-v2/number-match";
-import { organisationForHost } from "../atlas-v2/publishers";
-import type { AtlasV3NativeSourceSet } from "./language-standard";
+} from "./source-filters";
 import { atlasV3SourceTier, tierCanCorroborate } from "./source-tier";
-import type {
-	AtlasV3Claim,
-	AtlasV3ClaimStatus,
-	AtlasV3EvidenceBank,
-	AtlasV3Quote,
-	AtlasV3Source,
-	AtlasV3SourceTier,
+import {
+	ATLAS_V3_LOCAL_PUBLISHER,
+	type AtlasV3Claim,
+	type AtlasV3ClaimStatus,
+	type AtlasV3EvidenceBank,
+	type AtlasV3LocalSource,
+	type AtlasV3Quote,
+	type AtlasV3Source,
+	type AtlasV3SourceTier,
 } from "./types";
 
 /** A quote is evidence, not an article. Anything longer is a page dump. */
@@ -103,6 +105,9 @@ export function thawAtlasV3Bank(bank: AtlasV3EvidenceBank): AtlasV3BankState {
 	};
 	for (const source of bank.sources) {
 		state.sourceIdByUrl[source.canonicalUrl] = source.id;
+		// A user document has no article identity: two documents that share a
+		// title are still two documents.
+		if (source.kind === "local") continue;
 		const articleKey = articleIdentityKey({
 			title: source.title,
 			canonicalUrl: source.canonicalUrl,
@@ -133,6 +138,11 @@ export interface AddAtlasV3SourceInput {
 	read?: boolean;
 	nativeSources?: readonly AtlasV3NativeSourceSet[];
 	manufacturerHosts?: readonly string[];
+	/**
+	 * When the page was read (ISO 8601); the job's start time in the pipeline.
+	 * Defaults to the wall clock. Only stamped on a read source.
+	 */
+	retrievedAt?: string | null;
 }
 
 /**
@@ -164,9 +174,13 @@ export function addAtlasV3Source(
 		return null;
 	}
 
+	const retrievedAt =
+		input.read === true
+			? (input.retrievedAt ?? new Date().toISOString())
+			: null;
 	const existingByUrl = state.sourceIdByUrl[canonicalUrl];
 	if (existingByUrl) {
-		return markRead(state, existingByUrl, input.read === true);
+		return markRead(state, existingByUrl, retrievedAt);
 	}
 	const articleKey = articleIdentityKey({ title, canonicalUrl, host });
 	const existingByArticle = articleKey
@@ -175,7 +189,7 @@ export function addAtlasV3Source(
 	if (existingByArticle) {
 		state.filteredCount += 1;
 		state.sourceIdByUrl[canonicalUrl] = existingByArticle;
-		return markRead(state, existingByArticle, input.read === true);
+		return markRead(state, existingByArticle, retrievedAt);
 	}
 
 	state.counters.source += 1;
@@ -194,6 +208,7 @@ export function addAtlasV3Source(
 			manufacturerHosts: input.manufacturerHosts,
 		}),
 		read: input.read === true,
+		...(retrievedAt ? { retrievedAt } : {}),
 	};
 	state.sources.push(source);
 	state.sourceIdByUrl[canonicalUrl] = source.id;
@@ -201,15 +216,162 @@ export function addAtlasV3Source(
 	return source;
 }
 
+/** The dedupe key of a local source. Never rendered and never fetched. */
+function atlasV3LocalSourceKey(displayArtifactId: string): string {
+	return `atlas-local:${displayArtifactId}`;
+}
+
+/**
+ * Adds one of the user's own documents as a source, or returns the one already
+ * there. Deduped by the DISPLAY artifact, so a document both attached and
+ * linked is one source with one citation number.
+ *
+ * Every local source shares the publisher `user-documents`: the user's
+ * documents are one independent voice, whatever their number.
+ */
+export function addAtlasV3LocalSource(
+	state: AtlasV3BankState,
+	input: {
+		displayArtifactId: string;
+		promptArtifactId: string;
+		title: string;
+		origin: AtlasV3LocalSource["origin"];
+		/** When the document was read; defaults to the wall clock. */
+		retrievedAt?: string;
+	},
+): AtlasV3LocalSource {
+	const canonicalUrl = atlasV3LocalSourceKey(input.displayArtifactId);
+	const existingId = state.sourceIdByUrl[canonicalUrl];
+	const existing = existingId
+		? state.sources.find((source) => source.id === existingId)
+		: undefined;
+	if (existing && existing.kind === "local") return existing;
+	state.counters.source += 1;
+	const source: AtlasV3LocalSource = {
+		id: `s${state.counters.source}`,
+		kind: "local",
+		canonicalUrl,
+		host: "",
+		publisher: ATLAS_V3_LOCAL_PUBLISHER,
+		title:
+			input.title.replace(/\s+/g, " ").trim().slice(0, 200) ||
+			input.displayArtifactId,
+		date: null,
+		tier: "user_document",
+		read: false,
+		displayArtifactId: input.displayArtifactId,
+		promptArtifactId: input.promptArtifactId,
+		origin: input.origin,
+		retrievedAt: input.retrievedAt ?? new Date().toISOString(),
+	};
+	state.sources.push(source);
+	state.sourceIdByUrl[canonicalUrl] = source.id;
+	return source;
+}
+
+/**
+ * Takes a source back out of the bank when no quote was filed against it — a
+ * user document whose passages bore on nothing. A source with no quote cannot
+ * be cited, and leaving it in would let an empty read count as evidence.
+ */
+export function removeAtlasV3SourceWithoutQuotes(
+	state: AtlasV3BankState,
+	sourceId: string,
+): boolean {
+	if (state.quotes.some((quote) => quote.sourceId === sourceId)) return false;
+	const source = state.sources.find((entry) => entry.id === sourceId);
+	if (!source) return false;
+	state.sources = state.sources.filter((entry) => entry.id !== sourceId);
+	// Every index entry that still points at it goes too: a URL or article key
+	// left pointing at a removed id would make the page impossible to add back
+	// (a seed recheck re-adds a page whose every old quote it dropped).
+	for (const [url, id] of Object.entries(state.sourceIdByUrl)) {
+		if (id === sourceId) delete state.sourceIdByUrl[url];
+	}
+	for (const [key, id] of Object.entries(state.sourceIdByArticle)) {
+		if (id === sourceId) delete state.sourceIdByArticle[key];
+	}
+	return true;
+}
+
+/**
+ * Marks a known source read. A read stamps its retrieval time too: a seeded
+ * source the child's own research reaches again is, from then on, as fresh as
+ * that read.
+ */
 function markRead(
 	state: AtlasV3BankState,
 	sourceId: string,
-	read: boolean,
+	retrievedAt: string | null,
 ): AtlasV3Source | null {
 	const source = state.sources.find((entry) => entry.id === sourceId);
 	if (!source) return null;
-	if (read) source.read = true;
+	if (retrievedAt) {
+		source.read = true;
+		source.retrievedAt = retrievedAt;
+	}
 	return source;
+}
+
+/**
+ * Takes a source's evidence out of the bank: its quotes (all of them, or all
+ * but `keepQuoteIds`), the claims' references to those quotes, and every claim
+ * left with no quote. A source left with no quote is removed as well — it
+ * cannot be cited. Claim statuses are recomputed from scratch, because a
+ * dropped quote can take away a claim's second publisher or the other side of
+ * a disagreement.
+ *
+ * Used by the seed recheck: a parent's quote the live page no longer states
+ * must never reach the writer.
+ */
+export function dropAtlasV3SourceEvidence(
+	state: AtlasV3BankState,
+	sourceId: string,
+	options?: { keepQuoteIds?: readonly string[] },
+): { quotesDropped: number; claimsDropped: number; sourceRemoved: boolean } {
+	const keep = new Set(options?.keepQuoteIds ?? []);
+	const dropped = new Set(
+		state.quotes
+			.filter((quote) => quote.sourceId === sourceId && !keep.has(quote.id))
+			.map((quote) => quote.id),
+	);
+	state.quotes = state.quotes.filter((quote) => !dropped.has(quote.id));
+	const claimsBefore = state.claims.length;
+	state.claims = state.claims
+		.map((claim) => ({
+			...claim,
+			evidenceIds: claim.evidenceIds.filter((id) => !dropped.has(id)),
+		}))
+		.filter((claim) => claim.evidenceIds.length > 0);
+	restatusAtlasV3Claims(state);
+	const sourceRemoved = removeAtlasV3SourceWithoutQuotes(state, sourceId);
+	return {
+		quotesDropped: dropped.size,
+		claimsDropped: claimsBefore - state.claims.length,
+		sourceRemoved,
+	};
+}
+
+/**
+ * Every claim's status recomputed from the bank as it now stands, INCLUDING
+ * `contested`: a claim is contested only while a claim with the same strict
+ * identity and a different value is still in the bank. `rescoreAtlasV3Claims`
+ * keeps `contested` sticky, which is right while evidence only ever grows and
+ * wrong once it has been taken away.
+ */
+function restatusAtlasV3Claims(state: AtlasV3BankState): void {
+	for (const claim of state.claims) {
+		const key = atlasV3ClaimKey(claim);
+		const conflicted = state.claims.some(
+			(other) =>
+				other.id !== claim.id &&
+				atlasV3ClaimKey(other) === key &&
+				!sameValue(other.value, claim.value),
+		);
+		claim.status = conflicted
+			? "contested"
+			: atlasV3ClaimStatus(state, { ...claim, status: "open" });
+	}
 }
 
 function normalizeDate(value: string | null): string | null {
@@ -778,8 +940,23 @@ export function atlasV3AlsoStatedBy(
 	return ids;
 }
 
-/** `title — host, date`, the Sources-section line format ADR 0062 defined. */
-export function formatAtlasV3SourceLine(source: AtlasV3Source): string {
+/** Where a user document came from, in the Sources line's host position. */
+const ATLAS_V3_LOCAL_SOURCE_LABEL: Record<SupportedLanguage, string> = {
+	en: "your library",
+	hu: "saját könyvtár",
+};
+
+/**
+ * `title — host, date`, the Sources-section line format ADR 0062 defined. A
+ * user document has no host and no date: it reads `title — your library`.
+ */
+export function formatAtlasV3SourceLine(
+	source: AtlasV3Source,
+	language: SupportedLanguage,
+): string {
+	if (source.kind === "local") {
+		return `${source.title} — ${ATLAS_V3_LOCAL_SOURCE_LABEL[language]}`;
+	}
 	return source.date
 		? `${source.title} — ${source.host}, ${source.date}`
 		: `${source.title} — ${source.host}`;
@@ -896,6 +1073,130 @@ export function buildAtlasV3ReadPrompt(
 	});
 }
 
+/**
+ * The read of ONE of the user's own documents: the same JSON as the web read,
+ * over passages rather than a page. Passages come from different places in the
+ * document, so the model is told where one ends — a quote joined across two of
+ * them would be a sentence the document never wrote.
+ */
+export const ATLAS_V3_READ_DOCUMENT_SYSTEM: Record<SupportedLanguage, string> =
+	{
+		en: [
+			"You read passages from ONE document the user provided, for the goals listed, and return only what the passages state. Return STRICT JSON only, no prose and no code fence.",
+			'Shape: {"quotes":[{"text":"..."}],"claims":[{"entity":"...","metric":"...","value":"...","unit":"...","period":"...","asOf":"...","series":"...","quoteIndexes":[0]}],"useless":false}',
+			"Passages are separated by `---`; never join text across a separator.",
+			"`quotes` are VERBATIM spans copied from the passages, at most 400 characters each, at most 8. Never paraphrase, never join two distant sentences, never invent. Copy the sentence that carries the figure, with enough words around it to be readable.",
+			"`claims` are the measurements the passages state, one per row. `value` is the number or short answer exactly as the document gives it. `unit` is its unit or null. `period` is the time the value covers (a year, a quarter, a date). `asOf` is when the document says the value was published or revised, or null. `series` is the measurement's identity — 'grid-connected additions', 'installed capacity', 'list price', 'statutory rate' — or null if the document does not say.",
+			"`quoteIndexes` are 0-based positions in your own `quotes` array that state the value. A claim with no quote is not a claim; drop it.",
+			'Set "useless" to true and return empty arrays only when no passage bears on any goal.',
+			"Do not answer the goals yourself. Extract only.",
+		].join("\n"),
+		hu: [
+			"EGY, a felhasználó által megadott dokumentum részleteit olvasod a felsorolt célokra, és csak azt adod vissza, amit a részletek állítanak. KIZÁRÓLAG szigorú JSON-t adj vissza, próza és kódkerítés nélkül.",
+			'Alak: {"quotes":[{"text":"..."}],"claims":[{"entity":"...","metric":"...","value":"...","unit":"...","period":"...","asOf":"...","series":"...","quoteIndexes":[0]}],"useless":false}',
+			"A részleteket `---` választja el; soha ne fűzz össze szöveget egy elválasztón át.",
+			"A `quotes` SZÓ SZERINTI részletek a szövegből, egyenként legfeljebb 400 karakter, legfeljebb 8 darab. Ne fogalmazd át, ne fűzz össze távoli mondatokat, ne találj ki semmit.",
+			"A `claims` a részletek által közölt mérések, soronként egy. A `value` a szám vagy rövid válasz pontosan úgy, ahogy a dokumentum írja. A `unit` a mértékegység vagy null. A `period` az az időszak, amelyre az érték vonatkozik. Az `asOf` a közlés vagy felülvizsgálat ideje, vagy null. A `series` a mérés azonosítója — „hálózatra kapcsolt bővülés”, „beépített kapacitás”, „listaár”, „törvényi mérték” — vagy null.",
+			"A `quoteIndexes` a saját `quotes` tömböd 0-alapú pozíciói, amelyek az értéket kimondják. Idézet nélküli állítást hagyj el.",
+			'A "useless" csak akkor true (és mindkét tömb üres), ha egyetlen részlet sem kapcsolódik egyik célhoz sem.',
+			"Ne válaszold meg te a célokat. Csak kivonatolj.",
+		].join("\n"),
+	};
+
+/** What separates two passages of one document, in the prompt and the guard. */
+export const ATLAS_V3_LOCAL_PASSAGE_SEPARATOR = "\n---\n";
+
+export interface BuildAtlasV3LocalReadPromptInput {
+	/** The core question first, then the sub-questions. */
+	goals: readonly string[];
+	language: SupportedLanguage;
+	title: string;
+	/** Passages, in document order; each is whitespace-normalised here. */
+	passages: readonly string[];
+	currentDate: string;
+}
+
+/**
+ * The local variant of `buildAtlasV3ReadPrompt`: the source is the user's own
+ * document (no host, no date), the goals are ALL the questions, and the page
+ * is the selected passages joined by `---`. Whitespace is collapsed inside a
+ * passage and never across the separator.
+ */
+export function buildAtlasV3LocalReadPrompt(
+	input: BuildAtlasV3LocalReadPromptInput,
+): string {
+	return JSON.stringify({
+		task: "read_for_goal",
+		goals: [...input.goals],
+		language: input.language,
+		currentDate: input.currentDate,
+		source: { title: input.title, kind: "user_document", date: null },
+		page: input.passages
+			.map((passage) => passage.replace(/\s+/g, " ").trim())
+			.filter(Boolean)
+			.join(ATLAS_V3_LOCAL_PASSAGE_SEPARATOR),
+	});
+}
+
+/**
+ * Text folded for a verbatim comparison: markup gone (markdown emphasis, code
+ * ticks, headings, table pipes and rules, link targets, HTML tags), typographic
+ * quotes and dashes folded, whitespace collapsed, lowercased. The WORDS and
+ * figures are untouched, so a quote that survives the fold is still the
+ * source's own words.
+ *
+ * One fold for both verbatim checks: the local read's guard (a document's text
+ * is the knowledge store's normalized markdown) and the seed recheck's
+ * `atlasV3QuoteStillStated` (a page re-read as markdown). A quote copied
+ * without the markup must compare equal to the text it was copied from.
+ */
+export function foldAtlasV3VerbatimText(value: string): string {
+	return (
+		value
+			.normalize("NFKC")
+			.replace(/<\/?[a-z][^>]*>/giu, " ")
+			.replace(/!?\[([^\]]*)\]\([^)]*\)/gu, "$1")
+			// Emphasis hugs the words it marks (`**412 Ft**.`): dropped, not spaced,
+			// or the sentence would gain a space before its full stop.
+			.replace(/[*_`]+/gu, "")
+			.replace(/[#>|]+/gu, " ")
+			.replace(/(?:^|\s)-{3,}(?=\s|$)/gu, " ")
+			.replace(/[‘’‚‛]/gu, "'")
+			.replace(/[“”„‟]/gu, '"')
+			.replace(/[‐‑‒–—]/gu, "-")
+			.replace(/\s+/gu, " ")
+			.trim()
+			.toLowerCase()
+	);
+}
+
+/**
+ * A quote folded for a containment check, without the ellipsis a model puts
+ * at either end of a sentence it cut short.
+ */
+export function foldAtlasV3QuoteNeedle(quote: string): string {
+	return foldAtlasV3VerbatimText(quote)
+		.replace(/^(?:\.\.\.|…)\s*/u, "")
+		.replace(/\s*(?:\.\.\.|…)$/u, "")
+		.trim();
+}
+
+/**
+ * True when `quote` occurs, verbatim up to markup, whitespace, case and
+ * typographic quotes, inside ONE passage of `sourceText`. A span that only
+ * exists across a separator is not something the document said.
+ */
+export function atlasV3QuoteOccursIn(
+	quote: string,
+	sourceText: string,
+): boolean {
+	const needle = foldAtlasV3QuoteNeedle(quote);
+	if (!needle) return false;
+	return sourceText
+		.split(ATLAS_V3_LOCAL_PASSAGE_SEPARATOR)
+		.some((passage) => foldAtlasV3VerbatimText(passage).includes(needle));
+}
+
 export interface AtlasV3ReadResult {
 	quotes: string[];
 	claims: Array<{
@@ -991,14 +1292,30 @@ export function fileAtlasV3Read(input: {
 	sourceId: string;
 	goal: string;
 	read: AtlasV3ReadResult;
-}): { quotes: AtlasV3Quote[]; claims: AtlasV3Claim[] } {
-	const quotes: Array<AtlasV3Quote | null> = input.read.quotes.map((text) =>
-		addAtlasV3Quote(input.state, {
+	/**
+	 * The text the read was shown, passages joined by
+	 * `ATLAS_V3_LOCAL_PASSAGE_SEPARATOR`. When given, a quote is filed only if
+	 * it occurs inside one passage — the verbatim guard. Used for local reads
+	 * only: turning it on for web reads changes what the bank holds and needs
+	 * an evaluation first.
+	 */
+	sourceText?: string;
+}): { quotes: AtlasV3Quote[]; claims: AtlasV3Claim[]; rejected: number } {
+	let rejected = 0;
+	const quotes: Array<AtlasV3Quote | null> = input.read.quotes.map((text) => {
+		if (
+			input.sourceText !== undefined &&
+			!atlasV3QuoteOccursIn(text, input.sourceText)
+		) {
+			rejected += 1;
+			return null;
+		}
+		return addAtlasV3Quote(input.state, {
 			sourceId: input.sourceId,
 			text,
 			goal: input.goal,
-		}),
-	);
+		});
+	});
 	const added = quotes.filter((quote): quote is AtlasV3Quote => quote !== null);
 	const claims: AtlasV3Claim[] = [];
 	for (const claim of input.read.claims) {
@@ -1013,19 +1330,29 @@ export function fileAtlasV3Read(input: {
 	// publisher; rescoring after the read is what makes the corroboration in the
 	// bank match the corroboration in the sources.
 	if (claims.length > 0) rescoreAtlasV3Claims(input.state);
-	return { quotes: added, claims };
+	return { quotes: added, claims, rejected };
 }
 
 /**
  * Caps the bank to the profile's source budget, best tier first and keeping
  * every source a claim rests on. Applied BEFORE anything is written, so no
  * citation is ever minted against a source the report cannot afford to carry.
+ *
+ * The user's own documents are exempt: they are not counted against the budget
+ * and never dropped. The user chose them for this question, and their number is
+ * already bounded by `ATLAS_V3_MAX_LOCAL_SOURCES`.
+ *
+ * At equal claim load a source this job found itself outranks one seeded from
+ * a parent, and a newer read outranks an older one, before tier decides: a
+ * Continue chain would otherwise keep its oldest pages forever.
  */
 export function capAtlasV3Bank(input: {
 	state: AtlasV3BankState;
 	maxSources: number;
 }): { dropped: number } {
-	if (input.state.sources.length <= input.maxSources) return { dropped: 0 };
+	const local = input.state.sources.filter((source) => source.kind === "local");
+	const web = input.state.sources.filter((source) => source.kind !== "local");
+	if (web.length <= input.maxSources) return { dropped: 0 };
 	const load = new Map<string, number>();
 	for (const claim of input.state.claims) {
 		for (const evidenceId of claim.evidenceIds) {
@@ -1034,17 +1361,27 @@ export function capAtlasV3Bank(input: {
 			load.set(quote.sourceId, (load.get(quote.sourceId) ?? 0) + 1);
 		}
 	}
-	const ranked = [...input.state.sources].sort((left, right) => {
+	const ranked = [...web].sort((left, right) => {
 		const claimDelta = (load.get(right.id) ?? 0) - (load.get(left.id) ?? 0);
 		if (claimDelta !== 0) return claimDelta;
+		const seededDelta =
+			Number(Boolean(left.seededFrom)) - Number(Boolean(right.seededFrom));
+		if (seededDelta !== 0) return seededDelta;
+		// By DAY: two pages one job read a second apart are equally fresh, and
+		// the tier should still decide between them.
+		const retrievedDelta = (right.retrievedAt ?? "")
+			.slice(0, 10)
+			.localeCompare((left.retrievedAt ?? "").slice(0, 10));
+		if (retrievedDelta !== 0) return retrievedDelta;
 		const tierDelta =
 			ATLAS_V3_TIER_ORDER[left.tier] - ATLAS_V3_TIER_ORDER[right.tier];
 		if (tierDelta !== 0) return tierDelta;
 		return left.id.localeCompare(right.id, "en", { numeric: true });
 	});
-	const kept = new Set(
-		ranked.slice(0, input.maxSources).map((source) => source.id),
-	);
+	const kept = new Set([
+		...local.map((source) => source.id),
+		...ranked.slice(0, input.maxSources).map((source) => source.id),
+	]);
 	const dropped = input.state.sources.length - kept.size;
 	input.state.sources = input.state.sources.filter((source) =>
 		kept.has(source.id),
@@ -1065,6 +1402,7 @@ export function capAtlasV3Bank(input: {
 }
 
 const ATLAS_V3_TIER_ORDER: Record<AtlasV3SourceTier, number> = {
+	user_document: 0,
 	primary: 0,
 	press: 1,
 	aggregator: 2,

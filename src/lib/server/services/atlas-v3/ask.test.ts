@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	ATLAS_V3_ASK_SYSTEM,
 	buildAtlasV3AskPrompt,
 	deterministicAtlasV3Title,
 	fallbackAtlasV3Ask,
@@ -163,7 +164,7 @@ describe("buildAtlasV3AskPrompt", () => {
 		expect(parsed.preferredPrimarySources).toContain("KSH");
 	});
 
-	it("omits the revise instruction when there is none", () => {
+	it("omits the parent and the instruction on a create", () => {
 		const parsed = JSON.parse(
 			buildAtlasV3AskPrompt({
 				query: "q",
@@ -173,6 +174,76 @@ describe("buildAtlasV3AskPrompt", () => {
 			}),
 		);
 		expect(parsed.reviseInstruction).toBeUndefined();
+		expect(parsed.parent).toBeUndefined();
+		expect(parsed.instruction).toBeUndefined();
 		expect(parsed.preferredPrimarySources).toBeUndefined();
+		expect(parsed.localSources).toBeUndefined();
+	});
+
+	it("lists the user's documents with a summary capped at 300 characters", () => {
+		const parsed = JSON.parse(
+			buildAtlasV3AskPrompt({
+				query: "q",
+				profile: "overview",
+				language: "en",
+				currentDate: "2026-09-10",
+				localSources: [
+					{
+						title: "Electricity bill 2025.pdf",
+						origin: "attachment",
+						summary: `  ${"x".repeat(500)}  `,
+					},
+					{ title: "Contract.docx", origin: "linked", summary: null },
+				],
+			}),
+		);
+		expect(parsed.localSources).toHaveLength(2);
+		expect(parsed.localSources[0].title).toBe("Electricity bill 2025.pdf");
+		expect(parsed.localSources[0].summary).toHaveLength(300);
+		expect(parsed.localSources[1]).toEqual({
+			title: "Contract.docx",
+			origin: "linked",
+			summary: null,
+		});
+	});
+
+	it("carries a lifecycle child's parent block and instruction", () => {
+		const parsed = JSON.parse(
+			buildAtlasV3AskPrompt({
+				query: "Now cover Germany too",
+				profile: "overview",
+				language: "en",
+				currentDate: "2026-09-24",
+				instruction: "Now cover Germany too",
+				parent: {
+					action: "continue",
+					title: "EU solar additions",
+					coreQuestion: "How much solar did the EU add in 2025?",
+					verdict: "The EU added 65.1 GW in 2025.",
+					headings: ["Additions fell", "Rooftop drove the fall"],
+					date: "2026-09-10",
+				},
+			}),
+		);
+		expect(parsed.instruction).toBe("Now cover Germany too");
+		expect(parsed.parent).toEqual({
+			action: "continue",
+			title: "EU solar additions",
+			coreQuestion: "How much solar did the EU add in 2025?",
+			verdict: "The EU added 65.1 GW in 2025.",
+			headings: ["Additions fell", "Rooftop drove the fall"],
+			date: "2026-09-10",
+		});
+	});
+
+	it("tells the ask, in both languages, that the parent's verdict is not evidence", () => {
+		for (const language of ["en", "hu"] as const) {
+			const system = ATLAS_V3_ASK_SYSTEM[language];
+			expect(system).toContain("`parent.verdict`");
+			expect(system).toContain("`parent.action`");
+			expect(system.split("\n")).toHaveLength(13);
+		}
+		expect(ATLAS_V3_ASK_SYSTEM.en).toContain("not evidence");
+		expect(ATLAS_V3_ASK_SYSTEM.hu).toContain("nem bizonyíték");
 	});
 });

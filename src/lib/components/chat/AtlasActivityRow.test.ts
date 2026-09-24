@@ -209,6 +209,29 @@ describe("AtlasActivityRow", () => {
 			expect(onCancel).toHaveBeenCalledWith("atlas-job-1");
 		});
 
+		it.each([
+			["ask", "Scoping the question"],
+			["outline", "Outlining"],
+			["answer", "Building the answer table"],
+			["critic", "Reviewing coverage"],
+		] as const)("renders a real label for the v3 %s phase (ADR 0063)", (phase, expectedLabel) => {
+			render(AtlasActivityRow, {
+				job: atlasJob({
+					status: "running",
+					stage: phase,
+					progress: {
+						percent: 40,
+						stage: phase,
+						details: { pipelineVersion: 3, phase, queries: [] },
+					},
+				}),
+			});
+
+			expect(screen.getByTestId("atlas-stage-line")).toHaveTextContent(
+				expectedLabel,
+			);
+		});
+
 		it("falls back to the stage label and the query list for a v1 job", () => {
 			render(AtlasActivityRow, {
 				job: atlasJob({
@@ -243,6 +266,21 @@ describe("AtlasActivityRow", () => {
 	});
 
 	describe("done", () => {
+		it("shows the section count the server actually stores", () => {
+			// v2/v3 store `sections: {written, planned}`; the card used to read a
+			// `sectionCount` no server ever wrote, so the count never appeared.
+			render(AtlasActivityRow, {
+				job: doneJob({
+					pipelineVersion: 3,
+					sectionCount: undefined,
+					sections: { written: 5, planned: 6 },
+				}),
+			});
+			expect(screen.getByTestId("atlas-report-tab")).toHaveTextContent(
+				"5 sections · 28 sources",
+			);
+		});
+
 		it("folds to a tick, opens on the Report tab and exposes Open and one Download menu", async () => {
 			const onOpenDocument = vi.fn();
 			render(AtlasActivityRow, { job: doneJob(), onOpenDocument });
@@ -370,6 +408,42 @@ describe("AtlasActivityRow", () => {
 			).toHaveLength(0);
 			const sources = within(evidence).getAllByTestId("atlas-evidence-source");
 			expect(sources[0].querySelector("svg")).not.toBeNull();
+		});
+
+		it("draws a user document with a library glyph and 'Your library', never a favicon", async () => {
+			render(AtlasActivityRow, {
+				job: doneJob({
+					evidence: {
+						...EVIDENCE,
+						sources: [
+							{
+								...EVIDENCE.sources[0],
+								title: "Electricity bill 2025.pdf",
+								host: "",
+								date: null,
+								kind: "local",
+							},
+							EVIDENCE.sources[1],
+						],
+					},
+				}),
+			});
+
+			await fireEvent.click(screen.getByRole("tab", { name: "Evidence" }));
+			const evidence = screen.getByTestId("atlas-evidence-tab");
+			const sources = within(evidence).getAllByTestId("atlas-evidence-source");
+			expect(sources[0]).toHaveTextContent("Electricity bill 2025.pdf");
+			expect(sources[0]).toHaveTextContent("Your library");
+			expect(
+				within(sources[0]).getByTestId("atlas-evidence-library"),
+			).toBeInTheDocument();
+			expect(
+				within(sources[0]).queryAllByTestId("atlas-evidence-favicon"),
+			).toHaveLength(0);
+			// The web source beside it keeps its favicon.
+			expect(
+				within(sources[1]).getAllByTestId("atlas-evidence-favicon"),
+			).toHaveLength(1);
 		});
 
 		it("shows the final source counts on the Plan tab", async () => {

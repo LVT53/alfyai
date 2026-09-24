@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Atlas runs pipeline v3 exclusively (Phase B of the v3-only consolidation).
+// Dispatch here no longer branches on `pipelineVersion` — `claimNextAtlasJob`
+// (job-ledger.ts, tested separately) already restamps every claimed row onto
+// v3 regardless of what it was stamped at kickoff, so a queued row that used
+// to be 1 or 2 simply runs fresh on v3.
+
 const mocks = vi.hoisted(() => ({
 	getConfig: vi.fn(),
 	isModelEnabled: vi.fn(),
@@ -17,8 +23,8 @@ const mocks = vi.hoisted(() => ({
 		profile: "overview",
 		title: "Generated Atlas title",
 		status: "running",
-		stage: "assemble",
-		progress: { percent: 82, stage: "assemble", details: { queries: [] } },
+		stage: "write",
+		progress: { percent: 82, stage: "write", details: { queries: [] } },
 		sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
 		usage: {
 			inputTokens: 0,
@@ -37,24 +43,7 @@ const mocks = vi.hoisted(() => ({
 		updatedAt: 2,
 		completedAt: null,
 	})),
-	runAtlasPipeline: vi.fn(),
-	runAtlasModelStage: vi.fn(async () => ({
-		text: '{"markers":[],"retryRequested":false}',
-		usage: {
-			inputTokens: 2,
-			outputTokens: 1,
-			totalTokens: 3,
-			costUsdMicros: 0,
-		},
-		model: {
-			modelId: "model2",
-			providerId: "provider",
-			displayName: "Audit",
-		},
-	})),
-	auditAtlasBasis: vi.fn(async (input) =>
-		input.runAuditModel?.(input.assembledMarkdown),
-	),
+	runAtlasV3PipelineForClaimedJob: vi.fn(),
 	buildAtlasLifecycleContext: vi.fn(),
 }));
 
@@ -77,52 +66,21 @@ vi.mock("./job-ledger", () => ({
 	recoverStaleAtlasJobs: mocks.recoverStaleAtlasJobs,
 }));
 
-vi.mock("./pipeline", () => ({
-	runAtlasPipeline: mocks.runAtlasPipeline,
-	AtlasPipelineQualityError: class AtlasPipelineQualityError extends Error {
-		readonly markers: unknown[];
-		readonly failureContext: unknown;
-		constructor(markers: unknown[], failureContext?: unknown) {
-			const markerCodes = (markers as { code: string }[])
-				.map((m) => m.code)
-				.join(", ");
-			super(
-				`Atlas quality gate failed${markerCodes ? `: ${markerCodes}` : "."}`,
-			);
-			this.name = "AtlasPipelineQualityError";
-			this.markers = markers;
-			this.failureContext = failureContext;
-		}
-	},
+vi.mock("../atlas-v3/worker-bindings", () => ({
+	runAtlasV3PipelineForClaimedJob: mocks.runAtlasV3PipelineForClaimedJob,
 }));
 
-vi.mock("./model-stage", () => ({
-	runAtlasModelStage: mocks.runAtlasModelStage,
-}));
-
-vi.mock("./quality-gates", () => ({
-	auditAtlasBasis: mocks.auditAtlasBasis,
-}));
-
-vi.mock("./renderer-output", () => ({
-	renderAtlasOutputs: vi.fn(),
-}));
-
-vi.mock("./search", () => ({
-	runAtlasSearchStage: vi.fn(),
-}));
-
-vi.mock("./sources", () => ({
-	resolveAtlasSources: vi.fn(),
-	resolveAtlasSourcesForJob: vi.fn(),
-}));
+vi.mock("../atlas-v3/types", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../atlas-v3/types")>();
+	return actual;
+});
 
 vi.mock("./checkpoints", () => ({
 	buildAtlasLifecycleContext: mocks.buildAtlasLifecycleContext,
 	writeAtlasRoundCheckpoint: vi.fn(),
 }));
 
-function atlasJob() {
+function atlasJob(pipelineVersion: 1 | 2 | 3 = 3) {
 	return {
 		id: "atlas-job-1",
 		conversationId: "conv-1",
@@ -130,10 +88,11 @@ function atlasJob() {
 		action: "create",
 		parentAtlasJobId: null,
 		profile: "overview",
+		pipelineVersion,
 		title: "Atlas research",
 		status: "running",
-		stage: "decompose",
-		progress: { percent: 5, stage: "decompose", details: { queries: [] } },
+		stage: "ask",
+		progress: { percent: 0, stage: "ask", details: { queries: [] } },
 		sourceCounts: { local: 0, web: 0, accepted: 0, rejected: 0 },
 		usage: {
 			inputTokens: 0,
@@ -152,6 +111,31 @@ function atlasJob() {
 		updatedAt: 2,
 		completedAt: null,
 	} as const;
+}
+
+function v3PipelineResult() {
+	return {
+		status: "succeeded" as const,
+		stage: "render" as const,
+		pipelineVersion: 3 as const,
+		title: "Atlas research",
+		executiveSummaryMarkdown: "Report body.",
+		abstained: false,
+		outputs: {
+			fileProductionJobId: "fp-job-1",
+			htmlChatGeneratedFileId: "file-html",
+			pdfChatGeneratedFileId: "file-pdf",
+			markdownChatGeneratedFileId: "file-md",
+		},
+		usage: {
+			inputTokens: 10,
+			outputTokens: 5,
+			totalTokens: 15,
+			costUsdMicros: 25,
+		},
+		sourceCounts: { local: 1, web: 2, accepted: 3, rejected: 0 },
+		diagnostics: {},
+	};
 }
 
 describe("Atlas worker runner", () => {
@@ -206,48 +190,37 @@ describe("Atlas worker runner", () => {
 		);
 	});
 
-	it("claims one job, runs the pipeline, and completes through the ledger", async () => {
-		mocks.claimNextAtlasJob
-			.mockResolvedValueOnce({
-				job: atlasJob(),
-				userId: "user-1",
-				workerId: "atlas-worker-1",
-			})
-			.mockResolvedValueOnce(null);
-		mocks.runAtlasPipeline.mockResolvedValueOnce({
-			status: "succeeded",
-			stage: "audit",
-			outputs: {
-				fileProductionJobId: "fp-job-1",
-				htmlChatGeneratedFileId: "file-html",
-				pdfChatGeneratedFileId: "file-pdf",
-				markdownChatGeneratedFileId: "file-md",
-			},
-			audit: { honestyMarkers: [] },
-			usage: {
-				inputTokens: 10,
-				outputTokens: 5,
-				totalTokens: 15,
-				costUsdMicros: 25,
-			},
-			sourceCounts: { local: 1, web: 2, accepted: 3, rejected: 0 },
+	it.each([
+		1, 2, 3,
+	] as const)("runs a job stamped pipelineVersion %d on v3 and completes it through the ledger", async (stampedPipelineVersion) => {
+		mocks.claimNextAtlasJob.mockResolvedValueOnce({
+			job: atlasJob(stampedPipelineVersion),
+			userId: "user-1",
+			workerId: "atlas-worker-1",
 		});
+		mocks.runAtlasV3PipelineForClaimedJob.mockResolvedValueOnce(
+			v3PipelineResult(),
+		);
 		const { executeNextAtlasJob } = await import("./worker-runner");
 
 		const processed = await executeNextAtlasJob({
 			workerId: "atlas-worker-1",
 			now: new Date("2026-06-19T14:00:00.000Z"),
-			resolveJobQuery: vi.fn(async () => "Research SvelteKit routing docs"),
+			resolveJobQuery: vi.fn(async () => ({
+				query: "Research SvelteKit routing docs",
+				userMessageId: "user-msg-1",
+			})),
 		});
 
 		expect(processed).toBe(true);
-		expect(mocks.runAtlasPipeline).toHaveBeenCalledWith(
+		expect(mocks.runAtlasV3PipelineForClaimedJob).toHaveBeenCalledWith(
 			expect.objectContaining({
 				job: expect.objectContaining({
 					id: "atlas-job-1",
 					userId: "user-1",
 					conversationId: "conv-1",
 					query: "Research SvelteKit routing docs",
+					kickoffUserMessageId: "user-msg-1",
 					lifecycle: expect.objectContaining({
 						family: expect.objectContaining({
 							familyId: "atlas-job-1",
@@ -255,31 +228,6 @@ describe("Atlas worker runner", () => {
 						}),
 					}),
 				}),
-			}),
-		);
-		const pipelineInput = mocks.runAtlasPipeline.mock.calls[0]?.[0];
-		const { runAtlasSearchStage } = await import("./search");
-		vi.mocked(runAtlasSearchStage).mockResolvedValueOnce({
-			sources: [],
-			rejectedSources: [],
-			limitation: null,
-		});
-		await pipelineInput.dependencies.searchWeb(["routing docs"]);
-		expect(runAtlasSearchStage).toHaveBeenCalledWith(
-			expect.objectContaining({
-				config: expect.objectContaining({
-					maxAcceptedSources: 28,
-				}),
-			}),
-		);
-		const audit = await pipelineInput.dependencies.auditBasis({
-			assembledMarkdown: "Report",
-			sources: [{ title: "Source", url: "https://example.com" }],
-			limitation: null,
-		});
-		expect(audit).toEqual(
-			expect.objectContaining({
-				usage: expect.objectContaining({ totalTokens: 3 }),
 			}),
 		);
 		expect(mocks.buildAtlasLifecycleContext).toHaveBeenCalledWith({
@@ -292,7 +240,7 @@ describe("Atlas worker runner", () => {
 			expect.objectContaining({
 				jobId: "atlas-job-1",
 				workerId: "atlas-worker-1",
-				stage: "audit",
+				stage: "render",
 				progressPercent: 100,
 				fileProductionJobId: "fp-job-1",
 				htmlChatGeneratedFileId: "file-html",
@@ -301,6 +249,98 @@ describe("Atlas worker runner", () => {
 			}),
 		);
 		expect(mocks.failAtlasJob).not.toHaveBeenCalled();
+	});
+
+	it("passes null kickoffUserMessageId through when the query cannot be traced to a user message", async () => {
+		mocks.claimNextAtlasJob.mockResolvedValueOnce({
+			job: atlasJob(),
+			userId: "user-1",
+			workerId: "atlas-worker-1",
+		});
+		mocks.runAtlasV3PipelineForClaimedJob.mockResolvedValueOnce(
+			v3PipelineResult(),
+		);
+		const { executeNextAtlasJob } = await import("./worker-runner");
+
+		await executeNextAtlasJob({
+			workerId: "atlas-worker-1",
+			now: new Date("2026-06-19T14:00:00.000Z"),
+			resolveJobQuery: vi.fn(async () => ({
+				query: "Research SvelteKit routing docs",
+				userMessageId: null,
+			})),
+		});
+
+		expect(mocks.runAtlasV3PipelineForClaimedJob).toHaveBeenCalledWith(
+			expect.objectContaining({
+				job: expect.objectContaining({ kickoffUserMessageId: null }),
+			}),
+		);
+	});
+
+	it("fails the job with the AtlasV3PipelineError code when the v3 pipeline throws one", async () => {
+		mocks.claimNextAtlasJob.mockResolvedValueOnce({
+			job: atlasJob(),
+			userId: "user-1",
+			workerId: "atlas-worker-1",
+		});
+		const { AtlasV3PipelineError } = await import("../atlas-v3/types");
+		mocks.runAtlasV3PipelineForClaimedJob.mockRejectedValueOnce(
+			new AtlasV3PipelineError(
+				"atlas_v3_no_answer",
+				"The report could not answer the question.",
+			),
+		);
+		const { executeNextAtlasJob } = await import("./worker-runner");
+
+		const processed = await executeNextAtlasJob({
+			workerId: "atlas-worker-1",
+			now: new Date("2026-06-19T14:00:00.000Z"),
+			resolveJobQuery: vi.fn(async () => ({
+				query: "Research SvelteKit routing docs",
+				userMessageId: "user-msg-1",
+			})),
+		});
+
+		expect(processed).toBe(true);
+		expect(mocks.failAtlasJob).toHaveBeenCalledWith(
+			expect.objectContaining({
+				jobId: "atlas-job-1",
+				workerId: "atlas-worker-1",
+				errorCode: "atlas_v3_no_answer",
+				errorMessage: "The report could not answer the question.",
+				retryable: true,
+			}),
+		);
+		expect(mocks.completeAtlasJob).not.toHaveBeenCalled();
+	});
+
+	it("falls back to a generic error code for an unrecognized failure", async () => {
+		mocks.claimNextAtlasJob.mockResolvedValueOnce({
+			job: atlasJob(),
+			userId: "user-1",
+			workerId: "atlas-worker-1",
+		});
+		mocks.runAtlasV3PipelineForClaimedJob.mockRejectedValueOnce(
+			new Error("boom"),
+		);
+		const { executeNextAtlasJob } = await import("./worker-runner");
+
+		await executeNextAtlasJob({
+			workerId: "atlas-worker-1",
+			now: new Date("2026-06-19T14:00:00.000Z"),
+			resolveJobQuery: vi.fn(async () => ({
+				query: "Research SvelteKit routing docs",
+				userMessageId: "user-msg-1",
+			})),
+		});
+
+		expect(mocks.failAtlasJob).toHaveBeenCalledWith(
+			expect.objectContaining({
+				errorCode: "atlas_pipeline_failed",
+				errorMessage: "boom",
+			}),
+		);
 	});
 
 	it("keeps matching provider synthesis and audit configs on the provider model", async () => {

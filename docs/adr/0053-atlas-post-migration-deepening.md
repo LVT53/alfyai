@@ -1,6 +1,8 @@
 # Atlas is deepened along four module seams after the Parallel migration, not left as-is
 
 > Builds on [ADR-0036](0036-atlas-is-normal-chat-turn-not-parallel-subsystem.md) (Atlas is a Normal Chat Turn + single background worker) and [ADR-0052](0052-replace-searxng-web-research-with-parallel-search.md) (SearXNG replaced by Parallel Search/Extract). This ADR does **not** re-litigate either decision. It records a set of internal deepening refactors that leave Atlas's external behaviour and its two owned tables unchanged.
+>
+> **Superseded by [ADR-0063](0063-atlas-v3-reasons-from-an-evidence-bank-not-from-search-excerpts.md)'s v3-only consolidation (Phase B, 2026-09-23).** Every module this ADR deepens or names — `atlas/search.ts`, `atlas/pipeline.ts`, `evidence-packs.ts`, `quality-gates.ts`, `claim-basis.ts`, `renderer-output.ts` (the full file; a small bridge survives, renamed `output-files.ts`) — was deleted along with the rest of the v1 content pipeline. `json-extract.ts` is the one seam that outlived it: its `salvageTruncatedJson` (moved here from v2's `salvageTruncatedWriterJson` in an earlier phase) is still shared infrastructure every v3 stage uses. Read this ADR as a historical record of v1's internal structure, not as a guide to the current module graph.
 
 ## Context
 

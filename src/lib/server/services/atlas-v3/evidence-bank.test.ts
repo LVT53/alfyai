@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	ATLAS_V3_LOCAL_PASSAGE_SEPARATOR,
+	ATLAS_V3_READ_DOCUMENT_SYSTEM,
 	addAtlasV3Claim,
+	addAtlasV3LocalSource,
 	addAtlasV3Quote,
 	addAtlasV3Source,
 	assignAtlasV3CitationNumbers,
@@ -9,12 +12,17 @@ import {
 	atlasV3CorroboratingPublishersFor,
 	atlasV3NormalizeWords,
 	atlasV3PublishersFor,
+	atlasV3QuoteOccursIn,
+	buildAtlasV3LocalReadPrompt,
 	buildAtlasV3ReadPrompt,
 	capAtlasV3Bank,
 	createAtlasV3Bank,
+	dropAtlasV3SourceEvidence,
 	fileAtlasV3Read,
+	formatAtlasV3SourceLine,
 	freezeAtlasV3Bank,
 	parseAtlasV3Read,
+	removeAtlasV3SourceWithoutQuotes,
 	thawAtlasV3Bank,
 } from "./evidence-bank";
 
@@ -1340,5 +1348,482 @@ describe("buildAtlasV3ReadPrompt", () => {
 		expect(parsed.goal).toBe("EU solar additions 2025");
 		expect(parsed.source.tier).toBe("primary");
 		expect(parsed.page).toHaveLength(100);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Atlas Local Sources
+// ---------------------------------------------------------------------------
+
+function addLocal(
+	state: ReturnType<typeof createAtlasV3Bank>,
+	displayArtifactId: string,
+	title = `${displayArtifactId}.pdf`,
+) {
+	return addAtlasV3LocalSource(state, {
+		displayArtifactId,
+		promptArtifactId: `${displayArtifactId}-normalized`,
+		title,
+		origin: "attachment",
+	});
+}
+
+describe("addAtlasV3LocalSource", () => {
+	it("mints a user_document source on the shared publisher, once per document", () => {
+		const state = createAtlasV3Bank();
+		const first = addLocal(state, "art-1");
+		expect(first).toMatchObject({
+			id: "s1",
+			kind: "local",
+			tier: "user_document",
+			publisher: "user-documents",
+			host: "",
+			date: null,
+			canonicalUrl: "atlas-local:art-1",
+		});
+		expect(addLocal(state, "art-1").id).toBe("s1");
+		// Two documents with one title are still two documents.
+		expect(addLocal(state, "art-2", "art-1.pdf").id).toBe("s2");
+		const thawed = thawAtlasV3Bank(freezeAtlasV3Bank(state));
+		expect(addLocal(thawed, "art-2").id).toBe("s2");
+		expect(addLocal(thawed, "art-3").id).toBe("s3");
+	});
+
+	it("reads as the user's library in a Sources line", () => {
+		const state = createAtlasV3Bank();
+		const source = addLocal(state, "art-1", "Budget.xlsx");
+		expect(formatAtlasV3SourceLine(source, "en")).toBe(
+			"Budget.xlsx — your library",
+		);
+		expect(formatAtlasV3SourceLine(source, "hu")).toBe(
+			"Budget.xlsx — saját könyvtár",
+		);
+	});
+
+	it("is taken back out when no quote was filed against it", () => {
+		const state = createAtlasV3Bank();
+		const source = addLocal(state, "art-1");
+		expect(removeAtlasV3SourceWithoutQuotes(state, source.id)).toBe(true);
+		expect(state.sources).toHaveLength(0);
+		const kept = addLocal(state, "art-2");
+		addAtlasV3Quote(state, {
+			sourceId: kept.id,
+			text: "Our household used 1,234 kWh in 2025.",
+			goal: "g",
+		});
+		expect(removeAtlasV3SourceWithoutQuotes(state, kept.id)).toBe(false);
+	});
+});
+
+describe("local sources and corroboration", () => {
+	const claim = (evidenceIds: string[]) => ({
+		entity: "household",
+		metric: "electricity use",
+		value: "1234",
+		unit: "kWh",
+		period: "2025",
+		asOf: null,
+		series: null,
+		evidenceIds,
+	});
+
+	it("counts every user document as ONE voice", () => {
+		const state = createAtlasV3Bank();
+		const first = addLocal(state, "art-1");
+		const second = addLocal(state, "art-2");
+		const a = addAtlasV3Quote(state, {
+			sourceId: first.id,
+			text: "Our household used 1234 kWh of electricity in 2025.",
+			goal: "g",
+		});
+		const b = addAtlasV3Quote(state, {
+			sourceId: second.id,
+			text: "The meter log shows 1234 kWh of electricity used in 2025.",
+			goal: "g",
+		});
+		const filed = addAtlasV3Claim(state, claim([a?.id ?? "", b?.id ?? ""]));
+		expect(filed?.status).toBe("single");
+		expect(
+			atlasV3PublishersFor(freezeAtlasV3Bank(state), filed?.evidenceIds ?? []),
+		).toEqual(["user-documents"]);
+	});
+
+	it("is verified by a user document plus one published source", () => {
+		const state = createAtlasV3Bank();
+		const local = addLocal(state, "art-1");
+		const web = addAtlasV3Source(state, {
+			url: "https://iea.org/reports/household",
+			title: "IEA",
+			publishedAt: "2025-12-01",
+		});
+		const a = addAtlasV3Quote(state, {
+			sourceId: local.id,
+			text: "Our household used 1234 kWh of electricity in 2025.",
+			goal: "g",
+		});
+		const b = addAtlasV3Quote(state, {
+			sourceId: web?.id ?? "",
+			text: "The average household used 1234 kWh of electricity in 2025.",
+			goal: "g",
+		});
+		expect(
+			addAtlasV3Claim(state, claim([a?.id ?? "", b?.id ?? ""]))?.status,
+		).toBe("verified");
+	});
+});
+
+describe("capAtlasV3Bank and local sources", () => {
+	it("never drops a local source and does not count it against the budget", () => {
+		const state = createAtlasV3Bank();
+		const local = addLocal(state, "art-1");
+		for (const host of ["iea.org", "bbc.com", "reuters.com"]) {
+			addAtlasV3Source(state, {
+				url: `https://${host}/a`,
+				title: host,
+				publishedAt: null,
+			});
+		}
+		const { dropped } = capAtlasV3Bank({ state, maxSources: 1 });
+		expect(dropped).toBe(2);
+		expect(state.sources.map((source) => source.id)).toContain(local.id);
+		expect(
+			state.sources.filter((source) => source.kind !== "local"),
+		).toHaveLength(1);
+	});
+});
+
+describe("the local verbatim guard", () => {
+	const read = {
+		quotes: [
+			"Our household used 1,234 kWh of electricity in 2025.",
+			"The tariff rose to 45 cents per kWh in January.",
+			"used 1,234 kWh of electricity in 2025. The tariff rose",
+		],
+		claims: [],
+		useless: false,
+	};
+
+	it("files only quotes that occur inside one passage sent", () => {
+		const state = createAtlasV3Bank();
+		const source = addLocal(state, "art-1");
+		const sourceText = [
+			"Our household used 1,234   kWh of electricity in 2025.",
+			"The tariff rose to 45 cents per kWh in January.",
+		].join(ATLAS_V3_LOCAL_PASSAGE_SEPARATOR);
+		const filed = fileAtlasV3Read({
+			state,
+			sourceId: source.id,
+			goal: "g",
+			read,
+			sourceText,
+		});
+		// The third quote spans the separator: it is not something the document
+		// said, so it is refused.
+		expect(filed.quotes.map((quote) => quote.text)).toEqual(
+			read.quotes.slice(0, 2),
+		);
+		expect(filed.rejected).toBe(1);
+	});
+
+	it("is off for a web read, which passes no source text", () => {
+		const { state, source } = bankWithSource();
+		const filed = fileAtlasV3Read({
+			state,
+			sourceId: source.id,
+			goal: "g",
+			read,
+		});
+		expect(filed.quotes).toHaveLength(3);
+		expect(filed.rejected).toBe(0);
+	});
+
+	it("tolerates case, whitespace and typographic quotes, nothing more", () => {
+		expect(
+			atlasV3QuoteOccursIn(
+				'the board said "costs rose 4%" in 2025',
+				"The Board said “costs rose 4%”\nin 2025.",
+			),
+		).toBe(true);
+		expect(
+			atlasV3QuoteOccursIn("costs rose 5% in 2025", "Costs rose 4% in 2025."),
+		).toBe(false);
+	});
+
+	// A user document's text is the normalized MARKDOWN the knowledge store
+	// holds: emphasis, table pipes and HTML table cells. A read model copying
+	// the sentence drops that markup, and the words are still the document's
+	// words — refusing them turned a document the user chose into "contained
+	// nothing bearing on the question".
+	it("sees through the markdown and table markup a normalized document carries", () => {
+		expect(
+			atlasV3QuoteOccursIn(
+				"The annual heating cost was 412 000 Ft in 2025.",
+				"The annual heating cost was **412 000 Ft** in _2025_.",
+			),
+		).toBe(true);
+		expect(
+			atlasV3QuoteOccursIn(
+				"Heating 412 000 Ft",
+				"| Item | Cost |\n| --- | --- |\n| Heating | 412 000 Ft |",
+			),
+		).toBe(true);
+		expect(
+			atlasV3QuoteOccursIn(
+				"Fűtés 412 000 Ft",
+				"<table><tr><td>Fűtés</td><td>412 000 Ft</td></tr></table>",
+			),
+		).toBe(true);
+		expect(
+			atlasV3QuoteOccursIn(
+				"Az éves fűtési költség 412 000 Ft volt…",
+				"Az éves fűtési költség 412 000 Ft volt 2025-ben.",
+			),
+		).toBe(true);
+		// Still no paraphrase and no changed figure.
+		expect(
+			atlasV3QuoteOccursIn(
+				"The annual heating cost was 421 000 Ft in 2025.",
+				"The annual heating cost was **412 000 Ft** in 2025.",
+			),
+		).toBe(false);
+	});
+});
+
+describe("buildAtlasV3LocalReadPrompt", () => {
+	it("keeps the passage separators and names the source as the user's document", () => {
+		const parsed = JSON.parse(
+			buildAtlasV3LocalReadPrompt({
+				goals: ["core", "sub"],
+				language: "en",
+				title: "Budget.xlsx",
+				passages: ["first\n\npassage", "second passage"],
+				currentDate: "2026-09-10",
+			}),
+		);
+		expect(parsed.goals).toEqual(["core", "sub"]);
+		expect(parsed.source).toEqual({
+			title: "Budget.xlsx",
+			kind: "user_document",
+			date: null,
+		});
+		expect(parsed.page).toBe("first passage\n---\nsecond passage");
+	});
+
+	it("tells the model where one passage ends, in both languages", () => {
+		expect(ATLAS_V3_READ_DOCUMENT_SYSTEM.en).toContain(
+			"never join text across a separator",
+		);
+		expect(ATLAS_V3_READ_DOCUMENT_SYSTEM.hu).toContain("`---`");
+	});
+});
+
+describe("retrieval time", () => {
+	it("stamps a read source with the retrieval time it is given", () => {
+		const state = createAtlasV3Bank();
+		const source = addAtlasV3Source(state, {
+			url: "https://iea.org/a",
+			title: "A",
+			publishedAt: null,
+			read: true,
+			retrievedAt: "2026-09-10T00:00:00.000Z",
+		});
+		expect(source?.retrievedAt).toBe("2026-09-10T00:00:00.000Z");
+	});
+
+	it("leaves an unread source unstamped, and restamps a source read again", () => {
+		const state = createAtlasV3Bank();
+		const unread = addAtlasV3Source(state, {
+			url: "https://iea.org/a",
+			title: "A",
+			publishedAt: null,
+		});
+		expect(unread?.retrievedAt).toBeUndefined();
+		const reread = addAtlasV3Source(state, {
+			url: "https://iea.org/a",
+			title: "A",
+			publishedAt: null,
+			read: true,
+			retrievedAt: "2026-09-12T00:00:00.000Z",
+		});
+		expect(reread?.id).toBe(unread?.id);
+		expect(reread?.read).toBe(true);
+		expect(reread?.retrievedAt).toBe("2026-09-12T00:00:00.000Z");
+	});
+
+	it("stamps a user document's source when it is read", () => {
+		const state = createAtlasV3Bank();
+		const source = addAtlasV3LocalSource(state, {
+			displayArtifactId: "art-1",
+			promptArtifactId: "art-1-n",
+			title: "Bill.pdf",
+			origin: "attachment",
+			retrievedAt: "2026-09-10T00:00:00.000Z",
+		});
+		expect(source.retrievedAt).toBe("2026-09-10T00:00:00.000Z");
+	});
+});
+
+describe("dropAtlasV3SourceEvidence", () => {
+	function twoPublisherBank() {
+		const state = createAtlasV3Bank();
+		const iea = addAtlasV3Source(state, {
+			url: "https://iea.org/a",
+			title: "IEA",
+			publishedAt: null,
+			read: true,
+		});
+		const bbc = addAtlasV3Source(state, {
+			url: "https://bbc.com/b",
+			title: "BBC",
+			publishedAt: null,
+			read: true,
+		});
+		const first = addAtlasV3Quote(state, {
+			sourceId: iea?.id ?? "",
+			text: "The EU added 65.1 GW of solar in 2025, the IEA said.",
+			goal: "g",
+		});
+		const second = addAtlasV3Quote(state, {
+			sourceId: iea?.id ?? "",
+			text: "Rooftop installations fell sharply over the year.",
+			goal: "g",
+		});
+		const third = addAtlasV3Quote(state, {
+			sourceId: bbc?.id ?? "",
+			text: "Europe installed 65.1 GW of solar last year, the BBC said.",
+			goal: "g",
+		});
+		const claim = addAtlasV3Claim(state, {
+			entity: "EU",
+			metric: "solar additions",
+			value: "65.1",
+			unit: "GW",
+			period: "2025",
+			asOf: null,
+			series: null,
+			evidenceIds: [first?.id ?? "", third?.id ?? ""],
+		});
+		return { state, iea, bbc, first, second, third, claim };
+	}
+
+	it("drops every quote of the source, prunes its claims and removes it", () => {
+		const { state, iea, bbc, claim } = twoPublisherBank();
+		expect(claim?.status).toBe("verified");
+		const result = dropAtlasV3SourceEvidence(state, iea?.id ?? "");
+		expect(result).toEqual({
+			quotesDropped: 2,
+			claimsDropped: 0,
+			sourceRemoved: true,
+		});
+		expect(state.sources.map((source) => source.id)).toEqual([bbc?.id]);
+		// The claim lost its second publisher.
+		expect(state.claims[0]?.status).toBe("single");
+		expect(state.claims[0]?.evidenceIds).toHaveLength(1);
+	});
+
+	it("keeps the quotes it is told to keep, and the source with them", () => {
+		const { state, iea, first, second } = twoPublisherBank();
+		const result = dropAtlasV3SourceEvidence(state, iea?.id ?? "", {
+			keepQuoteIds: [first?.id ?? ""],
+		});
+		expect(result.sourceRemoved).toBe(false);
+		expect(state.quotes.map((quote) => quote.id)).not.toContain(second?.id);
+		expect(state.quotes.map((quote) => quote.id)).toContain(first?.id);
+		expect(state.claims[0]?.status).toBe("verified");
+	});
+
+	it("removes a claim left with no quote, and un-contests the claim it disagreed with", () => {
+		const { state, bbc } = twoPublisherBank();
+		const other = addAtlasV3Source(state, {
+			url: "https://reuters.com/c",
+			title: "Reuters",
+			publishedAt: null,
+			read: true,
+		});
+		const disagreeing = addAtlasV3Quote(state, {
+			sourceId: other?.id ?? "",
+			text: "The EU added 70 GW of solar in 2025, Reuters reported.",
+			goal: "g",
+		});
+		addAtlasV3Claim(state, {
+			entity: "EU",
+			metric: "solar additions",
+			value: "70",
+			unit: "GW",
+			period: "2025",
+			asOf: null,
+			series: null,
+			evidenceIds: [disagreeing?.id ?? ""],
+		});
+		expect(state.claims.every((claim) => claim.status === "contested")).toBe(
+			true,
+		);
+		const result = dropAtlasV3SourceEvidence(state, other?.id ?? "");
+		expect(result.claimsDropped).toBe(1);
+		expect(state.claims).toHaveLength(1);
+		expect(state.claims[0]?.status).toBe("verified");
+		expect(state.sources.map((source) => source.id)).toContain(bbc?.id);
+	});
+});
+
+describe("capAtlasV3Bank tie-break", () => {
+	it("prefers a source this job read over a seeded one, then the newer read", () => {
+		const state = createAtlasV3Bank();
+		const seeded = addAtlasV3Source(state, {
+			url: "https://iea.org/old",
+			title: "Old",
+			publishedAt: null,
+			read: true,
+			retrievedAt: "2026-09-12T00:00:00.000Z",
+		});
+		if (seeded) seeded.seededFrom = "parent-job";
+		addAtlasV3Source(state, {
+			url: "https://iea.org/older",
+			title: "Older",
+			publishedAt: null,
+			read: true,
+			retrievedAt: "2026-09-02T00:00:00.000Z",
+		});
+		const newer = addAtlasV3Source(state, {
+			url: "https://bbc.com/newer",
+			title: "Newer",
+			publishedAt: null,
+			read: true,
+			retrievedAt: "2026-09-10T00:00:00.000Z",
+		});
+		const { dropped } = capAtlasV3Bank({ state, maxSources: 1 });
+		expect(dropped).toBe(2);
+		// No claim load anywhere: the seeded page goes first whatever its date,
+		// then the press page read most recently beats a primary page read
+		// earlier.
+		expect(state.sources.map((source) => source.id)).toEqual([newer?.id]);
+	});
+});
+
+describe("a source taken out of the bank", () => {
+	it("can be added back as a fresh source by its URL", () => {
+		const state = createAtlasV3Bank();
+		const first = addAtlasV3Source(state, {
+			url: "https://bbc.com/news/eu-solar",
+			title: "EU solar additions slow",
+			publishedAt: null,
+			read: true,
+		});
+		addAtlasV3Quote(state, {
+			sourceId: first?.id ?? "",
+			text: "Europe installed 65.1 GW of solar last year, the BBC said.",
+			goal: "g",
+		});
+		dropAtlasV3SourceEvidence(state, first?.id ?? "");
+		expect(state.sources).toHaveLength(0);
+		const again = addAtlasV3Source(state, {
+			url: "https://bbc.com/news/eu-solar",
+			title: "EU solar additions slow",
+			publishedAt: null,
+			read: true,
+		});
+		expect(again).not.toBeNull();
+		expect(again?.id).not.toBe(first?.id);
+		expect(state.sources).toHaveLength(1);
 	});
 });

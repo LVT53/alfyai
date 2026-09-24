@@ -48,6 +48,7 @@ describe("Atlas model stage", () => {
 			modelSelection: "provider:provider-id:model-id",
 			system: "Atlas system prompt",
 			prompt: "Use curated evidence only.",
+			maxOutputTokens: 32000,
 			runModel,
 		});
 
@@ -56,7 +57,7 @@ describe("Atlas model stage", () => {
 				modelSelection: "provider:provider-id:model-id",
 				messages: [{ role: "user", content: "Use curated evidence only." }],
 				system: expect.stringContaining("Atlas system prompt"),
-				maxOutputTokens: expect.any(Number),
+				maxOutputTokens: 32000,
 			}),
 		);
 		expect(result).toEqual({
@@ -74,6 +75,31 @@ describe("Atlas model stage", () => {
 				displayName: "Synthesis",
 			},
 		});
+	});
+
+	it("includes the stage and profile in the system-prompt suffix", async () => {
+		const { runAtlasModelStage } = await import("./model-stage");
+		const runModel = vi.fn(async () => ({
+			text: "{}",
+			usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+			model: { modelId: "m", providerId: "p", displayName: "M" },
+		}));
+
+		await runAtlasModelStage({
+			stage: "ask",
+			profile: "overview",
+			modelSelection: "model1",
+			system: "Base system prompt.",
+			prompt: "Use curated evidence only.",
+			maxOutputTokens: 4000,
+			runModel,
+		});
+
+		expect(runModel).toHaveBeenCalledWith(
+			expect.objectContaining({
+				system: "Base system prompt.\n\nAtlas stage: ask. Profile: overview.",
+			}),
+		);
 	});
 
 	it("prices third-party provider model usage through the app pricing path", async () => {
@@ -103,6 +129,7 @@ describe("Atlas model stage", () => {
 			modelSelection: "provider:provider:synthesis",
 			system: "Atlas system prompt",
 			prompt: "Use curated evidence only.",
+			maxOutputTokens: 24000,
 			runModel,
 		});
 
@@ -119,83 +146,6 @@ describe("Atlas model stage", () => {
 			}),
 		);
 		expect(result.usage.costUsdMicros).toBe(7_800);
-	});
-
-	it("uses distinct max output token budgets for each Atlas profile", async () => {
-		const { runAtlasModelStage } = await import("./model-stage");
-		const calls: Array<{ profile: string; maxOutputTokens: number }> = [];
-
-		for (const profile of ["overview", "in-depth", "exhaustive"] as const) {
-			await runAtlasModelStage({
-				stage: "synthesize",
-				profile,
-				modelSelection: "model1",
-				system: "Atlas system prompt",
-				prompt: "Use curated evidence only.",
-				runModel: vi.fn(async (input) => {
-					calls.push({ profile, maxOutputTokens: input.maxOutputTokens });
-					return {
-						text: "Profile output",
-						usage: {
-							inputTokens: 1,
-							outputTokens: 1,
-							totalTokens: 2,
-						},
-						model: {
-							modelId: "model1",
-							providerId: "provider",
-							displayName: "Model 1",
-						},
-					};
-				}),
-			});
-		}
-
-		expect(calls).toEqual([
-			{ profile: "overview", maxOutputTokens: 16000 },
-			{ profile: "in-depth", maxOutputTokens: 24000 },
-			{ profile: "exhaustive", maxOutputTokens: 32000 },
-		]);
-	});
-
-	it("calls the normal chat model boundary for audit with strict JSON instructions", async () => {
-		const { runAtlasModelStage } = await import("./model-stage");
-		const runModel = vi.fn(async () => ({
-			text: '{"markers":[],"retryRequested":false}',
-			usage: {
-				inputTokens: 6,
-				outputTokens: 4,
-				totalTokens: 10,
-			},
-			model: {
-				modelId: "provider:model:audit",
-				providerId: "provider",
-				displayName: "Audit",
-			},
-		}));
-
-		const result = await runAtlasModelStage({
-			variant: "audit",
-			profile: "overview",
-			modelSelection: "model2",
-			prompt: '{"report":"Atlas"}',
-			runModel,
-		});
-
-		expect(runModel).toHaveBeenCalledWith(
-			expect.objectContaining({
-				modelSelection: "model2",
-				messages: [{ role: "user", content: '{"report":"Atlas"}' }],
-				system: expect.stringContaining("Return strict JSON only"),
-				maxOutputTokens: 16000,
-			}),
-		);
-		expect(result.usage).toEqual({
-			inputTokens: 6,
-			outputTokens: 4,
-			totalTokens: 10,
-			costUsdMicros: 44,
-		});
 	});
 
 	it("returns finishReason from the model run result", async () => {
@@ -221,48 +171,14 @@ describe("Atlas model stage", () => {
 			modelSelection: "model1",
 			system: "Atlas system prompt",
 			prompt: "Test prompt",
+			maxOutputTokens: 16000,
 			runModel,
 		});
 
 		expect(result.finishReason).toBe("length");
 	});
 
-	it("returns finishReason from the audit stage", async () => {
-		const { runAtlasModelStage } = await import("./model-stage");
-		const runModel = vi.fn(async () => ({
-			text: '{"markers":[],"retryRequested":false}',
-			finishReason: "stop" as const,
-			usage: {
-				inputTokens: 5,
-				outputTokens: 3,
-				totalTokens: 8,
-			},
-			model: {
-				modelId: "model2",
-				providerId: "provider",
-				displayName: "Model 2",
-			},
-		}));
-
-		const result = await runAtlasModelStage({
-			variant: "audit",
-			profile: "exhaustive",
-			modelSelection: "model2",
-			prompt: '{"report":"Atlas"}',
-			runModel,
-		});
-
-		expect(result.finishReason).toBe("stop");
-		expect(runModel).toHaveBeenCalledWith(
-			expect.objectContaining({
-				maxOutputTokens: 32000,
-			}),
-		);
-	});
-
-	// v1 passes neither option and must keep asking for the profile's cap with
-	// nothing said about reasoning; v2 passes both per call.
-	it("says nothing about reasoning and uses the profile cap by default", async () => {
+	it("says nothing about reasoning by default", async () => {
 		const { runAtlasModelStage } = await import("./model-stage");
 		let captured: Record<string, unknown> = {};
 		const runModel = vi.fn(async (input: unknown) => {
@@ -280,6 +196,7 @@ describe("Atlas model stage", () => {
 			modelSelection: "provider:p:m",
 			system: "Atlas system prompt",
 			prompt: "Use curated evidence only.",
+			maxOutputTokens: 32000,
 			runModel,
 		});
 
@@ -352,8 +269,6 @@ describe("Atlas model stage provider reasoning", () => {
 			modelSelection: "provider:p:qwen3.8-flash-next",
 			system: "Write the section.",
 			prompt: "{}",
-			// Explicit, so the boundary never reaches for the profile's runtime
-			// config: this test is about the provider options, not the cap.
 			maxOutputTokens: 2_000,
 			...(thinkingMode ? { thinkingMode } : {}),
 		});

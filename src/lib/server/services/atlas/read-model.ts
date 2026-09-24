@@ -1,93 +1,22 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { atlasJobs } from "$lib/server/db/schema";
-import {
-	isAtlasV2ProgressDetails,
-	sanitizeAtlasV2ProgressDetails,
-} from "../atlas-v2/progress";
-import {
-	isAtlasV3ProgressDetails,
-	sanitizeAtlasV3ProgressDetails,
-} from "../atlas-v3/progress";
+import { sanitizeAtlasJobProgressDetails } from "./progress-details";
 import type {
 	AtlasAction,
 	AtlasJobCard,
 	AtlasJobProgressDetails,
 	AtlasJobStatus,
 	AtlasProfile,
-	AtlasV1JobProgressDetails,
 } from "./types";
 
-const MAX_PROGRESS_ITEMS = 8;
-const MAX_PROGRESS_TEXT_LENGTH = 140;
+// Re-exported so `atlas/job-ledger.ts` (the write path) and other existing
+// importers can keep reading it from here; `./progress-details` is the
+// module that actually owns the stored contract and its sanitiser now.
+export { sanitizeAtlasJobProgressDetails };
 
 function timestampMs(value: Date | null): number | null {
 	return value ? value.getTime() : null;
-}
-
-function sanitizeProgressText(value: unknown): string | null {
-	if (typeof value !== "string") return null;
-	const normalized = value.replace(/\s+/g, " ").trim();
-	if (!normalized) return null;
-	if (
-		/fetched\s+page\s+excerpt\s*:/i.test(normalized) ||
-		/evidence\s+pack/i.test(normalized) ||
-		/source\s+excerpt/i.test(normalized)
-	) {
-		return null;
-	}
-	return normalized.slice(0, MAX_PROGRESS_TEXT_LENGTH).trim();
-}
-
-function parseProgressTextList(value: unknown): string[] {
-	if (!Array.isArray(value)) return [];
-	return value
-		.map(sanitizeProgressText)
-		.filter((item): item is string => Boolean(item))
-		.slice(0, MAX_PROGRESS_ITEMS);
-}
-
-/**
- * Projects the stored progress-details blob onto the card. ADR 0062 added a
- * second contract shape and ADR 0063 a third; `pipelineVersion` selects, and
- * anything else keeps v1's `{ queries, roundKind, focus }` behaviour byte for
- * byte. v3's shape is v2's with `pipelineVersion: 3`, so a client that
- * dispatches on `=== 2` degrades to the v1 branch — which reads `queries`,
- * always empty here — instead of crashing.
- */
-export function sanitizeAtlasJobProgressDetails(
-	value: unknown,
-): AtlasJobProgressDetails {
-	if (isAtlasV3ProgressDetails(value)) {
-		return sanitizeAtlasV3ProgressDetails(value);
-	}
-	if (isAtlasV2ProgressDetails(value)) {
-		return sanitizeAtlasV2ProgressDetails(value);
-	}
-	return sanitizeAtlasV1JobProgressDetails(value);
-}
-
-function sanitizeAtlasV1JobProgressDetails(
-	value: unknown,
-): AtlasV1JobProgressDetails {
-	if (!value || typeof value !== "object") return { queries: [] };
-	const record = value as {
-		queries?: unknown;
-		roundKind?: unknown;
-		focus?: unknown;
-		gapFillFocus?: unknown;
-	};
-	const queries = parseProgressTextList(record.queries);
-	const focus = parseProgressTextList(record.focus ?? record.gapFillFocus);
-	const roundKind =
-		record.roundKind === "gap-fill" || record.roundKind === "initial"
-			? record.roundKind
-			: undefined;
-	return {
-		queries,
-		...(roundKind ? { roundKind } : {}),
-		...(focus.length > 0 ? { focus } : {}),
-	};
 }
 
 function parseProgressDetails(value: string | null): AtlasJobProgressDetails {

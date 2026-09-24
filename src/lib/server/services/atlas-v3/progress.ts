@@ -10,52 +10,26 @@
 
 import type { SupportedLanguage } from "$lib/server/services/language";
 import {
+	ATLAS_V3_MAX_EVIDENCE_SNIPPET_CHARS,
+	ATLAS_V3_MAX_EVIDENCE_SOURCES,
+	ATLAS_V3_MAX_PLAN_ENTRIES,
+} from "../atlas/progress-details";
+import {
 	type AtlasV3Citations,
 	assignAtlasV3CitationNumbers,
 	atlasV3PublishersFor,
 } from "./evidence-bank";
-import {
-	ATLAS_V3_PHASES,
-	type AtlasV3EvidenceBank,
-	type AtlasV3Outline,
-	type AtlasV3Phase,
-	type AtlasV3ProgressDetails,
-	type AtlasV3ProgressEvidence,
-	type AtlasV3ProgressEvidenceSource,
-	type AtlasV3ProgressPlanEntry,
-	type AtlasV3QualityDiagnostics,
-	type AtlasV3VerificationTotals,
+import type {
+	AtlasV3EvidenceBank,
+	AtlasV3Outline,
+	AtlasV3Phase,
+	AtlasV3ProgressDetails,
+	AtlasV3ProgressEvidence,
+	AtlasV3ProgressEvidenceSource,
+	AtlasV3ProgressPlanEntry,
+	AtlasV3QualityDiagnostics,
+	AtlasV3VerificationTotals,
 } from "./types";
-
-export const ATLAS_V3_MAX_PLAN_ENTRIES = 24;
-export const ATLAS_V3_MAX_EVIDENCE_SOURCES = 96;
-export const ATLAS_V3_MAX_QUESTION_CHARS = 240;
-export const ATLAS_V3_MAX_NEXT_CHARS = 200;
-export const ATLAS_V3_MAX_TITLE_CHARS = 160;
-/**
- * Per-source quote budget. Present so `scripts/atlas-eval.ts` can re-check
- * number matches offline from the job row instead of re-fetching the web.
- *
- * 1200 characters truncated eight sources on one staging job, and the
- * evaluation then flagged figures the CITED quote states — NICE's "from 123 to
- * 107-115 per 1,000" among them — as unsupported. The card must carry at least
- * the quotes the report rests on, so the cited ones are written first and the
- * budget is wide enough to hold a page's worth of them.
- */
-export const ATLAS_V3_MAX_EVIDENCE_SNIPPET_CHARS = 4000;
-
-export const ATLAS_V3_PHASE_DURATION_KEYS = [
-	"ask",
-	"research",
-	"memo",
-	"outline",
-	"answer",
-	"write",
-	"verdict",
-	"critic",
-	"verify",
-	"render",
-] as const;
 
 /** Percent shown for each phase, so the bar advances monotonically. */
 export const ATLAS_V3_PHASE_PROGRESS: Record<AtlasV3Phase, number> = {
@@ -75,8 +49,15 @@ export function buildAtlasV3NextLine(input: {
 	sectionCount: number;
 	questionCount: number;
 	round: { current: number; total: number };
+	/** Sources from the parent report being re-read live (seeding, Phase D). */
+	seedRecheck?: number;
 }): string {
 	const hu = input.language === "hu";
+	if (input.phase === "research" && input.seedRecheck) {
+		return hu
+			? `${input.seedRecheck} forrás újraellenőrzése az előző jelentésből`
+			: `Re-checking ${input.seedRecheck} source${input.seedRecheck === 1 ? "" : "s"} from the previous report`;
+	}
 	switch (input.phase) {
 		case "ask":
 			return hu
@@ -128,6 +109,8 @@ export interface BuildAtlasV3ProgressDetailsInput {
 	phaseDurationsMs?: Record<string, number>;
 	sections?: { written: number; planned: number };
 	qualityDiagnostics?: AtlasV3QualityDiagnostics;
+	/** Sources from the parent report being re-read live right now. */
+	seedRecheck?: number;
 }
 
 export function buildAtlasV3ProgressDetails(
@@ -181,6 +164,7 @@ export function buildAtlasV3ProgressDetails(
 				? input.outline.nodes.length
 				: (input.subQuestions?.length ?? 0),
 			round: input.round,
+			...(input.seedRecheck ? { seedRecheck: input.seedRecheck } : {}),
 		}),
 		...(input.evidence ? { evidence: input.evidence } : {}),
 		...(input.phaseDurationsMs && Object.keys(input.phaseDurationsMs).length > 0
@@ -245,7 +229,9 @@ export function buildAtlasV3ProgressEvidence(input: {
 			return {
 				n: index + 1,
 				title: source.title,
-				host: source.host,
+				// A user document has no host; the card draws a library glyph for it.
+				host: source.kind === "local" ? "" : source.host,
+				kind: source.kind === "local" ? "local" : "web",
 				date: source.date,
 				cited: citedSourceIds.has(source.id),
 				snippet: ordered
@@ -283,204 +269,3 @@ export function atlasV3ClaimCounts(bank: AtlasV3EvidenceBank): {
 
 /** Independent publishers behind a claim. Re-exported for the diagnostics. */
 export { atlasV3PublishersFor };
-
-// ---------------------------------------------------------------------------
-// Sanitising (read path)
-// ---------------------------------------------------------------------------
-
-function cleanText(value: unknown, maxLength: number): string {
-	if (typeof value !== "string") return "";
-	return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
-}
-
-function nonNegativeInteger(value: unknown): number {
-	const parsed = typeof value === "number" ? value : Number.NaN;
-	return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : 0;
-}
-
-function planStatus(value: unknown): AtlasV3ProgressPlanEntry["status"] {
-	return value === "running" || value === "done" ? value : "queued";
-}
-
-function questionConfidence(
-	value: unknown,
-): AtlasV3ProgressPlanEntry["confidence"] {
-	return value === "corroborated" ||
-		value === "single" ||
-		value === "mixed" ||
-		value === "thin"
-		? value
-		: undefined;
-}
-
-function phase(value: unknown): AtlasV3Phase {
-	return (ATLAS_V3_PHASES as readonly string[]).includes(value as string)
-		? (value as AtlasV3Phase)
-		: "ask";
-}
-
-/** True when a stored progress-details blob is the v3 shape. */
-export function isAtlasV3ProgressDetails(value: unknown): boolean {
-	return (
-		Boolean(value) &&
-		typeof value === "object" &&
-		(value as { pipelineVersion?: unknown }).pipelineVersion === 3
-	);
-}
-
-export function sanitizeAtlasV3ProgressDetails(
-	value: unknown,
-): AtlasV3ProgressDetails {
-	const record = (value ?? {}) as Record<string, unknown>;
-	const planEntries = Array.isArray(record.plan) ? record.plan : [];
-	const plan: AtlasV3ProgressPlanEntry[] = planEntries
-		.map((entry) => {
-			if (!entry || typeof entry !== "object") return null;
-			const planRecord = entry as Record<string, unknown>;
-			const id = cleanText(planRecord.id, 32);
-			const question = cleanText(
-				planRecord.question,
-				ATLAS_V3_MAX_QUESTION_CHARS,
-			);
-			if (!id || !question) return null;
-			const confidence = questionConfidence(planRecord.confidence);
-			return {
-				id,
-				question,
-				status: planStatus(planRecord.status),
-				sourceCount: nonNegativeInteger(planRecord.sourceCount),
-				...(confidence ? { confidence } : {}),
-			};
-		})
-		.filter((entry): entry is AtlasV3ProgressPlanEntry => Boolean(entry))
-		.slice(0, ATLAS_V3_MAX_PLAN_ENTRIES);
-
-	const roundRecord = (record.round ?? {}) as Record<string, unknown>;
-	const total = Math.max(1, nonNegativeInteger(roundRecord.total) || 1);
-	const details: AtlasV3ProgressDetails = {
-		pipelineVersion: 3,
-		queries: [],
-		phase: phase(record.phase),
-		plan,
-		round: {
-			current: Math.min(
-				total,
-				Math.max(1, nonNegativeInteger(roundRecord.current) || 1),
-			),
-			total,
-		},
-		sourcesRead: nonNegativeInteger(record.sourcesRead),
-		next: cleanText(record.next, ATLAS_V3_MAX_NEXT_CHARS),
-	};
-
-	const durations = sanitizePhaseDurations(record.phaseDurationsMs);
-	const sections = sanitizeSectionCounts(record.sections);
-	const diagnostics = sanitizeDiagnostics(record.qualityDiagnostics);
-	const evidence = sanitizeEvidence(record.evidence);
-	return {
-		...details,
-		...(durations ? { phaseDurationsMs: durations } : {}),
-		...(sections ? { sections } : {}),
-		...(diagnostics ? { qualityDiagnostics: diagnostics } : {}),
-		...(evidence ? { evidence } : {}),
-	};
-}
-
-function sanitizeSectionCounts(
-	value: unknown,
-): { written: number; planned: number } | null {
-	if (!value || typeof value !== "object") return null;
-	const record = value as Record<string, unknown>;
-	if (record.written === undefined && record.planned === undefined) return null;
-	return {
-		written: nonNegativeInteger(record.written),
-		planned: nonNegativeInteger(record.planned),
-	};
-}
-
-function sanitizePhaseDurations(value: unknown): Record<string, number> | null {
-	if (!value || typeof value !== "object") return null;
-	const durations: Record<string, number> = {};
-	for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-		const name = cleanText(key, 24);
-		if (
-			!name ||
-			!(ATLAS_V3_PHASE_DURATION_KEYS as readonly string[]).includes(name)
-		) {
-			continue;
-		}
-		durations[name] = nonNegativeInteger(raw);
-	}
-	return Object.keys(durations).length > 0 ? durations : null;
-}
-
-function sanitizeDiagnostics(value: unknown): AtlasV3QualityDiagnostics | null {
-	if (!value || typeof value !== "object") return null;
-	const record = value as Record<string, unknown>;
-	const runaways = (record.writerRunaways ?? {}) as Record<string, unknown>;
-	return {
-		abstained: record.abstained === true,
-		verdictPresent: record.verdictPresent === true,
-		verdictFallback: record.verdictFallback === true,
-		repeatedSentences: nonNegativeInteger(record.repeatedSentences),
-		claimCount: nonNegativeInteger(record.claimCount),
-		verifiedClaimCount: nonNegativeInteger(record.verifiedClaimCount),
-		contestedClaimCount: nonNegativeInteger(record.contestedClaimCount),
-		claimsMerged: nonNegativeInteger(record.claimsMerged),
-		answerTableCells: nonNegativeInteger(record.answerTableCells),
-		derivedFigures: nonNegativeInteger(record.derivedFigures),
-		criticRounds: nonNegativeInteger(record.criticRounds),
-		criticFindings: nonNegativeInteger(record.criticFindings),
-		needsEvidenceResolved: nonNegativeInteger(record.needsEvidenceResolved),
-		roundsRun: nonNegativeInteger(record.roundsRun),
-		searches: nonNegativeInteger(record.searches),
-		pagesRead: nonNegativeInteger(record.pagesRead),
-		sectionsPlanned: nonNegativeInteger(record.sectionsPlanned),
-		sectionsWritten: nonNegativeInteger(record.sectionsWritten),
-		sectionsSupplemented: nonNegativeInteger(record.sectionsSupplemented),
-		wordCount: nonNegativeInteger(record.wordCount),
-		writerRunaways: {
-			length: nonNegativeInteger(runaways.length),
-			salvaged: nonNegativeInteger(runaways.salvaged),
-			retried: nonNegativeInteger(runaways.retried),
-			fallback: nonNegativeInteger(runaways.fallback),
-		},
-	};
-}
-
-function sanitizeEvidence(value: unknown): AtlasV3ProgressEvidence | null {
-	if (!value || typeof value !== "object") return null;
-	const record = value as Record<string, unknown>;
-	const sourceEntries = Array.isArray(record.sources) ? record.sources : [];
-	const sources: AtlasV3ProgressEvidenceSource[] = sourceEntries
-		.map((entry) => {
-			if (!entry || typeof entry !== "object") return null;
-			const sourceRecord = entry as Record<string, unknown>;
-			const n = nonNegativeInteger(sourceRecord.n);
-			if (n < 1) return null;
-			const host = cleanText(sourceRecord.host, 120);
-			if (!host) return null;
-			const date = cleanText(sourceRecord.date, 32);
-			return {
-				n,
-				title: cleanText(sourceRecord.title, ATLAS_V3_MAX_TITLE_CHARS) || host,
-				host,
-				date: date || null,
-				cited: sourceRecord.cited === true,
-				snippet: cleanText(
-					sourceRecord.snippet,
-					ATLAS_V3_MAX_EVIDENCE_SNIPPET_CHARS,
-				),
-			};
-		})
-		.filter((entry): entry is AtlasV3ProgressEvidenceSource => Boolean(entry))
-		.slice(0, ATLAS_V3_MAX_EVIDENCE_SOURCES);
-	return {
-		corroborated: nonNegativeInteger(record.corroborated),
-		single: nonNegativeInteger(record.single),
-		inferred: nonNegativeInteger(record.inferred),
-		cut: nonNegativeInteger(record.cut),
-		filteredCount: nonNegativeInteger(record.filteredCount),
-		sources,
-	};
-}

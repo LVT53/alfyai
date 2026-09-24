@@ -1,5 +1,9 @@
-import type { AtlasV2ProgressDetails } from "../atlas-v2/types";
-import type { AtlasV3ProgressDetails } from "../atlas-v3/types";
+import type {
+	AtlasJobProgressDetails,
+	AtlasV1JobProgressDetails,
+} from "./progress-details";
+
+export type { AtlasJobProgressDetails, AtlasV1JobProgressDetails };
 
 export const ATLAS_PROFILES = ["overview", "in-depth", "exhaustive"] as const;
 export const ATLAS_ACTIONS = ["create", "continue", "fork", "revise"] as const;
@@ -10,253 +14,21 @@ export const ATLAS_JOB_STATUSES = [
 	"failed",
 	"cancelled",
 ] as const;
-export const ATLAS_EVIDENCE_PACK_SCHEMA_VERSION = "atlas.evidence-pack.v1";
-export const ATLAS_COVERAGE_REVIEW_SCHEMA_VERSION = "atlas.coverage-review.v1";
-export const ATLAS_ASSEMBLY_SCHEMA_VERSION = "atlas.assembly.v1";
-export const ATLAS_CLAIM_BASIS_SCHEMA_VERSION = "atlas.claim-basis.v1";
-export const ATLAS_WRITER_EVIDENCE_CARD_SCHEMA_VERSION =
-	"atlas.writer-evidence-card.v1";
-export const ATLAS_CLAIM_SUPPORT_LEVELS = [
-	"supported",
-	"partial",
-	"unsupported",
-] as const;
-export const ATLAS_GAP_PROPOSAL_PRIORITIES = [
-	"critical",
-	"high",
-	"medium",
-	"low",
-] as const;
 
 export type AtlasProfile = (typeof ATLAS_PROFILES)[number];
 export type AtlasAction = (typeof ATLAS_ACTIONS)[number];
 export type AtlasJobStatus = (typeof ATLAS_JOB_STATUSES)[number];
-export type AtlasGapProposalPriority =
-	(typeof ATLAS_GAP_PROPOSAL_PRIORITIES)[number];
-export type AtlasClaimSupportLevel =
-	(typeof ATLAS_CLAIM_SUPPORT_LEVELS)[number];
-export type AtlasWriterEvidenceCardAuthority =
-	| "official"
-	| "benchmark"
-	| "vendor"
-	| "analysis"
-	| "community"
-	| "user_provided"
-	| "library"
-	| "parent_seed"
-	| "unknown";
 
-export type AtlasEvidencePackSourceKind = "web" | "local";
-export type AtlasEvidencePackAuthority =
-	| "explicit_local"
-	| "working_document"
-	| "automatic_local"
-	| "accepted_web"
-	| "parent_seed";
-
-export interface AtlasEvidencePackSourceRef {
-	id: string;
-	kind: AtlasEvidencePackSourceKind;
-	title: string;
-	url: string | null;
-	authority: AtlasEvidencePackAuthority;
-}
-
-export interface AtlasEvidencePackFreshness {
-	asOfDate: string | null;
-	retrievedAt: string | null;
-	isCurrentEvidence: boolean;
-	parentAtlasJobId: string | null;
-	note: string | null;
-}
-
-export interface AtlasEvidencePack {
-	version: typeof ATLAS_EVIDENCE_PACK_SCHEMA_VERSION;
-	id: string;
-	sourceRefs: AtlasEvidencePackSourceRef[];
-	sourceKind: AtlasEvidencePackSourceKind;
-	authority: AtlasEvidencePackAuthority;
-	supportedFacets: string[];
-	supportedQuestions: string[];
-	evidence: {
-		summary: string;
-		excerpt: string;
-	};
-	conflicts: string[];
-	limitations: string[];
-	freshness: AtlasEvidencePackFreshness;
-	affectedSectionHint: string | null;
-	versionNote: string;
-}
-
-export interface AtlasWriterEvidenceCard {
-	version: typeof ATLAS_WRITER_EVIDENCE_CARD_SCHEMA_VERSION;
-	id: string;
-	sourceTitle: string;
-	url: string | null;
-	authority: AtlasWriterEvidenceCardAuthority;
-	sourceRefs: AtlasEvidencePackSourceRef[];
-	relevantFacts: string[];
-	limitations: string[];
-	conflicts: string[];
-	supportsSections: string[];
-	evidencePackIds: string[];
-	freshnessNote: string | null;
-}
-
-export interface AtlasWriterEvidenceCardDiagnostic {
-	code: string;
-	severity: "info" | "warning";
-	message: string;
-}
-
-export interface AtlasWriterClaimBasisEntry {
-	claimText: string;
-	sectionTitle: string;
-	supportLevel: AtlasClaimSupportLevel;
-	evidenceCardIds: string[];
-	rationale: string;
-}
-
-export interface AtlasEvidencePackDiagnostic {
-	code: string;
-	severity: "info" | "warning";
-	message: string;
-}
-
-export interface AtlasGapProposal {
-	missingQuestion: string;
-	whyCurrentEvidenceIsWeak: string;
-	targetSearchQuery: string;
-	desiredEvidenceType: string;
-	affectedSection: string;
-	priority: AtlasGapProposalPriority;
-}
-
-export interface AtlasCoverageReviewDiagnostic {
-	code: string;
-	severity: "info" | "warning";
-	message: string;
-	proposal?: AtlasGapProposal;
-}
-
-export interface AtlasCoverageReviewLimitation {
-	code: string;
-	message: string;
-}
-
-export interface AtlasCoverageReview {
-	version: typeof ATLAS_COVERAGE_REVIEW_SCHEMA_VERSION;
-	sufficient: boolean;
-	proposals: AtlasGapProposal[];
-	approvedGapCandidates: AtlasGapProposal[];
-	diagnostics: AtlasCoverageReviewDiagnostic[];
-	limitations: AtlasCoverageReviewLimitation[];
-}
-
-export interface AtlasSectionBriefSourceAssociation {
-	sourceId: string;
-	sourceKind: AtlasEvidencePackSourceKind | null;
-	sourceTitle: string | null;
-	url: string | null;
-	evidencePackId: string | null;
-	relevance: string | null;
-}
-
-export interface AtlasSectionBrief {
-	sectionTitle: string;
-	brief: string;
-	evidencePackIds: string[];
-	sourceAssociations: AtlasSectionBriefSourceAssociation[];
-	limitations: string[];
-}
-
-export interface AtlasAssemblyMetadata {
-	version: typeof ATLAS_ASSEMBLY_SCHEMA_VERSION;
-	generatedTitle: string | null;
-	sectionBriefs: AtlasSectionBrief[];
-	limitations: string[];
-	structured: boolean;
-	writerClaimBasis?: AtlasWriterClaimBasisEntry[] | null;
-}
-
-export interface AtlasAssemblyDiagnostics {
-	firstPassOutputPrefix: string;
-	firstPassParsedAsJson: boolean;
-	firstPassRepairReason?: string;
-	firstRepairOutputPrefix?: string;
-	firstRepairParsedAsJson?: boolean;
-	firstRepairRepairReason?: string;
-	secondRepairOutputPrefix?: string;
-	secondRepairParsedAsJson?: boolean;
-	secondRepairRepairReason?: string;
-	finalFailureCheck?: string;
-	finalFailureSubCondition?: string;
-	outputTokensByTier: Record<string, number>;
-	writerPromptTruncated: boolean;
-	writerPromptCharCount: number;
-	claimBasisDiagnostics?: AtlasClaimBasisDiagnostic[];
-	writerFinishReason?: string | null;
-	auditFinishReason?: string | null;
-	coverageReviewFinishReason?: string | null;
-}
-
-export interface AtlasClaimLocator {
-	sectionTitle: string | null;
-	paragraphIndex: number | null;
-	claimIndex: number | null;
-	claimText: string;
-	quote: string | null;
-	startOffset: number | null;
-	endOffset: number | null;
-}
-
-export interface AtlasClaimBasis {
-	version: typeof ATLAS_CLAIM_BASIS_SCHEMA_VERSION;
-	id: string;
-	locator: AtlasClaimLocator;
-	supportLevel: AtlasClaimSupportLevel;
-	evidencePackIds: string[];
-	sourceRefs: AtlasEvidencePackSourceRef[];
-	supportRationale: string;
-	auditConcernCode: string | null;
-}
-
-export interface AtlasClaimBasisDiagnostic {
-	code: string;
-	severity: "info" | "warning";
-	message: string;
-	sectionTitle?: string | null;
-	basisId?: string;
-}
-
-export interface AtlasClaimBasisLimitation {
-	code: string;
-	message: string;
-	basisIds: string[];
-	sectionTitle: string | null;
-}
-
-export interface AtlasClaimBasisSectionCoverage {
-	sectionTitle: string;
-	factualClaimCount: number;
-	basisCount: number;
-	supportedCount: number;
-	partialCount: number;
-	unsupportedCount: number;
-	density: number;
-}
-
-export interface AtlasClaimBasisResult {
-	version: typeof ATLAS_CLAIM_BASIS_SCHEMA_VERSION;
-	claimBasis: AtlasClaimBasis[];
-	limitations: AtlasClaimBasisLimitation[];
-	diagnostics: AtlasClaimBasisDiagnostic[];
-	coverageBySection: AtlasClaimBasisSectionCoverage[];
-	status: "succeeded" | "failed";
-	failureReason: string | null;
-	retryRequested: boolean;
-}
+/**
+ * Atlas runs pipeline v3 exclusively (ADR 0063; the v1/v2 pipelines and the
+ * `ATLAS_PIPELINE` switch were removed in Phase B of the v3-only
+ * consolidation, see ADR 0062's amendment). Every NEW job is stamped this
+ * version at kickoff and again at claim, whatever a queued row already
+ * carries — `pipeline_version` on old rows stays a historical record of
+ * which pipeline produced them, not a live routing switch.
+ */
+export const ATLAS_CURRENT_PIPELINE_VERSION = 3;
+export type AtlasStoredPipelineVersion = 1 | 2 | 3;
 
 export interface AtlasJobProgress {
 	percent: number;
@@ -264,21 +36,9 @@ export interface AtlasJobProgress {
 	details: AtlasJobProgressDetails;
 }
 
-/**
- * v1's progress details. Unchanged; ADR 0062 added the v2 shape alongside it
- * rather than merging the two, and `read-model.ts` dispatches on
- * `pipelineVersion`.
- */
-export interface AtlasV1JobProgressDetails {
-	queries: string[];
-	roundKind?: "initial" | "gap-fill";
-	focus?: string[];
-}
-
-export type AtlasJobProgressDetails =
-	| AtlasV1JobProgressDetails
-	| AtlasV2ProgressDetails
-	| AtlasV3ProgressDetails;
+// `AtlasV1JobProgressDetails` and `AtlasJobProgressDetails` (v1/v2/v3 union)
+// live in `./progress-details`, imported and re-exported above, so the read
+// model and job ledger can keep importing them from either module.
 
 export interface AtlasJobSourceCounts {
 	local: number;
@@ -328,9 +88,10 @@ export interface AtlasJobCard {
 	profile: AtlasProfile;
 	/**
 	 * Which content pipeline produced (or is producing) this job. 1 and 2 are
-	 * ADR 0062's; 3 is ADR 0063's.
+	 * ADR 0062's, now historical; 3 is ADR 0063's, and every new job runs on
+	 * it (`ATLAS_CURRENT_PIPELINE_VERSION`).
 	 */
-	pipelineVersion: 1 | 2 | 3;
+	pipelineVersion: AtlasStoredPipelineVersion;
 	title: string;
 	status: AtlasJobStatus;
 	stage: string;
@@ -344,20 +105,6 @@ export interface AtlasJobCard {
 	completedAt: number | null;
 }
 
-export const ATLAS_PIPELINE_STAGES = [
-	"decompose",
-	"search",
-	"curate",
-	"coverage-review",
-	"synthesize",
-	"integrate",
-	"assemble",
-	"audit",
-	"render",
-] as const;
-
-export type AtlasPipelineStage = (typeof ATLAS_PIPELINE_STAGES)[number];
-
 export interface AtlasPipelineJobContext {
 	id: string;
 	userId: string;
@@ -369,27 +116,12 @@ export interface AtlasPipelineJobContext {
 	title: string;
 	query: string;
 	lifecycle: AtlasLifecycleContext;
-}
-
-export interface AtlasHonestyMarker {
-	code: string;
-	message: string;
-	severity: "info" | "warning" | "critical";
-}
-
-export interface AtlasImageCandidate {
-	id: string;
-	query: string;
-	title: string;
-	imageUrl: string;
-	sourcePageUrl: string | null;
-	sourceTitle: string | null;
-	thumbnailUrl: string | null;
-	width: number | null;
-	height: number | null;
-	caption: string;
-	selectionReason: string;
-	publishedAt?: string | null;
+	/**
+	 * The kickoff user message this job was resolved from (D2/D3 read local
+	 * sources and the parent's evidence bank off it); `null` when the query
+	 * could not be traced back to a specific user message.
+	 */
+	kickoffUserMessageId: string | null;
 }
 
 export type AtlasDocumentFamilyMode = "new_family" | "same_family";

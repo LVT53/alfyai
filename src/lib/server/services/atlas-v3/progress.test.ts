@@ -10,8 +10,6 @@ import {
 	buildAtlasV3NextLine,
 	buildAtlasV3ProgressDetails,
 	buildAtlasV3ProgressEvidence,
-	isAtlasV3ProgressDetails,
-	sanitizeAtlasV3ProgressDetails,
 } from "./progress";
 import type { AtlasV3Outline } from "./types";
 
@@ -148,10 +146,12 @@ describe("buildAtlasV3ProgressEvidence", () => {
 				"cited",
 				"date",
 				"host",
+				"kind",
 				"n",
 				"snippet",
 				"title",
 			]);
+			expect(source.kind).toBe("web");
 		}
 		const serialized = JSON.stringify(evidence);
 		expect(serialized).not.toContain("data:image");
@@ -233,44 +233,9 @@ describe("buildAtlasV3ProgressEvidence", () => {
 	});
 });
 
-describe("sanitizeAtlasV3ProgressDetails", () => {
-	it("recognises the v3 shape and nothing else", () => {
-		expect(isAtlasV3ProgressDetails({ pipelineVersion: 3 })).toBe(true);
-		expect(isAtlasV3ProgressDetails({ pipelineVersion: 2 })).toBe(false);
-		expect(isAtlasV3ProgressDetails(null)).toBe(false);
-	});
-
-	it("bounds the plan, the round and the durations", () => {
-		const details = sanitizeAtlasV3ProgressDetails({
-			pipelineVersion: 3,
-			phase: "nonsense",
-			plan: [
-				{ id: "n1", question: "q", status: "done", sourceCount: 2 },
-				{ id: "", question: "dropped" },
-			],
-			round: { current: 9, total: 2 },
-			sourcesRead: -4,
-			next: "x".repeat(400),
-			phaseDurationsMs: { write: 10, nonsense: 5 },
-			qualityDiagnostics: { abstained: true, claimCount: 3 },
-		});
-		expect(details.phase).toBe("ask");
-		expect(details.plan).toHaveLength(1);
-		expect(details.round).toEqual({ current: 2, total: 2 });
-		expect(details.sourcesRead).toBe(0);
-		expect(details.next.length).toBeLessThanOrEqual(200);
-		expect(details.phaseDurationsMs).toEqual({ write: 10 });
-		expect(details.qualityDiagnostics?.abstained).toBe(true);
-		expect(details.qualityDiagnostics?.claimCount).toBe(3);
-		expect(details.qualityDiagnostics?.verdictPresent).toBe(false);
-	});
-
-	it("survives an empty blob", () => {
-		const details = sanitizeAtlasV3ProgressDetails(undefined);
-		expect(details.plan).toEqual([]);
-		expect(details.round).toEqual({ current: 1, total: 1 });
-	});
-});
+// `sanitizeAtlasV3ProgressDetails` and `isAtlasV3ProgressDetails` moved to
+// `../atlas/progress-details.ts` (Phase A of the atlas-v3 self-containment
+// work); their cases live in `progress-details.test.ts` now.
 
 describe("buildAtlasV3NextLine", () => {
 	it("has a line for every phase, in both languages", () => {

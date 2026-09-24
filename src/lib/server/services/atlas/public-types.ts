@@ -80,8 +80,22 @@ export interface AtlasV2ProgressDetailsView extends AtlasV1ProgressDetailsView {
  * `queries`, always empty here — instead of crashing on a v3 card.
  */
 export interface AtlasV3ProgressDetailsView
-	extends Omit<AtlasV2ProgressDetailsView, "pipelineVersion" | "phase"> {
+	extends Omit<
+		AtlasV2ProgressDetailsView,
+		"pipelineVersion" | "phase" | "evidence"
+	> {
 	pipelineVersion: 3;
+	evidence?: Omit<
+		NonNullable<AtlasV2ProgressDetailsView["evidence"]>,
+		"sources"
+	> & {
+		sources: Array<
+			NonNullable<AtlasV2ProgressDetailsView["evidence"]>["sources"][number] & {
+				/** `local` is a user document: empty `host`, no favicon. */
+				kind?: "web" | "local";
+			}
+		>;
+	};
 	phase:
 		| "ask"
 		| "research"
@@ -114,6 +128,19 @@ export interface AtlasV3ProgressDetailsView
 			salvaged: number;
 			retried: number;
 			fallback: number;
+		};
+		/** A lifecycle child's reuse of its parent's evidence (Phase D). */
+		seed?: {
+			action: "continue" | "revise" | "fork";
+			parentPipelineVersion: 1 | 2 | 3;
+			sourcesSeeded: number;
+			quotesSeeded: number;
+			trusted: number;
+			rechecked: number;
+			confirmed: number;
+			changed: number;
+			dropped: number;
+			seedPagesRead: number;
 		};
 	};
 }

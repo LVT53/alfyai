@@ -944,7 +944,13 @@ export type AtlasActivityPhase =
 	| "index"
 	| "write"
 	| "verify"
-	| "render";
+	| "render"
+	// v3 phases (ADR 0063). "research" is shared with v2 above; the rest are
+	// v3-only, so a v2 card never sees them and a v3 card never sees "index".
+	| "ask"
+	| "outline"
+	| "answer"
+	| "critic";
 
 export type AtlasPlanEntryStatus = "queued" | "running" | "done";
 
@@ -961,9 +967,12 @@ export type AtlasPlanEntry = {
 export type AtlasEvidenceSource = {
 	n: number;
 	title: string;
+	/** Empty for a `local` source. */
 	host: string;
 	date: string | null;
 	cited: boolean;
+	/** `local` is one of the user's own documents: no host, no favicon. */
+	kind: "web" | "local";
 };
 
 export type AtlasEvidenceSummary = {
@@ -985,9 +994,9 @@ export type AtlasActivityDetails = {
 	next: string | null;
 	evidence: AtlasEvidenceSummary | null;
 	/**
-	 * Section count for the Report tab's document row. Not part of the agreed
-	 * contract, so it is read when the server happens to send it and simply
-	 * omitted from the row's meta when it does not.
+	 * Sections written, for the Report tab's document row: the stored
+	 * `sections.written` (v2/v3, present once writing is done), else a flat
+	 * `sectionCount`. Omitted from the row's meta when neither is there.
 	 */
 	sectionCount: number | null;
 	/** v1 fields, still rendered by the fallback body. */
@@ -1004,6 +1013,10 @@ const ATLAS_PHASES: readonly AtlasActivityPhase[] = [
 	"write",
 	"verify",
 	"render",
+	"ask",
+	"outline",
+	"answer",
+	"critic",
 ];
 
 const ATLAS_PLAN_STATUSES: readonly AtlasPlanEntryStatus[] = [
@@ -1079,12 +1092,14 @@ function parseAtlasEvidence(value: unknown): AtlasEvidenceSummary | null {
 					const source = entry as Record<string, unknown>;
 					const title = atlasText(source.title);
 					if (!title) return null;
+					const local = source.kind === "local";
 					return {
 						n: atlasCount(source.n) ?? index + 1,
 						title,
-						host: atlasText(source.host) ?? "",
+						host: local ? "" : (atlasText(source.host) ?? ""),
 						date: atlasText(source.date),
 						cited: source.cited === true,
+						kind: local ? "local" : "web",
 					};
 				})
 				.filter((entry): entry is AtlasEvidenceSource => entry !== null)
@@ -1104,6 +1119,19 @@ function parseAtlasEvidence(value: unknown): AtlasEvidenceSummary | null {
 		return null;
 	}
 	return { corroborated, single, inferred, cut, filteredCount, sources };
+}
+
+/**
+ * Sections the report was written with. v2 and v3 store
+ * `sections: {written, planned}` once writing is done; a flat `sectionCount`
+ * is still read for any blob that carries one.
+ */
+function atlasSectionCount(record: Record<string, unknown>): number | null {
+	const sections =
+		record.sections && typeof record.sections === "object"
+			? (record.sections as Record<string, unknown>)
+			: null;
+	return atlasCount(sections?.written) ?? atlasCount(record.sectionCount);
 }
 
 /** Defensive read of a job's progress details — every field optional. */
@@ -1151,7 +1179,7 @@ export function parseAtlasActivityDetails(
 		sourcesRead: atlasCount(record.sourcesRead),
 		next: atlasText(record.next),
 		evidence: parseAtlasEvidence(record.evidence),
-		sectionCount: atlasCount(record.sectionCount),
+		sectionCount: atlasSectionCount(record),
 		queries: atlasStringList(record.queries),
 		focus: atlasStringList(record.focus ?? record.gapFillFocus),
 		roundKind:

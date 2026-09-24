@@ -1,7 +1,6 @@
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
-import { getAtlasProfileRuntimeConfig } from "./config";
-import type { AtlasPipelineStage, AtlasProfile } from "./types";
+import type { AtlasProfile } from "./types";
 
 export interface AtlasModelStageUsage {
 	inputTokens: number;
@@ -52,31 +51,16 @@ export interface AtlasNormalChatModelBoundaryResult {
 	};
 }
 
-export type AtlasModelStageVariant = "stage" | "audit";
-
-/**
- * The fixed audit system prompt. The audit variant runs the same model boundary
- * as a normal stage but with this bespoke system and no per-stage suffix.
- */
-const ATLAS_AUDIT_SYSTEM =
-	"Audit the Atlas report against the provided sources. Return strict JSON only. Do not rewrite the report.";
-
 export interface RunAtlasModelStageInput {
 	profile: AtlasProfile;
 	modelSelection: ModelId;
 	prompt: string;
-	/** Selects the system-prompt shape. Defaults to `"stage"`. */
-	variant?: AtlasModelStageVariant;
-	/** Required for the `"stage"` variant; ignored for `"audit"`. */
-	stage?: Exclude<AtlasPipelineStage, "search" | "audit">;
-	/** Required for the `"stage"` variant; ignored for `"audit"`. */
-	system?: string;
-	/**
-	 * Per-call output cap. Defaults to the profile's `maxOutputTokens`, which is
-	 * what v1 uses; v2 sizes it per stage so a runaway costs hundreds of wasted
-	 * tokens instead of sixteen thousand.
-	 */
-	maxOutputTokens?: number;
+	/** Free-form stage label; reaches the system-prompt suffix. */
+	stage: string;
+	system: string;
+	/** Per-call output cap. Atlas v3 sizes this per stage; there is no
+	 * profile-wide default to fall back to. */
+	maxOutputTokens: number;
 	/** Provider reasoning switch; see the boundary input. */
 	thinkingMode?: ThinkingMode;
 	runModel?: (
@@ -238,17 +222,12 @@ export async function runAtlasModelStage(
 	input: RunAtlasModelStageInput,
 ): Promise<AtlasModelStageResult> {
 	const runModel = input.runModel ?? runNormalChatModelBoundary;
-	const system =
-		input.variant === "audit"
-			? ATLAS_AUDIT_SYSTEM
-			: `${input.system}\n\nAtlas stage: ${input.stage}. Profile: ${input.profile}.`;
+	const system = `${input.system}\n\nAtlas stage: ${input.stage}. Profile: ${input.profile}.`;
 	const result = await runModel({
 		modelSelection: input.modelSelection,
 		messages: [{ role: "user", content: input.prompt }],
 		system,
-		maxOutputTokens:
-			input.maxOutputTokens ??
-			getAtlasProfileRuntimeConfig(input.profile).maxOutputTokens,
+		maxOutputTokens: input.maxOutputTokens,
 		...(input.thinkingMode ? { thinkingMode: input.thinkingMode } : {}),
 	});
 	const usage = normalizeUsage(result.usage);

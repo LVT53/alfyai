@@ -1,145 +1,92 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import {
+	buildAtlasIdempotencyKey,
+	DEFAULT_ATLAS_JOB_TITLE,
+	generateAtlasJobTitle,
+	hashAtlasQuery,
+	normalizeAtlasQueryForHash,
+} from "./config";
 
-const mockGetters = {
-	getAtlasOverviewMaxOutputTokens: vi.fn(() => 16000),
-	getAtlasInDepthMaxOutputTokens: vi.fn(() => 24000),
-	getAtlasExhaustiveMaxOutputTokens: vi.fn(() => 32000),
-};
+// Atlas v3 is the only content pipeline (Phase B of the v3-only
+// consolidation); the profile runtime config this file used to test
+// (`getAtlasProfileRuntimeConfig`, its stage order and gap-fill caps) was
+// deleted with the v1 pipeline. What remains here — idempotency, query
+// normalization and title generation — is shared by every pipeline version
+// and stays exercised.
 
-vi.mock("$lib/server/config-store", () => mockGetters);
+describe("Atlas query normalization and hashing", () => {
+	it("normalizes case, whitespace and trailing punctuation before hashing", () => {
+		expect(normalizeAtlasQueryForHash("  What is  Atlas??  ")).toBe(
+			"what is atlas",
+		);
+	});
 
-const { getAtlasProfileRuntimeConfig } = await import("./config");
+	it("hashes equivalent queries to the same value", () => {
+		expect(hashAtlasQuery("What is Atlas?")).toBe(
+			hashAtlasQuery("what is atlas"),
+		);
+	});
 
-import { ATLAS_PIPELINE_STAGES, ATLAS_PROFILES } from "./types";
-
-beforeEach(() => {
-	mockGetters.getAtlasOverviewMaxOutputTokens.mockReturnValue(16000);
-	mockGetters.getAtlasInDepthMaxOutputTokens.mockReturnValue(24000);
-	mockGetters.getAtlasExhaustiveMaxOutputTokens.mockReturnValue(32000);
+	it("hashes different queries to different values", () => {
+		expect(hashAtlasQuery("What is Atlas?")).not.toBe(
+			hashAtlasQuery("What is Flash-Next?"),
+		);
+	});
 });
 
-afterEach(() => {
-	vi.clearAllMocks();
+describe("Atlas job title generation", () => {
+	it("takes the first sentence and strips terminal punctuation", () => {
+		expect(generateAtlasJobTitle("What is Atlas? It is a research tool.")).toBe(
+			"What is Atlas",
+		);
+	});
+
+	it("falls back to the default title when the query is empty after cleanup", () => {
+		expect(generateAtlasJobTitle("   ...   ")).toBe(DEFAULT_ATLAS_JOB_TITLE);
+	});
+
+	it("clips long titles at a word boundary near the max length", () => {
+		const longQuery = `${"word ".repeat(30)}tail`;
+		const title = generateAtlasJobTitle(longQuery);
+		expect(title.length).toBeLessThanOrEqual(80);
+		expect(title.endsWith(" ")).toBe(false);
+	});
 });
 
-describe("Atlas profile runtime config", () => {
-	it("keeps the same bounded architecture for every profile while varying only caps", () => {
-		const configs = Object.fromEntries(
-			ATLAS_PROFILES.map((profile) => [
-				profile,
-				getAtlasProfileRuntimeConfig(profile),
-			]),
+describe("Atlas idempotency key", () => {
+	const baseScope = {
+		userId: "user-1",
+		conversationId: "conv-1",
+		action: "create" as const,
+		profile: "overview" as const,
+		normalizedQueryHash: "hash-1",
+		clientAtlasTurnId: "turn-1",
+	};
+
+	it("is stable for the same scope", () => {
+		expect(buildAtlasIdempotencyKey(baseScope)).toBe(
+			buildAtlasIdempotencyKey(baseScope),
 		);
-
-		const normalizedArchitecture = ATLAS_PROFILES.map((profile) => {
-			const { gapFillCaps, ...sharedArchitecture } =
-				configs[profile].architecture;
-			return sharedArchitecture;
-		});
-
-		expect(normalizedArchitecture).toEqual([
-			normalizedArchitecture[0],
-			normalizedArchitecture[0],
-			normalizedArchitecture[0],
-		]);
-		for (const profile of ATLAS_PROFILES) {
-			expect(configs[profile].architecture.stageOrder).toEqual([
-				...ATLAS_PIPELINE_STAGES,
-			]);
-			expect(configs[profile].architecture.stageOrder).toContain(
-				"coverage-review",
-			);
-		}
-		expect(configs.overview.architecture.gapFillCaps).toEqual({
-			maxRounds: 0,
-			maxSearchQueries: 1,
-			maxAcceptedWebSources: 2,
-		});
-		expect(configs["in-depth"].architecture.gapFillCaps).toEqual({
-			maxRounds: 1,
-			maxSearchQueries: 2,
-			maxAcceptedWebSources: 4,
-		});
-		expect(configs.exhaustive.architecture.gapFillCaps).toEqual({
-			maxRounds: 2,
-			maxSearchQueries: 3,
-			maxAcceptedWebSources: 6,
-		});
 	});
 
-	it("has increased maxOutputTokens for all profiles", () => {
-		const configs = Object.fromEntries(
-			ATLAS_PROFILES.map((profile) => [
-				profile,
-				getAtlasProfileRuntimeConfig(profile),
-			]),
+	it("treats a missing parentAtlasJobId as the same scope as an explicit null", () => {
+		expect(buildAtlasIdempotencyKey(baseScope)).toBe(
+			buildAtlasIdempotencyKey({ ...baseScope, parentAtlasJobId: null }),
 		);
-		expect(configs.overview.maxOutputTokens).toBe(16000);
-		expect(configs["in-depth"].maxOutputTokens).toBe(24000);
-		expect(configs.exhaustive.maxOutputTokens).toBe(32000);
 	});
 
-	describe("default token caps from config-store", () => {
-		it("uses getAtlasOverviewMaxOutputTokens for overview profile", () => {
-			const cfg = getAtlasProfileRuntimeConfig("overview");
-			expect(cfg.maxOutputTokens).toBe(16000);
-			expect(mockGetters.getAtlasOverviewMaxOutputTokens).toHaveBeenCalled();
-		});
-
-		it("uses getAtlasInDepthMaxOutputTokens for in-depth profile", () => {
-			const cfg = getAtlasProfileRuntimeConfig("in-depth");
-			expect(cfg.maxOutputTokens).toBe(24000);
-			expect(mockGetters.getAtlasInDepthMaxOutputTokens).toHaveBeenCalled();
-		});
-
-		it("uses getAtlasExhaustiveMaxOutputTokens for exhaustive profile", () => {
-			const cfg = getAtlasProfileRuntimeConfig("exhaustive");
-			expect(cfg.maxOutputTokens).toBe(32000);
-			expect(mockGetters.getAtlasExhaustiveMaxOutputTokens).toHaveBeenCalled();
-		});
+	it("changes when the parent job differs", () => {
+		expect(buildAtlasIdempotencyKey(baseScope)).not.toBe(
+			buildAtlasIdempotencyKey({
+				...baseScope,
+				parentAtlasJobId: "parent-1",
+			}),
+		);
 	});
 
-	describe("overrides from config-store", () => {
-		it("reflects admin/env override for overview maxOutputTokens", () => {
-			mockGetters.getAtlasOverviewMaxOutputTokens.mockReturnValue(12000);
-			expect(getAtlasProfileRuntimeConfig("overview").maxOutputTokens).toBe(
-				12000,
-			);
-		});
-
-		it("reflects admin/env override for in-depth maxOutputTokens", () => {
-			mockGetters.getAtlasInDepthMaxOutputTokens.mockReturnValue(32000);
-			expect(getAtlasProfileRuntimeConfig("in-depth").maxOutputTokens).toBe(
-				32000,
-			);
-		});
-
-		it("reflects admin/env override for exhaustive maxOutputTokens", () => {
-			mockGetters.getAtlasExhaustiveMaxOutputTokens.mockReturnValue(48000);
-			expect(getAtlasProfileRuntimeConfig("exhaustive").maxOutputTokens).toBe(
-				48000,
-			);
-		});
-	});
-
-	describe("invalid override fallback", () => {
-		it("does not break when getter returns a very large number", () => {
-			mockGetters.getAtlasOverviewMaxOutputTokens.mockReturnValue(999999);
-			expect(getAtlasProfileRuntimeConfig("overview").maxOutputTokens).toBe(
-				999999,
-			);
-		});
-
-		it("does not break when getter returns 0 (clamped by config-store)", () => {
-			mockGetters.getAtlasInDepthMaxOutputTokens.mockReturnValue(1);
-			expect(getAtlasProfileRuntimeConfig("in-depth").maxOutputTokens).toBe(1);
-		});
-
-		it("returns a fresh object on each call (immutability smoke test)", () => {
-			const a = getAtlasProfileRuntimeConfig("overview");
-			const b = getAtlasProfileRuntimeConfig("overview");
-			expect(a).not.toBe(b);
-			expect(a).toEqual(b);
-		});
+	it("changes when the client turn id differs", () => {
+		expect(buildAtlasIdempotencyKey(baseScope)).not.toBe(
+			buildAtlasIdempotencyKey({ ...baseScope, clientAtlasTurnId: "turn-2" }),
+		);
 	});
 });

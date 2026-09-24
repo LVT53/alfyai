@@ -10,19 +10,20 @@
 // sources is never `verified`), and it names the sources the researcher should
 // reach for in its own prompt.
 //
-// The organisation identity itself is v2's (`atlas-v2/publishers.ts`), reused
-// unchanged: two hosts corroborate each other only when their organisations
-// differ, and every aggregator collapses onto one organisation.
+// The organisation identity itself lives in `./publishers.ts` (originally
+// v2's, copied here unchanged): two hosts corroborate each other only when
+// their organisations differ, and every aggregator collapses onto one
+// organisation.
 
-import {
-	isSyndicationHost,
-	organisationForHost,
-	registrableDomain,
-} from "../atlas-v2/publishers";
 import {
 	type AtlasV3NativeSourceSet,
 	isAtlasV3NativePrimaryHost,
 } from "./language-standard";
+import {
+	isSyndicationHost,
+	organisationForHost,
+	registrableDomain,
+} from "./publishers";
 import type { AtlasV3SourceTier } from "./types";
 
 /** Host suffixes that are primary sources wherever the question is about. */
@@ -237,6 +238,8 @@ export function atlasV3SourceTier(input: AtlasV3TierInput): AtlasV3SourceTier {
 
 /** Sort key, best first, so the read budget is spent top-down. */
 export const ATLAS_V3_TIER_RANK: Record<AtlasV3SourceTier, number> = {
+	// Never a web candidate's tier; ranked with primary for completeness.
+	user_document: 0,
 	primary: 0,
 	press: 1,
 	aggregator: 2,
@@ -247,9 +250,13 @@ export const ATLAS_V3_TIER_RANK: Record<AtlasV3SourceTier, number> = {
  * A claim resting only on these tiers can never be `verified`, however many
  * hosts state it: two aggregators carrying one wire story are one publisher,
  * and a forum post is not a publisher at all.
+ *
+ * A user document DOES count, as exactly one voice: every local source shares
+ * the publisher `user-documents`, so two of them are still one publisher, and
+ * a figure is `verified` only when a published source states it too.
  */
 export function tierCanCorroborate(tier: AtlasV3SourceTier): boolean {
-	return tier === "primary" || tier === "press";
+	return tier === "primary" || tier === "press" || tier === "user_document";
 }
 
 /** The pages worth reading, best tier first, capped at the profile budget. */

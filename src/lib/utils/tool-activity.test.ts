@@ -794,6 +794,21 @@ describe("Atlas report row grammar", () => {
 		expect(item.body).toEqual({ kind: "atlas" });
 	});
 
+	it("reads the section count from the shape the server stores", () => {
+		// v2 and v3 store `sections: {written, planned}`; nothing ever stored
+		// `sectionCount`, so the card never showed a section count.
+		expect(
+			parseAtlasActivityDetails({
+				pipelineVersion: 3,
+				phase: "render",
+				sections: { written: 5, planned: 6 },
+			}).sectionCount,
+		).toBe(5);
+		// A blob carrying the older flat key still reads.
+		expect(parseAtlasActivityDetails({ sectionCount: 4 }).sectionCount).toBe(4);
+		expect(parseAtlasActivityDetails({ plan }).sectionCount).toBeNull();
+	});
+
 	it("reads a finished report as sources plus the time it took", () => {
 		const item = buildAtlasActivityItem(
 			atlasJob({ status: "succeeded", completedAt: START + 540_000 }),
@@ -899,6 +914,16 @@ describe("Atlas report row grammar", () => {
 		expect(details.evidence?.sources).toHaveLength(1);
 		expect(details.evidence?.filteredCount).toBe(5);
 		expect(atlasPlanProgress(details.plan)).toEqual({ done: 1, total: 2 });
+	});
+
+	it("recognizes every v3 phase (ADR 0063) instead of nulling it out", () => {
+		for (const phase of ["ask", "outline", "answer", "critic"] as const) {
+			const details = parseAtlasActivityDetails({
+				pipelineVersion: 3,
+				phase,
+			});
+			expect(details.phase).toBe(phase);
+		}
 	});
 
 	it("treats a missing, malformed or empty details payload as no details", () => {

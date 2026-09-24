@@ -528,8 +528,6 @@ const ALLOWED_WITHOUT_SCOPE: Record<string, string> = {
 		"evidence links, scoped to one task; it never chooses an artifact, it hydrates ids the scoped pool chose",
 	"services/task-state/artifacts.ts":
 		"chunk and full-content reads BY ARTIFACT ID; the ids come from the scoped candidate pool, which is why this module needs no incognito term of its own",
-	"services/atlas/sources.ts":
-		"ids come from this conversation's own artifact links",
 	"services/evidence-family.ts":
 		"family-key resolution over ids already chosen; the one query that scans the user's outputs (`classifyGeneratedOutputArtifact`) does take the scope",
 	"services/extraction/job-ledger.ts": "legacy job hydration, by artifact id",

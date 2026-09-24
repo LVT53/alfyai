@@ -287,6 +287,8 @@ export interface RunAtlasV3ResearcherInput {
 	manufacturerHosts?: readonly string[];
 	alreadyTried?: readonly string[];
 	deadEnds?: readonly string[];
+	/** Retrieval time stamped on every page this researcher reads (ISO 8601). */
+	retrievedAt?: string;
 	onUsage?: (usage: {
 		inputTokens: number;
 		outputTokens: number;
@@ -411,6 +413,7 @@ export async function runAtlasV3Researcher(
 			read: true,
 			nativeSources: input.nativeSources,
 			manufacturerHosts: input.manufacturerHosts,
+			retrievedAt: input.retrievedAt,
 		});
 		if (!source) continue;
 		const page = await input.researchWeb.read(hit.canonicalUrl);

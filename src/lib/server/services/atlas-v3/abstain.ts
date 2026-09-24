@@ -34,6 +34,8 @@ const MAX_SOURCES_LISTED = 6;
 const MAX_QUESTIONS_LISTED = 6;
 
 const TIER_ORDER: Record<AtlasV3SourceTier, number> = {
+	// The user's own documents lead the list: they chose them for this question.
+	user_document: 0,
 	primary: 0,
 	press: 1,
 	aggregator: 2,
@@ -183,7 +185,7 @@ export function buildAtlasV3AbstentionReport(
 		const quote = bank.quotes.find((entry) => entry.sourceId === source.id);
 		if (!quote) extraSourceIds.push(source.id);
 		return sentence({
-			text: chrome.read(formatAtlasV3SourceLine(source)),
+			text: chrome.read(formatAtlasV3SourceLine(source, input.language)),
 			evidenceIds: quote ? [quote.id] : [],
 			bank,
 		});
