@@ -195,6 +195,76 @@ test.describe("Project files", () => {
 		);
 	});
 
+	test("does not let a slow list read put back a file that was just removed", async ({
+		page,
+	}) => {
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+		const removedName = `Railjet tickets ${randomUUID().slice(0, 6)}.txt`;
+		const keptName = `Hotel Motto ${randomUUID().slice(0, 6)}.txt`;
+		const removedId = await uploadLibraryDocument(page, { name: removedName });
+		const keptId = await uploadLibraryDocument(page, { name: keptName });
+		await linkArtifacts(page, projectId, [removedId, keptId]);
+
+		// The page's FIRST read of the file list is answered by the server while
+		// both files are still linked, and handed to the browser only later — a
+		// slow response overtaking a fast one. `route.fetch()` is what makes the
+		// snapshot real: delaying `continue()` would send the request late and
+		// fetch the post-removal answer instead, which is a different (and
+		// harmless) scenario.
+		let releaseStale = () => {};
+		const staleHeld = new Promise<void>((resolve) => {
+			releaseStale = resolve;
+		});
+		let staleAnswered = false;
+		await page.route(
+			`**/api/projects/${projectId}/knowledge`,
+			async (route) => {
+				if (route.request().method() !== "GET") {
+					await route.continue();
+					return;
+				}
+				if (staleAnswered) {
+					await route.continue();
+					return;
+				}
+				staleAnswered = true;
+				const response = await route.fetch();
+				await staleHeld;
+				await route.fulfill({ response });
+			},
+		);
+
+		const dialog = await openFilesDialog(page, projectId);
+		const removedRow = fileRow(dialog, removedName);
+		await expect(removedRow).toBeVisible();
+		await removedRow
+			.getByRole("button", { name: `Remove ${removedName} from this project` })
+			.click();
+		await expect(dialog.getByTestId("project-file-row")).toHaveCount(1);
+		await expect(fileRow(dialog, keptName)).toBeVisible();
+
+		// The stale read lands now, carrying the list as it was before the
+		// removal. Nothing about it is newer than the list already on screen, so
+		// it must lose.
+		releaseStale();
+		await expect(
+			dialog.getByTestId("project-file-row"),
+			"the stale read must not resurrect the removed file",
+		).toHaveCount(1);
+		await expect(fileRow(dialog, removedName)).toHaveCount(0);
+		await expect(fileRow(dialog, keptName)).toBeVisible();
+
+		const links = await db
+			.select({ artifactId: projectKnowledgeLinks.artifactId })
+			.from(projectKnowledgeLinks)
+			.where(eq(projectKnowledgeLinks.projectId, projectId));
+		expect(
+			links.map((link) => link.artifactId),
+			"the removal is the durable state; the slow read changed nothing",
+		).toEqual([keptId]);
+	});
+
 	test("uploads a file into the project, showing it in both the modal and the library", async ({
 		page,
 	}) => {
