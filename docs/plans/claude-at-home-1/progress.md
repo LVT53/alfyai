@@ -10,9 +10,24 @@ Last updated: 2026-09-24 (implementation session 2 — Phase 0 done, Wave 1 in f
 |---|---|
 | Phase 0 — branch and environment | **complete** |
 | Phase 1 — plan | **complete and approved** |
-| Phase 2 — implementation | **Wave 1 complete and merged**; **Wave 2 (Slice C) in flight** |
-| Phase 3 — adversarial review | **Wave 1 reviewed and fixed** — see `review-wave-1.md` |
-| Phase 4 — verify for real | **deployed to dev** as `66a37cbc`; live verification pending |
+| Phase 2 — implementation | **Waves 1–2 merged** (A, B, C); **Wave 3 (Slice D) in flight** |
+| Phase 3 — adversarial review | Wave 1 reviewed and fixed (`review-wave-1.md`); **Slice C under review** |
+| Phase 4 — verify for real | Wave 1 **deployed to dev** (`66a37cbc`) and verified in a browser |
+
+### Wave 2 (Slice C, Personal Instructions) — merged as `94d00b89`
+
+Seven commits, 52 files (+3 044 / −22). Adds `users.personal_instructions` (migration
+`1777140000107`, journal idx 120 — the doc's idx 118 was stale), the shared code-point limit in
+`src/lib/shared/instructions.ts`, the single `InstructionsDialog` every entry point reuses, the system-message
+section, the audit row, and the archive/erasure coverage.
+
+**Deliberate change to the wave discipline, recorded so it can be undone if it goes wrong:** Slice C's review and
+Slice D's implementation now run **in parallel** instead of strictly serial. The plan serialises them because D
+needs C's dialog, but that dependency is a frozen, documented component contract, and D is instructed to
+**consume `InstructionsDialog.svelte` / `ScopeToken.svelte` and never edit them** — if D needs a change it must
+report it instead. Risk: if C's reviewer changes that contract, the two must be reconciled at merge; the impact is
+confined to the dialog's props, which D only reads. Everything after D stays serial.
+
 
 ### Wave 1 review outcome (2026-09-24) — `review-wave-1.md`
 
