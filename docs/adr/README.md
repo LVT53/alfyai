@@ -66,3 +66,5 @@ files in this directory (numbers `0007` and `0014` are intentionally absent).
 | [0061](0061-thinking-toggle-replaces-depth-ladder.md) | A single Thinking toggle replaces the Reasoning Depth ladder |
 | [0062](0062-atlas-content-pipeline-is-rebuilt-on-the-harness-tools.md) | Atlas's content pipeline is rebuilt on the harness's research tools, behind a pipeline flag |
 | [0063](0063-atlas-v3-reasons-from-an-evidence-bank-not-from-search-excerpts.md) | Atlas v3 reasons from an evidence bank, not from search excerpts |
+| [0064](0064-claude-at-home-means-workspaces-documents-and-richer-inputs.md) | "Claude at home" means workspaces, living documents and richer inputs, not platform integrations |
+| [0065](0065-living-documents-are-edited-in-place.md) | Living Documents are edited in place, reversing the "AI generates new files only" rule |

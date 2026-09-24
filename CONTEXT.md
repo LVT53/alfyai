@@ -923,6 +923,22 @@ _Avoid_: demo prototype, prompt shortcut experiment, partial command palette
 A user-managed grouping of conversations that names the project the user intends those conversations to belong to.
 _Avoid_: UI project, folder, memory project
 
+**Personal Instructions**:
+Free-text standing guidance a user writes once for AlfyAI that applies to every one of their conversations. They are private to that user and authored by them, unlike an admin-defined Style, a Skill, or a remembered Memory Profile fact.
+_Avoid_: custom system prompt, user prompt, memory, style
+
+**Folder Instructions**:
+Free-text standing guidance attached to one **Project Folder** that applies to every conversation filed in it, on top of the user's **Personal Instructions**.
+_Avoid_: project prompt, folder note, About-this-folder document
+
+**Folder Knowledge**:
+**Library Documents** the user has linked directly to a **Project Folder**, so every conversation in the folder treats them as known sources without anyone attaching them to a particular chat.
+_Avoid_: project files, folder attachments, folder library
+
+**Document Bundle**:
+The **Project Folder** view that gathers the **Living Documents** from all conversations in the folder, together with its **Folder Knowledge**, so the user sees the project's documents in one place. It is a view: each Living Document still belongs to its own conversation.
+_Avoid_: folder document store, project drive, shared folder
+
 **Sidebar Pin**:
 A user-owned sidebar preference that visually promotes a **Conversation** without changing prompt context, project membership, or memory authority.
 _Avoid_: context pin, favorite, priority memory
@@ -2178,6 +2194,14 @@ _Avoid_: system font dependency, per-document custom font, host-installed PDF fo
 A **Library Document** or **Generated Document** that the user has opened, selected, or clearly continued working on.
 _Avoid_: active file, current artifact
 
+**Living Document**:
+An editable document, such as a draft, a plan or an interactive checklist, that belongs to one conversation and that both the user and AlfyAI change in place over time. Other conversations in the same **Project Folder** may read and update it. Unlike a **Generated Document**, it is not a rendered file; DOCX or PDF copies are exports of it.
+_Avoid_: artifact, canvas, note, generated document, editable file
+
+**Selection Edit**:
+A user request for AlfyAI to change only a highlighted part of a **Living Document** ("make this more formal"). The result is shown as a visible change to that part, not as a rewritten document.
+_Avoid_: inline prompt, rewrite, ask-about-selection
+
 **Working Document Identity**:
 The app-owned contract that resolves a **Working Document** into purpose-specific artifact identities for display or workspace use, prompt context, preview or file serving, and family matching.
 _Avoid_: ad hoc `displayArtifactId` choice, prompt artifact convention, route-local preview fallback
@@ -2708,4 +2732,5 @@ _Avoid_: resolver, connection picker, router, provider dispatcher
 - "deterministic gap fill" is ambiguous. Prefer **bounded adaptive gap-fill**: adaptive LLM judgment for missing evidence, deterministic server orchestration for round count, search budgets, curation, and stop conditions.
 - "Sources section" in Atlas means the deterministic **Atlas Source Projection**, not a model-authored Markdown section.
 - "report title" in Atlas means the **Atlas Generated Title** rendered once by **Atlas Report Opening**, not a query-derived fallback label or a model-authored duplicate body heading.
+- Claude's "project instructions" and "project knowledge" correspond to **Folder Instructions** and **Folder Knowledge** on a **Project Folder**. Claude's "Instructions for Claude" corresponds to **Personal Instructions**. Claude's "artifact" does not map to one term. An editable draft or checklist is a **Living Document**; a downloadable DOCX/PDF/XLSX is a **Generated Document**.
 - "duplicate title cleanup" should mean removing title-like body blocks from the opening region after the generated title has been projected into app-owned chrome, not evaluating competing title quality.
