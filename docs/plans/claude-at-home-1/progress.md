@@ -10,9 +10,33 @@ Last updated: 2026-09-24 (implementation session 2 — Phase 0 done, Wave 1 in f
 |---|---|
 | Phase 0 — branch and environment | **complete** |
 | Phase 1 — plan | **complete and approved** |
-| Phase 2 — implementation | **Wave 1 in flight** (Slice A ∥ Slice B) |
-| Phase 3 — adversarial review | not started |
+| Phase 2 — implementation | **Wave 1 complete and merged** (Slice A ∥ Slice B); Wave 2 next |
+| Phase 3 — adversarial review | **Wave 1 reviews in flight** (one reviewer per slice) |
 | Phase 4 — verify for real | not started |
+
+### Wave 1 result (2026-09-24)
+
+- **Slice A** — `feat/workspaces-a`, 4 commits, 58 files, +466/−3563: the panel surface, the task-steering
+  endpoint, the Context Sources projection and the stored user pins/exclusions are gone. Migration
+  `1777140000106_retire_user_evidence_preferences.sql` (dry run on a prod-shaped copy: 3 of 8 rows, idempotent,
+  FK/integrity clean).
+- **Slice B** — `feat/workspaces-b`, 9 commits, 26 files: the server-wide Parallel free monthly allowance, applied
+  inside `recordParallelUsage`'s transaction, with a replay script and an admin meter.
+- Merged into `feat/workspaces` as `063f9cf3`; the two slices' changed-file sets are provably disjoint
+  (`comm -12` of the two name lists is empty), so the merges were clean.
+
+**Gates measured by the orchestrator on the merged tree** (authoritative — the implementers disagreed):
+
+| Gate | Result |
+|---|---|
+| `npm run check` | 0 errors, **17 warnings**, all pre-existing: `RouteItinerary.svelte` ×1, `ToolActivityRow.svelte` ×9, `ThinkingBlock.svelte` ×7. None of the three is touched by this wave (`git diff --name-only 98a34dfd..HEAD`), so they are inherited, not introduced. **The plan's "0 warnings" gate is unmeetable on this repo as it stands** — the honest gate is "no new diagnostics", per `AGENTS.md`. |
+| `npm run build` | exit 0, **0 warnings**. Slice A's report of 17 build warnings was wrong — those are `svelte-check` diagnostics and do not reappear in the Vite build. |
+| `npx biome check src scripts tests` | 1836 files, **1 warning**, pre-existing (`MessageEvidenceDetails.svelte:298`). |
+| `npm run check:migrations` | passes. |
+
+Known pre-existing quirks, confirmed on a pristine baseline by both agents: `npx drizzle-kit generate` fails
+with "Interactive prompts require a TTY"; Fallow reports **4** circular-dependency findings where `AGENTS.md`
+says five (the "five" is stale).
 
 ### Phase 0 result (2026-09-24)
 
@@ -110,7 +134,15 @@ All ratified by the owner on 2026-09-24. Full texts and reasoning in `decisions.
 
 ## Next action
 
-Wave 1 is running. When both agents report: merge `feat/workspaces-a` and `feat/workspaces-b` into
+Wave 1's two reviewers are running in `ws-review-a` (`feat/workspaces-a-review`) and `ws-review-b`
+(`feat/workspaces-b-review`). When they report: merge their branches into `feat/workspaces`, write
+`review-wave-1.md`, then merge to `dev`, push `dev`, and run the dev deploy (see "Deploy facts" above).
+Then Wave 2 = Slice C off the merged `feat/workspaces`.
+
+**Standing rule learned in Wave 1: partition Playwright ports.** Every worktree defaults `E2E_PORT` to 5175, and
+Slice A's agent killed Slice B's dev server to free the port. Give every agent a distinct `E2E_PORT`.
+
+**Old next-action text (superseded):** Wave 1 is running. When both agents report: merge `feat/workspaces-a` and `feat/workspaces-b` into
 `feat/workspaces`, dispatch the **Phase 3 adversarial reviewers** for the wave (DeepSeek, never the implementers),
 write `review-wave-1.md`, then merge `feat/workspaces` into `dev`, push `dev`, and run the dev deploy above for
 the first end-to-end check. Then Wave 2 = Slice C off the merged `feat/workspaces`.
