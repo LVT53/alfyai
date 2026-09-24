@@ -64,7 +64,7 @@ npx playwright test tests/e2e/settings-profile-redesign.spec.ts tests/e2e/chat.s
 
 ### SQL DDL
 
-`drizzle/1777140000106_users_personal_instructions.sql`:
+`drizzle/1777140000107_users_personal_instructions.sql`:
 
 ```sql
 ALTER TABLE `users` ADD `personal_instructions` text;
@@ -316,7 +316,7 @@ HU: `Törli mindazt, amit az AlfyAI megtanult rólad, és minden feltöltött va
 | `src/lib/components/instructions/ScopeToken.svelte` | create — Slice D, F, G reuse it |
 | `src/lib/components/instructions/ScopeToken.test.ts` | create |
 | `src/lib/i18n/instructions.ts` | create |
-| `drizzle/1777140000106_users_personal_instructions.sql` + journal | create |
+| `drizzle/1777140000107_users_personal_instructions.sql` + journal | create |
 | `src/lib/server/db/schema.ts` | one column on `users` |
 | `src/routes/api/settings/preferences/+server.ts`, `src/routes/api/settings/+server.ts` | accept + return the field |
 | `src/routes/(app)/settings/+page.server.ts` | shell payload field |

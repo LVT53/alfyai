@@ -68,7 +68,7 @@ npx playwright test tests/e2e/project-page.spec.ts tests/e2e/project-files.spec.
 
 ### SQL DDL
 
-`drizzle/1777140000109_project_knowledge_links.sql` (verify with `npx drizzle-kit generate`):
+`drizzle/1777140000110_project_knowledge_links.sql` (verify with `npx drizzle-kit generate`):
 
 ```sql
 CREATE TABLE `project_knowledge_links` (

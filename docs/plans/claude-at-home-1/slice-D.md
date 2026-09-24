@@ -64,7 +64,7 @@ npx playwright test tests/e2e/conversation.spec.ts tests/e2e/chat.spec.ts tests/
 
 ### SQL DDL
 
-`drizzle/1777140000107_projects_instructions.sql`:
+`drizzle/1777140000108_projects_instructions.sql`:
 
 ```sql
 ALTER TABLE `projects` ADD `instructions` text;

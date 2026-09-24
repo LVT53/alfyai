@@ -225,7 +225,7 @@ route's POST and its helpers → the summary field and its two call sites → th
 surface's wiring (including `composeIntoComposer` if nothing else uses it) → the i18n keys → the tests.
 
 Then the table: write
-`drizzle/1777140000108_drop_home_suggestion_events.sql` containing
+`drizzle/1777140000109_drop_home_suggestion_events.sql` containing
 `DROP TABLE \`home_suggestion_events\`;` with the matching journal entry, remove the `sqliteTable` export and
 its two indexes from `schema.ts`, remove the name from `prepare-db.ts`'s required-table list, and remove its
 `USER_SCOPED_TABLES` entry. **Leave `usage_events_user_created_idx` alone** — it was added by the same

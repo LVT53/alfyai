@@ -139,8 +139,14 @@ Verified against the tree on 2026-09-24. Line numbers are starting anchors, not 
 
 ### Migration
 
-New file `drizzle/1777140000105_retire_user_evidence_preferences.sql` (the journal's last entry is
-`1777140000104`, `_journal.json` idx 117; take the number from `npx drizzle-kit generate` if it differs):
+> **Shipped as `1777140000106_retire_user_evidence_preferences.sql`.** The plan guessed `…105`, but `…105` was
+> already taken by `recency_backfill_last_message_time`. Taking the next free number shifted every later slice by
+> one, and their documents were renumbered to match: **C `…107`, D `…108`, G `…109`, E `…110`.** All slices
+> after A must take the next free journal number, not the number printed in their document, and say so in the
+> commit if it differs.
+
+New file `drizzle/1777140000106_retire_user_evidence_preferences.sql` (the journal's last entry was
+`1777140000105`, `_journal.json` idx 118; take the number from `npx drizzle-kit generate` if it differs):
 
 ```sql
 DELETE FROM task_state_evidence_links WHERE role IN ('pinned','excluded') AND origin='user';
