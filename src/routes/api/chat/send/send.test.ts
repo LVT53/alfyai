@@ -106,6 +106,11 @@ vi.mock("$lib/server/services/knowledge", () => ({
 	listConversationSourceArtifactIds: vi.fn(async () => []),
 	recordConversationPromptUsage: vi.fn(async () => null),
 	refreshConversationWorkingSet: vi.fn(async () => []),
+	// The evidence step asks the knowledge boundary which project, if any, the
+	// conversation belongs to. `null` — no project — is these tests' world: the
+	// question is only asked because a conversation *can* be in one, and a
+	// missing double would reject the call and mark the evidence "failed".
+	resolveConversationProjectFiles: vi.fn(async () => null),
 	upsertWorkCapsule: vi.fn(async () => null),
 }));
 
