@@ -103,6 +103,12 @@ interface Config {
 	workingSetDocumentTokenBudget: number;
 	workingSetPromptTokenBudget: number;
 	smallFileThresholdChars: number;
+	// How long a user's assembled home summary is held, in milliseconds. `0`
+	// is a real value — "no cache" — for an environment that writes the rows
+	// the summary reads out-of-band: the e2e suite seeds SQLite behind the
+	// server's back and runs with it off (playwright.config.ts). Not an admin
+	// setting.
+	homeSummaryCacheTtlMs: number;
 	sessionSecret: string;
 	databasePath: string;
 	model1: ModelConfig;
@@ -374,6 +380,17 @@ function parseNonNegativeNumberEnv(
 	fallback: number,
 ): number {
 	const parsed = Number.parseFloat(value ?? "");
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+// The whole-number twin of parseNonNegativeNumberEnv, on the same terms: 0 is
+// a real value, and a negative or unparseable one falls back to the default
+// instead of being clamped to 0.
+function parseNonNegativeIntegerEnv(
+	value: string | undefined,
+	fallback: number,
+): number {
+	const parsed = Number.parseInt(value ?? "", 10);
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
@@ -728,6 +745,11 @@ function readConfig(): Config {
 		smallFileThresholdChars: Math.max(
 			100,
 			parseInt(process.env.SMALL_FILE_THRESHOLD_CHARS || "5000", 10) || 5000,
+		),
+		// Unset means the 30 seconds the home screen is designed around.
+		homeSummaryCacheTtlMs: parseNonNegativeIntegerEnv(
+			process.env.HOME_SUMMARY_CACHE_TTL_MS,
+			30_000,
 		),
 		sessionSecret,
 		databasePath,
