@@ -32,4 +32,6 @@ export type ArtifactBodyLoader = () => Promise<{
 
 export const ARTIFACT_BODIES: Partial<
 	Record<ArtifactKind, ArtifactBodyLoader>
-> = {};
+> = {
+	app: () => import("./app/AppBody.svelte"),
+};

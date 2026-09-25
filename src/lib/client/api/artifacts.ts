@@ -3,6 +3,12 @@
  * Slice 0). Follows `file-production.ts` exactly: injectable `fetchImpl`,
  * `requestJson`, no store — stores own state transitions, not network calls.
  */
+
+// Type-only imports: erased at build time, so a client bundle never carries
+// the generator/verifier's own server code — the same way ArtifactDetail
+// above already crosses this boundary.
+import type { AppGenerationFailureReason } from "$lib/server/services/artifacts/app/generate";
+import type { AppVerification } from "$lib/server/services/artifacts/app/verify";
 import type {
 	ArtifactCardSummary,
 	ArtifactComment,
@@ -120,4 +126,64 @@ export async function writeAppValue(
 		fetchImpl,
 	);
 	return (await response.json()) as AppKvWriteResult;
+}
+
+export type RegenerateAppResult =
+	| { ok: true; version: number; title: string; verification: AppVerification }
+	| { ok: false; reason: "version_conflict"; version: number }
+	| { ok: false; reason: AppGenerationFailureReason; detail: string };
+
+/**
+ * The panel's own regeneration path (`POST /api/artifacts/[id]/app/regenerate`,
+ * `slice-2.md §The App card`) — one implementation, shared with the
+ * `create_artifact`/tool path; this is the ONLY App route that writes.
+ * `expectVersion` is Slice 1's optimistic guard on the version the caller
+ * last saw; a 409 keeps the caller's prompt so the dialog can offer to retry
+ * rather than silently discarding it.
+ */
+export async function regenerateApp(
+	artifactId: string,
+	prompt: string,
+	expectVersion?: number,
+	fetchImpl: FetchLike = fetch,
+): Promise<RegenerateAppResult> {
+	const response = await requestResponse(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/app/regenerate`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ prompt, expectVersion }),
+		},
+		fetchImpl,
+	);
+	return (await response.json()) as RegenerateAppResult;
+}
+
+export type DownloadAppResult =
+	| { ok: true; job: unknown; reused: boolean }
+	| { ok: false; reason: string };
+
+/**
+ * Turns the App's CURRENT stored body into a downloadable `.html` chat file.
+ * Carries the artifact id and an optional conversation id ONLY — never the
+ * HTML itself, which the server re-reads from the artifact row (A6.5): a
+ * request this function could compose from a client-side copy of the source
+ * would be exactly the second, unverified execution surface this feature
+ * spends its CSP and sandbox work avoiding.
+ */
+export async function downloadAppAsHtml(
+	artifactId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<DownloadAppResult> {
+	const response = await requestResponse(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/app/download`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ conversationId: conversationId ?? null }),
+		},
+		fetchImpl,
+	);
+	return (await response.json()) as DownloadAppResult;
 }

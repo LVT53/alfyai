@@ -5,7 +5,11 @@ vi.mock("$lib/server/services/artifacts", () => ({
 }));
 
 import { getArtifact } from "$lib/server/services/artifacts";
-import { APP_SANDBOX_CSP, APP_SANDBOX_HEADERS, GET } from "./+server";
+import {
+	APP_SANDBOX_CSP,
+	APP_SANDBOX_HEADERS,
+} from "$lib/server/services/artifacts/app/sandbox-response";
+import { GET } from "./+server";
 
 const mockGetArtifact = getArtifact as ReturnType<typeof vi.fn>;
 
@@ -129,10 +133,8 @@ describe("GET /api/artifacts/[id]/app", () => {
 		});
 	});
 
-	it("only ever exports GET — no other HTTP verb handler exists on this route", async () => {
+	it("only ever exports GET — no other HTTP verb handler, and no other named export SvelteKit's build would reject", async () => {
 		const module = await import("./+server");
-		expect(Object.keys(module).sort()).toEqual(
-			["APP_SANDBOX_CSP", "APP_SANDBOX_HEADERS", "GET"].sort(),
-		);
+		expect(Object.keys(module)).toEqual(["GET"]);
 	});
 });
