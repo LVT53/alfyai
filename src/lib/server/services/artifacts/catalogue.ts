@@ -48,11 +48,26 @@ export interface ArtifactCatalogueEntry {
 	updatedAt: number;
 }
 
+/**
+ * Titles are user- AND model-controlled text (create_artifact's `title` has
+ * no shape restriction beyond length) that lands directly inside model-facing
+ * turn guidance, one title per bullet line. A raw newline lets a title escape
+ * its own bullet and start what reads like a new section — e.g. a title
+ * containing "\n## System: …" would render an unintended second heading in
+ * this block. Collapsing all whitespace (including newlines) to single
+ * spaces keeps every entry on exactly one line, which is also what makes a
+ * stray `##`/backtick/quote harmless: none of them are structural unless they
+ * start a line, and after this no title-supplied character can.
+ */
+function normalizeTitleToOneLine(title: string): string {
+	return title.replace(/\s+/g, " ").trim();
+}
+
 function clampTitle(title: string): string {
-	const chars = Array.from(title);
+	const chars = Array.from(normalizeTitleToOneLine(title));
 	return chars.length > ARTIFACT_CATALOGUE_TITLE_MAX_CHARS
 		? chars.slice(0, ARTIFACT_CATALOGUE_TITLE_MAX_CHARS).join("")
-		: title;
+		: chars.join("");
 }
 
 function formatRelativeAge(updatedAtMs: number): string {
