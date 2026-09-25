@@ -27,6 +27,7 @@ let {
 	forkOrigin = null,
 	forkOpening = false,
 	forkingMessageId = null,
+	showingLinkedMessage = false,
 	readOnly = false,
 	onOpenDocument,
 	onRegenerate,
@@ -61,6 +62,8 @@ let {
 	forkOrigin?: ConversationForkOrigin | null;
 	forkOpening?: boolean;
 	forkingMessageId?: string | null;
+	/** See MessageArea's prop of the same name. */
+	showingLinkedMessage?: boolean;
 	readOnly?: boolean;
 	onOpenDocument: (document: DocumentWorkspaceItem) => void;
 	onRegenerate: (payload: MessageRegeneratePayload) => void;
@@ -125,6 +128,7 @@ let {
 		{contextCompressionMarkers}
 		{forkOrigin}
 		{forkingMessageId}
+		{showingLinkedMessage}
 		{readOnly}
 		{onOpenDocument}
 		{onRegenerate}

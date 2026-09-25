@@ -969,12 +969,65 @@ function handleWorkspaceConversationDeletedEvent(event: Event) {
 	handleWorkspaceConversationDeleted(conversationId);
 }
 
-async function focusMessage(messageId: string) {
-	await tick();
-	requestAnimationFrame(() => {
-		const target = document.getElementById(`message-${messageId}`);
-		target?.scrollIntoView({ behavior: "smooth", block: "center" });
+// The conversation in which one particular message was brought into view for
+// the reader — a search result, a jump to a document's source. The thread
+// must not pull the view away from it (MessageArea's `showingLinkedMessage`).
+let linkedMessageConversationId = $state<string | null>(null);
+// Counts the jumps, so only the latest one ends the linked-message state.
+let linkedMessageJumps = 0;
+
+/**
+ * Resolves once `element` has held still on screen for `stillFrames` frames
+ * in a row, or after two seconds of a thread that keeps moving.
+ */
+function whenStillOnScreen(
+	element: HTMLElement | null,
+	stillFrames: number,
+): Promise<void> {
+	return new Promise((resolve) => {
+		if (!element) {
+			resolve();
+			return;
+		}
+		let lastTop = element.getBoundingClientRect().top;
+		let still = 0;
+		let frames = 0;
+		const step = () => {
+			const top = element.getBoundingClientRect().top;
+			still = Math.abs(top - lastTop) < 1 ? still + 1 : 0;
+			lastTop = top;
+			frames += 1;
+			if (still >= stillFrames || frames >= 120) {
+				resolve();
+				return;
+			}
+			requestAnimationFrame(step);
+		};
+		requestAnimationFrame(step);
 	});
+}
+
+async function focusMessage(messageId: string) {
+	const conversationId = data.conversation.id;
+	const jump = ++linkedMessageJumps;
+	const isCurrentJump = () =>
+		jump === linkedMessageJumps &&
+		linkedMessageConversationId === conversationId;
+	linkedMessageConversationId = conversationId;
+	await tick();
+	const target = document.getElementById(`message-${messageId}`);
+	// Replies render their markdown after the thread first paints; the
+	// message moves until what is above it has its height, and a scroll
+	// issued before then lands short of it.
+	await whenStillOnScreen(target, 5);
+	if (!isCurrentJump()) return;
+	target?.scrollIntoView({ behavior: "smooth", block: "center" });
+	// The page drives the view only until the message has come to rest on
+	// screen (ten still frames outlast a smooth scroll's start). After that
+	// the view is the reader's, and a later reply, or "jump to latest", may
+	// hold the latest message in view again.
+	await whenStillOnScreen(target, 10);
+	if (isCurrentJump()) linkedMessageConversationId = null;
 }
 
 async function handleJumpToWorkspaceSource(document: DocumentWorkspaceItem) {
@@ -1120,6 +1173,7 @@ function resetState() {
 	hydratingConversation = false;
 	suppressHydration = false;
 	forkingMessageId = null;
+	linkedMessageConversationId = null;
 	draftPersistence.clear();
 	currentConversationId.set(data.conversation.id);
 	// Defer pending-message send to avoid state-cascade during hydration
@@ -1132,19 +1186,6 @@ function resetState() {
 		void hydrateConversationDetail(data.conversation.id);
 	}
 }
-
-$effect(() => {
-	const focusMessageId = getChatFocusMessageIdFromUrl(page.url);
-	if (
-		!focusMessageId ||
-		!$messages.some((message) => message.id === focusMessageId)
-	) {
-		return;
-	}
-
-	void focusMessage(focusMessageId);
-	replaceState(clearChatFocusMessageParam(page.url), page.state);
-});
 
 // R1 (ADR-0060, defect 2) — this used to refuse to run while a turn was
 // active (`|| normalChatRuntimeActive`), which was the hole: navigating
@@ -1167,6 +1208,34 @@ $effect(() => {
 		prevConversationId = data.conversation.id;
 		resetState();
 	}
+});
+
+// Declared after the reset above so that it runs after it: resetState()
+// ends any linked-message state, and on a direct load both run in the same
+// flush.
+//
+// The navigation whose ?focus_message= has been acted on. page.url keeps the
+// parameter for the whole visit (replaceState below rewrites the address
+// bar and page.state, not page.url), so without this every change to the
+// messages — each streamed token — would scroll back to the linked message.
+let focusedFromUrl: URL | null = null;
+
+$effect(() => {
+	const url = page.url;
+	const focusMessageId = getChatFocusMessageIdFromUrl(url);
+	if (!focusMessageId || url === focusedFromUrl) return;
+	if (!$messages.some((message) => message.id === focusMessageId)) return;
+	focusedFromUrl = url;
+
+	void focusMessage(focusMessageId);
+	// Drop the parameter so a reload does not jump again. Not from inside
+	// this effect: on a direct load it runs while the page hydrates, before
+	// the router has started, and replaceState throws until it has. The next
+	// frame is after that (the same deferral as the bootstrap parameter).
+	requestAnimationFrame(() => {
+		if (page.url !== url) return;
+		replaceState(clearChatFocusMessageParam(url), page.state);
+	});
 });
 
 function recoverVisiblePageActivity() {
@@ -2813,6 +2882,7 @@ function handleDrop(event: DragEvent) {
 						{forkOrigin}
 						{forkOpening}
 						{forkingMessageId}
+						showingLinkedMessage={linkedMessageConversationId === data.conversation.id}
 						readOnly={isConversationReadOnlyForChat}
 						onOpenDocument={openWorkspaceDocument}
 						onRegenerate={handleRegenerate}
