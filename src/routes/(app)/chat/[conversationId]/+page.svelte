@@ -1150,7 +1150,14 @@ $effect(() => {
 	}
 
 	void focusMessage(focusMessageId);
-	replaceState(clearChatFocusMessageParam(page.url), page.state);
+	// Drop the parameter so a reload does not jump again. Not from inside
+	// this effect: on a direct load it runs while the page hydrates, before
+	// the router has started, and replaceState throws until it has. The next
+	// frame is after that (the same deferral as the bootstrap parameter).
+	requestAnimationFrame(() => {
+		if (getChatFocusMessageIdFromUrl(page.url) !== focusMessageId) return;
+		replaceState(clearChatFocusMessageParam(page.url), page.state);
+	});
 });
 
 // R1 (ADR-0060, defect 2) — this used to refuse to run while a turn was
