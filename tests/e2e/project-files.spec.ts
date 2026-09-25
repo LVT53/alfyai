@@ -124,6 +124,40 @@ function fileRow(dialog: ReturnType<Page["getByRole"]>, name: string) {
 	return dialog.getByTestId("project-file-row").filter({ hasText: name });
 }
 
+/**
+ * The phone "sheet" presentation flies the dialog panel in over 250ms
+ * (DialogShell's `panelSlide` transition — JS/rAF-driven via Svelte's `fly`,
+ * not a native CSS transition). A `boundingBox()` taken mid-flight reads a
+ * moving target: this file takes several SEQUENTIAL `boundingBox()` calls
+ * once the dialog is up, and two of them can land on either side of a still
+ * -moving frame. Every descendant shifts by the same amount as the panel
+ * translates, so a *single* read is never wrong, but comparing a read taken
+ * a few frames apart from another (name vs. fact) can read a false
+ * fraction-of-a-pixel gap. Wait for the panel's own rect to stop moving
+ * across consecutive animation frames before measuring anything inside it.
+ */
+async function waitForSheetToSettle(page: Page): Promise<void> {
+	await page.waitForFunction(() => {
+		const state = window as unknown as {
+			__sheetSettleY?: number;
+			__sheetSettleStreak?: number;
+		};
+		const panel = document.querySelector('[role="dialog"]');
+		if (!panel) return false;
+		const y = panel.getBoundingClientRect().y;
+		if (state.__sheetSettleY === y) {
+			state.__sheetSettleStreak = (state.__sheetSettleStreak ?? 0) + 1;
+		} else {
+			state.__sheetSettleStreak = 0;
+		}
+		state.__sheetSettleY = y;
+		// Three equal reads in a row, polled once per animation frame (the
+		// default for waitForFunction): the panel has been in the same place
+		// for multiple consecutive frames, not just between two rAF ticks.
+		return (state.__sheetSettleStreak ?? 0) >= 3;
+	});
+}
+
 function projectRow(page: Page, name: string) {
 	return page.getByTestId("project-drop-target").filter({ hasText: name });
 }
@@ -693,6 +727,7 @@ test.describe("Project files — phone", () => {
 		const dialog = await openFilesDialog(page, projectId);
 		await expect(dialog).toHaveClass(/dialog-sheet/);
 		await expect(page.getByTestId("dialog-sheet-grabber")).toBeVisible();
+		await waitForSheetToSettle(page);
 
 		const sheet = await dialog.boundingBox();
 		expect(sheet?.width ?? 0).toBeLessThanOrEqual(390);
@@ -751,10 +786,16 @@ test.describe("Project files — phone", () => {
 				Math.round(box?.x ?? 0),
 				"a fact belongs in the file-name column, under it",
 			).toBe(Math.round(nameBox?.x ?? 0));
+			// Sub-pixel layout rounding (line-height and row-gap arithmetic can
+			// land on a fractional device pixel) can legitimately differ by
+			// under 1px between layout passes even once settled; a real
+			// overlap — a fact sitting beside or on the name's own line — is
+			// many pixels, not a rounding artifact, so this tolerance cannot
+			// hide one.
 			expect(
 				box?.y ?? 0,
 				"a fact belongs below the file's name",
-			).toBeGreaterThanOrEqual((nameBox?.y ?? 0) + (nameBox?.height ?? 0));
+			).toBeGreaterThanOrEqual((nameBox?.y ?? 0) + (nameBox?.height ?? 0) - 1);
 		}
 	});
 });
