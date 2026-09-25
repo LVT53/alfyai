@@ -327,6 +327,32 @@ export async function listProjectKnowledge(params: {
 }
 
 /**
+ * Every artifact id the project's files answer to, each keyed to the file it
+ * belongs to — the file's display id.
+ *
+ * An uploaded document answers to two ids: the display artifact the library
+ * shows, and the normalized artifact it was derived from, which is the row
+ * retrieval and the read tool actually return. Both are here, and both map to
+ * the same file, so a caller holding either id reaches the same document.
+ */
+async function readProjectArtifactDocumentIds(
+	userId: string,
+	projectId: string,
+): Promise<Map<string, string>> {
+	const resolved = await resolveProjectDocuments(userId, projectId);
+
+	const documentIdByArtifactId = new Map<string, string>();
+	for (const document of resolved) {
+		documentIdByArtifactId.set(document.displayId, document.displayId);
+		if (document.normalizedId) {
+			documentIdByArtifactId.set(document.normalizedId, document.displayId);
+		}
+	}
+
+	return documentIdByArtifactId;
+}
+
+/**
  * The ids only: the retrieval boost needs them without the metadata.
  *
  * Both the display artifact and the normalized artifact a document was derived
@@ -337,25 +363,23 @@ export async function listProjectKnowledgeArtifactIds(params: {
 	userId: string;
 	projectId: string;
 }): Promise<string[]> {
-	const resolved = await resolveProjectDocuments(
+	const documentIdByArtifactId = await readProjectArtifactDocumentIds(
 		params.userId,
 		params.projectId,
 	);
 
-	const ids = new Set<string>();
-	for (const document of resolved) {
-		ids.add(document.displayId);
-		if (document.normalizedId) ids.add(document.normalizedId);
-	}
-
-	return [...ids].sort();
+	return [...documentIdByArtifactId.keys()].sort();
 }
 
 /**
- * The conversation's project, its name and the ids of the files it knows — the
- * shape the evidence step stamps and counts project evidence with. `null` when
- * the conversation is in no project at all, so a turn outside a project stops
- * at one lookup.
+ * The conversation's project, its name and the files it knows — the shape the
+ * evidence step stamps and counts project evidence with. `null` when the
+ * conversation is in no project at all, so a turn outside a project stops at
+ * one lookup.
+ *
+ * The files ride as a map from every id they answer to onto the file itself
+ * (see `readProjectArtifactDocumentIds`), because the count is of files, not of
+ * ids: a turn that reached one document through both of its ids read one file.
  *
  * Ownership rides the same joins everything else in this module uses: the
  * project is read through `projects.userId` for the caller, so a project that is
@@ -367,7 +391,7 @@ export async function resolveConversationProjectFiles(params: {
 }): Promise<{
 	projectId: string;
 	projectName: string;
-	artifactIds: Set<string>;
+	documentIdByArtifactId: Map<string, string>;
 } | null> {
 	const projectId = await getConversationProjectId(
 		params.userId,
@@ -378,15 +402,13 @@ export async function resolveConversationProjectFiles(params: {
 	const project = await getProject(params.userId, projectId);
 	if (!project) return null;
 
-	const artifactIds = await listProjectKnowledgeArtifactIds({
-		userId: params.userId,
-		projectId,
-	});
-
 	return {
 		projectId,
 		projectName: project.name,
-		artifactIds: new Set(artifactIds),
+		documentIdByArtifactId: await readProjectArtifactDocumentIds(
+			params.userId,
+			projectId,
+		),
 	};
 }
 

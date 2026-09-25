@@ -519,7 +519,9 @@ describe("buildAssistantEvidenceSummary", () => {
 			projectFiles: {
 				projectId: "project-1",
 				projectName: "Vienna trip",
-				artifactIds: new Set(["artifact-project"]),
+				documentIdByArtifactId: new Map([
+					["artifact-project", "artifact-project"],
+				]),
 			},
 		});
 

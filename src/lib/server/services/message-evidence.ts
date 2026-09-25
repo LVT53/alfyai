@@ -351,11 +351,12 @@ async function buildArtifactGroups(params: {
 		Map<string, MessageEvidenceItem>
 	>();
 
-	// The project's links, as a set: an item whose artifact is one of them is a
-	// project file, and says so. `message-evidence` never reads the link table
-	// itself — the caller resolved the ids through the knowledge boundary — so
-	// this stays a comparison against ids the turn was handed.
-	const projectFileIds = params.projectFiles?.artifactIds;
+	// The project's links: an item whose artifact is one of the ids a project
+	// file answers to is a project file, and says so. `message-evidence` never
+	// reads the link table itself — the caller resolved the ids through the
+	// knowledge boundary — so this stays a comparison against ids the turn was
+	// handed.
+	const projectFileIds = params.projectFiles?.documentIdByArtifactId;
 	const projectStampFor = (
 		artifactId: string | null | undefined,
 	): MessageEvidenceItem["metadata"] | undefined => {
@@ -771,38 +772,42 @@ export type EvidenceSourceType = "web" | "document" | "memory" | "tool";
 
 /**
  * Workspaces Slice E — the conversation's project, for evidence purposes: the
- * project's identity (what the Sources token is drawn from) and the ids of the
- * files it knows. `artifactIds` is the project's link table read through the
- * knowledge boundary; the evidence service never queries it itself.
+ * project's identity (what the Sources token is drawn from) and the files it
+ * knows, read from the project's link table through the knowledge boundary;
+ * the evidence service never queries it itself.
+ *
+ * `documentIdByArtifactId` holds every artifact id a project file answers to,
+ * each mapped to the file it belongs to (its display id). An uploaded document
+ * answers to two — its own row and the normalized sibling retrieval returns —
+ * and both map to one file, so a turn is credited with files, not with ids.
  */
 export interface ProjectFilesEvidenceContext {
 	projectId: string;
 	projectName: string;
-	artifactIds: Set<string>;
+	documentIdByArtifactId: ReadonlyMap<string, string>;
 }
 
 /**
- * How many of the project's files actually reached this turn: the size of the
- * intersection of the turn's selected evidence with the project's links — the
- * same two sets `buildArtifactGroups` builds its document rows from, so the
- * Info popover's number and the Sources rows tell one story. Attachments are
- * not counted: those were handed to the turn by the user, not read because the
- * project knows them.
+ * How many of the project's files actually reached this turn: the project
+ * files among the artifacts the turn's selected evidence names — the same two
+ * sets `buildArtifactGroups` builds its document rows from, so the Info
+ * popover's number and the Sources rows tell one story. A file counts once,
+ * whichever of its ids the evidence names. Attachments are not counted: those
+ * were handed to the turn by the user, not read because the project knows them.
  */
 export function countProjectFilesRead(params: {
 	contextDebug: ContextDebugState | null | undefined;
 	projectFiles?: ProjectFilesEvidenceContext | null;
 }): number {
-	const projectFileIds = params.projectFiles?.artifactIds;
-	if (!projectFileIds || projectFileIds.size === 0) return 0;
+	const documentIdByArtifactId = params.projectFiles?.documentIdByArtifactId;
+	if (!documentIdByArtifactId || documentIdByArtifactId.size === 0) return 0;
 	const selected = params.contextDebug?.selectedEvidence ?? [];
-	const read = new Set<string>();
+	const filesRead = new Set<string>();
 	for (const evidence of selected) {
-		if (projectFileIds.has(evidence.artifactId)) {
-			read.add(evidence.artifactId);
-		}
+		const documentId = documentIdByArtifactId.get(evidence.artifactId);
+		if (documentId) filesRead.add(documentId);
 	}
-	return read.size;
+	return filesRead.size;
 }
 
 export type MessageEvidenceStatus = "selected" | "rejected" | "reference";
