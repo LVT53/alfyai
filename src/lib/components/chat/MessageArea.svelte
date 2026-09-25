@@ -194,6 +194,10 @@ let lastForkBoundaryJumpKey: string | null = null;
 let pendingRestoreScroll: number | null = null;
 let activeJumpRailTurnId = $state<string | null>(null);
 let jumpRailActiveUpdateQueued = false;
+// The reply streaming as of the scroll effect's last run, and whether the
+// thread was following it then (the streaming follow rule in that effect).
+let lastStreamingAssistantMessageId: string | null = null;
+let followingStreamingReply = false;
 
 /**
  * The position the view is held at while the thread settles, or null once
@@ -358,12 +362,18 @@ function handleScroll() {
 	if (!scrollContainer) return;
 	const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
 	const distanceToBottom = scrollHeight - scrollTop - clientHeight;
+	const movedUp = scrollTop < lastKnownScrollTop - 1;
 	noteScrollPosition(scrollTop, distanceToBottom);
-	// While the latest message is held in view, a gap below it is content
-	// still arriving (the observer closes it before the next paint), not the
-	// reader leaving the live edge.
-	shouldAutoScroll =
-		heldPosition === "bottom" || distanceToBottom < AUTO_SCROLL_EDGE_PX;
+	// Only a move up the thread leaves the live edge. A gap below a view that
+	// did not move up is content still arriving: under a held position (the
+	// observer closes it before the next paint), or a streamed reply growing
+	// past the follow's last write — its markdown renders in batches, and one
+	// taller than the edge used to end the follow for the rest of the reply.
+	if (heldPosition === "bottom" || distanceToBottom < AUTO_SCROLL_EDGE_PX) {
+		shouldAutoScroll = true;
+	} else if (movedUp) {
+		shouldAutoScroll = false;
+	}
 	distanceToBottomPx = distanceToBottom;
 	queueActiveJumpRailTurnUpdate();
 }
@@ -473,6 +483,8 @@ $effect.pre(() => {
 		shouldAutoScroll = true;
 		// A hold belongs to the conversation it was set in.
 		releaseHeldPosition();
+		lastStreamingAssistantMessageId = null;
+		followingStreamingReply = false;
 		lastMessageCount = 0;
 		lastFileProductionJobCount = 0;
 		lastAtlasJobUpdateKey = "";
@@ -495,6 +507,15 @@ $effect.pre(() => {
 			shouldJumpToConversationBottom = true;
 		}
 	}
+
+	const streamingAssistantMessageId = currentStreamingAssistantMessageId;
+	const streamedReplyEnded =
+		streamingAssistantMessageId === null &&
+		lastStreamingAssistantMessageId !== null;
+	const wasFollowingStreamedReply = followingStreamingReply;
+	lastStreamingAssistantMessageId = streamingAssistantMessageId;
+	followingStreamingReply =
+		streamingAssistantMessageId !== null && shouldAutoScroll && isThinkingActive;
 
 	// Restore saved scroll position on page refresh.
 	if (pendingRestoreScroll !== null) {
@@ -543,6 +564,17 @@ $effect.pre(() => {
 		// until the thread settles (a reply that starts streaming releases it).
 		holdPosition("bottom");
 		void alignToBottomAfterRender();
+	} else if (
+		streamedReplyEnded &&
+		shouldAutoScroll &&
+		(wasFollowingStreamedReply || isNearLiveEdge())
+	) {
+		// A reply's last tokens, the code they close, its highlighting and its
+		// action row render after the stream ends. A reader who was at its end
+		// — the thread following it, or all of it already in view — keeps
+		// that end in view while they land, held like a newly opened thread.
+		holdPosition("bottom");
+		void alignToBottomAfterRender();
 	} else if (hasNewFileProductionJobs && shouldAutoScroll) {
 		// File-production cards render inside the latest assistant message; keep that expanded area visible.
 		void alignToBottomAfterRender();
@@ -565,6 +597,12 @@ function instantScrollToBottom() {
 	if (!scrollContainer) return;
 	scrollContainer.scrollTop = scrollContainer.scrollHeight;
 	lastKnownScrollTop = scrollContainer.scrollTop;
+}
+
+function isNearLiveEdge(): boolean {
+	if (!scrollContainer) return false;
+	const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+	return scrollHeight - scrollTop - clientHeight < AUTO_SCROLL_EDGE_PX;
 }
 
 // Keep the jump-rail's active mark in sync with layout changes that aren't
