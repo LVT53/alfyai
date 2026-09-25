@@ -26,6 +26,12 @@ export interface ArtifactDetailResponse {
  * id, incognito or not. The server only widens scope to a conversation the
  * caller owns, so sending it is always safe.
  */
+/**
+ * Ruling 49: the route answers `{ ok: true, artifact, versions, comments }`
+ * on success. `ok` is the wire shape's success/failure discriminator, not
+ * part of what a caller of this function wants — every existing caller wants
+ * exactly `ArtifactDetailResponse`, so it is read here and left behind.
+ */
 export async function fetchArtifact(
 	artifactId: string,
 	conversationId?: string | null,
@@ -34,12 +40,17 @@ export async function fetchArtifact(
 	const query = conversationId
 		? `?conversationId=${encodeURIComponent(conversationId)}`
 		: "";
-	return requestJson<ArtifactDetailResponse>(
+	const response = await requestJson<ArtifactDetailResponse & { ok: true }>(
 		`/api/artifacts/${encodeURIComponent(artifactId)}${query}`,
 		undefined,
 		"Failed to open this item",
 		fetchImpl,
 	);
+	return {
+		artifact: response.artifact,
+		versions: response.versions,
+		comments: response.comments,
+	};
 }
 
 export async function fetchConversationArtifacts(

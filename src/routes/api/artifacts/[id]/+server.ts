@@ -11,10 +11,12 @@ import type { RequestHandler } from "./$types";
 // its comment threads, all through the one scoped read (ruling 39: 401 comes
 // from requireApiUser/hooks.server.ts, never a route-local check).
 //
-// The 404 body is the family's own shape ({ ok: false, reason: "not_found" }),
-// never a 403: a 403 confirms existence, and this route must answer the same
-// way for a missing id, another user's artifact, or an incognito artifact
-// read from outside its conversation.
+// One shape across the feature (ruling 49): success is
+// { ok: true, artifact, versions, comments }, and the 404 body is
+// { ok: false, reason: "not_found" } — never a 403, since a 403 confirms
+// existence, and this route must answer the same way for a missing id,
+// another user's artifact, or an incognito artifact read from outside its
+// conversation.
 //
 // An optional `?conversationId=` names the conversation being served and is
 // forwarded as `ArtifactScopeOptions.conversationId` to every read below. That
@@ -39,5 +41,5 @@ export const GET: RequestHandler = async (event) => {
 		listComments({ userId: user.id, artifactId, conversationId }),
 	]);
 
-	return json({ artifact, versions, comments });
+	return json({ ok: true, artifact, versions, comments });
 };

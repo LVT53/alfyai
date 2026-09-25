@@ -91,6 +91,8 @@ describe("GET /api/artifacts/[id]", () => {
 
 		expect(response.status).toBe(200);
 		const body = await response.json();
+		// Ruling 49: every artifact route answers { ok: true, … } on success.
+		expect(body.ok).toBe(true);
 		expect(body.artifact).toEqual(artifactFixture);
 		expect(body.versions).toHaveLength(1);
 		expect(body.comments).toEqual([]);

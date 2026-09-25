@@ -9,17 +9,18 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("artifacts client API", () => {
-	it("fetches one artifact's detail, versions and comments", async () => {
-		const payload = {
+	it("fetches one artifact's detail, versions and comments, leaving the wire-level ok behind", async () => {
+		const detail = {
 			artifact: { id: "artifact-1", kind: "document", title: "Weekend" },
 			versions: [],
 			comments: [],
 		};
-		const fetchMock = vi.fn(async () => jsonResponse(payload));
+		// Ruling 49: the route answers { ok: true, artifact, versions, comments }.
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true, ...detail }));
 
-		await expect(
-			fetchArtifact("artifact-1", undefined, fetchMock),
-		).resolves.toEqual(payload);
+		const result = await fetchArtifact("artifact-1", undefined, fetchMock);
+		expect(result).toEqual(detail);
+		expect(result).not.toHaveProperty("ok");
 		expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-1");
 	});
 
@@ -84,7 +85,9 @@ describe("artifacts client API", () => {
 			{ id: "artifact-2", kind: "document", title: "Newer" },
 			{ id: "artifact-1", kind: "file", title: "Older" },
 		];
-		const fetchMock = vi.fn(async () => jsonResponse({ artifacts }));
+		// Ruling 49: the route answers { ok: true, artifacts }; _unwrapList reads
+		// only the `artifacts` key, so the sibling `ok` is simply ignored.
+		const fetchMock = vi.fn(async () => jsonResponse({ ok: true, artifacts }));
 
 		await expect(
 			fetchConversationArtifacts("conv-1", fetchMock),

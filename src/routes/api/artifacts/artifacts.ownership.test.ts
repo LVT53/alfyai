@@ -83,6 +83,8 @@ describe("GET /api/artifacts/[id]?conversationId=… — incognito self-open", (
 
 		expect(response.status).toBe(200);
 		const body = await response.json();
+		// Ruling 49: every artifact route answers { ok: true, … } on success.
+		expect(body.ok).toBe(true);
 		expect(body.artifact.id).toBe(artifactId);
 	});
 
