@@ -226,11 +226,18 @@ let lastKnownScrollTop = 0;
 // the jump itself is all there is.
 const canHoldPosition = browser && typeof ResizeObserver !== "undefined";
 
+/**
+ * While the page brings a linked message into view the thread makes no move
+ * of its own toward the latest one — no hold, no jump, no streaming follow.
+ * Read untracked: the scroll effect below calls this and must not re-run
+ * when the page starts or stops showing a linked message.
+ */
+function pageShowsLinkedMessage(): boolean {
+	return untrack(() => showingLinkedMessage);
+}
+
 function holdPosition(target: "bottom" | number) {
-	// Read untracked: this runs inside the scroll effect below, which must not
-	// re-run when the page starts or stops showing a linked message.
-	const pageHoldsView = untrack(() => showingLinkedMessage);
-	heldPosition = canHoldPosition && !pageHoldsView ? target : null;
+	heldPosition = canHoldPosition && !pageShowsLinkedMessage() ? target : null;
 	lastKnownScrollTop = scrollContainer?.scrollTop ?? 0;
 }
 
@@ -584,7 +591,7 @@ $effect.pre(() => {
 		void alignToBottomAfterRender();
 	} else if (hasNewContextCompressionMarkers && shouldAutoScroll) {
 		void alignToBottomAfterRender();
-	} else if (shouldAutoScroll && isThinkingActive) {
+	} else if (shouldAutoScroll && isThinkingActive && !pageShowsLinkedMessage()) {
 		// Only follow during thinking phase; stop once content streaming begins.
 		instantScrollToBottom();
 	}
@@ -861,8 +868,13 @@ async function alignToBottomAfterRender() {
 	if (!scrollContainer) return;
 	await tick();
 	requestAnimationFrame(() => {
+		// The page may be showing a linked message by now. When that message
+		// is already on screen its own scroll is a no-op that lands first, so
+		// a jump here would carry the view away from it.
+		if (pageShowsLinkedMessage()) return;
 		instantScrollToBottom();
 		requestAnimationFrame(() => {
+			if (pageShowsLinkedMessage()) return;
 			instantScrollToBottom();
 		});
 	});

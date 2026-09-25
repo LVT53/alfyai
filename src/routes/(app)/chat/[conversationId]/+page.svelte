@@ -973,13 +973,55 @@ function handleWorkspaceConversationDeletedEvent(event: Event) {
 // the reader — a search result, a jump to a document's source. The thread
 // must not pull the view away from it (MessageArea's `showingLinkedMessage`).
 let linkedMessageConversationId = $state<string | null>(null);
+// Counts the jumps, so only the latest one ends the linked-message state.
+let linkedMessageJumps = 0;
+
+/** Resolves once `element` has held still on screen for a few frames. */
+function whenSettledOnScreen(element: HTMLElement | null): Promise<void> {
+	return new Promise((resolve) => {
+		if (!element) {
+			resolve();
+			return;
+		}
+		let lastTop = element.getBoundingClientRect().top;
+		let stillFrames = 0;
+		let frames = 0;
+		const step = () => {
+			const top = element.getBoundingClientRect().top;
+			stillFrames = Math.abs(top - lastTop) < 1 ? stillFrames + 1 : 0;
+			lastTop = top;
+			frames += 1;
+			// Ten still frames outlast a smooth scroll's start; two seconds cap a
+			// thread that keeps rendering.
+			if (stillFrames >= 10 || frames >= 120) {
+				resolve();
+				return;
+			}
+			requestAnimationFrame(step);
+		};
+		requestAnimationFrame(step);
+	});
+}
 
 async function focusMessage(messageId: string) {
-	linkedMessageConversationId = data.conversation.id;
+	const conversationId = data.conversation.id;
+	const jump = ++linkedMessageJumps;
+	linkedMessageConversationId = conversationId;
 	await tick();
 	requestAnimationFrame(() => {
 		const target = document.getElementById(`message-${messageId}`);
 		target?.scrollIntoView({ behavior: "smooth", block: "center" });
+		// The page drives the view only until the message has come to rest on
+		// screen. After that the view is the reader's, and a later reply, or
+		// "jump to latest", may hold the latest message in view again.
+		void whenSettledOnScreen(target).then(() => {
+			if (
+				jump === linkedMessageJumps &&
+				linkedMessageConversationId === conversationId
+			) {
+				linkedMessageConversationId = null;
+			}
+		});
 	});
 }
 
