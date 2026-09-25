@@ -1,6 +1,7 @@
 import { APICallError, generateText, Output } from "ai";
 import { getConfig } from "$lib/server/config-store";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "$lib/server/services/normal-chat-model/openai-compatible-provider";
+import { resolveOpenAICompatibleProviderAdapterProfile } from "$lib/server/services/normal-chat-model/provider-compatibility";
 
 /**
  * System prompt for batch classification of persona memory facts.
@@ -152,17 +153,29 @@ function createContextSummarizerProvider(
 ) {
 	const apiKey =
 		overrideProvider?.apiKey || config.contextSummarizerApiKey || undefined;
-	return createOpenAICompatibleProviderForNormalChatModelRun({
-		provider: {
-			name: "context-summarizer",
-			displayName: "Context Summarizer",
-			baseUrl: overrideProvider?.baseUrl ?? config.contextSummarizerUrl,
-			modelName: resolvedModelName,
-			apiKey,
-		},
-		includeUsage: false,
-		normalizeStreaming: false,
-	});
+	const provider = {
+		name: "context-summarizer",
+		displayName: "Context Summarizer",
+		baseUrl: overrideProvider?.baseUrl ?? config.contextSummarizerUrl,
+		modelName: resolvedModelName,
+		apiKey,
+	};
+	return {
+		openaiCompatible: createOpenAICompatibleProviderForNormalChatModelRun({
+			provider,
+			includeUsage: false,
+			normalizeStreaming: false,
+		}),
+		// Same shared per-family adapter normal-chat-model/index.ts and
+		// sendJsonControlMessage use (AGENTS.md: apply qwen sampling defaults
+		// through the adapter, not a copied constant). This client never sent
+		// topP at all and always fell back to a flat 0.1 temperature regardless
+		// of family; top_k already reaches the wire for free via the adapter's
+		// transformRequestBody hook, since this always builds its provider
+		// through createOpenAICompatibleProviderForNormalChatModelRun.
+		samplingDefaults:
+			resolveOpenAICompatibleProviderAdapterProfile(provider).defaultSampling,
+	};
 }
 
 /**
@@ -240,19 +253,21 @@ export async function requestContextSummarizer(params: {
 	const config = getConfig();
 	const { resolvedModelName, overrideProvider } =
 		await resolveContextSummarizerModelAndProvider(config);
-	const provider = createContextSummarizerProvider(
-		config,
-		resolvedModelName,
-		overrideProvider,
-	);
+	const { openaiCompatible, samplingDefaults } =
+		createContextSummarizerProvider(
+			config,
+			resolvedModelName,
+			overrideProvider,
+		);
 
 	try {
 		const result = await generateText({
-			model: provider(resolvedModelName),
+			model: openaiCompatible(resolvedModelName),
 			system: params.system,
 			messages: [{ role: "user", content: params.user }],
 			maxOutputTokens: params.maxTokens,
-			temperature: params.temperature ?? 0.1,
+			temperature: params.temperature ?? samplingDefaults?.temperature ?? 0.1,
+			topP: samplingDefaults?.topP,
 			maxRetries: 0,
 		});
 		return result.text.trim() || null;
@@ -278,20 +293,22 @@ export async function requestStructuredControlModel<
 	const config = getConfig();
 	const { resolvedModelName, overrideProvider } =
 		await resolveContextSummarizerModelAndProvider(config);
-	const provider = createContextSummarizerProvider(
-		config,
-		resolvedModelName,
-		overrideProvider,
-	);
+	const { openaiCompatible, samplingDefaults } =
+		createContextSummarizerProvider(
+			config,
+			resolvedModelName,
+			overrideProvider,
+		);
 
 	try {
 		const result = await generateText({
-			model: provider(resolvedModelName),
+			model: openaiCompatible(resolvedModelName),
 			system: params.system,
 			messages: [{ role: "user", content: params.user }],
 			output: Output.json(),
 			maxOutputTokens: params.maxTokens,
-			temperature: params.temperature ?? 0.1,
+			temperature: params.temperature ?? samplingDefaults?.temperature ?? 0.1,
+			topP: samplingDefaults?.topP,
 			maxRetries: 0,
 		});
 		if (!result.output) return null;
