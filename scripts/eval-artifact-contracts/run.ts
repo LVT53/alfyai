@@ -32,6 +32,7 @@ import {
 } from "./client";
 import {
 	EVAL_ARTIFACTS_MAX_CONSECUTIVE_RATE_LIMIT_ERRORS,
+	EVAL_ARTIFACTS_MAX_RETRIES_PER_CASE,
 	type EvalArtifactsThinkingMode,
 	resolveEvalArtifactsConfig,
 } from "./config";
@@ -247,7 +248,9 @@ async function runCasesSequentially(
 
 	for (const evalCase of cases) {
 		let outcome = await attemptCase(evalCase, options, deps);
-		if ("error" in outcome && !options.replay) {
+		let retriesLeft = options.replay ? 0 : EVAL_ARTIFACTS_MAX_RETRIES_PER_CASE;
+		while ("error" in outcome && retriesLeft > 0) {
+			retriesLeft -= 1;
 			outcome = await attemptCase(evalCase, options, deps);
 		}
 
