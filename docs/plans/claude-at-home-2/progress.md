@@ -147,6 +147,19 @@ via env.ts. **In review:** RV-W0-F (sonnet) in `rv-w0f` (5560), also fixing the 
   slice-0.md fixes). Then: merge into `feat/artifacts-s0` → `feat/artifacts` → `dev`, gates, deploy, Wave 2.
 - Owner, 2026-09-25: push only `dev` (feature branches stay local).
 
+**Wave 1 (Slice 0) DONE and deployed (2026-09-25 ~22:45).** Merged: review fixes → `feat/artifacts-s0` `f8f7dd3a` →
+`feat/artifacts` `1a56d92f` → `dev` `2bf644aa` (pushed). Gates on `dev`: check 0/17, biome clean, **12,264 tests**, build 32/2,
+Fallow 124/4 with 0 new, **Playwright 89/89**. ai.dev runs `2bf644aa`: DB backed up, the three artifact tables exist, 0 journal
+errors; live API check (`/root/verify-artifacts-spine.mjs`): a produced PDF lists as a File artifact (`ok: true`), the
+conversation detail carries it, opening it answers `ok: true` with no versions, a missing id is a 404 `{ ok:false,
+reason:"not_found" }`, no session is 401. `feat/artifacts` fast-forwarded to `dev` `2bf644aa`.
+
+**Wave 2 dispatched (sonnet ×3, from `2bf644aa`):** S5a in `art-s5a` (5410) — the three tools as a family shell with a per-kind
+dispatch seam (no creatable kind), the catalogue, descriptions EN+HU, timeouts, the harness core; S1 in `art-s1` (5420) —
+Documents, T4/T10's @Alfy path/T13 blocked on 5a; S2 in `art-s2` (5430) — Apps, A7/A8-tool/A9 blocked on 5a. Blocked agents
+merge `feat/artifacts` themselves once 5a has merged there, else stop and report. Reviews after: RV-5a (sonnet), RV-1A
+(opus, patch protocol), RV-1B (sonnet, editor), RV-2A (opus, sandbox/CSP), RV-2B (sonnet, generation).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
