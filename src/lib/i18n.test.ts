@@ -1,6 +1,7 @@
 import { get } from "svelte/store";
 import { describe, expect, it } from "vitest";
 import { t } from "./i18n";
+import artifactsDict from "./i18n/artifacts";
 import chatDict from "./i18n/chat";
 import commonDict from "./i18n/common";
 import connectionsDict from "./i18n/connections";
@@ -167,6 +168,7 @@ describe("i18n composer and skills namespaces", () => {
 		const params = (value: string) =>
 			new Set([...collapseIcu(value).matchAll(/\{(\w+)\}/g)].map((m) => m[1]));
 		const dicts = [
+			artifactsDict,
 			chatDict,
 			commonDict,
 			connectionsDict,

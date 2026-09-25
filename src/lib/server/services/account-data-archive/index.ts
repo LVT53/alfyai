@@ -1,12 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import JSZip from "jszip";
 import { type DatabaseInstance, db as defaultDb } from "$lib/server/db";
 import {
 	analyticsConversations,
+	artifactComments,
+	artifactKv,
 	artifacts,
+	artifactVersions,
 	chatGeneratedFiles,
 	conversations,
 	conversationTaskStates,
@@ -114,6 +117,9 @@ export async function createAccountDataArchive(
 		analyticsConversationRows,
 		projectRows,
 		projectFileRows,
+		artifactVersionRows,
+		artifactCommentRows,
+		artifactStoredDataRows,
 	] = await Promise.all([
 		listConversations(database, userId),
 		listMessages(database, userId),
@@ -127,17 +133,30 @@ export async function createAccountDataArchive(
 		listAnalyticsConversations(database, userId),
 		listProjects(database, userId),
 		listProjectFiles(database, userId),
+		listArtifactVersions(database, userId),
+		listArtifactComments(database, userId),
+		listArtifactStoredData(database, userId),
 	]);
 
+	const artifactHistory = groupArtifactHistory({
+		versions: artifactVersionRows,
+		comments: artifactCommentRows,
+		storedData: artifactStoredDataRows,
+	});
 	const uploadedArtifacts = artifactRows.filter(
 		(row) => row.type === "source_document",
 	);
 	const readableArtifacts = artifactRows.filter(
 		(row) =>
-			row.contentText &&
-			(row.type === "source_document" ||
-				row.type === "normalized_document" ||
-				row.type === "generated_output"),
+			(row.contentText &&
+				(row.type === "source_document" ||
+					row.type === "normalized_document" ||
+					row.type === "generated_output" ||
+					row.type === "artifact")) ||
+			// A Document, App, Canvas or Slides made empty can still carry
+			// history, threads or stored data of its own; it gets a page too.
+			((row.type === "artifact" || row.type === "generated_output") &&
+				artifactHistory.has(row.id)),
 	);
 	const skillNoteArtifacts = artifactRows.filter(
 		(row) => row.type === "skill_note",
@@ -152,6 +171,7 @@ export async function createAccountDataArchive(
 		rootDir,
 		uploadedArtifacts,
 		readableArtifacts,
+		artifactHistory,
 		generatedFiles: generatedFileRows,
 	});
 	addChatsSection(archive, {
@@ -383,12 +403,124 @@ function groupProjectFileNames(
 	return byProject;
 }
 
+type ArtifactHistory = {
+	versions: Array<typeof artifactVersions.$inferSelect>;
+	comments: Array<typeof artifactComments.$inferSelect>;
+	storedData: Array<{ key: string; valueJson: string; updatedAt: Date }>;
+};
+
+function groupArtifactHistory(rows: {
+	versions: Array<typeof artifactVersions.$inferSelect>;
+	comments: Array<typeof artifactComments.$inferSelect>;
+	storedData: Array<{
+		artifactId: string;
+		key: string;
+		valueJson: string;
+		updatedAt: Date;
+	}>;
+}): Map<string, ArtifactHistory> {
+	const byArtifact = new Map<string, ArtifactHistory>();
+	const historyOf = (artifactId: string) => {
+		const existing = byArtifact.get(artifactId);
+		if (existing) return existing;
+		const created: ArtifactHistory = {
+			versions: [],
+			comments: [],
+			storedData: [],
+		};
+		byArtifact.set(artifactId, created);
+		return created;
+	};
+	for (const version of rows.versions) {
+		historyOf(version.artifactId).versions.push(version);
+	}
+	for (const comment of rows.comments) {
+		historyOf(comment.artifactId).comments.push(comment);
+	}
+	for (const entry of rows.storedData) {
+		historyOf(entry.artifactId).storedData.push(entry);
+	}
+	return byArtifact;
+}
+
+function authorLabel(author: string): string {
+	return author === "alfy" ? "AlfyAI" : "You";
+}
+
+/**
+ * What the family keeps beside an artifact's current content, as readable
+ * HTML: every saved version with its own text (newest first, each folded
+ * away), the comment threads, and an App's stored data — its keys and values,
+ * the things the user typed into it. User content, so it is archived whole
+ * (ruling 24), and scoped to its artifact rather than dumped as a table.
+ */
+function renderArtifactHistory(history: ArtifactHistory | undefined): string {
+	if (!history) return "";
+	const sections: string[] = [];
+
+	if (history.versions.length > 0) {
+		sections.push(
+			`<section><h2>Versions</h2>${history.versions
+				.map(
+					(version) =>
+						`<details><summary>v${escapeHtml(version.versionNumber)} · ${escapeHtml(authorLabel(version.author))} · ${escapeHtml(version.summary)} · ${escapeHtml(formatDateTime(version.createdAt))}</summary><pre>${escapeHtml(version.body)}</pre></details>`,
+				)
+				.join("")}</section>`,
+		);
+	}
+
+	if (history.comments.length > 0) {
+		const replies = groupBy(
+			history.comments.filter((comment) => comment.parentId),
+			(comment) => comment.parentId ?? "",
+		);
+		const renderComment = (comment: typeof artifactComments.$inferSelect) =>
+			`<p class="meta">${escapeHtml(authorLabel(comment.author))} · ${escapeHtml(formatDateTime(comment.createdAt))}${comment.status === "resolved" ? " · Resolved" : ""}</p><pre>${escapeHtml(comment.body)}</pre>`;
+		sections.push(
+			`<section><h2>Comments</h2><ul>${history.comments
+				.filter((comment) => !comment.parentId)
+				.map((root) => {
+					const thread = replies.get(root.id) ?? [];
+					return `<li>${renderComment(root)}${
+						thread.length > 0
+							? `<ul>${thread.map((reply) => `<li>${renderComment(reply)}</li>`).join("")}</ul>`
+							: ""
+					}</li>`;
+				})
+				.join("")}</ul></section>`,
+		);
+	}
+
+	if (history.storedData.length > 0) {
+		sections.push(
+			`<section><h2>Stored data</h2>${renderTable(
+				history.storedData.map((entry) => [
+					entry.key,
+					formatStoredValue(entry.valueJson),
+					formatDateTime(entry.updatedAt),
+				]),
+			)}</section>`,
+		);
+	}
+
+	return sections.join("");
+}
+
+function formatStoredValue(valueJson: string): string {
+	try {
+		return JSON.stringify(JSON.parse(valueJson), null, 2);
+	} catch {
+		return valueJson;
+	}
+}
+
 async function addFilesSection(
 	archive: ArchiveBuilder,
 	params: {
 		rootDir: string;
 		uploadedArtifacts: Array<typeof artifacts.$inferSelect>;
 		readableArtifacts: Array<typeof artifacts.$inferSelect>;
+		artifactHistory: Map<string, ArtifactHistory>;
 		generatedFiles: Array<typeof chatGeneratedFiles.$inferSelect>;
 	},
 ) {
@@ -423,7 +555,9 @@ async function addFilesSection(
 			renderArchivePage({
 				title: artifact.name,
 				subtitle: readableArtifactSubtitle(artifact),
-				body: `<pre>${escapeHtml(artifact.contentText ?? "")}</pre>`,
+				body: `<pre>${escapeHtml(artifact.contentText ?? "")}</pre>${renderArtifactHistory(
+					params.artifactHistory.get(artifact.id),
+				)}`,
 			}),
 		);
 	}
@@ -982,6 +1116,53 @@ async function listArtifacts(database: ArchiveDb, userId: string) {
 		.orderBy(asc(artifacts.createdAt));
 }
 
+/**
+ * The artifact family's history, threads and stored App data (Feature 2).
+ *
+ * Read directly, bypassing the ownership scope for the same reason
+ * `listArtifacts` above does: everything keyed to this user is the point of
+ * the export, incognito conversations included. The user filter is the only
+ * guard between this user and another, so every one of the three keeps it —
+ * versions and comments by their own `user_id`, and key-value rows, which have
+ * no user column, through the artifact that owns them.
+ */
+async function listArtifactVersions(database: ArchiveDb, userId: string) {
+	return database
+		.select()
+		.from(artifactVersions)
+		.where(eq(artifactVersions.userId, userId))
+		.orderBy(
+			asc(artifactVersions.artifactId),
+			desc(artifactVersions.versionNumber),
+		);
+}
+
+async function listArtifactComments(database: ArchiveDb, userId: string) {
+	return database
+		.select()
+		.from(artifactComments)
+		.where(eq(artifactComments.userId, userId))
+		.orderBy(
+			asc(artifactComments.artifactId),
+			asc(artifactComments.createdAt),
+			sql`${artifactComments}.rowid`,
+		);
+}
+
+async function listArtifactStoredData(database: ArchiveDb, userId: string) {
+	return database
+		.select({
+			artifactId: artifactKv.artifactId,
+			key: artifactKv.key,
+			valueJson: artifactKv.valueJson,
+			updatedAt: artifactKv.updatedAt,
+		})
+		.from(artifactKv)
+		.innerJoin(artifacts, eq(artifactKv.artifactId, artifacts.id))
+		.where(eq(artifacts.userId, userId))
+		.orderBy(asc(artifactKv.artifactId), asc(artifactKv.key));
+}
+
 async function listGeneratedFiles(database: ArchiveDb, userId: string) {
 	return database
 		.select()
@@ -1219,6 +1400,8 @@ function readableArtifactSubtitle(
 			return "Readable normalized document text already stored by AlfyAI.";
 		case "generated_output":
 			return "Readable generated file content already stored by AlfyAI.";
+		case "artifact":
+			return "Something AlfyAI made in a chat: its current content, its saved versions, its comments and anything stored in it.";
 		default:
 			return "Readable stored content.";
 	}

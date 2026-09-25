@@ -4,6 +4,7 @@
 // (architecture-deepening T1); this file carries no behavior change, only
 // a new home.
 
+import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type {
 	AtlasAvailability,
 	AtlasJobCard,
@@ -46,6 +47,8 @@ export interface ConversationDetail {
 	bootstrap?: boolean;
 	generatedFiles?: ChatGeneratedFile[];
 	fileProductionJobs?: FileProductionJob[];
+	/** The artifact family rows for this conversation: the panel list and the header count's source. */
+	artifacts?: ArtifactCardSummary[];
 	atlasJobs?: AtlasJobCard[];
 	atlasAvailability?: AtlasAvailability | null;
 	contextCompressionSnapshots?: ContextCompressionMarker[];

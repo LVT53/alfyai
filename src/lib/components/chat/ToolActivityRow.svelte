@@ -18,6 +18,9 @@
 import { Check, ChevronDown, LoaderCircle, X } from "@lucide/svelte";
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n";
+import ArtifactCard, {
+	type ArtifactCardView,
+} from "$lib/components/artifacts/ArtifactCard.svelte";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import {
@@ -83,16 +86,14 @@ $effect(() => {
 	}
 });
 
-let FileProductionBody = $state<
-	typeof import("./FileProductionCard.svelte").default | null
->(null);
-$effect(() => {
-	if (item.body?.kind === "file-job" && isOpen && !FileProductionBody) {
-		void import("./FileProductionCard.svelte").then((module) => {
-			FileProductionBody = module.default;
-		});
-	}
-});
+/**
+ * The File kind's card view (Slice 0 Task S6): ArtifactCard's chrome="body"
+ * mode owns the lazy FileProductionCard import itself now, so this row only
+ * has to describe the job, not fetch its body's chunk.
+ */
+function fileArtifactCardView(job: FileProductionJob): ArtifactCardView {
+	return { id: job.id, kind: "file", title: job.title };
+}
 
 function handleToggle() {
 	if (!isInteractive) return;
@@ -255,9 +256,11 @@ function handleToggle() {
 					{/snippet}
 				</RouteItinerary>
 			{:else if body.kind === 'file-job'}
-				{#if job && FileProductionBody}
-					<FileProductionBody
+				{#if job}
+					<ArtifactCard
+						view={fileArtifactCardView(job)}
 						{job}
+						chrome="body"
 						{onOpenDocument}
 						onRetry={onRetryJob}
 						onCancel={onCancelJob}

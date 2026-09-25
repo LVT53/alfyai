@@ -443,6 +443,111 @@ export const artifactLinks = sqliteTable("artifact_links", {
 		.default(sql`(unixepoch())`),
 });
 
+/**
+ * One saved state of an artifact-family row (Feature 2, ADR-0066): the whole
+ * serialised artifact at that point, who made it, and a one-line summary.
+ * `versionNumber` is the ordering authority — `createdAt` is second-resolution,
+ * so two versions in the same second would be order-ambiguous by time — and
+ * the unique index makes a doubled number a constraint violation.
+ */
+export const artifactVersions = sqliteTable(
+	"artifact_versions",
+	{
+		id: text("id").primaryKey(),
+		artifactId: text("artifact_id")
+			.notNull()
+			.references(() => artifacts.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		versionNumber: integer("version_number").notNull(),
+		author: text("author").notNull(),
+		summary: text("summary").notNull(),
+		body: text("body").notNull(),
+		bodyHash: text("body_hash").notNull(),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		uniqueIndex("artifact_versions_number_unique_idx").on(
+			table.artifactId,
+			table.versionNumber,
+		),
+		index("artifact_versions_artifact_idx").on(
+			table.artifactId,
+			table.createdAt,
+		),
+	],
+);
+
+/**
+ * One comment thread entry on an artifact. A root comment carries an anchor
+ * (`text` / `node` / `point`, see `src/lib/shared/artifacts/anchor.ts`); a
+ * reply carries `parentId` and a NULL anchor — it is anchored to its parent.
+ * `anchorJson` is nullable so an anchor that no longer parses survives as an
+ * orphan rather than being dropped or faked.
+ */
+export const artifactComments = sqliteTable(
+	"artifact_comments",
+	{
+		id: text("id").primaryKey(),
+		artifactId: text("artifact_id")
+			.notNull()
+			.references(() => artifacts.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		parentId: text("parent_id").references(
+			(): AnySQLiteColumn => artifactComments.id,
+			{ onDelete: "cascade" },
+		),
+		anchorJson: text("anchor_json"),
+		author: text("author").notNull(),
+		body: text("body").notNull(),
+		status: text("status").notNull().default("open"),
+		createdAt: integer("created_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		index("artifact_comments_artifact_idx").on(
+			table.artifactId,
+			table.createdAt,
+		),
+	],
+);
+
+/**
+ * An App's stored state (`window.alfy.storage`), one row per key.
+ *
+ * A surrogate `id` with the (artifact, key) pair unique — the house idiom; this
+ * schema declares no composite primary key anywhere.
+ */
+export const artifactKv = sqliteTable(
+	"artifact_kv",
+	{
+		id: text("id").primaryKey(),
+		artifactId: text("artifact_id")
+			.notNull()
+			.references(() => artifacts.id, { onDelete: "cascade" }),
+		key: text("key").notNull(),
+		valueJson: text("value_json").notNull(),
+		updatedAt: integer("updated_at", { mode: "timestamp" })
+			.notNull()
+			.default(sql`(unixepoch())`),
+	},
+	(table) => [
+		uniqueIndex("artifact_kv_artifact_key_unique_idx").on(
+			table.artifactId,
+			table.key,
+		),
+		// No user column on purpose: a key-value row is reachable only through
+		// a scoped read of its artifact. See services/artifacts/kv.ts and the
+		// containment guard's key-value rule.
+	],
+);
+
 export const conversationContextStatus = sqliteTable(
 	"conversation_context_status",
 	{

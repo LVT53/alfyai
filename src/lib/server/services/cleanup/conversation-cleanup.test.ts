@@ -277,4 +277,39 @@ describe("deleteConversationWithCleanup", () => {
 			),
 		).toEqual(["source-1"]);
 	});
+
+	it("removes a normal chat's artifact-family row (with no outside references) and never even asks about another chat's", async () => {
+		seedConversation();
+
+		// Only this conversation's own row is ever offered to the loop —
+		// listConversationOwnedArtifacts is itself scoped to one conversation,
+		// which is what makes "spares another chat's" true by construction.
+		mockListConversationOwnedArtifacts.mockResolvedValue([
+			{ id: "artifact-1", type: "artifact" },
+		]);
+		mockArtifactHasReferencesOutsideConversation.mockResolvedValue(false);
+
+		const { deleteConversationWithCleanup } = await import(
+			"./conversation-cleanup"
+		);
+
+		const result = await deleteConversationWithCleanup(
+			"user-1",
+			"conversation-1",
+		);
+
+		expect(result?.deletedArtifactIds).toEqual(["artifact-1"]);
+		expect(result?.preservedArtifactIds).toEqual([]);
+		expect(mockHardDeleteArtifactsForUser).toHaveBeenCalledWith("user-1", [
+			"artifact-1",
+		]);
+		expect(mockListConversationOwnedArtifacts).toHaveBeenCalledWith(
+			"user-1",
+			"conversation-1",
+		);
+		expect(mockListConversationOwnedArtifacts).not.toHaveBeenCalledWith(
+			"user-1",
+			"conversation-2",
+		);
+	});
 });

@@ -80,6 +80,7 @@ import type {
 	AtlasJobCard,
 	AtlasProfile,
 } from "$lib/server/services/atlas/public-types";
+import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";
 import type { ChatGeneratedFile } from "$lib/server/services/file-production/types";
 import type { PendingWrite } from "$lib/server/services/connections/pending-write-dto";
 import type { ContextCompressionMarker } from "$lib/server/services/context-compression";
@@ -140,6 +141,7 @@ import ChatMessagePane from "./_components/ChatMessagePane.svelte";
 import DropZoneOverlay from "$lib/components/chat/DropZoneOverlay.svelte";
 import ConversationTitleText from "$lib/components/chat/ConversationTitleText.svelte";
 import DocumentWorkspace from "$lib/components/document-workspace/DocumentWorkspace.svelte";
+import { LayoutGrid } from "@lucide/svelte";
 import InstructionCommandDialog from "$lib/components/instructions/InstructionCommandDialog.svelte";
 import {
 	appendAssistantPlaceholder,
@@ -227,6 +229,7 @@ const initialForkOrigin = getData().forkOrigin ?? null;
 const initialBootstrapMode = getData().bootstrap ?? false;
 const initialGeneratedFiles = getData().generatedFiles ?? [];
 const initialFileProductionJobs = getData().fileProductionJobs ?? [];
+const initialArtifacts = getData().artifacts ?? [];
 const initialAtlasJobs = getData().atlasJobs ?? [];
 const initialPendingWrites = getData().pendingWrites ?? [];
 const initialContextCompressionSnapshots =
@@ -511,6 +514,19 @@ let conversationDraft = $state<ConversationDraft | null>(
 let forkOrigin = $state<ConversationForkOrigin | null>(initialForkOrigin);
 let generatedFiles = $state<ChatGeneratedFile[]>(initialGeneratedFiles);
 let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
+// The chat header's count button and the panel's list state (Slice 0 Task
+// S7): the conversation detail payload's own artifacts field, refreshed
+// alongside generatedFiles/fileProductionJobs everywhere they are, never a
+// second fetch path.
+let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
+let artifactListOpen = $state(false);
+// Read by closeWorkspace() to return focus to the button that opens "what
+// this chat made" when the panel closes — both refs exist because the
+// desktop and compact buttons are both always in the DOM (CSS decides which
+// one is visible per breakpoint); calling .focus() on the hidden one is a
+// harmless no-op, so trying both always lands on whichever one is showing.
+let artifactCountButtonEl = $state<HTMLButtonElement | null>(null);
+let artifactCountButtonCompactEl = $state<HTMLButtonElement | null>(null);
 let atlasJobs = $state<AtlasJobCard[]>(initialAtlasJobs);
 let pendingWrites = $state<PendingWrite[]>(initialPendingWrites);
 let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
@@ -849,6 +865,84 @@ let availableWorkspaceDocuments = $derived(
 	})),
 );
 
+// The chat header's count button and the panel's list (Slice 0 Task S7).
+// Absent-at-zero (the button is not drawn at all in a chat that made
+// nothing), never a second query: `artifacts` is the same conversation
+// detail payload field generatedFiles/fileProductionJobs already refresh
+// from.
+let artifactCount = $derived(artifacts.length);
+
+/**
+ * The File kind reuses the SAME real item (`previewUrl`, `mimeType`, …)
+ * `availableWorkspaceDocuments` already builds for the produced-file row's
+ * own Open action, rather than a second, poorer representation built from
+ * the bare summary. The other four kinds have no real body yet (Slice 0
+ * non-goal — the registry ships empty), so their item is minimal and honest:
+ * the panel's existing preview stack shows "not available" instead of
+ * inventing content.
+ *
+ * `updatedAt` is carried through either way, so the list row can show "made
+ * by Alfy {when}" (mockup surface 2) regardless of which branch built the
+ * item.
+ */
+function artifactToWorkspaceItem(
+	summary: ArtifactCardSummary,
+): DocumentWorkspaceItem {
+	if (summary.kind === "file") {
+		const matching = availableWorkspaceDocuments.find(
+			(item) => item.artifactId === summary.id,
+		);
+		// availableWorkspaceDocuments predates `kind`/`updatedAt` and never
+		// sets either, so both are carried in explicitly here — otherwise the
+		// panel's type/version pill (DocumentWorkspace.svelte's
+		// `{#if activeDocument.kind}`) silently never renders for the single
+		// most common open: a File that already has a real item.
+		if (matching) {
+			return { ...matching, kind: summary.kind, updatedAt: summary.updatedAt };
+		}
+	}
+	return {
+		id: summary.id,
+		source: "knowledge_artifact",
+		filename: summary.title,
+		title: summary.title,
+		mimeType: null,
+		artifactId: summary.id,
+		versionNumber: summary.versionNumber,
+		kind: summary.kind,
+		updatedAt: summary.updatedAt,
+	};
+}
+
+let artifactWorkspaceItems = $derived(artifacts.map(artifactToWorkspaceItem));
+
+// The panel's list rows call the existing onSelectDocument(item.id) path
+// (Task S5) rather than a second lookup, so every item this slice can open
+// — File through its real generatedFiles entry, the four new kinds through
+// their minimal one — must be findable through availableDocuments too.
+//
+// artifactWorkspaceItems first, availableWorkspaceDocuments only as
+// fallback: for a File that already has a real generatedFiles entry, both
+// arrays carry an item with the SAME id, but only the artifact-derived one
+// carries `kind`/`updatedAt` (availableWorkspaceDocuments predates the
+// artifact family and never sets either). DocumentWorkspace.svelte's
+// activeDocument derivation resolves by id through `documents` then
+// `availableDocuments` — the FIRST match wins — so the artifact-aware copy
+// must be findable before the plain one, or the panel opens the plain one
+// and its type/version pill silently never renders.
+let availableWorkspaceDocumentsWithArtifacts = $derived([
+	...artifactWorkspaceItems,
+	...availableWorkspaceDocuments.filter(
+		(item) =>
+			!artifactWorkspaceItems.some((existing) => existing.id === item.id),
+	),
+]);
+
+function openArtifactList() {
+	workspaceOpen = true;
+	artifactListOpen = true;
+}
+
 function getPersistedWorkspaceState() {
 	if (!browser) return null;
 	return loadPersistedWorkspaceDocumentState(window.sessionStorage);
@@ -913,6 +1007,26 @@ function openWorkspaceDocument(
 }
 
 function selectWorkspaceDocument(documentId: string) {
+	// The panel's "what this chat made" list (Task S7) calls this same
+	// onSelectDocument path for an item that may not be an open tab yet —
+	// it only ever appeared in availableDocuments. Selecting such an item
+	// has to open it (adding it to workspaceDocuments), not merely point
+	// activeWorkspaceDocumentId at an id no open tab has: the shell's own
+	// shouldShowWorkspaceShell depends on workspaceDocuments.length once
+	// the list itself has closed, so "select" alone would close the panel
+	// the instant the list did.
+	const alreadyOpenTab = workspaceDocuments.some(
+		(entry) => entry.id === documentId,
+	);
+	if (!alreadyOpenTab) {
+		const candidate = availableWorkspaceDocumentsWithArtifacts.find(
+			(entry) => entry.id === documentId,
+		);
+		if (candidate) {
+			openWorkspaceDocument(candidate, { preservePresentation: true });
+			return;
+		}
+	}
 	activeWorkspaceDocumentId = documentId;
 	workspaceOpen = true;
 	const document =
@@ -944,6 +1058,14 @@ function closeWorkspace() {
 	activeWorkspaceDocumentId = result.activeDocumentId;
 	workspaceOpen = result.isOpen;
 	workspacePresentation = "docked";
+	artifactListOpen = false;
+	// The panel's own close control (× or Escape) is about to leave the DOM,
+	// which would otherwise drop focus to <body> and strand a keyboard user
+	// at the top of the page. The count button is a stable landing spot
+	// whenever it exists, regardless of what actually opened this panel
+	// instance.
+	artifactCountButtonEl?.focus();
+	artifactCountButtonCompactEl?.focus();
 }
 
 function handleWorkspaceConversationDeleted(conversationId: string) {
@@ -1160,6 +1282,7 @@ function resetState() {
 	triggerForkOpeningTransition();
 	generatedFiles = data.generatedFiles ?? [];
 	fileProductionJobs = data.fileProductionJobs ?? [];
+	artifacts = data.artifacts ?? [];
 	atlasJobs = data.atlasJobs ?? [];
 	pendingWrites = data.pendingWrites ?? [];
 	contextCompressionMarkers = data.contextCompressionSnapshots ?? [];
@@ -1275,6 +1398,9 @@ function applyConversationDetailMetadata(
 	}
 	if (detail.fileProductionJobs) {
 		fileProductionJobs = [...detail.fileProductionJobs];
+	}
+	if (detail.artifacts) {
+		artifacts = [...detail.artifacts];
 	}
 	if (detail.atlasJobs) {
 		atlasJobs = [...detail.atlasJobs];
@@ -2832,6 +2958,10 @@ function handleDrop(event: DragEvent) {
 	>
 		<div class="chat-main relative flex min-h-0 flex-1 flex-col overflow-hidden">
 			<div class="chat-title-bar hidden h-10 shrink-0 items-center justify-center border-b border-border px-6 lg:flex">
+				<!-- Leading spacer: equal flex-basis to the trailing actions column
+				     keeps the title visually centred whether or not the count
+				     button is drawn, instead of the title drifting sideways. -->
+				<div class="chat-title-bar-side" aria-hidden="true"></div>
 				<h1
 					class="flex min-w-0 max-w-[min(42rem,72vw)] items-baseline justify-center text-center text-[13px] font-medium leading-5 text-text-primary"
 					title={activeProjectName
@@ -2856,7 +2986,46 @@ function handleDrop(event: DragEvent) {
 						<ConversationTitleText title={effectiveConversationTitle} />
 					</span>
 				</h1>
+				<div class="chat-title-bar-side chat-title-bar-actions">
+					{#if artifactCount > 0}
+						<button
+							bind:this={artifactCountButtonEl}
+							type="button"
+							class="artifact-count-button"
+							data-testid="artifact-count-button"
+							aria-label={$t('artifacts.header.buttonA11y', { count: artifactCount })}
+							aria-pressed={artifactListOpen}
+							onclick={openArtifactList}
+						>
+							<LayoutGrid size={16} strokeWidth={1.75} aria-hidden="true" />
+							<b>{artifactCount}</b>
+						</button>
+					{/if}
+				</div>
 			</div>
+
+			<!-- The title bar above is `hidden … lg:flex`; below `lg` this compact
+			     row carries the same button, right-aligned, with no title (the app
+			     shell's own Header already shows the conversation title on small
+			     screens). A distinct test id avoids a strict-mode collision with
+			     the desktop button: both exist in the DOM at every width, CSS
+			     alone decides which one is visible. -->
+			{#if artifactCount > 0}
+				<div class="chat-title-bar-compact flex items-center justify-end lg:hidden">
+					<button
+						bind:this={artifactCountButtonCompactEl}
+						type="button"
+						class="artifact-count-button"
+						data-testid="artifact-count-button-compact"
+						aria-label={$t('artifacts.header.buttonA11y', { count: artifactCount })}
+						aria-pressed={artifactListOpen}
+						onclick={openArtifactList}
+					>
+						<LayoutGrid size={16} strokeWidth={1.75} aria-hidden="true" />
+						<b>{artifactCount}</b>
+					</button>
+				</div>
+			{/if}
 
 			<DegradedCapabilitiesBanner isAdmin={data.user?.role === 'admin'} />
 
@@ -2966,8 +3135,16 @@ function handleDrop(event: DragEvent) {
 			presentation={workspacePresentation}
 			{returnToDockedOnExpandedClose}
 			documents={workspaceDocuments}
-			availableDocuments={availableWorkspaceDocuments}
+			availableDocuments={availableWorkspaceDocumentsWithArtifacts}
 			activeDocumentId={activeWorkspaceDocumentId}
+			list={{
+				open: artifactListOpen,
+				items: artifactWorkspaceItems,
+				title: $t('artifacts.panel.title'),
+			}}
+			onListOpenChange={(open) => {
+				artifactListOpen = open;
+			}}
 			onSelectDocument={selectWorkspaceDocument}
 			onOpenDocument={(document) =>
 				openWorkspaceDocument(document, { preservePresentation: true })}
@@ -3010,6 +3187,55 @@ function handleDrop(event: DragEvent) {
 
 	.chat-title-bar {
 		background: color-mix(in srgb, var(--surface-page) 92%, transparent 8%);
+	}
+
+	/* Equal-width leading/trailing columns keep the centred title from
+	   drifting when the count button is or is not drawn (Slice 0 Task S7). */
+	.chat-title-bar-side {
+		display: flex;
+		flex: 1 1 0;
+		min-width: 0;
+	}
+
+	.chat-title-bar-actions {
+		justify-content: flex-end;
+	}
+
+	.chat-title-bar-compact {
+		flex-shrink: 0;
+		padding: var(--space-xs, 0.375rem) var(--space-sm, 0.625rem) 0;
+	}
+
+	.artifact-count-button {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.3rem;
+		height: 28px;
+		border: none;
+		border-radius: var(--radius-md);
+		background: transparent;
+		padding: 0 0.5rem;
+		color: var(--text-muted);
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		cursor: pointer;
+		transition: background-color var(--duration-standard) var(--ease-out);
+	}
+
+	.artifact-count-button:hover {
+		background: var(--surface-elevated);
+		color: var(--text-primary);
+	}
+
+	.artifact-count-button:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 2px var(--focus-ring) inset;
+	}
+
+	.chat-title-bar-compact .artifact-count-button {
+		min-width: 32px;
+		height: 32px;
+		justify-content: center;
 	}
 
 	/* Project breadcrumb: dimmed relative to the title so the title itself

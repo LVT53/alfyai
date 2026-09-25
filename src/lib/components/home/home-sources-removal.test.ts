@@ -185,10 +185,12 @@ describe("home suggestion removal", () => {
 		);
 		expect(drop).toBeDefined();
 		// A drop that reused an existing number would be applied by filename but
-		// counted twice by idx: the highest idx must be this migration's.
-		expect(drop?.idx).toBe(
-			Math.max(...journal.entries.map((entry) => entry.idx)),
-		);
+		// counted twice by idx — checked as uniqueness, not "the highest idx in
+		// the whole journal forever": newer, unrelated migrations (Feature 2 ·
+		// Artifacts' own spine, for one) legitimately land after this one.
+		expect(
+			journal.entries.filter((entry) => entry.idx === drop?.idx),
+		).toHaveLength(1);
 
 		const sql = readFileSync(
 			join(repoRoot, "drizzle", `${drop?.tag}.sql`),
