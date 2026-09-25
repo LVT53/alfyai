@@ -1162,6 +1162,199 @@ describe("memory context service", () => {
 		]);
 	});
 
+	// With `includeAttachments`, a selected conversation's recent messages carry
+	// the full text of the files attached to them — a read of stored files by
+	// artifact id. The result names the attachments whose text it carries, so
+	// the tool can record what it read ("project files read" counts such a file
+	// when the project knows it), and the ids stay out of everything the model
+	// is handed.
+	describe("the attachments a selected history conversation carries", () => {
+		function seedTripNotesWithAttachments() {
+			const { sqlite, db } = openSeedDatabase();
+			const now = new Date("2026-05-16T09:00:00.000Z");
+			db.insert(schema.users)
+				.values({
+					id: "user-1",
+					email: "history-attachments@example.com",
+					passwordHash: "hash",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			db.insert(schema.conversations)
+				.values([
+					{
+						id: "conv-current",
+						userId: "user-1",
+						title: "Current chat",
+						createdAt: now,
+						updatedAt: now,
+					},
+					{
+						id: "trip-notes",
+						userId: "user-1",
+						title: "Vienna trip notes",
+						projectId: null,
+						createdAt: new Date("2026-05-10T09:00:00.000Z"),
+						updatedAt: new Date("2026-05-10T10:00:00.000Z"),
+					},
+				])
+				.run();
+			db.insert(schema.conversationSummaries)
+				.values({
+					conversationId: "trip-notes",
+					userId: "user-1",
+					summary: "Vienna trip planning with the train itinerary.",
+					source: "deterministic",
+					createdAt: new Date("2026-05-10T10:00:00.000Z"),
+					updatedAt: new Date("2026-05-10T10:00:00.000Z"),
+				})
+				.run();
+			db.insert(schema.messages)
+				.values([
+					{
+						id: "trip-notes-0",
+						conversationId: "trip-notes",
+						role: "user",
+						content: "Some older notes.",
+						createdAt: new Date(2026, 4, 10, 11, 0),
+					},
+					{
+						id: "trip-notes-1",
+						conversationId: "trip-notes",
+						role: "user",
+						content: "Here is the itinerary.",
+						createdAt: new Date(2026, 4, 10, 11, 1),
+					},
+					{
+						id: "trip-notes-2",
+						conversationId: "trip-notes",
+						role: "assistant",
+						content: "Noted.",
+						createdAt: new Date(2026, 4, 10, 11, 2),
+					},
+				])
+				.run();
+			db.insert(schema.artifacts)
+				.values([
+					{
+						id: "artifact-old-notes",
+						userId: "user-1",
+						conversationId: "trip-notes",
+						type: "source_document",
+						name: "Old notes.txt",
+						contentText: "Old notes text.",
+						createdAt: now,
+						updatedAt: now,
+					},
+					{
+						id: "artifact-itinerary",
+						userId: "user-1",
+						conversationId: "trip-notes",
+						type: "source_document",
+						name: "Wien itinerary.txt",
+						contentText: "Budapest 07:40, Wien 10:04.",
+						createdAt: now,
+						updatedAt: now,
+					},
+					{
+						// A scan with no text of its own: attached, never read.
+						id: "artifact-scan",
+						userId: "user-1",
+						conversationId: "trip-notes",
+						type: "source_document",
+						name: "Ticket scan.pdf",
+						contentText: null,
+						createdAt: now,
+						updatedAt: now,
+					},
+				])
+				.run();
+			db.insert(schema.artifactLinks)
+				.values(
+					[
+						["artifact-old-notes", "trip-notes-0"],
+						["artifact-itinerary", "trip-notes-1"],
+						["artifact-scan", "trip-notes-1"],
+					].map(([artifactId, messageId]) => ({
+						id: `attach-${artifactId}`,
+						userId: "user-1",
+						artifactId,
+						conversationId: "trip-notes",
+						messageId,
+						linkType: "attached_to_conversation",
+						createdAt: now,
+					})),
+				)
+				.run();
+			sqlite.close();
+		}
+
+		async function readTripNotes(overrides: { includeAttachments?: boolean }) {
+			const { getMemoryContext } = await import("./memory-context");
+			return (await getMemoryContext({
+				userId: "user-1",
+				conversationId: "conv-current",
+				mode: "history",
+				query: "vienna",
+				historyConversationId: "trip-notes",
+				maxMessages: 2,
+				...overrides,
+			})) as HistoryMemoryContextResult;
+		}
+
+		it("names only the attachments whose text the result carries", async () => {
+			seedTripNotesWithAttachments();
+
+			const result = await readTripNotes({ includeAttachments: true });
+
+			expect(
+				result.selectedConversation?.messages.map(
+					(message) => message.attachments ?? [],
+				),
+			).toEqual([
+				[
+					{
+						name: "Wien itinerary.txt",
+						content: "Budapest 07:40, Wien 10:04.",
+					},
+				],
+				[],
+			]);
+			// Not the scan, which has no text, and not the notes on a message
+			// outside the two-message window: neither reached the model.
+			expect(result.attachmentArtifactIds).toEqual(["artifact-itinerary"]);
+			expect(JSON.stringify(result.selectedConversation)).not.toContain(
+				"artifact-",
+			);
+		});
+
+		it("names none when attachments were not asked for", async () => {
+			seedTripNotesWithAttachments();
+
+			const result = await readTripNotes({});
+
+			expect(result.selectedConversation?.messages).toHaveLength(2);
+			expect(result).not.toHaveProperty("attachmentArtifactIds");
+		});
+
+		it("names none when screening drops the conversation that carried them", async () => {
+			mockListProjectionPolicyBlockedStatements.mockResolvedValueOnce([
+				{
+					id: "blocked-itinerary",
+					status: "deleted",
+					statement: "Budapest 07:40, Wien 10:04.",
+				},
+			]);
+			seedTripNotesWithAttachments();
+
+			const result = await readTripNotes({ includeAttachments: true });
+
+			expect(result.selectedConversation).toBeNull();
+			expect(result).not.toHaveProperty("attachmentArtifactIds");
+		});
+	});
+
 	it("sanitizes identity references in history content reaching the model", async () => {
 		const { sqlite, db } = openSeedDatabase();
 		const now = new Date("2026-05-16T09:00:00.000Z");

@@ -52,7 +52,8 @@ type PersistedMessageMetadata = SkillControlMessageMetadata & {
 	// turn actually read (a count, never a list; see `projectFilesRead` on
 	// ChatMessage). Written by the evidence step in the same metadata write
 	// that records evidenceStatus, because the count is defined by the evidence
-	// the turn selected and the project's links, and only that step has both.
+	// the turn selected, the files its tools read and the project's links, and
+	// only that step has all three (see `countProjectFilesRead`).
 	// Absent — never 0 — when the turn read none, so a stale count from an
 	// earlier turn cannot leave a row that names nothing that happened.
 	projectFilesRead?: number;
@@ -736,11 +737,12 @@ export async function getMessageEvidenceState(
 	// Workspaces Slice E — how many of the conversation's project files this
 	// turn read, the count the Info popover's "Project files" row prints. It is
 	// written by `updateMessageEvidence` in the SAME metadata write as the
-	// evidence summary, and it is defined by that same evidence (the selected
-	// evidence intersecting the project's links — see `countProjectFilesRead`),
-	// so it is read back here rather than fetched separately: the live page's
-	// evidence poll is the only channel that carries a finished turn's evidence
-	// to the browser, and a row about the evidence has to ride it.
+	// evidence summary, and it is defined by the same turn (the selected
+	// evidence and the files its tools read, intersected with the project's
+	// links — see `countProjectFilesRead`), so it is read back here rather than
+	// fetched separately: the live page's evidence poll is the only channel
+	// that carries a finished turn's evidence to the browser, and a row about
+	// the evidence has to ride it.
 	projectFilesRead: number | undefined;
 	// The Info popover's "Citation audit" row reads this. Unlike the summary it
 	// is NOT part of the evidence: a turn persists it when its message is

@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import type { MemoryContextResult } from "$lib/server/services/memory-context";
-import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import {
+	type ToolEvidenceCandidate,
+	toolReadArtifactIdsMetadata,
+} from "$lib/server/services/message-evidence";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 
 import { sanitizeMetadata, truncateText } from "./shared";
@@ -244,7 +247,17 @@ export function createMemoryContextMetadata(
 	if (selectedSibling) {
 		metadata.omittedMessageCount = selectedSibling.omittedMessageCount;
 	}
-	return metadata;
+	// The stored files whose text this call handed the model — the attachments
+	// `includeAttachments` returns — so the "project files read" count can
+	// credit them. Ids only; the model payload never carries them.
+	return {
+		...metadata,
+		...toolReadArtifactIdsMetadata(
+			"attachmentArtifactIds" in result
+				? (result.attachmentArtifactIds ?? [])
+				: [],
+		),
+	};
 }
 
 export function summarizeMemoryContextResult(

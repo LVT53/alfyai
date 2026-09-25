@@ -29,7 +29,10 @@ import {
 } from "$lib/server/services/file-production";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
-import { getMemoryContext } from "$lib/server/services/memory-context";
+import {
+	getMemoryContext,
+	type HistoryMemoryContextResult,
+} from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import {
@@ -48,6 +51,10 @@ import {
 	shouldForceProduceFileTool,
 } from "./index";
 import { MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN } from "./produce-file";
+import {
+	type ReadGeneratedFileResult,
+	readGeneratedFileForTool,
+} from "./read-generated-file";
 import { TOOL_TIMEOUTS_MS } from "./shared";
 import { resetToolResultCacheForTests } from "./tool-result-cache";
 
@@ -81,6 +88,13 @@ vi.mock("$lib/server/services/memory-context", () => ({
 }));
 vi.mock("$lib/server/services/image-search", () => ({
 	searchImages: vi.fn(),
+}));
+// The read itself is the database; the adapter around it — what the tool hands
+// the model and what it records — is what these tests are about. Everything
+// else in the module (payload, summary, patch base) stays real.
+vi.mock("./read-generated-file", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./read-generated-file")>()),
+	readGeneratedFileForTool: vi.fn(),
 }));
 vi.mock("$lib/server/config-store", () => ({
 	getConfig: vi.fn(() => ({
@@ -4974,6 +4988,234 @@ describe("tool description hygiene", () => {
 		);
 
 		expect(total).toBeLessThanOrEqual(CATALOGUE_TOKEN_CEILING[language]);
+	});
+});
+
+// The "project files read" row counts a project file the model read with this
+// tool. The tool says what it read on its tool-call entry — the artifact id its
+// own lookup resolved, only on a read that handed the model some of the file —
+// and nothing it says about that reaches the model.
+describe("read_generated_file tool — what a call records it read", () => {
+	const readGeneratedFileForToolMock = vi.mocked(readGeneratedFileForTool);
+	const READ_ID = "artifact-itinerary-normalized";
+
+	function readResult(
+		overrides: Partial<ReadGeneratedFileResult> = {},
+	): ReadGeneratedFileResult {
+		return {
+			filename: "Wien itinerary.pdf",
+			documentLabel: null,
+			versionNumber: null,
+			versionCount: null,
+			versionPending: false,
+			contentText: "Budapest 07:40, Wien 10:04, coach 24.",
+			summary: null,
+			mimeType: "text/markdown",
+			contentLength: 37,
+			notFound: false,
+			ambiguous: false,
+			candidates: [],
+			source: "document",
+			conversation: "library",
+			from: 0,
+			to: 37,
+			hasMore: false,
+			nextFrom: null,
+			query: null,
+			passages: null,
+			page: null,
+			pageCount: null,
+			pageUnit: null,
+			pageNote: null,
+			textPending: false,
+			sizeBytes: null,
+			createdAt: null,
+			part: null,
+			programSource: null,
+			programSourceAvailable: false,
+			...overrides,
+		};
+	}
+
+	function readTool() {
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		const execute = (toolCallId: string) =>
+			tools.read_generated_file.execute(
+				{ filename: "Wien itinerary.pdf" },
+				{ toolCallId, messages: [] },
+			);
+		return { execute, getToolCalls };
+	}
+
+	beforeEach(() => {
+		readGeneratedFileForToolMock.mockReset();
+	});
+
+	it("records the artifact the read resolved, and keeps it away from the model", async () => {
+		readGeneratedFileForToolMock.mockResolvedValue({
+			result: readResult(),
+			readArtifactId: READ_ID,
+		});
+		const { execute, getToolCalls } = readTool();
+
+		const payload = await execute("call-read");
+
+		expect(payload).toMatchObject({
+			found: true,
+			content: "Budapest 07:40, Wien 10:04, coach 24.",
+		});
+		const [entry] = getToolCalls();
+		expect(entry.metadata).toMatchObject({
+			ok: true,
+			found: true,
+			source: "document",
+			readArtifactIds: READ_ID,
+		});
+		// Not in the payload, the one-line summary, or the digest a later turn
+		// replays as the tool's result.
+		expect(JSON.stringify(payload)).not.toContain(READ_ID);
+		expect(entry.outputSummary).not.toContain(READ_ID);
+		expect(entry.resultDigest).not.toContain(READ_ID);
+	});
+
+	it("records nothing when the read found no file to read", async () => {
+		readGeneratedFileForToolMock.mockResolvedValue({
+			result: readResult({
+				contentText: null,
+				notFound: true,
+				source: null,
+				conversation: null,
+			}),
+			readArtifactId: null,
+		});
+		const { execute, getToolCalls } = readTool();
+
+		await execute("call-miss");
+
+		const [entry] = getToolCalls();
+		expect(entry.metadata).toMatchObject({ ok: false, found: false });
+		expect(entry.metadata).not.toHaveProperty("readArtifactIds");
+	});
+
+	it("records nothing when the read fails", async () => {
+		readGeneratedFileForToolMock.mockRejectedValue(
+			new Error("database is locked"),
+		);
+		const { execute, getToolCalls } = readTool();
+
+		await expect(execute("call-error")).resolves.toMatchObject({
+			found: false,
+		});
+
+		const [entry] = getToolCalls();
+		expect(entry.metadata).toMatchObject({ ok: false, found: false });
+		expect(entry.metadata).not.toHaveProperty("readArtifactIds");
+	});
+});
+
+// With `includeAttachments`, memory_context hands the model the full text of
+// files attached earlier — a read of stored files by artifact id, several per
+// call. The call records every file whose text it handed over, in one value,
+// and none of those ids reaches the model.
+describe("memory_context tool — what a call records it read", () => {
+	beforeEach(() => {
+		getMemoryContextMock.mockReset();
+		resetToolResultCacheForTests();
+	});
+
+	function historyResult(
+		overrides: Partial<HistoryMemoryContextResult> = {},
+	): HistoryMemoryContextResult {
+		return {
+			success: true,
+			mode: "history",
+			status: "available",
+			source: "conversation_summaries",
+			query: "vienna",
+			conversations: [],
+			omittedConversationCount: 0,
+			selectedConversation: {
+				conversationId: "trip-notes",
+				title: "Vienna trip notes",
+				summary: null,
+				updatedAt: 0,
+				messageSnippets: [],
+				messages: [
+					{
+						role: "user",
+						content: "Here is the itinerary and the tickets.",
+						createdAt: 0,
+						attachments: [
+							{ name: "Wien itinerary.txt", content: "Budapest 07:40." },
+							{ name: "Tickets.txt", content: "Coach 24, seat 61." },
+						],
+					},
+				],
+				omittedMessageCount: 0,
+			},
+			evidenceCandidates: [],
+			audit: {
+				conversationId: "conversation-1",
+				query: "vienna",
+				requestedMaxHistoryConversations: null,
+				appliedMaxHistoryConversations: 5,
+				historyConversationId: "trip-notes",
+				requestedMaxMessages: null,
+				appliedMaxMessages: 10,
+			},
+			...overrides,
+		};
+	}
+
+	async function recall() {
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		const payload = await tools.memory_context.execute(
+			{
+				mode: "history",
+				query: "vienna",
+				historyConversationId: "trip-notes",
+				includeAttachments: true,
+			},
+			{ toolCallId: "call-memory", messages: [] },
+		);
+		return { payload, entry: getToolCalls()[0] };
+	}
+
+	it("records every attachment whose text it handed over, and keeps them away from the model", async () => {
+		getMemoryContextMock.mockResolvedValue(
+			historyResult({
+				attachmentArtifactIds: ["artifact-itinerary", "artifact-tickets"],
+			}),
+		);
+
+		const { payload, entry } = await recall();
+
+		expect(JSON.stringify(payload)).toContain("Coach 24, seat 61.");
+		expect(entry.metadata).toMatchObject({
+			ok: true,
+			mode: "history",
+			readArtifactIds: "artifact-itinerary,artifact-tickets",
+		});
+		expect(JSON.stringify(payload)).not.toContain("artifact-");
+		expect(entry.outputSummary).not.toContain("artifact-");
+		// The digest is derived from the payload, and this one has none at all.
+		expect(entry.resultDigest ?? "").not.toContain("artifact-");
+	});
+
+	it("records nothing when no attachment text was handed over", async () => {
+		getMemoryContextMock.mockResolvedValue(historyResult());
+
+		const { entry } = await recall();
+
+		expect(entry.metadata).not.toHaveProperty("readArtifactIds");
 	});
 });
 

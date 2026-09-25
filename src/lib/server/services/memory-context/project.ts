@@ -60,6 +60,13 @@ export type ProjectContextResult = {
 	omittedSiblingCount: number;
 	selectedSibling?: ProjectContextSelectedSiblingDetail | null;
 	reportSiblings?: ProjectContextSelectedSiblingDetail[];
+	/**
+	 * The attachments whose text this result's messages carry
+	 * (`includeAttachments`), by artifact id: what the call read, for the
+	 * tool-call record. Absent when it carries none. Never part of the model
+	 * payload, which picks its fields by name.
+	 */
+	attachmentArtifactIds?: string[];
 	evidenceCandidates: ToolEvidenceCandidate[];
 	audit: {
 		conversationId: string;
@@ -203,6 +210,8 @@ async function listRecentDialogueMessages(params: {
 }): Promise<{
 	messages: ProjectContextDetailMessage[];
 	omittedMessageCount: number;
+	/** The attachments whose text the messages carry, by artifact id. */
+	attachmentArtifactIds: string[];
 }> {
 	const dialogueWhere = and(
 		eq(messages.conversationId, params.conversationId),
@@ -245,29 +254,29 @@ async function listRecentDialogueMessages(params: {
 		}
 	}
 
-	const selected = rows
-		.map((row) => {
-			const messageAttachments = attachmentMap.get(row.id);
-			const attachments =
-				messageAttachments && messageAttachments.length > 0
-					? messageAttachments
-							.map((attachment) => ({
-								name: attachment.name,
-								content: artifactContentMap.get(attachment.artifactId) ?? "",
-							}))
-							.filter((a) => a.content.length > 0)
-					: undefined;
-			return {
-				role: row.role as "user" | "assistant",
-				content: clipMessageContent(row.content),
-				createdAt: toTimestampMs(row.createdAt),
-				...(attachments && attachments.length > 0 ? { attachments } : {}),
-			};
-		})
-		.reverse();
+	// Only an attachment whose text lands in a returned message was read: one
+	// with no stored text, or on a message outside the window, was not.
+	const attachmentArtifactIds = new Set<string>();
+	const selected = [...rows].reverse().map((row) => {
+		const attachments = (attachmentMap.get(row.id) ?? []).flatMap(
+			(attachment) => {
+				const content = artifactContentMap.get(attachment.artifactId) ?? "";
+				if (content.length === 0) return [];
+				attachmentArtifactIds.add(attachment.artifactId);
+				return [{ name: attachment.name, content }];
+			},
+		);
+		return {
+			role: row.role as "user" | "assistant",
+			content: clipMessageContent(row.content),
+			createdAt: toTimestampMs(row.createdAt),
+			...(attachments.length > 0 ? { attachments } : {}),
+		};
+	});
 	return {
 		messages: selected,
 		omittedMessageCount: Math.max(0, messageCount - selected.length),
+		attachmentArtifactIds: [...attachmentArtifactIds],
 	};
 }
 
@@ -313,6 +322,11 @@ async function buildReportResult(params: {
 	);
 	const omittedSiblingCount =
 		params.reference.omittedSiblingCount + omittedByRequest;
+	const attachmentArtifactIds = [
+		...new Set(
+			messageDetails.flatMap((detail) => detail.attachmentArtifactIds),
+		),
+	];
 
 	return {
 		success: true,
@@ -332,6 +346,7 @@ async function buildReportResult(params: {
 		})),
 		omittedSiblingCount,
 		reportSiblings,
+		...(attachmentArtifactIds.length > 0 ? { attachmentArtifactIds } : {}),
 		evidenceCandidates: params.includeEvidenceCandidates
 			? buildReportEvidenceCandidates(reportSiblings)
 			: [],
@@ -406,6 +421,9 @@ async function buildDetailResult(params: {
 		siblings: [],
 		omittedSiblingCount: params.reference.omittedSiblingCount,
 		selectedSibling,
+		...(detailMessages.attachmentArtifactIds.length > 0
+			? { attachmentArtifactIds: detailMessages.attachmentArtifactIds }
+			: {}),
 		evidenceCandidates: params.includeEvidenceCandidates
 			? [buildDetailEvidenceCandidate(selectedSibling)]
 			: [],

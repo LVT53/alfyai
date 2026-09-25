@@ -197,6 +197,10 @@ export interface ToolCallEntry {
 	resultDigest?: string | null;
 	sourceType?: EvidenceSourceType | null;
 	candidates?: ToolEvidenceCandidate[];
+	// A tool that hands the model a stored file's content records which
+	// artifacts it read here, through `toolReadArtifactIdsMetadata`
+	// (message-evidence.ts) — the only writer — so the "project files read"
+	// count can credit them. Ids only, never content, names or paths.
 	metadata?: Record<string, string | number | boolean | null>;
 	// Inline map card data (map_route only, today). See ToolCallMapData.
 	map?: ToolCallMapData | null;

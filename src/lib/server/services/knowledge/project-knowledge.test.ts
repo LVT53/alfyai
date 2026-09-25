@@ -6,6 +6,8 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
+import type { ContextDebugState } from "./context-types";
 
 let dbPath: string;
 
@@ -214,6 +216,49 @@ function setArtifactConversation(
 		.prepare("UPDATE artifacts SET conversation_id = ? WHERE id = ?")
 		.run(conversationId, artifactId);
 	sqlite.close();
+}
+
+/**
+ * Move a seeded chat into a project, the way the first send from a project
+ * page does. The scenario's chats start outside every project.
+ */
+function setConversationProject(
+	conversationId: string,
+	projectId: string | null,
+): void {
+	const sqlite = new Database(dbPath);
+	sqlite
+		.prepare("UPDATE conversations SET project_id = ? WHERE id = ?")
+		.run(projectId, conversationId);
+	sqlite.close();
+}
+
+/**
+ * A turn's context debug state whose selected evidence names exactly these
+ * artifacts — the shape the evidence step reads back from the task state.
+ */
+function contextDebugSelecting(artifactIds: string[]): ContextDebugState {
+	return {
+		activeTaskId: "task-1",
+		activeTaskObjective: null,
+		taskLocked: false,
+		routingStage: "deterministic",
+		routingConfidence: 0,
+		verificationStatus: "skipped",
+		selectedEvidence: artifactIds.map((artifactId) => ({
+			artifactId,
+			name: artifactId,
+			artifactType: "normalized_document",
+			sourceType: "document",
+			role: "selected",
+			origin: "system",
+			confidence: 0.8,
+			reason: null,
+		})),
+		selectedEvidenceBySource: [
+			{ sourceType: "document", count: artifactIds.length },
+		],
+	};
 }
 
 function readArtifact(artifactId: string) {
@@ -1013,6 +1058,130 @@ describe("project knowledge links", () => {
 			name: "LinkedContextSourceError",
 			status: 409,
 			code: "linked_source_not_prompt_ready",
+		});
+	});
+
+	// The Info popover's "project files read" row is a count composed at
+	// finalize from two things that never meet anywhere else: the ids the turn
+	// read, and the ids the project's files answer to, handed over by
+	// `resolveConversationProjectFiles`. An uploaded document answers to two
+	// ids — its own row, and the normalized sibling retrieval and the read tool
+	// actually return — so the hand-over has to say which ids are one file.
+	describe("the project's files, as the evidence step counts them", () => {
+		it("maps every id a project file answers to onto that one file", async () => {
+			seedProjectKnowledgeScenario();
+			setConversationProject("conv-plain", "trip-project");
+			const { linkProjectKnowledge, resolveConversationProjectFiles } =
+				await import("./project-knowledge");
+			await linkProjectKnowledge({
+				userId: "owner-user",
+				projectId: "trip-project",
+				artifactIds: ["artifact-railjet", "artifact-hotel"],
+			});
+
+			const projectFiles = await resolveConversationProjectFiles({
+				userId: "owner-user",
+				conversationId: "conv-plain",
+			});
+
+			expect(projectFiles).toMatchObject({
+				projectId: "trip-project",
+				projectName: "Vienna trip",
+			});
+			expect(
+				Object.fromEntries(projectFiles?.documentIdByArtifactId ?? []),
+			).toEqual({
+				"artifact-hotel": "artifact-hotel",
+				"artifact-railjet": "artifact-railjet",
+				"artifact-railjet-normalized": "artifact-railjet",
+			});
+		});
+
+		it("counts a file the turn reached through both of its ids once", async () => {
+			seedProjectKnowledgeScenario();
+			setConversationProject("conv-plain", "trip-project");
+			const { linkProjectKnowledge, resolveConversationProjectFiles } =
+				await import("./project-knowledge");
+			const { countProjectFilesRead } = await import(
+				"$lib/server/services/message-evidence"
+			);
+			await linkProjectKnowledge({
+				userId: "owner-user",
+				projectId: "trip-project",
+				artifactIds: ["artifact-railjet"],
+			});
+			const projectFiles = await resolveConversationProjectFiles({
+				userId: "owner-user",
+				conversationId: "conv-plain",
+			});
+
+			// The source row and its normalized sibling are one document, so a
+			// turn whose evidence names both read one project file, not two.
+			expect(
+				countProjectFilesRead({
+					contextDebug: contextDebugSelecting([
+						"artifact-railjet",
+						"artifact-railjet-normalized",
+					]),
+					toolCalls: [],
+					projectFiles,
+				}),
+			).toBe(1);
+		});
+
+		it("credits a tool read of this project's file, and never another project's or another user's", async () => {
+			seedProjectKnowledgeScenario();
+			setConversationProject("conv-plain", "trip-project");
+			const { linkProjectKnowledge, resolveConversationProjectFiles } =
+				await import("./project-knowledge");
+			const { countProjectFilesRead, toolReadArtifactIdsMetadata } =
+				await import("$lib/server/services/message-evidence");
+			const { createProject } = await import("$lib/server/services/projects");
+
+			const renovation = await createProject("owner-user", "Flat renovation");
+			await linkProjectKnowledge({
+				userId: "owner-user",
+				projectId: "trip-project",
+				artifactIds: ["artifact-railjet"],
+			});
+			// Real project files, both of them — just not this conversation's.
+			await linkProjectKnowledge({
+				userId: "owner-user",
+				projectId: renovation.id,
+				artifactIds: ["artifact-hotel"],
+			});
+			await linkProjectKnowledge({
+				userId: "other-user",
+				projectId: "other-project",
+				artifactIds: ["artifact-other-user"],
+			});
+			const projectFiles = await resolveConversationProjectFiles({
+				userId: "owner-user",
+				conversationId: "conv-plain",
+			});
+			const readOf = (artifactIds: string[]): ToolCallEntry => ({
+				name: "read_generated_file",
+				input: {},
+				status: "done",
+				metadata: { ok: true, ...toolReadArtifactIdsMetadata(artifactIds) },
+			});
+
+			expect(
+				countProjectFilesRead({
+					contextDebug: null,
+					toolCalls: [readOf(["artifact-hotel", "artifact-other-user"])],
+					projectFiles,
+				}),
+			).toBe(0);
+			// This project's file, read through the normalized row its text
+			// lives in — the id the read tool actually resolves.
+			expect(
+				countProjectFilesRead({
+					contextDebug: null,
+					toolCalls: [readOf(["artifact-railjet-normalized"])],
+					projectFiles,
+				}),
+			).toBe(1);
 		});
 	});
 
