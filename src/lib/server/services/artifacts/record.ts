@@ -387,6 +387,14 @@ export async function updateArtifactBody(
 		summary: string;
 		/** Optional optimistic guard: the hash the caller last read. */
 		baseHash?: string;
+		/**
+		 * Shallow-merged into the row's metadata alongside the new body — the
+		 * durable home for state that belongs to a version, not to a whole
+		 * artifact's identity (Slice 2's App verification/glitch summary is the
+		 * first caller). Never touches `artifactType`/`title`, which stay
+		 * whatever they already were, unless a caller names those keys itself.
+		 */
+		metadataPatch?: Record<string, unknown>;
 	} & ArtifactScopeOptions,
 ): Promise<
 	| { ok: true; versionId: string; bodyHash: string }
@@ -405,7 +413,10 @@ export async function updateArtifactBody(
 
 	return db.transaction((tx) => {
 		const current = tx
-			.select({ contentText: artifacts.contentText })
+			.select({
+				contentText: artifacts.contentText,
+				metadataJson: artifacts.metadataJson,
+			})
 			.from(artifacts)
 			.where(eq(artifacts.id, row.id))
 			.get();
@@ -420,8 +431,18 @@ export async function updateArtifactBody(
 		}
 
 		const now = new Date();
+		const metadataJson = params.metadataPatch
+			? JSON.stringify({
+					...(parseJsonRecord(current.metadataJson) ?? {}),
+					...params.metadataPatch,
+				})
+			: undefined;
 		tx.update(artifacts)
-			.set({ contentText: params.body, updatedAt: now })
+			.set({
+				contentText: params.body,
+				updatedAt: now,
+				...(metadataJson !== undefined ? { metadataJson } : {}),
+			})
 			.where(eq(artifacts.id, row.id))
 			.run();
 		const versionId = insertVersionRow(tx, {
