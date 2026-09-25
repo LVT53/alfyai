@@ -1,5 +1,5 @@
 <script lang="ts">
-import { tick } from "svelte";
+import { tick, untrack } from "svelte";
 import { fade, fly } from "svelte/transition";
 import { reducedMotionAware } from "$lib/utils/motion";
 import { browser } from "$app/environment";
@@ -46,6 +46,7 @@ let {
 	contextCompressionMarkers = [],
 	forkOrigin = null,
 	forkingMessageId = null,
+	showingLinkedMessage = false,
 	readOnly = false,
 	onRegenerate = undefined,
 	onSendFollowUp = undefined,
@@ -85,6 +86,14 @@ let {
 	contextCompressionMarkers?: ContextCompressionMarker[];
 	forkOrigin?: ConversationForkOrigin | null;
 	forkingMessageId?: string | null;
+	/**
+	 * The page has brought one particular message into view for the reader —
+	 * a search result, a jump to a document's source. It does that before the
+	 * thread has rendered, and holding a position of our own (see
+	 * `heldPosition`) would pull the view away from it, so while this is true
+	 * the thread holds none.
+	 */
+	showingLinkedMessage?: boolean;
 	readOnly?: boolean;
 	onRegenerate?: ((payload: { messageId: string }) => void) | undefined;
 	onSendFollowUp?: ((payload: { text: string }) => void) | undefined;
@@ -159,6 +168,8 @@ const flyOut = reducedMotionAware(fly);
 const fadeAware = reducedMotionAware(fade);
 
 let scrollContainer = $state<HTMLDivElement | null>(null);
+// The thread inside the scroll container; its size changes as replies render.
+let threadContent = $state<HTMLDivElement | null>(null);
 let forkBoundaryMarker = $state<HTMLDivElement | null>(null);
 // B2 — $state (not a plain let) so the "jump to latest" button's visibility
 // can react to it directly; see queueActiveJumpRailTurnUpdate for how it
@@ -183,6 +194,110 @@ let lastForkBoundaryJumpKey: string | null = null;
 let pendingRestoreScroll: number | null = null;
 let activeJumpRailTurnId = $state<string | null>(null);
 let jumpRailActiveUpdateQueued = false;
+
+/**
+ * The position the view is held at while the thread settles, or null once
+ * the reader — or a streaming reply — owns it.
+ *
+ * Jumping to the latest message happens before the thread has its final
+ * height: every assistant reply renders its markdown asynchronously (a lazily
+ * imported parser, then code highlighting), and images, cards and web fonts
+ * land later still. A single jump therefore stops at the bottom of a
+ * half-rendered thread and the rest grows in beneath the composer, leaving
+ * the reader at the top of the last reply. So a jump also sets this target,
+ * and a ResizeObserver re-applies it whenever the thread or its viewport
+ * changes size: "bottom" keeps the latest message in view; a number is the
+ * position a reload restores, held until the thread is tall enough to show
+ * it.
+ *
+ * The hold ends when the reader takes over — a scroll up the thread, or a
+ * press inside it — and when a reply streams: the streaming follow rules
+ * below stay exactly as they were.
+ */
+let heldPosition: "bottom" | number | null = null;
+// Where the view was when last looked at — a scroll event or our own write —
+// so that a scroll up the thread can be told from content growing below it.
+let lastKnownScrollTop = 0;
+// Holding needs a ResizeObserver to see the thread change size; without one
+// the jump itself is all there is.
+const canHoldPosition = browser && typeof ResizeObserver !== "undefined";
+
+function holdPosition(target: "bottom" | number) {
+	// Read untracked: this runs inside the scroll effect below, which must not
+	// re-run when the page starts or stops showing a linked message.
+	const pageHoldsView = untrack(() => showingLinkedMessage);
+	heldPosition = canHoldPosition && !pageHoldsView ? target : null;
+	lastKnownScrollTop = scrollContainer?.scrollTop ?? 0;
+}
+
+function releaseHeldPosition() {
+	heldPosition = null;
+}
+
+$effect(() => {
+	if (showingLinkedMessage) releaseHeldPosition();
+});
+
+/**
+ * Records where the view is. A move up the thread since the last look —
+ * the reader scrolling, or a jump to an earlier message — releases the hold.
+ * The browser clamping the view as the content shrinks leaves it at the
+ * bottom, so that never counts.
+ */
+function noteScrollPosition(scrollTop: number, distanceToBottom: number) {
+	if (
+		heldPosition !== null &&
+		scrollTop < lastKnownScrollTop - 1 &&
+		distanceToBottom > 1
+	) {
+		heldPosition = null;
+	}
+	lastKnownScrollTop = scrollTop;
+}
+
+function applyHeldPosition() {
+	const container = scrollContainer;
+	if (!container || heldPosition === null) return;
+	if (currentStreamingAssistantMessageId !== null) {
+		releaseHeldPosition();
+		return;
+	}
+	noteScrollPosition(
+		container.scrollTop,
+		container.scrollHeight - container.scrollTop - container.clientHeight,
+	);
+	if (heldPosition === null) return;
+	container.scrollTop =
+		heldPosition === "bottom" ? container.scrollHeight : heldPosition;
+	lastKnownScrollTop = container.scrollTop;
+	if (
+		typeof heldPosition === "number" &&
+		Math.abs(container.scrollTop - heldPosition) <= 1
+	) {
+		// The restored position is on screen; from here on it is the reader's.
+		releaseHeldPosition();
+	}
+}
+
+$effect(() => {
+	const container = scrollContainer;
+	const content = threadContent;
+	if (!container || !content || !canHoldPosition) return;
+	const observer = new ResizeObserver(() => applyHeldPosition());
+	observer.observe(content);
+	observer.observe(container);
+	// A press inside the thread — a toggle, a link, the scrollbar — hands the
+	// view to the reader: what they opened must not be scrolled away from them.
+	// Listened for here rather than as attributes: they only watch, they make
+	// nothing interactive.
+	container.addEventListener("pointerdown", releaseHeldPosition);
+	container.addEventListener("keydown", releaseHeldPosition);
+	return () => {
+		observer.disconnect();
+		container.removeEventListener("pointerdown", releaseHeldPosition);
+		container.removeEventListener("keydown", releaseHeldPosition);
+	};
+});
 
 function chatScrollKey(cid: string | null): string {
 	return `alfyai-chat-scroll:${cid ?? "unknown"}`;
@@ -212,7 +327,25 @@ $effect(() => {
 
 	function saveScroll() {
 		if (!container) return;
-		sessionStorage.setItem(chatScrollKey(cid), String(container.scrollTop));
+		const key = chatScrollKey(cid);
+		if (typeof heldPosition === "number") {
+			// A restore still waiting for the thread to grow: keep its target.
+			sessionStorage.setItem(key, String(heldPosition));
+			return;
+		}
+		const distanceToBottom =
+			container.scrollHeight - container.scrollTop - container.clientHeight;
+		if (
+			heldPosition === "bottom" ||
+			distanceToBottom < AUTO_SCROLL_EDGE_PX
+		) {
+			// At the latest message: the reload opens there again, held while
+			// the thread re-renders, rather than at a pixel offset the
+			// half-rendered thread cannot reach yet.
+			sessionStorage.removeItem(key);
+			return;
+		}
+		sessionStorage.setItem(key, String(container.scrollTop));
 	}
 
 	window.addEventListener("beforeunload", saveScroll);
@@ -228,7 +361,12 @@ function handleScroll() {
 	if (!scrollContainer) return;
 	const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
 	const distanceToBottom = scrollHeight - scrollTop - clientHeight;
-	shouldAutoScroll = distanceToBottom < AUTO_SCROLL_EDGE_PX;
+	noteScrollPosition(scrollTop, distanceToBottom);
+	// While the latest message is held in view, a gap below it is content
+	// still arriving (the observer closes it before the next paint), not the
+	// reader leaving the live edge.
+	shouldAutoScroll =
+		heldPosition === "bottom" || distanceToBottom < AUTO_SCROLL_EDGE_PX;
 	distanceToBottomPx = distanceToBottom;
 	queueActiveJumpRailTurnUpdate();
 }
@@ -336,6 +474,8 @@ $effect.pre(() => {
 	if (conversationId && conversationId !== lastConversationId) {
 		lastConversationId = conversationId;
 		shouldAutoScroll = true;
+		// A hold belongs to the conversation it was set in.
+		releaseHeldPosition();
 		lastMessageCount = 0;
 		lastFileProductionJobCount = 0;
 		lastAtlasJobUpdateKey = "";
@@ -396,11 +536,15 @@ $effect.pre(() => {
 	if (pendingForkBoundaryMessageId) {
 		void alignForkBoundaryAfterRender(pendingForkBoundaryMessageId);
 	} else if (shouldJumpToConversationBottom) {
-		// Switching to another conversation should always reveal the latest response.
+		// Switching to another conversation should always reveal the latest
+		// response — and keep it revealed while the thread renders in.
+		holdPosition("bottom");
 		void alignToBottomAfterRender();
 		shouldJumpToConversationBottom = false;
 	} else if (isNewMessage) {
-		// New message added: jump directly to the latest content.
+		// New message added: jump directly to the latest content, held there
+		// until the thread settles (a reply that starts streaming releases it).
+		holdPosition("bottom");
 		void alignToBottomAfterRender();
 	} else if (hasNewFileProductionJobs && shouldAutoScroll) {
 		// File-production cards render inside the latest assistant message; keep that expanded area visible.
@@ -423,6 +567,7 @@ $effect.pre(() => {
 function instantScrollToBottom() {
 	if (!scrollContainer) return;
 	scrollContainer.scrollTop = scrollContainer.scrollHeight;
+	lastKnownScrollTop = scrollContainer.scrollTop;
 }
 
 // Keep the jump-rail's active mark in sync with layout changes that aren't
@@ -646,6 +791,9 @@ async function restoreScrollToPosition(position: number) {
 		pendingRestoreScroll = null;
 		return;
 	}
+	// The re-rendering thread is usually not tall enough to show the saved
+	// position yet; hold it until it is.
+	holdPosition(position);
 	await tick();
 	requestAnimationFrame(() => {
 		if (!scrollContainer) {
@@ -653,6 +801,13 @@ async function restoreScrollToPosition(position: number) {
 			return;
 		}
 		scrollContainer.scrollTop = position;
+		lastKnownScrollTop = scrollContainer.scrollTop;
+		if (
+			heldPosition === position &&
+			Math.abs(scrollContainer.scrollTop - position) <= 1
+		) {
+			releaseHeldPosition();
+		}
 		// Reflect the restored scroll position in shouldAutoScroll so
 		// streaming content won't fight the user's manual scroll.
 		const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
@@ -696,6 +851,8 @@ async function alignForkBoundaryAfterRender(messageId: string) {
  */
 async function scrollToMessage(messageId: string) {
 	if (!scrollContainer) return;
+	// The reader chose where to go; a hold would pull the view back.
+	releaseHeldPosition();
 	await tick();
 	requestAnimationFrame(() => {
 		if (!scrollContainer) return;
@@ -736,7 +893,7 @@ async function scrollToMessage(messageId: string) {
 		aria-live="polite"
 		aria-atomic="false"
 	>
-	<div class="mx-auto flex min-h-full w-full max-w-[760px] flex-col gap-lg px-sm py-lg md:px-lg md:py-xl lg:px-xl">
+	<div bind:this={threadContent} class="mx-auto flex min-h-full w-full max-w-[760px] flex-col gap-lg px-sm py-lg md:px-lg md:py-xl lg:px-xl">
 		{#if isIncognito}
 			<!-- The one-time opening mark (spec §5): part of the scrolling
 			     thread, not sticky, not a banner. Rendered for every incognito

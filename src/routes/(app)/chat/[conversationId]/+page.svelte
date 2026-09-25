@@ -969,7 +969,13 @@ function handleWorkspaceConversationDeletedEvent(event: Event) {
 	handleWorkspaceConversationDeleted(conversationId);
 }
 
+// The conversation in which one particular message was brought into view for
+// the reader — a search result, a jump to a document's source. The thread
+// must not pull the view away from it (MessageArea's `showingLinkedMessage`).
+let linkedMessageConversationId = $state<string | null>(null);
+
 async function focusMessage(messageId: string) {
+	linkedMessageConversationId = data.conversation.id;
 	await tick();
 	requestAnimationFrame(() => {
 		const target = document.getElementById(`message-${messageId}`);
@@ -1120,6 +1126,7 @@ function resetState() {
 	hydratingConversation = false;
 	suppressHydration = false;
 	forkingMessageId = null;
+	linkedMessageConversationId = null;
 	draftPersistence.clear();
 	currentConversationId.set(data.conversation.id);
 	// Defer pending-message send to avoid state-cascade during hydration
@@ -2813,6 +2820,7 @@ function handleDrop(event: DragEvent) {
 						{forkOrigin}
 						{forkOpening}
 						{forkingMessageId}
+						showingLinkedMessage={linkedMessageConversationId === data.conversation.id}
 						readOnly={isConversationReadOnlyForChat}
 						onOpenDocument={openWorkspaceDocument}
 						onRegenerate={handleRegenerate}
