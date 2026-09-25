@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ArtifactDetail } from "$lib/server/services/artifacts";
+import { MAX_INLINE_TEXT_CHARS } from "../files";
 
 const getArtifactMock =
 	vi.fn<
@@ -197,5 +198,109 @@ describe("runReadArtifactTool", () => {
 		});
 
 		expect(seenSignal).toBe(controller.signal);
+	});
+});
+
+// A real gap found after the shell shipped: a "full" read had no size bound
+// at all — compactModelPayload only strips EMPTY keys, it never truncates —
+// so a large stored body or a long block list would be handed to the model
+// whole. Bounded here at the same MAX_INLINE_TEXT_CHARS the file tools
+// already use for the identical concern (files.ts), rather than a second
+// invented number.
+describe("runReadArtifactTool — bounding what reaches the model", () => {
+	it("clips a large body to the inline cap, reporting truncated:true and the omitted character count", async () => {
+		const hugeBody = "x".repeat(MAX_INLINE_TEXT_CHARS + 50_000);
+		getArtifactMock.mockResolvedValue(
+			detail({ kind: "document", body: hugeBody }),
+		);
+
+		const result = await runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "artifact-1",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload.success).toBe(true);
+		if (result.modelPayload.success) {
+			expect(result.modelPayload.body?.length).toBeLessThanOrEqual(
+				MAX_INLINE_TEXT_CHARS + 10, // small allowance for a "..." marker
+			);
+			expect(result.modelPayload.truncated).toBe(true);
+			expect(result.modelPayload.omittedChars).toBe(50_000);
+		}
+	});
+
+	it("does not report truncation for a body under the cap", async () => {
+		getArtifactMock.mockResolvedValue(
+			detail({ kind: "document", body: "well under the cap" }),
+		);
+
+		const result = await runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "artifact-1",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload.success).toBe(true);
+		if (result.modelPayload.success) {
+			expect(result.modelPayload.truncated).toBeUndefined();
+			expect(result.modelPayload.omittedChars).toBeUndefined();
+		}
+	});
+
+	it("keeps blocks in order up to the inline cap, then reports truncated:true and the omitted block count", async () => {
+		// Each block serializes to ~1,010 chars; comfortably more than
+		// MAX_INLINE_TEXT_CHARS / 1000 of them overflows the cap.
+		const blockCount = 200;
+		const blocks = Array.from({ length: blockCount }, (_, i) => ({
+			blockId: `b${i}`,
+			kind: "text",
+			hash: `h${i}`,
+			text: "y".repeat(1000),
+		}));
+		READ_ARTIFACT_HANDLERS.document = async () => ({ blocks });
+		getArtifactMock.mockResolvedValue(detail({ kind: "document" }));
+
+		const result = await runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "artifact-1",
+			detail: "blocks",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload.success).toBe(true);
+		if (result.modelPayload.success) {
+			const kept = result.modelPayload.blocks ?? [];
+			expect(kept.length).toBeGreaterThan(0);
+			expect(kept.length).toBeLessThan(blockCount);
+			// Every kept block is a real, unmodified block, in original order.
+			expect(kept).toEqual(blocks.slice(0, kept.length));
+			expect(result.modelPayload.truncated).toBe(true);
+			expect(result.modelPayload.omittedBlocks).toBe(blockCount - kept.length);
+		}
+	});
+
+	it("does not report truncation for a short block list", async () => {
+		const blocks = [{ blockId: "b1", kind: "text", hash: "h1", text: "Hello" }];
+		READ_ARTIFACT_HANDLERS.document = async () => ({ blocks });
+		getArtifactMock.mockResolvedValue(detail({ kind: "document" }));
+
+		const result = await runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "artifact-1",
+			detail: "blocks",
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.modelPayload.success).toBe(true);
+		if (result.modelPayload.success) {
+			expect(result.modelPayload.blocks).toEqual(blocks);
+			expect(result.modelPayload.truncated).toBeUndefined();
+			expect(result.modelPayload.omittedBlocks).toBeUndefined();
+		}
 	});
 });
