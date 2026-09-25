@@ -1,0 +1,169 @@
+// create_artifact: make a Document, App, Canvas or Slides item that lives
+// beside the chat (ADR-0066). "file" is produce_file's, not this tool's — see
+// docs/plans/claude-at-home-2/slice-5.md §The three tools and decisions.md
+// ruling 43 (this tool's shell, registration and the family-wide TOOL_I18N
+// descriptions are Slice 5a's; each type slice appends ONLY its own entry to
+// CREATE_ARTIFACT_HANDLERS below, in this file).
+import { z } from "zod";
+import { truncateText } from "../shared";
+
+/** The four types Alfy may create. "file" is produce_file's, not this tool's. */
+export const CREATABLE_ARTIFACT_KINDS = [
+	"document",
+	"app",
+	"canvas",
+	"slides",
+] as const;
+
+export type CreatableArtifactKind = (typeof CREATABLE_ARTIFACT_KINDS)[number];
+
+/** Advertised to the model: trimmed descriptions, no server-only bounds. */
+export const createArtifactModelInputSchema = z.object({
+	artifactType: z
+		.enum(CREATABLE_ARTIFACT_KINDS)
+		.describe("document, app, canvas or slides"),
+	title: z
+		.string()
+		.min(1)
+		.describe("What the user will see in the card and the panel."),
+	body: z
+		.string()
+		.min(1)
+		.describe(
+			"Documents: Markdown. Slides: the deck JSON. Canvas: the board JSON, or empty for a new board. Apps: the HTML document.",
+		),
+});
+
+/** Executed against: the same fields, with the server's bounds applied. */
+export const createArtifactInputSchema = z.object({
+	artifactType: z.enum(CREATABLE_ARTIFACT_KINDS),
+	title: z.string().min(1).max(200),
+	/** Documents: Markdown with `<!--b:id-->` markers. Slides: the deck JSON.
+	 *  Canvas: the board JSON, or empty for a new board. Apps: the HTML document. */
+	body: z.string().min(1),
+});
+
+export type CreateArtifactToolInput = z.infer<typeof createArtifactInputSchema>;
+
+export type CreateArtifactModelPayload =
+	| {
+			success: true;
+			artifactId: string;
+			artifactType: CreatableArtifactKind;
+			title: string;
+			versionId?: string;
+	  }
+	| { success: false; error: string };
+
+// English only, mirroring every other tool's field-level `.describe()` text:
+// only the top-level TOOL_I18N description/errorPrefix are bilingual.
+const ARTIFACT_KIND_LABELS: Record<CreatableArtifactKind, string> = {
+	document: "Document",
+	app: "App",
+	canvas: "Canvas",
+	slides: "Slides",
+};
+
+export interface CreateArtifactHandlerParams {
+	userId: string;
+	conversationId: string;
+	turnId: string;
+	title: string;
+	body: string;
+}
+
+export interface CreateArtifactHandlerSuccess {
+	artifactId: string;
+	title: string;
+	/** Omitted when the kind's handler does not produce a version row (rare). */
+	versionId?: string;
+}
+
+/**
+ * A registered handler owns everything about making its kind: validating and
+ * transforming the model's raw `body` (Document mints block ids immediately
+ * after parsing — see decisions.md's global constraints; Canvas/Slides
+ * validate their JSON; App runs its own thinking-off generation + a
+ * verification pass, see plan.md §Global Constraints), then writes the row
+ * through `createArtifact` (`$lib/server/services/artifacts`) with
+ * `author: "alfy"` — the model made this, not the user. Returns `ok: false`
+ * with a model-safe reason on any domain refusal; never throws for an
+ * expected refusal (a throw is for the envelope's timeout/abort path only).
+ */
+export type CreateArtifactHandler = (
+	params: CreateArtifactHandlerParams,
+) => Promise<
+	| { ok: true; value: CreateArtifactHandlerSuccess }
+	| { ok: false; reason: string }
+>;
+
+/**
+ * The per-kind dispatch seam (decisions.md rulings 43/44). Empty in Slice 5a:
+ * no type slice has landed yet, so every kind refuses with a model-safe "not
+ * yet" message. Slice 1 (document), Slice 2 (app), Slice 3 (canvas) and
+ * Slice 4 (slides) each append ONE entry here — and only here. No type slice
+ * edits `normal-chat-tools/index.ts` or `shared.ts` (ruling 43).
+ */
+export const CREATE_ARTIFACT_HANDLERS: Partial<
+	Record<CreatableArtifactKind, CreateArtifactHandler>
+> = {};
+
+export interface CreateArtifactRunResult {
+	modelPayload: CreateArtifactModelPayload;
+	outputSummary: string;
+	metadata: Record<string, string | number | boolean | null>;
+}
+
+/**
+ * The tool's whole domain logic, independent of the AI SDK execution
+ * envelope so it can be unit-tested directly (`index.ts`'s `execute` closure
+ * only adds the `ToolCallEntry` plumbing options.toolCallId/status require).
+ */
+export async function runCreateArtifactTool(
+	params: CreateArtifactHandlerParams & { artifactType: CreatableArtifactKind },
+): Promise<CreateArtifactRunResult> {
+	const handler = CREATE_ARTIFACT_HANDLERS[params.artifactType];
+	if (!handler) {
+		const label = ARTIFACT_KIND_LABELS[params.artifactType];
+		const error = `${label} items cannot be made yet. Say so, and offer the closest alternative you can actually do.`;
+		return {
+			modelPayload: { success: false, error },
+			outputSummary: truncateText(error, 200),
+			metadata: { ok: false },
+		};
+	}
+
+	const result = await handler({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		turnId: params.turnId,
+		title: params.title,
+		body: params.body,
+	});
+
+	if (!result.ok) {
+		return {
+			modelPayload: { success: false, error: result.reason },
+			outputSummary: truncateText(result.reason, 200),
+			metadata: { ok: false, artifactKind: params.artifactType },
+		};
+	}
+
+	const label = ARTIFACT_KIND_LABELS[params.artifactType];
+	return {
+		modelPayload: {
+			success: true,
+			artifactId: result.value.artifactId,
+			artifactType: params.artifactType,
+			title: result.value.title,
+			versionId: result.value.versionId,
+		},
+		outputSummary: `Created ${label} "${result.value.title}"`,
+		metadata: {
+			ok: true,
+			artifactId: result.value.artifactId,
+			artifactKind: params.artifactType,
+			artifactTitle: result.value.title,
+		},
+	};
+}
