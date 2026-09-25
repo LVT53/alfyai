@@ -12,11 +12,15 @@ import { resolveReasoningDepthEffort } from "$lib/server/services/chat-turn/reas
 import type { Capability } from "$lib/server/services/connections/registry";
 import type { ContextCompressionControlSender } from "$lib/server/services/context-compression";
 import { resolveTurnInstructions } from "$lib/server/services/instructions";
-import { detectLanguage } from "$lib/server/services/language";
+import {
+	resolveResponseLanguage,
+	type SupportedLanguage,
+} from "$lib/server/services/language";
 import {
 	isConversationIncognito,
 	isMemoryActiveForConversation,
 } from "$lib/server/services/memory-controls";
+import { listRecentUserMessageTexts } from "$lib/server/services/messages";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
 	type AuthenticatedPromptUser,
@@ -165,6 +169,18 @@ export type NormalChatSendModelBaseParams = {
 	// this turn's packet only — no durable session row. See
 	// normal-chat-context.ts's buildTurnGuidance.
 	pendingSkillInstructions?: string | null;
+	// The turn's reply language, resolved ONCE (see resolveTurnResponseLanguage
+	// below) by the caller — the send route, the stream orchestrator, or a
+	// retry — before context prep and tool-pack creation both need it. Every
+	// language-sensitive decision for this turn (the response-language guard
+	// in the turn packet, the tool catalogue's locale, the thought-step
+	// classifier's target language) reads this SAME value rather than each
+	// re-running detection independently, so they can never disagree with
+	// each other or with the actual reply. Optional so callers that only
+	// exercise one of prepareOutboundContext/createToolPack in isolation
+	// (tests) still work: each falls back to resolving it fresh from just
+	// `message` when this is omitted.
+	resolvedResponseLanguage?: SupportedLanguage;
 	// Messages appended after the current user turn (a non-streaming
 	// continuation replays the interrupted attempt's tool calls/results here).
 	continuationMessages?: ModelMessage[];
@@ -218,6 +234,44 @@ export type ToolPack = {
 	getToolCalls: ReturnType<typeof createNormalChatTools>["getToolCalls"];
 };
 
+// How many prior user messages resolveResponseLanguage may look back
+// through before giving up and falling back to the UI language. Small on
+// purpose: this is a fallback for an ambiguous LATEST message, not a
+// majority vote over the whole conversation, and each one is a row this
+// query has to read.
+const RESPONSE_LANGUAGE_HISTORY_LOOKBACK = 5;
+
+/**
+ * The one place a chat turn's reply language is resolved (AGENTS.md: shared
+ * turn logic exists once, used by send/stream/retry alike). Reads the
+ * conversation's recent user-authored messages (role-filtered — memory
+ * facts, project files, and the model's own prior replies never reach this
+ * decision) and the account's UI-language preference, then hands both to
+ * language.ts's resolveResponseLanguage. Call this ONCE per turn, before
+ * `prepareOutboundContext` and `createToolPack` (both accept the result as
+ * `resolvedResponseLanguage` so neither re-detects independently), and
+ * before building anything that needs the answer earlier still, like the
+ * stream orchestrator's thought-step classifier session.
+ *
+ * Fails open to a message-only resolution on a lookup error: a history
+ * read hiccup should never block a turn, just narrow the resolver's
+ * fallback chain down to the latest message and the UI language.
+ */
+export async function resolveTurnResponseLanguage(
+	params: Pick<NormalChatSendModelBaseParams, "message" | "conversationId" | "user">,
+): Promise<SupportedLanguage> {
+	const priorUserMessages = await listRecentUserMessageTexts(
+		params.conversationId,
+		RESPONSE_LANGUAGE_HISTORY_LOOKBACK,
+	).catch(() => []);
+
+	return resolveResponseLanguage({
+		latestMessage: params.message,
+		priorUserMessages,
+		uiLanguage: params.user?.uiLanguage,
+	});
+}
+
 export async function resolveProviderRuntime(
 	params: NormalChatSendModelBaseParams,
 ): Promise<ProviderRuntime> {
@@ -265,19 +319,20 @@ export function resolveActiveDepthEffort(
 // On-demand skill loading's per-turn catalogue line: resolved here (not as a
 // context-preparation pipeline stage) because it only needs the userId and
 // response language already available to every caller of
-// prepareOutboundContext. Fails open (no catalogue) on any lookup error, same
-// posture as every other best-effort context addition in this file.
+// prepareOutboundContext. Takes the turn's already-resolved response
+// language (same value the reply and the tool catalogue use) rather than
+// re-detecting from the raw message, so the skill catalogue's locale can
+// never drift from the other two. Fails open (no catalogue) on any lookup
+// error, same posture as every other best-effort context addition in this
+// file.
 async function resolveSkillCatalogueBlock(
 	userId: string | undefined,
-	message: string,
+	responseLanguage: SupportedLanguage,
 ): Promise<string | null> {
 	if (!userId || !getConfig().composerCommandRegistryEnabled) return null;
 	try {
 		await ensureBuiltInSystemSkillsSeeded(userId);
-		const entries = await listSkillCatalogueEntries(
-			userId,
-			detectLanguage(message),
-		);
+		const entries = await listSkillCatalogueEntries(userId, responseLanguage);
 		return buildSkillCatalogueBlock(entries);
 	} catch {
 		return null;
@@ -326,9 +381,17 @@ export async function prepareOutboundContext(
 	enabledConnectionCapabilities: Set<Capability>,
 	logLabel = "provider request",
 ): Promise<PreparedModelContext> {
+	// Falls back to a context-free, message-only resolution when the caller
+	// has not pre-resolved it via resolveTurnResponseLanguage (e.g. a test
+	// exercising this function directly) — still an improvement over the old
+	// raw detectLanguage call, just without the conversation-history/UI-
+	// language fallback tiers that need a DB read and the authenticated user.
+	const resolvedResponseLanguage =
+		params.resolvedResponseLanguage ??
+		resolveResponseLanguage({ latestMessage: params.message });
 	const skillCatalogueBlock = await resolveSkillCatalogueBlock(
 		params.userId,
-		params.message,
+		resolvedResponseLanguage,
 	);
 	// Standing guidance is resolved here, once per turn, and passed in as
 	// data: prompt assembly renders it and never reads for it. Unlike the
@@ -348,6 +411,7 @@ export async function prepareOutboundContext(
 		sessionId: params.conversationId,
 		modelConfig: runtime.modelConfig,
 		user: params.user,
+		responseLanguage: resolvedResponseLanguage,
 		attachmentIds: params.attachmentIds,
 		activeDocumentArtifactId: params.activeDocumentArtifactId,
 		attachmentTraceId: params.attachmentTraceId,
@@ -428,12 +492,24 @@ export async function createToolPack(
 ): Promise<ToolPack> {
 	const routingCoverage = await resolveRoutingCoverageLabels();
 	const routingCoverageLabel = routingCoverage.routing;
+	// Same fallback posture as prepareOutboundContext above: prefer the
+	// turn's pre-resolved language (resolveTurnResponseLanguage), falling
+	// back to a context-free resolution so a caller exercising createToolPack
+	// in isolation still gets a locale. This is what keeps the tool
+	// catalogue's language from ever disagreeing with the reply's own
+	// language guard — previously each called detectLanguage independently,
+	// so a message that scored differently between the two call sites (or
+	// simply the ordinary noise of two separate detections) could hand the
+	// model an English reply instruction next to a Hungarian tool catalogue.
+	const resolvedResponseLanguage =
+		params.resolvedResponseLanguage ??
+		resolveResponseLanguage({ latestMessage: params.message });
 	const normalChatTools = createNormalChatTools({
 		userId: params.userId,
 		conversationId: params.conversationId,
 		turnId,
 		requestText: params.message,
-		language: detectLanguage(params.message),
+		language: resolvedResponseLanguage,
 		enabledConnectionCapabilities,
 		modelId,
 		...(routingCoverageLabel ? { routingCoverageLabel } : {}),
