@@ -55,6 +55,21 @@ const artifactsDict = {
 		"artifacts.action.dismiss": "Dismiss",
 		// The history button's title until the first kind with history lands.
 		"artifacts.history.comingWithDocument": "History arrives with documents.",
+		// The Document's version history sheet (Slice 1, T6).
+		"artifacts.document.versions.title": "Versions",
+		"artifacts.document.versions.current": "Current",
+		"artifacts.document.versions.restore": "Restore",
+		"artifacts.document.versions.restoreConfirm":
+			"Restore this version? The current one is kept as a version.",
+		"artifacts.document.versions.byUser": "You",
+		"artifacts.document.versions.byAlfy": "Alfy",
+		"artifacts.document.versions.conflict":
+			"This document changed elsewhere. Reload to see the current text.",
+		"artifacts.document.versions.loadError":
+			"Could not load the version history.",
+		"artifacts.document.versions.restoreError":
+			"Could not restore this version.",
+		"artifacts.document.versions.empty": "No earlier versions yet.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -86,6 +101,20 @@ const artifactsDict = {
 		"artifacts.action.dismiss": "Elvetés",
 		"artifacts.history.comingWithDocument":
 			"Az előzmények a dokumentumokkal érkeznek.",
+		"artifacts.document.versions.title": "Változatok",
+		"artifacts.document.versions.current": "Jelenlegi",
+		"artifacts.document.versions.restore": "Visszaállítás",
+		"artifacts.document.versions.restoreConfirm":
+			"Visszaállítod ezt a változatot? A jelenlegi is megmarad változatként.",
+		"artifacts.document.versions.byUser": "Te",
+		"artifacts.document.versions.byAlfy": "Alfy",
+		"artifacts.document.versions.conflict":
+			"Ez a dokumentum máshol megváltozott. Töltsd újra a jelenlegi szövegért.",
+		"artifacts.document.versions.loadError":
+			"Nem sikerült betölteni az előzményeket.",
+		"artifacts.document.versions.restoreError":
+			"Nem sikerült visszaállítani ezt a változatot.",
+		"artifacts.document.versions.empty": "Még nincs korábbi változat.",
 	},
 } as const;
 

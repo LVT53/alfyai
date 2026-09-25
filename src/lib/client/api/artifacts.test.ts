@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchArtifact, fetchConversationArtifacts } from "./artifacts";
+import {
+	fetchArtifact,
+	fetchArtifactVersionBody,
+	fetchArtifactVersions,
+	fetchConversationArtifacts,
+	restoreArtifactVersion,
+} from "./artifacts";
 
 function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), {
@@ -103,5 +109,71 @@ describe("artifacts client API", () => {
 		await expect(
 			fetchConversationArtifacts("conv-1", fetchMock),
 		).resolves.toEqual([]);
+	});
+
+	describe("versions (Slice 1, T6)", () => {
+		it("fetches the version list, newest first as the server sends them", async () => {
+			const versions = [
+				{
+					id: "v2",
+					versionNumber: 2,
+					author: "user",
+					summary: "Edit",
+					createdAt: 2,
+				},
+				{
+					id: "v1",
+					versionNumber: 1,
+					author: "alfy",
+					summary: "First draft",
+					createdAt: 1,
+				},
+			];
+			const fetchMock = vi.fn(async () => jsonResponse({ ok: true, versions }));
+
+			await expect(
+				fetchArtifactVersions("artifact-1", "conv-1", fetchMock),
+			).resolves.toEqual(versions);
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/artifacts/artifact-1/versions?conversationId=conv-1",
+			);
+		});
+
+		it("fetches one version's stored body", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, body: "# Weekend\n\nOld text." }),
+			);
+
+			await expect(
+				fetchArtifactVersionBody("artifact-1", "version-1", null, fetchMock),
+			).resolves.toBe("# Weekend\n\nOld text.");
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/artifacts/artifact-1/versions/version-1",
+			);
+		});
+
+		it("restores a version and returns its version number", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, version: 4 }),
+			);
+
+			await expect(
+				restoreArtifactVersion("artifact-1", "version-1", "conv-1", fetchMock),
+			).resolves.toBe(4);
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/artifacts/artifact-1/versions/version-1/restore?conversationId=conv-1",
+				expect.objectContaining({ method: "POST" }),
+			);
+		});
+
+		it("throws on a failed restore", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: false, reason: "no_body" }, 400),
+			);
+
+			await expect(
+				restoreArtifactVersion("artifact-1", "version-1", null, fetchMock),
+			).rejects.toThrow();
+		});
 	});
 });

@@ -65,3 +65,59 @@ export async function fetchConversationArtifacts(
 	);
 	return _unwrapList<ArtifactCardSummary>(payload, "artifacts");
 }
+
+function withConversationQuery(conversationId?: string | null): string {
+	return conversationId
+		? `?conversationId=${encodeURIComponent(conversationId)}`
+		: "";
+}
+
+/** The History sheet's own list (Slice 1, T6) — separate from fetchArtifact so a restore can refresh just this. */
+export async function fetchArtifactVersions(
+	artifactId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<ArtifactVersionSummary[]> {
+	const payload = await requestJson<{
+		ok: true;
+		versions: ArtifactVersionSummary[];
+	}>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/versions${withConversationQuery(conversationId)}`,
+		undefined,
+		"Failed to load the version history",
+		fetchImpl,
+	);
+	return payload.versions;
+}
+
+/** One version's stored body, for the History sheet's preview. */
+export async function fetchArtifactVersionBody(
+	artifactId: string,
+	versionId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<string> {
+	const payload = await requestJson<{ ok: true; body: string }>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(versionId)}${withConversationQuery(conversationId)}`,
+		undefined,
+		"Failed to load this version",
+		fetchImpl,
+	);
+	return payload.body;
+}
+
+/** Restores an older version as a NEW version (never coalesced — ruling 47) and returns its version number. */
+export async function restoreArtifactVersion(
+	artifactId: string,
+	versionId: string,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<number> {
+	const payload = await requestJson<{ ok: true; version: number }>(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(versionId)}/restore${withConversationQuery(conversationId)}`,
+		{ method: "POST" },
+		"Failed to restore this version",
+		fetchImpl,
+	);
+	return payload.version;
+}
