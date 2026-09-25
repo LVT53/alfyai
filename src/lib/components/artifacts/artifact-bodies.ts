@@ -20,6 +20,8 @@ export interface ArtifactBodyProps {
 	kind: ArtifactKind;
 	title: string;
 	body: string | null;
+	/** The conversation the panel is showing; bodies pass it to `fetchArtifact` and any other artifact route so an incognito conversation's artifacts resolve, and it is null outside a conversation. */
+	conversationId?: string | null;
 	/** Fires when the body's own dirty state changes, so the panel can guard closing. */
 	onDirtyChange?: (dirty: boolean) => void;
 	/** The body hands its serialised form back for versions/refusal. Slice 1 first. */

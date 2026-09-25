@@ -147,6 +147,64 @@ via env.ts. **In review:** RV-W0-F (sonnet) in `rv-w0f` (5560), also fixing the 
   slice-0.md fixes). Then: merge into `feat/artifacts-s0` → `feat/artifacts` → `dev`, gates, deploy, Wave 2.
 - Owner, 2026-09-25: push only `dev` (feature branches stay local).
 
+**Wave 1 (Slice 0) DONE and deployed (2026-09-25 ~22:45).** Merged: review fixes → `feat/artifacts-s0` `f8f7dd3a` →
+`feat/artifacts` `1a56d92f` → `dev` `2bf644aa` (pushed). Gates on `dev`: check 0/17, biome clean, **12,264 tests**, build 32/2,
+Fallow 124/4 with 0 new, **Playwright 89/89**. ai.dev runs `2bf644aa`: DB backed up, the three artifact tables exist, 0 journal
+errors; live API check (`/root/verify-artifacts-spine.mjs`): a produced PDF lists as a File artifact (`ok: true`), the
+conversation detail carries it, opening it answers `ok: true` with no versions, a missing id is a 404 `{ ok:false,
+reason:"not_found" }`, no session is 401. `feat/artifacts` fast-forwarded to `dev` `2bf644aa`.
+
+**Wave 2 dispatched (sonnet ×3, from `2bf644aa`):** S5a in `art-s5a` (5410) — the three tools as a family shell with a per-kind
+dispatch seam (no creatable kind), the catalogue, descriptions EN+HU, timeouts, the harness core; S1 in `art-s1` (5420) —
+Documents, T4/T10's @Alfy path/T13 blocked on 5a; S2 in `art-s2` (5430) — Apps, A7/A8-tool/A9 blocked on 5a. Blocked agents
+merge `feat/artifacts` themselves once 5a has merged there, else stop and report. Reviews after: RV-5a (sonnet), RV-1A
+(opus, patch protocol), RV-1B (sonnet, editor), RV-2A (opus, sandbox/CSP), RV-2B (sonnet, generation).
+
+**Slice 5a DONE (2026-09-26 ~00:30), in review.** `feat/artifacts-s5a` in `art-s5a`, HEAD `cb9a0775` (4 commits on
+`2bf644aa`: `1b24cf93` catalogue, `05b0f80c` the three tools, `623473b9` harness core, `cb9a0775` retry wiring). Gates:
+check 0/17, biome clean, **12,356 tests**, build 32/2, Fallow 124/4 identical, containment 24 unchanged, Playwright 37/37.
+Catalogue ceiling raised once to `{ en: 4830, hu: 7850 }` (measured 4,804 / 7,823), snapshots regenerated. Its
+deviations are confirmed as **ruling 50** (three per-tool registries, the refusal union widened by type slices,
+candidates on a failed edit, read defaults to "full", per-case circuit breaker, bare `tsx`). Two notes: it built the
+harness from the ADR text because the apps-quality prototype is a folder, not a branch (Slice 2 aligns its suites with
+the folder); and it opened the real `~/.config/opencode/opencode.json` to learn the fallback's shape (it reports no key
+copied anywhere; the owner has been told; RV-5a greps the diff). S1 and S2 were sent the seam API.
+**RV-5a (sonnet) running** in `rv-5a` (branch `feat/artifacts-s5a-review` from `cb9a0775`, port 5570): byte stability,
+scope fields, containment incl. the catalogue read, catalogue text hygiene, EN/HU parity, tool behaviour and caps,
+gating, harness key rule. Findings → `review-5a.md` on its branch.
+
+**Slice 2 unblocked part DONE (2026-09-26), waiting on 5a.** `feat/artifacts-s2` in `art-s2`, 10 commits
+`155d002c`…`ed0b09fc` (A1–A6, A8 route/service, A10, E2E): contract + audit, thinking-off generation, verification,
+the sandboxed frame + bootstrap + exact CSP, App storage with ruling 48's total cap, AppBody (Preview/Code, download,
+regenerate), containment +2, archive escaping, erasure/Clear Memory integration, 7 E2E. Gates: check 0/17, biome clean,
+**12,479 tests**, build 32/2, Fallow 124/4 with 0 new, containment 26, Playwright 34/34. Blocked: A7 (the App create
+handler), A8's tool part, A9 (app + verification suites, live eval). Decisions on its deviations: accepted — dark
+tokens from `.dark`, the stricter fence rule (an unfenced answer is never accepted), `requireApiUser`, the
+`metadataPatch` parameter on `updateArtifactBody` (S1's ruling-47 change lands in the same function: keep both at
+merge), the download route, no UI line for `invalid_key`/`not_found`; **not accepted** — the self-attested repair
+check (**ruling 52**: re-verify, compare claim lists, bounded); its `ArtifactBodyProps` gap becomes **ruling 51**
+(fix agent in `art-bodyprops`, branch `feat/artifacts-bodyprops`, port 5490). Its note that `AGENTS.md` says "five"
+known cycles while the baseline has four goes to S5b's doc fixes (T6). Lesson for every brief: a route file exporting
+anything but its verbs passes `npm run check` and fails `npm run build`.
+
+**RV-5a done → Slice 5a merged into `feat/artifacts` as `20e73213` (2026-09-26).** Verdict "merge with fixes": 4
+defects fixed test-first on `feat/artifacts-s5a-review` (`a2e2d8c4` read/edit reached another of the user's own
+conversations, now pinned to the calling conversation; `c6dfe4bb` catalogue titles collapsed to one line;
+`e4ffe2d6` a failed catalogue read is logged; `5a8778c6` `--only` no longer empties the known-bad gate) plus the
+catalogue-read containment case (`81699f93`); 12,364 tests; live smoke through the tunnel accepted (thinking off, no
+key). The branch was fast-forwarded to `4ba32b9c` and merged. Its open questions and a gap it missed (the handlers
+never received the envelope's abort signal) are **ruling 53**; **S5a resumed** for that follow-up (abort signal,
+read bound, `MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3`). Gates on `feat/artifacts` running (`/tmp/gates-fa-5a/`).
+
+**2026-09-26 ~00:50.** Gates on `feat/artifacts` at the 5a merge `20e73213`: check 0/17, biome clean, **12,364 tests**,
+build 32/2, Fallow 124/4 with 0 new, Playwright 27/27 (chat + conversation + artifacts-panel). The ruling-51 fix
+(`ab0edb85`: `ArtifactBodyProps.conversationId`, `DocumentWorkspace` prop, the chat page supplies it; 2 tests; its own
+gates green, 27/27 Playwright) merged as **`62c4eb55`**. **S2's agent ran out of context** on resume ("Prompt is too
+long"), with nothing uncommitted (`ed0b09fc`, tree clean); **S2b (sonnet)** continues in `art-s2` (5430) from a full
+brief: merge `feat/artifacts`, ruling 51 in AppBody, ruling 52 in verify.ts, A9 suites + live eval (tunnel port
+30430), A8 tool wording, then A7 once 5a's ruling-53 follow-up is merged (else stop, "blocked on 5a follow-up").
+S1 told it is unblocked. Lesson: long-running implementers need a context-economy line in their brief.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
@@ -163,5 +221,7 @@ via env.ts. **In review:** RV-W0-F (sonnet) in `rv-w0f` (5560), also fixing the 
 
 ## Next action
 
-Wait for the five agents' reports; review Wave 0 (three Opus reviewers) and merge it into `dev`; deploy the dev
-environment; merge `dev` into `feat/artifacts`; review S0 (two Opus reviewers) before dispatching Wave 2.
+RV-5a reports and the ruling-51 fix lands → merge both into `feat/artifacts` (gates in `art-base`) → resume S2
+(A7, A8 tool part, A9 + ruling 52) and let S1 pick up the merge. Then wait for S1/S2's reports → RV-1A (opus), RV-1B,
+RV-2A (opus), RV-2B → merge wave 2 → `dev` → push → deploy dev → real-model checks. Review ports: RV-5a 5570; next
+free 5580, 5590, 5620, 5630 (5600 is Phase 4's, 5610 was used).
