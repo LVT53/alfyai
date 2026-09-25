@@ -586,8 +586,17 @@ export async function seedDefaultProviders(): Promise<void> {
 			});
 		}
 
-		const model2Enabled = process.env.MODEL_2_ENABLED !== "false";
-		if (model2Enabled && model2Config.baseUrl && model2Config.modelName) {
+		// `config.model2Enabled` (env.ts) parses MODEL_2_ENABLED the same way
+		// `model1Config`/`model2Config` above already read the rest of this env
+		// configuration — this bootstrap-only seed (guarded by the `existing.length
+		// > 0` return above, so it runs once, before any admin_config override row
+		// can exist) reflects the environment's own defaults, not a runtime
+		// admin override.
+		if (
+			config.model2Enabled &&
+			model2Config.baseUrl &&
+			model2Config.modelName
+		) {
 			const { encrypted: enc2, iv: iv2 } = encryptApiKey(model2Config.apiKey);
 			const [provider2] = await db
 				.insert(providers)

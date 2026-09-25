@@ -1,0 +1,956 @@
+MODEL-FACING TOOL CATALOGUE (hu) - THIS FILE IS THE CACHED PROMPT PREFIX.
+
+Written by src/lib/server/services/normal-chat-tools/index.test.ts; never edit it by hand.
+Below is the chat request's `tools` array, pretty-printed: every tool's name, description
+and input schema, in the order the request sends them. The chat template renders all of it
+into the prompt on every turn, so a changed description, schema or order moves the cached
+prefix from that point on. If the change is deliberate, re-run the test with `-u` in the
+same commit and say so in the commit message.
+
+Configuration: the fully connected catalogue the budget tests measure - Parallel configured
+(research_web, fetch_url), ORS configured with no coverage label and no timetables loaded
+(map_route), all nine connection capabilities enabled, no degraded-tool hints. A real turn
+may send fewer tools (the gated ones above, and memory_context, use_skill and
+suggest_instruction are withheld per conversation), never the same ones in another order.
+----
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "research_web",
+      "description": "Keresés az interneten aktuális vagy ellenőrizhető tényekért: árak, specifikációk, hírek, szabályzatok, összehasonlítások. Hívd így: {\"query\": \"a pontos kutatási kérdés\"}; opcionálisan `objective` és 2-3 rövid kulcsszavas `searchQueries` (site: operátor nélkül, évszám nélkül, hacsak nem történeti a kérdés). A `readPages`-t állítsd 1-2-re, ha a válaszhoz oldal-szintű részlet kell (pontos ár, specifikáció, hivatalos dokumentáció, egy megnevezett cikk), így a kutatás itt fejeződik be egy külön fetch_url lépés helyett; egyébként 0. Ne használd olyan URL-hez, amelyet a felhasználó már megadott (fetch_url), távolsághoz, útvonalhoz vagy menetidőhöz (map_route), megmutatandó képekhez (image_search), és akkor sem, ha ebben a körben már vannak webes kutatási eredmények. `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza, valamint `pages` tömböt (url, title, contentMarkdown), ha a `readPages` be volt állítva; ellentmondás esetén az elsődleges forrást részesítsd előnyben.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "searchQueries": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "readPages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "fetch_url",
+      "description": "Megnevezett weboldalak elolvasása: {\"urls\": [\"https://example.com\"]} (mindig tömb, legfeljebb 5) és opcionális `objective`, hogy mit keresel. Akkor hívd, ha a felhasználó linket adott, vagy ha egy részlet csak azon az oldalon található meg. Ne használd oldalak megkeresésére, amelyeknek nincs URL-je (a research_web keresi meg őket, és a `readPages`-szel oldalszöveget is ad), sem tárolt fájlokhoz vagy a beszélgetés fájljaihoz (files, read_generated_file). `evidence` részleteket és `answerBriefMarkdown` összefoglalót ad vissza.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "minItems": 1,
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "objective": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "urls"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "memory_context",
+      "description": "Tartós memória lekérése, ha érdemben javítja a választ. `mode`: `persona` (alapértelmezett) preferenciákhoz és célokhoz; `history` a `query`-re illő régebbi beszélgetésekhez, majd egy beszélgetés részletei `historyConversationId` + `maxMessages` megadásával; `project` projektmappa-folytonossághoz (a mappa nevét a `query`-ben add meg), majd egy visszakapott `siblingConversationId` a részletekhez. Ne használd olyan memória újbóli lekérésére, amelyet a kontextus már idéz — ugyanaz a tár, csak mélyebbre vagy régebbre menni hívd —, sem a jelenlegi beszélgetéshez, amelyet amúgy is olvasol, sem tárolt fájlokhoz (files). A `conversationId`-t a rendszer adja meg; soha ne kérj vagy adj meg felhasználó-, mappa- vagy projektazonosítót. Memóriabejegyzéseket és beszélgetésrészleteket ad vissza; az üres eredmény nem bizonyítja, hogy nincs kapcsolódó memória.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "description": "persona (default), project, or history.",
+            "type": "string",
+            "enum": [
+              "persona",
+              "project",
+              "history"
+            ]
+          },
+          "query": {
+            "description": "What to look up; for project mode, include the folder name.",
+            "type": "string"
+          },
+          "maxSiblings": {
+            "description": "Max project conversations to return (keep at or below 16).",
+            "type": "integer",
+            "minimum": 1
+          },
+          "siblingConversationId": {
+            "description": "A conversation id this tool returned in a previous project result; never invent one.",
+            "type": "string"
+          },
+          "maxMessages": {
+            "description": "Max recent messages per selected conversation.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "maxHistoryConversations": {
+            "description": "Max history conversations to return.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "historyConversationId": {
+            "description": "A conversation id this tool returned in a history result; never invent one.",
+            "type": "string"
+          },
+          "includeAttachments": {
+            "description": "Include full text of earlier attachments.",
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "image_search",
+      "description": "Webes képek (fotók, illusztrációk, ábrák) keresése a válaszhoz: {\"query\": \"aranyszínű retriever kölyök\"}. Ne használd térképhez, útvonalhoz, távolsághoz vagy bármi földrajzihoz (arra a map_route való, amely saját térképkártyát jelenít meg), a felhasználó saját képeihez (photos), sem tényekhez vagy szöveghez (research_web). Kép-URL-ek listáját adja vissza. A használt képeket ágyazd be a válaszba Markdown képszintaxissal: `![alt szöveg](url)` oda, ahová valók; a felhasználó nem látja a nyers eszközkimenetet, ezért a be nem ágyazott kép számára láthatatlan.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "produce_file",
+      "description": "Letölthető fájl készítése (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Csak akkor hívd, ha a felhasználó fájlt kér, és a függő eszközök már valódi tartalmat adtak vissza — soha ne helyőrzővel vagy üresen. Ne használd magának az adatnak a kidolgozására (előbb run_python), fájl visszaolvasására (read_generated_file), és akkor sem, ha nem kértek letöltést — egy összefoglaló, táblázat vagy lista a válaszodban a helye. Egyszerű forma: `requestTitle`, `filename` vagy `outputType`, és `markdown`; az előállítási módot a szerver választja. Egy kérésben ne keverd a PDF/DOCX/HTML formátumokat az md/txt/csv/tsv/json/code fájlokkal; hívd meg kétszer. Meglévő fájl módosításához előbb hívd a `read_generated_file`-t, majd küldd újra a teljes tartalmat, vagy adj `patches`-t [{oldText, newText}], ahol minden oldText pontos, egyedi, legalább 20 karakteres részlet. A `program`-ot csak kódot igénylő fájlokhoz használd (XLSX, PPTX, ZIP): a típust add meg az `outputType`/`requestedOutputs` mezőben, a kód pedig a `/output` könyvtárba írja a fájlt (pl. `/output/report.xlsx`) — a puszta fájlnév a `/output`-on kívülre kerül és elvész. `documentSource` blokkokat csak akkor, ha a struktúra egyértelműen javít egy PDF/DOCX/HTML riportot: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Soha ne rajzolj táblázatot vagy diagramot szövegként (nincs pipe-táblázat, nincs blokk-karakteres sáv); a sortöréseket \\n-ként kódold a JSON szövegekben. `status`-t ad vissza: `succeeded` a `files` listával — csak ekkor mondd, hogy kész; `failed` `errorCode`/`message` mezőkkel — ha `retryable`, javítsd és küldd be még egyszer, különben mondd meg, miért nem sikerült; `running` — még készül, nincs kész fájl.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "requestTitle": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "outputType": {
+            "description": "File type, e.g. xlsx, docx, pptx, pdf, csv, zip, md.",
+            "type": "string"
+          },
+          "requestedOutputs": {
+            "description": "Only for several formats of one artifact: [{\"type\":\"pdf\"},{\"type\":\"docx\"}].",
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "sourceMode": {
+            "type": "string",
+            "enum": [
+              "program",
+              "document_source"
+            ]
+          },
+          "markdown": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "patches": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "oldText": {
+                  "type": "string"
+                },
+                "newText": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "oldText",
+                "newText"
+              ]
+            }
+          },
+          "program": {
+            "description": "Code that builds the file. It must write into /output (e.g. /output/report.xlsx); only /output is collected. Needs outputType or requestedOutputs.",
+            "type": "object",
+            "properties": {
+              "language": {
+                "type": "string",
+                "enum": [
+                  "python",
+                  "javascript"
+                ]
+              },
+              "sourceCode": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "language",
+              "sourceCode"
+            ]
+          },
+          "documentSource": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "run_python",
+      "description": "Rövid Python 3.11 szkript futtatása gyors számításokhoz: fejben nem elvégezhető aritmetika, mértékegység- és dátum/idő-átváltás, a felhasználó által megadott adatok elemzése vagy összesítése, gyors algoritmusok. Add meg: {\"code\": \"...\"}, opcionálisan egy egysoros `purpose`-t; a szükséges értékeket print()-eld ki. Ne használd fájl kézbesítésére (produce_file — a /output-ba írt fájlok NEM jutnak el a felhasználóhoz), hálózat elérésére (nincs), sem olyan egyetlen lépéshez, amelyet szövegben is kimondhatsz és ellenőrizhetsz. Csak a Python standard könyvtár érhető el (nincs numpy, nincs pandas, nincs pip telepítés); az openpyxl, xlsxwriter, python-docx és python-pptx a produce_file program módjához van jelen, nem ehhez az eszközhöz. Csak a stdout, a stderr és a kilépési kód érkezik vissza, egyenként 8000 karakterre korlátozva (az elejét és a végét megtartva). Elszigetelt Docker sandbox, 90 másodperces korlát; az időtúllépést jelenti, nem csendben eldobja.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_generated_file",
+      "description": "Egy EBBEN a beszélgetésben vagy a beszélgetés projektjében lévő fájl teljes aktuális szövegének beolvasása — itt előállított fájlé, ide feltöltött/csatolt dokumentumé (a Conversation Files alatti nevek), vagy a projekthez kapcsolt fájlé (a Project Files alatti nevek) — `filename` vagy `requestTitle` alapján. A projekt fájlját közvetlenül a nevével olvasod ki: az a lista csak azt mondja meg, hogy létezik. Hívd meg, mielőtt `produce_file` patch-eket küldenél (a pontosan nem egyező oldText-ű patch-et a szerver elutasítja), vagy ha a felhasználó többet kér egy dokumentumból, mint amennyit a kontextusod mutat. A hosszú szöveg ablakokban érkezik: ha az eredményben `hasMore` áll, hívd újra `from: nextFrom` értékkel. A `query` megadásával az ablak helyett annak az egy fájlnak legfeljebb 3, a témához tartozó részletét kapod. Oldalszámozott dokumentumnál a `page` megadásával onnan indul az olvasás; a kontextusodban lévő részletek `[p. 3]`/`[slide 2]` jelölései idézhetők. Ne használd csatlakoztatott felhőtárhoz (files), weboldalhoz (fetch_url), megjegyzett preferenciákhoz (memory_context), sem akkor, ha a szükséges részlet már idézve van a kontextusodban. Szöveget ad vissza `hasMore`/`nextFrom` mezőkkel, vagy azt, hogy nincs meg / több fájl is egyezik (akkor hívd újra egy pontos névvel); ilyenkor mondd ki, ne találgass.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "requestTitle": {
+            "type": "string"
+          },
+          "from": {
+            "description": "Character offset to continue from. Pass the previous result's nextFrom to read the next window.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "query": {
+            "description": "Instead of the text window, return up to 3 passages of this one file about the query.",
+            "type": "string",
+            "maxLength": 300
+          },
+          "page": {
+            "description": "1-based page to start at, for a paged document. `query` and `from` take precedence.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "part": {
+            "description": "\"source\": the program that built this file instead of its text, to edit and resend.",
+            "type": "string",
+            "enum": [
+              "text",
+              "source"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "files",
+      "description": "A felhasználó csatlakoztatott fájltárának (Nextcloud vagy OneDrive) listázása, keresése, olvasása és kezelése. A `list` egy mappa tartalmát nézi meg és számolja meg (add meg az útvonalát, vagy hagyd el a gyökérhez); a `search` név alapján keres az egész fában; a `read` egy konkrét fájlt nyit meg útvonal alapján. Minden találat tartalmazza az utolsó módosítás idejét ('a legutóbbi számlám', 'a legújabb fájl'). Ne használd fényképekhez vagy videókhoz (photos), egy ebben a beszélgetésben lévő fájlhoz (read_generated_file), weboldalhoz (fetch_url), sem megjegyzett preferenciákhoz (memory_context). Emellett új fájl mentésére (`save`), áthelyezésére/átnevezésére (`move`, `destinationPath`), törlésére (`delete` — a kukába, visszaállítható), mappa létrehozására (`create_folder`) és NYILVÁNOS megosztási link készítésére (`share_link` — a linkkel bárki megnyithatja a fájlt, szándékos közzététel, óvatosan) is képes: ezekhez az írásnak engedélyezve kell lennie, OneDrive-nál NEM elérhetők (csak olvasható), és SOHA nem lépnek életbe azonnal — mindegyik csak egy függőben lévő műveletet javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia. Találatokat ad vissza útvonallal, mérettel és módosítási idővel; a `read` a szöveget is. Több csatlakoztatott fióknál add meg az `account` mezőt (szolgáltató, címke vagy e-mail).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "search",
+              "read",
+              "save",
+              "move",
+              "delete",
+              "create_folder",
+              "share_link"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "destinationPath": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "calendar",
+      "description": "A felhasználó csatlakoztatott naptárának (Google vagy Apple iCloud) olvasása: `list_events` (közelgő/időszakra vonatkozó események, opcionálisan a `calendarId`-vel szűkítve), `check_availability` (szabad/foglalt, csak Google, szintén `calendarId`-vel szűkíthető), vagy `list_calendars` a naptárak és azonosítóik felfedezéséhez, mielőtt egy olvasást vagy írást szűkítenél (Google esetén teljes a felsorolás; Apple iCloudnál egy olvasás nem szűkíthető egyetlen naptárra). Akkor hívd, ha a felhasználó a naptárára, közelgő eseményeire kérdez rá, vagy hogy ráér-e egy időpontban. Ne használd teendőkhöz, határidőkhöz vagy ellenőrzőlistákhoz — azok a `tasks` eszközben vannak, egy külön tárban, amelyet ez nem lát —, sem az események közötti menetidőhöz (map_route). Google Calendaren esemény létrehozására (create_event), módosítására (update_event) és törlésére (delete_event) is képes (ehhez az írásnak engedélyezve kell lennie) — ezek SOHA nem lépnek életbe azonnal: mindegyik csak egy függőben lévő módosítást javasol, amelyet a felhasználónak kifejezetten jóvá kell hagynia. Ismétlődő sorozat részét képező eseménynél előbb kérdezd meg, hogy csak az adott alkalomra vagy az egész sorozatra vonatkozzon-e. Eseményeket ad vissza kezdéssel/véggel, címmel és helyszínnel. Több csatlakoztatott fióknál add meg az `account` mezőt (szolgáltató, címke vagy e-mail).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list_events",
+              "list_calendars",
+              "check_availability",
+              "create_event",
+              "update_event",
+              "delete_event"
+            ]
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "calendarId": {
+            "type": "string"
+          },
+          "recurringScope": {
+            "type": "string",
+            "enum": [
+              "this_event",
+              "series"
+            ]
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "email",
+      "description": "A felhasználó csatlakoztatott e-mail fiókjának (IMAP) olvasása: legutóbbi üzenetek listázása; `search` szabad szöveg és/vagy `from` (feladó), `subject` (tárgy), `since`/`before` dátumtartomány alapján; `count` a találatok megszámolása felsorolás nélkül (alapból olvasatlanok); vagy egy üzenet elolvasása uid alapján. Az olvasás alapból a Beérkezett mappára vonatkozik, de elfogad egy `folder`-t (pl. 'Elküldött', 'Archívum', vagy egy név a `list_folders`-ból); egy olvasás a csatolmányokat is felsorolja (fájlnév/típus/méret). Ne használd egy csatolmány tartalmának megnyitására vagy a felhasználó tárolt dokumentumaihoz (files), sem találkozókhoz és meghívókhoz, amelyek a `calendar` eszközhöz tartoznak. Új e-mail küldésére, Törölt elemek közé helyezésére vagy megjelölésére is képes (ehhez az írásnak engedélyezve kell lennie) — ezek SOHA nem lépnek életbe azonnal: mindegyik csak egy függőben lévő módosítást javasol, amelyet a felhasználónak jóvá kell hagynia. Egy elküldött e-mailt nem lehet visszavonni: a küldés előtt ellenőrizd a címzettet, tárgyat és szöveget. Fejléceket ad vissza, uid-olvasásnál a törzzsel. Több csatlakoztatott fióknál add meg az `account` mezőt (szolgáltató, címke vagy e-mail).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "recent",
+              "search",
+              "count",
+              "read",
+              "list_folders",
+              "send",
+              "trash",
+              "flag"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "unseenOnly": {
+            "type": "boolean"
+          },
+          "uid": {
+            "type": "number"
+          },
+          "folder": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "before": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "cc": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "inReplyTo": {
+            "type": "string"
+          },
+          "flag": {
+            "type": "string",
+            "enum": [
+              "seen",
+              "flagged"
+            ]
+          },
+          "value": {
+            "type": "boolean"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "photos",
+      "description": "A felhasználó saját fényképeinek/videóinak keresése a csatlakoztatott fényképtárában (Immich). A `search` természetes nyelvű INTELLIGENS keresés, a fényképek vizuális/szemantikai TARTALMÁRA illeszkedik ('tengerpart naplementében', 'a kutyám a hóban'). PONTOS szűréshez a `search_by_date`: készítési dátumtartomány (`from`/`to`, ÉÉÉÉ-HH-NN), hely (`city`/`country`), médiatípus (`type`: IMAGE/VIDEO), kedvencek (`favorites`) és/vagy `personName` — ez válaszolja meg a '2019 júniusi fényképek', 'kedvenceim' vagy 'X személy fényképei' kéréseket. A `list_albums` és `album` (az `albumId`-vel) az albumokhoz, a `list_people` egy felismert személy pontos nevéhez. Ne használd webes képekhez (image_search), nem média dokumentumokhoz (files), sem ahhoz, hogy hol volt a felhasználó egy időpontban (location). Minden találat tartalmaz egy `imageUrl`-t — ha MUTATNI is akarod a fényképet, nem csak felsorolni, ágyazd be Markdown képként: `![rövid felirat](imageUrl)`; inkább néhány releváns fénykép, mint csupasz fájlnév-táblázat. Fényképek egy 'AlfyAI' albumhoz adására is képes (ehhez az írásnak engedélyezve kell lennie) — ez csak egy függőben lévő, megerősítést igénylő módosítást javasol; az eredetieket soha nem törli és nem módosítja. Több csatlakoztatott fióknál add meg az `account` mezőt (szolgáltató, címke vagy e-mail).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "search",
+              "search_by_date",
+              "list_albums",
+              "album",
+              "list_people",
+              "add_to_album"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "IMAGE",
+              "VIDEO"
+            ]
+          },
+          "favorites": {
+            "type": "boolean"
+          },
+          "personName": {
+            "type": "string"
+          },
+          "albumId": {
+            "type": "string"
+          },
+          "assetIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "media",
+      "description": "A felhasználó csatlakoztatott médiaszerverének (Plex) olvasása: `watch_history` és `libraries` az analitikához ('mit néztünk ezen a héten'); `continue_watching` ahhoz, ami folyamatban van vagy következik; `library_search` a BIRTOKOLT könyvtár keresésére (amit a felhasználó birtokol, akár nézte, akár nem), találati számmal. A `watch_history` `query` szűrője csak az ELŐZMÉNYEKBEN keres — a 'megvan-e nekem X?' kérdéshez a `library_search`-öt használd. Ne használd a felhasználó saját fényképeihez és házi videóihoz (photos), egy filmről vagy sorozatról szóló tényekhez (research_web), sem a tárhelyén lévő fájlokhoz (files). Címeket ad vissza megtekintési állapottal és darabszámmal. Csak olvasható; több csatlakoztatott fióknál add meg az `account` mezőt (szolgáltató, címke vagy e-mail).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "watch_history",
+              "libraries",
+              "continue_watching",
+              "library_search"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "location",
+      "description": "A felhasználó SAJÁT, csatlakoztatott OwnTracks eszközének jelenlegi vagy korábbi helyzete: `last` (hol vagyok most), `history` (nyers pozíciók egy időszakban), `places` (tömör 'meglátogatott helyek' összegzés — a 'hol voltam tegnap' vagy 'ott voltam-e az irodában' kérdésekhez) és `distance` (légvonalbeli távolság — a jelenlegi ponttól egy megadott lat/lon-ig, egy időszakon át a 'mennyit utaztam'-hoz, vagy egy elmentett otthonig). Ne használd közúti vagy tömegközlekedési távolsághoz és menetidőhöz, sem olyan helyhez, amely nem a felhasználó saját eszköze — az a map_route; ezt csak akkor hívd előtte, ha egy útvonalhoz a felhasználó koordinátái kellenek. Koordinátákat, időbélyegeket és helycímkéket ad vissza. Csak olvasható; több csatlakoztatott eszköznél add meg az `account` mezőt (szolgáltató, címke vagy e-mail).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "last",
+              "history",
+              "places",
+              "distance"
+            ]
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lon": {
+            "type": "number"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "contacts",
+      "description": "Egy kapcsolattartó adatainak (e-mail/telefonszám/cég) keresése név alapján a `lookup` művelettel, vagy egy megnevezett kapcsolattartó-csoport (pl. 'Család', 'Munka') tagjainak listázása a `group` művelettel, a felhasználó csatlakoztatott forrásaiban (Google, Apple iCloud; a csoportok egyelőre csak Google esetén). Akkor hívd, ha valakinek az e-mail címét/telefonszámát/cégét kérik, vagy hogy ki tartozik egy csoportba. Ne használd az illetőtől származó üzenetek megkeresésére (email), nyilvános cég vagy közszereplő lekérdezésére (research_web), sem cím helyszínné alakítására (map_route). Illeszkedő kapcsolattartókat ad vissza. Csak olvasható; add meg az `account` mezőt (szolgáltató, címke vagy e-mail) egy forrásra szűkítéshez.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "lookup",
+              "group"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "repos",
+      "description": "A felhasználó csatlakoztatott kódtárolóinak (GitHub, vagy egy Gitea/GHE-kompatibilis szerver) olvasása: `list_repos` (legutóbb pusholt elöl); `list_issues`, `list_prs` (pull requestek) és `list_commits` (egy repóra szűkítve az `owner`+`repo` paraméterrel, az issue-k/PR-ek opcionálisan `state` szerint); `read_file` egy fájl megnyitásához `path` alapján (opcionálisan adott `ref`-en); `ci_status` a legutóbbi CI/Actions futásokhoz; `search_code` kódkereséshez a repókban a `query` alapján. Akkor hívd, ha a felhasználó a kódjára, egy repó issue-jaira/PR-jeire/commitjaira, build/CI állapotára kérdez rá, vagy valamit keres a kódjában. Ne használd nyilvános dokumentációhoz vagy olyan külső projekthez, amelyhez a felhasználónak nincs repója (research_web, fetch_url), sem a tárhelyén lévő fájlokhoz (files). Csak olvasható — ez a kapcsolat soha nem hoz létre, nem kommentál, nem egyesít és nem pushol semmit.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list_repos",
+              "read_file",
+              "list_issues",
+              "list_prs",
+              "list_commits",
+              "ci_status",
+              "search_code"
+            ]
+          },
+          "owner": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "all"
+            ]
+          },
+          "ref": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "tasks",
+      "description": "A felhasználó csatlakoztatott teendő-/feladatlistáinak (egy CalDAV-fiók feladatlistái) olvasása: `list_tasks` a nyitott feladatokhoz (opcionálisan `due` szerint szűrve — egy 'ÉÉÉÉ-HH-NN' dátum vagy a szó szerinti 'overdue'); `search_tasks` a feladatcímek/jegyzetek szabad szöveges kereséséhez a `query` alapján, opcionálisan `due`-val. Akkor hívd, ha a felhasználó a teendőire, a határidőkre vagy egy konkrét feladatra kérdez rá. Ne használd időponthoz kötött találkozókhoz vagy bármihez, aminek kezdete és vége van — az a `calendar`, egy másik tár —, és ne használd feladat hozzáadására vagy lezárására; ez az eszköz csak olvasható. Feladatokat ad vissza címmel, jegyzettel és határidővel. Minden csatlakoztatott forrásból összesít; add meg az `account` mezőt (szolgáltató, címke vagy e-mail) egy forrásra szűkítéshez.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list_tasks",
+              "search_tasks"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "due": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "map_route",
+      "description": "Helyek, távolságok, menetidők, útvonalak és tömegközlekedési indulások OpenStreetMap adatokon. Akkor hívd, ha a kérdés „milyen messze”, „mennyi idő odaérni”, „útvonal/útbaigazítás”, „mi érhető el 20 percen belül”, tömegközlekedési utazás vagy a következő indulások, illetve ha egy helynevet koordinátává kell alakítani. Ne használd ezekre az image_search vagy research_web eszközt, és ne ezzel próbáld megtudni, hol van a felhasználó — nem tudja; előbb hívd a `location` eszközt a koordinátáiért. Egy `action`-t adj meg: `geocode` (query, opcionális near/limit), `route` (origin, destination, opcionális waypoints), `matrix` (origins, destinations), `isochrone` (origin, ranges_s másodpercben), `transit` (tömegközlekedési utazás időpontokkal és járatszámokkal: origin, destination, opcionális departure vagy arrive_by és max_walk_minutes), `timetable` (a következő indulások két hely között: origin, destination, opcionális from, window_minutes, rows) vagy `journey` (vegyes közlekedési módok sorrendben, pl. bringa, vonat, gyalog; add meg a `legs` listát az origin/destination mellett, és vagy az arrive_by, vagy a departure időt). Egy hely lehet helynév szöveg vagy {\"lat\":52.52,\"lng\":13.4}; a `mode` drive (alapértelmezett), walk vagy bike. Példa: {\"action\":\"route\",\"origin\":\"Keleti pályaudvar\",\"destination\":\"Lánchíd\",\"mode\":\"walk\"}. Visszaadja: summary, distance_m, duration_s, steps, legs, poligonok (tömegközlekedésnél és vegyes útnál a helyi időpontokat, járatokat és átszállásokat), és térképkártyát jelenít meg, amely már mutatja a TELJES útbaigazítást vagy menetrendi idővonalat — ezért foglald össze az utat (a fontosabb kanyarokat vagy átszállásokat, az időpontokat), ne ismételd meg minden lépését, és mindig szerepeljen benne a \"© OpenStreetMap contributors\" felirat. MENETREND: ezen a szerveren jelenleg egyetlen régióhoz sincs tömegközlekedési menetrend; ne hívd a transit/timetable műveletet.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "geocode",
+              "route",
+              "matrix",
+              "isochrone",
+              "transit",
+              "timetable",
+              "journey"
+            ]
+          },
+          "query": {
+            "type": "string",
+            "description": "geocode: the place to look up"
+          },
+          "near": {
+            "type": "object",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lng": {
+                "type": "number"
+              }
+            },
+            "description": "geocode: bias results near these coordinates"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 10
+          },
+          "origin": {
+            "description": "route/isochrone start. Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+          },
+          "destination": {
+            "description": "route end. Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+          },
+          "waypoints": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "description": "Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+            }
+          },
+          "origins": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "description": "Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+            }
+          },
+          "destinations": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "description": "Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+            }
+          },
+          "ranges_s": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "isochrone: travel-time ranges in seconds"
+          },
+          "departure": {
+            "type": "string",
+            "description": "transit: leave at this local time, e.g. \"08:30\" or \"2026-09-08T08:30\". Omit for \"now\"."
+          },
+          "arrive_by": {
+            "type": "string",
+            "description": "transit: arrive by this local time instead of leaving at one"
+          },
+          "max_walk_minutes": {
+            "type": "integer",
+            "maximum": 120,
+            "description": "transit/timetable: longest walk to or from a stop (default 15)"
+          },
+          "from": {
+            "type": "string",
+            "description": "timetable: start of the window, local time (default \"now\")"
+          },
+          "window_minutes": {
+            "type": "integer",
+            "maximum": 720,
+            "description": "timetable: how far ahead to look (default 120)"
+          },
+          "rows": {
+            "type": "integer",
+            "maximum": 12,
+            "description": "timetable: how many departures to return (default 6)"
+          },
+          "legs": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "drive",
+                    "walk",
+                    "bike",
+                    "transit"
+                  ]
+                },
+                "from": {
+                  "description": "Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+                },
+                "to": {
+                  "description": "Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+                }
+              },
+              "required": [
+                "mode"
+              ]
+            },
+            "description": "journey: the modes in order. Consecutive legs chain, so only name a place where it changes: [{\"mode\":\"bike\",\"to\":\"Cork Kent station\"},{\"mode\":\"transit\",\"to\":\"Dublin Heuston\"},{\"mode\":\"walk\"}]."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "drive",
+              "walk",
+              "bike"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "use_skill",
+      "description": "Egy skill teljes utasításainak betöltése, pontos `name` alapján a \"## Skills available\" listából. Ha a felhasználó kérése megfelel egy listázott skillnek, hívd meg egyszer, mielőtt válaszolnál, és a kör hátralévő részében kövesd a visszakapott utasításokat ahelyett, hogy magadtól rögtönöznél. Ne használd olyan skillre, amely nincs a listában, ne találgasd és ne fordítsd le a nevet, és ne hívd meg kétszer ugyanarra a skillre. A skill utasításszövegét adja vissza.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Exact skill name from \"## Skills available\""
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "suggest_instruction",
+      "description": "Állandó utasítás felajánlása, ha a felhasználó épp szabályként mondta ki a jövőre nézve („mostantól…”, „mindig…”, „soha…”): a szabályt a saját szavaival add meg, így: {\"text\": \"Csak vonatot javasolj, repülőt ne.\", \"scope\": \"project\"}. A felhasználó egy sort lát Áttekintés és Elvetés gombokkal; semmi sem mentődik, amíg át nem tekinti. Ne használd egyszeri kérésre, és ne ismételd meg a felajánlást prózában.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "project"
+            ]
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "done",
+      "description": "Call once, at the very end, when the answer is complete and every requested file has been produced; pass a one-line `summary`. Do not use it before the answer text exists, or while another tool call might still be needed — it ends the turn.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "description": "One line on what was accomplished"
+          }
+        },
+        "required": [
+          "summary"
+        ]
+      }
+    }
+  }
+]

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeDocumentItem } from "$lib/server/services/knowledge/types";
+import { uiLanguage } from "$lib/stores/settings";
 
 // The picker's one browser call. The list it renders is the library's own
 // list, which is what these tests are about: which sentence an empty list
@@ -98,5 +99,36 @@ describe("AddFromLibraryDialog empty states", () => {
 		expect(screen.getByTestId("add-from-library-row")).toHaveTextContent(
 			"Wien itinerary.pdf",
 		);
+	});
+});
+
+// The picker searches the user's library — the list it filters is the
+// library's own — so its box must name the library. It shipped with the
+// project Files modal's label, "Search files in this project", which names the
+// one scope this box does not search.
+describe("AddFromLibraryDialog search box", () => {
+	beforeEach(() => {
+		library.mockReset();
+		uiLanguage.set("en");
+	});
+
+	afterEach(() => {
+		uiLanguage.set("en");
+	});
+
+	it("names the library in its placeholder and its accessible name", () => {
+		open([]);
+
+		expect(search()).toHaveAttribute("placeholder", "Search your library");
+		expect(search()).toHaveAttribute("aria-label", "Search your library");
+		expect(search()).toHaveAccessibleName("Search your library");
+	});
+
+	it("names the library in Hungarian too", () => {
+		uiLanguage.set("hu");
+		open([]);
+
+		expect(search()).toHaveAttribute("placeholder", "Keresés a könyvtárban");
+		expect(search()).toHaveAttribute("aria-label", "Keresés a könyvtárban");
 	});
 });

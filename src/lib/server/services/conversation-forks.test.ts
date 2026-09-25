@@ -248,22 +248,36 @@ function readStoredChatFile(storagePath: string) {
 	return readFileSync(join(chatFilesRoot(), storagePath), "utf8");
 }
 
-function listStoredChatFilePaths(
+/**
+ * Counts stored chat files under the shared chat-files root whose content
+ * matches `content` exactly.
+ *
+ * Vitest runs test files concurrently in separate workers, but this root
+ * (`data/chat-files`, resolved from `process.cwd()` in chat-files.ts) is one
+ * real directory on disk, not a per-worker temp folder — a concurrently
+ * running file's own fixtures land here too (see read-generated-file.test.ts,
+ * which writes under its own fixed conversation ids). A before/after diff of
+ * the full directory listing therefore flakes: an unrelated worker's write
+ * between the two snapshots looks like a leaked file. Counting this test's
+ * own distinctive byte content is independent of whatever else is
+ * concurrently written, since no other fixture in the suite uses the same
+ * bytes.
+ */
+function countStoredFilesWithContent(
+	content: string,
 	root = chatFilesRoot(),
-	prefix = "",
-): string[] {
-	if (!existsSync(root)) return [];
-	const paths: string[] = [];
+): number {
+	if (!existsSync(root)) return 0;
+	let count = 0;
 	for (const entry of readdirSync(root)) {
 		const fullPath = join(root, entry);
-		const relativePath = prefix ? `${prefix}/${entry}` : entry;
 		if (statSync(fullPath).isDirectory()) {
-			paths.push(...listStoredChatFilePaths(fullPath, relativePath));
-		} else {
-			paths.push(relativePath);
+			count += countStoredFilesWithContent(content, fullPath);
+		} else if (readFileSync(fullPath, "utf8") === content) {
+			count += 1;
 		}
 	}
-	return paths.sort();
+	return count;
 }
 
 function readGeneratedWorkRows(conversationId: string) {
@@ -1769,7 +1783,8 @@ describe("conversation forks", () => {
 			})
 			.run();
 		sqlite.close();
-		const storedPathsBeforeFork = listStoredChatFilePaths();
+		const rolledBackCopiesBeforeFork =
+			countStoredFilesWithContent("rolled back bytes");
 		const { createConversationFork } = await import("./conversation-forks");
 
 		await expect(
@@ -1791,11 +1806,9 @@ describe("conversation forks", () => {
 			fileProductionJobs: [],
 			generatedArtifacts: [],
 		});
-		expect(
-			listStoredChatFilePaths().filter(
-				(path) => !storedPathsBeforeFork.includes(path),
-			),
-		).toEqual([]);
+		expect(countStoredFilesWithContent("rolled back bytes")).toBe(
+			rolledBackCopiesBeforeFork,
+		);
 	});
 
 	it("fails clearly when binary-backed generated-output artifacts have no copied chat file", async () => {
@@ -1876,7 +1889,8 @@ describe("conversation forks", () => {
 			])
 			.run();
 		sqlite.close();
-		const storedPathsBeforeFork = listStoredChatFilePaths();
+		const firstCopiedCopiesBeforeFork =
+			countStoredFilesWithContent("first copied bytes");
 		const { createConversationFork } = await import("./conversation-forks");
 
 		await expect(
@@ -1897,11 +1911,9 @@ describe("conversation forks", () => {
 			fileProductionJobs: [],
 			generatedArtifacts: [],
 		});
-		expect(
-			listStoredChatFilePaths().filter(
-				(path) => !storedPathsBeforeFork.includes(path),
-			),
-		).toEqual([]);
+		expect(countStoredFilesWithContent("first copied bytes")).toBe(
+			firstCopiedCopiesBeforeFork,
+		);
 		expect(readStoredChatFile("source-conv/source-file-1.txt")).toBe(
 			"first copied bytes",
 		);

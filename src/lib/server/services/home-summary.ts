@@ -18,6 +18,7 @@ import {
 	messages,
 	users,
 } from "$lib/server/db/schema";
+import { config } from "$lib/server/env";
 import { listProjectKnowledge } from "$lib/server/services/knowledge/project-knowledge";
 import { isUserMemoryEnabled } from "$lib/server/services/memory-controls";
 import { getMemoryProfileReadModel } from "$lib/server/services/memory-profile/read-model";
@@ -32,26 +33,6 @@ import { listRecentlyActiveProjects } from "$lib/server/services/projects";
  * next to the only code that uses it.
  */
 export type HomeSummaryLocale = "en" | "hu";
-
-export const HOME_SUMMARY_DEFAULT_CACHE_TTL_MS = 30_000;
-
-/**
- * How long a user's assembled summary is held.
- *
- * Configurable rather than constant so an environment that writes the
- * underlying rows out-of-band — the e2e suite seeds conversations and jobs
- * straight into SQLite, behind this process's back — can run with the cache
- * off and still see what it just wrote. Unset means the 30 seconds the screen
- * is designed around.
- */
-export function homeSummaryCacheTtlMs(): number {
-	const raw = process.env.HOME_SUMMARY_CACHE_TTL_MS;
-	if (raw === undefined) return HOME_SUMMARY_DEFAULT_CACHE_TTL_MS;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed >= 0
-		? parsed
-		: HOME_SUMMARY_DEFAULT_CACHE_TTL_MS;
-}
 
 export const HOME_WEEKLY_BAR_COUNT = 12;
 export const HOME_RECENT_LIMIT = 3;
@@ -841,10 +822,14 @@ export async function getHomeSummary(params: {
 	if (cached && cached.expiresAt > now.getTime()) return cached.value;
 
 	const value = await computeHomeSummary(params.userId, now);
+	// Configurable rather than constant so an environment that writes the
+	// underlying rows out-of-band — the e2e suite seeds conversations and jobs
+	// straight into SQLite, behind this process's back — can run with the cache
+	// off (`0`) and still see what it just wrote. env.ts owns the parsing.
 	storeBoundedSummary(
 		cache,
 		params.userId,
-		{ expiresAt: now.getTime() + homeSummaryCacheTtlMs(), value },
+		{ expiresAt: now.getTime() + config.homeSummaryCacheTtlMs, value },
 		now.getTime(),
 	);
 

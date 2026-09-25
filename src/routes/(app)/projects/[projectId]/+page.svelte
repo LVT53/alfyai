@@ -50,10 +50,16 @@ let instructionsText = $state(untrack(() => data.project.instructions ?? ""));
 let hasInstructions = $state(untrack(() => data.project.hasInstructions));
 let instructionsDialogOpen = $state(false);
 
-// `null` until the first read lands, which is what tells `HomeSurface` apart
-// "no files" from "not read yet" — the chip must never hide behind a read that
-// has not finished.
+// `null` until the first read lands, which is what tells `HomeSurface` and the
+// Files modal apart "no files" from "not read yet" — the chip must never hide
+// behind a read that has not finished, and the modal must never call a project
+// empty before its list has arrived. Handed to both as it is, never as `[]`.
 let projectFiles = $state<ProjectKnowledgeItem[] | null>(null);
+// True only while `projectFiles` is still `null` because the most recent read
+// of it failed, not because one is in flight — see `refreshProjectFiles`. The
+// modal cannot tell those two apart from `files` alone, since both leave it
+// `null`.
+let projectFilesFailed = $state(false);
 let filesDialogOpen = $state(false);
 // Not state: nothing renders it. It orders the reads by the moment they were
 // STARTED, which is the only order the list can trust (see below).
@@ -75,6 +81,14 @@ $effect(() => {
 	instructionsText = data.project.instructions ?? "";
 	hasInstructions = data.project.hasInstructions;
 	focusComposer = consumeProjectComposerFocus(data.project.id);
+	// The Files modal's `null` means "not read yet" (see `projectFiles`'s own
+	// comment); a leftover list from the project just left is worse than that
+	// meaning, because it renders as this project's real answer — rows with
+	// Remove buttons that would unlink someone else's document. Clearing it
+	// here puts the modal back in its loading state until the effect below's
+	// read of the project now on screen lands.
+	projectFiles = null;
+	projectFilesFailed = false;
 });
 
 const projectScope = $derived<InstructionScope>({
@@ -124,7 +138,11 @@ async function save(payload: {
 /**
  * Re-read the project's files. A failed read leaves the last answer standing
  * rather than emptying the chip: the previous list was true a moment ago, and
- * "no files" is the one lie that loses the user their way into the modal.
+ * "no files" is the one lie that loses the user their way into the modal. The
+ * one exception is the FIRST read: with no previous answer to stand on, "left
+ * as it was" is `null` forever, which the modal would show as "Loading…"
+ * forever too — so a failure with nothing on screen yet is the one case that
+ * sets `projectFilesFailed`, for a truthful line instead of an endless spinner.
  *
  * The list is ordered by when a read was STARTED, not by when it answered. A
  * read that began before a removal carries the list from before that removal
@@ -137,13 +155,20 @@ async function save(payload: {
  */
 async function refreshProjectFiles(projectId: string): Promise<void> {
 	const sequence = ++fileReadSequence;
+	// A fresh attempt — including a manual retry — goes back to "loading",
+	// never straight from one stale error to another.
+	projectFilesFailed = false;
 	try {
 		const files = await fetchProjectFiles(projectId);
 		if (sequence !== fileReadSequence) return;
 		projectFiles = files;
 	} catch {
+		if (sequence !== fileReadSequence) return;
 		// Left as it was: an answer no newer than the list on screen has nothing
-		// to say about it, whether it succeeded or failed.
+		// to say about it, whether it succeeded or failed. Unless "as it was" is
+		// nothing at all, in which case the modal needs to hear that this failed
+		// rather than keep waiting for a read that is not coming back.
+		if (projectFiles === null) projectFilesFailed = true;
 	}
 }
 
@@ -200,7 +225,8 @@ $effect(() => {
 	open={filesDialogOpen}
 	projectId={data.project.id}
 	projectName={data.project.name}
-	files={projectFiles ?? []}
+	files={projectFiles}
+	filesFailed={projectFilesFailed}
 	onRefresh={() => refreshProjectFiles(data.project.id)}
 	onClose={() => (filesDialogOpen = false)}
 />

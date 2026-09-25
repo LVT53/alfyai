@@ -174,6 +174,54 @@ describe("Environment Configuration", () => {
 		expect((await import("./env")).config.parallelFreeMonthlyUsd).toBe(5);
 	});
 
+	// The home summary's cache TTL. Unset is the thirty seconds the home screen
+	// is designed around; `0` is a real setting — "no cache", which the e2e
+	// suite runs with because it seeds rows behind the server's back — so the
+	// parser must not read it as missing.
+	it("defaults the home summary cache TTL to thirty seconds", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		delete process.env.HOME_SUMMARY_CACHE_TTL_MS;
+
+		const { config } = await import("./env");
+
+		expect(config.homeSummaryCacheTtlMs).toBe(30_000);
+	});
+
+	it("reads a home summary cache TTL in milliseconds", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.HOME_SUMMARY_CACHE_TTL_MS = "5000";
+
+		const { config } = await import("./env");
+
+		expect(config.homeSummaryCacheTtlMs).toBe(5000);
+	});
+
+	it("accepts a zero home summary cache TTL as 'no cache'", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.HOME_SUMMARY_CACHE_TTL_MS = "0";
+
+		const { config } = await import("./env");
+
+		expect(config.homeSummaryCacheTtlMs).toBe(0);
+	});
+
+	it("falls back to the default on a garbage or negative home summary cache TTL", async () => {
+		// Falls back rather than clamping: a negative clamped to 0 would quietly
+		// turn a typo into "never cache".
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+
+		process.env.HOME_SUMMARY_CACHE_TTL_MS = "soon";
+		expect((await import("./env")).config.homeSummaryCacheTtlMs).toBe(30_000);
+
+		vi.resetModules();
+		process.env.HOME_SUMMARY_CACHE_TTL_MS = "-1";
+		expect((await import("./env")).config.homeSummaryCacheTtlMs).toBe(30_000);
+	});
+
 	it("should derive unset context budget defaults from the configured model window", async () => {
 		process.env.SESSION_SECRET =
 			"test-session-secret-12345678901234567890123456789012";

@@ -31,14 +31,18 @@ function projectFile(
 	};
 }
 
-function open(files: ProjectKnowledgeItem[]) {
+function open(
+	files: ProjectKnowledgeItem[] | null,
+	options: { filesFailed?: boolean; onRefresh?: () => Promise<void> } = {},
+) {
 	return render(ProjectFilesDialog, {
 		props: {
 			open: true,
 			projectId: "project-1",
 			projectName: "Vienna trip",
 			files,
-			onRefresh: async () => undefined,
+			filesFailed: options.filesFailed ?? false,
+			onRefresh: options.onRefresh ?? (async () => undefined),
 			onClose: () => undefined,
 		},
 	});
@@ -46,12 +50,30 @@ function open(files: ProjectKnowledgeItem[]) {
 
 const search = () => screen.getByTestId("project-files-search");
 const emptyState = () => screen.getByTestId("project-files-empty");
+const loadingLine = () => screen.queryByTestId("project-files-loading");
+const errorState = () => screen.queryByTestId("project-files-error");
+const footerCount = () =>
+	screen.getByTestId("project-files-footer").textContent?.trim();
 
 describe("ProjectFilesDialog empty states", () => {
 	it("says the project has no files when it has none", () => {
 		open([]);
 
 		expect(emptyState()).toHaveTextContent("No files yet.");
+		expect(loadingLine()).toBeNull();
+	});
+
+	it("lists the files of a project that has some", () => {
+		open([projectFile()]);
+
+		expect(screen.getByTestId("project-file-name")).toHaveTextContent(
+			"Wien itinerary.pdf",
+		);
+		expect(screen.queryByTestId("project-files-empty")).toBeNull();
+		expect(loadingLine()).toBeNull();
+		expect(footerCount()).toBe(
+			"1 file · removing it here keeps it in your library",
+		);
 	});
 
 	// The empty-paragraph slot has two different reasons to be on screen, and
@@ -82,5 +104,96 @@ describe("ProjectFilesDialog empty states", () => {
 		expect(screen.getByTestId("project-file-name")).toHaveTextContent(
 			"Wien itinerary.pdf",
 		);
+	});
+});
+
+// The route reads the project's files in the browser after the page mounts and
+// hands the dialog `null` until that read lands. `null` is "not read yet", not
+// "no files": opening the modal inside that window used to say "No files yet."
+// about a project that has files.
+describe("ProjectFilesDialog before the list has been read", () => {
+	it("says it is loading, not that the project has no files", () => {
+		open(null);
+
+		expect(loadingLine()).toHaveTextContent("Loading…");
+		expect(screen.queryByTestId("project-files-empty")).toBeNull();
+		expect(screen.queryByTestId("project-file-row")).toBeNull();
+		// Nor does the footer count a list nobody has read yet.
+		expect(footerCount()).toBe("");
+	});
+
+	it("lists the files once the read lands", async () => {
+		const { rerender } = open(null);
+
+		await rerender({ files: [projectFile()] });
+
+		expect(loadingLine()).toBeNull();
+		expect(screen.getByTestId("project-file-name")).toHaveTextContent(
+			"Wien itinerary.pdf",
+		);
+		expect(footerCount()).toBe(
+			"1 file · removing it here keeps it in your library",
+		);
+	});
+
+	it("says the project has no files once the read lands empty", async () => {
+		const { rerender } = open(null);
+
+		await rerender({ files: [] });
+
+		expect(loadingLine()).toBeNull();
+		expect(emptyState()).toHaveTextContent("No files yet.");
+	});
+});
+
+// A first read that never succeeds is not "still loading" — `files` stays
+// `null` exactly as it does while genuinely loading, so the page hands the
+// dialog a second signal for "and it is not coming" rather than leaving the
+// loading line on screen forever.
+describe("ProjectFilesDialog when the first read fails for good", () => {
+	it("says the read failed instead of loading forever, with no rows and no empty state", () => {
+		open(null, { filesFailed: true });
+
+		expect(errorState()).toHaveTextContent(
+			"Could not load this project's files.",
+		);
+		expect(loadingLine()).toBeNull();
+		expect(screen.queryByTestId("project-files-empty")).toBeNull();
+		expect(screen.queryByTestId("project-file-row")).toBeNull();
+	});
+
+	it("retries through the page's own refresh when Retry is pressed", async () => {
+		const onRefresh = vi.fn(async () => undefined);
+		open(null, { filesFailed: true, onRefresh });
+
+		await fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+		expect(onRefresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("stops showing the failure once a read lands, empty or not", async () => {
+		const { rerender } = open(null, { filesFailed: true });
+
+		await rerender({ files: [projectFile()], filesFailed: false });
+
+		expect(errorState()).toBeNull();
+		expect(screen.getByTestId("project-file-name")).toHaveTextContent(
+			"Wien itinerary.pdf",
+		);
+	});
+});
+
+// This box really does search the project's files, so it keeps the project's
+// wording. The library picker's box used to borrow the same string; the two now
+// have a key each, and this pins that the split left this one alone.
+describe("ProjectFilesDialog search box", () => {
+	it("names the project's files as what it searches", () => {
+		open([]);
+
+		expect(search()).toHaveAttribute(
+			"placeholder",
+			"Search files in this project",
+		);
+		expect(search()).toHaveAccessibleName("Search files in this project");
 	});
 });

@@ -42,6 +42,9 @@ const projectsDict = {
 		"projects.filesDescription":
 			"Every chat in this project knows these exist and reads them when they're needed.",
 		"projects.filesSearch": "Search files in this project",
+		// The Add from library picker's box. It filters the user's library, not
+		// the project, so it has its own key instead of borrowing the one above.
+		"projects.filesLibrarySearch": "Search your library",
 		"projects.filesAddFromLibrary": "Add from library",
 		"projects.filesUpload": "Upload",
 		"projects.filesColumnName": "Name",
@@ -69,6 +72,13 @@ const projectsDict = {
 		"projects.filesLinkFailed": "Could not add the files to this project.",
 		"projects.filesUploadFailed": "Could not upload the file.",
 		"projects.filesLoadFailed": "Could not load your library.",
+		// The Files modal's own first read, distinct from `filesLoadFailed`
+		// above (the Add from library picker's read of the whole library): a
+		// read that never succeeds must say so rather than leaving the loading
+		// line on screen forever, and the retry button re-runs the page's own
+		// refresh — the same one every mutation in this dialog already ends with.
+		"projects.filesReadFailed": "Could not load this project's files.",
+		"projects.filesRetry": "Retry",
 		// The packet section's tail. A count, never a truncated name (Slice E,
 		// review focus 3): a clipped file name in the prompt reads as a real one.
 		"projects.filesMore": "+{count} more",
@@ -99,6 +109,7 @@ const projectsDict = {
 		"projects.filesDescription":
 			"A projekt minden csevegése tud róluk, és akkor olvassa el őket, amikor szükség van rájuk.",
 		"projects.filesSearch": "Keresés a projekt fájljai között",
+		"projects.filesLibrarySearch": "Keresés a könyvtárban",
 		"projects.filesAddFromLibrary": "Hozzáadás a könyvtárból",
 		"projects.filesUpload": "Feltöltés",
 		"projects.filesColumnName": "Név",
@@ -123,6 +134,8 @@ const projectsDict = {
 			"Nem sikerült hozzáadni a fájlokat a projekthez.",
 		"projects.filesUploadFailed": "Nem sikerült feltölteni a fájlt.",
 		"projects.filesLoadFailed": "Nem sikerült betölteni a könyvtárat.",
+		"projects.filesReadFailed": "Nem sikerült betölteni a projekt fájljait.",
+		"projects.filesRetry": "Újra",
 		"projects.filesMore": "+{count} további",
 		"projects.infoProjectFiles": "Projektfájlok",
 		"projects.infoProjectFilesValue": "{count} elolvasva · lásd a forrásokat ↓",

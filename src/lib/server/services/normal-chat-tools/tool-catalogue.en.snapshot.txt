@@ -1,0 +1,956 @@
+MODEL-FACING TOOL CATALOGUE (en) - THIS FILE IS THE CACHED PROMPT PREFIX.
+
+Written by src/lib/server/services/normal-chat-tools/index.test.ts; never edit it by hand.
+Below is the chat request's `tools` array, pretty-printed: every tool's name, description
+and input schema, in the order the request sends them. The chat template renders all of it
+into the prompt on every turn, so a changed description, schema or order moves the cached
+prefix from that point on. If the change is deliberate, re-run the test with `-u` in the
+same commit and say so in the commit message.
+
+Configuration: the fully connected catalogue the budget tests measure - Parallel configured
+(research_web, fetch_url), ORS configured with no coverage label and no timetables loaded
+(map_route), all nine connection capabilities enabled, no degraded-tool hints. A real turn
+may send fewer tools (the gated ones above, and memory_context, use_skill and
+suggest_instruction are withheld per conversation), never the same ones in another order.
+----
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "research_web",
+      "description": "Search the web for current or verifiable facts: prices, specs, news, policies, comparisons. Call with {\"query\": \"the exact research question\"}; optionally `objective` and 2-3 short keyword `searchQueries` (no site: operators, no years unless historical). Set `readPages` to 1-2 when the answer needs page-level detail (an exact price, a spec, official documentation, one named article), so it finishes here rather than in a separate fetch_url step; else 0. Do not use it for a URL the user already gave (fetch_url), for distance, route or travel time (map_route), for pictures to show (image_search), or when this turn already has web research results. Returns `evidence` snippets and an `answerBriefMarkdown`, plus `pages` (url, title, contentMarkdown) when `readPages` was set; prefer primary sources when they conflict.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "searchQueries": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "readPages": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "fetch_url",
+      "description": "Read named web pages: {\"urls\": [\"https://example.com\"]} (always an array, at most 5) plus an optional `objective` saying what to extract. Call for a link the user gave, or a detail only that page has. Do not use it to find pages you have no URL for (research_web finds them, and its `readPages` returns page text), nor for stored files or files in this conversation (files, read_generated_file). Returns `evidence` snippets and an `answerBriefMarkdown`.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "minItems": 1,
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "objective": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "urls"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "memory_context",
+      "description": "Look up durable memory when it would materially improve the answer. `mode` `persona` (default) for preferences and goals; `history` for older conversations matching `query`, then one of them via `historyConversationId` + `maxMessages`; `project` for project-folder continuity (name the folder in `query`), then a returned `siblingConversationId` for detail. Do not use it to re-fetch memory this turn already quotes — same store, so call only to go deeper or further back — nor for this conversation, which you already read, nor for stored files (files). `conversationId` is supplied automatically; never ask for or pass user, folder or project ids. Returns memory entries and conversation excerpts; an empty result is not proof no memory exists.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "description": "persona (default), project, or history.",
+            "type": "string",
+            "enum": [
+              "persona",
+              "project",
+              "history"
+            ]
+          },
+          "query": {
+            "description": "What to look up; for project mode, include the folder name.",
+            "type": "string"
+          },
+          "maxSiblings": {
+            "description": "Max project conversations to return (keep at or below 16).",
+            "type": "integer",
+            "minimum": 1
+          },
+          "siblingConversationId": {
+            "description": "A conversation id this tool returned in a previous project result; never invent one.",
+            "type": "string"
+          },
+          "maxMessages": {
+            "description": "Max recent messages per selected conversation.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "maxHistoryConversations": {
+            "description": "Max history conversations to return.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "historyConversationId": {
+            "description": "A conversation id this tool returned in a history result; never invent one.",
+            "type": "string"
+          },
+          "includeAttachments": {
+            "description": "Include full text of earlier attachments.",
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "image_search",
+      "description": "Find web images (photos, illustrations, diagrams) to show in the answer: {\"query\": \"golden retriever puppy\"}. Do not use it for maps, routes, distances or anything geographic (map_route renders its own map card), for the user's own pictures (photos), or for facts and text (research_web). Returns a list of image URLs. Embed the ones you use in your answer with markdown `![alt text](url)` where they belong; the user never sees raw tool output, so an unembedded image is invisible.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "produce_file",
+      "description": "Create a downloadable file (PDF, DOCX, XLSX, PPTX, CSV, Markdown, ...). Call it only when the user asks for a file, after dependent tools have returned real content — never placeholder or empty content. Do not use it to work the data out (run_python first), to read a file back (read_generated_file), or when no download was asked for — a summary, table or list belongs in your reply. Simple form: `requestTitle`, `filename` or `outputType`, and `markdown`; the server picks the production mode. Do not mix PDF/DOCX/HTML with md/txt/csv/tsv/json/code in one request; call twice. To change an existing file, call `read_generated_file` first, then resend it in full or send `patches` [{oldText, newText}] with each oldText an exact, unique excerpt of 20+ characters. Use `program` only for artifacts that need code to build (XLSX, PPTX, ZIP): name the type in `outputType`/`requestedOutputs`, and the code must write into `/output` (e.g. `/output/report.xlsx`) — a bare filename is lost. Use `documentSource` blocks only when structure clearly improves a PDF/DOCX/HTML report: heading{level,text}, paragraph{text}, list{style,items}, table{columns:[{key,label}],rows:[{key:value}]}, chart{chartType:bar|stackedBar|line|area|pie|scatter|donut,title,labelKey,valueKey,seriesKey(stackedBar only),data:[{label,value}]}, code{language,text}, callout{tone,text}. Never draw tables or charts as text (no pipe tables, no block-character bars); encode line breaks as \\n in JSON strings. Returns `status`: `succeeded` with `files` — only then say the file is ready; `failed` with `errorCode`/`message` — if `retryable`, fix it and resubmit once, else say plainly why it failed; `running` — still being made, not ready.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "requestTitle": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "outputType": {
+            "description": "File type, e.g. xlsx, docx, pptx, pdf, csv, zip, md.",
+            "type": "string"
+          },
+          "requestedOutputs": {
+            "description": "Only for several formats of one artifact: [{\"type\":\"pdf\"},{\"type\":\"docx\"}].",
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          },
+          "sourceMode": {
+            "type": "string",
+            "enum": [
+              "program",
+              "document_source"
+            ]
+          },
+          "markdown": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "patches": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "oldText": {
+                  "type": "string"
+                },
+                "newText": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "oldText",
+                "newText"
+              ]
+            }
+          },
+          "program": {
+            "description": "Code that builds the file. It must write into /output (e.g. /output/report.xlsx); only /output is collected. Needs outputType or requestedOutputs.",
+            "type": "object",
+            "properties": {
+              "language": {
+                "type": "string",
+                "enum": [
+                  "python",
+                  "javascript"
+                ]
+              },
+              "sourceCode": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "language",
+              "sourceCode"
+            ]
+          },
+          "documentSource": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "run_python",
+      "description": "Run a short Python 3.11 script for scratch work: arithmetic beyond mental math, unit and date/time conversions, parsing or aggregating data the user gave you, quick algorithms. Pass {\"code\": \"...\"} and optionally a one-line `purpose`; print() the values you need. Do not use it to deliver a file (produce_file — files written to /output are NOT delivered), to reach the network (there is none), or for one step you can state and check in prose. Only the Python standard library is available (no numpy, no pandas, no pip installs); openpyxl, xlsxwriter, python-docx and python-pptx are present for produce_file's program mode, not here. Returns stdout, stderr and the exit code only, capped at 8,000 characters each (head and tail kept). Isolated Docker sandbox, 90-second limit; a run that times out is reported, not silently dropped.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_generated_file",
+      "description": "Read a file's full current text in THIS conversation or its project — one produced here, one uploaded or linked here (under Conversation Files), or one linked to the project (under Project Files) — by `filename` or `requestTitle`. Name a project's file to read it: that list only says it exists. Call it before `produce_file` patches (a non-exact oldText is rejected), or when the user wants more of a document than your context shows. Long text arrives in windows: on `hasMore`, call again with `from: nextFrom`. Pass `query` for up to 3 passages about a topic instead of the window. For a paged document pass `page`; excerpts carry citable `[p. 3]`/`[slide 2]` markers. Do not use it for connected cloud storage (files), web pages (fetch_url), remembered preferences (memory_context), or a passage already quoted in your context. Returns text with `hasMore`/`nextFrom`, or not found / ambiguous (several files match — retry with one exact name); say so, don't guess.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "requestTitle": {
+            "type": "string"
+          },
+          "from": {
+            "description": "Character offset to continue from. Pass the previous result's nextFrom to read the next window.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "query": {
+            "description": "Instead of the text window, return up to 3 passages of this one file about the query.",
+            "type": "string",
+            "maxLength": 300
+          },
+          "page": {
+            "description": "1-based page to start at, for a paged document. `query` and `from` take precedence.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "part": {
+            "description": "\"source\": the program that built this file instead of its text, to edit and resend.",
+            "type": "string",
+            "enum": [
+              "text",
+              "source"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "files",
+      "description": "List, search, read, and manage the user's connected file storage (Nextcloud or OneDrive). `list` counts a folder's contents (pass its path, or omit it for the root); `search` finds files by name across the whole tree; `read` opens one file by its path. Every result carries the last-modified time, so 'my most recent invoice' or 'the newest file' is answerable. Do not use it for photos or videos (photos), for a file in this conversation (read_generated_file), for a web page (fetch_url), or for remembered preferences (memory_context). Can also `save`, `move`/rename (`destinationPath`), `delete` (to trash, recoverable), `create_folder` and `share_link` (a PUBLIC link anyone with the URL can open, a deliberate exposure — use sparingly): these require the user to have enabled writes, are NOT available for OneDrive (read-only), and NEVER apply immediately — each only proposes a pending write the user must confirm. Returns entries with path, size and modified time; `read` adds the text. With several accounts connected, pass `account` (provider, label, or email).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "search",
+              "read",
+              "save",
+              "move",
+              "delete",
+              "create_folder",
+              "share_link"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "destinationPath": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "calendar",
+      "description": "Read the user's connected calendar (Google or Apple iCloud): `list_events` (upcoming/ranged, optionally scoped via `calendarId`), `check_availability` (free/busy, Google only, also `calendarId`-scopable), or `list_calendars` to discover calendar ids before scoping a read or write (Google enumerates fully; Apple iCloud reads can't be scoped). Call when the user asks about their schedule, upcoming events, or whether they're free at a time. Do not use it for to-dos, due dates or checklists — those live in `tasks`, a separate store this cannot see — or for travel time between events (map_route). Can also create_event/update_event/delete_event on a connected Google Calendar (requires the user to have enabled writes) — these NEVER apply immediately: each only proposes a pending change the user must confirm. For an event in a recurring series, ask first whether to affect that occurrence or the whole series. Returns events with start/end, title and location. With several accounts connected, pass `account` (provider, label, or email).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list_events",
+              "list_calendars",
+              "check_availability",
+              "create_event",
+              "update_event",
+              "delete_event"
+            ]
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "calendarId": {
+            "type": "string"
+          },
+          "recurringScope": {
+            "type": "string",
+            "enum": [
+              "this_event",
+              "series"
+            ]
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "email",
+      "description": "Read the user's connected email (IMAP): list recent messages; `search` by free text and/or `from` (sender), `subject`, and a `since`/`before` date range; `count` matches without listing them (defaults to unread); or read a specific message by uid. Reads default to the Inbox but accept a `folder` (e.g. 'Sent', 'Archive', or a name from `list_folders`); a read also lists attachments (filename/type/size). Do not use it to open an attachment's contents or the user's stored documents (files), or for meetings and invitations, which belong to `calendar`. Can also send a new email, move a message to Trash, or flag/mark a message (requires the user to have enabled writes) — these NEVER apply immediately: each only proposes a pending change the user must confirm. A sent email cannot be unsent: double-check recipient, subject and body first. Returns headers, plus the body on a uid read. With several accounts connected, pass `account` (provider, label, or email).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "recent",
+              "search",
+              "count",
+              "read",
+              "list_folders",
+              "send",
+              "trash",
+              "flag"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "unseenOnly": {
+            "type": "boolean"
+          },
+          "uid": {
+            "type": "number"
+          },
+          "folder": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "before": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "cc": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "inReplyTo": {
+            "type": "string"
+          },
+          "flag": {
+            "type": "string",
+            "enum": [
+              "seen",
+              "flagged"
+            ]
+          },
+          "value": {
+            "type": "boolean"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "photos",
+      "description": "Find the user's own photos/videos in their connected library (Immich). `search` is a natural-language SMART search matching visual/semantic CONTENT (what a photo depicts) — use it for 'a beach at sunset' or 'my dog in the snow'. For PRECISE filtering use `search_by_date`: a capture-date range (`from`/`to`, YYYY-MM-DD), place (`city`/`country`), media `type` (IMAGE/VIDEO), `favorites`, and/or a `personName` — this answers 'photos from June 2019', 'my favourites', or 'photos of a named person'. `list_albums` and `album` (by `albumId`) browse albums; `list_people` finds a recognized person's exact name. Do not use it for pictures from the web (image_search), for non-media documents (files), or for where the user was at a time (location). Each result includes an `imageUrl` — to SHOW a photo rather than list its filename, embed it as a markdown image `![short caption](imageUrl)`; prefer a few relevant photos over a filename table. Can also add photos to an 'AlfyAI' album (requires the user to have enabled writes) — this only PROPOSES a pending, confirm-required change and never deletes or modifies the originals. With several accounts connected, pass `account` (provider, label, or email).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "search",
+              "search_by_date",
+              "list_albums",
+              "album",
+              "list_people",
+              "add_to_album"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "IMAGE",
+              "VIDEO"
+            ]
+          },
+          "favorites": {
+            "type": "boolean"
+          },
+          "personName": {
+            "type": "string"
+          },
+          "albumId": {
+            "type": "string"
+          },
+          "assetIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "media",
+      "description": "Read the user's connected media server (Plex): `watch_history` and `libraries` for analytics ('what did we watch this week'); `continue_watching` for in-progress or up-next titles; `library_search` to search the OWNED library (titles the user has, watched or not) with match counts. `watch_history`'s `query` filters HISTORY only — for 'do I own X?' use `library_search`, not history. Do not use it for the user's own photos and home videos (photos), for facts about a film or show (research_web), or for files on their storage (files). Returns titles with watch state and counts. Read-only; with several accounts connected, pass `account` (provider, label, or email).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "watch_history",
+              "libraries",
+              "continue_watching",
+              "library_search"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "location",
+      "description": "Read the user's OWN current or past position from their connected OwnTracks device: `last` (where am I now), `history` (raw fixes over a range), `places` (a compact 'places visited' summary — best for 'where was I yesterday' or 'was I at the office'), and `distance` (straight-line — from the current fix to a given lat/lon, across a range for 'how far did I travel', or to a saved home). Do not use it for road or transit distance and travel time, or for any place that is not the user's own device — that is map_route; call this first only when a route needs the user's coordinates. Returns coordinates, timestamps and place labels. Read-only; with several devices connected, pass `account` (provider, label, or email).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "last",
+              "history",
+              "places",
+              "distance"
+            ]
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lon": {
+            "type": "number"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "contacts",
+      "description": "Look up a contact's identity (email/phone/organization) by name with the `lookup` action, or list everyone in a named contact group (e.g. 'Family', 'Work') with the `group` action, across the user's connected sources (Google, Apple iCloud; groups are Google-only for now). Call when the user asks for someone's email/phone/company, or who's in a contact group. Do not use it to find messages from that person (email), to look up a public company or public figure (research_web), or to turn an address into a location (map_route). Returns matching contacts. Read-only; pass `account` (provider, label, or email) to narrow to one source.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "lookup",
+              "group"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "repos",
+      "description": "Read the user's connected repositories (GitHub, or a Gitea/GHE-compatible server): `list_repos` (most recently pushed first); `list_issues`, `list_prs` (pull requests) and `list_commits` (scoped to a repo via `owner`+`repo`, issues/PRs optionally filtered by `state`); `read_file` to open one file by `path` (optionally at a specific `ref`); `ci_status` for recent CI/Actions runs; `search_code` to search the user's repositories with `query`. Call when the user asks about their code, a repo's issues/PRs/commits, build/CI status, or to find something in their code. Do not use it for public documentation or a third-party project the user has no repository for (research_web, fetch_url), or for files on their storage (files). Read-only — this connector never creates, comments on, merges, or pushes anything.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list_repos",
+              "read_file",
+              "list_issues",
+              "list_prs",
+              "list_commits",
+              "ci_status",
+              "search_code"
+            ]
+          },
+          "owner": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "all"
+            ]
+          },
+          "ref": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "tasks",
+      "description": "Read the user's connected to-do/task lists (a CalDAV account's task lists): `list_tasks` for open tasks (optionally filtered by `due` — a 'YYYY-MM-DD' date or the literal 'overdue'); `search_tasks` free-text searches task titles/notes with `query`, optionally with `due`. Call when the user asks about their to-dos, what's due, or a specific task. Do not use it for appointments or anything with a start and end time — that is `calendar`, a different store — and do not use it to add or complete a task; this tool is read-only. Returns tasks with title, notes and due date. Results combine every connected source; pass `account` (provider, label, or email) to narrow to one.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list_tasks",
+              "search_tasks"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "due": {
+            "type": "string"
+          },
+          "account": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "map_route",
+      "description": "Places, distances, travel times, routes and public transport departures on OpenStreetMap data. Call for \"how far\", \"how long to get there\", \"route/directions\", \"what is within 20 minutes\", a transit journey or the next departures, and to turn a place name into coordinates. Do not use research_web or image_search for any of those, and do not use this tool to find out where the user is — it does not know; call `location` first for their coordinates. Pass one `action`: `geocode` (query, optional near/limit), `route` (origin, destination, optional waypoints), `matrix` (origins, destinations), `isochrone` (origin, ranges_s in seconds), `transit` (public transport journey with times and lines: origin, destination, optional departure or arrive_by and max_walk_minutes), `timetable` (the next departures between two places: origin, destination, optional from, window_minutes, rows) or `journey` (mixed modes in order, e.g. bike, train, walk; give `legs` plus origin/destination and either arrive_by or departure). A place is a name string or {\"lat\":52.52,\"lng\":13.4}; `mode` is drive (default), walk or bike. Example: {\"action\":\"route\",\"origin\":\"Berlin Hbf\",\"destination\":\"Brandenburg Gate\",\"mode\":\"walk\"}. Returns summary, distance_m, duration_s, steps, legs and polygons (transit and journey add local clock times, lines and changes), and renders a map card already showing the FULL directions or timeline — so summarise the journey's key turns or changes and the times, not every step, and always include \"© OpenStreetMap contributors\". TIMETABLES: no region on this server has public transport timetables loaded right now; do not call transit/timetable.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "geocode",
+              "route",
+              "matrix",
+              "isochrone",
+              "transit",
+              "timetable",
+              "journey"
+            ]
+          },
+          "query": {
+            "type": "string",
+            "description": "geocode: the place to look up"
+          },
+          "near": {
+            "type": "object",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lng": {
+                "type": "number"
+              }
+            },
+            "description": "geocode: bias results near these coordinates"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 10
+          },
+          "origin": {
+            "description": "route/isochrone start. Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+          },
+          "destination": {
+            "description": "route end. Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+          },
+          "waypoints": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "description": "Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+            }
+          },
+          "origins": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "description": "Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+            }
+          },
+          "destinations": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "description": "Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+            }
+          },
+          "ranges_s": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "isochrone: travel-time ranges in seconds"
+          },
+          "departure": {
+            "type": "string",
+            "description": "transit: leave at this local time, e.g. \"08:30\" or \"2026-09-08T08:30\". Omit for \"now\"."
+          },
+          "arrive_by": {
+            "type": "string",
+            "description": "transit: arrive by this local time instead of leaving at one"
+          },
+          "max_walk_minutes": {
+            "type": "integer",
+            "maximum": 120,
+            "description": "transit/timetable: longest walk to or from a stop (default 15)"
+          },
+          "from": {
+            "type": "string",
+            "description": "timetable: start of the window, local time (default \"now\")"
+          },
+          "window_minutes": {
+            "type": "integer",
+            "maximum": 720,
+            "description": "timetable: how far ahead to look (default 120)"
+          },
+          "rows": {
+            "type": "integer",
+            "maximum": 12,
+            "description": "timetable: how many departures to return (default 6)"
+          },
+          "legs": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "drive",
+                    "walk",
+                    "bike",
+                    "transit"
+                  ]
+                },
+                "from": {
+                  "description": "Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+                },
+                "to": {
+                  "description": "Place: a name string or {\"lat\":52.52,\"lng\":13.4}."
+                }
+              },
+              "required": [
+                "mode"
+              ]
+            },
+            "description": "journey: the modes in order. Consecutive legs chain, so only name a place where it changes: [{\"mode\":\"bike\",\"to\":\"Cork Kent station\"},{\"mode\":\"transit\",\"to\":\"Dublin Heuston\"},{\"mode\":\"walk\"}]."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "drive",
+              "walk",
+              "bike"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "use_skill",
+      "description": "Load a skill's full instructions, by exact `name` from \"## Skills available\". Call it once, before answering, when the user's request matches a listed skill, then follow the returned instructions for the rest of this turn instead of improvising. Do not use it for a skill absent from that list, do not guess or translate a name, and do not call it twice for the same skill. Returns the skill's instruction text.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Exact skill name from \"## Skills available\""
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "suggest_instruction",
+      "description": "Offer to add a standing instruction when the user just stated a rule for the future (\"from now on…\", \"always…\", \"never…\"), in their own words: {\"text\": \"Only suggest trains, no flights.\", \"scope\": \"project\"}. The user sees a row with Review and Dismiss; nothing is saved until they review it. Do not use it for a one-off request, or to restate an offer you already made.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "project"
+            ]
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "done",
+      "description": "Call once, at the very end, when the answer is complete and every requested file has been produced; pass a one-line `summary`. Do not use it before the answer text exists, or while another tool call might still be needed — it ends the turn.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "description": "One line on what was accomplished"
+          }
+        },
+        "required": [
+          "summary"
+        ]
+      }
+    }
+  }
+]

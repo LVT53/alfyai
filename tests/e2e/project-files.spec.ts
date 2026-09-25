@@ -6,7 +6,7 @@ import {
 	artifacts,
 	projectKnowledgeLinks,
 } from "../../src/lib/server/db/schema";
-import { login, waitForHydration } from "./helpers";
+import { ensureSidebarExpanded, login, waitForHydration } from "./helpers";
 
 /**
  * A project's files (Workspaces Slice E, mockup §M5) — the Files modal, the
@@ -78,6 +78,20 @@ async function linkArtifacts(
 	expect(response.ok(), "linking must succeed").toBe(true);
 }
 
+/** A fresh project that knows exactly one library document. */
+async function createProjectWithLinkedDocument(
+	page: Page,
+	documentName: string,
+): Promise<{ projectId: string; artifactId: string }> {
+	const projectId = await createProject(
+		page,
+		`Vienna trip ${randomUUID().slice(0, 8)}`,
+	);
+	const artifactId = await uploadLibraryDocument(page, { name: documentName });
+	await linkArtifacts(page, projectId, [artifactId]);
+	return { projectId, artifactId };
+}
+
 async function linkedCount(projectId: string): Promise<number> {
 	const [row] = await db
 		.select({ count: projectKnowledgeLinks.artifactId })
@@ -108,6 +122,44 @@ async function openFilesDialog(page: Page, projectId: string) {
 
 function fileRow(dialog: ReturnType<Page["getByRole"]>, name: string) {
 	return dialog.getByTestId("project-file-row").filter({ hasText: name });
+}
+
+/**
+ * The phone "sheet" presentation flies the dialog panel in over 250ms
+ * (DialogShell's `panelSlide` transition — JS/rAF-driven via Svelte's `fly`,
+ * not a native CSS transition). A `boundingBox()` taken mid-flight reads a
+ * moving target: this file takes several SEQUENTIAL `boundingBox()` calls
+ * once the dialog is up, and two of them can land on either side of a still
+ * -moving frame. Every descendant shifts by the same amount as the panel
+ * translates, so a *single* read is never wrong, but comparing a read taken
+ * a few frames apart from another (name vs. fact) can read a false
+ * fraction-of-a-pixel gap. Wait for the panel's own rect to stop moving
+ * across consecutive animation frames before measuring anything inside it.
+ */
+async function waitForSheetToSettle(page: Page): Promise<void> {
+	await page.waitForFunction(() => {
+		const state = window as unknown as {
+			__sheetSettleY?: number;
+			__sheetSettleStreak?: number;
+		};
+		const panel = document.querySelector('[role="dialog"]');
+		if (!panel) return false;
+		const y = panel.getBoundingClientRect().y;
+		if (state.__sheetSettleY === y) {
+			state.__sheetSettleStreak = (state.__sheetSettleStreak ?? 0) + 1;
+		} else {
+			state.__sheetSettleStreak = 0;
+		}
+		state.__sheetSettleY = y;
+		// Three equal reads in a row, polled once per animation frame (the
+		// default for waitForFunction): the panel has been in the same place
+		// for multiple consecutive frames, not just between two rAF ticks.
+		return (state.__sheetSettleStreak ?? 0) >= 3;
+	});
+}
+
+function projectRow(page: Page, name: string) {
+	return page.getByTestId("project-drop-target").filter({ hasText: name });
 }
 
 test.describe("Project files", () => {
@@ -145,13 +197,11 @@ test.describe("Project files", () => {
 	});
 
 	test("unlinks a file and keeps it in the library", async ({ page }) => {
-		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
-		const projectId = await createProject(page, projectName);
 		const documentName = `Railjet tickets ${randomUUID().slice(0, 6)}.txt`;
-		const artifactId = await uploadLibraryDocument(page, {
-			name: documentName,
-		});
-		await linkArtifacts(page, projectId, [artifactId]);
+		const { projectId, artifactId } = await createProjectWithLinkedDocument(
+			page,
+			documentName,
+		);
 
 		const dialog = await openFilesDialog(page, projectId);
 		const row = fileRow(dialog, documentName);
@@ -263,6 +313,157 @@ test.describe("Project files", () => {
 			links.map((link) => link.artifactId),
 			"the removal is the durable state; the slow read changed nothing",
 		).toEqual([keptId]);
+	});
+
+	test("says it is loading, not that a project with files is empty, while the list is read", async ({
+		page,
+	}) => {
+		const documentName = `Railjet tickets ${randomUUID().slice(0, 6)}.txt`;
+		const { projectId } = await createProjectWithLinkedDocument(
+			page,
+			documentName,
+		);
+
+		// Every read of the list is held until released, which keeps the modal
+		// inside the window the page's mount-time read leaves open — the window
+		// in which it used to say "No files yet." about this very file.
+		let releaseReads = () => {};
+		const readsHeld = new Promise<void>((resolve) => {
+			releaseReads = resolve;
+		});
+		await page.route(
+			`**/api/projects/${projectId}/knowledge`,
+			async (route) => {
+				if (route.request().method() === "GET") await readsHeld;
+				await route.continue();
+			},
+		);
+
+		const dialog = await openFilesDialog(page, projectId);
+		await expect(dialog.getByTestId("project-files-loading")).toHaveText(
+			"Loading…",
+		);
+		await expect(dialog.getByTestId("project-files-empty")).toHaveCount(0);
+
+		releaseReads();
+		await expect(fileRow(dialog, documentName)).toBeVisible();
+		await expect(dialog.getByTestId("project-files-loading")).toHaveCount(0);
+		await expect(dialog.getByTestId("project-files-footer")).toHaveText(
+			"1 file · removing it here keeps it in your library",
+		);
+	});
+
+	test("does not carry one project's files onto another project's Files modal", async ({
+		page,
+	}) => {
+		// `/projects/[projectId]` is one route, so the sidebar's "open another
+		// project" is a client-side navigation that reuses this page component:
+		// `projectFiles` is page-level state, not per-project state, so unless the
+		// page notices the switch and clears it, project B's Files modal opens
+		// showing project A's rows — under B's name, with Remove buttons that
+		// would unlink A's document from a project it was never linked to.
+		const aName = `Alpha trip ${randomUUID().slice(0, 8)}`;
+		const bName = `Beta trip ${randomUUID().slice(0, 8)}`;
+		const aDocumentName = `Alpha doc ${randomUUID().slice(0, 6)}.txt`;
+		const bDocumentName = `Beta doc ${randomUUID().slice(0, 6)}.txt`;
+		const projectAId = await createProject(page, aName);
+		const projectBId = await createProject(page, bName);
+		await linkArtifacts(page, projectAId, [
+			await uploadLibraryDocument(page, { name: aDocumentName }),
+		]);
+		await linkArtifacts(page, projectBId, [
+			await uploadLibraryDocument(page, { name: bDocumentName }),
+		]);
+
+		// B's own list read is held, so the window where a stale carry-over from A
+		// would be visible stays open long enough to assert on.
+		let releaseB = () => {};
+		const bHeld = new Promise<void>((resolve) => {
+			releaseB = resolve;
+		});
+		await page.route(
+			`**/api/projects/${projectBId}/knowledge`,
+			async (route) => {
+				if (route.request().method() === "GET") await bHeld;
+				await route.continue();
+			},
+		);
+
+		const dialogA = await openFilesDialog(page, projectAId);
+		await expect(fileRow(dialogA, aDocumentName)).toBeVisible();
+		await dialogA.getByRole("button", { name: "Done" }).click();
+
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, bName);
+		await row.hover();
+		await row.getByRole("button", { name: `Open ${bName}` }).click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${projectBId}$`));
+		await expect(page.getByTestId("project-greeting")).toHaveText(bName);
+		await waitForHydration(page);
+
+		await page.getByTestId("project-files-button").click();
+		const dialogB = page.getByRole("dialog", { name: "Files" });
+		await expect(dialogB).toBeVisible({ timeout: 10000 });
+
+		// While B's read is still held: A's row must be gone and the modal must
+		// say it is loading, never "No files yet." (which would be an equally
+		// false answer) and never A's file under B's name.
+		await expect(dialogB.getByTestId("project-files-loading")).toHaveText(
+			"Loading…",
+		);
+		await expect(dialogB.getByTestId("project-files-empty")).toHaveCount(0);
+		await expect(fileRow(dialogB, aDocumentName)).toHaveCount(0);
+		await expect(dialogB.getByTestId("project-file-row")).toHaveCount(0);
+
+		releaseB();
+		await expect(fileRow(dialogB, bDocumentName)).toBeVisible();
+		await expect(dialogB.getByTestId("project-files-loading")).toHaveCount(0);
+		await expect(dialogB.getByTestId("project-file-row")).toHaveCount(1);
+	});
+
+	test("shows a truthful error with a retry when the project's own file list never loads", async ({
+		page,
+	}) => {
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+		const documentName = `Museum list ${randomUUID().slice(0, 6)}.txt`;
+		await linkArtifacts(page, projectId, [
+			await uploadLibraryDocument(page, { name: documentName }),
+		]);
+
+		// Every read of the list fails until the flag below is flipped — both the
+		// page's own mount-time read and the one `openFilesDialog` triggers when
+		// the modal opens, so the window the unfixed page left showing "Loading…"
+		// forever is fully covered, not just its first attempt.
+		let failReads = true;
+		await page.route(
+			`**/api/projects/${projectId}/knowledge`,
+			async (route) => {
+				if (route.request().method() === "GET" && failReads) {
+					await route.fulfill({
+						status: 500,
+						contentType: "application/json",
+						body: JSON.stringify({ error: "Simulated failure" }),
+					});
+					return;
+				}
+				await route.continue();
+			},
+		);
+
+		const dialog = await openFilesDialog(page, projectId);
+		const errorState = dialog.getByTestId("project-files-error");
+		await expect(errorState).toContainText(
+			"Could not load this project's files.",
+		);
+		await expect(dialog.getByTestId("project-files-loading")).toHaveCount(0);
+		await expect(dialog.getByTestId("project-files-empty")).toHaveCount(0);
+		await expect(dialog.getByTestId("project-file-row")).toHaveCount(0);
+
+		failReads = false;
+		await dialog.getByRole("button", { name: "Retry" }).click();
+		await expect(fileRow(dialog, documentName)).toBeVisible();
+		await expect(errorState).toHaveCount(0);
 	});
 
 	test("uploads a file into the project, showing it in both the modal and the library", async ({
@@ -420,13 +621,11 @@ test.describe("Project files", () => {
 	test("previews a file from a row without leaving the project page", async ({
 		page,
 	}) => {
-		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
-		const projectId = await createProject(page, projectName);
 		const documentName = `Museum hours ${randomUUID().slice(0, 6)}.txt`;
-		const artifactId = await uploadLibraryDocument(page, {
-			name: documentName,
-		});
-		await linkArtifacts(page, projectId, [artifactId]);
+		const { projectId } = await createProjectWithLinkedDocument(
+			page,
+			documentName,
+		);
 
 		const dialog = await openFilesDialog(page, projectId);
 		await fileRow(dialog, documentName)
@@ -528,6 +727,7 @@ test.describe("Project files — phone", () => {
 		const dialog = await openFilesDialog(page, projectId);
 		await expect(dialog).toHaveClass(/dialog-sheet/);
 		await expect(page.getByTestId("dialog-sheet-grabber")).toBeVisible();
+		await waitForSheetToSettle(page);
 
 		const sheet = await dialog.boundingBox();
 		expect(sheet?.width ?? 0).toBeLessThanOrEqual(390);
@@ -586,10 +786,16 @@ test.describe("Project files — phone", () => {
 				Math.round(box?.x ?? 0),
 				"a fact belongs in the file-name column, under it",
 			).toBe(Math.round(nameBox?.x ?? 0));
+			// Sub-pixel layout rounding (line-height and row-gap arithmetic can
+			// land on a fractional device pixel) can legitimately differ by
+			// under 1px between layout passes even once settled; a real
+			// overlap — a fact sitting beside or on the name's own line — is
+			// many pixels, not a rounding artifact, so this tolerance cannot
+			// hide one.
 			expect(
 				box?.y ?? 0,
 				"a fact belongs below the file's name",
-			).toBeGreaterThanOrEqual((nameBox?.y ?? 0) + (nameBox?.height ?? 0));
+			).toBeGreaterThanOrEqual((nameBox?.y ?? 0) + (nameBox?.height ?? 0) - 1);
 		}
 	});
 });
