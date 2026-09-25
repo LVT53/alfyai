@@ -91,7 +91,7 @@ npx tsx scripts/eval-artifact-contracts/run.ts --help
 | `--replay` | Re-score committed responses under `fixtures/<suite>/responses/`. No model client is constructed; no key is required. |
 | `--skip-model` | Alias of `--replay` — the App prototype's own env-switch spelling (`PROTO_APPS_SKIP_MODEL`), offered as a flag too. |
 | `--limit <n>` | Cap the number of *non-known-bad* fixtures run. The known-bad set always runs in full — limiting the harness's own gate would defeat it. |
-| `--only <ids>` | Comma-separated fixture ids to run (filters both the known-bad and the regular set). |
+| `--only <ids>` | Comma-separated fixture ids to run, filtering the *regular* set only. The known-bad set always runs in full regardless of `--only` — same reasoning as `--limit`: selecting a fixture to iterate on must not be able to silently disable the gate. |
 | `--out <dir>` | Override the `results/` output directory. |
 | `--help` | Print the switch table. |
 
