@@ -70,6 +70,17 @@ export interface CreateArtifactHandlerParams {
 	turnId: string;
 	title: string;
 	body: string;
+	/**
+	 * Fires on the tool's own timeout (120s, TOOL_TIMEOUTS_MS.create_artifact)
+	 * or the turn's own stop/disconnect — whichever comes first, the same
+	 * combined signal executeToolWithEnvelope already builds for every other
+	 * tool. A handler MUST check `abortSignal.aborted` before any write (the
+	 * model was already told the call failed once either fires, so a write
+	 * after that point is an orphan the user never asked for and a duplicate
+	 * when the model retries), and pass it to any model call it makes so that
+	 * call is cancelled too rather than left running unattended.
+	 */
+	abortSignal: AbortSignal;
 }
 
 export interface CreateArtifactHandlerSuccess {
@@ -139,6 +150,7 @@ export async function runCreateArtifactTool(
 		turnId: params.turnId,
 		title: params.title,
 		body: params.body,
+		abortSignal: params.abortSignal,
 	});
 
 	if (!result.ok) {

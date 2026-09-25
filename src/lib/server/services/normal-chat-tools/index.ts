@@ -1841,7 +1841,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						timeoutMs: TOOL_TIMEOUTS_MS.create_artifact,
 						options,
 						recorder,
-						run: async () => {
+						run: async (abortSignal) => {
 							const result = await runCreateArtifactTool({
 								userId: ctx.userId,
 								conversationId: ctx.conversationId,
@@ -1849,6 +1849,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								artifactType: safeInput.artifactType,
 								title: safeInput.title,
 								body: safeInput.body,
+								abortSignal,
 							});
 							return {
 								modelPayload: result.modelPayload,
@@ -1898,12 +1899,13 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						timeoutMs: TOOL_TIMEOUTS_MS.read_artifact,
 						options,
 						recorder,
-						run: async () => {
+						run: async (abortSignal) => {
 							const result = await runReadArtifactTool({
 								userId: ctx.userId,
 								conversationId: ctx.conversationId,
 								artifactId: input.artifactId,
 								detail: input.detail,
+								abortSignal,
 							});
 							return {
 								modelPayload: result.modelPayload,
@@ -1960,7 +1962,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						timeoutMs: TOOL_TIMEOUTS_MS.edit_artifact,
 						options,
 						recorder,
-						run: async () => {
+						run: async (abortSignal) => {
 							const result = await runEditArtifactTool({
 								userId: ctx.userId,
 								conversationId: ctx.conversationId,
@@ -1969,6 +1971,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 								patches: safeInput.patches,
 								ops: safeInput.ops,
 								summary: safeInput.summary,
+								abortSignal,
 							});
 							return {
 								modelPayload: result.modelPayload,

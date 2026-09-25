@@ -67,6 +67,7 @@ describe("runReadArtifactTool", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			artifactId: "missing-id",
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload.success).toBe(false);
@@ -92,6 +93,7 @@ describe("runReadArtifactTool", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			artifactId: "artifact-1",
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload).toMatchObject({
@@ -114,6 +116,7 @@ describe("runReadArtifactTool", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			artifactId: "artifact-1",
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(getArtifactMock).toHaveBeenCalledWith(
@@ -130,6 +133,7 @@ describe("runReadArtifactTool", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			artifactId: "artifact-1",
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload).toMatchObject({
@@ -150,6 +154,7 @@ describe("runReadArtifactTool", () => {
 			userId: "user-1",
 			conversationId: "conv-1",
 			artifactId: "artifact-1",
+			abortSignal: new AbortController().signal,
 			detail: "blocks",
 		});
 
@@ -167,10 +172,30 @@ describe("runReadArtifactTool", () => {
 				userId: "user-1",
 				conversationId: "conv-1",
 				artifactId: "artifact-1",
+				abortSignal: new AbortController().signal,
 			}),
 		).rejects.toThrow("db exploded");
 		// Note: this rejection is caught by the tool's execution envelope in
 		// index.ts (executeToolWithEnvelope), not inside runReadArtifactTool
 		// itself — see index.test.ts for the end-to-end model-safe assertion.
+	});
+
+	it("passes its own abortSignal through to a registered handler unchanged", async () => {
+		const controller = new AbortController();
+		let seenSignal: AbortSignal | undefined;
+		READ_ARTIFACT_HANDLERS.document = async (params) => {
+			seenSignal = params.abortSignal;
+			return { body: "content" };
+		};
+		getArtifactMock.mockResolvedValue(detail());
+
+		await runReadArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			artifactId: "artifact-1",
+			abortSignal: controller.signal,
+		});
+
+		expect(seenSignal).toBe(controller.signal);
 	});
 });

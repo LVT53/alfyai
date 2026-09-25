@@ -1,6 +1,6 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText, type ToolSet } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig } from "$lib/server/config-store";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
 import { recordParallelUsage } from "$lib/server/services/analytics";
@@ -48,6 +48,7 @@ import {
 } from "$lib/server/services/skills/prompt-context";
 import { resetToolHealthCacheForTests } from "$lib/server/services/tool-health";
 import { INSTRUCTIONS_MAX_CHARS } from "$lib/shared/instructions";
+import { CREATE_ARTIFACT_HANDLERS } from "./artifact-tools/create";
 import {
 	createNormalChatTools,
 	isProduceFileRequest,
@@ -4816,6 +4817,10 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 		return { tools, getToolCalls };
 	}
 
+	afterEach(() => {
+		delete CREATE_ARTIFACT_HANDLERS.document;
+	});
+
 	it("advertises a trimmed create_artifact schema and validates with the full one", async () => {
 		const { tools } = artifactTools();
 
@@ -4913,6 +4918,81 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 		// The cap lives on the EXECUTED schema, so a batch over it never even
 		// reaches the artifact lookup — it fails validation up front.
 		expect(result.success).toBe(false);
+	});
+
+	// A real defect found after the shell shipped: the three `run: async () =>`
+	// closures ignored executeToolWithEnvelope's own combined abort signal, so
+	// an App generation (up to 120s) could outlive its timeout or the user's
+	// Stop and still write an artifact after the model was told the call
+	// failed — an orphan, and a duplicate on retry. Both triggers of that
+	// combined signal are proven against the REAL registered tool, not a
+	// mock of the envelope.
+	describe("abort signal propagation (a real defect, now fixed)", () => {
+		it("a slow handler observes the tool's own timeout firing", async () => {
+			const originalTimeout = TOOL_TIMEOUTS_MS.create_artifact;
+			// A short-lived override so this test does not wait out the real
+			// 120s cap; restored in the finally below regardless of outcome.
+			TOOL_TIMEOUTS_MS.create_artifact = 20;
+			let observedAborted = false;
+			try {
+				CREATE_ARTIFACT_HANDLERS.document = async ({ abortSignal }) => {
+					await new Promise<void>((resolve) => {
+						const timer = setTimeout(resolve, 200);
+						abortSignal.addEventListener(
+							"abort",
+							() => {
+								observedAborted = abortSignal.aborted;
+								clearTimeout(timer);
+								resolve();
+							},
+							{ once: true },
+						);
+					});
+					return {
+						ok: true,
+						value: { artifactId: "artifact-1", title: "Slow" },
+					};
+				};
+				const { tools } = artifactTools();
+
+				await tools.create_artifact.execute?.(
+					{ artifactType: "document", title: "Slow", body: "content" },
+					{ toolCallId: "call-1", messages: [] },
+				);
+
+				expect(observedAborted).toBe(true);
+			} finally {
+				TOOL_TIMEOUTS_MS.create_artifact = originalTimeout;
+			}
+		});
+
+		it("a slow handler observes the turn's own abort signal (a user stop) firing", async () => {
+			let observedAborted = false;
+			CREATE_ARTIFACT_HANDLERS.document = async ({ abortSignal }) => {
+				await new Promise<void>((resolve) => {
+					abortSignal.addEventListener(
+						"abort",
+						() => {
+							observedAborted = abortSignal.aborted;
+							resolve();
+						},
+						{ once: true },
+					);
+				});
+				return { ok: true, value: { artifactId: "artifact-1", title: "Slow" } };
+			};
+			const controller = new AbortController();
+			const { tools } = artifactTools();
+
+			const pending = tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "Slow", body: "content" },
+				{ toolCallId: "call-1", messages: [], abortSignal: controller.signal },
+			);
+			controller.abort();
+			await pending;
+
+			expect(observedAborted).toBe(true);
+		});
 	});
 });
 

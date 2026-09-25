@@ -43,6 +43,14 @@ export interface ReadArtifactHandlerParams {
 	artifactId: string;
 	title: string;
 	detail: "blocks" | "full";
+	/**
+	 * Fires on the tool's own timeout (10s, TOOL_TIMEOUTS_MS.read_artifact) or
+	 * the turn's own stop/disconnect. A read has nothing to write, but a
+	 * handler MUST still check it before doing further work and pass it to
+	 * any model call it makes, so that call is cancelled too rather than left
+	 * running unattended after the model was told the read failed.
+	 */
+	abortSignal: AbortSignal;
 }
 
 export interface ReadArtifactHandlerResult {
@@ -117,6 +125,7 @@ export async function runReadArtifactTool(params: {
 	conversationId: string;
 	artifactId: string;
 	detail?: "blocks" | "full";
+	abortSignal: AbortSignal;
 }): Promise<ReadArtifactRunResult> {
 	const detail = params.detail ?? "full";
 	const record = await getArtifact({
@@ -187,6 +196,7 @@ export async function runReadArtifactTool(params: {
 		artifactId: record.id,
 		title: record.title,
 		detail,
+		abortSignal: params.abortSignal,
 	});
 	return {
 		modelPayload: {
