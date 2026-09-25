@@ -9,6 +9,10 @@ import {
 	AI_SMOKE_ABORT_DELAY_MS,
 	AI_SMOKE_MODEL_ID,
 	AI_SMOKE_PLAIN_TEXT,
+	AI_SMOKE_PROJECT_FILE_PROBE_PREFIX,
+	AI_SMOKE_READ_PROJECT_FILE_FINAL_TEXT,
+	AI_SMOKE_READ_PROJECT_FILE_MARKER,
+	AI_SMOKE_READ_PROJECT_FILE_TOOL_NAME,
 	AI_SMOKE_REASONING_TEXT,
 	AI_SMOKE_SCENARIOS,
 	AI_SMOKE_SLOW_CHUNK_DELAY_MS,
@@ -24,6 +28,7 @@ import {
 
 const TOOL_CALL_ID = "call_fake_report_1";
 const TOOL_CALL_INPUT = { title: "Deterministic fake report" };
+const READ_PROJECT_FILE_CALL_ID = "call_fake_read_project_file_1";
 const SUGGEST_INSTRUCTION_CALL_ID = "call_fake_suggest_instruction_1";
 const SUGGEST_INSTRUCTION_CALL_INPUT = {
 	text: AI_SMOKE_STANDING_INSTRUCTION_TEXT,
@@ -552,6 +557,76 @@ function buildSuggestInstructionFinalStreamResponse(): Response {
 	]);
 }
 
+/**
+ * The read-a-project-file scenario: the model reads a file it found in the
+ * prompt's project file list — never a name the user typed — with the app's
+ * real `read_generated_file` tool, and the follow-up request, the one carrying
+ * the tool result, answers in text. A prompt with no probe file in it gets plain
+ * text, so a spec that expected the read fails on its own assertions instead of
+ * hanging.
+ */
+function bodyAsksToReadProjectFile(body: unknown): boolean {
+	return JSON.stringify(body).includes(AI_SMOKE_READ_PROJECT_FILE_MARKER);
+}
+
+const PROJECT_FILE_PROBE_NAME_RE = new RegExp(
+	`${AI_SMOKE_PROJECT_FILE_PROBE_PREFIX}[0-9a-f]{8}\\.txt`,
+);
+
+function findProjectFileProbeName(body: unknown): string | null {
+	return JSON.stringify(body).match(PROJECT_FILE_PROBE_NAME_RE)?.[0] ?? null;
+}
+
+function buildReadProjectFileStreamResponse(
+	body: Record<string, unknown>,
+): Response {
+	const chunkBase = {
+		id: "chatcmpl_fake_read_project_file_stream",
+		object: "chat.completion.chunk",
+		created: 1_700_000_008,
+		model: AI_SMOKE_MODEL_ID,
+	};
+	const answeredWithToolResult = hasToolResultMessage(body);
+	const filename = answeredWithToolResult
+		? null
+		: findProjectFileProbeName(body);
+	if (!answeredWithToolResult && !filename) return buildTextStreamResponse();
+	// One delta, then the finish frame with usage — the shape every scripted
+	// response here takes.
+	const delta = filename
+		? {
+				tool_calls: [
+					{
+						index: 0,
+						id: READ_PROJECT_FILE_CALL_ID,
+						type: "function",
+						function: {
+							name: AI_SMOKE_READ_PROJECT_FILE_TOOL_NAME,
+							arguments: JSON.stringify({ filename }),
+						},
+					},
+				],
+			}
+		: { content: AI_SMOKE_READ_PROJECT_FILE_FINAL_TEXT };
+	return streamResponse([
+		{
+			...chunkBase,
+			choices: [{ index: 0, delta, finish_reason: null }],
+		},
+		{
+			...chunkBase,
+			choices: [
+				{
+					index: 0,
+					delta: {},
+					finish_reason: filename ? "tool_calls" : "stop",
+				},
+			],
+			usage: { prompt_tokens: 15, completion_tokens: 6, total_tokens: 21 },
+		},
+	]);
+}
+
 function buildToolFinalStreamResponse(): Response {
 	const chunkBase = {
 		id: "chatcmpl_fake_tool_final_stream",
@@ -732,6 +807,9 @@ export function createOpenAICompatibleProviderHarness(
 			}
 
 			if (isJsonObject(body) && body.stream === true) {
+				if (bodyAsksToReadProjectFile(body)) {
+					return buildReadProjectFileStreamResponse(body);
+				}
 				if (bodyAsksForStandingInstruction(body)) {
 					if (hasToolResultMessage(body)) {
 						return buildSuggestInstructionFinalStreamResponse();
