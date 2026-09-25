@@ -99,17 +99,18 @@ Same as `plan.md` §Global Constraints. In addition, for this slice:
 export PATH=/opt/homebrew/opt/node@22/bin:$PATH
 npm run check && npx biome check src scripts tests && npm test && npm run build
 npx fallow --no-cache --format json --quiet --score --output-file /tmp/alfyai-fallow.json
-npx playwright test tests/e2e/artifact-slides.spec.ts tests/e2e/artifact-panel.spec.ts \
+npx playwright test tests/e2e/artifact-slides.spec.ts tests/e2e/artifacts-panel.spec.ts \
   tests/e2e/chat.spec.ts tests/e2e/incognito-indicator.spec.ts
 # Slice 5's harness. `--suite` (not `--only`, which selects fixture ids); `--replay` needs no API key,
 # the model run is the real gate. Both read `scripts/eval-artifact-contracts/config.ts`'s EVAL_ARTIFACTS_* switches.
-node --experimental-strip-types scripts/eval-artifact-contracts/run.ts --suite slides --replay
-node --experimental-strip-types scripts/eval-artifact-contracts/run.ts --suite slides --model "$EVAL_MODEL"
+npx tsx scripts/eval-artifact-contracts/run.ts --suite slides --replay
+npx tsx scripts/eval-artifact-contracts/run.ts --suite slides --model "$EVAL_MODEL"
 ```
 
-`tests/e2e/artifact-panel.spec.ts` is **singular** — Slice 0 creates that file
-(`slice-0.md:91,1061,1509`); slice 3 spells it `artifacts-panel.spec.ts` (`slice-3.md:91,2111,2154`) and is
-wrong (reported, not fixed here). The eval run is a gate, not a report: a slide suite that regresses blocks this slice's merge (Task T7).
+`tests/e2e/artifacts-panel.spec.ts` is **plural** (ruling 26) — Slice 0 creates that file and every type is
+tested through it. The harness runs through `npx tsx`, the same runner Slice 5 documents: node's own
+`--experimental-strip-types` does not resolve the SvelteKit `$lib` alias the eval's imports need. The eval run
+is a gate, not a report: a slide suite that regresses blocks this slice's merge (Task T7).
 
 ## Review Focus
 
@@ -500,7 +501,7 @@ choose to drop them explicitly in a second op. `invalid_layout` is an unknown la
 app's, not the model's).
 
 **Order of validation** (inside `validateSlidesDiff` in `deck-ops.ts`), mirroring Slice 3's
-(`slice-3.md:650-663`):
+(`slice-3.md §The board `_lib` modules`):
 
 1. `diff.ops.length > MAX_SLIDE_OPS_PER_DIFF` → the whole diff is refused with `limit_exceeded`; nothing is
    applied (a runaway batch is not partly applied).
@@ -524,18 +525,21 @@ op of the same batch is valid (ids are addresses, and the batch creates them ear
 
 | Route | Method | Request | Response |
 |---|---|---|---|
-| `/api/artifacts/[id]/ops` | POST | `{ baseVersionId: string; diff: SlidesDiff \| BoardDiff }` | `200 { versionId, applied, refused: SlideOpRefusal[] \| BoardOpRefusal[] }` · `409 { code: "stale_version", versionId }` · `404 { code: "not_found" }` |
-| `/api/artifacts/[id]/slides/[slideId]/ask` | POST | `{ baseVersionId: string; instruction: string }` | `200 { versionId, applied, refused, summary }` · `409 { code: "stale_version", versionId }` · `422 { code: "no_diff" \| "instruction_too_long" }` · `404 { code: "not_found" }` |
-| `/api/artifacts/[id]/exports/pptx` | POST | `{}` | `202 { job: FileProductionJob, reused: boolean }` · `409 { code: "artifact_has_no_conversation" \| "export_image_missing" }` · `422 { code: "export_no_slides" \| "source_too_large" }` (with `job`) |
+| `/api/artifacts/[id]/ops` | POST | `{ baseVersionId: string; diff: SlidesDiff \| BoardDiff }` | `200 { ok: true, versionId, version, applied, refused: SlideOpRefusal[] \| BoardRefusal[] }` · `409 { ok: false, reason: "version_conflict", version }` · `404` · `400` (a kind with no `OPS_BRANCHES` row) · `413` |
+| `/api/artifacts/[id]/slides/[slideId]/ask` | POST | `{ baseVersionId: string; instruction: string }` | `200 { ok: true, versionId, version, applied, refused, summary }` · `409 { ok: false, reason: "version_conflict", version }` · `422 { ok: false, reason: "no_diff" \| "instruction_too_long" }` · `404 { ok: false, reason: "not_found" }` |
+| `/api/artifacts/[id]/exports/pptx` | POST | `{}` | `202 { job: FileProductionJob, reused: boolean }` · `409 { ok: false, reason: "artifact_has_no_conversation" \| "export_image_missing" }` · `422 { ok: false, reason: "export_no_slides" \| "source_too_large" }` (with `job`) |
 
 **The ops route and its envelope already exist** — Slice 3 creates the shared module
 `src/lib/shared/artifacts/ops.ts` (the generic mechanism, `decisions.md` ruling 14), the per-type vocabulary
 `board-ops.ts`, and the thin route over them, and explicitly asks this slice to *extend* rather than duplicate
-(`slice-3.md:2214-2219`, which corrects this slice's earlier "create it"). **This slice creates
-`deck-ops.ts` — its vocabulary — registers it at Slice 3's kind-dispatch seam (`OPS_BRANCHES`, the
-`Record<ArtifactKind, …>` in `src/lib/server/services/artifacts/ops.ts`, `slice-3.md:1341`), and modifies
-nothing inside `src/lib/shared/artifacts/ops.ts`.** The envelope's order is fixed and shared:
-auth (`requireAuth`, `$lib/server/auth/hooks.ts`) → ownership (`getArtifact`, `slice-0.md:252`) →
+(`slice-3.md §Open questions for the owner`, which corrects this slice's earlier "create it"). **This slice
+creates `deck-ops.ts` — its vocabulary — registers it at Slice 3's kind-dispatch seam (`OPS_BRANCHES`, the
+`Record<ArtifactKind, …>` in `src/lib/server/services/artifacts/ops.ts`, `slice-3.md §File ownership`), and
+modifies nothing inside `src/lib/shared/artifacts/ops.ts`.** The envelope's shape and order are both fixed and
+shared, so this slice restates neither: the response is Slice 3's
+(`{ ok: true, versionId, version, applied, refused: SlideOpRefusal[] }` for this vocabulary), a stale base is
+`409 { ok: false, reason: "version_conflict", version }`, and the order is
+auth (`requireAuth`, `$lib/server/auth/hooks.ts`) → ownership (`getArtifact`, `slice-0.md §The boundary`) →
 `baseVersionId` check (409 before any validation) → dispatch on `kind` → vocabulary validation → one
 `updateArtifactBody` call with the batch's summary → respond. If Slice 3 has not landed when this slice
 starts, **stop and land Slice 3's route first**: two routes is the failure this seam exists to prevent.
@@ -646,14 +650,15 @@ export const POST: RequestHandler = async (event) => { … };
 
 Order, and this order is the contract:
 
-1. `requireAuth` → 401 (`$lib/server/auth/hooks.ts`).
+1. `requireAuth` → the **302** to `/login` at this layer (`$lib/server/auth/hooks.ts:9-15`); an unauthenticated
+   `/api/**` fetch is answered **401** by `hooks.server.ts` before the route runs (`decisions.md` ruling 19).
 2. `getArtifact({ userId, artifactId })` → 404 `not_found` for another user's deck, never a 403
-   (`slice-0.md:252,316`).
+   (`slice-0.md §The boundary`).
 3. Parse and normalise the body (the same `normalizeSlidesBody` the panel uses) → 422 `export_no_slides` when
    the deck has no slides left after normalisation.
 4. `artifact.conversationId` — intake requires one (`intake.ts:480-487`). A deck with no conversation **cannot
    be exported**: 409 `artifact_has_no_conversation`. (An artifact created outside a chat has
-   `conversationId: null`, `slice-0.md:211`.)
+   `conversationId: null`, `slice-0.md §The boundary`.)
 5. Read every referenced image through the ownership-scoped byte readers —
    `readChatFileContentByUser(fileId, userId)` (`src/lib/server/services/chat-files.ts:1113`) for
    `chat_generated_file`, `resolveWorkingDocumentFileServing({ userId, artifactId, mode: "download" })`
@@ -717,10 +722,10 @@ map. The panel's "Try again" calls the existing `retryFileProductionJob(jobId)`
 ### i18n
 
 New namespace rows in `src/lib/i18n/artifacts.ts` under `artifacts.slides.*`. **Slice 0 owns that file**
-(creates it, registers it in `I18N_MODULES` and adds `artifacts.` to `AUDITED_PREFIXES`,
-`slice-0.md:48-49,505,552,925-955`); this slice appends its rows and its test cases. Slice 1 owns
-`artifacts.document.*`, Slice 3 owns `artifacts.canvas.*` and the shared `artifacts.type.*` names —
-`artifacts.type.slides` = `Slides` / `Diasor` is Slice 3's row (`slice-3.md:1202-1205`) and this slice consumes it.
+(creates it, registers it in `I18N_MODULES` and adds `artifacts.` to `AUDITED_PREFIXES`, `slice-0.md §i18n`);
+this slice appends its rows and its test cases. Slice 1 owns `artifacts.document.*`, Slice 3 owns
+`artifacts.canvas.*`, and the shared `artifacts.type.*` names are **Slice 0's** (ruling 22) —
+`artifacts.type.slides` = `Slides` / `Diasor` is one of Slice 0's five rows, and this slice consumes it.
 
 | Key | EN | HU |
 |---|---|---|
@@ -796,9 +801,9 @@ New namespace rows in `src/lib/i18n/artifacts.ts` under `artifacts.slides.*`. **
 | `artifacts.slides.staleVersion` | `The deck changed while you were away. The newest version is loaded.` | `A diasor megváltozott, amíg nem nézted. A legújabb változat töltődött be.` |
 | `artifacts.slides.tooManySlides` | `A deck can hold at most {max} slides.` | `Egy diasor legfeljebb {max} diát tartalmazhat.` |
 
-The refusal reasons are one table, rendered by one shared notice component (Slice 3's
-`RefusalNotice.svelte`, or the one this slice creates if Slice 3 has not landed — one notice, not two), so a
-new reason is one i18n row and no new UI.
+The refusal reasons are one table, rendered by one shared notice component — `src/lib/components/artifacts/
+RefusalNotice.svelte`, **created by Slice 1** (its T8) at the shared root, not inside a type's directory — so a
+new reason is one i18n row and no new UI, and no type grows a second notice.
 
 ## Failure modes
 
@@ -809,7 +814,7 @@ Every one of these is a user-visible line plus a server code; none of them is a 
 | The model's deck JSON does not parse, or fails `slidesDraftSchema` | Slice 5's tool returns its own tool-error; the body is never written | the tool result's message on the message surface; the deck is not created |
 | The model sends an unknown layout id on create | normaliser drops the slide and reports; the rest of the deck is created | `artifacts.slides.droppedContent` with `artifacts.slides.drop.unknown_layout` (EN / HU above) |
 | The model's patch targets a field that moved on | ops route 200 with `refused[].reason = "stale_base_hash"` | `artifacts.slides.refusal.stale_base_hash` in the notice, beside the slide it concerns |
-| The whole batch was written against an older version | ops route **409** `{ code: "stale_version", versionId }`, nothing applied | `artifacts.slides.staleVersion`; the panel reloads the newest version and keeps the user's caret where it was |
+| The whole batch was written against an older version | ops route **409** `{ ok: false, reason: "version_conflict", version }`, nothing applied | `artifacts.slides.staleVersion`; the panel reloads the newest version and keeps the user's caret where it was |
 | The deck body in `content_text` is not JSON, or not an object | the panel's load path returns `{ body: null, dropped: [...] }`; the route answers 200 with the raw body and the report | `artifacts.slides.loadFailed` + `artifacts.slides.reload`; the panel is not blank and not crashed |
 | The network drops mid-edit | the ops POST rejects; the panel keeps the user's text on screen, marks the field unsaved, and retries on the next blur or on `Reload` | `fileProduction`-style inline "not saved" state: `artifacts.slides.refusal`-independent — the field shows a `--status-danger` dot and its text is not lost |
 | The artifact is deleted while it is open | the next ops/ask/export call gets **404** `not_found` | the panel closes with a toast: `artifacts.card` is gone from the list; the chat page's own refresh drops the card |
@@ -829,7 +834,7 @@ Every one of these is a user-visible line plus a server code; none of them is a 
 | `MAX_SLIDES` | 120 | `slides-schema.ts` | no — code-owned, like the layout set (a 120-slide deck is already 40 minutes of talking) |
 | `MAX_BULLETS_PER_SLIDE` / `MAX_BULLETS_PER_COLUMN` | 12 / 8 | `slides-schema.ts` | no |
 | Field character caps | 60–4000 (the table above) | `slides-schema.ts` | no |
-| `MAX_SLIDE_OPS_PER_DIFF` / `MAX_NEW_SLIDES_PER_DIFF` | 60 / 12 | `deck-ops.ts` — mirrors Slice 3's `MAX_OPS_PER_DIFF` 40 (`slice-3.md:607`) / `MAX_NEW_NODES_PER_DIFF` 24 (`slice-3.md:608`) | no |
+| `MAX_SLIDE_OPS_PER_DIFF` / `MAX_NEW_SLIDES_PER_DIFF` | 60 / 12 | `deck-ops.ts` — the Slides vocabulary's own caps, mirroring Slice 3's `MAX_OPS_PER_DIFF` 40 / `MAX_NEW_NODES_PER_DIFF` 24 (`slice-3.md §Limits and configuration`) | no |
 | Ask instruction | 1000 chars | `slides/ask.ts` | no |
 | Ask attempts | 2 (Slice 3's control pattern allows more; a slide edit is cheap to retry and the second attempt gets the validator's reason) | `slides/ask.ts` | no |
 | `maxRequestedOutputs` | 5 | `getFileProductionLimits(getConfig())` → `limits.ts:71` ← `config-store.ts:321` | yes, `FILE_PRODUCTION_MAX_OUTPUTS` |
@@ -937,8 +942,8 @@ file names who lands first.
 | `src/lib/shared/artifacts/ops.ts` + test | **do not touch** — Slice 3's generic envelope, the one ops mechanism (ruling 14); this slice modifies nothing in it | **yes — Slice 3 owns it outright; this slice is a read-only consumer** |
 | `src/lib/server/services/artifacts/slides/ask.ts` + test | create — the scoped control-model call and its JSON Schema | no |
 | `src/lib/server/services/artifacts/slides/pptx-program.ts` + test | create — the deterministic generator program | no |
-| `src/lib/server/services/artifacts/ops.ts` + test | **extend** — add the `slides` row to `OPS_BRANCHES` (kind → vocabulary); one line plus its test case | **yes — Slice 3 lands first** (it creates the file, `slice-3.md:1341`) |
-| `src/routes/api/artifacts/[id]/ops/+server.ts` + test | **extend** — its test suite gains the slides cases | **yes — Slice 3 lands first** (`slice-3.md:1342`) |
+| `src/lib/server/services/artifacts/ops.ts` + test | **extend** — add the `slides` row to `OPS_BRANCHES` (kind → vocabulary); one line plus its test case | **yes — Slice 3 lands first** (it creates the file, `slice-3.md §File ownership`) |
+| `src/routes/api/artifacts/[id]/ops/+server.ts` + test | **extend** — its test suite gains the slides cases | **yes — Slice 3 lands first** (`slice-3.md §File ownership`) |
 | `src/routes/api/artifacts/[id]/slides/[slideId]/ask/+server.ts` + test | create — the scoped ask adapter | no |
 | `src/routes/api/artifacts/[id]/exports/pptx/+server.ts` + test | create — the export adapter | no |
 | `src/lib/components/artifacts/slides/SlidesEditor.svelte` + test | create — the lazy panel editor | no |
@@ -949,7 +954,7 @@ file names who lands first.
 | `src/lib/components/artifacts/slides/SpeakerNotes.svelte` | create | no |
 | `src/lib/components/artifacts/slides/PresentMode.svelte` + test | create | no |
 | `src/lib/components/artifacts/slides/AskAboutSlide.svelte` | create | no |
-| `src/lib/components/artifacts/slides/RefusalNotice.svelte` | create **if Slice 3 has not landed** — otherwise import Slice 3's | **yes — Slice 3 creates it first if it can**; one notice, two consumers |
+| `src/lib/components/artifacts/RefusalNotice.svelte` | **do not create** — import Slice 1's one shared notice; a slides copy would be a second notice | **yes — Slice 1 creates it (its T8); this slice and Slice 3 are consumers** |
 | `src/lib/components/artifacts/slides/_lib/layout-registry.ts` + test | create | no |
 | `src/lib/components/artifacts/slides/_lib/deck.ts` + test | create — `emptyDeck`, `addSlide`, `removeSlide`, `reorderSlides`, `firstSlideIndex`, `mintSlideId`, `mintBulletId` | no |
 | `src/lib/components/chat/file-production-helpers.ts` + test | **extend** — `fileProductionErrorKey(code)` moves here from `FileProductionCard.svelte`; the card imports it | **yes — Slice 5 may also want it; whoever needs it first lands it, both import** |
@@ -961,8 +966,9 @@ file names who lands first.
 | `scripts/eval-artifact-contracts/suites/slides.ts` + `fixtures/slides/*.json` | create — suite 4 and its fixtures | **yes — Slice 5 owns the harness; this slice adds one suite and its fixtures** |
 
 **Serialisation order** (the hot files, who lands first): **Slice 0** (`i18n/artifacts.ts`,
-`client/api/artifacts.ts`, the panel, the record boundary) → **Slice 3** (`src/lib/shared/artifacts/ops.ts`,
-`board-ops.ts`, `src/lib/server/services/artifacts/ops.ts`, the ops route, `RefusalNotice.svelte`) → **this
+`client/api/artifacts.ts`, the panel, the record boundary) → **Slice 1** (the Document's panel and the one
+shared `src/lib/components/artifacts/RefusalNotice.svelte`) → **Slice 3** (`src/lib/shared/artifacts/ops.ts`,
+`board-ops.ts`, `src/lib/server/services/artifacts/ops.ts`, the ops route) → **this
 slice** (`deck-ops.ts`, the `OPS_BRANCHES` slides row, the panel's type entry, the i18n rows) → **Slice 5**
 (the tool, the harness's other suites). This slice does not start T3/T4 before Slice 3's
 envelope exists, and does not start T7 before Slice 5's runner exists.
@@ -1095,7 +1101,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 ### Task T3: The patch contract and the refusal
 
 **Files:** `src/lib/shared/artifacts/deck-ops.ts` + test,
-`src/lib/server/services/artifacts/ops.ts` + test (register the slides row), `RefusalNotice.svelte`
+`src/lib/server/services/artifacts/ops.ts` + test (register the slides row)
 **Test:** unit + integration
 
 - [ ] **Step 1: Write the failing tests**
@@ -1119,7 +1125,7 @@ it("accepts an add_slide followed by a patch targeting the new slide's id", ...)
 it("refuses a patch against another user's artifact with a 404", ...);
 it("persists an accepted batch as one version with the batch's summary", ...);
 it("refuses a batch built on a stale baseVersionId with a 409 and applies nothing", ...);
-it("answers an unknown kind with 422, not a crash", ...);
+it("answers an unknown kind with a 400, not a crash", ...);
 it("never writes a batch into an incognito artifact from another conversation", ...);
 ```
 
@@ -1137,8 +1143,7 @@ here and land Slice 3 first — do not create a second ops route.
 - [ ] **Step 5: Commit**
 
 ```
-git add src/lib/server/services/artifacts src/lib/shared/artifacts/deck-ops.ts \
-  src/lib/components/artifacts/slides/RefusalNotice.svelte
+git add src/lib/server/services/artifacts src/lib/shared/artifacts/deck-ops.ts
 git commit -m "Refuse a slide patch that was written against text the user has since changed
 
 The whole point of editing in place is that neither writer can silently
@@ -1376,7 +1381,7 @@ pass cannot classify one of them.
 
 ```bash
 export PATH=/opt/homebrew/opt/node@22/bin:$PATH
-node --experimental-strip-types scripts/eval-artifact-contracts/run.ts --suite slides --replay
+npx tsx scripts/eval-artifact-contracts/run.ts --suite slides --replay
 ```
 Expected: FAIL, or a written result below the gate.
 
@@ -1484,7 +1489,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 | The phone layout is a squeezed desktop | The rail plus toolbar plus notes is unusable at 390 px | A separate filmstrip + bottom-sheet branch below 720 px, with its own e2e viewport |
 | Notes saves mint a version per keystroke | The version list fills with invisible changes | Debounced 600 ms and committed on blur, with a summary that names the field |
 | Text fields drift between layouts | Moving a slide loses content silently | `layout_dropped_field` is a refusal, not a discard |
-| Two ops routes get built | Slice 3 and Slice 4 both landing their own envelope fragments the type-dispatched route | Slice 3's envelope is a hard dependency of T3/T4 (`slice-3.md:2215-2219`); if it is not in the tree, this slice stops rather than creating one |
+| Two ops routes get built | Slice 3 and Slice 4 both landing their own envelope fragments the type-dispatched route | Slice 3's envelope is a hard dependency of T3/T4 (`slice-3.md §Open questions for the owner`, ruling 14); if it is not in the tree, this slice stops rather than creating one |
 
 ## Verification checklist
 
@@ -1496,8 +1501,8 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - [ ] `npm run build` — 0 warnings. Confirm the slides editor is a separate chunk and is **not** in the idle
   chat or landing bundle (the panel's lazy `ARTIFACT_BODIES` entry is the only import path).
 - [ ] `npx fallow --no-cache --format json --quiet --score` — no new findings, no new ignores.
-- [ ] `npx playwright test tests/e2e/artifact-slides.spec.ts tests/e2e/artifact-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/incognito-indicator.spec.ts` — green.
-- [ ] `node --experimental-strip-types scripts/eval-artifact-contracts/run.ts --suite slides --replay` — green
+- [ ] `npx playwright test tests/e2e/artifact-slides.spec.ts tests/e2e/artifacts-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/incognito-indicator.spec.ts` — green.
+- [ ] `npx tsx scripts/eval-artifact-contracts/run.ts --suite slides --replay` — green
   with no API key, and the model run at or above the agreed bar, with the numbers in the PR body.
 - [ ] **Real-app visual check** against `claude-at-home-2-artifact-types-mockups.html` §3 at **1440×900 and
   390×844, light and dark**: the deck grid is `118px + stage`, the eyebrow is present, the heading is editable

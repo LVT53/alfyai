@@ -137,9 +137,9 @@ Document opens.
    slice is not done until it has run against the real model and its result is in the report — a weak result
    changes the design rather than being argued away (spec §8.1).
 10. **The body component's props drifting from Slice 0's registry.** `ArtifactBodyProps` is fixed by Slice 0
-    (`slice-0.md:687-697`): **flat props** — `artifactId`, `kind`, `title`, `body`, `onDirtyChange?`,
+    (`slice-0.md §The panel`): **flat props** — `artifactId`, `kind`, `title`, `body`, `onDirtyChange?`,
     `onBodyChange?` — and the registry resolves `ARTIFACT_BODIES[kind]` through a cached-promise loader
-    (`slice-0.md:698-706`). `DocumentBody.svelte` takes **exactly** those props; the editor factory's own options
+    (`slice-0.md §The panel`). `DocumentBody.svelte` takes **exactly** those props; the editor factory's own options
     (`createDocumentEditor({ element, markdown, … })`) are internal to this slice and must not leak into the
     registry contract, or slice 4's Slides body and slice 3's Canvas body stop being drop-in.
 11. **Markers reaching a user-facing file.** `<!--b:…-->` is addressing, not content. T12.3 asserts the source
@@ -229,9 +229,10 @@ Rules:
 
 #### The anchor interface — `src/lib/shared/artifacts/anchor.ts` (**shared with Slice 3**)
 
-Per **ruling 11** there is one anchor interface in `src/lib/shared/artifacts/`, implemented **per type**. This
-slice creates that file and ships the Document's resolver; Slice 3 appends the canvas resolver. The interface is
-the only thing the two types share — the resolver is not.
+Per **ruling 11** there is one anchor interface in `src/lib/shared/artifacts/`, implemented **per type**. The
+union itself lands with Slice 0's types spine (so its `types.ts` can re-export it, ruling 35); this slice appends
+the Document's resolver to that file, and Slice 3 appends the canvas resolver. The interface is the only thing
+the two types share — the resolver is not.
 
 ```ts
 /** The one anchor DTO. `text` is the Document's; `node`/`point` are Slice 3's. */
@@ -275,14 +276,12 @@ state: `0`/nothing found means `orphaned`. The UI never prints the score — it 
 `Orphaned` from `artifacts.document.anchor.*` with the tone from `anchorTone`, so the label and its colour cannot
 disagree.
 
-**Cross-slice note (report, do not fix elsewhere).** Slice 0 already declares the same union as `ArtifactAnchor`
-in its own server-only `comments.ts` (`slice-0.md:429-433`), with `parseArtifactAnchor` as the validating parser
-(`slice-0.md:445`, and its own note at `:451-455` that the *resolution* is per type). The two are structurally
-identical, so nothing breaks in either order; the clean end
-state is one line in `types.ts` — `export type ArtifactAnchor = Anchor` imported from the shared module — which
-is an additive, type-only edit to a Slice 0 file (serialise: Slice 0 first). If the owner prefers to leave Slice
-0 untouched, the shared file still stands on its own because TypeScript unions are structurally compared. The
-server may import from `$lib/shared/…` — `file-production/intake.ts:8` already imports
+**One union, and no alias — settled by ruling 35.** Slice 0's `comments.ts` does **not** declare its own
+`ArtifactAnchor`: its `types.ts` re-exports the shared `Anchor` (one type-only line) and `parseArtifactAnchor`
+stays the one validating parser of the stored `anchor_json` (`slice-0.md §The boundary`, and its own note there
+that the *resolution* is per type). Two unions for one concept is how they drift, so the
+`export type ArtifactAnchor = Anchor` line an earlier draft proposed is **not** wanted: every caller says
+`Anchor`. The server may import from `$lib/shared/…` — `file-production/intake.ts:8` already imports
 `isInlineTextOutputType` from `$lib/shared/file-types/production`.
 
 ### The patch engine — `src/lib/shared/artifact-document/patch.ts`
@@ -394,7 +393,7 @@ export const documentSerializer: ArtifactSerializer<DocumentBody>;
 ```
 
 **Unverified, and the implementer must read the real file first:** `ArtifactSerializer` is declared by Slice 0
-(`slice-0.md:292` puts it in `serialize/index.ts` with a registry, and `slice-0.md:1199` fixes the lookup
+(`slice-0.md §The boundary` puts it in `serialize/index.ts` with a registry, and its Task S2 fixes the lookup
 contract: a kind with no serializer returns `null`, never a throw), and Slice 0 has **not landed in this
 worktree** — there is no `src/lib/server/services/artifacts/` here yet (`ls` on that path: no such directory).
 The signatures above are the shape this slice needs; take the exact generic from the landed interface and adapt
@@ -416,9 +415,10 @@ it is the one thing `DocumentBody` does not answer by itself:**
   block at that tab's ordinal position (its own first block, or the last block when nothing follows) rather than
   dropping the tab, because dropping it would take its comments with it (T9.2). Never destroy user-visible state
   to make a read simpler.
-And what stays **unused**: `ArtifactMetadata.idIndex` (Slice 0's `types.ts`, `slice-0.md:308-312`) is **not
-written by this slice** — the block index is derived on demand from the parsed blocks, so there is exactly one
-index in the system and no second one to keep in sync (this slice's Owner decision 2).
+And there is no `ArtifactMetadata.idIndex` to keep in sync: ruling 37 dropped it from Slice 0's `types.ts`
+because nothing ever wrote it, and this slice keeps it that way — the block index is derived on demand from the
+parsed blocks, so there is exactly one index in the system and no second one to drift (this slice's Owner
+decision 2).
 
 `src/lib/server/services/artifacts/document-ops.ts` — the Document's server-side operations, so routes and tools
 stay thin:
@@ -572,7 +572,7 @@ file-production intake in-process (`submitFileProductionIntake({ userId, body })
    filename (empty after trimming, or longer than the cap) falls back to `document.md`.
 
    **The intake needs a conversation** (`intake.ts:396-406`: `"conversationId is required"`), and
-   `artifacts.conversation_id` is nullable (`slice-0.md:317`, `:375`). Every Document this slice creates comes from a chat,
+   `artifacts.conversation_id` is nullable (`slice-0.md §The boundary`). Every Document this slice creates comes from a chat,
    so the null case is unreachable today, but the export route must not 500 on it: it answers
    **409** `{ ok: false, reason: "no_conversation" }` and the sheet shows
    `artifacts.document.export.noConversation`. Do **not** silently attach the document to whatever conversation is
@@ -660,7 +660,7 @@ produced file like any other — no new plumbing (spec §5).
 | `artifacts.document.export.failed` | `The file could not be made.` | `A fájlt nem sikerült elkészíteni.` |
 
 `"artifacts."` is already in `AUDITED_PREFIXES` from Slice 0, together with `"artifacts"` in `I18N_MODULES` and
-`src/lib/i18n/artifacts.test.ts` (`slice-0.md:910-912`, and `src/lib/i18n.test-helpers.ts:7,15` for the two lists
+`src/lib/i18n/artifacts.test.ts` (`slice-0.md §i18n`, and `src/lib/i18n.test-helpers.ts:7,15` for the two lists
 themselves). This slice adds exactly **one** entry to those lists: `"chat.artifacts."`, in the commit that adds
 the first key under it — a bare `chat.` prefix stays deliberately unaudited. If Slice 0 has not landed when this
 slice starts, do **not** start a second dictionary module: add the `I18N_MODULES` / `AUDITED_PREFIXES` entries
@@ -682,20 +682,21 @@ rather than a compile error: add all three keys in the same commit as the tools.
 | File | Change | Shared with |
 |---|---|---|
 | `src/lib/shared/artifact-document/blocks.ts`, `patch.ts`, `anchor.ts` + `*.test.ts` | create (pure; server + browser). `anchor.ts` here is the **text resolver only** | — (see the directory note below) |
-| `src/lib/shared/artifacts/anchor.ts` + `anchor.test.ts` | create: `Anchor`, `AnchorState`, `AnchorTone`, `AnchorResolution`, `anchorTone`, `anchorStateFor` | **Slice 3** (appends the node/point resolvers, `canvas-anchor.ts`) — this slice lands it first |
+| `src/lib/shared/artifacts/anchor.ts` + `anchor.test.ts` | **Slice 0** creates the union; this slice appends `AnchorState`, `AnchorTone`, `AnchorResolution`, `anchorTone`, `anchorStateFor`, `makeAnchor`, `resolveTextAnchor`, `reanchor` | **Slice 0** lands the union first, **Slice 3** appends the node/point resolvers (`canvas-anchor.ts`) |
 | `src/lib/server/services/artifacts/serialize/document.ts` + test | create; register in `serialize/index.ts` | — |
 | `src/lib/server/services/artifacts/document-ops.ts` + test | create | — |
 | `src/lib/server/services/artifacts/record.ts`, `versions.ts` | the additive `updateArtifactBody` fields (`snapshot`, `metadataPatch`, `expectVersion`); `restoreVersion` wiring | **Slice 0** lands first; see the diff note below |
-| `src/lib/server/services/artifacts/types.ts` | one type-only line: `ArtifactAnchor = Anchor` from the shared module (optional, see the note) | **Slice 0** lands first |
+| `src/lib/server/services/artifacts/types.ts` | nothing — Slice 0 already re-exports the shared `Anchor` there (ruling 35; the alias an earlier draft proposed is dropped, see the note) | **Slice 0** lands first |
 | `src/lib/server/services/normal-chat-tools/artifacts.ts` + test | create the three tools | — |
-| `src/lib/server/services/normal-chat-tools/index.ts` | register the three tools; add their `TOOL_I18N` `en`+`hu` entries and the `TOOL_TIMEOUTS_MS` keys | **Slices 2–5** append their own tools — append-only in the `tools` object and the two maps |
-| `src/lib/server/services/normal-chat-tools/shared.ts` | three `TOOL_TIMEOUTS_MS` entries | **Slices 2–5**, append-only |
+| `src/lib/server/services/normal-chat-tools/index.ts` | register the three tools; add their `TOOL_I18N` `en`+`hu` entries and the `TOOL_TIMEOUTS_MS` keys | **Slices 2–5** append their own tools — append-only in the `tools` object and the two maps, in one landing order: **slice 5, then slice 2, then this slice** (ruling 41) |
+| `src/lib/server/services/normal-chat-tools/shared.ts` | this slice's two `TOOL_TIMEOUTS_MS` entries (`read_artifact`, `edit_artifact`; `create_artifact`'s single 120 s row is slice 5's, ruling 40) | **Slices 2–5**, append-only |
 | `src/lib/server/services/normal-chat-tools/produce-file.ts` | none — the export calls the intake, not the tool | — |
 | `src/lib/server/services/conversation-detail/read-model.ts` | nothing structural — Documents arrive through Slice 0's `artifacts` list | **Slice 0** |
 | `src/routes/api/artifacts/[id]/body/+server.ts`, `.../document/patches/+server.ts`, `.../versions/**`, `.../comments/**` + tests | create (new files in Slice 0's route tree) | **Slice 3** adds canvas routes beside them |
 | `src/routes/api/conversations/[id]/messages/[messageId]/document/+server.ts` + test | create (`Open as document`) | — |
 | `src/lib/client/api/artifacts.ts` + test | extend (append the Document calls) | **Slices 2–4**, append-only |
 | `src/lib/components/artifacts/document/**` | create | — |
+| `src/lib/components/artifacts/RefusalNotice.svelte` | create — the **one** refusal notice, at the shared root so every type's panel imports it (this slice's T8) | **Slices 3–4** consume it; a copy under `document/`, `canvas/` or `slides/` would be a second notice |
 | `src/lib/components/artifacts/artifact-bodies.ts` | one line: the `document` loader | **Slices 2–4**, append-only (plan decision 21) |
 | `src/lib/components/artifacts/ArtifactCard.svelte` + test | the Document preview body + the tickable checklist (spec §2.3) | **Slices 2–4**, append-only; **Slice 0** created it |
 | `src/lib/components/chat/MessageArea.svelte` and the assistant-message row | the `Open as document` action beside the existing copy action | — |
@@ -705,7 +706,7 @@ rather than a compile error: add all three keys in the same commit as the tools.
 | `scripts/eval-artifact-contracts/cases.ts`, `document.ts`, `run.ts`, `README.md` | the document suite | **Slices 2–4** add their suites to the same runner |
 | `tests/e2e/artifact-document.spec.ts`, `tests/integration/artifact-document.test.ts` | create | — |
 
-**The `updateArtifactBody` diff, verbatim against Slice 0's landed declaration** (`slice-0.md:484-495`).
+**The `updateArtifactBody` diff, verbatim against Slice 0's landed declaration** (`slice-0.md §The boundary`).
 
 ```ts
 // Slice 0 ships exactly this (read it in the landed file; do not retype it from here):
@@ -720,7 +721,7 @@ updateArtifactBody(params: {
 >;
 ```
 
-**There is no `bodyHash` parameter** — Slice 0 argues against one (`slice-0.md:504-506`): the stored hash is
+**There is no `bodyHash` parameter** — Slice 0 argues against one (`slice-0.md §The boundary`): the stored hash is
 computed inside the function from `body`, and the caller's *expected* hash goes in `baseHash?`, whose mismatch is
 `stale`. This slice adds three **optional** parameters and one new failure reason, and returns the version number
 the panel needs to echo back as its next `expectVersion`:
@@ -740,7 +741,7 @@ updateArtifactBody(params: {
 ```
 
 **Two hashes, two questions, and neither replaces the other.** The version row's `body_hash` is Slice 0's
-`hashArtifactBody` over the stored string (`slice-0.md:288`: "slice 1 changes its *input*, not its mechanism" —
+`hashArtifactBody` over the stored string (`slice-0.md §The boundary`: "slice 1 changes its *input*, not its mechanism" —
 the input becomes canonical Markdown because this slice writes canonical Markdown); it answers *which body*. The
 per-block `blockHash` from `blocks.ts` answers *which block*, and it is the unit of the "your words win" guard.
 If the two are conflated, `verify`-style whole-body comparisons start refusing patches that changed nothing, or
@@ -760,7 +761,10 @@ makes "Alfy read exactly this" true after a crash too.
 each slice adds its own loader line, its own key namespace and its own body branch, and touches nothing else in
 those files. Do not reformat them. The same append-only rule covers `normal-chat-tools/index.ts` and
 `normal-chat-tools/shared.ts` (each slice adds its own tools and its own `TOOL_I18N` / `TOOL_TIMEOUTS_MS` keys,
-and leaves the neighbours' entries alone), `src/lib/client/api/artifacts.ts`, and
+and leaves the neighbours' entries alone) — with **one landing order, the same in every spec that touches that
+file: slice 5 first** (the tool registry, the catalogue and the timeout table), **then slice 2** (the App
+generation path, the first real user of `create_artifact`), **then this slice** (the Document's `read_artifact`
+and `edit_artifact`); see ruling 41. It also covers `src/lib/client/api/artifacts.ts`, and
 `scripts/eval-artifact-contracts/` (each type adds a suite file and a case-list entry). Two slices touching one
 of these files is a merge conflict waiting to be resolved wrongly — resolve it by keeping both sides, never by
 taking one.
@@ -1019,8 +1023,8 @@ per language, three `TOOL_TIMEOUTS_MS` keys
    three keys in both locales; a Hungarian turn with a missing entry gets the English description by fallback and
    nobody notices.
 9. **Oversize and orphaned creation fail the same way, not differently.** `create_artifact` with a body over
-   Slice 0's `ARTIFACT_BODY_MAX_BYTES` (2 MiB, `slice-0.md:932`) surfaces `too_large`, and a `conversationId`
-   that is not the caller's surfaces `conversation_not_found` (`slice-0.md:472-476`) — both as the same
+   Slice 0's `ARTIFACT_BODY_MAX_BYTES` (2 MiB, `slice-0.md §Limits and configuration`) surfaces `too_large`, and a
+   `conversationId` that is not the caller's surfaces `conversation_not_found` (`slice-0.md §The boundary`) — both as the same
    model-safe failure shape as the unknown-type case in item 2, and neither silently truncating the body or
    creating the artifact anyway.
 
@@ -1042,10 +1046,12 @@ per language, three `TOOL_TIMEOUTS_MS` keys
       | `read_artifact.errorPrefix` (EN/HU) | `Could not read the document` | `A dokumentumot nem sikerült beolvasni` |
       | `edit_artifact.errorPrefix` (EN/HU) | `Could not change the document` | `A dokumentumot nem sikerült módosítani` |
 
-      `TOOL_TIMEOUTS_MS` entries: `create_artifact: 10_000`, `read_artifact: 10_000`, `edit_artifact: 20_000`.
-      All three are local database work with no provider round trip — `produce_file`'s 40 s exists only because
-      it waits in-turn for a worker verdict (`shared.ts`'s comment on that key) and `run_python`'s because it
-      waits for a container. Do not copy either number here.
+      `TOOL_TIMEOUTS_MS` entries: this slice adds `read_artifact: 10_000` and `edit_artifact: 20_000`. **The
+      `create_artifact` row is slice 5's single `120_000`** (ruling 40) — it covers App generation plus the
+      verification pass, which is a different cost from anything here, and restating it as a second key is the
+      conflict the ruling removes. Read and edit are local database work with no provider round trip —
+      `produce_file`'s 40 s exists only because it waits in-turn for a worker verdict (`shared.ts`'s comment on
+      that key) and `run_python`'s because it waits for a container. Do not copy either number here.
 
 - [ ] **Step 4: Run**
       `npx vitest run src/lib/server/services/normal-chat-tools && npm run check`
@@ -1139,7 +1145,7 @@ restore is itself a version so a restore cannot be the thing that loses work."
 `DocumentToolbar.svelte`, `*.test.ts`, `src/lib/components/artifacts/artifact-bodies.ts`, `package.json`
 **Interfaces:** `createDocumentEditor({ element, markdown, editable, onDirty, onSelection, onChange })`,
 `readMarkdown(editor)`. **`DocumentBody.svelte` takes Slice 0's `ArtifactBodyProps` verbatim** — flat props:
-`artifactId`, `kind`, `title`, `body`, `onDirtyChange?`, `onBodyChange?` (`slice-0.md:687-697`) — because the
+`artifactId`, `kind`, `title`, `body`, `onDirtyChange?`, `onBodyChange?` (`slice-0.md §The panel`) — because the
 panel resolves it through `ARTIFACT_BODIES[kind]` with a cached-promise loader; the factory's own options are
 internal to this slice.
 
@@ -1212,7 +1218,9 @@ what is hashed after a keystroke is what the server would hash."
 ### Task T8: Change marks, Keep and Undo, and the visible refusal
 
 **Files:** `src/lib/components/artifacts/document/marks.ts`, `ChangeBar.svelte` (the inline `Alfy · Keep · Undo`),
-`RefusalNotice.svelte`, `AlfyWriting.svelte` (the planned-section shimmer), `*.test.ts`
+`src/lib/components/artifacts/RefusalNotice.svelte` (**the shared root, not the document directory** — one notice
+for every type's panel, imported by Canvas and Slides too), `AlfyWriting.svelte` (the planned-section shimmer),
+`*.test.ts`
 **Interfaces:** the mark + widget; `onKeep(changeId)`, `onUndo(changeId)`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1324,7 +1332,7 @@ because of the language it was opened in."
    `blockId: null` and `from`/`to` of `-1`. Slice 3 adds its own rows to that idea; it does not get a second
    vocabulary.
 9. **A row whose anchor will not parse is an orphan, not a crash.** `parseArtifactAnchor` returns `null` for
-   malformed JSON and for a `text` anchor missing any of its five fields (`slice-0.md:445`, `:448-450`); the margin
+   malformed JSON and for a `text` anchor missing any of its five fields (`slice-0.md §The boundary`); the margin
    renders that comment with `artifacts.document.anchor.orphaned`, keeps its body and its thread, and never
    throws. This is the one comment state a user cannot cause on purpose and therefore the one that would ship
    broken.
@@ -1431,7 +1439,7 @@ list so an action cannot exist on one and not the other."
    `artifacts.document.export.tooLarge` — the renderer's limits (`maxPdfPages: 250`, `maxTableRows: 10_000`) do
    the same at their own thresholds. Do not raise a limit to make a fixture pass.
 8. **A Document with no conversation is refused, not 500.** `createArtifact` allows `conversationId: null`
-   (`slice-0.md:317`, `:375`) and the intake requires one (`intake.ts:396-406`): the route answers **409**
+   (`slice-0.md §The boundary`) and the intake requires one (`intake.ts:396-406`): the route answers **409**
    `{ ok: false, reason: "no_conversation" }` and the sheet shows `artifacts.document.export.noConversation`. The
    state is unreachable through this slice's own creation paths, which is exactly why it needs one test — an
    unreachable branch is where a 500 ships.
@@ -1561,18 +1569,18 @@ close action.
 
 | Failure | Server behaviour | User sees |
 |---|---|---|
-| **The model returns malformed output** — unknown op kind, a missing `baseHash`, `cells` of the wrong shape | the tool's Zod schema rejects it before any write; the SDK returns a tool error to the model, the turn continues, and **no version row is written**. The browser-only `PATCH …/document/patches` route answers **400** `{ ok: false, reason: "invalid_patch" }` through `createJsonErrorResponse` | nothing in the document; the tool-call row shows `Could not change the document` / `A dokumentumot nem sikerült módosítani` (`edit_artifact.errorPrefix`). The model is told to re-read and retry |
+| **The model returns malformed output** — unknown op kind, a missing `baseHash`, `cells` of the wrong shape | the tool's Zod schema rejects it before any write; the SDK returns a tool error to the model, the turn continues, and **no version row is written**. The browser-only `PATCH …/document/patches` route answers **400** `{ ok: false, reason: "invalid_patch" }` — the family's own body, not `createJsonErrorResponse`'s `{ error }` | nothing in the document; the tool-call row shows `Could not change the document` / `A dokumentumot nem sikerült módosítani` (`edit_artifact.errorPrefix`). The model is told to re-read and retry |
 | **A patch is refused** — not an error, the feature | **200** with `{ ok: true, applied, refused, outcomes }`; each refused op carries its `code` (`block_changed`, `block_unseen`, `find_ambiguous`, …). Nothing is written for a refused op | `artifacts.document.refused.notice` (ICU plural, 1 vs many) plus the per-op sentence from `artifacts.document.refused.*` naming the block's label, and the applied changes are still visible |
 | **The network drops mid-edit** | no request reaches the server; no code is involved | `artifacts.document.save.offline` (`Not saved yet — you are offline. Your text is safe here.` / `Még nincs elmentve — nincs kapcsolat. A szöveged itt biztonságban van.`); the text stays, the next debounce retries, the notice clears on success |
 | **The save collides with another pane** (a tool call wrote the body first) | **409** `{ ok: false, reason: "version_conflict", version }` from `PATCH /api/artifacts/[id]/body`; nothing written | `artifacts.document.versions.conflict` — `This document changed elsewhere. Reload to see the current text.` / `Ez a dokumentum máshol megváltozott. Töltsd újra a jelenlegi szövegért.` The user's typed text is **kept** in the editor (T7.3) |
-| **The body exceeds Slice 0's cap** (2 MiB of Markdown — a pasted novel) | **413** `{ ok: false, reason: "too_large" }` from `PATCH /api/artifacts/[id]/body`; nothing is written and the version count does not move (`slice-0.md:932`) | `artifacts.document.save.tooLarge` — `This document is too long to save.` / `Ez a dokumentum túl hosszú ahhoz, hogy elmentsük.` The user's text **stays** in the editor and autosave **stops retrying** (a size refusal is not transient); the export path's `export.tooLarge` is a different message for a different limit |
+| **The body exceeds Slice 0's cap** (2 MiB of Markdown — a pasted novel) | **413** `{ ok: false, reason: "too_large" }` from `PATCH /api/artifacts/[id]/body`; nothing is written and the version count does not move (`slice-0.md §Limits and configuration`) | `artifacts.document.save.tooLarge` — `This document is too long to save.` / `Ez a dokumentum túl hosszú ahhoz, hogy elmentsük.` The user's text **stays** in the editor and autosave **stops retrying** (a size refusal is not transient); the export path's `export.tooLarge` is a different message for a different limit |
 | **The artifact is deleted while it is open** | **404** `{ ok: false, reason: "not_found" }`; autosave stops | `artifacts.document.deleted` — `This document was deleted while it was open. Your text is still here.` / `Ezt a dokumentumot törölték, amíg nyitva volt. A szöveged még itt van.` + `artifacts.document.deleted.saveCopy` → creates a new Document from the editor's text |
-| **No permission** (another user's artifact, or an incognito conversation read from outside the scope) | **404**, never 403 — the same answer Slice 0's routes give, so existence is not confirmed (`slice-0.md:604`, `:606-608`) | `artifacts.document.notFound` — `This document is not available.` / `Ez a dokumentum nem érhető el.` There is no "you cannot" message in this feature, because the only two users in the system are the owner and nobody |
+| **No permission** (another user's artifact, or an incognito conversation read from outside the scope) | **404**, never 403 — the same answer Slice 0's routes give, so existence is not confirmed (`slice-0.md §Routes`) | `artifacts.document.notFound` — `This document is not available.` / `Ez a dokumentum nem érhető el.` There is no "you cannot" message in this feature, because the only two users in the system are the owner and nobody |
 | **Alfy has never read the document** | every op refuses `block_unseen`; **no error** | nothing — the model gets the refusal and reads first. `read_artifact` is what writes the snapshot |
-| **A tool call times out** (`TOOL_TIMEOUTS_MS`: 10 s / 10 s / 20 s) | the envelope aborts and returns the tool's error to the model; the turn continues | the tool-call row shows that tool's `errorPrefix`, and Alfy's reply says what it could not do |
+| **A tool call times out** (`TOOL_TIMEOUTS_MS`: 10 s for `read_artifact`, 20 s for `edit_artifact`; `create_artifact` is slice 5's 120 s row, ruling 40) | the envelope aborts and returns the tool's error to the model; the turn continues | the tool-call row shows that tool's `errorPrefix`, and Alfy's reply says what it could not do |
 | **Export is too large to render** | the intake refuses with its own status and limit code (`maxSourceJsonBytes` 2 MiB, `maxPdfPages` 250, `maxTableRows` 10 000 — `file-production/limits.ts:70-86`); nothing is queued | `artifacts.document.export.tooLarge` — `This document is too long to export. Split it into two documents.` / `Ez a dokumentum túl hosszú az exportáláshoz. Bontsd két dokumentumra.` Do not raise a limit to make a fixture pass |
 | **The export job fails after it was accepted** | the job's own failure state, unchanged by this slice | `artifacts.document.export.failed` and the **existing** File card's retry affordance — not a second retry UI |
-| **A Document has no conversation to export into** (`artifacts.conversation_id` is nullable, `slice-0.md:317`, `:375`, but file production requires one, `file-production/intake.ts:396-406`) | **409** `{ ok: false, reason: "no_conversation" }` and nothing is queued — never a 500, and never a silent attach to whatever chat is open | `artifacts.document.export.noConversation` — `This document is not linked to a chat, so it cannot be exported.` / `Ez a dokumentum nincs beszélgetéshez kapcsolva, ezért nem exportálható.` |
+| **A Document has no conversation to export into** (`artifacts.conversation_id` is nullable, `slice-0.md §The boundary`, but file production requires one, `file-production/intake.ts:396-406`) | **409** `{ ok: false, reason: "no_conversation" }` and nothing is queued — never a 500, and never a silent attach to whatever chat is open | `artifacts.document.export.noConversation` — `This document is not linked to a chat, so it cannot be exported.` / `Ez a dokumentum nincs beszélgetéshez kapcsolva, ezért nem exportálható.` |
 
 ## Limits and configuration
 
@@ -1583,12 +1591,12 @@ bounds is either derived from an existing limit or a named client constant:
 |---|---|---|---|
 | Document save debounce | **800 ms**, injectable | `createDocumentAutosave({ save, delayMs = 800 })` in the document module — the same injectable-delay shape as `createDraftPersistence(fetchImpl, delayMs = 400)` (`src/lib/client/conversation-session.ts:426-429`) | hard-coded on purpose: it is a feel decision, and it is one named constant rather than a literal at each call site. 800 ms is one idle step above the chat's 400 ms draft save, because a document save is a version row |
 | Anchor candidate scan | **50** positions per block | `resolveTextAnchor` in `src/lib/shared/artifact-document/anchor.ts` | hard-coded: the prototype's cap. A document is user-sized and the margin re-resolves on every change, so an unbounded scan is the one place a comment could cost O(document) per keystroke |
-| Version list | newest first, **50** per call | Slice 0's `listVersions(params:{…, limit?})` (`slice-0.md:415`) and its `ARTIFACT_VERSIONS_DEFAULT_LIMIT = 50` (`slice-0.md:935`) | existing; the sheet asks for the default and pages no further |
+| Version list | newest first, **50** per call | Slice 0's `listVersions(params:{…, limit?})` (`slice-0.md §The boundary`) and its `ARTIFACT_VERSIONS_DEFAULT_LIMIT = 50` (`slice-0.md §Limits and configuration`) | existing; the sheet asks for the default and pages no further |
 | `read_artifact` text budget | **24,000 characters** per call, then `truncated: true` with the remaining block ids | `MAX_READ_ARTIFACT_CHARS = 24_000` in the tool module, mirroring `MAX_CONTENT_LENGTH = 24000` (`normal-chat-tools/read-generated-file.ts:2214`) | a 6,000-word document must not be dumped into the context; the model can address the blocks it did not receive by id, so truncation is a pointer, not a loss |
-| Tool timeouts | 10 s / 10 s / 20 s | `TOOL_TIMEOUTS_MS` (`normal-chat-tools/shared.ts:196`) | local database work only — no provider, no container, so `produce_file`'s 40 s wait is irrelevant here |
+| Tool timeouts | `read_artifact` 10 s, `edit_artifact` 20 s (this slice's rows); `create_artifact` **120 s**, slice 5's one row (ruling 40) | `TOOL_TIMEOUTS_MS` (`normal-chat-tools/shared.ts:196`) | read/edit are local database work only — no provider, no container, so `produce_file`'s 40 s wait is irrelevant there; `create_artifact` is sized for App generation plus verification, not for a Document write |
 | Export source size | **2 MiB** (`maxSourceJsonBytes`), PDF pages **250**, table rows **10 000** | `getFileProductionLimits(config)` → `DEFAULT_LIMITS` (`file-production/limits.ts:70-86`), override-aware through the runtime config (`fileProductionMax*`) | existing limits, already enforced by the intake. This slice **consumes** them and surfaces the refusal; it does not change them |
 | Produced filename | bare basename, no leading dot, **≤ 120 chars**, extension must match the type (`.md`) | `sanitizedProducedFilename` (`file-production/intake.ts:278-289`) and the inline-text extension check (`:353-380`) | existing intake rules; the sheet's fallback name is `document.md` / `document.pdf` |
-| Document body size | **2 MiB** — Slice 0's `ARTIFACT_BODY_MAX_BYTES`, already enforced | `record.createArtifact` / `record.updateArtifactBody` → `too_large` (`slice-0.md:932`); this slice **surfaces** it in the panel and adds no second cap | not configurable, and this slice must not make it so: the body is `content_text` in SQLite, and the panel's job is to show the refusal (the failure-modes table) rather than to re-check the size in the browser. A second cap in the panel would be a second source of truth for the same limit |
+| Document body size | **2 MiB** — Slice 0's `ARTIFACT_BODY_MAX_BYTES`, already enforced | `record.createArtifact` / `record.updateArtifactBody` → `too_large` (`slice-0.md §Limits and configuration`); this slice **surfaces** it in the panel and adds no second cap | not configurable, and this slice must not make it so: the body is `content_text` in SQLite, and the panel's job is to show the refusal (the failure-modes table) rather than to re-check the size in the browser. A second cap in the panel would be a second source of truth for the same limit |
 
 ## Prototype pointers
 
@@ -1666,7 +1674,7 @@ treats it as binary and reports nothing. Use `rg -a` (or the Read tool) — the 
 - [ ] `artifacts.document.refused.notice` renders for a 1-part and a 3-part refusal in both locales (the ICU
       `one`/`other` branches), and its English text never prints `{count}` literally.
 - [ ] `npx fallow --no-cache --format json --quiet --score` — no new findings, no new ignores.
-- [ ] `npx playwright test tests/e2e/artifact-document.spec.ts tests/e2e/artifact-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/mobile-design.spec.ts`
+- [ ] `npx playwright test tests/e2e/artifact-document.spec.ts tests/e2e/artifacts-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/mobile-design.spec.ts`
       — green.
 - [ ] The E2E spec covers, end to end: create a Document from chat; reload and confirm the same ids; ask Alfy for
       a change; **edit the block first and watch the refusal**; `Keep`; `Undo`; comment with `@Alfy` and see the
@@ -1699,8 +1707,9 @@ Decisions **this slice adds**, for the owner to confirm or overrule:
    change to something both sides can compute. `normalizeMarkdown` is what makes it stable across an editor
    round trip.
 2. **The last-read snapshot is persisted in `artifact_kv['alfy.snapshot']`**, not in `metadata_json` and not in
-   the browser. The spec lists `idIndex?` in `metadata_json` without saying what it is for; this slice does not
-   persist a second index — the live index is derived on demand from the blocks it already parses.
+   the browser. The parent spec's `idIndex?` in `metadata_json` is gone — ruling 37 dropped it from Slice 0's
+   `types.ts` because nothing wrote it — so there is no second index on the table; the live index is derived on
+   demand from the blocks it already parses.
 3. **`replaceRange` refuses an ambiguous `find`** rather than replacing the first occurrence. The prototype could
    pick a ProseMirror range; the server cannot see one, and guessing would break §2.5 in the one case where the
    user cannot tell it happened.

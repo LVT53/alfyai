@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/svelte";
 import { tick } from "svelte";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ARTIFACT_BODIES } from "$lib/components/artifacts/artifact-bodies";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import {
 	makeWorkspaceDocument,
@@ -1475,5 +1476,225 @@ describe("DocumentWorkspace", () => {
 		expect(
 			mobileWorkspace.querySelectorAll(".workspace-diff-line-removed"),
 		).toHaveLength(1);
+	});
+});
+
+// Slice 0 Task S5: the panel becomes type-aware. The registry ships empty
+// (no real kind body exists yet), so these tests prove the DISPATCH
+// mechanism with a fixture loader rather than a real editor.
+describe("DocumentWorkspace artifact-kind dispatch", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		global.fetch = vi.fn();
+	});
+
+	afterEach(() => {
+		delete ARTIFACT_BODIES.document;
+	});
+
+	it("renders today's preview stack for an item with no kind, unchanged", async () => {
+		const { container } = renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "generated-file-1",
+					source: "chat_generated_file",
+					filename: "generated.txt",
+					title: "Generated notes",
+					mimeType: "text/plain",
+					previewUrl: "/api/chat/files/generated-file-1/preview",
+				}),
+			],
+			activeDocumentId: "generated-file-1",
+		});
+
+		await waitFor(() => {
+			expect(
+				container.querySelectorAll('[data-testid="page-scroll-container"]'),
+			).toHaveLength(1);
+		});
+		expect(screen.queryByTestId("fake-artifact-body")).not.toBeInTheDocument();
+	});
+
+	it("renders the loaded component for a kind with a registered loader, and loads it once across two re-renders", async () => {
+		const loader = vi.fn(
+			() => import("./__fixtures__/FakeArtifactBody.svelte"),
+		);
+		ARTIFACT_BODIES.document = loader;
+
+		const { rerender } = renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "doc-1",
+					kind: "document",
+					title: "My Document",
+					mimeType: null,
+				}),
+			],
+			activeDocumentId: "doc-1",
+		});
+
+		const body = await screen.findByTestId("fake-artifact-body");
+		expect(body).toHaveTextContent("My Document");
+		expect(loader).toHaveBeenCalledTimes(1);
+
+		await rerender({ activeDocumentId: "doc-1" });
+		await tick();
+
+		expect(await screen.findByTestId("fake-artifact-body")).toBeInTheDocument();
+		expect(loader).toHaveBeenCalledTimes(1);
+	});
+
+	it("renders today's preview stack for a kind with no registered loader", async () => {
+		const { container } = renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({
+					id: "app-1",
+					kind: "app",
+					title: "My App",
+					mimeType: null,
+				}),
+			],
+			activeDocumentId: "app-1",
+		});
+
+		await waitFor(() => {
+			expect(
+				container.querySelectorAll('[data-testid="page-scroll-container"]'),
+			).toHaveLength(1);
+		});
+		expect(screen.queryByTestId("fake-artifact-body")).not.toBeInTheDocument();
+	});
+
+	it("does not crash when the active id matches nothing", async () => {
+		const { container } = renderWorkspace({
+			documents: [
+				makeWorkspaceDocument({ id: "doc-1", title: "Only Document" }),
+			],
+			activeDocumentId: "does-not-exist",
+		});
+
+		await waitFor(() => {
+			expect(
+				container.querySelectorAll('[data-testid="page-scroll-container"]'),
+			).toHaveLength(1);
+		});
+	});
+});
+
+describe("DocumentWorkspace 'what this chat made' list", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		localStorage.clear();
+		global.fetch = vi.fn();
+	});
+
+	function listItem(
+		overrides: Partial<DocumentWorkspaceItem> = {},
+	): DocumentWorkspaceItem {
+		return makeWorkspaceDocument({
+			id: "list-item-1",
+			title: "Vienna itinerary",
+			kind: "file",
+			...overrides,
+		});
+	}
+
+	it("renders one row per list item, and the given title", async () => {
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+			activeDocumentId: "doc-1",
+			list: {
+				open: true,
+				items: [
+					listItem({ id: "list-item-1", title: "Vienna itinerary" }),
+					listItem({ id: "list-item-2", title: "Budget sheet" }),
+				],
+				title: "What this chat made",
+			},
+		});
+
+		// Scoped to the desktop landmark: the mobile and desktop shells both
+		// exist in jsdom at once (no media query), so an unscoped query would
+		// see the header twice, exactly like every other panel test here.
+		const shell = await screen.findByRole("complementary", {
+			name: "Document workspace",
+		});
+		expect(within(shell).getByText("What this chat made")).toBeInTheDocument();
+
+		const list = await screen.findByTestId("artifact-panel-list");
+		expect(within(list).getByText("Vienna itinerary")).toBeInTheDocument();
+		expect(within(list).getByText("Budget sheet")).toBeInTheDocument();
+	});
+
+	// Mockup surface 2 shows a relative time on every row ("just now", "12
+	// min ago", …) — that is what tells a "newest first" list apart. The
+	// seam already exists on the card (ArtifactCardView.madeBy); a row with
+	// a timestamp must actually feed it.
+	it("shows each row's relative time as 'made by Alfy …'", async () => {
+		const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+			activeDocumentId: "doc-1",
+			list: {
+				open: true,
+				items: [
+					listItem({
+						id: "list-item-1",
+						title: "Vienna itinerary",
+						updatedAt: fiveMinutesAgo,
+					}),
+				],
+			},
+		});
+
+		const list = await screen.findByTestId("artifact-panel-list");
+		expect(
+			within(list).getByText("made by Alfy 5 min ago"),
+		).toBeInTheDocument();
+	});
+
+	it("selects a row's document and closes the list", async () => {
+		const { onSelectDocument, onListOpenChange } = renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+			activeDocumentId: "doc-1",
+			list: {
+				open: true,
+				items: [listItem({ id: "list-item-1", title: "Vienna itinerary" })],
+			},
+		});
+
+		const list = await screen.findByTestId("artifact-panel-list");
+		// Each row is an ArtifactCard (chrome="full", Task S6): the title is
+		// plain text, and Open is the row's one clickable affordance.
+		await fireEvent.click(within(list).getByRole("button", { name: "Open" }));
+
+		expect(onSelectDocument).toHaveBeenCalledWith("list-item-1");
+		expect(onListOpenChange).toHaveBeenCalledWith(false);
+	});
+
+	it("closes the list on Escape before the panel's own Escape behaviour runs", async () => {
+		const { onCloseWorkspace, onListOpenChange } = renderWorkspace({
+			presentation: "expanded",
+			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+			activeDocumentId: "doc-1",
+			list: {
+				open: true,
+				items: [listItem()],
+			},
+		});
+
+		await screen.findByTestId("artifact-panel-list");
+
+		await fireEvent.keyDown(window, { key: "Escape" });
+
+		expect(onListOpenChange).toHaveBeenCalledWith(false);
+		expect(onCloseWorkspace).not.toHaveBeenCalled();
+		// The panel itself is still open, showing the document.
+		expect(
+			screen.getAllByRole("complementary", {
+				name: "Document workspace",
+			}).length,
+		).toBeGreaterThan(0);
 	});
 });

@@ -1,4 +1,5 @@
 import { getConversationCostSummary } from "$lib/server/services/analytics";
+import { listArtifactsForConversation } from "$lib/server/services/artifacts";
 import { getAtlasAvailability } from "$lib/server/services/atlas/availability";
 import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
 import {
@@ -107,6 +108,7 @@ export async function getConversationDetail({
 			atlasJobs: [],
 			atlasAvailability,
 			contextCompressionSnapshots: [],
+			artifacts: [],
 			bootstrap: true,
 			sidecarPending: false,
 			hasMoreMessages: false,
@@ -127,6 +129,7 @@ export async function getConversationDetail({
 		atlasJobs,
 		contextCompressionSnapshots,
 		costSummary,
+		artifacts,
 	] = await Promise.all([
 		listMessageWindow(conversationId, { limit: messageWindowLimit }),
 		getConversationForkOrigin(conversationId),
@@ -143,6 +146,10 @@ export async function getConversationDetail({
 		listConversationAtlasJobs(userId, conversationId),
 		listContextCompressionSnapshots(conversationId),
 		getConversationCostSummary(conversationId),
+		// The panel list's and the header count's one source (Slice 0 Task
+		// S7): the same listArtifactsForConversation call the panel needs, not
+		// a second query per row.
+		listArtifactsForConversation({ userId, conversationId }),
 	]);
 	const taskStateWithContinuity = await attachContinuityToTaskState(
 		userId,
@@ -169,6 +176,7 @@ export async function getConversationDetail({
 		contextCompressionSnapshots: contextCompressionSnapshots.map(
 			serializeContextCompressionSnapshot,
 		),
+		artifacts,
 		bootstrap: false,
 		sidecarPending: false,
 		hasMoreMessages: messageWindow.hasMoreBefore,

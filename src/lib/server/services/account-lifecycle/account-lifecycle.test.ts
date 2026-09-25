@@ -254,6 +254,54 @@ function seedEveryUserScopedTable(userId: string) {
 			createdAt: now,
 		})
 		.run();
+	// The artifact family's three child tables (Feature 2): a version, a
+	// root comment with one reply, and an App key-value row. The key-value row
+	// has no person column of its own — it is removed only through the
+	// artifact it hangs off, and the transitive check below asserts that.
+	db.insert(schema.artifactVersions)
+		.values({
+			id: p("artifact-version"),
+			artifactId: p("art"),
+			userId,
+			versionNumber: 1,
+			author: "alfy",
+			summary: "Alfy wrote the first draft",
+			body: "Body",
+			bodyHash: "hash",
+			createdAt: now,
+		})
+		.run();
+	db.insert(schema.artifactComments)
+		.values([
+			{
+				id: p("artifact-comment"),
+				artifactId: p("art"),
+				userId,
+				anchorJson: JSON.stringify({ kind: "point", x: 1, y: 2 }),
+				author: "user",
+				body: "Comment",
+				createdAt: now,
+			},
+			{
+				id: p("artifact-comment-reply"),
+				artifactId: p("art"),
+				userId,
+				parentId: p("artifact-comment"),
+				author: "alfy",
+				body: "Reply",
+				createdAt: now,
+			},
+		])
+		.run();
+	db.insert(schema.artifactKv)
+		.values({
+			id: p("artifact-kv"),
+			artifactId: p("art"),
+			key: "expenses",
+			valueJson: "[42]",
+			updatedAt: now,
+		})
+		.run();
 	db.insert(schema.projectKnowledgeLinks)
 		.values({
 			id: p("project-file"),
@@ -682,7 +730,9 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"announcement_campaign_events",
 				"announcement_campaign_user_states",
 				"artifact_chunks",
+				"artifact_comments",
 				"artifact_links",
+				"artifact_versions",
 				"artifacts",
 				"atlas_jobs",
 				"browser_push_subscriptions",
@@ -792,6 +842,8 @@ describe("account-lifecycle user-scoped-table registry", () => {
 				"browser_push_subscriptions",
 				"chat_generated_files",
 				"conversation_drafts",
+				"artifact_comments",
+				"artifact_versions",
 				"project_knowledge_links",
 				"projects",
 				"conversations",
@@ -885,12 +937,21 @@ describe("full account erasure leaves no person-linked survivor", () => {
 						sql`${schema.documentExtractionJobAttempts.id} = 'erase-me-extraction-attempt'`,
 					)
 			).length,
+			// artifact_kv: artifacts -> users. No user column, so no registry
+			// entry — the artifact cascade is the only thing that removes it.
+			artifactKv: (
+				await db
+					.select({ id: schema.artifactKv.id })
+					.from(schema.artifactKv)
+					.where(sql`${schema.artifactKv.id} = 'erase-me-artifact-kv'`)
+			).length,
 		};
 		expect(transitiveSurvivors).toEqual({
 			messages: 0,
 			fileProductionJobAttempts: 0,
 			atlasRoundCheckpoints: 0,
 			documentExtractionJobAttempts: 0,
+			artifactKv: 0,
 		});
 
 		// The erased users row itself is gone.
@@ -915,6 +976,15 @@ describe("full account erasure leaves no person-linked survivor", () => {
 				`expected keep-me rows to survive in ${entry.name}`,
 			).toBeGreaterThan(0);
 		}
+		// …including the key-value row, which the registry cannot name.
+		expect(
+			(
+				await db
+					.select({ id: schema.artifactKv.id })
+					.from(schema.artifactKv)
+					.where(sql`${schema.artifactKv.id} = 'keep-me-artifact-kv'`)
+			).length,
+		).toBe(1);
 
 		// ADR-0031: the erased user's shared content is detached, not destroyed.
 		const detachedAssets = await db
@@ -1196,5 +1266,193 @@ describe("clear workspace data keeps the account and its personal instructions",
 				"purge-me",
 			),
 		).toBeGreaterThan(0);
+	});
+});
+
+// The artifact family (Feature 2) across the three destructive operations.
+//
+// Each operation removes the ARTIFACT row by its own rule, and the three child
+// tables — versions, comments and the App key-value store — must go with it
+// through the `artifact_id` cascade. Clear Memory is the interesting one: it
+// keeps produced files (`generated_output`) and deletes everything else, so a
+// kept File must keep its history while a deleted Document takes its own with
+// it. That split is plan decision 19, written down here so it cannot drift.
+describe("the artifact family across erasure and the resets", () => {
+	beforeEach(() => {
+		dbPath = `/tmp/alfyai-account-lifecycle-family-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		vi.resetModules();
+		vi.clearAllMocks();
+		mockQuiesceUserMemoryMaintenance.mockResolvedValue(undefined);
+		mockRequestActiveChatStreamsStopForUser.mockReturnValue({ stopped: 0 });
+	});
+
+	afterEach(async () => {
+		try {
+			const { sqlite } = await import("$lib/server/db");
+			sqlite.close();
+		} catch {
+			// noop
+		}
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// noop
+		}
+	});
+
+	/**
+	 * A File (a produced file's `generated_output` artifact) and a Document
+	 * (`type: "artifact"`), each with one version, one comment and one
+	 * key-value row.
+	 */
+	function seedArtifactFamily(userId: string) {
+		const { sqlite, db } = openMigratedDb();
+		const now = new Date("2026-09-25T10:00:00.000Z");
+		const p = (suffix: string) => `${userId}-${suffix}`;
+		db.insert(schema.users)
+			.values({
+				id: userId,
+				email: `${userId}@example.com`,
+				passwordHash: "hash",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		db.insert(schema.conversations)
+			.values({
+				id: p("conv"),
+				userId,
+				title: "Chat",
+				createdAt: now,
+				updatedAt: now,
+			})
+			.run();
+		db.insert(schema.artifacts)
+			.values([
+				{
+					id: p("file"),
+					userId,
+					conversationId: p("conv"),
+					type: "generated_output",
+					name: "summary.pdf",
+					contentText: "Generated file: summary.pdf",
+					createdAt: now,
+					updatedAt: now,
+				},
+				{
+					id: p("document"),
+					userId,
+					conversationId: p("conv"),
+					type: "artifact",
+					name: "Saturday plan",
+					contentText: "- [ ] Tickets",
+					metadataJson: JSON.stringify({
+						artifactType: "document",
+						title: "Saturday plan",
+					}),
+					createdAt: now,
+					updatedAt: now,
+				},
+			])
+			.run();
+		for (const artifact of ["file", "document"]) {
+			db.insert(schema.artifactVersions)
+				.values({
+					id: p(`${artifact}-version`),
+					artifactId: p(artifact),
+					userId,
+					versionNumber: 1,
+					author: "alfy",
+					summary: "First",
+					body: "Body",
+					bodyHash: "hash",
+					createdAt: now,
+				})
+				.run();
+			db.insert(schema.artifactComments)
+				.values({
+					id: p(`${artifact}-comment`),
+					artifactId: p(artifact),
+					userId,
+					anchorJson: JSON.stringify({ kind: "node", nodeId: "n" }),
+					author: "user",
+					body: "Comment",
+					createdAt: now,
+				})
+				.run();
+			db.insert(schema.artifactKv)
+				.values({
+					id: p(`${artifact}-kv`),
+					artifactId: p(artifact),
+					key: "k",
+					valueJson: "1",
+					updatedAt: now,
+				})
+				.run();
+		}
+		sqlite.close();
+	}
+
+	async function familyRowIds() {
+		const { db } = await import("$lib/server/db");
+		const ids = async (
+			table:
+				| typeof schema.artifacts
+				| typeof schema.artifactVersions
+				| typeof schema.artifactComments
+				| typeof schema.artifactKv,
+		) =>
+			(await db.select({ id: table.id }).from(table))
+				.map((row) => row.id)
+				.sort();
+		return {
+			artifacts: await ids(schema.artifacts),
+			versions: await ids(schema.artifactVersions),
+			comments: await ids(schema.artifactComments),
+			kv: await ids(schema.artifactKv),
+		};
+	}
+
+	it("leaves no artifact, version, comment or key-value row behind after erasure, and spares another user", async () => {
+		seedArtifactFamily("erase-me");
+		seedArtifactFamily("keep-me");
+
+		const { eraseUserAccountData } = await import("./index");
+		await eraseUserAccountData("erase-me");
+
+		const remaining = await familyRowIds();
+		for (const ids of Object.values(remaining)) {
+			expect(ids.filter((id) => id.startsWith("erase-me-"))).toEqual([]);
+			expect(ids.filter((id) => id.startsWith("keep-me-"))).toHaveLength(2);
+		}
+	});
+
+	it("Clear Memory deletes a Document with its history and keeps a File with its own", async () => {
+		seedArtifactFamily("clear-me");
+
+		const { clearMemoryAndKnowledgeForUser } = await import("./index");
+		await clearMemoryAndKnowledgeForUser("clear-me");
+
+		expect(await familyRowIds()).toEqual({
+			artifacts: ["clear-me-file"],
+			versions: ["clear-me-file-version"],
+			comments: ["clear-me-file-comment"],
+			kv: ["clear-me-file-kv"],
+		});
+	});
+
+	it("Clear Workspace removes the whole family", async () => {
+		seedArtifactFamily("purge-me");
+		seedArtifactFamily("keep-me");
+
+		const { purgeUserData } = await import("./index");
+		await purgeUserData("purge-me");
+
+		const remaining = await familyRowIds();
+		for (const ids of Object.values(remaining)) {
+			expect(ids.filter((id) => id.startsWith("purge-me-"))).toEqual([]);
+			expect(ids.filter((id) => id.startsWith("keep-me-"))).toHaveLength(2);
+		}
 	});
 });

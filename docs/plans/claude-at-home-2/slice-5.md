@@ -37,7 +37,7 @@ re-scored without a model call.
 (`message-evidence.ts`, `MessageEvidenceDetails.svelte`), the existing project bundle
 (`knowledge/project-knowledge.ts`, `ProjectFilesDialog.svelte`), and `npx tsx` for the harness — the repo's
 own convention (`package.json:11`, `package.json:56`; `scripts/eval/README-option-a-fidelity.md:36-38`;
-`docs/plans/claude-at-home-2/slice-0.md:946`). No new runtime dependency.
+`slice-0.md` §The eval harness skeleton). No new runtime dependency.
 
 **Spec:** `docs/plans/claude-at-home-2-artifacts-spec.md` §2 (decisions 1, 2, 5, 9, 10, 11), §4 (tools and the
 required eval), §5 (card, panel), §6 (Slice 5), §7 (testing), §8 (risk 1, risk 6).
@@ -124,7 +124,7 @@ npx tsx scripts/eval-artifact-contracts/run.ts --suite all
 (`tsconfig.json` extends `.svelte-kit/tsconfig.json`), which node's type stripping does not apply. `tsx`
 resolves it, and it is what every other script in the repo uses: `package.json:11`
 (`check:migrations`), `scripts/eval/option-a-fidelity.ts`, and Slice 0's own harness command
-(`docs/plans/claude-at-home-2/slice-0.md:946`).
+(`slice-0.md` §The eval harness skeleton).
 
 ## Review Focus
 
@@ -160,9 +160,9 @@ existing tool uses (`asExecutableTool` at `index.ts:199`; `read_generated_file` 
 each execute wrapped in `executeToolWithEnvelope` (`shared.ts:314`). Per-tool schemas, payload shaping and
 the per-type dispatch live in beside-modules (`artifact-tools/create.ts`, `edit.ts`, `read.ts`), as
 `memory-context.ts` and `produce-file.ts` already do. The artifact type union is **Slice 0's**
-`ArtifactKind` (`docs/plans/claude-at-home-2/slice-0.md:195`:
+`ArtifactKind` (`slice-0.md` §The boundary:
 `"document" | "app" | "canvas" | "slides" | "file"`); the kind itself is
-`metadata_json.artifactType` (`slice-0.md:198-203`, `:263`) — never re-derived here.
+`metadata_json.artifactType` (`slice-0.md` §The boundary) — never re-derived here.
 
 ```ts
 // src/lib/server/services/normal-chat-tools/artifact-tools/create.ts
@@ -261,7 +261,7 @@ import type { SlideRefusalReason } from "$lib/server/services/artifacts/serializ
 export type ArtifactRefusalReason =
 	| RefusalReason        // slice 1: block_missing | block_unseen | block_changed | not_a_text_block |
 	                       //   empty_text | find_not_found | find_ambiguous | not_a_task_block |
-	                       //   not_a_table_block | bad_row        (slice-1.md:221-231)
+	                       //   not_a_table_block | bad_row        (slice-1.md §The patch engine)
 	| BoardRefusalReason   // slice 3: unknown_id | duplicate_id | unknown_kind | kind_mismatch |
 	                       //   missing_parent | self_parent | cycle | invalid_data | limit_exceeded
 	| SlideRefusalReason;  // slice 4: unknown_slide | unknown_field | stale_base_hash |
@@ -269,11 +269,12 @@ export type ArtifactRefusalReason =
 ```
 
 Note what this means for the two contracts this slice was drafted against: the document stale-hash reason
-is **`block_changed`** (slice 1's `applyPatchSet`, `slice-1.md:255-256`) and **`stale_base_hash` belongs to
-Slides only** (`slice-4.md:180`). `slice-1.md:368-370` sketches the three schemas with a `label` argument;
-`summary` is the model-facing name here and maps onto the version row's `summary` column (spec §3), because
-`BoardDiff` already calls it `summary` (`slice-3.md:350`) and the DDL has one word for it. Slice 5 owns the
-tool schemas (slice-3.md:685), so that sketch is read as superseded.
+is **`block_changed`** (slice 1's `applyPatchSet`, `slice-1.md §The patch engine`) and **`stale_base_hash`
+belongs to Slides only** (`slice-4.md §The patch model`). `slice-1.md §The tools` sketches the three schemas
+with a `label` argument; `summary` is the model-facing name here and maps onto the version row's `summary`
+column (spec §3), because `BoardDiff` already calls it `summary` (`slice-3.md §The board `_lib` modules`) and
+the DDL has one word for it. Slice 5 owns the tool schemas (`slice-3.md §The BoardDiff application path`), so
+that sketch is read as superseded.
 
 Payload shapes, mirroring `read_generated_file`'s honesty about not finding things:
 
@@ -299,7 +300,7 @@ export type EditArtifactModelPayload =
 export interface ArtifactRefusal {
 	/** Document: blockId. Canvas: the op's target id. Slides: slideId. */
 	target?: string;
-	/** Document: blockLabel (slice-1.md:376). Slides: the SlideTarget. */
+	/** Document: blockLabel (slice-1.md §The tools). Slides: the SlideTarget. */
 	label?: string;
 	reason: ArtifactRefusalReason;
 }
@@ -318,12 +319,19 @@ link. `create_artifact` sets it from the row it just wrote; `edit_artifact` from
 ### `TOOL_TIMEOUTS_MS` rows
 
 ```ts
-create_artifact: 30_000,   // a whole body may be written in the call; no sandbox, no network
+create_artifact: 120_000,  // App generation plus the verification pass; the single row (ruling 40)
 edit_artifact: 20_000,     // a validation pass and one version row
 read_artifact: 10_000,     // the same as read_generated_file: a read, not a computation
 ```
 
 `TOOL_TIMEOUTS_MS` is `Record<string, number>` (`shared.ts:196`); adding names needs no type change.
+
+**`create_artifact` is `120_000` and this slice owns that one row (ruling 40).** The name covers all five
+types, so it has to be sized for the most expensive one — an App is generated and then fact-verified inside
+the call, which is a model round trip, not a database write. Slices 1 and 2 carry no `create_artifact` value
+of their own and restate none; a second key with a second number is exactly the drift the ruling removes.
+**A missing row is not a default**: `executeToolWithEnvelope` applies no timeout when the key is absent
+(`shared.ts:343-350`), so a tool registered without its row here runs unbounded.
 
 ### The artifact catalogue (turn guidance)
 
@@ -579,11 +587,11 @@ bundle from `listProjectKnowledge` (`home-summary.ts:658-659`, field at `:106`; 
 Additions:
 
 - **`ArtifactType` gains `"artifact"`** (`knowledge/types.ts:12-17`) — the value Slice 0 writes
-  (`slice-0.md:262`: "the row is written with `type: "artifact"` … no DDL change") and the union the readers
+  (`slice-0.md §The boundary`: "the row is written with `type: "artifact"` … no DDL change") and the union the readers
   need. Shared with **Slice 0**, which lands first (see File ownership).
 - **`ProjectKnowledgeItem` gains `artifactKind?: ArtifactKind` and `sourceConversationTitle?: string | null`**
   (`project-knowledge.ts:42-56`), both read from the artifact's `metadata_json.artifactType` and its
-  conversation row — never a second column (`slice-0.md:263-265`).
+  conversation row — never a second column (`slice-0.md §The boundary`).
 - **`listProjectKnowledge` includes artifacts** linked to the project, ordered by the existing `sortItems`
   (`:296-305`). The resolution path already walks `derived_from` siblings and owned links
   (`readOwnedLinkRows` `:119-142`, `readDerivedSiblings` `:154-190`, `readOwnedArtifactRows` `:201-228`);
@@ -599,15 +607,15 @@ Additions:
 - **"Add a file to this project"** stays as it is; there is no "add an artifact" flow, because an artifact
   reaches a project by being linked from its chat. That is a scope decision, stated rather than implied.
 
-**Type words, owned elsewhere, consumed here.** The five type names are **already committed** twice in the
-plan: `artifacts.kind.*` in Slice 0 (`slice-0.md:496-500`) and `artifacts.type.*` in Slice 3
-(`slice-3.md:775-779`), with identical values. This slice consumes `artifacts.kind.*` (Slice 0 lands first)
-and adds no second family; the duplicate is reported as a cross-slice conflict, to be unified by whoever
-owns the loser.
+**Type words, owned elsewhere, consumed here.** The five type names are **one family**, `artifacts.type.*`,
+owned by Slice 0 (ruling 22) — `Canvas` / `Tábla`, `Document` / `Dokumentum`, `App` / `Alkalmazás`,
+`Slides` / `Diasor`, `File` / `Fájl`, plus the Canvas's `artifacts.canvas.*`. An earlier draft of this slice
+read a second family, `artifacts.kind.*`; that spelling is gone with the ruling, and this slice adds no
+family of its own — it consumes `artifacts.type.*` like every other surface.
 
 ### i18n, with real strings
 
-New keys live in `src/lib/i18n/artifacts.ts` — the module **Slice 0 creates** (`slice-0.md:928-929` wires
+New keys live in `src/lib/i18n/artifacts.ts` — the module **Slice 0 creates** (`slice-0.md §i18n` wires
 `src/lib/i18n/index.ts` and `src/lib/i18n.test-helpers.ts`; `I18N_MODULES` is at
 `src/lib/i18n.test-helpers.ts:7-15`, `AUDITED_PREFIXES` at `:16-90`). EN and HU in the same commit.
 
@@ -620,9 +628,9 @@ New keys live in `src/lib/i18n/artifacts.ts` — the module **Slice 0 creates** 
 | `artifacts.sources.loadFailed` | `Could not load what this was built from.` | `Nem sikerült betölteni, miből készült.` |
 | `artifacts.evidence.madeInThisChat` | `Made in this chat` | `Ebben a beszélgetésben készült` |
 
-Consumed, not added: `artifacts.kind.*` (slice 0), `messageEvidenceDetails.sourcesLabel` = `Sources` /
+Consumed, not added: `artifacts.type.*` (slice 0), `messageEvidenceDetails.sourcesLabel` = `Sources` /
 `Források` (`src/lib/i18n/chat.ts:866`, HU `:1970`) for the panel's own heading, and the refusal notices
-Slice 1 owns (`artifacts.document.refused.*`, `slice-1.md:448-453`).
+Slice 1 owns (`artifacts.document.refused.*`, `slice-1.md §i18n`).
 
 ### Failure modes
 
@@ -630,7 +638,7 @@ Slice 1 owns (`artifacts.document.refused.*`, `slice-1.md:448-453`).
 |---|---|---|
 | Model asks for an id this conversation does not have | nothing (model-facing) | tool returns `{success:false, error:"no_artifact_in_this_conversation", candidates:[…]}`; no HTTP status — tools never surface a transport error |
 | Model patches a block the user changed since it last read it | the panel's existing refusal notice, naming the block (Slice 1) | per-op `reason: "block_changed"` inside a `success: true` payload with `applied`/`refused`; the rest of the batch applies |
-| Model edits an App (no patch path) | nothing new | per-op refusal carrying Slice 2's explanation (`slice-2.md:736`: an App is edited by regeneration) |
+| Model edits an App (no patch path) | nothing new | per-op refusal carrying Slice 2's explanation (`slice-2.md §The App card`: an App is edited by regeneration) |
 | Sources read fails or the artifact was deleted while open | `artifacts.sources.loadFailed` in the panel; the stored evidence stays readable | `GET /api/artifacts/[id]/sources` → **404** for a missing or another user's artifact (the artifact routes' existing not-found convention); `{ sources: [] }` + 200 is "no sources", which shows `artifacts.sources.empty` |
 | Catalogue read fails | nothing: the turn proceeds without the catalogue block | fail open, `catch → null`; the reason goes to the existing `[NORMAL_CHAT_CONTEXT]` log prefix (`src/lib/server/services/AGENTS.md:142`) — no new tag |
 | An artifact is unlinked from a project while the bundle is open | the row disappears on the next list read; nothing is deleted | `unlinkProjectKnowledge` (`project-knowledge.ts:710`) is a link delete only |
@@ -644,9 +652,9 @@ Slice 1 owns (`artifacts.document.refused.*`, `slice-1.md:448-453`).
 | `ARTIFACT_CATALOGUE_MAX` | `12` | `artifacts/catalogue.ts`, asserted by test |
 | Catalogue title clip | `60` chars | same |
 | Artifact title cap | `200` chars | `createArtifactInputSchema` (above) |
-| Patches / ops per call | `1…40` | `editArtifactInputSchema` (above); canvas also has `MAX_OPS_PER_DIFF = 40` and `MAX_NEW_NODES_PER_DIFF = 24` (slice-3.md:352-353), slides its own caps through `validateSlidePatch` |
+| Patches / ops per call | `1…40` | `editArtifactInputSchema` (above); canvas also has `MAX_OPS_PER_DIFF = 40` and `MAX_NEW_NODES_PER_DIFF = 24` (`slice-3.md §Limits and configuration`), slides its own caps through `validateSlidePatch` |
 | Version summary | `1…200` chars | `editArtifactInputSchema` |
-| `TOOL_TIMEOUTS_MS` | `create 30_000`, `edit 20_000`, `read 10_000` | `normal-chat-tools/shared.ts:196` |
+| `TOOL_TIMEOUTS_MS` | `create_artifact` **120_000** (this slice's one row, ruling 40), `edit_artifact` 20_000, `read_artifact` 10_000 | `normal-chat-tools/shared.ts:196` |
 | `MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS` / `MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN` | `2` / `6`, unchanged | `produce-file.ts:2744`, `:2753` |
 | Catalogue token ceilings | raised once, with measured numbers | `index.test.ts:4824-4825` |
 | Harness switches | see the harness section | `scripts/eval-artifact-contracts/config.ts` |
@@ -661,7 +669,7 @@ goes through `config-store.ts` (AGENTS.md Config rules) with `README.md` and `.e
 ## The eval harness
 
 ```
-scripts/eval-artifact-contracts/          # Slice 0 creates this directory (slice-0.md:512-526); this slice fills it
+scripts/eval-artifact-contracts/          # Slice 0 creates this directory (slice-0.md §The eval harness skeleton); this slice fills it
   README.md            # the switches, the key rule, the gate table, how to add a fixture, how to re-record
   run.ts               # the runner: --suite, --replay (alias --skip-model), --limit, --only, --out, --help
   config.ts            # env switches, all EVAL_ARTIFACTS_* prefixed
@@ -681,8 +689,8 @@ scripts/eval-artifact-contracts/          # Slice 0 creates this directory (slic
 
 | Flag | Meaning |
 |---|---|
-| `--suite <name>` | `file`, `document`, `app`, `canvas`, `slides`, `verification`, or `all` — the singular names Slices 0–2 already use (`slice-0.md:946`, `slice-1.md:1099`, `slice-2.md:790`) |
-| `--replay` | Re-score committed responses under `fixtures/<suite>/responses/`. **No model client is constructed**, no key is required. `--skip-model` is an accepted alias (the prototype's switch, `run.ts:9`) |
+| `--suite <name>` | `file`, `document`, `app`, `canvas`, `slides`, `verification`, or `all` — the singular names Slices 0–2 already use (`slice-0.md §The eval harness skeleton`, `slice-1.md §Task T13`, `slice-2.md §Gates`) |
+| `--replay` | Re-score committed responses under `fixtures/<suite>/responses/`. **No model client is constructed**, no key is required. `--skip-model` is this slice's convenience alias, not the prototype's spelling: the prototype's switch is the **environment variable** `PROTO_APPS_SKIP_MODEL=1` (`scripts/prototype-artifact-apps/run.ts:9`, `README.md:26`) and it has no CLI flags at all — so the env form is kept for the eval too, as `EVAL_ARTIFACTS_SKIP_MODEL` below, with the flag as the shorter way to type it |
 | `--limit <n>`, `--only <ids>` | Cap or select fixtures; `--only` takes comma-separated fixture ids |
 | `--out <dir>` | Override `results/` |
 | `--help` | Print the switch table |
@@ -695,7 +703,7 @@ scripts/eval-artifact-contracts/          # Slice 0 creates this directory (slic
 | `EVAL_ARTIFACTS_ONLY` | — | comma-separated fixture ids |
 | `EVAL_ARTIFACTS_LIMIT` | — | cap the fixture count |
 | `EVAL_ARTIFACTS_REPLAY` | `0` | re-score committed responses, **no model call** |
-| `EVAL_ARTIFACTS_SKIP_MODEL` | `0` | alias of replay |
+| `EVAL_ARTIFACTS_SKIP_MODEL` | `0` | alias of replay, spelled as the prototype's own env var (`PROTO_APPS_SKIP_MODEL`) so the two switches are recognisably the same idea |
 | `EVAL_ARTIFACTS_SKIP_EVAL` | `0` | call the model, write raw responses, do not score |
 | `EVAL_ARTIFACTS_THINKING` | `off` | App generation is thinking-off by decision (§2.9); the harness **asserts** it against the suite's own policy rather than offering a choice |
 | `EVAL_ARTIFACTS_OUT` | `results` | output directory |
@@ -711,17 +719,17 @@ model and no browser.
 
 | Suite | What is called | What is measured | Pass bar |
 |---|---|---|---|
-| **1. `app`** (spec §4.1) | the App contract prompt, thinking off | the P1 pipeline unchanged: open in headless Chromium with network blocked and `window.alfy.storage` mocked, four loads, one smoke interaction, plus the four static contract checks (`no-script-src`, `no-link-href`, `no-remote-img`, `no-network-api` — Slice 2's `APP_CONTRACT_RULES`, `slice-2.md:156-172`) | the P1 baseline: **10/10 works** (`README.md:76`). Any `broken` verdict fails the suite; `works-with-glitches` is counted and reported against the baseline (verdict rules `score.ts:133-137`) |
-| **2. `document`** (§4.2) | a real stored document + a real request → `edit_artifact`-shaped patches | fed through the **real** `applyPatchSet({ blocks, patch, snapshot })` / `applyDocumentPatch` (slice-1.md:249, `:312-314`): does it apply; does the refusal fixture (the user edited the block first) come back `block_changed` rather than applied; is every patch inside the requested scope (fixture-declared block ids) | every apply-fixture applies completely; every refusal-fixture refuses **only** the intended block (the other ops still apply, `applied + refused === ops.length`); zero patches outside scope |
-| **3. `canvas`** (§4.3) | a real stored board + "arrange Saturday" → a `BoardDiff` | fed through the **real** `validateBoardDiff(diff, body)` (slice-3.md:361-376) — `{accepted, refused: [{index, op, reason}]}` — then a **rubric** over the resulting board: every requested item is on the board; ids are all resolvable; no node was moved out of the frame it belongs to; no two nodes overlap after the arrangement; labels are non-empty; nothing was removed that the request did not name | every diff parses; zero `invalid_data`/`cycle` refusals on a fixture that should apply; all rubric items true, for every fixture. The board is also screenshotted into the gallery for the owner's eye, but the verdict is the rubric |
-| **4. `slides`** (§4.4) | a request → deck JSON | schema validity against `SlidesBody` (slice-4.md:132-141); layout ids in `LAYOUT_REGISTRY` (slice-4.md:213); language matches the request (the repo's own detector); **no invented number or proper noun** — every number and capitalised proper noun in the deck must appear in the supplied source material or be an arithmetic relation of values in it; caps respected (`MAX_SLIDES = 120`, `MAX_BULLETS_PER_SLIDE = 12`, `MAX_FIELD_CHARS = 400`, `MAX_NOTES_CHARS = 4000` — slice-4.md:352) | zero invalid decks; zero unregistered layouts; zero language misses; zero invented facts |
-| **5. `verification`** (§4.5) | fixture pairs: a fabricated artifact body **and** its source material | Slice 2's `verifyApp` (`slice-2.md:225-233`) returns `AppVerification`; the score compares its `findings[]` against the fixture's declared answer — `{ expectedClass, claimContains }` per seeded bug, and `clean: true` for the negatives | every seeded bug appears in `findings[]` with the right `class`; **zero findings on the clean fixtures** |
+| **1. `app`** (spec §4.1) | the App contract prompt, thinking off | the P1 pipeline unchanged: open in headless Chromium with network blocked and `window.alfy.storage` mocked, four loads, one smoke interaction, plus the four static contract checks (`no-script-src`, `no-link-href`, `no-remote-img`, `no-network-api` — Slice 2's `APP_CONTRACT_RULES`, `slice-2.md §The App contract prompt`) | the P1 baseline: **10/10 works** (`README.md:76`). Any `broken` verdict fails the suite; `works-with-glitches` is counted and reported against the baseline (verdict rules `score.ts:133-137`) |
+| **2. `document`** (§4.2) | a real stored document + a real request → `edit_artifact`-shaped patches | fed through the **real** `applyPatchSet({ blocks, patch, snapshot })` / `applyDocumentPatch` (`slice-1.md §The patch engine`): does it apply; does the refusal fixture (the user edited the block first) come back `block_changed` rather than applied; is every patch inside the requested scope (fixture-declared block ids) | every apply-fixture applies completely; every refusal-fixture refuses **only** the intended block (the other ops still apply, `applied + refused === ops.length`); zero patches outside scope |
+| **3. `canvas`** (§4.3) | a real stored board + "arrange Saturday" → a `BoardDiff` | fed through the **real** `validateBoardDiff(diff, body)` (`slice-3.md §The board `_lib` modules`) — `{accepted, refused: [{index, op, reason}]}` — then a **rubric** over the resulting board: every requested item is on the board; ids are all resolvable; no node was moved out of the frame it belongs to; no two nodes overlap after the arrangement; labels are non-empty; nothing was removed that the request did not name | every diff parses; zero `invalid_data`/`cycle` refusals on a fixture that should apply; all rubric items true, for every fixture. The board is also screenshotted into the gallery for the owner's eye, but the verdict is the rubric |
+| **4. `slides`** (§4.4) | a request → deck JSON | schema validity against `SlidesBody` (`slice-4.md §The deck body`); layout ids in `LAYOUT_REGISTRY` (`slice-4.md §The layout contract the model must emit`); language matches the request (the repo's own detector); **no invented number or proper noun** — every number and capitalised proper noun in the deck must appear in the supplied source material or be an arithmetic relation of values in it; caps respected (`MAX_SLIDES = 120`, `MAX_BULLETS_PER_SLIDE = 12`, `MAX_FIELD_CHARS = 400`, `MAX_NOTES_CHARS = 4000` — `slice-4.md §Limits and configuration`) | zero invalid decks; zero unregistered layouts; zero language misses; zero invented facts |
+| **5. `verification`** (§4.5) | fixture pairs: a fabricated artifact body **and** its source material | Slice 2's `verifyApp` (`slice-2.md §Fact verification`) returns `AppVerification`; the score compares its `findings[]` against the fixture's declared answer — `{ expectedClass, claimContains }` per seeded bug, and `clean: true` for the negatives | every seeded bug appears in `findings[]` with the right `class`; **zero findings on the clean fixtures** |
 
 **How the fact-verification pass is judged.** This is the suite with the most room to be vague, so it is
 judged by outcome, not by wording. `AppVerification` has no `detected` flag and no `location`: it has
 `checked`, `verdict: "clean" | "repaired" | "uncertain"`, and
 `findings: { claim, problem, class }[]` with `class: "wrong_key" | "mislabelled_aggregate" | "wrong_unit" |
-"other"` (`slice-2.md:225-231`). So the fixture declares expectations in that shape's terms:
+"other"` (`slice-2.md §Fact verification`). So the fixture declares expectations in that shape's terms:
 
 ```json
 // fixtures/verification/apps-03-quiz-key.json (excerpt)
@@ -784,7 +792,7 @@ harness's cost proportional to how often the contract changes rather than to how
 |---|---|
 | `src/lib/server/services/normal-chat-tools/artifact-tools/{create,edit,read}.ts` + tests | create — schemas, normalisation, payload builders, tool-call metadata |
 | `src/lib/server/services/normal-chat-tools/index.ts` + `index.test.ts` | extend — register three tools, add six `TOOL_I18N` entries (EN+HU), raise the catalogue ceiling |
-| `src/lib/server/services/normal-chat-tools/shared.ts` | extend — three `TOOL_TIMEOUTS_MS` rows (`:196`) |
+| `src/lib/server/services/normal-chat-tools/shared.ts` | extend — three `TOOL_TIMEOUTS_MS` rows (`:196`), `create_artifact` at **120_000** (ruling 40; slices 1 and 2 reference this row and write none) |
 | `src/lib/server/services/chat-turn/normal-chat-tool-gating.ts` + test | extend — the artifact tools in the fake catalogue; **no per-turn gating** |
 | `src/lib/server/services/normal-chat-context.ts` + `normal-chat-context.test.ts` | extend — `artifactCatalogueBlock` param on `buildTurnGuidance` (`:611`), rendered in the sections array (`:636-651`), threaded through `prepareOutboundChatContext`'s params (`:1848` shapes) at `:2163`'s neighbour; **delete the dead `fileProductionToolsAvailable`** (`:441`, `:1848`, `:1932`) |
 | `src/lib/server/services/chat-turn/shared-normal-chat-model-run-helpers.ts` | extend — resolve and pass the catalogue beside `skillCatalogueBlock` (`:326`, `:370`); drop the dead `fileProductionToolsAvailable:` assignment (`:355`) |
@@ -793,7 +801,7 @@ harness's cost proportional to how often the contract changes rather than to how
 | `src/lib/server/services/artifacts/read-model.ts` + test | extend — `getArtifactSources` |
 | `src/lib/server/services/message-evidence.ts` + test | extend — `EvidenceSourceType` gains `"artifact"` (`:770`), one row in `GROUP_LABELS`/`GROUP_ORDER` (`:16-28`), `turnArtifacts` + the artifact group in `buildAssistantEvidenceSummary` (`:700-719`) |
 | `src/lib/server/services/chat-turn/finalize-steps.ts` + test | extend — derive `turnArtifacts` from the turn's tool calls, pass it into `buildAssistantEvidenceSummary` (`:272`) |
-| `src/lib/components/chat/MessageEvidenceDetails.svelte` | extend — `isDocument()` accepts `"artifact"` (`:320-326`), an `artifact` case in the icon switch (`:178-191`), the type word from `artifacts.kind.*` on the row |
+| `src/lib/components/chat/MessageEvidenceDetails.svelte` | extend — `isDocument()` accepts `"artifact"` (`:320-326`), an `artifact` case in the icon switch (`:178-191`), the type word from `artifacts.type.*` on the row |
 | `src/lib/server/services/knowledge/types.ts` | extend — `ArtifactType` gains `"artifact"` (`:12-17`). **Shared with Slice 0** |
 | `src/lib/server/services/knowledge/project-knowledge.ts` + test | extend — `ProjectKnowledgeItem` gains `artifactKind`/`sourceConversationTitle` (`:42-56`), artifacts in `listProjectKnowledge` (`:307-327`) |
 | `src/routes/(app)/projects/[projectId]/_components/ProjectFilesDialog.svelte` | extend — artifact rows, provenance line, type pill, open-the-panel (`:306-355`, `preview()` `:133-144`) |
@@ -807,7 +815,11 @@ harness's cost proportional to how often the contract changes rather than to how
 
 **Serialisation.** `src/lib/i18n/artifacts.ts`, `src/lib/i18n/index.ts`, `src/lib/i18n.test-helpers.ts` and
 `knowledge/types.ts` are **shared with Slice 0, which lands first** (this slice only extends what Slice 0
-creates). `message-evidence.ts` and `MessageEvidenceDetails.svelte` are shared with nothing else in Feature 2,
+creates). For `normal-chat-tools/index.ts` and `normal-chat-tools/shared.ts` the landing order is ruling 41's:
+**this slice first** (the three tools, their `TOOL_I18N` entries and the `TOOL_TIMEOUTS_MS` table, including
+the single `create_artifact` row), **then Slice 2** (the App generation path, the first real caller), **then
+Slice 1** (the Document's `read_artifact` and `edit_artifact`); each appends its own entries and leaves its
+neighbours' alone. `message-evidence.ts` and `MessageEvidenceDetails.svelte` are shared with nothing else in Feature 2,
 but the `EvidenceSourceType` widening (T4) reaches Slice 3's `liveweb` block and Slice 1's sources row, so
 **do T4 last of the four product tasks**, against merged code rather than against four open branches.
 
@@ -1073,7 +1085,7 @@ it("counts files and artifacts together in the bundle line", ...);
 
 Widen `ArtifactType`, extend `ProjectKnowledgeItem`, `listProjectKnowledge` and its ordering, extend the
 dialog's row rendering and its open action, and let `HomeSurface`'s count follow the list. The type pill
-reuses `artifacts.kind.*`.
+reuses `artifacts.type.*`.
 
 - [ ] **Step 4: Run them to verify they pass**, plus
   `npx playwright test tests/e2e/projects.spec.ts`. Expected: PASS.
@@ -1214,7 +1226,8 @@ model and no browser."
 
 - [ ] **Step 1: Write the runner and the five suites**
 
-`--suite` / `--replay` (alias `--skip-model`) / `--limit` / `--only` / `--out` / `--help`, the env switches,
+`--suite` / `--replay` (alias `--skip-model`, the prototype's `PROTO_APPS_SKIP_MODEL=1` env switch in flag
+form) / `--limit` / `--only` / `--out` / `--help`, the env switches,
 the sampling constants, sequential execution with one retry and the two-429/5xx stop, the gallery, and the
 README documenting all of it plus how to add a fixture and how to re-record a suite.
 
@@ -1306,7 +1319,7 @@ real run happens when the contract or the descriptions changed."
 | The harness cannot fail | It becomes decoration, and a type ships on an unmeasured contract | Every suite ships a known-bad fixture the runner asserts fails first |
 | The key leaks into `results/` or a fixture | It is in the repo's history | One function reads it; a test greps `results/` on every invocation; `results/` is gitignored |
 | The `EvidenceSourceType` widening breaks a stored row | Evidence is JSON in `messages.metadata_json`, so an old row has no `artifact` items and stays readable | Additive union, one new group row, and a backward-compatibility test on a stored summary |
-| The artifact group's server label is assumed to be user-visible | It is not rendered anywhere today; a UI claim built on it would be false | The row's word comes from `artifacts.kind.*`; the server constant is documented as the data-model label, and the PR body says so |
+| The artifact group's server label is assumed to be user-visible | It is not rendered anywhere today; a UI claim built on it would be false | The row's word comes from `artifacts.type.*`; the server constant is documented as the data-model label, and the PR body says so |
 | The bundle shows made things as files | The user cannot tell what they are looking at, and the row opens the wrong surface | Provenance label plus the UI's own type word; the row opens the panel; an e2e asserts the destination |
 | Replay scores a stale response set | CI passes on responses that no longer match the schema | The README requires re-recording whenever the contract or a description changes, and `--replay` fails on a schema mismatch rather than skipping |
 | Suite 3's rubric becomes a taste argument | "A board a human would accept" is exactly the vague thing risk 1 warns about | The rubric is mechanical: requested items present, ids resolvable, no node outside its frame, no overlapping nodes, non-empty labels, nothing unnamed removed |
@@ -1359,8 +1372,7 @@ real run happens when the contract or the descriptions changed."
 3. **Suite 1's baseline.** The App suite's bar is the P1 result (10/10 works). Recommendation: the absolute
    count, with a ratio recorded beside it — an absolute bar is what stops a slow drift, and the ratio is the
    number to look at when the model or a dependency changes and the absolute count moves.
-4. **The duplicate type-word key families.** Slice 0 ships `artifacts.kind.*` (`slice-0.md:496-500`) and
-   Slice 3 ships `artifacts.type.*` (`slice-3.md:775-779`) with identical values; this slice consumes
-   `artifacts.kind.*` because Slice 0 lands first. Recommendation: unify on `artifacts.type.*` (the surface
-   that reads it per type is the card and the panel) and have Slice 0's five rows removed in the slice that
-   owns them — not by this slice, which would then be editing another slice's file.
+4. **Settled by ruling 22: one family, `artifacts.type.*`, owned by Slice 0.** `artifacts.kind.*` was this
+   slice's own draft spelling and is gone; the five type rows live in Slice 0's dictionary, and every other
+   surface — the card, the panel, the evidence row, the bundle's type pill — reads the same keys. There is no
+   second family and nothing for a later slice to unify.

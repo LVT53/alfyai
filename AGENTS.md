@@ -241,6 +241,31 @@ Do not:
 - duplicate stream-tag parsing or inline-thinking extraction between the browser stream consumer and `api/chat/stream/+server.ts`
 - scatter freshness-sensitive search guards outside `normal-chat-context.ts`
 
+### Artifacts
+
+Feature 2 (ADR-0066): a family of five kinds — Document, App, Canvas, Slides, File — that live beside the conversation, behind one card and one panel. A new family on the *existing* `artifacts` backbone, never a parallel document store: the family's own rows are written with `type: "artifact"`, its kind carried in `metadata_json.artifactType`; produced files keep `type: "generated_output"` (ruling 18) and are read as the family's `file` kind — this is the one place the family spans two `type` values, and it is deliberate.
+
+- [`src/lib/server/services/artifacts/`](./src/lib/server/services/artifacts/) — the service boundary. `index.ts` is the facade; callers import only from it, mirroring the chat-turn facade rule. Internally: `types.ts`, `limits.ts`, `hash.ts`, `record.ts` (artifact CRUD, the kind↔row-type mapping, version append), `versions.ts`, `comments.ts`, `kv.ts` (per-App key-value state, every accessor scope-checked since the table has no user column), `serialize/`, `read-model.ts` (the panel list's and the header count's one source).
+- Three child tables hang off the `artifacts` row: `artifact_versions`, `artifact_comments`, `artifact_kv`.
+- [`src/lib/shared/artifacts/kinds.ts`](./src/lib/shared/artifacts/kinds.ts) — the `ArtifactKind` union (browser-safe, no runtime imports). [`src/lib/shared/artifacts/anchor.ts`](./src/lib/shared/artifacts/anchor.ts) — the one shared comment-anchor type, appended to per type.
+- [`src/lib/components/artifacts/`](./src/lib/components/artifacts/) — `ArtifactCard.svelte` (the one card every kind renders as; `chrome="full"` for the panel list and the four new kinds, `chrome="body"` for a host that draws its own header, today `ToolActivityRow.svelte`'s File row) and `artifact-bodies.ts` (the type→body loader registry; a missing entry IS the File body).
+- The panel is [`document-workspace/DocumentWorkspace.svelte`](./src/lib/components/document-workspace/DocumentWorkspace.svelte) itself, rebuilt in place — ruling 10 forbids a rename. Its content area dispatches on an item's optional `kind` through the body registry; its `list`/`onListOpenChange` props carry "what this chat made".
+- [`src/routes/api/artifacts/`](./src/routes/api/artifacts/) — thin routes (`requireApiUser`, ruling 39 amended); `src/lib/client/api/artifacts.ts` — the browser calls.
+- `ConversationDetail.artifacts` (`ArtifactCardSummary[]`) is the panel list's and the chat header count button's one source, assembled in `conversation-detail/read-model.ts` alongside `generatedFiles`/`fileProductionJobs`.
+- **"Artifact" is never shown in the UI** (ADR-0066): every user-visible string, `title`, and `aria-label` names the kind (Document/Dokumentum, App/Alkalmazás, Canvas/Tábla, Slides/Diasor, File/Fájl) through `artifacts.type.*` in [`src/lib/i18n/artifacts.ts`](./src/lib/i18n/artifacts.ts); the word itself is fine in code, tables, routes and file names.
+
+Do:
+
+- extend `src/lib/server/services/artifacts/index.ts` for new public functions; nothing outside the directory queries the artifact tables directly (the account data archive is the one named, deliberate exception)
+- route every scoped read through the ownership scope the facade already uses; give `artifact_kv` readers a scope marker, since the table's missing user column is exactly what `tests/cross-cutting/incognito-artifact-containment.test.ts` checks for
+- keep the type→body registry and `ArtifactCard.svelte`'s kind branches append-only, one entry per kind per slice
+
+Do not:
+
+- add a `type: "artifact"` row for a produced file, or otherwise re-type `generated_output` — `knowledge/store/core.ts` and `account-lifecycle/index.ts` both key ownership/Clear-Memory behavior on that exact value
+- rename `DocumentWorkspace.svelte`, or fork a second viewer for an artifact kind — the panel is the only shell
+- add a second type-label i18n family beside `artifacts.type.*`, or let the word "Artifact" reach a user-visible string
+
 ### Knowledge And Context
 
 - Public boundary:
@@ -642,6 +667,9 @@ Do not:
   - `src/lib/server/services/user-admin.ts`
 - New knowledge artifact or context behavior:
   - `src/lib/server/services/knowledge/`
+- New artifact-family (Document/App/Canvas/Slides/File) behavior:
+  - `src/lib/server/services/artifacts/`
+  - `src/lib/components/artifacts/`
 - New chat-generated file behavior:
   - `src/lib/server/services/chat-files.ts`
   - `src/lib/server/services/sandbox-execution.ts`

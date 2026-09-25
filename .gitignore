@@ -82,4 +82,8 @@ scripts/eval/results/*
 # other harness's output in this directory.
 !scripts/eval/results/thought-step-honesty-audit-synthetic-sample.md
 !scripts/eval/results/thought-step-honesty-audit-synthetic-sample.json
+
+# Artifact-contract eval harness output (Feature 2 · Artifacts) — same rule
+# as scripts/eval/results/* above: results are not source.
+scripts/eval-artifact-contracts/results/*
 .claude/settings.local.json

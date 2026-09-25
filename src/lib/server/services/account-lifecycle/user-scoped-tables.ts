@@ -5,8 +5,10 @@ import {
 	announcementCampaignEvents,
 	announcementCampaignUserStates,
 	artifactChunks,
+	artifactComments,
 	artifactLinks,
 	artifacts,
+	artifactVersions,
 	atlasJobs,
 	browserPushSubscriptions,
 	campaignAssets,
@@ -221,6 +223,34 @@ export const USER_SCOPED_TABLES: readonly UserScopedTable[] = [
 		name: "conversation_drafts",
 		table: conversationDrafts,
 		userColumn: conversationDrafts.userId,
+		erasure: "cascade",
+		resets: ["workspace"],
+	},
+	// The artifact family's history and threads (Feature 2). Workspace-scoped
+	// only, deliberately NOT memory-scoped: Clear Memory keeps `generated_output`
+	// artifacts (`clearMemoryAndKnowledgeForUser` deletes every other type), and
+	// a memory entry here would strip the history and comments from an artifact
+	// that survives. The artifacts Clear Memory DOES delete take their rows with
+	// them through the `artifact_id` cascade. Both are children of `artifacts`
+	// (not a workspace-scope table — `purgeUserData` hard-deletes it first) and
+	// of `users`, so any position before `conversations` is FK-safe.
+	//
+	// `artifact_kv` is deliberately absent: it has no person column (a
+	// key-value row is keyed to its artifact alone), so the schema-derived
+	// completeness guard does not ask for it, and every path that removes an
+	// artifact — erasure, both resets, conversation delete — takes its
+	// key-value rows through the same `artifact_id` cascade.
+	{
+		name: "artifact_comments",
+		table: artifactComments,
+		userColumn: artifactComments.userId,
+		erasure: "cascade",
+		resets: ["workspace"],
+	},
+	{
+		name: "artifact_versions",
+		table: artifactVersions,
+		userColumn: artifactVersions.userId,
 		erasure: "cascade",
 		resets: ["workspace"],
 	},

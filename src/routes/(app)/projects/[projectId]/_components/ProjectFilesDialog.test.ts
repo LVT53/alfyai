@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectKnowledgeItem } from "$lib/server/services/knowledge";
 import ProjectFilesDialog from "./ProjectFilesDialog.svelte";
@@ -104,6 +104,28 @@ describe("ProjectFilesDialog empty states", () => {
 		expect(screen.getByTestId("project-file-name")).toHaveTextContent(
 			"Wien itinerary.pdf",
 		);
+	});
+});
+
+// The dialog is one of the document workspace's three live callers (with
+// chat and Knowledge). Slice 0's type-aware rebuild of
+// DocumentWorkspace.svelte must not regress this one, so this pins today's
+// behaviour before that work: previewing a project file opens the shared
+// expanded workspace with the file's own name, and it is not a second modal
+// (AGENTS.md: the shell stays the only viewer).
+describe("ProjectFilesDialog document workspace", () => {
+	it("opens a previewed file into the expanded document workspace", async () => {
+		open([projectFile()]);
+
+		await fireEvent.click(screen.getByTestId("project-file-preview"));
+
+		const shell = await screen.findByRole("complementary", {
+			name: "Document workspace",
+		});
+		expect(within(shell).getByText("Wien itinerary.pdf")).toBeInTheDocument();
+		// The Files modal itself is the one dialog; the preview does not draw a
+		// second, competing modal on top of it.
+		expect(screen.getAllByRole("dialog")).toHaveLength(1);
 	});
 });
 

@@ -53,8 +53,8 @@ Same as `plan.md` §Global Constraints. In addition, for this slice:
   (see Task T2) — do not inline hex in node components.
 - **EN + HU in the same commit**, both dictionaries, for every user-visible string including `aria-label`s.
   `src/lib/i18n/artifacts.ts` is created by Slice 0 with the module in `I18N_MODULES` and `"artifacts."` in
-  `AUDITED_PREFIXES` (`src/lib/i18n.test-helpers.ts:7-15`, `16+`; `plan.md:173`) — this slice **appends**, it
-  does not re-register.
+  `AUDITED_PREFIXES` (`src/lib/i18n.test-helpers.ts:7-15`, `16+`; `plan.md` §Slice order, dependencies and
+  parallelism) — this slice **appends**, it does not re-register.
 - **"Artifact" never appears in the UI.** The type is called **Canvas** (HU: **Tábla**), per ADR-0066.
 - **One user, permanently.** No sharing, no permissions, no presence, no co-editing affordances. Do not
   leave a "share" stub.
@@ -132,7 +132,7 @@ npx playwright test tests/e2e/artifact-canvas.spec.ts tests/e2e/artifact-canvas-
 7. **Two writers, one board (Task T6).** A chat turn and the open panel can both write; every write carries
    `expectVersion` (body) or `baseVersionId` (ops) and a stale one is refused with a 409 rather than
    clobbering. The refusal string is the one Slice 1 already ships
-   (`artifacts.document.versions.conflict`, `slice-1.md:475`).
+   (`artifacts.document.versions.conflict`, `slice-1.md §i18n`).
 
 ---
 
@@ -159,14 +159,14 @@ npx playwright test tests/e2e/artifact-canvas.spec.ts tests/e2e/artifact-canvas-
 
 No migration. The Canvas writes rows in Slice 0's three tables and nothing else:
 
-| Table | Slice 0's DDL (`slice-0.md:98-136`) | What the Canvas adds |
+| Table | Slice 0's DDL (`slice-0.md §The migration`) | What the Canvas adds |
 |---|---|---|
-| `artifacts` | `id`, `user_id`, `kind`, `title`, `content_text`, `metadata_json`, `conversation_id`, `is_incognito`, timestamps | `kind = 'canvas'`; `content_text` = the body JSON below; `metadata_json.artifactType` is the kind's single source of truth |
+| `artifacts` (the existing table, unchanged) | `id`, `user_id`, `conversation_id`, `type`, `retrieval_class`, `name`, `mime_type`, `extension`, `size_bytes`, `binary_hash`, `storage_path`, `content_text`, `summary`, `metadata_json`, `created_at`, `updated_at` — the real columns; there is no `kind`, no `title` and no `is_incognito` | `type = 'artifact'` with `metadata_json.artifactType = 'canvas'` as the kind's single source of truth, the title in `metadata_json.title` (the row's `name` is what it renders from), and `content_text` = the body JSON below. Incognito is a property of the **conversation**, never of this row (`slice-0.md §The boundary`) |
 | `artifact_versions` | `id`, `artifact_id`, `user_id`, `version_number`, `author`, `summary`, `body`, `body_hash`, `created_at` | one row per committed write (stroke batch, reparent, tick, BoardDiff) |
 | `artifact_comments` | `id`, `artifact_id`, `user_id`, `anchor_json`, `body`, `parent_id`, `author`, `status`, `created_at` | `anchor_json` carrying `{kind:"node"}` / `{kind:"point"}` |
 
 `body_hash` on a canvas version is **the canonical-JSON hash of the body** (next section), and
-`artifact.updated_at` moves in the same transaction (`slice-0.md:269`).
+`artifact.updated_at` moves in the same transaction (`slice-0.md §The boundary`).
 
 ### The Canvas body
 
@@ -581,7 +581,10 @@ export function reparentOnDrop(
 ): { parentId?: string; position: Pt; extent: undefined } | null;
 ```
 
-`src/lib/components/artifacts/canvas/_lib/board-diff.ts`
+`src/lib/shared/artifacts/board-ops.ts` — the Canvas **vocabulary** (ruling 14), and the one file in this
+contract that is not a `_lib` module. It sits in `src/lib/shared/artifacts/` because the server validates with
+it: the generic mechanism is `src/lib/shared/artifacts/ops.ts`, created by this slice, and Slice 4's
+`deck-ops.ts` is its twin.
 
 ```ts
 import { z } from "zod";
@@ -750,7 +753,7 @@ sharing is why the shapes below are written out rather than described.
 export type BoardRefusal = { index: number; op: string; reason: BoardRefusalReason };
 ```
 
-**The ops route is a type-dispatching envelope, not a Canvas route.** Slice 4 (`slice-4.md:233-241,353,367`)
+**The ops route is a type-dispatching envelope, not a Canvas route.** Slice 4 (`slice-4.md §Routes`)
 requires that a SlidePatch batch be **one branch** of the same endpoint and that no second route per type
 appears. The envelope therefore lives in its own module and the route is thin enough that adding Slides
 touches neither file's control flow:
@@ -784,29 +787,39 @@ export const OPS_BRANCHES: Partial<
 >;
 ```
 
+**The mechanism is shared; only the vocabulary is the Canvas's (ruling 14).** `src/lib/shared/artifacts/ops.ts`
+holds the generic half — parse the `{ baseVersionId, diff }` envelope, validate the diff against the vocabulary
+the type hands over, apply the ops in order, and return per-op `applied` / `refused` — and this slice creates it.
+The Canvas vocabulary is `src/lib/shared/artifacts/board-ops.ts` (the file in §The board `_lib` modules above);
+Slice 4's `deck-ops.ts` is its twin. `src/lib/server/services/artifacts/ops.ts` keeps what is server-shaped
+instead: ownership, loading the body, the `baseVersionId` check, kind dispatch through `OPS_BRANCHES`, the single
+`updateArtifactBody` call, and the response mapping. The shared module carries no route, no database handle and no
+kind union.
+
 `src/routes/api/artifacts/[id]/ops/+server.ts` is then ~15 lines: `requireAuth`
-(`src/lib/server/auth/hooks.ts:9`), read the body, `applyArtifactOps(...)`, map `status`/`reason` through
-`createJsonResponse` / `createJsonErrorResponse` (`src/lib/server/api/responses.ts`). Ownership comes from
+(`src/lib/server/auth/hooks.ts:9`), read the body, `applyArtifactOps(...)`, map `status`/`reason` through the
+family's `{ ok: true, … }` / `{ ok: false, reason, … }` body built with `json(...)` — the success side may go
+through `createJsonResponse` (`src/lib/server/api/responses.ts`), the failure side is **not**
+`createJsonErrorResponse`'s `{ error }`. Ownership comes from
 `getArtifactOwnershipScope` (`src/lib/server/services/knowledge/store/core.ts:141`), the same predicate the
 incognito containment suite pins (`tests/cross-cutting/incognito-artifact-containment.test.ts:23-27,486-529`).
 
-**The body route's field name is a cross-slice conflict, and this is the resolution.** Slice 1 ships
-`PATCH /api/artifacts/[id]/body` with `{ markdown, expectVersion }` (`slice-1.md:348`) — a
-Document-specific field name on a route that is not Document-specific. Slices 3 and 4 both write a
-non-markdown body (a board's JSON, a deck's JSON), so the payload field must be the generic `body`:
+**The body route's payload field is `body`, and ruling 13 settles it.** Every type's write route takes
+`body` plus `expectVersion`: a Document's body happens to be Markdown, and a board's or a deck's is JSON, so
+the field is the generic one — **no alias and no per-type field name**.
 
 - **This slice sends `{ body: boardJson(canvasBody), expectVersion }`** and expects
   `{ ok: true, version }`.
-- Slice 1's route should rename its field to `body` (its Document then sends `{ body: markdown, ... }`).
-  This changes one word in Slice 1 and permanently removes the clash.
-- Until that lands, the route tolerates the old name with a one-line alias — `const body = payload.body ??
-  payload.markdown` — so the two slices can land in either order without a broken intermediate state.
-- The conflict is also reported in the slice hand-off notes; it is the one decision that needs a wave-level
-  call before Slice 1 merges.
+- Slice 1's Document sends `{ body: markdown, expectVersion }` on the same route. One field, five types; the
+  route never learns what the body means.
+- There is **no** `payload.body ?? payload.markdown` fallback: a second accepted spelling is a second contract
+  to keep alive, and ruling 13 removes it rather than blessing it.
+- The two slices therefore land in either order with no broken intermediate state, because both sides already
+  spell the field the same way.
 
 `expectVersion` (a monotonic integer) rather than a version *id* on this route, because Slice 1 and Slice 2
-already use it (`slice-1.md:336`, `slice-2.md:741-742`) and a lost response can be retried with the number
-the client already holds. The ops route keeps `baseVersionId`, because Slice 3 and Slice 4 agree on it and
+already use it (`slice-1.md §Service and routes`, `slice-2.md §The App card`) and a lost response can be
+retried with the number the client already holds. The ops route keeps `baseVersionId`, because Slice 3 and Slice 4 agree on it and
 it names the exact body a diff was derived from.
 
 The client side, appended to Slice 0's `src/lib/client/api/artifacts.ts` (injectable `fetch`, same
@@ -990,7 +1003,8 @@ Order, and this order is the contract:
 4. Then **tween the moves**: 620 ms, `easeInOut`, one `requestAnimationFrame` loop updating positions, so
    the user sees the board rearrange rather than teleport.
 5. Then highlight: each touched node gets `highlight: true` (a token-coloured ring), cleared after 3200 ms.
-6. `arranging = false`; the response's `refused[]` renders as one dismissible notice listing what was
+6. `arranging = false`; the response's `refused[]` renders as one dismissible notice — Slice 1's shared
+   `src/lib/components/artifacts/RefusalNotice.svelte` (its T8), never a canvas copy — listing what was
    skipped and why, so a partial application is visible rather than silent.
 
 A second `applyBoardDiff` while `arranging` is true returns immediately without queueing: two overlapping
@@ -1106,8 +1120,8 @@ place.
 | `MAX_BODY_BYTES` | 1 MiB (1048576) | same module | `content_text` is one SQLite text column; the cap is the storage shape |
 | `MAX_ANNOTATIONS_PER_BOARD` | 600 | `_lib/annotations.ts` | export/recall budget; the prototype's heavy fixture was 202 |
 | `MAX_POINTS_PER_STROKE` | 1200 | `_lib/annotations.ts` | decimated by distance, so the cap never clips an end |
-| `MAX_OPS_PER_DIFF` | 40 | `_lib/board-diff.ts` | a batch is one transaction; 40 ops is already a whole board |
-| `MAX_NEW_NODES_PER_DIFF` | 24 | `_lib/board-diff.ts` | one arrangement creates frames and blocks, not a board |
+| `MAX_OPS_PER_DIFF` | 40 | `src/lib/shared/artifacts/board-ops.ts` | a batch is one transaction; 40 ops is already a whole board |
+| `MAX_NEW_NODES_PER_DIFF` | 24 | `src/lib/shared/artifacts/board-ops.ts` | one arrangement creates frames and blocks, not a board |
 | `POSTER_WIDTH` × `POSTER_HEIGHT` | 640 × 400 | `_lib/poster.ts` | file size vs legibility; the export upscales from it |
 | export clamp | 800–2400 × 600–1800 | `_lib/export-png.ts` | a phone screen and a 4K display |
 | move tween | 620 ms, cleared highlight at 3200 ms | `CanvasBoard.svelte` | the animation is the product decision and is stated in Review Focus 5 / §2.13 |
@@ -1191,9 +1205,10 @@ Read the working code, do not invent the approach. All paths are on the throwawa
 New namespace `src/lib/i18n/artifacts.ts`, spread into `src/lib/i18n/index.ts` beside `instructionsDict`
 (the module imports a `*Dict` per file and spreads `.en` / `.hu`; `src/lib/i18n/index.ts:3-11,46-58`).
 Keys are `artifacts.<type>.<thing>`; Slice 0 owns `artifacts.card.*` and `artifacts.panel.*`, Slice 1 owns
-`artifacts.document.*`, Slice 4 owns `artifacts.slides.*`. **This slice owns `artifacts.canvas.*` and the
-shared `artifacts.type.*` names.** Registration (`I18N_MODULES`, `AUDITED_PREFIXES`) is Slice 0's; this
-slice only appends keys, and `artifacts.` is already an audited prefix (`slice-0.md:504-505`).
+`artifacts.document.*`, Slice 4 owns `artifacts.slides.*`. **This slice owns `artifacts.canvas.*`; the
+`artifacts.type.*` names are Slice 0's (ruling 22) and are restated here only because the Canvas is one of the
+five.** Registration (`I18N_MODULES`, `AUDITED_PREFIXES`) is Slice 0's; this
+slice only appends keys, and `artifacts.` is already an audited prefix (`slice-0.md §i18n`).
 
 `artifacts.type.*` (HU follows ADR-0066's ratified names):
 
@@ -1318,8 +1333,8 @@ form, and the tour's copy lives in the tour content table, not here.
 ## File ownership
 
 Paths follow `plan.md`'s hot-file table and Slice 0/1/2, which all use
-`src/lib/components/artifacts/` (**plural** — `plan.md:158,169`, `slice-0.md:354,548`,
-`slice-1.md:388-392,508`, `slice-2.md:305,409-412`). A **shared** row names who lands first.
+`src/lib/components/artifacts/` (**plural** — ruling 15, and the `ArtifactBodyProps` / panel contracts in
+`slice-0.md`, `slice-1.md` and `slice-2.md`). A **shared** row names who lands first.
 
 | File | Change | Shared |
 |---|---|---|
@@ -1327,8 +1342,8 @@ Paths follow `plan.md`'s hot-file table and Slice 0/1/2, which all use
 | `src/lib/shared/artifacts/canvas.ts` | create — the body types, `StoredCanvasNode` / live `CanvasNode` split | no |
 | `src/lib/shared/artifacts/comments.ts` | create — `CommentAnchor`, `AnchorResolution`, `AnchorResolver`, `CommentThread` (ruling 11) | **yes** — Slice 1 consumes; land the type file **once, first**, here, because Slice 3 needs both the types and the Canvas resolver |
 | `src/lib/shared/artifacts/sources.ts` | create **only if** Slice 5 has not landed `ArtifactSource` yet; a type-only re-export, never a second shape | **yes** — Slice 5 |
-| `src/lib/components/artifacts/canvas/CanvasEditor.svelte` + test | create — the panel editor; **accepts `ArtifactBodyProps`** from `src/lib/components/artifacts/artifact-bodies.ts` (`slice-0.md:354-371`) | no |
-| `src/lib/components/artifacts/artifact-bodies.ts` | **one line**: `canvas: () => import("./canvas/CanvasEditor.svelte")` | **yes** — Slice 0 creates the file, 1→2→3→4 each append one line, in that order (`plan.md:169`) |
+| `src/lib/components/artifacts/canvas/CanvasEditor.svelte` + test | create — the panel editor; **accepts `ArtifactBodyProps`** from `src/lib/components/artifacts/artifact-bodies.ts` (`slice-0.md §The panel`) | no |
+| `src/lib/components/artifacts/artifact-bodies.ts` | **one line**: `canvas: () => import("./canvas/CanvasEditor.svelte")` | **yes** — Slice 0 creates the file, 1→2→3→4 each append one line, in that order (`plan.md` §Slice order, dependencies and parallelism) |
 | `src/lib/components/artifacts/canvas/CanvasBoard.svelte` | create — the `SvelteFlow` host, its lowercase event props, reparent + edge pruning, the tween, the arranging pill | no |
 | `src/lib/components/artifacts/canvas/NodeShell.svelte` | create — the block chrome (icon, title, meta, selection handles, connection anchors on selection) | no |
 | `src/lib/components/artifacts/canvas/nodes/{Frame,Sticky,Text,Chart,Checklist,Map,File,App,Photo,LiveWeb}Node.svelte` | create — one per registry row; `ChecklistNode.svelte` is the only one that is not a reuse | no |
@@ -1336,10 +1351,13 @@ Paths follow `plan.md`'s hot-file table and Slice 0/1/2, which all use
 | `src/lib/components/artifacts/canvas/AnnotationLayer.svelte` | create — the pad, the tools' pointer handling, the bounded undo history | no |
 | `src/lib/components/artifacts/canvas/CommentLayer.svelte` | create — board-space pins + the screen-space card + the outside-the-portal catcher | no |
 | `src/lib/components/artifacts/canvas/CommentCard.svelte` + test | create — the thread card | **yes** — Slice 1 renders it for the Document's margin threads; declared here, consumed there |
-| `src/lib/components/artifacts/canvas/_lib/*.ts` + tests | create — `pane-rect`, `board`, `board-diff`, `annotations`, `poster`, `comments`, `export-png`, `ids`, `block-registry` | no |
+| `src/lib/components/artifacts/RefusalNotice.svelte` | **do not create** — import Slice 1's one shared notice (its T8) at the shared root; a canvas copy would be a second notice | **yes — Slice 1 creates it; this slice is a consumer** |
+| `src/lib/components/artifacts/canvas/_lib/*.ts` + tests | create — `pane-rect`, `board`, `annotations`, `poster`, `comments`, `export-png`, `ids`, `block-registry` | no |
+| `src/lib/shared/artifacts/ops.ts` + test | create — the generic ops mechanism (ruling 14): an envelope in, per-op `applied` / `refused` out, and it knows nothing about boards | **yes** — Slice 4 is a read-only consumer of it |
 | `src/lib/server/services/artifacts/serialize/canvas.ts` + test | create — body ⇄ JSON, `canvasBodyHash`, `MAX_NODES_PER_BOARD`, `MAX_BODY_BYTES` | no |
-| `src/lib/server/services/artifacts/ops.ts` + test | create — the type-dispatching op envelope | **yes** — Slice 4 adds the `slides` branch to `OPS_BRANCHES`; do not grow a second route per type (`slice-4.md:237-241,353`) |
-| `src/routes/api/artifacts/[id]/ops/+server.ts` + test | create — thin adapter over the envelope | **yes** — Slice 4 extends, does not duplicate (`slice-4.md:367`) |
+| `src/lib/shared/artifacts/board-ops.ts` + test | create — the Canvas **vocabulary** (ruling 14): `BoardOp`, `BoardDiff`, the caps, `boardDiffSchema`, `validateBoardDiff`, `applyOp`, the refusal reasons and their label keys | no (Slice 4 adds `deck-ops.ts` beside it) |
+| `src/lib/server/services/artifacts/ops.ts` + test | create — the type-dispatching op envelope: ownership, load, the `baseVersionId` check, dispatch, one `updateArtifactBody` call | **yes** — Slice 4 adds the `slides` branch to `OPS_BRANCHES`; do not grow a second route per type (`slice-4.md §Routes`) |
+| `src/routes/api/artifacts/[id]/ops/+server.ts` + test | create — thin adapter over the envelope | **yes** — Slice 4 extends, does not duplicate (`slice-4.md §Routes`) |
 | `src/routes/api/artifacts/[id]/exports/png/+server.ts` + test | create | no |
 | `src/routes/api/artifacts/[id]/blocks/[nodeId]/refresh/+server.ts` + test | create — liveweb/map refresh | no |
 | `src/lib/client/api/artifacts.ts` | append — canvas ops, body save, export, refresh calls | **yes** — Slice 0 creates the file; append, do not restructure |
@@ -1453,7 +1471,7 @@ be refused as a conflict."
 **Interfaces:**
 - Consumes: Slice 0's panel (`CanvasEditor` is the lazy content for `artifactType === "canvas"`, and its
   props are Slice 0's `ArtifactBodyProps`: `{ artifact: { id, kind, title, body }, onDirtyChange?,
-  onBodyChange? }` — `slice-0.md:354-365`).
+  onBodyChange? }` — `slice-0.md §The panel`).
 - Produces: every registry row, and `CanvasBoard`'s `onchange` callback that reports a structural change.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1698,7 +1716,7 @@ board silently stopped being drawable when the camera zoomed out."
 
 **Interfaces:**
 - Consumes: Slice 0's comment routes and service (`POST /api/artifacts/[id]/comments`,
-  `.../comments/[commentId]/resolve`, `.../comments/[commentId]/alfy` — `slice-1.md:348-355`).
+  `.../comments/[commentId]/resolve`, `.../comments/[commentId]/alfy` — `slice-1.md §Service and routes`).
 - Produces: `CommentCard.svelte`, `src/lib/shared/artifacts/comments.ts` (`CommentAnchor`,
   `AnchorResolution`, `AnchorResolver`, `CommentThread`) and `canvasAnchorResolver` for Slice 1.
 
@@ -1772,7 +1790,8 @@ twice by two different rules."
 
 ### Task T6: The BoardDiff path and the arranging pill
 
-**Files:** `_lib/board-diff.ts` + test, `src/lib/server/services/artifacts/ops.ts` + test,
+**Files:** `src/lib/shared/artifacts/board-ops.ts` + test, `src/lib/shared/artifacts/ops.ts` + test,
+`src/lib/server/services/artifacts/ops.ts` + test,
 `src/routes/api/artifacts/[id]/ops/+server.ts` + test, `CanvasBoard.svelte`,
 `src/lib/client/api/artifacts.ts`
 **Test:** unit + integration + e2e
@@ -1820,7 +1839,7 @@ it("disables Ask Alfy while a diff is being applied", ...);
 
 ```bash
 export PATH=/opt/homebrew/opt/node@22/bin:$PATH
-npx vitest run src/lib/components/artifacts/canvas/_lib/board-diff.test.ts \
+npx vitest run src/lib/shared/artifacts/board-ops.test.ts src/lib/shared/artifacts/ops.test.ts \
   src/lib/server/services/artifacts/ops.test.ts src/routes/api/artifacts
 npx playwright test tests/e2e/artifact-canvas.spec.ts -g "arrang"
 ```
@@ -2078,8 +2097,8 @@ remembered has to hold for the new one too."
 | Two panes write at once | One silently clobbers the other, and the user's strokes vanish | Every write carries `expectVersion` (body) or `baseVersionId` (ops); a 409 shows `artifacts.canvas.saveConflict` and keeps the user's work in memory |
 | Posters are captured but never refreshed | The export shows a stale board inside a fresh one | Capture is re-run on data change and once more before an export that finds a poster missing |
 | CI hardware cannot hold 60 fps | The gate fails for a reason the change did not cause | The CI gate asserts structural budgets with a generous timing ceiling; the 60 fps figure is local and recorded (ruling 9), and changing it is an owner decision |
-| Two agents land the shared files differently | The Document and the Canvas get two comment shapes, or two op envelopes | `src/lib/shared/artifacts/comments.ts`, `CommentCard.svelte`, `ops.ts` and the ops route each have one declared owner and a named serialisation order; whichever lands first, the other rebases rather than duplicating |
-| The body route's payload field is Document-shaped (`markdown`) | A canvas body has nowhere to go, or the route grows a second field per type | The conflict is written down with a concrete resolution (generic `body`, one-word rename in Slice 1, a one-line alias until it lands) |
+| Two agents land the shared files differently | The Document and the Canvas get two comment shapes, or two op envelopes | `src/lib/shared/artifacts/comments.ts`, `CommentCard.svelte`, `src/lib/shared/artifacts/ops.ts` with its per-type `board-ops.ts` / `deck-ops.ts` vocabularies, and the server `ops.ts` and the ops route each have one declared owner and a named serialisation order; whoever lands second rebases rather than duplicating |
+| The body route's payload field is Document-shaped (`markdown`) | A canvas body has nowhere to go, or the route grows a second field per type | Ruling 13 makes the field generic `body` for all five types; Slice 1's Document sends Markdown in it, and there is no per-type spelling and no alias |
 
 ## Tests as files
 
@@ -2092,7 +2111,8 @@ brief requires by name.
 | `_lib/board.test.ts` | a stored body is validated, not trusted | a body with an unknown kind, a dangling edge and an orphan child returns a board with the first and last dropped and a non-empty `dropped` report, and does not throw |
 | `_lib/pane-rect.test.ts` | the visible-pane rect (Trap: pointer capture on the canvas) | `visibleBoardRect({width:1280,height:865},{x:-200,y:-100,zoom:1.5})` equals the hand-computed rect; an unmeasured pane returns all zeros |
 | `_lib/annotations.test.ts` | stroke geometry, hit testing, ordering | `hitTest` on a rect's interior away from its stroke is false; `pickAnnotation` returns the newest of two overlapping |
-| `_lib/board-diff.test.ts` | id-addressed ops (Trap: stale-patch refusal at the op level) | an op naming an id the board does not have is `refused` with `unknown_id` while the batch's other ops land; a batch over the cap is refused whole |
+| `src/lib/shared/artifacts/board-ops.test.ts` | id-addressed ops (Trap: stale-patch refusal at the op level) | an op naming an id the board does not have is `refused` with `unknown_id` while the batch's other ops land; a batch over the cap is refused whole |
+| `src/lib/shared/artifacts/ops.test.ts` | the shared mechanism (ruling 14) | the ops come back in the batch's order with per-op `applied` / `refused`, and the vocabulary it is handed is the only thing it knows about the type |
 | `_lib/block-registry.test.ts` | the registry is total over the union | `Object.keys(BLOCK_REGISTRY)` equals every `CanvasBlockData["kind"]`, and `refusalLabelKey` covers every `BoardRefusalReason` |
 | `_lib/comments.test.ts` | the shared anchor interface, canvas side (ruling 11) | `canvasAnchorResolver.resolve({kind:"node",nodeId:gone},"…")` is `{state:"orphaned",reason:"node_missing"}`; a `point` anchor always resolves `exact` or `moved`, never orphaned |
 | `_lib/export-png.test.ts` | posters and the camera | a rejected `toPng` still leaves `getViewport()` equal to the remembered camera and `unmountPosters` called; `missingPosters` names every placeholder |
@@ -2100,11 +2120,11 @@ brief requires by name.
 | `CanvasEditor.test.ts` | the panel contract | it accepts `ArtifactBodyProps` and calls `onDirtyChange(true)` after the first edit and `onBodyChange` with the canonical JSON |
 | `CanvasBoard.test.ts` | frames and edges (Traps: reparent, double edge, marquee, frame-child z-index) | one `onnodedragstop` over a frame writes exactly one version with `parentId`; one handle drag yields `edges.length === 1`; a click on a checkbox inside a marquee-selected node calls its handler |
 | `CommentCard.test.ts` | the shared card | `onReply` receives the typed text; an orphaned thread renders `commentOrphaned` and no anchor row |
-| `src/routes/api/artifacts/[id]/ops/+server.test.ts` | ownership and refusal (Trap: ownership) | another user's artifact id → 404 with no version row written; stale `baseVersionId` → 409; a `kind` with no branch → 400 |
-| `src/routes/api/artifacts/[id]/exports/png/+server.test.ts` | export intake (Trap: ownership) | a non-PNG data URL → 415; another user's artifact → 404; a valid capture → one `generated_output` linked to the canvas |
-| `src/routes/api/artifacts/[id]/blocks/[nodeId]/refresh/+server.test.ts` | the refresh path | a failed upstream read → 422 and the stored snapshot is unchanged |
-| `src/server/services/artifacts/ops.test.ts` | the envelope's dispatch seam | a registered branch is called once with the loaded body; an unregistered kind returns 400 without a version row (this is the test Slice 4 extends) |
-| `src/server/services/artifacts/serialize/canvas.test.ts` | caps as refusals | 401 nodes → refused with `limit_exceeded` and **nothing** written; a 2 MiB body → refused |
+| `src/routes/api/artifacts/[id]/ops/ops.test.ts` | ownership and refusal (Trap: ownership) | another user's artifact id → 404 with no version row written; stale `baseVersionId` → 409; a `kind` with no branch → 400 |
+| `src/routes/api/artifacts/[id]/exports/png/export-png.test.ts` | export intake (Trap: ownership) | a non-PNG data URL → 415; another user's artifact → 404; a valid capture → one `generated_output` linked to the canvas |
+| `src/routes/api/artifacts/[id]/blocks/[nodeId]/refresh/refresh.test.ts` | the refresh path | a failed upstream read → 422 and the stored snapshot is unchanged |
+| `src/lib/server/services/artifacts/ops.test.ts` | the envelope's dispatch seam | a registered branch is called once with the loaded body; an unregistered kind returns 400 without a version row (this is the test Slice 4 extends) |
+| `src/lib/server/services/artifacts/serialize/canvas.test.ts` | caps as refusals | 401 nodes → refused with `limit_exceeded` and **nothing** written; a 2 MiB body → refused |
 | `tests/e2e/artifact-canvas.spec.ts` | the whole board in a browser (Traps: pointer capture, marquee, double edge, reparent, ids after reload) | strokes keep their board coordinates across a zoom; a reload restores every node id and every stroke; the pad's coverage is ≥ 95 % of 144 pane points at fit view; `edges.length` after a handle drag; `parentId` after a drag into a frame |
 | `tests/e2e/artifact-canvas-perf.spec.ts` | the split perf gate (Trap: lazy-load chunk sizes) | the structural budgets assert; the fps figure is printed not asserted (ruling 9) |
 | `tests/e2e/artifact-canvas-mobile.spec.ts` | 390 px | the toolbar does not take a third of the viewport; the open comment card is inside the viewport and its Reply button is clickable |
@@ -2204,21 +2224,15 @@ export PATH=/opt/homebrew/opt/node@22/bin:$PATH
    registry rows with the least reuse and therefore the most to review. **Recommendation:** ship them as
    written, with the photo block's lightbox reuse (`chat/ImageLightbox.svelte`) and the live-web block's
    source-list reuse called out in the PR so a reviewer checks those two specifically.
-5. **The `PATCH /api/artifacts/[id]/body` payload field is a cross-slice conflict, not a design question.**
-   Slice 1 ships `{ markdown, expectVersion }`; this slice and Slice 4 both write non-markdown bodies.
-   Slice 3 sends `{ body, expectVersion }` and the route should rename its field to `body`, with a one-line
-   `payload.body ?? payload.markdown` alias until both land. **Recommendation:** make the rename in Slice 1
-   before it merges; it is one word and it is the only thing standing between the three slices and one
-   shared body route.
-6. **`src/lib/server/services/artifacts/ops.ts` is claimed by both Slice 3 and Slice 4** (`slice-4.md:353`
-   says Slice 4 creates it; `slice-4.md:237` says Slice 3 creates the route). This slice creates both the
-   envelope and the route, with `OPS_BRANCHES` as the seam Slice 4 extends. **Recommendation:** keep that
-   split — one envelope, one route, two branches — and correct `slice-4.md:353` to "extend" when Slice 4 is
-   next touched. Report only; this slice does not edit another slice file.
-7. **The component directory spelling is inconsistent across the slices.** `plan.md:158,169`,
-   `slice-0.md:354,548`, `slice-1.md:388-392,508` and `slice-2.md:305,409-412` use
-   `src/lib/components/artifacts/` (**plural**); `slice-4.md:194,356-365` and `slice-6.md:237,290,333,360-371`
-   use the singular `src/lib/components/artifact/`. This slice follows the plural, which is the
-   majority and the one in the hot-file serialisation table. **Recommendation:** treat the plural as
-   canonical and correct slices 4 and 6 on their next touch — a mixed tree would produce two directories
+5. **Settled by ruling 13: the body route's payload field is `body`.** Every type's write route takes
+   `body` plus `expectVersion`; Slice 1's Document sends Markdown in that field and this slice sends the
+   board JSON in the same one. There is no alias and no per-type field name to keep alive.
+6. **Settled by ruling 14: one shared mechanism, per-type vocabularies.** This slice creates
+   `src/lib/shared/artifacts/ops.ts` (the generic envelope) and the Canvas vocabulary
+   `src/lib/shared/artifacts/board-ops.ts`; Slice 4 adds `deck-ops.ts` beside it and changes nothing in the
+   shared module. `src/lib/server/services/artifacts/ops.ts` keeps the server-shaped half — ownership, load,
+   the `baseVersionId` check, dispatch through `OPS_BRANCHES`, one version row — so Slice 4 **extends** it
+   rather than creating it.
+7. **Settled by ruling 15: the component directory is `src/lib/components/artifacts/` (plural).** Slices 4
+   and 6 used the singular; the review pass corrects them, because a mixed tree would produce two directories
    that each look correct.

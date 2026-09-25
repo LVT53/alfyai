@@ -148,19 +148,26 @@ describe("home suggestion events drop migration", () => {
 		}
 	});
 
-	it("is the last entry in the journal, so nothing it drops is recreated after it", () => {
+	it("is never recreated by a migration that lands after it", () => {
 		const journal = JSON.parse(
 			readFileSync("./drizzle/meta/_journal.json", "utf8"),
 		) as { entries: Array<{ idx: number; tag: string; when: number }> };
 		const drop = journal.entries.find((entry) => entry.tag === DROP_TAG);
 		expect(drop).toBeDefined();
 		// A later migration that recreated the table would silently undo this
-		// one; the drop has to stay at the end of the queue it was appended to.
-		expect(drop?.idx).toBe(
-			Math.max(...journal.entries.map((entry) => entry.idx)),
+		// one. Checked against every migration that lands after the drop's own
+		// position, not "the drop is the journal's last entry ever" — this repo
+		// keeps adding migrations unrelated to home_suggestion_events (Feature 2
+		// · Artifacts' own tables, for one), and each of those is expected to
+		// land after the drop without this test caring.
+		const laterEntries = journal.entries.filter(
+			(entry) => entry.idx > (drop?.idx ?? Number.POSITIVE_INFINITY),
 		);
-		expect(drop?.when).toBe(
-			Math.max(...journal.entries.map((entry) => entry.when)),
-		);
+		for (const entry of laterEntries) {
+			const sql = readFileSync(`./drizzle/${entry.tag}.sql`, "utf8");
+			expect(sql).not.toMatch(
+				/create table\s+["'`]?home_suggestion_events["'`]?/i,
+			);
+		}
 	});
 });

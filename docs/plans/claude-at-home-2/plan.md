@@ -129,7 +129,9 @@ Wave 1   Slice 0  (the spine)                                  — everything im
 Wave 2   Slice 1  (Document)      ∥   Slice 2  (App)           — disjoint except three append-only files
 Wave 3   Slice 3  (Canvas)                                     — needs 0's panel, 2's sandbox for App blocks
 Wave 4   Slice 4  (Slides)                                     — needs 0's panel, 3's export/present plumbing
-Wave 5   Slice 5  (Alfy's side: prompt guidance, evidence, project bundle, tours)
+Wave 5   Slice 5  (Alfy's side: prompt guidance, evidence, project bundle)
+Wave 6   Slice 6  (first-open tours, all four kinds)           — needs the four types, and adapts the campaign
+                                                                machinery once (ruling 30)
 ```
 
 **Why this order.** Slice 0 is the spine: the tables, the service boundary, the panel shell, the shared card
@@ -151,8 +153,12 @@ and the full-screen presentation path share the panel's expand behaviour and the
 Slides is the one type the spec did not prototype (spec §9.1) — its eval suite is therefore the strongest
 gate of the four, not the weakest.
 
-Slice 5 (Alfy's side) is last because it can only describe types that exist: type-choice guidance, the offer
-heuristic, evidence integration, the project bundle listing, and the first-open tour.
+Slice 5 (Alfy's side) is last of the type work because it can only describe types that exist: type-choice
+guidance, the offer heuristic, evidence integration, and the project bundle listing.
+
+Slice 6 (first-open tours) lands last, after Slice 5 (**ruling 30** — all four tours are its own, not one per
+type slice): it needs the four types to exist and it adapts the campaign machinery once. It does not otherwise
+depend on Slice 5's work, and earlier drafts that assigned tours to Slice 5 are superseded.
 
 **Where parallelism is genuinely available:** **Slice 1 ∥ Slice 2**, with one rule — the two append-only files
 `src/lib/components/artifacts/artifact-bodies.ts` (the type→body registry) and `src/lib/i18n/artifacts.ts` are
@@ -163,20 +169,24 @@ two slices overlaps.
 
 | Hot file | Slices | Rule |
 |---|---|---|
-| `src/lib/server/db/schema.ts` | 0 (creates all three tables; no later slice adds one) | one writer; a later column needs its own migration and a rebase |
-| `drizzle/*` + `drizzle/meta/_journal.json` | 0, then any slice adding a column | take the **next free** number from the tree, never the number printed in a document |
+| `src/lib/server/db/schema.ts` | 0 (creates the three artifact tables), 6 (`artifact_tour_states`) | one writer; a later column needs its own migration and a rebase |
+| `drizzle/*` + `drizzle/meta/_journal.json` | 0, then 6 (the tour-state table), then any slice adding a column | take the **next free** number from the tree, never the number printed in a document |
 | `src/lib/server/services/artifacts/index.ts` (facade) | 0 creates; 1–5 append one export each | append-only, one writer at a time |
 | `src/lib/components/artifacts/artifact-bodies.ts` | 0 creates the seam; 1, 2, 3, 4 add one entry | serialized append (0 → 1 → 2 → 3 → 4); one-line rebase between waves |
 | `src/lib/components/document-workspace/DocumentWorkspace.svelte` | 0 (shell), 1 (content area), 2, 3, 4 | 0 → 1 → 2 → 3 → 4; never concurrent |
 | `src/routes/(app)/chat/[conversationId]/+page.svelte` | 0 (count button, panel wiring), 1–4 (open actions) | 0 first, then 1 → 2 → 3 → 4 |
 | `src/lib/i18n/artifacts.ts` (new) | 0 creates; 1–5 append | serialized append |
 | `src/lib/i18n.test-helpers.ts` (`I18N_MODULES`, `AUDITED_PREFIXES`) | 0 adds the module; 1–5 add prefixes | 0 → 1 → 2 → 3 → 4 → 5 |
-| `tests/cross-cutting/incognito-artifact-containment.test.ts` | 0 only (PART B + PART A additions) | 0 owns it; later slices add their own type-specific tests elsewhere |
+| `tests/cross-cutting/incognito-artifact-containment.test.ts` | 0 creates it (PART B + PART A additions); 5 and 6 append a case each, in that order | **ruling 31**: append-only, never restructure; later slices keep their own type-specific tests elsewhere |
 | `scripts/eval-artifact-contracts/cases.ts` | 0 creates; 1–4 add one suite each | serialized append |
-| `src/lib/server/services/account-lifecycle/user-scoped-tables.ts` | 0 only | 0 registers both user-keyed tables |
+| `src/lib/server/services/account-lifecycle/user-scoped-tables.ts` | 0, then 6 | 0 registers both user-keyed artifact tables; 6 registers `artifact_tour_states` as user-scoped data (**ruling 33**) |
 | `src/lib/components/chat/ToolActivityRow.svelte`, `MessageBubble.svelte` (card surface) | 0 only | 0 swaps the File card; later slices must not touch the tool row |
 
 ## Model assignment
+
+> **Superseded 2026-09-25 (owner):** the rule below is retracted. Sonnet 5 for most development, Opus 5.5 for
+> heavy development and for every review — see `working-plan.md §4`. The risk table below still says where
+> review attention goes.
 
 **Owner instruction, 2026-09-24: never dispatch a Claude model to a sub-agent — always the supplied DeepSeek
 model.** In practice: **omit the `model` parameter on every `Agent` call** so the sub-agent inherits the session
@@ -270,7 +280,8 @@ Local (scratch DB), then staging, walking every entry point against the mockups:
 - Knowledge → Documents: the type chips and the Version column (§surfaces 4)
 - the project bundle rows, with origin (§surfaces 5)
 - Workspace Search: flat rows, each labelled with its kind (§surfaces 6)
-- the first-open tour, once per kind, replayable from the version badge (§surfaces 7)
+- the first-open tour, once per kind, replayable from the panel's own replay entry (§surfaces 7; **ruling 32** —
+  the sidebar version badge stays announcement-campaigns only)
 
 Real-model checks on staging:
 
@@ -385,7 +396,7 @@ Decisions this plan adds, and the reason each one is a decision rather than a de
 
 | # | Decision | Reason |
 |---|---|---|
-| 17 | The panel keeps its file path and component name (`document-workspace/DocumentWorkspace.svelte`) | three live callers, two test suites, and a pinned source-scan reference in `src/lib/shared/file-types/no-ad-hoc-maps.test.ts:164` and `DocumentsList.test.ts:1471`. A rename is churn with no product value; the spec says "rebuild", not "rename". |
+| 17 | The panel keeps its file path and component name (`document-workspace/DocumentWorkspace.svelte`) | three live callers and a pinned source-scan reference in `src/lib/shared/file-types/no-ad-hoc-maps.test.ts:164` (**ruling 10** corrected an earlier draft that also cited `DocumentsList.test.ts`, which does not pin it). A rename is churn with no product value; the spec says "rebuild", not "rename". |
 | 18 | `DocumentWorkspaceItem` (`knowledge/types.ts:238`) is **extended** in place with an optional `kind?: ArtifactKind` that defaults to `"file"`; `activeDocumentId` stays the artifact id | `artifactId` already exists on the item and is already what the callers pass as the active id, so the type-aware panel needs one new field per item, not a new type family |
 | 19 | `artifact_versions` and `artifact_comments` are registered in `user-scoped-tables.ts` as `erasure: "cascade"` with `resets: ["workspace"]` **only** | `artifacts` itself survives Clear Memory for `generated_output` rows (`account-lifecycle/index.ts:85-100` deletes only non-generated artifacts), so a memory-scope entry here would strip history and comments from an artifact that survives. Full erase and workspace reset both still remove them (cascade + workspace reset). If the owner wants Clear Memory to drop artifact history, it already does for the artifact types Clear Memory deletes, by cascade. |
 | 20 | `artifact_kv` is **not** registered (it has no user column) and is reached only through the artifact that owns it | the completeness guard keys on person columns; a key-value row without its artifact is unreachable by design |
