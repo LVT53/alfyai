@@ -124,7 +124,7 @@ CREATE TABLE artifact_kv (
 - App → the HTML document
 - Slides → JSON `{layouts, slides[]}`
 
-`metadata_json` holds `{artifactType, title, idIndex?}` plus type-specific config. Add
+`metadata_json` holds `{artifactType, title}` plus type-specific config. Add
 `artifacts.artifact_type` as a **generated/derived** value only if querying needs it; prefer
 `metadata_json.artifactType` to avoid a second source of truth. (Decide at implementation; if a column is
 added it needs a migration and a `_journal.json` entry, like everything else here.)

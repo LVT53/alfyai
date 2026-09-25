@@ -13,8 +13,9 @@ written with `type: "artifact"`; **today's produced files keep `type: "generated
 artifacts of kind `file` (see *The File kind is `generated_output`* below — this is the one place where the
 family spans two `type` values, and it is deliberate). Three child tables hang off the artifact row:
 `artifact_versions`, `artifact_comments`, `artifact_kv`. The service boundary is
-`src/lib/server/services/artifacts/` behind one facade `artifacts/index.ts`, mirroring the shape of `knowledge/`
-and `file-production/`. The panel is `document-workspace/DocumentWorkspace.svelte` **rebuilt in place** — same
+`src/lib/server/services/artifacts/` behind one facade `artifacts/index.ts` — a **directory** with an `index.ts`,
+not the parent spec's single `services/artifacts.ts`, which AGENTS.md rules out as a new top-level
+`services/*.ts` boundary — mirroring the shape of `knowledge/` and `file-production/`. The panel is `document-workspace/DocumentWorkspace.svelte` **rebuilt in place** — same
 file, same props plus two optional additions, same test ids — with an optional `kind` on its items and a type→body
 registry whose missing entry *is* the File body (the preview stack the panel already renders). One new
 `src/lib/components/artifacts/ArtifactCard.svelte` renders every kind, and today's `FileProductionCard.svelte`
@@ -88,7 +89,7 @@ npx vitest run tests/cross-cutting/incognito-artifact-containment.test.ts
 npx fallow --no-cache --format json --quiet --score --output-file /tmp/alfyai-fallow.json
 ```
 
-Playwright for this slice: `tests/e2e/artifact-panel.spec.ts` plus the regression set
+Playwright for this slice: `tests/e2e/artifacts-panel.spec.ts` plus the regression set
 `tests/e2e/chat.spec.ts tests/e2e/conversation.spec.ts tests/e2e/mobile-design.spec.ts
 tests/e2e/conversation-title-refresh.spec.ts`.
 
@@ -170,19 +171,20 @@ CREATE TABLE artifact_comments (
 CREATE INDEX artifact_comments_artifact_idx ON artifact_comments(artifact_id, created_at);
 
 CREATE TABLE artifact_kv (
+  id             TEXT PRIMARY KEY,
   artifact_id    TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
   key            TEXT NOT NULL,
   value_json     TEXT NOT NULL,
-  updated_at     INTEGER NOT NULL,
-  PRIMARY KEY (artifact_id, key)
+  updated_at     INTEGER NOT NULL
 );
+CREATE UNIQUE INDEX artifact_kv_artifact_key_unique_idx ON artifact_kv(artifact_id, key);
 ```
 
 Two deliberate departures from the parent spec's §3 DDL, both additive:
 
 - **`version_number`** (spec has no such column). `created_at` defaults to `sql`(unixepoch())`` — one-second
   resolution — so an author's edit and Alfy's follow-up in the same second cannot be ordered by time, and
-  `ArtifactSummary.versionNumber` would be a lie. The column is the authoritative number; the unique index makes
+  `ArtifactCardSummary.versionNumber` would be a lie. The column is the authoritative number; the unique index makes
   a double-number a constraint violation rather than a silent duplicate.
 - **`anchor_json` is nullable** (spec says `NOT NULL`). A comment whose anchor cannot be parsed has to stay
   representable — the spec's own §7 testing list wants an "orphaned" outcome, and a `NOT NULL` column forces the
@@ -239,18 +241,19 @@ already declares a self-reference before writing it**, the `AnySQLiteColumn` imp
 `status: text("status").notNull().default("open")`, `createdAt`; one index
 `artifact_comments_artifact_idx` on `(artifactId, createdAt)`.
 
-**`artifact_kv`'s composite key.** There is **no composite-primary-key precedent in this file**: every
-`.primaryKey()` call in `schema.ts` is column-level (e.g. `artifactChunks` at `:378` and `artifactLinks` at
-`:422` both declare `id: text("id").primaryKey()`), and the table callbacks at `:600-618` belong to
-`conversationWorkingSetItems`, not to a two-column key. `primaryKey` is **not** in the `drizzle-orm/sqlite-core`
-import at `schema.ts:2-9`, so this slice adds it. The array-returning table callback is the form this file
-already uses elsewhere (`schema.ts:103`, `:1965`, `:2013`, `:2559`), and drizzle-orm 0.45.2 exports the
-config-object form (`node_modules/drizzle-orm/sqlite-core/primary-keys.d.ts:16`). Write exactly:
+**`artifact_kv` keeps the house idiom: a surrogate `id`, and the pair unique.** Ruling 17 settles it. There is
+**no composite-primary-key precedent in this file**: every `.primaryKey()` call in `schema.ts` is column-level
+(e.g. `artifactChunks` at `:378` and `artifactLinks` at `:422` both declare `id: text("id").primaryKey()`), and
+`primaryKey` is **not** in the `drizzle-orm/sqlite-core` import at `schema.ts:2-9` at all — adding it would be a
+first-of-its-kind pattern for a constraint a unique index already expresses. The array-returning table callback
+is the form this file already uses elsewhere (`schema.ts:103`, `:1965`, `:2013`, `:2559`), and `uniqueIndex` is
+already imported (`:2-9`). Write exactly:
 
 ```ts
 export const artifactKv = sqliteTable(
 	"artifact_kv",
 	{
+		id: text("id").primaryKey(),
 		artifactId: text("artifact_id")
 			.notNull()
 			.references(() => artifacts.id, { onDelete: "cascade" }),
@@ -261,7 +264,7 @@ export const artifactKv = sqliteTable(
 			.default(sql`(unixepoch())`),
 	},
 	(table) => [
-		primaryKey({ columns: [table.artifactId, table.key] }),
+		uniqueIndex("artifact_kv_artifact_key_unique_idx").on(table.artifactId, table.key),
 		// No user column on purpose: a key-value row is reachable only through a
 		// scoped read of its artifact. See artifacts/kv.ts and the containment
 		// guard's kv rule.
@@ -269,7 +272,7 @@ export const artifactKv = sqliteTable(
 );
 ```
 
-`npm run check:migrations` compares the migration files against `schema.ts` by table name; a composite key the
+`npm run check:migrations` compares the migration files against `schema.ts` by table name; a unique index the
 Drizzle side declares and the DDL side forgets must be caught by the cascade/key test in Task S1, not by that
 script (read `scripts/verify-migrations.ts:44-79` to see exactly what it does and does not compare before
 assuming it covers this).
@@ -282,7 +285,7 @@ Facade `index.ts` re-exports the module's public surface. Callers import **only*
 | File | Owns |
 |---|---|
 | `index.ts` | the facade: the public functions and types below, and nothing else |
-| `types.ts` | `ArtifactKind`, `ArtifactAuthor`, `ArtifactAnchor`, `ArtifactMetadata`, `ArtifactRecord`, `ArtifactSummary`, `ArtifactDetail`, `ArtifactVersionSummary`, `ArtifactComment`, the kv row type, and the inputs |
+| `types.ts` | `ArtifactKind` (re-exported from the shared module), `Anchor` (re-exported the same way), `ArtifactAuthor`, `ArtifactMetadata`, `ArtifactRecord`, `ArtifactCardSummary`, `ArtifactDetail`, `ArtifactVersionSummary`, `ArtifactComment`, the kv row type, and the inputs |
 | `limits.ts` | the caps in *Limits and configuration*, as exported constants with their reasons in comments |
 | `hash.ts` | `hashArtifactBody` — the one body-hash function this slice owns (slice 1 changes its *input*, not its mechanism) |
 | `record.ts` | create / read / update / delete of the `artifacts` row, the type registry, the ownership scope call, the kind↔row-type mapping |
@@ -290,16 +293,17 @@ Facade `index.ts` re-exports the module's public surface. Callers import **only*
 | `comments.ts` | threads, replies, resolve, delete, `parseArtifactAnchor` |
 | `kv.ts` | the scoped key-value accessors (see below) |
 | `serialize/index.ts` | the `ArtifactSerializer` interface + a registry; **this slice ships the `file` entry only** |
-| `read-model.ts` | what the panel and the conversation detail need (`ArtifactSummary[]`, counts) |
+| `read-model.ts` | what the panel and the conversation detail need (`ArtifactCardSummary[]`, counts) |
 
 ```ts
 // src/lib/shared/artifacts/kinds.ts — the union, and nothing else (no runtime imports)
 export type ArtifactKind = "document" | "app" | "canvas" | "slides" | "file";
 
 // src/lib/server/services/artifacts/types.ts — the shape every later slice extends
-// The union lives in the shared module; re-exported here so server callers have
-// one import site. Browser components import the shared module directly.
+// Both unions live in shared modules; re-exported here so server callers have one import
+// site. Browser components import the shared modules directly.
 export type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+export type { Anchor } from "$lib/shared/artifacts/anchor";
 
 export type ArtifactAuthor = "user" | "alfy";
 export type ArtifactCommentStatus = "open" | "resolved";
@@ -307,7 +311,9 @@ export type ArtifactCommentStatus = "open" | "resolved";
 export interface ArtifactMetadata {
 	artifactType: ArtifactKind;
 	title: string;
-	idIndex?: Record<string, number>;
+	// No `idIndex`: the parent spec's §3 sketch carried one, nothing here or in any later
+	// slice writes it, and dead state does not ride along (ruling 37.2). A type that needs
+	// its own index adds a named field of its own.
 	[key: string]: unknown;
 }
 
@@ -325,7 +331,7 @@ export interface ArtifactRecord {
 	updatedAt: number;
 }
 
-export interface ArtifactSummary {
+export interface ArtifactCardSummary {
 	id: string;
 	kind: ArtifactKind;
 	title: string;
@@ -336,7 +342,7 @@ export interface ArtifactSummary {
 	updatedAt: number;
 }
 
-export interface ArtifactDetail extends ArtifactSummary {
+export interface ArtifactDetail extends ArtifactCardSummary {
 	body: string | null;
 	bodyHash: string | null;
 	metadata: ArtifactMetadata;
@@ -355,7 +361,7 @@ export interface ArtifactComment {
 	artifactId: string;
 	parentId: string | null;
 	/** null = the anchor could not be parsed; render as orphaned, never crash. */
-	anchor: ArtifactAnchor | null;
+	anchor: Anchor | null;
 	author: ArtifactAuthor;
 	body: string;
 	status: ArtifactCommentStatus;
@@ -390,14 +396,15 @@ a server path into the client graph for a five-string union. The shared module h
 runtime imports — and `types.ts` re-exports it so server callers still have one import site. Slices 1–4 append
 nothing here (the five kinds are fixed by ADR-0066) but do import it.
 
-**Name collision, resolved deliberately.** `ArtifactSummary` is already exported by
+**Name collision, avoided by naming ours differently.** `ArtifactSummary` is already exported by
 `src/lib/server/services/knowledge/types.ts:60` and is the type of `ConversationDetail.attachedArtifacts` /
 `activeWorkingSet` (`conversation-detail/types.ts:25,40,41`). The two types are different things — one describes
-a library document's list row, the other an artifact-family row — and they must not be unified. The rule for
-every importer:
+a library document's list row, the other an artifact-family row — and they must not be unified. Ruling 20
+settles the naming: **our card summary type is `ArtifactCardSummary`**, and nothing imports the knowledge-side
+type under an alias, because an alias hides which type is in play:
 
-- `conversation-detail/types.ts` imports the new one **aliased**:
-  `import type { ArtifactSummary as ConversationArtifactSummary } from "$lib/server/services/artifacts/types";`
+- `conversation-detail/types.ts` imports ours plainly:
+  `import type { ArtifactCardSummary } from "$lib/server/services/artifacts/types";`
 - nothing in this slice renames the knowledge-side `ArtifactSummary` (that would churn
   `knowledge/types.ts`, the read model and their tests for no behaviour).
 
@@ -426,15 +433,17 @@ Slice 0 ships it tested but unused; Document and Canvas call it.
 `comments.ts`:
 
 ```ts
-export type ArtifactAnchor =
-	| { kind: "text"; blockId: string; quote: string; prefix: string; suffix: string }
-	| { kind: "node"; nodeId: string }
-	| { kind: "point"; x: number; y: number };
+// The union is not declared here. It is the one shared `Anchor` type in
+// `src/lib/shared/artifacts/anchor.ts` — the file this slice creates (the union alone,
+// beside `kinds.ts`) and that slice 1 appends its Document resolver to. `types.ts`
+// re-exports it, so server callers still have one import site (ruling 35: two unions for
+// one concept is how they drift).
+import type { Anchor } from "$lib/shared/artifacts/anchor";
 
 createComment(params: {
 	userId: string;
 	artifactId: string;
-	anchor: ArtifactAnchor;
+	anchor: Anchor;
 	author: ArtifactAuthor;
 	body: string;
 	parentId?: string | null;
@@ -442,7 +451,7 @@ createComment(params: {
 listComments(params: { userId: string; artifactId: string }): Promise<ArtifactComment[]>;  // roots oldest first, replies nested
 resolveComment(params: { userId: string; artifactId: string; commentId: string; resolved: boolean }): Promise<boolean>;
 deleteComment(params: { userId: string; artifactId: string; commentId: string }): Promise<boolean>;
-parseArtifactAnchor(json: string | null): ArtifactAnchor | null;   // validating, never throws
+parseArtifactAnchor(json: string | null): Anchor | null;   // validating, never throws
 ```
 
 `parseArtifactAnchor` validates rather than trusts: a `text` anchor needs all five fields as non-empty strings,
@@ -452,7 +461,7 @@ parseArtifactAnchor(json: string | null): ArtifactAnchor | null;   // validating
 
 **The anchor shape is the shared interface ruling 11 asks for; the *resolution* is per type and does not live
 here.** Slice 1 owns `text` resolution against the document's block index, slice 3 owns `node`/`point` against
-the board. `ArtifactAnchor` is the one place both look at, and `parseArtifactAnchor` is the only parser.
+the board. The shared `Anchor` type is the one place both look at, and `parseArtifactAnchor` is the only parser.
 
 `kv.ts` — **new in this slice, and the reason Task S4's kv test can be honest.** A key-value row has no user
 column, so a table-level accessor could be called with any artifact id that came from anywhere. Every function
@@ -494,7 +503,7 @@ updateArtifactBody(params: {
 	| { ok: false; reason: "not_found" | "too_large" | "stale" | "hash_mismatch" }
 >;
 deleteArtifact(params: { userId: string; artifactId: string }): Promise<boolean>;
-listArtifactsForConversation(params: { userId: string; conversationId: string }): Promise<ArtifactSummary[]>;
+listArtifactsForConversation(params: { userId: string; conversationId: string }): Promise<ArtifactCardSummary[]>;
 countArtifactsForConversation(params: { userId: string; conversationId: string }): Promise<number>;
 ```
 
@@ -602,19 +611,28 @@ the existing preview stack. Nothing about the produced-file path changes.
 | Route | Request | Response | Notes |
 |---|---|---|---|
 | `GET /api/artifacts/[id]` | — | `{ artifact: ArtifactDetail; versions: ArtifactVersionSummary[]; comments: ArtifactComment[] }` | `requireAuth` (`$lib/server/auth/hooks.ts`); ownership through the scope; **404** for another user's artifact |
-| `GET /api/artifacts?conversationId=…` | query | `{ artifacts: ArtifactSummary[] }` | newest first; validates the conversation belongs to the user before reading |
+| `GET /api/artifacts?conversationId=…` | query | `{ artifacts: ArtifactCardSummary[] }` | newest first; validates the conversation belongs to the user before reading |
 
-`GET /api/artifacts/[id]`'s 404 body matches the knowledge routes' convention — read
-`src/routes/api/knowledge/[id]/+server.ts:11-16` and copy the shape and the wording style, rather than inventing
-a new error string. Never a 403: a 403 confirms existence.
+`GET /api/artifacts/[id]`'s 404 body is the family's own — `{ ok: false, reason: "not_found" }` — with the
+wording style of the existing knowledge route (`src/routes/api/knowledge/[id]/+server.ts:11-16`), rather than an
+invented error string. Never a 403: a 403 confirms existence.
 
-**The unauthenticated case is a redirect, not a 401.** `requireAuth` throws `redirect(302, "/login")`
-(`src/lib/server/auth/hooks.ts`), so the route test mocks `requireAuth` the way the existing knowledge-route
-suites do and asserts the **foreign-artifact 404** and the owner's 200. Do not write a test asserting a 401 from
-these routes: it would fail against the real helper.
+**The unauthenticated case names its layer.** `requireAuth` throws `redirect(302, "/login")`
+(`src/lib/server/auth/hooks.ts:9-15`), so the route test mocks `requireAuth` the way the existing knowledge-route
+suites do and asserts the **foreign-artifact 404** and the owner's 200. The **401** belongs to the HTTP layer:
+`hooks.server.ts` answers an unauthenticated `/api/**` request with 401 before the route runs
+(`decisions.md` ruling 19). Do not write a **route-handler-level** test asserting a 401 from these routes: at
+that layer it would fail against the real helper.
 
-Both routes are thin: parse, authorise, call the facade, map to JSON via `createJsonResponse` /
-`createJsonErrorResponse` (`src/lib/server/api/responses.ts`). No SQL, no ownership logic in the route.
+Both routes are thin: parse, authorise, call the facade, map to JSON (`src/lib/server/api/responses.ts` for the
+success bodies). No SQL, no ownership logic in the route.
+
+**Success and failure have one shape across this feature: `{ ok: true, … }` / `{ ok: false, reason, … }`.** The
+`reason` vocabulary lives in the service return types above (`not_found`, `too_large`, `stale`, `hash_mismatch`,
+`conversation_not_found`, `no_body`) and every route in slices 1–5 answers with the same field, built with
+`json(...)` and a status. Do **not** route these failures through `createJsonErrorResponse`: its body is
+`{ error: string }` (`src/lib/server/api/responses.ts`), which would give the panel two error shapes to parse,
+and the plan's `reason` values are the contract its tests assert.
 
 ### Conversation detail
 
@@ -622,10 +640,10 @@ Both routes are thin: parse, authorise, call the facade, map to JSON via `create
 
 ```ts
 /** The artifact family rows for this conversation: the panel list and the header count's source. */
-artifacts?: ConversationArtifactSummary[];
+artifacts?: ArtifactCardSummary[];
 ```
 
-with the aliased import from the *Name collision* note above. Assembled in
+with the plain import from the *Name collision* note above. Assembled in
 `src/lib/server/services/conversation-detail/read-model.ts`, which already attaches generated files, job cards
 and draft state (bootstrap literal at `:100`, full assembly at `:119,159`). This is the panel list's and the
 count button's single source, so it refreshes with the detail payload the chat page already refetches after
@@ -641,7 +659,7 @@ New `src/lib/client/api/artifacts.ts`, following `src/lib/client/api/file-produc
 `fetchImpl`, `requestJson`, no store):
 
 ```ts
-import type { ArtifactComment, ArtifactDetail, ArtifactSummary, ArtifactVersionSummary } from "$lib/server/services/artifacts/types";
+import type { ArtifactComment, ArtifactCardSummary, ArtifactDetail, ArtifactVersionSummary } from "$lib/server/services/artifacts/types";
 
 export interface ArtifactDetailResponse {
 	artifact: ArtifactDetail;
@@ -657,7 +675,7 @@ export async function fetchArtifact(
 export async function fetchConversationArtifacts(
 	conversationId: string,
 	fetchImpl: FetchLike = fetch,
-): Promise<ArtifactSummary[]>;
+): Promise<ArtifactCardSummary[]>;
 ```
 
 Lists unwrap through `_unwrapList<T>(payload, "artifacts")` from `./_utils` — read that helper's signature at
@@ -724,7 +742,7 @@ onListOpenChange?: ((open: boolean) => void) | undefined;
    `<svelte:window onkeydown={handleWindowKeydown} />`, with the `Escape` check at `:569`) — **extend that one
    handler** to close the list first, then behave as today; do not add a second window listener.
 4. The panel's header keeps the eyebrow + title + actions layout it has, with the type label from
-   `artifacts.kind.<kind>` and the version pill from `ArtifactSummary.versionNumber`; the action set for slice 0
+   `artifacts.type.<kind>` and the version pill from `ArtifactCardSummary.versionNumber`; the action set for slice 0
    is the list toggle (`list`), history (`history`, disabled with a title explaining it arrives with Document),
    download (`download`, delegated to the existing download path), `maximize-2` and `x`. No new modal — the
    shell stays the only viewer (AGENTS.md).
@@ -867,14 +885,16 @@ Placement, and this is a real constraint rather than a preference:
   `generated_output`) and add the version list to the artifact's entry page. Add the version query beside
   `listArtifacts` (`:911`) and filter it `.where(eq(artifactVersions.userId, userId))` — that filter is both
   correct and what keeps the containment guard's `selectsByUser` test satisfied, so do not drop it and do not
-  reach for an exemption. **`artifact_kv` rows are deliberately not archived in this slice**: an App's
-  key-value state is app-owned cache today, the bridge that writes it arrives in slice 2, and archiving a
-  half-designed store is how an export format gets frozen by accident. Slice 2 owns that decision, together
-  with the question of whether kv content is user content (the archive) or app cache (not). Record the gap in
-  the slice-0 report.
-  - **Erasure is not deferred.** Kv rows must still disappear with their artifact: erasure hard-deletes the
-    `artifacts` row (`account-lifecycle/index.ts:127`) and the FK cascade takes all three children. Assert it
-    in Task S4 step 1 — that is what makes "not archived" a scoping decision rather than a leak.
+  reach for an exemption. **`artifact_kv` rows are archived, and erased** (ruling 24): an App's stored data can
+  be real user content — a cost splitter's expenses, a tracker's ticks — so the archive gains a readable JSON
+  entry per artifact (its keys and values, scoped to the artifact, never a table dump) beside the version list.
+  The bridge that *writes* kv rows arrives in slice 2; that is not a reason to ship an export format that
+  silently drops what the user typed into an App. Ruling 24 settles the earlier "app-owned cache or user
+  content" question: user content wins.
+  - **Erasure is the same decision seen from the other side.** Kv rows must disappear with their artifact:
+    erasure hard-deletes the `artifacts` row (`account-lifecycle/index.ts:127`) and the FK cascade takes all
+    three children. Assert it in Task S4 step 1 — archiving and erasing together are what keeps the archive
+    honest rather than a leak.
 
 ### i18n (`src/lib/i18n/artifacts.ts`, new)
 
@@ -889,11 +909,11 @@ Placement, and this is a real constraint rather than a preference:
 | `artifacts.card.open` | `Open` | `Megnyitás` |
 | `artifacts.card.madeBy` | `made by Alfy {when}` | `Alfy készítette: {when}` |
 | `artifacts.card.version` | `v{n}` | `v{n}` |
-| `artifacts.kind.file` | `File` | `Fájl` |
-| `artifacts.kind.document` | `Document` | `Dokumentum` |
-| `artifacts.kind.app` | `App` | `Alkalmazás` |
-| `artifacts.kind.canvas` | `Board` | `Tábla` |
-| `artifacts.kind.slides` | `Slides` | `Diasor` |
+| `artifacts.type.file` | `File` | `Fájl` |
+| `artifacts.type.document` | `Document` | `Dokumentum` |
+| `artifacts.type.app` | `App` | `Alkalmazás` |
+| `artifacts.type.canvas` | `Canvas` | `Tábla` |
+| `artifacts.type.slides` | `Slides` | `Diasor` |
 | `artifacts.error.load` | `Could not open this item.` | `Nem sikerült megnyitni ezt az elemet.` |
 | `artifacts.error.list` | `Could not load what this chat made.` | `Nem sikerült betölteni, amit ez a beszélgetés készített.` |
 | `artifacts.error.gone` | `This item was deleted.` | `Ezt az elemet törölték.` |
@@ -902,10 +922,14 @@ Placement, and this is a real constraint rather than a preference:
 | `artifacts.action.dismiss` | `Dismiss` | `Elvetés` |
 | `artifacts.history.comingWithDocument` | `History arrives with documents.` | `Az előzmények a dokumentumokkal érkeznek.` |
 
-`artifacts.kind.canvas` is **Board**, not `Canvas`: the UI never ships an English product word the Hungarian
-cannot carry naturally, and "Tábla" reads as the thing the user draws on (ADR-0066's own naming guidance, the
-Hungarian question in spec §9.3). Note this in the dictionary's header comment so slices 3–4 do not "fix" it
-back.
+`artifacts.type.canvas` is **`Canvas`** in English and **`Tábla`** in Hungarian (ruling 20, per ADR-0066's
+label list): the English word stays the product's own term, and "Tábla" reads as the thing the user draws on
+(the Hungarian question in spec §9.3). Note the pair in the dictionary's header comment so slices 3–4 do not
+"fix" the Hungarian back to a literal translation.
+
+**One type family, owned here.** Ruling 22: `artifacts.type.*` is the feature's only type-label family, owned by
+this slice. An earlier draft of this file shipped the same five words under `artifacts.kind.*`; that spelling is
+gone with the ruling — no later slice adds a second family or a second set of the same five words.
 
 Two rules with the same commit: the module is added to `I18N_MODULES` and `"artifacts."` to
 `AUDITED_PREFIXES` (`src/lib/i18n.test-helpers.ts:7,15` — other prefixes are audited, so a missing entry is a
@@ -1040,14 +1064,15 @@ Exclusive to Slice 0 unless the row says **shared**.
 | File | Change | Shared |
 |---|---|---|
 | `drizzle/1777140000111_artifacts_spine.sql`, `drizzle/meta/_journal.json` | create / append | |
-| `src/lib/server/db/schema.ts` | the three tables (+ `primaryKey` in the import) | |
+| `src/lib/server/db/schema.ts` | the three tables (no new `sqlite-core` import — `uniqueIndex` is already there) | |
 | `scripts/prepare-db.ts` | three names in `requiredExistingTables` | |
 | `src/lib/server/services/artifacts/**` + tests | create | |
 | `src/lib/shared/artifacts/kinds.ts` | create: the `ArtifactKind` union | **shared with slices 1–6** (read-only for them) |
+| `src/lib/shared/artifacts/anchor.ts` | create: the shared `Anchor` union (ruling 11/35) — the type only, no resolver | **shared with slices 1–6**; slice 1 appends the Document resolver, slice 3 the canvas one |
 | `src/lib/server/services/conversation-detail/read-model.ts`, `types.ts` + test | `artifacts` in the payload | **shared with slice 5** (evidence reads the payload) |
 | `src/lib/server/services/account-lifecycle/user-scoped-tables.ts` + `account-lifecycle.test.ts` | register two tables, update the three pinned lists | |
-| `src/lib/server/services/account-data-archive/**` + test | artifact rows + versions in the archive | |
-| `tests/cross-cutting/incognito-artifact-containment.test.ts` | the three tables + PART A behaviour tests | |
+| `src/lib/server/services/account-data-archive/**` + test | artifact rows, versions and kv entries in the archive | |
+| `tests/cross-cutting/incognito-artifact-containment.test.ts` | the three tables + PART A behaviour tests; **created here, appended to by slices 5 and 6 in that order** (ruling 31) | **shared with slices 5–6** (append-only) |
 | `src/routes/api/artifacts/**` + tests | create | |
 | `src/lib/client/api/artifacts.ts` + test | create | |
 | `src/lib/server/services/knowledge/types.ts` | `kind?: ArtifactKind` on `DocumentWorkspaceItem` | **shared with slices 1–4** (they add per-kind item fields) |
@@ -1058,23 +1083,23 @@ Exclusive to Slice 0 unless the row says **shared**.
 | `src/lib/i18n/artifacts.ts` + test, `src/lib/i18n/index.ts`, `src/lib/i18n.test-helpers.ts` | the dictionary and its registration | **shared with slices 1–6** (each appends keys) |
 | `scripts/eval-artifact-contracts/**`, `.gitignore` | skeleton | **shared with slices 1–4** (each appends a suite) |
 | `AGENTS.md` | add the `artifacts/` boundary to the App Map + placement guide, and the ADR-0066 rule that "Artifact" is never UI copy | **shared with slice 5** (its two guidance-line fixes, ruling 5) |
-| `tests/integration/artifact-spine.test.ts`, `tests/e2e/artifact-panel.spec.ts` | create | |
+| `tests/integration/artifact-spine.test.ts`, `tests/e2e/artifacts-panel.spec.ts` | create | |
 
 **Serialisation.** Slice 0 lands **first**; slices 1–6 rebase on it. The shared files above are append-only for
 them (one registry line, one card body, one dictionary block, one eval suite per slice, with slice 1 also
 extending the panel's content area for Document). `AGENTS.md`: slice 0 adds the boundary entry; slice 5 makes
 its two corrections to the file-production guidance paragraph — same file, different paragraphs, slice 0 first.
 
-**One naming reconciliation the owner has to rule on.** [`slice-6.md`](./slice-6.md) was written after this
-file and calls the panel `ArtifactPanel.svelte`, describing it as "Slice 0's file" — 4 occurrences; slices 3–5
-do not name the panel file at all. This slice keeps the path and the name
-(`document-workspace/DocumentWorkspace.svelte`) because three live callers render it and a source-scan suite
-pins that path (`no-ad-hoc-maps.test.ts:164-169`), which is **decisions.md ruling 10** — note that ruling 10's
-own justification names a second pin, `DocumentsList.test.ts:1471`, which does not exist. **Do not rename the
-file:** if the owner prefers the name `ArtifactPanel`, that is a separate, reviewed rename commit with the three
-callers and the pinning test updated together — and `slice-6.md`'s wording is corrected at the same time. Until
-then, read every "ArtifactPanel.svelte" in `slice-6.md` as this file's
-`document-workspace/DocumentWorkspace.svelte`.
+**The panel keeps its path and its name — settled by ruling 10.** [`slice-6.md`](./slice-6.md) was written after
+this file and calls the panel `ArtifactPanel.svelte`, describing it as "Slice 0's file" — 4 occurrences; slices
+3–5 do not name the panel file at all. Ruling 10 keeps this slice's path and name
+(`document-workspace/DocumentWorkspace.svelte`): three live callers render it, a source-scan suite pins that
+path (`no-ad-hoc-maps.test.ts:164`), and the same shell serves surfaces that are not artifacts at all
+(generated files, chat attachments, library opens, search-result opens). **Do not rename the file** — a rename
+is a separate, reviewed change with the callers and the pinning test updated together, not part of Feature 2.
+Read every "ArtifactPanel.svelte" in `slice-6.md` as this file's
+`document-workspace/DocumentWorkspace.svelte`; the glossary's **Artifact Panel** names the surface, not the
+filename.
 
 ---
 
@@ -1317,9 +1342,10 @@ artifact (cascade takes its children) and **keeps** a `generated_output` artifac
 decision, written as a test so it cannot drift silently. Update the three pinned lists in the same commit: the
 sorted table-name list at `:686` and the ordered `memory`/`workspace` reset lists at `:790+`.
 
-The archive test asserts the File artifact's row and its version list appear in the generated archive, and
-that a **second user's** rows do not (the archive bypasses the scope on purpose, so its `user_id` filter is the
-only guard and must be proven).
+The archive test asserts the File artifact's row, its version list **and its kv entry** (ruling 24: readable
+JSON per artifact, scoped to that artifact, never a table dump) appear in the generated archive, and that a
+**second user's** rows do not (the archive bypasses the scope on purpose, so its `user_id` filter is the only
+guard and must be proven).
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -1458,7 +1484,7 @@ chunk does not grow by the production card's states."
 
 **Files:** `src/routes/api/artifacts/**` + tests, `src/lib/client/api/artifacts.ts` + test,
 `src/lib/server/services/conversation-detail/read-model.ts` + `types.ts` + test,
-`src/routes/(app)/chat/[conversationId]/+page.svelte`, `tests/e2e/artifact-panel.spec.ts`
+`src/routes/(app)/chat/[conversationId]/+page.svelte`, `tests/e2e/artifacts-panel.spec.ts`
 **Test:** route tests, read-model test, the E2E spec
 
 - [ ] **Step 1: Write the failing tests**
@@ -1470,10 +1496,10 @@ helper redirects rather than returning 401 (`src/lib/server/auth/hooks.ts`).
 
 Read-model test: the conversation detail payload carries `artifacts` newest first, matching the conversation,
 **not** carrying an incognito conversation's artifacts when the caller asks from outside it, and naming the
-field's type through the aliased import (a plain `import { ArtifactSummary }` from both modules is a
-compile error, which is the point).
+field's type through its own name — `ArtifactCardSummary`, never the knowledge-side `ArtifactSummary` aliased
+into place, which is the point of ruling 20.
 
-E2E `tests/e2e/artifact-panel.spec.ts`:
+E2E `tests/e2e/artifacts-panel.spec.ts`:
 
 1. a chat that has made nothing renders **no** `artifact-count-button`;
 2. with a produced file present the button shows the count; clicking it opens the panel on the list state with
@@ -1506,7 +1532,7 @@ to exist to exercise it (a tool-call stream fixture), so the next reader does no
 
 ```bash
 npx vitest run src/routes/api/artifacts
-npx playwright test tests/e2e/artifact-panel.spec.ts
+npx playwright test tests/e2e/artifacts-panel.spec.ts
 ```
 
 - [ ] **Step 3: Implement** the routes, the client API, the detail payload and the page wiring (count button,
@@ -1516,14 +1542,14 @@ npx playwright test tests/e2e/artifact-panel.spec.ts
 
 ```bash
 export PATH=/opt/homebrew/opt/node@22/bin:$PATH
-npx playwright test tests/e2e/artifact-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/conversation.spec.ts \
+npx playwright test tests/e2e/artifacts-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/conversation.spec.ts \
   tests/e2e/mobile-design.spec.ts tests/e2e/conversation-title-refresh.spec.ts
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/routes/api/artifacts src/lib/client/api/artifacts.ts src/lib/server/services/conversation-detail "src/routes/(app)/chat/[conversationId]/+page.svelte" tests/e2e/artifact-panel.spec.ts
+git add src/routes/api/artifacts src/lib/client/api/artifacts.ts src/lib/server/services/conversation-detail "src/routes/(app)/chat/[conversationId]/+page.svelte" tests/e2e/artifacts-panel.spec.ts
 git commit -m "Open what a chat has made from its header
 
 The count comes from the conversation detail payload the page already
@@ -1586,13 +1612,14 @@ boundary nobody wrote down is a boundary the next slice invents again."
 - **No Document, App, Canvas or Slides body.** The registry ships empty on purpose.
 - **No comments UI and no versions UI.** The services and the tables exist and are tested; the first customer is
   Document. (The card's `tickable` seam is the one exception — an explicit contract for slice 1, not a UI.)
-- **No kv surface.** The accessors exist for slice 2's bridge; no route, no UI, and **no archive entry** for
-  key-value rows.
+- **No kv surface.** The accessors exist for slice 2's bridge; no route and no UI. The archive entry does
+  exist (ruling 24) — that is data the user typed into an App, not a surface.
 - **No re-typing of `generated_output`** to `'artifact'`, and no backfill migration.
 - **No rename** of `DocumentWorkspace.svelte`, `DocumentWorkspaceItem`, or `documents.*` keys (ruling 10).
 - **No Knowledge-page listing change** and no new search scope (spec §9.2 is still open).
-- **No first-open tour** — each type's tour belongs to the slice that gives it a UI (and File gets none, ruling
-  8).
+- **No first-open tour** — all four tours (Document, App, Canvas, Slides; File gets none, ruling 8) belong to
+  slice 6, landed last, because they depend on the four types existing and on the campaign machinery being
+  adapted once (ruling 30).
 - **No evidence integration** (Slice 5), no cost-display change (Slice 2/4), no `artifact_type` column.
 - **No sharing, ever.**
 
@@ -1627,7 +1654,7 @@ boundary nobody wrote down is a boundary the next slice invents again."
 - [ ] `npx fallow --no-cache --format json --quiet --score` — no new findings, no new ignores (watch
       `countArtifactsForConversation`: it is live **because** `read-model.ts` calls it — if the read model ends
       up inlining the count, delete the export rather than leaving a dead one).
-- [ ] `npx playwright test tests/e2e/artifact-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/conversation.spec.ts
+- [ ] `npx playwright test tests/e2e/artifacts-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/conversation.spec.ts
       tests/e2e/mobile-design.spec.ts tests/e2e/conversation-title-refresh.spec.ts` — green.
 - [ ] Real-app visual check at **1440×900 and 390×844, light and dark** against surfaces 1, 2 and 3 and the File
       card: the quiet count button with its number, the panel list with type labels and relative times, one File

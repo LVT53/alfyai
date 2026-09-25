@@ -113,16 +113,17 @@ npx tsx scripts/eval-artifact-contracts/run.ts --replay --suite app    # replay 
 ```
 
 **Read this before A9: the harness is not this slice's to invent.** Slice 0 creates the skeleton
-(`slice-0.md:512-527`: `scoring.ts`, `scoring.test.ts`, `types.ts`, `cases.ts`, `run.ts`, and the results
-directory), Slice 5 owns the finished harness (`slice-5.md:664-704`: `config.ts`, `client.ts`,
+(`slice-0.md §The eval harness skeleton`: `scoring.ts`, `scoring.test.ts`, `types.ts`, `cases.ts`, `run.ts`,
+and the results directory), Slice 5 owns the finished harness (`slice-5.md §The eval harness`: `config.ts`,
+`client.ts`,
 `fixtures/<suite>/**`, `suites/*.ts`, `results/`, `--suite`/`--only`/`--replay`/`--limit`/`--out`). The suite
 vocabulary is slice 5's and it is **singular**: `file`, `document`, `app`, `canvas`, `slides`, `verification`,
-`all` (`slice-5.md:684`); slice 5's gating table rows this very slice on `--suite app` **and**
-`--suite verification` (`slice-5.md:746`). Do not invent `apps` or `verify` — an unknown suite name is a
+`all` (`slice-5.md §The eval harness`); slice 5's gating table rows this very slice on `--suite app` **and**
+`--suite verification` (`slice-5.md §The eval harness`). Do not invent `apps` or `verify` — an unknown suite name is a
 runner error, not a quiet alias. Output goes under `scripts/eval-artifact-contracts/results/`, gitignored
-(`slice-5.md:97`, `:677`), and the API key never reaches it. This slice **appends** its two suites and their
+(`slice-5.md §Global Constraints`, `§The eval harness`), and the API key never reaches it. This slice **appends** its two suites and their
 scorers to whatever exists when it starts and keeps the runner's invocation style — **`npx tsx`**, not
-`node --experimental-strip-types`, because the suites must import the real validators (`slice-5.md:121`;
+`node --experimental-strip-types`, because the suites must import the real validators (`slice-5.md §Gates`;
 `tsx` is a devDependency at `package.json:56` and every `scripts/` entry in the repo is invoked through it,
 e.g. `package.json:11`, `:18`, `:19`, `:23`).
 Record which of the two layouts it landed on in the report. **Do not create a second runner and do not rename
@@ -552,18 +553,13 @@ comment on the artifact (§2.8) — one comment per verification pass, not one p
 
 ```ts
 export const GET: RequestHandler = async (event) => {
-	try {
-		requireAuth(event);
-	} catch {
-		// requireAuth throws a redirect (auth/hooks.ts:12-18); a fetch-driven route answers 401 instead,
-		// which is the existing idiom at routes/api/campaign-assets/[id]/content/+server.ts:6-11.
-		return json({ error: "Unauthorized" }, { status: 401 });
-	}
+	requireAuth(event); // 302 at this layer (auth/hooks.ts:9-15); the hook answers an unauthenticated fetch with 401
 	const artifact = await getArtifact({ userId: event.locals.user.id, artifactId: event.params.id });
 	if (!artifact || artifact.kind !== "app" || typeof artifact.body !== "string") {
 		// 404 for a foreign artifact, a foreign id, a deleted one, or a non-App kind — never a 403 that
-		// confirms an id exists (slice-0.md:316 sets the same rule for the family).
-		return json({ error: "Not found" }, { status: 404 });
+		// confirms an id exists, and never a 401 from inside the handler (slice-0.md §Routes sets the same
+		// rule for the family; ruling 19 names the layer).
+		return json({ ok: false, reason: "not_found" }, { status: 404 });
 	}
 	return new Response(injectAppBootstrap(artifact.body), { status: 200, headers: APP_SANDBOX_HEADERS });
 };
@@ -745,8 +741,8 @@ import {
 
 /**
  * The App-facing view of the store's limits. Three of the four come from Slice 0's
- * `limits.ts` (`slice-0.md:937-939`) because `kv.setKv` enforces them and slice 0
- * already assigned this slice the job of *surfacing* its refusals (`slice-0.md:993`).
+ * `limits.ts` (`slice-0.md §Limits and configuration`) because `kv.setKv` enforces them and
+ * slice 0 already assigned this slice the job of *surfacing* its refusals (same table).
  * `maxTotalBytes` is this slice's addition: the store caps one value and the key
  * count, so without a total an App could still hold 200 × 256 KiB.
  */
@@ -763,7 +759,8 @@ export async function writeAppValue(params: { userId: string; artifactId: string
 
 **Why the numbers are Slice 0's and not this slice's.** `kv.setKv` refuses over
 `ARTIFACT_KV_MAX_KEYS`/`_KEY_MAX_CHARS`/`_VALUE_MAX_BYTES` and returns only a boolean
-(`slice-0.md:462-463`), so this slice has to pre-check the same three bounds itself to have a reason to report —
+(`slice-0.md §The boundary`), so this slice has to pre-check the same three bounds itself to have a reason to
+report —
 and pre-checking a *different* number than the store would be a lie the app hears once and then the store
 enforces silently. The five reasons (`invalid_key`, `too_large`, `too_many_keys`, `not_serialisable`,
 `not_found`) are **this** layer's vocabulary: the store's `false` cannot distinguish them, and the bridge must.
@@ -792,29 +789,29 @@ the key or the value.
 | `maxKeys` | `ARTIFACT_KV_MAX_KEYS` (200) per artifact | `writeAppValue` counts the artifact's rows before calling `setKv`; the store enforces the same number again |
 | `maxKeyLength` | `ARTIFACT_KV_KEY_MAX_CHARS` (128) characters | `writeAppValue` and `readAppValue`, before any read |
 | `maxValueBytes` | `ARTIFACT_KV_VALUE_MAX_BYTES` (256 KiB) of `JSON.stringify(value)` (UTF-8) | `writeAppValue`, before the insert |
-| `maxTotalBytes` | 1 MiB of `value_json` for the artifact | `writeAppValue`, summing the artifact's rows before the write — this is the cap that stops one app filling the database (`slice-0.md:937-939` caps a value and a count, never a total) |
+| `maxTotalBytes` | 1 MiB of `value_json` for the artifact | `writeAppValue`, summing the artifact's rows before the write — this is the cap that stops one app filling the database (`slice-0.md §Limits and configuration` caps a value and a count, never a total) |
 | `not_serialisable` | — | `writeAppValue` wraps `JSON.stringify`; `undefined`, a function, a `BigInt` and a cycle are refused, never thrown |
 
 - **Four checks, then one store call.** `writeAppValue` validates, then calls Slice 0's `kv.setKv({ userId,
   artifactId, key, valueJson })` and translates its `false` into `not_found` (the scoped read returned nothing).
   The count and the total are **read-then-write, not one transaction** — `setKv` owns its own transaction
-  (`slice-0.md:462-463`) and this slice must not open a second one behind the facade. The worst case is one
+  (`slice-0.md §The boundary`) and this slice must not open a second one behind the facade. The worst case is one
   extra value over `maxTotalBytes` under two simultaneous writes from the same app: bounded by one value, no
   cross-user effect, and the store's own per-value and per-key caps still hold. **Say that in the code
   comment**; do not claim an atomicity the layering does not give.
 
 - **The scope marker is not optional.** `artifact_kv` has no `user_id` column, so Slice 0's guard requires a kv
   reader to prove its artifact id came from a scoped read: read the artifact through `getArtifact({ userId, … })`
-  first and pass **that** id down (`slice-0.md:465-470`, and the marker set at `slice-0.md:473`). A kv function
+  first and pass **that** id down (`slice-0.md §The boundary`, and the marker set there). A kv function
   that takes a bare `artifactId` from a request is exactly the pattern the containment test exists to catch —
   `tests/cross-cutting/incognito-artifact-containment.test.ts:561-567` (`readsGuardedTables`) and `:578-592`.
-- **A write is an upsert on `(artifact_id, key)`** and refreshes `updated_at`; that is why the primary key in
-  Slice 0's DDL is the pair (`slice-0.md:126-132`).
+- **A write is an upsert on `(artifact_id, key)`** and refreshes `updated_at`; that is why Slice 0's DDL carries
+  the unique index on the pair beside its surrogate `id` (`slice-0.md §The migration`, ruling 17).
 - **Regeneration does not touch kv** (Owner decision 5): the rows are keyed by artifact, not by version, and
   nothing in the regenerate path deletes them. A test asserts it rather than trusting the absence of code
   (A8.4).
 - **Erasure and incognito containment come for free from the FK** (`ON DELETE CASCADE`,
-  `slice-0.md:127`) but are asserted through the route paths, not raw SQL (A10.1, A10.2).
+  `slice-0.md §The migration`) but are asserted through the route paths, not raw SQL (A10.1, A10.2).
 
 ### The App card
 
@@ -879,7 +876,7 @@ the key or the value.
 
   It is `requireAuth` + scope, runs the same generator and verifier as the tool path (one implementation, two
   callers — do not fork the pipeline), and it is the only App route that writes. `expectVersion` is Slice 1's
-  optimistic guard (`slice-1.md:336-340`, `PATCH /api/artifacts/[id]/body` at `:348`), not Slice 0's.
+  optimistic guard (`slice-1.md §Service and routes`, on `PATCH /api/artifacts/[id]/body`), not Slice 0's.
 - **The card also owns the empty and error states** (UI States below): no code tab while the HTML has not
   loaded, a skeleton while the frame's document loads, the glitch line when there is one, the verification line
   when there is one, and a plain sentence when the app could not be served (404 after a delete).
@@ -942,7 +939,7 @@ trap cases).
 | `src/lib/server/services/artifacts/app/bootstrap.ts` | no | create — the injected bridge, one exported string constant + `injectAppBootstrap` |
 | `src/lib/server/services/artifacts/app/storage.ts` | no | create — `APP_KV_LIMITS` (derived from Slice 0's `limits.ts` constants), `readAppValue`, `writeAppValue` over `artifact_kv` |
 | `src/lib/server/services/artifacts/app/regenerate.ts` | no | create — `regenerateApp`, shared by the route and the tool's App branch |
-| `src/lib/server/services/artifacts/serialize/app.ts` | yes — Slice 0 owns `serialize/index.ts` | create the `app` serializer (body = the HTML, `body_hash` = sha256 of the stored bytes) and register it in the registry Slice 0 ships (`slice-0.md:190`, `:371`) |
+| `src/lib/server/services/artifacts/serialize/app.ts` | yes — Slice 0 owns `serialize/index.ts` | create the `app` serializer (body = the HTML, `body_hash` = sha256 of the stored bytes) and register it in the registry Slice 0 ships (`slice-0.md §The boundary`) |
 | `src/lib/server/services/artifacts/index.ts` | yes — Slice 0's facade | append only if a new symbol must be exported (the App path should need none); never restructure |
 | `src/routes/api/artifacts/[id]/app/+server.ts` | no | create — the served app, the header constant, the CSP |
 | `src/routes/api/artifacts/[id]/app/kv/+server.ts` | no | create — GET + POST over `storage.ts` |
@@ -953,15 +950,15 @@ trap cases).
 | `src/lib/components/artifacts/artifact-bodies.ts` | yes — Slice 0 creates it, Slice 1 branches it | **one line**: `app: () => import("./app/AppBody.svelte")` |
 | `src/lib/client/api/artifacts.ts` | yes — Slice 0 creates it, Slice 3 appends | append `readAppValue`, `writeAppValue`, `regenerateApp`, `downloadAppAsHtml`; do not restructure |
 | `src/lib/server/services/normal-chat-tools/artifacts.ts` | **yes — Slice 1 creates it; Slice 5 moves it to `artifact-tools/create.ts`** | append the `artifactType: "app"` branch to `create_artifact` (dispatch to generator + verifier) and the App case to the tool's refusal text. Nothing else in the file. |
-| `src/lib/server/services/normal-chat-tools/index.ts` | **yes — Slices 1 and 5 both extend it** | **not touched by this slice** unless the tool's `description` string must name the App case; if it must, that is one string, appended, and named in the commit |
-| `src/lib/server/services/normal-chat-tools/shared.ts` | **yes — Slice 5 adds `create_artifact`'s timeout row** | add `create_artifact: 120_000` **if** Slice 5 has not landed (see Limits and configuration); if it has, raise its value instead of duplicating the key |
+| `src/lib/server/services/normal-chat-tools/index.ts` | **yes — Slices 1 and 5 both extend it** | **not touched by this slice** unless the tool's `description` string must name the App case; if it must, that is one string, appended, and named in the commit. Append-only either way, in one landing order — **slice 5, then this slice, then slice 1** (ruling 41) |
+| `src/lib/server/services/normal-chat-tools/shared.ts` | **no — the row is Slice 5's** | **not touched.** Slice 5 lands the single `create_artifact: 120_000` row in its `TOOL_TIMEOUTS_MS` table (ruling 40); this slice reads it and asserts it (A7.5) |
 | `src/lib/i18n/artifacts.ts` | yes — Slice 0 creates it, Slices 1/3/4 append | append every `artifacts.app.*` row from the table above, both locales |
-| `scripts/eval-artifact-contracts/**` | **yes — Slice 0 seeds it, Slice 5 owns it** | append the `apps` and `verification` suites and their scorers; do not create a second runner |
+| `scripts/eval-artifact-contracts/**` | **yes — Slice 0 seeds it, Slice 5 owns it** | append the `app` and `verification` suites (`suites/apps.ts`, `suites/verification.ts`) and their scorers; do not create a second runner |
 | `tests/integration/artifact-app.test.ts` | no | create |
 | `tests/e2e/artifact-app.spec.ts` | no | create |
 | `tests/cross-cutting/incognito-artifact-containment.test.ts` | yes — Slice 0 creates PART A/B for the three tables | append the App-path readers (the served route, the kv route, the export path) to the scope-marker coverage; **no new `ALLOWED_WITHOUT_SCOPE` entry** |
 | `src/lib/server/services/account-data-archive/**` | yes — Slice 0 adds the artifact family | append the App's code as text in a `<pre>` |
-| `src/lib/server/services/account-lifecycle/user-scoped-tables.ts` | no | **unchanged** — `artifact_kv` is deliberately not registered (`slice-0.md:476-478`) |
+| `src/lib/server/services/account-lifecycle/user-scoped-tables.ts` | no | **unchanged** — `artifact_kv` is deliberately not registered (`slice-0.md §Ownership, incognito, lifecycle, archive`) |
 | `drizzle/**` | no | **unchanged** — no new table, no migration in this slice |
 
 **Serialisation with the other slices.**
@@ -970,9 +967,13 @@ trap cases).
 2. Slice 1 next (Documents, `normal-chat-tools/artifacts.ts`, `expectVersion`, the version routes). **This slice
    assumes Slice 1 has merged** and appends to its files.
 3. **This slice**, before Slices 3 and 4 (they append one line each to the same registry files).
-4. Slice 5 last: it moves the artifact tools into `artifact-tools/`, so it **carries the App branch across** —
-   the branch, not the tool, is this slice's. A grep for `artifactType === "app"` must find exactly one
-   dispatch after the move.
+4. Slice 5 last in the wave order: it moves the artifact tools into `artifact-tools/`, so it **carries the App
+   branch across** — the branch, not the tool, is this slice's. A grep for `artifactType === "app"` must find
+   exactly one dispatch after the move. **For `normal-chat-tools/index.ts` and its `shared.ts` tables the landing
+   order is ruling 41's, and it is written the same way in every spec that touches those files: slice 5 first**
+   (the tool registry, the catalogue and the timeout table), **then this slice** (the App generation path, the
+   first real user of `create_artifact`), **then slice 1** (the Document's `read_artifact` and `edit_artifact`);
+   nobody restructures what an earlier slice landed.
 5. Slices 3 and 4 touch `artifact-bodies.ts`, `ArtifactCard.svelte`, `i18n/artifacts.ts` and
    `client/api/artifacts.ts` the same append-only way, so a rebase conflict is a one-line conflict, never a
    restructure.
@@ -987,16 +988,16 @@ Each file carries the behaviour it is named for; the trap cases are in the right
 | `src/lib/server/services/artifacts/app/contract.test.ts` | A1.8, A2.3 | the prompt has the six token names; **token drift** — `APP_TOKENS` equals the values parsed from `src/app.css`, fonts excluded |
 | `src/lib/server/services/artifacts/app/audit.test.ts` | A2 | the fifteen checks ported one by one; the prototype's passing fixture scores 0 glitch / ≤ 2 note; severity is never a reject; `APP_GLITCH_RULE_IDS` maps to the three glitch messages |
 | `src/lib/server/services/artifacts/app/verify.test.ts` | A3 | `mislabelled_aggregate`, `wrong_unit`, `wrong_key` each flagged; clean is clean; a non-checkable app costs **zero** model calls; repair once, and a repair that adds a claim is `uncertain`; **the prompt carries the request and the HTML only** |
-| `src/routes/api/artifacts/[id]/app/server.test.ts` | A4 | 401 / 404 ownership / 404 non-App / 200 for the owner; the CSP header as an **exact string**; bootstrap injected before the app's own script and non-overridable; `nosniff`, `no-store` |
+| `src/routes/api/artifacts/[id]/app/app.test.ts` | A4 | auth by mocking `requireAuth` (`decisions.md` ruling 19 — this is the handler layer; the **401** is `hooks.server.ts`'s); 404 ownership / 404 non-App / 200 for the owner; the CSP header as an **exact string**; bootstrap injected before the app's own script and non-overridable; `nosniff`, `no-store` |
 | `src/lib/server/services/artifacts/app/bootstrap.test.ts` | A4 | injection into a document with and without `<head>`; the bootstrap's three pinned properties; a document that defines its own `window.alfy` cannot replace `get`/`set` |
 | `src/lib/components/artifacts/app/AppFrame.test.ts` | A4.4–A4.6 | the sandbox attribute is exactly `allow-scripts`; a forged message from another window is ignored; a forged `artifactId` in the payload is ignored (the id is the **prop**); a frame that never replies does not leak; 390×844 scroll behaviour |
 | `src/lib/server/services/artifacts/app/storage.test.ts` | A5.1–A5.7, A5.10 | round trip of every JSON shape; foreign and incognito ids refused; every limit with **no row written**; per-artifact isolation; missing key is `{ ok: true, value: null }`; `APP_KV_LIMITS` equals Slice 0's constants |
-| `src/routes/api/artifacts/[id]/app/kv/server.test.ts` | A5.2, A5.3, A5.6 | 404 before the service is reached; the status/reason pairs in Contracts; the cascade through the route |
+| `src/routes/api/artifacts/[id]/app/kv/kv.test.ts` | A5.2, A5.3, A5.6 | 404 before the service is reached; the status/reason pairs in Contracts; the cascade through the route |
 | `src/lib/components/artifacts/app/AppBody.test.ts` | A6 | Preview default; Code read-only (no `contenteditable`, no `<textarea>`, no write handler); the verification note only for `repaired`/`uncertain`; glitch shown, note not; download carries ids only; `conversationId: null` disables it |
 | `src/lib/client/api/artifacts.test.ts` | A6.5–A6.7 | the download and regenerate request shapes; a 409 keeps the prompt |
 | `src/lib/server/services/normal-chat-tools/artifacts.test.ts` | A7, A8.3 | App dispatch; the four failure reasons are model-safe; the row is written **after** verification; the stream carries the id only; `create_artifact`'s timeout row cleared the App cost; `edit_artifact` refuses an App with the regenerate reason |
 | `src/lib/server/services/artifacts/app/regenerate.test.ts` | A8 | one new version per regenerate; a failed generation writes no version; kv and comments survive |
-| `src/routes/api/artifacts/[id]/app/regenerate/server.test.ts` | A8.5, A8.6 | `expectVersion` conflict is 409 and nothing is written; `422` keeps the old version live |
+| `src/routes/api/artifacts/[id]/app/regenerate/regenerate.test.ts` | A8.5, A8.6 | `expectVersion` conflict is 409 and nothing is written; `422` keeps the old version live |
 | `tests/integration/artifact-app.test.ts` | A10.1–A10.5 | incognito containment for the three readers; erasure is zero rows; Clear Memory deletes the App **and** keeps the exported file; the archive carries code and kv as text |
 | `tests/cross-cutting/incognito-artifact-containment.test.ts` (append) | A10.1 | the three App readers are in `readsGuardedTables`; `ALLOWED_WITHOUT_SCOPE` **unchanged** |
 | `tests/e2e/artifact-app.spec.ts` | the whole slice | ask for an app in chat; it appears **after** verification; open it; use it and reload (state survives); Code and back; download → File card; regenerate → version list; 390×844; a network-reaching fixture shows its glitch line and still runs |
@@ -1150,7 +1151,7 @@ the app instead of shipping quiet doubt."
 ### Task A4: The served app, the CSP and the frame
 
 **Files:** `src/routes/api/artifacts/[id]/app/+server.ts`,
-`src/routes/api/artifacts/[id]/app/server.test.ts`,
+`src/routes/api/artifacts/[id]/app/app.test.ts`,
 `src/lib/server/services/artifacts/app/bootstrap.ts`,
 `src/lib/server/services/artifacts/app/bootstrap.test.ts`,
 `src/lib/components/artifacts/app/AppFrame.svelte`,
@@ -1158,11 +1159,12 @@ the app instead of shipping quiet doubt."
 
 - [ ] **Step 1: Write the failing tests**
 
-1. The route 401s unauthenticated, 404s for another user's artifact, 404s for a non-App artifact, and serves the
-   stored HTML with `text/html; charset=utf-8`, `nosniff` and `no-store` for the owner. **Name the layer**: the
-   route-handler test asserts the `requireAuth` **redirect** and the HTTP-level test asserts **401**
-   (`decisions.md:168-173`; the in-repo idiom that turns the redirect into a 401 for fetch callers is
-   `src/routes/api/campaign-assets/[id]/content/+server.ts:6-11` over `src/lib/server/auth/hooks.ts:12-18`).
+1. The route refuses an unauthenticated caller, 404s for another user's artifact, 404s for a non-App artifact,
+   and serves the stored HTML with `text/html; charset=utf-8`, `nosniff` and `no-store` for the owner.
+   **Name the layer** (`decisions.md` ruling 19): at the handler layer `requireAuth` throws the **302** to
+   `/login` (`src/lib/server/auth/hooks.ts:9-15`), so the route test mocks it the way the sibling suites do; the
+   **401** is `hooks.server.ts`'s answer to an unauthenticated `/api/**` fetch, which no handler test can
+   produce — do not assert one here.
 2. **The CSP is the contract**: assert the header **string** equals the one in Contracts. A test that only
    checks `connect-src` present would pass on a header that later gained `unsafe-eval`.
 3. The bootstrap is injected **before** any model-authored `<script>` (assert its index is lower), and a
@@ -1206,7 +1208,7 @@ message from the frame cannot name a different artifact."
 ### Task A5: App storage over `artifact_kv`, scoped and bounded
 
 **Files:** `src/routes/api/artifacts/[id]/app/kv/+server.ts`,
-`src/routes/api/artifacts/[id]/app/kv/server.test.ts`,
+`src/routes/api/artifacts/[id]/app/kv/kv.test.ts`,
 `src/lib/server/services/artifacts/app/storage.ts`,
 `src/lib/server/services/artifacts/app/storage.test.ts`, the frame's reply path in
 `src/lib/components/artifacts/app/AppFrame.svelte` (+ `AppFrame.test.ts`)
@@ -1367,18 +1369,17 @@ string must name the App case — if it must, that is one appended string, named
       `normal-chat-context.ts` itself, which ruling 5 corrected. Read `prompts.ts` for the existing
       `produce_file` wording and follow its shape.
 
-- [ ] **Step 3: One timeout row, and it is the App's.** `create_artifact` is **one** tool that serves two very
-      different costs: a Document body (Slice 1's local write, `10_000` at `slice-1.md:1000`) and an App
-      generation (a model call, a classifier, a verifier that may call `research_web`, and possibly a repair).
-      A per-type timeout is not possible — the map is keyed by tool name — so the row must clear the **slower**
-      path. Land `create_artifact: 120_000` in `shared.ts` (if Slice 5 already landed its `30_000` at
-      `slice-5.md:321`, `:649`, **raise that value rather than adding a duplicate key**; if Slice 1's `10_000`
-      is what is on disk, raise it too). The arithmetic: 23 s worst measured generation + ~5 s classifier +
-      `research_web`'s own 60 s ceiling (`shared.ts:197`) + ~25 s repair ≈ 113 s, rounded up.
-      `run_python` follows the same "clear the inner budget with room" rule (`shared.ts:213-219`). This row is
-      the **only** edit this slice makes to a file one of Slice 1/5 also owns, and it is reported, not hidden:
-      the timeout is a cross-slice contract, so it goes in the report as a conflict with `slice-1.md:1000` and
-      `slice-5.md:321`.
+- [ ] **Step 3: One timeout row, and it is Slice 5's.** `create_artifact` is **one** tool that serves two very
+      different costs: a Document body (Slice 1's local write) and an App generation (a model call, a classifier,
+      a verifier that may call `research_web`, and possibly a repair). A per-type timeout is not possible — the
+      map is keyed by tool name — so the row must clear the **slower** path, and **ruling 40 puts it in Slice 5's
+      registry as the single `create_artifact: 120_000`** (`slice-5.md §TOOL_TIMEOUTS_MS rows`). This slice
+      **writes no row and restates no value**: A7.5 asserts the row exists and is ≥ 120 s, so a branch where
+      Slice 5 has not landed it fails loudly instead of leaving the tool with no timeout at all. The arithmetic
+      behind the value: 23 s worst measured generation + ~5 s classifier + `research_web`'s own 60 s ceiling
+      (`shared.ts:197`) + ~25 s repair ≈ 113 s, rounded up. `run_python` follows the same "clear the inner
+      budget with room" rule (`shared.ts:213-219`). After ruling 40 the key exists once, in one file, owned by
+      Slice 5 — there is no cross-slice conflict left to report.
 
 - [ ] **Step 4: Run**
       `npx vitest run src/lib/server/services/normal-chat-tools src/lib/server/services/chat-turn && npm run check`
@@ -1402,7 +1403,7 @@ possible repair - measures past the 10s and 30s ruts slices 1 and 5 left in it."
 ### Task A8: Regeneration as the App's edit path
 
 **Files:** `src/routes/api/artifacts/[id]/app/regenerate/+server.ts` +
-`src/routes/api/artifacts/[id]/app/regenerate/server.test.ts`,
+`src/routes/api/artifacts/[id]/app/regenerate/regenerate.test.ts`,
 `src/lib/server/services/artifacts/app/regenerate.ts` +
 `src/lib/server/services/artifacts/app/regenerate.test.ts`,
 `src/lib/server/services/normal-chat-tools/artifacts.ts` (the App refusal in `edit_artifact`, appended),
@@ -1412,8 +1413,9 @@ possible repair - measures past the 10s and 30s ruts slices 1 and 5 left in it."
 
 1. Regenerating writes exactly one new version whose summary names the request, with `author: "alfy"`.
 2. The **previous** version's HTML is unchanged and restorable. Restoring an App version goes through Slice 1's
-   existing route — `POST /api/artifacts/[id]/versions/[versionId]/restore` (`slice-1.md:454`, backed by Slice
-   0's `restoreVersion`, `slice-0.md:417-423`) — which is **type-agnostic** and must not be forked for Apps;
+   existing route — `POST /api/artifacts/[id]/versions/[versionId]/restore` (`slice-1.md §Service and routes`,
+   backed by Slice 0's `restoreVersion`, `slice-0.md §The boundary`) — which is **type-agnostic** and must not be
+   forked for Apps;
    assert it restores an App body and that the running frame switches back to it.
 3. An App has **no** patch path: `edit_artifact` on an App is refused with a model-safe message that says to
    regenerate (assert the tool's refusal, not just the absence of a route). A model must not be left guessing
@@ -1422,7 +1424,7 @@ possible repair - measures past the 10s and 30s ruts slices 1 and 5 left in it."
    a note about the app, not about a version).
 5. Two regenerations in a row from the same frame do not race: the second sees a `409 version_conflict` and the
    dialog keeps the prompt. `expectVersion` is **Slice 1's** optimistic guard
-   (`slice-1.md:336-340`; its route is `PATCH /api/artifacts/[id]/body` at `:348`) — this slice consumes it on
+   (`slice-1.md §Service and routes`; its route is `PATCH /api/artifacts/[id]/body`) — this slice consumes it on
    its own route and adds no second guard.
 6. A regeneration that fails generation leaves the artifact's **current version untouched** and returns
    `422 { ok: false, reason: AppGenerationFailureReason, detail }`; the frame keeps rendering the old version,
@@ -1460,7 +1462,7 @@ is typed narrowly enough that a new name needs a type entry.
 1. The scorer grades a fixture attempt for the `app` suite to its three verdicts with reasons, and an empty
    answer to the failure verdict — never a throw. The verdict vocabulary is the prototype's
    `"works" | "works-with-glitches" | "broken"` (`types.ts:10`), assigned in `score.ts` (`:30`, `:50-66`,
-   `:133-137`); what the verdicts mean for the suite is `slice-5.md:714`. **Do not invent a fourth** — and do
+   `:133-137`); what the verdicts mean for the suite is `slice-5.md §The eval harness`. **Do not invent a fourth** — and do
    not rename `works-with-glitches` to something the prototype's numbers cannot be compared against.
 2. The `app` suite's case list is the prototype's ten prompts (read
    `scripts/prototype-artifact-apps/prompts.ts` from the throwaway branch `proto/artifact-apps-quality` and
@@ -1470,18 +1472,19 @@ is typed narrowly enough that a new name needs a type entry.
    verifier must flag them) and a clean fixture as a negative.
 4. `cases.ts` fails a duplicate case id in either suite.
 5. Each suite's **known-bad fixture fails before any real response is scored** — the harness's own test
-   (`slice-5.md:752-756`); a suite that cannot fail is decoration.
+   (`slice-5.md §The eval harness`); a suite that cannot fail is decoration.
 6. The recorded-response fixtures live under `fixtures/<suite>/responses/**` and are **committed**, so
-   `--replay` re-scores them with no model client constructed and no key (`slice-5.md:676`, `:715`).
+   `--replay` re-scores them with no model client constructed and no key (`slice-5.md §The eval harness`).
 
 - [ ] **Step 2: Run to verify they fail**, then **Step 3: implement** the suites, following the prototype's
       pipeline: prompt → one model call at a time → extract → static audit → headless-Chromium evaluation at
       1280×800 and 390×844, light and dark, with all requests except the document aborted and
       `window.alfy.storage` injected before the app's own scripts — **the prototype's `evaluate.ts` is the
       reference for the browser side; port it rather than reinventing the interception.** Everything the run
-      writes stays under `scripts/eval-artifact-contracts/results/` (gitignored, `slice-5.md:97`, `:677`):
+      writes stays under `scripts/eval-artifact-contracts/results/` (gitignored, `slice-5.md §Global
+      Constraints`, `§The eval harness`):
       `results.json`, the gallery HTML and the screenshots. **Nothing in `results/` may carry the API key's
-      shape** (`slice-5.md:769-775`); `client.ts` is the only module that reads it.
+      shape** (`slice-5.md §The eval harness`); `client.ts` is the only module that reads it.
 
 - [ ] **Step 4: Run it for real, on the box** (the suite ids are slice 5's: `app`, not `apps`)
 
@@ -1516,7 +1519,7 @@ for the model."
 `tests/cross-cutting/incognito-artifact-containment.test.ts` (PART A additions),
 `tests/integration/artifact-app.test.ts`, `src/lib/server/services/account-data-archive/**`.
 **Not touched:** `src/lib/i18n.test-helpers.ts` (Slice 0 registers `artifacts` and its prefix,
-`slice-0.md:910-912`) and `src/lib/i18n/artifacts.test.ts` (run, not edited).
+`slice-0.md §i18n`) and `src/lib/i18n/artifacts.test.ts` (run, not edited).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1526,17 +1529,17 @@ for the model."
    `readsGuardedTables`; **`ALLOWED_WITHOUT_SCOPE` gains nothing**.
 2. **Full erasure** removes the Apps, their versions, their comments and their kv (zero rows, cascade).
 3. **Clear Memory deletes the App artifact row** and everything hanging off it: an App is a `type: "artifact"`
-   row with `metadata_json.artifactType = "app"` (`slice-0.md:521-524`), and
+   row with `metadata_json.artifactType = "app"` (`slice-0.md §The boundary`), and
    `clearMemoryAndKnowledgeForUser` deletes every artifact row whose type is **not** `generated_output`
    (`account-lifecycle/index.ts:93-97`). What survives Clear Memory is the exported `.html` **chat file**,
-   because that row is a `generated_output` (`decisions.md:161-166`). Assert both halves; do not assert the
+   because that row is a `generated_output` (`decisions.md` ruling 18). Assert both halves; do not assert the
    App survives — that would be a false expectation, and it is an owner question (see Owner decisions 10).
 4. The account data archive contains the App's title, its verification state, **its code**, and its stored
    key-value rows as readable JSON — a user's own generated app and the data saved inside it are their data and
-   must be exportable (`decisions.md:203-207`, ruling 24). Assert the HTML appears sanitized as text inside a `<pre>`,
+   must be exportable (`decisions.md` ruling 24). Assert the HTML appears sanitized as text inside a `<pre>`,
    never as a live document that runs when the archive is opened.
 5. i18n: run Slice 0's suite — every `artifacts.app.*` key exists in both locales and no value matches
-   `/artifact/i` (`src/lib/i18n/artifacts.test.ts`; `slice-0.md:911-913`). This slice adds no new keys beyond
+   `/artifact/i` (`src/lib/i18n/artifacts.test.ts`; `slice-0.md §i18n`). This slice adds no new keys beyond
    A6's table.
 6. `npm run check:migrations` is unchanged (no new table in this slice) — run it and say so.
 
@@ -1552,7 +1555,7 @@ npx vitest run tests/cross-cutting tests/integration/artifact-app.test.ts src/li
 - [ ] **Step 4: Run the full gates** (the Gates block) **plus**:
 
 ```bash
-npx playwright test tests/e2e/artifact-app.spec.ts tests/e2e/artifact-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/mobile-design.spec.ts
+npx playwright test tests/e2e/artifact-app.spec.ts tests/e2e/artifacts-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/mobile-design.spec.ts
 ```
 Expected: PASS, with **no change to `ALLOWED_WITHOUT_SCOPE`** — verify with
 `git diff tests/cross-cutting/incognito-artifact-containment.test.ts`.
@@ -1631,7 +1634,7 @@ the Contracts' tables.
 | A `set` exceeded a limit | `413` / `409` with `too_large` / `too_many_keys`; **no row written** | the app's own line: `This app tried to save more than it can.` / `Ez az alkalmazás többet próbált elmenteni, mint amennyi lehet.` |
 | A `set` value cannot be serialised | `400 not_serialisable`; no row | `This app tried to save something that cannot be saved.` / `Ez az alkalmazás olyat próbált elmenteni, ami nem menthető.` |
 | A frame that never replies | the bridge's timeout rejects the app's promise; the parent renders nothing | `The app could not reach its saved data.` / `Az alkalmazás nem érte el a mentett adatait.` |
-| Another user's artifact | `404 { ok: false, reason: "not_found" }` on the app, kv and regenerate routes — one reason for absent, foreign and out-of-scope, so an id cannot be probed (`slice-0.md:505-506`) | `This app could not be opened.` / `Ezt az alkalmazást nem sikerült megnyitni.` |
+| Another user's artifact | `404 { ok: false, reason: "not_found" }` on the app, kv and regenerate routes — one reason for absent, foreign and out-of-scope, so an id cannot be probed (`slice-0.md §Failure modes`) | `This app could not be opened.` / `Ezt az alkalmazást nem sikerült megnyitni.` |
 | The artifact is deleted while the card is open | the next body fetch 404s | `artifacts.error.gone`; card collapses, chat untouched |
 | Regeneration races another write | `409 version_conflict` | the dialog keeps the prompt and offers to try again |
 | The app is not in a conversation | no server call at all: the action is disabled | `This app is not in a chat, so it cannot be saved as a file.` / `Ez az alkalmazás nincs beszélgetésben, ezért nem menthető fájlként.` |
@@ -1641,7 +1644,7 @@ the Contracts' tables.
 ## Limits and configuration
 
 Nothing here is admin-configurable, and that is deliberate: Slice 0's `limits.ts` holds the family's caps with
-the reason as its comment (`slice-0.md:922-939`), and the model/thinking/sampling values are product decisions
+the reason as its comment (`slice-0.md §Limits and configuration`), and the model/thinking/sampling values are product decisions
 with a measured baseline behind them (spec §2.9, §8.1). A knob for any of them would be a knob nothing tunes.
 
 | Cap / value | Value | Where it is read | Why not configurable |
@@ -1651,10 +1654,10 @@ with a measured baseline behind them (spec §2.9, §8.1). A knob for any of them
 | Thinking | pinned **off** | `APP_THINKING_MODE` in the generator, projected by `provider-model-runtime-defaults.ts` | §2.9; the alternative is an empty app, measured twice |
 | `APP_KV_LIMITS` | `maxKeys` 200, `maxKeyLength` 128, `maxValueBytes` 256 KiB (all from Slice 0's `limits.ts`), `maxTotalBytes` 1 MiB (this slice) | `artifacts/app/storage.ts` | Slice 0 owns the store's caps and assigned this slice the job of surfacing them; the total is this slice's addition because the store caps a value and a count but never a total |
 | Frame height reservation | `min-height: 420px` / `320px` | `AppBody.svelte` | A CLS guard, not a product value |
-| `create_artifact` envelope timeout | `120_000` ms | `TOOL_TIMEOUTS_MS` (`normal-chat-tools/shared.ts:196-232`) | It must clear the App path's worst case (see A7 Step 3). **This is the one value this slice changes in a file Slices 1 and 5 also own** — reported as a conflict, and the change is one row |
+| `create_artifact` envelope timeout | `120_000` ms | `TOOL_TIMEOUTS_MS` (`normal-chat-tools/shared.ts:196-232`) | It must clear the App path's worst case (see A7 Step 3). Slice 5 lands this row once (ruling 40); this slice reads it, asserts it and changes nothing |
 | Verification call | no separate budget: the same provider path and `REQUEST_TIMEOUT_MS` (`config-store.ts:1372`, env `REQUEST_TIMEOUT_MS` at `env.ts:597`) that every Normal Chat model run uses | `normal-chat-model/` | Reusing the chat's provider timeout keeps one timeout story; a second one would be a second place to tune |
 | `research_web` inside the verifier | its own `TOOL_TIMEOUTS_MS.research_web = 60_000` (`shared.ts:197`) | verifier tool call | Existing row, unchanged |
-| Eval harness switches | `EVAL_ARTIFACTS_*`, `--suite`/`--replay`/`--limit`/`--out` (`slice-5.md:684-701`) | Slice 5's `config.ts` | The harness is not the product |
+| Eval harness switches | `EVAL_ARTIFACTS_*`, `--suite`/`--replay`/`--limit`/`--out` (`slice-5.md §The eval harness`) | Slice 5's `config.ts` | The harness is not the product |
 
 `APP_MAX_OUTPUT_TOKENS` and `APP_SAMPLING_DEFAULTS` are the two values most likely to be questioned. They are
 **not** read through `config-store.ts`, and the reason is that they are contract values: the eval suite's
@@ -1717,7 +1720,7 @@ gallery — that is harness furniture, not a product surface.
 | The eval suite not run | §8.1's gate becomes a document nobody executes | A9 step 4 runs it on the box and its numbers go in the report beside the baseline |
 | A generation wedging the turn | A long model call with no budget blocks the conversation | A7.5 asserts the budget and the model-safe failure |
 | The export becomes a second, weaker runtime | The shared preview runtime trusts any `.html` with the report CSP and renders it with popups that escape (`preview-runtime/index.ts:303`, `DocumentPreviewRenderer.svelte:205-209`), while the AppFrame allows `allow-scripts` only | A6.10 asserts the download is an attachment and the card previews through the AppFrame; the outside-the-card path is recorded as a **known gap** with the policy file named (Review Focus 9) |
-| The `create_artifact` timeout is missing | With no row the map lookup yields `undefined`, no timer is armed and the tool has **no timeout at all** (`shared.ts:343-350`); with Slice 1's `10_000` it aborts a healthy generation | A7.5 asserts the row is ≥ 120 s; the conflict with `slice-1.md:1000` and `slice-5.md:321` is reported |
+| The `create_artifact` timeout is missing | With no row the map lookup yields `undefined`, no timer is armed and the tool has **no timeout at all** (`shared.ts:343-350`); with a smaller row it aborts a healthy generation | A7.5 asserts Slice 5's single row exists and is ≥ 120 s (ruling 40) |
 | The kv becomes an unbounded bag | The prototype's apps write per-item keys; the store caps keys and one value but never a total | `APP_KV_LIMITS.maxTotalBytes` (1 MiB) plus A5.3's no-row assertions; Slice 0's per-key and per-value caps are imported, not restated |
 | Clear Memory deletes a user's Apps | `clearMemoryAndKnowledgeForUser` deletes every artifact row whose type is not `generated_output` (`account-lifecycle/index.ts:93-97`), and an App is a `type: "artifact"` row | A10.3 asserts the real behaviour instead of the expected one, and it is raised as Owner decision 10 with the alternative (an explicit App exclusion) named |
 | Verification without a Parallel key silently claims it checked | `research_web` is registered only with `parallelApiKey` present (`normal-chat-tools/index.ts:552-562`) | The `unavailable` verdict: `checked: false` is a **reported** state, and `artifacts.app.verify.unavailable` is a different sentence from `verify.clean` (Review Focus 10) |
@@ -1735,10 +1738,10 @@ number, not an impression.
 | 4 | `npm run build` | **0 warnings**; the panel-shell chunk has not grown by the App's cost (the app runs in an iframe; Shiki was already loaded by the preview path) |
 | 5 | `npm run check:migrations` | unchanged — **no new migration, no new table** in this slice (the next free id stays `1777140000112`/idx 125 for whatever lands next) |
 | 6 | `npx fallow --no-cache --format json --quiet --score --output-file /tmp/alfyai-fallow.json` | no new findings, **no new ignores**; the five known cycle findings are unchanged |
-| 7 | `npx playwright test tests/e2e/artifact-app.spec.ts tests/e2e/artifact-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/mobile-design.spec.ts` | green |
+| 7 | `npx playwright test tests/e2e/artifact-app.spec.ts tests/e2e/artifacts-panel.spec.ts tests/e2e/chat.spec.ts tests/e2e/mobile-design.spec.ts` | green |
 | 8 | `git diff tests/cross-cutting/incognito-artifact-containment.test.ts` | the three App readers added to `readsGuardedTables`; **`ALLOWED_WITHOUT_SCOPE` byte-identical** |
 | 9 | `grep -rn 'artifactType === "app"' src/` | **exactly one** dispatch (Slice 5 moves the file, not the branch) |
-| 10 | `grep -n "create_artifact" src/lib/server/services/normal-chat-tools/shared.ts` | exactly one row, `120_000`, not `10_000` or `30_000` |
+| 10 | `grep -n "create_artifact" src/lib/server/services/normal-chat-tools/shared.ts` | exactly one row, `120_000` (Slice 5's, ruling 40) |
 | 11 | `npx vitest run scripts/eval-artifact-contracts/scoring.test.ts` | the scorer's three verdicts and the known-bad fixtures |
 | 12 | `npx tsx scripts/eval-artifact-contracts/run.ts --suite app` and `--suite verification` | run against the real model; both scored results pasted into the report **beside** the prototype baseline (10/10 `works`; 3 hand-audited bugs). A number worse on either axis is a design finding (§8.1) |
 | 13 | `npx tsx scripts/eval-artifact-contracts/run.ts --replay --suite app` | re-scores the committed responses with no model client and no key |
@@ -1805,15 +1808,18 @@ Decisions **this slice adds**, for the owner to confirm or overrule:
     exclusion would be the first type to argue for its own rule. The follow-up, if you agree, is the Settings
     copy that describes Clear Memory, which does not currently mention artifacts going with it (Feature 1's
     surface, not this slice's).
-11. **One `create_artifact` timeout, sized for the App: `120_000`.** Slice 1 wrote `10_000` (`slice-1.md:1000`)
-    and Slice 5 `30_000` (`slice-5.md:321`); both are sized for a local Document write and neither clears a
+11. **One `create_artifact` timeout, sized for the App: `120_000` — and it is Slice 5's row.** The 10 s/30 s
+    disagreement is settled by ruling 40: both were sized for a local Document write, and neither clears a
     generation (12.7–23.0 s measured) plus a classifier plus a verifier that may spend up to 60 s in
-    `research_web` plus a repair. The map is keyed by tool name, so one row has to serve both. **Recommendation:
-    land 120 s here** (it is the only row this slice changes in a file another slice owns) and let Slice 5's
-    move carry it across unchanged. If you would rather keep the App generation off the chat turn's budget
-    entirely, the alternative is a two-tier envelope — a bigger change than this slice should make silently.
+    `research_web` plus a repair. The map is keyed by tool name, so one row serves both paths, and it lands in
+    Slice 5's `TOOL_TIMEOUTS_MS` table (`slice-5.md §TOOL_TIMEOUTS_MS rows`). **Recommendation: keep it there
+    unchanged** — this slice adds no second row and no override, and A7.5 fails on a branch where the row is
+    missing, which is the worse failure (no timeout at all). If you would rather keep the App generation off the
+    chat turn's budget entirely, the alternative is a two-tier envelope — a bigger change than this slice should
+    make silently.
 12. **`APP_KV_LIMITS.maxTotalBytes = 1 MiB`, added on top of Slice 0's caps.** Slice 0 bounds one value (256 KiB)
-    and the key count (200) but never a total (`slice-0.md:937-939`), so without this an app could hold 50 MB.
+    and the key count (200) but never a total (`slice-0.md §Limits and configuration`), so without this an app
+    could hold 50 MB.
     **Recommendation: keep 1 MiB** — far above any honest app state (the prototype's largest was a few kB) and
     the refusal is shown to the app in its own words.
 13. **Verification degrades, it does not block.** When `research_web` is absent (no Parallel key,

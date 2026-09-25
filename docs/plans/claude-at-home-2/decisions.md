@@ -226,9 +226,10 @@ fixed in the consistency pass.
 
 ## 28. Deck exports are not remembered; notes are same-device; PDF stays deferred
 
-- **A deck does not track its exports** in v1: the read model drops `idempotencyKey`
-  (`file-production/read-model.ts:491`), so there is nothing to match an export against. Deferred, not
-  designed around.
+- **A deck does not track its exports** in v1: the read model does not expose `idempotencyKey`, so there is
+  nothing to match an export against. Deferred, not designed around. (*Citation corrected: an earlier draft
+  pointed at `read-model.ts:491`, an accessor; the identifier appears nowhere in that file, though the
+  substance — the read model does not carry it — holds.*)
 - **Presenter notes are same-device** (a presenter view on the screen you are presenting from). The mockup's
   "read them from your phone" would need a second device seeing the same artifact, which needs the sharing
   ADR-0066 rules out.
@@ -258,9 +259,10 @@ corrected in the consistency pass.
 
 ## 31. Shared test suites: created once, appended to
 
-The containment suite (and the panel e2e spec) are **created by slice 0** and later slices **append a case**
-in serialisation order — append-only, never restructure. `plan.md:174` reserving the containment suite to
-slice 0 is corrected to say "created by 0, appended by 5 and 6".
+**Corrected:** `tests/cross-cutting/incognito-artifact-containment.test.ts` already exists in-tree (669
+lines), so slice 0 **extends** it rather than creating it; the panel e2e spec is created by slice 0. Later
+slices append a case to either, in serialisation order — append-only, never restructure. `plan.md:174`
+reserving the containment suite to slice 0 is corrected to say "extended by 0, appended by 5 and 6".
 
 ## 32. Tour replay lives in the panel, and a real defect must be fixed first
 
@@ -324,11 +326,12 @@ after** at 844 px, with the type's own toolbar layout. No decision changes; the 
 
 ## 39. Our artifact routes return 401, like `campaign-assets` does
 
-`requireAuth` performs a 302 redirect (`src/lib/server/auth/hooks.ts:12-18`), which is wrong for a JSON
-caller. The established pattern is to **catch it and return 401** — `campaign-assets`' content route does
-exactly that (`[id]/content/+server.ts:6-11`). The artifact routes follow that precedent, and the auth tests
-assert **401 at the HTTP layer**. (This refines ruling 19: name the layer — and for API routes the layer's
-answer is 401.)
+**Amended 2026-09-25.** The repo already has the right tool: `requireApiUser`
+(`src/lib/server/api/auth.ts:14-21`) is documented as the API sibling of `requireAuth` — same job, but it
+throws `error(401)` itself, which SvelteKit renders as JSON from a `+server` endpoint. **The artifact routes
+use `requireApiUser`.** Catching a redirect is not the pattern; an earlier draft of this ruling proposed it
+before the helper was found. Ruling 19's layering note stands: tests assert **401 at the HTTP layer**, and no
+slice writes its own auth check.
 
 ## 40. `create_artifact` gets 120 s, in one place
 
@@ -354,6 +357,86 @@ restructures what an earlier slice landed.
 - **Clear Memory keeps deleting App artifacts** (`account-lifecycle/index.ts:93-97`) — Apps are
   `type: "artifact"`, so they are user workspace content. A previously downloaded `.html` is the user's own
   file and stays, exactly like any other download; the archive covers the artifact itself (ruling 24).
+
+## 43. One owner for the three tools: Slice 5, landed early as "5a"
+
+*Approved by the owner with the working plan, 2026-09-25.* Slices 1, 2 and 5 each described the three model
+tools, and slice 5's own T2/T3 tests call slice 1/3/4 validators, so no single reading of the slices could land.
+
+- **5a** (right after slice 0) lands `normal-chat-tools/artifact-tools/{create,read,edit}.ts` as
+  `slice-5.md §The three tools` specifies (advertised vs executed schemas; `summary`, not `label`; the payload
+  shapes; `ArtifactRefusal`; tool-call metadata), their registration in `index.ts`, the **final family-wide EN
+  and HU descriptions** in `TOOL_I18N`, **all three** `TOOL_TIMEOUTS_MS` rows (`create_artifact: 120_000`,
+  `edit_artifact: 20_000`, `read_artifact: 10_000`), the one measured catalogue-ceiling raise (ruling 23), the
+  gating test, and a per-kind dispatch seam into the artifacts service with no creatable kind registered yet.
+- Each type slice appends **only** its kind's handler entry per tool, its member of `ArtifactRefusalReason`, and
+  its kind's tests. **No type slice edits `normal-chat-tools/index.ts` or `shared.ts`.**
+- Superseded: slice-1's `normal-chat-tools/artifacts.ts`, its `label` argument, its description table and its
+  two timeout rows; slice-2's "Slice 1 creates it; Slice 5 moves it" rows; slice-5's reading that T2/T3's
+  per-type tests land with the shell. Rulings 40 and 41 are satisfied as written.
+
+## 44. The harness core lands early; each type slice owns, and runs, its own suite
+
+*Approved 2026-09-25.* 5a lands, on slice 0's skeleton, the core of `slice-5.md §The eval harness` —
+`config.ts`, `client.ts` (the only reader of a key), `run.ts` and its flag table, the known-bad-first refusal,
+the per-suite scorer dispatch, the results-leak test, the `.gitignore` line and the `eval:artifacts` scripts.
+Each type slice writes `suites/<suite>.ts`, `fixtures/<suite>/**` (with `known-bad/` and committed
+`responses/`), its scorer and its `cases.ts` entry, and runs its live gate before it is called done: slice 1
+`document`; slice 2 `app` and `verification`; **slice 3 `canvas`** (a task its spec lacked); slice 4 `slides`.
+No type slice edits `run.ts`, `config.ts` or `client.ts`; slice 5's T9 is the all-suite run. Superseded:
+slice-1 T13's file list, and slice-5 T8 writing every suite.
+
+## 45. One home per shared comment and anchor symbol; slice 1 creates the comment card
+
+*Approved 2026-09-25.* `src/lib/shared/artifacts/anchor.ts`: slice 0 declares `Anchor`; slice 1 appends the
+interface pieces (`AnchorResolution`, `AnchorState`, `AnchorTone` and the pure helpers its table lists); the
+Document's text resolver stays in `src/lib/shared/artifact-document/anchor.ts` (ruling 35). Slice 3's
+`src/lib/shared/artifacts/comments.ts` imports those and never redeclares them. `CommentCard.svelte` lives at
+`src/lib/components/artifacts/CommentCard.svelte`, **created by slice 1** and consumed by slice 3 — the
+`RefusalNotice.svelte` pattern. Every exported symbol is declared once in the tree.
+
+## 46. Surfaces 4 and 6 get an owner: Slice 7
+
+*Owner, 2026-09-25: "Build the missing surfaces too, yes."* Knowledge → Documents lists all five kinds in one list,
+with a Version column and the mockup's six chips — All · Documents · Canvas · Apps · Slides · Uploaded — where a
+produced File groups under Uploaded with its file-format pill, exactly as surfaces mockup §4 shows (*corrected
+2026-09-25: an earlier wording, "all five kinds with type chips", read as a separate File chip the mockup does not
+have*); Workspace Search finds every kind, as flat rows labelled with the
+kind (§6). Both obey the containment rules — never an incognito artifact, never another user's, never outside
+`getArtifactOwnershipScope`. Specified as `slice-7.md` in the house format, landed in wave 3. Slice 0's non-goal
+line ("no Knowledge-page listing change and no new search scope") stays true of slice 0.
+
+## 47. A user's own saves coalesce into one version per editing burst; nothing else does
+
+*Orchestrator, 2026-09-25, from Slice 0's data review.* Every version stores the whole body (up to 2 MiB), and
+Slice 1's editor autosaves every 800 ms, so one version per save would store hundreds of full copies per editing
+hour. Rule, owned by Slice 1's body-write path (`updateArtifactBody`):
+- **Always a new version:** every Alfy change (edit_artifact, an `@Alfy` comment edit, an App regenerate), every
+  restore, and the artifact's creation. Undo and History depend on these; they are never merged.
+- **Coalesced:** a save authored by the user **updates the latest version in place** (body, body_hash, its
+  timestamp; the version number is unchanged) when that latest version is also the user's and was created less
+  than **10 minutes** earlier. Otherwise it appends a new version. So an Alfy change always closes the user's
+  burst, and "Undo" of an Alfy change restores exactly the user's text just before it (spec §2.4 holds).
+- The version-number guard (`expectVersion`) is unaffected: an in-place user save keeps the number, and any
+  Alfy version still bumps it and refuses a stale save.
+- No hard cap on version count in v1 (single-user accounts); History lists newest first, paged. Revisit if a
+  measured artifact exceeds ~200 versions.
+
+## 48. An App's key-value storage has a total cap as well as per-value caps
+
+*Orchestrator, 2026-09-25, from Slice 0's data review.* Slice 0 caps each value (256 KiB) and the key count (200),
+which still allows ~50 MiB per App. **Slice 2** adds `ARTIFACT_KV_TOTAL_MAX_BYTES = 512 * 1024` to Slice 0's
+`limits.ts` and enforces it inside `setKv`'s transaction (the sum of value bytes after the write), refusing with
+the same no-write semantics and reason family as the per-value cap; `APP_KV_LIMITS` derives from it like the others,
+with a test that pins the equality.
+
+## 49. Every artifact route answers `{ ok: true, … }` on success
+
+*Orchestrator, 2026-09-25.* `slice-0.md` states it ("Success and failure have one shape across this feature") and
+slices 1–6 were written against it (`ok: true` appears in each), but Slice 0 shipped flat success bodies for
+`GET /api/artifacts/[id]` and `GET /api/conversations/[id]/artifacts`-style reads. They gain `ok: true` in Slice 0's
+post-review integration step, with the client parser and tests updated in the same commit. The failure shape
+`{ ok: false, reason }` is unchanged, and a foreign id and a missing id keep byte-identical 404 bodies.
 
 ## Consequences for the slice specs (cumulative)
 

@@ -11,7 +11,10 @@ or contradicts the code, stop and ask me.
 2. `docs/plans/claude-at-home-2-prototype-findings.md` — what the three prototypes measured, including the
    traps. Treat its numbers as fact; they were reproduced independently.
 3. `docs/plans/claude-at-home-2/` — `plan.md` and `slice-0.md` … `slice-6.md`: the per-slice specs you will
-   execute. If a slice contradicts the parent spec, the parent spec wins; report the conflict.
+   execute, plus two binding companions: **`decisions.md`** (43 rulings that override the slices where they
+   disagree — rulings win, and a ruling that contradicts a slice is a slice bug) and
+   **`review-consistency.md`** (the record of the consistency pass across all seven). If a slice contradicts
+   the parent spec, the parent spec wins; report the conflict.
 4. The agreed UI: `docs/plans/claude-at-home-2-artifacts-mockups.html` (App, File),
    `claude-at-home-2-artifact-types-mockups.html` (Canvas, Document, Slides) and
    `claude-at-home-2-artifact-surfaces-mockups.html` (where artifacts live, the panel's list, the tour).
