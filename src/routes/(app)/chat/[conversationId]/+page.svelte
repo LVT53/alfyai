@@ -3137,6 +3137,7 @@ function handleDrop(event: DragEvent) {
 			documents={workspaceDocuments}
 			availableDocuments={availableWorkspaceDocumentsWithArtifacts}
 			activeDocumentId={activeWorkspaceDocumentId}
+			conversationId={data.conversation.id}
 			list={{
 				open: artifactListOpen,
 				items: artifactWorkspaceItems,
