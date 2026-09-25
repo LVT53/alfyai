@@ -34,6 +34,7 @@ import type {
 	ArtifactMetadata,
 	ArtifactRecord,
 	ArtifactScopeOptions,
+	CreatableArtifactKind,
 	CreateArtifactInput,
 } from "./types";
 

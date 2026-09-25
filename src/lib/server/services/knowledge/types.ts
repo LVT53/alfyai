@@ -15,7 +15,12 @@ export type ArtifactType =
 	| "normalized_document"
 	| "generated_output"
 	| "skill_note"
-	| "work_capsule";
+	| "work_capsule"
+	// The artifact family (Feature 2, ADR-0066): Document/App/Canvas/Slides
+	// rows write `type: "artifact"` (record.ts's ARTIFACT_ROW_TYPE). Knowledge
+	// code previously excluded this type entirely — the rows exist in the
+	// database, but nothing here could name them.
+	| "artifact";
 
 export type ArtifactRetrievalClass =
 	| "durable"
