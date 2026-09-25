@@ -641,6 +641,10 @@ let showJumpToLatestButton = $derived(
 );
 
 function handleJumpToLatestClick() {
+	// The reader asks for the latest message as opening the thread does; hold
+	// it there while anything still rendering lands (a streaming reply
+	// releases the hold and follows instead).
+	holdPosition("bottom");
 	instantScrollToBottom();
 	shouldAutoScroll = true;
 	measureScrollMetrics();
