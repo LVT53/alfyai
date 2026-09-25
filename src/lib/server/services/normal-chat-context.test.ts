@@ -1441,7 +1441,9 @@ describe("prepareOutboundChatContext", () => {
 		expect(guidance).toMatch(
 			/produce specific content in (a different|another) language/i,
 		);
-		expect(guidance).toMatch(/write (that|it|the) .*(requested language|language asked for|language it was asked for)/i);
+		expect(guidance).toMatch(
+			/write (that|it|the) .*(requested language|language asked for|language it was asked for)/i,
+		);
 		expect(guidance).toMatch(/does not change the required response language/i);
 	});
 

@@ -615,7 +615,10 @@ export async function listRecentUserMessageTexts(
 		.select({ id: conversations.id })
 		.from(conversations)
 		.where(
-			and(eq(conversations.id, conversationId), eq(conversations.userId, userId)),
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
 		)
 		.limit(1);
 	if (!conversation) return [];
