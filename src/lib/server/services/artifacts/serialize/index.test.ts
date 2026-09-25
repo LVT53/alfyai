@@ -6,8 +6,12 @@ describe("the artifact serializer registry", () => {
 		expect(getArtifactSerializer("file")?.kind).toBe("file");
 	});
 
+	it("resolves the document serializer by kind (Slice 1)", () => {
+		expect(getArtifactSerializer("document")?.kind).toBe("document");
+	});
+
 	it("answers null — not a throw — for a kind whose slice has not landed", () => {
-		for (const kind of ["document", "app", "canvas", "slides"] as const) {
+		for (const kind of ["app", "canvas", "slides"] as const) {
 			expect(getArtifactSerializer(kind)).toBeNull();
 		}
 	});

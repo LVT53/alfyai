@@ -13,6 +13,7 @@ import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import {
 	artifactComments,
+	artifactKv,
 	artifacts,
 	artifactVersions,
 } from "$lib/server/db/schema";
@@ -25,6 +26,7 @@ import { hashArtifactBody } from "./hash";
 import {
 	ARTIFACT_BODY_MAX_BYTES,
 	ARTIFACT_TITLE_MAX_CHARS,
+	ARTIFACT_USER_VERSION_COALESCE_MS,
 	ARTIFACT_VERSION_SUMMARY_MAX_CHARS,
 } from "./limits";
 import type {
@@ -49,6 +51,14 @@ type ArtifactTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * owns it and make Clear Memory delete it.
  */
 const ARTIFACT_ROW_TYPE = "artifact";
+
+/**
+ * The one key `updateArtifactBody`'s optional `snapshot` param writes to
+ * `artifact_kv` (Slice 1). Exported so `document-ops.ts` reads back the exact
+ * key this function wrote, rather than a second string literal that could
+ * drift from it.
+ */
+export const ALFY_SNAPSHOT_KV_KEY = "alfy.snapshot";
 
 /** The two row types the family spans in slice 0. */
 export const FAMILY_ROW_TYPES = [ARTIFACT_ROW_TYPE, "generated_output"];
@@ -378,6 +388,31 @@ export async function getArtifact(
 	};
 }
 
+/** Upsert one `artifact_kv` row inside an already-open transaction. */
+function writeArtifactKvInTx(
+	tx: ArtifactTransaction,
+	artifactId: string,
+	key: string,
+	valueJson: string,
+): void {
+	const existing = tx
+		.select({ id: artifactKv.id })
+		.from(artifactKv)
+		.where(and(eq(artifactKv.artifactId, artifactId), eq(artifactKv.key, key)))
+		.get();
+	const now = new Date();
+	if (existing) {
+		tx.update(artifactKv)
+			.set({ valueJson, updatedAt: now })
+			.where(eq(artifactKv.id, existing.id))
+			.run();
+	} else {
+		tx.insert(artifactKv)
+			.values({ id: randomUUID(), artifactId, key, valueJson, updatedAt: now })
+			.run();
+	}
+}
+
 export async function updateArtifactBody(
 	params: {
 		userId: string;
@@ -387,10 +422,39 @@ export async function updateArtifactBody(
 		summary: string;
 		/** Optional optimistic guard: the hash the caller last read. */
 		baseHash?: string;
+		/** Merged into `metadata_json` in the same transaction (Slice 1: the Document's tab strip). */
+		metadataPatch?: Record<string, unknown>;
+		/**
+		 * Written to `artifact_kv['alfy.snapshot']` in the same transaction as the
+		 * body (Slice 1). `docVersion` is advisory: this function always
+		 * overwrites it with the version number IT computes below, so a caller
+		 * can never persist a snapshot claiming a version that was not, in fact,
+		 * the one just written.
+		 */
+		snapshot?: { at: number; docVersion: number; index: Record<string, string> };
+		/**
+		 * Ruling 47, opt-in. When true AND `author === "user"`, this save updates
+		 * the latest version in place instead of appending — but only when that
+		 * latest version is ALSO the user's and less than
+		 * `ARTIFACT_USER_VERSION_COALESCE_MS` old. Left unset (the default), every
+		 * write appends, which is what every existing caller still gets: Alfy's
+		 * edits, `createArtifact`, and — the reason this is opt-in rather than
+		 * automatic on `author === "user"` — `restoreVersion`. A restore is
+		 * authored `"user"` too, but ruling 47 lists it under "always a new
+		 * version" beside Alfy's own writes: a restore immediately after an
+		 * ordinary user edit must not merge into it, or "restore" would silently
+		 * eat the edit it was supposed to sit beside in the history.
+		 */
+		coalesceUserEdits?: boolean;
+		/** Refuses unless the artifact's current version number matches (the panel's autosave race). */
+		expectVersion?: number;
 	} & ArtifactScopeOptions,
 ): Promise<
-	| { ok: true; versionId: string; bodyHash: string }
-	| { ok: false; reason: "not_found" | "too_large" | "stale" | "hash_mismatch" }
+	| { ok: true; versionId: string; bodyHash: string; versionNumber: number }
+	| {
+			ok: false;
+			reason: "not_found" | "too_large" | "stale" | "hash_mismatch" | "version_conflict";
+	  }
 > {
 	const row = await readScopedArtifactRow(params);
 	if (!row || !isEditableArtifactRow(row)) {
@@ -405,7 +469,7 @@ export async function updateArtifactBody(
 
 	return db.transaction((tx) => {
 		const current = tx
-			.select({ contentText: artifacts.contentText })
+			.select({ contentText: artifacts.contentText, metadataJson: artifacts.metadataJson })
 			.from(artifacts)
 			.where(eq(artifacts.id, row.id))
 			.get();
@@ -418,23 +482,96 @@ export async function updateArtifactBody(
 		) {
 			return { ok: false as const, reason: "stale" as const };
 		}
+		const currentVersionNumber = newest?.versionNumber ?? 0;
+		if (
+			params.expectVersion !== undefined &&
+			params.expectVersion !== currentVersionNumber
+		) {
+			return { ok: false as const, reason: "version_conflict" as const };
+		}
 
 		const now = new Date();
+
+		// Ruling 47: a user-authored save updates the latest version IN PLACE
+		// (same version number) when that latest version is also the user's and
+		// was created less than ARTIFACT_USER_VERSION_COALESCE_MS ago. Every
+		// Alfy change, restore and creation still always appends — this is the
+		// coalescing path's only entry, and it never applies to them.
+		const latestVersionRow = newest
+			? tx
+					.select({
+						id: artifactVersions.id,
+						author: artifactVersions.author,
+						createdAt: artifactVersions.createdAt,
+					})
+					.from(artifactVersions)
+					.where(
+						and(
+							eq(artifactVersions.artifactId, row.id),
+							eq(artifactVersions.versionNumber, newest.versionNumber),
+						),
+					)
+					.get()
+			: undefined;
+		const canCoalesce =
+			params.coalesceUserEdits === true &&
+			params.author === "user" &&
+			latestVersionRow?.author === "user" &&
+			now.getTime() - latestVersionRow.createdAt.getTime() < ARTIFACT_USER_VERSION_COALESCE_MS;
+
+		let versionId: string;
+		let versionNumber: number;
+		if (canCoalesce && latestVersionRow) {
+			tx.update(artifactVersions)
+				.set({
+					body: params.body,
+					bodyHash,
+					createdAt: now,
+					summary: clampChars(params.summary, ARTIFACT_VERSION_SUMMARY_MAX_CHARS),
+				})
+				.where(eq(artifactVersions.id, latestVersionRow.id))
+				.run();
+			versionId = latestVersionRow.id;
+			versionNumber = newest?.versionNumber ?? currentVersionNumber;
+		} else {
+			versionNumber = currentVersionNumber + 1;
+			versionId = insertVersionRow(tx, {
+				artifactId: row.id,
+				userId: params.userId,
+				versionNumber,
+				author: params.author,
+				summary: params.summary,
+				body: params.body,
+				bodyHash,
+				createdAt: now,
+			});
+		}
+
+		const metadataJson = params.metadataPatch
+			? JSON.stringify({
+					...(parseJsonRecord(current.metadataJson) ?? {}),
+					...params.metadataPatch,
+				})
+			: undefined;
 		tx.update(artifacts)
-			.set({ contentText: params.body, updatedAt: now })
+			.set({
+				contentText: params.body,
+				updatedAt: now,
+				...(metadataJson !== undefined ? { metadataJson } : {}),
+			})
 			.where(eq(artifacts.id, row.id))
 			.run();
-		const versionId = insertVersionRow(tx, {
-			artifactId: row.id,
-			userId: params.userId,
-			versionNumber: (newest?.versionNumber ?? 0) + 1,
-			author: params.author,
-			summary: params.summary,
-			body: params.body,
-			bodyHash,
-			createdAt: now,
-		});
-		return { ok: true as const, versionId, bodyHash };
+
+		if (params.snapshot) {
+			writeArtifactKvInTx(
+				tx,
+				row.id,
+				ALFY_SNAPSHOT_KV_KEY,
+				JSON.stringify({ ...params.snapshot, docVersion: versionNumber }),
+			);
+		}
+
+		return { ok: true as const, versionId, bodyHash, versionNumber };
 	});
 }
 

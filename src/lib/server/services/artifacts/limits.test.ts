@@ -17,6 +17,7 @@ describe("artifact limits", () => {
 			ARTIFACT_KV_MAX_KEYS: 200,
 			ARTIFACT_KV_KEY_MAX_CHARS: 128,
 			ARTIFACT_KV_VALUE_MAX_BYTES: 256 * 1024,
+			ARTIFACT_USER_VERSION_COALESCE_MS: 10 * 60 * 1000,
 		});
 	});
 });
