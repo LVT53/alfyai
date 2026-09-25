@@ -24,6 +24,7 @@ type WorkspaceRenderOptions = {
 	documents?: DocumentWorkspaceItem[];
 	availableDocuments?: DocumentWorkspaceItem[];
 	activeDocumentId?: string | null;
+	conversationId?: string | null;
 	list?: WorkspaceList;
 	onSelectDocument?: SelectDocumentCallback;
 	onOpenDocument?: OpenDocumentCallback;

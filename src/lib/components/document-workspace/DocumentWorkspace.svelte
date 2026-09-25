@@ -55,6 +55,7 @@ let {
 	documents = [],
 	availableDocuments = [],
 	activeDocumentId = null,
+	conversationId = null,
 	list = null,
 	onSelectDocument,
 	onOpenDocument = undefined,
@@ -71,6 +72,8 @@ let {
 	documents?: DocumentWorkspaceItem[];
 	availableDocuments?: DocumentWorkspaceItem[];
 	activeDocumentId?: string | null;
+	/** The conversation this panel is showing, so artifact bodies can resolve an incognito conversation's own artifacts. Null outside a conversation. */
+	conversationId?: string | null;
 	list?: WorkspaceList;
 	onSelectDocument: (documentId: string) => void;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
@@ -1219,6 +1222,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 							kind={activeArtifactKind}
 							title={getDocumentTitle(activeDocument)}
 							body={null}
+							{conversationId}
 						/>
 					{/await}
 				{:else if compareMode && comparedDocument}
@@ -1481,6 +1485,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 					kind={activeArtifactKind}
 					title={getDocumentTitle(activeDocument)}
 					body={null}
+					{conversationId}
 				/>
 			{/await}
 		{:else if compareMode && comparedDocument}
