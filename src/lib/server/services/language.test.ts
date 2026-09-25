@@ -172,6 +172,26 @@ describe("classifyLanguageSignal", () => {
 		expect(classifyLanguageSignal("How do I configure this?")).toBe("en");
 		expect(classifyLanguageSignal("Szia, hogy vagy ma?")).toBe("hu");
 	});
+
+	// The short-input branch (< the 10-char threshold) used to look up the
+	// WHOLE trimmed string as a single key in HUNGARIAN_SHORT_WORDS, so it
+	// only ever matched a single-word short reply ("igen", "szia"). A short
+	// reply that combines two known short words ("nem jó", "igen persze") is
+	// just as common and just as unambiguous, but fell straight through to
+	// "unknown" because "nem jó" is not itself an entry in the set. Requires
+	// EVERY letter-token to be a known short word (not just one) so a short
+	// phrase that only partially overlaps the list — one Hungarian word plus
+	// an English word, a name, or a number — correctly stays "unknown".
+	it("reports Hungarian for a short reply made of two known short words", () => {
+		expect(classifyLanguageSignal("nem jó")).toBe("hu");
+		expect(classifyLanguageSignal("igen persze")).toBe("hu");
+		expect(classifyLanguageSignal("Nem jó!")).toBe("hu");
+	});
+
+	it("keeps a short phrase unknown when only some words are known Hungarian short words", () => {
+		expect(classifyLanguageSignal("ok van")).toBe("unknown");
+		expect(classifyLanguageSignal("nem 5")).toBe("unknown");
+	});
 });
 
 describe("detectExplicitLanguageRequest", () => {
@@ -265,6 +285,33 @@ describe("resolveResponseLanguage", () => {
 				latestMessage: "Can you write this in Hungarian please?",
 			}),
 		).toBe("hu");
+	});
+
+	// Release check (2026-09-25 language review): on a first turn — no prior
+	// messages, English UI — each of these realistic Hungarian messages must
+	// still resolve the WHOLE turn to Hungarian. Most carry no ő/ű and few
+	// closed-class function words, which is exactly the shape the old
+	// lingua-backed detector used to get right and the rewritten scorer must
+	// not regress on.
+	it("resolves a first English-UI turn to Hungarian for realistic short Hungarian messages", () => {
+		const firstTurn = (latestMessage: string) =>
+			resolveResponseLanguage({
+				latestMessage,
+				priorUserMessages: [],
+				uiLanguage: "en",
+			});
+
+		expect(firstTurn("Írj egy checklistet a hétvégére")).toBe("hu");
+		expect(firstTurn("Köszi!")).toBe("hu");
+		expect(firstTurn("Szia")).toBe("hu");
+		expect(firstTurn("igen")).toBe("hu");
+		expect(firstTurn("nem jó")).toBe("hu");
+		expect(firstTurn("Fordítsd le angolra: good morning")).toBe("hu");
+		expect(firstTurn("Mi a helyzet?")).toBe("hu");
+		expect(firstTurn("Csinálj egy táblázatot")).toBe("hu");
+		expect(firstTurn("A React komponens nem renderel, mit csináljak?")).toBe(
+			"hu",
+		);
 	});
 
 	it("never lets non-user context decide the language, because the signature has no field for it", () => {

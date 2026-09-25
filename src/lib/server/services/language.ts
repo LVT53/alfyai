@@ -294,7 +294,25 @@ export function classifyLanguageSignal(
 	// behavior is unchanged.
 	if (shortInputThreshold > 0 && trimmed.length < shortInputThreshold) {
 		const shortNormalized = normalized.replace(/[?!.,]+$/g, "");
-		return HUNGARIAN_SHORT_WORDS.has(shortNormalized) ? "hu" : "unknown";
+		if (HUNGARIAN_SHORT_WORDS.has(shortNormalized)) return "hu";
+
+		// The check above only matches the WHOLE trimmed string as one key, so
+		// a single word like "szia" matches but a short reply combining two
+		// known short words ("nem jó", "igen persze") does not, even though
+		// it is just as unambiguous. Require EVERY letter-token to be a known
+		// short word (not just one) so a short phrase that only partially
+		// overlaps the list — one Hungarian word plus an English word, a
+		// name, or a number — still honestly reports "unknown" rather than
+		// guessing.
+		const shortTokens = shortNormalized.match(/[\p{L}]+/gu) ?? [];
+		if (
+			shortTokens.length > 1 &&
+			shortTokens.every((token) => HUNGARIAN_SHORT_WORDS.has(token))
+		) {
+			return "hu";
+		}
+
+		return "unknown";
 	}
 
 	// Strip pasted URLs before tokenizing: a link's path/slug segments are
