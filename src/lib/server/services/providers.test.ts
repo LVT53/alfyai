@@ -36,6 +36,46 @@ function createProvidersTable() {
 	sqlite.close();
 }
 
+function createProviderModelsTable() {
+	const sqlite = new Database(dbPath);
+	sqlite.pragma("foreign_keys = ON");
+	sqlite.exec(`
+		CREATE TABLE IF NOT EXISTS provider_models (
+			id TEXT PRIMARY KEY,
+			provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			display_name TEXT NOT NULL,
+			icon_asset_id TEXT,
+			guide_note_en TEXT,
+			guide_note_hu TEXT,
+			guide_badge TEXT,
+			guide_no_cost INTEGER NOT NULL DEFAULT 0,
+			estimated_tokens_per_second INTEGER,
+			fallback_provider_model_id TEXT REFERENCES provider_models(id) ON DELETE SET NULL,
+			max_model_context INTEGER,
+			compaction_ui_threshold INTEGER,
+			target_constructed_context INTEGER,
+			max_message_length INTEGER,
+			max_tokens INTEGER,
+			reasoning_effort TEXT,
+			thinking_type TEXT,
+			aliases_json TEXT NOT NULL DEFAULT '[]',
+			capabilities_json TEXT NOT NULL DEFAULT '{}',
+			input_usd_micros_per_1m INTEGER NOT NULL DEFAULT 0,
+			cached_input_usd_micros_per_1m INTEGER NOT NULL DEFAULT 0,
+			cache_hit_usd_micros_per_1m INTEGER NOT NULL DEFAULT 0,
+			cache_miss_usd_micros_per_1m INTEGER NOT NULL DEFAULT 0,
+			output_usd_micros_per_1m INTEGER NOT NULL DEFAULT 0,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			sort_order INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			UNIQUE (provider_id, name)
+		)
+	`);
+	sqlite.close();
+}
+
 async function closeServiceDatabase() {
 	try {
 		const { sqlite } = await import("$lib/server/db");
@@ -794,5 +834,72 @@ describe("modelDiscovery", () => {
 		const { modelDiscovery } = await import("./providers");
 		const models = await modelDiscovery("https://api.openai.com/v1", "sk-key");
 		expect(models).toEqual([{ id: "gpt-4" }, { id: "gpt-3.5-turbo" }]);
+	});
+});
+
+// ─── seedDefaultProviders ──────────────────────────────────────
+//
+// Guards the switch from a local `process.env.MODEL_2_ENABLED !== "false"`
+// re-parse to the already-imported `config.model2Enabled` (env.ts's own
+// parsing of the same variable, via the same comparison) — this function's
+// only other inputs, `config.model1` / `config.model2`, were already read the
+// same way two lines above, so the re-parse was the odd one out, not a
+// deliberate second source of truth.
+describe("seedDefaultProviders", () => {
+	const originalEnv = {
+		MODEL_1_BASEURL: process.env.MODEL_1_BASEURL,
+		MODEL_1_NAME: process.env.MODEL_1_NAME,
+		MODEL_2_BASEURL: process.env.MODEL_2_BASEURL,
+		MODEL_2_NAME: process.env.MODEL_2_NAME,
+		MODEL_2_ENABLED: process.env.MODEL_2_ENABLED,
+	};
+
+	beforeEach(() => {
+		dbPath = `/tmp/alfyai-providers-seed-${randomUUID()}.db`;
+		process.env.DATABASE_PATH = dbPath;
+		process.env.MODEL_1_BASEURL = "https://model1.example.com/v1";
+		process.env.MODEL_1_NAME = "model-1-test";
+		process.env.MODEL_2_BASEURL = "https://model2.example.com/v1";
+		process.env.MODEL_2_NAME = "model-2-test";
+		createProvidersTable();
+		createProviderModelsTable();
+		vi.resetModules();
+	});
+
+	afterEach(async () => {
+		await closeServiceDatabase();
+		try {
+			unlinkSync(dbPath);
+		} catch {
+			// best-effort cleanup
+		}
+		for (const [key, value] of Object.entries(originalEnv)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	});
+
+	it("seeds both providers when MODEL_2_ENABLED is unset", async () => {
+		delete process.env.MODEL_2_ENABLED;
+		const { seedDefaultProviders } = await import("./providers");
+		const { db } = await import("$lib/server/db");
+		const { providers } = await import("$lib/server/db/schema");
+
+		await seedDefaultProviders();
+
+		const seeded = await db.select({ name: providers.name }).from(providers);
+		expect(seeded.map((row) => row.name).sort()).toEqual(["model1", "model2"]);
+	});
+
+	it('skips the model2 provider when MODEL_2_ENABLED is "false", reading it through config.model2Enabled', async () => {
+		process.env.MODEL_2_ENABLED = "false";
+		const { seedDefaultProviders } = await import("./providers");
+		const { db } = await import("$lib/server/db");
+		const { providers } = await import("$lib/server/db/schema");
+
+		await seedDefaultProviders();
+
+		const seeded = await db.select({ name: providers.name }).from(providers);
+		expect(seeded.map((row) => row.name)).toEqual(["model1"]);
 	});
 });
