@@ -680,6 +680,134 @@ test.describe("chat scroll — streaming", () => {
 			).__chatStream.finish(),
 		);
 	});
+
+	const FINAL_STREAMED_LINE = "The last line of the streamed reply.";
+
+	/**
+	 * Opens a long conversation, sends a follow-up and streams the first
+	 * `sentences` sentences of its reply — after a reasoning step when
+	 * `reasoning` is set, which is what makes the thread follow the reply.
+	 */
+	async function streamReplyInto(
+		page: Page,
+		label: string,
+		options: { reasoning: boolean; sentences: number },
+	) {
+		await page.setViewportSize(DESKTOP);
+		await installControllableChatStream(page);
+		await login(page);
+		const conversationId = await seedLongConversation(label);
+		await page.goto(`/chat/${conversationId}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await waitForHydration(page);
+		await waitForThreadRendered(page, label);
+		await sendMessage(page, "And one more thing?");
+		await expect
+			.poll(() =>
+				page.evaluate(() =>
+					(
+						window as unknown as { __chatStream: { isOpen(): boolean } }
+					).__chatStream.isOpen(),
+				),
+			)
+			.toBe(true);
+		await pushStreamParts(page, [
+			...(options.reasoning
+				? [
+						{ type: "reasoning-start", id: "reasoning" },
+						{
+							type: "reasoning-delta",
+							id: "reasoning",
+							delta: "Working it out.",
+						},
+						{ type: "reasoning-end", id: "reasoning" },
+					]
+				: []),
+			{ type: "text-start", id: "answer" },
+		]);
+		await streamSentences(page, 1, options.sentences);
+		await waitForScrollToSettle(page);
+	}
+
+	/**
+	 * The reply's last tokens arrive with the end of the stream — a closing
+	 * code block and a final line, rendered (and highlighted) only once the
+	 * stream is over — and the reply settles.
+	 */
+	async function finishStreamedReply(page: Page) {
+		await pushStreamParts(page, [
+			{
+				type: "text-delta",
+				id: "answer",
+				delta: `\n\n\`\`\`ts\nexport const answer = 42;\nexport const question = "unknown";\n\`\`\`\n\n${FINAL_STREAMED_LINE}`,
+			},
+			{ type: "text-end", id: "answer" },
+			{ type: "finish", finishReason: "stop" },
+		]);
+		await page.evaluate(() =>
+			(
+				window as unknown as { __chatStream: { finish(): void } }
+			).__chatStream.finish(),
+		);
+		await expect(page.getByText(FINAL_STREAMED_LINE)).toBeAttached({
+			timeout: 10000,
+		});
+		await page.evaluate(() => document.fonts.ready.then(() => undefined));
+		await waitForScrollToSettle(page);
+	}
+
+	test("a reply the thread was following still ends above the composer once it finishes", async ({
+		page,
+	}) => {
+		// The complaint this suite started from: the last lines of a reply,
+		// rendered as the stream closes, landing under the composer.
+		await streamReplyInto(page, "stream finishes while followed", {
+			reasoning: true,
+			sentences: 30,
+		});
+		await finishStreamedReply(page);
+		await expectLatestMessageInView(page);
+	});
+
+	test("a reader who scrolled up during the stream stays put when the reply finishes", async ({
+		page,
+	}) => {
+		await streamReplyInto(page, "stream finishes while reading above", {
+			reasoning: true,
+			sentences: 30,
+		});
+		await wheelThread(page, -800);
+		const reading = await readThreadView(page);
+		expect(reading.maxScrollTop - reading.scrollTop).toBeGreaterThan(300);
+		await finishStreamedReply(page);
+		const after = await readThreadView(page);
+		expect(after.maxScrollTop).toBeGreaterThan(reading.maxScrollTop);
+		expect(
+			Math.abs(after.scrollTop - reading.scrollTop),
+			"the end of the stream must not pull a reader who scrolled up back down",
+		).toBeLessThanOrEqual(1);
+	});
+
+	test("a reply the thread did not follow is not jumped to its end when it finishes", async ({
+		page,
+	}) => {
+		// Without a reasoning step the thread does not follow a reply's text
+		// (MessageArea's streaming rule); the reader reads it from the top, and
+		// its end must not snatch the view away when it arrives.
+		await streamReplyInto(page, "stream finishes unfollowed", {
+			reasoning: false,
+			sentences: 30,
+		});
+		const reading = await readThreadView(page);
+		expect(reading.maxScrollTop - reading.scrollTop).toBeGreaterThan(300);
+		await finishStreamedReply(page);
+		const after = await readThreadView(page);
+		expect(
+			Math.abs(after.scrollTop - reading.scrollTop),
+			"a reply the thread was not following must not scroll to its end",
+		).toBeLessThanOrEqual(1);
+	});
 });
 
 test.describe("chat scroll — the landing page hand-off", () => {
