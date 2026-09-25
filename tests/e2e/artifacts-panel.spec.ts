@@ -175,6 +175,35 @@ test.describe("the chat header's artifact count button and panel", () => {
 		await expect(page.getByTestId("message-input")).toBeVisible();
 	});
 
+	test("returns focus to the count button when the panel closes, not to the page body", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"Make me a trip summary",
+		);
+		await seedProducedFile(conversationId);
+		await openChatAndReload(page, conversationId);
+
+		const countButton = page.getByTestId("artifact-count-button");
+		await countButton.click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByRole("button", { name: "Open" })
+			.click();
+		await expect(page.getByTestId("page-scroll-container")).toBeVisible();
+
+		await page
+			.getByRole("button", { name: "Close document workspace" })
+			.click();
+		await expect(page.getByTestId("page-scroll-container")).not.toBeVisible();
+
+		// A keyboard user who closes the panel from its own × must land
+		// somewhere useful — the opener that is still on screen — rather than
+		// falling back to <body>, which strands them at the top of the page.
+		await expect(countButton).toBeFocused();
+	});
+
 	test("at 390x844 the button is reachable without scrolling and the panel opens with no horizontal overflow", async ({
 		page,
 	}) => {

@@ -520,6 +520,13 @@ let fileProductionJobs = $state<FileProductionJob[]>(initialFileProductionJobs);
 // second fetch path.
 let artifacts = $state<ArtifactCardSummary[]>(initialArtifacts);
 let artifactListOpen = $state(false);
+// Read by closeWorkspace() to return focus to the button that opens "what
+// this chat made" when the panel closes — both refs exist because the
+// desktop and compact buttons are both always in the DOM (CSS decides which
+// one is visible per breakpoint); calling .focus() on the hidden one is a
+// harmless no-op, so trying both always lands on whichever one is showing.
+let artifactCountButtonEl = $state<HTMLButtonElement | null>(null);
+let artifactCountButtonCompactEl = $state<HTMLButtonElement | null>(null);
 let atlasJobs = $state<AtlasJobCard[]>(initialAtlasJobs);
 let pendingWrites = $state<PendingWrite[]>(initialPendingWrites);
 let contextCompressionMarkers = $state<ContextCompressionMarker[]>(
@@ -873,6 +880,10 @@ let artifactCount = $derived(artifacts.length);
  * non-goal — the registry ships empty), so their item is minimal and honest:
  * the panel's existing preview stack shows "not available" instead of
  * inventing content.
+ *
+ * `updatedAt` is carried through either way, so the list row can show "made
+ * by Alfy {when}" (mockup surface 2) regardless of which branch built the
+ * item.
  */
 function artifactToWorkspaceItem(
 	summary: ArtifactCardSummary,
@@ -881,7 +892,14 @@ function artifactToWorkspaceItem(
 		const matching = availableWorkspaceDocuments.find(
 			(item) => item.artifactId === summary.id,
 		);
-		if (matching) return matching;
+		// availableWorkspaceDocuments predates `kind`/`updatedAt` and never
+		// sets either, so both are carried in explicitly here — otherwise the
+		// panel's type/version pill (DocumentWorkspace.svelte's
+		// `{#if activeDocument.kind}`) silently never renders for the single
+		// most common open: a File that already has a real item.
+		if (matching) {
+			return { ...matching, kind: summary.kind, updatedAt: summary.updatedAt };
+		}
 	}
 	return {
 		id: summary.id,
@@ -892,6 +910,7 @@ function artifactToWorkspaceItem(
 		artifactId: summary.id,
 		versionNumber: summary.versionNumber,
 		kind: summary.kind,
+		updatedAt: summary.updatedAt,
 	};
 }
 
@@ -901,26 +920,27 @@ let artifactWorkspaceItems = $derived(artifacts.map(artifactToWorkspaceItem));
 // (Task S5) rather than a second lookup, so every item this slice can open
 // — File through its real generatedFiles entry, the four new kinds through
 // their minimal one — must be findable through availableDocuments too.
+//
+// artifactWorkspaceItems first, availableWorkspaceDocuments only as
+// fallback: for a File that already has a real generatedFiles entry, both
+// arrays carry an item with the SAME id, but only the artifact-derived one
+// carries `kind`/`updatedAt` (availableWorkspaceDocuments predates the
+// artifact family and never sets either). DocumentWorkspace.svelte's
+// activeDocument derivation resolves by id through `documents` then
+// `availableDocuments` — the FIRST match wins — so the artifact-aware copy
+// must be findable before the plain one, or the panel opens the plain one
+// and its type/version pill silently never renders.
 let availableWorkspaceDocumentsWithArtifacts = $derived([
-	...availableWorkspaceDocuments,
-	...artifactWorkspaceItems.filter(
+	...artifactWorkspaceItems,
+	...availableWorkspaceDocuments.filter(
 		(item) =>
-			!availableWorkspaceDocuments.some((existing) => existing.id === item.id),
+			!artifactWorkspaceItems.some((existing) => existing.id === item.id),
 	),
 ]);
 
 function openArtifactList() {
 	workspaceOpen = true;
 	artifactListOpen = true;
-}
-
-function openArtifact(artifactId: string) {
-	const summary = artifacts.find((entry) => entry.id === artifactId);
-	if (!summary) return;
-	openWorkspaceDocument(artifactToWorkspaceItem(summary), {
-		preservePresentation: true,
-	});
-	artifactListOpen = false;
 }
 
 function getPersistedWorkspaceState() {
@@ -1039,6 +1059,13 @@ function closeWorkspace() {
 	workspaceOpen = result.isOpen;
 	workspacePresentation = "docked";
 	artifactListOpen = false;
+	// The panel's own close control (× or Escape) is about to leave the DOM,
+	// which would otherwise drop focus to <body> and strand a keyboard user
+	// at the top of the page. The count button is a stable landing spot
+	// whenever it exists, regardless of what actually opened this panel
+	// instance.
+	artifactCountButtonEl?.focus();
+	artifactCountButtonCompactEl?.focus();
 }
 
 function handleWorkspaceConversationDeleted(conversationId: string) {
@@ -2962,6 +2989,7 @@ function handleDrop(event: DragEvent) {
 				<div class="chat-title-bar-side chat-title-bar-actions">
 					{#if artifactCount > 0}
 						<button
+							bind:this={artifactCountButtonEl}
 							type="button"
 							class="artifact-count-button"
 							data-testid="artifact-count-button"
@@ -2984,6 +3012,7 @@ function handleDrop(event: DragEvent) {
 			{#if artifactCount > 0}
 				<div class="chat-title-bar-compact flex items-center justify-end lg:hidden">
 					<button
+						bind:this={artifactCountButtonCompactEl}
 						type="button"
 						class="artifact-count-button"
 						data-testid="artifact-count-button-compact"

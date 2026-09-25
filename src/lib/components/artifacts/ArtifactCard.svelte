@@ -97,11 +97,20 @@ let FileProductionBody = $state<
 	typeof import("../chat/FileProductionCard.svelte").default | null
 >(null);
 $effect(() => {
-	if (view.kind === "file" && job && !FileProductionBody) {
-		void import("../chat/FileProductionCard.svelte").then((module) => {
-			FileProductionBody = module.default;
-		});
-	}
+	if (view.kind !== "file" || !job || FileProductionBody) return;
+	// Guard against setting state once this effect is no longer live: the
+	// card can unmount (row collapsed, panel closed) before the dynamic
+	// import resolves, and an unguarded `.then()` would still write to
+	// `FileProductionBody` after teardown. The cleanup below runs
+	// synchronously on unmount (and before any re-run of this effect), so
+	// `cancelled` is already true by the time a stale import settles.
+	let cancelled = false;
+	void import("../chat/FileProductionCard.svelte").then((module) => {
+		if (!cancelled) FileProductionBody = module.default;
+	});
+	return () => {
+		cancelled = true;
+	};
 });
 
 function handleOpen(): void {

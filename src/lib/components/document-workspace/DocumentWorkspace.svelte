@@ -8,6 +8,7 @@ import {
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { handleDownloadAnchorClick } from "$lib/client/downloads";
 import { t, type I18nKey } from "$lib/i18n";
+import { formatRelativeTime } from "$lib/utils/time";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
@@ -862,6 +863,11 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 									title: getDocumentTitle(item),
 									versionNumber: item.versionNumber ?? null,
 									openTargetId: item.id,
+									madeBy: item.updatedAt != null
+										? $t('artifacts.card.madeBy', {
+												when: formatRelativeTime(item.updatedAt, { t: $t }),
+											})
+										: null,
 								}}
 								chrome="full"
 								onOpen={() => selectFromList(item)}

@@ -1627,6 +1627,33 @@ describe("DocumentWorkspace 'what this chat made' list", () => {
 		expect(within(list).getByText("Budget sheet")).toBeInTheDocument();
 	});
 
+	// Mockup surface 2 shows a relative time on every row ("just now", "12
+	// min ago", …) — that is what tells a "newest first" list apart. The
+	// seam already exists on the card (ArtifactCardView.madeBy); a row with
+	// a timestamp must actually feed it.
+	it("shows each row's relative time as 'made by Alfy …'", async () => {
+		const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+		renderWorkspace({
+			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],
+			activeDocumentId: "doc-1",
+			list: {
+				open: true,
+				items: [
+					listItem({
+						id: "list-item-1",
+						title: "Vienna itinerary",
+						updatedAt: fiveMinutesAgo,
+					}),
+				],
+			},
+		});
+
+		const list = await screen.findByTestId("artifact-panel-list");
+		expect(
+			within(list).getByText("made by Alfy 5 min ago"),
+		).toBeInTheDocument();
+	});
+
 	it("selects a row's document and closes the list", async () => {
 		const { onSelectDocument, onListOpenChange } = renderWorkspace({
 			documents: [makeWorkspaceDocument({ id: "doc-1", title: "Doc" })],

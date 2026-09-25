@@ -18,12 +18,24 @@ export interface ArtifactDetailResponse {
 	comments: ArtifactComment[];
 }
 
+/**
+ * `conversationId` widens the read past the default ownership scope
+ * (`getArtifact`'s `ArtifactScopeOptions`), which otherwise hides an
+ * incognito conversation's own artifacts — so opening an artifact from
+ * inside the chat that made it must always send the current conversation's
+ * id, incognito or not. The server only widens scope to a conversation the
+ * caller owns, so sending it is always safe.
+ */
 export async function fetchArtifact(
 	artifactId: string,
+	conversationId?: string | null,
 	fetchImpl: FetchLike = fetch,
 ): Promise<ArtifactDetailResponse> {
+	const query = conversationId
+		? `?conversationId=${encodeURIComponent(conversationId)}`
+		: "";
 	return requestJson<ArtifactDetailResponse>(
-		`/api/artifacts/${encodeURIComponent(artifactId)}`,
+		`/api/artifacts/${encodeURIComponent(artifactId)}${query}`,
 		undefined,
 		"Failed to open this item",
 		fetchImpl,
