@@ -78,6 +78,20 @@ async function linkArtifacts(
 	expect(response.ok(), "linking must succeed").toBe(true);
 }
 
+/** A fresh project that knows exactly one library document. */
+async function createProjectWithLinkedDocument(
+	page: Page,
+	documentName: string,
+): Promise<{ projectId: string; artifactId: string }> {
+	const projectId = await createProject(
+		page,
+		`Vienna trip ${randomUUID().slice(0, 8)}`,
+	);
+	const artifactId = await uploadLibraryDocument(page, { name: documentName });
+	await linkArtifacts(page, projectId, [artifactId]);
+	return { projectId, artifactId };
+}
+
 async function linkedCount(projectId: string): Promise<number> {
 	const [row] = await db
 		.select({ count: projectKnowledgeLinks.artifactId })
@@ -145,13 +159,11 @@ test.describe("Project files", () => {
 	});
 
 	test("unlinks a file and keeps it in the library", async ({ page }) => {
-		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
-		const projectId = await createProject(page, projectName);
 		const documentName = `Railjet tickets ${randomUUID().slice(0, 6)}.txt`;
-		const artifactId = await uploadLibraryDocument(page, {
-			name: documentName,
-		});
-		await linkArtifacts(page, projectId, [artifactId]);
+		const { projectId, artifactId } = await createProjectWithLinkedDocument(
+			page,
+			documentName,
+		);
 
 		const dialog = await openFilesDialog(page, projectId);
 		const row = fileRow(dialog, documentName);
@@ -268,13 +280,11 @@ test.describe("Project files", () => {
 	test("says it is loading, not that a project with files is empty, while the list is read", async ({
 		page,
 	}) => {
-		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
-		const projectId = await createProject(page, projectName);
 		const documentName = `Railjet tickets ${randomUUID().slice(0, 6)}.txt`;
-		const artifactId = await uploadLibraryDocument(page, {
-			name: documentName,
-		});
-		await linkArtifacts(page, projectId, [artifactId]);
+		const { projectId } = await createProjectWithLinkedDocument(
+			page,
+			documentName,
+		);
 
 		// Every read of the list is held until released, which keeps the modal
 		// inside the window the page's mount-time read leaves open — the window
@@ -460,13 +470,11 @@ test.describe("Project files", () => {
 	test("previews a file from a row without leaving the project page", async ({
 		page,
 	}) => {
-		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
-		const projectId = await createProject(page, projectName);
 		const documentName = `Museum hours ${randomUUID().slice(0, 6)}.txt`;
-		const artifactId = await uploadLibraryDocument(page, {
-			name: documentName,
-		});
-		await linkArtifacts(page, projectId, [artifactId]);
+		const { projectId } = await createProjectWithLinkedDocument(
+			page,
+			documentName,
+		);
 
 		const dialog = await openFilesDialog(page, projectId);
 		await fileRow(dialog, documentName)
