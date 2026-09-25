@@ -362,16 +362,18 @@ function handleScroll() {
 	if (!scrollContainer) return;
 	const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
 	const distanceToBottom = scrollHeight - scrollTop - clientHeight;
-	const movedUp = scrollTop < lastKnownScrollTop - 1;
+	// A scroll event that finds the view where the thread last put it is the
+	// thread's own write landing, not the reader moving.
+	const readerMoved = Math.abs(scrollTop - lastKnownScrollTop) > 1;
 	noteScrollPosition(scrollTop, distanceToBottom);
-	// Only a move up the thread leaves the live edge. A gap below a view that
-	// did not move up is content still arriving: under a held position (the
-	// observer closes it before the next paint), or a streamed reply growing
-	// past the follow's last write — its markdown renders in batches, and one
-	// taller than the edge used to end the follow for the rest of the reply.
+	// Only the reader leaves the live edge. A gap below a view they did not
+	// move is content still arriving: under a held position (the observer
+	// closes it before the next paint), or a streamed reply growing past the
+	// follow's last write — its markdown renders in batches after that write,
+	// and one taller than the edge used to end the follow for the whole reply.
 	if (heldPosition === "bottom" || distanceToBottom < AUTO_SCROLL_EDGE_PX) {
 		shouldAutoScroll = true;
-	} else if (movedUp) {
+	} else if (readerMoved) {
 		shouldAutoScroll = false;
 	}
 	distanceToBottomPx = distanceToBottom;
