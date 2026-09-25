@@ -1047,7 +1047,7 @@ Tokens are the real ones in `src/app.css`: `--surface-page`, `--surface-elevated
 
 | Failure | Server behaviour | EN | HU |
 |---|---|---|---|
-| Artifact missing, another user's, or incognito-and-out-of-scope | `GET /api/artifacts/[id]` → `404` `{"error":"Artifact not found"}` (shape copied from `src/routes/api/knowledge/[id]/+server.ts:11-16`) | `artifacts.error.load` — "Could not open this item." | "Nem sikerült megnyitni ezt az elemet." |
+| Artifact missing, another user's, or incognito-and-out-of-scope | `GET /api/artifacts/[id]` → `404` `{ ok: false, reason: "not_found" }` (wording style copied from `src/routes/api/knowledge/[id]/+server.ts:11-16`, shape per the Routes section and ruling 49) | `artifacts.error.load` — "Could not open this item." | "Nem sikerült megnyitni ezt az elemet." |
 | Conversation not the caller's | `GET /api/artifacts?conversationId=…` → `404` | `artifacts.error.list` | "Nem sikerült betölteni, amit ez a beszélgetés készített." |
 | Unauthenticated | `requireAuth` throws `redirect(302, "/login")` | (the login page) | (a bejelentkező oldal) |
 | Body over `ARTIFACT_BODY_MAX_BYTES` | service returns `{ok:false, reason:"too_large"}` (no route writes bodies in slice 0; slice 1's tool maps it) | `artifacts.error.tooLarge` — "This item is too large to save." | "Ez az elem túl nagy ahhoz, hogy elmentsük." |

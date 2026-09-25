@@ -2994,6 +2994,7 @@ function handleDrop(event: DragEvent) {
 							class="artifact-count-button"
 							data-testid="artifact-count-button"
 							aria-label={$t('artifacts.header.buttonA11y', { count: artifactCount })}
+							aria-pressed={artifactListOpen}
 							onclick={openArtifactList}
 						>
 							<LayoutGrid size={16} strokeWidth={1.75} aria-hidden="true" />
@@ -3017,6 +3018,7 @@ function handleDrop(event: DragEvent) {
 						class="artifact-count-button"
 						data-testid="artifact-count-button-compact"
 						aria-label={$t('artifacts.header.buttonA11y', { count: artifactCount })}
+						aria-pressed={artifactListOpen}
 						onclick={openArtifactList}
 					>
 						<LayoutGrid size={16} strokeWidth={1.75} aria-hidden="true" />

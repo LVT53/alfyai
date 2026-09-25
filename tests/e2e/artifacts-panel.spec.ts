@@ -131,6 +131,8 @@ test.describe("the chat header's artifact count button and panel", () => {
 		const countButton = page.getByTestId("artifact-count-button");
 		await expect(countButton).toBeVisible();
 		await expect(countButton).toContainText("1");
+		// Item 10 of the client review: the button reflects the open panel.
+		await expect(countButton).toHaveAttribute("aria-pressed", "false");
 
 		await countButton.click();
 
@@ -140,6 +142,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 				.getByTestId("artifact-panel-list")
 				.getByText("Vienna trip summary.pdf"),
 		).toBeVisible();
+		await expect(countButton).toHaveAttribute("aria-pressed", "true");
 	});
 
 	test("opens the File's preview from the list, and closing returns to the chat", async ({
@@ -224,11 +227,15 @@ test.describe("the chat header's artifact count button and panel", () => {
 		expect(box?.y).toBeGreaterThanOrEqual(0);
 		expect(box?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(844);
 
+		await expect(compactButton).toHaveAttribute("aria-pressed", "false");
 		await compactButton.click();
 		// Below `md`, the mobile backdrop shell renders the list, not the
 		// desktop aside (its own, distinct test id — see the count button's
 		// own comment above for why the two shells need separate ids).
 		await expect(page.getByTestId("artifact-panel-list-mobile")).toBeVisible();
+		// Item 10 of the client review: the compact button reflects the open
+		// panel too.
+		await expect(compactButton).toHaveAttribute("aria-pressed", "true");
 
 		const hasHorizontalOverflow = await page.evaluate(
 			() =>
