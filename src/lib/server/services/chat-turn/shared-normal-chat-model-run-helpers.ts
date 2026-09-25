@@ -263,10 +263,13 @@ export async function resolveTurnResponseLanguage(
 		"message" | "conversationId" | "user"
 	>,
 ): Promise<SupportedLanguage> {
-	const priorUserMessages = await listRecentUserMessageTexts(
-		params.conversationId,
-		RESPONSE_LANGUAGE_HISTORY_LOOKBACK,
-	).catch(() => []);
+	const priorUserMessages = params.user?.id
+		? await listRecentUserMessageTexts(
+				params.conversationId,
+				params.user.id,
+				RESPONSE_LANGUAGE_HISTORY_LOOKBACK,
+			).catch(() => [])
+		: [];
 
 	return resolveResponseLanguage({
 		latestMessage: params.message,

@@ -127,7 +127,7 @@ describe("listRecentUserMessageTexts", () => {
 		seedConversationWithMessages();
 		const { listRecentUserMessageTexts } = await import("./messages");
 
-		const result = await listRecentUserMessageTexts("conv-1", 5);
+		const result = await listRecentUserMessageTexts("conv-1", "user-1", 5);
 
 		expect(result).toEqual([
 			"third user message",
@@ -140,7 +140,7 @@ describe("listRecentUserMessageTexts", () => {
 		seedConversationWithMessages();
 		const { listRecentUserMessageTexts } = await import("./messages");
 
-		const result = await listRecentUserMessageTexts("conv-1", 2);
+		const result = await listRecentUserMessageTexts("conv-1", "user-1", 2);
 
 		expect(result).toEqual(["third user message", "second user message"]);
 	});
@@ -149,7 +149,31 @@ describe("listRecentUserMessageTexts", () => {
 		seedConversationWithMessages();
 		const { listRecentUserMessageTexts } = await import("./messages");
 
-		const result = await listRecentUserMessageTexts("no-such-conversation", 5);
+		const result = await listRecentUserMessageTexts(
+			"no-such-conversation",
+			"user-1",
+			5,
+		);
+
+		expect(result).toEqual([]);
+	});
+
+	// Language review (2026-09-25), hunt item 6: this function backs
+	// resolveResponseLanguage's history fallback, which decides what
+	// language a turn replies in — it must be scoped to the conversation
+	// AND its owner, not conversationId alone. Every real call site
+	// (resolveTurnResponseLanguage) already validates ownership upstream
+	// via preflight's getConversation(userId, conversationId), so this is
+	// not exploitable through the app today, but the function's own
+	// contract should not depend entirely on callers remembering to
+	// pre-check ownership — a future caller that skips that check would
+	// otherwise leak another user's message content into this turn's
+	// language resolution with no defense at all.
+	it("returns nothing when the caller is not the conversation's owner", async () => {
+		seedConversationWithMessages();
+		const { listRecentUserMessageTexts } = await import("./messages");
+
+		const result = await listRecentUserMessageTexts("conv-1", "user-2", 5);
 
 		expect(result).toEqual([]);
 	});

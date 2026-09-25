@@ -450,7 +450,11 @@ describe("resolveTurnResponseLanguage", () => {
 			user: { id: "user-1" },
 		});
 
-		expect(mocks.listRecentUserMessageTexts).toHaveBeenCalledWith("conv-1", 5);
+		expect(mocks.listRecentUserMessageTexts).toHaveBeenCalledWith(
+			"conv-1",
+			"user-1",
+			5,
+		);
 		expect(result).toBe("hu");
 	});
 
@@ -477,6 +481,17 @@ describe("resolveTurnResponseLanguage", () => {
 			user: { id: "user-1", uiLanguage: "hu" },
 		});
 
+		expect(result).toBe("en");
+	});
+
+	it("skips the history lookup entirely when no authenticated user is available", async () => {
+		const result = await resolveTurnResponseLanguage({
+			message: "ok",
+			conversationId: "conv-1",
+			user: undefined,
+		});
+
+		expect(mocks.listRecentUserMessageTexts).not.toHaveBeenCalled();
 		expect(result).toBe("en");
 	});
 });
