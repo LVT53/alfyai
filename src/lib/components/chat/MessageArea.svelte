@@ -524,7 +524,9 @@ $effect.pre(() => {
 	const wasFollowingStreamedReply = followingStreamingReply;
 	lastStreamingAssistantMessageId = streamingAssistantMessageId;
 	followingStreamingReply =
-		streamingAssistantMessageId !== null && shouldAutoScroll && isThinkingActive;
+		streamingAssistantMessageId !== null &&
+		shouldAutoScroll &&
+		isThinkingActive;
 
 	// Restore saved scroll position on page refresh.
 	if (pendingRestoreScroll !== null) {
@@ -591,7 +593,11 @@ $effect.pre(() => {
 		void alignToBottomAfterRender();
 	} else if (hasNewContextCompressionMarkers && shouldAutoScroll) {
 		void alignToBottomAfterRender();
-	} else if (shouldAutoScroll && isThinkingActive && !pageShowsLinkedMessage()) {
+	} else if (
+		shouldAutoScroll &&
+		isThinkingActive &&
+		!pageShowsLinkedMessage()
+	) {
 		// Only follow during thinking phase; stop once content streaming begins.
 		instantScrollToBottom();
 	}
