@@ -5,6 +5,7 @@ import {
 	fetchArtifactVersions,
 	fetchConversationArtifacts,
 	restoreArtifactVersion,
+	saveArtifactBody,
 } from "./artifacts";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -174,6 +175,52 @@ describe("artifacts client API", () => {
 			await expect(
 				restoreArtifactVersion("artifact-1", "version-1", null, fetchMock),
 			).rejects.toThrow();
+		});
+	});
+
+	describe("saveArtifactBody (Slice 1, T7)", () => {
+		it("PATCHes the body route and returns the new version on success", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, version: 3 }),
+			);
+
+			const result = await saveArtifactBody(
+				"artifact-1",
+				"New text.",
+				2,
+				"conv-1",
+				fetchMock,
+			);
+
+			expect(result).toEqual({ ok: true, version: 3 });
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/artifacts/artifact-1/body?conversationId=conv-1",
+				expect.objectContaining({
+					method: "PATCH",
+					body: JSON.stringify({ body: "New text.", expectVersion: 2 }),
+				}),
+			);
+		});
+
+		it("never throws on a documented refusal — the caller decides what it means", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: false, reason: "version_conflict" }, 409),
+			);
+
+			await expect(
+				saveArtifactBody("artifact-1", "New text.", 2, null, fetchMock),
+			).resolves.toEqual({ ok: false, reason: "version_conflict" });
+		});
+
+		it("omits expectVersion from the body when not given", async () => {
+			const fetchMock = vi.fn(async () =>
+				jsonResponse({ ok: true, version: 1 }),
+			);
+
+			await saveArtifactBody("artifact-1", "Text.", undefined, null, fetchMock);
+
+			const call = fetchMock.mock.calls[0]?.[1] as RequestInit;
+			expect(JSON.parse(String(call.body))).toEqual({ body: "Text." });
 		});
 	});
 });

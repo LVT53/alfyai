@@ -66,6 +66,53 @@ export async function fetchConversationArtifacts(
 	return _unwrapList<ArtifactCardSummary>(payload, "artifacts");
 }
 
+export type SaveArtifactBodyResult =
+	| { ok: true; version: number }
+	| {
+			ok: false;
+			reason:
+				| "not_found"
+				| "too_large"
+				| "stale"
+				| "hash_mismatch"
+				| "version_conflict"
+				| "invalid_patch";
+	  };
+
+/**
+ * The one write route every kind's body goes through (ruling 13). Never
+ * throws on a documented refusal (409/413/404/400 all decode to `ok: false`
+ * with a `reason`) — the editor keeps the user's text either way (T7.3,
+ * T7.10, T7.11), so the caller decides what that refusal means rather than
+ * this function collapsing it into a thrown Error.
+ */
+export async function saveArtifactBody(
+	artifactId: string,
+	body: string,
+	expectVersion?: number,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<SaveArtifactBodyResult> {
+	const response = await fetchImpl(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/body${withConversationQuery(conversationId)}`,
+		{
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				body,
+				...(expectVersion !== undefined ? { expectVersion } : {}),
+			}),
+		},
+	);
+	const payload = (await response
+		.json()
+		.catch(() => null)) as SaveArtifactBodyResult | null;
+	if (!payload) {
+		return { ok: false, reason: "not_found" };
+	}
+	return payload;
+}
+
 function withConversationQuery(conversationId?: string | null): string {
 	return conversationId
 		? `?conversationId=${encodeURIComponent(conversationId)}`

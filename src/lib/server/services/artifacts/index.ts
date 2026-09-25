@@ -19,6 +19,7 @@ export {
 	applyDocumentPatch,
 	createDocumentArtifact,
 	DocumentOperationError,
+	documentTabsFromMetadata,
 	readDocumentForAlfy,
 	saveDocumentBody,
 } from "./document-ops";

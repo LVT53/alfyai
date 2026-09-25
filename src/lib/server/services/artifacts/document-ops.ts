@@ -44,6 +44,7 @@ import {
 } from "./serialize/document";
 import type {
 	ArtifactAuthor,
+	ArtifactMetadata,
 	ArtifactRecord,
 	ArtifactScopeOptions,
 } from "./types";
@@ -152,9 +153,17 @@ function readCurrentVersionNumber(
 	return row?.versionNumber ?? 0;
 }
 
-/** `metadata.tabs`, validated field by field — malformed or missing reads as `[]`, never a throw. */
-function readTabsFromMetadata(metadataJson: string | null): DocumentTab[] {
-	const metadata = parseArtifactMetadata(metadataJson);
+/**
+ * `metadata.tabs`, validated field by field — malformed or missing reads as
+ * `[]`, never a throw. Exported (not just used internally) so a caller that
+ * already has an artifact's parsed metadata — the body-write route (T7),
+ * which must carry the CURRENT tabs forward on an ordinary autosave rather
+ * than overwriting them with `[]` — reads the same tab list this module does,
+ * instead of a second, possibly-drifted parser.
+ */
+export function documentTabsFromMetadata(
+	metadata: ArtifactMetadata | null,
+): DocumentTab[] {
 	const raw = metadata?.tabs;
 	if (!Array.isArray(raw)) return [];
 	const tabs: DocumentTab[] = [];
@@ -225,7 +234,7 @@ export async function readDocumentForAlfy(
 		const index = buildIndex(parsed.blocks);
 		const metadata = parseArtifactMetadata(fresh.metadataJson);
 		const title = metadata?.title?.trim() || fresh.name;
-		const tabs = readTabsFromMetadata(fresh.metadataJson).map((tab) => ({
+		const tabs = documentTabsFromMetadata(metadata).map((tab) => ({
 			id: tab.id,
 			title: tab.title,
 		}));
