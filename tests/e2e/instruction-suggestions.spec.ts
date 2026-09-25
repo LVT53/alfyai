@@ -18,7 +18,14 @@ import { login, TEST_EMAIL, waitForHydration } from "./helpers";
  * one.
  */
 
-const SUGGESTION_TEXT = "Only suggest trains, no flights.";
+/**
+ * Deliberately hostile to a phone-width row: a model-written instruction can
+ * carry a long unbreakable token (here a link) and a quote is arbitrary text
+ * either way. A row that only survives short sentences is not the slice's
+ * "wraps rather than overflowing on the phone" claim.
+ */
+const SUGGESTION_TEXT =
+	"Always cite https://intranet.example.internal/teams/engineering/handbook/meetings/retrospective/checklist at the end of every summary.";
 const ASSISTANT_REPLY = "Understood, trains only.";
 
 function makeSuggestion(): InstructionSuggestion {
@@ -100,6 +107,114 @@ async function openSeededChat(page: Page, conversationId: string) {
 	await expect(page.getByText(ASSISTANT_REPLY)).toBeVisible({ timeout: 15000 });
 }
 
+async function setTheme(page: Page, theme: "system" | "light" | "dark") {
+	const result = await page.evaluate(async (nextTheme) => {
+		const response = await fetch("/api/settings/preferences", {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ theme: nextTheme }),
+		});
+		return { ok: response.ok, status: response.status };
+	}, theme);
+	expect(result.ok, `Failed to set theme: ${result.status}`).toBe(true);
+}
+
+const PHONE = { width: 390, height: 844 };
+
+/**
+ * The row may wrap, but nothing in it may leave the phone's width or be
+ * clipped by its own box — the slice's §M4 "the row wraps rather than
+ * overflowing on the phone" claim.
+ */
+async function expectRowFitsPhone(
+	page: Page,
+	row: ReturnType<typeof suggestionRow>,
+) {
+	await expect(row).toBeVisible();
+	const documentOverflow = await page.evaluate(() => ({
+		scrollWidth: document.documentElement.scrollWidth,
+		innerWidth: window.innerWidth,
+	}));
+	expect(
+		documentOverflow.scrollWidth,
+		"the page must not scroll sideways on a phone",
+	).toBeLessThanOrEqual(documentOverflow.innerWidth + 1);
+
+	// The quote is an inline span, so its per-line fragments are the honest
+	// measurement — a union rect would claim space between the lines it wraps
+	// over. Each fragment has to stay inside the row's box and off the
+	// buttons: text painted under Review/Dismiss is the failure that a
+	// "wraps anywhere" rule prevents.
+	const geometry = await row.evaluate((element) => {
+		const text = element.querySelector(".instruction-suggestion__text");
+		if (!text) throw new Error("Suggestion quote element not found.");
+		const range = document.createRange();
+		range.selectNodeContents(text);
+		const rowRect = element.getBoundingClientRect();
+		return {
+			row: {
+				left: rowRect.left,
+				right: rowRect.right,
+				top: rowRect.top,
+				bottom: rowRect.bottom,
+			},
+			fragments: Array.from(range.getClientRects()).map((rect) => ({
+				left: rect.left,
+				right: rect.right,
+				top: rect.top,
+				bottom: rect.bottom,
+			})),
+		};
+	});
+	expect(
+		geometry.fragments.length,
+		"the quote must be measurable",
+	).toBeGreaterThan(0);
+
+	const actions = await row
+		.locator(".instruction-suggestion__actions")
+		.boundingBox();
+	if (!actions) throw new Error("Suggestion actions were not measurable.");
+	const actionsRect = {
+		left: actions.x,
+		right: actions.x + actions.width,
+		top: actions.y,
+		bottom: actions.y + actions.height,
+	};
+
+	for (const fragment of geometry.fragments) {
+		expect(
+			fragment.left,
+			"the quote must start inside its row",
+		).toBeGreaterThanOrEqual(geometry.row.left - 1);
+		expect(
+			fragment.right,
+			"the quote must end inside its row",
+		).toBeLessThanOrEqual(geometry.row.right + 1);
+		const overlapsActions =
+			fragment.right > actionsRect.left + 1 &&
+			fragment.left < actionsRect.right - 1 &&
+			fragment.bottom > actionsRect.top + 1 &&
+			fragment.top < actionsRect.bottom - 1;
+		expect(
+			overlapsActions,
+			"the quote must not be painted over the Review/Dismiss buttons",
+		).toBe(false);
+	}
+
+	const buttons = await Promise.all(
+		[
+			row.getByRole("button", { name: "Review" }),
+			row.getByRole("button", { name: "Dismiss" }),
+		].map((locator) => locator.boundingBox()),
+	);
+	for (const box of buttons) {
+		if (!box) throw new Error("Suggestion row button was not measurable.");
+		expect(box.x).toBeGreaterThanOrEqual(-1);
+		expect(box.x + box.width).toBeLessThanOrEqual(PHONE.width + 1);
+	}
+}
+
 const suggestionRow = (page: Page) =>
 	page.getByTestId("instruction-suggestion");
 
@@ -171,6 +286,35 @@ test.describe("AI instruction suggestions", () => {
 			timeout: 15000,
 		});
 		await expect(suggestionRow(page)).toHaveCount(0);
+	});
+
+	test("wraps the row on a phone, in both themes", async ({ page }) => {
+		await page.setViewportSize(PHONE);
+		await login(page);
+		const previousTheme = await page.evaluate(async () => {
+			const response = await fetch("/api/settings");
+			const body = (await response.json()) as {
+				preferences?: { theme?: "system" | "light" | "dark" };
+			};
+			return body.preferences?.theme ?? "system";
+		});
+		try {
+			const conversationId = await seedConversationWithSuggestion({});
+			await openSeededChat(page, conversationId);
+			await expectRowFitsPhone(page, suggestionRow(page));
+
+			// The theme is switched through the preference, not localStorage:
+			// the store reads the preference, and the class on <html> is the
+			// only proof the dark stylesheet is actually in force.
+			await setTheme(page, "dark");
+			await page.reload({ waitUntil: "domcontentloaded" });
+			await waitForHydration(page);
+			await expect(page.locator("html")).toHaveClass(/(^|\s)dark(\s|$)/);
+			await expect(suggestionRow(page)).toBeVisible({ timeout: 15000 });
+			await expectRowFitsPhone(page, suggestionRow(page));
+		} finally {
+			await setTheme(page, previousTheme);
+		}
 	});
 
 	test("shows no suggestion row in an incognito conversation", async ({
