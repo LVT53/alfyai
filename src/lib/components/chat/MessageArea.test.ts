@@ -1783,6 +1783,11 @@ describe("MessageArea", () => {
 				get: () => scrollHeight,
 			});
 
+			// The reader is at the live edge, then scrolls up to the top. A
+			// browser only fires a scroll event when the view moves; one that
+			// finds the view where the thread last put it is the thread's own.
+			scrollContainer.scrollTop = 800;
+			await fireEvent.scroll(scrollContainer);
 			scrollContainer.scrollTop = 0;
 			await fireEvent.scroll(scrollContainer);
 
@@ -1833,6 +1838,93 @@ describe("MessageArea", () => {
 			await fireEvent.scroll(scrollContainer);
 
 			expect(queryByTestId("jump-to-latest-button")).not.toBeInTheDocument();
+		});
+
+		it("keeps following a streamed reply when its own scroll lands after the reply grew below", async () => {
+			const streamingReply = (content: string): ChatMessage[] => [
+				twoTurnMessages()[0],
+				{
+					id: "assistant-1",
+					role: "assistant",
+					content,
+					timestamp: Date.now(),
+					isStreaming: true,
+					isThinkingStreaming: true,
+				},
+			];
+			const { container, queryByTestId, rerender } = render(MessageArea, {
+				messages: streamingReply("One"),
+				conversationId: "conv-follow-batch",
+				isThinkingActive: true,
+			});
+			const scrollContainer = container.querySelector(
+				".scroll-container",
+			) as HTMLDivElement;
+			let scrollHeight = 1200;
+			Object.defineProperty(scrollContainer, "clientHeight", {
+				configurable: true,
+				value: 400,
+			});
+			Object.defineProperty(scrollContainer, "scrollHeight", {
+				configurable: true,
+				get: () => scrollHeight,
+			});
+
+			// The thread follows the reply to the bottom ...
+			await rerender({
+				messages: streamingReply("One two"),
+				conversationId: "conv-follow-batch",
+				isThinkingActive: true,
+			});
+			await waitFor(() => expect(scrollContainer.scrollTop).toBe(1200));
+
+			// ... and a rendered batch taller than the live edge lands below
+			// before that write's scroll event arrives. That event is the
+			// thread's own, not the reader leaving.
+			scrollHeight = 1700;
+			await fireEvent.scroll(scrollContainer);
+			expect(queryByTestId("jump-to-latest-button")).not.toBeInTheDocument();
+
+			await rerender({
+				messages: streamingReply("One two three"),
+				conversationId: "conv-follow-batch",
+				isThinkingActive: true,
+			});
+			await waitFor(() => expect(scrollContainer.scrollTop).toBe(1700));
+		});
+
+		it('shows the "jump to latest" button when the reader scrolls down short of content that grew below them', async () => {
+			const { container, getByTestId } = render(MessageArea, {
+				messages: twoTurnMessages(),
+				conversationId: "conv-jump-to-latest-grew",
+				isThinkingActive: false,
+			});
+			const scrollContainer = container.querySelector(
+				".scroll-container",
+			) as HTMLDivElement;
+			let scrollHeight = 1200;
+			Object.defineProperty(scrollContainer, "clientHeight", {
+				configurable: true,
+				value: 400,
+			});
+			Object.defineProperty(scrollContainer, "scrollHeight", {
+				configurable: true,
+				get: () => scrollHeight,
+			});
+			// The opening jump lands; the reader is at the live edge.
+			await waitFor(() => expect(scrollContainer.scrollTop).toBe(1200));
+			scrollContainer.scrollTop = 800;
+			await fireEvent.scroll(scrollContainer);
+
+			// A reply the thread does not follow grows far below the reader, who
+			// scrolls down to read on and stops short of its end.
+			scrollHeight = 2400;
+			scrollContainer.scrollTop = 1500;
+			await fireEvent.scroll(scrollContainer);
+
+			expect(
+				await waitFor(() => getByTestId("jump-to-latest-button")),
+			).toBeInTheDocument();
 		});
 
 		it('does not show the "jump to latest" button before any scroll has happened', () => {
