@@ -1936,4 +1936,60 @@ describe("MessageArea", () => {
 			expect(queryByTestId("jump-to-latest-button")).not.toBeInTheDocument();
 		});
 	});
+
+	describe("scroll restore race across a fast conversation switch", () => {
+		function scrollKey(conversationId: string): string {
+			return `alfyai-chat-scroll:${conversationId}`;
+		}
+
+		// A plain `waitFor(() => expect(...).not.toBe(500))` would return the
+		// instant the assertion is true even once — including before the stale
+		// write has had a chance to land — so it could never actually catch a
+		// DELAYED incorrect write. Draining a real macrotask (setTimeout)
+		// guarantees every microtask already queued (both restores' `tick()`
+		// continuations and the mocked, synchronous-on-invocation
+		// requestAnimationFrame callbacks they schedule) has run first, so the
+		// single assertion taken afterward reflects the fully-settled state.
+		function flushPendingRestores(): Promise<void> {
+			return new Promise((resolve) => setTimeout(resolve, 0));
+		}
+
+		afterEach(() => {
+			sessionStorage.clear();
+		});
+
+		it("does not apply the previous conversation's saved scroll position to the one now showing", async () => {
+			// conv-a has a saved position from a prior visit; conv-b (a
+			// conversation switched to before conv-a's own restore lands) has
+			// none, so any write of 500 onto it can only be conv-a's leaked
+			// value — there is no legitimate reason for conv-b to ever show it.
+			sessionStorage.setItem(scrollKey("conv-race-a"), "500");
+
+			const { container, rerender } = render(MessageArea, {
+				messages: [],
+				conversationId: "conv-race-a",
+				isThinkingActive: false,
+			});
+			const scrollContainer = container.querySelector(
+				".scroll-container",
+			) as HTMLDivElement;
+
+			// Switch to conv-b immediately, before conv-a's own restore (which
+			// awaits a tick before writing scrollTop) has a chance to land —
+			// simulating a conversation switch that arrives within one frame of
+			// a reload's restore. Deliberately not awaited, matching this file's
+			// existing "fire another update before the first settles" idiom.
+			void rerender({
+				messages: [],
+				conversationId: "conv-race-b",
+				isThinkingActive: false,
+			});
+
+			await flushPendingRestores();
+
+			// conv-a's stale in-flight restore must never write conv-a's saved
+			// position into what is now conv-b's view.
+			expect(scrollContainer.scrollTop).not.toBe(500);
+		});
+	});
 });

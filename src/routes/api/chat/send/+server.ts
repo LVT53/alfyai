@@ -32,10 +32,7 @@ import {
 	createArtifactLink,
 	isAttachmentReadinessError,
 } from "$lib/server/services/knowledge";
-import {
-	detectLanguage,
-	type SupportedLanguage,
-} from "$lib/server/services/language";
+import type { SupportedLanguage } from "$lib/server/services/language";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
@@ -161,7 +158,12 @@ async function runAtlasSendTurn({
 	turn,
 	signal,
 }: {
-	user: { id: string; displayName: string | null; email: string | null };
+	user: {
+		id: string;
+		displayName: string | null;
+		email: string | null;
+		uiLanguage?: SupportedLanguage;
+	};
 	turn: ParsedChatTurnRequest;
 	signal?: AbortSignal;
 }): Promise<Response> {
@@ -184,7 +186,16 @@ async function runAtlasSendTurn({
 		);
 	}
 	const config = getConfig();
-	const responseLanguage = detectLanguage(turn.normalizedMessage);
+	// The same one resolved language every other part of this turn uses
+	// (AGENTS.md: language.ts's shared resolver, no second policy) — not a
+	// raw per-message-only detection, which ignored the account's uiLanguage
+	// and so always answered these two admin errors in English whenever the
+	// opening message itself was too short/ambiguous to read on its own.
+	const responseLanguage = await resolveTurnResponseLanguage({
+		message: turn.normalizedMessage,
+		conversationId: turn.conversationId,
+		user: buildModelUser(user),
+	});
 	if (config.atlasWorkerEnabled === false) {
 		return json(
 			{

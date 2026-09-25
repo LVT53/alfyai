@@ -109,6 +109,11 @@ interface Config {
 	// server's back and runs with it off (playwright.config.ts). Not an admin
 	// setting.
 	homeSummaryCacheTtlMs: number;
+	// Cap on the research_web answer-brief markdown emitted to the model, in
+	// characters. fetch_url derives its own cap from the selected model's
+	// context window instead and never reads this. A flat, operator-tunable
+	// knob rather than an admin setting.
+	webResearchBriefMaxChars: number;
 	sessionSecret: string;
 	databasePath: string;
 	model1: ModelConfig;
@@ -750,6 +755,12 @@ function readConfig(): Config {
 		homeSummaryCacheTtlMs: parseNonNegativeIntegerEnv(
 			process.env.HOME_SUMMARY_CACHE_TTL_MS,
 			30_000,
+		),
+		// 0/negative/unparseable falls back to the default rather than
+		// producing a brief-less payload.
+		webResearchBriefMaxChars: parsePositiveIntegerEnv(
+			process.env.WEB_RESEARCH_BRIEF_MAX_CHARS,
+			12_000,
 		),
 		sessionSecret,
 		databasePath,

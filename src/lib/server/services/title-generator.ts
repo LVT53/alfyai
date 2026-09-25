@@ -8,6 +8,7 @@ import {
 	resolveShortTextLanguage,
 } from "./chat-turn/short-local-text";
 import { createOpenAICompatibleProviderForNormalChatModelRun } from "./normal-chat-model/openai-compatible-provider";
+import { resolveOpenAICompatibleProviderAdapterProfile } from "./normal-chat-model/provider-compatibility";
 import {
 	DEFAULT_MODEL_MAX_RETRIES,
 	TITLE_GEN_MAX_TOKENS,
@@ -22,24 +23,37 @@ function createTitleGenProvider(
 	const qwenThinkingOff = { enable_thinking: false };
 	const apiKey = overrideProvider?.apiKey || config.titleGenApiKey || undefined;
 	const modelName = overrideProvider?.modelName ?? config.titleGenModel;
-	return createOpenAICompatibleProviderForNormalChatModelRun({
-		provider: {
-			name: "title-gen",
-			displayName: "Title Generation",
-			baseUrl: overrideProvider?.baseUrl ?? config.titleGenUrl,
-			modelName,
-			apiKey,
-		},
-		includeUsage: false,
-		normalizeStreaming: false,
-		transformRequestBody: includeVllmControls
-			? (args: Record<string, unknown>) => ({
-					...args,
-					chat_template_kwargs: qwenThinkingOff,
-					extra_body: { chat_template_kwargs: qwenThinkingOff },
-				})
-			: undefined,
-	});
+	const provider = {
+		name: "title-gen",
+		displayName: "Title Generation",
+		baseUrl: overrideProvider?.baseUrl ?? config.titleGenUrl,
+		modelName,
+		apiKey,
+	};
+	return {
+		openaiCompatible: createOpenAICompatibleProviderForNormalChatModelRun({
+			provider,
+			includeUsage: false,
+			normalizeStreaming: false,
+			transformRequestBody: includeVllmControls
+				? (args: Record<string, unknown>) => ({
+						...args,
+						chat_template_kwargs: qwenThinkingOff,
+						extra_body: { chat_template_kwargs: qwenThinkingOff },
+					})
+				: undefined,
+		}),
+		// Same shared per-family adapter normal-chat-model/index.ts uses on the
+		// main chat path (AGENTS.md: apply qwen sampling defaults through the
+		// adapter, not a copied constant). Title generation never set topP/topK
+		// at all, leaving the checkpoint's own (temp 1.0-tuned) defaults for
+		// those two in effect even though TITLE_GEN_TEMPERATURE capped
+		// temperature. `top_k` reaches the wire via transformRequestBody above
+		// (see provider-compatibility.ts's applyDefaultSamplingTopK); topP is a
+		// supported call option, threaded through below.
+		samplingDefaults:
+			resolveOpenAICompatibleProviderAdapterProfile(provider).defaultSampling,
+	};
 }
 
 async function generateTitleWithAiSdk(
@@ -85,7 +99,7 @@ async function generateTitleWithAiSdk(
 	}
 
 	const tryCall = async (includeVllmControls: boolean): Promise<string> => {
-		const provider = createTitleGenProvider(
+		const { openaiCompatible, samplingDefaults } = createTitleGenProvider(
 			config,
 			includeVllmControls,
 			overrideProvider,
@@ -95,13 +109,14 @@ async function generateTitleWithAiSdk(
 		const nonSystemMessages = messages.filter((m) => m.role !== "system");
 
 		const result = await generateText({
-			model: provider(resolvedModelName),
+			model: openaiCompatible(resolvedModelName),
 			system: systemContent,
 			messages: nonSystemMessages as Array<{
 				role: "system" | "user" | "assistant";
 				content: string;
 			}>,
 			temperature: TITLE_GEN_TEMPERATURE,
+			topP: samplingDefaults?.topP,
 			maxOutputTokens: TITLE_GEN_MAX_TOKENS,
 			maxRetries: DEFAULT_MODEL_MAX_RETRIES,
 		});
@@ -420,9 +435,14 @@ export async function generateTitle(
 	userMessage: string,
 	assistantResponse: string,
 	titleLanguage?: "auto" | "en" | "hu",
+	uiLanguage?: "en" | "hu",
 ): Promise<string> {
 	const config = getConfig();
-	const language = resolveShortTextLanguage(userMessage, titleLanguage);
+	const language = resolveShortTextLanguage(
+		userMessage,
+		titleLanguage,
+		uiLanguage,
+	);
 	const codeRelated = isCodeRelated(userMessage, assistantResponse);
 	const systemPrompt = resolveConfiguredTitleSystemPrompt(
 		language,

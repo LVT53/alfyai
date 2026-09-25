@@ -1,5 +1,6 @@
 import type { RequestEvent } from "@sveltejs/kit";
 import type { vi } from "vitest";
+import type { SessionUser } from "$lib/server/services/auth-types";
 
 const defaultConversationFixture = {
 	id: "conv-1",
@@ -136,7 +137,10 @@ export const skillControlEnvelope = (operations: unknown[]) =>
 
 export function makeEvent(
 	body: unknown,
-	user = { id: "user-1", email: "test@example.com" },
+	user: Partial<SessionUser> & Pick<SessionUser, "id" | "email"> = {
+		id: "user-1",
+		email: "test@example.com",
+	},
 ): RequestEvent<Record<string, never>, "/api/chat/send"> {
 	return {
 		request: new Request("http://localhost/api/chat/send", {

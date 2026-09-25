@@ -520,6 +520,165 @@ describe("Normal Chat JSON control model sender", () => {
 		});
 	});
 
+	it("applies Qwen's default topP/topK sampling through the shared adapter when the caller sets no temperature", async () => {
+		mocks.getConfig.mockReturnValue({
+			requestTimeoutMs: 300_000,
+			model1: {
+				baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+				apiKey: "qwen-secret",
+				modelName: "qwen3.6-plus",
+				displayName: "Qwen Cloud",
+				maxTokens: 8192,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+			model2: {
+				baseUrl: "",
+				apiKey: "",
+				modelName: "",
+				displayName: "Model Two",
+				maxTokens: null,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+		});
+		const fetch = vi.fn<typeof globalThis.fetch>(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "qwen3.6-plus",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: JSON.stringify({ ok: true }),
+								},
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+
+		// No `temperature` override here (rail-summary/title-generator's shape)
+		// — the shared adapter's qwen default (0.6) should apply instead of the
+		// flat CONTROL_MODEL_TEMPERATURE (0.1) constant.
+		await sendJsonControlMessage("Return JSON", "model1", {
+			systemPrompt: "context-compression",
+			fetch,
+		});
+
+		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		expect(body.temperature).toBe(0.6);
+		expect(body.top_p).toBe(0.95);
+		expect(body.top_k).toBe(20);
+	});
+
+	it("keeps an explicit caller temperature (e.g. the classifier's/turn-acknowledgment's deterministic 0) while still applying topP/topK", async () => {
+		mocks.getConfig.mockReturnValue({
+			requestTimeoutMs: 300_000,
+			model1: {
+				baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+				apiKey: "qwen-secret",
+				modelName: "qwen3.6-plus",
+				displayName: "Qwen Cloud",
+				maxTokens: 8192,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+			model2: {
+				baseUrl: "",
+				apiKey: "",
+				modelName: "",
+				displayName: "Model Two",
+				maxTokens: null,
+				reasoningEffort: null,
+				thinkingType: null,
+			},
+		});
+		const fetch = vi.fn<typeof globalThis.fetch>(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "qwen3.6-plus",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: JSON.stringify({ ok: true }),
+								},
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+
+		await sendJsonControlMessage("Return JSON", "model1", {
+			systemPrompt: "context-compression",
+			temperature: 0,
+			fetch,
+		});
+
+		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		expect(body.temperature).toBe(0);
+		expect(body.top_p).toBe(0.95);
+		expect(body.top_k).toBe(20);
+	});
+
+	it("does not apply Qwen sampling defaults to a non-Qwen control-model provider", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(
+			async () =>
+				new Response(
+					JSON.stringify({
+						id: "chatcmpl-1",
+						model: "provider-returned-model",
+						created: 1_717_171_717,
+						choices: [
+							{
+								index: 0,
+								message: {
+									role: "assistant",
+									content: JSON.stringify({ ok: true }),
+								},
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+		);
+
+		// mockConfig()'s model1 (gpt-4.1) — the default beforeEach config — is not
+		// in the qwen family.
+		await sendJsonControlMessage("Return JSON", "model1", {
+			systemPrompt: "context-compression",
+			fetch,
+		});
+
+		const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
+		expect(body.temperature).toBe(0.1);
+		expect(body).not.toHaveProperty("top_p");
+		expect(body).not.toHaveProperty("top_k");
+	});
+
 	it("preserves Kimi thinking controls when thinking is disabled", async () => {
 		mocks.getConfig.mockReturnValue({
 			requestTimeoutMs: 300_000,

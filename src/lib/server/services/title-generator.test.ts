@@ -138,6 +138,113 @@ describe("generateTitle", () => {
 		);
 	});
 
+	it("applies Qwen's default topP/topK sampling to the outbound title request", async () => {
+		vi.doMock("../env", async (importOriginal) => {
+			const { getDatabasePath } = await importOriginal<EnvModule>();
+			return {
+				getDatabasePath,
+				config: {
+					titleGenUrl: "http://192.168.1.96:30000/v1",
+					titleGenApiKey: "",
+					titleGenModel: "qwen3-6-27b",
+					titleGenSystemPromptEn: "Write titles only.",
+					titleGenSystemPromptHu: "",
+					titleGenSystemPromptCodeAppendixEn: "",
+					titleGenSystemPromptCodeAppendixHu: "",
+					requestTimeoutMs: 5000,
+					maxMessageLength: 10000,
+					sessionSecret: "test-secret",
+					databasePath: getDatabasePath(),
+				},
+			};
+		});
+
+		vi.resetModules();
+		const { generateTitle: generateQwenTitle } = await import(
+			"./title-generator"
+		);
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					choices: [{ message: { content: "Qwen Title" } }],
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
+		);
+
+		await generateQwenTitle("User", "Assistant");
+
+		const callArgs = mockFetch.mock.calls[0]?.[1];
+		const body = JSON.parse(
+			typeof callArgs?.body === "string" ? callArgs.body : "{}",
+		);
+		expect(body.top_p).toBe(0.95);
+		expect(body.top_k).toBe(20);
+		// Title generation keeps its own deliberate low temperature (unaffected
+		// by the qwen family's 0.6 main-chat default) — only topP/topK, which
+		// were never sent by this path at all before, come from the adapter.
+		expect(body.temperature).toBe(0.2);
+	});
+
+	it("resolves an 'auto' title language to the user's uiLanguage when the message is ambiguous", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					choices: [{ message: { content: "Rövid Cím" } }],
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
+		);
+
+		// "ok" carries no language signal of its own (ambiguous); the old
+		// behavior fell straight to English here regardless of uiLanguage.
+		await generateTitle("ok", "Rendben, segítek.", "auto", "hu");
+
+		const callArgs = mockFetch.mock.calls[0]?.[1];
+		const body = JSON.parse(
+			typeof callArgs?.body === "string" ? callArgs.body : "{}",
+		);
+		// The Hungarian few-shot examples carry distinctive Hungarian text; their
+		// presence proves the ambiguous message resolved through uiLanguage
+		// ("hu"), not the old raw-detectLanguage fallback to English.
+		expect(JSON.stringify(body.messages)).toContain(
+			"React komponens létrehozási alapok",
+		);
+	});
+
+	it("resolves an 'auto' title language to English when the message is ambiguous and uiLanguage is English", async () => {
+		const mockFetch = vi.mocked(fetch);
+		mockFetch.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					choices: [{ message: { content: "Short Title" } }],
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
+		);
+
+		await generateTitle("ok", "Sure, I can help.", "auto", "en");
+
+		const callArgs = mockFetch.mock.calls[0]?.[1];
+		const body = JSON.parse(
+			typeof callArgs?.body === "string" ? callArgs.body : "{}",
+		);
+		expect(JSON.stringify(body.messages)).not.toContain(
+			"React komponens létrehozási alapok",
+		);
+	});
+
 	it("truncates assistant response to 200 chars", async () => {
 		const longResponse = "x".repeat(300);
 		const mockFetch = vi.mocked(fetch);

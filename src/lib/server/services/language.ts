@@ -44,6 +44,29 @@ const HUNGARIAN_SHORT_WORDS = new Set([
 	"kell",
 	"tudok",
 	"hé",
+	// 2026-09-25 language review: more common, unambiguous short Hungarian
+	// replies and greetings, none of which double as an everyday English word
+	// (AGENTS.md language.ts ownership — grown here, not copied elsewhere).
+	"mehet",
+	"rendben",
+	"köszike",
+	"szuper",
+	"pontosan",
+	"értem",
+	"tovább",
+	"folytasd",
+	"kész",
+	"megvan",
+	"sziasztok",
+	"hali",
+	// The object-case forms used in the "jó reggelt" / "jó éjt" greetings
+	// ("jó" alone is already listed above); needed so the short-input branch's
+	// every-token check (not just the longer general scorer) recognizes the
+	// whole greeting.
+	"reggelt",
+	"éjt",
+	"naná",
+	"hogyne",
 ]);
 
 // Extra lexical markers to approximate the old lingua-backed behavior for

@@ -222,6 +222,51 @@ describe("Environment Configuration", () => {
 		expect((await import("./env")).config.homeSummaryCacheTtlMs).toBe(30_000);
 	});
 
+	// The research_web answer-brief markdown cap. Unlike the home summary TTL,
+	// `0` is NOT a real setting here — a brief-less payload makes no sense — so
+	// it falls back to the default the same as a negative or garbage value.
+	it("defaults the web research brief cap to 12000 characters", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		delete process.env.WEB_RESEARCH_BRIEF_MAX_CHARS;
+
+		const { config } = await import("./env");
+
+		expect(config.webResearchBriefMaxChars).toBe(12_000);
+	});
+
+	it("reads a web research brief cap in characters", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+		process.env.WEB_RESEARCH_BRIEF_MAX_CHARS = "5000";
+
+		const { config } = await import("./env");
+
+		expect(config.webResearchBriefMaxChars).toBe(5000);
+	});
+
+	it("falls back to the default on a zero, garbage, or negative web research brief cap", async () => {
+		process.env.SESSION_SECRET =
+			"test-session-secret-12345678901234567890123456789012";
+
+		process.env.WEB_RESEARCH_BRIEF_MAX_CHARS = "0";
+		expect((await import("./env")).config.webResearchBriefMaxChars).toBe(
+			12_000,
+		);
+
+		vi.resetModules();
+		process.env.WEB_RESEARCH_BRIEF_MAX_CHARS = "soon";
+		expect((await import("./env")).config.webResearchBriefMaxChars).toBe(
+			12_000,
+		);
+
+		vi.resetModules();
+		process.env.WEB_RESEARCH_BRIEF_MAX_CHARS = "-500";
+		expect((await import("./env")).config.webResearchBriefMaxChars).toBe(
+			12_000,
+		);
+	});
+
 	it("should derive unset context budget defaults from the configured model window", async () => {
 		process.env.SESSION_SECRET =
 			"test-session-secret-12345678901234567890123456789012";
