@@ -84,3 +84,18 @@ describe("ProjectFilesDialog empty states", () => {
 		);
 	});
 });
+
+// This box really does search the project's files, so it keeps the project's
+// wording. The library picker's box used to borrow the same string; the two now
+// have a key each, and this pins that the split left this one alone.
+describe("ProjectFilesDialog search box", () => {
+	it("names the project's files as what it searches", () => {
+		open([]);
+
+		expect(search()).toHaveAttribute(
+			"placeholder",
+			"Search files in this project",
+		);
+		expect(search()).toHaveAccessibleName("Search files in this project");
+	});
+});

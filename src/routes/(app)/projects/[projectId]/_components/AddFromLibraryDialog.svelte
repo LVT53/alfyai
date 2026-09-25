@@ -142,8 +142,8 @@ $effect(() => {
 				type="search"
 				data-testid="add-from-library-search"
 				bind:value={searchQuery}
-				placeholder={$t("projects.filesSearch")}
-				aria-label={$t("projects.filesSearch")}
+				placeholder={$t("projects.filesLibrarySearch")}
+				aria-label={$t("projects.filesLibrarySearch")}
 			/>
 		</div>
 

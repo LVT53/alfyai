@@ -42,6 +42,9 @@ const projectsDict = {
 		"projects.filesDescription":
 			"Every chat in this project knows these exist and reads them when they're needed.",
 		"projects.filesSearch": "Search files in this project",
+		// The Add from library picker's box. It filters the user's library, not
+		// the project, so it has its own key instead of borrowing the one above.
+		"projects.filesLibrarySearch": "Search your library",
 		"projects.filesAddFromLibrary": "Add from library",
 		"projects.filesUpload": "Upload",
 		"projects.filesColumnName": "Name",
@@ -99,6 +102,7 @@ const projectsDict = {
 		"projects.filesDescription":
 			"A projekt minden csevegése tud róluk, és akkor olvassa el őket, amikor szükség van rájuk.",
 		"projects.filesSearch": "Keresés a projekt fájljai között",
+		"projects.filesLibrarySearch": "Keresés a könyvtárban",
 		"projects.filesAddFromLibrary": "Hozzáadás a könyvtárból",
 		"projects.filesUpload": "Feltöltés",
 		"projects.filesColumnName": "Név",
