@@ -262,12 +262,28 @@ describe("artifact-document blocks", () => {
 			"heading",
 			"paragraph",
 			"list",
+			// Each checklist item is its own block (see the comment on
+			// `LIST_ITEM_START_RE`): `toggleTask` addresses one block with only
+			// `checked`, no item locator, so a five-item checklist grouped into one
+			// block would make individual items unaddressable.
+			"taskList",
 			"taskList",
 			"blockquote",
 			"code",
 			"table",
 			"hr",
 		]);
+	});
+
+	it("gives every checklist item its own block, so toggleTask can address one", () => {
+		const result = parseDocument(
+			"- [ ] Book flights\n- [x] Book hotel\n- [ ] Pack bags",
+		);
+		const taskBlocks = result.blocks.filter((b) => b.kind === "taskList");
+		expect(taskBlocks).toHaveLength(3);
+		expect(taskBlocks[0].label).toBe("Book flights");
+		expect(taskBlocks[1].label).toBe("Book hotel");
+		expect(new Set(taskBlocks.map((b) => b.id)).size).toBe(3);
 	});
 
 	it("a block's markdown never contains the marker", () => {

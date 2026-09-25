@@ -315,11 +315,8 @@ const BLOCKQUOTE_RE = /^ {0,3}>/;
 const TASK_START_RE = /^ {0,3}[-*+]\s+\[[ xX]\]/;
 const BULLET_START_RE = /^ {0,3}[-*+]\s+/;
 const ORDERED_START_RE = /^ {0,3}\d+[.)]\s+/;
-// Two distinct families, not one: a blank line between a plain bullet item
-// and a following task item must NOT be read as one loose list, or a task
-// list glued onto a plain list (a common shape: "notes" then "checklist")
-// merges into a single block and the model can no longer address them apart.
-const TASK_FAMILY_RE = /^ {0,3}[-*+]\s+\[[ xX]\]/;
+// A plain list's family excludes task syntax, so a blank line between a plain
+// bullet item and a following task item is never read as one loose list.
 const PLAIN_LIST_FAMILY_RE = /^ {0,3}(?:[-*+]\s+(?!\[[ xX]\])|\d+[.)]\s+)/;
 const HTML_START_RE = /^ {0,3}</;
 
@@ -341,7 +338,26 @@ function startsNewBlock(line: string): boolean {
 	return false;
 }
 
-/** Consumes a list/task block: its items, indented continuations, and a loose blank line before another item of the SAME family. */
+/**
+ * A checklist item is addressed on its own: `toggleTask` carries only
+ * `blockId` and `checked` — no item locator — so it can only ever mean "this
+ * whole block is the one item," never "the third line of a five-item block."
+ * Every task item is therefore its own block, unlike a plain bullet/ordered
+ * list (which has no per-item op and stays one block).
+ */
+const LIST_ITEM_START_RE = /^\s*(?:[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/;
+
+function consumeSingleListItem(lines: string[], start: number): { text: string; next: number } {
+	const collected = [lines[start]];
+	let i = start + 1;
+	while (i < lines.length && /^\s+\S/.test(lines[i]) && !LIST_ITEM_START_RE.test(lines[i])) {
+		collected.push(lines[i]);
+		i += 1;
+	}
+	return { text: collected.join("\n"), next: i };
+}
+
+/** Consumes a plain list block: its items, indented continuations, and a loose blank line before another item of the SAME family. */
 function consumeListBlock(
 	lines: string[],
 	start: number,
@@ -441,7 +457,7 @@ function splitIntoSegments(lines: string[]): Segment[] {
 		}
 
 		if (TASK_START_RE.test(line)) {
-			const { text, next } = consumeListBlock(lines, i, TASK_FAMILY_RE);
+			const { text, next } = consumeSingleListItem(lines, i);
 			segments.push({ type: "block", kind: "taskList", text });
 			i = next;
 			continue;
@@ -496,6 +512,23 @@ function deriveLabel(markdown: string): string {
 }
 
 /**
+ * Build one `DocumentBlock` from an id, a kind and its raw (not yet
+ * normalised) markdown text. The one place that runs normalise → hash → label
+ * for a single block, so `parseDocument` and the patch engine (which rebuilds
+ * a block after a text-level edit) can never compute a hash a different way.
+ */
+export function makeBlock(id: string, kind: BlockKind, rawMarkdown: string): DocumentBlock {
+	const normalized = normalizeMarkdown(rawMarkdown);
+	return {
+		id,
+		kind,
+		markdown: normalized,
+		hash: fnv1aHex(normalized),
+		label: deriveLabel(normalized),
+	};
+}
+
+/**
  * Parse, then mint or absorb. The mint happens HERE, before any hash is
  * computed, so the returned blocks always have ids. Never hash a document
  * that has not been through this function.
@@ -533,14 +566,7 @@ export function parseDocument(markdown: string, opts?: { mint?: boolean }): Pars
 			id = absorbedId ?? "";
 		}
 		if (id) seen.add(id);
-		const normalized = normalizeMarkdown(text);
-		return {
-			id,
-			kind,
-			markdown: normalized,
-			hash: fnv1aHex(normalized),
-			label: deriveLabel(normalized),
-		};
+		return makeBlock(id, kind, text);
 	});
 
 	return {
