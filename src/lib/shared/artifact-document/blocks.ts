@@ -128,7 +128,8 @@ function trimBlankEdges(lines: string[]): string[] {
 	return lines.slice(start, end);
 }
 
-function splitTableCells(line: string): string[] {
+/** Split one `| a | b |`-shaped line into cell substrings (not yet trimmed). Shared with the patch engine's `addTableRow`. */
+export function splitTableCells(line: string): string[] {
 	let s = line.trim();
 	if (s.startsWith("|")) s = s.slice(1);
 	if (s.endsWith("|")) s = s.slice(0, -1);
