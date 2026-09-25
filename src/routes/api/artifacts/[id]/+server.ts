@@ -15,18 +15,28 @@ import type { RequestHandler } from "./$types";
 // never a 403: a 403 confirms existence, and this route must answer the same
 // way for a missing id, another user's artifact, or an incognito artifact
 // read from outside its conversation.
+//
+// An optional `?conversationId=` names the conversation being served and is
+// forwarded as `ArtifactScopeOptions.conversationId` to every read below. That
+// widens the ownership scope by exactly one conversation — the caller's own,
+// since `getArtifactOwnershipScope` (knowledge/store/core.ts) starts from
+// `conversations.userId = caller`, so naming someone else's conversation, or
+// a different one of the caller's own, reaches nothing new. Without it, an
+// incognito conversation's own artifact 404s even for its owner: incognito
+// hides a chat's work from the user's OTHER chats, never from itself.
 export const GET: RequestHandler = async (event) => {
 	const user = requireApiUser(event);
 	const artifactId = event.params.id;
+	const conversationId = event.url.searchParams.get("conversationId");
 
-	const artifact = await getArtifact({ userId: user.id, artifactId });
+	const artifact = await getArtifact({ userId: user.id, artifactId, conversationId });
 	if (!artifact) {
 		return json({ ok: false, reason: "not_found" }, { status: 404 });
 	}
 
 	const [versions, comments] = await Promise.all([
-		listVersions({ userId: user.id, artifactId }),
-		listComments({ userId: user.id, artifactId }),
+		listVersions({ userId: user.id, artifactId, conversationId }),
+		listComments({ userId: user.id, artifactId, conversationId }),
 	]);
 
 	return json({ artifact, versions, comments });

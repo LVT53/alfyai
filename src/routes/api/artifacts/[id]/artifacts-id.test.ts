@@ -17,9 +17,17 @@ const mockGetArtifact = getArtifact as ReturnType<typeof vi.fn>;
 const mockListVersions = listVersions as ReturnType<typeof vi.fn>;
 const mockListComments = listComments as ReturnType<typeof vi.fn>;
 
-function makeEvent(id = "artifact-1", userId: string | null = "owner-user") {
+function makeEvent(
+	id = "artifact-1",
+	userId: string | null = "owner-user",
+	conversationId: string | null = null,
+) {
+	const query = conversationId
+		? `?conversationId=${encodeURIComponent(conversationId)}`
+		: "";
 	return {
 		params: { id },
+		url: new URL(`http://localhost/api/artifacts/${id}${query}`),
 		locals: { user: userId ? { id: userId, role: "user" } : undefined },
 	} as never;
 }
@@ -62,6 +70,7 @@ describe("GET /api/artifacts/[id]", () => {
 		expect(mockGetArtifact).toHaveBeenCalledWith({
 			userId: "owner-user",
 			artifactId: "artifact-1",
+			conversationId: null,
 		});
 	});
 
@@ -85,5 +94,29 @@ describe("GET /api/artifacts/[id]", () => {
 		expect(body.artifact).toEqual(artifactFixture);
 		expect(body.versions).toHaveLength(1);
 		expect(body.comments).toEqual([]);
+	});
+
+	it("forwards ?conversationId= to all three reads, so an incognito chat can widen its own scope", async () => {
+		mockGetArtifact.mockResolvedValue(artifactFixture);
+		mockListVersions.mockResolvedValue([]);
+		mockListComments.mockResolvedValue([]);
+
+		await GET(makeEvent("artifact-1", "owner-user", "conv-incognito"));
+
+		expect(mockGetArtifact).toHaveBeenCalledWith({
+			userId: "owner-user",
+			artifactId: "artifact-1",
+			conversationId: "conv-incognito",
+		});
+		expect(mockListVersions).toHaveBeenCalledWith({
+			userId: "owner-user",
+			artifactId: "artifact-1",
+			conversationId: "conv-incognito",
+		});
+		expect(mockListComments).toHaveBeenCalledWith({
+			userId: "owner-user",
+			artifactId: "artifact-1",
+			conversationId: "conv-incognito",
+		});
 	});
 });

@@ -648,7 +648,7 @@ the existing preview stack. Nothing about the produced-file path changes.
 
 | Route | Request | Response | Notes |
 |---|---|---|---|
-| `GET /api/artifacts/[id]` | — | `{ artifact: ArtifactDetail; versions: ArtifactVersionSummary[]; comments: ArtifactComment[] }` | `requireAuth` (`$lib/server/auth/hooks.ts`); ownership through the scope; **404** for another user's artifact |
+| `GET /api/artifacts/[id]?conversationId=…` | optional query | `{ artifact: ArtifactDetail; versions: ArtifactVersionSummary[]; comments: ArtifactComment[] }` | `requireAuth` (`$lib/server/auth/hooks.ts`); ownership through the scope; **404** for another user's artifact. `conversationId` is forwarded as `ArtifactScopeOptions.conversationId` to all three reads (artifact, versions, comments), so the conversation that made the artifact can open its own even while incognito — the scope is still built from the caller's own conversations, so naming any other conversation reaches nothing new. |
 | `GET /api/artifacts?conversationId=…` | query | `{ artifacts: ArtifactCardSummary[] }` | newest first; validates the conversation belongs to the user before reading |
 
 `GET /api/artifacts/[id]`'s 404 body is the family's own — `{ ok: false, reason: "not_found" }` — with the
