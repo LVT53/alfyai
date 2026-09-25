@@ -634,6 +634,16 @@ export function buildTurnGuidance(params: {
 	// exact same envelope text the `use_skill` tool would return for the
 	// same skill.
 	pendingSkillInstructions?: string | null;
+	// The "## In this chat" catalogue of artifacts (Document/App/Canvas/
+	// Slides/File) this conversation has already made — resolved by the
+	// caller (artifacts/catalogue.ts's resolveArtifactCatalogueBlock, since
+	// it needs a DB read) and rendered here like skillCatalogueBlock. It is a
+	// fact about the conversation, not a decision about which guidance
+	// applies, so it is identical for every message in the same conversation
+	// state and safe to append after the user message rather than splice into
+	// the cached system prompt. The RULES for choosing a type live on
+	// create_artifact's own description (ADR-0055), never here.
+	artifactCatalogueBlock?: string | null;
 }): string {
 	if (params.skipDefaultRuntimeGuidance) return "";
 	const todayStr = new Date().toLocaleDateString("en-US", {
@@ -653,6 +663,9 @@ export function buildTurnGuidance(params: {
 			? [buildReasoningDepthEffortGuard(params.reasoningDepthEffort)]
 			: []),
 		...(params.forceWebSearch ? [FORCED_WEB_SEARCH_GUIDANCE] : []),
+		...(params.artifactCatalogueBlock?.trim()
+			? [params.artifactCatalogueBlock.trim()]
+			: []),
 		...(params.skillCatalogueBlock?.trim()
 			? [params.skillCatalogueBlock.trim()]
 			: []),
@@ -1894,6 +1907,10 @@ type PrepareOutboundChatContextParams = {
 	// system message plus tool catalogue stays a stable, cacheable prefix.
 	skillCatalogueBlock?: string | null;
 	pendingSkillInstructions?: string | null;
+	// The "## In this chat" artifact catalogue (see buildTurnGuidance above),
+	// resolved by the caller for the same reason skillCatalogueBlock is: it
+	// needs a DB read this boundary does not perform.
+	artifactCatalogueBlock?: string | null;
 	logLabel: string;
 };
 
@@ -2184,6 +2201,7 @@ export async function prepareOutboundChatContext(
 		forceWebSearch: params.forceWebSearch,
 		skillCatalogueBlock: params.skillCatalogueBlock,
 		pendingSkillInstructions: params.pendingSkillInstructions,
+		artifactCatalogueBlock: params.artifactCatalogueBlock,
 	});
 	const { state, timings } =
 		await runNormalChatContextPreparationStages<OutboundChatContextPreparationState>(
