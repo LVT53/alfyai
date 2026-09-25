@@ -146,7 +146,18 @@ export async function resolveArtifactCatalogueBlock(params: {
 	try {
 		const entries = await listArtifactCatalogueEntries(params);
 		return buildArtifactCatalogueBlock(entries);
-	} catch {
+	} catch (error) {
+		// Fail open (the turn must still answer), but not silently: a
+		// production catalogue that has quietly stopped working is a fact
+		// nobody would otherwise notice. Reuses the existing
+		// [NORMAL_CHAT_CONTEXT] prefix other best-effort context additions in
+		// that file already log through (slice-5.md's Failure Modes table) —
+		// no new tag, and never any artifact content, since none was read.
+		console.warn("[NORMAL_CHAT_CONTEXT] Artifact catalogue lookup failed", {
+			userId: params.userId,
+			conversationId: params.conversationId,
+			error: error instanceof Error ? error.message : String(error),
+		});
 		return null;
 	}
 }

@@ -223,6 +223,26 @@ describe("resolveArtifactCatalogueBlock", () => {
 		memory.close();
 	});
 
+	it("logs compactly through the existing [NORMAL_CHAT_CONTEXT] prefix when the lookup fails", async () => {
+		// slice-5.md's Failure Modes table: "Catalogue read fails … fail open,
+		// catch → null; the reason goes to the existing [NORMAL_CHAT_CONTEXT]
+		// log prefix … — no new tag." A silent catch defeats that: nobody would
+		// ever notice the catalogue had stopped working in production.
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		memory.close();
+
+		await resolveArtifactCatalogueBlock({
+			userId: "user-x",
+			conversationId: "conv-x",
+		});
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			expect.stringContaining("[NORMAL_CHAT_CONTEXT]"),
+			expect.anything(),
+		);
+		warnSpy.mockRestore();
+	});
+
 	it("returns null rather than throwing when the lookup fails", async () => {
 		// No user/conversation seeded: the DB call inside will not find anything
 		// to blow up on, but a real failure (e.g. a closed connection) must still
