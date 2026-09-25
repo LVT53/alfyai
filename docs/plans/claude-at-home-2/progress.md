@@ -131,6 +131,22 @@ falls back to uiLanguage, the two-part scroll-restore race, Atlas strings via th
 via env.ts. **In review:** RV-W0-F (sonnet) in `rv-w0f` (5560), also fixing the same sampling gap in
 `task-state/control-model.ts`.
 
+**State after the rebuild (2026-09-25, evening):**
+- `dev` = `9d239cf7`, pushed and **deployed to ai.dev** (Wave 0 + its reviewed follow-ups; since this deploy the
+  dev journal shows **0** "topK not supported" warnings — top_k now reaches vLLM).
+- Rebuilt branches (snapshot commits): `feat/artifacts` `65da935d` (`art-base`), `feat/artifacts-s0` `4f670188`
+  (`art-s0`), `feat/artifacts-s0-review-client` `6f0532f9` (`rv-0b`: the 7 client-review fixes), `fix/w0-followups`
+  `3cb77aaa` + `fix/w0-followups-review` `42205adb` (merged into `dev` as `9d239cf7`), `campaign/2-1-deck` `a77e4f66`
+  (current `dev` + the campaign 2.1 copy draft; `tmp-capture/` untracked; to be expanded for the release after
+  Feature 2), `campaign-incognito` detached at `30882887` as before.
+- Reference prototypes r2 (document editor) and apps-quality remain as plain folders
+  `.claude/worktrees/agent-a883f7e86c2b442fd` and `.claude/worktrees/agent-afcaa6f617ee84abe` (not in git; read the
+  files directly). The canvas prototypes are gone.
+- **Running:** a Sonnet agent in `rv-0b` redoes the data review's six changes and the post-review items (ruling 49
+  `ok: true`, createArtifact kind/title validation, `ArtifactType` "artifact", the count button's aria-pressed,
+  slice-0.md fixes). Then: merge into `feat/artifacts-s0` → `feat/artifacts` → `dev`, gates, deploy, Wave 2.
+- Owner, 2026-09-25: push only `dev` (feature branches stay local).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
