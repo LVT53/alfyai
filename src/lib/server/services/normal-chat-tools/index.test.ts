@@ -1,3 +1,5 @@
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { generateText, type ToolSet } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getConfig } from "$lib/server/config-store";
 import { SANDBOX_TIMEOUT_MS } from "$lib/server/sandbox/config";
@@ -41,6 +43,7 @@ import {
 	resolveSkillInstructionsForUse,
 	SKILLS_AVAILABLE_HEADING,
 } from "$lib/server/services/skills/prompt-context";
+import { resetToolHealthCacheForTests } from "$lib/server/services/tool-health";
 import { INSTRUCTIONS_MAX_CHARS } from "$lib/shared/instructions";
 import {
 	createNormalChatTools,
@@ -4877,9 +4880,7 @@ describe("tool description hygiene", () => {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);
 	}
 
-	function buildFullToolCatalogue(
-		language: "en" | "hu",
-	): Array<{ name: string; description: string }> {
+	function buildFullToolSet(language: "en" | "hu") {
 		// map_route needs ORS configured and research_web/fetch_url need the
 		// Parallel key, so the catalogue below is every tool a fully connected
 		// user's turn can see.
@@ -4892,20 +4893,95 @@ describe("tool description hygiene", () => {
 			model2MaxModelContext: 200_000,
 		} as unknown as ReturnType<typeof getConfig>);
 
-		const { tools } = createNormalChatTools({
+		return createNormalChatTools({
 			userId: "user-1",
 			conversationId: "conversation-1",
 			turnId: "turn-1",
 			language,
 			enabledConnectionCapabilities: new Set(ALL_CONNECTION_CAPABILITIES),
-		});
+		}).tools;
+	}
 
+	function buildFullToolCatalogue(
+		language: "en" | "hu",
+	): Array<{ name: string; description: string }> {
 		return Object.entries(
-			tools as unknown as Record<string, { description?: string }>,
+			buildFullToolSet(language) as unknown as Record<
+				string,
+				{ description?: string }
+			>,
 		).map(([name, definition]) => ({
 			name,
 			description: definition.description ?? "",
 		}));
+	}
+
+	/**
+	 * The catalogue exactly as a request carries it: the tool set goes through
+	 * the same AI SDK call and `@ai-sdk/openai-compatible` provider a Normal Chat
+	 * turn uses, and the `tools` array is read back off the request body — so
+	 * the names, descriptions, JSON schemas and their order are the SDK's own
+	 * rendering, not a copy of it. (The app's provider adapters in
+	 * normal-chat-model/provider-compatibility.ts rewrite other request fields,
+	 * never `tools`.)
+	 */
+	async function captureToolsAsSent(tools: ToolSet): Promise<unknown> {
+		let sentTools: unknown;
+		const provider = createOpenAICompatible({
+			name: "catalogue-snapshot",
+			baseURL: "http://model.invalid/v1",
+			fetch: async (_input, init) => {
+				sentTools = (JSON.parse(String(init?.body)) as { tools?: unknown })
+					.tools;
+				return new Response(
+					JSON.stringify({
+						id: "chatcmpl-catalogue",
+						created: 0,
+						model: "catalogue-snapshot",
+						choices: [
+							{
+								index: 0,
+								message: { role: "assistant", content: "" },
+								finish_reason: "stop",
+							},
+						],
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			},
+		});
+		await generateText({
+			model: provider.chatModel("catalogue-snapshot"),
+			tools,
+			prompt: "catalogue",
+			maxRetries: 0,
+		});
+		return sentTools;
+	}
+
+	function renderCatalogueSnapshot(
+		language: "en" | "hu",
+		sentTools: unknown,
+	): string {
+		return [
+			`MODEL-FACING TOOL CATALOGUE (${language}) - THIS FILE IS THE CACHED PROMPT PREFIX.`,
+			"",
+			"Written by src/lib/server/services/normal-chat-tools/index.test.ts; never edit it by hand.",
+			"Below is the chat request's `tools` array, pretty-printed: every tool's name, description",
+			"and input schema, in the order the request sends them. The chat template renders all of it",
+			"into the prompt on every turn, so a changed description, schema or order moves the cached",
+			"prefix from that point on. If the change is deliberate, re-run the test with `-u` in the",
+			"same commit and say so in the commit message.",
+			"",
+			"Configuration: the fully connected catalogue the budget tests measure - Parallel configured",
+			"(research_web, fetch_url), ORS configured with no coverage label and no timetables loaded",
+			"(map_route), all nine connection capabilities enabled, no degraded-tool hints. A real turn",
+			"may send fewer tools (the gated ones above, and memory_context, use_skill and",
+			"suggest_instruction are withheld per conversation), never the same ones in another order.",
+			"----",
+			JSON.stringify(sentTools, null, 2),
+			"",
+		].join("\n");
 	}
 
 	it("exposes the whole tool catalogue when everything is configured and connected", () => {
@@ -4974,6 +5050,32 @@ describe("tool description hygiene", () => {
 		);
 
 		expect(total).toBeLessThanOrEqual(CATALOGUE_TOKEN_CEILING[language]);
+	});
+
+	// THIS SNAPSHOT IS THE CACHED PROMPT PREFIX. The tool catalogue — every
+	// tool's description and input schema, in the order the request sends them —
+	// is rendered into the prompt ahead of the conversation on every turn, so
+	// rewording any description (not only the ones asserted above) or touching
+	// any schema evicts the cached prefix from that point on. One file per
+	// locale holds the whole catalogue exactly as it is sent, so no such change
+	// can ship unnoticed. If a change is deliberate, re-run this test with `-u`
+	// (`npx vitest run src/lib/server/services/normal-chat-tools/index.test.ts
+	// -u`) in the same commit and say so in the commit message.
+	//
+	// It snapshots the configuration the budget tests above measure (see the
+	// file headers), with the health cache cleared so no degraded-tool hint can
+	// leak into a description.
+	it.each([
+		"en",
+		"hu",
+	] as const)("the %s tool catalogue the model is sent matches its frozen snapshot", async (language) => {
+		resetToolHealthCacheForTests();
+
+		const sentTools = await captureToolsAsSent(buildFullToolSet(language));
+
+		await expect(
+			renderCatalogueSnapshot(language, sentTools),
+		).toMatchFileSnapshot(`./tool-catalogue.${language}.snapshot.txt`);
 	});
 });
 
