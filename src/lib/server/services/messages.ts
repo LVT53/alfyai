@@ -740,9 +740,9 @@ export async function getMessageEvidenceState(
 	// evidence summary, and it is defined by the same turn (the selected
 	// evidence and the files its tools read, intersected with the project's
 	// links — see `countProjectFilesRead`), so it is read back here rather than
-	// fetched separately: the live page's
-	// evidence poll is the only channel that carries a finished turn's evidence
-	// to the browser, and a row about the evidence has to ride it.
+	// fetched separately: the live page's evidence poll is the only channel
+	// that carries a finished turn's evidence to the browser, and a row about
+	// the evidence has to ride it.
 	projectFilesRead: number | undefined;
 	// The Info popover's "Citation audit" row reads this. Unlike the summary it
 	// is NOT part of the evidence: a turn persists it when its message is
