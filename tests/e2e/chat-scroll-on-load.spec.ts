@@ -607,6 +607,112 @@ test.describe("chat scroll — content that arrives late", () => {
 });
 
 /**
+ * Opens a long conversation whose last reply holds an image that stays
+ * pending until `release()`, so it can land after the reader has acted.
+ */
+async function openWithPendingImage(page: Page, label: string) {
+	await login(page);
+	const image = await holdLateImage(page);
+	const conversationId = await seedLongConversation(label, { lateImage: true });
+	await page.goto(`/chat/${conversationId}`, { waitUntil: "domcontentloaded" });
+	await waitForHydration(page);
+	await waitForThreadRendered(page, label);
+	await image.wasRequested;
+	return image;
+}
+
+/** Lets the pending image land and checks the reader was left where they were. */
+async function expectReaderLeftAlone(
+	page: Page,
+	image: { release(): void },
+	reading: ThreadView,
+) {
+	expect(reading.maxScrollTop - reading.scrollTop).toBeGreaterThan(300);
+	image.release();
+	await expect(page.locator(".markdown-image-frame--loaded")).toBeAttached({
+		timeout: 10000,
+	});
+	await waitForScrollToSettle(page);
+	const after = await readThreadView(page);
+	expect(after.maxScrollTop).toBeGreaterThan(reading.maxScrollTop + 100);
+	expect(
+		Math.abs(after.scrollTop - reading.scrollTop),
+		"the reader must stay where they scrolled to",
+	).toBeLessThanOrEqual(1);
+}
+
+test.describe("chat scroll — the reader takes over", () => {
+	test("a keyboard scroll inside the thread hands the view to the reader", async ({
+		page,
+	}) => {
+		await page.setViewportSize(DESKTOP);
+		const image = await openWithPendingImage(page, "keyboard takeover");
+		// Focus lands on a control in the thread without a pointer (as Tab
+		// would put it there), and the reader pages up.
+		await page
+			.locator('[data-testid="instruction-suggestion"] button')
+			.first()
+			.focus();
+		await page.keyboard.press("PageUp");
+		await waitForScrollToSettle(page);
+		await expectReaderLeftAlone(page, image, await readThreadView(page));
+	});
+
+	test.describe("on a touch screen", () => {
+		test.use({ hasTouch: true, isMobile: true, viewport: PHONE });
+
+		test("a finger dragging the thread down hands the view to the reader", async ({
+			page,
+		}) => {
+			const image = await openWithPendingImage(page, "touch takeover");
+			const box = await page.locator(".scroll-container").boundingBox();
+			if (!box) throw new Error("The thread is not measurable.");
+			const cdp = await page.context().newCDPSession(page);
+			await cdp.send("Input.synthesizeScrollGesture", {
+				x: Math.round(box.x + box.width / 2),
+				y: Math.round(box.y + box.height / 3),
+				yDistance: 500,
+				gestureSourceType: "touch",
+				speed: 1200,
+			});
+			await waitForScrollToSettle(page);
+			await expectReaderLeftAlone(page, image, await readThreadView(page));
+		});
+	});
+
+	test("the on-screen keyboard shrinking a phone's view keeps the latest message in view, and leaves a reader who scrolled up alone", async ({
+		page,
+	}) => {
+		// The viewport meta asks for `interactive-widget=resizes-content`: the
+		// keyboard shrinks the layout viewport, so the thread's own box shrinks.
+		const label = "keyboard opens";
+		await page.setViewportSize(PHONE);
+		await login(page);
+		const conversationId = await seedLongConversation(label);
+		await page.goto(`/chat/${conversationId}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await waitForHydration(page);
+		await waitForThreadRendered(page, label);
+
+		await page.setViewportSize({ width: PHONE.width, height: 480 });
+		await waitForScrollToSettle(page);
+		await expectLatestMessageInView(page);
+
+		await page.setViewportSize(PHONE);
+		await waitForScrollToSettle(page);
+		await wheelThread(page, -700);
+		const reading = await readThreadView(page);
+		await page.setViewportSize({ width: PHONE.width, height: 480 });
+		await waitForScrollToSettle(page);
+		expect(
+			Math.abs((await readThreadView(page)).scrollTop - reading.scrollTop),
+			"a reader who scrolled up must not be moved by the keyboard",
+		).toBeLessThanOrEqual(1);
+	});
+});
+
+/**
  * A stand-in for `/api/chat/stream` that the test feeds one part at a time,
  * so the reply can be made to grow while the test scrolls. Installed before
  * the app loads; only the stream request is intercepted.
