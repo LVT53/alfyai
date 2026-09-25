@@ -55,6 +55,60 @@ const artifactsDict = {
 		"artifacts.action.dismiss": "Dismiss",
 		// The history button's title until the first kind with history lands.
 		"artifacts.history.comingWithDocument": "History arrives with documents.",
+
+		// The App kind (Slice 2). "Alkalmazás"/"App" name the kind through
+		// artifacts.type.app above; everything below is the App body's own
+		// surface (AppFrame.svelte, AppBody.svelte).
+		"artifacts.app.cardSubtitle": "App",
+		"artifacts.app.tab.preview": "Preview",
+		"artifacts.app.tab.code": "Code",
+		"artifacts.app.action.regenerate": "Ask Alfy for a new version",
+		"artifacts.app.action.download": "Download as .html",
+		"artifacts.app.regenerate.prompt": "What should change?",
+		"artifacts.app.generating": "Alfy is writing the app…",
+		"artifacts.app.generating.hint": "This takes a few seconds.",
+		"artifacts.app.failed.emptyContent":
+			"Alfy did not manage to write the app this time.",
+		"artifacts.app.failed.noFence":
+			"Alfy answered, but not with a runnable app.",
+		"artifacts.app.failed.toolCall":
+			"Alfy tried to look around instead of writing the app. Try again.",
+		"artifacts.app.failed.tooLong":
+			"The app grew past what can run here. Ask for something smaller.",
+		"artifacts.app.verify.checking": "Alfy is checking the facts in this app…",
+		"artifacts.app.verify.clean": "Alfy checked the facts in this app.",
+		"artifacts.app.verify.repaired":
+			"Alfy checked the facts and fixed one thing.",
+		"artifacts.app.verify.uncertain":
+			"Alfy was not sure about one detail — see the note.",
+		"artifacts.app.verify.unavailable":
+			"Alfy could not check the facts in this app.",
+		"artifacts.app.verify.noteTitle": "Alfy's note",
+		"artifacts.app.glitch.network":
+			"This app tried to reach the network. Everything still works offline.",
+		"artifacts.app.glitch.storage":
+			"This app used browser storage instead of Alfy's. Your data may not be kept.",
+		"artifacts.app.glitch.external":
+			"This app was built to load something from outside. It runs, but parts may be missing.",
+		"artifacts.app.storage.timedOut": "The app could not reach its saved data.",
+		"artifacts.app.storage.tooLarge":
+			"This app tried to save more than it can.",
+		"artifacts.app.storage.tooManyKeys":
+			"This app tried to save too many separate things.",
+		"artifacts.app.storage.notSerialisable":
+			"This app tried to save something that cannot be saved.",
+		"artifacts.app.frame.title": "{title} — running app",
+		"artifacts.app.frame.loading": "Loading the app…",
+		"artifacts.app.frame.blocked": "Apps are not run in this context.",
+		"artifacts.app.serve.failed": "This app could not be opened.",
+		"artifacts.app.tabs.a11y": "Preview and code",
+		"artifacts.app.code.copy": "Copy code",
+		"artifacts.app.code.copied": "Copied",
+		"artifacts.app.regenerate.confirm":
+			"Ask Alfy for a new version? Your saved data stays.",
+		"artifacts.app.download.unavailable":
+			"This app is not in a chat, so it cannot be saved as a file.",
+		"artifacts.app.open.cta": "Make an app",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -86,6 +140,59 @@ const artifactsDict = {
 		"artifacts.action.dismiss": "Elvetés",
 		"artifacts.history.comingWithDocument":
 			"Az előzmények a dokumentumokkal érkeznek.",
+
+		"artifacts.app.cardSubtitle": "Alkalmazás",
+		"artifacts.app.tab.preview": "Előnézet",
+		"artifacts.app.tab.code": "Kód",
+		"artifacts.app.action.regenerate": "Kérj új változatot Alfytól",
+		"artifacts.app.action.download": "Letöltés .html-ként",
+		"artifacts.app.regenerate.prompt": "Min változtasson?",
+		"artifacts.app.generating": "Alfy írja az alkalmazást…",
+		"artifacts.app.generating.hint": "Ez néhány másodpercet vesz igénybe.",
+		"artifacts.app.failed.emptyContent":
+			"Alfynak most nem sikerült megírnia az alkalmazást.",
+		"artifacts.app.failed.noFence":
+			"Alfy válaszolt, de nem futtatható alkalmazással.",
+		"artifacts.app.failed.toolCall":
+			"Alfy írás helyett körülnézni próbált. Próbáld újra.",
+		"artifacts.app.failed.tooLong":
+			"Az alkalmazás nagyobb lett, mint ami itt futtatható. Kérj valami kisebbet.",
+		"artifacts.app.verify.checking": "Alfy ellenőrzi az alkalmazás adatait…",
+		"artifacts.app.verify.clean": "Alfy ellenőrizte az alkalmazás adatait.",
+		"artifacts.app.verify.repaired":
+			"Alfy ellenőrizte az adatokat, és kijavított egy dolgot.",
+		"artifacts.app.verify.uncertain":
+			"Alfy egy részletben nem volt biztos — lásd a megjegyzést.",
+		"artifacts.app.verify.unavailable":
+			"Alfy nem tudta ellenőrizni az alkalmazás adatait.",
+		"artifacts.app.verify.noteTitle": "Alfy megjegyzése",
+		"artifacts.app.glitch.network":
+			"Ez az alkalmazás hálózatot próbált elérni. Így is működik, offline.",
+		"artifacts.app.glitch.storage":
+			"Ez az alkalmazás a böngésző tárolóját használta Alfyé helyett. Lehet, hogy az adatok nem maradnak meg.",
+		"artifacts.app.glitch.external":
+			"Ez az alkalmazás kívülről töltene be valamit. Fut, de egyes részei hiányozhatnak.",
+		"artifacts.app.storage.timedOut":
+			"Az alkalmazás nem érte el a mentett adatait.",
+		"artifacts.app.storage.tooLarge":
+			"Ez az alkalmazás többet próbált elmenteni, mint amennyi lehet.",
+		"artifacts.app.storage.tooManyKeys":
+			"Ez az alkalmazás túl sok külön dolgot próbált elmenteni.",
+		"artifacts.app.storage.notSerialisable":
+			"Ez az alkalmazás olyat próbált elmenteni, ami nem menthető.",
+		"artifacts.app.frame.title": "{title} — futó alkalmazás",
+		"artifacts.app.frame.loading": "Az alkalmazás betöltése…",
+		"artifacts.app.frame.blocked":
+			"Ebben a környezetben az alkalmazások nem futnak.",
+		"artifacts.app.serve.failed": "Ezt az alkalmazást nem sikerült megnyitni.",
+		"artifacts.app.tabs.a11y": "Előnézet és kód",
+		"artifacts.app.code.copy": "Kód másolása",
+		"artifacts.app.code.copied": "Másolva",
+		"artifacts.app.regenerate.confirm":
+			"Új változatot kérsz Alfytól? A mentett adataid megmaradnak.",
+		"artifacts.app.download.unavailable":
+			"Ez az alkalmazás nincs beszélgetésben, ezért nem menthető fájlként.",
+		"artifacts.app.open.cta": "Készíts alkalmazást",
 	},
 } as const;
 
