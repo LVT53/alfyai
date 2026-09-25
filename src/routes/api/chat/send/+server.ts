@@ -21,6 +21,7 @@ import {
 	parseChatTurnRequest,
 	preflightAtlasTurnSources,
 	preflightChatTurn,
+	resolveTurnResponseLanguage,
 	runPlainNormalChatSendModel,
 } from "$lib/server/services/chat-turn";
 import { recordCompletedTurnContextUsage } from "$lib/server/services/chat-turn/context-usage";
@@ -31,7 +32,10 @@ import {
 	createArtifactLink,
 	isAttachmentReadinessError,
 } from "$lib/server/services/knowledge";
-import { detectLanguage } from "$lib/server/services/language";
+import {
+	detectLanguage,
+	type SupportedLanguage,
+} from "$lib/server/services/language";
 import type { LinkedContextSource } from "$lib/server/services/linked-context-sources";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
@@ -482,7 +486,12 @@ async function runStandardSendTurn({
 	turn,
 	runtimeConfig,
 }: {
-	user: { id: string; displayName: string | null; email: string | null };
+	user: {
+		id: string;
+		displayName: string | null;
+		email: string | null;
+		uiLanguage?: SupportedLanguage;
+	};
 	turn: SendTurn;
 	runtimeConfig: ReturnType<typeof getConfig>;
 }): Promise<Response> {
@@ -499,6 +508,17 @@ async function runStandardSendTurn({
 	const personalityPrompt = await resolvePersonalityPrompt(
 		turn.personalityProfileId,
 	);
+	// Resolved ONCE here (not inside runPlainNormalChatSendModel) so it can
+	// use the conversation's real prior-message history and this account's
+	// UI-language preference — both unavailable this deep inside chat-turn/
+	// without a second DB round trip. The result rides `resolvedResponseLanguage`
+	// through to prepareOutboundContext and createToolPack, so the reply's
+	// language guard and the tool catalogue's locale can never disagree.
+	const resolvedResponseLanguage = await resolveTurnResponseLanguage({
+		message: upstreamMessage,
+		conversationId: turn.conversationId,
+		user: buildModelUser(user),
+	});
 
 	const modelRunResult = await runPlainNormalChatSendModel({
 		userId: user.id,
@@ -507,6 +527,7 @@ async function runStandardSendTurn({
 		conversationId: turn.conversationId,
 		modelId: turn.modelId,
 		user: buildModelUser(user),
+		resolvedResponseLanguage,
 		attachmentIds: turn.attachmentIds,
 		activeDocumentArtifactId: turn.activeDocumentArtifactId,
 		attachmentTraceId: turn.attachmentTraceId,
@@ -693,11 +714,13 @@ function buildModelUser(user: {
 	id: string;
 	displayName: string | null;
 	email: string | null;
+	uiLanguage?: SupportedLanguage;
 }) {
 	return {
 		id: user.id,
 		displayName: user.displayName,
 		email: user.email,
+		uiLanguage: user.uiLanguage,
 	};
 }
 

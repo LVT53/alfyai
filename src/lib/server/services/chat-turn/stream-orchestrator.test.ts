@@ -19,6 +19,7 @@ import {
 import {
 	runChatStreamOrchestrator,
 	startStartedResetGenerationFact,
+	type StreamOrchestratorOptions,
 } from "./stream-orchestrator";
 import type {
 	AdmittedChatTurn,
@@ -350,7 +351,12 @@ function createNeutralStreamingResult(
 	};
 }
 
-function runStream(overrides: Partial<ChatTurnPreflight> = {}) {
+function runStream(
+	overrides: Partial<ChatTurnPreflight> = {},
+	orchestratorOverrides: Partial<
+		Pick<StreamOrchestratorOptions, "resolvedResponseLanguage">
+	> = {},
+) {
 	return runChatStreamOrchestrator({
 		user: {
 			id: "u1",
@@ -361,6 +367,7 @@ function runStream(overrides: Partial<ChatTurnPreflight> = {}) {
 		upstreamMessage: "Hello",
 		downstreamAbortSignal: new AbortController().signal,
 		requestStartTime: Date.now(),
+		...orchestratorOverrides,
 	});
 }
 
@@ -1372,12 +1379,16 @@ describe("stream-orchestrator SSE contract", () => {
 	});
 
 	// Follow-up (2026-08-16) to ADR-0056's amendment — summary LANGUAGE. The
-	// classifier session must receive the turn's own deterministic response
-	// language (`detectLanguage(normalizedMessage)`, the SAME signal
-	// `buildResponseLanguageGuard` already uses to tell the model what
-	// language to answer in), not a language guessed at the classifier
-	// call site itself.
-	it("threads the turn's detected response language into the classifier session as targetLanguage", async () => {
+	// classifier session must receive the turn's resolved response language
+	// (the SAME value `buildResponseLanguageGuard` uses to tell the model
+	// what language to answer in), not a language guessed at the classifier
+	// call site itself. Root-cause fix (2026-09-25): resolving that value now
+	// needs the conversation's message history and the account's UI-language
+	// preference, both unavailable this deep in the pipeline without a
+	// second DB round trip — so the caller (the stream route) resolves it
+	// once via resolveTurnResponseLanguage and passes it in as
+	// `resolvedResponseLanguage`, exactly like a real request would.
+	it("threads the turn's resolved response language into the classifier session as targetLanguage", async () => {
 		const { runStreamingNormalChatSendModel } = await import(
 			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
 		);
@@ -1393,10 +1404,13 @@ describe("stream-orchestrator SSE contract", () => {
 			]),
 		);
 
-		const response = runStream({
-			conversationId: "hu-language-conv",
-			normalizedMessage: "Szia, tudnál segíteni ebben a kérdésben?",
-		});
+		const response = runStream(
+			{
+				conversationId: "hu-language-conv",
+				normalizedMessage: "Szia, tudnál segíteni ebben a kérdésben?",
+			},
+			{ resolvedResponseLanguage: "hu" },
+		);
 		await readSseResponse(response);
 
 		expect(createThoughtStepClassifierSession).toHaveBeenCalledWith(
@@ -1420,10 +1434,13 @@ describe("stream-orchestrator SSE contract", () => {
 			]),
 		);
 
-		const response = runStream({
-			conversationId: "en-language-conv",
-			normalizedMessage: "Could you help me with this question?",
-		});
+		const response = runStream(
+			{
+				conversationId: "en-language-conv",
+				normalizedMessage: "Could you help me with this question?",
+			},
+			{ resolvedResponseLanguage: "en" },
+		);
 		await readSseResponse(response);
 
 		expect(createThoughtStepClassifierSession).toHaveBeenCalledWith(
