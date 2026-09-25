@@ -10,12 +10,13 @@
 // a throw. Slice 2 adds the route and the postMessage bridge on top of these;
 // it must not add a fifth accessor.
 import { randomUUID } from "node:crypto";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, ne } from "drizzle-orm";
 import { db } from "$lib/server/db";
 import { artifactKv } from "$lib/server/db/schema";
 import {
 	ARTIFACT_KV_KEY_MAX_CHARS,
 	ARTIFACT_KV_MAX_KEYS,
+	ARTIFACT_KV_TOTAL_MAX_BYTES,
 	ARTIFACT_KV_VALUE_MAX_BYTES,
 } from "./limits";
 import {
@@ -66,8 +67,15 @@ export async function getKv(
 
 /**
  * Upsert. Refuses (`false`) a key over the length cap, a value over the byte
- * cap or not JSON, and a NEW key once the App holds the key cap; updating an
- * existing key never counts against that cap.
+ * cap or not JSON, a NEW key once the App holds the key cap (updating an
+ * existing key never counts against that cap), and — ruling 48 — any write
+ * whose resulting SUM of value bytes for the artifact would exceed
+ * `ARTIFACT_KV_TOTAL_MAX_BYTES`. The sum is computed inside this same
+ * transaction, so two concurrent writers cannot each slip a value past the
+ * total independently; the worst case under a race is one value over the cap,
+ * bounded by a single write, with no cross-user effect and the per-value and
+ * per-key caps still holding (this is a comment about layering, not a claim
+ * of an atomicity `setKv` does not have across separate calls).
  */
 export async function setKv(
 	params: KvTarget & { key: string; valueJson: string },
@@ -77,6 +85,7 @@ export async function setKv(
 	if (!isValidKey(params.key) || !isValidValueJson(params.valueJson)) {
 		return false;
 	}
+	const newValueBytes = Buffer.byteLength(params.valueJson, "utf8");
 
 	return db.transaction((tx) => {
 		const existing = tx
@@ -86,6 +95,25 @@ export async function setKv(
 				and(eq(artifactKv.artifactId, app.id), eq(artifactKv.key, params.key)),
 			)
 			.get();
+
+		const otherRows = tx
+			.select({ valueJson: artifactKv.valueJson })
+			.from(artifactKv)
+			.where(
+				existing
+					? and(
+							eq(artifactKv.artifactId, app.id),
+							ne(artifactKv.id, existing.id),
+						)
+					: eq(artifactKv.artifactId, app.id),
+			)
+			.all();
+		const otherBytes = otherRows.reduce(
+			(sum, row) => sum + Buffer.byteLength(row.valueJson, "utf8"),
+			0,
+		);
+		if (otherBytes + newValueBytes > ARTIFACT_KV_TOTAL_MAX_BYTES) return false;
+
 		const now = new Date();
 		if (existing) {
 			tx.update(artifactKv)
