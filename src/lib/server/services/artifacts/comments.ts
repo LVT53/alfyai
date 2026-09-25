@@ -116,14 +116,22 @@ export async function createComment(
 		return null;
 	}
 
+	// Normalised once, so the root-vs-reply choice below and the stored value
+	// can never disagree: an empty string is falsy, chooses the root path the
+	// same as omitting parentId, and must not reach the database as the
+	// literal string "" — no comment id is ever equal to it, so inserting it
+	// verbatim (the previous `params.parentId ?? null`, which only replaces
+	// null/undefined) threw a FOREIGN KEY error instead of refusing cleanly.
+	const parentId = params.parentId ? params.parentId : null;
+
 	let anchorJson: string | null = null;
-	if (params.parentId) {
+	if (parentId) {
 		const [parent] = await db
 			.select({ parentId: artifactComments.parentId })
 			.from(artifactComments)
 			.where(
 				and(
-					eq(artifactComments.id, params.parentId),
+					eq(artifactComments.id, parentId),
 					eq(artifactComments.artifactId, artifact.id),
 					eq(artifactComments.userId, params.userId),
 				),
@@ -143,7 +151,7 @@ export async function createComment(
 			id: randomUUID(),
 			artifactId: artifact.id,
 			userId: params.userId,
-			parentId: params.parentId ?? null,
+			parentId,
 			anchorJson,
 			author: params.author,
 			body: params.body,
