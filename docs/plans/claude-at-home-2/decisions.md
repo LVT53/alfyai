@@ -460,6 +460,26 @@ sketches differ, this wins.
   find it). Slice 2 aligns its App and verification suites with that prototype and reports any change the core
   needs.
 
+## 51. Bodies are told the conversation, so an incognito conversation's artifacts open for their owner
+
+*Orchestrator, 2026-09-26, from Slice 2's report.* An incognito conversation's artifact is readable only when the
+read names that conversation (`?conversationId=` on the artifact routes, `fetchArtifact(id, conversationId)`), but
+the panel's body contract had no conversation. `ArtifactBodyProps` gains `conversationId?: string | null`;
+`DocumentWorkspace.svelte` gains the matching prop and passes it to the body; the chat page supplies it (the
+knowledge page and the project Files dialog never show an incognito conversation's artifacts and pass nothing).
+Every type body passes it to `fetchArtifact` and to every artifact route it calls. Landed by the small branch
+`feat/artifacts-bodyprops`, merged with Slice 5a.
+
+## 52. An App repair is re-verified before it is accepted, within the create budget
+
+*Orchestrator, 2026-09-26, from Slice 2's report.* `slice-2.md` §verification stands as written: a clear error is
+repaired once and **re-verified**, and a repair is accepted only when the re-verification finds nothing wrong
+**and** the claim list did not gain a claim (compare the lists). The model's own "the repair is safe" answer may
+stay as an extra guard, never as the only one. To stay inside `create_artifact`'s 120 s: the re-verification runs
+without `research_web` (named facts settled in the first pass are matched by claim text), and the verification
+pass carries its own deadline. Running out of time after a clear error gives `uncertain` with the original HTML
+and the finding in Alfy's note: never `repaired`, and never a failed create.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.

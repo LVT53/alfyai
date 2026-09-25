@@ -173,6 +173,20 @@ copied anywhere; the owner has been told; RV-5a greps the diff). S1 and S2 were 
 scope fields, containment incl. the catalogue read, catalogue text hygiene, EN/HU parity, tool behaviour and caps,
 gating, harness key rule. Findings → `review-5a.md` on its branch.
 
+**Slice 2 unblocked part DONE (2026-09-26), waiting on 5a.** `feat/artifacts-s2` in `art-s2`, 10 commits
+`155d002c`…`ed0b09fc` (A1–A6, A8 route/service, A10, E2E): contract + audit, thinking-off generation, verification,
+the sandboxed frame + bootstrap + exact CSP, App storage with ruling 48's total cap, AppBody (Preview/Code, download,
+regenerate), containment +2, archive escaping, erasure/Clear Memory integration, 7 E2E. Gates: check 0/17, biome clean,
+**12,479 tests**, build 32/2, Fallow 124/4 with 0 new, containment 26, Playwright 34/34. Blocked: A7 (the App create
+handler), A8's tool part, A9 (app + verification suites, live eval). Decisions on its deviations: accepted — dark
+tokens from `.dark`, the stricter fence rule (an unfenced answer is never accepted), `requireApiUser`, the
+`metadataPatch` parameter on `updateArtifactBody` (S1's ruling-47 change lands in the same function: keep both at
+merge), the download route, no UI line for `invalid_key`/`not_found`; **not accepted** — the self-attested repair
+check (**ruling 52**: re-verify, compare claim lists, bounded); its `ArtifactBodyProps` gap becomes **ruling 51**
+(fix agent in `art-bodyprops`, branch `feat/artifacts-bodyprops`, port 5490). Its note that `AGENTS.md` says "five"
+known cycles while the baseline has four goes to S5b's doc fixes (T6). Lesson for every brief: a route file exporting
+anything but its verbs passes `npm run check` and fails `npm run build`.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
@@ -189,7 +203,7 @@ gating, harness key rule. Findings → `review-5a.md` on its branch.
 
 ## Next action
 
-RV-5a reports → merge `feat/artifacts-s5a-review` into `feat/artifacts-s5a` → `feat/artifacts` (gates in `art-base`)
-so S1/S2 unblock (they merge `feat/artifacts` themselves). Then wait for S1/S2's reports → RV-1A (opus), RV-1B,
+RV-5a reports and the ruling-51 fix lands → merge both into `feat/artifacts` (gates in `art-base`) → resume S2
+(A7, A8 tool part, A9 + ruling 52) and let S1 pick up the merge. Then wait for S1/S2's reports → RV-1A (opus), RV-1B,
 RV-2A (opus), RV-2B → merge wave 2 → `dev` → push → deploy dev → real-model checks. Review ports: RV-5a 5570; next
 free 5580, 5590, 5620, 5630 (5600 is Phase 4's, 5610 was used).
