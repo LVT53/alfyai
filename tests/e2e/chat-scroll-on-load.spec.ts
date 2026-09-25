@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page, test } from "@playwright/test";
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "../../src/lib/server/db";
-import { users } from "../../src/lib/server/db/schema";
+import { messages, users } from "../../src/lib/server/db/schema";
 import { createConversation as createServerConversation } from "../../src/lib/server/services/conversations";
 import { createMessage } from "../../src/lib/server/services/messages";
 import type { InstructionSuggestion } from "../../src/lib/shared/instructions";
@@ -84,6 +84,23 @@ async function adminUserId(): Promise<string> {
 		.where(eq(users.email, TEST_EMAIL))
 		.limit(1);
 	if (!row) throw new Error(`Seeded user ${TEST_EMAIL} not found`);
+	return row.id;
+}
+
+/** The conversation's first assistant reply. */
+async function firstReplyId(conversationId: string): Promise<string> {
+	const [row] = await db
+		.select({ id: messages.id })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, conversationId),
+				eq(messages.role, "assistant"),
+			),
+		)
+		.orderBy(asc(messages.createdAt), asc(messages.messageSequence))
+		.limit(1);
+	if (!row) throw new Error(`No reply in conversation ${conversationId}`);
 	return row.id;
 }
 
@@ -414,6 +431,30 @@ test.describe("chat scroll — opening a conversation", () => {
 		expect(errors).toEqual([]);
 	});
 
+	test("a link to an early message opens on it, not on the latest one", async ({
+		page,
+	}) => {
+		// The linked reply sits near the top: already on screen in the thread
+		// as first painted, so the page has nothing to scroll — and the jump to
+		// the latest message must not land after it and carry the view away.
+		const label = "focus an early message";
+		await page.setViewportSize(DESKTOP);
+		await login(page);
+		const conversationId = await seedLongConversation(label);
+		const focused = await firstReplyId(conversationId);
+
+		await page.goto(`/chat/${conversationId}?focus_message=${focused}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await waitForHydration(page);
+		await waitForThreadRendered(page, label);
+
+		await expect(page.locator(`#message-${focused}`)).toBeInViewport({
+			ratio: 1,
+		});
+		await expect(page.getByText(finalLineFor(label))).not.toBeInViewport();
+	});
+
 	test("a reload made while reading history comes back to that place, not the top", async ({
 		page,
 	}) => {
@@ -727,17 +768,31 @@ test.describe("chat scroll — streaming", () => {
 	async function streamReplyInto(
 		page: Page,
 		label: string,
-		options: { reasoning: boolean; sentences: number },
+		options: {
+			reasoning: boolean;
+			sentences: number;
+			/** Open the conversation on its first reply (`?focus_message=`). */
+			openOnFirstReply?: boolean;
+		},
 	) {
 		await page.setViewportSize(DESKTOP);
 		await installControllableChatStream(page);
 		await login(page);
 		const conversationId = await seedLongConversation(label);
-		await page.goto(`/chat/${conversationId}`, {
-			waitUntil: "domcontentloaded",
-		});
+		const firstReply = options.openOnFirstReply
+			? await firstReplyId(conversationId)
+			: null;
+		await page.goto(
+			firstReply
+				? `/chat/${conversationId}?focus_message=${firstReply}`
+				: `/chat/${conversationId}`,
+			{ waitUntil: "domcontentloaded" },
+		);
 		await waitForHydration(page);
 		await waitForThreadRendered(page, label);
+		if (firstReply) {
+			await expect(page.locator(`#message-${firstReply}`)).toBeInViewport();
+		}
 		await sendMessage(page, "And one more thing?");
 		await expect
 			.poll(() =>
@@ -801,6 +856,21 @@ test.describe("chat scroll — streaming", () => {
 		await streamReplyInto(page, "stream finishes while followed", {
 			reasoning: true,
 			sentences: 30,
+		});
+		await finishStreamedReply(page);
+		await expectLatestMessageInView(page);
+	});
+
+	test("after opening on a linked message, a reply the thread follows still ends above the composer", async ({
+		page,
+	}) => {
+		// A search result opens the conversation on one message; the reader
+		// then asks a follow-up. The link must not keep the thread from holding
+		// that reply's end in view for the rest of the visit.
+		await streamReplyInto(page, "stream finishes after a linked message", {
+			reasoning: true,
+			sentences: 30,
+			openOnFirstReply: true,
 		});
 		await finishStreamedReply(page);
 		await expectLatestMessageInView(page);
