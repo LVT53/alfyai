@@ -17,6 +17,7 @@ import {
 	type NormalChatModelRunProvider,
 	resolveNormalChatModelRunProvider,
 } from "./normal-chat-model";
+import { resolveOpenAICompatibleProviderAdapterProfile } from "./normal-chat-model/provider-compatibility";
 import {
 	CONTROL_MODEL_DEFAULT_MAX_TOKENS,
 	CONTROL_MODEL_MAX_TOKEN_CAP,
@@ -55,6 +56,7 @@ export type JsonControlMessageOptions = {
 	thinkingMode?: ThinkingMode;
 	maxTokens?: number;
 	temperature?: number;
+	topP?: number;
 	signal?: AbortSignal;
 	jsonSchema?: JsonControlResponseSchema;
 	allowReasoningFallback?: boolean;
@@ -360,6 +362,18 @@ export async function sendJsonControlMessage(
 		fetch: options.fetch,
 		skipStructuredOutputs: options.skipStructuredOutputs,
 	});
+	// Same shared per-family adapter normal-chat-model/index.ts uses for the
+	// main chat path (AGENTS.md: apply qwen sampling defaults through the
+	// adapter, not a copied constant). CONTROL_MODEL_TEMPERATURE is a flat
+	// constant across every provider family; a caller's own explicit
+	// `temperature` (e.g. the thought-step classifier's/turn-acknowledgment's
+	// deterministic 0) always wins, but when nothing is set, prefer the
+	// family's own tuned default (qwen: 0.6) over the flat fallback. topP has
+	// no caller default at all today, so it always comes from here for
+	// families that define one; other families are unaffected
+	// (defaultSampling is undefined for them, same as before this change).
+	const samplingDefaults =
+		resolveOpenAICompatibleProviderAdapterProfile(provider).defaultSampling;
 	const messages: ModelMessage[] = [{ role: "user", content: message }];
 	const generate = (params: { useJsonFallbackOutput?: boolean }) =>
 		generateText({
@@ -374,7 +388,11 @@ export async function sendJsonControlMessage(
 						jsonSchema: options.jsonSchema,
 						skipStructuredOutputs: options.skipStructuredOutputs,
 					}),
-			temperature: options.temperature ?? CONTROL_MODEL_TEMPERATURE,
+			temperature:
+				options.temperature ??
+				samplingDefaults?.temperature ??
+				CONTROL_MODEL_TEMPERATURE,
+			topP: options.topP ?? samplingDefaults?.topP,
 			maxOutputTokens:
 				options.maxTokens ??
 				(provider.maxOutputTokens != null

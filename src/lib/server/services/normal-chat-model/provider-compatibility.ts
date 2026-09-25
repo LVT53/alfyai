@@ -462,6 +462,27 @@ function applyFamilyRequestAdditions(
 	if (behavior.family === "deepseek") {
 		normalizeDeepSeekReasoningEffort(body);
 	}
+	applyDefaultSamplingTopK(body, behavior);
+}
+
+// The AI SDK's openai-compatible provider has no mapping for a `topK` call
+// option at all: only temperature/topP are forwarded into the request body,
+// and topK always produces an "unsupported setting" warning while being
+// silently dropped (verified against the installed @ai-sdk/openai-compatible
+// — its getArgs() only ever reads temperature/top_p from LanguageModelV2 call
+// options). Families with a topK sampling default therefore need it injected
+// directly into the outbound body as `top_k`, the same way
+// `chat_template_kwargs` is added for Qwen thinking control above. The caller
+// (normal-chat-model/index.ts) must not pass `topK` as a call option or the
+// warning comes back.
+function applyDefaultSamplingTopK(
+	body: Record<string, unknown>,
+	behavior: AdapterBehavior,
+): void {
+	const topK = behavior.defaultSampling?.topK;
+	if (topK === undefined) return;
+	if (body.top_k !== undefined) return;
+	body.top_k = topK;
 }
 
 function applyFireworksPromptCacheCompatibility(

@@ -16,6 +16,7 @@ export async function POST({ request, params, locals }: RequestEvent) {
 		const { userMessage, assistantResponse } = await request.json();
 		const userId = locals.user?.id;
 		const userTitleLanguage = locals.user?.titleLanguage;
+		const userUiLanguage = locals.user?.uiLanguage;
 		if (!userId) {
 			return createJsonErrorResponse("Unauthorized", 401);
 		}
@@ -30,6 +31,7 @@ export async function POST({ request, params, locals }: RequestEvent) {
 			userMessage,
 			assistantResponse,
 			userTitleLanguage,
+			userUiLanguage,
 		);
 
 		console.info("[TITLE_GENERATE] Title generated", {

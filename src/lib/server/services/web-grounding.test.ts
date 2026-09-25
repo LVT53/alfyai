@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
@@ -228,7 +228,7 @@ describe("web-grounding contract guard (GroundedWebResult)", () => {
 		expect(raisedPayload.answerBriefMarkdown.length).toBe(45000);
 	});
 
-	it("WEB_RESEARCH_BRIEF_MAX_CHARS env override changes the research_web default", () => {
+	it("WEB_RESEARCH_BRIEF_MAX_CHARS env override changes the research_web default", async () => {
 		const longMarkdown = "x".repeat(20000);
 		const briefOverride = {
 			answerBrief: { markdown: longMarkdown, instructions: [] },
@@ -236,7 +236,16 @@ describe("web-grounding contract guard (GroundedWebResult)", () => {
 		const previous = process.env.WEB_RESEARCH_BRIEF_MAX_CHARS;
 		process.env.WEB_RESEARCH_BRIEF_MAX_CHARS = "5000";
 		try {
-			const payload = buildGroundedWebModelPayload(fixture(briefOverride));
+			// The cap now comes from env.ts's config.webResearchBriefMaxChars,
+			// read once per process and cached (env.ts's `config` Proxy) — a
+			// live process.env mutation only reaches a NEW module graph, so
+			// this needs its own fresh import rather than the module-level
+			// static one every other test in this file uses.
+			vi.resetModules();
+			const { buildGroundedWebModelPayload: buildWithOverride } = await import(
+				"./web-grounding"
+			);
+			const payload = buildWithOverride(fixture(briefOverride));
 			expect(payload.answerBriefMarkdown.length).toBeLessThanOrEqual(5003);
 			expect(payload.answerBriefMarkdown.length).toBeGreaterThan(4000);
 		} finally {
@@ -245,6 +254,7 @@ describe("web-grounding contract guard (GroundedWebResult)", () => {
 			} else {
 				process.env.WEB_RESEARCH_BRIEF_MAX_CHARS = previous;
 			}
+			vi.resetModules();
 		}
 	});
 

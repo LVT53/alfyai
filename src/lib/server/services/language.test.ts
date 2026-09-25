@@ -314,6 +314,60 @@ describe("resolveResponseLanguage", () => {
 		);
 	});
 
+	// Release check (2026-09-25 language review): a broader set of common,
+	// unambiguous short Hungarian replies/greetings must each resolve the
+	// WHOLE first turn to Hungarian even with an English UI language — proving
+	// HUNGARIAN_SHORT_WORDS (not the uiLanguage fallback) is what recognizes
+	// them. None of these collide with an everyday English short reply.
+	describe("common short Hungarian replies and greetings", () => {
+		const firstTurnEnglishUi = (latestMessage: string) =>
+			resolveResponseLanguage({
+				latestMessage,
+				priorUserMessages: [],
+				uiLanguage: "en",
+			});
+
+		it.each([
+			"mehet",
+			"oké",
+			"rendben",
+			"köszönöm",
+			"köszi",
+			"köszike",
+			"szuper",
+			"persze",
+			"pontosan",
+			"értem",
+			"tovább",
+			"folytasd",
+			"kész",
+			"megvan",
+			"szia",
+			"sziasztok",
+			"helló",
+			"hali",
+			"jó reggelt",
+			"jó éjt",
+			"igen",
+			"nem",
+			"jó",
+			"naná",
+			"hogyne",
+		])("resolves %j to Hungarian on a first turn despite an English UI language", (latestMessage) => {
+			expect(firstTurnEnglishUi(latestMessage)).toBe("hu");
+		});
+
+		it.each([
+			"ok",
+			"thanks",
+			"go on",
+			"sure",
+			"yes please",
+		])("keeps the everyday English short reply %j as English", (latestMessage) => {
+			expect(firstTurnEnglishUi(latestMessage)).toBe("en");
+		});
+	});
+
 	it("never lets non-user context decide the language, because the signature has no field for it", () => {
 		// priorUserMessages is documented as user-authored-only; memory facts,
 		// project files, web results, and assistant text must never be passed

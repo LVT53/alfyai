@@ -1285,7 +1285,11 @@ async function runPlainNormalChatModelRunAttempt(
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
 		temperature: samplingDefaults?.temperature,
 		topP: samplingDefaults?.topP,
-		topK: samplingDefaults?.topK,
+		// topK is intentionally not passed here: the openai-compatible provider
+		// has no mapping for it as a call option (it always warns "topK is not
+		// supported" and drops it). provider-compatibility.ts's
+		// transformRequestBody injects `top_k` straight into the body for
+		// families with a topK sampling default instead.
 		maxRetries: params.maxRetries ?? DEFAULT_MODEL_MAX_RETRIES,
 		abortSignal: createProviderAttemptAbortSignal(params),
 		headers: params.headers,
@@ -1599,7 +1603,11 @@ async function* streamStreamingNormalChatModelRunAttempt(
 		maxOutputTokens: params.maxOutputTokens ?? params.provider.maxOutputTokens,
 		temperature: samplingDefaults?.temperature,
 		topP: samplingDefaults?.topP,
-		topK: samplingDefaults?.topK,
+		// topK is intentionally not passed here: the openai-compatible provider
+		// has no mapping for it as a call option (it always warns "topK is not
+		// supported" and drops it). provider-compatibility.ts's
+		// transformRequestBody injects `top_k` straight into the body for
+		// families with a topK sampling default instead.
 		maxRetries: params.maxRetries ?? DEFAULT_MODEL_MAX_RETRIES,
 		abortSignal: createProviderAttemptAbortSignal(params),
 		headers: params.headers,

@@ -1538,6 +1538,68 @@ describe("Plain Normal Chat Model Run", () => {
 		expect(body).not.toHaveProperty("reasoningEffort");
 	});
 
+	it("sends Qwen's default top_k sampling in the outbound request body instead of an unsupported call option", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: {
+					role: "assistant",
+					content: "Plain answer",
+				},
+				usage: null,
+			}),
+		);
+		const provider = {
+			id: "provider-1",
+			name: "dashscope",
+			displayName: "Qwen Cloud",
+			baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+			modelName: "qwen3.6-plus",
+			apiKey: "plain-secret",
+		};
+
+		await runPlainNormalChatModelRun({
+			provider,
+			messages: [userTextMessage("Hello")],
+			fetch,
+		});
+
+		const body = parseRequestBody(fetch);
+		expect(body.top_k).toBe(20);
+		// The AI SDK has no `topK` call-option mapping for the openai-compatible
+		// provider (only temperature/topP reach the body); asserting it never
+		// reaches the fetch call as a bare option is what keeps the "topK is not
+		// supported" warning from firing.
+		expect(body).not.toHaveProperty("topK");
+	});
+
+	it("does not send top_k for a family without a topK sampling default", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createMockChatCompletionResponse({
+				message: {
+					role: "assistant",
+					content: "Plain answer",
+				},
+				usage: null,
+			}),
+		);
+		const provider = createModelProvider({
+			id: "deepseek-provider",
+			name: "deepseek",
+			displayName: "DeepSeek",
+			baseUrl: "https://api.deepseek.com/v1",
+			modelName: "deepseek-chat",
+		});
+
+		await runPlainNormalChatModelRun({
+			provider,
+			messages: [userTextMessage("Hi")],
+			fetch,
+		});
+
+		const body = parseRequestBody(fetch);
+		expect(body).not.toHaveProperty("top_k");
+	});
+
 	it("does not retry plain chat calls by default", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>(
 			async () =>
@@ -3326,6 +3388,23 @@ describe("Streaming Normal Chat Model Run", () => {
 
 		expect(events).toHaveLength(expected.length);
 		expect(events).toMatchObject(expected);
+	});
+
+	it("sends Qwen's default top_k sampling in the outbound streaming request body", async () => {
+		const fixture = providerStreamFixtures.qwen3ReasoningUsage;
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			createFixtureEventStreamResponse(fixture),
+		);
+
+		await collectStreamingEvents({
+			provider: createProviderFromFixture(fixture),
+			messages: [userTextMessage("Hello")],
+			fetch,
+		});
+
+		const body = parseRequestBody(fetch);
+		expect(body.top_k).toBe(20);
+		expect(body).not.toHaveProperty("topK");
 	});
 
 	it.each([

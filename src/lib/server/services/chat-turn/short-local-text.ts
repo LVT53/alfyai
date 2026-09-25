@@ -1,6 +1,6 @@
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
-import { detectExplicitLanguageRequest, detectLanguage } from "../language";
+import { resolveResponseLanguage, type SupportedLanguage } from "../language";
 import type {
 	JsonControlMessageResult,
 	JsonControlResponseSchema,
@@ -81,22 +81,24 @@ export function isPlausibleShortText(
 
 /**
  * Resolve the target language for a short local-model surface: an explicit
- * preference wins, then an inline hint in the user's message ("in English",
- * "magyarul") via language.ts's shared detectExplicitLanguageRequest (the
- * former local EXPLICIT_ENGLISH_HINT_RE/EXPLICIT_HUNGARIAN_HINT_RE copies
- * are now that one function, also used by resolveResponseLanguage so an
- * explicit request is honoured the same way everywhere), then automatic
- * detection.
+ * preference wins outright ("en"/"hu"); otherwise (including an "auto"
+ * preference) this delegates the whole cascade to language.ts's shared
+ * `resolveResponseLanguage` — an inline hint in the user's message ("in
+ * English", "magyarul"), then the message's own detected language, then
+ * (2026-09-25 language review) the caller's `uiLanguage` when the message is
+ * genuinely ambiguous, then English. No second fallback policy lives here:
+ * this used to fall straight to `detectLanguage` on an ambiguous message,
+ * which collapses to English even for a Hungarian-UI user whose message
+ * just happened to be too short/ambiguous to read on its own.
  */
 export function resolveShortTextLanguage(
 	userMessage: string,
 	preference?: "auto" | "en" | "hu",
+	uiLanguage?: SupportedLanguage,
 ): "en" | "hu" {
 	if (preference === "en") return "en";
 	if (preference === "hu") return "hu";
-	const explicitRequest = detectExplicitLanguageRequest(userMessage);
-	if (explicitRequest) return explicitRequest;
-	return detectLanguage(userMessage);
+	return resolveResponseLanguage({ latestMessage: userMessage, uiLanguage });
 }
 
 const HUNGARIAN_CHARS = /[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/;

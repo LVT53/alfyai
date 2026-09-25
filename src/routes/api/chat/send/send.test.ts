@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	baseResolvedSkillDefinition,
 	baseSkillSummary,
@@ -181,6 +181,7 @@ vi.mock("$lib/server/config-store", () => ({
 }));
 
 import { requireAuth } from "$lib/server/auth/hooks";
+import { getConfig } from "$lib/server/config-store";
 import { db } from "$lib/server/db";
 import { atlasJobs, conversations, users } from "$lib/server/db/schema";
 import {
@@ -668,6 +669,156 @@ describe("POST /api/chat/send", () => {
 				parentAtlasJobId: jobId,
 			});
 			expect(intake).not.toHaveProperty("pipelineVersion");
+		});
+	});
+
+	describe("Atlas admin error language", () => {
+		// runAtlasSendTurn's own two admin error strings (ATLAS_DISABLED,
+		// ATLAS_PARALLEL_REQUIRED) used to pick a language with a raw
+		// detectLanguage(turn.normalizedMessage) call — ignoring the account's
+		// uiLanguage entirely, so an ambiguous opening message (too short to
+		// read on its own) always fell back to English even for a Hungarian
+		// user. They now go through the turn's one resolved language
+		// (resolveTurnResponseLanguage), the same value the rest of the turn
+		// uses, which does fall back to uiLanguage.
+		//
+		// The base getConfig() mock (set up in the vi.mock("$lib/server/config-
+		// store", ...) factory above) reads composerCommandRegistryEnabled off
+		// the mutable configMockState, not a static value — other tests in this
+		// file flip that flag directly. Captured here (at describe-collection
+		// time, before any test has had a chance to override it) so afterEach
+		// can restore the SAME dynamic implementation rather than freezing a
+		// static snapshot that would desync from configMockState for every test
+		// that runs after this block.
+		const originalGetConfigImpl = vi.mocked(getConfig).getMockImplementation();
+
+		function atlasConfigOverride(
+			overrides: Partial<ReturnType<typeof getConfig>>,
+		) {
+			return {
+				...originalGetConfigImpl?.(),
+				...overrides,
+			} as ReturnType<typeof getConfig>;
+		}
+
+		afterEach(() => {
+			if (originalGetConfigImpl) {
+				vi.mocked(getConfig).mockImplementation(originalGetConfigImpl);
+			}
+		});
+
+		it("returns the Hungarian ATLAS_DISABLED message for a Hungarian-UI user's ambiguous opening message", async () => {
+			vi.mocked(getConfig).mockImplementation(() =>
+				atlasConfigOverride({ atlasWorkerEnabled: false }),
+			);
+
+			const response = await POST(
+				makeEvent(
+					{
+						message: "ok",
+						conversationId: "conv-atlas-lang-hu",
+						atlasMode: true,
+						atlasProfile: "overview",
+						clientAtlasTurnId: "client-atlas-lang-hu",
+					},
+					{
+						id: "atlas-lang-user-hu",
+						email: "test@example.com",
+						uiLanguage: "hu",
+					},
+				),
+			);
+
+			expect(response.status).toBe(503);
+			const body = await response.json();
+			expect(body.code).toBe("ATLAS_DISABLED");
+			expect(body.error).toBe("Az Atlas jelenleg ki van kapcsolva.");
+		});
+
+		it("keeps the English ATLAS_DISABLED message for an English-UI user's same ambiguous message", async () => {
+			vi.mocked(getConfig).mockImplementation(() =>
+				atlasConfigOverride({ atlasWorkerEnabled: false }),
+			);
+
+			const response = await POST(
+				makeEvent(
+					{
+						message: "ok",
+						conversationId: "conv-atlas-lang-en",
+						atlasMode: true,
+						atlasProfile: "overview",
+						clientAtlasTurnId: "client-atlas-lang-en",
+					},
+					{
+						id: "atlas-lang-user-en",
+						email: "test@example.com",
+						uiLanguage: "en",
+					},
+				),
+			);
+
+			expect(response.status).toBe(503);
+			const body = await response.json();
+			expect(body.code).toBe("ATLAS_DISABLED");
+			expect(body.error).toBe("Atlas is currently disabled.");
+		});
+
+		it("returns the Hungarian ATLAS_PARALLEL_REQUIRED message for a Hungarian-UI user's ambiguous opening message", async () => {
+			vi.mocked(getConfig).mockImplementation(() =>
+				atlasConfigOverride({ parallelApiKey: "" }),
+			);
+
+			const response = await POST(
+				makeEvent(
+					{
+						message: "ok",
+						conversationId: "conv-atlas-lang-parallel-hu",
+						atlasMode: true,
+						atlasProfile: "overview",
+						clientAtlasTurnId: "client-atlas-lang-parallel-hu",
+					},
+					{
+						id: "atlas-lang-user-parallel-hu",
+						email: "test@example.com",
+						uiLanguage: "hu",
+					},
+				),
+			);
+
+			expect(response.status).toBe(503);
+			const body = await response.json();
+			expect(body.code).toBe("ATLAS_PARALLEL_REQUIRED");
+			expect(body.error).toBe(
+				"Az Atlas használatához be kell állítani a Parallel keresést.",
+			);
+		});
+
+		it("still resolves a clearly-Hungarian message to Hungarian regardless of uiLanguage", async () => {
+			vi.mocked(getConfig).mockImplementation(() =>
+				atlasConfigOverride({ atlasWorkerEnabled: false }),
+			);
+
+			const response = await POST(
+				makeEvent(
+					{
+						message: "Szia, kérlek kutass utána ennek a témának",
+						conversationId: "conv-atlas-lang-clear-hu",
+						atlasMode: true,
+						atlasProfile: "overview",
+						clientAtlasTurnId: "client-atlas-lang-clear-hu",
+					},
+					{
+						id: "atlas-lang-user-clear-hu",
+						email: "test@example.com",
+						uiLanguage: "en",
+					},
+				),
+			);
+
+			expect(response.status).toBe(503);
+			const body = await response.json();
+			expect(body.code).toBe("ATLAS_DISABLED");
+			expect(body.error).toBe("Az Atlas jelenleg ki van kapcsolva.");
 		});
 	});
 

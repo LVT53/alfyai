@@ -123,6 +123,36 @@ describe("resolveShortTextLanguage", () => {
 			resolveShortTextLanguage("A short note about deployment steps"),
 		).toBe("en");
 	});
+
+	// Title generation's "auto" preference used to fall to raw detectLanguage,
+	// which collapses an ambiguous message straight to "en" — ignoring the
+	// user's actual uiLanguage. Delegating to language.ts's shared
+	// resolveResponseLanguage (2026-09-25 review) fixes that without a second
+	// fallback policy living here.
+	it("falls back to uiLanguage (via the shared resolver) when the message is ambiguous and no preference pins it", () => {
+		expect(resolveShortTextLanguage("ok", undefined, "hu")).toBe("hu");
+		expect(resolveShortTextLanguage("ok", "auto", "hu")).toBe("hu");
+		expect(resolveShortTextLanguage("ok", "auto", "en")).toBe("en");
+	});
+
+	it("still prefers an explicit inline hint or clearly-detected language over uiLanguage", () => {
+		expect(
+			resolveShortTextLanguage("Kérlek válaszolj magyarul", "auto", "en"),
+		).toBe("hu");
+		expect(
+			resolveShortTextLanguage("Egy magyar mondat és kérdés", "auto", "en"),
+		).toBe("hu");
+	});
+
+	it("still lets an explicit en/hu preference win over uiLanguage", () => {
+		expect(resolveShortTextLanguage("ok", "en", "hu")).toBe("en");
+		expect(resolveShortTextLanguage("ok", "hu", "en")).toBe("hu");
+	});
+
+	it("defaults to English when the message is ambiguous and no uiLanguage is given either", () => {
+		expect(resolveShortTextLanguage("ok")).toBe("en");
+		expect(resolveShortTextLanguage("ok", "auto")).toBe("en");
+	});
 });
 
 describe("isHungarianText", () => {

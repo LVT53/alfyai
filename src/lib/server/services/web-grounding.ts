@@ -1,3 +1,4 @@
+import { config } from "$lib/server/env";
 import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
 import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import {
@@ -89,24 +90,12 @@ function optionalScalarMetadata(
 	return value === undefined ? undefined : value;
 }
 
-// Default cap on the answer-brief markdown emitted to the model. Only
-// research_web relies on this default — fetch_url always passes an explicit
-// maxMarkdownChars sized to the model's context window, so this constant is
-// its fallback only (e.g. a caller that forgets to pass one).
-const DEFAULT_RESEARCH_WEB_BRIEF_MAX_CHARS = 12_000;
-const FETCH_URL_BRIEF_MARKDOWN_CHARS_FALLBACK = 30_000;
-
 // research_web has no model-context-aware sizing of its own (unlike fetch_url,
 // which derives maxCharsTotal from the selected model), so its brief cap is a
-// flat, operator-tunable knob. Read directly from process.env (not env.ts/
-// config-store) so this stays a narrow, local knob.
-function resolveWebResearchBriefMaxChars(): number {
-	const raw = process.env.WEB_RESEARCH_BRIEF_MAX_CHARS;
-	const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
-	return Number.isFinite(parsed) && parsed > 0
-		? parsed
-		: DEFAULT_RESEARCH_WEB_BRIEF_MAX_CHARS;
-}
+// flat, operator-tunable knob — env.ts's config.webResearchBriefMaxChars
+// (AGENTS.md: env.ts owns environment parsing; a service reading
+// process.env directly is a second parser that can drift from the first).
+const FETCH_URL_BRIEF_MARKDOWN_CHARS_FALLBACK = 30_000;
 
 export function buildGroundedWebModelPayload(
 	result: GroundedWebResult,
@@ -141,7 +130,7 @@ export function buildGroundedWebModelPayload(
 	const maxMarkdownChars =
 		opts?.maxMarkdownChars ??
 		(name === "research_web"
-			? resolveWebResearchBriefMaxChars()
+			? config.webResearchBriefMaxChars
 			: FETCH_URL_BRIEF_MARKDOWN_CHARS_FALLBACK);
 
 	return {

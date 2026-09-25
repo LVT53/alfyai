@@ -498,6 +498,14 @@ $effect.pre(() => {
 		lastFileProductionJobCount = 0;
 		lastAtlasJobUpdateKey = "";
 		lastContextCompressionMarkerCount = 0;
+		// A restore belongs to the conversation it was scheduled for. Clear any
+		// stale value left over from the PREVIOUS conversation up front — only
+		// the sessionStorage branch below repopulates it, and only for THIS
+		// conversation — so the pending-restore check further down never
+		// re-fires a foreign position against a conversation that never had
+		// one of its own (the other half of the fast-switch race fixed in
+		// restoreScrollToPosition itself).
+		pendingRestoreScroll = null;
 		pendingForkBoundaryMessageId = forkOrigin?.copiedForkPointMessageId ?? null;
 		if (pendingForkBoundaryMessageId != null) {
 			shouldJumpToConversationBottom = false;
@@ -530,7 +538,7 @@ $effect.pre(() => {
 
 	// Restore saved scroll position on page refresh.
 	if (pendingRestoreScroll !== null) {
-		void restoreScrollToPosition(pendingRestoreScroll);
+		void restoreScrollToPosition(pendingRestoreScroll, conversationId);
 		// Update counters so subsequent effect runs don't treat
 		// existing messages as "new" and override restored position.
 		lastMessageCount = dedupedMessages.length;
@@ -840,8 +848,11 @@ function compactionMarkerStatusClass(
 	return "context-compression-chip--valid";
 }
 
-async function restoreScrollToPosition(position: number) {
-	if (!scrollContainer) {
+async function restoreScrollToPosition(
+	position: number,
+	forConversationId: string | null,
+) {
+	if (!scrollContainer || forConversationId !== conversationId) {
 		pendingRestoreScroll = null;
 		return;
 	}
@@ -850,7 +861,10 @@ async function restoreScrollToPosition(position: number) {
 	holdPosition(position);
 	await tick();
 	requestAnimationFrame(() => {
-		if (!scrollContainer) {
+		// A conversation switch that lands before this frame fires must not
+		// let a stale position from the PREVIOUS conversation get written
+		// into whatever conversation the view now shows.
+		if (!scrollContainer || forConversationId !== conversationId) {
 			pendingRestoreScroll = null;
 			return;
 		}
