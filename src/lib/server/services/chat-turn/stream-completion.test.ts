@@ -9,13 +9,13 @@ import type { ArtifactSummary } from "$lib/server/services/knowledge/types";
 import type { ChatMessage } from "$lib/server/services/messages-types";
 import { getProjectReferenceContext } from "$lib/server/services/task-state";
 import type { TaskState } from "$lib/server/services/task-state/types";
-import type { InstructionSuggestion } from "$lib/shared/instructions";
 import type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
 import {
 	SERVER_STREAM_TIMELINE_MARKS,
 	STREAM_TIMELINE_PAYLOAD_VERSION,
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import { decodeUiMessageStreamParts } from "./stream";
 import { completeStreamTurn } from "./stream-completion";

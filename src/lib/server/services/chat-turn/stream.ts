@@ -8,7 +8,6 @@ import type {
 	ToolCallEntry,
 	ToolCallMapData,
 } from "$lib/server/services/messages-types";
-import type { InstructionSuggestion } from "$lib/shared/instructions";
 import {
 	decodeAiSdkUiStreamPayloads,
 	encodeAiSdkUiStreamDoneFrame,
@@ -36,6 +35,7 @@ import {
 	formatServerTimingHeader,
 	type StreamTimelineTimingRecord,
 } from "$lib/services/stream-timeline";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import type { ChatTurnRequestError } from "./types";
 
 export type { UiMessageStreamPart } from "$lib/services/ai-sdk-ui-stream-contract";
