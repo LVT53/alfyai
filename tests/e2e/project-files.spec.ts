@@ -6,7 +6,7 @@ import {
 	artifacts,
 	projectKnowledgeLinks,
 } from "../../src/lib/server/db/schema";
-import { login, waitForHydration } from "./helpers";
+import { ensureSidebarExpanded, login, waitForHydration } from "./helpers";
 
 /**
  * A project's files (Workspaces Slice E, mockup §M5) — the Files modal, the
@@ -122,6 +122,10 @@ async function openFilesDialog(page: Page, projectId: string) {
 
 function fileRow(dialog: ReturnType<Page["getByRole"]>, name: string) {
 	return dialog.getByTestId("project-file-row").filter({ hasText: name });
+}
+
+function projectRow(page: Page, name: string) {
+	return page.getByTestId("project-drop-target").filter({ hasText: name });
 }
 
 test.describe("Project files", () => {
@@ -313,6 +317,74 @@ test.describe("Project files", () => {
 		await expect(dialog.getByTestId("project-files-footer")).toHaveText(
 			"1 file · removing it here keeps it in your library",
 		);
+	});
+
+	test("does not carry one project's files onto another project's Files modal", async ({
+		page,
+	}) => {
+		// `/projects/[projectId]` is one route, so the sidebar's "open another
+		// project" is a client-side navigation that reuses this page component:
+		// `projectFiles` is page-level state, not per-project state, so unless the
+		// page notices the switch and clears it, project B's Files modal opens
+		// showing project A's rows — under B's name, with Remove buttons that
+		// would unlink A's document from a project it was never linked to.
+		const aName = `Alpha trip ${randomUUID().slice(0, 8)}`;
+		const bName = `Beta trip ${randomUUID().slice(0, 8)}`;
+		const aDocumentName = `Alpha doc ${randomUUID().slice(0, 6)}.txt`;
+		const bDocumentName = `Beta doc ${randomUUID().slice(0, 6)}.txt`;
+		const projectAId = await createProject(page, aName);
+		const projectBId = await createProject(page, bName);
+		await linkArtifacts(page, projectAId, [
+			await uploadLibraryDocument(page, { name: aDocumentName }),
+		]);
+		await linkArtifacts(page, projectBId, [
+			await uploadLibraryDocument(page, { name: bDocumentName }),
+		]);
+
+		// B's own list read is held, so the window where a stale carry-over from A
+		// would be visible stays open long enough to assert on.
+		let releaseB = () => {};
+		const bHeld = new Promise<void>((resolve) => {
+			releaseB = resolve;
+		});
+		await page.route(
+			`**/api/projects/${projectBId}/knowledge`,
+			async (route) => {
+				if (route.request().method() === "GET") await bHeld;
+				await route.continue();
+			},
+		);
+
+		const dialogA = await openFilesDialog(page, projectAId);
+		await expect(fileRow(dialogA, aDocumentName)).toBeVisible();
+		await dialogA.getByRole("button", { name: "Done" }).click();
+
+		await ensureSidebarExpanded(page);
+		const row = projectRow(page, bName);
+		await row.hover();
+		await row.getByRole("button", { name: `Open ${bName}` }).click();
+		await expect(page).toHaveURL(new RegExp(`/projects/${projectBId}$`));
+		await expect(page.getByTestId("project-greeting")).toHaveText(bName);
+		await waitForHydration(page);
+
+		await page.getByTestId("project-files-button").click();
+		const dialogB = page.getByRole("dialog", { name: "Files" });
+		await expect(dialogB).toBeVisible({ timeout: 10000 });
+
+		// While B's read is still held: A's row must be gone and the modal must
+		// say it is loading, never "No files yet." (which would be an equally
+		// false answer) and never A's file under B's name.
+		await expect(dialogB.getByTestId("project-files-loading")).toHaveText(
+			"Loading…",
+		);
+		await expect(dialogB.getByTestId("project-files-empty")).toHaveCount(0);
+		await expect(fileRow(dialogB, aDocumentName)).toHaveCount(0);
+		await expect(dialogB.getByTestId("project-file-row")).toHaveCount(0);
+
+		releaseB();
+		await expect(fileRow(dialogB, bDocumentName)).toBeVisible();
+		await expect(dialogB.getByTestId("project-files-loading")).toHaveCount(0);
+		await expect(dialogB.getByTestId("project-file-row")).toHaveCount(1);
 	});
 
 	test("uploads a file into the project, showing it in both the modal and the library", async ({

@@ -76,6 +76,13 @@ $effect(() => {
 	instructionsText = data.project.instructions ?? "";
 	hasInstructions = data.project.hasInstructions;
 	focusComposer = consumeProjectComposerFocus(data.project.id);
+	// The Files modal's `null` means "not read yet" (see `projectFiles`'s own
+	// comment); a leftover list from the project just left is worse than that
+	// meaning, because it renders as this project's real answer — rows with
+	// Remove buttons that would unlink someone else's document. Clearing it
+	// here puts the modal back in its loading state until the effect below's
+	// read of the project now on screen lands.
+	projectFiles = null;
 });
 
 const projectScope = $derived<InstructionScope>({
