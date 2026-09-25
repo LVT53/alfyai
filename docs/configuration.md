@@ -40,6 +40,7 @@ Notes before the tables:
 | `WORKING_SET_PROMPT_TOKEN_BUDGET` | No | `20000` | Token budget for the overall working-set prompt section | Raise it if more documents should be included in context | Can also be overridden in admin config |
 | `SMALL_FILE_THRESHOLD_CHARS` | No | `5000` | Character threshold below which files are treated as small for extraction | Tune based on typical upload sizes | Can also be overridden in admin config |
 | `NATIVE_HISTORY_ENABLED` | No | `true` | Sends conversation history to the model as native chat turns (user/assistant/tool messages) so the prefix is cacheable and the model sees its own prior tool use | Leave `true`; set `false` to fall back to the flattened text block | Boolean: any value other than `false` is treated as enabled |
+| `CONTEXT_DIAGNOSTICS_DEBUG` | No | `false` | Extra logging about how each prompt was assembled | Turn it on while debugging context/prompt-assembly issues | Debug logging only; not a feature flag |
 | `NORMAL_CHAT_DEBUG_OUTBOUND` | No | `0` | Logs outbound message shape (roles, part types, token estimates — never content) for each model call | Set `1` while verifying prompt assembly | Verification aid only |
 | `ATTACHMENT_TRACE_DEBUG` | No | `false` | Enables extra attachment tracing logs | Turn it on while debugging upload/readiness issues | Debug logging only; not a feature flag |
 | `CONCURRENT_STREAM_LIMIT` | No | `3` | Max concurrent chat streams across all users | Lower it to reduce server load | Can also be overridden in admin config |
@@ -416,3 +417,16 @@ comparison still runs for addresses with no account, so neither the status nor t
 "does this account exist".
 
 The whole throttle is disabled when `PLAYWRIGHT_TEST` is set.
+
+## Test-Harness Variables (Not For Production)
+
+These configure the Playwright E2E harness only (`playwright.config.ts`, `tests/e2e/global-setup.ts`).
+Normal `npm run dev`, `npm run build`, vitest and real deployments never need them, and none of them
+ship in `.env.example`.
+
+| Variable | Default | What it does | Who sets it |
+|---|---:|---|---|
+| `E2E_PORT` | `5175` | Host/port the Playwright runner's `baseURL` and its `vite dev` `webServer` both listen on | Whoever runs `npx playwright test`, to avoid a port collision when more than one E2E run is active on the same machine (for example, two worktrees testing at once) |
+| `E2E_DATABASE_PATH` | `<repo>/data/playwright-e2e-chat.db` | SQLite file shared by the E2E `webServer` and the Playwright runner process itself, so specs that seed rows by importing `$lib/server/db` directly (rather than through the app) see the same database the server answers from | Whoever runs `npx playwright test`, to point a run at its own database file |
+| `PLAYWRIGHT_REUSE_EXISTING_SERVER` | unset (behaves as `false`) | When set to the literal string `true`, Playwright attaches to the server already listening on `E2E_PORT` instead of starting a fresh `vite dev` for the run | A developer iterating locally against a server they already have running |
+| `HOME_SUMMARY_CACHE_TTL_MS` | `0`, forced by the harness (`30000` — 30s — everywhere else; not otherwise documented here, see `src/lib/server/env.ts`) | Disables the home summary's cache for the run, because E2E specs seed conversations, file-production jobs and usage rows straight into SQLite and a warm cache would keep serving the state from before the seed | `playwright.config.ts`'s `webServer` env only |
