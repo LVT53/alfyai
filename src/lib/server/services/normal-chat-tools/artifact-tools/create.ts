@@ -17,6 +17,17 @@ export const CREATABLE_ARTIFACT_KINDS = [
 
 export type CreatableArtifactKind = (typeof CREATABLE_ARTIFACT_KINDS)[number];
 
+/**
+ * Counted and refused exactly the way produce_file's own per-turn cap is
+ * (MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN, produce-file.ts) — every kind
+ * shares one turn-wide counter, kept in index.ts's `createNormalChatTools`
+ * closure, so it resets with every new turn. Harmless while every kind
+ * instant-refuses with no handler registered, but once a real handler runs a
+ * ~120s App generation, an unbounded loop of create_artifact calls in one
+ * turn would otherwise have no guard at all.
+ */
+export const MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3;
+
 /** Advertised to the model: trimmed descriptions, no server-only bounds. */
 export const createArtifactModelInputSchema = z.object({
 	artifactType: z

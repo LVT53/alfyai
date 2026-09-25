@@ -48,7 +48,10 @@ import {
 } from "$lib/server/services/skills/prompt-context";
 import { resetToolHealthCacheForTests } from "$lib/server/services/tool-health";
 import { INSTRUCTIONS_MAX_CHARS } from "$lib/shared/instructions";
-import { CREATE_ARTIFACT_HANDLERS } from "./artifact-tools/create";
+import {
+	CREATE_ARTIFACT_HANDLERS,
+	MAX_CREATE_ARTIFACT_CALLS_PER_TURN,
+} from "./artifact-tools/create";
 import {
 	createNormalChatTools,
 	isProduceFileRequest,
@@ -4992,6 +4995,67 @@ describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () =>
 			await pending;
 
 			expect(observedAborted).toBe(true);
+		});
+	});
+
+	// A gap found after the shell shipped: unlike produce_file
+	// (MAX_SAME_TURN_PRODUCE_FILE_SUBMISSIONS /
+	// MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN), create_artifact had no per-turn
+	// cap at all — harmless while every kind instant-refuses, but once a real
+	// handler runs a 120s App generation, an unbounded loop of calls in one
+	// turn has no guard.
+	describe("per-turn create_artifact cap", () => {
+		it("refuses the call past the cap without running the handler", async () => {
+			const handler = vi.fn(async (params: { title: string }) => ({
+				ok: true as const,
+				value: { artifactId: `artifact-${params.title}`, title: params.title },
+			}));
+			CREATE_ARTIFACT_HANDLERS.document = handler;
+			const { tools } = artifactTools();
+
+			for (let i = 1; i <= MAX_CREATE_ARTIFACT_CALLS_PER_TURN; i += 1) {
+				const result = (await tools.create_artifact.execute?.(
+					{ artifactType: "document", title: `Plan ${i}`, body: "content" },
+					{ toolCallId: `call-${i}`, messages: [] },
+				)) as { success: boolean };
+				expect(result.success).toBe(true);
+			}
+			expect(handler).toHaveBeenCalledTimes(MAX_CREATE_ARTIFACT_CALLS_PER_TURN);
+
+			const overLimit = (await tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "One too many", body: "content" },
+				{ toolCallId: "call-over", messages: [] },
+			)) as { success: boolean; error?: string };
+
+			expect(overLimit.success).toBe(false);
+			// The call past the cap never reaches the handler at all.
+			expect(handler).toHaveBeenCalledTimes(MAX_CREATE_ARTIFACT_CALLS_PER_TURN);
+		});
+
+		it("starts at zero for a new tool set (a new turn)", async () => {
+			const handler = vi.fn(async (params: { title: string }) => ({
+				ok: true as const,
+				value: { artifactId: `artifact-${params.title}`, title: params.title },
+			}));
+			CREATE_ARTIFACT_HANDLERS.document = handler;
+
+			const firstTurn = artifactTools();
+			for (let i = 1; i <= MAX_CREATE_ARTIFACT_CALLS_PER_TURN; i += 1) {
+				await firstTurn.tools.create_artifact.execute?.(
+					{ artifactType: "document", title: `Plan ${i}`, body: "content" },
+					{ toolCallId: `call-${i}`, messages: [] },
+				);
+			}
+
+			// A fresh createNormalChatTools() call is a fresh turn's closure —
+			// its own counter must not inherit the previous turn's count.
+			const secondTurn = artifactTools();
+			const result = (await secondTurn.tools.create_artifact.execute?.(
+				{ artifactType: "document", title: "Fresh turn", body: "content" },
+				{ toolCallId: "call-fresh", messages: [] },
+			)) as { success: boolean };
+
+			expect(result.success).toBe(true);
 		});
 	});
 });
