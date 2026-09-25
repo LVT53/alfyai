@@ -232,7 +232,10 @@ function scoreTokens(rawTokens: string[]): TokenEvidence {
 
 		const isCapitalized = /^\p{Lu}/u.test(raw);
 
-		if (HUNGARIAN_SHORT_WORDS.has(token) || HUNGARIAN_FUNCTION_WORDS.has(token)) {
+		if (
+			HUNGARIAN_SHORT_WORDS.has(token) ||
+			HUNGARIAN_FUNCTION_WORDS.has(token)
+		) {
 			strongHungarian += 3;
 		}
 		if (!isCapitalized && HUNGARIAN_EXCLUSIVE_LETTERS.test(token)) {

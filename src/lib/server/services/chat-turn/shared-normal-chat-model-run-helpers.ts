@@ -258,7 +258,10 @@ const RESPONSE_LANGUAGE_HISTORY_LOOKBACK = 5;
  * fallback chain down to the latest message and the UI language.
  */
 export async function resolveTurnResponseLanguage(
-	params: Pick<NormalChatSendModelBaseParams, "message" | "conversationId" | "user">,
+	params: Pick<
+		NormalChatSendModelBaseParams,
+		"message" | "conversationId" | "user"
+	>,
 ): Promise<SupportedLanguage> {
 	const priorUserMessages = await listRecentUserMessageTexts(
 		params.conversationId,

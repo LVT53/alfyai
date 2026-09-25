@@ -109,7 +109,12 @@ export const POST: RequestHandler = async (event) => {
 	const resolvedResponseLanguage = await resolveTurnResponseLanguage({
 		message: upstreamMessage,
 		conversationId: turn.conversationId,
-		user: { id: user.id, displayName: user.displayName, email: user.email, uiLanguage: user.uiLanguage },
+		user: {
+			id: user.id,
+			displayName: user.displayName,
+			email: user.email,
+			uiLanguage: user.uiLanguage,
+		},
 	});
 
 	return runChatStreamOrchestrator({

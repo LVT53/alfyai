@@ -18,8 +18,8 @@ import {
 } from "$lib/services/stream-timeline";
 import {
 	runChatStreamOrchestrator,
-	startStartedResetGenerationFact,
 	type StreamOrchestratorOptions,
+	startStartedResetGenerationFact,
 } from "./stream-orchestrator";
 import type {
 	AdmittedChatTurn,

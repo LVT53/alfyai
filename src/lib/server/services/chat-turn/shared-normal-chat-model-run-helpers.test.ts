@@ -450,10 +450,7 @@ describe("resolveTurnResponseLanguage", () => {
 			user: { id: "user-1" },
 		});
 
-		expect(mocks.listRecentUserMessageTexts).toHaveBeenCalledWith(
-			"conv-1",
-			5,
-		);
+		expect(mocks.listRecentUserMessageTexts).toHaveBeenCalledWith("conv-1", 5);
 		expect(result).toBe("hu");
 	});
 

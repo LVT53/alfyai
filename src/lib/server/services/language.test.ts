@@ -112,16 +112,22 @@ describe("detectLanguage", () => {
 
 	it("keeps English sentences containing Hungarian names or accented loanwords as English", () => {
 		expect(
-			detectLanguage("I visited Győr and Budapest last summer, it was beautiful."),
+			detectLanguage(
+				"I visited Győr and Budapest last summer, it was beautiful.",
+			),
 		).toBe("en");
 		expect(
 			detectLanguage("My colleague József is joining the call at 3pm."),
 		).toBe("en");
 		expect(
-			detectLanguage("We're flying through Zürich on the way to the conference."),
+			detectLanguage(
+				"We're flying through Zürich on the way to the conference.",
+			),
 		).toBe("en");
 		expect(
-			detectLanguage("Let's meet at the café near the office before the meeting."),
+			detectLanguage(
+				"Let's meet at the café near the office before the meeting.",
+			),
 		).toBe("en");
 		expect(detectLanguage("Please send the résumé to HR before Friday.")).toBe(
 			"en",
