@@ -413,6 +413,15 @@ function copyMetadata(
 			evidenceSummary,
 		};
 		delete next.evidenceSummary;
+		// projectFilesRead is derived from this same evidenceSummary (see
+		// countProjectFilesRead in message-evidence.ts and
+		// readProjectFilesReadFromMetadata in messages.ts) and is written in the
+		// same metadata write, so it describes this exact turn, not a general
+		// fact about the conversation. Once the summary is relocated off the
+		// live key above, the count must go with it rather than surviving on
+		// its own and misreporting a fork that may now have a different
+		// project, or none at all.
+		delete next.projectFilesRead;
 	}
 	return next;
 }

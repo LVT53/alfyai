@@ -273,7 +273,11 @@ async function loadHistoryConversationDetail(params: {
 	maxMessages: number;
 	candidate?: HistoryCandidate | null;
 	includeAttachments?: boolean;
-}): Promise<HistoryMemoryContextSelectedConversation> {
+}): Promise<{
+	conversation: HistoryMemoryContextSelectedConversation;
+	/** The attachments whose text the messages carry, by artifact id. */
+	attachmentArtifactIds: string[];
+}> {
 	const db = await getDb();
 	const [conversation] = await db
 		.select({
@@ -354,36 +358,38 @@ async function loadHistoryConversationDetail(params: {
 		}
 	}
 
-	const selectedMessages = rows
-		.map((row) => {
-			const messageAttachments = attachmentMap.get(row.id);
-			const attachments =
-				messageAttachments && messageAttachments.length > 0
-					? messageAttachments
-							.map((attachment) => ({
-								name: attachment.name,
-								content: artifactContentMap.get(attachment.artifactId) ?? "",
-							}))
-							.filter((a) => a.content.length > 0)
-					: undefined;
-			return {
-				role: row.role as "user" | "assistant",
-				content: clipHistoryMessage(row.content),
-				createdAt: toTimestampMs(row.createdAt),
-				...(attachments && attachments.length > 0 ? { attachments } : {}),
-			};
-		})
-		.reverse();
+	// Only an attachment whose text lands in a returned message was read: one
+	// with no stored text, or on a message outside the window, was not.
+	const attachmentArtifactIds = new Set<string>();
+	const selectedMessages = [...rows].reverse().map((row) => {
+		const attachments = (attachmentMap.get(row.id) ?? []).flatMap(
+			(attachment) => {
+				const content = artifactContentMap.get(attachment.artifactId) ?? "";
+				if (content.length === 0) return [];
+				attachmentArtifactIds.add(attachment.artifactId);
+				return [{ name: attachment.name, content }];
+			},
+		);
+		return {
+			role: row.role as "user" | "assistant",
+			content: clipHistoryMessage(row.content),
+			createdAt: toTimestampMs(row.createdAt),
+			...(attachments.length > 0 ? { attachments } : {}),
+		};
+	});
 	const messageCount = countRows[0]?.messageCount ?? selectedMessages.length;
 	const base = params.candidate;
 	return {
-		conversationId: conversation.conversationId,
-		title: conversation.title,
-		summary: summary?.summary ?? base?.summary ?? null,
-		updatedAt: toTimestampMs(summary?.updatedAt ?? conversation.updatedAt),
-		messageSnippets: base?.messageSnippets ?? [],
-		messages: selectedMessages,
-		omittedMessageCount: Math.max(0, messageCount - selectedMessages.length),
+		conversation: {
+			conversationId: conversation.conversationId,
+			title: conversation.title,
+			summary: summary?.summary ?? base?.summary ?? null,
+			updatedAt: toTimestampMs(summary?.updatedAt ?? conversation.updatedAt),
+			messageSnippets: base?.messageSnippets ?? [],
+			messages: selectedMessages,
+			omittedMessageCount: Math.max(0, messageCount - selectedMessages.length),
+		},
+		attachmentArtifactIds: [...attachmentArtifactIds],
 	};
 }
 
@@ -495,7 +501,7 @@ export async function getHistoryMemoryContext(
 			"historyConversationId is outside memory_context history scope",
 		);
 	}
-	const selectedConversation = historyConversationId
+	const selectedDetail = historyConversationId
 		? await loadHistoryConversationDetail({
 				userId: params.userId,
 				currentConversationId: params.conversationId,
@@ -508,8 +514,13 @@ export async function getHistoryMemoryContext(
 	const filteredHistory = await filterHistoryByProjectionPolicy({
 		userId: params.userId,
 		conversations: historyConversations,
-		selectedConversation,
+		selectedConversation: selectedDetail?.conversation ?? null,
 	});
+	// The attachments' text reaches the model only inside the selected
+	// conversation, so a conversation screening dropped read nothing.
+	const attachmentArtifactIds = filteredHistory.selectedConversation
+		? (selectedDetail?.attachmentArtifactIds ?? [])
+		: [];
 	if (filteredHistory.blockedCount > 0) {
 		await recordMemoryPromptTelemetry({
 			userId: params.userId,
@@ -552,6 +563,7 @@ export async function getHistoryMemoryContext(
 			candidates.length - filteredHistory.conversations.length,
 		),
 		selectedConversation: sanitizedSelected,
+		...(attachmentArtifactIds.length > 0 ? { attachmentArtifactIds } : {}),
 		evidenceCandidates:
 			params.includeEvidenceCandidates === false
 				? []

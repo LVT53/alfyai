@@ -26,6 +26,21 @@ export const AI_SMOKE_STANDING_INSTRUCTION_TEXT =
 export const AI_SMOKE_SUGGEST_INSTRUCTION_FINAL_TEXT =
 	"Noted — I will start summaries with Next Steps.";
 
+/**
+ * A turn that reads a project file with the real `read_generated_file` tool
+ * although the user never named it: the fake model finds the file in the
+ * prompt's project file list by this name prefix, and reads it by the name it
+ * found there. The marker asks for the scenario, the same way the standing
+ * instruction marker does, and shares no word with the file's name or text so
+ * the turn's own evidence selection has nothing to match it on.
+ */
+export const AI_SMOKE_READ_PROJECT_FILE_MARKER =
+	"Fake model step: look up the listed catalogue entry.";
+export const AI_SMOKE_PROJECT_FILE_PROBE_PREFIX = "ai-smoke-probe-";
+export const AI_SMOKE_READ_PROJECT_FILE_TOOL_NAME = "read_generated_file";
+export const AI_SMOKE_READ_PROJECT_FILE_FINAL_TEXT =
+	"Looked it up in the project's catalogue.";
+
 export const AI_SMOKE_SCENARIOS = {
 	text: "text",
 	plain: "plain",

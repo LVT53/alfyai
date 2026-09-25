@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("$lib/server/services/task-state", () => ({
 	findProjectFolderReferenceContextByQuery: vi.fn(),
@@ -197,6 +197,19 @@ vi.mock("drizzle-orm", () => ({
 	})),
 }));
 
+// The attachment readers sit behind the database this file mocks by hand; the
+// tests that ask for attachments give them their own answers.
+vi.mock("$lib/server/services/knowledge/store/attachments", () => ({
+	listMessageAttachments: vi.fn(async () => new Map()),
+}));
+vi.mock("$lib/server/services/knowledge/store/core", () => ({
+	getArtifactsForUser: vi.fn(async () => []),
+}));
+
+import { listMessageAttachments } from "$lib/server/services/knowledge/store/attachments";
+import { getArtifactsForUser } from "$lib/server/services/knowledge/store/core";
+import type { Artifact } from "$lib/server/services/knowledge/types";
+import type { ChatAttachment } from "$lib/server/services/messages-types";
 import {
 	findProjectFolderReferenceContextByQuery,
 	getProjectReferenceContext,
@@ -206,6 +219,34 @@ import { getProjectContext } from "./project";
 const mockGetProjectReferenceContext = getProjectReferenceContext as ReturnType<
 	typeof vi.fn
 >;
+const mockListMessageAttachments = vi.mocked(listMessageAttachments);
+const mockGetArtifactsForUser = vi.mocked(getArtifactsForUser);
+
+/** A file attached to one message, as the attachment reader lists it. */
+function attached(
+	artifactId: string,
+	name: string,
+	messageId: string,
+): ChatAttachment {
+	return {
+		id: `link-${artifactId}`,
+		artifactId,
+		name,
+		type: "source_document",
+		mimeType: "text/plain",
+		sizeBytes: null,
+		conversationId: null,
+		messageId,
+		createdAt: 0,
+	};
+}
+
+/** The stored text of each attachment, keyed by artifact id; null has none. */
+function storedTexts(texts: Record<string, string | null>): Artifact[] {
+	return Object.entries(texts).map(
+		([id, contentText]) => ({ id, contentText }) as Artifact,
+	);
+}
 const mockFindProjectFolderReferenceContextByQuery =
 	findProjectFolderReferenceContextByQuery as ReturnType<typeof vi.fn>;
 
@@ -695,6 +736,164 @@ describe("getProjectContext", () => {
 				siblingConversationId,
 			}),
 		).rejects.toThrow(errorPattern);
+	});
+
+	// With `includeAttachments`, the recent messages a result carries hold the
+	// full text of the files attached to them — a read of stored files by
+	// artifact id. The result names the attachments whose text it carries, so
+	// the tool can record what it read, and the ids stay out of every object
+	// the model is handed.
+	describe("the attachments a result carries", () => {
+		afterEach(() => {
+			mockListMessageAttachments.mockImplementation(async () => new Map());
+			mockGetArtifactsForUser.mockImplementation(async () => []);
+		});
+
+		const pricingFolder = {
+			source: "project_folder",
+			projectId: "project-1",
+			projectName: "Launch Plan",
+			omittedSiblingCount: 0,
+			entries: [
+				{
+					conversationId: "conv-2",
+					title: "Pricing",
+					objective: "Compare pricing options",
+					summary: "Stable pricing brief.",
+				},
+				{
+					conversationId: "conv-3",
+					title: "Venues",
+					objective: "Pick a venue",
+					summary: "Two venues shortlisted.",
+				},
+			],
+		};
+
+		function seedPricingAndVenues() {
+			messageRows.push(
+				{
+					id: "m-old",
+					conversationId: "conv-2",
+					role: "user",
+					content: "Older message",
+					createdAt: new Date("2026-05-14T09:01:00.000Z"),
+				},
+				{
+					id: "m-quote",
+					conversationId: "conv-2",
+					role: "user",
+					content: "Here is the quote.",
+					createdAt: new Date("2026-05-14T09:02:00.000Z"),
+				},
+				{
+					id: "m-reply",
+					conversationId: "conv-2",
+					role: "assistant",
+					content: "Noted.",
+					createdAt: new Date("2026-05-14T09:03:00.000Z"),
+				},
+				{
+					id: "m-venue",
+					conversationId: "conv-3",
+					role: "user",
+					content: "The venue brochure.",
+					createdAt: new Date("2026-05-14T09:04:00.000Z"),
+				},
+			);
+			const attachmentsByConversation: Record<
+				string,
+				Map<string, ChatAttachment[]>
+			> = {
+				"conv-2": new Map([
+					["m-old", [attached("artifact-old", "Old notes.txt", "m-old")]],
+					[
+						"m-quote",
+						[
+							attached("artifact-quote", "Quote.txt", "m-quote"),
+							attached("artifact-scan", "Scan.pdf", "m-quote"),
+						],
+					],
+				]),
+				"conv-3": new Map([
+					[
+						"m-venue",
+						[attached("artifact-brochure", "Brochure.txt", "m-venue")],
+					],
+				]),
+			};
+			mockListMessageAttachments.mockImplementation(
+				async (conversationId: string) =>
+					attachmentsByConversation[conversationId] ?? new Map(),
+			);
+			mockGetArtifactsForUser.mockImplementation(async () =>
+				storedTexts({
+					"artifact-old": "Old notes text.",
+					"artifact-quote": "EUR 1,200 per day.",
+					// A scan with no text of its own: attached, never read.
+					"artifact-scan": null,
+					"artifact-brochure": "Hall A seats 200.",
+				}),
+			);
+		}
+
+		it("names only the attachments whose text a detail result carries", async () => {
+			mockGetProjectReferenceContext.mockResolvedValue(pricingFolder);
+			seedPricingAndVenues();
+
+			const result = await getProjectContext({
+				userId: "user-1",
+				conversationId: "conv-1",
+				mode: "detail",
+				siblingConversationId: "conv-2",
+				maxMessages: 2,
+				includeAttachments: true,
+			});
+
+			expect(
+				result.selectedSibling?.messages.map(
+					(message) => message.attachments ?? [],
+				),
+			).toEqual([[{ name: "Quote.txt", content: "EUR 1,200 per day." }], []]);
+			// Not the scan, which has no text, and not the notes on a message
+			// outside the two-message window: neither reached the model.
+			expect(result.attachmentArtifactIds).toEqual(["artifact-quote"]);
+			expect(JSON.stringify(result.selectedSibling)).not.toContain("artifact-");
+		});
+
+		it("names the attachments of every conversation a report carries", async () => {
+			mockGetProjectReferenceContext.mockResolvedValue(pricingFolder);
+			seedPricingAndVenues();
+
+			const result = await getProjectContext({
+				userId: "user-1",
+				conversationId: "conv-1",
+				mode: "report",
+				maxMessages: 2,
+				includeAttachments: true,
+			});
+
+			expect(result.attachmentArtifactIds).toEqual([
+				"artifact-quote",
+				"artifact-brochure",
+			]);
+			expect(JSON.stringify(result.reportSiblings)).not.toContain("artifact-");
+		});
+
+		it("names none when attachments were not asked for", async () => {
+			mockGetProjectReferenceContext.mockResolvedValue(pricingFolder);
+			seedPricingAndVenues();
+
+			const result = await getProjectContext({
+				userId: "user-1",
+				conversationId: "conv-1",
+				mode: "detail",
+				siblingConversationId: "conv-2",
+				maxMessages: 2,
+			});
+
+			expect(result).not.toHaveProperty("attachmentArtifactIds");
+		});
 	});
 
 	it("rejects detail for a sibling outside the allowed project folder scope", async () => {

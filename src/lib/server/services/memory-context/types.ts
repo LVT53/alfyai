@@ -68,6 +68,13 @@ export type HistoryMemoryContextResult = {
 	conversations: HistoryMemoryContextConversation[];
 	omittedConversationCount: number;
 	selectedConversation: HistoryMemoryContextSelectedConversation | null;
+	/**
+	 * The attachments whose text the selected conversation's messages carry
+	 * (`includeAttachments`), by artifact id: what the call read, for the
+	 * tool-call record. Absent when it carries none. Never part of the model
+	 * payload, which picks its fields by name.
+	 */
+	attachmentArtifactIds?: string[];
 	evidenceCandidates: ToolEvidenceCandidate[];
 	audit: {
 		conversationId: string;

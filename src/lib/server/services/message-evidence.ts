@@ -351,11 +351,12 @@ async function buildArtifactGroups(params: {
 		Map<string, MessageEvidenceItem>
 	>();
 
-	// The project's links, as a set: an item whose artifact is one of them is a
-	// project file, and says so. `message-evidence` never reads the link table
-	// itself — the caller resolved the ids through the knowledge boundary — so
-	// this stays a comparison against ids the turn was handed.
-	const projectFileIds = params.projectFiles?.artifactIds;
+	// The project's links: an item whose artifact is one of the ids a project
+	// file answers to is a project file, and says so. `message-evidence` never
+	// reads the link table itself — the caller resolved the ids through the
+	// knowledge boundary — so this stays a comparison against ids the turn was
+	// handed.
+	const projectFileIds = params.projectFiles?.documentIdByArtifactId;
 	const projectStampFor = (
 		artifactId: string | null | undefined,
 	): MessageEvidenceItem["metadata"] | undefined => {
@@ -771,38 +772,106 @@ export type EvidenceSourceType = "web" | "document" | "memory" | "tool";
 
 /**
  * Workspaces Slice E — the conversation's project, for evidence purposes: the
- * project's identity (what the Sources token is drawn from) and the ids of the
- * files it knows. `artifactIds` is the project's link table read through the
- * knowledge boundary; the evidence service never queries it itself.
+ * project's identity (what the Sources token is drawn from) and the files it
+ * knows, read from the project's link table through the knowledge boundary;
+ * the evidence service never queries it itself.
+ *
+ * `documentIdByArtifactId` holds every artifact id a project file answers to,
+ * each mapped to the file it belongs to (its display id). An uploaded document
+ * answers to two — its own row and the normalized sibling retrieval returns —
+ * and both map to one file, so a turn is credited with files, not with ids.
  */
 export interface ProjectFilesEvidenceContext {
 	projectId: string;
 	projectName: string;
-	artifactIds: Set<string>;
+	documentIdByArtifactId: ReadonlyMap<string, string>;
 }
 
 /**
- * How many of the project's files actually reached this turn: the size of the
- * intersection of the turn's selected evidence with the project's links — the
- * same two sets `buildArtifactGroups` builds its document rows from, so the
- * Info popover's number and the Sources rows tell one story. Attachments are
- * not counted: those were handed to the turn by the user, not read because the
- * project knows them.
+ * The tool-call metadata key a tool records the stored files it read under.
+ *
+ * `ToolCallEntry.metadata` is a flat map of scalars, so the ids ride as one
+ * string joined by a separator no artifact id contains (they are UUIDs) — the
+ * same shape `createGroundedWebMetadata` gives its reason list. One key, not a
+ * count beside a list: a second statement of the same fact could disagree.
+ */
+const TOOL_READ_ARTIFACT_IDS_KEY = "readArtifactIds";
+const TOOL_READ_ARTIFACT_IDS_SEPARATOR = ",";
+
+/**
+ * What a tool writes into its tool-call entry's `metadata` to say which stored
+ * files it read: the artifact ids its own lookup resolved and whose content it
+ * handed the model — never ids taken from its arguments, and never a name, a
+ * path or any of the text. Nothing at all when it read nothing, so a failed or
+ * empty call carries no key.
+ *
+ * The count below reads it back: this is how a file the model reached through a
+ * tool, rather than through evidence selection, counts as read.
+ */
+export function toolReadArtifactIdsMetadata(
+	artifactIds: Iterable<string | null | undefined>,
+): Record<string, string> {
+	const ids = new Set<string>();
+	for (const artifactId of artifactIds) {
+		const id = artifactId?.trim();
+		// An id holding the separator would read back as two ids nobody read.
+		if (!id || id.includes(TOOL_READ_ARTIFACT_IDS_SEPARATOR)) continue;
+		ids.add(id);
+	}
+	return ids.size > 0
+		? {
+				[TOOL_READ_ARTIFACT_IDS_KEY]: [...ids].join(
+					TOOL_READ_ARTIFACT_IDS_SEPARATOR,
+				),
+			}
+		: {};
+}
+
+/** The artifacts a finished tool call says it read; none for any other call. */
+function readToolReadArtifactIds(tool: ToolCallEntry): string[] {
+	if (tool.status !== "done") return [];
+	const value = tool.metadata?.[TOOL_READ_ARTIFACT_IDS_KEY];
+	if (typeof value !== "string") return [];
+	return value
+		.split(TOOL_READ_ARTIFACT_IDS_SEPARATOR)
+		.map((id) => id.trim())
+		.filter((id) => id.length > 0);
+}
+
+/**
+ * How many of the project's files this turn's answer actually consulted.
+ *
+ * Two channels bring a file into a turn: the evidence selection picked it (the
+ * selected evidence, which `buildArtifactGroups` builds the Sources document
+ * rows from), or the model read it with a tool (the ids the tool recorded, see
+ * `toolReadArtifactIdsMetadata`). Their union is taken first and only then
+ * intersected with the project's files, and it is counted as files, not ids: a
+ * file counts once whichever of its ids reached the turn, and once when it was
+ * both selected and read. An id the project does not know — a library file,
+ * another project's, another user's — never counts.
+ *
+ * Attachments are not counted: those were handed to the turn by the user, not
+ * read because the project knows them.
  */
 export function countProjectFilesRead(params: {
 	contextDebug: ContextDebugState | null | undefined;
+	toolCalls: ToolCallEntry[];
 	projectFiles?: ProjectFilesEvidenceContext | null;
 }): number {
-	const projectFileIds = params.projectFiles?.artifactIds;
-	if (!projectFileIds || projectFileIds.size === 0) return 0;
-	const selected = params.contextDebug?.selectedEvidence ?? [];
-	const read = new Set<string>();
-	for (const evidence of selected) {
-		if (projectFileIds.has(evidence.artifactId)) {
-			read.add(evidence.artifactId);
-		}
+	const documentIdByArtifactId = params.projectFiles?.documentIdByArtifactId;
+	if (!documentIdByArtifactId || documentIdByArtifactId.size === 0) return 0;
+	const readArtifactIds = [
+		...(params.contextDebug?.selectedEvidence ?? []).map(
+			(evidence) => evidence.artifactId,
+		),
+		...params.toolCalls.flatMap(readToolReadArtifactIds),
+	];
+	const filesRead = new Set<string>();
+	for (const artifactId of readArtifactIds) {
+		const documentId = documentIdByArtifactId.get(artifactId);
+		if (documentId) filesRead.add(documentId);
 	}
-	return read.size;
+	return filesRead.size;
 }
 
 export type MessageEvidenceStatus = "selected" | "rejected" | "reference";

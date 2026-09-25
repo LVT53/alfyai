@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildAssistantEvidenceSummary } from "./message-evidence";
+import type { ContextDebugState } from "./knowledge/context-types";
+import {
+	buildAssistantEvidenceSummary,
+	countProjectFilesRead,
+	type ProjectFilesEvidenceContext,
+	toolReadArtifactIdsMetadata,
+} from "./message-evidence";
+import type { ToolCallEntry } from "./messages-types";
 
 vi.mock("./knowledge", () => ({
 	getArtifactsForUser: vi.fn(async () => []),
@@ -519,7 +526,9 @@ describe("buildAssistantEvidenceSummary", () => {
 			projectFiles: {
 				projectId: "project-1",
 				projectName: "Vienna trip",
-				artifactIds: new Set(["artifact-project"]),
+				documentIdByArtifactId: new Map([
+					["artifact-project", "artifact-project"],
+				]),
 			},
 		});
 
@@ -541,5 +550,216 @@ describe("buildAssistantEvidenceSummary", () => {
 			(item) => item.artifactId === "artifact-library",
 		);
 		expect(libraryItem?.metadata).toBeUndefined();
+	});
+});
+
+// The Info popover's "project files read" row: how many of the conversation's
+// project files the answer actually consulted. Two channels bring a file into
+// a turn — the evidence selection picked it, or the model read it with a tool
+// — and the row has to count both, as files rather than as ids.
+describe("countProjectFilesRead", () => {
+	// One project: the itinerary is an uploaded document, so it answers to its
+	// own row and to the normalized sibling retrieval and the read tool return;
+	// the tickets were never normalized and answer to one id.
+	const projectFiles: ProjectFilesEvidenceContext = {
+		projectId: "project-1",
+		projectName: "Vienna trip",
+		documentIdByArtifactId: new Map([
+			["itinerary", "itinerary"],
+			["itinerary-normalized", "itinerary"],
+			["tickets", "tickets"],
+		]),
+	};
+
+	function selecting(artifactIds: string[]): ContextDebugState {
+		return {
+			activeTaskId: "task-1",
+			activeTaskObjective: null,
+			taskLocked: false,
+			routingStage: "deterministic",
+			routingConfidence: 0,
+			verificationStatus: "skipped",
+			selectedEvidence: artifactIds.map((artifactId) => ({
+				artifactId,
+				name: artifactId,
+				artifactType: "normalized_document",
+				sourceType: "document",
+				role: "selected",
+				origin: "system",
+				confidence: 0.8,
+				reason: null,
+			})),
+			selectedEvidenceBySource: [
+				{ sourceType: "document", count: artifactIds.length },
+			],
+		};
+	}
+
+	/** A finished read, carrying the ids it read exactly as a tool records them. */
+	function readCall(
+		readArtifactIds: string | number,
+		overrides: Partial<ToolCallEntry> = {},
+	): ToolCallEntry {
+		return {
+			callId: `call-${readArtifactIds}`,
+			name: "read_generated_file",
+			input: { filename: "Wien itinerary.pdf" },
+			status: "done",
+			outputSummary: 'Found "Wien itinerary.pdf".',
+			sourceType: "tool",
+			metadata: { ok: true, found: true, readArtifactIds },
+			...overrides,
+		};
+	}
+
+	it("counts the project files the turn's evidence selected", () => {
+		expect(
+			countProjectFilesRead({
+				contextDebug: selecting(["itinerary-normalized", "packing-list"]),
+				toolCalls: [],
+				projectFiles,
+			}),
+		).toBe(1);
+	});
+
+	it("counts a project file the model read with a tool", () => {
+		// Nothing was selected: the model found the file in the project's list
+		// and read it itself. This is the turn the row used to miss entirely.
+		expect(
+			countProjectFilesRead({
+				contextDebug: null,
+				toolCalls: [readCall("itinerary-normalized")],
+				projectFiles,
+			}),
+		).toBe(1);
+	});
+
+	it("counts a file that was both selected and read once", () => {
+		expect(
+			countProjectFilesRead({
+				contextDebug: selecting(["itinerary-normalized"]),
+				toolCalls: [readCall("itinerary-normalized")],
+				projectFiles,
+			}),
+		).toBe(1);
+	});
+
+	it("counts a file once when selection and the tool reached it through different ids", () => {
+		// Selection named the display row, the tool read the normalized sibling
+		// the text lives in: one document, one file read.
+		expect(
+			countProjectFilesRead({
+				contextDebug: selecting(["itinerary"]),
+				toolCalls: [readCall("itinerary-normalized")],
+				projectFiles,
+			}),
+		).toBe(1);
+	});
+
+	it("counts every project file one call read, each once", () => {
+		expect(
+			countProjectFilesRead({
+				contextDebug: null,
+				toolCalls: [
+					readCall("itinerary-normalized,tickets"),
+					readCall("tickets"),
+				],
+				projectFiles,
+			}),
+		).toBe(2);
+	});
+
+	it("does not count a tool read of a file the project does not know", () => {
+		// A library document, or another project's file, or anything the
+		// knowledge boundary did not hand over as this project's.
+		expect(
+			countProjectFilesRead({
+				contextDebug: null,
+				toolCalls: [readCall("packing-list")],
+				projectFiles,
+			}),
+		).toBe(0);
+	});
+
+	it("ignores ids on a tool call that did not finish", () => {
+		expect(
+			countProjectFilesRead({
+				contextDebug: null,
+				toolCalls: [
+					readCall("tickets", { status: "failed" }),
+					readCall("itinerary-normalized", { status: "running" }),
+				],
+				projectFiles,
+			}),
+		).toBe(0);
+	});
+
+	it("ignores a read record that is not an id list", () => {
+		expect(
+			countProjectFilesRead({
+				contextDebug: null,
+				toolCalls: [readCall(42)],
+				projectFiles,
+			}),
+		).toBe(0);
+	});
+
+	it("counts nothing outside a project", () => {
+		expect(
+			countProjectFilesRead({
+				contextDebug: selecting(["itinerary-normalized"]),
+				toolCalls: [readCall("itinerary-normalized")],
+				projectFiles: null,
+			}),
+		).toBe(0);
+	});
+});
+
+// The one way a tool says which stored files it read: artifact ids only, on
+// its tool-call entry's flat metadata record, under one key the count reads.
+describe("toolReadArtifactIdsMetadata", () => {
+	it("records each id the tool read once, under one key", () => {
+		expect(toolReadArtifactIdsMetadata(["b-id", "a-id", "b-id"])).toEqual({
+			readArtifactIds: "b-id,a-id",
+		});
+	});
+
+	it("records nothing when nothing was read", () => {
+		expect(toolReadArtifactIdsMetadata([])).toEqual({});
+		expect(toolReadArtifactIdsMetadata([null, undefined, "  "])).toEqual({});
+	});
+
+	it("never writes an id the count would read back as two", () => {
+		// Artifact ids are UUIDs, so this cannot happen today; if it ever did,
+		// splitting the value would credit the turn with ids it never read.
+		expect(toolReadArtifactIdsMetadata(["a-id,b-id", "c-id"])).toEqual({
+			readArtifactIds: "c-id",
+		});
+	});
+
+	it("is what the count reads", () => {
+		const call: ToolCallEntry = {
+			name: "memory_context",
+			input: { mode: "history" },
+			status: "done",
+			metadata: {
+				ok: true,
+				...toolReadArtifactIdsMetadata(["itinerary", "tickets"]),
+			},
+		};
+		expect(
+			countProjectFilesRead({
+				contextDebug: null,
+				toolCalls: [call],
+				projectFiles: {
+					projectId: "project-1",
+					projectName: "Vienna trip",
+					documentIdByArtifactId: new Map([
+						["itinerary", "itinerary"],
+						["tickets", "tickets"],
+					]),
+				},
+			}),
+		).toBe(2);
 	});
 });
