@@ -335,10 +335,7 @@ $effect(() => {
 		}
 		const distanceToBottom =
 			container.scrollHeight - container.scrollTop - container.clientHeight;
-		if (
-			heldPosition === "bottom" ||
-			distanceToBottom < AUTO_SCROLL_EDGE_PX
-		) {
+		if (heldPosition === "bottom" || distanceToBottom < AUTO_SCROLL_EDGE_PX) {
 			// At the latest message: the reload opens there again, held while
 			// the thread re-renders, rather than at a pixel offset the
 			// half-rendered thread cannot reach yet.

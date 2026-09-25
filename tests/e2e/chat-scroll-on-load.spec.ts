@@ -103,7 +103,11 @@ async function seedLongConversation(
 	const turns = options.turns ?? 3;
 	for (let turn = 1; turn <= turns; turn += 1) {
 		const isLast = turn === turns;
-		await createMessage(conversation.id, "user", `Question ${turn} about ${label}?`);
+		await createMessage(
+			conversation.id,
+			"user",
+			`Question ${turn} about ${label}?`,
+		);
 		const suggestion: InstructionSuggestion = {
 			id: randomUUID(),
 			status: "pending",
@@ -114,7 +118,9 @@ async function seedLongConversation(
 		await createMessage(
 			conversation.id,
 			"assistant",
-			isLast ? longReply(label, options) : `A short answer to question ${turn}.`,
+			isLast
+				? longReply(label, options)
+				: `A short answer to question ${turn}.`,
 			undefined,
 			undefined,
 			isLast ? { instructionSuggestions: [suggestion] } : undefined,
@@ -136,7 +142,8 @@ async function readThreadView(page: Page): Promise<ThreadView> {
 	return page.evaluate(() => {
 		const scroller = document.querySelector<HTMLElement>(".scroll-container");
 		const composer = document.querySelector<HTMLElement>(".composer-shell");
-		if (!scroller || !composer) throw new Error("The chat surface is not mounted.");
+		if (!scroller || !composer)
+			throw new Error("The chat surface is not mounted.");
 		const replies = scroller.querySelectorAll<HTMLElement>(
 			'[data-testid="assistant-message"]',
 		);
@@ -166,7 +173,8 @@ async function waitForScrollToSettle(page: Page) {
 	await page.evaluate(
 		() =>
 			new Promise<void>((resolve) => {
-				const scroller = document.querySelector<HTMLElement>(".scroll-container");
+				const scroller =
+					document.querySelector<HTMLElement>(".scroll-container");
 				if (!scroller) {
 					resolve();
 					return;
@@ -432,9 +440,9 @@ test.describe("chat scroll — content that arrives late", () => {
 			await image.wasRequested;
 			const before = await readThreadView(page);
 			image.release();
-			await expect(
-				page.locator(".markdown-image-frame--loaded"),
-			).toBeAttached({ timeout: 10000 });
+			await expect(page.locator(".markdown-image-frame--loaded")).toBeAttached({
+				timeout: 10000,
+			});
 			await waitForScrollToSettle(page);
 
 			// The image really did make the thread taller...
@@ -470,9 +478,9 @@ test.describe("chat scroll — content that arrives late", () => {
 			expect(reading.maxScrollTop - reading.scrollTop).toBeGreaterThan(300);
 
 			image.release();
-			await expect(
-				page.locator(".markdown-image-frame--loaded"),
-			).toBeAttached({ timeout: 10000 });
+			await expect(page.locator(".markdown-image-frame--loaded")).toBeAttached({
+				timeout: 10000,
+			});
 			await waitForScrollToSettle(page);
 
 			const after = await readThreadView(page);
@@ -499,7 +507,9 @@ async function installControllableChatStream(page: Page) {
 		const harness = {
 			isOpen: () => controller !== null,
 			push(part: unknown) {
-				controller?.enqueue(encoder.encode(`data: ${JSON.stringify(part)}\n\n`));
+				controller?.enqueue(
+					encoder.encode(`data: ${JSON.stringify(part)}\n\n`),
+				);
 			},
 			finish() {
 				controller?.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -561,9 +571,10 @@ async function streamSentences(page: Page, from: number, count: number) {
 		await pushStreamParts(page, [
 			{ type: "text-delta", id: "answer", delta: sentence },
 		]);
-		await expect(
-			page.getByTestId("assistant-message").last(),
-		).toContainText(sentence.trim(), { timeout: 10000 });
+		await expect(page.getByTestId("assistant-message").last()).toContainText(
+			sentence.trim(),
+			{ timeout: 10000 },
+		);
 	}
 }
 
