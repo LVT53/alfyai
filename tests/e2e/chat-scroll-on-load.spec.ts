@@ -819,6 +819,7 @@ test.describe("chat scroll — streaming", () => {
 		]);
 		await streamSentences(page, 1, options.sentences);
 		await waitForScrollToSettle(page);
+		return { firstReply };
 	}
 
 	/**
@@ -867,11 +868,13 @@ test.describe("chat scroll — streaming", () => {
 		// A search result opens the conversation on one message; the reader
 		// then asks a follow-up. The link must not keep the thread from holding
 		// that reply's end in view for the rest of the visit.
-		await streamReplyInto(page, "stream finishes after a linked message", {
-			reasoning: true,
-			sentences: 30,
-			openOnFirstReply: true,
-		});
+		const { firstReply } = await streamReplyInto(
+			page,
+			"stream finishes after a linked message",
+			{ reasoning: true, sentences: 30, openOnFirstReply: true },
+		);
+		// The thread followed the new reply; nothing took it back to the link.
+		await expect(page.locator(`#message-${firstReply}`)).not.toBeInViewport();
 		await finishStreamedReply(page);
 		await expectLatestMessageInView(page);
 	});
