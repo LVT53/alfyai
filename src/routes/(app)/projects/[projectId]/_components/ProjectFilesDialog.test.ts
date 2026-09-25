@@ -31,7 +31,7 @@ function projectFile(
 	};
 }
 
-function open(files: ProjectKnowledgeItem[]) {
+function open(files: ProjectKnowledgeItem[] | null) {
 	return render(ProjectFilesDialog, {
 		props: {
 			open: true,
@@ -46,12 +46,29 @@ function open(files: ProjectKnowledgeItem[]) {
 
 const search = () => screen.getByTestId("project-files-search");
 const emptyState = () => screen.getByTestId("project-files-empty");
+const loadingLine = () => screen.queryByTestId("project-files-loading");
+const footerCount = () =>
+	screen.getByTestId("project-files-footer").textContent?.trim();
 
 describe("ProjectFilesDialog empty states", () => {
 	it("says the project has no files when it has none", () => {
 		open([]);
 
 		expect(emptyState()).toHaveTextContent("No files yet.");
+		expect(loadingLine()).toBeNull();
+	});
+
+	it("lists the files of a project that has some", () => {
+		open([projectFile()]);
+
+		expect(screen.getByTestId("project-file-name")).toHaveTextContent(
+			"Wien itinerary.pdf",
+		);
+		expect(screen.queryByTestId("project-files-empty")).toBeNull();
+		expect(loadingLine()).toBeNull();
+		expect(footerCount()).toBe(
+			"1 file · removing it here keeps it in your library",
+		);
 	});
 
 	// The empty-paragraph slot has two different reasons to be on screen, and
@@ -82,6 +99,45 @@ describe("ProjectFilesDialog empty states", () => {
 		expect(screen.getByTestId("project-file-name")).toHaveTextContent(
 			"Wien itinerary.pdf",
 		);
+	});
+});
+
+// The route reads the project's files in the browser after the page mounts and
+// hands the dialog `null` until that read lands. `null` is "not read yet", not
+// "no files": opening the modal inside that window used to say "No files yet."
+// about a project that has files.
+describe("ProjectFilesDialog before the list has been read", () => {
+	it("says it is loading, not that the project has no files", () => {
+		open(null);
+
+		expect(loadingLine()).toHaveTextContent("Loading…");
+		expect(screen.queryByTestId("project-files-empty")).toBeNull();
+		expect(screen.queryByTestId("project-file-row")).toBeNull();
+		// Nor does the footer count a list nobody has read yet.
+		expect(footerCount()).toBe("");
+	});
+
+	it("lists the files once the read lands", async () => {
+		const { rerender } = open(null);
+
+		await rerender({ files: [projectFile()] });
+
+		expect(loadingLine()).toBeNull();
+		expect(screen.getByTestId("project-file-name")).toHaveTextContent(
+			"Wien itinerary.pdf",
+		);
+		expect(footerCount()).toBe(
+			"1 file · removing it here keeps it in your library",
+		);
+	});
+
+	it("says the project has no files once the read lands empty", async () => {
+		const { rerender } = open(null);
+
+		await rerender({ files: [] });
+
+		expect(loadingLine()).toBeNull();
+		expect(emptyState()).toHaveTextContent("No files yet.");
 	});
 });
 

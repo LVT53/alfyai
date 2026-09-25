@@ -265,6 +265,46 @@ test.describe("Project files", () => {
 		).toEqual([keptId]);
 	});
 
+	test("says it is loading, not that a project with files is empty, while the list is read", async ({
+		page,
+	}) => {
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+		const documentName = `Railjet tickets ${randomUUID().slice(0, 6)}.txt`;
+		const artifactId = await uploadLibraryDocument(page, {
+			name: documentName,
+		});
+		await linkArtifacts(page, projectId, [artifactId]);
+
+		// Every read of the list is held until released, which keeps the modal
+		// inside the window the page's mount-time read leaves open — the window
+		// in which it used to say "No files yet." about this very file.
+		let releaseReads = () => {};
+		const readsHeld = new Promise<void>((resolve) => {
+			releaseReads = resolve;
+		});
+		await page.route(
+			`**/api/projects/${projectId}/knowledge`,
+			async (route) => {
+				if (route.request().method() === "GET") await readsHeld;
+				await route.continue();
+			},
+		);
+
+		const dialog = await openFilesDialog(page, projectId);
+		await expect(dialog.getByTestId("project-files-loading")).toHaveText(
+			"Loading…",
+		);
+		await expect(dialog.getByTestId("project-files-empty")).toHaveCount(0);
+
+		releaseReads();
+		await expect(fileRow(dialog, documentName)).toBeVisible();
+		await expect(dialog.getByTestId("project-files-loading")).toHaveCount(0);
+		await expect(dialog.getByTestId("project-files-footer")).toHaveText(
+			"1 file · removing it here keeps it in your library",
+		);
+	});
+
 	test("uploads a file into the project, showing it in both the modal and the library", async ({
 		page,
 	}) => {

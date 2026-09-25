@@ -50,9 +50,10 @@ let instructionsText = $state(untrack(() => data.project.instructions ?? ""));
 let hasInstructions = $state(untrack(() => data.project.hasInstructions));
 let instructionsDialogOpen = $state(false);
 
-// `null` until the first read lands, which is what tells `HomeSurface` apart
-// "no files" from "not read yet" — the chip must never hide behind a read that
-// has not finished.
+// `null` until the first read lands, which is what tells `HomeSurface` and the
+// Files modal apart "no files" from "not read yet" — the chip must never hide
+// behind a read that has not finished, and the modal must never call a project
+// empty before its list has arrived. Handed to both as it is, never as `[]`.
 let projectFiles = $state<ProjectKnowledgeItem[] | null>(null);
 let filesDialogOpen = $state(false);
 // Not state: nothing renders it. It orders the reads by the moment they were
@@ -200,7 +201,7 @@ $effect(() => {
 	open={filesDialogOpen}
 	projectId={data.project.id}
 	projectName={data.project.name}
-	files={projectFiles ?? []}
+	files={projectFiles}
 	onRefresh={() => refreshProjectFiles(data.project.id)}
 	onClose={() => (filesDialogOpen = false)}
 />

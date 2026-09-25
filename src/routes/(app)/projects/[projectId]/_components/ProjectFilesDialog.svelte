@@ -47,8 +47,13 @@ interface Props {
 	open: boolean;
 	projectId: string;
 	projectName: string;
-	/** The project's documents, as the route last read them. */
-	files: ProjectKnowledgeItem[];
+	/**
+	 * The project's documents, as the route last read them — or `null` before
+	 * its first read has landed. `null` is "not read yet", never "no files": the
+	 * list shows a loading line until the read arrives, and only a list that
+	 * really is empty says so.
+	 */
+	files: ProjectKnowledgeItem[] | null;
 	/** The route re-reads the project's files and updates its own state. */
 	onRefresh: () => Promise<void>;
 	onClose: () => void;
@@ -71,16 +76,20 @@ let activeWorkspaceDocumentId = $state<string | null>(null);
 let workspaceOpen = $state(false);
 
 const visibleFiles = $derived.by(() => {
+	const all = files ?? [];
 	const query = searchQuery.trim().toLowerCase();
-	if (!query) return files;
-	return files.filter((file) => file.name.toLowerCase().includes(query));
+	if (!query) return all;
+	return all.filter((file) => file.name.toLowerCase().includes(query));
 });
 
-const linkedCount = $derived(files.length);
+// Nothing is counted before the first read lands: "0 files" there would be the
+// same untruth as "No files yet.".
 const footerLabel = $derived(
-	linkedCount === 1
-		? $t("projects.filesFooterOne")
-		: $t("projects.filesFooter", { count: linkedCount }),
+	files === null
+		? ""
+		: files.length === 1
+			? $t("projects.filesFooterOne")
+			: $t("projects.filesFooter", { count: files.length }),
 );
 
 function isBusy(artifactId: string): boolean {
@@ -216,7 +225,9 @@ async function onLinked(): Promise<void> {
 
 // The linked ids the picker greys out. Derived here rather than passed down as
 // a second list, so the two dialogs cannot disagree about what is linked.
-const linkedArtifactIds = $derived(files.map((file) => file.artifactId));
+const linkedArtifactIds = $derived(
+	(files ?? []).map((file) => file.artifactId),
+);
 
 // A fresh open starts clean: a query left over from last time would hide the
 // file the user came back to unlink.
@@ -294,7 +305,13 @@ $effect(() => {
 				<span></span>
 			</div>
 
-			{#if visibleFiles.length === 0}
+			{#if files === null}
+				<!-- The route's first read has not landed. Not an empty project: the
+				     list says it is still being read rather than guessing. -->
+				<p class="files-empty" data-testid="project-files-loading" role="status">
+					{$t("common.loading")}
+				</p>
+			{:else if visibleFiles.length === 0}
 				<p class="files-empty" data-testid="project-files-empty">
 					{#if files.length === 0}
 						{$t("projects.filesEmpty")}
