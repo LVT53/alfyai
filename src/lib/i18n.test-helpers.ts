@@ -7,6 +7,12 @@ type I18nLanguage = "en" | "hu";
 const AUDITED_PREFIXES = [
 	"admin.composerCommandRegistry",
 	"admin.systemSkills.",
+	// The artifact family (Feature 2): the chat header's count button, the
+	// panel's list, the shared card and the five type labels. Its own
+	// namespace, so every later slice's keys are covered the day they land —
+	// a type label that reached EN and not HU would show a Hungarian reader
+	// the raw key on the card that names the thing.
+	"artifacts.",
 	// The everyday-redesign composer: the bar's tooltips, the "+" menu, and
 	// the four sheets it opens. Added here because the parity test is the
 	// only thing that notices a key that landed in EN and not in HU, and a

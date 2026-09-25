@@ -483,6 +483,253 @@ describe("deleting an incognito conversation", () => {
 	});
 });
 
+// ── PART A, continued: the artifact family (Feature 2, slice 0) ──────────
+//
+// A Document, App, Canvas or Slides row is an `artifacts` row of type
+// `artifact`, and three child tables hang off it: `artifact_versions`,
+// `artifact_comments` and `artifact_kv`. A version, a comment and a stored
+// App value are as sensitive as the artifact itself, so each is checked here
+// through the service a caller would use — with the positive half beside the
+// negative one, so a test that passes is measuring the scope rather than a
+// broken accessor.
+
+const {
+	createArtifact,
+	createComment,
+	getKv,
+	getVersionBody,
+	listArtifactsForConversation,
+	listComments,
+	listKv,
+	listVersions,
+	setKv,
+} = await import("$lib/server/services/artifacts");
+
+const SECRET_DOCUMENT_TITLE = "Severance checklist";
+
+/** An incognito chat's Document (with a comment) and App (with stored data). */
+async function seedIncognitoArtifactFamily() {
+	const document = await createArtifact({
+		userId: USER,
+		conversationId: INCOGNITO,
+		kind: "document",
+		title: SECRET_DOCUMENT_TITLE,
+		body: `- [ ] Sign the ${SECRET_WORD} agreement`,
+		author: "alfy",
+		versionSummary: "Alfy wrote the first draft",
+	});
+	const app = await createArtifact({
+		userId: USER,
+		conversationId: INCOGNITO,
+		kind: "app",
+		title: "Severance calculator",
+		body: "<!doctype html><title>Calculator</title>",
+	});
+	if (!document.ok || !app.ok) throw new Error("seeding refused");
+	const comment = await createComment({
+		userId: USER,
+		artifactId: document.artifact.id,
+		conversationId: INCOGNITO,
+		anchor: { kind: "node", nodeId: "block-1" },
+		author: "user",
+		body: `Ask about the ${SECRET_WORD} clause`,
+	});
+	const stored = await setKv({
+		userId: USER,
+		artifactId: app.artifact.id,
+		conversationId: INCOGNITO,
+		key: "salary",
+		valueJson: JSON.stringify({ note: SECRET_WORD }),
+	});
+	if (!comment || !stored) throw new Error("seeding refused");
+	return { documentId: document.artifact.id, appId: app.artifact.id };
+}
+
+describe("an incognito conversation's artifact family, from outside it", () => {
+	it("is not in another conversation's panel list", async () => {
+		await seedIncognitoArtifactFamily();
+
+		const listed = await listArtifactsForConversation({
+			userId: USER,
+			conversationId: NORMAL,
+		});
+
+		expect(listed).toEqual([]);
+	});
+
+	it("has no readable versions or comments with the default scope", async () => {
+		const { documentId } = await seedIncognitoArtifactFamily();
+		const [version] = await listVersions({
+			userId: USER,
+			artifactId: documentId,
+			includeIncognito: true,
+		});
+
+		await expect(
+			listVersions({ userId: USER, artifactId: documentId }),
+		).resolves.toEqual([]);
+		await expect(
+			getVersionBody({
+				userId: USER,
+				artifactId: documentId,
+				versionId: version.id,
+			}),
+		).resolves.toBeNull();
+		await expect(
+			listVersions({
+				userId: USER,
+				artifactId: documentId,
+				conversationId: NORMAL,
+			}),
+		).resolves.toEqual([]);
+		await expect(
+			listComments({ userId: USER, artifactId: documentId }),
+		).resolves.toEqual([]);
+		await expect(
+			listComments({
+				userId: USER,
+				artifactId: documentId,
+				conversationId: NORMAL,
+			}),
+		).resolves.toEqual([]);
+	});
+
+	it("keeps an App's stored data unreadable from outside, and readable to administration", async () => {
+		const { appId } = await seedIncognitoArtifactFamily();
+
+		await expect(
+			getKv({ userId: USER, artifactId: appId, key: "salary" }),
+		).resolves.toBeNull();
+		await expect(
+			listKv({ userId: USER, artifactId: appId, conversationId: NORMAL }),
+		).resolves.toEqual([]);
+		// The positive half: the same call, with the administration scope, does
+		// reach the row — so the refusal above is the scope, not a broken read.
+		await expect(
+			getKv({
+				userId: USER,
+				artifactId: appId,
+				key: "salary",
+				includeIncognito: true,
+			}),
+		).resolves.toBe(JSON.stringify({ note: SECRET_WORD }));
+	});
+
+	it("is not in the Knowledge library or workspace search", async () => {
+		await seedIncognitoArtifactFamily();
+		// A normal upload with the same word, so the search is seen to find
+		// something rather than to find nothing at all.
+		seedUpload(
+			NORMAL,
+			"public-notes.md",
+			`A ${SECRET_WORD} note from an ordinary chat.`,
+		);
+
+		const library = await listKnowledgeArtifacts(USER);
+		expect(JSON.stringify(library)).not.toContain(SECRET_DOCUMENT_TITLE);
+		expect(JSON.stringify(library)).not.toContain("agreement");
+
+		const found = await searchWorkspace(USER, { query: SECRET_WORD });
+		const names = found.documents.map((document) => document.name);
+		expect(names).toContain("public-notes.md");
+		expect(JSON.stringify(found)).not.toContain(SECRET_DOCUMENT_TITLE);
+		expect(JSON.stringify(found)).not.toContain("agreement");
+	});
+});
+
+describe("inside the incognito conversation, its artifact family still works", () => {
+	it("lists its artifacts and reads their versions, comments and stored data", async () => {
+		const { documentId, appId } = await seedIncognitoArtifactFamily();
+		const inside = { userId: USER, conversationId: INCOGNITO };
+
+		const listed = await listArtifactsForConversation(inside);
+		expect(listed.map((row) => row.id).sort()).toEqual(
+			[documentId, appId].sort(),
+		);
+		await expect(
+			listVersions({ ...inside, artifactId: documentId }),
+		).resolves.toHaveLength(1);
+		const threads = await listComments({ ...inside, artifactId: documentId });
+		expect(threads.map((thread) => thread.body)).toEqual([
+			`Ask about the ${SECRET_WORD} clause`,
+		]);
+		await expect(
+			getKv({ ...inside, artifactId: appId, key: "salary" }),
+		).resolves.toBe(JSON.stringify({ note: SECRET_WORD }));
+	});
+});
+
+describe("a normal conversation's own artifact family is unaffected", () => {
+	it("reads its own versions, comments and stored data", async () => {
+		await seedIncognitoArtifactFamily();
+		const document = await createArtifact({
+			userId: USER,
+			conversationId: NORMAL,
+			kind: "document",
+			title: "Weekend plan",
+			body: "- [ ] Naschmarkt",
+		});
+		const app = await createArtifact({
+			userId: USER,
+			conversationId: NORMAL,
+			kind: "app",
+			title: "Trip cost splitter",
+			body: "<!doctype html>",
+		});
+		if (!document.ok || !app.ok) throw new Error("create refused");
+		await createComment({
+			userId: USER,
+			artifactId: document.artifact.id,
+			anchor: { kind: "point", x: 10, y: 20 },
+			author: "user",
+			body: "Too early?",
+		});
+		await setKv({
+			userId: USER,
+			artifactId: app.artifact.id,
+			key: "expenses",
+			valueJson: "[42]",
+		});
+
+		await expect(
+			listVersions({ userId: USER, artifactId: document.artifact.id }),
+		).resolves.toHaveLength(1);
+		await expect(
+			listComments({ userId: USER, artifactId: document.artifact.id }),
+		).resolves.toHaveLength(1);
+		await expect(
+			getKv({ userId: USER, artifactId: app.artifact.id, key: "expenses" }),
+		).resolves.toBe("[42]");
+		const listed = await listArtifactsForConversation({
+			userId: USER,
+			conversationId: NORMAL,
+		});
+		expect(listed.map((row) => row.title).sort()).toEqual([
+			"Trip cost splitter",
+			"Weekend plan",
+		]);
+	});
+});
+
+describe("deleting an incognito conversation, with artifacts", () => {
+	it("takes its artifacts and their versions, comments and key-value rows with it", async () => {
+		const { documentId, appId } = await seedIncognitoArtifactFamily();
+
+		await deleteConversationWithCleanup(USER, INCOGNITO);
+
+		const remaining = memory.db
+			.select({ id: schema.artifacts.id })
+			.from(schema.artifacts)
+			.all()
+			.map((row) => row.id);
+		expect(remaining).not.toContain(documentId);
+		expect(remaining).not.toContain(appId);
+		expect(memory.db.select().from(schema.artifactVersions).all()).toEqual([]);
+		expect(memory.db.select().from(schema.artifactComments).all()).toEqual([]);
+		expect(memory.db.select().from(schema.artifactKv).all()).toEqual([]);
+	});
+});
+
 // ── PART B: the guard ──────────────────────────────────────────
 //
 // `getArtifactOwnershipScope` is the boundary. A query that reads `artifacts`
@@ -505,6 +752,11 @@ const SCOPE_MARKERS = [
 	// A query pinned to one conversation cannot cross the boundary at all.
 	"artifacts.conversationId",
 	"chatGeneratedFiles.conversationId",
+	// The artifact family's one scoped read (services/artifacts/record.ts): it
+	// takes getArtifactOwnershipScope and the canonical ownership condition, and
+	// every reader of versions, comments and key-value rows resolves its artifact
+	// through it before touching a child row.
+	"readScopedArtifactRow",
 ];
 
 /**
@@ -563,7 +815,12 @@ function readsGuardedTables(source: string): boolean {
 		source.includes(".from(artifacts)") ||
 		source.includes(".from(artifactChunks)") ||
 		source.includes(".from(chatGeneratedFiles)") ||
-		source.includes(".from(projectKnowledgeLinks)")
+		source.includes(".from(projectKnowledgeLinks)") ||
+		// The artifact family's child tables (Feature 2): a version, a comment
+		// and a stored App value are as private as the artifact they hang off.
+		source.includes(".from(artifactVersions)") ||
+		source.includes(".from(artifactComments)") ||
+		source.includes(".from(artifactKv)")
 	);
 }
 
@@ -584,7 +841,18 @@ function selectsByUser(source: string): boolean {
 		source.includes("projectKnowledgeLinks.userId") ||
 		source.includes("buildArtifactCanonicalOwnershipCondition") ||
 		source.includes("isArtifactCanonicallyOwned") ||
-		source.includes("buildArtifactVisibilityCondition")
+		source.includes("buildArtifactVisibilityCondition") ||
+		source.includes("artifactVersions.userId") ||
+		source.includes("artifactComments.userId") ||
+		// `artifact_kv` has NO user column: a key-value row is keyed to its
+		// artifact alone, so every read of it is a read by artifact id — and an
+		// artifact id can come from anywhere. Counting `artifactKv.artifactId` as
+		// "selects by user" is what makes the guard ask every reader of the
+		// table for its scope marker, which is the whole point: a key-value
+		// reader that did not resolve its artifact through the scoped read first
+		// is exactly the query this guard exists to catch. Do not delete this
+		// line because the column name "looks wrong" here.
+		source.includes("artifactKv.artifactId")
 	);
 }
 
@@ -664,6 +932,69 @@ describe("every user-scoped artifact query goes through the ownership scope", ()
 				"has to be decided rather than inherited:",
 				stale.join("\n  "),
 			].join("\n"),
+		).toEqual([]);
+	});
+
+	// The artifact family (Feature 2) added three tables. A guard that cannot
+	// SEE a reader passes it silently — a renamed table variable, or a reader
+	// that selects by a column the helpers do not name, would drop out of the
+	// check without a sound. So the family's own readers are named here and must
+	// be reachable: each reads a guarded table, selects by user (or, for the
+	// key-value table, by artifact), and carries its scope marker.
+	it("reaches every reader of the artifact family's tables", () => {
+		const familyReaders = [
+			"services/artifacts/record.ts",
+			"services/artifacts/read-model.ts",
+			"services/artifacts/versions.ts",
+			"services/artifacts/comments.ts",
+			"services/artifacts/kv.ts",
+		];
+		const unreached: string[] = [];
+		for (const relative of familyReaders) {
+			const source = readFileSync(join(SERVER_ROOT, relative), "utf8");
+			if (
+				!readsGuardedTables(source) ||
+				!selectsByUser(source) ||
+				!carriesScopeMarker(source)
+			) {
+				unreached.push(relative);
+			}
+		}
+		expect(unreached).toEqual([]);
+
+		// Each new table is named by the helpers, so a file reading only that
+		// table is checked too — not just files that also happen to read
+		// `artifacts`.
+		for (const table of [
+			"artifactVersions",
+			"artifactComments",
+			"artifactKv",
+		]) {
+			expect(readsGuardedTables(`db.select().from(${table})`)).toBe(true);
+		}
+	});
+
+	// Ruling 31 and the slice-0 gate: the family went green WITHOUT a single new
+	// exemption. The list may shrink — the test above makes a stale entry fail —
+	// but it may not grow or swap an entry for another. Adding a line here is a
+	// decision about the incognito promise, and it has to be made in this list
+	// as well as in the one above, in plain sight.
+	it("has not grown its exemption list", () => {
+		const exemptionsAsOf20260925 = [
+			"services/account-data-archive/index.ts",
+			"services/memory-maintenance.ts",
+			"services/semantic-embedding-refresh.ts",
+			"services/task-state/artifacts.ts",
+			"services/extraction/job-ledger.ts",
+			"services/extraction/read-model.ts",
+			"services/extraction/worker-runner.ts",
+			"services/file-production/image-loader.ts",
+			"services/knowledge/store/attachments.ts",
+		];
+		expect(
+			Object.keys(ALLOWED_WITHOUT_SCOPE).filter(
+				(entry) => !exemptionsAsOf20260925.includes(entry),
+			),
 		).toEqual([]);
 	});
 });

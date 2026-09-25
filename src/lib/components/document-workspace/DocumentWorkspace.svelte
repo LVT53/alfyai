@@ -7,10 +7,16 @@ import {
 } from "$lib/utils/text-compare";
 import type { DocumentWorkspaceItem } from "$lib/server/services/knowledge/types";
 import { handleDownloadAnchorClick } from "$lib/client/downloads";
-import { t } from "$lib/i18n";
+import { t, type I18nKey } from "$lib/i18n";
 import { fetchDocumentPreviewText } from "$lib/client/api/knowledge";
 import OpenDocumentsRail from "./OpenDocumentsRail.svelte";
 import MobileDocumentsSheet from "./MobileDocumentsSheet.svelte";
+import ArtifactCard from "$lib/components/artifacts/ArtifactCard.svelte";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
+import {
+	ARTIFACT_BODIES,
+	type ArtifactBodyLoader,
+} from "$lib/components/artifacts/artifact-bodies";
 import {
 	ArrowUpRight,
 	List,
@@ -21,6 +27,8 @@ import {
 	Sparkles,
 	ArrowLeftRight,
 	Link,
+	LayoutGrid,
+	History,
 } from "@lucide/svelte";
 
 type DocumentPreviewRendererModule =
@@ -31,6 +39,13 @@ type WorkspaceDocument = DocumentWorkspaceItem & {
 	totalPages?: number;
 };
 
+/** The panel's list view ("what this chat made"). Absent = the list is never shown. */
+type WorkspaceList = {
+	open: boolean;
+	items: DocumentWorkspaceItem[];
+	title?: string;
+} | null;
+
 let {
 	open = false,
 	presentation = "docked",
@@ -39,12 +54,14 @@ let {
 	documents = [],
 	availableDocuments = [],
 	activeDocumentId = null,
+	list = null,
 	onSelectDocument,
 	onOpenDocument = undefined,
 	onJumpToSource = undefined,
 	onCloseDocument,
 	onCloseWorkspace,
 	onPresentationChange = undefined,
+	onListOpenChange = undefined,
 }: {
 	open?: boolean;
 	presentation?: "docked" | "expanded";
@@ -53,6 +70,7 @@ let {
 	documents?: DocumentWorkspaceItem[];
 	availableDocuments?: DocumentWorkspaceItem[];
 	activeDocumentId?: string | null;
+	list?: WorkspaceList;
 	onSelectDocument: (documentId: string) => void;
 	onOpenDocument?: ((document: DocumentWorkspaceItem) => void) | undefined;
 	onJumpToSource?: ((document: DocumentWorkspaceItem) => void) | undefined;
@@ -61,6 +79,7 @@ let {
 	onPresentationChange?:
 		| ((presentation: "docked" | "expanded") => void)
 		| undefined;
+	onListOpenChange?: ((open: boolean) => void) | undefined;
 } = $props();
 
 let activeDocument: WorkspaceDocument | null = $derived.by(() => {
@@ -72,6 +91,35 @@ let activeDocument: WorkspaceDocument | null = $derived.by(() => {
 		null
 	);
 });
+
+// The type-aware content area (Slice 0 Task S5): a kind with a registered
+// loader renders that body; a missing entry IS the File body, so every kind
+// this slice ships (the registry is empty) falls straight through to the
+// preview stack below, unchanged.
+let activeArtifactKind: ArtifactKind = $derived(activeDocument?.kind ?? "file");
+let activeArtifactBodyLoader: ArtifactBodyLoader | undefined = $derived(
+	ARTIFACT_BODIES[activeArtifactKind],
+);
+
+// One cached module promise per kind, mirroring
+// ensureDocumentPreviewRendererModule below: a loader runs at most once no
+// matter how many times its body is shown.
+const artifactBodyModulePromises = new Map<
+	ArtifactKind,
+	ReturnType<ArtifactBodyLoader>
+>();
+
+function ensureArtifactBodyModule(
+	kind: ArtifactKind,
+	loader: ArtifactBodyLoader,
+): ReturnType<ArtifactBodyLoader> {
+	let cached = artifactBodyModulePromises.get(kind);
+	if (!cached) {
+		cached = loader();
+		artifactBodyModulePromises.set(kind, cached);
+	}
+	return cached;
+}
 let compareMode = $state(false);
 let mobileDocumentsSheetOpen = $state(false);
 let compareDocumentId: string | null = $state(null);
@@ -94,7 +142,12 @@ let mobileShellElement: HTMLElement | null = $state(null);
 let isVisible = $state(false);
 let shouldRender = $state(false);
 let closeAnimationTimer: ReturnType<typeof setTimeout> | null = null;
-let shouldShowWorkspaceShell = $derived(open && documents.length > 0);
+// list.open can show the shell with zero open tabs: the count button opens
+// straight onto "what this chat made" even before anything has been opened
+// in this session.
+let shouldShowWorkspaceShell = $derived(
+	open && (documents.length > 0 || Boolean(list?.open)),
+);
 let lastPresentation: "docked" | "expanded" | null = null;
 
 // Page navigation state
@@ -568,13 +621,38 @@ function handleWindowKeydown(event: KeyboardEvent) {
 	if (
 		event.key !== "Escape" ||
 		event.defaultPrevented ||
-		!shouldShowWorkspaceShell ||
-		presentation !== "expanded"
+		!shouldShowWorkspaceShell
 	) {
 		return;
 	}
 
+	// The list closes first, in any presentation; only then does Escape fall
+	// through to the panel's own (expanded-only) close behaviour.
+	if (list?.open) {
+		onListOpenChange?.(false);
+		return;
+	}
+
+	if (presentation !== "expanded") return;
+
 	handleCloseWorkspace();
+}
+
+function closeArtifactList(): void {
+	onListOpenChange?.(false);
+}
+
+/** A row's Open action: the same selection path every caller already uses. */
+// Reuses the panel's existing document-selection path (onSelectDocument,
+// keyed by the item's own `id`) instead of forking it. Deliberately `id`,
+// not `artifactId`: the caller's `documents`/`availableDocuments` arrays are
+// themselves keyed by `id` (a produced file's real item uses the
+// chat_generated_file's own id, with `artifactId` carried only as a
+// separate field), so looking the selection up by anything else would miss
+// every item the caller already builds today.
+function selectFromList(item: DocumentWorkspaceItem): void {
+	onSelectDocument(item.id);
+	onListOpenChange?.(false);
 }
 
 function handleDocumentPointerdown(event: PointerEvent) {
@@ -768,7 +846,112 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 <svelte:window onkeydown={handleWindowKeydown} />
 <svelte:document onpointerdown={handleDocumentPointerdown} />
 
-{#if shouldRender && activeDocument}
+{#if shouldRender && list?.open}
+	{#snippet artifactListBody(testid: string | undefined)}
+		<div class="workspace-body artifact-panel-list-body" data-testid={testid}>
+			{#if list.items.length === 0}
+				<p class="artifact-panel-empty">{$t('artifacts.panel.empty')}</p>
+			{:else}
+				<ul class="artifact-panel-list-rows">
+					{#each list.items as item (item.id)}
+						<li>
+							<ArtifactCard
+								view={{
+									id: item.id,
+									kind: item.kind ?? 'file',
+									title: getDocumentTitle(item),
+									versionNumber: item.versionNumber ?? null,
+									openTargetId: item.id,
+								}}
+								chrome="full"
+								onOpen={() => selectFromList(item)}
+							/>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+	{/snippet}
+
+	<!-- Mobile overlay: the list state, same chrome as the document state. -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<div
+		class="workspace-mobile-backdrop md:hidden"
+		role="presentation"
+		onclick={handleMobileBackdropClick}
+	>
+		<section
+			bind:this={mobileShellElement}
+			class="workspace-shell workspace-shell-mobile"
+			aria-label={$t('documentWorkspace.documentWorkspace')}
+		>
+			<div class="workspace-header">
+				<div class="workspace-heading">
+					<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
+					<div class="workspace-title-row">
+						<div class="workspace-title">
+							<span>{list.title ?? $t('artifacts.panel.title')}</span>
+						</div>
+						<div class="workspace-header-actions">
+							<button
+								type="button"
+								class="btn-icon-bare workspace-close-button"
+								onclick={closeArtifactList}
+								aria-label={$t('documentWorkspace.closeWorkspace')}
+							>
+								<X size={18} strokeWidth={2.1} aria-hidden="true" />
+							</button>
+						</div>
+					</div>
+					<div class="workspace-subtitle">
+						{$t('artifacts.panel.count', { count: list.items.length })}
+					</div>
+				</div>
+			</div>
+
+			{@render artifactListBody('artifact-panel-list-mobile')}
+		</section>
+	</div>
+
+	<!-- Desktop / tablet side pane -->
+	<aside
+		bind:this={desktopShellElement}
+		class="workspace-shell workspace-shell-desktop transition fade"
+		class:workspace-fade-in={isVisible}
+		style:opacity={isVisible ? '1' : '0'}
+		aria-label={$t('documentWorkspace.documentWorkspace')}
+	>
+		<div class="workspace-header">
+			<div class="workspace-heading">
+				<div class="workspace-eyebrow">{$t('artifacts.panel.eyebrow')}</div>
+				<div class="workspace-title-row">
+					<div class="workspace-title">
+						<span>{list.title ?? $t('artifacts.panel.title')}</span>
+					</div>
+					<div class="workspace-header-actions">
+						<button
+							type="button"
+							class="btn-icon-bare workspace-close-button"
+							onclick={closeArtifactList}
+							aria-label={$t('documentWorkspace.closeWorkspace')}
+						>
+							<X size={18} strokeWidth={2.1} aria-hidden="true" />
+						</button>
+					</div>
+				</div>
+				<div class="workspace-subtitle">
+					{$t('artifacts.panel.count', { count: list.items.length })}
+				</div>
+			</div>
+		</div>
+
+		<div class="workspace-main" data-testid="workspace-main" data-presentation={presentation}>
+			<div class="workspace-document-column">
+				{@render artifactListBody('artifact-panel-list')}
+			</div>
+		</div>
+	</aside>
+{:else if shouldRender && activeDocument}
 	{#snippet atlasDownloadControl(document: DocumentWorkspaceItem)}
 		{#if isAtlasOutputDocument(document)}
 			{@const options = getAtlasDownloadOptions(document)}
@@ -838,6 +1021,37 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		{/if}
 	{/snippet}
 
+	{#snippet artifactPanelActions()}
+		{#if list}
+			<button
+				type="button"
+				class="btn-icon-bare workspace-list-toggle-button"
+				onclick={() => onListOpenChange?.(true)}
+				aria-label={$t('artifacts.panel.list')}
+				title={$t('artifacts.panel.list')}
+			>
+				<LayoutGrid size={18} strokeWidth={2} aria-hidden="true" />
+			</button>
+			<button
+				type="button"
+				class="btn-icon-bare workspace-history-toggle-button"
+				disabled
+				aria-disabled="true"
+				title={$t('artifacts.history.comingWithDocument')}
+				aria-label={$t('artifacts.panel.history')}
+			>
+				<History size={18} strokeWidth={2} aria-hidden="true" />
+			</button>
+		{/if}
+	{/snippet}
+
+	{#snippet artifactTypeAndVersion()}
+		{#if activeDocument.kind}
+			<span class="artifact-type-pill">{$t(`artifacts.type.${activeArtifactKind}` as I18nKey)}</span>
+			<span class="artifact-version-pill" data-testid="artifact-version-pill">{$t('artifacts.card.version', { n: activeDocument.versionNumber ?? 1 })}</span>
+		{/if}
+	{/snippet}
+
 	<!-- Mobile overlay -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
@@ -852,7 +1066,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		>
 			<div class="workspace-header">
 				<div class="workspace-heading">
-					<div class="workspace-eyebrow">{$t('documentWorkspace.workingDocument')}</div>
+					<div class="workspace-eyebrow">
+						{$t('documentWorkspace.workingDocument')}
+						{@render artifactTypeAndVersion()}
+					</div>
 					<div class="workspace-title-row">
 						{#if canJumpToSource(activeDocument)}
 							<button
@@ -888,6 +1105,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 									<span aria-hidden="true">{documents.length}</span>
 								</button>
 							{/if}
+							{@render artifactPanelActions()}
 							{@render atlasDownloadControl(activeDocument)}
 							{#if showPresentationToggle}
 								<button
@@ -988,7 +1206,16 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{/if}
 
 			<div class="workspace-body">
-				{#if compareMode && comparedDocument}
+				{#if activeArtifactBodyLoader && shouldRenderMobilePreview}
+					{#await ensureArtifactBodyModule(activeArtifactKind, activeArtifactBodyLoader) then { default: ArtifactBody }}
+						<ArtifactBody
+							artifactId={activeDocument.artifactId ?? activeDocument.id}
+							kind={activeArtifactKind}
+							title={getDocumentTitle(activeDocument)}
+							body={null}
+						/>
+					{/await}
+				{:else if compareMode && comparedDocument}
 					<div class="workspace-compare">
 					<div class="workspace-compare-header">
 						<div class="workspace-compare-header-left">
@@ -1112,7 +1339,10 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 		></div>
 		<div class="workspace-header">
 			<div class="workspace-heading">
-				<div class="workspace-eyebrow">{$t('documentWorkspace.workingDocument')}</div>
+				<div class="workspace-eyebrow">
+					{$t('documentWorkspace.workingDocument')}
+					{@render artifactTypeAndVersion()}
+				</div>
 				<div class="workspace-title-row">
 					{#if canJumpToSource(activeDocument)}
 						<button
@@ -1132,6 +1362,7 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 						</div>
 					{/if}
 					<div class="workspace-header-actions">
+						{@render artifactPanelActions()}
 						{@render atlasDownloadControl(activeDocument)}
 						{#if showPresentationToggle && presentation !== "expanded"}
 							<button
@@ -1237,7 +1468,16 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 			{/if}
 
 	<div class="workspace-body" data-testid="page-scroll-container">
-		{#if compareMode && comparedDocument}
+		{#if activeArtifactBodyLoader && shouldRenderDesktopPreview}
+			{#await ensureArtifactBodyModule(activeArtifactKind, activeArtifactBodyLoader) then { default: ArtifactBody }}
+				<ArtifactBody
+					artifactId={activeDocument.artifactId ?? activeDocument.id}
+					kind={activeArtifactKind}
+					title={getDocumentTitle(activeDocument)}
+					body={null}
+				/>
+			{/await}
+		{:else if compareMode && comparedDocument}
 			<div class="workspace-compare">
 				<div class="workspace-compare-header">
 					<div class="workspace-compare-header-left">
@@ -2116,5 +2356,56 @@ function clickOutside(node: HTMLElement, handler: () => void) {
 	.workspace-download-option:focus-visible {
 		outline: none;
 		box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus-ring) 36%, transparent);
+	}
+
+	/* Slice 0 Task S5: the type + version pills beside the eyebrow, and the
+	   "what this chat made" list. Only an item that declares an artifact
+	   kind gets the pills, so the three existing callers (which never do)
+	   see no visual change. */
+	.artifact-type-pill,
+	.artifact-version-pill {
+		display: inline-flex;
+		align-items: center;
+		margin-left: var(--space-xs, 0.375rem);
+		padding: 0.05rem 0.42rem;
+		border-radius: 999px;
+		background: var(--surface-elevated);
+		color: var(--text-muted);
+		font-size: var(--text-2xs, 0.66rem);
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		text-transform: none;
+	}
+
+	.workspace-history-toggle-button:disabled {
+		cursor: not-allowed;
+		opacity: 0.5;
+	}
+
+	.artifact-panel-list-body {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+		padding: var(--space-md, 1rem);
+	}
+
+	.artifact-panel-empty {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+		padding: var(--space-lg, 1.5rem);
+		color: var(--text-muted);
+		font-size: var(--text-sm);
+		text-align: center;
+	}
+
+	.artifact-panel-list-rows {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-xs, 0.375rem);
+		margin: 0;
+		padding: 0;
+		list-style: none;
 	}
 </style>

@@ -5,6 +5,7 @@
 // former src/lib/types.ts god-module (architecture-deepening T1); this
 // file carries no behavior change, only a new home.
 
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import type { AttachmentReadinessReason } from "$lib/shared/attachment-readiness";
 import type { DocumentExtractionJobDTO } from "$lib/shared/extraction-status";
 import type { PageCountKind } from "$lib/shared/page-count";
@@ -253,4 +254,12 @@ export interface DocumentWorkspaceItem {
 	artifactId?: string | null;
 	conversationId?: string | null;
 	downloadUrl?: string | null;
+	/**
+	 * The artifact family kind (ADR-0066). Optional and defaults to `"file"`:
+	 * every item the three existing callers build today is a produced file or
+	 * an uploaded library document, and the type-aware panel (Slice 0 Task S5)
+	 * treats a missing `kind` exactly like `"file"` — the preview stack the
+	 * panel already renders, with no behaviour change for those callers.
+	 */
+	kind?: ArtifactKind;
 }

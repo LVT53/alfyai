@@ -285,11 +285,11 @@ Facade `index.ts` re-exports the module's public surface. Callers import **only*
 | File | Owns |
 |---|---|
 | `index.ts` | the facade: the public functions and types below, and nothing else |
-| `types.ts` | `ArtifactKind` (re-exported from the shared module), `Anchor` (re-exported the same way), `ArtifactAuthor`, `ArtifactMetadata`, `ArtifactRecord`, `ArtifactCardSummary`, `ArtifactDetail`, `ArtifactVersionSummary`, `ArtifactComment`, the kv row type, and the inputs |
+| `types.ts` | `ArtifactKind` (re-exported from the shared module), `Anchor` (re-exported the same way), `ArtifactAuthor`, `ArtifactScopeOptions`, `ArtifactMetadata`, `ArtifactRecord`, `ArtifactCardSummary`, `ArtifactDetail`, `ArtifactVersionSummary`, `ArtifactComment`, the kv row type, and the inputs |
 | `limits.ts` | the caps in *Limits and configuration*, as exported constants with their reasons in comments |
 | `hash.ts` | `hashArtifactBody` — the one body-hash function this slice owns (slice 1 changes its *input*, not its mechanism) |
-| `record.ts` | create / read / update / delete of the `artifacts` row, the type registry, the ownership scope call, the kind↔row-type mapping |
-| `versions.ts` | append (called by `record.createArtifact` when a body is given, and by `record.updateArtifactBody`), list, get body, restore |
+| `record.ts` | create / read / update / delete of the `artifacts` row, the type registry, the ownership scope call (`readScopedArtifactRow`, the one scoped read every child accessor starts from), the kind↔row-type mapping, **and the version append** (a private step inside `createArtifact`'s and `updateArtifactBody`'s transaction) |
+| `versions.ts` | list, get body, restore. *Amended in implementation:* the append lives in `record.ts`, because `restoreVersion` calls `record.updateArtifactBody` and an append in `versions.ts` called back from `record.ts` would be a new import cycle |
 | `comments.ts` | threads, replies, resolve, delete, `parseArtifactAnchor` |
 | `kv.ts` | the scoped key-value accessors (see below) |
 | `serialize/index.ts` | the `ArtifactSerializer` interface + a registry; **this slice ships the `file` entry only** |
@@ -307,6 +307,21 @@ export type { Anchor } from "$lib/shared/artifacts/anchor";
 
 export type ArtifactAuthor = "user" | "alfy";
 export type ArtifactCommentStatus = "open" | "resolved";
+
+// Amended in implementation: every scoped read and write takes these, passed
+// straight through to getArtifactOwnershipScope. Without `conversationId` an
+// incognito chat could not open its OWN artifacts (the default scope hides every
+// incognito conversation), and the kv/containment tests need `includeIncognito`.
+export interface ArtifactScopeOptions {
+	/** The conversation being served; its own artifacts stay in scope even when incognito. */
+	conversationId?: string | null;
+	/** Administration only: archive, erasure, disk sweeps. */
+	includeIncognito?: boolean;
+}
+
+// Amended in implementation: a File is never created by the family — it is a
+// generated_output row (ruling 18) — so the type system refuses it.
+export type CreatableArtifactKind = Exclude<ArtifactKind, "file">;
 
 export interface ArtifactMetadata {
 	artifactType: ArtifactKind;
@@ -379,7 +394,7 @@ export interface ArtifactKvRow {
 export interface CreateArtifactInput {
 	userId: string;
 	conversationId: string | null;
-	kind: ArtifactKind;
+	kind: CreatableArtifactKind;
 	title: string;
 	body?: string | null;
 	metadata?: Record<string, unknown>;
@@ -411,20 +426,19 @@ type under an alias, because an alias hides which type is in play:
 `versions.ts`:
 
 ```ts
-appendVersion(params: {
-	artifactId: string;
-	userId: string;
-	author: ArtifactAuthor;
-	summary: string;
-	body: string;
-	bodyHash: string;
-}): Promise<ArtifactVersionSummary>;                                          // number = max + 1
+// Every signature below also takes `& ArtifactScopeOptions` (amended in implementation).
 listVersions(params: { userId: string; artifactId: string; limit?: number }): Promise<ArtifactVersionSummary[]>;  // newest first, default 50
 getVersionBody(params: { userId: string; artifactId: string; versionId: string }): Promise<string | null>;
 restoreVersion(params: { userId: string; artifactId: string; versionId: string }): Promise<
 	{ ok: true; versionId: string } | { ok: false; reason: "not_found" | "no_body" }
 >;
 ```
+
+*Amended in implementation:* there is no public `appendVersion`. The append (number = max + 1, summary clamped
+to `ARTIFACT_VERSION_SUMMARY_MAX_CHARS`) is a private step inside `record.ts`'s create and update
+transactions — the only two writers — so a stored body and its newest version cannot disagree, and a caller
+cannot append a version without writing the body it records. `no_body` means the version's stored body is the
+empty string (restoring it would blank the artifact).
 
 `restoreVersion` writes the old body back through `record.updateArtifactBody` with `author: "user"` and the
 summary `restored <the restored version's summary>` — so a restore is itself a version and nothing is lost.
@@ -440,19 +454,25 @@ Slice 0 ships it tested but unused; Document and Canvas call it.
 // one concept is how they drift).
 import type { Anchor } from "$lib/shared/artifacts/anchor";
 
+// Every signature below also takes `& ArtifactScopeOptions` (amended in implementation).
 createComment(params: {
 	userId: string;
 	artifactId: string;
-	anchor: Anchor;
+	anchor: Anchor | null;          // required on a root; ignored (stored NULL) on a reply
 	author: ArtifactAuthor;
 	body: string;
 	parentId?: string | null;
-}): Promise<ArtifactComment>;
+}): Promise<ArtifactComment | null>;   // null = refused: over-long body, root with no/invalid anchor, reply to a reply, unreachable artifact
 listComments(params: { userId: string; artifactId: string }): Promise<ArtifactComment[]>;  // roots oldest first, replies nested
 resolveComment(params: { userId: string; artifactId: string; commentId: string; resolved: boolean }): Promise<boolean>;
 deleteComment(params: { userId: string; artifactId: string; commentId: string }): Promise<boolean>;
 parseArtifactAnchor(json: string | null): Anchor | null;   // validating, never throws
 ```
+
+*Amended in implementation:* `createComment` returns `null` on a refusal (the Limits section's rule —
+"the kv/comments/versions writers return `false`/`null`"), its `anchor` is nullable because a reply's is ignored,
+and threading is one level deep: a reply's parent must be a root on the same artifact. Ties within
+`created_at`'s one-second resolution are broken by insertion order (`rowid`).
 
 `parseArtifactAnchor` validates rather than trusts: a `text` anchor needs all five fields as non-empty strings,
 `node` needs a non-empty `nodeId`, `point` needs two finite numbers. `null` input, malformed JSON, an unknown
@@ -477,6 +497,11 @@ deleteKv(params: { userId: string; artifactId: string; key: string }): Promise<b
 These four are the seam slice 2's `window.alfy.storage` bridge calls; they are not reachable from any route in
 slice 0. Slice 2 adds the route and the postMessage bridge; it must not add a fifth accessor.
 
+*Amended in implementation:* all four take `& ArtifactScopeOptions` (an incognito App has to reach its own
+storage from inside its chat, and the containment test reads it with `includeIncognito`), and all four refuse an
+artifact that is not an **App** — storage is an App's and nothing else's, so a Document id cannot be used as a
+key-value bag. `setKv` also refuses a value that is not JSON and an empty key.
+
 Public functions (slice 0), all ownership-scoped:
 
 ```ts
@@ -487,9 +512,7 @@ createArtifact(input: CreateArtifactInput): Promise<
 getArtifact(params: {
 	userId: string;
 	artifactId: string;
-	/** Administration only: archive, erasure, disk sweeps. */
-	includeIncognito?: boolean;
-}): Promise<ArtifactDetail | null>;
+} & ArtifactScopeOptions): Promise<ArtifactDetail | null>;
 updateArtifactBody(params: {
 	userId: string;
 	artifactId: string;
@@ -498,14 +521,29 @@ updateArtifactBody(params: {
 	summary: string;
 	/** Optional optimistic guard: the hash the caller last read. */
 	baseHash?: string;
-}): Promise<
+} & ArtifactScopeOptions): Promise<
 	| { ok: true; versionId: string; bodyHash: string }
 	| { ok: false; reason: "not_found" | "too_large" | "stale" | "hash_mismatch" }
 >;
-deleteArtifact(params: { userId: string; artifactId: string }): Promise<boolean>;
+deleteArtifact(params: { userId: string; artifactId: string } & ArtifactScopeOptions): Promise<boolean>;
 listArtifactsForConversation(params: { userId: string; conversationId: string }): Promise<ArtifactCardSummary[]>;
-countArtifactsForConversation(params: { userId: string; conversationId: string }): Promise<number>;
 ```
+
+*Amended in implementation:*
+
+- **No `countArtifactsForConversation`.** The conversation detail carries the list, and the header count is
+  that list's length — the verification checklist's own instruction ("if the read model ends up inlining the
+  count, delete the export rather than leaving a dead one"). A second query for a number the page already
+  holds would be a second source that can disagree.
+- **A File is read, never written, by the family.** `updateArtifactBody` answers `not_found`, and
+  `deleteArtifact` `false`, for a `generated_output` row: AGENTS.md's Knowledge Library rule (no in-app editing
+  of generated files) still binds produced files; only the four new kinds are edited in place.
+- **`hash_mismatch` is reserved, not reachable here.** The hash is computed inside `updateArtifactBody` from the
+  body it stores, so on this path it cannot disagree; the reason stays in the union for slice 1's
+  hash-then-hand-off path.
+- **`bodyHash` of a row with no version** (a produced file, or an artifact created empty) is the hash of its
+  current body, so `getArtifact`'s `bodyHash` and `updateArtifactBody`'s `stale` check can never disagree about
+  the same stored string.
 
 `updateArtifactBody`'s refusal reasons, exactly:
 

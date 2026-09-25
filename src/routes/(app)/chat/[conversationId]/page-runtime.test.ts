@@ -391,6 +391,7 @@ function pageData(overrides: Record<string, unknown> = {}) {
 		bootstrap: false,
 		generatedFiles: [],
 		fileProductionJobs: [],
+		artifacts: [],
 		pendingWrites: [],
 		contextCompressionSnapshots: [],
 		atlasJobs: [],
@@ -929,6 +930,99 @@ describe("chat page runtime integration", () => {
 		});
 	});
 
+	// The chat is one of the document workspace's three callers (with the
+	// Knowledge page and the project Files modal). The panel is rebuilt in place
+	// for the artifact family, so this pins what the chat relies on today: a
+	// produced file opened from its row lands in the DOCKED shell with its
+	// title, its AI provenance and its preview surface, and closing the shell
+	// hands the chat back untouched.
+	it("opens a produced file from its row into the docked workspace, and closing returns to the chat", async () => {
+		// Opening a document with an artifact id records the open (best effort);
+		// the file-wide mock has no resolved value for it.
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		renderPage(
+			pageData({
+				messages: [
+					{
+						id: "assistant-file-1",
+						role: "assistant",
+						content: "Here is the trip summary.",
+						timestamp: 1,
+					},
+				],
+				fileProductionJobs: [
+					{
+						id: "job-file-1",
+						conversationId: "conv-1",
+						assistantMessageId: "assistant-file-1",
+						title: "Vienna trip summary",
+						status: "succeeded",
+						stage: null,
+						createdAt: 1,
+						updatedAt: 2,
+						files: [
+							{
+								id: "chat-file-1",
+								filename: "Vienna trip summary.pdf",
+								mimeType: "application/pdf",
+								sizeBytes: 2048,
+								downloadUrl: "/api/chat/files/chat-file-1/download",
+								previewUrl: "/api/chat/files/chat-file-1/preview",
+								artifactId: "artifact-file-1",
+							},
+						],
+						warnings: [],
+						dismissed: false,
+						error: null,
+						sourceMode: null,
+					},
+				],
+			}),
+		);
+
+		// A produced file is a pinned deliverable row; open its body if it is not
+		// already open.
+		const row = await screen.findByRole("button", {
+			name: /Vienna trip summary\.pdf/,
+		});
+		if (row.getAttribute("aria-expanded") !== "true") {
+			await fireEvent.click(row);
+		}
+		await fireEvent.click(
+			await screen.findByRole("button", {
+				name: "Preview Vienna trip summary.pdf",
+			}),
+		);
+
+		const shell = await screen.findByRole("complementary", {
+			name: "Document workspace",
+		});
+		expect(screen.getByTestId("workspace-main")).toHaveAttribute(
+			"data-presentation",
+			"docked",
+		);
+		expect(
+			within(shell).getByText("Vienna trip summary.pdf"),
+		).toBeInTheDocument();
+		expect(
+			within(shell).getByTestId("document-provenance"),
+		).toBeInTheDocument();
+		expect(
+			within(shell).getByTestId("page-scroll-container"),
+		).toBeInTheDocument();
+
+		await fireEvent.click(
+			within(shell).getByRole("button", { name: "Close document workspace" }),
+		);
+		await waitFor(() => {
+			expect(screen.queryByTestId("workspace-main")).not.toBeInTheDocument();
+		});
+		expect(screen.getByText("Here is the trip summary.")).toBeInTheDocument();
+	});
+
 	it("drains a queued follow-up after polling reconciles a waiting stream completion", async () => {
 		let resolveDetail: (
 			value:
@@ -1369,7 +1463,13 @@ describe("chat page runtime integration", () => {
 		});
 
 		await waitFor(() => {
-			expect(screen.getByText("report.pdf")).toBeInTheDocument();
+			// The filename legitimately appears twice once the file-production
+			// card's lazy body has resolved: once in the tool-activity row's own
+			// compact summary, once in the card's file row. Which of those has
+			// rendered by this point depends on that lazy import's module-cache
+			// state, which earlier tests in this file/run can warm — so this
+			// asserts presence, not an exact count.
+			expect(screen.getAllByText("report.pdf").length).toBeGreaterThan(0);
 		});
 		await fireEvent.click(
 			screen.getByRole("button", { name: "No context yet" }),
@@ -1400,7 +1500,7 @@ describe("chat page runtime integration", () => {
 		await Promise.resolve();
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
-		expect(screen.getByText("report.pdf")).toBeInTheDocument();
+		expect(screen.getAllByText("report.pdf").length).toBeGreaterThan(0);
 		expect(screen.getByText("$0.4200 · 42 tokens")).toBeInTheDocument();
 		expect(
 			screen.getByTestId("context-compression-marker-snapshot-1"),

@@ -73,7 +73,12 @@ vi.mock("$lib/server/services/analytics", () => ({
 	getConversationCostSummary: vi.fn(),
 }));
 
+vi.mock("$lib/server/services/artifacts", () => ({
+	listArtifactsForConversation: vi.fn(),
+}));
+
 import { getConversationCostSummary } from "$lib/server/services/analytics";
+import { listArtifactsForConversation } from "$lib/server/services/artifacts";
 import { listConversationAtlasJobs } from "$lib/server/services/atlas/read-model";
 import { listContextCompressionSnapshots } from "$lib/server/services/context-compression";
 import { getConversationDraft } from "$lib/server/services/conversation-drafts";
@@ -131,6 +136,9 @@ const mockListContextCompressionSnapshots = vi.mocked(
 );
 const mockGetConversationCostSummary = vi.mocked(getConversationCostSummary);
 const mockListConversationAtlasJobs = vi.mocked(listConversationAtlasJobs);
+const mockListArtifactsForConversation = vi.mocked(
+	listArtifactsForConversation,
+);
 
 describe("Conversation Detail Read Model", () => {
 	beforeEach(() => {
@@ -187,6 +195,7 @@ describe("Conversation Detail Read Model", () => {
 			totalCostUsdMicros: 0,
 			totalTokens: 0,
 		});
+		mockListArtifactsForConversation.mockResolvedValue([]);
 	});
 
 	it("returns the cheap bootstrap detail payload with stable defaults", async () => {
@@ -207,6 +216,7 @@ describe("Conversation Detail Read Model", () => {
 		expect(mockListConversationAtlasJobs).not.toHaveBeenCalled();
 		expect(mockListContextCompressionSnapshots).not.toHaveBeenCalled();
 		expect(mockGetConversationCostSummary).not.toHaveBeenCalled();
+		expect(mockListArtifactsForConversation).not.toHaveBeenCalled();
 		expect(detail).toMatchObject({
 			conversation: {
 				id: "conv-1",
@@ -221,6 +231,7 @@ describe("Conversation Detail Read Model", () => {
 			fileProductionJobs: [],
 			atlasJobs: [],
 			contextCompressionSnapshots: [],
+			artifacts: [],
 			bootstrap: true,
 			hasMoreMessages: false,
 		});
@@ -355,6 +366,17 @@ describe("Conversation Detail Read Model", () => {
 			totalCostUsdMicros: 123_456,
 			totalTokens: 7890,
 		});
+		mockListArtifactsForConversation.mockResolvedValue([
+			{
+				id: "artifact-doc-1",
+				kind: "document",
+				title: "Weekend checklist",
+				conversationId: "conv-1",
+				versionNumber: 2,
+				commentCount: 1,
+				updatedAt: 1_777_140_030,
+			},
+		]);
 
 		const detail = await getConversationDetail({
 			userId: "user-1",
@@ -363,6 +385,10 @@ describe("Conversation Detail Read Model", () => {
 
 		expect(mockListMessageWindow).toHaveBeenCalledWith("conv-1", {
 			limit: 100,
+		});
+		expect(mockListArtifactsForConversation).toHaveBeenCalledWith({
+			userId: "user-1",
+			conversationId: "conv-1",
 		});
 		expect(mockListConversationGeneratedFiles).toHaveBeenCalledWith("conv-1");
 		expect(mockListConversationAtlasJobs).toHaveBeenCalledWith(
@@ -412,11 +438,37 @@ describe("Conversation Detail Read Model", () => {
 					sourceTokenEstimate: 48_000,
 				},
 			],
+			artifacts: [
+				expect.objectContaining({
+					id: "artifact-doc-1",
+					kind: "document",
+					versionNumber: 2,
+				}),
+			],
 			bootstrap: false,
 			hasMoreMessages: true,
 			totalCostUsdMicros: 123_456,
 			totalTokens: 7890,
 		});
+	});
+
+	// Ruling 20: the field is typed through ArtifactCardSummary, never the
+	// knowledge-side ArtifactSummary aliased into place — this is exercised
+	// implicitly above (the mock resolves ArtifactCardSummary-shaped rows,
+	// which only satisfies the field's real type), and explicitly here: the
+	// call itself carries the conversation scope the panel list and the
+	// header count both need, not a second query shape.
+	it("scopes the artifacts call to the same user and conversation as everything else", async () => {
+		await getConversationDetail({
+			userId: "user-2",
+			conversationId: "conv-2",
+		});
+
+		expect(mockListArtifactsForConversation).toHaveBeenCalledWith({
+			userId: "user-2",
+			conversationId: "conv-2",
+		});
+		expect(mockListArtifactsForConversation).toHaveBeenCalledTimes(1);
 	});
 
 	it("decorates only assistant messages with child fork metadata", async () => {

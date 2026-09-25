@@ -791,6 +791,228 @@ describe("createAccountDataArchive", () => {
 		expect(combined).not.toContain("DO_NOT_EXPORT_BUNDLE");
 	});
 
+	// The artifact family (Feature 2). An artifact's history, its comment threads
+	// and an App's stored data are the user's own content — a cost splitter's
+	// expenses, a note to themselves on a plan — so they travel with the export as
+	// readable pages per artifact, never a table dump (ruling 24). The archive
+	// bypasses the ownership scope on purpose, so the `user_id` filter is the only
+	// guard between this user and another one: the second user's rows must be
+	// absent.
+	it("archives each artifact with its version history, comment threads and stored App data, and nothing of another user's", async () => {
+		await seedArchiveUser();
+		const at = new Date("2026-03-01T09:00:00Z");
+		await db.insert(schema.artifacts).values([
+			{
+				id: "artifact-produced",
+				userId: "user-1",
+				conversationId: "conv-1",
+				type: "generated_output",
+				name: "roadmap-summary.md",
+				contentText: "Generated roadmap summary text.",
+				createdAt: at,
+				updatedAt: at,
+			},
+			{
+				id: "artifact-document",
+				userId: "user-1",
+				conversationId: "conv-1",
+				type: "artifact",
+				name: "Launch checklist",
+				contentText: "- [x] Book the venue\n- [ ] Brief support",
+				metadataJson: JSON.stringify({
+					artifactType: "document",
+					title: "Launch checklist",
+				}),
+				createdAt: at,
+				updatedAt: at,
+			},
+			{
+				id: "artifact-app",
+				userId: "user-1",
+				conversationId: "conv-1",
+				type: "artifact",
+				name: "Launch budget",
+				contentText: "<!doctype html><title>Budget</title>",
+				metadataJson: JSON.stringify({
+					artifactType: "app",
+					title: "Launch budget",
+				}),
+				createdAt: at,
+				updatedAt: at,
+			},
+			{
+				id: "artifact-other-user",
+				userId: "user-2",
+				conversationId: "conv-other",
+				type: "artifact",
+				name: "DO_NOT_EXPORT_OTHER_ARTIFACT",
+				contentText: "Another user's document.",
+				metadataJson: JSON.stringify({ artifactType: "app", title: "x" }),
+				createdAt: at,
+				updatedAt: at,
+			},
+		]);
+		await db.insert(schema.artifactVersions).values([
+			{
+				id: "version-produced-1",
+				artifactId: "artifact-produced",
+				userId: "user-1",
+				versionNumber: 1,
+				author: "alfy",
+				summary: "Alfy produced the summary",
+				body: "Generated roadmap summary text.",
+				bodyHash: "h1",
+				createdAt: at,
+			},
+			{
+				id: "version-document-1",
+				artifactId: "artifact-document",
+				userId: "user-1",
+				versionNumber: 1,
+				author: "alfy",
+				summary: "Alfy wrote the first draft",
+				body: "- [ ] Book the venue\n- [ ] Brief support",
+				bodyHash: "h2",
+				createdAt: at,
+			},
+			{
+				id: "version-document-2",
+				artifactId: "artifact-document",
+				userId: "user-1",
+				versionNumber: 2,
+				author: "user",
+				summary: "Ticked the venue",
+				body: "- [x] Book the venue\n- [ ] Brief support",
+				bodyHash: "h3",
+				createdAt: at,
+			},
+			{
+				id: "version-other",
+				artifactId: "artifact-other-user",
+				userId: "user-2",
+				versionNumber: 1,
+				author: "user",
+				summary: "DO_NOT_EXPORT_OTHER_VERSION",
+				body: "x",
+				bodyHash: "h4",
+				createdAt: at,
+			},
+		]);
+		await db.insert(schema.artifactComments).values([
+			{
+				id: "comment-root",
+				artifactId: "artifact-document",
+				userId: "user-1",
+				anchorJson: JSON.stringify({ kind: "node", nodeId: "b1" }),
+				author: "user",
+				body: "Is the venue confirmed?",
+				createdAt: at,
+			},
+			{
+				id: "comment-reply",
+				artifactId: "artifact-document",
+				userId: "user-1",
+				parentId: "comment-root",
+				author: "alfy",
+				body: "Yes, confirmed on Monday.",
+				status: "resolved",
+				createdAt: at,
+			},
+			{
+				id: "comment-other",
+				artifactId: "artifact-other-user",
+				userId: "user-2",
+				anchorJson: JSON.stringify({ kind: "node", nodeId: "b1" }),
+				author: "user",
+				body: "DO_NOT_EXPORT_OTHER_COMMENT",
+				createdAt: at,
+			},
+		]);
+		await db.insert(schema.artifactKv).values([
+			{
+				id: "kv-app",
+				artifactId: "artifact-app",
+				key: "expenses",
+				valueJson: JSON.stringify([{ item: "Venue deposit", eur: 400 }]),
+				updatedAt: at,
+			},
+			{
+				id: "kv-produced",
+				artifactId: "artifact-produced",
+				key: "note",
+				valueJson: JSON.stringify("kept with the file"),
+				updatedAt: at,
+			},
+			{
+				id: "kv-other",
+				artifactId: "artifact-other-user",
+				key: "DO_NOT_EXPORT_OTHER_KEY",
+				valueJson: JSON.stringify("DO_NOT_EXPORT_OTHER_VALUE"),
+				updatedAt: at,
+			},
+		]);
+
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+			now: new Date("2026-06-15T08:00:00Z"),
+		});
+		expect(result.status).toBe("ok");
+		if (result.status !== "ok") return;
+		const zip = await JSZip.loadAsync(
+			Buffer.from(await new Response(result.zipStream).arrayBuffer()),
+		);
+
+		// A File (a produced file's artifact): its readable page carries its
+		// history and its stored data.
+		const produced = (await zip
+			.file("Files/Readable/roadmap-summary.md.html")
+			?.async("string")) as string;
+		expect(produced).toContain("Generated roadmap summary text.");
+		expect(produced).toContain("Alfy produced the summary");
+		expect(produced).toContain("note");
+		expect(produced).toContain("kept with the file");
+
+		// A Document: its body, every version with its own text, and its threads.
+		const document = (await zip
+			.file("Files/Readable/Launch checklist.html")
+			?.async("string")) as string;
+		expect(document).toContain("Book the venue");
+		expect(document).toContain("v2");
+		expect(document).toContain("Ticked the venue");
+		expect(document).toContain("v1");
+		expect(document).toContain("Alfy wrote the first draft");
+		expect(document).toContain("Is the venue confirmed?");
+		expect(document).toContain("Yes, confirmed on Monday.");
+
+		// An App: what the user typed into it, readable, scoped to the App.
+		const app = (await zip
+			.file("Files/Readable/Launch budget.html")
+			?.async("string")) as string;
+		expect(app).toContain("expenses");
+		expect(app).toContain("Venue deposit");
+
+		const combinedText = await Promise.all(
+			Object.keys(zip.files).map(async (name) => {
+				const file = zip.file(name);
+				if (!file || file.dir) return "";
+				return file.async("string").catch(() => "");
+			}),
+		).then((parts) => parts.join("\n"));
+		for (const marker of [
+			"DO_NOT_EXPORT_OTHER_ARTIFACT",
+			"DO_NOT_EXPORT_OTHER_VERSION",
+			"DO_NOT_EXPORT_OTHER_COMMENT",
+			"DO_NOT_EXPORT_OTHER_KEY",
+			"DO_NOT_EXPORT_OTHER_VALUE",
+		]) {
+			expect(combinedText).not.toContain(marker);
+		}
+		// The UI never names the family, and neither does the export.
+		expect(combinedText).not.toMatch(/\bartifacts?\b/i);
+	});
+
 	it("fails the whole archive when an in-scope original file cannot be read", async () => {
 		await seedArchiveUser();
 		await rm(join(tempDir, "data", "knowledge", "user-1", "roadmap-notes.txt"));

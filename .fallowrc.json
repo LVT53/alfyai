@@ -10,6 +10,7 @@
 		"scripts/evaluate-tool-guidance-ab.ts",
 		"scripts/audit-thought-step-honesty.ts",
 		"scripts/recompute-parallel-billing.ts",
+		"scripts/eval-artifact-contracts/run.ts",
 		"static/sw.js"
 	],
 	"ignoreDependencies": ["pptxgenjs"],

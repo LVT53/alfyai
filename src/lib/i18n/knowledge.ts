@@ -125,7 +125,7 @@ const knowledgeDict = {
 		"knowledge.failedLoadMemory": "Failed to load memory profile.",
 		"knowledge.failedRefreshOverview":
 			"Failed to refresh the live memory overview.",
-		"knowledge.failedRemoveArtifact": "Failed to remove artifact.",
+		"knowledge.failedRemoveArtifact": "Failed to remove the item.",
 		"knowledge.failedUpdateKnowledgeBase":
 			"Failed to update the Knowledge Base.",
 		"knowledge.failedUpdateMemory": "Failed to update memory profile.",

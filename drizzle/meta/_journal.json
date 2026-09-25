@@ -869,6 +869,13 @@
       "when": 1777140000110,
       "tag": "1777140000110_drop_home_suggestion_events",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1777140000111,
+      "tag": "1777140000111_artifacts_spine",
+      "breakpoints": true
     }
   ]
 }

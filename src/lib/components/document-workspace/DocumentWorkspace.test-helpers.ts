@@ -9,6 +9,13 @@ type CloseDocumentCallback = (documentId: string) => void;
 type CloseWorkspaceCallback = () => void;
 type JumpToSourceCallback = (document: DocumentWorkspaceItem) => void;
 type PresentationChangeCallback = (presentation: "docked" | "expanded") => void;
+type ListOpenChangeCallback = (open: boolean) => void;
+
+type WorkspaceList = {
+	open: boolean;
+	items: DocumentWorkspaceItem[];
+	title?: string;
+} | null;
 
 type WorkspaceRenderOptions = {
 	open?: boolean;
@@ -17,12 +24,14 @@ type WorkspaceRenderOptions = {
 	documents?: DocumentWorkspaceItem[];
 	availableDocuments?: DocumentWorkspaceItem[];
 	activeDocumentId?: string | null;
+	list?: WorkspaceList;
 	onSelectDocument?: SelectDocumentCallback;
 	onOpenDocument?: OpenDocumentCallback;
 	onCloseDocument?: CloseDocumentCallback;
 	onCloseWorkspace?: CloseWorkspaceCallback;
 	onJumpToSource?: JumpToSourceCallback;
 	onPresentationChange?: PresentationChangeCallback;
+	onListOpenChange?: ListOpenChangeCallback;
 };
 
 export function makeWorkspaceDocument(
@@ -52,6 +61,8 @@ export function renderWorkspace(options: WorkspaceRenderOptions = {}) {
 		options.onJumpToSource ?? vi.fn<JumpToSourceCallback>();
 	const onPresentationChange =
 		options.onPresentationChange ?? vi.fn<PresentationChangeCallback>();
+	const onListOpenChange =
+		options.onListOpenChange ?? vi.fn<ListOpenChangeCallback>();
 
 	const result = render(DocumentWorkspace, {
 		props: {
@@ -66,6 +77,7 @@ export function renderWorkspace(options: WorkspaceRenderOptions = {}) {
 			onCloseWorkspace,
 			onJumpToSource,
 			onPresentationChange,
+			onListOpenChange,
 		},
 	});
 
@@ -77,5 +89,6 @@ export function renderWorkspace(options: WorkspaceRenderOptions = {}) {
 		onCloseWorkspace,
 		onJumpToSource,
 		onPresentationChange,
+		onListOpenChange,
 	};
 }
