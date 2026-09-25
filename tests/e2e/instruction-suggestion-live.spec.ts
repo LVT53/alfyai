@@ -126,7 +126,12 @@ test.describe("instruction offer from a real tool call", () => {
 			]);
 
 			// Review still only opens the offer: cancelling leaves the instructions
-			// untouched and the row in place.
+			// untouched and the row in place. The account's text is read before the
+			// click and compared after it rather than expected to be unset —
+			// `instruction-command.spec.ts` saves personal instructions and leaves
+			// them, so an "it was null before, it is null now" version of this
+			// assertion only holds when this file runs first.
+			const instructionsBeforeReview = await readPersonalInstructions(page);
 			await row.getByRole("button", { name: "Review" }).click();
 			// Scoped to the instructions dialog on purpose: the context-usage ring
 			// keeps its popover in the DOM with role="dialog" once a turn has given
@@ -140,7 +145,11 @@ test.describe("instruction offer from a real tool call", () => {
 				.click();
 			await expect(instructionsDialog(page)).toHaveCount(0);
 			await expect(suggestionRow(page)).toBeVisible();
-			expect(await readPersonalInstructions(page)).toBe(null);
+			const instructionsAfterCancel = await readPersonalInstructions(page);
+			expect(instructionsAfterCancel).toBe(instructionsBeforeReview);
+			expect(instructionsAfterCancel ?? "").not.toContain(
+				AI_SMOKE_STANDING_INSTRUCTION_TEXT,
+			);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			await setBrowserSelectedModel(page, previousSelectedModel);
