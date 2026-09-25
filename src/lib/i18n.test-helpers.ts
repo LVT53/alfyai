@@ -4,15 +4,6 @@ import ts from "typescript";
 
 type I18nLanguage = "en" | "hu";
 
-const I18N_MODULES = [
-	"chat",
-	"common",
-	"instructions",
-	"knowledge",
-	"projects",
-	"settings",
-	"skills",
-] as const;
 const AUDITED_PREFIXES = [
 	"admin.composerCommandRegistry",
 	"admin.systemSkills.",
@@ -97,6 +88,69 @@ const i18nDirectory = resolve(
 );
 
 export type DictionaryKeysByLanguage = Record<I18nLanguage, string[]>;
+
+/**
+ * The dictionary modules `src/lib/i18n/index.ts` merges, read out of that file.
+ *
+ * This list used to live here by hand, and it drifted the way a copied list
+ * does: `connections` and `legal` were never in it, so any audited-prefix key
+ * that lands in either namespace is invisible to the parity test — the one
+ * test that notices a key which reached English and never reached Hungarian.
+ * Nothing in those two namespaces uses an audited prefix today, which is
+ * exactly why nobody noticed: the hole is only visible once someone writes
+ * into it. Reading the merge means a namespace is watched from the moment it
+ * is merged, and a spread this helper cannot resolve throws rather than
+ * quietly shrinking the watch list.
+ */
+export function mergedDictionaryModules(): string[] {
+	const indexSource = readFileSync(resolve(i18nDirectory, "index.ts"), "utf8");
+	const sourceFile = ts.createSourceFile(
+		"index.ts",
+		indexSource,
+		ts.ScriptTarget.Latest,
+		true,
+		ts.ScriptKind.TS,
+	);
+
+	const moduleOf = new Map<string, string>();
+	for (const statement of sourceFile.statements) {
+		if (!ts.isImportDeclaration(statement)) continue;
+		const defaultName = statement.importClause?.name;
+		const specifier = statement.moduleSpecifier;
+		if (!defaultName || !ts.isStringLiteral(specifier)) continue;
+		if (!specifier.text.startsWith("./")) continue;
+		moduleOf.set(defaultName.text, specifier.text.slice(2));
+	}
+
+	const modules = new Set<string>();
+	const visit = (node: ts.Node): void => {
+		if (
+			ts.isSpreadAssignment(node) &&
+			ts.isPropertyAccessExpression(node.expression) &&
+			ts.isIdentifier(node.expression.expression) &&
+			(node.expression.name.text === "en" || node.expression.name.text === "hu")
+		) {
+			const name = node.expression.expression.text;
+			const mod = moduleOf.get(name);
+			if (!mod) {
+				throw new Error(
+					`src/lib/i18n/index.ts spreads \`${name}.…\`, but no default import in that file maps \`${name}\` to a module, so this helper cannot tell which namespace it is and the parity test would not be watching it.`,
+				);
+			}
+			modules.add(mod);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(sourceFile);
+
+	if (modules.size === 0) {
+		throw new Error(
+			"src/lib/i18n/index.ts no longer spreads any dictionary this helper can read — the parse is stale, not the dictionaries.",
+		);
+	}
+
+	return [...modules].sort();
+}
 
 function readDictionaryModule(mod: string): string {
 	const filePath = resolve(i18nDirectory, `${mod}.ts`);
@@ -187,14 +241,22 @@ function collectAuditedKeysForLanguage(
 export function collectDictionaryKeys(): DictionaryKeysByLanguage {
 	const keys: DictionaryKeysByLanguage = { en: [], hu: [] };
 
-	for (const mod of I18N_MODULES) {
+	for (const mod of mergedDictionaryModules()) {
 		const moduleSource = readDictionaryModule(mod);
 		const dictionary = parseDictionaryObject(moduleSource);
-		if (!dictionary) continue;
+		if (!dictionary) {
+			throw new Error(
+				`src/lib/i18n/${mod}.ts does not declare a \`…${DICT_SUFFIX}\` object literal this helper can read, so its keys would be silently skipped by the parity test.`,
+			);
+		}
 
 		for (const language of ["en", "hu"] as const) {
 			const languageObject = collectLanguageObject(dictionary, language);
-			if (!languageObject) continue;
+			if (!languageObject) {
+				throw new Error(
+					`src/lib/i18n/${mod}.ts has no \`${language}\` object inside its dictionary, so its ${language} keys would be silently skipped by the parity test.`,
+				);
+			}
 
 			keys[language].push(
 				...collectAuditedKeysForLanguage(languageObject, AUDITED_PREFIXES),

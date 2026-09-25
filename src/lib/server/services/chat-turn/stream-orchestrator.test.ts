@@ -2196,6 +2196,79 @@ describe("stream-orchestrator SSE contract", () => {
 		);
 	});
 
+	// Slice F — an instruction offer is CREATED by the tool but PERSISTED by
+	// finalize, and the only thing that carries it between the two is the
+	// tool-call record this runtime builds from the recorded entry. This is
+	// the join the seeded-metadata specs never touched: it failed on the real
+	// `/stream` path by dropping the field, so the model was told the user
+	// could see an offer that was never persisted and never rendered.
+	it("carries a recorded instruction suggestion onto the persisted assistant message", async () => {
+		const { runStreamingNormalChatSendModel } = await import(
+			"$lib/server/services/chat-turn/streaming-normal-chat-model-run"
+		);
+		const { createMessage } = await import("$lib/server/services/messages");
+		const suggestion = {
+			id: "suggestion-1",
+			status: "pending" as const,
+			text: "Whenever you write a summary, start it with Next Steps.",
+			scope: { kind: "personal" as const },
+			createdAt: 1_770_000_000_000,
+		};
+		// Exactly what the tool's own recorder writes on the offered path,
+		// including the absence of `ok`/`evidenceReady` (this entry is not
+		// evidence) and the turn-local `instructionSuggestion` payload.
+		const recorderEntry = {
+			callId: "call-instruction",
+			name: "suggest_instruction",
+			input: { text: suggestion.text, scope: "personal" },
+			status: "done" as const,
+			outputSummary: "Instruction suggestion offered for personal instructions",
+			sourceType: "tool" as const,
+			metadata: { offered: true, scope: "personal" },
+			instructionSuggestion: suggestion,
+		};
+		(
+			runStreamingNormalChatSendModel as ReturnType<typeof vi.fn>
+		).mockResolvedValue(
+			createNeutralStreamingResult(
+				[
+					{
+						type: "tool_call",
+						callId: "call-instruction",
+						toolName: "suggest_instruction",
+						input: recorderEntry.input,
+					},
+					{
+						type: "tool_result",
+						callId: "call-instruction",
+						toolName: "suggest_instruction",
+						output: {
+							ok: true,
+							offered: true,
+							scope: "personal",
+							note: "The user now sees this offer with a Review and a Dismiss button.",
+						},
+					},
+					{ type: "text_delta", text: "Understood." },
+					finishEvent,
+				],
+				{ normalChatToolCalls: [recorderEntry] },
+			),
+		);
+
+		const response = runStream();
+		await readSseResponse(response);
+
+		await vi.waitFor(() => {
+			const assistantCall = (
+				createMessage as ReturnType<typeof vi.fn>
+			).mock.calls.find((call) => call[1] === "assistant");
+			expect(assistantCall?.[5]).toMatchObject({
+				instructionSuggestions: [suggestion],
+			});
+		});
+	});
+
 	// R1 defect 1 — a "failed" tool call is a terminal (non-running) tool call,
 	// not an absence of persistable content. Before the fix,
 	// completedToolCallRecords()/isCompletedFileProductionToolCall() only

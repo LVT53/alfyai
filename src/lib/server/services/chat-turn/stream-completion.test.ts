@@ -15,6 +15,7 @@ import {
 	STREAM_TIMELINE_PAYLOAD_VERSION,
 	type StreamTimelineTerminalPayload,
 } from "$lib/services/stream-timeline";
+import type { InstructionSuggestion } from "$lib/shared/instructions";
 import type { LegacyContextTraceSectionInput } from "./context-trace";
 import { decodeUiMessageStreamParts } from "./stream";
 import { completeStreamTurn } from "./stream-completion";
@@ -720,6 +721,43 @@ describe("completeStreamTurn", () => {
 		await completeStreamTurn({ ...defaultParams, thoughtSteps: [] });
 
 		expect(getLatestEndPayload()).not.toHaveProperty("thoughtSteps");
+	});
+
+	// Slice F — the row is a decision to make now (the model has just said in
+	// prose that it offered a standing instruction), so the offers ride the
+	// terminal payload too, read off the same records finalize persists them
+	// from. Without this the user reads "Offered as a standing instruction" and
+	// finds no row until a reload.
+	it("carries instructionSuggestions onto the terminal data-stream-metadata payload", async () => {
+		const suggestion: InstructionSuggestion = {
+			id: "suggestion-1",
+			status: "pending",
+			text: "Start every summary with the heading Next Steps.",
+			scope: { kind: "personal" },
+			createdAt: 1_770_000_000_000,
+		};
+
+		await completeStreamTurn({
+			...defaultParams,
+			toolCallRecords: [
+				{
+					name: "suggest_instruction",
+					input: {},
+					status: "done",
+					instructionSuggestion: suggestion,
+				},
+			],
+		});
+
+		expect(getLatestEndPayload()).toMatchObject({
+			instructionSuggestions: [suggestion],
+		});
+	});
+
+	it("omits instructionSuggestions entirely from the terminal payload when the turn offered none", async () => {
+		await completeStreamTurn(defaultParams);
+
+		expect(getLatestEndPayload()).not.toHaveProperty("instructionSuggestions");
 	});
 
 	it("leaves the message body untouched and reports a stable code when the stream closed without finish", async () => {

@@ -70,6 +70,12 @@ export interface StreamMetadata {
 	// userIntent above so the Info popover's instruction row is there in the
 	// same session, not only after a reload. Absent when nothing applied.
 	instructionsApplied?: import("$lib/shared/instructions").InstructionScopeApplication;
+	// Slice F — the standing instructions the model offered to write this turn.
+	// They are persisted on the assistant message (chat-turn/finalize.ts) and
+	// ride the terminal payload like instructionsApplied above so the
+	// Review/Dismiss row is on screen in the same session, not only after a
+	// reload. Absent when the turn offered nothing.
+	instructionSuggestions?: import("$lib/shared/instructions").InstructionSuggestion[];
 	// Finding 4 (web-citation auto-repair) — the final PERSISTED assistant
 	// text, present only when the server's citation repair rewrote what was
 	// already streamed as text-delta frames. The client replaces the
@@ -278,6 +284,9 @@ function buildStreamMetadata(data: unknown): StreamMetadata | undefined {
 		userIntent: parseMessageUserIntent(parsed.userIntent),
 		instructionsApplied: parsed.instructionsApplied as
 			| StreamMetadata["instructionsApplied"]
+			| undefined,
+		instructionSuggestions: parsed.instructionSuggestions as
+			| StreamMetadata["instructionSuggestions"]
 			| undefined,
 		finalContent: parsed.finalContent as
 			| StreamMetadata["finalContent"]

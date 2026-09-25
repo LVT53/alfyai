@@ -21,21 +21,52 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const I18N_DIR = path.resolve("src/lib/i18n");
-// Every module `src/lib/i18n/index.ts` merges into the dictionary. `connections`
-// and `legal` were missing, so two whole namespaces — every connection status
-// sentence, every write-confirm line, the legal pages — were never checked for
-// a missing or untranslated Hungarian key. Adding a module here is not
-// optional: a namespace the app ships and this list does not name is a
-// namespace whose Hungarian nobody is watching.
-const MODULES = [
-	"chat",
-	"common",
-	"connections",
-	"knowledge",
-	"legal",
-	"settings",
-	"skills",
-] as const;
+const I18N_INDEX = path.join(I18N_DIR, "index.ts");
+
+/**
+ * The modules `src/lib/i18n/index.ts` merges into the app's dictionary, read
+ * out of that file rather than kept as a list here.
+ *
+ * The list used to live in this script, and it drifted the way a copied list
+ * does: `connections` and `legal` were missing for long enough to be named in
+ * a comment about being missing, and then `instructions` and `projects`
+ * shipped while that comment still claimed the list was complete. A namespace
+ * this script does not name is not an error — it is simply never read — so
+ * four namespaces' Hungarian went unwatched while the run stayed green and a
+ * missing translation in any of them could not fail it. Deriving the names
+ * from the merge means a namespace is covered the moment it is merged, and
+ * refusing to run when a merged module cannot be read means the gate cannot
+ * go quiet about a namespace again.
+ */
+function mergedModules(): string[] {
+	const indexSource = fs.readFileSync(I18N_INDEX, "utf-8");
+
+	const moduleOf = new Map<string, string>();
+	for (const match of indexSource.matchAll(
+		/^\s*import\s+(\w+)\s+from\s+["']\.\/([\w-]+)["'];?/gm,
+	)) {
+		moduleOf.set(match[1], match[2]);
+	}
+
+	// The merge is the authority, not the imports: whatever the dictionary
+	// spreads is what the app ships.
+	const modules = new Set<string>();
+	for (const match of indexSource.matchAll(/\.\.\.(\w+)\.(?:en|hu)\b/g)) {
+		const mod = moduleOf.get(match[1]);
+		if (!mod) {
+			throw new Error(
+				`src/lib/i18n/index.ts spreads \`${match[1]}\`, but no import here maps that name to a module file. Read the merge before trusting this run.`,
+			);
+		}
+		modules.add(mod);
+	}
+	if (modules.size === 0) {
+		throw new Error(
+			"src/lib/i18n/index.ts no longer spreads any dictionary this script can see — the parse is stale, not the dictionaries.",
+		);
+	}
+	return [...modules].sort();
+}
 
 function parseI18n() {
 	const en: Record<string, string> = {};
@@ -122,28 +153,47 @@ function parseI18n() {
 		return out;
 	}
 
-	function extractKeyValues(block: string, target: Record<string, string>) {
+	function extractKeyValues(
+		block: string,
+		target: Record<string, string>,
+	): number {
+		let matched = 0;
 		const regex =
-			/(?:["'])?([\w.]+)(?:["'])?\s*:\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`]*)`)/g;
+			/(?:["'])?([\w.]+)(?:["'])?\s*:\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|`([^`]*)`)/g;
 		let match: RegExpExecArray | null = regex.exec(block);
 		while (match !== null) {
+			matched++;
 			const key = match[1];
-			const value = (match[2] ?? match[3] ?? "").trim();
+			const value = (match[2] ?? match[3] ?? match[4] ?? "").trim();
 			if (key && value !== undefined) target[key] = value;
 			match = regex.exec(block);
 		}
+		return matched;
 	}
 
-	for (const mod of MODULES) {
+	for (const mod of mergedModules()) {
 		const filePath = path.join(I18N_DIR, `${mod}.ts`);
-		if (!fs.existsSync(filePath)) continue;
+		if (!fs.existsSync(filePath)) {
+			throw new Error(
+				`src/lib/i18n/index.ts merges ./${mod}, but ${filePath} does not exist.`,
+			);
+		}
 		const content = stripComments(fs.readFileSync(filePath, "utf-8"));
 
 		for (const lang of ["en", "hu"] as const) {
 			const idx = content.search(new RegExp(`\\b${lang}\\s*:`));
-			if (idx === -1) continue;
+			if (idx === -1) {
+				throw new Error(
+					`src/lib/i18n/index.ts merges ./${mod}, but no \`${lang}\` dictionary block was found in ${filePath}.`,
+				);
+			}
 			const block = extractBracedBlock(content, idx);
-			extractKeyValues(block, lang === "en" ? en : hu);
+			const matched = extractKeyValues(block, lang === "en" ? en : hu);
+			if (matched === 0) {
+				throw new Error(
+					`The \`${lang}\` block in ${filePath} yielded no keys — the parser no longer understands this file's shape, so it is watching nothing.`,
+				);
+			}
 		}
 	}
 
@@ -293,4 +343,15 @@ function validate() {
 	return errors > 0 ? 1 : 0;
 }
 
-process.exit(validate());
+// A validator that cannot read the dictionary has nothing to say about it, and
+// saying nothing must not look like passing: an unreadable merge, a missing
+// module file or a block the parser cannot read exits 1 here rather than
+// shrinking the report.
+try {
+	process.exit(validate());
+} catch (error) {
+	console.error(
+		`\n❌ i18n validator could not run: ${error instanceof Error ? error.message : String(error)}`,
+	);
+	process.exit(1);
+}
