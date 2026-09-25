@@ -7,6 +7,7 @@ import {
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
 import { NOW, seedConversation, seedUser } from "./artifacts.test-helpers";
+import type { CreatableArtifactKind } from "./types";
 
 let memory: InMemoryDatabase;
 
@@ -175,6 +176,45 @@ describe("createArtifact", () => {
 		expect(result).toEqual({ ok: false, reason: "too_large" });
 		expect(memory.db.select().from(schema.artifacts).all()).toEqual([]);
 		expect(memory.db.select().from(schema.artifactVersions).all()).toEqual([]);
+	});
+
+	// Runtime validation, not just the compile-time CreatableArtifactKind
+	// union: slice 5's tools hand this a model-supplied string, so "file" (a
+	// produced file stays generated_output — ruling 18) and any other
+	// unrecognised value must be refused at runtime, the same as a caller who
+	// never went through TypeScript at all.
+	it("refuses a kind outside the four creatable ones, and writes nothing", async () => {
+		for (const kind of ["file", "spreadsheet", ""]) {
+			const result = await createArtifact({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				kind: kind as CreatableArtifactKind,
+				title: "Probe",
+				body: "x",
+			});
+			expect(result).toEqual({ ok: false, reason: "invalid_kind" });
+		}
+		expect(memory.db.select().from(schema.artifacts).all()).toEqual([]);
+	});
+
+	it("refuses a title that is empty after trimming, and writes nothing", async () => {
+		for (const title of ["", "   ", "\n\t "]) {
+			const result = await createArtifact({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				kind: "document",
+				title,
+				body: "x",
+			});
+			expect(result).toEqual({ ok: false, reason: "invalid_title" });
+		}
+		expect(memory.db.select().from(schema.artifacts).all()).toEqual([]);
+	});
+
+	it("stores the trimmed title, not the raw one", async () => {
+		const artifact = await createDocument({ title: "  Saturday plan  " });
+		expect(artifact.title).toBe("Saturday plan");
+		expect(artifactRow(artifact.id)?.name).toBe("Saturday plan");
 	});
 });
 
@@ -357,6 +397,69 @@ describe("updateArtifactBody", () => {
 		).resolves.toEqual({ ok: false, reason: "not_found" });
 		expect(versionRows(artifact.id)).toHaveLength(1);
 		expect(versionRows(hidden.id)).toHaveLength(1);
+	});
+});
+
+// Concurrency: each write's version-number read and its insert happen inside
+// the SAME db.transaction() call (record.ts), and better-sqlite3 runs that
+// callback to completion before yielding back to the event loop — so two
+// `Promise.all`-launched writers can race up to the transaction boundary, but
+// never inside it. These tests pin that guarantee; ruling 47 depends on it.
+describe("updateArtifactBody concurrency", () => {
+	it("numbers four concurrent appends consecutively, with no duplicate or gap", async () => {
+		const artifact = await createDocument();
+
+		const results = await Promise.all(
+			[1, 2, 3, 4].map((n) =>
+				updateArtifactBody({
+					userId: OWNER,
+					artifactId: artifact.id,
+					body: `edit ${n}`,
+					author: "user",
+					summary: `Edit ${n}`,
+				}),
+			),
+		);
+
+		expect(results.every((result) => result.ok)).toBe(true);
+		const numbers = versionRows(artifact.id)
+			.map((row) => row.versionNumber)
+			.sort((a, b) => a - b);
+		// Version 1 is the document's own creation; four concurrent edits must
+		// land on 2..5 — no duplicate, no gap.
+		expect(numbers).toEqual([1, 2, 3, 4, 5]);
+	});
+
+	it("lets exactly one of two writers quoting the same baseHash win; the other gets stale", async () => {
+		const artifact = await createDocument();
+		const read = await getArtifact({ userId: OWNER, artifactId: artifact.id });
+		const baseHash = read?.bodyHash ?? undefined;
+
+		const [first, second] = await Promise.all([
+			updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "writer A",
+				author: "user",
+				summary: "Writer A",
+				baseHash,
+			}),
+			updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "writer B",
+				author: "user",
+				summary: "Writer B",
+				baseHash,
+			}),
+		]);
+
+		const outcomes = [first, second];
+		expect(outcomes.filter((result) => result.ok)).toHaveLength(1);
+		const stale = outcomes.find((result) => !result.ok);
+		expect(stale).toMatchObject({ ok: false, reason: "stale" });
+		// The winner appended one version onto the document's own version 1.
+		expect(versionRows(artifact.id)).toHaveLength(2);
 	});
 });
 

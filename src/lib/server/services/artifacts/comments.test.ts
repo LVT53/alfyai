@@ -230,6 +230,32 @@ describe("createComment and listComments", () => {
 		).resolves.toBeNull();
 		expect(commentRows(artifact.id)).toHaveLength(2);
 	});
+
+	it("treats an empty-string parentId as root — never a thrown FOREIGN KEY error", async () => {
+		const artifact = await createDocument();
+
+		// "" is falsy, so this chooses the root path (needs a real anchor) same
+		// as omitting parentId — and must not reach the database as the literal
+		// string "", which no comment id ever equals.
+		const root = await comment(artifact.id, "root via empty parentId", {
+			parentId: "",
+		});
+		expect(root).toMatchObject({ parentId: null, anchor: TEXT_ANCHOR });
+		expect(
+			commentRows(artifact.id).find((row) => row.id === root.id)?.parentId,
+		).toBeNull();
+
+		await expect(
+			createComment({
+				userId: OWNER,
+				artifactId: artifact.id,
+				anchor: null,
+				author: "user",
+				body: "root via empty parentId, but no anchor",
+				parentId: "",
+			}),
+		).resolves.toBeNull();
+	});
 });
 
 describe("resolveComment", () => {

@@ -844,6 +844,16 @@ function selectsByUser(source: string): boolean {
 		source.includes("buildArtifactVisibilityCondition") ||
 		source.includes("artifactVersions.userId") ||
 		source.includes("artifactComments.userId") ||
+		// A version or a comment DOES have a user column, but a reader can still
+		// select it by `artifactId` alone (the shape a "resolve the id, then read
+		// the child table" bug takes — no `.userId` in sight to trip the checks
+		// above). Counting `artifactId` as "selects by user" here too is what
+		// forces that reader to carry a scope marker instead of slipping out
+		// through `if (!selectsByUser(source)) continue;` unseen. Same reasoning
+		// as `artifactKv.artifactId` below; do not delete either because the
+		// column name "looks wrong" for a by-user check.
+		source.includes("artifactVersions.artifactId") ||
+		source.includes("artifactComments.artifactId") ||
 		// `artifact_kv` has NO user column: a key-value row is keyed to its
 		// artifact alone, so every read of it is a read by artifact id — and an
 		// artifact id can come from anywhere. Counting `artifactKv.artifactId` as
@@ -933,6 +943,28 @@ describe("every user-scoped artifact query goes through the ownership scope", ()
 				stale.join("\n  "),
 			].join("\n"),
 		).toEqual([]);
+	});
+
+	// A reader that never mentions `.userId` — say, a raw
+	// `db.select().from(artifactVersions).where(eq(artifactVersions.artifactId, id))`
+	// dropped into a new file with no scope marker — used to pass this guard
+	// silently: `selectsByUser` only recognised artifact_versions and
+	// artifact_comments through their `userId` column, so a reader that selects
+	// by `artifactId` alone (exactly the shape a "resolve the id, then read the
+	// child table" bug would take) never even reached the offender check. This
+	// synthetic snippet is the guard's own self-test: it must be seen as a
+	// by-user-equivalent read, the same way artifactKv.artifactId already is
+	// (kv has no user column at all, so every kv read is by artifact id).
+	it("flags a synthetic reader that selects artifact_versions or artifact_comments by artifact id alone", () => {
+		const offendingReads = [
+			"db.select().from(artifactVersions).where(eq(artifactVersions.artifactId, id))",
+			"db.select().from(artifactComments).where(eq(artifactComments.artifactId, id))",
+		];
+		for (const source of offendingReads) {
+			expect(readsGuardedTables(source)).toBe(true);
+			expect(carriesScopeMarker(source)).toBe(false);
+			expect(selectsByUser(source)).toBe(true);
+		}
 	});
 
 	// The artifact family (Feature 2) added three tables. A guard that cannot

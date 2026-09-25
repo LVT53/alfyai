@@ -206,3 +206,39 @@ describe("the key-value accessors", () => {
 		await expect(getKv({ ...base, key: "key-0" })).resolves.toBe('"updated"');
 	});
 });
+
+// Concurrency: setKv's existence check, cap check and write all happen inside
+// one db.transaction() call, which better-sqlite3 runs to completion before
+// yielding back to the event loop — so two Promise.all-launched writers race
+// only up to the transaction boundary, never inside it.
+describe("setKv concurrency", () => {
+	it("leaves exactly one row when two writers race to create the same new key", async () => {
+		const app = await createApp();
+		const base = { userId: OWNER, artifactId: app.id };
+
+		const results = await Promise.all([
+			setKv({ ...base, key: "expenses", valueJson: "[1]" }),
+			setKv({ ...base, key: "expenses", valueJson: "[2]" }),
+		]);
+
+		expect(results).toEqual([true, true]);
+		expect(kvRowCount()).toBe(1);
+	});
+
+	it("admits exactly one of two new keys racing for the last slot under the cap", async () => {
+		const app = await createApp();
+		const base = { userId: OWNER, artifactId: app.id };
+		for (let index = 0; index < ARTIFACT_KV_MAX_KEYS - 1; index += 1) {
+			await setKv({ ...base, key: `key-${index}`, valueJson: `${index}` });
+		}
+		expect(kvRowCount()).toBe(ARTIFACT_KV_MAX_KEYS - 1);
+
+		const [a, b] = await Promise.all([
+			setKv({ ...base, key: "race-a", valueJson: "1" }),
+			setKv({ ...base, key: "race-b", valueJson: "2" }),
+		]);
+
+		expect([a, b].filter(Boolean)).toHaveLength(1);
+		expect(kvRowCount()).toBe(ARTIFACT_KV_MAX_KEYS);
+	});
+});

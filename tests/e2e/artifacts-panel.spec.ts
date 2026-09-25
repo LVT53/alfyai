@@ -131,6 +131,8 @@ test.describe("the chat header's artifact count button and panel", () => {
 		const countButton = page.getByTestId("artifact-count-button");
 		await expect(countButton).toBeVisible();
 		await expect(countButton).toContainText("1");
+		// Item 10 of the client review: the button reflects the open panel.
+		await expect(countButton).toHaveAttribute("aria-pressed", "false");
 
 		await countButton.click();
 
@@ -140,6 +142,7 @@ test.describe("the chat header's artifact count button and panel", () => {
 				.getByTestId("artifact-panel-list")
 				.getByText("Vienna trip summary.pdf"),
 		).toBeVisible();
+		await expect(countButton).toHaveAttribute("aria-pressed", "true");
 	});
 
 	test("opens the File's preview from the list, and closing returns to the chat", async ({
@@ -175,6 +178,35 @@ test.describe("the chat header's artifact count button and panel", () => {
 		await expect(page.getByTestId("message-input")).toBeVisible();
 	});
 
+	test("returns focus to the count button when the panel closes, not to the page body", async ({
+		page,
+	}) => {
+		const conversationId = await createConversation(
+			page,
+			"Make me a trip summary",
+		);
+		await seedProducedFile(conversationId);
+		await openChatAndReload(page, conversationId);
+
+		const countButton = page.getByTestId("artifact-count-button");
+		await countButton.click();
+		await page
+			.getByTestId("artifact-panel-list")
+			.getByRole("button", { name: "Open" })
+			.click();
+		await expect(page.getByTestId("page-scroll-container")).toBeVisible();
+
+		await page
+			.getByRole("button", { name: "Close document workspace" })
+			.click();
+		await expect(page.getByTestId("page-scroll-container")).not.toBeVisible();
+
+		// A keyboard user who closes the panel from its own × must land
+		// somewhere useful — the opener that is still on screen — rather than
+		// falling back to <body>, which strands them at the top of the page.
+		await expect(countButton).toBeFocused();
+	});
+
 	test("at 390x844 the button is reachable without scrolling and the panel opens with no horizontal overflow", async ({
 		page,
 	}) => {
@@ -195,11 +227,15 @@ test.describe("the chat header's artifact count button and panel", () => {
 		expect(box?.y).toBeGreaterThanOrEqual(0);
 		expect(box?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(844);
 
+		await expect(compactButton).toHaveAttribute("aria-pressed", "false");
 		await compactButton.click();
 		// Below `md`, the mobile backdrop shell renders the list, not the
 		// desktop aside (its own, distinct test id — see the count button's
 		// own comment above for why the two shells need separate ids).
 		await expect(page.getByTestId("artifact-panel-list-mobile")).toBeVisible();
+		// Item 10 of the client review: the compact button reflects the open
+		// panel too.
+		await expect(compactButton).toHaveAttribute("aria-pressed", "true");
 
 		const hasHorizontalOverflow = await page.evaluate(
 			() =>

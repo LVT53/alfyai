@@ -148,6 +148,100 @@ describe("deleteProject", () => {
 			}),
 		);
 	});
+
+	it("keeps a project's chat's artifact and its versions, comments and kv rows", async () => {
+		seedProjectDeletionScenario();
+		const now = new Date("2026-05-14T09:00:00.000Z");
+		{
+			const { sqlite, db } = openSeedDatabase();
+			db.insert(schema.artifacts)
+				.values({
+					id: "artifact-1",
+					userId: "owner-user",
+					conversationId: "conv-1",
+					type: "artifact",
+					name: "Launch checklist",
+					contentText: "- [ ] Ship it",
+					metadataJson: JSON.stringify({
+						artifactType: "document",
+						title: "Launch checklist",
+					}),
+					createdAt: now,
+					updatedAt: now,
+				})
+				.run();
+			db.insert(schema.artifactVersions)
+				.values({
+					id: "version-1",
+					artifactId: "artifact-1",
+					userId: "owner-user",
+					versionNumber: 1,
+					author: "user",
+					summary: "First draft",
+					body: "- [ ] Ship it",
+					bodyHash: "hash",
+					createdAt: now,
+				})
+				.run();
+			db.insert(schema.artifactComments)
+				.values({
+					id: "comment-1",
+					artifactId: "artifact-1",
+					userId: "owner-user",
+					parentId: null,
+					anchorJson: JSON.stringify({ kind: "node", nodeId: "node-1" }),
+					author: "user",
+					body: "Ship by Friday?",
+					status: "open",
+					createdAt: now,
+				})
+				.run();
+			db.insert(schema.artifactKv)
+				.values({
+					id: "kv-1",
+					artifactId: "artifact-1",
+					key: "progress",
+					valueJson: '"in_review"',
+					updatedAt: now,
+				})
+				.run();
+			sqlite.close();
+		}
+		const { deleteProject } = await import("./projects");
+
+		const deleted = await deleteProject("owner-user", "folder-1");
+
+		expect(deleted).toBe(true);
+		const { sqlite, db } = openSeedDatabase();
+		const artifact = db
+			.select()
+			.from(schema.artifacts)
+			.where(eq(schema.artifacts.id, "artifact-1"))
+			.get();
+		const versionCount = db
+			.select()
+			.from(schema.artifactVersions)
+			.where(eq(schema.artifactVersions.artifactId, "artifact-1"))
+			.all().length;
+		const commentCount = db
+			.select()
+			.from(schema.artifactComments)
+			.where(eq(schema.artifactComments.artifactId, "artifact-1"))
+			.all().length;
+		const kvCount = db
+			.select()
+			.from(schema.artifactKv)
+			.where(eq(schema.artifactKv.artifactId, "artifact-1"))
+			.all().length;
+		sqlite.close();
+
+		// deleteProject only unassigns conv-1's projectId; the conversation, and
+		// everything it owns, survives — the artifact family included.
+		expect(artifact?.id).toBe("artifact-1");
+		expect(versionCount).toBe(1);
+		expect(commentCount).toBe(1);
+		expect(kvCount).toBe(1);
+	});
 });
 
 /**

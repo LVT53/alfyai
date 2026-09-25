@@ -15,7 +15,12 @@ export type ArtifactType =
 	| "normalized_document"
 	| "generated_output"
 	| "skill_note"
-	| "work_capsule";
+	| "work_capsule"
+	// The artifact family (Feature 2, ADR-0066): Document/App/Canvas/Slides
+	// rows write `type: "artifact"` (record.ts's ARTIFACT_ROW_TYPE). Knowledge
+	// code previously excluded this type entirely — the rows exist in the
+	// database, but nothing here could name them.
+	| "artifact";
 
 export type ArtifactRetrievalClass =
 	| "durable"
@@ -262,4 +267,12 @@ export interface DocumentWorkspaceItem {
 	 * panel already renders, with no behaviour change for those callers.
 	 */
 	kind?: ArtifactKind;
+	/**
+	 * `ArtifactCardSummary.updatedAt`, carried through so the "what this chat
+	 * made" list can render each row's "made by Alfy {when}" line (mockup
+	 * surface 2) via `formatRelativeTime`. Optional: the three existing
+	 * callers never set it and never render it (only the artifact list body
+	 * reads it), so this is not a behaviour change for them.
+	 */
+	updatedAt?: number;
 }

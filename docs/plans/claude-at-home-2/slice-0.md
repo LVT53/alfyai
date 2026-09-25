@@ -507,7 +507,7 @@ Public functions (slice 0), all ownership-scoped:
 ```ts
 createArtifact(input: CreateArtifactInput): Promise<
 	| { ok: true; artifact: ArtifactRecord }
-	| { ok: false; reason: "conversation_not_found" | "too_large" }
+	| { ok: false; reason: "conversation_not_found" | "too_large" | "invalid_kind" | "invalid_title" }
 >;
 getArtifact(params: {
 	userId: string;
@@ -558,12 +558,16 @@ There is deliberately **no caller-supplied `bodyHash` parameter**: the hash is c
 the body it stores, so a mismatched pair cannot reach the database. `hash_mismatch` exists for the sequential
 write path (hash, then hand off, then store) that slice 1's patch protocol uses.
 
-`createArtifact`'s two refusal reasons are `conversation_not_found` (the conversation does not exist **or**
-belongs to someone else — one reason, deliberately, so a caller cannot probe for another user's conversation id)
-and `too_large` (the body exceeds `ARTIFACT_BODY_MAX_BYTES`; nothing is written). Its `title` is **clamped** to
-`ARTIFACT_TITLE_MAX_CHARS` rather than refused: a long title is a cosmetic problem, and refusing a whole artifact
-over one would lose the body with it. The clamp is applied before the row is written and the stored value is what
-`getArtifact` returns — no truncation at render time.
+`createArtifact`'s four refusal reasons: `invalid_kind` (`input.kind` is not one of the four creatable kinds —
+runtime, not just the `CreatableArtifactKind` type, since slice 5's tools hand this a model-supplied string, and
+`"file"` is refused the same as any other unrecognised value — ruling 18, a produced file stays
+`generated_output`); `invalid_title` (the title is empty **after trimming**); `conversation_not_found` (the
+conversation does not exist **or** belongs to someone else — one reason, deliberately, so a caller cannot probe
+for another user's conversation id); and `too_large` (the body exceeds `ARTIFACT_BODY_MAX_BYTES`; nothing is
+written). The kind and title checks run first, before any DB read, since they need none. A title that is merely
+**long** is clamped to `ARTIFACT_TITLE_MAX_CHARS` rather than refused — a long title is a cosmetic problem, and
+refusing a whole artifact over one would lose the body with it — and the stored value is the **trimmed and
+clamped** title; `getArtifact` returns exactly what was stored, no truncation at render time.
 
 Rules that belong **inside** `record.ts`, not in its callers:
 
@@ -648,7 +652,7 @@ the existing preview stack. Nothing about the produced-file path changes.
 
 | Route | Request | Response | Notes |
 |---|---|---|---|
-| `GET /api/artifacts/[id]` | — | `{ artifact: ArtifactDetail; versions: ArtifactVersionSummary[]; comments: ArtifactComment[] }` | `requireAuth` (`$lib/server/auth/hooks.ts`); ownership through the scope; **404** for another user's artifact |
+| `GET /api/artifacts/[id]?conversationId=…` | optional query | `{ artifact: ArtifactDetail; versions: ArtifactVersionSummary[]; comments: ArtifactComment[] }` | `requireAuth` (`$lib/server/auth/hooks.ts`); ownership through the scope; **404** for another user's artifact. `conversationId` is forwarded as `ArtifactScopeOptions.conversationId` to all three reads (artifact, versions, comments), so the conversation that made the artifact can open its own even while incognito — the scope is still built from the caller's own conversations, so naming any other conversation reaches nothing new. |
 | `GET /api/artifacts?conversationId=…` | query | `{ artifacts: ArtifactCardSummary[] }` | newest first; validates the conversation belongs to the user before reading |
 
 `GET /api/artifacts/[id]`'s 404 body is the family's own — `{ ok: false, reason: "not_found" }` — with the
@@ -1043,7 +1047,7 @@ Tokens are the real ones in `src/app.css`: `--surface-page`, `--surface-elevated
 
 | Failure | Server behaviour | EN | HU |
 |---|---|---|---|
-| Artifact missing, another user's, or incognito-and-out-of-scope | `GET /api/artifacts/[id]` → `404` `{"error":"Artifact not found"}` (shape copied from `src/routes/api/knowledge/[id]/+server.ts:11-16`) | `artifacts.error.load` — "Could not open this item." | "Nem sikerült megnyitni ezt az elemet." |
+| Artifact missing, another user's, or incognito-and-out-of-scope | `GET /api/artifacts/[id]` → `404` `{ ok: false, reason: "not_found" }` (wording style copied from `src/routes/api/knowledge/[id]/+server.ts:11-16`, shape per the Routes section and ruling 49) | `artifacts.error.load` — "Could not open this item." | "Nem sikerült megnyitni ezt az elemet." |
 | Conversation not the caller's | `GET /api/artifacts?conversationId=…` → `404` | `artifacts.error.list` | "Nem sikerült betölteni, amit ez a beszélgetés készített." |
 | Unauthenticated | `requireAuth` throws `redirect(302, "/login")` | (the login page) | (a bejelentkező oldal) |
 | Body over `ARTIFACT_BODY_MAX_BYTES` | service returns `{ok:false, reason:"too_large"}` (no route writes bodies in slice 0; slice 1's tool maps it) | `artifacts.error.tooLarge` — "This item is too large to save." | "Ez az elem túl nagy ahhoz, hogy elmentsük." |

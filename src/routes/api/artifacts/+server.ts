@@ -27,5 +27,5 @@ export const GET: RequestHandler = async (event) => {
 		userId: user.id,
 		conversationId,
 	});
-	return json({ artifacts });
+	return json({ ok: true, artifacts });
 };

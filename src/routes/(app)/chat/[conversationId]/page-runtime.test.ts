@@ -1023,6 +1023,74 @@ describe("chat page runtime integration", () => {
 		expect(screen.getByText("Here is the trip summary.")).toBeInTheDocument();
 	});
 
+	// The header count button/list opens a produced file through
+	// artifactToWorkspaceItem, which — for the common case where a real
+	// availableWorkspaceDocuments item already matches the artifact id —
+	// returns that matched item as-is. If it does not also carry the
+	// summary's `kind` through, the panel's type/version pills
+	// (artifactTypeAndVersion in DocumentWorkspace.svelte, `{#if
+	// activeDocument.kind}`) silently never render for the single most
+	// common artifact-backed open: a File that already has a
+	// chat_generated_files row.
+	it("shows the type and version pill when a File is opened through the header's list, not just a bare preview", async () => {
+		const { recordDocumentWorkspaceOpen } = await import(
+			"$lib/client/api/knowledge"
+		);
+		vi.mocked(recordDocumentWorkspaceOpen).mockResolvedValue(undefined);
+		renderPage(
+			pageData({
+				generatedFiles: [
+					{
+						id: "chat-file-1",
+						conversationId: "conv-1",
+						assistantMessageId: "assistant-file-1",
+						artifactId: "artifact-file-1",
+						documentFamilyId: null,
+						documentFamilyStatus: null,
+						documentLabel: null,
+						documentRole: null,
+						versionNumber: 1,
+						originConversationId: null,
+						originAssistantMessageId: null,
+						sourceChatFileId: null,
+						filename: "Vienna trip summary.pdf",
+						mimeType: "application/pdf",
+						sizeBytes: 2048,
+						createdAt: 1,
+					},
+				],
+				artifacts: [
+					{
+						id: "artifact-file-1",
+						kind: "file",
+						title: "Vienna trip summary.pdf",
+						conversationId: "conv-1",
+						versionNumber: 1,
+						commentCount: 0,
+						updatedAt: Date.now(),
+					},
+				],
+			}),
+		);
+
+		await fireEvent.click(await screen.findByTestId("artifact-count-button"));
+		// Scoped to the desktop list: both the mobile and desktop shells exist
+		// in jsdom at once (no media query), so an unscoped query would see two
+		// "Open" buttons for the same row.
+		const list = await screen.findByTestId("artifact-panel-list");
+		await fireEvent.click(within(list).getByRole("button", { name: "Open" }));
+
+		const shell = await screen.findByRole("complementary", {
+			name: "Document workspace",
+		});
+		await waitFor(() => {
+			expect(
+				within(shell).getByTestId("artifact-version-pill"),
+			).toHaveTextContent("v1");
+		});
+		expect(within(shell).getByText("File")).toBeInTheDocument();
+	});
+
 	it("drains a queued follow-up after polling reconciles a waiting stream completion", async () => {
 		let resolveDetail: (
 			value:
@@ -1462,14 +1530,16 @@ describe("chat page runtime integration", () => {
 			totalTokens: 42,
 		});
 
+		// The file row's card lazily imports FileProductionCard's body (Slice 0
+		// Task S6); once it resolves, "report.pdf" legitimately appears twice —
+		// once in the tool-activity row's own compact summary, once in the
+		// card's file row. Forcing that import to settle here, instead of
+		// guessing how many of the two have rendered by the time `waitFor`'s
+		// polling happens to check, keeps this an exact assertion rather than
+		// a "something rendered" one.
+		await vi.dynamicImportSettled();
 		await waitFor(() => {
-			// The filename legitimately appears twice once the file-production
-			// card's lazy body has resolved: once in the tool-activity row's own
-			// compact summary, once in the card's file row. Which of those has
-			// rendered by this point depends on that lazy import's module-cache
-			// state, which earlier tests in this file/run can warm — so this
-			// asserts presence, not an exact count.
-			expect(screen.getAllByText("report.pdf").length).toBeGreaterThan(0);
+			expect(screen.getAllByText("report.pdf")).toHaveLength(2);
 		});
 		await fireEvent.click(
 			screen.getByRole("button", { name: "No context yet" }),
@@ -1500,7 +1570,10 @@ describe("chat page runtime integration", () => {
 		await Promise.resolve();
 		await new Promise((resolve) => setTimeout(resolve, 0));
 
-		expect(screen.getAllByText("report.pdf").length).toBeGreaterThan(0);
+		// The slow sidecar's empty generatedFiles/fileProductionJobs must not
+		// overwrite the fresher stream-provided row (this test's own point), so
+		// the same already-loaded card is still showing both occurrences.
+		expect(screen.getAllByText("report.pdf")).toHaveLength(2);
 		expect(screen.getByText("$0.4200 · 42 tokens")).toBeInTheDocument();
 		expect(
 			screen.getByTestId("context-compression-marker-snapshot-1"),
