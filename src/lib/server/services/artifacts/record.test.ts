@@ -360,6 +360,69 @@ describe("updateArtifactBody", () => {
 	});
 });
 
+// Concurrency: each write's version-number read and its insert happen inside
+// the SAME db.transaction() call (record.ts), and better-sqlite3 runs that
+// callback to completion before yielding back to the event loop — so two
+// `Promise.all`-launched writers can race up to the transaction boundary, but
+// never inside it. These tests pin that guarantee; ruling 47 depends on it.
+describe("updateArtifactBody concurrency", () => {
+	it("numbers four concurrent appends consecutively, with no duplicate or gap", async () => {
+		const artifact = await createDocument();
+
+		const results = await Promise.all(
+			[1, 2, 3, 4].map((n) =>
+				updateArtifactBody({
+					userId: OWNER,
+					artifactId: artifact.id,
+					body: `edit ${n}`,
+					author: "user",
+					summary: `Edit ${n}`,
+				}),
+			),
+		);
+
+		expect(results.every((result) => result.ok)).toBe(true);
+		const numbers = versionRows(artifact.id)
+			.map((row) => row.versionNumber)
+			.sort((a, b) => a - b);
+		// Version 1 is the document's own creation; four concurrent edits must
+		// land on 2..5 — no duplicate, no gap.
+		expect(numbers).toEqual([1, 2, 3, 4, 5]);
+	});
+
+	it("lets exactly one of two writers quoting the same baseHash win; the other gets stale", async () => {
+		const artifact = await createDocument();
+		const read = await getArtifact({ userId: OWNER, artifactId: artifact.id });
+		const baseHash = read?.bodyHash ?? undefined;
+
+		const [first, second] = await Promise.all([
+			updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "writer A",
+				author: "user",
+				summary: "Writer A",
+				baseHash,
+			}),
+			updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "writer B",
+				author: "user",
+				summary: "Writer B",
+				baseHash,
+			}),
+		]);
+
+		const outcomes = [first, second];
+		expect(outcomes.filter((result) => result.ok)).toHaveLength(1);
+		const stale = outcomes.find((result) => !result.ok);
+		expect(stale).toMatchObject({ ok: false, reason: "stale" });
+		// The winner appended one version onto the document's own version 1.
+		expect(versionRows(artifact.id)).toHaveLength(2);
+	});
+});
+
 describe("deleteArtifact", () => {
 	it("removes the artifact and its versions, comments and key-value rows; a second call answers false", async () => {
 		const artifact = await createDocument();
