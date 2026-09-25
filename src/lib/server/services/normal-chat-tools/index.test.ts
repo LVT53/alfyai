@@ -4797,6 +4797,125 @@ describe("createNormalChatTools", () => {
 // languages and keep the catalogue inside its token budget, because the Qwen
 // chat template renders every description verbatim into the prompt on every
 // single turn.
+// Feature 2 · Artifacts (Slice 5a, decisions.md ruling 43). The domain logic
+// (per-kind dispatch, refusal shaping) is unit-tested directly against
+// artifact-tools/{create,read,edit}.ts; this block proves the REAL wiring
+// through createNormalChatTools — the advertised/executed schema split, the
+// tool-call recorder, and that a call with no seeded data degrades to a
+// model-safe "not found" rather than a throw. It relies on no external
+// service and does not mock $lib/server/db, so it runs against the shared
+// throwaway per-suite database (src/vitest-setup.ts) with nothing seeded —
+// exactly the "an id this conversation does not have" case.
+describe("createNormalChatTools — artifact tools (Feature 2, Slice 5a)", () => {
+	function artifactTools() {
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		return { tools, getToolCalls };
+	}
+
+	it("advertises a trimmed create_artifact schema and validates with the full one", async () => {
+		const { tools } = artifactTools();
+
+		// The advertised schema has no server-only title bound — only the
+		// EXECUTED schema (createArtifactInputSchema) enforces .max(200).
+		const advertisedJson = JSON.stringify(
+			(tools.create_artifact.inputSchema as { jsonSchema?: unknown })
+				?.jsonSchema ?? tools.create_artifact.inputSchema,
+		);
+		expect(advertisedJson).not.toContain("maxLength");
+
+		const result = (await tools.create_artifact.execute?.(
+			{ artifactType: "document", title: "x".repeat(201), body: "b" },
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean; error?: string };
+
+		expect(result.success).toBe(false);
+	});
+
+	it("refuses to create an artifact with an empty body", async () => {
+		const { tools } = artifactTools();
+
+		const result = (await tools.create_artifact.execute?.(
+			{ artifactType: "document", title: "Plan", body: "" },
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean };
+
+		expect(result.success).toBe(false);
+	});
+
+	it("records create_artifact's refusal as a tool-call entry with duration metadata", async () => {
+		const { tools, getToolCalls } = artifactTools();
+
+		await tools.create_artifact.execute?.(
+			{ artifactType: "document", title: "Plan", body: "content" },
+			{ toolCallId: "call-1", messages: [] },
+		);
+
+		const [entry] = getToolCalls();
+		expect(entry.name).toBe("create_artifact");
+		expect(entry.metadata?.ok).toBe(false);
+		expect(typeof entry.metadata?.durationMs).toBe("number");
+	});
+
+	it("answers a model-safe failure, not a throw, for an id this conversation does not have", async () => {
+		// The shared per-suite test database (vitest-setup.ts) has nothing
+		// seeded, so `candidates` comes back empty and the envelope's payload
+		// compaction (shared.ts's compactModelPayload) drops it — proven with a
+		// real, non-empty candidate list in read.test.ts instead. This is the
+		// end-to-end proof that an unknown id degrades to `success: false`
+		// through the real tool wiring rather than rejecting.
+		const { tools } = artifactTools();
+
+		const result = (await tools.read_artifact.execute?.(
+			{ artifactId: "unseeded-id" },
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean };
+
+		expect(result.success).toBe(false);
+	});
+
+	it("refuses edit_artifact when neither patches nor ops is present", async () => {
+		const { tools } = artifactTools();
+
+		const result = (await tools.edit_artifact.execute?.(
+			{ artifactId: "unseeded-id" },
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean };
+
+		expect(result.success).toBe(false);
+	});
+
+	it("refuses edit_artifact when both patches and ops are present", async () => {
+		const { tools } = artifactTools();
+
+		const result = (await tools.edit_artifact.execute?.(
+			{ artifactId: "unseeded-id", patches: [{}], ops: [{}] },
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean };
+
+		expect(result.success).toBe(false);
+	});
+
+	it("refuses edit_artifact over the 40-op cap without applying part of it", async () => {
+		const { tools } = artifactTools();
+
+		const result = (await tools.edit_artifact.execute?.(
+			{
+				artifactId: "unseeded-id",
+				ops: Array.from({ length: 41 }, () => ({})),
+			},
+			{ toolCallId: "call-1", messages: [] },
+		)) as { success: boolean; error?: string };
+
+		// The cap lives on the EXECUTED schema, so a batch over it never even
+		// reaches the artifact lookup — it fails validation up front.
+		expect(result.success).toBe(false);
+	});
+});
+
 describe("tool description hygiene", () => {
 	const ALL_CONNECTION_CAPABILITIES = [
 		"files",
@@ -4883,12 +5002,22 @@ describe("tool description hygiene", () => {
 	// ADR-0055, in both locales. Re-measured with it in the catalogue:
 	// 4,128 en / 6,721 hu.
 	//
-	// NOTE for whoever edits a description next: en is 32 tokens under its
-	// ceiling, where hu has 129 to spare. That is a tripwire, not a budget.
+	// Slice 5a (Feature 2 · Artifacts) added three tool descriptions —
+	// create_artifact, read_artifact, edit_artifact — the first raise of this
+	// ceiling rather than a cut elsewhere (decisions.md ruling 23 allows
+	// exactly one such raise, measured, in the commit that adds the
+	// descriptions). Re-measured with them in the catalogue: 4,804 en /
+	// 7,823 hu. The ceiling below is set to that measurement plus a small
+	// margin (26 en / 27 hu), not a round number, so it stays a tripwire: the
+	// three new tools spent real headroom, and anything past this is cut from
+	// the catalogue again, the same discipline as every raise before it.
+	//
+	// NOTE for whoever edits a description next: en is 26 tokens under its
+	// ceiling, where hu has 27 to spare. That is a tripwire, not a budget.
 	// A new clause has to be paid for by cutting words somewhere in the
-	// catalogue — moving this number up is how the headroom got spent, twice.
+	// catalogue — moving this number up is how the headroom got spent.
 	const PER_TOOL_TOKEN_CEILING = 750;
-	const CATALOGUE_TOKEN_CEILING = { en: 4160, hu: 6850 } as const;
+	const CATALOGUE_TOKEN_CEILING = { en: 4830, hu: 7850 } as const;
 
 	function estimateTokens(text: string, lang: "en" | "hu"): number {
 		return Math.ceil(text.length / CHARS_PER_TOKEN[lang]);
@@ -5007,7 +5136,9 @@ describe("tool description hygiene", () => {
 			[
 				"calendar",
 				"contacts",
+				"create_artifact",
 				"done",
+				"edit_artifact",
 				"email",
 				"fetch_url",
 				"files",
@@ -5018,6 +5149,7 @@ describe("tool description hygiene", () => {
 				"memory_context",
 				"photos",
 				"produce_file",
+				"read_artifact",
 				"read_generated_file",
 				"repos",
 				"research_web",
@@ -5027,6 +5159,19 @@ describe("tool description hygiene", () => {
 				"use_skill",
 			].sort(),
 		);
+	});
+
+	// Decisions.md ruling 40's own hazard: `executeToolWithEnvelope` applies NO
+	// timeout when TOOL_TIMEOUTS_MS lacks the tool's key (shared.ts), so a
+	// missing row is not a safe default — it is an unbounded call. `done` is
+	// the one deliberate exception: it never reaches the envelope at all (a
+	// bare synchronous `tool()`, no async work to bound).
+	it("has a TOOL_TIMEOUTS_MS row for every enveloped tool in the full catalogue", () => {
+		const ENVELOPE_EXEMPT_TOOLS = new Set(["done"]);
+		for (const { name } of buildFullToolCatalogue("en")) {
+			if (ENVELOPE_EXEMPT_TOOLS.has(name)) continue;
+			expect(TOOL_TIMEOUTS_MS[name], name).toBeGreaterThan(0);
+		}
 	});
 
 	it.each([

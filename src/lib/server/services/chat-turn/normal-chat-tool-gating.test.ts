@@ -14,6 +14,13 @@ function fakeToolSet(): ToolSetParam {
 		read_generated_file: {},
 		use_skill: {},
 		suggest_instruction: {},
+		// Feature 2 · Artifacts (decisions.md ruling 43): registered
+		// unconditionally, like produce_file/read_generated_file above — no
+		// per-turn gate exists for them and none should be added, since the
+		// tool set sits inside the cached prompt prefix.
+		create_artifact: {},
+		read_artifact: {},
+		edit_artifact: {},
 		done: {},
 	} as unknown as ToolSetParam;
 }
@@ -122,5 +129,22 @@ describe("selectNormalChatToolsForRequest", () => {
 		});
 		expect(selected).not.toHaveProperty("memory_context");
 		expect(selected).toHaveProperty("produce_file");
+	});
+
+	// Feature 2 · Artifacts (decisions.md ruling 43): the three tools are
+	// registered unconditionally in normal-chat-tools/index.ts, and no gate
+	// here withholds them — every existing gate (memory, skills, incognito)
+	// is about a DIFFERENT feature, so this only has to prove none of them
+	// happens to catch the artifact tools by accident.
+	it("never withholds the artifact tools, under any combination of gates", () => {
+		const selected = selectNormalChatToolsForRequest(fakeToolSet(), {
+			message: "Keep this as a plan I can edit with you.",
+			memoryActive: false,
+			skillsEnabled: false,
+			incognito: true,
+		});
+		expect(selected).toHaveProperty("create_artifact");
+		expect(selected).toHaveProperty("read_artifact");
+		expect(selected).toHaveProperty("edit_artifact");
 	});
 });
