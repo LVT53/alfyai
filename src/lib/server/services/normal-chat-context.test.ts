@@ -662,15 +662,15 @@ describe("prepareOutboundChatContext", () => {
 		});
 
 		it("is byte-identical for the identical request phrased in EN vs HU", () => {
-			// Same fixed `responseLanguage` on both calls — this isolates the
-			// property under test (message WORDING/LANGUAGE must not move the
-			// assembled prompt) from the separate, intentional effect of the
-			// `responseLanguage` param itself (see buildResponseLanguageGuard).
+			// buildOutboundSystemPrompt has no responseLanguage param — the
+			// response-language guard lives in buildTurnGuidance's per-turn
+			// packet (see buildResponseLanguageGuard), never in the cacheable
+			// system message. This isolates exactly that: message
+			// WORDING/LANGUAGE alone must not move the assembled system prompt.
 			const en = buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
 				inputValue:
 					"Is this still true today? Back it with a source and verify official policy.",
-				responseLanguage: "en",
 				modelDisplayName: "Provider Model",
 				fileProductionToolsAvailable: true,
 			});
@@ -678,7 +678,6 @@ describe("prepareOutboundChatContext", () => {
 				basePrompt: "Base system prompt",
 				inputValue:
 					"Ez ma is igaz még? Támaszd alá egy forrással, és ellenőrizd a hivatalos szabályzatot.",
-				responseLanguage: "en",
 				modelDisplayName: "Provider Model",
 				fileProductionToolsAvailable: true,
 			});
@@ -747,18 +746,16 @@ describe("prepareOutboundChatContext", () => {
 
 		// P2 prompt diet, review outcome 1 — prefix stability is a property of
 		// the whole system message, so two turns of the SAME conversation
-		// (same base prompt, model, connections, depth, personality, personal
-		// instructions, and explicit responseLanguage) must produce a
-		// byte-identical system prompt no matter how the current user message
-		// is worded, and the trailing section order (Runtime Guidance, then
-		// Response Style, then the user's own instructions) must not move
-		// around.
+		// (same base prompt, model, connections, depth, personality, and
+		// personal instructions) must produce a byte-identical system prompt
+		// no matter how the current user message is worded, and the trailing
+		// section order (Runtime Guidance, then Response Style, then the
+		// user's own instructions) must not move around.
 		it("is byte-identical for two calls differing only in the user message, with the trailing section order unchanged", () => {
 			const buildForMessage = (inputValue: string) =>
 				buildOutboundSystemPrompt({
 					basePrompt: "Base system prompt",
 					inputValue,
-					responseLanguage: "en",
 					modelDisplayName: "Provider Model",
 					fileProductionToolsAvailable: true,
 					hasActiveConnections: true,
@@ -814,7 +811,6 @@ describe("prepareOutboundChatContext", () => {
 			return buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
 				inputValue: "What's the weather like tomorrow?",
-				responseLanguage: "en",
 				modelDisplayName: "Provider Model",
 				fileProductionToolsAvailable: true,
 				personalityPrompt,
@@ -1237,7 +1233,6 @@ describe("prepareOutboundChatContext", () => {
 			const prompt = buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
 				inputValue: "Hello",
-				responseLanguage: "en",
 				personalityPrompt: oversizedPersonality,
 			});
 
@@ -1259,7 +1254,6 @@ describe("prepareOutboundChatContext", () => {
 			const prompt = buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
 				inputValue: "Hello",
-				responseLanguage: "en",
 				personalityPrompt: personality,
 			});
 
@@ -1411,7 +1405,6 @@ describe("prepareOutboundChatContext", () => {
 		const system = buildOutboundSystemPrompt({
 			basePrompt: "Base system prompt",
 			inputValue: "Mi a helyzet ma?",
-			responseLanguage: "hu",
 		});
 		expect(system).not.toContain("SYSTEM TIME CONTEXT");
 		expect(system).not.toContain("Response language policy");
@@ -1429,6 +1422,29 @@ describe("prepareOutboundChatContext", () => {
 			`## Current User Message\nHello\n\n${guidance}`,
 		);
 		expect(appendTurnGuidance("Hello", "")).toBe("Hello");
+	});
+
+	// Language review (2026-09-25), hunt item 3: a request like "Translate
+	// this to German: Guten Tag" or "Write an email to my landlord in
+	// Hungarian" asks for specific CONTENT in one language while the
+	// resolved reply frame can be a different language (or the same
+	// language coincidentally). The guard's "hard requirement... MUST
+	// respond in X" wording must not read as forbidding the model from
+	// producing the actually-requested foreign-language content — that
+	// would silently break translation/foreign-content requests, which is
+	// the opposite failure mode from the original Hungarian-drift bug.
+	it("tells the model to honor an explicit request for content in another language without forcing the whole reply into it", () => {
+		const guidance = buildTurnGuidance({
+			message: "Translate this to German: Guten Tag",
+			responseLanguage: "en",
+		});
+		expect(guidance).toMatch(
+			/produce specific content in (a different|another) language/i,
+		);
+		expect(guidance).toMatch(
+			/write (that|it|the) .*(requested language|language asked for|language it was asked for)/i,
+		);
+		expect(guidance).toMatch(/does not change the required response language/i);
 	});
 
 	it("uses neutral trace and warning labels while preparing attachment context", async () => {

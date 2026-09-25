@@ -7,6 +7,7 @@ import {
 	createStreamJsonErrorResponse,
 	parseChatTurnRequest,
 	prepareAdmittedChatTurn,
+	resolveTurnResponseLanguage,
 	runChatStreamOrchestrator,
 	startStartedResetGenerationFact,
 } from "$lib/server/services/chat-turn";
@@ -100,13 +101,30 @@ export const POST: RequestHandler = async (event) => {
 
 	const upstreamMessage = turn.normalizedMessage;
 	const startedResetGeneration = startStartedResetGenerationFact(user.id);
+	// Resolved ONCE here, before the orchestrator builds anything that needs
+	// it (including the thought-step classifier session, which is created
+	// before the model run starts) — see resolveTurnResponseLanguage's own
+	// doc comment for why this cannot happen deeper inside chat-turn/ without
+	// either a second DB read or delaying stream start on it.
+	const resolvedResponseLanguage = await resolveTurnResponseLanguage({
+		message: upstreamMessage,
+		conversationId: turn.conversationId,
+		user: {
+			id: user.id,
+			displayName: user.displayName,
+			email: user.email,
+			uiLanguage: user.uiLanguage,
+		},
+	});
 
 	return runChatStreamOrchestrator({
 		user: {
 			id: user.id,
 			displayName: user.displayName,
 			email: user.email,
+			uiLanguage: user.uiLanguage,
 		},
+		resolvedResponseLanguage,
 		turn,
 		prepareTurn: () =>
 			prepareAdmittedChatTurn({

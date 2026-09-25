@@ -587,6 +587,58 @@ export async function getLastMessage(
 	return mapRowToChatMessage(row);
 }
 
+/**
+ * The most recent user-authored message texts in a conversation, newest
+ * first. Used only to establish the conversation's response language (see
+ * language.ts's `resolveResponseLanguage`) when the latest message's
+ * language is ambiguous — role-filtered to "user" so assistant prose,
+ * memory facts, and retrieved context can never influence that decision,
+ * only the user's own words. A light, dedicated query rather than routing
+ * through `listMessages`/`listMessageWindow`: those join usage analytics
+ * and resolve attachments this caller never needs.
+ *
+ * Scoped to `conversationId` AND `userId` — mirrors
+ * `updateAssistantMessageInstructionSuggestionStatus`'s ownership check
+ * above. Every current caller (`resolveTurnResponseLanguage`) already
+ * validates ownership upstream via preflight's `getConversation(userId,
+ * conversationId)`, but this function is a small, reusable, DB-facing seam
+ * in its own right — its own contract should not rely entirely on callers
+ * remembering to pre-check ownership. Returns `[]` for a conversation that
+ * does not exist or does not belong to `userId`, same as "no messages".
+ */
+export async function listRecentUserMessageTexts(
+	conversationId: string,
+	userId: string,
+	limit = 5,
+): Promise<string[]> {
+	const [conversation] = await db
+		.select({ id: conversations.id })
+		.from(conversations)
+		.where(
+			and(
+				eq(conversations.id, conversationId),
+				eq(conversations.userId, userId),
+			),
+		)
+		.limit(1);
+	if (!conversation) return [];
+
+	const boundedLimit = Math.max(1, Math.min(limit, 20));
+	const rows = await db
+		.select({ content: messages.content })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, conversationId),
+				eq(messages.role, "user"),
+			),
+		)
+		.orderBy(...messageOrderDesc())
+		.limit(boundedLimit);
+
+	return rows.map((row) => row.content);
+}
+
 export type ConversationExportMessage = {
 	role: MessageRole;
 	content: string;

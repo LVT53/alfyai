@@ -27,6 +27,7 @@ export {
 } from "./preflight";
 export { parseChatTurnRequest } from "./request";
 export { prepareRetryChatTurn } from "./retry";
+export { resolveTurnResponseLanguage } from "./shared-normal-chat-model-run-helpers";
 export {
 	classifyStreamErrorCause,
 	createStreamJsonErrorResponse,

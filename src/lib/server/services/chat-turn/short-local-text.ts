@@ -1,6 +1,6 @@
 import type { ModelId } from "$lib/model-types";
 import type { ThinkingMode } from "$lib/reasoning-depth-types";
-import { detectLanguage } from "../language";
+import { detectExplicitLanguageRequest, detectLanguage } from "../language";
 import type {
 	JsonControlMessageResult,
 	JsonControlResponseSchema,
@@ -79,16 +79,14 @@ export function isPlausibleShortText(
 	return true;
 }
 
-const EXPLICIT_ENGLISH_HINT_RE =
-	/\b(in english|english title|respond in english|answer in english)\b|angolul/i;
-const EXPLICIT_HUNGARIAN_HINT_RE =
-	/\b(in hungarian|hungarian title|respond in hungarian|answer in hungarian)\b|magyarul/i;
-
 /**
  * Resolve the target language for a short local-model surface: an explicit
  * preference wins, then an inline hint in the user's message ("in English",
- * "magyarul"), then automatic detection. Kept byte-identical to the former
- * `title-generator.resolveTitleLanguage`.
+ * "magyarul") via language.ts's shared detectExplicitLanguageRequest (the
+ * former local EXPLICIT_ENGLISH_HINT_RE/EXPLICIT_HUNGARIAN_HINT_RE copies
+ * are now that one function, also used by resolveResponseLanguage so an
+ * explicit request is honoured the same way everywhere), then automatic
+ * detection.
  */
 export function resolveShortTextLanguage(
 	userMessage: string,
@@ -96,8 +94,8 @@ export function resolveShortTextLanguage(
 ): "en" | "hu" {
 	if (preference === "en") return "en";
 	if (preference === "hu") return "hu";
-	if (EXPLICIT_ENGLISH_HINT_RE.test(userMessage)) return "en";
-	if (EXPLICIT_HUNGARIAN_HINT_RE.test(userMessage)) return "hu";
+	const explicitRequest = detectExplicitLanguageRequest(userMessage);
+	if (explicitRequest) return explicitRequest;
 	return detectLanguage(userMessage);
 }
 

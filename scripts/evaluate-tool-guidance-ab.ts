@@ -388,7 +388,6 @@ function buildSystemPromptForFixture(fixture: ToolGuidanceFixture): string {
 	return buildOutboundSystemPrompt({
 		basePrompt,
 		inputValue: latestMessage.content,
-		responseLanguage: fixture.language,
 		fileProductionToolsAvailable: true,
 	});
 }

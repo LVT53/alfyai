@@ -8,6 +8,7 @@ import { getConfig } from "$lib/server/config-store";
 import {
 	createStreamJsonErrorResponse,
 	prepareRetryChatTurn,
+	resolveTurnResponseLanguage,
 	runChatStreamOrchestrator,
 } from "$lib/server/services/chat-turn";
 import { getCurrentMemoryResetGeneration } from "$lib/server/services/memory-profile/reset-generation";
@@ -49,13 +50,28 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 	const startedResetGeneration = await getCurrentMemoryResetGeneration(user.id);
+	// Resolved ONCE here, same as the stream route — a retry re-runs the last
+	// turn, so its "latest message" is the same already-persisted user
+	// message the original turn used.
+	const resolvedResponseLanguage = await resolveTurnResponseLanguage({
+		message: preparedRetry.value.orchestratorInput.upstreamMessage,
+		conversationId: preparedRetry.value.orchestratorInput.turn.conversationId,
+		user: {
+			id: user.id,
+			displayName: user.displayName,
+			email: user.email,
+			uiLanguage: user.uiLanguage,
+		},
+	});
 
 	return runChatStreamOrchestrator({
 		user: {
 			id: user.id,
 			displayName: user.displayName,
 			email: user.email,
+			uiLanguage: user.uiLanguage,
 		},
+		resolvedResponseLanguage,
 		...preparedRetry.value.orchestratorInput,
 		downstreamAbortSignal: event.request.signal,
 		requestStartTime: Date.now(),
