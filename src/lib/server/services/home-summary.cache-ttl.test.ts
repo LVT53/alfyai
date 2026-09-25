@@ -9,16 +9,14 @@
  * coincidence.
  */
 import { randomUUID } from "node:crypto";
-import { unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	createInMemoryDatabase,
+	type InMemoryDatabase,
+} from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
 
-let dbPath: string;
-let sqlite: Database.Database;
+let memory: InMemoryDatabase;
 
 const ttl = vi.hoisted(() => ({ ms: 0 }));
 
@@ -39,24 +37,14 @@ vi.mock("$lib/server/env", async (importOriginal) => {
 
 vi.mock("$lib/server/db", () => ({
 	get db() {
-		return drizzle(sqlite, { schema });
+		return memory.db;
 	},
 }));
 
-function orm() {
-	return drizzle(sqlite, { schema });
-}
-
 function seedUser(userId: string): void {
-	orm()
+	memory.db
 		.insert(schema.users)
-		.values({
-			id: userId,
-			email: `${userId}@example.com`,
-			passwordHash: "hash",
-			createdAt: new Date(),
-			updatedAt: new Date(),
-		})
+		.values({ id: userId, email: `${userId}@example.com`, passwordHash: "x" })
 		.run();
 }
 
@@ -66,11 +54,11 @@ function seedConversationWithMessage(
 	id: string,
 	at: Date,
 ): void {
-	orm()
+	memory.db
 		.insert(schema.conversations)
 		.values({ id, userId, title: id, createdAt: at, updatedAt: at })
 		.run();
-	orm()
+	memory.db
 		.insert(schema.messages)
 		.values({
 			id: randomUUID(),
@@ -89,22 +77,14 @@ async function recentIds(userId: string, now: Date): Promise<string[]> {
 }
 
 beforeEach(() => {
-	dbPath = `${tmpdir()}/alfyai-test-home-summary-ttl-${randomUUID()}.db`;
-	sqlite = new Database(dbPath);
-	sqlite.pragma("foreign_keys = ON");
-	migrate(orm(), { migrationsFolder: "./drizzle" });
+	memory = createInMemoryDatabase();
 });
 
 afterEach(() => {
-	sqlite.close();
-	for (const path of [dbPath, `${dbPath}-shm`, `${dbPath}-wal`]) {
-		try {
-			unlinkSync(path);
-		} catch {
-			// Only -wal/-shm are ever legitimately absent.
-		}
-	}
+	memory.close();
 	vi.unstubAllEnvs();
+	// A fresh module per test, so no summary cached by one test is served in
+	// the next.
 	vi.resetModules();
 });
 
@@ -114,30 +94,28 @@ describe("the home summary cache lifetime comes from env.ts", () => {
 	it("reads fresh on every request when env.ts says 0", async () => {
 		ttl.ms = 0;
 		vi.stubEnv("HOME_SUMMARY_CACHE_TTL_MS", "600000");
-		const userId = randomUUID();
-		seedUser(userId);
+		seedUser("user-1");
 
-		expect(await recentIds(userId, now)).toEqual([]);
+		expect(await recentIds("user-1", now)).toEqual([]);
 		// Written behind the service's back, the way the e2e suite seeds rows.
-		seedConversationWithMessage(userId, "seeded-after-first-read", now);
+		seedConversationWithMessage("user-1", "seeded-after-first-read", now);
 
-		expect(await recentIds(userId, now)).toEqual(["seeded-after-first-read"]);
+		expect(await recentIds("user-1", now)).toEqual(["seeded-after-first-read"]);
 	});
 
 	it("serves the held summary for exactly env.ts's TTL, then reads again", async () => {
 		ttl.ms = 60_000;
 		vi.stubEnv("HOME_SUMMARY_CACHE_TTL_MS", "0");
-		const userId = randomUUID();
-		seedUser(userId);
+		seedUser("user-1");
 
-		expect(await recentIds(userId, now)).toEqual([]);
-		seedConversationWithMessage(userId, "seeded-after-first-read", now);
+		expect(await recentIds("user-1", now)).toEqual([]);
+		seedConversationWithMessage("user-1", "seeded-after-first-read", now);
 
 		const justBefore = new Date(now.getTime() + 59_999);
-		expect(await recentIds(userId, justBefore)).toEqual([]);
+		expect(await recentIds("user-1", justBefore)).toEqual([]);
 
 		const expired = new Date(now.getTime() + 60_000);
-		expect(await recentIds(userId, expired)).toEqual([
+		expect(await recentIds("user-1", expired)).toEqual([
 			"seeded-after-first-read",
 		]);
 	});
