@@ -586,6 +586,36 @@ export async function getLastMessage(
 	return mapRowToChatMessage(row);
 }
 
+/**
+ * The most recent user-authored message texts in a conversation, newest
+ * first. Used only to establish the conversation's response language (see
+ * language.ts's `resolveResponseLanguage`) when the latest message's
+ * language is ambiguous — role-filtered to "user" so assistant prose,
+ * memory facts, and retrieved context can never influence that decision,
+ * only the user's own words. A light, dedicated query rather than routing
+ * through `listMessages`/`listMessageWindow`: those join usage analytics
+ * and resolve attachments this caller never needs.
+ */
+export async function listRecentUserMessageTexts(
+	conversationId: string,
+	limit = 5,
+): Promise<string[]> {
+	const boundedLimit = Math.max(1, Math.min(limit, 20));
+	const rows = await db
+		.select({ content: messages.content })
+		.from(messages)
+		.where(
+			and(
+				eq(messages.conversationId, conversationId),
+				eq(messages.role, "user"),
+			),
+		)
+		.orderBy(...messageOrderDesc())
+		.limit(boundedLimit);
+
+	return rows.map((row) => row.content);
+}
+
 export type ConversationExportMessage = {
 	role: MessageRole;
 	content: string;
