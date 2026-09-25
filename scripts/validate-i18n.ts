@@ -159,12 +159,12 @@ function parseI18n() {
 	): number {
 		let matched = 0;
 		const regex =
-			/(?:["'])?([\w.]+)(?:["'])?\s*:\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`]*)`)/g;
+			/(?:["'])?([\w.]+)(?:["'])?\s*:\s*(?:"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|`([^`]*)`)/g;
 		let match: RegExpExecArray | null = regex.exec(block);
 		while (match !== null) {
 			matched++;
 			const key = match[1];
-			const value = (match[2] ?? match[3] ?? "").trim();
+			const value = (match[2] ?? match[3] ?? match[4] ?? "").trim();
 			if (key && value !== undefined) target[key] = value;
 			match = regex.exec(block);
 		}
