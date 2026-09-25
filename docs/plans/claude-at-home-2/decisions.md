@@ -480,6 +480,27 @@ without `research_web` (named facts settled in the first pass are matched by cla
 pass carries its own deadline. Running out of time after a clear error gives `uncertain` with the original HTML
 and the finding in Alfy's note: never `repaired`, and never a failed create.
 
+## 53. The artifact tools pass the abort signal, bound what a read returns, and cap creates per turn
+
+*Orchestrator, 2026-09-26, from RV-5a's open questions and one gap the review missed.*
+- **Abort.** Every handler receives `abortSignal: AbortSignal`: the envelope's, which fires on the tool timeout
+  and on the user's stop. A handler checks it before any write and passes it to any model call; after an abort it
+  writes nothing. Without it an App generation outlives its 120 s timeout and can still write an artifact after
+  the model was told the call failed: an orphan, and a duplicate when the model retries.
+- **Read bound.** The read shell bounds what reaches the model, whatever the handler returns: `body` is clipped at
+  the file tools' inline cap (`MAX_INLINE_TEXT_CHARS`, 100 000 characters, exported from `files.ts` and reused),
+  with `truncated: true` and the number of characters left out; `blocks` are included in order until their
+  serialised size reaches the same cap, then `truncated: true` and the number of blocks left out. The tool
+  descriptions do not change.
+- **Per-turn cap.** `MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3`, counted and refused the way
+  `MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN` is: the call past the cap runs no handler and tells the model to stop and
+  say what it made. No idempotency key: a retried turn is a new answer, and the abort rule removes the duplicate a
+  timeout would cause.
+- **Kept as they are:** English-only runtime refusal texts (model-facing; the tool layer's convention), the
+  opencode fallback's all-or-nothing, and the catalogue reusing `listArtifactsForConversation`. A forked
+  conversation does not reach its parent's artifacts through the tools (they are pinned to
+  `artifacts.conversationId`, like the catalogue); revisit only if forks need it.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.

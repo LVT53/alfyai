@@ -187,6 +187,15 @@ check (**ruling 52**: re-verify, compare claim lists, bounded); its `ArtifactBod
 known cycles while the baseline has four goes to S5b's doc fixes (T6). Lesson for every brief: a route file exporting
 anything but its verbs passes `npm run check` and fails `npm run build`.
 
+**RV-5a done → Slice 5a merged into `feat/artifacts` as `20e73213` (2026-09-26).** Verdict "merge with fixes": 4
+defects fixed test-first on `feat/artifacts-s5a-review` (`a2e2d8c4` read/edit reached another of the user's own
+conversations, now pinned to the calling conversation; `c6dfe4bb` catalogue titles collapsed to one line;
+`e4ffe2d6` a failed catalogue read is logged; `5a8778c6` `--only` no longer empties the known-bad gate) plus the
+catalogue-read containment case (`81699f93`); 12,364 tests; live smoke through the tunnel accepted (thinking off, no
+key). The branch was fast-forwarded to `4ba32b9c` and merged. Its open questions and a gap it missed (the handlers
+never received the envelope's abort signal) are **ruling 53**; **S5a resumed** for that follow-up (abort signal,
+read bound, `MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3`). Gates on `feat/artifacts` running (`/tmp/gates-fa-5a/`).
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
