@@ -15,6 +15,13 @@ export {
 	parseArtifactAnchor,
 	resolveComment,
 } from "./comments";
+export {
+	applyDocumentPatch,
+	createDocumentArtifact,
+	DocumentOperationError,
+	readDocumentForAlfy,
+	saveDocumentBody,
+} from "./document-ops";
 export { hashArtifactBody } from "./hash";
 export { deleteKv, getKv, listKv, setKv } from "./kv";
 export { listArtifactsForConversation } from "./read-model";

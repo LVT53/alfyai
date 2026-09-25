@@ -15,17 +15,15 @@ import {
 	users,
 } from "$lib/server/db/schema";
 import {
+	applyDocumentPatch,
 	createArtifact,
+	createDocumentArtifact,
 	getArtifact,
+	readDocumentForAlfy,
 	restoreVersion,
+	saveDocumentBody,
 	updateArtifactBody,
 } from "$lib/server/services/artifacts";
-import {
-	applyDocumentPatch,
-	createDocumentArtifact,
-	readDocumentForAlfy,
-	saveDocumentBody,
-} from "$lib/server/services/artifacts/document-ops";
 import {
 	buildIndex,
 	countMarkers,

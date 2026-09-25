@@ -424,6 +424,34 @@ export async function fetchMessageEvidence(
 	};
 }
 
+/**
+ * "Open as document" (Feature 2 · Artifacts, Slice 1): get-or-create the
+ * Document a message was kept as. Idempotent server-side — calling this twice
+ * for the same message answers with the same `artifactId` both times.
+ */
+export async function keepMessageAsDocument(
+	conversationId: string,
+	messageId: string,
+	fetchImpl?: FetchLike,
+): Promise<{ artifactId: string; title: string; created: boolean }> {
+	const payload = await requestJson<{
+		ok: true;
+		artifactId: string;
+		title: string;
+		created: boolean;
+	}>(
+		`/api/conversations/${conversationId}/messages/${messageId}/document`,
+		{ method: "POST" },
+		"Failed to open this as a document",
+		fetchImpl,
+	);
+	return {
+		artifactId: payload.artifactId,
+		title: payload.title,
+		created: payload.created,
+	};
+}
+
 export async function generateConversationTitle(
 	conversationId: string,
 	params: { userMessage: string; assistantResponse: string },

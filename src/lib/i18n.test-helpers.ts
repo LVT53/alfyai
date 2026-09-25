@@ -13,6 +13,11 @@ const AUDITED_PREFIXES = [
 	// a type label that reached EN and not HU would show a Hungarian reader
 	// the raw key on the card that names the thing.
 	"artifacts.",
+	// "Open as document" (Feature 2 · Artifacts, Slice 1): the message-row
+	// action lives in the `chat` dictionary, which is NOT audited as a whole
+	// (pre-existing drift, see `fileProduction.error.` below) — this narrow
+	// prefix is what makes the parity test watch it.
+	"chat.artifacts.",
 	// The everyday-redesign composer: the bar's tooltips, the "+" menu, and
 	// the four sheets it opens. Added here because the parity test is the
 	// only thing that notices a key that landed in EN and not in HU, and a

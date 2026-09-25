@@ -63,6 +63,7 @@ import {
 	Brain,
 	Check,
 	Copy,
+	FileText,
 	GitBranch,
 	Info,
 	Pencil,
@@ -85,6 +86,7 @@ let {
 	onEdit = undefined,
 	onFork = undefined,
 	forkBusy = false,
+	onKeepAsDocument = undefined,
 	onOpenDocument = undefined,
 	onRetryFileProductionJob = undefined,
 	onCancelFileProductionJob = undefined,
@@ -123,6 +125,14 @@ let {
 		| ((payload: { messageId: string }) => void | Promise<void>)
 		| undefined;
 	forkBusy?: boolean;
+	// "Open as document" (Feature 2 · Artifacts, Slice 1): the parent does the
+	// actual get-or-create call and the panel open (mirroring onFork/onEdit —
+	// this component stays a delegate, not a fetcher), and returns a promise
+	// this button awaits so it can show its own busy state without a second
+	// parent-threaded prop for it.
+	onKeepAsDocument?:
+		| ((payload: { messageId: string }) => void | Promise<void>)
+		| undefined;
 	onOpenDocument?:
 		| ((
 				document: DocumentWorkspaceItem,
@@ -429,6 +439,20 @@ let canFork = $derived(
 		!message.isThinkingStreaming &&
 		message.content.trim().length > 0,
 );
+// "Open as document" (spec 2.1: every assistant reply may be kept as a
+// Document): a finished, non-empty, real text answer only — the same shape
+// canFork checks, minus readOnly (opening a document is not an edit to the
+// conversation the way forking or regenerating is).
+let canKeepAsDocument = $derived(
+	!isUser &&
+		Boolean(onKeepAsDocument) &&
+		Boolean(message.id) &&
+		hasServerPersistedIdentity &&
+		!message.wasStopped &&
+		!message.isStreaming &&
+		!message.isThinkingStreaming &&
+		message.content.trim().length > 0,
+);
 let showLogoBelow = $derived(
 	!isUser && isLast && (hasThinking || isGenerating || isFinalizing),
 );
@@ -605,6 +629,24 @@ async function copyToClipboard() {
 	}
 }
 
+let keepingAsDocumentBusy = $state(false);
+
+async function handleKeepAsDocument() {
+	if (!onKeepAsDocument || keepingAsDocumentBusy) return;
+	keepingAsDocumentBusy = true;
+	try {
+		await onKeepAsDocument({ messageId: message.id });
+	} catch (err) {
+		console.error("Failed to open message as a document: ", err);
+		showToast({
+			type: "error",
+			message: get(t)("chat.artifacts.keepAsDocumentError"),
+		});
+	} finally {
+		keepingAsDocumentBusy = false;
+	}
+}
+
 async function startEdit() {
 	editText = message.content;
 	isEditing = true;
@@ -742,6 +784,7 @@ let fullTimestampLabel = $derived(
 );
 let regenerateButtonId = $derived(`regenerate-button-${message.id}`);
 let forkButtonId = $derived(`fork-button-${message.id}`);
+let keepAsDocumentButtonId = $derived(`keep-as-document-button-${message.id}`);
 let editButtonId = $derived(`edit-button-${message.id}`);
 let copyButtonId = $derived(`copy-button-${message.id}`);
 
@@ -1296,6 +1339,39 @@ function sendFollowUp(question: string) {
 						<div class="tooltip-content">
 							<div class="tooltip-row">
 								<span class="tooltip-value">{forkBusy ? $t('fork.creating') : $t('messageBubble.actionFork')}</span>
+							</div>
+						</div>
+					</div>
+				</div>
+			{/if}
+
+			{#if canKeepAsDocument}
+				<div class="action-tooltip-container">
+					<button
+						id={keepAsDocumentButtonId}
+						type="button"
+						class="btn-icon-bare action-icon-btn"
+						onclick={handleKeepAsDocument}
+						disabled={keepingAsDocumentBusy}
+						aria-label={keepingAsDocumentBusy
+							? $t('chat.artifacts.keepAsDocumentBusy')
+							: $t('chat.artifacts.keepAsDocument')}
+						aria-describedby={`${keepAsDocumentButtonId}-tooltip`}
+					>
+						{#if keepingAsDocumentBusy}
+							<span class="mini-spinner" aria-hidden="true"></span>
+						{:else}
+							<FileText size={15} strokeWidth={2} aria-hidden="true" />
+						{/if}
+					</button>
+					<div
+						id={`${keepAsDocumentButtonId}-tooltip`}
+						class="action-tooltip"
+						role="tooltip"
+					>
+						<div class="tooltip-content">
+							<div class="tooltip-row">
+								<span class="tooltip-value">{keepingAsDocumentBusy ? $t('chat.artifacts.keepAsDocumentBusy') : $t('chat.artifacts.keepAsDocument')}</span>
 							</div>
 						</div>
 					</div>

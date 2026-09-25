@@ -889,6 +889,75 @@ describe("messages metadata", () => {
 		expect(metadata.railSummary).toBeUndefined();
 	});
 
+	// "Open as document" (Feature 2 · Artifacts, Slice 1) — the link that makes
+	// asking twice open the same Document instead of creating a second one.
+	describe("getMessageForDocumentKeep / updateMessageDocumentLink", () => {
+		it("reads the message's content and no link when none was ever kept", async () => {
+			mockRows.push({
+				id: "assistant-1",
+				conversationId: "conv-1",
+				role: "assistant",
+				content: "Here is your itinerary.",
+				thinking: null,
+				toolCalls: null,
+				createdAt: new Date("2026-03-29T12:00:00.000Z"),
+				metadataJson: null,
+			});
+
+			const { getMessageForDocumentKeep } = await import("./messages");
+			const result = await getMessageForDocumentKeep({
+				conversationId: "conv-1",
+				messageId: "assistant-1",
+			});
+
+			expect(result).toEqual({
+				content: "Here is your itinerary.",
+				documentArtifactId: null,
+			});
+		});
+
+		it("reads a previously kept document's id back", async () => {
+			mockRows.push({
+				id: "assistant-1",
+				conversationId: "conv-1",
+				role: "assistant",
+				content: "Here is your itinerary.",
+				thinking: null,
+				toolCalls: null,
+				createdAt: new Date("2026-03-29T12:00:00.000Z"),
+				metadataJson: JSON.stringify({ documentArtifactId: "artifact-1" }),
+			});
+
+			const { getMessageForDocumentKeep } = await import("./messages");
+			const result = await getMessageForDocumentKeep({
+				conversationId: "conv-1",
+				messageId: "assistant-1",
+			});
+
+			expect(result?.documentArtifactId).toBe("artifact-1");
+		});
+
+		it("writes the link while preserving existing metadata", async () => {
+			mockRows.push({
+				id: "assistant-1",
+				conversationId: "conv-1",
+				role: "assistant",
+				content: "Here is your itinerary.",
+				thinking: null,
+				toolCalls: null,
+				createdAt: new Date("2026-03-29T12:00:00.000Z"),
+				metadataJson: JSON.stringify({ evidenceStatus: "ready" }),
+			});
+
+			const { updateMessageDocumentLink } = await import("./messages");
+			await updateMessageDocumentLink("assistant-1", "artifact-1");
+
+			const metadata = JSON.parse(String(mockRows[0]?.metadataJson));
+			expect(metadata.evidenceStatus).toBe("ready");
+			expect(metadata.documentArtifactId).toBe("artifact-1");
+		});
+	});
+
 	// How many of the project's files the turn actually read (Workspaces Slice
 	// E). A count, never a list: the Info popover is a glance, and the file
 	// names belong in Sources, where the user can open them. Written by the

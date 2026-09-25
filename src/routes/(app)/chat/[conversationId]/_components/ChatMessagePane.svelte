@@ -34,6 +34,7 @@ let {
 	onSendFollowUp,
 	onEdit,
 	onFork,
+	onKeepAsDocument,
 	skillDraftActionState = {},
 	onSaveSkillDraft,
 	onDismissSkillDraft,
@@ -70,6 +71,7 @@ let {
 	onSendFollowUp?: (payload: { text: string }) => void;
 	onEdit: (payload: MessageEditPayload) => void;
 	onFork?: (payload: { messageId: string }) => void | Promise<void>;
+	onKeepAsDocument?: (payload: { messageId: string }) => void | Promise<void>;
 	skillDraftActionState?: Record<
 		string,
 		{ busy?: boolean; error?: string | null }
@@ -135,6 +137,7 @@ let {
 		{onSendFollowUp}
 		{onEdit}
 		{onFork}
+		{onKeepAsDocument}
 		{skillDraftActionState}
 		{onSaveSkillDraft}
 		{onDismissSkillDraft}
