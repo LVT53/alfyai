@@ -64,6 +64,26 @@ function isArtifactKind(value: unknown): value is ArtifactKind {
 	return typeof value === "string" && Object.hasOwn(KNOWN_KINDS, value);
 }
 
+const CREATABLE_KINDS: Record<CreatableArtifactKind, true> = {
+	document: true,
+	app: true,
+	canvas: true,
+	slides: true,
+};
+
+/**
+ * The runtime half of `CreatableArtifactKind`. The type alone only protects a
+ * caller that goes through TypeScript; slice 5's tools hand this a
+ * model-supplied string, so "file" (a produced file stays `generated_output`
+ * — ruling 18, never a second representation of the same row) and anything
+ * else unrecognised must be refused here too.
+ */
+function isCreatableArtifactKind(
+	value: unknown,
+): value is CreatableArtifactKind {
+	return typeof value === "string" && Object.hasOwn(CREATABLE_KINDS, value);
+}
+
 /**
  * `metadata_json` as the family writes it: `{ artifactType, title, … }`.
  * Validating, never throwing — malformed JSON, a non-object, an unknown kind
@@ -234,8 +254,27 @@ export async function createArtifact(
 	input: CreateArtifactInput,
 ): Promise<
 	| { ok: true; artifact: ArtifactRecord }
-	| { ok: false; reason: "conversation_not_found" | "too_large" }
+	| {
+			ok: false;
+			reason:
+				| "conversation_not_found"
+				| "too_large"
+				| "invalid_kind"
+				| "invalid_title";
+	  }
 > {
+	// Pure input-shape checks first, before any DB round trip: a caller whose
+	// kind or title never went through TypeScript (a model-supplied tool call,
+	// slice 5) gets refused without spending a conversation-ownership query on
+	// input that was never going to be written anyway.
+	if (!isCreatableArtifactKind(input.kind)) {
+		return { ok: false, reason: "invalid_kind" };
+	}
+	const title = clampChars(input.title.trim(), ARTIFACT_TITLE_MAX_CHARS);
+	if (title.length === 0) {
+		return { ok: false, reason: "invalid_title" };
+	}
+
 	if (input.conversationId) {
 		// The ownership scope already answers "is this one of the user's
 		// conversations" — served conversation included, so an incognito chat can
@@ -255,7 +294,6 @@ export async function createArtifact(
 	}
 
 	const id = randomUUID();
-	const title = clampChars(input.title.trim(), ARTIFACT_TITLE_MAX_CHARS);
 	const metadata: ArtifactMetadata = {
 		...(input.metadata ?? {}),
 		artifactType: input.kind,

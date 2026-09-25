@@ -7,6 +7,7 @@ import {
 } from "$lib/server/db/in-memory";
 import * as schema from "$lib/server/db/schema";
 import { NOW, seedConversation, seedUser } from "./artifacts.test-helpers";
+import type { CreatableArtifactKind } from "./types";
 
 let memory: InMemoryDatabase;
 
@@ -175,6 +176,45 @@ describe("createArtifact", () => {
 		expect(result).toEqual({ ok: false, reason: "too_large" });
 		expect(memory.db.select().from(schema.artifacts).all()).toEqual([]);
 		expect(memory.db.select().from(schema.artifactVersions).all()).toEqual([]);
+	});
+
+	// Runtime validation, not just the compile-time CreatableArtifactKind
+	// union: slice 5's tools hand this a model-supplied string, so "file" (a
+	// produced file stays generated_output — ruling 18) and any other
+	// unrecognised value must be refused at runtime, the same as a caller who
+	// never went through TypeScript at all.
+	it("refuses a kind outside the four creatable ones, and writes nothing", async () => {
+		for (const kind of ["file", "spreadsheet", ""]) {
+			const result = await createArtifact({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				kind: kind as CreatableArtifactKind,
+				title: "Probe",
+				body: "x",
+			});
+			expect(result).toEqual({ ok: false, reason: "invalid_kind" });
+		}
+		expect(memory.db.select().from(schema.artifacts).all()).toEqual([]);
+	});
+
+	it("refuses a title that is empty after trimming, and writes nothing", async () => {
+		for (const title of ["", "   ", "\n\t "]) {
+			const result = await createArtifact({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				kind: "document",
+				title,
+				body: "x",
+			});
+			expect(result).toEqual({ ok: false, reason: "invalid_title" });
+		}
+		expect(memory.db.select().from(schema.artifacts).all()).toEqual([]);
+	});
+
+	it("stores the trimmed title, not the raw one", async () => {
+		const artifact = await createDocument({ title: "  Saturday plan  " });
+		expect(artifact.title).toBe("Saturday plan");
+		expect(artifactRow(artifact.id)?.name).toBe("Saturday plan");
 	});
 });
 

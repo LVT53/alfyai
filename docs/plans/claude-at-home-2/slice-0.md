@@ -507,7 +507,7 @@ Public functions (slice 0), all ownership-scoped:
 ```ts
 createArtifact(input: CreateArtifactInput): Promise<
 	| { ok: true; artifact: ArtifactRecord }
-	| { ok: false; reason: "conversation_not_found" | "too_large" }
+	| { ok: false; reason: "conversation_not_found" | "too_large" | "invalid_kind" | "invalid_title" }
 >;
 getArtifact(params: {
 	userId: string;
@@ -558,12 +558,16 @@ There is deliberately **no caller-supplied `bodyHash` parameter**: the hash is c
 the body it stores, so a mismatched pair cannot reach the database. `hash_mismatch` exists for the sequential
 write path (hash, then hand off, then store) that slice 1's patch protocol uses.
 
-`createArtifact`'s two refusal reasons are `conversation_not_found` (the conversation does not exist **or**
-belongs to someone else — one reason, deliberately, so a caller cannot probe for another user's conversation id)
-and `too_large` (the body exceeds `ARTIFACT_BODY_MAX_BYTES`; nothing is written). Its `title` is **clamped** to
-`ARTIFACT_TITLE_MAX_CHARS` rather than refused: a long title is a cosmetic problem, and refusing a whole artifact
-over one would lose the body with it. The clamp is applied before the row is written and the stored value is what
-`getArtifact` returns — no truncation at render time.
+`createArtifact`'s four refusal reasons: `invalid_kind` (`input.kind` is not one of the four creatable kinds —
+runtime, not just the `CreatableArtifactKind` type, since slice 5's tools hand this a model-supplied string, and
+`"file"` is refused the same as any other unrecognised value — ruling 18, a produced file stays
+`generated_output`); `invalid_title` (the title is empty **after trimming**); `conversation_not_found` (the
+conversation does not exist **or** belongs to someone else — one reason, deliberately, so a caller cannot probe
+for another user's conversation id); and `too_large` (the body exceeds `ARTIFACT_BODY_MAX_BYTES`; nothing is
+written). The kind and title checks run first, before any DB read, since they need none. A title that is merely
+**long** is clamped to `ARTIFACT_TITLE_MAX_CHARS` rather than refused — a long title is a cosmetic problem, and
+refusing a whole artifact over one would lose the body with it — and the stored value is the **trimmed and
+clamped** title; `getArtifact` returns exactly what was stored, no truncation at render time.
 
 Rules that belong **inside** `record.ts`, not in its callers:
 
