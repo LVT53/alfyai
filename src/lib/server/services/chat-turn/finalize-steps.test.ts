@@ -36,6 +36,9 @@ vi.mock("$lib/server/services/conversation-drafts", () => ({
 }));
 
 const { persistAssistantEvidence } = await import("./finalize-steps");
+const { createNormalChatTools, createToolCallRecorder } = await import(
+	"$lib/server/services/normal-chat-tools"
+);
 const { getMessageEvidenceState } = await import(
 	"$lib/server/services/messages"
 );
@@ -221,6 +224,43 @@ describe("persistAssistantEvidence — the project files a turn read", () => {
 				(group) => group.sourceType === "tool" && group.items.length > 0,
 			),
 		).toBe(true);
+	});
+
+	it("counts the project file a real read_generated_file call read", async () => {
+		// The tool's own lookup, its own record, the evidence step's count: no
+		// hand-written metadata anywhere between the read and the number.
+		const recorder = createToolCallRecorder();
+		const { tools } = createNormalChatTools({
+			userId: USER,
+			conversationId: CONVERSATION,
+			turnId: "turn-1",
+			recorder,
+		});
+		const readFile = (filename: string, toolCallId: string) =>
+			tools.read_generated_file.execute(
+				{ filename },
+				{ toolCallId, messages: [] },
+			);
+
+		await readFile("Wien itinerary.pdf", "call-project-file");
+		// Read and recorded like any file, but not the project's.
+		await readFile("Packing list.md", "call-library-file");
+		await readFile("Nowhere.md", "call-miss");
+
+		const entries = recorder.getEntries();
+		expect(entries.map((entry) => entry.metadata?.readArtifactIds)).toEqual([
+			ITINERARY_NORMALIZED,
+			PACKING_LIST,
+			undefined,
+		]);
+
+		await persistEvidence(entries);
+
+		const state = await getMessageEvidenceState(
+			CONVERSATION,
+			ASSISTANT_MESSAGE,
+		);
+		expect(state?.projectFilesRead).toBe(1);
 	});
 
 	it("does not credit a tool read of a file outside the conversation's project", async () => {

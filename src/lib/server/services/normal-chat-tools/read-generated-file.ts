@@ -2417,7 +2417,30 @@ function normalizeQuery(value: unknown): string | null {
 	return trimmed ? trimmed.slice(0, MAX_QUERY_LENGTH) : null;
 }
 
-export async function readGeneratedFileContent(params: {
+/** A read of a stored file: what the model is handed, and nothing else. */
+export async function readGeneratedFileContent(
+	params: Parameters<typeof readGeneratedFileForTool>[0],
+): Promise<ReadGeneratedFileResult> {
+	return (await readGeneratedFileForTool(params)).result;
+}
+
+/**
+ * The read `read_generated_file` runs: the same result, plus which stored file
+ * it actually read, so the tool can record it on its tool-call entry (see
+ * `toolReadArtifactIdsMetadata`) and the evidence step can count a project file
+ * the model reached through the tool.
+ *
+ * `readArtifactId` is the artifact the lookup itself resolved — never an id
+ * taken from the arguments — and it is set only when some of that file reached
+ * the model: a text window with something in it, at least one passage, or the
+ * program that built it. A miss, an ambiguity, text still being extracted, an
+ * empty window and a search that found nothing all read nothing, and a file
+ * with no artifact yet has no id to give.
+ *
+ * It rides beside the result, never inside it: the result is what the model
+ * and every later turn see, and it names no other conversation's ids.
+ */
+export async function readGeneratedFileForTool(params: {
 	userId: string;
 	conversationId: string;
 	filename?: string | null;
@@ -2433,7 +2456,10 @@ export async function readGeneratedFileContent(params: {
 	turnId?: string | null;
 	/** `"source"` returns the program that built the file instead of its text. */
 	part?: "text" | "source" | null;
-}): Promise<ReadGeneratedFileResult> {
+}): Promise<{
+	result: ReadGeneratedFileResult;
+	readArtifactId: string | null;
+}> {
 	const from = normalizeFrom(params.from);
 	const query = normalizeQuery(params.query);
 	const requestedPage = normalizePage(params.page);
@@ -2445,22 +2471,29 @@ export async function readGeneratedFileContent(params: {
 
 	const lookup = await resolveReadTarget(params);
 	if (lookup.status === "none") {
-		return emptyResult({
-			filename: params.filename ?? null,
-			notFound: true,
-			candidates: await listChatFileCandidates({
-				...params,
-				needle: params.filename?.trim() || params.requestTitle?.trim() || null,
+		return {
+			result: emptyResult({
+				filename: params.filename ?? null,
+				notFound: true,
+				candidates: await listChatFileCandidates({
+					...params,
+					needle:
+						params.filename?.trim() || params.requestTitle?.trim() || null,
+				}),
 			}),
-		});
+			readArtifactId: null,
+		};
 	}
 	if (lookup.status === "ambiguous") {
-		return emptyResult({
-			filename: params.filename ?? params.requestTitle ?? null,
-			notFound: false,
-			ambiguous: true,
-			candidates: lookup.candidates,
-		});
+		return {
+			result: emptyResult({
+				filename: params.filename ?? params.requestTitle ?? null,
+				notFound: false,
+				ambiguous: true,
+				candidates: lookup.candidates,
+			}),
+			readArtifactId: null,
+		};
 	}
 
 	const { row, chatFile, source, conversation } = lookup.target;
@@ -2486,9 +2519,23 @@ export async function readGeneratedFileContent(params: {
 			})
 		: null;
 	if (cacheKey) {
-		const cached = getCachedToolResult<ReadGeneratedFileResult>(cacheKey);
+		const cached = getCachedToolResult<{
+			result: ReadGeneratedFileResult;
+			readArtifactId: string | null;
+		}>(cacheKey);
 		if (cached) return cached;
 	}
+	/** The found file's answer, cached with the file it read — if it read any. */
+	const finish = (result: ReadGeneratedFileResult) => {
+		const outcome = {
+			result,
+			readArtifactId: handedTheModelSomeOfTheFile(result)
+				? (row?.id ?? null)
+				: null,
+		};
+		if (cacheKey) setCachedToolResult(cacheKey, outcome);
+		return outcome;
+	};
 
 	const metadata = parseWorkingDocumentMetadata(
 		parseJsonRecord(row?.metadataJson ?? null),
@@ -2621,15 +2668,13 @@ export async function readGeneratedFileContent(params: {
 					}
 				: null,
 		};
-		if (cacheKey) setCachedToolResult(cacheKey, sourceResult);
-		return sourceResult;
+		return finish(sourceResult);
 	}
 
 	// The file exists; only its text does not, yet. Short-circuit before the
 	// window arithmetic so nothing has to invent an empty document.
 	if (base.textPending) {
-		if (cacheKey) setCachedToolResult(cacheKey, base);
-		return base;
+		return finish(base);
 	}
 
 	// One small JSON read, and only when `page` is both passed and not
@@ -2690,8 +2735,21 @@ export async function readGeneratedFileContent(params: {
 		};
 	}
 
-	if (cacheKey) setCachedToolResult(cacheKey, result);
-	return result;
+	return finish(result);
+}
+
+/**
+ * Whether a read handed the model any of the file it found: a text window with
+ * something in it, at least one passage, or the program that built the file.
+ * Text still being extracted, a window past the end and a search that matched
+ * nothing leave the model with facts about the file but none of it.
+ */
+function handedTheModelSomeOfTheFile(result: ReadGeneratedFileResult): boolean {
+	return (
+		Boolean(result.contentText) ||
+		(result.passages?.length ?? 0) > 0 ||
+		result.programSource !== null
+	);
 }
 
 // ── Program source ─────────────────────────────────────────────

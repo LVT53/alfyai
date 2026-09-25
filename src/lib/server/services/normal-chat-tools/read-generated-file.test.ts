@@ -45,6 +45,7 @@ const {
 	buildReadGeneratedFileModelPayload,
 	readGeneratedFileContent,
 	readGeneratedFileExecutionInputSchema,
+	readGeneratedFileForTool,
 	readGeneratedFileInputSchema,
 	sanitizeReadGeneratedFileInput,
 	summarizeReadGeneratedFileResult,
@@ -154,6 +155,21 @@ function seedArtifact(params: {
  */
 function storedSummaryOf(contentText: string): string {
 	return contentText.replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
+/** The upload pipeline's own link between a document and its normalized text. */
+function linkNormalizedSibling(normalizedId: string, sourceId: string) {
+	memory.db
+		.insert(schema.artifactLinks)
+		.values({
+			id: `derived-${normalizedId}`,
+			userId: USER,
+			artifactId: normalizedId,
+			relatedArtifactId: sourceId,
+			linkType: "derived_from",
+			createdAt: NOW,
+		})
+		.run();
 }
 
 function seedChunks(artifactId: string, texts: string[]) {
@@ -637,6 +653,221 @@ describe("readGeneratedFileContent — a project's files", () => {
 		const result = await read({ filename: "Wien itinerary.pdf" });
 
 		expect(result.notFound).toBe(true);
+	});
+});
+
+// The tool tells the evidence step which stored file a call read, so the
+// "project files read" row can count a file the model reached through the tool
+// rather than through evidence selection. The id is the one the tool's own
+// lookup resolved — the row whose text it handed the model, never one guessed
+// from the arguments — and it is recorded only when some of the file actually
+// reached the model. It rides beside the result, never inside it: the result is
+// what the model and every later turn see.
+describe("readGeneratedFileForTool — the stored file a read records", () => {
+	beforeEach(() => {
+		seedProject(PROJECT, USER, "Vienna trip");
+		memory.db
+			.update(schema.conversations)
+			.set({ projectId: PROJECT })
+			.where(eq(schema.conversations.id, CONVERSATION))
+			.run();
+	});
+
+	function readForTool(
+		overrides: Partial<Parameters<typeof readGeneratedFileForTool>[0]> = {},
+	) {
+		return readGeneratedFileForTool({
+			userId: USER,
+			conversationId: CONVERSATION,
+			...overrides,
+		});
+	}
+
+	it("records the normalized row a project file's text was read from", async () => {
+		const itinerary = seedArtifact({
+			type: "source_document",
+			name: "Wien itinerary.pdf",
+			contentText: "",
+			conversationId: null,
+		});
+		const normalized = seedArtifact({
+			type: "normalized_document",
+			name: "Wien itinerary.pdf",
+			contentText: "Budapest 07:40, Wien 10:04, coach 24.",
+			conversationId: null,
+		});
+		linkNormalizedSibling(normalized, itinerary);
+		linkProjectFile(PROJECT, itinerary, USER);
+
+		const { result, readArtifactId } = await readForTool({
+			filename: "Wien itinerary.pdf",
+		});
+
+		expect(result.contentText).toBe("Budapest 07:40, Wien 10:04, coach 24.");
+		// The link is on the display row; the text — and so the read — is the
+		// normalized one. The evidence step maps either onto the same file.
+		expect(readArtifactId).toBe(normalized);
+	});
+
+	it("records the document itself when it was never normalized", async () => {
+		const notes = seedArtifact({
+			type: "source_document",
+			name: "Wien notes.txt",
+			contentText: "The museum closes at 18:00.",
+			conversationId: null,
+		});
+		linkProjectFile(PROJECT, notes, USER);
+
+		const { readArtifactId } = await readForTool({
+			filename: "Wien notes.txt",
+		});
+
+		expect(readArtifactId).toBe(notes);
+	});
+
+	it("records a library document and a generated file the same way", async () => {
+		// The tool does not decide what is a project file — the evidence step
+		// does, against the project's links. It reports every file it read.
+		const handbook = seedArtifact({
+			type: "normalized_document",
+			name: "handbook.md",
+			contentText: "Library handbook body",
+			conversationId: null,
+			metadata: { normalizedFrom: "Employee Handbook.docx" },
+		});
+		const report = seedArtifact({
+			type: "generated_output",
+			name: "report.md",
+			contentText:
+				"Generated file: report.md\nExtracted file content:\n# Quarterly report",
+		});
+
+		expect(
+			(await readForTool({ filename: "Employee Handbook.docx" }))
+				.readArtifactId,
+		).toBe(handbook);
+		expect((await readForTool({ filename: "report.md" })).readArtifactId).toBe(
+			report,
+		);
+	});
+
+	it("records the file when a query found passages in it, and nothing when it found none", async () => {
+		const lease = seedArtifact({
+			type: "normalized_document",
+			name: "lease.md",
+			contentText: "Clause 1: the deposit is two months' rent.",
+			metadata: { normalizedFrom: "Lease.pdf" },
+		});
+		seedChunks(lease, ["Clause 1: the deposit is two months' rent."]);
+
+		const found = await readForTool({
+			filename: "Lease.pdf",
+			query: "deposit",
+		});
+		expect(found.result.passages).toHaveLength(1);
+		expect(found.readArtifactId).toBe(lease);
+
+		// The file was searched and nothing of it reached the model.
+		const none = await readForTool({ filename: "Lease.pdf", query: "parking" });
+		expect(none.result.passages).toEqual([]);
+		expect(none.readArtifactId).toBeNull();
+	});
+
+	it("records nothing for a window past the end of the text", async () => {
+		seedArtifact({
+			type: "normalized_document",
+			name: "short.md",
+			contentText: "short body",
+		});
+
+		const { result, readArtifactId } = await readForTool({
+			filename: "short.md",
+			from: 10_000,
+		});
+
+		expect(result.contentText).toBe("");
+		expect(readArtifactId).toBeNull();
+	});
+
+	it("records nothing when no file matches, or more than one does", async () => {
+		const missing = await readForTool({ filename: "missing.md" });
+		expect(missing.result.notFound).toBe(true);
+		expect(missing.readArtifactId).toBeNull();
+
+		seedArtifact({
+			type: "normalized_document",
+			name: "lease.md",
+			contentText: "flat A lease",
+			conversationId: OTHER_CONVERSATION,
+			metadata: { normalizedFrom: "Lease.pdf" },
+		});
+		seedArtifact({
+			type: "normalized_document",
+			name: "lease (1).md",
+			contentText: "flat B lease",
+			conversationId: null,
+			metadata: { normalizedFrom: "Lease.pdf" },
+		});
+		const ambiguous = await readForTool({ filename: "Lease.pdf" });
+		expect(ambiguous.result.ambiguous).toBe(true);
+		expect(ambiguous.readArtifactId).toBeNull();
+	});
+
+	it("never records another user's file", async () => {
+		seedProject(OTHER_PROJECT, OTHER_USER, "Their trip");
+		const theirs = seedArtifact({
+			type: "normalized_document",
+			name: "Wien itinerary.pdf",
+			contentText: "not yours",
+			userId: OTHER_USER,
+			conversationId: null,
+		});
+		linkProjectFile(OTHER_PROJECT, theirs, OTHER_USER);
+
+		const { result, readArtifactId } = await readForTool({
+			filename: "Wien itinerary.pdf",
+		});
+
+		expect(result.notFound).toBe(true);
+		expect(readArtifactId).toBeNull();
+	});
+
+	it("hands back exactly the result readGeneratedFileContent does, with no id in it", async () => {
+		const id = seedArtifact({
+			type: "normalized_document",
+			name: "handbook.md",
+			contentText: "Library handbook body",
+			conversationId: null,
+			metadata: { normalizedFrom: "Employee Handbook.docx" },
+		});
+
+		const { result, readArtifactId } = await readForTool({
+			filename: "Employee Handbook.docx",
+		});
+
+		expect(readArtifactId).toBe(id);
+		expect(result).toEqual(await read({ filename: "Employee Handbook.docx" }));
+		// Nothing the model or a later turn sees carries the id.
+		const payload = buildReadGeneratedFileModelPayload(result);
+		expect(JSON.stringify(result)).not.toContain(id);
+		expect(JSON.stringify(payload)).not.toContain(id);
+		expect(summarizeReadGeneratedFileResult(result)).not.toContain(id);
+		expect(deriveToolResultDigest(payload)).not.toContain(id);
+	});
+
+	it("records the file again when the turn's cache answers a repeat read", async () => {
+		const id = seedArtifact({
+			type: "normalized_document",
+			name: "cached.md",
+			contentText: "first body",
+		});
+		const turnId = `turn-${randomUUID()}`;
+
+		const first = await readForTool({ filename: "cached.md", turnId });
+		const again = await readForTool({ filename: "cached.md", turnId });
+
+		expect(again.result).toBe(first.result);
+		expect(again.readArtifactId).toBe(id);
 	});
 });
 
@@ -1719,6 +1950,67 @@ describe("readGeneratedFileContent — the filename the model produced", () => {
 		const ready = await read({ filename: "chart.pdf" });
 		expect(ready.textPending).toBe(false);
 		expect(ready.contentText).toBe("Quarterly chart, 3 series.");
+	});
+
+	it("records a produced file as read only once its text has reached the model", async () => {
+		const fileId = await seedChatFile({
+			filename: "chart.pdf",
+			content: PDF_BYTES,
+			mimeType: "application/pdf",
+		});
+		const artifactId = seedArtifact({
+			type: "generated_output",
+			name: "chart.pdf",
+			contentText: memoryWrapper("chart.pdf", null),
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: fileId,
+				generatedFilename: "chart.pdf",
+				versionNumber: 1,
+			},
+		});
+		const readChart = () =>
+			readGeneratedFileForTool({
+				userId: USER,
+				conversationId: CONVERSATION,
+				filename: "chart.pdf",
+			});
+
+		// Found, but its text is still being extracted: nothing was read.
+		const pending = await readChart();
+		expect(pending.result.textPending).toBe(true);
+		expect(pending.readArtifactId).toBeNull();
+
+		memory.db
+			.update(schema.artifacts)
+			.set({
+				contentText: memoryWrapper("chart.pdf", "Quarterly chart, 3 series."),
+			})
+			.where(eq(schema.artifacts.id, artifactId))
+			.run();
+
+		const ready = await readChart();
+		expect(ready.result.contentText).toBe("Quarterly chart, 3 series.");
+		expect(ready.readArtifactId).toBe(artifactId);
+	});
+
+	it("records no artifact for a file the memory sync has not given one yet", async () => {
+		await seedChatFile({
+			filename: "release-notes.md",
+			content: "# Release notes\n\n- First cut.",
+			mimeType: "text/markdown",
+		});
+
+		const { result, readArtifactId } = await readGeneratedFileForTool({
+			userId: USER,
+			conversationId: CONVERSATION,
+			filename: "release-notes.md",
+		});
+
+		// Read straight off disk. With no artifact there is no id to record, and
+		// no project can link a file that has no artifact either.
+		expect(result.contentText).toBe("# Release notes\n\n- First cut.");
+		expect(readArtifactId).toBeNull();
 	});
 
 	it("returns the newest version of a filename, never the stale previous one", async () => {
@@ -3053,6 +3345,69 @@ describe("readGeneratedFileContent — the program behind a file", () => {
 
 		expect(result.notFound).toBe(true);
 		expect(result.programSource).toBeNull();
+	});
+
+	it("records the file whose program it returned, and nothing when there was no program", async () => {
+		const budgetFileId = await seedProducedFile({
+			filename: "budget.xlsx",
+			mimeType: XLSX_MIME,
+			content: Buffer.from("PK\u0003\u0004workbook"),
+			request: programRequest,
+			sourceMode: "program",
+		});
+		const budget = seedArtifact({
+			type: "generated_output",
+			name: "budget.xlsx",
+			contentText:
+				"Generated file: budget.xlsx\nExtracted file content:\nRevenue",
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: budgetFileId,
+				generatedFilename: "budget.xlsx",
+				versionNumber: 1,
+			},
+		});
+		const notesFileId = await seedProducedFile({
+			filename: "notes.md",
+			mimeType: "text/markdown",
+			content: Buffer.from("# Notes\n\nPlain text written inline."),
+			request: {
+				sourceMode: "inline_text",
+				inlineText: {
+					content: "# Notes",
+					files: [{ filename: "notes.md", outputType: "md" }],
+				},
+			},
+			sourceMode: "inline_text",
+		});
+		seedArtifact({
+			type: "generated_output",
+			name: "notes.md",
+			contentText: "Generated file: notes.md\nExtracted file content:\n# Notes",
+			metadata: {
+				generatedFile: true,
+				originalChatFileId: notesFileId,
+				generatedFilename: "notes.md",
+				versionNumber: 1,
+			},
+		});
+		const readSource = (filename: string) =>
+			readGeneratedFileForTool({
+				userId: USER,
+				conversationId: CONVERSATION,
+				filename,
+				part: "source",
+			});
+
+		const withProgram = await readSource("budget.xlsx");
+		expect(withProgram.result.programSource?.sourceCode).toBe(PROGRAM);
+		expect(withProgram.readArtifactId).toBe(budget);
+
+		// Found, and it has an artifact — but no program, so nothing of the
+		// file reached the model.
+		const withoutProgram = await readSource("notes.md");
+		expect(withoutProgram.result.programSource).toBeNull();
+		expect(withoutProgram.readArtifactId).toBeNull();
 	});
 
 	it("points a plain read of a program-built binary at its source", async () => {

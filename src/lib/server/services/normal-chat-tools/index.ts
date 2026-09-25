@@ -15,7 +15,10 @@ import { getFileProductionWorkerConfig } from "$lib/server/services/file-product
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
 import { getMemoryContext } from "$lib/server/services/memory-context";
-import type { ToolEvidenceCandidate } from "$lib/server/services/message-evidence";
+import {
+	type ToolEvidenceCandidate,
+	toolReadArtifactIdsMetadata,
+} from "$lib/server/services/message-evidence";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import type { GroundedWebResult } from "$lib/server/services/parallel-search/types";
@@ -128,8 +131,8 @@ import {
 } from "./produce-file";
 import {
 	buildReadGeneratedFileModelPayload,
-	readGeneratedFileContent,
 	readGeneratedFileExecutionInputSchema,
+	readGeneratedFileForTool,
 	readGeneratedFileInputSchema,
 	resolveGeneratedFilePatchBase,
 	sanitizeReadGeneratedFileInput,
@@ -1690,17 +1693,19 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						options,
 						recorder,
 						run: async () => {
-							const result = await readGeneratedFileContent({
-								userId: ctx.userId,
-								conversationId: ctx.conversationId,
-								filename: parsedInput.data.filename ?? null,
-								requestTitle: parsedInput.data.requestTitle ?? null,
-								from: parsedInput.data.from ?? null,
-								query: parsedInput.data.query ?? null,
-								page: parsedInput.data.page ?? null,
-								part: parsedInput.data.part ?? null,
-								turnId: ctx.turnId,
-							});
+							const { result, readArtifactId } = await readGeneratedFileForTool(
+								{
+									userId: ctx.userId,
+									conversationId: ctx.conversationId,
+									filename: parsedInput.data.filename ?? null,
+									requestTitle: parsedInput.data.requestTitle ?? null,
+									from: parsedInput.data.from ?? null,
+									query: parsedInput.data.query ?? null,
+									page: parsedInput.data.page ?? null,
+									part: parsedInput.data.part ?? null,
+									turnId: ctx.turnId,
+								},
+							);
 							const modelPayload = buildReadGeneratedFileModelPayload(result);
 							const found = !result.notFound && !result.ambiguous;
 							return {
@@ -1718,6 +1723,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 										found,
 										...(result.ambiguous ? { ambiguous: true } : {}),
 										...(result.source ? { source: result.source } : {}),
+										// Which stored file this call read, for the
+										// "project files read" count at finalize. Never
+										// in the model payload.
+										...toolReadArtifactIdsMetadata([readArtifactId]),
 									},
 								},
 							};
