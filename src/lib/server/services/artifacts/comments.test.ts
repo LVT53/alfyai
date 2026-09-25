@@ -241,7 +241,9 @@ describe("createComment and listComments", () => {
 			parentId: "",
 		});
 		expect(root).toMatchObject({ parentId: null, anchor: TEXT_ANCHOR });
-		expect(commentRows(artifact.id).find((row) => row.id === root.id)?.parentId).toBeNull();
+		expect(
+			commentRows(artifact.id).find((row) => row.id === root.id)?.parentId,
+		).toBeNull();
 
 		await expect(
 			createComment({

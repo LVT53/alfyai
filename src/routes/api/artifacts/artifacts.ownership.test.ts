@@ -10,7 +10,10 @@ import {
 	createInMemoryDatabase,
 	type InMemoryDatabase,
 } from "$lib/server/db/in-memory";
-import { seedConversation, seedUser } from "$lib/server/services/artifacts/artifacts.test-helpers";
+import {
+	seedConversation,
+	seedUser,
+} from "$lib/server/services/artifacts/artifacts.test-helpers";
 
 let memory: InMemoryDatabase;
 
@@ -40,7 +43,9 @@ function detailEvent(params: {
 	return {
 		params: { id: params.artifactId },
 		url: new URL(`http://localhost/api/artifacts/${params.artifactId}${query}`),
-		locals: { user: params.userId ? { id: params.userId, role: "user" } : undefined },
+		locals: {
+			user: params.userId ? { id: params.userId, role: "user" } : undefined,
+		},
 	} as never;
 }
 
@@ -49,7 +54,9 @@ function listEvent(params: { userId: string | null; conversationId: string }) {
 		url: new URL(
 			`http://localhost/api/artifacts?conversationId=${encodeURIComponent(params.conversationId)}`,
 		),
-		locals: { user: params.userId ? { id: params.userId, role: "user" } : undefined },
+		locals: {
+			user: params.userId ? { id: params.userId, role: "user" } : undefined,
+		},
 	} as never;
 }
 
@@ -57,7 +64,11 @@ beforeEach(() => {
 	memory = createInMemoryDatabase();
 	seedUser(memory, OWNER);
 	seedUser(memory, STRANGER);
-	seedConversation(memory, { id: INCOGNITO, userId: OWNER, memoryIncognito: true });
+	seedConversation(memory, {
+		id: INCOGNITO,
+		userId: OWNER,
+		memoryIncognito: true,
+	});
 	seedConversation(memory, { id: OWNER_OTHER, userId: OWNER });
 });
 
@@ -127,7 +138,12 @@ describe("GET /api/artifacts/[id]?conversationId=… — incognito self-open", (
 			listEvent({ userId: OWNER, conversationId: "no-such-conversation" }),
 		);
 
-		for (const response of [foreignDetail, missingDetail, foreignList, missingList]) {
+		for (const response of [
+			foreignDetail,
+			missingDetail,
+			foreignList,
+			missingList,
+		]) {
 			expect(response.status).toBe(404);
 		}
 		const bodies = await Promise.all(

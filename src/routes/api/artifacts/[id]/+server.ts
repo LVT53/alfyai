@@ -31,7 +31,11 @@ export const GET: RequestHandler = async (event) => {
 	const artifactId = event.params.id;
 	const conversationId = event.url.searchParams.get("conversationId");
 
-	const artifact = await getArtifact({ userId: user.id, artifactId, conversationId });
+	const artifact = await getArtifact({
+		userId: user.id,
+		artifactId,
+		conversationId,
+	});
 	if (!artifact) {
 		return json({ ok: false, reason: "not_found" }, { status: 404 });
 	}

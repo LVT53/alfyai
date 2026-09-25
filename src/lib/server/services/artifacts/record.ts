@@ -251,9 +251,7 @@ function currentBodyHash(
 	return row.contentText === null ? null : hashArtifactBody(row.contentText);
 }
 
-export async function createArtifact(
-	input: CreateArtifactInput,
-): Promise<
+export async function createArtifact(input: CreateArtifactInput): Promise<
 	| { ok: true; artifact: ArtifactRecord }
 	| {
 			ok: false;

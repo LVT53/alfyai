@@ -307,8 +307,10 @@ describe("deleteArtifactForUser and the artifact family's child rows", () => {
 				.select({ id: schema.artifactComments.id })
 				.from(schema.artifactComments)
 				.all().length,
-			kv: verify.db.select({ id: schema.artifactKv.id }).from(schema.artifactKv).all()
-				.length,
+			kv: verify.db
+				.select({ id: schema.artifactKv.id })
+				.from(schema.artifactKv)
+				.all().length,
 		};
 		verify.sqlite.close();
 
