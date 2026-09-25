@@ -29,7 +29,10 @@ import {
 } from "$lib/server/services/file-production";
 import type { FileProductionJob } from "$lib/server/services/file-production/types";
 import { searchImages } from "$lib/server/services/image-search";
-import { getMemoryContext } from "$lib/server/services/memory-context";
+import {
+	getMemoryContext,
+	type HistoryMemoryContextResult,
+} from "$lib/server/services/memory-context";
 import { fetchUrlViaParallel } from "$lib/server/services/parallel-search/fetch-url";
 import { researchWebViaParallel } from "$lib/server/services/parallel-search/research";
 import {
@@ -5110,6 +5113,108 @@ describe("read_generated_file tool — what a call records it read", () => {
 
 		const [entry] = getToolCalls();
 		expect(entry.metadata).toMatchObject({ ok: false, found: false });
+		expect(entry.metadata).not.toHaveProperty("readArtifactIds");
+	});
+});
+
+// With `includeAttachments`, memory_context hands the model the full text of
+// files attached earlier — a read of stored files by artifact id, several per
+// call. The call records every file whose text it handed over, in one value,
+// and none of those ids reaches the model.
+describe("memory_context tool — what a call records it read", () => {
+	beforeEach(() => {
+		getMemoryContextMock.mockReset();
+		resetToolResultCacheForTests();
+	});
+
+	function historyResult(
+		overrides: Partial<HistoryMemoryContextResult> = {},
+	): HistoryMemoryContextResult {
+		return {
+			success: true,
+			mode: "history",
+			status: "available",
+			source: "conversation_summaries",
+			query: "vienna",
+			conversations: [],
+			omittedConversationCount: 0,
+			selectedConversation: {
+				conversationId: "trip-notes",
+				title: "Vienna trip notes",
+				summary: null,
+				updatedAt: 0,
+				messageSnippets: [],
+				messages: [
+					{
+						role: "user",
+						content: "Here is the itinerary and the tickets.",
+						createdAt: 0,
+						attachments: [
+							{ name: "Wien itinerary.txt", content: "Budapest 07:40." },
+							{ name: "Tickets.txt", content: "Coach 24, seat 61." },
+						],
+					},
+				],
+				omittedMessageCount: 0,
+			},
+			evidenceCandidates: [],
+			audit: {
+				conversationId: "conversation-1",
+				query: "vienna",
+				requestedMaxHistoryConversations: null,
+				appliedMaxHistoryConversations: 5,
+				historyConversationId: "trip-notes",
+				requestedMaxMessages: null,
+				appliedMaxMessages: 10,
+			},
+			...overrides,
+		};
+	}
+
+	async function recall() {
+		const { tools, getToolCalls } = createNormalChatTools({
+			userId: "user-1",
+			conversationId: "conversation-1",
+			turnId: "turn-1",
+		});
+		const payload = await tools.memory_context.execute(
+			{
+				mode: "history",
+				query: "vienna",
+				historyConversationId: "trip-notes",
+				includeAttachments: true,
+			},
+			{ toolCallId: "call-memory", messages: [] },
+		);
+		return { payload, entry: getToolCalls()[0] };
+	}
+
+	it("records every attachment whose text it handed over, and keeps them away from the model", async () => {
+		getMemoryContextMock.mockResolvedValue(
+			historyResult({
+				attachmentArtifactIds: ["artifact-itinerary", "artifact-tickets"],
+			}),
+		);
+
+		const { payload, entry } = await recall();
+
+		expect(JSON.stringify(payload)).toContain("Coach 24, seat 61.");
+		expect(entry.metadata).toMatchObject({
+			ok: true,
+			mode: "history",
+			readArtifactIds: "artifact-itinerary,artifact-tickets",
+		});
+		expect(JSON.stringify(payload)).not.toContain("artifact-");
+		expect(entry.outputSummary).not.toContain("artifact-");
+		// The digest is derived from the payload, and this one has none at all.
+		expect(entry.resultDigest ?? "").not.toContain("artifact-");
+	});
+
+	it("records nothing when no attachment text was handed over", async () => {
+		getMemoryContextMock.mockResolvedValue(historyResult());
+
+		const { entry } = await recall();
+
 		expect(entry.metadata).not.toHaveProperty("readArtifactIds");
 	});
 });
