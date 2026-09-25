@@ -391,6 +391,41 @@ describe("runSuite — limit and only", () => {
 
 		expect(report.results.map((r) => r.caseId)).toEqual(["regular-2"]);
 	});
+
+	// The known-bad gate exists so a suite can be trusted before its real
+	// scores count. `--only` is for selecting fixtures to iterate on during
+	// development (the README's "how to add a fixture" workflow) — a
+	// developer naming their new regular fixture has no reason to think about
+	// which ids are known-bad, and must not be able to accidentally disable
+	// the gate by doing so.
+	it("still runs every known-bad fixture, and can still fail the gate, when --only names none of them", async () => {
+		const deps = baseDeps({
+			cases: {
+				[FAKE_SUITE]: [
+					fakeCase({ id: "known-bad-1", knownBad: true }),
+					fakeCase({ id: "regular-1" }),
+					fakeCase({ id: "regular-2" }),
+				],
+			},
+			// A broken scorer that wrongly passes everything, including the
+			// known-bad fixture — exactly the failure the gate exists to catch.
+			score: () => ({ verdict: "good", reasons: [] }),
+			loadCommittedResponse: () => ({ response: "x" }),
+		});
+
+		const report = await runSuite(
+			FAKE_SUITE,
+			// Selecting only a regular fixture to iterate on — the known-bad set
+			// is not named here at all.
+			{ replay: true, limit: null, only: ["regular-2"] },
+			deps,
+		);
+
+		expect(report.knownBadFailedAsExpected).toBe(false);
+		expect(report.knownBadFailures).toEqual(["known-bad-1"]);
+		// The gate tripped: the regular suite must not have been trusted/run.
+		expect(report.results).toEqual([]);
+	});
 });
 
 describe("recordSuiteResponses", () => {

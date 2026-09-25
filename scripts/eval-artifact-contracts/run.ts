@@ -304,14 +304,22 @@ export async function runSuite(
 	options: { replay: boolean; limit: number | null; only: string[] | null },
 	deps: RunDeps,
 ): Promise<EvalSuiteReport> {
-	let allCases = deps.cases[suiteName] ?? [];
-	if (options.only) {
-		const onlyIds = new Set(options.only);
-		allCases = allCases.filter((evalCase) => onlyIds.has(evalCase.id));
-	}
+	const allCases = deps.cases[suiteName] ?? [];
 
+	// The known-bad set is computed from the FULL registry, before --only is
+	// applied, and --only is never applied to it below: --only exists to
+	// select which fixtures to iterate on (the README's "how to add a
+	// fixture" workflow), and a developer naming a new regular fixture has no
+	// reason to also name the suite's known-bad ids. Filtering known-bad by
+	// --only would silently turn "not selected" into "not declared", which
+	// downgrades the gate to a vacuous pass with only a log warning — exactly
+	// the failure mode the known-bad-first rule exists to prevent.
 	const knownBad = allCases.filter((evalCase) => evalCase.knownBad === true);
 	let regular = allCases.filter((evalCase) => evalCase.knownBad !== true);
+	if (options.only) {
+		const onlyIds = new Set(options.only);
+		regular = regular.filter((evalCase) => onlyIds.has(evalCase.id));
+	}
 	if (options.limit !== null) regular = regular.slice(0, options.limit);
 
 	if (knownBad.length === 0) {
