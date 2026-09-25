@@ -215,7 +215,14 @@ export async function runEditArtifactTool(params: {
 		artifactId: params.artifactId,
 		conversationId: params.conversationId,
 	});
-	if (!record) {
+	// getArtifact/readScopedArtifactRow is scoped to "any conversation this
+	// user can currently reach" (deliberately wide for its other caller,
+	// GET /api/artifacts/[id]) — NOT to this one conversation. The catalogue
+	// that hands the model ids is scoped to exactly this conversation, so
+	// without this check the model could edit another of the user's own,
+	// non-incognito conversations' artifacts just by naming its id. Treat
+	// that exactly like the id does not exist, the same as read_artifact.
+	if (!record || record.conversationId !== params.conversationId) {
 		return buildNotFoundResult(params);
 	}
 

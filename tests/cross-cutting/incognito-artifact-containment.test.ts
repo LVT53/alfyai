@@ -711,6 +711,118 @@ describe("a normal conversation's own artifact family is unaffected", () => {
 	});
 });
 
+// Slice 5a: read_artifact/edit_artifact must treat an id from a DIFFERENT
+// (still normal, still the same user's) conversation exactly like an id that
+// does not exist at all — the catalogue that hands out ids is scoped to ONE
+// conversation (listArtifactsForConversation's `eq(artifacts.conversationId,
+// …)`), so the tools that consume those ids must refuse just as tightly.
+// getArtifact/readScopedArtifactRow is deliberately WIDER for its other
+// caller (GET /api/artifacts/[id], which opens any of the user's own
+// artifacts by id regardless of which conversation is being served) — see
+// that route's own comment — so this scoping has to be the tool layer's own
+// responsibility, not something to fix in getArtifact.
+describe("the model tool layer (read_artifact / edit_artifact), across two normal conversations of the same user", () => {
+	const OTHER_NORMAL = "conv-normal-other";
+	const OTHER_SECRET_TITLE = "Severance negotiation notes";
+
+	beforeEach(() => {
+		seedConversation(OTHER_NORMAL, false);
+	});
+
+	it("read_artifact answers an id from a different normal conversation as not found, with only the calling conversation's candidates", async () => {
+		const created = await createArtifact({
+			userId: USER,
+			conversationId: OTHER_NORMAL,
+			kind: "document",
+			title: OTHER_SECRET_TITLE,
+			body: `- [ ] Ask about the ${SECRET_WORD} clause`,
+		});
+		if (!created.ok) throw new Error("seed refused");
+		const ownDocument = await createArtifact({
+			userId: USER,
+			conversationId: NORMAL,
+			kind: "document",
+			title: "Weekend plan",
+			body: "- [ ] Naschmarkt",
+		});
+		if (!ownDocument.ok) throw new Error("seed refused");
+
+		const { runReadArtifactTool } = await import(
+			"$lib/server/services/normal-chat-tools/artifact-tools/read"
+		);
+		const result = await runReadArtifactTool({
+			userId: USER,
+			conversationId: NORMAL,
+			artifactId: created.artifact.id,
+		});
+
+		expect(result.modelPayload.success).toBe(false);
+		const serialized = JSON.stringify(result.modelPayload);
+		expect(serialized).not.toContain(SECRET_WORD);
+		expect(serialized).not.toContain(OTHER_SECRET_TITLE);
+		expect(serialized).not.toContain(created.artifact.id);
+		if (!result.modelPayload.success) {
+			expect(result.modelPayload.candidates).toEqual([
+				{ artifactId: ownDocument.artifact.id, title: "Weekend plan" },
+			]);
+		}
+	});
+
+	it("edit_artifact refuses an id from a different normal conversation as not found, and applies nothing", async () => {
+		const created = await createArtifact({
+			userId: USER,
+			conversationId: OTHER_NORMAL,
+			kind: "document",
+			title: OTHER_SECRET_TITLE,
+			body: `- [ ] Ask about the ${SECRET_WORD} clause`,
+		});
+		if (!created.ok) throw new Error("seed refused");
+
+		const { runEditArtifactTool } = await import(
+			"$lib/server/services/normal-chat-tools/artifact-tools/edit"
+		);
+		const result = await runEditArtifactTool({
+			userId: USER,
+			conversationId: NORMAL,
+			turnId: "turn-1",
+			artifactId: created.artifact.id,
+			patches: [
+				{ op: "replace_text", blockId: "b1", baseHash: "x", text: "y" },
+			],
+		});
+
+		expect(result.modelPayload.success).toBe(false);
+		const serialized = JSON.stringify(result.modelPayload);
+		expect(serialized).not.toContain(SECRET_WORD);
+		expect(serialized).not.toContain(OTHER_SECRET_TITLE);
+		// The "not found" path (buildNotFoundResult) never sets `refused`, only
+		// `candidates`; the "found but this kind can't be edited yet" path
+		// (unsupported_kind) sets `refused` and reveals the kind in metadata.
+		// A cross-conversation id must take the FIRST path — existence and kind
+		// are exactly what "must look exactly like not found" rules out.
+		if (!result.modelPayload.success) {
+			expect(result.modelPayload.refused).toBeUndefined();
+			expect(result.modelPayload).toHaveProperty("candidates");
+		}
+		expect(result.metadata).not.toHaveProperty("artifactKind");
+		expect(result.outputSummary).toBe("Not found");
+
+		// Nothing was applied: the other conversation's document is untouched.
+		const stillThere = await getVersionBody({
+			userId: USER,
+			artifactId: created.artifact.id,
+			versionId: (
+				await listVersions({
+					userId: USER,
+					artifactId: created.artifact.id,
+					conversationId: OTHER_NORMAL,
+				})
+			)[0].id,
+		});
+		expect(stillThere).toBe(`- [ ] Ask about the ${SECRET_WORD} clause`);
+	});
+});
+
 describe("deleting an incognito conversation, with artifacts", () => {
 	it("takes its artifacts and their versions, comments and key-value rows with it", async () => {
 		const { documentId, appId } = await seedIncognitoArtifactFamily();
