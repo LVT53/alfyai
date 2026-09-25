@@ -498,10 +498,12 @@ const {
 	createComment,
 	getKv,
 	getVersionBody,
+	listArtifactCatalogueEntries,
 	listArtifactsForConversation,
 	listComments,
 	listKv,
 	listVersions,
+	resolveArtifactCatalogueBlock,
 	setKv,
 } = await import("$lib/server/services/artifacts");
 
@@ -555,6 +557,28 @@ describe("an incognito conversation's artifact family, from outside it", () => {
 		});
 
 		expect(listed).toEqual([]);
+	});
+
+	// slice-5.md's file table names this suite as gaining "the catalogue
+	// read" (the "## In this chat" turn-guidance block Slice 5a built on top
+	// of listArtifactsForConversation). It is a thin passthrough with no
+	// query of its own, so it inherits the scope above mechanically — but
+	// that is exactly the kind of claim this suite exists to prove rather
+	// than assume.
+	it("is not in another conversation's model-facing catalogue, and never reaches the prompt from there", async () => {
+		await seedIncognitoArtifactFamily();
+
+		const entries = await listArtifactCatalogueEntries({
+			userId: USER,
+			conversationId: NORMAL,
+		});
+		expect(entries).toEqual([]);
+
+		const block = await resolveArtifactCatalogueBlock({
+			userId: USER,
+			conversationId: NORMAL,
+		});
+		expect(block).toBeNull();
 	});
 
 	it("has no readable versions or comments with the default scope", async () => {
@@ -656,6 +680,22 @@ describe("inside the incognito conversation, its artifact family still works", (
 		await expect(
 			getKv({ ...inside, artifactId: appId, key: "salary" }),
 		).resolves.toBe(JSON.stringify({ note: SECRET_WORD }));
+	});
+
+	it("still builds its own model-facing catalogue", async () => {
+		const { documentId } = await seedIncognitoArtifactFamily();
+
+		const entries = await listArtifactCatalogueEntries({
+			userId: USER,
+			conversationId: INCOGNITO,
+		});
+		expect(entries.map((entry) => entry.artifactId)).toContain(documentId);
+
+		const block = await resolveArtifactCatalogueBlock({
+			userId: USER,
+			conversationId: INCOGNITO,
+		});
+		expect(block).toContain(SECRET_DOCUMENT_TITLE);
 	});
 });
 
