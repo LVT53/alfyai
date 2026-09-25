@@ -788,23 +788,87 @@ export interface ProjectFilesEvidenceContext {
 }
 
 /**
- * How many of the project's files actually reached this turn: the project
- * files among the artifacts the turn's selected evidence names — the same two
- * sets `buildArtifactGroups` builds its document rows from, so the Info
- * popover's number and the Sources rows tell one story. A file counts once,
- * whichever of its ids the evidence names. Attachments are not counted: those
- * were handed to the turn by the user, not read because the project knows them.
+ * The tool-call metadata key a tool records the stored files it read under.
+ *
+ * `ToolCallEntry.metadata` is a flat map of scalars, so the ids ride as one
+ * string joined by a separator no artifact id contains (they are UUIDs) — the
+ * same shape `createGroundedWebMetadata` gives its reason list. One key, not a
+ * count beside a list: a second statement of the same fact could disagree.
+ */
+const TOOL_READ_ARTIFACT_IDS_KEY = "readArtifactIds";
+const TOOL_READ_ARTIFACT_IDS_SEPARATOR = ",";
+
+/**
+ * What a tool writes into its tool-call entry's `metadata` to say which stored
+ * files it read: the artifact ids its own lookup resolved and whose content it
+ * handed the model — never ids taken from its arguments, and never a name, a
+ * path or any of the text. Nothing at all when it read nothing, so a failed or
+ * empty call carries no key.
+ *
+ * The count below reads it back: this is how a file the model reached through a
+ * tool, rather than through evidence selection, counts as read.
+ */
+export function toolReadArtifactIdsMetadata(
+	artifactIds: Iterable<string | null | undefined>,
+): Record<string, string> {
+	const ids = new Set<string>();
+	for (const artifactId of artifactIds) {
+		const id = artifactId?.trim();
+		// An id holding the separator would read back as two ids nobody read.
+		if (!id || id.includes(TOOL_READ_ARTIFACT_IDS_SEPARATOR)) continue;
+		ids.add(id);
+	}
+	return ids.size > 0
+		? {
+				[TOOL_READ_ARTIFACT_IDS_KEY]: [...ids].join(
+					TOOL_READ_ARTIFACT_IDS_SEPARATOR,
+				),
+			}
+		: {};
+}
+
+/** The artifacts a finished tool call says it read; none for any other call. */
+function readToolReadArtifactIds(tool: ToolCallEntry): string[] {
+	if (tool.status !== "done") return [];
+	const value = tool.metadata?.[TOOL_READ_ARTIFACT_IDS_KEY];
+	if (typeof value !== "string") return [];
+	return value
+		.split(TOOL_READ_ARTIFACT_IDS_SEPARATOR)
+		.map((id) => id.trim())
+		.filter((id) => id.length > 0);
+}
+
+/**
+ * How many of the project's files this turn's answer actually consulted.
+ *
+ * Two channels bring a file into a turn: the evidence selection picked it (the
+ * selected evidence, which `buildArtifactGroups` builds the Sources document
+ * rows from), or the model read it with a tool (the ids the tool recorded, see
+ * `toolReadArtifactIdsMetadata`). Their union is taken first and only then
+ * intersected with the project's files, and it is counted as files, not ids: a
+ * file counts once whichever of its ids reached the turn, and once when it was
+ * both selected and read. An id the project does not know — a library file,
+ * another project's, another user's — never counts.
+ *
+ * Attachments are not counted: those were handed to the turn by the user, not
+ * read because the project knows them.
  */
 export function countProjectFilesRead(params: {
 	contextDebug: ContextDebugState | null | undefined;
+	toolCalls: ToolCallEntry[];
 	projectFiles?: ProjectFilesEvidenceContext | null;
 }): number {
 	const documentIdByArtifactId = params.projectFiles?.documentIdByArtifactId;
 	if (!documentIdByArtifactId || documentIdByArtifactId.size === 0) return 0;
-	const selected = params.contextDebug?.selectedEvidence ?? [];
+	const readArtifactIds = [
+		...(params.contextDebug?.selectedEvidence ?? []).map(
+			(evidence) => evidence.artifactId,
+		),
+		...params.toolCalls.flatMap(readToolReadArtifactIds),
+	];
 	const filesRead = new Set<string>();
-	for (const evidence of selected) {
-		const documentId = documentIdByArtifactId.get(evidence.artifactId);
+	for (const artifactId of readArtifactIds) {
+		const documentId = documentIdByArtifactId.get(artifactId);
 		if (documentId) filesRead.add(documentId);
 	}
 	return filesRead.size;

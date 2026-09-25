@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "$lib/server/db/schema";
+import type { ToolCallEntry } from "$lib/server/services/messages-types";
 import type { ContextDebugState } from "./context-types";
 
 let dbPath: string;
@@ -1122,6 +1123,62 @@ describe("project knowledge links", () => {
 						"artifact-railjet",
 						"artifact-railjet-normalized",
 					]),
+					toolCalls: [],
+					projectFiles,
+				}),
+			).toBe(1);
+		});
+
+		it("credits a tool read of this project's file, and never another project's or another user's", async () => {
+			seedProjectKnowledgeScenario();
+			setConversationProject("conv-plain", "trip-project");
+			const { linkProjectKnowledge, resolveConversationProjectFiles } =
+				await import("./project-knowledge");
+			const { countProjectFilesRead, toolReadArtifactIdsMetadata } =
+				await import("$lib/server/services/message-evidence");
+			const { createProject } = await import("$lib/server/services/projects");
+
+			const renovation = await createProject("owner-user", "Flat renovation");
+			await linkProjectKnowledge({
+				userId: "owner-user",
+				projectId: "trip-project",
+				artifactIds: ["artifact-railjet"],
+			});
+			// Real project files, both of them — just not this conversation's.
+			await linkProjectKnowledge({
+				userId: "owner-user",
+				projectId: renovation.id,
+				artifactIds: ["artifact-hotel"],
+			});
+			await linkProjectKnowledge({
+				userId: "other-user",
+				projectId: "other-project",
+				artifactIds: ["artifact-other-user"],
+			});
+			const projectFiles = await resolveConversationProjectFiles({
+				userId: "owner-user",
+				conversationId: "conv-plain",
+			});
+			const readOf = (artifactIds: string[]): ToolCallEntry => ({
+				name: "read_generated_file",
+				input: {},
+				status: "done",
+				metadata: { ok: true, ...toolReadArtifactIdsMetadata(artifactIds) },
+			});
+
+			expect(
+				countProjectFilesRead({
+					contextDebug: null,
+					toolCalls: [readOf(["artifact-hotel", "artifact-other-user"])],
+					projectFiles,
+				}),
+			).toBe(0);
+			// This project's file, read through the normalized row its text
+			// lives in — the id the read tool actually resolves.
+			expect(
+				countProjectFilesRead({
+					contextDebug: null,
+					toolCalls: [readOf(["artifact-railjet-normalized"])],
 					projectFiles,
 				}),
 			).toBe(1);

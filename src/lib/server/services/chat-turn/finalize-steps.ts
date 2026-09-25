@@ -260,9 +260,10 @@ export async function persistAssistantEvidence(
 			params.assistantResponse,
 		);
 		// Workspaces Slice E — the conversation's project and the files it
-		// knows, read here because this is the only step that holds both the
-		// turn's selected evidence and the project's links. A conversation
-		// outside a project resolves to null and the evidence is unchanged.
+		// knows, read here because this is the only step that holds the turn's
+		// selected evidence, its finished tool calls and the project's links
+		// together. A conversation outside a project resolves to null and the
+		// evidence is unchanged.
 		const contextDebug =
 			params.contextDebug ?? params.initialContextDebug ?? null;
 		const projectFiles = await resolveConversationProjectFiles({
@@ -291,10 +292,15 @@ export async function persistAssistantEvidence(
 		await updateMessageEvidence(params.assistantMessageId, {
 			evidenceSummary: messageEvidence,
 			evidenceStatus: messageEvidence ? "ready" : "none",
-			// How many of the project's files this turn actually read, for the
-			// Info popover's row. Written in the same metadata write as the
-			// evidence itself, since the number is a statement about it.
-			projectFilesRead: countProjectFilesRead({ contextDebug, projectFiles }),
+			// How many of the project's files this turn actually read — the ones
+			// selected as evidence and the ones a tool read — for the Info
+			// popover's row. Written in the same metadata write as the evidence
+			// itself, since the number is a statement about it.
+			projectFilesRead: countProjectFilesRead({
+				contextDebug,
+				toolCalls: doneToolCalls,
+				projectFiles,
+			}),
 		});
 		await updateMessageWebCitationAudit(
 			params.assistantMessageId,
