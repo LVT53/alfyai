@@ -31,7 +31,10 @@ export interface DocumentBody {
  * that has already been through `parseDocument` — mint-before-hash applies to
  * a document's very first write, not only to edits.
  */
-export function createBody(input: { title: string; markdown?: string }): DocumentBody {
+export function createBody(input: {
+	title: string;
+	markdown?: string;
+}): DocumentBody {
 	const parsed = parseDocument(input.markdown ?? "");
 	return {
 		markdown: parsed.markdown,

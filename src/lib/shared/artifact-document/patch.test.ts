@@ -7,14 +7,20 @@ function setup(markdown: string) {
 	return { blocks: parsed.blocks, snapshot: buildIndex(parsed.blocks) };
 }
 
-function findBlock(blocks: DocumentBlock[], kind: string, index = 0): DocumentBlock {
+function findBlock(
+	blocks: DocumentBlock[],
+	kind: string,
+	index = 0,
+): DocumentBlock {
 	const matches = blocks.filter((b) => b.kind === kind);
 	const block = matches[index];
 	if (!block) throw new Error(`no ${kind} block at index ${index}`);
 	return block;
 }
 
-function op(overrides: Partial<PatchOp> & Pick<PatchOp, "blockId" | "baseHash" | "kind">): PatchOp {
+function op(
+	overrides: Partial<PatchOp> & Pick<PatchOp, "blockId" | "baseHash" | "kind">,
+): PatchOp {
 	return {
 		opId: overrides.opId ?? `op-${Math.random().toString(36).slice(2)}`,
 		blockLabel: overrides.blockLabel ?? "block",
@@ -34,13 +40,20 @@ describe("artifact-document patch engine", () => {
 			blocks,
 			snapshot,
 			patch: patchOf([
-				op({ kind: "replaceBlock", blockId: "nope", baseHash: "x", text: "New" }),
+				op({
+					kind: "replaceBlock",
+					blockId: "nope",
+					baseHash: "x",
+					text: "New",
+				}),
 			]),
 		});
 		expect(result.outcomes[0].code).toBe("block_missing");
 		expect(result.refused).toBe(1);
 		expect(result.applied).toBe(0);
-		expect(result.blocks.map((b) => b.markdown)).toEqual(blocks.map((b) => b.markdown));
+		expect(result.blocks.map((b) => b.markdown)).toEqual(
+			blocks.map((b) => b.markdown),
+		);
 	});
 
 	it("refuses block_unseen when Alfy never read this block", () => {
@@ -68,7 +81,9 @@ describe("artifact-document patch engine", () => {
 		// The user's own edit, applied directly without going through Alfy: the
 		// snapshot now disagrees with the live hash.
 		const editedBlocks = blocks.map((b) =>
-			b.id === paragraph.id ? { ...b, markdown: "Something else", hash: "different-hash" } : b,
+			b.id === paragraph.id
+				? { ...b, markdown: "Something else", hash: "different-hash" }
+				: b,
 		);
 		const result = applyPatchSet({
 			blocks: editedBlocks,
@@ -112,7 +127,13 @@ describe("artifact-document patch engine", () => {
 			blocks,
 			snapshot,
 			patch: patchOf([
-				op({ kind: "insertText", blockId: hr.id, baseHash: hr.hash, text: "hi", at: "end" }),
+				op({
+					kind: "insertText",
+					blockId: hr.id,
+					baseHash: hr.hash,
+					text: "hi",
+					at: "end",
+				}),
 				op({
 					kind: "insertText",
 					blockId: paragraph.id,
@@ -133,8 +154,18 @@ describe("artifact-document patch engine", () => {
 			blocks,
 			snapshot,
 			patch: patchOf([
-				op({ kind: "toggleTask", blockId: paragraph.id, baseHash: paragraph.hash, checked: true }),
-				op({ kind: "addTableRow", blockId: paragraph.id, baseHash: paragraph.hash, cells: ["a"] }),
+				op({
+					kind: "toggleTask",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					checked: true,
+				}),
+				op({
+					kind: "addTableRow",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					cells: ["a"],
+				}),
 			]),
 		});
 		expect(result.outcomes[0].code).toBe("not_a_task_block");
@@ -148,7 +179,12 @@ describe("artifact-document patch engine", () => {
 			blocks,
 			snapshot,
 			patch: patchOf([
-				op({ kind: "addTableRow", blockId: table.id, baseHash: table.hash, cells: ["only-one"] }),
+				op({
+					kind: "addTableRow",
+					blockId: table.id,
+					baseHash: table.hash,
+					cells: ["only-one"],
+				}),
 			]),
 		});
 		expect(result.outcomes[0].code).toBe("bad_row");
@@ -194,14 +230,23 @@ describe("artifact-document patch engine", () => {
 	// Positive behaviours.
 
 	it("applies two good ops and refuses one changed-block op, with the refusal carrying the block's label", () => {
-		const { blocks, snapshot } = setup("First paragraph.\n\nSecond paragraph.\n\nThird paragraph.");
+		const { blocks, snapshot } = setup(
+			"First paragraph.\n\nSecond paragraph.\n\nThird paragraph.",
+		);
 		const [p1, p2, p3] = blocks;
-		const editedBlocks = blocks.map((b) => (b.id === p2.id ? { ...b, hash: "moved" } : b));
+		const editedBlocks = blocks.map((b) =>
+			b.id === p2.id ? { ...b, hash: "moved" } : b,
+		);
 		const result = applyPatchSet({
 			blocks: editedBlocks,
 			snapshot,
 			patch: patchOf([
-				op({ kind: "replaceBlock", blockId: p1.id, baseHash: p1.hash, text: "Changed first." }),
+				op({
+					kind: "replaceBlock",
+					blockId: p1.id,
+					baseHash: p1.hash,
+					text: "Changed first.",
+				}),
 				op({
 					kind: "replaceBlock",
 					blockId: p2.id,
@@ -209,7 +254,12 @@ describe("artifact-document patch engine", () => {
 					blockLabel: p2.label,
 					text: "Changed second.",
 				}),
-				op({ kind: "replaceBlock", blockId: p3.id, baseHash: p3.hash, text: "Changed third." }),
+				op({
+					kind: "replaceBlock",
+					blockId: p3.id,
+					baseHash: p3.hash,
+					text: "Changed third.",
+				}),
 			]),
 		});
 		expect(result.applied).toBe(2);
@@ -228,7 +278,14 @@ describe("artifact-document patch engine", () => {
 		const result = applyPatchSet({
 			blocks,
 			snapshot,
-			patch: patchOf([op({ kind: "toggleTask", blockId: second.id, baseHash: second.hash, checked: true })]),
+			patch: patchOf([
+				op({
+					kind: "toggleTask",
+					blockId: second.id,
+					baseHash: second.hash,
+					checked: true,
+				}),
+			]),
 		});
 		const updatedSecond = result.blocks.find((b) => b.id === second.id);
 		const updatedFirst = result.blocks.find((b) => b.id === first.id);
@@ -239,7 +296,9 @@ describe("artifact-document patch engine", () => {
 	});
 
 	it("addTableRow with chip cells serialises the canonical chip token", () => {
-		const { blocks, snapshot } = setup("| Item | Status |\n| -- | -- |\n| Flight | Booked |");
+		const { blocks, snapshot } = setup(
+			"| Item | Status |\n| -- | -- |\n| Flight | Booked |",
+		);
 		const table = findBlock(blocks, "table");
 		const result = applyPatchSet({
 			blocks,
@@ -290,9 +349,24 @@ describe("artifact-document patch engine", () => {
 			blocks,
 			snapshot,
 			patch: patchOf([
-				op({ kind: "replaceBlock", blockId: paragraph.id, baseHash: paragraph.hash, text: "Changed." }),
-				op({ kind: "toggleTask", blockId: task.id, baseHash: task.hash, checked: true }),
-				op({ kind: "addTableRow", blockId: table.id, baseHash: table.hash, cells: ["3", "4"] }),
+				op({
+					kind: "replaceBlock",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					text: "Changed.",
+				}),
+				op({
+					kind: "toggleTask",
+					blockId: task.id,
+					baseHash: task.hash,
+					checked: true,
+				}),
+				op({
+					kind: "addTableRow",
+					blockId: table.id,
+					baseHash: table.hash,
+					cells: ["3", "4"],
+				}),
 			]),
 		});
 		expect(result.applied).toBe(3);
@@ -322,8 +396,18 @@ describe("artifact-document patch engine", () => {
 			blocks,
 			snapshot,
 			patch: patchOf([
-				op({ kind: "replaceBlock", blockId: paragraph.id, baseHash: paragraph.hash, text: "Ok." }),
-				op({ kind: "replaceBlock", blockId: "missing", baseHash: "x", text: "Ok." }),
+				op({
+					kind: "replaceBlock",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					text: "Ok.",
+				}),
+				op({
+					kind: "replaceBlock",
+					blockId: "missing",
+					baseHash: "x",
+					text: "Ok.",
+				}),
 			]),
 		});
 		expect(mixed.applied + mixed.refused).toBe(mixed.outcomes.length);
@@ -336,7 +420,12 @@ describe("artifact-document patch engine", () => {
 			blocks,
 			snapshot: {},
 			patch: patchOf([
-				op({ kind: "replaceBlock", blockId: blocks[0].id, baseHash: blocks[0].hash, text: "x" }),
+				op({
+					kind: "replaceBlock",
+					blockId: blocks[0].id,
+					baseHash: blocks[0].hash,
+					text: "x",
+				}),
 			]),
 		});
 		expect(result.outcomes[0].reason).toBeUndefined();
@@ -350,7 +439,12 @@ describe("artifact-document patch engine", () => {
 			blocks,
 			snapshot,
 			patch: patchOf([
-				op({ kind: "replaceBlock", blockId: paragraph.id, baseHash: paragraph.hash, text: "Changed." }),
+				op({
+					kind: "replaceBlock",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					text: "Changed.",
+				}),
 			]),
 		});
 		expect(result.markdown).toContain("Changed.");

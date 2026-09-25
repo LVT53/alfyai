@@ -431,7 +431,11 @@ export async function updateArtifactBody(
 		 * can never persist a snapshot claiming a version that was not, in fact,
 		 * the one just written.
 		 */
-		snapshot?: { at: number; docVersion: number; index: Record<string, string> };
+		snapshot?: {
+			at: number;
+			docVersion: number;
+			index: Record<string, string>;
+		};
 		/**
 		 * Ruling 47, opt-in. When true AND `author === "user"`, this save updates
 		 * the latest version in place instead of appending — but only when that
@@ -453,7 +457,12 @@ export async function updateArtifactBody(
 	| { ok: true; versionId: string; bodyHash: string; versionNumber: number }
 	| {
 			ok: false;
-			reason: "not_found" | "too_large" | "stale" | "hash_mismatch" | "version_conflict";
+			reason:
+				| "not_found"
+				| "too_large"
+				| "stale"
+				| "hash_mismatch"
+				| "version_conflict";
 	  }
 > {
 	const row = await readScopedArtifactRow(params);
@@ -469,7 +478,10 @@ export async function updateArtifactBody(
 
 	return db.transaction((tx) => {
 		const current = tx
-			.select({ contentText: artifacts.contentText, metadataJson: artifacts.metadataJson })
+			.select({
+				contentText: artifacts.contentText,
+				metadataJson: artifacts.metadataJson,
+			})
 			.from(artifacts)
 			.where(eq(artifacts.id, row.id))
 			.get();
@@ -517,7 +529,8 @@ export async function updateArtifactBody(
 			params.coalesceUserEdits === true &&
 			params.author === "user" &&
 			latestVersionRow?.author === "user" &&
-			now.getTime() - latestVersionRow.createdAt.getTime() < ARTIFACT_USER_VERSION_COALESCE_MS;
+			now.getTime() - latestVersionRow.createdAt.getTime() <
+				ARTIFACT_USER_VERSION_COALESCE_MS;
 
 		let versionId: string;
 		let versionNumber: number;
@@ -527,7 +540,10 @@ export async function updateArtifactBody(
 					body: params.body,
 					bodyHash,
 					createdAt: now,
-					summary: clampChars(params.summary, ARTIFACT_VERSION_SUMMARY_MAX_CHARS),
+					summary: clampChars(
+						params.summary,
+						ARTIFACT_VERSION_SUMMARY_MAX_CHARS,
+					),
 				})
 				.where(eq(artifactVersions.id, latestVersionRow.id))
 				.run();

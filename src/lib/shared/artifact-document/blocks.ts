@@ -207,7 +207,9 @@ function isFencedCodeBlock(lines: string[]): boolean {
  */
 function stripStrayLeadingWhitespace(lines: string[]): string[] {
 	if (isFencedCodeBlock(lines)) return lines;
-	const hasListMarker = lines.some((l) => BULLET_LINE_RE.test(l) || ORDERED_LINE_RE.test(l));
+	const hasListMarker = lines.some(
+		(l) => BULLET_LINE_RE.test(l) || ORDERED_LINE_RE.test(l),
+	);
 	const hasTableRow = lines.some((l) => l.includes("|"));
 	if (hasListMarker || hasTableRow) return lines;
 	return lines.map((line) => line.replace(/^[ \t]+/, ""));
@@ -297,7 +299,10 @@ export function countMarkers(markdown: string): number {
 export function serializeDocument(blocks: DocumentBlock[]): string {
 	if (blocks.length === 0) return "";
 	return `${blocks
-		.map((block) => `${MARKER_PREFIX}${block.id}-->\n${normalizeMarkdown(block.markdown)}`)
+		.map(
+			(block) =>
+				`${MARKER_PREFIX}${block.id}-->\n${normalizeMarkdown(block.markdown)}`,
+		)
 		.join("\n\n")}\n`;
 }
 
@@ -332,7 +337,11 @@ function startsNewBlock(line: string): boolean {
 	if (HR_RE.test(line)) return true;
 	if (HEADING_RE.test(line)) return true;
 	if (BLOCKQUOTE_RE.test(line)) return true;
-	if (TASK_START_RE.test(line) || BULLET_START_RE.test(line) || ORDERED_START_RE.test(line)) {
+	if (
+		TASK_START_RE.test(line) ||
+		BULLET_START_RE.test(line) ||
+		ORDERED_START_RE.test(line)
+	) {
 		return true;
 	}
 	if (HTML_START_RE.test(line)) return true;
@@ -348,10 +357,17 @@ function startsNewBlock(line: string): boolean {
  */
 const LIST_ITEM_START_RE = /^\s*(?:[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/;
 
-function consumeSingleListItem(lines: string[], start: number): { text: string; next: number } {
+function consumeSingleListItem(
+	lines: string[],
+	start: number,
+): { text: string; next: number } {
 	const collected = [lines[start]];
 	let i = start + 1;
-	while (i < lines.length && /^\s+\S/.test(lines[i]) && !LIST_ITEM_START_RE.test(lines[i])) {
+	while (
+		i < lines.length &&
+		/^\s+\S/.test(lines[i]) &&
+		!LIST_ITEM_START_RE.test(lines[i])
+	) {
 		collected.push(lines[i]);
 		i += 1;
 	}
@@ -407,7 +423,8 @@ function splitIntoSegments(lines: string[]): Segment[] {
 
 		if (FENCE_RE.test(trimmed)) {
 			const fenceChar = trimmed[0];
-			const fenceLen = (new RegExp(`^\\${fenceChar}+`).exec(trimmed) ?? [""])[0].length;
+			const fenceLen = (new RegExp(`^\\${fenceChar}+`).exec(trimmed) ?? [""])[0]
+				.length;
 			const closeRe = new RegExp(`^\\${fenceChar}{${fenceLen},}\\s*$`);
 			const collected = [line];
 			i += 1;
@@ -419,7 +436,11 @@ function splitIntoSegments(lines: string[]): Segment[] {
 				collected.push(lines[i]);
 				i += 1;
 			}
-			segments.push({ type: "block", kind: "code", text: collected.join("\n") });
+			segments.push({
+				type: "block",
+				kind: "code",
+				text: collected.join("\n"),
+			});
 			continue;
 		}
 
@@ -438,22 +459,41 @@ function splitIntoSegments(lines: string[]): Segment[] {
 		if (BLOCKQUOTE_RE.test(line)) {
 			const collected = [line];
 			i += 1;
-			while (i < lines.length && (BLOCKQUOTE_RE.test(lines[i]) || lines[i].trim() === ">")) {
+			while (
+				i < lines.length &&
+				(BLOCKQUOTE_RE.test(lines[i]) || lines[i].trim() === ">")
+			) {
 				collected.push(lines[i]);
 				i += 1;
 			}
-			segments.push({ type: "block", kind: "blockquote", text: collected.join("\n") });
+			segments.push({
+				type: "block",
+				kind: "blockquote",
+				text: collected.join("\n"),
+			});
 			continue;
 		}
 
-		if (line.includes("|") && i + 1 < lines.length && isTableDelimiterRow(lines[i + 1])) {
+		if (
+			line.includes("|") &&
+			i + 1 < lines.length &&
+			isTableDelimiterRow(lines[i + 1])
+		) {
 			const collected = [line, lines[i + 1]];
 			i += 2;
-			while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+			while (
+				i < lines.length &&
+				lines[i].includes("|") &&
+				lines[i].trim() !== ""
+			) {
 				collected.push(lines[i]);
 				i += 1;
 			}
-			segments.push({ type: "block", kind: "table", text: collected.join("\n") });
+			segments.push({
+				type: "block",
+				kind: "table",
+				text: collected.join("\n"),
+			});
 			continue;
 		}
 
@@ -478,7 +518,11 @@ function splitIntoSegments(lines: string[]): Segment[] {
 				collected.push(lines[i]);
 				i += 1;
 			}
-			segments.push({ type: "block", kind: "other", text: collected.join("\n") });
+			segments.push({
+				type: "block",
+				kind: "other",
+				text: collected.join("\n"),
+			});
 			continue;
 		}
 
@@ -486,11 +530,19 @@ function splitIntoSegments(lines: string[]): Segment[] {
 		// blank line or a line that clearly starts a different kind of block.
 		const collected = [line];
 		i += 1;
-		while (i < lines.length && lines[i].trim() !== "" && !startsNewBlock(lines[i])) {
+		while (
+			i < lines.length &&
+			lines[i].trim() !== "" &&
+			!startsNewBlock(lines[i])
+		) {
 			collected.push(lines[i]);
 			i += 1;
 		}
-		segments.push({ type: "block", kind: "paragraph", text: collected.join("\n") });
+		segments.push({
+			type: "block",
+			kind: "paragraph",
+			text: collected.join("\n"),
+		});
 	}
 	return segments;
 }
@@ -518,7 +570,11 @@ function deriveLabel(markdown: string): string {
  * for a single block, so `parseDocument` and the patch engine (which rebuilds
  * a block after a text-level edit) can never compute a hash a different way.
  */
-export function makeBlock(id: string, kind: BlockKind, rawMarkdown: string): DocumentBlock {
+export function makeBlock(
+	id: string,
+	kind: BlockKind,
+	rawMarkdown: string,
+): DocumentBlock {
 	const normalized = normalizeMarkdown(rawMarkdown);
 	return {
 		id,
@@ -534,19 +590,30 @@ export function makeBlock(id: string, kind: BlockKind, rawMarkdown: string): Doc
  * computed, so the returned blocks always have ids. Never hash a document
  * that has not been through this function.
  */
-export function parseDocument(markdown: string, opts?: { mint?: boolean }): ParsedDocument {
+export function parseDocument(
+	markdown: string,
+	opts?: { mint?: boolean },
+): ParsedDocument {
 	const mint = opts?.mint !== false;
-	const rawLines = markdown.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+	const rawLines = markdown
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n")
+		.split("\n");
 	const segments = splitIntoSegments(rawLines);
 
-	const staged: { kind: BlockKind; text: string; absorbedId: string | null }[] = [];
+	const staged: { kind: BlockKind; text: string; absorbedId: string | null }[] =
+		[];
 	let pendingMarkerId: string | null = null;
 	for (const segment of segments) {
 		if (segment.type === "marker") {
 			pendingMarkerId = segment.id;
 			continue;
 		}
-		staged.push({ kind: segment.kind, text: segment.text, absorbedId: pendingMarkerId });
+		staged.push({
+			kind: segment.kind,
+			text: segment.text,
+			absorbedId: pendingMarkerId,
+		});
 		pendingMarkerId = null;
 	}
 	// A trailing marker with no following block is dropped: `pendingMarkerId`

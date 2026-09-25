@@ -106,7 +106,10 @@ function renderCell(spec: NonNullable<PatchOp["cells"]>[number]): string {
 }
 
 /** Appends one row to a table block's markdown. `null` means the row does not match the header's column count. */
-function appendTableRow(markdown: string, cells: NonNullable<PatchOp["cells"]>): string | null {
+function appendTableRow(
+	markdown: string,
+	cells: NonNullable<PatchOp["cells"]>,
+): string | null {
 	const lines = markdown.split("\n");
 	if (lines.length === 0) return null;
 	const headerCells = splitTableCells(lines[0]);
@@ -116,7 +119,10 @@ function appendTableRow(markdown: string, cells: NonNullable<PatchOp["cells"]>):
 }
 
 /** Flips (or sets) the checkbox on a task item's first line. `null` means the block is not a task item. */
-function toggleTaskItem(markdown: string, checked: boolean | undefined): string | null {
+function toggleTaskItem(
+	markdown: string,
+	checked: boolean | undefined,
+): string | null {
 	const lines = markdown.split("\n");
 	const match = /^(\s*[-*+]\s+)\[[ xX]\](.*)$/.exec(lines[0] ?? "");
 	if (!match) return null;
@@ -209,7 +215,8 @@ export function applyPatchSet(input: {
 					refusalCode = "empty_text";
 					break;
 				}
-				nextMarkdown = op.at === "start" ? `${text} ${before}` : `${before} ${text}`;
+				nextMarkdown =
+					op.at === "start" ? `${text} ${before}` : `${before} ${text}`;
 				break;
 			}
 			case "replaceRange": {
@@ -264,7 +271,11 @@ export function applyPatchSet(input: {
 		}
 
 		working[index] = makeBlock(block.id, block.kind, nextMarkdown as string);
-		inverses.push({ opId: op.opId, blockId: block.id, previousMarkdown: before });
+		inverses.push({
+			opId: op.opId,
+			blockId: block.id,
+			previousMarkdown: before,
+		});
 		outcomes.push({
 			opId: op.opId,
 			kind: op.kind,

@@ -425,7 +425,9 @@ describe("updateArtifactBody", () => {
 			body: "v2",
 			author: "alfy",
 			summary: "x",
-			metadataPatch: { tabs: [{ id: "t1", title: "Plan", startBlockId: "p1" }] },
+			metadataPatch: {
+				tabs: [{ id: "t1", title: "Plan", startBlockId: "p1" }],
+			},
 		});
 
 		const metadata = JSON.parse(artifactRow(artifact.id)?.metadataJson ?? "{}");

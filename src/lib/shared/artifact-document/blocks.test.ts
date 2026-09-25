@@ -8,7 +8,6 @@ import {
 	mintBlockId,
 	normalizeMarkdown,
 	parseDocument,
-	serializeDocument,
 } from "./blocks";
 
 // The Document's pure engine (spec §2.6, ruling 12). No Tiptap, no ProseMirror,
