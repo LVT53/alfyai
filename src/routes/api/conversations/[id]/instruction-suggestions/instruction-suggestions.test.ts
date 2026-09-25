@@ -1,4 +1,8 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import instructionsDict from "$lib/i18n/instructions";
 
 vi.mock("$lib/server/auth/hooks", () => ({
 	requireAuth: vi.fn(),
@@ -223,6 +227,38 @@ describe("POST /api/conversations/[id]/instruction-suggestions", () => {
 
 		expect(response.status).toBe(400);
 		expect(mockUpdateStatus).not.toHaveBeenCalled();
+	});
+
+	it("answers with errorKey values the dictionaries can actually translate", () => {
+		// Every response body this route builds carries an `errorKey` the client
+		// is expected to look up. A key no dictionary has is a raw
+		// "instructions.suggestionSomething" shown to the user — which is what
+		// this route did for its three request-shaped answers until the keys
+		// were added, so the literals are read back out of the route and
+		// checked against the dictionary rather than listed here.
+		//
+		// The transition-conflict `errorKey` is not collected: it is not a
+		// literal, it comes from the service as a stable machine code.
+		const routeSource = readFileSync(
+			resolve(dirname(fileURLToPath(import.meta.url)), "+server.ts"),
+			"utf8",
+		);
+		const literalErrorKeys = [
+			...routeSource.matchAll(/errorKey:\s*"([\w.]+)"/g),
+		].map((match) => match[1]);
+
+		expect(literalErrorKeys).toContain("instructions.suggestionNotFound");
+
+		const en: Record<string, string> = instructionsDict.en;
+		const hu: Record<string, string> = instructionsDict.hu;
+		for (const key of literalErrorKeys) {
+			expect(typeof en[key], `EN dictionary is missing "${key}"`).toBe(
+				"string",
+			);
+			expect(typeof hu[key], `HU dictionary is missing "${key}"`).toBe(
+				"string",
+			);
+		}
 	});
 
 	it("requires auth before it reads anything", async () => {

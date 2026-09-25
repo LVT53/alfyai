@@ -23,6 +23,11 @@ const instructionsDict = {
 		"instructions.suggestionA11y": "Add to instructions for {scope}: {text}",
 		"instructions.suggestionDismiss": "Dismiss",
 		"instructions.suggestionDismissFailed": "Could not dismiss the suggestion.",
+		"instructions.suggestionInvalidRequest":
+			"That suggestion request was incomplete.",
+		"instructions.suggestionInvalidStatus":
+			"A suggestion is answered as reviewed or dismissed.",
+		"instructions.suggestionNotFound": "Could not find that suggestion.",
 		"instructions.suggestionPrefix": "Add to instructions for",
 		"instructions.suggestionReview": "Review",
 		"instructions.suggestionReviewFailed": "Could not save the instructions.",
@@ -49,6 +54,10 @@ const instructionsDict = {
 		"instructions.suggestionDismiss": "Elvetés",
 		"instructions.suggestionDismissFailed":
 			"Nem sikerült elvetni a javaslatot.",
+		"instructions.suggestionInvalidRequest": "A javaslat kérése hiányos volt.",
+		"instructions.suggestionInvalidStatus":
+			"A javaslatot áttekintettként vagy elvetettként lehet lezárni.",
+		"instructions.suggestionNotFound": "Nem találtuk a javaslatot.",
 		"instructions.suggestionPrefix": "Hozzáadás az utasításokhoz:",
 		"instructions.suggestionReview": "Áttekintés",
 		"instructions.suggestionReviewFailed":
