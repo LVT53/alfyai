@@ -54,13 +54,29 @@ interface Props {
 	 * really is empty says so.
 	 */
 	files: ProjectKnowledgeItem[] | null;
+	/**
+	 * True when the route's most recent read never landed and `files` is still
+	 * `null` — a first read that failed for good, not one still in flight.
+	 * `files` alone cannot say this: it stays `null` in both cases. Left true
+	 * only until a read actually lands (see the route's `refreshProjectFiles`),
+	 * so a retry that is still pending shows the loading line again, not a
+	 * stale error.
+	 */
+	filesFailed: boolean;
 	/** The route re-reads the project's files and updates its own state. */
 	onRefresh: () => Promise<void>;
 	onClose: () => void;
 }
 
-let { open, projectId, projectName, files, onRefresh, onClose }: Props =
-	$props();
+let {
+	open,
+	projectId,
+	projectName,
+	files,
+	filesFailed,
+	onRefresh,
+	onClose,
+}: Props = $props();
 
 let searchQuery = $state("");
 let busyArtifactIds = $state<string[]>([]);
@@ -305,7 +321,22 @@ $effect(() => {
 				<span></span>
 			</div>
 
-			{#if files === null}
+			{#if filesFailed}
+				<!-- The read did not just start; it ran and lost. Checked before the
+				     `files === null` branch below, because a failed read leaves
+				     `files` exactly as `null` as a read still in flight does — this
+				     is what tells the two apart. -->
+				<div class="files-empty files-load-error" data-testid="project-files-error">
+					<p role="alert">{$t("projects.filesReadFailed")}</p>
+					<button
+						type="button"
+						class="dialog-btn"
+						onclick={() => void onRefresh()}
+					>
+						{$t("projects.filesRetry")}
+					</button>
+				</div>
+			{:else if files === null}
 				<!-- The route's first read has not landed. Not an empty project: the
 				     list says it is still being read rather than guessing. -->
 				<p class="files-empty" data-testid="project-files-loading" role="status">
@@ -576,6 +607,18 @@ $effect(() => {
 		padding: 18px 12px;
 		font-size: 13px;
 		color: var(--text-muted);
+	}
+
+	.files-load-error {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.files-load-error p {
+		margin: 0;
+		color: var(--danger);
 	}
 
 	.files-error {

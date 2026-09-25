@@ -31,14 +31,18 @@ function projectFile(
 	};
 }
 
-function open(files: ProjectKnowledgeItem[] | null) {
+function open(
+	files: ProjectKnowledgeItem[] | null,
+	options: { filesFailed?: boolean; onRefresh?: () => Promise<void> } = {},
+) {
 	return render(ProjectFilesDialog, {
 		props: {
 			open: true,
 			projectId: "project-1",
 			projectName: "Vienna trip",
 			files,
-			onRefresh: async () => undefined,
+			filesFailed: options.filesFailed ?? false,
+			onRefresh: options.onRefresh ?? (async () => undefined),
 			onClose: () => undefined,
 		},
 	});
@@ -47,6 +51,7 @@ function open(files: ProjectKnowledgeItem[] | null) {
 const search = () => screen.getByTestId("project-files-search");
 const emptyState = () => screen.getByTestId("project-files-empty");
 const loadingLine = () => screen.queryByTestId("project-files-loading");
+const errorState = () => screen.queryByTestId("project-files-error");
 const footerCount = () =>
 	screen.getByTestId("project-files-footer").textContent?.trim();
 
@@ -138,6 +143,43 @@ describe("ProjectFilesDialog before the list has been read", () => {
 
 		expect(loadingLine()).toBeNull();
 		expect(emptyState()).toHaveTextContent("No files yet.");
+	});
+});
+
+// A first read that never succeeds is not "still loading" — `files` stays
+// `null` exactly as it does while genuinely loading, so the page hands the
+// dialog a second signal for "and it is not coming" rather than leaving the
+// loading line on screen forever.
+describe("ProjectFilesDialog when the first read fails for good", () => {
+	it("says the read failed instead of loading forever, with no rows and no empty state", () => {
+		open(null, { filesFailed: true });
+
+		expect(errorState()).toHaveTextContent(
+			"Could not load this project's files.",
+		);
+		expect(loadingLine()).toBeNull();
+		expect(screen.queryByTestId("project-files-empty")).toBeNull();
+		expect(screen.queryByTestId("project-file-row")).toBeNull();
+	});
+
+	it("retries through the page's own refresh when Retry is pressed", async () => {
+		const onRefresh = vi.fn(async () => undefined);
+		open(null, { filesFailed: true, onRefresh });
+
+		await fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+		expect(onRefresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("stops showing the failure once a read lands, empty or not", async () => {
+		const { rerender } = open(null, { filesFailed: true });
+
+		await rerender({ files: [projectFile()], filesFailed: false });
+
+		expect(errorState()).toBeNull();
+		expect(screen.getByTestId("project-file-name")).toHaveTextContent(
+			"Wien itinerary.pdf",
+		);
 	});
 });
 

@@ -387,6 +387,51 @@ test.describe("Project files", () => {
 		await expect(dialogB.getByTestId("project-file-row")).toHaveCount(1);
 	});
 
+	test("shows a truthful error with a retry when the project's own file list never loads", async ({
+		page,
+	}) => {
+		const projectName = `Vienna trip ${randomUUID().slice(0, 8)}`;
+		const projectId = await createProject(page, projectName);
+		const documentName = `Museum list ${randomUUID().slice(0, 6)}.txt`;
+		await linkArtifacts(page, projectId, [
+			await uploadLibraryDocument(page, { name: documentName }),
+		]);
+
+		// Every read of the list fails until the flag below is flipped — both the
+		// page's own mount-time read and the one `openFilesDialog` triggers when
+		// the modal opens, so the window the unfixed page left showing "Loading…"
+		// forever is fully covered, not just its first attempt.
+		let failReads = true;
+		await page.route(
+			`**/api/projects/${projectId}/knowledge`,
+			async (route) => {
+				if (route.request().method() === "GET" && failReads) {
+					await route.fulfill({
+						status: 500,
+						contentType: "application/json",
+						body: JSON.stringify({ error: "Simulated failure" }),
+					});
+					return;
+				}
+				await route.continue();
+			},
+		);
+
+		const dialog = await openFilesDialog(page, projectId);
+		const errorState = dialog.getByTestId("project-files-error");
+		await expect(errorState).toContainText(
+			"Could not load this project's files.",
+		);
+		await expect(dialog.getByTestId("project-files-loading")).toHaveCount(0);
+		await expect(dialog.getByTestId("project-files-empty")).toHaveCount(0);
+		await expect(dialog.getByTestId("project-file-row")).toHaveCount(0);
+
+		failReads = false;
+		await dialog.getByRole("button", { name: "Retry" }).click();
+		await expect(fileRow(dialog, documentName)).toBeVisible();
+		await expect(errorState).toHaveCount(0);
+	});
+
 	test("uploads a file into the project, showing it in both the modal and the library", async ({
 		page,
 	}) => {

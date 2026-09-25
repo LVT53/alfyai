@@ -72,6 +72,13 @@ const projectsDict = {
 		"projects.filesLinkFailed": "Could not add the files to this project.",
 		"projects.filesUploadFailed": "Could not upload the file.",
 		"projects.filesLoadFailed": "Could not load your library.",
+		// The Files modal's own first read, distinct from `filesLoadFailed`
+		// above (the Add from library picker's read of the whole library): a
+		// read that never succeeds must say so rather than leaving the loading
+		// line on screen forever, and the retry button re-runs the page's own
+		// refresh — the same one every mutation in this dialog already ends with.
+		"projects.filesReadFailed": "Could not load this project's files.",
+		"projects.filesRetry": "Retry",
 		// The packet section's tail. A count, never a truncated name (Slice E,
 		// review focus 3): a clipped file name in the prompt reads as a real one.
 		"projects.filesMore": "+{count} more",
@@ -127,6 +134,8 @@ const projectsDict = {
 			"Nem sikerült hozzáadni a fájlokat a projekthez.",
 		"projects.filesUploadFailed": "Nem sikerült feltölteni a fájlt.",
 		"projects.filesLoadFailed": "Nem sikerült betölteni a könyvtárat.",
+		"projects.filesReadFailed": "Nem sikerült betölteni a projekt fájljait.",
+		"projects.filesRetry": "Újra",
 		"projects.filesMore": "+{count} további",
 		"projects.infoProjectFiles": "Projektfájlok",
 		"projects.infoProjectFilesValue": "{count} elolvasva · lásd a forrásokat ↓",
