@@ -662,15 +662,15 @@ describe("prepareOutboundChatContext", () => {
 		});
 
 		it("is byte-identical for the identical request phrased in EN vs HU", () => {
-			// Same fixed `responseLanguage` on both calls — this isolates the
-			// property under test (message WORDING/LANGUAGE must not move the
-			// assembled prompt) from the separate, intentional effect of the
-			// `responseLanguage` param itself (see buildResponseLanguageGuard).
+			// buildOutboundSystemPrompt has no responseLanguage param — the
+			// response-language guard lives in buildTurnGuidance's per-turn
+			// packet (see buildResponseLanguageGuard), never in the cacheable
+			// system message. This isolates exactly that: message
+			// WORDING/LANGUAGE alone must not move the assembled system prompt.
 			const en = buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
 				inputValue:
 					"Is this still true today? Back it with a source and verify official policy.",
-				responseLanguage: "en",
 				modelDisplayName: "Provider Model",
 				fileProductionToolsAvailable: true,
 			});
@@ -678,7 +678,6 @@ describe("prepareOutboundChatContext", () => {
 				basePrompt: "Base system prompt",
 				inputValue:
 					"Ez ma is igaz még? Támaszd alá egy forrással, és ellenőrizd a hivatalos szabályzatot.",
-				responseLanguage: "en",
 				modelDisplayName: "Provider Model",
 				fileProductionToolsAvailable: true,
 			});
@@ -747,18 +746,16 @@ describe("prepareOutboundChatContext", () => {
 
 		// P2 prompt diet, review outcome 1 — prefix stability is a property of
 		// the whole system message, so two turns of the SAME conversation
-		// (same base prompt, model, connections, depth, personality, personal
-		// instructions, and explicit responseLanguage) must produce a
-		// byte-identical system prompt no matter how the current user message
-		// is worded, and the trailing section order (Runtime Guidance, then
-		// Response Style, then the user's own instructions) must not move
-		// around.
+		// (same base prompt, model, connections, depth, personality, and
+		// personal instructions) must produce a byte-identical system prompt
+		// no matter how the current user message is worded, and the trailing
+		// section order (Runtime Guidance, then Response Style, then the
+		// user's own instructions) must not move around.
 		it("is byte-identical for two calls differing only in the user message, with the trailing section order unchanged", () => {
 			const buildForMessage = (inputValue: string) =>
 				buildOutboundSystemPrompt({
 					basePrompt: "Base system prompt",
 					inputValue,
-					responseLanguage: "en",
 					modelDisplayName: "Provider Model",
 					fileProductionToolsAvailable: true,
 					hasActiveConnections: true,
@@ -814,7 +811,6 @@ describe("prepareOutboundChatContext", () => {
 			return buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
 				inputValue: "What's the weather like tomorrow?",
-				responseLanguage: "en",
 				modelDisplayName: "Provider Model",
 				fileProductionToolsAvailable: true,
 				personalityPrompt,
@@ -1237,7 +1233,6 @@ describe("prepareOutboundChatContext", () => {
 			const prompt = buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
 				inputValue: "Hello",
-				responseLanguage: "en",
 				personalityPrompt: oversizedPersonality,
 			});
 
@@ -1259,7 +1254,6 @@ describe("prepareOutboundChatContext", () => {
 			const prompt = buildOutboundSystemPrompt({
 				basePrompt: "Base system prompt",
 				inputValue: "Hello",
-				responseLanguage: "en",
 				personalityPrompt: personality,
 			});
 
@@ -1411,7 +1405,6 @@ describe("prepareOutboundChatContext", () => {
 		const system = buildOutboundSystemPrompt({
 			basePrompt: "Base system prompt",
 			inputValue: "Mi a helyzet ma?",
-			responseLanguage: "hu",
 		});
 		expect(system).not.toContain("SYSTEM TIME CONTEXT");
 		expect(system).not.toContain("Response language policy");
