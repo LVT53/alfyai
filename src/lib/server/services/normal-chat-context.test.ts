@@ -1424,6 +1424,27 @@ describe("prepareOutboundChatContext", () => {
 		expect(appendTurnGuidance("Hello", "")).toBe("Hello");
 	});
 
+	// Language review (2026-09-25), hunt item 3: a request like "Translate
+	// this to German: Guten Tag" or "Write an email to my landlord in
+	// Hungarian" asks for specific CONTENT in one language while the
+	// resolved reply frame can be a different language (or the same
+	// language coincidentally). The guard's "hard requirement... MUST
+	// respond in X" wording must not read as forbidding the model from
+	// producing the actually-requested foreign-language content — that
+	// would silently break translation/foreign-content requests, which is
+	// the opposite failure mode from the original Hungarian-drift bug.
+	it("tells the model to honor an explicit request for content in another language without forcing the whole reply into it", () => {
+		const guidance = buildTurnGuidance({
+			message: "Translate this to German: Guten Tag",
+			responseLanguage: "en",
+		});
+		expect(guidance).toMatch(
+			/produce specific content in (a different|another) language/i,
+		);
+		expect(guidance).toMatch(/write (that|it|the) .*(requested language|language asked for|language it was asked for)/i);
+		expect(guidance).toMatch(/does not change the required response language/i);
+	});
+
 	it("uses neutral trace and warning labels while preparing attachment context", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
