@@ -527,6 +527,42 @@ test.describe("chat scroll — content that arrives late", () => {
 			await expect(page.getByTestId("jump-to-latest-button")).toBeVisible();
 		});
 	}
+
+	test("jumping back to the latest message keeps it in view when late content lands", async ({
+		page,
+	}) => {
+		// The button asks for the latest message just as opening the
+		// conversation does, so what lands after it is held in view the same way.
+		const label = "jump to latest then late";
+		await page.setViewportSize(DESKTOP);
+		await login(page);
+		const image = await holdLateImage(page);
+		const conversationId = await seedLongConversation(label, {
+			lateImage: true,
+		});
+		await page.goto(`/chat/${conversationId}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await waitForHydration(page);
+		await waitForThreadRendered(page, label);
+		await image.wasRequested;
+		await wheelThread(page, -700);
+
+		await page.getByTestId("jump-to-latest-button").click();
+		await waitForScrollToSettle(page);
+		await expectLatestMessageInView(page);
+		const before = await readThreadView(page);
+		image.release();
+		await expect(page.locator(".markdown-image-frame--loaded")).toBeAttached({
+			timeout: 10000,
+		});
+		await waitForScrollToSettle(page);
+
+		expect((await readThreadView(page)).maxScrollTop).toBeGreaterThan(
+			before.maxScrollTop + 100,
+		);
+		await expectLatestMessageInView(page);
+	});
 });
 
 /**
