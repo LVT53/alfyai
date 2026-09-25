@@ -379,6 +379,41 @@ test.describe("chat scroll — opening a conversation", () => {
 		await expect(page.getByText(finalLineFor(label))).not.toBeInViewport();
 	});
 
+	test("a link to one message loads without an error and drops the link from the address", async ({
+		page,
+	}) => {
+		// Loaded straight from the address bar, the page hydrates before the
+		// router starts; the address must still lose `?focus_message=` (a reload
+		// would otherwise jump to that message again) and nothing may throw.
+		const errors: string[] = [];
+		page.on("pageerror", (error) => errors.push(error.message));
+		const label = "focus a message on a full load";
+		await page.setViewportSize(DESKTOP);
+		await login(page);
+		const conversation = await createServerConversation(
+			await adminUserId(),
+			`Scroll on load: ${label}`,
+		);
+		await createMessage(conversation.id, "user", "The first question?");
+		const focused = await createMessage(
+			conversation.id,
+			"assistant",
+			longReply("the first question"),
+		);
+		await createMessage(conversation.id, "user", "The second question?");
+		await createMessage(conversation.id, "assistant", longReply(label));
+
+		await page.goto(`/chat/${conversation.id}?focus_message=${focused.id}`, {
+			waitUntil: "domcontentloaded",
+		});
+		await waitForHydration(page);
+		await waitForThreadRendered(page, label);
+
+		await expect(page.locator(`#message-${focused.id}`)).toBeInViewport();
+		await expect(page).not.toHaveURL(/focus_message=/);
+		expect(errors).toEqual([]);
+	});
+
 	test("a reload made while reading history comes back to that place, not the top", async ({
 		page,
 	}) => {
