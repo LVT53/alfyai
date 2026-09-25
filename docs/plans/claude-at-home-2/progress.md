@@ -160,6 +160,19 @@ Documents, T4/T10's @Alfy path/T13 blocked on 5a; S2 in `art-s2` (5430) — Apps
 merge `feat/artifacts` themselves once 5a has merged there, else stop and report. Reviews after: RV-5a (sonnet), RV-1A
 (opus, patch protocol), RV-1B (sonnet, editor), RV-2A (opus, sandbox/CSP), RV-2B (sonnet, generation).
 
+**Slice 5a DONE (2026-09-26 ~00:30), in review.** `feat/artifacts-s5a` in `art-s5a`, HEAD `cb9a0775` (4 commits on
+`2bf644aa`: `1b24cf93` catalogue, `05b0f80c` the three tools, `623473b9` harness core, `cb9a0775` retry wiring). Gates:
+check 0/17, biome clean, **12,356 tests**, build 32/2, Fallow 124/4 identical, containment 24 unchanged, Playwright 37/37.
+Catalogue ceiling raised once to `{ en: 4830, hu: 7850 }` (measured 4,804 / 7,823), snapshots regenerated. Its
+deviations are confirmed as **ruling 50** (three per-tool registries, the refusal union widened by type slices,
+candidates on a failed edit, read defaults to "full", per-case circuit breaker, bare `tsx`). Two notes: it built the
+harness from the ADR text because the apps-quality prototype is a folder, not a branch (Slice 2 aligns its suites with
+the folder); and it opened the real `~/.config/opencode/opencode.json` to learn the fallback's shape (it reports no key
+copied anywhere; the owner has been told; RV-5a greps the diff). S1 and S2 were sent the seam API.
+**RV-5a (sonnet) running** in `rv-5a` (branch `feat/artifacts-s5a-review` from `cb9a0775`, port 5570): byte stability,
+scope fields, containment incl. the catalogue read, catalogue text hygiene, EN/HU parity, tool behaviour and caps,
+gating, harness key rule. Findings → `review-5a.md` on its branch.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
@@ -176,5 +189,7 @@ merge `feat/artifacts` themselves once 5a has merged there, else stop and report
 
 ## Next action
 
-Wait for the five agents' reports; review Wave 0 (three Opus reviewers) and merge it into `dev`; deploy the dev
-environment; merge `dev` into `feat/artifacts`; review S0 (two Opus reviewers) before dispatching Wave 2.
+RV-5a reports → merge `feat/artifacts-s5a-review` into `feat/artifacts-s5a` → `feat/artifacts` (gates in `art-base`)
+so S1/S2 unblock (they merge `feat/artifacts` themselves). Then wait for S1/S2's reports → RV-1A (opus), RV-1B,
+RV-2A (opus), RV-2B → merge wave 2 → `dev` → push → deploy dev → real-model checks. Review ports: RV-5a 5570; next
+free 5580, 5590, 5620, 5630 (5600 is Phase 4's, 5610 was used).

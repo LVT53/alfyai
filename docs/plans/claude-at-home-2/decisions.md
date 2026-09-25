@@ -438,6 +438,28 @@ slices 1–6 were written against it (`ok: true` appears in each), but Slice 0 s
 post-review integration step, with the client parser and tests updated in the same commit. The failure shape
 `{ ok: false, reason }` is unchanged, and a foreign id and a missing id keep byte-identical 404 bodies.
 
+## 50. The artifact tools' dispatch seam, as Slice 5a built it
+
+*Orchestrator, 2026-09-26, confirming Slice 5a's report.* Slices 1–4 code against this; where `slice-5.md`'s
+sketches differ, this wins.
+- **Three registries, one per tool**, each `Partial<Record<CreatableArtifactKind, Handler>>`:
+  `CREATE_ARTIFACT_HANDLERS`, `READ_ARTIFACT_HANDLERS` and `EDIT_ARTIFACT_HANDLERS` in
+  `normal-chat-tools/artifact-tools/{create,read,edit}.ts`. A type slice appends one entry per tool it supports,
+  in those files only (ruling 43 unchanged: nobody else edits `normal-chat-tools/index.ts` or `shared.ts`).
+  File has no entries: `read_artifact` answers a File with a short summary from `getArtifact()`, and
+  `edit_artifact` refuses it.
+- **`ArtifactRefusalReason`** (edit.ts) starts as `"unsupported_kind"`. Each type slice widens it with `|` from
+  its own refusal union, under whatever name that union really has, and never redeclares it.
+- **An edit on an unknown id** answers `success: false` with the conversation's own candidates, as a read does.
+- **`read_artifact` without `detail` reads `"full"`.** Whether a full read reaching the model needs a size bound is
+  an open question for RV-5a's report.
+- **The harness circuit breaker** counts a case's outcome after its one retry: two consecutive cases ending in
+  429/5xx stop the run. The npm scripts call bare `tsx`, like the repo's other scripts.
+- **The harness core was built from the ADR text** (the apps-quality prototype is a plain folder,
+  `.claude/worktrees/agent-afcaa6f617ee84abe/scripts/prototype-artifact-apps/`, not a branch, and 5a could not
+  find it). Slice 2 aligns its App and verification suites with that prototype and reports any change the core
+  needs.
+
 ## Consequences for the slice specs (cumulative)
 
 - Slice 3: body list loses `comments`; the perf gate is split as §9.
