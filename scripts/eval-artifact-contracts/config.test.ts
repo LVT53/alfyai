@@ -1,8 +1,10 @@
+import { dirname, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { resolveEvalArtifactsConfig } from "./config";
 
 describe("resolveEvalArtifactsConfig", () => {
-	it("defaults to suite=all, thinking=off, outDir=results, everything else unset", () => {
+	it("defaults to suite=all, thinking=off, everything else unset", () => {
 		const config = resolveEvalArtifactsConfig({});
 
 		expect(config).toEqual({
@@ -12,11 +14,39 @@ describe("resolveEvalArtifactsConfig", () => {
 			replay: false,
 			skipEval: false,
 			thinking: "off",
-			outDir: "results",
+			// Asserted precisely, separately, below — it must be an absolute
+			// path, not the bare cwd-relative string this used to be.
+			outDir: expect.any(String),
 			baseUrl: null,
 			model: null,
 			apiKey: null,
 		});
+	});
+
+	it("defaults outDir to an absolute path under this harness's own gitignored results/, independent of cwd", () => {
+		// A relative default ("results") would resolve against
+		// process.cwd() in run.ts (`resolve(process.cwd(), outDir)`), so a
+		// run from the repo root landed outside
+		// scripts/eval-artifact-contracts/results/* — the directory
+		// .gitignore actually excludes — and could be committed by
+		// accident. The default must be absolute and anchored to this
+		// module's own location, not the invoking shell's cwd.
+		//
+		// Built with dirname(fileURLToPath(import.meta.url)), NOT
+		// fileURLToPath(new URL(".", import.meta.url)): the latter is
+		// Vite's own static asset-URL convention, so under vitest it
+		// silently resolves to an http://localhost dev-server URL instead
+		// of a real file: path — see config.ts's DEFAULT_OUT_DIR comment.
+		const config = resolveEvalArtifactsConfig({});
+		const thisDir = dirname(fileURLToPath(import.meta.url));
+
+		expect(isAbsolute(config.outDir)).toBe(true);
+		expect(config.outDir).toBe(join(thisDir, "results"));
+		expect(
+			config.outDir.endsWith(
+				join("scripts", "eval-artifact-contracts", "results"),
+			),
+		).toBe(true);
 	});
 
 	it("reads every switch from its own env var", () => {

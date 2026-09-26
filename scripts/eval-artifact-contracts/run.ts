@@ -25,7 +25,7 @@
 // Run with: npx tsx scripts/eval-artifact-contracts/run.ts --suite <name>
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { EVAL_CASES } from "./cases";
@@ -516,8 +516,14 @@ export async function main(
 		}
 	}
 
+	// dirname(fileURLToPath(import.meta.url)), NOT
+	// fileURLToPath(new URL(".", import.meta.url)): the latter matches
+	// Vite's own static asset-URL convention, so a test harness that loads
+	// this file through Vite (vitest) — unlike plain `tsx` — would rewrite
+	// it into a dev-server URL instead of resolving the real `file:` path.
+	// See config.ts's `DEFAULT_OUT_DIR` comment for the full story.
 	const fixturesRoot = join(
-		fileURLToPath(new URL(".", import.meta.url)),
+		dirname(fileURLToPath(import.meta.url)),
 		"fixtures",
 	);
 	const log = (message: string) =>

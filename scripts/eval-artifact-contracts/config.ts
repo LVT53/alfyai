@@ -7,7 +7,9 @@
 // (defaulting to `process.env`) rather than reading it ad hoc, so this is
 // unit-testable with a plain object and never needs `process.env` mutated
 // in a test.
+import { dirname, join } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 /** Fixed sampling, identical to the App prototype so results are comparable
  * across runs — never env-configurable. */
@@ -17,6 +19,38 @@ export const EVAL_ARTIFACTS_SAMPLING = {
 	topK: 20,
 	maxTokens: 24_000,
 } as const;
+
+/**
+ * Absolute, anchored to this module's own directory — NOT to
+ * `process.cwd()`. `run.ts` resolves `outDir` with
+ * `resolve(process.cwd(), outDir)`, which honours an absolute path as
+ * given (`path.resolve` stops as soon as it hits an absolute segment) and
+ * only falls back to joining onto cwd for a relative one. A plain
+ * `"results"` default resolved against whatever cwd a run was invoked from
+ * — `scripts/eval-artifact-contracts/results/*` is what `.gitignore`
+ * actually excludes, so a run from the repo root wrote to
+ * `<repo-root>/results/` instead, outside that ignore rule and one `git
+ * add` away from being committed by accident. An explicit `--out`/
+ * `EVAL_ARTIFACTS_OUT` still works exactly as given (relative resolves
+ * against cwd, absolute is used as-is) — only the default changes.
+ *
+ * Deliberately `dirname(fileURLToPath(import.meta.url))`, NOT
+ * `fileURLToPath(new URL(".", import.meta.url))`: the latter is Vite's own
+ * documented static asset-URL convention (any literal `new URL(x,
+ * import.meta.url)` source pattern), so under vitest — which loads this
+ * file through Vite, not plain Node — it gets rewritten into a dev-server
+ * URL (`http://localhost:3000/...`) instead of resolving the real `file:`
+ * path, and `fileURLToPath` then throws. That rewrite is a source-level
+ * match on the call shape itself, so it fires no matter which `URL`
+ * binding is in scope. `fileURLToPath(import.meta.url)` alone (no `new
+ * URL()` call at all, the same idiom run.ts already uses for its own
+ * this-file check) isn't part of that convention and resolves correctly
+ * under both plain `tsx` and vitest.
+ */
+const DEFAULT_OUT_DIR = join(
+	dirname(fileURLToPath(import.meta.url)),
+	"results",
+);
 
 /** Strictly sequential, one retry maximum, stop after two consecutive
  * 429/5xx — the App prototype's own discipline (run.ts:13-14, :215-255),
@@ -43,6 +77,11 @@ export interface EvalArtifactsConfig {
 	 * against its own contract rather than offering a live choice, but the
 	 * switch exists so a suite can request either mode explicitly. */
 	thinking: EvalArtifactsThinkingMode;
+	/** Defaults to `DEFAULT_OUT_DIR` (absolute, under this harness's own
+	 * gitignored `results/`) — never a bare `"results"` that would resolve
+	 * against whatever cwd a run happens to be invoked from. An explicit
+	 * `--out`/`EVAL_ARTIFACTS_OUT` overrides this and is used exactly as
+	 * given. */
 	outDir: string;
 	/** Both required for a live (non-`--replay`) run — `client.ts`'s
 	 * `resolveEvalArtifactsClient` throws naming both if either is unset.
@@ -104,7 +143,7 @@ export function resolveEvalArtifactsConfig(
 			readTrimmed(env, "EVAL_ARTIFACTS_THINKING")?.toLowerCase() === "on"
 				? "on"
 				: "off",
-		outDir: readTrimmed(env, "EVAL_ARTIFACTS_OUT") ?? "results",
+		outDir: readTrimmed(env, "EVAL_ARTIFACTS_OUT") ?? DEFAULT_OUT_DIR,
 		baseUrl: readTrimmed(env, "EVAL_ARTIFACTS_BASE_URL"),
 		model: readTrimmed(env, "EVAL_ARTIFACTS_MODEL"),
 		apiKey: readTrimmed(env, "EVAL_ARTIFACTS_API_KEY"),
