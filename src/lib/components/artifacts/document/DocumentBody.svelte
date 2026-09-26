@@ -257,10 +257,51 @@ function mentionsAlfy(text: string): boolean {
 	return /@alfy\b/i.test(text);
 }
 
-async function maybeAskAlfy(commentId: string): Promise<void> {
+/** `Anchor` is a union across the whole family (text/node/point) — a Document comment's is always `"text"`, the only kind that names a block. */
+function textAnchorBlockId(anchor: Anchor | null | undefined): string | null {
+	return anchor?.kind === "text" ? anchor.blockId : null;
+}
+
+/** The block an `@Alfy` reply's own thread is anchored to — a reply carries no anchor of its own, only its thread root does. */
+function findThreadBlockId(commentId: string): string | null {
+	for (const comment of comments) {
+		if (comment.id === commentId) return textAnchorBlockId(comment.anchor);
+		for (const reply of comment.replies) {
+			if (reply.id === commentId) return textAnchorBlockId(comment.anchor);
+		}
+	}
+	return null;
+}
+
+/**
+ * T8 live: "`@Alfy` comment replies that apply a change go through the same
+ * marks path." The comment route never returns the ops it tried (only
+ * `{outcome, applied, refused, version}` — `comments.ts`'s
+ * `AlfyCommentReplyResult`), but every `@Alfy` patch is scoped to exactly
+ * ONE block (the thread's own anchor), so a synthetic single-op `PatchSet`
+ * targeting that block, run through the SAME `reconstructDocumentPatch` +
+ * `applyAlfyChangesFn` the tool-call path uses, marks it correctly — as
+ * `replaceBlock` (never `insertText`/`replaceRange`, the two ops
+ * `applyAlfyChangeMarks` would try to mark PRECISELY): the browser was never
+ * told which of the three op kinds the server actually chose, so marking the
+ * whole block is the honest, always-correct representation of "this block
+ * changed," not a guess at a narrower range.
+ */
+async function maybeAskAlfy(
+	commentId: string,
+	blockId: string | null,
+): Promise<void> {
 	const conversationId = panelConversationId ?? null;
+	const previousBlocksById = new Map(blocks.map((b) => [b.id, b]));
+	let outcome: Awaited<ReturnType<typeof askAlfyInComment>>["outcome"] | null =
+		null;
 	try {
-		await askAlfyInComment(boundArtifactId, commentId, conversationId);
+		const result = await askAlfyInComment(
+			boundArtifactId,
+			commentId,
+			conversationId,
+		);
+		outcome = result.outcome;
 	} catch {
 		// The reply (or refusal) already lives in the thread when the call
 		// succeeds; a failed call here just leaves the thread as it was — the
@@ -268,6 +309,41 @@ async function maybeAskAlfy(commentId: string): Promise<void> {
 	} finally {
 		await refreshAfterCommentChange();
 	}
+
+	if (outcome !== "applied" || !blockId || !editor || !applyAlfyChangesFn) {
+		return;
+	}
+	const previous = previousBlocksById.get(blockId);
+	const reconstructed = reconstructDocumentPatch(
+		{
+			key: `alfy-comment-${commentId}`,
+			artifactId: boundArtifactId,
+			toolName: "edit_artifact",
+			status: "applied",
+			label: null,
+			patches: [{ op: "replaceBlock", blockId, baseHash: previous?.hash ?? "" }],
+			refusedBlocks: [],
+			appliedCount: 1,
+		},
+		previousBlocksById,
+	);
+	if (!reconstructed) return;
+	const entries = applyAlfyChangesFn(editor, reconstructed, reconstructed.patch);
+	const nextPending = new Map(pendingChanges);
+	const nextPositions = new Map(changePositions);
+	for (const entry of entries) {
+		nextPending.set(entry.changeId, { entry, status: "pending" });
+		const rect = changeMarkRectFn?.(editor, entry.changeId);
+		if (rect && contentEl) {
+			const hostRect = contentEl.getBoundingClientRect();
+			nextPositions.set(entry.changeId, {
+				x: rect.left - hostRect.left,
+				y: rect.bottom - hostRect.top,
+			});
+		}
+	}
+	pendingChanges = nextPending;
+	changePositions = nextPositions;
 }
 
 async function postComment(anchor: Anchor, body: string): Promise<void> {
@@ -280,7 +356,9 @@ async function postComment(anchor: Anchor, body: string): Promise<void> {
 		conversationId,
 	);
 	await refreshAfterCommentChange();
-	if (mentionsAlfy(body)) await maybeAskAlfy(created.id);
+	if (mentionsAlfy(body)) {
+		await maybeAskAlfy(created.id, textAnchorBlockId(anchor));
+	}
 }
 
 async function postReply(parentId: string, body: string): Promise<void> {
@@ -293,7 +371,9 @@ async function postReply(parentId: string, body: string): Promise<void> {
 		conversationId,
 	);
 	await refreshAfterCommentChange();
-	if (mentionsAlfy(body)) await maybeAskAlfy(created.id);
+	if (mentionsAlfy(body)) {
+		await maybeAskAlfy(created.id, findThreadBlockId(parentId));
+	}
 }
 
 async function handleCommentResolve(

@@ -885,6 +885,132 @@ describe("DocumentBody", () => {
 			);
 		});
 
+		it("marks the thread's own anchored block once an @Alfy reply applies (T8 live, the same marks path)", async () => {
+			mockCreateArtifactComment.mockResolvedValue(
+				commentFixture({ body: "@Alfy change it." }),
+			);
+			mockAskAlfyInComment.mockResolvedValue({
+				outcome: "applied",
+				applied: 1,
+				refused: 0,
+				version: 2,
+				reply: commentFixture({
+					id: "comment-2",
+					author: "alfy",
+					body: "Done.",
+				}),
+			});
+			mockFetchArtifact
+				.mockResolvedValueOnce(ARTIFACT_DETAIL())
+				.mockResolvedValueOnce(ARTIFACT_DETAIL())
+				.mockResolvedValueOnce(
+					ARTIFACT_DETAIL({ body: "<!--b:p1-->\nGoodbye.", versionNumber: 2 }),
+				);
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "alfy-comment-comment-1",
+					blockId: "p1",
+					blockLabel: "Hello.",
+					previousMarkdown: "Hello.",
+				},
+			]);
+
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 0, left: 0, right: 0, bottom: 0 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "@Alfy change it." },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+
+			await waitFor(() =>
+				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
+			);
+			// The comment's OWN anchored block (p1, from `commentFixture()`) is
+			// what gets marked, as a whole-block `replaceBlock` — the browser is
+			// never told which of the three op kinds the server actually ran.
+			const [, reconstructed, patchSet] = mockApplyAlfyChanges.mock.calls[0];
+			expect(patchSet.ops).toEqual([
+				expect.objectContaining({ kind: "replaceBlock", blockId: "p1" }),
+			]);
+			expect(reconstructed.outcomes).toEqual([
+				expect.objectContaining({ blockId: "p1", status: "applied" }),
+			]);
+			await waitFor(() =>
+				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+			);
+		});
+
+		it("never asks for marks when the @Alfy reply only answered (nothing changed)", async () => {
+			mockCreateArtifactComment.mockResolvedValue(
+				commentFixture({ body: "@Alfy is this a good idea?" }),
+			);
+			mockAskAlfyInComment.mockResolvedValue({
+				outcome: "answered",
+				applied: 0,
+				refused: 0,
+				version: 1,
+				reply: commentFixture({
+					id: "comment-2",
+					author: "alfy",
+					body: "Yes, looks good.",
+				}),
+			});
+			mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
+
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			mockReadSelectionAnchorContext.mockReturnValue({
+				blockId: "p1",
+				quote: "Hello",
+				prefix: "",
+				suffix: ".",
+				rect: { top: 0, left: 0, right: 0, bottom: 0 },
+			});
+			(latestEditor().options.onSelectionUpdate as () => void)();
+			await waitFor(() =>
+				expect(screen.getByTestId("selection-bubble")).toBeInTheDocument(),
+			);
+			await fireEvent.click(screen.getByRole("button", { name: "Ask Alfy" }));
+			await fireEvent.input(screen.getByRole("textbox"), {
+				target: { value: "@Alfy is this a good idea?" },
+			});
+			await fireEvent.click(screen.getByRole("button", { name: "Post" }));
+
+			await waitFor(() =>
+				expect(mockAskAlfyInComment).toHaveBeenCalledTimes(1),
+			);
+			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
+			expect(screen.queryByTestId("alfy-change-bar")).not.toBeInTheDocument();
+		});
+
 		it("resolves a comment through the margin's own action", async () => {
 			mockFetchArtifact.mockResolvedValue(
 				ARTIFACT_DETAIL({}, [commentFixture()]),
