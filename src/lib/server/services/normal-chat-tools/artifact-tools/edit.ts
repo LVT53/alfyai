@@ -17,35 +17,51 @@ import type {
 	PatchSet,
 } from "$lib/shared/artifact-document/patch";
 import { truncateText } from "../shared";
-import type { CreatableArtifactKind } from "./create";
+import {
+	editArtifactOpsFieldDescription,
+	editArtifactPatchesFieldDescription,
+} from "./kind-prose";
+import {
+	advertisedArtifactKinds,
+	type CreatableArtifactKind,
+} from "./kind-registry";
 
-/** Advertised to the model. `patches`/`ops` stay permissive on purpose (below). */
-export const editArtifactModelInputSchema = z.object({
-	artifactId: z
-		.string()
-		.min(1)
-		.describe(
-			"The id from create_artifact, read_artifact or the artifact catalogue.",
-		),
-	patches: z
-		.array(z.unknown())
-		.optional()
-		.describe(
-			"Documents and Slides only: [{op, blockId|slideId, fieldId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
-		),
-	ops: z
-		.array(z.unknown())
-		.optional()
-		.describe(
-			"Canvas only: [{op:'add_frame'|'add_node'|'move'|'add_edge'|'remove_edge'|'update_node'|'remove_node'|'highlight', ...}], at most 40.",
-		),
-	summary: z
-		.string()
-		.min(1)
-		.max(200)
-		.optional()
-		.describe("One short line shown next to Keep/Undo."),
-});
+/**
+ * Advertised to the model. `patches`/`ops` stay permissive on purpose
+ * (below) — but each is only DESCRIBED while a kind that actually uses it is
+ * advertised (kind-registry.ts's advertisedArtifactKinds()); an undescribed
+ * field for a kind nobody can create yet would just be a token cost with
+ * nothing to point at. Built fresh from `kinds` for the same reason
+ * buildCreateArtifactModelInputSchema (create.ts) is: a newly registered
+ * handler must be reflected the next time this is called, not frozen at
+ * module load.
+ */
+export function buildEditArtifactModelInputSchema(
+	kinds: readonly CreatableArtifactKind[] = advertisedArtifactKinds(),
+) {
+	const patches = z.array(z.unknown()).optional();
+	const patchesDescription = editArtifactPatchesFieldDescription(kinds);
+	const ops = z.array(z.unknown()).optional();
+	const opsDescription = editArtifactOpsFieldDescription(kinds);
+	return z.object({
+		artifactId: z
+			.string()
+			.min(1)
+			.describe(
+				"The id from create_artifact, read_artifact or the artifact catalogue.",
+			),
+		patches: patchesDescription
+			? patches.describe(patchesDescription)
+			: patches,
+		ops: opsDescription ? ops.describe(opsDescription) : ops,
+		summary: z
+			.string()
+			.min(1)
+			.max(200)
+			.optional()
+			.describe("One short line shown next to Keep/Undo."),
+	});
+}
 
 /** Executed against: the caps are the server's, and they are enforced here. */
 export const editArtifactInputSchema = z.object({

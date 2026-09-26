@@ -39,18 +39,28 @@ import {
 } from "$lib/server/services/web-grounding";
 import { isTextLikeExtension } from "$lib/shared/file-types/production";
 import {
+	advertisedArtifactKinds,
+	buildCreateArtifactInputSchema,
+	buildCreateArtifactModelInputSchema,
+	type CreatableArtifactKind,
 	type CreateArtifactModelPayload,
-	createArtifactInputSchema,
-	createArtifactModelInputSchema,
 	MAX_CREATE_ARTIFACT_CALLS_PER_TURN,
 	runCreateArtifactTool,
 } from "./artifact-tools/create";
 import {
+	buildEditArtifactModelInputSchema,
 	type EditArtifactModelPayload,
 	editArtifactInputSchema,
-	editArtifactModelInputSchema,
 	runEditArtifactTool,
 } from "./artifact-tools/edit";
+import {
+	artifactKindListEn,
+	artifactKindListHu,
+	artifactKindListHuAccusative,
+	createArtifactChoiceClause,
+	createArtifactUseCasePhrase,
+	editArtifactRuleClause,
+} from "./artifact-tools/kind-prose";
 import {
 	type ReadArtifactModelPayload,
 	readArtifactInputSchema,
@@ -306,21 +316,6 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Read a file's full current text in THIS conversation or its project — one produced here, one uploaded or linked here (under Conversation Files), or one linked to the project (under Project Files) — by `filename` or `requestTitle`. Name a project's file to read it: that list only says it exists. Call it before `produce_file` patches (a non-exact oldText is rejected), or when the user wants more of a document than your context shows. Long text arrives in windows: on `hasMore`, call again with `from: nextFrom`. Pass `query` for up to 3 passages about a topic instead of the window. For a paged document pass `page`; excerpts carry citable `[p. 3]`/`[slide 2]` markers. Do not use it for connected cloud storage (files), web pages (fetch_url), remembered preferences (memory_context), or a passage already quoted in your context. Returns text with `hasMore`/`nextFrom`, or not found / ambiguous (several files match — retry with one exact name); say so, don't guess.",
 			errorPrefix: "Read generated file failed",
 		},
-		create_artifact: {
-			description:
-				'Keep something beside the chat that the user will return to, open and edit with you. Do not use it for an answer that is already complete in your reply, or when the user asked for a downloadable file — that is produce_file\'s job, not this one. Use it for a checklist, plan, itinerary, letter, draft, tracker, board or small interactive tool the user keeps working on. Choose artifactType by what you are keeping: document for rich text read and edited over time — plans, checklists, itineraries, letters, drafts, trackers; app for an interactive tool with inputs and results — a calculator, splitter, quiz; canvas for a board of things arranged in space — frames, notes, arrows, blocks; slides for a small ordered deck to present, with a beginning and an end. There is no artifactType "file": anything the user asked to download is produce_file\'s job, and it shows up as a File. Make at most one per request — say what you made and offer to open it, and do not also paste the same content into your reply. Example: {"artifactType":"document","title":"Vienna weekend plan","body":"# Vienna weekend\\n- [ ] Book train"}. Never invent an id afterward — read_artifact returns the one you edit against. On a refusal, read the reason, fix that one thing, and retry at most once.',
-			errorPrefix: "Create failed",
-		},
-		read_artifact: {
-			description:
-				'See a Document, App, Canvas, Slides or File item\'s current content and structure, addressed by the id from create_artifact, a prior call, or the artifact catalogue. Do not use it to guess at an id — read the catalogue first, and never invent one. Pass detail:"blocks" to get the addressable ids and hashes edit_artifact needs (read this before every edit_artifact call: baseHash always comes from here, never guessed); omit detail, or pass "full", for the whole body. An unknown id returns the conversation\'s own candidates instead of a body — pick one of those rather than retrying the same id.',
-			errorPrefix: "Read failed",
-		},
-		edit_artifact: {
-			description:
-				"Change a Document, App, Canvas or Slides item you already made, addressed by the id from create_artifact or read_artifact. Do not use it before reading the item first — call read_artifact and use the baseHash it just gave you; a refusal usually means the user edited that part since you last read it, so tell them rather than retrying the same patch. Documents and Slides: send patches, one op per block or slide field, each with the baseHash you read. Canvas: send ops (add_frame, add_node, move, add_edge, remove_edge, update_node, remove_node, highlight), at most 40. Apps are not edited here — make a new App with the changes instead. A batch applies partially: whatever it can, it does, and each refused op comes back with its own reason, so tell the user what changed and what did not rather than assuming the whole thing landed.",
-			errorPrefix: "Edit failed",
-		},
 		run_python: {
 			description:
 				'Run a short Python 3.11 script for scratch work: arithmetic beyond mental math, unit and date/time conversions, parsing or aggregating data the user gave you, quick algorithms. Pass {"code": "..."} and optionally a one-line `purpose`; print() the values you need. Do not use it to deliver a file (produce_file — files written to /output are NOT delivered), to reach the network (there is none), or for one step you can state and check in prose. Only the Python standard library is available (no numpy, no pandas, no pip installs); openpyxl, xlsxwriter, python-docx and python-pptx are present for produce_file\'s program mode, not here. Returns stdout, stderr and the exit code only, capped at 8,000 characters each (head and tail kept). Isolated Docker sandbox, 90-second limit; a run that times out is reported, not silently dropped.',
@@ -416,21 +411,6 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 				"Egy EBBEN a beszélgetésben vagy a beszélgetés projektjében lévő fájl teljes aktuális szövegének beolvasása — itt előállított fájlé, ide feltöltött/csatolt dokumentumé (a Conversation Files alatti nevek), vagy a projekthez kapcsolt fájlé (a Project Files alatti nevek) — `filename` vagy `requestTitle` alapján. A projekt fájlját közvetlenül a nevével olvasod ki: az a lista csak azt mondja meg, hogy létezik. Hívd meg, mielőtt `produce_file` patch-eket küldenél (a pontosan nem egyező oldText-ű patch-et a szerver elutasítja), vagy ha a felhasználó többet kér egy dokumentumból, mint amennyit a kontextusod mutat. A hosszú szöveg ablakokban érkezik: ha az eredményben `hasMore` áll, hívd újra `from: nextFrom` értékkel. A `query` megadásával az ablak helyett annak az egy fájlnak legfeljebb 3, a témához tartozó részletét kapod. Oldalszámozott dokumentumnál a `page` megadásával onnan indul az olvasás; a kontextusodban lévő részletek `[p. 3]`/`[slide 2]` jelölései idézhetők. Ne használd csatlakoztatott felhőtárhoz (files), weboldalhoz (fetch_url), megjegyzett preferenciákhoz (memory_context), sem akkor, ha a szükséges részlet már idézve van a kontextusodban. Szöveget ad vissza `hasMore`/`nextFrom` mezőkkel, vagy azt, hogy nincs meg / több fájl is egyezik (akkor hívd újra egy pontos névvel); ilyenkor mondd ki, ne találgass.",
 			errorPrefix: "A fájl beolvasása sikertelen",
 		},
-		create_artifact: {
-			description:
-				'Tarts meg valamit a beszélgetés mellett, amihez a felhasználó visszatér, amit megnyit és veled együtt szerkeszt. Ne használd olyan válaszhoz, amely már teljes a válaszodban, se akkor, ha a felhasználó letölthető fájlt kért — az a produce_file dolga, nem ezé. Használd feladatlistához, tervhez, útitervhez, levélhez, vázlathoz, nyomkövetőhöz, táblához vagy kis interaktív eszközhöz, amin a felhasználó tovább dolgozik. Az artifactType-ot aszerint válaszd, mit őrzöl meg: document gazdag szövegű, idővel olvasott és szerkesztett tartalomhoz — tervek, feladatlisták, útitervek, levelek, vázlatok, nyomkövetők; app interaktív eszközhöz bemenetekkel és eredményekkel — kalkulátor, költségosztó, kvíz; canvas térben elrendezett dolgok tábájához — keretek, jegyzetek, nyilak, blokkok; slides kis, sorrendben bemutatható diasorhoz, elejével és végével. Nincs artifactType "file": amit a felhasználó letölteni kért, az a produce_file dolga, és Fájlként jelenik meg. Kérésenként legfeljebb egyet készíts — mondd el, mit csináltál, és ajánld fel a megnyitását, és ne írd bele ugyanazt a tartalmat a válaszodba is. Példa: {"artifactType":"document","title":"Bécsi hétvégi terv","body":"# Bécsi hétvége\\n- [ ] Vonatjegy foglalása"}. Utólag soha ne találj ki azonosítót — a read_artifact adja vissza azt, amivel szerkeszteni fogsz. Elutasítás esetén olvasd el az okát, javítsd ki azt az egy dolgot, és legfeljebb egyszer próbáld újra.',
-			errorPrefix: "A létrehozás nem sikerült",
-		},
-		read_artifact: {
-			description:
-				'Egy Dokumentum, Alkalmazás, Tábla, Diasor vagy Fájl elem jelenlegi tartalmát és szerkezetét nézd meg vele, a create_artifact-tól, egy korábbi hívástól vagy a beszélgetés katalógusától kapott azonosítóval. Ne használd azonosító kitalálására — előbb nézd meg a katalógust, és soha ne találj ki egyet. A detail:"blocks" a szerkeszthető azonosítókat és hasheket adja vissza, amelyekre az edit_artifact-nak szüksége van (minden edit_artifact hívás előtt olvasd el ezt: a baseHash mindig innen származik, sosem kitalálva); hagyd el a detail mezőt, vagy add meg "full"-ként, a teljes tartalomhoz. Ismeretlen azonosítóra a beszélgetés saját jelöltjeit kapod vissza tartalom helyett — ezek közül válassz, ne próbáld ugyanazt az azonosítót újra.',
-			errorPrefix: "Az olvasás nem sikerült",
-		},
-		edit_artifact: {
-			description:
-				"Módosíts egy már elkészített Dokumentumot, Alkalmazást, Táblát vagy Diasort, a create_artifact vagy a read_artifact által adott azonosítóval. Ne használd anélkül, hogy előbb elolvasnád az elemet — hívd meg a read_artifact-ot, és használd az onnan kapott baseHash-t; egy elutasítás általában azt jelenti, hogy a felhasználó azóta szerkesztette azt a részt, hogy utoljára olvastad, ezért mondd el neki, ne próbáld újra ugyanazt a javítást. Dokumentumoknál és Diasoroknál: küldj patches-t, blokkonként vagy diamezőnként egy műveletet, mindegyikhez az általad olvasott baseHash-sel. Tábláknál: küldj ops-ot (add_frame, add_node, move, add_edge, remove_edge, update_node, remove_node, highlight), legfeljebb 40-et. Az Alkalmazásokat itt nem szerkesztjük — készíts helyette egy új Alkalmazást a változtatásokkal. Egy köteg részlegesen is alkalmazódik: amit lehet, megteszi, és minden elutasított művelet a saját okával tér vissza, ezért mondd el a felhasználónak, mi változott és mi nem, ahelyett hogy feltételeznéd, hogy az egész megtörtént.",
-			errorPrefix: "A szerkesztés nem sikerült",
-		},
 		run_python: {
 			description:
 				'Rövid Python 3.11 szkript futtatása gyors számításokhoz: fejben nem elvégezhető aritmetika, mértékegység- és dátum/idő-átváltás, a felhasználó által megadott adatok elemzése vagy összesítése, gyors algoritmusok. Add meg: {"code": "..."}, opcionálisan egy egysoros `purpose`-t; a szükséges értékeket print()-eld ki. Ne használd fájl kézbesítésére (produce_file — a /output-ba írt fájlok NEM jutnak el a felhasználóhoz), hálózat elérésére (nincs), sem olyan egyetlen lépéshez, amelyet szövegben is kimondhatsz és ellenőrizhetsz. Csak a Python standard könyvtár érhető el (nincs numpy, nincs pandas, nincs pip telepítés); az openpyxl, xlsxwriter, python-docx és python-pptx a produce_file program módjához van jelen, nem ehhez az eszközhöz. Csak a stdout, a stderr és a kilépési kód érkezik vissza, egyenként 8000 karakterre korlátozva (az elejét és a végét megtartva). Elszigetelt Docker sandbox, 90 másodperces korlát; az időtúllépést jelenti, nem csendben eldobja.',
@@ -493,6 +473,63 @@ const TOOL_I18N: Record<"en" | "hu", ToolI18n> = {
 		},
 	},
 };
+
+// ── create_artifact / read_artifact / edit_artifact i18n ────────
+//
+// These three live outside TOOL_I18N (unlike every other tool) because their
+// descriptions name the artifact KINDS the model may create, and that set
+// changes at runtime as type slices register a create handler
+// (advertisedArtifactKinds() in artifact-tools/kind-registry.ts — Canvas and Slides
+// are not registered yet). A static string here would either lie about
+// unavailable kinds or go stale the moment a new one is registered, so these
+// are assembled fresh from artifact-tools/kind-prose.ts's per-kind fragments
+// every time createNormalChatTools runs, the same way the tool set itself is
+// rebuilt per turn. errorPrefix carries no kind names, so it stays static.
+const ARTIFACT_TOOL_ERROR_PREFIX: Record<
+	"en" | "hu",
+	{ create_artifact: string; read_artifact: string; edit_artifact: string }
+> = {
+	en: {
+		create_artifact: "Create failed",
+		read_artifact: "Read failed",
+		edit_artifact: "Edit failed",
+	},
+	hu: {
+		create_artifact: "A létrehozás nem sikerült",
+		read_artifact: "Az olvasás nem sikerült",
+		edit_artifact: "A szerkesztés nem sikerült",
+	},
+};
+
+function buildCreateArtifactDescription(
+	kinds: readonly CreatableArtifactKind[],
+	lang: "en" | "hu",
+): string {
+	if (lang === "hu") {
+		return `Tarts meg valamit a beszélgetés mellett, amihez a felhasználó visszatér, amit megnyit és veled együtt szerkeszt. Ne használd olyan válaszhoz, amely már teljes a válaszodban, se akkor, ha a felhasználó letölthető fájlt kért — az a produce_file dolga, nem ezé. Használd ${createArtifactUseCasePhrase(kinds, "hu")}, amin a felhasználó tovább dolgozik. Az artifactType-ot aszerint válaszd, mit őrzöl meg: ${createArtifactChoiceClause(kinds, "hu")} Nincs artifactType "file": amit a felhasználó letölteni kért, az a produce_file dolga, és Fájlként jelenik meg. Kérésenként legfeljebb egyet készíts — mondd el, mit csináltál, és ajánld fel a megnyitását, és ne írd bele ugyanazt a tartalmat a válaszodba is. Példa: {"artifactType":"document","title":"Bécsi hétvégi terv","body":"# Bécsi hétvége\\n- [ ] Vonatjegy foglalása"}. Utólag soha ne találj ki azonosítót — a read_artifact adja vissza azt, amivel szerkeszteni fogsz. Elutasítás esetén olvasd el az okát, javítsd ki azt az egy dolgot, és legfeljebb egyszer próbáld újra.`;
+	}
+	return `Keep something beside the chat that the user will return to, open and edit with you. Do not use it for an answer that is already complete in your reply, or when the user asked for a downloadable file — that is produce_file's job, not this one. Use it for a ${createArtifactUseCasePhrase(kinds, "en")} the user keeps working on. Choose artifactType by what you are keeping: ${createArtifactChoiceClause(kinds, "en")} There is no artifactType "file": anything the user asked to download is produce_file's job, and it shows up as a File. Make at most one per request — say what you made and offer to open it, and do not also paste the same content into your reply. Example: {"artifactType":"document","title":"Vienna weekend plan","body":"# Vienna weekend\\n- [ ] Book train"}. Never invent an id afterward — read_artifact returns the one you edit against. On a refusal, read the reason, fix that one thing, and retry at most once.`;
+}
+
+function buildReadArtifactDescription(
+	kinds: readonly CreatableArtifactKind[],
+	lang: "en" | "hu",
+): string {
+	if (lang === "hu") {
+		return `Egy ${artifactKindListHu(kinds, { withFile: true })} elem jelenlegi tartalmát és szerkezetét nézd meg vele, a create_artifact-tól, egy korábbi hívástól vagy a beszélgetés katalógusától kapott azonosítóval. Ne használd azonosító kitalálására — előbb nézd meg a katalógust, és soha ne találj ki egyet. A detail:"blocks" a szerkeszthető azonosítókat és hasheket adja vissza, amelyekre az edit_artifact-nak szüksége van (minden edit_artifact hívás előtt olvasd el ezt: a baseHash mindig innen származik, sosem kitalálva); hagyd el a detail mezőt, vagy add meg "full"-ként, a teljes tartalomhoz. Ismeretlen azonosítóra a beszélgetés saját jelöltjeit kapod vissza tartalom helyett — ezek közül válassz, ne próbáld ugyanazt az azonosítót újra.`;
+	}
+	return `See a ${artifactKindListEn(kinds, { withFile: true })} item's current content and structure, addressed by the id from create_artifact, a prior call, or the artifact catalogue. Do not use it to guess at an id — read the catalogue first, and never invent one. Pass detail:"blocks" to get the addressable ids and hashes edit_artifact needs (read this before every edit_artifact call: baseHash always comes from here, never guessed); omit detail, or pass "full", for the whole body. An unknown id returns the conversation's own candidates instead of a body — pick one of those rather than retrying the same id.`;
+}
+
+function buildEditArtifactDescription(
+	kinds: readonly CreatableArtifactKind[],
+	lang: "en" | "hu",
+): string {
+	if (lang === "hu") {
+		return `Módosíts egy már elkészített ${artifactKindListHuAccusative(kinds)}, a create_artifact vagy a read_artifact által adott azonosítóval. Ne használd anélkül, hogy előbb elolvasnád az elemet — hívd meg a read_artifact-ot, és használd az onnan kapott baseHash-t; egy elutasítás általában azt jelenti, hogy a felhasználó azóta szerkesztette azt a részt, hogy utoljára olvastad, ezért mondd el neki, ne próbáld újra ugyanazt a javítást. ${editArtifactRuleClause(kinds, "hu")} Egy köteg részlegesen is alkalmazódik: amit lehet, megteszi, és minden elutasított művelet a saját okával tér vissza, ezért mondd el a felhasználónak, mi változott és mi nem, ahelyett hogy feltételeznéd, hogy az egész megtörtént.`;
+	}
+	return `Change a ${artifactKindListEn(kinds)} item you already made, addressed by the id from create_artifact or read_artifact. Do not use it before reading the item first — call read_artifact and use the baseHash it just gave you; a refusal usually means the user edited that part since you last read it, so tell them rather than retrying the same patch. ${editArtifactRuleClause(kinds, "en")} A batch applies partially: whatever it can, it does, and each refused op comes back with its own reason, so tell the user what changed and what did not rather than assuming the whole thing landed.`;
+}
 
 // ── suggest_instruction scope ──────────────────────────────────
 
@@ -614,6 +651,25 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 	const recorder = ctx.recorder ?? createToolCallRecorder();
 	const lang = ctx.language ?? "en";
 	const i18n = TOOL_I18N[lang];
+	// Recomputed every call (never cached at module load) so a newly
+	// registered create handler — in production, or in a test that pokes
+	// CREATE_ARTIFACT_HANDLERS directly — is reflected the next time the tool
+	// set is built, exactly like the schemas in artifact-tools/{create,edit}.ts.
+	const advertisedKinds = advertisedArtifactKinds();
+	const artifactToolI18n = {
+		create_artifact: {
+			description: buildCreateArtifactDescription(advertisedKinds, lang),
+			errorPrefix: ARTIFACT_TOOL_ERROR_PREFIX[lang].create_artifact,
+		},
+		read_artifact: {
+			description: buildReadArtifactDescription(advertisedKinds, lang),
+			errorPrefix: ARTIFACT_TOOL_ERROR_PREFIX[lang].read_artifact,
+		},
+		edit_artifact: {
+			description: buildEditArtifactDescription(advertisedKinds, lang),
+			errorPrefix: ARTIFACT_TOOL_ERROR_PREFIX[lang].edit_artifact,
+		},
+	};
 	// Verdict (not intake receipt) of every produce_file call this turn, keyed
 	// by the requested artifact AND its content. A repeated identical call replays the verdict
 	// instead of queueing a second job — but a FAILED verdict is deliberately
@@ -1617,16 +1673,19 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		// its kind's entry to those registries, never here.
 		create_artifact: asExecutableTool(
 			tool({
-				description: i18n.create_artifact.description,
-				inputSchema: createArtifactModelInputSchema,
+				description: artifactToolI18n.create_artifact.description,
+				inputSchema: buildCreateArtifactModelInputSchema(advertisedKinds),
 				execute: async (
-					input: z.infer<typeof createArtifactModelInputSchema>,
+					input: z.infer<
+						ReturnType<typeof buildCreateArtifactModelInputSchema>
+					>,
 					options: ToolExecutionOptions,
 				) => {
 					// Parsed again with the EXECUTION schema (the server's bounds),
 					// mirroring read_generated_file's split: a validation failure is
 					// answered directly, never through the timeout/abort envelope.
-					const parsedInput = createArtifactInputSchema.safeParse(input);
+					const parsedInput =
+						buildCreateArtifactInputSchema(advertisedKinds).safeParse(input);
 					if (!parsedInput.success) {
 						const error =
 							parsedInput.error.issues[0]?.message ?? "Invalid input";
@@ -1693,7 +1752,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						onError: (error) => {
 							const message = modelSafeToolError(
 								error,
-								i18n.create_artifact.errorPrefix,
+								artifactToolI18n.create_artifact.errorPrefix,
 							);
 							return {
 								modelPayload: { success: false, error: message },
@@ -1714,7 +1773,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		),
 		read_artifact: asExecutableTool(
 			tool({
-				description: i18n.read_artifact.description,
+				description: artifactToolI18n.read_artifact.description,
 				inputSchema: readArtifactInputSchema,
 				execute: async (
 					input: z.infer<typeof readArtifactInputSchema>,
@@ -1749,7 +1808,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						onError: (error) => {
 							const message = modelSafeToolError(
 								error,
-								i18n.read_artifact.errorPrefix,
+								artifactToolI18n.read_artifact.errorPrefix,
 							);
 							return {
 								modelPayload: { success: false, error: message },
@@ -1770,10 +1829,10 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 		),
 		edit_artifact: asExecutableTool(
 			tool({
-				description: i18n.edit_artifact.description,
-				inputSchema: editArtifactModelInputSchema,
+				description: artifactToolI18n.edit_artifact.description,
+				inputSchema: buildEditArtifactModelInputSchema(advertisedKinds),
 				execute: async (
-					input: z.infer<typeof editArtifactModelInputSchema>,
+					input: z.infer<ReturnType<typeof buildEditArtifactModelInputSchema>>,
 					options: ToolExecutionOptions,
 				) => {
 					const parsedInput = editArtifactInputSchema.safeParse(input);
@@ -1815,7 +1874,7 @@ export function createNormalChatTools(ctx: CreateNormalChatToolsContext) {
 						onError: (error) => {
 							const message = modelSafeToolError(
 								error,
-								i18n.edit_artifact.errorPrefix,
+								artifactToolI18n.edit_artifact.errorPrefix,
 							);
 							return {
 								modelPayload: { success: false, error: message },

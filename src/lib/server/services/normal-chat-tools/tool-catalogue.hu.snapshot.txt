@@ -309,7 +309,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "create_artifact",
-      "description": "Tarts meg valamit a beszélgetés mellett, amihez a felhasználó visszatér, amit megnyit és veled együtt szerkeszt. Ne használd olyan válaszhoz, amely már teljes a válaszodban, se akkor, ha a felhasználó letölthető fájlt kért — az a produce_file dolga, nem ezé. Használd feladatlistához, tervhez, útitervhez, levélhez, vázlathoz, nyomkövetőhöz, táblához vagy kis interaktív eszközhöz, amin a felhasználó tovább dolgozik. Az artifactType-ot aszerint válaszd, mit őrzöl meg: document gazdag szövegű, idővel olvasott és szerkesztett tartalomhoz — tervek, feladatlisták, útitervek, levelek, vázlatok, nyomkövetők; app interaktív eszközhöz bemenetekkel és eredményekkel — kalkulátor, költségosztó, kvíz; canvas térben elrendezett dolgok tábájához — keretek, jegyzetek, nyilak, blokkok; slides kis, sorrendben bemutatható diasorhoz, elejével és végével. Nincs artifactType \"file\": amit a felhasználó letölteni kért, az a produce_file dolga, és Fájlként jelenik meg. Kérésenként legfeljebb egyet készíts — mondd el, mit csináltál, és ajánld fel a megnyitását, és ne írd bele ugyanazt a tartalmat a válaszodba is. Példa: {\"artifactType\":\"document\",\"title\":\"Bécsi hétvégi terv\",\"body\":\"# Bécsi hétvége\\n- [ ] Vonatjegy foglalása\"}. Utólag soha ne találj ki azonosítót — a read_artifact adja vissza azt, amivel szerkeszteni fogsz. Elutasítás esetén olvasd el az okát, javítsd ki azt az egy dolgot, és legfeljebb egyszer próbáld újra.",
+      "description": "Tarts meg valamit a beszélgetés mellett, amihez a felhasználó visszatér, amit megnyit és veled együtt szerkeszt. Ne használd olyan válaszhoz, amely már teljes a válaszodban, se akkor, ha a felhasználó letölthető fájlt kért — az a produce_file dolga, nem ezé. Használd feladatlistához, tervhez, útitervhez, levélhez, vázlathoz, nyomkövetőhöz vagy kis interaktív eszközhöz, amin a felhasználó tovább dolgozik. Az artifactType-ot aszerint válaszd, mit őrzöl meg: document gazdag szövegű, idővel olvasott és szerkesztett tartalomhoz — tervek, feladatlisták, útitervek, levelek, vázlatok, nyomkövetők; app interaktív eszközhöz bemenetekkel és eredményekkel — kalkulátor, költségosztó, kvíz. Nincs artifactType \"file\": amit a felhasználó letölteni kért, az a produce_file dolga, és Fájlként jelenik meg. Kérésenként legfeljebb egyet készíts — mondd el, mit csináltál, és ajánld fel a megnyitását, és ne írd bele ugyanazt a tartalmat a válaszodba is. Példa: {\"artifactType\":\"document\",\"title\":\"Bécsi hétvégi terv\",\"body\":\"# Bécsi hétvége\\n- [ ] Vonatjegy foglalása\"}. Utólag soha ne találj ki azonosítót — a read_artifact adja vissza azt, amivel szerkeszteni fogsz. Elutasítás esetén olvasd el az okát, javítsd ki azt az egy dolgot, és legfeljebb egyszer próbáld újra.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -317,11 +317,9 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             "type": "string",
             "enum": [
               "document",
-              "app",
-              "canvas",
-              "slides"
+              "app"
             ],
-            "description": "document, app, canvas or slides"
+            "description": "document or app"
           },
           "title": {
             "type": "string",
@@ -329,7 +327,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
           },
           "body": {
             "type": "string",
-            "description": "Documents: Markdown. Slides: the deck JSON. Canvas: the board JSON, or empty for a new board. Apps: the HTML document."
+            "description": "Documents: Markdown. Apps: the HTML document."
           }
         },
         "required": [
@@ -344,7 +342,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "read_artifact",
-      "description": "Egy Dokumentum, Alkalmazás, Tábla, Diasor vagy Fájl elem jelenlegi tartalmát és szerkezetét nézd meg vele, a create_artifact-tól, egy korábbi hívástól vagy a beszélgetés katalógusától kapott azonosítóval. Ne használd azonosító kitalálására — előbb nézd meg a katalógust, és soha ne találj ki egyet. A detail:\"blocks\" a szerkeszthető azonosítókat és hasheket adja vissza, amelyekre az edit_artifact-nak szüksége van (minden edit_artifact hívás előtt olvasd el ezt: a baseHash mindig innen származik, sosem kitalálva); hagyd el a detail mezőt, vagy add meg \"full\"-ként, a teljes tartalomhoz. Ismeretlen azonosítóra a beszélgetés saját jelöltjeit kapod vissza tartalom helyett — ezek közül válassz, ne próbáld ugyanazt az azonosítót újra.",
+      "description": "Egy Dokumentum, Alkalmazás vagy Fájl elem jelenlegi tartalmát és szerkezetét nézd meg vele, a create_artifact-tól, egy korábbi hívástól vagy a beszélgetés katalógusától kapott azonosítóval. Ne használd azonosító kitalálására — előbb nézd meg a katalógust, és soha ne találj ki egyet. A detail:\"blocks\" a szerkeszthető azonosítókat és hasheket adja vissza, amelyekre az edit_artifact-nak szüksége van (minden edit_artifact hívás előtt olvasd el ezt: a baseHash mindig innen származik, sosem kitalálva); hagyd el a detail mezőt, vagy add meg \"full\"-ként, a teljes tartalomhoz. Ismeretlen azonosítóra a beszélgetés saját jelöltjeit kapod vissza tartalom helyett — ezek közül válassz, ne próbáld ugyanazt az azonosítót újra.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -369,7 +367,7 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
     "type": "function",
     "function": {
       "name": "edit_artifact",
-      "description": "Módosíts egy már elkészített Dokumentumot, Alkalmazást, Táblát vagy Diasort, a create_artifact vagy a read_artifact által adott azonosítóval. Ne használd anélkül, hogy előbb elolvasnád az elemet — hívd meg a read_artifact-ot, és használd az onnan kapott baseHash-t; egy elutasítás általában azt jelenti, hogy a felhasználó azóta szerkesztette azt a részt, hogy utoljára olvastad, ezért mondd el neki, ne próbáld újra ugyanazt a javítást. Dokumentumoknál és Diasoroknál: küldj patches-t, blokkonként vagy diamezőnként egy műveletet, mindegyikhez az általad olvasott baseHash-sel. Tábláknál: küldj ops-ot (add_frame, add_node, move, add_edge, remove_edge, update_node, remove_node, highlight), legfeljebb 40-et. Az Alkalmazásokat itt nem szerkesztjük — készíts helyette egy új Alkalmazást a változtatásokkal. Egy köteg részlegesen is alkalmazódik: amit lehet, megteszi, és minden elutasított művelet a saját okával tér vissza, ezért mondd el a felhasználónak, mi változott és mi nem, ahelyett hogy feltételeznéd, hogy az egész megtörtént.",
+      "description": "Módosíts egy már elkészített Dokumentumot vagy Alkalmazást, a create_artifact vagy a read_artifact által adott azonosítóval. Ne használd anélkül, hogy előbb elolvasnád az elemet — hívd meg a read_artifact-ot, és használd az onnan kapott baseHash-t; egy elutasítás általában azt jelenti, hogy a felhasználó azóta szerkesztette azt a részt, hogy utoljára olvastad, ezért mondd el neki, ne próbáld újra ugyanazt a javítást. Dokumentumoknál: küldj patches-t, blokkonként egy műveletet, mindegyikhez az általad olvasott baseHash-sel. Az Alkalmazásokat itt nem szerkesztjük — készíts helyette egy új Alkalmazást a változtatásokkal. Egy köteg részlegesen is alkalmazódik: amit lehet, megteszi, és minden elutasított művelet a saját okával tér vissza, ezért mondd el a felhasználónak, mi változott és mi nem, ahelyett hogy feltételeznéd, hogy az egész megtörtént.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -378,12 +376,11 @@ suggest_instruction are withheld per conversation), never the same ones in anoth
             "description": "The id from create_artifact, read_artifact or the artifact catalogue."
           },
           "patches": {
-            "description": "Documents and Slides only: [{op, blockId|slideId, fieldId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
+            "description": "Documents only: [{op, blockId, baseHash, text}]. Read the artifact first; baseHash must be the hash you last read.",
             "type": "array",
             "items": {}
           },
           "ops": {
-            "description": "Canvas only: [{op:'add_frame'|'add_node'|'move'|'add_edge'|'remove_edge'|'update_node'|'remove_node'|'highlight', ...}], at most 40.",
             "type": "array",
             "items": {}
           },
