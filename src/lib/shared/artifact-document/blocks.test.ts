@@ -316,3 +316,37 @@ describe("readTaskBlock — the one checked-state/text reader for card previews"
 		expect(readTaskBlock(result.blocks[0])).toBeNull();
 	});
 });
+
+// RV-1A (independent review of Slice 1's engine). Each case here was red
+// before its fix; the review file (docs/plans/claude-at-home-2/review-1a.md)
+// quotes the failing line.
+describe("RV-1A: the canonical form never rewrites a code block's content", () => {
+	it("keeps a fenced code block verbatim: a diff's + lines, * and 1) markers, blank runs, chips", () => {
+		const code = [
+			"```diff",
+			"+ added line",
+			"- removed line",
+			"  * star bullet",
+			"1) first",
+			"",
+			"",
+			"| a  |  b |",
+			"| -- | -- |",
+			"[chip value='y' kind='x']",
+			"```",
+		].join("\n");
+		expect(normalizeMarkdown(code)).toBe(code);
+		const parsed = parseDocument(code);
+		expect(parsed.blocks).toHaveLength(1);
+		expect(parsed.blocks[0].kind).toBe("code");
+		expect(parsed.blocks[0].markdown).toBe(code);
+		// Still the canonical form: reloading the stored text is a no-op.
+		expect(parseDocument(parsed.markdown).markdown).toBe(parsed.markdown);
+	});
+
+	it("still trims trailing whitespace and edge blank lines around a code block (rule 1 and rule 4 hold)", () => {
+		expect(normalizeMarkdown("\n```\nx = 1   \n```\n\n")).toBe(
+			"```\nx = 1\n```",
+		);
+	});
+});

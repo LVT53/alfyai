@@ -88,10 +88,18 @@ export function fnv1aHex(input: string): string {
  * `normalizeMarkdown` MUST be idempotent — that property is what `blockHash`
  * rests on — and `serializeDocument` writes exactly this function's output for
  * every block, so the stored bytes and the hashed bytes can never drift apart.
+ *
+ * A fenced code block is content, not Markdown structure: only rule 1's
+ * trailing-whitespace trim and rule 4's edge trim apply to it. Rules 2, 3 and
+ * 5 and the blank-run collapse are about the serialiser's own noise in
+ * prose, and applied to code they rewrote what the code says — a diff's
+ * `+ added` line became `- added`, a `1)` became `1.`, a blank line between
+ * two functions disappeared (RV-1A).
  */
 export function normalizeMarkdown(markdown: string): string {
 	let lines = markdown.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 	lines = lines.map((line) => line.replace(/[ \t]+$/, ""));
+	if (isFencedCodeBlock(lines)) return trimBlankEdges(lines).join("\n");
 	lines = collapseBlankRuns(lines);
 	lines = trimBlankEdges(lines);
 	lines = normalizeTableLines(lines);
