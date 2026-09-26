@@ -399,6 +399,13 @@ substring `name: "Upload"` locator with `.first()` hit the new "Filter: Uploaded
 It passed alone, and was reproduced deliberately by a fix agent → `78cad9af` (`exact: true`), fast-forwarded onto
 `feat/artifacts`. No other ambiguous locators found.
 
+**Owner request (2026-09-26): extract a shared focus-trap utility.** No earlier mention of it in this session; the
+duplication is real: `DialogShell.svelte` has the careful trap (rendered-only focusables, topmost-only), and
+`SearchModal`, `LinkedDocumentPicker`, `KnowledgeMemoryView/Modal` and Slice 1's `MobileToolbar` sheet hand-roll their
+own; Slice 4 will need more. **Pass one** (sonnet, `art-focus`, branch `feat/artifacts-focus-trap` from `92cd7f2e`,
+5660): the utility (from DialogShell's behaviour, attachment or action chosen against the Svelte 5.55 docs) and the
+existing app dialogs, behaviour pinned by tests first. **Pass two** after Slice 1 merges: the Feature 2 sheets.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
