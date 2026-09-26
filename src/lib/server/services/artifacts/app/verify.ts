@@ -605,8 +605,18 @@ export async function verifyApp(
 		};
 	}
 
-	const allUnsettled = answer.findings.every((finding) => !finding.settled);
-	if (allUnsettled && !answer.repairedHtml) {
+	// Spec: "a claim the verifier cannot settle ... yields settled: false and a
+	// verdict of uncertain" — unconditionally, not only when EVERY finding is
+	// unsettled. A repair that confidently fixes one claim does not resolve a
+	// completely different, still-unsettled one in the same app, and
+	// `reVerifyRepair` cannot help here either: it re-examines the repair, not
+	// the unrelated claim, and its own prompt tells it to treat a
+	// previously-listed subject as already settled. So this check runs BEFORE
+	// the repair branch and wins even when `answer.repairedHtml` is present —
+	// the proposed repair is discarded (never accepted on trust) and the
+	// original html ships, exactly like any other refused repair.
+	const anyUnsettled = answer.findings.some((finding) => !finding.settled);
+	if (anyUnsettled) {
 		return {
 			checked: true,
 			verdict: parallelConfigured ? "uncertain" : "unavailable",

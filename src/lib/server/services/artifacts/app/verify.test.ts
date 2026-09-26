@@ -456,6 +456,60 @@ describe("verifyApp — ruling 52: a repair is re-verified before acceptance", (
 		expect(result.verdict).toBe("repaired");
 	});
 
+	it("a confirmed repair does not launder an UNRELATED unsettled finding into 'repaired'", async () => {
+		// The verifier can be confident about one bug (an arithmetic total) and
+		// unsure about a completely different claim in the same app (a
+		// real-world fact) in the very same pass. Spec: "a claim the verifier
+		// cannot settle ... yields settled: false and a verdict of uncertain" —
+		// unconditionally, not "unless some other claim in the same app got
+		// repaired". Fixing claim A must not ship claim B's unresolved doubt
+		// under a verdict that tells the user everything was checked and fixed.
+		// The outstanding unsettled claim decides the verdict before any repair
+		// is even considered, so re-verification never runs — only ONE verifier
+		// call happens (asserted below).
+		runPlainNormalChatModelRun.mockResolvedValueOnce(
+			verifierResult(
+				fenceJson({
+					claims: ["the grand total amount", "the founding year"],
+					findings: [
+						{
+							claim: "Total: 900",
+							problem:
+								"The displayed total does not match the sum of the rows.",
+							class: "other",
+							location: "Total row",
+							settled: true,
+						},
+						{
+							claim: "Founded in 1850",
+							problem: "Could not settle this without web research.",
+							class: "other",
+							location: "History section",
+							settled: false,
+						},
+					],
+					repairedHtml:
+						"<html><body>fixed total, same unresolved date</body></html>",
+					repairSafe: true,
+				}),
+			),
+		);
+
+		const result = await verifyApp(baseParams());
+
+		// This describe block's default (no `parallelApiKey`) means the
+		// unsettled real-world claim can't be settled to begin with, so the
+		// honest verdict is "unavailable" here — the point under test is that
+		// it is NOT "repaired", not the exact uncertain/unavailable split
+		// (that split is `verifyApp — degrades honestly`'s own coverage).
+		expect(result.verdict).toBe("unavailable");
+		expect(result.repairedHtml).toBeNull();
+		expect(result.findings.some((finding) => finding.settled === false)).toBe(
+			true,
+		);
+		expect(runPlainNormalChatModelRun).toHaveBeenCalledTimes(1);
+	});
+
 	it("a re-verification that cannot finish inside its own deadline is uncertain with the original html, and the call still resolves (the create can still succeed)", async () => {
 		vi.useFakeTimers();
 		try {
