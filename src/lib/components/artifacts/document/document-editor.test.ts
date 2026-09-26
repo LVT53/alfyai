@@ -201,11 +201,20 @@ describe("document-editor", () => {
 			const editor = mountEditor("<!--b:p1-->\nBook the flight to Vienna.");
 			selectSubstring(editor, "flight");
 			const context = readSelectionAnchorContext(editor);
-			expect(context).toEqual({
+			// jsdom has no real layout, so `rect` (from `coordsAtPos`) is only
+			// asserted to exist with the right shape, never exact pixel values —
+			// that belongs to a real-browser Playwright check.
+			expect(context).toMatchObject({
 				blockId: "p1",
 				quote: "flight",
 				prefix: "Book the ",
 				suffix: " to Vienna.",
+			});
+			expect(context?.rect).toEqual({
+				top: expect.any(Number),
+				left: expect.any(Number),
+				right: expect.any(Number),
+				bottom: expect.any(Number),
 			});
 			editor.destroy();
 		});

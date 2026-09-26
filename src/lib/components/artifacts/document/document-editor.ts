@@ -118,19 +118,30 @@ export function readMarkdown(editor: Editor): string {
 	return markdown;
 }
 
+/** Viewport coordinates (`EditorView.coordsAtPos`'s own shape) spanning the selection, for the bubble's own placement. */
+export interface SelectionScreenRect {
+	top: number;
+	left: number;
+	right: number;
+	bottom: number;
+}
+
 /**
  * The SelectionBubble's own data source (T10.1) — the ONE place the live
- * selection is ever read out of ProseMirror. Returns plain strings and a
- * block id, never a ProseMirror position or node, so everything downstream
- * (`makeAnchor`, the margin) stays free of this module's import.
- * `null` for an empty selection (a caret, not a range) or one that falls
- * outside any identified top-level block.
+ * selection is ever read out of ProseMirror, including where it sits on
+ * screen (`rect`), so `DocumentBody.svelte` never has to touch
+ * `editor.state`/`editor.view` itself just to position the bubble. Returns
+ * plain strings, a block id and a plain rect — never a ProseMirror position
+ * or node — so everything downstream (`makeAnchor`, the margin) stays free of
+ * this module's import. `null` for an empty selection (a caret, not a range)
+ * or one that falls outside any identified top-level block.
  */
 export function readSelectionAnchorContext(editor: Editor): {
 	blockId: string;
 	quote: string;
 	prefix: string;
 	suffix: string;
+	rect: SelectionScreenRect;
 } | null {
 	const { from, to, empty } = editor.state.selection;
 	if (empty) return null;
@@ -153,6 +164,19 @@ export function readSelectionAnchorContext(editor: Editor): {
 	const quote = editor.state.doc.textBetween(from, to, "\n");
 	if (!quote.trim()) return null;
 
+	// `coordsAtPos` measures real layout (`Range.getClientRects`), which a
+	// test environment with no real rendering (jsdom) does not implement — a
+	// zeroed rect there is harmless (the bubble just renders at the origin,
+	// exercised for real by Playwright); a real browser always has it.
+	let startCoords = { top: 0, left: 0, bottom: 0, right: 0 };
+	let endCoords = { top: 0, left: 0, bottom: 0, right: 0 };
+	try {
+		startCoords = editor.view.coordsAtPos(from);
+		endCoords = editor.view.coordsAtPos(to);
+	} catch {
+		// See above — measurement is best-effort.
+	}
+
 	return {
 		blockId,
 		quote,
@@ -166,6 +190,12 @@ export function readSelectionAnchorContext(editor: Editor): {
 			Math.min(blockEnd, to + ANCHOR_CONTEXT_CHARS),
 			"\n",
 		),
+		rect: {
+			top: startCoords.top,
+			left: startCoords.left,
+			right: endCoords.right,
+			bottom: startCoords.bottom,
+		},
 	};
 }
 
