@@ -30,7 +30,7 @@ import {
 } from "$lib/client/api/artifacts";
 import type { AppContractRuleId } from "$lib/server/services/artifacts/app/contract";
 import type { AppVerificationVerdict } from "$lib/server/services/artifacts/app/verify";
-import { renderCodeBlock } from "$lib/services/markdown";
+import { renderHighlightedText } from "$lib/services/markdown";
 import AppFrame from "./AppFrame.svelte";
 
 interface Props {
@@ -133,9 +133,18 @@ const VERIFY_LINE_KEYS: Record<AppVerificationVerdict, I18nKey> = {
 	unavailable: "artifacts.app.verify.unavailable",
 };
 
+/**
+ * Ruling 58 (RV-2A open question 10): loads the highlighter — and the "html"
+ * grammar — ON DEMAND when the Code tab opens, through the existing async
+ * Shiki path, rather than relying on the chat surface having already called
+ * `initHighlighter()` for its own markdown rendering. Without this,
+ * `renderCodeBlock`'s own synchronous fallback (safe, but unhighlighted
+ * escaped plain text) is what a card shows whenever nothing else in the app
+ * happened to initialise Shiki first.
+ */
 async function ensureCodeHighlighted(): Promise<void> {
 	if (!htmlBody) return;
-	highlightedCode = renderCodeBlock(htmlBody, "html", $isDark);
+	highlightedCode = await renderHighlightedText(htmlBody, "html", $isDark);
 }
 
 $effect(() => {

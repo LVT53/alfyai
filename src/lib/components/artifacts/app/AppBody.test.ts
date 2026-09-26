@@ -35,13 +35,19 @@ vi.mock("$lib/client/api/artifacts", () => ({
 	regenerateApp: (...args: unknown[]) => regenerateApp(...args),
 }));
 
-const renderCodeBlock = vi.fn(
-	(content: string) =>
+// Ruling 58: the Code tab loads its highlighter ON DEMAND when it opens,
+// through the existing async Shiki path (renderHighlightedText, which
+// ensures the highlighter AND the "html" grammar are loaded before calling
+// the synchronous renderCodeBlock) — not the bare synchronous renderCodeBlock,
+// which silently falls back to escaped plain text unless something ELSE
+// already initialised Shiki first.
+const renderHighlightedText = vi.fn(
+	async (content: string) =>
 		`<pre data-testid="highlighted"><code>${content}</code></pre>`,
 );
 vi.mock("$lib/services/markdown", () => ({
-	renderCodeBlock: (...args: unknown[]) =>
-		(renderCodeBlock as (...a: unknown[]) => string)(...args),
+	renderHighlightedText: (...args: unknown[]) =>
+		(renderHighlightedText as (...a: unknown[]) => Promise<string>)(...args),
 }));
 
 const APP_HTML =
@@ -104,6 +110,21 @@ describe("AppBody — loading and tabs", () => {
 		expect(codeTab.getAttribute("aria-selected")).toBe("false");
 	});
 
+	// Ruling 58: the highlighter loads ON DEMAND when the Code tab opens, not
+	// eagerly on mount — the chat's own Shiki init (or lack of it) must not
+	// decide whether this card's Code tab is highlighted.
+	it("does not load the highlighter while showing Preview", async () => {
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+		});
+		await screen.findByRole("tab", { name: /Preview/ });
+
+		expect(renderHighlightedText).not.toHaveBeenCalled();
+	});
+
 	it("switches to Code on click and renders the stored HTML read-only, through the existing Shiki path", async () => {
 		render(AppBody, {
 			artifactId: "app-1",
@@ -115,8 +136,8 @@ describe("AppBody — loading and tabs", () => {
 
 		await fireEvent.click(codeTab);
 
-		await waitFor(() => expect(renderCodeBlock).toHaveBeenCalled());
-		expect(renderCodeBlock).toHaveBeenCalledWith(
+		await waitFor(() => expect(renderHighlightedText).toHaveBeenCalled());
+		expect(renderHighlightedText).toHaveBeenCalledWith(
 			APP_HTML,
 			"html",
 			expect.any(Boolean),
@@ -132,7 +153,7 @@ describe("AppBody — loading and tabs", () => {
 		});
 		const codeTab = await screen.findByRole("tab", { name: /Code/ });
 		await fireEvent.click(codeTab);
-		await waitFor(() => expect(renderCodeBlock).toHaveBeenCalled());
+		await waitFor(() => expect(renderHighlightedText).toHaveBeenCalled());
 
 		const codePanel = container.querySelector(".app-body-code");
 		expect(codePanel?.querySelector("textarea")).toBeNull();
