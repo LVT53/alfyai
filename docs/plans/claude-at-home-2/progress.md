@@ -501,6 +501,13 @@ through the real tool description and schema, not a hand-written prompt. The sam
 that for Documents (`4058b768` already pins ruling 47 through the tool seam). `/root/verify-artifacts-w2.mjs` hardened:
 items proven absent first, one new version required, no duplicate Document, refused attempts counted.
 
+**Wave 2 DONE and on ai.dev (2026-09-26): `dev` = `73ab3b07`** (the Document edit contract fix `b8bee460` on top of `7f07dbf8`; gates
+13,433 tests, Playwright 69/69, Fallow 124/4; redeploy health OK). **Live check 14/14:** Document created (11 s), edited
+on the first try (8 s, 1 attempt, 0 refused, v1 → v2, no duplicate), plain question makes nothing, App created (31 s),
+Hungarian Document in Hungarian, incognito Document 404 outside / 200 inside / absent from search. The owner was given
+the go-ahead to test with sample tasks. **Paused until the weekly reset (Mon 2026-09-28 ~10:00 IST); Wave 3 starts in a
+fresh session from `wave-3-handoff.md`.**
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
@@ -517,7 +524,5 @@ items proven absent first, one new version required, no duplicate Document, refu
 
 ## Next action
 
-RV-5a reports and the ruling-51 fix lands → merge both into `feat/artifacts` (gates in `art-base`) → resume S2
-(A7, A8 tool part, A9 + ruling 52) and let S1 pick up the merge. Then wait for S1/S2's reports → RV-1A (opus), RV-1B,
-RV-2A (opus), RV-2B → merge wave 2 → `dev` → push → deploy dev → real-model checks. Review ports: RV-5a 5570; next
-free 5580, 5590, 5620, 5630 (5600 is Phase 4's, 5610 was used).
+Wave 3 in a fresh orchestrator session: read `wave-3-handoff.md` first, then this file's latest entries. Check the weekly
+budget (`get_usage`) before dispatching. Owner feedback from testing Wave 2 on ai.dev comes first.
