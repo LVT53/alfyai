@@ -9,13 +9,20 @@ import {
 	getMessageForDocumentKeep,
 	updateMessageDocumentLink,
 } from "$lib/server/services/messages";
+import { inlinePlainText } from "$lib/shared/artifact-document/blocks";
 import type { RequestHandler } from "./$types";
 
-/** The first non-empty line, markdown heading markers stripped, capped for a title. */
+/**
+ * The first non-empty line's TEXT, capped for a title: heading markers and
+ * inline Markdown removed (a reply that opens with "**Weekend plan**" was
+ * titled with the asterisks, RV-1A).
+ */
 function deriveTitle(content: string, fallback: string): string {
 	const firstLine =
 		content.split("\n").find((line) => line.trim().length > 0) ?? "";
-	const cleaned = firstLine.replace(/^#{1,6}\s*/, "").trim();
+	const cleaned = inlinePlainText(firstLine.replace(/^#{1,6}\s*/, ""))
+		.replace(/\s+/g, " ")
+		.trim();
 	return cleaned.length > 0 ? cleaned.slice(0, 120) : fallback;
 }
 
