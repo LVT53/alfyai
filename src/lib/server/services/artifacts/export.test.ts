@@ -138,6 +138,28 @@ describe("buildGeneratedDocumentSource", () => {
 
 	// chart/image/sourceChips/pageBreak are Atlas-report concepts a Document
 	// has no native block for, and this mapper must never invent one.
+	// T12.7: a document too large to render is refused by the intake's own
+	// static limit (source_too_large), not silently truncated by this mapper.
+	// A large document's own JSON must actually GROW with its content —
+	// proof there is no hidden cap here for the intake's 2 MiB limit to catch.
+	it("never truncates a large document — its JSON size scales with its content", () => {
+		const bigBlocks = Array.from({ length: 500 }, (_, i) =>
+			makeBlock(`p${i}`, "paragraph", "x".repeat(5000)),
+		);
+		const source = buildGeneratedDocumentSource({
+			title: "Large report",
+			blocks: bigBlocks,
+		});
+		expect(source.blocks).toHaveLength(500);
+		const bytes = Buffer.byteLength(JSON.stringify(source), "utf8");
+		// 500 * 5000 chars of body text alone already clears the 2 MiB the
+		// intake refuses at (file-production/limits.ts's maxSourceJsonBytes).
+		expect(bytes).toBeGreaterThan(2 * 1024 * 1024);
+
+		const validated = validateGeneratedDocumentSource(source);
+		expect(validated.ok).toBe(true);
+	});
+
 	it("never emits a chart, image, sourceChips or pageBreak block", () => {
 		const blocks = [
 			makeBlock("p1", "paragraph", "Text."),
