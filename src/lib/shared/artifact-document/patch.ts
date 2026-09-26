@@ -253,7 +253,11 @@ export function applyPatchSet(input: {
 					refusalCode = "find_ambiguous";
 					break;
 				}
-				nextMarkdown = before.replace(find, op.text ?? "");
+				// A replacer function, not a string: `String.replace` reads `$$`,
+				// `$&`, `` $` `` and `$'` in a string replacement as patterns, so
+				// "$$5" was stored as "$5" and "$&" as the found text (RV-1A).
+				const replacement = op.text ?? "";
+				nextMarkdown = before.replace(find, () => replacement);
 				break;
 			}
 			case "toggleTask": {

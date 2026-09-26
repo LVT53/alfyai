@@ -620,3 +620,26 @@ describe("RV-1A: the guard compares against the document before this patch", () 
 		expect(result.blocks[0].markdown).toBe("The user rewrote this.");
 	});
 });
+
+describe("RV-1A: replaceRange writes its text literally", () => {
+	it("never reads $$, $&, $` or $' in the replacement as a pattern", () => {
+		const { blocks, snapshot } = setup("The price is TBD for now.");
+		const [paragraph] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceRange",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					find: "TBD",
+					text: "$$5 ($& $` $')",
+				}),
+			]),
+		});
+		expect(result.blocks[0].markdown).toBe(
+			"The price is $$5 ($& $` $') for now.",
+		);
+	});
+});
