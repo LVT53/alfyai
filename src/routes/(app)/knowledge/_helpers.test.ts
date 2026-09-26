@@ -33,6 +33,8 @@ function makeKnowledgeDocument(
 		originConversationId: overrides.originConversationId ?? null,
 		originAssistantMessageId: overrides.originAssistantMessageId ?? null,
 		sourceChatFileId: overrides.sourceChatFileId ?? null,
+		kind: overrides.kind,
+		artifactVersionNumber: overrides.artifactVersionNumber,
 		createdAt: overrides.createdAt ?? 1,
 		updatedAt: overrides.updatedAt ?? 2,
 	};
@@ -103,5 +105,51 @@ describe("workspace document helpers", () => {
 			sourceChatFileId: "chat-file-v2",
 			documentFamilyId: "family-report",
 		});
+	});
+
+	// Slice 7 (Feature 2, ADR-0066): a Document/App/Canvas/Slides row carries
+	// `kind`, and opening it is the entire client-side "open" change this
+	// slice needs — the panel itself dispatches on `item.kind` per slice 0.
+	it("carries kind straight through for an artifact-family row, tried before the existing mapping", () => {
+		const document = makeKnowledgeDocument({
+			id: "art-canvas-1",
+			type: "artifact",
+			displayArtifactId: "art-canvas-1",
+			promptArtifactId: null,
+			familyArtifactIds: ["art-canvas-1"],
+			name: "Vienna trip board",
+			mimeType: null,
+			sizeBytes: null,
+			conversationId: "conv-1",
+			summary: null,
+			normalizedAvailable: false,
+			documentOrigin: undefined,
+			kind: "canvas",
+			artifactVersionNumber: 7,
+		});
+
+		expect(toWorkspaceDocument(document)).toEqual({
+			id: "artifact:art-canvas-1",
+			source: "knowledge_artifact",
+			filename: "Vienna trip board",
+			title: "Vienna trip board",
+			kind: "canvas",
+			mimeType: null,
+			artifactId: "art-canvas-1",
+			conversationId: "conv-1",
+		});
+	});
+
+	it("still maps every existing row exactly as before when kind is unset", () => {
+		const document = makeKnowledgeDocument({
+			id: "source-pdf",
+			displayArtifactId: "source-pdf",
+			promptArtifactId: "normalized-pdf",
+			familyArtifactIds: ["source-pdf", "normalized-pdf"],
+			name: "Benefits.pdf",
+			normalizedAvailable: true,
+		});
+
+		expect(toWorkspaceDocument(document)).not.toHaveProperty("kind");
 	});
 });

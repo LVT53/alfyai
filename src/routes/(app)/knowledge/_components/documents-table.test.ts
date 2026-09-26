@@ -15,8 +15,11 @@ import {
 	canRetryExtraction,
 	compareDocuments,
 	DOCUMENT_COLUMN_ORDER,
+	DOCUMENT_TYPE_FILTER_ORDER,
+	deriveArtifactVersionBadge,
 	deriveDocumentStatus,
 	deriveDocumentVersion,
+	documentTypeFilterFor,
 	documentVersionRank,
 	extractionDetailKey,
 	extractionErrorKey,
@@ -555,5 +558,156 @@ describe("nextSortDirection", () => {
 		expect(nextSortDirection("name", "asc", "size")).toBe("desc");
 		expect(nextSortDirection("name", "asc", "version")).toBe("desc");
 		expect(nextSortDirection("name", "asc", "date")).toBe("desc");
+	});
+});
+
+// Slice 7 (Feature 2, ADR-0066): the artifact family joins the Documents tab.
+// A `kind`-bearing row is a Document/App/Canvas/Slides artifact
+// (`type: "artifact"`, `metadata_json.artifactType`).
+
+describe("DOCUMENT_TYPE_FILTER_ORDER", () => {
+	it("matches the mockup's six chips — All · Documents · Canvas · Apps · Slides · Uploaded", () => {
+		expect(DOCUMENT_TYPE_FILTER_ORDER).toEqual([
+			"all",
+			"document",
+			"canvas",
+			"app",
+			"slides",
+			"uploaded",
+		]);
+	});
+});
+
+describe("documentTypeFilterFor", () => {
+	it("buckets a Skill Note and an ordinary upload both into 'uploaded'", () => {
+		expect(
+			documentTypeFilterFor(
+				doc({ id: "1", name: "tone.md", documentOrigin: "skill_note" }),
+			),
+		).toBe("uploaded");
+		expect(documentTypeFilterFor(doc({ id: "2", name: "invoice.pdf" }))).toBe(
+			"uploaded",
+		);
+	});
+
+	it("buckets a produced file into 'uploaded' — there is no 'file' chip (ruling 46, corrected)", () => {
+		expect(
+			documentTypeFilterFor(
+				doc({
+					id: "3",
+					name: "report.docx",
+					documentOrigin: "generated",
+					type: "generated_output",
+				}),
+			),
+		).toBe("uploaded");
+	});
+
+	it("buckets each artifact-family row into its own kind", () => {
+		expect(
+			documentTypeFilterFor(
+				doc({ id: "4", name: "Vienna trip board", kind: "canvas" }),
+			),
+		).toBe("canvas");
+		expect(
+			documentTypeFilterFor(
+				doc({ id: "5", name: "Saturday plan", kind: "document" }),
+			),
+		).toBe("document");
+		expect(
+			documentTypeFilterFor(
+				doc({ id: "6", name: "Trip cost splitter", kind: "app" }),
+			),
+		).toBe("app");
+		expect(
+			documentTypeFilterFor(
+				doc({ id: "7", name: "Trip recap", kind: "slides" }),
+			),
+		).toBe("slides");
+	});
+});
+
+describe("getDocumentKind — kind-bearing rows", () => {
+	it("returns the raw kind directly for an artifact-family row", () => {
+		expect(
+			getDocumentKind(
+				doc({ id: "1", name: "Vienna trip board", kind: "canvas" }),
+			),
+		).toBe("canvas");
+		expect(
+			getDocumentKind(
+				doc({ id: "2", name: "Trip cost splitter", kind: "app" }),
+			),
+		).toBe("app");
+	});
+
+	// A literal snapshot of today's three return values, so a regression here
+	// is loud: the new early-return must never change an existing row's kind.
+	it("is unchanged for every row this app already knew about", () => {
+		expect(
+			getDocumentKind(
+				doc({ id: "3", name: "tone.md", documentOrigin: "skill_note" }),
+			),
+		).toBe("skill_note");
+		expect(
+			getDocumentKind(
+				doc({ id: "4", name: "atlas.pdf", documentOrigin: "generated" }),
+			),
+		).toBe("generated");
+		expect(getDocumentKind(doc({ id: "5", name: "invoice.pdf" }))).toBe(
+			"uploaded",
+		);
+	});
+});
+
+describe("deriveArtifactVersionBadge", () => {
+	it("renders the artifact family's own version number", () => {
+		expect(
+			deriveArtifactVersionBadge(
+				doc({
+					id: "1",
+					name: "Vienna trip board",
+					kind: "canvas",
+					artifactVersionNumber: 7,
+				}),
+			),
+		).toEqual({ kind: "artifact-version", versionNumber: 7 });
+	});
+
+	it("renders 'none' for a kind-bearing row with no version written yet", () => {
+		expect(
+			deriveArtifactVersionBadge(
+				doc({
+					id: "2",
+					name: "Saturday plan",
+					kind: "document",
+					artifactVersionNumber: null,
+				}),
+			),
+		).toEqual({ kind: "none" });
+	});
+
+	it("renders 'none' for a row with no kind at all", () => {
+		expect(
+			deriveArtifactVersionBadge(doc({ id: "3", name: "invoice.pdf" })),
+		).toEqual({ kind: "none" });
+	});
+
+	it("reads artifactVersionNumber only — never versionNumber/documentFamilyId, even when both are set", () => {
+		// Synthetic: the two version families should never both be populated on
+		// a real row, but the function must stay honest about which one it
+		// reads (Review Focus #7).
+		const row = doc({
+			id: "4",
+			name: "Vienna trip board",
+			kind: "canvas",
+			artifactVersionNumber: 7,
+			versionNumber: 99,
+			documentFamilyId: "family-x",
+		});
+		expect(deriveArtifactVersionBadge(row)).toEqual({
+			kind: "artifact-version",
+			versionNumber: 7,
+		});
 	});
 });

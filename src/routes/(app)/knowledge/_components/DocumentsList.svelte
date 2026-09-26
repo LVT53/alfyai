@@ -26,6 +26,7 @@ import { formatMediumDateTime } from "$lib/utils/time";
 import { readErrorPayload } from "$lib/client/api/http";
 import { type I18nKey, t } from "$lib/i18n";
 import {
+	AppWindow,
 	ArrowDown,
 	ArrowUp,
 	Archive,
@@ -38,21 +39,30 @@ import {
 	FileText,
 	Folder,
 	Image,
+	LayoutDashboard,
 	Monitor,
+	Presentation,
+	SquarePen,
 	Table,
 	Trash2,
 	Upload,
 	RotateCw,
 	X,
 } from "@lucide/svelte";
+import type { Component } from "svelte";
+import type { KnowledgeDocumentKindFilter } from "$lib/server/services/knowledge";
+import type { ArtifactKind } from "$lib/shared/artifacts/kinds";
 import Spinner from "$lib/components/ui/Spinner.svelte";
 import {
 	canCancelExtraction,
 	canOpenDocument,
 	canRetryExtraction,
 	compareDocuments,
+	deriveArtifactVersionBadge,
+	DOCUMENT_TYPE_FILTER_ORDER,
 	deriveDocumentStatus,
 	deriveDocumentVersion,
+	type DocumentTypeFilter,
 	extractionDetailKey,
 	extractionStatusKey,
 	getDocumentKind,
@@ -66,6 +76,16 @@ import {
 // version sort would silently reorder one page out of six.
 type DocumentSortKey = "name" | "size" | "type" | "date";
 type SortDirection = "asc" | "desc";
+
+/** The Name column's icon for a `kind`-bearing row — the mockup's own choice
+ *  throughout surfaces §4–§6. `LayoutDashboard` (Canvas) is verified against
+ *  the installed `@lucide/svelte` per this slice's own Global Constraints. */
+const ARTIFACT_KIND_ICONS: Partial<Record<ArtifactKind, Component>> = {
+	document: SquarePen,
+	app: AppWindow,
+	canvas: LayoutDashboard,
+	slides: Presentation,
+};
 
 interface DocumentsListProps {
 	documents: KnowledgeDocumentItem[];
@@ -117,6 +137,12 @@ interface DocumentsListProps {
 	 * becomes a request per row.
 	 */
 	linkedProjectsByArtifactId?: Record<string, string[]>;
+	/** The active chip. Defaults to "all" — every kind, unfiltered. */
+	typeFilter?: DocumentTypeFilter;
+	onTypeFilterChange?: (filter: DocumentTypeFilter) => void;
+	/** Counted server-side, independent of pagination and of `typeFilter`
+	 *  itself — see `LogicalDocumentPageResult.countsByKind`. */
+	countsByKind?: Record<KnowledgeDocumentKindFilter, number>;
 }
 
 let {
@@ -145,6 +171,9 @@ let {
 	onReextract,
 	onLoadReextractTiers,
 	linkedProjectsByArtifactId = {},
+	typeFilter = "all",
+	onTypeFilterChange,
+	countsByKind,
 }: DocumentsListProps = $props();
 
 /**
@@ -155,6 +184,42 @@ let {
 function linkedProjectNames(displayArtifactId: string): string[] {
 	return linkedProjectsByArtifactId[displayArtifactId] ?? [];
 }
+
+// ── The chip row and summary line (Feature 2, ADR-0066) ──────────────────
+//
+// Six chips, the mockup's own order: All · Documents · Canvas · Apps ·
+// Slides · Uploaded (orchestrator amendment to ruling 46, 2026-09-25) — no
+// "file" chip; a produced file groups under Uploaded with its format pill.
+// Chip labels are the mockup's category NOUNS (`knowledge.documents.filter.*`),
+// never the singular `artifacts.type.*` word a row's own Type pill uses.
+
+/** The chip's own live count, independent of pagination. "All" sums every
+ *  bucket rather than reusing `totalDocuments`, because that prop reflects
+ *  the CURRENT chip's own filtered total once a chip other than "all" is
+ *  active — summing `countsByKind` is the only total that never moves when
+ *  a different chip is clicked. */
+function chipCount(filter: DocumentTypeFilter): number {
+	if (!countsByKind) return 0;
+	if (filter === "all") {
+		return Object.values(countsByKind).reduce((sum, n) => sum + n, 0);
+	}
+	return countsByKind[filter] ?? 0;
+}
+
+function chipLabelKey(filter: DocumentTypeFilter) {
+	return `knowledge.documents.filter.${filter}` as const;
+}
+
+/** The summary line's own bucket order (mockup: "12 uploaded · 6 documents ·
+ *  3 canvas · 2 apps · 1 slides") — deliberately different from the chip
+ *  row's order above; both are the mockup's own choice. */
+const SUMMARY_BUCKET_ORDER: readonly KnowledgeDocumentKindFilter[] = [
+	"uploaded",
+	"document",
+	"canvas",
+	"app",
+	"slides",
+];
 
 // Artifact ids with a Retry/Cancel round trip in flight. Local to the row so
 // a slow endpoint disables exactly the button that was pressed, and so a
@@ -595,8 +660,22 @@ const showingTo = $derived(
 const showInitialEmptyState = $derived(
 	documents.length === 0 &&
 		displayDocumentCount === 0 &&
-		localSearchQuery.trim().length === 0,
+		localSearchQuery.trim().length === 0 &&
+		typeFilter === "all",
 );
+
+/** One phrase per non-zero bucket, in the mockup's own order, joined by a
+ *  literal " · " (a visual separator, not translated text — consistent with
+ *  how the app already joins relative-time/location fragments elsewhere). */
+const summaryPhrases = $derived.by(() => {
+	if (!countsByKind) return [];
+	return SUMMARY_BUCKET_ORDER.filter((bucket) => countsByKind[bucket] > 0).map(
+		(bucket) =>
+			$t(`knowledge.documents.count.${bucket}` as I18nKey, {
+				count: countsByKind[bucket],
+			}),
+	);
+});
 
 function toggleSort(nextSortKey: DocumentSortKey) {
 	const nextDirection = nextSortDirection(
@@ -1217,6 +1296,34 @@ async function handleBulkDelete(): Promise<boolean> {
 			{dropError}
 		</div>
 	{/if}
+
+	<!-- The chip row and its summary line always render, even in the big
+	     empty-state CTA below (all at 0) — the surface should look quiet,
+	     never broken. Placed before the search/sort toolbar, which the empty
+	     state hides entirely, so this is the earliest tab stop either way. -->
+	{#if summaryPhrases.length > 0}
+		<p class="documents-summary-line" data-testid="documents-summary-line">
+			{summaryPhrases.join(' · ')}
+		</p>
+	{/if}
+	<div class="documents-filter-chips" data-testid="documents-filter-chips">
+		{#each DOCUMENT_TYPE_FILTER_ORDER as filter (filter)}
+			<button
+				type="button"
+				class="documents-filter-chip"
+				class:active={typeFilter === filter}
+				aria-pressed={typeFilter === filter}
+				aria-label={$t('knowledge.documents.filter.optionA11y', {
+					label: $t(chipLabelKey(filter)),
+					count: chipCount(filter),
+				})}
+				data-testid="documents-filter-chip-{filter}"
+				onclick={() => onTypeFilterChange?.(filter)}
+			>
+				{$t(chipLabelKey(filter))} {chipCount(filter)}
+			</button>
+		{/each}
+	</div>
 	{#if showInitialEmptyState}
 		{#if onUpload}
 			<button
@@ -1325,7 +1432,7 @@ async function handleBulkDelete(): Promise<boolean> {
 				{#if sortedDocuments.length === 0}
 			<div class="empty-state">
 			<p class="empty-title">
-				{localSearchQuery.trim().length > 0
+				{localSearchQuery.trim().length > 0 || typeFilter !== 'all'
 					? $t('knowledge.noDocumentsMatch')
 					: $t('knowledge.noDocumentsAvailable')}
 				</p>
@@ -1410,7 +1517,11 @@ async function handleBulkDelete(): Promise<boolean> {
 					<tbody>
 						{#each paginatedDocuments as document (document.id)}
 							{@const Icon = getFileIcon(document.mimeType, document.name)}
+							{@const ArtifactIcon = document.kind
+								? ARTIFACT_KIND_ICONS[document.kind]
+								: undefined}
 							{@const versionBadge = deriveDocumentVersion(document)}
+							{@const artifactVersionBadge = deriveArtifactVersionBadge(document)}
 							{@const statusBadge = deriveDocumentStatus(document)}
 							{@const aiVersionAvailable = hasNormalisedVersion(document)}
 							{@const extracting = isExtractionInProgress(document)}
@@ -1444,7 +1555,11 @@ async function handleBulkDelete(): Promise<boolean> {
 								</td>
 								<td class="col-icon">
 									<div class="file-icon" data-testid="file-icon">
-										<Icon size={18} strokeWidth={1.5} aria-hidden="true" />
+										{#if ArtifactIcon}
+											<ArtifactIcon size={18} strokeWidth={1.5} aria-hidden="true" />
+										{:else}
+											<Icon size={18} strokeWidth={1.5} aria-hidden="true" />
+										{/if}
 									</div>
 								</td>
 								<td class="col-name">
@@ -1468,13 +1583,21 @@ async function handleBulkDelete(): Promise<boolean> {
 											{/if}
 										</div>
 										<div class="mobile-document-meta">
-											{#if versionBadge.kind === 'original'}
-												<span class="original-badge">{$t('knowledge.original')}</span>
-											{:else if versionBadge.kind === 'version'}
-												<span class="version-badge">v{versionBadge.versionNumber}</span>
+											{#if document.kind}
+												{#if artifactVersionBadge.kind === 'artifact-version'}
+													<span class="version-badge">v{artifactVersionBadge.versionNumber}</span>
+												{/if}
+											{:else}
+												{#if versionBadge.kind === 'original'}
+													<span class="original-badge">{$t('knowledge.original')}</span>
+												{:else if versionBadge.kind === 'version'}
+													<span class="version-badge">v{versionBadge.versionNumber}</span>
+												{/if}
 											{/if}
 											{@render statusContent(document, statusBadge, extractionBusy, 'meta')}
-											{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
+											{#if document.kind}
+												<span class="type-badge type-artifact">{$t(`artifacts.type.${document.kind}`)}</span>
+											{:else if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
 												<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
 											{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
 												<span class="type-badge type-generated">{$t('knowledge.generated')}</span>
@@ -1487,7 +1610,13 @@ async function handleBulkDelete(): Promise<boolean> {
 									</div>
 								</td>
 								<td class="col-version" data-mobile-label={$t('knowledge.version')}>
-									{#if versionBadge.kind === 'original'}
+									{#if document.kind}
+										{#if artifactVersionBadge.kind === 'artifact-version'}
+											<span class="version-badge">v{artifactVersionBadge.versionNumber}</span>
+										{:else}
+											<span class="cell-blank" aria-hidden="true">—</span>
+										{/if}
+									{:else if versionBadge.kind === 'original'}
 										<span class="original-badge">{$t('knowledge.original')}</span>
 									{:else if versionBadge.kind === 'version'}
 										<span class="version-badge">v{versionBadge.versionNumber}</span>
@@ -1496,7 +1625,9 @@ async function handleBulkDelete(): Promise<boolean> {
 									{/if}
 								</td>
 								<td class="col-type" data-mobile-label={$t('knowledge.type')}>
-									{#if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
+									{#if document.kind}
+										<span class="type-badge type-artifact">{$t(`artifacts.type.${document.kind}`)}</span>
+									{:else if document.documentOrigin === 'skill_note' || document.type === 'skill_note'}
 										<span class="type-badge type-skill-note">{$t('knowledge.skillNote')}</span>
 									{:else if document.documentOrigin === 'generated' || document.type === 'generated_output'}
 										<span class="type-badge type-generated">{$t('knowledge.generated')}</span>
@@ -1521,53 +1652,55 @@ async function handleBulkDelete(): Promise<boolean> {
 								</td>
 								<td class="col-actions">
 									<div class="action-buttons">
-										{#if aiVersionAvailable}
+										{#if !document.kind}
+											{#if aiVersionAvailable}
+												<button
+													type="button"
+													class="action-btn action-btn-ai"
+													data-testid="what-ai-sees-button"
+													aria-label={expandedAiVersions.has(document.id)
+														? $t('knowledge.hideAiVersion')
+														: $t('knowledge.whatAiSees')}
+													title={expandedAiVersions.has(document.id)
+														? $t('knowledge.hideAiVersion')
+														: $t('knowledge.whatAiSees')}
+													onclick={(e) => {
+														e.stopPropagation();
+														void toggleAiVersion(document.id, document.promptArtifactId!);
+													}}
+												>
+													<Eye size={16} strokeWidth={2} aria-hidden="true" />
+												</button>
+											{:else}
+												<!-- Kept as a greyed slot rather than removed, so the action
+												     column does not jitter between rows and the absence is
+												     explained on hover. -->
+												{@const absenceReason = extracting
+													? $t('knowledge.extraction.inProgressTooltip')
+													: $t('knowledge.noNormalisedVersion')}
+												<span
+													class="action-btn action-btn-disabled"
+													data-testid="what-ai-sees-disabled"
+													title={absenceReason}
+													aria-label={absenceReason}
+													role="img"
+												>
+													<Eye size={16} strokeWidth={2} aria-hidden="true" />
+												</span>
+											{/if}
+											{#if canReextractDocument(document)}
+												{@render reextractAction(document, extractionBusy)}
+											{/if}
 											<button
 												type="button"
-												class="action-btn action-btn-ai"
-												data-testid="what-ai-sees-button"
-												aria-label={expandedAiVersions.has(document.id)
-													? $t('knowledge.hideAiVersion')
-													: $t('knowledge.whatAiSees')}
-												title={expandedAiVersions.has(document.id)
-													? $t('knowledge.hideAiVersion')
-													: $t('knowledge.whatAiSees')}
-												onclick={(e) => {
-													e.stopPropagation();
-													void toggleAiVersion(document.id, document.promptArtifactId!);
-												}}
+												class="action-btn"
+												aria-label={$t('filePreview.download', { filename: document.name })}
+												title={$t('filePreview.download', { filename: document.name })}
+												onclick={(e) => handleDownloadClick(e, document.id)}
 											>
-												<Eye size={16} strokeWidth={2} aria-hidden="true" />
+												<Download size={16} strokeWidth={2} aria-hidden="true" />
 											</button>
-										{:else}
-											<!-- Kept as a greyed slot rather than removed, so the action
-											     column does not jitter between rows and the absence is
-											     explained on hover. -->
-											{@const absenceReason = extracting
-												? $t('knowledge.extraction.inProgressTooltip')
-												: $t('knowledge.noNormalisedVersion')}
-											<span
-												class="action-btn action-btn-disabled"
-												data-testid="what-ai-sees-disabled"
-												title={absenceReason}
-												aria-label={absenceReason}
-												role="img"
-											>
-												<Eye size={16} strokeWidth={2} aria-hidden="true" />
-											</span>
 										{/if}
-										{#if canReextractDocument(document)}
-											{@render reextractAction(document, extractionBusy)}
-										{/if}
-										<button
-											type="button"
-											class="action-btn"
-											aria-label={$t('filePreview.download', { filename: document.name })}
-											title={$t('filePreview.download', { filename: document.name })}
-											onclick={(e) => handleDownloadClick(e, document.id)}
-										>
-											<Download size={16} strokeWidth={2} aria-hidden="true" />
-										</button>
 										<button
 											type="button"
 											class="action-btn action-btn-danger"
@@ -2550,6 +2683,59 @@ async function handleBulkDelete(): Promise<boolean> {
 		background: color-mix(in srgb, var(--success) 15%, transparent);
 		color: var(--success);
 		border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+	}
+
+	.type-artifact {
+		background: color-mix(in srgb, var(--accent) 15%, transparent);
+		color: var(--accent);
+		border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+	}
+
+	/* The chip row and its summary line (Feature 2, ADR-0066). Wraps onto a
+	   second line rather than scrolling horizontally at narrow widths — the
+	   table itself keeps its own horizontal scroll, unchanged. */
+	.documents-summary-line {
+		margin: 0;
+		font-size: var(--text-xs);
+		color: var(--text-muted);
+	}
+
+	.documents-filter-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-xs);
+	}
+
+	.documents-filter-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: var(--space-xs) var(--space-sm);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-full);
+		background: var(--surface-page);
+		color: var(--text-muted);
+		font-size: var(--text-xs);
+		font-family: inherit;
+		cursor: pointer;
+		transition: all var(--duration-standard) var(--ease-out);
+	}
+
+	.documents-filter-chip:hover {
+		border-color: var(--accent);
+		color: var(--text-primary);
+	}
+
+	.documents-filter-chip.active {
+		background: var(--surface-elevated);
+		color: var(--text-primary);
+		font-weight: 600;
+		border-color: var(--accent);
+	}
+
+	.documents-filter-chip:focus-visible {
+		outline: 2px solid var(--focus-ring);
+		outline-offset: 2px;
 	}
 
 	.documents-table td.col-size,
