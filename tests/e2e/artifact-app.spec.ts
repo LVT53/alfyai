@@ -305,7 +305,13 @@ test.describe("the App kind, in the panel", () => {
 
 		await expect
 			.poll(() => capturedBody)
-			.toMatchObject({ prompt: "Add a character counter", expectVersion: 1 });
+			.toMatchObject({
+				prompt: "Add a character counter",
+				expectVersion: 1,
+				// Ruling 51: the route widens its scope from this, so an
+				// incognito chat's App would 404 without it.
+				conversationId,
+			});
 	});
 
 	test("download requests the export with the artifact's own conversation id (sandbox run mocked)", async ({

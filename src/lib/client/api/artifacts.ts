@@ -156,12 +156,16 @@ export type RegenerateAppResult =
  * `create_artifact`/tool path; this is the ONLY App route that writes.
  * `expectVersion` is Slice 1's optimistic guard on the version the caller
  * last saw; a 409 keeps the caller's prompt so the dialog can offer to retry
- * rather than silently discarding it.
+ * rather than silently discarding it. `conversationId` is the panel's
+ * conversation (ruling 51), sent in the body like `downloadAppAsHtml`'s: the
+ * route widens its scope from it, so without it every App in an incognito
+ * conversation answers 404 here.
  */
 export async function regenerateApp(
 	artifactId: string,
 	prompt: string,
 	expectVersion?: number,
+	conversationId?: string | null,
 	fetchImpl: FetchLike = fetch,
 ): Promise<RegenerateAppResult> {
 	const response = await requestResponse(
@@ -169,7 +173,11 @@ export async function regenerateApp(
 		{
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ prompt, expectVersion }),
+			body: JSON.stringify({
+				prompt,
+				expectVersion,
+				conversationId: conversationId ?? null,
+			}),
 		},
 		fetchImpl,
 	);

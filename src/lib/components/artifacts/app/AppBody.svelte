@@ -170,6 +170,7 @@ async function submitRegenerate(): Promise<void> {
 			artifactId,
 			regeneratePromptText.trim(),
 			versionNumber,
+			conversationId,
 		);
 		if (result.ok) {
 			regenerateOpen = false;

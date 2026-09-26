@@ -495,10 +495,57 @@ describe("AppBody — regenerate", () => {
 				"app-1",
 				"add a currency switch",
 				2,
+				null,
 			),
 		);
 		// A successful regeneration re-fetches the detail (the new version).
 		await waitFor(() => expect(fetchArtifact).toHaveBeenCalledTimes(2));
+	});
+
+	// RV-2A (ruling 51): an incognito conversation's App is readable only when
+	// the request names that conversation, and the regenerate route reads it
+	// from the body — so a regenerate that drops the panel's conversationId is
+	// a 404 for every App in an incognito chat.
+	it("passes the panel's conversationId to regenerateApp, so an incognito conversation's own App can be regenerated", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		regenerateApp.mockResolvedValue({
+			ok: true,
+			version: 3,
+			title: "Habit tracker",
+			verification: { checked: false },
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+			conversationId: "panel-conv",
+		});
+
+		await fireEvent.click(
+			await screen.findByRole("button", {
+				name: /Ask Alfy for a new version/,
+			}),
+		);
+		await fireEvent.input(await screen.findByLabelText(en.regeneratePrompt), {
+			target: { value: "add a currency switch" },
+		});
+		const submit = screen
+			.getAllByRole("button", { name: /Ask Alfy for a new version/ })
+			.at(-1);
+		if (!submit) throw new Error("no submit button");
+		await fireEvent.click(submit);
+
+		await waitFor(() =>
+			expect(regenerateApp).toHaveBeenCalledWith(
+				"app-1",
+				"add a currency switch",
+				2,
+				"panel-conv",
+			),
+		);
 	});
 
 	it("a 409 version_conflict keeps the dialog and the prompt text, rather than discarding it", async () => {
