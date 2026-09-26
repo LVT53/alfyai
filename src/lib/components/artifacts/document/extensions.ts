@@ -175,12 +175,20 @@ function buildAbsorbAndMintTransaction(state: EditorState): Transaction | null {
 
 	// Mint whatever is STILL missing after absorption — reading `tr.doc` when
 	// absorption ran, so a block that just received an absorbed id is not
-	// re-minted a second one.
+	// re-minted a second one. A DUPLICATE id counts as missing: splitting a
+	// block (Enter) or pasting one copies its id onto the new node, and while
+	// the editor held both, every save's canonicalisation minted a different
+	// id for the second half — its id changed on every autosave, so Alfy's
+	// next patch on it found no such block (RV-1A). The first holder keeps it.
 	const docForMinting = tr ? tr.doc : state.doc;
 	const missing: { pos: number; kind: BlockKind }[] = [];
+	const seenIds = new Set<string>();
 	docForMinting.forEach((node, offset) => {
 		const id = node.attrs?.[BLOCK_ID_ATTR];
-		if (typeof id === "string" && id.length > 0) return;
+		if (typeof id === "string" && id.length > 0 && !seenIds.has(id)) {
+			seenIds.add(id);
+			return;
+		}
 		const kind = blockKindFor(node.type.name);
 		if (kind) missing.push({ pos: offset, kind });
 	});

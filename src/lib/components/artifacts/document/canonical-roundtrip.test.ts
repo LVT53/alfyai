@@ -133,3 +133,43 @@ describe("RV-1A: the canonical form survives a real reopen", () => {
 		);
 	});
 });
+
+describe("RV-1A: a split keeps one stable id per half", () => {
+	it("gives the second half of a split paragraph its own id, the same one on every save", () => {
+		element = document.createElement("div");
+		document.body.appendChild(element);
+		const stored = parseDocument("First half. Second half.\n\nOther.").markdown;
+		const [first] = parseDocument(stored).blocks;
+		const editor = createDocumentEditor({
+			element,
+			markdown: stored,
+			placeholder: "Write anything, or ask Alfy to.",
+		});
+		let splitAt = -1;
+		editor.state.doc.descendants((node, pos) => {
+			if (
+				splitAt === -1 &&
+				node.isText &&
+				node.text?.startsWith("First half.")
+			) {
+				splitAt = pos + "First half.".length;
+			}
+		});
+		// Enter in the middle of the paragraph: ProseMirror copies the node's
+		// attributes, id included, onto the new half.
+		editor.chain().setTextSelection(splitAt).splitBlock().run();
+
+		const save = () =>
+			parseDocument(
+				serializeDocument(parseDocument(readMarkdown(editor)).blocks),
+			).blocks.map((block) => block.id);
+		const once = save();
+		const twice = save();
+		editor.destroy();
+
+		expect(once).toHaveLength(3);
+		expect(once[0]).toBe(first.id);
+		expect(new Set(once).size).toBe(3);
+		expect(twice).toEqual(once);
+	});
+});
