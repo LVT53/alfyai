@@ -639,6 +639,62 @@ describe("an incognito conversation's artifact family, from outside it", () => {
 		).resolves.toBe(JSON.stringify({ note: SECRET_WORD }));
 	});
 
+	// Slice 2's three App-specific readers: the served route and the kv route
+	// both resolve through `getArtifact`/`storage.ts` before touching anything,
+	// and the download path reads the same artifact row a third time. Each is
+	// tested here through the exact service function its route calls, not a
+	// re-derived stand-in, so a scope regression in any of the three is caught
+	// in the one file that already holds this feature's incognito promise.
+	it("refuses the App storage bridge's read/write from outside — the kv route's own engine", async () => {
+		const { appId } = await seedIncognitoArtifactFamily();
+		const { readAppValue, writeAppValue } = await import(
+			"$lib/server/services/artifacts/app/storage"
+		);
+
+		await expect(
+			readAppValue({ userId: USER, artifactId: appId, key: "salary" }),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+		await expect(
+			writeAppValue({
+				userId: USER,
+				artifactId: appId,
+				key: "salary",
+				value: "leaked",
+			}),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
+
+		// The positive half: from inside the incognito conversation itself, the
+		// same functions read the real stored value.
+		await expect(
+			readAppValue({
+				userId: USER,
+				artifactId: appId,
+				key: "salary",
+				conversationId: INCOGNITO,
+			}),
+		).resolves.toEqual({ ok: true, value: { note: SECRET_WORD } });
+	});
+
+	it("refuses the served App route and the download path's underlying read — getArtifact, kind app", async () => {
+		const { getArtifact } = await import("$lib/server/services/artifacts");
+		const { appId } = await seedIncognitoArtifactFamily();
+
+		await expect(
+			getArtifact({ userId: USER, artifactId: appId }),
+		).resolves.toBeNull();
+		await expect(
+			getArtifact({ userId: USER, artifactId: appId, conversationId: NORMAL }),
+		).resolves.toBeNull();
+
+		await expect(
+			getArtifact({
+				userId: USER,
+				artifactId: appId,
+				conversationId: INCOGNITO,
+			}),
+		).resolves.toMatchObject({ id: appId, kind: "app" });
+	});
+
 	it("is not in the Knowledge library or workspace search", async () => {
 		await seedIncognitoArtifactFamily();
 		// A normal upload with the same word, so the search is seen to find

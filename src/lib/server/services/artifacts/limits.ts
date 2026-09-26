@@ -47,3 +47,14 @@ export const ARTIFACT_KV_KEY_MAX_CHARS = 128;
  * surfaces the refusal to the App.
  */
 export const ARTIFACT_KV_VALUE_MAX_BYTES = 256 * 1024;
+
+/**
+ * Ruling 48 (orchestrator, 2026-09-25, from Slice 0's own data review): a
+ * per-value cap (256 KiB) and a key-count cap (200) still allow one App to
+ * hold ~50 MiB, because neither bounds the SUM. `kv.setKv` enforces this
+ * inside its own transaction — the sum of every row's value bytes AFTER the
+ * write, refusing with no write at all — in the same reason family as the
+ * per-value cap; slice 2's `APP_KV_LIMITS.maxTotalBytes` derives from this
+ * constant rather than restating it (a test pins the equality).
+ */
+export const ARTIFACT_KV_TOTAL_MAX_BYTES = 512 * 1024;

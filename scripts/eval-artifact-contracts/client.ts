@@ -23,8 +23,22 @@ export interface EvalArtifactsSendParams {
 	signal?: AbortSignal;
 }
 
+/** The provider's own `usage` block, when the endpoint sends one — an
+ * OpenAI-compatible completion always should, but this is read defensively
+ * (undefined fields, not thrown) since the harness must still score an
+ * attempt whose usage could not be read. */
+export interface EvalArtifactsUsage {
+	promptTokens?: number;
+	completionTokens?: number;
+	totalTokens?: number;
+}
+
 export interface EvalArtifactsSendResult {
 	text: string;
+	/** Absent when the endpoint's response carried no `usage` block at all —
+	 * never a guess. P1's own per-app token comparison (2,486–3,607 completion
+	 * tokens) needs this recorded per case, which nothing before this read. */
+	usage?: EvalArtifactsUsage;
 }
 
 /** Never exposes the resolved key — only what a scorer or a results file may
@@ -107,8 +121,21 @@ export function resolveEvalArtifactsClient(
 			}
 			const json = (await response.json()) as {
 				choices?: Array<{ message?: { content?: string } }>;
+				usage?: {
+					prompt_tokens?: number;
+					completion_tokens?: number;
+					total_tokens?: number;
+				};
 			};
-			return { text: json.choices?.[0]?.message?.content ?? "" };
+			const rawUsage = json.usage;
+			const usage: EvalArtifactsUsage | undefined = rawUsage
+				? {
+						promptTokens: rawUsage.prompt_tokens,
+						completionTokens: rawUsage.completion_tokens,
+						totalTokens: rawUsage.total_tokens,
+					}
+				: undefined;
+			return { text: json.choices?.[0]?.message?.content ?? "", usage };
 		},
 	};
 }

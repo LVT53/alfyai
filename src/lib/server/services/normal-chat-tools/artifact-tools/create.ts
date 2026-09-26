@@ -5,6 +5,7 @@
 // descriptions are Slice 5a's; each type slice appends ONLY its own entry to
 // CREATE_ARTIFACT_HANDLERS below, in this file).
 import { z } from "zod";
+import { createAppFromBrief } from "$lib/server/services/artifacts/app/create";
 import { truncateText } from "../shared";
 
 /** The four types Alfy may create. "file" is produce_file's, not this tool's. */
@@ -82,6 +83,15 @@ export interface CreateArtifactHandlerParams {
 	title: string;
 	body: string;
 	/**
+	 * The turn's own reply language (decisions.md ruling 55), resolved ONCE by
+	 * `resolveTurnResponseLanguage` and carried on `CreateNormalChatToolsContext.language`
+	 * — never re-detected per kind. The App handler uses this instead of running
+	 * `detectLanguage` on its own brief, which read an English brief full of
+	 * Hungarian-looking letter pairs as Hungarian. A kind with no language-
+	 * sensitive output (Document, Canvas, Slides today) may ignore this field.
+	 */
+	language: "en" | "hu";
+	/**
 	 * Fires on the tool's own timeout (120s, TOOL_TIMEOUTS_MS.create_artifact)
 	 * or the turn's own stop/disconnect — whichever comes first, the same
 	 * combined signal executeToolWithEnvelope already builds for every other
@@ -130,6 +140,45 @@ export const CREATE_ARTIFACT_HANDLERS: Partial<
 	Record<CreatableArtifactKind, CreateArtifactHandler>
 > = {};
 
+/**
+ * The App branch (Task A7): a thin adapter over
+ * `artifacts/app/create.ts`'s `createAppFromBrief`, which owns everything
+ * substantive — the thinking-off generation call, the fact-verification
+ * pass and its ruling-52 repair/re-verify gate, and the `createArtifact`
+ * write with `author: "alfy"`. The model's `body` is its BRIEF (what to
+ * build), never HTML it wrote itself: the App contract forbids the chat
+ * model from producing the actual markup, so this handler passes `body`
+ * straight through as the generation prompt and nothing else ever reaches
+ * the model — no HTML, not even on failure (see the file's own A7.4 test).
+ *
+ * `createAppFromBrief` is a normal static import again (ruling 57): its own
+ * chain (generate-and-verify.ts → verify.ts) used to reach back into
+ * `normal-chat-tools/index.ts` for the verifier's `research_web` tool, which
+ * closed a static cycle back through this very file, which `index.ts`
+ * imports to register `create_artifact`. Now that `verify.ts` builds
+ * `research_web` through its own module (`research-web-tool.ts`) instead of
+ * `createNormalChatTools`, that cycle is gone (Fallow's circular count is
+ * back to 4), and the dynamic `import()` this file used to defer it no
+ * longer serves a purpose.
+ */
+CREATE_ARTIFACT_HANDLERS.app = async (params) => {
+	const result = await createAppFromBrief({
+		userId: params.userId,
+		conversationId: params.conversationId,
+		prompt: params.body,
+		title: params.title,
+		language: params.language,
+		abortSignal: params.abortSignal,
+	});
+	if (!result.ok) {
+		return { ok: false, reason: result.detail };
+	}
+	return {
+		ok: true,
+		value: { artifactId: result.artifactId, title: result.title },
+	};
+};
+
 export interface CreateArtifactRunResult {
 	modelPayload: CreateArtifactModelPayload;
 	outputSummary: string;
@@ -161,6 +210,7 @@ export async function runCreateArtifactTool(
 		turnId: params.turnId,
 		title: params.title,
 		body: params.body,
+		language: params.language,
 		abortSignal: params.abortSignal,
 	});
 

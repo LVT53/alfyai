@@ -1,0 +1,101 @@
+{
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-10-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 179,
+				"textSample": "Memory Match Flip two cards to find a pair. Clear all 8 pairs to win. 0 MOVES 0/8 FOUND — BEST ✦ 🌊 ✦ ⭐ ✦ 🔥 ✦ 🍄 ✦ 🍁 ✦ 🌸 ✦ 🌙 ✦ 🌸 ✦ ⚡ ✦ 🍁 ✦ 🌙 ✦ 🌊 ✦ ⭐ ✦ 🔥 ✦ 🍄 ✦ ⚡ New game",
+				"controlCount": 18,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-10-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 179,
+				"textSample": "Memory Match Flip two cards to find a pair. Clear all 8 pairs to win. 0 MOVES 0/8 FOUND — BEST ✦ 🔥 ✦ 🌙 ✦ 🌊 ✦ 🍁 ✦ ⭐ ✦ ⚡ ✦ 🌸 ✦ 🍄 ✦ 🍁 ✦ 🌸 ✦ 🔥 ✦ ⭐ ✦ 🌊 ✦ ⚡ ✦ 🌙 ✦ 🍄 New game",
+				"controlCount": 18,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-10-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 179,
+				"textSample": "Memory Match Flip two cards to find a pair. Clear all 8 pairs to win. 0 MOVES 0/8 FOUND — BEST ✦ 🔥 ✦ ⭐ ✦ 🍄 ✦ 🍄 ✦ 🌸 ✦ 🌸 ✦ 🍁 ✦ 🌊 ✦ 🌙 ✦ ⚡ ✦ 🍁 ✦ 🌙 ✦ 🌊 ✦ ⚡ ✦ ⭐ ✦ 🔥 New game",
+				"controlCount": 18,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-10-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 179,
+				"textSample": "Memory Match Flip two cards to find a pair. Clear all 8 pairs to win. 0 MOVES 0/8 FOUND — BEST ✦ 🌸 ✦ 🌊 ✦ ⚡ ✦ 🔥 ✦ 🔥 ✦ 🌊 ✦ ⭐ ✦ ⚡ ✦ 🍁 ✦ ⭐ ✦ 🍄 ✦ 🌸 ✦ 🌙 ✦ 🍄 ✦ 🌙 ✦ 🍁 New game",
+				"controlCount": 18,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": null,
+			"inputValue": null,
+			"buttonText": "✦ 🌊",
+			"clickedButtons": ["✦ 🌊"],
+			"domChangedAfter": "✦ 🌊",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 179,
+			"textAfter": 179,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 0,
+			"storageKeys": [],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 0,
+		"storageKeys": []
+	}
+}

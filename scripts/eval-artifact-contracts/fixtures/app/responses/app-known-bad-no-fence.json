@@ -1,0 +1,9 @@
+{
+	"response": "OK",
+	"durationMs": 212,
+	"usage": {
+		"promptTokens": 1013,
+		"completionTokens": 2,
+		"totalTokens": 1015
+	}
+}

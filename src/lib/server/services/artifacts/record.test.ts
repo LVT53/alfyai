@@ -323,6 +323,63 @@ describe("updateArtifactBody", () => {
 		});
 	});
 
+	// Slice 2's regenerate.ts needs to persist an App's verification/glitch
+	// summary alongside its new body — the only durable home for that state,
+	// since there is no dedicated column for it. Additive and optional: every
+	// existing caller (no metadataPatch) is unaffected, and artifactType/title
+	// are still recomputed the same way a read already does, never overwritten
+	// by a stale patch.
+	it("merges metadataPatch into the row's metadata without disturbing artifactType or title", async () => {
+		const artifact = await createDocument();
+
+		const result = await updateArtifactBody({
+			userId: OWNER,
+			artifactId: artifact.id,
+			body: "- [x] Book museum tickets",
+			author: "alfy",
+			summary: "Alfy regenerated it",
+			metadataPatch: { verification: { checked: true, verdict: "clean" } },
+		});
+
+		expect(result.ok).toBe(true);
+		const read = await getArtifact({ userId: OWNER, artifactId: artifact.id });
+		expect(read?.metadata).toMatchObject({
+			artifactType: "document",
+			title: artifact.title,
+			verification: { checked: true, verdict: "clean" },
+		});
+	});
+
+	it("a later metadataPatch overwrites only the keys it names, keeping earlier patch keys", async () => {
+		const artifact = await createDocument();
+		await updateArtifactBody({
+			userId: OWNER,
+			artifactId: artifact.id,
+			body: "v2",
+			author: "alfy",
+			summary: "first patch",
+			metadataPatch: {
+				glitchRuleIds: ["no-network-api"],
+				verification: { checked: true, verdict: "clean" },
+			},
+		});
+
+		await updateArtifactBody({
+			userId: OWNER,
+			artifactId: artifact.id,
+			body: "v3",
+			author: "alfy",
+			summary: "second patch",
+			metadataPatch: { verification: { checked: true, verdict: "repaired" } },
+		});
+
+		const read = await getArtifact({ userId: OWNER, artifactId: artifact.id });
+		expect(read?.metadata).toMatchObject({
+			glitchRuleIds: ["no-network-api"],
+			verification: { checked: true, verdict: "repaired" },
+		});
+	});
+
 	it("refuses a stale base hash and writes nothing", async () => {
 		const artifact = await createDocument();
 

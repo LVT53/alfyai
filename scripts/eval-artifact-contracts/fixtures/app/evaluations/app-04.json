@@ -1,0 +1,101 @@
+{
+	"evaluation": {
+		"pages": [
+			{
+				"label": "light-1280",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-04-light-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 578,
+				"textSample": "Angol–Magyar Kártyák Kattints a kártyákra, hogy megforduljanak és tanulj! Megfordított kártyák 0 Összes kártya 12 🐱 cat Állatok 🐱 macska Állatok 🐶 dog Állatok 🐶 kutya Állatok 🐦 bird Állatok 🐦 madár Állatok 🐟 fish ",
+				"controlCount": 14,
+				"storageGets": 1,
+				"storageSets": 1,
+				"storageKeys": ["flippedCards"]
+			},
+			{
+				"label": "dark-1280",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 1280,
+					"height": 800
+				},
+				"screenshot": "shot-app-04-dark-1280.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 578,
+				"textSample": "Angol–Magyar Kártyák Kattints a kártyákra, hogy megforduljanak és tanulj! Megfordított kártyák 0 Összes kártya 12 🐱 cat Állatok 🐱 macska Állatok 🐶 dog Állatok 🐶 kutya Állatok 🐦 bird Állatok 🐦 madár Állatok 🐟 fish ",
+				"controlCount": 14,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "light-390",
+				"colorScheme": "light",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-04-light-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 578,
+				"textSample": "Angol–Magyar Kártyák Kattints a kártyákra, hogy megforduljanak és tanulj! Megfordított kártyák 0 Összes kártya 12 🐱 cat Állatok 🐱 macska Állatok 🐶 dog Állatok 🐶 kutya Állatok 🐦 bird Állatok 🐦 madár Állatok 🐟 fish ",
+				"controlCount": 14,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			},
+			{
+				"label": "dark-390",
+				"colorScheme": "dark",
+				"viewport": {
+					"width": 390,
+					"height": 844
+				},
+				"screenshot": "shot-app-04-dark-390.png",
+				"consoleErrors": [],
+				"pageErrors": [],
+				"blockedRequests": [],
+				"textLength": 578,
+				"textSample": "Angol–Magyar Kártyák Kattints a kártyákra, hogy megforduljanak és tanulj! Megfordított kártyák 0 Összes kártya 12 🐱 cat Állatok 🐱 macska Állatok 🐶 dog Állatok 🐶 kutya Állatok 🐦 bird Állatok 🐦 madár Állatok 🐟 fish ",
+				"controlCount": 14,
+				"storageGets": 1,
+				"storageSets": 0,
+				"storageKeys": []
+			}
+		],
+		"interaction": {
+			"inputSelector": null,
+			"inputValue": null,
+			"buttonText": "🐱 cat Állatok 🐱 macska Állatok",
+			"clickedButtons": ["🐱 cat Állatok 🐱 macska Állatok"],
+			"domChangedAfter": "🐱 cat Állatok 🐱 macska Állatok",
+			"clicked": true,
+			"domChanged": true,
+			"textBefore": 578,
+			"textAfter": 563,
+			"htmlChanged": true,
+			"storageSetsBefore": 0,
+			"storageSetsAfter": 1,
+			"storageKeys": ["flippedCards"],
+			"dialogs": [],
+			"note": null
+		},
+		"consoleErrors": [],
+		"pageErrors": [],
+		"blockedRequests": [],
+		"storageGets": 1,
+		"storageSets": 1,
+		"storageKeys": ["flippedCards"]
+	}
+}

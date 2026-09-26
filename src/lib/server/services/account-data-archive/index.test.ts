@@ -1013,6 +1013,84 @@ describe("createAccountDataArchive", () => {
 		expect(combinedText).not.toMatch(/\bartifacts?\b/i);
 	});
 
+	// A10: the App's own HTML is the one model-authored document in the
+	// product — the archive must never become a second place it can run. The
+	// version-history renderer already HTML-escapes every version's body
+	// (ruling 24's "readable, never a live document"); this test pins that
+	// specifically for an App's `<!doctype html>` source, and for the Alfy
+	// verification note a regeneration leaves as a comment.
+	it("archives an App's own html source as inert, escaped text, and its verification note as a comment", async () => {
+		await seedArchiveUser();
+		const at = new Date("2026-03-01T09:00:00Z");
+		const appHtml =
+			'<!doctype html><html><head><script>alert("hi")</script></head><body>Budget</body></html>';
+		await db.insert(schema.artifacts).values({
+			id: "artifact-app-2",
+			userId: "user-1",
+			conversationId: "conv-1",
+			type: "artifact",
+			name: "Trip cost splitter",
+			contentText: appHtml,
+			metadataJson: JSON.stringify({
+				artifactType: "app",
+				title: "Trip cost splitter",
+				verification: { checked: true, verdict: "uncertain", reason: null },
+			}),
+			createdAt: at,
+			updatedAt: at,
+		});
+		await db.insert(schema.artifactVersions).values({
+			id: "version-app-2",
+			artifactId: "artifact-app-2",
+			userId: "user-1",
+			versionNumber: 1,
+			author: "alfy",
+			summary: "Alfy wrote the first draft",
+			body: appHtml,
+			bodyHash: "h5",
+			createdAt: at,
+		});
+		await db.insert(schema.artifactComments).values({
+			id: "comment-verify",
+			artifactId: "artifact-app-2",
+			userId: "user-1",
+			author: "alfy",
+			anchorJson: JSON.stringify({ kind: "node", nodeId: "app" }),
+			body: "Vienna is the capital of Hungary: could not settle without web research.",
+			createdAt: at,
+		});
+
+		const result = await createAccountDataArchive("user-1", {
+			password: "correct-password",
+			db,
+			rootDir: tempDir,
+			now: new Date("2026-06-15T08:00:00Z"),
+		});
+		expect(result.status).toBe("ok");
+		if (result.status !== "ok") return;
+		const zip = await JSZip.loadAsync(
+			Buffer.from(await new Response(result.zipStream).arrayBuffer()),
+		);
+
+		const page = (await zip
+			.file("Files/Readable/Trip cost splitter.html")
+			?.async("string")) as string;
+
+		// The literal tags never appear unescaped — a browser opening this
+		// archive page must not run the app's own <script>.
+		expect(page).not.toContain("<script>alert(");
+		expect(page).not.toContain("<!doctype html><html>");
+		// The escaped text is still there, readable, inside a <pre>.
+		expect(page).toContain("&lt;!doctype html&gt;");
+		expect(page).toContain("&lt;script&gt;");
+		expect(page).toMatch(/<pre>[\s\S]*&lt;!doctype html&gt;[\s\S]*<\/pre>/);
+
+		// The verification note travels as a comment, in plain readable prose.
+		expect(page).toContain(
+			"Vienna is the capital of Hungary: could not settle without web research.",
+		);
+	});
+
 	it("fails the whole archive when an in-scope original file cannot be read", async () => {
 		await seedArchiveUser();
 		await rm(join(tempDir, "data", "knowledge", "user-1", "roadmap-notes.txt"));

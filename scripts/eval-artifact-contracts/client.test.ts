@@ -144,6 +144,64 @@ describe("resolveEvalArtifactsClient", () => {
 		expect(onBody.chat_template_kwargs).toBeUndefined();
 	});
 
+	// P1's own report compares completion tokens per app (2,486–3,607); the
+	// harness cannot report that number if send() throws its provider's usage
+	// away, so this is what run.ts now records per case.
+	it("returns the provider's usage block, mapped to camelCase", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							choices: [{ message: { content: "<html></html>" } }],
+							usage: {
+								prompt_tokens: 812,
+								completion_tokens: 3204,
+								total_tokens: 4016,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					),
+			),
+		);
+		const client = resolveEvalArtifactsClient({
+			baseUrl: "http://127.0.0.1:8000/v1",
+			model: "m",
+			apiKey: null,
+		});
+
+		const result = await client.send({ prompt: "hi", thinking: "off" });
+
+		expect(result.usage).toEqual({
+			promptTokens: 812,
+			completionTokens: 3204,
+			totalTokens: 4016,
+		});
+	});
+
+	it("leaves usage undefined rather than guessing when the endpoint sends none", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					),
+			),
+		);
+		const client = resolveEvalArtifactsClient({
+			baseUrl: "http://127.0.0.1:8000/v1",
+			model: "m",
+			apiKey: null,
+		});
+
+		const result = await client.send({ prompt: "hi", thinking: "off" });
+
+		expect(result.usage).toBeUndefined();
+	});
+
 	it("throws with the HTTP status attached on a non-ok response", async () => {
 		vi.stubGlobal(
 			"fetch",

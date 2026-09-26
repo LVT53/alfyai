@@ -1,0 +1,792 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { uiLanguage } from "$lib/stores/settings";
+import AppBody from "./AppBody.svelte";
+
+// The dictionary itself is not exported by $lib/i18n (only the `t` store and
+// the `I18nKey` type are) — these are copied from the artifacts.app.* table
+// this slice added (i18n/artifacts.ts) rather than re-deriving them from a
+// private module.
+const en = {
+	verifyClean: "Alfy checked the facts in this app.",
+	verifyRepaired: "Alfy checked the facts and fixed one thing.",
+	verifyUncertain: "Alfy was not sure about one detail — see the note.",
+	verifyUnavailable: "Alfy could not check the facts in this app.",
+	glitchNetwork:
+		"This app tried to reach the network. Everything still works offline.",
+	glitchStorage:
+		"This app used browser storage instead of Alfy's. Your data may not be kept.",
+	glitchExternal:
+		"This app was built to load something from outside. It runs, but parts may be missing.",
+	downloadUnavailable:
+		"This app is not in a chat, so it cannot be saved as a file.",
+	regeneratePrompt: "What should change?",
+};
+const hu = {
+	verifyUncertain: "Alfy egy részletben nem volt biztos — lásd a megjegyzést.",
+};
+
+const fetchArtifact = vi.fn();
+const downloadAppAsHtml = vi.fn();
+const regenerateApp = vi.fn();
+vi.mock("$lib/client/api/artifacts", () => ({
+	fetchArtifact: (...args: unknown[]) => fetchArtifact(...args),
+	downloadAppAsHtml: (...args: unknown[]) => downloadAppAsHtml(...args),
+	regenerateApp: (...args: unknown[]) => regenerateApp(...args),
+}));
+
+// Ruling 58: the Code tab loads its highlighter ON DEMAND when it opens,
+// through the existing async Shiki path (renderHighlightedText, which
+// ensures the highlighter AND the "html" grammar are loaded before calling
+// the synchronous renderCodeBlock) — not the bare synchronous renderCodeBlock,
+// which silently falls back to escaped plain text unless something ELSE
+// already initialised Shiki first.
+const renderHighlightedText = vi.fn(
+	async (content: string) =>
+		`<pre data-testid="highlighted"><code>${content}</code></pre>`,
+);
+vi.mock("$lib/services/markdown", () => ({
+	renderHighlightedText: (...args: unknown[]) =>
+		(renderHighlightedText as (...a: unknown[]) => Promise<string>)(...args),
+}));
+
+const APP_HTML =
+	"<!doctype html><html><body><h1>Habit tracker</h1></body></html>";
+
+function baseDetail(overrides: Record<string, unknown> = {}) {
+	return {
+		artifact: {
+			id: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			conversationId: "conv-1",
+			versionNumber: 2,
+			commentCount: 0,
+			updatedAt: 1,
+			body: APP_HTML,
+			bodyHash: "hash",
+			metadata: { artifactType: "app", title: "Habit tracker" },
+			...overrides,
+		},
+		versions: [],
+		comments: [],
+	};
+}
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	uiLanguage.set("en");
+	fetchArtifact.mockResolvedValue(baseDetail());
+	// jsdom has no matchMedia; $lib/stores/theme's `isDark` (system mode) reads
+	// it. Stubbed here rather than globally — this is the first artifact test
+	// to read the theme store reactively.
+	vi.stubGlobal(
+		"matchMedia",
+		vi.fn().mockReturnValue({
+			matches: false,
+			media: "",
+			addEventListener: vi.fn(),
+			removeEventListener: vi.fn(),
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+			onchange: null,
+		}),
+	);
+});
+
+describe("AppBody — loading and tabs", () => {
+	it("shows Preview by default, with Code available but inactive", async () => {
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+		});
+
+		const previewTab = await screen.findByRole("tab", { name: /Preview/ });
+		const codeTab = screen.getByRole("tab", { name: /Code/ });
+		expect(previewTab.getAttribute("aria-selected")).toBe("true");
+		expect(codeTab.getAttribute("aria-selected")).toBe("false");
+	});
+
+	// Ruling 58: the highlighter loads ON DEMAND when the Code tab opens, not
+	// eagerly on mount — the chat's own Shiki init (or lack of it) must not
+	// decide whether this card's Code tab is highlighted.
+	it("does not load the highlighter while showing Preview", async () => {
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+		});
+		await screen.findByRole("tab", { name: /Preview/ });
+
+		expect(renderHighlightedText).not.toHaveBeenCalled();
+	});
+
+	it("switches to Code on click and renders the stored HTML read-only, through the existing Shiki path", async () => {
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+		});
+		const codeTab = await screen.findByRole("tab", { name: /Code/ });
+
+		await fireEvent.click(codeTab);
+
+		await waitFor(() => expect(renderHighlightedText).toHaveBeenCalled());
+		expect(renderHighlightedText).toHaveBeenCalledWith(
+			APP_HTML,
+			"html",
+			expect.any(Boolean),
+		);
+	});
+
+	it("the code tab has no editing control: no textarea, no contenteditable, in the code panel", async () => {
+		const { container } = render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+		});
+		const codeTab = await screen.findByRole("tab", { name: /Code/ });
+		await fireEvent.click(codeTab);
+		await waitFor(() => expect(renderHighlightedText).toHaveBeenCalled());
+
+		const codePanel = container.querySelector(".app-body-code");
+		expect(codePanel?.querySelector("textarea")).toBeNull();
+		expect(codePanel?.querySelector("[contenteditable='true']")).toBeNull();
+	});
+});
+
+describe("AppBody — conversation scoping (ruling 51)", () => {
+	it("passes the panel's conversationId prop to fetchArtifact, not the artifact's own conversation", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+			conversationId: "panel-conv",
+		});
+
+		await waitFor(() =>
+			expect(fetchArtifact).toHaveBeenCalledWith("app-1", "panel-conv"),
+		);
+	});
+
+	it("passes the panel's conversationId prop to the running frame's src, not the artifact's own conversation", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		const { container } = render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+			conversationId: "panel-conv",
+		});
+
+		const iframe = await waitFor(() => {
+			const el = container.querySelector("iframe");
+			if (!el) throw new Error("no iframe yet");
+			return el;
+		});
+		expect(iframe.getAttribute("src")).toContain("conversationId=panel-conv");
+		expect(iframe.getAttribute("src")).not.toContain("owner-conv");
+	});
+
+	it("omits conversationId from fetchArtifact and the frame src when the panel has none", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		const { container } = render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		await waitFor(() =>
+			expect(fetchArtifact).toHaveBeenCalledWith("app-1", null),
+		);
+		const iframe = await waitFor(() => {
+			const el = container.querySelector("iframe");
+			if (!el) throw new Error("no iframe yet");
+			return el;
+		});
+		expect(iframe.getAttribute("src")).not.toContain("conversationId=");
+	});
+});
+
+// RV-2A. The panel reuses this body when its open-documents rail switches
+// from one App to another (same kind, same loader), so `artifactId` changes
+// under a live component. The card's trust lines and its Code tab must follow
+// the App whose frame is showing, never the one the panel just left.
+describe("AppBody — switching Apps in the same panel", () => {
+	function detailFor(id: string, verdict: "clean" | "unavailable") {
+		return {
+			...baseDetail({
+				id,
+				body: `<!doctype html><title>${id}</title>`,
+				metadata: {
+					artifactType: "app",
+					title: id,
+					verification: { checked: true, verdict, reason: null },
+				},
+			}),
+		};
+	}
+
+	function deferred<T>() {
+		let resolve: (value: T) => void = () => {};
+		const promise = new Promise<T>((settle) => {
+			resolve = settle;
+		});
+		return { promise, resolve };
+	}
+
+	it("does not show the previous App's verification line under the next App's frame while it loads", async () => {
+		const nextDetail = deferred<ReturnType<typeof detailFor>>();
+		fetchArtifact.mockResolvedValueOnce(detailFor("app-a", "clean"));
+		fetchArtifact.mockReturnValueOnce(nextDetail.promise);
+		const { rerender } = render(AppBody, {
+			artifactId: "app-a",
+			kind: "app",
+			title: "A",
+			body: null,
+		});
+		await screen.findByText(en.verifyClean);
+
+		await rerender({
+			artifactId: "app-b",
+			kind: "app",
+			title: "B",
+			body: null,
+		});
+
+		expect(screen.queryByText(en.verifyClean)).toBeNull();
+		nextDetail.resolve(detailFor("app-b", "unavailable"));
+		await screen.findByText(en.verifyUnavailable);
+	});
+
+	it("a slow answer for the previous App never replaces the current App's detail", async () => {
+		const slowA = deferred<ReturnType<typeof detailFor>>();
+		fetchArtifact.mockReturnValueOnce(slowA.promise);
+		fetchArtifact.mockResolvedValueOnce(detailFor("app-b", "unavailable"));
+		const { rerender } = render(AppBody, {
+			artifactId: "app-a",
+			kind: "app",
+			title: "A",
+			body: null,
+		});
+
+		await rerender({
+			artifactId: "app-b",
+			kind: "app",
+			title: "B",
+			body: null,
+		});
+		await screen.findByText(en.verifyUnavailable);
+		slowA.resolve(detailFor("app-a", "clean"));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(screen.queryByText(en.verifyClean)).toBeNull();
+		expect(screen.getByText(en.verifyUnavailable)).toBeInTheDocument();
+	});
+});
+
+describe("AppBody — verification line", () => {
+	it("shows nothing when checked is false", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					verification: { checked: false },
+				},
+			}),
+		);
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		await screen.findByRole("tab", { name: /Preview/ });
+		expect(screen.queryByText(en.verifyClean)).toBeNull();
+	});
+
+	it("shows the clean line for a clean verdict, with no note block", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					verification: { checked: true, verdict: "clean", reason: null },
+				},
+			}),
+		);
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		await screen.findByText(en.verifyClean);
+		expect(screen.queryByTestId("app-verify-note")).toBeNull();
+	});
+
+	it("shows the note block for repaired, with the Alfy comment's text", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					verification: { checked: true, verdict: "repaired", reason: null },
+				},
+			}),
+		);
+		fetchArtifact.mockResolvedValueOnce({
+			...baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					verification: { checked: true, verdict: "repaired", reason: null },
+				},
+			}),
+			comments: [
+				{
+					id: "c1",
+					artifactId: "app-1",
+					parentId: null,
+					anchor: null,
+					author: "alfy",
+					body: "The total did not match the sum of the rows; fixed to 950.",
+					status: "open",
+					createdAt: 1,
+					replies: [],
+				},
+			],
+		});
+
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		await screen.findByText(en.verifyRepaired);
+		expect(
+			await screen.findByText(/did not match the sum of the rows/),
+		).toBeInTheDocument();
+	});
+
+	it("shows no note block for uncertain when there is no Alfy comment yet", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					verification: { checked: true, verdict: "uncertain", reason: null },
+				},
+			}),
+		);
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		await screen.findByText(en.verifyUncertain);
+		expect(screen.queryByTestId("app-verify-note")).toBeNull();
+	});
+
+	it("shows the unavailable line and no note block", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					verification: {
+						checked: true,
+						verdict: "unavailable",
+						reason: "no key",
+					},
+				},
+			}),
+		);
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		await screen.findByText(en.verifyUnavailable);
+		expect(screen.queryByTestId("app-verify-note")).toBeNull();
+	});
+});
+
+describe("AppBody — glitches", () => {
+	it("shows the network glitch line for no-network-api, and no note-only rule ever renders", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					glitchRuleIds: ["no-network-api"],
+				},
+			}),
+		);
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		await screen.findByText(en.glitchNetwork);
+		expect(screen.queryByText(en.glitchStorage)).toBeNull();
+	});
+
+	it("collapses the three external-resource rules into ONE glitch.external line, not three", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					glitchRuleIds: ["no-script-src", "no-link-href", "no-remote-img"],
+				},
+			}),
+		);
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const matches = await screen.findAllByText(en.glitchExternal);
+		expect(matches).toHaveLength(1);
+	});
+
+	it("shows no glitch line when glitchRuleIds is absent", async () => {
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "Habit tracker",
+			body: null,
+		});
+		await screen.findByRole("tab", { name: /Preview/ });
+		expect(screen.queryByText(en.glitchNetwork)).toBeNull();
+	});
+});
+
+describe("AppBody — download", () => {
+	it("disables download and shows the unavailable copy for a project-linked App (no conversation)", async () => {
+		fetchArtifact.mockResolvedValue(baseDetail({ conversationId: null }));
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		expect(button).toBeDisabled();
+		expect(screen.getByText(en.downloadUnavailable)).toBeInTheDocument();
+	});
+
+	it("requests a download with the artifact id and the PANEL's conversation id, not the artifact's own", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockResolvedValue({
+			ok: true,
+			job: { id: "job-1" },
+			reused: false,
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+			conversationId: "panel-conv",
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", "panel-conv"),
+		);
+	});
+
+	it("still allows download with no panel conversation, as long as the artifact has its own — and sends null", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockResolvedValue({
+			ok: true,
+			job: { id: "job-1" },
+			reused: false,
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		expect(button).not.toBeDisabled();
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(downloadAppAsHtml).toHaveBeenCalledWith("app-1", null),
+		);
+	});
+
+	// Ruling 58: the download error must be a localized sentence, never a raw
+	// reason code or intake error code shown straight to the user.
+	it("shows a localized message for an unrecognised reason code, never the raw code", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockResolvedValue({ ok: false, reason: "rate_limited" });
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(screen.queryByText("rate_limited")).not.toBeInTheDocument(),
+		);
+		expect(
+			screen.getByText("Could not prepare this app for download."),
+		).toBeInTheDocument();
+	});
+
+	it("reuses the download-unavailable copy for the server's conversation_required backstop", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockResolvedValue({
+			ok: false,
+			reason: "conversation_required",
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(screen.getByText(en.downloadUnavailable)).toBeInTheDocument(),
+		);
+	});
+
+	it("shows the same localized message, never the word 'failed', when the request itself throws", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		downloadAppAsHtml.mockRejectedValue(new Error("network down"));
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const button = await screen.findByRole("button", { name: /Download/ });
+		await fireEvent.click(button);
+
+		await waitFor(() =>
+			expect(
+				screen.getByText("Could not prepare this app for download."),
+			).toBeInTheDocument(),
+		);
+		expect(screen.queryByText("failed")).not.toBeInTheDocument();
+	});
+});
+
+describe("AppBody — regenerate", () => {
+	it("opens a prompt dialog, sends { prompt, expectVersion } and reloads the detail on success", async () => {
+		regenerateApp.mockResolvedValue({
+			ok: true,
+			version: 3,
+			title: "Habit tracker",
+			verification: { checked: false },
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const regenerateButton = await screen.findByRole("button", {
+			name: /Ask Alfy for a new version/,
+		});
+		await fireEvent.click(regenerateButton);
+
+		const textarea = await screen.findByLabelText(en.regeneratePrompt);
+		await fireEvent.input(textarea, {
+			target: { value: "add a currency switch" },
+		});
+
+		const submit = screen
+			.getAllByRole("button", { name: /Ask Alfy for a new version/ })
+			.at(-1);
+		if (!submit) throw new Error("no submit button");
+		await fireEvent.click(submit);
+
+		await waitFor(() =>
+			expect(regenerateApp).toHaveBeenCalledWith(
+				"app-1",
+				"add a currency switch",
+				2,
+				null,
+			),
+		);
+		// A successful regeneration re-fetches the detail (the new version).
+		await waitFor(() => expect(fetchArtifact).toHaveBeenCalledTimes(2));
+	});
+
+	// RV-2A (ruling 51): an incognito conversation's App is readable only when
+	// the request names that conversation, and the regenerate route reads it
+	// from the body — so a regenerate that drops the panel's conversationId is
+	// a 404 for every App in an incognito chat.
+	it("passes the panel's conversationId to regenerateApp, so an incognito conversation's own App can be regenerated", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({ conversationId: "owner-conv" }),
+		);
+		regenerateApp.mockResolvedValue({
+			ok: true,
+			version: 3,
+			title: "Habit tracker",
+			verification: { checked: false },
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+			conversationId: "panel-conv",
+		});
+
+		await fireEvent.click(
+			await screen.findByRole("button", {
+				name: /Ask Alfy for a new version/,
+			}),
+		);
+		await fireEvent.input(await screen.findByLabelText(en.regeneratePrompt), {
+			target: { value: "add a currency switch" },
+		});
+		const submit = screen
+			.getAllByRole("button", { name: /Ask Alfy for a new version/ })
+			.at(-1);
+		if (!submit) throw new Error("no submit button");
+		await fireEvent.click(submit);
+
+		await waitFor(() =>
+			expect(regenerateApp).toHaveBeenCalledWith(
+				"app-1",
+				"add a currency switch",
+				2,
+				"panel-conv",
+			),
+		);
+	});
+
+	it("a 409 version_conflict keeps the dialog and the prompt text, rather than discarding it", async () => {
+		regenerateApp.mockResolvedValue({
+			ok: false,
+			reason: "version_conflict",
+			version: 5,
+		});
+		render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+
+		const regenerateButton = await screen.findByRole("button", {
+			name: /Ask Alfy for a new version/,
+		});
+		await fireEvent.click(regenerateButton);
+		const textarea = await screen.findByLabelText(en.regeneratePrompt);
+		await fireEvent.input(textarea, { target: { value: "make it prettier" } });
+		const submit = screen
+			.getAllByRole("button", { name: /Ask Alfy for a new version/ })
+			.at(-1);
+		if (!submit) throw new Error("no submit button");
+		await fireEvent.click(submit);
+
+		await waitFor(() => expect(regenerateApp).toHaveBeenCalled());
+		expect((textarea as HTMLTextAreaElement).value).toBe("make it prettier");
+	});
+});
+
+describe("AppBody — i18n and naming", () => {
+	it("no rendered string in either locale contains the word 'artifact'", async () => {
+		fetchArtifact.mockResolvedValue(
+			baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					verification: { checked: true, verdict: "uncertain", reason: "x" },
+					glitchRuleIds: ["no-network-api"],
+				},
+			}),
+		);
+		const { container, unmount } = render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+		await screen.findByText(en.verifyUncertain);
+		expect(container.textContent ?? "").not.toMatch(/artifact/i);
+		unmount();
+
+		uiLanguage.set("hu");
+		fetchArtifact.mockResolvedValue(
+			baseDetail({
+				metadata: {
+					artifactType: "app",
+					title: "x",
+					verification: { checked: true, verdict: "uncertain", reason: "x" },
+					glitchRuleIds: ["no-network-api"],
+				},
+			}),
+		);
+		const { container: huContainer } = render(AppBody, {
+			artifactId: "app-1",
+			kind: "app",
+			title: "x",
+			body: null,
+		});
+		await screen.findByText(hu.verifyUncertain);
+		expect(huContainer.textContent ?? "").not.toMatch(/artifact/i);
+	});
+});
