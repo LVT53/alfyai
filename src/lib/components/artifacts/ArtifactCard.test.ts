@@ -166,6 +166,35 @@ describe("ArtifactCard", () => {
 		expect(onToggle).toHaveBeenCalledWith("item-0");
 	});
 
+	// Coordinator, from the in-chat card's review: a refusal or version
+	// conflict must not leave the checkbox visually ticked while the stored
+	// document still says otherwise. `checked={tickItem.done}` only re-syncs
+	// the DOM when `done`'s VALUE changes; a caller that (correctly) leaves
+	// `done` untouched after a refused/failed toggle gives Svelte no reason to
+	// touch the checkbox again, but the browser's own native click already
+	// flipped its `.checked` property as the click's default action — so the
+	// box shows checked while the data model still says unchecked.
+	it("reverts the checkbox when the caller's onToggle does not change `done` (a refusal)", async () => {
+		const onToggle = vi.fn();
+		const items = [{ id: "item-0", text: "Book the hotel", done: false }];
+		render(ArtifactCard, {
+			view: view({ tickable: { items, onToggle } }),
+		});
+
+		const checkbox = screen.getByRole("checkbox", {
+			name: "Book the hotel",
+		}) as HTMLInputElement;
+		expect(checkbox.checked).toBe(false);
+
+		// Simulates a refusal/conflict: onToggle fires, but the caller does not
+		// update `done` (exactly `handleToggleDocumentTask`'s own
+		// `if (!result.ok) return;` — the card is deliberately left as it was).
+		await fireEvent.click(checkbox);
+		expect(onToggle).toHaveBeenCalledWith("item-0");
+
+		expect(checkbox.checked).toBe(false);
+	});
+
 	it("does not statically import FileProductionCard.svelte", () => {
 		const here = path.dirname(fileURLToPath(import.meta.url));
 		const source = readFileSync(

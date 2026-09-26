@@ -166,7 +166,21 @@ function handleOpen(): void {
 							<input
 								type="checkbox"
 								checked={tickItem.done}
-								onchange={() => view.tickable?.onToggle(tickItem.id)}
+								onclick={(event) => {
+									// A checkbox's native click default action flips its own
+									// `.checked` property immediately, independent of the
+									// `checked={tickItem.done}` binding above — which only
+									// re-syncs the DOM when `done`'s VALUE changes. A caller
+									// that (correctly) leaves `done` untouched after a refused
+									// toggle (a version conflict, a network failure) gives
+									// Svelte no reason to touch the checkbox again, so the box
+									// would stay visually ticked while the stored document
+									// still says otherwise. Preventing the native default makes
+									// `checked` the ONLY thing that ever moves this checkbox, so
+									// a no-op `done` genuinely means a no-op checkbox.
+									event.preventDefault();
+									view.tickable?.onToggle(tickItem.id);
+								}}
 							/>
 							<span class:artifact-card-tick-done={tickItem.done}>{tickItem.text}</span>
 						</label>
