@@ -12,9 +12,9 @@ import { describe, expect, it } from "vitest";
 import {
 	admitUpload,
 	buildAcceptAttribute,
+	FILE_FAMILY_ORDER,
 	FILE_TYPE_ENTRIES,
 	fileExtension,
-	FILE_FAMILY_ORDER,
 	getAcceptAttribute,
 	getAcceptedExtensions,
 	getEntryByExtension,

@@ -306,6 +306,30 @@ describe("an incognito conversation's output, from a NORMAL conversation", () =>
 		expect(names).not.toContain(SECRET_UPLOAD);
 	});
 
+	// Ruling 60: the Documents tab's second-tier file-family filter. Both of
+	// `seedIncognitoWork`'s rows (the generated "severance-plan.md" and the
+	// uploaded "severance-contract.md") are Markdown, so a containment break
+	// would land them in "textMarkdown" beside the normal upload below.
+	it("is not counted in listLogicalDocumentsPage's countsByFileFamily", async () => {
+		seedUpload(
+			NORMAL,
+			"public-notes.md",
+			`A ${SECRET_WORD} note from an ordinary chat.`,
+		);
+
+		const page = await listLogicalDocumentsPage(USER, {
+			includeGeneratedOutputs: true,
+			limit: 50,
+		});
+
+		expect(page.countsByFileFamily.textMarkdown).toBe(1);
+		// The NORMAL upload's own text legitimately contains SECRET_WORD (that
+		// is what makes it findable at all) — the two incognito filenames are
+		// what must never surface, same as the sibling "workspace search" test.
+		expect(JSON.stringify(page)).not.toContain(SECRET_FILENAME);
+		expect(JSON.stringify(page)).not.toContain(SECRET_UPLOAD);
+	});
+
 	it("is not in the working set, even if something linked it there", async () => {
 		memory.db
 			.insert(schema.conversationWorkingSetItems)
