@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { assertNoDuplicateCaseIds, assertUniqueCaseIds, EVAL_CASES } from "./cases";
+import {
+	assertNoDuplicateCaseIds,
+	assertUniqueCaseIds,
+	EVAL_CASES,
+} from "./cases";
 import type { EvalCase } from "./types";
 
 function makeCase(id: string, suite = "app"): EvalCase {

@@ -75,6 +75,7 @@ describe("create_artifact.document", () => {
 			turnId: "turn-1",
 			title: "Saturday plan",
 			body: "# Saturday\n\nMuseum in the morning.",
+			language: "en",
 			abortSignal: abortSignal(),
 		});
 
@@ -93,6 +94,7 @@ describe("create_artifact.document", () => {
 			turnId: "turn-1",
 			title: "Should not exist",
 			body: "text",
+			language: "en",
 			abortSignal: abortSignal(true),
 		});
 		expect(result?.ok).toBe(false);
@@ -107,6 +109,7 @@ describe("read_artifact.document", () => {
 			turnId: "turn-1",
 			title: "Saturday plan",
 			body: markdown,
+			language: "en",
 			abortSignal: abortSignal(),
 		});
 		if (!created?.ok) throw new Error("setup: create failed");
@@ -161,6 +164,7 @@ describe("edit_artifact.document", () => {
 			turnId: "turn-1",
 			title: "Saturday plan",
 			body: markdown,
+			language: "en",
 			abortSignal: abortSignal(),
 		});
 		if (!created?.ok) throw new Error("setup: create failed");

@@ -209,7 +209,7 @@ export type DownloadAppResult =
 	| { ok: false; reason: string };
 
 /**
- * Turns the App's CURRENT stored body into a downloadable `.html` chat file.
+ * Turns the App's CURRENT stored body into a downloadable HTML chat file.
  * Carries the artifact id and an optional conversation id ONLY — never the
  * HTML itself, which the server re-reads from the artifact row (A6.5): a
  * request this function could compose from a client-side copy of the source

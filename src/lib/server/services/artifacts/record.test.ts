@@ -673,7 +673,10 @@ describe("updateArtifactBody", () => {
 			expect(second.ok).toBe(true);
 			// Coalesced: still exactly one version beyond the create.
 			expect(versionRows(artifact.id)).toHaveLength(2);
-			const read = await getArtifact({ userId: OWNER, artifactId: artifact.id });
+			const read = await getArtifact({
+				userId: OWNER,
+				artifactId: artifact.id,
+			});
 			expect(read?.metadata).toMatchObject({
 				artifactType: "document",
 				tabs: [{ id: "t1", title: "Plan" }],
@@ -777,7 +780,10 @@ describe("updateArtifactBody", () => {
 
 			expect(result.ok).toBe(true);
 			expect(versionRows(artifact.id)).toHaveLength(3);
-			const read = await getArtifact({ userId: OWNER, artifactId: artifact.id });
+			const read = await getArtifact({
+				userId: OWNER,
+				artifactId: artifact.id,
+			});
 			expect(read?.metadata).toMatchObject({
 				verification: { checked: true, verdict: "clean" },
 			});
