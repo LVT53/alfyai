@@ -241,6 +241,19 @@ harness's default `--out results` lands outside `.gitignore` went to the evalkey
 touch. RV-2B (sonnet) follows S2c. **Evalkey fix done** (`1d23ec0c`: explicit endpoint required, fallback and its
 tests removed, README tunnel recipe; 12,374 tests; Fallow 124/4) plus `719dc60f` (the default `--out` is the harness's own gitignored `results/`; `run.ts`'s `fixturesRoot` no longer uses `new URL('.', import.meta.url)`, which Vite rewrites under vitest); read and merged as **`2e3b19b2`** (harness tests 46/46). S2c told to merge it before touching `run.ts`.
 
+**RV-2A done (opus, 2026-09-26 ~05:30): "merge with these fixes".** Branch `feat/artifacts-s2-review-sandbox` HEAD
+`0a4cf01d`: six fixes on `2d8d0cbf`. `16db33bb` **High**: switching Apps in the rail reused one iframe element, so the
+outgoing App's storage calls hit the incoming App's kv (39/40 in Chromium); now one element per `src`. `36845442`:
+regenerate did not send the conversation (incognito 404). `c13b263c`: no cap on a frame's pending storage requests
+(now 4 at once, queue of 256). `88cea7cd`: BigInt/cyclic values hung the bridge. `be4100cb`: the bootstrap splice
+matched `<header>` and went before a doctype, and was quadratic (2.3 s at 192 KB), now linear. `f9963db8`: stale
+verify/glitch/Code after a switch. 12,657 tests, Playwright 35. Its open questions → **ruling 58** (forms allowed with
+`form-action 'none'`; dialogs/eval forbidden by contract and audit; navigation/WebRTC are violations; a load
+tripwire; the eval runs apps inside the real frame and CSP; runtime hardening). Dispatched: S2c told about the
+contract/audit/eval half (before its live run); **S2d** (sonnet, in `rv-2a`, port 5580) does the runtime half on
+the review branch. Then: merge the review branch into `feat/artifacts-s2` after S2c, and RV-2B (sonnet) covers
+generation/verification/eval plus S2d's runtime changes.
+
 ## Environment facts learned this session
 
 - No Context7 / Svelte MCP tool in this session → official docs via WebFetch (working again since the restart) and
