@@ -329,6 +329,7 @@ describe("RV-1A: edit_artifact's tool-call metadata names each refused op", () =
 		const created = await CREATE_ARTIFACT_HANDLERS.document?.({
 			userId,
 			conversationId,
+			language: "en",
 			turnId: "turn-1",
 			title: "Saturday plan",
 			body: "Book the flight to Vienna.",
@@ -384,6 +385,7 @@ describe("RV-1A: read_artifact on a Document writes nothing once aborted", () =>
 		const created = await CREATE_ARTIFACT_HANDLERS.document?.({
 			userId,
 			conversationId,
+			language: "en",
 			turnId: "turn-1",
 			title: "Saturday plan",
 			body: "First paragraph.",

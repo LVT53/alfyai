@@ -692,7 +692,9 @@ describe("updateArtifactBody", () => {
 				artifactId: artifact.id,
 				body: "v2 continued",
 				author: "user",
-				summary: "Still typing…",
+				// Same summary as the save it merges into (RV-1A 057e4688: a user save
+				// coalesces only into a same-summary version, never a restore or creation).
+				summary: "Typing…",
 				coalesceUserEdits: true,
 				metadataPatch: { tabs: [{ id: "t1", title: "Plan" }] },
 			});
