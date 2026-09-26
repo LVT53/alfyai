@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	askAlfyInComment,
 	createArtifactComment,
+	exportArtifactDocument,
 	fetchArtifact,
 	fetchArtifactVersionBody,
 	fetchArtifactVersions,
@@ -405,5 +406,48 @@ describe("askAlfyInComment", () => {
 		await expect(
 			askAlfyInComment("artifact-1", "comment-1", null, fetchMock),
 		).rejects.toThrow();
+	});
+});
+
+describe("exportArtifactDocument", () => {
+	it("posts the format and returns the created job, never throwing on success", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: true, job: { id: "job-1" } }),
+		);
+
+		const result = await exportArtifactDocument(
+			"artifact-1",
+			"pdf",
+			"conv-1",
+			fetchMock,
+		);
+
+		expect(result).toEqual({ ok: true, job: { id: "job-1" } });
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [
+			string,
+			RequestInit,
+		];
+		expect(url).toBe("/api/artifacts/artifact-1/export?conversationId=conv-1");
+		expect(JSON.parse(String(init.body))).toEqual({ format: "pdf" });
+	});
+
+	// Mirrors saveArtifactBody (T7.3/T7.10): a documented refusal is a normal
+	// return value, never a thrown ApiError, so the sheet can react to it.
+	it("never throws on a documented refusal — returns { ok: false, reason }", async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({ ok: false, reason: "source_too_large" }, 422),
+		);
+
+		await expect(
+			exportArtifactDocument("artifact-1", "pdf", null, fetchMock),
+		).resolves.toEqual({ ok: false, reason: "source_too_large" });
+	});
+
+	it("answers not_found rather than throwing when the response has no JSON body at all", async () => {
+		const fetchMock = vi.fn(async () => new Response(null, { status: 500 }));
+
+		await expect(
+			exportArtifactDocument("artifact-1", "markdown", null, fetchMock),
+		).resolves.toEqual({ ok: false, reason: "not_found" });
 	});
 });

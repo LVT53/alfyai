@@ -278,3 +278,47 @@ export async function askAlfyInComment(
 		reply: payload.reply,
 	};
 }
+
+export type ExportArtifactDocumentFormat = "pdf" | "docx" | "markdown";
+
+export type ExportArtifactDocumentResult =
+	| { ok: true; job: { id: string } }
+	| {
+			ok: false;
+			reason:
+				| "not_found"
+				| "no_conversation"
+				| "source_too_large"
+				| "invalid_format"
+				| string;
+	  };
+
+/**
+ * Export through `produce_file` (T12). Mirrors `saveArtifactBody`: a
+ * documented refusal (a limit, a missing conversation, a foreign artifact)
+ * is a normal return value, never a thrown `ApiError` — `DownloadSheet`
+ * decides what each reason means, the same way the editor decides what a
+ * save conflict means.
+ */
+export async function exportArtifactDocument(
+	artifactId: string,
+	format: ExportArtifactDocumentFormat,
+	conversationId?: string | null,
+	fetchImpl: FetchLike = fetch,
+): Promise<ExportArtifactDocumentResult> {
+	const response = await fetchImpl(
+		`/api/artifacts/${encodeURIComponent(artifactId)}/export${withConversationQuery(conversationId)}`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ format }),
+		},
+	);
+	const payload = (await response
+		.json()
+		.catch(() => null)) as ExportArtifactDocumentResult | null;
+	if (!payload) {
+		return { ok: false, reason: "not_found" };
+	}
+	return payload;
+}
