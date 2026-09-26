@@ -186,7 +186,60 @@ export function readMarkdown(editor: Editor): string {
 	// The sentinel becomes a real, correctly-escaped pipe only in the
 	// returned STRING — see `sentinelizeTableCellPipes`'s own comment for why
 	// this cannot happen before `getMarkdown()` runs.
-	return markdown.split(TABLE_CELL_PIPE_SENTINEL).join("\\|");
+	const withPipesEscaped = markdown.split(TABLE_CELL_PIPE_SENTINEL).join("\\|");
+	return widenCodeFencesForBacktickContent(editor, withPipesEscaped);
+}
+
+/**
+ * RV-1B, coordinator item 3: a code block whose own content contains a line
+ * of 3+ backticks (documentation about Markdown fencing is the obvious
+ * example, but any pasted snippet of Markdown source qualifies) still gets a
+ * plain 3-backtick fence from `getMarkdown()`, because `@tiptap/markdown`
+ * always uses the minimum. CommonMark closes a fence at the FIRST line that
+ * is itself a run of backticks at least as long as the opening fence, so
+ * that inner line reads as the block's OWN closing fence on the very next
+ * parse — cutting one code block into three pieces (a truncated code block,
+ * a paragraph made of what should still be code, and a stray second code
+ * block), confirmed by reparsing exactly this shape with `blocks.ts`.
+ *
+ * Fixed by finding, in the LIVE document (never the ambiguous output string
+ * — by the time backtick content has forced an early close, the string
+ * alone can no longer prove where one block ended and another began),
+ * every code block whose content needs a longer fence, and replacing its
+ * known `` ``` `` + content + `` ``` `` substring with the same content
+ * wrapped in a fence one backtick longer than the longest all-backtick line
+ * inside it.
+ */
+function widenCodeFencesForBacktickContent(
+	editor: Editor,
+	markdown: string,
+): string {
+	let result = markdown;
+	editor.state.doc.descendants((node) => {
+		if (node.type.name !== "codeBlock") return;
+		const text = node.textContent;
+		const requiredFenceLength = minimumFenceLength(text);
+		if (requiredFenceLength <= 3 || !text) return;
+		const language = (node.attrs.language as string | null) ?? "";
+		const narrowFence = "`".repeat(3);
+		const wideFence = "`".repeat(requiredFenceLength);
+		const narrow = `${narrowFence}${language}\n${text}\n${narrowFence}`;
+		const wide = `${wideFence}${language}\n${text}\n${wideFence}`;
+		if (result.includes(narrow)) result = result.replace(narrow, wide);
+	});
+	return result;
+}
+
+/** The shortest fence (never below 3) that no all-backtick line inside `text` could close early. */
+function minimumFenceLength(text: string): number {
+	let longestBacktickLine = 0;
+	for (const line of text.split("\n")) {
+		const trimmed = line.trim();
+		if (trimmed.length > 0 && /^`+$/.test(trimmed)) {
+			longestBacktickLine = Math.max(longestBacktickLine, trimmed.length);
+		}
+	}
+	return longestBacktickLine >= 3 ? longestBacktickLine + 1 : 3;
 }
 
 /**

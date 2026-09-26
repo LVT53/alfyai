@@ -46,6 +46,26 @@ function mountEditor(markdown: string) {
 	});
 }
 
+/**
+ * Sets the whole document to a single code block with EXACTLY `text` as its
+ * content, bypassing markdown parsing entirely — a markdown SOURCE string
+ * containing a triple-backtick line inside a fence is already ambiguous at
+ * the very first parse (CommonMark itself closes the fence early), which
+ * would prove nothing about `readMarkdown`'s own re-serialization. Going
+ * through the live node directly is what a real paste or keystroke into an
+ * already-open code block does: the text arrives as ProseMirror content, not
+ * as markdown source ever parsed by anyone.
+ */
+function replaceWithCodeBlock(editor: Editor, text: string): void {
+	const { schema } = editor.state;
+	const doc = schema.nodes.doc.create(null, [
+		schema.nodes.codeBlock.create(null, schema.text(text)),
+	]);
+	editor.view.dispatch(
+		editor.state.tr.replaceWith(0, editor.state.doc.content.size, doc.content),
+	);
+}
+
 describe("document-editor", () => {
 	// T7's mint-before-hash equivalent, through the real editor: a fresh load
 	// with no markers at all must still give every top-level block a stable id
@@ -120,6 +140,49 @@ describe("document-editor", () => {
 		readMarkdown(editor);
 		expect(editor.state.doc.textContent).toContain("Rate: 10|20");
 		expect(editor.state.doc.textContent).not.toContain("\\");
+		editor.destroy();
+	});
+
+	// RV-1B, coordinator item 3: a code block's own content can legitimately
+	// contain a line of 3+ backticks (documentation about Markdown fencing,
+	// or a pasted snippet of Markdown source) — `getMarkdown()` still wrote a
+	// plain 3-backtick outer fence regardless, and CommonMark closes a fence
+	// at the FIRST line that is itself a matching-or-longer run of backticks,
+	// so the inner line read as the block's OWN close on the very next
+	// parse: one code block became three blocks (a truncated code block, a
+	// paragraph made of what should still be code, and a stray second code
+	// block).
+	it("widens the fence when a code block's own content contains a triple-backtick line", () => {
+		const editor = mountEditor("placeholder");
+		const codeText = "Here is how to fence code:\n```\nlike this\n```";
+		replaceWithCodeBlock(editor, codeText);
+
+		const markdown = readMarkdown(editor);
+		const blocks = parseDocument(markdown, { mint: false }).blocks;
+		expect(blocks.length).toBe(1);
+		expect(blocks[0].kind).toBe("code");
+		expect(blocks[0].markdown).toContain(codeText);
+		editor.destroy();
+	});
+
+	it("widens the fence again for a code block whose content has a 4-backtick line", () => {
+		const editor = mountEditor("placeholder");
+		const codeText = "Nested:\n````\ninner\n````";
+		replaceWithCodeBlock(editor, codeText);
+
+		const markdown = readMarkdown(editor);
+		expect(markdown).toContain("`````"); // 5 backticks: one more than the 4 inside
+		const blocks = parseDocument(markdown, { mint: false }).blocks;
+		expect(blocks.length).toBe(1);
+		expect(blocks[0].markdown).toContain(codeText);
+		editor.destroy();
+	});
+
+	it("leaves an ordinary code block's fence at 3 backticks", () => {
+		const editor = mountEditor("```js\nconst x = 1;\n```");
+		const markdown = readMarkdown(editor);
+		expect(markdown).toContain("```js");
+		expect(markdown).not.toContain("````");
 		editor.destroy();
 	});
 
