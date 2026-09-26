@@ -94,6 +94,28 @@ const artifactsDict = {
 			"This document was deleted while it was open. Your text is still here.",
 		"artifacts.document.deleted.saveCopy": "Save it as a new document",
 		"artifacts.document.notFound": "This document is not available.",
+		// Comments and @Alfy (Slice 1, T10). CommentCard reuses
+		// artifacts.document.versions.byUser/byAlfy for the author name rather
+		// than a second pair of the same two words.
+		"artifacts.document.anchor.exact": "Exact",
+		"artifacts.document.anchor.moved": "Moved",
+		"artifacts.document.anchor.orphaned": "Orphaned",
+		"artifacts.document.comment.ask": "Ask Alfy",
+		"artifacts.document.comment.add": "Comment",
+		"artifacts.document.comment.placeholder": "Write a comment…",
+		"artifacts.document.comment.submit": "Post",
+		"artifacts.document.comment.cancel": "Cancel",
+		"artifacts.document.comment.reply": "Reply",
+		"artifacts.document.comment.resolve": "Resolve",
+		"artifacts.document.comment.reopen": "Reopen",
+		"artifacts.document.comment.resolved": "Resolved",
+		"artifacts.document.comment.askingAlfy": "Asking Alfy…",
+		"artifacts.document.comment.alfyRefused":
+			"I left the text as it is — this comment didn't lead to a change I could make safely.",
+		"artifacts.document.comment.alfyDone": "Done.",
+		"artifacts.document.comment.postError": "Could not post this comment.",
+		"artifacts.document.margin.title": "Comments",
+		"artifacts.document.margin.empty": "No comments yet.",
 	},
 	hu: {
 		"artifacts.header.buttonA11y":
@@ -164,6 +186,25 @@ const artifactsDict = {
 			"Ezt a dokumentumot törölték, amíg nyitva volt. A szöveged még itt van.",
 		"artifacts.document.deleted.saveCopy": "Mentés új dokumentumként",
 		"artifacts.document.notFound": "Ez a dokumentum nem érhető el.",
+		"artifacts.document.anchor.exact": "Pontos",
+		"artifacts.document.anchor.moved": "Elmozdult",
+		"artifacts.document.anchor.orphaned": "Elárvult",
+		"artifacts.document.comment.ask": "Alfy megkérdezése",
+		"artifacts.document.comment.add": "Megjegyzés",
+		"artifacts.document.comment.placeholder": "Írj egy megjegyzést…",
+		"artifacts.document.comment.submit": "Küldés",
+		"artifacts.document.comment.cancel": "Mégse",
+		"artifacts.document.comment.reply": "Válasz",
+		"artifacts.document.comment.resolve": "Lezárás",
+		"artifacts.document.comment.reopen": "Újranyitás",
+		"artifacts.document.comment.resolved": "Lezárva",
+		"artifacts.document.comment.askingAlfy": "Alfy válaszol…",
+		"artifacts.document.comment.alfyRefused":
+			"A szöveget változatlanul hagytam — ez a megjegyzés nem vezetett biztonságosan végrehajtható módosításhoz.",
+		"artifacts.document.comment.alfyDone": "Kész.",
+		"artifacts.document.comment.postError": "Nem sikerült elküldeni a megjegyzést.",
+		"artifacts.document.margin.title": "Megjegyzések",
+		"artifacts.document.margin.empty": "Még nincs megjegyzés.",
 	},
 } as const;
 
