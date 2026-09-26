@@ -9,9 +9,10 @@
  * through `document-ops.ts` directly.
  */
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "$lib/server/db";
-import { conversations, users } from "$lib/server/db/schema";
+import { artifactKv, conversations, users } from "$lib/server/db/schema";
 import { getArtifact, saveDocumentBody } from "$lib/server/services/artifacts";
 import {
 	parseDocument,
@@ -371,5 +372,38 @@ describe("RV-1A: edit_artifact's tool-call metadata names each refused op", () =
 		expect(JSON.parse(String(run.metadata.refusedBlocksJson))).toEqual([
 			{ blockId: block.blockId, reason: "find_not_found", opIndex: 0 },
 		]);
+	});
+});
+
+describe("RV-1A: read_artifact on a Document writes nothing once aborted", () => {
+	it("records no snapshot after the signal fired (ruling 53: a handler checks it before any write)", async () => {
+		const created = await CREATE_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			title: "Saturday plan",
+			body: "First paragraph.",
+			abortSignal: abortSignal(),
+		});
+		if (!created?.ok) throw new Error("setup: create failed");
+		const artifactId = created.value.artifactId;
+
+		const read = await READ_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			artifactId,
+			title: "Saturday plan",
+			detail: "blocks",
+			abortSignal: abortSignal(true),
+		});
+
+		expect(read?.blocks).toBeUndefined();
+		expect(
+			db
+				.select({ id: artifactKv.id })
+				.from(artifactKv)
+				.where(eq(artifactKv.artifactId, artifactId))
+				.all(),
+		).toEqual([]);
 	});
 });
