@@ -17,6 +17,17 @@ export const CREATABLE_ARTIFACT_KINDS = [
 
 export type CreatableArtifactKind = (typeof CREATABLE_ARTIFACT_KINDS)[number];
 
+/**
+ * Counted and refused exactly the way produce_file's own per-turn cap is
+ * (MAX_PRODUCE_FILE_SUBMISSIONS_PER_TURN, produce-file.ts) — every kind
+ * shares one turn-wide counter, kept in index.ts's `createNormalChatTools`
+ * closure, so it resets with every new turn. Harmless while every kind
+ * instant-refuses with no handler registered, but once a real handler runs a
+ * ~120s App generation, an unbounded loop of create_artifact calls in one
+ * turn would otherwise have no guard at all.
+ */
+export const MAX_CREATE_ARTIFACT_CALLS_PER_TURN = 3;
+
 /** Advertised to the model: trimmed descriptions, no server-only bounds. */
 export const createArtifactModelInputSchema = z.object({
 	artifactType: z
@@ -70,6 +81,17 @@ export interface CreateArtifactHandlerParams {
 	turnId: string;
 	title: string;
 	body: string;
+	/**
+	 * Fires on the tool's own timeout (120s, TOOL_TIMEOUTS_MS.create_artifact)
+	 * or the turn's own stop/disconnect — whichever comes first, the same
+	 * combined signal executeToolWithEnvelope already builds for every other
+	 * tool. A handler MUST check `abortSignal.aborted` before any write (the
+	 * model was already told the call failed once either fires, so a write
+	 * after that point is an orphan the user never asked for and a duplicate
+	 * when the model retries), and pass it to any model call it makes so that
+	 * call is cancelled too rather than left running unattended.
+	 */
+	abortSignal: AbortSignal;
 }
 
 export interface CreateArtifactHandlerSuccess {
@@ -139,6 +161,7 @@ export async function runCreateArtifactTool(
 		turnId: params.turnId,
 		title: params.title,
 		body: params.body,
+		abortSignal: params.abortSignal,
 	});
 
 	if (!result.ok) {

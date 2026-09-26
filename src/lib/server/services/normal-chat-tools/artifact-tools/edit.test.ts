@@ -70,6 +70,7 @@ describe("runEditArtifactTool — structural validation", () => {
 			conversationId: "conv-1",
 			turnId: "turn-1",
 			artifactId: "artifact-1",
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload.success).toBe(false);
@@ -84,6 +85,7 @@ describe("runEditArtifactTool — structural validation", () => {
 			artifactId: "artifact-1",
 			patches: [{}],
 			ops: [{}],
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload.success).toBe(false);
@@ -109,6 +111,7 @@ describe("runEditArtifactTool — id resolution", () => {
 			turnId: "turn-1",
 			artifactId: "missing-id",
 			patches: [{ op: "replace" }],
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload.success).toBe(false);
@@ -129,6 +132,7 @@ describe("runEditArtifactTool — id resolution", () => {
 			turnId: "turn-1",
 			artifactId: "artifact-1",
 			patches: [{ op: "replace" }],
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(getArtifactMock).toHaveBeenCalledWith(
@@ -147,6 +151,7 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 			turnId: "turn-1",
 			artifactId: "artifact-1",
 			patches: [{ op: "replace" }],
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload.success).toBe(false);
@@ -169,6 +174,7 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 			turnId: "turn-1",
 			artifactId: "artifact-1",
 			ops: [{ op: "update_node" }],
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload.success).toBe(false);
@@ -188,6 +194,7 @@ describe("runEditArtifactTool — no kind registered yet (Slice 5a)", () => {
 			turnId: "turn-1",
 			artifactId: "artifact-1",
 			patches: [{ op: "replace" }],
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload.success).toBe(false);
@@ -213,6 +220,7 @@ describe("runEditArtifactTool — a registered handler", () => {
 			artifactId: "artifact-1",
 			patches: [{ op: "a" }, { op: "b" }, { op: "c" }],
 			summary: "Moved the errand block",
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(result.modelPayload).toEqual({
@@ -245,10 +253,35 @@ describe("runEditArtifactTool — a registered handler", () => {
 			artifactId: "artifact-1",
 			patches: [{ op: "a" }],
 			summary: "Moved the errand block",
+			abortSignal: new AbortController().signal,
 		});
 
 		expect(handler).toHaveBeenCalledWith(
 			expect.objectContaining({ summary: "Moved the errand block" }),
 		);
+	});
+
+	it("passes its own abortSignal through to a registered handler unchanged", async () => {
+		const controller = new AbortController();
+		let seenSignal: AbortSignal | undefined;
+		getArtifactMock.mockResolvedValue(detail());
+		EDIT_ARTIFACT_HANDLERS.document = async (params) => {
+			seenSignal = params.abortSignal;
+			return {
+				ok: true,
+				value: { versionId: "version-2", applied: 1, refused: [] },
+			};
+		};
+
+		await runEditArtifactTool({
+			userId: "user-1",
+			conversationId: "conv-1",
+			turnId: "turn-1",
+			artifactId: "artifact-1",
+			patches: [{ op: "a" }],
+			abortSignal: controller.signal,
+		});
+
+		expect(seenSignal).toBe(controller.signal);
 	});
 });

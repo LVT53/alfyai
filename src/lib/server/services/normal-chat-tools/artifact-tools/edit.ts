@@ -102,6 +102,16 @@ export interface EditArtifactHandlerParams {
 	patches?: unknown[];
 	ops?: unknown[];
 	summary?: string;
+	/**
+	 * Fires on the tool's own timeout (20s, TOOL_TIMEOUTS_MS.edit_artifact) or
+	 * the turn's own stop/disconnect. A handler MUST check
+	 * `abortSignal.aborted` before any write (the model was already told the
+	 * call failed once either fires, so a write after that point is an
+	 * orphan version the user never asked for and a duplicate when the model
+	 * retries), and pass it to any model call it makes so that call is
+	 * cancelled too rather than left running unattended.
+	 */
+	abortSignal: AbortSignal;
 }
 
 export interface EditArtifactHandlerSuccess {
@@ -191,6 +201,7 @@ export async function runEditArtifactTool(params: {
 	patches?: unknown[];
 	ops?: unknown[];
 	summary?: string;
+	abortSignal: AbortSignal;
 }): Promise<EditArtifactRunResult> {
 	if (params.patches && params.ops) {
 		const error = "Send patches or ops, never both in the same call.";
@@ -271,6 +282,7 @@ export async function runEditArtifactTool(params: {
 		patches: params.patches,
 		ops: params.ops,
 		summary: params.summary,
+		abortSignal: params.abortSignal,
 	});
 	if (!result.ok) {
 		return {
