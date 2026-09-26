@@ -635,22 +635,14 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 	test("marks the applied block and shows the refusal notice for the refused one", async ({
 		page,
 	}) => {
-		// Hits the SAME pre-existing readMarkdown/fixTables recursion this
-		// file's header comment documents (verified directly: the persisted
-		// tool_call segment carries exactly the right metadata —
-		// {ok:true, appliedCount:1, refusedBlocksJson:[{blockId, reason:
-		// "block_changed"}]} — proving the whole live wiring up through
-		// landAlfyActivity is correct; it is landAlfyActivity's own
-		// `loadMarkdownFn(editor, newBody)` call, reached for the first time by
-		// a REAL edit_artifact landing in a real browser, that then throws the
-		// SAME RangeError the other 7 tests below hit typing a single
-		// character). Marked the same way, for the same reason; unmark this
-		// alongside them once T7's editor fix lands — at that point this test
-		// is the regression coverage for T8 live's marks/refusal-notice wiring.
-		test.fail(
-			true,
-			"pre-existing readMarkdown/fixTables recursion — see header comment",
-		);
+		// RV-1B: the file header's RangeError (readMarkdown/fixTables
+		// recursion) is fixed — this test now exercises the real live wiring.
+		// The verified persisted tool_call segment carries exactly the right
+		// metadata ({ok:true, appliedCount:1, refusedBlocksJson:[{blockId,
+		// reason: "block_changed"}]}), proving landAlfyActivity's own
+		// `loadMarkdownFn(editor, newBody)` call lands correctly for a REAL
+		// edit_artifact call in a real browser. This is the regression
+		// coverage for T8 live's marks/refusal-notice wiring.
 		await login(page);
 		const previousModelPreference = await snapshotUserModelPreference(page);
 		let temporaryProvider: {
@@ -713,16 +705,31 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
 			).toBeVisible({ timeout: 30_000 });
 
-			// Applied: the change is marked, with the inline Keep/Undo bar.
+			// Applied: the change is marked, with the inline Keep/Undo bar, and
+			// the editor shows the new text.
+			const editorContent = page.locator(
+				".document-editor-host .document-content",
+			);
 			await expect(page.getByTestId("alfy-change-bar")).toBeVisible({
 				timeout: 10_000,
 			});
-			await expect(page.getByText("Book the hotel by Friday.")).toBeVisible();
+			await expect(
+				editorContent.getByText("Book the hotel by Friday."),
+			).toBeVisible();
 
-			// Refused: the notice names the untouched part, and the OTHER
-			// block's text never changed.
-			await expect(page.getByTestId("refusal-notice")).toBeVisible();
-			await expect(page.getByText("Book the flight.")).toBeVisible();
+			// Refused: the notice NAMES the untouched block (RefusalNotice's own
+			// item list renders the block's label, which for this block is its
+			// text — "Book the flight." — so this assertion is scoped to the
+			// notice itself, not `page`, because the editor's own untouched
+			// paragraph carries the identical text and a page-wide `getByText`
+			// would be a strict-mode violation matching both), and the OTHER
+			// block's text never changed in the document.
+			const refusalNotice = page.getByTestId("refusal-notice");
+			await expect(refusalNotice).toBeVisible();
+			await expect(refusalNotice.getByText("Book the flight.")).toBeVisible();
+			await expect(
+				editorContent.getByText("Book the flight."),
+			).toBeVisible();
 			await expect(page.getByText("This should never land.")).toHaveCount(0);
 
 			const storedBody = await readStoredBody(artifactId);
