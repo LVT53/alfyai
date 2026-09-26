@@ -27,7 +27,11 @@ import {
 /** A fresh extension list for each undo — never the live editor's own resolved instances (see `marks.ts`'s `undoAlfyChange` comment). */
 function undo(
 	editor: ReturnType<typeof createDocumentEditor>,
-	entry: { blockId: string; previousMarkdown: string },
+	entry: {
+		blockId: string;
+		previousMarkdown: string;
+		insertedBlockIds?: string[];
+	},
 ): boolean {
 	return undoAlfyChange(editor, entry, buildDocumentExtensions(""));
 }
@@ -202,6 +206,49 @@ describe("marks: Keep and Undo", () => {
 		expect(after.blocks[2].markdown).toBe("Gamma.");
 		// The mark is gone too — a fresh block carries no leftover annotation.
 		expect(element?.querySelectorAll("[data-alfy-change-id]").length).toBe(0);
+		editor.destroy();
+	});
+
+	// RV-1B, coordinator item 7: an op's own `text` can read back as MORE than
+	// one block (a paragraph Alfy split in two, a new section appended) —
+	// `patch.ts`'s `reblock` mints a fresh id for every block beyond the
+	// first and records them as `PatchInverse.insertedBlockIds`. An exact
+	// Undo has to remove those too, not just restore the first block's text,
+	// or "blocks Alfy added" stay in the document forever.
+	it("Undo also removes the extra blocks an op's own text produced, not just the first block's content", () => {
+		const { editor, blocks, snapshot } = setup("Alpha.\n\nBeta.\n\nGamma.");
+		const target = blocks[1];
+		const idsBefore = blocks.map((b) => b.id);
+		const replaceOp = op({
+			kind: "replaceBlock",
+			blockId: target.id,
+			baseHash: target.hash,
+			text: "Beta, revised.\n\nBeta's new second paragraph.",
+		});
+		const patch = patchOf([replaceOp]);
+		const result = applyPatchSet({ blocks, patch, snapshot });
+		expect(result.inverses[0].insertedBlockIds).toHaveLength(1);
+		const insertedId = result.inverses[0].insertedBlockIds?.[0];
+
+		loadMarkdown(editor, result.markdown);
+		const entries = applyAlfyChangeMarks(editor, result, patch);
+		expect(entries[0].insertedBlockIds).toEqual([insertedId]);
+
+		// Confirms the inserted block genuinely landed in the live document
+		// first — otherwise its absence after Undo would prove nothing.
+		const beforeUndo = parseDocument(readMarkdown(editor), { mint: false });
+		expect(beforeUndo.blocks.map((b) => b.id)).toContain(insertedId);
+		expect(beforeUndo.blocks).toHaveLength(4);
+
+		const undone = undo(editor, entries[0]);
+		expect(undone).toBe(true);
+
+		const after = parseDocument(readMarkdown(editor), { mint: false });
+		expect(after.blocks.map((b) => b.id)).toEqual(idsBefore);
+		expect(after.blocks.map((b) => b.id)).not.toContain(insertedId);
+		expect(after.blocks[1].markdown).toBe("Beta.");
+		expect(after.blocks[0].markdown).toBe("Alpha.");
+		expect(after.blocks[2].markdown).toBe("Gamma.");
 		editor.destroy();
 	});
 

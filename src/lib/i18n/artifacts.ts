@@ -161,6 +161,7 @@ const artifactsDict = {
 		"artifacts.document.toolbar.redo": "Redo",
 		"artifacts.document.toolbar.more": "More",
 		"artifacts.document.toolbar.download": "Download",
+		"artifacts.document.toolbar.history": "History",
 		"artifacts.document.save.offline":
 			"Not saved yet — you are offline. Your text is safe here.",
 		"artifacts.document.save.tooLarge": "This document is too long to save.",
@@ -226,6 +227,8 @@ const artifactsDict = {
 		"artifacts.document.comment.alfyRefused":
 			"I left the text as it is — this comment didn't lead to a change I could make safely.",
 		"artifacts.document.comment.alfyDone": "Done.",
+		"artifacts.document.comment.alfyPartialRefusal":
+			"Part of this could not be applied safely.",
 		"artifacts.document.comment.postError": "Could not post this comment.",
 		"artifacts.document.margin.title": "Comments",
 		"artifacts.document.margin.empty": "No comments yet.",
@@ -372,6 +375,7 @@ const artifactsDict = {
 		"artifacts.document.toolbar.redo": "Újra",
 		"artifacts.document.toolbar.more": "Több",
 		"artifacts.document.toolbar.download": "Letöltés",
+		"artifacts.document.toolbar.history": "Előzmények",
 		"artifacts.document.save.offline":
 			"Még nincs elmentve — nincs kapcsolat. A szöveged itt biztonságban van.",
 		"artifacts.document.save.tooLarge":
@@ -429,6 +433,8 @@ const artifactsDict = {
 		"artifacts.document.comment.alfyRefused":
 			"A szöveget változatlanul hagytam — ez a megjegyzés nem vezetett biztonságosan végrehajtható módosításhoz.",
 		"artifacts.document.comment.alfyDone": "Kész.",
+		"artifacts.document.comment.alfyPartialRefusal":
+			"Ennek egy részét nem tudtam biztonságosan végrehajtani.",
 		"artifacts.document.comment.postError":
 			"Nem sikerült elküldeni a megjegyzést.",
 		"artifacts.document.margin.title": "Megjegyzések",

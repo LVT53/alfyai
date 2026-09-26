@@ -99,6 +99,7 @@ import MobileToolbar from "./MobileToolbar.svelte";
 import SelectionBubble from "./SelectionBubble.svelte";
 import Tabs from "./Tabs.svelte";
 import type { DocumentToolbarActionId } from "./toolbar-actions";
+import VersionsSheet from "./VersionsSheet.svelte";
 
 let {
 	artifactId,
@@ -115,6 +116,18 @@ type SaveNotice = "offline" | "tooLarge" | "conflict" | "deleted" | null;
 let loadState = $state<LoadState>("loading");
 let saveNotice = $state<SaveNotice>(null);
 let versionNumber = $state<number | null>(null);
+/**
+ * RV-1B, coordinator item 6: the last body hash this component KNOWS is
+ * stored — from the initial load, from a reload that followed someone
+ * else's write (a comment mutation or Alfy's own edit bumping the version),
+ * or from this component's own most recent successful save. The autosave
+ * loop sends this as `guard.baseHash` on every save (`bindAutosave` below),
+ * so a second tab's save that landed in between is detected as `stale`
+ * instead of silently overwritten — `expectVersion` alone cannot catch
+ * this, because ruling 47's coalescing lets two tabs' saves both legally
+ * target the SAME, unmoved version number.
+ */
+let knownBodyHash = $state<string | null>(null);
 let activeActionIds = $state<Set<DocumentToolbarActionId>>(new Set());
 // T9: the tab strip. `Tabs.svelte` owns its own add/rename/delete UI and
 // hands back the new list through `onChange`; this body's only job is to
@@ -244,6 +257,7 @@ async function refreshAfterCommentChange(): Promise<void> {
 		const newBody = detail.artifact.body ?? "";
 		if (detail.artifact.versionNumber !== versionNumber) {
 			versionNumber = detail.artifact.versionNumber;
+			knownBodyHash = detail.artifact.bodyHash;
 			if (editor && loadMarkdownFn) loadMarkdownFn(editor, newBody);
 		}
 		updateBlocksFromMarkdown(newBody);
@@ -400,6 +414,16 @@ async function handleCommentResolve(
  * the chat page — one prop, `slice-1.md`'s "T8 live"). Every branch is
  * idempotent against re-renders: `handledActivityKey` guards the settle
  * branch, and "running" simply re-derives the same label each time.
+ *
+ * RV-1B: a real browser can settle a call (a fast model, or this slice's own
+ * mocked provider) before `runLoad`'s `Promise.all([loadEditorModule(),
+ * fetchArtifact(...)])` resolves, so `editor`/`loadMarkdownFn`/
+ * `applyAlfyChangesFn` are still null when this effect first sees the
+ * settled activity. Reading `editorReady` here — not just inside
+ * `landAlfyActivity` — makes it a tracked dependency, so this effect reruns
+ * the instant the editor becomes ready instead of silently losing the call:
+ * `handledActivityKey` is set only once the call is actually about to be
+ * processed, never as a side effect of merely having been seen.
  */
 $effect(() => {
 	const activity = alfyActivity;
@@ -421,6 +445,9 @@ $effect(() => {
 
 	const key = `${activity.key}:${activity.status}`;
 	if (key === handledActivityKey) return;
+	// The call stays un-handled (and this effect will re-run and retry) until
+	// the editor can actually receive it — see this effect's own comment.
+	if (!editorReady) return;
 	handledActivityKey = key;
 
 	if (activity.status === "failed") return;
@@ -447,6 +474,7 @@ async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
 		const newBody = detail.artifact.body ?? "";
 		if (detail.artifact.versionNumber !== versionNumber) {
 			versionNumber = detail.artifact.versionNumber;
+			knownBodyHash = detail.artifact.bodyHash;
 			loadMarkdownFn(editor, newBody);
 		}
 		updateBlocksFromMarkdown(newBody);
@@ -558,6 +586,12 @@ function handleSeeChange(): void {
 let downloadSheetOpen = $state(false);
 // ---- end T12 -------------------------------------------------------------
 
+// ---- RV-1B, T6: the versions sheet — VersionsSheet.svelte existed and was
+// unit-tested but had no toolbar action opening it anywhere in the app; see
+// the "history" action in toolbar-actions.ts and its handler below. ---------
+let versionsSheetOpen = $state(false);
+// ---- end T6 ----------------------------------------------------------------
+
 /** The editor's current text, canonicalised through the SERVER's own pipeline (T7.2) — never a second canonicaliser. */
 function currentCanonicalMarkdown(): string | null {
 	if (!editor || !readMarkdownFn) return null;
@@ -614,6 +648,10 @@ function handleSelectionUpdate(): void {
 function handleSaveResult(result: DocumentAutosaveResult, markdown: string): void {
 	if (result.ok) {
 		if (typeof result.version === "number") versionNumber = result.version;
+		// RV-1B, coordinator item 6: remember what just landed, so the NEXT
+		// autosave's `baseHash` guards against a second tab's save that lands
+		// in between, instead of silently overwriting it.
+		if (typeof result.bodyHash === "string") knownBodyHash = result.bodyHash;
 		saveNotice = null;
 		onDirtyChange?.(false);
 		onBodyChange?.(markdown);
@@ -638,9 +676,18 @@ function handleSaveResult(result: DocumentAutosaveResult, markdown: string): voi
 }
 
 function handleToolbarAction(id: DocumentToolbarActionId): void {
-	// T12: the one toolbar action that never touches the live editor.
+	// T12/T6: the two toolbar actions that never touch the live editor
+	// directly — they open a sheet instead.
 	if (id === "download") {
+		// Both sheets anchor to the same top-right corner (T12/T6): only one
+		// may be open at a time, or they would visually overlap.
+		versionsSheetOpen = false;
 		downloadSheetOpen = true;
+		return;
+	}
+	if (id === "history") {
+		downloadSheetOpen = false;
+		versionsSheetOpen = true;
 		return;
 	}
 	if (!editor) return;
@@ -746,8 +793,22 @@ async function handleTabsChange(next: DocumentTab[]): Promise<void> {
 function bindAutosave(id: string, conversationId: string | null): void {
 	autosave?.stop();
 	autosave = createDocumentAutosave({
+		// RV-1B, coordinator item 6: `knownBodyHash` is read here, not
+		// captured — this closure is bound once per load/copy, but every
+		// scheduled save must send whatever this component most recently
+		// learned was stored, including what ITS OWN previous save just wrote
+		// (`handleSaveResult` below). Without a `baseHash` at all, the route
+		// has nothing to refuse a second tab's save against, and ruling 47's
+		// coalescing means both tabs' `expectVersion` can legally agree too.
 		save: (markdown) =>
-			saveArtifactBody(id, markdown, versionNumber ?? undefined, conversationId),
+			saveArtifactBody(
+				id,
+				markdown,
+				versionNumber ?? undefined,
+				conversationId,
+				undefined,
+				{ baseHash: knownBodyHash ?? undefined },
+			),
 		onResult: handleSaveResult,
 	});
 }
@@ -760,6 +821,7 @@ async function handleSaveCopy(): Promise<void> {
 		const created = await createDocumentCopy(conversationId, title, canonical);
 		boundArtifactId = created.id;
 		versionNumber = created.versionNumber;
+		knownBodyHash = created.bodyHash;
 		// The new artifact's own tabs are unknown here (`createDocumentCopy`'s
 		// response does not carry them) — clearing rather than leaving the OLD
 		// document's tab ids/labels on screen, which would point at sections
@@ -830,6 +892,7 @@ async function runLoad(id: string): Promise<void> {
 		refusalNotice = null;
 		handledActivityKey = "";
 		versionNumber = detail.artifact.versionNumber;
+		knownBodyHash = detail.artifact.bodyHash;
 		tabs = documentTabsFromCardMetadata(detail.artifact.metadata);
 		activeTabId = tabs[0]?.id ?? "";
 		comments = detail.comments;
@@ -987,6 +1050,24 @@ function saveNoticeText(notice: SaveNotice): string {
 						/>
 					</div>
 				{/if}
+				<!-- RV-1B, T6: the versions sheet, opened from the toolbar's history
+				     action (previously unreachable — see toolbar-actions.ts). A
+				     restore changes the stored body out from under the open editor,
+				     so it reloads through the same retryLoad() the "load failed, try
+				     again" path already uses, rather than a second reload path. -->
+				{#if versionsSheetOpen}
+					<div class="document-versions-anchor">
+						<VersionsSheet
+							artifactId={boundArtifactId}
+							conversationId={panelConversationId}
+							onClose={() => (versionsSheetOpen = false)}
+							onRestored={() => {
+								versionsSheetOpen = false;
+								retryLoad();
+							}}
+						/>
+					</div>
+				{/if}
 				<!-- T8 live: one inline Keep/Undo bar per applied change, positioned
 				     at that change's own mark (never all bunched at a fixed spot —
 				     several ops across different blocks each get their own bar). -->
@@ -1064,12 +1145,28 @@ function saveNoticeText(notice: SaveNotice): string {
 
 	.document-content {
 		position: relative;
+		display: flex;
+		flex-direction: column;
 		flex: 1;
 		min-height: 240px;
 		overflow-y: auto;
+		/* RV-1B: explicit rather than relying on the CSS spec's "overflow-y
+		   auto computes overflow-x to auto too" quirk (real, and already
+		   holding — `tests/e2e/artifact-document.spec.ts`'s "a wide table does
+		   not force horizontal page scroll" passes today — but undocumented
+		   and one `overflow-y` edit away from silently breaking). A wide table
+		   (§2.3's table block) gets its own horizontal scrollbar here instead
+		   of forcing the whole page to scroll sideways at 390 px. */
+		overflow-x: auto;
 	}
 
+	/* `flex: 1` (not just `min-height`) so the editable canvas fills whatever
+	   room `.document-content` actually has, even when the document itself is
+	   short or empty — otherwise the host hugs its 240px floor and leaves the
+	   rest of the panel visually blank below it (T11.1: the editor must keep
+	   >= 60% of a 390x844 viewport, `tests/e2e/artifact-document.spec.ts`). */
 	.document-editor-host {
+		flex: 1;
 		min-height: 240px;
 		padding: 1rem 1.25rem;
 	}
@@ -1103,6 +1200,15 @@ function saveNoticeText(notice: SaveNotice): string {
 		right: 0.75rem;
 		z-index: 20;
 		min-width: 12rem;
+	}
+
+	/* RV-1B, T6: same corner as the download anchor — handleToolbarAction
+	   ensures only one of the two is ever open at once. */
+	.document-versions-anchor {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.75rem;
+		z-index: 20;
 	}
 
 	.document-notice {

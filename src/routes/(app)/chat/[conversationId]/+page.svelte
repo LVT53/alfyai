@@ -160,6 +160,7 @@ import {
 	findLiveDocumentAlfyActivity,
 	getWorkspacePresentationAfterDocumentOpen,
 	hasActiveAtlasJobs,
+	liveDocumentAlfyActivityExcluding,
 	hasActiveFileProductionJobs,
 	mergeFileProductionJob,
 	removeMessageById,
@@ -846,9 +847,27 @@ let isThinkingActive = $derived(
  * right now" — `DocumentWorkspace`'s `alfyActivity` prop carries this down
  * to whichever body is open. See `_helpers.ts`'s
  * `findLiveDocumentAlfyActivity` for the (unit-tested) scan itself.
+ *
+ * RV-1B: `findLiveDocumentAlfyActivity` scans the WHOLE message list with no
+ * regard for how long ago a call settled, so a page reload (or the first
+ * time this conversation's history is observed this session) would find
+ * whatever Document edit happened last — even one already Kept/Undone in a
+ * PREVIOUS session — and replay its Keep/Undo mark and refusal notice as if
+ * it just happened. `documentAlfyActivitySuppressKey` captures, once per
+ * conversation, whatever key that scan ALREADY returns before any live
+ * update could add a newer one; `liveDocumentAlfyActivityExcluding` never
+ * suppresses a genuinely new key, only that one already-historical one.
  */
+let documentAlfyActivitySuppressKey = $state<string | null>(null);
+$effect(() => {
+	const conversationId = data.conversation.id;
+	void conversationId;
+	documentAlfyActivitySuppressKey = untrack(
+		() => findLiveDocumentAlfyActivity($messages)?.key ?? null,
+	);
+});
 let liveDocumentAlfyActivity = $derived(
-	findLiveDocumentAlfyActivity($messages),
+	liveDocumentAlfyActivityExcluding($messages, documentAlfyActivitySuppressKey),
 );
 // Show loading state when waiting for the first response (either from pending message or new send)
 let showInitialLoading = $derived(

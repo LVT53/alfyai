@@ -200,3 +200,83 @@ describe("sanitizeDocumentFilename", () => {
 		expect(sanitizeDocumentFilename(long).length).toBeLessThanOrEqual(100);
 	});
 });
+
+// RV-1A (independent review of Slice 1): red before its fix; the review file
+// (docs/plans/claude-at-home-2/review-1a.md) quotes the failing line.
+describe("RV-1A: an exported Document reads as text, not as Markdown source", () => {
+	it("renders inline Markdown as the text it shows — the report renderers print text verbatim", () => {
+		const blocks = [
+			makeBlock("h1", "heading", "## Day **one** in *Vienna*"),
+			makeBlock(
+				"p1",
+				"paragraph",
+				"Book **the** train &amp; a [cheap bus](https://x.y) at 5 &lt; 6 \\* fast, `code_here`.",
+			),
+			makeBlock("l1", "list", "- **Bold:** item\n- plain"),
+			makeBlock("t1", "taskList", "- [x] Pay the **deposit**"),
+			makeBlock("q1", "blockquote", "> A **quoted** line"),
+			makeBlock(
+				"tb1",
+				"table",
+				"| Item | Status |\n| --- | --- |\n| **Hotel** | booked |",
+			),
+		];
+		const source = buildGeneratedDocumentSource({ title: "Trip", blocks });
+		expect(source.blocks).toEqual([
+			{ type: "heading", level: 2, text: "Day one in Vienna" },
+			{
+				type: "paragraph",
+				text: "Book the train & a cheap bus at 5 < 6 * fast, code_here.",
+			},
+			{ type: "list", style: "bullet", items: ["Bold: item", "plain"] },
+			{
+				type: "list",
+				style: "bullet",
+				items: [{ text: "Pay the deposit", checked: true }],
+			},
+			{ type: "quote", text: "A quoted line" },
+			{
+				type: "table",
+				columns: [
+					{ key: "c0", label: "Item", kind: "text" },
+					{ key: "c1", label: "Status", kind: "text" },
+				],
+				rows: [{ c0: "Hotel", c1: "booked" }],
+			},
+		]);
+	});
+
+	it("keeps a task item's continuation with it and its nested plain items as plain items — never a stray unchecked box", () => {
+		const blocks = [
+			makeBlock(
+				"t1",
+				"taskList",
+				"- [x] Book the hotel\n  near the station\n  - [ ] Pay the deposit\n  - a plain note",
+			),
+		];
+		const source = buildGeneratedDocumentSource({ title: "Trip", blocks });
+		expect(source.blocks[0]).toEqual({
+			type: "list",
+			style: "bullet",
+			items: [
+				{ text: "Book the hotel near the station", checked: true },
+				{ text: "Pay the deposit", checked: false },
+				"a plain note",
+			],
+		});
+		// A checklist with a plain item in it is still a valid source.
+		expect(validateGeneratedDocumentSource(source).ok).toBe(true);
+	});
+
+	it("keeps a code block's last line when the fence was never closed", () => {
+		const blocks = [
+			makeBlock("c1", "code", "```js\nconst a = 1;\nconst b = 2;"),
+		];
+		const source = buildGeneratedDocumentSource({ title: "Code", blocks });
+		expect(source.blocks[0]).toEqual({
+			type: "code",
+			language: "js",
+			text: "const a = 1;\nconst b = 2;",
+		});
+	});
+});

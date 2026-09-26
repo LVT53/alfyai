@@ -14,6 +14,7 @@ import { db } from "$lib/server/db";
 import { artifactComments } from "$lib/server/db/schema";
 import {
 	ALFY_EMPTY_REPLY_MARKER,
+	ALFY_PARTIAL_REFUSAL_SUFFIX,
 	ALFY_REFUSED_MARKER,
 } from "$lib/shared/artifact-document/alfy-reply";
 import { resolveTextAnchor } from "$lib/shared/artifact-document/anchor";
@@ -50,11 +51,17 @@ function toAnchor(value: unknown): Anchor | null {
 	switch (candidate.kind) {
 		case "text": {
 			const { blockId, quote, prefix, suffix } = candidate;
+			// The context may be EMPTY: the editor captures it inside the
+			// block, so a selection at a block's start has no prefix and one at
+			// its end has no suffix — a whole heading, a first word, a whole
+			// task line. Requiring both non-empty refused every such comment
+			// with a 400 (RV-1A). An empty context is still a valid anchor: the
+			// quote and its block carry it.
 			if (
 				!isNonEmptyString(blockId) ||
 				!isNonEmptyString(quote) ||
-				!isNonEmptyString(prefix) ||
-				!isNonEmptyString(suffix)
+				typeof prefix !== "string" ||
+				typeof suffix !== "string"
 			) {
 				return null;
 			}
@@ -514,6 +521,27 @@ export async function runAlfyCommentReply(
 		signal: params.abortSignal,
 	}).catch(() => null);
 
+	// The model ran, so the call is paid for — whatever happens next, abort
+	// included (RV-1A: it was never recorded, so the conversation's cost
+	// display left out every @Alfy reply). Attributed to the artifact's own
+	// conversation: the knowledge page's panel names none.
+	if (modelResult) {
+		const { recordControlModelUsage } = await import("../analytics");
+		await recordControlModelUsage({
+			userId: params.userId,
+			conversationId: alfyRead.conversationId,
+			feature: "artifact_comment_alfy",
+			modelId: modelResult.modelId,
+			modelDisplayName: modelResult.modelDisplayName,
+			promptTokens: modelResult.usage?.promptTokens,
+			completionTokens: modelResult.usage?.completionTokens,
+			totalTokens: modelResult.usage?.totalTokens,
+			cachedInputTokens: modelResult.usage?.cachedInputTokens,
+			cacheHitTokens: modelResult.usage?.cacheHitTokens,
+			cacheMissTokens: modelResult.usage?.cacheMissTokens,
+		});
+	}
+
 	if (params.abortSignal.aborted) return { ok: false, reason: "aborted" };
 	if (!modelResult) return { ok: true, value: await refused() };
 
@@ -570,6 +598,18 @@ export async function runAlfyCommentReply(
 		return { ok: true, value: await refused() };
 	}
 
+	// RV-1B, coordinator item 8: this SAME request can both apply and refuse
+	// ops (every op in `ops` shares the block's ORIGINAL baseHash, so an
+	// earlier op that changes the block routinely leaves a later one refused
+	// `block_changed`) — the model's own `note` only ever describes what it
+	// changed, never what it could not, so without this suffix a
+	// partially-refused reply reads in the thread as an unqualified success.
+	const noteBody = note || ALFY_EMPTY_REPLY_MARKER;
+	const replyBody =
+		patchResult.result.refused > 0
+			? `${noteBody}${ALFY_PARTIAL_REFUSAL_SUFFIX}`
+			: noteBody;
+
 	return {
 		ok: true,
 		value: {
@@ -577,7 +617,7 @@ export async function runAlfyCommentReply(
 			applied: patchResult.result.applied,
 			refused: patchResult.result.refused,
 			version: patchResult.version,
-			reply: await reply(note || ALFY_EMPTY_REPLY_MARKER),
+			reply: await reply(replyBody),
 		},
 	};
 }

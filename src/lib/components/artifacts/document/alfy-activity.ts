@@ -60,6 +60,8 @@ export interface DocumentAlfyRawPatchOp {
 export interface DocumentRefusedBlock {
 	blockId: string;
 	reason: string;
+	/** The refused op's index in the call's `patches` (absent in metadata written before RV-1A). */
+	opIndex?: number;
 }
 
 export interface DocumentAlfyActivity {
@@ -153,7 +155,13 @@ function parseRefusedBlocks(value: unknown): DocumentRefusedBlock[] {
 			typeof record.blockId === "string" &&
 			typeof record.reason === "string"
 		) {
-			items.push({ blockId: record.blockId, reason: record.reason });
+			items.push({
+				blockId: record.blockId,
+				reason: record.reason,
+				...(typeof record.opIndex === "number"
+					? { opIndex: record.opIndex }
+					: {}),
+			});
 		}
 	}
 	return items;
@@ -272,8 +280,19 @@ export function reconstructDocumentPatch(
 ): ReconstructedDocumentPatch | null {
 	if (activity.patches.length === 0) return null;
 
+	// Marks are per OP: one block can carry an applied op and a refused one in
+	// the same call, and keying by block showed the applied change as refused,
+	// with no mark and no Undo (RV-1A). Metadata from before the op index
+	// existed still falls back to the block.
+	const refusedByOpIndex = new Map(
+		activity.refusedBlocks.flatMap((item) =>
+			item.opIndex !== undefined ? [[item.opIndex, item.reason] as const] : [],
+		),
+	);
 	const refusedByBlockId = new Map(
-		activity.refusedBlocks.map((item) => [item.blockId, item.reason]),
+		activity.refusedBlocks.flatMap((item) =>
+			item.opIndex === undefined ? [[item.blockId, item.reason] as const] : [],
+		),
 	);
 
 	const ops: PatchOp[] = activity.patches.map((raw, index) => {
@@ -293,8 +312,9 @@ export function reconstructDocumentPatch(
 
 	const outcomes: OpOutcome[] = [];
 	const inverses: PatchInverse[] = [];
-	for (const op of ops) {
-		const refusedReason = refusedByBlockId.get(op.blockId);
+	for (const [index, op] of ops.entries()) {
+		const refusedReason =
+			refusedByOpIndex.get(index) ?? refusedByBlockId.get(op.blockId);
 		if (refusedReason !== undefined) {
 			outcomes.push({
 				opId: op.opId,

@@ -16,7 +16,7 @@
  *   stack.
  * - `BlockMarker` is the `<!--b:id-->` marker as a real (but invisible) node,
  *   so Tiptap's own Markdown tokenizer/renderer can produce and consume it.
- *   It is never left in the LIVE document: `absorbBlockMarkers` (on load)
+ *   It is never left in the LIVE document: `ensureBlockIds` (on load)
  *   moves each marker's id onto the block that follows it and deletes the
  *   marker node itself, and `document-editor.ts`'s `readMarkdown` re-inserts
  *   markers in a throwaway transaction only for the instant it takes to call
@@ -134,11 +134,48 @@ function isIdentified(node: PMNode): boolean {
  * finds nothing left to do.
  */
 function buildAbsorbAndMintTransaction(state: EditorState): Transaction | null {
+	let tr: Transaction | null = null;
+
+	// RV-1B: a markdown construct this schema has no node for (this Document
+	// registers no Image extension, so a lone `![alt](url)` line is the
+	// reproduction) can leave `@tiptap/markdown`'s fallback parsing with a
+	// bare inline node sitting directly under "doc" once it runs out of
+	// block-level structure for the unrecognised token. "doc"'s content
+	// expression is block-only, so the parse itself does not throw, but the
+	// very next transaction crashes with "Invalid content for node doc" —
+	// confirmed by instrumenting the exact call below, which is why this
+	// runs FIRST, before absorption/minting ever inspects the document.
+	// Wrapping the orphan in its own paragraph makes unrecognised markdown
+	// degrade to plain, visible text instead of crashing the editor.
+	const paragraphType = state.schema.nodes.paragraph;
+	const docContentMatch = state.schema.nodes.doc.contentMatch;
+	if (paragraphType) {
+		const orphans: { pos: number; size: number }[] = [];
+		let scanOffset = 0;
+		state.doc.forEach((node) => {
+			if (!docContentMatch.matchType(node.type)) {
+				orphans.push({ pos: scanOffset, size: node.nodeSize });
+			}
+			scanOffset += node.nodeSize;
+		});
+		if (orphans.length > 0) {
+			tr = state.tr;
+			for (const orphan of orphans) {
+				const from = tr.mapping.map(orphan.pos);
+				const to = tr.mapping.map(orphan.pos + orphan.size);
+				const node = tr.doc.nodeAt(from);
+				if (!node) continue;
+				tr.replaceWith(from, to, paragraphType.create(null, node));
+			}
+		}
+	}
+
+	const docForAbsorption = tr ? tr.doc : state.doc;
 	const assignments: { pos: number; id: string }[] = [];
 	const markersToDelete: { pos: number; size: number }[] = [];
 	let pending: string | null = null;
 
-	state.doc.forEach((node, offset) => {
+	docForAbsorption.forEach((node, offset) => {
 		if (node.type.name === BLOCK_MARKER_NODE) {
 			markersToDelete.push({ pos: offset, size: node.nodeSize });
 			pending = (node.attrs.id as string) || pending;
@@ -154,9 +191,8 @@ function buildAbsorbAndMintTransaction(state: EditorState): Transaction | null {
 		pending = null;
 	});
 
-	let tr: Transaction | null = null;
 	if (markersToDelete.length > 0) {
-		tr = state.tr;
+		tr = tr ?? state.tr;
 		for (const entry of assignments) {
 			const node = tr.doc.nodeAt(entry.pos);
 			if (!node) continue;
@@ -175,12 +211,20 @@ function buildAbsorbAndMintTransaction(state: EditorState): Transaction | null {
 
 	// Mint whatever is STILL missing after absorption — reading `tr.doc` when
 	// absorption ran, so a block that just received an absorbed id is not
-	// re-minted a second one.
+	// re-minted a second one. A DUPLICATE id counts as missing: splitting a
+	// block (Enter) or pasting one copies its id onto the new node, and while
+	// the editor held both, every save's canonicalisation minted a different
+	// id for the second half — its id changed on every autosave, so Alfy's
+	// next patch on it found no such block (RV-1A). The first holder keeps it.
 	const docForMinting = tr ? tr.doc : state.doc;
 	const missing: { pos: number; kind: BlockKind }[] = [];
+	const seenIds = new Set<string>();
 	docForMinting.forEach((node, offset) => {
 		const id = node.attrs?.[BLOCK_ID_ATTR];
-		if (typeof id === "string" && id.length > 0) return;
+		if (typeof id === "string" && id.length > 0 && !seenIds.has(id)) {
+			seenIds.add(id);
+			return;
+		}
 		const kind = blockKindFor(node.type.name);
 		if (kind) missing.push({ pos: offset, kind });
 	});
@@ -196,35 +240,6 @@ function buildAbsorbAndMintTransaction(state: EditorState): Transaction | null {
 		}
 	}
 
-	return tr;
-}
-
-/**
- * The mint-only half, kept internal: `ensureBlockIds`/the plugin both go
- * through the combined builder above so absorption and minting can never
- * race each other. Not exported — nothing outside this file addresses
- * minting in isolation from absorption today; widen this back to `export`
- * if a future test genuinely needs that split.
- */
-function buildBlockIdTransaction(state: EditorState): Transaction | null {
-	const missing: { pos: number; kind: BlockKind }[] = [];
-	state.doc.forEach((node, offset) => {
-		const id = node.attrs?.[BLOCK_ID_ATTR];
-		if (typeof id === "string" && id.length > 0) return;
-		const kind = blockKindFor(node.type.name);
-		if (kind) missing.push({ pos: offset, kind });
-	});
-	if (missing.length === 0) return null;
-
-	const tr = state.tr;
-	for (const entry of missing) {
-		const node = tr.doc.nodeAt(entry.pos);
-		if (!node) continue;
-		tr.setNodeMarkup(entry.pos, undefined, {
-			...node.attrs,
-			[BLOCK_ID_ATTR]: mintBlockId(entry.kind),
-		});
-	}
 	return tr;
 }
 
@@ -278,7 +293,7 @@ const BlockIds = Extension.create({
  * parses `<!--b:id-->` and whose renderer writes it back. It is a real schema
  * node (not a text hack) so the Markdown manager can produce and consume it,
  * but nothing in this module ever leaves one sitting in the live document —
- * see `absorbBlockMarkers` below and `document-editor.ts`'s `readMarkdown`.
+ * see `ensureBlockIds` below and `document-editor.ts`'s `readMarkdown`.
  */
 const BlockMarker = Node.create({
 	name: BLOCK_MARKER_NODE,
@@ -348,30 +363,6 @@ const BlockMarker = Node.create({
 	renderMarkdown: (node: JSONContent) =>
 		`${MARKER_PREFIX}${(node.attrs?.id as string) ?? ""}-->`,
 });
-
-/**
- * Load-time absorption on its own, kept internal (nothing outside this file
- * calls it directly today — `ensureBlockIds` below is the one load-time
- * entry point other modules use). Internally this is still the SAME
- * combined builder `ensureBlockIds` and the plugin use — see
- * `buildAbsorbAndMintTransaction`'s comment for why the two steps cannot be
- * split into independently-dispatched transactions.
- */
-function absorbBlockMarkers(editor: {
-	state: EditorState;
-	view: { dispatch: (tr: Transaction) => void };
-}): number {
-	let markerCount = 0;
-	editor.state.doc.forEach((node) => {
-		if (node.type.name === BLOCK_MARKER_NODE) markerCount += 1;
-	});
-	const tr = buildAbsorbAndMintTransaction(editor.state);
-	if (tr) {
-		tr.setMeta("addToHistory", false);
-		editor.view.dispatch(tr);
-	}
-	return markerCount;
-}
 
 /**
  * Load-time id pass: absorb any hand-written markers and mint whatever is
@@ -540,6 +531,45 @@ const TrackerChip = Node.create({
  * `[chip kind="…" value="…"]` alive through the round trip the same way
  * `BlockMarker` keeps `<!--b:id-->` alive.
  */
+/**
+ * RV-1B: this Document registers no Image node (`@tiptap/extension-image`
+ * is not one of the pinned dependencies — slice-1.md's own extension list
+ * never named it, and a Document export explicitly has no image source
+ * either). Alfy can still write `![alt](url)` into a document body — a
+ * completely ordinary thing to type — and without a handler,
+ * `@tiptap/markdown`'s fallback parsing for an unrecognised inline token
+ * left a bare inline node with only the alt text sitting directly under
+ * "doc", which crashed the very next transaction (confirmed by
+ * instrumenting `buildAbsorbAndMintTransaction`'s own crash site: `Invalid
+ * content for node doc`). `buildAbsorbAndMintTransaction`'s orphan-wrapping
+ * pass is the general safety net that keeps THIS (or any similar future
+ * case) from crashing even without this handler — verified directly: with
+ * this handler removed, `![alt](url)` still does not crash, because the
+ * generic wrap catches marked's own bare-alt-text fallback the same way.
+ * This handler earns its place for the OTHER case, `![](url)` (no alt
+ * text): without it, the generic wrap has nothing to wrap and the image
+ * silently becomes a blank paragraph with no visible trace it was ever
+ * there; this handler gives it a visible placeholder instead.
+ *
+ * Deliberately renders the alt text ALONE, not `![alt](url)`: reconstructing
+ * the full reference puts a bare `https://…` back into the text, and this
+ * app's markdown pipeline auto-links a bare URL on the very next parse
+ * regardless of `Link`'s own `autolink: false` (confirmed separately, with
+ * plain text containing nothing image-related — a pre-existing behaviour of
+ * this editor, not something this fix should paper over by guessing at a
+ * second, untested escaping scheme). Losing the URL is an accepted,
+ * narrower trade-off than an unstable canonical form (ruling 12: open →
+ * serialise → reload → serialise must be a no-op).
+ */
+const ImageAsPlainText = Extension.create({
+	name: "documentImageAsText",
+	markdownTokenName: "image",
+	parseMarkdown: (token: { text?: string }) => ({
+		type: "text",
+		text: token.text?.trim() ? token.text : "[image]",
+	}),
+});
+
 export function buildDocumentExtensions(placeholder: string) {
 	return [
 		StarterKit.configure({
@@ -554,5 +584,6 @@ export function buildDocumentExtensions(placeholder: string) {
 		BlockMarker,
 		AlfyChange,
 		TrackerChip,
+		ImageAsPlainText,
 	];
 }

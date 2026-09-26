@@ -9,6 +9,7 @@ import {
 	normalizeMarkdown,
 	parseDocument,
 	readTaskBlock,
+	splitTableCells,
 } from "./blocks";
 
 // The Document's pure engine (spec §2.6, ruling 12). No Tiptap, no ProseMirror,
@@ -314,5 +315,286 @@ describe("readTaskBlock — the one checked-state/text reader for card previews"
 	it("is null for a non-task block", () => {
 		const result = parseDocument("Just a paragraph.");
 		expect(readTaskBlock(result.blocks[0])).toBeNull();
+	});
+});
+
+// RV-1A (independent review of Slice 1's engine). Each case here was red
+// before its fix; the review file (docs/plans/claude-at-home-2/review-1a.md)
+// quotes the failing line.
+describe("RV-1A: the canonical form never rewrites a code block's content", () => {
+	it("keeps a fenced code block verbatim: a diff's + lines, * and 1) markers, blank runs, chips", () => {
+		const code = [
+			"```diff",
+			"+ added line",
+			"- removed line",
+			"  * star bullet",
+			"1) first",
+			"",
+			"",
+			"| a  |  b |",
+			"| -- | -- |",
+			"[chip value='y' kind='x']",
+			"```",
+		].join("\n");
+		expect(normalizeMarkdown(code)).toBe(code);
+		const parsed = parseDocument(code);
+		expect(parsed.blocks).toHaveLength(1);
+		expect(parsed.blocks[0].kind).toBe("code");
+		expect(parsed.blocks[0].markdown).toBe(code);
+		// Still the canonical form: reloading the stored text is a no-op.
+		expect(parseDocument(parsed.markdown).markdown).toBe(parsed.markdown);
+	});
+
+	it("still trims trailing whitespace and edge blank lines around a code block (rule 1 and rule 4 hold)", () => {
+		expect(normalizeMarkdown("\n```\nx = 1   \n```\n\n")).toBe(
+			"```\nx = 1\n```",
+		);
+	});
+});
+
+describe("RV-1A: an escaped pipe is cell text, not a column separator", () => {
+	it("keeps `\\|` inside its cell through normalisation, and counts the cells GFM counts", () => {
+		const table = "| a | b |\n| --- | --- |\n| x \\| y | z |";
+		expect(normalizeMarkdown(table)).toBe(table);
+		expect(splitTableCells("| x \\| y | z |").map((c) => c.trim())).toEqual([
+			"x \\| y",
+			"z",
+		]);
+		// An escaped backslash before a real separator is still a separator.
+		expect(splitTableCells("| a \\\\| b |").map((c) => c.trim())).toEqual([
+			"a \\\\",
+			"b",
+		]);
+		// A row whose last cell ends in an escaped pipe keeps it.
+		expect(splitTableCells("| a | b \\|").map((c) => c.trim())).toEqual([
+			"a",
+			"b \\|",
+		]);
+	});
+});
+
+describe("RV-1A: a task item's nested items belong to its block", () => {
+	it("keeps nested items (tasks and bullets) with their parent task item, so a reopen cannot un-nest them", () => {
+		const parsed = parseDocument(
+			"- [ ] parent task\n  - [x] child task\n  - plain sub-bullet\n    more text\n- [ ] second",
+		);
+		expect(parsed.blocks.map((block) => block.kind)).toEqual([
+			"taskList",
+			"taskList",
+		]);
+		expect(parsed.blocks[0].markdown).toBe(
+			"- [ ] parent task\n  - [x] child task\n  - plain sub-bullet\n    more text",
+		);
+		expect(readTaskBlock(parsed.blocks[0])).toEqual({
+			checked: false,
+			text: "parent task",
+		});
+		expect(parsed.blocks[1].markdown).toBe("- [ ] second");
+	});
+
+	it("still splits sibling task items, including a 1-space-indented sibling", () => {
+		const parsed = parseDocument("- [ ] one\n - [ ] two\n- [x] three");
+		expect(parsed.blocks).toHaveLength(3);
+	});
+});
+
+describe("RV-1A: a horizontal rule is not a table", () => {
+	it("keeps `---` a horizontal rule through normalisation and a reload, instead of the text `| --- |`", () => {
+		expect(normalizeMarkdown("---")).toBe("---");
+		const parsed = parseDocument("Above.\n\n---\n\nBelow.");
+		expect(parsed.blocks.map((b) => `${b.kind}:${b.markdown}`)).toEqual([
+			"paragraph:Above.",
+			"hr:---",
+			"paragraph:Below.",
+		]);
+		const reloaded = parseDocument(parsed.markdown);
+		expect(reloaded.blocks.map((b) => `${b.kind}:${b.markdown}`)).toEqual([
+			"paragraph:Above.",
+			"hr:---",
+			"paragraph:Below.",
+		]);
+	});
+});
+
+describe("RV-1A: a table's delimiter row is padding too (ruling 12, rule 2)", () => {
+	it("collapses the delimiter dashes the editor pads to the column width, keeping the alignment colons", () => {
+		expect(
+			normalizeMarkdown("| A | B |\n| ------- | --- |\n| x **y** | z |"),
+		).toBe(normalizeMarkdown("| A | B |\n| --- | --- |\n| x **y** | z |"));
+		expect(
+			normalizeMarkdown(
+				"| L | R | C |\n|:------|------:|:-----:|\n| a | b | c |",
+			),
+		).toBe("| L | R | C |\n| :--- | ---: | :---: |\n| a | b | c |");
+	});
+});
+
+describe("RV-1A: a hard line break survives the canonical form", () => {
+	it("writes the editor's two-space hard break as a backslash break, which rule 1's trim cannot delete", () => {
+		expect(normalizeMarkdown("First line  \nsecond line")).toBe(
+			"First line\\\nsecond line",
+		);
+		expect(normalizeMarkdown("First line\\\nsecond line")).toBe(
+			"First line\\\nsecond line",
+		);
+		// Trailing spaces on a block's last line are not a break: still trimmed.
+		expect(normalizeMarkdown("Only line  ")).toBe("Only line");
+		// Code is content: its trailing spaces are just trimmed, never a break.
+		expect(normalizeMarkdown("```\na  \nb\n```")).toBe("```\na\nb\n```");
+	});
+});
+
+describe("RV-1A: a list item's lazy continuation line stays in the item", () => {
+	it("keeps the line after a hard break inside its list item, as CommonMark reads it", () => {
+		const list = parseDocument("- item one  \nitem line two\n- item two");
+		expect(list.blocks.map((b) => b.kind)).toEqual(["list"]);
+		expect(list.blocks[0].markdown).toBe(
+			"- item one\\\nitem line two\n- item two",
+		);
+		// A task item is the exception: the editor's task-item reader keeps a
+		// backslash break as literal text, so its trailing spaces are only
+		// trimmed (never turned into a visible "\").
+		expect(
+			normalizeMarkdown("- [ ] book the hotel  \n  near the station"),
+		).toBe("- [ ] book the hotel\n  near the station");
+		// A line that starts a block of its own still ends the list.
+		expect(
+			parseDocument("- item\n# Heading").blocks.map((b) => b.kind),
+		).toEqual(["list", "heading"]);
+	});
+});
+
+describe("RV-1B, coordinator item 5: a task item's hard break stays in the item", () => {
+	// keepHardBreaks already trims a task line's hard break flush to the left
+	// margin instead of turning it into a backslash the editor cannot read
+	// back ("RV-1A: a list item's lazy continuation line stays in the item",
+	// above). consumeSingleListItem — unlike consumeListBlock, which already
+	// has this same isLazyContinuation fallback for a plain list — had no
+	// path for an UNINDENTED continuation line, so exactly the shape
+	// keepHardBreaks produces read back as a brand new top-level block: the
+	// checked box split from its own second line on the very next reopen (or
+	// the very next client-side autosave canonicalisation, which runs the
+	// same parseDocument pass — DocumentBody.svelte's
+	// currentCanonicalMarkdown).
+	it("keeps the line after a hard break inside its task item, instead of splitting it into a new block", () => {
+		const parsed = parseDocument("- [ ] book the hotel  \nnear the station");
+		expect(parsed.blocks.map((b) => b.kind)).toEqual(["taskList"]);
+		expect(parsed.blocks[0].markdown).toBe(
+			"- [ ] book the hotel\nnear the station",
+		);
+	});
+
+	it("is idempotent: reparsing the canonical form does not re-split it", () => {
+		const first = parseDocument("- [ ] book the hotel  \nnear the station");
+		const second = parseDocument(first.markdown, { mint: false });
+		expect(second.blocks.map((b) => b.kind)).toEqual(["taskList"]);
+		expect(second.blocks[0].markdown).toBe(first.blocks[0].markdown);
+	});
+
+	it("still ends the item at a following sibling task, a blank line, or a line that starts a new block", () => {
+		const siblings = parseDocument(
+			"- [ ] book the hotel  \nnear the station\n- [ ] pack bags",
+		);
+		expect(siblings.blocks.map((b) => b.kind)).toEqual([
+			"taskList",
+			"taskList",
+		]);
+		expect(siblings.blocks[0].markdown).toBe(
+			"- [ ] book the hotel\nnear the station",
+		);
+
+		const blank = parseDocument(
+			"- [ ] book the hotel  \nnear the station\n\nAfter the list.",
+		);
+		expect(blank.blocks.map((b) => b.kind)).toEqual(["taskList", "paragraph"]);
+
+		const heading = parseDocument("- [ ] book the hotel\n# Heading");
+		expect(heading.blocks.map((b) => b.kind)).toEqual(["taskList", "heading"]);
+	});
+});
+
+describe("RV-1A: a task's card text is the text the user sees", () => {
+	it("reads bold, links, entities and chips out of the task line, as the card and the preview show it", () => {
+		const [task] = parseDocument(
+			'- [x] Pay the **deposit** at [the hotel](https://x.y) &amp; bank [chip kind="status" value="Booked"]',
+		).blocks;
+		expect(readTaskBlock(task)).toEqual({
+			checked: true,
+			text: "Pay the deposit at the hotel & bank",
+		});
+	});
+});
+
+describe("RV-1A: chip syntax is only rewritten when it is a chip", () => {
+	it("leaves the user's own bracketed text alone — the editor writes a typed '[chip in]' as '\\[chip in\\]'", () => {
+		expect(normalizeMarkdown("We will \\[chip in\\] later.")).toBe(
+			"We will \\[chip in\\] later.",
+		);
+		expect(normalizeMarkdown("A note [chip in] here.")).toBe(
+			"A note [chip in] here.",
+		);
+		// Two chips side by side are both canonicalised.
+		expect(
+			normalizeMarkdown("[chip value='a' kind='x'][chip value='b' kind='y']"),
+		).toBe('[chip kind="x" value="a"][chip kind="y" value="b"]');
+		// A real chip token is still canonicalised (rule 5).
+		expect(normalizeMarkdown("Hotel [chip value='Booked' kind='status']")).toBe(
+			'Hotel [chip kind="status" value="Booked"]',
+		);
+	});
+});
+
+describe("RV-1A: a hard break inside a quote survives too", () => {
+	it("keeps the editor's two-space break between two lines of the same quote", () => {
+		expect(normalizeMarkdown("> quoted line  \n> second quoted")).toBe(
+			"> quoted line\\\n> second quoted",
+		);
+		// The start of a nested quote is a new block, not a continuation.
+		expect(normalizeMarkdown("> outer  \n> > inner")).toBe(
+			"> outer\n> > inner",
+		);
+	});
+});
+
+describe("RV-1A: a block's label names it the way the user sees it", () => {
+	it("names a code block by its first line of code, and a formatted line without its Markdown", () => {
+		const [code, bold, table] = parseDocument(
+			'```js\nconst total = 1;\n```\n\n**Budget** for the *trip* [chip kind="status" value="Booked"]\n\n| Item | Cost |\n| --- | --- |\n| Hotel | 90 |',
+		).blocks;
+		// The refusal notice names the block by this label: an empty one named nothing.
+		expect(code.label).toBe("const total = 1;");
+		expect(bold.label).toBe("Budget for the trip");
+		expect(table.label).toBe("Item | Cost");
+	});
+});
+
+describe("RV-1A: an empty list item stays a list item", () => {
+	it("keeps the one space after a bare marker, which the editor needs to read the item back", () => {
+		// What the editor writes for a checklist item or a numbered item the user
+		// has just added and not typed into yet (an autosave lands meanwhile).
+		expect(normalizeMarkdown("- [ ] ")).toBe("- [ ] ");
+		expect(normalizeMarkdown("1. one\n2. ")).toBe("1. one\n2. ");
+		expect(normalizeMarkdown("- first\n- ")).toBe("- first\n- ");
+		// Idempotent, and still one space however many were there.
+		expect(normalizeMarkdown("- [x]    ")).toBe("- [x] ");
+		expect(normalizeMarkdown(normalizeMarkdown("- [ ] "))).toBe("- [ ] ");
+		const [task] = parseDocument("- [ ] ").blocks;
+		expect(task.kind).toBe("taskList");
+		expect(readTaskBlock(task)).toEqual({ checked: false, text: "" });
+	});
+});
+
+describe("RV-1A: a list item's second paragraph stays in the item", () => {
+	it("keeps an indented paragraph after a blank line inside its list item and task item, as CommonMark reads it", () => {
+		const list = parseDocument("- first para\n\n  second para\n- next item");
+		expect(list.blocks.map((b) => b.kind)).toEqual(["list"]);
+		expect(list.blocks[0].markdown).toBe(
+			"- first para\n\n  second para\n- next item",
+		);
+		const task = parseDocument("- [x] first\n\n  second\n\nAfter the list.");
+		expect(task.blocks.map((b) => b.markdown)).toEqual([
+			"- [x] first\n\n  second",
+			"After the list.",
+		]);
 	});
 });

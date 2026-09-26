@@ -30,6 +30,7 @@
  */
 import { Editor, type Extensions, Mark, mergeAttributes } from "@tiptap/core";
 import { Node as PMNode } from "@tiptap/pm/model";
+import type { Transaction } from "@tiptap/pm/state";
 import type {
 	PatchResult,
 	PatchSet,
@@ -50,6 +51,14 @@ export interface AlfyChangeEntry {
 	blockLabel: string;
 	/** `patch.ts`'s own recorded inverse: the block's markdown immediately before this op. */
 	previousMarkdown: string;
+	/**
+	 * RV-1B, coordinator item 7: `patch.ts`'s own `PatchInverse.insertedBlockIds`,
+	 * carried through unchanged — the extra blocks THIS op's text produced
+	 * beyond `blockId` (a paragraph that became two, a new section). `undoAlfyChange`
+	 * below removes them too, so Undo restores the document to what it was
+	 * BEFORE the op, not just this one block's text.
+	 */
+	insertedBlockIds?: string[];
 }
 
 /**
@@ -206,6 +215,7 @@ export function applyAlfyChangeMarks(
 			blockId: outcome.blockId,
 			blockLabel: outcome.blockLabel,
 			previousMarkdown: inverse.previousMarkdown,
+			insertedBlockIds: inverse.insertedBlockIds,
 		});
 	}
 
@@ -345,10 +355,23 @@ export function scrollToAlfyChange(editor: Editor, changeId: string): boolean {
  * (`Node.fromJSON(editor.state.schema, rawNode.toJSON())`), which resolves
  * every node and mark against `editor`'s OWN schema, the same way loading a
  * document from its stored JSON always would.
+ *
+ * RV-1B, coordinator item 7: `entry.insertedBlockIds` (`patch.ts`'s own
+ * `PatchInverse` field, carried through by `applyAlfyChangeMarks` above) are
+ * ALSO removed, in the same transaction — an op whose text read as more than
+ * one block (a paragraph Alfy split in two, a new section appended) left
+ * every block after the first one sitting in the document forever, because
+ * this function only ever replaced `entry.blockId`'s own node. Undo is
+ * defined as restoring the document to what it was BEFORE the op (spec
+ * §2.4), not just restoring one block's text.
  */
 export function undoAlfyChange(
 	editor: Editor,
-	entry: { blockId: string; previousMarkdown: string },
+	entry: {
+		blockId: string;
+		previousMarkdown: string;
+		insertedBlockIds?: string[];
+	},
 	extensions: Extensions,
 ): boolean {
 	const target = findBlockRange(editor, entry.blockId);
@@ -378,9 +401,37 @@ export function undoAlfyChange(
 	});
 
 	const tr = editor.state.tr.replaceWith(target.from, target.to, replacement);
+	if (entry.insertedBlockIds && entry.insertedBlockIds.length > 0) {
+		deleteBlocksById(tr, entry.insertedBlockIds);
+	}
 	tr.setMeta("addToHistory", false);
 	editor.view.dispatch(tr);
 	return true;
+}
+
+/**
+ * Deletes every top-level block whose `BLOCK_ID_ATTR` is in `blockIds`, from
+ * `tr.doc` — the transaction's OWN current document, which already reflects
+ * whatever steps `tr` carries so far (the preceding `replaceWith` above), not
+ * the stale `editor.state.doc` the transaction started from. Reverse
+ * position order, like `document-editor.ts`'s own marker deletion: deleting
+ * block `i` must not shift the position of any block `j` with `j < i` that
+ * has not been deleted yet. A missing id (already removed by some other
+ * means) is silently skipped — Undo restores what it can, it does not throw
+ * over a block that is already gone.
+ */
+function deleteBlocksById(tr: Transaction, blockIds: string[]): void {
+	const wanted = new Set(blockIds);
+	const matches: { pos: number; size: number }[] = [];
+	tr.doc.forEach((node, offset) => {
+		const id = node.attrs?.[BLOCK_ID_ATTR];
+		if (typeof id === "string" && wanted.has(id)) {
+			matches.push({ pos: offset, size: node.nodeSize });
+		}
+	});
+	for (const match of matches.sort((a, b) => b.pos - a.pos)) {
+		tr.delete(match.pos, match.pos + match.size);
+	}
 }
 
 // ---------------------------------------------------------------------------

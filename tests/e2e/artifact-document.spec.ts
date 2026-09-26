@@ -406,22 +406,18 @@ test.describe("the Document mobile toolbar", () => {
 	test("at 390x844 the toolbar stays within its budget and the editor keeps most of the viewport", async ({
 		page,
 	}) => {
-		// A separate, narrower, still-open finding from item 2's fix (the
-		// mobile list→document transition, described above the describe
-		// block): now that the editor is actually reachable at 390×844, the
-		// toolbar measures 53px, 5px over its 48px budget — MobileToolbar.
-		// svelte's own header comment computes 45px (2×4px padding + 1px
-		// border + 36px button), so the live DOM disagrees with that
-		// component's own arithmetic by exactly the same 5px on every
-		// measurement. Not chased further here: this is T11's own CSS budget
-		// (Review Focus 7), unrelated to the ARIA-role/testid gap item 2 was
-		// scoped to fix. The other three tests in this describe block do not
-		// depend on the exact 48px figure and pass now that the transition
-		// works.
-		test.fail(
-			true,
-			"MobileToolbar.svelte measures 53px against its own computed 45px/48px budget — see this test's own comment",
-		);
+		// RV-1B: this used to measure 53px, 5px over the 48px budget, even
+		// though MobileToolbar.svelte's own header comment computes 45px
+		// (2×4px padding + 1px border + 36px button). The global mobile
+		// stylesheet's "icon controls should meet the 44px target" rule
+		// (`src/app.css`'s `@media (max-width: 767px)` block) applies to
+		// every `.btn-icon-bare`, including this toolbar's, and its
+		// `!important` 44px silently overrode the component's own 36px —
+		// so the live DOM disagreed with the component's arithmetic by
+		// exactly the 8px difference between 44px and 36px. Fixed by
+		// opting this toolbar's buttons back out in `app.css`
+		// (`.mobile-toolbar .btn-icon-bare`), which is now specific enough
+		// to win over the general rule.
 		await page.setViewportSize({ width: 390, height: 844 });
 		const conversationId = await createConversation(page, "Plan a trip");
 		await seedDocument({
@@ -519,6 +515,47 @@ test.describe("the Document mobile toolbar", () => {
 		expect(box).not.toBeNull();
 		expect(box?.y).toBeGreaterThanOrEqual(0);
 		expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(420);
+	});
+
+	// RV-1B, hunt item 8: "no horizontal overflow at 390 px". Nothing tested
+	// this for an OPEN document — `artifacts-panel.spec.ts`'s own 390x844
+	// overflow check only covers the panel LIST, never a document with real
+	// content (its own header comment says so explicitly). A wide table is
+	// the one block kind actually likely to force this: verified this
+	// currently holds because `.document-content`'s `overflow-y: auto`
+	// computes `overflow-x` to `auto` too (the CSS spec's "if one axis is
+	// visible and the other is not, visible becomes auto" rule), giving a
+	// wide table its own horizontal scrollbar inside the content area rather
+	// than leaking into the page — but that protection is implicit and
+	// undocumented anywhere in the CSS, so a future refactor of that one
+	// `overflow-y` declaration could silently reintroduce page-level
+	// horizontal scroll with nothing to catch it. This test is that catch.
+	test("a wide table does not force horizontal page scroll at 390x844", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		const conversationId = await createConversation(page, "Plan a trip");
+		const wideTable = [
+			"| Column Alpha | Column Beta | Column Gamma | Column Delta | Column Epsilon |",
+			"| --- | --- | --- | --- | --- |",
+			"| A rather long cell value here | Another long value | Yet more text in this cell | And even more content | The last column's long text |",
+		].join("\n");
+		await seedDocument({
+			conversationId,
+			title: "Wide table",
+			markdown: wideTable,
+		});
+		await openChatAndReload(page, conversationId);
+		await openDocumentFromPanel(page);
+		// The table itself, not just the shell, must be on screen before an
+		// overflow reading means anything.
+		await expect(page.locator(".document-editor-host table")).toBeVisible();
+
+		const overflow = await page.evaluate(() => ({
+			scrollWidth: document.documentElement.scrollWidth,
+			clientWidth: document.documentElement.clientWidth,
+		}));
+		expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
 	});
 });
 
@@ -639,22 +676,14 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 	test("marks the applied block and shows the refusal notice for the refused one", async ({
 		page,
 	}) => {
-		// Hits the SAME pre-existing readMarkdown/fixTables recursion this
-		// file's header comment documents (verified directly: the persisted
-		// tool_call segment carries exactly the right metadata —
-		// {ok:true, appliedCount:1, refusedBlocksJson:[{blockId, reason:
-		// "block_changed"}]} — proving the whole live wiring up through
-		// landAlfyActivity is correct; it is landAlfyActivity's own
-		// `loadMarkdownFn(editor, newBody)` call, reached for the first time by
-		// a REAL edit_artifact landing in a real browser, that then throws the
-		// SAME RangeError the other 7 tests below hit typing a single
-		// character). Marked the same way, for the same reason; unmark this
-		// alongside them once T7's editor fix lands — at that point this test
-		// is the regression coverage for T8 live's marks/refusal-notice wiring.
-		test.fail(
-			true,
-			"pre-existing readMarkdown/fixTables recursion — see header comment",
-		);
+		// RV-1B: the file header's RangeError (readMarkdown/fixTables
+		// recursion) is fixed — this test now exercises the real live wiring.
+		// The verified persisted tool_call segment carries exactly the right
+		// metadata ({ok:true, appliedCount:1, refusedBlocksJson:[{blockId,
+		// reason: "block_changed"}]}), proving landAlfyActivity's own
+		// `loadMarkdownFn(editor, newBody)` call lands correctly for a REAL
+		// edit_artifact call in a real browser. This is the regression
+		// coverage for T8 live's marks/refusal-notice wiring.
 		await login(page);
 		const previousModelPreference = await snapshotUserModelPreference(page);
 		let temporaryProvider: {
@@ -717,22 +746,50 @@ test.describe("T8 live — a real edit_artifact call reaches the open panel", ()
 				page.getByText(AI_SMOKE_EDIT_ARTIFACT_FINAL_TEXT),
 			).toBeVisible({ timeout: 30_000 });
 
-			// Applied: the change is marked, with the inline Keep/Undo bar.
+			// Applied: the change is marked, with the inline Keep/Undo bar, and
+			// the editor shows the new text.
+			const editorContent = page.locator(
+				".document-editor-host .document-content",
+			);
 			await expect(page.getByTestId("alfy-change-bar")).toBeVisible({
 				timeout: 10_000,
 			});
-			await expect(page.getByText("Book the hotel by Friday.")).toBeVisible();
+			await expect(
+				editorContent.getByText("Book the hotel by Friday."),
+			).toBeVisible();
 
-			// Refused: the notice names the untouched part, and the OTHER
-			// block's text never changed.
-			await expect(page.getByTestId("refusal-notice")).toBeVisible();
-			await expect(page.getByText("Book the flight.")).toBeVisible();
+			// Refused: the notice NAMES the untouched block (RefusalNotice's own
+			// item list renders the block's label, which for this block is its
+			// text — "Book the flight." — so this assertion is scoped to the
+			// notice itself, not `page`, because the editor's own untouched
+			// paragraph carries the identical text and a page-wide `getByText`
+			// would be a strict-mode violation matching both), and the OTHER
+			// block's text never changed in the document.
+			const refusalNotice = page.getByTestId("refusal-notice");
+			await expect(refusalNotice).toBeVisible();
+			await expect(refusalNotice.getByText("Book the flight.")).toBeVisible();
+			await expect(editorContent.getByText("Book the flight.")).toBeVisible();
 			await expect(page.getByText("This should never land.")).toHaveCount(0);
 
 			const storedBody = await readStoredBody(artifactId);
 			expect(storedBody).toContain("Book the hotel by Friday.");
 			expect(storedBody).toContain("Book the flight.");
 			expect(storedBody).not.toContain("This should never land.");
+
+			// RV-1B: a page reload must not replay this same, now-historical
+			// edit_artifact call as if it just happened again.
+			// `findLiveDocumentAlfyActivity` deliberately scans the WHOLE
+			// message history for the most recent Document call with no regard
+			// for age, so without `liveDocumentAlfyActivityExcluding`'s
+			// suppression this call would resurface its Keep/Undo mark and
+			// refusal notice on every fresh load of this conversation forever.
+			await page.reload({ waitUntil: "networkidle" });
+			await openDocumentFromPanel(page);
+			await expect(
+				editorContent.getByText("Book the hotel by Friday."),
+			).toBeVisible();
+			await expect(page.getByTestId("alfy-change-bar")).toHaveCount(0);
+			await expect(page.getByTestId("refusal-notice")).toHaveCount(0);
 		} finally {
 			await updateUserModelPreference(page, previousModelPreference);
 			if (temporaryProvider) {

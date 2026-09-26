@@ -4,6 +4,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -21,6 +22,8 @@ const {
 	mockResolveArtifactComment,
 	mockAskAlfyInComment,
 	mockExportArtifactDocument,
+	mockFetchArtifactVersions,
+	mockRestoreArtifactVersion,
 } = vi.hoisted(() => ({
 	mockFetchArtifact: vi.fn(),
 	mockSaveArtifactBody: vi.fn(),
@@ -30,6 +33,11 @@ const {
 	mockResolveArtifactComment: vi.fn(),
 	mockAskAlfyInComment: vi.fn(),
 	mockExportArtifactDocument: vi.fn(),
+	// RV-1B: VersionsSheet.svelte's own two calls — previously unreachable
+	// from DocumentBody (no toolbar action opened it), so this mock never
+	// needed to exist here before.
+	mockFetchArtifactVersions: vi.fn(),
+	mockRestoreArtifactVersion: vi.fn(),
 }));
 
 vi.mock("$lib/client/api/artifacts", () => ({
@@ -40,6 +48,8 @@ vi.mock("$lib/client/api/artifacts", () => ({
 	createArtifactComment: mockCreateArtifactComment,
 	resolveArtifactComment: mockResolveArtifactComment,
 	askAlfyInComment: mockAskAlfyInComment,
+	fetchArtifactVersions: mockFetchArtifactVersions,
+	restoreArtifactVersion: mockRestoreArtifactVersion,
 	exportArtifactDocument: mockExportArtifactDocument,
 }));
 
@@ -189,6 +199,8 @@ describe("DocumentBody", () => {
 		mockFetchArtifact.mockResolvedValue(ARTIFACT_DETAIL());
 		mockSaveArtifactBody.mockResolvedValue({ ok: true, version: 2 });
 		mockSaveDocumentTabs.mockResolvedValue({ ok: true, version: 2 });
+		mockFetchArtifactVersions.mockResolvedValue([]);
+		mockRestoreArtifactVersion.mockResolvedValue(2);
 		mockReadSelectionAnchorContext.mockReturnValue(null);
 		mockApplyAlfyChanges.mockReturnValue([]);
 		mockSummarizeRefusals.mockReturnValue(null);
@@ -280,6 +292,10 @@ describe("DocumentBody", () => {
 				expectedCanonical,
 				1,
 				"conv-1",
+				undefined,
+				// RV-1B, coordinator item 6: `h1` is ARTIFACT_DETAIL()'s own
+				// `bodyHash`, known from the load this autosave follows.
+				{ baseHash: "h1" },
 			);
 			// A raw, non-canonical bullet marker actually got normalised — this
 			// assertion would also pass on a no-op canonicaliser, so it is
@@ -321,6 +337,105 @@ describe("DocumentBody", () => {
 			// The text is never touched by DocumentBody on a conflict — the
 			// editor host is still mounted and the fake editor was never destroyed.
 			expect(latestEditor().destroy).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// RV-1B, coordinator item 6: the route now refuses a save `stale` when its
+	// `baseHash` no longer matches what is really stored — this is the SAME
+	// user-visible outcome as `version_conflict` (the existing case above),
+	// proved separately because `stale` is the NEW reason a real two-tab
+	// clobber actually produces (ruling 47's coalescing lets both tabs'
+	// `expectVersion` legally agree, so `version_conflict` alone never fires
+	// for this scenario).
+	it("a stale refusal (a second tab's save landed first) keeps the user's text and shows the conflict notice", async () => {
+		vi.useFakeTimers();
+		try {
+			mockSaveArtifactBody.mockResolvedValue({
+				ok: false,
+				reason: "stale",
+			});
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			simulateTyping("<!--b:p1-->\nEdited.");
+			vi.advanceTimersByTime(800);
+
+			await vi.waitFor(() =>
+				expect(
+					screen.getByText(
+						"This document changed elsewhere. Reload to see the current text.",
+					),
+				).toBeInTheDocument(),
+			);
+			expect(latestEditor().destroy).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// RV-1B, coordinator item 6: proves the GUARD actually moves, not just that
+	// it is sent once. Without tracking the hash a successful save just wrote,
+	// every later autosave would keep sending the load-time hash forever — the
+	// route would refuse ITS OWN later saves as `stale` the moment anything
+	// else touched the document even once, since baseHash would never catch up.
+	it("sends the newly saved bodyHash as the NEXT autosave's baseHash, not the load-time one", async () => {
+		vi.useFakeTimers();
+		try {
+			mockSaveArtifactBody.mockResolvedValueOnce({
+				ok: true,
+				version: 2,
+				bodyHash: "h2-after-first-save",
+			});
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			simulateTyping("<!--b:p1-->\nFirst edit.");
+			vi.advanceTimersByTime(800);
+			await vi.waitFor(() =>
+				expect(mockSaveArtifactBody).toHaveBeenCalledTimes(1),
+			);
+			expect(mockSaveArtifactBody).toHaveBeenNthCalledWith(
+				1,
+				"artifact-1",
+				expect.any(String),
+				1,
+				"conv-1",
+				undefined,
+				{ baseHash: "h1" },
+			);
+
+			mockSaveArtifactBody.mockResolvedValueOnce({ ok: true, version: 3 });
+			simulateTyping("<!--b:p1-->\nSecond edit.");
+			vi.advanceTimersByTime(800);
+			await vi.waitFor(() =>
+				expect(mockSaveArtifactBody).toHaveBeenCalledTimes(2),
+			);
+			expect(mockSaveArtifactBody).toHaveBeenNthCalledWith(
+				2,
+				"artifact-1",
+				expect.any(String),
+				2,
+				"conv-1",
+				undefined,
+				{ baseHash: "h2-after-first-save" },
+			);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -450,6 +565,11 @@ describe("DocumentBody", () => {
 					expect.any(String),
 					1,
 					null,
+					undefined,
+					// RV-1B, coordinator item 6: `h2` is the copy's own `bodyHash`,
+					// bound by `handleSaveCopy` — the loop now guards against a
+					// second tab on the NEW id too, not just the one it replaced.
+					{ baseHash: "h2" },
 				),
 			);
 		} finally {
@@ -1091,6 +1211,86 @@ describe("DocumentBody", () => {
 		});
 	});
 
+	// RV-1B, T6: VersionsSheet.svelte (version history + restore) was built
+	// and unit-tested on its own (`VersionsSheet.test.ts`), but nothing in the
+	// app ever imported it or `fetchArtifactVersions`/`restoreArtifactVersion`
+	// outside that one test file — no toolbar action opened it anywhere, on
+	// either the desktop or mobile toolbar (both render from the same shared
+	// `DOCUMENT_TOOLBAR_ACTIONS` list). A user had no way to see or restore a
+	// Document's history at all. Wired a "History" action, mirroring exactly
+	// how "download" already opens `DownloadSheet`.
+	describe("version history (T6)", () => {
+		it("opens the versions sheet from the toolbar, and reloads the editor after a restore", async () => {
+			mockFetchArtifactVersions.mockResolvedValue([
+				{
+					id: "v2",
+					versionNumber: 2,
+					author: "user",
+					summary: "Current",
+					createdAt: Date.now(),
+				},
+				{
+					id: "v1",
+					versionNumber: 1,
+					author: "alfy",
+					summary: "First draft",
+					createdAt: Date.now() - 60_000,
+				},
+			]);
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+			});
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+			expect(screen.queryByRole("dialog")).toBeNull();
+
+			await fireEvent.click(screen.getByRole("button", { name: "History" }));
+
+			const dialog = await screen.findByRole("dialog", { name: "Versions" });
+			await waitFor(() =>
+				expect(mockFetchArtifactVersions).toHaveBeenCalledWith(
+					"artifact-1",
+					"conv-1",
+				),
+			);
+			expect(within(dialog).getByText("First draft")).toBeInTheDocument();
+
+			// Restoring reloads the editor's own content — the same "the document
+			// changed under us, reflect it" path a live Alfy edit uses — rather
+			// than leaving stale text on screen after the restore.
+			mockRestoreArtifactVersion.mockResolvedValue(3);
+			mockFetchArtifact.mockResolvedValue(
+				ARTIFACT_DETAIL({
+					body: "<!--b:p1-->\nFirst draft.",
+					versionNumber: 3,
+				}),
+			);
+			await fireEvent.click(
+				within(dialog).getByRole("button", { name: "Restore" }),
+			);
+			// The confirm dialog's own confirm button — NOT scoped by role/name
+			// (ConfirmDialog's title/confirm text are both "Restore" too, the
+			// same as the row's own button), so this uses its fixed testid.
+			await fireEvent.click(screen.getByTestId("confirm-delete"));
+
+			await waitFor(() =>
+				expect(mockRestoreArtifactVersion).toHaveBeenCalledWith(
+					"artifact-1",
+					"v1",
+					"conv-1",
+				),
+			);
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(2),
+			);
+		});
+	});
+
 	describe("T8 live — Alfy's chat-turn edits appear in the open panel", () => {
 		const TWO_BLOCK_BODY = "<!--b:p1-->\nFirst.\n\n<!--b:p2-->\nSecond.";
 
@@ -1223,6 +1423,93 @@ describe("DocumentBody", () => {
 			expect(mockLoadMarkdown).toHaveBeenCalledWith(
 				expect.anything(),
 				"<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond.",
+			);
+			await waitFor(() =>
+				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),
+			);
+		});
+
+		it("a call that settles before the lazy editor finishes loading still lands once the editor is ready (RV-1B)", async () => {
+			// The live wiring races a REAL browser: a fast (or mocked) model can
+			// resolve `edit_artifact` before `runLoad`'s own
+			// `Promise.all([loadEditorModule(), fetchArtifact(...)])` settles —
+			// `landAlfyActivity` silently no-ops while `editor`/`loadMarkdownFn`/
+			// `applyAlfyChangesFn` are still null. The bug: the OLD effect set
+			// `handledActivityKey` unconditionally, before checking readiness, so
+			// once that guard was tripped the call was marked "handled" forever
+			// and the marks/notice never appeared, even after the editor loaded —
+			// reproduced live in `tests/e2e/artifact-document.spec.ts`'s "T8 live"
+			// suite, intermittently, depending on exactly this race.
+			mockApplyAlfyChanges.mockReturnValue([
+				{
+					changeId: "call-3-0",
+					blockId: "p1",
+					blockLabel: "First.",
+					previousMarkdown: "First.",
+				},
+			]);
+			// Only the FIRST call (`runLoad`'s own initial load) is held open;
+			// `landAlfyActivity` makes its OWN, second `fetchArtifact` call once
+			// it runs, which must resolve normally or this test would be
+			// asserting nothing about the real bug. A holder object (not a bare
+			// reassigned `let`) so the closure assignment below cannot confuse
+			// TypeScript's control-flow narrowing of the resolver's type.
+			const fetchGate: {
+				resolve: ((detail: ReturnType<typeof ARTIFACT_DETAIL>) => void) | null;
+			} = { resolve: null };
+			const editedDetail = ARTIFACT_DETAIL({
+				body: "<!--b:p1-->\nFirst, edited.\n\n<!--b:p2-->\nSecond.",
+				versionNumber: 2,
+			});
+			mockFetchArtifact.mockImplementationOnce(
+				() =>
+					new Promise<ReturnType<typeof ARTIFACT_DETAIL>>((resolve) => {
+						fetchGate.resolve = resolve;
+					}),
+			);
+			mockFetchArtifact.mockResolvedValue(editedDetail);
+
+			// The activity is ALREADY settled at the very first render — never
+			// "running" first — matching a call that finished before this body
+			// even mounted its editor.
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				alfyActivity: {
+					key: "call-3",
+					artifactId: "artifact-1",
+					toolName: "edit_artifact",
+					status: "applied",
+					label: "Add packing list",
+					patches: [
+						{
+							op: "replaceBlock",
+							blockId: "p1",
+							baseHash: "h1",
+							text: "First, edited.",
+						},
+					],
+					refusedBlocks: [],
+					appliedCount: 1,
+				},
+			});
+
+			// The editor has not loaded yet: the call must not be dropped.
+			expect(mockCreateDocumentEditor).not.toHaveBeenCalled();
+			expect(mockApplyAlfyChanges).not.toHaveBeenCalled();
+
+			// The initial load now finishes...
+			fetchGate.resolve?.(editedDetail);
+			await waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			// ...and the ALREADY-settled call must still land: it is not lost
+			// just because it arrived before the editor was ready.
+			await waitFor(() =>
+				expect(mockApplyAlfyChanges).toHaveBeenCalledTimes(1),
 			);
 			await waitFor(() =>
 				expect(screen.getByTestId("alfy-change-bar")).toBeInTheDocument(),

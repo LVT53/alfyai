@@ -623,12 +623,14 @@ describe("updateArtifactBody", () => {
 				coalesceUserEdits: true,
 			});
 			vi.setSystemTime(new Date(NOW.getTime() + 60_000));
+			// The same kind of save (RV-1A: a burst is consecutive saves with one
+			// summary — the body route's autosave always says "Edited").
 			const second = await updateArtifactBody({
 				userId: OWNER,
 				artifactId: artifact.id,
 				body: "v2 continued",
 				author: "user",
-				summary: "Still typing…",
+				summary: "Typing…",
 				coalesceUserEdits: true,
 			});
 
@@ -641,7 +643,32 @@ describe("updateArtifactBody", () => {
 			const rows = versionRows(artifact.id).sort(
 				(a, b) => a.versionNumber - b.versionNumber,
 			);
-			expect(rows[1].summary).toBe("Still typing…");
+			expect(rows[1].summary).toBe("Typing…");
+		});
+
+		it("does not coalesce into a user version of another kind (a restore, a creation): it starts a version of its own", async () => {
+			vi.useFakeTimers();
+			vi.setSystemTime(NOW);
+			const artifact = await createDocument();
+			await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "restored text",
+				author: "user",
+				summary: "restored Edited",
+			});
+			vi.setSystemTime(new Date(NOW.getTime() + 60_000));
+			const typing = await updateArtifactBody({
+				userId: OWNER,
+				artifactId: artifact.id,
+				body: "typed after the restore",
+				author: "user",
+				summary: "Edited",
+				coalesceUserEdits: true,
+			});
+
+			expect(typing.ok && typing.versionNumber).toBe(3);
+			expect(versionRows(artifact.id)).toHaveLength(3);
 		});
 
 		// The merge of Slice 1 (coalesceUserEdits) and Slice 2 (metadataPatch):

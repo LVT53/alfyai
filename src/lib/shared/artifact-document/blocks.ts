@@ -88,16 +88,98 @@ export function fnv1aHex(input: string): string {
  * `normalizeMarkdown` MUST be idempotent — that property is what `blockHash`
  * rests on — and `serializeDocument` writes exactly this function's output for
  * every block, so the stored bytes and the hashed bytes can never drift apart.
+ *
+ * A fenced code block is content, not Markdown structure: only rule 1's
+ * trailing-whitespace trim and rule 4's edge trim apply to it. Rules 2, 3 and
+ * 5 and the blank-run collapse are about the serialiser's own noise in
+ * prose, and applied to code they rewrote what the code says — a diff's
+ * `+ added` line became `- added`, a `1)` became `1.`, a blank line between
+ * two functions disappeared (RV-1A).
  */
 export function normalizeMarkdown(markdown: string): string {
 	let lines = markdown.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-	lines = lines.map((line) => line.replace(/[ \t]+$/, ""));
+	if (isFencedCodeBlock(lines)) {
+		return trimBlankEdges(
+			lines.map((line) => line.replace(/[ \t]+$/, "")),
+		).join("\n");
+	}
+	lines = keepHardBreaks(lines);
+	lines = lines.map(trimLineEnd);
 	lines = collapseBlankRuns(lines);
 	lines = trimBlankEdges(lines);
 	lines = normalizeTableLines(lines);
 	lines = normalizeListMarkers(lines);
 	lines = stripStrayLeadingWhitespace(lines);
 	return normalizeChipSyntax(lines.join("\n"));
+}
+
+/**
+ * A line ending in two or more spaces, followed by more text of the same
+ * paragraph, is a CommonMark hard break — and it is the form the editor
+ * writes for Shift+Enter. Rule 1's trailing-space trim deleted it, so every
+ * hard break came back from a reload as a plain space (RV-1A). It is written
+ * as the equivalent backslash break instead, which no trim can remove. Only
+ * where the next line really continues the paragraph: before a new block (a
+ * list item, a heading, a marker…) a trailing backslash would be literal text.
+ */
+function keepHardBreaks(lines: string[]): string[] {
+	if (lines.some((line) => isTableDelimiterRow(line))) return lines;
+	// The editor's task-item reader does not read a hard break back (it keeps
+	// a backslash as literal text), so a task item's trailing spaces are just
+	// trimmed, as before.
+	const first = lines.find((line) => line.trim() !== "") ?? "";
+	if (TASK_LINE_RE.test(first)) return lines;
+	return lines.map((line, i) => {
+		const next = lines[i + 1];
+		if (BARE_MARKER_RE.test(line)) return line;
+		if (next === undefined || !continuesParagraph(line, next)) return line;
+		return /\S {2,}$/.test(line) ? line.replace(/ +$/, "\\") : line;
+	});
+}
+
+const QUOTE_PREFIX_RE = /^\s{0,3}(?:>[ \t]?)+/;
+
+/**
+ * Whether `next` carries on the paragraph `line` is in. Inside a quote both
+ * lines carry the `>` prefix, so it is the text after the prefix that must
+ * not start a block of its own (RV-1A: a break between two lines of one quote
+ * was trimmed away like any other).
+ */
+function continuesParagraph(line: string, next: string): boolean {
+	if (next.trim() === "") return false;
+	const lineQuote = QUOTE_PREFIX_RE.exec(line)?.[0];
+	const nextQuote = QUOTE_PREFIX_RE.exec(next)?.[0];
+	const depth = (prefix: string) => prefix.split(">").length - 1;
+	if (
+		lineQuote !== undefined &&
+		nextQuote !== undefined &&
+		depth(lineQuote) !== depth(nextQuote)
+	) {
+		return false;
+	}
+	const text =
+		lineQuote !== undefined && nextQuote !== undefined
+			? next.slice(nextQuote.length)
+			: next;
+	if (text.trim() === "") return false;
+	return !startsNewBlock(text) && !LIST_ITEM_START_RE.test(text);
+}
+
+/** A list marker with nothing after it but whitespace: an item the user added and has not typed into yet. */
+const BARE_MARKER_RE = /^\s*(?:[-*+](?:\s+\[[ xX]\])?|\d+[.)])[ \t]*$/;
+
+/**
+ * Rule 1's trim, except the one space after a bare list marker: the editor
+ * writes an empty item as `2. ` or `- [ ] ` and reads `2.` / `- [ ]` back as
+ * text, so trimming it turned an empty numbered item into "2." inside the
+ * item above, and an empty checklist item into a bullet reading "[ ]"
+ * (RV-1A). Such a line keeps exactly one space.
+ */
+function trimLineEnd(line: string): string {
+	return line.replace(
+		/[ \t]+$/,
+		BARE_MARKER_RE.test(line) && /[ \t]$/.test(line) ? " " : "",
+	);
 }
 
 /** `fnv1aHex(normalizeMarkdown(markdown))` — the one hasher, so nothing can bypass the canonicaliser. */
@@ -128,23 +210,67 @@ function trimBlankEdges(lines: string[]): string[] {
 	return lines.slice(start, end);
 }
 
-/** Split one `| a | b |`-shaped line into cell substrings (not yet trimmed). Shared with the patch engine's `addTableRow`. */
+/**
+ * Split one `| a | b |`-shaped line into cell substrings (not yet trimmed).
+ * Shared with the patch engine's `addTableRow` and the export mapper. A
+ * backslash escapes the character after it, so `\|` is cell text (GFM's
+ * only way to put a pipe in a cell), never a column separator — splitting
+ * on it turned one cell into two on every save (RV-1A).
+ */
 export function splitTableCells(line: string): string[] {
-	let s = line.trim();
-	if (s.startsWith("|")) s = s.slice(1);
-	if (s.endsWith("|")) s = s.slice(0, -1);
-	return s.split("|");
+	const s = line.trim();
+	const cells: string[] = [];
+	let current = "";
+	let endedWithSeparator = false;
+	for (let i = 0; i < s.length; i += 1) {
+		const ch = s[i];
+		endedWithSeparator = false;
+		if (ch === "\\" && i + 1 < s.length) {
+			current += ch + s[i + 1];
+			i += 1;
+			continue;
+		}
+		if (ch === "|") {
+			cells.push(current);
+			current = "";
+			endedWithSeparator = true;
+			continue;
+		}
+		current += ch;
+	}
+	cells.push(current);
+	// The row's opening and closing pipes delimit cells; neither is one.
+	if (s.startsWith("|")) cells.shift();
+	if (endedWithSeparator) cells.pop();
+	return cells;
 }
 
+/**
+ * A GFM delimiter row: pipe-separated cells of `-` with optional alignment
+ * colons. The pipe is required — a bare `---` line is a horizontal rule (or a
+ * setext underline), and reading it as a one-cell delimiter row rewrote every
+ * horizontal rule into the paragraph text `| --- |` on its first save (RV-1A).
+ */
 function isTableDelimiterRow(line: string): boolean {
+	if (!line.includes("|")) return false;
 	const cells = splitTableCells(line).map((c) => c.trim());
 	if (cells.length === 0) return false;
 	return cells.every((cell) => /^:?-+:?$/.test(cell));
 }
 
+/**
+ * One table row with its padding collapsed. A delimiter row's dashes are
+ * padding too: the editor pads them to the column's width (`| ------- |`), so
+ * a table Alfy wrote with `| --- |` changed its hash on a mere reopen as soon
+ * as a cell was wider than three characters (RV-1A). Each delimiter cell
+ * becomes `---`, keeping its alignment colons.
+ */
 function normalizeTableRow(line: string): string {
 	const cells = splitTableCells(line).map((cell) => cell.trim());
-	return `| ${cells.join(" | ")} |`;
+	const normalized = isTableDelimiterRow(line)
+		? cells.map((cell) => cell.replace(/^(:?)-+(:?)$/, "$1---$2"))
+		: cells;
+	return `| ${normalized.join(" | ")} |`;
 }
 
 /** Collapses padding on any contiguous run of table lines (found by their delimiter row). */
@@ -191,7 +317,12 @@ export function readTaskBlock(
 	if (!match) return null;
 	return {
 		checked: match[2].toLowerCase() === "x",
-		text: (match[4] ?? "").trim(),
+		// The text a reader sees: the card showed "**deposit**" and raw chip
+		// tokens otherwise (RV-1A). The whitespace a removed chip leaves is
+		// folded.
+		text: inlinePlainText(match[4] ?? "")
+			.replace(/\s+/g, " ")
+			.trim(),
 	};
 }
 
@@ -201,7 +332,9 @@ function normalizeListMarkers(lines: string[]): string[] {
 		if (task) {
 			const [, indent, mark, , rest] = task;
 			const checked = mark.toLowerCase() === "x";
-			const suffix = rest && rest.trim().length > 0 ? ` ${rest.trim()}` : "";
+			// An empty checklist item keeps its space: the editor reads "- [ ]"
+			// without it as a bullet whose text is "[ ]" (see trimLineEnd).
+			const suffix = rest && rest.trim().length > 0 ? ` ${rest.trim()}` : " ";
 			return `${indent}- [${checked ? "x" : " "}]${suffix}`;
 		}
 		const bullet = BULLET_LINE_RE.exec(line);
@@ -240,19 +373,32 @@ function stripStrayLeadingWhitespace(lines: string[]): string[] {
 	return lines.map((line) => line.replace(/^[ \t]+/, ""));
 }
 
+/**
+ * Rule 5: a chip token's attribute order and quoting are fixed. Only a real
+ * token is touched — an unescaped `[chip` whose body is nothing but
+ * `name="value"` / `name='value'` pairs, including `kind` or `value`. The
+ * user's own bracketed words are text: the editor writes a typed "[chip in]"
+ * as `\[chip in\]`, and rewriting that as an empty chip deleted the words
+ * (RV-1A).
+ */
 function normalizeChipSyntax(text: string): string {
-	return text.replace(/\[chip\s+([^\]]*)\]/g, (_match, rawAttrs: string) => {
-		const attrs: Record<string, string> = {};
-		const attrRe = /(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-		let m: RegExpExecArray | null = attrRe.exec(rawAttrs);
-		while (m !== null) {
-			attrs[m[1]] = m[2] !== undefined ? m[2] : (m[3] ?? "");
-			m = attrRe.exec(rawAttrs);
-		}
-		const kind = attrs.kind ?? "";
-		const value = attrs.value ?? "";
-		return `[chip kind="${kind}" value="${value}"]`;
-	});
+	return text.replace(
+		/(?<!\\)\[chip\s+([^\]]*)\]/g,
+		(match, rawAttrs: string) => {
+			if (!/^(?:\s*\w+\s*=\s*(?:"[^"]*"|'[^']*'))+\s*$/.test(rawAttrs)) {
+				return match;
+			}
+			const attrs: Record<string, string> = {};
+			const attrRe = /(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+			let m: RegExpExecArray | null = attrRe.exec(rawAttrs);
+			while (m !== null) {
+				attrs[m[1]] = m[2] !== undefined ? m[2] : (m[3] ?? "");
+				m = attrRe.exec(rawAttrs);
+			}
+			if (attrs.kind === undefined && attrs.value === undefined) return match;
+			return `[chip kind="${attrs.kind ?? ""}" value="${attrs.value ?? ""}"]`;
+		},
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -381,22 +527,121 @@ function startsNewBlock(line: string): boolean {
  * list (which has no per-item op and stays one block).
  */
 const LIST_ITEM_START_RE = /^\s*(?:[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/;
+const LIST_MARKER_PREFIX_RE = /^(\s*)([-*+]|\d+[.)])(\s+)/;
 
+/**
+ * The column a list item's content starts at (CommonMark: indent + marker +
+ * the spaces after it, at most 4 of them). A line indented to at least this
+ * column is INSIDE the item — a continuation or a nested list — never a
+ * sibling.
+ */
+function listItemContentColumn(line: string): number {
+	const match = LIST_MARKER_PREFIX_RE.exec(line);
+	if (!match) return 0;
+	return match[1].length + match[2].length + Math.min(match[3].length, 4);
+}
+
+function leadingWhitespace(line: string): number {
+	return line.length - line.trimStart().length;
+}
+
+/**
+ * One task item: its first line, its indented continuation lines, and its
+ * nested items. A nested item is part of its parent's block, not a block of
+ * its own: a marker line between a parent and its child ends the list in
+ * every Markdown reader, so a split-off child came back un-nested on the
+ * next reopen — its text and hash changed with no user edit, which broke
+ * ruling 12's gate for every nested checklist (RV-1A).
+ *
+ * RV-1B, coordinator item 5: also accepts an UNINDENTED lazy continuation
+ * line, the same CommonMark rule `consumeListBlock` below already applies to
+ * a plain list. This is not an edge case for a task item specifically:
+ * `keepHardBreaks` deliberately trims a task line's hard break flush to the
+ * left margin instead of turning it into a backslash break, because the
+ * editor's own task-item markdown reader keeps a backslash as literal text
+ * ("RV-1A: a list item's lazy continuation line stays in the item",
+ * blocks.test.ts) — so a hard break the user types inside a task item
+ * ALWAYS normalises to exactly this unindented shape. Without this branch,
+ * that is also the ONE shape this function did not recognise as a
+ * continuation: the checked box and its own second line split into two
+ * top-level blocks — a new id minted for the second one — on the very next
+ * reopen, or the very next client-side autosave (`DocumentBody.svelte`'s
+ * `currentCanonicalMarkdown` runs this same `parseDocument` pass on every
+ * dirty check, not just on a real reload).
+ */
 function consumeSingleListItem(
 	lines: string[],
 	start: number,
 ): { text: string; next: number } {
 	const collected = [lines[start]];
+	const contentColumn = listItemContentColumn(lines[start]);
 	let i = start + 1;
-	while (
-		i < lines.length &&
-		/^\s+\S/.test(lines[i]) &&
-		!LIST_ITEM_START_RE.test(lines[i])
-	) {
-		collected.push(lines[i]);
+	while (i < lines.length) {
+		const line = lines[i];
+		if (line.trim() === "") {
+			// A blank line followed by more of THIS item (indented to its
+			// content column): a second paragraph, which the editor writes so.
+			const next = nextNonBlankLine(lines, i + 1);
+			if (next === undefined || !continuesItemAfterBlank(next, contentColumn)) {
+				break;
+			}
+			collected.push(line);
+			i += 1;
+			continue;
+		}
+		if (/^\s+\S/.test(line)) {
+			const nested =
+				LIST_ITEM_START_RE.test(line) &&
+				leadingWhitespace(line) >= contentColumn;
+			if (LIST_ITEM_START_RE.test(line) && !nested) break;
+			collected.push(line);
+			i += 1;
+			continue;
+		}
+		if (!isLazyContinuation(line)) break;
+		collected.push(line);
 		i += 1;
 	}
+	// Blank lines are only kept before more of the item, never at its end.
+	while (
+		collected.length > 1 &&
+		collected[collected.length - 1].trim() === ""
+	) {
+		collected.pop();
+		i -= 1;
+	}
 	return { text: collected.join("\n"), next: i };
+}
+
+/** The first non-blank line at or after `from`, without copying the array (a slice per blank line was quadratic on a long loose list). */
+function nextNonBlankLine(lines: string[], from: number): string | undefined {
+	for (let j = from; j < lines.length; j += 1) {
+		if (lines[j].trim() !== "") return lines[j];
+	}
+	return undefined;
+}
+
+/**
+ * After a blank line, a line indented to the item's content column carries
+ * on that item — a second paragraph or a nested list (CommonMark). Reading it
+ * as a block of its own moved it out of the list on the next reload (RV-1A).
+ */
+function continuesItemAfterBlank(line: string, contentColumn: number): boolean {
+	return contentColumn > 0 && leadingWhitespace(line) >= contentColumn;
+}
+
+/**
+ * CommonMark's lazy continuation: a line right after a list item's text that
+ * starts no block of its own continues that text, indented or not. The editor
+ * writes the second line of a Shift+Enter break in a list item exactly so
+ * (`- item one  ` then `item line two`), and reading it as a new paragraph
+ * moved that line out of its item on the next reload (RV-1A). Plain lists
+ * only: the editor's task-item reader handles neither a lazy line nor a hard
+ * break, so a task item keeps its old, stable split (review-1a.md, open
+ * question for the editor).
+ */
+function isLazyContinuation(line: string): boolean {
+	return line.trim() !== "" && !startsNewBlock(line);
 }
 
 /** Consumes a plain list block: its items, indented continuations, and a loose blank line before another item of the SAME family. */
@@ -406,19 +651,27 @@ function consumeListBlock(
 	familyRe: RegExp,
 ): { text: string; next: number } {
 	const collected: string[] = [lines[start]];
+	const contentColumn = listItemContentColumn(lines[start]);
 	let i = start + 1;
 	while (i < lines.length) {
 		const line = lines[i];
 		if (line.trim() === "") {
-			const next = lines.slice(i + 1).find((l) => l.trim() !== "");
-			if (next !== undefined && familyRe.test(next)) {
+			const next = nextNonBlankLine(lines, i + 1);
+			if (
+				next !== undefined &&
+				(familyRe.test(next) || continuesItemAfterBlank(next, contentColumn))
+			) {
 				collected.push(line);
 				i += 1;
 				continue;
 			}
 			break;
 		}
-		if (familyRe.test(line) || /^\s+\S/.test(line)) {
+		if (
+			familyRe.test(line) ||
+			/^\s+\S/.test(line) ||
+			isLazyContinuation(line)
+		) {
 			collected.push(line);
 			i += 1;
 			continue;
@@ -572,21 +825,212 @@ function splitIntoSegments(lines: string[]): Segment[] {
 	return segments;
 }
 
+// ---------------------------------------------------------------------------
+// Visible text — what the reader sees of a block: the editor's own text
+// (ProseMirror's `textBetween` over the block, marks stripped, "\n" between
+// the text blocks inside a list, quote or table). A comment's anchor is
+// captured from that text, so it has to be resolved against it too, never
+// against the Markdown source (RV-1A); an export renders it, since the report
+// renderers print text verbatim.
+// ---------------------------------------------------------------------------
+
+const NAMED_ENTITIES: Record<string, string> = {
+	amp: "&",
+	lt: "<",
+	gt: ">",
+	quot: '"',
+	apos: "'",
+	nbsp: "\u00a0",
+};
+
+function decodeEntities(text: string): string {
+	return text.replace(
+		/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi,
+		(match, name: string) => {
+			if (name.startsWith("#")) {
+				const code =
+					name[1].toLowerCase() === "x"
+						? Number.parseInt(name.slice(2), 16)
+						: Number.parseInt(name.slice(1), 10);
+				return code > 0 && code <= 0x10ffff
+					? String.fromCodePoint(code)
+					: match;
+			}
+			return NAMED_ENTITIES[name.toLowerCase()] ?? match;
+		},
+	);
+}
+
+/**
+ * Inline Markdown as the text it shows: code spans verbatim, backslash
+ * escapes resolved, emphasis/strong/strike delimiters dropped (a lone `*`
+ * between spaces, and an underscore inside a word, are literal), a link
+ * or autolink as its text, an image or a tracker chip as nothing (both are
+ * atoms with no text in the editor), inline HTML tags dropped, entities
+ * decoded, and a hard break as nothing. A soft line break stays "\n".
+ */
+export function inlinePlainText(
+	markdown: string,
+	options: {
+		/** What a hard break becomes: nothing, like the editor's text (the default), or a line break for a rendered export. */
+		hardBreak?: string;
+	} = {},
+): string {
+	const hardBreak = options.hardBreak ?? "";
+	const codeSpans: string[] = [];
+	let text = markdown.replace(
+		/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g,
+		(_match, _ticks: string, body: string) => {
+			codeSpans.push(/^ .* $/.test(body) ? body.slice(1, -1) : body);
+			return `\uE000${codeSpans.length - 1}\uE000`;
+		},
+	);
+	const escapes: string[] = [];
+	text = text.replace(/\\([!-/:-@[-`{-~])/g, (_match, ch: string) => {
+		escapes.push(ch);
+		return `\uE001${escapes.length - 1}\uE001`;
+	});
+	text = text
+		.replace(/\\\n[ \t]*/g, hardBreak)
+		.replace(/ {2,}\n[ \t]*/g, hardBreak);
+	text = text
+		.replace(/\[chip\s+[^\]]*\]/g, "")
+		.replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+		.replace(/<((?:https?|mailto|ftp):[^>\s]*)>/gi, "$1")
+		.replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*)?\/?>/gi, "")
+		.replace(/~~/g, "");
+	text = text.replace(
+		/\*+|_+/g,
+		(run: string, offset: number, whole: string) => {
+			const before = whole[offset - 1] ?? " ";
+			const after = whole[offset + run.length] ?? " ";
+			const leftFlanking = !/\s/.test(after);
+			const rightFlanking = !/\s/.test(before);
+			if (!leftFlanking && !rightFlanking) return run;
+			if (
+				run[0] === "_" &&
+				/[\p{L}\p{N}]/u.test(before) &&
+				/[\p{L}\p{N}]/u.test(after)
+			) {
+				return run;
+			}
+			return "";
+		},
+	);
+	text = decodeEntities(text);
+	text = text.replace(
+		/\uE001(\d+)\uE001/g,
+		(_m, i: string) => escapes[Number(i)],
+	);
+	return text.replace(
+		/\uE000(\d+)\uE000/g,
+		(_m, i: string) => codeSpans[Number(i)],
+	);
+}
+
+/**
+ * A block's visible text: the block's own markup (heading hashes, quote
+ * markers, list markers and checkboxes, table pipes and delimiter row, code
+ * fences) removed, its inline Markdown read by `inlinePlainText`, and "\n"
+ * between the text blocks inside it (list items, table cells), exactly where
+ * the editor puts one.
+ */
+export function blockVisibleText(
+	block: Pick<DocumentBlock, "kind" | "markdown">,
+): string {
+	const key = `${block.kind}\n${block.markdown}`;
+	const cached = visibleTextCache.get(key);
+	if (cached !== undefined) return cached;
+	const text = computeBlockVisibleText(block);
+	if (visibleTextCache.size >= VISIBLE_TEXT_CACHE_LIMIT)
+		visibleTextCache.clear();
+	visibleTextCache.set(key, text);
+	return text;
+}
+
+/**
+ * The margin re-resolves every comment against every block on every change,
+ * and a block's visible text is a pure function of its kind and Markdown —
+ * so it is computed once per distinct block, not once per render (a
+ * 1 000-block document with ten threads cost ~22 ms a render without it).
+ * Bounded: cleared when it reaches the cap.
+ */
+const VISIBLE_TEXT_CACHE_LIMIT = 4096;
+const visibleTextCache = new Map<string, string>();
+
+function computeBlockVisibleText(
+	block: Pick<DocumentBlock, "kind" | "markdown">,
+): string {
+	const lines = block.markdown.split("\n");
+	switch (block.kind) {
+		case "hr":
+			return "";
+		case "code": {
+			const inner = lines.slice(1);
+			if (inner.length > 0 && FENCE_RE.test(inner[inner.length - 1].trim())) {
+				inner.pop();
+			}
+			return inner.join("\n");
+		}
+		case "table":
+			return lines
+				.filter((line) => !isTableDelimiterRow(line))
+				.flatMap((line) =>
+					splitTableCells(line).map((cell) => inlinePlainText(cell.trim())),
+				)
+				.join("\n");
+		case "heading": {
+			const text = lines[0]
+				.replace(/^\s{0,3}#{1,6}[ \t]*/, "")
+				.replace(/[ \t]+#+[ \t]*$/, "");
+			return inlinePlainText(text);
+		}
+		default: {
+			// A hard break joins its two lines into one text; the line after it
+			// carries no marker of its own.
+			const joined = block.markdown
+				.replace(/\\\n[ \t]*/g, "\uE002")
+				.replace(/ {2,}\n[ \t]*/g, "\uE002");
+			return joined
+				.split("\n")
+				.map((line) =>
+					inlinePlainText(
+						line
+							.replace(/^\s{0,3}(?:>[ \t]?)+/, "")
+							.replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s*)?/, "")
+							.replace(/^\s+/, "")
+							.replace(/\uE002/g, ""),
+					),
+				)
+				.join("\n");
+		}
+	}
+}
+
 /** The first line of visible text, stripped of block-level markup, for a model's `blockLabel` and the UI's refusal notice. */
 function deriveLabel(markdown: string): string {
-	const firstLine = markdown.split("\n").find((l) => l.trim().length > 0) ?? "";
-	let text = firstLine.trim();
+	const lines = markdown.split("\n").filter((l) => l.trim().length > 0);
+	// A code block is named by its first line of code: its fence line alone
+	// left the label empty, and the refusal notice then named nothing (RV-1A).
+	if (FENCE_RE.test(lines[0]?.trim() ?? "")) {
+		const code = lines.slice(1).find((l) => !FENCE_RE.test(l.trim())) ?? "";
+		return clampLabel(code.trim());
+	}
+	let text = (lines[0] ?? "").trim();
 	text = text.replace(/^#{1,6}\s*/, "");
-	text = text.replace(/^>\s?/, "");
+	text = text.replace(/^(?:>\s?)+/, "");
 	text = text.replace(/^[-*+]\s+(\[[ xX]\]\s+)?/, "");
 	text = text.replace(/^\d+[.)]\s+/, "");
-	text = text.replace(/^`{3,}.*$/, "");
 	if (text.startsWith("|")) text = text.slice(1);
-	if (text.endsWith("|")) text = text.slice(0, -1);
-	text = text.replace(/\[chip[^\]]*\]/g, "");
-	text = text.replace(/\s+/g, " ").trim();
-	if (text.length > 80) text = `${text.slice(0, 79)}…`;
-	return text;
+	if (text.endsWith("|") && !text.endsWith("\\|")) text = text.slice(0, -1);
+	// The label is what the user sees, not the Markdown: "**Bold** start"
+	// was named with its asterisks (RV-1A). Chips have no text of their own.
+	return clampLabel(inlinePlainText(text).replace(/\s+/g, " ").trim());
+}
+
+function clampLabel(text: string): string {
+	return text.length > 80 ? `${text.slice(0, 79)}…` : text;
 }
 
 /**
@@ -608,6 +1052,40 @@ export function makeBlock(
 		hash: fnv1aHex(normalized),
 		label: deriveLabel(normalized),
 	};
+}
+
+/**
+ * Re-reads the text an edit produced for ONE block as the blocks it really
+ * is — the same splitter `parseDocument` runs, so the result is exactly what
+ * a reload of the stored document will read. The first block keeps `id`;
+ * every further block (a paragraph that became two, a new section) gets a
+ * freshly minted id not in `taken`, which this function adds it to. Marker
+ * lines in the text are dropped, never absorbed: a block's markdown never
+ * carries one, and an id is never chosen by an edit's text. `[]` when the
+ * text holds no block at all.
+ */
+export function reblock(
+	id: string,
+	markdown: string,
+	taken: Set<string>,
+): DocumentBlock[] {
+	const lines = markdown
+		.replace(/\r\n/g, "\n")
+		.replace(/\r/g, "\n")
+		.split("\n");
+	const blocks: DocumentBlock[] = [];
+	for (const segment of splitIntoSegments(lines)) {
+		if (segment.type !== "block") continue;
+		let blockId = id;
+		if (blocks.length > 0) {
+			do {
+				blockId = mintBlockId(segment.kind);
+			} while (taken.has(blockId));
+			taken.add(blockId);
+		}
+		blocks.push(makeBlock(blockId, segment.kind, segment.text));
+	}
+	return blocks;
 }
 
 /**

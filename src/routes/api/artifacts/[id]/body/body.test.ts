@@ -220,10 +220,88 @@ describe("PATCH /api/artifacts/[id]/body", () => {
 		);
 
 		expect(response.status).toBe(200);
-		await expect(response.json()).resolves.toEqual({ ok: true, version: 4 });
+		await expect(response.json()).resolves.toEqual({
+			ok: true,
+			version: 4,
+			bodyHash: "h",
+		});
 		expect(mockSaveDocumentBody).not.toHaveBeenCalled();
 		expect(mockUpdateArtifactBody).toHaveBeenCalledWith(
 			expect.objectContaining({ body: "{}", coalesceUserEdits: true }),
 		);
+	});
+
+	// RV-1B, coordinator item 6: the editor's autosave cannot guard against a
+	// second tab's save without this round trip — `payload.baseHash` reaching
+	// the service call, and the NEW hash coming back so the caller has
+	// something to send next time.
+	describe("RV-1B, coordinator item 6: baseHash guard round trip", () => {
+		it("forwards the request's baseHash to saveDocumentBody", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture);
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
+
+			await PATCH(
+				makeEvent({
+					body: {
+						body: "New text.",
+						expectVersion: 2,
+						baseHash: "hash-the-client-last-saw",
+					},
+				}),
+			);
+
+			expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+				expect.objectContaining({ baseHash: "hash-the-client-last-saw" }),
+			);
+		});
+
+		it("answers 409 stale when a second tab's save already moved the body", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture);
+			mockSaveDocumentBody.mockResolvedValue({ ok: false, reason: "stale" });
+
+			const response = await PATCH(
+				makeEvent({
+					body: {
+						body: "New text.",
+						expectVersion: 2,
+						baseHash: "an-old-hash",
+					},
+				}),
+			);
+
+			expect(response.status).toBe(409);
+			await expect(response.json()).resolves.toEqual({
+				ok: false,
+				reason: "stale",
+			});
+		});
+
+		it("returns the new bodyHash from a document save, for the caller's next baseHash", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture);
+			mockSaveDocumentBody.mockResolvedValue({
+				ok: true,
+				version: 3,
+				bodyHash: "new-hash-after-this-save",
+			});
+
+			const response = await PATCH(makeEvent({}));
+
+			await expect(response.json()).resolves.toEqual({
+				ok: true,
+				version: 3,
+				bodyHash: "new-hash-after-this-save",
+			});
+		});
+
+		it("omits baseHash from the service call when the request sends none, unchanged from before this guard existed", async () => {
+			mockGetArtifact.mockResolvedValue(documentFixture);
+			mockSaveDocumentBody.mockResolvedValue({ ok: true, version: 3 });
+
+			await PATCH(makeEvent({ body: { body: "New text.", expectVersion: 2 } }));
+
+			expect(mockSaveDocumentBody).toHaveBeenCalledWith(
+				expect.objectContaining({ baseHash: undefined }),
+			);
+		});
 	});
 });

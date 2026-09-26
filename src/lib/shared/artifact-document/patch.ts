@@ -13,7 +13,7 @@
 import {
 	type BlockKind,
 	type DocumentBlock,
-	makeBlock,
+	reblock,
 	serializeDocument,
 	splitTableCells,
 } from "./blocks";
@@ -58,7 +58,7 @@ export type RefusalReason =
 	| "find_ambiguous" // replaceRange: `find` occurs more than once
 	| "not_a_task_block"
 	| "not_a_table_block"
-	| "bad_row"; // cells length does not match the table's columns
+	| "bad_row"; // cells length does not match the table's columns, or a chip value its token cannot hold
 
 export interface OpOutcome {
 	opId: string;
@@ -76,6 +76,12 @@ export interface PatchInverse {
 	opId: string;
 	blockId: string;
 	previousMarkdown: string;
+	/**
+	 * The blocks this op added after `blockId`, when its text read as more
+	 * than one block (a paragraph that became two, a new section) — an exact
+	 * Undo removes them too. Absent when the op produced exactly one block.
+	 */
+	insertedBlockIds?: string[];
 }
 
 export interface PatchResult {
@@ -100,8 +106,20 @@ const TEXT_BLOCK_KINDS: ReadonlySet<BlockKind> = new Set([
 	"other",
 ]);
 
-function renderCell(spec: NonNullable<PatchOp["cells"]>[number]): string {
-	if (typeof spec === "string") return spec;
+/**
+ * One cell of an added row, written so the row keeps its columns (RV-1A): a
+ * raw `|` split the cell into two and a line break cut the table in half, so
+ * a pipe is escaped (`\|`, GFM's cell pipe) and a line break becomes a
+ * space. A chip value its token cannot hold — a `"` ends the value, a `]`
+ * ends the token — is `null`, and the row is refused rather than stored cut.
+ */
+function renderCell(
+	spec: NonNullable<PatchOp["cells"]>[number],
+): string | null {
+	if (typeof spec === "string") {
+		return spec.replace(/\r?\n|\r/g, " ").replace(/(?<!\\)\|/g, "\\|");
+	}
+	if (/["\]\r\n]/.test(spec.chip.value)) return null;
 	return `[chip kind="${spec.chip.kind}" value="${spec.chip.value}"]`;
 }
 
@@ -114,7 +132,9 @@ function appendTableRow(
 	if (lines.length === 0) return null;
 	const headerCells = splitTableCells(lines[0]);
 	if (cells.length !== headerCells.length) return null;
-	const rowLine = `| ${cells.map(renderCell).join(" | ")} |`;
+	const rendered = cells.map(renderCell);
+	if (rendered.some((cell) => cell === null)) return null;
+	const rowLine = `| ${rendered.join(" | ")} |`;
 	return [...lines, rowLine].join("\n");
 }
 
@@ -130,6 +150,24 @@ function toggleTaskItem(
 	const next = checked ?? !currentlyChecked;
 	lines[0] = `${match[1]}[${next ? "x" : " "}]${match[2]}`;
 	return lines.join("\n");
+}
+
+/**
+ * The markup that makes a heading a heading (`## `) or a quote a quote (`> `),
+ * which `insertText` at the start must keep IN FRONT of the new text. Text
+ * put before it turned `# Title` into the paragraph `New # Title` (RV-1A).
+ * Empty for every other kind: a paragraph's first character is its text.
+ */
+function leadingBlockMarkup(kind: BlockKind, markdown: string): string {
+	if (kind === "heading") {
+		const match = /^(\s{0,3}#{1,6})(?:[ \t]+|$)/.exec(markdown);
+		return match ? `${match[1]} ` : "";
+	}
+	if (kind === "blockquote") {
+		const match = /^\s{0,3}(?:>[ \t]?)+/.exec(markdown);
+		return match ? match[0] : "";
+	}
+	return "";
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -155,7 +193,18 @@ export function applyPatchSet(input: {
 	snapshot: Record<string, string>;
 }): PatchResult {
 	const working = [...input.blocks];
-	const indexById = new Map(working.map((block, i) => [block.id, i]));
+	let indexById = new Map(working.map((block, i) => [block.id, i]));
+	/** Every id in the document, so an id minted for a split-off block is new. */
+	const taken = new Set(working.map((block) => block.id));
+	/**
+	 * What each block said BEFORE this patch — what the user left. The guard
+	 * compares against this, not against `working`: an earlier op in this same
+	 * patch changing a block is Alfy's own edit, and blaming it on the user
+	 * ("you changed this block") refused every second op on one block (RV-1A).
+	 */
+	const hashBeforePatch = new Map(
+		input.blocks.map((block) => [block.id, block.hash]),
+	);
 	const outcomes: OpOutcome[] = [];
 	const inverses: PatchInverse[] = [];
 
@@ -179,14 +228,16 @@ export function applyPatchSet(input: {
 		const block = working[index];
 
 		// The guard, in this order — all three must agree. `snapshot` is what
-		// Alfy last read; `block.hash` is what the document says now;
-		// `op.baseHash` is what the model claims it read.
+		// Alfy last read; `hashBeforePatch` is what the document says now (the
+		// user's side, before any op of this patch); `op.baseHash` is what the
+		// model claims it read.
 		const seenHash = input.snapshot[op.blockId];
 		if (seenHash === undefined) {
 			refuse("block_unseen");
 			continue;
 		}
-		if (seenHash !== block.hash || seenHash !== op.baseHash) {
+		const currentHash = hashBeforePatch.get(op.blockId) ?? block.hash;
+		if (seenHash !== currentHash || seenHash !== op.baseHash) {
 			refuse("block_changed");
 			continue;
 		}
@@ -215,8 +266,12 @@ export function applyPatchSet(input: {
 					refusalCode = "empty_text";
 					break;
 				}
-				nextMarkdown =
-					op.at === "start" ? `${text} ${before}` : `${before} ${text}`;
+				if (op.at === "start") {
+					const markup = leadingBlockMarkup(block.kind, before);
+					nextMarkdown = `${markup}${text} ${before.slice(markup.length).replace(/^\s+/, "")}`;
+				} else {
+					nextMarkdown = `${before} ${text}`;
+				}
 				break;
 			}
 			case "replaceRange": {
@@ -234,7 +289,11 @@ export function applyPatchSet(input: {
 					refusalCode = "find_ambiguous";
 					break;
 				}
-				nextMarkdown = before.replace(find, op.text ?? "");
+				// A replacer function, not a string: `String.replace` reads `$$`,
+				// `$&`, `` $` `` and `$'` in a string replacement as patterns, so
+				// "$$5" was stored as "$5" and "$&" as the found text (RV-1A).
+				const replacement = op.text ?? "";
+				nextMarkdown = before.replace(find, () => replacement);
 				break;
 			}
 			case "toggleTask": {
@@ -270,11 +329,27 @@ export function applyPatchSet(input: {
 			continue;
 		}
 
-		working[index] = makeBlock(block.id, block.kind, nextMarkdown as string);
+		// The op's result is re-read as the blocks a reload will read (RV-1A):
+		// text that is really two paragraphs becomes two blocks, the kind is
+		// the one its text now has, and a marker line in the text is dropped
+		// rather than stored inside this block — where the next reload would
+		// have absorbed it and handed another block's id to this text.
+		const rebuilt = reblock(block.id, nextMarkdown as string, taken);
+		if (rebuilt.length === 0) {
+			refuse("empty_text");
+			continue;
+		}
+		working.splice(index, 1, ...rebuilt);
+		if (rebuilt.length > 1) {
+			indexById = new Map(working.map((b, i) => [b.id, i]));
+		}
 		inverses.push({
 			opId: op.opId,
 			blockId: block.id,
 			previousMarkdown: before,
+			...(rebuilt.length > 1
+				? { insertedBlockIds: rebuilt.slice(1).map((b) => b.id) }
+				: {}),
 		});
 		outcomes.push({
 			opId: op.opId,

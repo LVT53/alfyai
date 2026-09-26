@@ -6,6 +6,11 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	saveArtifactBody,
+	toggleDocumentTask,
+} from "$lib/client/api/artifacts";
+import type { FetchLike } from "$lib/client/api/http";
 import { db } from "$lib/server/db";
 import {
 	artifactKv,
@@ -31,6 +36,9 @@ import {
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 import type { PatchOp, PatchSet } from "$lib/shared/artifact-document/patch";
+import { GET as getArtifactRoute } from "../../src/routes/api/artifacts/[id]/+server";
+import { PATCH as patchBodyRoute } from "../../src/routes/api/artifacts/[id]/body/+server";
+import { POST as saveAsNewRoute } from "../../src/routes/api/artifacts/document/+server";
 
 const NOW = new Date("2026-09-25T10:00:00.000Z");
 
@@ -557,5 +565,384 @@ describe("the Document type on a real database", () => {
 			.where(eq(artifactKv.artifactId, created.id))
 			.get();
 		expect(kv).toBeUndefined();
+	});
+});
+
+// RV-1A (independent review of Slice 1's engine and server side): each case
+// was red before its fix; docs/plans/claude-at-home-2/review-1a.md quotes it.
+describe("RV-1A: the Document's writes on a real database", () => {
+	it("two Alfy edits running at once both land: neither writes over a body it did not read", async () => {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Trip",
+			markdown: "Alpha.\n\nBeta.",
+			author: "alfy",
+			summary: "x",
+		});
+		const read = await readDocumentForAlfy({
+			userId,
+			artifactId: created.id,
+			conversationId,
+		});
+		const [alpha, beta] = read.blocks;
+		const patchFor = (
+			block: (typeof read.blocks)[number],
+			text: string,
+		): PatchSet => ({
+			patchId: `patch-${block.blockId}`,
+			label: "Edit",
+			ops: [
+				op({
+					kind: "replaceBlock",
+					blockId: block.blockId,
+					baseHash: block.hash,
+					text,
+				}),
+			],
+		});
+
+		// The AI SDK runs a step's tool calls concurrently: two edit_artifact
+		// calls in one step reach applyDocumentPatch in the same tick.
+		const [first, second] = await Promise.all([
+			applyDocumentPatch({
+				userId,
+				artifactId: created.id,
+				conversationId,
+				patch: patchFor(alpha, "Alpha changed."),
+			}),
+			applyDocumentPatch({
+				userId,
+				artifactId: created.id,
+				conversationId,
+				patch: patchFor(beta, "Beta changed."),
+			}),
+		]);
+		expect(first.ok && first.result.applied).toBe(1);
+		expect(second.ok && second.result.applied).toBe(1);
+
+		const stored = parseDocument(rawContentText(created.id), { mint: false });
+		expect(stored.blocks.map((block) => block.markdown)).toEqual([
+			"Alpha changed.",
+			"Beta changed.",
+		]);
+		expect(versionCount(created.id)).toBe(3);
+	});
+
+	it("a user's save landing inside an Alfy edit's read→write window wins: the edit is re-checked, never written over it", async () => {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Trip",
+			markdown: "Alpha.\n\nBeta.",
+			author: "alfy",
+			summary: "x",
+		});
+		const read = await readDocumentForAlfy({
+			userId,
+			artifactId: created.id,
+			conversationId,
+		});
+		const beta = read.blocks[1];
+		const userBody = rawContentText(created.id).replace(
+			"Beta.",
+			"Beta, as the user wrote it.",
+		);
+
+		const [save, edit] = await Promise.all([
+			saveDocumentBody({
+				userId,
+				artifactId: created.id,
+				conversationId,
+				body: { markdown: userBody, tabs: [] },
+				author: "user",
+				summary: "Edited",
+				coalesceUserEdits: true,
+			}),
+			applyDocumentPatch({
+				userId,
+				artifactId: created.id,
+				conversationId,
+				patch: {
+					patchId: "p",
+					label: "Alfy",
+					ops: [
+						op({
+							kind: "replaceBlock",
+							blockId: beta.blockId,
+							baseHash: beta.hash,
+							text: "Beta, as Alfy wrote it.",
+						}),
+					],
+				},
+			}),
+		]);
+		expect(save.ok).toBe(true);
+		expect(edit.ok && edit.result.outcomes[0].code).toBe("block_changed");
+		expect(rawContentText(created.id)).toContain("Beta, as the user wrote it.");
+	});
+
+	/**
+	 * The browser's own calls (`saveArtifactBody`, `toggleDocumentTask`)
+	 * against the REAL routes and database: a fetch that dispatches to the
+	 * route handlers. `afterGet` runs once a GET has been answered, which is
+	 * how a test lands a write between the card's read and its write.
+	 */
+	function routedFetch(hooks?: { afterGet?: () => Promise<void> }): FetchLike {
+		return async (input, init) => {
+			const url = new URL(String(input), "http://localhost");
+			const match = /^\/api\/artifacts\/([^/]+)(\/body)?$/.exec(url.pathname);
+			if (!match) throw new Error(`unrouted ${url.pathname}`);
+			const event = {
+				params: { id: decodeURIComponent(match[1]) },
+				url,
+				locals: { user: { id: userId, role: "user" } },
+				request: {
+					json: async () => JSON.parse(String(init?.body ?? "null")),
+				},
+			} as never;
+			if (match[2]) return patchBodyRoute(event);
+			const response = await getArtifactRoute(event);
+			await hooks?.afterGet?.();
+			return response;
+		};
+	}
+
+	async function userBurstDocument() {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Weekend",
+			markdown: "- [ ] Book hotel\n\nNotes.",
+			author: "alfy",
+			summary: "x",
+		});
+		const task = parseDocument(rawContentText(created.id), { mint: false })
+			.blocks[0];
+		// The open editor's first autosave: version 2, the user's own burst.
+		const typed = rawContentText(created.id).replace(
+			"Notes.",
+			"Notes: pack light.",
+		);
+		const first = await saveArtifactBody(
+			created.id,
+			typed,
+			1,
+			conversationId,
+			routedFetch(),
+		);
+		expect(first).toMatchObject({ ok: true, version: 2 });
+		return { created, task, typed };
+	}
+
+	it("a card tick never overwrites an autosave it did not see (the save landed between the tick's read and write)", async () => {
+		const { created, task, typed } = await userBurstDocument();
+		const moreTyping = typed.replace("pack light.", "pack light, bring boots.");
+
+		const tick = await toggleDocumentTask(
+			created.id,
+			task.id,
+			true,
+			conversationId,
+			routedFetch({
+				afterGet: async () => {
+					const autosave = await saveArtifactBody(
+						created.id,
+						moreTyping,
+						2,
+						conversationId,
+						routedFetch(),
+					);
+					expect(autosave.ok).toBe(true);
+				},
+			}),
+		);
+
+		expect(tick.ok).toBe(false);
+		expect(rawContentText(created.id)).toContain("bring boots");
+	});
+
+	it("an open editor's autosave never overwrites a card tick it did not see", async () => {
+		const { created, task, typed } = await userBurstDocument();
+
+		const tick = await toggleDocumentTask(
+			created.id,
+			task.id,
+			true,
+			conversationId,
+			routedFetch(),
+		);
+		expect(tick.ok).toBe(true);
+
+		// The editor still holds its own text (no tick) and the version number
+		// it last saved at.
+		const editorSave = await saveArtifactBody(
+			created.id,
+			typed.replace("pack light.", "pack light, bring boots."),
+			2,
+			conversationId,
+			routedFetch(),
+		);
+		expect(editorSave.ok).toBe(false);
+		expect(rawContentText(created.id)).toContain("- [x] Book hotel");
+	});
+
+	it("ruling 47: a user's save right after a restore is a version of its own — the restore is never merged into", async () => {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Trip",
+			markdown: "First draft.",
+			author: "alfy",
+			summary: "x",
+		});
+		const v1Body = rawContentText(created.id);
+		const edited = await saveDocumentBody({
+			userId,
+			artifactId: created.id,
+			conversationId,
+			body: { markdown: v1Body.replace("First", "Second"), tabs: [] },
+			author: "user",
+			summary: "Edited",
+			coalesceUserEdits: true,
+		});
+		expect(edited).toMatchObject({ ok: true, version: 2 });
+		const v1 = db
+			.select({
+				id: artifactVersions.id,
+				versionNumber: artifactVersions.versionNumber,
+			})
+			.from(artifactVersions)
+			.where(eq(artifactVersions.artifactId, created.id))
+			.all()
+			.find((row) => row.versionNumber === 1);
+		const restored = await restoreVersion({
+			userId,
+			artifactId: created.id,
+			versionId: v1?.id ?? "",
+			conversationId,
+		});
+		expect(restored).toMatchObject({ ok: true, versionNumber: 3 });
+
+		const typing = await saveDocumentBody({
+			userId,
+			artifactId: created.id,
+			conversationId,
+			body: { markdown: v1Body.replace("First", "Typed after"), tabs: [] },
+			author: "user",
+			summary: "Edited",
+			expectVersion: 3,
+			coalesceUserEdits: true,
+		});
+		expect(typing).toMatchObject({ ok: true, version: 4 });
+		const restoreRow = db
+			.select({ body: artifactVersions.body })
+			.from(artifactVersions)
+			.where(eq(artifactVersions.artifactId, created.id))
+			.all()
+			.find((row) => row.body === v1Body);
+		expect(versionCount(created.id)).toBe(4);
+		expect(restoreRow).toBeDefined();
+	});
+
+	it("ruling 47: a document the user created keeps its creation version when the user's first save lands", async () => {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Copy",
+			markdown: "Kept text.",
+			author: "user",
+			summary: "Saved as a new document",
+		});
+		const createdBody = rawContentText(created.id);
+		const typing = await saveDocumentBody({
+			userId,
+			artifactId: created.id,
+			conversationId,
+			body: { markdown: createdBody.replace("Kept", "Changed"), tabs: [] },
+			author: "user",
+			summary: "Edited",
+			expectVersion: 1,
+			coalesceUserEdits: true,
+		});
+		expect(typing).toMatchObject({ ok: true, version: 2 });
+		expect(versionCount(created.id)).toBe(2);
+	});
+
+	it("'Save as new' answers ruling 49's shape, never a 500: a foreign or missing conversation is not_found, an oversize body too_large", async () => {
+		const strangerConversation = `conv-stranger-${randomUUID()}`;
+		seedConversation(strangerConversation, strangerId);
+		const call = (payload: unknown) =>
+			saveAsNewRoute({
+				request: { json: async () => payload },
+				locals: { user: { id: userId, role: "user" } },
+			} as never);
+
+		for (const conversation of [strangerConversation, "conv-that-never-was"]) {
+			const response = await call({
+				conversationId: conversation,
+				title: "Copy",
+				markdown: "Text.",
+			});
+			expect(response.status).toBe(404);
+			await expect(response.json()).resolves.toEqual({
+				ok: false,
+				reason: "not_found",
+			});
+		}
+		const tooLarge = await call({
+			conversationId,
+			title: "Copy",
+			markdown: "x".repeat(3 * 1024 * 1024),
+		});
+		expect(tooLarge.status).toBe(413);
+		await expect(tooLarge.json()).resolves.toEqual({
+			ok: false,
+			reason: "too_large",
+		});
+		// Nothing was written into the stranger's conversation.
+		expect(
+			db
+				.select({ id: artifacts.id })
+				.from(artifacts)
+				.where(eq(artifacts.conversationId, strangerConversation))
+				.all(),
+		).toEqual([]);
+	});
+
+	it("a saved body is stored canonical: a block that arrives with no marker gets an id, so Alfy's read never hands out an empty or shared one", async () => {
+		const created = await createDocumentArtifact({
+			userId,
+			conversationId,
+			title: "Trip",
+			markdown: "First.",
+			author: "alfy",
+			summary: "x",
+		});
+		// A body that is not canonical: two blocks arrive without a marker
+		// (an old tab, a client bug, a hand-made request).
+		const body = `${rawContentText(created.id)}\nSecond.\n\nThird.\n`;
+		const saved = await saveDocumentBody({
+			userId,
+			artifactId: created.id,
+			conversationId,
+			body: { markdown: body, tabs: [] },
+			author: "user",
+			summary: "Edited",
+			coalesceUserEdits: true,
+		});
+		expect(saved.ok).toBe(true);
+
+		const stored = rawContentText(created.id);
+		expect(parseDocument(stored).markdown).toBe(stored);
+		const read = await readDocumentForAlfy({
+			userId,
+			artifactId: created.id,
+			conversationId,
+		});
+		const ids = read.blocks.map((block) => block.blockId);
+		expect(ids).toHaveLength(3);
+		expect(ids.every((id) => id.length > 0)).toBe(true);
+		expect(new Set(ids).size).toBe(3);
 	});
 });

@@ -9,16 +9,17 @@
  * through `document-ops.ts` directly.
  */
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "$lib/server/db";
-import { conversations, users } from "$lib/server/db/schema";
+import { artifactKv, conversations, users } from "$lib/server/db/schema";
 import { getArtifact, saveDocumentBody } from "$lib/server/services/artifacts";
 import {
 	parseDocument,
 	serializeDocument,
 } from "$lib/shared/artifact-document/blocks";
 import { CREATE_ARTIFACT_HANDLERS } from "./create";
-import { EDIT_ARTIFACT_HANDLERS } from "./edit";
+import { EDIT_ARTIFACT_HANDLERS, runEditArtifactTool } from "./edit";
 import { READ_ARTIFACT_HANDLERS } from "./read";
 
 const NOW = new Date("2026-09-26T12:00:00.000Z");
@@ -318,5 +319,95 @@ describe("edit_artifact.document", () => {
 		});
 
 		expect(result?.ok).toBe(false);
+	});
+});
+
+// RV-1A (independent review of Slice 1): red before its fix; the review file
+// (docs/plans/claude-at-home-2/review-1a.md) quotes the failing line.
+describe("RV-1A: edit_artifact's tool-call metadata names each refused op", () => {
+	it("tells the applied op from the refused one when both touch the same block", async () => {
+		const created = await CREATE_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			title: "Saturday plan",
+			body: "Book the flight to Vienna.",
+			abortSignal: abortSignal(),
+		});
+		if (!created?.ok) throw new Error("setup: create failed");
+		const artifactId = created.value.artifactId;
+		const read = await READ_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			artifactId,
+			title: "Saturday plan",
+			detail: "blocks",
+			abortSignal: abortSignal(),
+		});
+		const block = read?.blocks?.[0] as { blockId: string; hash: string };
+
+		const run = await runEditArtifactTool({
+			userId,
+			conversationId,
+			turnId: "turn-2",
+			artifactId,
+			patches: [
+				{
+					op: "replaceRange",
+					blockId: block.blockId,
+					baseHash: block.hash,
+					find: "Rome",
+					text: "Paris",
+				},
+				{
+					op: "replaceRange",
+					blockId: block.blockId,
+					baseHash: block.hash,
+					find: "Vienna",
+					text: "Budapest",
+				},
+			],
+			summary: "Fix the destination",
+			abortSignal: abortSignal(),
+		});
+
+		// The open panel rebuilds its marks from exactly these two fields.
+		expect(run.metadata.appliedCount).toBe(1);
+		expect(JSON.parse(String(run.metadata.refusedBlocksJson))).toEqual([
+			{ blockId: block.blockId, reason: "find_not_found", opIndex: 0 },
+		]);
+	});
+});
+
+describe("RV-1A: read_artifact on a Document writes nothing once aborted", () => {
+	it("records no snapshot after the signal fired (ruling 53: a handler checks it before any write)", async () => {
+		const created = await CREATE_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			turnId: "turn-1",
+			title: "Saturday plan",
+			body: "First paragraph.",
+			abortSignal: abortSignal(),
+		});
+		if (!created?.ok) throw new Error("setup: create failed");
+		const artifactId = created.value.artifactId;
+
+		const read = await READ_ARTIFACT_HANDLERS.document?.({
+			userId,
+			conversationId,
+			artifactId,
+			title: "Saturday plan",
+			detail: "blocks",
+			abortSignal: abortSignal(true),
+		});
+
+		expect(read?.blocks).toBeUndefined();
+		expect(
+			db
+				.select({ id: artifactKv.id })
+				.from(artifactKv)
+				.where(eq(artifactKv.artifactId, artifactId))
+				.all(),
+		).toEqual([]);
 	});
 });

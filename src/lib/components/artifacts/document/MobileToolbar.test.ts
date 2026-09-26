@@ -104,4 +104,69 @@ describe("MobileToolbar", () => {
 			expect(button).toBeDisabled();
 		}
 	});
+
+	// RV-1B: the UI states contract ("Focus and keyboard order") requires "The
+	// More sheet traps focus while open" — the sheet renders
+	// role="dialog" aria-modal="true", but nothing enforced it: there was no
+	// Tab handling at all, so a sighted keyboard user could Tab straight
+	// through the "modal" sheet into the primary toolbar row sitting behind
+	// it. Mirrors `DialogShell.svelte`'s own `trapTabNavigation` test shape
+	// (`DialogShell.test.ts`'s "Tab focus trap" describe block): a positive
+	// assertion that Tab/Shift+Tab actively wraps, not just that nothing
+	// visibly breaks (jsdom has no native Tab-moves-focus behavior at all, so
+	// the only way to prove trapping is to prove the component's OWN handler
+	// moves focus).
+	describe("the More sheet's focus trap", () => {
+		it("wraps Shift+Tab from the sheet's first action to its last action", async () => {
+			render(MobileToolbar, { onAction: vi.fn() });
+			await fireEvent.click(screen.getByRole("button", { name: "More" }));
+			const dialog = screen.getByRole("dialog");
+			const sheetButtons = Array.from(
+				dialog.querySelectorAll("button"),
+			) as HTMLButtonElement[];
+			expect(sheetButtons.length).toBeGreaterThan(1);
+			const [first] = sheetButtons;
+			const last = sheetButtons[sheetButtons.length - 1];
+
+			first.focus();
+			expect(first).toHaveFocus();
+			await fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+			expect(last).toHaveFocus();
+		});
+
+		it("wraps Tab from the sheet's last action back to its first action", async () => {
+			render(MobileToolbar, { onAction: vi.fn() });
+			await fireEvent.click(screen.getByRole("button", { name: "More" }));
+			const dialog = screen.getByRole("dialog");
+			const sheetButtons = Array.from(
+				dialog.querySelectorAll("button"),
+			) as HTMLButtonElement[];
+			const [first] = sheetButtons;
+			const last = sheetButtons[sheetButtons.length - 1];
+
+			last.focus();
+			expect(last).toHaveFocus();
+			await fireEvent.keyDown(dialog, { key: "Tab" });
+			expect(first).toHaveFocus();
+		});
+
+		it("pulls focus back into the sheet if it somehow lands outside it", async () => {
+			render(MobileToolbar, { onAction: vi.fn() });
+			const moreButton = screen.getByRole("button", { name: "More" });
+			await fireEvent.click(moreButton);
+			const dialog = screen.getByRole("dialog");
+			const sheetButtons = Array.from(
+				dialog.querySelectorAll("button"),
+			) as HTMLButtonElement[];
+			const [first] = sheetButtons;
+
+			// The trigger behind the backdrop still exists in the DOM and is a
+			// real focusable element, so a stray Tab landing back on it (a race
+			// with the sheet's own opening focus-move, or a programmatic focus
+			// call elsewhere) must be pulled back into the sheet, not left there.
+			moreButton.focus();
+			await fireEvent.keyDown(dialog, { key: "Tab" });
+			expect(first).toHaveFocus();
+		});
+	});
 });

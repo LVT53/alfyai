@@ -7,6 +7,7 @@ import {
 import * as schema from "$lib/server/db/schema";
 import {
 	ALFY_EMPTY_REPLY_MARKER,
+	ALFY_PARTIAL_REFUSAL_SUFFIX,
 	ALFY_REFUSED_MARKER,
 } from "$lib/shared/artifact-document/alfy-reply";
 import type { Anchor } from "$lib/shared/artifacts/anchor";
@@ -26,6 +27,11 @@ vi.mock("$lib/server/db", () => ({
 const sendJsonControlMessageMock = vi.fn();
 vi.mock("../normal-chat-control-model", () => ({
 	sendJsonControlMessage: sendJsonControlMessageMock,
+}));
+
+const recordControlModelUsageMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("../analytics", () => ({
+	recordControlModelUsage: recordControlModelUsageMock,
 }));
 
 function mockAlfyResponse(payload: { note: string; ops?: unknown[] }): void {
@@ -539,6 +545,75 @@ describe("runAlfyCommentReply", () => {
 		);
 	});
 
+	// RV-1B, coordinator item 8: `ops` is an array — the SAME `@Alfy` request
+	// can apply one op and refuse another, and every op in it shares the
+	// block's ORIGINAL baseHash (`comments.ts` supplies it, never the model),
+	// so a second op whose own `find` text does not exist in the block is
+	// refused on its own content, with no bearing on the first op's success.
+	// Before this fix, Alfy's note ("Changed the destination.") was the WHOLE
+	// reply — nothing said the second change never happened.
+	it("appends a partial-refusal note when the SAME reply both applies and refuses an op", async () => {
+		const { artifact, block } = await createDocumentWithBlock(
+			"Book the flight to Vienna.",
+		);
+		const root = await comment(
+			artifact.id,
+			"@Alfy change Vienna to Budapest, and fix the typo too.",
+			{ anchor: textAnchorFor(block, "Vienna") },
+		);
+		mockAlfyResponse({
+			note: "Changed the destination to Budapest.",
+			ops: [
+				{ op: "replaceRange", find: "Vienna", text: "Budapest" },
+				{
+					op: "replaceRange",
+					find: "this text is not in the block anywhere",
+					text: "Budapest",
+				},
+			],
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.value.outcome).toBe("applied");
+		expect(result.value.applied).toBe(1);
+		expect(result.value.refused).toBe(1);
+		expect(result.value.reply.body).toBe(
+			`Changed the destination to Budapest.${ALFY_PARTIAL_REFUSAL_SUFFIX}`,
+		);
+	});
+
+	it("still writes the plain empty-reply marker (no suffix) when everything in the reply applied", async () => {
+		const { artifact, block } = await createDocumentWithBlock(
+			"Book the flight to Vienna.",
+		);
+		const root = await comment(artifact.id, "@Alfy change Vienna to Prague.", {
+			anchor: textAnchorFor(block, "Vienna"),
+		});
+		mockAlfyResponse({
+			note: "Changed the destination to Prague.",
+			ops: [{ op: "replaceRange", find: "Vienna", text: "Prague" }],
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(result.value.refused).toBe(0);
+		expect(result.value.reply.body).toBe("Changed the destination to Prague.");
+		expect(result.value.reply.body.includes("[[alfy:")).toBe(false);
+	});
+
 	it("falls back to a fixed note when Alfy applies a change but writes nothing", async () => {
 		const { artifact, block } = await createDocumentWithBlock(
 			"Book the flight to Vienna.",
@@ -676,5 +751,132 @@ describe("runAlfyCommentReply", () => {
 			abortSignal: new AbortController().signal,
 		});
 		expect(result).toEqual({ ok: false, reason: "not_found" });
+	});
+});
+
+// RV-1A (independent review of Slice 1): red before its fix; the review file
+// (docs/plans/claude-at-home-2/review-1a.md) quotes the failing line.
+describe("RV-1A: a comment on a selection at a block's edge", () => {
+	it("is created: the editor sends an empty prefix at a block's start and an empty suffix at its end", async () => {
+		const artifact = await createDocument();
+		// What `readSelectionAnchorContext` + `makeAnchor` send for a whole
+		// heading, a first word, or a last word: the context stops at the block.
+		const atStart: Anchor = {
+			kind: "text",
+			blockId: "b1",
+			quote: "Naschmarkt",
+			prefix: "",
+			suffix: ", then the",
+		};
+		const wholeBlock: Anchor = {
+			kind: "text",
+			blockId: "b1",
+			quote: "Naschmarkt, then the Secession",
+			prefix: "",
+			suffix: "",
+		};
+		for (const anchor of [atStart, wholeBlock]) {
+			const comment = await createComment({
+				userId: OWNER,
+				artifactId: artifact.id,
+				anchor,
+				author: "user",
+				body: "Worth it?",
+			});
+			expect(comment?.anchor).toEqual(anchor);
+		}
+		expect(parseArtifactAnchor(JSON.stringify(wholeBlock))).toEqual(wholeBlock);
+	});
+});
+
+describe("RV-1A: @Alfy on a passage with formatting", () => {
+	it("reaches the model and applies: the editor's visible-text anchor resolves on a bold passage", async () => {
+		sendJsonControlMessageMock.mockClear();
+		const artifact = await createDocumentArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			title: "Trip",
+			markdown: "Book **the** train to Vienna.",
+			author: "user",
+			summary: "Created",
+		});
+		const [block] = parseDocument(artifact.body ?? "", { mint: false }).blocks;
+		// Exactly what the editor sends for a selection of "the train to
+		// Vienna": ProseMirror's text, where the bold mark has no asterisks.
+		const root = await comment(artifact.id, "@Alfy make it Budapest.", {
+			anchor: {
+				kind: "text",
+				blockId: block.id,
+				quote: "the train to Vienna",
+				prefix: "Book ",
+				suffix: ".",
+			},
+		});
+		mockAlfyResponse({
+			note: "Changed it to Budapest.",
+			ops: [{ op: "replaceRange", find: "Vienna", text: "Budapest" }],
+		});
+
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+
+		if (!result.ok) throw new Error(result.reason);
+		expect(sendJsonControlMessageMock).toHaveBeenCalledTimes(1);
+		expect(result.value.outcome).toBe("applied");
+	});
+});
+
+describe("RV-1A: the @Alfy model call is paid for", () => {
+	it("records the call's tokens against the artifact's own conversation, even when the caller named none", async () => {
+		recordControlModelUsageMock.mockClear();
+		const artifact = await createDocumentArtifact({
+			userId: OWNER,
+			conversationId: CONVERSATION,
+			title: "Trip",
+			markdown: "Book the flight to Vienna.",
+			author: "user",
+			summary: "Created",
+		});
+		const [block] = parseDocument(artifact.body ?? "", { mint: false }).blocks;
+		const root = await comment(artifact.id, "@Alfy is this right?", {
+			anchor: {
+				kind: "text",
+				blockId: block.id,
+				quote: "Vienna",
+				prefix: "flight to ",
+				suffix: ".",
+			},
+		});
+		sendJsonControlMessageMock.mockResolvedValueOnce({
+			text: JSON.stringify({ note: "Yes, Vienna.", ops: [] }),
+			rawResponse: {},
+			modelId: "model1",
+			modelDisplayName: "Test Model",
+			usage: { promptTokens: 120, completionTokens: 8, totalTokens: 128 },
+		});
+
+		// The knowledge page's panel names no conversation.
+		const result = await runAlfyCommentReply({
+			userId: OWNER,
+			artifactId: artifact.id,
+			commentId: root.id,
+			abortSignal: new AbortController().signal,
+		});
+
+		expect(result.ok).toBe(true);
+		expect(recordControlModelUsageMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				userId: OWNER,
+				conversationId: CONVERSATION,
+				modelId: "model1",
+				promptTokens: 120,
+				completionTokens: 8,
+				totalTokens: 128,
+			}),
+		);
 	});
 });

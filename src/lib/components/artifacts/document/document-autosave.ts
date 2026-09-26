@@ -22,6 +22,8 @@ export interface DocumentAutosaveResult {
 	ok: boolean;
 	reason?: string;
 	version?: number;
+	/** RV-1B, coordinator item 6: the saved body's new hash, for the caller to remember as its next `baseHash`. */
+	bodyHash?: string;
 }
 
 export interface DocumentAutosaveHandle {

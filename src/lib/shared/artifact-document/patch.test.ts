@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildIndex, type DocumentBlock, parseDocument } from "./blocks";
+import {
+	buildIndex,
+	type DocumentBlock,
+	parseDocument,
+	splitTableCells,
+} from "./blocks";
 import { applyPatchSet, type PatchOp, type PatchSet } from "./patch";
 
 function setup(markdown: string) {
@@ -449,5 +454,294 @@ describe("artifact-document patch engine", () => {
 		});
 		expect(result.markdown).toContain("Changed.");
 		expect(result.markdown).toContain(`<!--b:${paragraph.id}-->`);
+	});
+});
+
+// RV-1A (independent review of Slice 1's engine): each case was red before
+// its fix; docs/plans/claude-at-home-2/review-1a.md quotes the red line.
+describe("RV-1A: an op's result is re-read as blocks, so what is stored is canonical", () => {
+	it("a replaceBlock whose text is two paragraphs stores two blocks: the first keeps the id, the second gets a fresh one, and a reload changes nothing", () => {
+		const { blocks, snapshot } = setup("First.\n\nSecond.");
+		const [first] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceBlock",
+					blockId: first.id,
+					baseHash: first.hash,
+					text: "One.\n\nTwo.",
+				}),
+			]),
+		});
+		expect(result.applied).toBe(1);
+		expect(result.blocks.map((b) => b.markdown)).toEqual([
+			"One.",
+			"Two.",
+			"Second.",
+		]);
+		expect(result.blocks[0].id).toBe(first.id);
+		expect(new Set(result.blocks.map((b) => b.id)).size).toBe(3);
+		// What a real reload of the stored text reads: the same ids and hashes,
+		// nothing minted — so the snapshot written from `result.blocks` stays true.
+		const reloaded = parseDocument(result.markdown);
+		expect(reloaded.minted).toBe(false);
+		expect(buildIndex(reloaded.blocks)).toEqual(buildIndex(result.blocks));
+		// Undo can remove the block this op added.
+		expect(result.inverses[0].insertedBlockIds).toEqual([result.blocks[1].id]);
+	});
+
+	it("a marker line inside an op's text can never claim another block's id", () => {
+		const { blocks, snapshot } = setup("First.\n\nSecond.");
+		const [first, second] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceBlock",
+					blockId: first.id,
+					baseHash: first.hash,
+					text: `Evil.\n\n<!--b:${second.id}-->\nStolen.`,
+				}),
+			]),
+		});
+		expect(result.blocks.every((b) => !b.markdown.includes("<!--b:"))).toBe(
+			true,
+		);
+		const reloaded = parseDocument(result.markdown);
+		expect(reloaded.minted).toBe(false);
+		expect(reloaded.blocks.find((b) => b.id === second.id)?.markdown).toBe(
+			"Second.",
+		);
+		expect(buildIndex(reloaded.blocks)).toEqual(buildIndex(result.blocks));
+	});
+
+	it("text that is nothing but a marker line is empty_text, and changes nothing", () => {
+		const { blocks, snapshot } = setup("First.");
+		const [first] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceBlock",
+					blockId: first.id,
+					baseHash: first.hash,
+					text: "<!--b:zz999-->",
+				}),
+			]),
+		});
+		expect(result.outcomes[0].code).toBe("empty_text");
+		expect(result.markdown).toBe(parseDocument(result.markdown).markdown);
+		expect(result.blocks[0].markdown).toBe("First.");
+	});
+
+	it("a replaceBlock that turns a paragraph into a heading carries the kind a reload reads", () => {
+		const { blocks, snapshot } = setup("First.");
+		const [first] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceBlock",
+					blockId: first.id,
+					baseHash: first.hash,
+					text: "## A heading now",
+				}),
+			]),
+		});
+		expect(result.blocks[0].kind).toBe("heading");
+		expect(parseDocument(result.markdown).blocks[0].kind).toBe("heading");
+	});
+});
+
+describe("RV-1A: the guard compares against the document before this patch", () => {
+	it("applies two ops on the same block in order, instead of blaming the user for Alfy's own first op", () => {
+		const { blocks, snapshot } = setup("Teh quick brwn fox.");
+		const [paragraph] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceRange",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					find: "Teh",
+					text: "The",
+				}),
+				op({
+					kind: "replaceRange",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					find: "brwn",
+					text: "brown",
+				}),
+			]),
+		});
+		expect(result.outcomes.map((o) => o.code ?? o.status)).toEqual([
+			"applied",
+			"applied",
+		]);
+		expect(result.blocks[0].markdown).toBe("The quick brown fox.");
+		// Undo in reverse still restores the exact pre-patch text.
+		expect(result.inverses.map((inverse) => inverse.previousMarkdown)).toEqual([
+			"Teh quick brwn fox.",
+			"The quick brwn fox.",
+		]);
+	});
+
+	it("still refuses every op on a block the USER changed, however many there are", () => {
+		const { blocks, snapshot } = setup("Teh quick brwn fox.");
+		const edited = parseDocument(
+			blocks.map((b) => `<!--b:${b.id}-->\nThe user rewrote this.`).join(""),
+		).blocks;
+		const [paragraph] = blocks;
+		const result = applyPatchSet({
+			blocks: edited,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceBlock",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					text: "Alfy 1",
+				}),
+				op({
+					kind: "replaceBlock",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					text: "Alfy 2",
+				}),
+			]),
+		});
+		expect(result.outcomes.map((o) => o.code)).toEqual([
+			"block_changed",
+			"block_changed",
+		]);
+		expect(result.blocks[0].markdown).toBe("The user rewrote this.");
+	});
+});
+
+describe("RV-1A: replaceRange writes its text literally", () => {
+	it("never reads $$, $&, $` or $' in the replacement as a pattern", () => {
+		const { blocks, snapshot } = setup("The price is TBD for now.");
+		const [paragraph] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "replaceRange",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					find: "TBD",
+					text: "$$5 ($& $` $')",
+				}),
+			]),
+		});
+		expect(result.blocks[0].markdown).toBe(
+			"The price is $$5 ($& $` $') for now.",
+		);
+	});
+});
+
+describe("RV-1A: insertText at the start stays inside the block's own markup", () => {
+	it("inserts after a heading's # and a quote's >, so the block is still a heading and a quote", () => {
+		const { blocks, snapshot } = setup(
+			"# Title\n\n> quoted line\n\nPlain text.",
+		);
+		const [heading, quote, paragraph] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "insertText",
+					blockId: heading.id,
+					baseHash: heading.hash,
+					at: "start",
+					text: "New",
+				}),
+				op({
+					kind: "insertText",
+					blockId: quote.id,
+					baseHash: quote.hash,
+					at: "start",
+					text: "Note:",
+				}),
+				op({
+					kind: "insertText",
+					blockId: paragraph.id,
+					baseHash: paragraph.hash,
+					at: "start",
+					text: "Some",
+				}),
+			]),
+		});
+		expect(result.blocks.map((b) => b.markdown)).toEqual([
+			"# New Title",
+			"> Note: quoted line",
+			"Some Plain text.",
+		]);
+		expect(parseDocument(result.markdown).blocks.map((b) => b.kind)).toEqual([
+			"heading",
+			"blockquote",
+			"paragraph",
+		]);
+	});
+});
+
+describe("RV-1A: addTableRow never breaks the table it adds to", () => {
+	it("escapes a pipe and folds a line break inside a cell, so the row keeps its columns through a reload", () => {
+		const { blocks, snapshot } = setup(
+			"| Item | Status |\n| --- | --- |\n| Hotel | done |",
+		);
+		const [table] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "addTableRow",
+					blockId: table.id,
+					baseHash: table.hash,
+					cells: ["Train | bus", "line one\nline two"],
+				}),
+			]),
+		});
+		expect(result.applied).toBe(1);
+		const reloaded = parseDocument(result.markdown);
+		expect(reloaded.minted).toBe(false);
+		expect(reloaded.blocks).toHaveLength(1);
+		const lastRow = reloaded.blocks[0].markdown.split("\n").at(-1) ?? "";
+		expect(splitTableCells(lastRow).map((cell) => cell.trim())).toEqual([
+			"Train \\| bus",
+			"line one line two",
+		]);
+	});
+
+	it("refuses a chip value its token cannot hold (a quote or a closing bracket) as bad_row", () => {
+		const { blocks, snapshot } = setup(
+			"| Item | Status |\n| --- | --- |\n| Hotel | done |",
+		);
+		const [table] = blocks;
+		const result = applyPatchSet({
+			blocks,
+			snapshot,
+			patch: patchOf([
+				op({
+					kind: "addTableRow",
+					blockId: table.id,
+					baseHash: table.hash,
+					cells: ["Train", { chip: { kind: "status", value: 'said "done"]' } }],
+				}),
+			]),
+		});
+		expect(result.outcomes[0].code).toBe("bad_row");
+		expect(result.blocks[0].markdown).toBe(table.markdown);
 	});
 });

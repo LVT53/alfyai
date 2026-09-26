@@ -15,6 +15,7 @@ import {
 	Download,
 	Heading1,
 	Heading2,
+	History,
 	Italic,
 	Link,
 	List,
@@ -45,7 +46,11 @@ export type DocumentToolbarActionId =
 	| "redo"
 	// T12: opens DownloadSheet.svelte — a one-shot command like table/undo/
 	// redo, never a pressed toggle state.
-	| "download";
+	| "download"
+	// RV-1B, T6: opens VersionsSheet.svelte — built and unit-tested but never
+	// wired to a toolbar action until this fix, so a user had no way to see
+	// or restore a Document's version history at all.
+	| "history";
 
 export interface DocumentToolbarAction {
 	id: DocumentToolbarActionId;
@@ -120,6 +125,12 @@ export const DOCUMENT_TOOLBAR_ACTIONS: DocumentToolbarAction[] = [
 		id: "download",
 		icon: Download,
 		labelKey: "artifacts.document.toolbar.download",
+		momentary: true,
+	},
+	{
+		id: "history",
+		icon: History,
+		labelKey: "artifacts.document.toolbar.history",
 		momentary: true,
 	},
 ];
