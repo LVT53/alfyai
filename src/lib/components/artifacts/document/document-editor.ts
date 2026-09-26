@@ -24,7 +24,6 @@ import {
 	alfyChangeRect,
 	applyAlfyChangeMarks,
 	keepAlfyChange,
-	type RefusalSummary,
 	refusalReasonI18nKey,
 	scrollToAlfyChange,
 	summarizeRefusals,
@@ -222,7 +221,11 @@ export function readSelectionAnchorContext(editor: Editor): {
 // the editor itself already costs.
 // ---------------------------------------------------------------------------
 
-export type { AlfyChangeEntry, RefusalSummary };
+// `RefusalSummary` itself is not re-exported: every caller (DocumentBody.svelte)
+// only ever holds a value returned by `summarizeRefusals` below, inferred
+// rather than named — an unused re-export is exactly what Fallow's
+// unused-types check exists to catch.
+export type { AlfyChangeEntry };
 export { refusalReasonI18nKey, summarizeRefusals };
 
 /** Marks an applied patch's changed text/blocks. See `marks.ts`'s `applyAlfyChangeMarks`. */

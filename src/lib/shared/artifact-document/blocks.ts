@@ -189,7 +189,10 @@ export function readTaskBlock(
 	if (block.kind !== "taskList") return null;
 	const match = TASK_LINE_RE.exec(block.markdown.split("\n")[0] ?? "");
 	if (!match) return null;
-	return { checked: match[2].toLowerCase() === "x", text: (match[4] ?? "").trim() };
+	return {
+		checked: match[2].toLowerCase() === "x",
+		text: (match[4] ?? "").trim(),
+	};
 }
 
 function normalizeListMarkers(lines: string[]): string[] {
