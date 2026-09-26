@@ -119,7 +119,13 @@ export const PATCH: RequestHandler = async (event) => {
 					baseHash,
 					coalesceUserEdits,
 				}).then((r) =>
-					r.ok ? { ok: true as const, version: r.versionNumber } : r,
+					r.ok
+						? {
+								ok: true as const,
+								version: r.versionNumber,
+								bodyHash: r.bodyHash,
+							}
+						: r,
 				);
 
 	if (!result.ok) {
@@ -134,5 +140,11 @@ export const PATCH: RequestHandler = async (event) => {
 		return json({ ok: false, reason: result.reason }, { status });
 	}
 
-	return json({ ok: true, version: result.version });
+	// RV-1B, coordinator item 6: `bodyHash` rides along on every success (not
+	// only the document branch) so a caller that tracks it as its next
+	// `baseHash` — the editor's autosave loop — never has to special-case
+	// which kind it is saving. `json()`'s own `JSON.stringify` drops an
+	// `undefined` value entirely, so a branch that genuinely has none (none
+	// does today) still answers exactly the old two-field shape.
+	return json({ ok: true, version: result.version, bodyHash: result.bodyHash });
 };

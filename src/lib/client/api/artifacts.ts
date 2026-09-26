@@ -77,7 +77,19 @@ export async function fetchConversationArtifacts(
 }
 
 export type SaveArtifactBodyResult =
-	| { ok: true; version: number }
+	| {
+			ok: true;
+			version: number;
+			/**
+			 * RV-1B, coordinator item 6: the hash of the body this call just wrote.
+			 * A caller that keeps typing (the editor's autosave) remembers this as
+			 * its next `guard.baseHash`, so the write after this one is checked
+			 * against what is REALLY stored now, not stale from before this save.
+			 * Optional, not because a real save ever omits it, but so a test's
+			 * hand-built response (or an older cached one) still decodes.
+			 */
+			bodyHash?: string;
+	  }
 	| {
 			ok: false;
 			reason:

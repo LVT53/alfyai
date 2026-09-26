@@ -116,6 +116,18 @@ type SaveNotice = "offline" | "tooLarge" | "conflict" | "deleted" | null;
 let loadState = $state<LoadState>("loading");
 let saveNotice = $state<SaveNotice>(null);
 let versionNumber = $state<number | null>(null);
+/**
+ * RV-1B, coordinator item 6: the last body hash this component KNOWS is
+ * stored — from the initial load, from a reload that followed someone
+ * else's write (a comment mutation or Alfy's own edit bumping the version),
+ * or from this component's own most recent successful save. The autosave
+ * loop sends this as `guard.baseHash` on every save (`bindAutosave` below),
+ * so a second tab's save that landed in between is detected as `stale`
+ * instead of silently overwritten — `expectVersion` alone cannot catch
+ * this, because ruling 47's coalescing lets two tabs' saves both legally
+ * target the SAME, unmoved version number.
+ */
+let knownBodyHash = $state<string | null>(null);
 let activeActionIds = $state<Set<DocumentToolbarActionId>>(new Set());
 // T9: the tab strip. `Tabs.svelte` owns its own add/rename/delete UI and
 // hands back the new list through `onChange`; this body's only job is to
@@ -245,6 +257,7 @@ async function refreshAfterCommentChange(): Promise<void> {
 		const newBody = detail.artifact.body ?? "";
 		if (detail.artifact.versionNumber !== versionNumber) {
 			versionNumber = detail.artifact.versionNumber;
+			knownBodyHash = detail.artifact.bodyHash;
 			if (editor && loadMarkdownFn) loadMarkdownFn(editor, newBody);
 		}
 		updateBlocksFromMarkdown(newBody);
@@ -461,6 +474,7 @@ async function landAlfyActivity(activity: DocumentAlfyActivity): Promise<void> {
 		const newBody = detail.artifact.body ?? "";
 		if (detail.artifact.versionNumber !== versionNumber) {
 			versionNumber = detail.artifact.versionNumber;
+			knownBodyHash = detail.artifact.bodyHash;
 			loadMarkdownFn(editor, newBody);
 		}
 		updateBlocksFromMarkdown(newBody);
@@ -634,6 +648,10 @@ function handleSelectionUpdate(): void {
 function handleSaveResult(result: DocumentAutosaveResult, markdown: string): void {
 	if (result.ok) {
 		if (typeof result.version === "number") versionNumber = result.version;
+		// RV-1B, coordinator item 6: remember what just landed, so the NEXT
+		// autosave's `baseHash` guards against a second tab's save that lands
+		// in between, instead of silently overwriting it.
+		if (typeof result.bodyHash === "string") knownBodyHash = result.bodyHash;
 		saveNotice = null;
 		onDirtyChange?.(false);
 		onBodyChange?.(markdown);
@@ -775,8 +793,22 @@ async function handleTabsChange(next: DocumentTab[]): Promise<void> {
 function bindAutosave(id: string, conversationId: string | null): void {
 	autosave?.stop();
 	autosave = createDocumentAutosave({
+		// RV-1B, coordinator item 6: `knownBodyHash` is read here, not
+		// captured — this closure is bound once per load/copy, but every
+		// scheduled save must send whatever this component most recently
+		// learned was stored, including what ITS OWN previous save just wrote
+		// (`handleSaveResult` below). Without a `baseHash` at all, the route
+		// has nothing to refuse a second tab's save against, and ruling 47's
+		// coalescing means both tabs' `expectVersion` can legally agree too.
 		save: (markdown) =>
-			saveArtifactBody(id, markdown, versionNumber ?? undefined, conversationId),
+			saveArtifactBody(
+				id,
+				markdown,
+				versionNumber ?? undefined,
+				conversationId,
+				undefined,
+				{ baseHash: knownBodyHash ?? undefined },
+			),
 		onResult: handleSaveResult,
 	});
 }
@@ -789,6 +821,7 @@ async function handleSaveCopy(): Promise<void> {
 		const created = await createDocumentCopy(conversationId, title, canonical);
 		boundArtifactId = created.id;
 		versionNumber = created.versionNumber;
+		knownBodyHash = created.bodyHash;
 		// The new artifact's own tabs are unknown here (`createDocumentCopy`'s
 		// response does not carry them) — clearing rather than leaving the OLD
 		// document's tab ids/labels on screen, which would point at sections
@@ -859,6 +892,7 @@ async function runLoad(id: string): Promise<void> {
 		refusalNotice = null;
 		handledActivityKey = "";
 		versionNumber = detail.artifact.versionNumber;
+		knownBodyHash = detail.artifact.bodyHash;
 		tabs = documentTabsFromCardMetadata(detail.artifact.metadata);
 		activeTabId = tabs[0]?.id ?? "";
 		comments = detail.comments;

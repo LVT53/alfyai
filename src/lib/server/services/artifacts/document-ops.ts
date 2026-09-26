@@ -440,7 +440,13 @@ export async function saveDocumentBody(
 		coalesceUserEdits?: boolean;
 	} & ArtifactScopeOptions,
 ): Promise<
-	| { ok: true; version: number }
+	// RV-1B, coordinator item 6: `bodyHash` is the NEW body's hash, for the
+	// caller to remember as its next `baseHash` — without it, only the
+	// version-conflict path could ever ask "is my copy still current", and
+	// ruling 47's coalescing means two tabs' autosaves can both legitimately
+	// see the SAME (unmoved) version number while their text has already
+	// diverged. See `+server.ts`'s own comment on `baseHash`.
+	| { ok: true; version: number; bodyHash: string }
 	| {
 			ok: false;
 			reason:
@@ -474,5 +480,5 @@ export async function saveDocumentBody(
 		coalesceUserEdits: params.coalesceUserEdits,
 	});
 	if (!result.ok) return { ok: false, reason: result.reason };
-	return { ok: true, version: result.versionNumber };
+	return { ok: true, version: result.versionNumber, bodyHash: result.bodyHash };
 }

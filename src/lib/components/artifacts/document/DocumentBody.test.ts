@@ -292,6 +292,10 @@ describe("DocumentBody", () => {
 				expectedCanonical,
 				1,
 				"conv-1",
+				undefined,
+				// RV-1B, coordinator item 6: `h1` is ARTIFACT_DETAIL()'s own
+				// `bodyHash`, known from the load this autosave follows.
+				{ baseHash: "h1" },
 			);
 			// A raw, non-canonical bullet marker actually got normalised — this
 			// assertion would also pass on a no-op canonicaliser, so it is
@@ -333,6 +337,105 @@ describe("DocumentBody", () => {
 			// The text is never touched by DocumentBody on a conflict — the
 			// editor host is still mounted and the fake editor was never destroyed.
 			expect(latestEditor().destroy).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// RV-1B, coordinator item 6: the route now refuses a save `stale` when its
+	// `baseHash` no longer matches what is really stored — this is the SAME
+	// user-visible outcome as `version_conflict` (the existing case above),
+	// proved separately because `stale` is the NEW reason a real two-tab
+	// clobber actually produces (ruling 47's coalescing lets both tabs'
+	// `expectVersion` legally agree, so `version_conflict` alone never fires
+	// for this scenario).
+	it("a stale refusal (a second tab's save landed first) keeps the user's text and shows the conflict notice", async () => {
+		vi.useFakeTimers();
+		try {
+			mockSaveArtifactBody.mockResolvedValue({
+				ok: false,
+				reason: "stale",
+			});
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			simulateTyping("<!--b:p1-->\nEdited.");
+			vi.advanceTimersByTime(800);
+
+			await vi.waitFor(() =>
+				expect(
+					screen.getByText(
+						"This document changed elsewhere. Reload to see the current text.",
+					),
+				).toBeInTheDocument(),
+			);
+			expect(latestEditor().destroy).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// RV-1B, coordinator item 6: proves the GUARD actually moves, not just that
+	// it is sent once. Without tracking the hash a successful save just wrote,
+	// every later autosave would keep sending the load-time hash forever — the
+	// route would refuse ITS OWN later saves as `stale` the moment anything
+	// else touched the document even once, since baseHash would never catch up.
+	it("sends the newly saved bodyHash as the NEXT autosave's baseHash, not the load-time one", async () => {
+		vi.useFakeTimers();
+		try {
+			mockSaveArtifactBody.mockResolvedValueOnce({
+				ok: true,
+				version: 2,
+				bodyHash: "h2-after-first-save",
+			});
+			render(DocumentBody, {
+				artifactId: "artifact-1",
+				kind: "document",
+				title: "Trip plan",
+				body: null,
+				conversationId: "conv-1",
+			});
+			await vi.waitFor(() =>
+				expect(mockCreateDocumentEditor).toHaveBeenCalledTimes(1),
+			);
+
+			simulateTyping("<!--b:p1-->\nFirst edit.");
+			vi.advanceTimersByTime(800);
+			await vi.waitFor(() =>
+				expect(mockSaveArtifactBody).toHaveBeenCalledTimes(1),
+			);
+			expect(mockSaveArtifactBody).toHaveBeenNthCalledWith(
+				1,
+				"artifact-1",
+				expect.any(String),
+				1,
+				"conv-1",
+				undefined,
+				{ baseHash: "h1" },
+			);
+
+			mockSaveArtifactBody.mockResolvedValueOnce({ ok: true, version: 3 });
+			simulateTyping("<!--b:p1-->\nSecond edit.");
+			vi.advanceTimersByTime(800);
+			await vi.waitFor(() =>
+				expect(mockSaveArtifactBody).toHaveBeenCalledTimes(2),
+			);
+			expect(mockSaveArtifactBody).toHaveBeenNthCalledWith(
+				2,
+				"artifact-1",
+				expect.any(String),
+				2,
+				"conv-1",
+				undefined,
+				{ baseHash: "h2-after-first-save" },
+			);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -462,6 +565,11 @@ describe("DocumentBody", () => {
 					expect.any(String),
 					1,
 					null,
+					undefined,
+					// RV-1B, coordinator item 6: `h2` is the copy's own `bodyHash`,
+					// bound by `handleSaveCopy` — the loop now guards against a
+					// second tab on the NEW id too, not just the one it replaced.
+					{ baseHash: "h2" },
 				),
 			);
 		} finally {
